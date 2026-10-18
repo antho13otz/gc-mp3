@@ -21,7 +21,8 @@
 #define MAX_FILES      512
 #define NAME_LEN       128
 #define MAX_FILE_SIZE  (18 * 1024 * 1024)   // un MP3 est chargé entièrement en RAM
-#define DMA_SAMPLES    1024                 // échantillons stéréo par tampon
+#define DMA_SAMPLES    2048                 // échantillons stéréo par tampon (~43 ms)
+#define NUM_BUFS       3                    // 3 tampons : sûr quelle que soit la façon dont le matériel enchaîne les blocs
 #define DMA_BYTES      (DMA_SAMPLES * 4)
 #define FIFO_SIZE      16384
 #define FIFO_MARGIN    7200                 // place libre mini avant de décoder une trame
@@ -61,16 +62,20 @@ static int mount_sd(void) {
 }
 
 // ---------- Audio (DMA double tampon, 48 kHz) ----------
-static s16 dmabuf[2][DMA_SAMPLES * 2] ATTRIBUTE_ALIGN(32);
-static volatile int which = 0;
+static s16 dmabuf[NUM_BUFS][DMA_SAMPLES * 2] ATTRIBUTE_ALIGN(32);
+static volatile u32 cb_n = 0;        // nombre de blocs programmés
 static volatile int need_fill = 0;
 
 static stereo_t fifo[FIFO_SIZE];
 static int f_head = 0, f_tail = 0, f_count = 0;
 
+// Appelée à chaque fin de bloc : programme le bloc suivant dans l'anneau de 3 tampons.
+// Le tampon à remplir ensuite est dmabuf[cb_n % NUM_BUFS] : il n'est ni en cours de
+// lecture, ni déjà programmé, que le matériel applique le nouveau bloc tout de suite
+// ou à la fin du bloc en cours.
 static void dma_cb(void) {
-    AUDIO_InitDMA((u32)dmabuf[which], DMA_BYTES);
-    which ^= 1;
+    AUDIO_InitDMA((u32)dmabuf[cb_n % NUM_BUFS], DMA_BYTES);
+    cb_n++;
     need_fill = 1;
 }
 
@@ -90,6 +95,13 @@ static void fill_buf(int idx) {
         }
     }
     DCFlushRange(d, DMA_BYTES);
+}
+
+static void service_audio(void) {
+    if (need_fill) {
+        need_fill = 0;
+        fill_buf((int)(cb_n % NUM_BUFS));
+    }
 }
 
 static void fifo_put(s16 l, s16 r) {
@@ -253,10 +265,13 @@ int main(void) {
         if (down & PAD_BUTTON_B)                          { stop_track(); redraw = 1; }
         if ((down & PAD_BUTTON_Y) && playing)             { paused = !paused; redraw = 1; }
 
+        service_audio();
+
         if (playing && !paused) {
             int k = 0;
             while (!eof && k < 2 && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
                 decode_one();
+                service_audio();     // on remplit tout de suite si un tampon se libère
                 k++;
             }
             if (eof && f_count == 0) {          // morceau terminé : on passe au suivant
@@ -267,10 +282,7 @@ int main(void) {
             }
         }
 
-        if (need_fill) {
-            need_fill = 0;
-            fill_buf(which);
-        }
+        service_audio();
 
         if (redraw) { draw(sel); redraw = 0; }
         LWP_YieldThread();
