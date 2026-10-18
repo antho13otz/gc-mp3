@@ -204,15 +204,10 @@ static int start_track(int idx) {
 #define UI_W 640
 #define UI_H 480
 
-static f32 sx, sy;
-
 static void ui_rect(f32 x, f32 y, f32 w, f32 h,
                     u8 r, u8 g, u8 b, u8 a) {
-    /* Toutes les coordonnées de l'interface sont définies en 640x480 logique. */
-    x *= sx;
-    y *= sy;
-    w *= sx;
-    h *= sy;
+    /* Les coordonnées sont exprimées dans le repère logique 640x480.
+       Le viewport et la projection effectuent la mise à l’échelle vidéo. */
     GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
     GX_Position2f32(x, y);         GX_Color4u8(r, g, b, a);
     GX_Position2f32(x+w, y);       GX_Color4u8(r, g, b, a);
@@ -355,11 +350,10 @@ static int gx_init(void) {
     memset(gx_fifo, 0, GX_FIFO_SIZE);
     GX_Init(gx_fifo, GX_FIFO_SIZE);
     GX_SetCopyClear(clear, 0x00ffffff);
-    GX_SetViewport(0, 0, rmode->fbWidth, rmode->efbHeight, 0, 1);
+    GX_SetViewport(0.0f, 0.0f, (f32)rmode->fbWidth,
+                   (f32)rmode->efbHeight, 0.0f, 1.0f);
     GX_SetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
-    /* La projection travaille en pixels physiques ; ui_rect applique sx/sy. */
-    guOrtho(projection, 0, (f32)rmode->efbHeight,
-            0, (f32)rmode->fbWidth, 0, 1);
+    guOrtho(projection, 0.0f, (f32)UI_H, 0.0f, (f32)UI_W, 0.0f, 1.0f);
     GX_LoadProjectionMtx(projection, GX_ORTHOGRAPHIC);
     GX_SetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
     GX_SetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
@@ -378,8 +372,8 @@ static int gx_init(void) {
     GX_SetVtxDesc(GX_VA_CLR0, GX_DIRECT);
     GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XY, GX_F32, 0);
     GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
-    /* La source EFB doit être définie avant de calculer le nombre de lignes copiées. */
     GX_SetDispCopySrc(0, 0, rmode->fbWidth, rmode->efbHeight);
+    /* La hauteur retournée doit être utilisée comme hauteur de destination. */
     f32 yscale = GX_GetYScaleFactor(rmode->efbHeight, rmode->xfbHeight);
     xfb_height = GX_SetDispCopyYScale(yscale);
     if (xfb_height == 0 || xfb_height > rmode->xfbHeight) return 0;
@@ -387,7 +381,14 @@ static int gx_init(void) {
     GX_SetCopyFilter(rmode->aa, rmode->sample_pattern, GX_TRUE, rmode->vfilter);
     GX_SetFieldMode(rmode->field_rendering,
                     (rmode->viHeight == 2 * rmode->xfbHeight) ? GX_TRUE : GX_FALSE);
-    GX_SetPixelFmt(GX_PF_RGB8_Z24, GX_ZC_LINEAR);
+    /* Le format EFB doit suivre le mode vidéo : le mode AA utilise RGB565/Z16.
+       C'est la séquence employée par les exemples officiels devkitPro. */
+    if (rmode->aa) {
+        GX_SetPixelFmt(GX_PF_RGB565_Z16, GX_ZC_LINEAR);
+    } else {
+        GX_SetPixelFmt(GX_PF_RGB8_Z24, GX_ZC_LINEAR);
+    }
+    GX_SetDispCopyGamma(GX_GM_1_0);
     GX_InvVtxCache();
 
     /* Start from a known EFB color before the first frame is copied to VI. */
@@ -411,13 +412,12 @@ static int init_video(void) {
     VIDEO_Configure(rmode);
     displayed_fb = 0;
     VIDEO_SetNextFramebuffer(xfb[displayed_fb]);
-    VIDEO_SetBlack(FALSE);
+    /* Garder l’écran noir jusqu’à la première image GX complète. */
+    VIDEO_SetBlack(TRUE);
     VIDEO_Flush();
     VIDEO_WaitForRetrace();
     if (rmode->viTVMode & VI_NON_INTERLACE) VIDEO_WaitForRetrace();
 
-    sx = (f32)rmode->fbWidth / UI_W;
-    sy = (f32)rmode->efbHeight / UI_H;
     return gx_init();
 }
 
@@ -545,10 +545,10 @@ static void draw(int sel, unsigned int anim) {
     int next_fb = 1 - displayed_fb;
     GX_CopyDisp(xfb[next_fb], GX_TRUE);
     GX_DrawDone();
-    /* Attendre la fin du balayage avant de changer le buffer affiché. */
-    VIDEO_WaitForRetrace();
     VIDEO_SetNextFramebuffer(xfb[next_fb]);
     VIDEO_Flush();
+    VIDEO_SetBlack(FALSE);
+    VIDEO_WaitForRetrace();
     displayed_fb = next_fb;
 }
 
@@ -573,6 +573,8 @@ int main(void) {
         GX_DrawDone();
         VIDEO_SetNextFramebuffer(xfb[next_fb]);
         VIDEO_Flush();
+        VIDEO_SetBlack(FALSE);
+        VIDEO_WaitForRetrace();
         displayed_fb = next_fb;
 
         while (1) {
