@@ -19,26 +19,6 @@ jobs:
           make clean
           make
 
-      # Swiss reads DOLs in 128 KiB chunks. Pad the file to a whole chunk so
-      # the final read is not a short, partial chunk. Padding is outside all
-      # DOL sections and is ignored by the DOL loader.
-      - name: Aligner le DOL sur les blocs de lecture Swiss
-        run: |
-          python3 - <<'PY'
-          import os
-          path = "gc-mp3player.dol"
-          block = 131072
-          if not os.path.isfile(path):
-              raise SystemExit(f"ERREUR: {path} absent après compilation")
-          size = os.path.getsize(path)
-          if size < 0x100:
-              raise SystemExit(f"ERREUR: DOL trop petit ({size} octets)")
-          padded = ((size + block - 1) // block) * block
-          with open(path, "ab") as f:
-              f.write(b"\\0" * (padded - size))
-          print(f"DOL aligné: {size} -> {padded} octets; blocs de {block} octets")
-          PY
-
       - name: Vérifier le DOL généré
         run: |
           python3 - <<'PY'
@@ -46,8 +26,8 @@ jobs:
           path = "gc-mp3player.dol"
           data = open(path, "rb").read()
           size = len(data)
-          if size < 0x100 or size % 131072:
-              sys.exit(f"ERREUR: taille DOL invalide/non alignée: {size}")
+          if size < 0x100:
+              sys.exit(f"ERREUR: DOL trop petit ou en-tête incomplet: {size} octets")
           text_off = struct.unpack_from(">7I", data, 0x00)
           data_off = struct.unpack_from(">11I", data, 0x1C)
           text_addr = struct.unpack_from(">7I", data, 0x48)
@@ -74,7 +54,7 @@ jobs:
           for a, b in zip(sorted(sections, key=lambda s: s[2]), sorted(sections, key=lambda s: s[2])[1:]):
               if a[3] > b[2]:
                   sys.exit(f"ERREUR: chevauchement mémoire entre {a[:2]} et {b[:2]}")
-          print(f"DOL valide: {size} octets; entrée {entry:#010x}; {len(sections)} sections; taille alignée sur 128 KiB")
+          print(f"DOL valide: {size} octets; entrée {entry:#010x}; {len(sections)} sections")
           PY
 
       - name: Publier le .dol
