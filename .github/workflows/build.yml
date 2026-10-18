@@ -57,7 +57,7 @@ jobs:
           print(f"DOL valide structurellement: {size} octets; point d'entrée {entry:#010x}; {len(sections)} sections")
           PY
           
-          powerpc-eabi-objdump -h gc-mp3player.elf
+       
 
       - name: Publier le .dol
         uses: actions/upload-artifact@v4
