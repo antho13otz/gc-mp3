@@ -208,6 +208,11 @@ static f32 sx, sy;
 
 static void ui_rect(f32 x, f32 y, f32 w, f32 h,
                     u8 r, u8 g, u8 b, u8 a) {
+    /* Toutes les coordonnées de l'interface sont définies en 640x480 logique. */
+    x *= sx;
+    y *= sy;
+    w *= sx;
+    h *= sy;
     GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
     GX_Position2f32(x, y);         GX_Color4u8(r, g, b, a);
     GX_Position2f32(x+w, y);       GX_Color4u8(r, g, b, a);
@@ -352,7 +357,9 @@ static int gx_init(void) {
     GX_SetCopyClear(clear, 0x00ffffff);
     GX_SetViewport(0, 0, rmode->fbWidth, rmode->efbHeight, 0, 1);
     GX_SetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
-    guOrtho(projection, 0, (f32)UI_H, 0, (f32)UI_W, 0, 1);
+    /* La projection travaille en pixels physiques ; ui_rect applique sx/sy. */
+    guOrtho(projection, 0, (f32)rmode->efbHeight,
+            0, (f32)rmode->fbWidth, 0, 1);
     GX_LoadProjectionMtx(projection, GX_ORTHOGRAPHIC);
     GX_SetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
     GX_SetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
@@ -371,8 +378,8 @@ static int gx_init(void) {
     GX_SetVtxDesc(GX_VA_CLR0, GX_DIRECT);
     GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XY, GX_F32, 0);
     GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
+    /* La source EFB doit être définie avant de calculer le nombre de lignes copiées. */
     GX_SetDispCopySrc(0, 0, rmode->fbWidth, rmode->efbHeight);
-    /* La hauteur retournée doit être utilisée comme hauteur de destination. */
     f32 yscale = GX_GetYScaleFactor(rmode->efbHeight, rmode->xfbHeight);
     xfb_height = GX_SetDispCopyYScale(yscale);
     if (xfb_height == 0 || xfb_height > rmode->xfbHeight) return 0;
@@ -538,6 +545,8 @@ static void draw(int sel, unsigned int anim) {
     int next_fb = 1 - displayed_fb;
     GX_CopyDisp(xfb[next_fb], GX_TRUE);
     GX_DrawDone();
+    /* Attendre la fin du balayage avant de changer le buffer affiché. */
+    VIDEO_WaitForRetrace();
     VIDEO_SetNextFramebuffer(xfb[next_fb]);
     VIDEO_Flush();
     displayed_fb = next_fb;
