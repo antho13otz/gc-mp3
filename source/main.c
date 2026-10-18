@@ -7,6 +7,7 @@
 #include <sdcard/gcsd.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <malloc.h>
 #include <string.h>
 #include <strings.h>
 #include <dirent.h>
@@ -26,10 +27,12 @@
 #define DMA_BYTES      (DMA_SAMPLES * 4)
 #define FIFO_SIZE      16384
 #define FIFO_MARGIN    7200                 // place libre mini avant de décoder une trame
+#define GX_FIFO_SIZE   (256 * 1024)         // FIFO GX alignée, taille multiple de 32 octets
 
 typedef struct { s16 l, r; } stereo_t;
 
 static void *xfb = NULL;
+static void *gx_fifo = NULL;
 static GXRModeObj *rmode = NULL;
 
 // ---------- Liste des fichiers ----------
@@ -335,11 +338,15 @@ static void ui_outline(f32 x, f32 y, f32 w, f32 h,
     ui_rect(x+w-2, y, 2, h, r, g, b, 255);
 }
 
-static void gx_init(void) {
+static int gx_init(void) {
     Mtx44 projection;
     GXColor clear = { 4, 3, 18, 255 };
 
-    GX_Init(NULL, 0);
+    /* GX_Init exige une FIFO valide, alignée sur 32 octets. */
+    gx_fifo = memalign(32, GX_FIFO_SIZE);
+    if (gx_fifo == NULL) return 0;
+    memset(gx_fifo, 0, GX_FIFO_SIZE);
+    GX_Init(gx_fifo, GX_FIFO_SIZE);
     GX_SetCopyClear(clear, 0x00ffffff);
     GX_SetViewport(0, 0, rmode->fbWidth, rmode->efbHeight, 0, 1);
     GX_SetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
@@ -369,13 +376,16 @@ static void gx_init(void) {
     GX_SetPixelFmt(GX_PF_RGB8_Z24, GX_ZC_LINEAR);
     GX_InvVtxCache();
     GX_DrawDone();
+    return 1;
 }
 
-static void init_video(void) {
+static int init_video(void) {
     VIDEO_Init();
     PAD_Init();
     rmode = VIDEO_GetPreferredMode(NULL);
+    if (rmode == NULL) return 0;
     xfb = MEM_K0_TO_K1(SYS_AllocateFramebuffer(rmode));
+    if (xfb == NULL) return 0;
 
     VIDEO_Configure(rmode);
     VIDEO_SetNextFramebuffer(xfb);
@@ -386,7 +396,7 @@ static void init_video(void) {
 
     sx = (f32)rmode->fbWidth / UI_W;
     sy = (f32)rmode->efbHeight / UI_H;
-    gx_init();
+    return gx_init();
 }
 
 static void draw(int sel, unsigned int anim) {
@@ -519,7 +529,7 @@ static void draw(int sel, unsigned int anim) {
 
 // ---------- Programme ----------
 int main(void) {
-    init_video();
+    if (!init_video()) return 1;
 
     if (!mount_sd()) {
         GX_SetViewport(0, 0, rmode->fbWidth, rmode->efbHeight, 0, 1);
