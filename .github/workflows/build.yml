@@ -15,7 +15,49 @@ jobs:
         run: curl -fsSL -o source/minimp3.h https://raw.githubusercontent.com/lieff/minimp3/master/minimp3.h
 
       - name: Compiler
-        run: make
+        run: |
+          make clean
+          make
+
+      # Validate the actual GameCube DOL header and all section ranges before
+      # publishing. A successful compiler exit alone does not validate a DOL.
+      - name: Vérifier le DOL généré
+        run: |
+          python3 - <<'PY'
+          import os, struct, sys
+          path = "gc-mp3player.dol"
+          if not os.path.isfile(path):
+              sys.exit("ERREUR: gc-mp3player.dol absent")
+          size = os.path.getsize(path)
+          if size < 0x100:
+              sys.exit(f"ERREUR: DOL trop petit ({size} octets; minimum 256)")
+          data = open(path, "rb").read()
+          text_off = struct.unpack_from(">7I", data, 0x00)
+          data_off = struct.unpack_from(">11I", data, 0x1C)
+          text_addr = struct.unpack_from(">7I", data, 0x48)
+          data_addr = struct.unpack_from(">11I", data, 0x64)
+          text_size = struct.unpack_from(">7I", data, 0x90)
+          data_size = struct.unpack_from(">11I", data, 0xAC)
+          bss_addr, bss_size, entry = struct.unpack_from(">3I", data, 0xD8)
+          sections = []
+          for kind, offs, addrs, sizes in (("text", text_off, text_addr, text_size),
+                                           ("data", data_off, data_addr, data_size)):
+              for i, (off, addr, length) in enumerate(zip(offs, addrs, sizes)):
+                  if length == 0:
+                      continue
+                  if off < 0x100 or off + length > size:
+                      sys.exit(f"ERREUR: section {kind}[{i}] hors fichier: offset={off:#x}, taille={length:#x}, fichier={size:#x}")
+                  if addr == 0:
+                      sys.exit(f"ERREUR: adresse mémoire nulle pour {kind}[{i}]")
+                  sections.append((kind, i, addr, addr + length))
+          if not sections:
+              sys.exit("ERREUR: aucune section DOL valide")
+          if not any(k == "text" and start <= entry < end for k, i, start, end in sections):
+              sys.exit(f"ERREUR: point d'entrée {entry:#x} hors de toutes les sections texte")
+          print(f"DOL valide structurellement: {size} octets; point d'entrée {entry:#010x}; {len(sections)} sections")
+          PY
+          file gc-mp3player.dol
+          powerpc-eabi-objdump -h gc-mp3player.elf
 
       - name: Publier le .dol
         uses: actions/upload-artifact@v4
