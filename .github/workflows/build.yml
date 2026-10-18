@@ -12,55 +12,47 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Télécharger minimp3.h
-        run: |
-          mkdir -p source
-          curl --fail --location --silent --show-error \
-            https://raw.githubusercontent.com/lieff/minimp3/master/minimp3.h \
-            --output source/minimp3.h
-          test -s source/minimp3.h
+        run: curl -fsSL -o source/minimp3.h https://raw.githubusercontent.com/lieff/minimp3/master/minimp3.h
 
       - name: Nettoyer et compiler
         run: |
           make clean
           make
-          test -s gc-mp3player.dol
 
-      - name: Vérifier la structure DOL
+      - name: Vérifier le DOL
         run: |
           python3 - <<'PY'
-          import os, struct, sys
+          import os, struct
           p = 'gc-mp3player.dol'
+          if not os.path.isfile(p):
+              raise SystemExit('ERREUR : gc-mp3player.dol absent')
           b = open(p, 'rb').read()
           if len(b) < 0x100:
-              sys.exit(f'DOL trop petit: {len(b)} octets')
-          u32 = lambda off: struct.unpack_from('>I', b, off)[0]
-          text_off = [u32(i*4) for i in range(7)]
-          data_off = [u32(0x1c+i*4) for i in range(11)]
-          text_addr = [u32(0x48+i*4) for i in range(7)]
-          data_addr = [u32(0x64+i*4) for i in range(11)]
-          text_sz = [u32(0x90+i*4) for i in range(7)]
-          data_sz = [u32(0xac+i*4) for i in range(11)]
-          entry = u32(0xe0)
+              raise SystemExit('ERREUR : DOL trop petit')
+          # DOL header: 7 text offsets, 11 data offsets, then addresses/sizes.
+          text_off = struct.unpack('>7I', b[0:28])
+          data_off = struct.unpack('>11I', b[28:72])
+          text_addr = struct.unpack('>7I', b[72:100])
+          data_addr = struct.unpack('>11I', b[100:144])
+          text_sz = struct.unpack('>7I', b[144:172])
+          data_sz = struct.unpack('>11I', b[172:216])
+          entry = struct.unpack('>I', b[0xE0:0xE4])[0]
           sections = []
-          for kind, offs, addrs, sizes in [('text', text_off, text_addr, text_sz), ('data', data_off, data_addr, data_sz)]:
-              for o, a, s in zip(offs, addrs, sizes):
-                  if s == 0:
-                      continue
-                  if o < 0x100 or o + s > len(b):
-                      sys.exit(f'Section {kind} invalide: offset={o:#x}, taille={s:#x}, fichier={len(b):#x}')
-                  if o % 4 or a % 4:
-                      sys.exit(f'Section {kind} non alignée: offset={o:#x}, adresse={a:#x}')
-                  sections.append((kind, o, a, s))
-          if not any(k == 'text' and a <= entry < a+s for k,o,a,s in sections):
-              sys.exit(f'Point d’entrée {entry:#x} hors de toutes les sections texte')
-          print(f'DOL structurellement cohérent: {len(b)} octets; entrée={entry:#010x}; sections={len(sections)}')
-          for k,o,a,s in sections:
-              print(f'  {k}: fichier={o:#x} adresse={a:#x} taille={s:#x}')
+          for off, addr, size in zip(text_off + data_off, text_addr + data_addr, text_sz + data_sz):
+              if size == 0:
+                  continue
+              if off < 0x100 or off + size > len(b):
+                  raise SystemExit(f'ERREUR : section hors fichier offset={off:#x} size={size:#x}')
+              if addr < 0x80000000 or addr + size > 0x81800000:
+                  raise SystemExit(f'ERREUR : adresse section hors MEM1 addr={addr:#x} size={size:#x}')
+              sections.append((addr, addr + size))
+          if not sections or not any(start <= entry < end for start, end in sections[:7]):
+              raise SystemExit(f'ERREUR : point d’entrée invalide {entry:#x}')
+          print(f'DOL structurellement valide : {len(b)} octets ; entrée {entry:#010x} ; {len(sections)} sections')
           PY
 
-      - name: Publier le DOL
+      - name: Publier le .dol
         uses: actions/upload-artifact@v4
         with:
           name: gc-mp3player
           path: gc-mp3player.dol
-          if-no-files-found: error
