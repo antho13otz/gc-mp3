@@ -31,9 +31,11 @@
 
 typedef struct { s16 l, r; } stereo_t;
 
-static void *xfb = NULL;
+static void *xfb[2] = { NULL, NULL };
 static void *gx_fifo = NULL;
 static GXRModeObj *rmode = NULL;
+static u32 xfb_height = 0;
+static int displayed_fb = 0;
 
 // ---------- Liste des fichiers ----------
 static char names[MAX_FILES][NAME_LEN];
@@ -363,14 +365,19 @@ static int gx_init(void) {
     GX_SetNumTexGens(0);
     GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
     GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORDNULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+    /* Ne conserver aucun descripteur de sommet hérité. */
+    GX_ClearVtxDesc();
     GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
     GX_SetVtxDesc(GX_VA_CLR0, GX_DIRECT);
     GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_POS, GX_POS_XY, GX_F32, 0);
     GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
     GX_SetDispCopySrc(0, 0, rmode->fbWidth, rmode->efbHeight);
-    GX_SetDispCopyDst(rmode->fbWidth, rmode->xfbHeight);
+    /* La hauteur retournée doit être utilisée comme hauteur de destination. */
+    f32 yscale = GX_GetYScaleFactor(rmode->efbHeight, rmode->xfbHeight);
+    xfb_height = GX_SetDispCopyYScale(yscale);
+    if (xfb_height == 0 || xfb_height > rmode->xfbHeight) return 0;
+    GX_SetDispCopyDst(rmode->fbWidth, xfb_height);
     GX_SetCopyFilter(rmode->aa, rmode->sample_pattern, GX_TRUE, rmode->vfilter);
-    GX_SetDispCopyYScale((f32)rmode->xfbHeight / (f32)rmode->efbHeight);
     GX_SetFieldMode(rmode->field_rendering,
                     (rmode->viHeight == 2 * rmode->xfbHeight) ? GX_TRUE : GX_FALSE);
     GX_SetPixelFmt(GX_PF_RGB8_Z24, GX_ZC_LINEAR);
@@ -388,11 +395,15 @@ static int init_video(void) {
     PAD_Init();
     rmode = VIDEO_GetPreferredMode(NULL);
     if (rmode == NULL) return 0;
-    xfb = MEM_K0_TO_K1(SYS_AllocateFramebuffer(rmode));
-    if (xfb == NULL) return 0;
+
+    /* Deux XFB pour alterner affichage et rendu sans réécrire l'image visible. */
+    xfb[0] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(rmode));
+    xfb[1] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(rmode));
+    if (xfb[0] == NULL || xfb[1] == NULL) return 0;
 
     VIDEO_Configure(rmode);
-    VIDEO_SetNextFramebuffer(xfb);
+    displayed_fb = 0;
+    VIDEO_SetNextFramebuffer(xfb[displayed_fb]);
     VIDEO_SetBlack(FALSE);
     VIDEO_Flush();
     VIDEO_WaitForRetrace();
@@ -524,10 +535,12 @@ static void draw(int sel, unsigned int anim) {
     ui_text(480, 443, "START QUIT", 1.0f, 175, 155, 220);
 
     GX_DrawDone();
-    GX_CopyDisp(xfb, GX_TRUE);
+    int next_fb = 1 - displayed_fb;
+    GX_CopyDisp(xfb[next_fb], GX_TRUE);
     GX_DrawDone();
-    VIDEO_SetNextFramebuffer(xfb);
+    VIDEO_SetNextFramebuffer(xfb[next_fb]);
     VIDEO_Flush();
+    displayed_fb = next_fb;
 }
 
 
