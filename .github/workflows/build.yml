@@ -56,7 +56,7 @@ jobs:
               sys.exit(f"ERREUR: point d'entrée {entry:#x} hors de toutes les sections texte")
           print(f"DOL valide structurellement: {size} octets; point d'entrée {entry:#010x}; {len(sections)} sections")
           PY
-          file gc-mp3player.dol
+          
           powerpc-eabi-objdump -h gc-mp3player.elf
 
       - name: Publier le .dol
@@ -64,3 +64,4 @@ jobs:
         with:
           name: gc-mp3player
           path: gc-mp3player.dol
+  
