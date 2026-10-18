@@ -110,8 +110,12 @@ static void service_audio(void) {
 }
 
 static void fifo_put(s16 l, s16 r) {
-    /* Never overwrite unread samples if a decoder burst exceeds the estimate. */
-    if (f_count >= FIFO_SIZE) return;
+    /* Keep the producer from overrunning the ring buffer. If full, discard
+       the oldest queued sample before appending the newest one. */
+    if (f_count >= FIFO_SIZE) {
+        f_head = (f_head + 1) % FIFO_SIZE;
+        f_count--;
+    }
     fifo[f_tail].l = l;
     fifo[f_tail].r = r;
     f_tail = (f_tail + 1) % FIFO_SIZE;
@@ -344,7 +348,6 @@ static void ui_outline(f32 x, f32 y, f32 w, f32 h,
 
 static int gx_init(void) {
     Mtx44 projection;
-    Mtx modelview;
     GXColor clear = { 4, 3, 18, 255 };
 
     /* GX_Init exige une FIFO valide, alignée sur 32 octets. */
@@ -358,12 +361,11 @@ static int gx_init(void) {
     GX_SetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
     guOrtho(projection, 0.0f, (f32)UI_H, 0.0f, (f32)UI_W, 0.0f, 1.0f);
     GX_LoadProjectionMtx(projection, GX_ORTHOGRAPHIC);
-
-    /* Explicitly initialize the position matrix. Do not rely on GX defaults. */
+    /* Explicit model-view matrix: do not depend on inherited GX matrix state. */
+    Mtx modelview;
     guMtxIdentity(modelview);
     GX_LoadPosMtxImm(modelview, GX_PNMTX0);
     GX_SetCurrentMtx(GX_PNMTX0);
-
     GX_SetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
     GX_SetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
     GX_SetAlphaUpdate(GX_TRUE);
@@ -403,7 +405,6 @@ static int gx_init(void) {
     /* Start from a known EFB color before the first frame is copied to VI. */
     GX_SetCopyClear(clear, 0x00ffffff);
     GX_SetColorUpdate(GX_TRUE);
-    GX_InvVtxCache();
     GX_DrawDone();
     return 1;
 }
@@ -439,7 +440,6 @@ static void draw(int sel, unsigned int anim) {
 
     GX_SetViewport(0, 0, rmode->fbWidth, rmode->efbHeight, 0, 1);
     GX_SetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
-    GX_SetCurrentMtx(GX_PNMTX0);
     GX_SetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
 
     /* Draw in a 640x480 logical canvas; scale coordinates to the active video mode. */
