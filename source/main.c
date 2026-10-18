@@ -195,8 +195,8 @@ static void init_video(void) {
     VIDEO_SetNextFramebuffer(xfb);
     VIDEO_SetBlack(FALSE);
     VIDEO_Flush();
-    VIDEO_WaitForRetrace();
-    if (rmode->viTVMode & VI_NON_INTERLACE) VIDEO_WaitForRetrace();
+    VIDEO_WaitVSync();
+    if (rmode->viTVMode & VI_NON_INTERLACE) VIDEO_WaitVSync();
 }
 
 static void draw(int sel) {
@@ -229,7 +229,7 @@ int main(void) {
         while (1) {
             PAD_ScanPads();
             if (PAD_ButtonsDown(0) & PAD_BUTTON_START) return 0;
-            VIDEO_WaitForRetrace();
+            VIDEO_WaitVSync();
         }
     }
     scan_files();
