@@ -358,7 +358,7 @@ static int gx_init(void) {
     GX_SetColorUpdate(GX_TRUE);
     GX_SetCullMode(GX_CULL_NONE);
     GX_SetNumChans(1);
-    GX_SetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_REG, GX_SRC_REG,
+    GX_SetChanCtrl(GX_COLOR0A0, GX_DISABLE, GX_SRC_VTX, GX_SRC_VTX,
                    0, GX_DF_NONE, GX_AF_NONE);
     GX_SetNumTexGens(0);
     GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
@@ -375,6 +375,10 @@ static int gx_init(void) {
                     (rmode->viHeight == 2 * rmode->xfbHeight) ? GX_TRUE : GX_FALSE);
     GX_SetPixelFmt(GX_PF_RGB8_Z24, GX_ZC_LINEAR);
     GX_InvVtxCache();
+
+    /* Start from a known EFB color before the first frame is copied to VI. */
+    GX_SetCopyClear(clear, 0x00ffffff);
+    GX_SetColorUpdate(GX_TRUE);
     GX_DrawDone();
     return 1;
 }
