@@ -1,8 +1,9 @@
 // GC MP3 Player - lecteur MP3 simple pour GameCube (libogc + minimp3)
 // Lit les fichiers .mp3 du dossier /mp3 de la carte SD.
 // Commandes : Haut/Bas = choisir, A = lire, B = stop, Y = pause, START = quitter
-#define VIDEO_WaitForRetrace VIDEO_WaitVSync
 #include <gccore.h>
+#include <ogc/lwp.h>
+#include <ogc/system.h>
 #include <fat.h>
 #include <sdcard/gcsd.h>
 #include <stdio.h>
@@ -26,7 +27,7 @@
 #define NUM_BUFS       3                    // 3 tampons : sûr quelle que soit la façon dont le matériel enchaîne les blocs
 #define DMA_BYTES      (DMA_SAMPLES * 4)
 #define FIFO_SIZE      16384
-#define FIFO_MARGIN    7200                 // place libre mini avant de décoder une trame
+#define FIFO_MARGIN    8192                 // réserve suffisante avant le décodage d’une trame
 #define GX_FIFO_SIZE   (256 * 1024)         // FIFO GX alignée, taille multiple de 32 octets
 
 typedef struct { s16 l, r; } stereo_t;
@@ -46,6 +47,7 @@ static int cmp_names(const void *a, const void *b) {
 }
 
 static void scan_files(void) {
+    nfiles = 0;
     DIR *d = opendir(MP3_DIR);
     if (!d) return;
     struct dirent *e;
@@ -103,23 +105,26 @@ static void fill_buf(int idx) {
 }
 
 static void service_audio(void) {
+    int do_fill = 0;
+    u32 fill_index = 0;
+    u32 level = IRQ_Disable();
     if (need_fill) {
         need_fill = 0;
-        fill_buf((int)(cb_n % NUM_BUFS));
+        fill_index = cb_n % NUM_BUFS;
+        do_fill = 1;
     }
+    IRQ_Restore(level);
+    if (do_fill) fill_buf((int)fill_index);
 }
 
-static void fifo_put(s16 l, s16 r) {
-    /* Keep the producer from overrunning the ring buffer. If full, discard
-       the oldest queued sample before appending the newest one. */
-    if (f_count >= FIFO_SIZE) {
-        f_head = (f_head + 1) % FIFO_SIZE;
-        f_count--;
-    }
+static int fifo_put(s16 l, s16 r) {
+    /* Never overwrite unread samples: a full FIFO is back-pressure, not wraparound. */
+    if (f_count >= FIFO_SIZE) return 0;
     fifo[f_tail].l = l;
     fifo[f_tail].r = r;
     f_tail = (f_tail + 1) % FIFO_SIZE;
     f_count++;
+    return 1;
 }
 
 // ---------- Décodage MP3 (minimp3) ----------
@@ -135,19 +140,23 @@ static s16 prevL = 0, prevR = 0;
 
 static void push_frame(const s16 *L, const s16 *R, int n, unsigned sr) {
     double step = (double)sr / 48000.0;
-    while (rpos < n - 1) {
+    while (rpos < n - 1 && f_count < FIFO_SIZE) {
         int i = (rpos < 0.0) ? -1 : (int)rpos;
         double fr = rpos - i;
         s16 al = (i < 0) ? prevL : L[i];
         s16 ar = (i < 0) ? prevR : R[i];
         s16 bl = L[i + 1];
         s16 br = R[i + 1];
-        fifo_put((s16)(al + (bl - al) * fr), (s16)(ar + (br - ar) * fr));
+        if (!fifo_put((s16)(al + (bl - al) * fr), (s16)(ar + (br - ar) * fr)))
+            break;
         rpos += step;
     }
-    rpos -= n;
-    prevL = L[n - 1];
-    prevR = R[n - 1];
+    /* If full, keep rpos in this frame so the caller can drain before resuming. */
+    if (f_count < FIFO_SIZE) {
+        rpos -= n;
+        prevL = L[n - 1];
+        prevR = R[n - 1];
+    }
 }
 
 static void decode_one(void) {
@@ -181,15 +190,18 @@ static void stop_track(void) {
 }
 
 static int start_track(int idx) {
+    if (idx < 0 || idx >= nfiles) return 0;
     stop_track();
     char path[256];
     snprintf(path, sizeof(path), "%s/%s", MP3_DIR, names[idx]);
     FILE *fp = fopen(path, "rb");
     if (!fp) return 0;
-    fseek(fp, 0, SEEK_END);
+    if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); return 0; }
     long size = ftell(fp);
-    fseek(fp, 0, SEEK_SET);
-    if (size <= 0 || size > MAX_FILE_SIZE) { fclose(fp); return 0; }
+    if (size <= 0 || size > MAX_FILE_SIZE || fseek(fp, 0, SEEK_SET) != 0) {
+        fclose(fp);
+        return 0;
+    }
     fdata = (unsigned char *)malloc(size);
     if (!fdata) { fclose(fp); return 0; }
     if (fread(fdata, 1, size, fp) != (size_t)size) {
@@ -361,11 +373,6 @@ static int gx_init(void) {
     GX_SetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
     guOrtho(projection, 0.0f, (f32)UI_H, 0.0f, (f32)UI_W, 0.0f, 1.0f);
     GX_LoadProjectionMtx(projection, GX_ORTHOGRAPHIC);
-    /* Explicit model-view matrix: do not depend on inherited GX matrix state. */
-    Mtx modelview;
-    guMtxIdentity(modelview);
-    GX_LoadPosMtxImm(modelview, GX_PNMTX0);
-    GX_SetCurrentMtx(GX_PNMTX0);
     GX_SetZMode(GX_FALSE, GX_ALWAYS, GX_FALSE);
     GX_SetBlendMode(GX_BM_NONE, GX_BL_ONE, GX_BL_ZERO, GX_LO_CLEAR);
     GX_SetAlphaUpdate(GX_TRUE);
@@ -376,7 +383,7 @@ static int gx_init(void) {
                    0, GX_DF_NONE, GX_AF_NONE);
     GX_SetNumTexGens(0);
     GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
-    GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORDNULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+    GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
     /* Ne conserver aucun descripteur de sommet hérité. */
     GX_ClearVtxDesc();
     GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
@@ -426,8 +433,8 @@ static int init_video(void) {
     /* Garder l’écran noir jusqu’à la première image GX complète. */
     VIDEO_SetBlack(TRUE);
     VIDEO_Flush();
-    VIDEO_WaitForRetrace();
-    if (rmode->viTVMode & VI_NON_INTERLACE) VIDEO_WaitForRetrace();
+    VIDEO_WaitVSync();
+    if (rmode->viTVMode & VI_NON_INTERLACE) VIDEO_WaitVSync();
 
     return gx_init();
 }
@@ -479,7 +486,7 @@ static void draw(int sel, unsigned int anim) {
             ui_outline(26, y - 2, 256, 18, 191, 73, 255);
             ui_text(32, y + 2, ">", 1.3f, 255, 255, 255);
         } else {
-            ui_text(34, y + 2, "♪", 1.0f, 145, 100, 220);
+            ui_text(34, y + 2, "*", 1.0f, 145, 100, 220);
         }
 
         char line[NAME_LEN + 16];
@@ -504,7 +511,9 @@ static void draw(int sel, unsigned int anim) {
     ui_rect(367, 166, 6, 6, 230, 210, 255, 255);
 
     if (playing && current >= 0 && current < nfiles) {
-        ui_text(432, 132, names[current], 1.65f, 242, 233, 255);
+        char now_name[19];
+        snprintf(now_name, sizeof(now_name), "%.18s", names[current]);
+        ui_text(432, 132, now_name, 1.35f, 242, 233, 255);
         ui_text(432, 154, paused ? "PAUSED" : "PLAYING", 1.2f,
                 paused ? 255 : 75, paused ? 190 : 230, 255);
     } else {
@@ -559,7 +568,7 @@ static void draw(int sel, unsigned int anim) {
     VIDEO_SetNextFramebuffer(xfb[next_fb]);
     VIDEO_Flush();
     VIDEO_SetBlack(FALSE);
-    VIDEO_WaitForRetrace();
+    VIDEO_WaitVSync();
     displayed_fb = next_fb;
 }
 
@@ -585,13 +594,13 @@ int main(void) {
         VIDEO_SetNextFramebuffer(xfb[next_fb]);
         VIDEO_Flush();
         VIDEO_SetBlack(FALSE);
-        VIDEO_WaitForRetrace();
+        VIDEO_WaitVSync();
         displayed_fb = next_fb;
 
         while (1) {
             PAD_ScanPads();
             if (PAD_ButtonsDown(0) & PAD_BUTTON_START) return 0;
-            VIDEO_WaitForRetrace();
+            VIDEO_WaitVSync();
         }
     }
 
@@ -665,7 +674,6 @@ int main(void) {
         if (redraw) {
             draw(sel, ui_anim);
             redraw = 0;
-            VIDEO_WaitForRetrace();
         }
 
         LWP_YieldThread();
