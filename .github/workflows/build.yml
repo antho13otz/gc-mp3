@@ -1,0 +1,24 @@
+name: Compiler GC MP3 Player
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkitppc:latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Telecharger minimp3.h (decodeur MP3, domaine public)
+        run: curl -fsSL -o source/minimp3.h https://raw.githubusercontent.com/lieff/minimp3/master/minimp3.h
+
+      - name: Compiler
+        run: make
+
+      - name: Publier le .dol
+        uses: actions/upload-artifact@v4
+        with:
+          name: gc-mp3player
+          path: gc-mp3player.dol
