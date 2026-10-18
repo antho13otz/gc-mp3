@@ -558,10 +558,13 @@ int main(void) {
         ui_text(55, 220, "CHECK SD2SP2 OR SD GECKO", 1.3f, 180, 165, 220);
         ui_text(55, 260, "PRESS START TO QUIT", 1.3f, 80, 220, 255);
         GX_DrawDone();
-        GX_CopyDisp(xfb, GX_TRUE);
+        /* Utiliser le même double buffering que l'écran principal. */
+        int next_fb = 1 - displayed_fb;
+        GX_CopyDisp(xfb[next_fb], GX_TRUE);
         GX_DrawDone();
-        VIDEO_SetNextFramebuffer(xfb);
+        VIDEO_SetNextFramebuffer(xfb[next_fb]);
         VIDEO_Flush();
+        displayed_fb = next_fb;
 
         while (1) {
             PAD_ScanPads();
