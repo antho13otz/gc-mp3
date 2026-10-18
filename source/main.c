@@ -1,7 +1,7 @@
 // GC MP3 Player - lecteur MP3 simple pour GameCube (libogc + minimp3)
 // Lit les fichiers .mp3 du dossier /mp3 de la carte SD.
 // Commandes : Haut/Bas = choisir, A = lire, B = stop, Y = pause, START = quitter
-
+#define VIDEO_WaitForRetrace VIDEO_WaitVSync
 #include <gccore.h>
 #include <fat.h>
 #include <sdcard/gcsd.h>
