@@ -383,7 +383,7 @@ static int gx_init(void) {
                    0, GX_DF_NONE, GX_AF_NONE);
     GX_SetNumTexGens(0);
     GX_SetTevOp(GX_TEVSTAGE0, GX_PASSCLR);
-    GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD_NULL, GX_TEXMAP_NULL, GX_COLOR0A0);
+    GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORDNULL, GX_TEXMAP_NULL, GX_COLOR0A0);
     /* Ne conserver aucun descripteur de sommet hérité. */
     GX_ClearVtxDesc();
     GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
