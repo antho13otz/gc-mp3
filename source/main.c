@@ -2075,6 +2075,11 @@ static const char *lyrics_line(int i) {
 enum { VID_AUTO, VID_480I, VID_480P, VID_COUNT };
 static int covers_auto = 1;
 static int saver_min = 5;                   /* economiseur d'ecran (minutes, 0 = jamais) */
+enum { SV_SPECTRE, SV_POCHETTE, SV_HORLOGE, SV_ETOILES, SV_PHOTOS, SV_NOIR, SV_COUNT };
+static int saver_style = SV_SPECTRE;        /* ce qu'affiche l'economiseur */
+static const char *const saver_keys[SV_COUNT] = { "spectre", "pochette", "horloge", "etoiles", "photos", "noir" };
+static const char *const saver_names[SV_COUNT] = { "Spectre", "Pochette", "Horloge", "\xC3\x89toiles",
+                                                   "Photos (sd:/ecran)", "\xC3\x89" "cran noir" };
 static int video_pref = VID_AUTO;
 static int resume_on = 1;
 static char resume_path[NAME_LEN] = "";
@@ -2108,6 +2113,7 @@ static void load_settings(void) {
         else if (!strcasecmp(k, "volume")) { volume_pct = atoi(v); if (volume_pct < 0) volume_pct = 0; if (volume_pct > 100) volume_pct = 100; }
         else if (!strcasecmp(k, "theme")) { for (int i = 0; i < THEME_COUNT; i++) if (!strcasecmp(v, theme_keys[i])) theme_apply(i); }
         else if (!strcasecmp(k, "economiseur")) { saver_min = atoi(v); if (saver_min < 0) saver_min = 0; }
+        else if (!strcasecmp(k, "economiseur_style")) { for (int i = 0; i < SV_COUNT; i++) if (!strcasecmp(v, saver_keys[i])) saver_style = i; }
         else if (!strcasecmp(k, "video")) video_pref = !strcasecmp(v, "480p") ? VID_480P : !strcasecmp(v, "480i") ? VID_480I : VID_AUTO;
         else if (!strcasecmp(k, "reprise")) resume_on = yes(v);
         else if (!strcasecmp(k, "reprise_fichier")) snprintf(resume_path, sizeof(resume_path), "%s", v);
@@ -2136,12 +2142,15 @@ static void save_settings(void) {
                "theme = %s\n"
                "# Economiseur d'ecran apres N minutes sans toucher la manette (0 = jamais)\n"
                "economiseur = %d\n"
+               "# Style de l'economiseur : spectre / pochette / horloge / etoiles / photos / noir\n"
+               "# (photos : mets tes images .jpg / .png dans sd:/ecran, 1920x1080 maximum)\n"
+               "economiseur_style = %s\n"
                "# Video : auto (480p si cable composante) / 480i / 480p\n"
                "video = %s\n"
                "# Reprendre le dernier morceau au demarrage : oui / non\n"
                "reprise = %s\nreprise_fichier = %s\nreprise_position = %d\n",
             covers_auto ? "oui" : "non", shuffle_on ? "oui" : "non", rep[repeat_mode], aff[view_mode],
-            volume_pct, theme_keys[theme_id], saver_min, vid[video_pref], resume_on ? "oui" : "non",
+            volume_pct, theme_keys[theme_id], saver_min, saver_keys[saver_style], vid[video_pref], resume_on ? "oui" : "non",
             resume_path, resume_pos);
     fclose(f);
 }
@@ -5624,6 +5633,16 @@ static int dj_tw, dj_th, dj_iw, dj_ih, dj_nw, dj_nh, dj_ok;
 static lwp_t dec_thread_h;
 static u8 dec_stack[64 * 1024] ATTRIBUTE_ALIGN(32);
 static int dec_started = 0;
+static void *dec_thread_fn(void *arg);
+static int dj_photo = 0;                    /* 1 = photo de l'economiseur (RGB, ajustee a dj_aw x dj_ah) */
+#define PHOTO_MAX_PIXELS (1920 * 1088)
+
+static int dec_ensure(void) {
+    if (dec_started) return 1;
+    if (LWP_CreateThread(&dec_thread_h, dec_thread_fn, NULL, dec_stack, sizeof(dec_stack), 20) < 0) return 0;
+    dec_started = 1;
+    return 1;
+}
 
 static u16 rgb5a3(int r, int g, int b, int a) {
     if (a >= 0xE0) return (u16)(0x8000 | ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3));
@@ -5638,15 +5657,23 @@ static void img_decode_job(void) {
     if (!stbi_info_from_memory(dj_in, dj_len, &w, &h, &c) || w <= 0 || h <= 0) return;
     dj_nw = w;
     dj_nh = h;
-    if ((long)w * h > IMG_MAX_PIXELS) return;
     int dw, dh;
-    img_box(dj_aw, dj_ah, w, h, dj_maxw, &dw, &dh);
+    if (dj_photo) {
+        if ((long)w * h > PHOTO_MAX_PIXELS) return;
+        dw = w; dh = h;                                     /* tient dans dj_aw x dj_ah */
+        if (dw > dj_aw) { dh = (int)((long)dh * dj_aw / dw); dw = dj_aw; }
+        if (dh > dj_ah) { dw = (int)((long)dw * dj_ah / dh); dh = dj_ah; }
+    } else {
+        if ((long)w * h > IMG_MAX_PIXELS) return;
+        img_box(dj_aw, dj_ah, w, h, dj_maxw, &dw, &dh);
+    }
     if (dw < 1 || dh < 1) return;
     if (dw > w) { dh = (int)((long)dh * w / dw); dw = w; }   /* jamais plus grand que l'original */
     if (dh > h) { dw = (int)((long)dw * h / dh); dh = h; }
     if (dw < 1) dw = 1;
     if (dh < 1) dh = 1;
-    unsigned char *px = stbi_load_from_memory(dj_in, dj_len, &w, &h, &c, 4);
+    const int ch = dj_photo ? 3 : 4;
+    unsigned char *px = stbi_load_from_memory(dj_in, dj_len, &w, &h, &c, ch);
     if (!px) return;
     int tw = (dw + 3) & ~3, th = (dh + 3) & ~3;
     u16 *tex = (u16 *)memalign(32, (size_t)tw * th * 2);
@@ -5663,8 +5690,8 @@ static void img_decode_job(void) {
             unsigned r = 0, g = 0, b = 0, a = 0, n = 0;
             for (int sy = sy0; sy < sy1; sy += ys)
                 for (int sx = sx0; sx < sx1; sx += xs) {
-                    const unsigned char *q = px + ((size_t)sy * w + sx) * 4;
-                    r += q[0]; g += q[1]; b += q[2]; a += q[3]; n++;
+                    const unsigned char *q = px + ((size_t)sy * w + sx) * ch;
+                    r += q[0]; g += q[1]; b += q[2]; a += (ch == 4) ? q[3] : 255; n++;
                 }
             tex[((y >> 2) * (tw >> 2) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)] =
                 rgb5a3(r / n, g / n, b / n, a / n);
@@ -5676,7 +5703,7 @@ static void img_decode_job(void) {
     dj_ok = 1;
 }
 
-static void *dec_thread(void *arg) {
+static void *dec_thread_fn(void *arg) {
     (void)arg;
     for (;;) {
         if (dj_state == 1) {
@@ -5769,10 +5796,8 @@ static void img_pump(void) {
         hf_pump(&ihf);
         if (ihf.st == HF_FAIL) { img_fail(); return; }
         if (ihf.st != HF_DONE) return;
-        if (!dec_started) {
-            if (LWP_CreateThread(&dec_thread_h, dec_thread, NULL, dec_stack, sizeof(dec_stack), 20) < 0) { img_fail(); return; }
-            dec_started = 1;
-        }
+        if (dj_state != 0) return;                      /* decodeur occupe (photo de l'economiseur) */
+        if (!dec_ensure()) { img_fail(); return; }
         wimg_t *im = &wimgs[il_img];
         dj_in = ihf.buf;
         dj_len = ihf.len;
@@ -5782,6 +5807,7 @@ static void img_pump(void) {
         dj_aw = im->aw;
         dj_ah = im->ah;
         dj_maxw = WV_W;
+        dj_photo = 0;
         il_state = IL_DECODE;
         dj_state = 1;
     }
@@ -6876,7 +6902,7 @@ static void draw_list_radio(void) {
 }
 
 // ---------- Menu (START) : reglages et Quitter ----------
-enum { MI_SHUFFLE, MI_REPEAT, MI_VIEW, MI_VOLUME, MI_THEME, MI_SAVER, MI_COVERS, MI_RESUME, MI_VIDEO, MI_REC, MI_QUIT, MI_COUNT };
+enum { MI_SHUFFLE, MI_REPEAT, MI_VIEW, MI_VOLUME, MI_THEME, MI_SAVER, MI_SAVERSTYLE, MI_COVERS, MI_RESUME, MI_VIDEO, MI_REC, MI_QUIT, MI_COUNT };
 static int menu_sel = 0, quit_requested = 0;
 
 static void menu_value(int i, char *out, int cap) {
@@ -6889,6 +6915,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_VOLUME:  snprintf(out, cap, "%d %%", volume_pct); break;
     case MI_THEME:   snprintf(out, cap, "%s", theme_names[theme_id]); break;
     case MI_SAVER:   if (saver_min) snprintf(out, cap, "Apr\xC3\xA8s %d min", saver_min); else snprintf(out, cap, "Jamais"); break;
+    case MI_SAVERSTYLE: snprintf(out, cap, "%s", saver_names[saver_style]); break;
     case MI_COVERS:  snprintf(out, cap, "%s", covers_auto ? "Oui" : "Non"); break;
     case MI_RESUME:  snprintf(out, cap, "%s", resume_on ? "Oui" : "Non"); break;
     case MI_VIDEO:   snprintf(out, cap, "%s", vid[video_pref]); break;
@@ -6902,7 +6929,7 @@ static void menu_value(int i, char *out, int cap) {
 
 static const char *const menu_labels[MI_COUNT] = {
     "Lecture al\xC3\xA9" "atoire", "R\xC3\xA9p\xC3\xA9tition", "Liste MUSIQUE", "Volume", "Th\xC3\xA8me",
-    "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Pochettes automatiques", "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o",
+    "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o",
     "Enregistrer la radio", "Quitter GC-MP3" };
 
 static void menu_change(int i, int d) {
@@ -6920,6 +6947,7 @@ static void menu_change(int i, int d) {
         saver_min = savers[k];
         break;
     }
+    case MI_SAVERSTYLE: saver_style = (saver_style + d + SV_COUNT) % SV_COUNT; break;
     case MI_COVERS:  covers_auto = !covers_auto; if (covers_auto) net_start_async(); break;
     case MI_RESUME:  resume_on = !resume_on; break;
     case MI_VIDEO:   video_pref = (video_pref + d + VID_COUNT) % VID_COUNT; break;
@@ -6938,6 +6966,12 @@ static void menu_input(u32 down, u32 nav, int fire) {
         menu_change(menu_sel, (nav & PAD_BUTTON_RIGHT) ? 1 : -1);
     if (down & PAD_BUTTON_A) {
         if (menu_sel == MI_QUIT) quit_requested = 1;
+        else if (menu_sel == MI_SAVERSTYLE) {                 /* A = apercu de l'economiseur */
+            menu_open = 0;
+            if (settings_dirty) save_settings();
+            saver_on = 1;
+            return;
+        }
         else menu_change(menu_sel, 1);
     }
     if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) {
@@ -6948,7 +6982,7 @@ static void menu_input(u32 down, u32 nav, int fire) {
 
 static void draw_menu(void) {
     gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140));
-    const f32 x = 110, y = 78, w = 420, rh = 27, h = 70 + MI_COUNT * rh;
+    const f32 x = 110, y = 70, w = 420, rh = 25, h = 70 + MI_COUNT * rh;
     gx_rrect_fill(x, y, w, h, 10, RGBA(14, 8, 44, 255), RGBA(8, 5, 26, 255));
     draw_panel(x, y, w, h);
     gx_text1(F_LARGE, x + 20, y + 34, "R\xC3\xA9glages", RGBA(255, 255, 255, 255));
@@ -6976,6 +7010,8 @@ static void draw_menu(void) {
             }
         }
     }
+    if (menu_sel == MI_SAVERSTYLE)
+        gx_text_c(F_SMALL, 320, y + h - 6, "Gauche / Droite : changer   A : aper\xC3\xA7u (une touche pour revenir)", RGBA(255, 210, 120, 255));
     if (menu_sel == MI_VIDEO)
         gx_text_c(F_SMALL, 320, y + h - 6, "Pris en compte au prochain lancement (B maintenu au d\xC3\xA9marrage = 480i)", RGBA(255, 210, 120, 255));
 }
@@ -6983,13 +7019,38 @@ static void draw_menu(void) {
 /* ---------- Economiseur d'ecran ---------- */
 static u64 last_input_ms = 0;
 
-static void draw_saver(void) {
-    GX_SetViewport(0.0f, 0.0f, rmode->fbWidth, rmode->efbHeight, 0.0f, 1.0f);
-    GX_SetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
-    GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-    gx_quad4(0, 0, 640, 480, RGBA(2, 1, 8, 255), RGBA(2, 1, 8, 255), RGBA(4, 2, 14, 255), RGBA(4, 2, 14, 255));
-    /* tout se deplace lentement : pas d'image fixe sur l'ecran */
-    f32 t = (f32)(now_ms() % 600000) / 1000.0f;
+/* Ce qui joue en ce moment : titre (et artiste ou station) */
+static void saver_title(char *t, int tcap, char *sub, int scap) {
+    char raw[200];
+    t[0] = sub[0] = 0;
+    raw[0] = 0;
+    if (src == SRC_FILE && playing && cur_track >= 0) {
+        snprintf(raw, sizeof(raw), "%s", display_name(base_of(names[cur_track])));
+        if (artist[0]) text_display(artist, sub, scap);
+    } else if (src == SRC_RADIO && cur_station >= 0 && state != ST_IDLE) {
+        snprintf(raw, sizeof(raw), "%s", now_title[0] ? now_title : stations[cur_station].name);
+        if (now_title[0]) text_display(stations[cur_station].name, sub, scap);
+    }
+    if (raw[0]) text_display(raw, t, tcap);
+}
+
+static int saver_has_cover(void) {
+    if (!cover_ok) return 0;
+    if (src == SRC_FILE) return playing && cur_track >= 0;
+    if (src == SRC_RADIO) return cur_station >= 0 && state != ST_IDLE;
+    return 0;
+}
+
+/* titre centre (ajuste a la largeur) */
+static void saver_line(int f, f32 cx, f32 y, const char *s, int maxw, col_t c) {
+    char buf[200];
+    if (!s[0]) return;
+    fit_text(f, s, maxw, buf, sizeof(buf));
+    gx_text_c(f, cx, y, buf, c);
+}
+
+/* ---- Spectre (style d'origine) ---- */
+static void saver_spectre(f32 t) {
     f32 cx = 320 + 150 * sinf(t * 0.050f), cy = 250 + 90 * sinf(t * 0.037f + 1.0f);
     for (int i = 0; i < NBARS; i++) {
         f32 bx = cx - NBARS * 3.0f + i * 6.0f;
@@ -6998,14 +7059,373 @@ static void draw_saver(void) {
         gx_rect(bx, cy - bh, 4, bh, RGBA(c.r, c.g, c.b, 200));
         gx_rect(bx, cy + 2, 4, bh * 0.35f, RGBA(c.r, c.g, c.b, 50));
     }
-    char line[200], d2[200];
-    line[0] = 0;
-    if (src == SRC_FILE && playing && cur_track >= 0) snprintf(line, sizeof(line), "%s", display_name(base_of(names[cur_track])));
-    else if (src == SRC_RADIO && cur_station >= 0) snprintf(line, sizeof(line), "%s", now_title[0] ? now_title : stations[cur_station].name);
-    if (line[0]) {
-        text_display(line, d2, sizeof(d2));
-        fit_text(F_MED, d2, 400, line, sizeof(line));
-        gx_text_c(F_MED, cx, cy + 44, line, RGBA(200, 185, 245, 200));
+    char ti[200], sub[200];
+    saver_title(ti, sizeof(ti), sub, sizeof(sub));
+    saver_line(F_MED, cx, cy + 44, ti, 400, RGBA(200, 185, 245, 200));
+}
+
+/* ---- Heure et date ---- */
+static int saver_clock(char *hm, int hcap, char *date, int dcap) {
+    static const char *const jours[7] = { "dimanche", "lundi", "mardi", "mercredi", "jeudi", "vendredi", "samedi" };
+    static const char *const mois[12] = { "janvier", "f\xC3\xA9vrier", "mars", "avril", "mai", "juin", "juillet",
+                                          "ao\xC3\xBBt", "septembre", "octobre", "novembre", "d\xC3\xA9" "cembre" };
+    time_t now = time(NULL);
+    struct tm *tm = localtime(&now);
+    if (!tm) { hm[0] = date[0] = 0; return 0; }
+    snprintf(hm, hcap, "%02d:%02d", tm->tm_hour, tm->tm_min);
+    snprintf(date, dcap, "%s %d %s %d", jours[tm->tm_wday % 7], tm->tm_mday, mois[tm->tm_mon % 12], tm->tm_year + 1900);
+    return tm->tm_sec;
+}
+
+/* chiffre a 7 segments (les segments eteints restent a peine visibles) */
+static void seg_digit(f32 x, f32 y, f32 w, f32 h, int d, col_t top, col_t bot) {
+    static const u8 mask[10] = { 0x3F, 0x06, 0x5B, 0x4F, 0x66, 0x6D, 0x7D, 0x07, 0x7F, 0x6F };
+    const f32 t = w * 0.2f, hh = h * 0.5f, r = t * 0.45f;
+    const f32 sx[7] = { x + t, x + w - t, x + w - t, x + t, x, x, x + t };
+    const f32 sy[7] = { y, y + t, y + hh + t * 0.5f, y + h - t, y + hh + t * 0.5f, y + t, y + hh - t * 0.5f };
+    const f32 sw[7] = { w - 2 * t, t, t, w - 2 * t, t, t, w - 2 * t };
+    const f32 sh[7] = { t, hh - 1.5f * t, hh - 1.5f * t, t, hh - 1.5f * t, hh - 1.5f * t, t };
+    int m = (d >= 0 && d <= 9) ? mask[d] : 0;
+    for (int i = 0; i < 7; i++) {
+        if (m & (1 << i)) gx_rrect_fill(sx[i] + 1, sy[i] + 1, sw[i] - 2, sh[i] - 2, r, top, bot);
+        else gx_rrect_fill(sx[i] + 1, sy[i] + 1, sw[i] - 2, sh[i] - 2, r, RGBA(120, 100, 200, 16), RGBA(120, 100, 200, 16));
+    }
+}
+
+static void saver_horloge(f32 t) {
+    char hm[16], date[64], ti[200], sub[200];
+    int sec = saver_clock(hm, sizeof(hm), date, sizeof(date));
+    f32 cx = 320 + 110 * sinf(t * 0.043f), cy = 210 + 60 * sinf(t * 0.031f + 0.7f);
+    const f32 dw = 70, dh = 128, gap = 16, colon = 40;
+    const f32 total = 4 * dw + 2 * gap + colon;
+    f32 x = cx - total / 2, y = cy - dh / 2;
+    col_t top = RGBA(200, 170, 255, 235), bot = RGBA(110, 70, 240, 235);
+    if (hm[0]) {
+        seg_digit(x, y, dw, dh, hm[0] - '0', top, bot);
+        seg_digit(x + dw + gap, y, dw, dh, hm[1] - '0', top, bot);
+        f32 kx = x + 2 * dw + gap + colon / 2 - 6;
+        u8 a = (sec & 1) ? 90 : 230;                          /* les deux points clignotent */
+        gx_rrect_fill(kx, y + dh * 0.30f, 12, 12, 4, RGBA(200, 170, 255, a), RGBA(110, 70, 240, a));
+        gx_rrect_fill(kx, y + dh * 0.62f, 12, 12, 4, RGBA(200, 170, 255, a), RGBA(110, 70, 240, a));
+        seg_digit(x + 2 * dw + gap + colon, y, dw, dh, hm[3] - '0', top, bot);
+        seg_digit(x + 3 * dw + 2 * gap + colon, y, dw, dh, hm[4] - '0', top, bot);
+    }
+    saver_line(F_LARGE, cx, y + dh + 44, date, 520, RGBA(220, 210, 255, 220));
+    saver_title(ti, sizeof(ti), sub, sizeof(sub));
+    saver_line(F_MED, cx, y + dh + 80, ti, 520, RGBA(190, 170, 245, 190));
+    saver_line(F_SMALL, cx, y + dh + 102, sub, 520, RGBA(150, 135, 210, 170));
+}
+
+/* ---- Pochette en grand ---- */
+static void saver_pochette(f32 t) {
+    const f32 sz = 220, tw = 280;
+    f32 cx = 320 + 40 * sinf(t * 0.047f), cy = 225 + 60 * sinf(t * 0.033f + 0.4f);
+    f32 bx = cx - (sz + 26 + tw) / 2, by = cy - sz / 2;
+    if (saver_has_cover()) {
+        gx_set_cover();
+        GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+        GX_Position2f32(bx, by);           GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 0.0f);
+        GX_Position2f32(bx + sz, by);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 0.0f);
+        GX_Position2f32(bx + sz, by + sz); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 1.0f);
+        GX_Position2f32(bx, by + sz);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 1.0f);
+        GX_End();
+        /* reflet sous la pochette */
+        const f32 rh = 60;
+        GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+        GX_Position2f32(bx, by + sz + 4);           GX_Color4u8(255, 255, 255, 70); GX_TexCoord2f32(0.0f, 1.0f);
+        GX_Position2f32(bx + sz, by + sz + 4);      GX_Color4u8(255, 255, 255, 70); GX_TexCoord2f32(1.0f, 1.0f);
+        GX_Position2f32(bx + sz, by + sz + 4 + rh); GX_Color4u8(255, 255, 255, 0);  GX_TexCoord2f32(1.0f, 1.0f - rh / sz);
+        GX_Position2f32(bx, by + sz + 4 + rh);      GX_Color4u8(255, 255, 255, 0);  GX_TexCoord2f32(0.0f, 1.0f - rh / sz);
+        GX_End();
+        gx_rrect_stroke(bx, by, sz, sz, 2, 1.2f, RGBA(124, 80, 240, 200));
+    } else {
+        draw_logo_cube(bx + sz / 2, by + sz / 2, 70);
+    }
+    char ti[200], sub[200], buf[200], hm[16], date[64];
+    saver_title(ti, sizeof(ti), sub, sizeof(sub));
+    saver_clock(hm, sizeof(hm), date, sizeof(date));
+    f32 tx = bx + sz + 26, ty = by + 70;
+    if (ti[0]) {
+        fit_text(F_LARGE, ti, (int)tw, buf, sizeof(buf));
+        gx_text1(F_LARGE, tx, ty, buf, RGBA(255, 255, 255, 230));
+    } else gx_text1(F_LARGE, tx, ty, "GC-MP3", RGBA(255, 255, 255, 230));
+    if (sub[0]) {
+        fit_text(F_MED, sub, (int)tw, buf, sizeof(buf));
+        gx_text1(F_MED, tx, ty + 30, buf, RGBA(200, 180, 250, 210));
+    }
+    if (hm[0]) {
+        gx_text1(F_LARGE, tx, ty + 96, hm, RGBA(190, 160, 255, 220));
+        fit_text(F_SMALL, date, (int)tw, buf, sizeof(buf));
+        gx_text1(F_SMALL, tx, ty + 118, buf, RGBA(150, 135, 210, 180));
+    }
+}
+
+/* ---- Champ d'etoiles (accelere avec la musique) ---- */
+#define NSTARS 150
+static f32 st_x[NSTARS], st_y[NSTARS], st_z[NSTARS];
+static int st_ready = 0;
+static u64 st_last = 0;
+
+static void star_reset(int i, int far) {
+    st_x[i] = (f32)(rand() % 2001 - 1000) / 1000.0f;
+    st_y[i] = (f32)(rand() % 2001 - 1000) / 1000.0f * 0.8f;
+    st_z[i] = far ? 1.0f : 0.05f + (f32)(rand() % 950) / 1000.0f;
+}
+
+static void saver_etoiles(f32 t) {
+    u64 now = now_ms();
+    if (!st_ready) { for (int i = 0; i < NSTARS; i++) star_reset(i, 0); st_ready = 1; st_last = now; }
+    f32 dt = (f32)(now - st_last) / 1000.0f;
+    if (dt > 0.1f) dt = 0.1f;
+    st_last = now;
+    f32 e = 0;
+    for (int i = 0; i < NBARS; i++) e += bar_val[i];
+    e /= NBARS;
+    f32 speed = 0.10f + e * 0.9f;
+    f32 cx = 320 + 40 * sinf(t * 0.05f), cy = 240 + 30 * sinf(t * 0.04f);
+    for (int i = 0; i < NSTARS; i++) {
+        st_z[i] -= speed * dt;
+        if (st_z[i] < 0.03f) { star_reset(i, 1); continue; }
+        f32 sx = cx + st_x[i] / st_z[i] * 240, sy = cy + st_y[i] / st_z[i] * 240;
+        if (sx < -10 || sx > 650 || sy < -10 || sy > 490) { star_reset(i, 1); continue; }
+        f32 k = 1.0f - st_z[i];
+        f32 sz = 0.8f + k * 3.2f;
+        col_t c = lerp_c(RGBA(120, 80, 255, 255), RGBA(255, 255, 255, 255), k);
+        /* petite trainee vers le centre */
+        f32 pz = st_z[i] + 0.04f;
+        f32 px = cx + st_x[i] / pz * 240, py = cy + st_y[i] / pz * 240;
+        gx_rect(px, py, sz * 0.7f, sz * 0.7f, RGBA(c.r, c.g, c.b, (u8)(60 * k)));
+        gx_rect(sx - sz / 2, sy - sz / 2, sz, sz, RGBA(c.r, c.g, c.b, (u8)(80 + 170 * k)));
+    }
+    char ti[200], sub[200];
+    saver_title(ti, sizeof(ti), sub, sizeof(sub));
+    saver_line(F_MED, 320 + 120 * sinf(t * 0.021f), 430 + 12 * sinf(t * 0.05f), ti, 460, RGBA(210, 200, 250, 190));
+}
+
+/* ---- Photos de la carte SD (sd:/ecran) ----
+   Chaque photo est lue petit a petit (la musique continue), decodee par le
+   thread des images, puis affichee 12 s avec un lent zoom et un fondu. */
+#define PHOTO_DIR       SD_ROOT "/ecran"
+#define PHOTO_MAX       400
+#define PHOTO_MAX_FILE  (6 * 1024 * 1024)
+#define PHOTO_SHOW_MS   12000
+#define PHOTO_FADE_MS   1500
+#define PHOTO_CHUNK     (32 * 1024)
+typedef struct { u16 *tex; GXTexObj obj; int tw, th, iw, ih; } ptex_t;
+enum { PH_IDLE, PH_READ, PH_QUEUED, PH_DEC };
+static char **ph_names = NULL;
+static int ph_n = -1, ph_next = 0, ph_fails = 0, ph_state = PH_IDLE;
+static FILE *ph_fp = NULL;
+static unsigned char *ph_buf = NULL;
+static long ph_len = 0, ph_size = 0;
+static ptex_t ph[2];
+static int ph_cur = -1, ph_prev = -1, ph_ready = -1;
+static u64 ph_shown = 0;
+
+static void photo_free_names(void) {
+    for (int i = 0; i < ph_n; i++) free(ph_names[i]);
+    free(ph_names);
+    ph_names = NULL;
+    ph_n = -1;
+}
+
+static void photo_scan(void) {
+    photo_free_names();
+    ph_n = 0;
+    ph_next = 0;
+    ph_fails = 0;
+    if (!sd_ok) return;
+    DIR *d = opendir(PHOTO_DIR);
+    if (!d) { mkdir(PHOTO_DIR, 0777); return; }            /* cree le dossier pour qu'on le trouve */
+    ph_names = (char **)malloc(sizeof(char *) * PHOTO_MAX);
+    if (!ph_names) { closedir(d); return; }
+    struct dirent *e;
+    while ((e = readdir(d)) && ph_n < PHOTO_MAX) {
+        if (e->d_name[0] == '.') continue;
+        const char *dot = strrchr(e->d_name, '.');
+        if (!dot || !(strcasecmp(dot, ".jpg") == 0 || strcasecmp(dot, ".jpeg") == 0 || strcasecmp(dot, ".png") == 0)) continue;
+        char path[NAME_LEN];
+        snprintf(path, sizeof(path), "%s/%s", PHOTO_DIR, e->d_name);
+        char *cp = strdup(path);
+        if (cp) ph_names[ph_n++] = cp;
+        if ((ph_n & 15) == 0) service_audio();
+    }
+    closedir(d);
+    for (int i = ph_n - 1; i > 0; i--) {                    /* ordre melange */
+        int j = rand() % (i + 1);
+        char *tmp = ph_names[i]; ph_names[i] = ph_names[j]; ph_names[j] = tmp;
+    }
+}
+
+static void ptex_free(ptex_t *p) { free(p->tex); memset(p, 0, sizeof(*p)); }
+
+static void photo_stop_read(void) {
+    if (ph_fp) { fclose(ph_fp); ph_fp = NULL; }
+    free(ph_buf);
+    ph_buf = NULL;
+    ph_len = ph_size = 0;
+}
+
+/* appele a chaque image, meme hors economiseur (pour liberer la memoire) */
+static void photo_pump(void) {
+    int active = saver_on && saver_style == SV_PHOTOS;
+
+    if (ph_state == PH_DEC && dj_state == 2) {               /* une photo vient d'etre decodee */
+        dj_state = 0;
+        ph_state = PH_IDLE;
+        if (active && dj_ok && dj_tex) {
+            int slot = (ph_cur < 0) ? 0 : 1 - ph_cur;
+            ptex_free(&ph[slot]);
+            ptex_t *p = &ph[slot];
+            p->tex = dj_tex; p->tw = dj_tw; p->th = dj_th; p->iw = dj_iw; p->ih = dj_ih;
+            DCFlushRange(p->tex, (u32)p->tw * p->th * 2);
+            GX_InitTexObj(&p->obj, p->tex, p->tw, p->th, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+            GX_InitTexObjFilterMode(&p->obj, GX_LINEAR, GX_LINEAR);
+            GX_InvalidateTexAll();
+            ph_fails = 0;
+            if (ph_cur < 0) { ph_cur = slot; ph_prev = -1; ph_shown = now_ms(); }
+            else ph_ready = slot;
+        } else {
+            free(dj_tex);
+            if (active && !dj_ok) ph_fails++;
+        }
+        dj_tex = NULL;
+    }
+
+    if (!active) {
+        if (ph_state == PH_READ || ph_state == PH_QUEUED) { photo_stop_read(); ph_state = PH_IDLE; }
+        if (ph[0].tex || ph[1].tex) { ptex_free(&ph[0]); ptex_free(&ph[1]); }
+        ph_cur = ph_prev = ph_ready = -1;
+        if (ph_n >= 0) photo_free_names();                  /* relu a la prochaine activation */
+        return;
+    }
+
+    if (ph_n < 0) photo_scan();
+    if (ph_n == 0) return;
+    u64 now = now_ms();
+
+    /* photo suivante prete et temps ecoule : on passe a elle (fondu) */
+    if (ph_ready >= 0 && now - ph_shown >= PHOTO_SHOW_MS) {
+        ph_prev = ph_cur;
+        ph_cur = ph_ready;
+        ph_ready = -1;
+        ph_shown = now;
+    }
+
+    if (ph_state == PH_IDLE) {
+        if (ph_fails >= ph_n) return;                       /* aucune photo lisible */
+        if (ph_cur >= 0 && (ph_n == 1 || ph_ready >= 0 || now - ph_shown < PHOTO_SHOW_MS - 4000)) return;
+        if (ph_cur >= 0 && ph_prev >= 0 && now - ph_shown < PHOTO_FADE_MS) return;   /* fondu en cours */
+        const char *path = ph_names[ph_next % ph_n];
+        ph_next++;
+        ph_fp = fopen(path, "rb");
+        long size = -1;
+        if (ph_fp && fseek(ph_fp, 0, SEEK_END) == 0) size = ftell(ph_fp);
+        if (!ph_fp || size <= 0 || size > PHOTO_MAX_FILE || fseek(ph_fp, 0, SEEK_SET) != 0 ||
+            !(ph_buf = (unsigned char *)malloc(size))) {
+            photo_stop_read();
+            ph_fails++;
+            return;
+        }
+        ph_size = size;
+        ph_len = 0;
+        ph_state = PH_READ;
+        return;
+    }
+
+    if (ph_state == PH_READ) {                               /* un morceau du fichier par image */
+        long want = ph_size - ph_len;
+        if (want > PHOTO_CHUNK) want = PHOTO_CHUNK;
+        size_t got = fread(ph_buf + ph_len, 1, (size_t)want, ph_fp);
+        if (got == 0) { photo_stop_read(); ph_state = PH_IDLE; ph_fails++; return; }
+        ph_len += (long)got;
+        if (ph_len >= ph_size) { fclose(ph_fp); ph_fp = NULL; ph_state = PH_QUEUED; }
+        return;
+    }
+
+    if (ph_state == PH_QUEUED) {                             /* attend que le decodeur soit libre */
+        if (dj_state != 0 || il_state == IL_DECODE) return;
+        if (!dec_ensure()) { photo_stop_read(); ph_state = PH_IDLE; ph_fails = ph_n; return; }
+        /* trop grande, ou pas assez de memoire libre pour la decoder : photo suivante */
+        int iw, ih, ic;
+        if (!stbi_info_from_memory(ph_buf, (int)ph_len, &iw, &ih, &ic) || iw <= 0 || ih <= 0 ||
+            (long)iw * ih > PHOTO_MAX_PIXELS) {
+            photo_stop_read(); ph_state = PH_IDLE; ph_fails++; return;
+        }
+        void *probe = malloc((size_t)iw * ih * 7 + 512 * 1024);
+        if (!probe) { photo_stop_read(); ph_state = PH_IDLE; ph_fails++; return; }
+        free(probe);
+        dj_in = ph_buf;
+        dj_len = (int)ph_len;
+        ph_buf = NULL;
+        ph_len = ph_size = 0;
+        dj_aw = 640;
+        dj_ah = 480;
+        dj_maxw = 640;
+        dj_photo = 1;
+        ph_state = PH_DEC;
+        dj_state = 1;
+    }
+}
+
+static void draw_photo(const ptex_t *p, u8 alpha, f32 age, int dir) {
+    if (!p->tex || p->iw <= 0 || p->ih <= 0) return;
+    f32 s = 640.0f / p->iw;
+    if (p->ih * s > 480.0f) s = 480.0f / p->ih;
+    f32 z = 1.0f + 0.07f * (age / (PHOTO_SHOW_MS / 1000.0f));    /* lent zoom */
+    f32 w = p->iw * s * z, h = p->ih * s * z;
+    f32 cx = 320 + dir * (z - 1.0f) * 160, cy = 240 + dir * (z - 1.0f) * 60;
+    f32 x0 = cx - w / 2, y0 = cy - h / 2;
+    f32 u1 = (f32)p->iw / p->tw, v1 = (f32)p->ih / p->th;
+    gx_set_image((GXTexObj *)&p->obj);
+    GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+    GX_Position2f32(x0, y0);         GX_Color4u8(255, 255, 255, alpha); GX_TexCoord2f32(0.0f, 0.0f);
+    GX_Position2f32(x0 + w, y0);     GX_Color4u8(255, 255, 255, alpha); GX_TexCoord2f32(u1, 0.0f);
+    GX_Position2f32(x0 + w, y0 + h); GX_Color4u8(255, 255, 255, alpha); GX_TexCoord2f32(u1, v1);
+    GX_Position2f32(x0, y0 + h);     GX_Color4u8(255, 255, 255, alpha); GX_TexCoord2f32(0.0f, v1);
+    GX_End();
+}
+
+static void saver_photos(f32 t) {
+    u64 now = now_ms();
+    if (ph_cur < 0) {
+        const char *msg = (ph_n == 0) ? "Ajoute des photos .jpg / .png dans sd:/ecran" :
+                          (ph_n > 0 && ph_fails >= ph_n) ? "Photos illisibles (1920 x 1080 maximum)" : "Chargement des photos...";
+        if (ph_n == 0 || (ph_n > 0 && ph_fails >= ph_n)) saver_spectre(t);
+        saver_line(F_MED, 320 + 140 * sinf(t * 0.03f), 120 + 40 * sinf(t * 0.045f), msg, 560, RGBA(255, 210, 120, 200));
+        return;
+    }
+    f32 age = (f32)(now - ph_shown) / 1000.0f;
+    int dir = (ph_next & 1) ? 1 : -1;
+    if (ph_prev >= 0 && now - ph_shown < PHOTO_FADE_MS) {
+        draw_photo(&ph[ph_prev], 255, age + PHOTO_SHOW_MS / 1000.0f, -dir);
+        draw_photo(&ph[ph_cur], (u8)(255 * (now - ph_shown) / PHOTO_FADE_MS), age, dir);
+    } else {
+        draw_photo(&ph[ph_cur], 255, age, dir);
+    }
+    char ti[200], sub[200];
+    saver_title(ti, sizeof(ti), sub, sizeof(sub));
+    if (ti[0]) {
+        f32 ly = 440 + 8 * sinf(t * 0.05f), lx = 320 + 60 * sinf(t * 0.02f);
+        gx_rrect_fill(lx - 250, ly - 20, 500, 28, 10, RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120));
+        saver_line(F_MED, lx, ly, ti, 470, RGBA(255, 255, 255, 220));
+    }
+}
+
+static void draw_saver(void) {
+    GX_SetViewport(0.0f, 0.0f, rmode->fbWidth, rmode->efbHeight, 0.0f, 1.0f);
+    GX_SetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
+    GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
+    gx_quad4(0, 0, 640, 480, RGBA(2, 1, 8, 255), RGBA(2, 1, 8, 255), RGBA(4, 2, 14, 255), RGBA(4, 2, 14, 255));
+    /* tout se deplace lentement : pas d'image fixe sur l'ecran */
+    f32 t = (f32)(now_ms() % 600000) / 1000.0f;
+    switch (saver_style) {
+    case SV_POCHETTE: saver_pochette(t); break;
+    case SV_HORLOGE:  saver_horloge(t); break;
+    case SV_ETOILES:  saver_etoiles(t); break;
+    case SV_PHOTOS:   saver_photos(t); break;
+    case SV_NOIR:     break;
+    default:          saver_spectre(t); break;
     }
     service_audio();
     present_frame();
@@ -7176,6 +7596,7 @@ int main(void) {
         cover_pump();
         rb_pump();
         lib_pump();
+        photo_pump();
         resume_note(0);
         if (settings_dirty) {                               /* reglages changes : enregistres 2 s apres */
             if (!settings_t) settings_t = now;
