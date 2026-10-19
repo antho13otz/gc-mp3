@@ -1,101 +1,81 @@
-GC-MP3 — Indigo Audio Player
-Lecteur audio pour GameCube : ta musique (carte SD), des webradios et un navigateur web
-pour télécharger de la musique (Broadband Adapter), dans une interface GX style Indigo. Lancer gc-mp3player.dol depuis Swiss / Indigo.
-Onglet MUSIQUE
-Les MP3 sont lus dans SD:/mp3 et dans SD:/downloads (où l'onglet WEB enregistre
-ses téléchargements), sous-dossiers compris (3 niveaux, 512 fichiers maximum, 16 Mo maximum par fichier).
-Les morceaux de SD:/mp3 sont listés en premier.
-X actualise la liste (par exemple après un téléchargement) sans couper le morceau en cours.
-Pochettes, dans l'ordre : image du même nom que le MP3 (Stan.jpg pour Stan.mp3),
-pochette intégrée au MP3, ou cover.jpg / folder.jpg (ou .png) dans le dossier du MP3.
-Une seule image cover.jpg dans le dossier d'un album suffit donc pour tout l'album.
-Les numéros en tête des noms de fichiers (01. , 01 - ) sont masqués à l'affichage.
-Pochettes automatiques : si un morceau n'a pas de pochette et que le Broadband Adapter
-est branché, GC-MP3 cherche l'album sur MusicBrainz (artiste + titre du MP3, ou nom de fichier
-Artiste - Titre.mp3) et télécharge la pochette sur le Cover Art Archive. Elle est enregistrée
-à côté du MP3 (Titre.jpg) : la fois suivante, elle s'affiche sans réseau. L'album et l'année
-s'affichent sous l'artiste. Pour désactiver : pochettes_auto = non dans SD:/gc-mp3.txt
-(créé au premier lancement).
-Onglet RADIO
-Le réseau (Broadband Adapter, adresse IP automatique) s'active au premier passage sur l'onglet.
-Liste des radios : SD:/radio.txt, créée au premier lancement. Une station par ligne :
-Nom de la radio | http://adresse/du/flux.mp3
-Autre radio     | https://adresse/du/flux.mp3
-Flux MP3 en http:// ou https:// (pas d'AAC/OGG).
-Les listes .m3u / .pls et les redirections (y compris http ↔ https) sont suivies.
-En https, la connexion sécurisée prend quelques secondes de plus à démarrer
-(le processeur de la GameCube est lent pour le chiffrement). Si une station marche
-aussi en http://, c'est plus léger.
-Les certificats des sites sont vérifiés avec la liste de Mozilla (intégrée au moment
-de la compilation). Les dates d'expiration ne sont pas vérifiées, car la GameCube
-n'a pas forcément la bonne heure.
-Limite de sécurité : la GameCube n'a pas de générateur aléatoire matériel ; l'aléa
-du chiffrement vient des variations de l'horloge du processeur. C'est suffisant pour
-écouter la radio, mais ne pas réutiliser ce code pour envoyer des mots de passe.
-Préférer des serveurs proches (France / Europe) : avec les serveurs lointains, le réseau
-de la GameCube peut être trop lent pour du 128 kbps.
-Logo facultatif : SD:/radio/<Nom>.jpg ou .png.
-Onglet WEB
-Navigateur simple : il affiche le texte, les titres, les listes, les liens et les images
-(JPEG, PNG, GIF). Pas de JavaScript ni de vidéo : les sites simples marchent
-(Wikipédia, archive.org, pages de téléchargement), pas YouTube, Spotify, SoundCloud ni Deezer.
-Les images se chargent après le texte, en commençant par celles qui sont à l'écran ; la page
-reste utilisable pendant ce temps. Non affichées : WebP, SVG et photos de plus de 1,2 mégapixel
-(leur description s'affiche à la place).
-Page d'accueil (touche X) : recherche web, recherche de musique libre sur archive.org, favoris.
-Y ouvre le clavier : tape une adresse (fr.m.wikipedia.org) ou des mots à chercher.
-Sans http://, le navigateur essaie d'abord en https, puis en http.
-Un lien vers un fichier (MP3, ZIP...) est téléchargé dans SD:/downloads en tâche de fond :
-on peut continuer à naviguer et à écouter. Les MP3 apparaissent tout seuls dans l'onglet MUSIQUE.
-Musique libre : « Chercher de la musique libre sur archive.org » sur l'accueil, puis ouvrir un
-résultat et choisir un fichier .mp3.
-Favoris : SD:/favoris.txt (créé au premier lancement), une ligne par site : Nom | adresse.
-L'accueil propose aussi d'ajouter la dernière page visitée.
-Formulaires : les recherches simples (envoi GET) marchent ; les formulaires de connexion
-(envoi POST) ne sont pas gérés.
-Les pages de plus de 1,5 Mo sont coupées. Avec les serveurs lointains, le réseau de la
-GameCube est lent : le téléchargement d'un MP3 peut prendre plusieurs minutes.
-Commandes
-Touche
-Action
-Z
-Changer d'onglet (la lecture continue)
-Croix haut / bas
-Choisir
-Croix gauche / droite
-Page précédente / suivante
-A
-Lire la piste / écouter la station
-B
-Arrêter
-X
-Actualiser la liste des morceaux (onglet MUSIQUE)
-Y
-Pause (musique) / couper le son (radio)
-L / R
-Piste ou station précédente / suivante
-START
-Quitter
-Onglet WEB :
-Touche
-Action
-Croix haut / bas
-Lien précédent / suivant
-Croix gauche / droite, stick C
-Faire défiler la page
-A
-Ouvrir le lien (ou remplir un champ)
-B
-Page précédente (ou annuler le chargement)
-Y
-Taper une adresse ou une recherche
-X
-Accueil (favoris, recherche, téléchargement en cours)
-Clavier : A = taper la touche, B = effacer, X = espace, START = valider, Y = annuler.
-Compilation (GitHub Actions)
-Le workflow télécharge tout seul minimp3, stb_image, mbedTLS 3.6.7 (archive officielle,
-empreinte SHA-256 vérifiée) et la liste de certificats de curl.se, puis compile le .dol.
-Crédits
+# GC-MP3 — Indigo Audio Player
+
+Lecteur audio pour GameCube : **ta musique** (carte SD), des **webradios** et un **navigateur web**
+pour télécharger de la musique (Broadband Adapter), dans une interface GX style Indigo.
+Lancer `gc-mp3player.dol` depuis Swiss / Indigo.
+
+## Onglet MUSIQUE
+- Les MP3 sont lus dans `SD:/mp3` et `SD:/downloads`, sous-dossiers compris (3 niveaux,
+  512 fichiers maximum). Ils sont lus au fur et à mesure depuis la carte : **pas de limite de taille**
+  (les longs mix passent).
+- **Stick C gauche / droite** : change la liste — *Tous les morceaux*, *Dossiers*, *Artistes*, *Albums*.
+  Dans un dossier / artiste / album, la première ligne sert à revenir en arrière (A).
+  Les vues Artistes et Albums lisent d'abord les étiquettes des MP3 (quelques secondes).
+- La lecture enchaîne les morceaux de la liste ouverte. **Aléatoire** et **répétition**
+  (tout / un morceau) se règlent dans le menu (START) ; « ALÉA » et « RÉP. » s'affichent en bas de la liste.
+- **X** actualise la liste sans couper le morceau en cours.
+- **Reprise** : au démarrage, GC-MP3 reprend le dernier morceau là où tu l'avais laissé
+  (position approchée ; désactivable dans le menu).
+- **Paroles** : un fichier `Titre.lrc` à côté de `Titre.mp3` (format LRC synchronisé,
+  `[01:23.45]paroles`) s'affiche ligne par ligne à la place de l'égaliseur.
+- Pochettes : image du même nom que le MP3, pochette intégrée, ou `cover.jpg` / `folder.jpg` du dossier.
+  Sinon, avec le Broadband Adapter branché, elle est cherchée sur MusicBrainz / Cover Art Archive
+  et enregistrée à côté du MP3. L'album et l'année s'affichent sous l'artiste.
+
+## Onglet RADIO
+- Mes radios : `SD:/radio.txt`, une station par ligne : `Nom de la radio | http://adresse/du/flux`.
+- **Rechercher une radio...** (première ligne) : annuaire libre radio-browser.info, recherche par nom.
+  **Les plus écoutées en France** : la liste des stations populaires.
+  Dans les résultats : A = écouter, **X = ajouter à mes radios** (écrit dans `radio.txt`).
+- Flux **MP3** et **AAC / HE-AAC** (aacPlus), en http:// ou https://. Les listes `.m3u` / `.pls`
+  et les redirections sont suivies. Pas d'OGG / Opus / HLS.
+- **Enregistrer la radio** : START > Enregistrer la radio. Le flux est enregistré tel quel
+  dans `SD:/radio/enregistrements/` (« REC » s'affiche en haut de l'écran).
+- Préférer des serveurs proches (France / Europe) : avec les serveurs lointains, le réseau
+  de la GameCube peut être trop lent pour du 128 kbps.
+- Logo facultatif : `SD:/radio/<Nom>.jpg` ou `.png`.
+- Les certificats https sont vérifiés (liste Mozilla), sauf les dates d'expiration (horloge
+  de la GameCube souvent fausse). L'aléa du chiffrement vient de l'horloge du processeur
+  (pas de générateur matériel) : suffisant pour la radio, pas pour des mots de passe.
+
+## Onglet WEB
+- Navigateur simple : texte, titres, listes, liens et images (JPEG, PNG, GIF).
+  Pas de JavaScript ni de vidéo : les sites simples marchent (Wikipédia, archive.org…),
+  pas YouTube, Spotify, SoundCloud ni Deezer. WebP et SVG ne s'affichent pas.
+- Accueil (X) : recherche web, **musique libre sur archive.org** (liste directe des MP3 de chaque album), favoris
+  (`SD:/favoris.txt`, une ligne par site : `Nom | adresse`).
+- Un lien vers un fichier est téléchargé dans `SD:/downloads` en tâche de fond ; les MP3 apparaissent
+  ensuite dans l'onglet MUSIQUE.
+
+## Menu (START)
+Lecture aléatoire, répétition, liste MUSIQUE, **volume**, **thème de couleurs** (Indigo, Océan,
+Émeraude, Rubis, Ambre, Couleurs douces, Graphite — « Couleurs douces » si l'image paraît trop vive
+sur ta télé), **économiseur d'écran** (2 / 5 / 10 / 30 min ou jamais : un visualiseur qui bouge
+lentement, n'importe quelle touche le quitte), pochettes automatiques, reprise au démarrage,
+**vidéo** (auto = 480p avec un câble composante ou un GCVideo ; B maintenu au démarrage = 480i),
+enregistrement de la radio, et **Quitter**. Tout est enregistré dans `SD:/gc-mp3.txt`.
+
+## Commandes
+| Touche | MUSIQUE | RADIO | WEB |
+|---|---|---|---|
+| Croix | Choisir / page | Choisir / page | Lien précédent / suivant, page |
+| A | Lire, ouvrir un dossier | Écouter | Ouvrir le lien |
+| B | Arrêter | Arrêter | Page précédente |
+| X | Actualiser la liste | Ajouter aux radios (résultats) | Accueil |
+| Y | Pause | Couper le son | Adresse / recherche |
+| L / R | Morceau précédent / suivant | Station précédente / suivante | — |
+| Stick C | Vue de la liste (← →) | — | Défiler |
+| Z | Onglet suivant | Onglet suivant | Onglet suivant |
+| START | Menu | Menu | Menu |
+
+Clavier : A = taper, B = effacer, X = espace, START = valider, Y = annuler.
+
+## Compilation (GitHub Actions)
+Le workflow télécharge minimp3, stb_image, mbedTLS 3.6.7, le décodeur AAC Helix (version figée,
+empreinte vérifiée) et la liste de certificats de curl.se, puis compile le `.dol`.
+
+## Crédits
 minimp3 (lieff, CC0), stb_image (Sean Barrett, domaine public), mbedTLS (Apache 2.0),
-MusicBrainz et Cover Art Archive (pochettes et infos d'albums),
-certificats racines Mozilla (MPL 2.0, via curl.se), police DejaVu Sans, libogc / devkitPro.
+décodeur AAC Helix (RealNetworks, licence RPSL, via ESP8266Audio), MusicBrainz, Cover Art Archive
+et radio-browser.info (données libres), certificats racines Mozilla (MPL 2.0, via curl.se),
+police DejaVu Sans, libogc / devkitPro.
