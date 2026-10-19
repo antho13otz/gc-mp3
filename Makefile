@@ -12,11 +12,12 @@ TARGET   := gc-mp3player
 
 CFLAGS   := -O2 -Wall $(MACHDEP) -I$(LIBOGC_INC)
 LDFLAGS  := $(MACHDEP) -Wl,-Map,$(TARGET).map
-LIBS     := -L$(LIBOGC_LIB) -lfat -logc -lm
+# libbba = reseau (lwIP + Broadband Adapter) de libogc pour GameCube (onglet RADIO)
+LIBS     := -L$(LIBOGC_LIB) -lfat -lbba -logc -lm
 
 all: $(TARGET).dol
 
-$(TARGET).elf: source/main.c source/minimp3.h
+$(TARGET).elf: source/main.c source/font_atlas.h source/minimp3.h source/stb_image.h
 > $(CC) $(CFLAGS) source/main.c $(LDFLAGS) $(LIBS) -o $@
 
 clean:
