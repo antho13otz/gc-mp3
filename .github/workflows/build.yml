@@ -14,6 +14,10 @@ jobs:
       - name: Télécharger minimp3.h
         run: curl --fail --location --silent --show-error -o source/minimp3.h https://raw.githubusercontent.com/lieff/minimp3/master/minimp3.h
 
+      # Decodeur JPEG/PNG pour les pochettes (version figee, testee)
+      - name: Télécharger stb_image.h
+        run: curl --fail --location --silent --show-error -o source/stb_image.h https://raw.githubusercontent.com/nothings/stb/a7d4c2175630e1ea5b6f8dd00ab96fed0b97b96d/stb_image.h
+
       - name: Compiler
         run: |
           make clean
