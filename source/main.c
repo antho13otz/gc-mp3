@@ -3,6 +3,10 @@
 // Commandes : Haut/Bas = choisir (maintenir = defiler), Gauche/Droite = page,
 //             A = lire, B = stop, Y = pause, L/R = piste precedente/suivante,
 //             START = quitter
+// Pochettes (dans l'ordre de recherche) :
+//   1. image a cote du MP3, meme nom : sd:/mp3/Stan.jpg (ou .jpeg / .png) pour Stan.mp3
+//   2. pochette integree au MP3 (etiquette ID3 APIC)
+//   3. image commune du dossier : sd:/mp3/cover.jpg ou folder.jpg (ou .png)
 #include <gccore.h>
 #include <ogc/lwp.h>
 #include <ogc/system.h>
@@ -23,10 +27,21 @@
 #define MINIMP3_NO_SIMD
 #include "minimp3.h"
 
+// Decodeur JPEG/PNG : stb_image (fichier unique, domaine public), telecharge par le workflow
+#define STB_IMAGE_IMPLEMENTATION
+#define STBI_ONLY_JPEG
+#define STBI_ONLY_PNG
+#define STBI_NO_STDIO
+#define STBI_NO_SIMD
+#define STBI_NO_THREAD_LOCALS
+#include "stb_image.h"
+
 // Atlas de polices lissees (genere par tools/gen_font.py)
 #include "font_atlas.h"
 
+#ifndef MP3_DIR
 #define MP3_DIR        "sd:/mp3"
+#endif
 #define MAX_FILES      512
 #define NAME_LEN       128
 #define MAX_FILE_SIZE  (18 * 1024 * 1024)   // un MP3 est charge entierement en RAM
@@ -37,6 +52,9 @@
 #define FIFO_MARGIN    8192                 // reserve suffisante avant le decodage d'une trame
 #define GX_FIFO_SIZE   (256 * 1024)         // FIFO GX alignee, taille multiple de 32 octets
 #define LIST_ROWS      14
+#define COVER_SZ       128                  // pochette ramenee a 128x128 (texture RGB565)
+#define COVER_MAX_PX   (1500 * 1500)        // images plus grandes ignorees (24 Mo de RAM)
+#define COVER_MAX_FILE (8 * 1024 * 1024)
 #define PI_F           3.14159265f
 
 typedef struct { s16 l, r; } stereo_t;
@@ -390,6 +408,166 @@ static void parse_artist(void) {
     }
 }
 
+// ---------- Pochettes ----------
+static u16 cover_tex[COVER_SZ * COVER_SZ] ATTRIBUTE_ALIGN(32);
+static int cover_ok = 0;
+
+/* Decode une image JPEG/PNG en memoire, la recadre au carre (centre) et la
+   reduit en 128x128 dans la texture GX (RGB565, tuiles 4x4). */
+static int cover_from_memory(const unsigned char *data, long len) {
+    int w, h, n;
+    if (len <= 0 || len > 0x7fffffffL) return 0;
+    if (!stbi_info_from_memory(data, (int)len, &w, &h, &n)) return 0;
+    if (w <= 0 || h <= 0 || (long)w * (long)h > COVER_MAX_PX) return 0;
+    unsigned char *px = stbi_load_from_memory(data, (int)len, &w, &h, &n, 3);
+    if (!px) return 0;
+
+    int side = (w < h) ? w : h;
+    int ox = (w - side) / 2, oy = (h - side) / 2;
+    for (int y = 0; y < COVER_SZ; y++) {
+        int y0 = oy + y * side / COVER_SZ, y1 = oy + (y + 1) * side / COVER_SZ;
+        if (y1 <= y0) y1 = y0 + 1;
+        for (int x = 0; x < COVER_SZ; x++) {
+            int x0 = ox + x * side / COVER_SZ, x1 = ox + (x + 1) * side / COVER_SZ;
+            if (x1 <= x0) x1 = x0 + 1;
+            u32 r = 0, g = 0, b = 0, cnt = 0;
+            for (int yy = y0; yy < y1; yy++) {
+                const unsigned char *p = px + ((size_t)yy * w + x0) * 3;
+                for (int xx = x0; xx < x1; xx++, p += 3) { r += p[0]; g += p[1]; b += p[2]; cnt++; }
+            }
+            r /= cnt; g /= cnt; b /= cnt;
+            int blk = (y >> 2) * (COVER_SZ / 4) + (x >> 2);
+            cover_tex[blk * 16 + (y & 3) * 4 + (x & 3)] =
+                (u16)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
+        }
+        if ((y & 15) == 0) service_audio();
+    }
+    stbi_image_free(px);
+    DCFlushRange(cover_tex, sizeof(cover_tex));
+    GX_InvalidateTexAll();
+    return 1;
+}
+
+static unsigned char *read_file(const char *path, long maxsz, long *out_len) {
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return NULL;
+    long size = -1;
+    if (fseek(fp, 0, SEEK_END) == 0) size = ftell(fp);
+    if (size <= 0 || size > maxsz || fseek(fp, 0, SEEK_SET) != 0) { fclose(fp); return NULL; }
+    unsigned char *buf = (unsigned char *)malloc(size);
+    if (buf && fread(buf, 1, size, fp) != (size_t)size) { free(buf); buf = NULL; }
+    fclose(fp);
+    if (buf) *out_len = size;
+    return buf;
+}
+
+static int cover_from_file(const char *path) {
+    long len = 0;
+    unsigned char *buf = read_file(path, COVER_MAX_FILE, &len);
+    if (!buf) return 0;
+    int ok = cover_from_memory(buf, len);
+    free(buf);
+    return ok;
+}
+
+/* Retire la "desynchronisation" ID3 (FF 00 -> FF). Retourne la nouvelle taille. */
+static long id3_unsync(unsigned char *d, long n) {
+    long o = 0;
+    for (long i = 0; i < n; i++) {
+        d[o++] = d[i];
+        if (d[i] == 0xFF && i + 1 < n && d[i + 1] == 0x00) i++;
+    }
+    return o;
+}
+
+/* Pochette integree (cadre APIC / PIC), lue sans charger tout le MP3. */
+static int cover_from_id3(const char *path) {
+    unsigned char hdr[10];
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return 0;
+    if (fread(hdr, 1, 10, fp) != 10 || memcmp(hdr, "ID3", 3) != 0 || hdr[3] < 2 || hdr[3] > 4) {
+        fclose(fp);
+        return 0;
+    }
+    long tsz = (long)synchsafe(hdr + 6);
+    if (tsz <= 10 || tsz > COVER_MAX_FILE + 65536) { fclose(fp); return 0; }
+    unsigned char *tag = (unsigned char *)malloc(tsz);
+    if (!tag) { fclose(fp); return 0; }
+    if (fread(tag, 1, tsz, fp) != (size_t)tsz) { fclose(fp); free(tag); return 0; }
+    fclose(fp);
+
+    int ver = hdr[3];
+    int fhdr = (ver == 2) ? 6 : 10;
+    long pos = 0;
+    if ((hdr[5] & 0x80) && ver < 4) tsz = id3_unsync(tag, tsz);
+    if (ver >= 3 && (hdr[5] & 0x40) && tsz >= 4)
+        pos = (ver == 4) ? (long)synchsafe(tag) : (long)be32(tag) + 4;
+
+    const unsigned char *best = NULL;
+    long best_len = 0;
+    int best_front = 0;
+    while (pos + fhdr <= tsz) {
+        unsigned char *f = tag + pos;
+        if (f[0] == 0) break;
+        long sz = (ver == 2) ? (long)(((u32)f[3] << 16) | ((u32)f[4] << 8) | f[5])
+                             : (ver == 4 ? (long)synchsafe(f + 4) : (long)be32(f + 4));
+        if (sz <= 0 || pos + fhdr + sz > tsz) break;
+        int is_pic = (ver == 2) ? (memcmp(f, "PIC", 3) == 0) : (memcmp(f, "APIC", 4) == 0);
+        if (is_pic) {
+            unsigned char *b = f + fhdr;
+            long bl = sz;
+            if (ver == 4 && (f[9] & 0x01) && bl > 4) { b += 4; bl -= 4; }   // taille d'origine
+            if (ver == 4 && (f[9] & 0x02)) bl = id3_unsync(b, bl);
+            int enc = b[0];
+            long i = 1;
+            if (ver == 2) i += 3;                                          // format "JPG"/"PNG"
+            else { while (i < bl && b[i]) i++; i++; }                      // type MIME
+            int ptype = (i < bl) ? b[i] : 0;
+            i++;
+            if (enc == 1 || enc == 2) {                                    // description UTF-16
+                while (i + 1 < bl && (b[i] || b[i + 1])) i += 2;
+                i += 2;
+            } else {
+                while (i < bl && b[i]) i++;
+                i++;
+            }
+            if (i < bl && (!best || (ptype == 3 && !best_front))) {
+                best = b + i;
+                best_len = bl - i;
+                best_front = (ptype == 3);                                 // 3 = couverture avant
+            }
+        }
+        pos += fhdr + sz;
+    }
+    int ok = best ? cover_from_memory(best, best_len) : 0;
+    free(tag);
+    return ok;
+}
+
+static void load_cover(int idx) {
+    static const char *exts[] = { ".jpg", ".jpeg", ".png" };
+    static const char *common[] = { "cover.jpg", "folder.jpg", "cover.png", "folder.png" };
+    char base[NAME_LEN], path[NAME_LEN + 32];
+
+    cover_ok = 0;
+    snprintf(base, sizeof(base), "%s", names[idx]);
+    size_t l = strlen(base);
+    if (l > 4) base[l - 4] = 0;                                            // retire ".mp3"
+
+    for (int i = 0; i < 3 && !cover_ok; i++) {
+        snprintf(path, sizeof(path), "%s/%s%s", MP3_DIR, base, exts[i]);
+        cover_ok = cover_from_file(path);
+    }
+    if (!cover_ok) {
+        snprintf(path, sizeof(path), "%s/%s", MP3_DIR, names[idx]);
+        cover_ok = cover_from_id3(path);
+    }
+    for (int i = 0; i < 4 && !cover_ok; i++) {
+        snprintf(path, sizeof(path), "%s/%s", MP3_DIR, common[i]);
+        cover_ok = cover_from_file(path);
+    }
+}
+
 static void stop_track(void) {
     if (fdata) { free(fdata); fdata = NULL; }
     playing = 0;
@@ -402,6 +580,7 @@ static int start_track(int idx) {
     stop_track();
     err_msg = NULL;
     artist[0] = 0;
+    load_cover(idx);          /* avant le MP3 : la memoire du decodage est deja liberee */
 
     char path[256];
     snprintf(path, sizeof(path), "%s/%s", MP3_DIR, names[idx]);
@@ -434,7 +613,8 @@ static int start_track(int idx) {
 
 // ---------- GX : initialisation (sequence des exemples officiels libogc) ----------
 static GXTexObj font_texobj;
-static int gx_mode = -1;                 // 0 = couleurs (unies/degrades), 1 = texte (texture)
+static GXTexObj cover_texobj;
+static int gx_mode = -1;                 // 0 = couleurs, 1 = texte (police), 2 = pochette
 #define NSEG 40
 static f32 seg_c[NSEG + 1], seg_s[NSEG + 1];
 
@@ -459,6 +639,23 @@ static void gx_set_text(void) {
     GX_SetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_RASC);
     GX_SetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
     GX_SetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_TEXA, GX_CA_RASA, GX_CA_ZERO);
+    GX_SetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+    GX_ClearVtxDesc();
+    GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
+    GX_SetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+    GX_SetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+}
+
+static void gx_set_cover(void) {
+    if (gx_mode == 2) return;
+    gx_mode = 2;
+    GX_SetNumTexGens(1);
+    GX_SetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
+    GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP1, GX_COLOR0A0);
+    /* couleur = texture ; alpha = alpha du sommet */
+    GX_SetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_TEXC);
+    GX_SetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+    GX_SetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_ZERO, GX_CA_ZERO, GX_CA_RASA);
     GX_SetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
     GX_ClearVtxDesc();
     GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
@@ -516,8 +713,15 @@ static void gx_init(void) {
     GX_InitTexObj(&font_texobj, (void *)font_tex, FONT_TEX_W, FONT_TEX_H,
                   GX_TF_I4, GX_CLAMP, GX_CLAMP, GX_FALSE);
     GX_InitTexObjFilterMode(&font_texobj, GX_LINEAR, GX_LINEAR);
-    GX_InvalidateTexAll();
     GX_LoadTexObj(&font_texobj, GX_TEXMAP0);
+
+    /* Texture de pochette (RGB565 128x128, mise a jour a chaque piste). */
+    DCFlushRange(cover_tex, sizeof(cover_tex));
+    GX_InitTexObj(&cover_texobj, cover_tex, COVER_SZ, COVER_SZ,
+                  GX_TF_RGB565, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InitTexObjFilterMode(&cover_texobj, GX_LINEAR, GX_LINEAR);
+    GX_LoadTexObj(&cover_texobj, GX_TEXMAP1);
+    GX_InvalidateTexAll();
 
     for (int i = 0; i <= NSEG; i++) {
         seg_c[i] = cosf(2.0f * PI_F * (float)i / (float)NSEG);
@@ -953,32 +1157,47 @@ static void draw_list_panel(int sel) {
 }
 
 static void draw_art(void) {
-    /* disque vinyle qui depasse derriere la pochette */
-    const f32 vx = 381, vy = 172;
-    gx_circle(vx, vy, 62, RGBA(28, 24, 48, 255), RGBA(8, 6, 18, 255));
-    gx_ring(vx, vy, 52, 53, RGBA(70, 60, 120, 110));
-    gx_ring(vx, vy, 44, 45, RGBA(70, 60, 120, 90));
-    gx_ring(vx, vy, 36, 37, RGBA(70, 60, 120, 80));
-    gx_ring(vx, vy, 60.5f, 62, RGBA(120, 70, 255, 170));
+    const f32 x = 303, y = 107, sz = 120;
 
-    /* pochette : lune sur un lac */
-    const f32 x = 305, y = 108, w = 104, h = 128, hz = 188;
-    gx_vgrad(x, y, w, hz - y, RGBA(8, 6, 34, 255), RGBA(74, 32, 156, 255));
-    static const u8 stars[12][2] = {{12,10},{30,22},{52,8},{74,18},{92,12},{20,40},
-                                    {88,36},{64,30},{40,48},{98,52},{8,60},{58,56}};
+    /* disque vinyle qui depasse derriere la pochette */
+    const f32 vx = x + sz - 28, vy = y + sz / 2, vr = 56;
+    gx_circle(vx, vy, vr, RGBA(28, 24, 48, 255), RGBA(8, 6, 18, 255));
+    gx_ring(vx, vy, vr - 9, vr - 8, RGBA(70, 60, 120, 110));
+    gx_ring(vx, vy, vr - 16, vr - 15, RGBA(70, 60, 120, 90));
+    gx_ring(vx, vy, vr - 23, vr - 22, RGBA(70, 60, 120, 80));
+    gx_ring(vx, vy, vr - 1.5f, vr, RGBA(120, 70, 255, 170));
+
+    if (playing && cover_ok) {
+        /* vraie pochette */
+        gx_set_cover();
+        GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+        GX_Position2f32(x, y);           GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 0.0f);
+        GX_Position2f32(x + sz, y);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 0.0f);
+        GX_Position2f32(x + sz, y + sz); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 1.0f);
+        GX_Position2f32(x, y + sz);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 1.0f);
+        GX_End();
+        gx_rrect_stroke(x, y, sz, sz, 2, 1.2f, RGBA(124, 80, 240, 235));
+        return;
+    }
+
+    /* pochette par defaut : lune sur un lac */
+    const f32 hz = y + 78, mx = x + sz / 2, my = y + 52;
+    gx_vgrad(x, y, sz, hz - y, RGBA(8, 6, 34, 255), RGBA(74, 32, 156, 255));
+    static const u8 stars[12][2] = {{12,10},{34,24},{58,8},{84,18},{106,12},{20,42},
+                                    {100,38},{74,32},{44,50},{112,54},{8,62},{66,60}};
     for (int i = 0; i < 12; i++)
         gx_rect(x + stars[i][0], y + stars[i][1], 1.3f, 1.3f, RGBA(225, 215, 255, 170));
-    gx_circle(357, 164, 36, RGBA(150, 100, 255, 80), RGBA(150, 100, 255, 0));
-    gx_circle(357, 164, 21, RGBA(240, 232, 255, 255), RGBA(150, 96, 235, 255));
-    gx_ring(357, 164, 20, 21.5f, RGBA(200, 170, 255, 255));
-    gx_tri(x, hz + 1, x + 24, hz - 20, x + 52, hz + 1, RGBA(22, 12, 60, 255));
-    gx_tri(x + 30, hz + 1, x + 66, hz - 13, x + w, hz + 1, RGBA(16, 8, 46, 255));
-    gx_tri(x + 62, hz + 1, x + 88, hz - 22, x + w, hz - 6, RGBA(26, 14, 70, 255));
-    gx_vgrad(x, hz, w, y + h - hz, RGBA(46, 20, 112, 255), RGBA(10, 6, 34, 255));
-    gx_ellipse(357, 206, 22, 14, RGBA(190, 140, 255, 130), RGBA(120, 70, 220, 0));
+    gx_circle(mx, my, 38, RGBA(150, 100, 255, 80), RGBA(150, 100, 255, 0));
+    gx_circle(mx, my, 23, RGBA(240, 232, 255, 255), RGBA(150, 96, 235, 255));
+    gx_ring(mx, my, 22, 23.5f, RGBA(200, 170, 255, 255));
+    gx_tri(x, hz + 1, x + 28, hz - 22, x + 60, hz + 1, RGBA(22, 12, 60, 255));
+    gx_tri(x + 34, hz + 1, x + 76, hz - 14, x + sz, hz + 1, RGBA(16, 8, 46, 255));
+    gx_tri(x + 72, hz + 1, x + 100, hz - 24, x + sz, hz - 7, RGBA(26, 14, 70, 255));
+    gx_vgrad(x, hz, sz, y + sz - hz, RGBA(46, 20, 112, 255), RGBA(10, 6, 34, 255));
+    gx_ellipse(mx, hz + 18, 24, 13, RGBA(190, 140, 255, 130), RGBA(120, 70, 220, 0));
     for (int i = 0; i < 6; i++)
-        gx_rect(x + 18 + i * 4, hz + 6 + i * 6, 68 - i * 8, 1, RGBA(205, 175, 255, 70));
-    gx_rrect_stroke(x, y, w, h, 2, 1.2f, RGBA(124, 80, 240, 235));
+        gx_rect(x + 22 + i * 4, hz + 6 + i * 5, 76 - i * 8, 1, RGBA(205, 175, 255, 70));
+    gx_rrect_stroke(x, y, sz, sz, 2, 1.2f, RGBA(124, 80, 240, 235));
 }
 
 static void draw_round_button(f32 cx, f32 cy, f32 r) {
