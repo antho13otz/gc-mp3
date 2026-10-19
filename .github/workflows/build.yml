@@ -18,6 +18,22 @@ jobs:
       - name: Télécharger stb_image.h
         run: curl --fail --location --silent --show-error -o source/stb_image.h https://raw.githubusercontent.com/nothings/stb/a7d4c2175630e1ea5b6f8dd00ab96fed0b97b96d/stb_image.h
 
+      # Bibliotheque HTTPS (mbedTLS 3.6.7 LTS, archive officielle, empreinte verifiee)
+      - name: Télécharger mbedTLS
+        run: |
+          curl --fail --location --silent --show-error -o mbedtls.tar.bz2 https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2
+          echo "a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6  mbedtls.tar.bz2" | sha256sum -c -
+          rm -rf mbedtls mbedtls-3.6.7
+          python3 -c "import tarfile; tarfile.open('mbedtls.tar.bz2').extractall('.')"
+          mv mbedtls-3.6.7 mbedtls
+          ls mbedtls/library/*.c | wc -l
+
+      # Certificats racines pour verifier les sites https:// (liste Mozilla)
+      - name: Générer source/cacert.h
+        run: |
+          curl --fail --location --silent --show-error -o cacert.pem https://curl.se/ca/cacert.pem || cp /etc/ssl/certs/ca-certificates.crt cacert.pem
+          python3 tools/pem2h.py cacert.pem source/cacert.h
+
       - name: Compiler
         run: |
           make clean
