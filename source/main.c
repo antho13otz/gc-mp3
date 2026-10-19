@@ -3865,7 +3865,7 @@ static int wpi = 0;                         // wconn[wpi] = page, wconn[1 - wpi]
 #define PCONN (&wconn[wpi])
 #define DCONN (&wconn[1 - wpi])
 
-enum { WK_HTML, WK_TEXT, WK_ARCHIVE };
+enum { WK_HTML, WK_TEXT, WK_ARCHIVE, WK_ARCHMETA };
 enum { NAV_PUSH, NAV_BACK, NAV_REPLACE };
 
 typedef struct { int on, st, ext; long rem; } dechunk_t;
@@ -4245,6 +4245,152 @@ static int json_field(const char *a, const char *b, const char *key, char *out, 
     return 0;
 }
 
+/* --- lecture JSON minimale (jetons dans l'ordre du texte) --- */
+enum { JT_OBJ = 1, JT_ARR, JT_STR, JT_PRIM };
+typedef struct { u8 type; int start, end; } jtok_t;
+
+static int json_tokens(const char *js, int len, jtok_t *t, int maxt) {
+    int n = 0, stack[64], sp = 0, i = 0;
+    while (i < len) {
+        char c = js[i];
+        if (c == '{' || c == '[') {
+            if (n >= maxt || sp >= 64) break;
+            t[n].type = (c == '{') ? JT_OBJ : JT_ARR;
+            t[n].start = i;
+            t[n].end = -1;
+            stack[sp++] = n++;
+            i++;
+        } else if (c == '}' || c == ']') {
+            if (sp == 0) return -1;
+            t[stack[--sp]].end = i + 1;
+            i++;
+        } else if (c == '"') {
+            int s = ++i;
+            while (i < len && js[i] != '"') { if (js[i] == '\\') i++; i++; }
+            if (i >= len || n >= maxt) break;
+            t[n].type = JT_STR; t[n].start = s; t[n].end = i; n++;
+            i++;
+        } else if (c == '-' || (c >= '0' && c <= '9') || c == 't' || c == 'f' || c == 'n') {
+            int s = i;
+            while (i < len && js[i] != ',' && js[i] != '}' && js[i] != ']' && !isspace((unsigned char)js[i])) i++;
+            if (n >= maxt) break;
+            t[n].type = JT_PRIM; t[n].start = s; t[n].end = i; n++;
+        } else i++;
+    }
+    while (sp > 0) t[stack[--sp]].end = len;   /* texte coupe : on ferme ce qui reste ouvert */
+    return n;
+}
+
+/* jeton suivant apres celui-ci et tout son contenu */
+static int jskip(const jtok_t *t, int n, int i) {
+    int end = t[i].end;
+    int j = i + 1;
+    while (j < n && t[j].start < end) j++;
+    return j;
+}
+
+static int jkey(const char *js, const jtok_t *t, int i, const char *k) {
+    int l = (int)strlen(k);
+    return t[i].type == JT_STR && t[i].end - t[i].start == l && memcmp(js + t[i].start, k, l) == 0;
+}
+
+/* valeur de la cle k dans l'objet obj, -1 si absente */
+static int jget(const char *js, const jtok_t *t, int n, int obj, const char *k) {
+    if (obj < 0 || t[obj].type != JT_OBJ) return -1;
+    int j = obj + 1;
+    while (j + 1 < n && t[j].start < t[obj].end) {
+        if (jkey(js, t, j, k)) return j + 1;
+        j = jskip(t, n, j + 1);
+    }
+    return -1;
+}
+
+static void jstr(const char *js, const jtok_t *t, int i, char *out, int cap) {
+    out[0] = 0;
+    if (i < 0) return;
+    if (t[i].type == JT_STR) json_string(js + t[i].start - 1, js + t[i].end + 1, out, cap);
+    else if (t[i].type == JT_PRIM) {
+        int l = t[i].end - t[i].start;
+        if (l > cap - 1) l = cap - 1;
+        memcpy(out, js + t[i].start, l);
+        out[l] = 0;
+    }
+}
+
+/* adresse d'un fichier : tout est encode sauf les caracteres surs et '/' */
+static void path_encode(const char *in, char *out, int cap) {
+    static const char hx[] = "0123456789ABCDEF";
+    int n = 0;
+    for (const unsigned char *p = (const unsigned char *)in; *p && n < cap - 4; p++) {
+        if (isalnum(*p) || strchr("-_.~/!$'()*,;=:@", *p)) out[n++] = (char)*p;
+        else { out[n++] = '%'; out[n++] = hx[*p >> 4]; out[n++] = hx[*p & 15]; }
+    }
+    out[n] = 0;
+}
+
+/* archive.org/metadata/ID (JSON) -> page avec les MP3 de l'element */
+static char *archive_meta_to_html(const char *js, int len, const char *url) {
+    sbuf_t s = { NULL, 0, 0 };
+    char id[200] = "", title[300] = "", creator[200] = "", name[600], size[32], fmt[64], enc[1500], t[200];
+    const char *m = strstr(url, "/metadata/");
+    if (m) { snprintf(id, sizeof(id), "%s", m + 10); id[strcspn(id, "/?#")] = 0; }
+    int maxt = len / 6 + 64;
+    if (maxt > 120000) maxt = 120000;
+    jtok_t *tk = (jtok_t *)malloc(sizeof(jtok_t) * maxt);
+    int n = tk ? json_tokens(js, len, tk, maxt) : -1;
+    int meta = -1, files = -1;
+    if (n > 0 && tk[0].type == JT_OBJ) {
+        meta = jget(js, tk, n, 0, "metadata");
+        files = jget(js, tk, n, 0, "files");
+        jstr(js, tk, jget(js, tk, n, meta, "title"), title, sizeof(title));
+        int cr = jget(js, tk, n, meta, "creator");
+        if (cr >= 0 && tk[cr].type == JT_ARR && cr + 1 < n) cr = cr + 1;
+        jstr(js, tk, cr, creator, sizeof(creator));
+    }
+    sb_add(&s, "<html><head><title>");
+    sb_esc(&s, title[0] ? title : id);
+    sb_add(&s, "</title></head><body><h1>");
+    sb_esc(&s, title[0] ? title : id);
+    sb_add(&s, "</h1>");
+    if (creator[0]) { sb_add(&s, "<p>"); sb_esc(&s, creator); sb_add(&s, "</p>"); }
+    sb_add(&s, "<p>Choisis un fichier MP3 : il sera enregistré dans SD:/downloads.</p><ul>");
+    int count = 0;
+    if (files >= 0 && tk[files].type == JT_ARR) {
+        for (int f = files + 1; f < n && tk[f].start < tk[files].end; f = jskip(tk, n, f)) {
+            jstr(js, tk, jget(js, tk, n, f, "name"), name, sizeof(name));
+            int l = (int)strlen(name);
+            if (l < 5 || strcasecmp(name + l - 4, ".mp3") != 0) continue;
+            jstr(js, tk, jget(js, tk, n, f, "size"), size, sizeof(size));
+            jstr(js, tk, jget(js, tk, n, f, "format"), fmt, sizeof(fmt));
+            path_encode(id, enc, sizeof(enc));
+            sb_add(&s, "<li><a href=\"https://archive.org/download/");
+            sb_add(&s, enc);
+            sb_add(&s, "/");
+            path_encode(name, enc, sizeof(enc));
+            sb_esc(&s, enc);
+            sb_add(&s, "\">");
+            const char *b = strrchr(name, '/');
+            sb_esc(&s, b ? b + 1 : name);
+            sb_add(&s, "</a>");
+            long sz = atol(size);
+            if (sz > 0) {
+                snprintf(t, sizeof(t), " (%ld,%ld Mo)", sz / 1048576, (sz % 1048576) * 10 / 1048576);
+                sb_add(&s, t);
+            }
+            sb_add(&s, "</li>");
+            count++;
+        }
+    }
+    sb_add(&s, "</ul>");
+    if (!count) sb_add(&s, "<p>Aucun fichier MP3 dans cet élément.</p>");
+    sb_add(&s, "<p><a href=\"https://archive.org/download/");
+    path_encode(id, enc, sizeof(enc));
+    sb_add(&s, enc);
+    sb_add(&s, "/\">Voir tous les fichiers (page archive.org)</a></p></body></html>");
+    free(tk);
+    return s.b;
+}
+
 static char *archive_to_html(const char *js, int len) {
     sbuf_t s = { NULL, 0, 0 };
     char id[200], title[300], creator[200];
@@ -4271,9 +4417,9 @@ static char *archive_to_html(const char *js, int len) {
         if (json_field(o, e, "identifier", id, sizeof(id)) && id[0]) {
             json_field(o, e, "title", title, sizeof(title));
             json_field(o, e, "creator", creator, sizeof(creator));
-            sb_add(&s, "<li><a href=\"https://archive.org/download/");
+            sb_add(&s, "<li><a href=\"https://archive.org/metadata/");
             sb_esc(&s, id);
-            sb_add(&s, "/\">");
+            sb_add(&s, "\">");
             sb_esc(&s, title[0] ? title : id);
             sb_add(&s, "</a>");
             if (creator[0]) { sb_add(&s, " - "); sb_esc(&s, creator); }
@@ -4315,8 +4461,9 @@ static void web_show(unsigned char *data, int len, const char *url, int kind, in
     memset(&np, 0, sizeof(np));
     snprintf(np.url, sizeof(np.url), "%s", url);
     img_reset();                            /* nouvelle page : nouvelles images */
-    if (kind == WK_ARCHIVE) {
-        char *h = archive_to_html((const char *)data, len);
+    if (kind == WK_ARCHIVE || kind == WK_ARCHMETA) {
+        char *h = kind == WK_ARCHIVE ? archive_to_html((const char *)data, len)
+                                     : archive_meta_to_html((const char *)data, len, url);
         free(data);
         data = (unsigned char *)h;
         len = h ? (int)strlen(h) : 0;
@@ -4516,6 +4663,7 @@ static void web_fetch(const char *url_in, int mode, int typed) {
         if (ci_find(disp, "attachment")) kind = -1;
         else if (strstr(ctype, "text/html") || strstr(ctype, "xhtml")) kind = WK_HTML;
         else if (strstr(ctype, "json") && strcmp(u.host, "archive.org") == 0 && strstr(u.path, "advancedsearch")) kind = WK_ARCHIVE;
+        else if (strstr(ctype, "json") && strcmp(u.host, "archive.org") == 0 && strncmp(u.path, "/metadata/", 10) == 0) kind = WK_ARCHMETA;
         else if (strstr(ctype, "text/plain")) kind = WK_TEXT;
         else if (!ctype[0] && (pl == 0 || u.path[pl - 1] == '/' || (pl > 4 && strcasecmp(u.path + pl - 4, ".htm") == 0) ||
                                 (pl > 5 && strcasecmp(u.path + pl - 5, ".html") == 0))) kind = WK_HTML;
@@ -4990,78 +5138,6 @@ static void load_settings(void) {
             covers_auto = !(strncasecmp(v, "non", 3) == 0 || strcmp(v, "0") == 0 || strncasecmp(v, "no", 2) == 0);
     }
     fclose(f);
-}
-
-/* --- lecture JSON minimale (jetons dans l'ordre du texte) --- */
-enum { JT_OBJ = 1, JT_ARR, JT_STR, JT_PRIM };
-typedef struct { u8 type; int start, end; } jtok_t;
-
-static int json_tokens(const char *js, int len, jtok_t *t, int maxt) {
-    int n = 0, stack[64], sp = 0, i = 0;
-    while (i < len) {
-        char c = js[i];
-        if (c == '{' || c == '[') {
-            if (n >= maxt || sp >= 64) return -1;
-            t[n].type = (c == '{') ? JT_OBJ : JT_ARR;
-            t[n].start = i;
-            t[n].end = -1;
-            stack[sp++] = n++;
-            i++;
-        } else if (c == '}' || c == ']') {
-            if (sp == 0) return -1;
-            t[stack[--sp]].end = i + 1;
-            i++;
-        } else if (c == '"') {
-            int s = ++i;
-            while (i < len && js[i] != '"') { if (js[i] == '\\') i++; i++; }
-            if (i >= len || n >= maxt) return -1;
-            t[n].type = JT_STR; t[n].start = s; t[n].end = i; n++;
-            i++;
-        } else if (c == '-' || (c >= '0' && c <= '9') || c == 't' || c == 'f' || c == 'n') {
-            int s = i;
-            while (i < len && js[i] != ',' && js[i] != '}' && js[i] != ']' && !isspace((unsigned char)js[i])) i++;
-            if (n >= maxt) return -1;
-            t[n].type = JT_PRIM; t[n].start = s; t[n].end = i; n++;
-        } else i++;
-    }
-    if (sp) return -1;
-    return n;
-}
-
-/* jeton suivant apres celui-ci et tout son contenu */
-static int jskip(const jtok_t *t, int n, int i) {
-    int end = t[i].end;
-    int j = i + 1;
-    while (j < n && t[j].start < end) j++;
-    return j;
-}
-
-static int jkey(const char *js, const jtok_t *t, int i, const char *k) {
-    int l = (int)strlen(k);
-    return t[i].type == JT_STR && t[i].end - t[i].start == l && memcmp(js + t[i].start, k, l) == 0;
-}
-
-/* valeur de la cle k dans l'objet obj, -1 si absente */
-static int jget(const char *js, const jtok_t *t, int n, int obj, const char *k) {
-    if (obj < 0 || t[obj].type != JT_OBJ) return -1;
-    int j = obj + 1;
-    while (j + 1 < n && t[j].start < t[obj].end) {
-        if (jkey(js, t, j, k)) return j + 1;
-        j = jskip(t, n, j + 1);
-    }
-    return -1;
-}
-
-static void jstr(const char *js, const jtok_t *t, int i, char *out, int cap) {
-    out[0] = 0;
-    if (i < 0) return;
-    if (t[i].type == JT_STR) json_string(js + t[i].start - 1, js + t[i].end + 1, out, cap);
-    else if (t[i].type == JT_PRIM) {
-        int l = t[i].end - t[i].start;
-        if (l > cap - 1) l = cap - 1;
-        memcpy(out, js + t[i].start, l);
-        out[l] = 0;
-    }
 }
 
 /* --- recherche --- */
