@@ -19,9 +19,9 @@ MBED_OBJ := $(patsubst $(MBEDTLS)/library/%.c,build/mbedtls/%.o,$(MBED_SRC))
 HELIX_SRC:= $(wildcard $(HELIX)/*.c)
 HELIX_OBJ:= $(patsubst $(HELIX)/%.c,build/helix/%.o,$(HELIX_SRC))
 
-CFLAGS   := -O2 -Wall $(MACHDEP) -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(HELIX) -Isource/helixstub $(TLSDEF)
+CFLAGS   := -O2 -Wall $(MACHDEP) -D__POWERPC__ -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(HELIX) -Isource/helixstub $(TLSDEF)
 MBEDFLAGS:= -O2 $(MACHDEP) -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(MBEDTLS)/library $(TLSDEF)
-HELIXFLAGS:= -O2 $(MACHDEP) -Isource/helixstub -I$(HELIX) -DUSE_DEFAULT_STDLIB -Wno-unknown-pragmas
+HELIXFLAGS:= -O2 $(MACHDEP) -D__POWERPC__ -Isource/helixstub -I$(HELIX) -DUSE_DEFAULT_STDLIB -Wno-unknown-pragmas
 LDFLAGS  := $(MACHDEP) -Wl,-Map,$(TARGET).map
 # libbba = reseau (lwIP + Broadband Adapter) de libogc pour GameCube
 LIBS     := -L$(LIBOGC_LIB) -lfat -lbba -logc -lm
