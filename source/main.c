@@ -45,6 +45,8 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_JPEG
 #define STBI_ONLY_PNG
+#define STBI_ONLY_GIF
+#define STBI_ONLY_BMP
 #define STBI_NO_STDIO
 #define STBI_NO_SIMD
 #define STBI_NO_THREAD_LOCALS
@@ -577,13 +579,30 @@ static int resolve_host(const char *host, u32 *out) {
     }
     if (digits && dots == 3) { *out = inet_addr(host); return 1; }
 
+    /* petit cache : evite une requete DNS par image d'un meme site */
+    static struct { char host[64]; u32 addr; u64 t; } cache[8];
+    static int cnext = 0;
+    for (int i = 0; i < 8; i++)
+        if (cache[i].host[0] && strcmp(cache[i].host, host) == 0 && now_ms() - cache[i].t < 600000) {
+            *out = cache[i].addr;
+            return 1;
+        }
+
     u32 servers[3];
     int ns = 0;
     if (gw_str[0]) servers[ns++] = inet_addr(gw_str);
     servers[ns++] = inet_addr("1.1.1.1");
     servers[ns++] = inet_addr("8.8.8.8");
     for (int i = 0; i < ns; i++)
-        if (dns_query(servers[i], host, out)) return 1;
+        if (dns_query(servers[i], host, out)) {
+            if (strlen(host) < sizeof(cache[0].host)) {
+                snprintf(cache[cnext].host, sizeof(cache[0].host), "%s", host);
+                cache[cnext].addr = *out;
+                cache[cnext].t = now_ms();
+                cnext = (cnext + 1) % 8;
+            }
+            return 1;
+        }
     return 0;
 }
 
@@ -748,17 +767,18 @@ static void ui_status(const char *text);   /* redessine l'ecran pendant la conne
 /* Ouvre une connexion TCP (et TLS si tls = 1) vers host:port.
    Retourne 1 si c'est bon ; sinon 0 et *err = message. *refused = 1 si le
    serveur n'accepte pas la connexion (utile pour reessayer en http://). */
-static int conn_open(conn_t *c, const char *host, int port, int tls, const char **err, int *refused) {
+/* Connexion TCP seule (show = afficher l'avancement a l'ecran). */
+static int conn_tcp(conn_t *c, const char *host, int port, const char **err, int *refused, int show) {
     char msg[200];
     if (refused) *refused = 0;
     conn_close(c);
     snprintf(msg, sizeof(msg), "Recherche de %s...", host);
-    ui_status(msg);
+    if (show) ui_status(msg);
     u32 addr;
     if (!resolve_host(host, &addr)) { *err = "Serveur introuvable (DNS)"; return 0; }
 
     snprintf(msg, sizeof(msg), "Connexion à %s...", host);
-    ui_status(msg);
+    if (show) ui_status(msg);
     s32 s = net_socket(AF_INET, SOCK_STREAM, 0);
     if (s < 0) { *err = "Erreur réseau (socket)"; return 0; }
     struct sockaddr_in sa;
@@ -775,6 +795,12 @@ static int conn_open(conn_t *c, const char *host, int port, int tls, const char 
     c->fd = s;
     c->tls = 0;
     set_nonblock(s, 1);
+    return 1;
+}
+
+static int conn_open(conn_t *c, const char *host, int port, int tls, const char **err, int *refused) {
+    char msg[200];
+    if (!conn_tcp(c, host, port, err, refused, 1)) return 0;
     if (tls) {
         snprintf(msg, sizeof(msg), "Connexion sécurisée à %s...", host);
         ui_status(msg);
@@ -1492,7 +1518,7 @@ static int start_track(int idx) {
 // ---------- GX : initialisation (sequence des exemples officiels libogc) ----------
 static GXTexObj font_texobj;
 static GXTexObj cover_texobj;
-static int gx_mode = -1;                 // 0 = couleurs, 1 = texte (police), 2 = pochette
+static int gx_mode = -1;                 // 0 = couleurs, 1 = texte (police), 2 = pochette, 3 = image web
 #define NSEG 40
 static f32 seg_c[NSEG + 1], seg_s[NSEG + 1];
 
@@ -1585,6 +1611,25 @@ static void gx_set_cover(void) {
     GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
     GX_SetVtxDesc(GX_VA_CLR0, GX_DIRECT);
     GX_SetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+}
+
+/* images du navigateur : couleur et transparence de la texture (carte 2) */
+static void gx_set_image(GXTexObj *obj) {
+    if (gx_mode != 3) {
+        gx_mode = 3;
+        GX_SetNumTexGens(1);
+        GX_SetTexCoordGen(GX_TEXCOORD0, GX_TG_MTX2x4, GX_TG_TEX0, GX_IDENTITY);
+        GX_SetTevOrder(GX_TEVSTAGE0, GX_TEXCOORD0, GX_TEXMAP2, GX_COLOR0A0);
+        GX_SetTevColorIn(GX_TEVSTAGE0, GX_CC_ZERO, GX_CC_ZERO, GX_CC_ZERO, GX_CC_TEXC);
+        GX_SetTevColorOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+        GX_SetTevAlphaIn(GX_TEVSTAGE0, GX_CA_ZERO, GX_CA_TEXA, GX_CA_RASA, GX_CA_ZERO);
+        GX_SetTevAlphaOp(GX_TEVSTAGE0, GX_TEV_ADD, GX_TB_ZERO, GX_CS_SCALE_1, GX_TRUE, GX_TEVPREV);
+        GX_ClearVtxDesc();
+        GX_SetVtxDesc(GX_VA_POS, GX_DIRECT);
+        GX_SetVtxDesc(GX_VA_CLR0, GX_DIRECT);
+        GX_SetVtxDesc(GX_VA_TEX0, GX_DIRECT);
+    }
+    GX_LoadTexObj(obj, GX_TEXMAP2);
 }
 
 static void gx_init(void) {
@@ -2684,11 +2729,12 @@ static void draw_player_music(void) {
 #define W_MAX_FIELDS   64
 #define W_MAX_FORMS    16
 
-enum { WS_LINK = 1, WS_HEAD = 2, WS_BOLD = 4, WS_DIM = 8, WS_FIELD = 16, WS_BUTTON = 32, WS_HR = 64 };
+enum { WS_LINK = 1, WS_HEAD = 2, WS_BOLD = 4, WS_DIM = 8, WS_FIELD = 16, WS_BUTTON = 32, WS_HR = 64, WS_IMG = 128 };
 enum { LK_HREF, LK_INPUT, LK_SUBMIT };
 enum { FD_TEXT, FD_HIDDEN, FD_SUBMIT };
 
-typedef struct { u32 off; s32 y; s16 x; u16 w; s16 link; u8 font; u8 style; } witem_t;
+/* element affiche : off = texte, src = position dans le HTML, img/h = image */
+typedef struct { u32 off; u32 src; s32 y; s16 x; u16 w; s16 link; s16 img; u16 h; u8 font; u8 style; } witem_t;
 typedef struct { u32 url; s32 y0, y1; s16 field; u8 kind; s8 form; } wlink_t;
 typedef struct { s8 form; u8 type; u32 name; char value[256]; } wfield_t;
 typedef struct { u32 action; u8 post; } wform_t;
@@ -2706,14 +2752,77 @@ typedef struct {
     char title[160];
     char refresh[URL_MAX];
     int refresh_delay;
+    unsigned char *src; int srclen;         // HTML d'origine (pour remettre en page)
+    int kind, latin;
 } wpage_t;
+
+// ---------- Images de la page ----------
+#define W_MAX_IMGS     96
+#define IMG_MAX_H      320                  // hauteur maxi affichee
+#define IMG_MAX_BYTES  (2 * 1024 * 1024)    // fichier image maxi
+#define IMG_MAX_PIXELS (1200 * 1000)        // image decodee maxi
+#define IMG_TEX_BUDGET (4 * 1024 * 1024)    // memoire des textures d'images
+enum { IMG_NONE, IMG_LOADING, IMG_OK, IMG_FAIL };
+typedef struct {
+    char *url;
+    s16 aw, ah;                             // taille donnee par la page (0 = inconnue)
+    s16 nw, nh;                             // taille reelle (une fois lue)
+    u8 st;
+    u16 tw, th, iw, ih;                     // texture (multiple de 4) et partie utile
+    u16 *tex;
+    GXTexObj obj;
+    s32 y0, y1;                             // position dans la page
+} wimg_t;
+static wimg_t wimgs[W_MAX_IMGS];
+static int nwimg = 0;
+static u32 img_gen = 1;                     // change a chaque nouvelle page
+static long img_bytes = 0;
+static int img_tex_dirty = 0;
+static int relayout_needed = 0;
+static void img_loader_reset(void);
+
+static void img_reset(void) {
+    img_loader_reset();
+    for (int i = 0; i < nwimg; i++) { free(wimgs[i].url); free(wimgs[i].tex); }
+    memset(wimgs, 0, sizeof(wimgs));
+    nwimg = 0;
+    img_bytes = 0;
+    img_gen++;
+    relayout_needed = 0;
+}
+
+static int img_get(const char *url) {
+    for (int i = 0; i < nwimg; i++) if (strcmp(wimgs[i].url, url) == 0) return i;
+    if (nwimg >= W_MAX_IMGS) return -1;
+    char *u = strdup(url);
+    if (!u) return -1;
+    memset(&wimgs[nwimg], 0, sizeof(wimg_t));
+    wimgs[nwimg].url = u;
+    wimgs[nwimg].y0 = -1;
+    return nwimg++;
+}
+
+/* taille d'affichage d'une image : attributs width/height, sinon taille reelle,
+   reduite pour tenir dans maxw x IMG_MAX_H. 0 = encore inconnue. */
+static void img_box(int aw, int ah, int nw, int nh, int maxw, int *dw, int *dh) {
+    int w = aw, h = ah;
+    if (nw > 0 && nh > 0) {
+        if (w > 0 && h <= 0) h = (int)((long)nh * w / nw);
+        else if (h > 0 && w <= 0) w = (int)((long)nw * h / nh);
+        else if (w <= 0 || h <= 0) { w = nw; h = nh; }
+    } else if (w <= 0 || h <= 0) { *dw = *dh = 0; return; }
+    if (w > maxw) { h = (int)((long)h * maxw / w); w = maxw; }
+    if (h > IMG_MAX_H) { w = (int)((long)w * IMG_MAX_H / h); h = IMG_MAX_H; }
+    *dw = w;
+    *dh = h;
+}
 
 static wpage_t pg;                          // page affichee
 static s32 pg_scroll = 0;
 static int pg_sel = -1;                     // lien selectionne
 
 static void wpage_free(wpage_t *p) {
-    free(p->text); free(p->pool); free(p->items); free(p->links); free(p->fields);
+    free(p->text); free(p->pool); free(p->items); free(p->links); free(p->fields); free(p->src);
     memset(p, 0, sizeof(*p));
 }
 
@@ -3085,6 +3194,7 @@ typedef struct {
     int font, style, link;
     int run;                                // element ouvert (on y ajoute les mots suivants)
     int blank;                              // lignes vides consecutives
+    u32 srcpos;                             // position courante dans le HTML
 } wlay_t;
 
 static int font_space(int f) { return font_glyphs[f][0].adv; }
@@ -3096,12 +3206,18 @@ static void lay_newline(wlay_t *L) {
         for (int i = L->line_first; i < p->nitems; i++) {
             int f = p->items[i].font;
             int ih = (p->items[i].style & WS_FIELD) ? font_height[F_MED] + 6 : font_height[f];
-            if (font_ascent[f] > asc) asc = font_ascent[f];
+            int ia = font_ascent[f];
+            if (p->items[i].style & WS_IMG) { ia = p->items[i].h; ih = p->items[i].h + 3; }
+            if (ia > asc) asc = ia;
             if (ih > h) h = ih;
         }
         if (p->items[L->line_first].style & WS_HR) { asc = 6; h = 12; }
         for (int i = L->line_first; i < p->nitems; i++) {
             p->items[i].y = L->line_top + asc;
+            if ((p->items[i].style & WS_IMG) && p->items[i].img >= 0) {
+                wimg_t *im = &wimgs[p->items[i].img];
+                if (im->y0 < 0) { im->y0 = L->line_top + asc - p->items[i].h; im->y1 = L->line_top + asc; }
+            }
             int lk = p->items[i].link;
             if (lk >= 0) {
                 if (p->links[lk].y0 < 0 || p->links[lk].y0 > L->line_top) p->links[lk].y0 = L->line_top;
@@ -3140,6 +3256,8 @@ static witem_t *lay_new_item(wlay_t *L, int x, int w) {
     it->font = (u8)L->font;
     it->style = (u8)L->style;
     it->off = p->tlen;
+    it->src = L->srcpos;
+    it->img = -1;
     L->brk = 0;
     return it;
 }
@@ -3238,6 +3356,25 @@ static void lay_hr(wlay_t *L) {
     lay_newline(L);
 }
 
+/* image (ou sa case d'attente avec le texte label) */
+static void lay_img(wlay_t *L, int img, int w, int h, const char *label) {
+    int sw = (L->space && L->x > L->indent) ? font_space(L->font) : 0;
+    if (w > WV_W - L->indent) w = WV_W - L->indent;
+    if (L->x + sw + w > WV_W && L->x > L->indent) { lay_newline(L); sw = 0; }
+    int save = L->style;
+    L->style = WS_IMG | (L->link >= 0 ? WS_LINK : 0);
+    witem_t *it = lay_new_item(L, L->x + sw, w);
+    L->style = save;
+    if (!it) return;
+    it->img = (s16)img;
+    it->h = (u16)h;
+    it->font = F_SMALL;
+    if (!text_append(L->p, label ? label : "", label ? (int)strlen(label) : 0, 0)) { L->p->nitems--; return; }
+    L->x += sw + w;
+    L->space = 0;
+    L->run = -1;
+}
+
 // ---------- Analyse du HTML ----------
 static int new_link(wpage_t *p, int kind, const char *url, int field, int form) {
     if (!grow((void **)&p->links, &p->lcap, p->nlinks + 1, sizeof(wlink_t), W_MAX_LINKS)) { p->truncated = 1; return -1; }
@@ -3332,8 +3469,10 @@ static void web_layout_html(wpage_t *p, const unsigned char *s, int len, int lat
 #define SET_STYLE() (L.style = (link_open ? WS_LINK : 0) | (heading ? WS_HEAD : 0) | (bold ? WS_BOLD : 0) | \
                      (L.link >= 0 && p->links[L.link].kind == LK_SUBMIT ? WS_BUTTON : 0))
 
+    for (int i = 0; i < nwimg; i++) wimgs[i].y0 = wimgs[i].y1 = -1;
     while (pos < len && !p->truncated) {
         if ((++tick & 1023) == 0) bg_tick();
+        L.srcpos = (u32)pos;
         unsigned char c = s[pos];
         if (c == '<') {
             /* commentaire */
@@ -3532,11 +3671,39 @@ static void web_layout_html(wpage_t *p, const unsigned char *s, int len, int lat
                 continue;
             }
             if (strcmp(name, "img") == 0) {
-                if (link_open && tag_attr(tag, tl, "alt", val, sizeof(val), latin) && val[0] && strlen(val) < 80) {
-                    char disp[200], t2[210];
-                    text_display(val, disp, sizeof(disp));
-                    snprintf(t2, sizeof(t2), "[%s]", disp);
+                char alt[200] = "";
+                if (tag_attr(tag, tl, "alt", val, sizeof(val), latin) && strlen(val) < 120) text_display(val, alt, sizeof(alt));
+                /* adresse : src, ou data-src... (images chargees par JavaScript) */
+                static const char *const srcs[] = { "src", "data-src", "data-original", "data-lazy-src", NULL };
+                int idx = -1;
+                for (int k = 0; srcs[k] && idx < 0; k++) {
+                    if (!tag_attr(tag, tl, srcs[k], val, sizeof(val), latin) || !val[0] ||
+                        strncasecmp(val, "data:", 5) == 0) continue;
+                    if (url_join(base, val, val2, sizeof(val2))) idx = img_get(val2);
+                }
+                wimg_t *im = idx >= 0 ? &wimgs[idx] : NULL;
+                if (im) {
+                    char wv[24], hv[24];
+                    if (tag_attr(tag, tl, "width", wv, sizeof(wv), latin) && !strchr(wv, '%') && atoi(wv) > 0) im->aw = (s16)atoi(wv);
+                    if (tag_attr(tag, tl, "height", hv, sizeof(hv), latin) && !strchr(hv, '%') && atoi(hv) > 0) im->ah = (s16)atoi(hv);
+                }
+                int dw = 0, dh = 0;
+                if (im && im->st != IMG_FAIL) img_box(im->aw, im->ah, im->nw, im->nh, WV_W - L.indent, &dw, &dh);
+                if (im && im->st != IMG_FAIL && dw > 0) {
+                    if (dw >= 3 && dh >= 3) lay_img(&L, idx, dw, dh, alt);   /* sinon : image d'espacement */
+                } else if (im && im->st != IMG_FAIL && im->st != IMG_OK) {
+                    /* taille inconnue tant que l'image n'est pas lue : petite case */
+                    char lab[48];
+                    fit_text(F_SMALL, alt, 160, lab, sizeof(lab));
+                    int w = text_width(F_SMALL, lab, 0) + 12;
+                    lay_img(&L, idx, w < 24 ? 24 : w, 18, lab);
+                } else if (alt[0] && (link_open || strlen(alt) > 2)) {
+                    char t2[210];
+                    snprintf(t2, sizeof(t2), "[%s]", alt);
+                    int save = L.style;
+                    if (!link_open) L.style |= WS_DIM;
                     lay_text(&L, t2);
+                    L.style = save;
                 }
                 continue;
             }
@@ -4115,14 +4282,26 @@ static void select_first_visible(void) {
 
 static void web_go(const char *url, int mode);
 
-static void web_show(const unsigned char *data, int len, const char *url, int kind, int latin, int mode) {
+/* Affiche une page. data (alloue avec malloc) appartient ensuite a la page. */
+static void web_show(unsigned char *data, int len, const char *url, int kind, int latin, int mode) {
     wpage_t np;
     memset(&np, 0, sizeof(np));
     snprintf(np.url, sizeof(np.url), "%s", url);
+    img_reset();                            /* nouvelle page : nouvelles images */
     if (kind == WK_ARCHIVE) {
         char *h = archive_to_html((const char *)data, len);
-        if (h) { web_layout_html(&np, (const unsigned char *)h, (int)strlen(h), 0); free(h); }
-    } else if (kind == WK_TEXT) web_layout_text(&np, data, len, latin);
+        free(data);
+        data = (unsigned char *)h;
+        len = h ? (int)strlen(h) : 0;
+        kind = WK_HTML;
+        latin = 0;
+    }
+    np.src = data;
+    np.srclen = len;
+    np.kind = kind;
+    np.latin = latin;
+    if (!data) { /* plus de memoire */ }
+    else if (kind == WK_TEXT) web_layout_text(&np, data, len, latin);
     else web_layout_html(&np, data, len, latin);
     if (!np.title[0]) {
         urlp_t u;
@@ -4186,7 +4365,37 @@ static void web_finish_load(void) {
     wb_len = wb_cap = 0;
     web_show(buf, len, wb_url, wb_kind, wb_latin, wb_mode);
     if (wb_trunc) web_note("Page trop grande : seul le début est affiché", 1);
-    free(buf);
+}
+
+/* Remet la page en page (une image a revele sa taille) sans bouger ce qu'on lit. */
+static void web_relayout(void) {
+    if (!pg.src || pg.kind != WK_HTML) return;
+    s32 delta = 0;
+    u32 anchor = 0;
+    int lo = 0, hi = pg.nitems;
+    while (lo < hi) {
+        int mid = (lo + hi) / 2;
+        if (pg.items[mid].y < pg_scroll) lo = mid + 1; else hi = mid;
+    }
+    if (lo < pg.nitems) { anchor = pg.items[lo].src; delta = pg.items[lo].y - pg_scroll; }
+    wpage_t np;
+    memset(&np, 0, sizeof(np));
+    snprintf(np.url, sizeof(np.url), "%s", pg.url);
+    np.src = pg.src; np.srclen = pg.srclen; np.kind = pg.kind; np.latin = pg.latin;
+    pg.src = NULL;
+    web_layout_html(&np, np.src, np.srclen, np.latin);
+    if (!np.title[0]) snprintf(np.title, sizeof(np.title), "%s", pg.title);
+    for (int i = 0; i < np.nfields && i < pg.nfields; i++)     /* garder ce qui a ete tape */
+        memcpy(np.fields[i].value, pg.fields[i].value, sizeof(np.fields[i].value));
+    int sel = pg_sel;
+    wpage_free(&pg);
+    pg = np;
+    if (anchor) {
+        for (int i = 0; i < pg.nitems; i++)
+            if (pg.items[i].src >= anchor) { pg_scroll = pg.items[i].y - delta; break; }
+    }
+    web_scroll_clamp();
+    pg_sel = (sel < pg.nlinks) ? sel : -1;
 }
 
 /* Ouvre une adresse http(s) : connexion + en-tetes (quelques secondes au plus),
@@ -4322,6 +4531,375 @@ static void web_fetch(const char *url_in, int mode, int typed) {
     web_note("Trop de redirections", 1);
 }
 
+// ---------- Chargement des images en tache de fond ----------
+/* Le telechargement se fait par petites etapes a chaque image affichee (rien ne
+   bloque l'ecran longtemps) ; le decodage JPEG/PNG/GIF se fait dans un thread de
+   faible priorite qui travaille pendant que le programme attend l'ecran suivant. */
+enum { IL_IDLE, IL_HANDSHAKE, IL_HEAD, IL_BODY, IL_DECODE };
+static conn_t iconn = { -1, 0, 0 };
+static int il_state = IL_IDLE, il_img = -1, il_alive = 0, il_redirs = 0, il_reused = 0, il_close_after = 0;
+static char il_host[128];
+static int il_port = 0, il_tls = 0;
+static char il_url[URL_MAX];
+static unsigned char il_hdr[8192];
+static int il_hlen = 0;
+static unsigned char *il_buf = NULL;
+static int il_len = 0, il_cap = 0;
+static long il_expect = -1;
+static dechunk_t il_dc;
+static u64 il_t0 = 0, il_last_use = 0;
+static u32 il_gen = 0;
+
+/* travail du thread de decodage */
+static volatile int dj_state = 0;           /* 0 libre, 1 a faire, 2 fini */
+static unsigned char *dj_in = NULL;
+static int dj_len = 0, dj_aw = 0, dj_ah = 0, dj_maxw = 0;
+static u16 *dj_tex = NULL;
+static int dj_tw, dj_th, dj_iw, dj_ih, dj_nw, dj_nh, dj_ok;
+static lwp_t dec_thread_h;
+static u8 dec_stack[64 * 1024] ATTRIBUTE_ALIGN(32);
+static int dec_started = 0;
+
+static u16 rgb5a3(int r, int g, int b, int a) {
+    if (a >= 0xE0) return (u16)(0x8000 | ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3));
+    return (u16)(((a >> 5) << 12) | ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4));
+}
+
+static void img_decode_job(void) {
+    int w, h, c;
+    dj_ok = 0;
+    dj_nw = dj_nh = 0;
+    dj_tex = NULL;
+    if (!stbi_info_from_memory(dj_in, dj_len, &w, &h, &c) || w <= 0 || h <= 0) return;
+    dj_nw = w;
+    dj_nh = h;
+    if ((long)w * h > IMG_MAX_PIXELS) return;
+    int dw, dh;
+    img_box(dj_aw, dj_ah, w, h, dj_maxw, &dw, &dh);
+    if (dw < 1 || dh < 1) return;
+    if (dw > w) { dh = (int)((long)dh * w / dw); dw = w; }   /* jamais plus grand que l'original */
+    if (dh > h) { dw = (int)((long)dw * h / dh); dh = h; }
+    if (dw < 1) dw = 1;
+    if (dh < 1) dh = 1;
+    unsigned char *px = stbi_load_from_memory(dj_in, dj_len, &w, &h, &c, 4);
+    if (!px) return;
+    int tw = (dw + 3) & ~3, th = (dh + 3) & ~3;
+    u16 *tex = (u16 *)memalign(32, (size_t)tw * th * 2);
+    if (!tex) { stbi_image_free(px); return; }
+    memset(tex, 0, (size_t)tw * th * 2);
+    for (int y = 0; y < dh; y++) {
+        int sy0 = (int)((long)y * h / dh), sy1 = (int)((long)(y + 1) * h / dh);
+        if (sy1 <= sy0) sy1 = sy0 + 1;
+        int ys = (sy1 - sy0 + 3) / 4;                      /* au plus 4x4 points par pixel */
+        for (int x = 0; x < dw; x++) {
+            int sx0 = (int)((long)x * w / dw), sx1 = (int)((long)(x + 1) * w / dw);
+            if (sx1 <= sx0) sx1 = sx0 + 1;
+            int xs = (sx1 - sx0 + 3) / 4;
+            unsigned r = 0, g = 0, b = 0, a = 0, n = 0;
+            for (int sy = sy0; sy < sy1; sy += ys)
+                for (int sx = sx0; sx < sx1; sx += xs) {
+                    const unsigned char *q = px + ((size_t)sy * w + sx) * 4;
+                    r += q[0]; g += q[1]; b += q[2]; a += q[3]; n++;
+                }
+            tex[((y >> 2) * (tw >> 2) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)] =
+                rgb5a3(r / n, g / n, b / n, a / n);
+        }
+    }
+    stbi_image_free(px);
+    dj_tex = tex;
+    dj_tw = tw; dj_th = th; dj_iw = dw; dj_ih = dh;
+    dj_ok = 1;
+}
+
+static void *dec_thread(void *arg) {
+    (void)arg;
+    for (;;) {
+        if (dj_state == 1) {
+            img_decode_job();
+            free(dj_in);
+            dj_in = NULL;
+            dj_state = 2;
+        } else usleep(8000);
+    }
+    return NULL;
+}
+
+static void il_close(void) {
+    conn_close(&iconn);
+    il_alive = 0;
+}
+
+static void il_drop_buf(void) {
+    free(il_buf);
+    il_buf = NULL;
+    il_len = il_cap = 0;
+}
+
+static void img_loader_reset(void) {
+    if (il_state == IL_HANDSHAKE || il_state == IL_HEAD || il_state == IL_BODY) { il_close(); il_state = IL_IDLE; }
+    il_drop_buf();
+    il_img = -1;                            /* un decodage en cours sera jete (generation) */
+}
+
+static void img_fail(void) {
+    if (il_img >= 0 && il_gen == img_gen) { wimgs[il_img].st = IMG_FAIL; relayout_needed = 1; }
+    il_drop_buf();
+    il_state = IL_IDLE;
+    il_img = -1;
+}
+
+static int il_send(void) {
+    urlp_t u;
+    char req[URL_MAX * 2 + 400];
+    if (!url_parse(il_url, &u)) return 0;
+    char ref[URL_MAX + 16] = "";
+    if (strncmp(pg.url, "http", 4) == 0) snprintf(ref, sizeof(ref), "Referer: %s\r\n", pg.url);
+    char hosthdr[160];
+    if (u.port == (u.tls ? 443 : 80)) snprintf(hosthdr, sizeof(hosthdr), "%s", u.host);
+    else snprintf(hosthdr, sizeof(hosthdr), "%s:%d", u.host, u.port);
+    int rl = snprintf(req, sizeof(req),
+                      "GET %s HTTP/1.1\r\nHost: %s\r\n"
+                      "User-Agent: Mozilla/5.0 (compatible; GC-MP3/1.0; Nintendo GameCube)\r\n"
+                      "Accept: image/jpeg,image/png,image/gif,image/*;q=0.8,*/*;q=0.5\r\n"
+                      "%sConnection: keep-alive\r\n\r\n", u.path, hosthdr, ref);
+    if (rl >= (int)sizeof(req) || !conn_send_all(&iconn, req, rl)) return 0;
+    il_hlen = 0;
+    il_state = IL_HEAD;
+    il_t0 = now_ms();
+    return 1;
+}
+
+/* Demande l'image il_url (en reutilisant la connexion si c'est le meme site). */
+static void il_request(void) {
+    urlp_t u;
+    if (!url_parse(il_url, &u)) { img_fail(); return; }
+    il_reused = il_alive && iconn.fd >= 0 && strcmp(u.host, il_host) == 0 && u.port == il_port && u.tls == il_tls;
+    if (!il_reused) {
+        const char *err = NULL;
+        il_close();
+        if (!conn_tcp(&iconn, u.host, u.port, &err, NULL, 0)) { img_fail(); return; }
+        snprintf(il_host, sizeof(il_host), "%s", u.host);
+        il_port = u.port;
+        il_tls = u.tls;
+        il_alive = 1;
+        if (u.tls) {
+            if (!tls_global_init()) { il_close(); img_fail(); return; }
+            mbedtls_ssl_init(&iconn.ssl);
+            iconn.ssl_inited = 1;
+            if (mbedtls_ssl_setup(&iconn.ssl, &tls_conf) != 0 || mbedtls_ssl_set_hostname(&iconn.ssl, u.host) != 0) {
+                il_close(); img_fail(); return;
+            }
+            mbedtls_ssl_set_bio(&iconn.ssl, &iconn.fd, bio_send, bio_recv, NULL);
+            iconn.tls = 1;
+            il_state = IL_HANDSHAKE;
+            il_t0 = now_ms();
+            return;
+        }
+    }
+    if (!il_send()) {
+        if (il_reused) { il_close(); il_request(); return; }   /* connexion gardee mais fermee par le site */
+        il_close();
+        img_fail();
+    }
+}
+
+static int img_dist(const wimg_t *im) {
+    s32 top = pg_scroll, bot = pg_scroll + WV_H;
+    if (im->y1 < top) return top - im->y1;
+    if (im->y0 > bot) return im->y0 - bot;
+    return 0;
+}
+
+/* termine la reception : l'image part au decodage */
+static void il_body_done(void) {
+    if (il_close_after) il_close();
+    if (!dec_started) {
+        if (LWP_CreateThread(&dec_thread_h, dec_thread, NULL, dec_stack, sizeof(dec_stack), 20) < 0) { img_fail(); return; }
+        dec_started = 1;
+    }
+    wimg_t *im = &wimgs[il_img];
+    dj_in = il_buf;
+    dj_len = il_len;
+    il_buf = NULL;
+    il_len = il_cap = 0;
+    dj_aw = im->aw;
+    dj_ah = im->ah;
+    dj_maxw = WV_W;
+    il_state = IL_DECODE;
+    dj_state = 1;
+}
+
+static void img_pump(void) {
+    if (tab != TAB_WEB && il_state == IL_IDLE) return;
+    if (il_state != IL_IDLE && il_state != IL_DECODE && il_gen != img_gen) { img_loader_reset(); }
+
+    if (il_state == IL_DECODE) {
+        if (dj_state != 2) return;
+        dj_state = 0;
+        il_state = IL_IDLE;
+        if (il_gen != img_gen || il_img < 0) { free(dj_tex); return; }   /* page changee */
+        wimg_t *im = &wimgs[il_img];
+        il_img = -1;
+        int unsized = (im->aw <= 0 || im->ah <= 0);
+        im->nw = (s16)(dj_nw > 32767 ? 32767 : dj_nw);
+        im->nh = (s16)(dj_nh > 32767 ? 32767 : dj_nh);
+        if (!dj_ok) { im->st = IMG_FAIL; free(dj_tex); relayout_needed = 1; return; }
+        im->tex = dj_tex;
+        im->tw = (u16)dj_tw; im->th = (u16)dj_th; im->iw = (u16)dj_iw; im->ih = (u16)dj_ih;
+        DCFlushRange(im->tex, (u32)im->tw * im->th * 2);
+        GX_InitTexObj(&im->obj, im->tex, im->tw, im->th, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+        GX_InitTexObjFilterMode(&im->obj, GX_LINEAR, GX_LINEAR);
+        img_bytes += (long)im->tw * im->th * 2;
+        img_tex_dirty = 1;
+        im->st = IMG_OK;
+        if (unsized) relayout_needed = 1;
+        return;
+    }
+
+    if (il_state == IL_IDLE) {
+        if (dj_state != 0) return;
+        if (il_alive && now_ms() - il_last_use > 15000) il_close();      /* connexion inutile */
+        int best = -1, bestd = 2 * WV_H + 1;
+        for (int i = 0; i < nwimg; i++) {
+            if (wimgs[i].st != IMG_NONE || wimgs[i].y0 < 0) continue;
+            int d = img_dist(&wimgs[i]);
+            if (d < bestd) { bestd = d; best = i; }
+        }
+        if (best < 0) return;
+        /* memoire : on oublie les images loin de l'ecran */
+        while (img_bytes > IMG_TEX_BUDGET) {
+            int far = -1, fd = 2 * WV_H;
+            for (int i = 0; i < nwimg; i++)
+                if (wimgs[i].st == IMG_OK && img_dist(&wimgs[i]) > fd) { fd = img_dist(&wimgs[i]); far = i; }
+            if (far < 0) return;                                      /* tout est proche : on attend */
+            img_bytes -= (long)wimgs[far].tw * wimgs[far].th * 2;
+            free(wimgs[far].tex);
+            wimgs[far].tex = NULL;
+            wimgs[far].st = IMG_NONE;
+        }
+        il_img = best;
+        il_gen = img_gen;
+        wimgs[best].st = IMG_LOADING;
+        snprintf(il_url, sizeof(il_url), "%s", wimgs[best].url);
+        il_redirs = 0;
+        il_last_use = now_ms();
+        il_request();
+        return;
+    }
+
+    if (il_state == IL_HANDSHAKE) {
+        int r = mbedtls_ssl_handshake(&iconn.ssl);
+        if (r == 0) { if (!il_send()) { il_close(); img_fail(); } return; }
+        if ((r != MBEDTLS_ERR_SSL_WANT_READ && r != MBEDTLS_ERR_SSL_WANT_WRITE) || now_ms() - il_t0 > 15000) {
+            il_close();
+            img_fail();
+        }
+        return;
+    }
+
+    if (il_state == IL_HEAD) {
+        for (;;) {
+            if (il_hlen >= (int)sizeof(il_hdr) - 1) { il_close(); img_fail(); return; }
+            int r = conn_recv(&iconn, il_hdr + il_hlen, (int)sizeof(il_hdr) - 1 - il_hlen);
+            if (r == -EAGAIN || r == -EWOULDBLOCK) {
+                if (now_ms() - il_t0 > 15000) { il_close(); img_fail(); }
+                return;
+            }
+            if (r <= 0) {
+                int retry = il_reused && il_hlen == 0;
+                il_close();
+                if (retry) { il_request(); return; }                    /* site qui a ferme la connexion */
+                img_fail();
+                return;
+            }
+            il_hlen += r;
+            il_hdr[il_hlen] = 0;
+            char *e = strstr((char *)il_hdr, "\r\n\r\n");
+            if (!e) continue;
+            int body_off = (int)(e - (char *)il_hdr) + 4;
+            e[2] = 0;
+            int code = 0, minor = 0;
+            if (sscanf((char *)il_hdr, "HTTP/1.%d %d", &minor, &code) != 2) { il_close(); img_fail(); return; }
+            char *hd = (char *)il_hdr;
+            const char *v = header_value(hd, "Connection");
+            il_close_after = (minor == 0) || (v && ci_find((char *)v, "close"));
+            v = header_value(hd, "Transfer-Encoding");
+            int chunked = v && ci_find((char *)v, "chunked");
+            v = header_value(hd, "Content-Length");
+            long clen = (v && !chunked) ? atol(v) : -1;
+            if (clen < 0 && !chunked) il_close_after = 1;              /* fin = fermeture */
+            if (code >= 300 && code < 400) {
+                v = header_value(hd, "Location");
+                char next[URL_MAX];
+                il_close();
+                if (!v || il_redirs >= 4 || !url_join(il_url, v, next, sizeof(next))) { img_fail(); return; }
+                il_redirs++;
+                snprintf(il_url, sizeof(il_url), "%s", next);
+                il_request();
+                return;
+            }
+            v = header_value(hd, "Content-Type");
+            if (code != 200 || clen > IMG_MAX_BYTES ||
+                (v && (ci_find((char *)v, "text/") || ci_find((char *)v, "svg") || ci_find((char *)v, "webp")))) {
+                il_close();
+                img_fail();
+                return;
+            }
+            il_cap = clen > 0 ? (int)clen + 16 : 65536;
+            il_buf = (unsigned char *)malloc(il_cap);
+            if (!il_buf) { il_close(); img_fail(); return; }
+            il_len = 0;
+            memset(&il_dc, 0, sizeof(il_dc));
+            il_dc.on = chunked;
+            il_expect = clen;
+            int bl = il_hlen - body_off;
+            if (bl > 0) {
+                memcpy(il_buf, il_hdr + body_off, bl);
+                il_len = chunked ? dechunk(&il_dc, il_buf, bl) : bl;
+            }
+            il_state = IL_BODY;
+            il_t0 = now_ms();
+            if ((il_expect >= 0 && il_len >= il_expect) || (il_dc.on && il_dc.st == 3)) il_body_done();
+            return;
+        }
+    }
+
+    if (il_state == IL_BODY) {
+        static unsigned char tmp[16384];
+        int got = 0;
+        while (got < 256 * 1024) {
+            int r = conn_recv(&iconn, tmp, sizeof(tmp));
+            if (r > 0) {
+                int m = il_dc.on ? dechunk(&il_dc, tmp, r) : r;
+                if (il_len + m > IMG_MAX_BYTES) { il_close(); img_fail(); return; }
+                if (il_len + m > il_cap) {
+                    int nc = il_cap * 2;
+                    while (nc < il_len + m) nc *= 2;
+                    if (nc > IMG_MAX_BYTES) nc = IMG_MAX_BYTES;
+                    unsigned char *nb = (unsigned char *)realloc(il_buf, nc);
+                    if (!nb) { il_close(); img_fail(); return; }
+                    il_buf = nb;
+                    il_cap = nc;
+                }
+                memcpy(il_buf + il_len, tmp, m);
+                il_len += m;
+                got += r;
+                il_t0 = now_ms();
+                if ((il_expect >= 0 && il_len >= il_expect) || (il_dc.on && il_dc.st == 3)) { il_body_done(); return; }
+                continue;
+            }
+            if (r == -EAGAIN || r == -EWOULDBLOCK) break;
+            il_close();                                                 /* fin du fichier */
+            if (il_expect > 0 && il_len < il_expect) { img_fail(); return; }
+            if (il_len == 0) { img_fail(); return; }
+            il_close_after = 0;
+            il_body_done();
+            return;
+        }
+        if (now_ms() - il_t0 > 20000) { il_close(); img_fail(); }
+    }
+}
+
 static void web_pump(void) {
     static unsigned char tmp[16384];
     if (wb_loading) {
@@ -4358,6 +4936,16 @@ static void web_pump(void) {
         }
     }
     dl_pump();
+    img_pump();
+    if (relayout_needed && !wb_loading) {                /* une image a donne sa taille */
+        static u64 last = 0;
+        u64 wait = pg.srclen > 300000 ? 3000 : 800;
+        if (now_ms() - last > wait) {
+            relayout_needed = 0;
+            last = now_ms();
+            web_relayout();
+        }
+    }
 }
 
 // ---------- Navigateur : actions ----------
@@ -4377,7 +4965,7 @@ static void kb_start(int mode, const char *init, int field, int form) {
 
 static void web_render_home(int mode) {
     char *h = build_home();
-    if (h) { web_show((const unsigned char *)h, (int)strlen(h), "gc:accueil", WK_HTML, 0, mode); free(h); }
+    if (h) web_show((unsigned char *)h, (int)strlen(h), "gc:accueil", WK_HTML, 0, mode);
 }
 
 static void add_favorite(void) {
@@ -4702,6 +5290,7 @@ static void draw_web(void) {
     }
 
     /* contenu */
+    if (img_tex_dirty) { GX_InvalidateTexAll(); img_tex_dirty = 0; }
     GX_SetScissor(WV_X - 6, WV_Y - 4, WV_W + 12, WV_H + 6);
     int lo = 0, hi = pg.nitems;
     while (lo < hi) {                                          /* premier element visible */
@@ -4713,10 +5302,44 @@ static void draw_web(void) {
             witem_t *it = &pg.items[i];
             int f = it->font;
             f32 by = (f32)(WV_Y + it->y - pg_scroll);
-            if (by - font_ascent[f] > WV_Y + WV_H + 4) break;
+            if (by - font_ascent[f] > WV_Y + WV_H + 4 && by - it->h > WV_Y + WV_H + 4) break;
             f32 bx = (f32)(WV_X + it->x);
             int sel = (it->link >= 0 && it->link == pg_sel);
             f32 top = by - font_ascent[f];
+            if (it->style & WS_IMG) {                          /* image ou case d'attente */
+                f32 ih = it->h, iy = by - ih;
+                if (iy > WV_Y + WV_H + 4 || by < WV_Y - 4) continue;
+                wimg_t *im = it->img >= 0 ? &wimgs[it->img] : NULL;
+                int ok = im && im->st == IMG_OK && im->tex;
+                if (pass == 0) {
+                    if (sel) gx_rrect_fill(bx - 4, iy - 4, it->w + 8, ih + 8, 5, RGBA(150, 80, 255, 255), RGBA(100, 40, 210, 255));
+                    if (!ok) {
+                        gx_rrect_fill(bx, iy, it->w, ih, 3, RGBA(30, 20, 70, 255), RGBA(20, 12, 50, 255));
+                        gx_rrect_stroke(bx, iy, it->w, ih, 3, 1.0f, RGBA(80, 60, 150, 255));
+                    }
+                    continue;
+                }
+                if (ok) {
+                    /* image centree dans sa case, proportions respectees */
+                    f32 sc = (f32)it->w / im->iw, sc2 = ih / im->ih;
+                    if (sc2 < sc) sc = sc2;
+                    f32 w = im->iw * sc, h = im->ih * sc;
+                    f32 x0 = bx + (it->w - w) / 2, y0 = iy + (ih - h) / 2;
+                    f32 u1 = (f32)im->iw / im->tw, v1 = (f32)im->ih / im->th;
+                    gx_set_image(&im->obj);
+                    GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+                    GX_Position2f32(x0, y0);         GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0, 0);
+                    GX_Position2f32(x0 + w, y0);     GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(u1, 0);
+                    GX_Position2f32(x0 + w, y0 + h); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(u1, v1);
+                    GX_Position2f32(x0, y0 + h);     GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0, v1);
+                    GX_End();
+                } else if (pg.text[it->off]) {
+                    char lab[64];
+                    fit_text(F_SMALL, pg.text + it->off, it->w - 8, lab, sizeof(lab));
+                    gx_text1(F_SMALL, bx + 5, iy + ih / 2 + 4, lab, RGBA(150, 135, 210, 255));
+                }
+                continue;
+            }
             if (pass == 0) {                                   /* fonds : selection, boutons, champs */
                 if (it->style & WS_FIELD) {
                     gx_rrect_fill(bx, top - 3, it->w, font_height[F_MED] + 6, 4,
