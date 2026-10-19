@@ -35,7 +35,7 @@ jobs:
               raise SystemExit(f"ERREUR: DOL trop petit ({size} octets)")
           padded = ((size + block - 1) // block) * block
           with open(path, "ab") as f:
-              f.write(b"\\0" * (padded - size))
+              f.write(b"\0" * (padded - size))
           print(f"DOL aligné: {size} -> {padded} octets; blocs de {block} octets")
           PY
 
