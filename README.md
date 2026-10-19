@@ -10,6 +10,12 @@ Pochettes, dans l'ordre : image du même nom que le MP3 (Stan.jpg pour Stan.mp3)
 pochette intégrée au MP3, ou cover.jpg / folder.jpg (ou .png) dans le dossier du MP3.
 Une seule image cover.jpg dans le dossier d'un album suffit donc pour tout l'album.
 Les numéros en tête des noms de fichiers (01. , 01 - ) sont masqués à l'affichage.
+Pochettes automatiques : si un morceau n'a pas de pochette et que le Broadband Adapter
+est branché, GC-MP3 cherche l'album sur MusicBrainz (artiste + titre du MP3, ou nom de fichier
+Artiste - Titre.mp3) et télécharge la pochette sur le Cover Art Archive. Elle est enregistrée
+à côté du MP3 (Titre.jpg) : la fois suivante, elle s'affiche sans réseau. L'album et l'année
+s'affichent sous l'artiste. Pour désactiver : pochettes_auto = non dans SD:/gc-mp3.txt
+(créé au premier lancement).
 Onglet RADIO
 Le réseau (Broadband Adapter, adresse IP automatique) s'active au premier passage sur l'onglet.
 Liste des radios : SD:/radio.txt, créée au premier lancement. Une station par ligne :
@@ -91,4 +97,5 @@ Le workflow télécharge tout seul minimp3, stb_image, mbedTLS 3.6.7 (archive of
 empreinte SHA-256 vérifiée) et la liste de certificats de curl.se, puis compile le .dol.
 Crédits
 minimp3 (lieff, CC0), stb_image (Sean Barrett, domaine public), mbedTLS (Apache 2.0),
+MusicBrainz et Cover Art Archive (pochettes et infos d'albums),
 certificats racines Mozilla (MPL 2.0, via curl.se), police DejaVu Sans, libogc / devkitPro.
