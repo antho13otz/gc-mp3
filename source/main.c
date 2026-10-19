@@ -1275,6 +1275,7 @@ static long fsize = 0, fpos = 0;
 static int playing = 0, eof = 0, cur_track = -1;
 static const char *track_err = NULL;   // message si un fichier ne peut pas etre lu
 static char artist[64];                // artiste lu dans les etiquettes ID3 (UTF-8)
+static char id3_title[128], id3_album[128], id3_year[16];
 
 static void decode_file_one(void) {
     static s16 L[1152], R[1152];
@@ -1314,9 +1315,38 @@ static void utf8_put(char *out, int cap, int *len, unsigned cp) {
 }
 
 /* Lit l'artiste (ID3v2 TPE1/TP1, sinon ID3v1) dans le fichier deja charge en RAM. */
-static void parse_artist(void) {
+/* texte d'une trame ID3 (encodage Latin-1, UTF-16 ou UTF-8) -> UTF-8 */
+static void id3_text(const unsigned char *t, long sz, char *out, int cap) {
+    int len = 0, enc = t[0];
+    long i = 1;
+    if (enc == 1 || enc == 2) {                                 // UTF-16
+        int le = 0;
+        if (sz >= 3 && t[1] == 0xFF && t[2] == 0xFE) { le = 1; i = 3; }
+        else if (sz >= 3 && t[1] == 0xFE && t[2] == 0xFF) { i = 3; }
+        for (; i + 1 < sz && len < cap - 4; i += 2) {
+            unsigned cu = le ? (unsigned)(t[i] | (t[i + 1] << 8)) : (unsigned)((t[i] << 8) | t[i + 1]);
+            if (cu == 0) break;
+            utf8_put(out, cap, &len, cu);
+        }
+    } else if (enc == 3) {                                      // UTF-8
+        for (; i < sz && t[i] && len < cap - 1; i++) out[len++] = (char)t[i];
+    } else {                                                    // Latin-1
+        for (; i < sz && t[i] && len < cap - 4; i++) utf8_put(out, cap, &len, t[i]);
+    }
+    while (len > 0 && out[len - 1] == ' ') len--;
+    out[len] = 0;
+}
+
+static void id3v1_field(const unsigned char *a, int n, char *out, int cap) {
     int len = 0;
-    artist[0] = 0;
+    for (int i = 0; i < n && a[i] && len < cap - 4; i++) utf8_put(out, cap, &len, a[i]);
+    while (len > 0 && out[len - 1] == ' ') len--;
+    out[len] = 0;
+}
+
+/* Etiquettes du MP3 : artiste, titre, album, annee (ID3v2, sinon ID3v1). */
+static void parse_artist(void) {
+    artist[0] = id3_title[0] = id3_album[0] = id3_year[0] = 0;
     if (!fdata || fsize < 128) return;
 
     if (fsize > 10 && memcmp(fdata, "ID3", 3) == 0 && fdata[3] >= 2 && fdata[3] <= 4) {
@@ -1333,40 +1363,29 @@ static void parse_artist(void) {
             long sz = (ver == 2) ? (long)(((u32)f[3] << 16) | ((u32)f[4] << 8) | f[5])
                                  : (ver == 4 ? (long)synchsafe(f + 4) : (long)be32(f + 4));
             if (sz <= 1 || pos + hdr + sz > end) break;
-            int is_artist = (ver == 2) ? (memcmp(f, "TP1", 3) == 0) : (memcmp(f, "TPE1", 4) == 0);
-            if (is_artist) {
-                const unsigned char *t = f + hdr;
-                int enc = t[0];
-                long i = 1;
-                if (enc == 1 || enc == 2) {                         // UTF-16
-                    int le = 0;
-                    if (sz >= 3 && t[1] == 0xFF && t[2] == 0xFE) { le = 1; i = 3; }
-                    else if (sz >= 3 && t[1] == 0xFE && t[2] == 0xFF) { i = 3; }
-                    for (; i + 1 < sz && len < 60; i += 2) {
-                        unsigned cu = le ? (unsigned)(t[i] | (t[i + 1] << 8))
-                                         : (unsigned)((t[i] << 8) | t[i + 1]);
-                        if (cu == 0) break;
-                        utf8_put(artist, (int)sizeof(artist), &len, cu);
-                    }
-                } else if (enc == 3) {                              // UTF-8
-                    for (; i < sz && t[i] && len < 60; i++) artist[len++] = (char)t[i];
-                } else {                                            // Latin-1
-                    for (; i < sz && t[i] && len < 60; i++)
-                        utf8_put(artist, (int)sizeof(artist), &len, t[i]);
-                }
-                artist[len] = 0;
-                if (len > 0) return;
+            const unsigned char *t = f + hdr;
+            if (ver == 2) {
+                if (!memcmp(f, "TP1", 3) && !artist[0]) id3_text(t, sz, artist, sizeof(artist));
+                else if (!memcmp(f, "TT2", 3)) id3_text(t, sz, id3_title, sizeof(id3_title));
+                else if (!memcmp(f, "TAL", 3)) id3_text(t, sz, id3_album, sizeof(id3_album));
+                else if (!memcmp(f, "TYE", 3)) id3_text(t, sz, id3_year, sizeof(id3_year));
+            } else {
+                if (!memcmp(f, "TPE1", 4) && !artist[0]) id3_text(t, sz, artist, sizeof(artist));
+                else if (!memcmp(f, "TIT2", 4)) id3_text(t, sz, id3_title, sizeof(id3_title));
+                else if (!memcmp(f, "TALB", 4)) id3_text(t, sz, id3_album, sizeof(id3_album));
+                else if (!memcmp(f, "TYER", 4) || !memcmp(f, "TDRC", 4)) id3_text(t, sz, id3_year, sizeof(id3_year));
             }
             pos += hdr + sz;
         }
     }
-    if (memcmp(fdata + fsize - 128, "TAG", 3) == 0) {              // ID3v1 : artiste = octets 33..62
-        const unsigned char *a = fdata + fsize - 128 + 33;
-        for (int i = 0; i < 30 && a[i] && len < 60; i++)
-            utf8_put(artist, (int)sizeof(artist), &len, a[i]);
-        while (len > 0 && artist[len - 1] == ' ') len--;
-        artist[len] = 0;
+    if (memcmp(fdata + fsize - 128, "TAG", 3) == 0) {              // ID3v1
+        const unsigned char *v1 = fdata + fsize - 128;
+        if (!id3_title[0]) id3v1_field(v1 + 3, 30, id3_title, sizeof(id3_title));
+        if (!artist[0]) id3v1_field(v1 + 33, 30, artist, sizeof(artist));
+        if (!id3_album[0]) id3v1_field(v1 + 63, 30, id3_album, sizeof(id3_album));
+        if (!id3_year[0]) id3v1_field(v1 + 93, 4, id3_year, sizeof(id3_year));
     }
+    if (strlen(id3_year) > 4) id3_year[4] = 0;                 /* "2003-05-01" -> "2003" */
 }
 
 // ---------- Pochettes des MP3 ----------
@@ -2098,7 +2117,7 @@ static void draw_header(void) {
         gx_rect(392.0f + i * 3.0f, 46.0f - h, 1.5f, 2.0f * h,
                 RGBA(150 + i * 3, 90, 255, 90 + (int)(120 * env)));
     }
-    if (net_phase == NET_DONE) {
+    if (net_phase == NET_DONE && (net_ok || tab != TAB_MUSIC)) {
         char ip[40];
         if (net_ok) snprintf(ip, sizeof(ip), "IP %s", ip_str);
         else snprintf(ip, sizeof(ip), "HORS LIGNE");
@@ -2446,6 +2465,7 @@ static void draw_legend(void) {
 
 static void draw_list_music(int sel);
 static void draw_player_music(void);
+static int cover_info(char *out, int cap);
 
 static void draw_web(void);
 static void draw_legend_web(void);
@@ -2643,6 +2663,13 @@ static void draw_player_music(void) {
         } else if (artist[0]) {
             fit_text(F_MED, artist, 160, buf, sizeof(buf));
             gx_text1(F_MED, 456, 160, buf, RGBA(156, 116, 255, 255));
+        }
+        /* album et annee (etiquettes du MP3, sinon MusicBrainz) */
+        char info[200];
+        int searching = cover_info(info, sizeof(info));
+        if (!track_err && info[0]) {
+            fit_text(F_SMALL, info, 160, buf, sizeof(buf));
+            gx_text1(F_SMALL, 456, 178, buf, searching ? RGBA(255, 210, 120, 255) : RGBA(140, 122, 200, 255));
         }
     } else {
         gx_text1(F_LARGE, 456, 140, "Aucune piste", RGBA(228, 218, 255, 255));
@@ -4531,23 +4558,224 @@ static void web_fetch(const char *url_in, int mode, int typed) {
     web_note("Trop de redirections", 1);
 }
 
-// ---------- Chargement des images en tache de fond ----------
-/* Le telechargement se fait par petites etapes a chaque image affichee (rien ne
-   bloque l'ecran longtemps) ; le decodage JPEG/PNG/GIF se fait dans un thread de
-   faible priorite qui travaille pendant que le programme attend l'ecran suivant. */
-enum { IL_IDLE, IL_HANDSHAKE, IL_HEAD, IL_BODY, IL_DECODE };
-static conn_t iconn = { -1, 0, 0 };
-static int il_state = IL_IDLE, il_img = -1, il_alive = 0, il_redirs = 0, il_reused = 0, il_close_after = 0;
-static char il_host[128];
-static int il_port = 0, il_tls = 0;
-static char il_url[URL_MAX];
-static unsigned char il_hdr[8192];
-static int il_hlen = 0;
-static unsigned char *il_buf = NULL;
-static int il_len = 0, il_cap = 0;
-static long il_expect = -1;
-static dechunk_t il_dc;
-static u64 il_t0 = 0, il_last_use = 0;
+// ---------- Petit client HTTP en tache de fond (images, pochettes) ----------
+/* Avance par petites etapes a chaque image affichee : rien ne bloque l'ecran
+   longtemps. Garde la connexion ouverte pour la demande suivante au meme site. */
+enum { HF_IDLE, HF_HANDSHAKE, HF_HEAD, HF_BODY, HF_DONE, HF_FAIL };
+typedef struct {
+    conn_t c;
+    int st, alive, reused, close_after, redirs, port, tls, code;
+    int image;                              /* 1 = refuser ce qui n'est pas une image lisible */
+    int maxbytes;
+    const char *accept;
+    char host[128];
+    char url[URL_MAX];
+    char referer[URL_MAX];
+    unsigned char hdr[8192];
+    int hlen;
+    unsigned char *buf;
+    int len, cap;
+    long expect;
+    dechunk_t dc;
+    u64 t0, last_use;
+} hfetch_t;
+
+static void hf_close(hfetch_t *h) { conn_close(&h->c); h->alive = 0; }
+static void hf_drop(hfetch_t *h) { free(h->buf); h->buf = NULL; h->len = h->cap = 0; }
+static void hf_fail(hfetch_t *h) { hf_drop(h); h->st = HF_FAIL; }
+static void hf_abort(hfetch_t *h) {
+    if (h->st == HF_HANDSHAKE || h->st == HF_HEAD || h->st == HF_BODY) hf_close(h);
+    hf_drop(h);
+    h->st = HF_IDLE;
+}
+
+static int hf_send(hfetch_t *h) {
+    urlp_t u;
+    char req[URL_MAX * 2 + 500], hosthdr[160], ref[URL_MAX + 16] = "";
+    if (!url_parse(h->url, &u)) return 0;
+    if (strncmp(h->referer, "http", 4) == 0) snprintf(ref, sizeof(ref), "Referer: %s\r\n", h->referer);
+    if (u.port == (u.tls ? 443 : 80)) snprintf(hosthdr, sizeof(hosthdr), "%s", u.host);
+    else snprintf(hosthdr, sizeof(hosthdr), "%s:%d", u.host, u.port);
+    int rl = snprintf(req, sizeof(req),
+                      "GET %s HTTP/1.1\r\nHost: %s\r\n"
+                      "User-Agent: GC-MP3/1.0 (Nintendo GameCube; https://github.com/antho13otz/gc-mp3)\r\n"
+                      "Accept: %s\r\n%sConnection: keep-alive\r\n\r\n", u.path, hosthdr,
+                      h->accept ? h->accept : "*/*", ref);
+    if (rl >= (int)sizeof(req) || !conn_send_all(&h->c, req, rl)) return 0;
+    h->hlen = 0;
+    h->st = HF_HEAD;
+    h->t0 = now_ms();
+    return 1;
+}
+
+/* Demande h->url (en reutilisant la connexion si c'est le meme site). */
+static void hf_request(hfetch_t *h) {
+    urlp_t u;
+    if (!url_parse(h->url, &u)) { hf_fail(h); return; }
+    h->reused = h->alive && h->c.fd >= 0 && strcmp(u.host, h->host) == 0 && u.port == h->port && u.tls == h->tls;
+    if (!h->reused) {
+        const char *err = NULL;
+        hf_close(h);
+        if (!conn_tcp(&h->c, u.host, u.port, &err, NULL, 0)) { hf_fail(h); return; }
+        snprintf(h->host, sizeof(h->host), "%s", u.host);
+        h->port = u.port;
+        h->tls = u.tls;
+        h->alive = 1;
+        if (u.tls) {
+            if (!tls_global_init()) { hf_close(h); hf_fail(h); return; }
+            mbedtls_ssl_init(&h->c.ssl);
+            h->c.ssl_inited = 1;
+            if (mbedtls_ssl_setup(&h->c.ssl, &tls_conf) != 0 || mbedtls_ssl_set_hostname(&h->c.ssl, u.host) != 0) {
+                hf_close(h); hf_fail(h); return;
+            }
+            mbedtls_ssl_set_bio(&h->c.ssl, &h->c.fd, bio_send, bio_recv, NULL);
+            h->c.tls = 1;
+            h->st = HF_HANDSHAKE;
+            h->t0 = now_ms();
+            return;
+        }
+    }
+    if (!hf_send(h)) {
+        if (h->reused) { hf_close(h); hf_request(h); return; }  /* connexion gardee mais fermee par le site */
+        hf_close(h);
+        hf_fail(h);
+    }
+}
+
+static void hf_start(hfetch_t *h, const char *url, const char *referer) {
+    hf_drop(h);
+    h->redirs = 0;
+    h->code = 0;
+    snprintf(h->url, sizeof(h->url), "%s", url);
+    snprintf(h->referer, sizeof(h->referer), "%s", referer ? referer : "");
+    if (h->alive && now_ms() - h->last_use > 15000) hf_close(h);     /* vieille connexion */
+    h->last_use = now_ms();
+    hf_request(h);
+}
+
+static void hf_done(hfetch_t *h) {
+    if (h->close_after) hf_close(h);
+    h->last_use = now_ms();
+    h->st = HF_DONE;
+}
+
+static void hf_pump(hfetch_t *h) {
+    if (h->st == HF_HANDSHAKE) {
+        int r = mbedtls_ssl_handshake(&h->c.ssl);
+        if (r == 0) { if (!hf_send(h)) { hf_close(h); hf_fail(h); } return; }
+        if ((r != MBEDTLS_ERR_SSL_WANT_READ && r != MBEDTLS_ERR_SSL_WANT_WRITE) || now_ms() - h->t0 > 15000) {
+            hf_close(h);
+            hf_fail(h);
+        }
+        return;
+    }
+    if (h->st == HF_HEAD) {
+        for (;;) {
+            if (h->hlen >= (int)sizeof(h->hdr) - 1) { hf_close(h); hf_fail(h); return; }
+            int r = conn_recv(&h->c, h->hdr + h->hlen, (int)sizeof(h->hdr) - 1 - h->hlen);
+            if (r == -EAGAIN || r == -EWOULDBLOCK) {
+                if (now_ms() - h->t0 > 15000) { hf_close(h); hf_fail(h); }
+                return;
+            }
+            if (r <= 0) {
+                int retry = h->reused && h->hlen == 0;
+                hf_close(h);
+                if (retry) { hf_request(h); return; }                 /* le site avait ferme la connexion */
+                hf_fail(h);
+                return;
+            }
+            h->hlen += r;
+            h->hdr[h->hlen] = 0;
+            char *e = strstr((char *)h->hdr, "\r\n\r\n");
+            if (!e) continue;
+            int body_off = (int)(e - (char *)h->hdr) + 4;
+            e[2] = 0;
+            int code = 0, minor = 0;
+            if (sscanf((char *)h->hdr, "HTTP/1.%d %d", &minor, &code) != 2) { hf_close(h); hf_fail(h); return; }
+            h->code = code;
+            char *hd = (char *)h->hdr;
+            const char *v = header_value(hd, "Connection");
+            h->close_after = (minor == 0) || (v && ci_find((char *)v, "close"));
+            v = header_value(hd, "Transfer-Encoding");
+            int chunked = v && ci_find((char *)v, "chunked");
+            v = header_value(hd, "Content-Length");
+            long clen = (v && !chunked) ? atol(v) : -1;
+            if (clen < 0 && !chunked) h->close_after = 1;            /* fin = fermeture */
+            if (code >= 300 && code < 400) {
+                v = header_value(hd, "Location");
+                char next[URL_MAX];
+                hf_close(h);
+                if (!v || h->redirs >= 5 || !url_join(h->url, v, next, sizeof(next))) { hf_fail(h); return; }
+                h->redirs++;
+                snprintf(h->url, sizeof(h->url), "%s", next);
+                hf_request(h);
+                return;
+            }
+            v = header_value(hd, "Content-Type");
+            if (code != 200 || clen > h->maxbytes ||
+                (h->image && v && (ci_find((char *)v, "text/") || ci_find((char *)v, "svg") || ci_find((char *)v, "webp")))) {
+                hf_close(h);
+                hf_fail(h);
+                return;
+            }
+            h->cap = clen > 0 ? (int)clen + 16 : 65536;
+            h->buf = (unsigned char *)malloc(h->cap);
+            if (!h->buf) { hf_close(h); hf_fail(h); return; }
+            h->len = 0;
+            memset(&h->dc, 0, sizeof(h->dc));
+            h->dc.on = chunked;
+            h->expect = clen;
+            int bl = h->hlen - body_off;
+            if (bl > 0) {
+                memcpy(h->buf, h->hdr + body_off, bl);
+                h->len = chunked ? dechunk(&h->dc, h->buf, bl) : bl;
+            }
+            h->st = HF_BODY;
+            h->t0 = now_ms();
+            if ((h->expect >= 0 && h->len >= h->expect) || (h->dc.on && h->dc.st == 3)) hf_done(h);
+            return;
+        }
+    }
+    if (h->st == HF_BODY) {
+        static unsigned char tmp[16384];
+        int got = 0;
+        while (got < 256 * 1024) {
+            int r = conn_recv(&h->c, tmp, sizeof(tmp));
+            if (r > 0) {
+                int m = h->dc.on ? dechunk(&h->dc, tmp, r) : r;
+                if (h->len + m > h->maxbytes) { hf_close(h); hf_fail(h); return; }
+                if (h->len + m > h->cap) {
+                    int nc = h->cap * 2;
+                    while (nc < h->len + m) nc *= 2;
+                    if (nc > h->maxbytes) nc = h->maxbytes;
+                    unsigned char *nb = (unsigned char *)realloc(h->buf, nc);
+                    if (!nb) { hf_close(h); hf_fail(h); return; }
+                    h->buf = nb;
+                    h->cap = nc;
+                }
+                memcpy(h->buf + h->len, tmp, m);
+                h->len += m;
+                got += r;
+                h->t0 = now_ms();
+                if ((h->expect >= 0 && h->len >= h->expect) || (h->dc.on && h->dc.st == 3)) { hf_done(h); return; }
+                continue;
+            }
+            if (r == -EAGAIN || r == -EWOULDBLOCK) break;
+            hf_close(h);                                                /* fin du fichier */
+            if ((h->expect > 0 && h->len < h->expect) || h->len == 0) { hf_fail(h); return; }
+            hf_done(h);
+            return;
+        }
+        if (now_ms() - h->t0 > 20000) { hf_close(h); hf_fail(h); }
+    }
+}
+
+// ---------- Chargement des images de la page ----------
+/* Le decodage JPEG/PNG/GIF se fait dans un thread de faible priorite qui
+   travaille pendant que le programme attend l'image suivante de l'ecran. */
+enum { IL_IDLE, IL_FETCH, IL_DECODE };
+static hfetch_t ihf = { .c = { -1, 0, 0 } };
+static int il_state = IL_IDLE, il_img = -1;
 static u32 il_gen = 0;
 
 /* travail du thread de decodage */
@@ -4624,83 +4852,16 @@ static void *dec_thread(void *arg) {
     return NULL;
 }
 
-static void il_close(void) {
-    conn_close(&iconn);
-    il_alive = 0;
-}
-
-static void il_drop_buf(void) {
-    free(il_buf);
-    il_buf = NULL;
-    il_len = il_cap = 0;
-}
-
 static void img_loader_reset(void) {
-    if (il_state == IL_HANDSHAKE || il_state == IL_HEAD || il_state == IL_BODY) { il_close(); il_state = IL_IDLE; }
-    il_drop_buf();
+    if (il_state == IL_FETCH) { hf_abort(&ihf); il_state = IL_IDLE; }
     il_img = -1;                            /* un decodage en cours sera jete (generation) */
 }
 
 static void img_fail(void) {
     if (il_img >= 0 && il_gen == img_gen) { wimgs[il_img].st = IMG_FAIL; relayout_needed = 1; }
-    il_drop_buf();
+    hf_drop(&ihf);
     il_state = IL_IDLE;
     il_img = -1;
-}
-
-static int il_send(void) {
-    urlp_t u;
-    char req[URL_MAX * 2 + 400];
-    if (!url_parse(il_url, &u)) return 0;
-    char ref[URL_MAX + 16] = "";
-    if (strncmp(pg.url, "http", 4) == 0) snprintf(ref, sizeof(ref), "Referer: %s\r\n", pg.url);
-    char hosthdr[160];
-    if (u.port == (u.tls ? 443 : 80)) snprintf(hosthdr, sizeof(hosthdr), "%s", u.host);
-    else snprintf(hosthdr, sizeof(hosthdr), "%s:%d", u.host, u.port);
-    int rl = snprintf(req, sizeof(req),
-                      "GET %s HTTP/1.1\r\nHost: %s\r\n"
-                      "User-Agent: Mozilla/5.0 (compatible; GC-MP3/1.0; Nintendo GameCube)\r\n"
-                      "Accept: image/jpeg,image/png,image/gif,image/*;q=0.8,*/*;q=0.5\r\n"
-                      "%sConnection: keep-alive\r\n\r\n", u.path, hosthdr, ref);
-    if (rl >= (int)sizeof(req) || !conn_send_all(&iconn, req, rl)) return 0;
-    il_hlen = 0;
-    il_state = IL_HEAD;
-    il_t0 = now_ms();
-    return 1;
-}
-
-/* Demande l'image il_url (en reutilisant la connexion si c'est le meme site). */
-static void il_request(void) {
-    urlp_t u;
-    if (!url_parse(il_url, &u)) { img_fail(); return; }
-    il_reused = il_alive && iconn.fd >= 0 && strcmp(u.host, il_host) == 0 && u.port == il_port && u.tls == il_tls;
-    if (!il_reused) {
-        const char *err = NULL;
-        il_close();
-        if (!conn_tcp(&iconn, u.host, u.port, &err, NULL, 0)) { img_fail(); return; }
-        snprintf(il_host, sizeof(il_host), "%s", u.host);
-        il_port = u.port;
-        il_tls = u.tls;
-        il_alive = 1;
-        if (u.tls) {
-            if (!tls_global_init()) { il_close(); img_fail(); return; }
-            mbedtls_ssl_init(&iconn.ssl);
-            iconn.ssl_inited = 1;
-            if (mbedtls_ssl_setup(&iconn.ssl, &tls_conf) != 0 || mbedtls_ssl_set_hostname(&iconn.ssl, u.host) != 0) {
-                il_close(); img_fail(); return;
-            }
-            mbedtls_ssl_set_bio(&iconn.ssl, &iconn.fd, bio_send, bio_recv, NULL);
-            iconn.tls = 1;
-            il_state = IL_HANDSHAKE;
-            il_t0 = now_ms();
-            return;
-        }
-    }
-    if (!il_send()) {
-        if (il_reused) { il_close(); il_request(); return; }   /* connexion gardee mais fermee par le site */
-        il_close();
-        img_fail();
-    }
 }
 
 static int img_dist(const wimg_t *im) {
@@ -4710,28 +4871,9 @@ static int img_dist(const wimg_t *im) {
     return 0;
 }
 
-/* termine la reception : l'image part au decodage */
-static void il_body_done(void) {
-    if (il_close_after) il_close();
-    if (!dec_started) {
-        if (LWP_CreateThread(&dec_thread_h, dec_thread, NULL, dec_stack, sizeof(dec_stack), 20) < 0) { img_fail(); return; }
-        dec_started = 1;
-    }
-    wimg_t *im = &wimgs[il_img];
-    dj_in = il_buf;
-    dj_len = il_len;
-    il_buf = NULL;
-    il_len = il_cap = 0;
-    dj_aw = im->aw;
-    dj_ah = im->ah;
-    dj_maxw = WV_W;
-    il_state = IL_DECODE;
-    dj_state = 1;
-}
-
 static void img_pump(void) {
     if (tab != TAB_WEB && il_state == IL_IDLE) return;
-    if (il_state != IL_IDLE && il_state != IL_DECODE && il_gen != img_gen) { img_loader_reset(); }
+    if (il_state == IL_FETCH && il_gen != img_gen) img_loader_reset();
 
     if (il_state == IL_DECODE) {
         if (dj_state != 2) return;
@@ -4758,7 +4900,6 @@ static void img_pump(void) {
 
     if (il_state == IL_IDLE) {
         if (dj_state != 0) return;
-        if (il_alive && now_ms() - il_last_use > 15000) il_close();      /* connexion inutile */
         int best = -1, bestd = 2 * WV_H + 1;
         for (int i = 0; i < nwimg; i++) {
             if (wimgs[i].st != IMG_NONE || wimgs[i].y0 < 0) continue;
@@ -4780,123 +4921,375 @@ static void img_pump(void) {
         il_img = best;
         il_gen = img_gen;
         wimgs[best].st = IMG_LOADING;
-        snprintf(il_url, sizeof(il_url), "%s", wimgs[best].url);
-        il_redirs = 0;
-        il_last_use = now_ms();
-        il_request();
-        return;
+        ihf.image = 1;
+        ihf.maxbytes = IMG_MAX_BYTES;
+        ihf.accept = "image/jpeg,image/png,image/gif,image/*;q=0.8,*/*;q=0.5";
+        hf_start(&ihf, wimgs[best].url, pg.url);
+        il_state = IL_FETCH;
     }
 
-    if (il_state == IL_HANDSHAKE) {
-        int r = mbedtls_ssl_handshake(&iconn.ssl);
-        if (r == 0) { if (!il_send()) { il_close(); img_fail(); } return; }
-        if ((r != MBEDTLS_ERR_SSL_WANT_READ && r != MBEDTLS_ERR_SSL_WANT_WRITE) || now_ms() - il_t0 > 15000) {
-            il_close();
-            img_fail();
+    if (il_state == IL_FETCH) {
+        hf_pump(&ihf);
+        if (ihf.st == HF_FAIL) { img_fail(); return; }
+        if (ihf.st != HF_DONE) return;
+        if (!dec_started) {
+            if (LWP_CreateThread(&dec_thread_h, dec_thread, NULL, dec_stack, sizeof(dec_stack), 20) < 0) { img_fail(); return; }
+            dec_started = 1;
+        }
+        wimg_t *im = &wimgs[il_img];
+        dj_in = ihf.buf;
+        dj_len = ihf.len;
+        ihf.buf = NULL;
+        ihf.len = ihf.cap = 0;
+        ihf.st = HF_IDLE;
+        dj_aw = im->aw;
+        dj_ah = im->ah;
+        dj_maxw = WV_W;
+        il_state = IL_DECODE;
+        dj_state = 1;
+    }
+}
+
+// ---------- Pochettes automatiques (MusicBrainz + Cover Art Archive) ----------
+/* Quand un morceau n'a pas de pochette, on cherche l'album sur MusicBrainz
+   (artiste + titre), puis on telecharge la pochette sur le Cover Art Archive.
+   Elle est enregistree a cote du MP3 (meme nom en .jpg) : la fois suivante elle
+   s'affiche sans reseau. Reglage : sd:/gc-mp3.txt (pochettes_auto = oui/non). */
+#ifndef MB_BASE
+#define MB_BASE  "https://musicbrainz.org"
+#endif
+#ifndef CAA_BASE
+#define CAA_BASE "https://coverartarchive.org"
+#endif
+#define SETTINGS_FILE SD_ROOT "/gc-mp3.txt"
+
+static int covers_auto = 1;
+
+static void load_settings(void) {
+    if (!sd_ok) return;
+    FILE *f = fopen(SETTINGS_FILE, "r");
+    if (!f) {
+        f = fopen(SETTINGS_FILE, "w");
+        if (f) {
+            fputs("# Reglages de GC-MP3\n"
+                  "# Pochettes manquantes cherchees sur Internet (MusicBrainz), oui ou non :\n"
+                  "pochettes_auto = oui\n", f);
+            fclose(f);
         }
         return;
     }
-
-    if (il_state == IL_HEAD) {
-        for (;;) {
-            if (il_hlen >= (int)sizeof(il_hdr) - 1) { il_close(); img_fail(); return; }
-            int r = conn_recv(&iconn, il_hdr + il_hlen, (int)sizeof(il_hdr) - 1 - il_hlen);
-            if (r == -EAGAIN || r == -EWOULDBLOCK) {
-                if (now_ms() - il_t0 > 15000) { il_close(); img_fail(); }
-                return;
-            }
-            if (r <= 0) {
-                int retry = il_reused && il_hlen == 0;
-                il_close();
-                if (retry) { il_request(); return; }                    /* site qui a ferme la connexion */
-                img_fail();
-                return;
-            }
-            il_hlen += r;
-            il_hdr[il_hlen] = 0;
-            char *e = strstr((char *)il_hdr, "\r\n\r\n");
-            if (!e) continue;
-            int body_off = (int)(e - (char *)il_hdr) + 4;
-            e[2] = 0;
-            int code = 0, minor = 0;
-            if (sscanf((char *)il_hdr, "HTTP/1.%d %d", &minor, &code) != 2) { il_close(); img_fail(); return; }
-            char *hd = (char *)il_hdr;
-            const char *v = header_value(hd, "Connection");
-            il_close_after = (minor == 0) || (v && ci_find((char *)v, "close"));
-            v = header_value(hd, "Transfer-Encoding");
-            int chunked = v && ci_find((char *)v, "chunked");
-            v = header_value(hd, "Content-Length");
-            long clen = (v && !chunked) ? atol(v) : -1;
-            if (clen < 0 && !chunked) il_close_after = 1;              /* fin = fermeture */
-            if (code >= 300 && code < 400) {
-                v = header_value(hd, "Location");
-                char next[URL_MAX];
-                il_close();
-                if (!v || il_redirs >= 4 || !url_join(il_url, v, next, sizeof(next))) { img_fail(); return; }
-                il_redirs++;
-                snprintf(il_url, sizeof(il_url), "%s", next);
-                il_request();
-                return;
-            }
-            v = header_value(hd, "Content-Type");
-            if (code != 200 || clen > IMG_MAX_BYTES ||
-                (v && (ci_find((char *)v, "text/") || ci_find((char *)v, "svg") || ci_find((char *)v, "webp")))) {
-                il_close();
-                img_fail();
-                return;
-            }
-            il_cap = clen > 0 ? (int)clen + 16 : 65536;
-            il_buf = (unsigned char *)malloc(il_cap);
-            if (!il_buf) { il_close(); img_fail(); return; }
-            il_len = 0;
-            memset(&il_dc, 0, sizeof(il_dc));
-            il_dc.on = chunked;
-            il_expect = clen;
-            int bl = il_hlen - body_off;
-            if (bl > 0) {
-                memcpy(il_buf, il_hdr + body_off, bl);
-                il_len = chunked ? dechunk(&il_dc, il_buf, bl) : bl;
-            }
-            il_state = IL_BODY;
-            il_t0 = now_ms();
-            if ((il_expect >= 0 && il_len >= il_expect) || (il_dc.on && il_dc.st == 3)) il_body_done();
-            return;
-        }
+    char line[200];
+    while (fgets(line, sizeof(line), f)) {
+        char *t = trim(line);
+        if (t[0] == '#') continue;
+        char *eq = strchr(t, '=');
+        if (!eq) continue;
+        *eq = 0;
+        char *k = trim(t), *v = trim(eq + 1);
+        if (strcasecmp(k, "pochettes_auto") == 0)
+            covers_auto = !(strncasecmp(v, "non", 3) == 0 || strcmp(v, "0") == 0 || strncasecmp(v, "no", 2) == 0);
     }
+    fclose(f);
+}
 
-    if (il_state == IL_BODY) {
-        static unsigned char tmp[16384];
-        int got = 0;
-        while (got < 256 * 1024) {
-            int r = conn_recv(&iconn, tmp, sizeof(tmp));
-            if (r > 0) {
-                int m = il_dc.on ? dechunk(&il_dc, tmp, r) : r;
-                if (il_len + m > IMG_MAX_BYTES) { il_close(); img_fail(); return; }
-                if (il_len + m > il_cap) {
-                    int nc = il_cap * 2;
-                    while (nc < il_len + m) nc *= 2;
-                    if (nc > IMG_MAX_BYTES) nc = IMG_MAX_BYTES;
-                    unsigned char *nb = (unsigned char *)realloc(il_buf, nc);
-                    if (!nb) { il_close(); img_fail(); return; }
-                    il_buf = nb;
-                    il_cap = nc;
+/* --- lecture JSON minimale (jetons dans l'ordre du texte) --- */
+enum { JT_OBJ = 1, JT_ARR, JT_STR, JT_PRIM };
+typedef struct { u8 type; int start, end; } jtok_t;
+
+static int json_tokens(const char *js, int len, jtok_t *t, int maxt) {
+    int n = 0, stack[64], sp = 0, i = 0;
+    while (i < len) {
+        char c = js[i];
+        if (c == '{' || c == '[') {
+            if (n >= maxt || sp >= 64) return -1;
+            t[n].type = (c == '{') ? JT_OBJ : JT_ARR;
+            t[n].start = i;
+            t[n].end = -1;
+            stack[sp++] = n++;
+            i++;
+        } else if (c == '}' || c == ']') {
+            if (sp == 0) return -1;
+            t[stack[--sp]].end = i + 1;
+            i++;
+        } else if (c == '"') {
+            int s = ++i;
+            while (i < len && js[i] != '"') { if (js[i] == '\\') i++; i++; }
+            if (i >= len || n >= maxt) return -1;
+            t[n].type = JT_STR; t[n].start = s; t[n].end = i; n++;
+            i++;
+        } else if (c == '-' || (c >= '0' && c <= '9') || c == 't' || c == 'f' || c == 'n') {
+            int s = i;
+            while (i < len && js[i] != ',' && js[i] != '}' && js[i] != ']' && !isspace((unsigned char)js[i])) i++;
+            if (n >= maxt) return -1;
+            t[n].type = JT_PRIM; t[n].start = s; t[n].end = i; n++;
+        } else i++;
+    }
+    if (sp) return -1;
+    return n;
+}
+
+/* jeton suivant apres celui-ci et tout son contenu */
+static int jskip(const jtok_t *t, int n, int i) {
+    int end = t[i].end;
+    int j = i + 1;
+    while (j < n && t[j].start < end) j++;
+    return j;
+}
+
+static int jkey(const char *js, const jtok_t *t, int i, const char *k) {
+    int l = (int)strlen(k);
+    return t[i].type == JT_STR && t[i].end - t[i].start == l && memcmp(js + t[i].start, k, l) == 0;
+}
+
+/* valeur de la cle k dans l'objet obj, -1 si absente */
+static int jget(const char *js, const jtok_t *t, int n, int obj, const char *k) {
+    if (obj < 0 || t[obj].type != JT_OBJ) return -1;
+    int j = obj + 1;
+    while (j + 1 < n && t[j].start < t[obj].end) {
+        if (jkey(js, t, j, k)) return j + 1;
+        j = jskip(t, n, j + 1);
+    }
+    return -1;
+}
+
+static void jstr(const char *js, const jtok_t *t, int i, char *out, int cap) {
+    out[0] = 0;
+    if (i < 0) return;
+    if (t[i].type == JT_STR) json_string(js + t[i].start - 1, js + t[i].end + 1, out, cap);
+    else if (t[i].type == JT_PRIM) {
+        int l = t[i].end - t[i].start;
+        if (l > cap - 1) l = cap - 1;
+        memcpy(out, js + t[i].start, l);
+        out[l] = 0;
+    }
+}
+
+/* --- recherche --- */
+enum { CL_IDLE, CL_WAIT, CL_MB, CL_ART, CL_DONE };
+static hfetch_t chf = { .c = { -1, 0, 0 } };
+static int cl_state = CL_IDLE, cl_track = -1, cl_try = 0;
+static u64 cl_t0 = 0, cl_next_mb = 0;
+static char cl_rgid[40], cl_relid[40];
+static char cl_album[128], cl_year[8];
+/* albums trouves pendant la session (chemin du MP3 -> album, annee) */
+static struct { char path[NAME_LEN]; char album[128]; char year[8]; } cl_info[32];
+static int cl_ninfo = 0;
+static char cl_failed[32][NAME_LEN];       /* morceaux sans resultat (pour ne pas redemander) */
+static int cl_nfailed = 0;
+
+static int cl_is_failed(const char *path) {
+    for (int i = 0; i < cl_nfailed && i < 32; i++) if (strcmp(cl_failed[i], path) == 0) return 1;
+    return 0;
+}
+
+static void cl_give_up(void) {
+    if (cl_track >= 0 && cl_track < nfiles) {
+        snprintf(cl_failed[cl_nfailed % 32], NAME_LEN, "%s", names[cl_track]);
+        cl_nfailed++;
+    }
+    hf_drop(&chf);
+    cl_state = CL_DONE;
+}
+
+/* artiste et titre a chercher : etiquettes du MP3, sinon "Artiste - Titre.mp3" */
+static int cl_query_terms(char *art, int acap, char *tit, int tcap) {
+    snprintf(art, acap, "%s", artist);
+    snprintf(tit, tcap, "%s", id3_title);
+    if (!tit[0]) {
+        char nm[NAME_LEN];
+        snprintf(nm, sizeof(nm), "%s", display_name(base_of(names[cur_track])));
+        int l = (int)strlen(nm);
+        if (l > 4 && strcasecmp(nm + l - 4, ".mp3") == 0) nm[l - 4] = 0;
+        char *dash = strstr(nm, " - ");
+        if (dash) {
+            *dash = 0;
+            if (!art[0]) snprintf(art, acap, "%s", trim(nm));
+            snprintf(tit, tcap, "%s", trim(dash + 3));
+        } else snprintf(tit, tcap, "%s", trim(nm));
+    }
+    for (char *p = tit; *p; p++) if (*p == '_') *p = ' ';
+    return tit[0] != 0;
+}
+
+static void lucene_quote(const char *in, char *out, int cap) {
+    int n = 0;
+    out[n++] = '"';
+    for (; *in && n < cap - 4; in++) {
+        if (*in == '"' || *in == '\\') out[n++] = '\\';
+        out[n++] = *in;
+    }
+    out[n++] = '"';
+    out[n] = 0;
+}
+
+static void cl_start_mb(void) {
+    char art[128], tit[160], qa[300], qt[340], q[700], enc[1500], url[URL_MAX];
+    if (!cl_query_terms(art, sizeof(art), tit, sizeof(tit))) { cl_give_up(); return; }
+    lucene_quote(tit, qt, sizeof(qt));
+    if (art[0]) { lucene_quote(art, qa, sizeof(qa)); snprintf(q, sizeof(q), "recording:%s AND artist:%s", qt, qa); }
+    else snprintf(q, sizeof(q), "recording:%s", qt);
+    if (!url_encode(q, enc, sizeof(enc))) { cl_give_up(); return; }
+    snprintf(url, sizeof(url), MB_BASE "/ws/2/recording/?query=%s&limit=5&fmt=json", enc);
+    chf.image = 0;
+    chf.maxbytes = 1024 * 1024;
+    chf.accept = "application/json";
+    cl_next_mb = now_ms() + 1100;           /* MusicBrainz : 1 demande par seconde au plus */
+    hf_start(&chf, url, NULL);
+    cl_state = CL_MB;
+}
+
+/* Choisit l'album le plus probable : officiel, album studio, le plus ancien. */
+static int cl_pick(const char *js, int len) {
+    int maxt = 12000;
+    jtok_t *t = (jtok_t *)malloc(sizeof(jtok_t) * maxt);
+    if (!t) return 0;
+    int n = json_tokens(js, len, t, maxt);
+    int found = 0;
+    if (n > 0 && t[0].type == JT_OBJ) {
+        int recs = jget(js, t, n, 0, "recordings");
+        if (recs >= 0 && t[recs].type == JT_ARR) {
+            for (int r = recs + 1; r < n && t[r].start < t[recs].end && !found; r = jskip(t, n, r)) {
+                char sc[16];
+                jstr(js, t, jget(js, t, n, r, "score"), sc, sizeof(sc));
+                if (sc[0] && atoi(sc) < 70) break;          /* resultats tries par score */
+                int rels = jget(js, t, n, r, "releases");
+                if (rels < 0 || t[rels].type != JT_ARR) continue;
+                int best = -1, bestscore = -1;
+                char bestdate[16] = "";
+                for (int e = rels + 1; e < n && t[e].start < t[rels].end; e = jskip(t, n, e)) {
+                    char status[24], ptype[24], date[16];
+                    jstr(js, t, jget(js, t, n, e, "status"), status, sizeof(status));
+                    jstr(js, t, jget(js, t, n, e, "date"), date, sizeof(date));
+                    int rg = jget(js, t, n, e, "release-group");
+                    jstr(js, t, jget(js, t, n, rg, "primary-type"), ptype, sizeof(ptype));
+                    int sec = jget(js, t, n, rg, "secondary-types");
+                    int nsec = (sec >= 0 && t[sec].type == JT_ARR && jskip(t, n, sec) > sec + 1);
+                    int score = (strcmp(status, "Official") == 0 ? 4 : 0) +
+                                (strcmp(ptype, "Album") == 0 ? 3 : (ptype[0] ? 1 : 0)) + (nsec ? 0 : 2);
+                    int earlier = date[0] && (!bestdate[0] || strcmp(date, bestdate) < 0);
+                    if (score > bestscore || (score == bestscore && earlier)) {
+                        best = e;
+                        bestscore = score;
+                        snprintf(bestdate, sizeof(bestdate), "%s", date);
+                    }
                 }
-                memcpy(il_buf + il_len, tmp, m);
-                il_len += m;
-                got += r;
-                il_t0 = now_ms();
-                if ((il_expect >= 0 && il_len >= il_expect) || (il_dc.on && il_dc.st == 3)) { il_body_done(); return; }
-                continue;
+                if (best < 0) continue;
+                jstr(js, t, jget(js, t, n, best, "id"), cl_relid, sizeof(cl_relid));
+                jstr(js, t, jget(js, t, n, jget(js, t, n, best, "release-group"), "id"), cl_rgid, sizeof(cl_rgid));
+                jstr(js, t, jget(js, t, n, best, "title"), cl_album, sizeof(cl_album));
+                snprintf(cl_year, sizeof(cl_year), "%.4s", bestdate);
+                found = cl_relid[0] || cl_rgid[0];
             }
-            if (r == -EAGAIN || r == -EWOULDBLOCK) break;
-            il_close();                                                 /* fin du fichier */
-            if (il_expect > 0 && il_len < il_expect) { img_fail(); return; }
-            if (il_len == 0) { img_fail(); return; }
-            il_close_after = 0;
-            il_body_done();
+        }
+    }
+    free(t);
+    return found;
+}
+
+static void cl_start_art(void) {
+    char url[URL_MAX];
+    const char *id = (cl_try == 0 && cl_rgid[0]) ? cl_rgid : cl_relid;
+    if (!id[0]) { cl_give_up(); return; }
+    for (const char *p = id; *p; p++)
+        if (!isxdigit((unsigned char)*p) && *p != '-') { cl_give_up(); return; }
+    snprintf(url, sizeof(url), CAA_BASE "/%s/%s/front-250", (cl_try == 0 && cl_rgid[0]) ? "release-group" : "release", id);
+    chf.image = 1;
+    chf.maxbytes = 2 * 1024 * 1024;
+    chf.accept = "image/jpeg,image/*;q=0.8";
+    hf_start(&chf, url, NULL);
+    cl_state = CL_ART;
+}
+
+static void cl_save_cover(const unsigned char *d, int n) {
+    if (!sd_ok || cl_track < 0 || cl_track >= nfiles) return;
+    char path[NAME_LEN + 8];
+    snprintf(path, sizeof(path), "%s", names[cl_track]);
+    int l = (int)strlen(path);
+    if (l > 4) path[l - 4] = 0;
+    strcat(path, ".jpg");
+    struct stat st;
+    if (stat(path, &st) == 0) return;      /* ne jamais ecraser un fichier existant */
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    int ok = fwrite(d, 1, n, f) == (size_t)n;
+    fclose(f);
+    if (!ok) remove(path);
+}
+
+/* ligne d'info du lecteur : "Album (annee)", ou la recherche en cours (retour 1) */
+static int cover_info(char *out, int cap) {
+    const char *alb = id3_album, *yr = id3_year;
+    for (int i = 0; i < cl_ninfo && i < 32 && cur_track >= 0; i++)
+        if (strcmp(cl_info[i].path, names[cur_track]) == 0) {
+            if (!alb[0]) alb = cl_info[i].album;
+            if (!yr[0]) yr = cl_info[i].year;
+        }
+    char raw[200];
+    int searching = 0;
+    if (alb[0] && yr[0]) snprintf(raw, sizeof(raw), "%s (%s)", alb, yr);
+    else snprintf(raw, sizeof(raw), "%s%s", alb, yr);
+    if (covers_auto && !cover_ok && cl_track == cur_track && cl_state >= CL_WAIT && cl_state <= CL_ART) {
+        snprintf(raw, sizeof(raw), "Recherche de la pochette...");
+        searching = 1;
+    }
+    text_display(raw, out, cap);
+    return searching;
+}
+
+static void cover_pump(void) {
+    if (!covers_auto) return;
+    /* le morceau a change : on abandonne la recherche en cours */
+    if (cl_state != CL_IDLE && (src != SRC_FILE || cur_track != cl_track)) {
+        hf_abort(&chf);
+        cl_state = CL_IDLE;
+    }
+    if (cl_state == CL_IDLE) {
+        if (src != SRC_FILE || !playing || cur_track < 0 || cover_ok || track_err) return;
+        if (cl_track == cur_track || cl_is_failed(names[cur_track])) return;
+        if (net_phase != NET_DONE || !net_ok) return;
+        cl_track = cur_track;
+        cl_rgid[0] = cl_relid[0] = 0;
+        cl_try = 0;
+        cl_t0 = now_ms() + 1500;            /* on attend un peu : l'utilisateur zappe peut-etre */
+        cl_state = CL_WAIT;
+        return;
+    }
+    if (cl_state == CL_WAIT) {
+        u64 now = now_ms();
+        if (now >= cl_t0 && now >= cl_next_mb) cl_start_mb();
+        return;
+    }
+    if (cl_state == CL_MB) {
+        hf_pump(&chf);
+        if (chf.st == HF_FAIL) { cl_give_up(); return; }
+        if (chf.st != HF_DONE) return;
+        chf.st = HF_IDLE;
+        cl_album[0] = cl_year[0] = 0;
+        int ok = cl_pick((const char *)chf.buf, chf.len);
+        hf_drop(&chf);
+        if (!ok) { cl_give_up(); return; }
+        int k = cl_ninfo++ % 32;
+        snprintf(cl_info[k].path, NAME_LEN, "%s", names[cl_track]);
+        snprintf(cl_info[k].album, sizeof(cl_info[k].album), "%s", cl_album);
+        snprintf(cl_info[k].year, sizeof(cl_info[k].year), "%s", cl_year);
+        cl_start_art();
+        return;
+    }
+    if (cl_state == CL_ART) {
+        hf_pump(&chf);
+        if (chf.st == HF_FAIL) {
+            if (cl_try == 0 && cl_rgid[0] && cl_relid[0]) { cl_try = 1; cl_start_art(); return; }
+            cl_give_up();
             return;
         }
-        if (now_ms() - il_t0 > 20000) { il_close(); img_fail(); }
+        if (chf.st != HF_DONE) return;
+        chf.st = HF_IDLE;
+        if (!cover_ok && cur_track == cl_track) {
+            cover_ok = cover_from_memory(chf.buf, chf.len);
+            if (cover_ok) cl_save_cover(chf.buf, chf.len);
+        }
+        hf_drop(&chf);
+        cl_state = CL_DONE;
     }
 }
 
@@ -5540,6 +5933,8 @@ int main(void) {
     sd_ok = mount_sd();
     if (sd_ok) scan_files();
     load_stations();
+    load_settings();
+    if (covers_auto) net_start_async();     /* reseau en fond, pour les pochettes */
 
     AUDIO_Init(NULL);
     AUDIO_SetDSPSampleRate(AI_SAMPLERATE_48KHZ);
@@ -5623,6 +6018,7 @@ int main(void) {
 
         /* navigateur : reception des pages et des telechargements */
         web_pump();
+        cover_pump();
 
         service_audio();
 
