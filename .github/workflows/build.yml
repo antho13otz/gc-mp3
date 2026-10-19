@@ -38,6 +38,25 @@ jobs:
           mv mbedtls-3.6.7 mbedtls
           ls mbedtls/library/*.c | wc -l
 
+      # Decodeur AAC / HE-AAC pour les webradios (Helix, RealNetworks, licence RPSL),
+      # version figee de la bibliotheque ESP8266Audio, empreinte verifiee
+      - name: Télécharger le décodeur AAC (Helix)
+        run: |
+          C=e1f2a1a34aa460f5cca7a60b69d9a350fd099938
+          B=https://raw.githubusercontent.com/earlephilhower/ESP8266Audio/$C/src/libhelix-aac
+          F="aaccommon.h aacdec.c aacdec.h aactabs.c assembly.h bitstream.c \
+             bitstream.h buffers.c coder.h dct4.c decelmnt.c dequant.c fft.c \
+             filefmt.c huffmanaac.c hufftabs.c imdct.c noiseless.c pns.c sbr.c \
+             sbr.h sbrfft.c sbrfreq.c sbrhfadj.c sbrhfgen.c sbrhuff.c \
+             sbrimdct.c sbrmath.c sbrqmf.c sbrside.c sbrtabs.c statname.h \
+             stproc.c tns.c trigtabs.c"
+          mkdir -p helix
+          for f in $F; do
+            curl -fsSL --connect-timeout 20 --max-time 120 --retry 3 -o helix/$f $B/$f
+          done
+          H=$(for f in $F; do cat helix/$f; done | sha256sum | cut -d' ' -f1)
+          test "$H" = "cee275f6970b6f458f4b4d1e2d42b976fc3abad99d262d7e25b1ccc614a69ff2"
+
       # Certificats racines pour les sites https:// (liste Mozilla)
       - name: Générer source/cacert.h
         run: |
