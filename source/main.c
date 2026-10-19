@@ -1,16 +1,21 @@
-// GC-MP3 "Indigo Audio Player" - musique (carte SD) + webradios pour GameCube
-// (libogc + GX + minimp3 + Broadband Adapter)
+// GC-MP3 "Indigo Audio Player" - musique (carte SD) + webradios + navigateur web pour GameCube
+// (libogc + GX + minimp3 + Broadband Adapter + mbedTLS)
 //
-// Onglet MUSIQUE : fichiers .mp3 du dossier sd:/mp3
-//   Pochettes : sd:/mp3/<meme nom>.jpg/.png, pochette integree (ID3), ou sd:/mp3/cover.jpg
+// Onglet MUSIQUE : fichiers .mp3 de sd:/mp3 et sd:/downloads (sous-dossiers compris)
+//   Pochettes : <meme nom>.jpg/.png, pochette integree (ID3), ou cover.jpg/folder.jpg du dossier
 // Onglet RADIO : liste sd:/radio.txt (creee au premier lancement), une station par ligne :
 //   Nom | http://adresse/du/flux       Logo facultatif : sd:/radio/<Nom>.jpg ou .png
-//   Flux MP3 en http:// (pas https, pas AAC/OGG). Listes .m3u/.pls et redirections suivies.
+//   Flux MP3 en http:// ou https:// (pas AAC/OGG). Listes .m3u/.pls et redirections suivies.
+// Onglet WEB : navigateur en mode texte (sans JavaScript ni images). Les liens vers des
+//   fichiers sont telecharges dans sd:/downloads. Favoris : sd:/favoris.txt (Nom | adresse).
 //
 // Commandes : Z = changer d'onglet (la lecture continue), Haut/Bas = choisir,
 //             Gauche/Droite = page, A = lire, B = arreter, Y = pause (musique) / muet (radio),
-//             L/R = piste ou station precedente/suivante, START = quitter
-// Le reseau n'est initialise qu'au premier passage sur l'onglet RADIO.
+//             X = actualiser la liste (musique), L/R = piste ou station precedente/suivante,
+//             START = quitter
+//   WEB : A = ouvrir le lien, B = page precedente, Y = adresse / recherche, X = accueil,
+//         stick C = defiler
+// Le reseau n'est initialise qu'au premier passage sur l'onglet RADIO ou WEB.
 #include <gccore.h>
 #include <ogc/lwp.h>
 #include <ogc/system.h>
@@ -28,6 +33,7 @@
 #include <math.h>
 #include <unistd.h>
 #include <dirent.h>
+#include <sys/stat.h>
 
 // Decodeur MP3 : minimp3 (fichier unique, domaine public), telecharge par le workflow
 #define MINIMP3_IMPLEMENTATION
@@ -44,6 +50,16 @@
 #define STBI_NO_THREAD_LOCALS
 #include "stb_image.h"
 
+// HTTPS : mbedTLS 3.6 (telecharge et compile par le workflow, reglages dans gc_tls_config.h)
+#include "mbedtls/ssl.h"
+#include "mbedtls/entropy.h"
+#include "mbedtls/ctr_drbg.h"
+#include "mbedtls/x509_crt.h"
+#include "mbedtls/platform_time.h"
+#include "psa/crypto.h"
+// Certificats racines (liste Mozilla, convertie en cacert.h par le workflow)
+#include "cacert.h"
+
 // Atlas de polices lissees (genere par tools/gen_font.py)
 #include "font_atlas.h"
 
@@ -54,7 +70,9 @@
 #define LOGO_DIR       SD_ROOT "/radio"
 #define MP3_DIR        SD_ROOT "/mp3"
 #define MAX_FILES      512
-#define NAME_LEN       128
+#define NAME_LEN       256                  // chemin complet (sd:/dossier/.../fichier.mp3)
+#define DL_DIR         SD_ROOT "/downloads" // telechargements (CubeBrowser...)
+#define SCAN_DEPTH     3                    // sous-dossiers explores
 #define MAX_FILE_SIZE  (16 * 1024 * 1024)   // un MP3 est charge entierement en RAM
 #define MAX_STATIONS   128
 #define LIST_ROWS      14
@@ -93,10 +111,11 @@ static int state = ST_IDLE;
 static int muted = 0;
 enum { SRC_NONE, SRC_FILE, SRC_RADIO };
 static int src = SRC_NONE;              /* ce qui joue en ce moment */
-enum { TAB_MUSIC, TAB_RADIO };
+enum { TAB_MUSIC, TAB_RADIO, TAB_WEB };
 static int tab = TAB_MUSIC;             /* onglet affiche */
 static int paused = 0;                  /* pause de la musique */
 static void stop_track(void);
+static void bg_tick(void);              /* musique/radio pendant les attentes reseau */
 static int cur_station = -1;                 // station en cours
 static char err_msg[96];                 // message d'erreur affiche
 static char now_title[160];              // titre en cours (metadonnees ICY)
@@ -362,7 +381,7 @@ static int list_created = 0;            /* 1 si radio.txt vient d'etre cree */
 
 static const char *DEFAULT_LIST =
     "# GC-Radio : une station par ligne, au format   Nom | URL\n"
-    "# Flux MP3 en http:// uniquement (pas https, pas AAC/OGG).\n"
+    "# Flux MP3 en http:// ou https:// (pas AAC/OGG).\n"
     "# Les listes .m3u et .pls sont acceptees. Les lignes qui commencent\n"
     "# par # sont ignorees. Logo facultatif : sd:/radio/<Nom>.jpg ou .png\n"
     "# Conseil : preferer des serveurs proches (France/Europe). Le reseau de\n"
@@ -521,7 +540,7 @@ static int dns_query(u32 server, const char *host, u32 *out) {
         u64 t0 = now_ms();
         while (!found && now_ms() - t0 < 1500) {
             s32 n = net_recvfrom(s, a, sizeof(a), 0, NULL, NULL);
-            if (n == -EAGAIN || n == -EWOULDBLOCK) { service_audio(); usleep(2000); continue; }
+            if (n == -EAGAIN || n == -EWOULDBLOCK) { bg_tick(); usleep(2000); continue; }
             if (n < 12) break;
             if (a[0] != q[0] || a[1] != q[1] || !(a[2] & 0x80)) continue;   /* pas notre reponse */
             if ((a[3] & 0x0F) != 0) { found = -1; break; }                  /* nom inconnu */
@@ -568,8 +587,203 @@ static int resolve_host(const char *host, u32 *out) {
     return 0;
 }
 
+// ---------- Connexion http:// ou https:// ----------
+/* Horloge en millisecondes demandee par mbedTLS. */
+mbedtls_ms_time_t mbedtls_ms_time(void) { return (mbedtls_ms_time_t)now_ms(); }
+
+/* Source d'entropie pour le chiffrement. La GameCube n'a pas de generateur
+   aleatoire materiel : on mesure la gigue entre l'horloge du processeur et des
+   boucles de duree variable (cache, interruptions, DMA audio/video, reseau).
+   Suffisant pour ecouter une radio ; ne pas s'en servir pour des donnees sensibles. */
+int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t *olen);
+int mbedtls_hardware_poll(void *data, unsigned char *output, size_t len, size_t *olen) {
+    (void)data;
+    static u32 pool = 0x9E3779B9u;
+    for (size_t i = 0; i < len; i++) {
+        u32 acc = 0;
+        for (int k = 0; k < 8; k++) {
+            u64 t0 = gettime();
+            volatile u32 spin = (u32)(t0 & 0x3F) + 16;
+            while (spin--) pool = pool * 1664525u + 1013904223u + (u32)gettime();
+            u64 t1 = gettime();
+            acc = (acc << 1 | acc >> 31) ^ (u32)(t1 - t0) ^ (u32)t1 ^ retrace_count ^ (u32)f_count;
+        }
+        pool ^= acc;
+        output[i] = (unsigned char)(acc ^ (acc >> 8) ^ (acc >> 16) ^ (acc >> 24) ^ pool);
+    }
+    *olen = len;
+    return 0;
+}
+
+/* Une connexion = une socket + (en https) son propre contexte TLS. Plusieurs
+   connexions peuvent etre ouvertes en meme temps : radio, page web, telechargement. */
+typedef struct {
+    s32 fd;
+    int tls;
+    int ssl_inited;
+    mbedtls_ssl_context ssl;
+} conn_t;
+static conn_t cn = { -1, 0, 0 };          /* radio */
+
+static int tls_ready = 0;                 /* 1 = generateur et certificats prets */
+static mbedtls_entropy_context tls_entropy;
+static mbedtls_ctr_drbg_context tls_drbg;
+static mbedtls_x509_crt tls_ca;
+static mbedtls_ssl_config tls_conf;
+
+/* Les certificats sont verifies (chaine + nom du serveur), mais on ignore leurs
+   dates de validite : l'horloge de la GameCube est souvent fausse. */
+static int tls_verify_cb(void *p, mbedtls_x509_crt *crt, int depth, uint32_t *flags) {
+    (void)p; (void)crt; (void)depth;
+    *flags &= ~(uint32_t)(MBEDTLS_X509_BADCERT_EXPIRED | MBEDTLS_X509_BADCERT_FUTURE);
+    return 0;
+}
+
+static int tls_global_init(void) {
+    if (tls_ready) return 1;
+    static const char pers[] = "GC-MP3 radio";
+    mbedtls_entropy_init(&tls_entropy);
+    mbedtls_ctr_drbg_init(&tls_drbg);
+    mbedtls_x509_crt_init(&tls_ca);
+    mbedtls_ssl_config_init(&tls_conf);
+    if (psa_crypto_init() != PSA_SUCCESS) return 0;
+    if (mbedtls_ctr_drbg_seed(&tls_drbg, mbedtls_entropy_func, &tls_entropy,
+                              (const unsigned char *)pers, sizeof(pers) - 1) != 0) return 0;
+    /* liste Mozilla : on garde les certificats lisibles (le resultat > 0 indique
+       seulement combien n'ont pas pu etre lus) */
+    if (mbedtls_x509_crt_parse(&tls_ca, (const unsigned char *)cacert_pem, sizeof(cacert_pem)) < 0) return 0;
+    if (mbedtls_ssl_config_defaults(&tls_conf, MBEDTLS_SSL_IS_CLIENT, MBEDTLS_SSL_TRANSPORT_STREAM,
+                                    MBEDTLS_SSL_PRESET_DEFAULT) != 0) return 0;
+    mbedtls_ssl_conf_authmode(&tls_conf, MBEDTLS_SSL_VERIFY_REQUIRED);
+    mbedtls_ssl_conf_ca_chain(&tls_conf, &tls_ca, NULL);
+    mbedtls_ssl_conf_rng(&tls_conf, mbedtls_ctr_drbg_random, &tls_drbg);
+    mbedtls_ssl_conf_verify(&tls_conf, tls_verify_cb, NULL);
+    tls_ready = 1;
+    return 1;
+}
+
+static int bio_send(void *ctx, const unsigned char *buf, size_t len) {
+    s32 r = net_send(*(s32 *)ctx, buf, (s32)len, 0);
+    if (r == -EAGAIN || r == -EWOULDBLOCK) return MBEDTLS_ERR_SSL_WANT_WRITE;
+    return r < 0 ? MBEDTLS_ERR_SSL_INTERNAL_ERROR : (int)r;
+}
+
+static int bio_recv(void *ctx, unsigned char *buf, size_t len) {
+    s32 r = net_recv(*(s32 *)ctx, buf, (s32)len, 0);
+    if (r == -EAGAIN || r == -EWOULDBLOCK) return MBEDTLS_ERR_SSL_WANT_READ;
+    return r < 0 ? MBEDTLS_ERR_SSL_INTERNAL_ERROR : (int)r;     /* 0 = connexion fermee */
+}
+
+static void conn_close(conn_t *c) {
+    if (c->ssl_inited) { mbedtls_ssl_free(&c->ssl); c->ssl_inited = 0; }
+    if (c->fd >= 0) net_close(c->fd);
+    c->fd = -1;
+    c->tls = 0;
+}
+
+/* Recoit sans bloquer : > 0 octets lus, 0 fin du flux, -EAGAIN rien pour l'instant, < 0 erreur. */
+static int conn_recv(conn_t *c, unsigned char *buf, int len) {
+    if (c->fd < 0) return -EIO;
+    if (!c->tls) return net_recv(c->fd, buf, len, 0);
+    for (;;) {
+        int r = mbedtls_ssl_read(&c->ssl, buf, (size_t)len);
+        if (r > 0) return r;
+        if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) return -EAGAIN;
+#ifdef MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
+        if (r == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) continue;   /* message TLS 1.3 sans donnees */
+#endif
+        if (r == 0 || r == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) return 0;
+        return -EIO;
+    }
+}
+
+static int conn_send_all(conn_t *c, const void *data, int len) {
+    const unsigned char *p = (const unsigned char *)data;
+    u64 t0 = now_ms();
+    while (len > 0) {
+        int r = c->tls ? mbedtls_ssl_write(&c->ssl, p, (size_t)len) : net_send(c->fd, p, len, 0);
+        if (r > 0) { p += r; len -= r; continue; }
+        if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE || r == -EAGAIN || r == -EWOULDBLOCK) {
+            if (now_ms() - t0 > 8000) return 0;
+            bg_tick();
+            usleep(2000);
+            continue;
+        }
+        return 0;
+    }
+    return 1;
+}
+
+/* Negociation TLS avec le serveur (socket deja connectee, non bloquante).
+   En cas d'echec, *err recoit le message a afficher. */
+static int conn_start_tls(conn_t *c, const char *host, const char **err) {
+    if (!tls_global_init()) { *err = "Erreur d'initialisation HTTPS"; return 0; }
+    mbedtls_ssl_init(&c->ssl);
+    c->ssl_inited = 1;
+    if (mbedtls_ssl_setup(&c->ssl, &tls_conf) != 0 || mbedtls_ssl_set_hostname(&c->ssl, host) != 0) {
+        *err = "Erreur d'initialisation HTTPS";
+        return 0;
+    }
+    mbedtls_ssl_set_bio(&c->ssl, &c->fd, bio_send, bio_recv, NULL);
+    c->tls = 1;
+    u64 t0 = now_ms();
+    for (;;) {
+        int r = mbedtls_ssl_handshake(&c->ssl);
+        if (r == 0) return 1;
+        if (r != MBEDTLS_ERR_SSL_WANT_READ && r != MBEDTLS_ERR_SSL_WANT_WRITE) {
+            if (r == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED || mbedtls_ssl_get_verify_result(&c->ssl) != 0)
+                *err = "Certificat du serveur refusé";
+            else
+                *err = "Échec de la connexion sécurisée";
+            return 0;
+        }
+        if (now_ms() - t0 > 15000) { *err = "Connexion sécurisée trop lente"; return 0; }
+        bg_tick();
+        usleep(1000);
+    }
+}
+
+static void ui_status(const char *text);   /* redessine l'ecran pendant la connexion */
+
+/* Ouvre une connexion TCP (et TLS si tls = 1) vers host:port.
+   Retourne 1 si c'est bon ; sinon 0 et *err = message. *refused = 1 si le
+   serveur n'accepte pas la connexion (utile pour reessayer en http://). */
+static int conn_open(conn_t *c, const char *host, int port, int tls, const char **err, int *refused) {
+    char msg[200];
+    if (refused) *refused = 0;
+    conn_close(c);
+    snprintf(msg, sizeof(msg), "Recherche de %s...", host);
+    ui_status(msg);
+    u32 addr;
+    if (!resolve_host(host, &addr)) { *err = "Serveur introuvable (DNS)"; return 0; }
+
+    snprintf(msg, sizeof(msg), "Connexion à %s...", host);
+    ui_status(msg);
+    s32 s = net_socket(AF_INET, SOCK_STREAM, 0);
+    if (s < 0) { *err = "Erreur réseau (socket)"; return 0; }
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET;
+    sa.sin_port = htons((u16)port);
+    sa.sin_addr.s_addr = addr;
+    if (net_connect(s, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
+        net_close(s);
+        *err = "Connexion refusée par le serveur";
+        if (refused) *refused = 1;
+        return 0;
+    }
+    c->fd = s;
+    c->tls = 0;
+    set_nonblock(s, 1);
+    if (tls) {
+        snprintf(msg, sizeof(msg), "Connexion sécurisée à %s...", host);
+        ui_status(msg);
+        if (!conn_start_tls(c, host, err)) { conn_close(c); return 0; }
+    }
+    return 1;
+}
+
 // ---------- HTTP + metadonnees ICY ----------
-static s32 sock = -1;
 static int stream_closed = 0;
 static int icy_metaint = 0, icy_count = 0, icy_state = 0, icy_mlen = 0, icy_mpos = 0;
 static char icy_meta[16 * 255 + 1];
@@ -619,19 +833,18 @@ static void stream_feed(const unsigned char *d, int n) {
 }
 
 static void stream_close(void) {
-    if (sock >= 0) net_close(sock);
-    sock = -1;
+    conn_close(&cn);
 }
 
 /* Recoit avec un delai maximum (pendant la connexion). */
-static int recv_timeout(s32 s, unsigned char *buf, int len, u32 ms) {
+static int recv_timeout(unsigned char *buf, int len, u32 ms) {
     u64 t0 = now_ms();
     while (now_ms() - t0 < ms) {
-        s32 r = net_recv(s, buf, len, 0);
+        s32 r = conn_recv(&cn, buf, len);
         if (r > 0) return r;
         if (r == 0) return 0;                                  /* connexion fermee */
         if (r != -EAGAIN && r != -EWOULDBLOCK) return -1;
-        service_audio();
+        bg_tick();
         usleep(2000);
     }
     return -2;                                                 /* delai depasse */
@@ -682,23 +895,20 @@ static void set_error(const char *msg) {
     stream_close();
 }
 
-static void ui_status(const char *text);   /* redessine l'ecran pendant la connexion */
-
-/* Ouvre un flux http. Suit les redirections et les listes .m3u/.pls. */
+/* Ouvre un flux http:// ou https://. Suit les redirections et les listes .m3u/.pls. */
 static int http_open(const char *url_in, int depth) {
     char url[300], host[128], path[256], req[600];
     static unsigned char hdr[8192];
-    int port = 80;
+    int tls = 0, port;
 
     if (depth > 5) { set_error("Trop de redirections"); return 0; }
     snprintf(url, sizeof(url), "%s", url_in);
-    if (strncasecmp(url, "https://", 8) == 0) {
-        set_error("Radio en HTTPS : non gérée");
-        return 0;
-    }
-    if (strncasecmp(url, "http://", 7) != 0) { set_error("Adresse invalide (doit commencer par http://)"); return 0; }
+    const char *h;
+    if (strncasecmp(url, "https://", 8) == 0) { tls = 1; h = url + 8; }
+    else if (strncasecmp(url, "http://", 7) == 0) { h = url + 7; }
+    else { set_error("Adresse invalide (http:// ou https://)"); return 0; }
+    port = tls ? 443 : 80;
 
-    const char *h = url + 7;
     int hl = (int)strcspn(h, ":/?");
     if (hl <= 0 || hl >= (int)sizeof(host)) { set_error("Adresse invalide"); return 0; }
     memcpy(host, h, hl);
@@ -707,40 +917,20 @@ static int http_open(const char *url_in, int depth) {
     if (*rest == ':') { port = atoi(rest + 1); rest += strcspn(rest, "/?"); }
     if (*rest == '/') snprintf(path, sizeof(path), "%s", rest);
     else snprintf(path, sizeof(path), "/%s", rest);
-    if (port <= 0 || port > 65535) port = 80;
+    if (port <= 0 || port > 65535) port = tls ? 443 : 80;
 
-    char msg[160];
-    snprintf(msg, sizeof(msg), "Recherche de %s...", host);
-    ui_status(msg);
-    u32 addr;
-    if (!resolve_host(host, &addr)) { set_error("Serveur introuvable (DNS)"); return 0; }
-
-    snprintf(msg, sizeof(msg), "Connexion à %s...", host);
-    ui_status(msg);
-    s32 s = net_socket(AF_INET, SOCK_STREAM, 0);
-    if (s < 0) { set_error("Erreur réseau (socket)"); return 0; }
-    struct sockaddr_in sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sin_family = AF_INET;
-    sa.sin_port = htons((u16)port);
-    sa.sin_addr.s_addr = addr;
-    if (net_connect(s, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
-        net_close(s);
-        set_error("Connexion refusée par le serveur");
-        return 0;
-    }
-    sock = s;
+    const char *cerr = NULL;
+    if (!conn_open(&cn, host, port, tls, &cerr, NULL)) { set_error(cerr); return 0; }
 
     int rl = snprintf(req, sizeof(req),
-                      "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: GC-Radio/1.0 (GameCube)\r\n"
+                      "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: GC-MP3/1.0 (GameCube)\r\n"
                       "Icy-MetaData: 1\r\nAccept: */*\r\nConnection: close\r\n\r\n", path, host);
-    if (net_send(s, req, rl, 0) != rl) { set_error("Erreur d'envoi de la requête"); return 0; }
+    if (!conn_send_all(&cn, req, rl)) { set_error("Erreur d'envoi de la requête"); return 0; }
 
     /* lecture des en-tetes */
-    set_nonblock(s, 1);
     int hlen = 0, body_off = -1;
     while (hlen < (int)sizeof(hdr) - 1) {
-        int r = recv_timeout(s, hdr + hlen, (int)sizeof(hdr) - 1 - hlen, 8000);
+        int r = recv_timeout(hdr + hlen, (int)sizeof(hdr) - 1 - hlen, 8000);
         if (r <= 0) { set_error(r == -2 ? "Le serveur ne répond pas" : "Connexion coupée"); return 0; }
         hlen += r;
         hdr[hlen] = 0;
@@ -764,7 +954,7 @@ static int http_open(const char *url_in, int depth) {
         const char *loc = header_value(hdrs, "Location");
         if (!loc) { set_error("Redirection sans adresse"); return 0; }
         char next[300];
-        if (loc[0] == '/') snprintf(next, sizeof(next), "http://%s:%d%s", host, port, loc);
+        if (loc[0] == '/') snprintf(next, sizeof(next), "%s://%s:%d%s", tls ? "https" : "http", host, port, loc);
         else snprintf(next, sizeof(next), "%s", loc);
         stream_close();
         return http_open(next, depth + 1);
@@ -795,7 +985,7 @@ static int http_open(const char *url_in, int depth) {
         int pn = body_len < (int)sizeof(pl) - 1 ? body_len : (int)sizeof(pl) - 1;
         memcpy(pl, body, pn);
         while (pn < (int)sizeof(pl) - 1) {
-            int r = recv_timeout(s, (unsigned char *)pl + pn, (int)sizeof(pl) - 1 - pn, 5000);
+            int r = recv_timeout((unsigned char *)pl + pn, (int)sizeof(pl) - 1 - pn, 5000);
             if (r <= 0) break;
             pn += r;
         }
@@ -870,8 +1060,8 @@ static void stream_recv(void) {
     static unsigned char tmp[4096];
     if (state != ST_BUFFER && state != ST_PLAY) return;
     int got = 0;
-    while (sock >= 0 && !stream_closed && cbuf_free() > (int)sizeof(tmp) && got < 64 * 1024) {
-        s32 r = net_recv(sock, tmp, sizeof(tmp), 0);
+    while (cn.fd >= 0 && !stream_closed && cbuf_free() > (int)sizeof(tmp) && got < 64 * 1024) {
+        s32 r = conn_recv(&cn, tmp, sizeof(tmp));
         if (r > 0) { stream_feed(tmp, r); got += r; last_data_ms = now_ms(); continue; }
         if (r == -EAGAIN || r == -EWOULDBLOCK) break;
         stream_closed = 1;                                     /* fin ou erreur */
@@ -923,28 +1113,61 @@ static void stream_pump(void) {
 }
 
 // ---------- Liste des fichiers ----------
+/* names[] contient le chemin complet de chaque MP3 : sd:/mp3/... puis sd:/downloads/... */
 static char names[MAX_FILES][NAME_LEN];
 static int  dur_cache[MAX_FILES];          // duree en s ; -2 = pas encore lue, -1 = inconnue
 static int  nfiles = 0;
 static int  dur_budget = 0;                // lectures de duree autorisees pour l'image en cours
 
+/* Nom du fichier seul (apres le dernier '/') */
+static const char *base_of(const char *path) {
+    const char *b = strrchr(path, '/');
+    return b ? b + 1 : path;
+}
+
+/* Tri : d'abord sd:/mp3, puis sd:/downloads ; dans chaque dossier, ordre alphabetique
+   (les morceaux d'un meme album restent donc groupes). */
 static int cmp_names(const void *a, const void *b) {
-    return strcasecmp((const char *)a, (const char *)b);
+    const char *x = (const char *)a, *y = (const char *)b;
+    int rx = strncasecmp(x, MP3_DIR "/", strlen(MP3_DIR) + 1) == 0 ? 0 : 1;
+    int ry = strncasecmp(y, MP3_DIR "/", strlen(MP3_DIR) + 1) == 0 ? 0 : 1;
+    if (rx != ry) return rx - ry;
+    return strcasecmp(x, y);
+}
+
+static int is_dir(const char *path, const struct dirent *e) {
+#ifdef DT_DIR
+    if (e->d_type == DT_DIR) return 1;
+    if (e->d_type != DT_UNKNOWN) return 0;
+#endif
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+static void scan_dir(const char *dir, int depth) {
+    DIR *d = opendir(dir);
+    if (!d) return;
+    struct dirent *e;
+    char path[NAME_LEN];
+    while ((e = readdir(d)) != NULL && nfiles < MAX_FILES) {
+        if (e->d_name[0] == '.') continue;                 /* ".", "..", fichiers caches, "._xxx" */
+        int n = snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
+        if (n <= 0 || n >= (int)sizeof(path)) continue;    /* chemin trop long */
+        size_t l = strlen(e->d_name);
+        if (l > 4 && strcasecmp(e->d_name + l - 4, ".mp3") == 0) {
+            strcpy(names[nfiles++], path);
+        } else if (depth < SCAN_DEPTH && is_dir(path, e)) {
+            scan_dir(path, depth + 1);
+        }
+    }
+    closedir(d);
 }
 
 static void scan_files(void) {
     nfiles = 0;
     for (int i = 0; i < MAX_FILES; i++) dur_cache[i] = -2;
-    DIR *d = opendir(MP3_DIR);
-    if (!d) return;
-    struct dirent *e;
-    while ((e = readdir(d)) != NULL && nfiles < MAX_FILES) {
-        size_t l = strlen(e->d_name);
-        if (l > 4 && l < NAME_LEN && strcasecmp(e->d_name + l - 4, ".mp3") == 0) {
-            strcpy(names[nfiles++], e->d_name);
-        }
-    }
-    closedir(d);
+    scan_dir(MP3_DIR, 0);
+    scan_dir(DL_DIR, 0);
     qsort(names, nfiles, NAME_LEN, cmp_names);
 }
 
@@ -1013,10 +1236,8 @@ static int mp3_duration(const char *path) {
 static int track_duration(int k) {
     if (k < 0 || k >= nfiles) return -1;
     if (dur_cache[k] == -2 && dur_budget > 0) {
-        char path[256];
         dur_budget--;
-        snprintf(path, sizeof(path), "%s/%s", MP3_DIR, names[k]);
-        dur_cache[k] = mp3_duration(path);
+        dur_cache[k] = mp3_duration(names[k]);
     }
     return dur_cache[k];
 }
@@ -1200,23 +1421,24 @@ static int cover_from_id3(const char *path) {
 static void load_cover(int idx) {
     static const char *exts[] = { ".jpg", ".jpeg", ".png" };
     static const char *common[] = { "cover.jpg", "folder.jpg", "cover.png", "folder.png" };
-    char base[NAME_LEN], path[NAME_LEN + 32];
+    char noext[NAME_LEN], dir[NAME_LEN], path[NAME_LEN + 16];
 
+    /* les images sont cherchees dans le dossier du MP3 (un dossier par album) */
     cover_ok = 0;
-    snprintf(base, sizeof(base), "%s", names[idx]);
-    size_t l = strlen(base);
-    if (l > 4) base[l - 4] = 0;                                            // retire ".mp3"
+    snprintf(noext, sizeof(noext), "%s", names[idx]);
+    size_t l = strlen(noext);
+    if (l > 4) noext[l - 4] = 0;                                           // retire ".mp3"
+    snprintf(dir, sizeof(dir), "%s", names[idx]);
+    char *slash = strrchr(dir, '/');
+    if (slash) *slash = 0;
 
     for (int i = 0; i < 3 && !cover_ok; i++) {
-        snprintf(path, sizeof(path), "%s/%s%s", MP3_DIR, base, exts[i]);
+        snprintf(path, sizeof(path), "%s%s", noext, exts[i]);
         cover_ok = cover_from_file(path);
     }
-    if (!cover_ok) {
-        snprintf(path, sizeof(path), "%s/%s", MP3_DIR, names[idx]);
-        cover_ok = cover_from_id3(path);
-    }
+    if (!cover_ok) cover_ok = cover_from_id3(names[idx]);
     for (int i = 0; i < 4 && !cover_ok; i++) {
-        snprintf(path, sizeof(path), "%s/%s", MP3_DIR, common[i]);
+        snprintf(path, sizeof(path), "%s/%s", dir, common[i]);
         cover_ok = cover_from_file(path);
     }
 }
@@ -1238,14 +1460,12 @@ static int start_track(int idx) {
     muted = 0;
     load_cover(idx);          /* avant le MP3 : la memoire du decodage est deja liberee */
 
-    char path[256];
-    snprintf(path, sizeof(path), "%s/%s", MP3_DIR, names[idx]);
-    FILE *fp = fopen(path, "rb");
+    FILE *fp = fopen(names[idx], "rb");
     if (!fp) { track_err = "Ouverture impossible"; return 0; }
     if (fseek(fp, 0, SEEK_END) != 0) { fclose(fp); track_err = "Lecture impossible"; return 0; }
     long size = ftell(fp);
     if (size <= 0) { fclose(fp); track_err = "Fichier vide"; return 0; }
-    if (size > MAX_FILE_SIZE) { fclose(fp); track_err = "Fichier trop gros (18 Mo max)"; return 0; }
+    if (size > MAX_FILE_SIZE) { fclose(fp); track_err = "Fichier trop gros (16 Mo max)"; return 0; }
     if (fseek(fp, 0, SEEK_SET) != 0) { fclose(fp); track_err = "Lecture impossible"; return 0; }
     fdata = (unsigned char *)malloc(size);
     if (!fdata) { fclose(fp); track_err = "M\xC3\xA9moire insuffisante"; return 0; }
@@ -1851,27 +2071,30 @@ static void draw_radio_icon(f32 cx, f32 cy, col_t c) {
     gx_poly4(cx - 4, cy - 2, cx + 3, cy - 8, cx + 4, cy - 7, cx - 3, cy - 2, c, c, c, c);
 }
 
-/* Onglets MUSIQUE / RADIO en haut de la liste (Z pour changer). */
-static void draw_tabs(const char *count) {
-    static const char *names[2] = { "MUSIQUE", "RADIO" };
-    f32 x = 22;
-    for (int t = 0; t < 2; t++) {
-        int w = text_width(F_SMALL, names[t], 1) + 22;
+/* Onglets MUSIQUE / RADIO / WEB en haut de la liste (Z pour changer).
+   Retourne la position x apres le rappel de la touche Z. */
+static int draw_tabs(const char *count) {
+    static const char *names[3] = { "MUSIQUE", "RADIO", "WEB" };
+    f32 x = 20;
+    for (int t = 0; t < 3; t++) {
+        int w = text_width(F_SMALL, names[t], 1) + 14;
         int on = (tab == t);
         if (on) {
             gx_glow(x, 86, (f32)w, 18, 9, RGBA(150, 80, 255, 110), 2);
             gx_rrect_fill(x, 86, (f32)w, 18, 9, RGBA(124, 54, 240, 255), RGBA(80, 26, 180, 255));
         }
         gx_rrect_stroke(x, 86, (f32)w, 18, 9, 1.2f, on ? RGBA(190, 120, 255, 255) : RGBA(90, 64, 170, 255));
-        gx_text(F_SMALL, x + 11, 99, names[t], on ? RGBA(255, 255, 255, 255) : RGBA(150, 135, 210, 255),
+        gx_text(F_SMALL, x + 7, 99, names[t], on ? RGBA(255, 255, 255, 255) : RGBA(150, 135, 210, 255),
                 on ? RGBA(255, 255, 255, 255) : RGBA(150, 135, 210, 255), 1);
-        x += w + 6;
+        x += w + 4;
     }
     /* rappel de la touche Z */
-    gx_rrect_fill(x + 2, 88, 14, 14, 4, RGBA(110, 90, 190, 255), RGBA(70, 50, 140, 255));
-    gx_text_c(F_SMALL, x + 9, 99, "Z", RGBA(255, 255, 255, 255));
-    gx_text_r(F_SMALL, 262, 99, count, RGBA(205, 195, 245, 255));
-    gx_rect(25, 110, 241, 1, RGBA(76, 52, 150, 200));
+    gx_rrect_fill(x + 1, 88, 14, 14, 4, RGBA(110, 90, 190, 255), RGBA(70, 50, 140, 255));
+    gx_text_c(F_SMALL, x + 8, 99, "Z", RGBA(255, 255, 255, 255));
+    if (count && x + 20 + text_width(F_SMALL, count, 0) <= 266)
+        gx_text_r(F_SMALL, 266, 99, count, RGBA(205, 195, 245, 255));
+    gx_rect(25, 110, tab == TAB_WEB ? 590 : 241, 1, RGBA(76, 52, 150, 200));
+    return (int)x + 16;
 }
 
 static void draw_list_radio(void) {
@@ -1881,7 +2104,7 @@ static void draw_list_radio(void) {
     char buf[160], t[16];
 
     draw_panel(11, 73, 271, 385);
-    snprintf(buf, sizeof(buf), "%d STATIONS", nstations);
+    snprintf(buf, sizeof(buf), "%d", nstations);
     draw_tabs(buf);
 
     for (int i = 0; i < LIST_ROWS; i++) {
@@ -2179,10 +2402,23 @@ static void draw_legend(void) {
 static void draw_list_music(int sel);
 static void draw_player_music(void);
 
+static void draw_web(void);
+static void draw_legend_web(void);
+static void draw_keyboard(void);
+static int kb_is_open(void);
+
 static void draw(void) {
     dur_budget = 1;
     begin_frame();
     draw_header();
+    if (tab == TAB_WEB) {
+        draw_web();
+        draw_legend_web();
+        if (kb_is_open()) draw_keyboard();
+        service_audio();
+        present_frame();
+        return;
+    }
     if (tab == TAB_MUSIC) draw_list_music(sel_track);
     else draw_list_radio();
     /* panneau de droite : ce qui joue, sinon l'onglet affiche */
@@ -2239,7 +2475,7 @@ static void draw_list_music(int sel) {
     char buf[160], t[16];
 
     draw_panel(11, 73, 271, 385);
-    snprintf(buf, sizeof(buf), "%d PISTES", nfiles);
+    snprintf(buf, sizeof(buf), "%d", nfiles);
     draw_tabs(buf);
 
     for (int i = 0; i < LIST_ROWS; i++) {
@@ -2277,13 +2513,14 @@ static void draw_list_music(int sel) {
             }
         }
         char nm[NAME_LEN];
-        fit_text(F_MED, display_name(names[k]), name_w, nm, sizeof(nm));
+        fit_text(F_MED, display_name(base_of(names[k])), name_w, nm, sizeof(nm));
         gx_text1(F_MED, 76, cy + 5, nm, txt);
     }
 
     if (nfiles == 0) {
         gx_text1(F_MED, 30, 138, "Aucun fichier MP3 trouv\xC3\xA9", RGBA(255, 205, 110, 255));
-        gx_text1(F_SMALL, 30, 160, "Copie tes MP3 dans le dossier SD:/mp3", RGBA(190, 180, 235, 255));
+        gx_text1(F_SMALL, 30, 160, "Copie tes MP3 dans SD:/mp3", RGBA(190, 180, 235, 255));
+        gx_text1(F_SMALL, 30, 178, "ou tÃ©lÃ©" "charge-les dans SD:/downloads", RGBA(190, 180, 235, 255));
     }
 
     /* ascenseur */
@@ -2354,7 +2591,7 @@ static void draw_player_music(void) {
     int dur = playing ? track_duration(cur_track) : -1;
     int elapsed = (int)(consumed / 48000u);
     if (playing && cur_track >= 0 && cur_track < nfiles) {
-        fit_text(F_LARGE, display_name(names[cur_track]), 160, buf, sizeof(buf));
+        fit_text(F_LARGE, display_name(base_of(names[cur_track])), 160, buf, sizeof(buf));
         gx_text1(F_LARGE, 456, 140, buf, RGBA(255, 255, 255, 255));
         if (track_err) {
             gx_text1(F_MED, 456, 160, track_err, RGBA(255, 150, 80, 255));
@@ -2428,6 +2665,2248 @@ static void draw_player_music(void) {
     }
 }
 
+// ====================================================================
+// ---------- Navigateur web (onglet WEB) ----------
+// Navigateur en mode texte : HTML sans JavaScript ni images. Les liens vers
+// des fichiers (MP3...) sont telecharges dans sd:/downloads.
+// ====================================================================
+#define URL_MAX        1024
+#define WEB_PAGE_MAX   (1536 * 1024)        // taille maxi d'une page HTML
+#define FAV_FILE       SD_ROOT "/favoris.txt"
+#define SEARCH_URL     "https://www.mojeek.com/search?q="
+#define HIST_MAX       20
+#define WV_X           26                   // zone d'affichage de la page
+#define WV_Y           116
+#define WV_W           586
+#define WV_H           272
+#define W_MAX_ITEMS    60000
+#define W_MAX_LINKS    12000
+#define W_MAX_FIELDS   64
+#define W_MAX_FORMS    16
+
+enum { WS_LINK = 1, WS_HEAD = 2, WS_BOLD = 4, WS_DIM = 8, WS_FIELD = 16, WS_BUTTON = 32, WS_HR = 64 };
+enum { LK_HREF, LK_INPUT, LK_SUBMIT };
+enum { FD_TEXT, FD_HIDDEN, FD_SUBMIT };
+
+typedef struct { u32 off; s32 y; s16 x; u16 w; s16 link; u8 font; u8 style; } witem_t;
+typedef struct { u32 url; s32 y0, y1; s16 field; u8 kind; s8 form; } wlink_t;
+typedef struct { s8 form; u8 type; u32 name; char value[256]; } wfield_t;
+typedef struct { u32 action; u8 post; } wform_t;
+
+typedef struct {
+    char *text;  u32 tlen, tcap;            // textes affiches (chaines terminees par 0)
+    char *pool;  u32 plen, pcap;            // adresses des liens, noms des champs
+    witem_t *items; int nitems, icap;
+    wlink_t *links; int nlinks, lcap;
+    wfield_t *fields; int nfields;
+    wform_t forms[W_MAX_FORMS]; int nforms;
+    s32 height;
+    int truncated;
+    char url[URL_MAX];
+    char title[160];
+    char refresh[URL_MAX];
+    int refresh_delay;
+} wpage_t;
+
+static wpage_t pg;                          // page affichee
+static s32 pg_scroll = 0;
+static int pg_sel = -1;                     // lien selectionne
+
+static void wpage_free(wpage_t *p) {
+    free(p->text); free(p->pool); free(p->items); free(p->links); free(p->fields);
+    memset(p, 0, sizeof(*p));
+}
+
+/* agrandit un tableau dynamique ; 0 si plus de memoire ou limite atteinte */
+static int grow(void **buf, int *cap, int need, int elsz, int maxn) {
+    if (need <= *cap) return 1;
+    if (need > maxn) return 0;
+    int nc = *cap ? *cap * 2 : 256;
+    while (nc < need) nc *= 2;
+    if (nc > maxn) nc = maxn;
+    void *nb = realloc(*buf, (size_t)nc * elsz);
+    if (!nb) return 0;
+    *buf = nb;
+    *cap = nc;
+    return 1;
+}
+
+static u32 pool_add(wpage_t *p, const char *s) {
+    int n = (int)strlen(s) + 1, cap = (int)p->pcap;
+    if (!grow((void **)&p->pool, &cap, (int)p->plen + n, 1, 4 * 1024 * 1024)) { p->truncated = 1; return 0; }
+    p->pcap = (u32)cap;
+    u32 off = p->plen;
+    memcpy(p->pool + off, s, n);
+    p->plen += n;
+    return off;
+}
+
+// ---------- Adresses (URL) ----------
+static int hexv(int c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static void url_decode(const char *in, char *out, int outsz, int plus_space) {
+    int n = 0;
+    while (*in && n < outsz - 1) {
+        if (*in == '%' && hexv(in[1]) >= 0 && hexv(in[2]) >= 0) {
+            out[n++] = (char)(hexv(in[1]) * 16 + hexv(in[2]));
+            in += 3;
+        } else if (*in == '+' && plus_space) { out[n++] = ' '; in++; }
+        else out[n++] = *in++;
+    }
+    out[n] = 0;
+}
+
+/* encode pour une requete (formulaire) : espace -> '+', le reste en %XX */
+static int url_encode(const char *in, char *out, int outsz) {
+    static const char hx[] = "0123456789ABCDEF";
+    int n = 0;
+    for (const unsigned char *p = (const unsigned char *)in; *p; p++) {
+        if (n > outsz - 4) return 0;
+        if (isalnum(*p) || *p == '-' || *p == '_' || *p == '.' || *p == '~') out[n++] = (char)*p;
+        else if (*p == ' ') out[n++] = '+';
+        else { out[n++] = '%'; out[n++] = hx[*p >> 4]; out[n++] = hx[*p & 15]; }
+    }
+    out[n] = 0;
+    return 1;
+}
+
+typedef struct { int tls; char host[128]; int port; char path[URL_MAX]; } urlp_t;
+
+static int url_parse(const char *url, urlp_t *u) {
+    const char *h;
+    if (strncasecmp(url, "https://", 8) == 0) { u->tls = 1; h = url + 8; }
+    else if (strncasecmp(url, "http://", 7) == 0) { u->tls = 0; h = url + 7; }
+    else return 0;
+    int hl = (int)strcspn(h, ":/?#");
+    if (hl <= 0 || hl >= (int)sizeof(u->host)) return 0;
+    memcpy(u->host, h, hl);
+    u->host[hl] = 0;
+    for (char *p = u->host; *p; p++) *p = (char)tolower((unsigned char)*p);
+    const char *rest = h + hl;
+    u->port = u->tls ? 443 : 80;
+    if (*rest == ':') { u->port = atoi(rest + 1); rest += strcspn(rest, "/?#"); }
+    if (u->port <= 0 || u->port > 65535) return 0;
+    int pl = (int)strcspn(rest, "#");
+    if (pl >= (int)sizeof(u->path) - 2) pl = (int)sizeof(u->path) - 2;
+    if (*rest == '/') { memcpy(u->path, rest, pl); u->path[pl] = 0; }
+    else { u->path[0] = '/'; memcpy(u->path + 1, rest, pl); u->path[pl + 1] = 0; }
+    return 1;
+}
+
+/* retire les segments "." et ".." d'un chemin (sans toucher a la requete ?...) */
+static void path_normalize(char *path) {
+    char *q = strchr(path, '?');
+    char query[URL_MAX] = "";
+    if (q) { snprintf(query, sizeof(query), "%s", q); *q = 0; }
+    char out[URL_MAX];
+    int n = 0;
+    const char *p = path;
+    while (*p) {
+        const char *seg = p + 1;                     /* p pointe sur un '/' */
+        int sl = (int)strcspn(seg, "/");
+        int last = (seg[sl] == 0);
+        if (sl == 1 && seg[0] == '.') {
+            if (last) out[n++] = '/';
+        } else if (sl == 2 && seg[0] == '.' && seg[1] == '.') {
+            while (n > 0 && out[n - 1] != '/') n--;
+            if (n > 0) n--;
+            while (n > 0 && out[n - 1] != '/') n--;
+            if (n > 0) n--;
+            if (last) out[n++] = '/';
+        } else if (n + sl + 2 < (int)sizeof(out)) {
+            out[n++] = '/';
+            memcpy(out + n, seg, sl);
+            n += sl;
+        }
+        p = seg + sl;
+    }
+    if (n == 0) out[n++] = '/';
+    out[n] = 0;
+    snprintf(path, URL_MAX, "%s%s", out, query);
+}
+
+/* encode les espaces et les octets non ASCII trouves dans les liens */
+static void url_clean(const char *in, char *out, int outsz) {
+    static const char hx[] = "0123456789ABCDEF";
+    int n = 0;
+    for (const unsigned char *p = (const unsigned char *)in; *p && n < outsz - 4; p++) {
+        if (*p <= 0x20 || *p >= 0x7F || *p == '"' || *p == '<' || *p == '>') {
+            if (*p == '\n' || *p == '\r' || *p == '\t') continue;
+            out[n++] = '%'; out[n++] = hx[*p >> 4]; out[n++] = hx[*p & 15];
+        } else out[n++] = (char)*p;
+    }
+    out[n] = 0;
+}
+
+/* Lien des resultats DuckDuckGo (//duckduckgo.com/l/?uddg=...) -> vraie adresse */
+static void url_unwrap(char *url, int sz) {
+    if (!strstr(url, "duckduckgo.com/l/")) return;
+    const char *u = strstr(url, "uddg=");
+    if (!u) return;
+    char enc[URL_MAX], dec[URL_MAX];
+    snprintf(enc, sizeof(enc), "%s", u + 5);
+    enc[strcspn(enc, "&")] = 0;
+    url_decode(enc, dec, sizeof(dec), 0);
+    if (strncasecmp(dec, "http", 4) == 0) snprintf(url, sz, "%s", dec);
+}
+
+/* Adresse complete d'un lien href trouve sur la page base. 0 = lien inutilisable. */
+static int url_join(const char *base, const char *href_in, char *out, int outsz) {
+    char href[URL_MAX], tmp[URL_MAX * 2];
+    while (*href_in == ' ' || *href_in == '\n' || *href_in == '\r' || *href_in == '\t') href_in++;
+    url_clean(href_in, href, sizeof(href));
+    href[strcspn(href, "#")] = 0;
+    if (!href[0]) return 0;                                  /* "#..." : meme page */
+    int sl = 0;
+    while (isalnum((unsigned char)href[sl]) || href[sl] == '+' || href[sl] == '-' || href[sl] == '.') sl++;
+    if (sl > 0 && href[sl] == ':' && isalpha((unsigned char)href[0])) {
+        if (strncasecmp(href, "http:", 5) && strncasecmp(href, "https:", 6) && strncasecmp(href, "gc:", 3))
+            return 0;                                        /* javascript:, mailto:, ... */
+        if (strncasecmp(href, "gc:", 3) == 0) { snprintf(out, outsz, "%s", href); return 1; }
+        snprintf(tmp, sizeof(tmp), "%s", href);
+    } else {
+        urlp_t b;
+        if (!url_parse(base, &b)) return 0;
+        char origin[200];
+        if (b.port == (b.tls ? 443 : 80)) snprintf(origin, sizeof(origin), "%s://%s", b.tls ? "https" : "http", b.host);
+        else snprintf(origin, sizeof(origin), "%s://%s:%d", b.tls ? "https" : "http", b.host, b.port);
+        if (href[0] == '/' && href[1] == '/') snprintf(tmp, sizeof(tmp), "%s:%s", b.tls ? "https" : "http", href);
+        else if (href[0] == '/') snprintf(tmp, sizeof(tmp), "%s%s", origin, href);
+        else if (href[0] == '?') {
+            b.path[strcspn(b.path, "?")] = 0;
+            snprintf(tmp, sizeof(tmp), "%s%s%s", origin, b.path, href);
+        } else {
+            b.path[strcspn(b.path, "?")] = 0;
+            char *sl2 = strrchr(b.path, '/');
+            if (sl2) sl2[1] = 0;
+            snprintf(tmp, sizeof(tmp), "%s%s%s", origin, b.path, href);
+        }
+    }
+    urlp_t u;
+    if (!url_parse(tmp, &u)) return 0;
+    path_normalize(u.path);
+    if (u.port == (u.tls ? 443 : 80)) snprintf(tmp, sizeof(tmp), "%s://%s%s", u.tls ? "https" : "http", u.host, u.path);
+    else snprintf(tmp, sizeof(tmp), "%s://%s:%d%s", u.tls ? "https" : "http", u.host, u.port, u.path);
+    if ((int)strlen(tmp) >= outsz) return 0;
+    snprintf(out, outsz, "%s", tmp);
+    url_unwrap(out, outsz);
+    return 1;
+}
+
+// ---------- Caracteres : la police couvre ASCII + Latin-1 ----------
+/* ecrit le caractere cp en UTF-8 (2 octets max), avec un equivalent pour les
+   caracteres absents de la police (guillemets, tirets, ...) */
+static int cp_out(unsigned cp, char *o) {
+    const char *alt = NULL;
+    if (cp == 0x2018 || cp == 0x2019 || cp == 0x201A || cp == 0x2032) cp = '\'';
+    else if (cp == 0x201C || cp == 0x201D || cp == 0x201E || cp == 0x2033) cp = '"';
+    else if (cp == 0x2013 || cp == 0x2014 || cp == 0x2015 || cp == 0x2212 || cp == 0x2010 || cp == 0x2011) cp = '-';
+    else if (cp == 0x2022 || cp == 0x25CF || cp == 0x25AA || cp == 0x2219) cp = 0xB7;
+    else if (cp == 0x2026) alt = "...";
+    else if (cp == 0x20AC) alt = "EUR";
+    else if (cp == 0x2122) alt = "TM";
+    else if (cp == 0x2192 || cp == 0x203A || cp == 0x25B6 || cp == 0x25BA) alt = ">";
+    else if (cp == 0x2190 || cp == 0x2039 || cp == 0x25C0) alt = "<";
+    else if (cp == 0x0152) alt = "OE";
+    else if (cp == 0x0153) alt = "oe";
+    else if (cp == 0x2009 || cp == 0x200A || cp == 0x202F || cp == 0x2002 || cp == 0x2003) cp = ' ';
+    else if (cp == 0x200B || cp == 0x200C || cp == 0x200D || cp == 0xFEFF || cp == 0xAD) return 0;
+    if (alt) { int n = (int)strlen(alt); memcpy(o, alt, n); return n; }
+    if (cp < 0x20) return 0;
+    if (cp < 0x7F) { o[0] = (char)cp; return 1; }
+    if (cp >= 0xA0 && cp <= 0xFF) { o[0] = (char)(0xC0 | (cp >> 6)); o[1] = (char)(0x80 | (cp & 0x3F)); return 2; }
+    o[0] = '?';
+    return 1;
+}
+
+/* Windows-1252 (0x80-0x9F) */
+static const u16 cp1252[32] = {
+    0x20AC, 0x3F, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0x3F, 0x017D, 0x3F,
+    0x3F, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0x3F, 0x017E, 0x0178 };
+
+/* lit un caractere du texte HTML (UTF-8, ou Latin-1/Windows-1252) */
+static unsigned read_cp(const unsigned char *s, int len, int *pos, int latin) {
+    unsigned c = s[*pos];
+    (*pos)++;
+    if (c < 0x80) return c;
+    if (latin) return (c < 0xA0) ? cp1252[c - 0x80] : c;
+    int need = (c & 0xE0) == 0xC0 ? 1 : (c & 0xF0) == 0xE0 ? 2 : (c & 0xF8) == 0xF0 ? 3 : -1;
+    if (need < 0 || *pos + need > len) return (c < 0xA0) ? '?' : c;          /* octet isole */
+    unsigned cp = c & (0x3F >> need);
+    for (int i = 0; i < need; i++) {
+        unsigned d = s[*pos + i];
+        if ((d & 0xC0) != 0x80) return (c < 0xA0) ? '?' : c;
+        cp = (cp << 6) | (d & 0x3F);
+    }
+    *pos += need;
+    return cp;
+}
+
+static const struct { const char *n; u16 cp; } entities[] = {
+    {"amp",'&'},{"lt",'<'},{"gt",'>'},{"quot",'"'},{"apos",'\''},{"nbsp",0xA0},{"eacute",0xE9},{"egrave",0xE8},
+    {"ecirc",0xEA},{"euml",0xEB},{"agrave",0xE0},{"acirc",0xE2},{"auml",0xE4},{"ccedil",0xE7},{"icirc",0xEE},
+    {"iuml",0xEF},{"ocirc",0xF4},{"ouml",0xF6},{"ugrave",0xF9},{"ucirc",0xFB},{"uuml",0xFC},{"Eacute",0xC9},
+    {"Egrave",0xC8},{"Ecirc",0xCA},{"Agrave",0xC0},{"Acirc",0xC2},{"Ccedil",0xC7},{"Ocirc",0xD4},{"aacute",0xE1},
+    {"iacute",0xED},{"oacute",0xF3},{"uacute",0xFA},{"ntilde",0xF1},{"Ntilde",0xD1},{"atilde",0xE3},{"otilde",0xF5},
+    {"aring",0xE5},{"oslash",0xF8},{"szlig",0xDF},{"copy",0xA9},{"reg",0xAE},{"deg",0xB0},{"laquo",0xAB},
+    {"raquo",0xBB},{"middot",0xB7},{"times",0xD7},{"divide",0xF7},{"euro",0x20AC},{"hellip",0x2026},{"mdash",0x2014},
+    {"ndash",0x2013},{"rsquo",0x2019},{"lsquo",0x2018},{"rdquo",0x201D},{"ldquo",0x201C},{"bull",0x2022},
+    {"trade",0x2122},{"iexcl",0xA1},{"iquest",0xBF},{"sect",0xA7},{"para",0xB6},{"plusmn",0xB1},{"frac12",0xBD},
+    {"frac14",0xBC},{"frac34",0xBE},{"sup2",0xB2},{"pound",0xA3},{"yen",0xA5},{"cent",0xA2},{"shy",0xAD},
+    {"rarr",0x2192},{"larr",0x2190},{"oelig",0x153},{"OElig",0x152},{"thinsp",0x2009},{"ensp",0x2002},{"emsp",0x2003},
+    {"zwnj",0x200C},{"zwj",0x200D},{"Uuml",0xDC},{"Ouml",0xD6},{"Auml",0xC4},{"yacute",0xFD},{"yuml",0xFF},
+};
+
+/* s[*pos] == '&' : decode une entite. Retourne le caractere (ou '&' si inconnue). */
+static unsigned read_entity(const unsigned char *s, int len, int *pos) {
+    int p = *pos + 1;
+    if (p < len && s[p] == '#') {
+        p++;
+        unsigned v = 0;
+        int hex = (p < len && (s[p] == 'x' || s[p] == 'X'));
+        if (hex) p++;
+        int st = p;
+        while (p < len && p - st < 8 && (hex ? hexv(s[p]) >= 0 : isdigit(s[p]))) {
+            v = v * (hex ? 16 : 10) + (unsigned)(hex ? hexv(s[p]) : s[p] - '0');
+            p++;
+        }
+        if (p == st) { (*pos)++; return '&'; }
+        if (p < len && s[p] == ';') p++;
+        *pos = p;
+        if (v >= 0x80 && v < 0xA0) v = cp1252[v - 0x80];
+        return v ? v : '?';
+    }
+    char name[12];
+    int n = 0;
+    while (p < len && n < 10 && isalnum(s[p])) name[n++] = (char)s[p++];
+    name[n] = 0;
+    if (n > 0) {
+        for (unsigned i = 0; i < sizeof(entities) / sizeof(entities[0]); i++) {
+            if (strcmp(entities[i].n, name) == 0) {
+                if (p < len && s[p] == ';') p++;
+                *pos = p;
+                return entities[i].cp;
+            }
+        }
+    }
+    (*pos)++;
+    return '&';
+}
+
+/* decode les entites d'une valeur d'attribut, resultat en UTF-8 */
+static void attr_decode(const char *in, int inlen, char *out, int outsz, int latin) {
+    int n = 0, pos = 0;
+    const unsigned char *s = (const unsigned char *)in;
+    while (pos < inlen && n < outsz - 4) {
+        unsigned cp = (s[pos] == '&') ? read_entity(s, inlen, &pos) : read_cp(s, inlen, &pos, latin);
+        if (cp == '\n' || cp == '\r' || cp == '\t') cp = ' ';
+        if (cp > 0xFF) {
+            /* hors Latin-1 : on garde l'UTF-8 d'origine (utile pour les adresses) */
+            char tmp[8];
+            int k = 0;
+            if (cp < 0x800) { tmp[k++] = (char)(0xC0 | (cp >> 6)); }
+            else if (cp < 0x10000) { tmp[k++] = (char)(0xE0 | (cp >> 12)); tmp[k++] = (char)(0x80 | ((cp >> 6) & 0x3F)); }
+            else { tmp[k++] = (char)(0xF0 | (cp >> 18)); tmp[k++] = (char)(0x80 | ((cp >> 12) & 0x3F));
+                   tmp[k++] = (char)(0x80 | ((cp >> 6) & 0x3F)); }
+            tmp[k++] = (char)(0x80 | (cp & 0x3F));
+            if (n + k < outsz - 1) { memcpy(out + n, tmp, k); n += k; }
+            continue;
+        }
+        if (cp < 0x80) out[n++] = (char)cp;
+        else { out[n++] = (char)(0xC0 | (cp >> 6)); out[n++] = (char)(0x80 | (cp & 0x3F)); }
+    }
+    out[n] = 0;
+}
+
+/* texte UTF-8 -> texte affichable (equivalents pour les caracteres absents de la police) */
+static void text_display(const char *in, char *out, int outsz) {
+    const unsigned char *s = (const unsigned char *)in;
+    int len = (int)strlen(in), pos = 0, n = 0;
+    while (pos < len && n < outsz - 4) {
+        char tmp[4];
+        int k = cp_out(read_cp(s, len, &pos, 0), tmp);
+        memcpy(out + n, tmp, k);
+        n += k;
+    }
+    out[n] = 0;
+}
+
+/* attribut d'une balise : tag = texte entre '<' et '>' */
+static int tag_attr(const char *tag, int tlen, const char *name, char *out, int outsz, int latin) {
+    int nl = (int)strlen(name), p = 0;
+    while (p < tlen && !isspace((unsigned char)tag[p]) && tag[p] != '/') p++;   /* nom de la balise */
+    while (p < tlen) {
+        while (p < tlen && (isspace((unsigned char)tag[p]) || tag[p] == '/')) p++;
+        int ns = p;
+        while (p < tlen && !isspace((unsigned char)tag[p]) && tag[p] != '=' && tag[p] != '/') p++;
+        int nlen = p - ns;
+        while (p < tlen && isspace((unsigned char)tag[p])) p++;
+        int vs = -1, vl = 0;
+        if (p < tlen && tag[p] == '=') {
+            p++;
+            while (p < tlen && isspace((unsigned char)tag[p])) p++;
+            if (p < tlen && (tag[p] == '"' || tag[p] == '\'')) {
+                char q = tag[p++];
+                vs = p;
+                while (p < tlen && tag[p] != q) p++;
+                vl = p - vs;
+                if (p < tlen) p++;
+            } else {
+                vs = p;
+                while (p < tlen && !isspace((unsigned char)tag[p])) p++;
+                vl = p - vs;
+            }
+        }
+        if (nlen == nl && strncasecmp(tag + ns, name, nl) == 0) {
+            if (out) {
+                if (vs >= 0) attr_decode(tag + vs, vl, out, outsz, latin);
+                else out[0] = 0;
+            }
+            return 1;
+        }
+        if (nlen == 0 && vs < 0) p++;
+    }
+    return 0;
+}
+
+// ---------- Mise en page ----------
+typedef struct {
+    wpage_t *p;
+    s32 line_top;
+    int line_first;                         // premier element de la ligne en cours
+    int x, indent;
+    int space;                              // espace a inserer avant le prochain mot
+    int brk;                                // 0 = rien, 1 = ligne, 2 = paragraphe
+    int font, style, link;
+    int run;                                // element ouvert (on y ajoute les mots suivants)
+    int blank;                              // lignes vides consecutives
+} wlay_t;
+
+static int font_space(int f) { return font_glyphs[f][0].adv; }
+
+static void lay_newline(wlay_t *L) {
+    wpage_t *p = L->p;
+    if (L->line_first < p->nitems) {
+        int asc = 0, h = 0;
+        for (int i = L->line_first; i < p->nitems; i++) {
+            int f = p->items[i].font;
+            int ih = (p->items[i].style & WS_FIELD) ? font_height[F_MED] + 6 : font_height[f];
+            if (font_ascent[f] > asc) asc = font_ascent[f];
+            if (ih > h) h = ih;
+        }
+        if (p->items[L->line_first].style & WS_HR) { asc = 6; h = 12; }
+        for (int i = L->line_first; i < p->nitems; i++) {
+            p->items[i].y = L->line_top + asc;
+            int lk = p->items[i].link;
+            if (lk >= 0) {
+                if (p->links[lk].y0 < 0 || p->links[lk].y0 > L->line_top) p->links[lk].y0 = L->line_top;
+                if (p->links[lk].y1 < L->line_top + h) p->links[lk].y1 = L->line_top + h;
+            }
+        }
+        L->line_top += h + 3;
+        L->blank = 0;
+    }
+    L->line_first = p->nitems;
+    L->x = L->indent;
+    L->space = 0;
+    L->run = -1;
+}
+
+static void lay_break(wlay_t *L, int para) {
+    lay_newline(L);
+    if (para && L->brk < 2 && L->p->nitems > 0) L->line_top += 7;
+    if (L->brk < (para ? 2 : 1)) L->brk = para ? 2 : 1;
+}
+
+static void lay_br(wlay_t *L) {
+    if (L->line_first < L->p->nitems) lay_newline(L);
+    else if (L->blank < 1) { L->line_top += font_height[L->font] + 3; L->blank++; }
+    L->brk = 1;
+}
+
+static witem_t *lay_new_item(wlay_t *L, int x, int w) {
+    wpage_t *p = L->p;
+    if (!grow((void **)&p->items, &p->icap, p->nitems + 1, sizeof(witem_t), W_MAX_ITEMS)) { p->truncated = 1; return NULL; }
+    witem_t *it = &p->items[p->nitems++];
+    memset(it, 0, sizeof(*it));
+    it->x = (s16)x;
+    it->w = (u16)w;
+    it->link = (s16)L->link;
+    it->font = (u8)L->font;
+    it->style = (u8)L->style;
+    it->off = p->tlen;
+    L->brk = 0;
+    return it;
+}
+
+static int text_append(wpage_t *p, const char *s, int n, int join) {
+    int cap = (int)p->tcap;
+    if (!grow((void **)&p->text, &cap, (int)p->tlen + n + 2, 1, 8 * 1024 * 1024)) { p->truncated = 1; return 0; }
+    p->tcap = (u32)cap;
+    if (join && p->tlen > 0) p->tlen--;                     /* recolle a la chaine precedente */
+    memcpy(p->text + p->tlen, s, n);
+    p->tlen += n;
+    p->text[p->tlen++] = 0;
+    return 1;
+}
+
+/* ajoute un mot (UTF-8 affichable, n octets) */
+static void lay_word(wlay_t *L, const char *w, int n) {
+    if (n <= 0 || L->p->truncated) return;
+    char buf[300];
+    if (n > (int)sizeof(buf) - 2) n = (int)sizeof(buf) - 2;
+    memcpy(buf, w, n);
+    buf[n] = 0;
+    int ww = text_width(L->font, buf, 0);
+    int sw = (L->space && L->x > L->indent) ? font_space(L->font) : 0;
+    int maxw = WV_W - L->indent;
+    if (ww > maxw) {                                         /* mot plus long qu'une ligne : on le coupe */
+        const char *s = buf;
+        int cut = 0, wsum = 0;
+        while (s[cut]) {
+            const char *q = s + cut;
+            int cp = next_cp(&q);
+            int a = font_glyphs[L->font][glyph_index(cp)].adv;
+            if (wsum + a > maxw - (L->x - L->indent) - sw && cut > 0) break;
+            wsum += a;
+            cut = (int)(q - s);
+        }
+        lay_word(L, buf, cut);
+        lay_newline(L);
+        lay_word(L, buf + cut, n - cut);
+        return;
+    }
+    if (L->x + sw + ww > WV_W && L->x > L->indent) { lay_newline(L); sw = 0; }
+    wpage_t *p = L->p;
+    if (L->run >= 0) {
+        witem_t *r = &p->items[L->run];
+        if (r->font == L->font && r->style == L->style && r->link == L->link) {
+            if (sw) { if (!text_append(p, " ", 1, 1)) return; }
+            if (!text_append(p, buf, n, 1)) return;
+            r->w = (u16)(L->x + sw + ww - r->x);
+            L->x += sw + ww;
+            L->space = 0;
+            return;
+        }
+    }
+    witem_t *it = lay_new_item(L, L->x + sw, ww);
+    if (!it) return;
+    if (!text_append(p, buf, n, 0)) { p->nitems--; return; }
+    L->run = p->nitems - 1;
+    L->x += sw + ww;
+    L->space = 0;
+}
+
+static void lay_text(wlay_t *L, const char *s) {           /* plusieurs mots */
+    while (*s) {
+        while (*s == ' ') { L->space = 1; s++; }
+        int n = (int)strcspn(s, " ");
+        if (n) lay_word(L, s, n);
+        s += n;
+    }
+}
+
+/* champ de saisie ou bouton (largeur fixe) */
+static void lay_box(wlay_t *L, int w, int style, const char *label) {
+    int sw = (L->space && L->x > L->indent) ? font_space(L->font) : 0;
+    if (w > WV_W - L->indent) w = WV_W - L->indent;
+    if (L->x + sw + w > WV_W && L->x > L->indent) { lay_newline(L); sw = 0; }
+    int save = L->style;
+    L->style = style;
+    witem_t *it = lay_new_item(L, L->x + sw, w);
+    L->style = save;
+    if (!it) return;
+    it->font = F_MED;
+    if (!text_append(L->p, label ? label : "", label ? (int)strlen(label) : 0, 0)) { L->p->nitems--; return; }
+    L->x += sw + w;
+    L->space = 1;
+    L->run = -1;
+}
+
+static void lay_hr(wlay_t *L) {
+    lay_newline(L);
+    int save = L->style;
+    L->style = WS_HR;
+    witem_t *it = lay_new_item(L, L->indent, WV_W - L->indent);
+    L->style = save;
+    if (it && !text_append(L->p, "", 0, 0)) L->p->nitems--;
+    lay_newline(L);
+}
+
+// ---------- Analyse du HTML ----------
+static int new_link(wpage_t *p, int kind, const char *url, int field, int form) {
+    if (!grow((void **)&p->links, &p->lcap, p->nlinks + 1, sizeof(wlink_t), W_MAX_LINKS)) { p->truncated = 1; return -1; }
+    wlink_t *l = &p->links[p->nlinks];
+    l->url = url ? pool_add(p, url) : 0;
+    l->y0 = -1; l->y1 = -1;
+    l->field = (s16)field;
+    l->kind = (u8)kind;
+    l->form = (s8)form;
+    return p->nlinks++;
+}
+
+static int new_field(wpage_t *p, int form, int type, const char *name, const char *value) {
+    if (!p->fields) p->fields = (wfield_t *)calloc(W_MAX_FIELDS, sizeof(wfield_t));
+    if (!p->fields || p->nfields >= W_MAX_FIELDS) return -1;
+    wfield_t *f = &p->fields[p->nfields];
+    f->form = (s8)form;
+    f->type = (u8)type;
+    f->name = pool_add(p, name);
+    snprintf(f->value, sizeof(f->value), "%s", value ? value : "");
+    return p->nfields++;
+}
+
+static char *ci_find(char *h, const char *n) {
+    int nl = (int)strlen(n);
+    for (; *h; h++) if (strncasecmp(h, n, nl) == 0) return h;
+    return NULL;
+}
+
+static int tag_is(const char *name, const char *const *list) {
+    for (int i = 0; list[i]; i++) if (strcmp(name, list[i]) == 0) return 1;
+    return 0;
+}
+
+/* cherche "</name" (sans tenir compte des majuscules) a partir de pos */
+static int find_close(const unsigned char *s, int len, int pos, const char *name) {
+    int nl = (int)strlen(name);
+    for (int i = pos; i + nl + 2 <= len; i++)
+        if (s[i] == '<' && s[i + 1] == '/' && strncasecmp((const char *)s + i + 2, name, nl) == 0) return i;
+    return len;
+}
+
+/* texte brut (titre, zone de texte) : entites decodees, espaces reduits */
+static void raw_text(const unsigned char *s, int a, int b, char *out, int outsz, int latin) {
+    char tmp[1024], col[1024];
+    int n = b - a;
+    if (n > (int)sizeof(tmp) - 1) n = (int)sizeof(tmp) - 1;
+    attr_decode((const char *)s + a, n, tmp, sizeof(tmp), latin);
+    int k = 0, sp = 0;
+    for (char *c = tmp; *c && k < (int)sizeof(col) - 2; c++) {
+        if (*c == ' ') { sp = 1; continue; }
+        if (sp && k > 0) col[k++] = ' ';
+        sp = 0;
+        col[k++] = *c;
+    }
+    col[k] = 0;
+    text_display(col, out, outsz);
+}
+
+static void web_layout_html(wpage_t *p, const unsigned char *s, int len, int latin) {
+    static const char *const para_tags[] = { "p", "ul", "ol", "dl", "table", "blockquote", "pre", "form",
+        "h1", "h2", "h3", "h4", "h5", "h6", "figure", "fieldset", "details", "center", "address", NULL };
+    static const char *const line_tags[] = { "div", "section", "article", "header", "footer", "nav", "main",
+        "aside", "tr", "li", "dt", "dd", "figcaption", "summary", "caption", "legend", "tbody", "thead", "option", NULL };
+    static const char *const hide_tags[] = { "svg", "select", "template", "iframe", "object", "canvas",
+        "audio", "video", "math", "datalist", "map", NULL };
+
+    wlay_t L;
+    memset(&L, 0, sizeof(L));
+    L.p = p;
+    L.font = F_MED;
+    L.link = -1;
+    L.run = -1;
+    L.brk = 2;
+    char base[URL_MAX];
+    snprintf(base, sizeof(base), "%s", p->url);
+
+    char word[300];
+    int wn = 0;
+    int pre = 0, bold = 0, in_head = 0;
+    int hide = 0, hide_n = 0;
+    char hide_name[16] = "";
+    int heading = 0;
+    int cur_form = -1, cur_select = -1, link_items = 0, link_open = 0;
+    int list_depth = 0, cell = 0;
+    int ol_num[8] = { 0 }, ol_is[8] = { 0 };
+    char tag[2048], name[16], val[URL_MAX], val2[URL_MAX];
+    int pos = 0;
+    u32 tick = 0;
+
+#define FLUSH_WORD() do { if (wn) { lay_word(&L, word, wn); wn = 0; } } while (0)
+#define SET_STYLE() (L.style = (link_open ? WS_LINK : 0) | (heading ? WS_HEAD : 0) | (bold ? WS_BOLD : 0) | \
+                     (L.link >= 0 && p->links[L.link].kind == LK_SUBMIT ? WS_BUTTON : 0))
+
+    while (pos < len && !p->truncated) {
+        if ((++tick & 1023) == 0) bg_tick();
+        unsigned char c = s[pos];
+        if (c == '<') {
+            /* commentaire */
+            if (pos + 3 < len && s[pos + 1] == '!' && s[pos + 2] == '-' && s[pos + 3] == '-') {
+                int e = pos + 4;
+                while (e + 2 < len && !(s[e] == '-' && s[e + 1] == '-' && s[e + 2] == '>')) e++;
+                pos = e + 3;
+                continue;
+            }
+            int close = (pos + 1 < len && s[pos + 1] == '/');
+            int ns = pos + 1 + close;
+            if (ns >= len || !(isalpha(s[ns]) || s[ns] == '!' || s[ns] == '?')) {
+                /* '<' isole : simple texte */
+                if (!hide && !in_head && wn < (int)sizeof(word) - 4) word[wn++] = '<';
+                pos++;
+                continue;
+            }
+            /* fin de la balise (en sautant les guillemets) */
+            int e = ns;
+            char q = 0;
+            while (e < len) {
+                if (q) { if (s[e] == q) q = 0; }
+                else if (s[e] == '"' || s[e] == '\'') { if (e > ns && s[e - 1] == '=') q = (char)s[e]; }
+                else if (s[e] == '>') break;
+                e++;
+            }
+            int tl = e - ns;
+            if (tl > (int)sizeof(tag) - 1) tl = (int)sizeof(tag) - 1;
+            memcpy(tag, s + ns, tl);
+            tag[tl] = 0;
+            pos = e + 1;
+            if (tag[0] == '!' || tag[0] == '?') continue;     /* <!DOCTYPE>, <?xml?> */
+            int nl = 0;
+            while (nl < tl && nl < 15 && (isalnum((unsigned char)tag[nl]) || tag[nl] == '-')) {
+                name[nl] = (char)tolower((unsigned char)tag[nl]);
+                nl++;
+            }
+            name[nl] = 0;
+            if (!nl) continue;
+
+            /* contenus a sauter ou a lire en bloc */
+            if (!close && (strcmp(name, "script") == 0 || strcmp(name, "style") == 0)) {
+                int ce = find_close(s, len, pos, name);
+                pos = ce;
+                continue;
+            }
+            if (!close && strcmp(name, "title") == 0) {
+                int ce = find_close(s, len, pos, "title");
+                if (!p->title[0]) raw_text(s, pos, ce, p->title, sizeof(p->title), latin);
+                pos = ce;
+                continue;
+            }
+            if (!close && strcmp(name, "textarea") == 0) {
+                int ce = find_close(s, len, pos, "textarea");
+                if (!hide && cur_form >= 0) {
+                    char init[256];
+                    raw_text(s, pos, ce, init, sizeof(init), latin);
+                    if (!tag_attr(tag, tl, "name", val, sizeof(val), latin)) val[0] = 0;
+                    FLUSH_WORD();
+                    int f = new_field(p, cur_form, FD_TEXT, val, init);
+                    if (f >= 0) {
+                        int save = L.link;
+                        L.link = new_link(p, LK_INPUT, NULL, f, cur_form);
+                        if (L.link >= 0) lay_box(&L, 300, WS_FIELD, NULL);
+                        L.link = save;
+                    }
+                }
+                pos = ce;
+                continue;
+            }
+            /* <option> : valeur choisie d'une liste deroulante (meme cachee) */
+            if (!close && strcmp(name, "option") == 0 && cur_select >= 0) {
+                if (tag_attr(tag, tl, "value", val, sizeof(val), latin)) {
+                    wfield_t *f = &p->fields[cur_select];
+                    if (tag_attr(tag, tl, "selected", NULL, 0, latin) || f->type == FD_HIDDEN + 10) {
+                        snprintf(f->value, sizeof(f->value), "%s", val);
+                        f->type = FD_HIDDEN;
+                    }
+                }
+                continue;
+            }
+            if (close && strcmp(name, "select") == 0 && cur_select >= 0) {
+                if (p->fields[cur_select].type == FD_HIDDEN + 10) p->fields[cur_select].type = FD_HIDDEN;
+                cur_select = -1;
+            }
+            /* elements caches */
+            if (hide) {
+                if (strcmp(name, hide_name) == 0) {
+                    if (close) { if (--hide_n <= 0) { hide = 0; hide_name[0] = 0; } }
+                    else hide_n++;
+                }
+                continue;
+            }
+            if (!close && tag_is(name, hide_tags)) {
+                if (strcmp(name, "select") == 0 && cur_form >= 0 && tag_attr(tag, tl, "name", val, sizeof(val), latin)) {
+                    cur_select = new_field(p, cur_form, FD_HIDDEN, val, "");
+                    if (cur_select >= 0) p->fields[cur_select].type = FD_HIDDEN + 10;   /* 1re option a prendre */
+                }
+                int selfclose = (tl > 0 && tag[tl - 1] == '/');
+                if (!selfclose) { hide = 1; hide_n = 1; snprintf(hide_name, sizeof(hide_name), "%s", name); }
+                continue;
+            }
+            if (strcmp(name, "head") == 0) { in_head = !close; continue; }
+            if (strcmp(name, "body") == 0) { in_head = 0; continue; }
+            if (strcmp(name, "meta") == 0) {
+                if (tag_attr(tag, tl, "http-equiv", val, sizeof(val), latin) && strcasecmp(val, "refresh") == 0 &&
+                    tag_attr(tag, tl, "content", val, sizeof(val), latin)) {
+                    int d = atoi(val);
+                    char *u = ci_find(val, "url=");
+                    if (u && !p->refresh[0]) {
+                        u += 4;
+                        if (*u == '\'' || *u == '"') u++;
+                        u[strcspn(u, "'\"")] = 0;
+                        if (url_join(base, u, p->refresh, sizeof(p->refresh))) p->refresh_delay = d;
+                    }
+                }
+                continue;
+            }
+            if (strcmp(name, "base") == 0) {
+                if (tag_attr(tag, tl, "href", val, sizeof(val), latin) && url_join(p->url, val, val2, sizeof(val2)))
+                    snprintf(base, sizeof(base), "%s", val2);
+                continue;
+            }
+            if (in_head) continue;
+
+            FLUSH_WORD();
+            int is_h = (name[0] == 'h' && name[1] >= '1' && name[1] <= '6' && !name[2]);
+
+            if (tag_is(name, para_tags)) lay_break(&L, 1);
+            else if (tag_is(name, line_tags)) lay_break(&L, 0);
+
+            if (strcmp(name, "br") == 0) { lay_br(&L); continue; }
+            if (strcmp(name, "hr") == 0 && !close) { lay_hr(&L); continue; }
+            if (is_h) {
+                heading = !close;
+                L.font = (!close && name[1] <= '2') ? F_LARGE : F_MED;
+                SET_STYLE();
+                continue;
+            }
+            if (strcmp(name, "b") == 0 || strcmp(name, "strong") == 0 || strcmp(name, "th") == 0) {
+                bold += close ? -1 : 1;
+                if (bold < 0) bold = 0;
+                SET_STYLE();
+                if (strcmp(name, "th") != 0) continue;
+            }
+            if (strcmp(name, "pre") == 0) { pre = !close; continue; }
+            if (strcmp(name, "ul") == 0 || strcmp(name, "ol") == 0 || strcmp(name, "blockquote") == 0 ||
+                strcmp(name, "dd") == 0) {
+                int d = close ? -1 : 1;
+                if (strcmp(name, "dd") != 0 && strcmp(name, "blockquote") != 0) {
+                    if (!close) {
+                        if (list_depth < 8) { ol_is[list_depth] = (name[0] == 'o'); ol_num[list_depth] = 0; }
+                        list_depth++;
+                    } else if (list_depth > 0) list_depth--;
+                }
+                L.indent += d * 18;
+                if (L.indent < 0) L.indent = 0;
+                if (L.indent > 180) L.indent = 180;
+                L.x = L.indent;
+                continue;
+            }
+            if (strcmp(name, "li") == 0 && !close) {
+                int d = list_depth > 0 ? list_depth - 1 : 0;
+                char bullet[16];
+                if (d < 8 && ol_is[d]) snprintf(bullet, sizeof(bullet), "%d.", ++ol_num[d]);
+                else snprintf(bullet, sizeof(bullet), "\xC2\xB7");
+                int save = L.style, sl = L.link;
+                L.style = WS_DIM;
+                L.link = -1;
+                L.x = L.indent - 5 - text_width(L.font, bullet, 0);
+                if (L.x < 0) L.x = 0;
+                L.space = 0;
+                lay_word(&L, bullet, (int)strlen(bullet));
+                L.style = save;
+                L.link = sl;
+                L.run = -1;
+                if (L.x < L.indent + 3) L.x = L.indent + 3;
+                continue;
+            }
+            if (strcmp(name, "tr") == 0) { cell = 0; continue; }
+            if ((strcmp(name, "td") == 0 || strcmp(name, "th") == 0) && !close) {
+                if (cell++ > 0) { L.x += 16; L.space = 0; L.run = -1; }
+                continue;
+            }
+            if (strcmp(name, "a") == 0) {
+                if (link_open) {
+                    if (link_items == p->nitems) lay_text(&L, "[lien]");
+                    link_open = 0;
+                    L.link = -1;
+                }
+                if (!close && tag_attr(tag, tl, "href", val, sizeof(val), latin) && url_join(base, val, val2, sizeof(val2))) {
+                    L.link = new_link(p, LK_HREF, val2, -1, -1);
+                    if (L.link >= 0) { link_open = 1; link_items = p->nitems; }
+                }
+                SET_STYLE();
+                continue;
+            }
+            if (strcmp(name, "img") == 0) {
+                if (link_open && tag_attr(tag, tl, "alt", val, sizeof(val), latin) && val[0] && strlen(val) < 80) {
+                    char disp[200], t2[210];
+                    text_display(val, disp, sizeof(disp));
+                    snprintf(t2, sizeof(t2), "[%s]", disp);
+                    lay_text(&L, t2);
+                }
+                continue;
+            }
+            if (strcmp(name, "form") == 0) {
+                cur_form = -1;
+                if (!close && p->nforms < W_MAX_FORMS) {
+                    char act[URL_MAX];
+                    if (!tag_attr(tag, tl, "action", val, sizeof(val), latin) || !val[0] ||
+                        !url_join(base, val, act, sizeof(act)))
+                        snprintf(act, sizeof(act), "%s", p->url);
+                    p->forms[p->nforms].action = pool_add(p, act);
+                    p->forms[p->nforms].post = tag_attr(tag, tl, "method", val, sizeof(val), latin) && strcasecmp(val, "post") == 0;
+                    cur_form = p->nforms++;
+                }
+                continue;
+            }
+            if (strcmp(name, "input") == 0 && cur_form >= 0) {
+                char type[24] = "text", nm[128] = "", v[256] = "";
+                tag_attr(tag, tl, "type", type, sizeof(type), latin);
+                tag_attr(tag, tl, "name", nm, sizeof(nm), latin);
+                tag_attr(tag, tl, "value", v, sizeof(v), latin);
+                for (char *t = type; *t; t++) *t = (char)tolower((unsigned char)*t);
+                if (strcmp(type, "hidden") == 0) { if (nm[0]) new_field(p, cur_form, FD_HIDDEN, nm, v); }
+                else if (strcmp(type, "checkbox") == 0 || strcmp(type, "radio") == 0) {
+                    if (nm[0] && tag_attr(tag, tl, "checked", NULL, 0, latin)) new_field(p, cur_form, FD_HIDDEN, nm, v[0] ? v : "on");
+                } else if (strcmp(type, "submit") == 0 || strcmp(type, "image") == 0) {
+                    int f = new_field(p, cur_form, FD_SUBMIT, nm, v);
+                    int save = L.link;
+                    L.link = new_link(p, LK_SUBMIT, NULL, f, cur_form);
+                    if (L.link >= 0) {
+                        char disp[200];
+                        text_display(v[0] ? v : "Envoyer", disp, sizeof(disp));
+                        lay_box(&L, text_width(F_MED, disp, 0) + 20, WS_BUTTON, disp);
+                    }
+                    L.link = save;
+                } else if (strcmp(type, "text") == 0 || strcmp(type, "search") == 0 || strcmp(type, "email") == 0 ||
+                           strcmp(type, "url") == 0 || strcmp(type, "number") == 0 || strcmp(type, "tel") == 0 ||
+                           strcmp(type, "password") == 0) {
+                    int f = new_field(p, cur_form, FD_TEXT, nm, v);
+                    if (f >= 0) {
+                        int save = L.link;
+                        L.link = new_link(p, LK_INPUT, NULL, f, cur_form);
+                        if (L.link >= 0) lay_box(&L, 240, WS_FIELD, NULL);
+                        L.link = save;
+                    }
+                }
+                continue;
+            }
+            if (strcmp(name, "button") == 0) {
+                if (close) {
+                    if (link_open && L.link >= 0 && p->links[L.link].kind == LK_SUBMIT) {
+                        if (link_items == p->nitems) lay_text(&L, "[Envoyer]");
+                        link_open = 0;
+                        L.link = -1;
+                        SET_STYLE();
+                    }
+                } else if (cur_form >= 0 && !link_open) {
+                    char type[24] = "submit", nm[128] = "", v[256] = "";
+                    tag_attr(tag, tl, "type", type, sizeof(type), latin);
+                    if (strcasecmp(type, "submit") == 0) {
+                        tag_attr(tag, tl, "name", nm, sizeof(nm), latin);
+                        tag_attr(tag, tl, "value", v, sizeof(v), latin);
+                        int f = new_field(p, cur_form, FD_SUBMIT, nm, v);
+                        L.link = new_link(p, LK_SUBMIT, NULL, f, cur_form);
+                        if (L.link >= 0) { link_open = 1; link_items = p->nitems; }
+                        SET_STYLE();
+                    }
+                }
+                continue;
+            }
+            continue;
+        }
+        if (hide || in_head) { pos++; continue; }
+
+        /* texte */
+        unsigned cp = (c == '&') ? read_entity(s, len, &pos) : read_cp(s, len, &pos, latin);
+        if (cp == '\r') continue;
+        if (cp == ' ' || cp == '\n' || cp == '\t' || cp == '\f') {
+            FLUSH_WORD();
+            if (pre && cp == '\n') lay_br(&L);
+            else L.space = 1;
+            continue;
+        }
+        if (cp == 0xA0) cp = ' ';                                    /* espace insecable : reste dans le mot */
+        if (wn > (int)sizeof(word) - 8) FLUSH_WORD();
+        wn += cp_out(cp, word + wn);
+    }
+    FLUSH_WORD();
+    if (link_open && link_items == p->nitems) lay_text(&L, "[lien]");
+    if (p->truncated) {
+        lay_break(&L, 1);
+        L.style = WS_DIM;
+        L.link = -1;
+        lay_text(&L, "(page trop longue : la suite n'est pas affichée)");
+    }
+    lay_newline(&L);
+    p->height = L.line_top;
+#undef FLUSH_WORD
+#undef SET_STYLE
+}
+
+/* texte brut (text/plain) : une ligne par ligne */
+static void web_layout_text(wpage_t *p, const unsigned char *s, int len, int latin) {
+    wlay_t L;
+    memset(&L, 0, sizeof(L));
+    L.p = p;
+    L.font = F_SMALL;
+    L.link = -1;
+    L.run = -1;
+    char word[300];
+    int wn = 0, pos = 0;
+    while (pos < len && !p->truncated) {
+        unsigned cp = read_cp(s, len, &pos, latin);
+        if (cp == '\r') continue;
+        if (cp == ' ' || cp == '\t' || cp == '\n') {
+            if (wn) { lay_word(&L, word, wn); wn = 0; }
+            if (cp == '\n') lay_br(&L);
+            else L.space = 1;
+            continue;
+        }
+        if (wn > (int)sizeof(word) - 8) { lay_word(&L, word, wn); wn = 0; }
+        wn += cp_out(cp, word + wn);
+    }
+    if (wn) lay_word(&L, word, wn);
+    lay_newline(&L);
+    p->height = L.line_top;
+}
+
+// ---------- Navigateur : chargement des pages, telechargements ----------
+static conn_t wconn[2] = { { -1, 0, 0 }, { -1, 0, 0 } };
+static int wpi = 0;                         // wconn[wpi] = page, wconn[1 - wpi] = telechargement
+#define PCONN (&wconn[wpi])
+#define DCONN (&wconn[1 - wpi])
+
+enum { WK_HTML, WK_TEXT, WK_ARCHIVE };
+enum { NAV_PUSH, NAV_BACK, NAV_REPLACE };
+
+typedef struct { int on, st, ext; long rem; } dechunk_t;
+
+/* "Transfer-Encoding: chunked" : retire les tailles de blocs (sur place). */
+static int dechunk(dechunk_t *d, unsigned char *buf, int n) {
+    int o = 0, i = 0;
+    while (i < n) {
+        if (d->st == 0) {
+            int c = buf[i++];
+            if (c == '\n') { d->st = d->rem ? 1 : 3; d->ext = 0; }
+            else if (c == ';') d->ext = 1;
+            else if (!d->ext && hexv(c) >= 0) {
+                if (d->rem > (1L << 26)) d->st = 3;          /* taille absurde : on arrete */
+                else d->rem = d->rem * 16 + hexv(c);
+            }
+        } else if (d->st == 1) {
+            int take = (int)((long)(n - i) < d->rem ? (long)(n - i) : d->rem);
+            memmove(buf + o, buf + i, take);
+            o += take; i += take; d->rem -= take;
+            if (d->rem == 0) d->st = 2;
+        } else if (d->st == 2) {
+            if (buf[i++] == '\n') { d->st = 0; d->rem = 0; }
+        } else i = n;                       /* fin (st 3) */
+    }
+    return o;
+}
+
+typedef struct { char url[URL_MAX]; char title[96]; s32 scroll; int sel; } whist_t;
+static whist_t hist[HIST_MAX];
+static int hist_n = 0;
+
+static int wb_loading = 0, wb_busy = 0;     // corps de page en reception / connexion en cours
+static unsigned char *wb_buf = NULL;
+static int wb_len = 0, wb_cap = 0, wb_kind = WK_HTML, wb_latin = 0, wb_mode = NAV_PUSH, wb_trunc = 0;
+static long wb_expect = -1;
+static u64 wb_last = 0;
+static char wb_url[URL_MAX];
+static dechunk_t wb_dc;
+static int wb_refreshes = 0;
+
+static char web_msg[200];
+static int web_msg_err = 0;
+static u64 web_msg_t = 0;
+static char arch_query[200];
+
+static void web_note(const char *m, int err) {
+    snprintf(web_msg, sizeof(web_msg), "%s", m);
+    web_msg_err = err;
+    web_msg_t = now_ms();
+}
+
+static void web_cancel_load(void) {
+    if (wb_loading) conn_close(PCONN);
+    wb_loading = 0;
+    free(wb_buf);
+    wb_buf = NULL;
+    wb_len = wb_cap = 0;
+}
+
+static int crecv_timeout(conn_t *c, unsigned char *buf, int len, u32 ms) {
+    u64 t0 = now_ms();
+    while (now_ms() - t0 < ms) {
+        int r = conn_recv(c, buf, len);
+        if (r > 0) return r;
+        if (r == 0) return 0;
+        if (r != -EAGAIN && r != -EWOULDBLOCK) return -1;
+        bg_tick();
+        usleep(2000);
+    }
+    return -2;
+}
+
+static int is_latin_charset(const char *cs) {
+    return ci_find((char *)cs, "8859") || ci_find((char *)cs, "1252") || ci_find((char *)cs, "latin");
+}
+
+// ---------- Telechargements (sd:/downloads) ----------
+static int dl_active = 0;
+static FILE *dl_fp = NULL;
+static char dl_name[128], dl_path[NAME_LEN], dl_part[NAME_LEN + 8];
+static long dl_total = -1, dl_got = 0;
+static u64 dl_t0 = 0, dl_last = 0;
+static dechunk_t dl_dc;
+static void music_rescan(void);
+
+static void dl_stop(const char *msg, int err) {
+    conn_close(DCONN);
+    if (dl_fp) { fclose(dl_fp); dl_fp = NULL; }
+    if (err) remove(dl_part);
+    dl_active = 0;
+    if (msg) web_note(msg, err);
+}
+
+static void sanitize_name(char *s) {
+    for (char *p = s; *p; p++) {
+        unsigned char c = (unsigned char)*p;
+        if (c < 0x20 || strchr("\\/:*?\"<>|", c)) *p = '_';
+    }
+    while (*s == ' ' || *s == '.') memmove(s, s + 1, strlen(s));
+    int n = (int)strlen(s);
+    while (n > 0 && (s[n - 1] == ' ' || s[n - 1] == '.')) s[--n] = 0;
+}
+
+static void dl_filename(const char *disp, const char *url, const char *ctype, char *out, int outsz) {
+    char raw[URL_MAX] = "", dec[URL_MAX];
+    if (disp) {
+        const char *f = ci_find((char *)disp, "filename*=");
+        if (f) {
+            f += 10;
+            const char *q = strstr(f, "''");
+            if (q) f = q + 2;
+            snprintf(raw, sizeof(raw), "%s", f);
+            raw[strcspn(raw, ";")] = 0;
+        } else if ((f = ci_find((char *)disp, "filename=")) != NULL) {
+            f += 9;
+            if (*f == '"') { f++; snprintf(raw, sizeof(raw), "%s", f); raw[strcspn(raw, "\"")] = 0; }
+            else { snprintf(raw, sizeof(raw), "%s", f); raw[strcspn(raw, "; ")] = 0; }
+        }
+    }
+    if (!raw[0]) {
+        urlp_t u;
+        if (url_parse(url, &u)) {
+            u.path[strcspn(u.path, "?")] = 0;
+            const char *b = strrchr(u.path, '/');
+            snprintf(raw, sizeof(raw), "%s", b ? b + 1 : u.path);
+        }
+    }
+    url_decode(raw, dec, sizeof(dec), 0);
+    const char *b = strrchr(dec, '/');
+    if (b) memmove(dec, b + 1, strlen(b));
+    sanitize_name(dec);
+    if (!dec[0]) snprintf(dec, sizeof(dec), "fichier");
+    int n = (int)strlen(dec);
+    if (ctype && ci_find((char *)ctype, "audio/mpeg") && !(n > 4 && strcasecmp(dec + n - 4, ".mp3") == 0))
+        snprintf(dec + n, sizeof(dec) - n, ".mp3");
+    /* nom trop long : on garde l'extension */
+    n = (int)strlen(dec);
+    if (n > 100) {
+        const char *e = strrchr(dec, '.');
+        char ext[16] = "";
+        if (e && strlen(e) < sizeof(ext)) snprintf(ext, sizeof(ext), "%s", e);
+        int keep = 100 - (int)strlen(ext);
+        while (keep > 0 && ((unsigned char)dec[keep] & 0xC0) == 0x80) keep--;   /* pas au milieu d'un caractere */
+        snprintf(dec + keep, sizeof(dec) - keep, "%s", ext);
+    }
+    snprintf(out, outsz, "%s", dec);
+}
+
+/* La reponse en cours (sur PCONN) est un fichier : on le telecharge en tache de fond. */
+static void dl_begin(const unsigned char *body, int n, const char *ctype, const char *disp,
+                     const char *url, long clen, int chunked) {
+    if (dl_active) { conn_close(PCONN); web_note("Un téléchargement est déjà en cours (X : accueil pour l'annuler)", 1); return; }
+    if (!sd_ok) { conn_close(PCONN); web_note("Carte SD absente : téléchargement impossible", 1); return; }
+    mkdir(DL_DIR, 0777);
+    char name[128];
+    dl_filename(disp, url, ctype, name, sizeof(name));
+    snprintf(dl_path, sizeof(dl_path), "%s/%s", DL_DIR, name);
+    struct stat st;
+    for (int k = 2; k < 100 && stat(dl_path, &st) == 0; k++) {          /* nom deja pris : "nom (2).mp3" */
+        const char *e = strrchr(name, '.');
+        int bl = e ? (int)(e - name) : (int)strlen(name);
+        snprintf(dl_path, sizeof(dl_path), "%s/%.*s (%d)%s", DL_DIR, bl, name, k, e ? e : "");
+    }
+    snprintf(dl_name, sizeof(dl_name), "%s", base_of(dl_path));
+    snprintf(dl_part, sizeof(dl_part), "%s.part", dl_path);
+    dl_fp = fopen(dl_part, "wb");
+    if (!dl_fp) { conn_close(PCONN); web_note("Impossible de créer le fichier sur la carte SD", 1); return; }
+    wpi = 1 - wpi;                          /* la connexion devient celle du telechargement */
+    dl_active = 1;
+    dl_total = clen;
+    dl_got = 0;
+    dl_t0 = dl_last = now_ms();
+    memset(&dl_dc, 0, sizeof(dl_dc));
+    dl_dc.on = chunked;
+    if (n > 0) {
+        static unsigned char first[16384];
+        memcpy(first, body, n);
+        int m = chunked ? dechunk(&dl_dc, first, n) : n;
+        if (m > 0 && fwrite(first, 1, m, dl_fp) != (size_t)m) { dl_stop("Écriture impossible sur la carte SD (pleine ?)", 1); return; }
+        dl_got += m;
+    }
+    char msg[200];
+    snprintf(msg, sizeof(msg), "Téléchargement de %s...", dl_name);
+    web_note(msg, 0);
+}
+
+static void dl_finish(void) {
+    conn_close(DCONN);
+    fclose(dl_fp);
+    dl_fp = NULL;
+    dl_active = 0;
+    if (dl_total > 0 && dl_got < dl_total) { remove(dl_part); web_note("Téléchargement interrompu (fichier incomplet)", 1); return; }
+    if (dl_got == 0) { remove(dl_part); web_note("Le fichier reçu est vide", 1); return; }
+    remove(dl_path);
+    if (rename(dl_part, dl_path) != 0) { web_note("Fichier reçu mais impossible de le renommer", 1); return; }
+    int n = (int)strlen(dl_path);
+    char msg[220];
+    if (n > 4 && strcasecmp(dl_path + n - 4, ".mp3") == 0) {
+        music_rescan();
+        snprintf(msg, sizeof(msg), "Téléchargé : %s (dans l'onglet MUSIQUE)", dl_name);
+    } else snprintf(msg, sizeof(msg), "Enregistré : SD:/downloads/%s", dl_name);
+    web_note(msg, 0);
+}
+
+static void dl_pump(void) {
+    static unsigned char tmp[16384];
+    if (!dl_active) return;
+    int got = 0;
+    while (got < 256 * 1024) {
+        int r = conn_recv(DCONN, tmp, sizeof(tmp));
+        if (r > 0) {
+            int m = dl_dc.on ? dechunk(&dl_dc, tmp, r) : r;
+            if (m > 0 && fwrite(tmp, 1, m, dl_fp) != (size_t)m) { dl_stop("Écriture impossible sur la carte SD (pleine ?)", 1); return; }
+            dl_got += m;
+            got += r;
+            dl_last = now_ms();
+            if ((dl_dc.on && dl_dc.st == 3) || (dl_total > 0 && dl_got >= dl_total)) { dl_finish(); return; }
+            service_audio();
+            continue;
+        }
+        if (r == -EAGAIN || r == -EWOULDBLOCK) break;
+        dl_finish();                        /* fin du fichier (ou coupure) */
+        return;
+    }
+    if (now_ms() - dl_last > 30000) dl_stop("Téléchargement interrompu (le serveur ne répond plus)", 1);
+}
+
+// ---------- Pages internes (accueil, favoris) ----------
+typedef struct { char *b; int n, cap; } sbuf_t;
+
+static void sb_add(sbuf_t *s, const char *t) {
+    int l = (int)strlen(t);
+    if (s->n + l + 1 > s->cap) {
+        int nc = s->cap ? s->cap * 2 : 8192;
+        while (nc < s->n + l + 1) nc *= 2;
+        char *nb = (char *)realloc(s->b, nc);
+        if (!nb) return;
+        s->b = nb;
+        s->cap = nc;
+    }
+    memcpy(s->b + s->n, t, l + 1);
+    s->n += l;
+}
+
+static void sb_esc(sbuf_t *s, const char *t) {
+    char one[2] = { 0, 0 };
+    for (; *t; t++) {
+        if (*t == '&') sb_add(s, "&amp;");
+        else if (*t == '<') sb_add(s, "&lt;");
+        else if (*t == '>') sb_add(s, "&gt;");
+        else if (*t == '"') sb_add(s, "&quot;");
+        else { one[0] = *t; sb_add(s, one); }
+    }
+}
+
+static const char DEFAULT_FAVS[] =
+    "Recherche web (Mojeek) | https://www.mojeek.com/\n"
+    "Wikipédia (version mobile) | https://fr.m.wikipedia.org/\n"
+    "FrogFind (le web en version simple) | http://frogfind.com/\n"
+    "68k.news (actualités en texte) | http://68k.news/\n";
+
+static void add_favorites(sbuf_t *s) {
+    char line[URL_MAX + 200];
+    FILE *f = sd_ok ? fopen(FAV_FILE, "r") : NULL;
+    if (!f && sd_ok) {
+        FILE *w = fopen(FAV_FILE, "w");
+        if (w) { fputs(DEFAULT_FAVS, w); fclose(w); }
+        f = fopen(FAV_FILE, "r");
+    }
+    const char *mem = f ? NULL : DEFAULT_FAVS;
+    int count = 0;
+    sb_add(s, "<ul>");
+    while (count < 200) {
+        if (f) { if (!fgets(line, sizeof(line), f)) break; }
+        else {
+            if (!*mem) break;
+            int n = (int)strcspn(mem, "\n");
+            snprintf(line, sizeof(line), "%.*s", n, mem);
+            mem += n + (mem[n] == '\n');
+        }
+        char *bar = strchr(line, '|');
+        if (!bar) continue;
+        *bar = 0;
+        char *nm = trim(line), *u = trim(bar + 1);
+        if (!*u || (strncasecmp(u, "http", 4) != 0)) continue;
+        sb_add(s, "<li><a href=\"");
+        sb_esc(s, u);
+        sb_add(s, "\">");
+        sb_esc(s, *nm ? nm : u);
+        sb_add(s, "</a></li>");
+        count++;
+    }
+    if (f) fclose(f);
+    if (!count) sb_add(s, "<li>(aucun favori)</li>");
+    sb_add(s, "</ul>");
+}
+
+/* derniere vraie page web dans l'historique (avant l'accueil) */
+static const whist_t *last_web_page(void) {
+    for (int i = hist_n - 1; i >= 0; i--)
+        if (strncmp(hist[i].url, "gc:", 3) != 0) return &hist[i];
+    return NULL;
+}
+
+static char *build_home(void) {
+    sbuf_t s = { NULL, 0, 0 };
+    char t[300];
+    sb_add(&s, "<html><head><title>Accueil</title></head><body><h1>GC-MP3 Web</h1>");
+    sb_add(&s, "<p>Y : taper une adresse ou une recherche. X : revenir à l'accueil. B : page précédente. "
+               "Croix : choisir un lien, A : l'ouvrir. Stick C : faire défiler.</p>");
+    if (dl_active) {
+        sb_add(&s, "<h2>Téléchargement en cours</h2><p>");
+        sb_esc(&s, dl_name);
+        if (dl_total > 0) snprintf(t, sizeof(t), " : %ld %%", (long)((long long)dl_got * 100 / dl_total));
+        else snprintf(t, sizeof(t), " : %ld Ko", dl_got / 1024);
+        sb_add(&s, t);
+        sb_add(&s, "</p><p><a href=\"gc:annuler\">Annuler le téléchargement</a></p>");
+    }
+    sb_add(&s, "<h2>Rechercher</h2><ul>"
+               "<li><a href=\"gc:recherche\">Rechercher sur le web</a></li>"
+               "<li><a href=\"gc:archive\">Chercher de la musique libre sur archive.org</a></li>"
+               "<li><a href=\"gc:adresse\">Taper une adresse</a></li></ul>");
+    sb_add(&s, "<h2>Favoris</h2>");
+    add_favorites(&s);
+    const whist_t *lp = last_web_page();
+    if (lp && sd_ok) {
+        sb_add(&s, "<p><a href=\"gc:favori\">+ Ajouter aux favoris : ");
+        sb_esc(&s, lp->title[0] ? lp->title : lp->url);
+        sb_add(&s, "</a></p>");
+    }
+    sb_add(&s, "<p>Les favoris sont dans SD:/favoris.txt (une ligne par site : Nom | adresse).</p>");
+    sb_add(&s, "<h2>Téléchargements</h2><p>Un lien vers un fichier (MP3, ZIP...) est enregistré dans SD:/downloads. "
+               "Les MP3 apparaissent ensuite dans l'onglet MUSIQUE. La musique continue pendant le téléchargement.</p>"
+               "<p>Ce navigateur n'exécute pas le JavaScript : les sites simples marchent, "
+               "pas YouTube, Spotify ni SoundCloud.</p></body></html>");
+    return s.b;
+}
+
+/* recherche archive.org (reponse JSON) -> page HTML de resultats */
+static int json_string(const char *p, const char *end, char *out, int outsz) {
+    int n = 0;
+    if (p >= end || *p != '"') return 0;
+    p++;
+    while (p < end && *p != '"' && n < outsz - 4) {
+        if (*p == '\\' && p + 1 < end) {
+            p++;
+            char c = *p++;
+            if (c == 'n' || c == 't' || c == 'r') out[n++] = ' ';
+            else if (c == 'u' && p + 4 <= end) {
+                unsigned v = 0;
+                for (int i = 0; i < 4; i++) v = v * 16 + (unsigned)(hexv(p[i]) < 0 ? 0 : hexv(p[i]));
+                p += 4;
+                if (v >= 0xD800 && v < 0xE000) { out[n++] = '?'; if (p + 6 <= end && p[0] == '\\' && p[1] == 'u') p += 6; }
+                else if (v < 0x80) out[n++] = (char)v;
+                else if (v < 0x800) { out[n++] = (char)(0xC0 | (v >> 6)); out[n++] = (char)(0x80 | (v & 0x3F)); }
+                else { out[n++] = (char)(0xE0 | (v >> 12)); out[n++] = (char)(0x80 | ((v >> 6) & 0x3F)); out[n++] = (char)(0x80 | (v & 0x3F)); }
+            } else out[n++] = c;
+        } else out[n++] = *p++;
+    }
+    out[n] = 0;
+    return 1;
+}
+
+static int json_field(const char *a, const char *b, const char *key, char *out, int outsz) {
+    char k[40];
+    snprintf(k, sizeof(k), "\"%s\"", key);
+    int kl = (int)strlen(k);
+    for (const char *p = a; p + kl < b; p++) {
+        if (memcmp(p, k, kl) != 0) continue;
+        p += kl;
+        while (p < b && (*p == ' ' || *p == ':')) p++;
+        if (p < b && *p == '[') { p++; while (p < b && *p == ' ') p++; }
+        return json_string(p, b, out, outsz);
+    }
+    out[0] = 0;
+    return 0;
+}
+
+static char *archive_to_html(const char *js, int len) {
+    sbuf_t s = { NULL, 0, 0 };
+    char id[200], title[300], creator[200];
+    sb_add(&s, "<html><head><title>archive.org : ");
+    sb_esc(&s, arch_query);
+    sb_add(&s, "</title></head><body><h1>archive.org : ");
+    sb_esc(&s, arch_query);
+    sb_add(&s, "</h1><p>Ouvre un résultat, puis choisis un fichier .mp3 pour le télécharger.</p><ul>");
+    const char *end = js + len;
+    const char *p = js;
+    const char *d = NULL;
+    for (; p + 6 < end; p++) if (memcmp(p, "\"docs\"", 6) == 0) { d = p + 6; break; }
+    int count = 0;
+    while (d && d < end) {
+        while (d < end && *d != '{' && *d != ']') d++;
+        if (d >= end || *d == ']') break;
+        const char *o = d + 1, *e = o;
+        int instr = 0;
+        while (e < end && (instr || *e != '}')) {
+            if (*e == '\\' && instr) e++;
+            else if (*e == '"') instr = !instr;
+            e++;
+        }
+        if (json_field(o, e, "identifier", id, sizeof(id)) && id[0]) {
+            json_field(o, e, "title", title, sizeof(title));
+            json_field(o, e, "creator", creator, sizeof(creator));
+            sb_add(&s, "<li><a href=\"https://archive.org/download/");
+            sb_esc(&s, id);
+            sb_add(&s, "/\">");
+            sb_esc(&s, title[0] ? title : id);
+            sb_add(&s, "</a>");
+            if (creator[0]) { sb_add(&s, " - "); sb_esc(&s, creator); }
+            sb_add(&s, "</li>");
+            count++;
+        }
+        d = e + 1;
+    }
+    sb_add(&s, "</ul>");
+    if (!count) sb_add(&s, "<p>Aucun résultat. Essaie avec d'autres mots (en anglais par exemple).</p>");
+    sb_add(&s, "</body></html>");
+    return s.b;
+}
+
+// ---------- Affichage d'une page chargee ----------
+static void web_scroll_clamp(void) {
+    s32 mx = pg.height - WV_H + 8;
+    if (mx < 0) mx = 0;
+    if (pg_scroll > mx) pg_scroll = mx;
+    if (pg_scroll < 0) pg_scroll = 0;
+}
+
+static int link_visible(int i) {
+    if (i < 0 || i >= pg.nlinks || pg.links[i].y0 < 0) return 0;
+    return pg.links[i].y0 < pg_scroll + WV_H && pg.links[i].y1 > pg_scroll;
+}
+
+static void select_first_visible(void) {
+    pg_sel = -1;
+    for (int i = 0; i < pg.nlinks; i++)
+        if (pg.links[i].y0 >= pg_scroll && pg.links[i].y1 <= pg_scroll + WV_H) { pg_sel = i; return; }
+}
+
+static void web_go(const char *url, int mode);
+
+static void web_show(const unsigned char *data, int len, const char *url, int kind, int latin, int mode) {
+    wpage_t np;
+    memset(&np, 0, sizeof(np));
+    snprintf(np.url, sizeof(np.url), "%s", url);
+    if (kind == WK_ARCHIVE) {
+        char *h = archive_to_html((const char *)data, len);
+        if (h) { web_layout_html(&np, (const unsigned char *)h, (int)strlen(h), 0); free(h); }
+    } else if (kind == WK_TEXT) web_layout_text(&np, data, len, latin);
+    else web_layout_html(&np, data, len, latin);
+    if (!np.title[0]) {
+        urlp_t u;
+        if (url_parse(url, &u)) snprintf(np.title, sizeof(np.title), "%s", u.host);
+    }
+
+    /* historique */
+    if (hist_n > 0) { hist[hist_n - 1].scroll = pg_scroll; hist[hist_n - 1].sel = pg_sel; }
+    s32 scroll = 0;
+    int sel = -2;
+    if (mode == NAV_BACK && hist_n > 1) { hist_n--; scroll = hist[hist_n - 1].scroll; sel = hist[hist_n - 1].sel; }
+    else if (mode == NAV_REPLACE && hist_n > 0) { /* meme place */ }
+    else {
+        if (hist_n == HIST_MAX) { memmove(&hist[0], &hist[1], sizeof(whist_t) * (HIST_MAX - 1)); hist_n--; }
+        hist_n++;
+    }
+    if (mode == NAV_REPLACE && hist_n == 0) hist_n = 1;
+    whist_t *h = &hist[hist_n - 1];
+    snprintf(h->url, sizeof(h->url), "%s", url);
+    snprintf(h->title, sizeof(h->title), "%s", np.title);
+
+    wpage_free(&pg);
+    pg = np;
+    pg_scroll = scroll;
+    web_scroll_clamp();
+    if (sel >= -1 && sel < pg.nlinks) pg_sel = sel;
+    else select_first_visible();
+
+    if (pg.refresh[0] && pg.refresh_delay <= 5 && wb_refreshes < 3) {    /* redirection <meta refresh> */
+        char next[URL_MAX];
+        snprintf(next, sizeof(next), "%s", pg.refresh);
+        wb_refreshes++;
+        web_go(next, NAV_REPLACE);
+    }
+}
+
+static void web_finish_load(void) {
+    conn_close(PCONN);
+    wb_loading = 0;
+    if (!wb_buf) return;
+    if (wb_len == 0) { web_note("Page vide", 1); web_cancel_load(); return; }
+    if (wb_kind == WK_HTML && !wb_latin) {                      /* <meta charset=...> */
+        int n = wb_len < 4096 ? wb_len : 4096;
+        char head[4097];
+        memcpy(head, wb_buf, n);
+        head[n] = 0;
+        for (int i = 0; i < n; i++) if (!head[i]) head[i] = ' ';
+        char *c = ci_find(head, "charset=");
+        if (c) {
+            c += 8;
+            while (*c == '"' || *c == '\'' || *c == ' ') c++;
+            char cs[24];
+            snprintf(cs, sizeof(cs), "%s", c);
+            cs[strcspn(cs, "\"'; />")] = 0;
+            wb_latin = is_latin_charset(cs);
+        }
+    }
+    unsigned char *buf = wb_buf;
+    int len = wb_len;
+    wb_buf = NULL;
+    wb_len = wb_cap = 0;
+    web_show(buf, len, wb_url, wb_kind, wb_latin, wb_mode);
+    if (wb_trunc) web_note("Page trop grande : seul le début est affiché", 1);
+    free(buf);
+}
+
+/* Ouvre une adresse http(s) : connexion + en-tetes (quelques secondes au plus),
+   puis le corps arrive en tache de fond (web_pump). typed = adresse tapee sans
+   "https://" : si le site n'accepte pas https, on reessaie en http. */
+static void web_fetch(const char *url_in, int mode, int typed) {
+    static unsigned char hdr[16384];
+    char url[URL_MAX], req[URL_MAX + 400], hosthdr[160];
+    web_cancel_load();
+    if (net_phase != NET_DONE) { net_start_async(); web_note("Réseau en cours de connexion, réessaie dans quelques secondes", 1); return; }
+    if (!net_ok) { web_note("Pas de réseau (vérifie le Broadband Adapter et le câble)", 1); return; }
+    snprintf(url, sizeof(url), "%s", url_in);
+    web_msg[0] = 0;
+
+    for (int hop = 0; hop < 8; hop++) {
+        urlp_t u;
+        if (!url_parse(url, &u)) { web_note("Adresse invalide", 1); return; }
+        conn_t *c = PCONN;
+        const char *err = "Erreur réseau";
+        int refused = 0;
+        wb_busy = 1;
+        if (!conn_open(c, u.host, u.port, u.tls, &err, &refused)) {
+            wb_busy = 0;
+            if (typed && u.tls && hop == 0 && (refused || strstr(err, "sécurisée"))) {
+                char alt[URL_MAX];
+                snprintf(alt, sizeof(alt), "http://%s", url + 8);
+                snprintf(url, sizeof(url), "%s", alt);
+                typed = 0;
+                hop--;
+                continue;
+            }
+            web_note(err, 1);
+            return;
+        }
+        if (u.port == (u.tls ? 443 : 80)) snprintf(hosthdr, sizeof(hosthdr), "%s", u.host);
+        else snprintf(hosthdr, sizeof(hosthdr), "%s:%d", u.host, u.port);
+        int rl = snprintf(req, sizeof(req),
+                          "GET %s HTTP/1.0\r\nHost: %s\r\n"
+                          "User-Agent: Mozilla/5.0 (compatible; GC-MP3/1.0; Nintendo GameCube)\r\n"
+                          "Accept: text/html,application/xhtml+xml,*/*;q=0.8\r\n"
+                          "Accept-Language: fr,en;q=0.5\r\nConnection: close\r\n\r\n", u.path, hosthdr);
+        ui_status("Envoi de la demande...");
+        if (rl >= (int)sizeof(req) || !conn_send_all(c, req, rl)) { conn_close(c); wb_busy = 0; web_note("Erreur d'envoi de la requête", 1); return; }
+        ui_status("Attente de la réponse...");
+
+        int hlen = 0, body_off = -1;
+        while (hlen < (int)sizeof(hdr) - 1) {
+            int r = crecv_timeout(c, hdr + hlen, (int)sizeof(hdr) - 1 - hlen, 15000);
+            if (r <= 0) { conn_close(c); wb_busy = 0; web_note(r == -2 ? "Le serveur ne répond pas" : "Connexion coupée", 1); return; }
+            hlen += r;
+            hdr[hlen] = 0;
+            char *e = strstr((char *)hdr, "\r\n\r\n");
+            if (e) { body_off = (int)(e - (char *)hdr) + 4; e[2] = 0; break; }
+            char *e2 = strstr((char *)hdr, "\n\n");
+            if (e2) { body_off = (int)(e2 - (char *)hdr) + 2; e2[1] = 0; break; }
+        }
+        wb_busy = 0;
+        int code = 0;
+        if (body_off < 0 || sscanf((char *)hdr, "HTTP/%*d.%*d %d", &code) != 1) {
+            conn_close(c);
+            web_note("Réponse du serveur invalide", 1);
+            return;
+        }
+        char *hdrs = (char *)hdr;
+        if (code >= 300 && code < 400 && code != 304) {
+            const char *loc = header_value(hdrs, "Location");
+            char next[URL_MAX];
+            conn_close(c);
+            if (!loc || !url_join(url, loc, next, sizeof(next))) { web_note("Redirection invalide", 1); return; }
+            snprintf(url, sizeof(url), "%s", next);
+            typed = 0;
+            continue;
+        }
+
+        char ctype[128] = "", disp[300] = "";
+        const char *v = header_value(hdrs, "Content-Type");
+        if (v) snprintf(ctype, sizeof(ctype), "%s", v);
+        for (char *p = ctype; *p; p++) *p = (char)tolower((unsigned char)*p);
+        v = header_value(hdrs, "Content-Disposition");
+        if (v) snprintf(disp, sizeof(disp), "%s", v);
+        v = header_value(hdrs, "Content-Length");
+        long clen = v ? atol(v) : -1;
+        v = header_value(hdrs, "Transfer-Encoding");
+        int chunked = v && ci_find((char *)v, "chunked");
+        int body_len = hlen - body_off;
+        unsigned char *body = hdr + body_off;
+
+        int kind = -1;
+        u.path[strcspn(u.path, "?")] = 0;
+        int pl = (int)strlen(u.path);
+        if (ci_find(disp, "attachment")) kind = -1;
+        else if (strstr(ctype, "text/html") || strstr(ctype, "xhtml")) kind = WK_HTML;
+        else if (strstr(ctype, "json") && strcmp(u.host, "archive.org") == 0 && strstr(u.path, "advancedsearch")) kind = WK_ARCHIVE;
+        else if (strstr(ctype, "text/plain")) kind = WK_TEXT;
+        else if (!ctype[0] && (pl == 0 || u.path[pl - 1] == '/' || (pl > 4 && strcasecmp(u.path + pl - 4, ".htm") == 0) ||
+                                (pl > 5 && strcasecmp(u.path + pl - 5, ".html") == 0))) kind = WK_HTML;
+
+        if (code != 200 && (kind < 0 || code >= 500 || code == 204)) {
+            char m[64];
+            conn_close(c);
+            snprintf(m, sizeof(m), code == 404 ? "Page introuvable (erreur 404)" : "Erreur du serveur (HTTP %d)", code);
+            web_note(m, 1);
+            return;
+        }
+        if (kind < 0) { dl_begin(body, body_len, ctype, disp, url, chunked ? -1 : clen, chunked); return; }
+
+        /* page : le reste arrive dans web_pump() */
+        wb_cap = 64 * 1024;
+        wb_buf = (unsigned char *)malloc(wb_cap);
+        if (!wb_buf) { conn_close(c); web_note("Mémoire insuffisante", 1); return; }
+        memset(&wb_dc, 0, sizeof(wb_dc));
+        wb_dc.on = chunked;
+        if (body_len > 0) {
+            memcpy(wb_buf, body, body_len);
+            wb_len = chunked ? dechunk(&wb_dc, wb_buf, body_len) : body_len;
+        }
+        snprintf(wb_url, sizeof(wb_url), "%s", url);
+        wb_kind = kind;
+        wb_latin = is_latin_charset(ctype);
+        wb_mode = mode;
+        wb_expect = chunked ? -1 : clen;
+        wb_trunc = 0;
+        wb_last = now_ms();
+        wb_loading = 1;
+        if (code != 200) {
+            char m[64];
+            snprintf(m, sizeof(m), "Le serveur a répondu : erreur %d", code);
+            web_note(m, 1);
+        }
+        if ((wb_expect >= 0 && wb_len >= wb_expect) || (wb_dc.on && wb_dc.st == 3)) web_finish_load();
+        return;
+    }
+    web_note("Trop de redirections", 1);
+}
+
+static void web_pump(void) {
+    static unsigned char tmp[16384];
+    if (wb_loading) {
+        int got = 0;
+        while (got < 192 * 1024) {
+            int r = conn_recv(PCONN, tmp, sizeof(tmp));
+            if (r > 0) {
+                int m = wb_dc.on ? dechunk(&wb_dc, tmp, r) : r;
+                if (wb_len + m > WEB_PAGE_MAX) { m = WEB_PAGE_MAX - wb_len; wb_trunc = 1; }
+                if (wb_len + m > wb_cap) {
+                    int nc = wb_cap * 2;
+                    while (nc < wb_len + m) nc *= 2;
+                    if (nc > WEB_PAGE_MAX) nc = WEB_PAGE_MAX;
+                    unsigned char *nb = (unsigned char *)realloc(wb_buf, nc);
+                    if (!nb) { wb_trunc = 1; web_finish_load(); return; }
+                    wb_buf = nb;
+                    wb_cap = nc;
+                }
+                memcpy(wb_buf + wb_len, tmp, m);
+                wb_len += m;
+                got += r;
+                wb_last = now_ms();
+                if (wb_trunc || (wb_dc.on && wb_dc.st == 3) || (wb_expect >= 0 && wb_len >= wb_expect)) { web_finish_load(); return; }
+                service_audio();
+                continue;
+            }
+            if (r == -EAGAIN || r == -EWOULDBLOCK) break;
+            web_finish_load();
+            return;
+        }
+        if (wb_loading && now_ms() - wb_last > 20000) {
+            if (wb_len > 0) web_finish_load();
+            else { web_cancel_load(); web_note("Le serveur ne répond plus", 1); }
+        }
+    }
+    dl_pump();
+}
+
+// ---------- Navigateur : actions ----------
+enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD };
+static int kb_open = 0, kb_mode = KB_URL, kb_field = -1, kb_form = -1;
+static char kb_text[256];
+static int kb_row = 1, kb_col = 0, kb_shift = 0;
+
+static void kb_start(int mode, const char *init, int field, int form) {
+    kb_open = 1;
+    kb_mode = mode;
+    kb_field = field;
+    kb_form = form;
+    snprintf(kb_text, sizeof(kb_text), "%s", init ? init : "");
+    kb_shift = 0;
+}
+
+static void web_render_home(int mode) {
+    char *h = build_home();
+    if (h) { web_show((const unsigned char *)h, (int)strlen(h), "gc:accueil", WK_HTML, 0, mode); free(h); }
+}
+
+static void add_favorite(void) {
+    const whist_t *lp = last_web_page();
+    if (!lp || !sd_ok) return;
+    FILE *f = fopen(FAV_FILE, "a");
+    if (!f) { web_note("Impossible d'écrire SD:/favoris.txt", 1); return; }
+    char name[96];
+    snprintf(name, sizeof(name), "%s", lp->title[0] ? lp->title : lp->url);
+    for (char *p = name; *p; p++) if (*p == '|' || *p == '\n' || *p == '\r') *p = '-';
+    fprintf(f, "%s | %s\n", name, lp->url);
+    fclose(f);
+    web_note("Ajouté aux favoris", 0);
+}
+
+static void web_go(const char *url, int mode) {
+    if (strncmp(url, "gc:", 3) == 0) {
+        const char *w = url + 3;
+        if (strcmp(w, "recherche") == 0) kb_start(KB_SEARCH, "", -1, -1);
+        else if (strcmp(w, "archive") == 0) kb_start(KB_ARCHIVE, "", -1, -1);
+        else if (strcmp(w, "adresse") == 0) kb_start(KB_URL, "", -1, -1);
+        else if (strcmp(w, "favori") == 0) { add_favorite(); web_render_home(NAV_REPLACE); }
+        else if (strcmp(w, "annuler") == 0) { if (dl_active) dl_stop("Téléchargement annulé", 0); web_render_home(NAV_REPLACE); }
+        else web_render_home(mode);
+        return;
+    }
+    web_fetch(url, mode, 0);
+}
+
+static void web_search(const char *q) {
+    char enc[600], url[URL_MAX];
+    if (!url_encode(q, enc, sizeof(enc))) return;
+    snprintf(url, sizeof(url), "%s%s", SEARCH_URL, enc);
+    web_fetch(url, NAV_PUSH, 0);
+}
+
+static void web_archive_search(const char *q) {
+    char full[400], enc[900], url[URL_MAX];
+    snprintf(arch_query, sizeof(arch_query), "%s", q);
+    snprintf(full, sizeof(full), "(%s) AND mediatype:(audio)", q);
+    if (!url_encode(full, enc, sizeof(enc))) return;
+    snprintf(url, sizeof(url), "https://archive.org/advancedsearch.php?q=%s"
+             "&fl%%5B%%5D=identifier&fl%%5B%%5D=title&fl%%5B%%5D=creator&rows=60&output=json", enc);
+    web_fetch(url, NAV_PUSH, 0);
+}
+
+/* envoi d'un formulaire (methode GET) */
+static void web_submit(int form, int button) {
+    if (form < 0 || form >= pg.nforms) return;
+    if (pg.forms[form].post) { web_note("Ce formulaire n'est pas géré (envoi POST)", 1); return; }
+    char url[URL_MAX], enc[800];
+    snprintf(url, sizeof(url), "%s", pg.pool + pg.forms[form].action);
+    url[strcspn(url, "?")] = 0;
+    int n = (int)strlen(url), first = 1;
+    for (int i = 0; i < pg.nfields; i++) {
+        wfield_t *f = &pg.fields[i];
+        if (f->form != form || !pg.pool[f->name]) continue;
+        if (f->type == FD_SUBMIT && i != button) continue;
+        if (!url_encode(pg.pool + f->name, enc, sizeof(enc))) return;
+        n += snprintf(url + n, sizeof(url) - n, "%c%s=", first ? '?' : '&', enc);
+        if (!url_encode(f->value, enc, sizeof(enc)) || n >= (int)sizeof(url) - 1) { web_note("Formulaire trop long", 1); return; }
+        n += snprintf(url + n, sizeof(url) - n, "%s", enc);
+        if (n >= (int)sizeof(url) - 1) { web_note("Formulaire trop long", 1); return; }
+        first = 0;
+    }
+    wb_refreshes = 0;
+    web_fetch(url, NAV_PUSH, 0);
+}
+
+static void kb_validate(void) {
+    char *t = trim(kb_text);
+    kb_open = 0;
+    wb_refreshes = 0;
+    if (kb_mode == KB_FIELD) {
+        if (kb_field >= 0 && kb_field < pg.nfields) {
+            snprintf(pg.fields[kb_field].value, sizeof(pg.fields[kb_field].value), "%s", t);
+            web_submit(kb_form, -1);
+        }
+        return;
+    }
+    if (!*t) return;
+    if (kb_mode == KB_ARCHIVE) { web_archive_search(t); return; }
+    if (kb_mode == KB_SEARCH) { web_search(t); return; }
+    if (strncasecmp(t, "gc:", 3) == 0) { web_go(t, NAV_PUSH); return; }
+    if (strstr(t, "://")) { web_fetch(t, NAV_PUSH, 0); return; }
+    if (!strchr(t, ' ') && strchr(t, '.') && t[0] != '.') {
+        char url[URL_MAX];
+        snprintf(url, sizeof(url), "https://%s", t);
+        web_fetch(url, NAV_PUSH, 1);
+        return;
+    }
+    web_search(t);
+}
+
+static void web_activate(void) {
+    if (!link_visible(pg_sel)) { select_first_visible(); return; }
+    wlink_t *l = &pg.links[pg_sel];
+    wb_refreshes = 0;
+    if (l->kind == LK_HREF) web_go(pg.pool + l->url, NAV_PUSH);
+    else if (l->kind == LK_INPUT && l->field >= 0) kb_start(KB_FIELD, pg.fields[l->field].value, l->field, l->form);
+    else if (l->kind == LK_SUBMIT) web_submit(l->form, l->field);
+}
+
+/* Haut / Bas : lien precedent / suivant ; s'il est trop loin, on fait defiler. */
+static void web_nav(int dir) {
+    int n = pg.nlinks, cand = -1;
+    s32 top = pg_scroll, bot = pg_scroll + WV_H;
+    if (link_visible(pg_sel)) cand = pg_sel + dir;
+    else if (dir > 0) { for (int i = 0; i < n; i++) if (pg.links[i].y0 >= top) { cand = i; break; } }
+    else { for (int i = n - 1; i >= 0; i--) if (pg.links[i].y0 >= 0 && pg.links[i].y1 <= bot) { cand = i; break; } }
+    while (cand >= 0 && cand < n && pg.links[cand].y0 < 0) cand += dir;
+    if (cand >= 0 && cand < n) {
+        wlink_t *l = &pg.links[cand];
+        if (dir > 0 ? (l->y0 < bot + WV_H / 2) : (l->y1 > top - WV_H / 2)) {
+            pg_sel = cand;
+            if (l->y1 > pg_scroll + WV_H) pg_scroll = l->y1 - WV_H + 6;
+            if (l->y0 < pg_scroll) pg_scroll = l->y0 - 6;
+            web_scroll_clamp();
+            return;
+        }
+    }
+    s32 before = pg_scroll;
+    pg_scroll += dir * (WV_H * 2 / 3);
+    web_scroll_clamp();
+    if (pg_scroll == before && cand >= 0 && cand < n) pg_sel = cand;   /* bout de page */
+}
+
+static void web_page(int dir) {
+    pg_scroll += dir * (WV_H - 40);
+    web_scroll_clamp();
+    if (!link_visible(pg_sel)) select_first_visible();
+}
+
+static void web_enter_tab(void) {
+    net_start_async();
+    if (pg.nitems == 0 && !wb_loading) web_render_home(NAV_PUSH);
+}
+
+static void web_input(u32 down, u32 nav, int fire) {
+    if (fire) {
+        if (nav & PAD_BUTTON_DOWN) web_nav(1);
+        else if (nav & PAD_BUTTON_UP) web_nav(-1);
+        else if (nav & PAD_BUTTON_RIGHT) web_page(1);
+        else if (nav & PAD_BUTTON_LEFT) web_page(-1);
+    }
+    /* sticks : defilement continu */
+    int sy = PAD_SubStickY(0), my = PAD_StickY(0);
+    int v = abs(sy) > abs(my) ? sy : my;
+    if (v > 24 || v < -24) {
+        pg_scroll -= (v > 0 ? v - 24 : v + 24) / 5;
+        web_scroll_clamp();
+        if (pg_sel >= 0 && !link_visible(pg_sel)) pg_sel = -1;
+    }
+    if (down & PAD_BUTTON_A) web_activate();
+    if (down & PAD_BUTTON_B) {
+        if (wb_loading) { web_cancel_load(); web_note("Chargement annulé", 0); }
+        else if (hist_n > 1) { wb_refreshes = 0; web_go(hist[hist_n - 2].url, NAV_BACK); }
+    }
+    if (down & PAD_BUTTON_X) web_go("gc:accueil", NAV_PUSH);
+    if (down & PAD_BUTTON_Y) kb_start(KB_URL, "", -1, -1);
+}
+
+// ---------- Clavier virtuel ----------
+#define KB_COLS 10
+#define KB_ROWS 7
+static const char *const kb_keys[6][KB_COLS] = {
+    { "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
+    { "a", "z", "e", "r", "t", "y", "u", "i", "o", "p" },
+    { "q", "s", "d", "f", "g", "h", "j", "k", "l", "m" },
+    { "w", "x", "c", "v", "b", "n", ".", "-", "_", "/" },
+    { ":", "?", "&", "=", "@", "'", "+", "#", "%", "~" },
+    { "\xC3\xA9", "\xC3\xA8", "\xC3\xAA", "\xC3\xA0", "\xC3\xA2", "\xC3\xA7", "\xC3\xB9", "\xC3\xB4", "\xC3\xAE", "\xC3\xAB" },
+};
+static const char *const kb_special[6] = { "MAJ", "ESPACE", "EFFACER", ".com", ".fr", "OK" };
+static const int kb_special_w[6] = { 2, 3, 2, 1, 1, 1 };   /* en colonnes (total 10) */
+
+static void kb_key_label(int r, int c, char *out, int sz) {
+    const char *k = kb_keys[r][c];
+    snprintf(out, sz, "%s", k);
+    if (kb_shift) {
+        if (out[0] >= 'a' && out[0] <= 'z') out[0] = (char)(out[0] - 32);
+        else if ((unsigned char)out[0] == 0xC3) out[1] = (char)((unsigned char)out[1] - 0x20);   /* é -> É */
+    }
+}
+
+static int kb_special_at(int col) {         /* touche speciale sous la colonne col */
+    int x = 0;
+    for (int i = 0; i < 6; i++) { if (col < x + kb_special_w[i]) return i; x += kb_special_w[i]; }
+    return 5;
+}
+
+static int kb_special_col(int i) {
+    int x = 0;
+    for (int k = 0; k < i; k++) x += kb_special_w[k];
+    return x;
+}
+
+static void kb_append(const char *s) {
+    int n = (int)strlen(kb_text), l = (int)strlen(s);
+    if (n + l < (int)sizeof(kb_text) - 1) memcpy(kb_text + n, s, l + 1);
+}
+
+static void kb_backspace(void) {
+    int n = (int)strlen(kb_text);
+    if (n == 0) return;
+    n--;
+    while (n > 0 && ((unsigned char)kb_text[n] & 0xC0) == 0x80) n--;
+    kb_text[n] = 0;
+}
+
+static void kb_press(void) {
+    if (kb_row < 6) {
+        char k[8];
+        kb_key_label(kb_row, kb_col, k, sizeof(k));
+        kb_append(k);
+        return;
+    }
+    switch (kb_special_at(kb_col)) {
+    case 0: kb_shift = !kb_shift; break;
+    case 1: kb_append(" "); break;
+    case 2: kb_backspace(); break;
+    case 3: kb_append(".com"); break;
+    case 4: kb_append(".fr"); break;
+    default: kb_validate(); break;
+    }
+}
+
+static void kb_input(u32 down, u32 nav, int fire) {
+    if (fire) {
+        if (nav & PAD_BUTTON_UP) {
+            if (kb_row == 6) kb_col = kb_special_col(kb_special_at(kb_col)) + kb_special_w[kb_special_at(kb_col)] / 2;
+            kb_row = (kb_row + KB_ROWS - 1) % KB_ROWS;
+            if (kb_row == 6) kb_col = kb_special_col(kb_special_at(kb_col));
+        } else if (nav & PAD_BUTTON_DOWN) {
+            if (kb_row == 6) kb_col = kb_special_col(kb_special_at(kb_col)) + kb_special_w[kb_special_at(kb_col)] / 2;
+            kb_row = (kb_row + 1) % KB_ROWS;
+            if (kb_row == 6) kb_col = kb_special_col(kb_special_at(kb_col));
+        } else if (nav & (PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT)) {
+            int d = (nav & PAD_BUTTON_RIGHT) ? 1 : -1;
+            if (kb_row == 6) {
+                int i = (kb_special_at(kb_col) + d + 6) % 6;
+                kb_col = kb_special_col(i);
+            } else kb_col = (kb_col + d + KB_COLS) % KB_COLS;
+        }
+    }
+    if (down & PAD_BUTTON_A) kb_press();
+    if (down & PAD_BUTTON_B) kb_backspace();
+    if (down & PAD_BUTTON_X) kb_append(" ");
+    if (down & PAD_BUTTON_Y) kb_open = 0;
+    if (down & PAD_BUTTON_START) kb_validate();
+}
+
+// ---------- Navigateur : affichage ----------
+static void draw_mini_badge(f32 cx, f32 cy, const char *k) {
+    if (k[0] == 'A') draw_badge(cx, cy, "A", RGBA(80, 210, 100, 255), RGBA(30, 140, 60, 255));
+    else if (k[0] == 'B') draw_badge(cx, cy, "B", RGBA(236, 70, 90, 255), RGBA(170, 30, 50, 255));
+    else if (k[0] == 'X' || k[0] == 'Y') draw_badge(cx, cy, k, RGBA(150, 150, 175, 255), RGBA(90, 90, 120, 255));
+    else if (k[0] == 'Z') {
+        gx_rrect_fill(cx - 8, cy - 7, 16, 14, 4, RGBA(110, 90, 190, 255), RGBA(70, 50, 140, 255));
+        gx_text_c(F_SMALL, cx, cy + 4.5f, "Z", RGBA(255, 255, 255, 255));
+    } else {
+        gx_rrect_fill(cx - 10, cy - 6.5f, 20, 13, 6.5f, RGBA(140, 140, 165, 255), RGBA(84, 84, 110, 255));
+        gx_text_c(F_SMALL, cx, cy + 4.0f, "ST", RGBA(255, 255, 255, 255));
+    }
+}
+
+static void draw_legend_web(void) {
+    static const char *const keys_web[6] = { "A", "B", "Y", "X", "Z", "ST" };
+    static const char *const lab_web[6] = { "OUVRIR", "RETOUR", "ADRESSE", "ACCUEIL", "ONGLET", "QUITTER" };
+    static const char *const keys_kb[6] = { "A", "B", "X", "Y", "ST", "" };
+    static const char *const lab_kb[6] = { "TAPER", "EFFACER", "ESPACE", "ANNULER", "VALIDER", "" };
+    const char *const *keys = kb_open ? keys_kb : keys_web;
+    const char *const *lab = kb_open ? lab_kb : lab_web;
+    int cnt = kb_open ? 5 : 6;
+    const f32 x0 = 11, w = 618, cy = 438.5f;
+    gx_rrect_fill(x0, 419, w, 39, 9, C_PANEL_TOP, C_PANEL_BOT);
+    gx_rrect_stroke(x0, 419, w, 39, 9, 1.2f, RGBA(100, 56, 220, 255));
+    f32 total = 0;
+    for (int i = 0; i < cnt; i++) total += 20 + 5 + text_width(F_SMALL, lab[i], 1);
+    f32 space = (w - 40 - total) / (cnt - 1);
+    f32 x = x0 + 20;
+    for (int i = 0; i < cnt; i++) {
+        draw_mini_badge(x + 10, cy, keys[i]);
+        x += 25;
+        x += gx_text(F_SMALL, x, cy + 4.5f, lab[i], RGBA(208, 198, 240, 255), RGBA(208, 198, 240, 255), 1) + space;
+    }
+}
+
+static void fmt_size(char *b, int sz, long v) {
+    if (v >= 1024 * 1024) snprintf(b, sz, "%ld,%ld Mo", v / (1024 * 1024), (v % (1024 * 1024)) * 10 / (1024 * 1024));
+    else snprintf(b, sz, "%ld Ko", v / 1024);
+}
+
+static int draw_tabs(const char *count);
+
+static void draw_web(void) {
+    char buf[URL_MAX], fit[400];
+    draw_panel(11, 73, 618, 340);
+    int tx = draw_tabs(NULL);
+
+    /* barre d'adresse */
+    f32 ax = (f32)tx + 8, aw = 616 - ax;
+    gx_rrect_fill(ax, 86, aw, 18, 6, RGBA(8, 5, 26, 255), RGBA(16, 10, 44, 255));
+    gx_rrect_stroke(ax, 86, aw, 18, 6, 1.0f, RGBA(90, 64, 170, 255));
+    col_t ac = RGBA(200, 190, 240, 255);
+    if (wb_busy) { snprintf(buf, sizeof(buf), "%s", conn_msg); ac = RGBA(255, 210, 120, 255); }
+    else if (wb_loading) {
+        char sz[32];
+        fmt_size(sz, sizeof(sz), wb_len);
+        urlp_t u;
+        snprintf(buf, sizeof(buf), "Chargement de %s... %s", url_parse(wb_url, &u) ? u.host : "la page", sz);
+        ac = RGBA(255, 210, 120, 255);
+    } else if (strcmp(pg.url, "gc:accueil") == 0) snprintf(buf, sizeof(buf), "Accueil");
+    else snprintf(buf, sizeof(buf), "%s", pg.url);
+    char disp[URL_MAX];
+    text_display(buf, disp, sizeof(disp));
+    fit_text(F_SMALL, disp, (int)aw - 14, fit, sizeof(fit));
+    gx_text1(F_SMALL, ax + 7, 99, fit, ac);
+    if (wb_loading) {                                          /* petite barre animee */
+        f32 ph = (f32)(retrace_count % 60) / 60.0f;
+        gx_rect(ax + 4 + ph * (aw - 40), 102, 32, 2, RGBA(255, 190, 90, 200));
+    }
+
+    /* contenu */
+    GX_SetScissor(WV_X - 6, WV_Y - 4, WV_W + 12, WV_H + 6);
+    int lo = 0, hi = pg.nitems;
+    while (lo < hi) {                                          /* premier element visible */
+        int mid = (lo + hi) / 2;
+        if (pg.items[mid].y + 8 < pg_scroll) lo = mid + 1; else hi = mid;
+    }
+    for (int pass = 0; pass < 2; pass++) {
+        for (int i = lo; i < pg.nitems; i++) {
+            witem_t *it = &pg.items[i];
+            int f = it->font;
+            f32 by = (f32)(WV_Y + it->y - pg_scroll);
+            if (by - font_ascent[f] > WV_Y + WV_H + 4) break;
+            f32 bx = (f32)(WV_X + it->x);
+            int sel = (it->link >= 0 && it->link == pg_sel);
+            f32 top = by - font_ascent[f];
+            if (pass == 0) {                                   /* fonds : selection, boutons, champs */
+                if (it->style & WS_FIELD) {
+                    gx_rrect_fill(bx, top - 3, it->w, font_height[F_MED] + 6, 4,
+                                  sel ? RGBA(60, 30, 140, 255) : RGBA(6, 4, 20, 255), sel ? RGBA(40, 20, 100, 255) : RGBA(14, 9, 36, 255));
+                    gx_rrect_stroke(bx, top - 3, it->w, font_height[F_MED] + 6, 4, sel ? 2.0f : 1.0f,
+                                    sel ? RGBA(200, 140, 255, 255) : RGBA(110, 80, 200, 255));
+                } else if ((it->style & WS_BUTTON) && !(it->style & WS_LINK)) {
+                    gx_rrect_fill(bx, top - 3, it->w, font_height[F_MED] + 6, 6,
+                                  sel ? RGBA(150, 80, 255, 255) : RGBA(90, 50, 190, 255), sel ? RGBA(100, 40, 210, 255) : RGBA(60, 30, 140, 255));
+                } else if (sel) {
+                    gx_rrect_fill(bx - 3, top - 2, it->w + 6, font_height[f] + 3, 4, RGBA(124, 54, 240, 255), RGBA(80, 26, 180, 255));
+                } else if (it->style & WS_BUTTON) {
+                    gx_rrect_fill(bx - 4, top - 2, it->w + 8, font_height[f] + 3, 5, RGBA(70, 40, 160, 255), RGBA(46, 24, 110, 255));
+                }
+                continue;
+            }
+            const char *t = pg.text + it->off;
+            if (it->style & WS_HR) { gx_rect(bx, by - 1, it->w, 1, RGBA(90, 64, 170, 255)); continue; }
+            if (it->style & WS_FIELD) {
+                const char *v = "";
+                if (it->link >= 0 && pg.links[it->link].field >= 0) v = pg.fields[pg.links[it->link].field].value;
+                char dv[300];
+                text_display(v, dv, sizeof(dv));
+                fit_text(F_MED, dv, it->w - 12, fit, sizeof(fit));
+                gx_text1(F_MED, bx + 6, by, fit, RGBA(235, 230, 255, 255));
+                continue;
+            }
+            if ((it->style & WS_BUTTON) && !(it->style & WS_LINK)) {
+                gx_text1(F_MED, bx + 10, by, t, RGBA(255, 255, 255, 255));
+                continue;
+            }
+            col_t c;
+            if (sel) c = RGBA(255, 255, 255, 255);
+            else if (it->style & WS_LINK) c = RGBA(150, 178, 255, 255);
+            else if (it->style & WS_HEAD) c = RGBA(255, 255, 255, 255);
+            else if (it->style & WS_DIM) c = RGBA(140, 122, 200, 255);
+            else if (it->style & WS_BOLD) c = RGBA(246, 242, 255, 255);
+            else c = RGBA(206, 198, 238, 255);
+            if (it->style & WS_HEAD) gx_text(f, bx, by, t, RGBA(255, 255, 255, 255), RGBA(190, 150, 255, 255), 0);
+            else gx_text1(f, bx, by, t, c);
+            if ((it->style & WS_LINK) && !sel && !(it->style & WS_BUTTON)) gx_rect(bx, by + 2, it->w, 1, RGBA(120, 140, 240, 110));
+        }
+    }
+    GX_SetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
+    if (pg.nitems == 0 && !wb_loading && !wb_busy)
+        gx_text1(F_MED, WV_X, WV_Y + 20, "(page sans texte)", RGBA(140, 122, 200, 255));
+
+    /* barre de defilement */
+    if (pg.height > WV_H) {
+        f32 h = (f32)WV_H * WV_H / pg.height;
+        if (h < 16) h = 16;
+        f32 y = WV_Y + (WV_H - h) * pg_scroll / (f32)(pg.height - WV_H + 8);
+        gx_rect(619, WV_Y, 2, WV_H, RGBA(50, 34, 110, 255));
+        gx_rrect_fill(618, y, 4, h, 2, RGBA(170, 110, 255, 255), RGBA(120, 70, 230, 255));
+    }
+
+    /* ligne d'etat : telechargement / message / morceau en cours */
+    gx_rect(25, 392, 590, 1, RGBA(76, 52, 150, 200));
+    int msg_on = web_msg[0] && now_ms() - web_msg_t < 8000;
+    char st[300];
+    col_t sc = RGBA(170, 160, 220, 255);
+    if (dl_active) {
+        char a[32], b[40];
+        fmt_size(a, sizeof(a), dl_got);
+        u64 el = now_ms() - dl_t0;
+        if (el > 1500) {
+            fmt_size(b + 1, sizeof(b) - 1, (long)(dl_got * 1000 / (long long)el));
+            b[0] = '(';
+            strcat(b, "/s)");
+        } else b[0] = 0;
+        if (dl_total > 0) snprintf(st, sizeof(st), "%ld %%  %s  %s  %s", (long)((long long)dl_got * 100 / dl_total), a, b, dl_name);
+        else snprintf(st, sizeof(st), "%s  %s  %s", a, b, dl_name);
+        f32 frac = dl_total > 0 ? (f32)dl_got / dl_total : (f32)(retrace_count % 120) / 120.0f;
+        gx_rrect_fill(26, 398, 80, 8, 4, RGBA(30, 20, 70, 255), RGBA(30, 20, 70, 255));
+        gx_rrect_fill(26, 398, 6 + 74 * frac, 8, 4, RGBA(120, 230, 140, 255), RGBA(60, 170, 90, 255));
+        fit_text(F_SMALL, st, 300, fit, sizeof(fit));
+        gx_text1(F_SMALL, 114, 406, fit, RGBA(170, 240, 180, 255));
+    } else if (msg_on) {
+        text_display(web_msg, st, sizeof(st));
+        sc = web_msg_err ? RGBA(255, 160, 110, 255) : RGBA(170, 240, 180, 255);
+        fit_text(F_SMALL, st, 400, fit, sizeof(fit));
+        gx_text1(F_SMALL, 26, 406, fit, sc);
+    }
+    if (dl_active && msg_on && web_msg_err) {                 /* erreur pendant un telechargement */
+        text_display(web_msg, st, sizeof(st));
+        fit_text(F_SMALL, st, 180, fit, sizeof(fit));
+        gx_text_r(F_SMALL, 614, 406, fit, RGBA(255, 160, 110, 255));
+    } else if (src != SRC_NONE) {
+        if (src == SRC_FILE && cur_track >= 0) snprintf(st, sizeof(st), "%s", display_name(base_of(names[cur_track])));
+        else if (src == SRC_RADIO && cur_station >= 0) snprintf(st, sizeof(st), "%s", now_title[0] ? now_title : stations[cur_station].name);
+        else st[0] = 0;
+        int maxw = (dl_active || msg_on) ? 180 : 560;
+        char d2[300];
+        text_display(st, d2, sizeof(d2));
+        fit_text(F_SMALL, d2, maxw, fit, sizeof(fit));
+        int w = text_width(F_SMALL, fit, 0);
+        draw_note((f32)(614 - w - 10), 400, RGBA(150, 120, 235, 255));
+        gx_text_r(F_SMALL, 614, 406, fit, RGBA(150, 135, 210, 255));
+    }
+}
+
+static void draw_keyboard(void) {
+    char k[16];
+    gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120));
+    gx_rrect_fill(30, 120, 580, 296, 10, RGBA(14, 8, 44, 255), RGBA(8, 5, 26, 255));   /* fond opaque */
+    draw_panel(30, 120, 580, 296);
+    const char *title = kb_mode == KB_SEARCH ? "Rechercher sur le web" :
+                        kb_mode == KB_ARCHIVE ? "Musique libre sur archive.org" :
+                        kb_mode == KB_FIELD ? "Saisie" : "Adresse ou recherche";
+    gx_text1(F_MED, 46, 143, title, RGBA(255, 255, 255, 255));
+    if (kb_shift) gx_text_r(F_SMALL, 594, 142, "MAJUSCULES", RGBA(255, 210, 120, 255));
+    /* zone de texte */
+    gx_rrect_fill(42, 151, 556, 26, 6, RGBA(6, 4, 20, 255), RGBA(14, 9, 36, 255));
+    gx_rrect_stroke(42, 151, 556, 26, 6, 1.5f, RGBA(170, 110, 255, 255));
+    const char *t = kb_text;
+    while (text_width(F_MED, t, 0) > 530 && *t) { const char *q = t; next_cp(&q); t = q; }   /* fin du texte visible */
+    int w = gx_text1(F_MED, 50, 170, t, RGBA(240, 236, 255, 255));
+    if ((retrace_count / 30) & 1) gx_rect(51 + w, 156, 2, 17, RGBA(200, 160, 255, 255));
+    if (!kb_text[0]) {
+        const char *hint = kb_mode == KB_URL ? "ex. : fr.m.wikipedia.org  ou  musique libre" : "";
+        gx_text1(F_MED, 56, 170, hint, RGBA(110, 96, 170, 255));
+    }
+    /* touches */
+    const f32 kx = 42, ky = 186, kw = 52, kh = 28, g = 4.4f;
+    for (int r = 0; r < KB_ROWS; r++) {
+        int cols = (r == 6) ? 6 : KB_COLS;
+        for (int c = 0; c < cols; c++) {
+            f32 x, wdt;
+            if (r == 6) { x = kx + kb_special_col(c) * (kw + g); wdt = kb_special_w[c] * (kw + g) - g; }
+            else { x = kx + c * (kw + g); wdt = kw; }
+            f32 y = ky + r * (kh + 4);
+            int on = (r == kb_row) && (r == 6 ? kb_special_at(kb_col) == c : kb_col == c);
+            if (on) {
+                gx_glow(x, y, wdt, kh, 5, RGBA(150, 80, 255, 120), 2);
+                gx_rrect_fill(x, y, wdt, kh, 5, RGBA(124, 54, 240, 255), RGBA(80, 26, 180, 255));
+            } else gx_rrect_fill(x, y, wdt, kh, 5, RGBA(34, 22, 84, 255), RGBA(20, 12, 54, 255));
+            gx_rrect_stroke(x, y, wdt, kh, 5, 1.0f, on ? RGBA(200, 140, 255, 255) : RGBA(80, 56, 160, 255));
+            if (r == 6) snprintf(k, sizeof(k), "%s", kb_special[c]);
+            else kb_key_label(r, c, k, sizeof(k));
+            int ff = (r == 6) ? F_SMALL : F_MED;
+            col_t kc = (r == 6 && c == 0 && kb_shift) ? RGBA(255, 210, 120, 255) : RGBA(240, 234, 255, 255);
+            gx_text_c(ff, x + wdt / 2, y + kh / 2 + (ff == F_MED ? 5 : 4.5f), k, kc);
+        }
+    }
+}
+
+static int kb_is_open(void) { return kb_open; }
+
+/* Relit la liste des MP3 (apres un telechargement ou X), sans couper le morceau en cours. */
+static void music_rescan(void) {
+    if (!sd_ok) return;
+    char playing_path[NAME_LEN] = "";
+    if (src == SRC_FILE && cur_track >= 0) snprintf(playing_path, sizeof(playing_path), "%s", names[cur_track]);
+    char sel_path[NAME_LEN] = "";
+    if (sel_track >= 0 && sel_track < nfiles) snprintf(sel_path, sizeof(sel_path), "%s", names[sel_track]);
+    scan_files();
+    cur_track = -1;
+    for (int i = 0; i < nfiles && playing_path[0]; i++)
+        if (strcmp(names[i], playing_path) == 0) { cur_track = i; break; }
+    for (int i = 0; i < nfiles && sel_path[0]; i++)
+        if (strcmp(names[i], sel_path) == 0) { sel_track = i; break; }
+    if (src == SRC_FILE && cur_track < 0) stop_track();     /* fichier supprime entre-temps */
+    if (sel_track >= nfiles) sel_track = nfiles > 0 ? nfiles - 1 : 0;
+}
+
+/* Pendant les attentes reseau (connexion, chiffrement...) : la musique et la
+   radio continuent d'etre decodees. */
+#define FILE_LEAD (48000 * 4)                  /* 4 s de son decode d'avance */
+static int in_bg = 0;
+static void bg_tick(void) {
+    service_audio();
+    if (in_bg) return;
+    in_bg = 1;
+    if (src == SRC_FILE && playing && !paused) {
+        int k = 0;
+        while (!eof && k < 2 && f_count < FILE_LEAD && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
+            decode_file_one();
+            service_audio();
+            k++;
+        }
+    }
+    if (src == SRC_RADIO && (state == ST_BUFFER || state == ST_PLAY)) {
+        stream_recv();
+        int k = 0;
+        while (k < 2 && FIFO_SIZE - f_count >= FIFO_MARGIN && decode_stream_one(stream_closed)) { service_audio(); k++; }
+        if (state == ST_BUFFER && f_count >= PREBUFFER) state = ST_PLAY;
+    }
+    in_bg = 0;
+}
+
 // ---------- Programme ----------
 int main(void) {
     if (!init_video()) return 1;
@@ -2456,44 +4935,56 @@ int main(void) {
         u32 held = PAD_ButtonsHeld(0);
         u64 now = now_ms();
 
-        if (down & PAD_BUTTON_START) break;
-
-        /* onglets : la lecture en cours continue */
-        if (down & PAD_TRIGGER_Z) {
-            tab = (tab == TAB_MUSIC) ? TAB_RADIO : TAB_MUSIC;
-            if (tab == TAB_RADIO) net_start_async();
-        }
-
-        /* navigation dans la liste de l'onglet, avec repetition */
-        int count = (tab == TAB_MUSIC) ? nfiles : nstations;
-        int *sel = (tab == TAB_MUSIC) ? &sel_track : &sel_station;
+        /* croix, avec repetition quand on la maintient */
         u32 nav = held & (PAD_BUTTON_UP | PAD_BUTTON_DOWN | PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT);
         int fire = 0;
         if (down & nav) { fire = 1; rep_mask = nav; rep_next = now + 400; }
         else if (nav && nav == rep_mask && now >= rep_next) { fire = 1; rep_next = now + 70; }
         else if (!nav) rep_mask = 0;
-        if (fire && count > 0) {
-            if (nav & PAD_BUTTON_DOWN)  (*sel)++;
-            if (nav & PAD_BUTTON_UP)    (*sel)--;
-            if (nav & PAD_BUTTON_RIGHT) *sel += LIST_ROWS;
-            if (nav & PAD_BUTTON_LEFT)  *sel -= LIST_ROWS;
-            if (*sel < 0) *sel = 0;
-            if (*sel > count - 1) *sel = count - 1;
+
+        if (tab == TAB_WEB && kb_open) {
+            kb_input(down, nav, fire);          /* clavier : START = valider, pas quitter */
+            down = 0;
+            fire = 0;
+        }
+        if (down & PAD_BUTTON_START) break;
+
+        /* onglets : la lecture en cours continue */
+        if (down & PAD_TRIGGER_Z) {
+            tab = (tab + 1) % 3;
+            if (tab == TAB_RADIO) net_start_async();
+            if (tab == TAB_WEB) web_enter_tab();
         }
 
-        if ((down & PAD_BUTTON_A) && count > 0) {
-            if (tab == TAB_MUSIC) start_track(sel_track);   /* chargement : l'audio joue du silence */
-            else start_station(sel_station, 0);
-        }
-        if (down & PAD_BUTTON_B) {
-            stop_track();
-            stop_station();
-            track_err = NULL;
-            err_msg[0] = 0;
-        }
-        if (down & PAD_BUTTON_Y) {
-            if (src == SRC_FILE && playing) paused = !paused;
-            else if (src == SRC_RADIO) muted = !muted;
+        if (tab == TAB_WEB) {
+            web_input(down, nav, fire);
+        } else {
+            /* navigation dans la liste de l'onglet */
+            int count = (tab == TAB_MUSIC) ? nfiles : nstations;
+            int *sel = (tab == TAB_MUSIC) ? &sel_track : &sel_station;
+            if (fire && count > 0) {
+                if (nav & PAD_BUTTON_DOWN)  (*sel)++;
+                if (nav & PAD_BUTTON_UP)    (*sel)--;
+                if (nav & PAD_BUTTON_RIGHT) *sel += LIST_ROWS;
+                if (nav & PAD_BUTTON_LEFT)  *sel -= LIST_ROWS;
+                if (*sel < 0) *sel = 0;
+                if (*sel > count - 1) *sel = count - 1;
+            }
+            if ((down & PAD_BUTTON_A) && count > 0) {
+                if (tab == TAB_MUSIC) start_track(sel_track);   /* chargement : l'audio joue du silence */
+                else start_station(sel_station, 0);
+            }
+            if (down & PAD_BUTTON_B) {
+                stop_track();
+                stop_station();
+                track_err = NULL;
+                err_msg[0] = 0;
+            }
+            if ((down & PAD_BUTTON_X) && tab == TAB_MUSIC && sd_ok) music_rescan();
+            if (down & PAD_BUTTON_Y) {
+                if (src == SRC_FILE && playing) paused = !paused;
+                else if (src == SRC_RADIO) muted = !muted;
+            }
         }
         if (down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) {
             int d = (down & PAD_TRIGGER_R) ? 1 : -1;
@@ -2507,12 +4998,15 @@ int main(void) {
             }
         }
 
+        /* navigateur : reception des pages et des telechargements */
+        web_pump();
+
         service_audio();
 
         /* musique : decodage du fichier en cours */
         if (src == SRC_FILE && playing && !paused) {
             int k = 0;
-            while (!eof && k < 2 && f_count < 48000 * 2 && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
+            while (!eof && k < 2 && f_count < FILE_LEAD && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
                 decode_file_one();
                 service_audio();
                 k++;
