@@ -1271,22 +1271,3 @@ int main(void) {
     AUDIO_StopDMA();
     return 0;
 }
- current + 1;
-                if (nx < nfiles) {
-                    sel = nx;
-                    start_track(nx);
-                } else {
-                    stop_track();
-                }
-                redraw = 1;
-            }
-        }
-
-        service_audio();
-
-        /* Durees pas encore lues : on continue a redessiner jusqu'a les avoir. */
-        if (!redraw) {
-            int start = sel - LIST_ROWS / 2;
-            if (start > nfiles - LIST_ROWS) start = nfiles - LIST_ROWS;
-            if (start < 0) start = 0;
-            for (int i = start; i < start + LIST_ROWS &&
