@@ -10,14 +10,18 @@ include $(DEVKITPPC)/gamecube_rules
 
 TARGET   := gc-mp3player
 
-# mbedTLS (HTTPS de l'onglet RADIO) : sources telechargees par le workflow dans ./mbedtls
+# mbedTLS (HTTPS) et Helix (AAC) : sources telechargees par le workflow
 MBEDTLS  := mbedtls
+HELIX    := helix
 TLSDEF   := -DMBEDTLS_USER_CONFIG_FILE='"gc_tls_config.h"'
 MBED_SRC := $(wildcard $(MBEDTLS)/library/*.c)
 MBED_OBJ := $(patsubst $(MBEDTLS)/library/%.c,build/mbedtls/%.o,$(MBED_SRC))
+HELIX_SRC:= $(wildcard $(HELIX)/*.c)
+HELIX_OBJ:= $(patsubst $(HELIX)/%.c,build/helix/%.o,$(HELIX_SRC))
 
-CFLAGS   := -O2 -Wall $(MACHDEP) -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include $(TLSDEF)
+CFLAGS   := -O2 -Wall $(MACHDEP) -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(HELIX) -Isource/helixstub $(TLSDEF)
 MBEDFLAGS:= -O2 $(MACHDEP) -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(MBEDTLS)/library $(TLSDEF)
+HELIXFLAGS:= -O2 $(MACHDEP) -Isource/helixstub -I$(HELIX) -DUSE_DEFAULT_STDLIB -Wno-unknown-pragmas
 LDFLAGS  := $(MACHDEP) -Wl,-Map,$(TARGET).map
 # libbba = reseau (lwIP + Broadband Adapter) de libogc pour GameCube
 LIBS     := -L$(LIBOGC_LIB) -lfat -lbba -logc -lm
@@ -28,8 +32,12 @@ build/mbedtls/%.o: $(MBEDTLS)/library/%.c source/gc_tls_config.h
 > @mkdir -p build/mbedtls
 > $(CC) $(MBEDFLAGS) -c $< -o $@
 
-$(TARGET).elf: source/main.c source/font_atlas.h source/minimp3.h source/stb_image.h source/cacert.h source/gc_tls_config.h $(MBED_OBJ)
-> $(CC) $(CFLAGS) source/main.c $(MBED_OBJ) $(LDFLAGS) $(LIBS) -o $@
+build/helix/%.o: $(HELIX)/%.c
+> @mkdir -p build/helix
+> $(CC) $(HELIXFLAGS) -c $< -o $@
+
+$(TARGET).elf: source/main.c source/font_atlas.h source/minimp3.h source/stb_image.h source/cacert.h source/gc_tls_config.h $(MBED_OBJ) $(HELIX_OBJ)
+> $(CC) $(CFLAGS) -DUSE_DEFAULT_STDLIB source/main.c $(MBED_OBJ) $(HELIX_OBJ) $(LDFLAGS) $(LIBS) -o $@
 
 clean:
 > rm -rf build $(TARGET).elf $(TARGET).dol $(TARGET).map
