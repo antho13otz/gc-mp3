@@ -618,6 +618,52 @@ static int gx_mode = -1;                 // 0 = couleurs, 1 = texte (police), 2 
 #define NSEG 40
 static f32 seg_c[NSEG + 1], seg_s[NSEG + 1];
 
+/* ---------- Diagnostic GX ----------
+   Toutes les attentes GX ont un delai maximum : si le processeur graphique ne
+   repond plus, on affiche ou ca bloque au lieu de rester fige. */
+static volatile int gx_done_flag = 0;
+static int ui_started = 0;          /* 1 des que l'ecran affiche des images GX */
+
+static void gx_done_cb(void) { gx_done_flag = 1; }
+
+static void say(const char *fmt, const char *arg) {
+    printf(fmt, arg);
+    fflush(stdout);
+}
+
+static void gx_fatal(const char *where) {
+    u8 overhi = 0, underlow = 0, readidle = 0, cmdidle = 0, brkpt = 0;
+    GX_GetGPStatus(&overhi, &underlow, &readidle, &cmdidle, &brkpt);
+    if (ui_started) {          /* l'ecran montrait l'interface : on revient a la console */
+        VIDEO_ClearFrameBuffer(rmode, xfb[0], COLOR_BLACK);
+        CON_Init(xfb[0], 20, 20, rmode->fbWidth - 40, rmode->xfbHeight - 40,
+                 rmode->fbWidth * VI_DISPLAY_PIX_SZ);
+        VIDEO_SetNextFramebuffer(xfb[0]);
+        VIDEO_Flush();
+    }
+    printf("BLOQUE\n\n   ERREUR : GX ne repond plus (%s)\n", where);
+    printf("   GP : overhi=%d underlow=%d readIdle=%d cmdIdle=%d brkpt=%d\n",
+           overhi, underlow, readidle, cmdidle, brkpt);
+    printf("\n   Prends une photo de cet ecran.\n   START = quitter\n");
+    fflush(stdout);
+    while (1) {
+        PAD_ScanPads();
+        if (PAD_ButtonsDown(0) & PAD_BUTTON_START) exit(0);
+        VIDEO_WaitVSync();
+    }
+}
+
+/* Equivalent de GX_DrawDone(), mais abandonne apres timeout_ms. */
+static int gx_finish(u32 timeout_ms) {
+    gx_done_flag = 0;
+    GX_SetDrawDone();
+    u64 t0 = gettime();
+    while (!gx_done_flag) {
+        if (ticks_to_millisecs(gettime() - t0) > timeout_ms) return 0;
+    }
+    return 1;
+}
+
 static void gx_set_flat(void) {
     if (gx_mode == 0) return;
     gx_mode = 0;
@@ -668,9 +714,17 @@ static void gx_init(void) {
     Mtx identity;
     GXColor background = { 7, 5, 26, 255 };
 
+    say("   GX_Init... %s", "");
     gx_fifo = memalign(32, GX_FIFO_SIZE);
+    if (gx_fifo == NULL) { say("%s\n   ERREUR : memoire insuffisante pour GX\n", "ECHEC"); while (1) VIDEO_WaitVSync(); }
     memset(gx_fifo, 0, GX_FIFO_SIZE);
+    /* La FIFO est ecrite par le "write gather pipe", hors cache : on vide le cache
+       pour qu'aucune ligne restee du memset n'ecrase plus tard des commandes GX. */
+    DCFlushRange(gx_fifo, GX_FIFO_SIZE);
     GX_Init(gx_fifo, GX_FIFO_SIZE);
+    GX_SetDrawDoneCallback(gx_done_cb);
+    say("%s\n", "OK");
+    say("   Reglages GX... %s", "");
 
     GX_SetCopyClear(background, 0x00ffffff);
     GX_SetViewport(0.0f, 0.0f, rmode->fbWidth, rmode->efbHeight, 0.0f, 1.0f);
@@ -708,6 +762,8 @@ static void gx_init(void) {
     GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_CLR0, GX_CLR_RGBA, GX_RGBA8, 0);
     GX_SetVtxAttrFmt(GX_VTXFMT0, GX_VA_TEX0, GX_TEX_ST, GX_F32, 0);
 
+    say("%s\n", "OK");
+    say("   Textures... %s", "");
     /* Texture de police (I4 : l'alpha vaut l'intensite). */
     DCFlushRange((void *)font_tex, sizeof(font_tex));
     GX_InitTexObj(&font_texobj, (void *)font_tex, FONT_TEX_W, FONT_TEX_H,
@@ -730,6 +786,7 @@ static void gx_init(void) {
     gx_mode = -1;
     gx_set_flat();
     GX_InvVtxCache();
+    say("%s\n", "OK");
 }
 
 static int init_video(void) {
@@ -762,14 +819,15 @@ static int init_video(void) {
 /* Copie l'image GX vers le framebuffer inactif et l'affiche. */
 static void present_frame(void) {
     int next_fb = 1 - displayed_fb;
-    GX_DrawDone();
+    if (!gx_finish(1500)) gx_fatal("dessin d'une image");
     GX_SetColorUpdate(GX_TRUE);
     GX_CopyDisp(xfb[next_fb], GX_TRUE);
-    GX_DrawDone();
+    if (!gx_finish(1500)) gx_fatal("copie de l'image vers l'ecran");
     VIDEO_SetNextFramebuffer(xfb[next_fb]);
     VIDEO_Flush();
     VIDEO_WaitVSync();
     displayed_fb = next_fb;
+    ui_started = 1;
 }
 
 // ---------- Primitives de dessin ----------
@@ -1353,6 +1411,58 @@ static void draw(int sel) {
     present_frame();
 }
 
+/* Auto-test GX : chaque etape est verifiee separement, avec le resultat a l'ecran.
+   Les images sont copiees dans le 2e framebuffer, qui n'est pas affiche :
+   la console reste visible pendant tout le test. */
+static void gx_selftest(void) {
+    char info[96];
+    snprintf(info, sizeof(info), "%dx%d (efb %d, xfb %d) tv=%u aa=%d",
+             rmode->fbWidth, rmode->viHeight, rmode->efbHeight, rmode->xfbHeight,
+             (unsigned)rmode->viTVMode, rmode->aa);
+    say("   Mode video : %s\n\n", info);
+
+    say("   Test 1/6 copie EFB vers memoire... %s", "");
+    GX_CopyDisp(xfb[1], GX_TRUE);
+    if (!gx_finish(1500)) gx_fatal("test 1 : copie");
+    say("%s\n", "OK");
+
+    say("   Test 2/6 formes (fond)... %s", "");
+    begin_frame();
+    if (!gx_finish(1500)) gx_fatal("test 2 : formes");
+    say("%s\n", "OK");
+
+    say("   Test 3/6 texte (texture police)... %s", "");
+    gx_text1(F_MED, 40, 60, "Test GX", RGBA(255, 255, 255, 255));
+    if (!gx_finish(1500)) gx_fatal("test 3 : texte");
+    say("%s\n", "OK");
+
+    say("   Test 4/6 pochette (texture RGB565)... %s", "");
+    gx_set_cover();
+    GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+    GX_Position2f32(10, 10);   GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 0.0f);
+    GX_Position2f32(138, 10);  GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 0.0f);
+    GX_Position2f32(138, 138); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 1.0f);
+    GX_Position2f32(10, 138);  GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 1.0f);
+    GX_End();
+    if (!gx_finish(1500)) gx_fatal("test 4 : pochette");
+    say("%s\n", "OK");
+
+    say("   Test 5/6 interface complete... %s", "");
+    begin_frame();
+    draw_header();
+    draw_list_panel(0);
+    draw_player_panel();
+    draw_legend();
+    if (!gx_finish(1500)) gx_fatal("test 5 : interface");
+    say("%s\n", "OK");
+
+    say("   Test 6/6 copie finale... %s", "");
+    GX_CopyDisp(xfb[1], GX_TRUE);
+    if (!gx_finish(1500)) gx_fatal("test 6 : copie finale");
+    say("%s\n\n   Tous les tests GX sont OK.\n", "OK");
+    for (int i = 0; i < 90; i++) VIDEO_WaitVSync();     /* ~1,5 s pour lire */
+}
+
 /* Ecran de message (demarrage, erreur de carte SD). */
 static void draw_message(const char *l1, const char *l2, const char *l3) {
     begin_frame();
@@ -1369,6 +1479,7 @@ int main(void) {
     if (!init_video()) return 1;
     gx_init();
     init_spectrum();
+    gx_selftest();
 
     draw_message("Montage de la carte SD...", NULL, NULL);
     if (!mount_sd()) {
