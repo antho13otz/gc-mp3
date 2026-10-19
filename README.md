@@ -50,10 +50,21 @@ Lancer `gc-mp3player.dol` depuis Swiss / Indigo.
 ## Menu (START)
 Lecture aléatoire, répétition, liste MUSIQUE, **volume**, **thème de couleurs** (Indigo, Océan,
 Émeraude, Rubis, Ambre, Couleurs douces, Graphite — « Couleurs douces » si l'image paraît trop vive
-sur ta télé), **économiseur d'écran** (2 / 5 / 10 / 30 min ou jamais : un visualiseur qui bouge
-lentement, n'importe quelle touche le quitte), pochettes automatiques, reprise au démarrage,
+sur ta télé), **économiseur d'écran** (2 / 5 / 10 / 30 min ou jamais, n'importe quelle touche le quitte), pochettes automatiques, reprise au démarrage,
 **vidéo** (auto = 480p avec un câble composante ou un GCVideo ; B maintenu au démarrage = 480i),
 enregistrement de la radio, et **Quitter**. Tout est enregistré dans `SD:/gc-mp3.txt`.
+
+### Style de l'économiseur d'écran
+START > « Style de l'économiseur » : Gauche / Droite pour choisir, **A pour un aperçu**.
+- **Spectre** : le visualiseur qui se déplace lentement.
+- **Pochette** : la pochette (ou le logo de la radio) en grand, le titre, l'artiste et l'heure.
+- **Horloge** : grande horloge, la date et le morceau en cours.
+- **Étoiles** : champ d'étoiles qui accélère avec la musique.
+- **Photos** : diaporama de tes images. Mets des `.jpg` / `.png` dans `SD:/ecran` (le dossier est créé
+  tout seul la première fois). Taille maxi 1920 × 1080 : réduis les photos du téléphone avant de les copier.
+  Chaque photo reste 12 s avec un léger zoom et un fondu, dans le désordre.
+- **Écran noir** : rien du tout (la musique continue).
+Tout bouge lentement pour ne pas marquer l'écran.
 
 ## Commandes
 | Touche | MUSIQUE | RADIO | WEB |
