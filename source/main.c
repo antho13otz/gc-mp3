@@ -36,6 +36,7 @@
 #include <unistd.h>
 #include <dirent.h>
 #include <sys/stat.h>
+#include <sys/statvfs.h>
 
 // Decodeur MP3 : minimp3 (fichier unique, domaine public), telecharge par le workflow
 #define MINIMP3_IMPLEMENTATION
@@ -170,9 +171,31 @@ static unsigned char *ogg_hdr = NULL;       /* en-tetes du flux OGG (pour l'enre
 static int ogg_hdr_len = 0;
 enum { SRC_NONE, SRC_FILE, SRC_RADIO };
 static int src = SRC_NONE;              /* ce qui joue en ce moment */
-enum { TAB_MUSIC, TAB_RADIO, TAB_WEB };
+enum { TAB_MUSIC, TAB_RADIO, TAB_WEB, TAB_RETRO, TAB_PODCAST, TAB_PHOTO, TAB_FILES, TAB_INFO, TAB_PHONE, TAB_COUNT };
 static int tab = TAB_MUSIC;             /* onglet affiche */
+static u32 tab_hidden = 0;              /* onglets masques (bits) */
+static const char *const tab_names[TAB_COUNT] = {
+    "MUSIQUE", "RADIO", "WEB", "R\xC3\x89TRO", "PODCASTS", "PHOTOS", "FICHIERS", "INFOS", "T\xC3\x89L\xC3\x89PHONE" };
+static const char *const tab_keys[TAB_COUNT] = {
+    "musique", "radio", "web", "retro", "podcasts", "photos", "fichiers", "infos", "telephone" };
+static int tab_shown(int t) { return t == TAB_MUSIC || !(tab_hidden & (1u << t)); }
+/* elements du lecteur (START > Elements du lecteur) */
+enum { EL_COVER, EL_VIZ, EL_BUTTONS, EL_INFO, EL_CLOCK, EL_COUNT };
+static u32 el_mask = 0x0F;
+#define EL(e) ((el_mask >> (e)) & 1)
+/* disposition du lecteur (stick C vers le bas) */
+enum { L_CLASSIC, L_COVER, L_LIST, L_MINIMAL, LAYOUT_COUNT };
+static int player_layout = L_CLASSIC;
+static int pod_on;                      /* podcast en cours (onglet PODCASTS) */
+static int pod_open, npods;
+typedef struct { char name[96]; char url[384]; } pod_t;
+static pod_t pods[64];
+static int pod_dur;
+static int pod_pos_sec(void);
+#define IS_PLAYER_TAB(t) ((t) == TAB_MUSIC || (t) == TAB_RADIO || (t) == TAB_RETRO || (t) == TAB_PODCAST)
 static int paused = 0;                  /* pause de la musique */
+static int video_playing = 0;           /* une video (onglet PHOTOS) joue son son dans la file */
+static void video_stop(void);
 static void stop_track(void);
 static void lyrics_load(int track);
 static void bg_tick(void);              /* musique/radio pendant les attentes reseau */
@@ -196,6 +219,7 @@ static s16 viz[VIZ_N];
 static int viz_pos = 0;
 static u32 consumed = 0;                 // echantillons joues depuis le debut de l'ecoute
 static int sleep_fade = 256;             // minuterie : baisse du volume dans les 30 dernieres secondes
+static int alarm_fade;                   // reveil : volume qui monte (onglet INFOS)
 static u32 consumed_skip;
 
 /* Fin d'un bloc DMA : programme le suivant. S'il n'a pas ete rempli a temps,
@@ -227,8 +251,8 @@ static void fill_buf(int idx) {
         viz[viz_pos] = (s16)(((int)l + (int)r) / 2);
         viz_pos = (viz_pos + 1) & (VIZ_N - 1);
         if (muted) l = r = 0;
-        else if (volume_pct < 100 || sleep_fade < 256) {
-            int v = volume_pct * 256 / 100 * sleep_fade / 256;
+        else if (volume_pct < 100 || sleep_fade < 256 || alarm_fade < 256) {
+            int v = volume_pct * 256 / 100 * sleep_fade / 256 * alarm_fade / 256;
             l = (s16)((l * v) >> 8);
             r = (s16)((r * v) >> 8);
         }
@@ -1195,6 +1219,12 @@ static void set_error(const char *msg) {
 }
 
 /* Ouvre un flux http:// ou https://. Suit les redirections et les listes .m3u/.pls. */
+static long http_range = 0;                 /* podcasts : commencer a cet octet */
+static void podcast_leave(void);
+static void podcast_finished(void);
+static void podcast_play_at(int sec);
+static int pod_pos_sec(void);
+static int pod_starting;
 static int http_open(const char *url_in, int depth) {
     char url[300], host[128], path[256], req[600];
     static unsigned char hdr[8192];
@@ -1221,9 +1251,11 @@ static int http_open(const char *url_in, int depth) {
     const char *cerr = NULL;
     if (!conn_open(&cn, host, port, tls, &cerr, NULL)) { set_error(cerr); return 0; }
 
+    char range[48] = "";
+    if (http_range > 0) snprintf(range, sizeof(range), "Range: bytes=%ld-\r\n", http_range);
     int rl = snprintf(req, sizeof(req),
                       "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: GC-MP3/1.0 (GameCube)\r\n"
-                      "Icy-MetaData: 1\r\nAccept: */*\r\nConnection: close\r\n\r\n", path, host);
+                      "%sIcy-MetaData: 1\r\nAccept: */*\r\nConnection: close\r\n\r\n", path, host, range);
     if (!conn_send_all(&cn, req, rl)) { set_error("Erreur d'envoi de la requête"); return 0; }
 
     /* lecture des en-tetes */
@@ -1258,7 +1290,7 @@ static int http_open(const char *url_in, int depth) {
         stream_close();
         return http_open(next, depth + 1);
     }
-    if (code != 200) {
+    if (code != 200 && code != 206) {
         char m[64];
         snprintf(m, sizeof(m), "Erreur du serveur (HTTP %d)", code);
         set_error(m);
@@ -1335,6 +1367,7 @@ static void stop_station(void) {
 
 static void start_station(int idx, int is_reconnect) {
     if (idx < 0 || idx > nstations || idx >= MAX_STATIONS) return;   /* (nstations = station d'essai) */
+    if (!is_reconnect) podcast_leave();
     if (src == SRC_FILE) stop_track();
     stop_station();
     src = SRC_RADIO;
@@ -1407,7 +1440,10 @@ static void stream_pump(void) {
     if (state == ST_BUFFER && (f_count >= PREBUFFER || (stream_closed && cbuf_avail() == 0 && f_count > 0)))
         state = ST_PLAY;
     else if (state == ST_PLAY && f_count == 0) {
-        if (stream_closed && cbuf_avail() < MP3_MIN_BYTES) {
+        if (stream_closed && cbuf_avail() < MP3_MIN_BYTES && pod_on) {   /* podcast : fin, ou coupure */
+            if (pod_dur <= 0 || pod_pos_sec() > pod_dur - 20 || reconnects >= 3) podcast_finished();
+            else { int r = reconnects + 1; podcast_play_at(pod_pos_sec()); reconnects = r; }
+        } else if (stream_closed && cbuf_avail() < MP3_MIN_BYTES) {
             if (reconnects < 3) {                              /* coupure : on se reconnecte */
                 reconnects++;
                 start_station(cur_station, 1);
@@ -1438,12 +1474,15 @@ static const char *base_of(const char *path) {
 }
 
 /* Formats lus dans l'onglet MUSIQUE */
-enum { FMT_MP3, FMT_FLAC, FMT_OGG, FMT_WAV };
+enum { FMT_MP3, FMT_FLAC, FMT_OGG, FMT_WAV, FMT_GME, FMT_XMP, FMT_GCN };
+static int retro_ext_fmt(const char *path);       /* onglet RETRO (tab_retro.c) */
+static u8 is_retro[MAX_FILES];
 
 /* longueur de l'extension audio (".mp3" = 4, ".flac" = 5), 0 si ce n'est pas un son */
 static int audio_ext_len(const char *path) {
     static const char *const ext[] = { ".mp3", ".flac", ".ogg", ".oga", ".wav" };
     size_t l = strlen(path);
+    if (retro_ext_fmt(path) >= 0) return (int)strlen(strrchr(path, '.'));
     for (int i = 0; i < 5; i++) {
         size_t e = strlen(ext[i]);
         if (l > e && strcasecmp(path + l - e, ext[i]) == 0) return (int)e;
@@ -1453,6 +1492,8 @@ static int audio_ext_len(const char *path) {
 
 static int audio_fmt(const char *path) {
     size_t l = strlen(path);
+    int r = retro_ext_fmt(path);
+    if (r >= 0) return r;
     if (l > 5 && !strcasecmp(path + l - 5, ".flac")) return FMT_FLAC;
     if (l > 4 && (!strcasecmp(path + l - 4, ".ogg") || !strcasecmp(path + l - 4, ".oga"))) return FMT_OGG;
     if (l > 4 && !strcasecmp(path + l - 4, ".wav")) return FMT_WAV;
@@ -1514,7 +1555,10 @@ static void scan_files(void) {
     for (int i = 0; i < MAX_FILES; i++) dur_cache[i] = -2;
     scan_dir(MP3_DIR, 0);
     scan_dir(DL_DIR, 0);
+    scan_dir(SD_ROOT "/retro", 0);
+    scan_dir(SD_ROOT "/podcasts", 0);                      /* episodes telecharges */
     qsort(names, nfiles, NAME_LEN, cmp_names);
+    for (int k = 0; k < nfiles; k++) is_retro[k] = retro_ext_fmt(names[k]) >= 0;
 }
 
 
@@ -1682,12 +1726,14 @@ static int wav_duration(const char *path) {
     return (int)((double)w.len / w.align / w.rate);
 }
 
+static int retro_quick_duration(const char *path);
 static int file_duration(const char *path) {
     switch (audio_fmt(path)) {
     case FMT_FLAC: return flac_duration(path);
     case FMT_OGG:  return ogg_duration(path);
     case FMT_WAV:  return wav_duration(path);
-    default:       return mp3_duration(path);
+    case FMT_MP3:  return mp3_duration(path);
+    default:       return retro_quick_duration(path);
     }
 }
 
@@ -1748,7 +1794,11 @@ static drflac_bool32 fl_tell(void *u, drflac_int64 *cur) {
 }
 
 static int ogg_header_ok(const unsigned char *b, long n);
+static void retro_close(void);
+static void retro_decode(void);
+static int retro_seek(int sec);
 static void other_close(void) {
+    retro_close();
     if (flac) { drflac_close(flac); flac = NULL; }
     if (vorb) { stb_vorbis_close(vorb); vorb = NULL; }
 }
@@ -1784,6 +1834,7 @@ static int ogg_open(FILE *fp, long start) {
 
 static void decode_other_one(void) {
     static s16 L[2048], R[2048];
+    if (file_fmt >= FMT_GME) { retro_decode(); return; }
     if (file_fmt == FMT_FLAC) {
         static s16 in[1024 * 8];
         if (!flac) { eof = 1; return; }
@@ -1859,6 +1910,7 @@ static void decode_other_one(void) {
 
 /* positionnement a 'sec' secondes (d = duree du morceau) */
 static int other_seek(int sec, int d) {
+    if (file_fmt >= FMT_GME) return retro_seek(sec);
     if (file_fmt == FMT_FLAC) {
         return flac && drflac_seek_to_pcm_frame(flac, (drflac_uint64)sec * flac->sampleRate);
     }
@@ -2445,6 +2497,8 @@ static void load_cover(int idx) {
     }
 }
 
+static int retro_open(const char *path, int fmt, tags_t *tg, const char **err);
+static int retro_len_ms;
 static int rg_mode = 0;                     /* volume egalise : 0 non, 1 par morceau, 2 par album */
 static float rg_db = 0.0f;                  /* gain applique au morceau en cours (affichage) */
 static int rg_has = 0;
@@ -2468,6 +2522,7 @@ static void rg_set(const tags_t *tg) {
 }
 
 static void stop_track(void) {
+    if (video_playing) video_stop();
     if (ffp) { fclose(ffp); ffp = NULL; }
     other_close();
     playing = 0;
@@ -2481,6 +2536,7 @@ static void stop_track(void) {
 
 static int start_track(int idx) {
     if (idx < 0 || idx >= nfiles) { xf_request = 0; return 0; }
+    podcast_leave();
     int xf = xf_request;
     stop_track();
     if (!xf) stop_station();
@@ -2540,11 +2596,14 @@ static int start_track(int idx) {
         }
         if (!err && !ogg_open(fp, 0)) err = "OGG illisible (Vorbis seulement)";
         if (!err) audio = ftell(fp);
+    } else if (fmt >= FMT_GME) {
+        if (!retro_open(names[idx], fmt, &tg, &err)) { if (!err) err = "Fichier illisible"; }
+        else dur_cache[idx] = retro_len_ms / 1000;
     } else {
         if (!wav_parse(fp, size, &wav)) err = "WAV non pris en charge";
         else { audio = wav.data; wav_left = wav.len; }
     }
-    if (!err && fmt != FMT_FLAC && fseek(fp, audio, SEEK_SET) != 0) err = "Lecture impossible";
+    if (!err && fmt != FMT_FLAC && fmt < FMT_GME && fseek(fp, audio, SEEK_SET) != 0) err = "Lecture impossible";
     if (err) {
         other_close();
         fclose(fp);
@@ -2666,6 +2725,7 @@ static void build_groups(void) {
     char key[64];
     for (int k = 0; k < nfiles; k++) {
         grp_of[k] = -1;
+        if (is_retro[k]) continue;                               /* (onglet RETRO) */
         if (view_mode != VIEW_FOLDERS && !tg_done[k]) continue;   /* etiquettes pas encore lues */
         group_key(k, key, sizeof(key));
         int g = -1;
@@ -2703,7 +2763,7 @@ static void lib_rebuild(void) {
     if (view_mode == VIEW_ALL) {
         ngroups = 0;
         cur_group = -1;
-        for (int k = 0; k < nfiles; k++) { ents[nents].type = E_TRACK; ents[nents++].idx = (s16)k; }
+        for (int k = 0; k < nfiles; k++) if (!is_retro[k]) { ents[nents].type = E_TRACK; ents[nents++].idx = (s16)k; }
     } else {
         build_groups();
         if (cur_group >= 0) {                           /* le groupe a pu changer de numero */
@@ -2750,8 +2810,12 @@ static void queue_shuffle_from(int first) {   /* melange en gardant 'first' en t
 /* la file = les morceaux de la liste en cours (tous, ou ceux du groupe ouvert) */
 static void queue_build(int track) {
     qn = 0;
-    for (int i = 0; i < nents; i++) if (ents[i].type == E_TRACK) queue[qn++] = ents[i].idx;
-    if (qn == 0) for (int k = 0; k < nfiles; k++) queue[qn++] = (s16)k;
+    if (track >= 0 && track < nfiles && is_retro[track]) {     /* onglet RETRO : sa propre liste */
+        for (int k = 0; k < nfiles; k++) if (is_retro[k]) queue[qn++] = (s16)k;
+    } else {
+        for (int i = 0; i < nents; i++) if (ents[i].type == E_TRACK) queue[qn++] = ents[i].idx;
+        if (qn == 0) for (int k = 0; k < nfiles; k++) if (!is_retro[k]) queue[qn++] = (s16)k;
+    }
     qpos = 0;
     for (int i = 0; i < qn; i++) if (queue[i] == track) { qpos = i; break; }
     if (shuffle_on) queue_shuffle_from(track);
@@ -2950,9 +3014,23 @@ static const char *lyrics_line(int i) {
 enum { VID_AUTO, VID_480I, VID_480P, VID_COUNT };
 static int covers_auto = 1;
 static int lyrics_auto = 1;                 /* paroles cherchees sur LRCLIB */
+static char city[64];                       /* onglet INFOS (tab_infos.c) */
+static char news_url[256];
+static int alarm_on, alarm_min, alarm_src;
+static int phone_auto;                      /* onglet TELEPHONE (tab_phone.c) */
 #define PARTY_STYLES 3
 static int party_style = 0;                 /* mode soiree : style du visualiseur */
 static const char *const party_keys[PARTY_STYLES] = { "pulsation", "barres", "tunnel" };
+static const char *const layout_names[LAYOUT_COUNT] = { "Classique", "Pochette g\xC3\xA9" "ante", "Liste \xC3\xA9tendue", "Minimaliste" };
+static const char *const layout_keys[LAYOUT_COUNT] = { "classique", "pochette", "liste", "minimal" };
+/* le mot 'w' (en minuscules) apparait-il dans v ? */
+static int has_word(const char *v, const char *w) {
+    char low[256];
+    int n = 0;
+    for (; *v && n < 255; v++) low[n++] = (char)tolower((unsigned char)*v);
+    low[n] = 0;
+    return strstr(low, w) != NULL;
+}
 static const char *const party_names[PARTY_STYLES] = { "Pulsation", "Barres", "Tunnel" };
 static void party_start(void);
 static int saver_min = 5;                   /* economiseur d'ecran (minutes, 0 = jamais) */
@@ -2996,6 +3074,21 @@ static void load_settings(void) {
         else if (!strcasecmp(k, "volume")) { volume_pct = atoi(v); if (volume_pct < 0) volume_pct = 0; if (volume_pct > 100) volume_pct = 100; }
         else if (!strcasecmp(k, "theme")) { for (int i = 0; i < THEME_COUNT; i++) if (!strcasecmp(v, theme_keys[i])) theme_apply(i); }
         else if (!strcasecmp(k, "paroles_auto")) lyrics_auto = yes(v);
+        else if (!strcasecmp(k, "ville")) snprintf(city, sizeof(city), "%s", v);
+        else if (!strcasecmp(k, "actualites")) { if (!strncasecmp(v, "http", 4)) snprintf(news_url, sizeof(news_url), "%s", v); }
+        else if (!strcasecmp(k, "reveil")) { int h, m; if (sscanf(v, "%d:%d", &h, &m) == 2 && h >= 0 && h < 24 && m >= 0 && m < 60) { alarm_on = 1; alarm_min = h * 60 + m; } else alarm_on = 0; }
+        else if (!strcasecmp(k, "reveil_joue")) alarm_src = atoi(v) < 0 ? 0 : atoi(v);
+        else if (!strcasecmp(k, "telephone")) phone_auto = yes(v);
+        else if (!strcasecmp(k, "disposition")) { for (int i = 0; i < LAYOUT_COUNT; i++) if (!strcasecmp(v, layout_keys[i])) player_layout = i; }
+        else if (!strcasecmp(k, "onglets_caches")) {
+            tab_hidden = 0;
+            for (int i = 1; i < TAB_COUNT; i++) if (has_word(v, tab_keys[i])) tab_hidden |= 1u << i;
+        }
+        else if (!strcasecmp(k, "elements")) {
+            static const char *const ek[EL_COUNT] = { "pochette", "paroles", "boutons", "infos", "horloge" };
+            el_mask = 0;
+            for (int i = 0; i < EL_COUNT; i++) if (has_word(v, ek[i])) el_mask |= 1u << i;
+        }
         else if (!strcasecmp(k, "soiree")) { for (int i = 0; i < PARTY_STYLES; i++) if (!strcasecmp(v, party_keys[i])) party_style = i; }
         else if (!strcasecmp(k, "graves")) eq_bass = atoi(v);
         else if (!strcasecmp(k, "aigus")) eq_treble = atoi(v);
@@ -3018,6 +3111,13 @@ static void save_settings(void) {
     static const char *const vid[VID_COUNT] = { "auto", "480i", "480p" };
     settings_dirty = 0;
     if (!sd_ok) return;
+    static const char *const ek[EL_COUNT] = { "pochette", "paroles", "boutons", "infos", "horloge" };
+    char els[96] = "", hid[160] = "";
+    for (int i = 0; i < EL_COUNT; i++) if (EL(i)) { if (els[0]) strcat(els, ", "); strcat(els, ek[i]); }
+    for (int i = 1; i < TAB_COUNT; i++) if (!tab_shown(i)) { if (hid[0]) strcat(hid, ", "); strcat(hid, tab_keys[i]); }
+    char alarm_txt[16];
+    if (alarm_on) snprintf(alarm_txt, sizeof(alarm_txt), "%02d:%02d", alarm_min / 60, alarm_min % 60);
+    else snprintf(alarm_txt, sizeof(alarm_txt), "non");
     FILE *f = fopen(SETTINGS_FILE, "w");
     if (!f) return;
     fprintf(f, "# Reglages de GC-MP3 (aussi modifiables avec START > Reglages)\n"
@@ -3033,6 +3133,18 @@ static void save_settings(void) {
                "volume_egalise = %s\n"
                "# Mode soiree (stick C vers le haut) : pulsation / barres / tunnel\n"
                "soiree = %s\n"
+               "# Disposition du lecteur (stick C vers le bas) : classique / pochette / liste / minimal\n"
+               "disposition = %s\n"
+               "# Elements du lecteur : pochette, paroles, boutons, infos, horloge\n"
+               "elements = %s\n"
+               "# Onglets caches : radio, web, retro, podcasts, photos, fichiers, infos, telephone\n"
+               "onglets_caches = %s\n"
+               "# Onglet INFOS : ville de la meteo, flux RSS des actualites\n"
+               "ville = %s\nactualites = %s\n"
+               "# Reveil : heure (ex. 07:30) ou non ; reveil_joue = 0 (ma musique) ou numero de la radio\n"
+               "reveil = %s\nreveil_joue = %d\n"
+               "# Telecommande depuis le telephone lancee au demarrage : oui / non\n"
+               "telephone = %s\n"
                "# Lecture : aleatoire = oui / non ; repetition = non / tout / un\n"
                "aleatoire = %s\nrepetition = %s\n"
                "# Liste MUSIQUE : tous / dossiers / artistes / albums\n"
@@ -3050,7 +3162,8 @@ static void save_settings(void) {
                "# Reprendre le dernier morceau au demarrage : oui / non\n"
                "reprise = %s\nreprise_fichier = %s\nreprise_position = %d\n",
             covers_auto ? "oui" : "non", lyrics_auto ? "oui" : "non", eq_bass, eq_treble, xf_sec,
-            rg_mode == 2 ? "album" : rg_mode == 1 ? "morceau" : "non", party_keys[party_style], shuffle_on ? "oui" : "non", rep[repeat_mode], aff[view_mode],
+            rg_mode == 2 ? "album" : rg_mode == 1 ? "morceau" : "non", party_keys[party_style],
+            layout_keys[player_layout], els, hid, city, news_url, alarm_txt, alarm_src, phone_auto ? "oui" : "non", shuffle_on ? "oui" : "non", rep[repeat_mode], aff[view_mode],
             volume_pct, theme_keys[theme_id], saver_min, saver_keys[saver_style], vid[video_pref], resume_on ? "oui" : "non",
             resume_path, resume_pos);
     fclose(f);
@@ -3731,11 +3844,13 @@ static void draw_radio_icon(f32 cx, f32 cy, col_t c) {
 /* Onglets MUSIQUE / RADIO / WEB en haut de la liste (Z pour changer).
    Retourne la position x apres le rappel de la touche Z. */
 static int draw_tabs(const char *count) {
-    static const char *names[3] = { "MUSIQUE", "RADIO", "WEB" };
     f32 x = 20;
-    for (int t = 0; t < 3; t++) {
+    int nshown = 0, pos = 0;
+    for (int t = 0; t < TAB_COUNT; t++) if (tab_shown(t)) { if (t == tab) pos = nshown; nshown++; }
+    for (int t = tab; t == tab; t++) {
+        const char *const *names = tab_names;
         int w = text_width(F_SMALL, names[t], 1) + 14;
-        int on = (tab == t);
+        int on = 1;
         if (on) {
             gx_glow(x, 86, (f32)w, 18, 9, RGBA(150, 80, 255, 110), 2);
             gx_rrect_fill(x, 86, (f32)w, 18, 9, RGBA(124, 54, 240, 255), RGBA(80, 26, 180, 255));
@@ -3745,12 +3860,15 @@ static int draw_tabs(const char *count) {
                 on ? RGBA(255, 255, 255, 255) : RGBA(150, 135, 210, 255), 1);
         x += w + 4;
     }
-    /* rappel de la touche Z */
+    /* rappel de la touche Z, et position parmi les onglets */
     gx_rrect_fill(x + 1, 88, 14, 14, 4, RGBA(110, 90, 190, 255), RGBA(70, 50, 140, 255));
     gx_text_c(F_SMALL, x + 8, 99, "Z", RGBA(255, 255, 255, 255));
+    for (int i = 0; i < nshown && i < 9; i++)
+        gx_circle(x + 24 + i * 7, 95, 2.2f, i == pos ? RGBA(230, 210, 255, 255) : RGBA(90, 70, 160, 255), i == pos ? RGBA(230, 210, 255, 255) : RGBA(90, 70, 160, 255));
+    x += nshown * 7 + 6;
     if (count && x + 20 + text_width(F_SMALL, count, 0) <= 266)
         gx_text_r(F_SMALL, 266, 99, count, RGBA(205, 195, 245, 255));
-    gx_rect(25, 110, tab == TAB_WEB ? 590 : 241, 1, RGBA(76, 52, 150, 200));
+    gx_rect(25, 110, IS_PLAYER_TAB(tab) ? 241 : 590, 1, RGBA(76, 52, 150, 200));
     return (int)x + 16;
 }
 
@@ -3827,12 +3945,13 @@ static void draw_player_radio(void) {
         int blink = (int)((now_ms() / 600) % 2);
         gx_circle(312, 94, 4, blink ? RGBA(255, 70, 100, 255) : RGBA(200, 40, 70, 255), RGBA(170, 30, 60, 255));
     }
-    gx_text(F_SMALL, live ? 322 : 308, 98, "EN DIRECT", RGBA(140, 122, 210, 255), RGBA(140, 122, 210, 255), 3);
-    if (cur_station >= nstations) snprintf(buf, sizeof(buf), "ANNUAIRE");
+    gx_text(F_SMALL, live ? 322 : 308, 98, pod_on ? "PODCAST" : "EN DIRECT", RGBA(140, 122, 210, 255), RGBA(140, 122, 210, 255), 3);
+    if (pod_on) buf[0] = 0;
+    else if (cur_station >= nstations) snprintf(buf, sizeof(buf), "ANNUAIRE");
     else snprintf(buf, sizeof(buf), "%02d / %02d", cur_station >= 0 ? cur_station + 1 : 0, nstations);
     gx_text_r(F_MED, 614, 99, buf, RGBA(165, 145, 235, 255));
 
-    draw_art_radio();
+    if (EL(EL_COVER)) draw_art_radio();
 
     /* nom de la station + titre en cours (ICY "Artiste - Titre") */
     if (cur_station >= 0 && state == ST_ERROR) {
@@ -3841,6 +3960,14 @@ static void draw_player_radio(void) {
         wrap2(F_MED, err_msg, 160, l1, l2, sizeof(l1));
         gx_text1(F_MED, 456, 152, l1, RGBA(255, 150, 80, 255));
         gx_text1(F_MED, 456, 170, l2, RGBA(255, 150, 80, 255));
+    } else if (cur_station >= 0 && state != ST_IDLE && pod_on) {         /* podcast : titre sur deux lignes */
+        char t1[200];
+        text_display(stations[cur_station].name, t1, sizeof(t1));
+        wrap2(F_MED, t1, 160, l1, l2, sizeof(l1));
+        gx_text1(F_MED, 456, 128, l1, RGBA(255, 255, 255, 255));
+        gx_text1(F_MED, 456, 148, l2, RGBA(255, 255, 255, 255));
+        fit_text(F_SMALL, pod_open >= 0 && pod_open < npods ? pods[pod_open].name : "", 160, buf, sizeof(buf));
+        gx_text1(F_SMALL, 456, 168, buf, RGBA(156, 116, 255, 255));
     } else if (cur_station >= 0 && state != ST_IDLE) {
         fit_text(F_LARGE, stations[cur_station].name, 160, buf, sizeof(buf));
         gx_text1(F_LARGE, 456, 132, buf, RGBA(255, 255, 255, 255));
@@ -3897,7 +4024,18 @@ static void draw_player_radio(void) {
     if (state == ST_BUFFER) frac = (f32)f_count / (f32)PREBUFFER;
     if (frac > 1.0f) frac = 1.0f;
     gx_rrect_fill(px, py, pw, 3, 1.5f, RGBA(70, 50, 140, 230), RGBA(70, 50, 140, 230));
-    if (state == ST_PLAY || state == ST_BUFFER) {
+    if (pod_on && (state == ST_PLAY || state == ST_BUFFER)) {      /* podcast : avancement de l'episode */
+        int el = pod_pos_sec();
+        f32 pf = pod_dur > 0 ? (f32)el / (f32)pod_dur : 0.0f;
+        if (pf > 1.0f) pf = 1.0f;
+        if (pf > 0.0f) gx_hgrad(px, py, pw * pf, 3, RGBA(120, 64, 255, 255), RGBA(180, 100, 255, 255));
+        char tb[16], td[16], lb[64];
+        fmt_listen(tb, el);
+        fmt_listen(td, pod_dur);
+        snprintf(lb, sizeof(lb), "%s / %s", tb, pod_dur > 0 ? td : "--:--");
+        gx_text1(F_SMALL, 457, 222, lb, RGBA(170, 155, 225, 255));
+        gx_text1(F_SMALL, 457, 238, "L / R : -15 s / +30 s", RGBA(130, 115, 200, 255));
+    } else if (state == ST_PLAY || state == ST_BUFFER) {
         if (frac > 0.0f) gx_hgrad(px, py, pw * frac, 3, RGBA(120, 64, 255, 255), RGBA(180, 100, 255, 255));
         char tb[16], lb[64];
         fmt_listen(tb, (int)(consumed / 48000u));
@@ -3908,7 +4046,7 @@ static void draw_player_radio(void) {
 
     /* egaliseur (spectre reel) + reflet */
     const f32 base = 295.0f;
-    for (int i = 0; i < NBARS; i++) {
+    for (int i = 0; i < NBARS && EL(EL_VIZ); i++) {
         f32 bx = (f32)(306 + (int)(i * 5.6f));
         f32 tcol = (f32)i / (f32)(NBARS - 1);
         col_t cb = lerp_c(RGBA(156, 60, 255, 255), RGBA(70, 130, 255, 255), tcol * 1.25f - 0.15f);
@@ -3923,6 +4061,7 @@ static void draw_player_radio(void) {
     gx_hgrad(306, base, 308, 1, RGBA(130, 80, 255, 70), RGBA(80, 140, 255, 70));
 
     /* boutons : station precedente, ecouter/arreter, station suivante, son */
+    if (!EL(EL_BUTTONS)) return;
     const f32 cy = 364.0f;
     col_t icon = RGBA(230, 220, 255, 255);
     draw_round_button(347, cy, 21);
@@ -4011,27 +4150,62 @@ static int menu_open, saver_on;
 
 static void draw_party(void);
 static int party_on;
+static void draw_header_clock(void);
+static void draw_layout_cover(void);
+static void draw_layout_minimal(void);
+static void draw_layout_list(void);
+static void draw_layout_toast(void);
+static void draw_layout_hint(void);
+static void draw_tab_strip(void);
+static void draw_checklist(void);
+static void draw_list_retro(void);
+static void draw_list_podcast(void);
+static void draw_tab_photo(void);
+static void draw_tab_files(void);
+static void draw_tab_infos(void);
+static void draw_tab_phone(void);
 static void draw(void) {
     if (saver_on) { draw_saver(); return; }
     if (party_on && !menu_open) { draw_party(); return; }
     dur_budget = 1;
     begin_frame();
     draw_header();
+    draw_header_clock();
     if (tab == TAB_WEB) {
         draw_web();
         draw_legend_web();
-    } else {
+    } else if (IS_PLAYER_TAB(tab) && player_layout == L_COVER) {
+        draw_layout_cover();
+        if (kb_is_open()) draw_legend_web(); else draw_legend();
+        draw_layout_hint();
+    } else if (IS_PLAYER_TAB(tab) && player_layout == L_MINIMAL) {
+        draw_layout_minimal();
+    } else if (tab == TAB_MUSIC && player_layout == L_LIST) {
+        draw_layout_list();
+    } else if (IS_PLAYER_TAB(tab)) {
         if (tab == TAB_MUSIC) draw_list_music(sel_row);
-        else draw_list_radio();
+        else if (tab == TAB_RADIO) draw_list_radio();
+        else if (tab == TAB_RETRO) draw_list_retro();
+        else draw_list_podcast();
         /* panneau de droite : ce qui joue, sinon l'onglet affiche */
-        int view = (src != SRC_NONE) ? src : (tab == TAB_RADIO ? SRC_RADIO : SRC_FILE);
+        int view = (src != SRC_NONE) ? src : ((tab == TAB_RADIO || tab == TAB_PODCAST) ? SRC_RADIO : SRC_FILE);
         if (view == SRC_RADIO) draw_player_radio();
         else draw_player_music();
         if (kb_is_open()) draw_legend_web();
         else draw_legend();
+    } else {
+        switch (tab) {
+        case TAB_PHOTO: draw_tab_photo(); break;
+        case TAB_FILES: draw_tab_files(); break;
+        case TAB_INFO:  draw_tab_infos(); break;
+        default:        draw_tab_phone(); break;
+        }
     }
+    draw_layout_toast();
+    draw_tab_strip();
     if (kb_is_open()) draw_keyboard();
     if (menu_open) draw_menu();
+    draw_checklist();
     service_audio();
     present_frame();
 }
@@ -4252,46 +4426,48 @@ static void draw_player_music(void) {
     else snprintf(buf, sizeof(buf), "%02d / %02d", (playing && cur_track >= 0) ? cur_track + 1 : 0, nfiles);
     gx_text_r(F_MED, 614, 99, buf, RGBA(165, 145, 235, 255));
 
-    draw_art_music();
+    if (EL(EL_COVER)) draw_art_music();
+    const f32 TX = EL(EL_COVER) ? 456 : 308;          /* sans pochette, le texte prend la place */
+    const int TW = EL(EL_COVER) ? 160 : 300;
 
     int dur = playing ? track_duration(cur_track) : -1;
     int elapsed = (int)(consumed / 48000u);
     if (playing && cur_track >= 0 && cur_track < nfiles) {
         char ttl[200];
         track_title(cur_track, ttl, sizeof(ttl));
-        fit_text(F_LARGE, ttl, 160, buf, sizeof(buf));
-        gx_text1(F_LARGE, 456, 140, buf, RGBA(255, 255, 255, 255));
+        fit_text(F_LARGE, ttl, TW, buf, sizeof(buf));
+        gx_text1(F_LARGE, TX, 140, buf, RGBA(255, 255, 255, 255));
         if (track_err) {
-            gx_text1(F_MED, 456, 160, track_err, RGBA(255, 150, 80, 255));
+            gx_text1(F_MED, TX, 160, track_err, RGBA(255, 150, 80, 255));
         } else if (artist[0]) {
-            fit_text(F_MED, artist, 160, buf, sizeof(buf));
-            gx_text1(F_MED, 456, 160, buf, RGBA(156, 116, 255, 255));
+            fit_text(F_MED, artist, TW, buf, sizeof(buf));
+            gx_text1(F_MED, TX, 160, buf, RGBA(156, 116, 255, 255));
         }
         /* album et annee (etiquettes du MP3, sinon MusicBrainz) */
         char info[200];
         int searching = cover_info(info, sizeof(info));
-        if (!track_err && info[0]) {
-            fit_text(F_SMALL, info, 160, buf, sizeof(buf));
-            gx_text1(F_SMALL, 456, 178, buf, searching ? RGBA(255, 210, 120, 255) : RGBA(140, 122, 200, 255));
+        if (!track_err && info[0] && EL(EL_INFO)) {
+            fit_text(F_SMALL, info, TW, buf, sizeof(buf));
+            gx_text1(F_SMALL, TX, 178, buf, searching ? RGBA(255, 210, 120, 255) : RGBA(140, 122, 200, 255));
         }
     } else {
-        gx_text1(F_LARGE, 456, 140, "Aucune piste", RGBA(228, 218, 255, 255));
+        gx_text1(F_LARGE, TX, 140, "Aucune piste", RGBA(228, 218, 255, 255));
         if (track_err) {
-            fit_text(F_MED, track_err, 160, buf, sizeof(buf));
-            gx_text1(F_MED, 456, 160, buf, RGBA(255, 150, 80, 255));
+            fit_text(F_MED, track_err, TW, buf, sizeof(buf));
+            gx_text1(F_MED, TX, 160, buf, RGBA(255, 150, 80, 255));
         } else {
-            gx_text1(F_MED, 456, 160, "Appuie sur A", RGBA(156, 116, 255, 255));
+            gx_text1(F_MED, TX, 160, "Appuie sur A", RGBA(156, 116, 255, 255));
         }
     }
 
     fmt_time(t1, playing ? elapsed : 0);
     fmt_time(t2, dur);
     snprintf(buf, sizeof(buf), "%s / %s", t1, t2);
-    gx_text1(F_MED, 456, 196, buf, RGBA(180, 160, 240, 255));
+    gx_text1(F_MED, TX, 196, buf, RGBA(180, 160, 240, 255));
 
     f32 frac = (playing && dur > 0) ? (f32)consumed / (48000.0f * (f32)dur) : 0.0f;
     if (frac > 1.0f) frac = 1.0f;
-    const f32 px = 457, py = 207, pw = 156;
+    const f32 px = TX + 1, py = 207, pw = EL(EL_COVER) ? 156 : 304;
     gx_rrect_fill(px, py, pw, 3, 1.5f, RGBA(70, 50, 140, 230), RGBA(70, 50, 140, 230));
     if (playing) {
         if (frac > 0.0f) gx_hgrad(px, py, pw * frac, 3, RGBA(120, 64, 255, 255), RGBA(180, 100, 255, 255));
@@ -4303,7 +4479,8 @@ static void draw_player_music(void) {
 
     /* paroles (fichier .lrc) a la place de l'egaliseur */
     int li = playing ? lyrics_current() : -2;
-    if (playing && lrc_n > 0 && lrc_track == cur_track) {
+    if (!EL(EL_VIZ)) { }
+    else if (playing && lrc_n > 0 && lrc_track == cur_track) {
         char a[300], b[300], d1[300];
         if (li > 0) {
             text_display(lyrics_line(li - 1), d1, sizeof(d1));
@@ -4338,6 +4515,7 @@ static void draw_player_music(void) {
     }
 
     /* boutons de transport */
+    if (!EL(EL_BUTTONS)) return;
     const f32 cy = 364.0f;
     col_t icon = RGBA(230, 220, 255, 255);
     draw_round_button(347, cy, 21);
@@ -4359,6 +4537,12 @@ static void draw_player_music(void) {
         gx_tri(417, cy - 11, 417, cy + 11, 434, cy, RGBA(255, 255, 255, 255));
     }
 }
+
+// ---------- Onglets, liste a cocher, dispositions du lecteur ----------
+static void tag_scan_one(int k);
+static void save_settings(void);
+static int settings_dirty;
+#include "ui_extra.c"
 
 // ====================================================================
 // ---------- Navigateur web (onglet WEB) ----------
@@ -5569,6 +5753,9 @@ static int is_latin_charset(const char *cs) {
 // ---------- Telechargements (sd:/downloads) ----------
 static int dl_active = 0;
 static FILE *dl_fp = NULL;
+static char dl_dest_dir[NAME_LEN] = "";     /* (podcasts) dossier du prochain telechargement */
+static char dl_dest_dir_used[NAME_LEN] = "";
+static char dl_name_hint[160] = "";         /* (podcasts) nom du prochain fichier */
 static char dl_name[128], dl_path[NAME_LEN], dl_part[NAME_LEN + 8];
 static long dl_total = -1, dl_got = 0;
 static u64 dl_t0 = 0, dl_last = 0;
@@ -5643,15 +5830,26 @@ static void dl_begin(const unsigned char *body, int n, const char *ctype, const 
                      const char *url, long clen, int chunked) {
     if (dl_active) { conn_close(PCONN); web_note("Un téléchargement est déjà en cours (X : accueil pour l'annuler)", 1); return; }
     if (!sd_ok) { conn_close(PCONN); web_note("Carte SD absente : téléchargement impossible", 1); return; }
-    mkdir(DL_DIR, 0777);
+    snprintf(dl_dest_dir_used, sizeof(dl_dest_dir_used), "%s", dl_dest_dir[0] ? dl_dest_dir : DL_DIR);
+    const char *dir = dl_dest_dir_used;
+    mkdir(dir, 0777);
     char name[128];
     dl_filename(disp, url, ctype, name, sizeof(name));
-    snprintf(dl_path, sizeof(dl_path), "%s/%s", DL_DIR, name);
+    if (dl_name_hint[0]) {                                  /* titre de l'episode + extension du fichier */
+        char hint[160], ext[12] = ".mp3";
+        const char *e = strrchr(name, '.');
+        if (e && strlen(e) < sizeof(ext)) snprintf(ext, sizeof(ext), "%s", e);
+        snprintf(hint, sizeof(hint), "%.100s", dl_name_hint);
+        sanitize_name(hint);
+        if (hint[0]) snprintf(name, sizeof(name), "%s%s", hint, ext);
+    }
+    dl_dest_dir[0] = dl_name_hint[0] = 0;
+    snprintf(dl_path, sizeof(dl_path), "%s/%s", dir, name);
     struct stat st;
     for (int k = 2; k < 100 && stat(dl_path, &st) == 0; k++) {          /* nom deja pris : "nom (2).mp3" */
         const char *e = strrchr(name, '.');
         int bl = e ? (int)(e - name) : (int)strlen(name);
-        snprintf(dl_path, sizeof(dl_path), "%s/%.*s (%d)%s", DL_DIR, bl, name, k, e ? e : "");
+        snprintf(dl_path, sizeof(dl_path), "%s/%.*s (%d)%s", dir, bl, name, k, e ? e : "");
     }
     snprintf(dl_name, sizeof(dl_name), "%s", base_of(dl_path));
     snprintf(dl_part, sizeof(dl_part), "%s.part", dl_path);
@@ -6900,6 +7098,7 @@ static u8 dec_stack[64 * 1024] ATTRIBUTE_ALIGN(32);
 static int dec_started = 0;
 static void *dec_thread_fn(void *arg);
 static int dj_photo = 0;                    /* 1 = photo de l'economiseur (RGB, ajustee a dj_aw x dj_ah) */
+static int dj_owner = 0;                    /* qui attend le resultat : 1 web, 2 economiseur, 3 photos, 4 video */
 #define PHOTO_MAX_PIXELS (1920 * 1088)
 
 static int dec_ensure(void) {
@@ -7073,6 +7272,7 @@ static void img_pump(void) {
         dj_ah = im->ah;
         dj_maxw = WV_W;
         dj_photo = 0;
+        dj_owner = 1;
         il_state = IL_DECODE;
         dj_state = 1;
     }
@@ -7267,7 +7467,7 @@ static void cover_pump(void) {
         cl_state = CL_IDLE;
     }
     if (cl_state == CL_IDLE) {
-        if (src != SRC_FILE || !playing || cur_track < 0 || cover_ok || track_err) return;
+        if (src != SRC_FILE || !playing || cur_track < 0 || cover_ok || track_err || is_retro[cur_track]) return;
         if (cl_track == cur_track || cl_is_failed(names[cur_track])) return;
         if (net_phase != NET_DONE || !net_ok) return;
         cl_track = cur_track;
@@ -7415,7 +7615,7 @@ static void lyrics_pump(void) {
         ly_state = LY_IDLE;
     }
     if (ly_state == LY_IDLE || ly_state == LY_DONE) {
-        if (src != SRC_FILE || !playing || cur_track < 0 || track_err) return;
+        if (src != SRC_FILE || !playing || cur_track < 0 || track_err || is_retro[cur_track]) return;
         if (cur_track == ly_track) return;
         if (lrc_track == cur_track && lrc_n > 0) return;        /* deja un .lrc */
         if (ly_is_failed(names[cur_track])) return;
@@ -7495,7 +7695,10 @@ static void web_pump(void) {
 }
 
 // ---------- Navigateur : actions ----------
-enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO };
+enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR };
+static void files_kb_done(int mode, const char *t);
+static void podcast_search(const char *q);
+static void infos_set_city(const char *c);
 static void rb_search_name(const char *q);
 static int kb_open = 0, kb_mode = KB_URL, kb_field = -1, kb_form = -1;
 static char kb_text[256];
@@ -7595,6 +7798,9 @@ static void kb_validate(void) {
     }
     if (!*t) return;
     if (kb_mode == KB_RADIO) { rb_search_name(t); return; }
+    if (kb_mode == KB_PODCAST) { podcast_search(t); return; }
+    if (kb_mode == KB_CITY) { infos_set_city(t); return; }
+    if (kb_mode == KB_RENAME || kb_mode == KB_MKDIR) { files_kb_done(kb_mode, t); return; }
     if (kb_mode == KB_ARCHIVE) { web_archive_search(t); return; }
     if (kb_mode == KB_SEARCH) { web_search(t); return; }
     if (strncasecmp(t, "gc:", 3) == 0) { web_go(t, NAV_PUSH); return; }
@@ -7996,7 +8202,10 @@ static void draw_keyboard(void) {
     draw_panel(30, 120, 580, 296);
     const char *title = kb_mode == KB_SEARCH ? "Rechercher sur le web" :
                         kb_mode == KB_ARCHIVE ? "Musique libre sur archive.org" :
-                        kb_mode == KB_FIELD ? "Saisie" : kb_mode == KB_RADIO ? "Rechercher une radio (nom)" : "Adresse ou recherche";
+                        kb_mode == KB_FIELD ? "Saisie" : kb_mode == KB_RADIO ? "Rechercher une radio (nom)" :
+                        kb_mode == KB_PODCAST ? "Rechercher un podcast" : kb_mode == KB_CITY ? "Ta ville (m\xC3\xA9t\xC3\xA9o)" :
+                        kb_mode == KB_RENAME ? "Nouveau nom" : kb_mode == KB_MKDIR ? "Nom du nouveau dossier" :
+                        "Adresse ou recherche";
     gx_text1(F_MED, 46, 143, title, RGBA(255, 255, 255, 255));
     if (kb_shift) gx_text_r(F_SMALL, 594, 142, "MAJUSCULES", RGBA(255, 210, 120, 255));
     /* zone de texte */
@@ -8297,7 +8506,7 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_BASS, MI_TREBLE, MI_THEME, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_RESUME, MI_VIDEO, MI_PARTY, MI_SLEEP, MI_REC, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_RESUME, MI_VIDEO, MI_PARTY, MI_SLEEP, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_QUIT, MI_COUNT };
 #define MENU_VIS 13                         /* lignes visibles (le menu defile) */
 static int menu_top = 0;
 static int menu_sel = 0, quit_requested = 0;
@@ -8316,6 +8525,9 @@ static void menu_value(int i, char *out, int cap) {
     case MI_TREBLE:  if (eq_treble) snprintf(out, cap, "%+d dB", eq_treble); else snprintf(out, cap, "0"); break;
     case MI_LYRICS:  snprintf(out, cap, "%s", lyrics_auto ? "Oui" : "Non"); break;
     case MI_PARTY:   snprintf(out, cap, "%s", party_names[party_style]); break;
+    case MI_LAYOUT:  snprintf(out, cap, "%s", layout_names[player_layout]); break;
+    case MI_ELEMS: { int c = 0; for (int i = 0; i < EL_COUNT; i++) c += EL(i); snprintf(out, cap, "%d / %d  (A)", c, EL_COUNT); break; }
+    case MI_TABS:  { int c = 0; for (int i = 0; i < TAB_COUNT; i++) c += tab_shown(i); snprintf(out, cap, "%d / %d  (A)", c, TAB_COUNT); break; }
     case MI_SLEEP:
         if (!sleep_at) snprintf(out, cap, "Non");
         else { u64 n = now_ms(); int m = n >= sleep_at ? 0 : (int)((sleep_at - n + 59999) / 60000); snprintf(out, cap, "Arr\xC3\xAAt dans %d min", m); }
@@ -8338,7 +8550,8 @@ static const char *const menu_labels[MI_COUNT] = {
     "Lecture al\xC3\xA9" "atoire", "R\xC3\xA9p\xC3\xA9tition", "Fondu encha\xC3\xAEn\xC3\xA9", "Liste MUSIQUE", "Volume",
     "Volume \xC3\xA9gal\xC3\xAAs\xC3\xA9", "Graves", "Aigus", "Th\xC3\xA8me",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques",
-    "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o", "Mode soir\xC3\xA9" "e", "Minuterie", "Enregistrer la radio", "Quitter GC-MP3" };
+    "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o", "Mode soir\xC3\xA9" "e", "Minuterie", "Disposition du lecteur",
+    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Quitter GC-MP3" };
 
 static void menu_change(int i, int d) {
     static const int savers[] = { 0, 2, 5, 10, 30 };
@@ -8368,6 +8581,9 @@ static void menu_change(int i, int d) {
     case MI_TREBLE:  eq_treble += 2 * d; eq_setup(); break;
     case MI_LYRICS:  lyrics_auto = !lyrics_auto; if (lyrics_auto) net_start_async(); break;
     case MI_PARTY:   party_style = (party_style + d + PARTY_STYLES) % PARTY_STYLES; break;
+    case MI_LAYOUT:  player_layout = (player_layout + d + LAYOUT_COUNT) % LAYOUT_COUNT; break;
+    case MI_ELEMS:   checklist_open(&ck_elems); return;
+    case MI_TABS:    checklist_open(&ck_tabs); return;
     case MI_SLEEP: {
         static const int sl[] = { 0, 15, 30, 45, 60, 90, 120 };
         int k = 0;
@@ -8796,6 +9012,7 @@ static void photo_pump(void) {
 
     if (ph_state == PH_QUEUED) {                             /* attend que le decodeur soit libre */
         if (dj_state != 0 || il_state == IL_DECODE) return;
+        if (tab == TAB_PHOTO) return;                        /* (l'onglet PHOTOS s'en sert) */
         if (!dec_ensure()) { photo_stop_read(); ph_state = PH_IDLE; ph_fails = ph_n; return; }
         /* trop grande, ou pas assez de memoire libre pour la decoder : photo suivante */
         int iw, ih, ic;
@@ -8814,6 +9031,7 @@ static void photo_pump(void) {
         dj_ah = 480;
         dj_maxw = 640;
         dj_photo = 1;
+        dj_owner = 2;
         ph_state = PH_DEC;
         dj_state = 1;
     }
@@ -9099,6 +9317,27 @@ static void draw_party(void) {
     present_frame();
 }
 
+// ---------- Onglets supplementaires (fichiers a part) ----------
+#include "tab_retro.c"
+#include "tab_podcast.c"
+#include "tab_photo.c"
+#include "tab_files.c"
+#include "tab_infos.c"
+#include "tab_phone.c"
+
+static void tab_enter(int t) {
+    switch (t) {
+    case TAB_RADIO:   net_start_async(); break;
+    case TAB_WEB:     web_enter_tab(); break;
+    case TAB_RETRO:   retro_enter(); break;
+    case TAB_PODCAST: net_start_async(); podcast_enter(); break;
+    case TAB_PHOTO:   photo_enter(); break;
+    case TAB_FILES:   files_enter(); break;
+    case TAB_INFO:    net_start_async(); infos_enter(); break;
+    case TAB_PHONE:   net_start_async(); phone_enter(); break;
+    }
+}
+
 static int kb_is_open(void) { return kb_open; }
 
 /* Relit la liste des MP3 (apres un telechargement ou X), sans couper le morceau en cours. */
@@ -9145,8 +9384,22 @@ static void bg_tick(void) {
     in_bg = 0;
 }
 
+/* L / R : morceau ou station suivante / precedente (aussi depuis le telephone) */
+static void transport_step(int d) {
+    if (pod_on && src == SRC_RADIO) { podcast_skip(d > 0 ? 30 : -15); return; }
+    if (src == SRC_FILE && retro_subsong_step(d)) return;          /* piste suivante d'un NSF / GBS */
+    if (src == SRC_FILE && nfiles > 0) track_next(d, 0);
+    else if (src == SRC_RADIO && nstations > 0) {
+        int base = (cur_station >= 0 && cur_station < nstations) ? cur_station : (d > 0 ? -1 : 0);
+        int nx = (base + d + nstations) % nstations;
+        if (!rb_mode) sel_station = nx + 2;
+        start_station(nx, 0);
+    }
+}
+
 /* musique : decodage d'avance, puis morceau suivant (avec fondu enchaine) */
 static void music_pump(void) {
+    if (video_playing) return;                          /* (le son vient de la video) */
     if (src != SRC_FILE || !playing || paused) return;
     int k = 0;
     while (!eof && k < 2 && f_count < FILE_LEAD && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
@@ -9214,7 +9467,8 @@ int main(void) {
         else if (!nav) rep_mask = 0;
         if (saver_on) fire = 0;
 
-        if (menu_open) { menu_input(down, nav, fire); down = 0; fire = 0; }
+        if (ck) { checklist_input(down, nav, fire); down = 0; fire = 0; }
+        else if (menu_open) { menu_input(down, nav, fire); down = 0; fire = 0; }
         else if (kb_open) { kb_input(down, nav, fire); down = 0; fire = 0; }   /* START = valider */
         if (quit_requested) break;
 
@@ -9245,10 +9499,14 @@ int main(void) {
         if (down & PAD_BUTTON_START) { menu_open = 1; down = 0; }
 
         /* onglets : la lecture en cours continue */
-        if (down & PAD_TRIGGER_Z) {
-            tab = (tab + 1) % 3;
-            if (tab == TAB_RADIO) net_start_async();
-            if (tab == TAB_WEB) web_enter_tab();
+        if (down & PAD_TRIGGER_Z) tab_next(1);
+
+        /* stick C vers le bas : disposition du lecteur */
+        {
+            static int cd_prev = 0;
+            int cdn = sy < -60;
+            if (cdn && !cd_prev && !party_on && !menu_open && !kb_open && IS_PLAYER_TAB(tab)) layout_next();
+            cd_prev = cdn;
         }
 
         /* stick C gauche / droite : vue de la liste MUSIQUE */
@@ -9258,8 +9516,27 @@ int main(void) {
             cs_prev = cdir;
         }
 
+        int nolist = IS_PLAYER_TAB(tab) && (player_layout == L_COVER || player_layout == L_MINIMAL);
+        if (nolist && (down & PAD_BUTTON_A)) {                  /* sans liste : A = pause / lecture */
+            if (src == SRC_FILE && playing) paused = !paused;
+            else if (src == SRC_RADIO) muted = !muted;
+            down &= ~PAD_BUTTON_A;
+        }
+        if (nolist) fire = 0;
         if (tab == TAB_WEB) {
             if (!menu_open && !kb_open) web_input(down, nav, fire);
+        } else if (tab == TAB_RETRO) {
+            retro_input(down, nav, fire);
+        } else if (tab == TAB_PODCAST) {
+            podcast_input(down, nav, fire);
+        } else if (tab == TAB_PHOTO) {
+            photo_input(down, nav, fire);
+        } else if (tab == TAB_FILES) {
+            files_input(down, nav, fire);
+        } else if (tab == TAB_INFO) {
+            infos_input(down, nav, fire);
+        } else if (tab == TAB_PHONE) {
+            phone_input(down, nav, fire);
         } else if (tab == TAB_MUSIC) {
             if (fire && nents > 0) {
                 if (nav & PAD_BUTTON_DOWN)  sel_row++;
@@ -9274,7 +9551,7 @@ int main(void) {
             if ((down & PAD_BUTTON_X) && sd_ok) music_rescan();
             if ((down & PAD_BUTTON_Y) && src == SRC_FILE && playing) paused = !paused;
             if ((down & PAD_BUTTON_Y) && src == SRC_RADIO) muted = !muted;
-        } else {
+        } else if (tab == TAB_RADIO) {
             int rows = radio_rows();
             if (fire && rows > 0) {
                 if (nav & PAD_BUTTON_DOWN)  sel_station++;
@@ -9292,21 +9569,18 @@ int main(void) {
                 else if (src == SRC_RADIO) muted = !muted;
             }
         }
-        if (down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) {
-            int d = (down & PAD_TRIGGER_R) ? 1 : -1;
-            if (src == SRC_FILE && nfiles > 0) track_next(d, 0);
-            else if (src == SRC_RADIO && nstations > 0) {
-                int base = (cur_station >= 0 && cur_station < nstations) ? cur_station : (d > 0 ? -1 : 0);
-                int nx = (base + d + nstations) % nstations;
-                if (!rb_mode) sel_station = nx + 2;
-                start_station(nx, 0);
-            }
-        }
+        if (down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) transport_step((down & PAD_TRIGGER_R) ? 1 : -1);
 
         /* navigateur : reception des pages et des telechargements */
         web_pump();
         cover_pump();
         lyrics_pump();
+        retro_pump();
+        podcast_pump();
+        photo_pump_tab();
+        files_pump();
+        infos_pump();
+        phone_pump();
         rb_pump();
         lib_pump();
         photo_pump();
