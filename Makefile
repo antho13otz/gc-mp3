@@ -1,4 +1,4 @@
-ifeq ($(strip $(DEVKITPPC)),)
+ifeq  ($(strip $(DEVKITPPC)),)
 $(error "DEVKITPPC n'est pas defini : installe devkitPro / devkitPPC")
 endif
 
@@ -32,11 +32,16 @@ GMEDEF   := -DBLARGG_BIG_ENDIAN=1 -DVGM_YM2612_GENS -DUSE_GME_AY -DUSE_GME_GBS \
             -DUSE_GME_GYM -DUSE_GME_HES -DUSE_GME_KSS -DUSE_GME_NSF -DUSE_GME_NSFE \
             -DUSE_GME_SAP -DUSE_GME_SPC -DUSE_GME_VGM
 GMEFLAGS := -O2 $(MACHDEP) $(GMEDEF) -DNDEBUG -I$(GME) -w -fwrapv
+# decodeur WebP (libwebp, fichiers generiques seulement)
+WEBP     := webp
+WEBP_SRC := $(wildcard $(WEBP)/src/dec/*.c) $(wildcard $(WEBP)/src/dsp/*.c) $(wildcard $(WEBP)/src/utils/*.c)
+WEBP_OBJ := $(patsubst $(WEBP)/src/%.c,build/webp/%.o,$(WEBP_SRC))
+WEBPFLAGS:= -O2 $(MACHDEP) -DNDEBUG -fwrapv -I$(WEBP) -w
 XMPFLAGS := -O2 $(MACHDEP) -fwrapv -DLIBXMP_CORE_PLAYER -DLIBXMP_STATIC -I$(XMP)/include -I$(XMP)/src -w
 
 # numero de compilation (GitHub Actions) : sert a la mise a jour en un clic
 BUILD_NUM ?= 0
-CFLAGS   := -O2 -Wall $(MACHDEP) -DGCMP3_BUILD=$(BUILD_NUM) -D__POWERPC__ -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(HELIX) -Isource/helixstub -I$(GME) -I$(XMP)/include -DLIBXMP_STATIC $(TLSDEF)
+CFLAGS   := -O2 -Wall $(MACHDEP) -DGCMP3_BUILD=$(BUILD_NUM) -D__POWERPC__ -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(HELIX) -Isource/helixstub -I$(GME) -I$(XMP)/include -I$(WEBP) -DLIBXMP_STATIC $(TLSDEF)
 MBEDFLAGS:= -O2 $(MACHDEP) -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(MBEDTLS)/library $(TLSDEF)
 HELIXFLAGS:= -O2 $(MACHDEP) -D__POWERPC__ -Isource/helixstub -I$(HELIX) -DUSE_DEFAULT_STDLIB -Wno-unknown-pragmas
 LDFLAGS  := $(MACHDEP) -Wl,-Map,$(TARGET).map
@@ -69,11 +74,15 @@ build/xmp/%.o: $(XMP)/src/%.c
 > @mkdir -p $(dir $@)
 > $(CC) $(XMPFLAGS) -c $< -o $@
 
+build/webp/%.o: $(WEBP)/src/%.c
+> @mkdir -p $(dir $@)
+> $(CC) $(WEBPFLAGS) -c $< -o $@
+
 build/helix/%.o: $(HELIX)/%.c
 > @mkdir -p build/helix
 > $(CC) $(HELIXFLAGS) -c $< -o $@
 
-LIBOBJ   := $(MBED_OBJ) $(HELIX_OBJ) $(CODEC_OBJ) $(GME_OBJ) $(XMP_OBJ)
+LIBOBJ   := $(MBED_OBJ) $(HELIX_OBJ) $(CODEC_OBJ) $(GME_OBJ) $(XMP_OBJ) $(WEBP_OBJ)
 MAINDEPS := $(wildcard source/*.c source/*.h)
 
 build/main.o: $(MAINDEPS)
