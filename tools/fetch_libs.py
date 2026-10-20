@@ -79,6 +79,11 @@ PATCHES = {
         "\t\t\t\tr.pc++;\n",
         "\t\t\t\tr.pc++;\n\t\t\t\tset_time( time() + 6 );\n",
     )],
+    # time_t vient de <ctime>, absent avec devkitPPC : le bon type est hes_time_t
+    "gme/Hes_Emu.cpp": [(
+        "\t\ttime_t t = min( time(), end_time() + 6 );",
+        "\t\thes_time_t t = min( time(), end_time() + 6 );",
+    )],
 }
 
 
