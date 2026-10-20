@@ -43,6 +43,9 @@ static volatile int tp_nlog = 0;
 static volatile int tp_rescan = 0;                 /* 1 = musique, 2 = photos */
 static volatile u64 tp_last_req = 0;
 static volatile long tp_free_mb = -1;
+static volatile u64 tp_up_t0 = 0;
+/* fourni par la pile reseau recompilee (tools/fast_net.py) ; absent sinon */
+extern const int gcmp3_tcp_wnd __attribute__((weak));
 
 static void tp_push(int c, int i) {
     int n = (tp_qt + 1) % 16;
@@ -249,6 +252,9 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     }
     FILE *f = fopen(path, "wb");
     if (!f) { tp_reply(c, 500, "text/plain", "ecriture impossible", 19); return; }
+    static char vbuf[65536];                    /* ecritures SD par gros blocs */
+    setvbuf(f, vbuf, _IOFBF, sizeof(vbuf));
+    tp_up_t0 = now_ms();
     snprintf(tp_up_name, sizeof(tp_up_name), "%s", clean);
     tp_up_total = len;
     tp_up_done = 0;
@@ -441,7 +447,9 @@ static void draw_tab_phone(void) {
             f32 frac = (f32)tp_up_done / (f32)tp_up_total;
             gx_rrect_fill(280, 314, 320, 6, 3, RGBA(70, 50, 140, 230), RGBA(70, 50, 140, 230));
             gx_hgrad(280, 314, 320 * frac, 6, RGBA(120, 64, 255, 255), RGBA(180, 100, 255, 255));
-            snprintf(buf, sizeof(buf), "%ld / %ld Ko", tp_up_done / 1024, tp_up_total / 1024);
+            u64 el = now_ms() - tp_up_t0;
+            long kbs = el > 500 ? (long)((long long)tp_up_done * 1000 / 1024 / (long long)el) : 0;
+            snprintf(buf, sizeof(buf), "%ld / %ld Ko   %ld Ko/s", tp_up_done / 1024, tp_up_total / 1024, kbs);
             gx_text1(F_SMALL, 280, 334, buf, RGBA(180, 165, 235, 255));
         } else {
             int nl = tp_nlog;
@@ -455,6 +463,10 @@ static void draw_tab_phone(void) {
             snprintf(buf, sizeof(buf), "Place libre : %ld Mo", tp_free_mb);
             gx_text1(F_SMALL, 34, 370, buf, RGBA(150, 135, 210, 255));
         }
+        if (&gcmp3_tcp_wnd && gcmp3_tcp_wnd > 1460)
+            snprintf(buf, sizeof(buf), "R\xC3\xA9seau rapide (fen\xC3\xAAtre %d Ko)", gcmp3_tcp_wnd / 1024);
+        else snprintf(buf, sizeof(buf), "R\xC3\xA9seau standard");
+        gx_text1(F_SMALL, 280, 370, buf, RGBA(150, 135, 210, 255));
         if (tp_last_req && now_ms() - tp_last_req < 5000)
             gx_text1(F_SMALL, 34, 388, "T\xC3\xA9l\xC3\xA9phone connect\xC3\xA9", RGBA(120, 230, 150, 255));
     } else {
