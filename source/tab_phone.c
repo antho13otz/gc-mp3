@@ -29,7 +29,9 @@ static volatile int tp_json_cur = 0;
 static u64 tp_json_t = 0;
 
 /* commandes envoyees par la page */
-enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT };
+enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN };
+static char tp_open_url[2048];                 /* "ouvrir sur la tele" (ecrit par le fil du serveur) */
+static volatile int tp_open_busy = 0;
 typedef struct { int c, i; } phcmd_t;
 static phcmd_t tp_q[16];
 static volatile int tp_qh = 0, tp_qt = 0;
@@ -204,7 +206,7 @@ static int tp_param(const char *q, const char *key, char *out, int cap) {
     out[0] = 0;
     for (const char *p = q; p && *p; ) {
         if (!strncmp(p, key, kl) && p[kl] == '=') {
-            char raw[600];
+            char raw[2100];
             int n = (int)strcspn(p + kl + 1, "&");
             if (n > (int)sizeof(raw) - 1) n = sizeof(raw) - 1;
             memcpy(raw, p + kl + 1, n);
@@ -305,8 +307,8 @@ static void tp_handle(s32 c) {
     }
     if (hend < 0) return;
     tp_last_req = now_ms();
-    char method[8] = "", target[700] = "";
-    if (sscanf((char *)req, "%7s %699s", method, target) != 2) return;
+    char method[8] = "", target[2600] = "";
+    if (sscanf((char *)req, "%7s %2599s", method, target) != 2) return;
     char *q = strchr(target, '?');
     if (q) *q++ = 0;
     if (!strcmp(method, "PUT") || !strcmp(method, "POST")) {
@@ -326,6 +328,13 @@ static void tp_handle(s32 c) {
     } else if (!strcmp(target, "/api/tracks")) tp_send_tracks(c);
     else if (!strcmp(target, "/api/stations")) tp_send_stations(c);
     else if (!strcmp(target, "/cover.bmp")) tp_send_cover(c);
+    else if (!strcmp(target, "/api/open")) {                 /* ouvrir une page sur la tele */
+        char u[2048];
+        tp_param(q ? q : "", "u", u, sizeof(u));
+        int ok = u[0] && !tp_open_busy;
+        if (ok) { snprintf(tp_open_url, sizeof(tp_open_url), "%s", u); tp_open_busy = 1; tp_push(PC_OPEN, 0); }
+        tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
+    }
     else if (!strcmp(target, "/crash.txt")) {               /* journal de plantage */
         static char cb[9000];
         int n = 0;
@@ -418,6 +427,7 @@ static void phone_pump(void) {
         case PC_RADIO: if (cm.i >= 0 && cm.i < nstations) { net_start_async(); start_station(cm.i, 0); } break;
         case PC_PARTY: if (party_on) party_on = 0; else party_start(); break;
         case PC_LAYOUT: layout_next(); break;
+        case PC_OPEN: web_open_from_phone(tp_open_url); tp_open_busy = 0; break;
         }
     }
     if (tp_rescan & 1) { tp_rescan &= ~1; music_rescan(); retro_rescan(); }
