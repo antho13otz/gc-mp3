@@ -4,6 +4,14 @@ on:
   push:
   workflow_dispatch:
 
+# publication de la release "dernier" (mise a jour en un clic)
+permissions:
+  contents: write
+
+# une compilation a la fois (la plus recente l'emporte)
+concurrency:
+  group: gc-mp3-build
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -114,7 +122,7 @@ jobs:
       - name: Compiler
         run: |
           make clean
-          make -j"$(nproc)"
+          make -j"$(nproc)" BUILD_NUM=${{ github.run_number }}
 
       # Swiss lit les DOL par blocs de 128 Kio : on complete le fichier
       # jusqu'a un bloc entier (le chargeur ignore ces octets).
@@ -181,3 +189,12 @@ jobs:
         with:
           name: gc-mp3player
           path: gc-mp3player.dol
+
+      # Mise a jour en un clic : le .dol va dans la release "dernier" du depot,
+      # que GC-MP3 consulte (START > Mise a jour)
+      - name: Publier la mise à jour (release « dernier »)
+        if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 tools/publish_release.py gc-mp3player.dol ${{ github.run_number }}
