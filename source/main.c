@@ -3278,10 +3278,18 @@ static int gx_finish(u32 timeout_ms) {
     gx_done_flag = 0;
     GX_SetDrawDone();
     u64 t0 = gettime();
-    while (!gx_done_flag) {
-        if (ticks_to_millisecs(gettime() - t0) > timeout_ms) return 0;
+    for (;;) {
+        if (gx_done_flag) return 1;
+        if (ticks_to_millisecs(gettime() - t0) > timeout_ms) {
+            /* le fil principal a pu etre mis de cote longtemps (reseau tres
+               charge, envoi depuis le telephone) : on reverifie avant de conclure */
+            if (gx_done_flag) return 1;
+            u8 overhi = 0, underlow = 0, readidle = 0, cmdidle = 0, brkpt = 0;
+            GX_GetGPStatus(&overhi, &underlow, &readidle, &cmdidle, &brkpt);
+            if (readidle && cmdidle) { crumb("GX : fin de dessin non signalee (GP au repos)"); return 1; }
+            return 0;
+        }
     }
-    return 1;
 }
 
 static void gx_set_flat(void) {
