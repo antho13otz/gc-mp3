@@ -39,7 +39,9 @@ MBEDFLAGS:= -O2 $(MACHDEP) -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(MBE
 HELIXFLAGS:= -O2 $(MACHDEP) -D__POWERPC__ -Isource/helixstub -I$(HELIX) -DUSE_DEFAULT_STDLIB -Wno-unknown-pragmas
 LDFLAGS  := $(MACHDEP) -Wl,-Map,$(TARGET).map
 # libbba = reseau (lwIP + Broadband Adapter) de libogc pour GameCube
-LIBS     := -L$(LIBOGC_LIB) -lfat -lbba -logc -lstdc++ -lm
+# reseau plus rapide (tools/fast_net.py) : utilisee si le workflow a pu la construire
+NETFAST  := $(wildcard netfast/libbba_fast.a)
+LIBS     := -L$(LIBOGC_LIB) -lfat $(NETFAST) -lbba -logc -lstdc++ -lm
 
 all: $(TARGET).dol
 
