@@ -52,7 +52,7 @@ static const char phone_page[] =
 " <button class=\"big\" onclick=\"go()\">Envoyer sur la carte SD</button>\n"
 " <div class=\"up\" id=\"ul\"></div><p class=\"hint\" id=\"fr\"></p>\n"
 "</div>\n"
-"<p class=\"hint\">Cette page est servie par la GameCube. Garde-la ouverte pour t&eacute;l&eacute;commander la musique.</p>\n"
+"<p class=\"hint\">Cette page est servie par la GameCube. Garde-la ouverte pour t&eacute;l&eacute;commander la musique. <a href=\"/crash.txt\" style=\"color:inherit\">Journal de plantage</a></p>\n"
 "</div>\n"
 "<script>\n"
 "var T=[],S=[],last=\"\";\n"
