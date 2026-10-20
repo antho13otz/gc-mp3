@@ -1,8 +1,24 @@
 # GC-MP3 — Indigo Audio Player
 
-Lecteur audio pour GameCube : **ta musique** (carte SD), des **webradios** et un **navigateur web**
-pour télécharger de la musique (Broadband Adapter), dans une interface GX style Indigo.
-Lancer `gc-mp3player.dol` depuis Swiss / Indigo.
+Lecteur audio pour GameCube : **ta musique** (carte SD), des **webradios**, un **navigateur web**,
+la **musique de jeux rétro**, des **podcasts**, tes **photos et vidéos**, un **explorateur de fichiers**,
+la **météo / actualités / réveil**, et une **télécommande sur téléphone** (Broadband Adapter),
+dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Indigo.
+
+## Onglets
+**Z** passe à l'onglet suivant : MUSIQUE, RADIO, WEB, RÉTRO, PODCASTS, PHOTOS, FICHIERS, INFOS,
+TÉLÉPHONE. Le nom de l'onglet et des petits points (position) s'affichent en haut de la liste.
+Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés » (A coche / décoche).
+
+## Disposer le lecteur comme tu veux
+- **Stick C vers le bas** (ou START > « Disposition du lecteur ») change la disposition de MUSIQUE et RADIO :
+  - *Classique* : liste à gauche, lecteur à droite (comme avant) ;
+  - *Pochette géante* : grande pochette, titre, barre de progression, boutons, « À suivre » ;
+  - *Liste étendue* : la liste sur toute la largeur, un lecteur compact en bas ;
+  - *Minimaliste* : seulement le titre, la progression et l'heure, en grand.
+  Dans les dispositions sans liste, **A** = pause, L / R = morceau précédent / suivant.
+- START > « Éléments du lecteur » : affiche ou cache la **pochette**, les **paroles / égaliseur**,
+  les **boutons**, les **infos** (album, année, format) et l'**horloge**.
 
 ## Onglet MUSIQUE
 - Formats : **MP3, FLAC, OGG Vorbis et WAV** (`.mp3`, `.flac`, `.ogg`, `.wav`), lus dans `SD:/mp3`
@@ -30,6 +46,66 @@ Lancer `gc-mp3player.dol` depuis Swiss / Indigo.
 - Pochettes : image du même nom que le MP3, pochette intégrée, ou `cover.jpg` / `folder.jpg` du dossier.
   Sinon, avec le Broadband Adapter branché, elle est cherchée sur MusicBrainz / Cover Art Archive
   et enregistrée à côté du MP3. L'album et l'année s'affichent sous l'artiste.
+
+## Mode soirée
+**Stick C vers le haut** (onglets MUSIQUE et RADIO), ou START > Mode soirée : visualiseur plein écran.
+Les basses donnent le rythme (pulsations, éclairs, anneaux, particules), les couleurs tournent avec
+la musique, et les **paroles s'affichent en grand** (sinon le titre et l'artiste).
+Trois styles : *Pulsation*, *Barres*, *Tunnel* (stick C gauche / droite pour changer).
+L / R et Y marchent comme d'habitude ; B ou START pour sortir.
+
+## Onglet RÉTRO
+Musique de jeux vidéo, rangée à part dans `SD:/retro` (sous-dossiers compris), avec le nom de la console :
+- **SPC** (Super Nintendo), **NSF / NSFE** (NES), **GBS** (Game Boy), **VGM / VGZ / GYM** (Mega Drive,
+  Master System), **HES** (PC Engine), **KSS** (MSX), **AY** (ZX Spectrum), **SAP** (Atari) ;
+- **modules** de la scène démo et des jeux PC : **MOD, XM, IT, S3M** ;
+- **GameCube** : `.dsp` (une paire `nom_L.dsp` / `nom_R.dsp` est jouée en stéréo), `.hps` (HALPST)
+  et `.adp` (flux du lecteur de disque).
+Les morceaux qui bouclent sont joués deux fois puis s'éteignent en fondu. Dans un NSF / GBS
+à plusieurs pistes, **L / R** changent de piste. A = lire, B = arrêter, X = actualiser, Y = pause.
+
+## Onglet PODCASTS
+- Abonnements dans `SD:/podcasts.txt` (`Nom | adresse du flux RSS`) ; quelques podcasts de
+  Radio France sont proposés au départ.
+- **Rechercher un podcast...** (première ligne) : recherche dans l'annuaire d'Apple Podcasts,
+  A sur un résultat = s'abonner.
+- Dans un podcast : A = écouter un épisode, **X = le télécharger** dans `SD:/podcasts` (il apparaît
+  ensuite dans MUSIQUE), B = retour. **L / R = reculer de 15 s / avancer de 30 s**.
+- La position de chaque épisode est retenue (`SD:/podcasts/positions.txt`) : on reprend où on s'était arrêté.
+
+## Onglet PHOTOS
+- Les images `.jpg` / `.png` de `SD:/photos`, `SD:/ecran` et `SD:/downloads` en vignettes.
+  A = plein écran (croix = photo précédente / suivante, A = diaporama), Y = diaporama direct.
+  La musique continue pendant ce temps.
+- **Vidéos** `.avi` (MJPEG + son PCM, 640 × 480 maximum) dans `SD:/videos`. Pour convertir une vidéo
+  sur ordinateur :
+  `ffmpeg -i film.mp4 -vf scale=320:-2 -r 20 -c:v mjpeg -q:v 5 -c:a pcm_s16le -ar 32000 film.avi`
+
+## Onglet FICHIERS
+Explorateur de la carte SD : A = ouvrir un dossier (ou lire un morceau, voir une photo, lire un
+fichier texte), B = dossier parent, **X = actions** : renommer, supprimer (avec confirmation),
+copier, couper, coller, nouveau dossier. L'espace libre s'affiche en bas.
+
+## Onglet INFOS
+- **Heure et date**, **météo** de ta ville (open-meteo.com, gratuit) : température, vent,
+  humidité et 5 jours. A sur la ville pour la changer.
+- **Actualités** : les titres d'un flux RSS (France Info par défaut, réglage `actualites` dans
+  `gc-mp3.txt`) ; A ouvre l'article dans l'onglet WEB. X = actualiser.
+- **Réveil** : A l'active, gauche / droite règle l'heure (par 5 min) ; la ligne suivante choisit
+  ce qu'il joue (ta musique ou une de tes radios). Le son monte doucement pendant 30 s.
+  La GameCube doit rester allumée sur GC-MP3, et l'heure vient de son horloge.
+
+## Onglet TÉLÉPHONE
+Avec le Broadband Adapter : l'écran montre un **QR code**. Scanne-le avec le téléphone (même Wi-Fi /
+même box) pour ouvrir la page de GC-MP3 dans le navigateur du téléphone :
+- **télécommande** : lecture / pause, précédent / suivant, volume, stop, mode soirée, disposition,
+  pochette et titre en cours ;
+- choisir un **morceau** ou une **radio** dans la liste ;
+- **envoyer des fichiers sur la carte SD** : musique, rétro, photos, vidéos, podcasts… (barre de
+  progression sur le téléphone et sur la télé). Les nouveaux morceaux apparaissent tout de suite.
+Le petit serveur démarre tout seul quand le réseau est prêt (réglage `telephone`). Il n'y a pas de
+mot de passe : n'importe qui sur ton réseau local peut s'en servir, et il ne peut écrire que dans
+les dossiers prévus.
 
 ## Onglet RADIO
 - Mes radios : `SD:/radio.txt`, une station par ligne : `Nom de la radio | http://adresse/du/flux`.
@@ -63,6 +139,8 @@ Lecture aléatoire, répétition, **fondu enchaîné**, liste MUSIQUE, **volume*
 Émeraude, Rubis, Ambre, Couleurs douces, Graphite — « Couleurs douces » si l'image paraît trop vive
 sur ta télé), **économiseur d'écran** (2 / 5 / 10 / 30 min ou jamais, n'importe quelle touche le quitte), pochettes et paroles automatiques, reprise au démarrage,
 **vidéo** (auto = 480p avec un câble composante ou un GCVideo ; B maintenu au démarrage = 480i),
+**mode soirée**, **minuterie** (arrêt après 15 à 120 min, le son baisse doucement les 30 dernières
+secondes), **disposition du lecteur**, **éléments du lecteur**, **onglets affichés**,
 enregistrement de la radio, et **Quitter**. Tout est enregistré dans `SD:/gc-mp3.txt`.
 
 ### Style de l'économiseur d'écran
@@ -86,18 +164,22 @@ Tout bouge lentement pour ne pas marquer l'écran.
 | X | Actualiser la liste | Ajouter aux radios (résultats) | Accueil |
 | Y | Pause | Couper le son | Adresse / recherche |
 | L / R | Morceau précédent / suivant | Station précédente / suivante | — |
-| Stick C | Vue de la liste (← →) | — | Défiler |
+| Stick C | Vue de la liste (← →), ↑ mode soirée, ↓ disposition | ↑ mode soirée, ↓ disposition | Défiler |
 | Z | Onglet suivant | Onglet suivant | Onglet suivant |
 | START | Menu | Menu | Menu |
 
 Clavier : A = taper, B = effacer, X = espace, START = valider, Y = annuler.
 
 ## Compilation (GitHub Actions)
-Le workflow télécharge minimp3, stb_image, mbedTLS 3.6.7, le décodeur AAC Helix (version figée,
-empreinte vérifiée) et la liste de certificats de curl.se, puis compile le `.dol`.
+Le workflow télécharge minimp3, stb_image, mbedTLS 3.6.7, le décodeur AAC Helix, dr_flac,
+stb_vorbis, game-music-emu 0.6.5, libxmp 4.7.4 (partie « lite »), qrcodegen (versions figées,
+empreintes vérifiées ; `tools/fetch_libs.py` extrait les fichiers utiles) et la liste de
+certificats de curl.se, puis compile le `.dol`.
 
 ## Crédits
-minimp3 (lieff, CC0), stb_image (Sean Barrett, domaine public), mbedTLS (Apache 2.0),
+minimp3 (lieff, CC0), stb_image et stb_vorbis (Sean Barrett, domaine public), dr_flac (David Reid,
+domaine public), game-music-emu (Shay Green et autres, LGPL 2.1), libxmp (Claudio Matsuoka et autres,
+licence MIT), qrcodegen (Nayuki, MIT), mbedTLS (Apache 2.0),
 décodeur AAC Helix (RealNetworks, licence RPSL, via ESP8266Audio), MusicBrainz, Cover Art Archive
-et radio-browser.info (données libres), certificats racines Mozilla (MPL 2.0, via curl.se),
+et radio-browser.info (données libres), open-meteo.com (météo, CC BY 4.0), LRCLIB, certificats racines Mozilla (MPL 2.0, via curl.se),
 police DejaVu Sans, libogc / devkitPro.
