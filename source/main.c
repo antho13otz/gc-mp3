@@ -199,6 +199,9 @@ static void video_stop(void);
 static void stop_track(void);
 static void lyrics_load(int track);
 static void bg_tick(void);              /* musique/radio pendant les attentes reseau */
+static void crumb(const char *fmt, ...);   /* journal de plantage (crashlog.c) */
+static void crash_beat(void);
+static void draw_crash_notice(void);
 static int cur_station = -1;                 // station en cours
 static char err_msg[96];                 // message d'erreur affiche
 static char now_title[160];              // titre en cours (metadonnees ICY)
@@ -1367,6 +1370,7 @@ static void stop_station(void) {
 
 static void start_station(int idx, int is_reconnect) {
     if (idx < 0 || idx > nstations || idx >= MAX_STATIONS) return;   /* (nstations = station d'essai) */
+    crumb("radio : %s | %.60s", stations[idx].name, stations[idx].url);
     if (!is_reconnect) podcast_leave();
     if (src == SRC_FILE) stop_track();
     stop_station();
@@ -2536,6 +2540,7 @@ static void stop_track(void) {
 
 static int start_track(int idx) {
     if (idx < 0 || idx >= nfiles) { xf_request = 0; return 0; }
+    crumb("morceau : %s", names[idx]);
     podcast_leave();
     int xf = xf_request;
     stop_track();
@@ -4202,6 +4207,7 @@ static void draw(void) {
         }
     }
     draw_layout_toast();
+    draw_crash_notice();
     draw_tab_strip();
     if (kb_is_open()) draw_keyboard();
     if (menu_open) draw_menu();
@@ -5852,6 +5858,7 @@ static void dl_begin(const unsigned char *body, int n, const char *ctype, const 
         snprintf(dl_path, sizeof(dl_path), "%s/%.*s (%d)%s", dir, bl, name, k, e ? e : "");
     }
     snprintf(dl_name, sizeof(dl_name), "%s", base_of(dl_path));
+    crumb("telechargement : %s", dl_name);
     snprintf(dl_part, sizeof(dl_part), "%s.part", dl_path);
     dl_fp = fopen(dl_part, "wb");
     if (!dl_fp) { conn_close(PCONN); web_note("Impossible de créer le fichier sur la carte SD", 1); return; }
@@ -6406,6 +6413,7 @@ static void web_fetch(const char *url_in, int mode, int typed) {
     static unsigned char hdr[16384];
     char url[URL_MAX], req[URL_MAX + 400], hosthdr[160];
     web_cancel_load();
+    crumb("web : %.80s", url_in);
     if (net_phase != NET_DONE) { net_start_async(); web_note("Réseau en cours de connexion, réessaie dans quelques secondes", 1); return; }
     if (!net_ok) { web_note("Pas de réseau (vérifie le Broadband Adapter et le câble)", 1); return; }
     snprintf(url, sizeof(url), "%s", url_in);
@@ -8614,6 +8622,7 @@ static void menu_input(u32 down, u32 nav, int fire) {
     if (fire && (nav & (PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT)) && menu_sel != MI_QUIT)
         menu_change(menu_sel, (nav & PAD_BUTTON_RIGHT) ? 1 : -1);
     if (down & PAD_BUTTON_A) {
+        crumb("menu : %s", menu_labels[menu_sel]);
         if (menu_sel == MI_QUIT) quit_requested = 1;
         else if (menu_sel == MI_PARTY) {                      /* A = lancer le mode soiree */
             menu_open = 0;
@@ -9328,8 +9337,10 @@ static void draw_party(void) {
 #include "tab_files.c"
 #include "tab_infos.c"
 #include "tab_phone.c"
+#include "crashlog.c"
 
 static void tab_enter(int t) {
+    if (t >= 0 && t < TAB_COUNT) crumb("onglet %s", tab_names[t]);
     switch (t) {
     case TAB_RADIO:   net_start_async(); break;
     case TAB_WEB:     web_enter_tab(); break;
@@ -9368,6 +9379,7 @@ static void music_rescan(void) {
 #define FILE_LEAD (xf_sec > 0 ? (xf_sec + 1) * 48000 : 48000 * 4)
 static int in_bg = 0;
 static void bg_tick(void) {
+    main_beat++;
     service_audio();
     if (in_bg) return;
     in_bg = 1;
@@ -9421,6 +9433,7 @@ static void music_pump(void) {
 // ---------- Programme ----------
 int main(void) {
     sd_ok = mount_sd();                     /* d'abord les reglages (mode video, theme...) */
+    crash_init();                           /* journal de plantage */
     load_settings();
     if (!init_video()) return 1;
     gx_init();
@@ -9448,6 +9461,7 @@ int main(void) {
     u64 settings_t = 0;
 
     while (1) {
+        crash_beat();
         PAD_ScanPads();
         u32 down = PAD_ButtonsDown(0);
         u32 held = PAD_ButtonsHeld(0);
