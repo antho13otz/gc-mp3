@@ -38,7 +38,7 @@ static long pj_len = 0, pj_size = 0;
 
 static int img_ext(const char *n) {
     const char *d = strrchr(n, '.');
-    return d && (!strcasecmp(d, ".jpg") || !strcasecmp(d, ".jpeg") || !strcasecmp(d, ".png"));
+    return d && (!strcasecmp(d, ".jpg") || !strcasecmp(d, ".jpeg") || !strcasecmp(d, ".png") || !strcasecmp(d, ".webp"));
 }
 
 static void pf_scan_dir(const char *dir, int depth, int video) {
@@ -125,7 +125,9 @@ static void pj_pump(void) {
         fclose(pj_fp);
         pj_fp = NULL;
         int iw, ih, ic;
-        if (!stbi_info_from_memory(pj_buf, (int)pj_len, &iw, &ih, &ic) || (long)iw * ih > PHOTO_MAX_PIXELS) {
+        int info = is_webp(pj_buf, (int)pj_len) ? WebPGetInfo(pj_buf, (size_t)pj_len, &iw, &ih)
+                                                 : stbi_info_from_memory(pj_buf, (int)pj_len, &iw, &ih, &ic);
+        if (!info || (long)iw * ih > PHOTO_MAX_PIXELS) {
             free(pj_buf); pj_buf = NULL; pf[pj_file].bad = 1; pj_state = PJ_IDLE; return;
         }
         pj_state = PJ_DEC;
