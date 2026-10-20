@@ -90,6 +90,19 @@ jobs:
           echo "6a2b9cc65176f2345dde260c74b6d352627e8a0a6385d086ae0e9c5d0913c70c  source/qrcodegen.c" | sha256sum -c -
           echo "e82df4bff37d18b5863b9e7486fe6bda1b6cda8c3b9ecebfec473907265cb589  source/qrcodegen.h" | sha256sum -c -
 
+      # Reseau plus rapide : la pile reseau de libogc (meme version que celle
+      # installee) est recompilee avec une fenetre TCP de 16 paquets au lieu
+      # d'un seul. En cas de souci, cette etape est ignoree (reseau normal).
+      - name: Préparer le réseau rapide
+        continue-on-error: true
+        run: |
+          H="$DEVKITPRO/libogc/include/ogc/libversion.h"
+          V=$(awk '/define[ \t]+_V_MAJOR_/{a=$3} /define[ \t]+_V_MINOR_/{b=$3} /define[ \t]+_V_PATCH_/{c=$3} END{print a"."b"."c}' "$H")
+          echo "libogc installee : $V"
+          curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 -o libogc.tar.gz \
+            "https://github.com/devkitPro/libogc/archive/refs/tags/v$V.tar.gz"
+          python3 tools/fast_net.py libogc.tar.gz
+
       # Certificats racines pour les sites https:// (liste Mozilla)
       - name: Générer source/cacert.h
         run: |
