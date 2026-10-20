@@ -57,6 +57,19 @@ jobs:
           H=$(for f in $F; do cat helix/$f; done | sha256sum | cut -d' ' -f1)
           test "$H" = "cee275f6970b6f458f4b4d1e2d42b976fc3abad99d262d7e25b1ccc614a69ff2"
 
+      # Decodeurs FLAC (dr_flac) et OGG Vorbis (stb_vorbis), domaine public,
+      # versions figees, empreintes verifiees
+      - name: Télécharger les décodeurs FLAC et OGG
+        run: |
+          curl -fsSL --connect-timeout 20 --max-time 180 --retry 3 \
+            -o source/dr_flac.h \
+            https://raw.githubusercontent.com/mackron/dr_libs/dfe8377631000664666519fdb83da193fd8037f4/dr_flac.h
+          echo "111144e778f55738db6851cb226015c419e00d04b916a09506d4856d9cff945c  source/dr_flac.h" | sha256sum -c -
+          curl -fsSL --connect-timeout 20 --max-time 180 --retry 3 \
+            -o source/stb_vorbis.c \
+            https://raw.githubusercontent.com/nothings/stb/a7d4c2175630e1ea5b6f8dd00ab96fed0b97b96d/stb_vorbis.c
+          echo "4c7cb2ff1f7011e9d67950446b7eb9ca044f2e464d76bfbb0b84dd2e23e65636  source/stb_vorbis.c" | sha256sum -c -
+
       # Certificats racines pour les sites https:// (liste Mozilla)
       - name: Générer source/cacert.h
         run: |
