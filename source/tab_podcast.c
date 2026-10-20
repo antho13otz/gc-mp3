@@ -340,6 +340,16 @@ static void podcast_play(const ep_t *ep) {
     if (resume > 10) pod_note("Reprise l\xC3\xA0 o\xC3\xB9 tu t'\xC3\xA9tais arr\xC3\xAAt\xC3\xA9");
 }
 
+/* fichier audio ouvert depuis une page web : lu comme un episode (avance, recul, reprise) */
+static void podcast_play_url(const char *title, const char *url, long bytes) {
+    ep_t ep;
+    memset(&ep, 0, sizeof(ep));
+    snprintf(ep.title, sizeof(ep.title), "%s", title);
+    snprintf(ep.url, sizeof(ep.url), "%s", url);
+    ep.bytes = bytes > 0 ? bytes : 0;
+    podcast_play(&ep);
+}
+
 /* L / R pendant un podcast : -15 s / +30 s */
 static void podcast_skip(int s) {
     if (!pod_on) return;
