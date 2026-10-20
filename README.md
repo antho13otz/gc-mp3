@@ -170,6 +170,15 @@ Tout bouge lentement pour ne pas marquer l'écran.
 
 Clavier : A = taper, B = effacer, X = espace, START = valider, Y = annuler.
 
+## Journal de plantage
+Si GC-MP3 plante (écran rouge) ou se bloque plus de 20 secondes, il écrit un rapport dans
+`SD:/gc-mp3-crash.txt` : le type d'erreur, la fonction en cause, la pile d'appels, l'onglet, le
+morceau ou la radio en cours, la mémoire libre et les 16 dernières actions. Au démarrage suivant, un
+message le signale et le fichier devient `SD:/gc-mp3-crash-ancien.txt`. Depuis le téléphone, le lien
+« Journal de plantage » en bas de la page (adresse `/crash.txt`) l'affiche pour le copier facilement.
+Le rapport n'est pas écrit si le plantage a eu lieu pendant un accès à la carte SD (pour ne pas
+l'abîmer) : l'écran rouge reste alors la seule trace.
+
 ## Compilation (GitHub Actions)
 **Réseau rapide** : la pile réseau de libogc n'accepte qu'un seul paquet (1,4 Ko) à la fois avant
 d'attendre la réponse du serveur, ce qui limite fortement la vitesse (quelques dizaines de Ko/s
