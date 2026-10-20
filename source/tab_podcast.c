@@ -328,6 +328,7 @@ static void podcast_play_at(int sec) {
 }
 
 static void podcast_play(const ep_t *ep) {
+    crumb("podcast : %.80s", ep->title);
     podcast_leave();
     if (strlen(ep->url) >= sizeof(stations[0].url)) { pod_note("Adresse de l'\xC3\xA9pisode trop longue"); return; }
     snprintf(pod_ep_url, sizeof(pod_ep_url), "%s", ep->url);
