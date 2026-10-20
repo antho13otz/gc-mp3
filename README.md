@@ -170,6 +170,31 @@ Tout bouge lentement pour ne pas marquer l'écran.
 
 Clavier : A = taper, B = effacer, X = espace, START = valider, Y = annuler.
 
+## Mode veilleuse
+START > « Mode veilleuse » (A pour lancer, ou F2 sur le clavier GameCube) : une grande horloge
+orange très peu lumineuse sur fond noir, avec la date et ce qui joue. Si rien ne joue, la dernière
+radio est lancée (réglage `veilleuse_radio`). Haut / bas : luminosité (5 niveaux, retenue),
+X : minuterie (15 à 120 min), Y : pause, L / R : morceau ou radio précédent / suivant,
+B ou START : sortir. L'économiseur d'écran ne se déclenche pas pendant la veilleuse.
+
+## Clavier GameCube (ASCII, celui de Phantasy Star Online)
+Branché sur n'importe quel port manette, il est reconnu tout seul.
+- Dès que le clavier à l'écran est ouvert (adresse web, recherche, ville, podcasts…), tape
+  directement : Entrée = valider, Échap = annuler, Retour arrière = effacer.
+- Dans l'onglet WEB, taper une lettre ouvre la barre d'adresse.
+- Ailleurs : flèches = croix, Entrée = A, Échap = B, Espace = pause, Tab = onglet suivant,
+  F1 = menu, F2 = veilleuse, Page préc. / suiv. = morceau précédent / suivant.
+Disposition japonaise : les symboles suivent les inscriptions des touches.
+
+## Mise à jour en un clic
+À chaque compilation réussie, le workflow publie le `.dol` dans la release « dernier » de ton
+dépôt GitHub. Dans GC-MP3 : START > « Mise à jour » affiche ton numéro de version ; A vérifie, puis
+A installe la nouvelle version. Le fichier est vérifié, l'ancien est gardé à côté
+(`gc-mp3player.dol.ancien`), puis tu quittes et relances GC-MP3. Au démarrage, GC-MP3 vérifie tout
+seul et affiche un bandeau vert si une version plus récente existe (réglage `maj_auto`).
+Le fichier remplacé est celui qui a été lancé, sinon le premier `gc-mp3player.dol` trouvé sur la
+carte ; tu peux l'imposer avec `maj_fichier = sd:/chemin/fichier.dol` dans `gc-mp3.txt`.
+
 ## Journal de plantage
 Si GC-MP3 plante (écran rouge) ou se bloque plus de 20 secondes, il écrit un rapport dans
 `SD:/gc-mp3-crash.txt` : le type d'erreur, la fonction en cause, la pile d'appels, l'onglet, le
