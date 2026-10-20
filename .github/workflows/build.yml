@@ -81,13 +81,15 @@ jobs:
       # Musique retro : game-music-emu 0.6.5 (SPC, NSF, GBS, VGM, HES, KSS, AY, SAP)
       # et libxmp 4.7.4 "lite" (MOD, XM, IT, S3M). Archives figees ; seuls les
       # fichiers utiles sont extraits puis verifies (empreinte dans le script).
-      - name: Télécharger les lecteurs de musique rétro (gme, libxmp)
+      - name: Télécharger les lecteurs de musique rétro (gme, libxmp) et le décodeur WebP
         run: |
           curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 -o gme.tar.gz \
             https://github.com/libgme/game-music-emu/archive/9e23d10f9fd2a6a2f33b10912dd8dc7153258995.tar.gz
           curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 -o xmp.tar.gz \
             https://github.com/libxmp/libxmp/archive/5d4f6aa2c7dcdf8e9cd8129fe579d45b36a302da.tar.gz
-          python3 tools/fetch_libs.py gme.tar.gz xmp.tar.gz
+          curl -fsSL --connect-timeout 20 --max-time 300 --retry 3 -o webp.tar.gz \
+            https://github.com/webmproject/libwebp/archive/4fa21912338357f89e4fd51cf2368325b59e9bd9.tar.gz
+          python3 tools/fetch_libs.py gme.tar.gz xmp.tar.gz webp.tar.gz
 
       # Generateur de QR code (onglet TELEPHONE), licence MIT, version figee
       - name: Télécharger qrcodegen
