@@ -193,6 +193,7 @@ static void video_stop(void) {
 }
 
 static int video_open(const char *path) {
+    crumb("video : %s", path);
     stop_track();
     stop_station();
     av_fp = fopen(path, "rb");
@@ -344,6 +345,7 @@ static void draw_tex_fit(GXTexObj *o, int tw, int th, int iw, int ih, f32 x, f32
 
 static void pv_open(int f) {
     if (f < 0 || f >= npf) return;
+    crumb("photo : %s", pf[f].path);
     pf_sel = f;
     if (pf[f].video) {
         if (video_open(pf[f].path)) pv_mode = 2;
