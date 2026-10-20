@@ -171,6 +171,13 @@ Tout bouge lentement pour ne pas marquer l'écran.
 Clavier : A = taper, B = effacer, X = espace, START = valider, Y = annuler.
 
 ## Compilation (GitHub Actions)
+**Réseau rapide** : la pile réseau de libogc n'accepte qu'un seul paquet (1,4 Ko) à la fois avant
+d'attendre la réponse du serveur, ce qui limite fortement la vitesse (quelques dizaines de Ko/s
+avec un serveur sur Internet). Le workflow la recompile (`tools/fast_net.py`, même version de
+libogc) avec 16 paquets à la fois. L'onglet TÉLÉPHONE affiche « Réseau rapide » quand c'est actif ;
+si cette étape échoue, le `.dol` est quand même construit avec le réseau normal. La vitesse
+moyenne s'affiche à la fin de chaque téléchargement.
+
 Le workflow télécharge minimp3, stb_image, mbedTLS 3.6.7, le décodeur AAC Helix, dr_flac,
 stb_vorbis, game-music-emu 0.6.5, libxmp 4.7.4 (partie « lite »), qrcodegen (versions figées,
 empreintes vérifiées ; `tools/fetch_libs.py` extrait les fichiers utiles) et la liste de
