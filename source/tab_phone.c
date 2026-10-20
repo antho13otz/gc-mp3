@@ -256,6 +256,7 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     setvbuf(f, vbuf, _IOFBF, sizeof(vbuf));
     tp_up_t0 = now_ms();
     snprintf(tp_up_name, sizeof(tp_up_name), "%s", clean);
+    crumb("telephone : envoi %s/%s (%ld Ko)", dir, clean, len / 1024);
     tp_up_total = len;
     tp_up_done = 0;
     tp_up_active = 1;
@@ -325,6 +326,15 @@ static void tp_handle(s32 c) {
     } else if (!strcmp(target, "/api/tracks")) tp_send_tracks(c);
     else if (!strcmp(target, "/api/stations")) tp_send_stations(c);
     else if (!strcmp(target, "/cover.bmp")) tp_send_cover(c);
+    else if (!strcmp(target, "/crash.txt")) {               /* journal de plantage */
+        static char cb[9000];
+        int n = 0;
+        FILE *f = sd_ok ? fopen(SD_ROOT "/gc-mp3-crash.txt", "rb") : NULL;
+        if (!f && sd_ok) f = fopen(SD_ROOT "/gc-mp3-crash-ancien.txt", "rb");
+        if (f) { n = (int)fread(cb, 1, sizeof(cb), f); fclose(f); }
+        if (n <= 0) { n = snprintf(cb, sizeof(cb), "Aucun plantage enregistre.\n"); }
+        tp_reply(c, 200, "text/plain; charset=utf-8", cb, n);
+    }
     else if (!strcmp(target, "/api/cmd")) {
         static const char *const cmds[] = { "", "toggle", "next", "prev", "stop", "volup", "voldown", "play", "radio", "party", "layout" };
         char cmd[16], is[16];
@@ -392,6 +402,7 @@ static void phone_pump(void) {
     while (tp_qh != tp_qt) {
         phcmd_t cm = tp_q[tp_qh];
         tp_qh = (tp_qh + 1) % 16;
+        crumb("telephone : commande %d (%d)", cm.c, cm.i);
         switch (cm.c) {
         case PC_TOGGLE:
             if (src == SRC_FILE && playing) paused = !paused;
