@@ -195,6 +195,7 @@ static int f_head = 0, f_tail = 0, f_count = 0;
 static s16 viz[VIZ_N];
 static int viz_pos = 0;
 static u32 consumed = 0;                 // echantillons joues depuis le debut de l'ecoute
+static int sleep_fade = 256;             // minuterie : baisse du volume dans les 30 dernieres secondes
 static u32 consumed_skip;
 
 /* Fin d'un bloc DMA : programme le suivant. S'il n'a pas ete rempli a temps,
@@ -226,8 +227,8 @@ static void fill_buf(int idx) {
         viz[viz_pos] = (s16)(((int)l + (int)r) / 2);
         viz_pos = (viz_pos + 1) & (VIZ_N - 1);
         if (muted) l = r = 0;
-        else if (volume_pct < 100) {
-            int v = volume_pct * 256 / 100;
+        else if (volume_pct < 100 || sleep_fade < 256) {
+            int v = volume_pct * 256 / 100 * sleep_fade / 256;
             l = (s16)((l * v) >> 8);
             r = (s16)((r * v) >> 8);
         }
@@ -2949,9 +2950,16 @@ static const char *lyrics_line(int i) {
 enum { VID_AUTO, VID_480I, VID_480P, VID_COUNT };
 static int covers_auto = 1;
 static int lyrics_auto = 1;                 /* paroles cherchees sur LRCLIB */
+#define PARTY_STYLES 3
+static int party_style = 0;                 /* mode soiree : style du visualiseur */
+static const char *const party_keys[PARTY_STYLES] = { "pulsation", "barres", "tunnel" };
+static const char *const party_names[PARTY_STYLES] = { "Pulsation", "Barres", "Tunnel" };
+static void party_start(void);
 static int saver_min = 5;                   /* economiseur d'ecran (minutes, 0 = jamais) */
 enum { SV_SPECTRE, SV_POCHETTE, SV_HORLOGE, SV_ETOILES, SV_PHOTOS, SV_NOIR, SV_COUNT };
 static int saver_style = SV_SPECTRE;        /* ce qu'affiche l'economiseur */
+static int sleep_min = 0;                   /* minuterie : arret apres N minutes (0 = non) */
+static u64 sleep_at = 0;
 static const char *const saver_keys[SV_COUNT] = { "spectre", "pochette", "horloge", "etoiles", "photos", "noir" };
 static const char *const saver_names[SV_COUNT] = { "Spectre", "Pochette", "Horloge", "\xC3\x89toiles",
                                                    "Photos (sd:/ecran)", "\xC3\x89" "cran noir" };
@@ -2988,6 +2996,7 @@ static void load_settings(void) {
         else if (!strcasecmp(k, "volume")) { volume_pct = atoi(v); if (volume_pct < 0) volume_pct = 0; if (volume_pct > 100) volume_pct = 100; }
         else if (!strcasecmp(k, "theme")) { for (int i = 0; i < THEME_COUNT; i++) if (!strcasecmp(v, theme_keys[i])) theme_apply(i); }
         else if (!strcasecmp(k, "paroles_auto")) lyrics_auto = yes(v);
+        else if (!strcasecmp(k, "soiree")) { for (int i = 0; i < PARTY_STYLES; i++) if (!strcasecmp(v, party_keys[i])) party_style = i; }
         else if (!strcasecmp(k, "graves")) eq_bass = atoi(v);
         else if (!strcasecmp(k, "aigus")) eq_treble = atoi(v);
         else if (!strcasecmp(k, "fondu")) { xf_sec = atoi(v); if (xf_sec < 0) xf_sec = 0; if (xf_sec > 8) xf_sec = 8; }
@@ -3022,6 +3031,8 @@ static void save_settings(void) {
                "fondu = %d\n"
                "# Volume egalise (ReplayGain) : non / morceau / album\n"
                "volume_egalise = %s\n"
+               "# Mode soiree (stick C vers le haut) : pulsation / barres / tunnel\n"
+               "soiree = %s\n"
                "# Lecture : aleatoire = oui / non ; repetition = non / tout / un\n"
                "aleatoire = %s\nrepetition = %s\n"
                "# Liste MUSIQUE : tous / dossiers / artistes / albums\n"
@@ -3039,7 +3050,7 @@ static void save_settings(void) {
                "# Reprendre le dernier morceau au demarrage : oui / non\n"
                "reprise = %s\nreprise_fichier = %s\nreprise_position = %d\n",
             covers_auto ? "oui" : "non", lyrics_auto ? "oui" : "non", eq_bass, eq_treble, xf_sec,
-            rg_mode == 2 ? "album" : rg_mode == 1 ? "morceau" : "non", shuffle_on ? "oui" : "non", rep[repeat_mode], aff[view_mode],
+            rg_mode == 2 ? "album" : rg_mode == 1 ? "morceau" : "non", party_keys[party_style], shuffle_on ? "oui" : "non", rep[repeat_mode], aff[view_mode],
             volume_pct, theme_keys[theme_id], saver_min, saver_keys[saver_style], vid[video_pref], resume_on ? "oui" : "non",
             resume_path, resume_pos);
     fclose(f);
@@ -3512,6 +3523,7 @@ static int glyph_index(int cp) {
     return '?' - 32;
 }
 
+static f32 txt_scale = 1.0f;                 /* agrandissement du texte (mode soiree) */
 static int text_width(int f, const char *s, int sp) {
     int w = 0, n = 0;
     while (*s) {
@@ -3519,7 +3531,8 @@ static int text_width(int f, const char *s, int sp) {
         w += font_glyphs[f][glyph_index(cp)].adv + sp;
         n++;
     }
-    return n ? w - sp : 0;
+    w = n ? w - sp : 0;
+    return txt_scale == 1.0f ? w : (int)(w * txt_scale + 0.5f);
 }
 
 /* Ecrit s avec sa ligne de base en y = base (degrade vertical top -> bot).
@@ -3535,15 +3548,15 @@ static int gx_text(int f, f32 x, f32 base, const char *s, col_t top, col_t bot, 
 
     gx_set_text();
     GX_Begin(GX_QUADS, GX_VTXFMT0, count * 4);
-    f32 pen = x;
-    f32 ty = base - font_ascent[f];
+    f32 pen = 0, sc = txt_scale;
+    f32 ty = -(f32)font_ascent[f];
     f32 fh = (f32)font_height[f];
     for (const char *p = s; *p;) {
         int cp = next_cp(&p);
         const fglyph_t *g = &font_glyphs[f][glyph_index(cp)];
         if (g->w) {
-            f32 x0 = pen + g->xoff, y0 = ty + g->yoff;
-            f32 x1 = x0 + g->w,     y1 = y0 + g->h;
+            f32 x0 = x + (pen + g->xoff) * sc, y0 = base + (ty + g->yoff) * sc;
+            f32 x1 = x0 + g->w * sc,           y1 = y0 + g->h * sc;
             f32 u0 = (f32)g->x / FONT_TEX_W, v0 = (f32)g->y / FONT_TEX_H;
             f32 u1 = (f32)(g->x + g->w) / FONT_TEX_W, v1 = (f32)(g->y + g->h) / FONT_TEX_H;
             col_t ct = th_col(lerp_c(top, bot, (f32)g->yoff / fh));
@@ -3996,8 +4009,11 @@ static void draw_menu(void);
 static void draw_saver(void);
 static int menu_open, saver_on;
 
+static void draw_party(void);
+static int party_on;
 static void draw(void) {
     if (saver_on) { draw_saver(); return; }
+    if (party_on && !menu_open) { draw_party(); return; }
     dur_budget = 1;
     begin_frame();
     draw_header();
@@ -4041,6 +4057,13 @@ static const char *display_name(const char *n) {
     while (*p == ' ' || *p == '-' || *p == '_') p++;
     if (strlen(p) <= 4) return n;              /* il ne resterait que ".mp3" */
     return p;
+}
+
+/* titre a afficher : etiquette du fichier, sinon son nom sans l'extension */
+static void track_title(int k, char *out, int cap) {
+    if (k == cur_track && id3_title[0]) { snprintf(out, cap, "%s", id3_title); return; }
+    snprintf(out, cap, "%s", display_name(base_of(names[k])));
+    strip_audio_ext(out);
 }
 
 static void draw_note(f32 cx, f32 cy, col_t c) {
@@ -4234,7 +4257,9 @@ static void draw_player_music(void) {
     int dur = playing ? track_duration(cur_track) : -1;
     int elapsed = (int)(consumed / 48000u);
     if (playing && cur_track >= 0 && cur_track < nfiles) {
-        fit_text(F_LARGE, display_name(base_of(names[cur_track])), 160, buf, sizeof(buf));
+        char ttl[200];
+        track_title(cur_track, ttl, sizeof(ttl));
+        fit_text(F_LARGE, ttl, 160, buf, sizeof(buf));
         gx_text1(F_LARGE, 456, 140, buf, RGBA(255, 255, 255, 255));
         if (track_err) {
             gx_text1(F_MED, 456, 160, track_err, RGBA(255, 150, 80, 255));
@@ -8272,7 +8297,7 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_BASS, MI_TREBLE, MI_THEME, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_RESUME, MI_VIDEO, MI_REC, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_RESUME, MI_VIDEO, MI_PARTY, MI_SLEEP, MI_REC, MI_QUIT, MI_COUNT };
 #define MENU_VIS 13                         /* lignes visibles (le menu defile) */
 static int menu_top = 0;
 static int menu_sel = 0, quit_requested = 0;
@@ -8290,6 +8315,11 @@ static void menu_value(int i, char *out, int cap) {
     case MI_BASS:    if (eq_bass) snprintf(out, cap, "%+d dB", eq_bass); else snprintf(out, cap, "0"); break;
     case MI_TREBLE:  if (eq_treble) snprintf(out, cap, "%+d dB", eq_treble); else snprintf(out, cap, "0"); break;
     case MI_LYRICS:  snprintf(out, cap, "%s", lyrics_auto ? "Oui" : "Non"); break;
+    case MI_PARTY:   snprintf(out, cap, "%s", party_names[party_style]); break;
+    case MI_SLEEP:
+        if (!sleep_at) snprintf(out, cap, "Non");
+        else { u64 n = now_ms(); int m = n >= sleep_at ? 0 : (int)((sleep_at - n + 59999) / 60000); snprintf(out, cap, "Arr\xC3\xAAt dans %d min", m); }
+        break;
     case MI_THEME:   snprintf(out, cap, "%s", theme_names[theme_id]); break;
     case MI_SAVER:   if (saver_min) snprintf(out, cap, "Apr\xC3\xA8s %d min", saver_min); else snprintf(out, cap, "Jamais"); break;
     case MI_SAVERSTYLE: snprintf(out, cap, "%s", saver_names[saver_style]); break;
@@ -8308,7 +8338,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "Lecture al\xC3\xA9" "atoire", "R\xC3\xA9p\xC3\xA9tition", "Fondu encha\xC3\xAEn\xC3\xA9", "Liste MUSIQUE", "Volume",
     "Volume \xC3\xA9gal\xC3\xAAs\xC3\xA9", "Graves", "Aigus", "Th\xC3\xA8me",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques",
-    "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o", "Enregistrer la radio", "Quitter GC-MP3" };
+    "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o", "Mode soir\xC3\xA9" "e", "Minuterie", "Enregistrer la radio", "Quitter GC-MP3" };
 
 static void menu_change(int i, int d) {
     static const int savers[] = { 0, 2, 5, 10, 30 };
@@ -8337,6 +8367,16 @@ static void menu_change(int i, int d) {
     case MI_BASS:    eq_bass += 2 * d; eq_setup(); break;
     case MI_TREBLE:  eq_treble += 2 * d; eq_setup(); break;
     case MI_LYRICS:  lyrics_auto = !lyrics_auto; if (lyrics_auto) net_start_async(); break;
+    case MI_PARTY:   party_style = (party_style + d + PARTY_STYLES) % PARTY_STYLES; break;
+    case MI_SLEEP: {
+        static const int sl[] = { 0, 15, 30, 45, 60, 90, 120 };
+        int k = 0;
+        for (int j = 0; j < 7; j++) if (sl[j] == sleep_min) k = j;
+        sleep_min = sl[(k + d + 7) % 7];
+        sleep_at = sleep_min ? now_ms() + (u64)sleep_min * 60000 : 0;
+        sleep_fade = 256;
+        return;                                      /* (pas enregistre dans les reglages) */
+    }
     case MI_COVERS:  covers_auto = !covers_auto; if (covers_auto) net_start_async(); break;
     case MI_RESUME:  resume_on = !resume_on; break;
     case MI_VIDEO:   video_pref = (video_pref + d + VID_COUNT) % VID_COUNT; break;
@@ -8355,6 +8395,12 @@ static void menu_input(u32 down, u32 nav, int fire) {
         menu_change(menu_sel, (nav & PAD_BUTTON_RIGHT) ? 1 : -1);
     if (down & PAD_BUTTON_A) {
         if (menu_sel == MI_QUIT) quit_requested = 1;
+        else if (menu_sel == MI_PARTY) {                      /* A = lancer le mode soiree */
+            menu_open = 0;
+            if (settings_dirty) save_settings();
+            party_start();
+            return;
+        }
         else if (menu_sel == MI_SAVERSTYLE) {                 /* A = apercu de l'economiseur */
             menu_open = 0;
             if (settings_dirty) save_settings();
@@ -8409,6 +8455,10 @@ static void draw_menu(void) {
     }
     if (menu_sel == MI_SAVERSTYLE)
         gx_text_c(F_SMALL, 320, y + h - 6, "Gauche / Droite : changer   A : aper\xC3\xA7u (une touche pour revenir)", RGBA(255, 210, 120, 255));
+    if (menu_sel == MI_PARTY)
+        gx_text_c(F_SMALL, 320, y + h - 6, "A : lancer   (ou stick C vers le haut, dans MUSIQUE et RADIO)", RGBA(255, 210, 120, 255));
+    if (menu_sel == MI_SLEEP)
+        gx_text_c(F_SMALL, 320, y + h - 6, "La musique baisse doucement puis s'arr\xC3\xAAte", RGBA(255, 210, 120, 255));
     if (menu_sel == MI_RG)
         gx_text_c(F_SMALL, 320, y + h - 6, "Selon les \xC3\xA9tiquettes ReplayGain des fichiers (au morceau suivant)", RGBA(255, 210, 120, 255));
     if (menu_sel == MI_XFADE)
@@ -8426,7 +8476,7 @@ static void saver_title(char *t, int tcap, char *sub, int scap) {
     t[0] = sub[0] = 0;
     raw[0] = 0;
     if (src == SRC_FILE && playing && cur_track >= 0) {
-        snprintf(raw, sizeof(raw), "%s", display_name(base_of(names[cur_track])));
+        track_title(cur_track, raw, sizeof(raw));
         if (artist[0]) text_display(artist, sub, scap);
     } else if (src == SRC_RADIO && cur_station >= 0 && state != ST_IDLE) {
         snprintf(raw, sizeof(raw), "%s", now_title[0] ? now_title : stations[cur_station].name);
@@ -8832,6 +8882,223 @@ static void draw_saver(void) {
     present_frame();
 }
 
+/* ---------- Mode soiree : visualiseur plein ecran ----------
+   Les basses donnent le rythme (pulsations, eclairs, anneaux), la couleur
+   tourne avec la musique, et les paroles (ou le titre) s'affichent en grand.
+   Stick C haut : entrer ; stick C gauche / droite : changer de style ;
+   B ou START : sortir. L / R et Y marchent comme d'habitude. */
+static int party_on = 0;
+static u64 party_t0 = 0, pt_last = 0, pt_last_beat = 0, pt_hint_until = 0;
+static float pt_bass = 0, pt_avg = 0, pt_beat = 0, pt_hue = 260, pt_energy = 0, pt_high = 0;
+static float pt_peak[NBARS];
+#define PT_RINGS 10
+static float ring_r[PT_RINGS], ring_a[PT_RINGS], ring_h[PT_RINGS];
+#define PT_PARTS 72
+static float pp_x[PT_PARTS], pp_y[PT_PARTS], pp_vx[PT_PARTS], pp_vy[PT_PARTS], pp_life[PT_PARTS], pp_h[PT_PARTS];
+
+static col_t hsv(float h, float s, float v, u8 a) {
+    h = fmodf(h, 360.0f);
+    if (h < 0) h += 360.0f;
+    float c = v * s, x = c * (1.0f - fabsf(fmodf(h / 60.0f, 2.0f) - 1.0f)), m = v - c;
+    float r, g, b;
+    if (h < 60) { r = c; g = x; b = 0; } else if (h < 120) { r = x; g = c; b = 0; }
+    else if (h < 180) { r = 0; g = c; b = x; } else if (h < 240) { r = 0; g = x; b = c; }
+    else if (h < 300) { r = x; g = 0; b = c; } else { r = c; g = 0; b = x; }
+    return RGBA((u8)((r + m) * 255), (u8)((g + m) * 255), (u8)((b + m) * 255), a);
+}
+
+static void party_start(void) {
+    party_on = 1;
+    party_t0 = pt_last = now_ms();
+    pt_hint_until = party_t0 + 5000;
+    memset(ring_a, 0, sizeof(ring_a));
+    memset(pp_life, 0, sizeof(pp_life));
+    memset(pt_peak, 0, sizeof(pt_peak));
+}
+
+static void party_beat(float strength) {
+    pt_beat = 1.0f;
+    pt_hue += 35.0f + (float)(rand() % 50);
+    for (int i = 0; i < PT_RINGS; i++)                              /* un anneau qui s'eloigne */
+        if (ring_a[i] <= 0.01f) { ring_r[i] = 40.0f; ring_a[i] = 0.9f; ring_h[i] = pt_hue; break; }
+    int n = 10 + (int)(strength * 14);                               /* une gerbe de particules */
+    for (int i = 0; i < PT_PARTS && n > 0; i++) {
+        if (pp_life[i] > 0) continue;
+        float a = (float)(rand() % 6283) / 1000.0f, sp = 120.0f + (float)(rand() % 260);
+        pp_x[i] = 320; pp_y[i] = 192;
+        pp_vx[i] = cosf(a) * sp; pp_vy[i] = sinf(a) * sp;
+        pp_life[i] = 1.0f;
+        pp_h[i] = pt_hue + (float)(rand() % 60);
+        n--;
+    }
+}
+
+static void party_update(void) {
+    u64 now = now_ms();
+    float dt = (float)(now - pt_last) / 1000.0f;
+    if (dt > 0.1f) dt = 0.1f;
+    pt_last = now;
+    float b = 0, m = 0, h = 0;
+    for (int i = 0; i < 11; i++) b += bar_val[i];
+    for (int i = 11; i < 36; i++) m += bar_val[i];
+    for (int i = 36; i < NBARS; i++) h += bar_val[i];
+    b /= 11.0f; m /= 25.0f; h /= (float)(NBARS - 36);
+    pt_bass = b;
+    pt_energy = pt_energy * 0.85f + (b + m + h) / 3.0f * 0.15f;
+    pt_high = pt_high * 0.9f + h * 0.1f;
+    /* battement : les basses passent nettement au-dessus de leur moyenne */
+    static int armed = 1;
+    if (armed && b > pt_avg + 0.07f && b > 0.30f && now - pt_last_beat > 200) {
+        party_beat(b - pt_avg);
+        pt_last_beat = now;
+        armed = 0;
+    } else if (!armed && b < pt_avg + 0.03f) armed = 1;          /* les basses sont retombees */
+    pt_avg = pt_avg * 0.96f + b * 0.04f;
+    pt_beat *= expf(-dt * 5.0f);
+    pt_hue += dt * (8.0f + pt_high * 70.0f);                          /* les aigus font tourner la couleur */
+    if (pt_hue > 3600.0f) pt_hue -= 3600.0f;
+    for (int i = 0; i < PT_RINGS; i++) {
+        if (ring_a[i] <= 0) continue;
+        ring_r[i] += dt * (180.0f + pt_energy * 420.0f);
+        ring_a[i] -= dt * 0.45f;
+    }
+    for (int i = 0; i < PT_PARTS; i++) {
+        if (pp_life[i] <= 0) continue;
+        pp_x[i] += pp_vx[i] * dt; pp_y[i] += pp_vy[i] * dt;
+        pp_vy[i] += 40.0f * dt;
+        pp_life[i] -= dt * 0.8f;
+    }
+    for (int i = 0; i < NBARS; i++) {
+        pt_peak[i] -= dt * 0.6f;
+        if (bar_val[i] > pt_peak[i]) pt_peak[i] = bar_val[i];
+    }
+    /* musique calme : un anneau de temps en temps quand meme */
+    if (now - pt_last_beat > 1500 && pt_energy > 0.05f) { pt_last_beat = now; for (int i = 0; i < PT_RINGS; i++) if (ring_a[i] <= 0.01f) { ring_r[i] = 40; ring_a[i] = 0.5f; ring_h[i] = pt_hue; break; } }
+}
+
+static void party_particles(void) {
+    for (int i = 0; i < PT_PARTS; i++) {
+        if (pp_life[i] <= 0) continue;
+        float s = 2.0f + pp_life[i] * 4.0f;
+        gx_rect(pp_x[i] - s / 2, pp_y[i] - s / 2, s, s, hsv(pp_h[i], 0.6f, 1.0f, (u8)(pp_life[i] * 230)));
+    }
+}
+
+static void party_pulsation(void) {
+    const f32 cx = 320, cy = 192;
+    f32 r0 = 62.0f + pt_bass * 46.0f + pt_beat * 22.0f;
+    gx_circle_glow(cx, cy, r0 + 6, hsv(pt_hue, 0.9f, 1.0f, (u8)(90 + pt_beat * 120)), 6);
+    gx_circle(cx, cy, r0, hsv(pt_hue + 30, 0.7f, 0.35f + pt_beat * 0.5f, 255), hsv(pt_hue, 0.9f, 0.12f, 255));
+    for (int side = 0; side < 2; side++)
+        for (int i = 0; i < NBARS; i++) {
+            float a = -PI_F / 2 + (side ? -1.0f : 1.0f) * ((float)i + 0.5f) / NBARS * PI_F;
+            float len = 6.0f + bar_val[i] * 120.0f * (1.0f + pt_beat * 0.25f);
+            float ca = cosf(a), sa = sinf(a), w = 0.022f;
+            float ca2 = cosf(a + w), sa2 = sinf(a + w), ca1 = cosf(a - w), sa1 = sinf(a - w);
+            f32 rin = r0 + 8, rout = r0 + 8 + len;
+            col_t c0 = hsv(pt_hue + i * 3.0f, 0.85f, 0.9f, 230), c1 = hsv(pt_hue + i * 3.0f + 40, 0.6f, 1.0f, 120);
+            gx_poly4(cx + ca1 * rin, cy + sa1 * rin, cx + ca2 * rin, cy + sa2 * rin,
+                     cx + ca2 * rout, cy + sa2 * rout, cx + ca1 * rout, cy + sa1 * rout, c0, c0, c1, c1);
+            (void)ca; (void)sa;
+        }
+    party_particles();
+}
+
+static void party_barres(void) {
+    const f32 base = 262, bw = 600.0f / NBARS;
+    for (int i = 0; i < NBARS; i++) {
+        f32 x = 20 + i * bw;
+        f32 hgt = 8 + bar_val[i] * 175.0f * (1.0f + pt_beat * 0.25f);
+        col_t top = hsv(pt_hue + i * 4.0f, 0.75f, 1.0f, 255), bot = hsv(pt_hue + i * 4.0f + 50, 0.95f, 0.45f, 255);
+        gx_vgrad(x, base - hgt, bw - 2, hgt, top, bot);
+        gx_vgrad(x, base + 3, bw - 2, hgt * 0.45f, RGBA(bot.r, bot.g, bot.b, 110), RGBA(bot.r, bot.g, bot.b, 0));
+        f32 py = base - 8 - pt_peak[i] * 175.0f * (1.0f + pt_beat * 0.25f);
+        gx_rect(x, py - 3, bw - 2, 3, RGBA(255, 255, 255, 220));
+    }
+    party_particles();
+}
+
+static void party_tunnel(void) {
+    const f32 cx = 320, cy = 192;
+    float rot = (float)(now_ms() - party_t0) / 1000.0f * (0.3f + pt_energy);
+    for (int i = 0; i < PT_RINGS; i++) {
+        if (ring_a[i] <= 0) continue;
+        f32 r = ring_r[i], w = 3.0f + r * 0.03f;
+        gx_ring_n(cx, cy, r, r + w, 6, rot + r * 0.004f, hsv(ring_h[i], 0.8f, 1.0f, (u8)(ring_a[i] * 255)));
+    }
+    f32 r0 = 30.0f + pt_bass * 40.0f + pt_beat * 25.0f;
+    gx_ring_n(cx, cy, r0, r0 + 5, 6, -rot, hsv(pt_hue, 0.5f, 1.0f, 255));
+    gx_circle_glow(cx, cy, r0 * 0.6f, hsv(pt_hue + 180, 0.8f, 1.0f, (u8)(80 + pt_beat * 150)), 5);
+    party_particles();
+}
+
+/* texte en grand, avec une ombre */
+/* y = ligne de base d'une seule ligne ; sur deux lignes, le bloc remonte */
+static void party_text(f32 cx, f32 y, const char *s, float scale, col_t c, int maxw) {
+    char a[300], b[300];
+    txt_scale = scale;
+    wrap2(F_LARGE, s, maxw, a, b, sizeof(a));
+    f32 lh = font_height[F_LARGE] * scale;
+    f32 y0 = b[0] ? y - lh : y;
+    gx_text_c(F_LARGE, cx + 2, y0 + 2, a, RGBA(0, 0, 0, 160));
+    gx_text_c(F_LARGE, cx, y0, a, c);
+    if (b[0]) {
+        gx_text_c(F_LARGE, cx + 2, y0 + lh + 2, b, RGBA(0, 0, 0, 160));
+        gx_text_c(F_LARGE, cx, y0 + lh, b, c);
+    }
+    txt_scale = 1.0f;
+}
+
+static void draw_party(void) {
+    int saved = th_identity;
+    th_identity = 1;                                     /* les couleurs du mode soiree, pas celles du theme */
+    party_update();
+    GX_SetViewport(0.0f, 0.0f, rmode->fbWidth, rmode->efbHeight, 0.0f, 1.0f);
+    GX_SetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
+    GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
+    col_t top = hsv(pt_hue, 0.9f, 0.10f + pt_beat * 0.18f, 255), bot = hsv(pt_hue + 60, 0.9f, 0.04f, 255);
+    gx_quad4(0, 0, 640, 480, top, top, bot, bot);
+    if (party_style == 1) party_barres();
+    else if (party_style == 2) party_tunnel();
+    else party_pulsation();
+    if (pt_beat > 0.05f) gx_rect(0, 0, 640, 480, RGBA(255, 255, 255, (u8)(pt_beat * 28)));   /* eclair */
+    gx_quad4(0, 290, 640, 480, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));   /* lisibilite du texte */
+
+    /* paroles en grand, sinon titre et artiste */
+    char line[300], d1[300];
+    int li = (src == SRC_FILE && playing) ? lyrics_current() : -2;
+    col_t lc = hsv(pt_hue + 180, 0.25f, 1.0f, 255);
+    if (src == SRC_FILE && playing && lrc_n > 0 && lrc_track == cur_track) {
+        char a[300], b[300];
+        text_display(li >= 0 ? lyrics_line(li) : "...", d1, sizeof(d1));
+        txt_scale = 1.45f;
+        wrap2(F_LARGE, d1, 590, a, b, sizeof(a));               /* une ou deux lignes ? */
+        txt_scale = 1.0f;
+        int two = b[0] != 0;
+        if (li > 0) {
+            char p1[300];
+            text_display(lyrics_line(li - 1), p1, sizeof(p1));
+            fit_text(F_MED, p1, 560, line, sizeof(line));
+            gx_text_c(F_MED, 320, two ? 318 : 352, line, RGBA(255, 255, 255, 110));
+        }
+        party_text(320, 408, d1, 1.45f, lc, 590);
+        if (li + 1 < lrc_n) { text_display(lyrics_line(li + 1), d1, sizeof(d1)); fit_text(F_MED, d1, 560, line, sizeof(line)); gx_text_c(F_MED, 320, 450, line, RGBA(255, 255, 255, 110)); }
+    } else {
+        char ti[200], sub[200];
+        saver_title(ti, sizeof(ti), sub, sizeof(sub));
+        if (ti[0]) party_text(320, 408, ti, 1.35f, lc, 590);
+        else party_text(320, 408, "Lance une musique ou une radio", 1.0f, lc, 560);
+        if (sub[0]) { fit_text(F_MED, sub, 560, line, sizeof(line)); gx_text_c(F_MED, 320, 440, line, RGBA(255, 255, 255, 170)); }
+    }
+    if (now_ms() < pt_hint_until) {
+        snprintf(line, sizeof(line), "Mode soir\xC3\xA9" "e : %s   -   Stick C : changer   B : sortir", party_names[party_style]);
+        gx_text_c(F_SMALL, 320, 24, line, RGBA(255, 255, 255, 200));
+    }
+    th_identity = saved;
+    service_audio();
+    present_frame();
+}
+
 static int kb_is_open(void) { return kb_open; }
 
 /* Relit la liste des MP3 (apres un telechargement ou X), sans couper le morceau en cours. */
@@ -8935,7 +9202,7 @@ int main(void) {
         if (down || moved) last_input_ms = now;
         if (saver_on) {
             if (down || moved) { saver_on = 0; down = 0; held = 0; }
-        } else if (saver_min > 0 && now - last_input_ms > (u64)saver_min * 60000 && !kb_open && !menu_open) {
+        } else if (saver_min > 0 && now - last_input_ms > (u64)saver_min * 60000 && !kb_open && !menu_open && !party_on) {
             saver_on = 1;
         }
 
@@ -8950,6 +9217,31 @@ int main(void) {
         if (menu_open) { menu_input(down, nav, fire); down = 0; fire = 0; }
         else if (kb_open) { kb_input(down, nav, fire); down = 0; fire = 0; }   /* START = valider */
         if (quit_requested) break;
+
+        /* minuterie : le son baisse pendant 30 s, puis tout s'arrete */
+        if (sleep_at) {
+            if (now >= sleep_at) { stop_track(); stop_station(); sleep_at = 0; sleep_min = 0; sleep_fade = 256; party_on = 0; }
+            else sleep_fade = (sleep_at - now < 30000) ? (int)((sleep_at - now) * 256 / 30000) : 256;
+        }
+
+        /* mode soiree : B / START pour sortir, stick C pour le style */
+        if (party_on && !menu_open && !kb_open) {
+            int pc = (sx > 60) ? 1 : (sx < -60) ? -1 : 0;
+            if (pc && pc != cs_prev) { party_style = (party_style + pc + PARTY_STYLES) % PARTY_STYLES; pt_hint_until = now + 2500; settings_dirty = 1; }
+            cs_prev = pc;
+            if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) party_on = 0;
+            if (down & PAD_BUTTON_Y) {
+                if (src == SRC_FILE && playing) paused = !paused;
+                else if (src == SRC_RADIO) muted = !muted;
+            }
+            down &= (PAD_TRIGGER_L | PAD_TRIGGER_R);
+            fire = 0;
+        } else if (!menu_open && !kb_open && (tab == TAB_MUSIC || tab == TAB_RADIO)) {
+            static int cu_prev = 0;
+            int cu = sy > 60;
+            if (cu && !cu_prev) party_start();            /* stick C vers le haut */
+            cu_prev = cu;
+        }
         if (down & PAD_BUTTON_START) { menu_open = 1; down = 0; }
 
         /* onglets : la lecture en cours continue */
@@ -8961,8 +9253,10 @@ int main(void) {
 
         /* stick C gauche / droite : vue de la liste MUSIQUE */
         int cdir = (sx > 60) ? 1 : (sx < -60) ? -1 : 0;
-        if (cdir && cdir != cs_prev && tab == TAB_MUSIC && !menu_open && !kb_open) { set_view(view_mode + cdir); settings_dirty = 1; }
-        cs_prev = cdir;
+        if (!party_on) {
+            if (cdir && cdir != cs_prev && tab == TAB_MUSIC && !menu_open && !kb_open) { set_view(view_mode + cdir); settings_dirty = 1; }
+            cs_prev = cdir;
+        }
 
         if (tab == TAB_WEB) {
             if (!menu_open && !kb_open) web_input(down, nav, fire);
