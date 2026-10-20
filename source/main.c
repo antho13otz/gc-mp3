@@ -5855,6 +5855,8 @@ static void dl_begin(const unsigned char *body, int n, const char *ctype, const 
     snprintf(dl_part, sizeof(dl_part), "%s.part", dl_path);
     dl_fp = fopen(dl_part, "wb");
     if (!dl_fp) { conn_close(PCONN); web_note("Impossible de créer le fichier sur la carte SD", 1); return; }
+    static char dl_vbuf[65536];                 /* ecritures SD par gros blocs : plus rapide */
+    setvbuf(dl_fp, dl_vbuf, _IOFBF, sizeof(dl_vbuf));
     wpi = 1 - wpi;                          /* la connexion devient celle du telechargement */
     dl_active = 1;
     dl_total = clen;
@@ -5884,11 +5886,13 @@ static void dl_finish(void) {
     remove(dl_path);
     if (rename(dl_part, dl_path) != 0) { web_note("Fichier reçu mais impossible de le renommer", 1); return; }
     int n = (int)strlen(dl_path);
-    char msg[220];
+    char msg[260], spd[40] = "";
+    u64 el = now_ms() - dl_t0;
+    if (el > 0 && dl_got > 65536) snprintf(spd, sizeof(spd), ", %ld Ko/s", (long)((long long)dl_got * 1000 / 1024 / (long long)el));
     if (n > 4 && audio_ext_len(dl_path)) {
         music_rescan();
-        snprintf(msg, sizeof(msg), "Téléchargé : %s (dans l'onglet MUSIQUE)", dl_name);
-    } else snprintf(msg, sizeof(msg), "Enregistré : SD:/downloads/%s", dl_name);
+        snprintf(msg, sizeof(msg), "Téléchargé : %s (dans l'onglet MUSIQUE%s)", dl_name, spd);
+    } else snprintf(msg, sizeof(msg), "Enregistré : SD:/downloads/%s%s", dl_name, spd[0] ? spd + 1 : "");
     web_note(msg, 0);
 }
 
