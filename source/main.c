@@ -63,6 +63,7 @@
 #define STBI_NO_SIMD
 #define STBI_NO_THREAD_LOCALS
 #include "stb_image.h"
+#include "src/webp/decode.h"                 /* WebP (libwebp, telecharge par le workflow) */
 
 // HTTPS : mbedTLS 3.6 (telecharge et compile par le workflow, reglages dans gc_tls_config.h)
 #include "mbedtls/ssl.h"
@@ -1193,7 +1194,7 @@ static const char *header_value(char *hdr, const char *name) {
         if (strncasecmp(p, name, nl) == 0 && p[nl] == ':') {
             char *v = p + nl + 1;
             while (*v == ' ') v++;
-            static char val[300];
+            static char val[2112];                /* (Location des liens signes : tres longs) */
             int n = (int)(eol - v);
             if (n > (int)sizeof(val) - 1) n = sizeof(val) - 1;
             memcpy(val, v, n);
@@ -4602,13 +4603,14 @@ static int settings_dirty;
 #define W_MAX_FORMS    16
 
 enum { WS_LINK = 1, WS_HEAD = 2, WS_BOLD = 4, WS_DIM = 8, WS_FIELD = 16, WS_BUTTON = 32, WS_HR = 64, WS_IMG = 128 };
-enum { LK_HREF, LK_INPUT, LK_SUBMIT };
-enum { FD_TEXT, FD_HIDDEN, FD_SUBMIT };
+enum { LK_HREF, LK_INPUT, LK_SUBMIT, LK_TOGGLE, LK_SELECT };
+enum { FD_TEXT, FD_HIDDEN, FD_SUBMIT, FD_CHECK, FD_RADIO, FD_SELECT };
 
 /* element affiche : off = texte, src = position dans le HTML, img/h = image */
 typedef struct { u32 off; u32 src; s32 y; s16 x; u16 w; s16 link; s16 img; u16 h; u8 font; u8 style; } witem_t;
 typedef struct { u32 url; s32 y0, y1; s16 field; u8 kind; s8 form; } wlink_t;
-typedef struct { s8 form; u8 type; u32 name; char value[256]; } wfield_t;
+typedef struct { s8 form; u8 type; u32 name; char value[256]; u8 checked, secret; s16 opt0, nopt, osel; } wfield_t;
+#define W_MAX_OPTS 2000                     /* choix des listes deroulantes */
 typedef struct { u32 action; u8 post; } wform_t;
 
 typedef struct {
@@ -4617,6 +4619,7 @@ typedef struct {
     witem_t *items; int nitems, icap;
     wlink_t *links; int nlinks, lcap;
     wfield_t *fields; int nfields;
+    u32 *opts; int nopts, ocap;             // listes deroulantes : (valeur, texte) dans pool
     wform_t forms[W_MAX_FORMS]; int nforms;
     s32 height;
     int truncated;
@@ -4694,7 +4697,7 @@ static s32 pg_scroll = 0;
 static int pg_sel = -1;                     // lien selectionne
 
 static void wpage_free(wpage_t *p) {
-    free(p->text); free(p->pool); free(p->items); free(p->links); free(p->fields); free(p->src);
+    free(p->text); free(p->pool); free(p->items); free(p->links); free(p->fields); free(p->src); free(p->opts);
     memset(p, 0, sizeof(*p));
 }
 
@@ -5267,7 +5270,17 @@ static int new_field(wpage_t *p, int form, int type, const char *name, const cha
     f->type = (u8)type;
     f->name = pool_add(p, name);
     snprintf(f->value, sizeof(f->value), "%s", value ? value : "");
+    f->osel = -1;
     return p->nfields++;
+}
+
+/* choix d'une liste deroulante */
+static int new_opt(wpage_t *p, const char *value, const char *label) {
+    if (p->nopts >= W_MAX_OPTS) return -1;
+    if (!grow((void **)&p->opts, &p->ocap, (p->nopts + 1) * 2, sizeof(u32), W_MAX_OPTS * 2)) return -1;
+    p->opts[p->nopts * 2] = pool_add(p, value);
+    p->opts[p->nopts * 2 + 1] = pool_add(p, label);
+    return p->nopts++;
 }
 
 static char *ci_find(char *h, const char *n) {
@@ -5415,19 +5428,30 @@ static void web_layout_html(wpage_t *p, const unsigned char *s, int len, int lat
                 pos = ce;
                 continue;
             }
-            /* <option> : valeur choisie d'une liste deroulante (meme cachee) */
+            /* <option> : un choix de la liste deroulante en cours */
             if (!close && strcmp(name, "option") == 0 && cur_select >= 0) {
-                if (tag_attr(tag, tl, "value", val, sizeof(val), latin)) {
-                    wfield_t *f = &p->fields[cur_select];
-                    if (tag_attr(tag, tl, "selected", NULL, 0, latin) || f->type == FD_HIDDEN + 10) {
-                        snprintf(f->value, sizeof(f->value), "%s", val);
-                        f->type = FD_HIDDEN;
+                int nx = pos;
+                while (nx < len && s[nx] != '<') nx++;
+                char lab[200];
+                raw_text(s, pos, nx, lab, sizeof(lab), latin);
+                char *lt = trim(lab);
+                if (!tag_attr(tag, tl, "value", val, sizeof(val), latin)) snprintf(val, sizeof(val), "%s", lt);
+                wfield_t *f = &p->fields[cur_select];
+                if (new_opt(p, val, lt[0] ? lt : val) >= 0) {
+                    if (f->nopt == 0) f->opt0 = (s16)(p->nopts - 1);
+                    if (f->opt0 + f->nopt == p->nopts - 1) {
+                        if (tag_attr(tag, tl, "selected", NULL, 0, latin) || f->osel < 0) f->osel = f->nopt;
+                        f->nopt++;
                     }
                 }
                 continue;
             }
             if (close && strcmp(name, "select") == 0 && cur_select >= 0) {
-                if (p->fields[cur_select].type == FD_HIDDEN + 10) p->fields[cur_select].type = FD_HIDDEN;
+                wfield_t *f = &p->fields[cur_select];
+                if (f->nopt > 0) {
+                    if (f->osel < 0 || f->osel >= f->nopt) f->osel = 0;
+                    snprintf(f->value, sizeof(f->value), "%s", p->pool + p->opts[(f->opt0 + f->osel) * 2]);
+                }
                 cur_select = -1;
             }
             /* elements caches */
@@ -5440,8 +5464,15 @@ static void web_layout_html(wpage_t *p, const unsigned char *s, int len, int lat
             }
             if (!close && tag_is(name, hide_tags)) {
                 if (strcmp(name, "select") == 0 && cur_form >= 0 && tag_attr(tag, tl, "name", val, sizeof(val), latin)) {
-                    cur_select = new_field(p, cur_form, FD_HIDDEN, val, "");
-                    if (cur_select >= 0) p->fields[cur_select].type = FD_HIDDEN + 10;   /* 1re option a prendre */
+                    FLUSH_WORD();
+                    cur_select = new_field(p, cur_form, FD_SELECT, val, "");
+                    if (cur_select >= 0) {                        /* case cliquable : le choix en cours */
+                        p->fields[cur_select].opt0 = (s16)p->nopts;
+                        int save = L.link;
+                        L.link = new_link(p, LK_SELECT, NULL, cur_select, cur_form);
+                        if (L.link >= 0) lay_box(&L, 220, WS_FIELD, NULL);
+                        L.link = save;
+                    }
                 }
                 int selfclose = (tl > 0 && tag[tl - 1] == '/');
                 if (!selfclose) { hide = 1; hide_n = 1; snprintf(hide_name, sizeof(hide_name), "%s", name); }
@@ -5600,7 +5631,17 @@ static void web_layout_html(wpage_t *p, const unsigned char *s, int len, int lat
                 for (char *t = type; *t; t++) *t = (char)tolower((unsigned char)*t);
                 if (strcmp(type, "hidden") == 0) { if (nm[0]) new_field(p, cur_form, FD_HIDDEN, nm, v); }
                 else if (strcmp(type, "checkbox") == 0 || strcmp(type, "radio") == 0) {
-                    if (nm[0] && tag_attr(tag, tl, "checked", NULL, 0, latin)) new_field(p, cur_form, FD_HIDDEN, nm, v[0] ? v : "on");
+                    if (nm[0]) {                                  /* case a cocher / bouton radio */
+                        FLUSH_WORD();
+                        int f = new_field(p, cur_form, type[0] == 'c' ? FD_CHECK : FD_RADIO, nm, v[0] ? v : "on");
+                        if (f >= 0) {
+                            p->fields[f].checked = (u8)(tag_attr(tag, tl, "checked", NULL, 0, latin) != 0);
+                            int save = L.link;
+                            L.link = new_link(p, LK_TOGGLE, NULL, f, cur_form);
+                            if (L.link >= 0) lay_box(&L, 22, WS_FIELD, NULL);
+                            L.link = save;
+                        }
+                    }
                 } else if (strcmp(type, "submit") == 0 || strcmp(type, "image") == 0) {
                     int f = new_field(p, cur_form, FD_SUBMIT, nm, v);
                     int save = L.link;
@@ -5616,6 +5657,7 @@ static void web_layout_html(wpage_t *p, const unsigned char *s, int len, int lat
                            strcmp(type, "password") == 0) {
                     int f = new_field(p, cur_form, FD_TEXT, nm, v);
                     if (f >= 0) {
+                        p->fields[f].secret = (u8)(strcmp(type, "password") == 0);
                         int save = L.link;
                         L.link = new_link(p, LK_INPUT, NULL, f, cur_form);
                         if (L.link >= 0) lay_box(&L, 240, WS_FIELD, NULL);
@@ -5751,6 +5793,26 @@ static u64 wb_last = 0;
 static char wb_url[URL_MAX];
 static dechunk_t wb_dc;
 static int wb_refreshes = 0;
+static char *wb_post = NULL;                // formulaire POST : corps a envoyer
+static int wb_post_len = 0;
+static int wb_partial = 0, wb_shown_len = 0; // page affichee avant la fin du chargement
+static u64 wb_partial_t = 0;
+static int web_no_refresh = 0;             // pas de <meta refresh> sur une page incomplete
+static int ptr_on = 0;                     // pointeur au stick affiche (web_extra.c)
+/* web_extra.c (inclus plus loin) */
+static unsigned char *icache_get(const char *url, int *len);
+static void icache_put(const char *url, const unsigned char *d, int len);
+static void ck_from_headers(const char *hdrs, const char *host, const char *path, int tls);
+static void ck_header(const char *host, const char *path, int tls, char *out, int cap);
+static void ck_pump(void);
+static int ck_count(void);
+static void ck_clear(void);
+static int au_is_audio(const char *ctype, const char *url);
+static void au_offer(const unsigned char *body, int n, const char *ctype, const char *disp, const char *url, long clen, int chunked, int icy);
+static void sp_open(int field);
+static int web_overlay_input(u32 down, u32 nav, int fire);
+static int ptr_update(void);
+static void draw_web_overlays(void);
 
 static char web_msg[200];
 static int web_msg_err = 0;
@@ -6040,7 +6102,8 @@ static char *build_home(void) {
     char t[300];
     sb_add(&s, "<html><head><title>Accueil</title></head><body><h1>GC-MP3 Web</h1>");
     sb_add(&s, "<p>Y : taper une adresse ou une recherche. X : revenir à l'accueil. B : page précédente. "
-               "Croix : choisir un lien, A : l'ouvrir. Stick C : faire défiler.</p>");
+               "Croix : choisir un lien, A : l'ouvrir. Stick principal : la flèche (pointer un lien, A pour l'ouvrir). "
+               "Stick C : faire défiler. Depuis le téléphone : « Ouvrir sur la télé ».</p>");
     if (dl_active) {
         sb_add(&s, "<h2>Téléchargement en cours</h2><p>");
         sb_esc(&s, dl_name);
@@ -6062,6 +6125,13 @@ static char *build_home(void) {
         sb_add(&s, "</a></p>");
     }
     sb_add(&s, "<p>Les favoris sont dans SD:/favoris.txt (une ligne par site : Nom | adresse).</p>");
+    {
+        int nck = ck_count();
+        sb_add(&s, "<h2>Cookies</h2><p>Les sites peuvent garder des informations (connexion, pr\xC3\xA9" "f\xC3\xA9rences). ");
+        if (nck > 0) { snprintf(t, sizeof(t), "<a href=\"gc:cookies\">Effacer les cookies (%d)</a>", nck); sb_add(&s, t); }
+        else sb_add(&s, "Aucun cookie pour l'instant.");
+        sb_add(&s, "</p>");
+    }
     sb_add(&s, "<h2>Téléchargements</h2><p>Un lien vers un fichier (MP3, ZIP...) est enregistré dans SD:/downloads. "
                "Les MP3 apparaissent ensuite dans l'onglet MUSIQUE. La musique continue pendant le téléchargement.</p>"
                "<p>Ce navigateur n'exécute pas le JavaScript : les sites simples marchent, "
@@ -6370,7 +6440,7 @@ static void web_show(unsigned char *data, int len, const char *url, int kind, in
     if (sel >= -1 && sel < pg.nlinks) pg_sel = sel;
     else select_first_visible();
 
-    if (pg.refresh[0] && pg.refresh_delay <= 5 && wb_refreshes < 3) {    /* redirection <meta refresh> */
+    if (!web_no_refresh && pg.refresh[0] && pg.refresh_delay <= 5 && wb_refreshes < 3) {    /* redirection <meta refresh> */
         char next[URL_MAX];
         snprintf(next, sizeof(next), "%s", pg.refresh);
         wb_refreshes++;
@@ -6378,12 +6448,9 @@ static void web_show(unsigned char *data, int len, const char *url, int kind, in
     }
 }
 
-static void web_finish_load(void) {
-    conn_close(PCONN);
-    wb_loading = 0;
-    if (!wb_buf) return;
-    if (wb_len == 0) { web_note("Page vide", 1); web_cancel_load(); return; }
-    if (wb_kind == WK_HTML && !wb_latin) {                      /* <meta charset=...> */
+/* <meta charset=...> au debut de la page */
+static void wb_detect_charset(void) {
+    if (wb_kind == WK_HTML && !wb_latin && wb_buf) {
         int n = wb_len < 4096 ? wb_len : 4096;
         char head[4097];
         memcpy(head, wb_buf, n);
@@ -6399,11 +6466,64 @@ static void web_finish_load(void) {
             wb_latin = is_latin_charset(cs);
         }
     }
+}
+
+static void web_relayout(void);
+
+/* meta refresh d'une page affichee */
+static void web_check_refresh(void) {
+    if (pg.refresh[0] && pg.refresh_delay <= 5 && wb_refreshes < 3) {
+        char next[URL_MAX];
+        snprintf(next, sizeof(next), "%s", pg.refresh);
+        wb_refreshes++;
+        web_go(next, NAV_REPLACE);
+    }
+}
+
+/* afficher le debut de la page pendant que la suite arrive */
+static void web_partial_show(void) {
+    unsigned char *copy = (unsigned char *)malloc(wb_len);
+    if (!copy) return;
+    memcpy(copy, wb_buf, wb_len);
+    wb_detect_charset();
+    if (!wb_partial) {
+        web_no_refresh = 1;
+        web_show(copy, wb_len, wb_url, wb_kind, wb_latin, wb_mode);
+        web_no_refresh = 0;
+        wb_partial = 1;
+        wb_mode = NAV_REPLACE;
+    } else {
+        free(pg.src);
+        pg.src = copy;
+        pg.srclen = wb_len;
+        web_relayout();
+    }
+    wb_shown_len = wb_len;
+    wb_partial_t = now_ms();
+}
+
+static void web_finish_load(void) {
+    conn_close(PCONN);
+    wb_loading = 0;
+    if (!wb_buf) return;
+    if (wb_len == 0) { web_note("Page vide", 1); web_cancel_load(); return; }
+    wb_detect_charset();
     unsigned char *buf = wb_buf;
     int len = wb_len;
     wb_buf = NULL;
     wb_len = wb_cap = 0;
-    web_show(buf, len, wb_url, wb_kind, wb_latin, wb_mode);
+    if (wb_partial && pg.src && wb_kind == WK_HTML && !strcmp(pg.url, wb_url)) {
+        /* deja affichee en partie : on complete sans bouger ce qu'on lit */
+        free(pg.src);
+        pg.src = buf;
+        pg.srclen = len;
+        pg.latin = wb_latin;
+        web_relayout();
+        if (hist_n > 0) snprintf(hist[hist_n - 1].title, sizeof(hist[0].title), "%s", pg.title);
+        wb_partial = 0;
+        web_check_refresh();
+    } else web_show(buf, len, wb_url, wb_kind, wb_latin, wb_mode);
+    wb_partial = 0;
     if (wb_trunc) web_note("Page trop grande : seul le début est affiché", 1);
 }
 
@@ -6425,8 +6545,12 @@ static void web_relayout(void) {
     pg.src = NULL;
     web_layout_html(&np, np.src, np.srclen, np.latin);
     if (!np.title[0]) snprintf(np.title, sizeof(np.title), "%s", pg.title);
-    for (int i = 0; i < np.nfields && i < pg.nfields; i++)     /* garder ce qui a ete tape */
+    for (int i = 0; i < np.nfields && i < pg.nfields; i++) {   /* garder ce qui a ete tape / coche / choisi */
+        if (np.fields[i].type != pg.fields[i].type) continue;
         memcpy(np.fields[i].value, pg.fields[i].value, sizeof(np.fields[i].value));
+        np.fields[i].checked = pg.fields[i].checked;
+        if (pg.fields[i].osel >= 0 && pg.fields[i].osel < np.fields[i].nopt) np.fields[i].osel = pg.fields[i].osel;
+    }
     int sel = pg_sel;
     wpage_free(&pg);
     pg = np;
@@ -6443,8 +6567,16 @@ static void web_relayout(void) {
    "https://" : si le site n'accepte pas https, on reessaie en http. */
 static void web_fetch(const char *url_in, int mode, int typed) {
     static unsigned char hdr[16384];
-    char url[URL_MAX], req[URL_MAX + 400], hosthdr[160];
+    static char req[URL_MAX + 4600];
+    char url[URL_MAX], hosthdr[160], cookie[4096];
+    static char *post = NULL;                   /* formulaire POST (garde jusqu'a la demande suivante) */
+    static int post_len = 0;
+    free(post);
+    post = wb_post; post_len = wb_post_len;
+    wb_post = NULL; wb_post_len = 0;
     web_cancel_load();
+    wb_partial = 0;
+    wb_shown_len = 0;
     crumb("web : %.80s", url_in);
     if (net_phase != NET_DONE) { net_start_async(); web_note("Réseau en cours de connexion, réessaie dans quelques secondes", 1); return; }
     if (!net_ok) { web_note("Pas de réseau (vérifie le Broadband Adapter et le câble)", 1); return; }
@@ -6473,13 +6605,19 @@ static void web_fetch(const char *url_in, int mode, int typed) {
         }
         if (u.port == (u.tls ? 443 : 80)) snprintf(hosthdr, sizeof(hosthdr), "%s", u.host);
         else snprintf(hosthdr, sizeof(hosthdr), "%s:%d", u.host, u.port);
+        ck_header(u.host, u.path, u.tls, cookie, sizeof(cookie));
+        char post_hdr[120] = "";
+        if (post) snprintf(post_hdr, sizeof(post_hdr), "Content-Type: application/x-www-form-urlencoded\r\nContent-Length: %d\r\n", post_len);
         int rl = snprintf(req, sizeof(req),
-                          "GET %s HTTP/1.0\r\nHost: %s\r\n"
+                          "%s %s HTTP/1.0\r\nHost: %s\r\n"
                           "User-Agent: Mozilla/5.0 (compatible; GC-MP3/1.0; Nintendo GameCube)\r\n"
                           "Accept: text/html,application/xhtml+xml,*/*;q=0.8\r\n"
-                          "Accept-Language: fr,en;q=0.5\r\nConnection: close\r\n\r\n", u.path, hosthdr);
+                          "Accept-Language: fr,en;q=0.5\r\n%s%sConnection: close\r\n\r\n",
+                          post ? "POST" : "GET", u.path, hosthdr, cookie, post_hdr);
         ui_status("Envoi de la demande...");
-        if (rl >= (int)sizeof(req) || !conn_send_all(c, req, rl)) { conn_close(c); wb_busy = 0; web_note("Erreur d'envoi de la requête", 1); return; }
+        int sent_ok = rl < (int)sizeof(req) && conn_send_all(c, req, rl);
+        if (sent_ok && post && post_len > 0) sent_ok = conn_send_all(c, post, post_len);
+        if (!sent_ok) { conn_close(c); wb_busy = 0; web_note("Erreur d'envoi de la requête", 1); return; }
         ui_status("Attente de la réponse...");
 
         int hlen = 0, body_off = -1;
@@ -6501,6 +6639,7 @@ static void web_fetch(const char *url_in, int mode, int typed) {
             return;
         }
         char *hdrs = (char *)hdr;
+        ck_from_headers(hdrs, u.host, u.path, u.tls);       /* cookies (aussi sur une redirection) */
         if (code >= 300 && code < 400 && code != 304) {
             const char *loc = header_value(hdrs, "Location");
             char next[URL_MAX];
@@ -6508,6 +6647,7 @@ static void web_fetch(const char *url_in, int mode, int typed) {
             if (!loc || !url_join(url, loc, next, sizeof(next))) { web_note("Redirection invalide", 1); return; }
             snprintf(url, sizeof(url), "%s", next);
             typed = 0;
+            if (code != 307 && code != 308) { free(post); post = NULL; post_len = 0; }   /* POST -> GET */
             continue;
         }
 
@@ -6540,6 +6680,10 @@ static void web_fetch(const char *url_in, int mode, int typed) {
             conn_close(c);
             snprintf(m, sizeof(m), code == 404 ? "Page introuvable (erreur 404)" : "Erreur du serveur (HTTP %d)", code);
             web_note(m, 1);
+            return;
+        }
+        if (kind < 0 && !ci_find(disp, "attachment") && au_is_audio(ctype, url)) {   /* ecouter ou telecharger ? */
+            au_offer(body, body_len, ctype, disp, url, chunked ? -1 : clen, chunked, header_value(hdrs, "icy-name") != NULL || header_value(hdrs, "icy-metaint") != NULL);
             return;
         }
         if (kind < 0) { dl_begin(body, body_len, ctype, disp, url, chunked ? -1 : clen, chunked); return; }
@@ -6728,7 +6872,7 @@ static void hf_pump(hfetch_t *h) {
             }
             v = header_value(hd, "Content-Type");
             if (code != 200 || clen > h->maxbytes ||
-                (h->image && v && (ci_find((char *)v, "text/") || ci_find((char *)v, "svg") || ci_find((char *)v, "webp")))) {
+                (h->image && v && (ci_find((char *)v, "text/") || ci_find((char *)v, "svg")))) {
                 hf_close(h);
                 hf_fail(h);
                 return;
@@ -7157,12 +7301,19 @@ static u16 rgb5a3(int r, int g, int b, int a) {
     return (u16)(((a >> 5) << 12) | ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4));
 }
 
+/* WebP (images du web) : decodeur libwebp */
+static int is_webp(const unsigned char *d, int n) {
+    return n >= 16 && !memcmp(d, "RIFF", 4) && !memcmp(d + 8, "WEBP", 4);
+}
+
 static void img_decode_job(void) {
     int w, h, c;
     dj_ok = 0;
     dj_nw = dj_nh = 0;
     dj_tex = NULL;
-    if (!stbi_info_from_memory(dj_in, dj_len, &w, &h, &c) || w <= 0 || h <= 0) return;
+    int webp = is_webp(dj_in, dj_len);
+    if (webp) { if (!WebPGetInfo(dj_in, (size_t)dj_len, &w, &h) || w <= 0 || h <= 0) return; }
+    else if (!stbi_info_from_memory(dj_in, dj_len, &w, &h, &c) || w <= 0 || h <= 0) return;
     dj_nw = w;
     dj_nh = h;
     int dw, dh;
@@ -7180,12 +7331,17 @@ static void img_decode_job(void) {
     if (dh > h) { dw = (int)((long)dw * h / dh); dh = h; }
     if (dw < 1) dw = 1;
     if (dh < 1) dh = 1;
-    const int ch = dj_photo ? 3 : 4;
-    unsigned char *px = stbi_load_from_memory(dj_in, dj_len, &w, &h, &c, ch);
+    int ch = dj_photo ? 3 : 4;
+    unsigned char *px;
+    if (webp) {
+        int ww = 0, hh = 0;
+        px = dj_photo ? WebPDecodeRGB(dj_in, (size_t)dj_len, &ww, &hh) : WebPDecodeRGBA(dj_in, (size_t)dj_len, &ww, &hh);
+        if (px && (ww != w || hh != h)) { WebPFree(px); return; }
+    } else px = stbi_load_from_memory(dj_in, dj_len, &w, &h, &c, ch);
     if (!px) return;
     int tw = (dw + 3) & ~3, th = (dh + 3) & ~3;
     u16 *tex = (u16 *)memalign(32, (size_t)tw * th * 2);
-    if (!tex) { stbi_image_free(px); return; }
+    if (!tex) { if (webp) WebPFree(px); else stbi_image_free(px); return; }
     memset(tex, 0, (size_t)tw * th * 2);
     for (int y = 0; y < dh; y++) {
         int sy0 = (int)((long)y * h / dh), sy1 = (int)((long)(y + 1) * h / dh);
@@ -7205,7 +7361,7 @@ static void img_decode_job(void) {
                 rgb5a3(r / n, g / n, b / n, a / n);
         }
     }
-    stbi_image_free(px);
+    if (webp) WebPFree(px); else stbi_image_free(px);
     dj_tex = tex;
     dj_tw = tw; dj_th = th; dj_iw = dw; dj_ih = dh;
     dj_ok = 1;
@@ -7293,9 +7449,21 @@ static void img_pump(void) {
         il_img = best;
         il_gen = img_gen;
         wimgs[best].st = IMG_LOADING;
+        {                                               /* deja vue : directement au decodeur */
+            int clen = 0;
+            unsigned char *cd = dj_state == 0 && dec_ensure() ? icache_get(wimgs[best].url, &clen) : NULL;
+            if (cd) {
+                dj_in = cd; dj_len = clen;
+                dj_aw = wimgs[best].aw; dj_ah = wimgs[best].ah; dj_maxw = WV_W;
+                dj_photo = 0; dj_owner = 1;
+                il_state = IL_DECODE;
+                dj_state = 1;
+                return;
+            }
+        }
         ihf.image = 1;
         ihf.maxbytes = IMG_MAX_BYTES;
-        ihf.accept = "image/jpeg,image/png,image/gif,image/*;q=0.8,*/*;q=0.5";
+        ihf.accept = "image/webp,image/jpeg,image/png,image/gif,image/*;q=0.8,*/*;q=0.5";
         hf_start(&ihf, wimgs[best].url, pg.url);
         il_state = IL_FETCH;
     }
@@ -7307,6 +7475,7 @@ static void img_pump(void) {
         if (dj_state != 0) return;                      /* decodeur occupe (photo de l'economiseur) */
         if (!dec_ensure()) { img_fail(); return; }
         wimg_t *im = &wimgs[il_img];
+        icache_put(im->url, ihf.buf, ihf.len);         /* gardee pour la prochaine fois */
         dj_in = ihf.buf;
         dj_len = ihf.len;
         ihf.buf = NULL;
@@ -7724,7 +7893,12 @@ static void web_pump(void) {
             if (wb_len > 0) web_finish_load();
             else { web_cancel_load(); web_note("Le serveur ne répond plus", 1); }
         }
+        /* le texte tout de suite : debut de la page affiche pendant le chargement */
+        if (wb_loading && wb_kind == WK_HTML && wb_buf && wb_len >= 3000 && wb_len < 600 * 1024 &&
+            wb_len - wb_shown_len >= (wb_partial ? 24 * 1024 : 3000) && now_ms() - wb_partial_t > (wb_partial ? 1200 : 300))
+            web_partial_show();
     }
+    ck_pump();
     dl_pump();
     img_pump();
     if (relayout_needed && !wb_loading) {                /* une image a donne sa taille */
@@ -7783,6 +7957,7 @@ static void web_go(const char *url, int mode) {
         else if (strcmp(w, "adresse") == 0) kb_start(KB_URL, "", -1, -1);
         else if (strcmp(w, "favori") == 0) { add_favorite(); web_render_home(NAV_REPLACE); }
         else if (strcmp(w, "annuler") == 0) { if (dl_active) dl_stop("Téléchargement annulé", 0); web_render_home(NAV_REPLACE); }
+        else if (strcmp(w, "cookies") == 0) { ck_clear(); web_note("Cookies effacés", 0); web_render_home(NAV_REPLACE); }
         else web_render_home(mode);
         return;
     }
@@ -7809,23 +7984,36 @@ static void web_archive_search(const char *q) {
 /* envoi d'un formulaire (methode GET) */
 static void web_submit(int form, int button) {
     if (form < 0 || form >= pg.nforms) return;
-    if (pg.forms[form].post) { web_note("Ce formulaire n'est pas géré (envoi POST)", 1); return; }
+    static char body[8192];
     char url[URL_MAX], enc[800];
-    snprintf(url, sizeof(url), "%s", pg.pool + pg.forms[form].action);
-    url[strcspn(url, "?")] = 0;
-    int n = (int)strlen(url), first = 1;
+    int n = 0;
+    body[0] = 0;
     for (int i = 0; i < pg.nfields; i++) {
         wfield_t *f = &pg.fields[i];
         if (f->form != form || !pg.pool[f->name]) continue;
         if (f->type == FD_SUBMIT && i != button) continue;
+        if ((f->type == FD_CHECK || f->type == FD_RADIO) && !f->checked) continue;
+        if (f->type == FD_SELECT && f->nopt <= 0) continue;
         if (!url_encode(pg.pool + f->name, enc, sizeof(enc))) return;
-        n += snprintf(url + n, sizeof(url) - n, "%c%s=", first ? '?' : '&', enc);
-        if (!url_encode(f->value, enc, sizeof(enc)) || n >= (int)sizeof(url) - 1) { web_note("Formulaire trop long", 1); return; }
-        n += snprintf(url + n, sizeof(url) - n, "%s", enc);
-        if (n >= (int)sizeof(url) - 1) { web_note("Formulaire trop long", 1); return; }
-        first = 0;
+        n += snprintf(body + n, sizeof(body) - n, "%s%s=", n ? "&" : "", enc);
+        if (!url_encode(f->value, enc, sizeof(enc)) || n >= (int)sizeof(body) - 1) { web_note("Formulaire trop long", 1); return; }
+        n += snprintf(body + n, sizeof(body) - n, "%s", enc);
+        if (n >= (int)sizeof(body) - 1) { web_note("Formulaire trop long", 1); return; }
     }
+    snprintf(url, sizeof(url), "%s", pg.pool + pg.forms[form].action);
     wb_refreshes = 0;
+    crumb("formulaire %s", pg.forms[form].post ? "POST" : "GET");
+    if (pg.forms[form].post) {                          /* envoi dans le corps de la requete */
+        free(wb_post);
+        wb_post = strdup(body);
+        wb_post_len = wb_post ? n : 0;
+        web_fetch(url, NAV_PUSH, 0);
+        return;
+    }
+    url[strcspn(url, "?#")] = 0;
+    int ul = (int)strlen(url);
+    if (ul + 1 + n >= (int)sizeof(url)) { web_note("Formulaire trop long", 1); return; }
+    if (n) snprintf(url + ul, sizeof(url) - ul, "?%s", body);
     web_fetch(url, NAV_PUSH, 0);
 }
 
@@ -7836,7 +8024,10 @@ static void kb_validate(void) {
     if (kb_mode == KB_FIELD) {
         if (kb_field >= 0 && kb_field < pg.nfields) {
             snprintf(pg.fields[kb_field].value, sizeof(pg.fields[kb_field].value), "%s", t);
-            web_submit(kb_form, -1);
+            int ntext = 0;                              /* un seul champ (recherche) : on envoie tout de suite */
+            for (int i = 0; i < pg.nfields; i++) if (pg.fields[i].form == kb_form && pg.fields[i].type == FD_TEXT) ntext++;
+            if (ntext <= 1) web_submit(kb_form, -1);
+            else web_note("Rempli. Choisis le bouton du formulaire pour l'envoyer", 0);
         }
         return;
     }
@@ -7865,6 +8056,17 @@ static void web_activate(void) {
     if (l->kind == LK_HREF) web_go(pg.pool + l->url, NAV_PUSH);
     else if (l->kind == LK_INPUT && l->field >= 0) kb_start(KB_FIELD, pg.fields[l->field].value, l->field, l->form);
     else if (l->kind == LK_SUBMIT) web_submit(l->form, l->field);
+    else if (l->kind == LK_TOGGLE && l->field >= 0) {
+        wfield_t *f = &pg.fields[l->field];
+        if (f->type == FD_CHECK) f->checked = !f->checked;
+        else {                                          /* bouton radio : un seul du groupe */
+            for (int i = 0; i < pg.nfields; i++)
+                if (pg.fields[i].type == FD_RADIO && pg.fields[i].form == f->form && !strcmp(pg.pool + pg.fields[i].name, pg.pool + f->name))
+                    pg.fields[i].checked = 0;
+            f->checked = 1;
+        }
+    }
+    else if (l->kind == LK_SELECT && l->field >= 0) sp_open(l->field);
 }
 
 /* Haut / Bas : lien precedent / suivant ; s'il est trop loin, on fait defiler. */
@@ -7903,21 +8105,24 @@ static void web_enter_tab(void) {
 }
 
 static void web_input(u32 down, u32 nav, int fire) {
+    if (web_overlay_input(down, nav, fire)) return;
+    int pointer = ptr_update();                         /* stick principal : la fleche */
     if (fire) {
+        if (nav) ptr_on = 0;
         if (nav & PAD_BUTTON_DOWN) web_nav(1);
         else if (nav & PAD_BUTTON_UP) web_nav(-1);
         else if (nav & PAD_BUTTON_RIGHT) web_page(1);
         else if (nav & PAD_BUTTON_LEFT) web_page(-1);
     }
-    /* sticks : defilement continu */
-    int sy = PAD_SubStickY(0), my = PAD_StickY(0);
+    /* sticks : defilement continu (stick C ; le stick principal quand la fleche est cachee) */
+    int sy = PAD_SubStickY(0), my = pointer ? 0 : PAD_StickY(0);
     int v = abs(sy) > abs(my) ? sy : my;
     if (v > 24 || v < -24) {
         pg_scroll -= (v > 0 ? v - 24 : v + 24) / 5;
         web_scroll_clamp();
         if (pg_sel >= 0 && !link_visible(pg_sel)) pg_sel = -1;
     }
-    if (down & PAD_BUTTON_A) web_activate();
+    if (down & PAD_BUTTON_A) { if (!pointer || pg_sel >= 0) web_activate(); }
     if (down & PAD_BUTTON_B) {
         if (wb_loading) { web_cancel_load(); web_note("Chargement annulé", 0); }
         else if (hist_n > 1) { wb_refreshes = 0; web_go(hist[hist_n - 2].url, NAV_BACK); }
@@ -8058,6 +8263,7 @@ static void fmt_size(char *b, int sz, long v) {
 }
 
 static int draw_tabs(const char *count);
+#include "web_extra.c"
 
 static void draw_web(void) {
     char buf[URL_MAX], fit[400];
@@ -8158,10 +8364,32 @@ static void draw_web(void) {
             if (it->style & WS_HR) { gx_rect(bx, by - 1, it->w, 1, RGBA(90, 64, 170, 255)); continue; }
             if (it->style & WS_FIELD) {
                 const char *v = "";
-                if (it->link >= 0 && pg.links[it->link].field >= 0) v = pg.fields[pg.links[it->link].field].value;
+                wfield_t *fd = (it->link >= 0 && pg.links[it->link].field >= 0) ? &pg.fields[pg.links[it->link].field] : NULL;
+                if (fd && (fd->type == FD_CHECK || fd->type == FD_RADIO)) {      /* case cochee / bouton radio */
+                    if (fd->checked) {
+                        f32 cx = bx + it->w / 2.0f, cy = top - 3 + (font_height[F_MED] + 6) / 2.0f;
+                        if (fd->type == FD_RADIO) gx_rrect_fill(cx - 5, cy - 5, 10, 10, 5, RGBA(200, 150, 255, 255), RGBA(150, 90, 255, 255));
+                        else { gx_tri(cx - 6, cy, cx - 2, cy + 5, cx - 1, cy + 1, RGBA(200, 150, 255, 255)); gx_tri(cx - 2, cy + 5, cx + 7, cy - 6, cx - 1, cy + 1, RGBA(200, 150, 255, 255)); }
+                    }
+                    continue;
+                }
                 char dv[300];
-                text_display(v, dv, sizeof(dv));
-                fit_text(F_MED, dv, it->w - 12, fit, sizeof(fit));
+                if (fd && fd->type == FD_SELECT) {                               /* liste : le choix en cours */
+                    v = (fd->nopt > 0 && fd->osel >= 0) ? pg.pool + pg.opts[(fd->opt0 + fd->osel) * 2 + 1] : "";
+                    f32 ax2 = bx + it->w - 14, ay = top + font_height[F_MED] / 2.0f - 2;
+                    gx_tri(ax2, ay, ax2 + 9, ay, ax2 + 4.5f, ay + 6, RGBA(200, 170, 255, 255));
+                    text_display(v, dv, sizeof(dv));
+                    fit_text(F_MED, dv, it->w - 28, fit, sizeof(fit));
+                } else {
+                    if (fd) v = fd->value;
+                    if (fd && fd->secret) {                                      /* mot de passe : masque */
+                        int n = (int)strlen(v);
+                        if (n > 40) n = 40;
+                        memset(dv, '*', n);
+                        dv[n] = 0;
+                    } else text_display(v, dv, sizeof(dv));
+                    fit_text(F_MED, dv, it->w - 12, fit, sizeof(fit));
+                }
                 gx_text1(F_MED, bx + 6, by, fit, RGBA(235, 230, 255, 255));
                 continue;
             }
@@ -8237,6 +8465,7 @@ static void draw_web(void) {
         draw_note((f32)(614 - w - 10), 400, RGBA(150, 120, 235, 255));
         gx_text_r(F_SMALL, 614, 406, fit, RGBA(150, 135, 210, 255));
     }
+    draw_web_overlays();
 }
 
 static void draw_keyboard(void) {
