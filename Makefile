@@ -43,6 +43,8 @@ LDFLAGS  := $(MACHDEP) -Wl,-Map,$(TARGET).map
 NETFAST  := $(wildcard netfast/libbba_fast.a)
 LIBS     := -L$(LIBOGC_LIB) -lfat $(NETFAST) -lbba -logc -lstdc++ -lm
 
+NM       ?= powerpc-eabi-gcc-nm
+
 all: $(TARGET).dol
 
 build/mbedtls/%.o: $(MBEDTLS)/library/%.c source/gc_tls_config.h
@@ -72,8 +74,28 @@ build/helix/%.o: $(HELIX)/%.c
 LIBOBJ   := $(MBED_OBJ) $(HELIX_OBJ) $(CODEC_OBJ) $(GME_OBJ) $(XMP_OBJ)
 MAINDEPS := $(wildcard source/*.c source/*.h)
 
-$(TARGET).elf: $(MAINDEPS) $(LIBOBJ)
-> $(CC) $(CFLAGS) -DUSE_DEFAULT_STDLIB source/main.c $(LIBOBJ) $(LDFLAGS) $(LIBS) -o $@
+build/main.o: $(MAINDEPS)
+> @mkdir -p build
+> $(CC) $(CFLAGS) -DUSE_DEFAULT_STDLIB -c source/main.c -o $@
+
+# Journal de plantage : 1re edition des liens avec une table des symboles vide,
+# puis la vraie table (noms des fonctions). Si le code a bouge entre les deux,
+# on garde la 1re version (le journal donnera alors des adresses seules).
+build/symtab0.o: tools/mksym.py
+> @mkdir -p build
+> python3 tools/mksym.py --empty build/symtab0.c
+> $(CC) -O2 $(MACHDEP) -c build/symtab0.c -o $@
+
+build/pass1.elf: build/main.o build/symtab0.o $(LIBOBJ)
+> $(CC) build/main.o build/symtab0.o $(LIBOBJ) $(LDFLAGS) $(LIBS) -o $@
+
+build/symtab.o: build/pass1.elf tools/mksym.py
+> python3 tools/mksym.py $(NM) build/pass1.elf build/symtab.c || python3 tools/mksym.py --empty build/symtab.c
+> $(CC) -O2 $(MACHDEP) -c build/symtab.c -o $@
+
+$(TARGET).elf: build/main.o build/symtab.o $(LIBOBJ)
+> $(CC) build/main.o build/symtab.o $(LIBOBJ) $(LDFLAGS) $(LIBS) -o $@
+> python3 tools/mksym.py --check $(NM) build/pass1.elf $@ || cp build/pass1.elf $@
 
 clean:
 > rm -rf build $(TARGET).elf $(TARGET).dol $(TARGET).map
