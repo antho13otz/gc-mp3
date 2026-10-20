@@ -34,7 +34,9 @@ GMEDEF   := -DBLARGG_BIG_ENDIAN=1 -DVGM_YM2612_GENS -DUSE_GME_AY -DUSE_GME_GBS \
 GMEFLAGS := -O2 $(MACHDEP) $(GMEDEF) -DNDEBUG -I$(GME) -w -fwrapv
 XMPFLAGS := -O2 $(MACHDEP) -fwrapv -DLIBXMP_CORE_PLAYER -DLIBXMP_STATIC -I$(XMP)/include -I$(XMP)/src -w
 
-CFLAGS   := -O2 -Wall $(MACHDEP) -D__POWERPC__ -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(HELIX) -Isource/helixstub -I$(GME) -I$(XMP)/include -DLIBXMP_STATIC $(TLSDEF)
+# numero de compilation (GitHub Actions) : sert a la mise a jour en un clic
+BUILD_NUM ?= 0
+CFLAGS   := -O2 -Wall $(MACHDEP) -DGCMP3_BUILD=$(BUILD_NUM) -D__POWERPC__ -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(HELIX) -Isource/helixstub -I$(GME) -I$(XMP)/include -DLIBXMP_STATIC $(TLSDEF)
 MBEDFLAGS:= -O2 $(MACHDEP) -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(MBEDTLS)/library $(TLSDEF)
 HELIXFLAGS:= -O2 $(MACHDEP) -D__POWERPC__ -Isource/helixstub -I$(HELIX) -DUSE_DEFAULT_STDLIB -Wno-unknown-pragmas
 LDFLAGS  := $(MACHDEP) -Wl,-Map,$(TARGET).map
