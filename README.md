@@ -101,6 +101,7 @@ même box) pour ouvrir la page de GC-MP3 dans le navigateur du téléphone :
 - **télécommande** : lecture / pause, précédent / suivant, volume, stop, mode soirée, disposition,
   pochette et titre en cours ;
 - choisir un **morceau** ou une **radio** dans la liste ;
+- **ouvrir une page web sur la télé** (carte « Ouvrir sur la télé ») ;
 - **envoyer des fichiers sur la carte SD** : musique, rétro, photos, vidéos, podcasts… (barre de
   progression sur le téléphone et sur la télé). Les nouveaux morceaux apparaissent tout de suite.
 Le petit serveur démarre tout seul quand le réseau est prêt (réglage `telephone`). Il n'y a pas de
@@ -125,12 +126,25 @@ les dossiers prévus.
   (pas de générateur matériel) : suffisant pour la radio, pas pour des mots de passe.
 
 ## Onglet WEB
-- Navigateur simple : texte, titres, listes, liens et images (JPEG, PNG, GIF).
+- Navigateur simple : texte, titres, listes, liens, formulaires et images (JPEG, PNG, GIF, **WebP**).
   Pas de JavaScript ni de vidéo : les sites simples marchent (Wikipédia, archive.org…),
-  pas YouTube, Spotify, SoundCloud ni Deezer. WebP et SVG ne s'affichent pas.
+  pas YouTube, Spotify, SoundCloud ni Deezer. SVG ne s'affiche pas.
+- **Le texte s'affiche tout de suite** pendant que la page se charge, puis se complète.
+- **Flèche au stick principal** : pointe un lien ou un champ, A pour l'ouvrir ; elle disparaît
+  toute seule (ou à la croix). Le stick C fait défiler la page.
+- **Formulaires complets** : champs texte et mot de passe (masqué), cases à cocher, boutons radio,
+  listes déroulantes, envoi GET et POST. Avec plusieurs champs, remplis-les puis choisis le bouton.
+- **Cookies** : les sites peuvent garder ta connexion et tes préférences. Ils sont enregistrés dans
+  `SD:/cookies.txt` (les cookies permanents seulement). Ce fichier contient tes connexions :
+  ne le partage pas. Accueil > « Effacer les cookies » pour tout supprimer.
+- Les **images déjà vues** restent en mémoire (3 Mo) : revenir sur une page est instantané.
+- Un lien vers un **MP3 ou une radio** (mp3, ogg, aac, m3u, pls…) propose : A = écouter tout de
+  suite (sans télécharger), X = télécharger, B = annuler.
+- **Depuis le téléphone** : carte « Ouvrir sur la télé » de la page TÉLÉPHONE, colle une adresse,
+  la page s'ouvre sur la GameCube.
 - Accueil (X) : recherche web, **musique libre sur archive.org** (liste directe des MP3 de chaque album), favoris
   (`SD:/favoris.txt`, une ligne par site : `Nom | adresse`).
-- Un lien vers un fichier est téléchargé dans `SD:/downloads` en tâche de fond ; les MP3 apparaissent
+- Un lien vers un autre fichier est téléchargé dans `SD:/downloads` en tâche de fond ; les MP3 apparaissent
   ensuite dans l'onglet MUSIQUE.
 
 ## Menu (START)
@@ -213,14 +227,14 @@ si cette étape échoue, le `.dol` est quand même construit avec le réseau nor
 moyenne s'affiche à la fin de chaque téléchargement.
 
 Le workflow télécharge minimp3, stb_image, mbedTLS 3.6.7, le décodeur AAC Helix, dr_flac,
-stb_vorbis, game-music-emu 0.6.5, libxmp 4.7.4 (partie « lite »), qrcodegen (versions figées,
+stb_vorbis, game-music-emu 0.6.5, libxmp 4.7.4 (partie « lite »), qrcodegen, le décodeur WebP de libwebp 1.6.0 (versions figées,
 empreintes vérifiées ; `tools/fetch_libs.py` extrait les fichiers utiles) et la liste de
 certificats de curl.se, puis compile le `.dol`.
 
 ## Crédits
 minimp3 (lieff, CC0), stb_image et stb_vorbis (Sean Barrett, domaine public), dr_flac (David Reid,
 domaine public), game-music-emu (Shay Green et autres, LGPL 2.1), libxmp (Claudio Matsuoka et autres,
-licence MIT), qrcodegen (Nayuki, MIT), mbedTLS (Apache 2.0),
+licence MIT), qrcodegen (Nayuki, MIT), libwebp (Google, licence BSD), mbedTLS (Apache 2.0),
 décodeur AAC Helix (RealNetworks, licence RPSL, via ESP8266Audio), MusicBrainz, Cover Art Archive
 et radio-browser.info (données libres), open-meteo.com (météo, CC BY 4.0), LRCLIB, certificats racines Mozilla (MPL 2.0, via curl.se),
 police DejaVu Sans, libogc / devkitPro.
