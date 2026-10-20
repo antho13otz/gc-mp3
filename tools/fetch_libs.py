@@ -3,11 +3,13 @@
 # utilises par GC-MP3, puis verifie leur empreinte globale.
 #   game-music-emu 0.6.5 (SPC, NSF, GBS, VGM...)  -> dossier gme/
 #   libxmp 4.7.4 partie "lite" (MOD, XM, IT, S3M) -> dossier xmp/
-# Usage : python3 tools/fetch_libs.py gme.tar.gz xmp.tar.gz
+#   libwebp 1.6.0, decodeur seulement (images WebP du navigateur) -> dossier webp/
+# Usage : python3 tools/fetch_libs.py gme.tar.gz xmp.tar.gz webp.tar.gz
 import hashlib, os, shutil, sys, tarfile
 
 GME_SHA = "cc518dd1e7860836802d841190ff88514c7bb7fe83ecb5d0c5afa66bc49669c5"
 XMP_SHA = "1ba6812c5d21c520d6f88c5944ffea7d2beb8c8ed5dfc9703712759a82be1164"
+WEBP_SHA = "d302fc6dec970e38b25f7406f7abdd553359c1dc49a65727ac2143f9439df8c8"
 
 GME_FILES = [
     "Ay_Apu.cpp", "Ay_Apu.h", "Ay_Cpu.cpp", "Ay_Cpu.h", "Ay_Emu.cpp",
@@ -87,6 +89,66 @@ PATCHES = {
 }
 
 
+WEBP_FILES = [
+    "src/dec/alpha_dec.c",
+    "src/dec/alphai_dec.h",
+    "src/dec/buffer_dec.c",
+    "src/dec/common_dec.h",
+    "src/dec/frame_dec.c",
+    "src/dec/idec_dec.c",
+    "src/dec/io_dec.c",
+    "src/dec/quant_dec.c",
+    "src/dec/tree_dec.c",
+    "src/dec/vp8_dec.c",
+    "src/dec/vp8_dec.h",
+    "src/dec/vp8i_dec.h",
+    "src/dec/vp8l_dec.c",
+    "src/dec/vp8li_dec.h",
+    "src/dec/webp_dec.c",
+    "src/dec/webpi_dec.h",
+    "src/dsp/alpha_processing.c",
+    "src/dsp/cpu.c",
+    "src/dsp/cpu.h",
+    "src/dsp/dec.c",
+    "src/dsp/dec_clip_tables.c",
+    "src/dsp/dsp.h",
+    "src/dsp/filters.c",
+    "src/dsp/lossless.c",
+    "src/dsp/lossless.h",
+    "src/dsp/lossless_common.h",
+    "src/dsp/rescaler.c",
+    "src/dsp/upsampling.c",
+    "src/dsp/yuv.c",
+    "src/dsp/yuv.h",
+    "src/utils/bit_reader_inl_utils.h",
+    "src/utils/bit_reader_utils.c",
+    "src/utils/bit_reader_utils.h",
+    "src/utils/color_cache_utils.c",
+    "src/utils/color_cache_utils.h",
+    "src/utils/endian_inl_utils.h",
+    "src/utils/filters_utils.c",
+    "src/utils/filters_utils.h",
+    "src/utils/huffman_utils.c",
+    "src/utils/huffman_utils.h",
+    "src/utils/palette.c",
+    "src/utils/palette.h",
+    "src/utils/quant_levels_dec_utils.c",
+    "src/utils/quant_levels_dec_utils.h",
+    "src/utils/random_utils.c",
+    "src/utils/random_utils.h",
+    "src/utils/rescaler_utils.c",
+    "src/utils/rescaler_utils.h",
+    "src/utils/thread_utils.c",
+    "src/utils/thread_utils.h",
+    "src/utils/utils.c",
+    "src/utils/utils.h",
+    "src/webp/decode.h",
+    "src/webp/encode.h",
+    "src/webp/format_constants.h",
+    "src/webp/mux_types.h",
+    "src/webp/types.h",
+]
+
 def patch():
     for path, subs in PATCHES.items():
         with open(path) as f:
@@ -125,8 +187,9 @@ def extract(archive, prefix, files, dest, want):
     print("OK", dest, len(files), "fichiers")
 
 
-if len(sys.argv) != 3:
-    sys.exit("usage: fetch_libs.py gme.tar.gz xmp.tar.gz")
+if len(sys.argv) != 4:
+    sys.exit("usage: fetch_libs.py gme.tar.gz xmp.tar.gz webp.tar.gz")
 extract(sys.argv[1], "gme/", GME_FILES, "gme", GME_SHA)
 extract(sys.argv[2], "", XMP_FILES, "xmp", XMP_SHA)
+extract(sys.argv[3], "", WEBP_FILES, "webp", WEBP_SHA)
 patch()
