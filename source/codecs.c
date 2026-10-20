@@ -1,4 +1,5 @@
-// Decodeurs FLAC (dr_flac) et OGG Vorbis (stb_vorbis), domaine public.
+// Decodeurs FLAC (dr_flac) et OGG Vorbis (stb_vorbis), domaine public,
+// et generateur de QR codes (qrcodegen, licence MIT) pour l'onglet TELEPHONE.
 // Compiles a part de main.c ; les deux fichiers sont telecharges par le workflow.
 #define DR_FLAC_IMPLEMENTATION
 #define DR_FLAC_NO_STDIO
@@ -6,6 +7,8 @@
 #define DR_FLAC_NO_WCHAR
 #define DR_FLAC_NO_SIMD
 #include "dr_flac.h"
+
+#include "qrcodegen.c"
 
 /* memoire remise a zero : les chemins d'erreur de stb_vorbis liberent parfois
    des pointeurs jamais remplis */
