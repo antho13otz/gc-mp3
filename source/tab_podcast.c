@@ -459,12 +459,13 @@ static void draw_list_podcast(void) {
     int start = pod_sel - MUSIC_ROWS / 2;
     if (start > rows - MUSIC_ROWS) start = rows - MUSIC_ROWS;
     if (start < 0) start = 0;
+    static f32 sel_anim = -2000;
+    if (pod_sel >= start && pod_sel < start + MUSIC_ROWS && pod_sel < rows) draw_sel_bar(&sel_anim, 114.0f + (pod_sel - start) * 24.0f);
     for (int i = 0; i < MUSIC_ROWS; i++) {
         int r = start + i;
         if (r >= rows) break;
         f32 ry = 114.0f + i * 24.0f, cy = ry + 12.0f;
         int is_sel = (r == pod_sel);
-        if (is_sel) gx_rrect_fill(20, ry + 1, 244, 22, 5, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
         col_t txt = is_sel ? RGBA(255, 255, 255, 255) : RGBA(210, 200, 240, 255);
         col_t dim = is_sel ? RGBA(235, 225, 255, 255) : RGBA(140, 125, 200, 255);
         const char *label;
