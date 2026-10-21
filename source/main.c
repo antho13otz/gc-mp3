@@ -3875,7 +3875,7 @@ static int glyph_index(int cp) {
 }
 
 static f32 txt_scale = 1.0f;                 /* agrandissement du texte (mode soiree) */
-static int text_width(int f, const char *s, int sp) {
+static int text_width_px(int f, const char *s, int sp) {      /* largeur reelle a l'ecran */
     int w = 0, n = 0;
     while (*s) {
         int cp = next_cp(&s);
@@ -3884,6 +3884,13 @@ static int text_width(int f, const char *s, int sp) {
     }
     w = n ? w - sp : 0;
     return txt_scale == 1.0f ? w : (int)(w * txt_scale + 0.5f);
+}
+
+/* largeur dans le repere de l'interface (16:9 : le texte n'est pas etire,
+   il occupe donc moins de place que ses positions) */
+static int text_width(int f, const char *s, int sp) {
+    int w = text_width_px(f, s, sp);
+    return ux_k == 1.0f ? w : (int)(w / ux_k + 0.5f);
 }
 
 /* Ecrit s avec sa ligne de base en y = base (degrade vertical top -> bot).
@@ -3895,7 +3902,7 @@ static int gx_text_raw(int f, f32 x, f32 base, const char *s, col_t top, col_t b
         int cp = next_cp(&p);
         if (font_glyphs[f][glyph_index(cp)].w) count++;
     }
-    int width = text_width(f, s, sp);
+    int width = text_width_px(f, s, sp);
     if (count == 0) return width;
 
     gx_set_text();
@@ -3927,23 +3934,24 @@ static int gx_text_raw(int f, f32 x, f32 base, const char *s, col_t top, col_t b
     return width;
 }
 static int gx_text(int f, f32 x, f32 base, const char *s, col_t top, col_t bot, int sp) {
-    return gx_text_raw(f, UX(x), base, s, top, bot, sp);
+    int w = gx_text_raw(f, UX(x), base, s, top, bot, sp);
+    return ux_k == 1.0f ? w : (int)(w / ux_k + 0.5f);          /* (largeur dans le repere de l'interface) */
 }
 static int gx_text1(int f, f32 x, f32 base, const char *s, col_t c) {
     return gx_text(f, x, base, s, c, c, 0);
 }
 static void gx_text_r(int f, f32 xr, f32 base, const char *s, col_t c) {
-    gx_text_raw(f, UX(xr) - text_width(f, s, 0), base, s, c, c, 0);
+    gx_text_raw(f, UX(xr) - text_width_px(f, s, 0), base, s, c, c, 0);
 }
 static void gx_text_c(int f, f32 xc, f32 base, const char *s, col_t c) {
-    gx_text_raw(f, UX(xc) - text_width(f, s, 0) / 2, base, s, c, c, 0);
+    gx_text_raw(f, UX(xc) - text_width_px(f, s, 0) / 2, base, s, c, c, 0);
 }
 
 /* Copie s dans out, tronque avec "..." pour tenir dans maxw pixels. */
 static void fit_text(int f, const char *s, int maxw, char *out, int outsz) {
     maxw = (int)(maxw * ux_k);                           /* (16:9 : la place reelle) */
-    if (text_width(f, s, 0) <= maxw) { snprintf(out, outsz, "%s", s); return; }
-    int dots = text_width(f, "...", 0);
+    if (text_width_px(f, s, 0) <= maxw) { snprintf(out, outsz, "%s", s); return; }
+    int dots = text_width_px(f, "...", 0);
     int w = 0, len = 0;
     const char *p = s;
     while (*p) {
@@ -5449,7 +5457,7 @@ static void lay_word(wlay_t *L, const char *w, int n) {
     if (n > (int)sizeof(buf) - 2) n = (int)sizeof(buf) - 2;
     memcpy(buf, w, n);
     buf[n] = 0;
-    int ww = text_width(L->font, buf, 0);
+    int ww = text_width_px(L->font, buf, 0);
     int sw = (L->space && L->x > L->indent) ? font_space(L->font) : 0;
     int maxw = wv_lw - L->indent;
     if (ww > maxw) {                                         /* mot plus long qu'une ligne : on le coupe */
@@ -5839,7 +5847,7 @@ static void web_layout_html(wpage_t *p, const unsigned char *s, int len, int lat
                 int save = L.style, sl = L.link;
                 L.style = WS_DIM;
                 L.link = -1;
-                L.x = L.indent - 5 - text_width(L.font, bullet, 0);
+                L.x = L.indent - 5 - text_width_px(L.font, bullet, 0);
                 if (L.x < 0) L.x = 0;
                 L.space = 0;
                 lay_word(&L, bullet, (int)strlen(bullet));
@@ -5892,7 +5900,7 @@ static void web_layout_html(wpage_t *p, const unsigned char *s, int len, int lat
                     /* taille inconnue tant que l'image n'est pas lue : petite case */
                     char lab[48];
                     fit_text(F_SMALL, alt, 160, lab, sizeof(lab));
-                    int w = text_width(F_SMALL, lab, 0) + 12;
+                    int w = text_width_px(F_SMALL, lab, 0) + 12;
                     lay_img(&L, idx, w < 24 ? 24 : w, 18, lab);
                 } else if (alt[0] && (link_open || strlen(alt) > 2)) {
                     char t2[210];
@@ -5943,7 +5951,7 @@ static void web_layout_html(wpage_t *p, const unsigned char *s, int len, int lat
                     if (L.link >= 0) {
                         char disp[200];
                         text_display(v[0] ? v : "Envoyer", disp, sizeof(disp));
-                        lay_box(&L, text_width(F_MED, disp, 0) + 20, WS_BUTTON, disp);
+                        lay_box(&L, text_width_px(F_MED, disp, 0) + 20, WS_BUTTON, disp);
                     }
                     L.link = save;
                 } else if (strcmp(type, "text") == 0 || strcmp(type, "search") == 0 || strcmp(type, "email") == 0 ||
