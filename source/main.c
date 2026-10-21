@@ -3171,6 +3171,8 @@ static const char *const saver_names[SV_COUNT] = { "Spectre", "Pochette", "Horlo
 static int video_pref = VID_AUTO;
 static int scr_pct = 100;                   /* taille de l'image : 80 a 112 % (au-dela de 100 : plus large, par la sortie video) */
 #define SCR_MAX 112
+static int scr_hpct = 100;                  /* hauteur de l'image : 80 a 100 % (bords haut et bas coupes) */
+static int scr_vpos = 0;                    /* decalage vertical en points (-24 a +24, positif = plus bas) */
 static int scr_wide = 0;                    /* 1 = televiseur en 16:9 (image etiree par la tele) */
 #define WV_X           26                   // zone d'affichage de la page
 #define WV_Y           116
@@ -3270,6 +3272,8 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "economiseur")) { saver_min = atoi(v); if (saver_min < 0) saver_min = 0; }
         else if (!strcasecmp(k, "economiseur_style")) { for (int i = 0; i < SV_COUNT; i++) if (!strcasecmp(v, saver_keys[i])) saver_style = i; }
         else if (!strcasecmp(k, "ecran_format")) { scr_wide = strstr(v, "16") != NULL; wv_lw = scr_wide ? WV_W * 4 / 3 : WV_W; }
+        else if (!strcasecmp(k, "ecran_hauteur")) { scr_hpct = atoi(v); if (scr_hpct < 80) scr_hpct = 80; if (scr_hpct > 100) scr_hpct = 100; }
+        else if (!strcasecmp(k, "ecran_position")) { scr_vpos = atoi(v); if (scr_vpos < -24) scr_vpos = -24; if (scr_vpos > 24) scr_vpos = 24; }
         else if (!strcasecmp(k, "ecran_taille")) { scr_pct = atoi(v); if (scr_pct < 80) scr_pct = 80; if (scr_pct > SCR_MAX) scr_pct = SCR_MAX; }
         else if (!strcasecmp(k, "langue")) { lang_pref = -1; for (int i = 0; i < LANG_COUNT; i++) if (!strncasecmp(v, lang_keys[i], 2)) lang_pref = i; }
         else if (!strcasecmp(k, "video")) video_pref = !strcasecmp(v, "480p") ? VID_480P : !strcasecmp(v, "480i") ? VID_480I : VID_AUTO;
@@ -3354,6 +3358,8 @@ static void save_settings(void) {
                "langue = %s\n"
                "# Taille de l'image (80 a 100 %%) : a reduire si les bords sont coupes sur la tele\n"
                "ecran_taille = %d\n"
+               "# Hauteur de l'image (80 a 100 %%) et position verticale (-24 a 24, positif = plus bas)\n"
+               "ecran_hauteur = %d\necran_position = %d\n"
                "# Format de la tele : 4:3 ou 16:9 (16:9 : regle aussi la tele en mode large / plein ecran)\n"
                "ecran_format = %s\n"
                "# Reprendre le dernier morceau au demarrage : oui / non\n"
@@ -3362,7 +3368,7 @@ static void save_settings(void) {
             rg_mode == 2 ? "album" : rg_mode == 1 ? "morceau" : "non", party_keys[party_style],
             layout_keys[player_layout], els, hid, city, news_url, alarm_txt, alarm_src, phone_auto ? "oui" : "non", shuffle_on ? "oui" : "non", rep[repeat_mode], aff[view_mode],
             volume_pct, theme_keys[theme_id], saver_min, saver_keys[saver_style], vid[video_pref],
-            lang_pref >= 0 ? lang_keys[lang_pref] : "auto", scr_pct, scr_wide ? "16:9" : "4:3", resume_on ? "oui" : "non",
+            lang_pref >= 0 ? lang_keys[lang_pref] : "auto", scr_pct, scr_hpct, scr_vpos, scr_wide ? "16:9" : "4:3", resume_on ? "oui" : "non",
             resume_path, resume_pos);
     fprintf(f, "# Mode veilleuse : luminosite 1 a 5 ; radio lancee si rien ne joue : oui / non\n"
                "veilleuse_luminosite = %d\nveilleuse_radio = %s\n"
@@ -4034,10 +4040,16 @@ static f32 scr_sx = 1, scr_sy = 1, scr_ox = 0, scr_oy = 0;
 static void scr_viewport(void) {
     if (scr_pct < 80) scr_pct = 80;
     if (scr_pct > SCR_MAX) scr_pct = SCR_MAX;
+    if (scr_hpct < 80) scr_hpct = 80;
+    if (scr_hpct > 100) scr_hpct = 100;
+    if (scr_vpos < -24) scr_vpos = -24;
+    if (scr_vpos > 24) scr_vpos = 24;
     f32 s = scr_pct > 100 ? 1.0f : scr_pct / 100.0f;          /* (au-dela : voir scr_vi) */
-    f32 w = rmode->fbWidth * s, h = rmode->efbHeight * s;
+    f32 w = rmode->fbWidth * s, h = rmode->efbHeight * s * scr_hpct / 100.0f;
     scr_ox = (int)((rmode->fbWidth - w) / 2);
-    scr_oy = (int)((rmode->efbHeight - h) / 2);
+    scr_oy = (int)((rmode->efbHeight - h) / 2) + scr_vpos;
+    if (scr_oy < 0) scr_oy = 0;
+    if (scr_oy + h > rmode->efbHeight) scr_oy = rmode->efbHeight - h;
     /* 16:9 : la tele etire l'image ; le repere s'elargit (853 x 480) et
        l'interface (0..640) reste au centre, avec ses vraies proportions */
     scr_w = scr_wide ? 640.0f * 4.0f / 3.0f : 640.0f;
@@ -9072,7 +9084,7 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_BASS, MI_TREBLE, MI_THEME, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_RESUME, MI_VIDEO, MI_SCREEN, MI_WIDE, MI_LANG, MI_PARTY, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_RESUME, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_LANG, MI_PARTY, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
 #define MENU_VIS 13                         /* lignes visibles (le menu defile) */
 static int menu_top = 0;
 static int menu_sel = 0, quit_requested = 0;
@@ -9107,6 +9119,8 @@ static void menu_value(int i, char *out, int cap) {
     case MI_RESUME:  snprintf(out, cap, "%s", resume_on ? "Oui" : "Non"); break;
     case MI_VIDEO:   snprintf(out, cap, "%s", vid[video_pref]); break;
     case MI_SCREEN:  snprintf(out, cap, scr_pct > 100 ? "%d %% (plus large)" : "%d %%", scr_pct); break;
+    case MI_SCREENH: snprintf(out, cap, "%d %%", scr_hpct); break;
+    case MI_SCREENY: if (scr_vpos) snprintf(out, cap, "%s %d", scr_vpos > 0 ? "Plus bas" : "Plus haut", abs(scr_vpos)); else snprintf(out, cap, "Centr\xC3\xA9" "e"); break;
     case MI_WIDE:    snprintf(out, cap, "%s", scr_wide ? "16:9 (\xC3\xA9" "cran large)" : "4:3"); break;
     case MI_LANG:
         if (lang_pref < 0) snprintf(out, cap, "Auto (%s)", lang_names[lang_console()]);
@@ -9124,7 +9138,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "Lecture al\xC3\xA9" "atoire", "R\xC3\xA9p\xC3\xA9tition", "Fondu encha\xC3\xAEn\xC3\xA9", "Liste MUSIQUE", "Volume",
     "Volume \xC3\xA9galis\xC3\xA9", "Graves", "Aigus", "Th\xC3\xA8me",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques",
-    "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Format de l'\xC3\xA9" "cran", "Langue du contenu", "Mode soir\xC3\xA9" "e", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
+    "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue du contenu", "Mode soir\xC3\xA9" "e", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Mise \xC3\xA0 jour", "Quitter GC-MP3" };
 
 static void web_relayout(void);
@@ -9180,6 +9194,8 @@ static void menu_change(int i, int d) {
     case MI_RESUME:  resume_on = !resume_on; break;
     case MI_VIDEO:   video_pref = (video_pref + d + VID_COUNT) % VID_COUNT; break;
     case MI_WIDE:    scr_set_wide(!scr_wide); break;
+    case MI_SCREENH: scr_hpct += 2 * d; if (scr_hpct < 80) scr_hpct = 80; if (scr_hpct > 100) scr_hpct = 100; break;
+    case MI_SCREENY: scr_vpos += 2 * d; if (scr_vpos < -24) scr_vpos = -24; if (scr_vpos > 24) scr_vpos = 24; break;
     case MI_SCREEN:  scr_pct += 2 * d; if (scr_pct < 80) scr_pct = 80; if (scr_pct > SCR_MAX) scr_pct = SCR_MAX; scr_vi(); break;
     case MI_LANG:    lang_pref = (lang_pref + 1 + d + LANG_COUNT + 1) % (LANG_COUNT + 1) - 1; break;
     case MI_REC:
