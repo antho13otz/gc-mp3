@@ -143,13 +143,19 @@ static void update_pump(void) {
         up_build = b ? atoi(b + 6) : 0;
         up_url[0] = 0;
         up_size = 0;
-        for (const char *p = js; p && p < end; ) {             /* l'asset qui finit par .dol */
+        /* le .dol de ce build ("gc-mp3player-b123.dol"), sinon le dernier .dol de la liste */
+        char want[24];
+        snprintf(want, sizeof(want), "-b%d.dol", up_build);
+        for (const char *p = js; p && p < end; ) {
             p = strstr(p, "\"browser_download_url\"");
             if (!p || p >= end) break;
             char u[URL_MAX];
             json_field(p, end, "browser_download_url", u, sizeof(u));
-            int ul = (int)strlen(u);
-            if (ul > 4 && !strcasecmp(u + ul - 4, ".dol")) { snprintf(up_url, sizeof(up_url), "%s", u); break; }
+            int ul = (int)strlen(u), wl = (int)strlen(want);
+            if (ul > 4 && !strcasecmp(u + ul - 4, ".dol")) {
+                snprintf(up_url, sizeof(up_url), "%s", u);
+                if (ul > wl && !strcasecmp(u + ul - wl, want)) break;
+            }
             p += 22;
         }
         hf_drop(&up_hf);
