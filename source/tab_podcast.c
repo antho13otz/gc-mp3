@@ -467,6 +467,7 @@ static void draw_list_podcast(void) {
         if (r >= rows) break;
         f32 ry = 114.0f + i * 24.0f, cy = ry + 12.0f;
         int is_sel = (r == pod_sel);
+        gp_zone(18, ry + 1, 250, 22, &pod_sel, r, GPZ_SEL);
         col_t txt = is_sel ? RGBA(255, 255, 255, 255) : RGBA(210, 200, 240, 255);
         col_t dim = is_sel ? RGBA(235, 225, 255, 255) : RGBA(140, 125, 200, 255);
         const char *label;
