@@ -23,17 +23,27 @@ static void draw_tab_strip(void) {
     int n = 0, total = 0;
     for (int t = 0; t < TAB_COUNT; t++) if (tab_shown(t)) { total += text_width(F_SMALL, tab_names[t], 1) + 16; n++; }
     total += (n - 1) * 4;
+    f32 sc = total > 600 ? 600.0f / total : 1.0f;          /* (v23 : 11 onglets, le bandeau se resserre) */
+    if (sc < 1) {
+        txt_scale = sc;
+        total = 0;
+        for (int t = 0; t < TAB_COUNT; t++) if (tab_shown(t)) total += text_width(F_SMALL, tab_names[t], 1) + 10;
+        total += (n - 1) * 3;
+    }
     f32 x = 320 - total / 2.0f;
     gx_rrect_fill(x - 10, 4, total + 20, 26, 10, RGBA(10, 6, 30, 235), RGBA(10, 6, 30, 235));
     gx_rrect_stroke(x - 10, 4, total + 20, 26, 10, 1.2f, RGBA(120, 80, 230, 255));
     for (int t = 0; t < TAB_COUNT; t++) {
         if (!tab_shown(t)) continue;
-        int w = text_width(F_SMALL, tab_names[t], 1) + 16;
+        int w = text_width(F_SMALL, tab_names[t], 1) + (sc < 1 ? 10 : 16);
         if (t == tab) gx_rrect_fill(x, 8, (f32)w, 18, 9, RGBA(124, 54, 240, 255), RGBA(80, 26, 180, 255));
-        gx_text(F_SMALL, x + 8, 21, tab_names[t], t == tab ? RGBA(255, 255, 255, 255) : RGBA(150, 135, 210, 255),
+        gx_text(F_SMALL, x + (sc < 1 ? 5 : 8), 21, tab_names[t], t == tab ? RGBA(255, 255, 255, 255) : RGBA(150, 135, 210, 255),
                 t == tab ? RGBA(255, 255, 255, 255) : RGBA(150, 135, 210, 255), 1);
-        x += w + 4;
+        gp_zone(x, 6, (f32)w, 22, NULL, t, GPZ_TAB);
+        x += w + (sc < 1 ? 3 : 4);
     }
+    txt_scale = 1.0f;
+    if (gp_on) tab_strip_until = now_ms() + 1500;          /* (le curseur garde le bandeau visible) */
 }
 
 /* ---------- Liste a cocher (onglets affiches, elements du lecteur) ---------- */
@@ -68,6 +78,7 @@ static void draw_checklist(void) {
     for (int i = 0; i < ck->n; i++) {
         f32 ry = y + 48 + i * rh;
         int on = (i == ck_sel);
+        gp_zone(x + 14, ry + 1, w - 28, rh - 3, &ck_sel, i, GPZ_SEL);
         if (on) gx_rrect_fill(x + 14, ry + 1, w - 28, rh - 3, 6, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
         int v = ck->get(i);
         gx_rrect_stroke(x + 26, ry + 6, 13, 13, 3, 1.2f, RGBA(220, 210, 255, 255));
@@ -332,6 +343,7 @@ static void draw_list_wide(void) {
         lent_t e = ents[r];
         f32 ry = 130.0f + i * 23.0f, cy = ry + 11.5f;
         int is_sel = (r == sel), is_cur = (e.type == E_TRACK && playing && e.idx == cur_track);
+        gp_zone(18, ry + 1, 604, 21, &sel_row, r, GPZ_SEL);
         if (is_sel) gx_rrect_fill(20, ry + 1, 600, 21, 5, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
         col_t txt = is_sel ? RGBA(255, 255, 255, 255) : RGBA(210, 200, 240, 255);
         col_t dim = is_sel ? RGBA(235, 225, 255, 255) : RGBA(140, 125, 200, 255);
