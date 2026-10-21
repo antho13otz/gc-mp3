@@ -106,7 +106,7 @@ static void meteo_start(void) {
         return;
     }
     if (!url_encode(city, enc, sizeof(enc))) return;
-    snprintf(url, sizeof(url), GEO_BASE "/v1/search?name=%s&count=1&language=fr&format=json", enc);
+    snprintf(url, sizeof(url), GEO_BASE "/v1/search?name=%s&count=1&language=%s&format=json", enc, lang_code());
     inf_fetch(IF_GEO, url);
 }
 
