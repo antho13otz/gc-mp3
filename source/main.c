@@ -1500,6 +1500,7 @@ static char names[MAX_FILES][NAME_LEN];
 static int  dur_cache[MAX_FILES];          // duree en s ; -2 = pas encore lue, -1 = inconnue
 static int  nfiles = 0;
 static int  dur_budget = 0;                // lectures de duree autorisees pour l'image en cours
+static int  bib_dirty;                      // bibliotheque en cache a enregistrer (voir bib_save)
 
 /* Nom du fichier seul (apres le dernier '/') */
 static const char *base_of(const char *path) {
@@ -1784,6 +1785,7 @@ static int track_duration(int k) {
     if (dur_cache[k] == -2 && dur_budget > 0) {
         dur_budget--;
         dur_cache[k] = file_duration(names[k]);
+        bib_dirty = 1;
     }
     return dur_cache[k];
 }
@@ -2717,6 +2719,7 @@ static void tag_scan_one(int k) {
     tags_t tg;
     tg_done[k] = 1;
     tg_scanned++;
+    bib_dirty = 1;
     tg_artist[k][0] = tg_album[k][0] = 0;
     FILE *fp = fopen(names[k], "rb");
     if (!fp) return;
@@ -2736,6 +2739,78 @@ static void tag_scan_one(int k) {
     snprintf(tg_album[k], sizeof(tg_album[k]), "%s", tg.album);
 }
 
+/* ---------- Bibliotheque en cache (SD:/gc-mp3-bib.txt) ----------
+   Durees et etiquettes deja lues : au demarrage suivant, plus besoin de relire
+   chaque fichier (la liste defile sans a-coups, les vues Artistes / Albums sont
+   pretes tout de suite). Une ligne par fichier : duree|artiste|album|chemin */
+#define BIB_FILE SD_ROOT "/gc-mp3-bib.txt"
+static int bib_dirty = 0;                  // (declaree plus haut)
+static int lib_dirty;
+static u64 bib_saved_t = 0;
+static int bib_find(const char *path) {
+    int lo = 0, hi = nfiles - 1;
+    while (lo <= hi) {
+        int mid = (lo + hi) / 2;
+        int c = cmp_names(names[mid], path);
+        if (c == 0) return mid;
+        if (c < 0) lo = mid + 1; else hi = mid - 1;
+    }
+    return -1;
+}
+static void bib_load(void) {
+    if (!sd_ok || nfiles == 0) return;
+    FILE *f = fopen(BIB_FILE, "r");
+    if (!f) return;
+    static char line[NAME_LEN + 200];
+    while (fgets(line, sizeof(line), f)) {
+        char *p[4];
+        int n = 0;
+        p[n++] = line;
+        for (char *c = line; *c && n < 4; c++) if (*c == '|') { *c = 0; p[n++] = c + 1; }
+        if (n < 4) continue;
+        p[3][strcspn(p[3], "\r\n")] = 0;
+        int k = bib_find(p[3]);
+        if (k < 0) continue;
+        int d = atoi(p[0]);
+        if (d >= -1 && dur_cache[k] == -2) dur_cache[k] = d;
+        if (!tg_done[k] && !is_retro[k]) {
+            snprintf(tg_artist[k], sizeof(tg_artist[k]), "%s", p[1]);
+            snprintf(tg_album[k], sizeof(tg_album[k]), "%s", p[2]);
+            tg_done[k] = 1;
+            tg_scanned++;
+        }
+    }
+    fclose(f);
+    lib_dirty = 1;
+}
+static void bib_save(void) {
+    bib_dirty = 0;
+    bib_saved_t = now_ms();
+    if (!sd_ok) return;
+    FILE *f = fopen(BIB_FILE ".part", "w");
+    if (!f) return;
+    int ok = 1;
+    for (int k = 0; k < nfiles && ok; k++) {
+        if (dur_cache[k] == -2 && !tg_done[k]) continue;
+        char a[48], b[64];
+        snprintf(a, sizeof(a), "%s", tg_done[k] ? tg_artist[k] : "");
+        snprintf(b, sizeof(b), "%s", tg_done[k] ? tg_album[k] : "");
+        for (char *c = a; *c; c++) if (*c == '|' || *c == '\n' || *c == '\r') *c = ' ';
+        for (char *c = b; *c; c++) if (*c == '|' || *c == '\n' || *c == '\r') *c = ' ';
+        if (fprintf(f, "%d|%s|%s|%s\n", dur_cache[k] == -2 ? -3 : dur_cache[k], a, b, names[k]) < 0) ok = 0;
+    }
+    if (fclose(f) != 0) ok = 0;
+    if (ok) { remove(BIB_FILE); rename(BIB_FILE ".part", BIB_FILE); }
+    else remove(BIB_FILE ".part");
+}
+static u64 last_input_ms;
+/* enregistre quand rien ne bouge (pas pendant qu'on fait defiler une liste) */
+static void bib_pump(void) {
+    if (!bib_dirty) return;
+    u64 n = now_ms();
+    if (n - last_input_ms > 4000 && n - bib_saved_t > 20000) bib_save();
+}
+
 /* entrees de la liste affichee */
 enum { E_TRACK, E_GROUP, E_UP };
 typedef struct { u8 type; s16 idx; } lent_t;
@@ -2744,7 +2819,7 @@ static int nents = 0, sel_row = 0;
 static char grp_name[MAX_FILES][64];
 static s16 grp_count[MAX_FILES], grp_of[MAX_FILES];
 static int ngroups = 0, cur_group = -1;     /* -1 = liste des groupes */
-static int lib_dirty = 1;
+static int lib_dirty = 1;                   /* (declaree plus haut) */
 
 static void group_key(int k, char *out, int cap) {
     if (view_mode == VIEW_FOLDERS) {
@@ -3094,7 +3169,26 @@ static const char *const saver_names[SV_COUNT] = { "Spectre", "Pochette", "Horlo
 static int video_pref = VID_AUTO;
 static int scr_pct = 100;                   /* taille de l'image : 80 a 100 % */
 static int scr_wide = 0;                    /* 1 = televiseur en 16:9 (image etiree par la tele) */
+#define WV_X           26                   // zone d'affichage de la page
+#define WV_Y           116
+#define WV_W           586
+#define WV_H           272
+static int wv_lw = WV_W;                    // largeur de mise en page (16:9 : plus large)
 static f32 scr_x0 = 0, scr_w = 640;         /* bords gauche et largeur du repere (16:9 : -107 et 853) */
+/* 16:9 : l'interface (dessinee pour 0..640) est elargie a tout l'ecran : les
+   positions et les largeurs sont etirees, mais le texte, les cercles, les
+   pochettes et les images gardent leurs vraies proportions.
+   X ecran = ux_o + x * ux_k ; une "zone native" (ux_native) garde k = 1. */
+static f32 ux_k = 1, ux_o = 0;
+static inline f32 UX(f32 x) { return ux_o + x * ux_k; }
+typedef struct { f32 k, o; } uxsave_t;
+static uxsave_t ux_native(f32 anchor) {                /* autour de 'anchor', taille reelle */
+    uxsave_t s = { ux_k, ux_o };
+    ux_o = UX(anchor) - anchor;
+    ux_k = 1;
+    return s;
+}
+static void ux_restore(uxsave_t s) { ux_k = s.k; ux_o = s.o; }
 /* Langue du contenu (recherche de podcasts, radios du pays, sites web, meteo).
    -1 = celle de la console (reglage de l'IPL), sinon l'ordre de SYS_LANG_* */
 #define LANG_COUNT 6
@@ -3182,7 +3276,7 @@ static void load_settings(void) {
         else if (!strcasecmp(k, "volume_egalise")) rg_mode = !strncasecmp(v, "album", 5) ? 2 : (!strncasecmp(v, "morceau", 7) || !strncasecmp(v, "oui", 3)) ? 1 : 0;
         else if (!strcasecmp(k, "economiseur")) { saver_min = atoi(v); if (saver_min < 0) saver_min = 0; }
         else if (!strcasecmp(k, "economiseur_style")) { for (int i = 0; i < SV_COUNT; i++) if (!strcasecmp(v, saver_keys[i])) saver_style = i; }
-        else if (!strcasecmp(k, "ecran_format")) scr_wide = strstr(v, "16") != NULL;
+        else if (!strcasecmp(k, "ecran_format")) { scr_wide = strstr(v, "16") != NULL; wv_lw = scr_wide ? WV_W * 4 / 3 : WV_W; }
         else if (!strcasecmp(k, "ecran_taille")) { scr_pct = atoi(v); if (scr_pct < 80) scr_pct = 80; if (scr_pct > 100) scr_pct = 100; }
         else if (!strcasecmp(k, "langue")) { lang_pref = -1; for (int i = 0; i < LANG_COUNT; i++) if (!strncasecmp(v, lang_keys[i], 2)) lang_pref = i; }
         else if (!strcasecmp(k, "video")) video_pref = !strcasecmp(v, "480p") ? VID_480P : !strcasecmp(v, "480i") ? VID_480I : VID_AUTO;
@@ -3599,7 +3693,7 @@ static col_t lerp_c(col_t a, col_t b, f32 t) {
 }
 
 static inline void vtx(f32 x, f32 y, col_t c) {
-    GX_Position2f32(x, y);
+    GX_Position2f32(UX(x), y);
     c = th_col(c);
     GX_Color4u8(c.r, c.g, c.b, c.a);
 }
@@ -3639,6 +3733,7 @@ static void gx_ellipse(f32 cx, f32 cy, f32 rx, f32 ry, col_t center, col_t edge)
     gx_set_flat();
     GX_Begin(GX_TRIANGLEFAN, GX_VTXFMT0, NSEG + 2);
     vtx(cx, cy, center);
+    rx /= ux_k;                                          /* (16:9 : reste rond) */
     for (int i = 0; i <= NSEG; i++) vtx(cx + rx * seg_c[i], cy + ry * seg_s[i], edge);
     GX_End();
 }
@@ -3654,8 +3749,8 @@ static void gx_ring_n(f32 cx, f32 cy, f32 r0, f32 r1, int n, f32 rot, col_t c) {
         f32 co, si;
         if (n == NSEG && rot == 0.0f) { co = seg_c[i]; si = seg_s[i]; }
         else { f32 a = rot + 2.0f * PI_F * (f32)i / (f32)n; co = cosf(a); si = sinf(a); }
-        vtx(cx + r1 * co, cy + r1 * si, c);
-        vtx(cx + r0 * co, cy + r0 * si, c);
+        vtx(cx + r1 * co / ux_k, cy + r1 * si, c);
+        vtx(cx + r0 * co / ux_k, cy + r0 * si, c);
     }
     GX_End();
 }
@@ -3668,12 +3763,14 @@ static void rr_points(f32 x, f32 y, f32 w, f32 h, f32 r, f32 *px, f32 *py) {
     if (r > w / 2) r = w / 2;
     if (r > h / 2) r = h / 2;
     if (r < 0.5f) r = 0.5f;
+    f32 rx = r / ux_k;                                   /* (16:9 : coins ronds) */
+    if (rx > w / 2) rx = w / 2;
     int n = 0;
     /* haut droit, bas droit, bas gauche, haut gauche (sens horaire a l'ecran) */
-    for (int s = 0; s < 6; s++) { px[n] = x + w - r + r * cs[5 - s]; py[n] = y + r - r * cs[s];     n++; }
-    for (int s = 0; s < 6; s++) { px[n] = x + w - r + r * cs[s];     py[n] = y + h - r + r * cs[5 - s]; n++; }
-    for (int s = 0; s < 6; s++) { px[n] = x + r - r * cs[5 - s];     py[n] = y + h - r + r * cs[s]; n++; }
-    for (int s = 0; s < 6; s++) { px[n] = x + r - r * cs[s];         py[n] = y + r - r * cs[5 - s]; n++; }
+    for (int s = 0; s < 6; s++) { px[n] = x + w - rx + rx * cs[5 - s]; py[n] = y + r - r * cs[s];     n++; }
+    for (int s = 0; s < 6; s++) { px[n] = x + w - rx + rx * cs[s];     py[n] = y + h - r + r * cs[5 - s]; n++; }
+    for (int s = 0; s < 6; s++) { px[n] = x + rx - rx * cs[5 - s];     py[n] = y + h - r + r * cs[s]; n++; }
+    for (int s = 0; s < 6; s++) { px[n] = x + rx - rx * cs[s];         py[n] = y + r - r * cs[5 - s]; n++; }
 }
 
 static void gx_rrect_fill(f32 x, f32 y, f32 w, f32 h, f32 r, col_t top, col_t bot) {
@@ -3761,7 +3858,8 @@ static int text_width(int f, const char *s, int sp) {
 
 /* Ecrit s avec sa ligne de base en y = base (degrade vertical top -> bot).
    sp = espacement supplementaire entre lettres. Retourne la largeur. */
-static int gx_text(int f, f32 x, f32 base, const char *s, col_t top, col_t bot, int sp) {
+/* x deja converti en position ecran */
+static int gx_text_raw(int f, f32 x, f32 base, const char *s, col_t top, col_t bot, int sp) {
     int count = 0;
     for (const char *p = s; *p;) {
         int cp = next_cp(&p);
@@ -3779,10 +3877,13 @@ static int gx_text(int f, f32 x, f32 base, const char *s, col_t top, col_t bot, 
         int cp = next_cp(&p);
         const fglyph_t *g = &font_glyphs[f][glyph_index(cp)];
         if (g->w) {
-            f32 x0 = x + (pen + g->xoff) * sc, y0 = base + (ty + g->yoff) * sc;
-            f32 x1 = x0 + g->w * sc,           y1 = y0 + g->h * sc;
-            f32 u0 = (f32)g->x / FONT_TEX_W, v0 = (f32)g->y / FONT_TEX_H;
-            f32 u1 = (f32)(g->x + g->w) / FONT_TEX_W, v1 = (f32)(g->y + g->h) / FONT_TEX_H;
+            /* un texel transparent de plus autour de la lettre : les traits fins
+               (i, l, barres) ne disparaissent plus quand la lettre tombe entre
+               deux pixels ou quand l'image est reduite (taille d'ecran, 16:9) */
+            f32 x0 = x + (pen + g->xoff - 1) * sc, y0 = base + (ty + g->yoff - 1) * sc;
+            f32 x1 = x0 + (g->w + 2) * sc,         y1 = y0 + (g->h + 2) * sc;
+            f32 u0 = (f32)(g->x - 1) / FONT_TEX_W, v0 = (f32)(g->y - 1) / FONT_TEX_H;
+            f32 u1 = (f32)(g->x + g->w + 1) / FONT_TEX_W, v1 = (f32)(g->y + g->h + 1) / FONT_TEX_H;
             col_t ct = th_col(lerp_c(top, bot, (f32)g->yoff / fh));
             col_t cb = th_col(lerp_c(top, bot, (f32)(g->yoff + g->h) / fh));
             GX_Position2f32(x0, y0); GX_Color4u8(ct.r, ct.g, ct.b, ct.a); GX_TexCoord2f32(u0, v0);
@@ -3795,18 +3896,22 @@ static int gx_text(int f, f32 x, f32 base, const char *s, col_t top, col_t bot, 
     GX_End();
     return width;
 }
+static int gx_text(int f, f32 x, f32 base, const char *s, col_t top, col_t bot, int sp) {
+    return gx_text_raw(f, UX(x), base, s, top, bot, sp);
+}
 static int gx_text1(int f, f32 x, f32 base, const char *s, col_t c) {
     return gx_text(f, x, base, s, c, c, 0);
 }
 static void gx_text_r(int f, f32 xr, f32 base, const char *s, col_t c) {
-    gx_text(f, xr - text_width(f, s, 0), base, s, c, c, 0);
+    gx_text_raw(f, UX(xr) - text_width(f, s, 0), base, s, c, c, 0);
 }
 static void gx_text_c(int f, f32 xc, f32 base, const char *s, col_t c) {
-    gx_text(f, xc - text_width(f, s, 0) / 2, base, s, c, c, 0);
+    gx_text_raw(f, UX(xc) - text_width(f, s, 0) / 2, base, s, c, c, 0);
 }
 
 /* Copie s dans out, tronque avec "..." pour tenir dans maxw pixels. */
 static void fit_text(int f, const char *s, int maxw, char *out, int outsz) {
+    maxw = (int)(maxw * ux_k);                           /* (16:9 : la place reelle) */
     if (text_width(f, s, 0) <= maxw) { snprintf(out, outsz, "%s", s); return; }
     int dots = text_width(f, "...", 0);
     int w = 0, len = 0;
@@ -3835,7 +3940,7 @@ static const col_t C_BORDER    = { 112, 62, 235, 255 };
 static const col_t C_GLOW      = { 120, 60, 255, 120 };
 
 static void draw_background(void) {
-    f32 L = scr_x0, R = scr_x0 + scr_w;                 /* (16:9 : jusqu'aux bords) */
+    const f32 L = 0, R = 640;
     gx_quad4(L, 0, R, 480, RGBA(7, 5, 26, 255), RGBA(13, 8, 44, 255),
              RGBA(9, 6, 34, 255), RGBA(18, 8, 60, 255));
     /* halos violets diffus */
@@ -3849,6 +3954,7 @@ static void draw_background(void) {
 }
 
 static void draw_logo_cube(f32 cx, f32 cy, f32 R) {
+    uxsave_t uz = ux_native(cx);
     gx_ring_n(cx, cy, R - 3.5f, R, 6, -PI_F / 2.0f, RGBA(150, 110, 255, 255));
     f32 r = R * 0.62f, k = 0.866f;
     f32 P0x = cx,         P0y = cy - r;
@@ -3863,11 +3969,12 @@ static void draw_logo_cube(f32 cx, f32 cy, f32 R) {
              RGBA(130, 80, 245, 255), RGBA(120, 70, 240, 255), RGBA(96, 50, 210, 255), RGBA(104, 56, 220, 255));
     gx_poly4(cx, cy, P1x, P1y, P2x, P2y, P3x, P3y,
              RGBA(86, 40, 190, 255), RGBA(80, 36, 180, 255), RGBA(60, 26, 150, 255), RGBA(66, 28, 160, 255));
+    ux_restore(uz);
 }
 
 static void draw_console_corner(void) {
     /* coin de console GameCube stylise (haut droite) */
-    f32 d = scr_x0 + scr_w - 640.0f;                      /* (16:9 : dans le coin de l'ecran) */
+    const f32 d = 0;
     gx_poly4(d + 470, 10, d + 556, 0, d + 640, 12, d + 566, 64, RGBA(74, 50, 196, 255), RGBA(60, 40, 176, 255),
              RGBA(36, 24, 110, 255), RGBA(46, 30, 140, 255));
     gx_poly4(d + 470, 10, d + 566, 64, d + 566, 96, d + 472, 36, RGBA(36, 22, 116, 255), RGBA(28, 16, 92, 255),
@@ -3920,6 +4027,8 @@ static void scr_viewport(void) {
     }
     scr_sx = w / scr_w;
     scr_sy = h / 480.0f;
+    ux_k = scr_w / 640.0f;
+    ux_o = scr_x0;
     GX_SetViewport(scr_ox, scr_oy, w, h, 0.0f, 1.0f);
     GX_SetScissor((u32)scr_ox, (u32)scr_oy, (u32)(w + 0.5f), (u32)(h + 0.5f));
 }
@@ -3929,8 +4038,28 @@ static void scr_scissor(f32 x, f32 y, f32 w, f32 h) {
     if (y < 0) { h += y; y = 0; }
     if (w < 0) w = 0;
     if (h < 0) h = 0;
-    x -= scr_x0;
+    x = UX(x) - scr_x0;
+    w *= ux_k;
     GX_SetScissor((u32)(scr_ox + x * scr_sx), (u32)(scr_oy + y * scr_sy), (u32)(w * scr_sx + 0.5f), (u32)(h * scr_sy + 0.5f));
+}
+
+/* Animations : la barre de selection glisse vers sa place (au lieu de sauter) */
+static f32 ui_dt = 1.0f / 60.0f;            /* duree de l'image precedente (s) */
+static f32 smooth_to(f32 *v, f32 target) {
+    if (*v < -1000.0f || fabsf(target - *v) > 220.0f) *v = target;   /* premier affichage, grand saut */
+    else {
+        f32 k = 1.0f - expf(-ui_dt * 22.0f);
+        *v += (target - *v) * k;
+        if (fabsf(target - *v) < 0.3f) *v = target;
+    }
+    return *v;
+}
+/* barre de selection d'une liste (onglets MUSIQUE, RADIO, PODCASTS, RETRO) */
+static void draw_sel_bar(f32 *slot, f32 target_y) {
+    f32 ry = smooth_to(slot, target_y);
+    gx_glow(20, ry + 1, 244, 22, 5, RGBA(150, 80, 255, 120), 3);
+    gx_rrect_fill(20, ry + 1, 244, 22, 5, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
+    gx_rrect_stroke(20, ry + 1, 244, 22, 5, 1.2f, RGBA(180, 104, 255, 255));
 }
 
 static void begin_frame(void) {
@@ -4034,14 +4163,16 @@ static void draw_art_radio(void) {
     }
 
     if (cover_ok && cur_station >= 0 && state != ST_IDLE) {
+        uxsave_t uz = ux_native(x + sz / 2);             /* (16:9 : pochette carree) */
         gx_set_cover();
         GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-        GX_Position2f32(x, y);           GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 0.0f);
-        GX_Position2f32(x + sz, y);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 0.0f);
-        GX_Position2f32(x + sz, y + sz); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 1.0f);
-        GX_Position2f32(x, y + sz);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 1.0f);
+        GX_Position2f32(UX(x), y);           GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 0.0f);
+        GX_Position2f32(UX(x + sz), y);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 0.0f);
+        GX_Position2f32(UX(x + sz), y + sz); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 1.0f);
+        GX_Position2f32(UX(x), y + sz);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 1.0f);
         GX_End();
         gx_rrect_stroke(x, y, sz, sz, 2, 1.2f, RGBA(124, 80, 240, 235));
+        ux_restore(uz);
         return;
     }
 
@@ -4315,10 +4446,17 @@ static void draw_tab_phone(void);
 static void draw_night(void);
 static void draw_update_notice(void);
 static void draw(void) {
+    {
+        static u64 last = 0;
+        u64 n = now_ms();
+        ui_dt = last ? (n - last) / 1000.0f : 1.0f / 60.0f;
+        if (ui_dt > 0.1f) ui_dt = 0.1f;
+        last = n;
+    }
     if (night_on) { draw_night(); return; }
     if (saver_on) { draw_saver(); return; }
     if (party_on && !menu_open) { draw_party(); return; }
-    dur_budget = 1;
+    dur_budget = now_ms() - last_input_ms > 250 ? 1 : 0;      /* (pas pendant le defilement) */
     begin_frame();
     draw_header();
     draw_header_clock();
@@ -4424,6 +4562,8 @@ static void draw_list_music(int sel) {
     snprintf(buf, sizeof(buf), "%d", view_mode == VIEW_ALL || cur_group >= 0 ? (cur_group >= 0 ? nents - 1 : nents) : ngroups);
     draw_tabs(buf);
 
+    static f32 sel_anim = -2000;
+    if (sel >= start && sel < start + MUSIC_ROWS && sel < nents) draw_sel_bar(&sel_anim, 114.0f + (sel - start) * 24.0f);
     for (int i = 0; i < MUSIC_ROWS; i++) {
         int r = start + i;
         if (r >= nents) break;
@@ -4434,9 +4574,6 @@ static void draw_list_music(int sel) {
         int is_cur = (e.type == E_TRACK && playing && e.idx == cur_track);
 
         if (is_sel) {
-            gx_glow(20, ry + 1, 244, 22, 5, RGBA(150, 80, 255, 120), 3);
-            gx_rrect_fill(20, ry + 1, 244, 22, 5, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
-            gx_rrect_stroke(20, ry + 1, 244, 22, 5, 1.2f, RGBA(180, 104, 255, 255));
         } else if (i + 1 < MUSIC_ROWS && r + 1 < nents && r + 1 != sel) {
             gx_rect(25, ry + 24, 241, 1, RGBA(60, 40, 120, 110));
         }
@@ -4539,14 +4676,16 @@ static void draw_art_music(void) {
 
     if (playing && cover_ok) {
         /* vraie pochette */
+        uxsave_t uz = ux_native(x + sz / 2);             /* (16:9 : pochette carree) */
         gx_set_cover();
         GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-        GX_Position2f32(x, y);           GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 0.0f);
-        GX_Position2f32(x + sz, y);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 0.0f);
-        GX_Position2f32(x + sz, y + sz); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 1.0f);
-        GX_Position2f32(x, y + sz);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 1.0f);
+        GX_Position2f32(UX(x), y);           GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 0.0f);
+        GX_Position2f32(UX(x + sz), y);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 0.0f);
+        GX_Position2f32(UX(x + sz), y + sz); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 1.0f);
+        GX_Position2f32(UX(x), y + sz);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 1.0f);
         GX_End();
         gx_rrect_stroke(x, y, sz, sz, 2, 1.2f, RGBA(124, 80, 240, 235));
+        ux_restore(uz);
         return;
     }
 
@@ -4706,10 +4845,6 @@ static int settings_dirty;
 #define FAV_FILE       SD_ROOT "/favoris.txt"
 #define SEARCH_URL     "https://www.mojeek.com/search?q="
 #define HIST_MAX       20
-#define WV_X           26                   // zone d'affichage de la page
-#define WV_Y           116
-#define WV_W           586
-#define WV_H           272
 #define W_MAX_ITEMS    60000
 #define W_MAX_LINKS    12000
 #define W_MAX_FIELDS   64
@@ -5270,7 +5405,7 @@ static void lay_word(wlay_t *L, const char *w, int n) {
     buf[n] = 0;
     int ww = text_width(L->font, buf, 0);
     int sw = (L->space && L->x > L->indent) ? font_space(L->font) : 0;
-    int maxw = WV_W - L->indent;
+    int maxw = wv_lw - L->indent;
     if (ww > maxw) {                                         /* mot plus long qu'une ligne : on le coupe */
         const char *s = buf;
         int cut = 0, wsum = 0;
@@ -5287,7 +5422,7 @@ static void lay_word(wlay_t *L, const char *w, int n) {
         lay_word(L, buf + cut, n - cut);
         return;
     }
-    if (L->x + sw + ww > WV_W && L->x > L->indent) { lay_newline(L); sw = 0; }
+    if (L->x + sw + ww > wv_lw && L->x > L->indent) { lay_newline(L); sw = 0; }
     wpage_t *p = L->p;
     if (L->run >= 0) {
         witem_t *r = &p->items[L->run];
@@ -5320,8 +5455,8 @@ static void lay_text(wlay_t *L, const char *s) {           /* plusieurs mots */
 /* champ de saisie ou bouton (largeur fixe) */
 static void lay_box(wlay_t *L, int w, int style, const char *label) {
     int sw = (L->space && L->x > L->indent) ? font_space(L->font) : 0;
-    if (w > WV_W - L->indent) w = WV_W - L->indent;
-    if (L->x + sw + w > WV_W && L->x > L->indent) { lay_newline(L); sw = 0; }
+    if (w > wv_lw - L->indent) w = wv_lw - L->indent;
+    if (L->x + sw + w > wv_lw && L->x > L->indent) { lay_newline(L); sw = 0; }
     int save = L->style;
     L->style = style;
     witem_t *it = lay_new_item(L, L->x + sw, w);
@@ -5338,7 +5473,7 @@ static void lay_hr(wlay_t *L) {
     lay_newline(L);
     int save = L->style;
     L->style = WS_HR;
-    witem_t *it = lay_new_item(L, L->indent, WV_W - L->indent);
+    witem_t *it = lay_new_item(L, L->indent, wv_lw - L->indent);
     L->style = save;
     if (it && !text_append(L->p, "", 0, 0)) L->p->nitems--;
     lay_newline(L);
@@ -5347,8 +5482,8 @@ static void lay_hr(wlay_t *L) {
 /* image (ou sa case d'attente avec le texte label) */
 static void lay_img(wlay_t *L, int img, int w, int h, const char *label) {
     int sw = (L->space && L->x > L->indent) ? font_space(L->font) : 0;
-    if (w > WV_W - L->indent) w = WV_W - L->indent;
-    if (L->x + sw + w > WV_W && L->x > L->indent) { lay_newline(L); sw = 0; }
+    if (w > wv_lw - L->indent) w = wv_lw - L->indent;
+    if (L->x + sw + w > wv_lw && L->x > L->indent) { lay_newline(L); sw = 0; }
     int save = L->style;
     L->style = WS_IMG | (L->link >= 0 ? WS_LINK : 0);
     witem_t *it = lay_new_item(L, L->x + sw, w);
@@ -5704,7 +5839,7 @@ static void web_layout_html(wpage_t *p, const unsigned char *s, int len, int lat
                     if (tag_attr(tag, tl, "height", hv, sizeof(hv), latin) && !strchr(hv, '%') && atoi(hv) > 0) im->ah = (s16)atoi(hv);
                 }
                 int dw = 0, dh = 0;
-                if (im && im->st != IMG_FAIL) img_box(im->aw, im->ah, im->nw, im->nh, WV_W - L.indent, &dw, &dh);
+                if (im && im->st != IMG_FAIL) img_box(im->aw, im->ah, im->nw, im->nh, wv_lw - L.indent, &dw, &dh);
                 if (im && im->st != IMG_FAIL && dw > 0) {
                     if (dw >= 3 && dh >= 3) lay_img(&L, idx, dw, dh, alt);   /* sinon : image d'espacement */
                 } else if (im && im->st != IMG_FAIL && im->st != IMG_OK) {
@@ -7569,7 +7704,7 @@ static void img_pump(void) {
             unsigned char *cd = dj_state == 0 && dec_ensure() ? icache_get(wimgs[best].url, &clen) : NULL;
             if (cd) {
                 dj_in = cd; dj_len = clen;
-                dj_aw = wimgs[best].aw; dj_ah = wimgs[best].ah; dj_maxw = WV_W;
+                dj_aw = wimgs[best].aw; dj_ah = wimgs[best].ah; dj_maxw = wv_lw;
                 dj_photo = 0; dj_owner = 1;
                 il_state = IL_DECODE;
                 dj_state = 1;
@@ -7598,7 +7733,7 @@ static void img_pump(void) {
         ihf.st = HF_IDLE;
         dj_aw = im->aw;
         dj_ah = im->ah;
-        dj_maxw = WV_W;
+        dj_maxw = wv_lw;
         dj_photo = 0;
         dj_owner = 1;
         il_state = IL_DECODE;
@@ -8411,6 +8546,7 @@ static void draw_web(void) {
     /* contenu */
     if (img_tex_dirty) { GX_InvalidateTexAll(); img_tex_dirty = 0; }
     scr_scissor(WV_X - 6, WV_Y - 4, WV_W + 12, WV_H + 6);
+    uxsave_t wz = ux_native(WV_X);                         /* (16:9 : la page en taille reelle, plus large) */
     int lo = 0, hi = pg.nitems;
     while (lo < hi) {                                          /* premier element visible */
         int mid = (lo + hi) / 2;
@@ -8447,10 +8583,10 @@ static void draw_web(void) {
                     f32 u1 = (f32)im->iw / im->tw, v1 = (f32)im->ih / im->th;
                     gx_set_image(&im->obj);
                     GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-                    GX_Position2f32(x0, y0);         GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0, 0);
-                    GX_Position2f32(x0 + w, y0);     GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(u1, 0);
-                    GX_Position2f32(x0 + w, y0 + h); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(u1, v1);
-                    GX_Position2f32(x0, y0 + h);     GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0, v1);
+                    GX_Position2f32(UX(x0), y0);         GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0, 0);
+                    GX_Position2f32(UX(x0 + w), y0);     GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(u1, 0);
+                    GX_Position2f32(UX(x0 + w), y0 + h); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(u1, v1);
+                    GX_Position2f32(UX(x0), y0 + h);     GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0, v1);
                     GX_End();
                 } else if (pg.text[it->off]) {
                     char lab[64];
@@ -8524,6 +8660,7 @@ static void draw_web(void) {
             if ((it->style & WS_LINK) && !sel && !(it->style & WS_BUTTON)) gx_rect(bx, by + 2, it->w, 1, RGBA(120, 140, 240, 110));
         }
     }
+    ux_restore(wz);
     scr_viewport();
     if (pg.nitems == 0 && !wb_loading && !wb_busy)
         gx_text1(F_MED, WV_X, WV_Y + 20, "(page sans texte)", RGBA(140, 122, 200, 255));
@@ -8585,7 +8722,7 @@ static void draw_web(void) {
 
 static void draw_keyboard(void) {
     char k[16];
-    gx_quad4(scr_x0, 0, scr_x0 + scr_w, 480, RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120));
+    gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120));
     gx_rrect_fill(30, 120, 580, 296, 10, RGBA(14, 8, 44, 255), RGBA(8, 5, 26, 255));   /* fond opaque */
     draw_panel(30, 120, 580, 296);
     const char *title = kb_mode == KB_SEARCH ? "Rechercher sur le web" :
@@ -8797,6 +8934,8 @@ static void draw_list_radio(void) {
     snprintf(buf, sizeof(buf), "%d", rb_mode ? rb_n : nstations);
     draw_tabs(buf);
 
+    static f32 sel_anim = -2000;
+    if (sel_station >= start && sel_station < start + MUSIC_ROWS && sel_station < rows) draw_sel_bar(&sel_anim, 114.0f + (sel_station - start) * 24.0f);
     for (int i = 0; i < MUSIC_ROWS; i++) {
         int r = start + i;
         if (r >= rows) break;
@@ -8804,9 +8943,6 @@ static void draw_list_radio(void) {
         f32 cy = ry + 12.0f;
         int is_sel = (r == sel_station);
         if (is_sel) {
-            gx_glow(20, ry + 1, 244, 22, 5, RGBA(150, 80, 255, 120), 3);
-            gx_rrect_fill(20, ry + 1, 244, 22, 5, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
-            gx_rrect_stroke(20, ry + 1, 244, 22, 5, 1.2f, RGBA(180, 104, 255, 255));
         } else if (i + 1 < MUSIC_ROWS && r + 1 < rows && r + 1 != sel_station) {
             gx_rect(25, ry + 24, 241, 1, RGBA(60, 40, 120, 110));
         }
@@ -8957,6 +9093,13 @@ static const char *const menu_labels[MI_COUNT] = {
     "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Format de l'\xC3\xA9" "cran", "Langue du contenu", "Mode soir\xC3\xA9" "e", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Mise \xC3\xA0 jour", "Quitter GC-MP3" };
 
+static void web_relayout(void);
+static void scr_set_wide(int w) {
+    scr_wide = w;
+    wv_lw = w ? WV_W * 4 / 3 : WV_W;
+    if (pg.nitems) web_relayout();
+}
+
 static void menu_change(int i, int d) {
     static const int savers[] = { 0, 2, 5, 10, 30 };
     switch (i) {
@@ -9002,7 +9145,7 @@ static void menu_change(int i, int d) {
     case MI_COVERS:  covers_auto = !covers_auto; if (covers_auto) net_start_async(); break;
     case MI_RESUME:  resume_on = !resume_on; break;
     case MI_VIDEO:   video_pref = (video_pref + d + VID_COUNT) % VID_COUNT; break;
-    case MI_WIDE:    scr_wide = !scr_wide; break;
+    case MI_WIDE:    scr_set_wide(!scr_wide); break;
     case MI_SCREEN:  scr_pct += 2 * d; if (scr_pct < 80) scr_pct = 80; if (scr_pct > 100) scr_pct = 100; break;
     case MI_LANG:    lang_pref = (lang_pref + 1 + d + LANG_COUNT + 1) % (LANG_COUNT + 1) - 1; break;
     case MI_REC:
@@ -9049,7 +9192,7 @@ static void menu_input(u32 down, u32 nav, int fire) {
 }
 
 static void draw_menu(void) {
-    gx_quad4(scr_x0, 0, scr_x0 + scr_w, 480, RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140));
+    gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140));
     const f32 x = 110, y = 58, w = 420, rh = 25, h = 76 + MENU_VIS * rh;
     if (menu_sel < menu_top) menu_top = menu_sel;
     if (menu_sel >= menu_top + MENU_VIS) menu_top = menu_sel - MENU_VIS + 1;
@@ -9064,14 +9207,16 @@ static void draw_menu(void) {
         gx_tri(x + w / 2 - 7, y + 52, x + w / 2 + 7, y + 52, x + w / 2, y + 45, RGBA(190, 160, 255, 220));
     if (menu_top + MENU_VIS < MI_COUNT)
         gx_tri(x + w / 2 - 7, y + h - 22, x + w / 2 + 7, y + h - 22, x + w / 2, y + h - 15, RGBA(190, 160, 255, 220));
+    {
+        static f32 sel_anim = -2000;
+        f32 sy = smooth_to(&sel_anim, y + 54 + (menu_sel - menu_top) * rh);
+        gx_glow(x + 14, sy + 1, w - 28, rh - 3, 6, RGBA(150, 80, 255, 120), 2);
+        gx_rrect_fill(x + 14, sy + 1, w - 28, rh - 3, 6, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
+    }
     for (int i = menu_top; i < MI_COUNT && i < menu_top + MENU_VIS; i++) {
         f32 ry = y + 54 + (i - menu_top) * rh;
         int on = (i == menu_sel);
         if (i == MI_QUIT) gx_rect(x + 18, ry - 2, w - 36, 1, RGBA(76, 52, 150, 200));
-        if (on) {
-            gx_glow(x + 14, ry + 1, w - 28, rh - 3, 6, RGBA(150, 80, 255, 120), 2);
-            gx_rrect_fill(x + 14, ry + 1, w - 28, rh - 3, 6, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
-        }
         col_t lc = (i == MI_QUIT) ? RGBA(255, 170, 170, 255) : RGBA(230, 222, 255, 255);
         gx_text1(F_MED, x + 26, ry + 18, menu_labels[i], on ? RGBA(255, 255, 255, 255) : lc);
         menu_value(i, v, sizeof(v));
@@ -9105,7 +9250,7 @@ static void draw_menu(void) {
 }
 
 /* ---------- Economiseur d'ecran ---------- */
-static u64 last_input_ms = 0;
+static u64 last_input_ms = 0;                /* (aussi declare plus haut, bib_pump) */
 
 /* Ce qui joue en ce moment : titre (et artiste ou station) */
 static void saver_title(char *t, int tcap, char *sub, int scap) {
@@ -9184,6 +9329,7 @@ static void saver_horloge(f32 t) {
     char hm[16], date[64], ti[200], sub[200];
     int sec = saver_clock(hm, sizeof(hm), date, sizeof(date));
     f32 cx = 320 + 110 * sinf(t * 0.043f), cy = 210 + 60 * sinf(t * 0.031f + 0.7f);
+    uxsave_t uz = ux_native(cx);
     const f32 dw = 70, dh = 128, gap = 16, colon = 40;
     const f32 total = 4 * dw + 2 * gap + colon;
     f32 x = cx - total / 2, y = cy - dh / 2;
@@ -9202,28 +9348,30 @@ static void saver_horloge(f32 t) {
     saver_title(ti, sizeof(ti), sub, sizeof(sub));
     saver_line(F_MED, cx, y + dh + 80, ti, 520, RGBA(190, 170, 245, 190));
     saver_line(F_SMALL, cx, y + dh + 102, sub, 520, RGBA(150, 135, 210, 170));
+    ux_restore(uz);
 }
 
 /* ---- Pochette en grand ---- */
 static void saver_pochette(f32 t) {
     const f32 sz = 220, tw = 280;
     f32 cx = 320 + 40 * sinf(t * 0.047f), cy = 225 + 60 * sinf(t * 0.033f + 0.4f);
+    uxsave_t uz = ux_native(cx);                         /* (16:9 : proportions reelles) */
     f32 bx = cx - (sz + 26 + tw) / 2, by = cy - sz / 2;
     if (saver_has_cover()) {
         gx_set_cover();
         GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-        GX_Position2f32(bx, by);           GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 0.0f);
-        GX_Position2f32(bx + sz, by);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 0.0f);
-        GX_Position2f32(bx + sz, by + sz); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 1.0f);
-        GX_Position2f32(bx, by + sz);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 1.0f);
+        GX_Position2f32(UX(bx), by);           GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 0.0f);
+        GX_Position2f32(UX(bx + sz), by);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 0.0f);
+        GX_Position2f32(UX(bx + sz), by + sz); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 1.0f);
+        GX_Position2f32(UX(bx), by + sz);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 1.0f);
         GX_End();
         /* reflet sous la pochette */
         const f32 rh = 60;
         GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-        GX_Position2f32(bx, by + sz + 4);           GX_Color4u8(255, 255, 255, 70); GX_TexCoord2f32(0.0f, 1.0f);
-        GX_Position2f32(bx + sz, by + sz + 4);      GX_Color4u8(255, 255, 255, 70); GX_TexCoord2f32(1.0f, 1.0f);
-        GX_Position2f32(bx + sz, by + sz + 4 + rh); GX_Color4u8(255, 255, 255, 0);  GX_TexCoord2f32(1.0f, 1.0f - rh / sz);
-        GX_Position2f32(bx, by + sz + 4 + rh);      GX_Color4u8(255, 255, 255, 0);  GX_TexCoord2f32(0.0f, 1.0f - rh / sz);
+        GX_Position2f32(UX(bx), by + sz + 4);           GX_Color4u8(255, 255, 255, 70); GX_TexCoord2f32(0.0f, 1.0f);
+        GX_Position2f32(UX(bx + sz), by + sz + 4);      GX_Color4u8(255, 255, 255, 70); GX_TexCoord2f32(1.0f, 1.0f);
+        GX_Position2f32(UX(bx + sz), by + sz + 4 + rh); GX_Color4u8(255, 255, 255, 0);  GX_TexCoord2f32(1.0f, 1.0f - rh / sz);
+        GX_Position2f32(UX(bx), by + sz + 4 + rh);      GX_Color4u8(255, 255, 255, 0);  GX_TexCoord2f32(0.0f, 1.0f - rh / sz);
         GX_End();
         gx_rrect_stroke(bx, by, sz, sz, 2, 1.2f, RGBA(124, 80, 240, 200));
     } else {
@@ -9246,6 +9394,7 @@ static void saver_pochette(f32 t) {
         fit_text(F_SMALL, date, (int)tw, buf, sizeof(buf));
         gx_text1(F_SMALL, tx, ty + 118, buf, RGBA(150, 135, 210, 180));
     }
+    ux_restore(uz);
 }
 
 /* ---- Champ d'etoiles (accelere avec la musique) ---- */
@@ -9460,7 +9609,9 @@ static void photo_pump(void) {
 
 static void draw_photo(const ptex_t *p, u8 alpha, f32 age, int dir) {
     if (!p->tex || p->iw <= 0 || p->ih <= 0) return;
-    f32 s = 640.0f / p->iw;
+    f32 fw = 640.0f * ux_k;                             /* (16:9 : toute la largeur) */
+    uxsave_t uz = ux_native(320);
+    f32 s = fw / p->iw;
     if (p->ih * s > 480.0f) s = 480.0f / p->ih;
     f32 z = 1.0f + 0.07f * (age / (PHOTO_SHOW_MS / 1000.0f));    /* lent zoom */
     f32 w = p->iw * s * z, h = p->ih * s * z;
@@ -9469,11 +9620,12 @@ static void draw_photo(const ptex_t *p, u8 alpha, f32 age, int dir) {
     f32 u1 = (f32)p->iw / p->tw, v1 = (f32)p->ih / p->th;
     gx_set_image((GXTexObj *)&p->obj);
     GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-    GX_Position2f32(x0, y0);         GX_Color4u8(255, 255, 255, alpha); GX_TexCoord2f32(0.0f, 0.0f);
-    GX_Position2f32(x0 + w, y0);     GX_Color4u8(255, 255, 255, alpha); GX_TexCoord2f32(u1, 0.0f);
-    GX_Position2f32(x0 + w, y0 + h); GX_Color4u8(255, 255, 255, alpha); GX_TexCoord2f32(u1, v1);
-    GX_Position2f32(x0, y0 + h);     GX_Color4u8(255, 255, 255, alpha); GX_TexCoord2f32(0.0f, v1);
+    GX_Position2f32(UX(x0), y0);         GX_Color4u8(255, 255, 255, alpha); GX_TexCoord2f32(0.0f, 0.0f);
+    GX_Position2f32(UX(x0 + w), y0);     GX_Color4u8(255, 255, 255, alpha); GX_TexCoord2f32(u1, 0.0f);
+    GX_Position2f32(UX(x0 + w), y0 + h); GX_Color4u8(255, 255, 255, alpha); GX_TexCoord2f32(u1, v1);
+    GX_Position2f32(UX(x0), y0 + h);     GX_Color4u8(255, 255, 255, alpha); GX_TexCoord2f32(0.0f, v1);
     GX_End();
+    ux_restore(uz);
 }
 
 static void saver_photos(f32 t) {
@@ -9505,7 +9657,7 @@ static void saver_photos(f32 t) {
 static void draw_saver(void) {
     scr_viewport();
     GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-    gx_quad4(scr_x0, 0, scr_x0 + scr_w, 480, RGBA(2, 1, 8, 255), RGBA(2, 1, 8, 255), RGBA(4, 2, 14, 255), RGBA(4, 2, 14, 255));
+    gx_quad4(0, 0, 640, 480, RGBA(2, 1, 8, 255), RGBA(2, 1, 8, 255), RGBA(4, 2, 14, 255), RGBA(4, 2, 14, 255));
     /* tout se deplace lentement : pas d'image fixe sur l'ecran */
     f32 t = (f32)(now_ms() % 600000) / 1000.0f;
     switch (saver_style) {
@@ -9694,12 +9846,12 @@ static void draw_party(void) {
     scr_viewport();
     GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
     col_t top = hsv(pt_hue, 0.9f, 0.10f + pt_beat * 0.18f, 255), bot = hsv(pt_hue + 60, 0.9f, 0.04f, 255);
-    gx_quad4(scr_x0, 0, scr_x0 + scr_w, 480, top, top, bot, bot);
+    gx_quad4(0, 0, 640, 480, top, top, bot, bot);
     if (party_style == 1) party_barres();
     else if (party_style == 2) party_tunnel();
     else party_pulsation();
-    if (pt_beat > 0.05f) gx_rect(scr_x0, 0, scr_w, 480, RGBA(255, 255, 255, (u8)(pt_beat * 28)));   /* eclair */
-    gx_quad4(scr_x0, 290, scr_x0 + scr_w, 480, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));   /* lisibilite du texte */
+    if (pt_beat > 0.05f) gx_rect(0, 0, 640, 480, RGBA(255, 255, 255, (u8)(pt_beat * 28)));   /* eclair */
+    gx_quad4(0, 290, 640, 480, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));   /* lisibilite du texte */
 
     /* paroles en grand, sinon titre et artiste */
     char line[300], d1[300];
@@ -9767,8 +9919,10 @@ static void music_rescan(void) {
     if (!sd_ok) return;
     char playing_path[NAME_LEN] = "";
     if (src == SRC_FILE && cur_track >= 0) snprintf(playing_path, sizeof(playing_path), "%s", names[cur_track]);
+    if (bib_dirty) bib_save();                             /* garde ce qui est deja lu */
     scan_files();
     tags_reset();
+    bib_load();
     cur_track = -1;
     for (int i = 0; i < nfiles && playing_path[0]; i++)
         if (strcmp(names[i], playing_path) == 0) { cur_track = i; break; }
@@ -9850,7 +10004,7 @@ int main(int argc, char **argv) {
     gx_init();
     init_spectrum();
 
-    if (sd_ok) scan_files();
+    if (sd_ok) { scan_files(); bib_load(); }
     load_stations();
     lib_rebuild();
     if (covers_auto) net_start_async();     /* reseau en fond, pour les pochettes */
@@ -9896,8 +10050,12 @@ int main(int argc, char **argv) {
         /* croix, avec repetition quand on la maintient */
         u32 nav = held & (PAD_BUTTON_UP | PAD_BUTTON_DOWN | PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT);
         int fire = 0;
-        if (down & nav) { fire = 1; rep_mask = nav; rep_next = now + 400; }
-        else if (nav && nav == rep_mask && now >= rep_next) { fire = 1; rep_next = now + 70; }
+        static u64 rep_start = 0;
+        if (down & nav) { fire = 1; rep_mask = nav; rep_next = now + 320; rep_start = now; }
+        else if (nav && nav == rep_mask && now >= rep_next) {      /* de plus en plus vite */
+            fire = 1;
+            rep_next = now + (now - rep_start > 1500 ? 35 : now - rep_start > 800 ? 50 : 70);
+        }
         else if (!nav) rep_mask = 0;
         if (kfire && !saver_on) { fire = 1; nav |= knav; }
         if (saver_on) fire = 0;
@@ -10021,6 +10179,7 @@ int main(int argc, char **argv) {
         night_pump();
         rb_pump();
         lib_pump();
+        bib_pump();
         photo_pump();
         resume_note(0);
         if (settings_dirty) {                               /* reglages changes : enregistres 2 s apres */
@@ -10042,6 +10201,7 @@ int main(int argc, char **argv) {
     }
 
     resume_note(1);                          /* garde la position pour la prochaine fois */
+    if (bib_dirty) bib_save();
     AUDIO_RegisterDMACallback(NULL);
     stop_track();
     stop_station();
