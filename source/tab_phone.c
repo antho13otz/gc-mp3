@@ -29,7 +29,7 @@ static volatile int tp_json_cur = 0;
 static u64 tp_json_t = 0;
 
 /* commandes envoyees par la page */
-enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN };
+enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN, PC_MENU, PC_CHECK, PC_SET, PC_UPDATE };
 static char tp_open_url[2048];                 /* "ouvrir sur la tele" (ecrit par le fil du serveur) */
 static volatile int tp_open_busy = 0;
 typedef struct { int c, i; } phcmd_t;
@@ -107,6 +107,67 @@ static void sb_json_str(sbuf_t *s, const char *t) {
         else { e[0] = (char)*p; e[1] = 0; sb_add(s, e); }
     }
     sb_add(s, "\"");
+}
+
+/* --- reglages (page "Reglages" du telephone) : construits par la boucle principale --- */
+static char *tp_cfg[2] = { NULL, NULL };
+static volatile int tp_cfg_cur = 0, tp_cfg_now = 0, tp_cfg_reading = 0;
+static u64 tp_cfg_t = 0;
+static char tp_set_k[32], tp_set_v[600];
+static volatile int tp_set_busy = 0;
+static const char *const tp_text_keys[] = { "ville", "actualites", "reveil", "reveil_joue", "telephone", "veilleuse_radio", "maj_auto", "maj_depot", NULL };
+
+static void tp_cfg_build(void) {
+    sbuf_t s = { NULL, 0, 0 };
+    char v[160], num[32];
+    sb_add(&s, "{\"m\":[");
+    int first = 1;
+    for (int i = 0; i < MI_COUNT; i++) {
+        if (i == MI_QUIT || i == MI_ELEMS || i == MI_TABS) continue;
+        menu_value(i, v, sizeof(v));
+        if (!first) sb_add(&s, ",");
+        first = 0;
+        snprintf(num, sizeof(num), "[%d,", i);
+        sb_add(&s, num);
+        sb_json_str(&s, menu_labels[i]);
+        sb_add(&s, ",");
+        sb_json_str(&s, v);
+        sb_add(&s, i == MI_UPDATE ? ",1]" : ",0]");
+    }
+    sb_add(&s, "],\"el\":[");
+    for (int i = 0; i < EL_COUNT; i++) {
+        if (i) sb_add(&s, ",");
+        sb_add(&s, "[");
+        sb_json_str(&s, el_names[i]);
+        sb_add(&s, ck_el_get(i) ? ",1]" : ",0]");
+    }
+    sb_add(&s, "],\"tb\":[");
+    for (int i = 0; i < TAB_COUNT; i++) {
+        if (i) sb_add(&s, ",");
+        sb_add(&s, "[");
+        sb_json_str(&s, tab_names[i]);
+        sb_add(&s, tab_shown(i) ? ",1" : ",0");
+        sb_add(&s, i == TAB_MUSIC ? ",1]" : ",0]");
+    }
+    char rv[16];
+    if (alarm_on) snprintf(rv, sizeof(rv), "%02d:%02d", alarm_min / 60, alarm_min % 60); else snprintf(rv, sizeof(rv), "non");
+    snprintf(num, sizeof(num), "%d", alarm_src);
+    const char *tv[] = { city, news_url, rv, num, phone_auto ? "oui" : "non", night_radio ? "oui" : "non", upd_auto ? "oui" : "non", upd_repo };
+    sb_add(&s, "],\"t\":{");
+    for (int i = 0; tp_text_keys[i]; i++) {
+        if (i) sb_add(&s, ",");
+        sb_json_str(&s, tp_text_keys[i]);
+        sb_add(&s, ":");
+        sb_json_str(&s, tv[i]);
+    }
+    snprintf(num, sizeof(num), "},\"sdv\":%d}", sd_virtual);
+    sb_add(&s, num);
+    if (s.b) {
+        int w = 1 - tp_cfg_cur;
+        free(tp_cfg[w]);
+        tp_cfg[w] = s.b;
+        tp_cfg_cur = w;
+    }
 }
 
 static void tp_json_build(void) {
@@ -344,6 +405,46 @@ static void tp_handle(s32 c) {
         if (n <= 0) { n = snprintf(cb, sizeof(cb), "Aucun plantage enregistre.\n"); }
         tp_reply(c, 200, "text/plain; charset=utf-8", cb, n);
     }
+    else if (!strcmp(target, "/api/settings")) {
+        if (!tp_cfg[tp_cfg_cur]) { tp_cfg_now = 1; for (int k = 0; k < 50 && !tp_cfg[tp_cfg_cur]; k++) usleep(20000); }
+        tp_cfg_reading = 1;                                    /* (la boucle ne la remplace pas pendant la copie) */
+        const char *cfg = tp_cfg[tp_cfg_cur];
+        char *tmp = cfg ? strdup(cfg) : NULL;
+        tp_cfg_reading = 0;
+        if (tmp) { tp_reply(c, 200, "application/json", tmp, (int)strlen(tmp)); free(tmp); }
+        else tp_reply(c, 500, "text/plain", "", 0);
+    }
+    else if (!strcmp(target, "/api/menu")) {                /* < ou > sur une ligne des reglages */
+        char is[16], ds[8];
+        tp_param(q ? q : "", "i", is, sizeof(is));
+        tp_param(q ? q : "", "d", ds, sizeof(ds));
+        int i = atoi(is), ok = is[0] && i >= 0 && i < MI_COUNT && i != MI_QUIT;
+        if (ok) tp_push(PC_MENU, i * 2 + (atoi(ds) > 0));
+        tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
+    }
+    else if (!strcmp(target, "/api/check")) {               /* case a cocher (elements, onglets) */
+        char w[8], is[16];
+        tp_param(q ? q : "", "w", w, sizeof(w));
+        tp_param(q ? q : "", "i", is, sizeof(is));
+        int i = atoi(is), ok = is[0] && ((!strcmp(w, "el") && i >= 0 && i < EL_COUNT) || (!strcmp(w, "tb") && i > 0 && i < TAB_COUNT));
+        if (ok) tp_push(PC_CHECK, (w[0] == 't' ? 100 : 0) + i);
+        tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
+    }
+    else if (!strcmp(target, "/api/set")) {                 /* reglage tape (ville, reveil...) */
+        char k[32], v[600];
+        tp_param(q ? q : "", "k", k, sizeof(k));
+        tp_param(q ? q : "", "v", v, sizeof(v));
+        int ok = 0;
+        for (int i = 0; tp_text_keys[i]; i++) if (!strcmp(k, tp_text_keys[i])) ok = 1;
+        for (char *p = v; *p; p++) if (*p == '\r' || *p == '\n') *p = ' ';
+        if (ok && !tp_set_busy) {
+            snprintf(tp_set_k, sizeof(tp_set_k), "%s", k);
+            snprintf(tp_set_v, sizeof(tp_set_v), "%s", v);
+            tp_set_busy = 1;
+            tp_push(PC_SET, 0);
+        } else ok = 0;
+        tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
+    }
     else if (!strcmp(target, "/api/cmd")) {
         static const char *const cmds[] = { "", "toggle", "next", "prev", "stop", "volup", "voldown", "play", "radio", "party", "layout" };
         char cmd[16], is[16];
@@ -408,6 +509,7 @@ static void phone_pump(void) {
     }
     u64 now = now_ms();
     if (now - tp_json_t > 300) { tp_json_t = now; tp_json_build(); }
+    if (!tp_cfg_reading && (tp_cfg_now || (now - tp_cfg_t > 1000 && now - tp_last_req < 15000))) { tp_cfg_now = 0; tp_cfg_t = now; tp_cfg_build(); }
     while (tp_qh != tp_qt) {
         phcmd_t cm = tp_q[tp_qh];
         tp_qh = (tp_qh + 1) % 16;
@@ -428,6 +530,30 @@ static void phone_pump(void) {
         case PC_PARTY: if (party_on) party_on = 0; else party_start(); break;
         case PC_LAYOUT: layout_next(); break;
         case PC_OPEN: web_open_from_phone(tp_open_url); tp_open_busy = 0; break;
+        case PC_MENU:
+            if (cm.i / 2 == MI_UPDATE) update_activate();
+            else if (cm.i / 2 != MI_ELEMS && cm.i / 2 != MI_TABS) menu_change(cm.i / 2, (cm.i & 1) ? 1 : -1);
+            tp_cfg_now = 1;
+            break;
+        case PC_CHECK:
+            if (cm.i >= 100) ck_tab_toggle(cm.i - 100); else ck_el_toggle(cm.i);
+            settings_dirty = 1;
+            tp_cfg_now = 1;
+            break;
+        case PC_SET: {
+            char v[600];
+            snprintf(v, sizeof(v), "%s", tp_set_v);
+            char *t = trim(v);
+            if (!strcmp(tp_set_k, "ville")) infos_set_city(t);
+            else {
+                setting_apply(tp_set_k, t);
+                if (!strcmp(tp_set_k, "actualites")) news_t = 0;
+            }
+            settings_dirty = 1;
+            tp_set_busy = 0;
+            tp_cfg_now = 1;
+            break;
+        }
         }
     }
     if (tp_rescan & 1) { tp_rescan &= ~1; music_rescan(); retro_rescan(); }
