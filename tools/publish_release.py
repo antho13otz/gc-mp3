@@ -67,7 +67,19 @@ for a in old:
         st3, _ = call("DELETE", api + "/releases/assets/%d" % a["id"])
         print("ancien %s supprime : HTTP %d" % (a.get("name"), st3))
 
-# 3. le numero de build en dernier : il n'annonce jamais un fichier absent
+# 3. le numero de build en dernier : il n'annonce jamais un fichier absent.
+#    "build=N" toujours sur la PREMIERE ligne (GC-MP3 v19 et avant ne lisent que
+#    le debut du texte) ; si le texte ou le titre ont ete ecrits a la main sur
+#    GitHub, ils sont gardes en dessous.
+import re
+old_body = (rel.get("body") or "").replace("\r\n", "\n")
+mine_txt = "Derniere version compilee de GC-MP3"
+kept = "\n".join(l for l in old_body.split("\n") if not re.match(r"^\s*build=\d*\s*$", l)).strip()
+if kept and mine_txt not in kept and "Publication en cours" not in kept:
+    info["body"] = "build=" + build + "\n\n" + kept
+old_name = rel.get("name") or ""
+if old_name and not old_name.startswith("GC-MP3 build"):
+    info["name"] = old_name
 st2, _ = call("PATCH", api + "/releases/%d" % rel["id"], json.dumps(info).encode())
 if st2 != 200:
     fail("mise a jour du texte de la release impossible (HTTP %d)" % st2)
