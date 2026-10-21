@@ -50,12 +50,13 @@ static void night_input(u32 down, u32 nav, int fire) {
 static void draw_night(void) {
     scr_viewport();
     GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-    gx_rect(scr_x0, 0, scr_w, 480, RGBA(0, 0, 0, 255));
+    gx_rect(0, 0, 640, 480, RGBA(0, 0, 0, 255));
     static const u8 lum[6] = { 0, 26, 48, 80, 130, 200 };
     u8 a = lum[night_lum < 1 ? 1 : night_lum > 5 ? 5 : night_lum];
     /* tres lent deplacement (pas d'image fixe sur l'ecran) */
     f32 t = (f32)(now_ms() % 3600000) / 1000.0f;
     f32 cx = 320 + 70 * sinf(t * 0.011f), cy = 200 + 40 * sinf(t * 0.008f + 1.1f);
+    uxsave_t uz = ux_native(cx);                         /* (16:9 : chiffres sans deformation) */
     char hm[16], date[64], ti[200], sub[200];
     int sec = saver_clock(hm, sizeof(hm), date, sizeof(date));
     const f32 dw = 84, dh = 150, gap = 18, colon = 44;
@@ -82,6 +83,7 @@ static void draw_night(void) {
         snprintf(m, sizeof(m), "Arr\xC3\xAAt dans %d min", n >= sleep_at ? 0 : (int)((sleep_at - n + 59999) / 60000));
         saver_line(F_SMALL, cx, y + dh + 86, m, 520, RGBA(210, 120, 80, ta));
     }
+    ux_restore(uz);
     if (now_ms() < night_hint_until) {
         char h[120];
         snprintf(h, sizeof(h), "Luminosit\xC3\xA9 %d / 5 (haut / bas)   X : minuterie   B : sortir", night_lum);
