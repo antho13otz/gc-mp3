@@ -3169,7 +3169,8 @@ static const char *const saver_keys[SV_COUNT] = { "spectre", "pochette", "horlog
 static const char *const saver_names[SV_COUNT] = { "Spectre", "Pochette", "Horloge", "\xC3\x89toiles",
                                                    "Photos (sd:/ecran)", "\xC3\x89" "cran noir" };
 static int video_pref = VID_AUTO;
-static int scr_pct = 100;                   /* taille de l'image : 80 a 100 % */
+static int scr_pct = 100;                   /* taille de l'image : 80 a 112 % (au-dela de 100 : plus large, par la sortie video) */
+#define SCR_MAX 112
 static int scr_wide = 0;                    /* 1 = televiseur en 16:9 (image etiree par la tele) */
 #define WV_X           26                   // zone d'affichage de la page
 #define WV_Y           116
@@ -3269,7 +3270,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "economiseur")) { saver_min = atoi(v); if (saver_min < 0) saver_min = 0; }
         else if (!strcasecmp(k, "economiseur_style")) { for (int i = 0; i < SV_COUNT; i++) if (!strcasecmp(v, saver_keys[i])) saver_style = i; }
         else if (!strcasecmp(k, "ecran_format")) { scr_wide = strstr(v, "16") != NULL; wv_lw = scr_wide ? WV_W * 4 / 3 : WV_W; }
-        else if (!strcasecmp(k, "ecran_taille")) { scr_pct = atoi(v); if (scr_pct < 80) scr_pct = 80; if (scr_pct > 100) scr_pct = 100; }
+        else if (!strcasecmp(k, "ecran_taille")) { scr_pct = atoi(v); if (scr_pct < 80) scr_pct = 80; if (scr_pct > SCR_MAX) scr_pct = SCR_MAX; }
         else if (!strcasecmp(k, "langue")) { lang_pref = -1; for (int i = 0; i < LANG_COUNT; i++) if (!strncasecmp(v, lang_keys[i], 2)) lang_pref = i; }
         else if (!strcasecmp(k, "video")) video_pref = !strcasecmp(v, "480p") ? VID_480P : !strcasecmp(v, "480i") ? VID_480I : VID_AUTO;
         else if (!strcasecmp(k, "reprise")) resume_on = yes(v);
@@ -3634,6 +3635,19 @@ static void gx_init(void) {
     say("%s\n", "OK");
 }
 
+/* Taille d'ecran au-dela de 100 % : la sortie video etale les 640 points de
+   l'image sur une ligne plus large (jusqu'a 716 sur 720), ce qui reduit les
+   bandes noires des cotes que laissent beaucoup de teles. */
+static void scr_vi_set(int apply) {
+    int w = 640;
+    if (scr_pct > 100) w = (640 * scr_pct / 100) & ~1;
+    if (w > 716) w = 716;
+    rmode->viWidth = (u16)w;
+    rmode->viXOrigin = (u16)((720 - w) / 2);
+    if (apply) { VIDEO_Configure(rmode); VIDEO_Flush(); }
+}
+static void scr_vi(void) { if (rmode) scr_vi_set(1); }
+
 static int init_video(void) {
     VIDEO_Init();
     PAD_Init();
@@ -3647,6 +3661,10 @@ static int init_video(void) {
         rmode = (tv == VI_PAL || tv == VI_EURGB60) ? &TVEurgb60Hz480Prog : &TVNtsc480Prog;
     }
 
+    static GXRModeObj vmode;                 /* copie modifiable (largeur de sortie, voir scr_vi) */
+    vmode = *rmode;
+    rmode = &vmode;
+    scr_vi_set(0);
     xfb[0] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(rmode));
     xfb[1] = MEM_K0_TO_K1(SYS_AllocateFramebuffer(rmode));
     if (xfb[0] == NULL || xfb[1] == NULL) return 0;
@@ -4015,8 +4033,8 @@ static void draw_badge(f32 cx, f32 cy, const char *letter, col_t c1, col_t c2) {
 static f32 scr_sx = 1, scr_sy = 1, scr_ox = 0, scr_oy = 0;
 static void scr_viewport(void) {
     if (scr_pct < 80) scr_pct = 80;
-    if (scr_pct > 100) scr_pct = 100;
-    f32 s = scr_pct / 100.0f;
+    if (scr_pct > SCR_MAX) scr_pct = SCR_MAX;
+    f32 s = scr_pct > 100 ? 1.0f : scr_pct / 100.0f;          /* (au-dela : voir scr_vi) */
     f32 w = rmode->fbWidth * s, h = rmode->efbHeight * s;
     scr_ox = (int)((rmode->fbWidth - w) / 2);
     scr_oy = (int)((rmode->efbHeight - h) / 2);
@@ -9088,7 +9106,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_COVERS:  snprintf(out, cap, "%s", covers_auto ? "Oui" : "Non"); break;
     case MI_RESUME:  snprintf(out, cap, "%s", resume_on ? "Oui" : "Non"); break;
     case MI_VIDEO:   snprintf(out, cap, "%s", vid[video_pref]); break;
-    case MI_SCREEN:  snprintf(out, cap, "%d %%", scr_pct); break;
+    case MI_SCREEN:  snprintf(out, cap, scr_pct > 100 ? "%d %% (plus large)" : "%d %%", scr_pct); break;
     case MI_WIDE:    snprintf(out, cap, "%s", scr_wide ? "16:9 (\xC3\xA9" "cran large)" : "4:3"); break;
     case MI_LANG:
         if (lang_pref < 0) snprintf(out, cap, "Auto (%s)", lang_names[lang_console()]);
@@ -9162,7 +9180,7 @@ static void menu_change(int i, int d) {
     case MI_RESUME:  resume_on = !resume_on; break;
     case MI_VIDEO:   video_pref = (video_pref + d + VID_COUNT) % VID_COUNT; break;
     case MI_WIDE:    scr_set_wide(!scr_wide); break;
-    case MI_SCREEN:  scr_pct += 2 * d; if (scr_pct < 80) scr_pct = 80; if (scr_pct > 100) scr_pct = 100; break;
+    case MI_SCREEN:  scr_pct += 2 * d; if (scr_pct < 80) scr_pct = 80; if (scr_pct > SCR_MAX) scr_pct = SCR_MAX; scr_vi(); break;
     case MI_LANG:    lang_pref = (lang_pref + 1 + d + LANG_COUNT + 1) % (LANG_COUNT + 1) - 1; break;
     case MI_REC:
         if (rec_fp) rec_stop();
