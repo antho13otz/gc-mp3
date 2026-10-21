@@ -1,0 +1,1258 @@
+// GC-MP3 v18 (inclus dans main.c, apres gckb.c)
+//  - Karaoke : les paroles en tres grand sur toute la tele, la ligne chantee se colore
+//  - Jeu de rythme : des notes tombent sur le rythme de tes morceaux, A / B / X / Y au bon moment
+//  - Quiz musical : 10 s d'un de tes morceaux, devine lequel (1 a 4 manettes)
+//  - Reveil en douceur : le son monte pendant 3 minutes, l'heure et la meteo en grand
+//  - La manette vibre sur les basses (mode soiree)
+//  - Titres de la radio gardes (X dans l'onglet RADIO) : sd:/gc-mp3-titres.txt
+//  - Nouveaux episodes des podcasts telecharges tout seuls (sd:/podcasts)
+//  - Fond d'ecran : une de tes photos (PHOTOS, plein ecran, X)
+
+enum { FUN_OFF, FUN_KARAOKE, FUN_RHYTHM, FUN_QUIZ, FUN_WAKE };
+static int fun_mode = FUN_OFF;
+static u64 fun_t0 = 0;
+static u32 fun_pads = 1;                    /* manettes branchees (PAD_ScanPads) */
+
+static const col_t lane_top[4] = { { 90, 230, 120, 255 }, { 245, 80, 95, 255 }, { 150, 190, 255, 255 }, { 255, 215, 80, 255 } };
+static const col_t lane_bot[4] = { { 30, 150, 60, 255 }, { 175, 30, 50, 255 }, { 70, 110, 210, 255 }, { 200, 150, 20, 255 } };
+static const char *const lane_btn[4] = { "A", "B", "X", "Y" };
+
+/* ---------- Vibrations ---------- */
+static u64 rumble_until[4];
+static void rumble(int ch, int ms) {
+    if (!rumble_on || ch < 0 || ch > 3) return;
+    if (!rumble_until[ch]) PAD_ControlMotor(ch, PAD_MOTOR_RUMBLE);
+    u64 t = now_ms() + (u64)ms;
+    if (t > rumble_until[ch]) rumble_until[ch] = t;
+}
+static void rumble_stop_all(void) {
+    for (int ch = 0; ch < 4; ch++) if (rumble_until[ch]) { PAD_ControlMotor(ch, PAD_MOTOR_STOP); rumble_until[ch] = 0; }
+}
+static void rumble_pump(void) {
+    u64 now = now_ms();
+    for (int ch = 0; ch < 4; ch++)
+        if (rumble_until[ch] && now >= rumble_until[ch]) { PAD_ControlMotor(ch, PAD_MOTOR_STOP); rumble_until[ch] = 0; }
+}
+/* mode soiree : un battement fort dans les basses */
+static void party_rumble(float strength) {
+    if (party_on) rumble(0, strength > 0.18f ? 120 : 70);
+}
+
+/* ---------- Outils communs ---------- */
+static void fun_title_of(int k, char *out, int cap) {     /* nom du fichier (pas les etiquettes : quiz) */
+    snprintf(out, cap, "%s", display_name(base_of(names[k])));
+    strip_audio_ext(out);
+}
+static int fun_tracks(void) {
+    int n = 0;
+    for (int k = 0; k < nfiles; k++) n += !is_retro[k];
+    return n;
+}
+static int fun_random_track(int avoid) {
+    int n = fun_tracks();
+    if (n == 0) return -1;
+    for (int tries = 0; tries < 50; tries++) {
+        int k = (int)(lib_rand() % (u32)nfiles);
+        if (!is_retro[k] && (k != avoid || n == 1)) return k;
+    }
+    for (int k = 0; k < nfiles; k++) if (!is_retro[k] && k != avoid) return k;
+    return -1;
+}
+static int fun_selected_track(void) {                  /* morceau choisi dans MUSIQUE */
+    if (tab == TAB_MUSIC && sel_row >= 0 && sel_row < nents && ents[sel_row].type == E_TRACK) return ents[sel_row].idx;
+    return -1;
+}
+static int fun_cp_count(const char *s) { int n = 0; while (*s) { next_cp(&s); n++; } return n; }
+static void fun_cp_prefix(const char *s, int n, char *out, int cap) {
+    const char *p = s;
+    for (int i = 0; i < n && *p; i++) next_cp(&p);
+    int len = (int)(p - s);
+    if (len > cap - 1) len = cap - 1;
+    memcpy(out, s, len);
+    out[len] = 0;
+}
+static void fun_shadow_text(int f, f32 cx, f32 y, const char *s, f32 scale, col_t c) {
+    txt_scale = scale;
+    gx_text_c(f, cx + 2, y + 2, s, RGBA(0, 0, 0, 150));
+    gx_text_c(f, cx, y, s, c);
+    txt_scale = 1.0f;
+}
+static void fun_frame_begin(f32 hue, f32 lum) {
+    scr_viewport();
+    GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
+    col_t top = hsv(hue, 0.75f, 0.10f * lum, 255), bot = hsv(hue + 50, 0.85f, 0.03f * lum, 255);
+    gx_quad4(0, 0, 640, 480, top, top, bot, bot);
+}
+static void fun_spectrum(f32 base, f32 hmax, f32 hue, u8 alpha) {   /* spectre discret en bas */
+    const f32 bw = 640.0f / NBARS;
+    for (int i = 0; i < NBARS; i++) {
+        f32 h = bar_val[i] * hmax;
+        if (h < 1) continue;
+        col_t c = hsv(hue + i * 3.0f, 0.7f, 1.0f, alpha);
+        gx_vgrad(i * bw, base - h, bw - 1, h, c, RGBA(c.r, c.g, c.b, 0));
+    }
+}
+static void fun_footer(const char *s) { gx_text_c(F_SMALL, 320, 470, s, RGBA(255, 255, 255, 170)); }
+
+static void fun_leave(void) {
+    if (fun_mode == FUN_QUIZ || fun_mode == FUN_RHYTHM) stop_track();
+    fun_mode = FUN_OFF;
+    rumble_stop_all();
+    last_input_ms = now_ms();
+}
+static void fun_enter(int m) {
+    party_on = 0;
+    saver_on = 0;
+    am_open = 0;
+    menu_open = 0;
+    fun_mode = m;
+    fun_t0 = now_ms();
+}
+
+/* ======================= Karaoke ======================= */
+static int ka_line = -3;
+static f32 ka_scroll = 0;
+
+static void karaoke_start(int k) {
+    if (k < 0 && !(src == SRC_FILE && playing)) k = fun_random_track(-1);
+    if (k >= 0 && !(src == SRC_FILE && playing && cur_track == k)) { queue_build(k); start_track(k); }
+    fun_enter(FUN_KARAOKE);
+    ka_line = -3;
+    ka_scroll = 0;
+    if (lyrics_auto) net_start_async();
+}
+
+/* la ligne chantee : en tres grand, coloree de gauche a droite */
+static void ka_big_line(const char *raw, f32 cy, f32 frac) {
+    char d[300], a[300], b[300], p[300];
+    text_display(raw, d, sizeof(d));
+    if (!d[0]) snprintf(d, sizeof(d), "* * *");                 /* (passage sans paroles) */
+    f32 sc = 1.9f;
+    txt_scale = sc;
+    while (text_width(F_LARGE, d, 0) > 600 && sc > 1.3f) { sc -= 0.05f; txt_scale = sc; }
+    wrap2(F_LARGE, d, 600, a, b, sizeof(a));
+    f32 lh = font_height[F_LARGE] * sc;
+    int na = fun_cp_count(a), nb = fun_cp_count(b), lit = (int)(frac * (na + nb) + 0.5f);
+    for (int l = 0; l < 2; l++) {
+        const char *s = l ? b : a;
+        if (!s[0]) continue;
+        f32 y = (b[0] ? cy - lh * 0.45f : cy + lh * 0.1f) + l * lh;
+        f32 x = UX(320) - text_width_px(F_LARGE, s, 0) / 2.0f;
+        int n = l ? lit - na : lit;
+        gx_text_raw(F_LARGE, x + 3, y + 3, s, RGBA(0, 0, 0, 170), RGBA(0, 0, 0, 170), 0);
+        gx_text_raw(F_LARGE, x, y, s, RGBA(235, 230, 255, 255), RGBA(190, 180, 230, 255), 0);
+        if (n > 0) {
+            fun_cp_prefix(s, n, p, sizeof(p));
+            gx_text_raw(F_LARGE, x, y, p, RGBA(255, 245, 130, 255), RGBA(255, 160, 40, 255), 0);
+        }
+    }
+    txt_scale = 1.0f;
+}
+
+static void ka_small_line(int i, f32 y, u8 alpha, f32 scale) {
+    if (i < 0 || i >= lrc_n) return;
+    char d[300], t[300];
+    text_display(lyrics_line(i), d, sizeof(d));
+    if (!d[0]) return;
+    txt_scale = scale;
+    fit_text(F_LARGE, d, 600, t, sizeof(t));
+    gx_text_c(F_LARGE, 322, y + 2, t, RGBA(0, 0, 0, alpha / 2));
+    gx_text_c(F_LARGE, 320, y, t, RGBA(225, 215, 255, alpha));
+    txt_scale = 1.0f;
+}
+
+static void draw_karaoke(void) {
+    f32 hue = 250 + (f32)((now_ms() - fun_t0) % 120000) / 120000.0f * 360.0f;
+    fun_frame_begin(hue, 1.0f + pt_beat * 0.5f);
+    fun_spectrum(480, 70, hue, 70);
+    char ti[200], sub[200], t[200];
+    saver_title(ti, sizeof(ti), sub, sizeof(sub));
+    fit_text(F_MED, ti, 560, t, sizeof(t));
+    gx_text_c(F_MED, 320, 30, t, RGBA(255, 255, 255, 220));
+    if (sub[0]) { fit_text(F_SMALL, sub, 560, t, sizeof(t)); gx_text_c(F_SMALL, 320, 48, t, RGBA(200, 190, 240, 200)); }
+    gx_text(F_SMALL, 24, 30, "KARAOK\xC3\x89", RGBA(255, 210, 110, 255), RGBA(255, 160, 60, 255), 3);
+
+    int have = src == SRC_FILE && playing && lrc_n > 0 && lrc_track == cur_track;
+    if (!(src == SRC_FILE && playing)) {
+        fun_shadow_text(F_LARGE, 320, 230, "Lance un morceau", 1.4f, RGBA(255, 255, 255, 255));
+        gx_text_c(F_MED, 320, 270, "(onglet MUSIQUE, puis X > Karaok\xC3\xA9)", RGBA(210, 200, 245, 220));
+    } else if (!have) {
+        const char *m = !lyrics_auto ? "Paroles automatiques : Non (START > R\xC3\xA9glages)" :
+                        (ly_state == LY_WAIT || ly_state == LY_FETCH) && ly_track == cur_track ? "Recherche des paroles..." :
+                        "Pas de paroles pour ce morceau";
+        fun_shadow_text(F_LARGE, 320, 225, m, 1.2f, RGBA(255, 255, 255, 255));
+        gx_text_c(F_MED, 320, 268, "Paroles : LRCLIB sur Internet, ou un fichier .lrc \xC3\xA0 c\xC3\xB4t\xC3\xA9 du morceau", RGBA(210, 200, 245, 220));
+    } else {
+        int li = lyrics_current();
+        if (li != ka_line) { ka_scroll = (li == ka_line + 1) ? 1.0f : 0.0f; ka_line = li; }
+        ka_scroll *= expf(-ui_dt * 9.0f);
+        f32 off = ka_scroll * 64.0f;
+        u32 ms = (u32)((u64)consumed * 1000u / 48000u) + 150;
+        f32 frac = 0;
+        if (li >= 0) {
+            u32 st = lrc_lines[li].ms, nx = li + 1 < lrc_n ? lrc_lines[li + 1].ms : st + 4000;
+            int n = fun_cp_count(lyrics_line(li));
+            f32 dur = (f32)(nx - st) * 0.92f, want = 900.0f + n * 120.0f;
+            if (dur > want) dur = want;
+            if (dur < 300) dur = 300;
+            frac = (f32)(ms - st) / dur;
+            if (frac > 1) frac = 1;
+            if (frac < 0) frac = 0;
+        }
+        ka_small_line(li - 2, 112 + off, 70, 0.95f);
+        ka_small_line(li - 1, 164 + off, 120, 1.05f);
+        ka_big_line(li >= 0 ? lyrics_line(li) : "...", 252 + off * 0.5f, frac);
+        ka_small_line(li + 1, 352 + off, 200, 1.15f);
+        ka_small_line(li + 2, 404 + off, 110, 1.0f);
+    }
+    /* avancement */
+    int d = cur_track >= 0 ? file_duration(names[cur_track]) : 0;
+    if (src == SRC_FILE && d > 0) {
+        f32 pf = (f32)(consumed / 48000u) / d;
+        if (pf > 1) pf = 1;
+        gx_rrect_fill(120, 444, 400, 4, 2, RGBA(255, 255, 255, 40), RGBA(255, 255, 255, 40));
+        gx_rrect_fill(120, 444, 400 * pf, 4, 2, RGBA(255, 220, 110, 230), RGBA(255, 160, 60, 230));
+    }
+    fun_footer(paused ? "PAUSE   -   Y : reprendre   B : sortir" : "L / R : morceau     Y : pause     B : sortir");
+}
+
+static void karaoke_input(u32 down) {
+    if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) { fun_leave(); return; }
+    if ((down & (PAD_BUTTON_Y | PAD_BUTTON_A)) && src == SRC_FILE && playing) paused = !paused;
+}
+
+/* ======================= Jeu de rythme ======================= */
+#define RG_NOTES 64
+#define RG_FALL 1500                         /* ms pour descendre jusqu'a la ligne */
+#define RG_HIT_Y 396.0f
+#define RG_TOP_Y 70.0f
+typedef struct { u64 t; u8 lane, st; } rnote_t;          /* st : 0 a venir, 1 touchee, 2 ratee */
+static rnote_t rg_n[RG_NOTES];
+static int rg_phase = 0;                     /* 0 choix, 1 partie, 2 resultat */
+static int rg_diff = 1, rg_track = -1, rg_record = 0, rg_new_record = 0;
+static int rg_score, rg_combo, rg_best_combo, rg_hits, rg_total, rg_perfect;
+static u64 rg_ons[16];
+static int rg_non = 0, rg_lock = 0, rg_beatn = 0, rg_lastlane = -1, rg_samelane = 0;
+static float rg_avg = 0, rg_period = 500;
+static double rg_anchor = 0, rg_sched = 0;
+static int rg_armed = 1;
+static u64 rg_last_on = 0, rg_start_t = 0;
+static char rg_judge[24];
+static u64 rg_judge_t = 0;
+static col_t rg_judge_c;
+static f32 rg_flash[4];
+static const char *const rg_diff_names[3] = { "Facile", "Normal", "Difficile" };
+#define RG_FILE SD_ROOT "/gc-mp3-jeux.txt"
+
+static int rg_record_get(const char *path) {
+    FILE *f = fopen(RG_FILE, "r");
+    if (!f) return 0;
+    char line[NAME_LEN + 32];
+    int best = 0;
+    while (fgets(line, sizeof(line), f)) {
+        char *bar = strchr(line, '|');
+        if (!bar) continue;
+        char *p = trim(bar + 1);
+        if (!strcmp(p, path)) { int s = atoi(line); if (s > best) best = s; }
+    }
+    fclose(f);
+    return best;
+}
+static void rg_record_set(const char *path, int score) {
+    char *buf = (char *)malloc(64 * 1024);
+    int len = 0;
+    if (!buf) return;
+    FILE *f = fopen(RG_FILE, "r");
+    if (f) {
+        char line[NAME_LEN + 32];
+        while (fgets(line, sizeof(line), f)) {
+            char *bar = strchr(line, '|');
+            if (bar && !strcmp(trim(bar + 1), path)) continue;   /* (l'ancien record s'en va) */
+            int n = (int)strlen(line);
+            if (len + n + 2 < 60 * 1024) { memcpy(buf + len, line, n); len += n; if (n && line[n - 1] != '\n') buf[len++] = '\n'; }
+        }
+        fclose(f);
+    }
+    len += snprintf(buf + len, 64 * 1024 - len, "%d | %s\n", score, path);
+    f = fopen(RG_FILE, "w");
+    if (f) { fwrite(buf, 1, len, f); fclose(f); }
+    free(buf);
+}
+
+static void rg_new_game(int k) {
+    if (k < 0) k = fun_random_track(rg_track);
+    if (k < 0) return;
+    memset(rg_n, 0, sizeof(rg_n));
+    rg_score = rg_combo = rg_best_combo = rg_hits = rg_total = rg_perfect = 0;
+    rg_non = rg_lock = rg_beatn = 0;
+    rg_lastlane = -1;
+    rg_avg = 0;
+    rg_period = 500;
+    rg_anchor = rg_sched = 0;
+    rg_armed = 1;
+    rg_judge[0] = 0;
+    memset(rg_flash, 0, sizeof(rg_flash));
+    rg_track = k;
+    queue_build(k);
+    start_track(k);
+    rg_record = rg_record_get(names[k]);
+    rg_new_record = 0;
+    rg_start_t = now_ms();
+    rg_phase = 1;
+}
+
+static void rhythm_start(int k) {
+    fun_enter(FUN_RHYTHM);
+    rg_phase = 0;
+    rg_track = k;
+}
+
+/* tempo : histogramme des ecarts entre les coups de basse (ramenes entre 340 et 750 ms) */
+static void rg_estimate(void) {
+    static int hist[42];
+    memset(hist, 0, sizeof(hist));
+    int n = rg_non < 16 ? rg_non : 16;
+    for (int i = 0; i < n; i++)
+        for (int j = i + 1; j < n; j++) {
+            u64 a = rg_ons[i], b = rg_ons[j];
+            double d = a > b ? (double)(a - b) : (double)(b - a);
+            if (d < 150 || d > 4000) continue;
+            while (d > 750) d /= 2;
+            while (d < 340) d *= 2;
+            int bin = (int)((d - 340) / 10);
+            if (bin >= 0 && bin < 42) hist[bin] += 2;
+            if (bin > 0) hist[bin - 1]++;
+            if (bin + 1 < 42) hist[bin + 1]++;
+        }
+    int best = 0;
+    for (int i = 1; i < 42; i++) if (hist[i] > hist[best]) best = i;
+    if (hist[best] >= 6) {
+        float p = 340 + best * 10 + 5;
+        rg_period = rg_lock ? rg_period * 0.7f + p * 0.3f : p;
+    }
+}
+
+static double rg_next_after(double t) {
+    if (rg_period < 100) return t + 500;
+    double k = ceil((t - rg_anchor) / rg_period);
+    return rg_anchor + k * rg_period;
+}
+
+static void rg_spawn(double t, int strong) {
+    float b = 0, m = 0, h = 0;
+    for (int i = 0; i < 11; i++) b += bar_val[i];
+    for (int i = 11; i < 36; i++) m += bar_val[i];
+    for (int i = 36; i < NBARS; i++) h += bar_val[i];
+    b /= 11; m /= 25; h /= (NBARS - 36);
+    int lane = b >= m && b >= h ? 0 : m >= h ? 1 : 2 + (int)(lib_rand() % 2);
+    if (lib_rand() % 3 == 0) lane = (int)(lib_rand() % 4);
+    if (lane == rg_lastlane && ++rg_samelane >= 2) { lane = (lane + 1 + (int)(lib_rand() % 3)) % 4; rg_samelane = 0; }
+    else if (lane != rg_lastlane) rg_samelane = 0;
+    rg_lastlane = lane;
+    for (int i = 0; i < RG_NOTES; i++)
+        if (rg_n[i].t == 0) { rg_n[i].t = (u64)t; rg_n[i].lane = (u8)lane; rg_n[i].st = 0; return; }
+    (void)strong;
+}
+
+static void rg_judge_set(const char *s, col_t c) {
+    snprintf(rg_judge, sizeof(rg_judge), "%s", s);
+    rg_judge_c = c;
+    rg_judge_t = now_ms();
+}
+
+static void rg_finish(void) {
+    rg_phase = 2;
+    if (rg_track >= 0 && rg_track < nfiles && rg_score > rg_record && rg_score > 0) {
+        rg_new_record = 1;
+        if (sd_ok) rg_record_set(names[rg_track], rg_score);
+    }
+    stop_track();
+    rumble(0, 250);
+}
+
+static void rhythm_pump(void) {
+    if (rg_phase != 1) return;
+    u64 now = now_ms();
+    if (src != SRC_FILE || !playing || cur_track != rg_track) { rg_finish(); return; }
+    if (paused) return;
+    /* coups de basse */
+    float b = 0;
+    for (int i = 0; i < 11; i++) b += bar_val[i];
+    b /= 11.0f;
+    if (rg_armed && b > rg_avg + 0.06f && b > 0.25f && now - rg_last_on > 180) {
+        rg_last_on = now;
+        rg_armed = 0;
+        memmove(rg_ons + 1, rg_ons, sizeof(rg_ons) - sizeof(rg_ons[0]));
+        rg_ons[0] = now;
+        rg_non++;
+        if (rg_non >= 6) {
+            rg_estimate();
+            double nb = rg_next_after((double)now - rg_period / 2);
+            double err = (double)now - nb;
+            if (!rg_lock) { rg_lock = 1; rg_anchor = now; rg_sched = now; }
+            else if (fabs(err) < rg_period * 0.3) rg_anchor += err * 0.25;
+        }
+    } else if (!rg_armed && b < rg_avg + 0.02f) rg_armed = 1;
+    rg_avg = rg_avg * 0.96f + b * 0.04f;
+    if (!rg_lock && now - rg_start_t > 9000 && rg_non > 0) { rg_lock = 1; rg_anchor = rg_last_on; rg_sched = now; }  /* musique calme */
+
+    /* notes : sur les prochains temps */
+    if (rg_lock) {
+        for (int guard = 0; guard < 8; guard++) {
+            double t = rg_next_after(rg_sched + rg_period * 0.5);
+            if (t > (double)now + RG_FALL) break;
+            rg_beatn++;
+            int put = rg_diff == 0 ? (rg_beatn % 2 == 0) : rg_diff == 1 ? (pt_energy > 0.05f || rg_beatn % 2 == 0) : 1;
+            if (put && t > (double)now + 250) rg_spawn(t, 1);
+            if (rg_diff == 2 && pt_energy > 0.22f && (rg_beatn % 2) && t - rg_period / 2 > (double)now + 250) rg_spawn(t - rg_period / 2, 0);
+            rg_sched = t;
+        }
+    }
+    /* notes ratees */
+    for (int i = 0; i < RG_NOTES; i++) {
+        if (!rg_n[i].t) continue;
+        if (rg_n[i].st == 0 && now > rg_n[i].t + 170) {
+            rg_n[i].st = 2;
+            rg_total++;
+            rg_combo = 0;
+            rg_judge_set("Rat\xC3\xA9", RGBA(255, 110, 110, 255));
+            rumble(0, 60);
+        }
+        if (now > rg_n[i].t + 600) rg_n[i].t = 0;              /* (place libre) */
+    }
+    for (int l = 0; l < 4; l++) rg_flash[l] *= expf(-ui_dt * 8.0f);
+    last_input_ms = now;
+}
+
+static void rg_press(int lane) {
+    u64 now = now_ms();
+    rg_flash[lane] = 1.0f;
+    int best = -1;
+    long bd = 1000000;
+    for (int i = 0; i < RG_NOTES; i++) {
+        if (!rg_n[i].t || rg_n[i].st || rg_n[i].lane != lane) continue;
+        long d = (long)((long long)now - (long long)rg_n[i].t);
+        if (labs(d) < labs(bd)) { bd = d; best = i; }
+    }
+    if (best < 0 || labs(bd) > 170) {                       /* rien a toucher */
+        if (rg_combo > 0) rg_judge_set("Trop t\xC3\xB4t", RGBA(255, 190, 120, 255));
+        rg_combo = 0;
+        return;
+    }
+    int pts;
+    if (labs(bd) <= 60) { pts = 100; rg_perfect++; rg_judge_set("Parfait !", RGBA(255, 240, 120, 255)); }
+    else if (labs(bd) <= 110) { pts = 60; rg_judge_set("Bien", RGBA(140, 255, 160, 255)); }
+    else { pts = 25; rg_judge_set("OK", RGBA(170, 200, 255, 255)); }
+    rg_n[best].st = 1;
+    rg_combo++;
+    if (rg_combo > rg_best_combo) rg_best_combo = rg_combo;
+    int mult = 1 + (rg_combo / 10 > 3 ? 3 : rg_combo / 10);
+    rg_score += pts * mult;
+    rg_hits++;
+    rg_total++;
+}
+
+static void rhythm_input(u32 down, u32 nav, int fire) {
+    if (rg_phase == 0) {
+        if (fire && (nav & PAD_BUTTON_LEFT)) rg_diff = (rg_diff + 2) % 3;
+        if (fire && (nav & (PAD_BUTTON_RIGHT))) rg_diff = (rg_diff + 1) % 3;
+        if (down & PAD_BUTTON_A) rg_new_game(rg_track);
+        if (down & PAD_BUTTON_X) rg_new_game(-1);
+        if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) fun_leave();
+        return;
+    }
+    if (rg_phase == 2) {
+        if (down & PAD_BUTTON_A) rg_new_game(rg_track);
+        if (down & PAD_BUTTON_X) rg_new_game(-1);
+        if (down & PAD_BUTTON_Y) rg_phase = 0;
+        if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) fun_leave();
+        return;
+    }
+    if (down & PAD_BUTTON_START) { rg_finish(); return; }
+    if (down & PAD_TRIGGER_Z) { paused = !paused; return; }
+    if (paused) return;
+    if (down & PAD_BUTTON_A) rg_press(0);
+    if (down & PAD_BUTTON_B) rg_press(1);
+    if (down & PAD_BUTTON_X) rg_press(2);
+    if (down & PAD_BUTTON_Y) rg_press(3);
+}
+
+static void rg_button(f32 cx, f32 cy, f32 r, int lane, f32 glow) {
+    if (glow > 0.02f) gx_circle_glow(cx, cy, r + 4, RGBA(lane_top[lane].r, lane_top[lane].g, lane_top[lane].b, (u8)(glow * 200)), 6);
+    gx_circle(cx, cy, r, lane_top[lane], lane_bot[lane]);
+    gx_text_c(F_MED, cx, cy + 6, lane_btn[lane], RGBA(255, 255, 255, 255));
+}
+
+static void draw_rhythm(void) {
+    u64 now = now_ms();
+    f32 hue = pt_hue;
+    fun_frame_begin(hue, 1.0f + pt_beat);
+    char t[200], b2[200];
+    if (rg_phase == 0) {
+        fun_shadow_text(F_LARGE, 320, 92, "Jeu de rythme", 1.6f, RGBA(255, 230, 140, 255));
+        gx_text_c(F_MED, 320, 132, "Les notes tombent sur le rythme de ta musique.", RGBA(230, 220, 255, 255));
+        gx_text_c(F_MED, 320, 154, "Appuie sur le bon bouton quand la note touche la ligne.", RGBA(230, 220, 255, 255));
+        for (int l = 0; l < 4; l++) rg_button(215 + l * 70, 205, 22, l, 0.5f);
+        snprintf(t, sizeof(t), "Difficult\xC3\xA9 :   <  %s  >", rg_diff_names[rg_diff]);
+        fun_shadow_text(F_LARGE, 320, 280, t, 1.0f, RGBA(255, 255, 255, 255));
+        if (rg_track >= 0 && rg_track < nfiles) { fun_title_of(rg_track, b2, sizeof(b2)); fit_text(F_MED, b2, 520, t, sizeof(t)); }
+        else snprintf(t, sizeof(t), "un morceau au hasard");
+        gx_text_c(F_MED, 320, 322, t, RGBA(200, 190, 245, 255));
+        gx_text_c(F_SMALL, 320, 344, "(les morceaux avec un rythme bien marqu\xC3\xA9 marchent le mieux)", RGBA(170, 160, 220, 220));
+        fun_footer(rg_track >= 0 ? "A : jouer ce morceau     X : un morceau au hasard     B : sortir" : "A : jouer     X : un autre morceau au hasard     B : sortir");
+        return;
+    }
+    if (rg_phase == 2) {
+        fun_shadow_text(F_LARGE, 320, 90, "R\xC3\xA9sultat", 1.6f, RGBA(255, 230, 140, 255));
+        if (rg_track >= 0 && rg_track < nfiles) { fun_title_of(rg_track, b2, sizeof(b2)); fit_text(F_MED, b2, 520, t, sizeof(t)); gx_text_c(F_MED, 320, 124, t, RGBA(210, 200, 250, 255)); }
+        snprintf(t, sizeof(t), "%d points", rg_score);
+        fun_shadow_text(F_LARGE, 320, 200, t, 2.2f, RGBA(255, 255, 255, 255));
+        int pct = rg_total ? rg_hits * 100 / rg_total : 0;
+        snprintf(t, sizeof(t), "Notes touch\xC3\xA9" "es : %d / %d  (%d %%)     Parfait : %d     Meilleur combo : %d", rg_hits, rg_total, pct, rg_perfect, rg_best_combo);
+        gx_text_c(F_MED, 320, 250, t, RGBA(230, 220, 255, 255));
+        if (rg_new_record) fun_shadow_text(F_LARGE, 320, 310, "Nouveau record !", 1.3f, RGBA(255, 220, 90, 255));
+        else if (rg_record > 0) { snprintf(t, sizeof(t), "Record sur ce morceau : %d", rg_record); gx_text_c(F_MED, 320, 305, t, RGBA(200, 190, 245, 255)); }
+        const char *r = pct >= 90 ? "Incroyable !" : pct >= 70 ? "Tr\xC3\xA8s bien !" : pct >= 45 ? "Pas mal !" : "Entra\xC3\xAEne-toi encore !";
+        gx_text_c(F_MED, 320, 350, r, RGBA(255, 200, 120, 255));
+        fun_footer("A : rejouer     X : autre morceau     Y : difficult\xC3\xA9     B : sortir");
+        return;
+    }
+    /* la piste */
+    const f32 lx = 180, lw = 70;
+    for (int l = 0; l < 4; l++) {
+        f32 x = lx + l * lw;
+        gx_vgrad(x + 2, RG_TOP_Y - 10, lw - 4, RG_HIT_Y - RG_TOP_Y + 40, RGBA(255, 255, 255, 8), RGBA(lane_top[l].r, lane_top[l].g, lane_top[l].b, (u8)(30 + rg_flash[l] * 90)));
+    }
+    if (rg_lock && rg_period > 100) {                            /* les temps */
+        for (int k = 0; k < 6; k++) {
+            double bt = rg_next_after((double)now) + k * rg_period;
+            f32 y = RG_HIT_Y - (f32)((bt - (double)now) / RG_FALL) * (RG_HIT_Y - RG_TOP_Y);
+            if (y < RG_TOP_Y) break;
+            gx_rect(lx, y, lw * 4, 1, RGBA(255, 255, 255, 30));
+        }
+    }
+    gx_rect(lx - 6, RG_HIT_Y - 1, lw * 4 + 12, 3, RGBA(255, 255, 255, 120));
+    for (int l = 0; l < 4; l++) {
+        f32 cx = lx + l * lw + lw / 2;
+        gx_ring(cx, RG_HIT_Y, 22, 25, RGBA(lane_top[l].r, lane_top[l].g, lane_top[l].b, (u8)(120 + rg_flash[l] * 135)));
+        gx_text_c(F_SMALL, cx, RG_HIT_Y + 42, lane_btn[l], RGBA(255, 255, 255, 150));
+    }
+    for (int i = 0; i < RG_NOTES; i++) {
+        if (!rg_n[i].t || rg_n[i].st == 1) continue;
+        f32 dt = (f32)((long long)rg_n[i].t - (long long)now);
+        f32 y = RG_HIT_Y - dt / RG_FALL * (RG_HIT_Y - RG_TOP_Y);
+        if (y < RG_TOP_Y - 20 || y > 480) continue;
+        int l = rg_n[i].lane;
+        f32 cx = lx + l * lw + lw / 2, r = 13 + 7 * (y - RG_TOP_Y) / (RG_HIT_Y - RG_TOP_Y);
+        if (rg_n[i].st == 2) gx_circle(cx, y, r, RGBA(90, 80, 110, 160), RGBA(50, 40, 70, 160));
+        else rg_button(cx, y, r, l, 0);
+    }
+    /* score */
+    snprintf(t, sizeof(t), "%d", rg_score);
+    gx_text_c(F_SMALL, 90, 110, "SCORE", RGBA(200, 190, 245, 255));
+    fun_shadow_text(F_LARGE, 90, 146, t, 1.4f, RGBA(255, 255, 255, 255));
+    int mult = 1 + (rg_combo / 10 > 3 ? 3 : rg_combo / 10);
+    snprintf(t, sizeof(t), "Combo %d", rg_combo);
+    gx_text_c(F_MED, 90, 190, t, RGBA(230, 220, 255, 255));
+    if (mult > 1) { snprintf(t, sizeof(t), "x%d", mult); fun_shadow_text(F_LARGE, 90, 230, t, 1.3f, RGBA(255, 210, 90, 255)); }
+    if (rg_record > 0) { snprintf(t, sizeof(t), "Record : %d", rg_record); gx_text_c(F_SMALL, 90, 270, t, RGBA(180, 170, 230, 220)); }
+    gx_text_c(F_SMALL, 550, 110, rg_diff_names[rg_diff], RGBA(200, 190, 245, 255));
+    if (rg_lock) { snprintf(t, sizeof(t), "%d BPM", (int)(60000.0f / rg_period + 0.5f)); gx_text_c(F_MED, 550, 134, t, RGBA(230, 220, 255, 255)); }
+    if (rg_judge[0] && now - rg_judge_t < 700) {
+        f32 a = 1.0f - (f32)(now - rg_judge_t) / 700.0f;
+        fun_shadow_text(F_LARGE, 550, 240, rg_judge, 1.2f, RGBA(rg_judge_c.r, rg_judge_c.g, rg_judge_c.b, (u8)(a * 255)));
+    }
+    if (!rg_lock) {
+        u8 a = (u8)(150 + 100 * sinf((f32)(now % 1000) / 1000.0f * 6.283f));
+        fun_shadow_text(F_LARGE, 320, 230, "\xC3\x89" "coute le rythme...", 1.2f, RGBA(255, 255, 255, a));
+    }
+    if (rg_track >= 0 && rg_track < nfiles) {
+        fun_title_of(rg_track, b2, sizeof(b2));
+        fit_text(F_SMALL, b2, 560, t, sizeof(t));
+        gx_text_c(F_SMALL, 320, 40, t, RGBA(220, 210, 255, 220));
+    }
+    fun_footer(paused ? "PAUSE   -   Z : reprendre   START : arr\xC3\xAAter" : "A  B  X  Y : jouer     Z : pause     START : arr\xC3\xAAter");
+}
+
+/* ======================= Quiz musical ======================= */
+#define QZ_ROUNDS 10
+#define QZ_LISTEN 10000                      /* ms de musique */
+#define QZ_ANSWER 15000                      /* ms pour repondre */
+static int qz_phase = 0;                     /* 0 accueil, 1 ecoute, 2 reponse, 3 fin */
+static int qz_round, qz_players = 1, qz_answer, qz_choice[4], qz_pick[4], qz_score[4], qz_first;
+static int qz_used[QZ_ROUNDS];
+static char qz_txt[4][96];
+static u64 qz_t = 0, qz_pick_t[4];
+static const col_t qz_pcol[4] = { { 120, 180, 255, 255 }, { 255, 120, 140, 255 }, { 120, 230, 140, 255 }, { 255, 210, 90, 255 } };
+
+static void quiz_start(void) {
+    fun_enter(FUN_QUIZ);
+    qz_phase = 0;
+    int n = 0;
+    for (int ch = 0; ch < 4; ch++) n += (fun_pads >> ch) & 1;
+    qz_players = n < 1 ? 1 : n;
+}
+
+static void qz_round_begin(void) {
+    int k = -1;
+    for (int tries = 0; tries < 80 && k < 0; tries++) {
+        int c = fun_random_track(-1), dup = 0;
+        for (int r = 0; r < qz_round; r++) if (qz_used[r] == c) dup = 1;
+        if (!dup || tries > 60) k = c;
+    }
+    if (k < 0) { qz_phase = 3; return; }
+    qz_used[qz_round] = k;
+    qz_answer = (int)(lib_rand() % 4);
+    char ta[96];
+    fun_title_of(k, ta, sizeof(ta));
+    for (int i = 0; i < 4; i++) {
+        if (i == qz_answer) { qz_choice[i] = k; snprintf(qz_txt[i], sizeof(qz_txt[i]), "%s", ta); continue; }
+        int c = -1;
+        for (int tries = 0; tries < 60 && c < 0; tries++) {
+            int x = fun_random_track(k), bad = x == k;
+            char tx[96];
+            if (x >= 0) { fun_title_of(x, tx, sizeof(tx)); if (!strcasecmp(tx, ta)) bad = 1; }
+            for (int j = 0; j < i; j++) if (j != qz_answer && qz_choice[j] == x) bad = 1;
+            if (!bad) { c = x; snprintf(qz_txt[i], sizeof(qz_txt[i]), "%s", tx); }
+        }
+        if (c < 0) { c = k; snprintf(qz_txt[i], sizeof(qz_txt[i]), "?"); }
+        qz_choice[i] = c;
+    }
+    for (int p = 0; p < 4; p++) qz_pick[p] = -1;
+    qz_first = -1;
+    queue_build(k);
+    if (!start_track(k) || !playing) {                     /* morceau illisible : un autre */
+        static int retry = 0;
+        if (++retry < 6) { qz_round_begin(); retry = 0; return; }
+        retry = 0;
+    }
+    int d = file_duration(names[k]);
+    if (d > 40) track_seek(d * (25 + (int)(lib_rand() % 20)) / 100);   /* un passage au milieu */
+    qz_t = now_ms();
+    qz_phase = 1;
+}
+
+static void qz_reveal(void) {
+    qz_phase = 2;
+    qz_t = now_ms();
+    for (int p = 0; p < qz_players; p++) if (qz_pick[p] == qz_answer) rumble(p, p == qz_first ? 220 : 120);
+}
+
+static void quiz_pump(void) {
+    u64 now = now_ms();
+    last_input_ms = now;
+    if (qz_phase == 1) {
+        if (now - qz_t > QZ_LISTEN && src == SRC_FILE && playing) stop_track();
+        int all = 1;
+        for (int p = 0; p < qz_players; p++) if (qz_pick[p] < 0) all = 0;
+        if (all || now - qz_t > QZ_ANSWER) qz_reveal();
+    } else if (qz_phase == 2 && now - qz_t > 4000) {
+        qz_round++;
+        if (qz_round >= QZ_ROUNDS) {
+            qz_phase = 3;
+            stop_track();
+            int best = 0;
+            for (int p = 1; p < qz_players; p++) if (qz_score[p] > qz_score[best]) best = p;
+            rumble(best, 400);
+        } else qz_round_begin();
+    }
+}
+
+static void qz_answer_by(int p, int c) {
+    if (p >= qz_players || qz_pick[p] >= 0) return;
+    qz_pick[p] = c;
+    qz_pick_t[p] = now_ms();
+    if (c == qz_answer) {
+        u64 el = now_ms() - qz_t;
+        int bonus = el < QZ_ANSWER ? (int)((QZ_ANSWER - el) * 100 / QZ_ANSWER) : 0;
+        qz_score[p] += 50 + bonus;
+        if (qz_first < 0) { qz_first = p; if (qz_players > 1) qz_score[p] += 25; }
+    }
+    if (qz_players == 1) qz_reveal();
+}
+
+static void quiz_input(u32 down0, u32 nav, int fire) {
+    if (qz_phase == 0 || qz_phase == 3) {
+        if (qz_phase == 0 && fire && (nav & PAD_BUTTON_LEFT) && qz_players > 1) qz_players--;
+        if (qz_phase == 0 && fire && (nav & PAD_BUTTON_RIGHT) && qz_players < 4) qz_players++;
+        if (down0 & PAD_BUTTON_A) {
+            if (fun_tracks() < 4) { lib_note("Il faut au moins 4 morceaux"); fun_leave(); return; }
+            memset(qz_score, 0, sizeof(qz_score));
+            qz_round = 0;
+            qz_round_begin();
+        }
+        if (down0 & (PAD_BUTTON_B | PAD_BUTTON_START)) fun_leave();
+        return;
+    }
+    if (down0 & PAD_BUTTON_START) { fun_leave(); return; }
+    if (qz_phase != 1) return;
+    static const u32 btn[4] = { PAD_BUTTON_A, PAD_BUTTON_B, PAD_BUTTON_X, PAD_BUTTON_Y };
+    for (int p = 0; p < qz_players; p++) {
+        u32 d = p == 0 ? down0 : PAD_ButtonsDown(p);
+        for (int c = 0; c < 4; c++) if (d & btn[c]) { qz_answer_by(p, c); break; }
+    }
+}
+
+static void draw_quiz(void) {
+    u64 now = now_ms();
+    char t[200];
+    fun_frame_begin(200 + (f32)(now % 60000) / 60000.0f * 360.0f, 1.0f + pt_beat * 0.6f);
+    if (qz_phase == 0) {
+        fun_shadow_text(F_LARGE, 320, 100, "Quiz musical", 1.7f, RGBA(255, 230, 140, 255));
+        gx_text_c(F_MED, 320, 142, "10 secondes d'un de tes morceaux : trouve lequel !", RGBA(230, 220, 255, 255));
+        gx_text_c(F_MED, 320, 164, "Chaque joueur r\xC3\xA9pond avec A, B, X ou Y sur sa manette.", RGBA(230, 220, 255, 255));
+        snprintf(t, sizeof(t), "Joueurs :   <  %d  >", qz_players);
+        fun_shadow_text(F_LARGE, 320, 240, t, 1.2f, RGBA(255, 255, 255, 255));
+        for (int p = 0; p < qz_players; p++) {
+            f32 cx = 320 + (p - (qz_players - 1) / 2.0f) * 90;
+            gx_circle(cx, 290, 16, qz_pcol[p], RGBA(qz_pcol[p].r / 2, qz_pcol[p].g / 2, qz_pcol[p].b / 2, 255));
+            snprintf(t, sizeof(t), "J%d", p + 1);
+            gx_text_c(F_SMALL, cx, 295, t, RGBA(255, 255, 255, 255));
+        }
+        gx_text_c(F_SMALL, 320, 336, "(manette 1 dans le port 1, manette 2 dans le port 2...)", RGBA(180, 170, 230, 220));
+        snprintf(t, sizeof(t), "%d manches   -   le plus rapide gagne plus de points", QZ_ROUNDS);
+        gx_text_c(F_SMALL, 320, 360, t, RGBA(180, 170, 230, 220));
+        fun_footer("A : commencer     B : sortir");
+        return;
+    }
+    if (qz_phase == 3) {
+        fun_shadow_text(F_LARGE, 320, 80, "Fin du quiz !", 1.7f, RGBA(255, 230, 140, 255));
+        int order[4] = { 0, 1, 2, 3 };
+        for (int i = 0; i < qz_players; i++)
+            for (int j = i + 1; j < qz_players; j++) if (qz_score[order[j]] > qz_score[order[i]]) { int x = order[i]; order[i] = order[j]; order[j] = x; }
+        for (int i = 0; i < qz_players; i++) {
+            int p = order[i];
+            f32 y = 150 + i * 62;
+            if (qz_players == 1) snprintf(t, sizeof(t), "%d points", qz_score[p]);
+            else snprintf(t, sizeof(t), "%d.  Joueur %d  :  %d points", i + 1, p + 1, qz_score[p]);
+            fun_shadow_text(F_LARGE, 320, y, t, i == 0 ? 1.4f : 1.1f, i == 0 ? RGBA(255, 220, 90, 255) : qz_pcol[p]);
+        }
+        if (qz_players > 1) { snprintf(t, sizeof(t), "Bravo Joueur %d !", order[0] + 1); gx_text_c(F_MED, 320, 410, t, RGBA(255, 255, 255, 230)); }
+        fun_footer("A : rejouer     B : sortir");
+        return;
+    }
+    snprintf(t, sizeof(t), "Manche %d / %d", qz_round + 1, QZ_ROUNDS);
+    gx_text_c(F_MED, 320, 34, t, RGBA(230, 220, 255, 255));
+    /* minuteur rond, avec le spectre */
+    f32 cx = 320, cy = 118, el = (f32)(now - qz_t);
+    f32 left = qz_phase == 1 ? 1.0f - el / QZ_ANSWER : 0.0f;
+    if (left < 0) left = 0;
+    gx_circle(cx, cy, 52 + pt_bass * 10, hsv(pt_hue, 0.6f, 0.35f, 255), hsv(pt_hue + 40, 0.8f, 0.12f, 255));
+    int segs = (int)(left * 40 + 0.5f);
+    for (int i = 0; i < segs; i++) {
+        float a0 = -PI_F / 2 + i * 2 * PI_F / 40, a1 = a0 + 2 * PI_F / 40 * 0.8f;
+        gx_poly4(cx + cosf(a0) * 58, cy + sinf(a0) * 58, cx + cosf(a1) * 58, cy + sinf(a1) * 58,
+                 cx + cosf(a1) * 64, cy + sinf(a1) * 64, cx + cosf(a0) * 64, cy + sinf(a0) * 64,
+                 RGBA(255, 220, 120, 255), RGBA(255, 220, 120, 255), RGBA(255, 160, 60, 255), RGBA(255, 160, 60, 255));
+    }
+    if (qz_phase == 1) { snprintf(t, sizeof(t), "%d", (int)((QZ_ANSWER - el) / 1000 + 0.99f)); fun_shadow_text(F_LARGE, cx, cy + 14, t, 1.5f, RGBA(255, 255, 255, 255)); }
+    else fun_shadow_text(F_LARGE, cx, cy + 12, qz_pick[0] == qz_answer && qz_players == 1 ? "Bravo !" : "R\xC3\xA9ponse", 0.9f, RGBA(255, 255, 255, 255));
+    /* les 4 reponses (comme les boutons) */
+    static const int pos[4][2] = { { 1, 1 }, { 0, 1 }, { 1, 0 }, { 0, 0 } };   /* A bas droite, B bas gauche, X haut droite, Y haut gauche */
+    for (int c = 0; c < 4; c++) {
+        f32 x = 34 + pos[c][0] * 292, y = 200 + pos[c][1] * 98, w = 280, h = 86;
+        col_t ct = RGBA(30, 20, 70, 230), cb = RGBA(16, 10, 40, 230);
+        if (qz_phase == 2 && c == qz_answer) { ct = RGBA(40, 170, 80, 255); cb = RGBA(20, 110, 50, 255); }
+        else if (qz_phase == 2) { int wrong = 0; for (int p = 0; p < qz_players; p++) if (qz_pick[p] == c) wrong = 1; if (wrong) { ct = RGBA(170, 40, 60, 255); cb = RGBA(110, 20, 40, 255); } }
+        gx_rrect_fill(x, y, w, h, 12, ct, cb);
+        gx_rrect_stroke(x, y, w, h, 12, 1.5f, RGBA(lane_top[c].r, lane_top[c].g, lane_top[c].b, 200));
+        gx_circle(x + 28, y + h / 2, 17, lane_top[c], lane_bot[c]);
+        gx_text_c(F_MED, x + 28, y + h / 2 + 6, lane_btn[c], RGBA(255, 255, 255, 255));
+        char a[96], b[96];
+        wrap2(F_MED, qz_txt[c], (int)w - 66, a, b, sizeof(a));
+        f32 ty = b[0] ? y + h / 2 - 3 : y + h / 2 + 6;
+        gx_text1(F_MED, x + 54, ty, a, RGBA(255, 255, 255, 255));
+        if (b[0]) { fit_text(F_MED, b, (int)w - 66, a, sizeof(a)); gx_text1(F_MED, x + 54, ty + 20, a, RGBA(255, 255, 255, 255)); }
+        for (int p = 0; p < qz_players; p++)                      /* qui a choisi quoi (apres la reponse) */
+            if (qz_phase == 2 && qz_pick[p] == c && qz_players > 1) gx_circle(x + w - 16 - p * 18, y + 14, 7, qz_pcol[p], qz_pcol[p]);
+    }
+    /* les joueurs */
+    for (int p = 0; p < qz_players; p++) {
+        f32 x = 320 + (p - (qz_players - 1) / 2.0f) * 150;
+        if (qz_players == 1) snprintf(t, sizeof(t), "Score : %d", qz_score[p]);
+        else snprintf(t, sizeof(t), "J%d : %d%s", p + 1, qz_score[p], qz_phase == 1 && qz_pick[p] >= 0 ? "  (ok)" : "");
+        gx_text_c(F_MED, x, 422, t, qz_pcol[p]);
+    }
+    if (qz_phase == 2 && qz_first >= 0 && qz_players > 1) { snprintf(t, sizeof(t), "Joueur %d a trouv\xC3\xA9 le premier !", qz_first + 1); gx_text_c(F_SMALL, 320, 446, t, RGBA(255, 230, 140, 255)); }
+    fun_footer(qz_phase == 1 ? (src == SRC_FILE && playing ? "\xC3\x89" "coute bien...     START : arr\xC3\xAAter" : "R\xC3\xA9ponds vite !     START : arr\xC3\xAAter") : "START : arr\xC3\xAAter");
+}
+
+/* ======================= Reveil ======================= */
+static void wake_start(void) {
+    night_on = 0;                                    /* (la veilleuse s'eteint au reveil) */
+    fun_enter(FUN_WAKE);
+}
+
+static void draw_wake(void) {
+    u64 now = now_ms();
+    f32 p = (f32)(now - fun_t0) / 180000.0f;
+    if (p > 1) p = 1;
+    scr_viewport();
+    GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
+    /* lever du soleil */
+    col_t top = RGBA((u8)(8 + 40 * p), (u8)(10 + 60 * p), (u8)(40 + 100 * p), 255);
+    col_t bot = RGBA((u8)(40 + 200 * p), (u8)(16 + 110 * p), (u8)(50 + 10 * p), 255);
+    gx_quad4(0, 0, 640, 480, top, top, bot, bot);
+    f32 sy = 560 - 150 * p;
+    gx_circle_glow(320, sy, 120, RGBA(255, 190, 90, (u8)(60 + 80 * p)), 8);
+    gx_circle(320, sy, 110, RGBA(255, 220, 120, (u8)(120 + 100 * p)), RGBA(255, 140, 60, (u8)(80 + 80 * p)));
+
+    time_t tt = time(NULL);
+    struct tm *tm = localtime(&tt);
+    char t[200];
+    fun_shadow_text(F_LARGE, 320, 46, "Bonjour !", 1.3f, RGBA(255, 240, 200, 255));
+    if (tm) {
+        char hm[8];
+        snprintf(hm, sizeof(hm), "%02d:%02d", tm->tm_hour, tm->tm_min);
+        const f32 dw = 58, dh = 100, gap = 14, colon = 30, y = 66;
+        f32 tot = 4 * dw + 2 * gap + colon + gap, x = 320 - tot / 2;
+        col_t ct = RGBA(255, 255, 255, 255), cb = RGBA(255, 220, 170, 255);
+        seg_digit(x, y, dw, dh, hm[0] - '0', ct, cb);
+        seg_digit(x + dw + gap, y, dw, dh, hm[1] - '0', ct, cb);
+        f32 kx = x + 2 * dw + gap + (colon + gap) / 2 - 6;
+        gx_rrect_fill(kx, y + dh * 0.30f, 12, 12, 4, ct, cb);
+        gx_rrect_fill(kx, y + dh * 0.62f, 12, 12, 4, ct, cb);
+        seg_digit(x + 2 * dw + 2 * gap + colon, y, dw, dh, hm[3] - '0', ct, cb);
+        seg_digit(x + 3 * dw + 3 * gap + colon, y, dw, dh, hm[4] - '0', ct, cb);
+        static const char *const jours[7] = { "Dimanche", "Lundi", "Mardi", "Mercredi", "Jeudi", "Vendredi", "Samedi" };
+        static const char *const mois[12] = { "janvier", "f\xC3\xA9vrier", "mars", "avril", "mai", "juin", "juillet",
+                                              "ao\xC3\xBBt", "septembre", "octobre", "novembre", "d\xC3\xA9" "cembre" };
+        snprintf(t, sizeof(t), "%s %d %s", jours[tm->tm_wday % 7], tm->tm_mday, mois[tm->tm_mon % 12]);
+        fun_shadow_text(F_LARGE, 320, 200, t, 1.1f, RGBA(255, 255, 255, 240));
+    }
+    /* meteo */
+    gx_rrect_fill(110, 222, 420, 128, 16, RGBA(0, 0, 0, 70), RGBA(0, 0, 0, 100));
+    if (meteo_ok) {
+        meteo_icon(200, 286, 96, meteo_code);
+        snprintf(t, sizeof(t), "%d\xC2\xB0", (int)floorf(meteo_temp + 0.5f));
+        txt_scale = 2.4f;
+        gx_text(F_LARGE, 268, 300, t, RGBA(255, 255, 255, 255), RGBA(255, 225, 190, 255), 0);
+        txt_scale = 1.0f;
+        gx_text1(F_LARGE, 392, 270, meteo_text(meteo_code), RGBA(255, 255, 255, 255));
+        snprintf(t, sizeof(t), "%s", city);
+        char ct2[100];
+        fit_text(F_MED, t, 130, ct2, sizeof(ct2));
+        gx_text1(F_MED, 392, 294, ct2, RGBA(230, 220, 255, 255));
+        snprintf(t, sizeof(t), "Vent %d km/h   Humidit\xC3\xA9 %d %%", meteo_wind, meteo_hum);
+        gx_text1(F_SMALL, 392, 318, t, RGBA(220, 210, 240, 230));
+    } else if (!city[0]) {
+        gx_text_c(F_MED, 320, 280, "M\xC3\xA9t\xC3\xA9o : choisis ta ville dans l'onglet INFOS", RGBA(255, 255, 255, 230));
+    } else {
+        gx_text_c(F_MED, 320, 280, "M\xC3\xA9t\xC3\xA9o en cours de chargement...", RGBA(255, 255, 255, 230));
+    }
+    /* musique */
+    char ti[200], sub[200];
+    saver_title(ti, sizeof(ti), sub, sizeof(sub));
+    if (ti[0]) { fit_text(F_MED, ti, 520, t, sizeof(t)); gx_text_c(F_MED, 320, 392, t, RGBA(255, 255, 255, 240)); }
+    if (alarm_fade < 256) {
+        gx_rrect_fill(250, 408, 140, 4, 2, RGBA(255, 255, 255, 50), RGBA(255, 255, 255, 50));
+        gx_rrect_fill(250, 408, 140.0f * alarm_fade / 256, 4, 2, RGBA(255, 230, 160, 230), RGBA(255, 230, 160, 230));
+        gx_text_c(F_SMALL, 320, 428, "le son monte doucement", RGBA(255, 240, 220, 200));
+    }
+    fun_footer("A : garder la musique     B : arr\xC3\xAAter le r\xC3\xA9veil     Y : pause");
+}
+
+static void wake_input(u32 down) {
+    if (down & (PAD_BUTTON_A | PAD_BUTTON_START)) { fun_mode = FUN_OFF; return; }
+    if (down & PAD_BUTTON_B) { stop_track(); stop_station(); alarm_t0 = 0; alarm_fade = 256; fun_mode = FUN_OFF; return; }
+    if (down & PAD_BUTTON_Y) {
+        if (src == SRC_FILE && playing) paused = !paused;
+        else if (src == SRC_RADIO) muted = !muted;
+    }
+}
+
+/* meteo prete pour le reveil : chargee 5 minutes avant */
+static void wake_prefetch(void) {
+    static int done_day = -1;
+    if (!alarm_on || !city[0]) return;
+    time_t tt = time(NULL);
+    struct tm *tm = localtime(&tt);
+    if (!tm || tm->tm_year < 100) return;
+    int m = tm->tm_hour * 60 + tm->tm_min, until = (alarm_min - m + 1440) % 1440;
+    if (until > 5 || until == 0 || done_day == tm->tm_yday) return;
+    done_day = tm->tm_yday;
+    net_start_async();
+    if (!meteo_t || now_ms() - meteo_t > 20 * 60000) meteo_t = 0;
+}
+
+/* ======================= Titres de la radio ======================= */
+#define TITLES_FILE SD_ROOT "/gc-mp3-titres.txt"
+static void radio_title_keep(void) {
+    if (src != SRC_RADIO || cur_station < 0 || state == ST_IDLE || pod_on) { lib_note("\xC3\x89" "coute une radio d'abord"); return; }
+    if (!now_title[0]) { lib_note("Cette radio n'annonce pas ses titres"); return; }
+    static char last[160];
+    if (!strcmp(last, now_title)) { lib_note("Titre d\xC3\xA9j\xC3\xA0 gard\xC3\xA9"); return; }
+    if (!sd_ok) { lib_note("Pas de carte SD"); return; }
+    FILE *f = fopen(TITLES_FILE, "a");
+    if (!f) { lib_note("Impossible d'\xC3\xA9" "crire sur la carte SD"); return; }
+    time_t tt = time(NULL);
+    struct tm *tm = localtime(&tt);
+    char name[100], ti[200];                                /* (en UTF-8, lisible aussi sur le telephone) */
+    text_display(stations[cur_station].name, name, sizeof(name));
+    text_display(now_title, ti, sizeof(ti));
+    for (char *p = name; *p; p++) if (*p == '|') *p = '/';
+    if (tm && tm->tm_year >= 100) fprintf(f, "%02d/%02d/%04d %02d:%02d | %s | %s\n", tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900, tm->tm_hour, tm->tm_min, name, ti);
+    else fprintf(f, "- | %s | %s\n", name, ti);
+    fclose(f);
+    snprintf(last, sizeof(last), "%s", now_title);
+    char d[200], m[220];
+    text_display(now_title, d, sizeof(d));
+    snprintf(m, sizeof(m), "Titre gard\xC3\xA9 : %.150s", d);
+    lib_note(m);
+    rumble(0, 80);
+}
+
+/* liste des titres gardes (les plus recents d'abord) */
+static void titles_open(void) {
+    am_n = 0;
+    am_sel = 0;
+    am_track = -1;
+    snprintf(am_title, sizeof(am_title), "Titres radio gard\xC3\xA9s  (A : chercher dans ma musique)");
+    FILE *f = sd_ok ? fopen(TITLES_FILE, "r") : NULL;
+    static char lines[PL_MAX][200];
+    int n = 0;
+    if (f) {
+        char line[512];
+        while (fgets(line, sizeof(line), f)) {
+            char *t = trim(line);
+            char *b1 = strchr(t, '|'), *b2 = b1 ? strchr(b1 + 1, '|') : NULL;
+            if (!b2) continue;
+            char *title = trim(b2 + 1);
+            *b2 = 0;
+            char *st = trim(b1 + 1);
+            char d[160], ds[64];
+            text_display(title, d, sizeof(d));
+            text_display(st, ds, sizeof(ds));
+            if (n == PL_MAX) { memmove(lines[0], lines[1], sizeof(lines[0]) * (PL_MAX - 1)); n--; }
+            snprintf(lines[n++], sizeof(lines[0]), "%.120s  (%.40s)", d, ds);
+        }
+        fclose(f);
+    }
+    for (int i = n - 1; i >= 0 && am_n < PL_MAX; i--) am_item(lines[i], AC_TITLE, i);
+    if (n == 0) am_item("(aucun : X dans l'onglet RADIO pendant une chanson)", AC_CLOSE, 0);
+    else am_item("Effacer la liste", AC_TITLES_CLEAR, 0);
+    am_item("Fermer", AC_CLOSE, 0);
+    am_open = 1;
+}
+
+static void titles_search(const char *item) {          /* "Artiste - Titre  (radio)" -> recherche */
+    char q[200];
+    snprintf(q, sizeof(q), "%s", item);
+    char *p = strstr(q, "  (");
+    if (p) *p = 0;
+    char *dash = strstr(q, " - ");
+    const char *what = dash ? dash + 3 : q;
+    tab = TAB_MUSIC;
+    if (view_mode == VIEW_LISTS || view_mode == VIEW_FOLDERS) set_view(VIEW_ALL);
+    lib_find_set(what);
+}
+
+/* ======================= Podcasts automatiques ======================= */
+#define POD_AUTO_FILE SD_ROOT "/podcasts/auto.txt"
+#define PA_Q 6
+static hfetch_t paf = { .c = { -1, 0, 0 } };
+static int pa_state = 0, pa_i = 0, pa_nq = 0;
+static u64 pa_next = 0;
+static char pa_q_url[PA_Q][URL_MAX], pa_q_title[PA_Q][160];
+
+static int pa_seen_get(const char *feed, char *out, int cap) {
+    FILE *f = fopen(POD_AUTO_FILE, "r");
+    if (!f) return 0;
+    char *line = (char *)malloc(2 * URL_MAX + 16);
+    int found = 0;
+    if (line) {
+        while (fgets(line, 2 * URL_MAX + 16, f)) {
+            char *bar = strstr(line, " | ");
+            if (!bar) continue;
+            *bar = 0;
+            if (!strcmp(line, feed)) { snprintf(out, cap, "%s", trim(bar + 3)); found = 1; }
+        }
+        free(line);
+    }
+    fclose(f);
+    return found;
+}
+
+static void pa_seen_set(const char *feed, const char *ep) {
+    int cap = 256 * 1024, len = 0;
+    char *buf = (char *)malloc(cap), *line = (char *)malloc(2 * URL_MAX + 16);
+    if (!buf || !line) { free(buf); free(line); return; }
+    FILE *f = fopen(POD_AUTO_FILE, "r");
+    if (f) {
+        while (fgets(line, 2 * URL_MAX + 16, f)) {
+            char *bar = strstr(line, " | ");
+            if (!bar) continue;
+            int same = (int)(bar - line) == (int)strlen(feed) && !strncmp(line, feed, bar - line);
+            int n = (int)strlen(line);
+            if (!same && len + n + 2 < cap - 2 * URL_MAX) { memcpy(buf + len, line, n); len += n; if (line[n - 1] != '\n') buf[len++] = '\n'; }
+        }
+        fclose(f);
+    }
+    len += snprintf(buf + len, cap - len, "%s | %s\n", feed, ep);
+    mkdir(SD_ROOT "/podcasts", 0777);
+    f = fopen(POD_AUTO_FILE, "w");
+    if (f) { fwrite(buf, 1, len, f); fclose(f); }
+    free(buf);
+    free(line);
+}
+
+static const char *pa_find(const unsigned char *b, int n, const char *s) {
+    int sl = (int)strlen(s);
+    for (int i = 0; i + sl <= n; i++) if (b[i] == (unsigned char)s[0] && !memcmp(b + i, s, sl)) return (const char *)b + i;
+    return NULL;
+}
+
+/* le premier episode du flux (le plus recent) */
+static int pa_first_item(const unsigned char *x, int len, char *title, int tcap, char *url, int ucap) {
+    const char *p = pa_find(x, len, "<item");
+    if (!p) return 0;
+    const char *e = pa_find((const unsigned char *)p, len - (int)(p - (const char *)x), "</item>");
+    if (!e) return 0;
+    title[0] = url[0] = 0;
+    xml_tag(p, e, "title", title, tcap);
+    xml_attr(p, e, "enclosure", "url", url, ucap);
+    return url[0] && !strncasecmp(url, "http", 4);
+}
+
+static void podauto_done(const unsigned char *x, int len) {
+    char title[160], url[URL_MAX], seen[URL_MAX];
+    if (pa_i < npods && pa_first_item(x, len, title, sizeof(title), url, sizeof(url))) {
+        if (!pa_seen_get(pods[pa_i].url, seen, sizeof(seen))) pa_seen_set(pods[pa_i].url, url);   /* 1re fois : on note seulement */
+        else if (strcmp(seen, url)) {
+            pa_seen_set(pods[pa_i].url, url);
+            if (pa_nq < PA_Q) {
+                snprintf(pa_q_url[pa_nq], URL_MAX, "%s", url);
+                snprintf(pa_q_title[pa_nq], 160, "%s", title[0] ? title : pods[pa_i].name);
+                pa_nq++;
+            }
+        }
+    }
+    pa_i++;
+}
+
+static void podauto_kick(void) { pa_next = now_ms() + 5000; pa_i = 0; }
+
+static void podauto_pump(void) {
+    if (net_phase != NET_DONE || !net_ok || !sd_ok) return;
+    u64 now = now_ms();
+    if (pa_nq > 0 && !dl_active && tab != TAB_WEB && !wb_busy && fun_mode == FUN_OFF) {      /* un episode a telecharger */
+        char m[220], d[160];
+        snprintf(dl_name_hint, sizeof(dl_name_hint), "%s", pa_q_title[0]);
+        snprintf(dl_dest_dir, sizeof(dl_dest_dir), SD_ROOT "/podcasts");
+        mkdir(dl_dest_dir, 0777);
+        text_display(pa_q_title[0], d, sizeof(d));
+        snprintf(m, sizeof(m), "Nouvel \xC3\xA9pisode : %.120s", d);
+        lib_note(m);
+        char url[URL_MAX];
+        snprintf(url, sizeof(url), "%s", pa_q_url[0]);
+        pa_nq--;
+        memmove(pa_q_url[0], pa_q_url[1], sizeof(pa_q_url[0]) * pa_nq);
+        memmove(pa_q_title[0], pa_q_title[1], sizeof(pa_q_title[0]) * pa_nq);
+        dl_force = 1;
+        web_fetch(url, NAV_PUSH, 0);
+        return;
+    }
+    if (!pod_auto) { if (pa_state) { hf_abort(&paf); hf_drop(&paf); pa_state = 0; } return; }
+    if (pa_state == 0) {
+        if (!pa_next) { pa_next = now + 45000; return; }    /* un peu apres le demarrage */
+        if (now < pa_next || pf_state != PF_IDLE || fun_mode != FUN_OFF) return;
+        if (!pods_loaded) pods_load();
+        while (pa_i < npods && !pods[pa_i].url[0]) pa_i++;
+        if (pa_i >= npods) { pa_i = 0; pa_next = now + 3ULL * 3600 * 1000; return; }   /* toutes les 3 heures */
+        paf.image = 0;
+        paf.maxbytes = 6 * 1024 * 1024;
+        paf.accept = "application/rss+xml,application/xml,text/xml,*/*";
+        hf_start(&paf, pods[pa_i].url, NULL);
+        pa_state = 1;
+        return;
+    }
+    hf_pump(&paf);
+    if (paf.st == HF_FAIL) { hf_drop(&paf); pa_state = 0; pa_i++; return; }
+    if (paf.st == HF_BODY && paf.buf && paf.len > 64 && pa_find(paf.buf, paf.len, "</item>")) {   /* le 1er episode suffit */
+        podauto_done(paf.buf, paf.len);
+        hf_abort(&paf);
+        hf_drop(&paf);
+        pa_state = 0;
+        return;
+    }
+    if (paf.st != HF_DONE) return;
+    paf.st = HF_IDLE;
+    if (paf.buf) podauto_done(paf.buf, paf.len); else pa_i++;
+    hf_drop(&paf);
+    pa_state = 0;
+}
+
+/* ======================= Fond d'ecran ======================= */
+#define DJ_OWNER_WALL 5
+static u16 *wp_tex = NULL;
+static GXTexObj wp_obj;
+static int wp_tw, wp_th, wp_iw, wp_ih;
+static int wp_state = 0;                     /* 0 rien, 1 a lire, 2 lecture, 3 attend le decodeur, 4 decodage, 5 pret, 6 illisible */
+static FILE *wp_fp = NULL;
+static unsigned char *wp_buf = NULL;
+static long wp_len = 0, wp_size = 0;
+static int wp_again = 0;                     /* (photo changee pendant un decodage) */
+
+static void wall_reload(void) {
+    if (wp_fp) { fclose(wp_fp); wp_fp = NULL; }
+    if (wp_state != 4) { free(wp_buf); wp_buf = NULL; }
+    if (wp_state == 4) { wp_again = 1; return; }             /* (le decodage en cours finira d'abord) */
+    wp_state = wall_on && wall_path[0] ? 1 : 0;
+}
+
+static void wall_set(const char *path) {
+    snprintf(wall_path, sizeof(wall_path), "%s", path);
+    wall_on = 1;
+    settings_dirty = 1;
+    wall_reload();
+    lib_note("Fond d'\xC3\xA9" "cran chang\xC3\xA9 (START > R\xC3\xA9glages pour le retirer)");
+}
+
+static void wall_pump(void) {
+    if (wp_state == 1) {
+        if (!sd_ok) { wp_state = 6; return; }
+        wp_fp = fopen(wall_path, "rb");
+        long size = -1;
+        if (wp_fp && fseek(wp_fp, 0, SEEK_END) == 0) size = ftell(wp_fp);
+        if (!wp_fp || size <= 0 || size > PHOTO_MAX_FILE || fseek(wp_fp, 0, SEEK_SET) != 0 || !(wp_buf = (unsigned char *)malloc(size))) {
+            if (wp_fp) fclose(wp_fp);
+            wp_fp = NULL;
+            wp_state = 6;
+            return;
+        }
+        wp_size = size;
+        wp_len = 0;
+        wp_state = 2;
+        return;
+    }
+    if (wp_state == 2) {
+        long want = wp_size - wp_len;
+        if (want > 65536) want = 65536;
+        size_t got = fread(wp_buf + wp_len, 1, want, wp_fp);
+        if (got == 0) { fclose(wp_fp); wp_fp = NULL; free(wp_buf); wp_buf = NULL; wp_state = 6; return; }
+        wp_len += (long)got;
+        if (wp_len < wp_size) return;
+        fclose(wp_fp);
+        wp_fp = NULL;
+        int iw, ih, ic;
+        int ok = is_webp(wp_buf, (int)wp_len) ? WebPGetInfo(wp_buf, (size_t)wp_len, &iw, &ih)
+                                               : stbi_info_from_memory(wp_buf, (int)wp_len, &iw, &ih, &ic);
+        if (!ok || (long)iw * ih > PHOTO_MAX_PIXELS) { free(wp_buf); wp_buf = NULL; wp_state = 6; return; }
+        wp_state = 3;
+        return;
+    }
+    if (wp_state == 3) {
+        if (dj_state != 0 || il_state == IL_DECODE || !dec_ensure()) return;
+        dj_in = wp_buf;
+        dj_len = (int)wp_len;
+        wp_buf = NULL;
+        dj_aw = 640;
+        dj_ah = 480;
+        dj_maxw = 640;
+        dj_photo = 1;
+        dj_owner = DJ_OWNER_WALL;
+        dj_state = 1;
+        wp_state = 4;
+        return;
+    }
+    if (wp_state == 4 && dj_state == 2 && dj_owner == DJ_OWNER_WALL) {
+        dj_state = 0;
+        dj_owner = 0;
+        if (!dj_ok || !dj_tex) { free(dj_tex); dj_tex = NULL; wp_state = 6; return; }
+        DCFlushRange(dj_tex, (u32)dj_tw * dj_th * 2);
+        free(wp_tex);
+        wp_tex = dj_tex;
+        dj_tex = NULL;
+        wp_tw = dj_tw; wp_th = dj_th; wp_iw = dj_iw; wp_ih = dj_ih;
+        GX_InitTexObj(&wp_obj, wp_tex, wp_tw, wp_th, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+        GX_InitTexObjFilterMode(&wp_obj, GX_LINEAR, GX_LINEAR);
+        GX_InvalidateTexAll();
+        wp_state = 5;
+        if (wp_again) { wp_again = 0; wp_state = wall_on && wall_path[0] ? 1 : 0; }
+    }
+}
+
+static int wall_active(void) { return wall_on && wp_state == 5 && wp_tex; }
+
+/* le fond : la photo sur tout l'ecran (recadree), assombrie pour lire le texte */
+static int wall_draw(void) {
+    if (!wall_on || wp_state != 5 || !wp_tex || wp_iw <= 0 || wp_ih <= 0) return 0;
+    f32 T = 640.0f * ux_k / 480.0f, I = (f32)wp_iw / wp_ih;
+    f32 u0 = 0, u1 = 1, v0 = 0, v1 = 1;
+    if (I > T) { f32 k = T / I; u0 = (1 - k) / 2; u1 = u0 + k; }
+    else { f32 k = I / T; v0 = (1 - k) / 2; v1 = v0 + k; }
+    f32 su = (f32)wp_iw / wp_tw, sv = (f32)wp_ih / wp_th;
+    gx_set_image(&wp_obj);
+    GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+    GX_Position2f32(UX(0), 0);     GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(u0 * su, v0 * sv);
+    GX_Position2f32(UX(640), 0);   GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(u1 * su, v0 * sv);
+    GX_Position2f32(UX(640), 480); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(u1 * su, v1 * sv);
+    GX_Position2f32(UX(0), 480);   GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(u0 * su, v1 * sv);
+    GX_End();
+    gx_quad4(0, 0, 640, 480, RGBA(6, 4, 24, 115), RGBA(6, 4, 24, 115), RGBA(6, 4, 24, 160), RGBA(6, 4, 24, 160));
+    return 1;
+}
+
+/* ======================= Menu "Jeux et karaoke" ======================= */
+static void games_open(void) {
+    am_n = 0;
+    am_sel = 0;
+    am_track = fun_selected_track();
+    snprintf(am_title, sizeof(am_title), "Jeux et karaok\xC3\xA9");
+    am_item("Karaok\xC3\xA9 (paroles en grand)", AC_KARAOKE, 0);
+    am_item("Jeu de rythme", AC_RHYTHM, 0);
+    am_item("Quiz musical (1 \xC3\xA0 4 joueurs)", AC_QUIZ, 0);
+    am_item("Titres radio gard\xC3\xA9s", AC_TITLES, 0);
+    am_item("Fermer", AC_CLOSE, 0);
+    am_open = 1;
+}
+
+/* actions du popup (appelees par actions_do) */
+static void fun_action(int code, int arg, int track, const char *txt) {
+    switch (code) {
+    case AC_KARAOKE: karaoke_start(track); break;
+    case AC_RHYTHM:  rhythm_start(track); break;
+    case AC_QUIZ:    quiz_start(); break;
+    case AC_TITLES:  titles_open(); break;
+    case AC_TITLE:   titles_search(txt); break;
+    case AC_TITLES_CLEAR: remove(TITLES_FILE); lib_note("Liste des titres effac\xC3\xA9" "e"); break;
+    }
+    (void)arg;
+}
+
+/* ======================= Boucle ======================= */
+static void fun_input(u32 down, u32 nav, int fire) {
+    switch (fun_mode) {
+    case FUN_KARAOKE: karaoke_input(down); break;
+    case FUN_RHYTHM:  rhythm_input(down, nav, fire); break;
+    case FUN_QUIZ:    quiz_input(down, nav, fire); break;
+    case FUN_WAKE:    wake_input(down); break;
+    }
+}
+
+static void fun_pump(u32 pads) {
+    fun_pads = pads ? pads : 1;
+    rumble_pump();
+    wake_prefetch();
+    wall_pump();
+    podauto_pump();
+    if (fun_mode == FUN_OFF) return;
+    if (fun_mode == FUN_RHYTHM) { party_update(); rhythm_pump(); }
+    else if (fun_mode == FUN_QUIZ) { party_update(); quiz_pump(); }
+    else { party_update(); last_input_ms = now_ms(); }
+}
+
+static void draw_fun(void) {
+    int saved = th_identity;
+    th_identity = 1;
+    switch (fun_mode) {
+    case FUN_KARAOKE: draw_karaoke(); break;
+    case FUN_RHYTHM:  draw_rhythm(); break;
+    case FUN_QUIZ:    draw_quiz(); break;
+    default:          draw_wake(); break;
+    }
+    th_identity = saved;
+    draw_actions();                                  /* (petits messages) */
+    service_audio();
+    present_frame();
+}
