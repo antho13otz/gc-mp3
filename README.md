@@ -177,7 +177,8 @@ Lecture aléatoire, répétition, **fondu enchaîné**, liste MUSIQUE, **volume*
 Émeraude, Rubis, Ambre, Couleurs douces, Graphite — « Couleurs douces » si l'image paraît trop vive
 sur ta télé), **économiseur d'écran** (2 / 5 / 10 / 30 min ou jamais, n'importe quelle touche le quitte), pochettes et paroles automatiques, reprise au démarrage,
 **vidéo** (auto = 480p avec un câble composante ou un GCVideo ; B maintenu au démarrage = 480i),
-**taille de l'écran** (100 à 80 % : réduis-la si les bords de l'image sont coupés sur ta télé),
+**taille de l'écran** (80 à 112 % : en dessous de 100, l'image rétrécit si les bords sont coupés ;
+au-dessus, elle s'élargit pour supprimer les bandes noires des côtés — 110 % conseillé en 16:9),
 **format de l'écran** (4:3 ou 16:9 : en 16:9, règle aussi la télé en mode large / plein écran ;
 l'interface s'étale sur toute la largeur, le texte, les pochettes, les photos et le QR code
 gardent leurs vraies proportions, et les pages web sont mises en page plus larges),
