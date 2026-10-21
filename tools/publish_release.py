@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 # Publie le .dol dans la release "dernier" du depot (mise a jour a chaque
 # compilation reussie). GC-MP3 la consulte pour sa mise a jour en un clic.
-# La release existante est mise a jour sur place (texte + fichier .dol) ;
-# elle n'est creee que si elle n'existe pas encore.
+# La release existante est mise a jour sur place : nouveau .dol
+# (gc-mp3player-bN.dol) d'abord, puis le texte "build=N".
 # Usage (dans GitHub Actions) : python3 tools/publish_release.py fichier.dol NUMERO
 # Variables : GH_TOKEN, GITHUB_REPOSITORY, GITHUB_SHA
 import json, os, sys, urllib.error, urllib.request
 
 TAG = "dernier"
-NAME = "gc-mp3player.dol"
 dol, build = sys.argv[1], sys.argv[2]
 repo = os.environ["GITHUB_REPOSITORY"]
 token = os.environ["GH_TOKEN"]
@@ -43,26 +42,33 @@ info = {"name": "GC-MP3 build " + build, "body": body, "draft": False, "prerelea
 
 st, rel = call("GET", api + "/releases/tags/" + TAG)
 print("release '%s' : HTTP %d" % (TAG, st))
-if st == 200 and rel:
-    st2, rel2 = call("PATCH", api + "/releases/%d" % rel["id"], json.dumps(info).encode())
-    if st2 != 200 or not rel2:
-        fail("mise a jour du texte de la release impossible (HTTP %d)" % st2)
-    rel = rel2
-    for a in rel.get("assets", []):
-        if a.get("name") == NAME:
-            st3, _ = call("DELETE", api + "/releases/assets/%d" % a["id"])
-            print("ancien %s supprime : HTTP %d" % (NAME, st3))
-            if st3 not in (204, 404):
-                fail("suppression de l'ancien .dol impossible (HTTP %d) - release immuable ?" % st3)
-else:
-    info["tag_name"] = TAG
-    info["target_commitish"] = os.environ.get("GITHUB_SHA", "main")
-    st, rel = call("POST", api + "/releases", json.dumps(info).encode())
+if st != 200 or not rel:
+    first = dict(info, tag_name=TAG, target_commitish=os.environ.get("GITHUB_SHA", "main"))
+    first["body"] = "build=0\n\nPublication en cours."
+    st, rel = call("POST", api + "/releases", json.dumps(first).encode())
     if st != 201 or not rel:
         fail("creation de la release impossible (HTTP %d)" % st)
 
-up = rel["upload_url"].split("{")[0] + "?name=" + NAME
+# 1. le nouveau .dol d'abord, sous un nom propre a ce build
+mine = "gc-mp3player-b%s.dol" % build
+old = [a for a in rel.get("assets", []) if a.get("name", "").endswith(".dol")]
+for a in old:
+    if a.get("name") == mine:                       # (compilation relancee)
+        call("DELETE", api + "/releases/assets/%d" % a["id"])
+up = rel["upload_url"].split("{")[0] + "?name=" + mine
 st, _ = call("POST", up, open(dol, "rb").read(), "application/octet-stream")
 if st != 201:
     fail("envoi du .dol impossible (HTTP %d)" % st)
+print("%s envoye" % mine)
+
+# 2. les anciens .dol (s'ils ne partent pas, GC-MP3 choisit quand meme celui du build)
+for a in old:
+    if a.get("name") != mine:
+        st3, _ = call("DELETE", api + "/releases/assets/%d" % a["id"])
+        print("ancien %s supprime : HTTP %d" % (a.get("name"), st3))
+
+# 3. le numero de build en dernier : il n'annonce jamais un fichier absent
+st2, _ = call("PATCH", api + "/releases/%d" % rel["id"], json.dumps(info).encode())
+if st2 != 200:
+    fail("mise a jour du texte de la release impossible (HTTP %d)" % st2)
 print("release '%s' publiee : build %s" % (TAG, build))
