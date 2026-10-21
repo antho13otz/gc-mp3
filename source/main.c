@@ -552,6 +552,8 @@ static int mount_sd(void) {
     return 0;
 }
 
+#include "ramfs.c"                                     /* pas de carte SD (Dolphin) : SD virtuelle */
+
 // ---------- Pochettes ----------
 static u16 cover_tex[COVER_SZ * COVER_SZ] ATTRIBUTE_ALIGN(32);
 static int cover_ok = 0;
@@ -3228,18 +3230,8 @@ static int yes(const char *v) {
 
 static void save_settings(void);
 
-static void load_settings(void) {
-    if (!sd_ok) return;
-    FILE *f = fopen(SETTINGS_FILE, "r");
-    if (!f) { save_settings(); return; }
-    char line[NAME_LEN + 64];
-    while (fgets(line, sizeof(line), f)) {
-        char *t = trim(line);
-        if (t[0] == '#') continue;
-        char *eq = strchr(t, '=');
-        if (!eq) continue;
-        *eq = 0;
-        char *k = trim(t), *v = trim(eq + 1);
+/* un reglage "cle = valeur" (fichier gc-mp3.txt, ou page du telephone) */
+static void setting_apply(const char *k, char *v) {
         if (!strcasecmp(k, "pochettes_auto")) covers_auto = yes(v);
         else if (!strcasecmp(k, "aleatoire")) shuffle_on = yes(v);
         else if (!strcasecmp(k, "repetition")) repeat_mode = !strncasecmp(v, "tout", 4) ? REP_ALL : !strncasecmp(v, "un", 2) ? REP_ONE : REP_OFF;
@@ -3283,6 +3275,20 @@ static void load_settings(void) {
         else if (!strcasecmp(k, "reprise")) resume_on = yes(v);
         else if (!strcasecmp(k, "reprise_fichier")) snprintf(resume_path, sizeof(resume_path), "%s", v);
         else if (!strcasecmp(k, "reprise_position")) resume_pos = atoi(v);
+}
+
+static void load_settings(void) {
+    if (!sd_ok) return;
+    FILE *f = fopen(SETTINGS_FILE, "r");
+    if (!f) { save_settings(); return; }
+    char line[NAME_LEN + 64];
+    while (fgets(line, sizeof(line), f)) {
+        char *t = trim(line);
+        if (t[0] == '#') continue;
+        char *eq = strchr(t, '=');
+        if (!eq) continue;
+        *eq = 0;
+        setting_apply(trim(t), trim(eq + 1));
     }
     fclose(f);
     eq_setup();
@@ -4622,7 +4628,17 @@ static void draw_list_music(int sel) {
         gx_text1(F_MED, 76, cy + 5, nm, txt);
     }
 
-    if (nfiles == 0) {
+    if (nfiles == 0 && sd_virtual) {                    /* Dolphin, ou pas d'adaptateur SD */
+        gx_text1(F_MED, 30, 138, "Pas de carte SD", RGBA(255, 205, 110, 255));
+        gx_text1(F_SMALL, 30, 160, "Radio, podcasts et web marchent.", RGBA(190, 180, 235, 255));
+        gx_text1(F_SMALL, 30, 178, "Les morceaux t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9s restent", RGBA(190, 180, 235, 255));
+        gx_text1(F_SMALL, 30, 196, "jusqu'\xC3\xA0 la fermeture de GC-MP3.", RGBA(190, 180, 235, 255));
+        if (rf_card_msg[0]) {
+            char m[96];
+            fit_text(F_SMALL, rf_card_msg, 236, m, sizeof(m));
+            gx_text1(F_SMALL, 30, 222, m, RGBA(150, 200, 160, 255));
+        }
+    } else if (nfiles == 0) {
         gx_text1(F_MED, 30, 138, "Aucun fichier MP3 trouv\xC3\xA9", RGBA(255, 205, 110, 255));
         gx_text1(F_SMALL, 30, 160, "Copie tes MP3 dans SD:/mp3", RGBA(190, 180, 235, 255));
         gx_text1(F_SMALL, 30, 178, "ou t\xC3\xA9l\xC3\xA9" "charge-les dans SD:/downloads", RGBA(190, 180, 235, 255));
@@ -9088,7 +9104,7 @@ static void menu_value(int i, char *out, int cap) {
 
 static const char *const menu_labels[MI_COUNT] = {
     "Lecture al\xC3\xA9" "atoire", "R\xC3\xA9p\xC3\xA9tition", "Fondu encha\xC3\xAEn\xC3\xA9", "Liste MUSIQUE", "Volume",
-    "Volume \xC3\xA9gal\xC3\xAAs\xC3\xA9", "Graves", "Aigus", "Th\xC3\xA8me",
+    "Volume \xC3\xA9galis\xC3\xA9", "Graves", "Aigus", "Th\xC3\xA8me",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques",
     "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Format de l'\xC3\xA9" "cran", "Langue du contenu", "Mode soir\xC3\xA9" "e", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Mise \xC3\xA0 jour", "Quitter GC-MP3" };
@@ -9998,6 +10014,7 @@ static void music_pump(void) {
 int main(int argc, char **argv) {
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;
     sd_ok = mount_sd();                     /* d'abord les reglages (mode video, theme...) */
+    if (!sd_ok) sd_ok = ramfs_mount();      /* (Dolphin : SD en memoire, reglages sur la carte memoire) */
     crash_init();                           /* journal de plantage */
     load_settings();
     if (!init_video()) return 1;
@@ -10180,6 +10197,7 @@ int main(int argc, char **argv) {
         rb_pump();
         lib_pump();
         bib_pump();
+        ramfs_pump();
         photo_pump();
         resume_note(0);
         if (settings_dirty) {                               /* reglages changes : enregistres 2 s apres */
@@ -10202,6 +10220,7 @@ int main(int argc, char **argv) {
 
     resume_note(1);                          /* garde la position pour la prochaine fois */
     if (bib_dirty) bib_save();
+    if (sd_virtual && rf_dirty) rf_card_save();
     AUDIO_RegisterDMACallback(NULL);
     stop_track();
     stop_station();
