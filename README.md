@@ -21,9 +21,10 @@ Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés »
   les **boutons**, les **infos** (album, année, format) et l'**horloge**.
 
 ## Onglet MUSIQUE
-- Formats : **MP3, FLAC, OGG Vorbis et WAV** (`.mp3`, `.flac`, `.ogg`, `.wav`), lus dans `SD:/mp3`
+- Formats : **MP3, FLAC, OGG Vorbis, WAV et M4A** (`.mp3`, `.flac`, `.ogg`, `.wav`, `.m4a`, `.m4b` en AAC-LC
+  ou HE-AAC, avec titre, artiste et pochette intégrée), lus dans `SD:/mp3`
   et `SD:/downloads`, sous-dossiers compris (3 niveaux, 512 fichiers maximum). Les FLAC haute
-  résolution (24 bits, 96 kHz) passent ; les fichiers Opus ne sont pas gérés. Ils sont lus au fur et à mesure depuis la carte : **pas de limite de taille**
+  résolution (24 bits, 96 kHz) passent ; les fichiers Opus et ALAC ne sont pas gérés. Ils sont lus au fur et à mesure depuis la carte : **pas de limite de taille**
   (les longs mix passent).
 - **Stick C gauche / droite** : change la liste — *Tous les morceaux*, *Dossiers*, *Artistes*, *Albums*.
   Dans un dossier / artiste / album, la première ligne sert à revenir en arrière (A).
@@ -72,6 +73,9 @@ Les morceaux qui bouclent sont joués deux fois puis s'éteignent en fondu. Dans
 - Dans un podcast : A = écouter un épisode, **X = le télécharger** dans `SD:/podcasts` (il apparaît
   ensuite dans MUSIQUE), B = retour. **L / R = reculer de 15 s / avancer de 30 s**.
 - La position de chaque épisode est retenue (`SD:/podcasts/positions.txt`) : on reprend où on s'était arrêté.
+- Épisodes en **MP3 ou M4A** (Radio France publie souvent en M4A), adresses longues acceptées
+  (2048 caractères). En M4A, les sauts L / R et la reprise sont exacts.
+- La recherche utilise le catalogue du pays de la **langue du contenu** (menu START).
 
 ## Onglet PHOTOS
 - Les images `.jpg` / `.png` de `SD:/photos`, `SD:/ecran` et `SD:/downloads` en vignettes.
@@ -113,7 +117,7 @@ les dossiers prévus.
 - **Rechercher une radio...** (première ligne) : annuaire libre radio-browser.info, recherche par nom.
   **Les plus écoutées en France** : la liste des stations populaires.
   Dans les résultats : A = écouter, **X = ajouter à mes radios** (écrit dans `radio.txt`).
-- Flux **MP3**, **AAC / HE-AAC** (aacPlus) et **OGG Vorbis**, en http:// ou https://. Les listes
+- Flux **MP3**, **AAC / HE-AAC** (aacPlus), **OGG Vorbis** et fichiers **M4A**, en http:// ou https://. Les listes
   `.m3u` / `.pls` et les redirections sont suivies. Radios **HLS** (`.m3u8`, segments MPEG-TS ou
   AAC / MP3) gérées aussi. Pas d'Opus, ni de HLS chiffré ou au format fMP4.
 - **Enregistrer la radio** : START > Enregistrer la radio. Le flux est enregistré tel quel
@@ -138,7 +142,7 @@ les dossiers prévus.
   `SD:/cookies.txt` (les cookies permanents seulement). Ce fichier contient tes connexions :
   ne le partage pas. Accueil > « Effacer les cookies » pour tout supprimer.
 - Les **images déjà vues** restent en mémoire (3 Mo) : revenir sur une page est instantané.
-- Un lien vers un **MP3 ou une radio** (mp3, ogg, aac, m3u, pls…) propose : A = écouter tout de
+- Un lien vers un **MP3, un M4A ou une radio** (mp3, m4a, ogg, aac, m3u, pls…) propose : A = écouter tout de
   suite (sans télécharger), X = télécharger, B = annuler.
 - **Depuis le téléphone** : carte « Ouvrir sur la télé » de la page TÉLÉPHONE, colle une adresse,
   la page s'ouvre sur la GameCube.
@@ -147,12 +151,26 @@ les dossiers prévus.
 - Un lien vers un autre fichier est téléchargé dans `SD:/downloads` en tâche de fond ; les MP3 apparaissent
   ensuite dans l'onglet MUSIQUE.
 
+## Fluidité
+- La barre de sélection glisse d'une ligne à l'autre ; la croix maintenue va de plus en plus vite.
+- **Bibliothèque en cache** (`SD:/gc-mp3-bib.txt`) : les durées et les étiquettes déjà lues sont
+  gardées ; au démarrage suivant, la liste défile sans relire chaque fichier et les vues Artistes /
+  Albums sont prêtes tout de suite. Le fichier peut être supprimé sans risque (il se refait).
+- Les durées ne sont pas lues pendant qu'on fait défiler la liste (pas d'à-coups).
+
 ## Menu (START)
 Lecture aléatoire, répétition, **fondu enchaîné**, liste MUSIQUE, **volume**, **volume égalisé**,
 **graves / aigus**, **thème de couleurs** (Indigo, Océan,
 Émeraude, Rubis, Ambre, Couleurs douces, Graphite — « Couleurs douces » si l'image paraît trop vive
 sur ta télé), **économiseur d'écran** (2 / 5 / 10 / 30 min ou jamais, n'importe quelle touche le quitte), pochettes et paroles automatiques, reprise au démarrage,
 **vidéo** (auto = 480p avec un câble composante ou un GCVideo ; B maintenu au démarrage = 480i),
+**taille de l'écran** (100 à 80 % : réduis-la si les bords de l'image sont coupés sur ta télé),
+**format de l'écran** (4:3 ou 16:9 : en 16:9, règle aussi la télé en mode large / plein écran ;
+l'interface s'étale sur toute la largeur, le texte, les pochettes, les photos et le QR code
+gardent leurs vraies proportions, et les pages web sont mises en page plus larges),
+**langue du contenu** (Auto = langue de la console réglée dans l'IPL, ou français, anglais, allemand,
+espagnol, italien, néerlandais : pays des podcasts et des « radios les plus écoutées », langue demandée
+aux sites web et noms de villes de la météo ; l'interface reste en français),
 **mode soirée**, **minuterie** (arrêt après 15 à 120 min, le son baisse doucement les 30 dernières
 secondes), **disposition du lecteur**, **éléments du lecteur**, **onglets affichés**,
 enregistrement de la radio, et **Quitter**. Tout est enregistré dans `SD:/gc-mp3.txt`.
