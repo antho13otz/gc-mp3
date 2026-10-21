@@ -7,7 +7,7 @@
 //   ailleurs : fleches = croix, Entree = A, Echap / Retour arriere = B,
 //   Espace = pause, Tab = onglet suivant, F1 = menu, F2 = veilleuse,
 //   Page haut / bas = morceau precedent / suivant ; dans l'onglet WEB, taper
-//   une lettre ouvre la barre d'adresse.
+//   une lettre ouvre la barre d'adresse ; dans MUSIQUE, la recherche.
 
 #include <ogc/si.h>
 
@@ -87,6 +87,10 @@ static void gk_key(u8 k, int shift, u32 *down, u32 *nav, int *fire) {
     if (c && c != ' ' && tab == TAB_WEB && !menu_open && !ck) {
         char s[2] = { c, 0 };
         kb_start(KB_URL, s, -1, -1);
+    }
+    else if (c && c != ' ' && tab == TAB_MUSIC && !menu_open && !ck && !am_open) {   /* MUSIQUE : recherche */
+        char s[2] = { c, 0 };
+        kb_start(KB_LIBFIND, s, -1, -1);
     }
 }
 
