@@ -123,7 +123,7 @@ static void tp_cfg_build(void) {
     sb_add(&s, "{\"m\":[");
     int first = 1;
     for (int i = 0; i < MI_COUNT; i++) {
-        if (i == MI_QUIT || i == MI_ELEMS || i == MI_TABS) continue;
+        if (i == MI_QUIT || i == MI_ELEMS || i == MI_TABS || i == MI_GAMES || i == MI_TITLES) continue;
         menu_value(i, v, sizeof(v));
         if (!first) sb_add(&s, ",");
         first = 0;
@@ -388,6 +388,18 @@ static void tp_handle(s32 c) {
         tp_reply(c, 200, "application/json", tmp, (int)strlen(tmp));
     } else if (!strcmp(target, "/api/tracks")) tp_send_tracks(c);
     else if (!strcmp(target, "/api/stations")) tp_send_stations(c);
+    else if (!strcmp(target, "/api/titres")) {             /* titres de la radio gardes (v18) */
+        FILE *f = sd_ok ? fopen(SD_ROOT "/gc-mp3-titres.txt", "rb") : NULL;
+        char *b = (char *)malloc(64 * 1024);
+        int n = 0;
+        if (f && b) {
+            if (fseek(f, 0, SEEK_END) == 0) { long sz = ftell(f); if (sz > 64 * 1024) fseek(f, sz - 64 * 1024, SEEK_SET); else fseek(f, 0, SEEK_SET); }
+            n = (int)fread(b, 1, 64 * 1024, f);
+        }
+        if (f) fclose(f);
+        tp_reply(c, 200, "text/plain; charset=utf-8", b ? b : "", b ? n : 0);
+        free(b);
+    }
     else if (!strcmp(target, "/cover.bmp")) tp_send_cover(c);
     else if (!strcmp(target, "/api/open")) {                 /* ouvrir une page sur la tele */
         char u[2048];
