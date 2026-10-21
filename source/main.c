@@ -5,11 +5,11 @@
 //   Pochettes : <meme nom>.jpg/.png, pochette integree (ID3 / FLAC), ou cover.jpg/folder.jpg du dossier
 //   Paroles : <meme nom>.lrc, sinon cherchees sur lrclib.net. Volume egalise (ReplayGain),
 //   egaliseur graves / aigus et fondu enchaine : menu START.
-// Onglet RADIO : liste sd:/radio.txt (creee au premier lancement), une station par ligne :
-//   Nom | http://adresse/du/flux       Logo facultatif : sd:/radio/<Nom>.jpg ou .png
+// Onglet RADIO : liste sd:/gc-mp3/radio.txt (creee au premier lancement), une station par ligne :
+//   Nom | http://adresse/du/flux       Logo facultatif : sd:/gc-mp3/radio/<Nom>.jpg ou .png
 //   Flux MP3, AAC ou OGG Vorbis en http:// ou https://, listes .m3u/.pls, radios HLS (.m3u8).
 // Onglet WEB : navigateur en mode texte (sans JavaScript ni images). Les liens vers des
-//   fichiers sont telecharges dans sd:/downloads. Favoris : sd:/favoris.txt (Nom | adresse).
+//   fichiers sont telecharges dans sd:/downloads. Favoris : sd:/gc-mp3/favoris.txt (Nom | adresse).
 //
 // Commandes : Z = changer d'onglet (la lecture continue), Haut/Bas = choisir,
 //             Gauche/Droite = page, A = lire, B = arreter, Y = pause (musique) / muet (radio),
@@ -81,8 +81,9 @@
 #ifndef SD_ROOT
 #define SD_ROOT        "sd:"
 #endif
-#define RADIO_LIST     SD_ROOT "/radio.txt"
-#define LOGO_DIR       SD_ROOT "/radio"
+#define GCD            SD_ROOT "/gc-mp3"     // v22 : fichiers de GC-MP3 ranges dans un seul dossier
+#define RADIO_LIST     GCD "/radio.txt"
+#define LOGO_DIR       GCD "/radio"
 #define MP3_DIR        SD_ROOT "/mp3"
 #define MAX_FILES      512
 #define NAME_LEN       256                  // chemin complet (sd:/dossier/.../fichier.mp3)
@@ -93,7 +94,8 @@
 #define MAX_STATIONS   128
 #define LIST_ROWS      14
 #define DMA_SAMPLES    2048                 // echantillons stereo par tampon DMA (~43 ms)
-#define NUM_BUFS       3
+#define NUM_BUFS       8                    // v22 : 8 tampons, dont 5 remplis d'avance (~210 ms)
+#define AUDIO_AHEAD    5
 #define DMA_BYTES      (DMA_SAMPLES * 4)
 #define FIFO_SIZE      (48000 * 10)         // 10 s de son decode d'avance (48 kHz stereo)
 #define FIFO_MARGIN    8192                 // place minimale avant de decoder une trame
@@ -223,8 +225,9 @@ static int  rebuffers = 0;
 
 // ---------- Audio (DMA, anneau de 3 tampons, 48 kHz) ----------
 static s16 dmabuf[NUM_BUFS][DMA_SAMPLES * 2] ATTRIBUTE_ALIGN(32);
-static volatile u32 cb_n = 0;
-static volatile u32 filled_blk = 0xFFFFFFFFu;
+static volatile u32 cb_n = 0;              /* prochain bloc a jouer */
+static volatile u32 fill_n = 0;            /* prochain bloc a remplir */
+static s16 vizbuf[NUM_BUFS][512];          /* (spectre : ce qui sera entendu avec ce bloc) */
 
 static stereo_t fifo[FIFO_SIZE];
 static int f_head = 0, f_tail = 0, f_count = 0;
@@ -237,21 +240,26 @@ static int sleep_fade = 256;             // minuterie : baisse du volume dans le
 static int alarm_fade;                   // reveil : volume qui monte (onglet INFOS)
 static u32 consumed_skip;
 
-/* Fin d'un bloc DMA : programme le suivant. S'il n'a pas ete rempli a temps,
-   on joue du silence plutot que de rejouer d'anciennes donnees. */
+/* Fin d'un bloc DMA : programme le suivant.
+   v22 : plusieurs blocs sont remplis d'avance (~210 ms) ; un moment ou le
+   programme est occupe (carte SD, reseau, image a decoder...) ne fait plus
+   de trou dans le son. S'il n'y a vraiment plus rien, on joue du silence. */
 static void dma_cb(void) {
     u32 blk = cb_n;
     s16 *buf = dmabuf[blk % NUM_BUFS];
-    if (filled_blk != blk) {
+    if ((s32)(fill_n - blk) <= 0) {
         memset(buf, 0, DMA_BYTES);
         DCFlushRange(buf, DMA_BYTES);
-    }
+        memset(viz, 0, sizeof(viz));
+    } else memcpy(viz, vizbuf[blk % NUM_BUFS], sizeof(viz));   /* le spectre suit ce qu'on entend */
+    viz_pos = 0;
     AUDIO_InitDMA((u32)buf, DMA_BYTES);
     cb_n = blk + 1;
 }
 
 static void fill_buf(int idx) {
     s16 *d = dmabuf[idx];
+    s16 *vz = vizbuf[idx];
     int live = (src == SRC_RADIO && state == ST_PLAY) || (src == SRC_FILE && !paused);
     for (int i = 0; i < DMA_SAMPLES; i++) {
         s16 l = 0, r = 0;
@@ -263,8 +271,7 @@ static void fill_buf(int idx) {
             if (consumed_skip) consumed_skip--;     /* fin du morceau precedent (fondu) */
             else consumed++;
         }
-        viz[viz_pos] = (s16)(((int)l + (int)r) / 2);
-        viz_pos = (viz_pos + 1) & (VIZ_N - 1);
+        if (i < VIZ_N) vz[i] = (s16)(((int)l + (int)r) / 2);
         if (muted) l = r = 0;
         else if (volume_pct < 100 || sleep_fade < 256 || alarm_fade < 256) {
             int v = volume_pct * 256 / 100 * sleep_fade / 256 * alarm_fade / 256;
@@ -278,14 +285,28 @@ static void fill_buf(int idx) {
 }
 
 static void service_audio(void) {
-    u32 level = IRQ_Disable();
-    u32 blk = cb_n;
-    int do_fill = (filled_blk != blk);
-    IRQ_Restore(level);
-    if (do_fill) {
-        fill_buf((int)(blk % NUM_BUFS));
-        filled_blk = blk;
+    for (int guard = 0; guard < AUDIO_AHEAD; guard++) {
+        u32 level = IRQ_Disable();
+        u32 blk = cb_n, f = fill_n;
+        if ((s32)(f - blk) < 0) { f = blk; fill_n = f; }         /* (en retard : on repart du bloc a venir) */
+        IRQ_Restore(level);
+        if ((s32)(f - blk) >= AUDIO_AHEAD) return;
+        fill_buf((int)(f % NUM_BUFS));
+        level = IRQ_Disable();
+        if (fill_n == f) fill_n = f + 1;
+        IRQ_Restore(level);
     }
+}
+/* son deja prepare mais pas encore entendu (en echantillons) */
+static u32 audio_queued(void) {
+    s32 n = (s32)(fill_n - cb_n) + 1;
+    if (n < 0) n = 0;
+    return (u32)n * DMA_SAMPLES;
+}
+/* position entendue (consumed compte ce qui est prepare) */
+static u32 consumed_heard(void) {
+    u32 q = audio_queued();
+    return consumed > q ? consumed - q : 0;
 }
 
 static int fifo_put(s16 l, s16 r) {
@@ -576,6 +597,53 @@ static int decode_stream_one(int stream_closed) {
     return 1;
 }
 
+/* v22 : les fichiers de GC-MP3 qui etaient a la racine de la carte SD vont
+   dans SD:/gc-mp3 (une seule fois, au demarrage). Les dossiers de musique,
+   photos, videos, retro, ecran, telechargements et apps restent a la racine. */
+static int gcd_exists(const char *p) { struct stat st; return stat(p, &st) == 0; }
+static int gcd_moved = 0;
+static void gcd_move_dir(const char *from, const char *to) {
+    DIR *d = opendir(from);
+    if (!d) return;
+    mkdir(to, 0777);
+    struct dirent *e;
+    char a[NAME_LEN], b[NAME_LEN];
+    int left = 0;
+    while ((e = readdir(d)) != NULL) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        snprintf(a, sizeof(a), "%s/%s", from, e->d_name);
+        snprintf(b, sizeof(b), "%s/%s", to, e->d_name);
+        if (gcd_exists(b) || rename(a, b) != 0) left++; else gcd_moved++;
+    }
+    closedir(d);
+    if (!left) remove(from);                             /* (dossier vide) */
+}
+static void gcd_migrate(void) {
+    static const char *const files[] = { "gc-mp3.txt", "gc-mp3-bib.txt", "gc-mp3-ecoutes.txt", "gc-mp3-jeux.txt", "gc-mp3-titres.txt",
+        "gc-mp3-crash.txt", "gc-mp3-crash-ancien.txt", "cookies.txt", "favoris.txt", "podcasts.txt", "radio.txt", NULL };
+    static const char *const dirs[] = { "listes", "cache", "podcasts", "radio", NULL };
+    char a[NAME_LEN], b[NAME_LEN];
+    mkdir(GCD, 0777);
+    for (int i = 0; files[i]; i++) {
+        snprintf(a, sizeof(a), SD_ROOT "/%s", files[i]);
+        snprintf(b, sizeof(b), GCD "/%s", files[i]);
+        if (gcd_exists(a) && !gcd_exists(b) && rename(a, b) == 0) gcd_moved++;
+    }
+    for (int i = 0; dirs[i]; i++) {
+        snprintf(a, sizeof(a), SD_ROOT "/%s", dirs[i]);
+        snprintf(b, sizeof(b), GCD "/%s", dirs[i]);
+        if (!gcd_exists(a)) continue;
+        if (!gcd_exists(b) && rename(a, b) == 0) { gcd_moved++; continue; }
+        gcd_move_dir(a, b);                              /* (le nouveau dossier existe deja) */
+        if (!strcmp(dirs[i], "radio")) {                 /* sous-dossier des enregistrements */
+            char c[NAME_LEN];
+            snprintf(c, sizeof(c), GCD "/radio/enregistrements");
+            snprintf(a, sizeof(a), SD_ROOT "/radio/enregistrements");
+            if (gcd_exists(a)) { gcd_move_dir(a, c); snprintf(a, sizeof(a), SD_ROOT "/radio"); remove(a); }
+        }
+    }
+}
+
 static int mount_sd(void) {
     if (fatMountSimple("sd", &__io_gcsd2)) return 1;   // SD2SP2 (port serie 2)
     if (fatMountSimple("sd", &__io_gcsda)) return 1;   // SD Gecko slot A
@@ -618,8 +686,8 @@ static void cover_scale(const unsigned char *px, int w, int h, u16 *out, int pum
    Au changement de morceau, l'image n'est plus decodee tout de suite (jusqu'a
    1 s pour une grande pochette) : le son demarre aussitot, l'image est decodee
    par le fil de decodage, puis gardee toute prete (128x128, 32 Ko) dans
-   sd:/cache/pochettes. La fois suivante, elle s'affiche immediatement. */
-#define CV_DIR SD_ROOT "/cache/pochettes"
+   sd:/gc-mp3/cache/pochettes. La fois suivante, elle s'affiche immediatement. */
+#define CV_DIR GCD "/cache/pochettes"
 static int cv_defer = 0;                    /* 1 = decoder en tache de fond (load_cover) */
 static volatile int cv_state = 0;           /* 0 libre, 1 a decoder (fil), 2 fini */
 static unsigned char *volatile cv_in = NULL;   /* travail du fil */
@@ -658,7 +726,7 @@ static int cv_cache_read(const char *key) {
 static void cv_cache_write(const char *key, const u16 *tex) {
     if (!key[0] || !sd_ok || sd_virtual) return;
     char path[NAME_LEN];
-    mkdir(SD_ROOT "/cache", 0777);
+    mkdir(GCD "/cache", 0777);
     mkdir(CV_DIR, 0777);
     cv_cache_name(key, path, sizeof(path));
     FILE *f = fopen(path, "wb");
@@ -757,7 +825,7 @@ static int cover_from_file(const char *path) {
     free(buf);
     return ok;
 }
-// ---------- Liste des stations (sd:/radio.txt) ----------
+// ---------- Liste des stations (sd:/gc-mp3/radio.txt) ----------
 typedef struct { char name[48]; char url[URL_MAX]; } station_t;
 static station_t stations[MAX_STATIONS];
 static int nstations = 0;
@@ -768,7 +836,7 @@ static const char *DEFAULT_LIST =
     "# GC-Radio : une station par ligne, au format   Nom | URL\n"
     "# Flux MP3, AAC ou OGG Vorbis en http:// ou https://, et radios HLS (.m3u8).\n"
     "# Les listes .m3u et .pls sont acceptees. Les lignes qui commencent\n"
-    "# par # sont ignorees. Logo facultatif : sd:/radio/<Nom>.jpg ou .png\n"
+    "# par # sont ignorees. Logo facultatif : sd:/gc-mp3/radio/<Nom>.jpg ou .png\n"
     "# Conseil : preferer des serveurs proches (France/Europe). Le reseau de\n"
     "# la GameCube est lent avec les serveurs lointains (USA) en 128 kbps.\n"
     "FIP | http://icecast.radiofrance.fr/fip-midfi.mp3\n"
@@ -1284,14 +1352,14 @@ static void rec_stop(void) {
     if (!rec_fp) return;
     fclose(rec_fp);
     rec_fp = NULL;
-    snprintf(rec_msg, sizeof(rec_msg), "Enregistr\xC3\xA9 : SD:/radio/enregistrements/%s", rec_name);
+    snprintf(rec_msg, sizeof(rec_msg), "Enregistr\xC3\xA9 : SD:/gc-mp3/radio/enregistrements/%s", rec_name);
     rec_msg_t = now_ms();
 }
 
 static void rec_start(const char *station) {
     if (rec_fp || !sd_ok) return;
-    mkdir(SD_ROOT "/radio", 0777);
-    mkdir(SD_ROOT "/radio/enregistrements", 0777);
+    mkdir(GCD "/radio", 0777);
+    mkdir(GCD "/radio/enregistrements", 0777);
     char base[64], when[32] = "";
     snprintf(base, sizeof(base), "%s", station && station[0] ? station : "Radio");
     for (char *p = base; *p; p++) if (strchr("\\/:*?\"<>|", *p) || (unsigned char)*p < 32) *p = '_';
@@ -1303,7 +1371,7 @@ static void rec_start(const char *station) {
         const char *ext = stream_codec == 2 ? "ogg" : stream_codec == 1 ? "aac" : "mp3";
         if (k == 1) snprintf(rec_name, sizeof(rec_name), "%s%s.%s", base, when, ext);
         else snprintf(rec_name, sizeof(rec_name), "%s%s (%d).%s", base, when, k, ext);
-        snprintf(path, sizeof(path), SD_ROOT "/radio/enregistrements/%s", rec_name);
+        snprintf(path, sizeof(path), GCD "/radio/enregistrements/%s", rec_name);
         struct stat st;
         if (stat(path, &st) != 0) break;
     }
@@ -1795,7 +1863,7 @@ static void scan_files(void) {
     scan_dir(MP3_DIR, 0);
     scan_dir(DL_DIR, 0);
     scan_dir(SD_ROOT "/retro", 0);
-    scan_dir(SD_ROOT "/podcasts", 0);                      /* episodes telecharges */
+    scan_dir(GCD "/podcasts", 0);                      /* episodes telecharges */
     qsort(names, nfiles, NAME_LEN, cmp_names);
     for (int k = 0; k < nfiles; k++) is_retro[k] = retro_ext_fmt(names[k]) >= 0;
 }
@@ -2920,7 +2988,7 @@ static int view_mode = VIEW_ALL, shuffle_on = 0, repeat_mode = REP_OFF;
 static const char *const view_names[VIEW_COUNT] = { "Tous les morceaux", "Dossiers", "Artistes", "Albums", "Mes listes" };
 
 /* etiquettes de tous les fichiers, lues en fond (vues Artistes et Albums) */
-static char tg_artist[MAX_FILES][48], tg_album[MAX_FILES][64];
+static char tg_artist[MAX_FILES][48], tg_album[MAX_FILES][64], tg_title[MAX_FILES][72];
 static u8 tg_done[MAX_FILES];
 static int tg_scanned = 0;
 
@@ -2936,7 +3004,7 @@ static void tag_scan_one(int k) {
     tg_done[k] = 1;
     tg_scanned++;
     bib_dirty = 1;
-    tg_artist[k][0] = tg_album[k][0] = 0;
+    tg_artist[k][0] = tg_album[k][0] = tg_title[k][0] = 0;
     FILE *fp = fopen(names[k], "rb");
     if (!fp) return;
     int fm = audio_fmt(names[k]);
@@ -2953,13 +3021,14 @@ static void tag_scan_one(int k) {
     fclose(fp);
     snprintf(tg_artist[k], sizeof(tg_artist[k]), "%s", tg.artist);
     snprintf(tg_album[k], sizeof(tg_album[k]), "%s", tg.album);
+    snprintf(tg_title[k], sizeof(tg_title[k]), "%s", tg.title);
 }
 
-/* ---------- Bibliotheque en cache (SD:/gc-mp3-bib.txt) ----------
+/* ---------- Bibliotheque en cache (SD:/gc-mp3/gc-mp3-bib.txt) ----------
    Durees et etiquettes deja lues : au demarrage suivant, plus besoin de relire
    chaque fichier (la liste defile sans a-coups, les vues Artistes / Albums sont
    pretes tout de suite). Une ligne par fichier : duree|artiste|album|chemin */
-#define BIB_FILE SD_ROOT "/gc-mp3-bib.txt"
+#define BIB_FILE GCD "/gc-mp3-bib.txt"
 static int bib_dirty = 0;                  // (declaree plus haut)
 static int lib_dirty;
 static u64 bib_saved_t = 0;
@@ -2979,19 +3048,24 @@ static void bib_load(void) {
     if (!f) return;
     static char line[NAME_LEN + 200];
     while (fgets(line, sizeof(line), f)) {
-        char *p[4];
+        /* v22 : duree|artiste|album|titre|chemin (anciennes lignes : sans titre) */
+        char *p[5];
         int n = 0;
         p[n++] = line;
-        for (char *c = line; *c && n < 4; c++) if (*c == '|') { *c = 0; p[n++] = c + 1; }
-        if (n < 4) continue;
-        p[3][strcspn(p[3], "\r\n")] = 0;
-        int k = bib_find(p[3]);
+        int v2 = !strncmp(line, "2:", 2);
+        if (v2) p[0] = line + 2;
+        for (char *c = p[0]; *c && n < (v2 ? 5 : 4); c++) if (*c == '|') { *c = 0; p[n++] = c + 1; }
+        if (n < (v2 ? 5 : 4)) continue;
+        char *path = p[v2 ? 4 : 3];
+        path[strcspn(path, "\r\n")] = 0;
+        int k = bib_find(path);
         if (k < 0) continue;
         int d = atoi(p[0]);
         if (d >= -1 && dur_cache[k] == -2) dur_cache[k] = d;
-        if (!tg_done[k] && !is_retro[k]) {
+        if (v2 && !tg_done[k] && !is_retro[k]) {               /* (ancien format : etiquettes relues) */
             snprintf(tg_artist[k], sizeof(tg_artist[k]), "%s", p[1]);
             snprintf(tg_album[k], sizeof(tg_album[k]), "%s", p[2]);
+            snprintf(tg_title[k], sizeof(tg_title[k]), "%s", p[3]);
             tg_done[k] = 1;
             tg_scanned++;
         }
@@ -3008,12 +3082,15 @@ static void bib_save(void) {
     int ok = 1;
     for (int k = 0; k < nfiles && ok; k++) {
         if (dur_cache[k] == -2 && !tg_done[k]) continue;
-        char a[48], b[64];
+        char a[48], b[64], ti[72];
         snprintf(a, sizeof(a), "%s", tg_done[k] ? tg_artist[k] : "");
         snprintf(b, sizeof(b), "%s", tg_done[k] ? tg_album[k] : "");
+        snprintf(ti, sizeof(ti), "%s", tg_done[k] ? tg_title[k] : "");
         for (char *c = a; *c; c++) if (*c == '|' || *c == '\n' || *c == '\r') *c = ' ';
         for (char *c = b; *c; c++) if (*c == '|' || *c == '\n' || *c == '\r') *c = ' ';
-        if (fprintf(f, "%d|%s|%s|%s\n", dur_cache[k] == -2 ? -3 : dur_cache[k], a, b, names[k]) < 0) ok = 0;
+        for (char *c = ti; *c; c++) if (*c == '|' || *c == '\n' || *c == '\r') *c = ' ';
+        if (!tg_done[k]) { if (fprintf(f, "%d|||%s\n", dur_cache[k] == -2 ? -3 : dur_cache[k], names[k]) < 0) ok = 0; continue; }
+        if (fprintf(f, "2:%d|%s|%s|%s|%s\n", dur_cache[k] == -2 ? -3 : dur_cache[k], a, b, ti, names[k]) < 0) ok = 0;
     }
     if (fclose(f) != 0) ok = 0;
     if (ok) { remove(BIB_FILE); rename(BIB_FILE ".part", BIB_FILE); }
@@ -3365,7 +3442,7 @@ static void lyrics_parse(const unsigned char *d, long len) {
 /* ligne en cours (-1 avant la premiere) */
 static int lyrics_current(void) {
     if (lrc_n == 0 || lrc_track != cur_track) return -1;
-    u32 ms = (u32)((u64)consumed * 1000u / 48000u) + 150;     /* petite avance : on lit avant d'entendre */
+    u32 ms = (u32)((u64)consumed_heard() * 1000u / 48000u) + 150;     /* petite avance : on lit avant d'entendre */
     int lo = 0, hi = lrc_n - 1, r = -1;
     while (lo <= hi) {
         int mid = (lo + hi) / 2;
@@ -3379,8 +3456,8 @@ static const char *lyrics_line(int i) {
     return lrc_text + lrc_lines[i].off;
 }
 
-// ---------- Reglages (sd:/gc-mp3.txt) et reprise de la lecture ----------
-#define SETTINGS_FILE SD_ROOT "/gc-mp3.txt"
+// ---------- Reglages (sd:/gc-mp3/gc-mp3.txt) et reprise de la lecture ----------
+#define SETTINGS_FILE GCD "/gc-mp3.txt"
 enum { VID_AUTO, VID_480I, VID_480P, VID_COUNT };
 static int covers_auto = 1;
 static int lyrics_auto = 1;                 /* paroles cherchees sur LRCLIB */
@@ -3393,9 +3470,9 @@ static int pod_auto = 1;                    /* v18 : nouveaux episodes telecharg
 static int wall_on = 0;                     /* v18 : fond d'ecran = une photo */
 static int season_on = 1;                   /* v21 : decor de saison (Halloween, Noel, ete) */
 static char wall_path[NAME_LEN];
-#define PARTY_STYLES 3
+#define PARTY_STYLES 4
 static int party_style = 0;                 /* mode soiree : style du visualiseur */
-static const char *const party_keys[PARTY_STYLES] = { "pulsation", "barres", "tunnel" };
+static const char *const party_keys[PARTY_STYLES] = { "pulsation", "barres", "tunnel", "spectrogramme" };
 static const char *const layout_names[LAYOUT_COUNT] = { "Classique", "Pochette g\xC3\xA9" "ante", "Liste \xC3\xA9tendue", "Minimaliste" };
 static const char *const layout_keys[LAYOUT_COUNT] = { "classique", "pochette", "liste", "minimal" };
 /* le mot 'w' (en minuscules) apparait-il dans v ? */
@@ -3406,17 +3483,19 @@ static int has_word(const char *v, const char *w) {
     low[n] = 0;
     return strstr(low, w) != NULL;
 }
-static const char *const party_names[PARTY_STYLES] = { "Pulsation", "Barres", "Tunnel" };
+static const char *const party_names[PARTY_STYLES] = { "Pulsation", "Barres", "Tunnel", "Spectrogramme" };
 static void party_start(void);
 static int saver_min = 5;                   /* economiseur d'ecran (minutes, 0 = jamais) */
-enum { SV_SPECTRE, SV_POCHETTE, SV_HORLOGE, SV_ETOILES, SV_PHOTOS, SV_NOIR, SV_AQUARIUM, SV_COUNT };
+enum { SV_SPECTRE, SV_POCHETTE, SV_HORLOGE, SV_ETOILES, SV_PHOTOS, SV_NOIR, SV_AQUARIUM, SV_SPECTRO, SV_COUNT };
 static int saver_style = SV_SPECTRE;        /* ce qu'affiche l'economiseur */
 static int sleep_min = 0;                   /* minuterie : arret apres N minutes (0 = non) */
 static u64 sleep_at = 0;
-static const char *const saver_keys[SV_COUNT] = { "spectre", "pochette", "horloge", "etoiles", "photos", "noir", "aquarium" };
+static const char *const saver_keys[SV_COUNT] = { "spectre", "pochette", "horloge", "etoiles", "photos", "noir", "aquarium", "spectrogramme" };
 static const char *const saver_names[SV_COUNT] = { "Spectre", "Pochette", "Horloge", "\xC3\x89toiles",
-                                                   "Photos (sd:/ecran)", "\xC3\x89" "cran noir", "Aquarium" };
+                                                   "Photos (sd:/ecran)", "\xC3\x89" "cran noir", "Aquarium", "Spectrogramme" };
 static int video_pref = VID_AUTO;
+static int vid_active = VID_480I;           /* mode vraiment utilise depuis le demarrage */
+static int tv_crt = 0;                      /* v22 : tele cathodique (480i, 4:3) */
 static int scr_pct = 100;                   /* taille de l'image : 80 a 112 % (au-dela de 100 : plus large, par la sortie video) */
 #define SCR_MAX 112
 static int scr_hpct = 100;                  /* hauteur de l'image : 80 a 100 % (bords haut et bas coupes) */
@@ -3526,6 +3605,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "ecran_position")) { scr_vpos = atoi(v); if (scr_vpos < -24) scr_vpos = -24; if (scr_vpos > 24) scr_vpos = 24; }
         else if (!strcasecmp(k, "ecran_taille")) { scr_pct = atoi(v); if (scr_pct < 80) scr_pct = 80; if (scr_pct > SCR_MAX) scr_pct = SCR_MAX; }
         else if (!strcasecmp(k, "langue")) { lang_pref = -1; for (int i = 0; i < LANG_COUNT; i++) if (!strncasecmp(v, lang_keys[i], 2)) lang_pref = i; }
+        else if (!strcasecmp(k, "tele")) tv_crt = !strncasecmp(v, "cath", 4) || !strncasecmp(v, "crt", 3);
         else if (!strcasecmp(k, "video")) video_pref = !strcasecmp(v, "480p") ? VID_480P : !strcasecmp(v, "480i") ? VID_480I : VID_AUTO;
         else if (!strcasecmp(k, "reprise")) resume_on = yes(v);
         else if (!strcasecmp(k, "reprise_fichier")) snprintf(resume_path, sizeof(resume_path), "%s", v);
@@ -3609,6 +3689,8 @@ static void save_settings(void) {
                "economiseur_style = %s\n"
                "# Video : auto (480p si cable composante) / 480i / 480p\n"
                "video = %s\n"
+               "# Type de tele : plat / cathodique (cathodique = 480i et 4:3)\n"
+               "tele = %s\n"
                "# Langue du contenu (podcasts, radios du pays, sites web, meteo) :\n"
                "# auto (celle de la console) / fr / en / de / es / it / nl\n"
                "langue = %s\n"
@@ -3623,7 +3705,7 @@ static void save_settings(void) {
             covers_auto ? "oui" : "non", lyrics_auto ? "oui" : "non", eq_keys[eq_preset], eq_bass, eq_mid, eq_treble, xf_sec,
             rg_mode == 2 ? "album" : rg_mode == 1 ? "morceau" : "non", party_keys[party_style],
             layout_keys[player_layout], els, hid, city, news_url, alarm_txt, alarm_src, phone_auto ? "oui" : "non", shuffle_on ? "oui" : "non", rep[repeat_mode], aff[view_mode],
-            volume_pct, theme_keys[theme_id], saver_min, saver_keys[saver_style], vid[video_pref],
+            volume_pct, theme_keys[theme_id], saver_min, saver_keys[saver_style], vid[video_pref], tv_crt ? "cathodique" : "plat",
             lang_pref >= 0 ? lang_keys[lang_pref] : "auto", scr_pct, scr_hpct, scr_vpos, scr_wide ? "16:9" : "4:3", resume_on ? "oui" : "non",
             resume_path, resume_pos);
     fprintf(f, "# Mode veilleuse : luminosite 1 a 5 ; radio lancee si rien ne joue : oui / non\n"
@@ -3634,7 +3716,7 @@ static void save_settings(void) {
             night_lum, night_radio ? "oui" : "non", upd_auto ? "oui" : "non", upd_repo, upd_file);
     fprintf(f, "# La manette vibre sur les basses (mode soiree) et dans les jeux : oui / non\n"
                "vibrations = %s\n"
-               "# Nouveaux episodes des podcasts telecharges tout seuls dans sd:/podcasts : oui / non\n"
+               "# Nouveaux episodes des podcasts telecharges tout seuls dans sd:/gc-mp3/podcasts : oui / non\n"
                "podcasts_auto = %s\n"
                "# Fond d'ecran : chemin d'une photo (PHOTOS, plein ecran, X) ou non\n"
                "fond_ecran = %s\nfond_ecran_photo = %s\n"
@@ -3930,7 +4012,13 @@ static int init_video(void) {
     if (!hold_b && (video_pref == VID_480P || (video_pref == VID_AUTO && VIDEO_HaveComponentCable()))) {
         u32 tv = VIDEO_GetCurrentTvMode();
         rmode = (tv == VI_PAL || tv == VI_EURGB60) ? &TVEurgb60Hz480Prog : &TVNtsc480Prog;
+    } else if ((hold_b || video_pref == VID_480I) && (rmode->viTVMode & 3) == VI_PROGRESSIVE) {
+        /* v22 : 480i demande, mais la console (reglage progressif garde par l'IPL
+           ou Swiss) proposait le 480p : on force l'entrelace (PVM, teles cathodiques) */
+        u32 tv = VIDEO_GetCurrentTvMode();
+        rmode = tv == VI_PAL ? &TVPal528IntDf : tv == VI_EURGB60 ? &TVEurgb60Hz480IntDf : tv == VI_MPAL ? &TVMpal480IntDf : &TVNtsc480IntDf;
     }
+    vid_active = (rmode->viTVMode & 3) == VI_PROGRESSIVE ? VID_480P : VID_480I;
 
     static GXRModeObj vmode;                 /* copie modifiable (largeur de sortie, voir scr_vi) */
     vmode = *rmode;
@@ -4939,16 +5027,40 @@ static void ui_status(const char *text) {
 /* Nom a afficher : sans le numero de piste en tete du nom de fichier
    ("01. Stan.mp3", "01 - Stan.mp3", "01_Stan.mp3" -> "Stan.mp3"). */
 static const char *display_name(const char *n) {
+    const char *s0 = n;
+    if (n[0] >= '1' && n[0] <= '9' && (n[1] == '-' || n[1] == '.') && n[2] >= '0' && n[2] <= '9' && n[3] >= '0' && n[3] <= '9')
+        n += 2;                                /* "1-01 Titre" (disque 1, piste 01) */
     int d = 0;
-    while (d < 3 && n[d] >= '0' && n[d] <= '9') d++;
-    if (d == 0 || d > 2) return n;             /* 1 ou 2 chiffres seulement */
+    while (d < 4 && n[d] >= '0' && n[d] <= '9') d++;
+    if (d == 0 || d > 3) return s0;            /* 1 a 3 chiffres seulement */
     const char *p = n + d;
-    while (*p == ' ') p++;
-    if (*p != '.' && *p != '-' && *p != '_') return n;   /* "50 Cent" reste intact */
-    p++;
-    while (*p == ' ' || *p == '-' || *p == '_') p++;
-    if (strlen(p) <= 4) return n;              /* il ne resterait que ".mp3" */
+    int sp = 0;
+    while (*p == ' ') { p++; sp++; }
+    if (*p == '.' || *p == '-' || *p == '_' || *p == ')') p++;
+    else if (!(sp && n[0] == '0' && d >= 2)) return s0;  /* "50 Cent" reste intact ; "01 Titre" est coupe */
+    while (*p == ' ' || *p == '-' || *p == '_' || *p == '.') p++;
+    if (!*p || (strlen(p) <= 4 && p[-1] == '.')) return s0;   /* il ne resterait que ".mp3" */
     return p;
+}
+
+/* v22 : nom d'un morceau dans les listes : "Artiste - Titre" d'apres ses
+   etiquettes, sinon le nom du fichier sans numero, sans extension, sans "_" */
+static void track_label(int k, char *out, int cap, int with_artist) {
+    if (k >= 0 && k < nfiles && tg_done[k] && tg_title[k][0]) {
+        if (with_artist && tg_artist[k][0]) snprintf(out, cap, "%s - %s", tg_artist[k], tg_title[k]);
+        else snprintf(out, cap, "%s", tg_title[k]);
+        return;
+    }
+    snprintf(out, cap, "%s", display_name(base_of(names[k])));
+    strip_audio_ext(out);
+    for (char *c = out; *c; c++) if (*c == '_') *c = ' ';
+    const char *b = display_name(out);                  /* ("Artiste - 01 - Titre") */
+    if (b != out) memmove(out, b, strlen(b) + 1);
+    char *m = strstr(out, " - ");
+    if (m) {
+        const char *after = display_name(m + 3);
+        if (after != m + 3) memmove(m + 3, after, strlen(after) + 1);
+    }
 }
 
 /* titre a afficher : etiquette du fichier, sinon son nom sans l'extension */
@@ -5030,13 +5142,10 @@ static void draw_list_music(int sel) {
         if (is_cur) gx_tri(31, cy - 6, 31, cy + 6, 41, cy, RGBA(255, 255, 255, 255));
         else draw_note(36, cy, ic);
 
-        int num = (cur_group >= 0) ? r : r + 1;               /* (la ligne 0 est "retour") */
-        snprintf(t, sizeof(t), "%02d", num);
-        gx_text1(F_SMALL, 50, cy + 4, t, dim);
-
+        (void)dim;
         fmt_time(t, track_duration(k));
         f32 dr = is_cur ? 240.0f : 256.0f;
-        int name_w = (int)dr - text_width(F_SMALL, t, 0) - 8 - 76;   /* place libre pour le nom */
+        int name_w = (int)dr - text_width(F_SMALL, t, 0) - 8 - 52;   /* place libre pour le nom */
         gx_text_r(F_SMALL, dr, cy + 4, t, is_sel ? RGBA(235, 225, 255, 255) : RGBA(150, 135, 210, 255));
         if (is_cur) {
             for (int j = 0; j < 3; j++) {
@@ -5044,9 +5153,12 @@ static void draw_list_music(int sel) {
                 gx_rect(246.0f + j * 4.0f, cy + 5.0f - bh, 2.5f, bh, RGBA(255, 255, 255, 255));
             }
         }
-        char nm[NAME_LEN];
-        fit_text(F_MED, display_name(base_of(names[k])), name_w, nm, sizeof(nm));
-        gx_text1(F_MED, 76, cy + 5, nm, txt);
+        char nm[NAME_LEN], lb[NAME_LEN], ld[NAME_LEN];
+        if (!tg_done[k] && dur_budget) tag_scan_one(k);       /* (etiquettes lues quand on ne defile pas) */
+        track_label(k, lb, sizeof(lb), !(cur_group >= 0 && (view_mode == VIEW_ARTISTS || view_mode == VIEW_ALBUMS)));
+        text_display(lb, ld, sizeof(ld));
+        fit_text(F_MED, ld, name_w, nm, sizeof(nm));
+        gx_text1(F_MED, 52, cy + 5, nm, txt);
     }
 
     if (nfiles == 0 && sd_virtual) {                    /* Dolphin, ou pas d'adaptateur SD */
@@ -5280,7 +5392,7 @@ static int settings_dirty;
 // des fichiers (MP3...) sont telecharges dans sd:/downloads.
 // ====================================================================
 #define WEB_PAGE_MAX   (1536 * 1024)        // taille maxi d'une page HTML
-#define FAV_FILE       SD_ROOT "/favoris.txt"
+#define FAV_FILE       GCD "/favoris.txt"
 #define SEARCH_URL     "https://www.mojeek.com/search?q="
 #define HIST_MAX       20
 #define W_MAX_ITEMS    60000
@@ -6813,7 +6925,7 @@ static char *build_home(void) {
         sb_esc(&s, lp->title[0] ? lp->title : lp->url);
         sb_add(&s, "</a></p>");
     }
-    sb_add(&s, "<p>Les favoris sont dans SD:/favoris.txt (une ligne par site : Nom | adresse).</p>");
+    sb_add(&s, "<p>Les favoris sont dans SD:/gc-mp3/favoris.txt (une ligne par site : Nom | adresse).</p>");
     {
         int nck = ck_count();
         sb_add(&s, "<h2>Cookies</h2><p>Les sites peuvent garder des informations (connexion, pr\xC3\xA9" "f\xC3\xA9rences). ");
@@ -8197,7 +8309,7 @@ static void img_pump(void) {
 /* Quand un morceau n'a pas de pochette, on cherche l'album sur MusicBrainz
    (artiste + titre), puis on telecharge la pochette sur le Cover Art Archive.
    Elle est enregistree a cote du MP3 (meme nom en .jpg) : la fois suivante elle
-   s'affiche sans reseau. Reglage : sd:/gc-mp3.txt (pochettes_auto = oui/non). */
+   s'affiche sans reseau. Reglage : sd:/gc-mp3/gc-mp3.txt (pochettes_auto = oui/non). */
 #ifndef MB_BASE
 #define MB_BASE  "https://musicbrainz.org"
 #endif
@@ -8438,7 +8550,7 @@ static void cover_pump(void) {
 /* Quand un morceau n'a pas de fichier .lrc, on cherche ses paroles synchronisees
    sur lrclib.net (gratuit, sans compte). Elles sont enregistrees a cote du
    fichier (meme nom en .lrc) : la fois suivante, plus besoin du reseau.
-   Reglage : sd:/gc-mp3.txt (paroles_auto = oui/non). */
+   Reglage : sd:/gc-mp3/gc-mp3.txt (paroles_auto = oui/non). */
 #ifndef LRC_BASE
 #define LRC_BASE "https://lrclib.net"
 #endif
@@ -8646,7 +8758,7 @@ static void add_favorite(void) {
     const whist_t *lp = last_web_page();
     if (!lp || !sd_ok) return;
     FILE *f = fopen(FAV_FILE, "a");
-    if (!f) { web_note("Impossible d'écrire SD:/favoris.txt", 1); return; }
+    if (!f) { web_note("Impossible d'écrire SD:/gc-mp3/favoris.txt", 1); return; }
     char name[96];
     snprintf(name, sizeof(name), "%s", lp->title[0] ? lp->title : lp->url);
     for (char *p = name; *p; p++) if (*p == '|' || *p == '\n' || *p == '\r') *p = '-';
@@ -9228,7 +9340,7 @@ static void draw_keyboard(void) {
 
 // ---------- Annuaire de radios (radio-browser.info) ----------
 /* Recherche de stations par nom, ou les plus ecoutees en France. Les resultats
-   s'ecoutent directement ; X les ajoute a sd:/radio.txt. */
+   s'ecoutent directement ; X les ajoute a sd:/gc-mp3/radio.txt. */
 #define RB_MAX 80
 typedef struct { char name[48]; char url[256]; char codec[8]; int kbps; char cc[4]; u8 hls; } rbres_t;
 static rbres_t rb_res[RB_MAX];
@@ -9496,7 +9608,7 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_LANG, MI_GAMES, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_LANG, MI_GAMES, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
 #define MENU_VIS 13                         /* lignes visibles (le menu defile) */
 static int menu_top = 0;
 static int menu_sel = 0, quit_requested = 0;
@@ -9542,7 +9654,12 @@ static void menu_value(int i, char *out, int cap) {
     case MI_SAVERSTYLE: snprintf(out, cap, "%s", saver_names[saver_style]); break;
     case MI_COVERS:  snprintf(out, cap, "%s", covers_auto ? "Oui" : "Non"); break;
     case MI_RESUME:  snprintf(out, cap, "%s", resume_on ? "Oui" : "Non"); break;
-    case MI_VIDEO:   snprintf(out, cap, "%s", vid[video_pref]); break;
+    case MI_VIDEO: {
+        int want = video_pref == VID_AUTO ? -1 : video_pref;
+        snprintf(out, cap, "%s%s", vid[video_pref], want >= 0 && want != vid_active ? "  (au red\xC3\xA9marrage)" : "");
+        break;
+    }
+    case MI_TV:      snprintf(out, cap, "%s", tv_crt ? "Cathodique (480i, 4:3)" : "\xC3\x89" "cran plat"); break;
     case MI_SCREEN:  snprintf(out, cap, scr_pct > 100 ? "%d %% (plus large)" : "%d %%", scr_pct); break;
     case MI_SCREENH: snprintf(out, cap, "%d %%", scr_hpct); break;
     case MI_SCREENY: if (scr_vpos) snprintf(out, cap, "%s %d", scr_vpos > 0 ? "Plus bas" : "Plus haut", abs(scr_vpos)); else snprintf(out, cap, "Centr\xC3\xA9" "e"); break;
@@ -9563,7 +9680,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "Lecture al\xC3\xA9" "atoire", "R\xC3\xA9p\xC3\xA9tition", "Fondu encha\xC3\xAEn\xC3\xA9", "Liste MUSIQUE", "Volume",
     "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran", "D\xC3\xA9" "cor de saison",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
-    "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue du contenu",
+    "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue du contenu",
     "Jeux et karaok\xC3\xA9", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Mise \xC3\xA0 jour", "Quitter GC-MP3" };
 
@@ -9634,7 +9751,13 @@ static void menu_change(int i, int d) {
     }
     case MI_COVERS:  covers_auto = !covers_auto; if (covers_auto) net_start_async(); break;
     case MI_RESUME:  resume_on = !resume_on; break;
-    case MI_VIDEO:   video_pref = (video_pref + d + VID_COUNT) % VID_COUNT; break;
+    case MI_VIDEO:   video_pref = (video_pref + d + VID_COUNT) % VID_COUNT; if (video_pref != VID_480I) tv_crt = 0; break;
+    case MI_TV:
+        tv_crt = !tv_crt;
+        if (tv_crt) { video_pref = VID_480I; scr_set_wide(0); }
+        else if (video_pref == VID_480I) video_pref = VID_AUTO;
+        if (tv_crt && vid_active != VID_480I) lib_note("Red\xC3\xA9marre GC-MP3 pour passer en 480i");
+        break;
     case MI_WIDE:    scr_set_wide(!scr_wide); break;
     case MI_SCREENH: scr_hpct += 2 * d; if (scr_hpct < 80) scr_hpct = 80; if (scr_hpct > 100) scr_hpct = 100; break;
     case MI_SCREENY: scr_vpos += 2 * d; if (scr_vpos < -24) scr_vpos = -24; if (scr_vpos > 24) scr_vpos = 24; break;
@@ -10238,6 +10361,85 @@ static void saver_aquarium(f32 t) {
     if (ti[0]) saver_line(F_MED, 320 + 80 * sinf(t * 0.03f), 465, ti, 520, RGBA(255, 255, 255, 210));
 }
 
+/* ---- Spectrogramme (v22) : les frequences defilent de droite a gauche ----
+   (idee d'un testeur sur Reddit) en bas les graves, en haut les aigus, la
+   couleur donne la force : noir, violet, rouge, orange, jaune. Une texture de
+   512 x 64 en anneau : une colonne nouvelle a chaque image. */
+#define SG_W 512
+#define SG_H 64
+static u16 sg_tex[SG_W * SG_H] ATTRIBUTE_ALIGN(32);
+static GXTexObj sg_obj;
+static int sg_ready = 0, sg_head = 0;
+static u16 sg_pal[256];
+static u32 sg_frame = 0;
+static void sg_setup(void) {
+    static const u8 st[6][3] = { { 0, 0, 6 }, { 48, 12, 96 }, { 132, 30, 110 }, { 214, 62, 60 }, { 250, 152, 24 }, { 252, 252, 170 } };
+    for (int i = 0; i < 256; i++) {
+        f32 x = i / 255.0f * 5;
+        int a = (int)x; if (a > 4) a = 4;
+        f32 t = x - a;
+        int r = (int)(st[a][0] + (st[a + 1][0] - st[a][0]) * t), g = (int)(st[a][1] + (st[a + 1][1] - st[a][1]) * t), b = (int)(st[a][2] + (st[a + 1][2] - st[a][2]) * t);
+        sg_pal[i] = (u16)(0x8000 | ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3));
+    }
+    for (int i = 0; i < SG_W * SG_H; i++) sg_tex[i] = sg_pal[0];
+    DCFlushRange(sg_tex, sizeof(sg_tex));
+    GX_InitTexObj(&sg_obj, sg_tex, SG_W, SG_H, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InitTexObjFilterMode(&sg_obj, GX_LINEAR, GX_LINEAR);
+    sg_ready = 1;
+}
+/* une colonne de plus (une fois par image) */
+static void sg_update(void) {
+    if (!sg_ready) sg_setup();
+    if (sg_frame == retrace_count) return;
+    sg_frame = retrace_count;
+    int x = sg_head;
+    for (int y = 0; y < SG_H; y++) {
+        f32 f = (f32)(SG_H - 1 - y) / (SG_H - 1) * (NBARS - 1);
+        int i0 = (int)f; if (i0 > NBARS - 2) i0 = NBARS - 2;
+        f32 t = f - i0, v = bar_val[i0] * (1 - t) + bar_val[i0 + 1] * t;
+        v = v * 1.15f;
+        int c = (int)(v * v * 255);                         /* (le bruit de fond reste sombre) */
+        if (c > 255) c = 255;
+        sg_tex[((y >> 2) * (SG_W >> 2) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)] = sg_pal[c];
+    }
+    for (int ty = 0; ty < SG_H / 4; ty++) DCFlushRange(&sg_tex[(ty * (SG_W >> 2) + (x >> 2)) * 16], 32);
+    GX_InvalidateTexAll();
+    sg_head = (sg_head + 1) % SG_W;
+}
+static void sg_quad(f32 x0, f32 x1, f32 y, f32 h, f32 u0, f32 u1, u8 a) {
+    GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+    GX_Position2f32(UX(x0), y);     GX_Color4u8(255, 255, 255, a); GX_TexCoord2f32(u0, 0);
+    GX_Position2f32(UX(x1), y);     GX_Color4u8(255, 255, 255, a); GX_TexCoord2f32(u1, 0);
+    GX_Position2f32(UX(x1), y + h); GX_Color4u8(255, 255, 255, a); GX_TexCoord2f32(u1, 1);
+    GX_Position2f32(UX(x0), y + h); GX_Color4u8(255, 255, 255, a); GX_TexCoord2f32(u0, 1);
+    GX_End();
+}
+/* dessine le spectrogramme : le plus recent a droite */
+static void sg_draw(f32 x, f32 y, f32 w, f32 h, u8 a) {
+    if (!sg_ready) sg_setup();
+    gx_set_image(&sg_obj);
+    f32 hu = (f32)sg_head / SG_W, split = x + w * (1.0f - hu);
+    sg_quad(x, split, y, h, hu, 1.0f, a);                   /* des plus anciennes... */
+    if (sg_head > 0) sg_quad(split, x + w, y, h, 0.0f, hu, a);   /* ...aux plus recentes */
+}
+static void sg_labels(f32 x, f32 y, f32 h, col_t c) {        /* reperes de frequence */
+    static const struct { int hz; const char *t; } m[] = { { 100, "100 Hz" }, { 1000, "1 kHz" }, { 5000, "5 kHz" }, { 10000, "10 kHz" } };
+    for (int i = 0; i < 4; i++) {
+        f32 pos = logf(m[i].hz / 60.0f) / logf(12000.0f / 60.0f);   /* (bandes de 60 Hz a 12 kHz) */
+        f32 yy = y + h * (1.0f - pos);
+        gx_rect(x, yy, 10, 1, c);
+        gx_text1(F_SMALL, x + 14, yy + 4, m[i].t, c);
+    }
+}
+static void saver_spectro(f32 t) {
+    sg_update();
+    sg_draw(0, 40, 640, 380, 255);
+    sg_labels(8, 40, 380, RGBA(255, 255, 255, 150));
+    char ti[200], sub[200];
+    saver_title(ti, sizeof(ti), sub, sizeof(sub));
+    if (ti[0]) saver_line(F_MED, 320 + 60 * sinf(t * 0.03f), 454, ti, 560, RGBA(255, 255, 255, 220));
+}
+
 static void draw_saver(void) {
     scr_viewport();
     GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
@@ -10251,6 +10453,7 @@ static void draw_saver(void) {
     case SV_PHOTOS:   saver_photos(t); break;
     case SV_NOIR:     break;
     case SV_AQUARIUM: saver_aquarium(t); break;
+    case SV_SPECTRO:  saver_spectro(t); break;
     default:          saver_spectre(t); break;
     }
     service_audio();
@@ -10435,6 +10638,7 @@ static void draw_party(void) {
     gx_quad4(0, 0, 640, 480, top, top, bot, bot);
     if (party_style == 1) party_barres();
     else if (party_style == 2) party_tunnel();
+    else if (party_style == 3) { sg_update(); sg_draw(0, 0, 640, 330, 255); gx_quad4(0, 250, 640, 330, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120)); }
     else party_pulsation();
     if (pt_beat > 0.05f) gx_rect(0, 0, 640, 480, RGBA(255, 255, 255, (u8)(pt_beat * 28)));   /* eclair */
     gx_quad4(0, 290, 640, 480, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));   /* lisibilite du texte */
@@ -10590,6 +10794,7 @@ int main(int argc, char **argv) {
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;
     sd_ok = mount_sd();                     /* d'abord les reglages (mode video, theme...) */
     if (!sd_ok) sd_ok = ramfs_mount();      /* (Dolphin : SD en memoire, reglages sur la carte memoire) */
+    if (sd_ok) gcd_migrate();               /* v22 : tout dans SD:/gc-mp3 */
     crash_init();                           /* journal de plantage */
     load_settings();
     if (!init_video()) return 1;
