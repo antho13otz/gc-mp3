@@ -374,6 +374,7 @@ static void photo_input(u32 down, u32 nav, int fire) {
         if (fire && (nav & (PAD_BUTTON_LEFT | PAD_BUTTON_UP))) { pf_sel = (pf_sel + npf - 1) % npf; pv_slide_t = now_ms(); }
         if (down & PAD_BUTTON_A) { pv_slide = !pv_slide; pv_slide_t = now_ms(); }
         if (down & PAD_BUTTON_B) { pv_mode = 0; pv_slide = 0; }
+        if ((down & PAD_BUTTON_X) && pf_sel >= 0 && pf_sel < npf && !pf[pf_sel].video && !pf[pf_sel].bad) wall_set(pf[pf_sel].path);
         if (pf_sel >= 0 && pf_sel < npf && pf[pf_sel].video) { pv_mode = 0; pv_slide = 0; }
         if ((down & PAD_BUTTON_Y) && src == SRC_FILE && playing) paused = !paused;
         return;
@@ -426,7 +427,7 @@ static void draw_tab_photo(void) {
         else if (pf[pf_sel].bad) gx_text_c(F_MED, 320, 230, "Photo illisible ou trop grande (1920 x 1080 maximum)", RGBA(255, 210, 120, 255));
         else gx_text_c(F_MED, 320, 230, "Chargement...", RGBA(255, 255, 255, 255));
         text_display(base_of(pf[pf_sel].path), d, sizeof(d));
-        snprintf(buf, sizeof(buf), "%d / %d   %s%s", pf_sel + 1, npf, d, pv_slide ? "   (diaporama)" : "");
+        snprintf(buf, sizeof(buf), "%d / %d   %s%s     X : fond d'\xC3\xA9" "cran", pf_sel + 1, npf, d, pv_slide ? "   (diaporama)" : "");
         gx_text_c(F_SMALL, 320, 468, buf, RGBA(200, 200, 220, 220));
         return;
     }
