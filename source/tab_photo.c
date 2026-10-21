@@ -95,22 +95,132 @@ static thumb_t *thumb_find(int f) {
     return NULL;
 }
 
+/* ---- v19 : vignettes rapides ----
+   1. Les photos d'appareil photo / de telephone contiennent deja une petite
+      image (EXIF, environ 160 x 120) : on la prend au lieu de decoder toute la
+      photo (souvent 50 a 100 fois plus rapide, et les grandes photos ont
+      enfin leur vignette).
+   2. Chaque vignette faite est gardee dans sd:/cache/vignettes : la fois
+      suivante, l'onglet PHOTOS s'affiche tout de suite. */
+#define TH_DIR SD_ROOT "/cache/vignettes"
+#define PJ_HEAD (128 * 1024)                 /* debut du fichier lu pour chercher l'image EXIF */
+static int pj_exif_done = 0;
+static long pj_fsize = 0;
+
+static u32 rd16(const unsigned char *p, int le) { return le ? (u32)(p[0] | p[1] << 8) : (u32)(p[0] << 8 | p[1]); }
+static u32 rd32(const unsigned char *p, int le) { return le ? (u32)(p[0] | p[1] << 8 | p[2] << 16 | (u32)p[3] << 24) : ((u32)p[0] << 24 | p[1] << 16 | p[2] << 8 | p[3]); }
+/* petite image EXIF d'un JPEG : position et taille dans b (0 = aucune) */
+static long exif_thumb(const unsigned char *b, long n, long *tlen) {
+    if (n < 4 || b[0] != 0xFF || b[1] != 0xD8) return 0;
+    long p = 2;
+    while (p + 4 <= n && b[p] == 0xFF) {
+        int m = b[p + 1];
+        long len = (long)(b[p + 2] << 8 | b[p + 3]);
+        if (m == 0xDA || m == 0xD9 || len < 2) return 0;
+        if (m == 0xE1 && p + 10 <= n && !memcmp(b + p + 4, "Exif\0\0", 6)) {
+            long t = p + 10, end = p + 2 + len;
+            if (end > n || t + 8 > end) return 0;
+            int le = b[t] == 'I';
+            if (!le && b[t] != 'M') return 0;
+            u32 ifd = rd32(b + t + 4, le);
+            if (t + ifd + 2 > end) return 0;
+            u32 cnt = rd16(b + t + ifd, le);
+            long nx = t + ifd + 2 + cnt * 12;
+            if (nx + 4 > end) return 0;
+            u32 ifd1 = rd32(b + nx, le);
+            if (!ifd1 || t + ifd1 + 2 > end) return 0;
+            cnt = rd16(b + t + ifd1, le);
+            u32 off = 0, sz = 0;
+            for (u32 i = 0; i < cnt; i++) {
+                const unsigned char *e = b + t + ifd1 + 2 + i * 12;
+                if (e + 12 > b + end) break;
+                u32 tag = rd16(e, le), typ = rd16(e + 2, le);
+                u32 v = typ == 3 ? rd16(e + 8, le) : rd32(e + 8, le);
+                if (tag == 0x0201) off = v;
+                if (tag == 0x0202) sz = v;
+            }
+            if (!off || sz < 100 || t + off + sz > end || b[t + off] != 0xFF || b[t + off + 1] != 0xD8) return 0;
+            *tlen = sz;
+            return t + off;
+        }
+        p += 2 + len;
+    }
+    return 0;
+}
+
+static void th_cache_name(int f, char *out, int cap) {
+    u32 h1 = 2166136261u, h2 = 5381;
+    for (const unsigned char *p = (const unsigned char *)pf[f].path; *p; p++) { h1 = (h1 ^ *p) * 16777619u; h2 = h2 * 33 + *p; }
+    h2 ^= (u32)pj_fsize * 2654435761u;
+    snprintf(out, cap, TH_DIR "/%08x%08x.th", (unsigned)h1, (unsigned)h2);
+}
+static thumb_t *thumb_slot(void) {
+    int slot = 0;
+    for (int i = 1; i < TH_CACHE; i++) if (thumbs[i].used < thumbs[slot].used) slot = i;
+    free(thumbs[slot].tex);
+    thumbs[slot].tex = NULL;
+    return &thumbs[slot];
+}
+static int th_cache_read(int f) {
+    char path[NAME_LEN];
+    th_cache_name(f, path, sizeof(path));
+    FILE *fp = fopen(path, "rb");
+    if (!fp) return 0;
+    unsigned char hd[12];
+    int ok = 0;
+    if (fread(hd, 1, 12, fp) == 12 && !memcmp(hd, "GCT1", 4)) {
+        int tw = hd[4] << 8 | hd[5], th = hd[6] << 8 | hd[7], iw = hd[8] << 8 | hd[9], ih = hd[10] << 8 | hd[11];
+        if (tw > 0 && th > 0 && tw <= 256 && th <= 256 && iw <= tw && ih <= th) {
+            u16 *tex = (u16 *)memalign(32, (size_t)tw * th * 2);
+            if (tex && fread(tex, 1, (size_t)tw * th * 2, fp) == (size_t)tw * th * 2) {
+                DCFlushRange(tex, (u32)tw * th * 2);
+                thumb_t *t = thumb_slot();
+                t->file = f; t->tex = tex; t->tw = tw; t->th = th; t->iw = iw; t->ih = ih; t->used = ++th_clock;
+                GX_InitTexObj(&t->obj, t->tex, t->tw, t->th, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+                GX_InitTexObjFilterMode(&t->obj, GX_LINEAR, GX_LINEAR);
+                GX_InvalidateTexAll();
+                ok = 1;
+            } else free(tex);
+        }
+    }
+    fclose(fp);
+    return ok;
+}
+static void th_cache_write(int f, const thumb_t *t) {
+    if (!sd_ok || sd_virtual || !t->tex) return;
+    char path[NAME_LEN];
+    mkdir(SD_ROOT "/cache", 0777);
+    mkdir(TH_DIR, 0777);
+    th_cache_name(f, path, sizeof(path));
+    FILE *fp = fopen(path, "wb");
+    if (!fp) return;
+    unsigned char hd[12] = { 'G', 'C', 'T', '1', (u8)(t->tw >> 8), (u8)t->tw, (u8)(t->th >> 8), (u8)t->th, (u8)(t->iw >> 8), (u8)t->iw, (u8)(t->ih >> 8), (u8)t->ih };
+    int ok = fwrite(hd, 1, 12, fp) == 12 && fwrite(t->tex, 1, (size_t)t->tw * t->th * 2, fp) == (size_t)t->tw * t->th * 2;
+    fclose(fp);
+    if (!ok) remove(path);
+}
+
 /* lance le chargement de l'image f (vignette ou plein ecran) */
 static void pj_start(int f, int big) {
     if (pj_state != PJ_IDLE || f < 0 || f >= npf || pf[f].video) return;
     pj_fp = fopen(pf[f].path, "rb");
     long size = -1;
     if (pj_fp && fseek(pj_fp, 0, SEEK_END) == 0) size = ftell(pj_fp);
-    if (!pj_fp || size <= 0 || size > PHOTO_MAX_FILE || fseek(pj_fp, 0, SEEK_SET) != 0 || !(pj_buf = (unsigned char *)malloc(size))) {
+    pj_fsize = size;
+    if (!big && size > 0 && pj_fp && th_cache_read(f)) { fclose(pj_fp); pj_fp = NULL; return; }   /* vignette deja prete */
+    long want = big || size <= PJ_HEAD ? size : PJ_HEAD;              /* vignette : le debut d'abord (EXIF) */
+    long maxf = big ? PHOTO_MAX_FILE : 64L * 1024 * 1024;
+    if (!pj_fp || size <= 0 || size > maxf || fseek(pj_fp, 0, SEEK_SET) != 0 || !(pj_buf = (unsigned char *)malloc(want))) {
         if (pj_fp) fclose(pj_fp);
         pj_fp = NULL;
         pf[f].bad = 1;
         return;
     }
-    pj_size = size;
+    pj_size = want;
     pj_len = 0;
     pj_file = f;
     pj_big = big;
+    pj_exif_done = big;
     pj_state = PJ_READ;
 }
 
@@ -122,6 +232,20 @@ static void pj_pump(void) {
         if (got == 0) { fclose(pj_fp); pj_fp = NULL; free(pj_buf); pj_buf = NULL; pf[pj_file].bad = 1; pj_state = PJ_IDLE; return; }
         pj_len += (long)got;
         if (pj_len < pj_size) return;
+        if (!pj_exif_done) {                             /* vignette : petite image EXIF ? */
+            pj_exif_done = 1;
+            long tl = 0, to = exif_thumb(pj_buf, pj_len, &tl);
+            if (to > 0) {
+                memmove(pj_buf, pj_buf + to, tl);
+                pj_len = pj_size = tl;
+            } else if (pj_fsize > pj_size) {             /* non : toute la photo */
+                unsigned char *nb = pj_fsize <= PHOTO_MAX_FILE ? (unsigned char *)realloc(pj_buf, pj_fsize) : NULL;
+                if (!nb) { fclose(pj_fp); pj_fp = NULL; free(pj_buf); pj_buf = NULL; pf[pj_file].bad = 1; pj_state = PJ_IDLE; return; }
+                pj_buf = nb;
+                pj_size = pj_fsize;
+                return;
+            }
+        }
         fclose(pj_fp);
         pj_fp = NULL;
         int iw, ih, ic;
@@ -159,13 +283,11 @@ static void pj_pump(void) {
             GX_InitTexObj(&big_obj, big_tex, big_tw, big_th, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
             GX_InitTexObjFilterMode(&big_obj, GX_LINEAR, GX_LINEAR);
         } else {
-            int slot = 0;
-            for (int i = 1; i < TH_CACHE; i++) if (thumbs[i].used < thumbs[slot].used) slot = i;
-            free(thumbs[slot].tex);
-            thumb_t *t = &thumbs[slot];
+            thumb_t *t = thumb_slot();
             t->file = pj_file; t->tex = dj_tex; t->tw = dj_tw; t->th = dj_th; t->iw = dj_iw; t->ih = dj_ih; t->used = ++th_clock;
             GX_InitTexObj(&t->obj, t->tex, t->tw, t->th, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
             GX_InitTexObjFilterMode(&t->obj, GX_LINEAR, GX_LINEAR);
+            th_cache_write(pj_file, t);
         }
         dj_tex = NULL;
         GX_InvalidateTexAll();
