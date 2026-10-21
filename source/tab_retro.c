@@ -642,13 +642,14 @@ static void draw_list_retro(void) {
     int start = retro_sel - MUSIC_ROWS / 2;
     if (start > retro_n - MUSIC_ROWS) start = retro_n - MUSIC_ROWS;
     if (start < 0) start = 0;
+    static f32 sel_anim = -2000;
+    if (retro_sel >= start && retro_sel < start + MUSIC_ROWS && retro_sel < retro_n) draw_sel_bar(&sel_anim, 114.0f + (retro_sel - start) * 24.0f);
     for (int i = 0; i < MUSIC_ROWS; i++) {
         int r = start + i;
         if (r >= retro_n) break;
         int k = retro_list[r];
         f32 ry = 114.0f + i * 24.0f, cy = ry + 12.0f;
         int is_sel = (r == retro_sel), is_cur = (playing && k == cur_track);
-        if (is_sel) gx_rrect_fill(20, ry + 1, 244, 22, 5, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
         col_t txt = is_sel ? RGBA(255, 255, 255, 255) : RGBA(210, 200, 240, 255);
         col_t dim = is_sel ? RGBA(235, 225, 255, 255) : RGBA(128, 112, 190, 255);
         if (is_cur) gx_tri(26, cy - 6, 26, cy + 6, 36, cy, RGBA(255, 255, 255, 255));
