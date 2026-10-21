@@ -48,8 +48,7 @@ static void night_input(u32 down, u32 nav, int fire) {
 }
 
 static void draw_night(void) {
-    GX_SetViewport(0.0f, 0.0f, rmode->fbWidth, rmode->efbHeight, 0.0f, 1.0f);
-    GX_SetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
+    scr_viewport();
     GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
     gx_rect(0, 0, 640, 480, RGBA(0, 0, 0, 255));
     static const u8 lum[6] = { 0, 26, 48, 80, 130, 200 };
