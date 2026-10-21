@@ -286,7 +286,7 @@ static int au_is_audio(const char *ctype, const char *url) {
     path[strcspn(path, "?#")] = 0;
     const char *dot = strrchr(path, '.');
     if (dot && strchr(dot, '/')) dot = NULL;
-    static const char *const ext[] = { ".mp3", ".ogg", ".oga", ".aac", ".m3u", ".m3u8", ".pls", NULL };
+    static const char *const ext[] = { ".mp3", ".ogg", ".oga", ".aac", ".m4a", ".m4b", ".m3u", ".m3u8", ".pls", NULL };
     for (int i = 0; dot && ext[i]; i++) if (!strcasecmp(dot, ext[i])) return 1;
     return !strncmp(ctype, "audio/", 6) || strstr(ctype, "application/ogg") || strstr(ctype, "mpegurl") || strstr(ctype, "scpls");
 }
