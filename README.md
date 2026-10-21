@@ -76,6 +76,8 @@ Dans MUSIQUE, **X sur un morceau** (ou START > Jeux et karaoké) :
   *Parfait*, *Bien*, *OK*… Le combo multiplie les points (jusqu'à x4). Trois difficultés (Facile, Normal,
   Difficile). Z = pause, START = arrêter. Le record de chaque morceau est gardé dans
   `SD:/gc-mp3-jeux.txt`. Les morceaux au rythme bien marqué marchent le mieux.
+  **Duel** (haut / bas sur l'écran de départ) : deux joueurs côte à côte, manettes 1 et 2, mêmes
+  notes pour les deux ; à la fin, le gagnant s'affiche (A = revanche).
 - **Quiz musical** : 10 secondes d'un de tes morceaux (pris au milieu), 4 réponses : trouve lequel !
   De 1 à 4 joueurs, chacun avec sa manette (A, B, X ou Y). Plus on répond vite, plus on gagne de points ;
   le premier qui trouve a un bonus. 10 manches, puis le classement. Il faut au moins 4 morceaux.
@@ -244,7 +246,8 @@ gardent leurs vraies proportions, et les pages web sont mises en page plus large
 **langue du contenu** (Auto = langue de la console réglée dans l'IPL, ou français, anglais, allemand,
 espagnol, italien, néerlandais : pays des podcasts et des « radios les plus écoutées », langue demandée
 aux sites web et noms de villes de la météo ; l'interface reste en français),
-**fond d'écran** (violet ou ta photo), **nouveaux podcasts** (téléchargés tout seuls),
+**fond d'écran** (violet ou ta photo), **décor de saison** (chauves-souris et citrouilles à Halloween,
+guirlande et neige à Noël, soleil en été, selon la date), **nouveaux podcasts** (téléchargés tout seuls),
 **jeux et karaoké**, **titres radio gardés**, **mode soirée**, **vibrations de la manette**, **minuterie** (arrêt après 15 à 120 min, le son baisse doucement les 30 dernières
 secondes), **disposition du lecteur**, **éléments du lecteur**, **onglets affichés**,
 enregistrement de la radio, et **Quitter**. Tout est enregistré dans `SD:/gc-mp3.txt`.
@@ -259,6 +262,8 @@ START > « Style de l'économiseur » : Gauche / Droite pour choisir, **A pour u
   tout seul la première fois). Taille maxi 1920 × 1080 : réduis les photos du téléphone avant de les copier.
   Chaque photo reste 12 s avec un léger zoom et un fondu, dans le désordre.
 - **Écran noir** : rien du tout (la musique continue).
+- **Aquarium** : des poissons qui nagent plus vite quand la musique est forte, des algues qui dansent
+  sur les basses et des bulles qui montent sur chaque coup de basse.
 Tout bouge lentement pour ne pas marquer l'écran.
 
 ## Commandes
