@@ -345,14 +345,11 @@ static void draw_list_wide(void) {
         if (!tg_done[k]) tag_scan_one(k);                    /* etiquettes lues a l'affichage */
         if (is_cur) gx_tri(31, cy - 6, 31, cy + 6, 41, cy, RGBA(255, 255, 255, 255));
         else draw_note(36, cy, dim);
-        snprintf(t, sizeof(t), "%02d", (cur_group >= 0) ? r : r + 1);
-        gx_text1(F_SMALL, 50, cy + 4, t, dim);
         char raw[NAME_LEN];
-        snprintf(raw, sizeof(raw), "%s", display_name(base_of(names[k])));
-        strip_audio_ext(raw);
+        track_label(k, raw, sizeof(raw), !(cur_group >= 0 && (view_mode == VIEW_ARTISTS || view_mode == VIEW_ALBUMS)));
         text_display(raw, d, sizeof(d));
-        fit_text(F_MED, d, 245, buf, sizeof(buf));
-        gx_text1(F_MED, 76, cy + 5, buf, txt);
+        fit_text(F_MED, d, 270, buf, sizeof(buf));
+        gx_text1(F_MED, 52, cy + 5, buf, txt);
         text_display(tg_artist[k], d, sizeof(d));
         fit_text(F_SMALL, d, 122, buf, sizeof(buf));
         gx_text1(F_SMALL, 330, cy + 4, buf, dim);
