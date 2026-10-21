@@ -3391,6 +3391,7 @@ static int phone_auto;                      /* onglet TELEPHONE (tab_phone.c) */
 static int rumble_on = 1;                   /* v18 : la manette vibre (mode soiree, jeux) */
 static int pod_auto = 1;                    /* v18 : nouveaux episodes telecharges tout seuls */
 static int wall_on = 0;                     /* v18 : fond d'ecran = une photo */
+static int season_on = 1;                   /* v21 : decor de saison (Halloween, Noel, ete) */
 static char wall_path[NAME_LEN];
 #define PARTY_STYLES 3
 static int party_style = 0;                 /* mode soiree : style du visualiseur */
@@ -3408,13 +3409,13 @@ static int has_word(const char *v, const char *w) {
 static const char *const party_names[PARTY_STYLES] = { "Pulsation", "Barres", "Tunnel" };
 static void party_start(void);
 static int saver_min = 5;                   /* economiseur d'ecran (minutes, 0 = jamais) */
-enum { SV_SPECTRE, SV_POCHETTE, SV_HORLOGE, SV_ETOILES, SV_PHOTOS, SV_NOIR, SV_COUNT };
+enum { SV_SPECTRE, SV_POCHETTE, SV_HORLOGE, SV_ETOILES, SV_PHOTOS, SV_NOIR, SV_AQUARIUM, SV_COUNT };
 static int saver_style = SV_SPECTRE;        /* ce qu'affiche l'economiseur */
 static int sleep_min = 0;                   /* minuterie : arret apres N minutes (0 = non) */
 static u64 sleep_at = 0;
-static const char *const saver_keys[SV_COUNT] = { "spectre", "pochette", "horloge", "etoiles", "photos", "noir" };
+static const char *const saver_keys[SV_COUNT] = { "spectre", "pochette", "horloge", "etoiles", "photos", "noir", "aquarium" };
 static const char *const saver_names[SV_COUNT] = { "Spectre", "Pochette", "Horloge", "\xC3\x89toiles",
-                                                   "Photos (sd:/ecran)", "\xC3\x89" "cran noir" };
+                                                   "Photos (sd:/ecran)", "\xC3\x89" "cran noir", "Aquarium" };
 static int video_pref = VID_AUTO;
 static int scr_pct = 100;                   /* taille de l'image : 80 a 112 % (au-dela de 100 : plus large, par la sortie video) */
 #define SCR_MAX 112
@@ -3530,6 +3531,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "reprise_fichier")) snprintf(resume_path, sizeof(resume_path), "%s", v);
         else if (!strcasecmp(k, "reprise_position")) resume_pos = atoi(v);
         else if (!strcasecmp(k, "vibrations")) rumble_on = yes(v);
+        else if (!strcasecmp(k, "decor_saison")) season_on = yes(v);
         else if (!strcasecmp(k, "podcasts_auto")) pod_auto = yes(v);
         else if (!strcasecmp(k, "fond_ecran")) { if (!strcasecmp(v, "non") || !v[0]) wall_on = 0; else { wall_on = 1; snprintf(wall_path, sizeof(wall_path), "%s", v); } }
         else if (!strcasecmp(k, "fond_ecran_photo")) snprintf(wall_path, sizeof(wall_path), "%s", v);
@@ -3635,8 +3637,10 @@ static void save_settings(void) {
                "# Nouveaux episodes des podcasts telecharges tout seuls dans sd:/podcasts : oui / non\n"
                "podcasts_auto = %s\n"
                "# Fond d'ecran : chemin d'une photo (PHOTOS, plein ecran, X) ou non\n"
-               "fond_ecran = %s\nfond_ecran_photo = %s\n",
-            rumble_on ? "oui" : "non", pod_auto ? "oui" : "non", wall_on && wall_path[0] ? wall_path : "non", wall_path);
+               "fond_ecran = %s\nfond_ecran_photo = %s\n"
+               "# Decor de saison (Halloween, Noel, ete) selon la date : oui / non\n"
+               "decor_saison = %s\n",
+            rumble_on ? "oui" : "non", pod_auto ? "oui" : "non", wall_on && wall_path[0] ? wall_path : "non", wall_path, season_on ? "oui" : "non");
     fclose(f);
 }
 
@@ -4255,6 +4259,88 @@ static void titles_open(void);
 static void radio_title_keep(void);
 static void lib_note(const char *m);
 static void wall_set(const char *path);
+/* ---- Decor de saison (v21) : Halloween, Noel, ete, selon la date ---- */
+enum { SEASON_NONE, SEASON_HALLOWEEN, SEASON_NOEL, SEASON_ETE };
+static int season_test = 0;                 /* (essais : saison imposee) */
+static int season_now(void) {
+    if (!season_on) return SEASON_NONE;
+    if (season_test) return season_test;
+    time_t tt = time(NULL);
+    struct tm *tm = localtime(&tt);
+    if (!tm || tm->tm_year < 100) return SEASON_NONE;
+    int m = tm->tm_mon + 1, d = tm->tm_mday;
+    if ((m == 10 && d >= 15) || (m == 11 && d <= 2)) return SEASON_HALLOWEEN;
+    if (m == 12 || (m == 1 && d <= 6)) return SEASON_NOEL;
+    if ((m == 6 && d >= 21) || m == 7 || m == 8) return SEASON_ETE;
+    return SEASON_NONE;
+}
+static void season_pumpkin(f32 cx, f32 cy, f32 r, f32 glow) {
+    gx_circle(cx, cy, r * 1.8f, RGBA(255, 140, 30, (u8)(40 + glow * 60)), RGBA(255, 140, 30, 0));
+    gx_ellipse(cx - r * 0.45f, cy, r * 0.62f, r * 0.9f, RGBA(255, 150, 40, 255), RGBA(200, 90, 10, 255));
+    gx_ellipse(cx + r * 0.45f, cy, r * 0.62f, r * 0.9f, RGBA(255, 150, 40, 255), RGBA(200, 90, 10, 255));
+    gx_ellipse(cx, cy, r * 0.7f, r * 0.95f, RGBA(255, 170, 60, 255), RGBA(220, 100, 20, 255));
+    gx_rect(cx - r * 0.1f, cy - r * 1.2f, r * 0.2f, r * 0.35f, RGBA(70, 120, 40, 255));
+    col_t f = RGBA(255, 240, (u8)(120 + glow * 100), 255);
+    gx_tri(cx - r * 0.5f, cy - r * 0.15f, cx - r * 0.2f, cy - r * 0.15f, cx - r * 0.35f, cy - r * 0.45f, f);
+    gx_tri(cx + r * 0.2f, cy - r * 0.15f, cx + r * 0.5f, cy - r * 0.15f, cx + r * 0.35f, cy - r * 0.45f, f);
+    gx_poly4(cx - r * 0.5f, cy + r * 0.2f, cx + r * 0.5f, cy + r * 0.2f, cx + r * 0.3f, cy + r * 0.5f, cx - r * 0.3f, cy + r * 0.5f, f, f, f, f);
+}
+static void season_bat(f32 x, f32 y, f32 s, f32 flap) {
+    gx_circle(x, y, 12 * s, RGBA(255, 140, 40, 90), RGBA(255, 140, 40, 0));           /* (lueur orange : visible sur le fond sombre) */
+    col_t c = RGBA(25, 12, 35, 240);
+    f32 w = 14 * s, up = flap * 6 * s;
+    gx_ellipse(x, y, 3.5f * s, 4.5f * s, c, c);
+    gx_tri(x - 2 * s, y - 1 * s, x - w, y - up, x - w * 0.6f, y + 4 * s, c);
+    gx_tri(x + 2 * s, y - 1 * s, x + w, y - up, x + w * 0.6f, y + 4 * s, c);
+}
+/* dessine par-dessus l'interface (petit, pour ne rien cacher d'important) */
+static void season_overlay(void) {
+    int sn = season_now();
+    if (!sn) return;
+    f32 t = (f32)(now_ms() % 600000) / 1000.0f;
+    if (sn == SEASON_HALLOWEEN) {
+        for (int i = 0; i < 4; i++) {                              /* chauves-souris dans le haut */
+            f32 sp = 22 + i * 9, x = fmodf(t * sp + i * 173, 760) - 60;
+            f32 y = 16 + i * 11 + 8 * sinf(t * 1.3f + i * 2);
+            season_bat(x, y, 0.8f + 0.15f * (i % 2), sinf(t * 9 + i));
+        }
+        f32 g = 0.5f + 0.5f * sinf(t * 2.0f);
+        gx_circle(345, 36, 32, RGBA(255, 120, 30, (u8)(50 + g * 50)), RGBA(255, 120, 30, 0));   /* citrouille dans le bandeau du haut */
+        season_pumpkin(345, 36, 15, g);
+        season_pumpkin(618, 466, 9, 1 - g);
+        season_pumpkin(22, 466, 8, g);
+    } else if (sn == SEASON_NOEL) {
+        static const u8 lc[4][3] = { { 255, 60, 60 }, { 60, 220, 90 }, { 255, 210, 60 }, { 90, 160, 255 } };
+        for (int i = 0; i < 24; i++) {                              /* guirlande en haut */
+            f32 x = 10 + i * 27, y = 4 + 3 * sinf(i * 0.9f);
+            int on = ((int)(t * 2) + i) % 3 != 0;
+            const u8 *c = lc[i % 4];
+            if (on) gx_circle_glow(x, y, 4, RGBA(c[0], c[1], c[2], 120), 3);
+            gx_circle(x, y, 2.5f, RGBA(c[0], c[1], c[2], on ? 255 : 90), RGBA(c[0], c[1], c[2], on ? 255 : 90));
+        }
+        for (int i = 0; i < 46; i++) {                              /* flocons */
+            f32 sp = 14 + (i * 7) % 20, x0 = (f32)((i * 97) % 640);
+            f32 y = fmodf(t * sp + i * 53, 520) - 20, x = x0 + 12 * sinf(t * 0.7f + i);
+            f32 r = 1.2f + (i % 3) * 0.7f;
+            gx_circle(x, y, r, RGBA(255, 255, 255, 170), RGBA(220, 235, 255, 110));
+        }
+    } else {
+        f32 p = 0.5f + 0.5f * sinf(t * 0.5f);                      /* soleil d'ete dans le coin */
+        gx_circle(345, 34, 40 + p * 6, RGBA(255, 210, 90, 80), RGBA(255, 210, 90, 0));         /* soleil dans le bandeau du haut */
+        gx_circle(345, 34, 17, RGBA(255, 245, 170, 240), RGBA(255, 190, 60, 200));
+        for (int k = 0; k < 10; k++) {
+            f32 a = k * 0.628f + t * 0.3f, r0 = 21, r1 = 28 + 3 * p;
+            gx_poly4(345 + cosf(a - 0.08f) * r0, 34 + sinf(a - 0.08f) * r0, 345 + cosf(a + 0.08f) * r0, 34 + sinf(a + 0.08f) * r0,
+                     345 + cosf(a) * r1, 34 + sinf(a) * r1, 345 + cosf(a) * r1, 34 + sinf(a) * r1,
+                     RGBA(255, 220, 100, 220), RGBA(255, 220, 100, 220), RGBA(255, 200, 80, 120), RGBA(255, 200, 80, 120));
+        }
+        for (int i = 0; i < 12; i++) {
+            f32 x = fmodf(t * (8 + i % 4 * 3) + i * 131, 680) - 20, y = 470 - fmodf(t * (5 + i % 3 * 2) + i * 47, 480);
+            gx_circle(x, y, 1.5f, RGBA(255, 240, 180, 120), RGBA(255, 240, 180, 0));
+        }
+    }
+}
+
 static void draw_background(void) {
     if (wall_draw()) return;
     const f32 L = 0, R = 640;
@@ -4836,6 +4922,7 @@ static void draw(void) {
     if (kb_is_open()) draw_keyboard();
     if (menu_open) draw_menu();
     draw_checklist();
+    if (!menu_open && !kb_is_open()) season_overlay();
     draw_actions();
     service_audio();
     present_frame();
@@ -9408,7 +9495,7 @@ static void draw_list_radio(void) {
 }
 
 // ---------- Menu (START) : reglages et Quitter ----------
-enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_THEME, MI_WALL, MI_SAVER, MI_SAVERSTYLE,
+enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
        MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_LANG, MI_GAMES, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
 #define MENU_VIS 13                         /* lignes visibles (le menu defile) */
 static int menu_top = 0;
@@ -9431,6 +9518,12 @@ static void menu_value(int i, char *out, int cap) {
     case MI_LYRICS:  snprintf(out, cap, "%s", lyrics_auto ? "Oui" : "Non"); break;
     case MI_PODAUTO: snprintf(out, cap, "%s", pod_auto ? "T\xC3\xA9l\xC3\xA9" "charg\xC3\xA9s tout seuls" : "Non"); break;
     case MI_WALL:    snprintf(out, cap, "%s", wall_on && wall_path[0] ? "Ma photo" : "Violet"); break;
+    case MI_SEASON: {
+        static const char *const sn[4] = { "Oui (rien en ce moment)", "Oui (Halloween)", "Oui (No\xC3\xABl)", "Oui (\xC3\xA9t\xC3\xA9)" };
+        int k = season_on ? season_now() : 0;
+        snprintf(out, cap, "%s", season_on ? sn[k] : "Non");
+        break;
+    }
     case MI_GAMES:   snprintf(out, cap, "(A)"); break;
     case MI_TITLES:  snprintf(out, cap, "(A)"); break;
     case MI_RUMBLE:  snprintf(out, cap, "%s", rumble_on ? "Oui" : "Non"); break;
@@ -9468,7 +9561,7 @@ static void menu_value(int i, char *out, int cap) {
 
 static const char *const menu_labels[MI_COUNT] = {
     "Lecture al\xC3\xA9" "atoire", "R\xC3\xA9p\xC3\xA9tition", "Fondu encha\xC3\xAEn\xC3\xA9", "Liste MUSIQUE", "Volume",
-    "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran",
+    "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran", "D\xC3\xA9" "cor de saison",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
     "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue du contenu",
     "Jeux et karaok\xC3\xA9", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
@@ -9520,6 +9613,7 @@ static void menu_change(int i, int d) {
         wall_on = !wall_on;
         wall_reload();
         break;
+    case MI_SEASON:  season_on = !season_on; break;
     case MI_GAMES:   return;
     case MI_TITLES:  return;
     case MI_RUMBLE:  rumble_on = !rumble_on; if (rumble_on) rumble(0, 200); break;
@@ -10058,6 +10152,92 @@ static void saver_photos(f32 t) {
     }
 }
 
+/* ---- Aquarium (v21) : poissons et bulles qui suivent la musique ---- */
+#define AQ_FISH 9
+#define AQ_BUB 40
+static f32 aq_x[AQ_FISH], aq_y[AQ_FISH], aq_s[AQ_FISH], aq_v[AQ_FISH], aq_h[AQ_FISH], aq_ph[AQ_FISH];
+static f32 bq_x[AQ_BUB], bq_y[AQ_BUB], bq_r[AQ_BUB], bq_v[AQ_BUB];
+static int aq_ready = 0;
+static u64 aq_last = 0;
+static f32 aq_bavg = 0;
+static col_t aq_col(f32 h, f32 l, u8 a) {                 /* couleur vive de poisson */
+    static const u8 pal[6][3] = { { 255, 140, 40 }, { 255, 220, 60 }, { 90, 200, 255 }, { 255, 90, 140 }, { 120, 255, 160 }, { 200, 130, 255 } };
+    int i = ((int)h) % 6;
+    return RGBA((u8)(pal[i][0] * l), (u8)(pal[i][1] * l), (u8)(pal[i][2] * l), a);
+}
+static void aq_fish_reset(int i, int side) {
+    aq_s[i] = 0.6f + (f32)(rand() % 100) / 100.0f * 0.9f;
+    aq_v[i] = (rand() % 2 ? 1 : -1) * (30 + rand() % 40);
+    aq_x[i] = side ? (aq_v[i] > 0 ? -60 : 700) : (f32)(rand() % 640);
+    aq_y[i] = 80 + rand() % 300;
+    aq_h[i] = (f32)(rand() % 6);
+    aq_ph[i] = (f32)(rand() % 628) / 100.0f;
+}
+static void aq_bub_reset(int i, f32 x) {
+    bq_x[i] = x >= 0 ? x : (f32)(rand() % 640);
+    bq_y[i] = 470 + rand() % 40;
+    bq_r[i] = 1.5f + (f32)(rand() % 40) / 10.0f;
+    bq_v[i] = 30 + rand() % 50;
+}
+static void saver_aquarium(f32 t) {
+    u64 now = now_ms();
+    if (!aq_ready) { for (int i = 0; i < AQ_FISH; i++) aq_fish_reset(i, 0); for (int i = 0; i < AQ_BUB; i++) { aq_bub_reset(i, -1); bq_y[i] = (f32)(rand() % 480); } aq_ready = 1; aq_last = now; }
+    f32 dt = (f32)(now - aq_last) / 1000.0f;
+    if (dt > 0.1f) dt = 0.1f;
+    aq_last = now;
+    f32 e = 0, b = 0;
+    for (int i = 0; i < NBARS; i++) e += bar_val[i];
+    for (int i = 0; i < 11; i++) b += bar_val[i];
+    e /= NBARS; b /= 11;
+    int beat = b > aq_bavg + 0.08f && b > 0.3f;
+    aq_bavg = aq_bavg * 0.95f + b * 0.05f;
+    f32 speed = 0.5f + e * 2.2f;                                  /* la musique fait nager plus vite */
+    /* eau, rayons de lumiere, sable */
+    gx_quad4(0, 0, 640, 480, RGBA(10, 70, 120, 255), RGBA(10, 70, 120, 255), RGBA(2, 20, 50, 255), RGBA(2, 20, 50, 255));
+    for (int k = 0; k < 5; k++) {
+        f32 x = 80 + k * 130 + 30 * sinf(t * 0.2f + k);
+        u8 a = (u8)(18 + 14 * sinf(t * 0.3f + k * 1.7f) + e * 30);
+        gx_poly4(x, 0, x + 40, 0, x + 120, 480, x + 40, 480, RGBA(180, 230, 255, a), RGBA(180, 230, 255, a), RGBA(180, 230, 255, 0), RGBA(180, 230, 255, 0));
+    }
+    gx_quad4(0, 440, 640, 480, RGBA(150, 130, 80, 255), RGBA(150, 130, 80, 255), RGBA(90, 75, 45, 255), RGBA(90, 75, 45, 255));
+    for (int k = 0; k < 9; k++) {                                     /* algues : elles dansent sur les basses */
+        f32 x0 = 30 + k * 72 + (k % 3) * 9, sway = 10 * sinf(t * 0.8f + k) + bar_val[k * 5 % NBARS] * 14;
+        f32 h = 80 + (k % 4) * 25;
+        for (int s = 0; s < 6; s++) {
+            f32 y0 = 445 - s * h / 6, y1 = 445 - (s + 1) * h / 6;
+            f32 a0 = sway * s / 6.0f, a1 = sway * (s + 1) / 6.0f;
+            gx_poly4(x0 + a0 - 5, y0, x0 + a0 + 5, y0, x0 + a1 + 3, y1, x0 + a1 - 3, y1,
+                     RGBA(40, 150, 70, 230), RGBA(40, 150, 70, 230), RGBA(80, 200, 100, 230), RGBA(80, 200, 100, 230));
+        }
+    }
+    /* bulles : plus nombreuses sur les coups de basse */
+    for (int i = 0; i < AQ_BUB; i++) {
+        bq_y[i] -= bq_v[i] * speed * dt;
+        bq_x[i] += 6 * sinf(t * 2 + i) * dt;
+        if (bq_y[i] < -10) { if (beat || rand() % 3 == 0) aq_bub_reset(i, -1); else bq_y[i] = 600; }
+        if (bq_y[i] < 480) gx_ring(bq_x[i], bq_y[i], bq_r[i], bq_r[i] + 1.2f, RGBA(220, 245, 255, 170));
+    }
+    if (beat) for (int n = 0, i = 0; i < AQ_BUB && n < 6; i++) if (bq_y[i] > 480) { aq_bub_reset(i, (f32)(100 + rand() % 440)); n++; }
+    /* poissons */
+    for (int i = 0; i < AQ_FISH; i++) {
+        aq_x[i] += aq_v[i] * speed * dt;
+        aq_ph[i] += dt * (3 + speed * 3);
+        if (aq_x[i] < -80 || aq_x[i] > 720) aq_fish_reset(i, 1);
+        f32 y = aq_y[i] + 8 * sinf(aq_ph[i] * 0.5f);
+        f32 d = aq_v[i] > 0 ? 1.0f : -1.0f, s = aq_s[i];
+        f32 L = 26 * s, H = 13 * s, wag = 5 * s * sinf(aq_ph[i] * 2);
+        col_t c = aq_col(aq_h[i], 1.0f, 255), c2 = aq_col(aq_h[i], 0.6f, 255);
+        gx_tri(aq_x[i] - d * L * 0.8f, y, aq_x[i] - d * L * 1.4f, y - H * 0.8f + wag, aq_x[i] - d * L * 1.4f, y + H * 0.8f + wag, c2);   /* queue */
+        gx_ellipse(aq_x[i], y, L, H, c, c2);
+        gx_tri(aq_x[i] - d * L * 0.1f, y - H * 0.8f, aq_x[i] + d * L * 0.3f, y - H * 0.9f, aq_x[i] - d * L * 0.4f, y - H * 1.5f, c2);   /* nageoire */
+        gx_circle(aq_x[i] + d * L * 0.55f, y - H * 0.2f, 2.6f * s, RGBA(255, 255, 255, 255), RGBA(255, 255, 255, 255));
+        gx_circle(aq_x[i] + d * L * 0.6f, y - H * 0.2f, 1.3f * s, RGBA(10, 10, 20, 255), RGBA(10, 10, 20, 255));
+    }
+    char ti[200], sub[200];
+    saver_title(ti, sizeof(ti), sub, sizeof(sub));
+    if (ti[0]) saver_line(F_MED, 320 + 80 * sinf(t * 0.03f), 465, ti, 520, RGBA(255, 255, 255, 210));
+}
+
 static void draw_saver(void) {
     scr_viewport();
     GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
@@ -10070,6 +10250,7 @@ static void draw_saver(void) {
     case SV_ETOILES:  saver_etoiles(t); break;
     case SV_PHOTOS:   saver_photos(t); break;
     case SV_NOIR:     break;
+    case SV_AQUARIUM: saver_aquarium(t); break;
     default:          saver_spectre(t); break;
     }
     service_audio();
