@@ -61,7 +61,7 @@ static void checklist_input(u32 down, u32 nav, int fire) {
 static void draw_checklist(void) {
     if (!ck) return;
     const f32 rh = 25, w = 360, h = 72 + ck->n * rh, x = 320 - w / 2, y = 240 - h / 2;
-    gx_quad4(scr_x0, 0, scr_x0 + scr_w, 480, RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));
+    gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));
     gx_rrect_fill(x, y, w, h, 10, RGBA(14, 8, 44, 255), RGBA(8, 5, 26, 255));
     draw_panel(x, y, w, h);
     gx_text1(F_LARGE, x + 20, y + 34, ck->title, RGBA(255, 255, 255, 255));
@@ -120,14 +120,16 @@ static void np_get(np_t *n) {
 static void draw_cover_at(f32 x, f32 y, f32 sz) {
     int have = (src == SRC_FILE && playing && cover_ok) || (src == SRC_RADIO && cover_ok && cur_station >= 0 && state != ST_IDLE);
     if (have) {
+        uxsave_t uz = ux_native(x + sz / 2);             /* (16:9 : pochette carree) */
         gx_set_cover();
         GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-        GX_Position2f32(x, y);           GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 0.0f);
-        GX_Position2f32(x + sz, y);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 0.0f);
-        GX_Position2f32(x + sz, y + sz); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 1.0f);
-        GX_Position2f32(x, y + sz);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 1.0f);
+        GX_Position2f32(UX(x), y);           GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 0.0f);
+        GX_Position2f32(UX(x + sz), y);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 0.0f);
+        GX_Position2f32(UX(x + sz), y + sz); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 1.0f);
+        GX_Position2f32(UX(x), y + sz);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 1.0f);
         GX_End();
         gx_rrect_stroke(x, y, sz, sz, 2, 1.2f, RGBA(124, 80, 240, 235));
+        ux_restore(uz);
     } else {
         gx_vgrad(x, y, sz, sz, RGBA(20, 12, 56, 255), RGBA(70, 30, 150, 255));
         draw_logo_cube(x + sz / 2, y + sz / 2, sz * 0.28f);
