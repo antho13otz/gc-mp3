@@ -1,13 +1,13 @@
 // GC-MP3 : listes de lecture, recherche dans la bibliotheque, morceaux les plus
 // ecoutes, et petit menu d'actions (touche X de l'onglet MUSIQUE). Inclus dans main.c.
-//  - listes : SD:/listes/<Nom>.m3u (une adresse de fichier par ligne) ;
-//  - ecoutes : SD:/gc-mp3-ecoutes.txt (nombre|ordre|chemin), un morceau compte
+//  - listes : SD:/gc-mp3/listes/<Nom>.m3u (une adresse de fichier par ligne) ;
+//  - ecoutes : SD:/gc-mp3/gc-mp3-ecoutes.txt (nombre|ordre|chemin), un morceau compte
 //    quand on l'a ecoute 30 s (ou la moitie s'il est court).
 
-#define PL_DIR    SD_ROOT "/listes"
+#define PL_DIR    GCD "/listes"
 #define PL_MAX    40
 #define PL_ITEMS  600
-#define ST_FILE   SD_ROOT "/gc-mp3-ecoutes.txt"
+#define ST_FILE   GCD "/gc-mp3-ecoutes.txt"
 #define AUTO_MAX  50
 
 typedef struct { char name[48]; s16 *it; int n; } plist_t;
@@ -107,7 +107,7 @@ static int pl_create(const char *raw) {
     snprintf(p->name, sizeof(p->name), "%s", name);
     p->it = it;
     p->n = 0;
-    if (!pl_save(npls - 1)) lib_note("Impossible d'\xC3\xA9" "crire dans SD:/listes");
+    if (!pl_save(npls - 1)) lib_note("Impossible d'\xC3\xA9" "crire dans SD:/gc-mp3/listes");
     /* garde l'ordre alphabetique */
     qsort(pls, npls, sizeof(plist_t), pl_cmp);
     return pl_find(name);
@@ -286,6 +286,8 @@ static int lib_match(int k) {
         fold(tg_artist[k], h, sizeof(h));
         if (strstr(h, q)) return 1;
         fold(tg_album[k], h, sizeof(h));
+        if (strstr(h, q)) return 1;
+        fold(tg_title[k], h, sizeof(h));
         if (strstr(h, q)) return 1;
     }
     return 0;
