@@ -212,10 +212,11 @@ static void infos_input(u32 down, u32 nav, int fire) {
 
 /* reveil : a l'heure choisie, une fois par jour */
 static void alarm_check(void) {
-    if (alarm_t0) {                                       /* volume qui monte en 30 s */
+    if (alarm_t0) {                                       /* volume qui monte tout doucement (3 min) */
         u64 dt = now_ms() - alarm_t0;
-        alarm_fade = dt >= 30000 ? 256 : 40 + (int)(dt * 216 / 30000);
-        if (dt >= 30000) alarm_t0 = 0;
+        float x = dt >= 180000 ? 1.0f : (float)dt / 180000.0f;
+        alarm_fade = 8 + (int)(248.0f * x * x);
+        if (dt >= 180000) { alarm_t0 = 0; alarm_fade = 256; }
     }
     if (!alarm_on) return;
     time_t now = time(NULL);
@@ -227,7 +228,7 @@ static void alarm_check(void) {
     party_on = 0;
     last_input_ms = now_ms();
     alarm_t0 = now_ms();
-    alarm_fade = 40;
+    alarm_fade = 8;
     if (alarm_src > 0 && alarm_src <= nstations) { net_start_async(); start_station(alarm_src - 1, 0); tab = TAB_RADIO; }
     else if (nfiles > 0) {
         set_shuffle(1);
@@ -237,6 +238,7 @@ static void alarm_check(void) {
         start_track(k);
         tab = TAB_MUSIC;
     }
+    wake_start();                                         /* l'heure et la meteo en grand */
 }
 
 static void infos_pump(void) {
