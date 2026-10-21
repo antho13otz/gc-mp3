@@ -86,6 +86,7 @@
 #define MP3_DIR        SD_ROOT "/mp3"
 #define MAX_FILES      512
 #define NAME_LEN       256                  // chemin complet (sd:/dossier/.../fichier.mp3)
+#define URL_MAX        2048                 // adresse web la plus longue acceptee
 #define DL_DIR         SD_ROOT "/downloads" // telechargements (CubeBrowser...)
 #define SCAN_DEPTH     3                    // sous-dossiers explores
 #define FBUF_SIZE      (64 * 1024)          // MP3 lu par blocs depuis la carte SD
@@ -511,9 +512,11 @@ static int decode_aac_one(int closed) {
 }
 
 static int decode_ogg_one(int closed);
+static int decode_mp4_stream_one(int closed);       /* M4A en direct (mp4.c) */
 static int decode_stream_one(int stream_closed) {
     static s16 L[1152], R[1152];
     if (stream_codec == 1) return decode_aac_one(stream_closed);
+    if (stream_codec == 3) return decode_mp4_stream_one(stream_closed);
     if (stream_codec == 2) return decode_ogg_one(stream_closed);
     int avail = cbuf_avail();
     if (avail <= 0) return 0;
@@ -611,7 +614,7 @@ static int cover_from_file(const char *path) {
     return ok;
 }
 // ---------- Liste des stations (sd:/radio.txt) ----------
-typedef struct { char name[48]; char url[256]; } station_t;
+typedef struct { char name[48]; char url[URL_MAX]; } station_t;
 static station_t stations[MAX_STATIONS];
 static int nstations = 0;
 static int sd_ok = 0;
@@ -664,7 +667,7 @@ static void parse_station_line(char *line) {
 }
 
 static void load_stations(void) {
-    char line[512];
+    static char line[URL_MAX + 128];
     nstations = 0;
     FILE *fp = sd_ok ? fopen(RADIO_LIST, "r") : NULL;
     if (!fp && sd_ok) {                        /* premier lancement : on cree la liste */
@@ -1111,6 +1114,7 @@ static void rec_start(const char *station) {
 /* son recu (sans les metadonnees ICY) : vers le decodeur, et le fichier si on enregistre */
 static void stream_audio(const unsigned char *d, int n) {
     cbuf_append(d, n);
+    if (stream_codec == 3) return;           /* (M4A : pas d'enregistrement) */
     if (rec_fp && rec_sync) {                /* le fichier commence par une trame entiere */
         int i = 0;
         if (stream_codec == 2) {
@@ -1238,8 +1242,16 @@ static void podcast_finished(void);
 static void podcast_play_at(int sec);
 static int pod_pos_sec(void);
 static int pod_starting;
+static int ms_reopening;                     /* (mp4.c) reprise d'un M4A a une autre position */
+static int mp4_url_looks(const char *path, const char *ctype);
+static void mp4s_begin(long pos, const char *key);
+static void ms_want_clear(void);
+static char http_final_url[URL_MAX];       /* adresse finale (apres les redirections) */
+static int http_last_code = 0;               /* 200, ou 206 si la plage demandee est respectee */
 static int http_open(const char *url_in, int depth) {
-    char url[300], host[128], path[256], req[600];
+    /* (statiques : appels en chaine pour les redirections, sans rien relire apres) */
+    static char url[URL_MAX], path[URL_MAX], req[URL_MAX + 640];
+    char host[128];
     static unsigned char hdr[8192];
     int tls = 0, port;
 
@@ -1297,7 +1309,7 @@ static int http_open(const char *url_in, int depth) {
     if (code >= 300 && code < 400) {
         const char *loc = header_value(hdrs, "Location");
         if (!loc) { set_error("Redirection sans adresse"); return 0; }
-        char next[300];
+        static char next[URL_MAX];
         if (loc[0] == '/') snprintf(next, sizeof(next), "%s://%s:%d%s", tls ? "https" : "http", host, port, loc);
         else snprintf(next, sizeof(next), "%s", loc);
         stream_close();
@@ -1309,6 +1321,8 @@ static int http_open(const char *url_in, int depth) {
         set_error(m);
         return 0;
     }
+    http_last_code = code;
+    snprintf(http_final_url, sizeof(http_final_url), "%s", url);
 
     const char *ct = header_value(hdrs, "Content-Type");
     char ctype[96] = "";
@@ -1335,7 +1349,7 @@ static int http_open(const char *url_in, int depth) {
         }
         pl[pn] = 0;
         if (pn == (int)sizeof(pl) - 1) { char *nl = strrchr(pl, '\n'); if (nl) nl[1] = 0; }   /* derniere ligne coupee */
-        char next[300];
+        static char next[URL_MAX];
         stream_close();
         if (strstr(pl, "#EXT-X-")) {                     /* radio HLS (.m3u8 en segments) */
             icy_metaint = 0;
@@ -1345,12 +1359,17 @@ static int http_open(const char *url_in, int depth) {
         if (!playlist_first_url(pl, next, sizeof(next))) { set_error("Liste de lecture vide"); return 0; }
         return http_open(next, depth + 1);
     }
-    stream_codec = strstr(ctype, "aac") ? 1 : (strstr(ctype, "ogg") || strstr(ctype, "vorbis")) ? 2 : 0;
-    if (strstr(ctype, "mp4") || strstr(ctype, "opus") || strstr(ctype, "flac")) {
-        set_error("Format non géré (MP3, AAC ou OGG Vorbis)");
-        return 0;
+    if (strstr(ctype, "text/html") && !ms_reopening) { set_error("Ce n'est pas un flux audio (page web)"); return 0; }
+    if (ms_reopening || mp4_url_looks(path, ctype) || (body_len >= 8 && !memcmp(body + 4, "ftyp", 4))) {
+        stream_codec = 3;                                  /* M4A / MP4 (AAC) */
+        mp4s_begin(code == 206 ? http_range : 0, stations[cur_station].url);
+    } else {
+        stream_codec = strstr(ctype, "aac") ? 1 : (strstr(ctype, "ogg") || strstr(ctype, "vorbis")) ? 2 : 0;
+        if (strstr(ctype, "opus") || strstr(ctype, "flac")) {
+            set_error("Format non géré (MP3, AAC, M4A ou OGG Vorbis)");
+            return 0;
+        }
     }
-    if (strstr(ctype, "text/html")) { set_error("Ce n'est pas un flux audio (page web)"); return 0; }
 
     const char *mi = header_value(hdrs, "icy-metaint");
     icy_metaint = mi ? atoi(mi) : 0;
@@ -1382,6 +1401,7 @@ static void start_station(int idx, int is_reconnect) {
     if (idx < 0 || idx > nstations || idx >= MAX_STATIONS) return;   /* (nstations = station d'essai) */
     crumb("radio : %s | %.60s", stations[idx].name, stations[idx].url);
     if (!is_reconnect) podcast_leave();
+    if (!pod_starting) { ms_want_clear(); }               /* (M4A : pas de position demandee) */
     if (src == SRC_FILE) stop_track();
     stop_station();
     src = SRC_RADIO;
@@ -1488,16 +1508,16 @@ static const char *base_of(const char *path) {
 }
 
 /* Formats lus dans l'onglet MUSIQUE */
-enum { FMT_MP3, FMT_FLAC, FMT_OGG, FMT_WAV, FMT_GME, FMT_XMP, FMT_GCN };
+enum { FMT_MP3, FMT_FLAC, FMT_OGG, FMT_WAV, FMT_M4A, FMT_GME, FMT_XMP, FMT_GCN };
 static int retro_ext_fmt(const char *path);       /* onglet RETRO (tab_retro.c) */
 static u8 is_retro[MAX_FILES];
 
 /* longueur de l'extension audio (".mp3" = 4, ".flac" = 5), 0 si ce n'est pas un son */
 static int audio_ext_len(const char *path) {
-    static const char *const ext[] = { ".mp3", ".flac", ".ogg", ".oga", ".wav" };
+    static const char *const ext[] = { ".mp3", ".flac", ".ogg", ".oga", ".wav", ".m4a", ".m4b" };
     size_t l = strlen(path);
     if (retro_ext_fmt(path) >= 0) return (int)strlen(strrchr(path, '.'));
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 7; i++) {
         size_t e = strlen(ext[i]);
         if (l > e && strcasecmp(path + l - e, ext[i]) == 0) return (int)e;
     }
@@ -1511,6 +1531,7 @@ static int audio_fmt(const char *path) {
     if (l > 5 && !strcasecmp(path + l - 5, ".flac")) return FMT_FLAC;
     if (l > 4 && (!strcasecmp(path + l - 4, ".ogg") || !strcasecmp(path + l - 4, ".oga"))) return FMT_OGG;
     if (l > 4 && !strcasecmp(path + l - 4, ".wav")) return FMT_WAV;
+    if (l > 4 && (!strcasecmp(path + l - 4, ".m4a") || !strcasecmp(path + l - 4, ".m4b"))) return FMT_M4A;
     return FMT_MP3;
 }
 
@@ -1741,8 +1762,13 @@ static int wav_duration(const char *path) {
 }
 
 static int retro_quick_duration(const char *path);
+static int m4a_duration(const char *path);           /* M4A (mp4.c) */
+static void m4a_close(void);
+static void m4a_decode_one(void);
+static int m4a_seek(int sec);
 static int file_duration(const char *path) {
     switch (audio_fmt(path)) {
+    case FMT_M4A:  return m4a_duration(path);
     case FMT_FLAC: return flac_duration(path);
     case FMT_OGG:  return ogg_duration(path);
     case FMT_WAV:  return wav_duration(path);
@@ -1813,6 +1839,7 @@ static void retro_decode(void);
 static int retro_seek(int sec);
 static void other_close(void) {
     retro_close();
+    m4a_close();
     if (flac) { drflac_close(flac); flac = NULL; }
     if (vorb) { stb_vorbis_close(vorb); vorb = NULL; }
 }
@@ -1849,6 +1876,7 @@ static int ogg_open(FILE *fp, long start) {
 static void decode_other_one(void) {
     static s16 L[2048], R[2048];
     if (file_fmt >= FMT_GME) { retro_decode(); return; }
+    if (file_fmt == FMT_M4A) { m4a_decode_one(); return; }
     if (file_fmt == FMT_FLAC) {
         static s16 in[1024 * 8];
         if (!flac) { eof = 1; return; }
@@ -1925,6 +1953,7 @@ static void decode_other_one(void) {
 /* positionnement a 'sec' secondes (d = duree du morceau) */
 static int other_seek(int sec, int d) {
     if (file_fmt >= FMT_GME) return retro_seek(sec);
+    if (file_fmt == FMT_M4A) return m4a_seek(sec);
     if (file_fmt == FMT_FLAC) {
         return flac && drflac_seek_to_pcm_frame(flac, (drflac_uint64)sec * flac->sampleRate);
     }
@@ -2483,6 +2512,8 @@ static int cover_from_id3(const char *path) {
     return ok;
 }
 
+#include "mp4.c"                             /* M4A / MP4 (son AAC) */
+
 static void load_cover(int idx) {
     static const char *exts[] = { ".jpg", ".jpeg", ".png" };
     static const char *common[] = { "cover.jpg", "folder.jpg", "cover.png", "folder.png" };
@@ -2504,6 +2535,7 @@ static void load_cover(int idx) {
         int fm = audio_fmt(names[idx]);
         if (fm == FMT_MP3) cover_ok = cover_from_id3(names[idx]);
         else if (fm == FMT_FLAC) cover_ok = cover_from_flac(names[idx]);
+        else if (fm == FMT_M4A) cover_ok = m4a_meta(names[idx], NULL, 1);
     }
     for (int i = 0; i < 4 && !cover_ok; i++) {
         snprintf(path, sizeof(path), "%s/%s", dir, common[i]);
@@ -2611,6 +2643,8 @@ static int start_track(int idx) {
         }
         if (!err && !ogg_open(fp, 0)) err = "OGG illisible (Vorbis seulement)";
         if (!err) audio = ftell(fp);
+    } else if (fmt == FMT_M4A) {
+        if (!m4a_open(fp, size, &tg, &err)) { if (!err) err = "M4A illisible"; }
     } else if (fmt >= FMT_GME) {
         if (!retro_open(names[idx], fmt, &tg, &err)) { if (!err) err = "Fichier illisible"; }
         else dur_cache[idx] = retro_len_ms / 1000;
@@ -2690,6 +2724,7 @@ static void tag_scan_one(int k) {
     tags_clear(&tg);
     if (fm == FMT_FLAC) flac_meta(fp, &tg, 0);
     else if (fm == FMT_OGG) { size_t n = fread(head, 1, sizeof(head), fp); ogg_tags(head, (long)n, &tg); }
+    else if (fm == FMT_M4A) m4a_meta(names[k], &tg, 0);
     else if (fm == FMT_MP3) {
         size_t n = fread(head, 1, sizeof(head), fp);
         int has_v1 = 0;
@@ -3057,6 +3092,35 @@ static const char *const saver_keys[SV_COUNT] = { "spectre", "pochette", "horlog
 static const char *const saver_names[SV_COUNT] = { "Spectre", "Pochette", "Horloge", "\xC3\x89toiles",
                                                    "Photos (sd:/ecran)", "\xC3\x89" "cran noir" };
 static int video_pref = VID_AUTO;
+static int scr_pct = 100;                   /* taille de l'image : 80 a 100 % */
+/* Langue du contenu (recherche de podcasts, radios du pays, sites web, meteo).
+   -1 = celle de la console (reglage de l'IPL), sinon l'ordre de SYS_LANG_* */
+#define LANG_COUNT 6
+static int lang_pref = -1;
+static int lang_sys = -2;                   /* langue de la console (lue une fois) */
+static const char *const lang_keys[LANG_COUNT] = { "en", "de", "fr", "es", "it", "nl" };
+static const char *const lang_names[LANG_COUNT] = { "English", "Deutsch", "Fran\xC3\xA7" "ais", "Espa\xC3\xB1ol", "Italiano", "Nederlands" };
+static int lang_console(void) {
+    if (lang_sys == -2) {
+        lang_sys = (int)SYS_GetLanguage();
+        if (lang_sys < 0 || lang_sys >= LANG_COUNT) lang_sys = SYS_LANG_FRENCH;
+    }
+    return lang_sys;
+}
+static int lang_cur(void) { return lang_pref >= 0 && lang_pref < LANG_COUNT ? lang_pref : lang_console(); }
+static const char *lang_code(void) { return lang_keys[lang_cur()]; }
+/* pays (code ISO) : anglais = Royaume-Uni, ou Etats-Unis sur une console NTSC */
+static const char *lang_country(void) {
+    static const char *const cc[LANG_COUNT] = { "GB", "DE", "FR", "ES", "IT", "NL" };
+    int l = lang_cur();
+    if (l == SYS_LANG_ENGLISH && VIDEO_GetCurrentTvMode() == VI_NTSC) return "US";
+    return cc[l];
+}
+static const char *lang_country_name(void) {       /* "en France", "au Royaume-Uni"... */
+    static const char *const nm[LANG_COUNT] = { "au Royaume-Uni", "en Allemagne", "en France", "en Espagne", "en Italie", "aux Pays-Bas" };
+    if (!strcmp(lang_country(), "US")) return "aux \xC3\x89tats-Unis";
+    return nm[lang_cur()];
+}
 static int resume_on = 1;
 static char resume_path[NAME_LEN] = "";
 static int resume_pos = 0;
@@ -3116,6 +3180,8 @@ static void load_settings(void) {
         else if (!strcasecmp(k, "volume_egalise")) rg_mode = !strncasecmp(v, "album", 5) ? 2 : (!strncasecmp(v, "morceau", 7) || !strncasecmp(v, "oui", 3)) ? 1 : 0;
         else if (!strcasecmp(k, "economiseur")) { saver_min = atoi(v); if (saver_min < 0) saver_min = 0; }
         else if (!strcasecmp(k, "economiseur_style")) { for (int i = 0; i < SV_COUNT; i++) if (!strcasecmp(v, saver_keys[i])) saver_style = i; }
+        else if (!strcasecmp(k, "ecran_taille")) { scr_pct = atoi(v); if (scr_pct < 80) scr_pct = 80; if (scr_pct > 100) scr_pct = 100; }
+        else if (!strcasecmp(k, "langue")) { lang_pref = -1; for (int i = 0; i < LANG_COUNT; i++) if (!strncasecmp(v, lang_keys[i], 2)) lang_pref = i; }
         else if (!strcasecmp(k, "video")) video_pref = !strcasecmp(v, "480p") ? VID_480P : !strcasecmp(v, "480i") ? VID_480I : VID_AUTO;
         else if (!strcasecmp(k, "reprise")) resume_on = yes(v);
         else if (!strcasecmp(k, "reprise_fichier")) snprintf(resume_path, sizeof(resume_path), "%s", v);
@@ -3179,12 +3245,18 @@ static void save_settings(void) {
                "economiseur_style = %s\n"
                "# Video : auto (480p si cable composante) / 480i / 480p\n"
                "video = %s\n"
+               "# Langue du contenu (podcasts, radios du pays, sites web, meteo) :\n"
+               "# auto (celle de la console) / fr / en / de / es / it / nl\n"
+               "langue = %s\n"
+               "# Taille de l'image (80 a 100 %%) : a reduire si les bords sont coupes sur la tele\n"
+               "ecran_taille = %d\n"
                "# Reprendre le dernier morceau au demarrage : oui / non\n"
                "reprise = %s\nreprise_fichier = %s\nreprise_position = %d\n",
             covers_auto ? "oui" : "non", lyrics_auto ? "oui" : "non", eq_bass, eq_treble, xf_sec,
             rg_mode == 2 ? "album" : rg_mode == 1 ? "morceau" : "non", party_keys[party_style],
             layout_keys[player_layout], els, hid, city, news_url, alarm_txt, alarm_src, phone_auto ? "oui" : "non", shuffle_on ? "oui" : "non", rep[repeat_mode], aff[view_mode],
-            volume_pct, theme_keys[theme_id], saver_min, saver_keys[saver_style], vid[video_pref], resume_on ? "oui" : "non",
+            volume_pct, theme_keys[theme_id], saver_min, saver_keys[saver_style], vid[video_pref],
+            lang_pref >= 0 ? lang_keys[lang_pref] : "auto", scr_pct, resume_on ? "oui" : "non",
             resume_path, resume_pos);
     fprintf(f, "# Mode veilleuse : luminosite 1 a 5 ; radio lancee si rien ne joue : oui / non\n"
                "veilleuse_luminosite = %d\nveilleuse_radio = %s\n"
@@ -3380,7 +3452,7 @@ static void gx_set_image(GXTexObj *obj) {
 static void gx_init(void) {
     Mtx44 projection;
     Mtx identity;
-    GXColor background = { 7, 5, 26, 255 };
+    GXColor background = { 0, 0, 0, 255 };            /* (bords quand l'image est reduite) */
 
     say("   GX_Init... %s", "");
     gx_fifo = memalign(32, GX_FIFO_SIZE);
@@ -3818,9 +3890,32 @@ static void draw_badge(f32 cx, f32 cy, const char *letter, col_t c1, col_t c2) {
 }
 
 /* Legende des touches : icones + textes repartis sur toute la largeur du cadre. */
+/* Taille de l'ecran : l'image (repere 640x480) est reduite et centree, pour
+   qu'elle rentre en entier sur les televiseurs qui coupent les bords. */
+static f32 scr_sx = 1, scr_sy = 1, scr_ox = 0, scr_oy = 0;
+static void scr_viewport(void) {
+    if (scr_pct < 80) scr_pct = 80;
+    if (scr_pct > 100) scr_pct = 100;
+    f32 s = scr_pct / 100.0f;
+    f32 w = rmode->fbWidth * s, h = rmode->efbHeight * s;
+    scr_ox = (int)((rmode->fbWidth - w) / 2);
+    scr_oy = (int)((rmode->efbHeight - h) / 2);
+    scr_sx = w / 640.0f;
+    scr_sy = h / 480.0f;
+    GX_SetViewport(scr_ox, scr_oy, w, h, 0.0f, 1.0f);
+    GX_SetScissor((u32)scr_ox, (u32)scr_oy, (u32)(w + 0.5f), (u32)(h + 0.5f));
+}
+/* zone de dessin (coordonnees du repere 640x480) */
+static void scr_scissor(f32 x, f32 y, f32 w, f32 h) {
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (w < 0) w = 0;
+    if (h < 0) h = 0;
+    GX_SetScissor((u32)(scr_ox + x * scr_sx), (u32)(scr_oy + y * scr_sy), (u32)(w * scr_sx + 0.5f), (u32)(h * scr_sy + 0.5f));
+}
+
 static void begin_frame(void) {
-    GX_SetViewport(0.0f, 0.0f, rmode->fbWidth, rmode->efbHeight, 0.0f, 1.0f);
-    GX_SetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
+    scr_viewport();
     GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
     draw_background();
 }
@@ -4588,7 +4683,6 @@ static int settings_dirty;
 // Navigateur en mode texte : HTML sans JavaScript ni images. Les liens vers
 // des fichiers (MP3...) sont telecharges dans sd:/downloads.
 // ====================================================================
-#define URL_MAX        2048
 #define WEB_PAGE_MAX   (1536 * 1024)        // taille maxi d'une page HTML
 #define FAV_FILE       SD_ROOT "/favoris.txt"
 #define SEARCH_URL     "https://www.mojeek.com/search?q="
@@ -5912,6 +6006,8 @@ static void dl_filename(const char *disp, const char *url, const char *ctype, ch
     int n = (int)strlen(dec);
     if (ctype && ci_find((char *)ctype, "audio/mpeg") && !(n > 4 && strcasecmp(dec + n - 4, ".mp3") == 0))
         snprintf(dec + n, sizeof(dec) - n, ".mp3");
+    else if (ctype && (ci_find((char *)ctype, "audio/mp4") || ci_find((char *)ctype, "audio/x-m4a")) && !strchr(dec, '.'))
+        snprintf(dec + n, sizeof(dec) - n, ".m4a");
     /* nom trop long : on garde l'extension */
     n = (int)strlen(dec);
     if (n > 100) {
@@ -6612,8 +6708,8 @@ static void web_fetch(const char *url_in, int mode, int typed) {
                           "%s %s HTTP/1.0\r\nHost: %s\r\n"
                           "User-Agent: Mozilla/5.0 (compatible; GC-MP3/1.0; Nintendo GameCube)\r\n"
                           "Accept: text/html,application/xhtml+xml,*/*;q=0.8\r\n"
-                          "Accept-Language: fr,en;q=0.5\r\n%s%sConnection: close\r\n\r\n",
-                          post ? "POST" : "GET", u.path, hosthdr, cookie, post_hdr);
+                          "Accept-Language: %s%s\r\n%s%sConnection: close\r\n\r\n",
+                          post ? "POST" : "GET", u.path, hosthdr, lang_code(), lang_cur() == SYS_LANG_ENGLISH ? "" : ",en;q=0.5", cookie, post_hdr);
         ui_status("Envoi de la demande...");
         int sent_ok = rl < (int)sizeof(req) && conn_send_all(c, req, rl);
         if (sent_ok && post && post_len > 0) sent_ok = conn_send_all(c, post, post_len);
@@ -8295,7 +8391,7 @@ static void draw_web(void) {
 
     /* contenu */
     if (img_tex_dirty) { GX_InvalidateTexAll(); img_tex_dirty = 0; }
-    GX_SetScissor(WV_X - 6, WV_Y - 4, WV_W + 12, WV_H + 6);
+    scr_scissor(WV_X - 6, WV_Y - 4, WV_W + 12, WV_H + 6);
     int lo = 0, hi = pg.nitems;
     while (lo < hi) {                                          /* premier element visible */
         int mid = (lo + hi) / 2;
@@ -8409,7 +8505,7 @@ static void draw_web(void) {
             if ((it->style & WS_LINK) && !sel && !(it->style & WS_BUTTON)) gx_rect(bx, by + 2, it->w, 1, RGBA(120, 140, 240, 110));
         }
     }
-    GX_SetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
+    scr_viewport();
     if (pg.nitems == 0 && !wb_loading && !wb_busy)
         gx_text1(F_MED, WV_X, WV_Y + 20, "(page sans texte)", RGBA(140, 122, 200, 255));
 
@@ -8661,7 +8757,13 @@ static void radio_activate(void) {
         return;
     }
     if (r == 0) { kb_start(KB_RADIO, "", -1, -1); return; }
-    if (r == 1) { rb_search("countrycode=FR", "Les plus \xC3\xA9" "cout\xC3\xA9" "es en France"); return; }
+    if (r == 1) {
+        char q[32], t[96];
+        snprintf(q, sizeof(q), "countrycode=%s", lang_country());
+        snprintf(t, sizeof(t), "Les plus \xC3\xA9" "cout\xC3\xA9" "es %s", lang_country_name());
+        rb_search(q, t);
+        return;
+    }
     start_station(r - 2, 0);
 }
 
@@ -8696,7 +8798,9 @@ static void draw_list_radio(void) {
 
         /* lignes speciales */
         if ((rb_mode && r == 0) || (!rb_mode && r < 2)) {
-            const char *lab = rb_mode ? rb_title : (r == 0 ? "Rechercher une radio..." : "Les plus \xC3\xA9" "cout\xC3\xA9" "es en France");
+            char popl[96];
+            snprintf(popl, sizeof(popl), "Les plus \xC3\xA9" "cout\xC3\xA9" "es %s", lang_country_name());
+            const char *lab = rb_mode ? rb_title : (r == 0 ? "Rechercher une radio..." : popl);
             if (rb_mode) gx_tri(38, cy - 6, 38, cy + 6, 30, cy, ic);
             else if (r == 0) { gx_ring(34, cy - 1.5f, 3.5f, 5.2f, ic); gx_poly4(37, cy + 2, 39, cy + 1, 42, cy + 5, 40, cy + 6, ic, ic, ic, ic); }
             else { gx_tri(36, cy - 7, 31, cy + 5, 41, cy + 5, ic); }
@@ -8779,7 +8883,7 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_BASS, MI_TREBLE, MI_THEME, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_RESUME, MI_VIDEO, MI_PARTY, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_RESUME, MI_VIDEO, MI_SCREEN, MI_LANG, MI_PARTY, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
 #define MENU_VIS 13                         /* lignes visibles (le menu defile) */
 static int menu_top = 0;
 static int menu_sel = 0, quit_requested = 0;
@@ -8813,6 +8917,11 @@ static void menu_value(int i, char *out, int cap) {
     case MI_COVERS:  snprintf(out, cap, "%s", covers_auto ? "Oui" : "Non"); break;
     case MI_RESUME:  snprintf(out, cap, "%s", resume_on ? "Oui" : "Non"); break;
     case MI_VIDEO:   snprintf(out, cap, "%s", vid[video_pref]); break;
+    case MI_SCREEN:  snprintf(out, cap, "%d %%", scr_pct); break;
+    case MI_LANG:
+        if (lang_pref < 0) snprintf(out, cap, "Auto (%s)", lang_names[lang_console()]);
+        else snprintf(out, cap, "%s", lang_names[lang_pref]);
+        break;
     case MI_REC:
         if (rec_fp) snprintf(out, cap, "En cours (%ld Ko)", rec_bytes / 1024);
         else snprintf(out, cap, "%s", src == SRC_RADIO && state != ST_IDLE ? "Arr\xC3\xAAt\xC3\xA9" : "(\xC3\xA9" "coute une radio)");
@@ -8825,7 +8934,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "Lecture al\xC3\xA9" "atoire", "R\xC3\xA9p\xC3\xA9tition", "Fondu encha\xC3\xAEn\xC3\xA9", "Liste MUSIQUE", "Volume",
     "Volume \xC3\xA9gal\xC3\xAAs\xC3\xA9", "Graves", "Aigus", "Th\xC3\xA8me",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques",
-    "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o", "Mode soir\xC3\xA9" "e", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
+    "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Langue du contenu", "Mode soir\xC3\xA9" "e", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Mise \xC3\xA0 jour", "Quitter GC-MP3" };
 
 static void menu_change(int i, int d) {
@@ -8873,6 +8982,8 @@ static void menu_change(int i, int d) {
     case MI_COVERS:  covers_auto = !covers_auto; if (covers_auto) net_start_async(); break;
     case MI_RESUME:  resume_on = !resume_on; break;
     case MI_VIDEO:   video_pref = (video_pref + d + VID_COUNT) % VID_COUNT; break;
+    case MI_SCREEN:  scr_pct += 2 * d; if (scr_pct < 80) scr_pct = 80; if (scr_pct > 100) scr_pct = 100; break;
+    case MI_LANG:    lang_pref = (lang_pref + 1 + d + LANG_COUNT + 1) % (LANG_COUNT + 1) - 1; break;
     case MI_REC:
         if (rec_fp) rec_stop();
         else if (src == SRC_RADIO && state != ST_IDLE && cur_station >= 0) rec_start(stations[cur_station].name);
@@ -9371,8 +9482,7 @@ static void saver_photos(f32 t) {
 }
 
 static void draw_saver(void) {
-    GX_SetViewport(0.0f, 0.0f, rmode->fbWidth, rmode->efbHeight, 0.0f, 1.0f);
-    GX_SetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
+    scr_viewport();
     GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
     gx_quad4(0, 0, 640, 480, RGBA(2, 1, 8, 255), RGBA(2, 1, 8, 255), RGBA(4, 2, 14, 255), RGBA(4, 2, 14, 255));
     /* tout se deplace lentement : pas d'image fixe sur l'ecran */
@@ -9560,8 +9670,7 @@ static void draw_party(void) {
     int saved = th_identity;
     th_identity = 1;                                     /* les couleurs du mode soiree, pas celles du theme */
     party_update();
-    GX_SetViewport(0.0f, 0.0f, rmode->fbWidth, rmode->efbHeight, 0.0f, 1.0f);
-    GX_SetScissor(0, 0, rmode->fbWidth, rmode->efbHeight);
+    scr_viewport();
     GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
     col_t top = hsv(pt_hue, 0.9f, 0.10f + pt_beat * 0.18f, 255), bot = hsv(pt_hue + 60, 0.9f, 0.04f, 255);
     gx_quad4(0, 0, 640, 480, top, top, bot, bot);
