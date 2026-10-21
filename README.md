@@ -106,6 +106,8 @@ même box) pour ouvrir la page de GC-MP3 dans le navigateur du téléphone :
   pochette et titre en cours ;
 - choisir un **morceau** ou une **radio** dans la liste ;
 - **ouvrir une page web sur la télé** (carte « Ouvrir sur la télé ») ;
+- **tous les réglages** (onglet « Réglages » de la page) : ceux du menu START avec ◀ ▶, les éléments du
+  lecteur et les onglets affichés (cases à cocher), et la ville, le flux d'actualités, le réveil, etc. ;
 - **envoyer des fichiers sur la carte SD** : musique, rétro, photos, vidéos, podcasts… (barre de
   progression sur le téléphone et sur la télé). Les nouveaux morceaux apparaissent tout de suite.
 Le petit serveur démarre tout seul quand le réseau est prêt (réglage `telephone`). Il n'y a pas de
@@ -150,6 +152,17 @@ les dossiers prévus.
   (`SD:/favoris.txt`, une ligne par site : `Nom | adresse`).
 - Un lien vers un autre fichier est téléchargé dans `SD:/downloads` en tâche de fond ; les MP3 apparaissent
   ensuite dans l'onglet MUSIQUE.
+
+## Dolphin (émulateur, PC et Android)
+GC-MP3 se lance aussi dans Dolphin (ouvre le fichier `.dol`). Dolphin n'émule pas d'adaptateur SD
+pour la GameCube : GC-MP3 utilise alors une **carte SD virtuelle en mémoire** (6 Mo).
+- Les **réglages** (radios, favoris, podcasts, positions d'écoute, gc-mp3.txt…) sont gardés sur la
+  **carte mémoire** de l'emplacement A (ou B), dans le fichier « GC-MP3 donnees ».
+- Pour Internet (radio, podcasts, web, météo) : Dolphin > Configuration > GameCube > **SP1 =
+  Broadband Adapter (HLE)** (« Built In » sur Android).
+- La musique téléchargée reste jusqu'à la fermeture de GC-MP3. La page du téléphone ne peut pas
+  joindre Dolphin (le réseau émulé n'accepte pas les connexions entrantes), et la mise à jour en un
+  clic est désactivée (télécharge le `.dol` à la main).
 
 ## Fluidité
 - La barre de sélection glisse d'une ligne à l'autre ; la croix maintenue va de plus en plus vite.
