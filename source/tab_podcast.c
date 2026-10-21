@@ -1,9 +1,9 @@
 // GC-MP3 : onglet PODCASTS (inclus dans main.c)
-// Abonnements dans sd:/podcasts.txt (Nom | adresse du flux RSS). Les episodes
+// Abonnements dans sd:/gc-mp3/podcasts.txt (Nom | adresse du flux RSS). Les episodes
 // s'ecoutent en direct (comme une radio) ou se telechargent sur la carte SD.
-// La position d'ecoute de chaque episode est retenue (sd:/podcasts/positions.txt).
-#define POD_FILE   SD_ROOT "/podcasts.txt"
-#define POD_POS    SD_ROOT "/podcasts/positions.txt"
+// La position d'ecoute de chaque episode est retenue (sd:/gc-mp3/podcasts/positions.txt).
+#define POD_FILE   GCD "/podcasts.txt"
+#define POD_POS    GCD "/podcasts/positions.txt"
 #define POD_MAX    64
 #define EP_MAX     120
 #ifndef ITUNES_BASE
@@ -78,7 +78,7 @@ static void pods_add(const char *name, const char *url) {
     for (int i = 0; i < npods; i++) if (!strcmp(pods[i].url, url)) { pod_note("D\xC3\xA9j\xC3\xA0 dans tes abonnements"); return; }
     if (npods >= POD_MAX || !sd_ok) return;
     FILE *f = fopen(POD_FILE, "a");
-    if (!f) { pod_note("Impossible d'\xC3\xA9" "crire SD:/podcasts.txt"); return; }
+    if (!f) { pod_note("Impossible d'\xC3\xA9" "crire SD:/gc-mp3/podcasts.txt"); return; }
     char nm[96];
     snprintf(nm, sizeof(nm), "%s", name);
     for (char *p = nm; *p; p++) if (*p == '|' || *p == '\n' || *p == '\r') *p = '-';
@@ -108,7 +108,7 @@ static int pod_get_pos(const char *url) {
 
 static void pod_set_pos(const char *url, int sec) {
     if (!sd_ok || !url[0]) return;
-    mkdir(SD_ROOT "/podcasts", 0777);
+    mkdir(GCD "/podcasts", 0777);
     /* on reecrit le fichier (au plus 200 episodes retenus) */
     enum { KEEP_LEN = URL_MAX + 16 };
     char (*keep)[KEEP_LEN] = malloc(200 * KEEP_LEN);
@@ -384,11 +384,11 @@ static void podcast_finished(void) {
 static void podcast_download(const ep_t *ep) {
     if (dl_active) { pod_note("Un t\xC3\xA9l\xC3\xA9" "chargement est d\xC3\xA9j\xC3\xA0 en cours"); return; }
     snprintf(dl_name_hint, sizeof(dl_name_hint), "%s", ep->title);
-    snprintf(dl_dest_dir, sizeof(dl_dest_dir), SD_ROOT "/podcasts");
+    snprintf(dl_dest_dir, sizeof(dl_dest_dir), GCD "/podcasts");
     mkdir(dl_dest_dir, 0777);
     dl_force = 1;
     web_fetch(ep->url, NAV_PUSH, 0);
-    pod_note("T\xC3\xA9l\xC3\xA9" "chargement demand\xC3\xA9 (SD:/podcasts)");
+    pod_note("T\xC3\xA9l\xC3\xA9" "chargement demand\xC3\xA9 (SD:/gc-mp3/podcasts)");
 }
 
 static void podcast_enter(void) { if (!pods_loaded) pods_load(); }
@@ -496,7 +496,7 @@ static void draw_list_podcast(void) {
     const char *foot;
     if (pf_state != PF_IDLE) foot = pf_state == PF_FEED ? "Chargement des \xC3\xA9pisodes..." : "Recherche...";
     else if (now_ms() - pod_msg_t < 4000 && pod_msg[0]) foot = pod_msg;
-    else if (dl_active && !strcmp(dl_dest_dir_used, SD_ROOT "/podcasts")) {
+    else if (dl_active && !strcmp(dl_dest_dir_used, GCD "/podcasts")) {
         snprintf(buf, sizeof(buf), "T\xC3\xA9l\xC3\xA9" "chargement %ld %%", dl_total > 0 ? dl_got * 100 / dl_total : 0);
         foot = buf;
     } else foot = pod_view == 1 ? "A : \xC3\xA9" "couter   X : t\xC3\xA9l\xC3\xA9" "charger" :
