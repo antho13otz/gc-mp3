@@ -205,6 +205,7 @@ static int paused = 0;                  /* pause de la musique */
 static int video_playing = 0;           /* une video (onglet PHOTOS) joue son son dans la file */
 static void video_stop(void);
 static void stop_track(void);
+static int stat_counted;                    /* morceau en cours deja compte (lib_extra.c) */
 static void lyrics_load(int track);
 static void bg_tick(void);              /* musique/radio pendant les attentes reseau */
 static void crumb(const char *fmt, ...);   /* journal de plantage (crashlog.c) */
@@ -363,9 +364,16 @@ static void cbuf_append(const unsigned char *d, int n) {
 /* Tout le son decode passe par out_put() avant d'entrer dans la file (48 kHz). */
 static float rg_gain = 1.0f;                 /* volume egalise (ReplayGain) du morceau en cours */
 static int eq_bass = 0, eq_treble = 0;       /* egaliseur : graves / aigus en dB (-12..+12) */
+static int eq_mid = 0;                       /* mediums (voix), en cloche autour de 1,2 kHz */
+static int eq_preset = 0;                    /* reglage tout pret (0 = personnalise) */
 static int eq_on = 0;
-static float eq_c[2][5];                     /* filtres en plateau : b0 b1 b2 a1 a2 */
-static float eq_s[2][2][4];                  /* [filtre][voie] : x1 x2 y1 y2 */
+static float eq_c[3][5];                     /* filtres : graves, aigus (plateau), mediums (cloche) : b0 b1 b2 a1 a2 */
+static float eq_s[3][2][4];                  /* [filtre][voie] : x1 x2 y1 y2 */
+#define EQ_PRESETS 10
+static const char *const eq_names[EQ_PRESETS] = { "Personnalis\xC3\xA9", "Plat", "Rap", "Rock", "Pop", "Basses", "Voix", "\xC3\x89lectro", "Classique", "Jazz" };
+static const char *const eq_keys[EQ_PRESETS] = { "perso", "plat", "rap", "rock", "pop", "basses", "voix", "electro", "classique", "jazz" };
+static const s8 eq_vals[EQ_PRESETS][3] = {   /* graves, mediums, aigus */
+    { 0, 0, 0 }, { 0, 0, 0 }, { 8, -1, 2 }, { 5, -2, 4 }, { 2, 2, 3 }, { 10, 0, 0 }, { -3, 4, 2 }, { 6, -2, 5 }, { 0, 0, 3 }, { 3, 1, 2 } };
 static int xf_sec = 0;                       /* fondu enchaine (secondes, 0 = non) */
 static int xf_request = 0;                   /* longueur du fondu demande pour le prochain morceau */
 static int xf_left = 0, xf_total = 0, xf_pos = 0;   /* zone de la file en cours de melange */
@@ -388,6 +396,14 @@ static void eq_shelf(float *c, int high, float f0, float db) {
     c[0] = b0 / a0; c[1] = b1 / a0; c[2] = b2 / a0; c[3] = a1 / a0; c[4] = a2 / a0;
 }
 
+/* cloche (peaking) : f0 et largeur fixes */
+static void eq_peak(float *c, float f0, float db) {
+    float A = powf(10.0f, db / 40.0f), w = 2.0f * PI_F * f0 / 48000.0f;
+    float al = sinf(w) / (2.0f * 0.9f), cs = cosf(w);
+    float b0 = 1 + al * A, b1 = -2 * cs, b2 = 1 - al * A, a0 = 1 + al / A, a1 = -2 * cs, a2 = 1 - al / A;
+    c[0] = b0 / a0; c[1] = b1 / a0; c[2] = b2 / a0; c[3] = a1 / a0; c[4] = a2 / a0;
+}
+
 static void eq_setup(void) {
     if (eq_bass < -12) eq_bass = -12;
     if (eq_bass > 12) eq_bass = 12;
@@ -395,7 +411,10 @@ static void eq_setup(void) {
     if (eq_treble > 12) eq_treble = 12;
     eq_shelf(eq_c[0], 0, 200.0f, (float)eq_bass);
     eq_shelf(eq_c[1], 1, 4000.0f, (float)eq_treble);
-    eq_on = (eq_bass != 0 || eq_treble != 0);
+    if (eq_mid < -12) eq_mid = -12;
+    if (eq_mid > 12) eq_mid = 12;
+    eq_peak(eq_c[2], 1200.0f, (float)eq_mid);
+    eq_on = (eq_bass != 0 || eq_treble != 0 || eq_mid != 0);
 }
 
 static inline float eq_run(int f, int ch, float x) {
@@ -418,6 +437,7 @@ static int out_put(s16 l, s16 r) {
         if (eq_on) {
             fl = eq_run(1, 0, eq_run(0, 0, fl));
             fr = eq_run(1, 1, eq_run(0, 1, fr));
+            if (eq_mid) { fl = eq_run(2, 0, fl); fr = eq_run(2, 1, fr); }
         }
         l = clamp16(fl);
         r = clamp16(fr);
@@ -2693,6 +2713,7 @@ static int start_track(int idx) {
     }
     xf_request = 0;
     consumed = 0;
+    stat_counted = 0;
     eof = 0; playing = 1; paused = 0; cur_track = idx;
     src = SRC_FILE;
     lyrics_load(idx);
@@ -2700,10 +2721,10 @@ static int start_track(int idx) {
 }
 
 // ---------- Bibliotheque : vues, file de lecture, aleatoire, repetition ----------
-enum { VIEW_ALL, VIEW_FOLDERS, VIEW_ARTISTS, VIEW_ALBUMS, VIEW_COUNT };
+enum { VIEW_ALL, VIEW_FOLDERS, VIEW_ARTISTS, VIEW_ALBUMS, VIEW_LISTS, VIEW_COUNT };
 enum { REP_OFF, REP_ALL, REP_ONE };
 static int view_mode = VIEW_ALL, shuffle_on = 0, repeat_mode = REP_OFF;
-static const char *const view_names[VIEW_COUNT] = { "Tous les morceaux", "Dossiers", "Artistes", "Albums" };
+static const char *const view_names[VIEW_COUNT] = { "Tous les morceaux", "Dossiers", "Artistes", "Albums", "Mes listes" };
 
 /* etiquettes de tous les fichiers, lues en fond (vues Artistes et Albums) */
 static char tg_artist[MAX_FILES][48], tg_album[MAX_FILES][64];
@@ -2877,6 +2898,17 @@ static const char *group_label(int g) {
     return grp_name[g];
 }
 
+/* listes de lecture et recherche (lib_extra.c) */
+static char lib_find[64];
+static void lists_build_groups(void);
+static int lists_tracks(int g, s16 *out, int max);
+static int lib_match(int k);
+static void draw_actions(void);
+static void pl_load_all(void);
+static void stats_load(void);
+static void stats_save(void);
+static int stats_dirty;
+
 /* reconstruit la liste en gardant l'element selectionne */
 static void lib_rebuild(void) {
     lent_t keep = { 255, -1 };
@@ -2887,10 +2919,28 @@ static void lib_rebuild(void) {
     if (cur_group >= 0 && cur_group < ngroups) snprintf(curname, sizeof(curname), "%s", grp_name[cur_group]);
 
     nents = 0;
-    if (view_mode == VIEW_ALL) {
+    if (lib_find[0]) {                                  /* recherche : les morceaux qui correspondent */
+        ngroups = 0;
+        cur_group = -1;
+        for (int k = 0; k < nfiles; k++) if (!is_retro[k] && lib_match(k)) { ents[nents].type = E_TRACK; ents[nents++].idx = (s16)k; }
+    } else if (view_mode == VIEW_ALL) {
         ngroups = 0;
         cur_group = -1;
         for (int k = 0; k < nfiles; k++) if (!is_retro[k]) { ents[nents].type = E_TRACK; ents[nents++].idx = (s16)k; }
+    } else if (view_mode == VIEW_LISTS) {             /* mes listes (+ les plus ecoutes) */
+        lists_build_groups();
+        if (cur_group >= 0) {
+            cur_group = -1;
+            for (int g = 0; g < ngroups; g++) if (strcmp(grp_name[g], curname) == 0) { cur_group = g; break; }
+        }
+        if (cur_group < 0) {
+            for (int g = 0; g < ngroups; g++) { ents[nents].type = E_GROUP; ents[nents++].idx = (s16)g; }
+        } else {
+            static s16 lt[MAX_FILES];
+            int n = lists_tracks(cur_group, lt, MAX_FILES);
+            ents[nents].type = E_UP; ents[nents++].idx = (s16)cur_group;
+            for (int i = 0; i < n && nents < MAX_FILES + 1; i++) { ents[nents].type = E_TRACK; ents[nents++].idx = lt[i]; }
+        }
     } else {
         build_groups();
         if (cur_group >= 0) {                           /* le groupe a pu changer de numero */
@@ -3240,7 +3290,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "repetition")) repeat_mode = !strncasecmp(v, "tout", 4) ? REP_ALL : !strncasecmp(v, "un", 2) ? REP_ONE : REP_OFF;
         else if (!strcasecmp(k, "affichage"))
             view_mode = !strncasecmp(v, "dossier", 7) ? VIEW_FOLDERS : !strncasecmp(v, "artiste", 7) ? VIEW_ARTISTS :
-                        !strncasecmp(v, "album", 5) ? VIEW_ALBUMS : VIEW_ALL;
+                        !strncasecmp(v, "album", 5) ? VIEW_ALBUMS : !strncasecmp(v, "liste", 5) ? VIEW_LISTS : VIEW_ALL;
         else if (!strcasecmp(k, "volume")) { volume_pct = atoi(v); if (volume_pct < 0) volume_pct = 0; if (volume_pct > 100) volume_pct = 100; }
         else if (!strcasecmp(k, "theme")) { for (int i = 0; i < THEME_COUNT; i++) if (!strcasecmp(v, theme_keys[i])) theme_apply(i); }
         else if (!strcasecmp(k, "paroles_auto")) lyrics_auto = yes(v);
@@ -3267,6 +3317,8 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "soiree")) { for (int i = 0; i < PARTY_STYLES; i++) if (!strcasecmp(v, party_keys[i])) party_style = i; }
         else if (!strcasecmp(k, "graves")) eq_bass = atoi(v);
         else if (!strcasecmp(k, "aigus")) eq_treble = atoi(v);
+        else if (!strcasecmp(k, "mediums")) eq_mid = atoi(v);
+        else if (!strcasecmp(k, "egaliseur")) { eq_preset = 0; for (int i = 0; i < EQ_PRESETS; i++) if (!strcasecmp(v, eq_keys[i])) eq_preset = i; }
         else if (!strcasecmp(k, "fondu")) { xf_sec = atoi(v); if (xf_sec < 0) xf_sec = 0; if (xf_sec > 8) xf_sec = 8; }
         else if (!strcasecmp(k, "volume_egalise")) rg_mode = !strncasecmp(v, "album", 5) ? 2 : (!strncasecmp(v, "morceau", 7) || !strncasecmp(v, "oui", 3)) ? 1 : 0;
         else if (!strcasecmp(k, "economiseur")) { saver_min = atoi(v); if (saver_min < 0) saver_min = 0; }
@@ -3301,7 +3353,7 @@ static void load_settings(void) {
 
 static void save_settings(void) {
     static const char *const rep[3] = { "non", "tout", "un" };
-    static const char *const aff[VIEW_COUNT] = { "tous", "dossiers", "artistes", "albums" };
+    static const char *const aff[VIEW_COUNT] = { "tous", "dossiers", "artistes", "albums", "listes" };
     static const char *const vid[VID_COUNT] = { "auto", "480i", "480p" };
     settings_dirty = 0;
     if (!sd_ok) return;
@@ -3319,8 +3371,9 @@ static void save_settings(void) {
                "pochettes_auto = %s\n"
                "# Paroles synchronisees cherchees sur Internet (LRCLIB) : oui / non\n"
                "paroles_auto = %s\n"
-               "# Egaliseur en dB (-12 a +12)\n"
-               "graves = %d\naigus = %d\n"
+               "# Egaliseur : reglage tout pret (perso / plat / rap / rock / pop / basses / voix / electro / classique / jazz)\n"
+               "# puis graves, mediums, aigus en dB (-12 a +12)\n"
+               "egaliseur = %s\ngraves = %d\nmediums = %d\naigus = %d\n"
                "# Fondu enchaine entre les morceaux, en secondes (0 = non, 8 maximum)\n"
                "fondu = %d\n"
                "# Volume egalise (ReplayGain) : non / morceau / album\n"
@@ -3364,7 +3417,7 @@ static void save_settings(void) {
                "ecran_format = %s\n"
                "# Reprendre le dernier morceau au demarrage : oui / non\n"
                "reprise = %s\nreprise_fichier = %s\nreprise_position = %d\n",
-            covers_auto ? "oui" : "non", lyrics_auto ? "oui" : "non", eq_bass, eq_treble, xf_sec,
+            covers_auto ? "oui" : "non", lyrics_auto ? "oui" : "non", eq_keys[eq_preset], eq_bass, eq_mid, eq_treble, xf_sec,
             rg_mode == 2 ? "album" : rg_mode == 1 ? "morceau" : "non", party_keys[party_style],
             layout_keys[player_layout], els, hid, city, news_url, alarm_txt, alarm_src, phone_auto ? "oui" : "non", shuffle_on ? "oui" : "non", rep[repeat_mode], aff[view_mode],
             volume_pct, theme_keys[theme_id], saver_min, saver_keys[saver_style], vid[video_pref],
@@ -4541,6 +4594,7 @@ static void draw(void) {
     if (kb_is_open()) draw_keyboard();
     if (menu_open) draw_menu();
     draw_checklist();
+    draw_actions();
     service_audio();
     present_frame();
 }
@@ -4603,7 +4657,7 @@ static void draw_list_music(int sel) {
     char buf[NAME_LEN], t[24];
 
     draw_panel(11, 73, 271, 385);
-    snprintf(buf, sizeof(buf), "%d", view_mode == VIEW_ALL || cur_group >= 0 ? (cur_group >= 0 ? nents - 1 : nents) : ngroups);
+    snprintf(buf, sizeof(buf), "%d", lib_find[0] || view_mode == VIEW_ALL || cur_group >= 0 ? (cur_group >= 0 ? nents - 1 : nents) : ngroups);
     draw_tabs(buf);
 
     static f32 sel_anim = -2000;
@@ -4689,7 +4743,8 @@ static void draw_list_music(int sel) {
     if ((view_mode == VIEW_ARTISTS || view_mode == VIEW_ALBUMS) && tg_scanned < nfiles) {
         snprintf(foot, sizeof(foot), "Lecture des \xC3\xA9tiquettes %d/%d", tg_scanned, nfiles);
         fc = RGBA(255, 210, 120, 255);
-    } else snprintf(foot, sizeof(foot), "< %s >", view_names[view_mode]);
+    } else if (lib_find[0]) snprintf(foot, sizeof(foot), "Recherche : %.40s  (B)", lib_find);
+    else snprintf(foot, sizeof(foot), "< %s >", view_names[view_mode]);
     gx_text1(F_SMALL, 26, 447, foot, fc);
     f32 rx = 264;
     if (repeat_mode != REP_OFF) {
@@ -8217,7 +8272,8 @@ static void web_pump(void) {
 }
 
 // ---------- Navigateur : actions ----------
-enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR };
+enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR, KB_LIBFIND, KB_PLNAME };
+static void lib_kb_done(int mode, const char *t);
 static void files_kb_done(int mode, const char *t);
 static void podcast_search(const char *q);
 static void infos_set_city(const char *c);
@@ -8335,6 +8391,7 @@ static void kb_validate(void) {
         }
         return;
     }
+    if (kb_mode == KB_LIBFIND || kb_mode == KB_PLNAME) { lib_kb_done(kb_mode, t); return; }
     if (!*t) return;
     if (kb_mode == KB_RADIO) { rb_search_name(t); return; }
     if (kb_mode == KB_PODCAST) { podcast_search(t); return; }
@@ -8784,6 +8841,7 @@ static void draw_keyboard(void) {
                         kb_mode == KB_FIELD ? "Saisie" : kb_mode == KB_RADIO ? "Rechercher une radio (nom)" :
                         kb_mode == KB_PODCAST ? "Rechercher un podcast" : kb_mode == KB_CITY ? "Ta ville (m\xC3\xA9t\xC3\xA9o)" :
                         kb_mode == KB_RENAME ? "Nouveau nom" : kb_mode == KB_MKDIR ? "Nom du nouveau dossier" :
+                        kb_mode == KB_LIBFIND ? "Chercher un morceau (titre, artiste, album)" : kb_mode == KB_PLNAME ? "Nom de la nouvelle liste" :
                         "Adresse ou recherche";
     gx_text1(F_MED, 46, 143, title, RGBA(255, 255, 255, 255));
     if (kb_shift) gx_text_r(F_SMALL, 594, 142, "MAJUSCULES", RGBA(255, 210, 120, 255));
@@ -9091,7 +9149,7 @@ static void draw_list_radio(void) {
 }
 
 // ---------- Menu (START) : reglages et Quitter ----------
-enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_BASS, MI_TREBLE, MI_THEME, MI_SAVER, MI_SAVERSTYLE,
+enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_THEME, MI_SAVER, MI_SAVERSTYLE,
        MI_COVERS, MI_LYRICS, MI_RESUME, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_LANG, MI_PARTY, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
 #define MENU_VIS 13                         /* lignes visibles (le menu defile) */
 static int menu_top = 0;
@@ -9107,7 +9165,9 @@ static void menu_value(int i, char *out, int cap) {
     case MI_VOLUME:  snprintf(out, cap, "%d %%", volume_pct); break;
     case MI_XFADE:   if (xf_sec) snprintf(out, cap, "%d s", xf_sec); else snprintf(out, cap, "Non"); break;
     case MI_RG:      snprintf(out, cap, "%s", rg_mode == 2 ? "Par album" : rg_mode == 1 ? "Par morceau" : "Non"); break;
+    case MI_EQ:      snprintf(out, cap, "%s", eq_names[eq_preset]); break;
     case MI_BASS:    if (eq_bass) snprintf(out, cap, "%+d dB", eq_bass); else snprintf(out, cap, "0"); break;
+    case MI_MID:     if (eq_mid) snprintf(out, cap, "%+d dB", eq_mid); else snprintf(out, cap, "0"); break;
     case MI_TREBLE:  if (eq_treble) snprintf(out, cap, "%+d dB", eq_treble); else snprintf(out, cap, "0"); break;
     case MI_LYRICS:  snprintf(out, cap, "%s", lyrics_auto ? "Oui" : "Non"); break;
     case MI_PARTY:   snprintf(out, cap, "%s", party_names[party_style]); break;
@@ -9144,7 +9204,7 @@ static void menu_value(int i, char *out, int cap) {
 
 static const char *const menu_labels[MI_COUNT] = {
     "Lecture al\xC3\xA9" "atoire", "R\xC3\xA9p\xC3\xA9tition", "Fondu encha\xC3\xAEn\xC3\xA9", "Liste MUSIQUE", "Volume",
-    "Volume \xC3\xA9galis\xC3\xA9", "Graves", "Aigus", "Th\xC3\xA8me",
+    "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Th\xC3\xA8me",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques",
     "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue du contenu", "Mode soir\xC3\xA9" "e", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Mise \xC3\xA0 jour", "Quitter GC-MP3" };
@@ -9180,8 +9240,14 @@ static void menu_change(int i, int d) {
         break;
     }
     case MI_RG:      rg_mode = (rg_mode + d + 3) % 3; break;   /* pris en compte au morceau suivant */
-    case MI_BASS:    eq_bass += 2 * d; eq_setup(); break;
-    case MI_TREBLE:  eq_treble += 2 * d; eq_setup(); break;
+    case MI_EQ:
+        eq_preset = (eq_preset + d + EQ_PRESETS) % EQ_PRESETS;
+        if (eq_preset) { eq_bass = eq_vals[eq_preset][0]; eq_mid = eq_vals[eq_preset][1]; eq_treble = eq_vals[eq_preset][2]; }
+        eq_setup();
+        break;
+    case MI_MID:     eq_mid += 2 * d; eq_preset = 0; eq_setup(); break;
+    case MI_BASS:    eq_bass += 2 * d; eq_preset = 0; eq_setup(); break;
+    case MI_TREBLE:  eq_treble += 2 * d; eq_preset = 0; eq_setup(); break;
     case MI_LYRICS:  lyrics_auto = !lyrics_auto; if (lyrics_auto) net_start_async(); break;
     case MI_PARTY:   party_style = (party_style + d + PARTY_STYLES) % PARTY_STYLES; break;
     case MI_NIGHT:   night_lum += d; if (night_lum < 1) night_lum = 1; if (night_lum > 5) night_lum = 5; break;
@@ -9947,6 +10013,7 @@ static void draw_party(void) {
 }
 
 // ---------- Onglets supplementaires (fichiers a part) ----------
+#include "lib_extra.c"                         /* listes, recherche, ecoutes */
 #include "tab_retro.c"
 #include "tab_podcast.c"
 #include "tab_photo.c"
@@ -9978,9 +10045,12 @@ static void music_rescan(void) {
     char playing_path[NAME_LEN] = "";
     if (src == SRC_FILE && cur_track >= 0) snprintf(playing_path, sizeof(playing_path), "%s", names[cur_track]);
     if (bib_dirty) bib_save();                             /* garde ce qui est deja lu */
+    if (stats_dirty) stats_save();
     scan_files();
     tags_reset();
     bib_load();
+    pl_load_all();
+    stats_load();
     cur_track = -1;
     for (int i = 0; i < nfiles && playing_path[0]; i++)
         if (strcmp(names[i], playing_path) == 0) { cur_track = i; break; }
@@ -10063,7 +10133,7 @@ int main(int argc, char **argv) {
     gx_init();
     init_spectrum();
 
-    if (sd_ok) { scan_files(); bib_load(); }
+    if (sd_ok) { scan_files(); bib_load(); pl_load_all(); stats_load(); }
     load_stations();
     lib_rebuild();
     if (covers_auto) net_start_async();     /* reseau en fond, pour les pochettes */
@@ -10123,6 +10193,7 @@ int main(int argc, char **argv) {
         if (ck) { checklist_input(down, nav, fire); down = 0; fire = 0; }
         else if (menu_open) { menu_input(down, nav, fire); down = 0; fire = 0; }
         else if (kb_open) { kb_input(down, nav, fire); down = 0; fire = 0; }   /* START = valider */
+        else if (am_open) { actions_input(down, nav, fire); down = 0; fire = 0; }
         if (quit_requested) break;
 
         /* minuterie : le son baisse pendant 30 s, puis tout s'arrete */
@@ -10200,8 +10271,9 @@ int main(int argc, char **argv) {
                 if (sel_row > nents - 1) sel_row = nents - 1;
             }
             if (down & PAD_BUTTON_A) lib_activate();       /* chargement : l'audio joue du silence */
+            if ((down & PAD_BUTTON_B) && lib_find[0]) { lib_find_set(""); down &= ~PAD_BUTTON_B; }   /* B : fin de la recherche */
             if (down & PAD_BUTTON_B) { stop_track(); stop_station(); track_err = NULL; err_msg[0] = 0; }
-            if ((down & PAD_BUTTON_X) && sd_ok) music_rescan();
+            if ((down & PAD_BUTTON_X) && sd_ok) actions_open();     /* listes, recherche, actualiser */
             if ((down & PAD_BUTTON_Y) && src == SRC_FILE && playing) paused = !paused;
             if ((down & PAD_BUTTON_Y) && src == SRC_RADIO) muted = !muted;
         } else if (tab == TAB_RADIO) {
@@ -10239,6 +10311,7 @@ int main(int argc, char **argv) {
         rb_pump();
         lib_pump();
         bib_pump();
+        stats_pump();
         ramfs_pump();
         photo_pump();
         resume_note(0);
@@ -10262,6 +10335,7 @@ int main(int argc, char **argv) {
 
     resume_note(1);                          /* garde la position pour la prochaine fois */
     if (bib_dirty) bib_save();
+    if (stats_dirty) stats_save();
     if (sd_virtual && rf_dirty) rf_card_save();
     AUDIO_RegisterDMACallback(NULL);
     stop_track();
