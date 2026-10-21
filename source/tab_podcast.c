@@ -386,6 +386,7 @@ static void podcast_download(const ep_t *ep) {
     snprintf(dl_name_hint, sizeof(dl_name_hint), "%s", ep->title);
     snprintf(dl_dest_dir, sizeof(dl_dest_dir), SD_ROOT "/podcasts");
     mkdir(dl_dest_dir, 0777);
+    dl_force = 1;
     web_fetch(ep->url, NAV_PUSH, 0);
     pod_note("T\xC3\xA9l\xC3\xA9" "chargement demand\xC3\xA9 (SD:/podcasts)");
 }
