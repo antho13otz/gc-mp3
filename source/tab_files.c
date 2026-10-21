@@ -258,6 +258,7 @@ static void draw_tab_files(void) {
         if (r >= rows) break;
         f32 ry = 114.0f + i * 24.0f, cy = ry + 12.0f;
         int on = (r == fe_sel);
+        gp_zone(18, ry + 1, 604, 22, &fe_sel, r, GPZ_SEL);
         if (on) gx_rrect_fill(20, ry + 1, 600, 22, 5, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
         col_t txt = on ? RGBA(255, 255, 255, 255) : RGBA(210, 200, 240, 255);
         col_t dim = on ? RGBA(235, 225, 255, 255) : RGBA(140, 125, 200, 255);
