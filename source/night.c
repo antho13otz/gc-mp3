@@ -50,7 +50,7 @@ static void night_input(u32 down, u32 nav, int fire) {
 static void draw_night(void) {
     scr_viewport();
     GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-    gx_rect(0, 0, 640, 480, RGBA(0, 0, 0, 255));
+    gx_rect(scr_x0, 0, scr_w, 480, RGBA(0, 0, 0, 255));
     static const u8 lum[6] = { 0, 26, 48, 80, 130, 200 };
     u8 a = lum[night_lum < 1 ? 1 : night_lum > 5 ? 5 : night_lum];
     /* tres lent deplacement (pas d'image fixe sur l'ecran) */
