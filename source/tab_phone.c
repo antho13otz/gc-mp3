@@ -201,8 +201,7 @@ static void tp_send_tracks(s32 c) {
     sb_add(&s, "[");
     int n = nfiles;
     for (int k = 0; k < n; k++) {
-        snprintf(raw, sizeof(raw), "%s", display_name(base_of(names[k])));
-        strip_audio_ext(raw);
+        track_label(k, raw, sizeof(raw), 1);
         text_display(raw, d, sizeof(d));
         sb_add(&s, k ? ",[" : "[");
         sb_json_str(&s, d);
@@ -302,16 +301,18 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     clean[n] = 0;
     while (clean[0] == '.' || clean[0] == ' ') memmove(clean, clean + 1, strlen(clean));
     if (!okdir || !clean[0] || len <= 0 || !sd_ok) { tp_reply(c, 400, "text/plain", "refus", 5); return; }
-    snprintf(path, sizeof(path), SD_ROOT "/%s", dir);
+    const char *gpre = (!strcmp(dir, "radio") || !strcmp(dir, "podcasts")) ? "gc-mp3/" : "";   /* (v22 : rangees dans gc-mp3) */
+    mkdir(GCD, 0777);
+    snprintf(path, sizeof(path), SD_ROOT "/%s%s", gpre, dir);
     mkdir(path, 0777);
-    snprintf(path, sizeof(path), SD_ROOT "/%s/%s", dir, clean);
+    snprintf(path, sizeof(path), SD_ROOT "/%s%s/%s", gpre, dir, clean);
     struct stat st;
     for (int k = 2; k < 100 && stat(path, &st) == 0; k++) {     /* deja la : "nom (2).mp3" */
         char base[200], ext[16] = "";
         snprintf(base, sizeof(base), "%s", clean);
         char *dot = strrchr(base, '.');
         if (dot && strlen(dot) < sizeof(ext)) { snprintf(ext, sizeof(ext), "%s", dot); *dot = 0; }
-        snprintf(path, sizeof(path), SD_ROOT "/%s/%s (%d)%s", dir, base, k, ext);
+        snprintf(path, sizeof(path), SD_ROOT "/%s%s/%s (%d)%s", gpre, dir, base, k, ext);
     }
     FILE *f = fopen(path, "wb");
     if (!f) { tp_reply(c, 500, "text/plain", "ecriture impossible", 19); return; }
@@ -389,7 +390,7 @@ static void tp_handle(s32 c) {
     } else if (!strcmp(target, "/api/tracks")) tp_send_tracks(c);
     else if (!strcmp(target, "/api/stations")) tp_send_stations(c);
     else if (!strcmp(target, "/api/titres")) {             /* titres de la radio gardes (v18) */
-        FILE *f = sd_ok ? fopen(SD_ROOT "/gc-mp3-titres.txt", "rb") : NULL;
+        FILE *f = sd_ok ? fopen(GCD "/gc-mp3-titres.txt", "rb") : NULL;
         char *b = (char *)malloc(64 * 1024);
         int n = 0;
         if (f && b) {
@@ -411,8 +412,8 @@ static void tp_handle(s32 c) {
     else if (!strcmp(target, "/crash.txt")) {               /* journal de plantage */
         static char cb[9000];
         int n = 0;
-        FILE *f = sd_ok ? fopen(SD_ROOT "/gc-mp3-crash.txt", "rb") : NULL;
-        if (!f && sd_ok) f = fopen(SD_ROOT "/gc-mp3-crash-ancien.txt", "rb");
+        FILE *f = sd_ok ? fopen(GCD "/gc-mp3-crash.txt", "rb") : NULL;
+        if (!f && sd_ok) f = fopen(GCD "/gc-mp3-crash-ancien.txt", "rb");
         if (f) { n = (int)fread(cb, 1, sizeof(cb), f); fclose(f); }
         if (n <= 0) { n = snprintf(cb, sizeof(cb), "Aucun plantage enregistre.\n"); }
         tp_reply(c, 200, "text/plain; charset=utf-8", cb, n);
