@@ -136,14 +136,19 @@ static void update_pump(void) {
     }
     if (up_hf.st != HF_DONE) return;
     if (up_state == UP_CHECK) {
-        const char *js = (const char *)up_hf.buf, *end = js + up_hf.len;
-        char body[200];
-        json_field(js, end, "body", body, sizeof(body));
-        const char *b = strstr(body, "build=");
-        up_build = b ? atoi(b + 6) : 0;
+        char *jsb = (char *)malloc(up_hf.len + 1);              /* (texte termine par un zero) */
+        if (!jsb) { hf_drop(&up_hf); up_hf.st = HF_IDLE; up_fail("M\xC3\xA9moire insuffisante"); return; }
+        memcpy(jsb, up_hf.buf, up_hf.len);
+        jsb[up_hf.len] = 0;
+        const char *js = jsb, *end = js + up_hf.len;
+        /* numero du build : "build=N" dans le texte de la release (cherche dans tout
+           le texte, meme s'il a ete modifie a la main), sinon dans le nom du .dol */
+        up_build = 0;
+        for (const char *p = js; p + 6 < end; p++)
+            if (!memcmp(p, "build=", 6) && isdigit((unsigned char)p[6])) { int v = atoi(p + 6); if (v > up_build) up_build = v; }
         up_url[0] = 0;
         up_size = 0;
-        /* le .dol de ce build ("gc-mp3player-b123.dol"), sinon le dernier .dol de la liste */
+        int dols = 0, best_b = -1;
         char want[24];
         snprintf(want, sizeof(want), "-b%d.dol", up_build);
         for (const char *p = js; p && p < end; ) {
@@ -153,13 +158,20 @@ static void update_pump(void) {
             json_field(p, end, "browser_download_url", u, sizeof(u));
             int ul = (int)strlen(u), wl = (int)strlen(want);
             if (ul > 4 && !strcasecmp(u + ul - 4, ".dol")) {
-                snprintf(up_url, sizeof(up_url), "%s", u);
-                if (ul > wl && !strcasecmp(u + ul - wl, want)) break;
+                dols++;
+                int nb = -1;                                         /* "gc-mp3player-b123.dol" */
+                for (const char *q = u; (q = strstr(q, "-b")) != NULL; q += 2) if (isdigit((unsigned char)q[2])) nb = atoi(q + 2);
+                if (up_build && ul > wl && !strcasecmp(u + ul - wl, want)) { snprintf(up_url, sizeof(up_url), "%s", u); best_b = up_build; break; }
+                if (nb > best_b || !up_url[0]) { if (nb > best_b) best_b = nb; snprintf(up_url, sizeof(up_url), "%s", u); }
             }
             p += 22;
         }
+        if (!up_build && best_b > 0) up_build = best_b;          /* (texte de la release illisible) */
+        free(jsb);
         hf_drop(&up_hf);
         up_hf.st = HF_IDLE;
+        crumb("maj : build=%d dol=%d url=%.60s", up_build, dols, up_url);
+        if (!dols) { up_fail("Pas encore de fichier .dol (compilation en cours ?)"); return; }
         if (!up_build || !up_url[0]) { up_fail("Version publi\xC3\xA9" "e illisible"); return; }
         if (up_build <= GCMP3_BUILD) {
             up_state = UP_NONE;
