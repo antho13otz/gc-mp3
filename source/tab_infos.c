@@ -333,6 +333,7 @@ static void draw_tab_infos(void) {
         f32 ry = i < 3 ? 118 + i * 24 : 216 + (i - 3) * 21;
         if (ry > 382) break;
         int on = (i == inf_sel);
+        gp_zone(rx - 6, ry + 1, rw + 6, 21, &inf_sel, i, GPZ_SEL);
         if (on) gx_rrect_fill(rx - 6, ry + 1, rw + 6, 21, 5, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
         col_t c = on ? RGBA(255, 255, 255, 255) : RGBA(210, 200, 240, 255);
         if (i == 0) snprintf(buf, sizeof(buf), "Ville : %s", city[0] ? city : "(choisir)");
