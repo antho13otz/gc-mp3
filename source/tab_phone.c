@@ -437,10 +437,12 @@ static void phone_pump(void) {
 static void draw_qr(f32 x, f32 y, f32 size) {
     int n = qrcodegen_getSize(tp_qr);
     f32 m = size / (n + 8);                             /* marge blanche de 4 modules */
+    uxsave_t uz = ux_native(x + size / 2);              /* (16:9 : QR code carre) */
     gx_rect(x, y, size, size, RGBA(255, 255, 255, 255));
     for (int j = 0; j < n; j++)
         for (int i = 0; i < n; i++)
             if (qrcodegen_getModule(tp_qr, i, j)) gx_rect(x + (i + 4) * m, y + (j + 4) * m, m + 0.3f, m + 0.3f, RGBA(0, 0, 0, 255));
+    ux_restore(uz);
 }
 
 static void phone_input(u32 down, u32 nav, int fire) {
