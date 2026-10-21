@@ -79,6 +79,13 @@ Dans MUSIQUE, **X sur un morceau** (ou START > Jeux et karaoké) :
 - **Quiz musical** : 10 secondes d'un de tes morceaux (pris au milieu), 4 réponses : trouve lequel !
   De 1 à 4 joueurs, chacun avec sa manette (A, B, X ou Y). Plus on répond vite, plus on gagne de points ;
   le premier qui trouve a un bonus. 10 manches, puis le classement. Il faut au moins 4 morceaux.
+- **Snake musical** : mange les notes ; le serpent file plus vite quand la musique s'emballe (refrain,
+  montée, drop) et des **notes dorées** (50 points) apparaissent sur les coups de basse. Croix ou stick
+  pour diriger, Y = pause, START = sortir.
+- **Casse-briques musical** : chaque colonne de briques s'allume avec une bande du spectre, la balle
+  accélère avec la musique (« TURBO ! »), et des briques deviennent dorées sur le rythme (50 points).
+  Stick ou croix = raquette, A = lancer la balle, 3 vies, un niveau plus rapide à chaque mur cassé.
+  Si rien ne joue, un morceau au hasard est lancé. Les records sont gardés (`SD:/gc-mp3-jeux.txt`).
 
 ## Onglet RÉTRO
 Musique de jeux vidéo, rangée à part dans `SD:/retro` (sous-dossiers compris), avec le nom de la console :
