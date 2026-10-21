@@ -16,7 +16,7 @@ static int npls = 0;
 static int stats_dirty = 0;
 static int stat_counted = 0;
 static u64 stats_saved_t = 0;
-static char lib_note_txt[96] = "";
+static char lib_note_txt[180] = "";
 static u64 lib_note_until = 0;
 
 static void lib_note(const char *m) { snprintf(lib_note_txt, sizeof(lib_note_txt), "%s", m); lib_note_until = now_ms() + 2500; }
@@ -292,10 +292,12 @@ static int lib_match(int k) {
 }
 
 /* ---------- menu d'actions (X) ---------- */
-enum { AC_ADD = 1, AC_ADDTO, AC_NEWLIST, AC_REMOVE, AC_UP, AC_DOWN, AC_DELLIST, AC_FIND, AC_CLEARFIND, AC_RESCAN, AC_CLOSE };
+enum { AC_ADD = 1, AC_ADDTO, AC_NEWLIST, AC_REMOVE, AC_UP, AC_DOWN, AC_DELLIST, AC_FIND, AC_CLEARFIND, AC_RESCAN, AC_CLOSE,
+       AC_KARAOKE, AC_RHYTHM, AC_QUIZ, AC_TITLES, AC_TITLE, AC_TITLES_CLEAR };   /* (v18 : fun_extra.c) */
+static void fun_action(int code, int arg, int track, const char *txt);
 static int am_open = 0, am_sel = 0, am_n = 0, am_track = -1, am_list = -1, am_pos = -1, am_pending = -1;
 static char am_title[96];
-static char am_txt[PL_MAX + 8][64];
+static char am_txt[PL_MAX + 8][160];
 static int am_code[PL_MAX + 8], am_arg[PL_MAX + 8];
 
 static void am_item(const char *t, int code, int arg) {
@@ -336,6 +338,11 @@ static void actions_open(void) {
     am_item("Nouvelle liste...", AC_NEWLIST, 0);
     am_item("Chercher un morceau...", AC_FIND, 0);
     if (lib_find[0]) am_item("Effacer la recherche", AC_CLEARFIND, 0);
+    if (am_track >= 0) {
+        am_item("Karaok\xC3\xA9 sur ce morceau", AC_KARAOKE, 0);
+        am_item("Jeu de rythme sur ce morceau", AC_RHYTHM, 0);
+    }
+    am_item("Quiz musical", AC_QUIZ, 0);
     am_item("Actualiser la biblioth\xC3\xA8que", AC_RESCAN, 0);
     am_item("Fermer", AC_CLOSE, 0);
     am_open = 1;
@@ -384,7 +391,8 @@ static void actions_do(int i) {
     case AC_FIND: kb_start(KB_LIBFIND, lib_find, -1, -1); break;
     case AC_CLEARFIND: lib_find_set(""); break;
     case AC_RESCAN: music_rescan(); lib_note("Biblioth\xC3\xA8que actualis\xC3\xA9" "e"); break;
-    default: break;
+    case AC_CLOSE: break;
+    default: fun_action(code, arg, am_track, am_txt[i]); break;
     }
 }
 
@@ -409,9 +417,11 @@ static void actions_input(u32 down, u32 nav, int fire) {
 
 static void draw_actions(void) {
     if (lib_note_txt[0] && now_ms() < lib_note_until && !am_open) {
-        int w = text_width(F_MED, lib_note_txt, 0) + 30;
+        char nt[200];
+        fit_text(F_MED, lib_note_txt, 580, nt, sizeof(nt));
+        int w = text_width(F_MED, nt, 0) + 30;
         gx_rrect_fill(320 - w / 2.0f, 440, (f32)w, 28, 10, RGBA(10, 6, 30, 235), RGBA(10, 6, 30, 235));
-        gx_text_c(F_MED, 320, 459, lib_note_txt, RGBA(255, 255, 255, 255));
+        gx_text_c(F_MED, 320, 459, nt, RGBA(255, 255, 255, 255));
     }
     if (!am_open) return;
     gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140));
@@ -433,7 +443,7 @@ static void draw_actions(void) {
     for (int i = top; i < am_n && i < top + vis; i++) {
         f32 ry = y + 42 + (i - top) * rh;
         fit_text(F_MED, am_txt[i], (int)w - 50, t, sizeof(t));
-        col_t c = am_code[i] == AC_DELLIST || am_code[i] == AC_REMOVE ? RGBA(255, 180, 180, 255) : RGBA(235, 228, 255, 255);
+        col_t c = am_code[i] == AC_DELLIST || am_code[i] == AC_REMOVE || am_code[i] == AC_TITLES_CLEAR ? RGBA(255, 180, 180, 255) : RGBA(235, 228, 255, 255);
         gx_text1(F_MED, x + 26, ry + 17, t, i == am_sel ? RGBA(255, 255, 255, 255) : c);
     }
     gx_text_c(F_SMALL, 320, y + h - 6, "A : choisir     B : fermer", RGBA(255, 210, 120, 255));
