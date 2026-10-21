@@ -61,7 +61,7 @@ static void checklist_input(u32 down, u32 nav, int fire) {
 static void draw_checklist(void) {
     if (!ck) return;
     const f32 rh = 25, w = 360, h = 72 + ck->n * rh, x = 320 - w / 2, y = 240 - h / 2;
-    gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));
+    gx_quad4(scr_x0, 0, scr_x0 + scr_w, 480, RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));
     gx_rrect_fill(x, y, w, h, 10, RGBA(14, 8, 44, 255), RGBA(8, 5, 26, 255));
     draw_panel(x, y, w, h);
     gx_text1(F_LARGE, x + 20, y + 34, ck->title, RGBA(255, 255, 255, 255));
