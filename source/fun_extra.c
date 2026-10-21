@@ -5,8 +5,8 @@
 //  - v20 : Snake et casse-briques musicaux (plus rapides quand la musique est forte)
 //  - Reveil en douceur : le son monte pendant 3 minutes, l'heure et la meteo en grand
 //  - La manette vibre sur les basses (mode soiree)
-//  - Titres de la radio gardes (X dans l'onglet RADIO) : sd:/gc-mp3-titres.txt
-//  - Nouveaux episodes des podcasts telecharges tout seuls (sd:/podcasts)
+//  - Titres de la radio gardes (X dans l'onglet RADIO) : sd:/gc-mp3/gc-mp3-titres.txt
+//  - Nouveaux episodes des podcasts telecharges tout seuls (sd:/gc-mp3/podcasts)
 //  - Fond d'ecran : une de tes photos (PHOTOS, plein ecran, X)
 
 enum { FUN_OFF, FUN_KARAOKE, FUN_RHYTHM, FUN_QUIZ, FUN_WAKE, FUN_SNAKE, FUN_BRICKS };
@@ -188,7 +188,7 @@ static void draw_karaoke(void) {
         if (li != ka_line) { ka_scroll = (li == ka_line + 1) ? 1.0f : 0.0f; ka_line = li; }
         ka_scroll *= expf(-ui_dt * 9.0f);
         f32 off = ka_scroll * 64.0f;
-        u32 ms = (u32)((u64)consumed * 1000u / 48000u) + 150;
+        u32 ms = (u32)((u64)consumed_heard() * 1000u / 48000u) + 150;
         f32 frac = 0;
         if (li >= 0) {
             u32 st = lrc_lines[li].ms, nx = li + 1 < lrc_n ? lrc_lines[li + 1].ms : st + 4000;
@@ -241,7 +241,7 @@ static double rg_anchor = 0, rg_sched = 0;
 static int rg_armed = 1;
 static u64 rg_last_on = 0, rg_start_t = 0;
 static const char *const rg_diff_names[3] = { "Facile", "Normal", "Difficile" };
-#define RG_FILE SD_ROOT "/gc-mp3-jeux.txt"
+#define RG_FILE GCD "/gc-mp3-jeux.txt"
 
 static int rg_record_get(const char *path) {
     FILE *f = fopen(RG_FILE, "r");
@@ -922,7 +922,7 @@ static void wake_prefetch(void) {
 }
 
 /* ======================= Titres de la radio ======================= */
-#define TITLES_FILE SD_ROOT "/gc-mp3-titres.txt"
+#define TITLES_FILE GCD "/gc-mp3-titres.txt"
 static void radio_title_keep(void) {
     if (src != SRC_RADIO || cur_station < 0 || state == ST_IDLE || pod_on) { lib_note("\xC3\x89" "coute une radio d'abord"); return; }
     if (!now_title[0]) { lib_note("Cette radio n'annonce pas ses titres"); return; }
@@ -994,7 +994,7 @@ static void titles_search(const char *item) {          /* "Artiste - Titre  (rad
 }
 
 /* ======================= Podcasts automatiques ======================= */
-#define POD_AUTO_FILE SD_ROOT "/podcasts/auto.txt"
+#define POD_AUTO_FILE GCD "/podcasts/auto.txt"
 #define PA_Q 6
 static hfetch_t paf = { .c = { -1, 0, 0 } };
 static int pa_state = 0, pa_i = 0, pa_nq = 0;
@@ -1035,7 +1035,7 @@ static void pa_seen_set(const char *feed, const char *ep) {
         fclose(f);
     }
     len += snprintf(buf + len, cap - len, "%s | %s\n", feed, ep);
-    mkdir(SD_ROOT "/podcasts", 0777);
+    mkdir(GCD "/podcasts", 0777);
     f = fopen(POD_AUTO_FILE, "w");
     if (f) { fwrite(buf, 1, len, f); fclose(f); }
     free(buf);
@@ -1084,7 +1084,7 @@ static void podauto_pump(void) {
     if (pa_nq > 0 && !dl_active && tab != TAB_WEB && !wb_busy && fun_mode == FUN_OFF) {      /* un episode a telecharger */
         char m[220], d[160];
         snprintf(dl_name_hint, sizeof(dl_name_hint), "%s", pa_q_title[0]);
-        snprintf(dl_dest_dir, sizeof(dl_dest_dir), SD_ROOT "/podcasts");
+        snprintf(dl_dest_dir, sizeof(dl_dest_dir), GCD "/podcasts");
         mkdir(dl_dest_dir, 0777);
         text_display(pa_q_title[0], d, sizeof(d));
         snprintf(m, sizeof(m), "Nouvel \xC3\xA9pisode : %.120s", d);
