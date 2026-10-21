@@ -3093,6 +3093,8 @@ static const char *const saver_names[SV_COUNT] = { "Spectre", "Pochette", "Horlo
                                                    "Photos (sd:/ecran)", "\xC3\x89" "cran noir" };
 static int video_pref = VID_AUTO;
 static int scr_pct = 100;                   /* taille de l'image : 80 a 100 % */
+static int scr_wide = 0;                    /* 1 = televiseur en 16:9 (image etiree par la tele) */
+static f32 scr_x0 = 0, scr_w = 640;         /* bords gauche et largeur du repere (16:9 : -107 et 853) */
 /* Langue du contenu (recherche de podcasts, radios du pays, sites web, meteo).
    -1 = celle de la console (reglage de l'IPL), sinon l'ordre de SYS_LANG_* */
 #define LANG_COUNT 6
@@ -3180,6 +3182,7 @@ static void load_settings(void) {
         else if (!strcasecmp(k, "volume_egalise")) rg_mode = !strncasecmp(v, "album", 5) ? 2 : (!strncasecmp(v, "morceau", 7) || !strncasecmp(v, "oui", 3)) ? 1 : 0;
         else if (!strcasecmp(k, "economiseur")) { saver_min = atoi(v); if (saver_min < 0) saver_min = 0; }
         else if (!strcasecmp(k, "economiseur_style")) { for (int i = 0; i < SV_COUNT; i++) if (!strcasecmp(v, saver_keys[i])) saver_style = i; }
+        else if (!strcasecmp(k, "ecran_format")) scr_wide = strstr(v, "16") != NULL;
         else if (!strcasecmp(k, "ecran_taille")) { scr_pct = atoi(v); if (scr_pct < 80) scr_pct = 80; if (scr_pct > 100) scr_pct = 100; }
         else if (!strcasecmp(k, "langue")) { lang_pref = -1; for (int i = 0; i < LANG_COUNT; i++) if (!strncasecmp(v, lang_keys[i], 2)) lang_pref = i; }
         else if (!strcasecmp(k, "video")) video_pref = !strcasecmp(v, "480p") ? VID_480P : !strcasecmp(v, "480i") ? VID_480I : VID_AUTO;
@@ -3250,13 +3253,15 @@ static void save_settings(void) {
                "langue = %s\n"
                "# Taille de l'image (80 a 100 %%) : a reduire si les bords sont coupes sur la tele\n"
                "ecran_taille = %d\n"
+               "# Format de la tele : 4:3 ou 16:9 (16:9 : regle aussi la tele en mode large / plein ecran)\n"
+               "ecran_format = %s\n"
                "# Reprendre le dernier morceau au demarrage : oui / non\n"
                "reprise = %s\nreprise_fichier = %s\nreprise_position = %d\n",
             covers_auto ? "oui" : "non", lyrics_auto ? "oui" : "non", eq_bass, eq_treble, xf_sec,
             rg_mode == 2 ? "album" : rg_mode == 1 ? "morceau" : "non", party_keys[party_style],
             layout_keys[player_layout], els, hid, city, news_url, alarm_txt, alarm_src, phone_auto ? "oui" : "non", shuffle_on ? "oui" : "non", rep[repeat_mode], aff[view_mode],
             volume_pct, theme_keys[theme_id], saver_min, saver_keys[saver_style], vid[video_pref],
-            lang_pref >= 0 ? lang_keys[lang_pref] : "auto", scr_pct, resume_on ? "oui" : "non",
+            lang_pref >= 0 ? lang_keys[lang_pref] : "auto", scr_pct, scr_wide ? "16:9" : "4:3", resume_on ? "oui" : "non",
             resume_path, resume_pos);
     fprintf(f, "# Mode veilleuse : luminosite 1 a 5 ; radio lancee si rien ne joue : oui / non\n"
                "veilleuse_luminosite = %d\nveilleuse_radio = %s\n"
@@ -3830,15 +3835,16 @@ static const col_t C_BORDER    = { 112, 62, 235, 255 };
 static const col_t C_GLOW      = { 120, 60, 255, 120 };
 
 static void draw_background(void) {
-    gx_quad4(0, 0, 640, 480, RGBA(7, 5, 26, 255), RGBA(13, 8, 44, 255),
+    f32 L = scr_x0, R = scr_x0 + scr_w;                 /* (16:9 : jusqu'aux bords) */
+    gx_quad4(L, 0, R, 480, RGBA(7, 5, 26, 255), RGBA(13, 8, 44, 255),
              RGBA(9, 6, 34, 255), RGBA(18, 8, 60, 255));
     /* halos violets diffus */
-    gx_circle(30, 470, 260, RGBA(70, 30, 170, 70), RGBA(70, 30, 170, 0));
-    gx_circle(610, 40, 230, RGBA(60, 40, 190, 60), RGBA(60, 40, 190, 0));
+    gx_circle(L + 30, 470, 260, RGBA(70, 30, 170, 70), RGBA(70, 30, 170, 0));
+    gx_circle(R - 30, 40, 230, RGBA(60, 40, 190, 60), RGBA(60, 40, 190, 0));
     /* rubans lumineux en bas a gauche */
-    gx_poly4(0, 420, 120, 380, 120, 386, 0, 430, RGBA(110, 60, 230, 0), RGBA(110, 60, 230, 50),
+    gx_poly4(L, 420, L + 120, 380, L + 120, 386, L, 430, RGBA(110, 60, 230, 0), RGBA(110, 60, 230, 50),
              RGBA(110, 60, 230, 50), RGBA(110, 60, 230, 0));
-    gx_poly4(0, 452, 90, 430, 90, 434, 0, 458, RGBA(110, 60, 230, 0), RGBA(110, 60, 230, 40),
+    gx_poly4(L, 452, L + 90, 430, L + 90, 434, L, 458, RGBA(110, 60, 230, 0), RGBA(110, 60, 230, 40),
              RGBA(110, 60, 230, 40), RGBA(110, 60, 230, 0));
 }
 
@@ -3861,14 +3867,15 @@ static void draw_logo_cube(f32 cx, f32 cy, f32 R) {
 
 static void draw_console_corner(void) {
     /* coin de console GameCube stylise (haut droite) */
-    gx_poly4(470, 10, 556, 0, 640, 12, 566, 64, RGBA(74, 50, 196, 255), RGBA(60, 40, 176, 255),
+    f32 d = scr_x0 + scr_w - 640.0f;                      /* (16:9 : dans le coin de l'ecran) */
+    gx_poly4(d + 470, 10, d + 556, 0, d + 640, 12, d + 566, 64, RGBA(74, 50, 196, 255), RGBA(60, 40, 176, 255),
              RGBA(36, 24, 110, 255), RGBA(46, 30, 140, 255));
-    gx_poly4(470, 10, 566, 64, 566, 96, 472, 36, RGBA(36, 22, 116, 255), RGBA(28, 16, 92, 255),
+    gx_poly4(d + 470, 10, d + 566, 64, d + 566, 96, d + 472, 36, RGBA(36, 22, 116, 255), RGBA(28, 16, 92, 255),
              RGBA(16, 10, 56, 255), RGBA(22, 14, 74, 255));
-    gx_poly4(566, 64, 640, 12, 640, 46, 566, 96, RGBA(30, 18, 98, 255), RGBA(26, 16, 86, 255),
+    gx_poly4(d + 566, 64, d + 640, 12, d + 640, 46, d + 566, 96, RGBA(30, 18, 98, 255), RGBA(26, 16, 86, 255),
              RGBA(14, 8, 50, 255), RGBA(16, 10, 56, 255));
-    gx_ellipse(552, 26, 38, 15, RGBA(12, 8, 38, 255), RGBA(22, 14, 64, 255));
-    gx_ring(564, 52, 4, 6.5f, RGBA(210, 190, 255, 255));
+    gx_ellipse(d + 552, 26, 38, 15, RGBA(12, 8, 38, 255), RGBA(22, 14, 64, 255));
+    gx_ring(d + 564, 52, 4, 6.5f, RGBA(210, 190, 255, 255));
 }
 
 static void draw_panel(f32 x, f32 y, f32 w, f32 h) {
@@ -3900,7 +3907,18 @@ static void scr_viewport(void) {
     f32 w = rmode->fbWidth * s, h = rmode->efbHeight * s;
     scr_ox = (int)((rmode->fbWidth - w) / 2);
     scr_oy = (int)((rmode->efbHeight - h) / 2);
-    scr_sx = w / 640.0f;
+    /* 16:9 : la tele etire l'image ; le repere s'elargit (853 x 480) et
+       l'interface (0..640) reste au centre, avec ses vraies proportions */
+    scr_w = scr_wide ? 640.0f * 4.0f / 3.0f : 640.0f;
+    scr_x0 = (640.0f - scr_w) / 2.0f;
+    static int proj_wide = -1;
+    if (proj_wide != scr_wide) {
+        Mtx44 pm;
+        guOrtho(pm, 0.0f, 480.0f, scr_x0, scr_x0 + scr_w, 0.0f, 1.0f);
+        GX_LoadProjectionMtx(pm, GX_ORTHOGRAPHIC);
+        proj_wide = scr_wide;
+    }
+    scr_sx = w / scr_w;
     scr_sy = h / 480.0f;
     GX_SetViewport(scr_ox, scr_oy, w, h, 0.0f, 1.0f);
     GX_SetScissor((u32)scr_ox, (u32)scr_oy, (u32)(w + 0.5f), (u32)(h + 0.5f));
@@ -3911,6 +3929,7 @@ static void scr_scissor(f32 x, f32 y, f32 w, f32 h) {
     if (y < 0) { h += y; y = 0; }
     if (w < 0) w = 0;
     if (h < 0) h = 0;
+    x -= scr_x0;
     GX_SetScissor((u32)(scr_ox + x * scr_sx), (u32)(scr_oy + y * scr_sy), (u32)(w * scr_sx + 0.5f), (u32)(h * scr_sy + 0.5f));
 }
 
@@ -8566,7 +8585,7 @@ static void draw_web(void) {
 
 static void draw_keyboard(void) {
     char k[16];
-    gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120));
+    gx_quad4(scr_x0, 0, scr_x0 + scr_w, 480, RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120));
     gx_rrect_fill(30, 120, 580, 296, 10, RGBA(14, 8, 44, 255), RGBA(8, 5, 26, 255));   /* fond opaque */
     draw_panel(30, 120, 580, 296);
     const char *title = kb_mode == KB_SEARCH ? "Rechercher sur le web" :
@@ -8883,7 +8902,7 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_BASS, MI_TREBLE, MI_THEME, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_RESUME, MI_VIDEO, MI_SCREEN, MI_LANG, MI_PARTY, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_RESUME, MI_VIDEO, MI_SCREEN, MI_WIDE, MI_LANG, MI_PARTY, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
 #define MENU_VIS 13                         /* lignes visibles (le menu defile) */
 static int menu_top = 0;
 static int menu_sel = 0, quit_requested = 0;
@@ -8918,6 +8937,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_RESUME:  snprintf(out, cap, "%s", resume_on ? "Oui" : "Non"); break;
     case MI_VIDEO:   snprintf(out, cap, "%s", vid[video_pref]); break;
     case MI_SCREEN:  snprintf(out, cap, "%d %%", scr_pct); break;
+    case MI_WIDE:    snprintf(out, cap, "%s", scr_wide ? "16:9 (\xC3\xA9" "cran large)" : "4:3"); break;
     case MI_LANG:
         if (lang_pref < 0) snprintf(out, cap, "Auto (%s)", lang_names[lang_console()]);
         else snprintf(out, cap, "%s", lang_names[lang_pref]);
@@ -8934,7 +8954,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "Lecture al\xC3\xA9" "atoire", "R\xC3\xA9p\xC3\xA9tition", "Fondu encha\xC3\xAEn\xC3\xA9", "Liste MUSIQUE", "Volume",
     "Volume \xC3\xA9gal\xC3\xAAs\xC3\xA9", "Graves", "Aigus", "Th\xC3\xA8me",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques",
-    "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Langue du contenu", "Mode soir\xC3\xA9" "e", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
+    "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Format de l'\xC3\xA9" "cran", "Langue du contenu", "Mode soir\xC3\xA9" "e", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Mise \xC3\xA0 jour", "Quitter GC-MP3" };
 
 static void menu_change(int i, int d) {
@@ -8982,6 +9002,7 @@ static void menu_change(int i, int d) {
     case MI_COVERS:  covers_auto = !covers_auto; if (covers_auto) net_start_async(); break;
     case MI_RESUME:  resume_on = !resume_on; break;
     case MI_VIDEO:   video_pref = (video_pref + d + VID_COUNT) % VID_COUNT; break;
+    case MI_WIDE:    scr_wide = !scr_wide; break;
     case MI_SCREEN:  scr_pct += 2 * d; if (scr_pct < 80) scr_pct = 80; if (scr_pct > 100) scr_pct = 100; break;
     case MI_LANG:    lang_pref = (lang_pref + 1 + d + LANG_COUNT + 1) % (LANG_COUNT + 1) - 1; break;
     case MI_REC:
@@ -9028,7 +9049,7 @@ static void menu_input(u32 down, u32 nav, int fire) {
 }
 
 static void draw_menu(void) {
-    gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140));
+    gx_quad4(scr_x0, 0, scr_x0 + scr_w, 480, RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140));
     const f32 x = 110, y = 58, w = 420, rh = 25, h = 76 + MENU_VIS * rh;
     if (menu_sel < menu_top) menu_top = menu_sel;
     if (menu_sel >= menu_top + MENU_VIS) menu_top = menu_sel - MENU_VIS + 1;
@@ -9484,7 +9505,7 @@ static void saver_photos(f32 t) {
 static void draw_saver(void) {
     scr_viewport();
     GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-    gx_quad4(0, 0, 640, 480, RGBA(2, 1, 8, 255), RGBA(2, 1, 8, 255), RGBA(4, 2, 14, 255), RGBA(4, 2, 14, 255));
+    gx_quad4(scr_x0, 0, scr_x0 + scr_w, 480, RGBA(2, 1, 8, 255), RGBA(2, 1, 8, 255), RGBA(4, 2, 14, 255), RGBA(4, 2, 14, 255));
     /* tout se deplace lentement : pas d'image fixe sur l'ecran */
     f32 t = (f32)(now_ms() % 600000) / 1000.0f;
     switch (saver_style) {
@@ -9673,12 +9694,12 @@ static void draw_party(void) {
     scr_viewport();
     GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
     col_t top = hsv(pt_hue, 0.9f, 0.10f + pt_beat * 0.18f, 255), bot = hsv(pt_hue + 60, 0.9f, 0.04f, 255);
-    gx_quad4(0, 0, 640, 480, top, top, bot, bot);
+    gx_quad4(scr_x0, 0, scr_x0 + scr_w, 480, top, top, bot, bot);
     if (party_style == 1) party_barres();
     else if (party_style == 2) party_tunnel();
     else party_pulsation();
-    if (pt_beat > 0.05f) gx_rect(0, 0, 640, 480, RGBA(255, 255, 255, (u8)(pt_beat * 28)));   /* eclair */
-    gx_quad4(0, 290, 640, 480, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));   /* lisibilite du texte */
+    if (pt_beat > 0.05f) gx_rect(scr_x0, 0, scr_w, 480, RGBA(255, 255, 255, (u8)(pt_beat * 28)));   /* eclair */
+    gx_quad4(scr_x0, 290, scr_x0 + scr_w, 480, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));   /* lisibilite du texte */
 
     /* paroles en grand, sinon titre et artiste */
     char line[300], d1[300];
