@@ -2,13 +2,14 @@
 //  - Karaoke : les paroles en tres grand sur toute la tele, la ligne chantee se colore
 //  - Jeu de rythme : des notes tombent sur le rythme de tes morceaux, A / B / X / Y au bon moment
 //  - Quiz musical : 10 s d'un de tes morceaux, devine lequel (1 a 4 manettes)
+//  - v20 : Snake et casse-briques musicaux (plus rapides quand la musique est forte)
 //  - Reveil en douceur : le son monte pendant 3 minutes, l'heure et la meteo en grand
 //  - La manette vibre sur les basses (mode soiree)
 //  - Titres de la radio gardes (X dans l'onglet RADIO) : sd:/gc-mp3-titres.txt
 //  - Nouveaux episodes des podcasts telecharges tout seuls (sd:/podcasts)
 //  - Fond d'ecran : une de tes photos (PHOTOS, plein ecran, X)
 
-enum { FUN_OFF, FUN_KARAOKE, FUN_RHYTHM, FUN_QUIZ, FUN_WAKE };
+enum { FUN_OFF, FUN_KARAOKE, FUN_RHYTHM, FUN_QUIZ, FUN_WAKE, FUN_SNAKE, FUN_BRICKS };
 static int fun_mode = FUN_OFF;
 static u64 fun_t0 = 0;
 static u32 fun_pads = 1;                    /* manettes branchees (PAD_ScanPads) */
@@ -1193,6 +1194,367 @@ static int wall_draw(void) {
     return 1;
 }
 
+
+/* ======================= Mini-jeux musicaux (v20) =======================
+   Snake et casse-briques : ils vont plus vite quand la musique est forte,
+   et tout clignote sur les coups de basse. La musique continue en fond. */
+#define AR_FILE_SNAKE  "jeu:snake"
+#define AR_FILE_BRICKS "jeu:casse-briques"
+static int ar_phase = 0;                     /* 0 partie, 1 perdu */
+static int ar_score = 0, ar_record = 0, ar_new_record = 0;
+static u64 ar_last = 0, ar_beat_seen = 0;
+static f32 ar_flash = 0;                     /* eclair sur le coup de basse */
+
+static void ar_music(void) {                 /* de la musique pour jouer */
+    if ((src == SRC_FILE && playing) || (src == SRC_RADIO && state != ST_IDLE)) return;
+    int k = fun_random_track(-1);
+    if (k >= 0) { queue_build(k); start_track(k); }
+}
+static int ar_beat(void) {                   /* un coup de basse depuis la derniere fois ? */
+    if (pt_last_beat != ar_beat_seen && now_ms() - pt_last_beat < 120) { ar_beat_seen = pt_last_beat; return 1; }
+    return 0;
+}
+static f32 ar_avg = 0.2f;
+static u64 ar_avg_t = 0;
+/* intensite de la musique, 0 a 1 : par rapport au reste du morceau (le refrain,
+   le moment ou ca part, accelere le jeu), plus un petit coup a chaque battement */
+static f32 ar_drive(void) {
+    if (paused || !((src == SRC_FILE && playing) || src == SRC_RADIO)) return 0;
+    u64 n = now_ms();
+    if (n != ar_avg_t) {
+        f32 dt = ar_avg_t ? (f32)(n - ar_avg_t) / 1000.0f : 0.016f;
+        if (dt > 0.1f) dt = 0.1f;
+        ar_avg += (pt_energy - ar_avg) * dt / 8.0f;              /* moyenne sur ~8 s */
+        ar_avg_t = n;
+    }
+    f32 e = 0.35f + (pt_energy - ar_avg) * 5.0f + pt_beat * 0.15f;
+    return e < 0 ? 0 : e > 1 ? 1 : e;
+}
+static void ar_game_over(const char *key) {
+    ar_phase = 1;
+    ar_new_record = 0;
+    if (ar_score > ar_record) { ar_new_record = ar_score > 0; ar_record = ar_score; if (sd_ok && ar_score > 0) rg_record_set(key, ar_score); }
+    rumble(0, 350);
+}
+static void ar_hud(const char *title, const char *extra) {
+    char t[160];
+    gx_text(F_SMALL, 24, 30, title, RGBA(255, 210, 110, 255), RGBA(255, 160, 60, 255), 3);
+    snprintf(t, sizeof(t), "Score %d", ar_score);
+    gx_text1(F_MED, 24, 56, t, RGBA(255, 255, 255, 255));
+    snprintf(t, sizeof(t), "Record %d", ar_record);
+    gx_text_r(F_MED, 616, 56, t, RGBA(220, 210, 255, 230));
+    if (extra && extra[0]) gx_text_c(F_MED, 320, 56, extra, RGBA(255, 230, 150, 255));
+    char ti[200], sub[200], f[200];
+    saver_title(ti, sizeof(ti), sub, sizeof(sub));
+    if (ti[0]) { fit_text(F_SMALL, ti, 300, f, sizeof(f)); gx_text_r(F_SMALL, 616, 30, f, RGBA(200, 190, 245, 220)); }
+}
+static void ar_over_screen(void) {
+    char t[100];
+    gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));
+    fun_shadow_text(F_LARGE, 320, 190, "Perdu !", 1.8f, RGBA(255, 120, 120, 255));
+    snprintf(t, sizeof(t), "%d points", ar_score);
+    fun_shadow_text(F_LARGE, 320, 250, t, 1.4f, RGBA(255, 255, 255, 255));
+    if (ar_new_record) fun_shadow_text(F_LARGE, 320, 300, "Nouveau record !", 1.2f, RGBA(255, 220, 90, 255));
+}
+
+/* ---------- Snake ---------- */
+#define SN_W 32
+#define SN_H 20
+#define SN_CELL 16.0f
+#define SN_X0 64.0f
+#define SN_Y0 100.0f
+#define SN_MAX (SN_W * SN_H)
+static u8 sn_x[SN_MAX], sn_y[SN_MAX];
+static int sn_len, sn_dir, sn_next, sn_grow, sn_fx, sn_fy, sn_gold, sn_gx, sn_gy;
+static u64 sn_gold_until = 0, sn_step_t = 0;
+static f32 sn_pulse = 0;
+static const int sn_dx[4] = { 1, 0, -1, 0 }, sn_dy[4] = { 0, 1, 0, -1 };
+
+static int sn_on_body(int x, int y, int from) {
+    for (int i = from; i < sn_len; i++) if (sn_x[i] == x && sn_y[i] == y) return 1;
+    return 0;
+}
+static void sn_place(int *fx, int *fy) {
+    for (int tries = 0; tries < 400; tries++) {
+        int x = (int)(lib_rand() % SN_W), y = (int)(lib_rand() % SN_H);
+        if (!sn_on_body(x, y, 0) && !(x == sn_fx && y == sn_fy && fx != &sn_fx)) { *fx = x; *fy = y; return; }
+    }
+}
+static void snake_new(void) {
+    sn_len = 4;
+    for (int i = 0; i < sn_len; i++) { sn_x[i] = (u8)(10 - i); sn_y[i] = SN_H / 2; }
+    sn_dir = sn_next = 0;
+    sn_grow = 0;
+    sn_gold = 0;
+    sn_fx = -1;
+    sn_place(&sn_fx, &sn_fy);
+    ar_score = 0;
+    ar_phase = 0;
+    sn_step_t = now_ms() + 600;
+    ar_record = rg_record_get(AR_FILE_SNAKE);
+}
+static void snake_start(void) {
+    fun_enter(FUN_SNAKE);
+    ar_music();
+    snake_new();
+}
+static void snake_turn(int d) { if (d != (sn_dir + 2) % 4) sn_next = d; }
+
+static void snake_pump(void) {
+    u64 now = now_ms();
+    last_input_ms = now;
+    if (ar_beat()) {
+        ar_flash = 1;
+        sn_pulse = 1;
+        if (!sn_gold && ar_phase == 0 && lib_rand() % 4 == 0) {          /* une note doree, sur le temps */
+            sn_gold = 1;
+            sn_place(&sn_gx, &sn_gy);
+            sn_gold_until = now + 4000;
+        }
+    }
+    ar_flash *= expf(-ui_dt * 6);
+    sn_pulse *= expf(-ui_dt * 5);
+    if (sn_gold && now > sn_gold_until) sn_gold = 0;
+    if (ar_phase != 0 || paused) return;
+    int sx = PAD_StickX(0), sy = PAD_StickY(0);                 /* stick principal aussi */
+    if (abs(sx) > 50 || abs(sy) > 50) {
+        if (abs(sx) > abs(sy)) snake_turn(sx > 0 ? 0 : 2); else snake_turn(sy > 0 ? 3 : 1);
+    }
+    f32 e = ar_drive();
+    int step = (int)(165 - e * 85 - sn_len * 0.8f);              /* plus la musique est forte, plus il file */
+    if (step < 55) step = 55;
+    if (now < sn_step_t) return;
+    sn_step_t = now + (u64)step;
+    sn_dir = sn_next;
+    int nx = sn_x[0] + sn_dx[sn_dir], ny = sn_y[0] + sn_dy[sn_dir];
+    if (nx < 0 || ny < 0 || nx >= SN_W || ny >= SN_H || sn_on_body(nx, ny, 0)) { ar_game_over(AR_FILE_SNAKE); return; }
+    int keep = sn_len + (sn_grow > 0 ? 1 : 0);
+    if (keep > SN_MAX) keep = SN_MAX;
+    for (int i = keep - 1; i > 0; i--) { sn_x[i] = sn_x[i - 1]; sn_y[i] = sn_y[i - 1]; }
+    if (sn_grow > 0) sn_grow--;
+    sn_len = keep;
+    sn_x[0] = (u8)nx;
+    sn_y[0] = (u8)ny;
+    if (nx == sn_fx && ny == sn_fy) {
+        ar_score += 10 + (int)(e * 10);
+        sn_grow += 2;
+        sn_place(&sn_fx, &sn_fy);
+        rumble(0, 40);
+    }
+    if (sn_gold && nx == sn_gx && ny == sn_gy) {
+        ar_score += 50;
+        sn_grow += 4;
+        sn_gold = 0;
+        rumble(0, 90);
+    }
+}
+
+static void snake_input(u32 down) {
+    if (ar_phase == 1) {
+        if (down & PAD_BUTTON_A) snake_new();
+        if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) fun_leave();
+        return;
+    }
+    if (down & PAD_BUTTON_START) { fun_leave(); return; }
+    if (down & PAD_BUTTON_Y) { if (src == SRC_FILE && playing) paused = !paused; }
+    if (down & PAD_BUTTON_RIGHT) snake_turn(0);
+    else if (down & PAD_BUTTON_DOWN) snake_turn(1);
+    else if (down & PAD_BUTTON_LEFT) snake_turn(2);
+    else if (down & PAD_BUTTON_UP) snake_turn(3);
+}
+
+static void draw_snake(void) {
+    f32 hue = pt_hue;
+    fun_frame_begin(hue, 1.0f + ar_flash * 0.8f);
+    fun_spectrum(480, 60, hue, 60);
+    /* terrain */
+    gx_rrect_fill(SN_X0 - 6, SN_Y0 - 6, SN_W * SN_CELL + 12, SN_H * SN_CELL + 12, 10, RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 160));
+    gx_rrect_stroke(SN_X0 - 6, SN_Y0 - 6, SN_W * SN_CELL + 12, SN_H * SN_CELL + 12, 10, 2.0f, hsv(hue, 0.7f, 1.0f, (u8)(120 + ar_flash * 135)));
+    for (int x = 1; x < SN_W; x += 2) gx_rect(SN_X0 + x * SN_CELL, SN_Y0, 1, SN_H * SN_CELL, RGBA(255, 255, 255, 8));
+    /* nourriture : une note qui bat avec la musique */
+    f32 fr = 6 + bar_val[3] * 4 + sn_pulse * 3;
+    gx_circle_glow(SN_X0 + sn_fx * SN_CELL + 8, SN_Y0 + sn_fy * SN_CELL + 8, fr, hsv(hue + 180, 0.8f, 1.0f, 160), 4);
+    gx_circle(SN_X0 + sn_fx * SN_CELL + 8, SN_Y0 + sn_fy * SN_CELL + 8, fr, hsv(hue + 180, 0.4f, 1.0f, 255), hsv(hue + 200, 0.9f, 0.8f, 255));
+    if (sn_gold) {
+        f32 gr = 7 + sn_pulse * 4;
+        gx_circle_glow(SN_X0 + sn_gx * SN_CELL + 8, SN_Y0 + sn_gy * SN_CELL + 8, gr + 2, RGBA(255, 220, 80, 200), 6);
+        gx_circle(SN_X0 + sn_gx * SN_CELL + 8, SN_Y0 + sn_gy * SN_CELL + 8, gr, RGBA(255, 250, 180, 255), RGBA(255, 180, 30, 255));
+    }
+    /* le serpent : ses anneaux suivent le spectre */
+    for (int i = sn_len - 1; i >= 0; i--) {
+        f32 cx = SN_X0 + sn_x[i] * SN_CELL + 8, cy = SN_Y0 + sn_y[i] * SN_CELL + 8;
+        f32 b = bar_val[i % NBARS];
+        f32 r = (i == 0 ? 8.0f : 6.0f) + b * 2.0f + (i < 6 ? sn_pulse * 1.5f : 0);
+        col_t c0 = hsv(hue + i * 6.0f, 0.6f, 1.0f, 255), c1 = hsv(hue + i * 6.0f + 30, 0.9f, 0.6f + b * 0.4f, 255);
+        gx_circle(cx, cy, r, c0, c1);
+    }
+    {                                                            /* les yeux */
+        f32 cx = SN_X0 + sn_x[0] * SN_CELL + 8, cy = SN_Y0 + sn_y[0] * SN_CELL + 8;
+        f32 ex = sn_dy[sn_dir] * 3.5f, ey = sn_dx[sn_dir] * 3.5f, fx = sn_dx[sn_dir] * 3, fy = sn_dy[sn_dir] * 3;
+        gx_circle(cx + ex + fx, cy + ey + fy, 2, RGBA(20, 10, 40, 255), RGBA(20, 10, 40, 255));
+        gx_circle(cx - ex + fx, cy - ey + fy, 2, RGBA(20, 10, 40, 255), RGBA(20, 10, 40, 255));
+    }
+    char ex[40] = "";
+    if (ar_drive() > 0.8f) snprintf(ex, sizeof(ex), "\xC3\x87" "a acc\xC3\xA9l\xC3\xA8re !");
+    ar_hud("SNAKE", ex);
+    if (now_ms() < sn_step_t && ar_phase == 0 && sn_len == 4 && ar_score == 0) gx_text_c(F_MED, 320, 300, "Mange les notes ! (les dor\xC3\xA9" "es arrivent sur le rythme)", RGBA(255, 255, 255, 230));
+    if (ar_phase == 1) ar_over_screen();
+    fun_footer(ar_phase == 1 ? "A : rejouer     B : sortir" : paused ? "PAUSE   -   Y : reprendre   START : sortir" : "Croix ou stick : diriger     Y : pause     START : sortir");
+}
+
+/* ---------- Casse-briques ---------- */
+#define BR_COLS 10
+#define BR_ROWS 6
+#define BR_X0 40.0f
+#define BR_Y0 92.0f
+#define BR_W 56.0f
+#define BR_H 18.0f
+#define BR_PY 430.0f
+static u8 br_alive[BR_ROWS][BR_COLS], br_gold[BR_ROWS][BR_COLS];
+static f32 br_px = 320, br_pw = 90, br_bx, br_by, br_vx, br_vy, br_hit[BR_ROWS][BR_COLS];
+static int br_lives = 3, br_level = 1, br_stuck = 1, br_left = 0;
+
+static void br_fill(void) {
+    br_left = 0;
+    for (int r = 0; r < BR_ROWS; r++)
+        for (int c = 0; c < BR_COLS; c++) { br_alive[r][c] = 1; br_gold[r][c] = 0; br_hit[r][c] = 0; br_left++; }
+    br_stuck = 1;
+}
+static void bricks_new(void) {
+    br_lives = 3;
+    br_level = 1;
+    ar_score = 0;
+    ar_phase = 0;
+    br_px = 320;
+    br_fill();
+    ar_record = rg_record_get(AR_FILE_BRICKS);
+}
+static void bricks_start(void) {
+    fun_enter(FUN_BRICKS);
+    ar_music();
+    bricks_new();
+}
+static f32 br_speed(void) { return 270.0f + br_level * 25.0f + ar_drive() * 230.0f; }
+static void br_launch(void) {
+    br_stuck = 0;
+    f32 a = -1.1f + (f32)(lib_rand() % 100) / 100.0f * 0.5f;
+    br_vx = sinf(a);
+    br_vy = -cosf(a);
+}
+
+static void bricks_pump(void) {
+    u64 now = now_ms();
+    last_input_ms = now;
+    f32 dt = ar_last ? (f32)(now - ar_last) / 1000.0f : 0.016f;
+    if (dt > 0.05f) dt = 0.05f;
+    ar_last = now;
+    if (ar_beat()) {
+        ar_flash = 1;
+        if (lib_rand() % 3 == 0 && br_left > 3) {                     /* une brique devient doree sur le temps */
+            int r = (int)(lib_rand() % BR_ROWS), c = (int)(lib_rand() % BR_COLS);
+            if (br_alive[r][c]) br_gold[r][c] = 1;
+        }
+    }
+    ar_flash *= expf(-dt * 6);
+    for (int r = 0; r < BR_ROWS; r++) for (int c = 0; c < BR_COLS; c++) br_hit[r][c] *= expf(-dt * 8);
+    if (ar_phase != 0 || paused) return;
+    /* raquette : stick (vitesse selon l'inclinaison) ou croix */
+    u32 held = PAD_ButtonsHeld(0);
+    int sx = PAD_StickX(0);
+    f32 mv = 0;
+    if (abs(sx) > 12) mv = sx / 80.0f;
+    if (held & PAD_BUTTON_LEFT) mv = -1;
+    if (held & PAD_BUTTON_RIGHT) mv = 1;
+    if (mv > 1) mv = 1;
+    if (mv < -1) mv = -1;
+    br_px += mv * 520.0f * dt;
+    if (br_px < 20 + br_pw / 2) br_px = 20 + br_pw / 2;
+    if (br_px > 620 - br_pw / 2) br_px = 620 - br_pw / 2;
+    if (br_stuck) { br_bx = br_px; br_by = BR_PY - 9; return; }
+    /* la balle, en petits pas (pas de traversee) */
+    f32 dist = br_speed() * dt;
+    int steps = (int)(dist / 4.0f) + 1;
+    f32 st = dist / steps;
+    for (int s = 0; s < steps; s++) {
+        f32 ox = br_bx, oy = br_by;
+        br_bx += br_vx * st;
+        br_by += br_vy * st;
+        if (br_bx < 26) { br_bx = 26; br_vx = fabsf(br_vx); }
+        if (br_bx > 614) { br_bx = 614; br_vx = -fabsf(br_vx); }
+        if (br_by < 76) { br_by = 76; br_vy = fabsf(br_vy); }
+        if (br_vy > 0 && br_by >= BR_PY - 6 && oy < BR_PY - 6 && fabsf(br_bx - br_px) <= br_pw / 2 + 6) {   /* raquette */
+            f32 k = (br_bx - br_px) / (br_pw / 2);
+            if (k > 1) k = 1;
+            if (k < -1) k = -1;
+            br_vx = k * 0.85f;
+            br_vy = -sqrtf(1.0f - br_vx * br_vx);
+            br_by = BR_PY - 6;
+            rumble(0, 25);
+        }
+        if (br_by > 490) {                                          /* balle perdue */
+            br_lives--;
+            rumble(0, 200);
+            if (br_lives <= 0) { ar_game_over(AR_FILE_BRICKS); return; }
+            br_stuck = 1;
+            return;
+        }
+        int c = (int)((br_bx - BR_X0) / BR_W), r = (int)((br_by - BR_Y0) / BR_H);
+        if (br_bx >= BR_X0 && br_by >= BR_Y0 && c >= 0 && c < BR_COLS && r >= 0 && r < BR_ROWS && br_alive[r][c]) {
+            br_alive[r][c] = 0;
+            br_left--;
+            ar_score += br_gold[r][c] ? 50 : 10 + (BR_ROWS - r) * 2;
+            br_hit[r][c] = 1;
+            int oc = (int)((ox - BR_X0) / BR_W), orr = (int)((oy - BR_Y0) / BR_H);
+            if (orr != r || oy < BR_Y0) br_vy = -br_vy; else if (oc != c) br_vx = -br_vx; else br_vy = -br_vy;
+            br_bx = ox; br_by = oy;
+            rumble(0, br_gold[r][c] ? 80 : 30);
+            if (br_left <= 0) { br_level++; br_fill(); ar_score += 100; return; }
+        }
+    }
+}
+
+static void bricks_input(u32 down) {
+    if (ar_phase == 1) {
+        if (down & PAD_BUTTON_A) bricks_new();
+        if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) fun_leave();
+        return;
+    }
+    if (down & PAD_BUTTON_START) { fun_leave(); return; }
+    if (down & PAD_BUTTON_Y) { if (src == SRC_FILE && playing) paused = !paused; }
+    if ((down & PAD_BUTTON_A) && br_stuck && !paused) br_launch();
+}
+
+static void draw_bricks(void) {
+    f32 hue = pt_hue;
+    fun_frame_begin(hue, 1.0f + ar_flash * 0.8f);
+    fun_spectrum(480, 90, hue, 70);
+    gx_rrect_stroke(20, 72, 600, 400, 10, 2.0f, hsv(hue, 0.6f, 1.0f, (u8)(90 + ar_flash * 160)));
+    for (int r = 0; r < BR_ROWS; r++)
+        for (int c = 0; c < BR_COLS; c++) {
+            f32 x = BR_X0 + c * BR_W, y = BR_Y0 + r * BR_H;
+            if (!br_alive[r][c]) {
+                if (br_hit[r][c] > 0.05f) gx_rrect_fill(x + 2 - br_hit[r][c] * 4, y + 2 - br_hit[r][c] * 4, BR_W - 4 + br_hit[r][c] * 8, BR_H - 4 + br_hit[r][c] * 8, 4,
+                                                        RGBA(255, 255, 255, (u8)(br_hit[r][c] * 200)), RGBA(255, 255, 255, 0));
+                continue;
+            }
+            f32 b = bar_val[(c * 5 + 2) % NBARS];                   /* chaque colonne suit une bande du spectre */
+            col_t t, bo;
+            if (br_gold[r][c]) { t = RGBA(255, 245, 170, 255); bo = RGBA(230, 160, 20, 255); }
+            else { t = hsv(hue + r * 28.0f, 0.55f, 0.75f + b * 0.25f, 255); bo = hsv(hue + r * 28.0f + 20, 0.9f, 0.45f + b * 0.35f + ar_flash * 0.2f, 255); }
+            gx_rrect_fill(x + 2, y + 2, BR_W - 4, BR_H - 4, 4, t, bo);
+        }
+    /* raquette et balle */
+    gx_rrect_fill(br_px - br_pw / 2, BR_PY, br_pw, 10, 5, hsv(hue + 180, 0.4f, 1.0f, 255), hsv(hue + 200, 0.9f, 0.7f, 255));
+    gx_circle_glow(br_bx, br_by, 7 + ar_flash * 3, RGBA(255, 255, 255, (u8)(80 + ar_flash * 120)), 4);
+    gx_circle(br_bx, br_by, 6, RGBA(255, 255, 255, 255), RGBA(200, 210, 255, 255));
+    char ex[60];
+    snprintf(ex, sizeof(ex), "Niveau %d     Vies %d%s", br_level, br_lives, ar_drive() > 0.8f ? "     TURBO !" : "");
+    ar_hud("CASSE-BRIQUES", ex);
+    if (br_stuck && ar_phase == 0) gx_text_c(F_MED, 320, 340, "A : lancer la balle", RGBA(255, 255, 255, 230));
+    if (ar_phase == 1) ar_over_screen();
+    fun_footer(ar_phase == 1 ? "A : rejouer     B : sortir" : paused ? "PAUSE   -   Y : reprendre   START : sortir" : "Stick ou croix : raquette     A : lancer     Y : pause     START : sortir");
+}
+
 /* ======================= Menu "Jeux et karaoke" ======================= */
 static void games_open(void) {
     am_n = 0;
@@ -1202,6 +1564,8 @@ static void games_open(void) {
     am_item("Karaok\xC3\xA9 (paroles en grand)", AC_KARAOKE, 0);
     am_item("Jeu de rythme", AC_RHYTHM, 0);
     am_item("Quiz musical (1 \xC3\xA0 4 joueurs)", AC_QUIZ, 0);
+    am_item("Snake musical", AC_SNAKE, 0);
+    am_item("Casse-briques musical", AC_BRICKS, 0);
     am_item("Titres radio gard\xC3\xA9s", AC_TITLES, 0);
     am_item("Fermer", AC_CLOSE, 0);
     am_open = 1;
@@ -1213,6 +1577,8 @@ static void fun_action(int code, int arg, int track, const char *txt) {
     case AC_KARAOKE: karaoke_start(track); break;
     case AC_RHYTHM:  rhythm_start(track); break;
     case AC_QUIZ:    quiz_start(); break;
+    case AC_SNAKE:   snake_start(); break;
+    case AC_BRICKS:  bricks_start(); break;
     case AC_TITLES:  titles_open(); break;
     case AC_TITLE:   titles_search(txt); break;
     case AC_TITLES_CLEAR: remove(TITLES_FILE); lib_note("Liste des titres effac\xC3\xA9" "e"); break;
@@ -1227,6 +1593,8 @@ static void fun_input(u32 down, u32 nav, int fire) {
     case FUN_RHYTHM:  rhythm_input(down, nav, fire); break;
     case FUN_QUIZ:    quiz_input(down, nav, fire); break;
     case FUN_WAKE:    wake_input(down); break;
+    case FUN_SNAKE:   snake_input(down); break;
+    case FUN_BRICKS:  bricks_input(down); break;
     }
 }
 
@@ -1239,6 +1607,8 @@ static void fun_pump(u32 pads) {
     if (fun_mode == FUN_OFF) return;
     if (fun_mode == FUN_RHYTHM) { party_update(); rhythm_pump(); }
     else if (fun_mode == FUN_QUIZ) { party_update(); quiz_pump(); }
+    else if (fun_mode == FUN_SNAKE) { party_update(); snake_pump(); }
+    else if (fun_mode == FUN_BRICKS) { party_update(); bricks_pump(); }
     else { party_update(); last_input_ms = now_ms(); }
 }
 
@@ -1249,6 +1619,8 @@ static void draw_fun(void) {
     case FUN_KARAOKE: draw_karaoke(); break;
     case FUN_RHYTHM:  draw_rhythm(); break;
     case FUN_QUIZ:    draw_quiz(); break;
+    case FUN_SNAKE:   draw_snake(); break;
+    case FUN_BRICKS:  draw_bricks(); break;
     default:          draw_wake(); break;
     }
     th_identity = saved;
