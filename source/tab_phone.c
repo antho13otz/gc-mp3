@@ -40,6 +40,8 @@ static volatile int tp_qh = 0, tp_qt = 0;
 static volatile long tp_up_done = 0, tp_up_total = 0;
 static volatile int tp_up_active = 0;
 static char tp_up_name[96];
+static char tp_done_path[4][NAME_LEN];         /* v23 : fichiers recus (onglet TELECHARGEMENTS) */
+static volatile int tp_done_w = 0;
 static char tp_log[5][128];
 static volatile int tp_nlog = 0;
 static volatile int tp_rescan = 0;                 /* 1 = musique, 2 = photos */
@@ -350,6 +352,8 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     }
     snprintf(m, sizeof(m), "Re\xC3\xA7u : %s/%s", dir, clean);
     tp_logf(m);
+    snprintf(tp_done_path[tp_done_w % 4], NAME_LEN, "%s", path);
+    tp_done_w++;
     if (!strcmp(dir, "mp3") || !strcmp(dir, "downloads") || !strcmp(dir, "retro")) tp_rescan |= 1;
     if (!strcmp(dir, "photos") || !strcmp(dir, "videos")) tp_rescan |= 2;
     tp_update_free();
