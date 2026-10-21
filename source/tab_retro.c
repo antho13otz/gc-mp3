@@ -650,6 +650,7 @@ static void draw_list_retro(void) {
         int k = retro_list[r];
         f32 ry = 114.0f + i * 24.0f, cy = ry + 12.0f;
         int is_sel = (r == retro_sel), is_cur = (playing && k == cur_track);
+        gp_zone(18, ry + 1, 250, 22, &retro_sel, r, GPZ_SEL);
         col_t txt = is_sel ? RGBA(255, 255, 255, 255) : RGBA(210, 200, 240, 255);
         col_t dim = is_sel ? RGBA(235, 225, 255, 255) : RGBA(128, 112, 190, 255);
         if (is_cur) gx_tri(26, cy - 6, 26, cy + 6, 36, cy, RGBA(255, 255, 255, 255));
