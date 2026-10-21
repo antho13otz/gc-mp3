@@ -316,6 +316,17 @@ static void init_spectrum(void) {
 static int update_spectrum(void) {
     static float x[VIZ_N];
     int active = 0;
+    {                                                     /* silence : pas de calcul, les barres retombent */
+        int loud = 0;
+        for (int i = 0; i < VIZ_N && !loud; i++) loud = viz[i] > 3 || viz[i] < -3;
+        if (!loud) {
+            for (int b = 0; b < NBARS; b++) {
+                bar_val[b] *= 0.82f;
+                if (bar_val[b] < 0.01f) bar_val[b] = 0.0f; else active = 1;
+            }
+            return active;
+        }
+    }
     for (int i = 0; i < VIZ_N; i++)
         x[i] = (float)viz[(viz_pos + i) & (VIZ_N - 1)] * win[i];
     for (int b = 0; b < NBARS; b++) {
@@ -578,16 +589,9 @@ static int mount_sd(void) {
 static u16 cover_tex[COVER_SZ * COVER_SZ] ATTRIBUTE_ALIGN(32);
 static int cover_ok = 0;
 
-/* Decode une image JPEG/PNG en memoire, la recadre au carre (centre) et la
-   reduit en 128x128 dans la texture GX (RGB565, tuiles 4x4). */
-static int cover_from_memory(const unsigned char *data, long len) {
-    int w, h, n;
-    if (len <= 0 || len > 0x7fffffffL) return 0;
-    if (!stbi_info_from_memory(data, (int)len, &w, &h, &n)) return 0;
-    if (w <= 0 || h <= 0 || (long)w * (long)h > COVER_MAX_PX) return 0;
-    unsigned char *px = stbi_load_from_memory(data, (int)len, &w, &h, &n, 3);
-    if (!px) return 0;
-
+/* Recadre au carre (centre) et reduit en 128x128 (RGB565, tuiles 4x4).
+   'pump' = continuer a servir le son (fil principal seulement). */
+static void cover_scale(const unsigned char *px, int w, int h, u16 *out, int pump) {
     int side = (w < h) ? w : h;
     int ox = (w - side) / 2, oy = (h - side) / 2;
     for (int y = 0; y < COVER_SZ; y++) {
@@ -603,14 +607,132 @@ static int cover_from_memory(const unsigned char *data, long len) {
             }
             r /= cnt; g /= cnt; b /= cnt;
             int blk = (y >> 2) * (COVER_SZ / 4) + (x >> 2);
-            cover_tex[blk * 16 + (y & 3) * 4 + (x & 3)] =
+            out[blk * 16 + (y & 3) * 4 + (x & 3)] =
                 (u16)(((r >> 3) << 11) | ((g >> 2) << 5) | (b >> 3));
         }
-        if ((y & 15) == 0) service_audio();
+        if (pump && (y & 15) == 0) service_audio();
     }
+}
+
+/* ---- v19 : pochettes rapides ----
+   Au changement de morceau, l'image n'est plus decodee tout de suite (jusqu'a
+   1 s pour une grande pochette) : le son demarre aussitot, l'image est decodee
+   par le fil de decodage, puis gardee toute prete (128x128, 32 Ko) dans
+   sd:/cache/pochettes. La fois suivante, elle s'affiche immediatement. */
+#define CV_DIR SD_ROOT "/cache/pochettes"
+static int cv_defer = 0;                    /* 1 = decoder en tache de fond (load_cover) */
+static volatile int cv_state = 0;           /* 0 libre, 1 a decoder (fil), 2 fini */
+static unsigned char *volatile cv_in = NULL;   /* travail du fil */
+static volatile long cv_len = 0;
+static u16 *volatile cv_out = NULL;
+static volatile int cv_ok = 0;
+static u32 cv_gen = 0, cv_job_gen = 0;      /* (le morceau a peut-etre change entre-temps) */
+static char cv_job_key[NAME_LEN + 32];
+static unsigned char *cv_pend = NULL;       /* image en attente que le fil soit libre */
+static long cv_pend_len = 0;
+static u32 cv_pend_gen = 0;
+static char cv_pend_key[NAME_LEN + 32];
+static char cv_key[NAME_LEN + 32];          /* cache du morceau en cours ("" = pas de cache) */
+static int sd_ok;
+static int dec_ensure(void);
+
+static void cv_cache_name(const char *key, char *out, int cap) {
+    u32 h1 = 2166136261u, h2 = 5381;
+    for (const unsigned char *p = (const unsigned char *)key; *p; p++) { h1 = (h1 ^ *p) * 16777619u; h2 = h2 * 33 + *p; }
+    snprintf(out, cap, CV_DIR "/%08x%08x.565", (unsigned)h1, (unsigned)h2);
+}
+static int cv_cache_read(const char *key) {
+    if (!key[0]) return 0;
+    char path[NAME_LEN];
+    cv_cache_name(key, path, sizeof(path));
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    char hd[4];
+    int ok = fread(hd, 1, 4, f) == 4 && !memcmp(hd, "GCV1", 4) && fread(cover_tex, 1, sizeof(cover_tex), f) == sizeof(cover_tex);
+    fclose(f);
+    if (!ok) return 0;
+    DCFlushRange(cover_tex, sizeof(cover_tex));
+    GX_InvalidateTexAll();
+    return 1;
+}
+static void cv_cache_write(const char *key, const u16 *tex) {
+    if (!key[0] || !sd_ok || sd_virtual) return;
+    char path[NAME_LEN];
+    mkdir(SD_ROOT "/cache", 0777);
+    mkdir(CV_DIR, 0777);
+    cv_cache_name(key, path, sizeof(path));
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    int ok = fwrite("GCV1", 1, 4, f) == 4 && fwrite(tex, 1, COVER_SZ * COVER_SZ * 2, f) == COVER_SZ * COVER_SZ * 2;
+    fclose(f);
+    if (!ok) remove(path);
+}
+
+/* travail du fil de decodage */
+static void cover_job(void) {
+    int w, h, n;
+    cv_ok = 0;
+    if (cv_len <= 0 || !stbi_info_from_memory(cv_in, (int)cv_len, &w, &h, &n) || w <= 0 || h <= 0 || (long)w * (long)h > COVER_MAX_PX) return;
+    unsigned char *px = stbi_load_from_memory(cv_in, (int)cv_len, &w, &h, &n, 3);
+    if (!px) return;
+    u16 *out = (u16 *)memalign(32, COVER_SZ * COVER_SZ * 2);
+    if (out) { cover_scale(px, w, h, out, 0); cv_out = out; cv_ok = 1; }
+    stbi_image_free(px);
+}
+
+/* chaque image : resultat du fil, puis image suivante */
+static void cover_async_pump(void) {
+    if (cv_state == 2) {
+        if (cv_ok && cv_out && cv_job_gen == cv_gen) {
+            memcpy(cover_tex, cv_out, sizeof(cover_tex));
+            DCFlushRange(cover_tex, sizeof(cover_tex));
+            GX_InvalidateTexAll();
+            cover_ok = 1;
+            cv_cache_write(cv_job_key, cv_out);
+        }
+        free(cv_out);
+        cv_out = NULL;
+        free(cv_in);
+        cv_in = NULL;
+        cv_state = 0;
+    }
+    if (cv_state == 0 && cv_pend) {
+        if (cv_pend_gen != cv_gen || !dec_ensure()) { free(cv_pend); cv_pend = NULL; return; }
+        cv_in = cv_pend;
+        cv_len = cv_pend_len;
+        cv_job_gen = cv_pend_gen;
+        snprintf(cv_job_key, sizeof(cv_job_key), "%s", cv_pend_key);
+        cv_pend = NULL;
+        cv_state = 1;
+    }
+}
+static int cover_busy(void) { return cv_pend != NULL || (cv_state != 0 && cv_job_gen == cv_gen); }
+
+/* Decode une image JPEG/PNG en memoire et la met dans la texture de la pochette. */
+static int cover_from_memory(const unsigned char *data, long len) {
+    int w, h, n;
+    if (len <= 0 || len > 0x7fffffffL) return 0;
+    if (!stbi_info_from_memory(data, (int)len, &w, &h, &n)) return 0;
+    if (w <= 0 || h <= 0 || (long)w * (long)h > COVER_MAX_PX) return 0;
+    if (cv_defer) {                                       /* en tache de fond */
+        unsigned char *copy = (unsigned char *)malloc(len);
+        if (copy) {
+            memcpy(copy, data, len);
+            free(cv_pend);
+            cv_pend = copy;
+            cv_pend_len = len;
+            cv_pend_gen = cv_gen;
+            snprintf(cv_pend_key, sizeof(cv_pend_key), "%s", cv_key);
+            return 2;                                     /* (trouvee, image a venir) */
+        }
+    }
+    unsigned char *px = stbi_load_from_memory(data, (int)len, &w, &h, &n, 3);
+    if (!px) return 0;
+    cover_scale(px, w, h, cover_tex, 1);
     stbi_image_free(px);
     DCFlushRange(cover_tex, sizeof(cover_tex));
     GX_InvalidateTexAll();
+    if (cv_key[0]) cv_cache_write(cv_key, cover_tex);
     return 1;
 }
 
@@ -841,10 +963,10 @@ static int resolve_host(const char *host, u32 *out) {
     if (digits && dots == 3) { *out = inet_addr(host); return 1; }
 
     /* petit cache : evite une requete DNS par image d'un meme site */
-    static struct { char host[64]; u32 addr; u64 t; } cache[8];
+    static struct { char host[96]; u32 addr; u64 t; } cache[16];   /* (v19 : 16 sites, 30 min) */
     static int cnext = 0;
-    for (int i = 0; i < 8; i++)
-        if (cache[i].host[0] && strcmp(cache[i].host, host) == 0 && now_ms() - cache[i].t < 600000) {
+    for (int i = 0; i < 16; i++)
+        if (cache[i].host[0] && strcmp(cache[i].host, host) == 0 && now_ms() - cache[i].t < 1800000) {
             *out = cache[i].addr;
             return 1;
         }
@@ -860,7 +982,7 @@ static int resolve_host(const char *host, u32 *out) {
                 snprintf(cache[cnext].host, sizeof(cache[0].host), "%s", host);
                 cache[cnext].addr = *out;
                 cache[cnext].t = now_ms();
-                cnext = (cnext + 1) % 8;
+                cnext = (cnext + 1) % 16;
             }
             return 1;
         }
@@ -902,6 +1024,8 @@ typedef struct {
     int tls;
     int ssl_inited;
     mbedtls_ssl_context ssl;
+    char host[96];                          /* "site:port" (reprise de session TLS) */
+    int sc_used;                            /* 1 = poignee de main avec une session gardee */
 } conn_t;
 static conn_t cn = { -1, 0, 0 };          /* radio */
 
@@ -938,8 +1062,51 @@ static int tls_global_init(void) {
     mbedtls_ssl_conf_ca_chain(&tls_conf, &tls_ca, NULL);
     mbedtls_ssl_conf_rng(&tls_conf, mbedtls_ctr_drbg_random, &tls_drbg);
     mbedtls_ssl_conf_verify(&tls_conf, tls_verify_cb, NULL);
+#if defined(MBEDTLS_SSL_SESSION_TICKETS) && defined(MBEDTLS_SSL_PROTO_TLS1_3)
+    mbedtls_ssl_conf_tls13_enable_signal_new_session_tickets(&tls_conf, MBEDTLS_SSL_TLS1_3_SIGNAL_NEW_SESSION_TICKETS_ENABLED);
+#endif
     tls_ready = 1;
     return 1;
+}
+
+/* v19 : reprise de session TLS. La premiere connexion a un site coute cher a la
+   GameCube (calculs de cles, verification des certificats : jusqu'a 1 s) ; on
+   garde la session des derniers sites pour que les suivantes soient bien plus
+   rapides (paroles, pochettes, meteo, podcasts...). */
+#define TLS_SC 8
+typedef struct { char host[96]; int ok; u32 used; mbedtls_ssl_session s; } tls_sc_t;
+static tls_sc_t tls_sc[TLS_SC];
+static u32 tls_sc_clock = 0;
+static void tls_sc_put(mbedtls_ssl_context *ssl, const char *host) {
+    if (!host || !host[0]) return;
+    int k = -1;
+    for (int i = 0; i < TLS_SC; i++) if (tls_sc[i].ok && !strcmp(tls_sc[i].host, host)) k = i;
+    if (k < 0) for (int i = 0; i < TLS_SC; i++) if (!tls_sc[i].ok) { k = i; break; }
+    if (k < 0) { k = 0; for (int i = 1; i < TLS_SC; i++) if (tls_sc[i].used < tls_sc[k].used) k = i; }
+    mbedtls_ssl_session tmp;
+    mbedtls_ssl_session_init(&tmp);
+    if (mbedtls_ssl_get_session(ssl, &tmp) != 0) { mbedtls_ssl_session_free(&tmp); return; }
+    if (tls_sc[k].ok) mbedtls_ssl_session_free(&tls_sc[k].s);
+    tls_sc[k].s = tmp;
+    snprintf(tls_sc[k].host, sizeof(tls_sc[k].host), "%s", host);
+    tls_sc[k].ok = 1;
+    tls_sc[k].used = ++tls_sc_clock;
+}
+static int tls_sc_use(mbedtls_ssl_context *ssl, const char *host) {
+    for (int i = 0; i < TLS_SC; i++)
+        if (tls_sc[i].ok && !strcmp(tls_sc[i].host, host)) {
+            if (mbedtls_ssl_set_session(ssl, &tls_sc[i].s) != 0) return 0;
+            tls_sc[i].used = ++tls_sc_clock;
+            return 1;
+        }
+    return 0;
+}
+static void tls_sc_drop(const char *host) {          /* session refusee : on l'oublie */
+    for (int i = 0; i < TLS_SC; i++)
+        if (tls_sc[i].ok && !strcmp(tls_sc[i].host, host)) { mbedtls_ssl_session_free(&tls_sc[i].s); tls_sc[i].ok = 0; }
+}
+static void tls_sc_done(conn_t *c) {                 /* poignee de main finie (TLS 1.2 : session a garder) */
+    if (mbedtls_ssl_get_version_number(&c->ssl) == MBEDTLS_SSL_VERSION_TLS1_2) tls_sc_put(&c->ssl, c->host);
 }
 
 static int bio_send(void *ctx, const unsigned char *buf, size_t len) {
@@ -959,6 +1126,7 @@ static void conn_close(conn_t *c) {
     if (c->fd >= 0) net_close(c->fd);
     c->fd = -1;
     c->tls = 0;
+    c->sc_used = 0;
 }
 
 /* Recoit sans bloquer : > 0 octets lus, 0 fin du flux, -EAGAIN rien pour l'instant, < 0 erreur. */
@@ -970,7 +1138,7 @@ static int conn_recv(conn_t *c, unsigned char *buf, int len) {
         if (r > 0) return r;
         if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) return -EAGAIN;
 #ifdef MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
-        if (r == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) continue;   /* message TLS 1.3 sans donnees */
+        if (r == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) { tls_sc_put(&c->ssl, c->host); continue; }   /* TLS 1.3 : ticket a garder */
 #endif
         if (r == 0 || r == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) return 0;
         return -EIO;
@@ -1004,12 +1172,16 @@ static int conn_start_tls(conn_t *c, const char *host, const char **err) {
         *err = "Erreur d'initialisation HTTPS";
         return 0;
     }
+    c->sc_used = tls_sc_use(&c->ssl, c->host);
     mbedtls_ssl_set_bio(&c->ssl, &c->fd, bio_send, bio_recv, NULL);
     c->tls = 1;
     u64 t0 = now_ms();
     for (;;) {
         int r = mbedtls_ssl_handshake(&c->ssl);
-        if (r == 0) return 1;
+        if (r == 0) { tls_sc_done(c); return 1; }
+#ifdef MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
+        if (r == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) { tls_sc_put(&c->ssl, c->host); continue; }
+#endif
         if (r != MBEDTLS_ERR_SSL_WANT_READ && r != MBEDTLS_ERR_SSL_WANT_WRITE) {
             if (r == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED || mbedtls_ssl_get_verify_result(&c->ssl) != 0)
                 *err = "Certificat du serveur refusé";
@@ -1065,7 +1237,16 @@ static int conn_open(conn_t *c, const char *host, int port, int tls, const char 
     if (tls) {
         snprintf(msg, sizeof(msg), "Connexion sécurisée à %s...", host);
         ui_status(msg);
-        if (!conn_start_tls(c, host, err)) { conn_close(c); return 0; }
+        snprintf(c->host, sizeof(c->host), "%s:%d", host, port);
+        if (!conn_start_tls(c, host, err)) {
+            int retry = c->sc_used;
+            conn_close(c);
+            if (!retry) return 0;
+            tls_sc_drop(c->host);                         /* (le site ne veut plus de l'ancienne session) */
+            if (!conn_tcp(c, host, port, err, refused, 1)) return 0;
+            snprintf(c->host, sizeof(c->host), "%s:%d", host, port);
+            if (!conn_start_tls(c, host, err)) { conn_close(c); return 0; }
+        }
     }
     return 1;
 }
@@ -2545,6 +2726,16 @@ static void load_cover(int idx) {
 
     /* les images sont cherchees dans le dossier du MP3 (un dossier par album) */
     cover_ok = 0;
+    cv_gen++;
+    free(cv_pend);
+    cv_pend = NULL;
+    {                                                     /* deja prete dans le cache ? */
+        struct stat st;
+        long sz = stat(names[idx], &st) == 0 ? (long)st.st_size : 0;
+        snprintf(cv_key, sizeof(cv_key), "%s|%ld", names[idx], sz);
+        if (cv_cache_read(cv_key)) { cover_ok = 1; return; }
+    }
+    cv_defer = 1;
     snprintf(noext, sizeof(noext), "%s", names[idx]);
     strip_audio_ext(noext);
     snprintf(dir, sizeof(dir), "%s", names[idx]);
@@ -2565,6 +2756,8 @@ static void load_cover(int idx) {
         snprintf(path, sizeof(path), "%s/%s", dir, common[i]);
         cover_ok = cover_from_file(path);
     }
+    cv_defer = 0;
+    if (cover_ok == 2) cover_ok = 0;                      /* (l'image arrive dans un instant) */
 }
 
 static int retro_open(const char *path, int fmt, tags_t *tg, const char **err);
@@ -3764,7 +3957,8 @@ static int init_video(void) {
 /* Copie l'image GX vers le framebuffer inactif et l'affiche. */
 static void present_frame(void) {
     int next_fb = 1 - displayed_fb;
-    if (!gx_finish(1500)) gx_fatal("dessin d'une image");
+    /* (v19 : une seule attente du processeur graphique par image : la copie
+       vers l'ecran passe apres le dessin dans la file de commandes) */
     GX_SetColorUpdate(GX_TRUE);
     GX_CopyDisp(xfb[next_fb], GX_TRUE);
     if (!gx_finish(1500)) gx_fatal("copie de l'image vers l'ecran");
@@ -4210,11 +4404,20 @@ static void cover_for_station(int idx) {
     static const char *exts[] = { ".jpg", ".jpeg", ".png" };
     char path[128];
     cover_ok = 0;
+    cv_gen++;
+    free(cv_pend);
+    cv_pend = NULL;
+    cv_key[0] = 0;
     if (!sd_ok) return;
+    cv_defer = 1;
     for (int i = 0; i < 3 && !cover_ok; i++) {
         snprintf(path, sizeof(path), "%s/%s%s", LOGO_DIR, stations[idx].name, exts[i]);
+        snprintf(cv_key, sizeof(cv_key), "logo|%s", path);
+        if (cv_cache_read(cv_key)) { cover_ok = 1; break; }
         cover_ok = cover_from_file(path);
     }
+    cv_defer = 0;
+    if (cover_ok == 2) cover_ok = 0;
 }
 
 static void draw_header(void) {
@@ -7188,6 +7391,8 @@ static void hf_request(hfetch_t *h) {
             if (mbedtls_ssl_setup(&h->c.ssl, &tls_conf) != 0 || mbedtls_ssl_set_hostname(&h->c.ssl, u.host) != 0) {
                 hf_close(h); hf_fail(h); return;
             }
+            snprintf(h->c.host, sizeof(h->c.host), "%s:%d", u.host, u.port);
+            h->c.sc_used = tls_sc_use(&h->c.ssl, h->c.host);
             mbedtls_ssl_set_bio(&h->c.ssl, &h->c.fd, bio_send, bio_recv, NULL);
             h->c.tls = 1;
             h->st = HF_HANDSHAKE;
@@ -7222,9 +7427,15 @@ static void hf_done(hfetch_t *h) {
 static void hf_pump(hfetch_t *h) {
     if (h->st == HF_HANDSHAKE) {
         int r = mbedtls_ssl_handshake(&h->c.ssl);
-        if (r == 0) { if (!hf_send(h)) { hf_close(h); hf_fail(h); } return; }
+        if (r == 0) { tls_sc_done(&h->c); if (!hf_send(h)) { hf_close(h); hf_fail(h); } return; }
+#ifdef MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
+        if (r == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) { tls_sc_put(&h->c.ssl, h->c.host); return; }
+#endif
         if ((r != MBEDTLS_ERR_SSL_WANT_READ && r != MBEDTLS_ERR_SSL_WANT_WRITE) || now_ms() - h->t0 > 15000) {
+            int retry = h->c.sc_used && now_ms() - h->t0 <= 15000;
+            if (retry) tls_sc_drop(h->c.host);            /* session refusee : sans elle */
             hf_close(h);
+            if (retry) { hf_request(h); return; }
             hf_fail(h);
         }
         return;
@@ -7776,6 +7987,9 @@ static void *dec_thread_fn(void *arg) {
             free(dj_in);
             dj_in = NULL;
             dj_state = 2;
+        } else if (cv_state == 1) {                        /* pochette du morceau (v19) */
+            cover_job();
+            cv_state = 2;
         } else usleep(8000);
     }
     return NULL;
@@ -8081,7 +8295,7 @@ static void cover_pump(void) {
         cl_state = CL_IDLE;
     }
     if (cl_state == CL_IDLE) {
-        if (src != SRC_FILE || !playing || cur_track < 0 || cover_ok || track_err || is_retro[cur_track]) return;
+        if (src != SRC_FILE || !playing || cur_track < 0 || cover_ok || cover_busy() || track_err || is_retro[cur_track]) return;
         if (cl_track == cur_track || cl_is_failed(names[cur_track])) return;
         if (net_phase != NET_DONE || !net_ok) return;
         cl_track = cur_track;
@@ -8122,8 +8336,11 @@ static void cover_pump(void) {
         if (chf.st != HF_DONE) return;
         chf.st = HF_IDLE;
         if (!cover_ok && cur_track == cl_track) {
-            cover_ok = cover_from_memory(chf.buf, chf.len);
-            if (cover_ok) cl_save_cover(chf.buf, chf.len);
+            cv_defer = 1;                                  /* (decodee en tache de fond) */
+            int r = cover_from_memory(chf.buf, chf.len);
+            cv_defer = 0;
+            cover_ok = r == 1;
+            if (r) cl_save_cover(chf.buf, chf.len);
         }
         hf_drop(&chf);
         cl_state = CL_DONE;
@@ -10371,6 +10588,7 @@ int main(int argc, char **argv) {
 
         /* navigateur : reception des pages et des telechargements */
         web_pump();
+        cover_async_pump();
         cover_pump();
         lyrics_pump();
         retro_pump();
