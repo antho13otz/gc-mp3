@@ -179,6 +179,8 @@ sur ta télé), **économiseur d'écran** (2 / 5 / 10 / 30 min ou jamais, n'impo
 **vidéo** (auto = 480p avec un câble composante ou un GCVideo ; B maintenu au démarrage = 480i),
 **taille de l'écran** (80 à 112 % : en dessous de 100, l'image rétrécit si les bords sont coupés ;
 au-dessus, elle s'élargit pour supprimer les bandes noires des côtés — 110 % conseillé en 16:9),
+**hauteur de l'écran** (80 à 100 %) et **position verticale** (plus haut / plus bas) si le haut ou le
+bas de l'image est coupé par la télé,
 **format de l'écran** (4:3 ou 16:9 : en 16:9, règle aussi la télé en mode large / plein écran ;
 l'interface s'étale sur toute la largeur, le texte, les pochettes, les photos et le QR code
 gardent leurs vraies proportions, et les pages web sont mises en page plus larges),
