@@ -208,6 +208,17 @@ pour la GameCube : GC-MP3 utilise alors une **carte SD virtuelle en mémoire** (
   gardées ; au démarrage suivant, la liste défile sans relire chaque fichier et les vues Artistes /
   Albums sont prêtes tout de suite. Le fichier peut être supprimé sans risque (il se refait).
 - Les durées ne sont pas lues pendant qu'on fait défiler la liste (pas d'à-coups).
+- **Changement de morceau instantané** : la pochette est décodée en tâche de fond (le son démarre
+  tout de suite), puis gardée toute prête dans `SD:/cache/pochettes` : la fois suivante, elle
+  s'affiche immédiatement. Pareil pour les logos des radios et les pochettes trouvées sur Internet.
+- **Onglet PHOTOS rapide** : pour les photos d'appareil photo ou de téléphone, GC-MP3 prend la petite
+  image déjà rangée dans la photo (EXIF) au lieu de décoder toute la photo — et les très grandes
+  photos ont enfin leur vignette. Les vignettes sont gardées dans `SD:/cache/vignettes`.
+- **Connexions https plus rapides** : la session sécurisée des derniers sites est réutilisée
+  (paroles, pochettes, météo, podcasts, radios en https) : plus besoin de refaire les longs calculs
+  de chiffrement à chaque fois. Les adresses des sites sont aussi gardées 30 minutes.
+- Une seule attente du processeur graphique par image, et pas de calcul du spectre quand rien ne joue.
+- Le dossier `SD:/cache` peut être supprimé sans risque : il se refait tout seul.
 
 ## Menu (START)
 Lecture aléatoire, répétition, **fondu enchaîné**, liste MUSIQUE, **volume**, **volume égalisé**,
