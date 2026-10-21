@@ -100,9 +100,9 @@ static thumb_t *thumb_find(int f) {
       image (EXIF, environ 160 x 120) : on la prend au lieu de decoder toute la
       photo (souvent 50 a 100 fois plus rapide, et les grandes photos ont
       enfin leur vignette).
-   2. Chaque vignette faite est gardee dans sd:/cache/vignettes : la fois
+   2. Chaque vignette faite est gardee dans sd:/gc-mp3/cache/vignettes : la fois
       suivante, l'onglet PHOTOS s'affiche tout de suite. */
-#define TH_DIR SD_ROOT "/cache/vignettes"
+#define TH_DIR GCD "/cache/vignettes"
 #define PJ_HEAD (128 * 1024)                 /* debut du fichier lu pour chercher l'image EXIF */
 static int pj_exif_done = 0;
 static long pj_fsize = 0;
@@ -189,7 +189,7 @@ static int th_cache_read(int f) {
 static void th_cache_write(int f, const thumb_t *t) {
     if (!sd_ok || sd_virtual || !t->tex) return;
     char path[NAME_LEN];
-    mkdir(SD_ROOT "/cache", 0777);
+    mkdir(GCD "/cache", 0777);
     mkdir(TH_DIR, 0777);
     th_cache_name(f, path, sizeof(path));
     FILE *fp = fopen(path, "wb");
@@ -373,7 +373,7 @@ static int video_open(const char *path) {
 
 /* position de lecture (secondes x 1000) : l'horloge du son, sinon le temps qui passe */
 static u32 av_clock_ms(void) {
-    if (av_rate > 0) return (u32)((u64)consumed * 1000 / 48000);
+    if (av_rate > 0) return (u32)((u64)consumed_heard() * 1000 / 48000);
     return (u32)(now_ms() - av_t0);
 }
 
