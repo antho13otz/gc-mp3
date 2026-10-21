@@ -181,13 +181,13 @@ static unsigned char *ogg_hdr = NULL;       /* en-tetes du flux OGG (pour l'enre
 static int ogg_hdr_len = 0;
 enum { SRC_NONE, SRC_FILE, SRC_RADIO };
 static int src = SRC_NONE;              /* ce qui joue en ce moment */
-enum { TAB_MUSIC, TAB_RADIO, TAB_WEB, TAB_RETRO, TAB_PODCAST, TAB_PHOTO, TAB_FILES, TAB_INFO, TAB_PHONE, TAB_COUNT };
+enum { TAB_MUSIC, TAB_RADIO, TAB_WEB, TAB_RETRO, TAB_PODCAST, TAB_PHOTO, TAB_FILES, TAB_INFO, TAB_PHONE, TAB_GAMES, TAB_DL, TAB_COUNT };
 static int tab = TAB_MUSIC;             /* onglet affiche */
 static u32 tab_hidden = 0;              /* onglets masques (bits) */
 static const char *const tab_names[TAB_COUNT] = {
-    "MUSIQUE", "RADIO", "WEB", "R\xC3\x89TRO", "PODCASTS", "PHOTOS", "FICHIERS", "INFOS", "T\xC3\x89L\xC3\x89PHONE" };
+    "MUSIQUE", "RADIO", "WEB", "R\xC3\x89TRO", "PODCASTS", "PHOTOS", "FICHIERS", "INFOS", "T\xC3\x89L\xC3\x89PHONE", "JEUX", "T\xC3\x89L\xC3\x89" "CHARGEMENTS" };
 static const char *const tab_keys[TAB_COUNT] = {
-    "musique", "radio", "web", "retro", "podcasts", "photos", "fichiers", "infos", "telephone" };
+    "musique", "radio", "web", "retro", "podcasts", "photos", "fichiers", "infos", "telephone", "jeux", "telechargements" };
 static int tab_shown(int t) { return t == TAB_MUSIC || !(tab_hidden & (1u << t)); }
 /* elements du lecteur (START > Elements du lecteur) */
 enum { EL_COVER, EL_VIZ, EL_BUTTONS, EL_INFO, EL_CLOCK, EL_COUNT };
@@ -203,6 +203,27 @@ static pod_t pods[64];
 static int pod_dur;
 static int pod_pos_sec(void);
 #define IS_PLAYER_TAB(t) ((t) == TAB_MUSIC || (t) == TAB_RADIO || (t) == TAB_RETRO || (t) == TAB_PODCAST)
+/* v23 : zones cliquables avec le curseur au stick (tabs_extra.c) */
+enum { GPZ_SEL = 1, GPZ_KEY, GPZ_TAB, GPZ_STEP };
+typedef struct { f32 x, y, w, h; int *sel; int val, code; } gpzone_t;
+#define GP_ZONES 64
+static gpzone_t gp_z[GP_ZONES], gp_zl[GP_ZONES];          /* image en cours, image precedente */
+static int gp_nz = 0, gp_nzl = 0;
+static f32 gp_x = 320, gp_y = 240;
+static int gp_on = 0;
+static void gp_player_zones(void);
+static u64 gp_t = 0;
+
+static void gp_zone(f32 x, f32 y, f32 w, f32 h, int *sel, int val, int code) {
+    if (gp_nz >= GP_ZONES) return;
+    gp_z[gp_nz++] = (gpzone_t){ x, y, w, h, sel, val, code };
+}
+static void gp_frame_begin(void) {                          /* (debut de chaque image) */
+    memcpy(gp_zl, gp_z, sizeof(gpzone_t) * gp_nz);
+    gp_nzl = gp_nz;
+    gp_nz = 0;
+}
+
 static int paused = 0;                  /* pause de la musique */
 static int video_playing = 0;           /* une video (onglet PHOTOS) joue son son dans la file */
 static void video_stop(void);
@@ -4648,6 +4669,7 @@ static int draw_tabs(const char *count) {
                 on ? RGBA(255, 255, 255, 255) : RGBA(150, 135, 210, 255), 1);
         x += w + 4;
     }
+    gp_zone(18, 84, (f32)x - 14, 22, NULL, PAD_TRIGGER_Z, GPZ_KEY);   /* (curseur : onglet suivant) */
     /* rappel de la touche Z, et position parmi les onglets */
     gx_rrect_fill(x + 1, 88, 14, 14, 4, RGBA(110, 90, 190, 255), RGBA(70, 50, 140, 255));
     gx_text_c(F_SMALL, x + 8, 99, "Z", RGBA(255, 255, 255, 255));
@@ -4853,6 +4875,7 @@ static void draw_player_radio(void) {
 
     /* boutons : station precedente, ecouter/arreter, station suivante, son */
     if (!EL(EL_BUTTONS)) return;
+    gp_player_zones();
     const f32 cy = 364.0f;
     col_t icon = RGBA(230, 220, 255, 255);
     draw_round_button(347, cy, 21);
@@ -4955,6 +4978,10 @@ static void draw_tab_photo(void);
 static void draw_tab_files(void);
 static void draw_tab_infos(void);
 static void draw_tab_phone(void);
+static void draw_tab_games(void);
+static void draw_tab_dl(void);
+static void gp_draw(void);
+static void gp_player_zones(void);
 static void draw_night(void);
 static void draw_update_notice(void);
 static void draw(void) {
@@ -4965,6 +4992,7 @@ static void draw(void) {
         if (ui_dt > 0.1f) ui_dt = 0.1f;
         last = n;
     }
+    gp_frame_begin();
     if (night_on) { draw_night(); return; }
     if (saver_on) { draw_saver(); return; }
     if (fun_mode && !menu_open && !kb_is_open()) { draw_fun(); return; }
@@ -5000,6 +5028,8 @@ static void draw(void) {
         case TAB_PHOTO: draw_tab_photo(); break;
         case TAB_FILES: draw_tab_files(); break;
         case TAB_INFO:  draw_tab_infos(); break;
+        case TAB_GAMES: draw_tab_games(); break;
+        case TAB_DL:    draw_tab_dl(); break;
         default:        draw_tab_phone(); break;
         }
     }
@@ -5012,6 +5042,7 @@ static void draw(void) {
     draw_checklist();
     if (!menu_open && !kb_is_open()) season_overlay();
     draw_actions();
+    gp_draw();
     service_audio();
     present_frame();
 }
@@ -5110,6 +5141,7 @@ static void draw_list_music(int sel) {
         f32 ry = 114.0f + i * 24.0f;
         f32 cy = ry + 12.0f;
         int is_sel = (r == sel);
+        gp_zone(18, ry + 1, 250, 22, &sel_row, r, GPZ_SEL);
         int is_cur = (e.type == E_TRACK && playing && e.idx == cur_track);
 
         if (is_sel) {
@@ -5358,6 +5390,7 @@ static void draw_player_music(void) {
 
     /* boutons de transport */
     if (!EL(EL_BUTTONS)) return;
+    gp_player_zones();
     const f32 cy = 364.0f;
     col_t icon = RGBA(230, 220, 255, 255);
     draw_round_button(347, cy, 21);
@@ -6661,6 +6694,8 @@ static u64 dl_t0 = 0, dl_last = 0;
 static dechunk_t dl_dc;
 static void music_rescan(void);
 
+static void dlh_add(const char *from, const char *path);
+static int dlh_loaded;
 static void dl_stop(const char *msg, int err) {
     conn_close(DCONN);
     if (dl_fp) { fclose(dl_fp); dl_fp = NULL; }
@@ -6791,6 +6826,7 @@ static void dl_finish(void) {
     char msg[260], spd[40] = "";
     u64 el = now_ms() - dl_t0;
     if (el > 0 && dl_got > 65536) snprintf(spd, sizeof(spd), ", %ld Ko/s", (long)((long long)dl_got * 1000 / 1024 / (long long)el));
+    dlh_add(strstr(dl_dest_dir_used, "podcasts") ? "podcast" : "web", dl_path);   /* (onglet TELECHARGEMENTS) */
     if (n > 4 && audio_ext_len(dl_path)) {
         music_rescan();
         snprintf(msg, sizeof(msg), "Téléchargé : %s (dans l'onglet MUSIQUE%s)", dl_name, spd);
@@ -9512,6 +9548,7 @@ static void draw_list_radio(void) {
         f32 ry = 114.0f + i * 24.0f;
         f32 cy = ry + 12.0f;
         int is_sel = (r == sel_station);
+        gp_zone(18, ry + 1, 250, 22, &sel_station, r, GPZ_SEL);
         if (is_sel) {
         } else if (i + 1 < MUSIC_ROWS && r + 1 < rows && r + 1 != sel_station) {
             gx_rect(25, ry + 24, 241, 1, RGBA(60, 40, 120, 110));
@@ -9837,6 +9874,7 @@ static void draw_menu(void) {
     for (int i = menu_top; i < MI_COUNT && i < menu_top + MENU_VIS; i++) {
         f32 ry = y + 54 + (i - menu_top) * rh;
         int on = (i == menu_sel);
+        gp_zone(x + 14, ry + 1, w - 28, rh - 3, &menu_sel, i, GPZ_SEL);
         if (i == MI_QUIT) gx_rect(x + 18, ry - 2, w - 36, 1, RGBA(76, 52, 150, 200));
         col_t lc = (i == MI_QUIT) ? RGBA(255, 170, 170, 255) : RGBA(230, 222, 255, 255);
         gx_text1(F_MED, x + 26, ry + 18, menu_labels[i], on ? RGBA(255, 255, 255, 255) : lc);
@@ -10700,6 +10738,7 @@ static void tab_enter(int t) {
     case TAB_FILES:   files_enter(); break;
     case TAB_INFO:    net_start_async(); infos_enter(); break;
     case TAB_PHONE:   net_start_async(); phone_enter(); break;
+    case TAB_DL:      dlh_loaded = 0; break;
     }
 }
 
@@ -10789,6 +10828,7 @@ static void music_pump(void) {
 #include "night.c"
 #include "gckb.c"
 #include "fun_extra.c"                         /* v18 : karaoke, jeux, reveil, titres radio... */
+#include "tabs_extra.c"                        /* v23 : onglets JEUX et TELECHARGEMENTS, curseur partout */
 
 int main(int argc, char **argv) {
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;
@@ -10833,6 +10873,7 @@ int main(int argc, char **argv) {
         int kfire = 0;
         gk_pump(pads, &kdown, &knav, &kfire);
         down |= kdown;
+        down = gp_input(down);                              /* v23 : curseur au stick dans tous les onglets */
 
         /* activite de la manette (economiseur d'ecran) */
         int sx = PAD_SubStickX(0), sy = PAD_SubStickY(0), mx = PAD_StickX(0), my = PAD_StickY(0);
@@ -10936,6 +10977,10 @@ int main(int argc, char **argv) {
             infos_input(down, nav, fire);
         } else if (tab == TAB_PHONE) {
             phone_input(down, nav, fire);
+        } else if (tab == TAB_GAMES) {
+            games_tab_input(down, nav, fire);
+        } else if (tab == TAB_DL) {
+            dltab_input(down, nav, fire);
         } else if (tab == TAB_MUSIC) {
             if (fire && nents > 0) {
                 if (nav & PAD_BUTTON_DOWN)  sel_row++;
@@ -10983,6 +11028,7 @@ int main(int argc, char **argv) {
         files_pump();
         infos_pump();
         phone_pump();
+        dltab_pump();
         update_pump();
         night_pump();
         rb_pump();
