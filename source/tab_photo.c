@@ -570,6 +570,7 @@ static void draw_tab_photo(void) {
             if (f >= npf) break;
             f32 x = 26 + (i % GRID_COLS) * 150, y = 116 + (i / GRID_COLS) * 96;
             int on = (f == pf_sel);
+            gp_zone(x - 4, y - 4, TH_W + 8, TH_H, &pf_sel, f, GPZ_SEL);
             if (on) gx_rrect_fill(x - 4, y - 4, TH_W + 8, TH_H - 12 + 8, 6, RGBA(124, 54, 240, 255), RGBA(80, 26, 180, 255));
             gx_rect(x, y, TH_W, TH_H - 22, RGBA(20, 14, 50, 255));
             thumb_t *t = thumb_find(f);
