@@ -191,6 +191,7 @@ static void update_start_download(void) {
 
 /* touche A sur la ligne du menu */
 static void update_activate(void) {
+    if (sd_virtual) { up_fail("Pas de carte SD : mise \xC3\xA0 jour impossible ici"); return; }
     if (up_state == UP_AVAIL) update_start_download();
     else if (up_state == UP_DONE) quit_requested = 1;
     else update_check();
