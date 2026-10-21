@@ -1,15 +1,15 @@
 #include <stdarg.h>
 // Journal de plantage : quand GC-MP3 plante (exception du processeur) ou se
 // bloque (la boucle principale ne tourne plus pendant 20 s), un rapport est
-// ecrit dans sd:/gc-mp3-crash.txt : type d'erreur, fonction en cause (grace a
+// ecrit dans sd:/gc-mp3/gc-mp3-crash.txt : type d'erreur, fonction en cause (grace a
 // la table des symboles ajoutee a la compilation), pile d'appels, onglet,
 // morceau ou radio en cours, memoire libre et les 16 dernieres actions.
 // Au demarrage suivant, le fichier devient gc-mp3-crash-ancien.txt et un
 // message le signale ; il est aussi lisible depuis le telephone (/crash.txt).
 
-#define CRASH_FILE  SD_ROOT "/gc-mp3-crash.txt"
-#define CRASH_OLD   SD_ROOT "/gc-mp3-crash-ancien.txt"
-#define GCMP3_VERSION "v21"
+#define CRASH_FILE  GCD "/gc-mp3-crash.txt"
+#define CRASH_OLD   GCD "/gc-mp3-crash-ancien.txt"
+#define GCMP3_VERSION "v22"
 
 #if defined(__has_include)
 #if __has_include(<tuxedo/ppc/exception.h>) && __has_include(<tuxedo/thread.h>)
@@ -257,7 +257,7 @@ static void crash_beat(void) {
 static void draw_crash_notice(void) {
     if (!crash_notice_until || now_ms() >= crash_notice_until) return;
     gx_rrect_fill(40, 396, 560, 44, 10, RGBA(70, 10, 30, 240), RGBA(70, 10, 30, 240));
-    gx_text_c(F_SMALL, 320, 414, "GC-MP3 s'est arr\xC3\xAAt\xC3\xA9 la derni\xC3\xA8re fois : journal dans SD:/gc-mp3-crash-ancien.txt",
+    gx_text_c(F_SMALL, 320, 414, "GC-MP3 s'est arr\xC3\xAAt\xC3\xA9 la derni\xC3\xA8re fois : journal dans SD:/gc-mp3/gc-mp3-crash-ancien.txt",
               RGBA(255, 255, 255, 255));
     gx_text_c(F_SMALL, 320, 432, "(lisible aussi sur le t\xC3\xA9l\xC3\xA9phone : onglet T\xC3\x89L\xC3\x89PHONE, adresse /crash.txt)",
               RGBA(255, 200, 210, 255));
