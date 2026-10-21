@@ -26,7 +26,16 @@ Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés »
   et `SD:/downloads`, sous-dossiers compris (3 niveaux, 512 fichiers maximum). Les FLAC haute
   résolution (24 bits, 96 kHz) passent ; les fichiers Opus et ALAC ne sont pas gérés. Ils sont lus au fur et à mesure depuis la carte : **pas de limite de taille**
   (les longs mix passent).
-- **Stick C gauche / droite** : change la liste — *Tous les morceaux*, *Dossiers*, *Artistes*, *Albums*.
+- **Stick C gauche / droite** : change la liste — *Tous les morceaux*, *Dossiers*, *Artistes*, *Albums*,
+  *Mes listes*.
+- **X : menu d'actions** sur le morceau choisi : *Ajouter à une liste…*, *Nouvelle liste…*, *Chercher un
+  morceau…*, *Actualiser la bibliothèque*. Dans une liste : *Retirer*, *Monter*, *Descendre* ; sur une liste :
+  *Supprimer*.
+- **Mes listes** : tes listes de lecture (`SD:/listes/<Nom>.m3u`, aussi lisibles sur PC), plus deux listes
+  automatiques : **Les plus écoutés** et **Écoutés récemment** (un morceau compte après 30 s d'écoute ;
+  `SD:/gc-mp3-ecoutes.txt`).
+- **Recherche** : X > *Chercher un morceau…* (ou tape une lettre sur le clavier GameCube) ; titre, artiste ou
+  album, sans se soucier des accents ni des majuscules. B efface la recherche.
   Dans un dossier / artiste / album, la première ligne sert à revenir en arrière (A).
   Les vues Artistes et Albums lisent d'abord les étiquettes des MP3 (quelques secondes).
 - La lecture enchaîne les morceaux de la liste ouverte. **Aléatoire** et **répétition**
@@ -173,7 +182,8 @@ pour la GameCube : GC-MP3 utilise alors une **carte SD virtuelle en mémoire** (
 
 ## Menu (START)
 Lecture aléatoire, répétition, **fondu enchaîné**, liste MUSIQUE, **volume**, **volume égalisé**,
-**graves / aigus**, **thème de couleurs** (Indigo, Océan,
+**égaliseur** (réglages tout prêts : Rap, Rock, Pop, Basses, Voix, Électro, Classique, Jazz, ou graves /
+médiums / aigus à la main), **thème de couleurs** (Indigo, Océan,
 Émeraude, Rubis, Ambre, Couleurs douces, Graphite — « Couleurs douces » si l'image paraît trop vive
 sur ta télé), **économiseur d'écran** (2 / 5 / 10 / 30 min ou jamais, n'importe quelle touche le quitte), pochettes et paroles automatiques, reprise au démarrage,
 **vidéo** (auto = 480p avec un câble composante ou un GCVideo ; B maintenu au démarrage = 480i),
