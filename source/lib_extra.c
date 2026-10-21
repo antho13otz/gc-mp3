@@ -293,7 +293,7 @@ static int lib_match(int k) {
 
 /* ---------- menu d'actions (X) ---------- */
 enum { AC_ADD = 1, AC_ADDTO, AC_NEWLIST, AC_REMOVE, AC_UP, AC_DOWN, AC_DELLIST, AC_FIND, AC_CLEARFIND, AC_RESCAN, AC_CLOSE,
-       AC_KARAOKE, AC_RHYTHM, AC_QUIZ, AC_TITLES, AC_TITLE, AC_TITLES_CLEAR };   /* (v18 : fun_extra.c) */
+       AC_KARAOKE, AC_RHYTHM, AC_QUIZ, AC_TITLES, AC_TITLE, AC_TITLES_CLEAR, AC_SNAKE, AC_BRICKS };   /* (v18 : fun_extra.c) */
 static void fun_action(int code, int arg, int track, const char *txt);
 static int am_open = 0, am_sel = 0, am_n = 0, am_track = -1, am_list = -1, am_pos = -1, am_pending = -1;
 static char am_title[96];
@@ -343,6 +343,8 @@ static void actions_open(void) {
         am_item("Jeu de rythme sur ce morceau", AC_RHYTHM, 0);
     }
     am_item("Quiz musical", AC_QUIZ, 0);
+    am_item("Snake musical", AC_SNAKE, 0);
+    am_item("Casse-briques musical", AC_BRICKS, 0);
     am_item("Actualiser la biblioth\xC3\xA8que", AC_RESCAN, 0);
     am_item("Fermer", AC_CLOSE, 0);
     am_open = 1;
