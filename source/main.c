@@ -3195,6 +3195,10 @@ static char city[64];                       /* onglet INFOS (tab_infos.c) */
 static char news_url[256];
 static int alarm_on, alarm_min, alarm_src;
 static int phone_auto;                      /* onglet TELEPHONE (tab_phone.c) */
+static int rumble_on = 1;                   /* v18 : la manette vibre (mode soiree, jeux) */
+static int pod_auto = 1;                    /* v18 : nouveaux episodes telecharges tout seuls */
+static int wall_on = 0;                     /* v18 : fond d'ecran = une photo */
+static char wall_path[NAME_LEN];
 #define PARTY_STYLES 3
 static int party_style = 0;                 /* mode soiree : style du visualiseur */
 static const char *const party_keys[PARTY_STYLES] = { "pulsation", "barres", "tunnel" };
@@ -3332,6 +3336,10 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "reprise")) resume_on = yes(v);
         else if (!strcasecmp(k, "reprise_fichier")) snprintf(resume_path, sizeof(resume_path), "%s", v);
         else if (!strcasecmp(k, "reprise_position")) resume_pos = atoi(v);
+        else if (!strcasecmp(k, "vibrations")) rumble_on = yes(v);
+        else if (!strcasecmp(k, "podcasts_auto")) pod_auto = yes(v);
+        else if (!strcasecmp(k, "fond_ecran")) { if (!strcasecmp(v, "non") || !v[0]) wall_on = 0; else { wall_on = 1; snprintf(wall_path, sizeof(wall_path), "%s", v); } }
+        else if (!strcasecmp(k, "fond_ecran_photo")) snprintf(wall_path, sizeof(wall_path), "%s", v);
 }
 
 static void load_settings(void) {
@@ -3429,6 +3437,13 @@ static void save_settings(void) {
                "# fichier .dol a remplacer (vide = trouve tout seul)\n"
                "maj_auto = %s\nmaj_depot = %s\nmaj_fichier = %s\n",
             night_lum, night_radio ? "oui" : "non", upd_auto ? "oui" : "non", upd_repo, upd_file);
+    fprintf(f, "# La manette vibre sur les basses (mode soiree) et dans les jeux : oui / non\n"
+               "vibrations = %s\n"
+               "# Nouveaux episodes des podcasts telecharges tout seuls dans sd:/podcasts : oui / non\n"
+               "podcasts_auto = %s\n"
+               "# Fond d'ecran : chemin d'une photo (PHOTOS, plein ecran, X) ou non\n"
+               "fond_ecran = %s\nfond_ecran_photo = %s\n",
+            rumble_on ? "oui" : "non", pod_auto ? "oui" : "non", wall_on && wall_path[0] ? wall_path : "non", wall_path);
     fclose(f);
 }
 
@@ -4030,7 +4045,24 @@ static const col_t C_PANEL_BOT = { 10, 6, 34, 238 };
 static const col_t C_BORDER    = { 112, 62, 235, 255 };
 static const col_t C_GLOW      = { 120, 60, 255, 120 };
 
+/* v18 (fun_extra.c) */
+static int fun_mode;
+static void draw_fun(void);
+static int wall_draw(void);
+static int wall_active(void);
+static void wake_start(void);
+static void party_rumble(float strength);
+static int rb_mode;
+static void podauto_kick(void);
+static void wall_reload(void);
+static void rumble(int ch, int ms);
+static void games_open(void);
+static void titles_open(void);
+static void radio_title_keep(void);
+static void lib_note(const char *m);
+static void wall_set(const char *path);
 static void draw_background(void) {
+    if (wall_draw()) return;
     const f32 L = 0, R = 640;
     gx_quad4(L, 0, R, 480, RGBA(7, 5, 26, 255), RGBA(13, 8, 44, 255),
              RGBA(9, 6, 34, 255), RGBA(18, 8, 60, 255));
@@ -4078,6 +4110,11 @@ static void draw_console_corner(void) {
 
 static void draw_panel(f32 x, f32 y, f32 w, f32 h) {
     gx_glow(x, y, w, h, 10, C_GLOW, 4);
+    if (wall_active()) {                                   /* fond d'ecran : la photo se voit a travers */
+        col_t t = C_PANEL_TOP, b = C_PANEL_BOT;
+        t.a = 170; b.a = 190;
+        gx_rrect_fill(x, y, w, h, 10, t, b);
+    } else
     gx_rrect_fill(x, y, w, h, 10, C_PANEL_TOP, C_PANEL_BOT);
     gx_rrect_stroke(x, y, w, h, 10, 1.5f, C_BORDER);
 }
@@ -4418,6 +4455,7 @@ static void draw_player_radio(void) {
         snprintf(lb, sizeof(lb), "Tampon %d,%d s", f_count / 48000, (f_count % 48000) / 4800);
         gx_text1(F_SMALL, 457, 222, lb, RGBA(130, 115, 200, 255));
         gx_text_r(F_SMALL, 613, 222, tb, RGBA(130, 115, 200, 255));
+        if (now_title[0] && tab == TAB_RADIO && !rb_mode) gx_text1(F_SMALL, 457, 238, "X : garder ce titre", RGBA(255, 205, 110, 255));
     }
 
     /* egaliseur (spectre reel) + reflet */
@@ -4552,6 +4590,7 @@ static void draw(void) {
     }
     if (night_on) { draw_night(); return; }
     if (saver_on) { draw_saver(); return; }
+    if (fun_mode && !menu_open && !kb_is_open()) { draw_fun(); return; }
     if (party_on && !menu_open) { draw_party(); return; }
     dur_budget = now_ms() - last_input_ms > 250 ? 1 : 0;      /* (pas pendant le defilement) */
     begin_frame();
@@ -6213,6 +6252,7 @@ static FILE *dl_fp = NULL;
 static char dl_dest_dir[NAME_LEN] = "";     /* (podcasts) dossier du prochain telechargement */
 static char dl_dest_dir_used[NAME_LEN] = "";
 static char dl_name_hint[160] = "";         /* (podcasts) nom du prochain fichier */
+static int dl_force = 0;                    /* (podcasts) telecharger sans demander "ecouter ou telecharger" */
 static char dl_name[128], dl_path[NAME_LEN], dl_part[NAME_LEN + 8];
 static long dl_total = -1, dl_got = 0;
 static u64 dl_t0 = 0, dl_last = 0;
@@ -6930,6 +6970,8 @@ static void web_fetch(const char *url_in, int mode, int typed) {
     char url[URL_MAX], hosthdr[160], cookie[4096];
     static char *post = NULL;                   /* formulaire POST (garde jusqu'a la demande suivante) */
     static int post_len = 0;
+    int force_dl = dl_force;
+    dl_force = 0;
     free(post);
     post = wb_post; post_len = wb_post_len;
     wb_post = NULL; wb_post_len = 0;
@@ -7041,7 +7083,7 @@ static void web_fetch(const char *url_in, int mode, int typed) {
             web_note(m, 1);
             return;
         }
-        if (kind < 0 && !ci_find(disp, "attachment") && au_is_audio(ctype, url)) {   /* ecouter ou telecharger ? */
+        if (kind < 0 && !force_dl && !ci_find(disp, "attachment") && au_is_audio(ctype, url)) {   /* ecouter ou telecharger ? */
             au_offer(body, body_len, ctype, disp, url, chunked ? -1 : clen, chunked, header_value(hdrs, "icy-name") != NULL || header_value(hdrs, "icy-metaint") != NULL);
             return;
         }
@@ -9149,8 +9191,8 @@ static void draw_list_radio(void) {
 }
 
 // ---------- Menu (START) : reglages et Quitter ----------
-enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_THEME, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_RESUME, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_LANG, MI_PARTY, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
+enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_THEME, MI_WALL, MI_SAVER, MI_SAVERSTYLE,
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_LANG, MI_GAMES, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
 #define MENU_VIS 13                         /* lignes visibles (le menu defile) */
 static int menu_top = 0;
 static int menu_sel = 0, quit_requested = 0;
@@ -9170,6 +9212,11 @@ static void menu_value(int i, char *out, int cap) {
     case MI_MID:     if (eq_mid) snprintf(out, cap, "%+d dB", eq_mid); else snprintf(out, cap, "0"); break;
     case MI_TREBLE:  if (eq_treble) snprintf(out, cap, "%+d dB", eq_treble); else snprintf(out, cap, "0"); break;
     case MI_LYRICS:  snprintf(out, cap, "%s", lyrics_auto ? "Oui" : "Non"); break;
+    case MI_PODAUTO: snprintf(out, cap, "%s", pod_auto ? "T\xC3\xA9l\xC3\xA9" "charg\xC3\xA9s tout seuls" : "Non"); break;
+    case MI_WALL:    snprintf(out, cap, "%s", wall_on && wall_path[0] ? "Ma photo" : "Violet"); break;
+    case MI_GAMES:   snprintf(out, cap, "(A)"); break;
+    case MI_TITLES:  snprintf(out, cap, "(A)"); break;
+    case MI_RUMBLE:  snprintf(out, cap, "%s", rumble_on ? "Oui" : "Non"); break;
     case MI_PARTY:   snprintf(out, cap, "%s", party_names[party_style]); break;
     case MI_NIGHT:   snprintf(out, cap, "Luminosit\xC3\xA9 %d / 5", night_lum); break;
     case MI_UPDATE:  update_value(out, cap); break;
@@ -9204,9 +9251,10 @@ static void menu_value(int i, char *out, int cap) {
 
 static const char *const menu_labels[MI_COUNT] = {
     "Lecture al\xC3\xA9" "atoire", "R\xC3\xA9p\xC3\xA9tition", "Fondu encha\xC3\xAEn\xC3\xA9", "Liste MUSIQUE", "Volume",
-    "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Th\xC3\xA8me",
-    "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques",
-    "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue du contenu", "Mode soir\xC3\xA9" "e", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
+    "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran",
+    "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
+    "Reprendre au d\xC3\xA9marrage", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue du contenu",
+    "Jeux et karaok\xC3\xA9", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Mise \xC3\xA0 jour", "Quitter GC-MP3" };
 
 static void web_relayout(void);
@@ -9249,6 +9297,15 @@ static void menu_change(int i, int d) {
     case MI_BASS:    eq_bass += 2 * d; eq_preset = 0; eq_setup(); break;
     case MI_TREBLE:  eq_treble += 2 * d; eq_preset = 0; eq_setup(); break;
     case MI_LYRICS:  lyrics_auto = !lyrics_auto; if (lyrics_auto) net_start_async(); break;
+    case MI_PODAUTO: pod_auto = !pod_auto; if (pod_auto) { net_start_async(); podauto_kick(); } break;
+    case MI_WALL:
+        if (!wall_path[0]) { wall_on = 0; lib_note("Choisis une photo : onglet PHOTOS, plein \xC3\xA9" "cran, X"); return; }
+        wall_on = !wall_on;
+        wall_reload();
+        break;
+    case MI_GAMES:   return;
+    case MI_TITLES:  return;
+    case MI_RUMBLE:  rumble_on = !rumble_on; if (rumble_on) rumble(0, 200); break;
     case MI_PARTY:   party_style = (party_style + d + PARTY_STYLES) % PARTY_STYLES; break;
     case MI_NIGHT:   night_lum += d; if (night_lum < 1) night_lum = 1; if (night_lum > 5) night_lum = 5; break;
     case MI_UPDATE:  return;
@@ -9301,6 +9358,12 @@ static void menu_input(u32 down, u32 nav, int fire) {
             return;
         }
         else if (menu_sel == MI_UPDATE) { update_activate(); return; }
+        else if (menu_sel == MI_GAMES || menu_sel == MI_TITLES) {    /* A = ouvrir la liste */
+            menu_open = 0;
+            if (settings_dirty) save_settings();
+            if (menu_sel == MI_GAMES) games_open(); else titles_open();
+            return;
+        }
         else if (menu_sel == MI_SAVERSTYLE) {                 /* A = apercu de l'economiseur */
             menu_open = 0;
             if (settings_dirty) save_settings();
@@ -9832,6 +9895,7 @@ static void party_start(void) {
 
 static void party_beat(float strength) {
     pt_beat = 1.0f;
+    party_rumble(strength);
     pt_hue += 35.0f + (float)(rand() % 50);
     for (int i = 0; i < PT_RINGS; i++)                              /* un anneau qui s'eloigne */
         if (ring_a[i] <= 0.01f) { ring_r[i] = 40.0f; ring_a[i] = 0.9f; ring_h[i] = pt_hue; break; }
@@ -10122,6 +10186,7 @@ static void music_pump(void) {
 // ---------- Programme ----------
 #include "night.c"
 #include "gckb.c"
+#include "fun_extra.c"                         /* v18 : karaoke, jeux, reveil, titres radio... */
 
 int main(int argc, char **argv) {
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;
@@ -10172,7 +10237,7 @@ int main(int argc, char **argv) {
         if (down || moved || kfire) last_input_ms = now;
         if (saver_on) {
             if (down || moved || kfire) { saver_on = 0; down = 0; held = 0; kfire = 0; }
-        } else if (saver_min > 0 && now - last_input_ms > (u64)saver_min * 60000 && !kb_open && !menu_open && !party_on && !night_on) {
+        } else if (saver_min > 0 && now - last_input_ms > (u64)saver_min * 60000 && !kb_open && !menu_open && !party_on && !night_on && !fun_mode) {
             saver_on = 1;
         }
 
@@ -10194,6 +10259,12 @@ int main(int argc, char **argv) {
         else if (menu_open) { menu_input(down, nav, fire); down = 0; fire = 0; }
         else if (kb_open) { kb_input(down, nav, fire); down = 0; fire = 0; }   /* START = valider */
         else if (am_open) { actions_input(down, nav, fire); down = 0; fire = 0; }
+        else if (fun_mode && !night_on) {                     /* karaoke, jeux, reveil */
+            u32 keep = fun_mode == FUN_KARAOKE ? (down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) : 0;
+            fun_input(down, nav, fire);
+            down = keep; fire = 0;
+        }
+        fun_pump(pads);
         if (quit_requested) break;
 
         /* minuterie : le son baisse pendant 30 s, puis tout s'arrete */
@@ -10208,13 +10279,14 @@ int main(int argc, char **argv) {
             if (pc && pc != cs_prev) { party_style = (party_style + pc + PARTY_STYLES) % PARTY_STYLES; pt_hint_until = now + 2500; settings_dirty = 1; }
             cs_prev = pc;
             if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) party_on = 0;
+            if ((down & PAD_BUTTON_X) && src == SRC_RADIO) radio_title_keep();
             if (down & PAD_BUTTON_Y) {
                 if (src == SRC_FILE && playing) paused = !paused;
                 else if (src == SRC_RADIO) muted = !muted;
             }
             down &= (PAD_TRIGGER_L | PAD_TRIGGER_R);
             fire = 0;
-        } else if (!menu_open && !kb_open && !night_on && (tab == TAB_MUSIC || tab == TAB_RADIO)) {
+        } else if (!menu_open && !kb_open && !night_on && !fun_mode && (tab == TAB_MUSIC || tab == TAB_RADIO)) {
             static int cu_prev = 0;
             int cu = sy > 60;
             if (cu && !cu_prev) party_start();            /* stick C vers le haut */
@@ -10229,14 +10301,14 @@ int main(int argc, char **argv) {
         {
             static int cd_prev = 0;
             int cdn = sy < -60;
-            if (cdn && !cd_prev && !party_on && !night_on && !menu_open && !kb_open && IS_PLAYER_TAB(tab)) layout_next();
+            if (cdn && !cd_prev && !party_on && !night_on && !menu_open && !kb_open && !fun_mode && IS_PLAYER_TAB(tab)) layout_next();
             cd_prev = cdn;
         }
 
         /* stick C gauche / droite : vue de la liste MUSIQUE */
         int cdir = (sx > 60) ? 1 : (sx < -60) ? -1 : 0;
         if (!party_on) {
-            if (cdir && cdir != cs_prev && tab == TAB_MUSIC && !night_on && !menu_open && !kb_open) { set_view(view_mode + cdir); settings_dirty = 1; }
+            if (cdir && cdir != cs_prev && tab == TAB_MUSIC && !night_on && !menu_open && !kb_open && !fun_mode) { set_view(view_mode + cdir); settings_dirty = 1; }
             cs_prev = cdir;
         }
 
@@ -10289,6 +10361,7 @@ int main(int argc, char **argv) {
             if (down & PAD_BUTTON_A) radio_activate();
             if (down & PAD_BUTTON_B) { stop_track(); stop_station(); track_err = NULL; err_msg[0] = 0; }
             if ((down & PAD_BUTTON_X) && rb_mode && sel_station > 0) rb_add_favorite(sel_station - 1);
+            else if (down & PAD_BUTTON_X) radio_title_keep();      /* garder le titre qui passe */
             if (down & PAD_BUTTON_Y) {
                 if (src == SRC_FILE && playing) paused = !paused;
                 else if (src == SRC_RADIO) muted = !muted;
