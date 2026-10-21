@@ -18,7 +18,7 @@ static const char *POD_DEFAULT =
     "Les odyss\xC3\xA9" "es | https://radiofrance-podcast.net/podcast09/podcast_c361798b-d6e3-4282-ba0a-ebb051b9e424.xml\n"
     "Interception | https://radiofrance-podcast.net/podcast09/podcast_886cc3b6-cd86-11e0-b8ee-842b2b72cd1d.xml\n";
 
-typedef struct { char title[160]; char url[384]; char date[24]; int dur; long bytes; } ep_t;
+typedef struct { char title[160]; char url[URL_MAX]; char date[24]; int dur; long bytes; } ep_t;
 static pod_t pods[POD_MAX];
 static int npods = 0, pods_loaded = 0;
 static ep_t *eps = NULL;                    /* episodes du podcast ouvert */
@@ -32,7 +32,7 @@ static u64 pod_msg_t = 0;
 static int pod_on = 0, pod_dur = 0;
 static int pod_offset = 0;                  /* secondes sautees au debut (reprise, avance) */
 static int pod_starting = 0;
-static char pod_ep_url[384], pod_ep_title[160];
+static char pod_ep_url[URL_MAX], pod_ep_title[160];
 static long pod_ep_bytes = 0;
 static u64 pod_save_t = 0;
 
@@ -59,7 +59,7 @@ static void pods_load(void) {
         f = fopen(POD_FILE, "r");
         if (!f) return;
     }
-    char line[600];
+    static char line[URL_MAX + 64];
     while (fgets(line, sizeof(line), f) && npods < POD_MAX) {
         char *t = trim(line);
         if (!t[0] || t[0] == '#') continue;
@@ -94,7 +94,7 @@ static void pods_add(const char *name, const char *url) {
 static int pod_get_pos(const char *url) {
     FILE *f = sd_ok ? fopen(POD_POS, "r") : NULL;
     if (!f) return 0;
-    char line[600];
+    static char line[URL_MAX + 64];
     int pos = 0;
     while (fgets(line, sizeof(line), f)) {
         char *bar = strchr(line, '|');
@@ -110,26 +110,29 @@ static void pod_set_pos(const char *url, int sec) {
     if (!sd_ok || !url[0]) return;
     mkdir(SD_ROOT "/podcasts", 0777);
     /* on reecrit le fichier (au plus 200 episodes retenus) */
-    static char keep[200][420];
+    enum { KEEP_LEN = URL_MAX + 16 };
+    char (*keep)[KEEP_LEN] = malloc(200 * KEEP_LEN);
+    if (!keep) return;
     int nk = 0;
     FILE *f = fopen(POD_POS, "r");
     if (f) {
-        char line[600];
+        static char line[URL_MAX + 64];
         while (fgets(line, sizeof(line), f) && nk < 199) {
             char *bar = strchr(line, '|');
             if (!bar) continue;
             char *u = trim(bar + 1);
             if (!strcmp(u, url)) continue;
-            snprintf(keep[nk++], sizeof(keep[0]), "%d | %s", atoi(line), u);
+            snprintf(keep[nk++], KEEP_LEN, "%d | %s", atoi(line), u);
         }
         fclose(f);
     }
     f = fopen(POD_POS, "w");
-    if (!f) return;
+    if (!f) { free(keep); return; }
     int start = nk > 198 ? nk - 198 : 0;
     for (int i = start; i < nk; i++) fprintf(f, "%s\n", keep[i]);
     fprintf(f, "%d | %s\n", sec, url);
     fclose(f);
+    free(keep);
 }
 
 static void podcast_save_pos(void) {
@@ -279,7 +282,7 @@ static void podcast_search(const char *q) {
     char enc[400], url[URL_MAX];
     if (!url_encode(q, enc, sizeof(enc))) return;
     net_start_async();
-    snprintf(url, sizeof(url), ITUNES_BASE "/search?media=podcast&entity=podcast&country=FR&limit=40&term=%s", enc);
+    snprintf(url, sizeof(url), ITUNES_BASE "/search?media=podcast&entity=podcast&country=%s&limit=40&term=%s", lang_country(), enc);
     pdf.image = 0;
     pdf.maxbytes = 1024 * 1024;
     pdf.accept = "application/json";
@@ -317,6 +320,20 @@ static void podcast_play_at(int sec) {
     long bps = (pod_ep_bytes > 0 && pod_dur > 0) ? pod_ep_bytes / pod_dur : 16000;     /* octets par seconde */
     http_range = sec > 0 ? (long)sec * bps : 0;
     pod_offset = sec;
+    /* M4A : la position exacte vient de la table (lue au premier passage) */
+    ms.want = -1;
+    ms.want_sec = sec > 0 ? sec : -1;
+    if (ms_have_table(pod_ep_url)) {
+        u32 s = mp4_sample_at(&ms.m, sec), off = 0, size;
+        mp4it_t it;
+        mp4_it_seek(&ms.m, &it, s);
+        if (sec > 0 && mp4_it_peek(&ms.m, &it, &off, &size)) {
+            http_range = (long)off;
+            ms.want = (int)s;
+            ms.want_sec = -1;
+            pod_offset = (int)(mp4_time_of(&ms.m, s) + 0.5);
+        } else { http_range = 0; ms.want_sec = -1; }
+    } else if (sec > 0 && mp4_url_looks(pod_ep_url, "")) http_range = 0;     /* il faut d'abord la table */
     snprintf(stations[nstations].name, sizeof(stations[nstations].name), "%s", pod_ep_title);
     snprintf(stations[nstations].url, sizeof(stations[nstations].url), "%s", pod_ep_url);
     net_start_async();
@@ -330,7 +347,7 @@ static void podcast_play_at(int sec) {
 static void podcast_play(const ep_t *ep) {
     crumb("podcast : %.80s", ep->title);
     podcast_leave();
-    if (strlen(ep->url) >= sizeof(stations[0].url)) { pod_note("Adresse de l'\xC3\xA9pisode trop longue"); return; }
+    if (strlen(ep->url) >= sizeof(stations[0].url) - 1) { pod_note("Adresse de l'\xC3\xA9pisode trop longue"); return; }
     snprintf(pod_ep_url, sizeof(pod_ep_url), "%s", ep->url);
     snprintf(pod_ep_title, sizeof(pod_ep_title), "%s", ep->title);
     pod_ep_bytes = ep->bytes;
