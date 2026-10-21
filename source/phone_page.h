@@ -56,7 +56,7 @@ static const char phone_page[] =
 "  <option value=\"mp3\">Musique (SD:/mp3)</option><option value=\"downloads\">T&eacute;l&eacute;chargements</option>\n"
 "  <option value=\"retro\">R&eacute;tro (SD:/retro)</option><option value=\"photos\">Photos (SD:/photos)</option>\n"
 "  <option value=\"ecran\">&Eacute;cran de veille (SD:/ecran)</option><option value=\"videos\">Vid&eacute;os (SD:/videos)</option>\n"
-"  <option value=\"radio\">Logos des radios (SD:/radio)</option></select></label>\n"
+"  <option value=\"radio\">Logos des radios (SD:/gc-mp3/radio)</option></select></label>\n"
 " <p><input type=\"file\" id=\"fi\" multiple></p>\n"
 " <button class=\"big\" onclick=\"go()\">Envoyer sur la carte SD</button>\n"
 " <div class=\"up\" id=\"ul\"></div><p class=\"hint\" id=\"fr\"></p>\n"
