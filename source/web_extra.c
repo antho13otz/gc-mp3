@@ -337,7 +337,7 @@ static void au_choose(u32 down) {
 static void draw_audio_offer(void) {
     if (!au.on) return;
     char t[200], fit[200];
-    gx_quad4(scr_x0, 0, scr_x0 + scr_w, 480, RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130));
+    gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130));
     gx_rrect_fill(110, 170, 420, 120, 10, RGBA(14, 8, 44, 255), RGBA(8, 5, 26, 255));
     draw_panel(110, 170, 420, 120);
     gx_text1(F_LARGE, 130, 202, au.live ? "Flux audio" : "Fichier audio", RGBA(255, 255, 255, 255));
@@ -384,7 +384,7 @@ static void draw_select_picker(void) {
     if (sp_sel >= sp_top + vis) sp_top = sp_sel - vis + 1;
     int rows = f->nopt < vis ? f->nopt : vis;
     f32 h = 30 + rows * 24, y = 240 - h / 2;
-    gx_quad4(scr_x0, 0, scr_x0 + scr_w, 480, RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130));
+    gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130));
     gx_rrect_fill(130, y, 380, h, 10, RGBA(14, 8, 44, 255), RGBA(8, 5, 26, 255));
     draw_panel(130, y, 380, h);
     char t[300], fit[200];
@@ -411,6 +411,7 @@ static u64 ptr_t = 0;
 
 /* lien sous un point de l'ecran, -1 = aucun */
 static int web_link_at(f32 x, f32 y) {
+    x = WV_X + (x - WV_X) * ux_k;                         /* (16:9 : coordonnees de la page) */
     int lo = 0, hi = pg.nitems;
     while (lo < hi) {
         int mid = (lo + hi) / 2;
@@ -453,9 +454,11 @@ static int ptr_update(void) {
 static void draw_pointer(void) {
     if (!ptr_on) return;
     f32 x = ptr_x, y = ptr_y;
+    uxsave_t uz = ux_native(x);
     gx_tri(x + 1, y + 1, x + 1, y + 19, x + 14, y + 14, RGBA(0, 0, 0, 150));             /* ombre */
     gx_tri(x, y, x, y + 18, x + 13, y + 13, RGBA(255, 255, 255, 255));
     gx_tri(x + 2, y + 4, x + 2, y + 14, x + 9, y + 11, pg_sel >= 0 ? RGBA(150, 80, 255, 255) : RGBA(90, 80, 130, 255));
+    ux_restore(uz);
 }
 
 /* ===================== Adresse envoyee par le telephone ===================== */
