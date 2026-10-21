@@ -446,6 +446,7 @@ static void draw_actions(void) {
     gx_rrect_fill(x + 12, sy, w - 24, rh - 3, 6, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
     for (int i = top; i < am_n && i < top + vis; i++) {
         f32 ry = y + 42 + (i - top) * rh;
+        gp_zone(x + 12, ry, w - 24, rh - 3, &am_sel, i, GPZ_SEL);
         fit_text(F_MED, am_txt[i], (int)w - 50, t, sizeof(t));
         col_t c = am_code[i] == AC_DELLIST || am_code[i] == AC_REMOVE || am_code[i] == AC_TITLES_CLEAR ? RGBA(255, 180, 180, 255) : RGBA(235, 228, 255, 255);
         gx_text1(F_MED, x + 26, ry + 17, t, i == am_sel ? RGBA(255, 255, 255, 255) : c);
