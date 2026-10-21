@@ -410,14 +410,14 @@ static void photo_pump_tab(void) {
 static void draw_tab_photo(void) {
     char buf[NAME_LEN], d[NAME_LEN];
     if (pv_mode == 2) {                                   /* video plein ecran */
-        gx_rect(0, 0, 640, 480, RGBA(0, 0, 0, 255));
-        if (av_tex) draw_tex_fit(&av_obj, av_tw, av_th, av_iw, av_ih, 0, 0, 640, 480);
+        gx_rect(scr_x0, 0, scr_w, 480, RGBA(0, 0, 0, 255));
+        if (av_tex) draw_tex_fit(&av_obj, av_tw, av_th, av_iw, av_ih, scr_x0, 0, scr_w, 480);
         else gx_text_c(F_MED, 320, 240, "Chargement...", RGBA(255, 255, 255, 255));
         return;
     }
     if (pv_mode == 1) {                                   /* photo plein ecran */
-        gx_rect(0, 0, 640, 480, RGBA(0, 0, 0, 255));
-        if (big_tex && big_file == pf_sel) draw_tex_fit(&big_obj, big_tw, big_th, big_iw, big_ih, 0, 0, 640, 448);
+        gx_rect(scr_x0, 0, scr_w, 480, RGBA(0, 0, 0, 255));
+        if (big_tex && big_file == pf_sel) draw_tex_fit(&big_obj, big_tw, big_th, big_iw, big_ih, scr_x0, 0, scr_w, 448);
         else if (pf[pf_sel].bad) gx_text_c(F_MED, 320, 230, "Photo illisible ou trop grande (1920 x 1080 maximum)", RGBA(255, 210, 120, 255));
         else gx_text_c(F_MED, 320, 230, "Chargement...", RGBA(255, 255, 255, 255));
         text_display(base_of(pf[pf_sel].path), d, sizeof(d));
