@@ -63,6 +63,22 @@ Les basses donnent le rythme (pulsations, éclairs, anneaux, particules), les co
 la musique, et les **paroles s'affichent en grand** (sinon le titre et l'artiste).
 Trois styles : *Pulsation*, *Barres*, *Tunnel* (stick C gauche / droite pour changer).
 L / R et Y marchent comme d'habitude ; B ou START pour sortir.
+**La manette vibre** sur les gros coups de basse (START > Vibrations de la manette pour l'arrêter).
+En écoutant une radio, X garde le titre qui passe (voir l'onglet RADIO, *Titres de la radio*).
+
+## Jeux et karaoké
+Dans MUSIQUE, **X sur un morceau** (ou START > Jeux et karaoké) :
+- **Karaoké** : les paroles en très grand sur toute la télé. La ligne chantée se colore de gauche à
+  droite, la précédente et les suivantes sont affichées autour. L / R = morceau, Y = pause, B = sortir.
+  Les paroles viennent d'un fichier `.lrc` à côté du morceau ou de LRCLIB (paroles automatiques).
+- **Jeu de rythme** : comme Guitar Hero, sur tes propres morceaux. GC-MP3 écoute les basses, trouve
+  le tempo, et fait tomber des notes A / B / X / Y sur les temps. Appuie quand la note touche la ligne :
+  *Parfait*, *Bien*, *OK*… Le combo multiplie les points (jusqu'à x4). Trois difficultés (Facile, Normal,
+  Difficile). Z = pause, START = arrêter. Le record de chaque morceau est gardé dans
+  `SD:/gc-mp3-jeux.txt`. Les morceaux au rythme bien marqué marchent le mieux.
+- **Quiz musical** : 10 secondes d'un de tes morceaux (pris au milieu), 4 réponses : trouve lequel !
+  De 1 à 4 joueurs, chacun avec sa manette (A, B, X ou Y). Plus on répond vite, plus on gagne de points ;
+  le premier qui trouve a un bonus. 10 manches, puis le classement. Il faut au moins 4 morceaux.
 
 ## Onglet RÉTRO
 Musique de jeux vidéo, rangée à part dans `SD:/retro` (sous-dossiers compris), avec le nom de la console :
@@ -85,11 +101,18 @@ Les morceaux qui bouclent sont joués deux fois puis s'éteignent en fondu. Dans
 - Épisodes en **MP3 ou M4A** (Radio France publie souvent en M4A), adresses longues acceptées
   (2048 caractères). En M4A, les sauts L / R et la reprise sont exacts.
 - La recherche utilise le catalogue du pays de la **langue du contenu** (menu START).
+- **Nouveaux épisodes automatiques** : GC-MP3 regarde tes abonnements un peu après le démarrage,
+  puis toutes les 3 heures. Quand un podcast a un nouvel épisode, il est téléchargé tout seul dans
+  `SD:/podcasts` (un message le dit en bas de l'écran). La première fois, il note seulement le
+  dernier épisode (rien n'est téléchargé). START > Nouveaux podcasts pour l'arrêter.
 
 ## Onglet PHOTOS
 - Les images `.jpg` / `.png` de `SD:/photos`, `SD:/ecran` et `SD:/downloads` en vignettes.
   A = plein écran (croix = photo précédente / suivante, A = diaporama), Y = diaporama direct.
   La musique continue pendant ce temps.
+- **Fond d'écran** : en plein écran, **X** met la photo en fond de GC-MP3 à la place du fond violet
+  (assombrie pour que le texte reste lisible ; les panneaux deviennent un peu transparents).
+  START > Fond d'écran pour revenir au violet.
 - **Vidéos** `.avi` (MJPEG + son PCM, 640 × 480 maximum) dans `SD:/videos`. Pour convertir une vidéo
   sur ordinateur :
   `ffmpeg -i film.mp4 -vf scale=320:-2 -r 20 -c:v mjpeg -q:v 5 -c:a pcm_s16le -ar 32000 film.avi`
@@ -105,7 +128,9 @@ copier, couper, coller, nouveau dossier. L'espace libre s'affiche en bas.
 - **Actualités** : les titres d'un flux RSS (France Info par défaut, réglage `actualites` dans
   `gc-mp3.txt`) ; A ouvre l'article dans l'onglet WEB. X = actualiser.
 - **Réveil** : A l'active, gauche / droite règle l'heure (par 5 min) ; la ligne suivante choisit
-  ce qu'il joue (ta musique ou une de tes radios). Le son monte doucement pendant 30 s.
+  ce qu'il joue (ta musique ou une de tes radios). **Réveil en douceur** : le son part de presque
+  rien et monte pendant 3 minutes, et l'écran affiche en grand l'heure, la date et **la météo du
+  jour** (chargée 5 minutes avant). A = garder la musique, B = arrêter le réveil.
   La GameCube doit rester allumée sur GC-MP3, et l'heure vient de son horloge.
 
 ## Onglet TÉLÉPHONE
@@ -136,6 +161,10 @@ les dossiers prévus.
 - Préférer des serveurs proches (France / Europe) : avec les serveurs lointains, le réseau
   de la GameCube peut être trop lent pour du 128 kbps.
 - Logo facultatif : `SD:/radio/<Nom>.jpg` ou `.png`.
+- **Titres de la radio** : quand une chanson te plaît, **X** (dans l'onglet RADIO ou en mode soirée)
+  garde son titre dans `SD:/gc-mp3-titres.txt`, avec la radio, la date et l'heure. START > Titres
+  radio gardés pour les revoir (A = le chercher dans ta musique). Sur le téléphone (onglet Radios
+  de la page du QR code), toucher un titre le cherche sur YouTube.
 - Les certificats https sont vérifiés (liste Mozilla), sauf les dates d'expiration (horloge
   de la GameCube souvent fausse). L'aléa du chiffrement vient de l'horloge du processeur
   (pas de générateur matériel) : suffisant pour la radio, pas pour des mots de passe.
@@ -197,7 +226,8 @@ gardent leurs vraies proportions, et les pages web sont mises en page plus large
 **langue du contenu** (Auto = langue de la console réglée dans l'IPL, ou français, anglais, allemand,
 espagnol, italien, néerlandais : pays des podcasts et des « radios les plus écoutées », langue demandée
 aux sites web et noms de villes de la météo ; l'interface reste en français),
-**mode soirée**, **minuterie** (arrêt après 15 à 120 min, le son baisse doucement les 30 dernières
+**fond d'écran** (violet ou ta photo), **nouveaux podcasts** (téléchargés tout seuls),
+**jeux et karaoké**, **titres radio gardés**, **mode soirée**, **vibrations de la manette**, **minuterie** (arrêt après 15 à 120 min, le son baisse doucement les 30 dernières
 secondes), **disposition du lecteur**, **éléments du lecteur**, **onglets affichés**,
 enregistrement de la radio, et **Quitter**. Tout est enregistré dans `SD:/gc-mp3.txt`.
 
