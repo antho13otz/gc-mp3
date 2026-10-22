@@ -400,10 +400,11 @@ static void nat_journal_convert(void) {
     if (len < 512 || be32(d) != NATRES_MAGIC) { free(d); return; }
     FILE *f = fopen(NA_JTXT, "w");
     if (f) {
-        u32 H[40];
-        for (int i = 0; i < 40; i++) H[i] = be32(d + i * 4);
-        int v3 = H[1] >= 3;                               /* (v57 : en-tete de 0xA0 octets) */
-        if (!v3) for (int i = 32; i < 40; i++) H[i] = 0;
+        u32 H[44];
+        for (int i = 0; i < 44; i++) H[i] = be32(d + i * 4);
+        int v3 = H[1] >= 3, v4 = H[1] >= 4;               /* (en-tete : 0x80, 0xA0 (v57), 0xB0 (v59) octets) */
+        if (!v3) for (int i = 32; i < 44; i++) H[i] = 0;
+        if (!v4) for (int i = 40; i < 44; i++) H[i] = 0;
         static const char *const en[] = { "OK", "pas de carte", "la carte ne demarre pas", "commande refusee", "pas de donnees", "hors de l'ISO", "delai depasse" };
         fprintf(f, "GC Station - journal du dernier jeu lance par le lanceur maison\n\n");
         fprintf(f, "Carte SD : %s, etape %u, erreur : %s (reponse %02X)\n", H[10] ? "SDHC" : "SD", (unsigned)H[13], H[11] < 7 ? en[H[11]] : "?", (unsigned)H[12]);
@@ -418,10 +419,12 @@ static void nat_journal_convert(void) {
             fprintf(f, "Le jeu tournait encore : %u images (VI), %u lectures des manettes (SI)%s\n", (unsigned)H[36], (unsigned)H[37],
                     H[36] ? "" : "  (crochets pas branches)");
             if (H[38]) fprintf(f, "Retour a GC Station demande (A+Z+START)\n");
+            if (v4) fprintf(f, "Manettes (A+Z+START %s) : %u lues, %u laissees au jeu, touches manette 1 : %04X (%u changements)\n",
+                            H[18] & NRF_IGR ? "actif" : "coupe", (unsigned)H[40], (unsigned)H[41], (unsigned)H[42], (unsigned)H[43]);
             fprintf(f, "\n");
         }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
-        int nring = v3 ? NATRES_LOGN : 24, rbase = v3 ? 0xA0 : 0x80;
+        int rbase = v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
         for (int k = 0; k < nring; k++) {
             const u8 *e = d + rbase + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);
@@ -760,7 +763,7 @@ static const char *nat_boot(int k) {
             na_wbe32(r + 0x14, sd_slot == 0 ? 2 : sd_slot == 1 ? 0 : 1);   /* canal EXI */
             na_wbe32(r + 0x18, 0); na_wbe32(r + 0x1C, 4);                   /* peripherique, 16 MHz */
             na_wbe32(r + 0x20, na_next);
-            na_wbe32(r + 0x48, NRF_REAL_IRQ);
+            na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0));
             na_wbe32(r + 0x60, log_sec);                                    /* (natres_hdr_t.log_sec) */
             for (u32 i = 0; i < na_next; i++) {
                 na_wbe32(r + eo + i * 12, na_ext[i].iso); na_wbe32(r + eo + i * 12 + 4, na_ext[i].sd); na_wbe32(r + eo + i * 12 + 8, na_ext[i].cnt);

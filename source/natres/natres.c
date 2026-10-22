@@ -36,6 +36,7 @@ natres_hdr_t natres_hdr = {
     0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0,
 };
 #define H natres_hdr
 
@@ -306,8 +307,11 @@ static void si_hook(u32 irq, u32 ctx) {
         /* v58 : lire SICnINBUFH efface le drapeau "donnees neuves" (RDST) : si le jeu ne les a
            pas encore prises, il croirait la manette debranchee (1080 : fige sur la question 60 Hz).
            On ne lit donc que si le jeu les a deja prises (RDST = 0). */
-        if (sr & (0x20000000u >> (ch * 8))) continue;
+        if (sr & (0x20000000u >> (ch * 8))) { H.si_skip++; continue; }
         u32 b = si[ch * 3 + 1];                          /* SICnINBUFH : boutons (deja lus par le jeu) */
+        (void)si[ch * 3 + 2];                            /* v59 : puis INBUFL, comme le jeu (H puis L : rien de bloque) */
+        H.si_reads++;
+        if (ch == 0 && (b >> 16) != H.si_last) { H.si_last = b >> 16; H.si_changes++; }
         if (b & 0x80000000u) continue;                   /* (pas de manette) */
         if ((b & 0x11000000u) == 0x11000000u && (b & 0x00100000u)) on = 1;   /* A + START, Z */
     }
@@ -324,7 +328,7 @@ static void hooks_check(void) {
     if (d < 0x80003100u || d >= 0x81800000u) return;     /* (pas la table du SDK : on ne touche a rien) */
     u32 v = t[24], s = t[20];
     if (v && v != (u32)vi_hook && v >= 0x80003100u && v < 0x81800000u) { vi_orig = v; t[24] = (u32)vi_hook; }
-    if (s && s != (u32)si_hook && s >= 0x80003100u && s < 0x81800000u) { si_orig = s; t[20] = (u32)si_hook; }
+    if ((H.flags & NRF_IGR) && s && s != (u32)si_hook && s >= 0x80003100u && s < 0x81800000u) { si_orig = s; t[20] = (u32)si_hook; }
 }
 
 static void di_exec(void) {

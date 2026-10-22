@@ -1022,3 +1022,5 @@
     { "Manettes (dans les jeux)", "Controllers (in games)" },
     { "\xC3\x89mulation (dans les jeux)", "Emulation (in games)" },
     { "M\xC3\xAAme r\xC3\xA9glage que \xC2\xAB Couper les vibrations \xC2\xBB (section Manettes)", "Same setting as \\xC2\\xAB Disable PAD Rumble \\xC2\\xBB (Pads section)" },
+    { "A+Z+START (lanceur maison)", "A+Z+START (home-made launcher)" },
+    { "Jeux lanc\xC3\xA9s avec X : A+Z+START tenus 1 s = retour \xC3\xA0 GC Station", "Games launched with X: hold A+Z+START 1 s = back to GC Station" },
