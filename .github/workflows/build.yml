@@ -79,7 +79,7 @@ jobs:
           echo "4c7cb2ff1f7011e9d67950446b7eb9ca044f2e464d76bfbb0b84dd2e23e65636  source/stb_vorbis.c" | sha256sum -c -
 
       # Musique retro : game-music-emu 0.6.5 (SPC, NSF, GBS, VGM, HES, KSS, AY, SAP)
-      # et libxmp 4.7.4 "lite" (MOD, XM, IT, S3M). Archives figees ; seuls les
+      # et libxmp 4.7.4 complete (plus de 50 formats). Archives figees ; seuls les
       # fichiers utiles sont extraits puis verifies (empreinte dans le script).
       - name: Télécharger les lecteurs de musique rétro (gme, libxmp) et le décodeur WebP
         run: |

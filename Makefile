@@ -20,7 +20,7 @@ HELIX_SRC:= $(wildcard $(HELIX)/*.c)
 HELIX_OBJ:= $(patsubst $(HELIX)/%.c,build/helix/%.o,$(HELIX_SRC))
 # FLAC (dr_flac) et OGG Vorbis (stb_vorbis) : telecharges par le workflow, compiles dans codecs.c
 CODEC_OBJ:= build/codecs.o
-# Musique de jeux retro : game-music-emu (C++) et libxmp-lite (modules),
+# Musique de jeux retro : game-music-emu (C++) et libxmp complete (modules),
 # telecharges par le workflow (tools/fetch_libs.py)
 GME      := gme
 XMP      := xmp
@@ -37,7 +37,7 @@ WEBP     := webp
 WEBP_SRC := $(wildcard $(WEBP)/src/dec/*.c) $(wildcard $(WEBP)/src/dsp/*.c) $(wildcard $(WEBP)/src/utils/*.c)
 WEBP_OBJ := $(patsubst $(WEBP)/src/%.c,build/webp/%.o,$(WEBP_SRC))
 WEBPFLAGS:= -O2 $(MACHDEP) -DNDEBUG -fwrapv -I$(WEBP) -w
-XMPFLAGS := -O2 $(MACHDEP) -fwrapv -DLIBXMP_CORE_PLAYER -DLIBXMP_STATIC -I$(XMP)/include -I$(XMP)/src -w
+XMPFLAGS := -O2 $(MACHDEP) -fwrapv -DLIBXMP_STATIC -DLIBXMP_NO_PROWIZARD -DLIBXMP_NO_DEPACKERS -I$(XMP)/include -I$(XMP)/src -w
 
 # numero de compilation (GitHub Actions) : sert a la mise a jour en un clic
 BUILD_NUM ?= 0

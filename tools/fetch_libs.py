@@ -2,13 +2,13 @@
 # Extrait de deux archives GitHub (versions figees) uniquement les fichiers
 # utilises par GC-MP3, puis verifie leur empreinte globale.
 #   game-music-emu 0.6.5 (SPC, NSF, GBS, VGM...)  -> dossier gme/
-#   libxmp 4.7.4 partie "lite" (MOD, XM, IT, S3M) -> dossier xmp/
+#   libxmp 4.7.4 complete (MOD, XM, IT, S3M, MED, MTM, 669, OKT, DBM... plus de 50 formats) -> dossier xmp/
 #   libwebp 1.6.0, decodeur seulement (images WebP du navigateur) -> dossier webp/
 # Usage : python3 tools/fetch_libs.py gme.tar.gz xmp.tar.gz webp.tar.gz
 import hashlib, os, shutil, sys, tarfile
 
 GME_SHA = "cc518dd1e7860836802d841190ff88514c7bb7fe83ecb5d0c5afa66bc49669c5"
-XMP_SHA = "1ba6812c5d21c520d6f88c5944ffea7d2beb8c8ed5dfc9703712759a82be1164"
+XMP_SHA = "17455f85f8dba867a3799eee14317f7c6d063b4ae5d68e17f3be574e98212b32"
 WEBP_SHA = "d302fc6dec970e38b25f7406f7abdd553359c1dc49a65727ac2143f9439df8c8"
 
 GME_FILES = [
@@ -43,23 +43,49 @@ GME_FILES = [
 
 XMP_FILES = [
     "include/xmp.h", "src/callbackio.h", "src/common.h", "src/control.c",
-    "src/dataio.c", "src/effects.c", "src/effects.h", "src/extras.h",
-    "src/far_extras.h", "src/filetype.c", "src/filter.c", "src/flow.c",
-    "src/flt_extras.h", "src/format.c", "src/format.h", "src/hio.c",
-    "src/hio.h", "src/hmn_extras.h", "src/lfo.c", "src/lfo.h", "src/load.c",
-    "src/load_helpers.c", "src/loaders/common.c", "src/loaders/iff.h",
-    "src/loaders/it.h", "src/loaders/it_load.c", "src/loaders/itsex.c",
-    "src/loaders/loader.h", "src/loaders/lzw.h", "src/loaders/med.h",
-    "src/loaders/mod.h", "src/loaders/mod_load.c", "src/loaders/s3m.h",
-    "src/loaders/s3m_load.c", "src/loaders/sample.c", "src/loaders/vorbis.h",
-    "src/loaders/xm.h", "src/loaders/xm_load.c", "src/md5.h",
-    "src/mdataio.h", "src/med_extras.h", "src/memio.c", "src/memio.h",
-    "src/miniz.h", "src/misc.c", "src/mix_all.c", "src/mix_all.h",
-    "src/mixer.c", "src/mixer.h", "src/path.h", "src/paula.h",
-    "src/period.c", "src/period.h", "src/player.c", "src/player.h",
-    "src/precomp_blep.h", "src/precomp_lut.h", "src/read_event.c",
-    "src/rng.c", "src/rng.h", "src/scan.c", "src/smix.c", "src/tempfile.h",
-    "src/virtual.c", "src/virtual.h", "src/win32.c",
+    "src/dataio.c", "src/effects.c", "src/effects.h", "src/extras.c",
+    "src/extras.h", "src/far_extras.c", "src/far_extras.h", "src/filetype.c",
+    "src/filter.c", "src/flow.c", "src/flt_extras.c", "src/flt_extras.h",
+    "src/format.c", "src/format.h", "src/hio.c", "src/hio.h",
+    "src/hmn_extras.c", "src/hmn_extras.h", "src/lfo.c", "src/lfo.h",
+    "src/load.c", "src/load_helpers.c", "src/md5.c", "src/md5.h",
+    "src/mdataio.h", "src/med_extras.c", "src/med_extras.h", "src/memio.c",
+    "src/memio.h", "src/miniz.h", "src/miniz_tinfl.c", "src/misc.c",
+    "src/mix_all.c", "src/mix_all.h", "src/mix_paula.c", "src/mixer.c",
+    "src/mixer.h", "src/path.c", "src/path.h", "src/paula.h", "src/period.c",
+    "src/period.h", "src/player.c", "src/player.h", "src/precomp_blep.h",
+    "src/precomp_lut.h", "src/read_event.c", "src/rng.c", "src/rng.h",
+    "src/scan.c", "src/smix.c", "src/tempfile.h", "src/virtual.c",
+    "src/virtual.h", "src/win32.c", "src/loaders/669_load.c",
+    "src/loaders/abk_load.c", "src/loaders/amf_load.c",
+    "src/loaders/arch_load.c", "src/loaders/asylum_load.c",
+    "src/loaders/chip_load.c", "src/loaders/coco_load.c",
+    "src/loaders/common.c", "src/loaders/dbm_load.c",
+    "src/loaders/digi_load.c", "src/loaders/dt_load.c",
+    "src/loaders/emod_load.c", "src/loaders/far_load.c",
+    "src/loaders/flt_load.c", "src/loaders/fnk_load.c",
+    "src/loaders/gal4_load.c", "src/loaders/gal5_load.c",
+    "src/loaders/gdm_load.c", "src/loaders/hmn_load.c",
+    "src/loaders/ice_load.c", "src/loaders/iff.c", "src/loaders/iff.h",
+    "src/loaders/imf_load.c", "src/loaders/ims_load.c", "src/loaders/it.h",
+    "src/loaders/it_load.c", "src/loaders/itsex.c", "src/loaders/liq_load.c",
+    "src/loaders/loader.h", "src/loaders/lzw.c", "src/loaders/lzw.h",
+    "src/loaders/masi16_load.c", "src/loaders/masi_load.c",
+    "src/loaders/mdl_load.c", "src/loaders/med.h", "src/loaders/med2_load.c",
+    "src/loaders/med3_load.c", "src/loaders/med4_load.c",
+    "src/loaders/mfp_load.c", "src/loaders/mgt_load.c",
+    "src/loaders/mmd1_load.c", "src/loaders/mmd3_load.c",
+    "src/loaders/mmd_common.c", "src/loaders/mod.h", "src/loaders/mod_load.c",
+    "src/loaders/mtm_load.c", "src/loaders/muse_load.c",
+    "src/loaders/no_load.c", "src/loaders/okt_load.c",
+    "src/loaders/pt3_load.c", "src/loaders/ptm_load.c",
+    "src/loaders/rtm_load.c", "src/loaders/s3m.h", "src/loaders/s3m_load.c",
+    "src/loaders/sample.c", "src/loaders/sfx_load.c", "src/loaders/st_load.c",
+    "src/loaders/stim_load.c", "src/loaders/stm_load.c",
+    "src/loaders/stx_load.c", "src/loaders/sym_load.c",
+    "src/loaders/ult_load.c", "src/loaders/umx_load.c",
+    "src/loaders/voltable.c", "src/loaders/vorbis.c", "src/loaders/vorbis.h",
+    "src/loaders/xm.h", "src/loaders/xm_load.c", "src/loaders/xmf_load.c",
 ]
 
 

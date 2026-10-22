@@ -40,15 +40,29 @@ static long gc_samples_total = 0;
 static u16 rb16(const u8 *p) { return (u16)((p[0] << 8) | p[1]); }
 static u32 rb32(const u8 *p) { return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3]; }
 
+/* v26 : libxmp complete = plus de 50 formats de modules (Amiga, PC...) */
+static const char *const retro_xmp_ext[] = { ".mod", ".m15", ".nst", ".wow", ".st", ".xm", ".oxm", ".it", ".s3m", ".stm", ".stx",
+    ".mtm", ".669", ".far", ".ult", ".ptm", ".okt", ".okta", ".med", ".mmd0", ".mmd1", ".mmd2", ".mmd3", ".mmdc", ".dbm", ".digi",
+    ".dsym", ".dtm", ".emod", ".fnk", ".gdm", ".imf", ".ims", ".liq", ".mdl", ".mfp", ".mgt", ".psm", ".j2b", ".rtm", ".sfx",
+    ".sym", ".umx", ".amf", ".abk", ".xmf", ".ice", ".flt", ".hmn", ".mus", NULL };
 static int retro_ext_fmt(const char *path) {
     static const char *const g[] = { ".spc", ".nsf", ".nsfe", ".gbs", ".vgm", ".vgz", ".gym", ".hes", ".kss", ".ay", ".sap" };
-    static const char *const x[] = { ".mod", ".xm", ".it", ".s3m" };
     static const char *const c[] = { ".dsp", ".hps", ".adp" };
     const char *dot = strrchr(path, '.');
-    if (!dot) return -1;
-    for (unsigned i = 0; i < sizeof(g) / sizeof(g[0]); i++) if (!strcasecmp(dot, g[i])) return FMT_GME;
-    for (unsigned i = 0; i < sizeof(x) / sizeof(x[0]); i++) if (!strcasecmp(dot, x[i])) return FMT_XMP;
-    for (unsigned i = 0; i < sizeof(c) / sizeof(c[0]); i++) if (!strcasecmp(dot, c[i])) return FMT_GCN;
+    const char *base = strrchr(path, '/');
+    base = base ? base + 1 : path;
+    if (dot) {
+        for (unsigned i = 0; i < sizeof(g) / sizeof(g[0]); i++) if (!strcasecmp(dot, g[i])) return FMT_GME;
+        for (int i = 0; retro_xmp_ext[i]; i++) if (!strcasecmp(dot, retro_xmp_ext[i])) return FMT_XMP;
+        for (unsigned i = 0; i < sizeof(c) / sizeof(c[0]); i++) if (!strcasecmp(dot, c[i])) return FMT_GCN;
+    }
+    /* noms a l'Amiga : le format AVANT le nom ("mod.ma_musique", "med.titre") */
+    static const char *const pre[] = { "mod.", "med.", "mmd0.", "mmd1.", "mmd2.", "mmd3.", "okt.", "okta.", "dbm.", "digi.", "dsym.",
+                                       "emod.", "fnk.", "ims.", "mfp.", "sfx.", "xm.", "it.", "s3m.", "stk.", "nst.", "ust.", NULL };
+    static const char *const other[] = { ".mp3", ".flac", ".ogg", ".oga", ".wav", ".m4a", ".m4b", ".jpg", ".jpeg", ".png", ".gif",
+                                         ".bmp", ".txt", ".lrc", ".nfo", ".zip", ".rar", ".7z", ".pdf", ".avi", ".dol", ".iso", NULL };
+    if (dot) for (int i = 0; other[i]; i++) if (!strcasecmp(dot, other[i])) return -1;    /* ("it.mp3" reste un MP3) */
+    for (int i = 0; pre[i]; i++) if (!strncasecmp(base, pre[i], strlen(pre[i])) && base[strlen(pre[i])]) return FMT_XMP;
     return -1;
 }
 
@@ -602,8 +616,10 @@ static int retro_subsong_step(int d) {
 static s16 retro_list[MAX_FILES];
 static int retro_n = 0, retro_sel = 0;
 
+static int rz_n = 0;                                  /* v26 : musiques sorties des .zip au dernier passage */
 static void retro_rescan(void) {
     retro_n = 0;
+    if (rz_n) { char b[96]; snprintf(b, sizeof(b), "%d musiques sorties des archives .zip", rz_n); lib_note(b); rz_n = 0; }
     for (int k = 0; k < nfiles; k++) {
         if (!is_retro[k]) continue;
         int n = (int)strlen(names[k]);
@@ -684,4 +700,94 @@ static void draw_list_retro(void) {
         f32 th = 308.0f * MUSIC_ROWS / retro_n, ty = 116.0f + (308.0f - th) * (f32)start / (f32)(retro_n - MUSIC_ROWS);
         gx_rrect_fill(270, ty, 3, th, 1.5f, RGBA(150, 96, 255, 255), RGBA(110, 60, 230, 255));
     }
+}
+
+/* ---------- v26 : archives .zip dans SD:/retro ----------
+   Les packs de musiques (SPC, NSF, VGM...) arrivent souvent en .zip : au
+   premier passage, ils sont decompresses dans un dossier du meme nom, a cote
+   (l'archive reste ; si le dossier existe deja, on n'y touche plus). */
+
+static u32 rz_le32(const u8 *p) { return (u32)p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24; }
+static u16 rz_le16(const u8 *p) { return (u16)(p[0] | p[1] << 8); }
+static int retro_unzip(const char *zpath) {
+    char dir[NAME_LEN];
+    int zl = (int)strlen(zpath);
+    if (zl < 5 || zl - 4 >= (int)sizeof(dir)) return 0;
+    memcpy(dir, zpath, zl - 4); dir[zl - 4] = 0;
+    struct stat st;
+    if (stat(dir, &st) == 0) return 0;                  /* deja fait */
+    FILE *f = fopen(zpath, "rb");
+    if (!f) return 0;
+    long fsz = 0;
+    if (fseek(f, 0, SEEK_END) == 0) fsz = ftell(f);
+    long tail = fsz < 65557 ? fsz : 65557;
+    u8 *t = tail > 22 ? (u8 *)malloc(tail) : NULL;
+    int out = 0;
+    if (!t || fseek(f, fsz - tail, SEEK_SET) != 0 || fread(t, 1, tail, f) != (size_t)tail) { free(t); fclose(f); return 0; }
+    long e = -1;
+    for (long i = tail - 22; i >= 0; i--) if (rz_le32(t + i) == 0x06054b50u) { e = i; break; }
+    if (e < 0) { free(t); fclose(f); return 0; }
+    u32 cnt = rz_le16(t + e + 10), cds = rz_le32(t + e + 12), cdo = rz_le32(t + e + 16);
+    free(t);
+    if (!cnt || cds > (8u << 20) || (u64)cdo + cds > (u64)fsz) { fclose(f); return 0; }
+    u8 *cd = (u8 *)malloc(cds);
+    if (!cd || fseek(f, cdo, SEEK_SET) != 0 || fread(cd, 1, cds, f) != cds) { free(cd); fclose(f); return 0; }
+    int made = 0;
+    u32 p = 0;
+    for (u32 n = 0; n < cnt && p + 46 <= cds; n++) {
+        if (rz_le32(cd + p) != 0x02014b50u) break;
+        u16 meth = rz_le16(cd + p + 10), nl = rz_le16(cd + p + 28), el = rz_le16(cd + p + 30), cl = rz_le16(cd + p + 32);
+        u32 csz = rz_le32(cd + p + 20), usz = rz_le32(cd + p + 24), lho = rz_le32(cd + p + 42);
+        if (p + 46 + nl > cds) break;
+        char name[NAME_LEN];
+        int k = nl < (int)sizeof(name) - 1 ? nl : (int)sizeof(name) - 1;
+        memcpy(name, cd + p + 46, k); name[k] = 0;
+        p += 46 + nl + el + cl;
+        const char *b = strrchr(name, '/');
+        b = b ? b + 1 : name;
+        if (!b[0] || b[0] == '.' || (meth != 0 && meth != 8) || usz == 0 || usz > (24u << 20) || csz > (24u << 20)) continue;
+        if (retro_ext_fmt(b) < 0 && !audio_ext_len(b)) continue;     /* seulement de la musique */
+        u8 lh[30];
+        if (fseek(f, lho, SEEK_SET) != 0 || fread(lh, 1, 30, f) != 30 || rz_le32(lh) != 0x04034b50u) continue;
+        if (fseek(f, lho + 30 + rz_le16(lh + 26) + rz_le16(lh + 28), SEEK_SET) != 0) continue;
+        u8 *c = (u8 *)malloc(csz ? csz : 1), *u = meth == 8 ? (u8 *)malloc(usz) : c;
+        if (!c || !u || fread(c, 1, csz, f) != csz) { free(c); if (u != c) free(u); continue; }
+        int ok = meth == 0 ? csz == usz : stbi_zlib_decode_noheader_buffer((char *)u, (int)usz, (const char *)c, (int)csz) == (int)usz;
+        if (ok) {
+            if (!made) { mkdir(dir, 0777); made = 1; }
+            char safe[200], op[NAME_LEN];
+            snprintf(safe, sizeof(safe), "%s", b);
+            sanitize_name(safe);
+            if (safe[0] && snprintf(op, sizeof(op), "%s/%s", dir, safe) < (int)sizeof(op)) {
+                FILE *w = fopen(op, "wb");
+                if (w) { if (fwrite(u, 1, usz, w) == usz) out++; fclose(w); }
+            }
+        }
+        free(c); if (u != c) free(u);
+        service_audio();
+    }
+    free(cd);
+    fclose(f);
+    return out;
+}
+static void retro_unzip_tree(const char *dir, int depth) {
+    if (!sd_ok) return;
+    DIR *d = opendir(dir);
+    if (!d) return;
+    struct dirent *e;
+    char path[NAME_LEN];
+    char (*zips)[NAME_LEN] = malloc(16 * NAME_LEN), (*subs)[NAME_LEN] = malloc(16 * NAME_LEN);   /* (pas sur la pile) */
+    int nz = 0, ns = 0;
+    if (!zips || !subs) { free(zips); free(subs); closedir(d); return; }
+    while ((e = readdir(d)) != NULL) {
+        if (e->d_name[0] == '.') continue;
+        if (snprintf(path, sizeof(path), "%s/%s", dir, e->d_name) >= (int)sizeof(path)) continue;
+        const char *dot = strrchr(e->d_name, '.');
+        if (dot && !strcasecmp(dot, ".zip") && nz < 16) snprintf(zips[nz++], NAME_LEN, "%s", path);
+        else if (depth < 2 && ns < 16 && is_dir(path, e)) snprintf(subs[ns++], NAME_LEN, "%s", path);
+    }
+    closedir(d);
+    for (int i = 0; i < nz; i++) rz_n += retro_unzip(zips[i]);
+    for (int i = 0; i < ns; i++) retro_unzip_tree(subs[i], depth + 1);
+    free(zips); free(subs);
 }

@@ -27,6 +27,8 @@ static gcg_t *gl = NULL;
 static int gl_n = 0, gl_scanned = 0, gl_on = 0, gl_sel = 0, gl_detail = 0;
 static char gl_msg[160];
 static u64 gl_msg_t = 0;
+static int gl_launch_sel;
+static const char *gl_launch(int k);
 
 /* ---------- packs SWPK ---------- */
 typedef struct {
@@ -404,11 +406,22 @@ static void gl_open_cheats(int k) {
 }
 #define GL_COLS 6
 static void gclib_input(u32 down, u32 nav, int fire) {
+    if (gl_launch_sel >= 0) {                              /* "Lancer ce jeu ?" */
+        if (down & PAD_BUTTON_A) {
+            int k = gl_launch_sel;
+            gl_launch_sel = -1;
+            const char *e = gl_launch(k);                   /* (ne revient pas si ca marche) */
+            if (e) gl_note(e);
+        }
+        if (down & PAD_BUTTON_B) gl_launch_sel = -1;
+        return;
+    }
     if (gl_detail) {
         if (fire && (nav & PAD_BUTTON_LEFT) && gl_sel > 0) gl_sel--;
         if (fire && (nav & PAD_BUTTON_RIGHT) && gl_sel < gl_n - 1) gl_sel++;
         if (down & PAD_BUTTON_X && gl_n) gl_open_cheats(gl_sel);
-        if (down & (PAD_BUTTON_B | PAD_BUTTON_A)) gl_detail = 0;
+        if ((down & PAD_BUTTON_A) && gl_n) gl_launch_sel = gl_sel;
+        if (down & PAD_BUTTON_B) gl_detail = 0;
         return;
     }
     if (fire && gl_n) {
@@ -536,10 +549,20 @@ static void draw_gclib(void) {
         if (g->desc) gl_wrap(F_SMALL, g->desc, rx, dy, rw, 17, maxl, RGBA(215, 205, 245, 255));
         else gx_text1(F_SMALL, rx, dy, g->bstate == 0 ? "Lecture de la banni\xC3\xA8re..." : "Pas de description pour ce jeu.", RGBA(170, 155, 225, 255));
         if (has_st) { f32 sw = 176, sh = 132; draw_tex_fit(&gl_bigst.obj, 320, 240, 320, 240, rx, 396 - sh - 6, sw, sh); }
-        if (now_ms() - gl_msg_t < 3500) gx_text1(F_SMALL, 30, 404, gl_msg, RGBA(255, 210, 120, 255));
-        static const char *const k[] = { "X", "B" };
-        static const char *const l[] = { "CHEATS", "RETOUR" };
-        draw_legend_keys(k, l, 2);
+        if (now_ms() - gl_msg_t < 6000) { char m[200]; fit_text(F_SMALL, gl_msg, 586, m, sizeof(m)); gx_text1(F_SMALL, 30, 404, m, RGBA(255, 210, 120, 255)); }
+        static const char *const k[] = { "A", "X", "B" };
+        static const char *const l[] = { "LANCER", "CHEATS", "RETOUR" };
+        draw_legend_keys(k, l, 3);
+        if (gl_launch_sel >= 0) {                              /* confirmation */
+            const f32 w = 420, h = 112, x = 110, y = 170;
+            gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
+            draw_panel(x, y, w, h);
+            gx_text_c(F_MED, x + w / 2, y + 32, "Lancer ce jeu avec Swiss ?", RGBA(255, 255, 255, 255));
+            fit_text(F_SMALL, g->title, (int)w - 30, buf, sizeof(buf));
+            gx_text_c(F_SMALL, x + w / 2, y + 56, buf, RGBA(255, 210, 120, 255));
+            gx_text_c(F_SMALL, x + w / 2, y + 76, "GC-MP3 se ferme et Swiss ouvre directement le jeu.", RGBA(190, 180, 235, 255));
+            gx_text_c(F_SMALL, x + w / 2, y + 98, "A : lancer     B : annuler", RGBA(255, 210, 120, 255));
+        }
         snprintf(buf, sizeof(buf), "%d / %d   (gauche / droite)", gl_sel + 1, gl_n);
         gx_text_r(F_SMALL, 614, 396, buf, RGBA(150, 135, 210, 255));
         return;
@@ -579,4 +602,155 @@ static void draw_gclib(void) {
     static const char *const k[] = { "A", "X", "Y", "B" };
     static const char *const l[] = { "FICHE", "CHEATS", "ACTUALISER", "RETOUR" };
     draw_legend_keys(k, l, 4);
+}
+
+/* ======================= v26 : lancer un jeu avec Swiss =======================
+   GC-MP3 charge le .dol de Swiss en memoire et le demarre avec l'argument
+   "Autoload=sdc:/chemin/du/jeu.iso" : Swiss (et Indigo) lisent leurs arguments
+   comme des lignes de reglages, ouvrent le jeu tout de suite, sans rien garder. */
+static int gl_launch_sel = -1;                      /* fenetre "Lancer ?" ouverte (-1 = non) */
+static char gl_swiss[NAME_LEN];
+
+static int gl_mem_has(const u8 *d, long n, const char *pat) {    /* (sans tenir compte des majuscules) */
+    int m = (int)strlen(pat);
+    for (long i = 0; i + m <= n; i++) {
+        int k = 0;
+        while (k < m && tolower(d[i + k]) == pat[k]) k++;
+        if (k == m) return 1;
+    }
+    return 0;
+}
+/* un .dol de Swiss ? (on lit les 2 premiers Mo : les textes "swiss" y sont) */
+static int gl_is_swiss(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    static u8 b[1 << 16];
+    int found = 0, mine = 0, indigo = 0;
+    long tot = 0;
+    size_t n;
+    u8 tail[32] = { 0 };
+    while (tot < (2 << 20) && (n = fread(b + 32, 1, sizeof(b) - 32, f)) > 0) {
+        memcpy(b, tail, 32);
+        if (gl_mem_has(b, (long)n + 32, "swiss")) found = 1;
+        if (gl_mem_has(b, (long)n + 32, "indigo audio player")) mine = 1;
+        if (gl_mem_has(b, (long)n + 32, "posters.pak")) indigo = 1;      /* (Swiss Indigo : jaquettes) */
+        memcpy(tail, b + n, 32);
+        tot += (long)n;
+        service_audio();
+    }
+    fclose(f);
+    return found && !mine ? 1 + indigo : 0;          /* 2 = Swiss Indigo, 1 = autre Swiss */
+}
+static int gl_find_swiss(void) {
+    if (swiss_pref[0]) { snprintf(gl_swiss, sizeof(gl_swiss), "%s", swiss_pref); return access(gl_swiss, R_OK) == 0; }
+    char cand[24][NAME_LEN];
+    int nc = 0;
+    const char *dirs[] = { SD_ROOT, SD_ROOT "/swiss", SD_ROOT "/apps/swiss", SD_ROOT "/apps/indigo", SD_ROOT "/apps/Swiss", NULL };
+    for (int pass = 0; pass < 2; pass++)                      /* 1 : nom avec "swiss" / "indigo" ; 2 : ipl.dol, boot.dol... */
+        for (int di = 0; dirs[di] && nc < 24; di++) {
+            DIR *d = opendir(dirs[di]);
+            if (!d) continue;
+            struct dirent *e;
+            while ((e = readdir(d)) != NULL && nc < 24) {
+                const char *dot = strrchr(e->d_name, '.');
+                if (!dot || strcasecmp(dot, ".dol")) continue;
+                char low[128]; int i = 0;
+                for (; e->d_name[i] && i < 127; i++) low[i] = (char)tolower((u8)e->d_name[i]);
+                low[i] = 0;
+                if (strstr(low, "gc-mp3") || strstr(low, "gcmp3")) continue;
+                int named = strstr(low, "swiss") || strstr(low, "indigo");
+                int generic = !strcmp(low, "ipl.dol") || !strcmp(low, "boot.dol") || !strcmp(low, "autoexec.dol") || !strcmp(low, "igr.dol");
+                if (pass == 0 ? !named : !generic) continue;
+                snprintf(cand[nc++], NAME_LEN, "%s/%s", dirs[di], e->d_name);
+            }
+            closedir(d);
+        }
+    int best = 0;                                             /* Swiss Indigo d'abord (celui des jaquettes) */
+    for (int i = 0; i < nc && best < 2; i++) {
+        int sc = gl_is_swiss(cand[i]);
+        if (sc > best) { best = sc; snprintf(gl_swiss, sizeof(gl_swiss), "%s", cand[i]); }
+    }
+    return best > 0;
+}
+
+/* petit programme copie a 0x80001800 : recopie les sections du .dol a leur
+   place (par-dessus GC-MP3), vide les caches, puis saute au debut de Swiss.
+   r3 = table {dest, source, taille}, r4 = nombre de lignes, r5 = point d'entree */
+static const u32 gl_stub[] = {
+    0x7cc000a6, 0x54c6045e, 0x7cc00124, 0x4c00012c, 0x2c040000, 0x41820060, 0x80e30000, 0x81030004,
+    0x81230008, 0x3863000c, 0x2c090000, 0x41820040, 0x7cea3b78, 0x7d674a14, 0x7d2903a6, 0x38e7ffff,
+    0x3908ffff, 0x8d880001, 0x9d870001, 0x4200fff8, 0x554a0034, 0x7c00506c, 0x7c0004ac, 0x7c0057ac,
+    0x394a0020, 0x7c0a5840, 0x4180ffec, 0x3484ffff, 0x4082ffa8, 0x7c0004ac, 0x4c00012c, 0x7ca903a6,
+    0x4e800420,
+};
+#define GL_STUB_AT  0x80001800u
+#define GL_TAB_AT   0x80002000u
+#define GL_ARGV_AT  0x80002900u
+#define GL_CMD_AT   (0x81700000u - 0x400u)        /* ligne de commande : en haut de la memoire, comme le fait Swiss */
+
+static const char *gl_launch(int k) {                  /* retourne un message d'erreur, ou ne revient pas */
+    if (k < 0 || k >= gl_n) return "Jeu introuvable";
+    if (!gl_find_swiss()) return "Swiss introuvable : mets son .dol a la racine (ex. swiss.dol) ou indique-le dans gc-mp3.txt (swiss = ...)";
+    long len = 0;
+    unsigned char *dol = read_file(gl_swiss, 12 * 1024 * 1024, &len);
+    if (!dol) return "Lecture de Swiss impossible (m\xC3\xA9moire ou carte SD)";
+    if (len < 0x100) { free(dol); return "Fichier de Swiss invalide"; }
+    /* sections du .dol */
+    u32 tab[18 * 3 + 3], n = 0, lo = 0xFFFFFFFFu, hi = 0;
+    for (int i = 0; i < 18; i++) {
+        u32 off = be32(dol + i * 4), addr = be32(dol + 0x48 + i * 4), sz = be32(dol + 0x90 + i * 4);
+        if (!sz) continue;
+        if (off + (u64)sz > (u64)len || addr < 0x80003000u || addr + (u64)sz > 0x81700000u) { free(dol); return "Fichier de Swiss invalide"; }
+        tab[n * 3] = addr; tab[n * 3 + 1] = off; tab[n * 3 + 2] = sz; n++;
+        if (addr < lo) lo = addr;
+        if (addr + sz > hi) hi = addr + sz;
+    }
+    u32 bss = be32(dol + 0xD8), bsz = be32(dol + 0xDC), entry = be32(dol + 0xE0);
+    if (bsz && bss >= 0x80003000u && bss + (u64)bsz < 0x81700000u && bss + bsz > hi) hi = bss + bsz;
+    if (!n || entry < lo || entry >= hi) { free(dol); return "Fichier de Swiss invalide"; }
+    u32 dst = (GL_CMD_AT - (u32)len) & ~31u;           /* le .dol est d'abord range tout en haut de la memoire */
+    if (dst < hi + 32) { free(dol); return "Swiss est trop gros pour etre lance d'ici"; }
+    /* argument : Autoload=sdX:/chemin */
+    static const char *const dev[3] = { "sdc:", "sda:", "sdb:" };
+    const char *rel = gl[k].path + strlen(SD_ROOT);
+    char cmd[NAME_LEN + 64];
+    int cl = snprintf(cmd, sizeof(cmd), "%s", gl_swiss);
+    cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "Autoload=%s%s", dev[sd_slot >= 0 && sd_slot < 3 ? sd_slot : 0], rel);
+    cl += 1;
+    /* le .dol accepte-t-il des arguments ? (texte "_arg" juste apres le point d'entree) */
+    int has_arg = 0;
+    for (u32 i = 0; i < n; i++)
+        if (entry + 8 >= tab[i * 3] && entry + 8 < tab[i * 3] + tab[i * 3 + 2])
+            has_arg = !memcmp(dol + tab[i * 3 + 1] + (entry + 4 - tab[i * 3]), "_arg", 4);
+    if (!has_arg) { free(dol); return "Ce Swiss ne prend pas d'arguments : mets-le a jour"; }
+    crumb("lancer : %s (%s)", gl[k].path, gl_swiss);
+#ifdef GEKKO
+    if (settings_dirty) save_settings();
+    stop_track(); stop_station();
+    AUDIO_StopDMA();
+    fatUnmount("sd");
+    VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();
+    SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
+    u32 level = IRQ_Disable();                           /* plus d'interruptions : on ecrase GC-MP3 */
+    (void)level;
+    memmove((void *)dst, dol, (size_t)len);
+    u32 *t = (u32 *)GL_TAB_AT;
+    for (u32 i = 0; i < n; i++) { t[i * 3] = tab[i * 3]; t[i * 3 + 1] = dst + tab[i * 3 + 1]; t[i * 3 + 2] = tab[i * 3 + 2]; }
+    memcpy((void *)GL_CMD_AT, cmd, cl);
+    DCFlushRange((void *)GL_CMD_AT, 0x400);
+    u32 *a = (u32 *)GL_ARGV_AT;                          /* struct __argv */
+    a[0] = 0x5f617267; a[1] = GL_CMD_AT; a[2] = (u32)cl; a[3] = 0; a[4] = 0; a[5] = 0;
+    t[n * 3] = entry + 8; t[n * 3 + 1] = GL_ARGV_AT; t[n * 3 + 2] = 24;   /* (copie apres le code de Swiss) */
+    n++;
+    memcpy((void *)GL_STUB_AT, gl_stub, sizeof(gl_stub));
+    DCFlushRange((void *)0x80001800, 0x1800);
+    ICInvalidateRange((void *)GL_STUB_AT, sizeof(gl_stub));
+    DCFlushRange((void *)dst, (u32)len);
+    ((void (*)(u32 *, u32, u32))GL_STUB_AT)(t, n, entry);
+    for (;;) ;
+#else
+    printf("LANCER swiss=%s dst=%08x hi=%08x entree=%08x sections=%u arg=[%s]\n", gl_swiss, dst, hi, entry, n, cmd + strlen(cmd) + 1);
+    free(dol);
+    return "(simulateur : lancement simule)";
+#endif
 }
