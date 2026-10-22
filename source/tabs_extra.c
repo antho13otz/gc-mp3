@@ -92,20 +92,23 @@ static void games_tab_launch(int g) {
 static int gl_on;                                   /* v25 : Mes jeux GameCube (gclib.c) */
 static void gclib_open(void);
 static void ap_open(void);                         /* v41 : applis (tools.c) */
+static void mc_open(void);                         /* v43 : cartes memoire (tools.c) */
 static void gclib_input(u32 down, u32 nav, int fire);
 static void draw_gclib(void);
 static void games_tab_input(u32 down, u32 nav, int fire) {
     if (gl_on) { gclib_input(down, nav, fire); return; }
-    if (gm_sel >= GM_COUNT) {                              /* barres "Mes jeux GameCube" / "Mes applis" (v41) */
-        if (fire && (nav & PAD_BUTTON_DOWN)) gm_sel = gm_sel == GM_COUNT ? 0 : GM_COLS - 1;
-        if (fire && (nav & PAD_BUTTON_UP)) gm_sel = GM_COUNT - 1;
-        if (fire && (nav & (PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT))) gm_sel = gm_sel == GM_COUNT ? GM_COUNT + 1 : GM_COUNT;
-        if (down & PAD_BUTTON_A) { if (gm_sel == GM_COUNT) gclib_open(); else ap_open(); }
+    if (gm_sel >= GM_COUNT) {                              /* barres jeux GameCube / applis / cartes memoire (v41, v43) */
+        int k = gm_sel - GM_COUNT;
+        if (fire && (nav & PAD_BUTTON_DOWN)) gm_sel = k < GM_COUNT ? k : 0;
+        if (fire && (nav & PAD_BUTTON_UP)) gm_sel = (GM_COUNT - 1) / GM_COLS * GM_COLS + k < GM_COUNT ? (GM_COUNT - 1) / GM_COLS * GM_COLS + k : GM_COUNT - 1;
+        if (fire && (nav & PAD_BUTTON_RIGHT)) gm_sel = GM_COUNT + (k + 1) % 3;
+        if (fire && (nav & PAD_BUTTON_LEFT)) gm_sel = GM_COUNT + (k + 2) % 3;
+        if (down & PAD_BUTTON_A) { if (k == 0) gclib_open(); else if (k == 1) ap_open(); else mc_open(); }
     } else {
         if (fire && (nav & PAD_BUTTON_RIGHT)) gm_sel = (gm_sel + 1) % GM_COUNT;
         if (fire && (nav & PAD_BUTTON_LEFT)) gm_sel = (gm_sel + GM_COUNT - 1) % GM_COUNT;
-        if (fire && (nav & PAD_BUTTON_DOWN)) gm_sel = gm_sel + GM_COLS >= GM_COUNT ? GM_COUNT : gm_sel + GM_COLS;
-        if (fire && (nav & PAD_BUTTON_UP)) gm_sel = gm_sel < GM_COLS ? (gm_sel * 2 >= GM_COLS ? GM_COUNT + 1 : GM_COUNT) : gm_sel - GM_COLS;
+        if (fire && (nav & PAD_BUTTON_DOWN)) gm_sel = gm_sel + GM_COLS >= GM_COUNT ? GM_COUNT + gm_sel % GM_COLS : gm_sel + GM_COLS;
+        if (fire && (nav & PAD_BUTTON_UP)) gm_sel = gm_sel < GM_COLS ? GM_COUNT + gm_sel : gm_sel - GM_COLS;
         if (down & PAD_BUTTON_A) games_tab_launch(gm_sel);
     }
     if ((down & PAD_BUTTON_Y) && src == SRC_FILE && playing) paused = !paused;
@@ -153,28 +156,28 @@ static void draw_tab_games(void) {
         for (int g = 0; g < GM_COUNT; g++) gm_record[g] = gm_rec[g] && sd_ok ? rg_record_get(gm_rec[g]) : 0;
     }
     f32 t = (f32)(now_ms() % 100000) / 1000.0f;
-    for (int k = 0; k < 2; k++) {   /* v25 : barre "Mes jeux GameCube" ; v41 : + "Mes applis" */
+    for (int k = 0; k < 3; k++) {   /* v25 : jeux GameCube ; v41 : + applis ; v43 : + cartes memoire */
+        static const char *const bl[3] = { "Jeux GameCube", "Mes applis", "Cartes m\xC3\xA9moire" };
         int on = gm_sel == GM_COUNT + k;
-        const f32 bx = k ? 322 : 22, by = 110, bw = 292, bh = 30;
-        if (k) {
-            if (on) gx_glow(bx, by, bw, bh, 8, RGBA(150, 80, 255, 140), 3);
-            gx_rrect_fill(bx, by, bw, bh, 8, on ? RGBA(116, 46, 236, 255) : RGBA(34, 20, 84, 230), on ? RGBA(74, 22, 172, 255) : RGBA(20, 12, 52, 230));
-            gx_rrect_stroke(bx, by, bw, bh, 8, 1.2f, on ? RGBA(200, 150, 255, 255) : RGBA(90, 64, 170, 255));
-            gx_rrect_fill(bx + 12, by + 8, 20, 14, 3, RGBA(200, 200, 215, 255), RGBA(120, 120, 140, 255));
-            gx_rect(bx + 15, by + 11, 14, 5, RGBA(30, 20, 60, 255));
-            gx_text1(F_MED, bx + 42, by + 21, "Mes applis", RGBA(255, 255, 255, 255));
-            gx_text_r(F_SMALL, bx + bw - 12, by + 20, "(A)", on ? RGBA(235, 225, 255, 255) : RGBA(170, 155, 225, 255));
-            gp_zone(bx, by, bw, bh, &gm_sel, GM_COUNT + 1, GPZ_SEL);
-            continue;
-        }
+        const f32 bw = 196, bx = 22 + k * (bw + 4), by = 110, bh = 30;
         if (on) gx_glow(bx, by, bw, bh, 8, RGBA(150, 80, 255, 140), 3);
         gx_rrect_fill(bx, by, bw, bh, 8, on ? RGBA(116, 46, 236, 255) : RGBA(34, 20, 84, 230), on ? RGBA(74, 22, 172, 255) : RGBA(20, 12, 52, 230));
         gx_rrect_stroke(bx, by, bw, bh, 8, 1.2f, on ? RGBA(200, 150, 255, 255) : RGBA(90, 64, 170, 255));
-        gx_circle(bx + 22, by + bh / 2, 10, RGBA(200, 200, 215, 255), RGBA(120, 120, 140, 255));
-        gx_circle(bx + 22, by + bh / 2, 3, RGBA(30, 20, 60, 255), RGBA(30, 20, 60, 255));
-        gx_text1(F_MED, bx + 42, by + 21, "Mes jeux GameCube", RGBA(255, 255, 255, 255));
-        gx_text_r(F_SMALL, bx + bw - 12, by + 20, "(A)", on ? RGBA(235, 225, 255, 255) : RGBA(170, 155, 225, 255));
-        gp_zone(bx, by, bw, bh, &gm_sel, GM_COUNT, GPZ_SEL);
+        if (k == 0) {                                          /* disque */
+            gx_circle(bx + 22, by + bh / 2, 10, RGBA(200, 200, 215, 255), RGBA(120, 120, 140, 255));
+            gx_circle(bx + 22, by + bh / 2, 3, RGBA(30, 20, 60, 255), RGBA(30, 20, 60, 255));
+        } else if (k == 1) {                                   /* fenetre d'appli */
+            gx_rrect_fill(bx + 12, by + 8, 20, 14, 3, RGBA(200, 200, 215, 255), RGBA(120, 120, 140, 255));
+            gx_rect(bx + 15, by + 11, 14, 5, RGBA(30, 20, 60, 255));
+        } else {                                               /* carte memoire */
+            gx_rrect_fill(bx + 15, by + 6, 14, 18, 2, RGBA(200, 200, 215, 255), RGBA(120, 120, 140, 255));
+            gx_rect(bx + 18, by + 9, 8, 4, RGBA(30, 20, 60, 255));
+        }
+        char lb[64];
+        fit_text(F_MED, TR(bl[k]), (int)bw - 72, lb, sizeof(lb));
+        gx_text1(F_MED, bx + 40, by + 21, lb, RGBA(255, 255, 255, 255));
+        gx_text_r(F_SMALL, bx + bw - 10, by + 20, "(A)", on ? RGBA(235, 225, 255, 255) : RGBA(170, 155, 225, 255));
+        gp_zone(bx, by, bw, bh, &gm_sel, GM_COUNT + k, GPZ_SEL);
     }
     const f32 cw = 192, ch = 72, x0 = 22, y0 = 148;
     for (int g = 0; g < GM_COUNT; g++) {

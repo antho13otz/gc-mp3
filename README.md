@@ -19,6 +19,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v43
+- **Style du spectre partout** : le style choisi s'affiche aussi dans le mini-spectre en haut de l'écran et dans les dispositions Pochette géante / Minimaliste.
+- **Une disposition par onglet** : MUSIQUE, RADIO, RÉTRO et PODCASTS ont chacun la leur (START > Réglages > Disposition du lecteur, ou stick C vers le bas). Nouvelle disposition **Spectre géant**.
+- **Ordre des onglets** : START > Réglages > Onglets affichés, X / Y pour descendre / monter un onglet.
+- **Paroles dans le lecteur** : spectre seulement, paroles (sinon spectre) ou paroles + spectre.
+- **Éclair sur les basses** (mode soirée) : partout, sauf spectrogramme, ou jamais.
+- **Cartes mémoire** déplacées dans l'onglet JEUX / APPS (troisième bouton en haut).
+
 ## Nouveautés v42
 
 - **Plus de coupure de la musique** pendant la vérification de mise à jour (ou tout autre moment où GC-MP3 est occupé) : si la boucle principale prend du retard, le son est rempli directement depuis ce qui est déjà décodé (jusqu'à 10 s d'avance).

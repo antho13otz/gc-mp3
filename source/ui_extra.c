@@ -7,9 +7,11 @@ static u64 tab_strip_until = 0;              /* bandeau des onglets affiche jusq
 
 static void tab_enter(int t);
 static void tab_next(int dir) {
-    int t = tab;
-    for (int i = 0; i < TAB_COUNT; i++) {
-        t = (t + dir + TAB_COUNT) % TAB_COUNT;
+    int k = 0, t = tab;
+    for (int i = 0; i < TAB_COUNT; i++) if (tab_order[i] == tab) k = i;
+    for (int i = 0; i < TAB_COUNT; i++) {                    /* (v43 : dans l'ordre choisi) */
+        k = (k + dir + TAB_COUNT) % TAB_COUNT;
+        t = tab_order[k];
         if (tab_shown(t)) break;
     }
     tab = t;
@@ -21,19 +23,19 @@ static void tab_next(int dir) {
 static void draw_tab_strip(void) {
     if (now_ms() >= tab_strip_until) return;
     int n = 0, total = 0;
-    for (int t = 0; t < TAB_COUNT; t++) if (tab_shown(t)) { total += text_width(F_SMALL, tab_names[t], 1) + 16; n++; }
+    FOR_TABS(t) if (tab_shown(t)) { total += text_width(F_SMALL, tab_names[t], 1) + 16; n++; }
     total += (n - 1) * 4;
     f32 sc = total > 600 ? 600.0f / total : 1.0f;          /* (v23 : 11 onglets, le bandeau se resserre) */
     if (sc < 1) {
         txt_scale = sc;
         total = 0;
-        for (int t = 0; t < TAB_COUNT; t++) if (tab_shown(t)) total += text_width(F_SMALL, tab_names[t], 1) + 10;
+        FOR_TABS(t) if (tab_shown(t)) total += text_width(F_SMALL, tab_names[t], 1) + 10;
         total += (n - 1) * 3;
     }
     f32 x = 320 - total / 2.0f;
     gx_rrect_fill(x - 10, 4, total + 20, 26, 10, RGBA(10, 6, 30, 235), RGBA(10, 6, 30, 235));
     gx_rrect_stroke(x - 10, 4, total + 20, 26, 10, 1.2f, RGBA(120, 80, 230, 255));
-    for (int t = 0; t < TAB_COUNT; t++) {
+    FOR_TABS(t) {
         if (!tab_shown(t)) continue;
         int w = text_width(F_SMALL, tab_names[t], 1) + (sc < 1 ? 10 : 16);
         if (t == tab) gx_rrect_fill(x, 8, (f32)w, 18, 9, RGBA(124, 54, 240, 255), RGBA(80, 26, 180, 255));
@@ -54,23 +56,32 @@ typedef struct {
     int (*get)(int i);
     void (*toggle)(int i);
     int locked;                                  /* premiere ligne non modifiable (-1 = aucune) */
+    void (*move)(int i, int dir);                /* v43 : X / Y = deplacer la ligne (NULL = non) */
+    int (*lockf)(void);                          /* v43 : ligne non modifiable, calculee (NULL = locked) */
 } checklist_t;
 static const checklist_t *ck = NULL;
 static int ck_sel = 0;
 
-static void checklist_open(const checklist_t *c) { ck = c; ck_sel = 0; }
+static void ck_tab_labels(void);
+static void checklist_open(const checklist_t *c) { ck = c; ck_sel = 0; ck_tab_labels(); }
 
 static void checklist_input(u32 down, u32 nav, int fire) {
     if (!ck) return;
     if (fire && (nav & PAD_BUTTON_DOWN)) ck_sel = (ck_sel + 1) % ck->n;
     if (fire && (nav & PAD_BUTTON_UP)) ck_sel = (ck_sel + ck->n - 1) % ck->n;
-    if ((down & PAD_BUTTON_A) && ck_sel != ck->locked) { ck->toggle(ck_sel); settings_dirty = 1; }
+    int lk = ck->lockf ? ck->lockf() : ck->locked;
+    if ((down & PAD_BUTTON_A) && ck_sel != lk) { ck->toggle(ck_sel); settings_dirty = 1; }
+    if (ck->move && (down & (PAD_BUTTON_X | PAD_BUTTON_Y))) {
+        int d = (down & PAD_BUTTON_X) ? 1 : -1, to = ck_sel + d;
+        if (to >= 0 && to < ck->n) { ck->move(ck_sel, d); ck_sel = to; settings_dirty = 1; }
+    }
     if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) { ck = NULL; if (settings_dirty) save_settings(); }
 }
 
 static void draw_checklist(void) {
     if (!ck) return;
-    const f32 rh = 25, w = 360, h = 72 + ck->n * rh, x = 320 - w / 2, y = 240 - h / 2;
+    const f32 rh = 25, w = ck->move ? 440 : 360, h = 72 + ck->n * rh, x = 320 - w / 2, y = 240 - h / 2;
+    int lk = ck->lockf ? ck->lockf() : ck->locked;
     gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));
     gx_rrect_fill(x, y, w, h, 10, RGBA(14, 8, 44, 255), RGBA(8, 5, 26, 255));
     draw_panel(x, y, w, h);
@@ -83,14 +94,31 @@ static void draw_checklist(void) {
         int v = ck->get(i);
         gx_rrect_stroke(x + 26, ry + 6, 13, 13, 3, 1.2f, RGBA(220, 210, 255, 255));
         if (v) gx_rrect_fill(x + 29, ry + 9, 7, 7, 2, RGBA(255, 255, 255, 255), RGBA(200, 190, 255, 255));
-        gx_text1(F_MED, x + 50, ry + 18, ck->labels[i], i == ck->locked ? RGBA(150, 135, 210, 255) : RGBA(240, 232, 255, 255));
+        gx_text1(F_MED, x + 50, ry + 18, ck->labels[i], i == lk ? RGBA(150, 135, 210, 255) : RGBA(240, 232, 255, 255));
+        if (ck->move && on) {                                 /* fleches : X descend, Y monte */
+            if (i > 0) gx_tri(x + w - 40, ry + 15, x + w - 34, ry + 6, x + w - 28, ry + 15, RGBA(255, 255, 255, 220));
+            if (i + 1 < ck->n) gx_tri(x + w - 58, ry + 8, x + w - 46, ry + 8, x + w - 52, ry + 17, RGBA(255, 255, 255, 220));
+        }
     }
-    gx_text_c(F_SMALL, 320, y + h - 8, "A : cocher / d\xC3\xA9" "cocher     B : fermer", RGBA(255, 210, 120, 255));
+    if (ck->move) gx_text_c(F_SMALL, 320, y + h - 8, "A : cocher     X / Y : descendre / monter     B : fermer", RGBA(255, 210, 120, 255));
+    else gx_text_c(F_SMALL, 320, y + h - 8, "A : cocher / d\xC3\xA9" "cocher     B : fermer", RGBA(255, 210, 120, 255));
 }
 
 static int ck_tab_get(int i) { return tab_shown(i); }
 static void ck_tab_toggle(int i) { if (i != TAB_MUSIC) tab_hidden ^= (1u << i); if (!tab_shown(tab)) tab = TAB_MUSIC; }
-static const checklist_t ck_tabs = { "Onglets affich\xC3\xA9s", TAB_COUNT, tab_names, ck_tab_get, ck_tab_toggle, TAB_MUSIC };
+/* v43 : la liste suit l'ordre des onglets ; X / Y les deplacent */
+static const char *ck_tab_lab[TAB_COUNT];
+static void ck_tab_labels(void) { for (int i = 0; i < TAB_COUNT; i++) ck_tab_lab[i] = tab_names[tab_order[i]]; }
+static int ck_tabo_get(int i) { return tab_shown(tab_order[i]); }
+static void ck_tabo_toggle(int i) { ck_tab_toggle(tab_order[i]); }
+static int ck_tabo_lock(void) { for (int i = 0; i < TAB_COUNT; i++) if (tab_order[i] == TAB_MUSIC) return i; return 0; }
+static void ck_tabo_move(int i, int d) {
+    int j = i + d;
+    if (j < 0 || j >= TAB_COUNT) return;
+    u8 t = tab_order[i]; tab_order[i] = tab_order[j]; tab_order[j] = t;
+    ck_tab_labels();
+}
+static const checklist_t ck_tabs = { "Onglets affich\xC3\xA9s", TAB_COUNT, ck_tab_lab, ck_tabo_get, ck_tabo_toggle, -1, ck_tabo_move, ck_tabo_lock };
 
 static const char *const el_names[EL_COUNT] = { "Pochette", "Paroles / spectre", "Boutons", "Album et ann\xC3\xA9" "e", "Horloge (en haut)" };
 static int ck_el_get(int i) { return (el_mask >> i) & 1; }
@@ -164,8 +192,12 @@ static void draw_progress_at(f32 x, f32 y, f32 w, const np_t *n) {
 
 /* paroles (3 lignes) si le morceau en a, sinon le spectre */
 static void draw_viz_at(f32 x, f32 y, f32 w, f32 h, int big) {
-    if (src == SRC_FILE && playing && lrc_n > 0 && lrc_track == cur_track) {
+    if (src == SRC_FILE && playing && lrc_n > 0 && lrc_track == cur_track && lyr_show) {
         char a[300], b[300], d1[300];
+        if (lyr_show == 2) {                                  /* v43 : paroles + spectre (attenue dessous) */
+            draw_viz(x, y + h * 0.82f, w, h * 0.6f);
+            gx_rect(x - 4, y, w + 8, h, RGBA(8, 5, 26, 150));
+        }
         int li = lyrics_current();
         f32 cx = x + w / 2, cy = y + h / 2;
         if (li > 0) {
@@ -187,13 +219,7 @@ static void draw_viz_at(f32 x, f32 y, f32 w, f32 h, int big) {
         }
         return;
     }
-    f32 bw = w / NBARS, base = y + h * 0.72f;
-    for (int i = 0; i < NBARS; i++) {
-        col_t cb = lerp_c(RGBA(156, 60, 255, 255), RGBA(70, 130, 255, 255), (f32)i / (NBARS - 1));
-        f32 bh = 2 + bar_val[i] * h * 0.68f;
-        gx_rect(x + i * bw, base - bh, bw * 0.7f, bh, cb);
-        gx_rect(x + i * bw, base + 2, bw * 0.7f, bh * 0.25f, RGBA(cb.r, cb.g, cb.b, 60));
-    }
+    draw_viz(x, y + h * 0.82f, w, h * 0.7f);              /* v43 : le style choisi (avant : toujours des barres) */
 }
 
 static void draw_buttons_at(f32 cx, f32 cy) {
@@ -296,6 +322,32 @@ static void draw_layout_minimal(void) {
     if (EL(EL_VIZ)) draw_viz_at(80, y + 80, 480, 470 - (y + 80), 0);
 }
 
+/* v43 : Spectre geant : le spectre (style choisi) sur tout l'ecran, titre et paroles par-dessus */
+static void draw_layout_bigviz(void) {
+    np_t n;
+    np_get(&n);
+    char buf[300];
+    draw_panel(11, 73, 618, 338);
+    f32 x = 30;
+    if (EL(EL_COVER)) { draw_cover_at(x, 88, 64); x += 76; }
+    txt_scale = 1.15f;
+    fit_text(F_LARGE, n.title, (int)(610 - x), buf, sizeof(buf));
+    gx_text1(F_LARGE, x, 114, buf, RGBA(255, 255, 255, 255));
+    txt_scale = 1.0f;
+    fit_text(F_MED, n.sub, (int)(610 - x), buf, sizeof(buf));
+    gx_text1(F_MED, x, 138, buf, RGBA(156, 116, 255, 255));
+    draw_progress_at(x, 162, 600 - x, &n);
+    if (!EL(EL_VIZ)) return;
+    int lyr = src == SRC_FILE && playing && lrc_n > 0 && lrc_track == cur_track && lyr_show;
+    if (!lyr || lyr_show == 2) draw_viz(30, 392, 580, lyr ? 180 : 214);
+    if (lyr) {
+        int keep = lyr_show; lyr_show = 1;
+        if (keep == 2) { gx_rect(20, 296, 600, 100, RGBA(8, 5, 26, 140)); draw_viz_at(30, 290, 580, 110, 1); }
+        else draw_viz_at(30, 196, 580, 170, 1);
+        lyr_show = keep;
+    }
+}
+
 static void draw_layout_toast(void) {
     if (now_ms() >= layout_toast_until) return;
     char buf[96];
@@ -307,6 +359,7 @@ static void draw_layout_toast(void) {
 
 static void layout_next(void) {
     player_layout = (player_layout + 1) % LAYOUT_COUNT;
+    if (player_layout == L_LIST && tab != TAB_MUSIC) player_layout = (player_layout + 1) % LAYOUT_COUNT;   /* (liste etendue : MUSIQUE) */
     layout_toast_until = now_ms() + 2000;
     settings_dirty = 1;
 }

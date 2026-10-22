@@ -932,13 +932,12 @@ static void draw_tools(void) {
 }
 
 /* ---------- section "Outils" de la page Reglages ---------- */
-enum { TO_CARDS, TO_RECENT, TO_GAMES, TO_CHEATS, TO_INFO, TO_SWISS, TO_COUNT };
-static const char *const to_names[TO_COUNT] = { "Cartes m\xC3\xA9moire (sauvegardes)", "Derniers jeux lanc\xC3\xA9s",
-    "Mes jeux et applis", "Cheats Swiss (\xC3\xA9" "diteur)", "Infos console", "Quitter vers Indigo / Swiss" };
+enum { TO_RECENT, TO_GAMES, TO_CHEATS, TO_INFO, TO_SWISS, TO_COUNT };   /* (v43 : cartes memoire -> onglet JEUX / APPS) */
+static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s",
+    "Mes jeux, applis et cartes m\xC3\xA9moire", "Cheats Swiss (\xC3\xA9" "diteur)", "Infos console", "Quitter vers Indigo / Swiss" };
 static const char *const to_help[TO_COUNT] = {
-    "Voir, copier sur la SD, remettre et supprimer les sauvegardes des cartes m\xC3\xA9moire.",
     "Relancer un jeu en un clic (jeux lanc\xC3\xA9s depuis GC-MP3 et depuis Indigo).",
-    "Tes jeux avec leurs jaquettes. Dans la fiche d'un jeu : Y = r\xC3\xA9glages du jeu.",
+    "Onglet JEUX / APPS. Dans la fiche d'un jeu : Y = r\xC3\xA9glages du jeu.",
     "Modifier et activer les cheats de tes jeux (dossier swiss/cheats).",
     "Version, vid\xC3\xA9o, m\xC3\xA9moire, carte SD, r\xC3\xA9seau.",
     "Ouvre le menu d'Indigo / Swiss." };
@@ -951,10 +950,9 @@ static void tools_menu_input(u32 down, u32 nav, int fire) {
     if (settings_dirty) save_settings();
     crumb("outils : %d", to_sel);
     switch (to_sel) {
-    case TO_CARDS: mc_open(); break;
     case TO_RECENT: rc_open(); break;
     case TO_INFO: info_open(); break;
-    case TO_GAMES: tab = TAB_GAMES; tab_enter(TAB_GAMES); gclib_open(); break;
+    case TO_GAMES: tab = TAB_GAMES; tab_enter(TAB_GAMES); gm_sel = GM_COUNT; break;
     case TO_CHEATS: cheats_open(); break;
     case TO_SWISS: {
         ui_status("Lancement de Swiss...");

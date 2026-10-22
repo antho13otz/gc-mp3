@@ -226,13 +226,17 @@ static const char *const tab_names[TAB_COUNT] = {
 static const char *const tab_keys[TAB_COUNT] = {
     "musique", "radio", "web", "retro", "podcasts", "photos", "fichiers", "infos", "telephone", "jeux", "telechargements" };
 static int tab_shown(int t) { return t == TAB_MUSIC || !(tab_hidden & (1u << t)); }
+/* v43 : ordre des onglets (START > Reglages > Onglets affiches : X / Y) */
+static u8 tab_order[TAB_COUNT] = { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 };
+#define FOR_TABS(t) for (int t##_k = 0, t = tab_order[0]; t##_k < TAB_COUNT; t = ++t##_k < TAB_COUNT ? tab_order[t##_k] : 0)
 /* elements du lecteur (START > Elements du lecteur) */
 enum { EL_COVER, EL_VIZ, EL_BUTTONS, EL_INFO, EL_CLOCK, EL_COUNT };
 static u32 el_mask = 0x0F;
 #define EL(e) ((el_mask >> (e)) & 1)
 /* disposition du lecteur (stick C vers le bas) */
-enum { L_CLASSIC, L_COVER, L_LIST, L_MINIMAL, LAYOUT_COUNT };
-static int player_layout = L_CLASSIC;
+enum { L_CLASSIC, L_COVER, L_LIST, L_MINIMAL, L_BIGVIZ, LAYOUT_COUNT };
+static int layout_tab[TAB_COUNT];               /* v43 : une disposition par onglet du lecteur */
+#define player_layout layout_tab[IS_PLAYER_TAB(tab) ? tab : TAB_MUSIC]
 static int pod_on;                      /* podcast en cours (onglet PODCASTS) */
 static int pod_open, npods;
 typedef struct { char name[96]; char url[384]; } pod_t;
@@ -3691,8 +3695,15 @@ static char wall_path[NAME_LEN];
 #define PARTY_STYLES 4
 static int party_style = 0;                 /* mode soiree : style du visualiseur */
 static const char *const party_keys[PARTY_STYLES] = { "pulsation", "barres", "tunnel", "spectrogramme" };
-static const char *const layout_names[LAYOUT_COUNT] = { "Classique", "Pochette g\xC3\xA9" "ante", "Liste \xC3\xA9tendue", "Minimaliste" };
-static const char *const layout_keys[LAYOUT_COUNT] = { "classique", "pochette", "liste", "minimal" };
+static const char *const layout_names[LAYOUT_COUNT] = { "Classique", "Pochette g\xC3\xA9" "ante", "Liste \xC3\xA9tendue", "Minimaliste", "Spectre g\xC3\xA9" "ant" };
+static const char *const layout_keys[LAYOUT_COUNT] = { "classique", "pochette", "liste", "minimal", "spectre" };
+/* v43 : paroles dans le lecteur (0 spectre seul, 1 paroles a la place du spectre, 2 les deux) ;
+   eclair blanc sur les basses du mode soiree (0 partout, 1 sauf spectrogramme, 2 jamais) */
+static int lyr_show = 1, flash_mode = 1;
+static const char *const lyr_keys[3] = { "spectre", "paroles", "les_deux" };
+static const char *const lyr_names[3] = { "Spectre seulement", "Paroles (sinon spectre)", "Paroles + spectre" };
+static const char *const flash_keys[3] = { "partout", "sauf_spectrogramme", "jamais" };
+static const char *const flash_names[3] = { "Partout", "Sauf spectrogramme", "Jamais" };
 /* le mot 'w' (en minuscules) apparait-il dans v ? */
 static int has_word(const char *v, const char *w) {
     char low[256];
@@ -3799,7 +3810,27 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "maj_auto")) upd_auto = yes(v);
         else if (!strcasecmp(k, "maj_depot")) { if (strchr(v, '/') && !strchr(v, ' ')) snprintf(upd_repo, sizeof(upd_repo), "%s", v); }
         else if (!strcasecmp(k, "maj_fichier")) snprintf(upd_file, sizeof(upd_file), "%s", v);
-        else if (!strcasecmp(k, "disposition")) { for (int i = 0; i < LAYOUT_COUNT; i++) if (!strcasecmp(v, layout_keys[i])) player_layout = i; }
+        else if (!strcasecmp(k, "disposition")) { for (int i = 0; i < LAYOUT_COUNT; i++) if (!strcasecmp(v, layout_keys[i])) for (int t = 0; t < TAB_COUNT; t++) layout_tab[t] = i; }
+        else if (!strncasecmp(k, "disposition_", 12)) {
+            for (int t = 0; t < TAB_COUNT; t++) if (IS_PLAYER_TAB(t) && !strcasecmp(k + 12, tab_keys[t]))
+                for (int i = 0; i < LAYOUT_COUNT; i++) if (!strcasecmp(v, layout_keys[i])) layout_tab[t] = i;
+        }
+        else if (!strcasecmp(k, "paroles_affichage")) { for (int i = 0; i < 3; i++) if (!strcasecmp(v, lyr_keys[i])) lyr_show = i; }
+        else if (!strcasecmp(k, "eclair_basses")) { for (int i = 0; i < 3; i++) if (!strcasecmp(v, flash_keys[i])) flash_mode = i; }
+        else if (!strcasecmp(k, "ordre_onglets")) {
+            u8 o[TAB_COUNT]; int n = 0; u32 seen = 0;
+            const char *q = v;
+            while (*q && n < TAB_COUNT) {
+                char w[24]; int l = 0;
+                while (*q == ',' || *q == ' ' || *q == ';') q++;
+                while (*q && *q != ',' && *q != ' ' && *q != ';' && l < 23) w[l++] = *q++;
+                while (*q && *q != ',' && *q != ' ' && *q != ';') q++;
+                w[l] = 0;
+                for (int t = 0; t < TAB_COUNT && l; t++) if (!strcasecmp(w, tab_keys[t]) && !(seen & (1u << t))) { o[n++] = (u8)t; seen |= 1u << t; }
+            }
+            for (int t = 0; t < TAB_COUNT; t++) if (!(seen & (1u << t))) o[n++] = (u8)t;
+            memcpy(tab_order, o, sizeof(tab_order));
+        }
         else if (!strcasecmp(k, "onglets_caches")) {
             tab_hidden = 0;
             for (int i = 1; i < TAB_COUNT; i++) if (has_word(v, tab_keys[i])) tab_hidden |= 1u << i;
@@ -3933,12 +3964,20 @@ static void save_settings(void) {
                "reprise = %s\nreprise_fichier = %s\nreprise_position = %d\n",
             covers_auto ? "oui" : "non", lyrics_auto ? "oui" : "non", eq_keys[eq_preset], eq_bass, eq_mid, eq_treble, xf_sec,
             rg_mode == 2 ? "album" : rg_mode == 1 ? "morceau" : "non", party_keys[party_style],
-            layout_keys[player_layout], els, hid, city, news_url, alarm_txt, alarm_src, phone_auto ? "oui" : "non", shuffle_on ? "oui" : "non", rep[repeat_mode], aff[view_mode],
+            layout_keys[layout_tab[TAB_MUSIC]], els, hid, city, news_url, alarm_txt, alarm_src, phone_auto ? "oui" : "non", shuffle_on ? "oui" : "non", rep[repeat_mode], aff[view_mode],
             volume_pct, theme_keys[theme_id], saver_min, saver_keys[saver_style], vid[video_pref], tv_crt ? "cathodique" : "plat",
             lang_pref >= 0 ? lang_keys[lang_pref] : "auto", ui_lang == 1 ? "en" : ui_lang == 0 ? "fr" : "auto", skin_keys[ui_skin ? 1 : 0], glview_keys[gl_view >= 0 && gl_view < 6 ? gl_view : 0], scr_pct, scr_hpct, scr_vpos, scr_wide ? "16:9" : "4:3", resume_on ? "oui" : "non",
             resume_path, resume_pos);
     fprintf(f, "# Style du spectre : led / barres / miroir / courbe / spectrogramme / oscilloscope / cercle\nspectre = %s\n", viz_keys[viz_style]);
     fprintf(f, "# Couleurs du spectrogramme : feu / violet / arc-en-ciel / ocean / vert / gris\nspectrogramme_couleurs = %s\n", sgp_keys[sg_pal_id]);
+    fprintf(f, "# Disposition des onglets RADIO / RETRO / PODCASTS (classique / pochette / minimal / spectre)\n"
+               "disposition_radio = %s\ndisposition_retro = %s\ndisposition_podcasts = %s\n",
+            layout_keys[layout_tab[TAB_RADIO]], layout_keys[layout_tab[TAB_RETRO]], layout_keys[layout_tab[TAB_PODCAST]]);
+    fprintf(f, "# Paroles dans le lecteur : spectre / paroles / les_deux ; eclair sur les basses (mode soiree) : partout / sauf_spectrogramme / jamais\n"
+               "paroles_affichage = %s\neclair_basses = %s\n", lyr_keys[lyr_show], flash_keys[flash_mode]);
+    fprintf(f, "# Ordre des onglets\nordre_onglets = ");
+    for (int i = 0; i < TAB_COUNT; i++) fprintf(f, "%s%s", i ? "," : "", tab_keys[tab_order[i]]);
+    fprintf(f, "\n");
     fprintf(f, "# Mode veilleuse : luminosite 1 a 5 ; radio lancee si rien ne joue : oui / non\n"
                "veilleuse_luminosite = %d\nveilleuse_radio = %s\n"
                "# Mise a jour : verification au demarrage (oui / non), depot GitHub,\n"
@@ -4866,14 +4905,14 @@ static void draw_header_modern(void) {
     if (rec_fp) { gx_circle(rx - 4, 26, 4, RGBA(255, 70, 70, 255), RGBA(255, 70, 70, 255)); gx_text_r(F_SMALL, rx - 12, 30, "REC", RGBA(255, 120, 120, 255)); }
     /* onglets */
     int total = 0;
-    for (int t = 0; t < TAB_COUNT; t++) if (tab_shown(t)) { total += text_width(F_SMALL, tab_names[t], 1) + 18; }
+    FOR_TABS(t) if (tab_shown(t)) { total += text_width(F_SMALL, tab_names[t], 1) + 18; }
     f32 sc = total > 560 ? 560.0f / total : 1.0f;
     txt_scale = sc;
     total = 0;
-    for (int t = 0; t < TAB_COUNT; t++) if (tab_shown(t)) total += text_width(F_SMALL, tab_names[t], 1) + (int)(18 * sc);
+    FOR_TABS(t) if (tab_shown(t)) total += text_width(F_SMALL, tab_names[t], 1) + (int)(18 * sc);
     f32 x = 320 - total / 2.0f + 14;
     draw_mini_badge(x - 16, 56, "Z");
-    for (int t = 0; t < TAB_COUNT; t++) {
+    FOR_TABS(t) {
         if (!tab_shown(t)) continue;
         int w = text_width(F_SMALL, tab_names[t], 1) + (int)(18 * sc);
         int on = t == tab;
@@ -4886,6 +4925,7 @@ static void draw_header_modern(void) {
     txt_scale = 1.0f;
     gx_rect(22, 70, 596, 1, RGBA(80, 80, 86, 255));
 }
+static void draw_viz(f32 x, f32 base, f32 w, f32 h);
 static void draw_header(void) {
     if (ui_skin) { draw_header_modern(); return; }
     draw_logo_cube(54, 38, 23);
@@ -4893,7 +4933,8 @@ static void draw_header(void) {
     gx_text(F_SMALL, 91, 63, "INDIGO AUDIO PLAYER", RGBA(170, 150, 225, 255), RGBA(170, 150, 225, 255), 4);
 
     gx_hgrad(330, 46, 140, 1, RGBA(110, 70, 255, 0), RGBA(110, 70, 255, 200));
-    for (int i = 0; i < 28; i++) {
+    if (viz_style != VZ_LED) draw_viz(390, 64, 86, 38);     /* v43 : le style choisi aussi en haut */
+    else for (int i = 0; i < 28; i++) {
         f32 env = (i < 20) ? 0.15f + 0.85f * (f32)i / 19.0f : 1.0f - (f32)(i - 20) / 10.0f;
         f32 v = bar_val[(i * 2) % NBARS];
         f32 h = 2.0f + 22.0f * env * (0.30f + 0.70f * v);
@@ -4933,7 +4974,7 @@ static int draw_tabs(const char *count) {
     }
     f32 x = 20;
     int nshown = 0, pos = 0;
-    for (int t = 0; t < TAB_COUNT; t++) if (tab_shown(t)) { if (t == tab) pos = nshown; nshown++; }
+    FOR_TABS(t) if (tab_shown(t)) { if (t == tab) pos = nshown; nshown++; }
     for (int t = tab; t == tab; t++) {
         const char *const *names = tab_names;
         int w = text_width(F_SMALL, names[t], 1) + 14;
@@ -5248,6 +5289,7 @@ static int party_on;
 static void draw_header_clock(void);
 static void draw_layout_cover(void);
 static void draw_layout_minimal(void);
+static void draw_layout_bigviz(void);
 static void draw_layout_list(void);
 static void draw_layout_toast(void);
 static void draw_layout_hint(void);
@@ -5297,6 +5339,8 @@ static void draw(void) {
         draw_layout_hint();
     } else if (IS_PLAYER_TAB(tab) && player_layout == L_MINIMAL) {
         draw_layout_minimal();
+    } else if (IS_PLAYER_TAB(tab) && player_layout == L_BIGVIZ) {
+        draw_layout_bigviz();
     } else if (tab == TAB_MUSIC && player_layout == L_LIST) {
         draw_layout_list();
     } else if (IS_PLAYER_TAB(tab)) {
@@ -5643,8 +5687,12 @@ static void draw_player_music(void) {
     /* paroles (fichier .lrc) a la place de l'egaliseur */
     int li = playing ? lyrics_current() : -2;
     if (!EL(EL_VIZ)) { }
-    else if (playing && lrc_n > 0 && lrc_track == cur_track) {
+    else if (playing && lrc_n > 0 && lrc_track == cur_track && lyr_show) {
         char a[300], b[300], d1[300];
+        if (lyr_show == 2) {                                  /* v43 : paroles + spectre (attenue dessous) */
+            draw_viz(306, 295, 308, 48);
+            gx_rect(300, 228, 320, 84, RGBA(8, 5, 26, 150));
+        }
         if (li > 0) {
             text_display(lyrics_line(li - 1), d1, sizeof(d1));
             fit_text(F_SMALL, d1, 300, a, sizeof(a));
@@ -9944,7 +9992,7 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_UPDATE, MI_TOSWISS, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_UPDATE, MI_TOSWISS, MI_QUIT, MI_COUNT };
 static int autostart_get(void);
 static const char *autostart_set(int on);
 /* v35 : page Reglages en sections (L / R) : GC-MP3, Indigo, Swiss, Outils */
@@ -9999,7 +10047,9 @@ static void menu_value(int i, char *out, int cap) {
     case MI_AUTOSTART: snprintf(out, cap, "%s", autostart_get() ? "Oui" : "Non"); break;
     case MI_IGR:     igr_value(out, cap); break;
     case MI_TOSWISS: snprintf(out, cap, "(A)"); break;
-    case MI_LAYOUT:  snprintf(out, cap, "%s", layout_names[player_layout]); break;
+    case MI_LAYOUT:  snprintf(out, cap, "%s (%s)", TR(layout_names[player_layout]), TR(tab_names[IS_PLAYER_TAB(tab) ? tab : TAB_MUSIC])); break;
+    case MI_LYRSHOW: snprintf(out, cap, "%s", lyr_names[lyr_show]); break;
+    case MI_FLASH:   snprintf(out, cap, "%s", flash_names[flash_mode]); break;
     case MI_VIZ:     snprintf(out, cap, "%s", viz_names[viz_style]); break;
     case MI_SGPAL:   snprintf(out, cap, "%s", sgp_names[sg_pal_id]); break;
     case MI_ELEMS: { int c = 0; for (int i = 0; i < EL_COUNT; i++) c += EL(i); snprintf(out, cap, "%d / %d  (A)", c, EL_COUNT); break; }
@@ -10044,7 +10094,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Style de l'interface", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran", "D\xC3\xA9" "cor de saison",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
     "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
-    "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre", "Couleurs du spectrogramme",
+    "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre", "Couleurs du spectrogramme", "Paroles dans le lecteur", "\xC3\x89" "clair sur les basses",
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer avec Indigo / Swiss", "Retour en jeu (A+Z+START)", "Mise \xC3\xA0 jour", "Quitter vers Swiss", "Quitter GC-MP3" };
 
 static void web_relayout(void);
@@ -10105,7 +10155,11 @@ static void menu_change(int i, int d) {
     case MI_TOSWISS: return;
     case MI_AUTOSTART: { const char *e = autostart_set(!autostart_get()); if (e) lib_note(e); } return;
     case MI_IGR:     igr_toggle(); return;
-    case MI_LAYOUT:  player_layout = (player_layout + d + LAYOUT_COUNT) % LAYOUT_COUNT; break;
+    case MI_LAYOUT:  player_layout = (player_layout + d + LAYOUT_COUNT) % LAYOUT_COUNT;
+                     if (player_layout == L_LIST && IS_PLAYER_TAB(tab) && tab != TAB_MUSIC) player_layout = (player_layout + d + LAYOUT_COUNT) % LAYOUT_COUNT;
+                     break;
+    case MI_LYRSHOW: lyr_show = (lyr_show + d + 3) % 3; break;
+    case MI_FLASH:   flash_mode = (flash_mode + d + 3) % 3; break;
     case MI_VIZ:     viz_style = (viz_style + d + VZ_COUNT) % VZ_COUNT; break;
     case MI_SGPAL:   sg_pal_id = (sg_pal_id + d + SGP_COUNT) % SGP_COUNT; break;
     case MI_ELEMS:   checklist_open(&ck_elems); return;
@@ -10316,6 +10370,10 @@ static void draw_menu(void) {
     if (menu_sel == MI_VIDEO) hint = "Pris en compte au prochain lancement (B maintenu au d\xC3\xA9marrage = 480i)";
     if (menu_sel == MI_IGR) hint = igr_hint();
     if (menu_sel == MI_QUIT) hint = "Ouvre le menu de la GameCube (lecteur de disque). Bouton Reset = relancer GC-MP3";
+    if (menu_sel == MI_LAYOUT) hint = "Une disposition par onglet (MUSIQUE, RADIO, R\xC3\x89TRO, PODCASTS) : change d'onglet pour r\xC3\xA9gler les autres";
+    if (menu_sel == MI_LYRSHOW) hint = "Paroles des musiques (fichiers .lrc) : \xC3\xA0 la place du spectre ou par-dessus";
+    if (menu_sel == MI_FLASH) hint = "Le flash blanc du mode soir\xC3\xA9" "e sur chaque coup de basse";
+    if (menu_sel == MI_TABS) hint = "A : afficher / cacher un onglet   X / Y : changer l'ordre";
     if (menu_sel == MI_SGPAL) hint = "Spectrogramme plein \xC3\xA9" "cran (\xC3\xA9" "conomiseur, mode soir\xC3\xA9" "e) et style Spectrogramme";
     if (menu_sel == MI_RUMBLE) hint = "M\xC3\xAAme r\xC3\xA9glage que \xC2\xAB Couper les vibrations \xC2\xBB d'Indigo";
     if (hint) gx_text1(F_SMALL, x + 20, help_y + 8, hint, RGBA(255, 210, 120, 255));
@@ -11098,20 +11156,22 @@ static void draw_party(void) {
     party_update();
     scr_viewport();
     GX_SetBlendMode(GX_BM_BLEND, GX_BL_SRCALPHA, GX_BL_INVSRCALPHA, GX_LO_CLEAR);
-    col_t top = hsv(pt_hue, 0.9f, 0.10f + pt_beat * 0.18f, 255), bot = hsv(pt_hue + 60, 0.9f, 0.04f, 255);
+    f32 bt = (flash_mode == 2 || (flash_mode == 1 && party_style == 3)) ? 0.0f : pt_beat;
+    col_t top = hsv(pt_hue, 0.9f, 0.10f + bt * 0.18f, 255), bot = hsv(pt_hue + 60, 0.9f, 0.04f, 255);
     gx_quad4(0, 0, 640, 480, top, top, bot, bot);
     if (party_style == 1) party_barres();
     else if (party_style == 2) party_tunnel();
     else if (party_style == 3) { sg_update(); sg_draw(0, 0, 640, 330, 255); gx_quad4(0, 250, 640, 330, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 120), RGBA(0, 0, 0, 120)); }
     else party_pulsation();
-    if (pt_beat > 0.05f) gx_rect(0, 0, 640, 480, RGBA(255, 255, 255, (u8)(pt_beat * 28)));   /* eclair */
+    int flash = flash_mode == 0 || (flash_mode == 1 && party_style != 3);   /* v43 : eclair reglable */
+    if (flash && pt_beat > 0.05f) gx_rect(0, 0, 640, 480, RGBA(255, 255, 255, (u8)(pt_beat * 28)));   /* eclair */
     gx_quad4(0, 290, 640, 480, RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));   /* lisibilite du texte */
 
     /* paroles en grand, sinon titre et artiste */
     char line[300], d1[300];
     int li = (src == SRC_FILE && playing) ? lyrics_current() : -2;
     col_t lc = hsv(pt_hue + 180, 0.25f, 1.0f, 255);
-    if (src == SRC_FILE && playing && lrc_n > 0 && lrc_track == cur_track) {
+    if (src == SRC_FILE && playing && lrc_n > 0 && lrc_track == cur_track && lyr_show) {
         char a[300], b[300];
         text_display(li >= 0 ? lyrics_line(li) : "...", d1, sizeof(d1));
         txt_scale = 1.45f;
@@ -11418,7 +11478,7 @@ int main(int argc, char **argv) {
             cs_prev = cdir;
         }
 
-        int nolist = IS_PLAYER_TAB(tab) && (player_layout == L_COVER || player_layout == L_MINIMAL);
+        int nolist = IS_PLAYER_TAB(tab) && (player_layout == L_COVER || player_layout == L_MINIMAL || player_layout == L_BIGVIZ);
         if (nolist && (down & PAD_BUTTON_A)) {                  /* sans liste : A = pause / lecture */
             if (src == SRC_FILE && playing) paused = !paused;
             else if (src == SRC_RADIO) muted = !muted;
