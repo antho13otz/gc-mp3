@@ -19,6 +19,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v41
+
+- **Onglet JEUX / APPS** (avant : JEUX) : à côté de « Mes jeux GameCube », une barre **« Mes applis »** ouvre la liste des homebrews (.dol). L'accès aux applis n'est plus dans START > Outils.
+- **Icônes des applis** : le fichier `icon.png` à côté du .dol (dossier `apps/NomDeLAppli/`, format Homebrew Channel 128 x 48) s'affiche dans la liste. Sans icône : les initiales.
+- Le nom d'une appli est celui de son dossier (ex. « VBA-GX » au lieu de « default »), ou celui de `meta.xml` s'il existe.
+
 ## Nouveautés v40
 
 - **Couleurs du spectrogramme** (START > Réglages > GC-MP3) : Feu (par défaut, moins violet), Violet (l'ancien), Arc-en-ciel, Océan, Vert, Noir et blanc. Pour le spectrogramme plein écran (économiseur, mode soirée) et le style « Spectrogramme » du lecteur. Changer de couleurs recolore aussi ce qui est déjà affiché.

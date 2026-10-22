@@ -931,3 +931,7 @@
     { "Vert", "Green" },
     { "Noir et blanc", "Black and white" },
     { "Spectrogramme plein \xC3\xA9" "cran (\xC3\xA9" "conomiseur, mode soir\xC3\xA9" "e) et style Spectrogramme", "Full screen spectrogram (screensaver, party mode) and Spectrogram style" },
+    { "JEUX / APPS", "GAMES / APPS" },
+    { "Mes applis", "My apps" },
+    { "homebrews .dol  (A)", "homebrew .dol  (A)" },
+    { "jaquettes, cheats  (A)", "covers, cheats  (A)" },
