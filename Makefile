@@ -55,7 +55,7 @@ OBJCOPY  ?= powerpc-eabi-objcopy
 
 # v49 : programme resident du lanceur natif (source/natres) : compile a part, sans
 # bibliotheque, lie a une adresse fixe (tools/natres.ld), puis range dans build/natres_bin.h
-NATRESFLAGS := -Os -mcpu=750 -meabi -msoft-float -G 0 -msdata=none -fno-pic -ffreestanding -fno-builtin \
+NATRESFLAGS := -O2 -mcpu=750 -meabi -msoft-float -G 0 -msdata=none -fno-pic -ffreestanding -fno-builtin \
                -fno-asynchronous-unwind-tables -fno-exceptions -nostdlib -nostartfiles -Wall
 
 all: $(TARGET).dol
@@ -93,7 +93,7 @@ MAINDEPS := $(wildcard source/*.c source/*.h source/natres/*.h)
 
 build/natres.elf: source/natres/natres.c source/natres/natres.h tools/natres.ld
 > @mkdir -p build
-> $(CC) $(NATRESFLAGS) -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@
+> $(CC) $(NATRESFLAGS) -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@ -lgcc
 
 build/natres_bin.h: build/natres.elf tools/bin2h.py
 > $(OBJCOPY) -O binary build/natres.elf build/natres.bin
