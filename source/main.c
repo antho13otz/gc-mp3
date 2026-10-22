@@ -8794,7 +8794,9 @@ static void web_pump(void) {
 }
 
 // ---------- Navigateur : actions ----------
-enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR, KB_LIBFIND, KB_PLNAME };
+enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR, KB_LIBFIND, KB_PLNAME, KB_CHEATID, KB_CHEATNAME, KB_CHEATCODE };
+static void cheats_kb_done(int mode, const char *t);
+static void cheats_open(void);
 static void lib_kb_done(int mode, const char *t);
 static void files_kb_done(int mode, const char *t);
 static void podcast_search(const char *q);
@@ -8914,6 +8916,7 @@ static void kb_validate(void) {
         return;
     }
     if (kb_mode == KB_LIBFIND || kb_mode == KB_PLNAME) { lib_kb_done(kb_mode, t); return; }
+    if (kb_mode == KB_CHEATID || kb_mode == KB_CHEATNAME || kb_mode == KB_CHEATCODE) { if (*t || kb_mode == KB_CHEATNAME) cheats_kb_done(kb_mode, t); return; }
     if (!*t) return;
     if (kb_mode == KB_RADIO) { rb_search_name(t); return; }
     if (kb_mode == KB_PODCAST) { podcast_search(t); return; }
@@ -9364,6 +9367,8 @@ static void draw_keyboard(void) {
                         kb_mode == KB_PODCAST ? "Rechercher un podcast" : kb_mode == KB_CITY ? "Ta ville (m\xC3\xA9t\xC3\xA9o)" :
                         kb_mode == KB_RENAME ? "Nouveau nom" : kb_mode == KB_MKDIR ? "Nom du nouveau dossier" :
                         kb_mode == KB_LIBFIND ? "Chercher un morceau (titre, artiste, album)" : kb_mode == KB_PLNAME ? "Nom de la nouvelle liste" :
+                        kb_mode == KB_CHEATID ? "ID du jeu (6 caract\xC3\xA8res, ex. GALE01)" : kb_mode == KB_CHEATNAME ? "Nom du cheat" :
+                        kb_mode == KB_CHEATCODE ? "Ligne de code (XXXXXXXX YYYYYYYY)" :
                         "Adresse ou recherche";
     gx_text1(F_MED, 46, 143, title, RGBA(255, 255, 255, 255));
     if (kb_shift) gx_text_r(F_SMALL, 594, 142, "MAJUSCULES", RGBA(255, 210, 120, 255));
@@ -9673,7 +9678,7 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_TITLES, MI_CHEATS, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
 #define MENU_VIS 13                         /* lignes visibles (le menu defile) */
 static int menu_top = 0;
 static int menu_sel = 0, quit_requested = 0;
@@ -9703,6 +9708,7 @@ static void menu_value(int i, char *out, int cap) {
     }
     case MI_GAMES:   snprintf(out, cap, "(A)"); break;
     case MI_TITLES:  snprintf(out, cap, "(A)"); break;
+    case MI_CHEATS:  snprintf(out, cap, "(A)"); break;
     case MI_RUMBLE:  snprintf(out, cap, "%s", rumble_on ? "Oui" : "Non"); break;
     case MI_PARTY:   snprintf(out, cap, "%s", party_names[party_style]); break;
     case MI_NIGHT:   snprintf(out, cap, "Luminosit\xC3\xA9 %d / 5", night_lum); break;
@@ -9750,7 +9756,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran", "D\xC3\xA9" "cor de saison",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
     "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
-    "Jeux et karaok\xC3\xA9", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
+    "Jeux et karaok\xC3\xA9", "Titres radio gard\xC3\xA9s", "Cheats Swiss (\xC3\xA9" "diteur)", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Mise \xC3\xA0 jour", "Quitter GC-MP3" };
 
 static void web_relayout(void);
@@ -9802,6 +9808,7 @@ static void menu_change(int i, int d) {
     case MI_SEASON:  season_on = !season_on; break;
     case MI_GAMES:   return;
     case MI_TITLES:  return;
+    case MI_CHEATS:  return;
     case MI_RUMBLE:  rumble_on = !rumble_on; if (rumble_on) rumble(0, 200); break;
     case MI_PARTY:   party_style = (party_style + d + PARTY_STYLES) % PARTY_STYLES; break;
     case MI_NIGHT:   night_lum += d; if (night_lum < 1) night_lum = 1; if (night_lum > 5) night_lum = 5; break;
@@ -9862,6 +9869,12 @@ static void menu_input(u32 down, u32 nav, int fire) {
             return;
         }
         else if (menu_sel == MI_UPDATE) { update_activate(); return; }
+        else if (menu_sel == MI_CHEATS) {                         /* v25 : editeur de cheats Swiss */
+            menu_open = 0;
+            if (settings_dirty) save_settings();
+            cheats_open();
+            return;
+        }
         else if (menu_sel == MI_GAMES || menu_sel == MI_TITLES) {    /* A = ouvrir la liste */
             menu_open = 0;
             if (settings_dirty) save_settings();
@@ -10862,6 +10875,7 @@ static void music_pump(void) {
 #include "gckb.c"
 #include "fun_extra.c"                         /* v18 : karaoke, jeux, reveil, titres radio... */
 #include "tabs_extra.c"                        /* v23 : onglets JEUX et TELECHARGEMENTS, curseur partout */
+#include "cheats.c"                            /* v25 : editeur de cheats Swiss */
 
 int main(int argc, char **argv) {
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;

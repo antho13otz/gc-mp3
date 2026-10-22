@@ -24,6 +24,13 @@ static char *tv_text = NULL;
 static int tv_lines = 0, tv_top = 0;
 static char tv_name[128];
 
+/* v25 : editeur de cheats Swiss (cheats.c) */
+static int ch_on = 0;
+static void cheats_input(u32 down, u32 nav, int fire);
+static void draw_cheats(void);
+static void cheats_open(void);
+static void cheats_open_file(const char *path);
+
 static void fe_note(const char *m) { snprintf(fe_msg, sizeof(fe_msg), "%s", m); fe_msg_t = now_ms(); }
 
 static int fe_cmp(const void *a, const void *b) {
@@ -98,6 +105,13 @@ static void fe_open(int i) {
         fe_note("Range la photo dans SD:/photos pour l'ouvrir");
         return;
     }
+    if (dot && !strcasecmp(dot, ".txt")) {                          /* v25 : cheats Swiss -> editeur */
+        char low[NAME_LEN];
+        int n = 0;
+        for (; path[n] && n < NAME_LEN - 1; n++) low[n] = (char)tolower((unsigned char)path[n]);
+        low[n] = 0;
+        if (strstr(low, "/swiss/cheats/")) { cheats_open_file(path); return; }
+    }
     if (dot && (!strcasecmp(dot, ".txt") || !strcasecmp(dot, ".lrc") || !strcasecmp(dot, ".m3u") || !strcasecmp(dot, ".pls") ||
                 !strcasecmp(dot, ".md") || !strcasecmp(dot, ".ini") || !strcasecmp(dot, ".cfg"))) { tv_open(path, fe[i].name); return; }
     fe_note("Ce type de fichier ne s'ouvre pas ici");
@@ -139,8 +153,8 @@ static void files_pump(void) {
     }
 }
 
-enum { FA_RENAME, FA_DELETE, FA_COPY, FA_CUT, FA_PASTE, FA_MKDIR, FA_COUNT };
-static const char *const fa_names[FA_COUNT] = { "Renommer", "Supprimer", "Copier", "Couper", "Coller ici", "Nouveau dossier" };
+enum { FA_RENAME, FA_DELETE, FA_COPY, FA_CUT, FA_PASTE, FA_MKDIR, FA_CHEATS, FA_COUNT };
+static const char *const fa_names[FA_COUNT] = { "Renommer", "Supprimer", "Copier", "Couper", "Coller ici", "Nouveau dossier", "Cheats Swiss (\xC3\xA9" "diteur)" };
 
 static void fe_action(int a) {
     char path[NAME_LEN];
@@ -164,6 +178,7 @@ static void fe_action(int a) {
         break;
     case FA_PASTE: fe_paste(); break;
     case FA_MKDIR: kb_start(KB_MKDIR, "", -1, -1); break;
+    case FA_CHEATS: fa_open = 0; cheats_open(); return;
     }
     fa_open = 0;
 }
@@ -185,6 +200,7 @@ static void files_kb_done(int mode, const char *t) {
 }
 
 static void files_input(u32 down, u32 nav, int fire) {
+    if (ch_on) { cheats_input(down, nav, fire); return; }
     if (!fe) fe_load();
     if (tv_text) {                                           /* lecture d'un texte */
         if (fire && (nav & PAD_BUTTON_DOWN)) tv_top++;
@@ -222,6 +238,7 @@ static void files_input(u32 down, u32 nav, int fire) {
 }
 
 static void draw_tab_files(void) {
+    if (ch_on) { draw_cheats(); return; }
     char buf[NAME_LEN], d[NAME_LEN];
     draw_panel(11, 73, 618, 338);
     int tx = draw_tabs(NULL);
