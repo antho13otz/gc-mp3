@@ -214,9 +214,11 @@ jobs:
           python3 tools/pem2h.py cacert.pem source/cacert.h
 
       - name: Compiler
+        shell: bash
         run: |
           make clean
-          make -j"$(nproc)" BUILD_NUM=${{ github.run_number }}
+          set -o pipefail
+          make -j"$(nproc)" BUILD_NUM=${{ github.run_number }} 2>&1 | tee make.log || { grep -E "error|Error|undefined|\*\*\*" make.log | head -30 | sed 's/^/::error::/'; exit 1; }
 
       # Swiss lit les DOL par blocs de 128 Kio : on complete le fichier
       # jusqu'a un bloc entier (le chargeur ignore ces octets).
