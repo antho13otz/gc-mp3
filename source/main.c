@@ -5187,6 +5187,10 @@ static void draw_keyboard(void);
 static int kb_is_open(void);
 
 static void draw_menu(void);
+static int ic_on;                               /* v32 : reglages d'Indigo (indigo_cfg.c) */
+static void draw_indigo_cfg(void);
+static void indigo_cfg_input(u32 down, u32 nav, int fire);
+static void indigo_cfg_open(void);
 static void draw_saver(void);
 static int menu_open, saver_on;
 
@@ -5268,6 +5272,7 @@ static void draw(void) {
     draw_crash_notice();
     draw_update_notice();
     draw_tab_strip();
+    if (ic_on) draw_indigo_cfg();                  /* v32 : reglages d'Indigo (par-dessus l'onglet) */
     if (kb_is_open()) draw_keyboard();
     if (menu_open) draw_menu();
     draw_checklist();
@@ -9010,8 +9015,9 @@ static void web_pump(void) {
 }
 
 // ---------- Navigateur : actions ----------
-enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR, KB_LIBFIND, KB_PLNAME, KB_CHEATID, KB_CHEATNAME, KB_CHEATCODE };
+enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR, KB_LIBFIND, KB_PLNAME, KB_CHEATID, KB_CHEATNAME, KB_CHEATCODE, KB_ICTEXT };
 static void cheats_kb_done(int mode, const char *t);
+static void ic_kb_done(const char *t);
 static void cheats_open(void);
 static void lib_kb_done(int mode, const char *t);
 static void files_kb_done(int mode, const char *t);
@@ -9133,6 +9139,7 @@ static void kb_validate(void) {
     }
     if (kb_mode == KB_LIBFIND || kb_mode == KB_PLNAME) { lib_kb_done(kb_mode, t); return; }
     if (kb_mode == KB_CHEATID || kb_mode == KB_CHEATNAME || kb_mode == KB_CHEATCODE) { if (*t || kb_mode == KB_CHEATNAME) cheats_kb_done(kb_mode, t); return; }
+    if (kb_mode == KB_ICTEXT) { ic_kb_done(t); return; }        /* v32 : reglage d'Indigo (vide permis) */
     if (!*t) return;
     if (kb_mode == KB_RADIO) { rb_search_name(t); return; }
     if (kb_mode == KB_PODCAST) { podcast_search(t); return; }
@@ -9587,6 +9594,7 @@ static void draw_keyboard(void) {
                         kb_mode == KB_LIBFIND ? "Chercher un morceau (titre, artiste, album)" : kb_mode == KB_PLNAME ? "Nom de la nouvelle liste" :
                         kb_mode == KB_CHEATID ? "ID du jeu (6 caract\xC3\xA8res, ex. GALE01)" : kb_mode == KB_CHEATNAME ? "Nom du cheat" :
                         kb_mode == KB_CHEATCODE ? "Ligne de code (XXXXXXXX YYYYYYYY)" :
+                        kb_mode == KB_ICTEXT ? "R\xC3\xA9glage d'Indigo / Swiss" :
                         "Adresse ou recherche";
     gx_text1(F_MED, 46, 143, title, RGBA(255, 255, 255, 255));
     if (kb_shift) gx_text_r(F_SMALL, 594, 142, "MAJUSCULES", RGBA(255, 210, 120, 255));
@@ -9896,7 +9904,7 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_TITLES, MI_CHEATS, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_UPDATE, MI_TOSWISS, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_TITLES, MI_CHEATS, MI_INDIGO, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_UPDATE, MI_TOSWISS, MI_QUIT, MI_COUNT };
 static int autostart_get(void);
 static const char *autostart_set(int on);
 static const char *gl_boot_swiss(const char *path);
@@ -9930,6 +9938,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_GAMES:   snprintf(out, cap, "(A)"); break;
     case MI_TITLES:  snprintf(out, cap, "(A)"); break;
     case MI_CHEATS:  snprintf(out, cap, "(A)"); break;
+    case MI_INDIGO:  snprintf(out, cap, "(A)"); break;
     case MI_SKIN:    snprintf(out, cap, "%s", ui_skin ? "Moderne" : "Indigo (classique)"); break;
     case MI_GLVIEW:  { static const char *const nm[6] = { "Grille", "Carrousel", "Liste", "Mur de jaquettes", "Vitrine", "\xC3\x89tag\xC3\xA8re" };
                        snprintf(out, cap, "%s", nm[gl_view >= 0 && gl_view < 6 ? gl_view : 0]); } break;
@@ -9982,7 +9991,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Style de l'interface", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran", "D\xC3\xA9" "cor de saison",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
     "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
-    "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Titres radio gard\xC3\xA9s", "Cheats Swiss (\xC3\xA9" "diteur)", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
+    "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Titres radio gard\xC3\xA9s", "Cheats Swiss (\xC3\xA9" "diteur)", "R\xC3\xA9glages Indigo / Swiss", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer avec Indigo / Swiss", "Mise \xC3\xA0 jour", "Quitter vers Swiss", "Quitter GC-MP3" };
 
 static void web_relayout(void);
@@ -10035,6 +10044,7 @@ static void menu_change(int i, int d) {
     case MI_GAMES:   return;
     case MI_TITLES:  return;
     case MI_CHEATS:  return;
+    case MI_INDIGO:  return;
     case MI_SKIN:    ui_skin = !ui_skin; break;
     case MI_GLVIEW:  gl_view = (gl_view + d + 6) % 6; break;
     case MI_RUMBLE:  rumble_on = !rumble_on; if (rumble_on) rumble(0, 200); break;
@@ -10106,6 +10116,12 @@ static void menu_input(u32 down, u32 nav, int fire) {
             ui_status("Lancement de Swiss...");
             const char *e = gl_boot_swiss(NULL);               /* (ne revient pas si ca marche) */
             if (e) lib_note(e);
+            return;
+        }
+        else if (menu_sel == MI_INDIGO) {                         /* v32 : reglages d'Indigo / Swiss */
+            menu_open = 0;
+            if (settings_dirty) save_settings();
+            indigo_cfg_open();
             return;
         }
         else if (menu_sel == MI_CHEATS) {                         /* v25 : editeur de cheats Swiss */
@@ -11133,6 +11149,7 @@ static void music_pump(void) {
 #include "tabs_extra.c"                        /* v23 : onglets JEUX et TELECHARGEMENTS, curseur partout */
 #include "cheats.c"                            /* v25 : editeur de cheats Swiss */
 #include "gclib.c"                             /* v25 : Mes jeux GameCube (jaquettes du pack Swiss Indigo) */
+#include "indigo_cfg.c"                        /* v32 : reglages d'Indigo / Swiss */
 
 int main(int argc, char **argv) {
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;
@@ -11216,6 +11233,7 @@ int main(int argc, char **argv) {
         if (ck) { checklist_input(down, nav, fire); down = 0; fire = 0; }
         else if (menu_open) { menu_input(down, nav, fire); down = 0; fire = 0; }
         else if (kb_open) { kb_input(down, nav, fire); down = 0; fire = 0; }   /* START = valider */
+        else if (ic_on) { indigo_cfg_input(down, nav, fire); down = 0; fire = 0; }   /* v32 : reglages d'Indigo */
         else if (am_open) { actions_input(down, nav, fire); down = 0; fire = 0; }
         else if (fun_mode && !night_on) {                     /* karaoke, jeux, reveil */
             u32 keep = fun_mode == FUN_KARAOKE ? (down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) : 0;
@@ -11259,14 +11277,14 @@ int main(int argc, char **argv) {
         {
             static int cd_prev = 0;
             int cdn = sy < -60;
-            if (cdn && !cd_prev && !party_on && !night_on && !menu_open && !kb_open && !fun_mode && IS_PLAYER_TAB(tab)) layout_next();
+            if (cdn && !cd_prev && !party_on && !night_on && !menu_open && !kb_open && !ic_on && !fun_mode && IS_PLAYER_TAB(tab)) layout_next();
             cd_prev = cdn;
         }
 
         /* stick C gauche / droite : vue de la liste MUSIQUE */
         int cdir = (sx > 60) ? 1 : (sx < -60) ? -1 : 0;
         if (!party_on) {
-            if (cdir && cdir != cs_prev && tab == TAB_MUSIC && !night_on && !menu_open && !kb_open && !fun_mode) { set_view(view_mode + cdir); settings_dirty = 1; }
+            if (cdir && cdir != cs_prev && tab == TAB_MUSIC && !night_on && !menu_open && !kb_open && !ic_on && !fun_mode) { set_view(view_mode + cdir); settings_dirty = 1; }
             cs_prev = cdir;
         }
 
