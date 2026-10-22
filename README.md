@@ -19,6 +19,20 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v35
+
+- **Nouvelle page Réglages (START)** avec des sections en haut, **L / R** pour changer :
+  - **GC-MP3** : les réglages de l'appli.
+  - **Indigo** : système de la console et interface d'Indigo.
+  - **Swiss** : lancement des jeux, réglages par défaut des jeux, réseau.
+  - **Outils** : les outils ci-dessous.
+  Les réglages d'Indigo / Swiss changés sont enregistrés en fermant la page (ou Y tout de suite).
+- **Cartes mémoire** : sauvegardes des slots A et B (icône, nom, blocs), copie sur la carte SD en `.gci` (dossier `SD:/gci`), remise depuis un `.gci` / `.gcs` / `.sav`, copie vers l'autre carte, suppression.
+- **Applis (.dol)** : tous les `.dol` de la racine et du dossier `apps` (nom et description de `meta.xml`), lancés directement depuis GC-MP3.
+- **Derniers jeux lancés** : depuis GC-MP3 et depuis Indigo (`recent.ini`), relancés en un clic.
+- **Réglages par jeu** : dans Mes jeux, fiche d'un jeu > **Y** (fichier `swiss/settings/game/<ID>.ini` d'Indigo). Y dans la fenêtre = tout remettre par défaut.
+- **Infos console** : version, vidéo, langue, son, mémoire, carte SD, réseau, horloge.
+
 ## Nouveautés v34
 
 - **Réglages d'Indigo appliqués à GC-MP3** (point vert dans START > Réglages Indigo / Swiss) :

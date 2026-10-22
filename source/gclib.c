@@ -25,6 +25,8 @@ typedef struct {
 } gcg_t;
 /* v28 : 6 facons d'afficher les jeux (R / L pour changer) */
 enum { GLV_GRID, GLV_CAROUSEL, GLV_LIST, GLV_WALL, GLV_SHOW, GLV_SHELF, GLV_COUNT };
+static void tl_recent_add(const char *path);            /* v35 : derniers jeux lances (tools.c) */
+static void indigo_game_open(const char *id, const char *title);   /* v35 : reglages du jeu (indigo_cfg.c) */
 static int gl_view = GLV_GRID;
 static const char *const gl_view_names[GLV_COUNT] = { "Grille", "Carrousel", "Liste", "Mur de jaquettes", "Vitrine", "\xC3\x89tag\xC3\xA8re" };
 static int gl_view_cols(void) { return gl_view == GLV_WALL ? 9 : gl_view == GLV_GRID || gl_view == GLV_SHELF ? 6 : 1; }
@@ -481,6 +483,7 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         if (fire && (nav & PAD_BUTTON_LEFT) && gl_sel > 0) gl_sel--;
         if (fire && (nav & PAD_BUTTON_RIGHT) && gl_sel < gl_n - 1) gl_sel++;
         if (down & PAD_BUTTON_X && gl_n) gl_open_cheats(gl_sel);
+        if ((down & PAD_BUTTON_Y) && gl_n) indigo_game_open(gl[gl_sel].id, gl[gl_sel].title);   /* v35 : reglages du jeu */
         if ((down & PAD_BUTTON_A) && gl_n) gl_launch_sel = gl_sel;
         if (down & PAD_BUTTON_B) gl_detail = 0;
         return;
@@ -794,9 +797,9 @@ static void draw_gclib_main(void) {
         else gx_text1(F_SMALL, rx, dy, g->bstate == 0 ? "Lecture de la banni\xC3\xA8re..." : "Pas de description pour ce jeu.", RGBA(170, 155, 225, 255));
         if (has_st) { f32 sw = 176, sh = 132; draw_tex_fit(&gl_bigst.obj, 320, 240, 320, 240, rx, 396 - sh - 6, sw, sh); }
         if (now_ms() - gl_msg_t < 6000) { char m[200]; fit_text(F_SMALL, gl_msg, 586, m, sizeof(m)); gx_text1(F_SMALL, 30, 404, m, RGBA(255, 210, 120, 255)); }
-        static const char *const k[] = { "A", "X", "B" };
-        static const char *const l[] = { "LANCER", "CHEATS", "RETOUR" };
-        draw_legend_keys(k, l, 3);
+        static const char *const k[] = { "A", "X", "Y", "B" };
+        static const char *const l[] = { "LANCER", "CHEATS", "R\xC3\x89GLAGES", "RETOUR" };
+        draw_legend_keys(k, l, 4);
         if (gl_launch_sel >= 0) {                              /* confirmation */
             const f32 w = 420, h = 112, x = 110, y = 170;
             gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
@@ -947,19 +950,33 @@ static const char *gl_launch(int k) {                  /* retourne un message d'
     char p[NAME_LEN]; struct stat st;
     snprintf(p, sizeof(p), "%s/%.6s.chtsel", CH_DIR, gl[k].id);
     gl_boot_cheats = stat(p, &st) == 0 && st.st_size > 8;
+    tl_recent_add(gl[k].path);
     const char *e = gl_boot_swiss(gl[k].path);
     gl_boot_cheats = 0;
     return e;
 }
+/* v35 : lance n'importe quel .dol (Swiss, ou une appli), avec jusqu'a 2 arguments */
+static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *a2, const char *what);
 static const char *gl_boot_swiss(const char *path) {
     if (!gl_find_swiss()) return "Swiss introuvable : mets son .dol a la racine (ex. swiss.dol) ou indique-le dans gc-mp3.txt (swiss = ...)";
-    /* lecture de Swiss par morceaux, avec l'avancement a l'ecran */
+    static const char *const dev[3] = { "sdc:", "sda:", "sdb:" };
+    char a1[NAME_LEN + 32];
+    if (path) snprintf(a1, sizeof(a1), "Autoload=%s%s", dev[sd_slot >= 0 && sd_slot < 3 ? sd_slot : 0], path + strlen(SD_ROOT));
+    else snprintf(a1, sizeof(a1), "Autoload=");
+    const char *e = gl_boot_dol(gl_swiss, a1, path && gl_boot_cheats ? "AutoCheats=Yes" : NULL, "Swiss");
+    if (e && !strcmp(e, "-noarg")) return "Ce Swiss ne prend pas d'arguments : mets-le a jour";
+    return e;
+}
+static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *a2, const char *what) {
+    char stmsg[96];
+    snprintf(stmsg, sizeof(stmsg), "Lancement de %s...", what);
+    /* lecture du .dol par morceaux, avec l'avancement a l'ecran */
     long len = 0;
     unsigned char *dol = NULL;
     {
-        FILE *f = fopen(gl_swiss, "rb");
+        FILE *f = fopen(dolpath, "rb");
         struct stat st;
-        if (f && stat(gl_swiss, &st) == 0 && st.st_size > 0 && st.st_size <= 12 * 1024 * 1024) {
+        if (f && stat(dolpath, &st) == 0 && st.st_size > 0 && st.st_size <= 12 * 1024 * 1024) {
             len = (long)st.st_size;
             dol = (unsigned char *)malloc(len);
             long got = 0;
@@ -968,45 +985,43 @@ static const char *gl_boot_swiss(const char *path) {
                 long n = len - got < 262144 ? len - got : 262144;
                 if ((long)fread(dol + got, 1, n, f) != n) break;
                 got += n;
-                snprintf(m, sizeof(m), "Lancement de Swiss... %ld %%", got * 100 / len);
+                snprintf(m, sizeof(m), "%s %ld %%", TR(stmsg), got * 100 / len);
                 gl_status(m);
             }
             if (dol && got < len) { free(dol); dol = NULL; }
         }
         if (f) fclose(f);
     }
-    if (!dol) return "Lecture de Swiss impossible (m\xC3\xA9moire ou carte SD)";
-    if (len < 0x100) { free(dol); return "Fichier de Swiss invalide"; }
+    if (!dol) return "Lecture du .dol impossible (m\xC3\xA9moire ou carte SD)";
+    if (len < 0x100) { free(dol); return "Fichier .dol invalide"; }
     /* sections du .dol */
     u32 tab[18 * 3 + 3], n = 0, lo = 0xFFFFFFFFu, hi = 0;
     for (int i = 0; i < 18; i++) {
         u32 off = be32(dol + i * 4), addr = be32(dol + 0x48 + i * 4), sz = be32(dol + 0x90 + i * 4);
         if (!sz) continue;
-        if (off + (u64)sz > (u64)len || addr < 0x80003000u || addr + (u64)sz > 0x81700000u) { free(dol); return "Fichier de Swiss invalide"; }
+        if (off + (u64)sz > (u64)len || addr < 0x80003000u || addr + (u64)sz > 0x81700000u) { free(dol); return "Fichier .dol invalide"; }
         tab[n * 3] = addr; tab[n * 3 + 1] = off; tab[n * 3 + 2] = sz; n++;
         if (addr < lo) lo = addr;
         if (addr + sz > hi) hi = addr + sz;
     }
     u32 bss = be32(dol + 0xD8), bsz = be32(dol + 0xDC), entry = be32(dol + 0xE0);
     if (bsz && bss >= 0x80003000u && bss + (u64)bsz < 0x81700000u && bss + bsz > hi) hi = bss + bsz;
-    if (!n || entry < lo || entry >= hi) { free(dol); return "Fichier de Swiss invalide"; }
+    if (!n || entry < lo || entry >= hi) { free(dol); return "Fichier .dol invalide"; }
     u32 dst = (GL_CMD_AT - (u32)len) & ~31u;           /* le .dol est d'abord range tout en haut de la memoire */
-    if (dst < hi + 32) { free(dol); return "Swiss est trop gros pour etre lance d'ici"; }
-    /* argument : Autoload=sdX:/chemin */
-    static const char *const dev[3] = { "sdc:", "sda:", "sdb:" };
-    char cmd[NAME_LEN * 2 + 96];
-    int cl = snprintf(cmd, sizeof(cmd), "%s", gl_swiss);
-    if (path) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "Autoload=%s%s", dev[sd_slot >= 0 && sd_slot < 3 ? sd_slot : 0], path + strlen(SD_ROOT));
-    else cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "Autoload=");
-    if (path && gl_boot_cheats) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "AutoCheats=Yes");   /* (Swiss applique alors les cheats coches) */
+    if (dst < hi + 32) { free(dol); return "Ce .dol est trop gros pour etre lance d'ici"; }
+    /* arguments : chemin du .dol, puis a1 / a2 (ex. Autoload=sdX:/chemin pour Swiss) */
+    char cmd[NAME_LEN * 3 + 96];
+    int cl = snprintf(cmd, sizeof(cmd), "%s", dolpath);
+    if (a1) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", a1);
+    if (a2) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", a2);   /* (ex. AutoCheats=Yes : Swiss applique les cheats coches) */
     cl += 1;
     /* le .dol accepte-t-il des arguments ? (texte "_arg" juste apres le point d'entree) */
     int has_arg = 0;
     for (u32 i = 0; i < n; i++)
         if (entry + 8 >= tab[i * 3] && entry + 8 < tab[i * 3] + tab[i * 3 + 2])
             has_arg = !memcmp(dol + tab[i * 3 + 1] + (entry + 4 - tab[i * 3]), "_arg", 4);
-    if (!has_arg) { free(dol); return "Ce Swiss ne prend pas d'arguments : mets-le a jour"; }
-    crumb("lancer : %s (%s)", path ? path : "(menu)", gl_swiss);
+    if (!has_arg && a1) { free(dol); return "-noarg"; }
+    crumb("lancer : %s %s", dolpath, a1 ? a1 : "");
 #ifdef GEKKO
     if (settings_dirty) save_settings();
     stop_track(); stop_station();
@@ -1023,8 +1038,7 @@ static const char *gl_boot_swiss(const char *path) {
     DCFlushRange((void *)GL_CMD_AT, 0x400);
     u32 *a = (u32 *)GL_ARGV_AT;                          /* struct __argv */
     a[0] = 0x5f617267; a[1] = GL_CMD_AT; a[2] = (u32)cl; a[3] = 0; a[4] = 0; a[5] = 0;
-    t[n * 3] = entry + 8; t[n * 3 + 1] = GL_ARGV_AT; t[n * 3 + 2] = 24;   /* (copie apres le code de Swiss) */
-    n++;
+    if (has_arg) { t[n * 3] = entry + 8; t[n * 3 + 1] = GL_ARGV_AT; t[n * 3 + 2] = 24; n++; }   /* (copie apres le code du .dol) */
     memcpy((void *)GL_STUB_AT, gl_stub, sizeof(gl_stub));
     DCFlushRange((void *)0x80001800, 0x1800);
     ICInvalidateRange((void *)GL_STUB_AT, sizeof(gl_stub));
@@ -1032,7 +1046,7 @@ static const char *gl_boot_swiss(const char *path) {
     ((void (*)(u32 *, u32, u32))GL_STUB_AT)(t, n, entry);
     for (;;) ;
 #else
-    printf("LANCER swiss=%s dst=%08x hi=%08x entree=%08x sections=%u arg=[%s]", gl_swiss, dst, hi, entry, n, cmd + strlen(cmd) + 1);
+    printf("LANCER dol=%s dst=%08x hi=%08x entree=%08x sections=%u args=%d arg=[%s]", dolpath, dst, hi, entry, n, has_arg, cmd + strlen(cmd) + 1);
     { const char *a2 = cmd + strlen(cmd) + 1; a2 += strlen(a2) + 1; if (a2 < cmd + cl) printf(" arg2=[%s]", a2); }
     printf("\n");
     free(dol);
