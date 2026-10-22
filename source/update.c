@@ -156,8 +156,61 @@ static void up_write_pump(void) {
     up_install_finish(uw_buf, uw_len);
     free(uw_buf); uw_buf = NULL;
 }
+/* v33 : apres l'installation, les autres copies de GC-MP3 sur la carte sont aussi
+   remplacees (ex. ipl.dol a la racine ET gc-mp3player.dol dans apps) */
+#define UP_MAXCOPY 8
+static char up_copies[UP_MAXCOPY][NAME_LEN];
+static int up_ncopies = 0;
+static void up_copy_add(const char *p) {
+    if (up_ncopies >= UP_MAXCOPY || !strcasecmp(p, up_target)) return;
+    for (int i = 0; i < up_ncopies; i++) if (!strcasecmp(up_copies[i], p)) return;
+    snprintf(up_copies[up_ncopies++], NAME_LEN, "%s", p);
+}
+static int up_dol_name(const char *n) {                  /* nom qui peut etre GC-MP3 */
+    size_t l = strlen(n);
+    if (l < 5 || strcasecmp(n + l - 4, ".dol")) return 0;
+    char low[NAME_LEN]; size_t i = 0;
+    for (; n[i] && i < sizeof(low) - 1; i++) low[i] = (char)tolower((u8)n[i]);
+    low[i] = 0;
+    return strstr(low, "mp3") || !strcmp(low, "boot.dol") || !strcmp(low, "ipl.dol") || !strcmp(low, "autoexec.dol") || !strcmp(low, "a.dol");
+}
+static void up_find_copies(const char *dir, int depth) {
+    DIR *d = opendir(dir);
+    if (!d) return;
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL && up_ncopies < UP_MAXCOPY) {
+        if (e->d_name[0] == '.') continue;
+        char p[NAME_LEN];
+        snprintf(p, sizeof(p), "%s/%s", dir, e->d_name);
+        struct stat st;
+        if (stat(p, &st) != 0) continue;
+        if (S_ISDIR(st.st_mode)) {
+            if (depth > 0 && strcasecmp(e->d_name, "mp3") && strcasecmp(e->d_name, "retro") && strcasecmp(e->d_name, "photos")
+                && strcasecmp(e->d_name, "videos") && strcasecmp(e->d_name, "podcasts") && strcasecmp(e->d_name, "games")
+                && strcasecmp(e->d_name, "swiss") && strcasecmp(e->d_name, "gc-mp3"))
+                up_find_copies(p, depth - 1);
+        } else if (up_dol_name(e->d_name) && st.st_size > 0x100 && strcasecmp(p, up_target) && up_is_me(p)) up_copy_add(p);
+    }
+    closedir(d);
+}
+static int up_write_copy(const char *path, const u8 *d, long n) {
+    char part[NAME_LEN + 8];
+    snprintf(part, sizeof(part), "%s.part", path);
+    FILE *f = fopen(part, "wb");
+    if (!f) return 0;
+    long pos = 0;
+    while (pos < n) {
+        long k = n - pos < 65536 ? n - pos : 65536;
+        if (fwrite(d + pos, 1, k, f) != (size_t)k) break;
+        pos += k;
+        service_audio();
+    }
+    if (fclose(f) != 0 || pos < n) { remove(part); return 0; }
+    remove(path);
+    if (rename(part, path) != 0) { remove(part); return 0; }
+    return 1;
+}
 static void up_install_finish(const u8 *d, long n) {
-    (void)d;
     char part[NAME_LEN + 8], old[NAME_LEN + 8];
     snprintf(part, sizeof(part), "%s", uw_part);
     snprintf(old, sizeof(old), "%s.ancien", up_target);
@@ -171,9 +224,19 @@ static void up_install_finish(const u8 *d, long n) {
         up_fail("Impossible de remplacer le fichier");
         return;
     }
+    /* les autres copies (ipl.dol, apps...) */
+    up_ncopies = 0;
+    up_find_copies(SD_ROOT, 2);
+    int nok = 0;
+    for (int i = 0; i < up_ncopies; i++) {
+        int ok = up_write_copy(up_copies[i], d, n);
+        nok += ok;
+        crumb("mise a jour : copie %s %s", up_copies[i], ok ? "ok" : "ECHEC");
+    }
     up_state = UP_DONE;
-    snprintf(up_msg, sizeof(up_msg), "Install\xC3\xA9" "e (build %d) : quitte et relance GC-MP3", up_build);
-    crumb("mise a jour installee : build %d -> %s", up_build, up_target);
+    if (nok) snprintf(up_msg, sizeof(up_msg), nok == 1 ? "Install\xC3\xA9" "e (build %d, 2 fichiers) : quitte et relance GC-MP3" : "Install\xC3\xA9" "e (build %d, %d fichiers) : quitte et relance GC-MP3", up_build, nok + 1);
+    else snprintf(up_msg, sizeof(up_msg), "Install\xC3\xA9" "e (build %d) : quitte et relance GC-MP3", up_build);
+    crumb("mise a jour installee : build %d -> %s (+%d copies)", up_build, up_target, nok);
 }
 
 static void update_pump(void) {
