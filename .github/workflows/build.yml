@@ -55,11 +55,20 @@ jobs:
 
       - name: Compiler le lanceur
         if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE/swiss"
           python3 gcmp3/tools/mkloader.py swiss gcmp3/tools/loader
           cd swiss
-          make compile-patches compile compile-packer
+          set +e
+          make compile-patches compile compile-packer > ../swiss-build.log 2>&1
+          st=$?
+          set -e
+          tail -n 40 ../swiss-build.log
+          if [ $st -ne 0 ]; then
+            grep -n -i "error\|undefined" ../swiss-build.log | head -n 25 | sed 's/^/::error::/'
+            exit $st
+          fi
           cp cube/packer/swiss.dol ../gc-mp3-loader.bin
           # v45 : retour en jeu (A + Z + START) : le meme lanceur, dans un apploader.img
           # (reboot.dol du packer de Swiss + dol2ipl.py, comme l'apploader.img officiel)
