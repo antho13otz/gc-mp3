@@ -5,8 +5,10 @@
 import os, sys, struct
 os.environ['LIBUNICORN_PATH'] = os.environ.get('UNICORN_DIR', 'work/unicorn') + '/build'
 sys.path.insert(0, os.environ.get('UNICORN_DIR', 'work/unicorn') + '/bindings/python')
+
 from unicorn import *
 from unicorn.ppc_const import *
+from unicorn import ppc_const as _pc
 
 BOOT, SDIMG, ISO = sys.argv[1], sys.argv[2], sys.argv[3]
 disk = open(SDIMG, 'rb').read()
@@ -114,4 +116,8 @@ print('resident : commandes=%d derniere=%08X err=%d sdhc=%d secteurs lus=%d' % (
 print('vrai lecteur : %d commandes inquiry (%s)' % (len(kicks), ' '.join('%08X' % k for k in kicks)))
 ok &= pc == STOP and mu.reg_read(UC_PPC_REG_1) == 0x81000000 and mu.reg_read(UC_PPC_REG_31) == 0 and mu.reg_read(UC_PPC_REG_30) == 0
 ok &= rd(0x4C) == 4 and len(kicks) == 4 and all(k == 0x12000000 for k in kicks)
+r = lambda n: mu.reg_read(getattr(_pc, 'UC_PPC_REG_%d' % n))
+v52 = r(29) == 0xE000 and r(28) == 0xE0000000 and r(10) == 0xCC006008 and r(27) == 0x1234
+print(('OK   ' if v52 else 'FAUX ') + 'lhz / lwzu / sth (r29=%X r28=%X r10=%X r27=%X)' % (r(29), r(28), r(10), r(27)))
+ok &= v52
 print('TOUT OK' if ok else 'ECHEC')
