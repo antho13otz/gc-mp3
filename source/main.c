@@ -1901,6 +1901,7 @@ static void scan_dir(const char *dir, int depth) {
 }
 
 static void retro_unzip_tree(const char *dir, int depth);   /* tab_retro.c (v26 : .zip de musiques retro) */
+static int nsorted = 0;                                    /* v27 : names[0..nsorted[ tries, ajouts recents ensuite */
 static void scan_files(void) {
     nfiles = 0;
     retro_unzip_tree(SD_ROOT "/retro", 0);
@@ -1910,6 +1911,7 @@ static void scan_files(void) {
     scan_dir(SD_ROOT "/retro", 0);
     scan_dir(GCD "/podcasts", 0);                      /* episodes telecharges */
     qsort(names, nfiles, NAME_LEN, cmp_names);
+    nsorted = nfiles;
     for (int k = 0; k < nfiles; k++) is_retro[k] = retro_ext_fmt(names[k]) >= 0;
 }
 
@@ -3078,13 +3080,14 @@ static int bib_dirty = 0;                  // (declaree plus haut)
 static int lib_dirty;
 static u64 bib_saved_t = 0;
 static int bib_find(const char *path) {
-    int lo = 0, hi = nfiles - 1;
+    int lo = 0, hi = (nsorted < nfiles ? nsorted : nfiles) - 1;
     while (lo <= hi) {
         int mid = (lo + hi) / 2;
         int c = cmp_names(names[mid], path);
         if (c == 0) return mid;
         if (c < 0) lo = mid + 1; else hi = mid - 1;
     }
+    for (int k = nsorted; k < nfiles; k++) if (!strcmp(names[k], path)) return k;   /* (ajouts recents) */
     return -1;
 }
 static void bib_load(void) {
@@ -6739,6 +6742,7 @@ static long dl_total = -1, dl_got = 0;
 static u64 dl_t0 = 0, dl_last = 0;
 static dechunk_t dl_dc;
 static void music_rescan(void);
+static void music_add_file(const char *path);
 
 static void dlh_add(const char *from, const char *path);
 static int dlh_loaded;
@@ -6874,7 +6878,7 @@ static void dl_finish(void) {
     if (el > 0 && dl_got > 65536) snprintf(spd, sizeof(spd), ", %ld Ko/s", (long)((long long)dl_got * 1000 / 1024 / (long long)el));
     dlh_add(strstr(dl_dest_dir_used, "podcasts") ? "podcast" : "web", dl_path);   /* (onglet TELECHARGEMENTS) */
     if (n > 4 && audio_ext_len(dl_path)) {
-        music_rescan();
+        music_add_file(dl_path);
         snprintf(msg, sizeof(msg), "Téléchargé : %s (dans l'onglet MUSIQUE%s)", dl_name, spd);
     } else snprintf(msg, sizeof(msg), "Enregistré : SD:/downloads/%s%s", dl_name, spd[0] ? spd + 1 : "");
     web_note(msg, 0);
@@ -10810,6 +10814,23 @@ static void tab_enter(int t) {
 static int kb_is_open(void) { return kb_open; }
 
 /* Relit la liste des MP3 (apres un telechargement ou X), sans couper le morceau en cours. */
+/* v27 : un seul fichier en plus (telechargement fini) : ajoute a la fin de la
+   liste, sans relire toute la carte SD (avant : l'ecran se figeait plusieurs secondes) */
+static void retro_rescan(void);
+static void music_add_file(const char *path) {
+    if (!sd_ok || !audio_ext_len(path)) return;
+    if (bib_find(path) >= 0) return;
+    if (nfiles >= MAX_FILES) return;
+    int k = nfiles;
+    snprintf(names[k], NAME_LEN, "%s", path);
+    dur_cache[k] = -2;
+    is_retro[k] = retro_ext_fmt(path) >= 0;
+    tg_done[k] = 0; tg_artist[k][0] = tg_album[k][0] = tg_title[k][0] = 0;
+    play_cnt[k] = 0; play_last[k] = 0;
+    nfiles++;
+    lib_rebuild();
+    retro_rescan();
+}
 static void music_rescan(void) {
     if (!sd_ok) return;
     char playing_path[NAME_LEN] = "";

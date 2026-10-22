@@ -10,7 +10,7 @@
 #define UPD_API "https://api.github.com"
 #endif
 
-enum { UP_IDLE, UP_CHECK, UP_NONE, UP_AVAIL, UP_DL, UP_DONE, UP_ERR };
+enum { UP_IDLE, UP_CHECK, UP_NONE, UP_AVAIL, UP_DL, UP_DONE, UP_ERR, UP_WRITE };
 static int up_state = UP_IDLE;
 static int up_build = 0;                       /* build disponible */
 static char up_url[URL_MAX];
@@ -29,7 +29,7 @@ static void up_fail(const char *m) {
 }
 
 static void update_check(void) {
-    if (up_state == UP_CHECK || up_state == UP_DL) return;
+    if (up_state == UP_CHECK || up_state == UP_DL || up_state == UP_WRITE) return;
     if (net_phase != NET_DONE) { net_start_async(); up_fail("R\xC3\xA9seau en cours de connexion, r\xC3\xA9" "essaie"); return; }
     if (!net_ok) { up_fail("Pas de r\xC3\xA9seau"); return; }
     char url[256];
@@ -93,15 +93,47 @@ static int up_dol_valid(const u8 *d, long n) {
     return nsec > 0 && text_ok;
 }
 
-static void up_install(const u8 *d, long n) {
-    char part[NAME_LEN + 8], old[NAME_LEN + 8];
+/* v27 : le .dol est ecrit par morceaux, une partie a chaque image (avant : tout
+   d'un coup a 99 %, l'ecran se figeait quelques secondes) */
+static u8 *uw_buf = NULL;
+static long uw_len = 0, uw_pos = 0;
+static FILE *uw_f = NULL;
+static char uw_part[NAME_LEN + 8];
+static void up_install_finish(const u8 *d, long n);
+static void up_install(u8 *d, long n) {                  /* garde d (libere a la fin) */
     up_pick_target();
-    snprintf(part, sizeof(part), "%s.part", up_target);
+    snprintf(uw_part, sizeof(uw_part), "%s.part", up_target);
+    uw_f = fopen(uw_part, "wb");
+    if (!uw_f) { free(d); up_fail("Impossible d'\xC3\xA9" "crire sur la carte SD"); return; }
+    uw_buf = d; uw_len = n; uw_pos = 0;
+    up_state = UP_WRITE;
+}
+static void up_write_pump(void) {
+    if (up_state != UP_WRITE || !uw_f) return;
+    u64 t0 = now_ms();
+    while (uw_pos < uw_len && now_ms() - t0 < 12) {
+        long k = uw_len - uw_pos < 32768 ? uw_len - uw_pos : 32768;
+        if (fwrite(uw_buf + uw_pos, 1, k, uw_f) != (size_t)k) break;
+        uw_pos += k;
+        service_audio();
+    }
+    if (uw_pos < uw_len && now_ms() - t0 < 12) {          /* ecriture refusee */
+        fclose(uw_f); uw_f = NULL; remove(uw_part); free(uw_buf); uw_buf = NULL;
+        up_fail("\xC3\x89" "criture incompl\xC3\xA8te (carte pleine ?)");
+        return;
+    }
+    if (uw_pos < uw_len) return;                          /* (la suite a l'image suivante) */
+    int ok = fclose(uw_f) == 0;
+    uw_f = NULL;
+    if (!ok) { remove(uw_part); free(uw_buf); uw_buf = NULL; up_fail("\xC3\x89" "criture incompl\xC3\xA8te (carte pleine ?)"); return; }
+    up_install_finish(uw_buf, uw_len);
+    free(uw_buf); uw_buf = NULL;
+}
+static void up_install_finish(const u8 *d, long n) {
+    (void)d;
+    char part[NAME_LEN + 8], old[NAME_LEN + 8];
+    snprintf(part, sizeof(part), "%s", uw_part);
     snprintf(old, sizeof(old), "%s.ancien", up_target);
-    FILE *f = fopen(part, "wb");
-    if (!f) { up_fail("Impossible d'\xC3\xA9" "crire sur la carte SD"); return; }
-    size_t w = fwrite(d, 1, n, f);
-    if (fclose(f) != 0 || w != (size_t)n) { remove(part); up_fail("\xC3\x89" "criture incompl\xC3\xA8te (carte pleine ?)"); return; }
     struct stat st;
     if (stat(part, &st) != 0 || st.st_size != n) { remove(part); up_fail("Fichier \xC3\xA9" "crit incorrect"); return; }
     remove(old);
@@ -123,6 +155,7 @@ static void update_pump(void) {
         up_auto_done = 1;
         update_check();
     }
+    if (up_state == UP_WRITE) { up_write_pump(); return; }
     if (up_state != UP_CHECK && up_state != UP_DL) return;
     hf_pump(&up_hf);
     if (up_hf.st == HF_FAIL) {
@@ -186,9 +219,10 @@ static void update_pump(void) {
     }
     /* telechargement fini */
     if (!up_dol_valid(up_hf.buf, up_hf.len)) { hf_drop(&up_hf); up_hf.st = HF_IDLE; up_fail("Fichier re\xC3\xA7u invalide"); return; }
-    up_install(up_hf.buf, up_hf.len);
-    hf_drop(&up_hf);
+    u8 *b = up_hf.buf; long bl = up_hf.len;
+    up_hf.buf = NULL; up_hf.len = up_hf.cap = 0;        /* (le tampon passe a l'ecriture) */
     up_hf.st = HF_IDLE;
+    up_install(b, bl);
 }
 
 static void update_start_download(void) {
@@ -217,6 +251,7 @@ static void update_value(char *out, int cap) {
             snprintf(out, cap, "T\xC3\xA9l\xC3\xA9" "chargement %ld %%", (long)((long long)up_hf.len * 100 / up_hf.expect));
         else snprintf(out, cap, "T\xC3\xA9l\xC3\xA9" "chargement...");
         break;
+    case UP_WRITE: snprintf(out, cap, "Installation %ld %%", uw_len ? (long)((long long)uw_pos * 100 / uw_len) : 0L); break;
     case UP_IDLE: snprintf(out, cap, "Build %d  (A : v\xC3\xA9rifier)", GCMP3_BUILD); break;
     default: snprintf(out, cap, "%s", up_msg); break;
     }

@@ -45,6 +45,9 @@ static volatile int tp_done_w = 0;
 static char tp_log[5][128];
 static volatile int tp_nlog = 0;
 static volatile int tp_rescan = 0;                 /* 1 = musique, 2 = photos */
+static char tp_add_path[8][NAME_LEN];               /* v27 : morceaux recus a ajouter (sans tout relire) */
+static volatile int tp_add_w = 0;
+static int tp_add_r = 0;
 static volatile u64 tp_last_req = 0;
 static volatile long tp_free_mb = -1;
 static volatile u64 tp_up_t0 = 0;
@@ -355,7 +358,13 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     tp_logf(m);
     snprintf(tp_done_path[tp_done_w % 4], NAME_LEN, "%s", path);
     tp_done_w++;
-    if (!strcmp(dir, "mp3") || !strcmp(dir, "downloads") || !strcmp(dir, "retro")) tp_rescan |= 1;
+    if (!strcmp(dir, "mp3") || !strcmp(dir, "downloads") || !strcmp(dir, "retro")) {
+        const char *dot = strrchr(clean, '.');
+        if (audio_ext_len(path) && !(dot && !strcasecmp(dot, ".zip")) && tp_add_w - tp_add_r < 8) {
+            snprintf(tp_add_path[tp_add_w % 8], NAME_LEN, "%s", path);
+            tp_add_w++;
+        } else tp_rescan |= 1;                          /* (.zip retro, ou beaucoup de fichiers : tout relire) */
+    }
     if (!strcmp(dir, "photos") || !strcmp(dir, "videos")) tp_rescan |= 2;
     tp_update_free();
     tp_reply(c, 200, "text/plain", "ok", 2);
@@ -574,7 +583,8 @@ static void phone_pump(void) {
         }
         }
     }
-    if (tp_rescan & 1) { tp_rescan &= ~1; music_rescan(); retro_rescan(); }
+    if (tp_rescan & 1) { tp_rescan &= ~1; tp_add_r = tp_add_w; music_rescan(); retro_rescan(); }
+    while (tp_add_r != tp_add_w) { music_add_file(tp_add_path[tp_add_r % 8]); tp_add_r++; }
     if (tp_rescan & 2) { tp_rescan &= ~2; photo_rescan(); }
 }
 

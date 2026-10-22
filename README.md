@@ -19,6 +19,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v27
+
+- Fin de téléchargement (web, podcasts, téléphone) : plus de blocage de quelques secondes à 99 % (le morceau est ajouté à la liste sans relire toute la carte SD ; il apparaît en bas de « Tous les morceaux » jusqu'au prochain démarrage).
+- Mise à jour : le nouveau .dol est écrit petit à petit (« Installation NN % »), l'écran ne se fige plus.
+- Mes jeux GameCube : la liste est gardée (`SD:/gc-mp3/cache/jeux/liste.txt`) et s'ouvre tout de suite ; Y pour chercher à nouveau.
+- Lancement d'un jeu : Swiss trouvé une seule fois puis retenu, chargement affiché en %.
+
 ## Nouveautés v26
 
 - **Lancer un jeu** : onglet JEUX > Mes jeux GameCube > A (fiche) > A : GC-MP3 se ferme et Swiss démarre directement le jeu (argument `Autoload`). GC-MP3 trouve Swiss tout seul (un .dol avec « swiss » ou « indigo » dans le nom, ou `ipl.dol` / `boot.dol`, à la racine ou dans `swiss/`) ; pour en forcer un : `swiss = sd:/chemin/swiss.dol` dans `gc-mp3.txt`.
