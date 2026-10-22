@@ -303,9 +303,17 @@ static u32 consumed_skip;
    v22 : plusieurs blocs sont remplis d'avance (~210 ms) ; un moment ou le
    programme est occupe (carte SD, reseau, image a decoder...) ne fait plus
    de trou dans le son. S'il n'y a vraiment plus rien, on joue du silence. */
+static volatile int in_fill = 0;           /* v42 : la boucle principale remplit un bloc en ce moment */
+static void fill_buf(int idx);
 static void dma_cb(void) {
     u32 blk = cb_n;
     s16 *buf = dmabuf[blk % NUM_BUFS];
+    /* v42 : plus de bloc pret (la boucle principale est occupee : reseau securise, carte SD...) :
+       on remplit ici directement depuis le son deja decode (jusqu'a 10 s d'avance), au lieu d'un trou */
+    if ((s32)(fill_n - blk) <= 0 && !in_fill && f_count > DMA_SAMPLES) {
+        fill_buf((int)(blk % NUM_BUFS));
+        fill_n = blk + 1;
+    }
     if ((s32)(fill_n - blk) <= 0) {
         memset(buf, 0, DMA_BYTES);
         DCFlushRange(buf, DMA_BYTES);
@@ -352,7 +360,13 @@ static void service_audio(void) {
         if ((s32)(f - blk) < 0) { f = blk; fill_n = f; }         /* (en retard : on repart du bloc a venir) */
         IRQ_Restore(level);
         if ((s32)(f - blk) >= AUDIO_AHEAD) return;
+        in_fill = 1;
+        level = IRQ_Disable();
+        if ((s32)(fill_n - cb_n) < 0) { fill_n = cb_n; f = fill_n; }   /* (v42 : l'interruption a peut-etre rempli entre-temps) */
+        f = fill_n;
+        IRQ_Restore(level);
         fill_buf((int)(f % NUM_BUFS));
+        in_fill = 0;
         level = IRQ_Disable();
         if (fill_n == f) fill_n = f + 1;
         IRQ_Restore(level);
@@ -375,7 +389,9 @@ static int fifo_put(s16 l, s16 r) {
     fifo[f_tail].l = l;
     fifo[f_tail].r = r;
     f_tail = (f_tail + 1) % FIFO_SIZE;
+    u32 lv = IRQ_Disable();                     /* v42 : f_count peut aussi baisser dans l'interruption du son */
     f_count++;
+    IRQ_Restore(lv);
     return 1;
 }
 
@@ -5269,7 +5285,10 @@ static void draw(void) {
     begin_frame();
     draw_header();
     draw_header_clock();
-    if (tab == TAB_WEB) {
+    if (menu_open || tl_screen || ic_on) {
+        /* v42 : une fenetre plein ecran est ouverte (Reglages, outils...) : l'onglet derriere
+           n'est pas redessine (cache par la fenetre) : beaucoup moins de travail par image */
+    } else if (tab == TAB_WEB) {
         draw_web();
         draw_legend_web();
     } else if (IS_PLAYER_TAB(tab) && player_layout == L_COVER) {

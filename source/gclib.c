@@ -444,6 +444,25 @@ static GXTexObj *gl_banner(int k) {
     return s ? &s->obj : NULL;
 }
 
+/* v42 : deplacement dans une grille, en boucle (deroulement infini) : dx = +-1, dy = +-1 ligne */
+static int nav_wrap(int sel, int n, int cols, int dx, int dy) {
+    if (n <= 0) return 0;
+    if (cols < 1) cols = 1;
+    if (dx) sel = ((sel + dx) % n + n) % n;
+    if (dy > 0) { sel += cols; if (sel >= n) sel = (sel - cols) % cols; }       /* (en bas : retour en haut, meme colonne) */
+    if (dy < 0) {
+        sel -= cols;
+        if (sel < 0) { int c = sel + cols, last = ((n - 1) / cols) * cols + c; if (last >= n) last -= cols; sel = last < 0 ? 0 : last; }
+    }
+    if (sel >= n) sel = n - 1;
+    return sel;
+}
+/* v42 : defilement doux (en lignes) */
+static f32 ease_rows(f32 *v, f32 target) {
+    if (*v < -1000.0f || fabsf(target - *v) > 3.5f) *v = target;
+    else { *v += (target - *v) * (1.0f - expf(-ui_dt * 16.0f)); if (fabsf(target - *v) < 0.01f) *v = target; }
+    return *v;
+}
 static void gl_note(const char *m) { snprintf(gl_msg, sizeof(gl_msg), "%s", TR(m)); gl_msg_t = now_ms(); }
 
 /* ---------- entree ---------- */
@@ -480,8 +499,8 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         return;
     }
     if (gl_detail) {
-        if (fire && (nav & PAD_BUTTON_LEFT) && gl_sel > 0) gl_sel--;
-        if (fire && (nav & PAD_BUTTON_RIGHT) && gl_sel < gl_n - 1) gl_sel++;
+        if (fire && (nav & PAD_BUTTON_LEFT) && gl_n) gl_sel = nav_wrap(gl_sel, gl_n, 1, -1, 0);
+        if (fire && (nav & PAD_BUTTON_RIGHT) && gl_n) gl_sel = nav_wrap(gl_sel, gl_n, 1, 1, 0);
         if (down & PAD_BUTTON_X && gl_n) gl_open_cheats(gl_sel);
         if ((down & PAD_BUTTON_Y) && gl_n) indigo_game_open(gl[gl_sel].id, gl[gl_sel].title);   /* v35 : reglages du jeu */
         if ((down & PAD_BUTTON_A) && gl_n) gl_launch_sel = gl_sel;
@@ -490,16 +509,18 @@ static void gclib_input(u32 down, u32 nav, int fire) {
     }
     if (fire && gl_n) {
         int cols = gl_view_cols();
+        /* v42 : en boucle (du dernier au premier et inversement) */
         if (gl_view == GLV_LIST) {
-            if (nav & PAD_BUTTON_DOWN) gl_sel++;
-            if (nav & PAD_BUTTON_UP) gl_sel--;
-            if (nav & PAD_BUTTON_RIGHT) gl_sel += 9;
-            if (nav & PAD_BUTTON_LEFT) gl_sel -= 9;
+            if (nav & PAD_BUTTON_DOWN) gl_sel = nav_wrap(gl_sel, gl_n, 1, 1, 0);
+            if (nav & PAD_BUTTON_UP) gl_sel = nav_wrap(gl_sel, gl_n, 1, -1, 0);
+            if (nav & PAD_BUTTON_RIGHT) gl_sel = gl_sel + 9 < gl_n ? gl_sel + 9 : gl_sel == gl_n - 1 ? 0 : gl_n - 1;
+            if (nav & PAD_BUTTON_LEFT) gl_sel = gl_sel - 9 >= 0 ? gl_sel - 9 : gl_sel == 0 ? gl_n - 1 : 0;
         } else {
-            if (nav & PAD_BUTTON_RIGHT) gl_sel++;
-            if (nav & PAD_BUTTON_LEFT) gl_sel--;
-            if (nav & PAD_BUTTON_DOWN) gl_sel += cols > 1 ? cols : 5;
-            if (nav & PAD_BUTTON_UP) gl_sel -= cols > 1 ? cols : 5;
+            int c = cols > 1 ? cols : 5;
+            if (nav & PAD_BUTTON_RIGHT) gl_sel = nav_wrap(gl_sel, gl_n, c, 1, 0);
+            if (nav & PAD_BUTTON_LEFT) gl_sel = nav_wrap(gl_sel, gl_n, c, -1, 0);
+            if (nav & PAD_BUTTON_DOWN) gl_sel = cols > 1 ? nav_wrap(gl_sel, gl_n, c, 0, 1) : (gl_sel + 5 < gl_n ? gl_sel + 5 : gl_sel == gl_n - 1 ? 0 : gl_n - 1);
+            if (nav & PAD_BUTTON_UP) gl_sel = cols > 1 ? nav_wrap(gl_sel, gl_n, c, 0, -1) : (gl_sel - 5 >= 0 ? gl_sel - 5 : gl_sel == 0 ? gl_n - 1 : 0);
         }
         if (gl_sel >= gl_n) gl_sel = gl_n - 1;
         if (gl_sel < 0) gl_sel = 0;
@@ -585,11 +606,17 @@ static void gl_draw_grid(int cols, int rows, f32 cw, f32 ch, f32 sw, f32 rh, int
     int nrow = (gl_n + cols - 1) / cols;
     if (top > nrow - rows) top = nrow - rows;
     if (top < 0) top = 0;
-    for (int r = 0; r < rows; r++)
+    static f32 topf = -2000.0f;                                   /* v42 : defilement doux */
+    static int last_cols = 0;
+    if (last_cols != cols) { topf = -2000.0f; last_cols = cols; }
+    f32 tf = ease_rows(&topf, (f32)top);
+    int r0 = (int)floorf(tf);
+    scr_scissor(0, y0 - 8, 640, rows * rh + 6);
+    for (int r = r0; r <= r0 + rows; r++)
         for (int c = 0; c < cols; c++) {
-            int k = (top + r) * cols + c;
-            if (k >= gl_n) break;
-            f32 x = x0 + c * sw, y = y0 + r * rh;
+            int k = r * cols + c;
+            if (r < 0 || k >= gl_n) break;
+            f32 x = x0 + c * sw, y = y0 + (r - tf) * rh;
             int on = k == gl_sel;
             gp_zone(x, y, cw, ch + (titles ? 16 : 0), &gl_sel, k, GPZ_SEL);
             if (on) gx_glow(x, y, cw, ch, 8, RGBA(150, 80, 255, 150), 3);
@@ -601,8 +628,9 @@ static void gl_draw_grid(int cols, int rows, f32 cw, f32 ch, f32 sw, f32 rh, int
                 gx_text_c(F_SMALL, x + cw / 2, y + ch + 14, buf, on ? RGBA(255, 255, 255, 255) : RGBA(180, 168, 228, 255));
             }
         }
+    scr_viewport();
     if (nrow > rows) {                                            /* barre de defilement */
-        f32 th = 270.0f * rows / nrow, ty = 116 + (270.0f - th) * top / (f32)(nrow - rows);
+        f32 th = 270.0f * rows / nrow, ty = 116 + (270.0f - th) * tf / (f32)(nrow - rows);
         gx_rrect_fill(621, ty, 3, th, 1.5f, RGBA(150, 96, 255, 255), RGBA(110, 60, 230, 255));
     }
 }
@@ -613,7 +641,8 @@ static void gl_draw_carousel(void) {
         for (int side = -1; side <= 1; side += 2) {
             if (dist == 0 && side > 0) continue;
             int k = gl_sel + dist * side;
-            if (k < 0 || k >= gl_n) continue;
+            if (gl_n >= 7) k = (k % gl_n + gl_n) % gl_n;              /* v42 : en boucle */
+            else if (k < 0 || k >= gl_n) continue;
             f32 sc = dist == 0 ? 1.0f : dist == 1 ? 0.72f : dist == 2 ? 0.54f : 0.40f;
             f32 w = 156 * sc, h = 208 * sc;
             f32 cx = 320 + side * (dist == 0 ? 0 : dist == 1 ? 136 : dist == 2 ? 220 : 268);
@@ -636,9 +665,14 @@ static void gl_draw_list(void) {
     int start = gl_sel - vis / 2;
     if (start > gl_n - vis) start = gl_n - vis;
     if (start < 0) start = 0;
-    for (int i = 0; i < vis && start + i < gl_n; i++) {
-        int k = start + i;
-        f32 y = 114 + i * 31;
+    static f32 sf = -2000.0f;                                     /* v42 : defilement doux */
+    f32 st = ease_rows(&sf, (f32)start);
+    int s0 = (int)floorf(st);
+    scr_scissor(0, 112, 640, vis * 31 + 2);
+    for (int i = 0; i <= vis && s0 + i < gl_n; i++) {
+        int k = s0 + i;
+        if (k < 0) continue;
+        f32 y = 114 + (k - st) * 31;
         int on = k == gl_sel;
         gp_zone(20, y, 600, 29, &gl_sel, k, GPZ_SEL);
         if (on) gx_rrect_fill(20, y, 600, 29, 6, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
@@ -657,6 +691,7 @@ static void gl_draw_list(void) {
         snprintf(d, sizeof(d), "%s   %s", gl[k].id, sz);
         gx_text_r(F_SMALL, 610, y + 20, d, on ? RGBA(255, 230, 170, 255) : RGBA(170, 155, 225, 255));
     }
+    scr_viewport();
 }
 static void gl_draw_showcase(void) {
     char buf[NAME_LEN], d[NAME_LEN];

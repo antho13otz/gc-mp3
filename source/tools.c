@@ -515,6 +515,7 @@ static void ap_open(void) {
     qsort(ap, ap_n, sizeof(ap_ent), ap_cmp);
     if (ap_sel >= ap_n) ap_sel = ap_n ? ap_n - 1 : 0;
 }
+#define AP_COLS 4
 static void ap_input(u32 down, u32 nav, int fire) {
     if (ap_confirm >= 0) {
         if (down & PAD_BUTTON_A) {
@@ -528,10 +529,13 @@ static void ap_input(u32 down, u32 nav, int fire) {
         if (down & PAD_BUTTON_B) ap_confirm = -1;
         return;
     }
-    if (fire && (nav & PAD_BUTTON_DOWN) && ap_sel < ap_n - 1) ap_sel++;
-    if (fire && (nav & PAD_BUTTON_UP) && ap_sel > 0) ap_sel--;
-    if (fire && (nav & PAD_BUTTON_RIGHT)) { ap_sel += 8; if (ap_sel > ap_n - 1) ap_sel = ap_n - 1; if (ap_sel < 0) ap_sel = 0; }
-    if (fire && (nav & PAD_BUTTON_LEFT)) { ap_sel -= 8; if (ap_sel < 0) ap_sel = 0; }
+    /* v42 : grille comme Mes jeux, en boucle */
+    if (fire && ap_n) {
+        if (nav & PAD_BUTTON_RIGHT) ap_sel = nav_wrap(ap_sel, ap_n, AP_COLS, 1, 0);
+        if (nav & PAD_BUTTON_LEFT) ap_sel = nav_wrap(ap_sel, ap_n, AP_COLS, -1, 0);
+        if (nav & PAD_BUTTON_DOWN) ap_sel = nav_wrap(ap_sel, ap_n, AP_COLS, 0, 1);
+        if (nav & PAD_BUTTON_UP) ap_sel = nav_wrap(ap_sel, ap_n, AP_COLS, 0, -1);
+    }
     if ((down & PAD_BUTTON_A) && ap_n) ap_confirm = ap_sel;
     if (down & PAD_BUTTON_Y) { ap_open(); tl_note("Liste actualis\xC3\xA9" "e"); }
     if (down & PAD_BUTTON_B) tl_screen = TL_NONE;
@@ -811,38 +815,60 @@ static void draw_cards(void) {
 static void draw_apps(void) {
     char buf[160], fv[160];
     snprintf(buf, sizeof(buf), ap_n == 1 ? "1 appli" : "%d applis", ap_n);
-    tl_frame("Applis (.dol)", buf);
-    const int vis = 7;
-    const f32 rh = 44;
-    int start = ap_sel - vis / 2; if (start > ap_n - vis) start = ap_n - vis; if (start < 0) start = 0;
-    int loads = 0;
-    for (int i = 0; i < vis && start + i < ap_n; i++) {
-        int r = start + i; f32 ry = 88 + i * rh;
-        int on = r == ap_sel;
-        ap_ent *a = &ap[r];
-        gp_zone(52, ry, 536, rh - 3, &ap_sel, r, GPZ_SEL);
-        if (on) gx_rrect_fill(52, ry, 536, rh - 3, 6, TL_SEL1, TL_SEL2);
-        if (!a->istate && loads < 1) { ap_icon_load(a); loads++; }     /* (une icone par image) */
-        /* icone (icon.png) ou une petite cartouche */
-        if (a->istate > 0) draw_tex_fit(&a->obj, AP_IW, AP_IH, AP_IW, AP_IH, 58, ry + 2, 96, 36);
-        else {
-            gx_rrect_fill(58, ry + 4, 96, 32, 6, RGBA(60, 40, 120, 255), RGBA(36, 22, 86, 255));
-            char ini[3] = { 0, 0, 0 };
-            ini[0] = (char)toupper((u8)a->name[0]);
-            if (a->name[0] && a->name[1]) ini[1] = (char)tolower((u8)a->name[1]);
-            gx_text_c(F_MED, 106, ry + 26, ini, RGBA(200, 185, 255, 255));
+    tl_frame("Mes applis", buf);
+    /* v42 : grille d'icones (comme Mes jeux), defilement doux et en boucle */
+    const int cols = AP_COLS, rows = 3;
+    const f32 cw = 128, ch = 48, sw = 134, rh = 82, y0 = 92;
+    const f32 x0 = 320 - (cols * sw - (sw - cw)) / 2;
+    int nrow = (ap_n + cols - 1) / cols, top = ap_sel / cols - rows / 2;
+    if (top > nrow - rows) top = nrow - rows;
+    if (top < 0) top = 0;
+    static f32 topf = -2000.0f;
+    f32 tf = ease_rows(&topf, (f32)top);
+    int r0 = (int)floorf(tf), loads = 0;
+    scr_scissor(0, y0 - 6, 640, rows * rh + 2);
+    for (int r = r0; r <= r0 + rows; r++)
+        for (int c = 0; c < cols; c++) {
+            int k = r * cols + c;
+            if (r < 0 || k >= ap_n) break;
+            ap_ent *a = &ap[k];
+            f32 x = x0 + c * sw, y = y0 + (r - tf) * rh;
+            int on = k == ap_sel;
+            gp_zone(x - 3, y - 3, cw + 6, rh - 4, &ap_sel, k, GPZ_SEL);
+            if (on) {
+                gx_glow(x - 3, y - 3, cw + 6, rh - 6, 8, RGBA(150, 80, 255, 150), 3);
+                gx_rrect_fill(x - 3, y - 3, cw + 6, rh - 6, 7, TL_SEL1, TL_SEL2);
+            } else gx_rrect_fill(x - 3, y - 3, cw + 6, rh - 6, 7, RGBA(30, 18, 72, 230), RGBA(18, 10, 46, 230));
+            if (!a->istate && loads < 1 && r >= top && r < top + rows) { ap_icon_load(a); loads++; }   /* (une icone par image) */
+            if (a->istate > 0) draw_tex_fit(&a->obj, AP_IW, AP_IH, AP_IW, AP_IH, x, y, cw, ch);
+            else {
+                gx_rrect_fill(x + 4, y + 4, cw - 8, ch - 8, 6, RGBA(70, 46, 140, 255), RGBA(42, 26, 96, 255));
+                char ini[3] = { 0, 0, 0 };
+                ini[0] = (char)toupper((u8)a->name[0]);
+                if (a->name[0] && a->name[1]) ini[1] = (char)tolower((u8)a->name[1]);
+                gx_text_c(F_LARGE, x + cw / 2, y + 34, ini, RGBA(210, 195, 255, 255));
+            }
+            text_display(a->name, buf, sizeof(buf)); fit_text(F_SMALL, buf, (int)cw, fv, sizeof(fv));
+            gx_text_c(F_SMALL, x + cw / 2, y + ch + 18, fv, on ? RGBA(255, 255, 255, 255) : RGBA(200, 188, 240, 255));
+            if (on) gx_rrect_stroke(x - 3, y - 3, cw + 6, rh - 6, 7, 2.0f, RGBA(255, 210, 120, 255));
         }
-        text_display(a->name, buf, sizeof(buf)); fit_text(F_MED, buf, 330, fv, sizeof(fv));
-        gx_text1(F_MED, 166, ry + 18, fv, on ? RGBA(255, 255, 255, 255) : RGBA(230, 222, 255, 255));
-        const char *sub = a->desc[0] ? a->desc : a->path + strlen(SD_ROOT);
-        text_display(sub, buf, sizeof(buf)); fit_text(F_SMALL, buf, 400, fv, sizeof(fv));
-        gx_text1(F_SMALL, 166, ry + 35, fv, on ? RGBA(230, 220, 255, 255) : RGBA(150, 135, 210, 255));
-        fmt_size(buf, sizeof(buf), a->size);
-        gx_text_r(F_SMALL, 578, ry + 18, buf, on ? RGBA(235, 225, 255, 255) : RGBA(150, 135, 210, 255));
+    scr_viewport();
+    if (nrow > rows) {                                          /* barre de defilement */
+        f32 th = 240.0f * rows / nrow, ty = y0 + (240.0f - th) * tf / (f32)(nrow - rows);
+        gx_rrect_fill(590, ty, 3, th, 1.5f, RGBA(150, 96, 255, 255), RGBA(110, 60, 230, 255));
     }
-    if (start > 0) gx_tri(313, 84, 327, 84, 320, 78, RGBA(190, 160, 255, 220));
-    if (start + vis < ap_n) gx_tri(313, 88 + vis * rh, 327, 88 + vis * rh, 320, 94 + vis * rh, RGBA(190, 160, 255, 220));
-    if (!ap_n) gx_text1(F_SMALL, 64, 120, "Aucun .dol trouv\xC3\xA9 (racine de la carte SD et dossier apps).", RGBA(170, 155, 225, 255));
+    /* l'appli choisie */
+    if (ap_n) {
+        ap_ent *a = &ap[ap_sel];
+        gx_rect(58, 344, 524, 1, RGBA(76, 52, 150, 200));
+        text_display(a->name, buf, sizeof(buf)); fit_text(F_MED, buf, 380, fv, sizeof(fv));
+        gx_text1(F_MED, 60, 366, fv, RGBA(255, 255, 255, 255));
+        fmt_size(buf, sizeof(buf), a->size);
+        gx_text_r(F_SMALL, 580, 364, buf, RGBA(190, 160, 255, 255));
+        const char *sub = a->desc[0] ? a->desc : a->path + strlen(SD_ROOT);
+        text_display(sub, buf, sizeof(buf)); fit_text(F_SMALL, buf, 520, fv, sizeof(fv));
+        gx_text1(F_SMALL, 60, 384, fv, RGBA(190, 180, 235, 255));
+    } else gx_text1(F_SMALL, 64, 120, "Aucun .dol trouv\xC3\xA9 (racine de la carte SD et dossier apps).", RGBA(170, 155, 225, 255));
     if (ap_confirm >= 0) tl_confirm("Lancer cette appli ?", ap[ap_confirm].name);
     tl_msgbox();
     static const char *const k[] = { "A", "Y", "B" }, *const l[] = { "LANCER", "ACTUALISER", "RETOUR" };
