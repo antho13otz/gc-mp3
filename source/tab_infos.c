@@ -338,7 +338,7 @@ static void draw_tab_infos(void) {
         col_t c = on ? RGBA(255, 255, 255, 255) : RGBA(210, 200, 240, 255);
         if (i == 0) snprintf(buf, sizeof(buf), "Ville : %s", city[0] ? city : "(choisir)");
         else if (i == 1) { if (alarm_on) snprintf(buf, sizeof(buf), "R\xC3\xA9veil : %02d:%02d", alarm_min / 60, alarm_min % 60); else snprintf(buf, sizeof(buf), "R\xC3\xA9veil : non"); }
-        else if (i == 2) snprintf(buf, sizeof(buf), "Le r\xC3\xA9veil joue : %s", alarm_src > 0 && alarm_src <= nstations ? stations[alarm_src - 1].name : "ma musique (al\xC3\xA9" "atoire)");
+        else if (i == 2) snprintf(buf, sizeof(buf), "Le r\xC3\xA9veil joue : %s", alarm_src > 0 && alarm_src <= nstations ? stations[alarm_src - 1].name : TR("ma musique (al\xC3\xA9" "atoire)"));
         else {
             text_display(news_title[i - 3], d, sizeof(d));
             fit_text(F_SMALL, d, (int)rw - 46, buf, sizeof(buf));
