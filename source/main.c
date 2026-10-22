@@ -316,6 +316,7 @@ static void dma_cb(void) {
     cb_n = blk + 1;
 }
 
+static int audio_mono = 0;                   /* v34 : son de la console en mono (reglage Indigo / SRAM) */
 static void fill_buf(int idx) {
     s16 *d = dmabuf[idx];
     s16 *vz = vizbuf[idx];
@@ -331,6 +332,7 @@ static void fill_buf(int idx) {
             else consumed++;
         }
         if (i < VIZ_BLK) vz[i] = (s16)(((int)l + (int)r) / 2);
+        if (audio_mono) { s16 m = (s16)(((int)l + (int)r) / 2); l = r = m; }
         if (muted) l = r = 0;
         else if (volume_pct < 100 || sleep_fade < 256 || alarm_fade < 256) {
             int v = volume_pct * 256 / 100 * sleep_fade / 256 * alarm_fade / 256;
@@ -1055,6 +1057,7 @@ static void load_stations(void) {
 
 // ---------- Reseau ----------
 static char ip_str[16] = "", mask_str[16] = "", gw_str[16] = "";
+static int net_static = 0;                   /* v34 : adresse fixe (reglages BBA d'Indigo, DHCP = No) */
 static int net_ok = 0;
 enum { NET_NONE, NET_BUSY, NET_DONE };
 static volatile int net_phase = NET_NONE;
@@ -1065,7 +1068,7 @@ static u8 net_thread_stack[64 * 1024] ATTRIBUTE_ALIGN(32);
    pour que la musique continue pendant ce temps. */
 static void *net_thread(void *arg) {
     (void)arg;
-    s32 r = if_config(ip_str, mask_str, gw_str, TRUE, 20);
+    s32 r = if_config(ip_str, mask_str, gw_str, net_static ? FALSE : TRUE, 20);
     net_ok = (r >= 0 && ip_str[0] && strcmp(ip_str, "0.0.0.0") != 0);
     net_phase = NET_DONE;
     return NULL;
@@ -4188,6 +4191,7 @@ static int init_video(void) {
     PAD_Init();
     rmode = VIDEO_GetPreferredMode(NULL);
     if (rmode == NULL) return 0;
+    VIDEO_SetAdjustingValues(SYS_GetDisplayOffsetH(), 0);     /* v34 : position de l'ecran de la console (reglage Indigo) */
     /* 480p (progressif) : cable composante (ou GCVideo) ; B maintenu au demarrage = 480i */
     PAD_ScanPads();
     int hold_b = (PAD_ButtonsHeld(0) & PAD_BUTTON_B) != 0;
@@ -5191,6 +5195,8 @@ static int ic_on;                               /* v32 : reglages d'Indigo (indi
 static void draw_indigo_cfg(void);
 static void indigo_cfg_input(u32 down, u32 nav, int fire);
 static void indigo_cfg_open(void);
+static void indigo_cfg_boot(void);
+static void ic_put(const char *key, const char *val);
 static void draw_saver(void);
 static int menu_open, saver_on;
 
@@ -10047,7 +10053,7 @@ static void menu_change(int i, int d) {
     case MI_INDIGO:  return;
     case MI_SKIN:    ui_skin = !ui_skin; break;
     case MI_GLVIEW:  gl_view = (gl_view + d + 6) % 6; break;
-    case MI_RUMBLE:  rumble_on = !rumble_on; if (rumble_on) rumble(0, 200); break;
+    case MI_RUMBLE:  rumble_on = !rumble_on; if (rumble_on) rumble(0, 200); ic_put("Disable PAD Rumble", rumble_on ? "No" : "Yes"); break;
     case MI_PARTY:   party_style = (party_style + d + PARTY_STYLES) % PARTY_STYLES; break;
     case MI_NIGHT:   night_lum += d; if (night_lum < 1) night_lum = 1; if (night_lum > 5) night_lum = 5; break;
     case MI_UPDATE:  return;
@@ -10067,7 +10073,8 @@ static void menu_change(int i, int d) {
     }
     case MI_COVERS:  covers_auto = !covers_auto; if (covers_auto) net_start_async(); break;
     case MI_RESUME:  resume_on = !resume_on; break;
-    case MI_VIDEO:   video_pref = (video_pref + d + VID_COUNT) % VID_COUNT; if (video_pref != VID_480I) tv_crt = 0; break;
+    case MI_VIDEO:   video_pref = (video_pref + d + VID_COUNT) % VID_COUNT; if (video_pref != VID_480I) tv_crt = 0;
+                     ic_put("Apps Video Mode", video_pref == VID_480I ? "480i" : video_pref == VID_480P ? "480p" : "Auto"); break;
     case MI_TV:
         tv_crt = !tv_crt;
         if (tv_crt) { video_pref = VID_480I; scr_set_wide(0); }
@@ -11160,6 +11167,7 @@ int main(int argc, char **argv) {
     crash_init();                           /* journal de plantage */
     ui_lang_apply();                        /* v24 : langue de la console, sauf reglage */
     load_settings();
+    if (sd_ok) indigo_cfg_boot();           /* v34 : reglages d'Indigo qui valent aussi pour GC-MP3 */
     if (!init_video()) return 1;
     gx_init();
     init_spectrum();

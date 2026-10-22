@@ -10,6 +10,7 @@ static char fe_cwd[NAME_LEN] = "";
 static char fe_msg[160];
 static u64 fe_msg_t = 0;
 static long fe_free = -1;
+static int fe_show_hidden = 1, fe_hide_unknown = 0;   /* v34 : reglages d'Indigo (fichiers caches, types inconnus) */
 /* presse-papiers */
 static char clip_path[NAME_LEN] = "";
 static int clip_cut = 0;
@@ -39,6 +40,16 @@ static int fe_cmp(const void *a, const void *b) {
     return strcasecmp(x->name, y->name);
 }
 
+/* v34 : types que GC-MP3 ou Indigo savent ouvrir (reglage "Cacher les fichiers inconnus") */
+static int fe_known(const char *n) {
+    static const char *const ext[] = { ".avi", ".txt", ".lrc", ".m3u", ".pls", ".md", ".ini", ".cfg", ".dol", ".elf", ".iso", ".gcm",
+                                       ".ciso", ".tgc", ".gci", ".gcs", ".sav", ".zip", ".fzn", NULL };
+    if (audio_ext_len(n) > 0 || img_ext(n)) return 1;
+    const char *dot = strrchr(n, '.');
+    if (!dot) return 0;
+    for (int i = 0; ext[i]; i++) if (!strcasecmp(dot, ext[i])) return 1;
+    return 0;
+}
 static void fe_load(void) {
     if (!fe) fe = (fent_t *)malloc(sizeof(fent_t) * FE_MAX);
     nfe = 0;
@@ -50,7 +61,9 @@ static void fe_load(void) {
     char path[NAME_LEN];
     while ((e = readdir(d)) != NULL && nfe < FE_MAX) {
         if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        if (!fe_show_hidden && e->d_name[0] == '.') continue;
         snprintf(path, sizeof(path), "%s/%s", fe_cwd, e->d_name);
+        if (fe_hide_unknown && !is_dir(path, e) && !fe_known(e->d_name)) continue;
         snprintf(fe[nfe].name, sizeof(fe[nfe].name), "%s", e->d_name);
         fe[nfe].dir = (u8)is_dir(path, e);
         fe[nfe].size = 0;

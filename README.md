@@ -19,6 +19,18 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v34
+
+- **Réglages d'Indigo appliqués à GC-MP3** (point vert dans START > Réglages Indigo / Swiss) :
+  - Son de la console Mono / Stereo : GC-MP3 joue en mono si Mono.
+  - Position de l'écran : décale aussi l'image de GC-MP3.
+  - Langue de la console : GC-MP3 la suit (si sa langue est sur Auto).
+  - Couper les vibrations ↔ Vibrations de la manette de GC-MP3 (synchronisés dans les deux sens).
+  - Mode vidéo des applis (Auto / 480i / 480p) ↔ Vidéo de GC-MP3 (synchronisés, au prochain lancement).
+  - Fichiers cachés / Cacher les fichiers inconnus : onglet FICHIERS.
+  - Réseau : DHCP = No + adresse IP / masque / passerelle → GC-MP3 utilise cette adresse fixe.
+- Son, position et langue sont écrits dans la mémoire de la console, comme le fait Indigo à son démarrage.
+
 ## Nouveautés v33
 
 - **Mise à jour de toutes les copies** : la mise à jour remplace aussi les autres copies de GC-MP3 sur la carte (ex. `ipl.dol` à la racine ET `gc-mp3player.dol` dans `apps`). GC-MP3 les reconnaît à leur contenu, même renommées.

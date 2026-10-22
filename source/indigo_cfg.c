@@ -287,6 +287,73 @@ static int ic_save(void) {
     return 1;
 }
 
+/* ---- v34 : reglages qui valent aussi pour GC-MP3 ---- */
+static const char *const ic_gc_keys[] = { "Disable PAD Rumble", "Apps Video Mode", "ShowHiddenFiles", "Hide Unknown file types",
+    "BBAUseDHCP", "BBALocalIP", "BBANetmask", "BBAGateway", "Screen Position", "System Sound", "System Language", NULL };
+static int ic_is_gc(const char *k) { for (int i = 0; ic_gc_keys[i]; i++) if (!strcmp(ic_gc_keys[i], k)) return 1; return 0; }
+static int ic_find(const char *k) { for (int i = 0; i < IC_N; i++) if (!strcmp(ic_items[i].key, k)) return i; return -1; }
+static const char *ic_get(const char *k) { int i = ic_find(k); return i >= 0 && ic_has[i] ? ic_val[i] : NULL; }
+static int ic_restart_note = 0;                /* 1 = un reglage ne compte qu'au prochain lancement */
+static void ic_apply(int boot) {
+    const char *v;
+    ic_restart_note = 0;
+    if ((v = ic_get("Disable PAD Rumble"))) rumble_on = strcmp(v, "Yes") != 0;
+    if ((v = ic_get("Apps Video Mode"))) {
+        int vp = !strcmp(v, "480i") ? VID_480I : !strcmp(v, "480p") ? VID_480P : !strcmp(v, "Auto") ? VID_AUTO : -1;
+        if (vp >= 0 && vp != video_pref) { video_pref = vp; if (vp != VID_480I) tv_crt = 0; if (!boot) ic_restart_note = 1; settings_dirty = 1; }
+    }
+    v = ic_get("ShowHiddenFiles");
+    int sh = v ? !strcmp(v, "Yes") : 1;
+    v = ic_get("Hide Unknown file types");
+    int hu = v && !strcmp(v, "Yes");
+    if (sh != fe_show_hidden || hu != fe_hide_unknown) { fe_show_hidden = sh; fe_hide_unknown = hu; if (!boot && fe) fe_load(); }
+    /* reseau : adresse fixe si DHCP = No */
+    v = ic_get("BBAUseDHCP");
+    const char *ip = ic_get("BBALocalIP"), *gw = ic_get("BBAGateway"), *nm = ic_get("BBANetmask");
+    int st = v && !strcmp(v, "No") && ip && ip[0];
+    if (net_phase == NET_NONE) {
+        net_static = st;
+        if (st) {
+            int bits = nm && nm[0] ? atoi(nm) : 24;
+            if (bits < 0 || bits > 32) bits = 24;
+            u32 m = bits ? 0xFFFFFFFFu << (32 - bits) : 0;
+            snprintf(ip_str, sizeof(ip_str), "%.15s", ip);
+            snprintf(mask_str, sizeof(mask_str), "%u.%u.%u.%u", m >> 24, (m >> 16) & 255, (m >> 8) & 255, m & 255);
+            snprintf(gw_str, sizeof(gw_str), "%.15s", gw ? gw : "");
+        }
+    } else if (st != net_static) ic_restart_note = 1;
+    /* reglages de la console (SRAM), comme le fait Swiss a son demarrage */
+    if ((v = ic_get("Screen Position"))) {
+        int h = atoi(v);
+        if (h < -32) h = -32;
+        if (h > 32) h = 32;
+        if (h != SYS_GetDisplayOffsetH()) SYS_SetDisplayOffsetH((s8)h);
+        if (!boot && rmode) { VIDEO_SetAdjustingValues((s16)h, 0); scr_vi(); }
+    }
+    if ((v = ic_get("System Sound"))) {
+        u8 m = !strcmp(v, "Stereo") ? SYS_SOUND_STEREO : SYS_SOUND_MONO;
+        if (m != SYS_GetSoundMode()) SYS_SetSoundMode(m);
+    }
+    audio_mono = SYS_GetSoundMode() == SYS_SOUND_MONO;
+    if ((v = ic_get("System Language"))) {
+        static const char *const ln[] = { "English", "German", "French", "Spanish", "Italian", "Dutch" };
+        for (int i = 0; i < 6; i++) if (!strcmp(v, ln[i])) { if (SYS_GetLanguage() != i) SYS_SetLanguage((u8)i); break; }
+        ui_lang_apply();
+    }
+}
+static void indigo_cfg_boot(void) { ic_load(); if (ic_file_ok) ic_apply(1); else audio_mono = SYS_GetSoundMode() == SYS_SOUND_MONO; }
+/* un reglage de GC-MP3 change (START) : meme valeur dans global.ini, si le reglage y est deja */
+static int ic_save(void);
+static void ic_set(int k, const char *v);
+static void ic_put(const char *key, const char *val) {
+    if (!sd_ok || ic_on) return;
+    ic_load();
+    int k = ic_find(key);
+    if (!ic_file_ok || k < 0 || !ic_has[k] || !strcmp(ic_val[k], val)) return;
+    ic_set(k, val);
+    ic_save();
+}
+
 static void indigo_cfg_open(void) {
     ic_load();
     ic_on = 1; ic_sel = ic_page_start[ic_page]; ic_kb_item = -1; ic_reveal = -1;
@@ -372,7 +439,13 @@ static void indigo_cfg_input(u32 down, u32 nav, int fire) {
         else { ic_kb_item = ic_sel; kb_start(KB_ICTEXT, ic_has[ic_sel] ? ic_val[ic_sel] : "", -1, -1); }
     }
     if ((down & PAD_BUTTON_X) && it->type == ICT_PASS) ic_reveal = ic_reveal == ic_sel ? -1 : ic_sel;
-    if (down & PAD_BUTTON_Y) ic_save();
+    if (down & PAD_BUTTON_Y) {
+        if (ic_save()) {
+            ic_apply(0);                                     /* v34 : ce qui vaut aussi pour GC-MP3 */
+            if (ic_restart_note) ic_note("Enregistr\xC3\xA9 : vid\xC3\xA9o / r\xC3\xA9seau de GC-MP3 au prochain lancement");
+            else ic_note("Enregistr\xC3\xA9 : Indigo / Swiss l'utilisera \xC3\xA0 son prochain d\xC3\xA9marrage");   /* (langue peut-etre changee) */
+        }
+    }
     if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) ic_close();
 }
 
@@ -410,6 +483,7 @@ static void draw_indigo_cfg(void) {
         col_t lc = on ? RGBA(255, 255, 255, 255) : RGBA(225, 215, 255, 255);
         fit_text(F_MED, ui_en ? it->en : it->fr, 300, buf, sizeof(buf));
         gx_text1(F_MED, x + 24, ry + 16, buf, lc);
+        if (ic_is_gc(it->key)) gx_rrect_fill(x + 15, ry + 7, 6, 6, 3, RGBA(90, 230, 130, 255), RGBA(50, 180, 90, 255));   /* (vaut aussi pour GC-MP3) */
         ic_shown(i, v, sizeof(v));
         fit_text(F_MED, v, 190, fv, sizeof(fv));
         int vw = text_width(F_MED, fv, 0);
@@ -429,6 +503,10 @@ static void draw_indigo_cfg(void) {
     gx_rect(x + 18, y + h - 62, w - 36, 1, RGBA(76, 52, 150, 200));
     snprintf(buf, sizeof(buf), "%s", it->key);
     gx_text1(F_SMALL, x + 22, y + h - 44, buf, RGBA(150, 135, 210, 255));
+    if (ic_is_gc(it->key)) {
+        gx_rrect_fill(x + w - 160, y + h - 53, 6, 6, 3, RGBA(90, 230, 130, 255), RGBA(50, 180, 90, 255));
+        gx_text_r(F_SMALL, x + w - 22, y + h - 44, ui_en ? "Also used by GC-MP3" : "Vaut aussi pour GC-MP3", RGBA(120, 230, 150, 255));
+    }
     if (help && help[0]) { fit_text(F_SMALL, help, (int)w - 44, fv, sizeof(fv)); gx_text1(F_SMALL, x + 22, y + h - 26, fv, RGBA(210, 200, 240, 255)); }
     if (now_ms() - ic_msg_t < 4000) {
         fit_text(F_SMALL, ic_msg, (int)w - 44, fv, sizeof(fv));
