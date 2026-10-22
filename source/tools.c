@@ -397,7 +397,56 @@ static void mc_input(u32 down, u32 nav, int fire) {
 
 /* =================== applis (.dol) =================== */
 #define AP_MAX 200
-typedef struct { char path[NAME_LEN]; char name[64]; char desc[96]; long size; } ap_ent;
+typedef struct { char path[NAME_LEN]; char name[64]; char desc[96]; long size; char icon[NAME_LEN]; s8 istate; u16 *tex; GXTexObj obj; } ap_ent;
+/* v41 : icon.png a cote du .dol (format Homebrew Channel, 128 x 48) -> texture RGB5A3 de 128 x 48 */
+#define AP_IW 128
+#define AP_IH 48
+static void ap_icon_load(ap_ent *a) {
+    a->istate = -1;
+    if (!a->icon[0]) return;
+    long len = 0;
+    unsigned char *d = read_file(a->icon, 2 * 1024 * 1024, &len);
+    if (!d) return;
+    int w = 0, h = 0, n = 0;
+    unsigned char *px = stbi_load_from_memory(d, (int)len, &w, &h, &n, 4);
+    free(d);
+    if (!px || w <= 0 || h <= 0) { if (px) stbi_image_free(px); return; }
+    u16 *t = (u16 *)memalign(32, AP_IW * AP_IH * 2);
+    if (!t) { stbi_image_free(px); return; }
+    /* garde les proportions : l'image tient dans 128 x 48, centree, le reste transparent */
+    f32 sc = (f32)AP_IW / w < (f32)AP_IH / h ? (f32)AP_IW / w : (f32)AP_IH / h;
+    int dw = (int)(w * sc + 0.5f), dh = (int)(h * sc + 0.5f);
+    if (dw < 1) dw = 1;
+    if (dh < 1) dh = 1;
+    int ox = (AP_IW - dw) / 2, oy = (AP_IH - dh) / 2;
+    for (int y = 0; y < AP_IH; y++)
+        for (int x = 0; x < AP_IW; x++) {
+            u16 v = 0;                                          /* (transparent) */
+            int dx = x - ox, dy = y - oy;
+            if (dx >= 0 && dy >= 0 && dx < dw && dy < dh) {
+                int sx0 = dx * w / dw, sx1 = (dx + 1) * w / dw, sy0 = dy * h / dh, sy1 = (dy + 1) * h / dh;
+                if (sx1 <= sx0) sx1 = sx0 + 1;
+                if (sy1 <= sy0) sy1 = sy0 + 1;
+                u32 r = 0, g = 0, b = 0, al = 0, c = 0;
+                for (int yy = sy0; yy < sy1 && yy < h; yy++)
+                    for (int xx = sx0; xx < sx1 && xx < w; xx++) {
+                        const unsigned char *p = px + ((size_t)yy * w + xx) * 4;
+                        r += p[0] * p[3]; g += p[1] * p[3]; b += p[2] * p[3]; al += p[3]; c++;
+                    }
+                if (al) { r /= al; g /= al; b /= al; }
+                al = c ? al / c : 0;
+                if (al >= 224) v = (u16)(0x8000 | ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3));
+                else v = (u16)(((al >> 5) << 12) | ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4));
+            }
+            t[((y >> 2) * (AP_IW >> 2) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)] = v;
+        }
+    stbi_image_free(px);
+    DCFlushRange(t, AP_IW * AP_IH * 2);
+    a->tex = t;
+    GX_InitTexObj(&a->obj, t, AP_IW, AP_IH, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InitTexObjFilterMode(&a->obj, GX_LINEAR, GX_LINEAR);
+    a->istate = 1;
+}
 static ap_ent *ap = NULL;
 static int ap_n = 0, ap_sel = 0, ap_confirm = -1;
 /* <name> et <short_description> de apps/xxx/meta.xml (format Homebrew Channel) */
@@ -434,9 +483,9 @@ static void ap_add(const char *path, const char *dir) {
     a->size = stat(path, &st) == 0 ? (long)st.st_size : 0;
     if (a->size < 0x100) return;
     const char *b = base_of(path);
-    if (dir && !strcasecmp(b, "boot.dol")) snprintf(a->name, sizeof(a->name), "%s", base_of(dir));
+    if (dir) snprintf(a->name, sizeof(a->name), "%s", base_of(dir));     /* (v41 : nom du dossier, ex. VBA-GX au lieu de default) */
     else { snprintf(a->name, sizeof(a->name), "%s", b); char *dot = strrchr(a->name, '.'); if (dot) *dot = 0; }
-    if (dir) ap_meta(dir, a);
+    if (dir) { ap_meta(dir, a); snprintf(a->icon, sizeof(a->icon), "%s/icon.png", dir); }
     ap_n++;
 }
 static void ap_scan_dir(const char *dir, int depth) {
@@ -457,6 +506,7 @@ static void ap_scan_dir(const char *dir, int depth) {
 static int ap_cmp(const void *a, const void *b) { return strcasecmp(((const ap_ent *)a)->name, ((const ap_ent *)b)->name); }
 static void ap_open(void) {
     if (!ap) ap = (ap_ent *)malloc(sizeof(ap_ent) * AP_MAX);
+    for (int i = 0; ap && i < ap_n; i++) if (ap[i].tex) { free(ap[i].tex); ap[i].tex = NULL; }
     ap_n = 0; ap_confirm = -1;
     tl_screen = TL_APPS;
     if (!ap || !sd_ok) return;
@@ -762,22 +812,36 @@ static void draw_apps(void) {
     char buf[160], fv[160];
     snprintf(buf, sizeof(buf), ap_n == 1 ? "1 appli" : "%d applis", ap_n);
     tl_frame("Applis (.dol)", buf);
-    const int vis = 8;
-    const f32 rh = 34;
+    const int vis = 7;
+    const f32 rh = 44;
     int start = ap_sel - vis / 2; if (start > ap_n - vis) start = ap_n - vis; if (start < 0) start = 0;
+    int loads = 0;
     for (int i = 0; i < vis && start + i < ap_n; i++) {
-        int r = start + i; f32 ry = 90 + i * rh;
+        int r = start + i; f32 ry = 88 + i * rh;
         int on = r == ap_sel;
+        ap_ent *a = &ap[r];
         gp_zone(52, ry, 536, rh - 3, &ap_sel, r, GPZ_SEL);
         if (on) gx_rrect_fill(52, ry, 536, rh - 3, 6, TL_SEL1, TL_SEL2);
-        text_display(ap[r].name, buf, sizeof(buf)); fit_text(F_MED, buf, 400, fv, sizeof(fv));
-        gx_text1(F_MED, 64, ry + 15, fv, on ? RGBA(255, 255, 255, 255) : RGBA(230, 222, 255, 255));
-        const char *sub = ap[r].desc[0] ? ap[r].desc : ap[r].path + strlen(SD_ROOT);
-        text_display(sub, buf, sizeof(buf)); fit_text(F_SMALL, buf, 440, fv, sizeof(fv));
-        gx_text1(F_SMALL, 64, ry + 29, fv, on ? RGBA(230, 220, 255, 255) : RGBA(150, 135, 210, 255));
-        fmt_size(buf, sizeof(buf), ap[r].size);
-        gx_text_r(F_SMALL, 578, ry + 15, buf, RGBA(150, 135, 210, 255));
+        if (!a->istate && loads < 1) { ap_icon_load(a); loads++; }     /* (une icone par image) */
+        /* icone (icon.png) ou une petite cartouche */
+        if (a->istate > 0) draw_tex_fit(&a->obj, AP_IW, AP_IH, AP_IW, AP_IH, 58, ry + 2, 96, 36);
+        else {
+            gx_rrect_fill(58, ry + 4, 96, 32, 6, RGBA(60, 40, 120, 255), RGBA(36, 22, 86, 255));
+            char ini[3] = { 0, 0, 0 };
+            ini[0] = (char)toupper((u8)a->name[0]);
+            if (a->name[0] && a->name[1]) ini[1] = (char)tolower((u8)a->name[1]);
+            gx_text_c(F_MED, 106, ry + 26, ini, RGBA(200, 185, 255, 255));
+        }
+        text_display(a->name, buf, sizeof(buf)); fit_text(F_MED, buf, 330, fv, sizeof(fv));
+        gx_text1(F_MED, 166, ry + 18, fv, on ? RGBA(255, 255, 255, 255) : RGBA(230, 222, 255, 255));
+        const char *sub = a->desc[0] ? a->desc : a->path + strlen(SD_ROOT);
+        text_display(sub, buf, sizeof(buf)); fit_text(F_SMALL, buf, 400, fv, sizeof(fv));
+        gx_text1(F_SMALL, 166, ry + 35, fv, on ? RGBA(230, 220, 255, 255) : RGBA(150, 135, 210, 255));
+        fmt_size(buf, sizeof(buf), a->size);
+        gx_text_r(F_SMALL, 578, ry + 18, buf, on ? RGBA(235, 225, 255, 255) : RGBA(150, 135, 210, 255));
     }
+    if (start > 0) gx_tri(313, 84, 327, 84, 320, 78, RGBA(190, 160, 255, 220));
+    if (start + vis < ap_n) gx_tri(313, 88 + vis * rh, 327, 88 + vis * rh, 320, 94 + vis * rh, RGBA(190, 160, 255, 220));
     if (!ap_n) gx_text1(F_SMALL, 64, 120, "Aucun .dol trouv\xC3\xA9 (racine de la carte SD et dossier apps).", RGBA(170, 155, 225, 255));
     if (ap_confirm >= 0) tl_confirm("Lancer cette appli ?", ap[ap_confirm].name);
     tl_msgbox();
@@ -842,12 +906,11 @@ static void draw_tools(void) {
 }
 
 /* ---------- section "Outils" de la page Reglages ---------- */
-enum { TO_CARDS, TO_APPS, TO_RECENT, TO_GAMES, TO_CHEATS, TO_INFO, TO_SWISS, TO_COUNT };
-static const char *const to_names[TO_COUNT] = { "Cartes m\xC3\xA9moire (sauvegardes)", "Applis (.dol)", "Derniers jeux lanc\xC3\xA9s",
-    "Mes jeux GameCube", "Cheats Swiss (\xC3\xA9" "diteur)", "Infos console", "Quitter vers Indigo / Swiss" };
+enum { TO_CARDS, TO_RECENT, TO_GAMES, TO_CHEATS, TO_INFO, TO_SWISS, TO_COUNT };
+static const char *const to_names[TO_COUNT] = { "Cartes m\xC3\xA9moire (sauvegardes)", "Derniers jeux lanc\xC3\xA9s",
+    "Mes jeux et applis", "Cheats Swiss (\xC3\xA9" "diteur)", "Infos console", "Quitter vers Indigo / Swiss" };
 static const char *const to_help[TO_COUNT] = {
     "Voir, copier sur la SD, remettre et supprimer les sauvegardes des cartes m\xC3\xA9moire.",
-    "Lancer les homebrews (.dol) de la carte SD directement, sans passer par Indigo.",
     "Relancer un jeu en un clic (jeux lanc\xC3\xA9s depuis GC-MP3 et depuis Indigo).",
     "Tes jeux avec leurs jaquettes. Dans la fiche d'un jeu : Y = r\xC3\xA9glages du jeu.",
     "Modifier et activer les cheats de tes jeux (dossier swiss/cheats).",
@@ -863,7 +926,6 @@ static void tools_menu_input(u32 down, u32 nav, int fire) {
     crumb("outils : %d", to_sel);
     switch (to_sel) {
     case TO_CARDS: mc_open(); break;
-    case TO_APPS: ap_open(); break;
     case TO_RECENT: rc_open(); break;
     case TO_INFO: info_open(); break;
     case TO_GAMES: tab = TAB_GAMES; tab_enter(TAB_GAMES); gclib_open(); break;

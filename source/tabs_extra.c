@@ -91,19 +91,21 @@ static void games_tab_launch(int g) {
 }
 static int gl_on;                                   /* v25 : Mes jeux GameCube (gclib.c) */
 static void gclib_open(void);
+static void ap_open(void);                         /* v41 : applis (tools.c) */
 static void gclib_input(u32 down, u32 nav, int fire);
 static void draw_gclib(void);
 static void games_tab_input(u32 down, u32 nav, int fire) {
     if (gl_on) { gclib_input(down, nav, fire); return; }
-    if (gm_sel == GM_COUNT) {                              /* barre "Mes jeux GameCube" */
-        if (fire && (nav & PAD_BUTTON_DOWN)) gm_sel = 0;
+    if (gm_sel >= GM_COUNT) {                              /* barres "Mes jeux GameCube" / "Mes applis" (v41) */
+        if (fire && (nav & PAD_BUTTON_DOWN)) gm_sel = gm_sel == GM_COUNT ? 0 : GM_COLS - 1;
         if (fire && (nav & PAD_BUTTON_UP)) gm_sel = GM_COUNT - 1;
-        if (down & PAD_BUTTON_A) gclib_open();
+        if (fire && (nav & (PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT))) gm_sel = gm_sel == GM_COUNT ? GM_COUNT + 1 : GM_COUNT;
+        if (down & PAD_BUTTON_A) { if (gm_sel == GM_COUNT) gclib_open(); else ap_open(); }
     } else {
         if (fire && (nav & PAD_BUTTON_RIGHT)) gm_sel = (gm_sel + 1) % GM_COUNT;
         if (fire && (nav & PAD_BUTTON_LEFT)) gm_sel = (gm_sel + GM_COUNT - 1) % GM_COUNT;
         if (fire && (nav & PAD_BUTTON_DOWN)) gm_sel = gm_sel + GM_COLS >= GM_COUNT ? GM_COUNT : gm_sel + GM_COLS;
-        if (fire && (nav & PAD_BUTTON_UP)) gm_sel = gm_sel < GM_COLS ? GM_COUNT : gm_sel - GM_COLS;
+        if (fire && (nav & PAD_BUTTON_UP)) gm_sel = gm_sel < GM_COLS ? (gm_sel * 2 >= GM_COLS ? GM_COUNT + 1 : GM_COUNT) : gm_sel - GM_COLS;
         if (down & PAD_BUTTON_A) games_tab_launch(gm_sel);
     }
     if ((down & PAD_BUTTON_Y) && src == SRC_FILE && playing) paused = !paused;
@@ -151,16 +153,27 @@ static void draw_tab_games(void) {
         for (int g = 0; g < GM_COUNT; g++) gm_record[g] = gm_rec[g] && sd_ok ? rg_record_get(gm_rec[g]) : 0;
     }
     f32 t = (f32)(now_ms() % 100000) / 1000.0f;
-    {   /* v25 : barre "Mes jeux GameCube" */
-        int on = gm_sel == GM_COUNT;
-        const f32 bx = 22, by = 110, bw = 592, bh = 30;
+    for (int k = 0; k < 2; k++) {   /* v25 : barre "Mes jeux GameCube" ; v41 : + "Mes applis" */
+        int on = gm_sel == GM_COUNT + k;
+        const f32 bx = k ? 322 : 22, by = 110, bw = 292, bh = 30;
+        if (k) {
+            if (on) gx_glow(bx, by, bw, bh, 8, RGBA(150, 80, 255, 140), 3);
+            gx_rrect_fill(bx, by, bw, bh, 8, on ? RGBA(116, 46, 236, 255) : RGBA(34, 20, 84, 230), on ? RGBA(74, 22, 172, 255) : RGBA(20, 12, 52, 230));
+            gx_rrect_stroke(bx, by, bw, bh, 8, 1.2f, on ? RGBA(200, 150, 255, 255) : RGBA(90, 64, 170, 255));
+            gx_rrect_fill(bx + 12, by + 8, 20, 14, 3, RGBA(200, 200, 215, 255), RGBA(120, 120, 140, 255));
+            gx_rect(bx + 15, by + 11, 14, 5, RGBA(30, 20, 60, 255));
+            gx_text1(F_MED, bx + 42, by + 21, "Mes applis", RGBA(255, 255, 255, 255));
+            gx_text_r(F_SMALL, bx + bw - 12, by + 20, "(A)", on ? RGBA(235, 225, 255, 255) : RGBA(170, 155, 225, 255));
+            gp_zone(bx, by, bw, bh, &gm_sel, GM_COUNT + 1, GPZ_SEL);
+            continue;
+        }
         if (on) gx_glow(bx, by, bw, bh, 8, RGBA(150, 80, 255, 140), 3);
         gx_rrect_fill(bx, by, bw, bh, 8, on ? RGBA(116, 46, 236, 255) : RGBA(34, 20, 84, 230), on ? RGBA(74, 22, 172, 255) : RGBA(20, 12, 52, 230));
         gx_rrect_stroke(bx, by, bw, bh, 8, 1.2f, on ? RGBA(200, 150, 255, 255) : RGBA(90, 64, 170, 255));
         gx_circle(bx + 22, by + bh / 2, 10, RGBA(200, 200, 215, 255), RGBA(120, 120, 140, 255));
         gx_circle(bx + 22, by + bh / 2, 3, RGBA(30, 20, 60, 255), RGBA(30, 20, 60, 255));
         gx_text1(F_MED, bx + 42, by + 21, "Mes jeux GameCube", RGBA(255, 255, 255, 255));
-        gx_text_r(F_SMALL, bx + bw - 12, by + 20, "jaquettes, fiches, cheats  (A)", on ? RGBA(235, 225, 255, 255) : RGBA(170, 155, 225, 255));
+        gx_text_r(F_SMALL, bx + bw - 12, by + 20, "(A)", on ? RGBA(235, 225, 255, 255) : RGBA(170, 155, 225, 255));
         gp_zone(bx, by, bw, bh, &gm_sel, GM_COUNT, GPZ_SEL);
     }
     const f32 cw = 192, ch = 72, x0 = 22, y0 = 148;
