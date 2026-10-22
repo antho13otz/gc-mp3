@@ -72,19 +72,19 @@ static void gcmp3_return(int argc, char *argv[])
 		char *t = config_file_read("gc-mp3/retour.txt");
 		config_unset_device();
 		if(t) {
-			char *e = t + strcspn(t, "\r\n");
+			char *e = t + strcspn(t, "\\r\\n");
 			*e = 0;
 			strlcpy(path, t, sizeof(path));
 			free(t);
 		}
 	}
-	gcmp3_logf("retour sur GC-MP3 : [%s]\n", path);
+	gcmp3_logf("retour sur GC-MP3 : [%s]\\n", path);
 	gcmp3_save_log();
 	if(!path[0]) return;
-	uiDrawObj_t *msgBox = DrawPublish(DrawProgressBar(true, 0, "Retour sur GC-MP3\205"));
+	uiDrawObj_t *msgBox = DrawPublish(DrawProgressBar(true, 0, "Retour sur GC-MP3\\205"));
 	int r = find_existing_entry(path, true);
 	DrawDispose(msgBox);
-	gcmp3_logf("retour impossible (%d)\n", r);
+	gcmp3_logf("retour impossible (%d)\\n", r);
 	gcmp3_save_log();
 }
 #define GCMP3_ASK(x) do { } while(0)
@@ -97,8 +97,8 @@ int main(int argc, char *argv[])
     ("""	memset(&swissSettings, 0 , sizeof(SwissSettings));""",
      """	memset(&swissSettings, 0 , sizeof(SwissSettings));
 #ifdef GCMP3_LOADER
-	gcmp3_logf("GC-MP3 lanceur : %d argument(s)\n", argc);
-	for(int a = 0; a < argc && argv; a++) gcmp3_logf("  arg %d : %s\n", a, argv[a] ? argv[a] : "(null)");
+	gcmp3_logf("GC-MP3 lanceur : %d argument(s)\\n", argc);
+	for(int a = 0; a < argc && argv; a++) gcmp3_logf("  arg %d : %s\\n", a, argv[a] ? argv[a] : "(null)");
 #endif"""),
     ("""	else if(swissSettings.aveCompat != AVE_RVL_COMPAT && swissSettings.lastDTVStatus != getRawDTVStatus()) {
 		show_settings(PAGE_GLOBAL, SET_AVE_COMPAT, NULL);
@@ -123,10 +123,10 @@ int main(int argc, char *argv[])
      """#ifdef GCMP3_LOADER
 	// GC-MP3 : sans jeu demande (retour en jeu A + Z + START), on revient sur GC-MP3
 	if(gcmp3_arg(argc, argv, "Autoload=") == NULL) {
-		gcmp3_logf("pas de jeu demande : retour en jeu\n");
+		gcmp3_logf("pas de jeu demande : retour en jeu\\n");
 		gcmp3_return(argc, argv);
 	}
-	gcmp3_logf("jeu : [%s]\n", swissSettings.autoload);
+	gcmp3_logf("jeu : [%s]\\n", swissSettings.autoload);
 #endif
 	// Check for autoload entry
 	if(swissSettings.autoload[0]) {"""),
@@ -134,7 +134,7 @@ int main(int argc, char *argv[])
 	}""",
      """		int gcmp3_r = find_existing_entry(&swissSettings.autoload[0], true);
 #ifdef GCMP3_LOADER
-		gcmp3_logf("jeu non lance (%d)\n", gcmp3_r);
+		gcmp3_logf("jeu non lance (%d)\\n", gcmp3_r);
 #endif
 		(void)gcmp3_r;
 	}"""),
