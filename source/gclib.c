@@ -48,6 +48,7 @@ static int gl_list_dirty = 0;
 static char gl_busy[96] = "";                            /* v27 : message "en cours" affiche par-dessus */
 static void gl_status(const char *m) { snprintf(gl_busy, sizeof(gl_busy), "%s", TR(m)); ui_status(m); }                            /* v27 : noms / descriptions lus dans les bannieres */
 static const char *gl_launch(int k);
+static void nat_run(int k);                                /* v50 : lanceur natif, analyse (natif.c) */
 
 /* ---------- packs SWPK ---------- */
 typedef struct {
@@ -620,6 +621,7 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         if (down & PAD_BUTTON_X && gl_n) gl_open_cheats(gl_sel);
         if ((down & PAD_BUTTON_Y) && gl_n) indigo_game_open(gl[gl_sel].id, gl[gl_sel].title);   /* v35 : reglages du jeu */
         if ((down & PAD_BUTTON_A) && gl_n) gl_launch_sel = gl_sel;
+        if ((down & PAD_TRIGGER_R) && gl_n) nat_run(gl_sel);          /* v50 : analyse native (natif.c) */
         if (down & PAD_BUTTON_B) gl_detail = 0;
         return;
     }
@@ -1038,9 +1040,9 @@ static void draw_gclib_main(void) {
         }
         scr_viewport();
         if (now_ms() - gl_msg_t < 6000) { char m[200]; fit_text(F_SMALL, gl_msg, 586, m, sizeof(m)); gx_text1(F_SMALL, 30, 404, m, RGBA(255, 210, 120, 255)); }
-        static const char *const k[] = { "A", "X", "Y", "B" };
-        static const char *const l[] = { "LANCER", "CHEATS", "R\xC3\x89GLAGES", "RETOUR" };
-        draw_legend_keys(k, l, 4);
+        static const char *const k[] = { "A", "X", "Y", "R", "B" };
+        static const char *const l[] = { "LANCER", "CHEATS", "R\xC3\x89GLAGES", "ANALYSE", "RETOUR" };
+        draw_legend_keys(k, l, 5);
         if (gl_launch_sel >= 0) {                              /* confirmation */
             const f32 w = 420, h = 112, x = 110, y = 170;
             gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));

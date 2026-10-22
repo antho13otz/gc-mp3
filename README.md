@@ -21,6 +21,9 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v50
+- **Lanceur natif, étape 1 : l'analyse.** Dans la fiche d'un jeu, **R** décortique le disque comme le fera un futur lanceur 100 % GC Station (sans Swiss) : en-tête, région, apploader, `main.dol`, table des fichiers, mémoire basse à préparer, et les endroits du jeu qui pilotent le lecteur DVD. Rapport : `SD:/gc-mp3/natif/<ID>.txt`. Les jeux se lancent toujours avec le lanceur actuel.
+
 ## Nouveautés v49
 - **Mes applis comme Mes jeux** : grandes tuiles carrées, l'icône `icon.png` entière (proportions gardées, quelle que soit sa taille), le nom dessous, cadre de sélection qui glisse.
 - **Mini-jeux plus fluides** : pendant une partie, plus aucun travail lourd en fond (connexions https, pochettes, paroles, lecture des étiquettes, sauvegardes) ; le serpent glisse d'une case à l'autre au lieu de sauter.
