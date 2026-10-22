@@ -70,13 +70,6 @@ int main(int argc, char *argv[])
 				else if(swissSettings.aveCompat != AVE_RVL_COMPAT && swissSettings.lastDTVStatus != getRawDTVStatus()) {
 					GCMP3_ASK(show_settings(PAGE_GLOBAL, SET_AVE_COMPAT, NULL));
 				}"""),
-    ("""	config_parse_args(argc, argv);
-	config_update_environ();""",
-     """	config_parse_args(argc, argv);
-#ifdef GCMP3_LOADER
-	swissSettings.autoBoot = 1;			// GC-MP3 : le jeu demarre tout de suite (B maintenu : ecran du jeu)
-#endif
-	config_update_environ();"""),
     ("""	if(swissSettings.cubebootInvoked) {
 		return 0;
 	}
@@ -90,6 +83,23 @@ int main(int argc, char *argv[])
 #endif
 	while(1) {
 		menu_loop();"""),
+])
+
+# 2b. pas d'ecran d'infos du jeu : il demarre tout de suite (B maintenu : l'ecran de Swiss,
+#     avec les reglages du jeu et les cheats). (Le reglage AutoBoot de Swiss n'est pas touche.)
+patch("source/swiss.c", [
+    ("""int info_game(ConfigEntry *config)
+{
+""",
+     """int info_game(ConfigEntry *config)
+{
+#ifdef GCMP3_LOADER
+	if(!(padsButtonsHeld() & BUTTON_B)) {
+		return 1;
+	}
+	while(padsButtonsHeld() & BUTTON_B) { VIDEO_WaitVSync(); }
+#endif
+"""),
 ])
 
 # 3. apparence : barre de titre GC-MP3, fond integre (pas celui de la carte SD)

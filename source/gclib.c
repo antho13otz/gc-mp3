@@ -974,6 +974,12 @@ static const u32 gl_stub[] = {
 #define GL_TAB_AT   0x80002000u
 #define GL_ARGV_AT  0x80002900u
 #define GL_CMD_AT   (0x81700000u - 0x400u)        /* ligne de commande : en haut de la memoire, comme le fait Swiss */
+#define LD_DOL  GCD "/lanceur.dol"                 /* v44 : lanceur de jeux GC-MP3 (lanceur.c) */
+#define LD_VER  GCD "/lanceur.txt"
+static int ld_ready(void);
+static void ld_fetch(int loud);
+static void as_self(char *out, int cap);
+static const char *gl_arg3 = NULL;                 /* v44 : 3e argument (GCMP3=... : retour sur GC-MP3) */
 
 /* demarre Swiss avec "Autoload=<jeu>" (path = chemin sd:/...), ou "Autoload=" (vide :
    le menu de Swiss / Indigo, meme si GC-MP3 y est regle pour demarrer tout seul) */
@@ -992,12 +998,25 @@ static const char *gl_launch(int k) {                  /* retourne un message d'
 }
 /* v35 : lance n'importe quel .dol (Swiss, ou une appli), avec jusqu'a 2 arguments */
 static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *a2, const char *what);
+static int ld_cache;
 static const char *gl_boot_swiss(const char *path) {
-    if (!gl_find_swiss()) return "Swiss introuvable : mets son .dol a la racine (ex. swiss.dol) ou indique-le dans gc-mp3.txt (swiss = ...)";
     static const char *const dev[3] = { "sdc:", "sda:", "sdb:" };
     char a1[NAME_LEN + 32];
     if (path) snprintf(a1, sizeof(a1), "Autoload=%s%s", dev[sd_slot >= 0 && sd_slot < 3 ? sd_slot : 0], path + strlen(SD_ROOT));
     else snprintf(a1, sizeof(a1), "Autoload=");
+    if (path && ld_ready()) {                      /* v44 : lanceur GC-MP3 (pas de menu Swiss) */
+        static char a3[NAME_LEN + 16];
+        char me[NAME_LEN + 8];
+        as_self(me, sizeof(me));
+        snprintf(a3, sizeof(a3), "GCMP3=%s", me);
+        gl_arg3 = a3;
+        const char *e = gl_boot_dol(LD_DOL, a1, gl_boot_cheats ? "AutoCheats=Yes" : NULL, "jeu");
+        gl_arg3 = NULL;
+        crumb("lanceur GC-MP3 : %s", e ? e : "?");
+        if (e && strncmp(e, "(simulateur", 11)) { remove(LD_DOL); ld_cache = -1; }   /* (lanceur abime : Swiss, puis nouveau telechargement) */
+        else return e;
+    } else if (path) ld_fetch(0);                 /* (pas encore la : pret pour la prochaine fois) */
+    if (!gl_find_swiss()) return "Swiss introuvable : mets son .dol a la racine (ex. swiss.dol) ou indique-le dans gc-mp3.txt (swiss = ...)";
     const char *e = gl_boot_dol(gl_swiss, a1, path && gl_boot_cheats ? "AutoCheats=Yes" : NULL, "Swiss");
     if (e && !strcmp(e, "-noarg")) return "Ce Swiss ne prend pas d'arguments : mets-le a jour";
     return e;
@@ -1049,6 +1068,7 @@ static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *
     int cl = snprintf(cmd, sizeof(cmd), "%s", dolpath);
     if (a1) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", a1);
     if (a2) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", a2);   /* (ex. AutoCheats=Yes : Swiss applique les cheats coches) */
+    if (gl_arg3) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", gl_arg3);
     cl += 1;
     /* le .dol accepte-t-il des arguments ? (texte "_arg" juste apres le point d'entree) */
     int has_arg = 0;
@@ -1082,7 +1102,8 @@ static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *
     for (;;) ;
 #else
     printf("LANCER dol=%s dst=%08x hi=%08x entree=%08x sections=%u args=%d arg=[%s]", dolpath, dst, hi, entry, n, has_arg, cmd + strlen(cmd) + 1);
-    { const char *a2 = cmd + strlen(cmd) + 1; a2 += strlen(a2) + 1; if (a2 < cmd + cl) printf(" arg2=[%s]", a2); }
+    { const char *a2 = cmd + strlen(cmd) + 1; a2 += strlen(a2) + 1; if (a2 < cmd + cl) printf(" arg2=[%s]", a2);
+      if (a2 < cmd + cl) { a2 += strlen(a2) + 1; if (a2 < cmd + cl) printf(" arg3=[%s]", a2); } }
     printf("\n");
     free(dol);
     return "(simulateur : lancement simule)";

@@ -19,6 +19,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v44
+- **Lanceur de jeux GC-MP3** : les jeux (ISO / GCM) démarrent directement depuis GC-MP3, sans passer par le menu de Swiss / Indigo, avec un écran de lancement aux couleurs de GC-MP3.
+  - Il est téléchargé tout seul (`SD:/gc-mp3/lanceur.dol`) et tenu à jour ; START > Réglages > **Lanceur de jeux** (A : mettre à jour, Gauche / Droite : GC-MP3 ou Swiss).
+  - Maintenir **B** pendant le lancement : écran du jeu (réglages du jeu, cheats). En cas d'erreur, retour sur GC-MP3.
+  - Les réglages par jeu et les cheats faits dans GC-MP3 s'appliquent (mêmes fichiers que Swiss / Indigo).
+  - C'est le moteur de [Swiss](https://github.com/emukidid/swiss-gc) (licence GPL v2), modifié par `tools/mkloader.py` et compilé par GitHub Actions : merci à l'équipe de Swiss.
+
 ## Nouveautés v43
 - **Style du spectre partout** : le style choisi s'affiche aussi dans le mini-spectre en haut de l'écran et dans les dispositions Pochette géante / Minimaliste.
 - **Une disposition par onglet** : MUSIQUE, RADIO, RÉTRO et PODCASTS ont chacun la leur (START > Réglages > Disposition du lecteur, ou stick C vers le bas). Nouvelle disposition **Spectre géant**.
