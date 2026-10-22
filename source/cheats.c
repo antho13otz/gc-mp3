@@ -64,8 +64,63 @@ static int ch_codeish(const char *s) {
 /* ---- lecture des cheats exactement comme Swiss (cheats.c de Swiss : parseCheats) ----
    Swiss saute les lignes vides ; un cheat commence a une ligne de code et continue tant
    que les lignes sont du code ; un cheat avec une ligne "XX" est ignore (et ne compte pas). */
-static int ch_sw_iscode(const char *l) { int len = 0; sscanf(l, "%*2[0-9A-Fa-f]%*6[0-9A-Za-z] %*8[0-9A-Za-z]%n", &len); return len > 16; }
-static int ch_sw_valid(const char *l) { int len = 0; sscanf(l, "%*8[0-9A-Fa-f] %*8[0-9A-Fa-f]%n", &len); return len > 16; }
+/* v37 : sans sscanf (plus rapide, et rien de complique sur la console) ; meme resultat que
+   sscanf(l, "%*2[hex]%*6[alnum] %*8[alnum]%n") et sscanf(l, "%*8[hex] %*8[hex]%n") dans Swiss */
+static int ch_ishex(u8 c) { return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f'); }
+static int ch_isaln(u8 c) { return (c >= '0' && c <= '9') || (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z'); }
+static int ch_isws(u8 c) { return c == ' ' || c == '\t' || c == '\n' || c == '\v' || c == '\f' || c == '\r'; }
+static int ch_run(const char *l, int i, int max, int (*ok)(u8)) { int n = 0; while (n < max && l[i + n] && ok((u8)l[i + n])) n++; return n; }
+static int ch_sw_iscode_raw(const char *l) {
+    int i = 0, n;
+    if (!(n = ch_run(l, i, 2, ch_ishex))) return 0;
+    i += n;
+    if (!(n = ch_run(l, i, 6, ch_isaln))) return 0;
+    i += n;
+    while (l[i] && ch_isws((u8)l[i])) i++;
+    if (!(n = ch_run(l, i, 8, ch_isaln))) return 0;
+    return i + n > 16;
+}
+static int ch_sw_valid_raw(const char *l) {
+    int i = 0, n;
+    if (!(n = ch_run(l, i, 8, ch_ishex))) return 0;
+    i += n;
+    while (l[i] && ch_isws((u8)l[i])) i++;
+    if (!(n = ch_run(l, i, 8, ch_ishex))) return 0;
+    return i + n > 16;
+}
+/* drapeaux par ligne, calcules une fois dans ch_index : 1 = ligne de code pour Swiss, 2 = code valide */
+static u8 *ch_lf = NULL;
+static int ch_lf_n = 0;
+static int ch_sw_iscode(const char *l) {
+    if (ch_lf && l >= ch_l[0] && l < ch_l[0] + (size_t)ch_lf_n * CH_LW) return ch_lf[(l - ch_l[0]) / CH_LW] & 1;
+    return ch_sw_iscode_raw(l);
+}
+static int ch_sw_valid(const char *l) {
+    if (ch_lf && l >= ch_l[0] && l < ch_l[0] + (size_t)ch_lf_n * CH_LW) return (ch_lf[(l - ch_l[0]) / CH_LW] & 2) != 0;
+    return ch_sw_valid_raw(l);
+}
+static void ch_flags(void) {
+    if (!ch_lf) ch_lf = (u8 *)malloc(CH_MAXL);
+    ch_lf_n = 0;
+    if (!ch_lf || !ch_l) return;
+    for (int i = 0; i < ch_nl; i++) ch_lf[i] = (u8)((ch_sw_iscode_raw(ch_l[i]) ? 1 : 0) | (ch_sw_valid_raw(ch_l[i]) ? 2 : 0));
+    ch_lf_n = ch_nl;
+}
+/* "%x" : chiffres hexa, sature a 0xFFFFFFFF comme strtoul */
+static u32 ch_hexval(const char **pp) {
+    const char *p = *pp;
+    while (*p && ch_isws((u8)*p)) p++;
+    if (p[0] == '0' && (p[1] == 'x' || p[1] == 'X') && ch_ishex((u8)p[2])) p += 2;
+    unsigned long long v = 0;
+    while (ch_ishex((u8)*p)) {
+        int d = *p <= '9' ? *p - '0' : (*p | 32) - 'a' + 10;
+        v = v * 16 + d;
+        if (v > 0xFFFFFFFFull) v = 0x100000000ull;
+        p++;
+    }
+    *pp = p;
+    return v > 0xFFFFFFFFull ? 0xFFFFFFFFu : (u32)v;
+}
 /* parcourt les cheats Swiss : fn(no, premiere ligne, fin) pour chaque cheat utilisable */
 static int ch_sw_walk(void (*fn)(int, int, int, void *), void *ctx) {
     int n = 0, i = 0;
@@ -137,8 +192,8 @@ static void ch_hash_cb(int no, int s, int e, void *ctx) {
     if (no < 0 || hb->cap < 0) return;
     for (int i = s; i < e; i++) {
         if (!ch_l[i][0] || !ch_sw_iscode(ch_l[i])) continue;
-        unsigned int a = 0, b = 0;
-        sscanf(ch_l[i], "%x %x", &a, &b);
+        const char *pp = ch_l[i];
+        u32 a = ch_hexval(&pp), b = ch_hexval(&pp);
         if (hb->n + 8 > hb->cap) {
             int nc = hb->cap ? hb->cap * 2 : 4096;
             u8 *nb = realloc(hb->b, nc);
@@ -200,6 +255,7 @@ static void ch_sel_save_cb(int no, int s, int e, void *ctx) {
 static void ch_sel_save(void) {
     char p[NAME_LEN];
     if (!ch_l || !ch_sel_path(ch_name, p, sizeof(p))) return;
+    ch_index();                                               /* (lignes peut-etre modifiees depuis) */
     int n = ch_sw_walk(NULL, NULL);
     u8 *sel = calloc(1, (size_t)n + 8);
     u64 h = 0;
@@ -218,6 +274,15 @@ static void ch_sel_save(void) {
     remove(p);
     if (rename(tmp, p) != 0) ch_note("Impossible d'\xC3\xA9" "crire sur la carte SD");
 }
+static int ch_sel_dirty = 0;                    /* v37 : choix pas encore ecrits (ecrits 1 s apres, ou en quittant) */
+static u64 ch_sel_t = 0;
+static void ch_sel_flush(void) {
+    if (!ch_sel_dirty || ch_dirty) return;          /* (texte modifie : ecrit avec lui, par Y) */
+    ch_sel_dirty = 0;
+    crumb("cheats : choix enregistres");
+    ch_sel_save();
+}
+static void cheats_tick(void) { if (ch_sel_dirty && now_ms() - ch_sel_t > 1000) ch_sel_flush(); }   /* (boucle principale) */
 static int ch_count_on(void) { int k = 0; for (int c = 0; c < ch_nc; c++) if (ch_en[c] && ch_swn[c]) k++; return k; }
 /* active / desactive le cheat c */
 static void ch_toggle(int c) {
@@ -230,9 +295,9 @@ static void ch_toggle(int c) {
         else ch_note("Code pas au bon format (XXXXXXXX YYYYYYYY)");
         return;
     }
-    if (ch_dirty && !ch_save()) return;
     ch_en[c] = !ch_en[c];
-    ch_sel_save();
+    ch_sel_dirty = 1; ch_sel_t = now_ms();            /* (ecrit un peu plus tard : on peut en cocher plusieurs vite) */
+    crumb("cheats : %d -> %d", c, ch_en[c]);
     int k = ch_count_on();
     if (k == 1) ch_note(ch_en[c] ? "Cheat activ\xC3\xA9 (1 actif)" : "Cheat d\xC3\xA9sactiv\xC3\xA9 (1 actif)");
     else {
@@ -244,6 +309,7 @@ static void ch_toggle(int c) {
 
 /* decoupe le fichier en cheats : un bloc = lignes non vides entre deux lignes vides */
 static void ch_index(void) {
+    ch_flags();
     ch_nc = 0;
     int i = 0;
     while (i < ch_nl && ch_nc < CH_MAXC) {
@@ -286,24 +352,31 @@ static void ch_scan(void) {
     DIR *d = opendir(CH_DIR);
     if (!d) return;
     struct dirent *e;
-    while ((e = readdir(d)) != NULL && ch_nf < CH_MAXF) {
+    static char sel[64][8];                                 /* v37 : les .chtsel vus dans le dossier (pas de stat par fichier) */
+    int nsel = 0;
+    while ((e = readdir(d)) != NULL) {
         const char *dot = strrchr(e->d_name, '.');
-        if (!dot || strcasecmp(dot, ".txt") || strlen(e->d_name) >= 64) continue;
+        if (!dot) continue;
+        if (!strcasecmp(dot, ".chtsel")) { if (nsel < 64 && dot - e->d_name == 6) { memcpy(sel[nsel], e->d_name, 6); sel[nsel][6] = 0; nsel++; } continue; }
+        if (ch_nf >= CH_MAXF || strcasecmp(dot, ".txt") || strlen(e->d_name) >= 64) continue;
         snprintf(ch_fn[ch_nf], 64, "%s", e->d_name);
         ch_nf++;
+        if ((ch_nf & 31) == 0) service_audio();
     }
     closedir(d);
     qsort(ch_fn, ch_nf, 64, ch_fcmp);
     if (!ch_fen) ch_fen = malloc(sizeof(short) * CH_MAXF);
     for (int i = 0; i < ch_nf; i++) {
-        char p[NAME_LEN]; struct stat st;
-        snprintf(p, sizeof(p), "%s/%s", CH_DIR, ch_fn[i]);
-        ch_fsz[i] = stat(p, &st) == 0 ? (long)st.st_size : 0;
+        ch_fsz[i] = -1;                                     /* (taille lue plus tard, seulement pour les lignes affichees) */
         if (!ch_fen) continue;
         ch_fen[i] = 0;                                      /* cheats actives (sans verifier l'empreinte) */
-        if (ch_sel_path(ch_fn[i], p, sizeof(p)) && stat(p, &st) == 0 && st.st_size > 8 && st.st_size < 65536) {
-            long len = 0; unsigned char *d = read_file(p, 65536, &len);
-            if (d) { for (long j = 0; j + 8 < len; j++) if (d[j]) ch_fen[i]++; free(d); }
+        for (int k = 0; k < nsel; k++) {
+            if (strncasecmp(ch_fn[i], sel[k], 6) || ch_fn[i][6] != '.') continue;
+            char p[NAME_LEN];
+            snprintf(p, sizeof(p), "%s/%s.chtsel", CH_DIR, sel[k]);
+            long len = 0; unsigned char *dd = read_file(p, 65536, &len);
+            if (dd) { for (long j = 0; j + 8 < len; j++) if (dd[j]) ch_fen[i]++; free(dd); }
+            break;
         }
     }
     if (ch_fsel > ch_nf) ch_fsel = ch_nf;
@@ -357,6 +430,7 @@ static int ch_save(void) {
     remove(ch_path);
     if (rename(tmp, ch_path) != 0) { ch_note("Impossible de remplacer le fichier"); return 0; }
     ch_dirty = 0; ch_quit_warn = 0;
+    ch_sel_dirty = 0;
     ch_sel_save();                                            /* (garde les cheats actives : l'empreinte change) */
     ch_note("Enregistr\xC3\xA9 : Swiss l'utilisera au prochain lancement du jeu");
     return 1;
@@ -566,7 +640,11 @@ static void ch_digit_step(char *ln, int dig, int d) {
 
 static void ch_leave_file(void) {
     if (ch_dirty && !ch_quit_warn) { ch_quit_warn = 1; ch_note("Pas enregistr\xC3\xA9 : Y pour enregistrer, B encore pour quitter sans enregistrer"); return; }
-    ch_view = CHV_LIST; ch_quit_warn = 0; ch_dirty = 0;
+    if (ch_dirty && ch_sel_dirty) ch_note("Cheats coch\xC3\xA9s pas enregistr\xC3\xA9s (fichier pas enregistr\xC3\xA9)");
+    ch_dirty = 0;
+    if (!ch_quit_warn) ch_sel_flush();
+    ch_sel_dirty = 0;
+    ch_view = CHV_LIST; ch_quit_warn = 0;
     ch_scan();
 }
 
@@ -649,7 +727,7 @@ static void cheats_input(u32 down, u32 nav, int fire) {
     }
     if (down & PAD_BUTTON_X) { ch_pop = 1; ch_psel = 0; ch_pconfirm = 0; }
     if (down & PAD_BUTTON_Y) ch_save();
-    if (down & PAD_BUTTON_B) ch_view = CHV_FILE;
+    if (down & PAD_BUTTON_B) { ch_view = CHV_FILE; ch_index(); }
 }
 
 /* -------- affichage -------- */
@@ -701,6 +779,11 @@ static void draw_cheats(void) {
             text_display(ch_fn[r - 1], d, sizeof(d));
             fit_text(F_MED, d, 470, buf, sizeof(buf));
             gx_text1(F_MED, 52, cy + 5, buf, txt);
+            if (ch_fsz[r - 1] < 0) {                       /* (taille : une seule fois, a l'affichage) */
+                char p[NAME_LEN]; struct stat st;
+                snprintf(p, sizeof(p), "%s/%s", CH_DIR, ch_fn[r - 1]);
+                ch_fsz[r - 1] = stat(p, &st) == 0 ? (long)st.st_size : 0;
+            }
             fmt_size(buf, sizeof(buf), ch_fsz[r - 1]);
             gx_text_r(F_SMALL, 612, cy + 4, buf, on ? RGBA(235, 225, 255, 255) : RGBA(140, 125, 200, 255));
             if (ch_fen && ch_fen[r - 1] > 0) {

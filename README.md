@@ -19,6 +19,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v37
+
+- **Cheats beaucoup plus rapides** : cocher / décocher est instantané. Les choix sont écrits sur la carte SD une seconde après (ou en quittant le fichier), plus à chaque appui. La lecture des codes n'utilise plus `sscanf` (20 fois plus rapide, même résultat que Swiss). La liste des fichiers de cheats s'ouvre sans lire chaque fichier.
+- **Page Réglages plus stable** : changer Vibrations ou Vidéo dans la section GC-MP3 n'écrit plus le fichier d'Indigo à chaque appui (écrit en fermant la page), et ne perd plus les changements faits dans les sections Indigo / Swiss.
+
 ## Nouveautés v36
 
 - **Mise à jour bloquée à 99 %** corrigée : la recherche des autres copies de GC-MP3 regardait chaque fichier de la carte (très long avec des milliers de ROM). Elle ne regarde plus que la racine et le dossier `apps`, par leur nom.
