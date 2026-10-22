@@ -10876,6 +10876,7 @@ static void music_pump(void) {
 #include "fun_extra.c"                         /* v18 : karaoke, jeux, reveil, titres radio... */
 #include "tabs_extra.c"                        /* v23 : onglets JEUX et TELECHARGEMENTS, curseur partout */
 #include "cheats.c"                            /* v25 : editeur de cheats Swiss */
+#include "gclib.c"                             /* v25 : Mes jeux GameCube (jaquettes du pack Swiss Indigo) */
 
 int main(int argc, char **argv) {
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;
