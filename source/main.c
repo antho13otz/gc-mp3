@@ -85,7 +85,7 @@
 #define RADIO_LIST     GCD "/radio.txt"
 #define LOGO_DIR       GCD "/radio"
 #define MP3_DIR        SD_ROOT "/mp3"
-#define MAX_FILES      512
+#define MAX_FILES      2000                 /* v24 : 2000 morceaux (avant 512) */
 #define NAME_LEN       256                  // chemin complet (sd:/dossier/.../fichier.mp3)
 #define URL_MAX        2048                 // adresse web la plus longue acceptee
 #define DL_DIR         SD_ROOT "/downloads" // telechargements (CubeBrowser...)
@@ -672,6 +672,7 @@ static int mount_sd(void) {
     return 0;
 }
 
+#include "lang.c"                                      /* v24 : interface en francais ou en anglais */
 #include "ramfs.c"                                     /* pas de carte SD (Dolphin) : SD virtuelle */
 
 // ---------- Pochettes ----------
@@ -1054,6 +1055,10 @@ static int resolve_host(const char *host, u32 *out) {
     /* petit cache : evite une requete DNS par image d'un meme site */
     static struct { char host[96]; u32 addr; u64 t; } cache[16];   /* (v19 : 16 sites, 30 min) */
     static int cnext = 0;
+    if (out == NULL) {                       /* v24 : oublier ce site (adresse peut-etre perimee) */
+        for (int i = 0; i < 16; i++) if (!strcmp(cache[i].host, host)) cache[i].host[0] = 0;
+        return 0;
+    }
     for (int i = 0; i < 16; i++)
         if (cache[i].host[0] && strcmp(cache[i].host, host) == 0 && now_ms() - cache[i].t < 1800000) {
             *out = cache[i].addr;
@@ -1308,7 +1313,19 @@ static int conn_tcp(conn_t *c, const char *host, int port, const char **err, int
     sa.sin_family = AF_INET;
     sa.sin_port = htons((u16)port);
     sa.sin_addr.s_addr = addr;
-    if (net_connect(s, (struct sockaddr *)&sa, sizeof(sa)) < 0) {
+    s32 cr = net_connect(s, (struct sockaddr *)&sa, sizeof(sa));
+    if (cr < 0 && cr != -ECONNREFUSED) {
+        /* v24 : un 2e essai (premier paquet perdu, adresse du cache perimee...) */
+        net_close(s);
+        resolve_host(host, NULL);
+        usleep(250000);
+        if (!resolve_host(host, &addr)) { *err = "Serveur introuvable (DNS)"; return 0; }
+        sa.sin_addr.s_addr = addr;
+        s = net_socket(AF_INET, SOCK_STREAM, 0);
+        if (s < 0) { *err = "Erreur réseau (socket)"; return 0; }
+        cr = net_connect(s, (struct sockaddr *)&sa, sizeof(sa));
+    }
+    if (cr < 0) {
         net_close(s);
         *err = "Connexion refusée par le serveur";
         if (refused) *refused = 1;
@@ -1328,7 +1345,9 @@ static int conn_open(conn_t *c, const char *host, int port, int tls, const char 
         ui_status(msg);
         snprintf(c->host, sizeof(c->host), "%s:%d", host, port);
         if (!conn_start_tls(c, host, err)) {
-            int retry = c->sc_used;
+            /* v24 : on reessaie une fois (session refusee, ou paquet perdu pendant
+               la negociation), mais pas si le certificat est mauvais ou trop lent */
+            int retry = c->sc_used || (*err && strstr(*err, "chec de la connexion"));
             conn_close(c);
             if (!retry) return 0;
             tls_sc_drop(c->host);                         /* (le site ne veut plus de l'ancienne session) */
@@ -3176,7 +3195,7 @@ static void build_groups(void) {
     for (int i = 0; i < n; i++) grp_order[i] = i;
     memcpy(grp_name, tmpn, sizeof(grp_name[0]) * n);
     qsort(grp_order, n, sizeof(int), cmp_groups);
-    int rank[MAX_FILES];
+    static int rank[MAX_FILES];
     for (int i = 0; i < n; i++) rank[grp_order[i]] = i;
     for (int i = 0; i < n; i++) { snprintf(grp_name[i], 64, "%s", tmpn[grp_order[i]]); grp_count[i] = tmpc[grp_order[i]]; }
     for (int k = 0; k < nfiles; k++) if (grp_of[k] >= 0) grp_of[k] = (s16)rank[grp_of[k]];
@@ -3567,8 +3586,8 @@ static const char *lang_country(void) {
 }
 static const char *lang_country_name(void) {       /* "en France", "au Royaume-Uni"... */
     static const char *const nm[LANG_COUNT] = { "au Royaume-Uni", "en Allemagne", "en France", "en Espagne", "en Italie", "aux Pays-Bas" };
-    if (!strcmp(lang_country(), "US")) return "aux \xC3\x89tats-Unis";
-    return nm[lang_cur()];
+    if (!strcmp(lang_country(), "US")) return TR("aux \xC3\x89tats-Unis");
+    return TR(nm[lang_cur()]);
 }
 static int resume_on = 1;
 static char resume_path[NAME_LEN] = "";
@@ -3625,6 +3644,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "ecran_hauteur")) { scr_hpct = atoi(v); if (scr_hpct < 80) scr_hpct = 80; if (scr_hpct > 100) scr_hpct = 100; }
         else if (!strcasecmp(k, "ecran_position")) { scr_vpos = atoi(v); if (scr_vpos < -24) scr_vpos = -24; if (scr_vpos > 24) scr_vpos = 24; }
         else if (!strcasecmp(k, "ecran_taille")) { scr_pct = atoi(v); if (scr_pct < 80) scr_pct = 80; if (scr_pct > SCR_MAX) scr_pct = SCR_MAX; }
+        else if (!strcasecmp(k, "interface")) { ui_lang = !strncasecmp(v, "en", 2) ? 1 : !strncasecmp(v, "fr", 2) ? 0 : -1; ui_lang_apply(); }
         else if (!strcasecmp(k, "langue")) { lang_pref = -1; for (int i = 0; i < LANG_COUNT; i++) if (!strncasecmp(v, lang_keys[i], 2)) lang_pref = i; }
         else if (!strcasecmp(k, "tele")) tv_crt = !strncasecmp(v, "cath", 4) || !strncasecmp(v, "crt", 3);
         else if (!strcasecmp(k, "video")) video_pref = !strcasecmp(v, "480p") ? VID_480P : !strcasecmp(v, "480i") ? VID_480I : VID_AUTO;
@@ -3639,6 +3659,7 @@ static void setting_apply(const char *k, char *v) {
 }
 
 static void load_settings(void) {
+    ui_lang_apply();
     if (!sd_ok) return;
     FILE *f = fopen(SETTINGS_FILE, "r");
     if (!f) { save_settings(); return; }
@@ -3715,6 +3736,8 @@ static void save_settings(void) {
                "# Langue du contenu (podcasts, radios du pays, sites web, meteo) :\n"
                "# auto (celle de la console) / fr / en / de / es / it / nl\n"
                "langue = %s\n"
+               "# Langue de l'interface / interface language : auto / fr / en\n"
+               "interface = %s\n"
                "# Taille de l'image (80 a 100 %%) : a reduire si les bords sont coupes sur la tele\n"
                "ecran_taille = %d\n"
                "# Hauteur de l'image (80 a 100 %%) et position verticale (-24 a 24, positif = plus bas)\n"
@@ -3727,7 +3750,7 @@ static void save_settings(void) {
             rg_mode == 2 ? "album" : rg_mode == 1 ? "morceau" : "non", party_keys[party_style],
             layout_keys[player_layout], els, hid, city, news_url, alarm_txt, alarm_src, phone_auto ? "oui" : "non", shuffle_on ? "oui" : "non", rep[repeat_mode], aff[view_mode],
             volume_pct, theme_keys[theme_id], saver_min, saver_keys[saver_style], vid[video_pref], tv_crt ? "cathodique" : "plat",
-            lang_pref >= 0 ? lang_keys[lang_pref] : "auto", scr_pct, scr_hpct, scr_vpos, scr_wide ? "16:9" : "4:3", resume_on ? "oui" : "non",
+            lang_pref >= 0 ? lang_keys[lang_pref] : "auto", ui_lang == 1 ? "en" : ui_lang == 0 ? "fr" : "auto", scr_pct, scr_hpct, scr_vpos, scr_wide ? "16:9" : "4:3", resume_on ? "oui" : "non",
             resume_path, resume_pos);
     fprintf(f, "# Mode veilleuse : luminosite 1 a 5 ; radio lancee si rien ne joue : oui / non\n"
                "veilleuse_luminosite = %d\nveilleuse_radio = %s\n"
@@ -4252,6 +4275,7 @@ static int glyph_index(int cp) {
 static f32 txt_scale = 1.0f;                 /* agrandissement du texte (mode soiree) */
 static int text_width_px(int f, const char *s, int sp) {      /* largeur reelle a l'ecran */
     int w = 0, n = 0;
+    s = tr(s);
     while (*s) {
         int cp = next_cp(&s);
         w += font_glyphs[f][glyph_index(cp)].adv + sp;
@@ -4273,6 +4297,7 @@ static int text_width(int f, const char *s, int sp) {
 /* x deja converti en position ecran */
 static int gx_text_raw(int f, f32 x, f32 base, const char *s, col_t top, col_t bot, int sp) {
     int count = 0;
+    s = tr(s);
     for (const char *p = s; *p;) {
         int cp = next_cp(&p);
         if (font_glyphs[f][glyph_index(cp)].w) count++;
@@ -4324,6 +4349,7 @@ static void gx_text_c(int f, f32 xc, f32 base, const char *s, col_t c) {
 
 /* Copie s dans out, tronque avec "..." pour tenir dans maxw pixels. */
 static void fit_text(int f, const char *s, int maxw, char *out, int outsz) {
+    s = tr(s);
     maxw = (int)(maxw * ux_k);                           /* (16:9 : la place reelle) */
     if (text_width_px(f, s, 0) <= maxw) { snprintf(out, outsz, "%s", s); return; }
     int dots = text_width_px(f, "...", 0);
@@ -4728,6 +4754,7 @@ static void draw_art_radio(void) {
 
 /* Coupe un texte en deux lignes de largeur maxw (au dernier espace possible). */
 static void wrap2(int f, const char *s, int maxw, char *a, char *b, int sz) {
+    s = tr(s);
     a[0] = b[0] = 0;
     if (text_width(f, s, 0) <= maxw) { snprintf(a, sz, "%s", s); return; }
     int cut = -1;
@@ -5217,7 +5244,7 @@ static void draw_list_music(int sel) {
         snprintf(foot, sizeof(foot), "Lecture des \xC3\xA9tiquettes %d/%d", tg_scanned, nfiles);
         fc = RGBA(255, 210, 120, 255);
     } else if (lib_find[0]) snprintf(foot, sizeof(foot), "Recherche : %.40s  (B)", lib_find);
-    else snprintf(foot, sizeof(foot), "< %s >", view_names[view_mode]);
+    else snprintf(foot, sizeof(foot), "< %s >", TR(view_names[view_mode]));
     gx_text1(F_SMALL, 26, 447, foot, fc);
     f32 rx = 264;
     if (repeat_mode != REP_OFF) {
@@ -6861,6 +6888,7 @@ static void dl_pump(void) {
 typedef struct { char *b; int n, cap; } sbuf_t;
 
 static void sb_add(sbuf_t *s, const char *t) {
+    t = tr(t);                                          /* v24 : pages de GC-MP3 en anglais */
     int l = (int)strlen(t);
     if (s->n + l + 1 > s->cap) {
         int nc = s->cap ? s->cap * 2 : 8192;
@@ -6918,7 +6946,7 @@ static void add_favorites(sbuf_t *s) {
         sb_add(s, "<li><a href=\"");
         sb_esc(s, u);
         sb_add(s, "\">");
-        sb_esc(s, *nm ? nm : u);
+        sb_esc(s, *nm ? TR(nm) : u);
         sb_add(s, "</a></li>");
         count++;
     }
@@ -9645,7 +9673,7 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_LANG, MI_GAMES, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
 #define MENU_VIS 13                         /* lignes visibles (le menu defile) */
 static int menu_top = 0;
 static int menu_sel = 0, quit_requested = 0;
@@ -9699,8 +9727,12 @@ static void menu_value(int i, char *out, int cap) {
     case MI_TV:      snprintf(out, cap, "%s", tv_crt ? "Cathodique (480i, 4:3)" : "\xC3\x89" "cran plat"); break;
     case MI_SCREEN:  snprintf(out, cap, scr_pct > 100 ? "%d %% (plus large)" : "%d %%", scr_pct); break;
     case MI_SCREENH: snprintf(out, cap, "%d %%", scr_hpct); break;
-    case MI_SCREENY: if (scr_vpos) snprintf(out, cap, "%s %d", scr_vpos > 0 ? "Plus bas" : "Plus haut", abs(scr_vpos)); else snprintf(out, cap, "Centr\xC3\xA9" "e"); break;
+    case MI_SCREENY: if (scr_vpos) snprintf(out, cap, "%s %d", TR(scr_vpos > 0 ? "Plus bas" : "Plus haut"), abs(scr_vpos)); else snprintf(out, cap, "Centr\xC3\xA9" "e"); break;
     case MI_WIDE:    snprintf(out, cap, "%s", scr_wide ? "16:9 (\xC3\xA9" "cran large)" : "4:3"); break;
+    case MI_UILANG:
+        if (ui_lang < 0) snprintf(out, cap, "Auto (%s)", ui_en ? "English" : "Fran\xC3\xA7" "ais");
+        else snprintf(out, cap, "%s", ui_lang ? "English" : "Fran\xC3\xA7" "ais");
+        break;
     case MI_LANG:
         if (lang_pref < 0) snprintf(out, cap, "Auto (%s)", lang_names[lang_console()]);
         else snprintf(out, cap, "%s", lang_names[lang_pref]);
@@ -9717,7 +9749,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "Lecture al\xC3\xA9" "atoire", "R\xC3\xA9p\xC3\xA9tition", "Fondu encha\xC3\xAEn\xC3\xA9", "Liste MUSIQUE", "Volume",
     "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran", "D\xC3\xA9" "cor de saison",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
-    "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue du contenu",
+    "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
     "Jeux et karaok\xC3\xA9", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Mise \xC3\xA0 jour", "Quitter GC-MP3" };
 
@@ -9799,6 +9831,7 @@ static void menu_change(int i, int d) {
     case MI_SCREENH: scr_hpct += 2 * d; if (scr_hpct < 80) scr_hpct = 80; if (scr_hpct > 100) scr_hpct = 100; break;
     case MI_SCREENY: scr_vpos += 2 * d; if (scr_vpos < -24) scr_vpos = -24; if (scr_vpos > 24) scr_vpos = 24; break;
     case MI_SCREEN:  scr_pct += 2 * d; if (scr_pct < 80) scr_pct = 80; if (scr_pct > SCR_MAX) scr_pct = SCR_MAX; scr_vi(); break;
+    case MI_UILANG:  ui_lang = (ui_lang + 1 + d + 3) % 3 - 1; ui_lang_apply(); break;
     case MI_LANG:    lang_pref = (lang_pref + 1 + d + LANG_COUNT + 1) % (LANG_COUNT + 1) - 1; break;
     case MI_REC:
         if (rec_fp) rec_stop();
@@ -10836,6 +10869,7 @@ int main(int argc, char **argv) {
     if (!sd_ok) sd_ok = ramfs_mount();      /* (Dolphin : SD en memoire, reglages sur la carte memoire) */
     if (sd_ok) gcd_migrate();               /* v22 : tout dans SD:/gc-mp3 */
     crash_init();                           /* journal de plantage */
+    ui_lang_apply();                        /* v24 : langue de la console, sauf reglage */
     load_settings();
     if (!init_video()) return 1;
     gx_init();
