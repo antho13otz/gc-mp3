@@ -19,6 +19,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v33
+
+- **Mise à jour de toutes les copies** : la mise à jour remplace aussi les autres copies de GC-MP3 sur la carte (ex. `ipl.dol` à la racine ET `gc-mp3player.dol` dans `apps`). GC-MP3 les reconnaît à leur contenu, même renommées.
+
 ## Nouveautés v32
 
 - **Réglages Indigo / Swiss dans GC-MP3** : START > « Réglages Indigo / Swiss ». Une fenêtre par-dessus l'écran en cours, avec tous les réglages d'Indigo / Swiss rangés en 5 pages (L / R) : Système, Interface, Jeux, Jeux (défaut : vidéo, manette, émulation), Réseau.

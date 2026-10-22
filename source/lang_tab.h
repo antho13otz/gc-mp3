@@ -814,3 +814,5 @@
     { "Port entre 0 et 65535", "Port between 0 and 65535" },
     { "Pas encore de global.ini : il sera cr\xC3\xA9\xC3\xA9 \xC3\xA0 l'enregistrement", "No global.ini yet: it will be created when you save" },
     { "Enregistr\xC3\xA9 : Indigo / Swiss l'utilisera \xC3\xA0 son prochain d\xC3\xA9marrage", "Saved: Indigo / Swiss will use it next time it starts" },
+    { "Install\xC3\xA9" "e (build %d, 2 fichiers) : quitte et relance GC-MP3", "Installed (build %d, 2 files): quit and restart GC-MP3" },
+    { "Install\xC3\xA9" "e (build %d, %d fichiers) : quitte et relance GC-MP3", "Installed (build %d, %d files): quit and restart GC-MP3" },
