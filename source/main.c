@@ -5200,6 +5200,9 @@ static void draw_indigo_cfg(void);
 static void indigo_cfg_input(u32 down, u32 nav, int fire);
 static void indigo_cfg_open(void);
 static void indigo_cfg_boot(void);
+static int tl_screen;                           /* v35 : outils (tools.c) */
+static void tools_input(u32 down, u32 nav, int fire);
+static void draw_tools(void);
 static void ic_put(const char *key, const char *val);
 static void draw_saver(void);
 static int menu_open, saver_on;
@@ -5282,9 +5285,10 @@ static void draw(void) {
     draw_crash_notice();
     draw_update_notice();
     draw_tab_strip();
-    if (ic_on) draw_indigo_cfg();                  /* v32 : reglages d'Indigo (par-dessus l'onglet) */
-    if (kb_is_open()) draw_keyboard();
+    if (tl_screen) draw_tools();                   /* v35 : outils */
+    if (ic_on) draw_indigo_cfg();                  /* v32 : reglages d'un jeu (par-dessus l'onglet) */
     if (menu_open) draw_menu();
+    if (kb_is_open()) draw_keyboard();             /* (v35 : par-dessus la page Reglages) */
     draw_checklist();
     if (!menu_open && !kb_is_open()) season_overlay();
     draw_actions();
@@ -9914,9 +9918,18 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_TITLES, MI_CHEATS, MI_INDIGO, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_UPDATE, MI_TOSWISS, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_UPDATE, MI_TOSWISS, MI_QUIT, MI_COUNT };
 static int autostart_get(void);
 static const char *autostart_set(int on);
+/* v35 : page Reglages en sections (L / R) : GC-MP3, Indigo, Swiss, Outils */
+enum { SEC_GCMP3, SEC_INDIGO, SEC_SWISS, SEC_TOOLS, SEC_COUNT };
+static int menu_sec = 0;
+static void ic_menu_input(int sec, u32 down, u32 nav, int fire);
+static void ic_menu_draw(int sec, f32 x, f32 y, f32 w, int vis, f32 rh, f32 help_y);
+static void ic_menu_close(void);
+static int ic_menu_dirty(void);
+static void tools_menu_input(u32 down, u32 nav, int fire);
+static void tools_menu_draw(f32 x, f32 y, f32 w, int vis, f32 rh, f32 help_y);
 static const char *gl_boot_swiss(const char *path);
 #define MENU_VIS 13                         /* lignes visibles (le menu defile) */
 static int menu_top = 0;
@@ -9947,8 +9960,6 @@ static void menu_value(int i, char *out, int cap) {
     }
     case MI_GAMES:   snprintf(out, cap, "(A)"); break;
     case MI_TITLES:  snprintf(out, cap, "(A)"); break;
-    case MI_CHEATS:  snprintf(out, cap, "(A)"); break;
-    case MI_INDIGO:  snprintf(out, cap, "(A)"); break;
     case MI_SKIN:    snprintf(out, cap, "%s", ui_skin ? "Moderne" : "Indigo (classique)"); break;
     case MI_GLVIEW:  { static const char *const nm[6] = { "Grille", "Carrousel", "Liste", "Mur de jaquettes", "Vitrine", "\xC3\x89tag\xC3\xA8re" };
                        snprintf(out, cap, "%s", nm[gl_view >= 0 && gl_view < 6 ? gl_view : 0]); } break;
@@ -10001,7 +10012,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Style de l'interface", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran", "D\xC3\xA9" "cor de saison",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
     "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
-    "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Titres radio gard\xC3\xA9s", "Cheats Swiss (\xC3\xA9" "diteur)", "R\xC3\xA9glages Indigo / Swiss", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
+    "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer avec Indigo / Swiss", "Mise \xC3\xA0 jour", "Quitter vers Swiss", "Quitter GC-MP3" };
 
 static void web_relayout(void);
@@ -10053,8 +10064,6 @@ static void menu_change(int i, int d) {
     case MI_SEASON:  season_on = !season_on; break;
     case MI_GAMES:   return;
     case MI_TITLES:  return;
-    case MI_CHEATS:  return;
-    case MI_INDIGO:  return;
     case MI_SKIN:    ui_skin = !ui_skin; break;
     case MI_GLVIEW:  gl_view = (gl_view + d + 6) % 6; break;
     case MI_RUMBLE:  rumble_on = !rumble_on; if (rumble_on) rumble(0, 200); ic_put("Disable PAD Rumble", rumble_on ? "No" : "Yes"); break;
@@ -10099,7 +10108,24 @@ static void menu_change(int i, int d) {
     settings_dirty = 1;
 }
 
+static void menu_input_gcmp3(u32 down, u32 nav, int fire);
 static void menu_input(u32 down, u32 nav, int fire) {
+    if (down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) {                /* v35 : sections */
+        menu_sec = (menu_sec + ((down & PAD_TRIGGER_R) ? 1 : SEC_COUNT - 1)) % SEC_COUNT;
+        return;
+    }
+    if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) {
+        menu_open = 0;
+        if (settings_dirty) save_settings();
+        ic_menu_close();                                         /* (reglages d'Indigo changes : enregistres) */
+        return;
+    }
+    if (menu_sec == SEC_INDIGO || menu_sec == SEC_SWISS) ic_menu_input(menu_sec, down, nav, fire);
+    else if (menu_sec == SEC_TOOLS) tools_menu_input(down, nav, fire);
+    else menu_input_gcmp3(down, nav, fire);
+    if (!menu_open) ic_menu_close();                             /* (page fermee par une action) */
+}
+static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
     if (fire && (nav & PAD_BUTTON_DOWN)) menu_sel = (menu_sel + 1) % MI_COUNT;
     if (fire && (nav & PAD_BUTTON_UP)) menu_sel = (menu_sel + MI_COUNT - 1) % MI_COUNT;
     if (fire && (nav & (PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT)) && menu_sel != MI_QUIT)
@@ -10129,18 +10155,6 @@ static void menu_input(u32 down, u32 nav, int fire) {
             if (e) lib_note(e);
             return;
         }
-        else if (menu_sel == MI_INDIGO) {                         /* v32 : reglages d'Indigo / Swiss */
-            menu_open = 0;
-            if (settings_dirty) save_settings();
-            indigo_cfg_open();
-            return;
-        }
-        else if (menu_sel == MI_CHEATS) {                         /* v25 : editeur de cheats Swiss */
-            menu_open = 0;
-            if (settings_dirty) save_settings();
-            cheats_open();
-            return;
-        }
         else if (menu_sel == MI_GAMES || menu_sel == MI_TITLES) {    /* A = ouvrir la liste */
             menu_open = 0;
             if (settings_dirty) save_settings();
@@ -10155,71 +10169,119 @@ static void menu_input(u32 down, u32 nav, int fire) {
         }
         else menu_change(menu_sel, 1);
     }
-    if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) {
-        menu_open = 0;
-        if (settings_dirty) save_settings();
-    }
 }
 
+/* v35 : legende de la page Reglages (remplace celle de l'onglet) */
+static void draw_mini_badge(f32 cx, f32 cy, const char *k);
+static void draw_menu_legend(int kind) {
+    const char *K[7], *L[7];
+    int cnt = 0;
+    K[cnt] = "A"; L[cnt++] = kind == 2 ? "OUVRIR" : "CHANGER";
+    if (kind == 1) { K[cnt] = "Y"; L[cnt++] = "ENREGISTRER"; }
+    K[cnt] = "B"; L[cnt++] = "FERMER";
+    K[cnt] = "L"; L[cnt++] = "";
+    K[cnt] = "R"; L[cnt++] = "SECTION";
+    const f32 lx = 11, lw = 618, cy = 438.5f;
+    gx_rrect_fill(lx, 419, lw, 39, 9, RGBA(10, 6, 30, 255), RGBA(10, 6, 30, 255));
+    legend_box(lx, lw);
+    f32 total = 0;
+    int gaps = 0;
+    for (int i = 0; i < cnt; i++) { total += (L[i][0] ? 25 : 22) + text_width(F_SMALL, L[i], 1); if (L[i][0]) gaps++; }
+    f32 space = (lw - 40 - total) / (gaps > 1 ? gaps - 1 : 1), cx = lx + 20;
+    for (int i = 0; i < cnt; i++) {
+        draw_mini_badge(cx + 10, cy, K[i]);
+        cx += L[i][0] ? 25 : 22;
+        if (L[i][0]) cx += gx_text(F_SMALL, cx, cy + 4.5f, L[i], RGBA(208, 198, 240, 255), RGBA(208, 198, 240, 255), 1) + space;
+    }
+}
 static void draw_menu(void) {
-    gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140), RGBA(0, 0, 0, 140));
-    const f32 x = 110, y = 58, w = 420, rh = 25, h = 76 + MENU_VIS * rh;
-    if (menu_sel < menu_top) menu_top = menu_sel;
-    if (menu_sel >= menu_top + MENU_VIS) menu_top = menu_sel - MENU_VIS + 1;
-    if (menu_top > MI_COUNT - MENU_VIS) menu_top = MI_COUNT - MENU_VIS;
-    if (menu_top < 0) menu_top = 0;
+    gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));
+    /* v35 : page plus large, sections en haut (L / R) */
+    const f32 x = 40, y = 40, w = 560, rh = 24, h = 384;
+    const int vis = 10;
+    const f32 ly = y + 76, help_y = y + h - 40;
     gx_rrect_fill(x, y, w, h, 10, RGBA(14, 8, 44, 255), RGBA(8, 5, 26, 255));
     draw_panel(x, y, w, h);
-    gx_text1(F_LARGE, x + 20, y + 34, "R\xC3\xA9glages", RGBA(255, 255, 255, 255));
-    gx_text_r(F_SMALL, x + w - 20, y + 32, "Croix : choisir / modifier", RGBA(150, 135, 210, 255));
+    gx_text1(F_LARGE, x + 18, y + 32, "R\xC3\xA9glages", RGBA(255, 255, 255, 255));
+    {
+        static const char *const sec_fr[SEC_COUNT] = { "GC-MP3", "Indigo", "Swiss", "Outils" };
+        static const char *const sec_en[SEC_COUNT] = { "GC-MP3", "Indigo", "Swiss", "Tools" };
+        f32 px = x + 150;
+        for (int p = 0; p < SEC_COUNT; p++) {
+            const char *nm = ui_en ? sec_en[p] : sec_fr[p];
+            int tw = text_width(F_MED, nm, 0) + 22;
+            if (p == menu_sec) {
+                gx_glow(px, y + 14, tw, 26, 8, RGBA(150, 80, 255, 120), 2);
+                gx_rrect_fill(px, y + 14, tw, 26, 8, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
+            } else gx_rrect_fill(px, y + 14, tw, 26, 8, RGBA(34, 20, 80, 255), RGBA(26, 14, 64, 255));
+            gp_zone(px, y + 14, tw, 26, &menu_sec, p, GPZ_SEL);
+            gx_text1(F_MED, px + 11, y + 33, nm, p == menu_sec ? RGBA(255, 255, 255, 255) : RGBA(170, 155, 225, 255));
+            px += tw + 8;
+        }
+        gx_text_r(F_SMALL, x + w - 16, y + 32, "L / R", RGBA(150, 135, 210, 255));
+        if (ic_menu_dirty()) gx_text_r(F_SMALL, x + w - 16, y + 60, ui_en ? "modified (saved on close)" : "modifi\xC3\xA9 (enregistr\xC3\xA9 en fermant)", RGBA(255, 210, 120, 255));
+    }
+    gx_rect(x + 18, y + h - 58, w - 36, 1, RGBA(76, 52, 150, 200));
+    if (menu_sec == SEC_INDIGO || menu_sec == SEC_SWISS) {
+        gx_text1(F_SMALL, x + 20, y + 60, menu_sec == SEC_INDIGO ? (ui_en ? "Indigo menu and console settings" : "Menu d'Indigo et r\xC3\xA9glages de la console")
+                                                               : (ui_en ? "How Swiss launches games, network" : "Lancement des jeux par Swiss, r\xC3\xA9seau"), RGBA(150, 135, 210, 255));
+        ic_menu_draw(menu_sec, x + 12, ly, w - 24, vis, rh, help_y);
+        draw_menu_legend(1);
+        return;
+    }
+    if (menu_sec == SEC_TOOLS) {
+        tools_menu_draw(x + 12, ly, w - 24, vis, rh, help_y);
+        draw_menu_legend(2);
+        return;
+    }
+    gx_text1(F_SMALL, x + 20, y + 60, ui_en ? "Settings of the GC-MP3 app" : "R\xC3\xA9glages de l'appli GC-MP3", RGBA(150, 135, 210, 255));
+    if (menu_sel < menu_top) menu_top = menu_sel;
+    if (menu_sel >= menu_top + vis) menu_top = menu_sel - vis + 1;
+    if (menu_top > MI_COUNT - vis) menu_top = MI_COUNT - vis;
+    if (menu_top < 0) menu_top = 0;
     char v[96], fv[96];
     if (menu_top > 0)                                   /* fleches : il y a d'autres reglages */
-        gx_tri(x + w / 2 - 7, y + 52, x + w / 2 + 7, y + 52, x + w / 2, y + 45, RGBA(190, 160, 255, 220));
-    if (menu_top + MENU_VIS < MI_COUNT)
-        gx_tri(x + w / 2 - 7, y + h - 22, x + w / 2 + 7, y + h - 22, x + w / 2, y + h - 15, RGBA(190, 160, 255, 220));
+        gx_tri(x + w / 2 - 7, ly - 2, x + w / 2 + 7, ly - 2, x + w / 2, ly - 8, RGBA(190, 160, 255, 220));
+    if (menu_top + vis < MI_COUNT)
+        gx_tri(x + w / 2 - 7, ly + vis * rh, x + w / 2 + 7, ly + vis * rh, x + w / 2, ly + vis * rh + 6, RGBA(190, 160, 255, 220));
     {
         static f32 sel_anim = -2000;
-        f32 sy = smooth_to(&sel_anim, y + 54 + (menu_sel - menu_top) * rh);
-        gx_glow(x + 14, sy + 1, w - 28, rh - 3, 6, RGBA(150, 80, 255, 120), 2);
-        gx_rrect_fill(x + 14, sy + 1, w - 28, rh - 3, 6, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
+        f32 sy = smooth_to(&sel_anim, ly + (menu_sel - menu_top) * rh);
+        gx_glow(x + 12, sy, w - 24, rh - 2, 6, RGBA(150, 80, 255, 120), 2);
+        gx_rrect_fill(x + 12, sy, w - 24, rh - 2, 6, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
     }
-    for (int i = menu_top; i < MI_COUNT && i < menu_top + MENU_VIS; i++) {
-        f32 ry = y + 54 + (i - menu_top) * rh;
+    for (int i = menu_top; i < MI_COUNT && i < menu_top + vis; i++) {
+        f32 ry = ly + (i - menu_top) * rh;
         int on = (i == menu_sel);
-        gp_zone(x + 14, ry + 1, w - 28, rh - 3, &menu_sel, i, GPZ_SEL);
+        gp_zone(x + 12, ry, w - 24, rh - 2, &menu_sel, i, GPZ_SEL);
         if (i == MI_QUIT) gx_rect(x + 18, ry - 2, w - 36, 1, RGBA(76, 52, 150, 200));
         col_t lc = (i == MI_QUIT) ? RGBA(255, 170, 170, 255) : RGBA(230, 222, 255, 255);
-        gx_text1(F_MED, x + 26, ry + 18, menu_labels[i], on ? RGBA(255, 255, 255, 255) : lc);
+        gx_text1(F_MED, x + 26, ry + 17, menu_labels[i], on ? RGBA(255, 255, 255, 255) : lc);
         menu_value(i, v, sizeof(v));
         if (v[0]) {
-            fit_text(F_MED, v, 190, fv, sizeof(fv));
+            fit_text(F_MED, v, 230, fv, sizeof(fv));
             int vw = text_width(F_MED, fv, 0);
             f32 vx = x + w - 34 - vw;
-            gx_text1(F_MED, vx, ry + 18, fv, on ? RGBA(255, 255, 255, 255) : RGBA(190, 160, 255, 255));
+            gx_text1(F_MED, vx, ry + 17, fv, on ? RGBA(255, 255, 255, 255) : RGBA(190, 160, 255, 255));
             if (on && i != MI_REC) {
-                gx_tri(vx - 12, ry + 13, vx - 6, ry + 8, vx - 6, ry + 18, RGBA(255, 255, 255, 200));
-                gx_tri(x + w - 28, ry + 8, x + w - 28, ry + 18, x + w - 22, ry + 13, RGBA(255, 255, 255, 200));
+                gx_tri(vx - 12, ry + 12, vx - 6, ry + 7, vx - 6, ry + 17, RGBA(255, 255, 255, 200));
+                gx_tri(x + w - 28, ry + 7, x + w - 28, ry + 17, x + w - 22, ry + 12, RGBA(255, 255, 255, 200));
             }
         }
     }
-    if (menu_sel == MI_SAVERSTYLE)
-        gx_text_c(F_SMALL, 320, y + h - 6, "Gauche / Droite : changer   A : aper\xC3\xA7u (une touche pour revenir)", RGBA(255, 210, 120, 255));
-    if (menu_sel == MI_PARTY)
-        gx_text_c(F_SMALL, 320, y + h - 6, "A : lancer   (ou stick C vers le haut, dans MUSIQUE et RADIO)", RGBA(255, 210, 120, 255));
-    if (menu_sel == MI_NIGHT)
-        gx_text_c(F_SMALL, 320, y + h - 6, "A : lancer   Gauche / Droite : luminosit\xC3\xA9   (F2 sur le clavier)", RGBA(255, 210, 120, 255));
-    if (menu_sel == MI_UPDATE)
-        gx_text_c(F_SMALL, 320, y + h - 6, "Nouvelle version depuis GitHub, l'ancienne est gard\xC3\xA9" "e (.ancien)", RGBA(255, 210, 120, 255));
-    if (menu_sel == MI_SLEEP)
-        gx_text_c(F_SMALL, 320, y + h - 6, "La musique baisse doucement puis s'arr\xC3\xAAte", RGBA(255, 210, 120, 255));
-    if (menu_sel == MI_RG)
-        gx_text_c(F_SMALL, 320, y + h - 6, "Selon les \xC3\xA9tiquettes ReplayGain des fichiers (au morceau suivant)", RGBA(255, 210, 120, 255));
-    if (menu_sel == MI_XFADE)
-        gx_text_c(F_SMALL, 320, y + h - 6, "Les morceaux se m\xC3\xA9langent en fin de lecture (pas avec L / R)", RGBA(255, 210, 120, 255));
-    if (menu_sel == MI_VIDEO)
-        gx_text_c(F_SMALL, 320, y + h - 6, "Pris en compte au prochain lancement (B maintenu au d\xC3\xA9marrage = 480i)", RGBA(255, 210, 120, 255));
+    const char *hint = NULL;
+    if (menu_sel == MI_SAVERSTYLE) hint = "Gauche / Droite : changer   A : aper\xC3\xA7u (une touche pour revenir)";
+    if (menu_sel == MI_PARTY) hint = "A : lancer   (ou stick C vers le haut, dans MUSIQUE et RADIO)";
+    if (menu_sel == MI_NIGHT) hint = "A : lancer   Gauche / Droite : luminosit\xC3\xA9   (F2 sur le clavier)";
+    if (menu_sel == MI_UPDATE) hint = "Nouvelle version depuis GitHub, l'ancienne est gard\xC3\xA9" "e (.ancien)";
+    if (menu_sel == MI_SLEEP) hint = "La musique baisse doucement puis s'arr\xC3\xAAte";
+    if (menu_sel == MI_RG) hint = "Selon les \xC3\xA9tiquettes ReplayGain des fichiers (au morceau suivant)";
+    if (menu_sel == MI_XFADE) hint = "Les morceaux se m\xC3\xA9langent en fin de lecture (pas avec L / R)";
+    if (menu_sel == MI_VIDEO) hint = "Pris en compte au prochain lancement (B maintenu au d\xC3\xA9marrage = 480i)";
+    if (menu_sel == MI_RUMBLE) hint = "M\xC3\xAAme r\xC3\xA9glage que \xC2\xAB Couper les vibrations \xC2\xBB d'Indigo";
+    if (hint) gx_text1(F_SMALL, x + 20, help_y + 8, hint, RGBA(255, 210, 120, 255));
+    draw_menu_legend(0);
 }
-
 /* ---------- Economiseur d'ecran ---------- */
 static u64 last_input_ms = 0;                /* (aussi declare plus haut, bib_pump) */
 
@@ -11160,6 +11222,7 @@ static void music_pump(void) {
 #include "tabs_extra.c"                        /* v23 : onglets JEUX et TELECHARGEMENTS, curseur partout */
 #include "cheats.c"                            /* v25 : editeur de cheats Swiss */
 #include "gclib.c"                             /* v25 : Mes jeux GameCube (jaquettes du pack Swiss Indigo) */
+#include "tools.c"                             /* v35 : cartes memoire, applis, recents, infos */
 #include "indigo_cfg.c"                        /* v32 : reglages d'Indigo / Swiss */
 
 int main(int argc, char **argv) {
@@ -11243,9 +11306,10 @@ int main(int argc, char **argv) {
         if (night_on && !menu_open && !kb_open) { night_input(down, nav, fire); down = 0; fire = 0; }
 
         if (ck) { checklist_input(down, nav, fire); down = 0; fire = 0; }
+        else if (kb_open) { kb_input(down, nav, fire); down = 0; fire = 0; }   /* START = valider (v35 : avant le menu : clavier ouvert depuis les reglages) */
         else if (menu_open) { menu_input(down, nav, fire); down = 0; fire = 0; }
-        else if (kb_open) { kb_input(down, nav, fire); down = 0; fire = 0; }   /* START = valider */
-        else if (ic_on) { indigo_cfg_input(down, nav, fire); down = 0; fire = 0; }   /* v32 : reglages d'Indigo */
+        else if (ic_on) { indigo_cfg_input(down, nav, fire); down = 0; fire = 0; }   /* v32 : reglages d'un jeu */
+        else if (tl_screen) { tools_input(down, nav, fire); down = 0; fire = 0; }   /* v35 : outils (cartes memoire, applis...) */
         else if (am_open) { actions_input(down, nav, fire); down = 0; fire = 0; }
         else if (fun_mode && !night_on) {                     /* karaoke, jeux, reveil */
             u32 keep = fun_mode == FUN_KARAOKE ? (down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) : 0;
@@ -11289,14 +11353,14 @@ int main(int argc, char **argv) {
         {
             static int cd_prev = 0;
             int cdn = sy < -60;
-            if (cdn && !cd_prev && !party_on && !night_on && !menu_open && !kb_open && !ic_on && !fun_mode && IS_PLAYER_TAB(tab)) layout_next();
+            if (cdn && !cd_prev && !party_on && !night_on && !menu_open && !kb_open && !ic_on && !tl_screen && !fun_mode && IS_PLAYER_TAB(tab)) layout_next();
             cd_prev = cdn;
         }
 
         /* stick C gauche / droite : vue de la liste MUSIQUE */
         int cdir = (sx > 60) ? 1 : (sx < -60) ? -1 : 0;
         if (!party_on) {
-            if (cdir && cdir != cs_prev && tab == TAB_MUSIC && !night_on && !menu_open && !kb_open && !ic_on && !fun_mode) { set_view(view_mode + cdir); settings_dirty = 1; }
+            if (cdir && cdir != cs_prev && tab == TAB_MUSIC && !night_on && !menu_open && !kb_open && !ic_on && !tl_screen && !fun_mode) { set_view(view_mode + cdir); settings_dirty = 1; }
             cs_prev = cdir;
         }
 

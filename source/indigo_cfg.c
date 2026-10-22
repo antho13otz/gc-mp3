@@ -164,21 +164,31 @@ static const ic_item ic_items[] = {
       "Entre 576 et 2030 (1500 par d\xC3\xA9" "faut).", "Between 576 and 2030 (default 1500)." },
     { "RT4KHostIP", "RetroTINK-4K : adresse", "RetroTINK-4K host IP", ICT_TEXT, NULL, 0, 0, 0, "", "" },
     { "RT4KPort", "RetroTINK-4K : port", "RetroTINK-4K port", ICT_NUM, NULL, 0, 0, 0, "", "" },
+    /* ---- v35 : seulement dans les reglages d'un jeu (swiss/settings/game/<ID>.ini) ---- */
+    { "Game Language", "Langue du jeu", "Game Language", ICT_LIST, "English|German|French|Spanish|Italian|Dutch|Japanese|English (US)|Default", 0, 0, 0,
+      "Langue de ce jeu (jeux PAL multilingues surtout).", "Language for this game (mostly multi-language PAL games)." },
+    { "Force Video Mode", "Mode vid\xC3\xA9o du jeu", "Force Video Mode", ICT_LIST, "Auto|480i|480sf|240p|960i|480p|1080i60|540p60|576i|576sf|288p|1152i|576p|1080i50|540p50", 0, 0, 0,
+      "Mode vid\xC3\xA9o forc\xC3\xA9 pour ce jeu.", "Video mode forced for this game." },
 };
 #define IC_N ((int)(sizeof(ic_items) / sizeof(ic_items[0])))
-static const int ic_page_start[] = { 0, 19, 28, 36, 58, IC_N };
+#define IC_GLOBAL_N 78                          /* (les suivants : reglages d'un jeu seulement) */
+static const int ic_page_start[] = { 0, 19, 28, 36, 58, IC_GLOBAL_N };
 #define IC_PAGES 5
 static const char *const ic_page_fr[IC_PAGES] = { "Syst\xC3\xA8me", "Interface", "Jeux", "Jeux : vid\xC3\xA9o, manette, \xC3\xA9mulation", "R\xC3\xA9seau" };
 static const char *const ic_page_en[IC_PAGES] = { "System", "Interface", "Games", "Games: video, pad, emulation", "Network" };
 
 #define IC_VLEN 96
-static int ic_on = 0, ic_page = 0, ic_sel = 0, ic_dirty = 0, ic_quit_warn = 0, ic_kb_item = -1, ic_reveal = -1;
+static int ic_on = 0, ic_dirty = 0, ic_quit_warn = 0, ic_kb_item = -1, ic_reveal = -1;
 static char ic_val[IC_N][IC_VLEN];      /* valeur actuelle */
 static unsigned char ic_has[IC_N];      /* present dans le fichier (ou modifie) */
 static unsigned char ic_chg[IC_N];      /* modifie */
+static unsigned char ic_del[IC_N];      /* v35 : a enlever du fichier (retour a la valeur par defaut) */
 static char ic_msg[160];
 static u64 ic_msg_t = 0;
 static int ic_file_ok = 0;
+/* v35 : fichier edite (global.ini, ou swiss/settings/game/<ID>.ini pour un jeu) */
+static char ic_path[NAME_LEN] = GL_SWISS_INI;
+static char ic_head[200] = "";                  /* debut d'un nouveau fichier de jeu */
 
 static void ic_note(const char *m) { snprintf(ic_msg, sizeof(ic_msg), "%s", TR(m)); ic_msg_t = now_ms(); }
 
@@ -199,11 +209,11 @@ static int ic_vidx(const char *v, const char *s) {
 }
 
 static void ic_load(void) {
-    memset(ic_has, 0, sizeof(ic_has)); memset(ic_chg, 0, sizeof(ic_chg));
+    memset(ic_has, 0, sizeof(ic_has)); memset(ic_chg, 0, sizeof(ic_chg)); memset(ic_del, 0, sizeof(ic_del));
     for (int i = 0; i < IC_N; i++) ic_val[i][0] = 0;
     ic_dirty = 0; ic_quit_warn = 0; ic_file_ok = 0;
     long len = 0;
-    unsigned char *d = read_file(GL_SWISS_INI, 256 * 1024, &len);
+    unsigned char *d = read_file(ic_path, 256 * 1024, &len);
     if (!d) return;
     ic_file_ok = 1;
     long i = 0;
@@ -230,14 +240,15 @@ static void ic_load(void) {
 /* ecrit global.ini : remplace les lignes modifiees, ajoute les nouvelles avant la fin */
 static int ic_save(void) {
     long len = 0;
-    unsigned char *d = read_file(GL_SWISS_INI, 256 * 1024, &len);
+    unsigned char *d = read_file(ic_path, 256 * 1024, &len);
     int crlf = 1;
     if (d) { crlf = 0; for (long i = 0; i < len; i++) if (d[i] == '\n') { crlf = i > 0 && d[i - 1] == '\r'; break; } }
     const char *nl = crlf ? "\r\n" : "\n";
-    mkdir(SD_ROOT "/swiss", 0777); mkdir(SD_ROOT "/swiss/settings", 0777);
-    char tmp[NAME_LEN];
-    snprintf(tmp, sizeof(tmp), "%s.tmp", GL_SWISS_INI);
+    mkdir(SD_ROOT "/swiss", 0777); mkdir(SD_ROOT "/swiss/settings", 0777); mkdir(SD_ROOT "/swiss/settings/game", 0777);
+    char tmp[NAME_LEN + 8];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", ic_path);
     FILE *f = fopen(tmp, "wb");
+    if (f && !d && ic_head[0]) fprintf(f, "%s", ic_head);       /* (nouveau fichier de jeu : en-tete comme Swiss) */
     if (!f) { free(d); ic_note("Impossible d'\xC3\xA9" "crire sur la carte SD"); return 0; }
     unsigned char done[IC_N];
     memset(done, 0, sizeof(done));
@@ -255,9 +266,10 @@ static int ic_save(void) {
             if (eq) {
                 int kl = (int)(eq - (d + s));
                 for (int k = 0; k < IC_N; k++)
-                    if (ic_chg[k] && (int)strlen(ic_items[k].key) == kl && !memcmp(ic_items[k].key, d + s, kl)) { rep = k; break; }
+                    if ((ic_chg[k] || ic_del[k]) && (int)strlen(ic_items[k].key) == kl && !memcmp(ic_items[k].key, d + s, kl)) { rep = k; break; }
             }
         }
+        if (rep >= 0 && !ic_chg[rep]) continue;                  /* (reglage remis par defaut : ligne enlevee) */
         /* nouvelles lignes : avant la fin des reglages de Swiss */
         if (n >= 23 && !memcmp(d + s, "#!!Swiss Settings End!!", 23)) {
             for (int k = 0; k < IC_N && ok; k++)
@@ -278,10 +290,10 @@ static int ic_save(void) {
     free(d);
     if (fclose(f) != 0) ok = 0;
     if (!ok) { remove(tmp); ic_note("\xC3\x89" "criture incompl\xC3\xA8te (carte pleine ?)"); return 0; }
-    remove(GL_SWISS_INI);
-    if (rename(tmp, GL_SWISS_INI) != 0) { ic_note("Impossible de remplacer le fichier"); return 0; }
+    remove(ic_path);
+    if (rename(tmp, ic_path) != 0) { ic_note("Impossible de remplacer le fichier"); return 0; }
     as_cache = -1;                                           /* (demarrage auto : relire) */
-    memset(ic_chg, 0, sizeof(ic_chg));
+    memset(ic_chg, 0, sizeof(ic_chg)); memset(ic_del, 0, sizeof(ic_del));
     ic_dirty = 0; ic_quit_warn = 0; ic_file_ok = 1;
     ic_note("Enregistr\xC3\xA9 : Indigo / Swiss l'utilisera \xC3\xA0 son prochain d\xC3\xA9marrage");
     return 1;
@@ -341,12 +353,14 @@ static void ic_apply(int boot) {
         ui_lang_apply();
     }
 }
-static void indigo_cfg_boot(void) { ic_load(); if (ic_file_ok) ic_apply(1); else audio_mono = SYS_GetSoundMode() == SYS_SOUND_MONO; }
+static void ic_use_global(void) { snprintf(ic_path, sizeof(ic_path), "%s", GL_SWISS_INI); ic_head[0] = 0; }
+static void indigo_cfg_boot(void) { ic_use_global(); ic_load(); if (ic_file_ok) ic_apply(1); else audio_mono = SYS_GetSoundMode() == SYS_SOUND_MONO; }
 /* un reglage de GC-MP3 change (START) : meme valeur dans global.ini, si le reglage y est deja */
 static int ic_save(void);
 static void ic_set(int k, const char *v);
 static void ic_put(const char *key, const char *val) {
     if (!sd_ok || ic_on) return;
+    ic_use_global();
     ic_load();
     int k = ic_find(key);
     if (!ic_file_ok || k < 0 || !ic_has[k] || !strcmp(ic_val[k], val)) return;
@@ -354,17 +368,11 @@ static void ic_put(const char *key, const char *val) {
     ic_save();
 }
 
-static void indigo_cfg_open(void) {
-    ic_load();
-    ic_on = 1; ic_sel = ic_page_start[ic_page]; ic_kb_item = -1; ic_reveal = -1;
-    if (!ic_file_ok) ic_note("Pas encore de global.ini : il sera cr\xC3\xA9\xC3\xA9 \xC3\xA0 l'enregistrement");
-    crumb("reglages indigo");
-}
 
 static void ic_set(int k, const char *v) {
     if (strcmp(ic_val[k], v) || !ic_has[k]) {
         snprintf(ic_val[k], IC_VLEN, "%s", v);
-        ic_has[k] = 1; ic_chg[k] = 1; ic_dirty = 1; ic_quit_warn = 0;
+        ic_has[k] = 1; ic_chg[k] = 1; ic_del[k] = 0; ic_dirty = 1; ic_quit_warn = 0;
     }
 }
 static void ic_change(int k, int d) {
@@ -416,121 +424,210 @@ static void ic_shown(int k, char *out, int cap) {
     snprintf(out, cap, "%s", v);
 }
 
-static void ic_close(void) {
-    if (ic_dirty && !ic_quit_warn) { ic_quit_warn = 1; ic_note("Pas enregistr\xC3\xA9 : Y pour enregistrer, B encore pour quitter sans enregistrer"); return; }
-    ic_on = 0; ic_dirty = 0; ic_quit_warn = 0;
+/* ---------- v35 : listes de reglages (avec titres de groupe) ---------- */
+#define IC_HDR(h) (-1 - (h))                    /* ligne de titre */
+enum { ICH_SYS, ICH_UI, ICH_GAMES, ICH_DEF, ICH_NET, ICH_GAME, ICH_COUNT };
+static const char *const ic_hdr_fr[ICH_COUNT] = { "Syst\xC3\xA8me de la console", "Interface d'Indigo", "Lancement des jeux",
+    "Jeux par d\xC3\xA9" "faut : vid\xC3\xA9o, manette, \xC3\xA9mulation", "R\xC3\xA9seau", "Ce jeu seulement" };
+static const char *const ic_hdr_en[ICH_COUNT] = { "Console system", "Indigo interface", "Launching games",
+    "Game defaults: video, pad, emulation", "Network", "This game only" };
+typedef struct { short r[128]; int n, sel, top; } ic_list;
+static ic_list ic_lindigo, ic_lswiss, ic_lgame;
+static void ic_list_add_page(ic_list *L, int hdr, int page) {
+    L->r[L->n++] = (short)IC_HDR(hdr);
+    for (int i = ic_page_start[page]; i < ic_page_start[page + 1] && L->n < 128; i++) L->r[L->n++] = (short)i;
 }
-
-static void indigo_cfg_input(u32 down, u32 nav, int fire) {
-    int a = ic_page_start[ic_page], b = ic_page_start[ic_page + 1];
-    if (fire && (nav & PAD_BUTTON_DOWN)) { ic_sel++; if (ic_sel >= b) ic_sel = a; ic_reveal = -1; }
-    if (fire && (nav & PAD_BUTTON_UP)) { ic_sel--; if (ic_sel < a) ic_sel = b - 1; ic_reveal = -1; }
-    if (down & (PAD_TRIGGER_R | PAD_TRIGGER_L)) {
-        ic_page = (ic_page + ((down & PAD_TRIGGER_R) ? 1 : IC_PAGES - 1)) % IC_PAGES;
-        ic_sel = ic_page_start[ic_page]; ic_reveal = -1;
-        return;
+static void ic_lists_build(void) {
+    static int done = 0;
+    if (done) return;
+    done = 1;
+    ic_lindigo.n = 0; ic_list_add_page(&ic_lindigo, ICH_SYS, 0); ic_list_add_page(&ic_lindigo, ICH_UI, 1);
+    ic_lswiss.n = 0; ic_list_add_page(&ic_lswiss, ICH_GAMES, 2); ic_list_add_page(&ic_lswiss, ICH_DEF, 3); ic_list_add_page(&ic_lswiss, ICH_NET, 4);
+    static const char *const gk[] = { "Game Language", "Force Video Mode", "Force Horizontal Scale", "Force Vertical Offset", "Force Vertical Filter",
+        "Force Field Rendering", "Fix Pixel Center", "Disable Alpha Dithering", "Force Anisotropic Filter", "Force Widescreen", "Force Polling Rate",
+        "Invert Camera Stick", "Swap Camera Stick", "Digital Trigger Level", "Emulate Audio Streaming", "Emulate Read Speed",
+        "Emulate Broadband Adapter", "Disable Memory Card", "Disable Hypervisor", "Prefer Clean Boot", "RetroTINK-4K Profile", NULL };
+    ic_lgame.n = 0; ic_lgame.r[ic_lgame.n++] = (short)IC_HDR(ICH_GAME);
+    for (int i = 0; gk[i]; i++) { int k = ic_find(gk[i]); if (k >= 0) ic_lgame.r[ic_lgame.n++] = (short)k; }
+    ic_lindigo.sel = ic_lswiss.sel = ic_lgame.sel = 1;
+}
+static int ic_list_item(ic_list *L) { return L->sel >= 0 && L->sel < L->n && L->r[L->sel] >= 0 ? L->r[L->sel] : -1; }
+static void ic_list_move(ic_list *L, int d) {
+    for (int g = 0; g < L->n; g++) {
+        L->sel = (L->sel + d + L->n) % L->n;
+        if (L->r[L->sel] >= 0) break;
     }
-    if (ic_sel < a || ic_sel >= b) ic_sel = a;
-    const ic_item *it = &ic_items[ic_sel];
+    ic_reveal = -1;
+}
+/* touches sur la ligne choisie (Gauche / Droite, A, X) */
+static void ic_list_input(ic_list *L, u32 down, u32 nav, int fire) {
+    if (fire && (nav & PAD_BUTTON_DOWN)) ic_list_move(L, 1);
+    if (fire && (nav & PAD_BUTTON_UP)) ic_list_move(L, -1);
+    int k = ic_list_item(L);
+    if (k < 0) { ic_list_move(L, 1); return; }
+    const ic_item *it = &ic_items[k];
     if (fire && (nav & (PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT)) && (it->type == ICT_LIST || it->type == ICT_INT))
-        ic_change(ic_sel, (nav & PAD_BUTTON_RIGHT) ? 1 : -1);
+        ic_change(k, (nav & PAD_BUTTON_RIGHT) ? 1 : -1);
     if (down & PAD_BUTTON_A) {
-        if (it->type == ICT_LIST || it->type == ICT_INT) ic_change(ic_sel, 1);
-        else { ic_kb_item = ic_sel; kb_start(KB_ICTEXT, ic_has[ic_sel] ? ic_val[ic_sel] : "", -1, -1); }
+        if (it->type == ICT_LIST || it->type == ICT_INT) ic_change(k, 1);
+        else { ic_kb_item = k; kb_start(KB_ICTEXT, ic_has[k] ? ic_val[k] : "", -1, -1); }
     }
-    if ((down & PAD_BUTTON_X) && it->type == ICT_PASS) ic_reveal = ic_reveal == ic_sel ? -1 : ic_sel;
-    if (down & PAD_BUTTON_Y) {
-        if (ic_save()) {
-            ic_apply(0);                                     /* v34 : ce qui vaut aussi pour GC-MP3 */
-            if (ic_restart_note) ic_note("Enregistr\xC3\xA9 : vid\xC3\xA9o / r\xC3\xA9seau de GC-MP3 au prochain lancement");
-            else ic_note("Enregistr\xC3\xA9 : Indigo / Swiss l'utilisera \xC3\xA0 son prochain d\xC3\xA9marrage");   /* (langue peut-etre changee) */
-        }
-    }
-    if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) ic_close();
+    if ((down & PAD_BUTTON_X) && it->type == ICT_PASS) ic_reveal = ic_reveal == k ? -1 : k;
 }
-
-static void draw_indigo_cfg(void) {
-    gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));
-    const f32 x = 40, y = 40, w = 560, h = 384, rh = 23;
-    gx_rrect_fill(x, y, w, h, 10, RGBA(14, 8, 44, 252), RGBA(8, 5, 26, 252));
-    draw_panel(x, y, w, h);
-    gx_text1(F_LARGE, x + 18, y + 32, ui_en ? "Indigo / Swiss settings" : "R\xC3\xA9glages Indigo / Swiss", RGBA(255, 255, 255, 255));
-    if (ic_dirty) gx_text_r(F_SMALL, x + w - 18, y + 30, "modifi\xC3\xA9", RGBA(255, 210, 120, 255));
-    /* pages (L / R) */
+static void ic_list_draw(ic_list *L, f32 x, f32 y, f32 w, int vis, f32 rh) {
     char buf[160], v[IC_VLEN + 16], fv[IC_VLEN + 16];
-    f32 px = x + 18;
-    for (int p = 0; p < IC_PAGES; p++) {
-        const char *nm = ui_en ? ic_page_en[p] : ic_page_fr[p];
-        if (p == 3) nm = ui_en ? "Game defaults" : "Jeux (d\xC3\xA9" "faut)";
-        int tw = text_width(F_SMALL, nm, 0) + 16;
-        if (p == ic_page) gx_rrect_fill(px, y + 42, tw, 20, 6, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
-        gp_zone(px, y + 42, tw, 20, &ic_page, p, GPZ_SEL);
-        gx_text1(F_SMALL, px + 8, y + 57, nm, p == ic_page ? RGBA(255, 255, 255, 255) : RGBA(170, 155, 225, 255));
-        px += tw + 6;
-    }
-    gx_text_r(F_SMALL, x + w - 18, y + 57, "L / R", RGBA(150, 135, 210, 255));
-    int a = ic_page_start[ic_page], b = ic_page_start[ic_page + 1];
-    const int vis = 10;
-    int start = ic_sel - vis / 2;
-    if (start > b - vis) start = b - vis;
-    if (start < a) start = a;
-    for (int i = start; i < b && i < start + vis; i++) {
-        f32 ry = y + 72 + (i - start) * rh;
-        int on = i == ic_sel;
-        gp_zone(x + 12, ry, w - 24, rh - 2, &ic_sel, i, GPZ_SEL);
-        if (on) gx_rrect_fill(x + 12, ry, w - 24, rh - 2, 5, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
-        const ic_item *it = &ic_items[i];
+    if (L->sel < L->top + 1) L->top = L->sel - 1;
+    if (L->sel >= L->top + vis) L->top = L->sel - vis + 1;
+    if (L->top > L->n - vis) L->top = L->n - vis;
+    if (L->top < 0) L->top = 0;
+    for (int i = L->top; i < L->n && i < L->top + vis; i++) {
+        f32 ry = y + (i - L->top) * rh;
+        int r = L->r[i];
+        if (r < 0) {                                              /* titre de groupe */
+            const char *h = ui_en ? ic_hdr_en[-1 - r] : ic_hdr_fr[-1 - r];
+            gx_text1(F_SMALL, x + 12, ry + 16, h, RGBA(255, 210, 120, 255));
+            int tw = text_width(F_SMALL, h, 0);
+            gx_rect(x + 20 + tw, ry + 11, w - 32 - tw, 1, RGBA(110, 80, 190, 200));
+            continue;
+        }
+        int on = i == L->sel;
+        gp_zone(x, ry, w, rh - 2, &L->sel, i, GPZ_SEL);
+        if (on) gx_rrect_fill(x, ry, w, rh - 2, 5, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
+        const ic_item *it = &ic_items[r];
         col_t lc = on ? RGBA(255, 255, 255, 255) : RGBA(225, 215, 255, 255);
-        fit_text(F_MED, ui_en ? it->en : it->fr, 300, buf, sizeof(buf));
-        gx_text1(F_MED, x + 24, ry + 16, buf, lc);
-        if (ic_is_gc(it->key)) gx_rrect_fill(x + 15, ry + 7, 6, 6, 3, RGBA(90, 230, 130, 255), RGBA(50, 180, 90, 255));   /* (vaut aussi pour GC-MP3) */
-        ic_shown(i, v, sizeof(v));
-        fit_text(F_MED, v, 190, fv, sizeof(fv));
+        if (ic_is_gc(it->key)) gx_rrect_fill(x + 4, ry + 8, 6, 6, 3, RGBA(90, 230, 130, 255), RGBA(50, 180, 90, 255));   /* (vaut aussi pour GC-MP3) */
+        fit_text(F_MED, ui_en ? it->en : it->fr, (int)w - 240, buf, sizeof(buf));
+        gx_text1(F_MED, x + 14, ry + 16, buf, lc);
+        ic_shown(r, v, sizeof(v));
+        fit_text(F_MED, v, 200, fv, sizeof(fv));
         int vw = text_width(F_MED, fv, 0);
-        f32 vx = x + w - 34 - vw;
-        col_t vc = !ic_has[i] ? RGBA(130, 115, 185, 255) : ic_chg[i] ? RGBA(255, 210, 120, 255) : on ? RGBA(255, 255, 255, 255) : RGBA(190, 160, 255, 255);
+        f32 vx = x + w - 22 - vw;
+        col_t vc = !ic_has[r] ? RGBA(130, 115, 185, 255) : ic_chg[r] ? RGBA(255, 210, 120, 255) : on ? RGBA(255, 255, 255, 255) : RGBA(190, 160, 255, 255);
         gx_text1(F_MED, vx, ry + 16, fv, vc);
         if (on && (it->type == ICT_LIST || it->type == ICT_INT)) {
             gx_tri(vx - 12, ry + 11, vx - 6, ry + 6, vx - 6, ry + 16, RGBA(255, 255, 255, 200));
-            gx_tri(x + w - 28, ry + 6, x + w - 28, ry + 16, x + w - 22, ry + 11, RGBA(255, 255, 255, 200));
+            gx_tri(x + w - 16, ry + 6, x + w - 16, ry + 16, x + w - 10, ry + 11, RGBA(255, 255, 255, 200));
         }
     }
-    if (start > a) gx_tri(x + w / 2 - 7, y + 71, x + w / 2 + 7, y + 71, x + w / 2, y + 65, RGBA(190, 160, 255, 220));
-    if (start + vis < b) gx_tri(x + w / 2 - 7, y + 72 + vis * rh, x + w / 2 + 7, y + 72 + vis * rh, x + w / 2, y + 78 + vis * rh, RGBA(190, 160, 255, 220));
-    /* aide du reglage choisi */
-    const ic_item *it = &ic_items[ic_sel >= a && ic_sel < b ? ic_sel : a];
-    const char *help = ui_en ? it->den : it->dfr;
-    gx_rect(x + 18, y + h - 62, w - 36, 1, RGBA(76, 52, 150, 200));
-    snprintf(buf, sizeof(buf), "%s", it->key);
-    gx_text1(F_SMALL, x + 22, y + h - 44, buf, RGBA(150, 135, 210, 255));
+    if (L->top > 0) gx_tri(x + w / 2 - 7, y - 2, x + w / 2 + 7, y - 2, x + w / 2, y - 8, RGBA(190, 160, 255, 220));
+    if (L->top + vis < L->n) gx_tri(x + w / 2 - 7, y + vis * rh, x + w / 2 + 7, y + vis * rh, x + w / 2, y + vis * rh + 6, RGBA(190, 160, 255, 220));
+}
+/* aide du reglage choisi (2 lignes en bas) */
+static void ic_help_draw(int k, f32 x, f32 y, f32 w) {
+    char fv[IC_VLEN + 16];
+    if (k < 0) return;
+    const ic_item *it = &ic_items[k];
+    gx_text1(F_SMALL, x, y, it->key, RGBA(150, 135, 210, 255));
     if (ic_is_gc(it->key)) {
-        gx_rrect_fill(x + w - 160, y + h - 53, 6, 6, 3, RGBA(90, 230, 130, 255), RGBA(50, 180, 90, 255));
-        gx_text_r(F_SMALL, x + w - 22, y + h - 44, ui_en ? "Also used by GC-MP3" : "Vaut aussi pour GC-MP3", RGBA(120, 230, 150, 255));
+        gx_rrect_fill(x + w - 150, y - 9, 6, 6, 3, RGBA(90, 230, 130, 255), RGBA(50, 180, 90, 255));
+        gx_text_r(F_SMALL, x + w, y, ui_en ? "Also used by GC-MP3" : "Vaut aussi pour GC-MP3", RGBA(120, 230, 150, 255));
     }
-    if (help && help[0]) { fit_text(F_SMALL, help, (int)w - 44, fv, sizeof(fv)); gx_text1(F_SMALL, x + 22, y + h - 26, fv, RGBA(210, 200, 240, 255)); }
+    const char *help = ui_en ? it->den : it->dfr;
+    if (help && help[0]) { fit_text(F_SMALL, help, (int)w, fv, sizeof(fv)); gx_text1(F_SMALL, x, y + 18, fv, RGBA(210, 200, 240, 255)); }
+}
+
+/* ---------- sections Indigo et Swiss de la page Reglages (START) ---------- */
+static int ic_menu_loaded = 0;
+static void ic_menu_ensure(void) {
+    if (ic_menu_loaded) return;
+    ic_lists_build();
+    ic_use_global();
+    ic_load();
+    ic_menu_loaded = 1;
+}
+static ic_list *ic_menu_list(int sec) { return sec == 1 ? &ic_lindigo : &ic_lswiss; }
+static void ic_menu_input(int sec, u32 down, u32 nav, int fire) {
+    ic_menu_ensure();
+    ic_list_input(ic_menu_list(sec), down, nav, fire);
+    if (down & PAD_BUTTON_Y) {
+        if (!ic_dirty) ic_note("Rien \xC3\xA0 enregistrer");
+        else if (ic_save()) {
+            ic_apply(0);
+            if (ic_restart_note) ic_note("Enregistr\xC3\xA9 : vid\xC3\xA9o / r\xC3\xA9seau de GC-MP3 au prochain lancement");
+            else ic_note("Enregistr\xC3\xA9 : Indigo / Swiss l'utilisera \xC3\xA0 son prochain d\xC3\xA9marrage");
+        }
+    }
+}
+/* fermeture de la page : les reglages d'Indigo changes sont enregistres tout seuls */
+static void ic_menu_close(void) {
+    if (ic_menu_loaded && ic_dirty && ic_save()) ic_apply(0);
+    ic_menu_loaded = 0;
+}
+static void ic_menu_draw(int sec, f32 x, f32 y, f32 w, int vis, f32 rh, f32 help_y) {
+    ic_menu_ensure();
+    ic_list *L = ic_menu_list(sec);
+    ic_list_draw(L, x, y, w, vis, rh);
+    ic_help_draw(ic_list_item(L), x + 8, help_y, w - 16);
+    if (!ic_file_ok) gx_text_r(F_SMALL, x + w, y - 26, ui_en ? "no global.ini yet" : "pas encore de global.ini", RGBA(150, 135, 210, 255));
+}
+static int ic_menu_dirty(void) { return ic_menu_loaded && ic_dirty; }
+
+/* ---------- v35 : reglages d'un jeu (fenetre ouverte depuis Mes jeux) ---------- */
+static char ic_game_title[96];
+static void indigo_game_open(const char *id, const char *title) {
+    ic_lists_build();
+    snprintf(ic_path, sizeof(ic_path), "%s/swiss/settings/game/%.4s.ini", SD_ROOT, id);
+    snprintf(ic_head, sizeof(ic_head), "# Game specific configuration file. Created by Swiss\r\nID=%.4s\r\nName=%.64s\r\n", id, title);
+    ic_load();
+    snprintf(ic_game_title, sizeof(ic_game_title), "%s", title);
+    ic_lgame.sel = 1; ic_lgame.top = 0;
+    ic_on = 1; ic_kb_item = -1; ic_reveal = -1;
+    crumb("reglages du jeu %.4s", id);
+}
+static void ic_game_close(void) {
+    int saved = ic_dirty ? ic_save() : 0;
+    ic_on = 0;
+    ic_use_global();
+    ic_menu_loaded = 0;
+    if (saved) gl_note("R\xC3\xA9glages du jeu enregistr\xC3\xA9s");
+}
+static void indigo_cfg_input(u32 down, u32 nav, int fire) {
+    ic_list_input(&ic_lgame, down, nav, fire);
+    if (down & PAD_BUTTON_Y) {                                       /* tout remettre par defaut */
+        int any = 0;
+        for (int i = 0; i < ic_lgame.n; i++) { int k = ic_lgame.r[i]; if (k >= 0 && ic_has[k]) any = 1; }
+        if (any) {
+            for (int i = 0; i < ic_lgame.n; i++) { int k = ic_lgame.r[i]; if (k >= 0 && ic_has[k]) { ic_has[k] = 0; ic_val[k][0] = 0; ic_chg[k] = 0; ic_del[k] = 1; } }
+            ic_dirty = 1;
+            ic_note("Tout est revenu aux r\xC3\xA9glages par d\xC3\xA9" "faut (B pour enregistrer)");
+        }
+    }
+    if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) ic_game_close();
+}
+static void draw_indigo_cfg(void) {
+    gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));
+    const f32 x = 40, y = 40, w = 560, h = 384;
+    gx_rrect_fill(x, y, w, h, 10, RGBA(14, 8, 44, 252), RGBA(8, 5, 26, 252));
+    draw_panel(x, y, w, h);
+    char t[160], ft[160];
+    snprintf(t, sizeof(t), "%s", ic_game_title);
+    gx_text1(F_LARGE, x + 18, y + 32, ui_en ? "Game settings" : "R\xC3\xA9glages du jeu", RGBA(255, 255, 255, 255));
+    fit_text(F_SMALL, t, 300, ft, sizeof(ft));
+    gx_text_r(F_SMALL, x + w - 18, y + 30, ft, RGBA(190, 160, 255, 255));
+    ic_list_draw(&ic_lgame, x + 12, y + 50, w - 24, 11, 23);
+    gx_rect(x + 18, y + h - 62, w - 36, 1, RGBA(76, 52, 150, 200));
+    ic_help_draw(ic_list_item(&ic_lgame), x + 22, y + h - 44, w - 44);
     if (now_ms() - ic_msg_t < 4000) {
-        fit_text(F_SMALL, ic_msg, (int)w - 44, fv, sizeof(fv));
+        fit_text(F_SMALL, ic_msg, (int)w - 44, ft, sizeof(ft));
         gx_rrect_fill(x + 14, y + h - 40, w - 28, 22, 6, RGBA(40, 20, 90, 250), RGBA(30, 14, 70, 250));
-        gx_text1(F_SMALL, x + 22, y + h - 24, fv, RGBA(255, 210, 120, 255));
+        gx_text1(F_SMALL, x + 22, y + h - 24, ft, RGBA(255, 210, 120, 255));
     }
-    /* legende (sans Z / START : ils ne servent pas ici) */
-    const char *K[6], *L[6];
+    /* legende */
+    const char *K[5], *L[5];
     int cnt = 0;
-    K[cnt] = "A"; L[cnt++] = (it->type == ICT_LIST || it->type == ICT_INT) ? "CHANGER" : "MODIFIER";
-    if (it->type == ICT_PASS) { K[cnt] = "X"; L[cnt++] = "VOIR"; }
-    K[cnt] = "Y"; L[cnt++] = "ENREGISTRER";
-    K[cnt] = "B"; L[cnt++] = "FERMER";
-    K[cnt] = "L"; L[cnt++] = "";
-    K[cnt] = "R"; L[cnt++] = "PAGE";
+    int k = ic_list_item(&ic_lgame);
+    K[cnt] = "A"; L[cnt++] = k >= 0 && (ic_items[k].type == ICT_LIST || ic_items[k].type == ICT_INT) ? "CHANGER" : "MODIFIER";
+    K[cnt] = "Y"; L[cnt++] = "PAR D\xC3\x89" "FAUT";
+    K[cnt] = "B"; L[cnt++] = "ENREGISTRER ET FERMER";
     const f32 lx = 11, lw = 618, cy = 438.5f;
-    gx_rrect_fill(lx, 419, lw, 39, 9, RGBA(10, 6, 30, 255), RGBA(10, 6, 30, 255));   /* (cache la legende de l'onglet) */
+    gx_rrect_fill(lx, 419, lw, 39, 9, RGBA(10, 6, 30, 255), RGBA(10, 6, 30, 255));
     legend_box(lx, lw);
     f32 total = 0;
-    for (int i = 0; i < cnt; i++) total += 20 + 5 + text_width(F_SMALL, L[i], 1);
-    f32 space = (lw - 40 - total) / (cnt - 2), cx = lx + 20;
+    for (int i = 0; i < cnt; i++) total += 25 + text_width(F_SMALL, L[i], 1);
+    f32 space = (lw - 40 - total) / (cnt - 1), cx = lx + 20;
     for (int i = 0; i < cnt; i++) {
         draw_mini_badge(cx + 10, cy, K[i]);
-        cx += L[i][0] ? 25 : 22;
-        if (L[i][0]) cx += gx_text(F_SMALL, cx, cy + 4.5f, L[i], RGBA(208, 198, 240, 255), RGBA(208, 198, 240, 255), 1) + space;
+        cx += 25;
+        cx += gx_text(F_SMALL, cx, cy + 4.5f, L[i], RGBA(208, 198, 240, 255), RGBA(208, 198, 240, 255), 1) + space;
     }
 }
