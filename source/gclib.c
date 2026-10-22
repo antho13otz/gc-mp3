@@ -49,6 +49,8 @@ static char gl_busy[96] = "";                            /* v27 : message "en co
 static void gl_status(const char *m) { snprintf(gl_busy, sizeof(gl_busy), "%s", TR(m)); ui_status(m); }                            /* v27 : noms / descriptions lus dans les bannieres */
 static const char *gl_launch(int k);
 static void nat_run(int k);                                /* v50 : lanceur natif, analyse (natif.c) */
+static int nat_qr_input(u32 down);                         /* v51 : QR code du rapport */
+static void nat_draw_qr(void);
 
 /* ---------- packs SWPK ---------- */
 typedef struct {
@@ -616,6 +618,7 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         return;
     }
     if (gl_detail) {
+        if (nat_qr_input(down)) return;
         if (fire && (nav & PAD_BUTTON_LEFT) && gl_n) { gl_sel = nav_wrap(gl_sel, gl_n, 1, -1, 0); if (gl_anim) gl_slide = -1.0f; }
         if (fire && (nav & PAD_BUTTON_RIGHT) && gl_n) { gl_sel = nav_wrap(gl_sel, gl_n, 1, 1, 0); if (gl_anim) gl_slide = 1.0f; }
         if (down & PAD_BUTTON_X && gl_n) gl_open_cheats(gl_sel);
@@ -1060,6 +1063,7 @@ static void draw_gclib_main(void) {
         }
         snprintf(buf, sizeof(buf), "%d / %d   (gauche / droite)", gl_sel + 1, gl_n);
         gx_text_r(F_SMALL, 614, 396, buf, RGBA(150, 135, 210, 255));
+        nat_draw_qr();                                         /* v51 : rapport d'analyse sur le telephone */
         return;
     }
     switch (gl_view) {

@@ -15,6 +15,7 @@
 #define NA_DIR   GCD "/natif"
 #define NA_DI    0xCC006000u                 /* registres du lecteur DVD (DI) */
 #define NA_MAXHIT 48
+static void nat_qr_open(const char *id);      /* v51 : QR code vers le rapport (plus bas) */
 
 typedef struct {
     char id[7], title[72];
@@ -250,5 +251,47 @@ static void nat_run(int k) {
     else snprintf(m, sizeof(m), "Analyse OK : %d acc\xC3\xA8s au lecteur, %u fichiers (rapport : gc-mp3/natif/%s.txt)",
                   in.nhit, (unsigned)in.nfiles, in.id);
     gl_note(m);
+    if (rep[0]) nat_qr_open(in.id);                          /* v51 : QR code vers le rapport */
     crumb("natif %s : %d acces DI, %d fonctions, %d problemes", in.id, in.nhit, in.nfunc, in.problems);
+}
+
+/* ---------- v51 : le rapport sur le telephone (QR code) ----------
+   Le serveur de la telecommande (onglet TELEPHONE) donne /natif (liste) et /natif/<ID>.txt.
+   Apres une analyse, la fiche montre un QR code vers le rapport. */
+static int na_qr_on = 0, na_qr_ok = 0;
+static char na_qr_id[8] = "", na_qr_url[96] = "";
+static u8 na_qr[qrcodegen_BUFFER_LEN_FOR_VERSION(8)];
+static void nat_qr_open(const char *id) {
+    snprintf(na_qr_id, sizeof(na_qr_id), "%s", id);
+    na_qr_on = 1; na_qr_ok = 0; na_qr_url[0] = 0;
+    if (tp_state != PS_ON) { tp_wanted = 1; net_start_async(); }      /* (le serveur demarre tout seul) */
+}
+static int nat_qr_input(u32 down) {                     /* 1 = touche prise par la fenetre */
+    if (!na_qr_on) return 0;
+    if (down & (PAD_BUTTON_B | PAD_BUTTON_A | PAD_TRIGGER_R)) na_qr_on = 0;
+    return 1;
+}
+static void nat_draw_qr(void) {
+    if (!na_qr_on) return;
+    if (!na_qr_ok && tp_state == PS_ON && ip_str[0]) {
+        if (PHONE_PORT == 80) snprintf(na_qr_url, sizeof(na_qr_url), "http://%s/natif/%s.txt", ip_str, na_qr_id);
+        else snprintf(na_qr_url, sizeof(na_qr_url), "http://%s:%d/natif/%s.txt", ip_str, PHONE_PORT, na_qr_id);
+        static u8 tmp[qrcodegen_BUFFER_LEN_FOR_VERSION(8)];
+        na_qr_ok = qrcodegen_encodeText(na_qr_url, tmp, na_qr, qrcodegen_Ecc_MEDIUM, 1, 8, qrcodegen_Mask_AUTO, true) ? 1 : -1;
+    }
+    const f32 w = 440, h = 300, x = 100, y = 96;
+    gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));
+    gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
+    draw_panel(x, y, w, h);
+    gx_text_c(F_MED, 320, y + 30, "Rapport d'analyse sur ton t\xC3\xA9l\xC3\xA9phone", RGBA(255, 255, 255, 255));
+    if (na_qr_ok > 0) {
+        draw_qr_buf(na_qr, 320 - 90, y + 44, 180);
+        gx_text_c(F_SMALL, 320, y + 246, na_qr_url, RGBA(255, 210, 120, 255));
+        gx_text_c(F_SMALL, 320, y + 266, "Scanne le QR code (m\xC3\xAAme Wi-Fi que la GameCube)", RGBA(190, 180, 235, 255));
+    } else if (tp_state == PS_ERR || (net_phase == NET_DONE && !net_ok)) {
+        gx_text_c(F_SMALL, 320, y + 140, "Pas de r\xC3\xA9seau : le rapport est dans SD:/gc-mp3/natif", RGBA(255, 160, 120, 255));
+    } else {
+        gx_text_c(F_SMALL, 320, y + 140, "D\xC3\xA9marrage du serveur...", RGBA(190, 180, 235, 255));
+    }
+    gx_text_c(F_SMALL, 320, y + h - 10, "B : fermer", RGBA(255, 210, 120, 255));
 }

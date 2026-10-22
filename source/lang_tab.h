@@ -986,3 +986,8 @@
     { "Avec %d cheats activ\xC3\xA9s", "With %d cheats enabled" },
     { "ANALYSE", "ANALYSIS" },
     { "Analyse native du jeu...", "Native game analysis..." },
+    { "Rapport d'analyse sur ton t\xC3\xA9l\xC3\xA9phone", "Analysis report on your phone" },
+    { "Scanne le QR code (m\xC3\xAAme Wi-Fi que la GameCube)", "Scan the QR code (same Wi-Fi as the GameCube)" },
+    { "Pas de r\xC3\xA9seau : le rapport est dans SD:/gc-mp3/natif", "No network: the report is in SD:/gc-mp3/natif" },
+    { "D\xC3\xA9marrage du serveur...", "Starting the server..." },
+    { "B : fermer", "B: close" },
