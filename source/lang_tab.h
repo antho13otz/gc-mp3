@@ -786,3 +786,7 @@
     { "\xC3\x89tag\xC3\xA8re", "Shelf" },
     { "AFFICHAGE", "DISPLAY" },
     { "R : %s", "R: %s" },
+    { "D\xC3\xA9marrer avec Indigo / Swiss", "Start with Indigo / Swiss" },
+    { "Quitter vers Swiss", "Exit to Swiss" },
+    { "GC-MP3 s'ouvrira au d\xC3\xA9marrage d'Indigo / Swiss", "GC-MP3 will open when Indigo / Swiss starts" },
+    { "Indigo / Swiss s'ouvrira normalement", "Indigo / Swiss will open normally" },

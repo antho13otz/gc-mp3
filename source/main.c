@@ -9896,7 +9896,10 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_TITLES, MI_CHEATS, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_TITLES, MI_CHEATS, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_UPDATE, MI_TOSWISS, MI_QUIT, MI_COUNT };
+static int autostart_get(void);
+static const char *autostart_set(int on);
+static const char *gl_boot_swiss(const char *path);
 #define MENU_VIS 13                         /* lignes visibles (le menu defile) */
 static int menu_top = 0;
 static int menu_sel = 0, quit_requested = 0;
@@ -9934,6 +9937,8 @@ static void menu_value(int i, char *out, int cap) {
     case MI_PARTY:   snprintf(out, cap, "%s", party_names[party_style]); break;
     case MI_NIGHT:   snprintf(out, cap, "Luminosit\xC3\xA9 %d / 5", night_lum); break;
     case MI_UPDATE:  update_value(out, cap); break;
+    case MI_AUTOSTART: snprintf(out, cap, "%s", autostart_get() ? "Oui" : "Non"); break;
+    case MI_TOSWISS: snprintf(out, cap, "(A)"); break;
     case MI_LAYOUT:  snprintf(out, cap, "%s", layout_names[player_layout]); break;
     case MI_ELEMS: { int c = 0; for (int i = 0; i < EL_COUNT; i++) c += EL(i); snprintf(out, cap, "%d / %d  (A)", c, EL_COUNT); break; }
     case MI_TABS:  { int c = 0; for (int i = 0; i < TAB_COUNT; i++) c += tab_shown(i); snprintf(out, cap, "%d / %d  (A)", c, TAB_COUNT); break; }
@@ -9978,7 +9983,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
     "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
     "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Titres radio gard\xC3\xA9s", "Cheats Swiss (\xC3\xA9" "diteur)", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
-    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Mise \xC3\xA0 jour", "Quitter GC-MP3" };
+    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer avec Indigo / Swiss", "Mise \xC3\xA0 jour", "Quitter vers Swiss", "Quitter GC-MP3" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -10036,6 +10041,8 @@ static void menu_change(int i, int d) {
     case MI_PARTY:   party_style = (party_style + d + PARTY_STYLES) % PARTY_STYLES; break;
     case MI_NIGHT:   night_lum += d; if (night_lum < 1) night_lum = 1; if (night_lum > 5) night_lum = 5; break;
     case MI_UPDATE:  return;
+    case MI_TOSWISS: return;
+    case MI_AUTOSTART: { const char *e = autostart_set(!autostart_get()); if (e) lib_note(e); } return;
     case MI_LAYOUT:  player_layout = (player_layout + d + LAYOUT_COUNT) % LAYOUT_COUNT; break;
     case MI_ELEMS:   checklist_open(&ck_elems); return;
     case MI_TABS:    checklist_open(&ck_tabs); return;
@@ -10092,6 +10099,15 @@ static void menu_input(u32 down, u32 nav, int fire) {
             return;
         }
         else if (menu_sel == MI_UPDATE) { update_activate(); return; }
+        else if (menu_sel == MI_AUTOSTART) { menu_change(MI_AUTOSTART, 1); return; }
+        else if (menu_sel == MI_TOSWISS) {                     /* v30 : retour au menu de Swiss / Indigo */
+            menu_open = 0;
+            if (settings_dirty) save_settings();
+            ui_status("Lancement de Swiss...");
+            const char *e = gl_boot_swiss(NULL);               /* (ne revient pas si ca marche) */
+            if (e) lib_note(e);
+            return;
+        }
         else if (menu_sel == MI_CHEATS) {                         /* v25 : editeur de cheats Swiss */
             menu_open = 0;
             if (settings_dirty) save_settings();
@@ -11130,6 +11146,14 @@ int main(int argc, char **argv) {
     if (!init_video()) return 1;
     gx_init();
     init_spectrum();
+    {   /* v30 : Z tenu au demarrage = retour direct au menu de Swiss / Indigo
+           (utile si GC-MP3 est regle pour s'ouvrir tout seul au demarrage) */
+        PAD_ScanPads();
+        if (sd_ok && (PAD_ButtonsHeld(0) & PAD_TRIGGER_Z)) {
+            ui_status("Lancement de Swiss...");
+            gl_boot_swiss(NULL);
+        }
+    }
 
     if (sd_ok) { scan_files(); bib_load(); pl_load_all(); stats_load(); }
     load_stations();

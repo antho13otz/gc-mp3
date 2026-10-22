@@ -937,10 +937,16 @@ static const u32 gl_stub[] = {
 #define GL_ARGV_AT  0x80002900u
 #define GL_CMD_AT   (0x81700000u - 0x400u)        /* ligne de commande : en haut de la memoire, comme le fait Swiss */
 
+/* demarre Swiss avec "Autoload=<jeu>" (path = chemin sd:/...), ou "Autoload=" (vide :
+   le menu de Swiss / Indigo, meme si GC-MP3 y est regle pour demarrer tout seul) */
+static const char *gl_boot_swiss(const char *path);
 static const char *gl_launch(int k) {                  /* retourne un message d'erreur, ou ne revient pas */
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
-    if (!gl_find_swiss()) return "Swiss introuvable : mets son .dol a la racine (ex. swiss.dol) ou indique-le dans gc-mp3.txt (swiss = ...)";
     if (access(gl[k].path, R_OK) != 0) return "Jeu introuvable : Y pour actualiser la liste";
+    return gl_boot_swiss(gl[k].path);
+}
+static const char *gl_boot_swiss(const char *path) {
+    if (!gl_find_swiss()) return "Swiss introuvable : mets son .dol a la racine (ex. swiss.dol) ou indique-le dans gc-mp3.txt (swiss = ...)";
     /* lecture de Swiss par morceaux, avec l'avancement a l'ecran */
     long len = 0;
     unsigned char *dol = NULL;
@@ -982,10 +988,10 @@ static const char *gl_launch(int k) {                  /* retourne un message d'
     if (dst < hi + 32) { free(dol); return "Swiss est trop gros pour etre lance d'ici"; }
     /* argument : Autoload=sdX:/chemin */
     static const char *const dev[3] = { "sdc:", "sda:", "sdb:" };
-    const char *rel = gl[k].path + strlen(SD_ROOT);
     char cmd[NAME_LEN + 64];
     int cl = snprintf(cmd, sizeof(cmd), "%s", gl_swiss);
-    cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "Autoload=%s%s", dev[sd_slot >= 0 && sd_slot < 3 ? sd_slot : 0], rel);
+    if (path) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "Autoload=%s%s", dev[sd_slot >= 0 && sd_slot < 3 ? sd_slot : 0], path + strlen(SD_ROOT));
+    else cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "Autoload=");
     cl += 1;
     /* le .dol accepte-t-il des arguments ? (texte "_arg" juste apres le point d'entree) */
     int has_arg = 0;
@@ -993,7 +999,7 @@ static const char *gl_launch(int k) {                  /* retourne un message d'
         if (entry + 8 >= tab[i * 3] && entry + 8 < tab[i * 3] + tab[i * 3 + 2])
             has_arg = !memcmp(dol + tab[i * 3 + 1] + (entry + 4 - tab[i * 3]), "_arg", 4);
     if (!has_arg) { free(dol); return "Ce Swiss ne prend pas d'arguments : mets-le a jour"; }
-    crumb("lancer : %s (%s)", gl[k].path, gl_swiss);
+    crumb("lancer : %s (%s)", path ? path : "(menu)", gl_swiss);
 #ifdef GEKKO
     if (settings_dirty) save_settings();
     stop_track(); stop_station();
@@ -1023,4 +1029,80 @@ static const char *gl_launch(int k) {                  /* retourne un message d'
     free(dol);
     return "(simulateur : lancement simule)";
 #endif
+}
+
+/* ======================= v30 : demarrer GC-MP3 avec Indigo / Swiss =======================
+   Indigo (et Swiss) ouvrent tout seuls le fichier ecrit dans la ligne "Autoload="
+   de SD:/swiss/settings/global.ini. GC-MP3 y ecrit son propre .dol (ou l'enleve).
+   Pour revenir au menu d'Indigo : START > Quitter vers Swiss (Autoload vide). */
+#define GL_SWISS_INI SD_ROOT "/swiss/settings/global.ini"
+static int as_cache = -1;
+static char *as_read(long *len) {                            /* global.ini, termine par un zero */
+    unsigned char *r = read_file(GL_SWISS_INI, 256 * 1024, len);
+    if (!r) return NULL;
+    char *d = (char *)malloc(*len + 1);
+    if (d) { memcpy(d, r, *len); d[*len] = 0; }
+    free(r);
+    return d;
+}
+static void as_self(char *out, int cap) {                    /* "sdc:/chemin/gc-mp3player.dol" */
+    static const char *const dev[3] = { "sdc:", "sda:", "sdb:" };
+    up_pick_target();
+    const char *rel = up_target;
+    if (!strncasecmp(rel, SD_ROOT, strlen(SD_ROOT))) rel += strlen(SD_ROOT);
+    else { const char *c = strchr(rel, ':'); if (c && c - rel <= 5) rel = c + 1; }   /* ("sdc:/...", "carda:/...") */
+    snprintf(out, cap, "%s%s%s", dev[sd_slot >= 0 && sd_slot < 3 ? sd_slot : 0], rel[0] == '/' ? "" : "/", rel);
+}
+static int autostart_get(void) {
+    if (as_cache >= 0) return as_cache;
+    as_cache = 0;
+    if (!sd_ok) return 0;
+    long len = 0;
+    char *d = as_read(&len);
+    if (!d) return 0;
+    char me[NAME_LEN + 8];
+    as_self(me, sizeof(me));
+    for (char *l = d; l && *l; ) {
+        char *e = strchr(l, '\n');
+        if (e) *e = 0;
+        int n = (int)strlen(l);
+        if (n && l[n - 1] == '\r') l[n - 1] = 0;
+        if (!strncmp(l, "Autoload=", 9) && !strcasecmp(l + 9, me)) as_cache = 1;
+        l = e ? e + 1 : NULL;
+    }
+    free(d);
+    return as_cache;
+}
+static const char *autostart_set(int on) {
+    if (!sd_ok || sd_virtual) return "Pas de carte SD";
+    long len = 0;
+    char *d = as_read(&len);
+    if (!d && !on) { as_cache = 0; return NULL; }
+    char me[NAME_LEN + 8];
+    as_self(me, sizeof(me));
+    mkdir(SD_ROOT "/swiss", 0777); mkdir(SD_ROOT "/swiss/settings", 0777);
+    char tmp[NAME_LEN];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", GL_SWISS_INI);
+    FILE *f = fopen(tmp, "wb");
+    if (!f) { free(d); return "Impossible d'\xC3\xA9" "crire sur la carte SD"; }
+    int crlf = !d || strstr(d, "\r\n") != NULL, put = 0;
+    for (char *l = d; l && *l; ) {
+        char *e = strchr(l, '\n');
+        if (e) *e = 0;
+        int n = (int)strlen(l);
+        if (n && l[n - 1] == '\r') l[--n] = 0;
+        if (!strncmp(l, "Autoload=", 9)) {                   /* (une seule ligne Autoload, la notre) */
+            if (on && !put) { fprintf(f, "Autoload=%s%s", me, crlf ? "\r\n" : "\n"); put = 1; }
+            else if (!on) fprintf(f, "Autoload=%s", crlf ? "\r\n" : "\n");
+        } else fprintf(f, "%s%s", l, crlf ? "\r\n" : "\n");
+        l = e ? e + 1 : NULL;
+    }
+    if (on && !put) fprintf(f, "Autoload=%s%s", me, crlf ? "\r\n" : "\n");
+    free(d);
+    if (fclose(f) != 0) { remove(tmp); return "Impossible d'\xC3\xA9" "crire sur la carte SD"; }
+    remove(GL_SWISS_INI);
+    if (rename(tmp, GL_SWISS_INI) != 0) return "Impossible d'\xC3\xA9" "crire sur la carte SD";
+    as_cache = on;
+    lib_note(on ? "GC-MP3 s'ouvrira au d\xC3\xA9marrage d'Indigo / Swiss" : "Indigo / Swiss s'ouvrira normalement");
+    return NULL;
 }
