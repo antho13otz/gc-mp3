@@ -141,7 +141,7 @@ chk('grosse lecture 0x40000 @0x20000', 0x80200000, iso[0x20000:0x60000])
 H = 0x817F0000
 rd = lambda o: struct.unpack('>I', mu.mem_read(H + o, 4))[0]
 print('resident : commandes=%d derniere=%08X err=%d sdhc=%d secteurs lus=%d' % (rd(0x4C), rd(0x50), rd(0x2C), rd(0x28), rd(0x38)))
-print('vrai lecteur : %d commandes inquiry (%s)' % (len(kicks), ' '.join('%08X' % k for k in kicks)))
+print('vrai lecteur : %d commandes inquiry' % len(kicks))
 # v57 : A+Z+START -> redemarrage (la fin normale n'est donc pas atteinte)
 rd32 = lambda a: struct.unpack('>I', mu.mem_read(a, 4))[0]
 tbl = [rd32(0x80003040 + i * 4) for i in (20, 21, 24)]
@@ -152,11 +152,13 @@ nolat = all(not (o == 0x40C and n <= 20) for o, n in si_reads) and (EXC or len(s
 print(('OK   ' if nolat else 'FAUX ') + 'manettes : donnees neuves pas touchees (%d lectures SI)' % len(si_reads))
 ok &= nolat
 ok &= struct.unpack('>I', mu.mem_read(0x80001F24, 4))[0] == 0 and struct.unpack('>I', mu.mem_read(0x80001F20, 4))[0] == 0
-ok &= rd(0x4C) == 4 and len(kicks) == 4 and all(k == 0x12000000 for k in kicks)
+ok &= rd(0x4C) == 4 and len(kicks) == 4 + 31 and all(k == 0x12000000 for k in kicks)   # (v61 : + 31 reveils pour les morceaux)
 if card.writes:                                    # v54 : journal du jeu ecrit sur la carte
     js = card.writes[-1]; jb = disk[js * 512:js * 512 + 512]; open('journal.bin', 'wb').write(jb)
     u = lambda o: struct.unpack_from('>I', jb, o)[0]
     jok = len(set(card.writes)) == 1 and jb[:4] == b'GCSN' and u(0x4C) == 4 and u(0x90) == 3
+    print('lectures en fond : %d (%d morceaux)' % (u(0xD0), u(0xD4)))
+    jok &= u(0xD0) == 1 and u(0xD4) == 32                # (0x40000 octets en morceaux de 8 Ko)
     jok &= (u(0xB0) == 0x102 and u(0xB4) == 0x80001234 and u(0xB8) == 0x80005678 and u(0x98) == 0) if EXC else (u(0x98) == 1 and u(0xB0) == 0)
     if EXC: print('plantage note : %X a %08X LR %08X' % (u(0xB0), u(0xB4), u(0xB8)))
     print(('OK   ' if jok else 'FAUX ') + 'journal du jeu : %d ecritures, secteur %X, commandes=%d' % (len(card.writes), js, struct.unpack_from('>I', jb, 0x4C)[0]))

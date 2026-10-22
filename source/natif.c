@@ -400,12 +400,13 @@ static void nat_journal_convert(void) {
     if (len < 512 || be32(d) != NATRES_MAGIC) { free(d); return; }
     FILE *f = fopen(NA_JTXT, "w");
     if (f) {
-        u32 H[52];
-        for (int i = 0; i < 52; i++) H[i] = be32(d + i * 4);
-        int v3 = H[1] >= 3, v4 = H[1] >= 4, v5 = H[1] >= 5;   /* (en-tete : 0x80, 0xA0 (v57), 0xB0 (v59), 0xD0 (v60) octets) */
-        if (!v3) for (int i = 32; i < 52; i++) H[i] = 0;
-        if (!v4) for (int i = 40; i < 52; i++) H[i] = 0;
-        if (!v5) for (int i = 44; i < 52; i++) H[i] = 0;
+        u32 H[56];
+        for (int i = 0; i < 56; i++) H[i] = be32(d + i * 4);
+        int v3 = H[1] >= 3, v4 = H[1] >= 4, v5 = H[1] >= 5, v6 = H[1] >= 6;   /* (en-tete : 0x80, 0xA0, 0xB0, 0xD0, 0xE0 (v61) octets) */
+        if (!v3) for (int i = 32; i < 56; i++) H[i] = 0;
+        if (!v4) for (int i = 40; i < 56; i++) H[i] = 0;
+        if (!v5) for (int i = 44; i < 56; i++) H[i] = 0;
+        if (!v6) for (int i = 52; i < 56; i++) H[i] = 0;
         static const char *const en[] = { "OK", "pas de carte", "la carte ne demarre pas", "commande refusee", "pas de donnees", "hors de l'ISO", "delai depasse" };
         fprintf(f, "GC Station - journal du dernier jeu lance par le lanceur maison\n\n");
         if (v5 && H[44]) {
@@ -425,13 +426,15 @@ static void nat_journal_convert(void) {
             fprintf(f, "Le jeu tournait encore : %u images (VI), %u lectures des manettes (SI)%s\n", (unsigned)H[36], (unsigned)H[37],
                     H[36] ? "" : "  (crochets pas branches)");
             if (v5) fprintf(f, "Signes de vie : son %u, DSP %u, dessin %u (le journal est reecrit toutes les 3 s tant que le jeu vit)\n", (unsigned)H[49], (unsigned)H[50], (unsigned)H[51]);
+            if (v6) fprintf(f, "Lectures en fond (le son continue) : %u, en %u morceaux de 8 Ko ; reveil du vrai lecteur : %u us en moyenne, %u us au pire\n",
+                            (unsigned)H[52], (unsigned)H[53], H[53] ? (unsigned)(H[54] / H[53]) : 0u, (unsigned)H[55]);
             if (H[38]) fprintf(f, "Retour a GC Station demande (A+Z+START)\n");
             if (v4) fprintf(f, "Manettes (A+Z+START %s) : %u lues, %u laissees au jeu, touches manette 1 : %04X (%u changements)\n",
                             H[18] & NRF_IGR ? "actif" : "coupe", (unsigned)H[40], (unsigned)H[41], (unsigned)H[42], (unsigned)H[43]);
             fprintf(f, "\n");
         }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
-        int rbase = v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
+        int rbase = v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
         for (int k = 0; k < nring; k++) {
             const u8 *e = d + rbase + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);

@@ -38,6 +38,7 @@ natres_hdr_t natres_hdr = {
     0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0,
 };
 #define H natres_hdr
 
@@ -243,11 +244,14 @@ static void cache_flush(u32 a, u32 len) {                /* donnees ecrites par 
     __asm__ volatile("sync" ::: "memory");
 }
 
+static u32 kick_tb = 0;
+static inline u32 tbl(void);
 static u32 di_real_kick(void) {                          /* vraie commande "inquiry" : sa fin reveille le jeu */
     volatile u32 *r = DI_REAL;
     for (u32 i = 0; i < 3000000u && (r[7] & 1); i++) ;  /* v54 : le vrai lecteur est occupe : on attend un peu */
     if (r[7] & 1) { H.nskip++; return 2; }
     H.nkick++;
+    kick_tb = tbl();
     r[2] = 0x12000000u; r[3] = 0; r[4] = 0x20;
     r[5] = (u32)di_scratch & 0x01FFFFFFu; r[6] = 0x20;
     r[7] = 3;                                           /* DMA + demarrer */
@@ -256,7 +260,7 @@ static u32 di_real_kick(void) {                          /* vraie commande "inqu
 
 static u32 log_ring[NATRES_LOGN][4];
 static u8 logbuf[512] __attribute__((aligned(32)));
-static inline u32 tbl(void) { u32 t; __asm__ volatile("mftb %0" : "=r"(t)); return t; }
+static inline u32 tbl(void) { u32 t; __asm__ volatile("mftb %0" : "=r"(t)); return t; }   /* (declaree plus haut) */
 #define TB_SEC 40500000u                                  /* (horloge : 162 MHz / 4) */
 static void nr_log_flush(void) {
     H.flush_tb = tbl();
@@ -276,7 +280,7 @@ static void nr_log_add(u32 a, u32 b, u32 c, u32 d) {
 }
 static void nr_log(u32 off, u32 len, u32 info) {
     nr_log_add(di[2], off, len, info | (H.err & 0xFF) << 24);
-    if (info & 1 || H.ncmd <= 40 || tbl() - H.flush_tb > TB_SEC / 2) nr_log_flush();   /* (debut du jeu, erreurs, puis 2 fois par seconde) */
+    if (info & 1 || H.ncmd <= 40 || tbl() - H.flush_tb > TB_SEC * 2) nr_log_flush();   /* (debut du jeu, erreurs, puis toutes les 2 s) */
 }
 /* ---------- v57 : crochets dans la table des interruptions du jeu ----------
    Le systeme des jeux (SDK Nintendo) range ses fonctions d'interruption dans une table a
@@ -285,6 +289,7 @@ static void nr_log(u32 off, u32 len, u32 info) {
    - SI : APRES la fonction du jeu (elle a deja lu les manettes), A+Z+START tenus 1 s
      = retour a GC Station : redemarrage de la console (PicoLoader -> ipl.dol). */
 #define OS_INT_TABLE ((volatile u32 *)0x80003040u)
+#define RD_CHUNK 8192u                                    /* v61 : morceau d'une lecture en fond */
 static u32 si_orig = 0, igr_hold = 0;
 static void hot_reset(void) {
     volatile u32 *pi = (volatile u32 *)0xCC003000u;
@@ -299,7 +304,8 @@ static void hooks_check(void);
 static u32 alive_n = 0;
 static void alive_tick(void) {
     if ((++alive_n & 63) == 0) hooks_check();            /* (le jeu a pu remettre sa fonction : on se rebranche) */
-    if (tbl() - H.flush_tb > TB_SEC * 3) nr_log_flush();
+    /* (une ecriture sur la carte coupe le son quelques ms : toutes les 3 s la 1re minute, puis toutes les 20 s) */
+    if (tbl() - H.flush_tb > (H.vi_count < 3000u ? TB_SEC * 3 : TB_SEC * 20)) nr_log_flush();
 }
 #define NR_HOOK(nm, counter) \
     static u32 nm##_orig = 0; \
@@ -359,6 +365,36 @@ static void si_hook(u32 irq, u32 ctx) {
         hot_reset();
     }
 }
+/* ---------- v61 : lectures en fond ----------
+   Avant, une lecture de 512 Ko se faisait d'un coup, interruptions coupees (~0,5 s) : le son
+   du jeu (DMA audio, DSP) n'etait plus servi et craquait. Maintenant une grosse lecture se fait
+   par morceaux de 8 Ko, un a chaque fin de commande du vrai lecteur (son interruption DI) :
+   entre deux morceaux, la console sert les autres interruptions (son, image), comme avec un
+   vrai lecteur. A la fin : TCINT dans le faux DISR, et la fonction du jeu est appelee. */
+static u32 di_orig = 0, rd_dst = 0, rd_off = 0, rd_left = 0;
+static int rd_on = 0;
+static void di_hook(u32 irq, u32 ctx) {
+    if (rd_on) {
+        volatile u32 *r = DI_REAL;
+        u32 dt = (tbl() - kick_tb) / 41u;                /* (us depuis le reveil) */
+        H.kick_us += dt; if (dt > H.kick_max_us) H.kick_max_us = dt;
+        r[0] = (r[0] & 0x2Au) | 0x54u;                   /* (vraie fin : acquittee ici, le jeu n'en sait rien) */
+        u32 n = rd_left > RD_CHUNK ? RD_CHUNK : rd_left;
+        H.n_chunks++;
+        if (nr_read((void *)rd_dst, rd_off, n)) {
+            rd_on = 0; di[0] |= 0x04; di[7] &= ~1u;      /* DEINT : erreur, le jeu redemande */
+            nr_log_add(di[2], rd_off, n, 1 | (H.err & 0xFF) << 24);
+        } else {
+            cache_flush(rd_dst, n);
+            rd_dst += n; rd_off += n; rd_left -= n;
+            di[5] += n; di[6] -= n;
+            if (rd_left) { di_real_kick(); return; }     /* (morceau suivant a la prochaine fin) */
+            rd_on = 0; di[0] |= 0x10; di[7] &= ~1u;      /* TCINT : lecture terminee */
+        }
+    }
+    if (di_orig) ((void (*)(u32, u32))di_orig)(irq, ctx);
+    alive_tick();
+}
 static int nr_game_fn(u32 a) { return a >= 0x80003100u && a < 0x817F0000u; }
 static void hook1(int idx, u32 *orig, u32 fn) {
     volatile u32 *t = OS_INT_TABLE;
@@ -367,7 +403,8 @@ static void hook1(int idx, u32 *orig, u32 fn) {
 }
 static void hooks_check(void) {
     volatile u32 *t = OS_INT_TABLE;
-    if (!nr_game_fn(t[21])) return;                      /* (pas la table du SDK : on ne touche a rien) */
+    if (!nr_game_fn(t[21]) && t[21] != (u32)di_hook) return;   /* (pas la table du SDK : on ne touche a rien) */
+    if (!rd_on) hook1(21, &di_orig, (u32)di_hook);       /* v61 : DI (lectures en fond) */
     hook1(24, &vi_orig, (u32)vi_hook);
     hook1(5, &ai_orig, (u32)ai_hook);                    /* (DSP_AI : DMA du son) */
     hook1(7, &dsp_orig, (u32)dsp_hook);
@@ -383,6 +420,7 @@ static void hooks_check(void) {
 
 static void di_exec(void) {
     u32 info = 0;
+    rd_on = 0;                                           /* (nouvelle commande : une lecture en fond oubliee s'arrete) */
     if (!di_ready) { di_ready = nr_init() == 0; if (!di_ready) info |= 8; }   /* 1er acces du jeu : on demarre la carte SD */
     hooks_check();
     u32 cmd = di[2] >> 24, len = di[6], dst = di[5] | 0x80000000u;
@@ -392,6 +430,13 @@ static void di_exec(void) {
         u32 off = (di[2] & 0xC0) == 0x40 ? 0 : di[3] << 2;   /* A8000040 : ID du disque (debut de l'ISO) */
         if ((di[2] & 0xC0) == 0x40 && len > 0x20) len = 0x20;
         H.last_off = off; H.last_len = len;
+        if (len > RD_CHUNK && di_orig && (H.flags & NRF_REAL_IRQ)) {   /* v61 : grosse lecture : en fond */
+            rd_dst = dst; rd_off = off; rd_left = len; rd_on = 1;
+            H.n_async++;
+            info |= di_real_kick() | 0x10;                 /* (le lecteur reste "occupe" : DICR bit 0) */
+            nr_log(off, len, info | (di[0] & 0xFF) << 8);
+            return;
+        }
         if (len && nr_read((void *)dst, off, len)) { di[0] |= 0x04; info |= 1; goto done; }   /* DEINT : erreur */
         cache_flush(dst, len);
         di[5] += len; di[6] = 0;

@@ -124,7 +124,7 @@ dvd_cmd:
     stw 0,0x601C(9)
 1:  lwz 0,0x601C(9)
     andi. 0,0,1
-    bne 1b
+    bne 6f                  # (v61 : lecteur occupe -> "interruption", plus bas)
     lwz 7,0x6000(9)
     andi. 0,7,0x10
     beq 2f
@@ -134,6 +134,21 @@ dvd_cmd:
     blr
 2:  li 3,-1
     blr
+    # (v61 : comme une interruption DI : on appelle la fonction de la table, puis on revient attendre)
+6:  stwu 1,-32(1)
+    mflr 0
+    stw 0,36(1)
+    lis 12,0x8000
+    lwz 12,0x3094(12)
+    mtctr 12
+    li 3,21
+    li 4,0
+    bctrl
+    lwz 0,36(1)
+    mtlr 0
+    addi 1,1,32
+    lis 9,0xCC00
+    b 1b
 
 dummy_di:
     blr
