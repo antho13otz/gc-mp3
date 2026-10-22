@@ -151,7 +151,7 @@ static void draw_tab_games(void) {
     draw_panel(11, 73, 618, 338);
     snprintf(buf, sizeof(buf), "%d", GM_COUNT);
     draw_tabs(buf);
-    if (!gm_rec_t || now_ms() - gm_rec_t > 5000) {               /* records (relus de temps en temps) */
+    if (!gm_rec_t) {                                            /* records : relus en ouvrant l'onglet et apres une partie (v45 : plus toutes les 5 s) */
         gm_rec_t = now_ms();
         for (int g = 0; g < GM_COUNT; g++) gm_record[g] = gm_rec[g] && sd_ok ? rg_record_get(gm_rec[g]) : 0;
     }

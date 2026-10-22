@@ -535,7 +535,8 @@ static void phone_pump(void) {
         if (!tp_qr_ok) tp_qr_ok = -1;
     }
     u64 now = now_ms();
-    if (now - tp_json_t > 300) { tp_json_t = now; tp_json_build(); }
+    /* v45 : etat pour le telephone : souvent s'il est connecte, sinon toutes les 3 s (moins de travail) */
+    if (now - tp_json_t > (tp_last_req && now - tp_last_req < 15000 ? 300u : 3000u)) { tp_json_t = now; tp_json_build(); }
     if (!tp_cfg_reading && (tp_cfg_now || (now - tp_cfg_t > 1000 && now - tp_last_req < 15000))) { tp_cfg_now = 0; tp_cfg_t = now; tp_cfg_build(); }
     while (tp_qh != tp_qt) {
         phcmd_t cm = tp_q[tp_qh];

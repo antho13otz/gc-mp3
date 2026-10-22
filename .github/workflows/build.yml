@@ -30,8 +30,10 @@ jobs:
         id: cache
         uses: actions/cache@v4
         with:
-          path: gc-mp3-loader.bin
-          key: loader-${{ env.SWISS_COMMIT }}-${{ hashFiles('gcmp3/tools/mkloader.py', 'gcmp3/tools/loader/**') }}
+          path: |
+            gc-mp3-loader.bin
+            gc-mp3-igr.img
+          key: loader2-${{ env.SWISS_COMMIT }}-${{ hashFiles('gcmp3/tools/mkloader.py', 'gcmp3/tools/loader/**') }}
 
       - name: Installer les outils de Swiss
         if: steps.cache.outputs.cache-hit != 'true'
@@ -53,13 +55,25 @@ jobs:
 
       - name: Compiler le lanceur
         if: steps.cache.outputs.cache-hit != 'true'
+        shell: bash
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE/swiss"
           python3 gcmp3/tools/mkloader.py swiss gcmp3/tools/loader
           cd swiss
-          make compile-patches compile compile-packer
+          set +e
+          make compile-patches compile compile-packer > ../swiss-build.log 2>&1
+          st=$?
+          set -e
+          tail -n 40 ../swiss-build.log
+          if [ $st -ne 0 ]; then
+            grep -n -i "error\|undefined" ../swiss-build.log | head -n 25 | sed 's/^/::error::/'
+            exit $st
+          fi
           cp cube/packer/swiss.dol ../gc-mp3-loader.bin
-          ls -la ../gc-mp3-loader.bin
+          # v45 : retour en jeu (A + Z + START) : le meme lanceur, dans un apploader.img
+          # (reboot.dol du packer de Swiss + dol2ipl.py, comme l'apploader.img officiel)
+          python3 buildtools/dol2ipl.py ../gc-mp3-igr.img cube/packer/reboot.dol "*gc-mp3-b0"
+          ls -la ../gc-mp3-loader.bin ../gc-mp3-igr.img
 
       - name: Vérifier le lanceur
         run: |
@@ -85,7 +99,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: gc-mp3-loader
-          path: gc-mp3-loader.bin
+          path: |
+            gc-mp3-loader.bin
+            gc-mp3-igr.img
 
   build:
     needs: loader
@@ -262,10 +278,6 @@ jobs:
           print("DOL valide:", size, "octets,", len(secs), "sections")
           PY
 
-      # v39 : apploader.img qui ramene sur GC-MP3 avec A + Z + START en jeu
-      - name: Fabriquer le fichier du retour en jeu (apploader.img)
-        run: python3 tools/mkapploader.py gc-mp3player.dol gc-mp3-igr.img ${{ github.run_number }}
-
       - name: Récupérer le lanceur de jeux
         continue-on-error: true
         uses: actions/download-artifact@v4
@@ -273,13 +285,26 @@ jobs:
           name: gc-mp3-loader
           path: loader
 
+      # v45 : le retour en jeu porte le numero de ce build (GC-MP3 le met a jour)
+      - name: Numéroter le fichier du retour en jeu
+        if: ${{ hashFiles('loader/gc-mp3-igr.img') != '' }}
+        run: |
+          python3 - <<'PY'
+          import struct
+          p = "loader/gc-mp3-igr.img"
+          d = bytearray(open(p, "rb").read())
+          d[0:16] = struct.pack("16s", ("*gc-mp3-b%s" % "${{ github.run_number }}").encode())
+          open(p, "wb").write(d)
+          print("retour en jeu :", len(d), "octets")
+          PY
+
       - name: Publier le .dol
         uses: actions/upload-artifact@v4
         with:
           name: gc-mp3player
           path: |
             gc-mp3player.dol
-            gc-mp3-igr.img
+            loader/gc-mp3-igr.img
 
       # Mise a jour en un clic : le .dol va dans la release "dernier" du depot,
       # que GC-MP3 consulte (START > Mise a jour)
@@ -288,4 +313,4 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 tools/publish_release.py gc-mp3player.dol ${{ github.run_number }} gc-mp3-igr.img loader/gc-mp3-loader.bin
+        run: python3 tools/publish_release.py gc-mp3player.dol ${{ github.run_number }} loader/gc-mp3-igr.img loader/gc-mp3-loader.bin

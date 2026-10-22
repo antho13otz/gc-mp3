@@ -146,6 +146,10 @@ static void theme_apply(int id) {
    couleur d'accent (selection) ; le theme choisit la couleur d'accent. */
 static int ui_skin = 0;
 static int gl_view;                                     /* gclib.c : affichage de Mes jeux GameCube */
+static int gl_anim = 1;                                 /* v45 : animations de JEUX / APPS */
+static int gl_sort = 0;                                 /* v45 : tri des jeux : A-Z, derniers lances, taille, region */
+static const char *const gl_sort_keys[4] = { "az", "recents", "taille", "region" };
+static const char *const gl_sort_names[4] = { "A \xE2\x86\x92 Z", "Derniers lanc\xC3\xA9s", "Taille", "R\xC3\xA9gion" };
 static const char *const skin_keys[2] = { "indigo", "moderne" };
 static const char *const glview_keys[6] = { "grille", "carrousel", "liste", "mur", "vitrine", "etagere" };
 static u8 mod_acc[3] = { 0, 190, 230 };
@@ -3859,6 +3863,8 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "spectrogramme_couleurs")) { for (int i = 0; i < SGP_COUNT; i++) if (!strcasecmp(v, sgp_keys[i])) sg_pal_id = i; }
         else if (!strcasecmp(k, "spectre")) { for (int i = 0; i < VZ_COUNT; i++) if (!strcasecmp(v, viz_keys[i])) viz_style = i; }
         else if (!strcasecmp(k, "jeux_affichage")) { for (int i = 0; i < 6; i++) if (!strcasecmp(v, glview_keys[i])) gl_view = i; }
+        else if (!strcasecmp(k, "jeux_tri")) { for (int i = 0; i < 4; i++) if (!strcasecmp(v, gl_sort_keys[i])) gl_sort = i; }
+        else if (!strcasecmp(k, "jeux_animations")) gl_anim = !has_word(v, "non");
         else if (!strcasecmp(k, "interface")) { ui_lang = !strncasecmp(v, "en", 2) ? 1 : !strncasecmp(v, "fr", 2) ? 0 : -1; ui_lang_apply(); }
         else if (!strcasecmp(k, "langue")) { lang_pref = -1; for (int i = 0; i < LANG_COUNT; i++) if (!strncasecmp(v, lang_keys[i], 2)) lang_pref = i; }
         else if (!strcasecmp(k, "swiss")) snprintf(swiss_pref, sizeof(swiss_pref), "%s", v);
@@ -3977,6 +3983,8 @@ static void save_settings(void) {
             layout_keys[layout_tab[TAB_RADIO]], layout_keys[layout_tab[TAB_RETRO]], layout_keys[layout_tab[TAB_PODCAST]]);
     fprintf(f, "# Paroles dans le lecteur : spectre / paroles / les_deux ; eclair sur les basses (mode soiree) : partout / sauf_spectrogramme / jamais\n"
                "paroles_affichage = %s\neclair_basses = %s\n", lyr_keys[lyr_show], flash_keys[flash_mode]);
+    fprintf(f, "# Jeux GameCube : tri (az / recents / taille / region) ; animations de JEUX / APPS (oui / non)\n"
+               "jeux_tri = %s\njeux_animations = %s\n", gl_sort_keys[gl_sort & 3], gl_anim ? "oui" : "non");
     fprintf(f, "# Lanceur des jeux GameCube : gcmp3 (sans menu Swiss) / swiss\nlanceur_jeux = %s\n", ld_mode ? "swiss" : "gcmp3");
     fprintf(f, "# Ordre des onglets\nordre_onglets = ");
     for (int i = 0; i < TAB_COUNT; i++) fprintf(f, "%s%s", i ? "," : "", tab_keys[tab_order[i]]);
@@ -4008,7 +4016,7 @@ static void resume_note(int force) {
         snprintf(resume_path, sizeof(resume_path), "%s", names[cur_track]);
         resume_pos = (int)(consumed / 48000u);
     }
-    if (force || (resume_on && now_ms() - last > 30000 && src == SRC_FILE && playing)) {
+    if (force || (resume_on && now_ms() - last > 30000 && now_ms() - last_input_ms > 1500 && src == SRC_FILE && playing)) {   /* (v45 : pas pendant qu'on navigue) */
         last = now_ms();
         save_settings();
     }
@@ -9995,7 +10003,7 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_LAUNCHER, MI_UPDATE, MI_TOSWISS, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_LAUNCHER, MI_UPDATE, MI_TOSWISS, MI_QUIT, MI_COUNT };
 static int autostart_get(void);
 static const char *autostart_set(int on);
 /* v35 : page Reglages en sections (L / R) : GC-MP3, Indigo, Swiss, Outils */
@@ -10004,6 +10012,7 @@ static int menu_sec = 0;
 static void ic_menu_input(int sec, u32 down, u32 nav, int fire);
 static void igr_value(char *out, int cap);                  /* v39 : retour en jeu vers GC-MP3 (igr.c) */
 static void igr_toggle(void);
+static void ld_boot(void);
 static void ld_value(char *out, int cap);                   /* v44 : lanceur de jeux GC-MP3 (lanceur.c) */
 static void ld_change(int a);
 static const char *ld_hint(void);
@@ -10055,6 +10064,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_LAUNCHER: ld_value(out, cap); break;
     case MI_TOSWISS: snprintf(out, cap, "(A)"); break;
     case MI_LAYOUT:  snprintf(out, cap, "%s (%s)", TR(layout_names[player_layout]), TR(tab_names[IS_PLAYER_TAB(tab) ? tab : TAB_MUSIC])); break;
+    case MI_GLANIM:  snprintf(out, cap, "%s", gl_anim ? "Oui" : "Non"); break;
     case MI_LYRSHOW: snprintf(out, cap, "%s", lyr_names[lyr_show]); break;
     case MI_FLASH:   snprintf(out, cap, "%s", flash_names[flash_mode]); break;
     case MI_VIZ:     snprintf(out, cap, "%s", viz_names[viz_style]); break;
@@ -10101,7 +10111,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Style de l'interface", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran", "D\xC3\xA9" "cor de saison",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
     "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
-    "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre", "Couleurs du spectrogramme", "Paroles dans le lecteur", "\xC3\x89" "clair sur les basses",
+    "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Animations (jeux / applis)", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre", "Couleurs du spectrogramme", "Paroles dans le lecteur", "\xC3\x89" "clair sur les basses",
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer avec Indigo / Swiss", "Retour en jeu (A+Z+START)", "Lanceur de jeux", "Mise \xC3\xA0 jour", "Quitter vers Swiss", "Quitter GC-MP3" };
 
 static void web_relayout(void);
@@ -10155,6 +10165,7 @@ static void menu_change(int i, int d) {
     case MI_TITLES:  return;
     case MI_SKIN:    ui_skin = !ui_skin; break;
     case MI_GLVIEW:  gl_view = (gl_view + d + 6) % 6; break;
+    case MI_GLANIM:  gl_anim = !gl_anim; break;
     case MI_RUMBLE:  rumble_on = !rumble_on; if (rumble_on) rumble(0, 200); ic_put("Disable PAD Rumble", rumble_on ? "No" : "Yes"); break;
     case MI_PARTY:   party_style = (party_style + d + PARTY_STYLES) % PARTY_STYLES; break;
     case MI_NIGHT:   night_lum += d; if (night_lum < 1) night_lum = 1; if (night_lum > 5) night_lum = 5; break;
@@ -10379,6 +10390,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_VIDEO) hint = "Pris en compte au prochain lancement (B maintenu au d\xC3\xA9marrage = 480i)";
     if (menu_sel == MI_IGR) hint = igr_hint();
     if (menu_sel == MI_LAUNCHER) hint = ld_hint();
+    if (menu_sel == MI_GLANIM) hint = "D\xC3\xA9" "filement doux, cadre qui glisse, carrousel (onglet JEUX / APPS)";
     if (menu_sel == MI_QUIT) hint = "Ouvre le menu de la GameCube (lecteur de disque). Bouton Reset = relancer GC-MP3";
     if (menu_sel == MI_LAYOUT) hint = "Une disposition par onglet (MUSIQUE, RADIO, R\xC3\x89TRO, PODCASTS) : change d'onglet pour r\xC3\xA9gler les autres";
     if (menu_sel == MI_LYRSHOW) hint = "Paroles des musiques (fichiers .lrc) : \xC3\xA0 la place du spectre ou par-dessus";
@@ -11359,6 +11371,7 @@ int main(int argc, char **argv) {
     ui_lang_apply();                        /* v24 : langue de la console, sauf reglage */
     load_settings();
     if (sd_ok) indigo_cfg_boot();           /* v34 : reglages d'Indigo qui valent aussi pour GC-MP3 */
+    if (sd_ok) ld_boot();                   /* v45 : retour.txt (retour en jeu) + journal du lanceur */
     if (!init_video()) return 1;
     gx_init();
     init_spectrum();
