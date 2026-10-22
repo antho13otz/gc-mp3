@@ -258,31 +258,28 @@ static const char *gcmp3_fr(const char *m)
 }
 static void _DrawGcmp3Loading(void)
 {
+	/* v48 : style "Minimal" : fond presque noir, nom du jeu, une ligne fine, l'avancement */
 	static u32 frame = 0;
 	frame++;
 	GXColor none = (GXColor) {0,0,0,0};
-	for(int i = 0; i < 24; i++) {					// fond : degrade violet
-		int r = 30 - i, g = 12 - i / 3, b = 72 - i * 2;
-		_DrawSimpleBox(0, i * 20, 640, 20, 0, (GXColor) {r < 4 ? 4 : r, g < 2 ? 2 : g, b < 18 ? 18 : b, 255}, none);
-	}
-	for(int i = 0; i < 40; i++) {					// petit spectre anime en bas
-		float v = 0.5f + 0.5f * sinf(frame * 0.07f + i * 0.45f) * cosf(frame * 0.031f + i * 0.17f);
-		int h = 6 + (int)(v * 46);
-		_DrawSimpleBox(40 + i * 14, 430 - h, 10, h, 0, (GXColor) {150 + i * 2, 80, 255 - i * 2, 70}, none);
-	}
-	drawString(320, 170, "GC STATION", 2.2f, ALIGN_CENTER, (GXColor) {225,205,255,255});
-	if(gcmp3_title[0]) drawStringEllipsis(320, 228, gcmp3_title, 1.0f, ALIGN_CENTER, (GXColor) {255,255,255,255}, false, 560);
-	const char *st = gcmp3_status[0] ? gcmp3_fr(gcmp3_status) : "Chargement";
+	_DrawSimpleBox(0, 0, 640, 480, 0, (GXColor) {5,3,9,255}, none);
+	drawStringEllipsis(320, 214, gcmp3_title[0] ? gcmp3_title : "Chargement", 0.95f, ALIGN_CENTER, (GXColor) {255,255,255,255}, false, 560);
+	_DrawSimpleBox(210, 236, 220, 2, 0, (GXColor) {28,21,48,255}, none);
 	char line[128];
-	int dots = (frame / 20) % 4;
-	snprintf(line, sizeof(line), "%s%.*s", st, dots, "...");
-	drawString(320, 282, line, 0.75f, ALIGN_CENTER, (GXColor) {200,185,250,255});
-	_DrawSimpleBox(170, 302, 300, 8, 0, (GXColor) {40,24,96,255}, none);	// barre
-	if(gcmp3_pct >= 0) _DrawSimpleBox(170, 302, 3 * (gcmp3_pct > 100 ? 100 : gcmp3_pct), 8, 0, (GXColor) {170,110,255,255}, none);
-	else { int p = (frame * 4) % 360; int x = 170 + (p < 300 ? p : 300) - 60; int w = 60;
-		if(x < 170) { w -= 170 - x; x = 170; } if(x + w > 470) w = 470 - x;
-		if(w > 0) _DrawSimpleBox(x, 302, w, 8, 0, (GXColor) {170,110,255,255}, none); }
-	drawString(320, 452, "B maintenu : \\351cran du jeu (r\\351glages, cheats)     \\267     moteur Swiss", 0.5f, ALIGN_CENTER, (GXColor) {150,135,210,255});
+	if(gcmp3_pct >= 0) {
+		int p = gcmp3_pct > 100 ? 100 : gcmp3_pct;
+		if(p > 0) _DrawSimpleBox(210, 236, (220 * p) / 100, 2, 0, (GXColor) {156,108,255,255}, none);
+		snprintf(line, sizeof(line), "%d %%", p);
+	}
+	else {
+		int p = (frame * 3) % 300, x = 210 + (p < 220 ? p : 220) - 50, w = 50;	// petit trait qui glisse
+		if(x < 210) { w -= 210 - x; x = 210; }
+		if(x + w > 430) w = 430 - x;
+		if(w > 0) _DrawSimpleBox(x, 236, w, 2, 0, (GXColor) {156,108,255,255}, none);
+		snprintf(line, sizeof(line), "%s", gcmp3_status[0] ? gcmp3_fr(gcmp3_status) : "");
+	}
+	drawString(320, 262, line, 0.5f, ALIGN_CENTER, (GXColor) {156,146,190,255});
+	drawString(616, 462, "GC STATION", 0.5f, ALIGN_RIGHT, (GXColor) {142,124,196,255});
 }
 #endif
 // Internal
