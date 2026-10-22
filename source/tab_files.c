@@ -32,6 +32,11 @@ static void draw_cheats(void);
 static void cheats_open(void);
 static void cheats_open_file(const char *path);
 
+/* v55 : partage par QR code (tab_phone.c) */
+static void share_open(const char *path, int dir);
+static int share_input(u32 down);
+static void share_draw(void);
+
 static void fe_note(const char *m) { snprintf(fe_msg, sizeof(fe_msg), "%s", m); fe_msg_t = now_ms(); }
 
 static int fe_cmp(const void *a, const void *b) {
@@ -166,8 +171,8 @@ static void files_pump(void) {
     }
 }
 
-enum { FA_RENAME, FA_DELETE, FA_COPY, FA_CUT, FA_PASTE, FA_MKDIR, FA_CHEATS, FA_COUNT };
-static const char *const fa_names[FA_COUNT] = { "Renommer", "Supprimer", "Copier", "Couper", "Coller ici", "Nouveau dossier", "Cheats Swiss (\xC3\xA9" "diteur)" };
+enum { FA_SHARE, FA_RENAME, FA_DELETE, FA_COPY, FA_CUT, FA_PASTE, FA_MKDIR, FA_CHEATS, FA_COUNT };
+static const char *const fa_names[FA_COUNT] = { "Partager (QR code)", "Renommer", "Supprimer", "Copier", "Couper", "Coller ici", "Nouveau dossier", "Cheats Swiss (\xC3\xA9" "diteur)" };
 
 static void fe_action(int a) {
     char path[NAME_LEN];
@@ -175,6 +180,9 @@ static void fe_action(int a) {
     int has = i >= 0 && i < nfe;
     if (has) fe_path(i, path, sizeof(path));
     switch (a) {
+    case FA_SHARE:                                       /* v55 : fichier, dossier, ou (ligne du haut) le dossier ouvert */
+        if (has) share_open(path, fe[i].dir); else share_open(fe_cwd, 1);
+        break;
     case FA_RENAME: if (has) kb_start(KB_RENAME, fe[i].name, -1, -1); break;
     case FA_DELETE:
         if (!has) break;
@@ -214,6 +222,7 @@ static void files_kb_done(int mode, const char *t) {
 
 static void files_input(u32 down, u32 nav, int fire) {
     if (ch_on) { cheats_input(down, nav, fire); return; }
+    if (share_input(down)) return;                           /* v55 : fenetre du QR code */
     if (!fe) fe_load();
     if (tv_text) {                                           /* lecture d'un texte */
         if (fire && (nav & PAD_BUTTON_DOWN)) tv_top++;
@@ -322,4 +331,5 @@ static void draw_tab_files(void) {
     static const char *const k[] = { "A", "B", "X" };
     static const char *const l[] = { "OUVRIR", "RETOUR", "ACTIONS" };
     draw_legend_keys(k, l, 3);
+    share_draw();                                            /* v55 */
 }

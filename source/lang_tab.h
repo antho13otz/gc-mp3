@@ -1000,3 +1000,8 @@
     { "Pas assez de m\xC3\xA9moire pour ce jeu (main.dol trop gros)", "Not enough memory for this game (main.dol too big)" },
     { "Pas assez de m\xC3\xA9moire libre dans GC Station", "Not enough free memory in GC Station" },
     { "Lecture du jeu impossible (carte SD)", "Cannot read the game (SD card)" },
+    { "Partager (QR code)", "Share (QR code)" },
+    { "Partager ce fichier", "Share this file" },
+    { "Partager ce dossier", "Share this folder" },
+    { "Scanne le QR code avec ton t\xC3\xA9l\xC3\xA9phone (m\xC3\xAAme Wi-Fi)", "Scan the QR code with your phone (same Wi-Fi)" },
+    { "B : fermer   (le lien marche tant que GC Station est allum\xC3\xA9)", "B: close   (the link works while GC Station is running)" },

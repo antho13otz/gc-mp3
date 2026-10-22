@@ -21,6 +21,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v55
+- **Partager un fichier par QR code** : onglet FICHIERS, **X > Partager (QR code)** sur un fichier → un QR code s'affiche ; scanne-le avec ton téléphone (même Wi-Fi que la GameCube) pour ouvrir une page avec le nom, la taille, un aperçu (photo, musique, vidéo, texte) et le bouton **Télécharger**.
+- Marche aussi sur un **dossier** (ou, sur la ligne du haut, le dossier ouvert) : la page liste ses fichiers, chacun téléchargeable.
+- Chaque partage a un lien secret ; il marche tant que GC Station est allumé. Les vidéos se lisent directement dans le navigateur du téléphone (lecture par morceaux).
+
 ## Nouveautés v54
 - **Lanceur maison : 1080° Avalanche démarre !** (les 2 accès `lwzu` sont branchés depuis la v53). Le jeu affiche ensuite « Une erreur est survenue » : il faut savoir ce que le faux lecteur lui a répondu.
 - **Journal pendant le jeu** : le programme résident écrit son état sur la carte SD pendant le jeu (compteurs + les 24 dernières commandes du jeu au lecteur). Au démarrage suivant de GC Station, il devient `SD:/gc-mp3/natif/journal-jeu.txt` (aussi sur le téléphone, page « Analyses des jeux »).

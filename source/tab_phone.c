@@ -102,6 +102,225 @@ static void tp_reply(s32 c, int code, const char *ctype, const void *body, int l
     if (tp_send(c, h, hl) && len > 0) tp_send(c, body, len);
 }
 
+/* ---------- v55 : partager un fichier (ou un dossier) de la carte SD par QR code ----------
+   Onglet FICHIERS, X > Partager : un lien secret (jeton de 8 lettres) vers ce fichier,
+   valable tant que GC Station tourne. Le telephone (meme Wi-Fi) l'ouvre en scannant le QR code :
+   /p/<jeton>            page avec le nom, la taille, un apercu et le bouton Telecharger
+   /p/<jeton>/dl         le fichier (telechargement)       /p/<jeton>/voir   (affiche dans le navigateur)
+   dossier : /p/<jeton>/dl/<nom>  et  /p/<jeton>/voir/<nom>  pour chaque fichier du dossier */
+#define SH_MAX 8
+typedef struct { char tok[12]; char path[NAME_LEN]; u8 dir; } share_t;
+static share_t sh_tab[SH_MAX];
+static int sh_next = 0;
+
+static const char *sh_mime(const char *name) {
+    const char *e = strrchr(name, '.');
+    if (!e) return "application/octet-stream";
+    static const char *const m[][2] = {
+        { ".jpg", "image/jpeg" }, { ".jpeg", "image/jpeg" }, { ".png", "image/png" }, { ".gif", "image/gif" }, { ".bmp", "image/bmp" },
+        { ".webp", "image/webp" }, { ".mp3", "audio/mpeg" }, { ".ogg", "audio/ogg" }, { ".flac", "audio/flac" }, { ".wav", "audio/wav" },
+        { ".m4a", "audio/mp4" }, { ".mp4", "video/mp4" }, { ".txt", "text/plain; charset=utf-8" }, { ".ini", "text/plain; charset=utf-8" },
+        { ".log", "text/plain; charset=utf-8" }, { ".cfg", "text/plain; charset=utf-8" }, { ".xml", "text/plain; charset=utf-8" },
+        { ".json", "text/plain; charset=utf-8" }, { ".m3u", "text/plain; charset=utf-8" }, { ".pdf", "application/pdf" }, { ".zip", "application/zip" } };
+    for (unsigned i = 0; i < sizeof(m) / sizeof(m[0]); i++) if (!strcasecmp(e, m[i][0])) return m[i][1];
+    return "application/octet-stream";
+}
+static int sh_kind(const char *name) {                  /* 1 image, 2 son, 3 video, 4 texte, 0 autre */
+    const char *t = sh_mime(name);
+    return !strncmp(t, "image/", 6) ? 1 : !strncmp(t, "audio/", 6) ? 2 : !strncmp(t, "video/", 6) ? 3 : !strncmp(t, "text/", 5) ? 4 : 0;
+}
+static void sh_esc(sbuf_t *s, const char *t) {          /* texte -> HTML */
+    char b[8];
+    for (; *t; t++) {
+        if (*t == '<') sb_add(s, "&lt;"); else if (*t == '>') sb_add(s, "&gt;"); else if (*t == '&') sb_add(s, "&amp;");
+        else if (*t == '"') sb_add(s, "&quot;"); else { b[0] = *t; b[1] = 0; sb_add(s, b); }
+    }
+}
+static void sh_pct(char *o, int cap, const char *t) {   /* nom -> morceau d'adresse (%XX) */
+    int n = 0;
+    for (; *t && n < cap - 4; t++) {
+        unsigned char ch = (unsigned char)*t;
+        if (isalnum(ch) || ch == '-' || ch == '_' || ch == '.' || ch == '~') o[n++] = (char)ch;
+        else n += snprintf(o + n, cap - n, "%%%02X", ch);
+    }
+    o[n] = 0;
+}
+static const share_t *sh_find(const char *tok, int tl) {
+    if (tl < 6 || tl > 10) return NULL;
+    for (int i = 0; i < SH_MAX; i++)
+        if (sh_tab[i].tok[0] && (int)strlen(sh_tab[i].tok) == tl && !strncmp(sh_tab[i].tok, tok, tl)) return &sh_tab[i];
+    return NULL;
+}
+
+/* envoie un fichier par morceaux (avec "Range" : les videos se lisent sur iPhone / Android) */
+static void sh_send_file(s32 c, const char *path, int inl, char *req) {
+    static u8 fb[32768];
+    struct stat st;
+    FILE *f = NULL;
+    if (stat(path, &st) != 0 || S_ISDIR(st.st_mode) || (f = fopen(path, "rb")) == NULL) {
+        tp_reply(c, 404, "text/plain; charset=utf-8", "Fichier introuvable", 19);
+        return;
+    }
+    long size = (long)st.st_size, a = 0, b = size - 1;
+    int part = 0;
+    char *r = ci_find(req, "\nrange:");
+    if (r && size > 0) {
+        r += 7;
+        while (*r == ' ') r++;
+        if (!strncasecmp(r, "bytes=", 6)) {
+            r += 6;
+            if (*r == '-') { long n = atol(r + 1); if (n > 0) { a = n > size ? 0 : size - n; part = 1; } }
+            else if (isdigit((unsigned char)*r)) {
+                char *e;
+                a = strtol(r, &e, 10); part = 1;
+                if (*e == '-' && isdigit((unsigned char)e[1])) b = strtol(e + 1, NULL, 10);
+                if (b > size - 1) b = size - 1;
+            }
+        }
+        if (part && a > b) {
+            fclose(f);
+            char h[200];
+            int hl = snprintf(h, sizeof(h), "HTTP/1.1 416 Range Not Satisfiable\r\nContent-Range: bytes */%ld\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", size);
+            tp_send(c, h, hl);
+            return;
+        }
+    }
+    const char *nm = base_of(path);
+    char ascii[160], pct[400];
+    int k = 0;
+    for (const char *p = nm; *p && k < (int)sizeof(ascii) - 1; p++) ascii[k++] = ((unsigned char)*p < 0x20 || (unsigned char)*p >= 0x7F || *p == '"' || *p == '\\') ? '_' : *p;
+    ascii[k] = 0;
+    sh_pct(pct, sizeof(pct), nm);
+    char h[1024];
+    long len = size ? b - a + 1 : 0;
+    int hl = snprintf(h, sizeof(h), "HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %ld\r\nAccept-Ranges: bytes\r\n",
+                      part ? "206 Partial Content" : "200 OK", inl ? sh_mime(nm) : "application/octet-stream", len);
+    if (part) hl += snprintf(h + hl, sizeof(h) - hl, "Content-Range: bytes %ld-%ld/%ld\r\n", a, b, size);
+    hl += snprintf(h + hl, sizeof(h) - hl, "Content-Disposition: %s; filename=\"%s\"; filename*=UTF-8''%s\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n",
+                   inl ? "inline" : "attachment", ascii, pct);
+    if (!tp_send(c, h, hl) || !len) { fclose(f); return; }
+    if (a && fseek(f, a, SEEK_SET) != 0) { fclose(f); return; }
+    while (len > 0) {
+        size_t want = len > (long)sizeof(fb) ? sizeof(fb) : (size_t)len;
+        size_t n = fread(fb, 1, want, f);
+        if (n == 0 || !tp_send(c, fb, (int)n)) break;
+        len -= (long)n;
+        tp_last_req = now_ms();
+    }
+    fclose(f);
+}
+
+static void sh_page_head(sbuf_t *s, const char *title) {
+    sb_add(s, "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>");
+    sh_esc(s, title);
+    sb_add(s, "</title><style>body{font-family:sans-serif;background:#120a2e;color:#eee;margin:0;padding:18px}"
+              "h2{word-break:break-all;margin:6px 0}.m{color:#a99be0;font-size:14px}"
+              ".b{display:block;text-align:center;background:#7a3cf0;color:#fff;text-decoration:none;font-size:20px;padding:16px;border-radius:12px;margin:16px 0}"
+              "img,video{max-width:100%;border-radius:8px;margin-top:8px}audio{width:100%;margin-top:8px}"
+              ".f{display:flex;justify-content:space-between;gap:10px;padding:12px 0;border-bottom:1px solid #2c2058}"
+              ".f a{color:#d7c2ff;text-decoration:none;word-break:break-all}.f span{color:#8f80c8;white-space:nowrap;font-size:14px}"
+              ".t{color:#ffd278;font-size:13px;margin-bottom:6px}</style></head><body><div class=\"t\">GC STATION</div>");
+}
+static void sh_preview(sbuf_t *s, const char *href, const char *name) {
+    int k = sh_kind(name);
+    if (k == 1) { sb_add(s, "<img src=\""); sb_add(s, href); sb_add(s, "\" alt=\"\">"); }
+    else if (k == 2) { sb_add(s, "<audio controls preload=\"none\" src=\""); sb_add(s, href); sb_add(s, "\"></audio>"); }
+    else if (k == 3) { sb_add(s, "<video controls preload=\"metadata\" src=\""); sb_add(s, href); sb_add(s, "\"></video>"); }
+    else if (k == 4) { sb_add(s, "<p><a style=\"color:#d7c2ff\" href=\""); sb_add(s, href); sb_add(s, ui_en ? "\">Read in the browser</a></p>" : "\">Lire dans le navigateur</a></p>"); }
+}
+static int sh_cmp(const void *a, const void *b) { return strcasecmp(*(char *const *)a, *(char *const *)b); }
+
+/* /p/... ; rend 1 si la requete etait pour le partage */
+static int sh_route(s32 c, const char *target, char *req) {
+    if (strncmp(target, "/p/", 3)) return 0;
+    const char *t = target + 3, *sl = strchr(t, '/');
+    int tl = sl ? (int)(sl - t) : (int)strlen(t);
+    char tok[12];
+    snprintf(tok, sizeof(tok), "%.*s", tl < 11 ? tl : 11, t);
+    const share_t *sh = sh_find(t, tl);
+    if (!sh || !sd_ok) {
+        static const char m[] = "Lien de partage expir\xC3\xA9 (GC Station a \xC3\xA9t\xC3\xA9 relanc\xC3\xA9 ?)";
+        tp_reply(c, 404, "text/plain; charset=utf-8", m, (int)sizeof(m) - 1);
+        return 1;
+    }
+    char path[NAME_LEN];
+    snprintf(path, sizeof(path), "%s", sh->path);
+    int dir = sh->dir;
+    const char *rest = sl ? sl : "";
+    char sz[32];
+    if (!dir) {
+        if (!strcmp(rest, "/dl")) { sh_send_file(c, path, 0, req); return 1; }
+        if (!strcmp(rest, "/voir")) { sh_send_file(c, path, 1, req); return 1; }
+        if (rest[0] && strcmp(rest, "/")) { tp_reply(c, 404, "text/plain; charset=utf-8", "Introuvable", 11); return 1; }
+        struct stat st;
+        if (stat(path, &st) != 0) { tp_reply(c, 404, "text/plain; charset=utf-8", "Fichier introuvable", 19); return 1; }
+        sbuf_t s = { 0 };
+        const char *nm = base_of(path);
+        char href[40];
+        sh_page_head(&s, nm);
+        sb_add(&s, "<h2>"); sh_esc(&s, nm); sb_add(&s, "</h2><div class=\"m\">");
+        fmt_size(sz, sizeof(sz), (long)st.st_size); sb_add(&s, sz);
+        sb_add(&s, "</div><a class=\"b\" href=\"/p/"); sb_add(&s, tok); sb_add(&s, ui_en ? "/dl\">Download</a>" : "/dl\">T\xC3\xA9l\xC3\xA9" "charger</a>");
+        snprintf(href, sizeof(href), "/p/%s/voir", tok);
+        sh_preview(&s, href, nm);
+        sb_add(&s, "</body></html>");
+        tp_reply(c, 200, "text/html; charset=utf-8", s.b ? s.b : "", s.b ? (int)strlen(s.b) : 0);
+        free(s.b);
+        return 1;
+    }
+    /* dossier */
+    int inl = !strncmp(rest, "/voir/", 6);
+    if (inl || !strncmp(rest, "/dl/", 4)) {
+        char nm[256];
+        url_decode(rest + (inl ? 6 : 4), nm, sizeof(nm), 0);
+        if (!nm[0] || strchr(nm, '/') || strchr(nm, '\\') || !strcmp(nm, ".") || !strcmp(nm, "..")) {
+            tp_reply(c, 400, "text/plain; charset=utf-8", "Nom invalide", 12);
+            return 1;
+        }
+        char p[NAME_LEN];
+        snprintf(p, sizeof(p), "%s/%s", path, nm);
+        sh_send_file(c, p, inl, req);
+        return 1;
+    }
+    sbuf_t s = { 0 };
+    sh_page_head(&s, base_of(path));
+    sb_add(&s, "<h2>"); sh_esc(&s, base_of(path)); sb_add(&s, "</h2>");
+    DIR *d = opendir(path);
+    char *names[500];
+    int n = 0;
+    struct dirent *e;
+    while (d && (e = readdir(d)) != NULL && n < 500) {
+        if (e->d_name[0] == '.') continue;
+        char p[NAME_LEN];
+        snprintf(p, sizeof(p), "%s/%s", path, e->d_name);
+        if (is_dir(p, e)) continue;
+        names[n] = strdup(e->d_name);
+        if (names[n]) n++;
+    }
+    if (d) closedir(d);
+    qsort(names, n, sizeof(char *), sh_cmp);
+    snprintf(sz, sizeof(sz), ui_en ? "%d files" : "%d fichier%s", n, n > 1 ? "s" : "");
+    sb_add(&s, "<div class=\"m\">"); sb_add(&s, sz); sb_add(&s, "</div>");
+    for (int i = 0; i < n; i++) {
+        char p[NAME_LEN], pct[600], line[700];
+        struct stat st;
+        snprintf(p, sizeof(p), "%s/%s", path, names[i]);
+        sh_pct(pct, sizeof(pct), names[i]);
+        snprintf(line, sizeof(line), "<div class=\"f\"><a href=\"/p/%s/%s/%s\">", tok, sh_kind(names[i]) ? "voir" : "dl", pct);
+        sb_add(&s, line); sh_esc(&s, names[i]);
+        fmt_size(sz, sizeof(sz), stat(p, &st) == 0 ? (long)st.st_size : 0);
+        snprintf(line, sizeof(line), "</a><span>%s &nbsp;<a href=\"/p/%s/dl/%s\">\xE2\xAC\x87</a></span></div>", sz, tok, pct);
+        sb_add(&s, line);
+        free(names[i]);
+        if ((i & 31) == 31) tp_last_req = now_ms();
+    }
+    if (!n) sb_add(&s, ui_en ? "<p>No files in this folder.</p>" : "<p>Aucun fichier dans ce dossier.</p>");
+    sb_add(&s, "</body></html>");
+    tp_reply(c, 200, "text/html; charset=utf-8", s.b ? s.b : "", s.b ? (int)strlen(s.b) : 0);
+    free(s.b);
+    return 1;
+}
+
 /* --- JSON --- */
 static void sb_json_str(sbuf_t *s, const char *t) {
     char e[8];
@@ -395,6 +614,7 @@ static void tp_handle(s32 c) {
         else tp_reply(c, 400, "text/plain", "", 0);
         return;
     }
+    if (sh_route(c, target, (char *)req)) return;          /* v55 : fichiers partages (QR code) */
     if (!strcmp(target, "/") || !strcmp(target, "/index.html"))
         tp_reply(c, 200, "text/html; charset=utf-8", ui_en ? phone_page_en : phone_page, (int)strlen(ui_en ? phone_page_en : phone_page));
     else if (!strcmp(target, "/api/state")) {
@@ -633,6 +853,67 @@ static void draw_qr_buf(const u8 *qr, f32 x, f32 y, f32 size) {
             if (qrcodegen_getModule(qr, i, j)) gx_rect(x + (i + 4) * m, y + (j + 4) * m, m + 0.3f, m + 0.3f, RGBA(0, 0, 0, 255));
     ux_restore(uz);
 }
+/* ---------- v55 : partage, cote GameCube (fenetre du QR code) ---------- */
+static int sh_on = 0, sh_cur = -1, sh_qr_ok = 0;
+static char sh_url[96];
+static u8 sh_qr[qrcodegen_BUFFER_LEN_FOR_VERSION(8)];
+static void share_open(const char *path, int dir) {
+    if (!path || !path[0]) return;
+    int k = -1;
+    for (int i = 0; i < SH_MAX; i++) if (sh_tab[i].tok[0] && !strcmp(sh_tab[i].path, path)) k = i;   /* (deja partage : meme lien) */
+    if (k < 0) {
+        static const char al[] = "abcdefghjkmnpqrstuvwxyz23456789";
+        static u32 seed = 0;
+        seed ^= (u32)gettime() ^ (u32)(gettime() >> 32) ^ (u32)(now_ms() * 2654435761u);
+        k = sh_next; sh_next = (sh_next + 1) % SH_MAX;
+        share_t *s = &sh_tab[k];
+        s->tok[0] = 0;                                  /* (le fil du serveur ne voit pas un lien a moitie ecrit) */
+        snprintf(s->path, sizeof(s->path), "%s", path);
+        s->dir = (u8)(dir != 0);
+        char t[9];
+        for (int i = 0; i < 8; i++) { seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5; t[i] = al[seed % (sizeof(al) - 1)]; }
+        t[8] = 0;
+        memcpy(s->tok + 1, t + 1, 8);
+        s->tok[0] = t[0];
+    }
+    sh_cur = k; sh_on = 1; sh_qr_ok = 0; sh_url[0] = 0;
+    if (tp_state != PS_ON) { tp_wanted = 1; net_start_async(); }   /* (le serveur demarre tout seul) */
+}
+static int share_input(u32 down) {                      /* 1 = touche prise par la fenetre */
+    if (!sh_on) return 0;
+    if (down & (PAD_BUTTON_B | PAD_BUTTON_A)) sh_on = 0;
+    return 1;
+}
+static void share_draw(void) {
+    if (!sh_on || sh_cur < 0) return;
+    const share_t *s = &sh_tab[sh_cur];
+    if (!sh_qr_ok && tp_state == PS_ON && ip_str[0]) {
+        if (PHONE_PORT == 80) snprintf(sh_url, sizeof(sh_url), "http://%s/p/%s", ip_str, s->tok);
+        else snprintf(sh_url, sizeof(sh_url), "http://%s:%d/p/%s", ip_str, PHONE_PORT, s->tok);
+        static u8 tmp[qrcodegen_BUFFER_LEN_FOR_VERSION(8)];
+        sh_qr_ok = qrcodegen_encodeText(sh_url, tmp, sh_qr, qrcodegen_Ecc_MEDIUM, 1, 8, qrcodegen_Mask_AUTO, true) ? 1 : -1;
+    }
+    const f32 w = 460, h = 320, x = 90, y = 86;
+    char buf[NAME_LEN], d[NAME_LEN];
+    gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));
+    gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
+    draw_panel(x, y, w, h);
+    gx_text_c(F_MED, 320, y + 28, s->dir ? "Partager ce dossier" : "Partager ce fichier", RGBA(255, 255, 255, 255));
+    text_display(base_of(s->path), d, sizeof(d));
+    fit_text(F_SMALL, d, (int)w - 40, buf, sizeof(buf));
+    gx_text_c(F_SMALL, 320, y + 48, buf, RGBA(200, 185, 255, 255));
+    if (sh_qr_ok > 0) {
+        draw_qr_buf(sh_qr, 320 - 90, y + 60, 180);
+        gx_text_c(F_SMALL, 320, y + 262, sh_url, RGBA(255, 210, 120, 255));
+        gx_text_c(F_SMALL, 320, y + 282, "Scanne le QR code avec ton t\xC3\xA9l\xC3\xA9phone (m\xC3\xAAme Wi-Fi)", RGBA(190, 180, 235, 255));
+    } else if (tp_state == PS_ERR || (net_phase == NET_DONE && !net_ok)) {
+        gx_text_c(F_SMALL, 320, y + 150, "Pas de r\xC3\xA9seau : branche le Broadband Adapter", RGBA(255, 160, 120, 255));
+    } else {
+        gx_text_c(F_SMALL, 320, y + 150, "D\xC3\xA9marrage du serveur...", RGBA(190, 180, 235, 255));
+    }
+    gx_text_c(F_SMALL, 320, y + h - 10, "B : fermer   (le lien marche tant que GC Station est allum\xC3\xA9)", RGBA(255, 210, 120, 255));
+}
+
 static void draw_qr(f32 x, f32 y, f32 size) {
     int n = qrcodegen_getSize(tp_qr);
     f32 m = size / (n + 8);                             /* marge blanche de 4 modules */
