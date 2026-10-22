@@ -910,3 +910,6 @@
     { "Ce .dol est trop gros pour etre lance d'ici", "This .dol is too big to launch from here" },
     { "M\xC3\xAAme r\xC3\xA9glage que \xC2\xAB Couper les vibrations \xC2\xBB d'Indigo", "Same setting as Indigo's \\\"Disable PAD Rumble\\\"" },
     { "Cheats coch\xC3\xA9s pas enregistr\xC3\xA9s (fichier pas enregistr\xC3\xA9)", "Checked cheats not saved (file not saved)" },
+    { "Install\xC3\xA9" "e (build %d) : A pour relancer GC-MP3", "Installed (build %d): A to restart GC-MP3" },
+    { "Red\xC3\xA9marrage de GC-MP3...", "Restarting GC-MP3..." },
+    { "Ouvre le menu de la GameCube (lecteur de disque). Bouton Reset = relancer GC-MP3", "Opens the GameCube menu (disc drive). Reset button = restart GC-MP3" },

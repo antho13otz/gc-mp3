@@ -232,8 +232,8 @@ static void up_install_finish(const u8 *d, long n) {
         crumb("mise a jour : copie %s %s", up_copies[i], ok ? "ok" : "ECHEC");
     }
     up_state = UP_DONE;
-    if (nok) snprintf(up_msg, sizeof(up_msg), nok == 1 ? "Install\xC3\xA9" "e (build %d, 2 fichiers) : quitte et relance GC-MP3" : "Install\xC3\xA9" "e (build %d, %d fichiers) : quitte et relance GC-MP3", up_build, nok + 1);
-    else snprintf(up_msg, sizeof(up_msg), "Install\xC3\xA9" "e (build %d) : quitte et relance GC-MP3", up_build);
+    snprintf(up_msg, sizeof(up_msg), "Install\xC3\xA9" "e (build %d) : A pour relancer GC-MP3", up_build);   /* v38 */
+    (void)nok;
     crumb("mise a jour installee : build %d -> %s (+%d copies)", up_build, up_target, nok);
 }
 
@@ -324,10 +324,47 @@ static void update_start_download(void) {
 }
 
 /* touche A sur la ligne du menu */
+/* v38 : relance la nouvelle version directement (sans redemarrer la console : un
+   redemarrage peut ouvrir le lecteur de disque au lieu de GC-MP3) */
+static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *a2, const char *what);
+static void update_relaunch(void) {
+    crumb("relance apres mise a jour : %s", up_target);
+    if (bib_dirty) bib_save();
+    if (stats_dirty) stats_save();
+    resume_note(1);
+    if (settings_dirty) save_settings();
+    const char *e = gl_boot_dol(up_target, NULL, NULL, "GC-MP3");     /* (ne revient pas si ca marche) */
+    if (e) { snprintf(up_msg, sizeof(up_msg), "%s", TR(e)); quit_requested = 1; }
+}
+/* v38 : bouton Reset de la console pendant GC-MP3 : relance GC-MP3 (sans passer par
+   le menu de la GameCube / le lecteur de disque) */
+static volatile int reset_pressed = 0;
+#ifdef GEKKO
+static void reset_cb(u32 irq, void *ctx) { (void)irq; (void)ctx; reset_pressed = 1; }
+#endif
+static void reset_init(void) {
+#ifdef GEKKO
+    SYS_SetResetCallback(reset_cb);
+#endif
+}
+static void reset_pump(void) {
+    if (!reset_pressed) return;
+    reset_pressed = 0;
+    if (up_state == UP_DL || up_state == UP_WRITE) return;      /* (pas pendant une mise a jour) */
+    up_pick_target();
+    crumb("bouton Reset : relance %s", up_target);
+    ui_status("Red\xC3\xA9marrage de GC-MP3...");
+    if (bib_dirty) bib_save();
+    if (stats_dirty) stats_save();
+    resume_note(1);
+    if (settings_dirty) save_settings();
+    const char *e = gl_boot_dol(up_target, NULL, NULL, "GC-MP3");
+    if (e) lib_note(e);
+}
 static void update_activate(void) {
     if (sd_virtual) { up_fail("Pas de carte SD : mise \xC3\xA0 jour impossible ici"); return; }
     if (up_state == UP_AVAIL) update_start_download();
-    else if (up_state == UP_DONE) quit_requested = 1;
+    else if (up_state == UP_DONE) update_relaunch();
     else update_check();
 }
 

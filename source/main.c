@@ -10278,6 +10278,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_RG) hint = "Selon les \xC3\xA9tiquettes ReplayGain des fichiers (au morceau suivant)";
     if (menu_sel == MI_XFADE) hint = "Les morceaux se m\xC3\xA9langent en fin de lecture (pas avec L / R)";
     if (menu_sel == MI_VIDEO) hint = "Pris en compte au prochain lancement (B maintenu au d\xC3\xA9marrage = 480i)";
+    if (menu_sel == MI_QUIT) hint = "Ouvre le menu de la GameCube (lecteur de disque). Bouton Reset = relancer GC-MP3";
     if (menu_sel == MI_RUMBLE) hint = "M\xC3\xAAme r\xC3\xA9glage que \xC2\xAB Couper les vibrations \xC2\xBB d'Indigo";
     if (hint) gx_text1(F_SMALL, x + 20, help_y + 8, hint, RGBA(255, 210, 120, 255));
     draw_menu_legend(0);
@@ -11260,6 +11261,7 @@ int main(int argc, char **argv) {
     dma_cb();
     AUDIO_StartDMA();
 
+    reset_init();                            /* v38 : bouton Reset */
     resume_start();                          /* reprise du dernier morceau */
     last_input_ms = now_ms();
 
@@ -11440,6 +11442,7 @@ int main(int argc, char **argv) {
         dltab_pump();
         update_pump();
         cheats_tick();                       /* v37 : cheats coches ecrits un peu apres */
+        reset_pump();                        /* v38 : bouton Reset = relancer GC-MP3 */
         night_pump();
         rb_pump();
         lib_pump();
