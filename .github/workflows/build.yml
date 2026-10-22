@@ -186,11 +186,17 @@ jobs:
           print("DOL valide:", size, "octets,", len(secs), "sections")
           PY
 
+      # v39 : apploader.img qui ramene sur GC-MP3 avec A + Z + START en jeu
+      - name: Fabriquer le fichier du retour en jeu (apploader.img)
+        run: python3 tools/mkapploader.py gc-mp3player.dol gc-mp3-igr.img ${{ github.run_number }}
+
       - name: Publier le .dol
         uses: actions/upload-artifact@v4
         with:
           name: gc-mp3player
-          path: gc-mp3player.dol
+          path: |
+            gc-mp3player.dol
+            gc-mp3-igr.img
 
       # Mise a jour en un clic : le .dol va dans la release "dernier" du depot,
       # que GC-MP3 consulte (START > Mise a jour)
@@ -199,4 +205,4 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 tools/publish_release.py gc-mp3player.dol ${{ github.run_number }}
+        run: python3 tools/publish_release.py gc-mp3player.dol ${{ github.run_number }} gc-mp3-igr.img

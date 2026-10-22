@@ -388,6 +388,11 @@ static int fifo_put(s16 l, s16 r) {
    soiree, les vibrations et les jeux : kick_count augmente a chaque coup. */
 #define NBARS 55
 static float bar_val[NBARS];
+/* v39 : styles du spectre (dessin dans viz_styles.c) */
+enum { VZ_LED, VZ_BARS, VZ_MIRROR, VZ_CURVE, VZ_SGRAM, VZ_SCOPE, VZ_CIRCLE, VZ_COUNT };
+static int viz_style = VZ_LED;
+static const char *const viz_keys[VZ_COUNT] = { "led", "barres", "miroir", "courbe", "spectrogramme", "oscilloscope", "cercle" };
+static const char *const viz_names[VZ_COUNT] = { "LED (classique)", "Barres", "Miroir", "Courbe", "Spectrogramme", "Oscilloscope", "Cercle" };
 static float win[VIZ_N];
 static short bar_lo[NBARS], bar_hi[NBARS];      /* cases de la FFT de chaque barre */
 static float bar_fc[NBARS];                       /* (frequence centrale, en case de FFT) */
@@ -3779,6 +3784,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "ecran_position")) { scr_vpos = atoi(v); if (scr_vpos < -24) scr_vpos = -24; if (scr_vpos > 24) scr_vpos = 24; }
         else if (!strcasecmp(k, "ecran_taille")) { scr_pct = atoi(v); if (scr_pct < 80) scr_pct = 80; if (scr_pct > SCR_MAX) scr_pct = SCR_MAX; }
         else if (!strcasecmp(k, "style")) ui_skin = !strncasecmp(v, "mod", 3) ? 1 : 0;
+        else if (!strcasecmp(k, "spectre")) { for (int i = 0; i < VZ_COUNT; i++) if (!strcasecmp(v, viz_keys[i])) viz_style = i; }
         else if (!strcasecmp(k, "jeux_affichage")) { for (int i = 0; i < 6; i++) if (!strcasecmp(v, glview_keys[i])) gl_view = i; }
         else if (!strcasecmp(k, "interface")) { ui_lang = !strncasecmp(v, "en", 2) ? 1 : !strncasecmp(v, "fr", 2) ? 0 : -1; ui_lang_apply(); }
         else if (!strcasecmp(k, "langue")) { lang_pref = -1; for (int i = 0; i < LANG_COUNT; i++) if (!strncasecmp(v, lang_keys[i], 2)) lang_pref = i; }
@@ -3891,6 +3897,7 @@ static void save_settings(void) {
             volume_pct, theme_keys[theme_id], saver_min, saver_keys[saver_style], vid[video_pref], tv_crt ? "cathodique" : "plat",
             lang_pref >= 0 ? lang_keys[lang_pref] : "auto", ui_lang == 1 ? "en" : ui_lang == 0 ? "fr" : "auto", skin_keys[ui_skin ? 1 : 0], glview_keys[gl_view >= 0 && gl_view < 6 ? gl_view : 0], scr_pct, scr_hpct, scr_vpos, scr_wide ? "16:9" : "4:3", resume_on ? "oui" : "non",
             resume_path, resume_pos);
+    fprintf(f, "# Style du spectre : led / barres / miroir / courbe / spectrogramme / oscilloscope / cercle\nspectre = %s\n", viz_keys[viz_style]);
     fprintf(f, "# Mode veilleuse : luminosite 1 a 5 ; radio lancee si rien ne joue : oui / non\n"
                "veilleuse_luminosite = %d\nveilleuse_radio = %s\n"
                "# Mise a jour : verification au demarrage (oui / non), depot GitHub,\n"
@@ -4979,6 +4986,7 @@ static void fmt_listen(char *buf, int sec) {
     else fmt_time(buf, sec);
 }
 
+#include "viz_styles.c"                       /* v39 : styles du spectre */
 static void draw_player_radio(void) {
     char buf[200], l1[160], l2[160];
     draw_panel(289, 73, 341, 338);
@@ -5088,21 +5096,8 @@ static void draw_player_radio(void) {
         if (now_title[0] && tab == TAB_RADIO && !rb_mode) gx_text1(F_SMALL, 457, 238, "X : garder ce titre", RGBA(255, 205, 110, 255));
     }
 
-    /* egaliseur (spectre reel) + reflet */
-    const f32 base = 295.0f;
-    for (int i = 0; i < NBARS && EL(EL_VIZ); i++) {
-        f32 bx = (f32)(306 + (int)(i * 5.6f));
-        f32 tcol = (f32)i / (f32)(NBARS - 1);
-        col_t cb = lerp_c(RGBA(156, 60, 255, 255), RGBA(70, 130, 255, 255), tcol * 1.25f - 0.15f);
-        int nb = 1 + (int)(bar_val[i] * 16.0f);
-        for (int j = 0; j < nb; j++) {
-            col_t cj = lerp_c(cb, RGBA(255, 196, 255, 255), (f32)j / 18.0f);
-            gx_rect(bx, base - 3.0f * (j + 1), 4, 2, cj);
-        }
-        for (int j = 0; j < nb && j < 7; j++)
-            gx_rect(bx, base + 2.0f + 3.0f * j, 4, 2, RGBA(cb.r, cb.g, cb.b, 80 - j * 11));
-    }
-    gx_hgrad(306, base, 308, 1, RGBA(130, 80, 255, 70), RGBA(80, 140, 255, 70));
+    /* spectre (v39 : plusieurs styles, START > Reglages > Style du spectre) */
+    if (EL(EL_VIZ)) draw_viz(306, 295, 308, 48);
 
     /* boutons : station precedente, ecouter/arreter, station suivante, son */
     if (!EL(EL_BUTTONS)) return;
@@ -5621,21 +5616,8 @@ static void draw_player_music(void) {
             gx_text_c(F_SMALL, 460, 304, a, RGBA(120, 104, 180, 255));
         }
     } else {
-    /* egaliseur (spectre reel de ce qui est joue) + reflet */
-    const f32 base = 295.0f;
-    for (int i = 0; i < NBARS; i++) {
-        f32 bx = (f32)(306 + (int)(i * 5.6f));
-        f32 tcol = (f32)i / (f32)(NBARS - 1);
-        col_t cb = lerp_c(RGBA(156, 60, 255, 255), RGBA(70, 130, 255, 255), tcol * 1.25f - 0.15f);
-        int nb = 1 + (int)(bar_val[i] * 16.0f);
-        for (int j = 0; j < nb; j++) {
-            col_t cj = lerp_c(cb, RGBA(255, 196, 255, 255), (f32)j / 18.0f);
-            gx_rect(bx, base - 3.0f * (j + 1), 4, 2, cj);
-        }
-        for (int j = 0; j < nb && j < 7; j++)
-            gx_rect(bx, base + 2.0f + 3.0f * j, 4, 2, RGBA(cb.r, cb.g, cb.b, 80 - j * 11));
-    }
-    gx_hgrad(306, base, 308, 1, RGBA(130, 80, 255, 70), RGBA(80, 140, 255, 70));
+    /* spectre de ce qui est joue (v39 : plusieurs styles) */
+    draw_viz(306, 295, 308, 48);
     }
 
     /* boutons de transport */
@@ -9918,13 +9900,16 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_UPDATE, MI_TOSWISS, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_UPDATE, MI_TOSWISS, MI_QUIT, MI_COUNT };
 static int autostart_get(void);
 static const char *autostart_set(int on);
 /* v35 : page Reglages en sections (L / R) : GC-MP3, Indigo, Swiss, Outils */
 enum { SEC_GCMP3, SEC_INDIGO, SEC_SWISS, SEC_TOOLS, SEC_COUNT };
 static int menu_sec = 0;
 static void ic_menu_input(int sec, u32 down, u32 nav, int fire);
+static void igr_value(char *out, int cap);                  /* v39 : retour en jeu vers GC-MP3 (igr.c) */
+static void igr_toggle(void);
+static const char *igr_hint(void);
 static void ic_menu_draw(int sec, f32 x, f32 y, f32 w, int vis, f32 rh, f32 help_y);
 static void ic_menu_close(void);
 static int ic_menu_dirty(void);
@@ -9968,8 +9953,10 @@ static void menu_value(int i, char *out, int cap) {
     case MI_NIGHT:   snprintf(out, cap, "Luminosit\xC3\xA9 %d / 5", night_lum); break;
     case MI_UPDATE:  update_value(out, cap); break;
     case MI_AUTOSTART: snprintf(out, cap, "%s", autostart_get() ? "Oui" : "Non"); break;
+    case MI_IGR:     igr_value(out, cap); break;
     case MI_TOSWISS: snprintf(out, cap, "(A)"); break;
     case MI_LAYOUT:  snprintf(out, cap, "%s", layout_names[player_layout]); break;
+    case MI_VIZ:     snprintf(out, cap, "%s", viz_names[viz_style]); break;
     case MI_ELEMS: { int c = 0; for (int i = 0; i < EL_COUNT; i++) c += EL(i); snprintf(out, cap, "%d / %d  (A)", c, EL_COUNT); break; }
     case MI_TABS:  { int c = 0; for (int i = 0; i < TAB_COUNT; i++) c += tab_shown(i); snprintf(out, cap, "%d / %d  (A)", c, TAB_COUNT); break; }
     case MI_SLEEP:
@@ -10012,8 +9999,8 @@ static const char *const menu_labels[MI_COUNT] = {
     "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Style de l'interface", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran", "D\xC3\xA9" "cor de saison",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
     "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
-    "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
-    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer avec Indigo / Swiss", "Mise \xC3\xA0 jour", "Quitter vers Swiss", "Quitter GC-MP3" };
+    "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre",
+    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer avec Indigo / Swiss", "Retour en jeu (A+Z+START)", "Mise \xC3\xA0 jour", "Quitter vers Swiss", "Quitter GC-MP3" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -10072,7 +10059,9 @@ static void menu_change(int i, int d) {
     case MI_UPDATE:  return;
     case MI_TOSWISS: return;
     case MI_AUTOSTART: { const char *e = autostart_set(!autostart_get()); if (e) lib_note(e); } return;
+    case MI_IGR:     igr_toggle(); return;
     case MI_LAYOUT:  player_layout = (player_layout + d + LAYOUT_COUNT) % LAYOUT_COUNT; break;
+    case MI_VIZ:     viz_style = (viz_style + d + VZ_COUNT) % VZ_COUNT; break;
     case MI_ELEMS:   checklist_open(&ck_elems); return;
     case MI_TABS:    checklist_open(&ck_tabs); return;
     case MI_SLEEP: {
@@ -10147,6 +10136,7 @@ static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
         }
         else if (menu_sel == MI_UPDATE) { update_activate(); return; }
         else if (menu_sel == MI_AUTOSTART) { menu_change(MI_AUTOSTART, 1); return; }
+        else if (menu_sel == MI_IGR) { igr_toggle(); return; }
         else if (menu_sel == MI_TOSWISS) {                     /* v30 : retour au menu de Swiss / Indigo */
             menu_open = 0;
             if (settings_dirty) save_settings();
@@ -10278,6 +10268,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_RG) hint = "Selon les \xC3\xA9tiquettes ReplayGain des fichiers (au morceau suivant)";
     if (menu_sel == MI_XFADE) hint = "Les morceaux se m\xC3\xA9langent en fin de lecture (pas avec L / R)";
     if (menu_sel == MI_VIDEO) hint = "Pris en compte au prochain lancement (B maintenu au d\xC3\xA9marrage = 480i)";
+    if (menu_sel == MI_IGR) hint = igr_hint();
     if (menu_sel == MI_QUIT) hint = "Ouvre le menu de la GameCube (lecteur de disque). Bouton Reset = relancer GC-MP3";
     if (menu_sel == MI_RUMBLE) hint = "M\xC3\xAAme r\xC3\xA9glage que \xC2\xAB Couper les vibrations \xC2\xBB d'Indigo";
     if (hint) gx_text1(F_SMALL, x + 20, help_y + 8, hint, RGBA(255, 210, 120, 255));
@@ -11225,6 +11216,7 @@ static void music_pump(void) {
 #include "gclib.c"                             /* v25 : Mes jeux GameCube (jaquettes du pack Swiss Indigo) */
 #include "tools.c"                             /* v35 : cartes memoire, applis, recents, infos */
 #include "indigo_cfg.c"                        /* v32 : reglages d'Indigo / Swiss */
+#include "igr.c"                               /* v39 : A + Z + START en jeu -> GC-MP3 */
 
 int main(int argc, char **argv) {
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;
@@ -11443,6 +11435,7 @@ int main(int argc, char **argv) {
         update_pump();
         cheats_tick();                       /* v37 : cheats coches ecrits un peu apres */
         reset_pump();                        /* v38 : bouton Reset = relancer GC-MP3 */
+        igr_pump();                          /* v39 : fichier du retour en jeu */
         night_pump();
         rb_pump();
         lib_pump();

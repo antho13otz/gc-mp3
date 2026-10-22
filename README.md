@@ -19,6 +19,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v39
+
+- **Spectre amélioré** : mouvement plus fluide (lissé à chaque image), crêtes qui retombent doucement, et **7 styles** : LED (classique), Barres, Miroir, Courbe, Spectrogramme (défilant, couleurs de chaleur), Oscilloscope (forme d'onde), Cercle. START > Réglages > GC-MP3 > « Style du spectre ».
+- **A + Z + START en jeu ramène sur GC-MP3** : START > Réglages > GC-MP3 > « Retour en jeu (A+Z+START) » = GC-MP3. GC-MP3 télécharge son propre `apploader.img` (fabriqué à chaque compilation, même format que celui d'Indigo), le met dans `swiss/patches/` et règle Indigo sur « Apploader ». Celui d'Indigo est gardé (`apploader-indigo.img`) : remettre « Indigo » le rétablit. Le fichier est remis à jour tout seul après chaque mise à jour de GC-MP3.
+- Merci à Swiss (Extrems, emu_kidid) : le petit programme de démarrage de `apploader.img` (`tools/igr_stub.bin`, GPL v2) vient du packer de Swiss.
+
 ## Nouveautés v38
 
 - **Après une mise à jour : A relance GC-MP3 directement** (la nouvelle version est chargée en mémoire). Avant, il fallait quitter, ce qui redémarrait la console sur le menu de la GameCube / le lecteur de disque.
