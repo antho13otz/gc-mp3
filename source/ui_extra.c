@@ -377,7 +377,7 @@ static void draw_list_wide(void) {
     }
     gx_rrect_fill(11, 419, 271, 39, 9, C_PANEL_TOP, C_PANEL_BOT);
     gx_rrect_stroke(11, 419, 271, 39, 9, 1.2f, RGBA(100, 56, 220, 255));
-    snprintf(buf, sizeof(buf), "< %s >   Liste \xC3\xA9tendue", view_names[view_mode]);
+    snprintf(buf, sizeof(buf), "< %s >   Liste \xC3\xA9tendue", TR(view_names[view_mode]));
     gx_text1(F_SMALL, 24, 443, buf, RGBA(170, 155, 225, 255));
 }
 
