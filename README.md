@@ -19,6 +19,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Mes jeux GameCube (v25)
+
+- Onglet JEUX > « Mes jeux GameCube » (la barre du haut) : tes jeux de la carte SD (.iso, .gcm, .ciso, .nkit.iso, dans n'importe quel dossier, 3 niveaux).
+- Chaque jeu montre sa **jaquette** si tu as le pack de Swiss Indigo : `SD:/swiss/ui/posters.pak` (et `stills.pak` pour une capture, `descriptions.txt` pour le résumé). Sans jaquette : la bannière du disque et l'ID du jeu.
+- A = fiche du jeu (grande jaquette, région, taille, résumé, capture), X = ses cheats (crée `SD:/swiss/cheats/<ID>.txt` si besoin), Y = actualiser la liste.
+- Les jeux se lancent toujours depuis Swiss. Les bannières lues sont gardées dans `SD:/gc-mp3/cache/jeux` (plus rapide la fois suivante).
+
 ## Éditeur de cheats Swiss (v25)
 
 - Ouvre-le avec START > « Cheats Swiss (éditeur) », ou onglet FICHIERS > X > « Cheats Swiss », ou en ouvrant un .txt de `SD:/swiss/cheats`.
