@@ -234,7 +234,7 @@ static int auto_list(int which, s16 *out, int max) {
 /* ---------- vue "Mes listes" ---------- */
 #define LG_USER 2                        /* groupes 0 et 1 : listes automatiques */
 static void lists_build_groups(void) {
-    s16 tmp[MAX_FILES];
+    static s16 tmp[MAX_FILES];
     snprintf(grp_name[0], sizeof(grp_name[0]), "Les plus \xC3\xA9" "cout\xC3\xA9s");
     grp_count[0] = (s16)auto_list(0, tmp, AUTO_MAX);
     snprintf(grp_name[1], sizeof(grp_name[1]), "\xC3\x89" "cout\xC3\xA9s r\xC3\xA9" "cemment");
