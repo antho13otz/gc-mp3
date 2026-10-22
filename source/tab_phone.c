@@ -102,6 +102,7 @@ static void tp_reply(s32 c, int code, const char *ctype, const void *body, int l
 /* --- JSON --- */
 static void sb_json_str(sbuf_t *s, const char *t) {
     char e[8];
+    t = tr(t);
     sb_add(s, "\"");
     for (const unsigned char *p = (const unsigned char *)t; *p; p++) {
         if (*p == '"' || *p == '\\') { e[0] = '\\'; e[1] = (char)*p; e[2] = 0; sb_add(s, e); }
@@ -386,7 +387,7 @@ static void tp_handle(s32 c) {
         return;
     }
     if (!strcmp(target, "/") || !strcmp(target, "/index.html"))
-        tp_reply(c, 200, "text/html; charset=utf-8", phone_page, (int)strlen(phone_page));
+        tp_reply(c, 200, "text/html; charset=utf-8", ui_en ? phone_page_en : phone_page, (int)strlen(ui_en ? phone_page_en : phone_page));
     else if (!strcmp(target, "/api/state")) {
         char tmp[sizeof(tp_json[0])];
         snprintf(tmp, sizeof(tmp), "%s", tp_json[tp_json_cur]);
