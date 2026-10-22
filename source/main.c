@@ -10005,11 +10005,14 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_LAUNCHER, MI_UPDATE, MI_TOSWISS, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_LAUNCHER, MI_UPDATE, MI_QUIT, MI_COUNT };
 static int autostart_get(void);
 static const char *autostart_set(int on);
+static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
+static const char *ipl_set(int on);
 /* v35 : page Reglages en sections (L / R) : GC-MP3, Indigo, Swiss, Outils */
-enum { SEC_GCMP3, SEC_INDIGO, SEC_SWISS, SEC_TOOLS, SEC_COUNT };
+enum { SEC_GCMP3, SEC_VIDEO, SEC_PAD, SEC_EMU, SEC_GAMES, SEC_NET, SEC_TOOLS, SEC_COUNT };   /* v57 : plus de sections Indigo / Swiss */
+#define SEC_IS_IC(s) ((s) >= SEC_VIDEO && (s) <= SEC_NET)
 static int menu_sec = 0;
 static void ic_menu_input(int sec, u32 down, u32 nav, int fire);
 static void igr_value(char *out, int cap);                  /* v39 : retour en jeu vers GC-MP3 (igr.c) */
@@ -10061,10 +10064,9 @@ static void menu_value(int i, char *out, int cap) {
     case MI_PARTY:   snprintf(out, cap, "%s", party_names[party_style]); break;
     case MI_NIGHT:   snprintf(out, cap, "Luminosit\xC3\xA9 %d / 5", night_lum); break;
     case MI_UPDATE:  update_value(out, cap); break;
-    case MI_AUTOSTART: snprintf(out, cap, "%s", autostart_get() ? "Oui" : "Non"); break;
+    case MI_AUTOSTART: snprintf(out, cap, "%s", ipl_get() ? "Oui" : "Non"); break;
     case MI_IGR:     igr_value(out, cap); break;
     case MI_LAUNCHER: ld_value(out, cap); break;
-    case MI_TOSWISS: snprintf(out, cap, "(A)"); break;
     case MI_LAYOUT:  snprintf(out, cap, "%s (%s)", TR(layout_names[player_layout]), TR(tab_names[IS_PLAYER_TAB(tab) ? tab : TAB_MUSIC])); break;
     case MI_GLANIM:  snprintf(out, cap, "%s", gl_anim ? "Oui" : "Non"); break;
     case MI_LYRSHOW: snprintf(out, cap, "%s", lyr_names[lyr_show]); break;
@@ -10114,7 +10116,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
     "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
     "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Animations (jeux / applis)", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre", "Couleurs du spectrogramme", "Paroles dans le lecteur", "\xC3\x89" "clair sur les basses",
-    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer avec Indigo / Swiss", "Retour en jeu (A+Z+START)", "Lanceur de jeux", "Mise \xC3\xA0 jour", "Quitter vers Swiss", "Quitter GC Station" };
+    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer la console sur GC Station", "Retour en jeu (A+Z+START)", "Lanceur de jeux", "Mise \xC3\xA0 jour", "Quitter GC Station" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -10172,8 +10174,7 @@ static void menu_change(int i, int d) {
     case MI_PARTY:   party_style = (party_style + d + PARTY_STYLES) % PARTY_STYLES; break;
     case MI_NIGHT:   night_lum += d; if (night_lum < 1) night_lum = 1; if (night_lum > 5) night_lum = 5; break;
     case MI_UPDATE:  return;
-    case MI_TOSWISS: return;
-    case MI_AUTOSTART: { const char *e = autostart_set(!autostart_get()); if (e) lib_note(e); } return;
+    case MI_AUTOSTART: { const char *e = ipl_set(!ipl_get()); if (e) lib_note(e); } return;
     case MI_IGR:     igr_toggle(); return;
     case MI_LAUNCHER: ld_change(0); return;
     case MI_LAYOUT:  player_layout = (player_layout + d + LAYOUT_COUNT) % LAYOUT_COUNT;
@@ -10230,7 +10231,7 @@ static void menu_input(u32 down, u32 nav, int fire) {
         ic_menu_close();                                         /* (reglages d'Indigo changes : enregistres) */
         return;
     }
-    if (menu_sec == SEC_INDIGO || menu_sec == SEC_SWISS) ic_menu_input(menu_sec, down, nav, fire);
+    if (SEC_IS_IC(menu_sec)) ic_menu_input(menu_sec - SEC_VIDEO, down, nav, fire);
     else if (menu_sec == SEC_TOOLS) tools_menu_input(down, nav, fire);
     else menu_input_gcmp3(down, nav, fire);
     if (!menu_open) ic_menu_close();                             /* (page fermee par une action) */
@@ -10259,14 +10260,6 @@ static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
         else if (menu_sel == MI_AUTOSTART) { menu_change(MI_AUTOSTART, 1); return; }
         else if (menu_sel == MI_IGR) { igr_toggle(); return; }
         else if (menu_sel == MI_LAUNCHER) { ld_change(1); return; }
-        else if (menu_sel == MI_TOSWISS) {                     /* v30 : retour au menu de Swiss / Indigo */
-            menu_open = 0;
-            if (settings_dirty) save_settings();
-            ui_status("Lancement de Swiss...");
-            const char *e = gl_boot_swiss(NULL);               /* (ne revient pas si ca marche) */
-            if (e) lib_note(e);
-            return;
-        }
         else if (menu_sel == MI_GAMES || menu_sel == MI_TITLES) {    /* A = ouvrir la liste */
             menu_open = 0;
             if (settings_dirty) save_settings();
@@ -10311,33 +10304,36 @@ static void draw_menu(void) {
     /* v35 : page plus large, sections en haut (L / R) */
     const f32 x = 40, y = 40, w = 560, rh = 24, h = 384;
     const int vis = 10;
-    const f32 ly = y + 76, help_y = y + h - 40;
+    const f32 ly = y + 84, help_y = y + h - 40;
     gx_rrect_fill(x, y, w, h, 10, RGBA(14, 8, 44, 255), RGBA(8, 5, 26, 255));
     draw_panel(x, y, w, h);
     gx_text1(F_LARGE, x + 18, y + 32, "R\xC3\xA9glages", RGBA(255, 255, 255, 255));
-    {
-        static const char *const sec_fr[SEC_COUNT] = { "GC Station", "Indigo", "Swiss", "Outils" };
-        static const char *const sec_en[SEC_COUNT] = { "GC Station", "Indigo", "Swiss", "Tools" };
-        f32 px = x + 150;
+    gx_text1(F_SMALL, x + 150, y + 30, ui_en ? "L / R : sections" : "L / R : sections", RGBA(150, 135, 210, 255));
+    if (ic_menu_dirty()) gx_text_r(F_SMALL, x + w - 16, y + 30, ui_en ? "modified (saved on close)" : "modifi\xC3\xA9 (enregistr\xC3\xA9 en fermant)", RGBA(255, 210, 120, 255));
+    {   /* v57 : sections sur une 2e ligne (7 sections) */
+        static const char *const sec_fr[SEC_COUNT] = { "GC Station", "Vid\xC3\xA9o", "Manettes", "\xC3\x89mulation", "Jeux", "R\xC3\xA9seau", "Outils" };
+        static const char *const sec_en[SEC_COUNT] = { "GC Station", "Video", "Pads", "Emulation", "Games", "Network", "Tools" };
+        f32 tws[SEC_COUNT], tot = 0, avail = w - 36;
+        for (int p = 0; p < SEC_COUNT; p++) { tws[p] = (f32)text_width(F_SMALL, ui_en ? sec_en[p] : sec_fr[p], 0); tot += tws[p]; }
+        f32 pad = (avail - tot - 5 * (SEC_COUNT - 1)) / SEC_COUNT;
+        if (pad > 26) pad = 26;
+        if (pad < 6) pad = 6;
+        f32 px = x + 18;
         for (int p = 0; p < SEC_COUNT; p++) {
             const char *nm = ui_en ? sec_en[p] : sec_fr[p];
-            int tw = text_width(F_MED, nm, 0) + 22;
+            f32 tw = tws[p] + pad;
             if (p == menu_sec) {
-                gx_glow(px, y + 14, tw, 26, 8, RGBA(150, 80, 255, 120), 2);
-                gx_rrect_fill(px, y + 14, tw, 26, 8, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
-            } else gx_rrect_fill(px, y + 14, tw, 26, 8, RGBA(34, 20, 80, 255), RGBA(26, 14, 64, 255));
-            gp_zone(px, y + 14, tw, 26, &menu_sec, p, GPZ_SEL);
-            gx_text1(F_MED, px + 11, y + 33, nm, p == menu_sec ? RGBA(255, 255, 255, 255) : RGBA(170, 155, 225, 255));
-            px += tw + 8;
+                gx_glow(px, y + 44, tw, 24, 8, RGBA(150, 80, 255, 120), 2);
+                gx_rrect_fill(px, y + 44, tw, 24, 8, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
+            } else gx_rrect_fill(px, y + 44, tw, 24, 8, RGBA(34, 20, 80, 255), RGBA(26, 14, 64, 255));
+            gp_zone(px, y + 44, tw, 24, &menu_sec, p, GPZ_SEL);
+            gx_text1(F_SMALL, px + pad / 2, y + 61, nm, p == menu_sec ? RGBA(255, 255, 255, 255) : RGBA(170, 155, 225, 255));
+            px += tw + 5;
         }
-        gx_text_r(F_SMALL, x + w - 16, y + 32, "L / R", RGBA(150, 135, 210, 255));
-        if (ic_menu_dirty()) gx_text_r(F_SMALL, x + w - 16, y + 60, ui_en ? "modified (saved on close)" : "modifi\xC3\xA9 (enregistr\xC3\xA9 en fermant)", RGBA(255, 210, 120, 255));
     }
     gx_rect(x + 18, y + h - 58, w - 36, 1, RGBA(76, 52, 150, 200));
-    if (menu_sec == SEC_INDIGO || menu_sec == SEC_SWISS) {
-        gx_text1(F_SMALL, x + 20, y + 60, menu_sec == SEC_INDIGO ? (ui_en ? "Indigo menu and console settings" : "Menu d'Indigo et r\xC3\xA9glages de la console")
-                                                               : (ui_en ? "How Swiss launches games, network" : "Lancement des jeux par Swiss, r\xC3\xA9seau"), RGBA(150, 135, 210, 255));
-        ic_menu_draw(menu_sec, x + 12, ly, w - 24, vis, rh, help_y);
+    if (SEC_IS_IC(menu_sec)) {
+        ic_menu_draw(menu_sec - SEC_VIDEO, x + 12, ly, w - 24, vis, rh, help_y);
         draw_menu_legend(1);
         return;
     }
@@ -10346,7 +10342,6 @@ static void draw_menu(void) {
         draw_menu_legend(2);
         return;
     }
-    gx_text1(F_SMALL, x + 20, y + 60, ui_en ? "Settings of the GC Station app" : "R\xC3\xA9glages de l'appli GC Station", RGBA(150, 135, 210, 255));
     if (menu_sel < menu_top) menu_top = menu_sel;
     if (menu_sel >= menu_top + vis) menu_top = menu_sel - vis + 1;
     if (menu_top > MI_COUNT - vis) menu_top = MI_COUNT - vis;
@@ -10390,6 +10385,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_RG) hint = "Selon les \xC3\xA9tiquettes ReplayGain des fichiers (au morceau suivant)";
     if (menu_sel == MI_XFADE) hint = "Les morceaux se m\xC3\xA9langent en fin de lecture (pas avec L / R)";
     if (menu_sel == MI_VIDEO) hint = "Pris en compte au prochain lancement (B maintenu au d\xC3\xA9marrage = 480i)";
+    if (menu_sel == MI_AUTOSTART) hint = "Copie GC Station dans ipl.dol (PicoLoader) : Reset = GC Station ; Z au d\xC3\xA9marrage = Swiss";
     if (menu_sel == MI_IGR) hint = igr_hint();
     if (menu_sel == MI_LAUNCHER) hint = ld_hint();
     if (menu_sel == MI_GLANIM) hint = "D\xC3\xA9" "filement doux, cadre qui glisse, carrousel (onglet JEUX / APPS)";
@@ -10399,7 +10395,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_FLASH) hint = "Le flash blanc du mode soir\xC3\xA9" "e sur chaque coup de basse";
     if (menu_sel == MI_TABS) hint = "A : afficher / cacher un onglet   X / Y : changer l'ordre";
     if (menu_sel == MI_SGPAL) hint = "Spectrogramme plein \xC3\xA9" "cran (\xC3\xA9" "conomiseur, mode soir\xC3\xA9" "e) et style Spectrogramme";
-    if (menu_sel == MI_RUMBLE) hint = "M\xC3\xAAme r\xC3\xA9glage que \xC2\xAB Couper les vibrations \xC2\xBB d'Indigo";
+    if (menu_sel == MI_RUMBLE) hint = "M\xC3\xAAme r\xC3\xA9glage que \xC2\xAB Couper les vibrations \xC2\xBB (section Manettes)";
     if (hint) gx_text1(F_SMALL, x + 20, help_y + 8, hint, RGBA(255, 210, 120, 255));
     draw_menu_legend(0);
 }

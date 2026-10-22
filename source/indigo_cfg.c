@@ -295,7 +295,7 @@ static int ic_save(void) {
     as_cache = -1;                                           /* (demarrage auto : relire) */
     memset(ic_chg, 0, sizeof(ic_chg)); memset(ic_del, 0, sizeof(ic_del));
     ic_dirty = 0; ic_quit_warn = 0; ic_file_ok = 1;
-    ic_note("Enregistr\xC3\xA9 : Indigo / Swiss l'utilisera \xC3\xA0 son prochain d\xC3\xA9marrage");
+    ic_note("Enregistr\xC3\xA9 : utilis\xC3\xA9 au prochain lancement d'un jeu");
     return 1;
 }
 
@@ -432,13 +432,18 @@ static void ic_shown(int k, char *out, int cap) {
 
 /* ---------- v35 : listes de reglages (avec titres de groupe) ---------- */
 #define IC_HDR(h) (-1 - (h))                    /* ligne de titre */
-enum { ICH_SYS, ICH_UI, ICH_GAMES, ICH_DEF, ICH_NET, ICH_GAME, ICH_COUNT };
-static const char *const ic_hdr_fr[ICH_COUNT] = { "Syst\xC3\xA8me de la console", "Interface d'Indigo", "Lancement des jeux",
-    "Jeux par d\xC3\xA9" "faut : vid\xC3\xA9o, manette, \xC3\xA9mulation", "R\xC3\xA9seau", "Ce jeu seulement" };
-static const char *const ic_hdr_en[ICH_COUNT] = { "Console system", "Indigo interface", "Launching games",
-    "Game defaults: video, pad, emulation", "Network", "This game only" };
+enum { ICH_SYS, ICH_UI, ICH_GAMES, ICH_DEF, ICH_NET, ICH_GAME, ICH_VIDEO, ICH_VGAME, ICH_PAD, ICH_EMU, ICH_COUNT };
+static const char *const ic_hdr_fr[ICH_COUNT] = { "Mat\xC3\xA9riel", "Interface", "Lancement des jeux",
+    "Jeux par d\xC3\xA9" "faut : vid\xC3\xA9o, manette, \xC3\xA9mulation", "R\xC3\xA9seau", "Ce jeu seulement",
+    "Vid\xC3\xA9o de la console", "Vid\xC3\xA9o des jeux", "Manettes (dans les jeux)", "\xC3\x89mulation (dans les jeux)" };
+static const char *const ic_hdr_en[ICH_COUNT] = { "Hardware", "Interface", "Launching games",
+    "Game defaults: video, pad, emulation", "Network", "This game only",
+    "Console video", "Game video", "Controllers (in games)", "Emulation (in games)" };
 typedef struct { short r[128]; int n, sel, top; } ic_list;
-static ic_list ic_lindigo, ic_lswiss, ic_lgame;
+/* v57 : sections Video / Manettes / Emulation / Jeux / Reseau (plus de sections Indigo et Swiss ;
+   les reglages qui ne servaient qu'au menu d'Indigo ne sont plus montres, le fichier les garde) */
+#define IC_NSEC 5
+static ic_list ic_lsec[IC_NSEC], ic_lgame;
 static void ic_list_add_page(ic_list *L, int hdr, int page) {
     L->r[L->n++] = (short)IC_HDR(hdr);
     for (int i = ic_page_start[page]; i < ic_page_start[page + 1] && L->n < 128; i++) L->r[L->n++] = (short)i;
@@ -447,15 +452,41 @@ static void ic_lists_build(void) {
     static int done = 0;
     if (done) return;
     done = 1;
-    ic_lindigo.n = 0; ic_list_add_page(&ic_lindigo, ICH_SYS, 0); ic_list_add_page(&ic_lindigo, ICH_UI, 1);
-    ic_lswiss.n = 0; ic_list_add_page(&ic_lswiss, ICH_GAMES, 2); ic_list_add_page(&ic_lswiss, ICH_DEF, 3); ic_list_add_page(&ic_lswiss, ICH_NET, 4);
+    /* (H_(ICH_x) = titre de groupe, code par ICH_x + 1 ; NULL = fin) */
+    #define H_(h) ((const char *)(long)((h) + 1))
+    static const char *const sk[IC_NSEC][40] = {
+        { H_(ICH_VIDEO), "System Video", "Screen Position", "Apps Video Mode", "AVECompat", "Force DTV Status", "RT4KOptim",
+          H_(ICH_VGAME), "Force NTSC Video Mode", "Force PAL Video Mode", "Force Horizontal Scale", "Force Vertical Offset", "Force Vertical Filter",
+          "Force Field Rendering", "Fix Pixel Center", "Disable Alpha Dithering", "Force Anisotropic Filter", "Force Widescreen",
+          "Force Video Active", "Pause for resolution change", "Disable Video Patches", "RetroTINK-4K Profile", NULL },
+        { H_(ICH_PAD), "Disable PAD Rumble", "Disable PAD Recalibration", "Force Polling Rate", "Invert Camera Stick", "Swap Camera Stick",
+          "Digital Trigger Level", NULL },
+        { H_(ICH_EMU), "Emulate Audio Streaming", "Emulate Read Speed", "Emulate Memory Card", "Disable Memory Card", "Disable MemCard PRO GameID",
+          "Emulate Broadband Adapter", "Disable Hypervisor", "Simulated MRAM Size", "Configure Audio Buffer", NULL },
+        { H_(ICH_GAMES), "IGRType", "BS2Boot", "AutoCheats", "Prefer Clean Boot", "System Language", "System Sound", "System Boot Mode",
+          H_(ICH_SYS), "SD/IDE Speed", "Init DVD Drive at startup", "Stop DVD Drive motor", "Enable USB Gecko", "Wait for USB Gecko", "Enable WiiRD debug", NULL },
+        { H_(ICH_NET), "InitNetwork", "BBAUseDHCP", "BBALocalIP", "BBANetmask", "BBAGateway", "SMBHostIP", "SMBShareName", "SMBUserName", "SMBPassword",
+          "FTPHostIP", "FTPPort", "FTPUserName", "FTPPassword", "FTPUsePasv", "FSPHostIP", "FSPPort", "FSPPassword", "FSPPathMTU", "RT4KHostIP", "RT4KPort", NULL },
+    };
+    for (int s = 0; s < IC_NSEC; s++) {
+        ic_list *L = &ic_lsec[s];
+        L->n = 0;
+        for (int i = 0; sk[s][i] && L->n < 128; i++) {
+            long h = (long)sk[s][i] - 1;
+            if (h >= 0 && h < ICH_COUNT) { L->r[L->n++] = (short)IC_HDR(h); continue; }
+            int k = ic_find(sk[s][i]);
+            if (k >= 0) L->r[L->n++] = (short)k;
+        }
+        L->sel = 1; L->top = 0;
+    }
+    #undef H_
     static const char *const gk[] = { "Game Language", "Force Video Mode", "Force Horizontal Scale", "Force Vertical Offset", "Force Vertical Filter",
         "Force Field Rendering", "Fix Pixel Center", "Disable Alpha Dithering", "Force Anisotropic Filter", "Force Widescreen", "Force Polling Rate",
         "Invert Camera Stick", "Swap Camera Stick", "Digital Trigger Level", "Emulate Audio Streaming", "Emulate Read Speed",
         "Emulate Broadband Adapter", "Disable Memory Card", "Disable Hypervisor", "Prefer Clean Boot", "RetroTINK-4K Profile", NULL };
     ic_lgame.n = 0; ic_lgame.r[ic_lgame.n++] = (short)IC_HDR(ICH_GAME);
     for (int i = 0; gk[i]; i++) { int k = ic_find(gk[i]); if (k >= 0) ic_lgame.r[ic_lgame.n++] = (short)k; }
-    ic_lindigo.sel = ic_lswiss.sel = ic_lgame.sel = 1;
+    ic_lgame.sel = 1;
 }
 static int ic_list_item(ic_list *L) { return L->sel >= 0 && L->sel < L->n && L->r[L->sel] >= 0 ? L->r[L->sel] : -1; }
 static void ic_list_move(ic_list *L, int d) {
@@ -541,7 +572,7 @@ static void ic_menu_ensure(void) {
     ic_load();
     ic_menu_loaded = 1;
 }
-static ic_list *ic_menu_list(int sec) { return sec == 1 ? &ic_lindigo : &ic_lswiss; }
+static ic_list *ic_menu_list(int sec) { return &ic_lsec[sec >= 0 && sec < IC_NSEC ? sec : 0]; }
 static void ic_menu_input(int sec, u32 down, u32 nav, int fire) {
     ic_menu_ensure();
     ic_list_input(ic_menu_list(sec), down, nav, fire);
@@ -550,7 +581,7 @@ static void ic_menu_input(int sec, u32 down, u32 nav, int fire) {
         else if (ic_save()) {
             ic_apply(0);
             if (ic_restart_note) ic_note("Enregistr\xC3\xA9 : vid\xC3\xA9o / r\xC3\xA9seau de GC Station au prochain lancement");
-            else ic_note("Enregistr\xC3\xA9 : Indigo / Swiss l'utilisera \xC3\xA0 son prochain d\xC3\xA9marrage");
+            else ic_note("Enregistr\xC3\xA9 : utilis\xC3\xA9 au prochain lancement d'un jeu");
         }
     }
 }
@@ -564,7 +595,7 @@ static void ic_menu_draw(int sec, f32 x, f32 y, f32 w, int vis, f32 rh, f32 help
     ic_list *L = ic_menu_list(sec);
     ic_list_draw(L, x, y, w, vis, rh);
     ic_help_draw(ic_list_item(L), x + 8, help_y, w - 16);
-    if (!ic_file_ok) gx_text_r(F_SMALL, x + w, y - 26, ui_en ? "no global.ini yet" : "pas encore de global.ini", RGBA(150, 135, 210, 255));
+    if (!ic_file_ok && !ic_dirty) gx_text_r(F_SMALL, x + w - 4, y - 54, ui_en ? "default settings" : "r\xC3\xA9glages par d\xC3\xA9" "faut", RGBA(150, 135, 210, 255));
 }
 static int ic_menu_dirty(void) { return ic_menu_loaded && ic_dirty; }
 

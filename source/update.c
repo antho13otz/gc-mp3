@@ -80,14 +80,15 @@ static int up_is_me(const char *path) {
     fclose(f);
     return found;
 }
+static char up_found[NAME_LEN] = "";                  /* (v57 : remis a zero quand ipl.dol change) */
 static void up_pick_target(void) {
     struct stat st;
     if (upd_file[0]) { snprintf(up_target, sizeof(up_target), "%s", upd_file); return; }
     {   /* deja trouve une fois (le contenu est long a verifier) */
-        static char found[NAME_LEN] = "";
+        char *found = up_found;
         static const char *const boot[] = { SD_ROOT "/ipl.dol", SD_ROOT "/boot.dol", SD_ROOT "/autoexec.dol", SD_ROOT "/a.dol", NULL };
         if (!found[0])
-            for (int i = 0; boot[i]; i++) if (stat(boot[i], &st) == 0 && up_is_me(boot[i])) { snprintf(found, sizeof(found), "%s", boot[i]); break; }
+            for (int i = 0; boot[i]; i++) if (stat(boot[i], &st) == 0 && up_is_me(boot[i])) { snprintf(found, NAME_LEN, "%s", boot[i]); break; }
         if (found[0]) { snprintf(up_target, sizeof(up_target), "%s", found); return; }
     }
     if (up_argv0 && strlen(up_argv0) > 4 && !strcasecmp(up_argv0 + strlen(up_argv0) - 4, ".dol") && stat(up_argv0, &st) == 0) {

@@ -400,8 +400,10 @@ static void nat_journal_convert(void) {
     if (len < 512 || be32(d) != NATRES_MAGIC) { free(d); return; }
     FILE *f = fopen(NA_JTXT, "w");
     if (f) {
-        u32 H[32];
-        for (int i = 0; i < 32; i++) H[i] = be32(d + i * 4);
+        u32 H[40];
+        for (int i = 0; i < 40; i++) H[i] = be32(d + i * 4);
+        int v3 = H[1] >= 3;                               /* (v57 : en-tete de 0xA0 octets) */
+        if (!v3) for (int i = 32; i < 40; i++) H[i] = 0;
         static const char *const en[] = { "OK", "pas de carte", "la carte ne demarre pas", "commande refusee", "pas de donnees", "hors de l'ISO", "delai depasse" };
         fprintf(f, "GC Station - journal du dernier jeu lance par le lanceur maison\n\n");
         fprintf(f, "Carte SD : %s, etape %u, erreur : %s (reponse %02X)\n", H[10] ? "SDHC" : "SD", (unsigned)H[13], H[11] < 7 ? en[H[11]] : "?", (unsigned)H[12]);
@@ -411,9 +413,17 @@ static void nat_journal_convert(void) {
         fprintf(f, "Vrai lecteur (reveil du jeu) : %u commandes lancees, %u fois occupe\n", (unsigned)H[25], (unsigned)H[26]);
         fprintf(f, "Le jeu a ecrit DISR (acquittements) : %u fois, dont %u avec une vraie fin de commande   dernier etat reel DISR : %02X\n\n",
                 (unsigned)H[23], (unsigned)H[29], (unsigned)(H[30] & 0xFF));
+        if (v3) {
+            fprintf(f, "Commandes speciales : audio jouer %u, audio etat %u, chercher %u, autres %u\n", (unsigned)H[32], (unsigned)H[33], (unsigned)H[34], (unsigned)H[35]);
+            fprintf(f, "Le jeu tournait encore : %u images (VI), %u lectures des manettes (SI)%s\n", (unsigned)H[36], (unsigned)H[37],
+                    H[36] ? "" : "  (crochets pas branches)");
+            if (H[38]) fprintf(f, "Retour a GC Station demande (A+Z+START)\n");
+            fprintf(f, "\n");
+        }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
-        for (int k = 0; k < NATRES_LOGN; k++) {
-            const u8 *e = d + 0x80 + k * 16;
+        int nring = v3 ? NATRES_LOGN : 24, rbase = v3 ? 0xA0 : 0x80;
+        for (int k = 0; k < nring; k++) {
+            const u8 *e = d + rbase + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);
             if (!c && !o && !l && !in) continue;
             if ((c >> 24) == 0xAC) {                      /* (le jeu acquitte : il a ete reveille) */
