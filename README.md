@@ -19,6 +19,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v31
+
+- **Activer / désactiver les cheats** (éditeur de cheats Swiss) : dans un fichier, **A** coche ou décoche un cheat (case verte = activé). GC-MP3 écrit `SD:/swiss/cheats/<ID>.chtsel`, le même fichier que Swiss / Indigo : tes choix se retrouvent aussi dans leur menu Cheats.
+- Le fichier de cheats doit s'appeler comme l'ID du jeu (ex. `GALE01.txt`). Les cheats avec des « XX » ne sont pas pris en charge par Swiss (case barrée).
+- X > « Voir / modifier les codes » pour éditer les lignes d'un cheat. Les choix restent cochés après une modification enregistrée.
+- Un jeu lancé depuis l'onglet JEUX démarre avec ses cheats cochés (GC-MP3 envoie `AutoCheats=Yes` à Indigo). Pour un jeu lancé directement depuis Indigo, active « Auto-load cheats » dans ses réglages.
+
 ## Nouveautés v30
 
 - **Démarrer GC-MP3 avec Indigo / Swiss** : START > Réglages > « Démarrer avec Indigo / Swiss » = Oui. GC-MP3 écrit `Autoload=` dans `SD:/swiss/settings/global.ini` : à chaque démarrage, Indigo ouvre GC-MP3 tout seul. Non = Indigo redevient normal.
