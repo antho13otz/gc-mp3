@@ -11439,6 +11439,7 @@ int main(int argc, char **argv) {
         phone_pump();
         dltab_pump();
         update_pump();
+        cheats_tick();                       /* v37 : cheats coches ecrits un peu apres */
         night_pump();
         rb_pump();
         lib_pump();

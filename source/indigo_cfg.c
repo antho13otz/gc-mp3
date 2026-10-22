@@ -358,8 +358,14 @@ static void indigo_cfg_boot(void) { ic_use_global(); ic_load(); if (ic_file_ok) 
 /* un reglage de GC-MP3 change (START) : meme valeur dans global.ini, si le reglage y est deja */
 static int ic_save(void);
 static void ic_set(int k, const char *v);
+static int ic_menu_loaded;
 static void ic_put(const char *key, const char *val) {
     if (!sd_ok || ic_on) return;
+    if (ic_menu_loaded) {                                    /* v37 : page Reglages ouverte : ecrit en la fermant (pas a chaque appui) */
+        int k = ic_find(key);
+        if (k >= 0 && ic_has[k] && strcmp(ic_val[k], val)) ic_set(k, val);
+        return;
+    }
     ic_use_global();
     ic_load();
     int k = ic_find(key);
