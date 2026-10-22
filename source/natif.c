@@ -17,6 +17,7 @@
 #define NA_DI    0xCC006000u                 /* registres du lecteur DVD (DI) */
 #define NA_MAXHIT 160                        /* (1080 Avalanche en a plus de 48) */
 static void nat_qr_open(const char *id);      /* v51 : QR code vers le rapport (plus bas) */
+static const char *na_tramp_why(u32 ins);     /* v52 (plus bas) */
 
 typedef struct {
     char id[7], title[72];
@@ -244,7 +245,13 @@ static void nat_write_report(const nat_info_t *in, const char *path, char *out, 
     fprintf(f, "[Lecteur DVD] acces aux registres CC006000 trouves dans main.dol : %d\n", in->ntotal);
     if (in->ntotal > in->nhit) fprintf(f, "  (limite atteinte : seuls les %d premiers sont notes)\n", in->nhit);
     for (int i = 0; i < in->nhit; i++)
-        fprintf(f, "  %08X  %s %s\n", (unsigned)in->hit_addr[i], in->hit_store[i] ? "ecrit " : "lit   ", na_reg_name(in->hit_reg[i]));
+    {
+        static const char *const opn[] = { "lwz ", "lwzu", "", "", "stw ", "stwu", "", "", "lhz ", "", "", "", "sth " };
+        u32 op = in->hit_ins[i] >> 26;
+        const char *why = na_tramp_why(in->hit_ins[i]);
+        fprintf(f, "  %08X  %s %s %s%s%s\n", (unsigned)in->hit_addr[i], op >= 32 && op <= 44 ? opn[op - 32] : "?", in->hit_store[i] ? "ecrit " : "lit   ",
+                na_reg_name(in->hit_reg[i]), why ? "   <- NON BRANCHABLE : " : "", why ? why : "");
+    }
     fprintf(f, "Fonctions concernees : %d\n", in->nfunc);
     for (int i = 0; i < in->nfunc; i++) fprintf(f, "  %08X\n", (unsigned)in->func_addr[i]);
     fprintf(f, "\n(Ce sont elles que le lanceur maison branche sur son faux lecteur.)\n");
@@ -431,10 +438,25 @@ static void na_wbe32(u8 *p, u32 v) { p[0] = (u8)(v >> 24); p[1] = (u8)(v >> 16);
 static u32 na_slot(u32 r) { return r == 0 ? 0x08 : 0x0C + (r - 2) * 4; }   /* place du registre r sur la pile */
 
 /* ecrit l'aiguillage (mots big-endian) en w ; rend le nombre de mots, 0 = instruction non geree */
+/* v52 : aussi lwzu/stwu (rA avance) et lhz/sth (demi-registre : lecture, ou lecture-modification-ecriture) */
+#define PPC_RLW(op, s, a, sh, mb, me) ((u32)(op) << 26 | (u32)(s) << 21 | (u32)(a) << 16 | (u32)(sh) << 11 | (u32)(mb) << 6 | (u32)(me) << 1)
+static const char *na_tramp_why(u32 ins) {             /* NULL = on sait brancher cette instruction */
+    u32 op = ins >> 26, rt = (ins >> 21) & 31, ra = (ins >> 16) & 31;
+    if (op != 32 && op != 33 && op != 36 && op != 37 && op != 40 && op != 44) return "instruction inconnue";
+    if ((op == 32 || op == 33 || op == 40) && rt == 1) return "lecture dans r1 (pile)";
+    if ((op == 33 || op == 37) && (ra == 0 || ra == 1 || (op == 33 && ra == rt))) return "forme u invalide";
+    return NULL;
+}
 static int na_tramp(u8 *w, u32 at, u32 site, u32 ins, u32 reg, u32 fn_load, u32 fn_store) {
-    u32 op = ins >> 26, rt = (ins >> 21) & 31;
-    if ((op != 32 && op != 36) || (op == 32 && rt == 1)) return 0;
-    u32 c[48]; int n = 0;
+    u32 op = ins >> 26, rt = (ins >> 21) & 31, ra = (ins >> 16) & 31;
+    s32 simm = (s16)(ins & 0xFFFF);
+    if (na_tramp_why(ins)) return 0;
+    int load = op == 32 || op == 33 || op == 40, half = op == 40 || op == 44;
+    u32 ral = reg & ~3u, k = reg & 3u;
+    if (half && (k & 1)) return 0;
+    u32 c[64]; int n = 0;
+#define NA_CALL(fn) do { c[n++] = PPC_D(15, 12, 0, (fn) >> 16); c[n++] = PPC_D(24, 12, 12, (fn) & 0xFFFF); \
+                         c[n++] = 0x7D8903A6u; c[n++] = 0x4E800421u; } while (0)   /* lis/ori r12 ; mtctr ; bctrl */
     c[n++] = PPC_D(37, 1, 1, -NA_FRAME);                 /* stwu r1,-0x100(r1) */
     c[n++] = PPC_STW(0, 1, 0x08);
     c[n++] = PPC_D(47, 2, 1, 0x0C);                      /* stmw r2,0x0C(r1) */
@@ -442,14 +464,23 @@ static int na_tramp(u8 *w, u32 at, u32 site, u32 ins, u32 reg, u32 fn_load, u32 
     c[n++] = 0x7C000026u; c[n++] = PPC_STW(0, 1, 0x8C);  /* mfcr r0 */
     c[n++] = 0x7C0902A6u; c[n++] = PPC_STW(0, 1, 0x90);  /* mfctr r0 */
     c[n++] = 0x7C0102A6u; c[n++] = PPC_STW(0, 1, 0x94);  /* mfxer r0 */
-    if (op == 36) c[n++] = rt == 1 ? PPC_ADDI(4, 1, NA_FRAME) : PPC_LWZ(4, 1, na_slot(rt));   /* valeur -> r4 */
-    c[n++] = PPC_ADDI(3, 0, reg);                        /* li r3,reg */
-    u32 fn = op == 36 ? fn_store : fn_load;
-    c[n++] = PPC_D(15, 12, 0, fn >> 16);                 /* lis r12,fn@h */
-    c[n++] = PPC_D(24, 12, 12, fn & 0xFFFF);             /* ori r12,r12,fn@l */
-    c[n++] = 0x7D8903A6u;                                /* mtctr r12 */
-    c[n++] = 0x4E800421u;                                /* bctrl */
-    if (op == 32) c[n++] = PPC_STW(3, 1, na_slot(rt));   /* resultat -> rD (sur la pile) */
+    if (load) {
+        c[n++] = PPC_ADDI(3, 0, ral);                    /* li r3,reg */
+        NA_CALL(fn_load);
+        if (half) c[n++] = PPC_RLW(21, 3, 3, k ? 0 : 16, 16, 31);   /* rlwinm : le demi-registre voulu */
+        c[n++] = PPC_STW(3, 1, na_slot(rt));             /* resultat -> rD (sur la pile) */
+    } else {
+        if (half) {                                      /* sth : lire, remplacer la moitie, ecrire */
+            c[n++] = PPC_ADDI(3, 0, ral);
+            NA_CALL(fn_load);
+            c[n++] = rt == 1 ? PPC_ADDI(4, 1, NA_FRAME) : PPC_LWZ(4, 1, na_slot(rt));
+            c[n++] = PPC_RLW(20, 4, 3, k ? 0 : 16, k ? 16 : 0, k ? 31 : 15);   /* rlwimi r3,r4 */
+            c[n++] = 0x7C641B78u;                        /* mr r4,r3 */
+        } else c[n++] = rt == 1 ? PPC_ADDI(4, 1, NA_FRAME) : PPC_LWZ(4, 1, na_slot(rt));   /* valeur -> r4 */
+        c[n++] = PPC_ADDI(3, 0, ral);
+        NA_CALL(fn_store);
+    }
+#undef NA_CALL
     c[n++] = PPC_LWZ(0, 1, 0x94); c[n++] = 0x7C0103A6u;  /* mtxer */
     c[n++] = PPC_LWZ(0, 1, 0x90); c[n++] = 0x7C0903A6u;  /* mtctr */
     c[n++] = PPC_LWZ(0, 1, 0x8C); c[n++] = 0x7C0FF120u;  /* mtcrf 0xFF */
@@ -457,6 +488,7 @@ static int na_tramp(u8 *w, u32 at, u32 site, u32 ins, u32 reg, u32 fn_load, u32 
     c[n++] = PPC_LWZ(0, 1, 0x08);
     c[n++] = PPC_D(46, 2, 1, 0x0C);                      /* lmw r2,0x0C(r1) */
     c[n++] = PPC_ADDI(1, 1, NA_FRAME);
+    if (op == 33 || op == 37) c[n++] = PPC_ADDI(ra, ra, simm);   /* forme "u" : rA = adresse visee */
     u32 back = site + 4, here = at + (u32)n * 4;
     c[n++] = 0x48000000u | ((back - here) & 0x03FFFFFCu);   /* b site+4 */
     for (int i = 0; i < n; i++) { w[i * 4] = (u8)(c[i] >> 24); w[i * 4 + 1] = (u8)(c[i] >> 16); w[i * 4 + 2] = (u8)(c[i] >> 8); w[i * 4 + 3] = (u8)c[i]; }
@@ -465,19 +497,29 @@ static int na_tramp(u8 *w, u32 at, u32 site, u32 ins, u32 reg, u32 fn_load, u32 
 
 /* pose les aiguillages : dol = main.dol (copie a modifier), res = image du resident (NATRES_AT) ;
    rend le nombre d'acces branches, et dans *skipped ceux qu'on n'a pas su brancher */
+#define NA_MAXSKIP 16
+static u32 na_skip_at[NA_MAXSKIP], na_skip_ins[NA_MAXSKIP];
+static const char *na_skip_why[NA_MAXSKIP];
+static int na_nskip = 0;
 static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped) {
     u32 at = (be32(res + 0x3C) + 31) & ~31u;             /* (h->end, lu en big-endian) */
     u32 fl = be32(res + 0x40), fs = be32(res + 0x44);   /* (h->di_load, h->di_store) */
     int done = 0;
-    *skipped = 0;
+    *skipped = 0; na_nskip = 0;
     for (int i = 0; i < in->nhit; i++) {
         u32 a = in->hit_addr[i], fo = 0;
         int sec = -1;
         for (int k = 0; k < in->nsec; k++) if (a >= in->sec_addr[k] && a - in->sec_addr[k] < in->sec_sz[k]) { sec = k; fo = in->sec_off[k] + (a - in->sec_addr[k]); }
-        if (sec < 0 || be32(dol + fo) != in->hit_ins[i] || at + 48 * 4 > NATRES_AT + NATRES_SIZE) { (*skipped)++; continue; }
-        int n = na_tramp(res + (at - NATRES_AT), at, a, in->hit_ins[i], in->hit_reg[i], fl, fs);
+        const char *why = sec < 0 ? "hors des sections" : be32(dol + fo) != in->hit_ins[i] ? "instruction differente"
+                        : at + 64 * 4 > NATRES_AT + NATRES_SIZE ? "plus de place" : na_tramp_why(in->hit_ins[i]);
         s32 d = (s32)(at - a);
-        if (!n || d >= 0x02000000 || d < -0x02000000) { (*skipped)++; continue; }
+        if (!why && (d >= 0x02000000 || d < -0x02000000)) why = "trop loin";
+        int n = why ? 0 : na_tramp(res + (at - NATRES_AT), at, a, in->hit_ins[i], in->hit_reg[i], fl, fs);
+        if (!why && !n) why = "demi-registre impair";
+        if (why) {
+            if (na_nskip < NA_MAXSKIP) { na_skip_at[na_nskip] = a; na_skip_ins[na_nskip] = in->hit_ins[i]; na_skip_why[na_nskip] = why; na_nskip++; }
+            (*skipped)++; continue;
+        }
         u32 b = 0x48000000u | ((u32)d & 0x03FFFFFCu);    /* b aiguillage */
         dol[fo] = (u8)(b >> 24); dol[fo + 1] = (u8)(b >> 16); dol[fo + 2] = (u8)(b >> 8); dol[fo + 3] = (u8)b;
         at += ((u32)n * 4 + 31) & ~31u;
@@ -602,6 +644,15 @@ static const char *nat_boot(int k) {
     if (res) patched = na_patch(&in, buf + o_dol, buf + o_res, &skipped);
     if (res && (skipped || in.ntotal > in.nhit)) {       /* un acces oublie = vrai lecteur interroge : on ne lance pas */
         free(buf);
+        mkdir(NA_DIR, 0777);
+        FILE *lf = fopen(NA_LOG, "w");                    /* (v52 : le journal dit lesquels et pourquoi) */
+        if (lf) {
+            fprintf(lf, "GC Station - lanceur maison : jeu PAS lance\nJeu : %s (%s)\n", in.title, in.id);
+            fprintf(lf, "Acces au lecteur : %d trouves, %d branches, %d non branches\n", in.ntotal, patched, skipped + (in.ntotal - in.nhit));
+            if (in.ntotal > in.nhit) fprintf(lf, "  %d au-dela de la limite de %d\n", in.ntotal - in.nhit, NA_MAXHIT);
+            for (int i = 0; i < na_nskip; i++) fprintf(lf, "  %08X  instruction %08X : %s\n", (unsigned)na_skip_at[i], (unsigned)na_skip_ins[i], na_skip_why[i]);
+            fclose(lf);
+        }
         static char e[120];
         snprintf(e, sizeof(e), "Lanceur maison : %d acc\xC3\xA8s au lecteur non branch\xC3\xA9s, jeu pas lanc\xC3\xA9", skipped + (in.ntotal - in.nhit));
         return e;

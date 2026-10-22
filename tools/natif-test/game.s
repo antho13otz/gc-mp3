@@ -39,6 +39,13 @@ _start:
     lwz 31,0x6020(9)
     # 5) couvercle
     lwz 30,0x6004(9)
+    # 6) v52 : demi-registre (lhz/sth) et forme "u" (lwzu)
+    lhz 29,0x6008(9)
+    lis 10,0xCC00
+    lwzu 28,0x6008(10)
+    li 0,0x1234
+    sth 0,0x600E(9)
+    lwz 27,0x600C(9)
     lwz 0,36(1)
     mtlr 0
     addi 1,1,32

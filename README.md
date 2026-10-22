@@ -21,6 +21,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v53
+- **Lanceur maison : plus d'accès au lecteur branchés.** Le faux lecteur prend maintenant aussi les instructions `lhz` / `sth` (demi-registre) et `lwzu` / `stwu` : c'est ce qui bloquait 1080° Avalanche (« 2 accès au lecteur non branchés »).
+- Si un jeu est quand même refusé, `SD:/gc-mp3/natif/dernier-lancement.txt` dit **lesquels et pourquoi** ; le rapport de l'analyse (**R**) marque aussi les accès « NON BRANCHABLE ».
+
 ## Nouveautés v52
 - **Mes applis en grandes pochettes**, comme les jeux : 4 grandes jaquettes (format 3:4) par rangée, l'icône de l'appli en entier et en grand, sur un fond flouté fait à partir de l'icône. Une vraie pochette est aussi possible : mets `cover.png` (ou `pochette.png`, `boxart.png`, `.jpg`) dans le dossier de l'appli.
 - **Lanceur natif, étape 3 (test) : le jeu lit l'ISO sur la carte SD.** Avec **X** dans « Lancer ce jeu ? », GC Station installe en haut de la mémoire un petit **programme résident** qui lit la carte SD tout seul (sans système de fichiers : la position de l'ISO sur la carte est calculée avant), et branche sur lui les accès du jeu au lecteur DVD (**faux lecteur**). Jusqu'à 160 accès au lecteur (1080° Avalanche en a plus de 48) ; si un seul ne peut pas être branché, le jeu n'est pas lancé. Les `.ciso` et la musique en streaming ne sont pas encore pris en charge.
