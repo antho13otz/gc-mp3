@@ -67,6 +67,7 @@ def pi_read(uc, off, size, data): return 0
 def io_read(uc, off, size, data):
     if 0x400 <= off < 0x430 and (off - 0x400) % 12 == 4:
         si_reads.append((off, si_sr[1])); return si_inbuf[(off - 0x400) // 12]
+    if 0x400 <= off < 0x430 and (off - 0x400) % 12 == 8: return 0
     if off == 0x438:                                    # SISR : RDST (donnees neuves pas encore prises)
         si_sr[1] += 1
         return si_sr[0] if si_sr[1] <= 20 else 0

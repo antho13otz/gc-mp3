@@ -21,6 +21,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v59
+- **Lanceur maison : manette.** La surveillance de A+Z+START lit maintenant la manette exactement comme le jeu (haut puis bas du registre), et seulement après lui. Nouveau réglage **GC Station > « A+Z+START (lanceur maison) »** pour la couper.
+- `journal-jeu.txt` dit ce que la surveillance a vu de la manette (touches, changements).
+
 ## Nouveautés v58
 - **Lanceur maison : la manette remarche dans le jeu.** En v57, la surveillance de A+Z+START lisait la manette avant le jeu : le jeu la croyait débranchée (1080° Avalanche restait figé sur la question 60 Hz). Elle ne lit maintenant que ce que le jeu a déjà lu.
 
