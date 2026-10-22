@@ -816,3 +816,4 @@
     { "Enregistr\xC3\xA9 : Indigo / Swiss l'utilisera \xC3\xA0 son prochain d\xC3\xA9marrage", "Saved: Indigo / Swiss will use it next time it starts" },
     { "Install\xC3\xA9" "e (build %d, 2 fichiers) : quitte et relance GC-MP3", "Installed (build %d, 2 files): quit and restart GC-MP3" },
     { "Install\xC3\xA9" "e (build %d, %d fichiers) : quitte et relance GC-MP3", "Installed (build %d, %d files): quit and restart GC-MP3" },
+    { "Enregistr\xC3\xA9 : vid\xC3\xA9o / r\xC3\xA9seau de GC-MP3 au prochain lancement", "Saved: GC-MP3 video / network on next launch" },
