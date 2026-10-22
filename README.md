@@ -19,6 +19,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v42
+
+- **Plus de coupure de la musique** pendant la vérification de mise à jour (ou tout autre moment où GC-MP3 est occupé) : si la boucle principale prend du retard, le son est rempli directement depuis ce qui est déjà décodé (jusqu'à 10 s d'avance).
+- **Mes applis en grille d'icônes**, comme Mes jeux, avec l'appli choisie détaillée en bas.
+- **Défilement infini** dans Mes jeux et Mes applis (du dernier au premier et inversement, carrousel en boucle) et **défilement doux** des lignes (grille, liste, applis).
+- **Page Réglages et fenêtres plus fluides** : l'onglet caché derrière n'est plus redessiné à chaque image.
+
 ## Nouveautés v41
 
 - **Onglet JEUX / APPS** (avant : JEUX) : à côté de « Mes jeux GameCube », une barre **« Mes applis »** ouvre la liste des homebrews (.dol). L'accès aux applis n'est plus dans START > Outils.
