@@ -1024,3 +1024,5 @@
     { "M\xC3\xAAme r\xC3\xA9glage que \xC2\xAB Couper les vibrations \xC2\xBB (section Manettes)", "Same setting as \\xC2\\xAB Disable PAD Rumble \\xC2\\xBB (Pads section)" },
     { "A+Z+START (lanceur maison)", "A+Z+START (home-made launcher)" },
     { "Jeux lanc\xC3\xA9s avec X : A+Z+START tenus 1 s = retour \xC3\xA0 GC Station", "Games launched with X: hold A+Z+START 1 s = back to GC Station" },
+    { "A+Z+START (lanceur maison, test)", "A+Z+START (home-made launcher, test)" },
+    { "Jeux lanc\xC3\xA9s avec X : A+Z+START = retour. ATTENTION : peut bloquer la manette du jeu", "Games launched with X: A+Z+START = back. WARNING: may block the game controller" },

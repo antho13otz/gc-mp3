@@ -29,3 +29,4 @@ python3 $T/mkiso.py game.text game.iso
 python3 $T/mkfat.py 32 game.iso sd.img 1 >/dev/null
 rm -rf out; mkdir -p out; NATIF_DUMP=boot.bin ./h2 game.iso sd.img 10 >/dev/null
 python3 $T/emu_e2e.py boot.bin sd.img game.iso | tail -1
+python3 $T/emu_e2e.py boot.bin sd.img game.iso exc | tail -1     # (v60 : plantage du jeu -> journal + redemarrage)

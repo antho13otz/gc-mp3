@@ -400,13 +400,19 @@ static void nat_journal_convert(void) {
     if (len < 512 || be32(d) != NATRES_MAGIC) { free(d); return; }
     FILE *f = fopen(NA_JTXT, "w");
     if (f) {
-        u32 H[44];
-        for (int i = 0; i < 44; i++) H[i] = be32(d + i * 4);
-        int v3 = H[1] >= 3, v4 = H[1] >= 4;               /* (en-tete : 0x80, 0xA0 (v57), 0xB0 (v59) octets) */
-        if (!v3) for (int i = 32; i < 44; i++) H[i] = 0;
-        if (!v4) for (int i = 40; i < 44; i++) H[i] = 0;
+        u32 H[52];
+        for (int i = 0; i < 52; i++) H[i] = be32(d + i * 4);
+        int v3 = H[1] >= 3, v4 = H[1] >= 4, v5 = H[1] >= 5;   /* (en-tete : 0x80, 0xA0 (v57), 0xB0 (v59), 0xD0 (v60) octets) */
+        if (!v3) for (int i = 32; i < 52; i++) H[i] = 0;
+        if (!v4) for (int i = 40; i < 52; i++) H[i] = 0;
+        if (!v5) for (int i = 44; i < 52; i++) H[i] = 0;
         static const char *const en[] = { "OK", "pas de carte", "la carte ne demarre pas", "commande refusee", "pas de donnees", "hors de l'ISO", "delai depasse" };
         fprintf(f, "GC Station - journal du dernier jeu lance par le lanceur maison\n\n");
+        if (v5 && H[44]) {
+            static const char *const xn[16] = { "?", "?", "acces memoire interdit (DSI)", "code introuvable (ISI)", "?", "alignement", "instruction invalide", "?", "?", "?", "?", "?", "?", "?", "?", "?" };
+            fprintf(f, "*** PLANTAGE DU JEU : %s ***\n    a l'adresse %08X (LR %08X), adresse visee %08X (DSISR %08X)\n    -> la console a redemarre toute seule\n\n",
+                    xn[H[44] & 15], (unsigned)H[45], (unsigned)H[46], (unsigned)H[47], (unsigned)H[48]);
+        }
         fprintf(f, "Carte SD : %s, etape %u, erreur : %s (reponse %02X)\n", H[10] ? "SDHC" : "SD", (unsigned)H[13], H[11] < 7 ? en[H[11]] : "?", (unsigned)H[12]);
         fprintf(f, "Commandes du jeu au faux lecteur : %u   secteurs lus : %u\n", (unsigned)H[19], (unsigned)H[14]);
         fprintf(f, "Derniere commande : %08X (%s)  position %08X  longueur %u\n", (unsigned)H[20], na_cmd_name(H[20]), (unsigned)H[21], (unsigned)H[22]);
@@ -418,13 +424,14 @@ static void nat_journal_convert(void) {
             fprintf(f, "Commandes speciales : audio jouer %u, audio etat %u, chercher %u, autres %u\n", (unsigned)H[32], (unsigned)H[33], (unsigned)H[34], (unsigned)H[35]);
             fprintf(f, "Le jeu tournait encore : %u images (VI), %u lectures des manettes (SI)%s\n", (unsigned)H[36], (unsigned)H[37],
                     H[36] ? "" : "  (crochets pas branches)");
+            if (v5) fprintf(f, "Signes de vie : son %u, DSP %u, dessin %u (le journal est reecrit toutes les 3 s tant que le jeu vit)\n", (unsigned)H[49], (unsigned)H[50], (unsigned)H[51]);
             if (H[38]) fprintf(f, "Retour a GC Station demande (A+Z+START)\n");
             if (v4) fprintf(f, "Manettes (A+Z+START %s) : %u lues, %u laissees au jeu, touches manette 1 : %04X (%u changements)\n",
                             H[18] & NRF_IGR ? "actif" : "coupe", (unsigned)H[40], (unsigned)H[41], (unsigned)H[42], (unsigned)H[43]);
             fprintf(f, "\n");
         }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
-        int rbase = v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
+        int rbase = v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
         for (int k = 0; k < nring; k++) {
             const u8 *e = d + rbase + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);

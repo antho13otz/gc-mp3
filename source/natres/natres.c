@@ -37,6 +37,7 @@ natres_hdr_t natres_hdr = {
     0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
 };
 #define H natres_hdr
 
@@ -284,7 +285,7 @@ static void nr_log(u32 off, u32 len, u32 info) {
    - SI : APRES la fonction du jeu (elle a deja lu les manettes), A+Z+START tenus 1 s
      = retour a GC Station : redemarrage de la console (PicoLoader -> ipl.dol). */
 #define OS_INT_TABLE ((volatile u32 *)0x80003040u)
-static u32 vi_orig = 0, si_orig = 0, igr_hold = 0;
+static u32 si_orig = 0, igr_hold = 0;
 static void hot_reset(void) {
     volatile u32 *pi = (volatile u32 *)0xCC003000u;
     irq_off();
@@ -292,10 +293,46 @@ static void hot_reset(void) {
     pi[9] = 0;                                           /* (redemarrage : comme OSResetSystem) */
     for (;;) ;
 }
-static void vi_hook(u32 irq, u32 ctx) {
-    H.vi_count++;
-    if ((H.vi_count % 180u) == 0 && tbl() - H.flush_tb > TB_SEC * 2) nr_log_flush();
-    if (vi_orig) ((void (*)(u32, u32))vi_orig)(irq, ctx);
+/* v60 : signes de vie. Chaque crochet compte, appelle la fonction du jeu, et ecrit le journal
+   toutes les 3 s : on voit si le jeu tourne encore (image, son, DSP, dessin) meme sans lecteur. */
+static void hooks_check(void);
+static u32 alive_n = 0;
+static void alive_tick(void) {
+    if ((++alive_n & 63) == 0) hooks_check();            /* (le jeu a pu remettre sa fonction : on se rebranche) */
+    if (tbl() - H.flush_tb > TB_SEC * 3) nr_log_flush();
+}
+#define NR_HOOK(nm, counter) \
+    static u32 nm##_orig = 0; \
+    static void nm##_hook(u32 irq, u32 ctx) { \
+        if (nm##_orig) ((void (*)(u32, u32))nm##_orig)(irq, ctx); \
+        counter++; alive_tick(); \
+    }
+NR_HOOK(vi, H.vi_count)
+NR_HOOK(ai, H.cnt_ai)
+NR_HOOK(dsp, H.cnt_dsp)
+NR_HOOK(pet, H.cnt_pe)
+NR_HOOK(pef, H.cnt_pe)
+
+/* v60 : plantage du jeu (acces memoire interdit, code introuvable, alignement, instruction
+   invalide) : on note ou, on ecrit le journal, et la console redemarre (retour a GC Station
+   si c'est ipl.dol). Table des exceptions du SDK : 0x80003000 (2 DSI, 3 ISI, 5, 6).
+   Le gestionnaire tourne sur sa propre pile (celle du jeu est peut-etre la cause). */
+#define OS_EXC_TABLE ((volatile u32 *)0x80003000u)
+u8 exc_stack[2048] __attribute__((aligned(16), used));
+void exc_c(u32 ex, u32 ctx) __attribute__((used));
+extern void exc_entry(void);
+__asm__(".pushsection .text\n.globl exc_entry\nexc_entry:\n"
+        "  lis 1,exc_stack@ha\n  addi 1,1,exc_stack@l\n  addi 1,1,2032\n  b exc_c\n.popsection\n");
+void exc_c(u32 ex, u32 ctx) {
+    u32 dar, dsisr;
+    __asm__ volatile("mfdar %0" : "=r"(dar));
+    __asm__ volatile("mfdsisr %0" : "=r"(dsisr));
+    if (ctx < 0x01800000u) ctx |= 0x80000000u;           /* (adresse physique -> virtuelle) */
+    H.exc_num = 0x100u | (ex & 0xFF);
+    H.exc_dar = dar; H.exc_dsisr = dsisr;
+    if (ctx >= 0x80000000u && ctx < 0x817F0000u) { H.exc_srr0 = *(volatile u32 *)(ctx + 0x198); H.exc_lr = *(volatile u32 *)(ctx + 0x84); }
+    nr_log_flush();
+    hot_reset();
 }
 static void si_hook(u32 irq, u32 ctx) {
     if (si_orig) ((void (*)(u32, u32))si_orig)(irq, ctx);
@@ -322,13 +359,26 @@ static void si_hook(u32 irq, u32 ctx) {
         hot_reset();
     }
 }
+static int nr_game_fn(u32 a) { return a >= 0x80003100u && a < 0x817F0000u; }
+static void hook1(int idx, u32 *orig, u32 fn) {
+    volatile u32 *t = OS_INT_TABLE;
+    u32 v = t[idx];
+    if (v && v != fn && nr_game_fn(v)) { *orig = v; t[idx] = fn; }
+}
 static void hooks_check(void) {
     volatile u32 *t = OS_INT_TABLE;
-    u32 d = t[21];
-    if (d < 0x80003100u || d >= 0x81800000u) return;     /* (pas la table du SDK : on ne touche a rien) */
-    u32 v = t[24], s = t[20];
-    if (v && v != (u32)vi_hook && v >= 0x80003100u && v < 0x81800000u) { vi_orig = v; t[24] = (u32)vi_hook; }
-    if ((H.flags & NRF_IGR) && s && s != (u32)si_hook && s >= 0x80003100u && s < 0x81800000u) { si_orig = s; t[20] = (u32)si_hook; }
+    if (!nr_game_fn(t[21])) return;                      /* (pas la table du SDK : on ne touche a rien) */
+    hook1(24, &vi_orig, (u32)vi_hook);
+    hook1(5, &ai_orig, (u32)ai_hook);                    /* (DSP_AI : DMA du son) */
+    hook1(7, &dsp_orig, (u32)dsp_hook);
+    hook1(18, &pet_orig, (u32)pet_hook);
+    hook1(19, &pef_orig, (u32)pef_hook);
+    if (H.flags & NRF_IGR) hook1(20, &si_orig, (u32)si_hook);
+    volatile u32 *e = OS_EXC_TABLE;
+    if (nr_game_fn(e[2])) {                              /* (exceptions : remplacees, pas chainees) */
+        static const int ex[4] = { 2, 3, 5, 6 };
+        for (int i = 0; i < 4; i++) if (e[ex[i]] != (u32)exc_entry && nr_game_fn(e[ex[i]])) e[ex[i]] = (u32)exc_entry;
+    }
 }
 
 static void di_exec(void) {

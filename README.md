@@ -21,6 +21,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v60
+- **Lanceur maison : si le jeu plante, la console redémarre toute seule** (retour sur GC Station si c'est ton `ipl.dol`), et `journal-jeu.txt` dit où et comment il a planté.
+- **Signes de vie** dans le journal : image, son, DSP et dessin. Le journal est réécrit toutes les 3 s tant que le jeu vit, même sans lecture du disque : on sait s'il est figé ou s'il attend quelque chose.
+- A+Z+START dans le lanceur maison est **coupé par défaut** : il bloquait la manette de 1080° Avalanche. Réglage « A+Z+START (lanceur maison, test) ».
+
 ## Nouveautés v59
 - **Lanceur maison : manette.** La surveillance de A+Z+START lit maintenant la manette exactement comme le jeu (haut puis bas du registre), et seulement après lui. Nouveau réglage **GC Station > « A+Z+START (lanceur maison) »** pour la couper.
 - `journal-jeu.txt` dit ce que la surveillance a vu de la manette (touches, changements).

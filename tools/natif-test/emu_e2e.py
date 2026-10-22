@@ -116,6 +116,8 @@ for i in range(n):
     mu.mem_write(dst, b[p:p + sz]); p += sz
     print('copie %08X %d' % (dst, sz))
 mu.mem_write(0x80000000, b[p:p + 0x20])
+EXC = len(sys.argv) > 4 and sys.argv[4] == 'exc'          # v60 : faux plantage
+if EXC: mu.mem_write(0x80001F40, struct.pack('>I', 1))
 STOP = 0x80001000
 mu.mem_write(STOP, struct.pack('>I', 0x48000000))
 mu.reg_write(UC_PPC_REG_1, 0x81000000); mu.reg_write(UC_PPC_REG_LR, STOP)
@@ -143,17 +145,20 @@ print('vrai lecteur : %d commandes inquiry (%s)' % (len(kicks), ' '.join('%08X' 
 # v57 : A+Z+START -> redemarrage (la fin normale n'est donc pas atteinte)
 rd32 = lambda a: struct.unpack('>I', mu.mem_read(a, 4))[0]
 tbl = [rd32(0x80003040 + i * 4) for i in (20, 21, 24)]
-hk = resets == [3, 0] and 0x817F0000 <= tbl[0] < 0x81800000 and 0x817F0000 <= tbl[2] < 0x81800000 and rd32(0x80001F00) == 3 and 55 <= rd32(0x80001F04) <= 70
+hk = resets == [3, 0] and 0x817F0000 <= tbl[0] < 0x81800000 and 0x817F0000 <= tbl[2] < 0x81800000 and rd32(0x80001F00) == 3 and (EXC or 55 <= rd32(0x80001F04) <= 70)
 print(('OK   ' if hk else 'FAUX ') + 'crochets + A+Z+START : reset %s, table SI %08X VI %08X, images %d, manettes %d' % (resets, tbl[0], tbl[2], rd32(0x80001F00), rd32(0x80001F04)))
 ok &= hk
-nolat = all(not (o == 0x40C and n <= 20) for o, n in si_reads) and len(si_reads) > 0
+nolat = all(not (o == 0x40C and n <= 20) for o, n in si_reads) and (EXC or len(si_reads) > 0)
 print(('OK   ' if nolat else 'FAUX ') + 'manettes : donnees neuves pas touchees (%d lectures SI)' % len(si_reads))
 ok &= nolat
 ok &= struct.unpack('>I', mu.mem_read(0x80001F24, 4))[0] == 0 and struct.unpack('>I', mu.mem_read(0x80001F20, 4))[0] == 0
 ok &= rd(0x4C) == 4 and len(kicks) == 4 and all(k == 0x12000000 for k in kicks)
 if card.writes:                                    # v54 : journal du jeu ecrit sur la carte
     js = card.writes[-1]; jb = disk[js * 512:js * 512 + 512]; open('journal.bin', 'wb').write(jb)
-    jok = len(set(card.writes)) == 1 and jb[:4] == b'GCSN' and struct.unpack_from('>I', jb, 0x4C)[0] == 4 and struct.unpack_from('>I', jb, 0x98)[0] == 1 and struct.unpack_from('>I', jb, 0x90)[0] == 3
+    u = lambda o: struct.unpack_from('>I', jb, o)[0]
+    jok = len(set(card.writes)) == 1 and jb[:4] == b'GCSN' and u(0x4C) == 4 and u(0x90) == 3
+    jok &= (u(0xB0) == 0x102 and u(0xB4) == 0x80001234 and u(0xB8) == 0x80005678 and u(0x98) == 0) if EXC else (u(0x98) == 1 and u(0xB0) == 0)
+    if EXC: print('plantage note : %X a %08X LR %08X' % (u(0xB0), u(0xB4), u(0xB8)))
     print(('OK   ' if jok else 'FAUX ') + 'journal du jeu : %d ecritures, secteur %X, commandes=%d' % (len(card.writes), js, struct.unpack_from('>I', jb, 0x4C)[0]))
     ok &= jok
 else:
