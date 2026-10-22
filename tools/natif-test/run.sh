@@ -1,0 +1,31 @@
+#!/bin/sh
+# GC Station : banc d'essai du lanceur natif (sur PC, sans console).
+# Besoins : clang, ld.lld, llvm-objcopy, gcc, cmake, python3, git.
+# Lancer depuis la racine du depot : sh tools/natif-test/run.sh
+set -e
+R=$(pwd); T=$R/tools/natif-test; W=$T/work; mkdir -p $W; cd $W
+[ -d unicorn ] || git clone -q --depth 1 https://github.com/unicorn-engine/unicorn
+[ -f unicorn/build/libunicorn.so ] || (mkdir -p unicorn/build && cd unicorn/build && cmake .. -DUNICORN_ARCH=ppc -DCMAKE_BUILD_TYPE=Release -DUNICORN_BUILD_TESTS=OFF >/dev/null && make -j8 >/dev/null)
+[ -d libogc ] || git clone -q --depth 1 https://github.com/devkitPro/libogc
+export UNICORN_DIR=$W/unicorn
+# 1) programme resident (clang, PowerPC 750)
+clang --target=powerpc-none-eabi -mcpu=750 -Os -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -Wall -Wextra -c $R/source/natres/natres.c -o natres.o
+ld.lld -T $R/tools/natres.ld natres.o -o natres.elf
+llvm-objcopy -O binary natres.elf natres.bin
+python3 $R/tools/bin2h.py natres.bin natres_bin.h natres_bin
+for a in "1 2 0" "0 2 0" "1 0 0" "1 1 0" "1 0 2"; do python3 $T/emu_natres.py natres.bin $a | tail -1; done
+# (natif.c sans la partie QR code / telephone, qui depend du reste de GC Station)
+sed '/^\/\* ---------- v51 : le rapport sur le telephone/,$d' $R/source/natif.c > natif.c
+echo 'static void nat_qr_open(const char *id) { (void)id; }' >> natif.c
+# 2) partie console de natif.c : verification de syntaxe avec les en-tetes de libogc
+mkdir -p fakeinc/gnu; touch fakeinc/gnu/stubs-32.h
+printf '#pragma once\n#include <stdbool.h>\n#include <sys/types.h>\nbool fatMountSimple(const char*, const void*);\nvoid fatUnmount(const char*);\n' > fakeinc/fat.h
+sed -n '/^\/\* ---------- lecture des disques/,/^static int gl_id_ok/p' $R/source/gclib.c | sed '$d' > gd.inc
+clang --target=powerpc-linux-gnu -fsyntax-only -Wall -Wno-unused-function -Wno-unused-variable -DHW_DOL -D__gamecube__ -Ilibogc/gc -Ifakeinc -I. -I$R/source -isystem /usr/include -isystem /usr/include/x86_64-linux-gnu $T/gk.c && echo "console : syntaxe OK"
+# 3) bout en bout : faux jeu -> ISO -> carte SD FAT32 -> lancement natif -> emulateur
+gcc -DNATIF_BENCH -Wall -Wno-unused-function -Wno-unused-variable -I. -I$R/source -o h2 $T/h2.c
+clang --target=powerpc-none-eabi -mcpu=750 -c $T/game.s -o game.o && ld.lld -Ttext=0x80003100 -e _start game.o -o game.elf && llvm-objcopy -O binary -j .text game.elf game.text
+python3 $T/mkiso.py game.text game.iso
+python3 $T/mkfat.py 32 game.iso sd.img 1 >/dev/null
+rm -rf out; mkdir -p out; NATIF_DUMP=boot.bin ./h2 game.iso sd.img 10 >/dev/null
+python3 $T/emu_e2e.py boot.bin sd.img game.iso | tail -1

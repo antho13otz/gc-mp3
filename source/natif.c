@@ -1,20 +1,21 @@
-// GC Station v50 : lanceur natif, etape 1 = analyseur (inclus dans main.c apres gclib.c)
+// GC Station v52 : lanceur natif (inclus dans main.c apres gclib.c)
 // Code original de GC Station (aucun code de Swiss). Base : la documentation publique
-// du materiel GameCube (YAGCD, Dolphin).
+// du materiel GameCube (YAGCD, Dolphin) et la specification SD (mode SPI).
 //
-// Ce que fait un lanceur de jeux, et ce que cette etape prepare :
+// Ce que fait un lanceur de jeux :
 //  1. lire l'en-tete du disque (boot.bin 0x000, bi2.bin 0x440, apploader 0x2440) ;
-//  2. charger main.dol et la table des fichiers (FST) en memoire, comme l'apploader ;
-//  3. remplir la memoire basse (0x80000000...) comme le BIOS ;
-//  4. rediriger les lectures du lecteur DVD (registres 0xCC006000) vers la carte SD.
-// Ici on ne lance rien : on verifie 1 et 2, on prevoit 3, et on repere dans main.dol
-// le code qui touche aux registres du lecteur (4). Rapport : SD:/gc-mp3/natif/<ID>.txt
-//
-// Fiche d'un jeu (onglet JEUX) : R = analyse native.
+//  2. charger main.dol et la table des fichiers (FST) en memoire, comme l'apploader,
+//     et remplir la memoire basse (0x80000000...) comme le BIOS ;
+//  3. rediriger les lectures du lecteur DVD (registres 0xCC006000) vers la carte SD :
+//     a) position de l'ISO sur la carte (secteurs) et programme resident (source/natres) ;
+//     b) faux lecteur : les acces du jeu au lecteur sont branches sur le resident.
+// Fiche d'un jeu (onglet JEUX) : R = analyse + tests ; A puis X = lanceur maison.
+// Banc d'essai sur PC : tools/natif-test/run.sh
 
+#include "natres/natres.h"                  /* programme resident (source/natres/natres.c) */
 #define NA_DIR   GCD "/natif"
 #define NA_DI    0xCC006000u                 /* registres du lecteur DVD (DI) */
-#define NA_MAXHIT 48
+#define NA_MAXHIT 160                        /* (1080 Avalanche en a plus de 48) */
 static void nat_qr_open(const char *id);      /* v51 : QR code vers le rapport (plus bas) */
 
 typedef struct {
@@ -26,14 +27,15 @@ typedef struct {
     /* main.dol */
     u32 dol_len, entry, lo, hi, bss, bsz;
     int nsec;
-    u32 sec_addr[18], sec_sz[18];
+    u32 sec_addr[18], sec_sz[18], sec_off[18];
     /* FST */
     u32 nfiles, ndirs, fst_dest;
     /* acces aux registres du lecteur */
-    int nhit;
+    int nhit, ntotal;                         /* ntotal : tous ceux trouves, meme au-dela de la limite */
     u32 hit_addr[NA_MAXHIT];
     u16 hit_reg[NA_MAXHIT];
     u8 hit_store[NA_MAXHIT];
+    u32 hit_ins[NA_MAXHIT];                   /* l'instruction elle-meme (pour la remplacer) */
     int nfunc;
     u32 func_addr[NA_MAXHIT];
     int problems;
@@ -108,11 +110,13 @@ static void na_scan_text(nat_info_t *in, const u8 *txt, u32 base, u32 len) {
             int store = op >= 36 && op != 40;
             if (ra && (known & (1u << ra))) {
                 u32 ea = val[ra] + (u32)simm;
+                if (ea >= NA_DI && ea < NA_DI + 0x40) in->ntotal++;
                 if (ea >= NA_DI && ea < NA_DI + 0x40 && in->nhit < NA_MAXHIT) {
                     u32 at = base + o;
                     in->hit_addr[in->nhit] = at;
                     in->hit_reg[in->nhit] = (u16)(ea - NA_DI);
                     in->hit_store[in->nhit] = (u8)store;
+                    in->hit_ins[in->nhit] = ins;
                     in->nhit++;
                     u32 f = na_func_start(txt, base, at);
                     int seen = 0;
@@ -124,7 +128,16 @@ static void na_scan_text(nat_info_t *in, const u8 *txt, u32 base, u32 len) {
             if (!store) known &= ~(1u << rd);
             continue;
         }
-        if (op == 16 || op == 18 || ins == 0x4E800020u || (op == 19 && ((ins >> 1) & 0x3FF) == 528)) { known = 0; continue; }
+        /* branchements : un saut sans condition finit le bloc (on oublie tout) ; un appel
+           (bit LK) peut changer r0 et r3-r12 ; un saut conditionnel garde l'etat */
+        if (op == 16 || op == 18 || op == 19) {
+            u32 lk = ins & 1, bo = (ins >> 21) & 31, xo = (ins >> 1) & 0x3FF;
+            int uncond = op == 18 || ((op == 16 || op == 19) && (bo & 0x14) == 0x14);
+            if (op == 19 && xo != 16 && xo != 528) continue;   /* (crand, isync... : pas un saut) */
+            if (lk) known &= ~0x00001FF9u;                  /* r0, r3-r12 */
+            else if (uncond) known = 0;
+            continue;
+        }
         /* toute autre instruction qui ecrit un registre general : on l'oublie (approximation) */
         if (op == 31) known &= ~((1u << rd) | (1u << ra));                                     /* (or, and, mr : destination = rA ; add, lwzx : rD) */
         else if (op == 7 || op == 8 || op == 12 || op == 13) known &= ~(1u << rd);              /* destination = rD */
@@ -167,7 +180,7 @@ static int nat_analyse(const char *path, nat_info_t *in) {
         u32 off = be32(dh + i * 4), addr = be32(dh + 0x48 + i * 4), sz = be32(dh + 0x90 + i * 4);
         if (!sz) continue;
         if (addr < 0x80003000u || addr + (u64)sz > 0x81800000u) { in->problems++; snprintf(in->err, sizeof(in->err), "Section %d hors memoire (%08X)", i, (unsigned)addr); continue; }
-        in->sec_addr[in->nsec] = addr; in->sec_sz[in->nsec] = sz; in->nsec++;
+        in->sec_addr[in->nsec] = addr; in->sec_sz[in->nsec] = sz; in->sec_off[in->nsec] = off; in->nsec++;
         if (addr < in->lo) in->lo = addr;
         if (addr + sz > in->hi) in->hi = addr + sz;
         if (off + sz > dol_end) dol_end = off + sz;
@@ -188,8 +201,8 @@ static int nat_analyse(const char *path, nat_info_t *in) {
     in->dol_len = dol_end;
     if (in->bss + (u64)in->bsz > in->hi) in->hi = in->bss + in->bsz;
     if (!in->nsec || in->entry < in->lo || in->entry >= in->hi) { in->problems++; snprintf(in->err, sizeof(in->err), "Point d'entree invalide"); }
-    /* FST : l'apploader la range en haut de la memoire (24 Mo), sous la taille maximale annoncee */
-    in->fst_dest = (0x81800000u - in->fst_max) & ~31u;
+    /* memoire haute : [ jeu ... | FST | bi2.bin | programme resident ] 0x81800000 */
+    in->fst_dest = (NATRES_AT - 0x2000u - in->fst_max) & ~31u;
     if (in->fst_sz && in->fst_sz <= 4u << 20) {
         u8 *f = (u8 *)malloc(in->fst_sz);
         if (f && gd_read(&d, in->fst_off, f, in->fst_sz)) {
@@ -226,15 +239,251 @@ static void nat_write_report(const nat_info_t *in, const char *path, char *out, 
     fprintf(f, "80000020 : 0D15EA5E (demarrage normal)   80000028 : 01800000 (24 Mo)\n");
     fprintf(f, "80000034 : %08X (haut de l'arene)   80000038 : %08X (FST)   8000003C : %08X\n",
             (unsigned)in->fst_dest, (unsigned)in->fst_dest, (unsigned)in->fst_max);
+    fprintf(f, "bi2.bin : %08X   programme resident : %08X - 81800000\n", (unsigned)(NATRES_AT - 0x2000u), (unsigned)NATRES_AT);
     fprintf(f, "800000F4 : copie de bi2.bin   800000F8 : 09A7EC80 (bus)   800000FC : 1CF7C580 (processeur)\n\n");
-    fprintf(f, "[Lecteur DVD] acces aux registres CC006000 trouves dans main.dol : %d\n", in->nhit);
+    fprintf(f, "[Lecteur DVD] acces aux registres CC006000 trouves dans main.dol : %d\n", in->ntotal);
+    if (in->ntotal > in->nhit) fprintf(f, "  (limite atteinte : seuls les %d premiers sont notes)\n", in->nhit);
     for (int i = 0; i < in->nhit; i++)
         fprintf(f, "  %08X  %s %s\n", (unsigned)in->hit_addr[i], in->hit_store[i] ? "ecrit " : "lit   ", na_reg_name(in->hit_reg[i]));
     fprintf(f, "Fonctions concernees : %d\n", in->nfunc);
     for (int i = 0; i < in->nfunc; i++) fprintf(f, "  %08X\n", (unsigned)in->func_addr[i]);
-    fprintf(f, "\n(Ce sont elles qu'il faudra detourner pour lire le jeu sur la carte SD.)\n\n");
-    fprintf(f, "Bilan : %s%s\n", in->problems ? "probleme : " : "OK, ce jeu est pret pour l'etape 2", in->problems ? in->err : "");
+    fprintf(f, "\n(Ce sont elles que le lanceur maison branche sur son faux lecteur.)\n");
+    if (in->stream) fprintf(f, "Attention : ce jeu lit sa musique en streaming par le lecteur DVD ; le faux lecteur\nne sait pas encore le faire (le jeu risque d'etre sans musique).\n");
+    fprintf(f, "\n");
+    fprintf(f, "Bilan : %s%s\n", in->problems ? "probleme : " : "OK, le lanceur maison peut essayer ce jeu", in->problems ? in->err : "");
     fclose(f);
+}
+
+/* ======================= v49 : etape 3a = l'ISO sur la carte SD =======================
+   Pendant le jeu, plus de systeme de fichiers : le programme resident lit des secteurs.
+   On calcule donc avant le lancement ou se trouve chaque morceau de l'ISO sur la carte :
+   libfat donne le premier cluster du fichier (st_ino), on suit la chaine de la FAT. */
+#include "natres_bin.h"                       /* programme resident compile (build/natres_bin.h) */
+
+static natres_ext_t na_ext[NATRES_MAXEXT];
+static u32 na_next = 0;
+
+#ifdef GEKKO
+/* (libogc de devkitPro : readSectors(secteur, nombre, tampon)) */
+static const DISC_INTERFACE *na_iface(void) {
+    return sd_slot == 0 ? &__io_gcsd2 : sd_slot == 1 ? &__io_gcsda : sd_slot == 2 ? &__io_gcsdb : NULL;
+}
+static int na_rawsec(u32 sec, void *buf) {
+    const DISC_INTERFACE *d = na_iface();
+    return d && d->readSectors(sec, 1, buf) ? 0 : -1;
+}
+#elif defined(NATIF_BENCH)
+static int na_rawsec(u32 sec, void *buf);     /* (banc d'essai : fourni par tools/natif-test/h2.c) */
+#else
+static int na_rawsec(u32 sec, void *buf) { (void)sec; (void)buf; return -1; }   /* (simulateur : pas de vraie carte) */
+#endif
+
+static u32 na_le16(const u8 *p) { return (u32)p[0] | (u32)p[1] << 8; }
+static u32 na_le32(const u8 *p) { return (u32)p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24; }
+static int na_is_fat(const u8 *b) {
+    return b[510] == 0x55 && b[511] == 0xAA && na_le16(b + 0x0B) == 512 && b[0x0D] && (!memcmp(b + 0x36, "FAT", 3) || !memcmp(b + 0x52, "FAT", 3));
+}
+
+/* morceaux de l'ISO sur la carte ; 0 = OK */
+static int nat_map(const char *path, char *err, int cap) {
+    static u8 b[512] ATTRIBUTE_ALIGN(32), fb[512] ATTRIBUTE_ALIGN(32);
+    struct stat st;
+    na_next = 0;
+    if (sd_virtual) { snprintf(err, cap, "Pas de vraie carte SD"); return -1; }
+    if (stat(path, &st) != 0) { snprintf(err, cap, "Jeu introuvable"); return -1; }
+    u32 clus = (u32)st.st_ino;
+    u32 need = (u32)(((u64)st.st_size + 511) >> 9);
+    /* partition FAT : secteur 0, sinon la 1re partition de la table (MBR) qui est en FAT */
+    u32 part = 0;
+    if (na_rawsec(0, b)) { snprintf(err, cap, "Lecture brute de la carte impossible"); return -1; }
+    if (!na_is_fat(b)) {
+        int found = 0;
+        u8 mbr[64]; memcpy(mbr, b + 0x1BE, 64);
+        for (int i = 0; i < 4 && !found; i++) {
+            u32 lba = na_le32(mbr + i * 16 + 8);
+            if (lba && !na_rawsec(lba, b) && na_is_fat(b)) { part = lba; found = 1; }
+        }
+        if (!found) { snprintf(err, cap, "Carte SD : partition FAT introuvable (exFAT ?)"); return -1; }
+    }
+    u32 spc = b[0x0D], rsvd = na_le16(b + 0x0E), nfats = b[0x10], rootent = na_le16(b + 0x11);
+    u32 tot = na_le16(b + 0x13) ? na_le16(b + 0x13) : na_le32(b + 0x20);
+    u32 fatsz = na_le16(b + 0x16) ? na_le16(b + 0x16) : na_le32(b + 0x24);
+    u32 rootsec = (rootent * 32 + 511) / 512;
+    u32 data = rsvd + nfats * fatsz + rootsec;
+    if (!spc || !fatsz || tot <= data) { snprintf(err, cap, "Carte SD : FAT illisible"); return -1; }
+    u32 ncl = (tot - data) / spc;
+    int fat32 = ncl >= 65525;
+    if (ncl < 4085) { snprintf(err, cap, "Carte SD en FAT12 : non prise en charge"); return -1; }
+    u32 fat_lba = part + rsvd, data_lba = part + data, cached = 0xFFFFFFFFu;
+    u32 isec = 0, guard = 0;
+    while (isec < need) {
+        if (clus < 2 || clus >= ncl + 2 || ++guard > ncl) { snprintf(err, cap, "Chaine FAT invalide (cluster %u)", (unsigned)clus); return -1; }
+        u32 sd = data_lba + (clus - 2) * spc, cnt = spc;
+        if (isec + cnt > need) cnt = need - isec;
+        if (na_next && na_ext[na_next - 1].sd + na_ext[na_next - 1].cnt == sd) na_ext[na_next - 1].cnt += cnt;   /* (a la suite : meme morceau) */
+        else {
+            if (na_next >= NATRES_MAXEXT) { snprintf(err, cap, "Jeu trop fragment\xC3\xA9 sur la carte (d\xC3\xA9" "fragmente-la)"); return -1; }
+            na_ext[na_next].iso = isec; na_ext[na_next].sd = sd; na_ext[na_next].cnt = cnt; na_next++;
+        }
+        isec += cnt;
+        if (isec >= need) break;
+        u32 off = fat32 ? clus * 4 : clus * 2, fs = fat_lba + off / 512;
+        if (fs != cached) { if (na_rawsec(fs, fb)) { snprintf(err, cap, "Lecture de la FAT impossible"); return -1; } cached = fs; }
+        clus = fat32 ? na_le32(fb + off % 512) & 0x0FFFFFFFu : na_le16(fb + off % 512);
+        if ((fat32 && clus >= 0x0FFFFFF8u) || (!fat32 && clus >= 0xFFF8u)) break;
+        if ((guard & 255) == 0) service_audio();
+    }
+    if (isec < need) { snprintf(err, cap, "Fichier plus court que pr\xC3\xA9vu sur la carte"); return -1; }
+    return 0;
+}
+
+/* verification : 3 endroits de l'ISO, lus par la carte des secteurs et par libfat */
+static int nat_map_check(const char *path, long size, char *err, int cap) {
+    static u8 a[512] ATTRIBUTE_ALIGN(32), r[512] ATTRIBUTE_ALIGN(32);
+    u32 last = (u32)(((u64)size - 1) >> 9);
+    u32 at[3] = { 0, last / 2, last };
+    FILE *f = fopen(path, "rb");
+    if (!f) { snprintf(err, cap, "Jeu introuvable"); return -1; }
+    for (int i = 0; i < 3; i++) {
+        u32 isec = at[i], sd = 0, ok = 0;
+        for (u32 k = 0; k < na_next; k++) if (isec >= na_ext[k].iso && isec - na_ext[k].iso < na_ext[k].cnt) { sd = na_ext[k].sd + (isec - na_ext[k].iso); ok = 1; break; }
+        memset(a, 0, 512);
+        size_t want = (u64)isec * 512 + 512 <= (u64)size ? 512 : (size_t)((u64)size - (u64)isec * 512);
+        if (!ok || fseek(f, (long)isec * 512, SEEK_SET) || fread(a, 1, want, f) != want || na_rawsec(sd, r) || memcmp(a, r, want)) {
+            fclose(f); snprintf(err, cap, "Carte des secteurs fausse (secteur %u)", (unsigned)isec); return -1;
+        }
+    }
+    fclose(f);
+    return 0;
+}
+
+/* test du programme resident sur la console, sans lancer de jeu : il demarre la carte SD
+   tout seul et relit 3 endroits de l'ISO. La memoire qu'il occupe est sauvee puis remise. */
+static const char *na_res_names[] = { "OK", "pas de carte", "la carte ne d\xC3\xA9marre pas", "commande refus\xC3\xA9" "e", "pas de donn\xC3\xA9" "es", "hors de l'ISO", "d\xC3\xA9lai d\xC3\xA9pass\xC3\xA9" };
+static int nat_res_test(const char *path, long size, char *msg, int cap) {
+#ifdef GEKKO
+    static u8 want[3][512] ATTRIBUTE_ALIGN(32), got[512] ATTRIBUTE_ALIGN(32);
+    u32 offs[3] = { 0, (u32)(size / 2) & ~511u, (u32)(size - 512) & ~511u };
+    FILE *f = fopen(path, "rb");
+    if (!f) { snprintf(msg, cap, "Jeu introuvable"); return -1; }
+    for (int i = 0; i < 3; i++) if (fseek(f, (long)offs[i], SEEK_SET) || fread(want[i], 1, 512, f) != 512) { fclose(f); snprintf(msg, cap, "Lecture du jeu impossible"); return -1; }
+    fclose(f);
+    if (sizeof(natres_bin) > NATRES_SIZE) { snprintf(msg, cap, "Programme r\xC3\xA9sident trop gros"); return -1; }
+    u8 *save = (u8 *)memalign(32, NATRES_SIZE);
+    if (!save) { snprintf(msg, cap, "Pas assez de m\xC3\xA9moire"); return -1; }
+    if ((u32)save < NATRES_AT + NATRES_SIZE && (u32)save + NATRES_SIZE > NATRES_AT) { free(save); snprintf(msg, cap, "M\xC3\xA9moire du r\xC3\xA9sident occup\xC3\xA9" "e"); return -1; }   /* (v52) */
+    stop_track();
+    fatUnmount("sd");                                     /* (v52 : la FAT est ecrite sur la carte AVANT qu'on la prenne) */
+    u32 level = IRQ_Disable();                            /* (personne d'autre sur le bus EXI pendant le test) */
+    memcpy(save, (void *)NATRES_AT, NATRES_SIZE);
+    memset((void *)NATRES_AT, 0, NATRES_SIZE);
+    memcpy((void *)NATRES_AT, natres_bin, sizeof(natres_bin));
+    natres_hdr_t *h = (natres_hdr_t *)NATRES_AT;
+    int ok = h->magic == NATRES_MAGIC && h->end <= NATRES_AT + NATRES_SIZE;
+    int r = -1, bad = -1;
+    if (ok) {
+        h->chan = sd_slot == 0 ? 2 : sd_slot == 1 ? 0 : 1;
+        h->dev = 0; h->freq = 4;
+        h->n_ext = na_next;
+        memcpy((void *)h->ext, na_ext, na_next * sizeof(natres_ext_t));
+        DCFlushRange((void *)NATRES_AT, NATRES_SIZE);
+        ICInvalidateRange((void *)NATRES_AT, NATRES_SIZE);
+        r = ((natres_init_fn)h->init)();
+        for (int i = 0; i < 3 && r == 0; i++) {
+            memset(got, 0, 512);
+            if (((natres_read_fn)h->read)(got, offs[i], 512)) r = -1;
+            else if (memcmp(got, want[i], 512)) { bad = i; r = -2; }
+        }
+    }
+    u32 err = ok ? h->err : 99, stage = ok ? h->stage : 0, sdhc = ok ? h->sdhc : 0, r1 = ok ? h->r1 : 0, dev = ok ? h->dev : 0;
+    memcpy((void *)NATRES_AT, save, NATRES_SIZE);
+    DCFlushRange((void *)NATRES_AT, NATRES_SIZE);
+    ICInvalidateRange((void *)NATRES_AT, NATRES_SIZE);
+    IRQ_Restore(level);
+    free(save);
+    /* la carte a ete redemarree : on remonte la FAT pour que GC Station continue */
+    if (!mount_sd()) { sd_ok = 0; }
+    if (!ok) snprintf(msg, cap, "programme r\xC3\xA9sident abim\xC3\xA9");
+    else if (r == 0) snprintf(msg, cap, "OK (carte %s, p\xC3\xA9riph\xC3\xA9rique %u)", sdhc ? "SDHC" : "SD", (unsigned)dev);
+    else if (r == -2) snprintf(msg, cap, "donn\xC3\xA9" "es diff\xC3\xA9rentes (endroit %d)", bad + 1);
+    else snprintf(msg, cap, "%s (\xC3\xA9tape %u, r\xC3\xA9ponse %02X)", err < 7 ? na_res_names[err] : "?", (unsigned)stage, (unsigned)r1);
+    return r == 0 ? 0 : -1;
+#else
+    snprintf(msg, cap, "(simulateur : pas de test du r\xC3\xA9sident)");
+    return 0;
+#endif
+}
+
+/* ======================= v49 : etape 3b = brancher le faux lecteur =======================
+   Chaque "lwz rD,reg(rA)" / "stw rS,reg(rA)" du jeu qui vise un registre du lecteur est
+   remplace par un saut vers un aiguillage, ecrit ici en code machine PowerPC :
+     - garde tous les registres du jeu sur sa pile (r0, r2-r31, LR, CR, CTR, XER) ;
+     - appelle di_load(reg) ou di_store(reg, valeur) dans le programme resident ;
+     - (lecture) range le resultat a la place de rD ; remet tout ; revient juste apres.
+   Le saut "b" ne touche pas a LR : ca marche aussi dans les fonctions sans pile. */
+#define PPC_D(op, d, a, imm)  ((u32)(op) << 26 | (u32)(d) << 21 | (u32)(a) << 16 | ((u32)(imm) & 0xFFFFu))
+#define PPC_STW(s, a, d)      PPC_D(36, s, a, d)
+#define PPC_LWZ(d, a, o)      PPC_D(32, d, a, o)
+#define PPC_ADDI(d, a, i)     PPC_D(14, d, a, i)
+#define NA_FRAME 0x100
+
+static void na_wbe32(u8 *p, u32 v) { p[0] = (u8)(v >> 24); p[1] = (u8)(v >> 16); p[2] = (u8)(v >> 8); p[3] = (u8)v; }
+static u32 na_slot(u32 r) { return r == 0 ? 0x08 : 0x0C + (r - 2) * 4; }   /* place du registre r sur la pile */
+
+/* ecrit l'aiguillage (mots big-endian) en w ; rend le nombre de mots, 0 = instruction non geree */
+static int na_tramp(u8 *w, u32 at, u32 site, u32 ins, u32 reg, u32 fn_load, u32 fn_store) {
+    u32 op = ins >> 26, rt = (ins >> 21) & 31;
+    if ((op != 32 && op != 36) || (op == 32 && rt == 1)) return 0;
+    u32 c[48]; int n = 0;
+    c[n++] = PPC_D(37, 1, 1, -NA_FRAME);                 /* stwu r1,-0x100(r1) */
+    c[n++] = PPC_STW(0, 1, 0x08);
+    c[n++] = PPC_D(47, 2, 1, 0x0C);                      /* stmw r2,0x0C(r1) */
+    c[n++] = 0x7C0802A6u; c[n++] = PPC_STW(0, 1, 0x88);  /* mflr r0 */
+    c[n++] = 0x7C000026u; c[n++] = PPC_STW(0, 1, 0x8C);  /* mfcr r0 */
+    c[n++] = 0x7C0902A6u; c[n++] = PPC_STW(0, 1, 0x90);  /* mfctr r0 */
+    c[n++] = 0x7C0102A6u; c[n++] = PPC_STW(0, 1, 0x94);  /* mfxer r0 */
+    if (op == 36) c[n++] = rt == 1 ? PPC_ADDI(4, 1, NA_FRAME) : PPC_LWZ(4, 1, na_slot(rt));   /* valeur -> r4 */
+    c[n++] = PPC_ADDI(3, 0, reg);                        /* li r3,reg */
+    u32 fn = op == 36 ? fn_store : fn_load;
+    c[n++] = PPC_D(15, 12, 0, fn >> 16);                 /* lis r12,fn@h */
+    c[n++] = PPC_D(24, 12, 12, fn & 0xFFFF);             /* ori r12,r12,fn@l */
+    c[n++] = 0x7D8903A6u;                                /* mtctr r12 */
+    c[n++] = 0x4E800421u;                                /* bctrl */
+    if (op == 32) c[n++] = PPC_STW(3, 1, na_slot(rt));   /* resultat -> rD (sur la pile) */
+    c[n++] = PPC_LWZ(0, 1, 0x94); c[n++] = 0x7C0103A6u;  /* mtxer */
+    c[n++] = PPC_LWZ(0, 1, 0x90); c[n++] = 0x7C0903A6u;  /* mtctr */
+    c[n++] = PPC_LWZ(0, 1, 0x8C); c[n++] = 0x7C0FF120u;  /* mtcrf 0xFF */
+    c[n++] = PPC_LWZ(0, 1, 0x88); c[n++] = 0x7C0803A6u;  /* mtlr */
+    c[n++] = PPC_LWZ(0, 1, 0x08);
+    c[n++] = PPC_D(46, 2, 1, 0x0C);                      /* lmw r2,0x0C(r1) */
+    c[n++] = PPC_ADDI(1, 1, NA_FRAME);
+    u32 back = site + 4, here = at + (u32)n * 4;
+    c[n++] = 0x48000000u | ((back - here) & 0x03FFFFFCu);   /* b site+4 */
+    for (int i = 0; i < n; i++) { w[i * 4] = (u8)(c[i] >> 24); w[i * 4 + 1] = (u8)(c[i] >> 16); w[i * 4 + 2] = (u8)(c[i] >> 8); w[i * 4 + 3] = (u8)c[i]; }
+    return n;
+}
+
+/* pose les aiguillages : dol = main.dol (copie a modifier), res = image du resident (NATRES_AT) ;
+   rend le nombre d'acces branches, et dans *skipped ceux qu'on n'a pas su brancher */
+static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped) {
+    u32 at = (be32(res + 0x3C) + 31) & ~31u;             /* (h->end, lu en big-endian) */
+    u32 fl = be32(res + 0x40), fs = be32(res + 0x44);   /* (h->di_load, h->di_store) */
+    int done = 0;
+    *skipped = 0;
+    for (int i = 0; i < in->nhit; i++) {
+        u32 a = in->hit_addr[i], fo = 0;
+        int sec = -1;
+        for (int k = 0; k < in->nsec; k++) if (a >= in->sec_addr[k] && a - in->sec_addr[k] < in->sec_sz[k]) { sec = k; fo = in->sec_off[k] + (a - in->sec_addr[k]); }
+        if (sec < 0 || be32(dol + fo) != in->hit_ins[i] || at + 48 * 4 > NATRES_AT + NATRES_SIZE) { (*skipped)++; continue; }
+        int n = na_tramp(res + (at - NATRES_AT), at, a, in->hit_ins[i], in->hit_reg[i], fl, fs);
+        s32 d = (s32)(at - a);
+        if (!n || d >= 0x02000000 || d < -0x02000000) { (*skipped)++; continue; }
+        u32 b = 0x48000000u | ((u32)d & 0x03FFFFFCu);    /* b aiguillage */
+        dol[fo] = (u8)(b >> 24); dol[fo + 1] = (u8)(b >> 16); dol[fo + 2] = (u8)(b >> 8); dol[fo + 3] = (u8)b;
+        at += ((u32)n * 4 + 31) & ~31u;
+        done++;
+    }
+    return done;
 }
 
 /* fiche d'un jeu : R */
@@ -247,13 +496,38 @@ static void nat_run(int k) {
     gl_busy[0] = 0;
     if (!ok) { gl_note(in.err); crumb("natif : %s", in.err); return; }
     nat_write_report(&in, gl[k].path, rep, sizeof(rep));
+    /* etape 3a : l'ISO sur la carte, et le programme resident qui la lit */
+    char me[120] = "", rt[120] = "";
+    int mok = -1, rok = -1;
+    if (gl[k].ciso) snprintf(me, sizeof(me), "fichier .ciso : pas encore pris en charge par le lanceur maison");
+    else {
+        gl_status("Analyse native : position du jeu sur la carte...");
+        mok = nat_map(gl[k].path, me, sizeof(me));
+        if (!mok) mok = nat_map_check(gl[k].path, gl[k].size, me, sizeof(me));
+        if (!mok) {
+            snprintf(me, sizeof(me), "OK, %u morceau%s", (unsigned)na_next, na_next > 1 ? "x" : "");
+            gl_status("Analyse native : test du lecteur SD maison...");
+            rok = nat_res_test(gl[k].path, gl[k].size, rt, sizeof(rt));
+        }
+        gl_busy[0] = 0;
+    }
+    FILE *f = rep[0] ? fopen(rep, "a") : NULL;
+    if (f) {
+        fprintf(f, "\n[Etape 3 : lecture sur la carte SD]\nPosition du jeu sur la carte : %s\n", me);
+        for (u32 i = 0; !mok && i < na_next && i < 12; i++)
+            fprintf(f, "  ISO %08X -> carte %08X  (%u secteurs)\n", (unsigned)na_ext[i].iso, (unsigned)na_ext[i].sd, (unsigned)na_ext[i].cnt);
+        if (!mok && na_next > 12) fprintf(f, "  (... %u morceaux en tout)\n", (unsigned)na_next);
+        if (rt[0]) fprintf(f, "Lecteur SD maison (programme resident, %u octets) : %s\n", (unsigned)sizeof(natres_bin), rt);
+        fclose(f);
+    }
     char m[200];
     if (in.problems) snprintf(m, sizeof(m), "Analyse : %s", in.err);
-    else snprintf(m, sizeof(m), "Analyse OK : %d acc\xC3\xA8s au lecteur, %u fichiers (rapport : gc-mp3/natif/%s.txt)",
-                  in.nhit, (unsigned)in.nfiles, in.id);
+    else if (mok) snprintf(m, sizeof(m), "Analyse : %s", me);
+    else if (rok) snprintf(m, sizeof(m), "Lecteur SD maison : %s", rt);
+    else snprintf(m, sizeof(m), "Analyse OK, lecteur SD maison OK (rapport : gc-mp3/natif/%s.txt)", in.id);
     gl_note(m);
     if (rep[0]) nat_qr_open(in.id);                          /* v51 : QR code vers le rapport */
-    crumb("natif %s : %d acces DI, %d fonctions, %d problemes", in.id, in.nhit, in.nfunc, in.problems);
+    crumb("natif %s : %d acces DI, %d fonctions, %d problemes, carte %d, resident %d", in.id, in.nhit, in.nfunc, in.problems, mok, rok);
 }
 
 /* ======================= v51 : etape 2 = demarrage natif =======================
@@ -263,9 +537,9 @@ static void nat_run(int k) {
    - remplit la memoire basse avec les infos du disque ;
    - le petit programme gl_stub (gclib.c) recopie les sections a leur place et saute
      au point d'entree du jeu.
-   Le lecteur DVD n'est PAS encore redirige vers la carte SD : le jeu demarre, puis
-   affiche normalement son propre message d'erreur de disque. C'est le signe que
-   cette etape marche. Journal (ecrit avant le saut) : SD:/gc-mp3/natif/dernier-lancement.txt */
+   Etape 3 : le programme resident est installe tout en haut, et les acces du jeu au
+   lecteur DVD sont branches sur lui (faux lecteur) : le jeu lit l'ISO sur la carte SD.
+   Journal (ecrit avant le saut) : SD:/gc-mp3/natif/dernier-lancement.txt */
 #define NA_LOG   NA_DIR "/dernier-lancement.txt"
 #define NA_BI2   0x2000u                      /* taille de bi2.bin */
 
@@ -280,18 +554,39 @@ static const char *nat_boot(int k) {
     if (!nat_analyse(gl[k].path, &in)) return in.err;
     if (in.problems) return in.err;
     if (in.fst_max < in.fst_sz || in.fst_max > (4u << 20)) return "FST : taille maximale invalide";
-    /* plan de la memoire du haut : [ ... | donnees a recopier | bi2 | FST ] 0x81800000 */
+    /* memoire du haut, une fois le jeu lance : [ jeu ... | FST | bi2 | resident ] 0x81800000 */
     u32 fst_dest = in.fst_dest;
-    u32 bi2_dest = (fst_dest - NA_BI2) & ~31u;
+    u32 bi2_dest = NATRES_AT - NA_BI2;
     u32 dol_len = in.dol_len;
-    u32 total = ((dol_len + 31) & ~31u) + NA_BI2 + ((in.fst_sz + 31) & ~31u);
-    if (total >= bi2_dest - 0x80003100u) return "Pas assez de m\xC3\xA9moire pour ce jeu (main.dol trop gros)";   /* (v51 : pas de debordement) */
-    u32 stage = (bi2_dest - total) & ~31u;
-    if (stage < in.hi + 32) return "Pas assez de m\xC3\xA9moire pour ce jeu (main.dol trop gros)";
+    /* programme resident (pas encore appele par le jeu : il sera branche a l'etape 3b) */
+    char merr[120] = "";
+    int res = !gl[k].ciso && !nat_map(gl[k].path, merr, sizeof(merr)) && sizeof(natres_bin) <= NATRES_SIZE;
+    u32 total = ((dol_len + 31) & ~31u) + NA_BI2 + ((in.fst_sz + 31) & ~31u) + (res ? NATRES_SIZE : 0);
+    /* zone d'attente : sous 0x81700000 (au-dessus vit la pile de GC Station jusqu'au saut),
+       au-dessus du jeu, et sous ce que le jeu recevra en haut (FST, bi2, resident) */
+    u32 top = fst_dest < 0x81700000u - 0x400u ? fst_dest : 0x81700000u - 0x400u;   /* (v52 : jamais par-dessus la FST) */
+    if (total + in.hi + 32 > top) return "Pas assez de m\xC3\xA9moire pour ce jeu (main.dol trop gros)";
+    u32 stage = (top - total) & ~31u;
+    if (stage < in.hi + 32 || stage + total > fst_dest) return "Pas assez de m\xC3\xA9moire pour ce jeu (main.dol trop gros)";
     u8 *buf = (u8 *)memalign(32, total);
     if (!buf) return "Pas assez de m\xC3\xA9moire libre dans GC Station";
     memset(buf, 0, total);
-    u32 o_dol = 0, o_bi2 = (dol_len + 31) & ~31u, o_fst = o_bi2 + NA_BI2;
+    u32 o_dol = 0, o_bi2 = (dol_len + 31) & ~31u, o_fst = o_bi2 + NA_BI2, o_res = o_fst + ((in.fst_sz + 31) & ~31u);
+    if (res) {                                            /* image du resident, deja reglee (en-tete : natres.h) */
+        u8 *r = buf + o_res;
+        memcpy(r, natres_bin, sizeof(natres_bin));
+        u32 eo = be32(r + 0x24) - NATRES_AT;
+        if (be32(r) != NATRES_MAGIC || be32(r + 0x3C) > NATRES_AT + NATRES_SIZE || eo + na_next * 12 > NATRES_SIZE) res = 0;
+        else {
+            na_wbe32(r + 0x14, sd_slot == 0 ? 2 : sd_slot == 1 ? 0 : 1);   /* canal EXI */
+            na_wbe32(r + 0x18, 0); na_wbe32(r + 0x1C, 4);                   /* peripherique, 16 MHz */
+            na_wbe32(r + 0x20, na_next);
+            na_wbe32(r + 0x48, NRF_REAL_IRQ);
+            for (u32 i = 0; i < na_next; i++) {
+                na_wbe32(r + eo + i * 12, na_ext[i].iso); na_wbe32(r + eo + i * 12 + 4, na_ext[i].sd); na_wbe32(r + eo + i * 12 + 8, na_ext[i].cnt);
+            }
+        }
+    }
     gdisc_t d;
     gl_status("Lanceur maison : lecture de main.dol...");
     int ok = gd_open(&d, gl[k].path);
@@ -302,8 +597,17 @@ static const char *nat_boot(int k) {
     if (ok) ok = gd_read(&d, 0, hdr, sizeof(hdr));
     gd_close(&d);
     if (!ok) { free(buf); return "Lecture du jeu impossible (carte SD)"; }
+    /* etape 3b : le jeu parle au faux lecteur (programme resident) au lieu du vrai */
+    int patched = 0, skipped = 0;
+    if (res) patched = na_patch(&in, buf + o_dol, buf + o_res, &skipped);
+    if (res && (skipped || in.ntotal > in.nhit)) {       /* un acces oublie = vrai lecteur interroge : on ne lance pas */
+        free(buf);
+        static char e[120];
+        snprintf(e, sizeof(e), "Lanceur maison : %d acc\xC3\xA8s au lecteur non branch\xC3\xA9s, jeu pas lanc\xC3\xA9", skipped + (in.ntotal - in.nhit));
+        return e;
+    }
     /* table de copie pour gl_stub : {destination, source, taille} */
-    u32 tab[18 * 3 + 6], n = 0;
+    u32 tab[18 * 3 + 12], n = 0;
     for (int i = 0; i < 18; i++) {
         u32 off = be32(buf + i * 4), addr = be32(buf + 0x48 + i * 4), sz = be32(buf + 0x90 + i * 4);
         if (!sz) continue;
@@ -311,6 +615,7 @@ static const char *nat_boot(int k) {
     }
     tab[n * 3] = bi2_dest; tab[n * 3 + 1] = stage + o_bi2; tab[n * 3 + 2] = NA_BI2; n++;
     if (in.fst_sz) { tab[n * 3] = fst_dest; tab[n * 3 + 1] = stage + o_fst; tab[n * 3 + 2] = in.fst_sz; n++; }
+    if (res) { tab[n * 3] = NATRES_AT; tab[n * 3 + 1] = stage + o_res; tab[n * 3 + 2] = NATRES_SIZE; n++; }
     /* journal, ecrit AVANT le saut (apres, plus rien ne peut ecrire sur la carte) */
     mkdir(NA_DIR, 0777);
     FILE *f = fopen(NA_LOG, "w");
@@ -321,6 +626,8 @@ static const char *nat_boot(int k) {
                 (unsigned)stage, (unsigned)total, (unsigned)bi2_dest, (unsigned)fst_dest, (unsigned)in.fst_sz, (unsigned)in.fst_max);
         for (u32 i = 0; i < n; i++) fprintf(f, "  copie %08X <- %08X  %u octets\n", (unsigned)tab[i * 3], (unsigned)tab[i * 3 + 1], (unsigned)tab[i * 3 + 2]);
         fprintf(f, "Point d'entree : %08X\n", (unsigned)in.entry);
+        fprintf(f, "Programme resident : %s\n", res ? "installe" : merr[0] ? merr : "non installe");
+        fprintf(f, "Faux lecteur DVD : %d acces branches, %d non branches (sur %d trouves)\n", patched, skipped, in.nhit);
         fprintf(f, "Memoire basse avant : 28=%08X 2C=%08X CC=%08X F8=%08X FC=%08X\n",
 #ifdef GEKKO
                 (unsigned)*(volatile u32 *)0x80000028, (unsigned)*(volatile u32 *)0x8000002C, (unsigned)*(volatile u32 *)0x800000CC,
@@ -330,7 +637,8 @@ static const char *nat_boot(int k) {
 #endif
                 );
         fprintf(f, "\nSaut vers le jeu... Ce que tu vois a l'ecran ensuite, c'est le resultat :\n"
-                   "- message d'erreur de disque du jeu = etape 2 reussie ;\n"
+                   "- le jeu demarre et joue = lanceur maison OK !\n"
+                   "- message d'erreur de disque du jeu = le faux lecteur n'a pas suffi ;\n"
                    "- ecran noir fige / retour au menu = a me signaler.\n");
         fclose(f);
     }
@@ -354,7 +662,7 @@ static const char *nat_boot(int k) {
     lm[0x24 / 4] = 1;
     if (!lm[0x28 / 4]) lm[0x28 / 4] = 0x01800000u;        /* 24 Mo */
     lm[0x30 / 4] = 0;                                     /* bas de l'arene : calcule par le jeu */
-    lm[0x34 / 4] = bi2_dest;                              /* haut de l'arene */
+    lm[0x34 / 4] = fst_dest;                              /* haut de l'arene (le jeu ne va pas au-dessus) */
     lm[0x38 / 4] = fst_dest;                              /* FST */
     lm[0x3C / 4] = in.fst_max;
     lm[0xF0 / 4] = 0x01800000u;                           /* memoire simulee */
@@ -370,6 +678,20 @@ static const char *nat_boot(int k) {
     ((void (*)(u32 *, u32, u32))GL_STUB_AT)(t, n, in.entry);
     for (;;) ;
 #else
+    if (getenv("NATIF_DUMP")) {                          /* (banc d'essai : image de la memoire a lancer) */
+        FILE *df = fopen(getenv("NATIF_DUMP"), "wb");
+        if (df) {
+            u8 w[4];
+            na_wbe32(w, in.entry); fwrite(w, 1, 4, df);
+            na_wbe32(w, n); fwrite(w, 1, 4, df);
+            for (u32 i = 0; i < n; i++) {
+                na_wbe32(w, tab[i * 3]); fwrite(w, 1, 4, df); na_wbe32(w, tab[i * 3 + 2]); fwrite(w, 1, 4, df);
+                fwrite(buf + (tab[i * 3 + 1] - stage), 1, tab[i * 3 + 2], df);
+            }
+            fwrite(hdr, 1, 0x20, df);
+            fclose(df);
+        }
+    }
     printf("NATIF %s stage=%08x total=%u bi2=%08x fst=%08x entree=%08x copies=%u\n",
            in.id, (unsigned)stage, (unsigned)total, (unsigned)bi2_dest, (unsigned)fst_dest, (unsigned)in.entry, (unsigned)n);
     free(buf);

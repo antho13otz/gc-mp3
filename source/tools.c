@@ -398,48 +398,114 @@ static void mc_input(u32 down, u32 nav, int fire) {
 /* =================== applis (.dol) =================== */
 #define AP_MAX 200
 typedef struct { char path[NAME_LEN]; char name[64]; char desc[96]; long size; char icon[NAME_LEN]; s8 istate; u16 *tex; GXTexObj obj; } ap_ent;
-/* v41 : icon.png a cote du .dol (format Homebrew Channel, 128 x 48) -> texture RGB5A3 de 128 x 48 */
-#define AP_IW 128
-#define AP_IH 128                  /* v49 : carre, l'icone entiere (proportions gardees) */
+/* v52 : chaque appli a une vraie "pochette" (portrait 3:4, comme les jeux) :
+   - cover.png / pochette.png / boxart.png dans son dossier : utilisee telle quelle (recadree)
+   - sinon icon.png : en fond, l'icone agrandie et floutee (assombrie) ; devant, l'icone entiere, en grand */
+#define AP_IW 120
+#define AP_IH 160
+/* moyenne (ponderee par l'alpha) de px sur le rectangle [x0,x1[ x [y0,y1[ */
+static void ap_avg(const unsigned char *px, int w, int h, f32 x0, f32 y0, f32 x1, f32 y1, u32 *o) {
+    int sx0 = (int)x0, sy0 = (int)y0, sx1 = (int)ceilf(x1), sy1 = (int)ceilf(y1);
+    if (sx0 < 0) sx0 = 0;
+    if (sy0 < 0) sy0 = 0;
+    if (sx0 > w - 1) sx0 = w - 1;
+    if (sy0 > h - 1) sy0 = h - 1;
+    if (sx1 > w) sx1 = w;
+    if (sy1 > h) sy1 = h;
+    if (sx1 <= sx0) sx1 = sx0 + 1;
+    if (sy1 <= sy0) sy1 = sy0 + 1;
+    u32 r = 0, g = 0, b = 0, al = 0, c = 0;
+    int step = (sx1 - sx0) * (sy1 - sy0) > 4096 ? 4 : 1;     /* (grands blocs : un pixel sur 4 suffit) */
+    for (int yy = sy0; yy < sy1; yy += step)
+        for (int xx = sx0; xx < sx1; xx += step) {
+            const unsigned char *p = px + ((size_t)yy * w + xx) * 4;
+            r += p[0] * p[3]; g += p[1] * p[3]; b += p[2] * p[3]; al += p[3]; c++;
+        }
+    if (al) { r /= al; g /= al; b /= al; }
+    o[0] = r; o[1] = g; o[2] = b; o[3] = c ? al / c : 0;
+}
+static unsigned char *ap_png(const char *path, int *w, int *h) {
+    long len = 0;
+    unsigned char *d = read_file(path, 3 * 1024 * 1024, &len);
+    if (!d) return NULL;
+    int n = 0;
+    unsigned char *px = stbi_load_from_memory(d, (int)len, w, h, &n, 4);
+    free(d);
+    if (px && (*w <= 0 || *h <= 0)) { stbi_image_free(px); px = NULL; }
+    return px;
+}
 static void ap_icon_load(ap_ent *a) {
     a->istate = -1;
     if (!a->icon[0]) return;
-    long len = 0;
-    unsigned char *d = read_file(a->icon, 2 * 1024 * 1024, &len);
-    if (!d) return;
-    int w = 0, h = 0, n = 0;
-    unsigned char *px = stbi_load_from_memory(d, (int)len, &w, &h, &n, 4);
-    free(d);
-    if (!px || w <= 0 || h <= 0) { if (px) stbi_image_free(px); return; }
+    char dir[NAME_LEN], p[NAME_LEN];
+    snprintf(dir, sizeof(dir), "%s", a->icon);
+    char *sl = strrchr(dir, '/');
+    if (sl) *sl = 0;
+    int w = 0, h = 0, cover = 0;
+    unsigned char *px = NULL;
+    static const char *const cn[] = { "cover.png", "pochette.png", "boxart.png", "cover.jpg", "pochette.jpg" };
+    for (int i = 0; i < 5 && !px; i++) {
+        snprintf(p, sizeof(p), "%s/%s", dir, cn[i]);
+        struct stat st;
+        if (stat(p, &st) == 0 && (px = ap_png(p, &w, &h)) != NULL) cover = 1;
+    }
+    if (!px) px = ap_png(a->icon, &w, &h);
+    if (!px) return;
     u16 *t = (u16 *)memalign(32, AP_IW * AP_IH * 2);
     if (!t) { stbi_image_free(px); return; }
-    /* garde les proportions : l'image tient dans 128 x 128, centree, le reste transparent */
-    f32 sc = (f32)AP_IW / w < (f32)AP_IH / h ? (f32)AP_IW / w : (f32)AP_IH / h;
+    /* le fond : l'image en "remplissage" (recadree), en 15 x 20 blocs, agrandie en douceur */
+    enum { BW = 15, BH = 20 };
+    static u32 bg[BH][BW][4];
+    f32 fs = (f32)w / AP_IW > (f32)h / AP_IH ? (f32)h / AP_IH : (f32)w / AP_IW;   /* (source par pixel de la pochette) */
+    f32 cx0 = (w - AP_IW * fs) / 2, cy0 = (h - AP_IH * fs) / 2, bs = fs * AP_IW / BW;
+    for (int by = 0; by < BH; by++)
+        for (int bx = 0; bx < BW; bx++)
+            ap_avg(px, w, h, cx0 + bx * bs, cy0 + by * bs, cx0 + (bx + 1) * bs, cy0 + (by + 1) * bs, bg[by][bx]);
+    /* devant : l'icone entiere (marge 6), centree un peu vers le haut */
+    f32 sc = (f32)(AP_IW - 12) / w < (f32)(AP_IH - 12) / h ? (f32)(AP_IW - 12) / w : (f32)(AP_IH - 12) / h;
     int dw = (int)(w * sc + 0.5f), dh = (int)(h * sc + 0.5f);
     if (dw < 1) dw = 1;
     if (dh < 1) dh = 1;
-    int ox = (AP_IW - dw) / 2, oy = (AP_IH - dh) / 2;
-    for (int y = 0; y < AP_IH; y++)
+    int ox = (AP_IW - dw) / 2, oy = (AP_IH - dh) * 2 / 5;
+    for (int y = 0; y < AP_IH; y++) {
         for (int x = 0; x < AP_IW; x++) {
-            u16 v = 0;                                          /* (transparent) */
-            int dx = x - ox, dy = y - oy;
-            if (dx >= 0 && dy >= 0 && dx < dw && dy < dh) {
-                int sx0 = dx * w / dw, sx1 = (dx + 1) * w / dw, sy0 = dy * h / dh, sy1 = (dy + 1) * h / dh;
-                if (sx1 <= sx0) sx1 = sx0 + 1;
-                if (sy1 <= sy0) sy1 = sy0 + 1;
-                u32 r = 0, g = 0, b = 0, al = 0, c = 0;
-                for (int yy = sy0; yy < sy1 && yy < h; yy++)
-                    for (int xx = sx0; xx < sx1 && xx < w; xx++) {
-                        const unsigned char *p = px + ((size_t)yy * w + xx) * 4;
-                        r += p[0] * p[3]; g += p[1] * p[3]; b += p[2] * p[3]; al += p[3]; c++;
-                    }
-                if (al) { r /= al; g /= al; b /= al; }
-                al = c ? al / c : 0;
-                if (al >= 224) v = (u16)(0x8000 | ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3));
-                else v = (u16)(((al >> 5) << 12) | ((r >> 4) << 8) | ((g >> 4) << 4) | (b >> 4));
+            u32 c[4];
+            int R, G, B;
+            if (cover) {                                                /* la pochette fournie : recadree */
+                ap_avg(px, w, h, cx0 + x * fs, cy0 + y * fs, cx0 + (x + 1) * fs, cy0 + (y + 1) * fs, c);
+                R = (int)(c[0] * c[3] / 255); G = (int)(c[1] * c[3] / 255); B = (int)(c[2] * c[3] / 255);
+            } else {
+                /* fond flou : interpolation des blocs, assombri, un peu plus sombre en bas */
+                f32 fx = (x + 0.5f) * BW / AP_IW - 0.5f, fy = (y + 0.5f) * BH / AP_IH - 0.5f;
+                int ix = (int)floorf(fx), iy = (int)floorf(fy);
+                f32 ax = fx - ix, ay = fy - iy;
+                int x1 = ix + 1, y1 = iy + 1;
+                if (ix < 0) ix = 0;
+                if (iy < 0) iy = 0;
+                if (x1 > BW - 1) x1 = BW - 1;
+                if (y1 > BH - 1) y1 = BH - 1;
+                f32 v[3];
+                for (int k = 0; k < 3; k++) {
+                    f32 a0 = bg[iy][ix][k] * bg[iy][ix][3] / 255.0f, a1 = bg[iy][x1][k] * bg[iy][x1][3] / 255.0f;
+                    f32 b0 = bg[y1][ix][k] * bg[y1][ix][3] / 255.0f, b1 = bg[y1][x1][k] * bg[y1][x1][3] / 255.0f;
+                    v[k] = (a0 + (a1 - a0) * ax) * (1 - ay) + (b0 + (b1 - b0) * ax) * ay;
+                }
+                f32 dk = 0.42f - 0.16f * y / AP_IH;
+                static const f32 base[3] = { 34, 20, 84 };                      /* (violet GC Station dessous) */
+                R = (int)(base[0] * 0.6f + v[0] * dk); G = (int)(base[1] * 0.6f + v[1] * dk); B = (int)(base[2] * 0.6f + v[2] * dk);
+                int dx = x - ox, dy = y - oy;
+                if (dx >= 0 && dy >= 0 && dx < dw && dy < dh) {
+                    ap_avg(px, w, h, dx * (f32)w / dw, dy * (f32)h / dh, (dx + 1) * (f32)w / dw, (dy + 1) * (f32)h / dh, c);
+                    R += (int)(((int)c[0] - R) * (int)c[3] / 255); G += (int)(((int)c[1] - G) * (int)c[3] / 255); B += (int)(((int)c[2] - B) * (int)c[3] / 255);
+                }
             }
-            t[((y >> 2) * (AP_IW >> 2) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)] = v;
+            if (R > 255) R = 255;
+            if (G > 255) G = 255;
+            if (B > 255) B = 255;
+            t[((y >> 2) * (AP_IW >> 2) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)] = (u16)(0x8000 | ((R >> 3) << 10) | ((G >> 3) << 5) | (B >> 3));
         }
+        if ((y & 31) == 31) service_audio();
+    }
     stbi_image_free(px);
     DCFlushRange(t, AP_IW * AP_IH * 2);
     a->tex = t;
@@ -515,7 +581,7 @@ static void ap_open(void) {
     qsort(ap, ap_n, sizeof(ap_ent), ap_cmp);
     if (ap_sel >= ap_n) ap_sel = ap_n ? ap_n - 1 : 0;
 }
-#define AP_COLS 5
+#define AP_COLS 4
 static void ap_input(u32 down, u32 nav, int fire) {
     if (ap_confirm >= 0) {
         if (down & PAD_BUTTON_A) {
@@ -823,9 +889,9 @@ static void draw_apps(void) {
     char buf[160], fv[160];
     snprintf(buf, sizeof(buf), ap_n == 1 ? "1 appli" : "%d applis", ap_n);
     tl_frame("Mes applis", buf);
-    /* v49 : grille comme Mes jeux : de grandes tuiles carrees, l'icone entiere, le nom dessous */
-    const int cols = AP_COLS, rows = 2;
-    const f32 cw = 92, ch = 92, sw = 110, rh = 124, y0 = 96;
+    /* v52 : de grandes pochettes 3:4 comme les jeux (126 x 168), 4 par rangee, le nom dessous */
+    const int cols = AP_COLS, rows = 1;
+    const f32 cw = 126, ch = 168, sw = 142, rh = 216, y0 = 104;
     const f32 x0 = 320 - (cols * sw - (sw - cw)) / 2;
     int nrow = (ap_n + cols - 1) / cols, top = ap_sel / cols - rows / 2;
     if (top > nrow - rows) top = nrow - rows;
@@ -833,12 +899,17 @@ static void draw_apps(void) {
     static f32 topf = -2000.0f;
     f32 tf = ease_rows(&topf, (f32)top);
     int r0 = (int)floorf(tf), loads = 0;
+    /* (memoire : on ne garde que les pochettes proches de l'ecran) */
+    for (int k = 0; k < ap_n; k++) {
+        int r = k / cols;
+        if (ap[k].tex && (r < top - 2 || r > top + rows + 2)) { free(ap[k].tex); ap[k].tex = NULL; ap[k].istate = 0; }
+    }
     static f32 hx = -10000.0f, hy = -10000.0f;
     f32 tx = x0 + (ap_n ? ap_sel % cols : 0) * sw, ty = y0 + ((ap_n ? ap_sel / cols : 0) - tf) * rh;
     if (fabsf(tx - hx) > sw * 2.5f || fabsf(ty - hy) > rh * 1.6f) { hx = tx; hy = ty; }
     gl_ease(&hx, tx, 20.0f); gl_ease(&hy, ty, 20.0f);
-    f32 pop = gl_pop(1000 + ap_sel), gr = 1.0f + 0.07f * pop, ex = cw * (gr - 1) / 2, ey = ch * (gr - 1) / 2;
-    scr_scissor(0, y0 - 8, 640, rows * rh + 4);
+    f32 pop = gl_pop(1000 + ap_sel), gr = 1.0f + 0.06f * pop, ex = cw * (gr - 1) / 2, ey = ch * (gr - 1) / 2;
+    scr_scissor(0, y0 - 12, 640, rows * rh - 6);
     if (ap_n) gx_glow(hx - ex, hy - ey, cw + 2 * ex, ch + 2 * ey, 8, RGBA(150, 80, 255, 150), 3);
     for (int r = r0; r <= r0 + rows; r++)
         for (int c = 0; c < cols; c++) {
@@ -849,25 +920,28 @@ static void draw_apps(void) {
             int on = k == ap_sel;
             f32 bx = on ? x - ex : x, by = on ? y - ey : y, bw = on ? cw + 2 * ex : cw, bh = on ? ch + 2 * ey : ch;
             gp_zone(x, y, cw, ch + 18, &ap_sel, k, GPZ_SEL);
-            gx_rrect_fill(bx, by, bw, bh, 8, on ? RGBA(70, 36, 160, 255) : RGBA(34, 20, 84, 255), on ? RGBA(40, 18, 104, 255) : RGBA(18, 10, 46, 255));
-            if (!a->istate && loads < 1 && r >= top && r < top + rows) { ap_icon_load(a); loads++; }   /* (une icone par image) */
-            if (a->istate > 0) draw_tex_fit(&a->obj, AP_IW, AP_IH, AP_IW, AP_IH, bx + 5, by + 5, bw - 10, bh - 10);
-            else {
+            /* la selection d'abord, puis ses voisines : on voit vite celle qu'on regarde */
+            if (!a->istate && r >= top && r < top + rows && (on || (loads < 1 && (ap_sel >= ap_n || ap[ap_sel].istate)))) { ap_icon_load(a); loads++; }
+            if (a->istate > 0) draw_tex_fit(&a->obj, AP_IW, AP_IH, AP_IW, AP_IH, bx, by, bw, bh);
+            else {                                              /* pas d'icone : une pochette avec les initiales */
+                gx_rrect_fill(bx, by, bw, bh, 6, on ? RGBA(70, 36, 160, 255) : RGBA(40, 24, 98, 255), on ? RGBA(30, 14, 80, 255) : RGBA(18, 10, 46, 255));
                 char ini[3] = { 0, 0, 0 };
                 ini[0] = (char)toupper((u8)a->name[0]);
                 if (a->name[0] && a->name[1]) ini[1] = (char)tolower((u8)a->name[1]);
-                txt_scale = 1.4f;
-                gx_text_c(F_LARGE, bx + bw / 2, by + bh / 2 + 12, ini, RGBA(210, 195, 255, 255));
+                txt_scale = 2.0f;
+                gx_text_c(F_LARGE, bx + bw / 2, by + bh * 0.45f + 16, ini, RGBA(210, 195, 255, 255));
                 txt_scale = 1.0f;
+                text_display(a->name, buf, sizeof(buf)); fit_text(F_SMALL, buf, (int)bw - 12, fv, sizeof(fv));
+                gx_text_c(F_SMALL, bx + bw / 2, by + bh - 14, fv, RGBA(190, 170, 250, 255));
             }
             text_display(a->name, buf, sizeof(buf)); fit_text(F_SMALL, buf, (int)sw - 6, fv, sizeof(fv));
-            gx_text_c(F_SMALL, x + cw / 2, y + ch + 16 + (on ? ey : 0), fv, on ? RGBA(255, 255, 255, 255) : RGBA(200, 188, 240, 255));
+            gx_text_c(F_SMALL, x + cw / 2, y + ch + 18 + (on ? ey : 0), fv, on ? RGBA(255, 255, 255, 255) : RGBA(200, 188, 240, 255));
         }
-    if (ap_n) gx_rrect_stroke(hx - ex - 2, hy - ey - 2, cw + 2 * ex + 4, ch + 2 * ey + 4, 9, 2.0f, RGBA(255, 210, 120, 255));
+    if (ap_n) gx_rrect_stroke(hx - ex - 2, hy - ey - 2, cw + 2 * ex + 4, ch + 2 * ey + 4, 7, 2.0f, RGBA(255, 210, 120, 255));
     scr_viewport();
     if (nrow > rows) {                                          /* barre de defilement */
-        f32 th = 240.0f * rows / nrow, ty = y0 + (240.0f - th) * tf / (f32)(nrow - rows);
-        gx_rrect_fill(590, ty, 3, th, 1.5f, RGBA(150, 96, 255, 255), RGBA(110, 60, 230, 255));
+        f32 th = ch * rows / nrow, ty = y0 + (ch - th) * tf / (f32)(nrow - rows);
+        gx_rrect_fill(616, ty, 3, th, 1.5f, RGBA(150, 96, 255, 255), RGBA(110, 60, 230, 255));
     }
     /* l'appli choisie */
     if (ap_n) {

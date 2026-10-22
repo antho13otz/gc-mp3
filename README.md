@@ -21,6 +21,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v52
+- **Mes applis en grandes pochettes**, comme les jeux : 4 grandes jaquettes (format 3:4) par rangée, l'icône de l'appli en entier et en grand, sur un fond flouté fait à partir de l'icône. Une vraie pochette est aussi possible : mets `cover.png` (ou `pochette.png`, `boxart.png`, `.jpg`) dans le dossier de l'appli.
+- **Lanceur natif, étape 3 (test) : le jeu lit l'ISO sur la carte SD.** Avec **X** dans « Lancer ce jeu ? », GC Station installe en haut de la mémoire un petit **programme résident** qui lit la carte SD tout seul (sans système de fichiers : la position de l'ISO sur la carte est calculée avant), et branche sur lui les accès du jeu au lecteur DVD (**faux lecteur**). Jusqu'à 160 accès au lecteur (1080° Avalanche en a plus de 48) ; si un seul ne peut pas être branché, le jeu n'est pas lancé. Les `.ciso` et la musique en streaming ne sont pas encore pris en charge.
+- L'analyse (**R**) teste aussi la position du jeu sur la carte et le lecteur SD maison, sans lancer de jeu.
+- Banc d'essai sur PC (émulateur PowerPC, fausse carte SD) : `sh tools/natif-test/run.sh`.
+
 ## Nouveautés v51
 - **Rapport d'analyse sur le téléphone** : après une analyse (fiche d'un jeu, R), un **QR code** s'affiche ; scanne-le pour ouvrir le rapport sur ton téléphone (même Wi-Fi que la GameCube). Tous les rapports : `http://<IP de la GameCube>/natif` (lien « Analyses des jeux » en bas de la page de la télécommande).
 - **Lanceur natif, étape 2 (test) : le démarrage maison.** Dans « Lancer ce jeu ? », **X** démarre le jeu sans Swiss : GC Station lit lui-même `main.dol`, `bi2.bin` et la table des fichiers, prépare la mémoire et saute dans le jeu. Le lecteur n'est pas encore redirigé vers la carte SD : si le jeu affiche son message d'erreur de disque, c'est réussi. Journal : `SD:/gc-mp3/natif/dernier-lancement.txt` (aussi sur le téléphone). **A** lance toujours le jeu comme avant.

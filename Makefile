@@ -51,6 +51,12 @@ NETFAST  := $(wildcard netfast/libbba_fast.a)
 LIBS     := -L$(LIBOGC_LIB) -lfat $(NETFAST) -lbba -logc -lstdc++ -lm
 
 NM       ?= powerpc-eabi-gcc-nm
+OBJCOPY  ?= powerpc-eabi-objcopy
+
+# v49 : programme resident du lanceur natif (source/natres) : compile a part, sans
+# bibliotheque, lie a une adresse fixe (tools/natres.ld), puis range dans build/natres_bin.h
+NATRESFLAGS := -O2 -mcpu=750 -meabi -msoft-float -G 0 -msdata=none -fno-pic -ffreestanding -fno-builtin \
+               -fno-asynchronous-unwind-tables -fno-exceptions -nostdlib -nostartfiles -Wall
 
 all: $(TARGET).dol
 
@@ -83,11 +89,19 @@ build/helix/%.o: $(HELIX)/%.c
 > $(CC) $(HELIXFLAGS) -c $< -o $@
 
 LIBOBJ   := $(MBED_OBJ) $(HELIX_OBJ) $(CODEC_OBJ) $(GME_OBJ) $(XMP_OBJ) $(WEBP_OBJ)
-MAINDEPS := $(wildcard source/*.c source/*.h)
+MAINDEPS := $(wildcard source/*.c source/*.h source/natres/*.h)
 
-build/main.o: $(MAINDEPS)
+build/natres.elf: source/natres/natres.c source/natres/natres.h tools/natres.ld
 > @mkdir -p build
-> $(CC) $(CFLAGS) -DUSE_DEFAULT_STDLIB -c source/main.c -o $@
+> $(CC) $(NATRESFLAGS) -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@ -lgcc
+
+build/natres_bin.h: build/natres.elf tools/bin2h.py
+> $(OBJCOPY) -O binary build/natres.elf build/natres.bin
+> python3 tools/bin2h.py build/natres.bin $@ natres_bin
+
+build/main.o: $(MAINDEPS) build/natres_bin.h
+> @mkdir -p build
+> $(CC) $(CFLAGS) -Ibuild -DUSE_DEFAULT_STDLIB -c source/main.c -o $@
 
 # Journal de plantage : 1re edition des liens avec une table des symboles vide,
 # puis la vraie table (noms des fonctions). Si le code a bouge entre les deux,
