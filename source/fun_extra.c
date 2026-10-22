@@ -534,7 +534,7 @@ static void draw_rhythm(void) {
         for (int l = 0; l < 4; l++) rg_button(215 + l * 70, 205, 22, l, 0.5f);
         snprintf(t, sizeof(t), "Difficult\xC3\xA9 :   <  %s  >", rg_diff_names[rg_diff]);
         fun_shadow_text(F_LARGE, 320, 264, t, 1.0f, RGBA(255, 255, 255, 255));
-        snprintf(t, sizeof(t), "Joueurs :   %s", rg_players == 2 ? "DUEL (2 manettes)" : "1 joueur");
+        snprintf(t, sizeof(t), "Joueurs :   %s", TR(rg_players == 2 ? "DUEL (2 manettes)" : "1 joueur"));
         fun_shadow_text(F_LARGE, 320, 296, t, 0.9f, rg_players == 2 ? RGBA(255, 210, 90, 255) : RGBA(255, 255, 255, 255));
         if (rg_track >= 0 && rg_track < nfiles) { fun_title_of(rg_track, b2, sizeof(b2)); fit_text(F_MED, b2, 520, t, sizeof(t)); }
         else snprintf(t, sizeof(t), "un morceau au hasard");
