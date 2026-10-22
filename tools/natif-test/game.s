@@ -16,6 +16,13 @@ _start:
     lis 12,dummy_vi@ha
     addi 12,12,dummy_vi@l
     stw 12,0x30A0(11)
+    # v60 : table des exceptions du SDK (0x80003000) : 2 DSI, 3 ISI, 5 alignement, 6 programme
+    lis 12,dummy_di@ha
+    addi 12,12,dummy_di@l
+    stw 12,0x3008(11)
+    stw 12,0x300C(11)
+    stw 12,0x3014(11)
+    stw 12,0x3018(11)
     # active les interruptions de fin (masque TCINT) et acquitte
     lis 9,0xCC00
     li 0,0x3A
@@ -75,7 +82,23 @@ _start:
     bctrl
     addic. 21,21,-1
     bne 3b
-    li 21,90
+    # 8) v60 : si 0x80001F40 = 1, faux plantage (DSI) au lieu de A+Z+START
+    lwz 12,0x1F40(20)
+    cmpwi 12,1
+    bne 9f
+    lis 4,0x8000
+    ori 4,4,0x1C00
+    lis 12,0x8000
+    ori 12,12,0x1234
+    stw 12,0x198(4)
+    lis 12,0x8000
+    ori 12,12,0x5678
+    stw 12,0x84(4)
+    lwz 12,0x3008(20)
+    mtctr 12
+    li 3,2
+    bctr
+9:  li 21,90
 4:  lwz 12,0x3090(20)
     mtctr 12
     li 3,20
