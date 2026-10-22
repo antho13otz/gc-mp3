@@ -21,6 +21,9 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v48
+- **Écran de chargement « Minimal »** pour les jeux : fond presque noir, nom du jeu, une ligne fine qui avance, le pourcentage (ou l'étape), « GC STATION » discret en bas à droite.
+
 ## Nouveautés v47
 - **GC-MP3 devient GC Station** : nouveau nom partout (logo « GC STATION », sous-titre « INDIGO MEDIA CENTER », menus, messages, écran de chargement des jeux, télécommande sur téléphone).
 - Rien ne change sur la carte SD : mêmes fichiers et dossiers, la mise à jour automatique continue.
