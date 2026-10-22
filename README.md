@@ -5,10 +5,61 @@ la **musique de jeux rétro**, des **podcasts**, tes **photos et vidéos**, un *
 la **météo / actualités / réveil**, et une **télécommande sur téléphone** (Broadband Adapter),
 dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Indigo.
 
+## Où sont les fichiers sur la carte SD
+- Tes fichiers : `SD:/mp3` (musique), `SD:/retro`, `SD:/photos`, `SD:/videos`, `SD:/ecran`, `SD:/downloads`.
+- Tout ce que GC-MP3 crée est rangé dans **`SD:/gc-mp3`** : réglages (`gc-mp3.txt`), radios
+  (`radio.txt`, logos et enregistrements dans `radio/`), podcasts (`podcasts.txt`, épisodes dans
+  `podcasts/`), favoris et cookies du web, listes de lecture (`listes/`), écoutes, records des jeux,
+  titres radio gardés, cache des pochettes et des vignettes, journal de plantage.
+- Si ces fichiers étaient encore à la racine (version 21 et avant), GC-MP3 les y range tout seul au
+  démarrage. Les autres fichiers de la racine (Swiss, `ipl.dol`, `config.ini`…) ne sont pas touchés.
+
 ## Onglets
 **Z** passe à l'onglet suivant : MUSIQUE, RADIO, WEB, RÉTRO, PODCASTS, PHOTOS, FICHIERS, INFOS,
-TÉLÉPHONE. Le nom de l'onglet et des petits points (position) s'affichent en haut de la liste.
-Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés » (A coche / décoche).
+TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
+haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
+
+## Éditeur de cheats Swiss (v25)
+
+- Ouvre-le avec START > « Cheats Swiss (éditeur) », ou onglet FICHIERS > X > « Cheats Swiss », ou en ouvrant un .txt de `SD:/swiss/cheats`.
+- Swiss lit un fichier par jeu : `SD:/swiss/cheats/<ID du jeu>.txt` (ex. `GALE01.txt`). Dedans : le nom du cheat, ses lignes de code `XXXXXXXX YYYYYYYY`, puis une ligne vide avant le cheat suivant.
+- « + Nouveau fichier » : tape l'ID du jeu (6 caractères, affiché par Swiss).
+- Dans un fichier : A ouvre un cheat, X = renommer / dupliquer / supprimer / monter / descendre, « + Ajouter un cheat », Y = enregistrer.
+- Dans un cheat : A sur une ligne = modifier chiffre par chiffre (gauche / droite : chiffre, haut / bas : valeur), X = ajouter / taper au clavier / supprimer / dupliquer une ligne.
+- Les lignes qui ne sont pas au bon format s'affichent en rouge. Le reste du fichier (en-tête, lignes inconnues) est gardé tel quel.
+
+## Langue / Language (v24)
+
+- START > Réglages > « Langue / Language » : **Auto** (langue de la console), **Français** ou **English**.
+- Tout passe en anglais : onglets, menus, messages, jeux, page web d'accueil et page du téléphone.
+- Les fichiers de réglages sur la carte SD restent les mêmes (on peut changer de langue sans rien perdre).
+- In English: START > Settings > "Langue / Language" > English.
+
+## Bibliothèque plus grande et réseau plus solide (v24)
+
+- Jusqu'à **2000 morceaux** dans l'onglet MUSIQUE (avant : 512).
+- Connexion : un 2e essai automatique si le premier échoue (paquet perdu, adresse périmée), et la connexion sécurisée (https) réessaie une fois avant d'afficher une erreur.
+
+## Curseur dans tous les onglets
+Comme dans l'onglet WEB, le **stick principal** déplace une flèche partout : listes, boutons du
+lecteur (précédent, lecture / pause, suivant, stop), menu START, fenêtres, grille des photos, cartes
+des jeux, et le bandeau des onglets (après Z, ou en cliquant sur le nom de l'onglet en haut de la
+liste). La zone survolée est entourée en jaune ; **A** la choisit. La flèche disparaît après 6 s.
+
+## Onglet JEUX
+Tous les mini-jeux en un coup d'œil, avec leur record : Karaoké, Jeu de rythme (solo ou duel), Quiz
+musical, Snake, **Snake sans murs**, Casse-briques, **Pong** (contre la GameCube, ou à deux avec la
+manette 2), **Note volante** (A pour voler entre des murs qui arrivent en rythme) et **Simon**
+(retiens la suite de boutons, de plus en plus longue et rapide). Croix ou curseur pour choisir, A
+pour jouer. Dans le casse-briques, une brique dorée donne maintenant une **grande raquette** 8 s.
+
+## Onglet TÉLÉCHARGEMENTS
+Tout ce qui arrive sur la carte SD : téléchargements de l'onglet WEB, épisodes de podcasts (à la
+main ou automatiques) et fichiers envoyés depuis le téléphone. En haut, ce qui est en cours (avec
+la vitesse) et les épisodes en attente ; en dessous, l'historique (plus récent en haut, avec
+l'origine, la taille et l'heure). A = écouter (musique) ou voir (photo), X deux fois = effacer le
+fichier, B = annuler le téléchargement en cours, Y = aller dans l'onglet WEB. Historique :
+`SD:/gc-mp3/telechargements.txt`.
 
 ## Disposer le lecteur comme tu veux
 - **Stick C vers le bas** (ou START > « Disposition du lecteur ») change la disposition de MUSIQUE et RADIO :
@@ -23,7 +74,7 @@ Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés »
 ## Onglet MUSIQUE
 - Formats : **MP3, FLAC, OGG Vorbis, WAV et M4A** (`.mp3`, `.flac`, `.ogg`, `.wav`, `.m4a`, `.m4b` en AAC-LC
   ou HE-AAC, avec titre, artiste et pochette intégrée), lus dans `SD:/mp3`
-  et `SD:/downloads`, sous-dossiers compris (3 niveaux, 512 fichiers maximum). Les FLAC haute
+  et `SD:/downloads`, sous-dossiers compris (3 niveaux, 2000 fichiers maximum). Les FLAC haute
   résolution (24 bits, 96 kHz) passent ; les fichiers Opus et ALAC ne sont pas gérés. Ils sont lus au fur et à mesure depuis la carte : **pas de limite de taille**
   (les longs mix passent).
 - **Stick C gauche / droite** : change la liste — *Tous les morceaux*, *Dossiers*, *Artistes*, *Albums*,
@@ -31,9 +82,9 @@ Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés »
 - **X : menu d'actions** sur le morceau choisi : *Ajouter à une liste…*, *Nouvelle liste…*, *Chercher un
   morceau…*, *Actualiser la bibliothèque*. Dans une liste : *Retirer*, *Monter*, *Descendre* ; sur une liste :
   *Supprimer*.
-- **Mes listes** : tes listes de lecture (`SD:/listes/<Nom>.m3u`, aussi lisibles sur PC), plus deux listes
+- **Mes listes** : tes listes de lecture (`SD:/gc-mp3/listes/<Nom>.m3u`, aussi lisibles sur PC), plus deux listes
   automatiques : **Les plus écoutés** et **Écoutés récemment** (un morceau compte après 30 s d'écoute ;
-  `SD:/gc-mp3-ecoutes.txt`).
+  `SD:/gc-mp3/gc-mp3-ecoutes.txt`).
 - **Recherche** : X > *Chercher un morceau…* (ou tape une lettre sur le clavier GameCube) ; titre, artiste ou
   album, sans se soucier des accents ni des majuscules. B efface la recherche.
   Dans un dossier / artiste / album, la première ligne sert à revenir en arrière (A).
@@ -53,6 +104,9 @@ Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés »
   par album) pour qu'aucun morceau ne soit beaucoup plus fort qu'un autre. Les fichiers sans ces
   étiquettes restent tels quels (des logiciels comme foobar2000 ou MusicBrainz Picard les ajoutent).
 - **Égaliseur** (START) : graves et aigus, de -12 à +12 dB (aussi pour la radio).
+- **Noms propres** : la liste affiche « Artiste - Titre » lu dans les étiquettes du fichier, sinon le
+  nom du fichier sans numéro de piste (« 01 - », « 1-03 », « 07_ »…), sans extension ni « _ ».
+  Dans une vue Artiste ou Album, seulement le titre.
 - Pochettes : image du même nom que le MP3, pochette intégrée, ou `cover.jpg` / `folder.jpg` du dossier.
   Sinon, avec le Broadband Adapter branché, elle est cherchée sur MusicBrainz / Cover Art Archive
   et enregistrée à côté du MP3. L'album et l'année s'affichent sous l'artiste.
@@ -61,7 +115,7 @@ Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés »
 **Stick C vers le haut** (onglets MUSIQUE et RADIO), ou START > Mode soirée : visualiseur plein écran.
 Les basses donnent le rythme (pulsations, éclairs, anneaux, particules), les couleurs tournent avec
 la musique, et les **paroles s'affichent en grand** (sinon le titre et l'artiste).
-Trois styles : *Pulsation*, *Barres*, *Tunnel* (stick C gauche / droite pour changer).
+Quatre styles : *Pulsation*, *Barres*, *Tunnel*, *Spectrogramme* (stick C gauche / droite pour changer).
 L / R et Y marchent comme d'habitude ; B ou START pour sortir.
 **La manette vibre** sur les gros coups de basse (START > Vibrations de la manette pour l'arrêter).
 En écoutant une radio, X garde le titre qui passe (voir l'onglet RADIO, *Titres de la radio*).
@@ -75,7 +129,7 @@ Dans MUSIQUE, **X sur un morceau** (ou START > Jeux et karaoké) :
   le tempo, et fait tomber des notes A / B / X / Y sur les temps. Appuie quand la note touche la ligne :
   *Parfait*, *Bien*, *OK*… Le combo multiplie les points (jusqu'à x4). Trois difficultés (Facile, Normal,
   Difficile). Z = pause, START = arrêter. Le record de chaque morceau est gardé dans
-  `SD:/gc-mp3-jeux.txt`. Les morceaux au rythme bien marqué marchent le mieux.
+  `SD:/gc-mp3/gc-mp3-jeux.txt`. Les morceaux au rythme bien marqué marchent le mieux.
   **Duel** (haut / bas sur l'écran de départ) : deux joueurs côte à côte, manettes 1 et 2, mêmes
   notes pour les deux ; à la fin, le gagnant s'affiche (A = revanche).
 - **Quiz musical** : 10 secondes d'un de tes morceaux (pris au milieu), 4 réponses : trouve lequel !
@@ -87,7 +141,7 @@ Dans MUSIQUE, **X sur un morceau** (ou START > Jeux et karaoké) :
 - **Casse-briques musical** : chaque colonne de briques s'allume avec une bande du spectre, la balle
   accélère avec la musique (« TURBO ! »), et des briques deviennent dorées sur le rythme (50 points).
   Stick ou croix = raquette, A = lancer la balle, 3 vies, un niveau plus rapide à chaque mur cassé.
-  Si rien ne joue, un morceau au hasard est lancé. Les records sont gardés (`SD:/gc-mp3-jeux.txt`).
+  Si rien ne joue, un morceau au hasard est lancé. Les records sont gardés (`SD:/gc-mp3/gc-mp3-jeux.txt`).
 
 ## Onglet RÉTRO
 Musique de jeux vidéo, rangée à part dans `SD:/retro` (sous-dossiers compris), avec le nom de la console :
@@ -100,19 +154,19 @@ Les morceaux qui bouclent sont joués deux fois puis s'éteignent en fondu. Dans
 à plusieurs pistes, **L / R** changent de piste. A = lire, B = arrêter, X = actualiser, Y = pause.
 
 ## Onglet PODCASTS
-- Abonnements dans `SD:/podcasts.txt` (`Nom | adresse du flux RSS`) ; quelques podcasts de
+- Abonnements dans `SD:/gc-mp3/podcasts.txt` (`Nom | adresse du flux RSS`) ; quelques podcasts de
   Radio France sont proposés au départ.
 - **Rechercher un podcast...** (première ligne) : recherche dans l'annuaire d'Apple Podcasts,
   A sur un résultat = s'abonner.
-- Dans un podcast : A = écouter un épisode, **X = le télécharger** dans `SD:/podcasts` (il apparaît
+- Dans un podcast : A = écouter un épisode, **X = le télécharger** dans `SD:/gc-mp3/podcasts` (il apparaît
   ensuite dans MUSIQUE), B = retour. **L / R = reculer de 15 s / avancer de 30 s**.
-- La position de chaque épisode est retenue (`SD:/podcasts/positions.txt`) : on reprend où on s'était arrêté.
+- La position de chaque épisode est retenue (`SD:/gc-mp3/podcasts/positions.txt`) : on reprend où on s'était arrêté.
 - Épisodes en **MP3 ou M4A** (Radio France publie souvent en M4A), adresses longues acceptées
   (2048 caractères). En M4A, les sauts L / R et la reprise sont exacts.
 - La recherche utilise le catalogue du pays de la **langue du contenu** (menu START).
 - **Nouveaux épisodes automatiques** : GC-MP3 regarde tes abonnements un peu après le démarrage,
   puis toutes les 3 heures. Quand un podcast a un nouvel épisode, il est téléchargé tout seul dans
-  `SD:/podcasts` (un message le dit en bas de l'écran). La première fois, il note seulement le
+  `SD:/gc-mp3/podcasts` (un message le dit en bas de l'écran). La première fois, il note seulement le
   dernier épisode (rien n'est téléchargé). START > Nouveaux podcasts pour l'arrêter.
 
 ## Onglet PHOTOS
@@ -158,7 +212,7 @@ mot de passe : n'importe qui sur ton réseau local peut s'en servir, et il ne pe
 les dossiers prévus.
 
 ## Onglet RADIO
-- Mes radios : `SD:/radio.txt`, une station par ligne : `Nom de la radio | http://adresse/du/flux`.
+- Mes radios : `SD:/gc-mp3/radio.txt`, une station par ligne : `Nom de la radio | http://adresse/du/flux`.
 - **Rechercher une radio...** (première ligne) : annuaire libre radio-browser.info, recherche par nom.
   **Les plus écoutées en France** : la liste des stations populaires.
   Dans les résultats : A = écouter, **X = ajouter à mes radios** (écrit dans `radio.txt`).
@@ -166,12 +220,12 @@ les dossiers prévus.
   `.m3u` / `.pls` et les redirections sont suivies. Radios **HLS** (`.m3u8`, segments MPEG-TS ou
   AAC / MP3) gérées aussi. Pas d'Opus, ni de HLS chiffré ou au format fMP4.
 - **Enregistrer la radio** : START > Enregistrer la radio. Le flux est enregistré tel quel
-  dans `SD:/radio/enregistrements/` (« REC » s'affiche en haut de l'écran).
+  dans `SD:/gc-mp3/radio/enregistrements/` (« REC » s'affiche en haut de l'écran).
 - Préférer des serveurs proches (France / Europe) : avec les serveurs lointains, le réseau
   de la GameCube peut être trop lent pour du 128 kbps.
-- Logo facultatif : `SD:/radio/<Nom>.jpg` ou `.png`.
+- Logo facultatif : `SD:/gc-mp3/radio/<Nom>.jpg` ou `.png`.
 - **Titres de la radio** : quand une chanson te plaît, **X** (dans l'onglet RADIO ou en mode soirée)
-  garde son titre dans `SD:/gc-mp3-titres.txt`, avec la radio, la date et l'heure. START > Titres
+  garde son titre dans `SD:/gc-mp3/gc-mp3-titres.txt`, avec la radio, la date et l'heure. START > Titres
   radio gardés pour les revoir (A = le chercher dans ta musique). Sur le téléphone (onglet Radios
   de la page du QR code), toucher un titre le cherche sur YouTube.
 - Les certificats https sont vérifiés (liste Mozilla), sauf les dates d'expiration (horloge
@@ -188,7 +242,7 @@ les dossiers prévus.
 - **Formulaires complets** : champs texte et mot de passe (masqué), cases à cocher, boutons radio,
   listes déroulantes, envoi GET et POST. Avec plusieurs champs, remplis-les puis choisis le bouton.
 - **Cookies** : les sites peuvent garder ta connexion et tes préférences. Ils sont enregistrés dans
-  `SD:/cookies.txt` (les cookies permanents seulement). Ce fichier contient tes connexions :
+  `SD:/gc-mp3/cookies.txt` (les cookies permanents seulement). Ce fichier contient tes connexions :
   ne le partage pas. Accueil > « Effacer les cookies » pour tout supprimer.
 - Les **images déjà vues** restent en mémoire (3 Mo) : revenir sur une page est instantané.
 - Un lien vers un **MP3, un M4A ou une radio** (mp3, m4a, ogg, aac, m3u, pls…) propose : A = écouter tout de
@@ -196,7 +250,7 @@ les dossiers prévus.
 - **Depuis le téléphone** : carte « Ouvrir sur la télé » de la page TÉLÉPHONE, colle une adresse,
   la page s'ouvre sur la GameCube.
 - Accueil (X) : recherche web, **musique libre sur archive.org** (liste directe des MP3 de chaque album), favoris
-  (`SD:/favoris.txt`, une ligne par site : `Nom | adresse`).
+  (`SD:/gc-mp3/favoris.txt`, une ligne par site : `Nom | adresse`).
 - Un lien vers un autre fichier est téléchargé dans `SD:/downloads` en tâche de fond ; les MP3 apparaissent
   ensuite dans l'onglet MUSIQUE.
 
@@ -213,21 +267,23 @@ pour la GameCube : GC-MP3 utilise alors une **carte SD virtuelle en mémoire** (
 
 ## Fluidité
 - La barre de sélection glisse d'une ligne à l'autre ; la croix maintenue va de plus en plus vite.
-- **Bibliothèque en cache** (`SD:/gc-mp3-bib.txt`) : les durées et les étiquettes déjà lues sont
+- **Bibliothèque en cache** (`SD:/gc-mp3/gc-mp3-bib.txt`) : les durées et les étiquettes déjà lues sont
   gardées ; au démarrage suivant, la liste défile sans relire chaque fichier et les vues Artistes /
   Albums sont prêtes tout de suite. Le fichier peut être supprimé sans risque (il se refait).
 - Les durées ne sont pas lues pendant qu'on fait défiler la liste (pas d'à-coups).
 - **Changement de morceau instantané** : la pochette est décodée en tâche de fond (le son démarre
-  tout de suite), puis gardée toute prête dans `SD:/cache/pochettes` : la fois suivante, elle
+  tout de suite), puis gardée toute prête dans `SD:/gc-mp3/cache/pochettes` : la fois suivante, elle
   s'affiche immédiatement. Pareil pour les logos des radios et les pochettes trouvées sur Internet.
 - **Onglet PHOTOS rapide** : pour les photos d'appareil photo ou de téléphone, GC-MP3 prend la petite
   image déjà rangée dans la photo (EXIF) au lieu de décoder toute la photo — et les très grandes
-  photos ont enfin leur vignette. Les vignettes sont gardées dans `SD:/cache/vignettes`.
+  photos ont enfin leur vignette. Les vignettes sont gardées dans `SD:/gc-mp3/cache/vignettes`.
 - **Connexions https plus rapides** : la session sécurisée des derniers sites est réutilisée
   (paroles, pochettes, météo, podcasts, radios en https) : plus besoin de refaire les longs calculs
   de chiffrement à chaque fois. Les adresses des sites sont aussi gardées 30 minutes.
+- **Son sans coupure** : environ 0,2 s de son est préparé d'avance ; quand GC-MP3 est occupé un
+  instant (carte SD, réseau, image à décoder), la musique ne saute plus (MP3 à 320 kb/s compris).
 - Une seule attente du processeur graphique par image, et pas de calcul du spectre quand rien ne joue.
-- Le dossier `SD:/cache` peut être supprimé sans risque : il se refait tout seul.
+- Le dossier `SD:/gc-mp3/cache` peut être supprimé sans risque : il se refait tout seul.
 
 ## Menu (START)
 Lecture aléatoire, répétition, **fondu enchaîné**, liste MUSIQUE, **volume**, **volume égalisé**,
@@ -235,7 +291,10 @@ Lecture aléatoire, répétition, **fondu enchaîné**, liste MUSIQUE, **volume*
 médiums / aigus à la main), **thème de couleurs** (Indigo, Océan,
 Émeraude, Rubis, Ambre, Couleurs douces, Graphite — « Couleurs douces » si l'image paraît trop vive
 sur ta télé), **économiseur d'écran** (2 / 5 / 10 / 30 min ou jamais, n'importe quelle touche le quitte), pochettes et paroles automatiques, reprise au démarrage,
-**vidéo** (auto = 480p avec un câble composante ou un GCVideo ; B maintenu au démarrage = 480i),
+**type de télé** (*Écran plat*, ou *Cathodique* : 480i et 4:3, pour une télé à tube ou un moniteur PVM),
+**vidéo** (auto = 480p avec un câble composante ou un GCVideo ; B maintenu au démarrage = 480i ;
+le 480i est maintenant bien gardé même si la console était réglée en progressif ; un changement de
+mode vidéo s'applique au prochain démarrage),
 **taille de l'écran** (80 à 112 % : en dessous de 100, l'image rétrécit si les bords sont coupés ;
 au-dessus, elle s'élargit pour supprimer les bandes noires des côtés — 110 % conseillé en 16:9),
 **hauteur de l'écran** (80 à 100 %) et **position verticale** (plus haut / plus bas) si le haut ou le
@@ -250,7 +309,7 @@ aux sites web et noms de villes de la météo ; l'interface reste en français),
 guirlande et neige à Noël, soleil en été, selon la date), **nouveaux podcasts** (téléchargés tout seuls),
 **jeux et karaoké**, **titres radio gardés**, **mode soirée**, **vibrations de la manette**, **minuterie** (arrêt après 15 à 120 min, le son baisse doucement les 30 dernières
 secondes), **disposition du lecteur**, **éléments du lecteur**, **onglets affichés**,
-enregistrement de la radio, et **Quitter**. Tout est enregistré dans `SD:/gc-mp3.txt`.
+enregistrement de la radio, et **Quitter**. Tout est enregistré dans `SD:/gc-mp3/gc-mp3.txt`.
 
 ### Style de l'économiseur d'écran
 START > « Style de l'économiseur » : Gauche / Droite pour choisir, **A pour un aperçu**.
@@ -262,6 +321,8 @@ START > « Style de l'économiseur » : Gauche / Droite pour choisir, **A pour u
   tout seul la première fois). Taille maxi 1920 × 1080 : réduis les photos du téléphone avant de les copier.
   Chaque photo reste 12 s avec un léger zoom et un fondu, dans le désordre.
 - **Écran noir** : rien du tout (la musique continue).
+- **Spectrogramme** : les fréquences défilent de droite à gauche (graves en bas, aigus en haut),
+  la couleur montre leur force. Aussi dans le mode soirée (4e style).
 - **Aquarium** : des poissons qui nagent plus vite quand la musique est forte, des algues qui dansent
   sur les basses et des bulles qui montent sur chaque coup de basse.
 Tout bouge lentement pour ne pas marquer l'écran.
@@ -308,9 +369,9 @@ carte ; tu peux l'imposer avec `maj_fichier = sd:/chemin/fichier.dol` dans `gc-m
 
 ## Journal de plantage
 Si GC-MP3 plante (écran rouge) ou se bloque plus de 20 secondes, il écrit un rapport dans
-`SD:/gc-mp3-crash.txt` : le type d'erreur, la fonction en cause, la pile d'appels, l'onglet, le
+`SD:/gc-mp3/gc-mp3-crash.txt` : le type d'erreur, la fonction en cause, la pile d'appels, l'onglet, le
 morceau ou la radio en cours, la mémoire libre et les 16 dernières actions. Au démarrage suivant, un
-message le signale et le fichier devient `SD:/gc-mp3-crash-ancien.txt`. Depuis le téléphone, le lien
+message le signale et le fichier devient `SD:/gc-mp3/gc-mp3-crash-ancien.txt`. Depuis le téléphone, le lien
 « Journal de plantage » en bas de la page (adresse `/crash.txt`) l'affiche pour le copier facilement.
 Le rapport n'est pas écrit si le plantage a eu lieu pendant un accès à la carte SD (pour ne pas
 l'abîmer) : l'écran rouge reste alors la seule trace.
