@@ -42,11 +42,10 @@ static void vz_step(void) {
 }
 /* couleurs : violet -> bleu de gauche a droite (comme avant), plus clair en haut */
 static col_t vz_col(f32 t) { return lerp_c(RGBA(156, 60, 255, 255), RGBA(70, 130, 255, 255), t * 1.25f - 0.15f); }
-static col_t vz_heat(f32 v) {                      /* spectrogramme : nuit -> violet -> bleu -> cyan -> blanc */
-    if (v < 0.25f) return lerp_c(RGBA(10, 6, 30, 255), RGBA(90, 30, 170, 255), v / 0.25f);
-    if (v < 0.5f) return lerp_c(RGBA(90, 30, 170, 255), RGBA(70, 110, 255, 255), (v - 0.25f) / 0.25f);
-    if (v < 0.8f) return lerp_c(RGBA(70, 110, 255, 255), RGBA(110, 230, 255, 255), (v - 0.5f) / 0.3f);
-    return lerp_c(RGBA(110, 230, 255, 255), RGBA(255, 250, 255, 255), (v - 0.8f) / 0.2f);
+static col_t vz_heat(f32 v) {                      /* spectrogramme : memes couleurs que le plein ecran (v40) */
+    int r, g, b;
+    sgp_rgb(v, &r, &g, &b);
+    return RGBA(r, g, b, 255);
 }
 static col_t vz_alpha(col_t c, int a) { c.a = (u8)(a < 0 ? 0 : a > 255 ? 255 : a); return c; }
 

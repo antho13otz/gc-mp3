@@ -392,6 +392,29 @@ static float bar_val[NBARS];
 enum { VZ_LED, VZ_BARS, VZ_MIRROR, VZ_CURVE, VZ_SGRAM, VZ_SCOPE, VZ_CIRCLE, VZ_COUNT };
 static int viz_style = VZ_LED;
 static const char *const viz_keys[VZ_COUNT] = { "led", "barres", "miroir", "courbe", "spectrogramme", "oscilloscope", "cercle" };
+/* v40 : couleurs du spectrogramme (plein ecran, mode soiree, style du lecteur) */
+enum { SGP_FEU, SGP_MAGMA, SGP_ARC, SGP_OCEAN, SGP_VERT, SGP_GRIS, SGP_COUNT };
+static int sg_pal_id = SGP_FEU;
+static const char *const sgp_keys[SGP_COUNT] = { "feu", "violet", "arc-en-ciel", "ocean", "vert", "gris" };
+static const char *const sgp_names[SGP_COUNT] = { "Feu", "Violet", "Arc-en-ciel", "Oc\xC3\xA9" "an", "Vert", "Noir et blanc" };
+static const u8 sgp_stops[SGP_COUNT][6][3] = {
+    { { 0, 0, 0 }, { 80, 0, 0 }, { 190, 30, 0 }, { 250, 110, 0 }, { 255, 200, 40 }, { 255, 255, 220 } },   /* feu */
+    { { 0, 0, 6 }, { 48, 12, 96 }, { 132, 30, 110 }, { 214, 62, 60 }, { 250, 152, 24 }, { 252, 252, 170 } }, /* violet (avant) */
+    { { 0, 0, 0 }, { 20, 40, 160 }, { 0, 170, 200 }, { 60, 210, 60 }, { 250, 220, 0 }, { 255, 40, 20 } },    /* arc-en-ciel */
+    { { 0, 0, 0 }, { 0, 20, 70 }, { 0, 70, 160 }, { 0, 150, 220 }, { 90, 220, 255 }, { 240, 255, 255 } },     /* ocean */
+    { { 0, 0, 0 }, { 0, 50, 10 }, { 0, 120, 30 }, { 40, 200, 40 }, { 170, 255, 60 }, { 240, 255, 200 } },     /* vert */
+    { { 0, 0, 0 }, { 40, 40, 40 }, { 90, 90, 90 }, { 150, 150, 150 }, { 210, 210, 210 }, { 255, 255, 255 } }, /* gris */
+};
+static void sgp_rgb(f32 v, int *r, int *g, int *b) {
+    if (v < 0) v = 0;
+    if (v > 1) v = 1;
+    f32 x = v * 5; int a = (int)x; if (a > 4) a = 4;
+    f32 t = x - a;
+    const u8 (*st)[3] = sgp_stops[sg_pal_id >= 0 && sg_pal_id < SGP_COUNT ? sg_pal_id : 0];
+    *r = (int)(st[a][0] + (st[a + 1][0] - st[a][0]) * t);
+    *g = (int)(st[a][1] + (st[a + 1][1] - st[a][1]) * t);
+    *b = (int)(st[a][2] + (st[a + 1][2] - st[a][2]) * t);
+}
 static const char *const viz_names[VZ_COUNT] = { "LED (classique)", "Barres", "Miroir", "Courbe", "Spectrogramme", "Oscilloscope", "Cercle" };
 static float win[VIZ_N];
 static short bar_lo[NBARS], bar_hi[NBARS];      /* cases de la FFT de chaque barre */
@@ -3784,6 +3807,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "ecran_position")) { scr_vpos = atoi(v); if (scr_vpos < -24) scr_vpos = -24; if (scr_vpos > 24) scr_vpos = 24; }
         else if (!strcasecmp(k, "ecran_taille")) { scr_pct = atoi(v); if (scr_pct < 80) scr_pct = 80; if (scr_pct > SCR_MAX) scr_pct = SCR_MAX; }
         else if (!strcasecmp(k, "style")) ui_skin = !strncasecmp(v, "mod", 3) ? 1 : 0;
+        else if (!strcasecmp(k, "spectrogramme_couleurs")) { for (int i = 0; i < SGP_COUNT; i++) if (!strcasecmp(v, sgp_keys[i])) sg_pal_id = i; }
         else if (!strcasecmp(k, "spectre")) { for (int i = 0; i < VZ_COUNT; i++) if (!strcasecmp(v, viz_keys[i])) viz_style = i; }
         else if (!strcasecmp(k, "jeux_affichage")) { for (int i = 0; i < 6; i++) if (!strcasecmp(v, glview_keys[i])) gl_view = i; }
         else if (!strcasecmp(k, "interface")) { ui_lang = !strncasecmp(v, "en", 2) ? 1 : !strncasecmp(v, "fr", 2) ? 0 : -1; ui_lang_apply(); }
@@ -3898,6 +3922,7 @@ static void save_settings(void) {
             lang_pref >= 0 ? lang_keys[lang_pref] : "auto", ui_lang == 1 ? "en" : ui_lang == 0 ? "fr" : "auto", skin_keys[ui_skin ? 1 : 0], glview_keys[gl_view >= 0 && gl_view < 6 ? gl_view : 0], scr_pct, scr_hpct, scr_vpos, scr_wide ? "16:9" : "4:3", resume_on ? "oui" : "non",
             resume_path, resume_pos);
     fprintf(f, "# Style du spectre : led / barres / miroir / courbe / spectrogramme / oscilloscope / cercle\nspectre = %s\n", viz_keys[viz_style]);
+    fprintf(f, "# Couleurs du spectrogramme : feu / violet / arc-en-ciel / ocean / vert / gris\nspectrogramme_couleurs = %s\n", sgp_keys[sg_pal_id]);
     fprintf(f, "# Mode veilleuse : luminosite 1 a 5 ; radio lancee si rien ne joue : oui / non\n"
                "veilleuse_luminosite = %d\nveilleuse_radio = %s\n"
                "# Mise a jour : verification au demarrage (oui / non), depot GitHub,\n"
@@ -9900,7 +9925,7 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_UPDATE, MI_TOSWISS, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_UPDATE, MI_TOSWISS, MI_QUIT, MI_COUNT };
 static int autostart_get(void);
 static const char *autostart_set(int on);
 /* v35 : page Reglages en sections (L / R) : GC-MP3, Indigo, Swiss, Outils */
@@ -9957,6 +9982,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_TOSWISS: snprintf(out, cap, "(A)"); break;
     case MI_LAYOUT:  snprintf(out, cap, "%s", layout_names[player_layout]); break;
     case MI_VIZ:     snprintf(out, cap, "%s", viz_names[viz_style]); break;
+    case MI_SGPAL:   snprintf(out, cap, "%s", sgp_names[sg_pal_id]); break;
     case MI_ELEMS: { int c = 0; for (int i = 0; i < EL_COUNT; i++) c += EL(i); snprintf(out, cap, "%d / %d  (A)", c, EL_COUNT); break; }
     case MI_TABS:  { int c = 0; for (int i = 0; i < TAB_COUNT; i++) c += tab_shown(i); snprintf(out, cap, "%d / %d  (A)", c, TAB_COUNT); break; }
     case MI_SLEEP:
@@ -9999,7 +10025,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Style de l'interface", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran", "D\xC3\xA9" "cor de saison",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
     "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
-    "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre",
+    "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre", "Couleurs du spectrogramme",
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer avec Indigo / Swiss", "Retour en jeu (A+Z+START)", "Mise \xC3\xA0 jour", "Quitter vers Swiss", "Quitter GC-MP3" };
 
 static void web_relayout(void);
@@ -10062,6 +10088,7 @@ static void menu_change(int i, int d) {
     case MI_IGR:     igr_toggle(); return;
     case MI_LAYOUT:  player_layout = (player_layout + d + LAYOUT_COUNT) % LAYOUT_COUNT; break;
     case MI_VIZ:     viz_style = (viz_style + d + VZ_COUNT) % VZ_COUNT; break;
+    case MI_SGPAL:   sg_pal_id = (sg_pal_id + d + SGP_COUNT) % SGP_COUNT; break;
     case MI_ELEMS:   checklist_open(&ck_elems); return;
     case MI_TABS:    checklist_open(&ck_tabs); return;
     case MI_SLEEP: {
@@ -10270,6 +10297,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_VIDEO) hint = "Pris en compte au prochain lancement (B maintenu au d\xC3\xA9marrage = 480i)";
     if (menu_sel == MI_IGR) hint = igr_hint();
     if (menu_sel == MI_QUIT) hint = "Ouvre le menu de la GameCube (lecteur de disque). Bouton Reset = relancer GC-MP3";
+    if (menu_sel == MI_SGPAL) hint = "Spectrogramme plein \xC3\xA9" "cran (\xC3\xA9" "conomiseur, mode soir\xC3\xA9" "e) et style Spectrogramme";
     if (menu_sel == MI_RUMBLE) hint = "M\xC3\xAAme r\xC3\xA9glage que \xC2\xAB Couper les vibrations \xC2\xBB d'Indigo";
     if (hint) gx_text1(F_SMALL, x + 20, help_y + 8, hint, RGBA(255, 210, 120, 255));
     draw_menu_legend(0);
@@ -10778,15 +10806,24 @@ static GXTexObj sg_obj;
 static int sg_ready = 0, sg_head = 0;
 static u16 sg_pal[256];
 static u32 sg_frame = 0;
-static void sg_setup(void) {
-    static const u8 st[6][3] = { { 0, 0, 6 }, { 48, 12, 96 }, { 132, 30, 110 }, { 214, 62, 60 }, { 250, 152, 24 }, { 252, 252, 170 } };
+static u8 sg_raw[SG_W * SG_H];                 /* v40 : forces gardees : on recolore tout en changeant de couleurs */
+static int sg_pal_done = -1;
+static void sg_palette(void) {
     for (int i = 0; i < 256; i++) {
-        f32 x = i / 255.0f * 5;
-        int a = (int)x; if (a > 4) a = 4;
-        f32 t = x - a;
-        int r = (int)(st[a][0] + (st[a + 1][0] - st[a][0]) * t), g = (int)(st[a][1] + (st[a + 1][1] - st[a][1]) * t), b = (int)(st[a][2] + (st[a + 1][2] - st[a][2]) * t);
+        int r, g, b;
+        sgp_rgb(i / 255.0f, &r, &g, &b);
         sg_pal[i] = (u16)(0x8000 | ((r >> 3) << 10) | ((g >> 3) << 5) | (b >> 3));
     }
+    sg_pal_done = sg_pal_id;
+}
+static void sg_recolor(void) {
+    sg_palette();
+    for (int i = 0; i < SG_W * SG_H; i++) sg_tex[i] = sg_pal[sg_raw[i]];
+    DCFlushRange(sg_tex, sizeof(sg_tex));
+    GX_InvalidateTexAll();
+}
+static void sg_setup(void) {
+    sg_palette();
     for (int i = 0; i < SG_W * SG_H; i++) sg_tex[i] = sg_pal[0];
     DCFlushRange(sg_tex, sizeof(sg_tex));
     GX_InitTexObj(&sg_obj, sg_tex, SG_W, SG_H, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
@@ -10796,6 +10833,7 @@ static void sg_setup(void) {
 /* une colonne de plus (une fois par image) */
 static void sg_update(void) {
     if (!sg_ready) sg_setup();
+    if (sg_pal_done != sg_pal_id) sg_recolor();
     if (sg_frame == retrace_count) return;
     sg_frame = retrace_count;
     int x = sg_head;
@@ -10805,7 +10843,9 @@ static void sg_update(void) {
         f32 t = f - i0, v = bar_val[i0] * (1 - t) + bar_val[i0 + 1] * t;
         int c = (int)(v * v * 255);                         /* (le bruit de fond reste sombre ; v29 : plus de saturation) */
         if (c > 255) c = 255;
-        sg_tex[((y >> 2) * (SG_W >> 2) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)] = sg_pal[c];
+        int o = ((y >> 2) * (SG_W >> 2) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3);
+        sg_raw[o] = (u8)c;
+        sg_tex[o] = sg_pal[c];
     }
     for (int ty = 0; ty < SG_H / 4; ty++) DCFlushRange(&sg_tex[(ty * (SG_W >> 2) + (x >> 2)) * 16], 32);
     GX_InvalidateTexAll();
@@ -10822,6 +10862,7 @@ static void sg_quad(f32 x0, f32 x1, f32 y, f32 h, f32 u0, f32 u1, u8 a) {
 /* dessine le spectrogramme : le plus recent a droite */
 static void sg_draw(f32 x, f32 y, f32 w, f32 h, u8 a) {
     if (!sg_ready) sg_setup();
+    if (sg_pal_done != sg_pal_id) sg_recolor();
     gx_set_image(&sg_obj);
     f32 hu = (f32)sg_head / SG_W, split = x + w * (1.0f - hu);
     sg_quad(x, split, y, h, hu, 1.0f, a);                   /* des plus anciennes... */
