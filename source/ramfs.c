@@ -4,7 +4,7 @@
 //    changement (reglages, radios, podcasts, telechargements, envoi depuis le
 //    telephone...), dans la limite de RF_MAX octets ;
 //  - les petits fichiers de reglages (.txt a la racine, positions des podcasts)
-//    sont gardes sur la carte memoire (fichier "GC-MP3 donnees") et relus au
+//    sont gardes sur la carte memoire (fichier "GC Station donnees") et relus au
 //    demarrage suivant. Le reste (musique telechargee) est perdu en quittant.
 
 #define RF_MAX        (6 * 1024 * 1024)      /* memoire maximale des fichiers */

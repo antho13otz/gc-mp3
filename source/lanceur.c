@@ -134,7 +134,7 @@ static void ld_pump(void) {
     FILE *v = fopen(LD_VER, "w");
     if (v) { fprintf(v, "%d\n", ld_new_b > 0 ? ld_new_b : 1); fclose(v); }
     ld_cache = -1;
-    snprintf(ld_msg, sizeof(ld_msg), "%s", TR("Lanceur GC-MP3 pr\xC3\xAAt : les jeux d\xC3\xA9marrent sans Swiss"));
+    snprintf(ld_msg, sizeof(ld_msg), "%s", TR("Lanceur GC Station pr\xC3\xAAt : les jeux d\xC3\xA9marrent sans Swiss"));
     crumb("lanceur : installe b%d", ld_new_b);
 }
 
@@ -147,8 +147,8 @@ static void ld_change(int a) {
 static void ld_value(char *out, int cap) {
     if (ld_mode == 1) { snprintf(out, cap, "Swiss / Indigo"); return; }
     if (ld_state != LD_IDLE) snprintf(out, cap, "%s", TR("T\xC3\xA9l\xC3\xA9" "chargement..."));
-    else if (ld_build() > 0) snprintf(out, cap, "GC-MP3 (b%d)", ld_build());
-    else snprintf(out, cap, "%s", TR("GC-MP3 (A : t\xC3\xA9l\xC3\xA9" "charger)"));
+    else if (ld_build() > 0) snprintf(out, cap, "GC Station (b%d)", ld_build());
+    else snprintf(out, cap, "%s", TR("GC Station (A : t\xC3\xA9l\xC3\xA9" "charger)"));
 }
 static const char *ld_hint(void) {
     if (ld_msg[0]) return ld_msg;

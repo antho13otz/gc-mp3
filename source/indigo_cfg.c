@@ -76,7 +76,7 @@ static const ic_item ic_items[] = {
       "Lance tout seul le disque ou le fichier de d\xC3\xA9marrage.", "Boots the disc or boot file automatically." },
     /* ---- page 2 : jeux ---- */
     { "IGRType", "Retour en jeu (A+Z+START)", "In-Game Reset", ICT_LIST, "Disabled|Reboot|Apploader", 0, 0, 0,
-      "Reboot : A+Z+START en jeu red\xC3\xA9marre (sur GC-MP3 si c'est ton ipl.dol).", "Reboot: A+Z+START in game restarts (into GC-MP3 if it is your ipl.dol)." },
+      "Reboot : A+Z+START en jeu red\xC3\xA9marre (sur GC Station si c'est ton ipl.dol).", "Reboot: A+Z+START in game restarts (into GC Station if it is your ipl.dol)." },
     { "BS2Boot", "Menu GameCube avant le jeu", "Load GameCube Main Menu", ICT_LIST, "No|Yes|Sound 1|Sound 2", 0, 0, 0,
       "Lance les jeux avec le logo et le menu GameCube.", "Boots games with the GameCube logo and menu." },
     { "AutoCheats", "Cheats automatiques", "Auto-load cheats", ICT_LIST, YN, 0, 0, 0,
@@ -526,7 +526,7 @@ static void ic_help_draw(int k, f32 x, f32 y, f32 w) {
     gx_text1(F_SMALL, x, y, it->key, RGBA(150, 135, 210, 255));
     if (ic_is_gc(it->key)) {
         gx_rrect_fill(x + w - 150, y - 9, 6, 6, 3, RGBA(90, 230, 130, 255), RGBA(50, 180, 90, 255));
-        gx_text_r(F_SMALL, x + w, y, ui_en ? "Also used by GC-MP3" : "Vaut aussi pour GC-MP3", RGBA(120, 230, 150, 255));
+        gx_text_r(F_SMALL, x + w, y, ui_en ? "Also used by GC Station" : "Vaut aussi pour GC Station", RGBA(120, 230, 150, 255));
     }
     const char *help = ui_en ? it->den : it->dfr;
     if (help && help[0]) { fit_text(F_SMALL, help, (int)w, fv, sizeof(fv)); gx_text1(F_SMALL, x, y + 18, fv, RGBA(210, 200, 240, 255)); }
@@ -549,7 +549,7 @@ static void ic_menu_input(int sec, u32 down, u32 nav, int fire) {
         if (!ic_dirty) ic_note("Rien \xC3\xA0 enregistrer");
         else if (ic_save()) {
             ic_apply(0);
-            if (ic_restart_note) ic_note("Enregistr\xC3\xA9 : vid\xC3\xA9o / r\xC3\xA9seau de GC-MP3 au prochain lancement");
+            if (ic_restart_note) ic_note("Enregistr\xC3\xA9 : vid\xC3\xA9o / r\xC3\xA9seau de GC Station au prochain lancement");
             else ic_note("Enregistr\xC3\xA9 : Indigo / Swiss l'utilisera \xC3\xA0 son prochain d\xC3\xA9marrage");
         }
     }

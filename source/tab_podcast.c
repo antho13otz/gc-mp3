@@ -11,7 +11,7 @@
 #endif
 
 static const char *POD_DEFAULT =
-    "# Podcasts de GC-MP3 : un abonnement par ligne, au format   Nom | adresse du flux RSS\n"
+    "# Podcasts de GC Station : un abonnement par ligne, au format   Nom | adresse du flux RSS\n"
     "# (ou utilise \"Rechercher un podcast\" dans l'onglet PODCASTS)\n"
     "La M\xC3\xA9thode scientifique | https://radiofrance-podcast.net/podcast09/podcast_423b51d8-3f44-4b9a-b906-e0d14bdf0516.xml\n"
     "Le Cours de l'histoire | https://radiofrance-podcast.net/podcast09/podcast_c951e8a9-6121-4400-a3ef-5f9c958d36c3.xml\n"

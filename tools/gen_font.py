@@ -14,7 +14,7 @@ FONTS = [  # (fichier, taille, jeu de caracteres)  0=SMALL 1=MED 2=LARGE 3=LOGO
     (D + 'DejaVuSansCondensed.ttf',      12, 'full'),
     (D + 'DejaVuSansCondensed.ttf',      15, 'full'),
     (D + 'DejaVuSansCondensed-Bold.ttf', 22, 'full'),
-    (D + 'DejaVuSans-BoldOblique.ttf',   34, 'GC-MP3'),
+    (D + 'DejaVuSans-BoldOblique.ttf',   34, 'GC-MP3 STAION'),   # v47 : logo GC STATION
 ]
 ATLAS_W = 512
 GAP = 2                      # marge entre glyphes (evite les fuites du filtrage bilineaire)

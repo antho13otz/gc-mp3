@@ -3913,7 +3913,7 @@ static void save_settings(void) {
     else snprintf(alarm_txt, sizeof(alarm_txt), "non");
     FILE *f = fopen(SETTINGS_FILE, "w");
     if (!f) return;
-    fprintf(f, "# Reglages de GC-MP3 (aussi modifiables avec START > Reglages)\n"
+    fprintf(f, "# Reglages de GC Station (aussi modifiables avec START > Reglages)\n"
                "# Pochettes manquantes cherchees sur Internet (MusicBrainz) : oui / non\n"
                "pochettes_auto = %s\n"
                "# Paroles synchronisees cherchees sur Internet (LRCLIB) : oui / non\n"
@@ -4330,7 +4330,7 @@ static int init_video(void) {
        s'il reste a l'ecran, c'est que GX a bloque. */
     CON_Init(xfb[0], 20, 20, rmode->fbWidth - 40, rmode->xfbHeight - 40,
              rmode->fbWidth * VI_DISPLAY_PIX_SZ);
-    printf("\n\n   GC-MP3\n\n   Video OK\n   Initialisation de GX...\n");
+    printf("\n\n   GC Station\n\n   Video OK\n   Initialisation de GX...\n");
     return 1;
 }
 
@@ -4903,7 +4903,7 @@ static int gx_text_r_w(int f, f32 xr, f32 base, const char *s, col_t c) { gx_tex
 static void draw_header_modern(void) {
     col_t acc = RGBA(mod_acc[0], mod_acc[1], mod_acc[2], 255);
     draw_logo_cube(34, 25, 12);
-    gx_text1(F_MED, 54, 31, "GC-MP3", RGBA(240, 240, 245, 255));
+    gx_text1(F_MED, 54, 31, "GC Station", RGBA(240, 240, 245, 255));
     time_t tt = time(NULL);
     struct tm *tm = localtime(&tt);
     char b[40];
@@ -4940,8 +4940,10 @@ static void draw_viz(f32 x, f32 base, f32 w, f32 h);
 static void draw_header(void) {
     if (ui_skin) { draw_header_modern(); return; }
     draw_logo_cube(54, 38, 23);
-    gx_text(F_LOGO, 88, 46, "GC-MP3", RGBA(240, 232, 255, 255), RGBA(150, 84, 255, 255), 0);
-    gx_text(F_SMALL, 91, 63, "INDIGO AUDIO PLAYER", RGBA(170, 150, 225, 255), RGBA(170, 150, 225, 255), 4);
+    txt_scale = 0.84f;                       /* v47 : GC STATION (plus long que GC-MP3) */
+    gx_text(F_LOGO, 88, 46, "GC STATION", RGBA(240, 232, 255, 255), RGBA(150, 84, 255, 255), 0);
+    txt_scale = 1.0f;
+    gx_text(F_SMALL, 91, 63, "INDIGO MEDIA CENTER", RGBA(170, 150, 225, 255), RGBA(170, 150, 225, 255), 4);
 
     gx_hgrad(330, 46, 140, 1, RGBA(110, 70, 255, 0), RGBA(110, 70, 255, 200));
     if (viz_style != VZ_LED) draw_viz(390, 64, 86, 38);     /* v43 : le style choisi aussi en haut */
@@ -5541,7 +5543,7 @@ static void draw_list_music(int sel) {
         gx_text1(F_MED, 30, 138, "Pas de carte SD", RGBA(255, 205, 110, 255));
         gx_text1(F_SMALL, 30, 160, "Radio, podcasts et web marchent.", RGBA(190, 180, 235, 255));
         gx_text1(F_SMALL, 30, 178, "Les morceaux t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9s restent", RGBA(190, 180, 235, 255));
-        gx_text1(F_SMALL, 30, 196, "jusqu'\xC3\xA0 la fermeture de GC-MP3.", RGBA(190, 180, 235, 255));
+        gx_text1(F_SMALL, 30, 196, "jusqu'\xC3\xA0 la fermeture de GC Station.", RGBA(190, 180, 235, 255));
         if (rf_card_msg[0]) {
             char m[96];
             fit_text(F_SMALL, rf_card_msg, 236, m, sizeof(m));
@@ -7285,7 +7287,7 @@ static const whist_t *last_web_page(void) {
 static char *build_home(void) {
     sbuf_t s = { NULL, 0, 0 };
     char t[300];
-    sb_add(&s, "<html><head><title>Accueil</title></head><body><h1>GC-MP3 Web</h1>");
+    sb_add(&s, "<html><head><title>Accueil</title></head><body><h1>GC Station Web</h1>");
     sb_add(&s, "<p>Y : taper une adresse ou une recherche. X : revenir à l'accueil. B : page précédente. "
                "Croix : choisir un lien, A : l'ouvrir. Stick principal : la flèche (pointer un lien, A pour l'ouvrir). "
                "Stick C : faire défiler. Depuis le téléphone : « Ouvrir sur la télé ».</p>");
@@ -10112,7 +10114,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
     "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
     "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Animations (jeux / applis)", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre", "Couleurs du spectrogramme", "Paroles dans le lecteur", "\xC3\x89" "clair sur les basses",
-    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer avec Indigo / Swiss", "Retour en jeu (A+Z+START)", "Lanceur de jeux", "Mise \xC3\xA0 jour", "Quitter vers Swiss", "Quitter GC-MP3" };
+    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer avec Indigo / Swiss", "Retour en jeu (A+Z+START)", "Lanceur de jeux", "Mise \xC3\xA0 jour", "Quitter vers Swiss", "Quitter GC Station" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -10200,7 +10202,7 @@ static void menu_change(int i, int d) {
         tv_crt = !tv_crt;
         if (tv_crt) { video_pref = VID_480I; scr_set_wide(0); }
         else if (video_pref == VID_480I) video_pref = VID_AUTO;
-        if (tv_crt && vid_active != VID_480I) lib_note("Red\xC3\xA9marre GC-MP3 pour passer en 480i");
+        if (tv_crt && vid_active != VID_480I) lib_note("Red\xC3\xA9marre GC Station pour passer en 480i");
         break;
     case MI_WIDE:    scr_set_wide(!scr_wide); break;
     case MI_SCREENH: scr_hpct += 2 * d; if (scr_hpct < 80) scr_hpct = 80; if (scr_hpct > 100) scr_hpct = 100; break;
@@ -10314,8 +10316,8 @@ static void draw_menu(void) {
     draw_panel(x, y, w, h);
     gx_text1(F_LARGE, x + 18, y + 32, "R\xC3\xA9glages", RGBA(255, 255, 255, 255));
     {
-        static const char *const sec_fr[SEC_COUNT] = { "GC-MP3", "Indigo", "Swiss", "Outils" };
-        static const char *const sec_en[SEC_COUNT] = { "GC-MP3", "Indigo", "Swiss", "Tools" };
+        static const char *const sec_fr[SEC_COUNT] = { "GC Station", "Indigo", "Swiss", "Outils" };
+        static const char *const sec_en[SEC_COUNT] = { "GC Station", "Indigo", "Swiss", "Tools" };
         f32 px = x + 150;
         for (int p = 0; p < SEC_COUNT; p++) {
             const char *nm = ui_en ? sec_en[p] : sec_fr[p];
@@ -10344,7 +10346,7 @@ static void draw_menu(void) {
         draw_menu_legend(2);
         return;
     }
-    gx_text1(F_SMALL, x + 20, y + 60, ui_en ? "Settings of the GC-MP3 app" : "R\xC3\xA9glages de l'appli GC-MP3", RGBA(150, 135, 210, 255));
+    gx_text1(F_SMALL, x + 20, y + 60, ui_en ? "Settings of the GC Station app" : "R\xC3\xA9glages de l'appli GC Station", RGBA(150, 135, 210, 255));
     if (menu_sel < menu_top) menu_top = menu_sel;
     if (menu_sel >= menu_top + vis) menu_top = menu_sel - vis + 1;
     if (menu_top > MI_COUNT - vis) menu_top = MI_COUNT - vis;
@@ -10391,7 +10393,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_IGR) hint = igr_hint();
     if (menu_sel == MI_LAUNCHER) hint = ld_hint();
     if (menu_sel == MI_GLANIM) hint = "D\xC3\xA9" "filement doux, cadre qui glisse, carrousel (onglet JEUX / APPS)";
-    if (menu_sel == MI_QUIT) hint = "Ouvre le menu de la GameCube (lecteur de disque). Bouton Reset = relancer GC-MP3";
+    if (menu_sel == MI_QUIT) hint = "Ouvre le menu de la GameCube (lecteur de disque). Bouton Reset = relancer GC Station";
     if (menu_sel == MI_LAYOUT) hint = "Une disposition par onglet (MUSIQUE, RADIO, R\xC3\x89TRO, PODCASTS) : change d'onglet pour r\xC3\xA9gler les autres";
     if (menu_sel == MI_LYRSHOW) hint = "Paroles des musiques (fichiers .lrc) : \xC3\xA0 la place du spectre ou par-dessus";
     if (menu_sel == MI_FLASH) hint = "Le flash blanc du mode soir\xC3\xA9" "e sur chaque coup de basse";
@@ -10536,7 +10538,7 @@ static void saver_pochette(f32 t) {
     if (ti[0]) {
         fit_text(F_LARGE, ti, (int)tw, buf, sizeof(buf));
         gx_text1(F_LARGE, tx, ty, buf, RGBA(255, 255, 255, 230));
-    } else gx_text1(F_LARGE, tx, ty, "GC-MP3", RGBA(255, 255, 255, 230));
+    } else gx_text1(F_LARGE, tx, ty, "GC Station", RGBA(255, 255, 255, 230));
     if (sub[0]) {
         fit_text(F_MED, sub, (int)tw, buf, sizeof(buf));
         gx_text1(F_MED, tx, ty + 30, buf, RGBA(200, 180, 250, 210));
