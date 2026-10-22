@@ -67,6 +67,21 @@ for a in old:
         st3, _ = call("DELETE", api + "/releases/assets/%d" % a["id"])
         print("ancien %s supprime : HTTP %d" % (a.get("name"), st3))
 
+# 2b. v39 : le fichier du retour en jeu (apploader.img avec GC-MP3), facultatif
+if len(sys.argv) > 3 and os.path.isfile(sys.argv[3]):
+    st, rel2 = call("GET", api + "/releases/%d" % rel["id"])
+    imgs = [a for a in (rel2 or rel).get("assets", []) if a.get("name", "").endswith(".img")]
+    myimg = "gc-mp3-igr-b%s.img" % build
+    for a in imgs:
+        if a.get("name") == myimg:
+            call("DELETE", api + "/releases/assets/%d" % a["id"])
+    st, _ = call("POST", rel["upload_url"].split("{")[0] + "?name=" + myimg, open(sys.argv[3], "rb").read(), "application/octet-stream")
+    print("%s envoye : HTTP %d" % (myimg, st))
+    if st == 201:
+        for a in imgs:
+            if a.get("name") != myimg:
+                call("DELETE", api + "/releases/assets/%d" % a["id"])
+
 # 3. le numero de build en dernier : il n'annonce jamais un fichier absent.
 #    "build=N" toujours sur la PREMIERE ligne (GC-MP3 v19 et avant ne lisent que
 #    le debut du texte) ; si le texte ou le titre ont ete ecrits a la main sur

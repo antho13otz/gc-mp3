@@ -1,0 +1,182 @@
+// GC-MP3 v39 : retour en jeu (A + Z + START) vers GC-MP3 (inclus dans main.c, apres indigo_cfg.c)
+// Indigo / Swiss, reglage "Retour en jeu" = Apploader : en jeu, A + Z + START charge
+// SD:/swiss/patches/apploader.img et le lance. Celui d'Indigo contient Indigo (compresse).
+// Le workflow GitHub fabrique le meme fichier avec GC-MP3 dedans (gc-mp3-igr-bN.img,
+// dans la release "dernier") : GC-MP3 le telecharge et le met a la place ; celui
+// d'Indigo est garde (apploader-indigo.img) pour revenir en arriere.
+#define IGR_IMG     SD_ROOT "/swiss/patches/apploader.img"
+#define IGR_BACKUP  SD_ROOT "/swiss/patches/apploader-indigo.img"
+#define IGR_MINE    GCD "/igr.img"
+
+enum { IGR_IDLE, IGR_CHECK, IGR_DL };
+static int igr_state = IGR_IDLE, igr_cache = -1, igr_auto_done = 0, igr_enable_after = 0;
+static char igr_msg[120] = "";
+static char igr_url[URL_MAX];
+static hfetch_t igr_hf = { .c = { -1, 0, 0 } };
+
+static u32 igr_crc32(const u8 *p, long n) {
+    static u32 tab[256];
+    static int ready = 0;
+    if (!ready) { for (u32 i = 0; i < 256; i++) { u32 c = i; for (int k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320u ^ (c >> 1) : c >> 1; tab[i] = c; } ready = 1; }
+    u32 c = 0xFFFFFFFFu;
+    for (long i = 0; i < n; i++) c = tab[(c ^ p[i]) & 255] ^ (c >> 8);
+    return c ^ 0xFFFFFFFFu;
+}
+/* en-tete : 16 octets de nom ("*gc-mp3-b123"), 8 octets, taille, crc32 des donnees */
+static int igr_valid(const u8 *d, long n) {
+    if (n < 0x40) return 0;
+    u32 len = (u32)d[0x18] << 24 | (u32)d[0x19] << 16 | (u32)d[0x1A] << 8 | d[0x1B];
+    u32 crc = (u32)d[0x1C] << 24 | (u32)d[0x1D] << 16 | (u32)d[0x1E] << 8 | d[0x1F];
+    if (len + 0x20 != (u32)n || len > 6u * 1024 * 1024) return 0;
+    return igr_crc32(d + 0x20, len) == crc;
+}
+/* build de GC-MP3 dans un apploader.img (0 = pas le notre) */
+static int igr_build_of(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    char h[17] = { 0 };
+    int ok = fread(h, 1, 16, f) == 16;
+    fclose(f);
+    if (!ok || memcmp(h, "*gc-mp3", 7)) return 0;
+    const char *b = strstr(h, "-b");
+    return b ? (atoi(b + 2) > 0 ? atoi(b + 2) : 1) : 1;
+}
+static int igr_on(void) {
+    if (igr_cache < 0) igr_cache = igr_build_of(IGR_IMG) > 0;
+    return igr_cache;
+}
+static int igr_copy(const char *src, const char *dst) {
+    long n = 0;
+    u8 *d = read_file(src, 8 * 1024 * 1024, &n);
+    if (!d) return 0;
+    char tmp[NAME_LEN + 8];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", dst);
+    FILE *f = fopen(tmp, "wb");
+    int ok = f != NULL;
+    for (long o = 0; ok && o < n; o += 65536) {
+        long k = n - o < 65536 ? n - o : 65536;
+        if (fwrite(d + o, 1, k, f) != (size_t)k) ok = 0;
+        service_audio();
+    }
+    if (f && fclose(f) != 0) ok = 0;
+    free(d);
+    if (!ok) { remove(tmp); return 0; }
+    remove(dst);
+    if (rename(tmp, dst) != 0) { remove(tmp); return 0; }
+    return 1;
+}
+/* reglage "Retour en jeu" d'Indigo (global.ini) : ecrit tout de suite, ou en fermant la page Reglages */
+static void igr_set_type(const char *v) {
+    int k = ic_find("IGRType");
+    if (k < 0) return;
+    if (ic_menu_loaded) { ic_set(k, v); return; }
+    ic_use_global(); ic_load(); ic_set(k, v); ic_save();
+}
+static void igr_install(void) {
+    mkdir(SD_ROOT "/swiss", 0777); mkdir(SD_ROOT "/swiss/patches", 0777);
+    struct stat st;
+    if (stat(IGR_IMG, &st) == 0 && !igr_build_of(IGR_IMG) && stat(IGR_BACKUP, &st) != 0) {
+        if (rename(IGR_IMG, IGR_BACKUP) != 0) { snprintf(igr_msg, sizeof(igr_msg), "%s", TR("Impossible de garder l'apploader d'Indigo")); return; }
+    }
+    if (!igr_copy(IGR_MINE, IGR_IMG)) { snprintf(igr_msg, sizeof(igr_msg), "%s", TR("\xC3\x89" "criture sur la carte SD impossible")); return; }
+    igr_set_type("Apploader");
+    igr_cache = 1;
+    snprintf(igr_msg, sizeof(igr_msg), "%s", TR("A + Z + START en jeu : retour sur GC-MP3"));
+    crumb("retour en jeu : GC-MP3");
+}
+static void igr_disable(void) {
+    struct stat st;
+    if (stat(IGR_BACKUP, &st) == 0) {
+        remove(IGR_IMG);
+        if (rename(IGR_BACKUP, IGR_IMG) != 0) igr_copy(IGR_BACKUP, IGR_IMG);
+        snprintf(igr_msg, sizeof(igr_msg), "%s", TR("A + Z + START en jeu : retour sur Indigo"));
+    } else {
+        remove(IGR_IMG);
+        igr_set_type("Reboot");                                    /* (plus d'apploader : redemarrage) */
+        snprintf(igr_msg, sizeof(igr_msg), "%s", TR("A + Z + START en jeu : red\xC3\xA9marrage de la console"));
+    }
+    igr_cache = 0;
+    crumb("retour en jeu : Indigo");
+}
+/* telecharge gc-mp3-igr-bN.img depuis la release "dernier" */
+static void igr_fetch(int enable_after) {
+    if (igr_state != IGR_IDLE) return;
+    if (net_phase != NET_DONE) { net_start_async(); snprintf(igr_msg, sizeof(igr_msg), "%s", TR("R\xC3\xA9seau en cours de connexion, r\xC3\xA9" "essaie")); return; }
+    if (!net_ok) { snprintf(igr_msg, sizeof(igr_msg), "%s", TR("Pas de r\xC3\xA9seau")); return; }
+    char url[256];
+    snprintf(url, sizeof(url), UPD_API "/repos/%s/releases/tags/dernier", upd_repo);
+    igr_hf.maxbytes = 512 * 1024; igr_hf.image = 0; igr_hf.accept = "application/vnd.github+json";
+    hf_start(&igr_hf, url, NULL);
+    igr_state = IGR_CHECK; igr_enable_after = enable_after;
+    snprintf(igr_msg, sizeof(igr_msg), "%s", TR("T\xC3\xA9l\xC3\xA9" "chargement..."));
+}
+static void igr_pump(void) {
+    /* une fois par session : met a jour le fichier si GC-MP3 a ete mis a jour */
+    if (!igr_auto_done && sd_ok && net_phase == NET_DONE && net_ok && now_ms() > 20000 && igr_state == IGR_IDLE && up_state != UP_DL && up_state != UP_WRITE) {
+        igr_auto_done = 1;
+        int b = igr_build_of(IGR_IMG);
+        if (b > 0 && b < GCMP3_BUILD) { crumb("retour en jeu : mise a jour %d -> %d", b, GCMP3_BUILD); igr_fetch(1); }
+    }
+    if (igr_state == IGR_IDLE) return;
+    hf_pump(&igr_hf);
+    if (igr_hf.st == HF_FAIL) {
+        hf_drop(&igr_hf); igr_hf.st = HF_IDLE; igr_state = IGR_IDLE;
+        snprintf(igr_msg, sizeof(igr_msg), "%s", TR("GitHub ne r\xC3\xA9pond pas"));
+        return;
+    }
+    if (igr_hf.st != HF_DONE) return;
+    if (igr_state == IGR_CHECK) {
+        char *js = (char *)malloc(igr_hf.len + 1);
+        igr_url[0] = 0;
+        if (js) {
+            memcpy(js, igr_hf.buf, igr_hf.len); js[igr_hf.len] = 0;
+            const char *end = js + igr_hf.len;
+            for (const char *p = js; p && p < end; p += 22) {
+                p = strstr(p, "\"browser_download_url\"");
+                if (!p) break;
+                char u[URL_MAX];
+                json_field(p, end, "browser_download_url", u, sizeof(u));
+                int ul = (int)strlen(u);
+                if (ul > 4 && !strcasecmp(u + ul - 4, ".img")) { snprintf(igr_url, sizeof(igr_url), "%s", u); break; }
+            }
+            free(js);
+        }
+        hf_drop(&igr_hf); igr_hf.st = HF_IDLE;
+        if (!igr_url[0]) { igr_state = IGR_IDLE; snprintf(igr_msg, sizeof(igr_msg), "%s", TR("Pas encore de fichier pour le retour en jeu")); return; }
+        igr_hf.maxbytes = 6 * 1024 * 1024; igr_hf.image = 0; igr_hf.accept = "application/octet-stream";
+        hf_start(&igr_hf, igr_url, NULL);
+        igr_state = IGR_DL;
+        return;
+    }
+    /* fichier recu */
+    igr_state = IGR_IDLE;
+    int ok = igr_valid(igr_hf.buf, igr_hf.len);
+    if (ok) {
+        mkdir(GCD, 0777);
+        FILE *f = fopen(IGR_MINE, "wb");
+        ok = f && fwrite(igr_hf.buf, 1, igr_hf.len, f) == (size_t)igr_hf.len;
+        if (f && fclose(f) != 0) ok = 0;
+    }
+    hf_drop(&igr_hf); igr_hf.st = HF_IDLE;
+    if (!ok) { remove(IGR_MINE); snprintf(igr_msg, sizeof(igr_msg), "%s", TR("Fichier re\xC3\xA7u invalide")); return; }
+    if (igr_enable_after) igr_install();
+}
+/* menu : A ou Gauche / Droite = changer */
+static void igr_toggle(void) {
+    if (igr_state != IGR_IDLE) return;
+    if (igr_on()) { igr_disable(); return; }
+    long n = 0;
+    u8 *d = read_file(IGR_MINE, 8 * 1024 * 1024, &n);
+    int have = d && igr_valid(d, n) && igr_build_of(IGR_MINE) >= GCMP3_BUILD;
+    free(d);
+    if (have) igr_install();
+    else igr_fetch(1);
+}
+static void igr_value(char *out, int cap) {
+    if (igr_state != IGR_IDLE) snprintf(out, cap, "%s", TR("T\xC3\xA9l\xC3\xA9" "chargement..."));
+    else snprintf(out, cap, "%s", igr_on() ? "GC-MP3" : "Indigo");
+}
+static const char *igr_hint(void) {
+    if (igr_msg[0]) return igr_msg;
+    return "En jeu, A + Z + START revient sur GC-MP3 (ou sur Indigo). Change aussi le r\xC3\xA9glage d'Indigo";
+}
