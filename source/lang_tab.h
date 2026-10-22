@@ -991,3 +991,7 @@
     { "Pas de r\xC3\xA9seau : le rapport est dans SD:/gc-mp3/natif", "No network: the report is in SD:/gc-mp3/natif" },
     { "D\xC3\xA9marrage du serveur...", "Starting the server..." },
     { "B : fermer", "B: close" },
+    { "A : lancer     X : lanceur maison (test)     B : annuler", "A: start     X: home-made launcher (test)     B: cancel" },
+    { "Lanceur maison : analyse du jeu...", "Home-made launcher: analysing the game..." },
+    { "Lanceur maison : lecture de main.dol...", "Home-made launcher: reading main.dol..." },
+    { "Lanceur maison : lecture de la FST...", "Home-made launcher: reading the FST..." },
