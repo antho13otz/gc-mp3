@@ -19,6 +19,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v38
+
+- **Après une mise à jour : A relance GC-MP3 directement** (la nouvelle version est chargée en mémoire). Avant, il fallait quitter, ce qui redémarrait la console sur le menu de la GameCube / le lecteur de disque.
+- **Bouton Reset de la console** pendant GC-MP3 : relance GC-MP3 au lieu d'ouvrir le menu de la GameCube.
+- « Quitter GC-MP3 » ouvre toujours le menu de la GameCube (lecteur de disque).
+
 ## Nouveautés v37
 
 - **Cheats beaucoup plus rapides** : cocher / décocher est instantané. Les choix sont écrits sur la carte SD une seconde après (ou en quittant le fichier), plus à chaque appui. La lecture des codes n'utilise plus `sscanf` (20 fois plus rapide, même résultat que Swiss). La liste des fichiers de cheats s'ouvre sans lire chaque fichier.
