@@ -28,6 +28,9 @@ static int gl_n = 0, gl_scanned = 0, gl_on = 0, gl_sel = 0, gl_detail = 0;
 static char gl_msg[160];
 static u64 gl_msg_t = 0;
 static int gl_launch_sel;
+static int gl_list_dirty = 0;
+static char gl_busy[96] = "";                            /* v27 : message "en cours" affiche par-dessus */
+static void gl_status(const char *m) { snprintf(gl_busy, sizeof(gl_busy), "%s", TR(m)); ui_status(m); }                            /* v27 : noms / descriptions lus dans les bannieres */
 static const char *gl_launch(int k);
 
 /* ---------- packs SWPK ---------- */
@@ -252,20 +255,70 @@ static void gl_load_desc(void) {
     free(d);
 }
 static void gl_free_list(void);
-static void gl_scan(void) {
+/* v27 : liste gardee dans SD:/gc-mp3/cache/jeux.txt (ouverture immediate ;
+   Y = chercher a nouveau sur toute la carte). Une ligne par jeu :
+   chemin <TAB> taille <TAB> ID <TAB> disque <TAB> ciso <TAB> nom <TAB> description */
+#define GL_LIST GL_CACHE "/liste.txt"
+static void gl_list_save(void) {
+    mkdir(GCD, 0777); mkdir(GCD "/cache", 0777); mkdir(GL_CACHE, 0777);
+    FILE *f = fopen(GL_LIST, "w");
+    if (!f) return;
+    fprintf(f, "GLC1\n");
+    for (int k = 0; k < gl_n; k++)
+        fprintf(f, "%s\t%ld\t%s\t%u\t%u\t%s\t%s\n", gl[k].path, gl[k].size, gl[k].id, gl[k].disc, gl[k].ciso, gl[k].title, gl[k].desc ? gl[k].desc : "");
+    fclose(f);
+}
+static int gl_list_load(void) {
+    long len = 0;
+    unsigned char *d = read_file(GL_LIST, 2 * 1024 * 1024, &len);
+    if (!d) return 0;
+    if (len < 5 || memcmp(d, "GLC1\n", 5)) { free(d); return 0; }
+    char *p = (char *)d + 5, *end = (char *)d + len;
+    while (p < end && gl_n < GL_MAX) {
+        char *nl = memchr(p, '\n', end - p);
+        if (!nl) nl = end;
+        *nl = 0;
+        char *f[7]; int n = 0;
+        f[n++] = p;
+        for (char *c = p; *c && n < 7; c++) if (*c == '\t') { *c = 0; f[n++] = c + 1; }
+        if (n >= 6 && strlen(f[2]) == 6 && gl_id_ok(f[2])) {
+            gcg_t *g = &gl[gl_n];
+            memset(g, 0, sizeof(*g));
+            snprintf(g->path, sizeof(g->path), "%s", f[0]);
+            g->size = atol(f[1]);
+            snprintf(g->id, sizeof(g->id), "%s", f[2]);
+            g->disc = (u8)atoi(f[3]); g->ciso = (u8)atoi(f[4]);
+            snprintf(g->title, sizeof(g->title), "%s", f[5]);
+            if (n >= 7 && f[6][0]) g->desc = strdup(f[6]);
+            g->post = g->still = -2; g->bslot = -1;
+            gl_n++;
+        }
+        p = nl + 1;
+    }
+    free(d);
+    return 1;
+}
+static void gl_scan_full(int force) {
     if (!gl) gl = (gcg_t *)calloc(GL_MAX, sizeof(gcg_t));
     gl_free_list();
     if (!gl || !sd_ok) { gl_scanned = 1; return; }
-    int budget = 6000;
-    gl_walk(SD_ROOT, 0, &budget);
-    qsort(gl, gl_n, sizeof(gcg_t), gl_cmp);
+    int cached = !force && gl_list_load();
+    if (!cached) {
+        gl_status("Recherche des jeux GameCube sur la carte SD...");
+        int budget = 6000;
+        gl_walk(SD_ROOT, 0, &budget);
+        qsort(gl, gl_n, sizeof(gcg_t), gl_cmp);
+        gl_load_desc();
+    }
     swpk_open(&gl_post, GL_UI "/posters.pak", 256, 256);
     swpk_open(&gl_still, GL_UI "/stills.pak", 320, 240);
-    gl_load_desc();
     for (int k = 0; k < gl_n; k++) { gl[k].post = (s16)swpk_find(&gl_post, gl[k].id); gl[k].still = (s16)swpk_find(&gl_still, gl[k].id); }
+    if (!cached) gl_list_save();
+    gl_busy[0] = 0;
     gl_scanned = 1;
     if (gl_sel >= gl_n) gl_sel = gl_n ? gl_n - 1 : 0;
 }
+static void gl_scan(void) { gl_scan_full(1); }
 
 /* ---------- jaquettes et bannieres en memoire ---------- */
 typedef struct { int game; u16 *tex; GXTexObj obj; u64 used; } glslot_t;
@@ -361,10 +414,10 @@ static void gl_banner_load(int k) {
     if (!g->desc && g->id[3] != 'J') {                     /* description de la banniere */
         char t[400];
         gl_latin(b + 0x1820 + 0xC0, 0x80, t, sizeof(t));
-        if (t[0]) g->desc = strdup(t);
+        if (t[0]) { g->desc = strdup(t); gl_list_dirty = 1; }
         char full[96];
         gl_latin(b + 0x1820 + 0x40, 0x40, full, sizeof(full));
-        if (full[0]) snprintf(g->title, sizeof(g->title), "%s", full);
+        if (full[0] && strcmp(full, g->title)) { snprintf(g->title, sizeof(g->title), "%s", full); gl_list_dirty = 1; }
     }
     u16 *t = (u16 *)memalign(32, 96 * 32 * 2);
     if (t) {
@@ -388,7 +441,7 @@ static void gl_note(const char *m) { snprintf(gl_msg, sizeof(gl_msg), "%s", TR(m
 /* ---------- entree ---------- */
 static void gclib_open(void) {
     gl_on = 1; gl_detail = 0;
-    if (!gl_scanned) gl_scan();
+    if (!gl_scanned) gl_scan_full(0);                      /* (liste gardee : tout de suite) */
     crumb("mes jeux");
 }
 static void gl_open_cheats(int k) {
@@ -410,7 +463,9 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         if (down & PAD_BUTTON_A) {
             int k = gl_launch_sel;
             gl_launch_sel = -1;
+            gl_status("Lancement de Swiss...");
             const char *e = gl_launch(k);                   /* (ne revient pas si ca marche) */
+            gl_busy[0] = 0;
             if (e) gl_note(e);
         }
         if (down & PAD_BUTTON_B) gl_launch_sel = -1;
@@ -435,7 +490,7 @@ static void gclib_input(u32 down, u32 nav, int fire) {
     if ((down & PAD_BUTTON_A) && gl_n) gl_detail = 1;
     if ((down & PAD_BUTTON_X) && gl_n) gl_open_cheats(gl_sel);
     if (down & PAD_BUTTON_Y) { gl_scanned = 0; gl_scan(); gl_note(gl_n ? "Liste actualis\xC3\xA9" "e" : "Aucun jeu trouv\xC3\xA9"); }
-    if (down & PAD_BUTTON_B) gl_on = 0;
+    if (down & PAD_BUTTON_B) { gl_on = 0; if (gl_list_dirty) { gl_list_dirty = 0; gl_list_save(); } }
 }
 
 /* ---------- affichage ---------- */
@@ -488,7 +543,17 @@ static void gl_card_banner(int k, f32 x, f32 y, f32 w, f32 h, int on) {
         gx_text_c(F_SMALL, x + w / 2, y + h / 2 + 38, buf, RGBA(210, 200, 240, 255));
     }
 }
+static void draw_gclib_main(void);
 static void draw_gclib(void) {
+    draw_gclib_main();
+    if (gl_busy[0]) {                                        /* recherche / lancement en cours */
+        const f32 w = 440, h = 64, x = 100, y = 200;
+        gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
+        draw_panel(x, y, w, h);
+        gx_text_c(F_MED, x + w / 2, y + 40, gl_busy, RGBA(255, 255, 255, 255));
+    }
+}
+static void draw_gclib_main(void) {
     char buf[NAME_LEN], d[NAME_LEN];
     draw_panel(11, 73, 618, 338);
     int tx = draw_tabs(NULL);
@@ -641,8 +706,23 @@ static int gl_is_swiss(const char *path) {
     fclose(f);
     return found && !mine ? 1 + indigo : 0;          /* 2 = Swiss Indigo, 1 = autre Swiss */
 }
+#define GL_SWISS_CACHE GL_CACHE "/swiss.txt"            /* v27 : Swiss deja trouve (chemin | taille) */
 static int gl_find_swiss(void) {
     if (swiss_pref[0]) { snprintf(gl_swiss, sizeof(gl_swiss), "%s", swiss_pref); return access(gl_swiss, R_OK) == 0; }
+    {
+        long len = 0;
+        char *c = (char *)read_file(GL_SWISS_CACHE, 4096, &len);
+        if (c) {
+            char *bar = strchr(c, '|');
+            struct stat st;
+            if (bar) {
+                *bar = 0;
+                if (stat(c, &st) == 0 && (long)st.st_size == atol(bar + 1)) { snprintf(gl_swiss, sizeof(gl_swiss), "%s", c); free(c); return 1; }
+            }
+            free(c);
+        }
+    }
+    gl_status("Recherche de Swiss sur la carte SD...");
     char cand[24][NAME_LEN];
     int nc = 0;
     const char *dirs[] = { SD_ROOT, SD_ROOT "/swiss", SD_ROOT "/apps/swiss", SD_ROOT "/apps/indigo", SD_ROOT "/apps/Swiss", NULL };
@@ -670,6 +750,11 @@ static int gl_find_swiss(void) {
         int sc = gl_is_swiss(cand[i]);
         if (sc > best) { best = sc; snprintf(gl_swiss, sizeof(gl_swiss), "%s", cand[i]); }
     }
+    if (best > 0) {                                         /* garde-le pour la prochaine fois */
+        struct stat st;
+        FILE *f = stat(gl_swiss, &st) == 0 ? fopen(GL_SWISS_CACHE, "w") : NULL;
+        if (f) { fprintf(f, "%s|%ld\n", gl_swiss, (long)st.st_size); fclose(f); }
+    }
     return best > 0;
 }
 
@@ -691,8 +776,29 @@ static const u32 gl_stub[] = {
 static const char *gl_launch(int k) {                  /* retourne un message d'erreur, ou ne revient pas */
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
     if (!gl_find_swiss()) return "Swiss introuvable : mets son .dol a la racine (ex. swiss.dol) ou indique-le dans gc-mp3.txt (swiss = ...)";
+    if (access(gl[k].path, R_OK) != 0) return "Jeu introuvable : Y pour actualiser la liste";
+    /* lecture de Swiss par morceaux, avec l'avancement a l'ecran */
     long len = 0;
-    unsigned char *dol = read_file(gl_swiss, 12 * 1024 * 1024, &len);
+    unsigned char *dol = NULL;
+    {
+        FILE *f = fopen(gl_swiss, "rb");
+        struct stat st;
+        if (f && stat(gl_swiss, &st) == 0 && st.st_size > 0 && st.st_size <= 12 * 1024 * 1024) {
+            len = (long)st.st_size;
+            dol = (unsigned char *)malloc(len);
+            long got = 0;
+            char m[96];
+            while (dol && got < len) {
+                long n = len - got < 262144 ? len - got : 262144;
+                if ((long)fread(dol + got, 1, n, f) != n) break;
+                got += n;
+                snprintf(m, sizeof(m), "Lancement de Swiss... %ld %%", got * 100 / len);
+                gl_status(m);
+            }
+            if (dol && got < len) { free(dol); dol = NULL; }
+        }
+        if (f) fclose(f);
+    }
     if (!dol) return "Lecture de Swiss impossible (m\xC3\xA9moire ou carte SD)";
     if (len < 0x100) { free(dol); return "Fichier de Swiss invalide"; }
     /* sections du .dol */
