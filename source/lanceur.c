@@ -61,10 +61,17 @@ static void ld_fetch(int loud) {
     if (loud) snprintf(ld_msg, sizeof(ld_msg), "%s", TR("Recherche du lanceur..."));
 }
 
+static char ld_note[160];
+static int ld_note_shown = 0;
 static void ld_pump(void) {
+    if (ld_note[0] && !ld_note_shown && now_ms() > 2500) {     /* v45 : pourquoi le jeu n'a pas demarre */
+        ld_note_shown = 1;
+        lib_note(ld_note);
+        lib_note_until = now_ms() + 10000;
+    }
     /* une fois par session : lanceur absent ou plus ancien que celui de GitHub */
     if (!ld_auto_done && ld_mode == 0 && sd_ok && net_phase == NET_DONE && net_ok && now_ms() > 25000 && ld_state == LD_IDLE
-        && igr_state == IGR_IDLE && up_state != UP_DL && up_state != UP_WRITE) {
+        && igr_state == IGR_IDLE && up_state != UP_DL && up_state != UP_WRITE && up_state != UP_CHECK && now_ms() - last_input_ms > 3000) {
         ld_auto_done = 1;
         ld_fetch(0);
     }
@@ -117,7 +124,7 @@ static void ld_pump(void) {
     if (ok) {
         mkdir(GCD, 0777);
         FILE *f = fopen(LD_DOL ".tmp", "wb");
-        ok = f && fwrite(ld_hf.buf, 1, ld_hf.len, f) == (size_t)ld_hf.len;
+        ok = f && igr_fwrite_all(f, ld_hf.buf, ld_hf.len);
         if (f && fclose(f) != 0) ok = 0;
         if (ok) { remove(LD_DOL); ok = rename(LD_DOL ".tmp", LD_DOL) == 0; }
         if (!ok) remove(LD_DOL ".tmp");
@@ -147,4 +154,44 @@ static const char *ld_hint(void) {
     if (ld_msg[0]) return ld_msg;
     if (ld_mode == 1) return "Les jeux d\xC3\xA9marrent avec ton Swiss / Indigo";
     return "Jeux lanc\xC3\xA9s sans le menu de Swiss (B maintenu : \xC3\xA9" "cran du jeu). A : mettre \xC3\xA0 jour";
+}
+
+/* v45 : au demarrage de GC-MP3 :
+   - SD:/gc-mp3/retour.txt = chemin de GC-MP3 (le lanceur y revient apres A + Z + START en jeu) ;
+   - SD:/gc-mp3/lanceur.log = journal du lanceur : s'il n'a pas pu lancer le jeu, on affiche pourquoi. */
+static void ld_boot(void) {
+    if (!sd_ok || sd_virtual) return;
+    char me[NAME_LEN + 8];
+    as_self(me, sizeof(me));
+    long n = 0;
+    u8 *d = read_file(GCD "/retour.txt", 1024, &n);
+    int same = d && n >= (long)strlen(me) && !memcmp(d, me, strlen(me)) && (n == (long)strlen(me) || d[strlen(me)] == '\n' || d[strlen(me)] == '\r');
+    free(d);
+    if (!same) {
+        mkdir(GCD, 0777);
+        FILE *f = fopen(GCD "/retour.txt", "w");
+        if (f) { fprintf(f, "%s\n", me); fclose(f); }
+    }
+    d = read_file(GCD "/lanceur.log", 64 * 1024, &n);
+    if (!d) return;
+    char *t = (char *)malloc(n + 1);
+    if (t) {
+        memcpy(t, d, n); t[n] = 0;
+        const char *msg = NULL, *p = t;
+        while ((p = strstr(p, "MSG: ")) != NULL) { msg = p + 5; p += 5; }
+        if (msg) {
+            int l = (int)strcspn(msg, "\r\n");
+            char m[120];
+            snprintf(m, sizeof(m), "%.*s", l > 110 ? 110 : l, msg);
+            for (char *c = m; *c; c++) if ((unsigned char)*c < 32) *c = ' ';
+            snprintf(ld_note, sizeof(ld_note), "%s %s", TR("Le lanceur n'a pas pu lancer le jeu :"), m);
+        } else if (strstr(t, "jeu non lance") || strstr(t, "retour impossible")) {
+            snprintf(ld_note, sizeof(ld_note), "%s", TR("Le lanceur n'a pas pu lancer le jeu (journal : SD:/gc-mp3/lanceur-dernier.log)"));
+        }
+        if (ld_note[0]) { snprintf(ld_msg, sizeof(ld_msg), "%s", ld_note); crumb("lanceur : %s", ld_note); }
+        free(t);
+    }
+    free(d);
+    remove(GCD "/lanceur-dernier.log");
+    rename(GCD "/lanceur.log", GCD "/lanceur-dernier.log");
 }

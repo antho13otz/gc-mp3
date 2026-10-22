@@ -45,6 +45,15 @@ static int igr_on(void) {
     if (igr_cache < 0) igr_cache = igr_build_of(IGR_IMG) > 0;
     return igr_cache;
 }
+/* v45 : ecriture par morceaux de 64 Ko, la musique continue pendant ce temps */
+static int igr_fwrite_all(FILE *f, const u8 *d, long n) {
+    for (long o = 0; o < n; o += 65536) {
+        long k = n - o < 65536 ? n - o : 65536;
+        if (fwrite(d + o, 1, k, f) != (size_t)k) return 0;
+        service_audio();
+    }
+    return 1;
+}
 static int igr_copy(const char *src, const char *dst) {
     long n = 0;
     u8 *d = read_file(src, 8 * 1024 * 1024, &n);
@@ -112,7 +121,7 @@ static void igr_fetch(int enable_after) {
 }
 static void igr_pump(void) {
     /* une fois par session : met a jour le fichier si GC-MP3 a ete mis a jour */
-    if (!igr_auto_done && sd_ok && net_phase == NET_DONE && net_ok && now_ms() > 20000 && igr_state == IGR_IDLE && up_state != UP_DL && up_state != UP_WRITE) {
+    if (!igr_auto_done && sd_ok && net_phase == NET_DONE && net_ok && now_ms() > 20000 && igr_state == IGR_IDLE && up_state != UP_DL && up_state != UP_WRITE && up_state != UP_CHECK) {
         igr_auto_done = 1;
         int b = igr_build_of(IGR_IMG);
         if (b > 0 && b < GCMP3_BUILD) { crumb("retour en jeu : mise a jour %d -> %d", b, GCMP3_BUILD); igr_fetch(1); }
@@ -154,7 +163,7 @@ static void igr_pump(void) {
     if (ok) {
         mkdir(GCD, 0777);
         FILE *f = fopen(IGR_MINE, "wb");
-        ok = f && fwrite(igr_hf.buf, 1, igr_hf.len, f) == (size_t)igr_hf.len;
+        ok = f && igr_fwrite_all(f, igr_hf.buf, igr_hf.len);
         if (f && fclose(f) != 0) ok = 0;
     }
     hf_drop(&igr_hf); igr_hf.st = HF_IDLE;

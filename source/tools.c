@@ -649,7 +649,10 @@ static void rc_input(u32 down, u32 nav, int fire) {
 }
 
 /* =================== infos console =================== */
-static void info_open(void) { tl_screen = TL_INFO; }
+static int tl_info_fresh = 1;                         /* v45 : lignes a recalculer (ecran ouvert) */
+static unsigned long long tl_sd_free = 0, tl_sd_tot = 0;
+static int tl_sd_known = 0;
+static void info_open(void) { tl_screen = TL_INFO; tl_info_fresh = 1; tl_sd_known = 0; }
 static void info_lines(char (*l)[2][120], int *n) {
     int k = 0;
     #define IL(a, ...) do { snprintf(l[k][0], 120, "%s", TR(a)); snprintf(l[k][1], 120, __VA_ARGS__); k++; } while (0)
@@ -666,8 +669,12 @@ static void info_lines(char (*l)[2][120], int *n) {
     IL("M\xC3\xA9moire", ("%d Ko utilis\xC3\xA9s, %d Ko libres"), (int)(mi.uordblks / 1024), (int)(((u32)SYS_GetArena1Hi() - (u32)SYS_GetArena1Lo() + mi.fordblks) / 1024));
     static const char *const sl[3] = { "SD2SP2 (port s\xC3\xA9rie 2)", "SD Gecko slot A", "SD Gecko slot B" };
     struct statvfs sv;
-    if (sd_ok && statvfs(SD_ROOT "/", &sv) == 0) {
-        unsigned long long tot = (unsigned long long)sv.f_blocks * sv.f_frsize, fr = (unsigned long long)sv.f_bavail * sv.f_frsize;
+    if (sd_ok && !tl_sd_known && statvfs(SD_ROOT "/", &sv) == 0) {        /* (une fois par ouverture : lent) */
+        tl_sd_tot = (unsigned long long)sv.f_blocks * sv.f_frsize; tl_sd_free = (unsigned long long)sv.f_bavail * sv.f_frsize;
+        tl_sd_known = 1;
+    }
+    if (sd_ok && tl_sd_known) {
+        unsigned long long tot = tl_sd_tot, fr = tl_sd_free;
         IL("Carte SD", ("%s : %llu Mo libres sur %llu Mo"), TR(sl[sd_slot >= 0 && sd_slot < 3 ? sd_slot : 0]), fr >> 20, tot >> 20);
     } else IL("Carte SD", "%s", TR("absente"));
     IL("R\xC3\xA9seau", "%s", net_phase != NET_DONE ? TR("pas encore connect\xC3\xA9") : net_ok ? ip_str : TR("pas de r\xC3\xA9seau"));
@@ -826,7 +833,16 @@ static void draw_apps(void) {
     static f32 topf = -2000.0f;
     f32 tf = ease_rows(&topf, (f32)top);
     int r0 = (int)floorf(tf), loads = 0;
+    /* v45 : le cadre de selection glisse d'une appli a l'autre */
+    static f32 hx = -10000.0f, hy = -10000.0f;
+    f32 tx = x0 + (ap_n ? ap_sel % cols : 0) * sw, ty = y0 + ((ap_n ? ap_sel / cols : 0) - tf) * rh;
+    if (fabsf(tx - hx) > sw * 2.5f || fabsf(ty - hy) > rh * 1.6f) { hx = tx; hy = ty; }
+    gl_ease(&hx, tx, 20.0f); gl_ease(&hy, ty, 20.0f);
     scr_scissor(0, y0 - 6, 640, rows * rh + 2);
+    if (ap_n) {
+        gx_glow(hx - 3, hy - 3, cw + 6, rh - 6, 8, RGBA(150, 80, 255, 150), 3);
+        gx_rrect_fill(hx - 3, hy - 3, cw + 6, rh - 6, 7, TL_SEL1, TL_SEL2);
+    }
     for (int r = r0; r <= r0 + rows; r++)
         for (int c = 0; c < cols; c++) {
             int k = r * cols + c;
@@ -835,10 +851,7 @@ static void draw_apps(void) {
             f32 x = x0 + c * sw, y = y0 + (r - tf) * rh;
             int on = k == ap_sel;
             gp_zone(x - 3, y - 3, cw + 6, rh - 4, &ap_sel, k, GPZ_SEL);
-            if (on) {
-                gx_glow(x - 3, y - 3, cw + 6, rh - 6, 8, RGBA(150, 80, 255, 150), 3);
-                gx_rrect_fill(x - 3, y - 3, cw + 6, rh - 6, 7, TL_SEL1, TL_SEL2);
-            } else gx_rrect_fill(x - 3, y - 3, cw + 6, rh - 6, 7, RGBA(30, 18, 72, 230), RGBA(18, 10, 46, 230));
+            if (!on) gx_rrect_fill(x - 3, y - 3, cw + 6, rh - 6, 7, RGBA(30, 18, 72, 150), RGBA(18, 10, 46, 150));
             if (!a->istate && loads < 1 && r >= top && r < top + rows) { ap_icon_load(a); loads++; }   /* (une icone par image) */
             if (a->istate > 0) draw_tex_fit(&a->obj, AP_IW, AP_IH, AP_IW, AP_IH, x, y, cw, ch);
             else {
@@ -850,8 +863,8 @@ static void draw_apps(void) {
             }
             text_display(a->name, buf, sizeof(buf)); fit_text(F_SMALL, buf, (int)cw, fv, sizeof(fv));
             gx_text_c(F_SMALL, x + cw / 2, y + ch + 18, fv, on ? RGBA(255, 255, 255, 255) : RGBA(200, 188, 240, 255));
-            if (on) gx_rrect_stroke(x - 3, y - 3, cw + 6, rh - 6, 7, 2.0f, RGBA(255, 210, 120, 255));
         }
+    if (ap_n) gx_rrect_stroke(hx - 3, hy - 3, cw + 6, rh - 6, 7, 2.0f, RGBA(255, 210, 120, 255));
     scr_viewport();
     if (nrow > rows) {                                          /* barre de defilement */
         f32 th = 240.0f * rows / nrow, ty = y0 + (240.0f - th) * tf / (f32)(nrow - rows);
@@ -899,9 +912,12 @@ static void draw_recent(void) {
     tl_legend(k, l, 3);
 }
 static void draw_info(void) {
-    char l[24][2][120];
-    int n = 0;
-    info_lines(l, &n);
+    /* v45 : lignes recalculees toutes les 2 s (avant : a chaque image, avec le calcul de la place
+       libre de la carte SD, tres lent : l'ecran ramait) */
+    static char l[24][2][120];
+    static int n = 0;
+    static u64 t = 0;
+    if (!t || now_ms() - t > 2000 || tl_info_fresh) { info_lines(l, &n); t = now_ms(); tl_info_fresh = 0; }
     tl_frame("Infos console", NULL);
     char fv[160];
     for (int i = 0; i < n; i++) {
