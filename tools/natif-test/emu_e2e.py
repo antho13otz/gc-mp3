@@ -11,14 +11,23 @@ from unicorn.ppc_const import *
 from unicorn import ppc_const as _pc
 
 BOOT, SDIMG, ISO = sys.argv[1], sys.argv[2], sys.argv[3]
-disk = open(SDIMG, 'rb').read()
+disk = bytearray(open(SDIMG, 'rb').read())
 iso = open(ISO, 'rb').read()
 CHAN, DEV, SDHC = 2, 0, 1
 
 class Card:
-    def __init__(s): s.cmd = []; s.out = []; s.idle = True; s.app = False; s.acmd41 = 0; s.log = []
-    def deselect(s): s.cmd = []; s.out = []
+    def __init__(s): s.cmd = []; s.out = []; s.idle = True; s.app = False; s.acmd41 = 0; s.log = []; s.wr = None; s.wbuf = None; s.writes = []
+    def deselect(s): s.cmd = []; s.out = []; s.wr = None; s.wbuf = None
     def xfer_in(s, b):
+        if s.wr is not None:                        # ecriture (CMD24) : jeton FE, 512 octets, CRC
+            if s.wbuf is None:
+                if b == 0xFE: s.wbuf = bytearray()
+                return
+            s.wbuf.append(b)
+            if len(s.wbuf) == 514:
+                disk[s.wr * 512:(s.wr + 1) * 512] = s.wbuf[:512]; s.writes.append(s.wr)
+                s.out = [0xFF, 0x05, 0x00, 0x00, 0xFF]; s.wr = None; s.wbuf = None
+            return
         if s.out and b == 0xFF: return
         if not s.cmd and (b & 0xC0) != 0x40: return
         s.cmd.append(b)
@@ -36,6 +45,7 @@ class Card:
             if s.acmd41 >= 2: s.idle = False
             s.out = r + [0x01 if s.idle else 0]; return
         if c == 58: s.out = r + [0, 0xC0, 0xFF, 0x80, 0]; return
+        if c == 24: s.out = r + [0]; s.wr = arg; return
         if c == 17:
             sec = arg
             s.out = r + [0, 0xFF, 0xFE] + list(disk[sec * 512:(sec + 1) * 512]) + [0, 0]; return
@@ -116,6 +126,13 @@ print('resident : commandes=%d derniere=%08X err=%d sdhc=%d secteurs lus=%d' % (
 print('vrai lecteur : %d commandes inquiry (%s)' % (len(kicks), ' '.join('%08X' % k for k in kicks)))
 ok &= pc == STOP and mu.reg_read(UC_PPC_REG_1) == 0x81000000 and mu.reg_read(UC_PPC_REG_31) == 0 and mu.reg_read(UC_PPC_REG_30) == 0
 ok &= rd(0x4C) == 4 and len(kicks) == 4 and all(k == 0x12000000 for k in kicks)
+if card.writes:                                    # v54 : journal du jeu ecrit sur la carte
+    js = card.writes[-1]; jb = disk[js * 512:js * 512 + 512]; open('journal.bin', 'wb').write(jb)
+    jok = len(set(card.writes)) == 1 and jb[:4] == b'GCSN' and struct.unpack_from('>I', jb, 0x4C)[0] == 4
+    print(('OK   ' if jok else 'FAUX ') + 'journal du jeu : %d ecritures, secteur %X, commandes=%d' % (len(card.writes), js, struct.unpack_from('>I', jb, 0x4C)[0]))
+    ok &= jok
+else:
+    print('FAUX journal du jeu : rien ecrit'); ok = False
 r = lambda n: mu.reg_read(getattr(_pc, 'UC_PPC_REG_%d' % n))
 v52 = r(29) == 0xE000 and r(28) == 0xE0000000 and r(10) == 0xCC006008 and r(27) == 0x1234
 print(('OK   ' if v52 else 'FAUX ') + 'lhz / lwzu / sth (r29=%X r28=%X r10=%X r27=%X)' % (r(29), r(28), r(10), r(27)))

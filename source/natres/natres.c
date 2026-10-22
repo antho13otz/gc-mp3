@@ -34,6 +34,7 @@ natres_hdr_t natres_hdr = {
     (u32)__natres_end,
     (u32)di_load, (u32)di_store, 0,
     0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
 };
 #define H natres_hdr
 
@@ -144,6 +145,21 @@ static int nr_read_sd(u32 sector, void *dst) {
     return 0;
 }
 
+/* v54 : ecrire un secteur (CMD24) : seulement le journal, dans un fichier prepare par GC Station */
+static int nr_write_sd(u32 sector, const u8 *s) {
+    u32 r = sd_cmd(24, H.sdhc ? sector : sector << 9, 0x01);
+    if (r != 0) { sd_end(); return -1; }
+    ex_put(0xFF000000u, 1);
+    ex_put(0xFE000000u, 1);                       /* jeton de debut */
+    for (int i = 0; i < 128; i++, s += 4) ex_put((u32)s[0] << 24 | (u32)s[1] << 16 | (u32)s[2] << 8 | s[3], 4);
+    ex_put(0xFFFF0000u, 2);                       /* CRC (ignore en SPI) */
+    u32 t = 0xFF;
+    for (int i = 0; i < 16; i++) { t = ex_get8(); if (t != 0xFF) break; }
+    for (u32 i = 0; i < 2000000u; i++) if (ex_get8() == 0xFF) break;   /* la carte ecrit (occupee = 00) */
+    sd_end();
+    return (t & 0x1F) == 0x05 ? 0 : -1;
+}
+
 /* secteur de l'ISO -> secteur de la carte */
 static int iso_to_sd(u32 isec, u32 *sd) {
     u32 n = H.n_ext;
@@ -163,7 +179,19 @@ static int iso_to_sd(u32 isec, u32 *sd) {
     return -1;
 }
 
-static int nr_read(void *dst, u32 off, u32 len) {
+static int nr_read1(void *dst, u32 off, u32 len);
+static int di_ready = 0;
+static int nr_read(void *dst, u32 off, u32 len) {    /* v54 : une erreur de la carte -> on la redemarre et on reessaie */
+    for (int t = 0; t < 3; t++) {
+        if (nr_read1(dst, off, len) == 0) { if (t) H.nretry++; return 0; }
+        if (H.err == NR_ERANGE) break;
+        H.nrderr++;
+        sec_cached = 0xFFFFFFFFu;
+        di_ready = nr_init() == 0;
+    }
+    return -1;
+}
+static int nr_read1(void *dst, u32 off, u32 len) {
     u8 *o = (u8 *)dst;
     while (len) {
         u32 isec = off >> 9, in = off & 511, n = 512 - in;
@@ -212,25 +240,45 @@ static void cache_flush(u32 a, u32 len) {                /* donnees ecrites par 
     __asm__ volatile("sync" ::: "memory");
 }
 
-static void di_real_kick(void) {                         /* vraie commande "inquiry" : sa fin reveille le jeu */
+static u32 di_real_kick(void) {                          /* vraie commande "inquiry" : sa fin reveille le jeu */
     volatile u32 *r = DI_REAL;
-    if (r[7] & 1) return;                               /* (le vrai lecteur est deja occupe) */
+    for (u32 i = 0; i < 3000000u && (r[7] & 1); i++) ;  /* v54 : le vrai lecteur est occupe : on attend un peu */
+    if (r[7] & 1) { H.nskip++; return 2; }
+    H.nkick++;
     r[2] = 0x12000000u; r[3] = 0; r[4] = 0x20;
     r[5] = (u32)di_scratch & 0x01FFFFFFu; r[6] = 0x20;
     r[7] = 3;                                           /* DMA + demarrer */
+    return 4 | (r[0] & 0xFF) << 16;
 }
 
-static int di_ready = 0;
+static u32 log_ring[NATRES_LOGN][4];
+static u8 logbuf[512] __attribute__((aligned(32)));
+static void nr_log(u32 off, u32 len, u32 info) {
+    u32 *e = log_ring[H.nlog % NATRES_LOGN];
+    e[0] = di[2]; e[1] = off; e[2] = len; e[3] = info | (H.err & 0xFF) << 24;
+    H.nlog++;
+    int err = info & 1;
+    if (!H.log_sec || !di_ready) return;
+    if (!(err || H.ncmd <= 40 || (H.ncmd & 63) == 0)) return;   /* (debut du jeu, erreurs, puis de temps en temps) */
+    const u8 *p = (const u8 *)&H;
+    for (u32 i = 0; i < sizeof(natres_hdr_t); i++) logbuf[i] = p[i];
+    for (u32 k = 0; k < NATRES_LOGN; k++) {                     /* le plus ancien d'abord */
+        u32 j = (H.nlog + k) % NATRES_LOGN, *d = (u32 *)(logbuf + sizeof(natres_hdr_t) + k * 16);
+        for (int w = 0; w < 4; w++) d[w] = H.nlog >= NATRES_LOGN || j < H.nlog ? log_ring[j][w] : 0;
+    }
+    nr_write_sd(H.log_sec, logbuf);
+}
 static void di_exec(void) {
-    if (!di_ready) di_ready = nr_init() == 0;            /* 1er acces du jeu : on demarre la carte SD */
+    u32 info = 0;
+    if (!di_ready) { di_ready = nr_init() == 0; if (!di_ready) info |= 8; }   /* 1er acces du jeu : on demarre la carte SD */
     u32 cmd = di[2] >> 24, len = di[6], dst = di[5] | 0x80000000u;
-    H.ncmd++; H.last_cmd = di[2];
+    H.ncmd++; H.last_cmd = di[2]; H.last_off = di[3] << 2; H.last_len = len;
     di[8] = 0;
     if (cmd == 0xA8) {
         u32 off = (di[2] & 0xC0) == 0x40 ? 0 : di[3] << 2;   /* A8000040 : ID du disque (debut de l'ISO) */
         if ((di[2] & 0xC0) == 0x40 && len > 0x20) len = 0x20;
         H.last_off = off; H.last_len = len;
-        if (len && nr_read((void *)dst, off, len)) { di[0] |= 0x04; goto done; }   /* DEINT : erreur */
+        if (len && nr_read((void *)dst, off, len)) { di[0] |= 0x04; info |= 1; goto done; }   /* DEINT : erreur */
         cache_flush(dst, len);
         di[5] += len; di[6] = 0;
     } else if (cmd == 0x12) {                            /* infos du lecteur */
@@ -244,7 +292,8 @@ static void di_exec(void) {
     di[0] |= 0x10;                                       /* TCINT : termine */
 done:
     di[7] &= ~1u;
-    if (H.flags & NRF_REAL_IRQ) di_real_kick();
+    if (H.flags & NRF_REAL_IRQ) info |= di_real_kick();
+    nr_log(H.last_off, H.last_len, info | (di[0] & 0xFF) << 8);
 }
 
 static u32 di_load(u32 reg) {
@@ -258,6 +307,9 @@ static void di_store(u32 reg, u32 val) {
     u32 i = (reg & 0x3F) >> 2;
     if (i == 0) {                                        /* DISR : 1 = effacer l'interruption ; masques */
         di[0] = (di[0] & ~(val & 0x54u) & 0x54u) | (val & 0x2Au);
+        u32 rs = DI_REAL[0];
+        H.last_real_disr = rs;
+        if (rs & 0x10) H.nack_tc++;
         DI_REAL[0] = (val & 0x2Au) | 0x54u;              /* (vrai lecteur : memes masques, tout acquitte) */
         return;
     }

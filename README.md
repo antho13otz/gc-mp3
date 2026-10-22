@@ -21,6 +21,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v54
+- **Lanceur maison : 1080° Avalanche démarre !** (les 2 accès `lwzu` sont branchés depuis la v53). Le jeu affiche ensuite « Une erreur est survenue » : il faut savoir ce que le faux lecteur lui a répondu.
+- **Journal pendant le jeu** : le programme résident écrit son état sur la carte SD pendant le jeu (compteurs + les 24 dernières commandes du jeu au lecteur). Au démarrage suivant de GC Station, il devient `SD:/gc-mp3/natif/journal-jeu.txt` (aussi sur le téléphone, page « Analyses des jeux »).
+- Le programme résident redémarre la carte SD et réessaie (jusqu'à 3 fois) si une lecture échoue, et attend le vrai lecteur s'il est occupé au lieu d'abandonner le réveil du jeu.
+
 ## Nouveautés v53
 - **Lanceur maison : plus d'accès au lecteur branchés.** Le faux lecteur prend maintenant aussi les instructions `lhz` / `sth` (demi-registre) et `lwzu` / `stwu` : c'est ce qui bloquait 1080° Avalanche (« 2 accès au lecteur non branchés »).
 - Si un jeu est quand même refusé, `SD:/gc-mp3/natif/dernier-lancement.txt` dit **lesquels et pourquoi** ; le rapport de l'analyse (**R**) marque aussi les accès « NON BRANCHABLE ».
