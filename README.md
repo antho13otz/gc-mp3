@@ -19,6 +19,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v26
+
+- **Lancer un jeu** : onglet JEUX > Mes jeux GameCube > A (fiche) > A : GC-MP3 se ferme et Swiss démarre directement le jeu (argument `Autoload`). GC-MP3 trouve Swiss tout seul (un .dol avec « swiss » ou « indigo » dans le nom, ou `ipl.dol` / `boot.dol`, à la racine ou dans `swiss/`) ; pour en forcer un : `swiss = sd:/chemin/swiss.dol` dans `gc-mp3.txt`.
+- **Rétro** : libxmp complète, plus de 50 formats de modules (MOD et variantes, XM, IT, S3M, MED/OctaMED, MTM, 669, OKT, DBM, DIGI, DSYM, FAR, ULT, PTM, STM, MDL, IMF, GDM, AMF, LIQ, RTM, SYM, UMX...). Noms à l'Amiga acceptés (`mod.titre`, `med.titre`).
+- **Rétro** : les **.zip** posés dans `SD:/retro` sont décompressés tout seuls dans un dossier du même nom (une seule fois).
+- **Fichiers** : les noms avec accents, tirets longs, etc. s'affichent correctement (lecture des noms en UTF-8).
+
 ## Mes jeux GameCube (v25)
 
 - Onglet JEUX > « Mes jeux GameCube » (la barre du haut) : tes jeux de la carte SD (.iso, .gcm, .ciso, .nkit.iso, dans n'importe quel dossier, 3 niveaux).

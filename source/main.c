@@ -27,6 +27,7 @@
 #include <sdcard/gcsd.h>
 #include <errno.h>
 #include <stdio.h>
+#include <locale.h>
 #include <stdlib.h>
 #include <malloc.h>
 #include <string.h>
@@ -665,10 +666,12 @@ static void gcd_migrate(void) {
     }
 }
 
+static int sd_slot = -1;                               /* v26 : 0 = SD2SP2, 1 = slot A, 2 = slot B (pour Swiss) */
+static char swiss_pref[NAME_LEN] = "";                 /* v26 : Swiss a lancer (vide = trouve tout seul) */
 static int mount_sd(void) {
-    if (fatMountSimple("sd", &__io_gcsd2)) return 1;   // SD2SP2 (port serie 2)
-    if (fatMountSimple("sd", &__io_gcsda)) return 1;   // SD Gecko slot A
-    if (fatMountSimple("sd", &__io_gcsdb)) return 1;   // SD Gecko slot B
+    if (fatMountSimple("sd", &__io_gcsd2)) { sd_slot = 0; return 1; }   // SD2SP2 (port serie 2)
+    if (fatMountSimple("sd", &__io_gcsda)) { sd_slot = 1; return 1; }   // SD Gecko slot A
+    if (fatMountSimple("sd", &__io_gcsdb)) { sd_slot = 2; return 1; }   // SD Gecko slot B
     return 0;
 }
 
@@ -1897,8 +1900,10 @@ static void scan_dir(const char *dir, int depth) {
     closedir(d);
 }
 
+static void retro_unzip_tree(const char *dir, int depth);   /* tab_retro.c (v26 : .zip de musiques retro) */
 static void scan_files(void) {
     nfiles = 0;
+    retro_unzip_tree(SD_ROOT "/retro", 0);
     for (int i = 0; i < MAX_FILES; i++) dur_cache[i] = -2;
     scan_dir(MP3_DIR, 0);
     scan_dir(DL_DIR, 0);
@@ -3646,6 +3651,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "ecran_taille")) { scr_pct = atoi(v); if (scr_pct < 80) scr_pct = 80; if (scr_pct > SCR_MAX) scr_pct = SCR_MAX; }
         else if (!strcasecmp(k, "interface")) { ui_lang = !strncasecmp(v, "en", 2) ? 1 : !strncasecmp(v, "fr", 2) ? 0 : -1; ui_lang_apply(); }
         else if (!strcasecmp(k, "langue")) { lang_pref = -1; for (int i = 0; i < LANG_COUNT; i++) if (!strncasecmp(v, lang_keys[i], 2)) lang_pref = i; }
+        else if (!strcasecmp(k, "swiss")) snprintf(swiss_pref, sizeof(swiss_pref), "%s", v);
         else if (!strcasecmp(k, "tele")) tv_crt = !strncasecmp(v, "cath", 4) || !strncasecmp(v, "crt", 3);
         else if (!strcasecmp(k, "video")) video_pref = !strcasecmp(v, "480p") ? VID_480P : !strcasecmp(v, "480i") ? VID_480I : VID_AUTO;
         else if (!strcasecmp(k, "reprise")) resume_on = yes(v);
@@ -3767,6 +3773,8 @@ static void save_settings(void) {
                "# Decor de saison (Halloween, Noel, ete) selon la date : oui / non\n"
                "decor_saison = %s\n",
             rumble_on ? "oui" : "non", pod_auto ? "oui" : "non", wall_on && wall_path[0] ? wall_path : "non", wall_path, season_on ? "oui" : "non");
+    fprintf(f, "# Swiss pour lancer les jeux (onglet JEUX) : chemin du .dol, vide = trouve tout seul\n"
+               "swiss = %s\n", swiss_pref);
     fclose(f);
 }
 
@@ -5866,12 +5874,23 @@ static void attr_decode(const char *in, int inlen, char *out, int outsz, int lat
 }
 
 /* texte UTF-8 -> texte affichable (equivalents pour les caracteres absents de la police) */
+static int utf8_ok(const unsigned char *s) {           /* v26 : texte UTF-8 valide ? (sinon : Latin-1) */
+    while (*s) {
+        if (*s < 0x80) { s++; continue; }
+        int n = (*s & 0xE0) == 0xC0 ? 1 : (*s & 0xF0) == 0xE0 ? 2 : (*s & 0xF8) == 0xF0 ? 3 : -1;
+        if (n < 0 || (*s == 0xC0 || *s == 0xC1)) return 0;
+        for (int i = 1; i <= n; i++) if ((s[i] & 0xC0) != 0x80) return 0;
+        s += n + 1;
+    }
+    return 1;
+}
 static void text_display(const char *in, char *out, int outsz) {
     const unsigned char *s = (const unsigned char *)in;
     int len = (int)strlen(in), pos = 0, n = 0;
+    int latin = !utf8_ok(s);
     while (pos < len && n < outsz - 4) {
         char tmp[4];
-        int k = cp_out(read_cp(s, len, &pos, 0), tmp);
+        int k = cp_out(read_cp(s, len, &pos, latin), tmp);
         memcpy(out + n, tmp, k);
         n += k;
     }
@@ -10880,6 +10899,7 @@ static void music_pump(void) {
 
 int main(int argc, char **argv) {
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;
+    if (!setlocale(LC_CTYPE, "C.UTF-8")) setlocale(LC_CTYPE, "C-UTF-8");   /* v26 : noms de fichiers en UTF-8 (accents, tirets longs...) : sans ca, libfat s'arrete sur certains noms */
     sd_ok = mount_sd();                     /* d'abord les reglages (mode video, theme...) */
     if (!sd_ok) sd_ok = ramfs_mount();      /* (Dolphin : SD en memoire, reglages sur la carte memoire) */
     if (sd_ok) gcd_migrate();               /* v22 : tout dans SD:/gc-mp3 */
