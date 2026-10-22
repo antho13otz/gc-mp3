@@ -252,6 +252,7 @@ static void ch_sel_save_cb(int no, int s, int e, void *ctx) {
     sc->sel[no] = b >= 0 && ch_en[b];
     if (sc->sel[no]) sc->any = 1;
 }
+static int ch_sel_gen = 0;                      /* v46 : change a chaque enregistrement (fiche du jeu a jour) */
 static void ch_sel_save(void) {
     char p[NAME_LEN];
     if (!ch_l || !ch_sel_path(ch_name, p, sizeof(p))) return;
@@ -262,7 +263,7 @@ static void ch_sel_save(void) {
     if (!sel || !ch_codes_hash(&h)) { free(sel); ch_note("M\xC3\xA9moire insuffisante"); return; }
     ch_sctx sc = { sel, n, 0 };
     ch_sw_walk(ch_sel_save_cb, &sc);
-    if (!sc.any) { remove(p); free(sel); return; }       /* (Swiss efface aussi le fichier quand rien n'est active) */
+    if (!sc.any) { remove(p); free(sel); ch_sel_gen++; return; }       /* (Swiss efface aussi le fichier quand rien n'est active) */
     for (int i = 0; i < 8; i++) sel[n + i] = (u8)(h >> (56 - 8 * i));
     char tmp[NAME_LEN + 8];
     snprintf(tmp, sizeof(tmp), "%s.tmp", p);
@@ -273,6 +274,7 @@ static void ch_sel_save(void) {
     if (!ok) { remove(tmp); ch_note("Impossible d'\xC3\xA9" "crire sur la carte SD"); return; }
     remove(p);
     if (rename(tmp, p) != 0) ch_note("Impossible d'\xC3\xA9" "crire sur la carte SD");
+    ch_sel_gen++;
 }
 static int ch_sel_dirty = 0;                    /* v37 : choix pas encore ecrits (ecrits 1 s apres, ou en quittant) */
 static u64 ch_sel_t = 0;

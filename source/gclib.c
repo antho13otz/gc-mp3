@@ -34,6 +34,8 @@ static int gl_view = GLV_GRID;
 static const char *const gl_view_names[GLV_COUNT] = { "Grille", "Carrousel", "Liste", "Mur de jaquettes", "Vitrine", "\xC3\x89tag\xC3\xA8re" };
 static int gl_view_cols(void) { return gl_view == GLV_WALL ? 9 : gl_view == GLV_GRID || gl_view == GLV_SHELF ? 6 : 1; }
 static void gl_load_big(int k);
+/* v46 : cheats du jeu k : -1 = pas de fichier de cheats, sinon nombre de cheats actives */
+static int gl_cheats_on(int k);
 static void gl_stats_load(void);
 static void gl_apply_sort(void);
 static int ld_ready(void);
@@ -337,6 +339,23 @@ static void gl_scan_full(int force) {
 static void gl_scan(void) { gl_scan_full(1); }
 
 static void gl_slots_reset(void);
+static int gl_cheats_on(int k) {
+    static int ck = -1, cgen = -1, cval = -1;
+    static char cid[8] = "";
+    if (k < 0 || k >= gl_n) return -1;
+    if (k == ck && cgen == ch_sel_gen && !strcmp(cid, gl[k].id)) return cval;
+    ck = k; cgen = ch_sel_gen; snprintf(cid, sizeof(cid), "%s", gl[k].id);
+    char p[NAME_LEN];
+    struct stat st;
+    snprintf(p, sizeof(p), "%s/%.6s.txt", CH_DIR, gl[k].id);
+    if (stat(p, &st) != 0 || st.st_size < 8) { cval = -1; return cval; }
+    cval = 0;
+    snprintf(p, sizeof(p), "%s/%.6s.chtsel", CH_DIR, gl[k].id);
+    long n = 0;
+    u8 *d = read_file(p, 65536, &n);
+    if (d) { for (long i = 0; i + 8 < n; i++) if (d[i]) cval++; free(d); }
+    return cval;
+}
 /* ---------- v45 : lancements (SD:/gc-mp3/jeux_stats.txt : ID|disque|nombre|date) et tri ---------- */
 #define GL_STATS GCD "/jeux_stats.txt"
 static void gl_stats_load(void) {
@@ -1001,6 +1020,15 @@ static void draw_gclib_main(void) {
         if (g->desc) gl_wrap(F_SMALL, g->desc, rx, dy, rw, 17, maxl, RGBA(215, 205, 245, 255));
         else gx_text1(F_SMALL, rx, dy, g->bstate == 0 ? "Lecture de la banni\xC3\xA8re..." : "Pas de description pour ce jeu.", RGBA(170, 155, 225, 255));
         if (has_st) { f32 sw = 176, sh = 132; draw_tex_fit(&gl_bigst.obj, 320, 240, 320, 240, rx, 396 - sh - 6, sw, sh); }
+        {                                                      /* v46 : cheats du jeu, actives d'ici (X) */
+            int cn = now_ms() - last_input_ms > 150 || !gl_anim ? gl_cheats_on(gl_sel) : -2;
+            if (cn >= 0 || cn == -1) {
+                if (cn > 0) snprintf(buf, sizeof(buf), cn == 1 ? TR("Cheats : 1 activ\xC3\xA9  (X pour changer)") : TR("Cheats : %d activ\xC3\xA9s  (X pour changer)"), cn);
+                else if (cn == 0) snprintf(buf, sizeof(buf), "%s", TR("Cheats : aucun activ\xC3\xA9  (X pour en choisir)"));
+                else snprintf(buf, sizeof(buf), "%s", TR("Pas de fichier de cheats  (X pour en ajouter)"));
+                gx_text1(F_SMALL, has_st ? rx + 186 : rx, g->runs ? 362 : 380, buf, cn > 0 ? RGBA(130, 230, 150, 255) : RGBA(170, 155, 225, 255));
+            }
+        }
         if (g->runs) {                                         /* v45 : lancements depuis GC-MP3 */
             time_t lt = (time_t)g->last;
             struct tm *tm = g->last ? localtime(&lt) : NULL;
@@ -1020,6 +1048,11 @@ static void draw_gclib_main(void) {
             gx_text_c(F_MED, x + w / 2, y + 32, ld_ready() ? "Lancer ce jeu ?" : "Lancer ce jeu avec Swiss ?", RGBA(255, 255, 255, 255));
             fit_text(F_SMALL, g->title, (int)w - 30, buf, sizeof(buf));
             gx_text_c(F_SMALL, x + w / 2, y + 56, buf, RGBA(255, 210, 120, 255));
+            int cn = gl_cheats_on(gl_sel);
+            if (cn > 0) {
+                snprintf(buf, sizeof(buf), cn == 1 ? TR("Avec 1 cheat activ\xC3\xA9") : TR("Avec %d cheats activ\xC3\xA9s"), cn);
+                gx_text_c(F_SMALL, x + w / 2, y + 76, buf, RGBA(130, 230, 150, 255));
+            } else
             gx_text_c(F_SMALL, x + w / 2, y + 76, ld_ready() ? "Lanceur GC-MP3 (B maintenu : \xC3\xA9" "cran du jeu de Swiss)" : "GC-MP3 se ferme et Swiss ouvre directement le jeu.", RGBA(190, 180, 235, 255));
             gx_text_c(F_SMALL, x + w / 2, y + 98, "A : lancer     B : annuler", RGBA(255, 210, 120, 255));
         }
@@ -1175,6 +1208,8 @@ static const u32 gl_stub[] = {
 static void ld_fetch(int loud);
 static void as_self(char *out, int cap);
 static const char *gl_arg3 = NULL;                 /* v44 : 3e argument (GCMP3=... : retour sur GC-MP3) */
+static const char *gl_arg4 = NULL;                 /* v46 : 4e argument (GCMP3TITLE=... : nom du jeu, ecran de chargement) */
+static const char *gl_boot_title = NULL;           /* v46 : nom du jeu lance */
 
 /* demarre Swiss avec "Autoload=<jeu>" (path = chemin sd:/...), ou "Autoload=" (vide :
    le menu de Swiss / Indigo, meme si GC-MP3 y est regle pour demarrer tout seul) */
@@ -1188,7 +1223,9 @@ static const char *gl_launch(int k) {                  /* retourne un message d'
     gl_boot_cheats = stat(p, &st) == 0 && st.st_size > 8;
     tl_recent_add(gl[k].path);
     gl_stats_bump(k);                                  /* v45 : compteur de lancements */
+    gl_boot_title = gl[k].title;
     const char *e = gl_boot_swiss(gl[k].path);
+    gl_boot_title = NULL;
     gl_boot_cheats = 0;
     return e;
 }
@@ -1206,8 +1243,20 @@ static const char *gl_boot_swiss(const char *path) {
         as_self(me, sizeof(me));
         snprintf(a3, sizeof(a3), "GCMP3=%s", me);
         gl_arg3 = a3;
+        static char a4[112];                       /* v46 : nom du jeu (Latin-1 : police de la console) */
+        a4[0] = 0;
+        if (gl_boot_title) {
+            int o = snprintf(a4, sizeof(a4), "GCMP3TITLE=");
+            for (const u8 *q = (const u8 *)gl_boot_title; *q && o < (int)sizeof(a4) - 1; q++) {
+                if (*q < 0x80) a4[o++] = (char)*q;
+                else if ((*q == 0xC2 || *q == 0xC3) && (q[1] & 0xC0) == 0x80) { a4[o++] = (char)(((*q & 3) << 6) | (q[1] & 0x3F)); q++; }
+                else if (*q >= 0xC0) { a4[o++] = '?'; while ((q[1] & 0xC0) == 0x80) q++; }
+            }
+            a4[o] = 0;
+            gl_arg4 = a4;
+        }
         const char *e = gl_boot_dol(LD_DOL, a1, gl_boot_cheats ? "AutoCheats=Yes" : NULL, "jeu");
-        gl_arg3 = NULL;
+        gl_arg3 = NULL; gl_arg4 = NULL;
         crumb("lanceur GC-MP3 : %s", e ? e : "?");
         if (e && strncmp(e, "(simulateur", 11)) { remove(LD_DOL); ld_cache = -1; }   /* (lanceur abime : Swiss, puis nouveau telechargement) */
         else return e;
@@ -1265,6 +1314,8 @@ static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *
     if (a1) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", a1);
     if (a2) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", a2);   /* (ex. AutoCheats=Yes : Swiss applique les cheats coches) */
     if (gl_arg3) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", gl_arg3);
+    if (gl_arg4 && cl + 2 < (int)sizeof(cmd)) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", gl_arg4);
+    if (cl >= (int)sizeof(cmd)) cl = (int)sizeof(cmd) - 1;
     cl += 1;
     /* le .dol accepte-t-il des arguments ? (texte "_arg" juste apres le point d'entree) */
     int has_arg = 0;
@@ -1299,7 +1350,8 @@ static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *
 #else
     printf("LANCER dol=%s dst=%08x hi=%08x entree=%08x sections=%u args=%d arg=[%s]", dolpath, dst, hi, entry, n, has_arg, cmd + strlen(cmd) + 1);
     { const char *a2 = cmd + strlen(cmd) + 1; a2 += strlen(a2) + 1; if (a2 < cmd + cl) printf(" arg2=[%s]", a2);
-      if (a2 < cmd + cl) { a2 += strlen(a2) + 1; if (a2 < cmd + cl) printf(" arg3=[%s]", a2); } }
+      if (a2 < cmd + cl) { a2 += strlen(a2) + 1; if (a2 < cmd + cl) printf(" arg3=[%s]", a2); }
+      if (a2 < cmd + cl) { a2 += strlen(a2) + 1; if (a2 < cmd + cl) printf(" arg4=[%s]", a2); } }
     printf("\n");
     free(dol);
     return "(simulateur : lancement simule)";
