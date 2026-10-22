@@ -1310,6 +1310,8 @@ static void ar_over_screen(void) {
 #define SN_Y0 100.0f
 #define SN_MAX (SN_W * SN_H)
 static u8 sn_x[SN_MAX], sn_y[SN_MAX];
+static u8 sn_ox[SN_MAX], sn_oy[SN_MAX];      /* v49 : positions d'avant le dernier pas (glissement fluide) */
+static u32 sn_step_len = 150;
 static int sn_len, sn_dir, sn_next, sn_grow, sn_fx, sn_fy, sn_gold, sn_gx, sn_gy;
 static u64 sn_gold_until = 0, sn_step_t = 0;
 static int sn_wrap = 0;                      /* v23 : sans murs (on ressort de l'autre cote) */
@@ -1328,7 +1330,7 @@ static void sn_place(int *fx, int *fy) {
 }
 static void snake_new(void) {
     sn_len = 4;
-    for (int i = 0; i < sn_len; i++) { sn_x[i] = (u8)(10 - i); sn_y[i] = SN_H / 2; }
+    for (int i = 0; i < sn_len; i++) { sn_x[i] = sn_ox[i] = (u8)(10 - i); sn_y[i] = sn_oy[i] = SN_H / 2; }
     sn_dir = sn_next = 0;
     sn_grow = 0;
     sn_gold = 0;
@@ -1371,12 +1373,17 @@ static void snake_pump(void) {
     if (step < 55) step = 55;
     if (now < sn_step_t) return;
     sn_step_t = now + (u64)step;
+    sn_step_len = (u32)step;
     sn_dir = sn_next;
     int nx = sn_x[0] + sn_dx[sn_dir], ny = sn_y[0] + sn_dy[sn_dir];
     if (sn_wrap) { nx = (nx + SN_W) % SN_W; ny = (ny + SN_H) % SN_H; }
     if (nx < 0 || ny < 0 || nx >= SN_W || ny >= SN_H || sn_on_body(nx, ny, 0)) { ar_game_over(AR_FILE_SNAKE); return; }
     int keep = sn_len + (sn_grow > 0 ? 1 : 0);
     if (keep > SN_MAX) keep = SN_MAX;
+    for (int i = 0; i < keep; i++) {                         /* v49 : d'ou vient chaque anneau */
+        int j = i < sn_len ? i : sn_len - 1;
+        sn_ox[i] = sn_x[j]; sn_oy[i] = sn_y[j];
+    }
     for (int i = keep - 1; i > 0; i--) { sn_x[i] = sn_x[i - 1]; sn_y[i] = sn_y[i - 1]; }
     if (sn_grow > 0) sn_grow--;
     sn_len = keep;
@@ -1427,16 +1434,29 @@ static void draw_snake(void) {
         gx_circle_glow(SN_X0 + sn_gx * SN_CELL + 8, SN_Y0 + sn_gy * SN_CELL + 8, gr + 2, RGBA(255, 220, 80, 200), 6);
         gx_circle(SN_X0 + sn_gx * SN_CELL + 8, SN_Y0 + sn_gy * SN_CELL + 8, gr, RGBA(255, 250, 180, 255), RGBA(255, 180, 30, 255));
     }
-    /* le serpent : ses anneaux suivent le spectre */
+    /* le serpent : ses anneaux suivent le spectre ; v49 : ils glissent d'une case a l'autre */
+    f32 sf = 1.0f;
+    if (ar_phase == 0 && !paused && sn_step_len) {
+        u64 nw = now_ms();
+        sf = sn_step_t > nw ? 1.0f - (f32)(sn_step_t - nw) / (f32)sn_step_len : 1.0f;
+        if (sf < 0) sf = 0;
+        if (sf > 1) sf = 1;
+    }
+    f32 hx0 = 0, hy0 = 0;
     for (int i = sn_len - 1; i >= 0; i--) {
-        f32 cx = SN_X0 + sn_x[i] * SN_CELL + 8, cy = SN_Y0 + sn_y[i] * SN_CELL + 8;
+        f32 gx = sn_x[i], gy = sn_y[i];
+        if (abs((int)sn_x[i] - (int)sn_ox[i]) + abs((int)sn_y[i] - (int)sn_oy[i]) == 1) {   /* (pas au passage d'un bord) */
+            gx = sn_ox[i] + (sn_x[i] - (f32)sn_ox[i]) * sf; gy = sn_oy[i] + (sn_y[i] - (f32)sn_oy[i]) * sf;
+        }
+        f32 cx = SN_X0 + gx * SN_CELL + 8, cy = SN_Y0 + gy * SN_CELL + 8;
+        if (i == 0) { hx0 = cx; hy0 = cy; }
         f32 b = bar_val[i % NBARS];
         f32 r = (i == 0 ? 8.0f : 6.0f) + b * 2.0f + (i < 6 ? sn_pulse * 1.5f : 0);
         col_t c0 = hsv(hue + i * 6.0f, 0.6f, 1.0f, 255), c1 = hsv(hue + i * 6.0f + 30, 0.9f, 0.6f + b * 0.4f, 255);
         gx_circle(cx, cy, r, c0, c1);
     }
     {                                                            /* les yeux */
-        f32 cx = SN_X0 + sn_x[0] * SN_CELL + 8, cy = SN_Y0 + sn_y[0] * SN_CELL + 8;
+        f32 cx = hx0, cy = hy0;
         f32 ex = sn_dy[sn_dir] * 3.5f, ey = sn_dx[sn_dir] * 3.5f, fx = sn_dx[sn_dir] * 3, fy = sn_dy[sn_dir] * 3;
         gx_circle(cx + ex + fx, cy + ey + fy, 2, RGBA(20, 10, 40, 255), RGBA(20, 10, 40, 255));
         gx_circle(cx - ex + fx, cy - ey + fy, 2, RGBA(20, 10, 40, 255), RGBA(20, 10, 40, 255));

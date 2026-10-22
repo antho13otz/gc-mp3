@@ -21,6 +21,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v49
+- **Mes applis comme Mes jeux** : grandes tuiles carrées, l'icône `icon.png` entière (proportions gardées, quelle que soit sa taille), le nom dessous, cadre de sélection qui glisse.
+- **Mini-jeux plus fluides** : pendant une partie, plus aucun travail lourd en fond (connexions https, pochettes, paroles, lecture des étiquettes, sauvegardes) ; le serpent glisse d'une case à l'autre au lieu de sauter.
+
 ## Nouveautés v48
 - **Écran de chargement « Minimal »** pour les jeux : fond presque noir, nom du jeu, une ligne fine qui avance, le pourcentage (ou l'étape), « GC STATION » discret en bas à droite.
 

@@ -400,7 +400,7 @@ static void mc_input(u32 down, u32 nav, int fire) {
 typedef struct { char path[NAME_LEN]; char name[64]; char desc[96]; long size; char icon[NAME_LEN]; s8 istate; u16 *tex; GXTexObj obj; } ap_ent;
 /* v41 : icon.png a cote du .dol (format Homebrew Channel, 128 x 48) -> texture RGB5A3 de 128 x 48 */
 #define AP_IW 128
-#define AP_IH 48
+#define AP_IH 128                  /* v49 : carre, l'icone entiere (proportions gardees) */
 static void ap_icon_load(ap_ent *a) {
     a->istate = -1;
     if (!a->icon[0]) return;
@@ -413,7 +413,7 @@ static void ap_icon_load(ap_ent *a) {
     if (!px || w <= 0 || h <= 0) { if (px) stbi_image_free(px); return; }
     u16 *t = (u16 *)memalign(32, AP_IW * AP_IH * 2);
     if (!t) { stbi_image_free(px); return; }
-    /* garde les proportions : l'image tient dans 128 x 48, centree, le reste transparent */
+    /* garde les proportions : l'image tient dans 128 x 128, centree, le reste transparent */
     f32 sc = (f32)AP_IW / w < (f32)AP_IH / h ? (f32)AP_IW / w : (f32)AP_IH / h;
     int dw = (int)(w * sc + 0.5f), dh = (int)(h * sc + 0.5f);
     if (dw < 1) dw = 1;
@@ -515,7 +515,7 @@ static void ap_open(void) {
     qsort(ap, ap_n, sizeof(ap_ent), ap_cmp);
     if (ap_sel >= ap_n) ap_sel = ap_n ? ap_n - 1 : 0;
 }
-#define AP_COLS 4
+#define AP_COLS 5
 static void ap_input(u32 down, u32 nav, int fire) {
     if (ap_confirm >= 0) {
         if (down & PAD_BUTTON_A) {
@@ -823,9 +823,9 @@ static void draw_apps(void) {
     char buf[160], fv[160];
     snprintf(buf, sizeof(buf), ap_n == 1 ? "1 appli" : "%d applis", ap_n);
     tl_frame("Mes applis", buf);
-    /* v42 : grille d'icones (comme Mes jeux), defilement doux et en boucle */
-    const int cols = AP_COLS, rows = 3;
-    const f32 cw = 128, ch = 48, sw = 134, rh = 82, y0 = 92;
+    /* v49 : grille comme Mes jeux : de grandes tuiles carrees, l'icone entiere, le nom dessous */
+    const int cols = AP_COLS, rows = 2;
+    const f32 cw = 92, ch = 92, sw = 110, rh = 124, y0 = 96;
     const f32 x0 = 320 - (cols * sw - (sw - cw)) / 2;
     int nrow = (ap_n + cols - 1) / cols, top = ap_sel / cols - rows / 2;
     if (top > nrow - rows) top = nrow - rows;
@@ -833,16 +833,13 @@ static void draw_apps(void) {
     static f32 topf = -2000.0f;
     f32 tf = ease_rows(&topf, (f32)top);
     int r0 = (int)floorf(tf), loads = 0;
-    /* v45 : le cadre de selection glisse d'une appli a l'autre */
     static f32 hx = -10000.0f, hy = -10000.0f;
     f32 tx = x0 + (ap_n ? ap_sel % cols : 0) * sw, ty = y0 + ((ap_n ? ap_sel / cols : 0) - tf) * rh;
     if (fabsf(tx - hx) > sw * 2.5f || fabsf(ty - hy) > rh * 1.6f) { hx = tx; hy = ty; }
     gl_ease(&hx, tx, 20.0f); gl_ease(&hy, ty, 20.0f);
-    scr_scissor(0, y0 - 6, 640, rows * rh + 2);
-    if (ap_n) {
-        gx_glow(hx - 3, hy - 3, cw + 6, rh - 6, 8, RGBA(150, 80, 255, 150), 3);
-        gx_rrect_fill(hx - 3, hy - 3, cw + 6, rh - 6, 7, TL_SEL1, TL_SEL2);
-    }
+    f32 pop = gl_pop(1000 + ap_sel), gr = 1.0f + 0.07f * pop, ex = cw * (gr - 1) / 2, ey = ch * (gr - 1) / 2;
+    scr_scissor(0, y0 - 8, 640, rows * rh + 4);
+    if (ap_n) gx_glow(hx - ex, hy - ey, cw + 2 * ex, ch + 2 * ey, 8, RGBA(150, 80, 255, 150), 3);
     for (int r = r0; r <= r0 + rows; r++)
         for (int c = 0; c < cols; c++) {
             int k = r * cols + c;
@@ -850,21 +847,23 @@ static void draw_apps(void) {
             ap_ent *a = &ap[k];
             f32 x = x0 + c * sw, y = y0 + (r - tf) * rh;
             int on = k == ap_sel;
-            gp_zone(x - 3, y - 3, cw + 6, rh - 4, &ap_sel, k, GPZ_SEL);
-            if (!on) gx_rrect_fill(x - 3, y - 3, cw + 6, rh - 6, 7, RGBA(30, 18, 72, 150), RGBA(18, 10, 46, 150));
+            f32 bx = on ? x - ex : x, by = on ? y - ey : y, bw = on ? cw + 2 * ex : cw, bh = on ? ch + 2 * ey : ch;
+            gp_zone(x, y, cw, ch + 18, &ap_sel, k, GPZ_SEL);
+            gx_rrect_fill(bx, by, bw, bh, 8, on ? RGBA(70, 36, 160, 255) : RGBA(34, 20, 84, 255), on ? RGBA(40, 18, 104, 255) : RGBA(18, 10, 46, 255));
             if (!a->istate && loads < 1 && r >= top && r < top + rows) { ap_icon_load(a); loads++; }   /* (une icone par image) */
-            if (a->istate > 0) draw_tex_fit(&a->obj, AP_IW, AP_IH, AP_IW, AP_IH, x, y, cw, ch);
+            if (a->istate > 0) draw_tex_fit(&a->obj, AP_IW, AP_IH, AP_IW, AP_IH, bx + 5, by + 5, bw - 10, bh - 10);
             else {
-                gx_rrect_fill(x + 4, y + 4, cw - 8, ch - 8, 6, RGBA(70, 46, 140, 255), RGBA(42, 26, 96, 255));
                 char ini[3] = { 0, 0, 0 };
                 ini[0] = (char)toupper((u8)a->name[0]);
                 if (a->name[0] && a->name[1]) ini[1] = (char)tolower((u8)a->name[1]);
-                gx_text_c(F_LARGE, x + cw / 2, y + 34, ini, RGBA(210, 195, 255, 255));
+                txt_scale = 1.4f;
+                gx_text_c(F_LARGE, bx + bw / 2, by + bh / 2 + 12, ini, RGBA(210, 195, 255, 255));
+                txt_scale = 1.0f;
             }
-            text_display(a->name, buf, sizeof(buf)); fit_text(F_SMALL, buf, (int)cw, fv, sizeof(fv));
-            gx_text_c(F_SMALL, x + cw / 2, y + ch + 18, fv, on ? RGBA(255, 255, 255, 255) : RGBA(200, 188, 240, 255));
+            text_display(a->name, buf, sizeof(buf)); fit_text(F_SMALL, buf, (int)sw - 6, fv, sizeof(fv));
+            gx_text_c(F_SMALL, x + cw / 2, y + ch + 16 + (on ? ey : 0), fv, on ? RGBA(255, 255, 255, 255) : RGBA(200, 188, 240, 255));
         }
-    if (ap_n) gx_rrect_stroke(hx - 3, hy - 3, cw + 6, rh - 6, 7, 2.0f, RGBA(255, 210, 120, 255));
+    if (ap_n) gx_rrect_stroke(hx - ex - 2, hy - ey - 2, cw + 2 * ex + 4, ch + 2 * ey + 4, 9, 2.0f, RGBA(255, 210, 120, 255));
     scr_viewport();
     if (nrow > rows) {                                          /* barre de defilement */
         f32 th = 240.0f * rows / nrow, ty = y0 + (240.0f - th) * tf / (f32)(nrow - rows);

@@ -11566,32 +11566,41 @@ int main(int argc, char **argv) {
         }
         if (down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) transport_step((down & PAD_TRIGGER_R) ? 1 : -1);
 
+        /* v49 : pendant un mini-jeu, rien de lourd en fond (reseau https, carte SD, pochettes,
+           etiquettes) : chaque image doit tenir dans 1/60 s pour que le jeu reste fluide */
+        int in_game = fun_mode != FUN_OFF && fun_mode != FUN_KARAOKE && fun_mode != FUN_WAKE;
         /* navigateur : reception des pages et des telechargements */
         web_pump();
-        cover_async_pump();
-        cover_pump();
-        lyrics_pump();
-        retro_pump();
-        podcast_pump();
-        photo_pump_tab();
-        files_pump();
-        infos_pump();
+        if (!in_game) {
+            cover_async_pump();
+            cover_pump();
+            lyrics_pump();
+            retro_pump();
+            podcast_pump();
+            photo_pump_tab();
+            files_pump();
+            infos_pump();
+        }
         phone_pump();
         dltab_pump();
-        update_pump();
+        if (!in_game) update_pump();
         cheats_tick();                       /* v37 : cheats coches ecrits un peu apres */
         reset_pump();                        /* v38 : bouton Reset = relancer GC-MP3 */
-        igr_pump();                          /* v39 : fichier du retour en jeu */
-        ld_pump();                           /* v44 : lanceur de jeux GC-MP3 */
+        if (!in_game) {
+            igr_pump();                      /* v39 : fichier du retour en jeu */
+            ld_pump();                       /* v44 : lanceur de jeux GC-MP3 */
+        }
         night_pump();
         rb_pump();
-        lib_pump();
-        bib_pump();
-        stats_pump();
-        ramfs_pump();
-        photo_pump();
-        resume_note(0);
-        if (settings_dirty) {                               /* reglages changes : enregistres 2 s apres */
+        stats_pump();                        /* (compte les ecoutes ; n'enregistre qu'au calme) */
+        if (!in_game) {
+            lib_pump();
+            bib_pump();
+            ramfs_pump();
+            photo_pump();
+            resume_note(0);
+        }
+        if (settings_dirty && !in_game) {                   /* reglages changes : enregistres 2 s apres */
             if (!settings_t) settings_t = now;
             else if (now - settings_t > 2000) { save_settings(); settings_t = 0; }
         }
