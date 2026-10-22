@@ -447,11 +447,9 @@ static void ap_scan_dir(const char *dir, int depth) {
         if (e->d_name[0] == '.') continue;
         char p[NAME_LEN];
         snprintf(p, sizeof(p), "%s/%s", dir, e->d_name);
-        struct stat st;
-        if (stat(p, &st) != 0) continue;
-        if (S_ISDIR(st.st_mode)) { if (depth > 0) ap_scan_dir(p, depth - 1); continue; }
         size_t l = strlen(e->d_name);
-        if (l > 4 && !strcasecmp(e->d_name + l - 4, ".dol")) ap_add(p, depth == 0 && strcasecmp(dir, SD_ROOT) ? dir : NULL);
+        if (l > 4 && !strcasecmp(e->d_name + l - 4, ".dol")) { ap_add(p, depth == 0 && strcasecmp(dir, SD_ROOT) ? dir : NULL); continue; }
+        if (depth > 0 && is_dir(p, e)) ap_scan_dir(p, depth - 1);
     }
     closedir(d);
     service_audio();

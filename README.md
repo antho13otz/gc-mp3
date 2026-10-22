@@ -19,6 +19,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v36
+
+- **Mise à jour bloquée à 99 %** corrigée : la recherche des autres copies de GC-MP3 regardait chaque fichier de la carte (très long avec des milliers de ROM). Elle ne regarde plus que la racine et le dossier `apps`, par leur nom.
+
 ## Nouveautés v35
 
 - **Nouvelle page Réglages (START)** avec des sections en haut, **L / R** pour changer :

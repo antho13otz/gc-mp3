@@ -53,12 +53,8 @@ static int up_find_dol(const char *dir, int depth, char *out, int cap) {
         char p[NAME_LEN];
         snprintf(p, sizeof(p), "%s/%s", dir, e->d_name);
         if (!strcasecmp(e->d_name, "gc-mp3player.dol")) { snprintf(out, cap, "%s", p); found = 1; break; }
-        if (depth > 0) {
-            struct stat st;
-            if (stat(p, &st) == 0 && S_ISDIR(st.st_mode) && strcasecmp(e->d_name, "mp3") && strcasecmp(e->d_name, "retro")
-                && strcasecmp(e->d_name, "photos") && strcasecmp(e->d_name, "videos") && strcasecmp(e->d_name, "podcasts"))
-                found = up_find_dol(p, depth - 1, out, cap);
-        }
+        if (depth > 0 && (depth < 2 || !strcasecmp(e->d_name, "apps")) && is_dir(p, e))   /* (v36 : racine + apps seulement) */
+            found = up_find_dol(p, depth - 1, out, cap);
     }
     closedir(d);
     return found;
@@ -182,14 +178,15 @@ static void up_find_copies(const char *dir, int depth) {
         if (e->d_name[0] == '.') continue;
         char p[NAME_LEN];
         snprintf(p, sizeof(p), "%s/%s", dir, e->d_name);
+        /* v36 : le nom d'abord, sans stat() sur chaque fichier (dossiers de milliers de ROM = tres lent),
+           et seulement la racine + le dossier apps */
+        if (is_dir(p, e)) {
+            if (depth > 0 && (depth < 2 || !strcasecmp(e->d_name, "apps"))) up_find_copies(p, depth - 1);
+            continue;
+        }
+        if (!up_dol_name(e->d_name) || !strcasecmp(p, up_target)) continue;
         struct stat st;
-        if (stat(p, &st) != 0) continue;
-        if (S_ISDIR(st.st_mode)) {
-            if (depth > 0 && strcasecmp(e->d_name, "mp3") && strcasecmp(e->d_name, "retro") && strcasecmp(e->d_name, "photos")
-                && strcasecmp(e->d_name, "videos") && strcasecmp(e->d_name, "podcasts") && strcasecmp(e->d_name, "games")
-                && strcasecmp(e->d_name, "swiss") && strcasecmp(e->d_name, "gc-mp3"))
-                up_find_copies(p, depth - 1);
-        } else if (up_dol_name(e->d_name) && st.st_size > 0x100 && strcasecmp(p, up_target) && up_is_me(p)) up_copy_add(p);
+        if (stat(p, &st) == 0 && st.st_size > 0x100 && up_is_me(p)) up_copy_add(p);
     }
     closedir(d);
 }
@@ -225,6 +222,7 @@ static void up_install_finish(const u8 *d, long n) {
         return;
     }
     /* les autres copies (ipl.dol, apps...) */
+    ui_status("Mise \xC3\xA0 jour des autres copies de GC-MP3...");
     up_ncopies = 0;
     up_find_copies(SD_ROOT, 2);
     int nok = 0;
