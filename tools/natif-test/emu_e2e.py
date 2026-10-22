@@ -56,6 +56,8 @@ di_real = [0] * 10
 kicks = []
 
 si_inbuf = [0x80000000, 0x11900000, 0x80000000, 0x80000000]   # manette 1 : A + START + Z
+si_sr = [0x00200000, 0]                               # (v58 : manette 1 avec RDST les 20 premieres fois : ne doit pas etre lue)
+si_reads = []
 resets = []
 def pi_write(uc, off, size, value, data):
     if off == 0x24:
@@ -63,7 +65,11 @@ def pi_write(uc, off, size, value, data):
         if value & 0xFFFFFFFF == 0: uc.emu_stop()       # redemarrage de la console
 def pi_read(uc, off, size, data): return 0
 def io_read(uc, off, size, data):
-    if 0x400 <= off < 0x430 and (off - 0x400) % 12 == 4: return si_inbuf[(off - 0x400) // 12]
+    if 0x400 <= off < 0x430 and (off - 0x400) % 12 == 4:
+        si_reads.append((off, si_sr[1])); return si_inbuf[(off - 0x400) // 12]
+    if off == 0x438:                                    # SISR : RDST (donnees neuves pas encore prises)
+        si_sr[1] += 1
+        return si_sr[0] if si_sr[1] <= 20 else 0
     if off >= 0x800:
         o = off - 0x800; ch, reg = o // 0x14, (o % 0x14) // 4
         return exi[ch][reg] if ch < 3 else 0
@@ -136,9 +142,12 @@ print('vrai lecteur : %d commandes inquiry (%s)' % (len(kicks), ' '.join('%08X' 
 # v57 : A+Z+START -> redemarrage (la fin normale n'est donc pas atteinte)
 rd32 = lambda a: struct.unpack('>I', mu.mem_read(a, 4))[0]
 tbl = [rd32(0x80003040 + i * 4) for i in (20, 21, 24)]
-hk = resets == [3, 0] and 0x817F0000 <= tbl[0] < 0x81800000 and 0x817F0000 <= tbl[2] < 0x81800000 and rd32(0x80001F00) == 3 and 38 <= rd32(0x80001F04) <= 45
+hk = resets == [3, 0] and 0x817F0000 <= tbl[0] < 0x81800000 and 0x817F0000 <= tbl[2] < 0x81800000 and rd32(0x80001F00) == 3 and 55 <= rd32(0x80001F04) <= 70
 print(('OK   ' if hk else 'FAUX ') + 'crochets + A+Z+START : reset %s, table SI %08X VI %08X, images %d, manettes %d' % (resets, tbl[0], tbl[2], rd32(0x80001F00), rd32(0x80001F04)))
 ok &= hk
+nolat = all(not (o == 0x40C and n <= 20) for o, n in si_reads) and len(si_reads) > 0
+print(('OK   ' if nolat else 'FAUX ') + 'manettes : donnees neuves pas touchees (%d lectures SI)' % len(si_reads))
+ok &= nolat
 ok &= struct.unpack('>I', mu.mem_read(0x80001F24, 4))[0] == 0 and struct.unpack('>I', mu.mem_read(0x80001F20, 4))[0] == 0
 ok &= rd(0x4C) == 4 and len(kicks) == 4 and all(k == 0x12000000 for k in kicks)
 if card.writes:                                    # v54 : journal du jeu ecrit sur la carte

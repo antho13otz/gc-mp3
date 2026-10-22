@@ -75,7 +75,7 @@ _start:
     bctrl
     addic. 21,21,-1
     bne 3b
-    li 21,60
+    li 21,90
 4:  lwz 12,0x3090(20)
     mtctr 12
     li 3,20

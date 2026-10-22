@@ -301,7 +301,12 @@ static void si_hook(u32 irq, u32 ctx) {
     H.si_count++;
     volatile u32 *si = (volatile u32 *)0xCC006400u;
     int on = 0;
+    u32 sr = si[14];                                     /* SISR (lecture sans effet) */
     for (int ch = 0; ch < 4; ch++) {
+        /* v58 : lire SICnINBUFH efface le drapeau "donnees neuves" (RDST) : si le jeu ne les a
+           pas encore prises, il croirait la manette debranchee (1080 : fige sur la question 60 Hz).
+           On ne lit donc que si le jeu les a deja prises (RDST = 0). */
+        if (sr & (0x20000000u >> (ch * 8))) continue;
         u32 b = si[ch * 3 + 1];                          /* SICnINBUFH : boutons (deja lus par le jeu) */
         if (b & 0x80000000u) continue;                   /* (pas de manette) */
         if ((b & 0x11000000u) == 0x11000000u && (b & 0x00100000u)) on = 1;   /* A + START, Z */

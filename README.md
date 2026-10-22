@@ -21,6 +21,9 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v58
+- **Lanceur maison : la manette remarche dans le jeu.** En v57, la surveillance de A+Z+START lisait la manette avant le jeu : le jeu la croyait débranchée (1080° Avalanche restait figé sur la question 60 Hz). Elle ne lit maintenant que ce que le jeu a déjà lu.
+
 ## Nouveautés v57
 - **Réglages rangés par thème** : sections **Vidéo**, **Manettes**, **Émulation**, **Jeux** (lancement des jeux, matériel) et **Réseau**, à côté de **GC Station** et **Outils**. Plus de sections « Indigo » ni « Swiss » ; les options qui ne servaient qu'au menu d'Indigo ne sont plus montrées (le fichier `swiss/settings/global.ini` les garde).
 - **Démarrer la console sur GC Station** (section GC Station) : GC Station se copie dans `SD:/ipl.dol` (celui que lance PicoLoader) ; l'ancien est gardé sous `ipl-swiss.dol`. Le bouton **Reset** ramène alors sur GC Station ; **Z** tenu au démarrage de GC Station ouvre toujours Swiss. « Quitter vers Swiss » n'est plus dans les menus.
