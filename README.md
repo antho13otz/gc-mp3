@@ -19,6 +19,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v30
+
+- **Démarrer GC-MP3 avec Indigo / Swiss** : START > Réglages > « Démarrer avec Indigo / Swiss » = Oui. GC-MP3 écrit `Autoload=` dans `SD:/swiss/settings/global.ini` : à chaque démarrage, Indigo ouvre GC-MP3 tout seul. Non = Indigo redevient normal.
+- **Quitter vers Swiss** (START > Réglages) : retour au menu d'Indigo / Swiss, même quand GC-MP3 démarre tout seul.
+- **Z tenu au démarrage de GC-MP3** : passe directement au menu d'Indigo / Swiss (secours).
+
 ## Nouveautés v29 (retours de testeurs)
 
 - **Plus de coupures** : dans un dossier, pendant la lecture, les noms (« Artiste - Titre ») sont lus un par un et seulement quand il reste au moins 2 s de son d'avance.
