@@ -3700,6 +3700,7 @@ static const char *const layout_keys[LAYOUT_COUNT] = { "classique", "pochette", 
 /* v43 : paroles dans le lecteur (0 spectre seul, 1 paroles a la place du spectre, 2 les deux) ;
    eclair blanc sur les basses du mode soiree (0 partout, 1 sauf spectrogramme, 2 jamais) */
 static int lyr_show = 1, flash_mode = 1;
+static int ld_mode = 0;                     /* v44 : lanceur des jeux : 0 = GC-MP3 (lanceur.c), 1 = Swiss / Indigo */
 static const char *const lyr_keys[3] = { "spectre", "paroles", "les_deux" };
 static const char *const lyr_names[3] = { "Spectre seulement", "Paroles (sinon spectre)", "Paroles + spectre" };
 static const char *const flash_keys[3] = { "partout", "sauf_spectrogramme", "jamais" };
@@ -3816,6 +3817,7 @@ static void setting_apply(const char *k, char *v) {
                 for (int i = 0; i < LAYOUT_COUNT; i++) if (!strcasecmp(v, layout_keys[i])) layout_tab[t] = i;
         }
         else if (!strcasecmp(k, "paroles_affichage")) { for (int i = 0; i < 3; i++) if (!strcasecmp(v, lyr_keys[i])) lyr_show = i; }
+        else if (!strcasecmp(k, "lanceur_jeux")) ld_mode = !strcasecmp(v, "swiss");
         else if (!strcasecmp(k, "eclair_basses")) { for (int i = 0; i < 3; i++) if (!strcasecmp(v, flash_keys[i])) flash_mode = i; }
         else if (!strcasecmp(k, "ordre_onglets")) {
             u8 o[TAB_COUNT]; int n = 0; u32 seen = 0;
@@ -3975,6 +3977,7 @@ static void save_settings(void) {
             layout_keys[layout_tab[TAB_RADIO]], layout_keys[layout_tab[TAB_RETRO]], layout_keys[layout_tab[TAB_PODCAST]]);
     fprintf(f, "# Paroles dans le lecteur : spectre / paroles / les_deux ; eclair sur les basses (mode soiree) : partout / sauf_spectrogramme / jamais\n"
                "paroles_affichage = %s\neclair_basses = %s\n", lyr_keys[lyr_show], flash_keys[flash_mode]);
+    fprintf(f, "# Lanceur des jeux GameCube : gcmp3 (sans menu Swiss) / swiss\nlanceur_jeux = %s\n", ld_mode ? "swiss" : "gcmp3");
     fprintf(f, "# Ordre des onglets\nordre_onglets = ");
     for (int i = 0; i < TAB_COUNT; i++) fprintf(f, "%s%s", i ? "," : "", tab_keys[tab_order[i]]);
     fprintf(f, "\n");
@@ -9992,7 +9995,7 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_UPDATE, MI_TOSWISS, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_LAUNCHER, MI_UPDATE, MI_TOSWISS, MI_QUIT, MI_COUNT };
 static int autostart_get(void);
 static const char *autostart_set(int on);
 /* v35 : page Reglages en sections (L / R) : GC-MP3, Indigo, Swiss, Outils */
@@ -10001,6 +10004,9 @@ static int menu_sec = 0;
 static void ic_menu_input(int sec, u32 down, u32 nav, int fire);
 static void igr_value(char *out, int cap);                  /* v39 : retour en jeu vers GC-MP3 (igr.c) */
 static void igr_toggle(void);
+static void ld_value(char *out, int cap);                   /* v44 : lanceur de jeux GC-MP3 (lanceur.c) */
+static void ld_change(int a);
+static const char *ld_hint(void);
 static const char *igr_hint(void);
 static void ic_menu_draw(int sec, f32 x, f32 y, f32 w, int vis, f32 rh, f32 help_y);
 static void ic_menu_close(void);
@@ -10046,6 +10052,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_UPDATE:  update_value(out, cap); break;
     case MI_AUTOSTART: snprintf(out, cap, "%s", autostart_get() ? "Oui" : "Non"); break;
     case MI_IGR:     igr_value(out, cap); break;
+    case MI_LAUNCHER: ld_value(out, cap); break;
     case MI_TOSWISS: snprintf(out, cap, "(A)"); break;
     case MI_LAYOUT:  snprintf(out, cap, "%s (%s)", TR(layout_names[player_layout]), TR(tab_names[IS_PLAYER_TAB(tab) ? tab : TAB_MUSIC])); break;
     case MI_LYRSHOW: snprintf(out, cap, "%s", lyr_names[lyr_show]); break;
@@ -10095,7 +10102,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
     "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
     "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre", "Couleurs du spectrogramme", "Paroles dans le lecteur", "\xC3\x89" "clair sur les basses",
-    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer avec Indigo / Swiss", "Retour en jeu (A+Z+START)", "Mise \xC3\xA0 jour", "Quitter vers Swiss", "Quitter GC-MP3" };
+    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer avec Indigo / Swiss", "Retour en jeu (A+Z+START)", "Lanceur de jeux", "Mise \xC3\xA0 jour", "Quitter vers Swiss", "Quitter GC-MP3" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -10155,6 +10162,7 @@ static void menu_change(int i, int d) {
     case MI_TOSWISS: return;
     case MI_AUTOSTART: { const char *e = autostart_set(!autostart_get()); if (e) lib_note(e); } return;
     case MI_IGR:     igr_toggle(); return;
+    case MI_LAUNCHER: ld_change(0); return;
     case MI_LAYOUT:  player_layout = (player_layout + d + LAYOUT_COUNT) % LAYOUT_COUNT;
                      if (player_layout == L_LIST && IS_PLAYER_TAB(tab) && tab != TAB_MUSIC) player_layout = (player_layout + d + LAYOUT_COUNT) % LAYOUT_COUNT;
                      break;
@@ -10237,6 +10245,7 @@ static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
         else if (menu_sel == MI_UPDATE) { update_activate(); return; }
         else if (menu_sel == MI_AUTOSTART) { menu_change(MI_AUTOSTART, 1); return; }
         else if (menu_sel == MI_IGR) { igr_toggle(); return; }
+        else if (menu_sel == MI_LAUNCHER) { ld_change(1); return; }
         else if (menu_sel == MI_TOSWISS) {                     /* v30 : retour au menu de Swiss / Indigo */
             menu_open = 0;
             if (settings_dirty) save_settings();
@@ -10369,6 +10378,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_XFADE) hint = "Les morceaux se m\xC3\xA9langent en fin de lecture (pas avec L / R)";
     if (menu_sel == MI_VIDEO) hint = "Pris en compte au prochain lancement (B maintenu au d\xC3\xA9marrage = 480i)";
     if (menu_sel == MI_IGR) hint = igr_hint();
+    if (menu_sel == MI_LAUNCHER) hint = ld_hint();
     if (menu_sel == MI_QUIT) hint = "Ouvre le menu de la GameCube (lecteur de disque). Bouton Reset = relancer GC-MP3";
     if (menu_sel == MI_LAYOUT) hint = "Une disposition par onglet (MUSIQUE, RADIO, R\xC3\x89TRO, PODCASTS) : change d'onglet pour r\xC3\xA9gler les autres";
     if (menu_sel == MI_LYRSHOW) hint = "Paroles des musiques (fichiers .lrc) : \xC3\xA0 la place du spectre ou par-dessus";
@@ -11337,6 +11347,7 @@ static void music_pump(void) {
 #include "tools.c"                             /* v35 : cartes memoire, applis, recents, infos */
 #include "indigo_cfg.c"                        /* v32 : reglages d'Indigo / Swiss */
 #include "igr.c"                               /* v39 : A + Z + START en jeu -> GC-MP3 */
+#include "lanceur.c"                           /* v44 : lanceur de jeux GC-MP3 (moteur Swiss) */
 
 int main(int argc, char **argv) {
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;
@@ -11556,6 +11567,7 @@ int main(int argc, char **argv) {
         cheats_tick();                       /* v37 : cheats coches ecrits un peu apres */
         reset_pump();                        /* v38 : bouton Reset = relancer GC-MP3 */
         igr_pump();                          /* v39 : fichier du retour en jeu */
+        ld_pump();                           /* v44 : lanceur de jeux GC-MP3 */
         night_pump();
         rb_pump();
         lib_pump();

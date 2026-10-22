@@ -82,6 +82,22 @@ if len(sys.argv) > 3 and os.path.isfile(sys.argv[3]):
             if a.get("name") != myimg:
                 call("DELETE", api + "/releases/assets/%d" % a["id"])
 
+# 2c. v44 : le lanceur de jeux (moteur Swiss), facultatif. Extension .bin : jamais pris
+#     pour une mise a jour de GC-MP3 (les anciennes versions cherchent un .dol)
+if len(sys.argv) > 4 and os.path.isfile(sys.argv[4]):
+    st, rel3 = call("GET", api + "/releases/%d" % rel["id"])
+    bins = [a for a in (rel3 or rel).get("assets", []) if a.get("name", "").startswith("gc-mp3-loader")]
+    mybin = "gc-mp3-loader-b%s.bin" % build
+    for a in bins:
+        if a.get("name") == mybin:
+            call("DELETE", api + "/releases/assets/%d" % a["id"])
+    st, _ = call("POST", rel["upload_url"].split("{")[0] + "?name=" + mybin, open(sys.argv[4], "rb").read(), "application/octet-stream")
+    print("%s envoye : HTTP %d" % (mybin, st))
+    if st == 201:
+        for a in bins:
+            if a.get("name") != mybin:
+                call("DELETE", api + "/releases/assets/%d" % a["id"])
+
 # 3. le numero de build en dernier : il n'annonce jamais un fichier absent.
 #    "build=N" toujours sur la PREMIERE ligne (GC-MP3 v19 et avant ne lisent que
 #    le debut du texte) ; si le texte ou le titre ont ete ecrits a la main sur

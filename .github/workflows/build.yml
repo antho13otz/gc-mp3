@@ -13,7 +13,83 @@ concurrency:
   group: gc-mp3-build
 
 jobs:
+  # v44 : lanceur de jeux GC-MP3 = moteur de Swiss (GPL v2, version figee) modifie par
+  # tools/mkloader.py. Recompile seulement si le script ou la version de Swiss changent.
+  loader:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    container: ghcr.io/extremscorner/libogc2:latest
+    env:
+      SWISS_COMMIT: 99b59e7a042cb5633cd341d86b7b92a65cd39851
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: gcmp3
+
+      - name: Lanceur déjà compilé ?
+        id: cache
+        uses: actions/cache@v4
+        with:
+          path: gc-mp3-loader.bin
+          key: loader-${{ env.SWISS_COMMIT }}-${{ hashFiles('gcmp3/tools/mkloader.py', 'gcmp3/tools/loader/**') }}
+
+      - name: Installer les outils de Swiss
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends -t bookworm-backports 7zip gcc gcc-mingw-w64-i686 libc6-dev libc6-i386 xorriso
+          sudo dkp-pacman -Sy
+          sudo dkp-pacman -S --noconfirm --ask 4 ppc-libiconv-lite
+
+      - name: Télécharger Swiss
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/checkout@v4
+        with:
+          repository: emukidid/swiss-gc
+          ref: ${{ env.SWISS_COMMIT }}
+          path: swiss
+          fetch-depth: 0
+          submodules: true
+
+      - name: Compiler le lanceur
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE/swiss"
+          python3 gcmp3/tools/mkloader.py swiss gcmp3/tools/loader
+          cd swiss
+          make compile-patches compile compile-packer
+          cp cube/packer/swiss.dol ../gc-mp3-loader.bin
+          ls -la ../gc-mp3-loader.bin
+
+      - name: Vérifier le lanceur
+        run: |
+          python3 - <<'PY'
+          import struct, sys
+          d = open("gc-mp3-loader.bin", "rb").read()
+          e = struct.unpack_from(">I", d, 0xE0)[0]
+          ok = False
+          for i in range(18):
+              off, adr, n = [struct.unpack_from(">I", d, b + i * 4)[0] for b in (0, 0x48, 0x90)]
+              if not n:
+                  continue
+              if off < 0x100 or off + n > len(d) or adr < 0x80000000 or adr + n > 0x81800000:
+                  sys.exit("ERREUR: section invalide")
+              if i < 7 and adr <= e < adr + n and d[off + e + 4 - adr:off + e + 8 - adr] == b"_arg":
+                  ok = True
+          if not ok or len(d) > 8 * 1024 * 1024:
+              sys.exit("ERREUR: lanceur invalide (point d'entree / _arg / taille)")
+          print("lanceur valide :", len(d), "octets")
+          PY
+
+      - name: Publier le lanceur
+        uses: actions/upload-artifact@v4
+        with:
+          name: gc-mp3-loader
+          path: gc-mp3-loader.bin
+
   build:
+    needs: loader
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 40
     container: devkitpro/devkitppc:latest
@@ -190,6 +266,13 @@ jobs:
       - name: Fabriquer le fichier du retour en jeu (apploader.img)
         run: python3 tools/mkapploader.py gc-mp3player.dol gc-mp3-igr.img ${{ github.run_number }}
 
+      - name: Récupérer le lanceur de jeux
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: gc-mp3-loader
+          path: loader
+
       - name: Publier le .dol
         uses: actions/upload-artifact@v4
         with:
@@ -205,4 +288,4 @@ jobs:
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 tools/publish_release.py gc-mp3player.dol ${{ github.run_number }} gc-mp3-igr.img
+        run: python3 tools/publish_release.py gc-mp3player.dol ${{ github.run_number }} gc-mp3-igr.img loader/gc-mp3-loader.bin
