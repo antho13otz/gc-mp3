@@ -940,10 +940,16 @@ static const u32 gl_stub[] = {
 /* demarre Swiss avec "Autoload=<jeu>" (path = chemin sd:/...), ou "Autoload=" (vide :
    le menu de Swiss / Indigo, meme si GC-MP3 y est regle pour demarrer tout seul) */
 static const char *gl_boot_swiss(const char *path);
+static int gl_boot_cheats = 0;                         /* v31 : ajoute "AutoCheats=Yes" (cheats actives pour ce jeu) */
 static const char *gl_launch(int k) {                  /* retourne un message d'erreur, ou ne revient pas */
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
     if (access(gl[k].path, R_OK) != 0) return "Jeu introuvable : Y pour actualiser la liste";
-    return gl_boot_swiss(gl[k].path);
+    char p[NAME_LEN]; struct stat st;
+    snprintf(p, sizeof(p), "%s/%.6s.chtsel", CH_DIR, gl[k].id);
+    gl_boot_cheats = stat(p, &st) == 0 && st.st_size > 8;
+    const char *e = gl_boot_swiss(gl[k].path);
+    gl_boot_cheats = 0;
+    return e;
 }
 static const char *gl_boot_swiss(const char *path) {
     if (!gl_find_swiss()) return "Swiss introuvable : mets son .dol a la racine (ex. swiss.dol) ou indique-le dans gc-mp3.txt (swiss = ...)";
@@ -988,10 +994,11 @@ static const char *gl_boot_swiss(const char *path) {
     if (dst < hi + 32) { free(dol); return "Swiss est trop gros pour etre lance d'ici"; }
     /* argument : Autoload=sdX:/chemin */
     static const char *const dev[3] = { "sdc:", "sda:", "sdb:" };
-    char cmd[NAME_LEN + 64];
+    char cmd[NAME_LEN * 2 + 96];
     int cl = snprintf(cmd, sizeof(cmd), "%s", gl_swiss);
     if (path) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "Autoload=%s%s", dev[sd_slot >= 0 && sd_slot < 3 ? sd_slot : 0], path + strlen(SD_ROOT));
     else cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "Autoload=");
+    if (path && gl_boot_cheats) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "AutoCheats=Yes");   /* (Swiss applique alors les cheats coches) */
     cl += 1;
     /* le .dol accepte-t-il des arguments ? (texte "_arg" juste apres le point d'entree) */
     int has_arg = 0;
@@ -1025,7 +1032,9 @@ static const char *gl_boot_swiss(const char *path) {
     ((void (*)(u32 *, u32, u32))GL_STUB_AT)(t, n, entry);
     for (;;) ;
 #else
-    printf("LANCER swiss=%s dst=%08x hi=%08x entree=%08x sections=%u arg=[%s]\n", gl_swiss, dst, hi, entry, n, cmd + strlen(cmd) + 1);
+    printf("LANCER swiss=%s dst=%08x hi=%08x entree=%08x sections=%u arg=[%s]", gl_swiss, dst, hi, entry, n, cmd + strlen(cmd) + 1);
+    { const char *a2 = cmd + strlen(cmd) + 1; a2 += strlen(a2) + 1; if (a2 < cmd + cl) printf(" arg2=[%s]", a2); }
+    printf("\n");
     free(dol);
     return "(simulateur : lancement simule)";
 #endif
