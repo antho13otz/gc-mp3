@@ -1,0 +1,26 @@
+#define GEKKO 1
+#include <gccore.h>
+#include <fat.h>
+#include <sdcard/gcsd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <malloc.h>
+#include <sys/stat.h>
+#define GCD "sd:/gc-mp3"
+#define NAME_LEN 256
+static int sd_virtual = 0, sd_slot = 0, sd_ok = 1, settings_dirty = 0;
+static u32 be32(const unsigned char *p){return (u32)p[0]<<24|p[1]<<16|p[2]<<8|p[3];}
+static void service_audio(void){}
+static void crumb(const char*f,...){}
+static void stop_track(void){} static void stop_station(void){} static void save_settings(void){}
+static int mount_sd(void){return 1;}
+typedef struct { char path[NAME_LEN]; u8 ciso; long size; char title[72]; } gcg_t;
+static gcg_t gl[1]; static int gl_n=1; static char gl_busy[96];
+static void gl_status(const char*m){} static void gl_note(const char*m){}
+static const u32 gl_stub[] = {0};
+#define GL_STUB_AT  0x80001800u
+#define GL_TAB_AT   0x80002000u
+#include "gd.inc"
+#include "natif.c"
+int main(void){ nat_run(0); return nat_boot(0) != 0; }

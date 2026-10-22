@@ -995,3 +995,8 @@
     { "Lanceur maison : analyse du jeu...", "Home-made launcher: analysing the game..." },
     { "Lanceur maison : lecture de main.dol...", "Home-made launcher: reading main.dol..." },
     { "Lanceur maison : lecture de la FST...", "Home-made launcher: reading the FST..." },
+    { "Analyse native : position du jeu sur la carte...", "Native analysis: locating the game on the card..." },
+    { "Analyse native : test du lecteur SD maison...", "Native analysis: testing the home-made SD reader..." },
+    { "Pas assez de m\xC3\xA9moire pour ce jeu (main.dol trop gros)", "Not enough memory for this game (main.dol too big)" },
+    { "Pas assez de m\xC3\xA9moire libre dans GC Station", "Not enough free memory in GC Station" },
+    { "Lecture du jeu impossible (carte SD)", "Cannot read the game (SD card)" },
