@@ -4176,12 +4176,16 @@ static void gx_init(void) {
 /* Taille d'ecran au-dela de 100 % : la sortie video etale les 640 points de
    l'image sur une ligne plus large (jusqu'a 716 sur 720), ce qui reduit les
    bandes noires des cotes que laissent beaucoup de teles. */
+static int scr_hboot = 0, scr_hlive = 0;    /* v34 : position horizontale (SRAM) au demarrage / changee depuis */
 static void scr_vi_set(int apply) {
     int w = 640;
     if (scr_pct > 100) w = (640 * scr_pct / 100) & ~1;
     if (w > 716) w = 716;
     rmode->viWidth = (u16)w;
-    rmode->viXOrigin = (u16)((720 - w) / 2);
+    int xo = (720 - w) / 2 + scr_hlive;
+    if (xo < 0) xo = 0;
+    if (xo > 720 - w) xo = 720 - w;
+    rmode->viXOrigin = (u16)xo;
     if (apply) { VIDEO_Configure(rmode); VIDEO_Flush(); }
 }
 static void scr_vi(void) { if (rmode) scr_vi_set(1); }
@@ -4191,7 +4195,7 @@ static int init_video(void) {
     PAD_Init();
     rmode = VIDEO_GetPreferredMode(NULL);
     if (rmode == NULL) return 0;
-    VIDEO_SetAdjustingValues(SYS_GetDisplayOffsetH(), 0);     /* v34 : position de l'ecran de la console (reglage Indigo) */
+    scr_hboot = SYS_GetDisplayOffsetH();      /* v34 : position de la console (libogc l'applique deja) */
     /* 480p (progressif) : cable composante (ou GCVideo) ; B maintenu au demarrage = 480i */
     PAD_ScanPads();
     int hold_b = (PAD_ButtonsHeld(0) & PAD_BUTTON_B) != 0;

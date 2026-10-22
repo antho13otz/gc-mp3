@@ -328,7 +328,7 @@ static void ic_apply(int boot) {
         if (h < -32) h = -32;
         if (h > 32) h = 32;
         if (h != SYS_GetDisplayOffsetH()) SYS_SetDisplayOffsetH((s8)h);
-        if (!boot && rmode) { VIDEO_SetAdjustingValues((s16)h, 0); scr_vi(); }
+        if (!boot && rmode) { scr_hlive = h - scr_hboot; scr_vi(); }   /* (libogc ne relit la position qu'au demarrage) */
     }
     if ((v = ic_get("System Sound"))) {
         u8 m = !strcmp(v, "Stereo") ? SYS_SOUND_STEREO : SYS_SOUND_MONO;
