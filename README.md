@@ -19,6 +19,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v29 (retours de testeurs)
+
+- **Plus de coupures** : dans un dossier, pendant la lecture, les noms (« Artiste - Titre ») sont lus un par un et seulement quand il reste au moins 2 s de son d'avance.
+- **Analyseur de spectre** plus fin : vraie FFT sur 2048 points (avant : 512), échelle « mel » de 40 Hz à 16 kHz (les basses prennent peu de place, les médiums et aigus sont étalés), niveau automatique (plus de spectrogramme tout blanc sur une musique forte).
+- **Grosse caisse** détectée pour de vrai (montée des basses 40-140 Hz) : le mode soirée, les vibrations, le jeu de rythme et l'aquarium suivent les coups de batterie au lieu de se déclencher au hasard.
+
 ## Nouveautés v28
 
 - **Deux interfaces au choix** : START > Réglages > « Style de l'interface » : **Indigo** (d'origine) ou **Moderne** (gris sombre, cartes plates, tous les onglets en haut, une couleur d'accent). En Moderne, « Thème » choisit la couleur d'accent (cyan, bleu, vert, rouge, orange, rose, blanc).
