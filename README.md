@@ -21,6 +21,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v56
+- **Lanceur maison : le vrai lecteur est réveillé avant le jeu.** Le journal de 1080° Avalanche montrait que le jeu envoie sa 1re commande, puis attend un « réveil » qui ne vient jamais (10 s, puis « Une erreur est survenue »). Ce réveil vient du vrai lecteur DVD, que Swiss peut laisser endormi (en reset). GC Station le libère maintenant et vérifie qu'il répond avant de lancer le jeu ; le résultat est noté (« Vrai lecteur : … »).
+- `journal-jeu.txt` montre aussi quand le jeu se réveille (« jeu : écrit DISR ») et contient à la fin le journal du lancement.
+
 ## Nouveautés v55
 - **Partager un fichier par QR code** : onglet FICHIERS, **X > Partager (QR code)** sur un fichier → un QR code s'affiche ; scanne-le avec ton téléphone (même Wi-Fi que la GameCube) pour ouvrir une page avec le nom, la taille, un aperçu (photo, musique, vidéo, texte) et le bouton **Télécharger**.
 - Marche aussi sur un **dossier** (ou, sur la ligne du haut, le dossier ouvert) : la page liste ses fichiers, chacun téléchargeable.

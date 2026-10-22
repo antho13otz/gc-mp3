@@ -369,6 +369,7 @@ static int nat_map_check(const char *path, long size, char *err, int cap) {
    (compteurs + les 24 dernieres commandes du jeu) pendant le jeu. Au demarrage suivant,
    GC Station le traduit en texte : SD:/gc-mp3/natif/journal-jeu.txt (aussi sur le telephone). */
 #define NA_JBIN NA_DIR "/journal-jeu.bin"
+#define NA_LOG   NA_DIR "/dernier-lancement.txt"
 #define NA_JTXT NA_DIR "/journal-jeu.txt"
 static u32 nat_journal_prep(void) {
     if (sd_virtual) return 0;
@@ -387,6 +388,7 @@ static const char *na_cmd_name(u32 c) {
     switch (c >> 24) {
     case 0xA8: return (c & 0xC0) == 0x40 ? "lire l'ID du disque" : "lire";
     case 0xAB: return "chercher"; case 0xE0: return "demander l'erreur"; case 0x12: return "infos lecteur";
+    case 0xAC: return "jeu : ecrit DISR";
     case 0xE1: return "audio : jouer"; case 0xE2: return "audio : etat"; case 0xE3: return "arreter le moteur"; case 0xE4: return "audio : tampon";
     default: return "?";
     }
@@ -407,16 +409,24 @@ static void nat_journal_convert(void) {
         fprintf(f, "Derniere commande : %08X (%s)  position %08X  longueur %u\n", (unsigned)H[20], na_cmd_name(H[20]), (unsigned)H[21], (unsigned)H[22]);
         fprintf(f, "Erreurs de lecture SD : %u   reprises reussies : %u\n", (unsigned)H[27], (unsigned)H[28]);
         fprintf(f, "Vrai lecteur (reveil du jeu) : %u commandes lancees, %u fois occupe\n", (unsigned)H[25], (unsigned)H[26]);
-        fprintf(f, "Acquittements avec vraie fin de commande : %u   dernier etat reel DISR : %02X\n\n", (unsigned)H[29], (unsigned)(H[30] & 0xFF));
+        fprintf(f, "Le jeu a ecrit DISR (acquittements) : %u fois, dont %u avec une vraie fin de commande   dernier etat reel DISR : %02X\n\n",
+                (unsigned)H[23], (unsigned)H[29], (unsigned)(H[30] & 0xFF));
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
         for (int k = 0; k < NATRES_LOGN; k++) {
             const u8 *e = d + 0x80 + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);
             if (!c && !o && !l && !in) continue;
+            if ((c >> 24) == 0xAC) {                      /* (le jeu acquitte : il a ete reveille) */
+                fprintf(f, "  %08X %-20s valeur %02X  vrai DISR avant %02X  faux DISR apres %02X\n", (unsigned)c, na_cmd_name(c), (unsigned)(c & 0xFF), (unsigned)(o & 0xFF), (unsigned)(l & 0xFF));
+                continue;
+            }
             fprintf(f, "  %08X %-20s pos %08X  long %6u  %s%s%s%sDISR %02X  reel %02X\n", (unsigned)c, na_cmd_name(c), (unsigned)o, (unsigned)l,
                     in & 1 ? "ERREUR LECTURE  " : "", in & 8 ? "CARTE PAS PRETE  " : "", in & 2 ? "LECTEUR OCCUPE  " : "", in & 4 ? "" : "PAS DE REVEIL  ",
                     (unsigned)((in >> 8) & 0xFF), (unsigned)((in >> 16) & 0xFF));
         }
+        long ll = 0;                                      /* (et le journal du lancement, ecrit avant le saut) */
+        char *lt = (char *)read_file(NA_LOG, 16384, &ll);
+        if (lt) { fprintf(f, "\n---------- dernier-lancement.txt ----------\n"); fwrite(lt, 1, ll, f); free(lt); }
         fclose(f);
     }
     memset(d, 0, 512);                                    /* (traduit : on ne le refait pas au prochain demarrage) */
@@ -643,12 +653,67 @@ static void nat_run(int k) {
    Etape 3 : le programme resident est installe tout en haut, et les acces du jeu au
    lecteur DVD sont branches sur lui (faux lecteur) : le jeu lit l'ISO sur la carte SD.
    Journal (ecrit avant le saut) : SD:/gc-mp3/natif/dernier-lancement.txt */
-#define NA_LOG   NA_DIR "/dernier-lancement.txt"
 #define NA_BI2   0x2000u                      /* taille de bi2.bin */
 
 static const char *na_adapter(void) {
     return sd_virtual ? "aucun (SD virtuelle)" : sd_slot == 0 ? "SD2SP2 (port serie 2)" : sd_slot == 1 ? "slot A (SD Gecko ?)" : sd_slot == 2 ? "slot B (SD Gecko ?)" : "inconnu";
 }
+
+/* v55 : le vrai lecteur DVD sert de "reveil" (sa fin de commande = interruption pour le jeu).
+   Swiss peut le laisser en reset (bit 2 de PI 0xCC003024 a 0) : il ne repond alors a rien,
+   le jeu attend 10 s puis affiche "Une erreur est survenue". On le libere et on verifie
+   qu'il repond a une commande "inquiry" (interruptions coupees, sans libogc). */
+static char na_drv[220] = "";
+#ifdef GEKKO
+static int na_inq(volatile u32 *di, u8 *buf, u32 ms) {  /* 0x10 fin, 0x04 erreur (repond quand meme), -1 rien */
+    di[0] = (di[0] & 0x2Au) | 0x54u;
+    DCInvalidateRange(buf, 32);
+    di[2] = 0x12000000u; di[3] = 0; di[4] = 32;
+    di[5] = (u32)MEM_VIRTUAL_TO_PHYSICAL(buf); di[6] = 32;
+    di[7] = 3;
+    u64 t0 = now_ms();
+    while (di[7] & 1) {
+        if (now_ms() - t0 > ms) {                         /* (rien : on interrompt la commande) */
+            di[0] = (di[0] & 0x2Au) | 1u;
+            u64 t1 = now_ms();
+            while ((di[7] & 1) && now_ms() - t1 < 200) ;
+            di[0] = (di[0] & 0x2Au) | 0x54u;
+            return -1;
+        }
+    }
+    u32 sr = di[0];
+    di[0] = (sr & 0x2Au) | 0x54u;
+    DCInvalidateRange(buf, 32);
+    return (int)(sr & 0x54u);
+}
+static void na_drive_wake(void) {
+    volatile u32 *di = (volatile u32 *)0xCC006000u, *pi = (volatile u32 *)0xCC003000u;
+    static u8 inq[32] ATTRIBUTE_ALIGN(32);
+    u32 level = IRQ_Disable();
+    u32 p9 = pi[9];
+    int held = !(p9 & 4u), r1 = -2, r2 = -2;
+    u32 wait = 0;
+    if (!held) r1 = na_inq(di, inq, 800);
+    if (held || r1 < 0) {                                 /* reset du lecteur, puis on attend qu'il reponde */
+        pi[9] = (pi[9] & ~4u) | 1u;
+        u64 t = now_ms(); while (now_ms() - t < 2) ;
+        pi[9] = pi[9] | 5u;
+        u64 t0 = now_ms();
+        do r2 = na_inq(di, inq, 1500); while (r2 < 0 && now_ms() - t0 < 7000);
+        wait = (u32)(now_ms() - t0);
+    }
+    di[1] = 4u;                                           /* (couvercle : acquitte, sans interruption) */
+    IRQ_Restore(level);
+    int ok = r1 >= 0 || r2 >= 0;
+    snprintf(na_drv, sizeof(na_drv), "%s (PI 3024 = %08X%s ; inquiry : %s ; apres reset : %s, %u ms ; date %02X%02X%02X%02X)",
+             ok ? "REPOND" : "NE REPOND PAS", (unsigned)p9, held ? ", lecteur tenu en reset" : "",
+             r1 == -2 ? "pas essaye" : r1 < 0 ? "rien" : r1 & 0x10 ? "fin OK" : "erreur",
+             r2 == -2 ? "pas besoin" : r2 < 0 ? "rien" : r2 & 0x10 ? "fin OK" : "erreur", (unsigned)wait,
+             inq[4], inq[5], inq[6], inq[7]);
+}
+#else
+static void na_drive_wake(void) { snprintf(na_drv, sizeof(na_drv), "(simulateur)"); }
+#endif
 
 static const char *nat_boot(int k) {
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
@@ -730,6 +795,8 @@ static const char *nat_boot(int k) {
     tab[n * 3] = bi2_dest; tab[n * 3 + 1] = stage + o_bi2; tab[n * 3 + 2] = NA_BI2; n++;
     if (in.fst_sz) { tab[n * 3] = fst_dest; tab[n * 3 + 1] = stage + o_fst; tab[n * 3 + 2] = in.fst_sz; n++; }
     if (res) { tab[n * 3] = NATRES_AT; tab[n * 3 + 1] = stage + o_res; tab[n * 3 + 2] = NATRES_SIZE; n++; }
+    /* v55 : le vrai lecteur doit repondre (sa fin de commande reveille le jeu) */
+    if (res) { stop_track(); na_drive_wake(); }
     /* journal, ecrit AVANT le saut (apres, plus rien ne peut ecrire sur la carte) */
     mkdir(NA_DIR, 0777);
     FILE *f = fopen(NA_LOG, "w");
@@ -743,6 +810,7 @@ static const char *nat_boot(int k) {
         fprintf(f, "Programme resident : %s\n", res ? "installe" : merr[0] ? merr : "non installe");
         fprintf(f, "Journal du jeu : %s\n", log_sec ? "oui (gc-mp3/natif/journal-jeu.txt au prochain demarrage de GC Station)" : "non");
         fprintf(f, "Faux lecteur DVD : %d acces branches, %d non branches (sur %d trouves)\n", patched, skipped, in.nhit);
+        fprintf(f, "Vrai lecteur : %s\n", na_drv[0] ? na_drv : "pas teste");
         fprintf(f, "Memoire basse avant : 28=%08X 2C=%08X CC=%08X F8=%08X FC=%08X\n",
 #ifdef GEKKO
                 (unsigned)*(volatile u32 *)0x80000028, (unsigned)*(volatile u32 *)0x8000002C, (unsigned)*(volatile u32 *)0x800000CC,

@@ -253,20 +253,24 @@ static u32 di_real_kick(void) {                          /* vraie commande "inqu
 
 static u32 log_ring[NATRES_LOGN][4];
 static u8 logbuf[512] __attribute__((aligned(32)));
-static void nr_log(u32 off, u32 len, u32 info) {
-    u32 *e = log_ring[H.nlog % NATRES_LOGN];
-    e[0] = di[2]; e[1] = off; e[2] = len; e[3] = info | (H.err & 0xFF) << 24;
-    H.nlog++;
-    int err = info & 1;
+static void nr_log_flush(void) {
     if (!H.log_sec || !di_ready) return;
-    if (!(err || H.ncmd <= 40 || (H.ncmd & 63) == 0)) return;   /* (debut du jeu, erreurs, puis de temps en temps) */
     const u8 *p = (const u8 *)&H;
     for (u32 i = 0; i < sizeof(natres_hdr_t); i++) logbuf[i] = p[i];
     for (u32 k = 0; k < NATRES_LOGN; k++) {                     /* le plus ancien d'abord */
         u32 j = (H.nlog + k) % NATRES_LOGN, *d = (u32 *)(logbuf + sizeof(natres_hdr_t) + k * 16);
-        for (int w = 0; w < 4; w++) d[w] = H.nlog >= NATRES_LOGN || j < H.nlog ? log_ring[j][w] : 0;
+        for (int w = 0; w < 4; w++) d[w] = log_ring[j][w];
     }
     nr_write_sd(H.log_sec, logbuf);
+}
+static void nr_log_add(u32 a, u32 b, u32 c, u32 d) {
+    u32 *e = log_ring[H.nlog % NATRES_LOGN];
+    e[0] = a; e[1] = b; e[2] = c; e[3] = d;
+    H.nlog++;
+}
+static void nr_log(u32 off, u32 len, u32 info) {
+    nr_log_add(di[2], off, len, info | (H.err & 0xFF) << 24);
+    if (info & 1 || H.ncmd <= 40 || (H.ncmd & 63) == 0) nr_log_flush();   /* (debut du jeu, erreurs, puis de temps en temps) */
 }
 static void di_exec(void) {
     u32 info = 0;
@@ -311,9 +315,14 @@ static void di_store(u32 reg, u32 val) {
         H.last_real_disr = rs;
         if (rs & 0x10) H.nack_tc++;
         DI_REAL[0] = (val & 0x2Au) | 0x54u;              /* (vrai lecteur : memes masques, tout acquitte) */
+        H.pad++;                                         /* v55 : nombre d'ecritures de DISR par le jeu */
+        if (H.pad <= 16) {                               /* (les premieres : dans le journal, on voit si le jeu se reveille) */
+            nr_log_add(0xAC000000u | (val & 0xFF), rs, di[0], 0);
+            nr_log_flush();
+        }
         return;
     }
-    if (i == 1) { di[1] = val & 0x02; return; }
+    if (i == 1) { di[1] = val & 0x02; DI_REAL[1] = 4u; return; }   /* (vrai couvercle : acquitte, sans interruption) */
     if (i == 7) {
         di[7] = val;
         if (val & 1) { u32 m = irq_off(); di_exec(); irq_restore(m); }
