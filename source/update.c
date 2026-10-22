@@ -64,9 +64,36 @@ static int up_find_dol(const char *dir, int depth, char *out, int cap) {
     return found;
 }
 
+/* v30 : GC-MP3 renomme (ex. ipl.dol pour demarrer directement) : on le reconnait
+   a son contenu (texte "INDIGO AUDIO PLAYER" dans le .dol) */
+static int up_is_me(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    static u8 b[65536 + 32];
+    const char *pat = "INDIGO AUDIO PLAYER";
+    int m = (int)strlen(pat), found = 0;
+    long tot = 0;
+    size_t n;
+    memset(b, 0, 32);
+    while (!found && tot < (6L << 20) && (n = fread(b + 32, 1, 65536, f)) > 0) {
+        for (size_t i = 0; i + m <= n + 32; i++) if (b[i] == 'I' && !memcmp(b + i, pat, m)) { found = 1; break; }
+        memmove(b, b + n, 32);
+        tot += (long)n;
+        service_audio();
+    }
+    fclose(f);
+    return found;
+}
 static void up_pick_target(void) {
     struct stat st;
     if (upd_file[0]) { snprintf(up_target, sizeof(up_target), "%s", upd_file); return; }
+    {   /* deja trouve une fois (le contenu est long a verifier) */
+        static char found[NAME_LEN] = "";
+        static const char *const boot[] = { SD_ROOT "/ipl.dol", SD_ROOT "/boot.dol", SD_ROOT "/autoexec.dol", SD_ROOT "/a.dol", NULL };
+        if (!found[0])
+            for (int i = 0; boot[i]; i++) if (stat(boot[i], &st) == 0 && up_is_me(boot[i])) { snprintf(found, sizeof(found), "%s", boot[i]); break; }
+        if (found[0]) { snprintf(up_target, sizeof(up_target), "%s", found); return; }
+    }
     if (up_argv0 && strlen(up_argv0) > 4 && !strcasecmp(up_argv0 + strlen(up_argv0) - 4, ".dol") && stat(up_argv0, &st) == 0) {
         snprintf(up_target, sizeof(up_target), "%s", up_argv0);
         return;
