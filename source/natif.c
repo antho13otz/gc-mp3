@@ -364,6 +364,67 @@ static int nat_map_check(const char *path, long size, char *err, int cap) {
     return 0;
 }
 
+/* ---------- v54 : journal pendant le jeu ----------
+   GC Station prepare un fichier d'un secteur ; le programme resident y ecrit son etat
+   (compteurs + les 24 dernieres commandes du jeu) pendant le jeu. Au demarrage suivant,
+   GC Station le traduit en texte : SD:/gc-mp3/natif/journal-jeu.txt (aussi sur le telephone). */
+#define NA_JBIN NA_DIR "/journal-jeu.bin"
+#define NA_JTXT NA_DIR "/journal-jeu.txt"
+static u32 nat_journal_prep(void) {
+    if (sd_virtual) return 0;
+    mkdir(NA_DIR, 0777);
+    static u8 z[512];
+    memset(z, 0, sizeof(z));
+    FILE *f = fopen(NA_JBIN, "wb");
+    if (!f) return 0;
+    int ok = fwrite(z, 1, 512, f) == 512;
+    fclose(f);
+    char e[80];
+    if (!ok || nat_map(NA_JBIN, e, sizeof(e)) || na_next != 1) return 0;
+    return na_ext[0].sd;
+}
+static const char *na_cmd_name(u32 c) {
+    switch (c >> 24) {
+    case 0xA8: return (c & 0xC0) == 0x40 ? "lire l'ID du disque" : "lire";
+    case 0xAB: return "chercher"; case 0xE0: return "demander l'erreur"; case 0x12: return "infos lecteur";
+    case 0xE1: return "audio : jouer"; case 0xE2: return "audio : etat"; case 0xE3: return "arreter le moteur"; case 0xE4: return "audio : tampon";
+    default: return "?";
+    }
+}
+static void nat_journal_convert(void) {
+    long len = 0;
+    u8 *d = (u8 *)read_file(NA_JBIN, 4096, &len);
+    if (!d) return;
+    if (len < 512 || be32(d) != NATRES_MAGIC) { free(d); return; }
+    FILE *f = fopen(NA_JTXT, "w");
+    if (f) {
+        u32 H[32];
+        for (int i = 0; i < 32; i++) H[i] = be32(d + i * 4);
+        static const char *const en[] = { "OK", "pas de carte", "la carte ne demarre pas", "commande refusee", "pas de donnees", "hors de l'ISO", "delai depasse" };
+        fprintf(f, "GC Station - journal du dernier jeu lance par le lanceur maison\n\n");
+        fprintf(f, "Carte SD : %s, etape %u, erreur : %s (reponse %02X)\n", H[10] ? "SDHC" : "SD", (unsigned)H[13], H[11] < 7 ? en[H[11]] : "?", (unsigned)H[12]);
+        fprintf(f, "Commandes du jeu au faux lecteur : %u   secteurs lus : %u\n", (unsigned)H[19], (unsigned)H[14]);
+        fprintf(f, "Derniere commande : %08X (%s)  position %08X  longueur %u\n", (unsigned)H[20], na_cmd_name(H[20]), (unsigned)H[21], (unsigned)H[22]);
+        fprintf(f, "Erreurs de lecture SD : %u   reprises reussies : %u\n", (unsigned)H[27], (unsigned)H[28]);
+        fprintf(f, "Vrai lecteur (reveil du jeu) : %u commandes lancees, %u fois occupe\n", (unsigned)H[25], (unsigned)H[26]);
+        fprintf(f, "Acquittements avec vraie fin de commande : %u   dernier etat reel DISR : %02X\n\n", (unsigned)H[29], (unsigned)(H[30] & 0xFF));
+        fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
+        for (int k = 0; k < NATRES_LOGN; k++) {
+            const u8 *e = d + 0x80 + k * 16;
+            u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);
+            if (!c && !o && !l && !in) continue;
+            fprintf(f, "  %08X %-20s pos %08X  long %6u  %s%s%s%sDISR %02X  reel %02X\n", (unsigned)c, na_cmd_name(c), (unsigned)o, (unsigned)l,
+                    in & 1 ? "ERREUR LECTURE  " : "", in & 8 ? "CARTE PAS PRETE  " : "", in & 2 ? "LECTEUR OCCUPE  " : "", in & 4 ? "" : "PAS DE REVEIL  ",
+                    (unsigned)((in >> 8) & 0xFF), (unsigned)((in >> 16) & 0xFF));
+        }
+        fclose(f);
+    }
+    memset(d, 0, 512);                                    /* (traduit : on ne le refait pas au prochain demarrage) */
+    FILE *b = fopen(NA_JBIN, "r+b");
+    if (b) { fwrite(d, 1, 512, b); fclose(b); }
+    free(d);
+}
+
 /* test du programme resident sur la console, sans lancer de jeu : il demarre la carte SD
    tout seul et relit 3 endroits de l'ISO. La memoire qu'il occupe est sauvee puis remise. */
 static const char *na_res_names[] = { "OK", "pas de carte", "la carte ne d\xC3\xA9marre pas", "commande refus\xC3\xA9" "e", "pas de donn\xC3\xA9" "es", "hors de l'ISO", "d\xC3\xA9lai d\xC3\xA9pass\xC3\xA9" };
@@ -602,6 +663,7 @@ static const char *nat_boot(int k) {
     u32 dol_len = in.dol_len;
     /* programme resident (pas encore appele par le jeu : il sera branche a l'etape 3b) */
     char merr[120] = "";
+    u32 log_sec = nat_journal_prep();                      /* v54 : journal du jeu (un secteur de la carte) */
     int res = !gl[k].ciso && !nat_map(gl[k].path, merr, sizeof(merr)) && sizeof(natres_bin) <= NATRES_SIZE;
     u32 total = ((dol_len + 31) & ~31u) + NA_BI2 + ((in.fst_sz + 31) & ~31u) + (res ? NATRES_SIZE : 0);
     /* zone d'attente : sous 0x81700000 (au-dessus vit la pile de GC Station jusqu'au saut),
@@ -624,6 +686,7 @@ static const char *nat_boot(int k) {
             na_wbe32(r + 0x18, 0); na_wbe32(r + 0x1C, 4);                   /* peripherique, 16 MHz */
             na_wbe32(r + 0x20, na_next);
             na_wbe32(r + 0x48, NRF_REAL_IRQ);
+            na_wbe32(r + 0x60, log_sec);                                    /* (natres_hdr_t.log_sec) */
             for (u32 i = 0; i < na_next; i++) {
                 na_wbe32(r + eo + i * 12, na_ext[i].iso); na_wbe32(r + eo + i * 12 + 4, na_ext[i].sd); na_wbe32(r + eo + i * 12 + 8, na_ext[i].cnt);
             }
@@ -678,6 +741,7 @@ static const char *nat_boot(int k) {
         for (u32 i = 0; i < n; i++) fprintf(f, "  copie %08X <- %08X  %u octets\n", (unsigned)tab[i * 3], (unsigned)tab[i * 3 + 1], (unsigned)tab[i * 3 + 2]);
         fprintf(f, "Point d'entree : %08X\n", (unsigned)in.entry);
         fprintf(f, "Programme resident : %s\n", res ? "installe" : merr[0] ? merr : "non installe");
+        fprintf(f, "Journal du jeu : %s\n", log_sec ? "oui (gc-mp3/natif/journal-jeu.txt au prochain demarrage de GC Station)" : "non");
         fprintf(f, "Faux lecteur DVD : %d acces branches, %d non branches (sur %d trouves)\n", patched, skipped, in.nhit);
         fprintf(f, "Memoire basse avant : 28=%08X 2C=%08X CC=%08X F8=%08X FC=%08X\n",
 #ifdef GEKKO

@@ -11388,6 +11388,7 @@ int main(int argc, char **argv) {
     }
 
     if (sd_ok) { scan_files(); bib_load(); pl_load_all(); stats_load(); }
+    if (sd_ok) nat_journal_convert();       /* v54 : journal du dernier jeu lance par le lanceur maison */
     load_stations();
     lib_rebuild();
     if (covers_auto) net_start_async();     /* reseau en fond, pour les pochettes */
