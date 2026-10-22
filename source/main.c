@@ -122,6 +122,7 @@ static int theme_id = THEME_INDIGO;
 static int th_m[9] = { 256, 0, 0, 0, 256, 0, 0, 0, 256 };   /* matrice 8.8 */
 static int th_identity = 1;
 
+static void skin_accent(void);
 static void theme_apply(int id) {
     static const float hue[THEME_COUNT] = { 0, -55, -145, 65, 140, 0, 0 };
     static const float sat[THEME_COUNT] = { 1, 1, 1, 1, 1, 0.55f, 0.12f };
@@ -136,9 +137,44 @@ static void theme_apply(int id) {
         for (int k = 0; k < 3; k++)
             th_m[r * 3 + k] = (int)((m[r * 3 + k] * sv + lum[k] * (1.0f - sv)) * 256.0f + (m[r * 3 + k] >= 0 ? 0.5f : -0.5f));
     th_identity = (theme_id == THEME_INDIGO);
+    skin_accent();
 }
 
+/* v28 : style de l'interface. 0 = Indigo (d'origine), 1 = Moderne (gris
+   sombre, cartes plates, une seule couleur d'accent, onglets en haut).
+   En Moderne, les couleurs violettes deviennent du gris (fonds, textes) ou la
+   couleur d'accent (selection) ; le theme choisit la couleur d'accent. */
+static int ui_skin = 0;
+static int gl_view;                                     /* gclib.c : affichage de Mes jeux GameCube */
+static const char *const skin_keys[2] = { "indigo", "moderne" };
+static const char *const glview_keys[6] = { "grille", "carrousel", "liste", "mur", "vitrine", "etagere" };
+static u8 mod_acc[3] = { 0, 190, 230 };
+static void skin_accent(void) {
+    static const u8 acc[THEME_COUNT][3] = { { 0, 190, 230 }, { 40, 120, 255 }, { 0, 200, 120 }, { 235, 60, 70 },
+                                            { 255, 150, 30 }, { 240, 110, 180 }, { 225, 225, 230 } };
+    memcpy(mod_acc, acc[theme_id], 3);
+}
+static inline col_t mod_col(col_t c) {
+    int mx = c.r > c.g ? (c.r > c.b ? c.r : c.b) : (c.g > c.b ? c.g : c.b);
+    int mn = c.r < c.g ? (c.r < c.b ? c.r : c.b) : (c.g < c.b ? c.g : c.b);
+    int sat = mx ? (mx - mn) * 255 / mx : 0;
+    int purple = c.b >= c.r && c.b >= c.g && c.r + 8 >= c.g;          /* violets / bleus-violets */
+    if (!purple || sat < 30) {
+        if (sat < 30) return c;                                       /* gris, blanc : tels quels */
+        return c;                                                     /* orange, rouge, vert... : tels quels */
+    }
+    if (sat > 120 && mx > 140) {                                      /* selection, lueurs : accent */
+        c.r = (u8)(mod_acc[0] * mx / 255); c.g = (u8)(mod_acc[1] * mx / 255); c.b = (u8)(mod_acc[2] * mx / 255);
+        return c;
+    }
+    int lum = (c.r * 54 + c.g * 183 + c.b * 19) >> 8;
+    int gr = lum + (mx - lum) / 2;                                     /* gris neutre, un peu plus clair */
+    if (gr > 255) gr = 255;
+    c.r = c.g = (u8)gr; c.b = (u8)(gr + (gr < 245 ? 6 : 0));
+    return c;
+}
 static inline col_t th_col(col_t c) {
+    if (ui_skin) return mod_col(c);
     if (th_identity) return c;
     int r = (th_m[0] * c.r + th_m[1] * c.g + th_m[2] * c.b) >> 8;
     int g = (th_m[3] * c.r + th_m[4] * c.g + th_m[5] * c.b) >> 8;
@@ -3652,6 +3688,8 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "ecran_hauteur")) { scr_hpct = atoi(v); if (scr_hpct < 80) scr_hpct = 80; if (scr_hpct > 100) scr_hpct = 100; }
         else if (!strcasecmp(k, "ecran_position")) { scr_vpos = atoi(v); if (scr_vpos < -24) scr_vpos = -24; if (scr_vpos > 24) scr_vpos = 24; }
         else if (!strcasecmp(k, "ecran_taille")) { scr_pct = atoi(v); if (scr_pct < 80) scr_pct = 80; if (scr_pct > SCR_MAX) scr_pct = SCR_MAX; }
+        else if (!strcasecmp(k, "style")) ui_skin = !strncasecmp(v, "mod", 3) ? 1 : 0;
+        else if (!strcasecmp(k, "jeux_affichage")) { for (int i = 0; i < 6; i++) if (!strcasecmp(v, glview_keys[i])) gl_view = i; }
         else if (!strcasecmp(k, "interface")) { ui_lang = !strncasecmp(v, "en", 2) ? 1 : !strncasecmp(v, "fr", 2) ? 0 : -1; ui_lang_apply(); }
         else if (!strcasecmp(k, "langue")) { lang_pref = -1; for (int i = 0; i < LANG_COUNT; i++) if (!strncasecmp(v, lang_keys[i], 2)) lang_pref = i; }
         else if (!strcasecmp(k, "swiss")) snprintf(swiss_pref, sizeof(swiss_pref), "%s", v);
@@ -3747,6 +3785,8 @@ static void save_settings(void) {
                "langue = %s\n"
                "# Langue de l'interface / interface language : auto / fr / en\n"
                "interface = %s\n"
+               "# Style de l'interface : indigo / moderne ; affichage des jeux : grille / carrousel / liste / mur / vitrine / etagere\n"
+               "style = %s\njeux_affichage = %s\n"
                "# Taille de l'image (80 a 100 %%) : a reduire si les bords sont coupes sur la tele\n"
                "ecran_taille = %d\n"
                "# Hauteur de l'image (80 a 100 %%) et position verticale (-24 a 24, positif = plus bas)\n"
@@ -3759,7 +3799,7 @@ static void save_settings(void) {
             rg_mode == 2 ? "album" : rg_mode == 1 ? "morceau" : "non", party_keys[party_style],
             layout_keys[player_layout], els, hid, city, news_url, alarm_txt, alarm_src, phone_auto ? "oui" : "non", shuffle_on ? "oui" : "non", rep[repeat_mode], aff[view_mode],
             volume_pct, theme_keys[theme_id], saver_min, saver_keys[saver_style], vid[video_pref], tv_crt ? "cathodique" : "plat",
-            lang_pref >= 0 ? lang_keys[lang_pref] : "auto", ui_lang == 1 ? "en" : ui_lang == 0 ? "fr" : "auto", scr_pct, scr_hpct, scr_vpos, scr_wide ? "16:9" : "4:3", resume_on ? "oui" : "non",
+            lang_pref >= 0 ? lang_keys[lang_pref] : "auto", ui_lang == 1 ? "en" : ui_lang == 0 ? "fr" : "auto", skin_keys[ui_skin ? 1 : 0], glview_keys[gl_view >= 0 && gl_view < 6 ? gl_view : 0], scr_pct, scr_hpct, scr_vpos, scr_wide ? "16:9" : "4:3", resume_on ? "oui" : "non",
             resume_path, resume_pos);
     fprintf(f, "# Mode veilleuse : luminosite 1 a 5 ; radio lancee si rien ne joue : oui / non\n"
                "veilleuse_luminosite = %d\nveilleuse_radio = %s\n"
@@ -4451,8 +4491,9 @@ static void season_overlay(void) {
             season_bat(x, y, 0.8f + 0.15f * (i % 2), sinf(t * 9 + i));
         }
         f32 g = 0.5f + 0.5f * sinf(t * 2.0f);
-        gx_circle(345, 36, 32, RGBA(255, 120, 30, (u8)(50 + g * 50)), RGBA(255, 120, 30, 0));   /* citrouille dans le bandeau du haut */
-        season_pumpkin(345, 36, 15, g);
+        f32 px = ui_skin ? 140 : 345, py = ui_skin ? 24 : 36, pr = ui_skin ? 10 : 15;   /* (Moderne : a cote du nom) */
+        gx_circle(px, py, pr * 2.1f, RGBA(255, 120, 30, (u8)(50 + g * 50)), RGBA(255, 120, 30, 0));   /* citrouille dans le bandeau du haut */
+        season_pumpkin(px, py, pr, g);
         season_pumpkin(618, 466, 9, 1 - g);
         season_pumpkin(22, 466, 8, g);
     } else if (sn == SEASON_NOEL) {
@@ -4490,6 +4531,10 @@ static void season_overlay(void) {
 static void draw_background(void) {
     if (wall_draw()) return;
     const f32 L = 0, R = 640;
+    if (ui_skin) {                                                    /* Moderne : gris uni */
+        gx_quad4(L, 0, R, 480, RGBA(45, 45, 48, 255), RGBA(45, 45, 48, 255), RGBA(33, 33, 36, 255), RGBA(33, 33, 36, 255));
+        return;
+    }
     gx_quad4(L, 0, R, 480, RGBA(7, 5, 26, 255), RGBA(13, 8, 44, 255),
              RGBA(9, 6, 34, 255), RGBA(18, 8, 60, 255));
     /* halos violets diffus */
@@ -4535,6 +4580,13 @@ static void draw_console_corner(void) {
 }
 
 static void draw_panel(f32 x, f32 y, f32 w, f32 h) {
+    if (ui_skin) {                                                    /* Moderne : carte plate */
+        col_t t = RGBA(58, 58, 62, 236), b = RGBA(52, 52, 56, 236);
+        if (wall_active()) { t.a = 190; b.a = 200; }
+        gx_rrect_fill(x + 1, y + 3, w, h, 14, RGBA(0, 0, 0, 60), RGBA(0, 0, 0, 60));   /* ombre */
+        gx_rrect_fill(x, y, w, h, 14, t, b);
+        return;
+    }
     gx_glow(x, y, w, h, 10, C_GLOW, 4);
     if (wall_active()) {                                   /* fond d'ecran : la photo se voit a travers */
         col_t t = C_PANEL_TOP, b = C_PANEL_BOT;
@@ -4652,7 +4704,47 @@ static void cover_for_station(int idx) {
     if (cover_ok == 2) cover_ok = 0;
 }
 
+/* v28 : en-tete du style Moderne : nom, heure, et tous les onglets en haut */
+static void draw_mini_badge(f32 cx, f32 cy, const char *k);
+static int gx_text_r_w(int f, f32 xr, f32 base, const char *s, col_t c) { gx_text_r(f, xr, base, s, c); return text_width(f, s, 0); }
+static void draw_header_modern(void) {
+    col_t acc = RGBA(mod_acc[0], mod_acc[1], mod_acc[2], 255);
+    draw_logo_cube(34, 25, 12);
+    gx_text1(F_MED, 54, 31, "GC-MP3", RGBA(240, 240, 245, 255));
+    time_t tt = time(NULL);
+    struct tm *tm = localtime(&tt);
+    char b[40];
+    f32 rx = 616;
+    if (tm && EL(EL_CLOCK)) { snprintf(b, sizeof(b), "%02d:%02d", tm->tm_hour, tm->tm_min); rx -= gx_text_r_w(F_MED, rx, 31, b, RGBA(240, 240, 245, 255)) + 14; }
+    if (net_phase == NET_DONE) {
+        if (net_ok) snprintf(b, sizeof(b), "IP %s", ip_str); else snprintf(b, sizeof(b), "HORS LIGNE");
+        rx -= gx_text_r_w(F_SMALL, rx, 30, b, net_ok ? RGBA(170, 170, 178, 255) : RGBA(255, 140, 90, 255)) + 14;
+    }
+    if (rec_fp) { gx_circle(rx - 4, 26, 4, RGBA(255, 70, 70, 255), RGBA(255, 70, 70, 255)); gx_text_r(F_SMALL, rx - 12, 30, "REC", RGBA(255, 120, 120, 255)); }
+    /* onglets */
+    int total = 0;
+    for (int t = 0; t < TAB_COUNT; t++) if (tab_shown(t)) { total += text_width(F_SMALL, tab_names[t], 1) + 18; }
+    f32 sc = total > 560 ? 560.0f / total : 1.0f;
+    txt_scale = sc;
+    total = 0;
+    for (int t = 0; t < TAB_COUNT; t++) if (tab_shown(t)) total += text_width(F_SMALL, tab_names[t], 1) + (int)(18 * sc);
+    f32 x = 320 - total / 2.0f + 14;
+    draw_mini_badge(x - 16, 56, "Z");
+    for (int t = 0; t < TAB_COUNT; t++) {
+        if (!tab_shown(t)) continue;
+        int w = text_width(F_SMALL, tab_names[t], 1) + (int)(18 * sc);
+        int on = t == tab;
+        gx_text(F_SMALL, x + 9 * sc, 61, tab_names[t], on ? RGBA(255, 255, 255, 255) : RGBA(150, 150, 158, 255),
+                on ? RGBA(255, 255, 255, 255) : RGBA(150, 150, 158, 255), 1);
+        if (on) gx_rrect_fill(x + 6 * sc, 65, w - 12 * sc, 3, 1.5f, acc, acc);
+        gp_zone(x, 46, (f32)w, 22, NULL, t, GPZ_TAB);
+        x += w;
+    }
+    txt_scale = 1.0f;
+    gx_rect(22, 70, 596, 1, RGBA(80, 80, 86, 255));
+}
 static void draw_header(void) {
+    if (ui_skin) { draw_header_modern(); return; }
     draw_logo_cube(54, 38, 23);
     gx_text(F_LOGO, 88, 46, "GC-MP3", RGBA(240, 232, 255, 255), RGBA(150, 84, 255, 255), 0);
     gx_text(F_SMALL, 91, 63, "INDIGO AUDIO PLAYER", RGBA(170, 150, 225, 255), RGBA(170, 150, 225, 255), 4);
@@ -4690,6 +4782,12 @@ static void draw_radio_icon(f32 cx, f32 cy, col_t c) {
 /* Onglets MUSIQUE / RADIO / WEB en haut de la liste (Z pour changer).
    Retourne la position x apres le rappel de la touche Z. */
 static int draw_tabs(const char *count) {
+    if (ui_skin) {                                                    /* Moderne : onglets deja en haut */
+        if (count) gx_text_r(F_SMALL, IS_PLAYER_TAB(tab) ? 266 : 614, 99, count, RGBA(170, 170, 178, 255));
+        gx_rect(25, 110, IS_PLAYER_TAB(tab) ? 241 : 590, 1, RGBA(80, 80, 86, 255));
+        gx_text(F_SMALL, 26, 99, tab_names[tab], RGBA(240, 240, 245, 255), RGBA(240, 240, 245, 255), 1);
+        return 26 + text_width(F_SMALL, tab_names[tab], 1) + 10;
+    }
     f32 x = 20;
     int nshown = 0, pos = 0;
     for (int t = 0; t < TAB_COUNT; t++) if (tab_shown(t)) { if (t == tab) pos = nshown; nshown++; }
@@ -4948,6 +5046,12 @@ static void draw_player_radio(void) {
 
 
 /* Legende des touches, selon l'onglet affiche. */
+/* cadre de legende (en bas) ; v28 : plat en style Moderne */
+static void legend_box(f32 x, f32 w) {
+    if (ui_skin) { gx_rrect_fill(x, 419, w, 39, 12, RGBA(52, 52, 56, 230), RGBA(52, 52, 56, 230)); return; }
+    gx_rrect_fill(x, 419, w, 39, 9, C_PANEL_TOP, C_PANEL_BOT);
+    gx_rrect_stroke(x, 419, w, 39, 9, 1.2f, RGBA(100, 56, 220, 255));
+}
 static void draw_legend(void) {
     const char *labels[5];
     labels[0] = "LIRE";
@@ -4959,8 +5063,7 @@ static void draw_legend(void) {
     const f32 x0 = 289, w = 341, pad = 10, gap = 4, cy = 438.5f;
     col_t tx = RGBA(208, 198, 240, 255);
 
-    gx_rrect_fill(x0, 419, w, 39, 9, C_PANEL_TOP, C_PANEL_BOT);
-    gx_rrect_stroke(x0, 419, w, 39, 9, 1.2f, RGBA(100, 56, 220, 255));
+    legend_box(x0, w);
 
     f32 total = 0;
     for (int i = 0; i < 5; i++) total += icon_w[i] + gap + text_width(F_SMALL, labels[i], 0);
@@ -9138,6 +9241,9 @@ static void draw_mini_badge(f32 cx, f32 cy, const char *k) {
     else if (k[0] == 'Z') {
         gx_rrect_fill(cx - 8, cy - 7, 16, 14, 4, RGBA(110, 90, 190, 255), RGBA(70, 50, 140, 255));
         gx_text_c(F_SMALL, cx, cy + 4.5f, "Z", RGBA(255, 255, 255, 255));
+    } else if ((k[0] == 'L' || k[0] == 'R') && !k[1]) {                /* gachettes */
+        gx_rrect_fill(cx - 9, cy - 7, 18, 14, 6, RGBA(150, 150, 175, 255), RGBA(90, 90, 120, 255));
+        gx_text_c(F_SMALL, cx, cy + 4.5f, k, RGBA(255, 255, 255, 255));
     } else {
         gx_rrect_fill(cx - 10, cy - 6.5f, 20, 13, 6.5f, RGBA(140, 140, 165, 255), RGBA(84, 84, 110, 255));
         gx_text_c(F_SMALL, cx, cy + 4.0f, "ST", RGBA(255, 255, 255, 255));
@@ -9153,8 +9259,7 @@ static void draw_legend_web(void) {
     const char *const *lab = kb_open ? lab_kb : lab_web;
     int cnt = kb_open ? 5 : 6;
     const f32 x0 = 11, w = 618, cy = 438.5f;
-    gx_rrect_fill(x0, 419, w, 39, 9, C_PANEL_TOP, C_PANEL_BOT);
-    gx_rrect_stroke(x0, 419, w, 39, 9, 1.2f, RGBA(100, 56, 220, 255));
+    legend_box(x0, w);
     f32 total = 0;
     for (int i = 0; i < cnt; i++) total += 20 + 5 + text_width(F_SMALL, lab[i], 1);
     f32 space = (w - 40 - total) / (cnt - 1);
@@ -9700,8 +9805,8 @@ static void draw_list_radio(void) {
 }
 
 // ---------- Menu (START) : reglages et Quitter ----------
-enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_TITLES, MI_CHEATS, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
+enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_TITLES, MI_CHEATS, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_REC, MI_UPDATE, MI_QUIT, MI_COUNT };
 #define MENU_VIS 13                         /* lignes visibles (le menu defile) */
 static int menu_top = 0;
 static int menu_sel = 0, quit_requested = 0;
@@ -9732,6 +9837,9 @@ static void menu_value(int i, char *out, int cap) {
     case MI_GAMES:   snprintf(out, cap, "(A)"); break;
     case MI_TITLES:  snprintf(out, cap, "(A)"); break;
     case MI_CHEATS:  snprintf(out, cap, "(A)"); break;
+    case MI_SKIN:    snprintf(out, cap, "%s", ui_skin ? "Moderne" : "Indigo (classique)"); break;
+    case MI_GLVIEW:  { static const char *const nm[6] = { "Grille", "Carrousel", "Liste", "Mur de jaquettes", "Vitrine", "\xC3\x89tag\xC3\xA8re" };
+                       snprintf(out, cap, "%s", nm[gl_view >= 0 && gl_view < 6 ? gl_view : 0]); } break;
     case MI_RUMBLE:  snprintf(out, cap, "%s", rumble_on ? "Oui" : "Non"); break;
     case MI_PARTY:   snprintf(out, cap, "%s", party_names[party_style]); break;
     case MI_NIGHT:   snprintf(out, cap, "Luminosit\xC3\xA9 %d / 5", night_lum); break;
@@ -9776,10 +9884,10 @@ static void menu_value(int i, char *out, int cap) {
 
 static const char *const menu_labels[MI_COUNT] = {
     "Lecture al\xC3\xA9" "atoire", "R\xC3\xA9p\xC3\xA9tition", "Fondu encha\xC3\xAEn\xC3\xA9", "Liste MUSIQUE", "Volume",
-    "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran", "D\xC3\xA9" "cor de saison",
+    "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Style de l'interface", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran", "D\xC3\xA9" "cor de saison",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
     "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
-    "Jeux et karaok\xC3\xA9", "Titres radio gard\xC3\xA9s", "Cheats Swiss (\xC3\xA9" "diteur)", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
+    "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Titres radio gard\xC3\xA9s", "Cheats Swiss (\xC3\xA9" "diteur)", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur",
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Mise \xC3\xA0 jour", "Quitter GC-MP3" };
 
 static void web_relayout(void);
@@ -9832,6 +9940,8 @@ static void menu_change(int i, int d) {
     case MI_GAMES:   return;
     case MI_TITLES:  return;
     case MI_CHEATS:  return;
+    case MI_SKIN:    ui_skin = !ui_skin; break;
+    case MI_GLVIEW:  gl_view = (gl_view + d + 6) % 6; break;
     case MI_RUMBLE:  rumble_on = !rumble_on; if (rumble_on) rumble(0, 200); break;
     case MI_PARTY:   party_style = (party_style + d + PARTY_STYLES) % PARTY_STYLES; break;
     case MI_NIGHT:   night_lum += d; if (night_lum < 1) night_lum = 1; if (night_lum > 5) night_lum = 5; break;
@@ -11069,6 +11179,7 @@ int main(int argc, char **argv) {
             phone_input(down, nav, fire);
         } else if (tab == TAB_GAMES) {
             games_tab_input(down, nav, fire);
+            if (gl_on) down &= ~(PAD_TRIGGER_L | PAD_TRIGGER_R);     /* (L / R : affichage des jeux) */
         } else if (tab == TAB_DL) {
             dltab_input(down, nav, fire);
         } else if (tab == TAB_MUSIC) {

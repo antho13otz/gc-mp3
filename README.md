@@ -19,6 +19,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v28
+
+- **Deux interfaces au choix** : START > Réglages > « Style de l'interface » : **Indigo** (d'origine) ou **Moderne** (gris sombre, cartes plates, tous les onglets en haut, une couleur d'accent). En Moderne, « Thème » choisit la couleur d'accent (cyan, bleu, vert, rouge, orange, rose, blanc).
+- **Mes jeux GameCube : 6 affichages** (R / L pour changer, ou START > Réglages > « Affichage des jeux GameCube ») : Grille, Carrousel, Liste, Mur de jaquettes, Vitrine (capture + résumé + bande de jaquettes), Étagère.
+
 ## Nouveautés v27
 
 - Fin de téléchargement (web, podcasts, téléphone) : plus de blocage de quelques secondes à 99 % (le morceau est ajouté à la liste sans relire toute la carte SD ; il apparaît en bas de « Tous les morceaux » jusqu'au prochain démarrage).
