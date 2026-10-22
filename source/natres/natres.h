@@ -37,7 +37,7 @@ typedef struct {
     unsigned int di_store;                                /* void di_store(u32 registre, u32 valeur) */
     unsigned int flags;                                   /* NRF_... (rempli par GC Station) */
     unsigned int ncmd, last_cmd, last_off, last_len;      /* suivi (journal) */
-    unsigned int pad;
+    unsigned int pad;                                     /* v55 : ecritures de DISR par le jeu (acquittements) */
     /* v54 : journal pendant le jeu, ecrit sur la carte (un secteur d'un fichier prepare) */
     unsigned int log_sec;                                 /* secteur de la carte (0 = pas de journal) */
     unsigned int nkick, nskip;                            /* vraies commandes "inquiry" lancees / lecteur occupe */
