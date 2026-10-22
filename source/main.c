@@ -11362,6 +11362,7 @@ static void music_pump(void) {
 #include "indigo_cfg.c"                        /* v32 : reglages d'Indigo / Swiss */
 #include "igr.c"                               /* v39 : A + Z + START en jeu -> GC-MP3 */
 #include "lanceur.c"                           /* v44 : lanceur de jeux GC-MP3 (moteur Swiss) */
+#include "natif.c"                             /* v50 : lanceur natif GC Station, etape 1 : analyse */
 
 int main(int argc, char **argv) {
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;

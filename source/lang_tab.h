@@ -984,3 +984,5 @@
     { "Pas de fichier de cheats  (X pour en ajouter)", "No cheats file  (X to add some)" },
     { "Avec 1 cheat activ\xC3\xA9", "With 1 cheat enabled" },
     { "Avec %d cheats activ\xC3\xA9s", "With %d cheats enabled" },
+    { "ANALYSE", "ANALYSIS" },
+    { "Analyse native du jeu...", "Native game analysis..." },
