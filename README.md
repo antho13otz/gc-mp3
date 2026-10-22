@@ -19,6 +19,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v46
+- **Écran de chargement GC-MP3** pendant le lancement d'un jeu (nom du jeu, étape, barre d'avancement) : plus du tout l'interface de Swiss.
+- Lancement plus rapide : le lanceur n'attend plus le réseau (sauf émulation du Broadband Adapter).
+- **Cheats** : la fiche du jeu indique combien de cheats sont activés (X pour les cocher directement dans GC-MP3) ; ils sont appliqués automatiquement au lancement, sans passer par le menu de Swiss.
+
 ## Nouveautés v45
 - **Lanceur de jeux corrigé** : il ne relance plus GC-MP3 (`ipl.dol`) au lieu du jeu. S'il ne peut pas lancer un jeu, GC-MP3 affiche pourquoi (journal : `SD:/gc-mp3/lanceur-dernier.log`).
 - **Retour en jeu (A + Z + START)** : l'`apploader.img` contient maintenant le lanceur GC-MP3, fabriqué avec les outils officiels de Swiss. Il ramène sur GC-MP3 (chemin dans `SD:/gc-mp3/retour.txt`) au lieu du lecteur de disque.
