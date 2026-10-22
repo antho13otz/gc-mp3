@@ -1021,15 +1021,15 @@ static void draw_tools(void) {
 }
 
 /* ---------- section "Outils" de la page Reglages ---------- */
-enum { TO_RECENT, TO_GAMES, TO_CHEATS, TO_INFO, TO_SWISS, TO_COUNT };   /* (v43 : cartes memoire -> onglet JEUX / APPS) */
+enum { TO_RECENT, TO_GAMES, TO_CHEATS, TO_INFO, TO_COUNT };   /* (v57 : plus de "Quitter vers Swiss" : Z au demarrage) */
+#define TO_SWISS (-1)
 static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s",
-    "Mes jeux, applis et cartes m\xC3\xA9moire", "Cheats Swiss (\xC3\xA9" "diteur)", "Infos console", "Quitter vers Indigo / Swiss" };
+    "Mes jeux, applis et cartes m\xC3\xA9moire", "Cheats (\xC3\xA9" "diteur)", "Infos console" };
 static const char *const to_help[TO_COUNT] = {
-    "Relancer un jeu en un clic (jeux lanc\xC3\xA9s depuis GC Station et depuis Indigo).",
+    "Relancer un jeu en un clic.",
     "Onglet JEUX / APPS. Dans la fiche d'un jeu : Y = r\xC3\xA9glages du jeu.",
     "Modifier et activer les cheats de tes jeux (dossier swiss/cheats).",
-    "Version, vid\xC3\xA9o, m\xC3\xA9moire, carte SD, r\xC3\xA9seau.",
-    "Ouvre le menu d'Indigo / Swiss." };
+    "Version, vid\xC3\xA9o, m\xC3\xA9moire, carte SD, r\xC3\xA9seau." };
 static int to_sel = 0;
 static void tools_menu_input(u32 down, u32 nav, int fire) {
     if (fire && (nav & PAD_BUTTON_DOWN)) to_sel = (to_sel + 1) % TO_COUNT;
@@ -1052,7 +1052,6 @@ static void tools_menu_input(u32 down, u32 nav, int fire) {
 }
 static void tools_menu_draw(f32 x, f32 y, f32 w, int vis, f32 rh, f32 help_y) {
     (void)vis;
-    gx_text1(F_SMALL, x + 8, y - 16, ui_en ? "Tools from Indigo / Swiss, inside GC Station" : "Les outils d'Indigo / Swiss, dans GC Station", RGBA(150, 135, 210, 255));
     for (int i = 0; i < TO_COUNT; i++) {
         f32 ry = y + i * (rh + 4);
         int on = i == to_sel;

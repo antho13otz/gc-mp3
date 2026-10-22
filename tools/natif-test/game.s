@@ -5,6 +5,17 @@ _start:
     stwu 1,-32(1)
     mflr 0
     stw 0,36(1)
+    # v57 : table des interruptions du SDK (0x80003040) : SI 20, DI 21, VI 24
+    lis 11,0x8000
+    lis 12,dummy_si@ha
+    addi 12,12,dummy_si@l
+    stw 12,0x3090(11)
+    lis 12,dummy_di@ha
+    addi 12,12,dummy_di@l
+    stw 12,0x3094(11)
+    lis 12,dummy_vi@ha
+    addi 12,12,dummy_vi@l
+    stw 12,0x30A0(11)
     # active les interruptions de fin (masque TCINT) et acquitte
     lis 9,0xCC00
     li 0,0x3A
@@ -46,6 +57,32 @@ _start:
     li 0,0x1234
     sth 0,0x600E(9)
     lwz 27,0x600C(9)
+    # (resultats des etapes 5-6 ranges en memoire : l'etape 7 finit dans un redemarrage)
+    lis 20,0x8000
+    stw 27,0x1F10(20)
+    stw 28,0x1F14(20)
+    stw 29,0x1F18(20)
+    stw 10,0x1F1C(20)
+    stw 30,0x1F20(20)
+    stw 31,0x1F24(20)
+    # 7) v57 : 3 images (VI) par la table, puis A+Z+START tenus (SI) : retour a GC Station
+    lis 20,0x8000
+    li 21,3
+3:  lwz 12,0x30A0(20)
+    mtctr 12
+    li 3,24
+    li 4,0
+    bctrl
+    addic. 21,21,-1
+    bne 3b
+    li 21,60
+4:  lwz 12,0x3090(20)
+    mtctr 12
+    li 3,20
+    li 4,0
+    bctrl
+    addic. 21,21,-1
+    bne 4b
     lwz 0,36(1)
     mtlr 0
     addi 1,1,32
@@ -73,4 +110,19 @@ dvd_cmd:
     li 3,0
     blr
 2:  li 3,-1
+    blr
+
+dummy_di:
+    blr
+dummy_vi:
+    lis 9,0x8000
+    lwz 10,0x1F00(9)
+    addi 10,10,1
+    stw 10,0x1F00(9)
+    blr
+dummy_si:
+    lis 9,0x8000
+    lwz 10,0x1F04(9)
+    addi 10,10,1
+    stw 10,0x1F04(9)
     blr

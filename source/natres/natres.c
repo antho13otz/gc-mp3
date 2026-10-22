@@ -35,6 +35,7 @@ natres_hdr_t natres_hdr = {
     (u32)di_load, (u32)di_store, 0,
     0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0, 0, 0, 0, 0,
 };
 #define H natres_hdr
 
@@ -253,7 +254,10 @@ static u32 di_real_kick(void) {                          /* vraie commande "inqu
 
 static u32 log_ring[NATRES_LOGN][4];
 static u8 logbuf[512] __attribute__((aligned(32)));
+static inline u32 tbl(void) { u32 t; __asm__ volatile("mftb %0" : "=r"(t)); return t; }
+#define TB_SEC 40500000u                                  /* (horloge : 162 MHz / 4) */
 static void nr_log_flush(void) {
+    H.flush_tb = tbl();
     if (!H.log_sec || !di_ready) return;
     const u8 *p = (const u8 *)&H;
     for (u32 i = 0; i < sizeof(natres_hdr_t); i++) logbuf[i] = p[i];
@@ -270,11 +274,58 @@ static void nr_log_add(u32 a, u32 b, u32 c, u32 d) {
 }
 static void nr_log(u32 off, u32 len, u32 info) {
     nr_log_add(di[2], off, len, info | (H.err & 0xFF) << 24);
-    if (info & 1 || H.ncmd <= 40 || (H.ncmd & 63) == 0) nr_log_flush();   /* (debut du jeu, erreurs, puis de temps en temps) */
+    if (info & 1 || H.ncmd <= 40 || tbl() - H.flush_tb > TB_SEC / 2) nr_log_flush();   /* (debut du jeu, erreurs, puis 2 fois par seconde) */
 }
+/* ---------- v57 : crochets dans la table des interruptions du jeu ----------
+   Le systeme des jeux (SDK Nintendo) range ses fonctions d'interruption dans une table a
+   0x80003040 (une par source : 20 = manettes SI, 21 = lecteur DI, 24 = image VI).
+   - VI (60 fois par seconde) : le journal est ecrit toutes les 3 s, meme si le jeu est bloque ;
+   - SI : APRES la fonction du jeu (elle a deja lu les manettes), A+Z+START tenus 1 s
+     = retour a GC Station : redemarrage de la console (PicoLoader -> ipl.dol). */
+#define OS_INT_TABLE ((volatile u32 *)0x80003040u)
+static u32 vi_orig = 0, si_orig = 0, igr_hold = 0;
+static void hot_reset(void) {
+    volatile u32 *pi = (volatile u32 *)0xCC003000u;
+    irq_off();
+    pi[9] = 3;
+    pi[9] = 0;                                           /* (redemarrage : comme OSResetSystem) */
+    for (;;) ;
+}
+static void vi_hook(u32 irq, u32 ctx) {
+    H.vi_count++;
+    if ((H.vi_count % 180u) == 0 && tbl() - H.flush_tb > TB_SEC * 2) nr_log_flush();
+    if (vi_orig) ((void (*)(u32, u32))vi_orig)(irq, ctx);
+}
+static void si_hook(u32 irq, u32 ctx) {
+    if (si_orig) ((void (*)(u32, u32))si_orig)(irq, ctx);
+    H.si_count++;
+    volatile u32 *si = (volatile u32 *)0xCC006400u;
+    int on = 0;
+    for (int ch = 0; ch < 4; ch++) {
+        u32 b = si[ch * 3 + 1];                          /* SICnINBUFH : boutons (deja lus par le jeu) */
+        if (b & 0x80000000u) continue;                   /* (pas de manette) */
+        if ((b & 0x11000000u) == 0x11000000u && (b & 0x00100000u)) on = 1;   /* A + START, Z */
+    }
+    igr_hold = on ? igr_hold + 1 : 0;
+    if (igr_hold > 40) {                                 /* (environ 1 s) */
+        H.igr = 1;
+        nr_log_flush();
+        hot_reset();
+    }
+}
+static void hooks_check(void) {
+    volatile u32 *t = OS_INT_TABLE;
+    u32 d = t[21];
+    if (d < 0x80003100u || d >= 0x81800000u) return;     /* (pas la table du SDK : on ne touche a rien) */
+    u32 v = t[24], s = t[20];
+    if (v && v != (u32)vi_hook && v >= 0x80003100u && v < 0x81800000u) { vi_orig = v; t[24] = (u32)vi_hook; }
+    if (s && s != (u32)si_hook && s >= 0x80003100u && s < 0x81800000u) { si_orig = s; t[20] = (u32)si_hook; }
+}
+
 static void di_exec(void) {
     u32 info = 0;
     if (!di_ready) { di_ready = nr_init() == 0; if (!di_ready) info |= 8; }   /* 1er acces du jeu : on demarre la carte SD */
+    hooks_check();
     u32 cmd = di[2] >> 24, len = di[6], dst = di[5] | 0x80000000u;
     H.ncmd++; H.last_cmd = di[2]; H.last_off = di[3] << 2; H.last_len = len;
     di[8] = 0;
@@ -292,6 +343,10 @@ static void di_exec(void) {
         cache_flush(dst, len);
         di[5] += len; di[6] = 0;
     }
+    else if (cmd == 0xE1) H.n_e1++;
+    else if (cmd == 0xE2) H.n_e2++;
+    else if (cmd == 0xAB) H.n_ab++;
+    else if (cmd != 0xE0) H.n_misc++;
     /* AB (chercher), E0 (erreur : 0), E1-E4 (audio), autres : rien a faire */
     di[0] |= 0x10;                                       /* TCINT : termine */
 done:

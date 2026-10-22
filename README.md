@@ -21,6 +21,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v57
+- **Réglages rangés par thème** : sections **Vidéo**, **Manettes**, **Émulation**, **Jeux** (lancement des jeux, matériel) et **Réseau**, à côté de **GC Station** et **Outils**. Plus de sections « Indigo » ni « Swiss » ; les options qui ne servaient qu'au menu d'Indigo ne sont plus montrées (le fichier `swiss/settings/global.ini` les garde).
+- **Démarrer la console sur GC Station** (section GC Station) : GC Station se copie dans `SD:/ipl.dol` (celui que lance PicoLoader) ; l'ancien est gardé sous `ipl-swiss.dol`. Le bouton **Reset** ramène alors sur GC Station ; **Z** tenu au démarrage de GC Station ouvre toujours Swiss. « Quitter vers Swiss » n'est plus dans les menus.
+- **Lanceur maison : A + Z + START** tenus 1 s en jeu = retour à GC Station (la console redémarre).
+- 1080° Avalanche démarre (choix 60 Hz) avec le lanceur maison. Le journal du jeu est maintenant écrit 2 fois par seconde et toutes les 3 s même si le jeu bloque, avec les commandes spéciales (musique du disque, etc.).
+
 ## Nouveautés v56
 - **Lanceur maison : le vrai lecteur est réveillé avant le jeu.** Le journal de 1080° Avalanche montrait que le jeu envoie sa 1re commande, puis attend un « réveil » qui ne vient jamais (10 s, puis « Une erreur est survenue »). Ce réveil vient du vrai lecteur DVD, que Swiss peut laisser endormi (en reset). GC Station le libère maintenant et vérifie qu'il répond avant de lancer le jeu ; le résultat est noté (« Vrai lecteur : … »).
 - `journal-jeu.txt` montre aussi quand le jeu se réveille (« jeu : écrit DISR ») et contient à la fin le journal du lancement.

@@ -1447,3 +1447,75 @@ static const char *autostart_set(int on) {
     lib_note(on ? "GC Station s'ouvrira au d\xC3\xA9marrage d'Indigo / Swiss" : "Indigo / Swiss s'ouvrira normalement");
     return NULL;
 }
+
+/* v57 : demarrer la console sur GC Station. PicoLoader (comme iplboot) lance SD:/ipl.dol :
+   GC Station s'y copie, l'ancien ipl.dol (Swiss / Indigo) est garde sous ipl-swiss.dol.
+   Le bouton Reset et le retour en jeu ramenent alors sur GC Station ; Z tenu au demarrage
+   de GC Station ouvre toujours Swiss. La mise a jour remplace aussi ipl.dol (update.c). */
+#define IPL_DOL SD_ROOT "/ipl.dol"
+#define IPL_OLD SD_ROOT "/ipl-swiss.dol"
+static int ipl_cache = -1;
+static int ipl_get(void) {
+    if (ipl_cache < 0) {
+        struct stat st;
+        ipl_cache = sd_ok && !sd_virtual && stat(IPL_DOL, &st) == 0 && up_is_me(IPL_DOL);
+    }
+    return ipl_cache;
+}
+static int ipl_copy(const char *src, const char *dst) {
+    FILE *in = fopen(src, "rb");
+    if (!in) return 0;
+    char part[NAME_LEN + 8];
+    snprintf(part, sizeof(part), "%s.part", dst);
+    FILE *out = fopen(part, "wb");
+    if (!out) { fclose(in); return 0; }
+    static u8 b[65536];
+    size_t n;
+    int ok = 1;
+    while ((n = fread(b, 1, sizeof(b), in)) > 0) { if (fwrite(b, 1, n, out) != n) { ok = 0; break; } service_audio(); }
+    fclose(in);
+    if (fclose(out) != 0) ok = 0;
+    struct stat st;
+    if (!ok || stat(part, &st) != 0 || st.st_size < 0x100) { remove(part); return 0; }
+    remove(dst);
+    if (rename(part, dst) != 0) { remove(part); return 0; }
+    return 1;
+}
+static const char *ipl_set(int on) {
+    if (!sd_ok || sd_virtual) return "Pas de carte SD";
+    struct stat st;
+    up_found[0] = 0;
+    if (on) {
+        if (ipl_get()) return NULL;
+        up_pick_target();
+        char src[NAME_LEN];
+        snprintf(src, sizeof(src), "%s", up_target);
+        if (!strcasecmp(src, IPL_DOL) || stat(src, &st) != 0) return "GC Station introuvable sur la carte SD";
+        ui_status("Copie de GC Station dans ipl.dol...");
+        int had = stat(IPL_DOL, &st) == 0;
+        if (had) {
+            if (stat(IPL_OLD, &st) == 0) { remove(SD_ROOT "/ipl-ancien.dol"); if (rename(IPL_DOL, SD_ROOT "/ipl-ancien.dol") != 0) return "Impossible de garder l'ancien ipl.dol"; }
+            else if (rename(IPL_DOL, IPL_OLD) != 0) return "Impossible de garder l'ancien ipl.dol";
+        }
+        if (!ipl_copy(src, IPL_DOL)) {
+            if (had && stat(IPL_DOL, &st) != 0) rename(stat(SD_ROOT "/ipl-ancien.dol", &st) == 0 ? SD_ROOT "/ipl-ancien.dol" : IPL_OLD, IPL_DOL);
+            ipl_cache = -1;
+            return "Copie impossible (carte pleine ?)";
+        }
+        if (autostart_get()) autostart_set(0);              /* (Swiss n'a plus a relancer GC Station) */
+        ipl_cache = 1;
+        crumb("ipl.dol = GC Station (ancien : %s)", had ? IPL_OLD : "aucun");
+        return had ? "La console d\xC3\xA9marre sur GC Station (Swiss gard\xC3\xA9 : ipl-swiss.dol, Z au d\xC3\xA9marrage)"
+                   : "La console d\xC3\xA9marre sur GC Station";
+    }
+    if (!ipl_get()) return NULL;
+    if (stat(IPL_OLD, &st) != 0) return "Pas d'ancien ipl.dol \xC3\xA0 remettre (ipl-swiss.dol)";
+    /* GC Station doit rester quelque part sur la carte */
+    char other[NAME_LEN];
+    if (!up_find_dol(SD_ROOT, 2, other, sizeof(other)) && !ipl_copy(IPL_DOL, SD_ROOT "/gc-mp3player.dol")) return "Copie de GC Station impossible";
+    remove(IPL_DOL);
+    if (rename(IPL_OLD, IPL_DOL) != 0) { ipl_cache = -1; return "Impossible de remettre l'ancien ipl.dol"; }
+    ipl_cache = 0;
+    crumb("ipl.dol remis (Swiss)");
+    return "La console d\xC3\xA9marre de nouveau sur l'ancien ipl.dol";
+}

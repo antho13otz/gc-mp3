@@ -55,7 +55,15 @@ exi = [[0] * 5 for _ in range(3)]
 di_real = [0] * 10
 kicks = []
 
+si_inbuf = [0x80000000, 0x11900000, 0x80000000, 0x80000000]   # manette 1 : A + START + Z
+resets = []
+def pi_write(uc, off, size, value, data):
+    if off == 0x24:
+        resets.append(value & 0xFFFFFFFF)
+        if value & 0xFFFFFFFF == 0: uc.emu_stop()       # redemarrage de la console
+def pi_read(uc, off, size, data): return 0
 def io_read(uc, off, size, data):
+    if 0x400 <= off < 0x430 and (off - 0x400) % 12 == 4: return si_inbuf[(off - 0x400) // 12]
     if off >= 0x800:
         o = off - 0x800; ch, reg = o // 0x14, (o % 0x14) // 4
         return exi[ch][reg] if ch < 3 else 0
@@ -93,6 +101,7 @@ def io_write(uc, off, size, value, data):
 mu = Uc(UC_ARCH_PPC, UC_MODE_PPC32 | UC_MODE_BIG_ENDIAN)
 mu.mem_map(0x80000000, 0x01800000)
 mu.mmio_map(0xCC006000, 0x1000, io_read, None, io_write, None)
+mu.mmio_map(0xCC003000, 0x1000, pi_read, None, pi_write, None)
 b = open(BOOT, 'rb').read()
 entry, n = struct.unpack_from('>II', b, 0); p = 8
 for i in range(n):
@@ -124,16 +133,23 @@ H = 0x817F0000
 rd = lambda o: struct.unpack('>I', mu.mem_read(H + o, 4))[0]
 print('resident : commandes=%d derniere=%08X err=%d sdhc=%d secteurs lus=%d' % (rd(0x4C), rd(0x50), rd(0x2C), rd(0x28), rd(0x38)))
 print('vrai lecteur : %d commandes inquiry (%s)' % (len(kicks), ' '.join('%08X' % k for k in kicks)))
-ok &= pc == STOP and mu.reg_read(UC_PPC_REG_1) == 0x81000000 and mu.reg_read(UC_PPC_REG_31) == 0 and mu.reg_read(UC_PPC_REG_30) == 0
+# v57 : A+Z+START -> redemarrage (la fin normale n'est donc pas atteinte)
+rd32 = lambda a: struct.unpack('>I', mu.mem_read(a, 4))[0]
+tbl = [rd32(0x80003040 + i * 4) for i in (20, 21, 24)]
+hk = resets == [3, 0] and 0x817F0000 <= tbl[0] < 0x81800000 and 0x817F0000 <= tbl[2] < 0x81800000 and rd32(0x80001F00) == 3 and 38 <= rd32(0x80001F04) <= 45
+print(('OK   ' if hk else 'FAUX ') + 'crochets + A+Z+START : reset %s, table SI %08X VI %08X, images %d, manettes %d' % (resets, tbl[0], tbl[2], rd32(0x80001F00), rd32(0x80001F04)))
+ok &= hk
+ok &= struct.unpack('>I', mu.mem_read(0x80001F24, 4))[0] == 0 and struct.unpack('>I', mu.mem_read(0x80001F20, 4))[0] == 0
 ok &= rd(0x4C) == 4 and len(kicks) == 4 and all(k == 0x12000000 for k in kicks)
 if card.writes:                                    # v54 : journal du jeu ecrit sur la carte
     js = card.writes[-1]; jb = disk[js * 512:js * 512 + 512]; open('journal.bin', 'wb').write(jb)
-    jok = len(set(card.writes)) == 1 and jb[:4] == b'GCSN' and struct.unpack_from('>I', jb, 0x4C)[0] == 4
+    jok = len(set(card.writes)) == 1 and jb[:4] == b'GCSN' and struct.unpack_from('>I', jb, 0x4C)[0] == 4 and struct.unpack_from('>I', jb, 0x98)[0] == 1 and struct.unpack_from('>I', jb, 0x90)[0] == 3
     print(('OK   ' if jok else 'FAUX ') + 'journal du jeu : %d ecritures, secteur %X, commandes=%d' % (len(card.writes), js, struct.unpack_from('>I', jb, 0x4C)[0]))
     ok &= jok
 else:
     print('FAUX journal du jeu : rien ecrit'); ok = False
-r = lambda n: mu.reg_read(getattr(_pc, 'UC_PPC_REG_%d' % n))
+_m = {27: 0x1F10, 28: 0x1F14, 29: 0x1F18, 10: 0x1F1C, 30: 0x1F20, 31: 0x1F24}
+r = lambda n: struct.unpack('>I', mu.mem_read(0x80000000 + _m[n], 4))[0]
 v52 = r(29) == 0xE000 and r(28) == 0xE0000000 and r(10) == 0xCC006008 and r(27) == 0x1234
 print(('OK   ' if v52 else 'FAUX ') + 'lhz / lwzu / sth (r29=%X r28=%X r10=%X r27=%X)' % (r(29), r(28), r(10), r(27)))
 ok &= v52

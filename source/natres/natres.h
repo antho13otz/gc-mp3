@@ -8,7 +8,7 @@
 #define NATRES_AT     0x817F0000u        /* adresse fixe (liee par tools/natres.ld) */
 #define NATRES_SIZE   0x0000FF00u        /* place reservee (le haut, 817FFF00+, est laisse a la console) */
 #define NATRES_MAGIC  0x4743534Eu        /* "GCSN" */
-#define NATRES_VER    2
+#define NATRES_VER    3
 #define NATRES_MAXEXT 3000               /* morceaux de l'ISO sur la carte (fichier fragmente) */
 
 /* erreurs (champ err) */
@@ -44,12 +44,17 @@ typedef struct {
     unsigned int nrderr, nretry;                          /* erreurs de lecture SD / reprises reussies */
     unsigned int nack_tc, last_real_disr;                 /* acquittements avec vraie fin (TCINT) */
     unsigned int nlog;                                    /* nombre d'entrees ecrites dans l'anneau */
+    /* v57 : commandes speciales, crochets d'interruptions (image / manettes), retour a GC Station */
+    unsigned int n_e1, n_e2, n_ab, n_misc;                /* audio : jouer / etat ; chercher ; autres */
+    unsigned int vi_count, si_count;                      /* passages dans les crochets (0 = pas branches) */
+    unsigned int igr;                                     /* 1 = A+Z+START : retour a GC Station demande */
+    unsigned int flush_tb;                                /* (interne : dernier journal ecrit) */
 } natres_hdr_t;
 
-#define NATRES_LOGN 24                    /* anneau : {commande, position, longueur, infos} */
+#define NATRES_LOGN 22                    /* anneau : {commande, position, longueur, infos} (0xA0 + 22 x 16 = 512) */
 
 #define NRF_REAL_IRQ  1u   /* reveiller le jeu par une vraie commande "inquiry" du lecteur */
 
-typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x80 ? 1 : -1];
+typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0xA0 ? 1 : -1];
 
 #endif
