@@ -337,10 +337,9 @@ static double rg_next_after(double t) {
 
 static void rg_spawn(double t, int strong) {
     float b = 0, m = 0, h = 0;
-    for (int i = 0; i < 11; i++) b += bar_val[i];
     for (int i = 11; i < 36; i++) m += bar_val[i];
     for (int i = 36; i < NBARS; i++) h += bar_val[i];
-    b /= 11; m /= 25; h /= (NBARS - 36);
+    b = bass_lvl; m /= 25; h /= (NBARS - 36);
     int lane = b >= m && b >= h ? 0 : m >= h ? 1 : 2 + (int)(lib_rand() % 2);
     if (lib_rand() % 3 == 0) lane = (int)(lib_rand() % 4);
     if (lane == rg_lastlane && ++rg_samelane >= 2) { lane = (lane + 1 + (int)(lib_rand() % 3)) % 4; rg_samelane = 0; }
@@ -374,10 +373,11 @@ static void rhythm_pump(void) {
     if (src != SRC_FILE || !playing || cur_track != rg_track) { rg_finish(); return; }
     if (paused) return;
     /* coups de basse */
-    float b = 0;
-    for (int i = 0; i < 11; i++) b += bar_val[i];
-    b /= 11.0f;
-    if (rg_armed && b > rg_avg + 0.06f && b > 0.25f && now - rg_last_on > 180) {
+    /* v29 : coups de grosse caisse detectes par l'analyseur (FFT, 40-140 Hz) */
+    static u32 rg_kick_seen = 0;
+    float b = bass_lvl;
+    if (kick_count != rg_kick_seen && now - rg_last_on > 180) {
+        rg_kick_seen = kick_count;
         rg_last_on = now;
         rg_armed = 0;
         memmove(rg_ons + 1, rg_ons, sizeof(rg_ons) - sizeof(rg_ons[0]));
@@ -390,7 +390,7 @@ static void rhythm_pump(void) {
             if (!rg_lock) { rg_lock = 1; rg_anchor = now; rg_sched = now; }
             else if (fabs(err) < rg_period * 0.3) rg_anchor += err * 0.25;
         }
-    } else if (!rg_armed && b < rg_avg + 0.02f) rg_armed = 1;
+    } else { rg_kick_seen = kick_count; if (!rg_armed) rg_armed = 1; }
     rg_avg = rg_avg * 0.96f + b * 0.04f;
     if (!rg_lock && now - rg_start_t > 9000 && rg_non > 0) { rg_lock = 1; rg_anchor = rg_last_on; rg_sched = now; }  /* musique calme */
 

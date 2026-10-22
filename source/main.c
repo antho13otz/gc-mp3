@@ -285,12 +285,13 @@ static int  rebuffers = 0;
 static s16 dmabuf[NUM_BUFS][DMA_SAMPLES * 2] ATTRIBUTE_ALIGN(32);
 static volatile u32 cb_n = 0;              /* prochain bloc a jouer */
 static volatile u32 fill_n = 0;            /* prochain bloc a remplir */
-static s16 vizbuf[NUM_BUFS][512];          /* (spectre : ce qui sera entendu avec ce bloc) */
+static s16 vizbuf[NUM_BUFS][DMA_SAMPLES];          /* (spectre : ce qui sera entendu avec ce bloc) */
 
 static stereo_t fifo[FIFO_SIZE];
 static int f_head = 0, f_tail = 0, f_count = 0;
 
-#define VIZ_N 512
+#define VIZ_BLK DMA_SAMPLES               /* v29 : tout le bloc DMA (avant : ses 512 premiers echantillons) */
+#define VIZ_N 2048                        /* v29 : 2048 derniers echantillons (43 ms) : basses bien separees */
 static s16 viz[VIZ_N];
 static int viz_pos = 0;
 static u32 consumed = 0;                 // echantillons joues depuis le debut de l'ecoute
@@ -308,9 +309,9 @@ static void dma_cb(void) {
     if ((s32)(fill_n - blk) <= 0) {
         memset(buf, 0, DMA_BYTES);
         DCFlushRange(buf, DMA_BYTES);
-        memset(viz, 0, sizeof(viz));
-    } else memcpy(viz, vizbuf[blk % NUM_BUFS], sizeof(viz));   /* le spectre suit ce qu'on entend */
-    viz_pos = 0;
+        memset(viz + viz_pos, 0, VIZ_BLK * sizeof(s16));
+    } else memcpy(viz + viz_pos, vizbuf[blk % NUM_BUFS], VIZ_BLK * sizeof(s16));   /* le spectre suit ce qu'on entend */
+    viz_pos = (viz_pos + VIZ_BLK) & (VIZ_N - 1);            /* (anneau : viz_pos = le plus ancien) */
     AUDIO_InitDMA((u32)buf, DMA_BYTES);
     cb_n = blk + 1;
 }
@@ -329,7 +330,7 @@ static void fill_buf(int idx) {
             if (consumed_skip) consumed_skip--;     /* fin du morceau precedent (fondu) */
             else consumed++;
         }
-        if (i < VIZ_N) vz[i] = (s16)(((int)l + (int)r) / 2);
+        if (i < VIZ_BLK) vz[i] = (s16)(((int)l + (int)r) / 2);
         if (muted) l = r = 0;
         else if (volume_pct < 100 || sleep_fade < 256 || alarm_fade < 256) {
             int v = volume_pct * 256 / 100 * sleep_fade / 256 * alarm_fade / 256;
@@ -376,24 +377,46 @@ static int fifo_put(s16 l, s16 r) {
     return 1;
 }
 
-// ---------- Analyseur de spectre (Goertzel) ----------
+// ---------- Analyseur de spectre (v29 : FFT 2048 points, echelle "mel") ----------
+/* 55 barres de 40 Hz a 16 kHz sur une echelle mel : les basses prennent peu de
+   place, les mediums et les aigus sont bien etales (comme les analyseurs audio).
+   Niveau automatique : la barre la plus forte touche le haut, le reste suit
+   (plus de spectre "tout blanc" sur une musique tres forte).
+   A cote : detection des coups de grosse caisse (bande 40-140 Hz) pour le mode
+   soiree, les vibrations et les jeux : kick_count augmente a chaque coup. */
 #define NBARS 55
 static float bar_val[NBARS];
-static float bar_coef[NBARS];
 static float win[VIZ_N];
+static short bar_lo[NBARS], bar_hi[NBARS];      /* cases de la FFT de chaque barre */
+static float bar_fc[NBARS];                       /* (frequence centrale, en case de FFT) */
+static float fft_cs[VIZ_N / 2], fft_sn[VIZ_N / 2];
+static u16 fft_rev[VIZ_N];
+static float bass_lvl = 0.0f;                     /* basses 0..1 (grosse caisse) */
+static u32 kick_count = 0;                        /* coups de grosse caisse detectes */
+static float spec_ref = -30.0f;                   /* niveau de reference (dB) du controle automatique */
 
+static float mel_of(float f) { return 2595.0f * log10f(1.0f + f / 700.0f); }
+static float hz_of_mel(float m) { return 700.0f * (powf(10.0f, m / 2595.0f) - 1.0f); }
 static void init_spectrum(void) {
     for (int i = 0; i < VIZ_N; i++)
         win[i] = 0.5f - 0.5f * cosf(2.0f * PI_F * (float)i / (float)(VIZ_N - 1));
+    for (int i = 0; i < VIZ_N / 2; i++) { fft_cs[i] = cosf(2.0f * PI_F * i / VIZ_N); fft_sn[i] = -sinf(2.0f * PI_F * i / VIZ_N); }
+    int bits = 0; while ((1 << bits) < VIZ_N) bits++;
+    for (int i = 0; i < VIZ_N; i++) { int r = 0; for (int b = 0; b < bits; b++) if (i & (1 << b)) r |= 1 << (bits - 1 - b); fft_rev[i] = (u16)r; }
+    const float df = 48000.0f / VIZ_N, m0 = mel_of(40.0f), m1 = mel_of(16000.0f);
     for (int b = 0; b < NBARS; b++) {
-        float f = 60.0f * powf(12000.0f / 60.0f, (float)b / (float)(NBARS - 1));
-        bar_coef[b] = 2.0f * cosf(2.0f * PI_F * f / 48000.0f);
+        float flo = hz_of_mel(m0 + (m1 - m0) * b / NBARS), fhi = hz_of_mel(m0 + (m1 - m0) * (b + 1) / NBARS);
+        bar_lo[b] = (short)(flo / df + 0.5f); bar_hi[b] = (short)(fhi / df + 0.5f);
+        if (bar_hi[b] < bar_lo[b]) bar_hi[b] = bar_lo[b];
+        bar_fc[b] = (flo + fhi) * 0.5f / df;
         bar_val[b] = 0.0f;
     }
 }
 
 static int update_spectrum(void) {
-    static float x[VIZ_N];
+    static float re[VIZ_N], im[VIZ_N], mag[VIZ_N / 2];
+    static float kick_fast = -90, kick_slow = -90, kick_dev = 3;
+    static u64 kick_last = 0;
     int active = 0;
     {                                                     /* silence : pas de calcul, les barres retombent */
         int loud = 0;
@@ -403,27 +426,87 @@ static int update_spectrum(void) {
                 bar_val[b] *= 0.82f;
                 if (bar_val[b] < 0.01f) bar_val[b] = 0.0f; else active = 1;
             }
+            bass_lvl *= 0.82f;
             return active;
         }
     }
-    for (int i = 0; i < VIZ_N; i++)
-        x[i] = (float)viz[(viz_pos + i) & (VIZ_N - 1)] * win[i];
-    for (int b = 0; b < NBARS; b++) {
-        float c = bar_coef[b], s1 = 0.0f, s2 = 0.0f;
-        for (int i = 0; i < VIZ_N; i++) {
-            float s0 = x[i] + c * s1 - s2;
-            s2 = s1;
-            s1 = s0;
+    {                                                     /* meme bloc de son qu'a l'image d'avant : rien a recalculer */
+        static u32 last_sig = 0;
+        u32 sig = 2166136261u;
+        for (int i = 0; i < VIZ_N; i += 61) { sig ^= (u16)viz[i]; sig *= 16777619u; }
+        if (sig == last_sig) {
+            for (int b = 0; b < NBARS; b++) if (bar_val[b] > 0.0f) active = 1;
+            return active;
         }
-        float p = s1 * s1 + s2 * s2 - c * s1 * s2;
-        if (p < 0.0f) p = 0.0f;
-        float frac = sqrtf(p) / ((float)VIZ_N * 0.25f * 32768.0f);
-        float db = 20.0f * log10f(frac + 1e-6f) + 0.10f * (float)b;
-        float v = (db + 62.0f) / 50.0f;
+        last_sig = sig;
+    }
+    for (int i = 0; i < VIZ_N; i++) { int r = fft_rev[i]; re[r] = (float)viz[(viz_pos + i) & (VIZ_N - 1)] * win[i]; im[r] = 0.0f; }
+    for (int len = 2; len <= VIZ_N; len <<= 1) {          /* FFT radix 2 */
+        int half = len >> 1, step = VIZ_N / len;
+        for (int i = 0; i < VIZ_N; i += len)
+            for (int k = 0; k < half; k++) {
+                float wr = fft_cs[k * step], wi = fft_sn[k * step];
+                int a = i + k, c = a + half;
+                float tr = re[c] * wr - im[c] * wi, ti = re[c] * wi + im[c] * wr;
+                re[c] = re[a] - tr; im[c] = im[a] - ti;
+                re[a] += tr; im[a] += ti;
+            }
+    }
+    for (int k = 0; k < VIZ_N / 2; k++) mag[k] = re[k] * re[k] + im[k] * im[k];
+    const float norm = 1.0f / ((float)VIZ_N * 0.25f * 32768.0f);
+    float db[NBARS], top = -200.0f;
+    for (int b = 0; b < NBARS; b++) {
+        float p = 0.0f;
+        if (bar_hi[b] > bar_lo[b] + 1) { for (int k = bar_lo[b]; k < bar_hi[b] && k < VIZ_N / 2; k++) if (mag[k] > p) p = mag[k]; }
+        else {                                            /* barre plus fine qu'une case : interpolation */
+            float f = bar_fc[b]; int k = (int)f; float t = f - k;
+            if (k + 1 < VIZ_N / 2) p = mag[k] * (1 - t) + mag[k + 1] * t;
+        }
+        db[b] = 20.0f * log10f(sqrtf(p) * norm + 1e-6f) + 0.09f * (float)b;   /* (les aigus sont plus faibles) */
+        if (db[b] > top) top = db[b];
+    }
+    /* niveau automatique : suit vite la montee, redescend lentement */
+    if (top > spec_ref) spec_ref = top; else spec_ref -= 0.08f;
+    if (spec_ref < -48.0f) spec_ref = -48.0f;
+    const float range = 50.0f, floor_db = spec_ref - range;
+    for (int b = 0; b < NBARS; b++) {
+        float v = (db[b] - floor_db) / range;
         if (v < 0.0f) v = 0.0f;
         if (v > 1.0f) v = 1.0f;
+        v = v * 0.96f;                                    /* (un peu de marge en haut) */
         bar_val[b] = (v > bar_val[b]) ? v : (bar_val[b] * 0.82f + v * 0.18f);
         if (bar_val[b] < 0.01f) bar_val[b] = 0.0f; else active = 1;
+    }
+    /* grosse caisse : "flux" des basses (40-140 Hz) = combien elles MONTENT d'un bloc
+       a l'autre (une basse tenue ne compte pas), compare a sa moyenne recente */
+    {
+        static float prev_db[16];
+        static float flux_avg = 1.0f, flux_dev = 1.0f, flux_prev = 0.0f;
+        int k0 = (int)(40.0f * VIZ_N / 48000.0f), k1 = (int)(140.0f * VIZ_N / 48000.0f);
+        if (k1 - k0 > 15) k1 = k0 + 15;
+        float flux = 0.0f, e = 0.0f;
+        for (int k = k0; k <= k1; k++) {
+            float kdb = 10.0f * log10f(mag[k] * norm * norm + 1e-12f);
+            float up = kdb - prev_db[k - k0];
+            if (up > 0) flux += up > 30.0f ? 30.0f : up;
+            prev_db[k - k0] = kdb;
+            e += mag[k];
+        }
+        flux /= (float)(k1 - k0 + 1);
+        float kdb = 10.0f * log10f(e * norm * norm + 1e-12f);
+        u64 now = now_ms();
+        float thr = flux_avg + 1.6f * flux_dev;
+        if (thr < 2.5f) thr = 2.5f;
+        if (flux > thr && flux >= flux_prev && now - kick_last > 230 && kdb > spec_ref - 38.0f) { kick_count++; kick_last = now; }
+        flux_prev = flux;
+        flux_avg = flux_avg * 0.95f + flux * 0.05f;
+        float ad = flux - flux_avg; if (ad < 0) ad = -ad;
+        flux_dev = flux_dev * 0.95f + ad * 0.05f;
+        float bl = (kdb - (spec_ref - 45.0f)) / 45.0f;
+        if (bl < 0) bl = 0;
+        if (bl > 1) bl = 1;
+        bass_lvl = bl > bass_lvl ? bl : bass_lvl * 0.8f + bl * 0.2f;
+        (void)kick_fast; (void)kick_slow; (void)kick_dev;
     }
     return active;
 }
@@ -1850,6 +1933,7 @@ static char names[MAX_FILES][NAME_LEN];
 static int  dur_cache[MAX_FILES];          // duree en s ; -2 = pas encore lue, -1 = inconnue
 static int  nfiles = 0;
 static int  dur_budget = 0;                // lectures de duree autorisees pour l'image en cours
+static int  tag_budget = 0;                /* v29 : etiquettes lues pour l'image en cours (1 au plus) */
 static int  bib_dirty;                      // bibliotheque en cache a enregistrer (voir bib_save)
 
 /* Nom du fichier seul (apres le dernier '/') */
@@ -2151,6 +2235,9 @@ static unsigned char fbuf[FBUF_SIZE];
 static int fb_start = 0, fb_end = 0, f_file_eof = 0;
 static long fsize = 0, f_audio = 0;           // taille du fichier, debut du son (apres ID3)
 static int playing = 0, eof = 0, cur_track = -1;
+/* v29 : lire un fichier (etiquettes, duree) sans couper la musique : seulement
+   quand au moins 2 s de son sont deja decodees d'avance */
+static int io_safe(void) { return !(src == SRC_FILE && playing && !paused) || eof || f_count > 48000 * 2; }
 static const char *track_err = NULL;   // message si un fichier ne peut pas etre lu
 static char artist[64];                // artiste lu dans les etiquettes ID3 (UTF-8)
 static char id3_title[128], id3_album[128], id3_year[16];
@@ -3419,7 +3506,7 @@ static void lib_pump(void) {
     if (tg_scanned >= nfiles) return;
     u64 t0 = now_ms();
     int done = 0;
-    for (int k = 0; k < nfiles && now_ms() - t0 < 12; k++)
+    for (int k = 0; k < nfiles && now_ms() - t0 < 12 && io_safe(); k++)
         if (!tg_done[k]) { tag_scan_one(k); done++; service_audio(); }
     if (done && (tg_scanned >= nfiles || (tg_scanned % 24) < done)) lib_rebuild();
 }
@@ -5138,7 +5225,10 @@ static void draw(void) {
     if (saver_on) { draw_saver(); return; }
     if (fun_mode && !menu_open && !kb_is_open()) { draw_fun(); return; }
     if (party_on && !menu_open) { draw_party(); return; }
-    dur_budget = now_ms() - last_input_ms > 250 ? 1 : 0;      /* (pas pendant le defilement) */
+    /* (pas pendant le defilement, et seulement s'il reste au moins 2 s de son
+       d'avance : la lecture d'un fichier ne coupe plus la musique - v29) */
+    dur_budget = now_ms() - last_input_ms > 250 && io_safe() ? 1 : 0;
+    tag_budget = dur_budget;
     begin_frame();
     draw_header();
     draw_header_clock();
@@ -5327,7 +5417,7 @@ static void draw_list_music(int sel) {
             }
         }
         char nm[NAME_LEN], lb[NAME_LEN], ld[NAME_LEN];
-        if (!tg_done[k] && dur_budget) tag_scan_one(k);       /* (etiquettes lues quand on ne defile pas) */
+        if (!tg_done[k] && tag_budget > 0) { tag_budget--; tag_scan_one(k); service_audio(); }   /* (une par image) */
         track_label(k, lb, sizeof(lb), !(cur_group >= 0 && (view_mode == VIEW_ARTISTS || view_mode == VIEW_ALBUMS)));
         text_display(lb, ld, sizeof(ld));
         fit_text(F_MED, ld, name_w, nm, sizeof(nm));
@@ -10527,9 +10617,11 @@ static void saver_aquarium(f32 t) {
     aq_last = now;
     f32 e = 0, b = 0;
     for (int i = 0; i < NBARS; i++) e += bar_val[i];
-    for (int i = 0; i < 11; i++) b += bar_val[i];
-    e /= NBARS; b /= 11;
-    int beat = b > aq_bavg + 0.08f && b > 0.3f;
+    static u32 aq_kick = 0;
+    b = bass_lvl;
+    e /= NBARS;
+    int beat = kick_count != aq_kick;
+    aq_kick = kick_count;
     aq_bavg = aq_bavg * 0.95f + b * 0.05f;
     f32 speed = 0.5f + e * 2.2f;                                  /* la musique fait nager plus vite */
     /* eau, rayons de lumiere, sable */
@@ -10614,8 +10706,7 @@ static void sg_update(void) {
         f32 f = (f32)(SG_H - 1 - y) / (SG_H - 1) * (NBARS - 1);
         int i0 = (int)f; if (i0 > NBARS - 2) i0 = NBARS - 2;
         f32 t = f - i0, v = bar_val[i0] * (1 - t) + bar_val[i0 + 1] * t;
-        v = v * 1.15f;
-        int c = (int)(v * v * 255);                         /* (le bruit de fond reste sombre) */
+        int c = (int)(v * v * 255);                         /* (le bruit de fond reste sombre ; v29 : plus de saturation) */
         if (c > 255) c = 255;
         sg_tex[((y >> 2) * (SG_W >> 2) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)] = sg_pal[c];
     }
@@ -10642,7 +10733,7 @@ static void sg_draw(f32 x, f32 y, f32 w, f32 h, u8 a) {
 static void sg_labels(f32 x, f32 y, f32 h, col_t c) {        /* reperes de frequence */
     static const struct { int hz; const char *t; } m[] = { { 100, "100 Hz" }, { 1000, "1 kHz" }, { 5000, "5 kHz" }, { 10000, "10 kHz" } };
     for (int i = 0; i < 4; i++) {
-        f32 pos = logf(m[i].hz / 60.0f) / logf(12000.0f / 60.0f);   /* (bandes de 60 Hz a 12 kHz) */
+        f32 pos = (mel_of((float)m[i].hz) - mel_of(40.0f)) / (mel_of(16000.0f) - mel_of(40.0f));   /* (v29 : echelle mel, 40 Hz a 16 kHz) */
         f32 yy = y + h * (1.0f - pos);
         gx_rect(x, yy, 10, 1, c);
         gx_text1(F_SMALL, x + 14, yy + 4, m[i].t, c);
@@ -10735,20 +10826,19 @@ static void party_update(void) {
     if (dt > 0.1f) dt = 0.1f;
     pt_last = now;
     float b = 0, m = 0, h = 0;
-    for (int i = 0; i < 11; i++) b += bar_val[i];
     for (int i = 11; i < 36; i++) m += bar_val[i];
     for (int i = 36; i < NBARS; i++) h += bar_val[i];
-    b /= 11.0f; m /= 25.0f; h /= (float)(NBARS - 36);
+    b = bass_lvl; m /= 25.0f; h /= (float)(NBARS - 36);
     pt_bass = b;
     pt_energy = pt_energy * 0.85f + (b + m + h) / 3.0f * 0.15f;
     pt_high = pt_high * 0.9f + h * 0.1f;
     /* battement : les basses passent nettement au-dessus de leur moyenne */
-    static int armed = 1;
-    if (armed && b > pt_avg + 0.07f && b > 0.30f && now - pt_last_beat > 200) {
-        party_beat(b - pt_avg);
-        pt_last_beat = now;
-        armed = 0;
-    } else if (!armed && b < pt_avg + 0.03f) armed = 1;          /* les basses sont retombees */
+    /* v29 : un coup de grosse caisse (detecte dans update_spectrum) = un battement */
+    static u32 kick_seen = 0;
+    if (kick_count != kick_seen) {
+        kick_seen = kick_count;
+        if (now - pt_last_beat > 200) { party_beat(0.3f + 0.7f * b); pt_last_beat = now; }
+    }
     pt_avg = pt_avg * 0.96f + b * 0.04f;
     pt_beat *= expf(-dt * 5.0f);
     pt_hue += dt * (8.0f + pt_high * 70.0f);                          /* les aigus font tourner la couleur */
