@@ -21,6 +21,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v51
+- **Rapport d'analyse sur le téléphone** : après une analyse (fiche d'un jeu, R), un **QR code** s'affiche ; scanne-le pour ouvrir le rapport sur ton téléphone (même Wi-Fi que la GameCube). Tous les rapports : `http://<IP de la GameCube>/natif` (lien « Analyses des jeux » en bas de la page de la télécommande).
+- **Lanceur natif, étape 2 (test) : le démarrage maison.** Dans « Lancer ce jeu ? », **X** démarre le jeu sans Swiss : GC Station lit lui-même `main.dol`, `bi2.bin` et la table des fichiers, prépare la mémoire et saute dans le jeu. Le lecteur n'est pas encore redirigé vers la carte SD : si le jeu affiche son message d'erreur de disque, c'est réussi. Journal : `SD:/gc-mp3/natif/dernier-lancement.txt` (aussi sur le téléphone). **A** lance toujours le jeu comme avant.
+
 ## Nouveautés v50
 - **Lanceur natif, étape 1 : l'analyse.** Dans la fiche d'un jeu, **R** décortique le disque comme le fera un futur lanceur 100 % GC Station (sans Swiss) : en-tête, région, apploader, `main.dol`, table des fichiers, mémoire basse à préparer, et les endroits du jeu qui pilotent le lecteur DVD. Rapport : `SD:/gc-mp3/natif/<ID>.txt`. Les jeux se lancent toujours avec le lanceur actuel.
 

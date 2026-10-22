@@ -423,6 +423,39 @@ static void tp_handle(s32 c) {
         if (ok) { snprintf(tp_open_url, sizeof(tp_open_url), "%s", u); tp_open_busy = 1; tp_push(PC_OPEN, 0); }
         tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
     }
+    else if (!strcmp(target, "/natif") || !strcmp(target, "/natif/")) {   /* v51 : rapports d'analyse des jeux */
+        sbuf_t s = { 0 };
+        sb_add(&s, "<!doctype html><html><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width\">"
+                   "<title>GC Station - analyses</title><style>body{font-family:sans-serif;background:#120a2e;color:#eee;padding:16px}"
+                   "a{color:#c9a8ff;display:block;padding:10px 0;font-size:18px}</style></head><body><h2>Analyses des jeux</h2>");
+        int n = 0;
+        DIR *d = sd_ok ? opendir(GCD "/natif") : NULL;
+        struct dirent *e;
+        while (d && (e = readdir(d)) != NULL && n < 400) {
+            int l = (int)strlen(e->d_name);
+            if (l < 5 || strcasecmp(e->d_name + l - 4, ".txt")) continue;
+            char line[400];
+            snprintf(line, sizeof(line), "<a href=\"/natif/%s\">%s</a>", e->d_name, e->d_name);
+            sb_add(&s, line); n++;
+        }
+        if (d) closedir(d);
+        if (!n) sb_add(&s, "<p>Aucune analyse pour l'instant : fiche d'un jeu, touche R.</p>");
+        sb_add(&s, "</body></html>");
+        tp_reply(c, 200, "text/html; charset=utf-8", s.b ? s.b : "", s.b ? (int)strlen(s.b) : 0);
+        free(s.b);
+    }
+    else if (!strncmp(target, "/natif/", 7)) {               /* v51 : un rapport (nom sur : lettres, chiffres, .txt) */
+        const char *nm = target + 7;
+        int l = (int)strlen(nm), ok = l >= 5 && l <= 40 && !strcasecmp(nm + l - 4, ".txt");
+        for (int i = 0; ok && i < l - 4; i++) if (!isalnum((unsigned char)nm[i]) && nm[i] != '_' && nm[i] != '-') ok = 0;
+        char p[NAME_LEN];
+        long sz = 0;
+        u8 *b = NULL;
+        if (ok && sd_ok) { snprintf(p, sizeof(p), "%s/natif/%s", GCD, nm); b = read_file(p, 256 * 1024, &sz); }
+        if (b) tp_reply(c, 200, "text/plain; charset=utf-8", b, (int)sz);
+        else tp_reply(c, 404, "text/plain; charset=utf-8", "Rapport introuvable", 19);
+        free(b);
+    }
     else if (!strcmp(target, "/crash.txt")) {               /* journal de plantage */
         static char cb[9000];
         int n = 0;
@@ -589,6 +622,17 @@ static void phone_pump(void) {
     if (tp_rescan & 2) { tp_rescan &= ~2; photo_rescan(); }
 }
 
+/* v51 : n'importe quel QR code (aussi celui du rapport d'analyse d'un jeu) */
+static void draw_qr_buf(const u8 *qr, f32 x, f32 y, f32 size) {
+    int n = qrcodegen_getSize(qr);
+    f32 m = size / (n + 8);
+    uxsave_t uz = ux_native(x + size / 2);
+    gx_rect(x, y, size, size, RGBA(255, 255, 255, 255));
+    for (int j = 0; j < n; j++)
+        for (int i = 0; i < n; i++)
+            if (qrcodegen_getModule(qr, i, j)) gx_rect(x + (i + 4) * m, y + (j + 4) * m, m + 0.3f, m + 0.3f, RGBA(0, 0, 0, 255));
+    ux_restore(uz);
+}
 static void draw_qr(f32 x, f32 y, f32 size) {
     int n = qrcodegen_getSize(tp_qr);
     f32 m = size / (n + 8);                             /* marge blanche de 4 modules */

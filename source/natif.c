@@ -15,6 +15,7 @@
 #define NA_DIR   GCD "/natif"
 #define NA_DI    0xCC006000u                 /* registres du lecteur DVD (DI) */
 #define NA_MAXHIT 48
+static void nat_qr_open(const char *id);      /* v51 : QR code vers le rapport (plus bas) */
 
 typedef struct {
     char id[7], title[72];
@@ -39,6 +40,7 @@ typedef struct {
     char err[160];
 } nat_info_t;
 
+static const char *na_adapter(void);
 static const char *na_reg_name(u32 r) {
     switch (r) {
     case 0x00: return "DISR (etat)";
@@ -208,7 +210,7 @@ static void nat_write_report(const nat_info_t *in, const char *path, char *out, 
     FILE *f = fopen(out, "w");
     if (!f) { out[0] = 0; return; }
     fprintf(f, "GC Station - analyse native (etape 1 du lanceur maison)\n");
-    fprintf(f, "Fichier : %s\n\n", path);
+    fprintf(f, "Fichier : %s\nAdaptateur SD : %s\n\n", path, na_adapter());
     fprintf(f, "[Disque]\nID : %s   disque %u   version %u\nNom : %s\nRegion : %s\nAudio en streaming : %s\n\n",
             in->id, in->disc + 1, in->ver, in->title, na_region(in->region), in->stream ? "oui" : "non");
     fprintf(f, "[Apploader] 0x2440\nDate : %s\nPoint d'entree : %08X   taille : %u   suite : %u\n\n",
@@ -250,5 +252,168 @@ static void nat_run(int k) {
     else snprintf(m, sizeof(m), "Analyse OK : %d acc\xC3\xA8s au lecteur, %u fichiers (rapport : gc-mp3/natif/%s.txt)",
                   in.nhit, (unsigned)in.nfiles, in.id);
     gl_note(m);
+    if (rep[0]) nat_qr_open(in.id);                          /* v51 : QR code vers le rapport */
     crumb("natif %s : %d acces DI, %d fonctions, %d problemes", in.id, in.nhit, in.nfunc, in.problems);
+}
+
+/* ======================= v51 : etape 2 = demarrage natif =======================
+   GC Station fait lui-meme le travail de l'apploader :
+   - lit main.dol, bi2.bin et la FST dans l'ISO (ou le .ciso) ;
+   - les range tout en haut de la memoire, puis coupe tout (son, video, interruptions) ;
+   - remplit la memoire basse avec les infos du disque ;
+   - le petit programme gl_stub (gclib.c) recopie les sections a leur place et saute
+     au point d'entree du jeu.
+   Le lecteur DVD n'est PAS encore redirige vers la carte SD : le jeu demarre, puis
+   affiche normalement son propre message d'erreur de disque. C'est le signe que
+   cette etape marche. Journal (ecrit avant le saut) : SD:/gc-mp3/natif/dernier-lancement.txt */
+#define NA_LOG   NA_DIR "/dernier-lancement.txt"
+#define NA_BI2   0x2000u                      /* taille de bi2.bin */
+
+static const char *na_adapter(void) {
+    return sd_virtual ? "aucun (SD virtuelle)" : sd_slot == 0 ? "SD2SP2 (port serie 2)" : sd_slot == 1 ? "slot A (SD Gecko ?)" : sd_slot == 2 ? "slot B (SD Gecko ?)" : "inconnu";
+}
+
+static const char *nat_boot(int k) {
+    if (k < 0 || k >= gl_n) return "Jeu introuvable";
+    static nat_info_t in;
+    gl_status("Lanceur maison : analyse du jeu...");
+    if (!nat_analyse(gl[k].path, &in)) return in.err;
+    if (in.problems) return in.err;
+    if (in.fst_max < in.fst_sz || in.fst_max > (4u << 20)) return "FST : taille maximale invalide";
+    /* plan de la memoire du haut : [ ... | donnees a recopier | bi2 | FST ] 0x81800000 */
+    u32 fst_dest = in.fst_dest;
+    u32 bi2_dest = (fst_dest - NA_BI2) & ~31u;
+    u32 dol_len = in.dol_len;
+    u32 total = ((dol_len + 31) & ~31u) + NA_BI2 + ((in.fst_sz + 31) & ~31u);
+    if (total >= bi2_dest - 0x80003100u) return "Pas assez de m\xC3\xA9moire pour ce jeu (main.dol trop gros)";   /* (v51 : pas de debordement) */
+    u32 stage = (bi2_dest - total) & ~31u;
+    if (stage < in.hi + 32) return "Pas assez de m\xC3\xA9moire pour ce jeu (main.dol trop gros)";
+    u8 *buf = (u8 *)memalign(32, total);
+    if (!buf) return "Pas assez de m\xC3\xA9moire libre dans GC Station";
+    memset(buf, 0, total);
+    u32 o_dol = 0, o_bi2 = (dol_len + 31) & ~31u, o_fst = o_bi2 + NA_BI2;
+    gdisc_t d;
+    gl_status("Lanceur maison : lecture de main.dol...");
+    int ok = gd_open(&d, gl[k].path);
+    if (ok) ok = gd_read(&d, in.dol_off, buf + o_dol, dol_len);
+    if (ok) ok = gd_read(&d, 0x440, buf + o_bi2, NA_BI2);
+    if (ok) { gl_status("Lanceur maison : lecture de la FST..."); ok = gd_read(&d, in.fst_off, buf + o_fst, in.fst_sz); }
+    u8 hdr[0x20];
+    if (ok) ok = gd_read(&d, 0, hdr, sizeof(hdr));
+    gd_close(&d);
+    if (!ok) { free(buf); return "Lecture du jeu impossible (carte SD)"; }
+    /* table de copie pour gl_stub : {destination, source, taille} */
+    u32 tab[18 * 3 + 6], n = 0;
+    for (int i = 0; i < 18; i++) {
+        u32 off = be32(buf + i * 4), addr = be32(buf + 0x48 + i * 4), sz = be32(buf + 0x90 + i * 4);
+        if (!sz) continue;
+        tab[n * 3] = addr; tab[n * 3 + 1] = stage + o_dol + off; tab[n * 3 + 2] = sz; n++;
+    }
+    tab[n * 3] = bi2_dest; tab[n * 3 + 1] = stage + o_bi2; tab[n * 3 + 2] = NA_BI2; n++;
+    if (in.fst_sz) { tab[n * 3] = fst_dest; tab[n * 3 + 1] = stage + o_fst; tab[n * 3 + 2] = in.fst_sz; n++; }
+    /* journal, ecrit AVANT le saut (apres, plus rien ne peut ecrire sur la carte) */
+    mkdir(NA_DIR, 0777);
+    FILE *f = fopen(NA_LOG, "w");
+    if (f) {
+        fprintf(f, "GC Station - lanceur maison, etape 2 (demarrage natif)\n");
+        fprintf(f, "Jeu : %s  %s\nFichier : %s\nAdaptateur SD : %s\n\n", in.id, in.title, gl[k].path, na_adapter());
+        fprintf(f, "Donnees rangees en %08X (%u octets)\nbi2.bin -> %08X   FST -> %08X (%u / %u octets)\n",
+                (unsigned)stage, (unsigned)total, (unsigned)bi2_dest, (unsigned)fst_dest, (unsigned)in.fst_sz, (unsigned)in.fst_max);
+        for (u32 i = 0; i < n; i++) fprintf(f, "  copie %08X <- %08X  %u octets\n", (unsigned)tab[i * 3], (unsigned)tab[i * 3 + 1], (unsigned)tab[i * 3 + 2]);
+        fprintf(f, "Point d'entree : %08X\n", (unsigned)in.entry);
+        fprintf(f, "Memoire basse avant : 28=%08X 2C=%08X CC=%08X F8=%08X FC=%08X\n",
+#ifdef GEKKO
+                (unsigned)*(volatile u32 *)0x80000028, (unsigned)*(volatile u32 *)0x8000002C, (unsigned)*(volatile u32 *)0x800000CC,
+                (unsigned)*(volatile u32 *)0x800000F8, (unsigned)*(volatile u32 *)0x800000FC
+#else
+                0u, 0u, 0u, 0u, 0u
+#endif
+                );
+        fprintf(f, "\nSaut vers le jeu... Ce que tu vois a l'ecran ensuite, c'est le resultat :\n"
+                   "- message d'erreur de disque du jeu = etape 2 reussie ;\n"
+                   "- ecran noir fige / retour au menu = a me signaler.\n");
+        fclose(f);
+    }
+    crumb("natif : saut vers %s (entree %08X)", in.id, (unsigned)in.entry);
+#ifdef GEKKO
+    if (settings_dirty) save_settings();
+    stop_track(); stop_station();
+    AUDIO_StopDMA();
+    fatUnmount("sd");
+    VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();
+    SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
+    u32 level = IRQ_Disable();                            /* plus d'interruptions : on ecrase GC Station */
+    (void)level;
+    memmove((void *)stage, buf, total);
+    DCFlushRange((void *)stage, total);
+    /* memoire basse (on garde ce que le BIOS a deja mis : taille memoire, type de console,
+       vitesses, mode video) */
+    volatile u32 *lm = (volatile u32 *)0x80000000;
+    memcpy((void *)0x80000000, hdr, 0x20);                /* ID du jeu, disque, version... */
+    lm[0x20 / 4] = 0x0D15EA5Eu;                           /* demarrage normal */
+    lm[0x24 / 4] = 1;
+    if (!lm[0x28 / 4]) lm[0x28 / 4] = 0x01800000u;        /* 24 Mo */
+    lm[0x30 / 4] = 0;                                     /* bas de l'arene : calcule par le jeu */
+    lm[0x34 / 4] = bi2_dest;                              /* haut de l'arene */
+    lm[0x38 / 4] = fst_dest;                              /* FST */
+    lm[0x3C / 4] = in.fst_max;
+    lm[0xF0 / 4] = 0x01800000u;                           /* memoire simulee */
+    lm[0xF4 / 4] = bi2_dest;                              /* bi2.bin */
+    if (!lm[0xF8 / 4]) lm[0xF8 / 4] = 0x09A7EC80u;        /* vitesse du bus */
+    if (!lm[0xFC / 4]) lm[0xFC / 4] = 0x1CF7C580u;        /* vitesse du processeur */
+    DCFlushRange((void *)0x80000000, 0x100);
+    u32 *t = (u32 *)GL_TAB_AT;
+    for (u32 i = 0; i < n * 3; i++) t[i] = tab[i];
+    memcpy((void *)GL_STUB_AT, gl_stub, sizeof(gl_stub));
+    DCFlushRange((void *)0x80001800, 0x1800);
+    ICInvalidateRange((void *)GL_STUB_AT, sizeof(gl_stub));
+    ((void (*)(u32 *, u32, u32))GL_STUB_AT)(t, n, in.entry);
+    for (;;) ;
+#else
+    printf("NATIF %s stage=%08x total=%u bi2=%08x fst=%08x entree=%08x copies=%u\n",
+           in.id, (unsigned)stage, (unsigned)total, (unsigned)bi2_dest, (unsigned)fst_dest, (unsigned)in.entry, (unsigned)n);
+    free(buf);
+    return "(simulateur : lancement natif simul\xC3\xA9)";
+#endif
+}
+
+/* ---------- v51 : le rapport sur le telephone (QR code) ----------
+   Le serveur de la telecommande (onglet TELEPHONE) donne /natif (liste) et /natif/<ID>.txt.
+   Apres une analyse, la fiche montre un QR code vers le rapport. */
+static int na_qr_on = 0, na_qr_ok = 0;
+static char na_qr_id[8] = "", na_qr_url[96] = "";
+static u8 na_qr[qrcodegen_BUFFER_LEN_FOR_VERSION(8)];
+static void nat_qr_open(const char *id) {
+    snprintf(na_qr_id, sizeof(na_qr_id), "%s", id);
+    na_qr_on = 1; na_qr_ok = 0; na_qr_url[0] = 0;
+    if (tp_state != PS_ON) { tp_wanted = 1; net_start_async(); }      /* (le serveur demarre tout seul) */
+}
+static int nat_qr_input(u32 down) {                     /* 1 = touche prise par la fenetre */
+    if (!na_qr_on) return 0;
+    if (down & (PAD_BUTTON_B | PAD_BUTTON_A | PAD_TRIGGER_R)) na_qr_on = 0;
+    return 1;
+}
+static void nat_draw_qr(void) {
+    if (!na_qr_on) return;
+    if (!na_qr_ok && tp_state == PS_ON && ip_str[0]) {
+        if (PHONE_PORT == 80) snprintf(na_qr_url, sizeof(na_qr_url), "http://%s/natif/%s.txt", ip_str, na_qr_id);
+        else snprintf(na_qr_url, sizeof(na_qr_url), "http://%s:%d/natif/%s.txt", ip_str, PHONE_PORT, na_qr_id);
+        static u8 tmp[qrcodegen_BUFFER_LEN_FOR_VERSION(8)];
+        na_qr_ok = qrcodegen_encodeText(na_qr_url, tmp, na_qr, qrcodegen_Ecc_MEDIUM, 1, 8, qrcodegen_Mask_AUTO, true) ? 1 : -1;
+    }
+    const f32 w = 440, h = 300, x = 100, y = 96;
+    gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150), RGBA(0, 0, 0, 150));
+    gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
+    draw_panel(x, y, w, h);
+    gx_text_c(F_MED, 320, y + 30, "Rapport d'analyse sur ton t\xC3\xA9l\xC3\xA9phone", RGBA(255, 255, 255, 255));
+    if (na_qr_ok > 0) {
+        draw_qr_buf(na_qr, 320 - 90, y + 44, 180);
+        gx_text_c(F_SMALL, 320, y + 246, na_qr_url, RGBA(255, 210, 120, 255));
+        gx_text_c(F_SMALL, 320, y + 266, "Scanne le QR code (m\xC3\xAAme Wi-Fi que la GameCube)", RGBA(190, 180, 235, 255));
+    } else if (tp_state == PS_ERR || (net_phase == NET_DONE && !net_ok)) {
+        gx_text_c(F_SMALL, 320, y + 140, "Pas de r\xC3\xA9seau : le rapport est dans SD:/gc-mp3/natif", RGBA(255, 160, 120, 255));
+    } else {
+        gx_text_c(F_SMALL, 320, y + 140, "D\xC3\xA9marrage du serveur...", RGBA(190, 180, 235, 255));
+    }
+    gx_text_c(F_SMALL, 320, y + h - 10, "B : fermer", RGBA(255, 210, 120, 255));
 }
