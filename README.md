@@ -19,6 +19,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v40
+
+- **Couleurs du spectrogramme** (START > Réglages > GC-MP3) : Feu (par défaut, moins violet), Violet (l'ancien), Arc-en-ciel, Océan, Vert, Noir et blanc. Pour le spectrogramme plein écran (économiseur, mode soirée) et le style « Spectrogramme » du lecteur. Changer de couleurs recolore aussi ce qui est déjà affiché.
+
 ## Nouveautés v39
 
 - **Spectre amélioré** : mouvement plus fluide (lissé à chaque image), crêtes qui retombent doucement, et **7 styles** : LED (classique), Barres, Miroir, Courbe, Spectrogramme (défilant, couleurs de chaleur), Oscilloscope (forme d'onde), Cercle. START > Réglages > GC-MP3 > « Style du spectre ».
