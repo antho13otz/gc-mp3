@@ -23,6 +23,12 @@ typedef struct {
     u8 bstate;                               /* 0 = a lire, 1 = lue, 2 = pas de banniere */
     char *desc;                              /* description (descriptions.txt ou banniere) */
 } gcg_t;
+/* v28 : 6 facons d'afficher les jeux (R / L pour changer) */
+enum { GLV_GRID, GLV_CAROUSEL, GLV_LIST, GLV_WALL, GLV_SHOW, GLV_SHELF, GLV_COUNT };
+static int gl_view = GLV_GRID;
+static const char *const gl_view_names[GLV_COUNT] = { "Grille", "Carrousel", "Liste", "Mur de jaquettes", "Vitrine", "\xC3\x89tag\xC3\xA8re" };
+static int gl_view_cols(void) { return gl_view == GLV_WALL ? 9 : gl_view == GLV_GRID || gl_view == GLV_SHELF ? 6 : 1; }
+static void gl_load_big(int k);
 static gcg_t *gl = NULL;
 static int gl_n = 0, gl_scanned = 0, gl_on = 0, gl_sel = 0, gl_detail = 0;
 static char gl_msg[160];
@@ -480,12 +486,25 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         return;
     }
     if (fire && gl_n) {
-        if (nav & PAD_BUTTON_RIGHT) gl_sel++;
-        if (nav & PAD_BUTTON_LEFT) gl_sel--;
-        if (nav & PAD_BUTTON_DOWN) gl_sel += GL_COLS;
-        if (nav & PAD_BUTTON_UP) gl_sel -= GL_COLS;
+        int cols = gl_view_cols();
+        if (gl_view == GLV_LIST) {
+            if (nav & PAD_BUTTON_DOWN) gl_sel++;
+            if (nav & PAD_BUTTON_UP) gl_sel--;
+            if (nav & PAD_BUTTON_RIGHT) gl_sel += 9;
+            if (nav & PAD_BUTTON_LEFT) gl_sel -= 9;
+        } else {
+            if (nav & PAD_BUTTON_RIGHT) gl_sel++;
+            if (nav & PAD_BUTTON_LEFT) gl_sel--;
+            if (nav & PAD_BUTTON_DOWN) gl_sel += cols > 1 ? cols : 5;
+            if (nav & PAD_BUTTON_UP) gl_sel -= cols > 1 ? cols : 5;
+        }
         if (gl_sel >= gl_n) gl_sel = gl_n - 1;
         if (gl_sel < 0) gl_sel = 0;
+    }
+    if (down & (PAD_TRIGGER_R | PAD_TRIGGER_L)) {          /* v28 : changer d'affichage */
+        gl_view = (gl_view + ((down & PAD_TRIGGER_R) ? 1 : GLV_COUNT - 1)) % GLV_COUNT;
+        settings_dirty = 1;
+        gl_note(gl_view_names[gl_view]);
     }
     if ((down & PAD_BUTTON_A) && gl_n) gl_detail = 1;
     if ((down & PAD_BUTTON_X) && gl_n) gl_open_cheats(gl_sel);
@@ -543,6 +562,177 @@ static void gl_card_banner(int k, f32 x, f32 y, f32 w, f32 h, int on) {
         gx_text_c(F_SMALL, x + w / 2, y + h / 2 + 38, buf, RGBA(210, 200, 240, 255));
     }
 }
+/* ---------- v28 : 6 facons d'afficher les jeux (R pour changer) ---------- */
+static int gl_loaded_frame = 0;                       /* jaquettes lues pendant cette image (3 au plus) */
+/* une jaquette (ou la banniere) dans le cadre x, y, w, h */
+static void gl_draw_cover(int k, f32 x, f32 y, f32 w, f32 h, int on) {
+    int had = gl[k].post >= 0 && gl_find_slot(gl_cov, GL_SLOTS, k) != NULL;
+    GXTexObj *cov = gl[k].post >= 0 ? gl_cover(k, gl_loaded_frame < 3) : NULL;
+    if (cov && !had) gl_loaded_frame++;
+    if (cov) draw_tex_fit(cov, 128, 128, 96, 128, x, y, w, h);
+    else gl_card_banner(k, x, y, w, h, on);
+}
+static void gl_title_of(int k, char *out, int cap) {
+    if (gl[k].disc) snprintf(out, cap, "%s (%d)", gl[k].title, gl[k].disc + 1); else snprintf(out, cap, "%s", gl[k].title);
+}
+static void gl_draw_grid(int cols, int rows, f32 cw, f32 ch, f32 sw, f32 rh, int titles) {
+    char buf[NAME_LEN], d[NAME_LEN];
+    f32 x0 = 320 - (cols * sw - (sw - cw)) / 2, y0 = 112;
+    int row = gl_sel / cols, top = row - rows / 2;
+    int nrow = (gl_n + cols - 1) / cols;
+    if (top > nrow - rows) top = nrow - rows;
+    if (top < 0) top = 0;
+    for (int r = 0; r < rows; r++)
+        for (int c = 0; c < cols; c++) {
+            int k = (top + r) * cols + c;
+            if (k >= gl_n) break;
+            f32 x = x0 + c * sw, y = y0 + r * rh;
+            int on = k == gl_sel;
+            gp_zone(x, y, cw, ch + (titles ? 16 : 0), &gl_sel, k, GPZ_SEL);
+            if (on) gx_glow(x, y, cw, ch, 8, RGBA(150, 80, 255, 150), 3);
+            gl_draw_cover(k, x, y, cw, ch, on);
+            if (on) gx_rrect_stroke(x - 2, y - 2, cw + 4, ch + 4, 6, 2.0f, RGBA(255, 210, 120, 255));
+            if (titles) {
+                gl_title_of(k, d, sizeof(d));
+                fit_text(F_SMALL, d, (int)cw + 6, buf, sizeof(buf));
+                gx_text_c(F_SMALL, x + cw / 2, y + ch + 14, buf, on ? RGBA(255, 255, 255, 255) : RGBA(180, 168, 228, 255));
+            }
+        }
+    if (nrow > rows) {                                            /* barre de defilement */
+        f32 th = 270.0f * rows / nrow, ty = 116 + (270.0f - th) * top / (f32)(nrow - rows);
+        gx_rrect_fill(621, ty, 3, th, 1.5f, RGBA(150, 96, 255, 255), RGBA(110, 60, 230, 255));
+    }
+}
+static void gl_draw_carousel(void) {
+    char buf[NAME_LEN], d[NAME_LEN];
+    /* de loin vers le centre : les plus proches par-dessus */
+    for (int dist = 3; dist >= 0; dist--)
+        for (int side = -1; side <= 1; side += 2) {
+            if (dist == 0 && side > 0) continue;
+            int k = gl_sel + dist * side;
+            if (k < 0 || k >= gl_n) continue;
+            f32 sc = dist == 0 ? 1.0f : dist == 1 ? 0.72f : dist == 2 ? 0.54f : 0.40f;
+            f32 w = 156 * sc, h = 208 * sc;
+            f32 cx = 320 + side * (dist == 0 ? 0 : dist == 1 ? 136 : dist == 2 ? 220 : 268);
+            f32 y = 126 + (208 - h) / 2;
+            if (dist == 0) gx_glow(cx - w / 2, y, w, h, 10, RGBA(150, 80, 255, 160), 4);
+            gl_draw_cover(k, cx - w / 2, y, w, h, dist == 0);
+            if (dist) gx_rrect_fill(cx - w / 2, y, w, h, 4, RGBA(10, 6, 30, (u8)(60 + 40 * dist)), RGBA(10, 6, 30, (u8)(60 + 40 * dist)));
+            else gx_rrect_stroke(cx - w / 2 - 2, y - 2, w + 4, h + 4, 6, 2.0f, RGBA(255, 210, 120, 255));
+            gp_zone(cx - w / 2, y, w, h, &gl_sel, k, GPZ_SEL);
+        }
+    gl_title_of(gl_sel, d, sizeof(d));
+    fit_text(F_LARGE, d, 560, buf, sizeof(buf));
+    gx_text_c(F_LARGE, 320, 362, buf, RGBA(255, 255, 255, 255));
+    for (int i = 0; i < gl_n && gl_n <= 40; i++)                 /* points de position */
+        gx_circle(320 + (i - (gl_n - 1) / 2.0f) * 9, 382, 2.4f, i == gl_sel ? RGBA(255, 210, 120, 255) : RGBA(110, 90, 170, 255), i == gl_sel ? RGBA(255, 210, 120, 255) : RGBA(110, 90, 170, 255));
+}
+static void gl_draw_list(void) {
+    char buf[NAME_LEN], d[NAME_LEN], sz[32];
+    const int vis = 9;
+    int start = gl_sel - vis / 2;
+    if (start > gl_n - vis) start = gl_n - vis;
+    if (start < 0) start = 0;
+    for (int i = 0; i < vis && start + i < gl_n; i++) {
+        int k = start + i;
+        f32 y = 114 + i * 31;
+        int on = k == gl_sel;
+        gp_zone(20, y, 600, 29, &gl_sel, k, GPZ_SEL);
+        if (on) gx_rrect_fill(20, y, 600, 29, 6, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
+        GXTexObj *cov = NULL;
+        if (gl[k].post >= 0) {
+            int had = gl_find_slot(gl_cov, GL_SLOTS, k) != NULL;
+            cov = gl_cover(k, gl_loaded_frame < 3);
+            if (cov && !had) gl_loaded_frame++;
+        }
+        if (cov) draw_tex_fit(cov, 128, 128, 96, 128, 26, y + 2, 19, 25);
+        else { GXTexObj *b = gl_banner(k); if (b) draw_tex_fit(b, 96, 32, 96, 32, 24, y + 8, 26, 9); }
+        gl_title_of(k, d, sizeof(d));
+        fit_text(F_MED, d, 380, buf, sizeof(buf));
+        gx_text1(F_MED, 56, y + 21, buf, on ? RGBA(255, 255, 255, 255) : RGBA(215, 205, 245, 255));
+        gl_size_txt(gl[k].size, sz, sizeof(sz));
+        snprintf(d, sizeof(d), "%s   %s", gl[k].id, sz);
+        gx_text_r(F_SMALL, 610, y + 20, d, on ? RGBA(255, 230, 170, 255) : RGBA(170, 155, 225, 255));
+    }
+}
+static void gl_draw_showcase(void) {
+    char buf[NAME_LEN], d[NAME_LEN];
+    gcg_t *g = &gl[gl_sel];
+    if (now_ms() - last_input_ms > 150) gl_load_big(gl_sel);     /* (pas pendant le defilement) */
+    /* grande image : la capture, sinon la jaquette */
+    const f32 px = 24, py = 114, pw = 280, ph = 198;
+    if (g->still >= 0 && gl_bigst.game == gl_sel && gl_bigst.tex) draw_tex_fit(&gl_bigst.obj, 320, 240, 320, 240, px, py, pw, ph);
+    else if (g->post >= 0 && gl_big.game == gl_sel && gl_big.tex) draw_tex_fit(&gl_big.obj, 256, 256, 192, 256, px, py, pw, ph);
+    else gl_card_banner(gl_sel, px + pw / 2 - 75, py, 150, ph, 1);
+    gx_rrect_stroke(px - 1, py - 1, pw + 2, ph + 2, 4, 1.2f, RGBA(120, 90, 220, 255));
+    gl_title_of(gl_sel, d, sizeof(d));
+    int nl = gl_wrap(F_LARGE, d, 318, 136, 296, 24, 2, RGBA(255, 255, 255, 255));
+    char sz[32]; gl_size_txt(g->size, sz, sizeof(sz));
+    snprintf(buf, sizeof(buf), "%s   %s", g->id, sz);
+    gx_text1(F_SMALL, 318, 136 + nl * 24, buf, RGBA(255, 210, 120, 255));
+    if (g->desc) gl_wrap(F_SMALL, g->desc, 318, 158 + nl * 24, 296, 16, nl > 1 ? 7 : 8, RGBA(215, 205, 245, 255));
+    /* bande des jaquettes en bas */
+    const int n = 9; const f32 cw = 50, ch = 66, sp = 64;
+    int start = gl_sel - n / 2;
+    if (start > gl_n - n) start = gl_n - n;
+    if (start < 0) start = 0;
+    f32 x0 = 320 - (n * sp - (sp - cw)) / 2;
+    for (int i = 0; i < n && start + i < gl_n; i++) {
+        int k = start + i, on = k == gl_sel;
+        f32 x = x0 + i * sp, y = on ? 320 : 326;
+        if (on) gx_glow(x, y, cw, ch, 6, RGBA(150, 80, 255, 150), 3);
+        gl_draw_cover(k, x, y, cw, ch, on);
+        if (on) gx_rrect_stroke(x - 2, y - 2, cw + 4, ch + 4, 5, 2.0f, RGBA(255, 210, 120, 255));
+        gp_zone(x, y, cw, ch, &gl_sel, k, GPZ_SEL);
+    }
+}
+static void gl_draw_shelf(void) {
+    char buf[NAME_LEN], d[NAME_LEN];
+    const int cols = 6, rows = 2; const f32 cw = 72, ch = 96, sw = 96;
+    int row = gl_sel / cols, top = row > 0 ? row - 1 : 0;
+    int nrow = (gl_n + cols - 1) / cols;
+    if (top > nrow - rows) top = nrow - rows;
+    if (top < 0) top = 0;
+    f32 x0 = 320 - (cols * sw - (sw - cw)) / 2;
+    for (int r = 0; r < rows; r++) {
+        f32 base = 222 + r * 134;                                  /* dessus de la planche */
+        gx_quad4(30, base, 610, base, RGBA(150, 100, 60, 255), RGBA(150, 100, 60, 255), RGBA(96, 60, 34, 255), RGBA(96, 60, 34, 255));
+        gx_rect(30, base, 580, 2, RGBA(200, 150, 100, 255));
+        gx_quad4(30, base + 8, 610, base + 8, RGBA(70, 44, 26, 255), RGBA(70, 44, 26, 255), RGBA(40, 24, 14, 255), RGBA(40, 24, 14, 255));
+        gx_rect(30, base + 8, 580, 6, RGBA(70, 44, 26, 255));
+        gx_quad4(30, base + 14, 610, base + 14, RGBA(0, 0, 0, 90), RGBA(0, 0, 0, 90), RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0));
+        gx_rect(30, base + 14, 580, 10, RGBA(0, 0, 0, 50));
+        for (int c = 0; c < cols; c++) {
+            int k = (top + r) * cols + c;
+            if (k >= gl_n) break;
+            int on = k == gl_sel;
+            f32 x = x0 + c * sw, y = base - ch - (on ? 10 : 0);
+            gx_rect(x + 4, base - 3, cw - 4, 3, RGBA(0, 0, 0, 80));        /* ombre sur la planche */
+            if (on) gx_glow(x, y, cw, ch, 8, RGBA(150, 80, 255, 160), 3);
+            gl_draw_cover(k, x, y, cw, ch, on);
+            if (on) gx_rrect_stroke(x - 2, y - 2, cw + 4, ch + 4, 5, 2.0f, RGBA(255, 210, 120, 255));
+            gp_zone(x, y, cw, ch, &gl_sel, k, GPZ_SEL);
+        }
+    }
+    (void)buf; (void)d;
+}
+
+/* grande jaquette (niveau 0 : 256x256, dont 192x256 d'image) et capture du jeu k */
+static void gl_load_big(int k) {
+    gcg_t *g = &gl[k];
+    if (g->post >= 0 && gl_big.game != k) {
+        free(gl_big.tex); gl_big.tex = NULL; gl_big.game = k;
+        int w, h; u8 *c = swpk_read(&gl_post, g->post, 0, &w, &h);
+        if (c) { gl_big.tex = gl_cmpr_to_5a3(c, w, h); free(c); }
+        if (gl_big.tex) { GX_InitTexObj(&gl_big.obj, gl_big.tex, 256, 256, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE); GX_InitTexObjFilterMode(&gl_big.obj, GX_LINEAR, GX_LINEAR); }
+    }
+    if (g->still >= 0 && gl_bigst.game != k) {
+        free(gl_bigst.tex); gl_bigst.tex = NULL; gl_bigst.game = k;
+        int w, h; u8 *c = swpk_read(&gl_still, g->still, 0, &w, &h);
+        if (c) { gl_bigst.tex = gl_cmpr_to_5a3(c, w, h); free(c); }
+        if (gl_bigst.tex) { GX_InitTexObj(&gl_bigst.obj, gl_bigst.tex, 320, 240, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE); GX_InitTexObjFilterMode(&gl_bigst.obj, GX_LINEAR, GX_LINEAR); }
+    }
+}
 static void draw_gclib_main(void);
 static void draw_gclib(void) {
     draw_gclib_main();
@@ -554,6 +744,7 @@ static void draw_gclib(void) {
     }
 }
 static void draw_gclib_main(void) {
+    gl_loaded_frame = 0;
     char buf[NAME_LEN], d[NAME_LEN];
     draw_panel(11, 73, 618, 338);
     int tx = draw_tabs(NULL);
@@ -579,19 +770,7 @@ static void draw_gclib_main(void) {
     if (gl_sel >= gl_n) gl_sel = gl_n - 1;
     gcg_t *g = &gl[gl_sel];
     if (gl_detail) {
-        /* grande jaquette (niveau 0 : 256x256, dont 192x256 d'image) */
-        if (g->post >= 0 && gl_big.game != gl_sel) {
-            free(gl_big.tex); gl_big.tex = NULL; gl_big.game = gl_sel;
-            int w, h; u8 *c = swpk_read(&gl_post, g->post, 0, &w, &h);
-            if (c) { gl_big.tex = gl_cmpr_to_5a3(c, w, h); free(c); }
-            if (gl_big.tex) { GX_InitTexObj(&gl_big.obj, gl_big.tex, 256, 256, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE); GX_InitTexObjFilterMode(&gl_big.obj, GX_LINEAR, GX_LINEAR); }
-        }
-        if (g->still >= 0 && gl_bigst.game != gl_sel) {
-            free(gl_bigst.tex); gl_bigst.tex = NULL; gl_bigst.game = gl_sel;
-            int w, h; u8 *c = swpk_read(&gl_still, g->still, 0, &w, &h);
-            if (c) { gl_bigst.tex = gl_cmpr_to_5a3(c, w, h); free(c); }
-            if (gl_bigst.tex) { GX_InitTexObj(&gl_bigst.obj, gl_bigst.tex, 320, 240, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE); GX_InitTexObjFilterMode(&gl_bigst.obj, GX_LINEAR, GX_LINEAR); }
-        }
+        gl_load_big(gl_sel);
         const f32 cx = 28, cy = 112, cw = 192 * 0.98f, chh = 256 * 0.98f;
         if (g->post >= 0 && gl_big.game == gl_sel && gl_big.tex) {
             gx_glow(cx, cy, cw, chh, 8, RGBA(150, 80, 255, 110), 3);
@@ -632,41 +811,26 @@ static void draw_gclib_main(void) {
         gx_text_r(F_SMALL, 614, 396, buf, RGBA(150, 135, 210, 255));
         return;
     }
-    /* grille : 6 colonnes x 2 rangees */
-    const f32 x0 = 26, y0 = 112, sw = 98, cwid = 86, chei = 115, rh = 136;
-    int row = gl_sel / GL_COLS, top = row > 0 ? row - 1 : 0;
-    int rows = (gl_n + GL_COLS - 1) / GL_COLS;
-    if (top > rows - 2) top = rows - 2;
-    if (top < 0) top = 0;
-    int loaded = 0;
-    for (int r = 0; r < 2; r++)
-        for (int c = 0; c < GL_COLS; c++) {
-            int k = (top + r) * GL_COLS + c;
-            if (k >= gl_n) break;
-            f32 x = x0 + c * sw, y = y0 + r * rh;
-            int on = k == gl_sel;
-            gp_zone(x, y, cwid, chei + 16, &gl_sel, k, GPZ_SEL);
-            if (on) gx_glow(x, y, cwid, chei, 8, RGBA(150, 80, 255, 150), 3);
-            int had = gl[k].post >= 0 && gl_find_slot(gl_cov, GL_SLOTS, k) != NULL;
-            GXTexObj *cov = gl[k].post >= 0 ? gl_cover(k, loaded < 3) : NULL;   /* (3 jaquettes lues par image au plus) */
-            if (cov && !had) loaded++;
-            if (cov) draw_tex_fit(cov, 128, 128, 96, 128, x, y, cwid, chei);
-            else gl_card_banner(k, x, y, cwid, chei, on);
-            if (on) gx_rrect_stroke(x - 2, y - 2, cwid + 4, chei + 4, 6, 2.0f, RGBA(255, 210, 120, 255));
-            if (gl[k].disc) { snprintf(d, sizeof(d), "%s (%d)", gl[k].title, gl[k].disc + 1); fit_text(F_SMALL, d, (int)cwid + 6, buf, sizeof(buf)); }
-            else fit_text(F_SMALL, gl[k].title, (int)cwid + 6, buf, sizeof(buf));
-            gx_text_c(F_SMALL, x + cwid / 2, y + chei + 14, buf, on ? RGBA(255, 255, 255, 255) : RGBA(180, 168, 228, 255));
-        }
+    switch (gl_view) {
+    case GLV_CAROUSEL: gl_draw_carousel(); break;
+    case GLV_LIST:     gl_draw_list(); break;
+    case GLV_WALL:     gl_draw_grid(9, 3, 58, 78, 66, 89, 0); break;
+    case GLV_SHOW:     gl_draw_showcase(); break;
+    case GLV_SHELF:    gl_draw_shelf(); break;
+    default:           gl_draw_grid(6, 2, 86, 115, 98, 136, 1); break;
+    }
     /* le jeu choisi */
     char sz[32]; gl_size_txt(g->size, sz, sizeof(sz));
     if (g->disc) snprintf(d, sizeof(d), "%s   disque %d   %s", g->id, g->disc + 1, sz);
     else snprintf(d, sizeof(d), "%s   %s", g->id, sz);
     fit_text(F_MED, g->title, 420, buf, sizeof(buf));
     if (now_ms() - gl_msg_t < 3500) gx_text1(F_SMALL, 30, 400, gl_msg, RGBA(255, 210, 120, 255));
-    else { gx_text1(F_MED, 30, 400, buf, RGBA(255, 255, 255, 255)); gx_text_r(F_SMALL, 614, 400, d, RGBA(255, 210, 120, 255)); }
-    static const char *const k[] = { "A", "X", "Y", "B" };
-    static const char *const l[] = { "FICHE", "CHEATS", "ACTUALISER", "RETOUR" };
-    draw_legend_keys(k, l, 4);
+    else if (gl_view != GLV_CAROUSEL && gl_view != GLV_SHOW) { gx_text1(F_MED, 30, 400, buf, RGBA(255, 255, 255, 255)); gx_text_r(F_SMALL, 614, 400, d, RGBA(255, 210, 120, 255)); }
+    snprintf(d, sizeof(d), "R : %s", TR(gl_view_names[gl_view]));
+    gx_text_r(F_SMALL, 614, 99, d, RGBA(170, 160, 220, 255));
+    static const char *const k[] = { "A", "X", "Y", "R", "B" };
+    static const char *const l[] = { "FICHE", "CHEATS", "ACTUALISER", "AFFICHAGE", "RETOUR" };
+    draw_legend_keys(k, l, 5);
 }
 
 /* ======================= v26 : lancer un jeu avec Swiss =======================

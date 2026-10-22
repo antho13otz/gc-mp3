@@ -262,8 +262,7 @@ static void draw_layout_list(void) {
     np_get(&n);
     char buf[300];
     draw_list_wide();
-    gx_rrect_fill(289, 419, 341, 39, 9, C_PANEL_TOP, C_PANEL_BOT);
-    gx_rrect_stroke(289, 419, 341, 39, 9, 1.2f, RGBA(100, 56, 220, 255));
+    legend_box(289, 341);
     f32 x = 296;
     if (EL(EL_COVER)) { draw_cover_at(x, 423, 31); x += 38; }
     fit_text(F_MED, n.title, (int)(622 - x - 70), buf, sizeof(buf));
@@ -314,6 +313,7 @@ static void layout_next(void) {
 
 /* horloge en haut de l'ecran */
 static void draw_header_clock(void) {
+    if (ui_skin) return;                                         /* (Moderne : dans l'en-tete) */
     if (!EL(EL_CLOCK)) return;
     time_t t = time(NULL);
     struct tm *tm = localtime(&t);
@@ -375,15 +375,13 @@ static void draw_list_wide(void) {
         f32 th = 270.0f * rows / nents, ty = 132.0f + (270.0f - th) * (f32)start / (f32)(nents - rows);
         gx_rrect_fill(623, ty, 3, th, 1.5f, RGBA(150, 96, 255, 255), RGBA(110, 60, 230, 255));
     }
-    gx_rrect_fill(11, 419, 271, 39, 9, C_PANEL_TOP, C_PANEL_BOT);
-    gx_rrect_stroke(11, 419, 271, 39, 9, 1.2f, RGBA(100, 56, 220, 255));
+    legend_box(11, 271);
     snprintf(buf, sizeof(buf), "< %s >   Liste \xC3\xA9tendue", TR(view_names[view_mode]));
     gx_text1(F_SMALL, 24, 443, buf, RGBA(170, 155, 225, 255));
 }
 
 static void draw_layout_hint(void) {
-    gx_rrect_fill(11, 419, 271, 39, 9, C_PANEL_TOP, C_PANEL_BOT);
-    gx_rrect_stroke(11, 419, 271, 39, 9, 1.2f, RGBA(100, 56, 220, 255));
+    legend_box(11, 271);
     gx_text1(F_SMALL, 24, 436, "A : pause    L / R : morceau", RGBA(208, 198, 240, 255));
     gx_text1(F_SMALL, 24, 452, "Stick C bas : disposition", RGBA(150, 135, 210, 255));
 }
@@ -397,8 +395,7 @@ static void draw_legend_keys(const char *const *keys, const char *const *labels,
     K[cnt] = "Z"; L[cnt] = "ONGLET"; cnt++;
     K[cnt] = "ST"; L[cnt] = "MENU"; cnt++;
     const f32 x0 = 11, w = 618, cy = 438.5f;
-    gx_rrect_fill(x0, 419, w, 39, 9, C_PANEL_TOP, C_PANEL_BOT);
-    gx_rrect_stroke(x0, 419, w, 39, 9, 1.2f, RGBA(100, 56, 220, 255));
+    legend_box(x0, w);
     f32 total = 0;
     for (int i = 0; i < cnt; i++) total += 20 + 5 + text_width(F_SMALL, L[i], 1);
     f32 space = (w - 40 - total) / (cnt - 1);
