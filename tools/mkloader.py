@@ -82,7 +82,7 @@ static void gcmp3_return(int argc, char *argv[])
 	gcmp3_logf("retour sur GC-MP3 : [%s]\\n", path);
 	gcmp3_save_log();
 	if(!path[0]) return;
-	uiDrawObj_t *msgBox = DrawPublish(DrawProgressBar(true, 0, "Retour sur GC-MP3\\205"));
+	uiDrawObj_t *msgBox = DrawPublish(DrawProgressBar(true, 0, "Retour sur GC Station\\205"));
 	int r = find_existing_entry(path, true);
 	DrawDispose(msgBox);
 	gcmp3_logf("retour impossible (%d)\\n", r);
@@ -247,7 +247,7 @@ static const char *gcmp3_fr(const char *m)
 		{ "Reading", "Lecture du jeu" }, { "Checking Game", "V\\351rification du jeu" },
 		{ "Detecting devices", "Recherche de la carte SD" }, { "Initialising Network", "Connexion au r\\351seau" },
 		{ "Saving recent list", "Pr\\351paration" }, { "Setup base offset", "Pr\\351paration" },
-		{ "Retour sur GC-MP3", "Retour sur GC-MP3" }, { "Applied", "Cheats activ\\351s" }, { "Loading", "Chargement" },
+		{ "Retour sur GC Station", "Retour sur GC Station" }, { "Applied", "Cheats activ\\351s" }, { "Loading", "Chargement" },
 	};
 	for(unsigned i = 0; i < sizeof(t) / sizeof(t[0]); i++)
 		if(!strncmp(m, t[i].en, strlen(t[i].en))) {
@@ -270,7 +270,7 @@ static void _DrawGcmp3Loading(void)
 		int h = 6 + (int)(v * 46);
 		_DrawSimpleBox(40 + i * 14, 430 - h, 10, h, 0, (GXColor) {150 + i * 2, 80, 255 - i * 2, 70}, none);
 	}
-	drawString(320, 170, "GC-MP3", 2.6f, ALIGN_CENTER, (GXColor) {225,205,255,255});
+	drawString(320, 170, "GC STATION", 2.2f, ALIGN_CENTER, (GXColor) {225,205,255,255});
 	if(gcmp3_title[0]) drawStringEllipsis(320, 228, gcmp3_title, 1.0f, ALIGN_CENTER, (GXColor) {255,255,255,255}, false, 560);
 	const char *st = gcmp3_status[0] ? gcmp3_fr(gcmp3_status) : "Chargement";
 	char line[128];

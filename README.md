@@ -1,4 +1,6 @@
-# GC-MP3 — Indigo Audio Player
+# GC Station — Indigo Media Center
+
+*(anciennement GC-MP3 : les fichiers gardent leur nom, `gc-mp3player.dol` et `SD:/gc-mp3`, pour que les mises à jour continuent de marcher)*
 
 Lecteur audio pour GameCube : **ta musique** (carte SD), des **webradios**, un **navigateur web**,
 la **musique de jeux rétro**, des **podcasts**, tes **photos et vidéos**, un **explorateur de fichiers**,
@@ -18,6 +20,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 **Z** passe à l'onglet suivant : MUSIQUE, RADIO, WEB, RÉTRO, PODCASTS, PHOTOS, FICHIERS, INFOS,
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
+
+## Nouveautés v47
+- **GC-MP3 devient GC Station** : nouveau nom partout (logo « GC STATION », sous-titre « INDIGO MEDIA CENTER », menus, messages, écran de chargement des jeux, télécommande sur téléphone).
+- Rien ne change sur la carte SD : mêmes fichiers et dossiers, la mise à jour automatique continue.
 
 ## Nouveautés v46
 - **Écran de chargement GC-MP3** pendant le lancement d'un jeu (nom du jeu, étape, barre d'avancement) : plus du tout l'interface de Swiss.

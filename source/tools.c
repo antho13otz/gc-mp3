@@ -656,7 +656,7 @@ static void info_open(void) { tl_screen = TL_INFO; tl_info_fresh = 1; tl_sd_know
 static void info_lines(char (*l)[2][120], int *n) {
     int k = 0;
     #define IL(a, ...) do { snprintf(l[k][0], 120, "%s", TR(a)); snprintf(l[k][1], 120, __VA_ARGS__); k++; } while (0)
-    IL("GC-MP3", "%s (build %d)", GCMP3_VERSION, GCMP3_BUILD);
+    IL("GC Station", "%s (build %d)", GCMP3_VERSION, GCMP3_BUILD);
     u32 tv = VIDEO_GetCurrentTvMode();
     IL("Console", "%s", tv == VI_PAL ? "PAL (50 Hz)" : tv == VI_EURGB60 ? "PAL (60 Hz)" : tv == VI_MPAL ? "PAL-M" : "NTSC");
     IL("Vid\xC3\xA9o", "%s%s", vid_active == VID_480P ? "480p" : "480i", VIDEO_HaveComponentCable() ? TR(" (c\xC3\xA2" "ble composante)") : "");
@@ -952,7 +952,7 @@ enum { TO_RECENT, TO_GAMES, TO_CHEATS, TO_INFO, TO_SWISS, TO_COUNT };   /* (v43 
 static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s",
     "Mes jeux, applis et cartes m\xC3\xA9moire", "Cheats Swiss (\xC3\xA9" "diteur)", "Infos console", "Quitter vers Indigo / Swiss" };
 static const char *const to_help[TO_COUNT] = {
-    "Relancer un jeu en un clic (jeux lanc\xC3\xA9s depuis GC-MP3 et depuis Indigo).",
+    "Relancer un jeu en un clic (jeux lanc\xC3\xA9s depuis GC Station et depuis Indigo).",
     "Onglet JEUX / APPS. Dans la fiche d'un jeu : Y = r\xC3\xA9glages du jeu.",
     "Modifier et activer les cheats de tes jeux (dossier swiss/cheats).",
     "Version, vid\xC3\xA9o, m\xC3\xA9moire, carte SD, r\xC3\xA9seau.",
@@ -979,7 +979,7 @@ static void tools_menu_input(u32 down, u32 nav, int fire) {
 }
 static void tools_menu_draw(f32 x, f32 y, f32 w, int vis, f32 rh, f32 help_y) {
     (void)vis;
-    gx_text1(F_SMALL, x + 8, y - 16, ui_en ? "Tools from Indigo / Swiss, inside GC-MP3" : "Les outils d'Indigo / Swiss, dans GC-MP3", RGBA(150, 135, 210, 255));
+    gx_text1(F_SMALL, x + 8, y - 16, ui_en ? "Tools from Indigo / Swiss, inside GC Station" : "Les outils d'Indigo / Swiss, dans GC Station", RGBA(150, 135, 210, 255));
     for (int i = 0; i < TO_COUNT; i++) {
         f32 ry = y + i * (rh + 4);
         int on = i == to_sel;

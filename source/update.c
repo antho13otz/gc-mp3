@@ -222,7 +222,7 @@ static void up_install_finish(const u8 *d, long n) {
         return;
     }
     /* les autres copies (ipl.dol, apps...) */
-    ui_status("Mise \xC3\xA0 jour des autres copies de GC-MP3...");
+    ui_status("Mise \xC3\xA0 jour des autres copies de GC Station...");
     up_ncopies = 0;
     up_find_copies(SD_ROOT, 2);
     int nok = 0;
@@ -232,7 +232,7 @@ static void up_install_finish(const u8 *d, long n) {
         crumb("mise a jour : copie %s %s", up_copies[i], ok ? "ok" : "ECHEC");
     }
     up_state = UP_DONE;
-    snprintf(up_msg, sizeof(up_msg), "Install\xC3\xA9" "e (build %d) : A pour relancer GC-MP3", up_build);   /* v38 */
+    snprintf(up_msg, sizeof(up_msg), "Install\xC3\xA9" "e (build %d) : A pour relancer GC Station", up_build);   /* v38 */
     (void)nok;
     crumb("mise a jour installee : build %d -> %s (+%d copies)", up_build, up_target, nok);
 }
@@ -333,7 +333,7 @@ static void update_relaunch(void) {
     if (stats_dirty) stats_save();
     resume_note(1);
     if (settings_dirty) save_settings();
-    const char *e = gl_boot_dol(up_target, NULL, NULL, "GC-MP3");     /* (ne revient pas si ca marche) */
+    const char *e = gl_boot_dol(up_target, NULL, NULL, "GC Station");     /* (ne revient pas si ca marche) */
     if (e) { snprintf(up_msg, sizeof(up_msg), "%s", TR(e)); quit_requested = 1; }
 }
 /* v38 : bouton Reset de la console pendant GC-MP3 : relance GC-MP3 (sans passer par
@@ -353,12 +353,12 @@ static void reset_pump(void) {
     if (up_state == UP_DL || up_state == UP_WRITE) return;      /* (pas pendant une mise a jour) */
     up_pick_target();
     crumb("bouton Reset : relance %s", up_target);
-    ui_status("Red\xC3\xA9marrage de GC-MP3...");
+    ui_status("Red\xC3\xA9marrage de GC Station...");
     if (bib_dirty) bib_save();
     if (stats_dirty) stats_save();
     resume_note(1);
     if (settings_dirty) save_settings();
-    const char *e = gl_boot_dol(up_target, NULL, NULL, "GC-MP3");
+    const char *e = gl_boot_dol(up_target, NULL, NULL, "GC Station");
     if (e) lib_note(e);
 }
 static void update_activate(void) {
@@ -385,7 +385,7 @@ static void update_value(char *out, int cap) {
 static void draw_update_notice(void) {
     if (!up_notice_until || now_ms() >= up_notice_until || up_state != UP_AVAIL) return;
     char m[120];
-    snprintf(m, sizeof(m), "Nouvelle version de GC-MP3 (build %d) : START > Mise \xC3\xA0 jour", up_build);
+    snprintf(m, sizeof(m), "Nouvelle version de GC Station (build %d) : START > Mise \xC3\xA0 jour", up_build);
     int w = text_width(F_SMALL, m, 0) + 30;
     gx_rrect_fill(320 - w / 2.0f, 92, (f32)w, 26, 9, RGBA(20, 70, 40, 240), RGBA(20, 70, 40, 240));
     gx_text_c(F_SMALL, 320, 110, m, RGBA(255, 255, 255, 255));

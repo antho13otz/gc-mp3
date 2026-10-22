@@ -90,8 +90,8 @@ static void igr_install(void) {
     if (!igr_copy(IGR_MINE, IGR_IMG)) { snprintf(igr_msg, sizeof(igr_msg), "%s", TR("\xC3\x89" "criture sur la carte SD impossible")); return; }
     igr_set_type("Apploader");
     igr_cache = 1;
-    snprintf(igr_msg, sizeof(igr_msg), "%s", TR("A + Z + START en jeu : retour sur GC-MP3"));
-    crumb("retour en jeu : GC-MP3");
+    snprintf(igr_msg, sizeof(igr_msg), "%s", TR("A + Z + START en jeu : retour sur GC Station"));
+    crumb("retour en jeu : GC Station");
 }
 static void igr_disable(void) {
     struct stat st;
@@ -183,9 +183,9 @@ static void igr_toggle(void) {
 }
 static void igr_value(char *out, int cap) {
     if (igr_state != IGR_IDLE) snprintf(out, cap, "%s", TR("T\xC3\xA9l\xC3\xA9" "chargement..."));
-    else snprintf(out, cap, "%s", igr_on() ? "GC-MP3" : "Indigo");
+    else snprintf(out, cap, "%s", igr_on() ? "GC Station" : "Indigo");
 }
 static const char *igr_hint(void) {
     if (igr_msg[0]) return igr_msg;
-    return "En jeu, A + Z + START revient sur GC-MP3 (ou sur Indigo). Change aussi le r\xC3\xA9glage d'Indigo";
+    return "En jeu, A + Z + START revient sur GC Station (ou sur Indigo). Change aussi le r\xC3\xA9glage d'Indigo";
 }

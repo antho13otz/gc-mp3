@@ -1053,7 +1053,7 @@ static void draw_gclib_main(void) {
                 snprintf(buf, sizeof(buf), cn == 1 ? TR("Avec 1 cheat activ\xC3\xA9") : TR("Avec %d cheats activ\xC3\xA9s"), cn);
                 gx_text_c(F_SMALL, x + w / 2, y + 76, buf, RGBA(130, 230, 150, 255));
             } else
-            gx_text_c(F_SMALL, x + w / 2, y + 76, ld_ready() ? "Lanceur GC-MP3 (B maintenu : \xC3\xA9" "cran du jeu de Swiss)" : "GC-MP3 se ferme et Swiss ouvre directement le jeu.", RGBA(190, 180, 235, 255));
+            gx_text_c(F_SMALL, x + w / 2, y + 76, ld_ready() ? "Lanceur GC Station (B maintenu : \xC3\xA9" "cran du jeu de Swiss)" : "GC Station se ferme et Swiss ouvre directement le jeu.", RGBA(190, 180, 235, 255));
             gx_text_c(F_SMALL, x + w / 2, y + 98, "A : lancer     B : annuler", RGBA(255, 210, 120, 255));
         }
         snprintf(buf, sizeof(buf), "%d / %d   (gauche / droite)", gl_sel + 1, gl_n);
@@ -1257,7 +1257,7 @@ static const char *gl_boot_swiss(const char *path) {
         }
         const char *e = gl_boot_dol(LD_DOL, a1, gl_boot_cheats ? "AutoCheats=Yes" : NULL, "jeu");
         gl_arg3 = NULL; gl_arg4 = NULL;
-        crumb("lanceur GC-MP3 : %s", e ? e : "?");
+        crumb("lanceur GC Station : %s", e ? e : "?");
         if (e && strncmp(e, "(simulateur", 11)) { remove(LD_DOL); ld_cache = -1; }   /* (lanceur abime : Swiss, puis nouveau telechargement) */
         else return e;
     } else if (path) ld_fetch(0);                 /* (pas encore la : pret pour la prochaine fois) */
@@ -1430,6 +1430,6 @@ static const char *autostart_set(int on) {
     remove(GL_SWISS_INI);
     if (rename(tmp, GL_SWISS_INI) != 0) return "Impossible d'\xC3\xA9" "crire sur la carte SD";
     as_cache = on;
-    lib_note(on ? "GC-MP3 s'ouvrira au d\xC3\xA9marrage d'Indigo / Swiss" : "Indigo / Swiss s'ouvrira normalement");
+    lib_note(on ? "GC Station s'ouvrira au d\xC3\xA9marrage d'Indigo / Swiss" : "Indigo / Swiss s'ouvrira normalement");
     return NULL;
 }

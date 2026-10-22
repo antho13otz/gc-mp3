@@ -9,7 +9,7 @@
 
 #define CRASH_FILE  GCD "/gc-mp3-crash.txt"
 #define CRASH_OLD   GCD "/gc-mp3-crash-ancien.txt"
-#define GCMP3_VERSION "v46"
+#define GCMP3_VERSION "v47"
 
 #if defined(__has_include)
 #if __has_include(<tuxedo/ppc/exception.h>) && __has_include(<tuxedo/thread.h>)
@@ -98,7 +98,7 @@ static void crash_build(const char *kind, u32 pc, u32 lr, u32 sp, int has_dar, u
     crash_len = 0;
     crash_nnames = 0;
     u32 up = (u32)((now_ms() - crash_boot_ms) / 1000);
-    cr_add("GC-MP3 %s - journal de plantage\n", GCMP3_VERSION);
+    cr_add("GC Station %s - journal de plantage\n", GCMP3_VERSION);
     cr_add("Type : %s\n", kind);
     cr_add("Depuis le demarrage : %u min %02u s\n", (unsigned)(up / 60), (unsigned)(up % 60));
     if (!&gcmp3_symtab_n || !gcmp3_symtab_n) cr_add("(pas de table des symboles : adresses seules)\n");
@@ -257,7 +257,7 @@ static void crash_beat(void) {
 static void draw_crash_notice(void) {
     if (!crash_notice_until || now_ms() >= crash_notice_until) return;
     gx_rrect_fill(40, 396, 560, 44, 10, RGBA(70, 10, 30, 240), RGBA(70, 10, 30, 240));
-    gx_text_c(F_SMALL, 320, 414, "GC-MP3 s'est arr\xC3\xAAt\xC3\xA9 la derni\xC3\xA8re fois : journal dans SD:/gc-mp3/gc-mp3-crash-ancien.txt",
+    gx_text_c(F_SMALL, 320, 414, "GC Station s'est arr\xC3\xAAt\xC3\xA9 la derni\xC3\xA8re fois : journal dans SD:/gc-mp3/gc-mp3-crash-ancien.txt",
               RGBA(255, 255, 255, 255));
     gx_text_c(F_SMALL, 320, 432, "(lisible aussi sur le t\xC3\xA9l\xC3\xA9phone : onglet T\xC3\x89L\xC3\x89PHONE, adresse /crash.txt)",
               RGBA(255, 200, 210, 255));
