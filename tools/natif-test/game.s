@@ -27,6 +27,13 @@ _start:
     stw 12,0x300C(11)
     stw 12,0x3014(11)
     stw 12,0x3018(11)
+    # v67 : faux OSContext (0x80001C00) passe aux fonctions d'interruption : srr0 = dvd_cmd, lr = _start
+    lis 12,dvd_cmd@ha
+    addi 12,12,dvd_cmd@l
+    stw 12,0x1D98(11)
+    lis 12,_start@ha
+    addi 12,12,_start@l
+    stw 12,0x1C84(11)
     # active les interruptions de fin (masque TCINT) et acquitte
     lis 9,0xCC00
     li 0,0x3A
@@ -239,7 +246,8 @@ dvd_cmd:
     lwz 12,0x3094(12)
     mtctr 12
     li 3,21
-    li 4,0
+    lis 4,0x8000
+    ori 4,4,0x1C00
     bctrl
     lwz 0,36(1)
     mtlr 0

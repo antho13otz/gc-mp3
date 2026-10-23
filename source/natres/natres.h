@@ -8,7 +8,7 @@
 #define NATRES_AT     0x817F0000u        /* adresse fixe (liee par tools/natres.ld) */
 #define NATRES_SIZE   0x0000FF00u        /* place reservee (le haut, 817FFF00+, est laisse a la console) */
 #define NATRES_MAGIC  0x4743534Eu        /* "GCSN" */
-#define NATRES_VER    9
+#define NATRES_VER    10
 #define NATRES_MAXEXT 1500               /* morceaux de l'ISO sur la carte (fichier fragmente) ; v60 : 2000 (place pour les aiguillages) */
 
 /* erreurs (champ err) */
@@ -67,9 +67,12 @@ typedef struct {
     unsigned int card_cmds, card_writes, card_last, card_irqs;
     /* v66 : diagnostic des ecrans noirs (Paper Mario) : crochets poses, entrees dans les fonctions du jeu */
     unsigned int n_inq, hook_mask, vi_in, si_in;          /* vraies inquiry, bits = interruptions branchees, VI / SI entrees */
+    /* v67 : ou en est le jeu tant qu'il n'affiche rien : adresse du code interrompu (echantillons
+       pris aux fins de commande du vrai lecteur, relance aussitot), etat du DSP */
+    unsigned int n_samp, samp_lr, samp_pc[4], dsp_csr, dsp_mbox;
 } natres_hdr_t;
 
-#define NATRES_LOGN 13                    /* anneau : {commande, position, longueur, infos} (0x130 + 13 x 16 = 0x200) */
+#define NATRES_LOGN 11                    /* anneau : {commande, position, longueur, infos} (0x150 + 11 x 16 = 0x200) */
 #define NATRES_CARDMAX 64                 /* morceaux du fichier de la carte virtuelle */
 #define NRF_CARD      4u                  /* v65 : carte memoire virtuelle active */
 #define NATRES_RETMAX 64                  /* morceaux du .dol de GC Station */
@@ -77,6 +80,6 @@ typedef struct {
 #define NRF_REAL_IRQ  1u   /* reveiller le jeu par une vraie commande "inquiry" du lecteur */
 #define NRF_IGR       2u   /* v59 : A+Z+START = retour a GC Station (crochet des manettes) */
 
-typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x130 ? 1 : -1];
+typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x150 ? 1 : -1];
 
 #endif
