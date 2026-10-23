@@ -15,6 +15,7 @@ static u32 be32(const unsigned char *p){return (u32)p[0]<<24|p[1]<<16|p[2]<<8|p[
 static void service_audio(void){}
 static int nat_ld_on = 0;
 static void draw(void) {}
+static volatile u32 retrace_count = 0; static int present_nowait = 0;
 #define TR(x) (x)
 static const char *nat_self_path(void) { return getenv("NATIF_SELF"); }   /* (v64 : .dol "GC Station" pour le retour) */
 

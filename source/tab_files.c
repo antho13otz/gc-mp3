@@ -3,7 +3,7 @@
 // creer un dossier, voir la place libre, lire un fichier texte.
 #define FE_MAX 1000
 
-typedef struct { char name[128]; long size; u8 dir; } fent_t;
+typedef struct { char name[128]; long size; u8 dir, mark; } fent_t;
 static fent_t *fe = NULL;
 static int nfe = 0, fe_sel = 0;
 static char fe_cwd[NAME_LEN] = "";
@@ -11,13 +11,18 @@ static char fe_msg[160];
 static u64 fe_msg_t = 0;
 static long fe_free = -1;
 static int fe_show_hidden = 1, fe_hide_unknown = 0;   /* v34 : reglages d'Indigo (fichiers caches, types inconnus) */
-/* presse-papiers */
-static char clip_path[NAME_LEN] = "";
-static int clip_cut = 0;
-/* copie en cours (par morceaux, sans bloquer) */
+/* presse-papiers (v72 : plusieurs fichiers / dossiers) */
+#define CLIP_MAX 1000
+static char clip_path[NAME_LEN] = "";                 /* (le premier : affichage) */
+static char (*clip_list)[NAME_LEN] = NULL;
+static int clip_n = 0, clip_cut = 0;
+/* copie en cours (par morceaux, sans bloquer ; v72 : une file de fichiers, dossiers compris) */
 static FILE *fcp_in = NULL, *fcp_out = NULL;
 static long fcp_done = 0, fcp_total = 0;
 static char fcp_dst[NAME_LEN];
+static char (*cpq_src)[NAME_LEN] = NULL, (*cpq_dst)[NAME_LEN] = NULL;
+static int cpq_n = 0, cpq_i = 0, cpq_fail = 0;
+static long cpq_bytes = 0, cpq_total = 0;
 /* menu d'actions et confirmation */
 static int fa_open = 0, fa_sel = 0, fa_confirm = 0;
 /* lecture d'un fichier texte */
@@ -71,6 +76,7 @@ static void fe_load(void) {
         if (fe_hide_unknown && !is_dir(path, e) && !fe_known(e->d_name)) continue;
         snprintf(fe[nfe].name, sizeof(fe[nfe].name), "%s", e->d_name);
         fe[nfe].dir = (u8)is_dir(path, e);
+        fe[nfe].mark = 0;
         fe[nfe].size = 0;
         if (!fe[nfe].dir) { struct stat st; if (stat(path, &st) == 0) fe[nfe].size = (long)st.st_size; }
         nfe++;
@@ -135,44 +141,108 @@ static void fe_open(int i) {
     fe_note("Ce type de fichier ne s'ouvre pas ici");
 }
 
-static void fe_paste(void) {
-    if (!clip_path[0]) { fe_note("Rien \xC3\xA0 coller (copie ou coupe d'abord)"); return; }
-    char dst[NAME_LEN];
-    snprintf(dst, sizeof(dst), "%s/%s", fe_cwd, base_of(clip_path));
+static int fe_nmark(void) { int n = 0; for (int i = 0; i < nfe; i++) n += fe[i].mark; return n; }
+/* nom libre dans le dossier : "nom (2).ext" si "nom.ext" existe deja */
+static void fe_free_name(const char *dir, const char *name, char *out, int cap) {
     struct stat st;
-    if (stat(dst, &st) == 0) { fe_note("Un fichier porte d\xC3\xA9j\xC3\xA0 ce nom ici"); return; }
+    snprintf(out, cap, "%s/%s", dir, name);
+    const char *e = strrchr(name, '.');
+    int bl = e && e != name ? (int)(e - name) : (int)strlen(name);
+    for (int k = 2; k < 1000 && stat(out, &st) == 0; k++) snprintf(out, cap, "%s/%.*s (%d)%s", dir, bl, name, k, e && e != name ? e : "");
+}
+static void cpq_add(const char *src, const char *dst) {
+    if (!cpq_src) { cpq_src = malloc(sizeof(*cpq_src) * CLIP_MAX); cpq_dst = malloc(sizeof(*cpq_dst) * CLIP_MAX); }
+    if (!cpq_src || !cpq_dst || cpq_n >= CLIP_MAX) { cpq_fail++; return; }
+    struct stat st;
+    if (stat(src, &st) == 0) cpq_total += (long)st.st_size;
+    snprintf(cpq_src[cpq_n], NAME_LEN, "%s", src);
+    snprintf(cpq_dst[cpq_n], NAME_LEN, "%s", dst);
+    cpq_n++;
+}
+static void cpq_add_tree(const char *src, const char *dst, int depth) {   /* un dossier : recree, et ses fichiers dans la file */
+    if (depth > 8 || mkdir(dst, 0777) != 0) { cpq_fail++; return; }
+    DIR *d = opendir(src);
+    if (!d) { cpq_fail++; return; }
+    struct dirent *e;
+    char s2[NAME_LEN], d2[NAME_LEN];
+    while ((e = readdir(d)) != NULL) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        snprintf(s2, sizeof(s2), "%s/%s", src, e->d_name);
+        snprintf(d2, sizeof(d2), "%s/%s", dst, e->d_name);
+        if (is_dir(s2, e)) cpq_add_tree(s2, d2, depth + 1); else cpq_add(s2, d2);
+    }
+    closedir(d);
+}
+static void fe_paste(void) {
+    if (!clip_n) { fe_note("Rien \xC3\xA0 coller (copie ou coupe d'abord)"); return; }
+    if (fcp_in || cpq_i < cpq_n) { fe_note("Une copie est d\xC3\xA9j\xC3\xA0 en cours"); return; }
+    int ok = 0, fail = 0;
+    char dst[NAME_LEN];
+    if (!clip_cut) { cpq_n = cpq_i = cpq_fail = 0; cpq_bytes = cpq_total = 0; }
+    for (int c = 0; c < clip_n; c++) {
+        const char *src = clip_list[c];
+        size_t sl = strlen(src);
+        if (!strncmp(fe_cwd, src, sl) && (fe_cwd[sl] == '/' || fe_cwd[sl] == 0)) { fail++; continue; }   /* (un dossier dans lui-meme) */
+        fe_free_name(fe_cwd, base_of(src), dst, sizeof(dst));
+        struct stat st;
+        if (stat(src, &st) != 0) { fail++; continue; }
+        if (clip_cut) { if (rename(src, dst) == 0) ok++; else fail++; }
+        else if (S_ISDIR(st.st_mode)) cpq_add_tree(src, dst, 0);
+        else cpq_add(src, dst);
+    }
+    char m[120];
     if (clip_cut) {
-        if (rename(clip_path, dst) == 0) { fe_note("D\xC3\xA9plac\xC3\xA9"); clip_path[0] = 0; fe_changed(); }
-        else fe_note("D\xC3\xA9placement impossible");
+        snprintf(m, sizeof(m), fail ? "D\xC3\xA9plac\xC3\xA9s : %d, impossibles : %d" : "D\xC3\xA9plac\xC3\xA9s : %d", ok, fail);
+        fe_note(m);
+        clip_n = 0; clip_path[0] = 0;
+        fe_changed();
         return;
     }
-    if (stat(clip_path, &st) != 0 || S_ISDIR(st.st_mode)) { fe_note("Seuls les fichiers se copient (pas les dossiers)"); return; }
-    if (fcp_in) { fe_note("Une copie est d\xC3\xA9j\xC3\xA0 en cours"); return; }
-    fcp_in = fopen(clip_path, "rb");
-    fcp_out = fcp_in ? fopen(dst, "wb") : NULL;
-    if (!fcp_in || !fcp_out) { if (fcp_in) fclose(fcp_in); fcp_in = NULL; fe_note("Copie impossible"); return; }
-    fcp_total = (long)st.st_size;
-    fcp_done = 0;
-    snprintf(fcp_dst, sizeof(fcp_dst), "%s", dst);
+    cpq_fail += fail;
+    if (!cpq_n) { fe_note(cpq_fail ? "Copie impossible" : "Rien \xC3\xA0 copier"); fe_changed(); return; }
+    snprintf(m, sizeof(m), "Copie de %d fichier%s...", cpq_n, cpq_n > 1 ? "s" : "");
+    fe_note(m);
 }
 
 static void files_pump(void) {
-    if (!fcp_in) return;
-    static unsigned char b[65536];
-    size_t n = fread(b, 1, sizeof(b), fcp_in);
-    if (n > 0 && fwrite(b, 1, n, fcp_out) != n) {
-        fclose(fcp_in); fclose(fcp_out); fcp_in = fcp_out = NULL; remove(fcp_dst); fe_note("Copie interrompue : carte pleine ?"); return;
+    if (!fcp_in) {
+        if (cpq_i >= cpq_n) return;
+        while (cpq_i < cpq_n && !fcp_in) {                       /* fichier suivant de la file */
+            fcp_in = fopen(cpq_src[cpq_i], "rb");
+            fcp_out = fcp_in ? fopen(cpq_dst[cpq_i], "wb") : NULL;
+            if (!fcp_in || !fcp_out) { if (fcp_in) fclose(fcp_in); fcp_in = NULL; cpq_fail++; cpq_i++; continue; }
+            struct stat st;
+            fcp_total = stat(cpq_src[cpq_i], &st) == 0 ? (long)st.st_size : 0;
+            fcp_done = 0;
+            snprintf(fcp_dst, sizeof(fcp_dst), "%s", cpq_dst[cpq_i]);
+        }
+        if (!fcp_in) goto fini;
     }
-    fcp_done += (long)n;
-    if (n == 0 || fcp_done >= fcp_total) {
+    {
+        static unsigned char b[65536];
+        size_t n = fread(b, 1, sizeof(b), fcp_in);
+        if (n > 0 && fwrite(b, 1, n, fcp_out) != n) {
+            fclose(fcp_in); fclose(fcp_out); fcp_in = fcp_out = NULL; remove(fcp_dst); cpq_i = cpq_n; fe_note("Copie interrompue : carte pleine ?"); fe_changed(); return;
+        }
+        fcp_done += (long)n; cpq_bytes += (long)n;
+        if (n > 0 && fcp_done < fcp_total) return;
         fclose(fcp_in); fclose(fcp_out); fcp_in = fcp_out = NULL;
-        fe_note("Copie termin\xC3\xA9" "e");
+        cpq_i++;
+        if (cpq_i < cpq_n) return;
+    }
+fini:
+    {
+        char m[120];
+        if (cpq_fail) snprintf(m, sizeof(m), "Copie termin\xC3\xA9" "e : %d fichier%s, %d impossible%s", cpq_n - cpq_fail, cpq_n - cpq_fail > 1 ? "s" : "", cpq_fail, cpq_fail > 1 ? "s" : "");
+        else snprintf(m, sizeof(m), "Copie termin\xC3\xA9" "e : %d fichier%s", cpq_n, cpq_n > 1 ? "s" : "");
+        fe_note(m);
+        cpq_n = cpq_i = 0;
         fe_changed();
     }
 }
 
-enum { FA_SHARE, FA_RENAME, FA_DELETE, FA_COPY, FA_CUT, FA_PASTE, FA_MKDIR, FA_CHEATS, FA_COUNT };
-static const char *const fa_names[FA_COUNT] = { "Partager (QR code)", "Renommer", "Supprimer", "Copier", "Couper", "Coller ici", "Nouveau dossier", "Cheats Swiss (\xC3\xA9" "diteur)" };
+enum { FA_SHARE, FA_RENAME, FA_DELETE, FA_COPY, FA_CUT, FA_PASTE, FA_MKDIR, FA_ALL, FA_CHEATS, FA_COUNT };
+static const char *const fa_names[FA_COUNT] = { "Partager (QR code)", "Renommer", "Supprimer", "Copier", "Couper", "Coller ici", "Nouveau dossier", "Tout s\xC3\xA9lectionner / rien", "Cheats Swiss (\xC3\xA9" "diteur)" };
 
 static void fe_action(int a) {
     char path[NAME_LEN];
@@ -183,20 +253,41 @@ static void fe_action(int a) {
     case FA_SHARE:                                       /* v55 : fichier, dossier, ou (ligne du haut) le dossier ouvert */
         if (has) share_open(path, fe[i].dir); else share_open(fe_cwd, 1);
         break;
-    case FA_RENAME: if (has) kb_start(KB_RENAME, fe[i].name, -1, -1); break;
-    case FA_DELETE:
-        if (!has) break;
+    case FA_RENAME:
+        if (fe_nmark() > 1) { kb_start(KB_RENAME, "", -1, -1); break; }        /* v72 : plusieurs : "Nom 01", "Nom 02"... */
+        if (has) kb_start(KB_RENAME, fe[i].name, -1, -1);
+        break;
+    case FA_DELETE: {
+        int nm = fe_nmark();
+        if (!has && !nm) break;
         if (!fa_confirm) { fa_confirm = 1; return; }
         fa_confirm = 0;
+        if (nm) {                                            /* v72 : la selection */
+            int ok = 0, fail = 0;
+            char p[NAME_LEN], m[100];
+            for (int k = 0; k < nfe; k++) if (fe[k].mark) { fe_path(k, p, sizeof(p)); if (fe[k].dir ? rmdir(p) == 0 : remove(p) == 0) ok++; else fail++; }
+            snprintf(m, sizeof(m), fail ? "Supprim\xC3\xA9s : %d (%d impossibles : dossiers non vides ?)" : "Supprim\xC3\xA9s : %d", ok, fail);
+            fe_note(m); fe_changed();
+            break;
+        }
         if (fe[i].dir ? rmdir(path) == 0 : remove(path) == 0) { fe_note("Supprim\xC3\xA9"); fe_changed(); }
         else fe_note(fe[i].dir ? "Le dossier doit \xC3\xAAtre vide" : "Suppression impossible");
-        break;
-    case FA_COPY: case FA_CUT:
-        if (!has) break;
-        snprintf(clip_path, sizeof(clip_path), "%s", path);
+        break; }
+    case FA_COPY: case FA_CUT: {
+        if (!clip_list) clip_list = malloc(sizeof(*clip_list) * CLIP_MAX);
+        if (!clip_list) break;
+        clip_n = 0;
+        if (fe_nmark()) { for (int k = 0; k < nfe && clip_n < CLIP_MAX; k++) if (fe[k].mark) fe_path(k, clip_list[clip_n++], NAME_LEN); }
+        else if (has) snprintf(clip_list[clip_n++], NAME_LEN, "%s", path);
+        if (!clip_n) break;
+        snprintf(clip_path, sizeof(clip_path), "%s", clip_list[0]);
         clip_cut = (a == FA_CUT);
-        fe_note(a == FA_CUT ? "Coup\xC3\xA9 : va dans un dossier puis X > Coller ici" : "Copi\xC3\xA9 : va dans un dossier puis X > Coller ici");
-        break;
+        char m[140];
+        snprintf(m, sizeof(m), "%s %d \xC3\xA9l\xC3\xA9ment%s : va dans un dossier puis X > Coller ici", a == FA_CUT ? "Coup\xC3\xA9" : "Copi\xC3\xA9", clip_n, clip_n > 1 ? "s" : "");
+        fe_note(m);
+        for (int k = 0; k < nfe; k++) fe[k].mark = 0;
+        break; }
+    case FA_ALL: { int all = fe_nmark() < nfe; for (int k = 0; k < nfe; k++) fe[k].mark = (u8)all; break; }
     case FA_PASTE: fe_paste(); break;
     case FA_MKDIR: kb_start(KB_MKDIR, "", -1, -1); break;
     case FA_CHEATS: fa_open = 0; cheats_open(); return;
@@ -212,6 +303,23 @@ static void files_kb_done(int mode, const char *t) {
     if (!clean[0]) return;
     snprintf(dst, sizeof(dst), "%s/%s", fe_cwd, clean);
     if (mode == KB_MKDIR) { if (mkdir(dst, 0777) == 0) fe_note("Dossier cr\xC3\xA9\xC3\xA9"); else fe_note("Cr\xC3\xA9" "ation impossible"); fe_changed(); return; }
+    if (fe_nmark() > 1) {                                    /* v72 : renommage de la selection : "Nom 01.ext", "Nom 02.ext"... */
+        int ok = 0, fail = 0, no = 0, tot = fe_nmark();
+        char m[100];
+        for (int k = 0; k < nfe; k++) {
+            if (!fe[k].mark) continue;
+            no++;
+            const char *ext = fe[k].dir ? NULL : strrchr(fe[k].name, '.');
+            char nn[200];
+            snprintf(nn, sizeof(nn), tot >= 100 ? "%s %03d%s" : "%s %02d%s", clean, no, ext ? ext : "");
+            fe_path(k, path, sizeof(path));
+            fe_free_name(fe_cwd, nn, dst, sizeof(dst));
+            if (rename(path, dst) == 0) ok++; else fail++;
+        }
+        snprintf(m, sizeof(m), fail ? "Renomm\xC3\xA9s : %d, impossibles : %d" : "Renomm\xC3\xA9s : %d", ok, fail);
+        fe_note(m); fe_changed();
+        return;
+    }
     int i = fe_sel - 1;
     if (i < 0 || i >= nfe) return;
     fe_path(i, path, sizeof(path));
@@ -256,7 +364,10 @@ static void files_input(u32 down, u32 nav, int fire) {
     }
     if (down & PAD_BUTTON_B) { char *sl = strrchr(fe_cwd, '/'); if (sl && strcmp(fe_cwd, SD_ROOT)) { *sl = 0; fe_sel = 0; fe_load(); } }
     if (down & PAD_BUTTON_X) { fa_open = 1; fa_sel = fe_sel == 0 ? FA_PASTE : 0; fa_confirm = 0; }
-    if ((down & PAD_BUTTON_Y) && src == SRC_FILE && playing) paused = !paused;
+    if ((down & PAD_BUTTON_Y) && fe_sel > 0 && fe_sel - 1 < nfe) {   /* v72 : Y = cocher (plusieurs fichiers d'un coup) */
+        fe[fe_sel - 1].mark = !fe[fe_sel - 1].mark;
+        if (fe_sel < rows - 1) fe_sel++;
+    }
 }
 
 static void draw_tab_files(void) {
@@ -303,19 +414,26 @@ static void draw_tab_files(void) {
         col_t dim = on ? RGBA(235, 225, 255, 255) : RGBA(140, 125, 200, 255);
         if (r == 0) { gx_text1(F_MED, 34, cy + 5, strcmp(fe_cwd, SD_ROOT) ? ".. (dossier parent)" : "(racine de la carte SD)", dim); continue; }
         fent_t *e = &fe[r - 1];
-        if (e->dir) draw_folder_icon(36, cy, on ? txt : RGBA(150, 120, 235, 255));
+        if (e->mark) {                                           /* v72 : coche */
+            gx_rrect_fill(28, cy - 8, 16, 16, 4, RGBA(255, 210, 110, 255), RGBA(230, 160, 60, 255));
+            col_t ck = RGBA(40, 20, 80, 255);
+            gx_poly4(31, cy, 33, cy - 2, 37, cy + 2, 35, cy + 4, ck, ck, ck, ck);           /* (coche) */
+            gx_poly4(35, cy + 4, 33, cy + 2, 40, cy - 5, 42, cy - 3, ck, ck, ck, ck);
+        }
+        else if (e->dir) draw_folder_icon(36, cy, on ? txt : RGBA(150, 120, 235, 255));
         else draw_note(36, cy, on ? txt : RGBA(120, 100, 190, 255));
         text_display(e->name, d, sizeof(d));
         fit_text(F_MED, d, 470, buf, sizeof(buf));
-        gx_text1(F_MED, 52, cy + 5, buf, txt);
+        gx_text1(F_MED, 52, cy + 5, buf, e->mark ? RGBA(255, 225, 150, 255) : txt);
         if (!e->dir) { fmt_size(buf, sizeof(buf), e->size); gx_text_r(F_SMALL, 612, cy + 4, buf, dim); }
-        if (clip_path[0] && !strcmp(base_of(clip_path), e->name)) gx_text_r(F_SMALL, 540, cy + 4, clip_cut ? "coup\xC3\xA9" : "copi\xC3\xA9", RGBA(255, 210, 120, 255));
+        if (clip_n == 1 && clip_path[0] && !strcmp(base_of(clip_path), e->name)) gx_text_r(F_SMALL, 540, cy + 4, clip_cut ? "coup\xC3\xA9" : "copi\xC3\xA9", RGBA(255, 210, 120, 255));
     }
     if (nfe == 0) gx_text1(F_SMALL, 34, 166, "Dossier vide", RGBA(170, 155, 225, 255));
-    if (fcp_in && fcp_total > 0) {
-        snprintf(buf, sizeof(buf), "Copie : %ld %%", fcp_done * 100 / fcp_total);
+    if ((fcp_in || cpq_i < cpq_n) && cpq_total > 0) {
+        snprintf(buf, sizeof(buf), "Copie : fichier %d / %d  -  %ld %%", cpq_i + 1, cpq_n, (long)((long long)cpq_bytes * 100 / cpq_total));
         gx_text1(F_SMALL, 30, 404, buf, RGBA(255, 210, 120, 255));
     } else if (now_ms() - fe_msg_t < 3500) gx_text1(F_SMALL, 30, 404, fe_msg, RGBA(255, 210, 120, 255));
+    else if (fe_nmark()) { snprintf(buf, sizeof(buf), "%d s\xC3\xA9lectionn\xC3\xA9%s  -  X : copier, couper, renommer, supprimer", fe_nmark(), fe_nmark() > 1 ? "s" : ""); gx_text1(F_SMALL, 30, 404, buf, RGBA(255, 210, 120, 255)); }
     if (fa_open) {                                           /* menu des actions */
         const f32 w = 260, h = 46 + FA_COUNT * 24, x = 360, y = 130;
         gx_rrect_fill(x, y, w, h, 10, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
@@ -328,8 +446,8 @@ static void draw_tab_files(void) {
         }
         gx_text_c(F_SMALL, x + w / 2, y + h - 8, "A : valider   B : fermer", RGBA(255, 210, 120, 255));
     }
-    static const char *const k[] = { "A", "B", "X" };
-    static const char *const l[] = { "OUVRIR", "RETOUR", "ACTIONS" };
-    draw_legend_keys(k, l, 3);
+    static const char *const k[] = { "A", "B", "X", "Y" };
+    static const char *const l[] = { "OUVRIR", "RETOUR", "ACTIONS", "COCHER" };
+    draw_legend_keys(k, l, 4);
     share_draw();                                            /* v55 */
 }
