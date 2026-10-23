@@ -2,21 +2,27 @@ name: Diagnostic reseau (essai en vrai)
 on:
   push:
     branches: [diag-reseau]
+    paths: [diag/sim.tar.xz, .github/workflows/diag-reseau.yml]
+permissions:
+  contents: write
 jobs:
   net:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 50
     steps:
       - uses: actions/checkout@v4
-      - name: Simulateur
-        run: tar -xJf diag/sim.tar.xz && cd wsim && sh buildnet.sh t_net.c r_net
-      - name: Essais
+      - name: Simulateur et essais
         env:
           ASAN_OPTIONS: detect_leaks=0
           SIM_GW: 127.0.0.53
-        run: cd wsim && (timeout 2400 ./t_net_r > net.log 2>&1 || true) && grep -E "RESULTAT|FIN|^==|pas de radio" net.log
-      - uses: actions/upload-artifact@v4
+        run: |
+          mkdir -p diag/out
+          tar -xJf diag/sim.tar.xz
+          (cd wsim && sh buildnet.sh t_net.c r_net) > diag/out/build.log 2>&1 || true
+          if [ -x wsim/t_net_r ]; then (cd wsim && timeout 2400 ./t_net_r > ../diag/out/net.log 2>&1 || true); fi
+          grep -E "RESULTAT|FIN" diag/out/net.log || tail -30 diag/out/build.log
+      - name: Resultats dans la branche
         if: always()
-        with:
-          name: net-log
-          path: wsim/net.log
+        run: |
+          git config user.name diag; git config user.email diag@users.noreply.github.com
+          git add diag/out && git commit -m "diag : resultats" && git push || true
