@@ -22,6 +22,7 @@
 static void nat_qr_open(const char *id);      /* v51 : QR code vers le rapport (plus bas) */
 static const char *na_tramp_why(u32 ins);     /* v52 (plus bas) */
 static const char *na_xtramp_why(u32 ins);    /* v65 (plus bas) */
+static void nat_ld_tick(void);                /* v72 : ecran de chargement (plus bas) */
 
 typedef struct {
     char id[7], title[72];
@@ -165,6 +166,7 @@ static void na_scan_text(nat_info_t *in, const u8 *txt, u32 base, u32 len) {
     u32 xv[32], xm = 0;                                       /* v65 : suivi EXI (voir na_xscan) */
     for (u32 o = 0; o + 4 <= len; o += 4) {
         if ((o & 0x3FFFF) == 0) service_audio();                  /* (v50 : la musique continue pendant l'analyse) */
+        if ((o & 0x3FFF) == 0) nat_ld_tick();                       /* (v72 : l'ecran de chargement aussi) */
         na_xscan(in, txt, base, o, xv, &xm);
         u32 ins = be32(txt + o);
         u32 op = ins >> 26, rd = (ins >> 21) & 31, ra = (ins >> 16) & 31;
@@ -261,7 +263,7 @@ static int nat_analyse(const char *path, nat_info_t *in) {
             for (u32 o = 0; okr && o < sz; o += 0x20000) {      /* (v50 : lu par morceaux de 128 Ko, sans couper la musique) */
                 u32 k = sz - o < 0x20000 ? sz - o : 0x20000;
                 okr = gd_read(&d, in->dol_off + off + o, t + o, k);
-                service_audio();
+                service_audio(); nat_ld_tick();
             }
             if (okr) na_scan_text(in, t, addr, sz);
             else { in->problems++; snprintf(in->err, sizeof(in->err), "Section %d illisible (m\xC3\xA9moire ?)", i); }
@@ -410,7 +412,7 @@ static int nat_map(const char *path, char *err, int cap) {
         if (fs != cached) { if (na_rawsec(fs, fb)) { snprintf(err, cap, "Lecture de la FAT impossible"); return -1; } cached = fs; }
         clus = fat32 ? na_le32(fb + off % 512) & 0x0FFFFFFFu : na_le16(fb + off % 512);
         if ((fat32 && clus >= 0x0FFFFFF8u) || (!fat32 && clus >= 0xFFF8u)) break;
-        if ((guard & 255) == 0) service_audio();
+        if ((guard & 255) == 0) { service_audio(); nat_ld_tick(); }
     }
     if (isec < need) { snprintf(err, cap, "Fichier plus court que pr\xC3\xA9vu sur la carte"); return -1; }
     return 0;
@@ -951,7 +953,10 @@ static void nat_draw_loading(void) {
     gx_text1(F_MED, px + 18, py + 70, fv, RGBA(255, 255, 255, 255));
     /* barre */
     const f32 bx = px + 18, by = py + 90, bw = pw - 36, bh = 8;
-    f32 fw = bw * (f32)nat_ld_pct / 100.0f;
+    static f32 shown = -1;                                       /* v72 : la barre glisse vers sa valeur */
+    if (shown < 0 || shown > nat_ld_pct + 0.5f || nat_ld_pct < 5) shown = (f32)nat_ld_pct;
+    else shown += ((f32)nat_ld_pct - shown) * (1.0f - expf(-ui_dt * 10.0f));
+    f32 fw = bw * shown / 100.0f;
     gx_rrect_fill(bx, by, bw, bh, 4, RGBA(16, 8, 34, 255), RGBA(30, 18, 60, 255));
     if (fw >= 8) {
         gx_glow(bx, by, fw, bh, 4, RGBA(180, 110, 255, 150), 4);
@@ -988,24 +993,42 @@ static void nat_draw_loading(void) {
     gx_text_r(F_SMALL, 616, 460, "GC STATION  \xC2\xB7  RESIDENT", RGBA(142, 124, 196, 255));
 }
 #endif
+static u32 nat_ld_rc = 0;
+static void nat_ld_draw(void) {                          /* v72 : une image, sans attendre l'ecran (le chargement continue) */
+    present_nowait = retrace_count != nat_ld_rc;         /* (l'image d'avant est deja a l'ecran : pas d'attente ; sinon on attend, sans dechirure) */
+    draw(); present_nowait = 0;
+    nat_ld_rc = retrace_count; nat_ld_last = now_ms();
+}
 static void nat_ld(const char *step, int pct) {         /* une etape (et dessine tout de suite) */
     snprintf(nat_ld_step, sizeof(nat_ld_step), "%s", TR(step));
     nat_ld_pct = nat_ld_from = nat_ld_to = pct;
-    nat_ld_on = 1; nat_ld_last = now_ms();
+    nat_ld_on = 1;
     crumb("resident : %s", step);
-    draw();
+    nat_ld_draw();
 }
 static void nat_ld_span(const char *step, int from, int to) {   /* etape longue : avance avec le temps (7 s) */
     nat_ld(step, from);
     nat_ld_from = from; nat_ld_to = to; nat_ld_t0 = now_ms();
 }
-static void nat_ld_tick(void) {
+static void nat_ld_tick(void) {                          /* (appelee souvent pendant le chargement : une image par balayage de l'ecran) */
     if (!nat_ld_on) return;
     u64 n = now_ms();
-    if (n - nat_ld_last < 40) return;
-    nat_ld_last = n;
+    if (retrace_count == nat_ld_rc && n - nat_ld_last < 33) return;
+    if (n - nat_ld_last < 12) return;
     if (nat_ld_to > nat_ld_from) { u64 e = n - nat_ld_t0; if (e > 7000) e = 7000; nat_ld_pct = nat_ld_from + (int)((nat_ld_to - nat_ld_from) * e / 7000); }
-    draw();
+    nat_ld_draw();
+}
+/* v72 : lecture du jeu par morceaux de 128 Ko, l'ecran de chargement continue de bouger entre deux */
+static int na_read_ticked(gdisc_t *d, u32 off, u8 *out, u32 len, int pct_from, int pct_to) {
+    u32 done = 0;
+    while (done < len) {
+        u32 n = len - done > 131072u ? 131072u : len - done;
+        if (!gd_read(d, off + done, out + done, n)) return 0;
+        done += n;
+        if (pct_to > pct_from) nat_ld_pct = pct_from + (int)((u64)(pct_to - pct_from) * done / len);
+        nat_ld_tick(); service_audio();
+    }
+    return 1;
 }
 
 /* .dol de GC Station sur la carte (pour y revenir depuis le jeu : A+Z+START, plantage) */
@@ -1142,9 +1165,9 @@ static const char *nat_boot(int k) {
     gdisc_t d;
     nat_ld("Lecture du jeu", 22);
     int ok = gd_open(&d, gl[k].path);
-    if (ok) ok = gd_read(&d, in.dol_off, buf + o_dol, dol_len);
+    if (ok) ok = na_read_ticked(&d, in.dol_off, buf + o_dol, dol_len, 22, 33);
     if (ok) ok = gd_read(&d, 0x440, buf + o_bi2, NA_BI2);
-    if (ok) { nat_ld("Lecture du jeu", 34); ok = gd_read(&d, in.fst_off, buf + o_fst, in.fst_sz); }
+    if (ok) ok = na_read_ticked(&d, in.fst_off, buf + o_fst, in.fst_sz, 33, 38);
     u8 hdr[0x20];
     if (ok) ok = gd_read(&d, 0, hdr, sizeof(hdr));
     gd_close(&d);

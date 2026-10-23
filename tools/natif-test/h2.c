@@ -16,6 +16,7 @@ static void service_audio(void){}
 static u64 now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (u64)t.tv_sec * 1000 + t.tv_nsec / 1000000; }
 static int nat_ld_on = 0;
 static void draw(void) {}
+static volatile u32 retrace_count = 0; static int present_nowait = 0;
 #define TR(x) (x)
 static const char *nat_self_path(void) { return getenv("NATIF_SELF"); }   /* (v64 : .dol "GC Station" pour le retour) */
 

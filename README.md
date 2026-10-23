@@ -21,6 +21,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v72
+- **Musique sans blanc** : les morceaux d'un même album (même dossier) s'enchaînent sans silence ; pour les MP3, le silence ajouté par l'encodeur (en-tête LAME) est retiré au début et à la fin. Réglage START > « Enchaînement sans blanc ».
+- **Volume égalisé plus précis** : sans étiquette ReplayGain, GC Station mesure la sonie de chaque morceau pendant qu'il joue (norme EBU R128, comme ReplayGain 2) et l'applique dès l'écoute suivante (`SD:/gc-mp3/volumes.txt`) ; le gain calculé par l'encodeur LAME est aussi utilisé.
+- **Radio** : **favorites** (X maintenu sur une radio : étoile, en haut de la liste ; X court garde le titre comme avant) ; **la dernière radio reprend au démarrage** (réglage) ; **moins d'erreurs 404** : si une de tes radios ne répond plus, GC Station cherche sa nouvelle adresse dans l'annuaire (même nom), l'essaie, et corrige `radio.txt` tout seul si elle marche ; redirections relatives et adresses avec espaces acceptées.
+- **Fichiers** : **Y coche** plusieurs fichiers ou dossiers, puis X : copier, couper/coller, supprimer, ou **renommer en lot** (« Nom 01 », « Nom 02 »…) ; la copie prend aussi les dossiers entiers ; « Tout sélectionner ».
+- **Écran de chargement de Resident plus fluide** : une image à chaque balayage de l'écran sans freiner le chargement, le jeu est lu par morceaux de 128 Ko (l'écran bouge pendant la lecture et l'analyse), la barre glisse en douceur.
+- **Sécurité** : nouveau test qui abîme volontairement des milliers de fichiers (MP3 avec en-tête LAME, pages web, RSS, listes de lecture, en-têtes HTTP, WAV, OGG, ISO GameCube) : aucun plantage ; tous les autres tests de formats repassés.
+
 ## Nouveautés v71
 - **Radio** : démarre plus vite (1 s de tampon au lieu de 2 ; plus seulement si le flux a déjà coupé). Si la radio s'arrête (réseau, serveur), GC Station **se reconnecte tout seul**, de plus en plus espacé (1, 2, 4, 8, 15 puis 30 s), au lieu de rester sur une erreur ; la reconnexion reprend directement l'adresse finale (sans redirections ni liste .m3u).
 - **Podcasts** : un épisode déjà téléchargé (à la main ou tout seul) est **lu depuis la carte SD** (sans réseau ni attente), avec la même reprise là où tu t'étais arrêté ; la position est gardée toutes les 5 s.

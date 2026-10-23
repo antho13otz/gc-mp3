@@ -147,6 +147,9 @@ static void theme_apply(int id) {
 static int ui_skin = 0;
 static int gl_view;                                     /* gclib.c : affichage de Mes jeux GameCube */
 static int gl_anim = 1;                                 /* v45 : animations de JEUX / APPS */
+static int gapless_on = 1;                              /* v72 : enchainement sans blanc (meme album / dossier) */
+static int radio_resume = 1;                            /* v72 : la derniere radio reprend au demarrage */
+static char radio_last_url[URL_MAX], radio_last_name[48];
 static int nat_card = 1;                                /* v65 : carte memoire virtuelle (slot A) pour Resident */
 static int nat_igr = 1;                                 /* v59 : A+Z+START dans Resident (natif.c) ; v63 : de nouveau actif (lecture H + L : la manette marche) */
 static int gl_sort = 0;                                 /* v45 : tri des jeux : A-Z, derniers lances, taille, region */
@@ -731,7 +734,37 @@ static inline s16 clamp16(float v) {
     return (s16)v;
 }
 
+/* ---------- v72 : volume egalise sans etiquette ReplayGain : la sonie du morceau est mesuree
+   pendant qu'il joue (EBU R128 / ReplayGain 2 : filtre K, blocs de 400 ms, portes -70 LUFS et
+   -10 LU), gardee dans SD:/gc-mp3/volumes.txt, et appliquee aux ecoutes suivantes (cible -18 LUFS) ---------- */
+#define RGM_MAXB 3000                                /* (20 min de blocs de 400 ms) */
+static float rgm_blk[RGM_MAXB];
+static int rgm_nb = 0, rgm_on = 0, rgm_n = 0, rgm_track = -1;
+static double rgm_acc = 0;
+static float rgm_s[2][2][4], rgm_peak = 0;
+static inline float rgm_bq(float *s, const float *b, const float *a, float x) {
+    float y = b[0] * x + b[1] * s[0] + b[2] * s[1] - a[1] * s[2] - a[2] * s[3];
+    if (y > -1e-15f && y < 1e-15f) y = 0;
+    s[1] = s[0]; s[0] = x; s[3] = s[2]; s[2] = y;
+    return y;
+}
+static inline void rgm_put(s16 l, s16 r) {
+    static const float b1[3] = { 1.53512485958697f, -2.69169618940638f, 1.19839281085285f }, a1[3] = { 1, -1.69065929318241f, 0.73248077421585f };
+    static const float b2[3] = { 1.0f, -2.0f, 1.0f }, a2[3] = { 1, -1.99004745483398f, 0.99007225036621f };
+    float xl = l * (1.0f / 32768.0f), xr = r * (1.0f / 32768.0f);
+    float al = xl < 0 ? -xl : xl, ar = xr < 0 ? -xr : xr;
+    if (al > rgm_peak) rgm_peak = al;
+    if (ar > rgm_peak) rgm_peak = ar;
+    float zl = rgm_bq(rgm_s[0][1], b2, a2, rgm_bq(rgm_s[0][0], b1, a1, xl));
+    float zr = rgm_bq(rgm_s[1][1], b2, a2, rgm_bq(rgm_s[1][0], b1, a1, xr));
+    rgm_acc += (double)zl * zl + (double)zr * zr;
+    if (++rgm_n >= 19200) {                              /* (400 ms a 48 kHz) */
+        if (rgm_nb < RGM_MAXB) rgm_blk[rgm_nb++] = (float)(rgm_acc / 19200.0);
+        rgm_acc = 0; rgm_n = 0;
+    }
+}
 static int out_put(s16 l, s16 r) {
+    if (rgm_on) rgm_put(l, r);
     if (rg_gain != 1.0f || eq_on) {
         float fl = (float)l * rg_gain, fr = (float)r * rg_gain;
         if (eq_on) {
@@ -1149,6 +1182,7 @@ static void parse_station_line(char *line) {
     nstations++;
 }
 
+static void radio_fav_load(void);
 static void load_stations(void) {
     static char line[URL_MAX + 128];
     nstations = 0;
@@ -1178,6 +1212,7 @@ static void load_stations(void) {
             if (*p == '\n') p++;
         }
     }
+    radio_fav_load();                          /* v72 : favorites en haut */
 }
 
 // ---------- Reseau ----------
@@ -1832,6 +1867,16 @@ static int http_open(const char *url_in, int depth) {
     if (*rest == ':') { port = atoi(rest + 1); rest += strcspn(rest, "/?"); }
     if (*rest == '/') snprintf(path, sizeof(path), "%s", rest);
     else snprintf(path, sizeof(path), "/%s", rest);
+    {                                                    /* v72 : espaces et caracteres speciaux dans l'adresse (radio.txt) */
+        static char enc[URL_MAX];
+        int o = 0;
+        for (const unsigned char *q = (const unsigned char *)path; *q && o < (int)sizeof(enc) - 4; q++) {
+            if (*q <= ' ' || *q >= 0x7F || *q == '"' || *q == '<' || *q == '>') { static const char hx[] = "0123456789ABCDEF"; enc[o++] = '%'; enc[o++] = hx[*q >> 4]; enc[o++] = hx[*q & 15]; }
+            else enc[o++] = (char)*q;
+        }
+        enc[o] = 0;
+        snprintf(path, sizeof(path), "%s", enc);
+    }
     if (port <= 0 || port > 65535) port = tls ? 443 : 80;
 
     const char *cerr = NULL;
@@ -1871,8 +1916,16 @@ static int http_open(const char *url_in, int depth) {
         const char *loc = header_value(hdrs, "Location");
         if (!loc) { set_error("Redirection sans adresse"); return 0; }
         static char next[URL_MAX];
-        if (loc[0] == '/') snprintf(next, sizeof(next), "%s://%s:%d%s", tls ? "https" : "http", host, port, loc);
-        else snprintf(next, sizeof(next), "%s", loc);
+        if (loc[0] == '/' && loc[1] == '/') snprintf(next, sizeof(next), "%s:%s", tls ? "https" : "http", loc);   /* (//serveur/chemin) */
+        else if (loc[0] == '/') snprintf(next, sizeof(next), "%s://%s:%d%s", tls ? "https" : "http", host, port, loc);
+        else if (strncasecmp(loc, "http://", 7) && strncasecmp(loc, "https://", 8)) {   /* v72 : adresse relative au dossier */
+            char dir[URL_MAX];
+            snprintf(dir, sizeof(dir), "%s", path);
+            dir[strcspn(dir, "?")] = 0;
+            char *sl = strrchr(dir, '/');
+            if (sl) sl[1] = 0; else snprintf(dir, sizeof(dir), "/");
+            snprintf(next, sizeof(next), "%s://%s:%d%s%s", tls ? "https" : "http", host, port, dir, loc);
+        } else snprintf(next, sizeof(next), "%s", loc);
         stream_close();
         return http_open(next, depth + 1);
     }
@@ -2570,6 +2623,9 @@ static int other_seek(int sec, int d) {
     return 0;
 }
 
+/* v72 : MP3 sans blanc : l'en-tete LAME (trame Xing/Info) donne le silence ajoute par l'encodeur
+   au debut (delai) et a la fin (remplissage) : on les retire, et la trame Xing (muette) est sautee */
+static long mp3_skip = 0, mp3_left = -1;
 static void decode_file_one(void) {
     static s16 L[1152], R[1152];
     if (file_fmt != FMT_MP3) { decode_other_one(); return; }
@@ -2590,15 +2646,21 @@ static void decode_file_one(void) {
     if (n > 1152) n = 1152;
     if (info.hz <= 0) return;
 
-    for (int i = 0; i < n; i++) {
+    int s0 = 0;
+    if (mp3_skip > 0) { s0 = mp3_skip < n ? (int)mp3_skip : n; mp3_skip -= s0; }   /* v72 : silence de l'encodeur */
+    int cnt = n - s0;
+    if (mp3_left >= 0) { if (cnt > mp3_left) cnt = (int)mp3_left; mp3_left -= cnt; if (mp3_left == 0) eof = 1; }
+    if (cnt <= 0) return;
+    for (int i = 0; i < cnt; i++) {
+        int j = s0 + i;
         if (info.channels == 2) {
-            L[i] = pcm[2 * i];
-            R[i] = pcm[2 * i + 1];
+            L[i] = pcm[2 * j];
+            R[i] = pcm[2 * j + 1];
         } else {
-            L[i] = R[i] = pcm[i];
+            L[i] = R[i] = pcm[j];
         }
     }
-    push_frame(L, R, n, (unsigned)info.hz);
+    push_frame(L, R, cnt, (unsigned)info.hz);
 }
 
 /* Ajoute un caractere (Latin-1 ou UTF-16 <= 0xFF) a la chaine, en UTF-8. */
@@ -2650,6 +2712,7 @@ static void id3v1_field(const unsigned char *a, int n, char *out, int cap) {
 typedef struct {
     char artist[64], title[128], album[128], year[16];
     float rg_track, rg_album, pk_track, pk_album;      /* volume egalise (ReplayGain) */
+    int has_lame_rg; float lame_rg, lame_pk;           /* v72 : en-tete LAME du MP3 */
     u8 has_rgt, has_rga;
 } tags_t;
 /* ---------- Etiquettes FLAC / OGG (commentaires Vorbis) et volume egalise ---------- */
@@ -3151,17 +3214,105 @@ static int retro_open(const char *path, int fmt, tags_t *tg, const char **err);
 static int retro_len_ms;
 static int rg_mode = 0;                     /* volume egalise : 0 non, 1 par morceau, 2 par album */
 static float rg_db = 0.0f;                  /* gain applique au morceau en cours (affichage) */
+static const char *rg_cur_path = NULL;      /* v72 : fichier en cours (gain mesure) */
 static int rg_has = 0;
 
+static void mp3_lame_info(FILE *fp, long *audio, long size, tags_t *tg) {
+    static unsigned char b[1024];
+    mp3_skip = 0; mp3_left = -1;
+    if (fseek(fp, *audio, SEEK_SET) != 0) return;
+    long n = (long)fread(b, 1, sizeof(b), fp);
+    long o = 0;
+    while (o + 4 < n && !(b[o] == 0xFF && (b[o + 1] & 0xE0) == 0xE0)) o++;     /* (premiere trame) */
+    if (o + 200 > n) return;
+    const unsigned char *h = b + o;
+    int ver = (h[1] >> 3) & 3, layer = (h[1] >> 1) & 3, bri = h[2] >> 4, sri = (h[2] >> 2) & 3, pad = (h[2] >> 1) & 1, mono = (h[3] >> 6) == 3;
+    if (layer != 1 || bri == 0 || bri == 15 || sri == 3 || ver == 1) return;
+    static const int br1[15] = { 0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320 };
+    static const int br2[15] = { 0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160 };
+    static const int sr1[3] = { 44100, 48000, 32000 };
+    int v1 = ver == 3, sr = sr1[sri] >> (v1 ? 0 : ver == 2 ? 1 : 2), spf = v1 ? 1152 : 576;
+    int flen = (v1 ? 144 : 72) * (v1 ? br1[bri] : br2[bri]) * 1000 / sr + pad;
+    int xo = 4 + (v1 ? (mono ? 17 : 32) : (mono ? 9 : 17));
+    if (memcmp(h + xo, "Xing", 4) && memcmp(h + xo, "Info", 4)) return;
+    u32 fl = be32(h + xo + 4), frames = 0;
+    int p = xo + 8;
+    if (fl & 1) { frames = be32(h + p); p += 4; }
+    if (fl & 2) p += 4;
+    if (fl & 4) p += 100;
+    if (fl & 8) p += 4;
+    *audio += o + flen;                                    /* (la trame Xing est muette : sautee) */
+    if (p + 24 > n - o || (memcmp(h + p, "LAME", 4) && memcmp(h + p, "Lavc", 4) && memcmp(h + p, "Lavf", 4))) return;
+    const unsigned char *lt = h + p;
+    int delay = (lt[21] << 4) | (lt[22] >> 4), padding = ((lt[22] & 15) << 8) | lt[23];
+    if (delay > 3000 || padding > 3000) return;
+    mp3_skip = delay + 529;                                /* (+ le delai du decodeur) */
+    if (frames > 0) { long tot = (long)frames * spf - delay - padding; if (tot > 0) mp3_left = tot; }
+    u32 pkraw = be32(lt + 11);                             /* (gain "radio" calcule par LAME) */
+    int rgw = (lt[15] << 8) | lt[16];
+    if (((rgw >> 13) & 7) == 1 && (rgw & 0x1FF)) {
+        tg->has_lame_rg = 1;
+        tg->lame_rg = ((rgw >> 9) & 1 ? -1.0f : 1.0f) * (rgw & 0x1FF) / 10.0f + 1.0f;   /* (LAME vise 89 dB : +1 dB vers ReplayGain 2) */
+        tg->lame_pk = pkraw ? (float)pkraw / (float)(1 << 23) : 0.0f;
+    }
+    (void)size;
+}
+#define VOL_FILE GCD "/volumes.txt"
+static int rg_lookup(const char *path, float *g, float *pk) {     /* gain deja mesure pour ce fichier */
+    FILE *f = sd_ok ? fopen(VOL_FILE, "r") : NULL;
+    if (!f) return 0;
+    static char l[NAME_LEN + 48];
+    int found = 0;
+    while (fgets(l, sizeof(l), f)) {
+        char *b1 = strchr(l, '|'), *b2 = b1 ? strchr(b1 + 1, '|') : NULL;
+        if (!b2) continue;
+        char *p = trim(b2 + 1);
+        if (!strcmp(p, path)) { *g = (float)atof(l); *pk = (float)atof(b1 + 1); found = 1; }
+    }
+    fclose(f);
+    return found;
+}
+static void rg_store(const char *path, float g, float pk) {
+    if (!sd_ok) return;
+    FILE *f = fopen(VOL_FILE, "a");
+    if (f) { fprintf(f, "%.2f|%.4f|%s\n", g, pk, path); fclose(f); }
+}
+static float rgm_result(float *pk) {                       /* sonie integree -> gain (dB) vers -18 LUFS */
+    *pk = rgm_peak;
+    double sum = 0; int n = 0;
+    for (int i = 0; i < rgm_nb; i++) if (rgm_blk[i] > 1.1724e-7f) { sum += rgm_blk[i]; n++; }   /* (porte absolue : -70 LUFS) */
+    if (n < 5) return 99;
+    double rel = sum / n * 0.1;                             /* (porte relative : -10 LU) */
+    sum = 0; n = 0;
+    for (int i = 0; i < rgm_nb; i++) if (rgm_blk[i] > rel) { sum += rgm_blk[i]; n++; }
+    if (n < 3) return 99;
+    float lufs = -0.691f + 10.0f * log10f((float)(sum / n));
+    return -18.0f - lufs;
+}
+static void rgm_start(int k) {                             /* mesurer ce morceau (s'il n'a pas de gain connu) */
+    rgm_on = 1; rgm_nb = 0; rgm_n = 0; rgm_acc = 0; rgm_peak = 0; rgm_track = k;
+    memset(rgm_s, 0, sizeof(rgm_s));
+}
+static void rgm_finish(int complete) {                      /* fin du decodage du morceau mesure */
+    if (!rgm_on) return;
+    rgm_on = 0;
+    if (!complete || rgm_track < 0 || rgm_track >= nfiles) return;
+    float pk, g = rgm_result(&pk);
+    if (g < 90) rg_store(names[rgm_track], g, pk);
+}
+static int rg_auto = 0;                                    /* gain du morceau en cours : mesure (pas d'etiquette) */
 static void rg_set(const tags_t *tg) {
     rg_gain = 1.0f;
     rg_db = 0.0f;
     rg_has = 0;
+    rg_auto = 0;
     if (!rg_mode) return;
     float g = 0.0f, pk = 0.0f;
     if (rg_mode == 2 && tg->has_rga) { g = tg->rg_album; pk = tg->pk_album; rg_has = 1; }
     else if (tg->has_rgt) { g = tg->rg_track; pk = tg->pk_track; rg_has = 1; }
     else if (tg->has_rga) { g = tg->rg_album; pk = tg->pk_album; rg_has = 1; }
+    if (!rg_has && tg->has_lame_rg) { g = tg->lame_rg; pk = tg->lame_pk; rg_has = 1; }   /* (gain calcule par l'encodeur LAME) */
+    if (!rg_has && rg_cur_path && rg_lookup(rg_cur_path, &g, &pk)) { rg_has = 1; rg_auto = 1; }
     if (!rg_has) return;
     if (g > 15.0f) g = 15.0f;
     if (g < -25.0f) g = -25.0f;
@@ -3177,7 +3328,7 @@ static void stop_track(void) {
     other_close();
     playing = 0;
     paused = 0;
-    if (xf_request > 0) return;              /* fondu enchaine : la fin du morceau continue */
+    if (xf_request != 0) return;             /* fondu enchaine (> 0) ou sans blanc (< 0) : la fin du morceau continue */
     if (src == SRC_FILE) src = SRC_NONE;
     f_head = f_tail = f_count = 0;
     xf_left = 0;
@@ -3186,6 +3337,7 @@ static void stop_track(void) {
 
 static int start_track(int idx) {
     if (idx < 0 || idx >= nfiles) { xf_request = 0; return 0; }
+    mp3_skip = 0; mp3_left = -1; rgm_on = 0;
     crumb("morceau : %s", names[idx]);
     podcast_leave();
     int xf = xf_request;
@@ -3229,6 +3381,8 @@ static int start_track(int idx) {
         parse_tags(tag, tag ? taglen : 0, has_v1 ? v1 : NULL, &tg);
         free(tag);
         if (audio >= size) audio = 0;
+        mp3_lame_info(fp, &audio, size, &tg);            /* v72 : sans blanc, gain LAME */
+        if (audio >= size) audio = 0;
         mp3dec_init(&dec);
     } else if (fmt == FMT_FLAC) {
         flac_meta(fp, &tg, 0);
@@ -3269,7 +3423,9 @@ static int start_track(int idx) {
     snprintf(id3_title, sizeof(id3_title), "%s", tg.title);
     snprintf(id3_album, sizeof(id3_album), "%s", tg.album);
     snprintf(id3_year, sizeof(id3_year), "%s", tg.year);
+    rg_cur_path = names[idx];
     rg_set(&tg);
+    if (rg_mode && !rg_has) rgm_start(idx); else rgm_on = 0;     /* v72 : pas de gain connu : on le mesure */
 
     file_fmt = fmt;
     ogg_resync = 0;
@@ -3279,7 +3435,10 @@ static int start_track(int idx) {
     fb_start = fb_end = 0;
     f_file_eof = 0;
     rpos = 0.0; prevL = prevR = 0;
-    if (xf > 0 && f_count > 0) {
+    if (xf < 0 && f_count > 0) {                         /* v72 : sans blanc : ce morceau suit le precedent, encore dans la file */
+        xf_left = 0;
+        consumed_skip = (u32)f_count;
+    } else if (xf > 0 && f_count > 0) {
         /* fondu enchaine : le debut de ce morceau se melange aux 'xf' derniers
            echantillons du precedent, encore dans la file */
         if (xf > f_count) xf = f_count;
@@ -3974,6 +4133,10 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "vibrations")) rumble_on = yes(v);
         else if (!strcasecmp(k, "decor_saison")) season_on = yes(v);
         else if (!strcasecmp(k, "podcasts_auto")) pod_auto = yes(v);
+        else if (!strcasecmp(k, "radio_reprise")) radio_resume = yes(v);
+        else if (!strcasecmp(k, "enchainement_sans_blanc")) gapless_on = yes(v);
+        else if (!strcasecmp(k, "radio_derniere")) snprintf(radio_last_url, sizeof(radio_last_url), "%s", v);
+        else if (!strcasecmp(k, "radio_derniere_nom")) snprintf(radio_last_name, sizeof(radio_last_name), "%s", v);
         else if (!strcasecmp(k, "fond_ecran")) { if (!strcasecmp(v, "non") || !v[0]) wall_on = 0; else { wall_on = 1; snprintf(wall_path, sizeof(wall_path), "%s", v); } }
         else if (!strcasecmp(k, "fond_ecran_photo")) snprintf(wall_path, sizeof(wall_path), "%s", v);
 }
@@ -4106,6 +4269,9 @@ static void save_settings(void) {
             rumble_on ? "oui" : "non", pod_auto ? "oui" : "non", wall_on && wall_path[0] ? wall_path : "non", wall_path, season_on ? "oui" : "non");
     fprintf(f, "# Swiss pour lancer les jeux (onglet JEUX) : chemin du .dol, vide = trouve tout seul\n"
                "swiss = %s\n", swiss_pref);
+    fprintf(f, "# La derniere radio ecoutee reprend au demarrage : oui / non\nradio_reprise = %s\nradio_derniere = %s\nradio_derniere_nom = %s\n",
+            radio_resume ? "oui" : "non", radio_last_url, radio_last_name);
+    fprintf(f, "# Morceaux d'un meme album (dossier) enchaines sans blanc : oui / non\nenchainement_sans_blanc = %s\n", gapless_on ? "oui" : "non");
     fclose(f);
 }
 
@@ -4125,6 +4291,7 @@ static void resume_note(int force) {
 /* se place a 'sec' secondes dans le morceau en cours (position approchee) */
 static void track_seek(int sec) {
     if (!ffp || cur_track < 0 || sec <= 0) return;
+    mp3_skip = 0; mp3_left = -1; rgm_on = 0;             /* (v72 : mesure de sonie incomplete : abandonnee) */
     int d = file_duration(names[cur_track]);
     if (d <= 0 || sec >= d - 2) return;
     if (file_fmt != FMT_MP3) {
@@ -4435,6 +4602,7 @@ static int init_video(void) {
 }
 
 /* Copie l'image GX vers le framebuffer inactif et l'affiche. */
+static int present_nowait = 0;                  /* v72 : ecran de chargement : pas d'attente de l'ecran (le travail continue) */
 static void present_frame(void) {
     int next_fb = 1 - displayed_fb;
     /* (v19 : une seule attente du processeur graphique par image : la copie
@@ -4450,7 +4618,7 @@ static void present_frame(void) {
     /* attente de l'image suivante, en continuant a lire le reseau */
     u32 rc = retrace_count;
     u64 t0 = now_ms();
-    while (retrace_count == rc && now_ms() - t0 < 40) {
+    while (!present_nowait && retrace_count == rc && now_ms() - t0 < 40) {
         stream_recv();
         service_audio();
         usleep(500);
@@ -10016,6 +10184,170 @@ static void rb_add_favorite(int i) {
     radio_note_t = now_ms();
 }
 
+/* ---------- v72 : radios favorites (en haut de la liste, etoile) ----------
+   X maintenu sur une de tes radios : favorite / plus favorite (X court : garder le titre, comme avant).
+   SD:/gc-mp3/radio-favoris.txt : une adresse par ligne. */
+#define RADIO_FAV GCD "/radio-favoris.txt"
+static u8 st_fav[MAX_STATIONS];
+static int radio_fav_has(const char *url) {
+    FILE *f = sd_ok ? fopen(RADIO_FAV, "r") : NULL;
+    if (!f) return 0;
+    static char l[URL_MAX + 8];
+    int r = 0;
+    while (!r && fgets(l, sizeof(l), f)) { char *s = trim(l); if (!strcmp(s, url)) r = 1; }
+    fclose(f);
+    return r;
+}
+static void radio_fav_sort(void) {                       /* favorites d'abord (ordre garde), station en cours suivie */
+    static station_t tmp[MAX_STATIONS];
+    static u8 tf[MAX_STATIONS];
+    int n = 0, cur = cur_station, ncur = cur, sel = sel_station - 2, nsel = sel;
+    for (int pass = 0; pass < 2; pass++)
+        for (int i = 0; i < nstations; i++) if (st_fav[i] == (pass == 0)) {
+            if (i == cur) ncur = n;
+            if (i == sel) nsel = n;
+            tmp[n] = stations[i]; tf[n] = st_fav[i]; n++;
+        }
+    memcpy(stations, tmp, sizeof(station_t) * n); memcpy(st_fav, tf, n);
+    if (cur >= 0 && cur < nstations) cur_station = ncur;
+    if (sel >= 0 && sel < nstations && !rb_mode) sel_station = nsel + 2;
+}
+static void radio_fav_load(void) {
+    memset(st_fav, 0, sizeof(st_fav));
+    for (int i = 0; i < nstations; i++) st_fav[i] = (u8)radio_fav_has(stations[i].url);
+    radio_fav_sort();
+}
+static void radio_fav_toggle(int i) {
+    if (i < 0 || i >= nstations || !sd_ok) return;
+    st_fav[i] = !st_fav[i];
+    FILE *f = fopen(RADIO_FAV, "w");
+    if (f) { for (int k = 0; k < nstations; k++) if (st_fav[k]) fprintf(f, "%s\n", stations[k].url); fclose(f); }
+    snprintf(radio_note, sizeof(radio_note), st_fav[i] ? "\xE2\x98\x85 Favorite : %s" : "Plus favorite : %s", stations[i].name);
+    radio_note_t = now_ms();
+    radio_fav_sort();
+}
+static void draw_star(f32 cx, f32 cy, f32 r, col_t c) {   /* (etoile a 5 branches) */
+    f32 px[10], py[10];
+    for (int k = 0; k < 10; k++) { f32 a = -PI_F / 2 + k * PI_F / 5, rr = (k & 1) ? r * 0.45f : r; px[k] = cx + cosf(a) * rr; py[k] = cy + sinf(a) * rr; }
+    for (int k = 0; k < 10; k += 2) gx_tri(cx, cy, px[k], py[k], px[(k + 1) % 10], py[(k + 1) % 10], c), gx_tri(cx, cy, px[k], py[k], px[(k + 9) % 10], py[(k + 9) % 10], c);
+}
+
+/* ---------- v72 : une radio qui ne repond plus (404, serveur introuvable...) : on cherche sa
+   nouvelle adresse dans l'annuaire radio-browser (meme nom), on l'essaie, et si elle marche
+   on corrige radio.txt tout seul ---------- */
+static int rfx_state = 0, rfx_station = -1, rfx_save = 0;
+static char rfx_old[URL_MAX], rfx_new[URL_MAX], rfx_name[48];
+static hfetch_t rfx_hf = { .c = { -1, 0, 0 } };
+static void radio_list_replace_url(const char *oldu, const char *newu) {
+    if (!sd_ok) return;
+    FILE *f = fopen(RADIO_LIST, "r");
+    if (!f) return;
+    int cap = 128 * 1024, len = 0;
+    char *buf = (char *)malloc(cap);
+    static char l[URL_MAX + 128];
+    int done = 0;
+    while (buf && fgets(l, sizeof(l), f)) {
+        char *p = strstr(l, oldu);
+        int n;
+        if (p && !done && (p[strlen(oldu)] == '\r' || p[strlen(oldu)] == '\n' || p[strlen(oldu)] == 0 || p[strlen(oldu)] == ' ')) {
+            n = snprintf(buf + len, cap - len, "%.*s%s\n", (int)(p - l), l, newu); done = 1;
+        } else n = snprintf(buf + len, cap - len, "%s", l);
+        if (n < 0 || len + n >= cap - 1) { free(buf); buf = NULL; break; }
+        len += n;
+    }
+    fclose(f);
+    if (buf && done) { f = fopen(RADIO_LIST, "w"); if (f) { fwrite(buf, 1, len, f); fclose(f); } }
+    free(buf);
+}
+static void radio_repair_pump(void) {
+    if (rfx_state == 0) {
+        /* (une de tes radios, jamais entendue cette fois, en erreur ; une seule recherche par station) */
+        if (state != ST_ERROR || src != SRC_RADIO || pod_on || rad_played || cur_station < 0 || cur_station >= nstations || rfx_station == cur_station) return;
+        if (net_phase != NET_DONE || !net_ok || strstr(err_msg, "Format") || strstr(err_msg, "web")) return;
+        rfx_station = cur_station;
+        snprintf(rfx_old, sizeof(rfx_old), "%s", stations[cur_station].url);
+        snprintf(rfx_name, sizeof(rfx_name), "%s", stations[cur_station].name);
+        char enc[200], url[URL_MAX];
+        if (!url_encode(rfx_name, enc, sizeof(enc))) return;
+        snprintf(url, sizeof(url), RB_SCHEME "://%s/json/stations/search?name=%s&hidebroken=true&order=clickcount&reverse=true&limit=8", rb_servers[0], enc);
+        rfx_hf.image = 0; rfx_hf.maxbytes = 256 * 1024; rfx_hf.accept = "application/json";
+        hf_start(&rfx_hf, url, NULL);
+        rfx_state = 1;
+        snprintf(conn_msg, sizeof(conn_msg), "Recherche de la nouvelle adresse de %s...", rfx_name);
+        return;
+    }
+    if (rfx_state == 1) {
+        hf_pump(&rfx_hf);
+        if (rfx_hf.st == HF_FAIL) { hf_drop(&rfx_hf); rfx_state = 0; return; }
+        if (rfx_hf.st != HF_DONE) return;
+        rfx_hf.st = HF_IDLE;
+        rfx_state = 0;
+        rfx_new[0] = 0;
+        const char *js = (const char *)rfx_hf.buf;
+        int len = rfx_hf.len, maxt = len / 6 + 64;
+        if (maxt > 20000) maxt = 20000;
+        jtok_t *t = js ? (jtok_t *)malloc(sizeof(jtok_t) * maxt) : NULL;
+        int n = t ? json_tokens(js, len, t, maxt) : 0;
+        if (n > 0 && t[0].type == JT_ARR)
+            for (int i = 1; i < n && t[i].start < t[0].end && !rfx_new[0]; i = jskip(t, n, i)) {
+                char nm[200], u[URL_MAX], codec[16];
+                jstr(js, t, jget(js, t, n, i, "name"), nm, sizeof(nm));
+                jstr(js, t, jget(js, t, n, i, "codec"), codec, sizeof(codec));
+                if (strcasecmp(trim(nm), rfx_name) != 0) continue;              /* (le meme nom seulement) */
+                if (strcasecmp(codec, "MP3") && strncasecmp(codec, "AAC", 3) && strcasecmp(codec, "OGG")) continue;
+                jstr(js, t, jget(js, t, n, i, "url_resolved"), u, sizeof(u));
+                if (!u[0] || !strcmp(u, rfx_old) || strlen(u) >= sizeof(stations[0].url)) jstr(js, t, jget(js, t, n, i, "url"), u, sizeof(u));
+                if (!strncasecmp(u, "http", 4) && strcmp(u, rfx_old) && strlen(u) < sizeof(stations[0].url)) snprintf(rfx_new, sizeof(rfx_new), "%s", u);
+            }
+        free(t);
+        hf_drop(&rfx_hf);
+        if (!rfx_new[0] || rfx_station != cur_station || state != ST_ERROR) return;
+        snprintf(stations[rfx_station].url, sizeof(stations[0].url), "%s", rfx_new);
+        rfx_save = 1;
+        start_station(rfx_station, 1);
+        return;
+    }
+}
+/* (appelee quand la radio joue) : la nouvelle adresse marche : radio.txt corrige */
+static void radio_repair_ok(void) {
+    if (!rfx_save || cur_station != rfx_station || state != ST_PLAY) return;
+    rfx_save = 0;
+    radio_list_replace_url(rfx_old, rfx_new);
+    if (radio_fav_has(rfx_old)) { st_fav[rfx_station] = 0; radio_fav_toggle(rfx_station); }
+    snprintf(radio_note, sizeof(radio_note), "Adresse de %s mise \xC3\xA0 jour (radio.txt)", rfx_name);
+    radio_note_t = now_ms();
+}
+
+/* ---------- v72 : la derniere radio ecoutee reprend au demarrage (reglage) ---------- */
+static void radio_last_note(void) {                         /* (la radio joue : on la retient) */
+    if (src != SRC_RADIO || state != ST_PLAY || pod_on || cur_station < 0 || cur_station > nstations) return;
+    if (!strcmp(radio_last_url, stations[cur_station].url)) return;
+    snprintf(radio_last_url, sizeof(radio_last_url), "%s", stations[cur_station].url);
+    snprintf(radio_last_name, sizeof(radio_last_name), "%s", stations[cur_station].name);
+    settings_dirty = 1;
+}
+static int rr_done = 0;
+static void radio_resume_pump(void) {
+    int done = rr_done;
+    if (done) return;
+    if (!radio_resume || !radio_last_url[0] || src != SRC_NONE || now_ms() - last_input_ms < 1500) { if (!radio_resume || !radio_last_url[0] || src != SRC_NONE) rr_done = 1; return; }
+    if (net_phase != NET_DONE) return;
+    rr_done = 1;
+    if (!net_ok) return;
+    int k = -1;
+    for (int i = 0; i < nstations && k < 0; i++) if (!strcmp(stations[i].url, radio_last_url)) k = i;
+    if (k < 0) {                                            /* (une radio de l'annuaire : la case libre) */
+        if (nstations >= MAX_STATIONS) return;
+        k = nstations;
+        snprintf(stations[k].url, sizeof(stations[0].url), "%s", radio_last_url);
+        snprintf(stations[k].name, sizeof(stations[0].name), "%s", radio_last_name[0] ? radio_last_name : "Radio");
+    }
+    crumb("radio : reprise au demarrage");
+    start_station(k, 0);
+    snprintf(radio_note, sizeof(radio_note), "Reprise de ta derni\xC3\xA8re radio : %s", stations[k].name);
+    radio_note_t = now_ms();
+}
+
 /* lignes de la liste RADIO : 2 raccourcis + les stations, ou "retour" + les resultats */
 static int radio_rows(void) { return rb_mode ? 1 + rb_n : 2 + nstations; }
 
@@ -10092,7 +10424,7 @@ static void draw_list_radio(void) {
             int k = r - 2;
             name = stations[k].name;
             is_cur = (k == cur_station && state != ST_IDLE && src == SRC_RADIO);
-            snprintf(t, sizeof(t), "%02d", k + 1);
+            if (st_fav[k]) t[0] = 0; else snprintf(t, sizeof(t), "%02d", k + 1);
         }
         if (is_cur) gx_tri(31, cy - 6, 31, cy + 6, 41, cy, RGBA(255, 255, 255, 255));
         else draw_radio_icon(36, cy, ic);
@@ -10101,7 +10433,8 @@ static void draw_list_radio(void) {
             gx_text_r(F_SMALL, is_cur ? 236 : 256, cy + 4, t, dim);
             name_w = (is_cur ? 236 : 256) - text_width(F_SMALL, t, 0) - 8 - 50;
         } else {
-            gx_text1(F_SMALL, 50, cy + 4, t, dim);
+            if (st_fav[r - 2]) draw_star(60, cy, 7, is_sel ? RGBA(255, 230, 120, 255) : RGBA(255, 205, 80, 255));
+            else gx_text1(F_SMALL, 50, cy + 4, t, dim);
             name_w = (is_cur ? 228 : 256) - 76;
         }
         if (is_cur) {
@@ -10153,7 +10486,7 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PERF, MI_LAUNCHER, MI_UPDATE, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PERF, MI_LAUNCHER, MI_UPDATE, MI_QUIT, MI_COUNT };
 static int autostart_get(void);
 static const char *autostart_set(int on);
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
@@ -10235,6 +10568,8 @@ static void menu_value(int i, char *out, int cap) {
     case MI_SAVERSTYLE: snprintf(out, cap, "%s", saver_names[saver_style]); break;
     case MI_COVERS:  snprintf(out, cap, "%s", covers_auto ? "Oui" : "Non"); break;
     case MI_RESUME:  snprintf(out, cap, "%s", resume_on ? "Oui" : "Non"); break;
+    case MI_RADIORES: snprintf(out, cap, "%s", radio_resume ? "Oui" : "Non"); break;
+    case MI_GAPLESS: snprintf(out, cap, "%s", gapless_on ? "Oui (m\xC3\xAAme album)" : "Non"); break;
     case MI_VIDEO: {
         int want = video_pref == VID_AUTO ? -1 : video_pref;
         snprintf(out, cap, "%s%s", vid[video_pref], want >= 0 && want != vid_active ? "  (au red\xC3\xA9marrage)" : "");
@@ -10265,7 +10600,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "Lecture al\xC3\xA9" "atoire", "R\xC3\xA9p\xC3\xA9tition", "Fondu encha\xC3\xAEn\xC3\xA9", "Liste MUSIQUE", "Volume",
     "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Style de l'interface", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran", "D\xC3\xA9" "cor de saison",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
-    "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
+    "Reprendre au d\xC3\xA9marrage", "Reprendre la radio au d\xC3\xA9marrage", "Encha\xC3\xAEnement sans blanc", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
     "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Animations (jeux / applis)", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre", "Couleurs du spectrogramme", "Paroles dans le lecteur", "\xC3\x89" "clair sur les basses",
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer la console sur GC Station", "Retour en jeu (A+Z+START)", "A+Z+START (Resident)", "Carte m\xC3\xA9moire virtuelle (Resident)", "Mesure de fluidit\xC3\xA9", "Lanceur de jeux", "Mise \xC3\xA0 jour", "Quitter GC Station" };
 
@@ -10351,6 +10686,8 @@ static void menu_change(int i, int d) {
     }
     case MI_COVERS:  covers_auto = !covers_auto; if (covers_auto) net_start_async(); break;
     case MI_RESUME:  resume_on = !resume_on; break;
+    case MI_RADIORES: radio_resume = !radio_resume; break;
+    case MI_GAPLESS: gapless_on = !gapless_on; break;
     case MI_VIDEO:   video_pref = (video_pref + d + VID_COUNT) % VID_COUNT; if (video_pref != VID_480I) tv_crt = 0;
                      ic_put("Apps Video Mode", video_pref == VID_480I ? "480i" : video_pref == VID_480P ? "480p" : "Auto"); break;
     case MI_TV:
@@ -10541,6 +10878,8 @@ static void draw_menu(void) {
     if (menu_sel == MI_VIDEO) hint = "Pris en compte au prochain lancement (B maintenu au d\xC3\xA9marrage = 480i)";
     if (menu_sel == MI_AUTOSTART) hint = "Copie GC Station dans ipl.dol (PicoLoader) : Reset = GC Station ; Z au d\xC3\xA9marrage = Swiss";
     if (menu_sel == MI_IGR) hint = igr_hint();
+    if (menu_sel == MI_GAPLESS) hint = "Les morceaux d'un m\xC3\xAAme album s'encha\xC3\xAEnent sans silence (albums live, mixes)";
+    if (menu_sel == MI_RADIORES) hint = "La derni\xC3\xA8re radio \xC3\xA9" "cout\xC3\xA9" "e repart toute seule (si rien d'autre ne joue)";
     if (menu_sel == MI_PERF) hint = "Images/s en haut de l'\xC3\xA9" "cran ; en coupant : rapport SD:/gc-mp3/fluidite.txt";
     if (menu_sel == MI_NATCARD) hint = "Jeux lanc\xC3\xA9s avec Resident : sauvegardes dans SD:/gc-mp3/resident/carte-A.raw";
     if (menu_sel == MI_NATIGR) hint = "Jeux lanc\xC3\xA9s avec Resident (X) : A+Z+START tenus 1 s = retour \xC3\xA0 GC Station";
@@ -11489,6 +11828,19 @@ static void transport_step(int d) {
 }
 
 /* musique : decodage d'avance, puis morceau suivant (avec fondu enchaine) */
+/* v72 : le morceau suivant (fin automatique) est-il du meme album (meme dossier) ? */
+static int gapless_next_ok(void) {
+    if (!auto_next_exists() || cur_track < 0) return 0;
+    int nx = -1;
+    if (repeat_mode == REP_ONE) nx = cur_track;
+    else if (qpos + 1 < qn) nx = queue[qpos + 1];
+    else if (repeat_mode == REP_ALL && !shuffle_on && qn > 0) nx = queue[0];
+    if (nx < 0 || nx >= nfiles || is_retro[nx]) return 0;
+    const char *a = names[cur_track], *b = names[nx], *sa = strrchr(a, '/'), *sb = strrchr(b, '/');
+    if (!sa || !sb || sa - a != sb - b || strncmp(a, b, sa - a)) return 0;
+    if (id3_album[0] && tg_album[nx][0] && strcasecmp(id3_album, tg_album[nx])) return 0;
+    return 1;
+}
 static void music_pump(void) {
     if (video_playing) return;                          /* (le son vient de la video) */
     if (src != SRC_FILE || !playing || paused) return;
@@ -11498,7 +11850,12 @@ static void music_pump(void) {
         service_audio();
         k++;
     }
-    if (eof && f_count == 0) track_next(1, 1);         /* morceau suivant (selon aleatoire / repetition) */
+    if (eof && rgm_on) rgm_finish(rgm_track == cur_track);   /* v72 : sonie mesuree sur tout le morceau */
+    if (eof && f_count > 0 && xf_sec == 0 && gapless_on && xf_left == 0 && gapless_next_ok()) {
+        xf_request = -1;                                /* v72 : meme album : le suivant enchaine sans blanc */
+        track_next(1, 1);
+    }
+    else if (eof && f_count == 0) track_next(1, 1);    /* morceau suivant (selon aleatoire / repetition) */
     else if (eof && xf_sec > 0 && xf_left == 0 && auto_next_exists()) {
         xf_request = xf_sec * 48000;                    /* fondu enchaine avec le suivant */
         track_next(1, 1);
@@ -11716,7 +12073,12 @@ int main(int argc, char **argv) {
             if (down & PAD_BUTTON_A) radio_activate();
             if (down & PAD_BUTTON_B) { stop_track(); stop_station(); track_err = NULL; err_msg[0] = 0; }
             if ((down & PAD_BUTTON_X) && rb_mode && sel_station > 0) rb_add_favorite(sel_station - 1);
-            else if (down & PAD_BUTTON_X) radio_title_keep();      /* garder le titre qui passe */
+            else if (!rb_mode) {                                  /* v72 : X court : garder le titre ; X maintenu : radio favorite */
+                static u64 x_t0 = 0; static int x_armed = 0;
+                if (down & PAD_BUTTON_X) { x_t0 = now; x_armed = 1; }
+                if (x_armed && (held & PAD_BUTTON_X) && now - x_t0 > 600) { x_armed = 0; if (sel_station >= 2) radio_fav_toggle(sel_station - 2); }
+                if (x_armed && !(held & PAD_BUTTON_X)) { x_armed = 0; radio_title_keep(); }   /* garder le titre qui passe */
+            }
             if (down & PAD_BUTTON_Y) {
                 if (src == SRC_FILE && playing) paused = !paused;
                 else if (src == SRC_RADIO) muted = !muted;
@@ -11763,7 +12125,7 @@ int main(int argc, char **argv) {
         PF(PH_MUSIC, music_pump());
 
         /* radio : reception, decodage, tampon */
-        PF(PH_STREAM, stream_pump());
+        PF(PH_STREAM, stream_pump(); radio_repair_ok(); radio_last_note(); radio_repair_pump(); radio_resume_pump());
         PF(PH_AUDIO, service_audio());
 
         PF(PH_SPECTRUM, update_spectrum());

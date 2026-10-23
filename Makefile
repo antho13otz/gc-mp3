@@ -41,7 +41,7 @@ XMPFLAGS := -O2 $(MACHDEP) -fwrapv -DLIBXMP_STATIC -DLIBXMP_NO_PROWIZARD -DLIBXM
 
 # numero de compilation (GitHub Actions) : sert a la mise a jour en un clic
 BUILD_NUM ?= 0
-CFLAGS   := -O2 -Wall $(MACHDEP) -DGCMP3_BUILD=$(BUILD_NUM) -D__POWERPC__ -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(HELIX) -Isource/helixstub -I$(GME) -I$(XMP)/include -I$(WEBP) -DLIBXMP_STATIC $(TLSDEF)
+CFLAGS   := -O2 -fwrapv -Wall $(MACHDEP) -DGCMP3_BUILD=$(BUILD_NUM) -D__POWERPC__ -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(HELIX) -Isource/helixstub -I$(GME) -I$(XMP)/include -I$(WEBP) -DLIBXMP_STATIC $(TLSDEF)
 MBEDFLAGS:= -O2 $(MACHDEP) -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(MBEDTLS)/library $(TLSDEF)
 HELIXFLAGS:= -O2 $(MACHDEP) -D__POWERPC__ -Isource/helixstub -I$(HELIX) -DUSE_DEFAULT_STDLIB -Wno-unknown-pragmas
 LDFLAGS  := $(MACHDEP) -Wl,-Map,$(TARGET).map
