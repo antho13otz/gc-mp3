@@ -163,6 +163,7 @@ static void files_refresh_opts(void) { if (fe) fe_load(); }   /* (onglet FICHIER
 /* ---------- demarrage ---------- */
 static int net_cfg_seen = 0;                                  /* (gc-mp3.txt a deja ses reglages reseau) */
 static int sram_back_lang = -1, sram_back_sound = -1;        /* reglages d'un jeu a annuler au retour */
+static char vc_keep[64] = "";                                /* v76 : carte generale, pendant qu'un jeu utilise la sienne (jamais enregistree a sa place) */
 static void net_cfg_apply(void);
 static void jeux_cfg_boot(void) {
     if (sram_back_lang >= 0) { gc_lang_set(sram_back_lang, 1); sram_back_lang = -1; settings_dirty = 1; }   /* (langue d'un jeu : on remet celle de la console) */
@@ -232,7 +233,10 @@ static void jeux_cfg_apply(const char *id, int resident) {
     if (jc_lang >= 0 && jc_lang != SYS_GetLanguage()) { sram_back_lang = SYS_GetLanguage(); gc_lang_set(jc_lang, !resident); changed = 1; }
     int st = SYS_GetSoundMode() != SYS_SOUND_MONO;
     if (jc_sound >= 0 && jc_sound != st) { sram_back_sound = st; gc_sound_set(jc_sound, !resident); changed = 1; }
-    if (resident && jc_card[0]) snprintf(vc_active, sizeof(vc_active), "%s", jc_card);   /* (pour ce lancement seulement : pas enregistre) */
+    if (resident && jc_card[0] && strcmp(jc_card, vc_active)) {   /* (pour ce lancement seulement : pas enregistre) */
+        snprintf(vc_keep, sizeof(vc_keep), "%s", vc_active);
+        snprintf(vc_active, sizeof(vc_active), "%s", jc_card);
+    }
     if (changed) save_settings();                             /* (on remettra la console comme avant au retour) */
 }
 static void indigo_game_open(const char *id, const char *title) {     /* (nom garde : appele depuis la fiche d'un jeu) */
@@ -303,6 +307,7 @@ static void jeux_cfg_undo(const char *card) {
     if (sram_back_lang >= 0) { gc_lang_set(sram_back_lang, 1); sram_back_lang = -1; }
     if (sram_back_sound >= 0) { gc_sound_set(sram_back_sound, 1); sram_back_sound = -1; }
     snprintf(vc_active, sizeof(vc_active), "%s", card);
+    vc_keep[0] = 0;
     save_settings();
 }
 static const char *game_boot(int k, int resident) {

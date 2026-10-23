@@ -21,6 +21,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v77 — cartes mémoire virtuelles vérifiées
+- **Correction** : quand un jeu avait sa propre carte virtuelle (fiche du jeu, Y > « Carte mémoire (Resident) ») **et** une langue ou un son à lui, la carte de ce jeu devenait par erreur la carte de tous les autres jeux après son lancement. La carte générale (START > Outils > Cartes mémoire virtuelles) est maintenant toujours gardée.
+- Le message d'erreur « carte trop morcelée » donne le nom de la carte réellement utilisée.
+- Tout le reste a été revérifié : carte neuve et formatage, copie de sauvegardes (vers et depuis la SD, vers et depuis la vraie carte), suppression, carte pleine, plusieurs cartes, 400 cartes abîmées relues sans plantage.
+
 ## Nouveautés v76 — notes, réveil malin, favoris
 - **Notes (étoiles) sur les morceaux** : dans MUSIQUE, touche **X** sur un morceau → ligne « Note » (A ou gauche/droite pour mettre 0 à 5 étoiles). Les étoiles s'affichent dans la liste, et une nouvelle liste **« Mes préférés »** (vue « Mes listes ») réunit les morceaux notés, du mieux noté au moins bien.
 - **Minuterie plus fine** : START > « Minuterie » propose maintenant **à la fin du morceau**, 5, 10, 20, 30, 45, 60, 90 et 120 minutes.

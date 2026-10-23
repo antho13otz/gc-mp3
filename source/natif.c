@@ -1107,7 +1107,7 @@ static int nat_card_prep(void) {
     }
     char e[80];
     if (nat_map(NA_CARD, e, sizeof(e))) { snprintf(na_card_msg, sizeof(na_card_msg), "%s", e); return 0; }
-    if (na_next > NATRES_CARDMAX) { snprintf(na_card_msg, sizeof(na_card_msg), "carte-A.raw trop morcele sur la carte SD (%u morceaux)", (unsigned)na_next); return 0; }
+    if (na_next > NATRES_CARDMAX) { snprintf(na_card_msg, sizeof(na_card_msg), "%s trop morcele sur la carte SD (%u morceaux)", vc_active, (unsigned)na_next); return 0; }
     memcpy(na_card, na_ext, na_next * sizeof(natres_ext_t));
     na_card_n = na_next; na_card_size = sz;
     snprintf(na_card_msg, sizeof(na_card_msg), "active (gc-mp3/resident/%s, %u blocs)", vc_active, (unsigned)(sz / 8192u - 5u));
