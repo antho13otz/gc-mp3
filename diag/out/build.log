@@ -1,6 +1,0 @@
-In file included from simcore.c:5,
-                 from t_net.c:3:
-../web/source/main.c:22:10: fatal error: ogc/lwp.h: No such file or directory
-   22 | #include <ogc/lwp.h>
-      |          ^~~~~~~~~~~
-compilation terminated.
