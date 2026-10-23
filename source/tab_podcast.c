@@ -344,8 +344,66 @@ static void podcast_play_at(int sec) {
     pod_save_t = now_ms();
 }
 
+/* ---- v71 : episodes deja telecharges : lus depuis la carte SD (sans reseau, sans attente),
+   avec la meme position d'ecoute que l'episode en ligne ---- */
+#define POD_DLX GCD "/podcasts/telecharges.txt"
+static int pod_local_k = -1;
+static char pod_local_url[URL_MAX];
+static u64 pod_local_t = 0;
+static void pod_dl_note(const char *url, const char *path) {
+    if (!sd_ok || !url[0] || strchr(url, '\n')) return;
+    mkdir(GCD "/podcasts", 0777);
+    FILE *f = fopen(POD_DLX, "a");
+    if (!f) return;
+    fprintf(f, "%s | %s\n", path, url);
+    fclose(f);
+}
+static int pod_dl_find(const char *url, char *out, int cap) {
+    FILE *f = fopen(POD_DLX, "r");
+    if (!f) return 0;
+    char *line = (char *)malloc(URL_MAX + NAME_LEN + 8);
+    int found = 0;
+    while (line && fgets(line, URL_MAX + NAME_LEN + 8, f)) {
+        char *bar = strstr(line, " | ");
+        if (!bar) continue;
+        *bar = 0;
+        char *u = bar + 3; u[strcspn(u, "\r\n")] = 0;
+        struct stat st;
+        if (!strcmp(u, url) && stat(line, &st) == 0 && st.st_size > 0) { snprintf(out, cap, "%s", line); found = 1; }   /* (le dernier gagne) */
+    }
+    free(line);
+    fclose(f);
+    return found;
+}
+static void pod_local_save(void) {
+    if (pod_local_k < 0 || !pod_local_url[0]) return;
+    int p = (int)(consumed_heard() / 48000u);
+    int d = pod_local_k < nfiles ? file_duration(names[pod_local_k]) : 0;
+    if (d > 0 && p > d - 30) p = 0;                            /* (fini : on repartira du debut) */
+    pod_set_pos(pod_local_url, p);
+}
+static int pod_play_local(const ep_t *ep) {
+    char path[NAME_LEN];
+    if (!sd_ok || !pod_dl_find(ep->url, path, sizeof(path))) return 0;
+    int k = -1;
+    for (int i = 0; i < nfiles && k < 0; i++) if (!strcasecmp(names[i], path)) k = i;
+    if (k < 0) { music_add_file(path); for (int i = 0; i < nfiles && k < 0; i++) if (!strcasecmp(names[i], path)) k = i; }
+    if (k < 0) return 0;
+    podcast_leave();
+    stop_station();
+    start_track(k);
+    if (src != SRC_FILE || cur_track != k) return 0;
+    int resume = pod_get_pos(ep->url);
+    if (resume > 10) track_seek(resume - 3);
+    pod_local_k = k; pod_local_t = now_ms();
+    snprintf(pod_local_url, sizeof(pod_local_url), "%s", ep->url);
+    pod_note(resume > 10 ? "\xC3\x89pisode t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9 : reprise l\xC3\xA0 o\xC3\xB9 tu t'\xC3\xA9tais arr\xC3\xAAt\xC3\xA9" : "\xC3\x89pisode t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9 : lu depuis la carte SD");
+    return 1;
+}
+
 static void podcast_play(const ep_t *ep) {
     crumb("podcast : %.80s", ep->title);
+    if (pod_play_local(ep)) return;
     podcast_leave();
     if (strlen(ep->url) >= sizeof(stations[0].url) - 1) { pod_note("Adresse de l'\xC3\xA9pisode trop longue"); return; }
     snprintf(pod_ep_url, sizeof(pod_ep_url), "%s", ep->url);
@@ -387,6 +445,7 @@ static void podcast_download(const ep_t *ep) {
     snprintf(dl_dest_dir, sizeof(dl_dest_dir), GCD "/podcasts");
     mkdir(dl_dest_dir, 0777);
     dl_force = 1;
+    snprintf(dl_ep_url, sizeof(dl_ep_url), "%s", ep->url);
     web_fetch(ep->url, NAV_PUSH, 0);
     pod_note("T\xC3\xA9l\xC3\xA9" "chargement demand\xC3\xA9 (SD:/gc-mp3/podcasts)");
 }
@@ -434,6 +493,11 @@ static void podcast_input(u32 down, u32 nav, int fire) {
 
 static void podcast_pump(void) {
     if (pod_on && now_ms() - pod_save_t > 15000) { pod_save_t = now_ms(); podcast_save_pos(); }
+    if (pod_local_k >= 0) {                                       /* v71 : episode lu depuis la carte */
+        if (src == SRC_FILE && cur_track == pod_local_k && playing) {
+            if (now_ms() - pod_local_t > 5000) { pod_local_t = now_ms(); pod_local_save(); }
+        } else { pod_local_k = -1; pod_local_url[0] = 0; }
+    }
     if (pf_state == PF_IDLE) return;
     hf_pump(&pdf);
     if (pdf.st == HF_FAIL) { pod_note(pf_state == PF_FEED ? "Flux du podcast introuvable" : "Recherche impossible"); pf_state = PF_IDLE; hf_drop(&pdf); return; }

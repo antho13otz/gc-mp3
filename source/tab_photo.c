@@ -491,6 +491,7 @@ static void photo_input(u32 down, u32 nav, int fire) {
         if (down & PAD_BUTTON_Y) paused = !paused;
         return;
     }
+    if (pv_mode == 1 && npf <= 0) pv_mode = 0;            /* (v72 : plus de photo : jamais de division par zero) */
     if (pv_mode == 1) {                                   /* plein ecran */
         if (fire && (nav & (PAD_BUTTON_RIGHT | PAD_BUTTON_DOWN))) { pf_sel = (pf_sel + 1) % npf; pv_slide_t = now_ms(); }
         if (fire && (nav & (PAD_BUTTON_LEFT | PAD_BUTTON_UP))) { pf_sel = (pf_sel + npf - 1) % npf; pv_slide_t = now_ms(); }

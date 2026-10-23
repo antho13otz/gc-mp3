@@ -21,6 +21,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v71
+- **Radio** : démarre plus vite (1 s de tampon au lieu de 2 ; plus seulement si le flux a déjà coupé). Si la radio s'arrête (réseau, serveur), GC Station **se reconnecte tout seul**, de plus en plus espacé (1, 2, 4, 8, 15 puis 30 s), au lieu de rester sur une erreur ; la reconnexion reprend directement l'adresse finale (sans redirections ni liste .m3u).
+- **Podcasts** : un épisode déjà téléchargé (à la main ou tout seul) est **lu depuis la carte SD** (sans réseau ni attente), avec la même reprise là où tu t'étais arrêté ; la position est gardée toutes les 5 s.
+- **Mini-jeux** (Snake, casse-briques, Pong, note volante) : les effets et les notes dorées tombent sur le coup **entendu** ; dans la note volante, chaque mur arrive sur l'oiseau **pile sur un coup** du morceau.
+- **Quiz musical** : questions « Quel morceau ? » et « Qui chante ? » (si les étiquettes le disent), extraits de plus en plus courts (10 s, puis 6 s, puis 3 s), et les morceaux des parties d'avant ne retombent pas tout de suite.
+- **Corrections** (analyse de tout le code) : plantage possible quand une radio donnée par son adresse IP ne répondait pas ; division par zéro dans les photos en plein écran sans photo.
+
 ## Nouveautés v70
 - **Jeu de rythme refait** : les coups (grosse caisse, caisse claire, charleston) sont cherchés dans le son **déjà décodé, avant qu'on l'entende** : chaque note tombe exactement sur un vrai coup du morceau (avant : une grille de tempo devinée, qui se décalait au moindre retard du son). Les notes suivent l'horloge du son entendu (pause, petit retard : elles restent calées). Facile / Normal : surtout les coups graves ; Difficile : tous. **L / R** dans l'écran de choix : décalage des notes (±10 ms) si ta télé ajoute un retard ; il est gardé.
 

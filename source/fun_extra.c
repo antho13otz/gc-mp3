@@ -244,8 +244,92 @@ static u64 rg_last_on = 0, rg_start_t = 0;
    sur un vrai coup du morceau (avant : une grille de tempo devinee, en temps de la console : au
    moindre retard du son, tout se decalait). L'horloge est la position du son entendu (audio_ms). */
 #define RG_FR 512                                 /* (une "image" d'analyse : 10,7 ms de son) */
-static u32 rg_scan = 0;
-static float rg_lp = 0, rg_prev = 0, rg_lo_h[3], rg_hi_h[3], rg_od[5], rg_odlo[5], rg_odhi[5], rg_th_avg = 1, rg_th_dev = 1;
+/* analyse commune (jeu de rythme, mini-jeux) : coups trouves dans le son deja decode */
+static u32 ba_scan = 0;
+static float ba_lp = 0, ba_prev = 0, ba_lo_h[3], ba_hi_h[3], ba_od[5], ba_odlo[5], ba_odhi[5], ba_th_avg = 1, ba_th_dev = 1;
+static void ba_reset(void) {
+    ba_scan = 0; ba_lp = ba_prev = 0; ba_th_avg = ba_th_dev = 1;
+    memset(ba_lo_h, 0, sizeof(ba_lo_h)); memset(ba_hi_h, 0, sizeof(ba_hi_h)); memset(ba_od, 0, sizeof(ba_od));
+    memset(ba_odlo, 0, sizeof(ba_odlo)); memset(ba_odhi, 0, sizeof(ba_odhi));
+}
+/* cb(echantillon, graves, aigus, force, seuil) pour chaque coup */
+static void ba_analyse(void (*cb)(u32, float, float, float, float)) {
+    u32 lv = IRQ_Disable();
+    u32 c = consumed, sk = consumed_skip, h = (u32)f_head, n = (u32)f_count;
+    IRQ_Restore(lv);
+    if (n <= sk) return;
+    u32 end = c + (n - sk);
+    if (ba_scan < c) ba_scan = c;                       /* (en retard : on saute) */
+    for (int fr = 0; fr < 96 && ba_scan + RG_FR <= end; fr++) {
+        float elo = 0, ehi = 0;
+        u32 j = ba_scan - c + sk;
+        for (int i = 0; i < RG_FR; i++) {
+            const stereo_t *st = &fifo[(h + j + i) % FIFO_SIZE];
+            float x = ((float)st->l + (float)st->r) * (1.0f / 65536.0f);
+            ba_lp += 0.02f * (x - ba_lp);                   /* (graves : en dessous de ~150 Hz) */
+            float d = x - ba_prev; ba_prev = x;               /* (aigus : caisse claire, charleston) */
+            elo += ba_lp * ba_lp; ehi += d * d;
+        }
+        float ldb = 10.0f * log10f(elo / RG_FR + 1e-10f), hdb = 10.0f * log10f(ehi / RG_FR + 1e-10f);
+        float pl = ba_lo_h[0] > ba_lo_h[1] ? ba_lo_h[0] : ba_lo_h[1]; if (ba_lo_h[2] > pl) pl = ba_lo_h[2];
+        float ph = ba_hi_h[0] > ba_hi_h[1] ? ba_hi_h[0] : ba_hi_h[1]; if (ba_hi_h[2] > ph) ph = ba_hi_h[2];
+        float rl = ldb - pl, rh = hdb - ph;
+        if (rl < 0) rl = 0;
+        if (rh < 0) rh = 0;
+        if (ldb < -60.0f) rl = 0;
+        if (hdb < -60.0f) rh = 0;
+        ba_lo_h[2] = ba_lo_h[1]; ba_lo_h[1] = ba_lo_h[0]; ba_lo_h[0] = ldb;
+        ba_hi_h[2] = ba_hi_h[1]; ba_hi_h[1] = ba_hi_h[0]; ba_hi_h[0] = hdb;
+        float od = rl + 0.6f * rh;
+        for (int k = 4; k > 0; k--) { ba_od[k] = ba_od[k - 1]; ba_odlo[k] = ba_odlo[k - 1]; ba_odhi[k] = ba_odhi[k - 1]; }
+        ba_od[0] = od; ba_odlo[0] = rl; ba_odhi[0] = 0.6f * rh;
+        float v = ba_od[2], thr = ba_th_avg + 1.5f * ba_th_dev;      /* (sommet 2 images plus tot) */
+        if (thr < 1.5f) thr = 1.5f;
+        if (v > thr && v > ba_od[3] && v > ba_od[4] && v >= ba_od[1] && v >= ba_od[0])
+            cb(ba_scan - 2 * RG_FR + RG_FR / 2, ba_odlo[2], ba_odhi[2], v, ba_th_avg + 1.5f * ba_th_dev);
+        ba_th_avg = ba_th_avg * 0.97f + od * 0.03f;
+        float ad = od - ba_th_avg; if (ad < 0) ad = -ad;
+        ba_th_dev = ba_th_dev * 0.97f + ad * 0.03f;
+        ba_scan += RG_FR;
+    }
+}
+/* v72 : pour les mini-jeux : les prochains coups (temps du son entendu, en ms) */
+#define BA_N 32
+static double ba_t[BA_N];
+static u8 ba_strong[BA_N];
+static int ba_w = 0, ba_track = -2;
+static u32 ba_c0 = 0;
+static double ba_seen = -1e9, ba_last_on = -1e9;
+static void ba_on(u32 smp, float lo, float hi, float od, float thr) {
+    double t = smp / 48.0 + rg_offset;
+    if (t - ba_last_on < 100) return;
+    ba_last_on = t;
+    ba_t[ba_w % BA_N] = t; ba_strong[ba_w % BA_N] = lo >= hi || od > thr * 1.8f; ba_w++;
+}
+static int ba_ok(void) { return src == SRC_FILE && playing && !paused; }
+static void ba_pump(void) {                          /* (mini-jeux : a chaque image) */
+    if (!ba_ok()) return;
+    if (cur_track != ba_track || consumed < ba_c0) { ba_reset(); ba_w = 0; ba_seen = ba_last_on = -1e9; ba_track = cur_track; }
+    ba_c0 = consumed;
+    ba_analyse(ba_on);
+}
+static int ba_beat_now(void) {                       /* un coup fort vient d'etre entendu ? (une fois) */
+    double an = audio_ms();
+    int hit = 0;
+    for (int i = ba_w > BA_N ? ba_w - BA_N : 0; i < ba_w; i++) {
+        double t = ba_t[i % BA_N];
+        if (t > ba_seen && t <= an && ba_strong[i % BA_N]) { ba_seen = t; if (an - t < 150) hit = 1; }
+    }
+    return hit;
+}
+static double ba_next_strong(double after) {         /* prochain coup fort apres 'after' (-1 : pas encore connu) */
+    double best = -1;
+    for (int i = ba_w > BA_N ? ba_w - BA_N : 0; i < ba_w; i++) {
+        double t = ba_t[i % BA_N];
+        if (t > after && ba_strong[i % BA_N] && (best < 0 || t < best)) best = t;
+    }
+    return best;
+}
 static double rg_last_onset = -1e9, rg_last_note = -1e9, rg_last_low = -1e9;
 static const char *const rg_diff_names[3] = { "Facile", "Normal", "Difficile" };
 #define RG_FILE GCD "/gc-mp3-jeux.txt"
@@ -296,9 +380,7 @@ static void rg_new_game(int k) {
     rg_period = 500;
     rg_anchor = rg_sched = 0;
     rg_armed = 1;
-    rg_scan = 0; rg_lp = rg_prev = 0; rg_th_avg = rg_th_dev = 1;
-    memset(rg_lo_h, 0, sizeof(rg_lo_h)); memset(rg_hi_h, 0, sizeof(rg_hi_h)); memset(rg_od, 0, sizeof(rg_od));
-    memset(rg_odlo, 0, sizeof(rg_odlo)); memset(rg_odhi, 0, sizeof(rg_odhi));
+    ba_reset();
     rg_last_onset = rg_last_note = rg_last_low = -1e9;
     rg_track = k;
     queue_build(k);
@@ -370,7 +452,7 @@ static void rg_finish(void) {
 }
 
 /* un coup trouve dans le son a venir (index d'echantillon dans le morceau) */
-static void rg_onset(u32 smp, float lo, float hi, float od) {
+static void rg_onset(u32 smp, float lo, float hi, float od, float thr0) {
     double t = smp / 48.0 + rg_offset;
     if (t - rg_last_onset < 100) return;
     rg_last_onset = t;
@@ -378,7 +460,7 @@ static void rg_onset(u32 smp, float lo, float hi, float od) {
     rg_ons[0] = (u64)t; rg_non++;
     if (rg_non >= 6) rg_estimate();
     static const float gap[3] = { 430, 280, 165 }, need[3] = { 1.6f, 1.2f, 1.0f };
-    if (od < rg_th_avg + 1.5f * rg_th_dev * need[rg_diff]) return;        /* (facile : seulement les gros coups) */
+    if (od < thr0 * need[rg_diff]) return;                              /* (facile : seulement les gros coups) */
     /* (les coups graves d'abord : ils ne regardent que la note grave d'avant ; les aigus ne
        viennent qu'entre deux, s'il y a la place) */
     int low = lo >= hi;
@@ -389,53 +471,11 @@ static void rg_onset(u32 smp, float lo, float hi, float od) {
     rg_lock = 1;
     rg_spawn(t, low);
 }
-static void rg_analyse(void) {
-    u32 lv = IRQ_Disable();
-    u32 c = consumed, sk = consumed_skip, h = (u32)f_head, n = (u32)f_count;
-    IRQ_Restore(lv);
-    if (n <= sk) return;
-    u32 end = c + (n - sk);
-    if (rg_scan < c) rg_scan = c;                       /* (en retard : on saute) */
-    for (int fr = 0; fr < 96 && rg_scan + RG_FR <= end; fr++) {
-        float elo = 0, ehi = 0;
-        u32 j = rg_scan - c + sk;
-        for (int i = 0; i < RG_FR; i++) {
-            const stereo_t *st = &fifo[(h + j + i) % FIFO_SIZE];
-            float x = ((float)st->l + (float)st->r) * (1.0f / 65536.0f);
-            rg_lp += 0.02f * (x - rg_lp);                   /* (graves : en dessous de ~150 Hz) */
-            float d = x - rg_prev; rg_prev = x;               /* (aigus : caisse claire, charleston) */
-            elo += rg_lp * rg_lp; ehi += d * d;
-        }
-        float ldb = 10.0f * log10f(elo / RG_FR + 1e-10f), hdb = 10.0f * log10f(ehi / RG_FR + 1e-10f);
-        float pl = rg_lo_h[0] > rg_lo_h[1] ? rg_lo_h[0] : rg_lo_h[1]; if (rg_lo_h[2] > pl) pl = rg_lo_h[2];
-        float ph = rg_hi_h[0] > rg_hi_h[1] ? rg_hi_h[0] : rg_hi_h[1]; if (rg_hi_h[2] > ph) ph = rg_hi_h[2];
-        float rl = ldb - pl, rh = hdb - ph;
-        if (rl < 0) rl = 0;
-        if (rh < 0) rh = 0;
-        if (ldb < -60.0f) rl = 0;
-        if (hdb < -60.0f) rh = 0;
-        rg_lo_h[2] = rg_lo_h[1]; rg_lo_h[1] = rg_lo_h[0]; rg_lo_h[0] = ldb;
-        rg_hi_h[2] = rg_hi_h[1]; rg_hi_h[1] = rg_hi_h[0]; rg_hi_h[0] = hdb;
-        float od = rl + 0.6f * rh;
-        for (int k = 4; k > 0; k--) { rg_od[k] = rg_od[k - 1]; rg_odlo[k] = rg_odlo[k - 1]; rg_odhi[k] = rg_odhi[k - 1]; }
-        rg_od[0] = od; rg_odlo[0] = rl; rg_odhi[0] = 0.6f * rh;
-        /* sommet 2 images plus tot (on regarde avant et apres) */
-        float v = rg_od[2], thr = rg_th_avg + 1.5f * rg_th_dev;
-        if (thr < 1.5f) thr = 1.5f;
-        if (v > thr && v > rg_od[3] && v > rg_od[4] && v >= rg_od[1] && v >= rg_od[0])
-            rg_onset(rg_scan - 2 * RG_FR + RG_FR / 2, rg_odlo[2], rg_odhi[2], v);
-        rg_th_avg = rg_th_avg * 0.97f + od * 0.03f;
-        float ad = od - rg_th_avg; if (ad < 0) ad = -ad;
-        rg_th_dev = rg_th_dev * 0.97f + ad * 0.03f;
-        rg_scan += RG_FR;
-    }
-}
-
 static void rhythm_pump(void) {
     if (rg_phase != 1) return;
     if (src != SRC_FILE || !playing || cur_track != rg_track) { rg_finish(); return; }
     if (paused) return;
-    rg_analyse();
+    ba_analyse(rg_onset);
     double now = audio_ms();
     /* notes ratees */
     for (int i = 0; i < RG_NOTES; i++) {
@@ -656,6 +696,13 @@ static int qz_round, qz_players = 1, qz_answer, qz_choice[4], qz_pick[4], qz_sco
 static int qz_used[QZ_ROUNDS];
 static char qz_txt[4][96];
 static u64 qz_t = 0, qz_pick_t[4];
+/* v72 : plus de variete : question sur le titre OU sur l'artiste (si les etiquettes le disent),
+   extrait de plus en plus court (10 s, puis 6 s, puis 3 s), et pas les morceaux des parties d'avant */
+static int qz_kind = 0;                          /* 0 titre, 1 artiste */
+#define QZ_HIST 48
+static int qz_hist[QZ_HIST], qz_nhist = 0;
+static u32 qz_listen_ms(void) { return qz_round < 4 ? 10000 : qz_round < 7 ? 6000 : 3000; }
+static int qz_recent(int k) { for (int i = 0; i < qz_nhist && i < QZ_HIST; i++) if (qz_hist[i] == k) return 1; return 0; }
 static const col_t qz_pcol[4] = { { 120, 180, 255, 255 }, { 255, 120, 140, 255 }, { 120, 230, 140, 255 }, { 255, 210, 90, 255 } };
 
 static void quiz_start(void) {
@@ -668,17 +715,37 @@ static void quiz_start(void) {
 
 static void qz_round_begin(void) {
     int k = -1;
-    for (int tries = 0; tries < 80 && k < 0; tries++) {
+    for (int tries = 0; tries < 120 && k < 0; tries++) {
         int c = fun_random_track(-1), dup = 0;
         for (int r = 0; r < qz_round; r++) if (qz_used[r] == c) dup = 1;
-        if (!dup || tries > 60) k = c;
+        if (tries < 80 && qz_recent(c)) dup = 1;                 /* (deja tombe dans une partie d'avant) */
+        if (!dup || tries > 100) k = c;
     }
     if (k < 0) { qz_phase = 3; return; }
     qz_used[qz_round] = k;
+    qz_hist[qz_nhist % QZ_HIST] = k; qz_nhist++;
     qz_answer = (int)(lib_rand() % 4);
     char ta[96];
     fun_title_of(k, ta, sizeof(ta));
-    for (int i = 0; i < 4; i++) {
+    /* artiste ? (seulement si 3 autres artistes differents sont connus) */
+    qz_kind = 0;
+    if (tg_artist[k][0] && lib_rand() % 5 < 2) {
+        char other[3][48]; int no = 0;
+        for (int tries = 0; tries < 200 && no < 3; tries++) {
+            int x = fun_random_track(k);
+            if (x < 0 || !tg_artist[x][0] || !strcasecmp(tg_artist[x], tg_artist[k])) continue;
+            int dup = 0; for (int j = 0; j < no; j++) if (!strcasecmp(other[j], tg_artist[x])) dup = 1;
+            if (!dup) snprintf(other[no++], sizeof(other[0]), "%s", tg_artist[x]);
+        }
+        if (no == 3) {
+            qz_kind = 1;
+            for (int i = 0, j = 0; i < 4; i++) {
+                if (i == qz_answer) { qz_choice[i] = k; snprintf(qz_txt[i], sizeof(qz_txt[i]), "%s", tg_artist[k]); }
+                else { qz_choice[i] = -1; snprintf(qz_txt[i], sizeof(qz_txt[i]), "%s", other[j++]); }
+            }
+        }
+    }
+    for (int i = 0; i < 4 && !qz_kind; i++) {
         if (i == qz_answer) { qz_choice[i] = k; snprintf(qz_txt[i], sizeof(qz_txt[i]), "%s", ta); continue; }
         int c = -1;
         for (int tries = 0; tries < 60 && c < 0; tries++) {
@@ -715,7 +782,7 @@ static void quiz_pump(void) {
     u64 now = now_ms();
     last_input_ms = now;
     if (qz_phase == 1) {
-        if (now - qz_t > QZ_LISTEN && src == SRC_FILE && playing) stop_track();
+        if (now - qz_t > qz_listen_ms() && src == SRC_FILE && playing) stop_track();
         int all = 1;
         for (int p = 0; p < qz_players; p++) if (qz_pick[p] < 0) all = 0;
         if (all || now - qz_t > QZ_ANSWER) qz_reveal();
@@ -804,7 +871,7 @@ static void draw_quiz(void) {
         fun_footer("A : rejouer     B : sortir");
         return;
     }
-    snprintf(t, sizeof(t), "Manche %d / %d", qz_round + 1, QZ_ROUNDS);
+    snprintf(t, sizeof(t), TR(qz_kind ? "Manche %d / %d   -   Qui chante ?   (extrait de %d s)" : "Manche %d / %d   -   Quel morceau ?   (extrait de %d s)"), qz_round + 1, QZ_ROUNDS, (int)(qz_listen_ms() / 1000));
     gx_text_c(F_MED, 320, 34, t, RGBA(230, 220, 255, 255));
     /* minuteur rond, avec le spectre */
     f32 cx = 320, cy = 118, el = (f32)(now - qz_t);
@@ -1122,6 +1189,7 @@ static void podauto_pump(void) {
         memmove(pa_q_url[0], pa_q_url[1], sizeof(pa_q_url[0]) * pa_nq);
         memmove(pa_q_title[0], pa_q_title[1], sizeof(pa_q_title[0]) * pa_nq);
         dl_force = 1;
+        snprintf(dl_ep_url, sizeof(dl_ep_url), "%s", url);
         web_fetch(url, NAV_PUSH, 0);
         return;
     }
@@ -1283,6 +1351,7 @@ static void ar_music(void) {                 /* de la musique pour jouer */
     if (k >= 0) { queue_build(k); start_track(k); }
 }
 static int ar_beat(void) {                   /* un coup de basse depuis la derniere fois ? */
+    if (ba_ok()) { ba_pump(); return ba_beat_now(); }          /* v72 : musique : le coup exact, quand on l'entend */
     if (pt_last_beat != ar_beat_seen && now_ms() - pt_last_beat < 120) { ar_beat_seen = pt_last_beat; return 1; }
     return 0;
 }
@@ -1757,11 +1826,13 @@ static void draw_pong(void) {
 static f32 fl_y, fl_v, fl_px[FL_N], fl_gap[FL_N], fl_sz[FL_N];
 static u8 fl_pass[FL_N];
 static u64 fl_next = 0;
+static double fl_lastT = -1e9, fl_T[FL_N];
+static f32 fl_vs[FL_N];
 #define FL_X 150.0f
 static void flappy_new(void) {
     fl_y = 240; fl_v = 0;
-    for (int i = 0; i < FL_N; i++) fl_px[i] = -100;
-    ar_score = 0; ar_phase = 0; ar_last = 0; fl_next = now_ms() + 1200;
+    for (int i = 0; i < FL_N; i++) { fl_px[i] = -100; fl_T[i] = -1; }
+    ar_score = 0; ar_phase = 0; ar_last = 0; fl_next = now_ms() + 1200; fl_lastT = -1e9;
     ar_record = rg_record_get("jeu:note-volante");
 }
 static void flappy_start(void) { fun_enter(FUN_FLAPPY); ar_music(); flappy_new(); }
@@ -1776,17 +1847,28 @@ static void flappy_pump(void) {
     ar_flash *= expf(-dt * 6);
     if (ar_phase || paused) return;
     f32 sp = 150 + ar_drive() * 120 + ar_score * 2;
-    if ((beat && now > fl_next) || now > fl_next + 900) {      /* un mur sur le temps (ou au moins un toutes les ~2 s) */
+    f32 spawn_x = -1;
+    if (ba_ok() && ba_w > 0) {                                  /* v72 : le mur arrive sur l'oiseau pile sur un coup */
+        double an = audio_ms(), tr = (680.0 - FL_X) / sp * 1000.0;
+        double lo = an + tr * 0.85;                             /* (jamais au milieu de l'ecran) */
+        double T = ba_next_strong(fl_lastT + 1000 > lo ? fl_lastT + 1000 : lo);
+        if (T > 0 && T <= an + tr) { spawn_x = FL_X + sp * (f32)(T - an) / 1000.0f; fl_lastT = T; fl_next = now + 1100; }
+        else if (now > fl_next + 1400) { spawn_x = 680; fl_next = now + 1100; }          /* (passage calme : un mur quand meme) */
+    } else if ((beat && now > fl_next) || now > fl_next + 900) { spawn_x = 680; fl_next = now + 1100; }   /* (radio : sur le temps) */
+    if (spawn_x > 0) {
         for (int i = 0; i < FL_N; i++) if (fl_px[i] < -60) {
-            fl_px[i] = 680; fl_gap[i] = 150 + (f32)(lib_rand() % 220); fl_sz[i] = 120 - (ar_score > 20 ? 20 : ar_score) ; fl_pass[i] = 0; break;
+            fl_px[i] = spawn_x; fl_gap[i] = 150 + (f32)(lib_rand() % 220); fl_sz[i] = 120 - (ar_score > 20 ? 20 : ar_score) ; fl_pass[i] = 0;
+            fl_T[i] = spawn_x < 680 || ba_ok() ? fl_lastT : -1; fl_vs[i] = sp;      /* (cale sur le son : sa position suit l'horloge du son) */
+            if (spawn_x >= 680) fl_T[i] = -1;
+            break;
         }
-        fl_next = now + 1100;
     }
     fl_v += 900 * dt;
     fl_y += fl_v * dt;
     for (int i = 0; i < FL_N; i++) {
         if (fl_px[i] < -60) continue;
-        fl_px[i] -= sp * dt;
+        if (fl_T[i] > 0 && ba_ok()) fl_px[i] = FL_X + fl_vs[i] * (f32)(fl_T[i] - audio_ms()) / 1000.0f;
+        else fl_px[i] -= sp * dt;
         if (!fl_pass[i] && fl_px[i] + 30 < FL_X) { fl_pass[i] = 1; ar_score++; rumble(0, 25); }
         if (fabsf(fl_px[i] - FL_X) < 30 + 10 && fabsf(fl_y - fl_gap[i]) > fl_sz[i] / 2 - 10) { ar_game_over("jeu:note-volante"); return; }
     }
