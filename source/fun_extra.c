@@ -14,9 +14,10 @@ static int fun_mode = FUN_OFF;
 static u64 fun_t0 = 0;
 static u32 fun_pads = 1;                    /* manettes branchees (PAD_ScanPads) */
 
-static const col_t lane_top[4] = { { 90, 230, 120, 255 }, { 245, 80, 95, 255 }, { 150, 190, 255, 255 }, { 255, 215, 80, 255 } };
-static const col_t lane_bot[4] = { { 30, 150, 60, 255 }, { 175, 30, 50, 255 }, { 70, 110, 210, 255 }, { 200, 150, 20, 255 } };
-static const char *const lane_btn[4] = { "A", "B", "X", "Y" };
+static const col_t lane_top[5] = { { 90, 230, 120, 255 }, { 245, 80, 95, 255 }, { 150, 190, 255, 255 }, { 255, 215, 80, 255 }, { 255, 150, 60, 255 } };
+static const col_t lane_bot[5] = { { 30, 150, 60, 255 }, { 175, 30, 50, 255 }, { 70, 110, 210, 255 }, { 200, 150, 20, 255 }, { 200, 80, 20, 255 } };
+static const char *const lane_btn[5] = { "A", "B", "X", "Y", "R" };
+static int rg_lanes = 4;                      /* v73 : 4 touches (A B X Y) ou 5 (+ R) */
 
 /* ---------- Vibrations ---------- */
 static u64 rumble_until[4];
@@ -232,7 +233,7 @@ static rnote_t rg_n[RG_NOTES];
 static int rg_phase = 0;                     /* 0 choix, 1 partie, 2 resultat */
 static int rg_diff = 1, rg_track = -1, rg_record = 0, rg_new_record = 0;
 static int rg_players = 1;                   /* v21 : 2 = duel (manettes 1 et 2) */
-typedef struct { int score, combo, best_combo, hits, total, perfect; char judge[24]; u64 judge_t; col_t judge_c; f32 flash[4]; } rgp_t;
+typedef struct { int score, combo, best_combo, hits, total, perfect; char judge[24]; u64 judge_t; col_t judge_c; f32 flash[5]; } rgp_t;
 static rgp_t rgp[2];
 static u64 rg_ons[16];
 static int rg_non = 0, rg_lock = 0, rg_beatn = 0, rg_lastlane = -1, rg_samelane = 0;
@@ -424,9 +425,10 @@ static void rg_estimate(void) {
 
 
 static void rg_spawn(double t, int strong) {               /* strong : 1 = coup grave, 0 = aigu */
-    int lane = strong ? (int)(lib_rand() % 2) : 2 + (int)(lib_rand() % 2);
-    if (lib_rand() % 3 == 0) lane = (int)(lib_rand() % 4);
-    if (lane == rg_lastlane && ++rg_samelane >= 2) { lane = (lane + 1 + (int)(lib_rand() % 3)) % 4; rg_samelane = 0; }
+    int L = rg_lanes == 5 ? 5 : 4;
+    int lane = strong ? (int)(lib_rand() % 2) : 2 + (int)(lib_rand() % (u32)(L - 2));
+    if (lib_rand() % 3 == 0) lane = (int)(lib_rand() % (u32)L);
+    if (lane == rg_lastlane && ++rg_samelane >= 2) { lane = (lane + 1 + (int)(lib_rand() % (u32)(L - 1))) % L; rg_samelane = 0; }
     else if (lane != rg_lastlane) rg_samelane = 0;
     rg_lastlane = lane;
     for (int i = 0; i < RG_NOTES; i++)
@@ -490,7 +492,7 @@ static void rhythm_pump(void) {
             }
         if (now > (double)rg_n[i].t + 600) rg_n[i].t = 0;              /* (place libre) */
     }
-    for (int p = 0; p < 2; p++) for (int l = 0; l < 4; l++) rgp[p].flash[l] *= expf(-ui_dt * 8.0f);
+    for (int p = 0; p < 2; p++) for (int l = 0; l < 5; l++) rgp[p].flash[l] *= expf(-ui_dt * 8.0f);
     last_input_ms = now_ms();
 }
 
@@ -530,6 +532,7 @@ static void rhythm_input(u32 down, u32 nav, int fire) {
         if (fire && (nav & (PAD_BUTTON_UP | PAD_BUTTON_DOWN))) rg_players = 3 - rg_players;   /* solo / duel */
         if (down & PAD_TRIGGER_L) { rg_offset -= 10; if (rg_offset < -200) rg_offset = -200; settings_dirty = 1; }
         if (down & PAD_TRIGGER_R) { rg_offset += 10; if (rg_offset > 200) rg_offset = 200; settings_dirty = 1; }
+        if (down & PAD_BUTTON_Y) { rg_lanes = rg_lanes == 5 ? 4 : 5; settings_dirty = 1; }
         if (down & PAD_BUTTON_A) rg_new_game(rg_track);
         if (down & PAD_BUTTON_X) rg_new_game(-1);
         if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) fun_leave();
@@ -551,6 +554,7 @@ static void rhythm_input(u32 down, u32 nav, int fire) {
         if (d & PAD_BUTTON_B) rg_press(p, 1);
         if (d & PAD_BUTTON_X) rg_press(p, 2);
         if (d & PAD_BUTTON_Y) rg_press(p, 3);
+        if ((d & PAD_TRIGGER_R) && rg_lanes == 5) rg_press(p, 4);
     }
 }
 
@@ -565,12 +569,12 @@ static void rg_highway(int p, f32 lx, f32 lw) {
     double now = audio_ms();
     rgp_t *g = &rgp[p];
     f32 rb = lw * 0.31f;
-    for (int l = 0; l < 4; l++) {
+    for (int l = 0; l < rg_lanes; l++) {
         f32 x = lx + l * lw;
         gx_vgrad(x + 2, RG_TOP_Y - 10, lw - 4, RG_HIT_Y - RG_TOP_Y + 40, RGBA(255, 255, 255, 8), RGBA(lane_top[l].r, lane_top[l].g, lane_top[l].b, (u8)(30 + g->flash[l] * 90)));
     }
-    gx_rect(lx - 6, RG_HIT_Y - 1, lw * 4 + 12, 3, RGBA(255, 255, 255, 120));
-    for (int l = 0; l < 4; l++) {
+    gx_rect(lx - 6, RG_HIT_Y - 1, lw * rg_lanes + 12, 3, RGBA(255, 255, 255, 120));
+    for (int l = 0; l < rg_lanes; l++) {
         f32 cx = lx + l * lw + lw / 2;
         gx_ring(cx, RG_HIT_Y, rb, rb + 3, RGBA(lane_top[l].r, lane_top[l].g, lane_top[l].b, (u8)(120 + g->flash[l] * 135)));
         gx_text_c(F_SMALL, cx, RG_HIT_Y + 42, lane_btn[l], RGBA(255, 255, 255, 150));
@@ -596,7 +600,7 @@ static void draw_rhythm(void) {
         fun_shadow_text(F_LARGE, 320, 92, "Jeu de rythme", 1.6f, RGBA(255, 230, 140, 255));
         gx_text_c(F_MED, 320, 132, "Les notes tombent sur le rythme de ta musique.", RGBA(230, 220, 255, 255));
         gx_text_c(F_MED, 320, 154, "Appuie sur le bon bouton quand la note touche la ligne.", RGBA(230, 220, 255, 255));
-        for (int l = 0; l < 4; l++) rg_button(215 + l * 70, 205, 22, l, 0.5f);
+        for (int l = 0; l < rg_lanes; l++) rg_button(320 - (rg_lanes - 1) * 35 + l * 70, 205, 22, l, 0.5f);
         snprintf(t, sizeof(t), "Difficult\xC3\xA9 :   <  %s  >", rg_diff_names[rg_diff]);
         fun_shadow_text(F_LARGE, 320, 264, t, 1.0f, RGBA(255, 255, 255, 255));
         snprintf(t, sizeof(t), "Joueurs :   %s", TR(rg_players == 2 ? "DUEL (2 manettes)" : "1 joueur"));
@@ -604,7 +608,7 @@ static void draw_rhythm(void) {
         if (rg_track >= 0 && rg_track < nfiles) { fun_title_of(rg_track, b2, sizeof(b2)); fit_text(F_MED, b2, 520, t, sizeof(t)); }
         else snprintf(t, sizeof(t), "un morceau au hasard");
         gx_text_c(F_MED, 320, 330, t, RGBA(200, 190, 245, 255));
-        gx_text_c(F_SMALL, 320, 352, "(haut / bas : solo ou duel ; les morceaux bien rythm\xC3\xA9s marchent le mieux)", RGBA(170, 160, 220, 220));
+        gx_text_c(F_SMALL, 320, 352, rg_lanes == 5 ? "(haut / bas : solo ou duel ; Y : 5 touches avec R -> 4 touches)" : "(haut / bas : solo ou duel ; Y : passer \xC3\xA0 5 touches, avec R)", RGBA(170, 160, 220, 220));
         snprintf(t, sizeof(t), TR("L / R : d\xC3\xA9" "calage des notes  %+d ms  (si elles semblent en avance ou en retard)"), rg_offset);
         gx_text_c(F_SMALL, 320, 372, t, rg_offset ? RGBA(255, 220, 140, 230) : RGBA(170, 160, 220, 200));
         fun_footer(rg_track >= 0 ? "A : jouer ce morceau     X : un morceau au hasard     B : sortir" : "A : jouer     X : un autre morceau au hasard     B : sortir");
@@ -643,8 +647,8 @@ static void draw_rhythm(void) {
         return;
     }
     if (rg_players == 2) {                                       /* duel : deux pistes */
-        rg_highway(0, 36, 62);
-        rg_highway(1, 356, 62);
+        if (rg_lanes == 5) { rg_highway(0, 30, 52); rg_highway(1, 350, 52); }
+        else { rg_highway(0, 36, 62); rg_highway(1, 356, 62); }
         gx_rect(319, 70, 2, 380, RGBA(255, 255, 255, 40));
         for (int p = 0; p < 2; p++) {
             f32 cx = p ? 480 : 160;
@@ -658,7 +662,7 @@ static void draw_rhythm(void) {
             }
         }
     } else {
-    rg_highway(0, 180, 70);
+    if (rg_lanes == 5) rg_highway(0, 170, 60); else rg_highway(0, 180, 70);
     /* score */
     snprintf(t, sizeof(t), "%d", rgp[0].score);
     gx_text_c(F_SMALL, 90, 110, "SCORE", RGBA(200, 190, 245, 255));
@@ -684,7 +688,8 @@ static void draw_rhythm(void) {
         fit_text(F_SMALL, b2, 560, t, sizeof(t));
         gx_text_c(F_SMALL, 320, 40, t, RGBA(220, 210, 255, 220));
     }
-    fun_footer(paused ? "PAUSE   -   Z : reprendre   START : arr\xC3\xAAter" : rg_players == 2 ? "Chaque joueur : A  B  X  Y sur sa manette     Z : pause     START : arr\xC3\xAAter" : "A  B  X  Y : jouer     Z : pause     START : arr\xC3\xAAter");
+    fun_footer(paused ? "PAUSE   -   Z : reprendre   START : arr\xC3\xAAter" : rg_players == 2 ? (rg_lanes == 5 ? "Chaque joueur : A  B  X  Y  R sur sa manette     Z : pause     START : arr\xC3\xAAter" : "Chaque joueur : A  B  X  Y sur sa manette     Z : pause     START : arr\xC3\xAAter")
+                                         : rg_lanes == 5 ? "A  B  X  Y  R : jouer     Z : pause     START : arr\xC3\xAAter" : "A  B  X  Y : jouer     Z : pause     START : arr\xC3\xAAter");
 }
 
 /* ======================= Quiz musical ======================= */

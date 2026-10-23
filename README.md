@@ -21,6 +21,21 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v73
+- **Listes intelligentes** (MUSIQUE, vue « Mes listes ») : **« Jamais écoutés »** (mélangés, un autre ordre chaque jour) et **« Ajoutés récemment »** (date d'arrivée des fichiers sur la carte, lue une fois puis gardée dans `SD:/gc-mp3/cache/ajouts.txt`).
+- **Égaliseur 5 bandes** : graves, **bas-médiums** (350 Hz), médiums, **présence** (4 kHz), aigus ; 15 réglages tout prêts par genre (nouveaux : Métal, Reggae, Acoustique, Soirée, R&B / Soul, Petit volume).
+- **Radio** : ligne **« Titres passés (historique) »** en haut de la liste RADIO : chaque titre annoncé est noté tout seul (`SD:/gc-mp3/radio/historique.txt`) **avec sa pochette** (cherchée sur iTunes, gardée en cache) ; A : chercher dans ma musique, X : garder, Y : effacer.
+- **Enregistrement programmé** : START > « Enregistrement programmé » (heure, par demi-heures) et « Durée » (15 min à 4 h) : à l'heure dite, la radio qui jouait quand tu as réglé l'heure est lancée et enregistrée dans `SD:/gc-mp3/radio/enregistrements`, une fois par jour.
+- **Podcasts** : **vitesse ×1,25 / ×1,5** sans voix aiguë (étirement du temps WSOLA) et **blancs sautés** (plus d'un quart de seconde) ; la position et la reprise suivent la vitesse.
+- **Fiche d'un jeu** : nombre de lancements, dernière date **et temps de jeu** (mesuré par Resident à chaque partie).
+- **Cartes mémoire virtuelles** (START > Outils) : plusieurs cartes pour Resident (Y : celle du slot A), liste des sauvegardes, **copie depuis / vers la SD (.gci) et la vraie carte** (slot A ou B), suppression, formatage, nouvelle carte.
+- **Jeu de rythme à 5 touches** : Y dans l'écran de choix : A B X Y + **R** (aussi en duel).
+- **Téléphone** : onglets **Fichiers** (parcourir la carte SD, toucher un fichier pour le télécharger) et **Jeux** (liste des jeux GameCube, bouton Lancer ou Resident).
+- **Sauvegarde de tous les réglages** en un fichier : START > Outils > « Sauvegarder tous les réglages » (`SD:/gc-mp3-sauvegarde.txt` : réglages, radios, favoris, listes, podcasts, statistiques…) et « Restaurer » (A deux fois).
+- **Économiseur « Horloge + météo + pochette »**.
+- Les **paroles automatiques** existaient déjà (LRCLIB, START > « Paroles automatiques »).
+- **Tests** : nouveau test qui prépare tout seul sa carte SD et son serveur (radio avec titres, pochettes) : égaliseur, vitesse et blancs, listes, sauvegarde (+ 3000 sauvegardes abîmées), cartes virtuelles (+ 400 cartes abîmées), rythme, historique, enregistrement programmé, téléphone.
+
 ## Nouveautés v72
 - **Musique sans blanc** : les morceaux d'un même album (même dossier) s'enchaînent sans silence ; pour les MP3, le silence ajouté par l'encodeur (en-tête LAME) est retiré au début et à la fin. Réglage START > « Enchaînement sans blanc ».
 - **Volume égalisé plus précis** : sans étiquette ReplayGain, GC Station mesure la sonie de chaque morceau pendant qu'il joue (norme EBU R128, comme ReplayGain 2) et l'applique dès l'écoute suivante (`SD:/gc-mp3/volumes.txt`) ; le gain calculé par l'encodeur LAME est aussi utilisé.

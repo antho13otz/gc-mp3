@@ -192,6 +192,7 @@ static void stats_save(void) {
     fclose(f);
 }
 
+static void add_pump(void);
 /* boucle principale : compte le morceau en cours, enregistre quand rien ne bouge */
 static void stats_pump(void) {
     if (src == SRC_FILE && playing && !stat_counted && cur_track >= 0 && cur_track < nfiles && !is_retro[cur_track]) {
@@ -207,6 +208,7 @@ static void stats_pump(void) {
         }
     }
     if (stats_dirty && now_ms() - last_input_ms > 4000 && now_ms() - stats_saved_t > 20000) stats_save();
+    add_pump();                                                  /* v73 : dates d'ajout (liste "Ajoutes recemment") */
 }
 
 /* listes automatiques : 0 = les plus ecoutes, 1 = recemment ecoutes */
@@ -231,14 +233,94 @@ static int auto_list(int which, s16 *out, int max) {
     return n < max ? n : max;
 }
 
+/* ---------- v73 : listes intelligentes : jamais ecoutes, ajoutes recemment ---------- */
+/* date d'ajout = date du fichier, lue une fois (quelques fichiers par image) et gardee dans
+   SD:/gc-mp3/cache/ajouts.txt ; la liste se remplit pendant qu'on navigue */
+#define ADD_FILE GCD "/cache/ajouts.txt"
+static u32 *add_t = NULL;                 /* date du fichier (0 = pas encore lue, 1 = inconnue) */
+static int add_state = 0, add_k = 0, add_nf = -1, add_dirty = 0;
+static void add_reset(void) { add_state = 0; add_k = 0; }
+static void add_pump(void) {
+    if (view_mode != VIEW_LISTS || !sd_ok || nfiles <= 0 || fun_mode) return;
+    if (add_nf != nfiles) { free(add_t); add_t = NULL; add_nf = nfiles; add_reset(); }
+    if (!add_t) { add_t = (u32 *)calloc(nfiles, sizeof(u32)); if (!add_t) return; }
+    if (add_state == 0) {                                     /* le cache d'abord */
+        FILE *f = fopen(ADD_FILE, "r");
+        static char line[NAME_LEN + 24];
+        while (f && fgets(line, sizeof(line), f)) {
+            char *bar = strchr(line, '|');
+            if (!bar) continue;
+            int k = bib_find(trim(bar + 1));
+            if (k >= 0) add_t[k] = (u32)strtoul(line, NULL, 10);
+        }
+        if (f) fclose(f);
+        add_state = 1;
+        return;
+    }
+    if (add_state != 1) return;
+    u64 t0 = now_ms();
+    int got = 0;
+    while (add_k < nfiles && now_ms() - t0 < 3) {             /* (3 ms par image au plus) */
+        int k = add_k++;
+        if (add_t[k] || is_retro[k]) continue;
+        struct stat sb;
+        if (stat(names[k], &sb) != 0) { add_t[k] = 1; continue; }
+#ifdef GEKKO
+        time_t tm = sb.st_ctime > sb.st_mtime ? sb.st_ctime : sb.st_mtime;   /* (FAT : date de creation = arrivee sur la carte) */
+#else
+        time_t tm = sb.st_mtime;                                             /* (PC : st_ctime n'est pas la creation) */
+#endif
+        add_t[k] = tm > 1 ? (u32)tm : 1;
+        got++;
+    }
+    if (got) add_dirty = 1;
+    if (add_k >= nfiles) {
+        add_state = 2;
+        lib_dirty = 1;                                       /* (la liste "Ajoutes recemment" se met a jour) */
+        if (add_dirty && !sd_virtual) {
+            mkdir(GCD "/cache", 0777);
+            FILE *f = fopen(ADD_FILE ".part", "w");
+            int ok = f != NULL;
+            for (int k = 0; ok && k < nfiles; k++) if (add_t[k] > 1) { if (fprintf(f, "%lu|%s\n", (unsigned long)add_t[k], names[k]) < 0) ok = 0; }
+            if (f && fclose(f) != 0) ok = 0;
+            if (ok) { remove(ADD_FILE); rename(ADD_FILE ".part", ADD_FILE); } else remove(ADD_FILE ".part");
+        }
+        add_dirty = 0;
+    }
+}
+/* 2 = jamais ecoutes (melanges, toujours dans le meme ordre le meme jour), 3 = ajoutes recemment */
+static int smart_list(int which, s16 *out, int max) {
+    int n = 0;
+    if (which == 2) {
+        for (int k = 0; k < nfiles && n < MAX_FILES; k++) if (!is_retro[k] && !play_cnt[k] && !play_last[k]) out[n++] = (s16)k;
+        time_t t = time(NULL);
+        u32 seed = (u32)(t / 86400) * 2654435761u + 1;
+        for (int i = n - 1; i > 0; i--) { seed = seed * 1103515245u + 12345u; int j = (int)((seed >> 8) % (u32)(i + 1)); s16 v = out[i]; out[i] = out[j]; out[j] = v; }
+        return n < max ? n : max;
+    }
+    if (!add_t || add_nf != nfiles) return 0;
+    for (int k = 0; k < nfiles && n < MAX_FILES; k++) if (!is_retro[k] && add_t[k] > 1) out[n++] = (s16)k;
+    for (int i = 1; i < n; i++) {                             /* les plus recents d'abord */
+        s16 v = out[i];
+        int j = i - 1;
+        while (j >= 0 && add_t[out[j]] < add_t[v]) { out[j + 1] = out[j]; j--; }
+        out[j + 1] = v;
+    }
+    return n < max ? n : max;
+}
+
 /* ---------- vue "Mes listes" ---------- */
-#define LG_USER 2                        /* groupes 0 et 1 : listes automatiques */
+#define LG_USER 4                        /* groupes 0 a 3 : listes automatiques (v73 : + jamais ecoutes, ajoutes recemment) */
 static void lists_build_groups(void) {
     static s16 tmp[MAX_FILES];
     snprintf(grp_name[0], sizeof(grp_name[0]), "Les plus \xC3\xA9" "cout\xC3\xA9s");
     grp_count[0] = (s16)auto_list(0, tmp, AUTO_MAX);
     snprintf(grp_name[1], sizeof(grp_name[1]), "\xC3\x89" "cout\xC3\xA9s r\xC3\xA9" "cemment");
     grp_count[1] = (s16)auto_list(1, tmp, AUTO_MAX);
+    snprintf(grp_name[2], sizeof(grp_name[2]), "Jamais \xC3\xA9" "cout\xC3\xA9s");
+    grp_count[2] = (s16)smart_list(2, tmp, AUTO_MAX);
+    snprintf(grp_name[3], sizeof(grp_name[3]), "Ajout\xC3\xA9s r\xC3\xA9" "cemment");
+    grp_count[3] = (s16)smart_list(3, tmp, AUTO_MAX);
     for (int i = 0; i < npls && LG_USER + i < MAX_FILES; i++) {
         snprintf(grp_name[LG_USER + i], sizeof(grp_name[0]), "%s", pls[i].name);
         grp_count[LG_USER + i] = (s16)pls[i].n;
@@ -249,6 +331,7 @@ static void lists_build_groups(void) {
 
 static int lists_tracks(int g, s16 *out, int max) {
     if (g == 0 || g == 1) return auto_list(g, out, max < AUTO_MAX ? max : AUTO_MAX);
+    if (g == 2 || g == 3) return smart_list(g, out, max < AUTO_MAX ? max : AUTO_MAX);
     int i = g - LG_USER, n = 0;
     if (i < 0 || i >= npls) return 0;
     for (int k = 0; k < pls[i].n && n < max; k++) out[n++] = pls[i].it[k];
