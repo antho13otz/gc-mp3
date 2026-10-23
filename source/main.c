@@ -12330,9 +12330,10 @@ static void music_pump(void) {
 static u64 boot_t0 = 0;
 static char boot_check[160] = "";
 static void boot_selfcheck(void) {
-    /* plus grosse reservation possible (par paliers) : marge pour pochettes, photos, pages web */
-    size_t big = 0;
-    for (size_t mb = 12; mb >= 1; mb--) { void *p = malloc(mb * 1024 * 1024); if (p) { free(p); big = mb; break; } }
+    /* memoire libre, sans rien reserver (v80 : un essai de 12 Mo faussait la mesure du simulateur pc-sim) :
+       place jamais donnee (arene) + memoire rendue au tas, comme Outils > Infos console */
+    struct mallinfo mi = mallinfo();
+    size_t freekb = (size_t)(((uintptr_t)SYS_GetArena1Hi() - (uintptr_t)SYS_GetArena1Lo() + mi.fordblks) / 1024);
     int sd_wr = 0;
     if (sd_ok) {
         mkdir(GCD, 0777);
@@ -12340,10 +12341,10 @@ static void boot_selfcheck(void) {
         if (f) { sd_wr = (fwrite("ok", 1, 2, f) == 2); fclose(f); remove(GCD "/.ecriture"); }
     }
     u32 ms = boot_t0 ? (u32)(now_ms() - boot_t0) : 0;
-    crumb("demarrage : %u ms, memoire libre >= %u Mo, carte SD %s", (unsigned)ms, (unsigned)big,
+    crumb("demarrage : %u ms, memoire libre %u Ko, carte SD %s", (unsigned)ms, (unsigned)freekb,
           !sd_ok ? "absente" : sd_wr ? "ecriture OK" : "LECTURE SEULE");
     if (sd_ok && !sd_wr) snprintf(boot_check, sizeof(boot_check), "Carte SD en lecture seule : les r\xC3\xA9glages ne seront pas gard\xC3\xA9s (languette de protection ?)");
-    else if (big && big < 2) snprintf(boot_check, sizeof(boot_check), "M\xC3\xA9moire presque pleine : certaines images peuvent ne pas s'afficher");
+    else if (freekb < 2048) snprintf(boot_check, sizeof(boot_check), "M\xC3\xA9moire presque pleine : certaines images peuvent ne pas s'afficher");
 }
 
 int main(int argc, char **argv) {

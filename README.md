@@ -21,6 +21,9 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v81 — mesure de la mémoire corrigée
+- Le contrôle au démarrage (v76) mesurait la mémoire libre en essayant de réserver jusqu'à 12 Mo d'un coup. Ça ne gênait pas l'utilisation, mais ça faussait la mesure du simulateur `tools/pc-sim` (pic à 12,4 Mo et une réservation refusée, uniquement à cause de ce test). Il lit maintenant la mémoire libre sans rien réserver, comme Outils > Infos console. Mesure réelle dans pc-sim pendant le tour de tous les onglets : **2,4 Mo utilisés sur 12,7 Mo**, aucune réservation refusée.
+
 ## Nouveautés v80 — optimisée pour la vraie GameCube
 GC Station a été mesurée dans un nouveau simulateur qui a les limites de la console (12,7 Mo de tas, processeur Gekko, carte SD et Broadband Adapter à leur vrai débit) : voir `tools/pc-sim`.
 - **Le son ne coupe plus quand l'interface ralentit** (chargement de photos, pages web, carte SD lente) : sous 2 s de son d'avance, GC Station rattrape en décodant autant que possible en 8 ms, au lieu de 2 trames par image seulement. Mesure (FLAC 24 bits / 96 kHz pendant le diaporama de photos 1920 × 1080) : 125 coupures avant, aucune après.
