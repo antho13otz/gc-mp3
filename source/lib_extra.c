@@ -158,6 +158,43 @@ static u16 play_cnt[MAX_FILES];
 static u32 play_last[MAX_FILES];
 static u32 play_seq = 0;
 
+/* ---------- v76 : notes (etoiles) des morceaux ---------- */
+/* rating[] est declare dans main.c (avant ui_extra.c qui l'affiche) */
+#define RT_FILE GCD "/gc-mp3-notes.txt"
+static int rating_dirty = 0;
+static u64 rating_saved_t = 0;
+static void rating_load(void) {
+    memset(rating, 0, sizeof(rating));
+    FILE *f = sd_ok ? fopen(RT_FILE, "r") : NULL;
+    if (!f) return;
+    static char line[NAME_LEN + 16];
+    while (fgets(line, sizeof(line), f)) {
+        char *a = strchr(line, '|');
+        if (!a) continue;
+        char *p = trim(a + 1);
+        int k = bib_find(p);
+        if (k < 0) continue;
+        int n = atoi(line);
+        rating[k] = (u8)(n < 0 ? 0 : n > 5 ? 5 : n);
+    }
+    fclose(f);
+}
+static void rating_save(void) {
+    rating_dirty = 0;
+    rating_saved_t = now_ms();
+    if (!sd_ok) return;
+    FILE *f = fopen(RT_FILE, "w");
+    if (!f) return;
+    for (int k = 0; k < nfiles; k++) if (rating[k]) fprintf(f, "%u|%s\n", rating[k], names[k]);
+    fclose(f);
+}
+static void rating_set(int k, int n) {
+    if (k < 0 || k >= nfiles) return;
+    rating[k] = (u8)(n < 0 ? 0 : n > 5 ? 5 : n);
+    rating_dirty = 1;
+    if (view_mode == VIEW_LISTS) lib_dirty = 1;
+}
+
 static void stats_load(void) {
     memset(play_cnt, 0, sizeof(play_cnt));
     memset(play_last, 0, sizeof(play_last));
@@ -208,7 +245,21 @@ static void stats_pump(void) {
         }
     }
     if (stats_dirty && now_ms() - last_input_ms > 4000 && now_ms() - stats_saved_t > 20000) stats_save();
+    if (rating_dirty && now_ms() - last_input_ms > 2000 && now_ms() - rating_saved_t > 8000) rating_save();
     add_pump();                                                  /* v73 : dates d'ajout (liste "Ajoutes recemment") */
+}
+
+/* v76 : morceaux notes, du mieux note au moins bien (puis les plus ecoutes) */
+static int rated_list(s16 *out, int max) {
+    int n = 0;
+    for (int k = 0; k < nfiles && n < MAX_FILES; k++) if (!is_retro[k] && rating[k] > 0) out[n++] = (s16)k;
+    for (int i = 1; i < n; i++) {
+        s16 v = out[i];
+        int j = i - 1;
+        while (j >= 0 && (rating[out[j]] < rating[v] || (rating[out[j]] == rating[v] && play_cnt[out[j]] < play_cnt[v]))) { out[j + 1] = out[j]; j--; }
+        out[j + 1] = v;
+    }
+    return n < max ? n : max;
 }
 
 /* listes automatiques : 0 = les plus ecoutes, 1 = recemment ecoutes */
@@ -310,17 +361,19 @@ static int smart_list(int which, s16 *out, int max) {
 }
 
 /* ---------- vue "Mes listes" ---------- */
-#define LG_USER 4                        /* groupes 0 a 3 : listes automatiques (v73 : + jamais ecoutes, ajoutes recemment) */
+#define LG_USER 5                        /* groupes 0 a 4 : listes automatiques (v73 : jamais ecoutes, ajoutes recemment ; v76 : mes preferes) */
 static void lists_build_groups(void) {
     static s16 tmp[MAX_FILES];
-    snprintf(grp_name[0], sizeof(grp_name[0]), "Les plus \xC3\xA9" "cout\xC3\xA9s");
-    grp_count[0] = (s16)auto_list(0, tmp, AUTO_MAX);
-    snprintf(grp_name[1], sizeof(grp_name[1]), "\xC3\x89" "cout\xC3\xA9s r\xC3\xA9" "cemment");
-    grp_count[1] = (s16)auto_list(1, tmp, AUTO_MAX);
-    snprintf(grp_name[2], sizeof(grp_name[2]), "Jamais \xC3\xA9" "cout\xC3\xA9s");
-    grp_count[2] = (s16)smart_list(2, tmp, AUTO_MAX);
-    snprintf(grp_name[3], sizeof(grp_name[3]), "Ajout\xC3\xA9s r\xC3\xA9" "cemment");
-    grp_count[3] = (s16)smart_list(3, tmp, AUTO_MAX);
+    snprintf(grp_name[0], sizeof(grp_name[0]), "Mes pr\xC3\xA9" "f\xC3\xA9r\xC3\xA9s");
+    grp_count[0] = (s16)rated_list(tmp, AUTO_MAX);
+    snprintf(grp_name[1], sizeof(grp_name[1]), "Les plus \xC3\xA9" "cout\xC3\xA9s");
+    grp_count[1] = (s16)auto_list(0, tmp, AUTO_MAX);
+    snprintf(grp_name[2], sizeof(grp_name[2]), "\xC3\x89" "cout\xC3\xA9s r\xC3\xA9" "cemment");
+    grp_count[2] = (s16)auto_list(1, tmp, AUTO_MAX);
+    snprintf(grp_name[3], sizeof(grp_name[3]), "Jamais \xC3\xA9" "cout\xC3\xA9s");
+    grp_count[3] = (s16)smart_list(2, tmp, AUTO_MAX);
+    snprintf(grp_name[4], sizeof(grp_name[4]), "Ajout\xC3\xA9s r\xC3\xA9" "cemment");
+    grp_count[4] = (s16)smart_list(3, tmp, AUTO_MAX);
     for (int i = 0; i < npls && LG_USER + i < MAX_FILES; i++) {
         snprintf(grp_name[LG_USER + i], sizeof(grp_name[0]), "%s", pls[i].name);
         grp_count[LG_USER + i] = (s16)pls[i].n;
@@ -330,8 +383,9 @@ static void lists_build_groups(void) {
 }
 
 static int lists_tracks(int g, s16 *out, int max) {
-    if (g == 0 || g == 1) return auto_list(g, out, max < AUTO_MAX ? max : AUTO_MAX);
-    if (g == 2 || g == 3) return smart_list(g, out, max < AUTO_MAX ? max : AUTO_MAX);
+    if (g == 0) return rated_list(out, max < AUTO_MAX ? max : AUTO_MAX);
+    if (g == 1 || g == 2) return auto_list(g - 1, out, max < AUTO_MAX ? max : AUTO_MAX);
+    if (g == 3 || g == 4) return smart_list(g - 1, out, max < AUTO_MAX ? max : AUTO_MAX);
     int i = g - LG_USER, n = 0;
     if (i < 0 || i >= npls) return 0;
     for (int k = 0; k < pls[i].n && n < max; k++) out[n++] = pls[i].it[k];
@@ -378,7 +432,12 @@ static int lib_match(int k) {
 
 /* ---------- menu d'actions (X) ---------- */
 enum { AC_ADD = 1, AC_ADDTO, AC_NEWLIST, AC_REMOVE, AC_UP, AC_DOWN, AC_DELLIST, AC_FIND, AC_CLEARFIND, AC_RESCAN, AC_CLOSE,
-       AC_KARAOKE, AC_RHYTHM, AC_QUIZ, AC_TITLES, AC_TITLE, AC_TITLES_CLEAR, AC_SNAKE, AC_BRICKS };   /* (v18 : fun_extra.c) */
+       AC_KARAOKE, AC_RHYTHM, AC_QUIZ, AC_TITLES, AC_TITLE, AC_TITLES_CLEAR, AC_SNAKE, AC_BRICKS, AC_RATE };   /* (v18 : fun_extra.c ; v76 : AC_RATE = note) */
+/* le texte de la ligne (les etoiles sont dessinees a part dans draw_actions) */
+static void rating_label(int k, char *out, int cap) {
+    (void)k;
+    snprintf(out, cap, "Note :");
+}
 static void fun_action(int code, int arg, int track, const char *txt);
 static int am_open = 0, am_sel = 0, am_n = 0, am_track = -1, am_list = -1, am_pos = -1, am_pending = -1;
 static char am_title[96];
@@ -407,6 +466,9 @@ static void actions_open(void) {
         char t[NAME_LEN];
         track_title(e.idx, t, sizeof(t));
         snprintf(am_title, sizeof(am_title), "%.90s", t);
+        char rl[48];
+        rating_label(am_track, rl, sizeof(rl));
+        am_item(rl, AC_RATE, 0);
         am_item("Ajouter \xC3\xA0 une liste...", AC_ADD, 0);
         if (view_mode == VIEW_LISTS && !lib_find[0] && cur_group >= LG_USER) {
             am_list = cur_group - LG_USER;
@@ -478,6 +540,9 @@ static void actions_do(int i) {
     case AC_FIND: kb_start(KB_LIBFIND, lib_find, -1, -1); break;
     case AC_CLEARFIND: lib_find_set(""); break;
     case AC_RESCAN: music_rescan(); lib_note("Biblioth\xC3\xA8que actualis\xC3\xA9" "e"); break;
+    case AC_RATE:                                         /* A : une etoile de plus (5 -> 0) */
+        if (am_track >= 0) { rating_set(am_track, (rating[am_track] + 1) % 6); rating_label(am_track, am_txt[i], sizeof(am_txt[0])); am_open = 1; }
+        break;
     case AC_CLOSE: break;
     default: fun_action(code, arg, am_track, am_txt[i]); break;
     }
@@ -498,6 +563,11 @@ static void lib_kb_done(int mode, const char *t) {
 static void actions_input(u32 down, u32 nav, int fire) {
     if (fire && (nav & PAD_BUTTON_DOWN)) am_sel = (am_sel + 1) % am_n;
     if (fire && (nav & PAD_BUTTON_UP)) am_sel = (am_sel + am_n - 1) % am_n;
+    if (am_sel >= 0 && am_sel < am_n && am_code[am_sel] == AC_RATE && am_track >= 0 && fire && (nav & (PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT))) {
+        rating_set(am_track, rating[am_track] + ((nav & PAD_BUTTON_RIGHT) ? 1 : -1));
+        rating_label(am_track, am_txt[am_sel], sizeof(am_txt[0]));
+        return;
+    }
     if (down & PAD_BUTTON_A) actions_do(am_sel);
     else if (down & (PAD_BUTTON_B | PAD_BUTTON_X | PAD_BUTTON_START)) am_open = 0;
 }
@@ -532,7 +602,9 @@ static void draw_actions(void) {
         gp_zone(x + 12, ry, w - 24, rh - 3, &am_sel, i, GPZ_SEL);
         fit_text(F_MED, am_txt[i], (int)w - 50, t, sizeof(t));
         col_t c = am_code[i] == AC_DELLIST || am_code[i] == AC_REMOVE || am_code[i] == AC_TITLES_CLEAR ? RGBA(255, 180, 180, 255) : RGBA(235, 228, 255, 255);
-        gx_text1(F_MED, x + 26, ry + 17, t, i == am_sel ? RGBA(255, 255, 255, 255) : c);
+        int tw = gx_text1(F_MED, x + 26, ry + 17, t, i == am_sel ? RGBA(255, 255, 255, 255) : c);
+        if (am_code[i] == AC_RATE && am_track >= 0)
+            draw_stars(x + 26 + tw + 6, ry + (rh - 3) / 2, 6.0f, rating[am_track], RGBA(255, 210, 90, 255), RGBA(110, 96, 150, 255));
     }
     gx_text_c(F_SMALL, 320, y + h - 6, "A : choisir     B : fermer", RGBA(255, 210, 120, 255));
 }

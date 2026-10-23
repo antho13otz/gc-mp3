@@ -419,8 +419,13 @@ static void draw_list_wide(void) {
         fit_text(F_SMALL, d, 122, buf, sizeof(buf));
         gx_text1(F_SMALL, 330, cy + 4, buf, dim);
         text_display(tg_album[k], d, sizeof(d));
-        fit_text(F_SMALL, d, 110, buf, sizeof(buf));
+        fit_text(F_SMALL, d, 96, buf, sizeof(buf));
         gx_text1(F_SMALL, 460, cy + 4, buf, dim);
+        if (rating[k] > 0) {                                 /* v76 : note (une etoile + chiffre) */
+            draw_star1(566, cy, 4.2f, is_sel ? RGBA(255, 225, 140, 255) : RGBA(255, 205, 80, 255));
+            char rn[4]; snprintf(rn, sizeof(rn), "%d", rating[k]);
+            gx_text1(F_SMALL, 572, cy + 4, rn, is_sel ? RGBA(255, 235, 190, 255) : RGBA(220, 185, 120, 255));
+        }
         fmt_time(t, track_duration(k));
         gx_text_r(F_SMALL, 612, cy + 4, t, dim);
     }

@@ -21,6 +21,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v76 — notes, réveil malin, favoris
+- **Notes (étoiles) sur les morceaux** : dans MUSIQUE, touche **X** sur un morceau → ligne « Note » (A ou gauche/droite pour mettre 0 à 5 étoiles). Les étoiles s'affichent dans la liste, et une nouvelle liste **« Mes préférés »** (vue « Mes listes ») réunit les morceaux notés, du mieux noté au moins bien.
+- **Minuterie plus fine** : START > « Minuterie » propose maintenant **à la fin du morceau**, 5, 10, 20, 30, 45, 60, 90 et 120 minutes.
+- **Réveil malin** (onglet INFOS) : choix des **jours** (tous les jours / du lundi au vendredi / le week-end) et, quand le réveil sonne, touche **X = +10 minutes** (report).
+- **Photos triées par date** : dans l'onglet PHOTOS, **L / R** change le tri (par nom ou par date, les plus récentes d'abord).
+- **Jeux favoris** : dans la fiche d'un jeu (JEUX / APPS), touche **L** pour mettre le jeu en favori. Les favoris remontent en haut de la liste. (Le temps de jeu total par jeu, déjà mesuré par Resident, reste affiché dans la fiche.)
+- **Trois thèmes de couleur en plus** : Lavande, Forêt, Crépuscule (START > « Thème »).
+- **Contrôle au démarrage** : GC Station note dans son journal la mémoire libre, l'état de la carte SD et le temps de démarrage, et prévient brièvement si la carte est en lecture seule ou si la mémoire est presque pleine.
+
 ## Nouveautés v75 — fini les pages Indigo / Swiss : les réglages de GC Station
 Les pages de réglages qui n'étaient en fait que des réglages de Swiss (`swiss/settings/global.ini`) sont supprimées. À la place, des sections propres à GC Station (START, L / R) : **Musique, Radio, Affichage, Vidéo, Jeux, Réseau, Outils**.
 - **Vidéo** : nouvelle ligne « Position horizontale » (réglage de la console : décale l'image de GC Station et des jeux).
