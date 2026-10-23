@@ -21,6 +21,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v61
+- **Lanceur maison : 1080° Avalanche est jouable !** (sans Swiss, l'ISO lue sur la carte SD par le programme résident de GC Station).
+- **Son** : les grosses lectures (512 Ko) se faisaient d'un coup, interruptions coupées pendant ~0,5 s, ce qui faisait craquer le son. Elles se font maintenant **en fond, par morceaux de 8 Ko**, entre lesquels la console continue de servir le son et l'image, comme avec un vrai lecteur. Le journal du jeu s'écrit aussi moins souvent (moins de micro-coupures).
+- Pas encore : la **musique lue directement sur le disque** (« audio en streaming », comme dans 1080°) n'est pas jouée.
+
 ## Nouveautés v60
 - **Lanceur maison : si le jeu plante, la console redémarre toute seule** (retour sur GC Station si c'est ton `ipl.dol`), et `journal-jeu.txt` dit où et comment il a planté.
 - **Signes de vie** dans le journal : image, son, DSP et dessin. Le journal est réécrit toutes les 3 s tant que le jeu vit, même sans lecture du disque : on sait s'il est figé ou s'il attend quelque chose.
