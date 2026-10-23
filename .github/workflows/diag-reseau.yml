@@ -18,7 +18,7 @@ jobs:
         run: |
           mkdir -p diag/out
           tar -xJf diag/sim.tar.xz
-          (cd wsim && sh buildnet.sh t_net.c r_net) > diag/out/build.log 2>&1 || true
+          (cd wsim && sh buildnet.sh t_net.c r_net -DHTTP_TRACE) > diag/out/build.log 2>&1 || true
           if [ -x wsim/t_net_r ]; then (cd wsim && timeout 2400 ./t_net_r > ../diag/out/net.log 2>&1 || true); fi
           grep -E "RESULTAT|FIN" diag/out/net.log || tail -30 diag/out/build.log
       - name: Resultats dans la branche
