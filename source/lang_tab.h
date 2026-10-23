@@ -1033,3 +1033,7 @@
     { "En jeu, A + Z + START revient sur GC Station (aussi avec Resident, touche X)", "In game, A + Z + START goes back to GC Station (also with Resident, X)" },
     { "A+Z+START (Resident)", "A+Z+START (Resident)" },
     { "Jeux lanc\xC3\xA9s avec Resident (X) : A+Z+START tenus 1 s = retour \xC3\xA0 GC Station", "Games launched with Resident (X): hold A+Z+START 1 s = back to GC Station" },
+    { "Analyse du jeu", "Analysing the game" },
+    { "Position du jeu sur la carte SD", "Locating the game on the SD card" },
+    { "Lecture du jeu", "Reading the game" },
+    { "Pr\xC3\xA9paration du lecteur", "Preparing the drive" },

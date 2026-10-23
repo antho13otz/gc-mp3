@@ -20,6 +20,7 @@ static u32 di_load(u32 reg);
 static void di_store(u32 reg, u32 val);
 
 static natres_ext_t ext_tab[NATRES_MAXEXT];
+static natres_ext_t ret_tab[NATRES_RETMAX];              /* v64 : le .dol de GC Station sur la carte */
 static u8 secbuf[512] __attribute__((aligned(32)));
 static u32 sec_cached = 0xFFFFFFFFu;
 static u32 ext_last = 0;
@@ -39,6 +40,7 @@ natres_hdr_t natres_hdr = {
     0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0,
+    0, (u32)ret_tab, 0, 0,
 };
 #define H natres_hdr
 
@@ -291,6 +293,48 @@ static void nr_log(u32 off, u32 len, u32 info) {
 #define OS_INT_TABLE ((volatile u32 *)0x80003040u)
 #define RD_CHUNK 8192u                                    /* v61 : morceau d'une lecture en fond */
 static u32 si_orig = 0, igr_hold = 0;
+static void hot_reset(void);
+/* ---------- v64 : retour a GC Station ----------
+   Le jeu est abandonne : on arrete ce qui tourne (interruptions, son, DSP, dessin), puis le
+   .dol de GC Station est relu sur la carte (meme lecteur SD que pour l'ISO) et lance.
+   GC Station (libogc) remet tout le reste en route. Sans .dol prepare : redemarrage. */
+static void ret_to_gcstation(void) {
+    irq_off();
+    if (!H.ret_n || H.ret_n > NATRES_RETMAX || H.ret_state) hot_reset();
+    H.ret_state = 1;
+    volatile u32 *pi = (volatile u32 *)0xCC003000u;
+    volatile unsigned short *dsp = (volatile unsigned short *)0xCC005000u;
+    pi[1] = 0;                                           /* (plus aucune interruption) */
+    dsp[0x36 / 2] = 0;                                   /* DMA du son arrete */
+    dsp[0x0A / 2] = (unsigned short)((dsp[0x0A / 2] & ~0x0150u) | 0x00ACu);   /* DSP : arret, masques coupes, acquitte */
+    *(volatile u32 *)0xCC006C00u &= ~1u;                 /* son du disque (streaming) arrete */
+    *(volatile unsigned short *)0xCC000002u = 0;         /* processeur graphique : plus de lecture de la file */
+    if (!di_ready) di_ready = nr_init() == 0;
+    for (u32 i = 0; i < H.ret_n; i++) ext_tab[i] = ret_tab[i];
+    H.n_ext = H.ret_n; ext_last = 0; sec_cached = 0xFFFFFFFFu;
+    static u8 dh[256] __attribute__((aligned(32)));
+    if (!di_ready || nr_read(dh, 0, 256)) hot_reset();
+    const u32 *w = (const u32 *)dh;                      /* (en-tete du .dol, big-endian comme la console) */
+    u32 entry = w[0xE0 / 4];
+    if (entry < 0x80003000u || entry >= 0x817F0000u) hot_reset();
+    for (int i = 0; i < 18; i++) {
+        u32 off = w[i], addr = w[0x48 / 4 + i], sz = w[0x90 / 4 + i];
+        if (!sz) continue;
+        if (addr < 0x80003000u || addr + sz > 0x817F0000u || off + sz > H.ret_size) hot_reset();
+        if (nr_read((void *)addr, off, sz)) hot_reset();
+        cache_flush(addr, sz);
+        for (u32 a = addr & ~31u; a < addr + sz; a += 32) __asm__ volatile("icbi 0,%0" :: "r"(a));
+    }
+    __asm__ volatile("sync; isync" ::: "memory");
+    ((void (*)(void))entry)();                           /* (GC Station : ne revient pas) */
+    hot_reset();
+}
+/* (sur une pile a lui : celle du jeu peut etre ecrasee par le .dol qu'on recharge) */
+void ret_go(void) __attribute__((used));
+void ret_go(void) { ret_to_gcstation(); }
+extern void ret_entry(void);
+__asm__(".pushsection .text\n.globl ret_entry\nret_entry:\n"
+        "  lis 1,exc_stack@ha\n  addi 1,1,exc_stack@l\n  addi 1,1,2032\n  b ret_go\n.popsection\n");
 static void hot_reset(void) {
     volatile u32 *pi = (volatile u32 *)0xCC003000u;
     irq_off();
@@ -338,7 +382,7 @@ void exc_c(u32 ex, u32 ctx) {
     H.exc_dar = dar; H.exc_dsisr = dsisr;
     if (ctx >= 0x80000000u && ctx < 0x817F0000u) { H.exc_srr0 = *(volatile u32 *)(ctx + 0x198); H.exc_lr = *(volatile u32 *)(ctx + 0x84); }
     nr_log_flush();
-    hot_reset();
+    ret_to_gcstation();                                  /* (ou redemarrage si impossible) */
 }
 static void si_hook(u32 irq, u32 ctx) {
     if (si_orig) ((void (*)(u32, u32))si_orig)(irq, ctx);
@@ -363,7 +407,7 @@ static void si_hook(u32 irq, u32 ctx) {
     if (igr_hold > 40) {                                 /* (environ 1 s) */
         H.igr = 1;
         nr_log_flush();
-        hot_reset();
+        ret_entry();
     }
 }
 /* ---------- v61 : lectures en fond ----------

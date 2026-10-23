@@ -13,6 +13,11 @@ static int nat_igr = 1;
 static int sd_virtual = 0, sd_slot = 0, sd_ok = 1, settings_dirty = 0;
 static u32 be32(const unsigned char *p){return (u32)p[0]<<24|p[1]<<16|p[2]<<8|p[3];}
 static void service_audio(void){}
+static int nat_ld_on = 0;
+static void draw(void) {}
+#define TR(x) (x)
+static const char *nat_self_path(void) { return getenv("NATIF_SELF"); }   /* (v64 : .dol "GC Station" pour le retour) */
+
 #include <ogc/lwp_watchdog.h>
 static u64 now_ms(void){ return ticks_to_millisecs(gettime()); }
 static void *read_file(const char *p, long max, long *len) { FILE *f = fopen(p, "rb"); if (!f) return NULL; void *b = malloc(max); *len = b ? (long)fread(b, 1, max, f) : 0; fclose(f); return b; }

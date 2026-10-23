@@ -400,13 +400,14 @@ static void nat_journal_convert(void) {
     if (len < 512 || be32(d) != NATRES_MAGIC) { free(d); return; }
     FILE *f = fopen(NA_JTXT, "w");
     if (f) {
-        u32 H[56];
-        for (int i = 0; i < 56; i++) H[i] = be32(d + i * 4);
-        int v3 = H[1] >= 3, v4 = H[1] >= 4, v5 = H[1] >= 5, v6 = H[1] >= 6;   /* (en-tete : 0x80, 0xA0, 0xB0, 0xD0, 0xE0 (v61) octets) */
-        if (!v3) for (int i = 32; i < 56; i++) H[i] = 0;
-        if (!v4) for (int i = 40; i < 56; i++) H[i] = 0;
-        if (!v5) for (int i = 44; i < 56; i++) H[i] = 0;
-        if (!v6) for (int i = 52; i < 56; i++) H[i] = 0;
+        u32 H[60];
+        for (int i = 0; i < 60; i++) H[i] = be32(d + i * 4);
+        int v3 = H[1] >= 3, v4 = H[1] >= 4, v5 = H[1] >= 5, v6 = H[1] >= 6, v7 = H[1] >= 7;   /* (en-tete : 0x80 ... 0xF0 (v64) octets) */
+        if (!v3) for (int i = 32; i < 60; i++) H[i] = 0;
+        if (!v4) for (int i = 40; i < 60; i++) H[i] = 0;
+        if (!v5) for (int i = 44; i < 60; i++) H[i] = 0;
+        if (!v6) for (int i = 52; i < 60; i++) H[i] = 0;
+        if (!v7) for (int i = 56; i < 60; i++) H[i] = 0;
         static const char *const en[] = { "OK", "pas de carte", "la carte ne demarre pas", "commande refusee", "pas de donnees", "hors de l'ISO", "delai depasse" };
         fprintf(f, "GC Station - journal du dernier jeu lance avec Resident\n\n");
         if (v5 && H[44]) {
@@ -428,13 +429,13 @@ static void nat_journal_convert(void) {
             if (v5) fprintf(f, "Signes de vie : son %u, DSP %u, dessin %u (le journal est reecrit toutes les 3 s tant que le jeu vit)\n", (unsigned)H[49], (unsigned)H[50], (unsigned)H[51]);
             if (v6) fprintf(f, "Lectures en fond (le son continue) : %u, en %u morceaux de 8 Ko ; reveil du vrai lecteur : %u us en moyenne, %u us au pire\n",
                             (unsigned)H[52], (unsigned)H[53], H[53] ? (unsigned)(H[54] / H[53]) : 0u, (unsigned)H[55]);
-            if (H[38]) fprintf(f, "Retour a GC Station demande (A+Z+START)\n");
+            if (H[38]) fprintf(f, "Retour a GC Station demande (A+Z+START)%s\n", v7 ? (H[56] ? " : .dol de GC Station recharge" : " : redemarrage de la console") : "");
             if (v4) fprintf(f, "Manettes (A+Z+START %s) : %u lues, %u laissees au jeu, touches manette 1 : %04X (%u changements)\n",
                             H[18] & NRF_IGR ? "actif" : "coupe", (unsigned)H[40], (unsigned)H[41], (unsigned)H[42], (unsigned)H[43]);
             fprintf(f, "\n");
         }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
-        int rbase = v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
+        int rbase = v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
         for (int k = 0; k < nring; k++) {
             const u8 *e = d + rbase + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);
@@ -688,60 +689,142 @@ static const char *na_adapter(void) {
    qu'il repond a une commande "inquiry" (interruptions coupees, sans libogc). */
 static char na_drv[220] = "";
 #ifdef GEKKO
+static void nat_ld_tick(void);                          /* (ecran de chargement, plus bas) */
 static int na_inq(volatile u32 *di, u8 *buf, u32 ms) {  /* 0x10 fin, 0x04 erreur (repond quand meme), -1 rien */
-    di[0] = (di[0] & 0x2Au) | 0x54u;
+    di[0] = 0x54u;                                        /* (v64 : masques coupes : pas d'interruption pour libogc) */
     DCInvalidateRange(buf, 32);
     di[2] = 0x12000000u; di[3] = 0; di[4] = 32;
     di[5] = (u32)MEM_VIRTUAL_TO_PHYSICAL(buf); di[6] = 32;
     di[7] = 3;
     u64 t0 = now_ms();
     while (di[7] & 1) {
+        nat_ld_tick();
         if (now_ms() - t0 > ms) {                         /* (rien : on interrompt la commande) */
-            di[0] = (di[0] & 0x2Au) | 1u;
+            di[0] = 1u;
             u64 t1 = now_ms();
             while ((di[7] & 1) && now_ms() - t1 < 200) ;
-            di[0] = (di[0] & 0x2Au) | 0x54u;
+            di[0] = 0x54u;
             return -1;
         }
     }
     u32 sr = di[0];
-    di[0] = (sr & 0x2Au) | 0x54u;
+    di[0] = 0x54u;
     DCInvalidateRange(buf, 32);
     return (int)(sr & 0x54u);
 }
 static void na_drive_wake(void) {
     volatile u32 *di = (volatile u32 *)0xCC006000u, *pi = (volatile u32 *)0xCC003000u;
     static u8 inq[32] ATTRIBUTE_ALIGN(32);
-    u32 level = IRQ_Disable();
     u32 p9 = pi[9];
     int held = !(p9 & 4u), r1 = -2, r2 = -2;
     u32 wait = 0;
     if (!held) r1 = na_inq(di, inq, 800);
     if (held || r1 < 0) {                                 /* reset du lecteur, puis on attend qu'il reponde */
+        u32 level = IRQ_Disable();
         pi[9] = (pi[9] & ~4u) | 1u;
         u64 t = now_ms(); while (now_ms() - t < 2) ;
         pi[9] = pi[9] | 5u;
+        IRQ_Restore(level);
         u64 t0 = now_ms();
         do r2 = na_inq(di, inq, 1500); while (r2 < 0 && now_ms() - t0 < 7000);
         wait = (u32)(now_ms() - t0);
     }
     di[1] = 4u;                                           /* (couvercle : acquitte, sans interruption) */
-    IRQ_Restore(level);
-    int ok = r1 >= 0 || r2 >= 0;
-    snprintf(na_drv, sizeof(na_drv), "%s (PI 3024 = %08X%s ; inquiry : %s ; apres reset : %s, %u ms ; date %02X%02X%02X%02X)",
+    int ok = r1 >= 0 || r2 >= 0, mot = -2;
+    if (ok) {                                             /* v64 : moteur arrete (E3) : le lecteur reste silencieux */
+        di[0] = 0x54u; di[2] = 0xE3000000u; di[3] = 0; di[4] = 0; di[7] = 1;
+        u64 t0 = now_ms();
+        while ((di[7] & 1) && now_ms() - t0 < 3000) nat_ld_tick();
+        mot = di[7] & 1 ? -1 : (int)(di[0] & 0x54u);
+        di[0] = 0x54u;
+    }
+    snprintf(na_drv, sizeof(na_drv), "%s (PI 3024 = %08X%s ; inquiry : %s ; apres reset : %s, %u ms ; date %02X%02X%02X%02X ; moteur arrete : %s)",
              ok ? "REPOND" : "NE REPOND PAS", (unsigned)p9, held ? ", lecteur tenu en reset" : "",
              r1 == -2 ? "pas essaye" : r1 < 0 ? "rien" : r1 & 0x10 ? "fin OK" : "erreur",
              r2 == -2 ? "pas besoin" : r2 < 0 ? "rien" : r2 & 0x10 ? "fin OK" : "erreur", (unsigned)wait,
-             inq[4], inq[5], inq[6], inq[7]);
+             inq[4], inq[5], inq[6], inq[7], mot == -2 ? "non" : mot < 0 ? "pas de reponse" : mot & 0x10 ? "oui" : "erreur");
 }
 #else
 static void na_drive_wake(void) { snprintf(na_drv, sizeof(na_drv), "(simulateur)"); }
 #endif
 
+/* ---------- v64 : ecran de chargement de Resident (style "Minimal" : nom du jeu, ligne fine,
+   pourcentage, GC STATION en bas a droite) ---------- */
+static char nat_ld_title[96], nat_ld_step[96];
+static int nat_ld_pct = 0, nat_ld_from = 0, nat_ld_to = 0;
+static u64 nat_ld_t0 = 0, nat_ld_last = 0;
+#ifdef NATIF_BENCH
+static void nat_draw_loading(void) {}
+#else
+static void nat_draw_loading(void) {
+    char b[120];
+    gx_rect(0, 0, 640, 480, RGBA(5, 3, 9, 255));
+    text_display(nat_ld_title, b, sizeof(b));
+    char fv[120];
+    fit_text(F_MED, b, 560, fv, sizeof(fv));
+    gx_text_c(F_MED, 320, 220, fv, RGBA(255, 255, 255, 255));
+    gx_rect(210, 240, 220, 2, RGBA(28, 21, 48, 255));
+    gx_rect(210, 240, 220.0f * nat_ld_pct / 100.0f, 2, RGBA(156, 108, 255, 255));
+    snprintf(b, sizeof(b), "%d %%", nat_ld_pct);
+    gx_text_c(F_SMALL, 320, 266, b, RGBA(156, 146, 190, 255));
+    gx_text_c(F_SMALL, 320, 292, nat_ld_step, RGBA(110, 100, 150, 255));
+    gx_text_r(F_SMALL, 616, 460, "GC STATION  \xC2\xB7  RESIDENT", RGBA(142, 124, 196, 255));
+}
+#endif
+static void nat_ld(const char *step, int pct) {         /* une etape (et dessine tout de suite) */
+    snprintf(nat_ld_step, sizeof(nat_ld_step), "%s", TR(step));
+    nat_ld_pct = nat_ld_from = nat_ld_to = pct;
+    nat_ld_on = 1; nat_ld_last = now_ms();
+    crumb("resident : %s", step);
+    draw();
+}
+static void nat_ld_span(const char *step, int from, int to) {   /* etape longue : avance avec le temps (7 s) */
+    nat_ld(step, from);
+    nat_ld_from = from; nat_ld_to = to; nat_ld_t0 = now_ms();
+}
+static void nat_ld_tick(void) {
+    if (!nat_ld_on) return;
+    u64 n = now_ms();
+    if (n - nat_ld_last < 40) return;
+    nat_ld_last = n;
+    if (nat_ld_to > nat_ld_from) { u64 e = n - nat_ld_t0; if (e > 7000) e = 7000; nat_ld_pct = nat_ld_from + (int)((nat_ld_to - nat_ld_from) * e / 7000); }
+    draw();
+}
+
+/* .dol de GC Station sur la carte (pour y revenir depuis le jeu : A+Z+START, plantage) */
+#ifdef NATIF_BENCH
+static const char *nat_self_path(void);               /* (banc d'essai) */
+#else
+static const char *nat_self_path(void) { up_pick_target(); return up_target; }
+#endif
+static natres_ext_t na_ret[NATRES_RETMAX];
+static u32 na_ret_n = 0, na_ret_size = 0;
+static void nat_ret_prep(void) {
+    na_ret_n = 0; na_ret_size = 0;
+    const char *p = nat_self_path();
+    struct stat st;
+    if (!p || !p[0] || sd_virtual || stat(p, &st) != 0 || st.st_size < 0x100) return;
+    u8 h[0x100];
+    FILE *f = fopen(p, "rb");
+    if (!f) return;
+    int ok = fread(h, 1, sizeof(h), f) == sizeof(h);
+    fclose(f);
+    if (!ok) return;
+    for (int i = 0; i < 18; i++) {                        /* (le .dol ne doit pas toucher au resident en se chargeant) */
+        u32 off = be32(h + i * 4), addr = be32(h + 0x48 + i * 4), sz = be32(h + 0x90 + i * 4);
+        if (sz && (addr < 0x80003000u || addr + (u64)sz > NATRES_AT || off + (u64)sz > (u64)st.st_size)) return;
+    }
+    char e[80];
+    if (nat_map(p, e, sizeof(e)) || na_next > NATRES_RETMAX) return;
+    memcpy(na_ret, na_ext, na_next * sizeof(natres_ext_t));
+    na_ret_n = na_next; na_ret_size = (u32)st.st_size;
+}
+
 static const char *nat_boot(int k) {
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
     static nat_info_t in;
-    gl_status("Resident : analyse du jeu...");
+    snprintf(nat_ld_title, sizeof(nat_ld_title), "%s", gl[k].title);
+    nat_ld("Analyse du jeu", 4);
     if (!nat_analyse(gl[k].path, &in)) return in.err;
     if (in.problems) return in.err;
     if (in.fst_max < in.fst_sz || in.fst_max > (4u << 20)) return "FST : taille maximale invalide";
@@ -751,6 +834,8 @@ static const char *nat_boot(int k) {
     u32 dol_len = in.dol_len;
     /* programme resident (pas encore appele par le jeu : il sera branche a l'etape 3b) */
     char merr[120] = "";
+    nat_ld("Position du jeu sur la carte SD", 10);
+    nat_ret_prep();                                        /* v64 : retour a GC Station (avant la carte de l'ISO : meme tableau) */
     u32 log_sec = nat_journal_prep();                      /* v54 : journal du jeu (un secteur de la carte) */
     int res = !gl[k].ciso && !nat_map(gl[k].path, merr, sizeof(merr)) && sizeof(natres_bin) <= NATRES_SIZE;
     u32 total = ((dol_len + 31) & ~31u) + NA_BI2 + ((in.fst_sz + 31) & ~31u) + (res ? NATRES_SIZE : 0);
@@ -775,17 +860,24 @@ static const char *nat_boot(int k) {
             na_wbe32(r + 0x20, na_next);
             na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0));
             na_wbe32(r + 0x60, log_sec);                                    /* (natres_hdr_t.log_sec) */
+            u32 ro = be32(r + 0xE4) - NATRES_AT;                            /* (natres_hdr_t.ret_tab) */
+            if (na_ret_n && ro + na_ret_n * 12 <= NATRES_SIZE) {             /* v64 : .dol de GC Station */
+                na_wbe32(r + 0xE0, na_ret_n); na_wbe32(r + 0xE8, na_ret_size);
+                for (u32 i = 0; i < na_ret_n; i++) {
+                    na_wbe32(r + ro + i * 12, na_ret[i].iso); na_wbe32(r + ro + i * 12 + 4, na_ret[i].sd); na_wbe32(r + ro + i * 12 + 8, na_ret[i].cnt);
+                }
+            } else na_ret_n = 0;
             for (u32 i = 0; i < na_next; i++) {
                 na_wbe32(r + eo + i * 12, na_ext[i].iso); na_wbe32(r + eo + i * 12 + 4, na_ext[i].sd); na_wbe32(r + eo + i * 12 + 8, na_ext[i].cnt);
             }
         }
     }
     gdisc_t d;
-    gl_status("Resident : lecture de main.dol...");
+    nat_ld("Lecture du jeu", 22);
     int ok = gd_open(&d, gl[k].path);
     if (ok) ok = gd_read(&d, in.dol_off, buf + o_dol, dol_len);
     if (ok) ok = gd_read(&d, 0x440, buf + o_bi2, NA_BI2);
-    if (ok) { gl_status("Resident : lecture de la FST..."); ok = gd_read(&d, in.fst_off, buf + o_fst, in.fst_sz); }
+    if (ok) { nat_ld("Lecture du jeu", 34); ok = gd_read(&d, in.fst_off, buf + o_fst, in.fst_sz); }
     u8 hdr[0x20];
     if (ok) ok = gd_read(&d, 0, hdr, sizeof(hdr));
     gd_close(&d);
@@ -819,7 +911,8 @@ static const char *nat_boot(int k) {
     if (in.fst_sz) { tab[n * 3] = fst_dest; tab[n * 3 + 1] = stage + o_fst; tab[n * 3 + 2] = in.fst_sz; n++; }
     if (res) { tab[n * 3] = NATRES_AT; tab[n * 3 + 1] = stage + o_res; tab[n * 3 + 2] = NATRES_SIZE; n++; }
     /* v55 : le vrai lecteur doit repondre (sa fin de commande reveille le jeu) */
-    if (res) { stop_track(); na_drive_wake(); }
+    if (res) { stop_track(); nat_ld_span("Pr\xC3\xA9paration du lecteur", 40, 92); na_drive_wake(); }
+    nat_ld("D\xC3\xA9marrage", 100);
     /* journal, ecrit AVANT le saut (apres, plus rien ne peut ecrire sur la carte) */
     mkdir(NA_DIR, 0777);
     FILE *f = fopen(NA_LOG, "w");
@@ -834,6 +927,7 @@ static const char *nat_boot(int k) {
         fprintf(f, "Journal du jeu : %s\n", log_sec ? "oui (gc-mp3/natif/journal-jeu.txt au prochain demarrage de GC Station)" : "non");
         fprintf(f, "Faux lecteur DVD : %d acces branches, %d non branches (sur %d trouves)\n", patched, skipped, in.nhit);
         fprintf(f, "Vrai lecteur : %s\n", na_drv[0] ? na_drv : "pas teste");
+        fprintf(f, "Retour a GC Station (A+Z+START, plantage) : %s\n", na_ret_n ? "pret (le .dol de GC Station est relu sur la carte)" : "redemarrage de la console");
         fprintf(f, "Memoire basse avant : 28=%08X 2C=%08X CC=%08X F8=%08X FC=%08X\n",
 #ifdef GEKKO
                 (unsigned)*(volatile u32 *)0x80000028, (unsigned)*(volatile u32 *)0x8000002C, (unsigned)*(volatile u32 *)0x800000CC,

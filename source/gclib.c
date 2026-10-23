@@ -620,6 +620,7 @@ static void gclib_input(u32 down, u32 nav, int fire) {
             gl_launch_sel = -1;
             const char *e = nat_boot(k);                    /* (ne revient pas si ca marche) */
             gl_busy[0] = 0;
+            nat_ld_on = 0;                                  /* v64 : fin de l'ecran de chargement */
             if (e) gl_note(e);
         }
         if (down & PAD_BUTTON_B) gl_launch_sel = -1;
