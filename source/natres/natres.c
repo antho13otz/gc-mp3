@@ -801,8 +801,8 @@ static void hooks_check(void) {
     if (H.flags & NRF_IGR) hook1(20, &si_orig, (u32)si_hook);
     volatile u32 *e = OS_EXC_TABLE;
     if (nr_game_fn(e[2])) {                              /* (exceptions : remplacees, pas chainees) */
-        static const int ex[4] = { 2, 3, 5, 6 };
-        for (int i = 0; i < 4; i++) if (e[ex[i]] != (u32)exc_entry && nr_game_fn(e[ex[i]])) e[ex[i]] = (u32)exc_entry;
+        static const int ex[5] = { 2, 3, 5, 6, 1 };      /* v68 : + 1 = machine check (acces materiel invalide) */
+        for (int i = 0; i < 5; i++) if (e[ex[i]] != (u32)exc_entry && nr_game_fn(e[ex[i]])) e[ex[i]] = (u32)exc_entry;
     }
 }
 

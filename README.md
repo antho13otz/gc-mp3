@@ -21,6 +21,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v68
+- **Onglet JEUX / APPS plus fluide** : les pochettes des applis sont calculées une seule fois puis gardées dans `SD:/gc-mp3/cache/applis` (avant, le PNG était décodé et recalculé à chaque passage : ça saccadait). Pendant qu'on navigue, seule la pochette choisie se charge (jeux et applis), les autres quand on s'arrête ; une seule lecture par image au lieu de 3 ; plus de jaquettes gardées en mémoire.
+- Resident : un **« machine check »** (accès matériel invalide) du jeu est maintenant attrapé comme un plantage : journal + retour à GC Station au lieu d'un écran noir figé.
+
 ## Nouveautés v67
 - Écran noir (Paper Mario) : tant que le jeu n'a pas affiché sa 1re image, Resident regarde régulièrement **où en est le jeu** (adresse du code, état du DSP). Au démarrage suivant, `journal-jeu.txt` montre ces adresses et le code du jeu autour (lu dans l'ISO), pour trouver ce qu'il attend.
 

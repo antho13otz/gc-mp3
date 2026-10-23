@@ -512,7 +512,7 @@ static void nat_journal_convert(void) {
         static const char *const en[] = { "OK", "pas de carte", "la carte ne demarre pas", "commande refusee", "pas de donnees", "hors de l'ISO", "delai depasse" };
         fprintf(f, "GC Station - journal du dernier jeu lance avec Resident\n\n");
         if (v5 && H[44]) {
-            static const char *const xn[16] = { "?", "?", "acces memoire interdit (DSI)", "code introuvable (ISI)", "?", "alignement", "instruction invalide", "?", "?", "?", "?", "?", "?", "?", "?", "?" };
+            static const char *const xn[16] = { "?", "machine check (acces materiel ou memoire invalide)", "acces memoire interdit (DSI)", "code introuvable (ISI)", "?", "alignement", "instruction invalide", "?", "?", "?", "?", "?", "?", "?", "?", "?" };
             fprintf(f, "*** PLANTAGE DU JEU : %s ***\n    a l'adresse %08X (LR %08X), adresse visee %08X (DSISR %08X)\n    -> la console a redemarre toute seule\n\n",
                     xn[H[44] & 15], (unsigned)H[45], (unsigned)H[46], (unsigned)H[47], (unsigned)H[48]);
         }
