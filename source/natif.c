@@ -445,17 +445,20 @@ static int nat_map_check(const char *path, long size, char *err, int cap) {
 #define NA_JBIN NA_DIR "/journal-jeu.bin"
 #define NA_LOG   NA_DIR "/dernier-lancement.txt"
 #define NA_JTXT NA_DIR "/journal-jeu.txt"
+static int na_jcrash = 0;                              /* v79 : 2e secteur du journal (details d'un plantage) disponible */
 static u32 nat_journal_prep(void) {
+    na_jcrash = 0;
     if (sd_virtual) return 0;
     mkdir(NA_DIR, 0777);
-    static u8 z[512];
+    static u8 z[1024];
     memset(z, 0, sizeof(z));
     FILE *f = fopen(NA_JBIN, "wb");
     if (!f) return 0;
-    int ok = fwrite(z, 1, 512, f) == 512;
+    int ok = fwrite(z, 1, 1024, f) == 1024;                /* v79 : 2 secteurs (le 2e : details d'un plantage) */
     fclose(f);
     char e[80];
-    if (!ok || nat_map(NA_JBIN, e, sizeof(e)) || na_next != 1) return 0;
+    if (!ok || nat_map(NA_JBIN, e, sizeof(e)) || !na_next || na_next > 2) return 0;
+    na_jcrash = na_next == 1 && na_ext[0].cnt >= 2;       /* (les 2 secteurs a la suite sur la carte) */
     return na_ext[0].sd;
 }
 static const char *na_cmd_name(u32 c) {
@@ -492,6 +495,45 @@ static void na_code_dump(FILE *f, u32 addr, const char *label) {
         fprintf(f, "\n    (debut %08X)\n", (unsigned)a0);
     }
     gd_close(&g);
+}
+/* v79 : details d'un plantage (2e secteur du journal, format : natres.h) */
+static void na_crash_print(FILE *f, const u8 *c) {
+    u32 w[0x110 / 4];
+    for (int i = 0; i < 0x110 / 4; i++) w[i] = be32(c + i * 4);
+    const u32 *g = w + 0x30 / 4, *lo = w + 0xB0 / 4, *bt = w + 0xD0 / 4;
+    fprintf(f, "\n========== Details du plantage ==========\n");
+    fprintf(f, "PC %08X   LR %08X   CTR %08X   CR %08X   SRR1 %08X\n", (unsigned)w[3], (unsigned)w[5], (unsigned)w[7], (unsigned)w[6], (unsigned)w[4]);
+    fprintf(f, "Adresse visee %08X (DSISR %08X)%s\n", (unsigned)w[8], (unsigned)w[9],
+            w[8] == 0x01234567u ? "  <- adresse bidon : le jeu s'est tres probablement arrete EXPRES (erreur detectee au demarrage)" : "");
+    fprintf(f, "Registres :\n");
+    for (int r = 0; r < 32; r++) {
+        fprintf(f, "%s r%-2d %08X", r % 4 ? "" : "  ", r, (unsigned)g[r]);
+        if (r % 4 == 3) fputc('\n', f);
+    }
+    /* textes : ce que pointaient r3 ... r10 (un message d'erreur, un nom de fichier du jeu...) */
+    int nt = 0;
+    for (int r = 3; r <= 10; r++) {
+        const u8 *t = c + 0x110 + (r - 3) * NATRES_CRASH_STR;
+        int n = 0;
+        while (n < NATRES_CRASH_STR && t[n] >= 0x20 && t[n] < 0x7F) n++;
+        if (n < 4 || (n < NATRES_CRASH_STR && t[n] != 0 && t[n] != '\n')) continue;
+        if (!nt++) fprintf(f, "Textes que le jeu avait en main (souvent le message de son erreur) :\n");
+        fprintf(f, "  r%-2d -> \"%.*s\"%s\n", r, n, (const char *)t, n == NATRES_CRASH_STR ? "..." : "");
+    }
+    if (!nt) fprintf(f, "Textes : aucun texte lisible dans r3 ... r10\n");
+    fprintf(f, "Chaine des appels (le plus recent d'abord) : %u\n   ", (unsigned)w[11]);
+    for (u32 i = 0; i < w[11] && i < NATRES_CRASH_NBT; i++) fprintf(f, " %08X", (unsigned)bt[i]);
+    fprintf(f, "\n");
+    /* memoire : ce que le jeu a recu, et ce qu'il aurait eu sur une vraie console */
+    u32 hi = lo[3], fstmax = lo[5], real = (0x81800000u - fstmax) & ~31u;
+    fprintf(f, "Memoire basse : taille %08X, console %08X, arene %08X - %08X, FST %08X (max %u), simulee %08X, bi2 %08X\n",
+            (unsigned)lo[0], (unsigned)lo[1], (unsigned)lo[2], (unsigned)lo[3], (unsigned)lo[4], (unsigned)lo[5], (unsigned)lo[6], (unsigned)lo[7]);
+    if (hi && fstmax < 0x400000u && real > hi)
+        fprintf(f, "Memoire laissee au jeu : haut de l'arene %08X ; sur une vraie console : environ %08X (%u Ko de moins avec Resident)\n",
+                (unsigned)hi, (unsigned)real, (unsigned)((real - hi) >> 10));
+    na_code_dump(f, w[3], "PC");
+    na_code_dump(f, w[5], "LR");
+    for (u32 i = 0; i < w[11] && i < 3; i++) { char lb[24]; snprintf(lb, sizeof(lb), "appel %u", (unsigned)i + 1); na_code_dump(f, bt[i], lb); }
 }
 static void nat_journal_convert(void) {
     long len = 0;
@@ -571,6 +613,7 @@ static void nat_journal_convert(void) {
                     in & 1 ? "ERREUR LECTURE  " : "", in & 8 ? "CARTE PAS PRETE  " : "", in & 2 ? "LECTEUR OCCUPE  " : "", in & 4 ? "" : "PAS DE REVEIL  ",
                     (unsigned)((in >> 8) & 0xFF), (unsigned)((in >> 16) & 0xFF));
         }
+        if (len >= 1024 && be32(d + 512) == NATRES_CRASH_MAGIC) na_crash_print(f, d + 512);   /* v79 */
         long ll = 0;                                      /* (et le journal du lancement, ecrit avant le saut) */
         char *lt = (char *)read_file(NA_LOG, 16384, &ll);
         if (lt) { fprintf(f, "\n---------- dernier-lancement.txt ----------\n"); fwrite(lt, 1, ll, f); free(lt); }
@@ -584,9 +627,9 @@ static void nat_journal_convert(void) {
         if (id[0] && id[5]) gl_stats_add_play(id, be32(d + 0x90) / (id[3] == 'P' ? 50u : 60u));
     }
 #endif
-    memset(d, 0, 512);                                    /* (traduit : on ne le refait pas au prochain demarrage) */
+    memset(d, 0, len);                                    /* (traduit : on ne le refait pas au prochain demarrage) */
     FILE *b = fopen(NA_JBIN, "r+b");
-    if (b) { fwrite(d, 1, 512, b); fclose(b); }
+    if (b) { fwrite(d, 1, len, b); fclose(b); }
     free(d);
 }
 
@@ -1160,7 +1203,7 @@ static const char *nat_boot(int k) {
             na_wbe32(r + 0x20, na_next);
             u32 co = be32(r + 0xFC) - NATRES_AT;                            /* (natres_hdr_t.card_tab) */
             if (card_on && co + na_card_n * 12 > NATRES_SIZE) card_on = 0;
-            na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0) | (card_on ? NRF_CARD : 0));
+            na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0) | (card_on ? NRF_CARD : 0) | (na_jcrash ? NRF_CRASH : 0));
             if (card_on) {                                                  /* v65 : carte memoire virtuelle */
                 na_wbe32(r + 0xF8, na_card_n); na_wbe32(r + 0x100, na_card_size); na_wbe32(r + 0x104, na_card_size >> 17);   /* (ID = taille en Mbits) */
                 for (u32 i = 0; i < na_card_n; i++) {

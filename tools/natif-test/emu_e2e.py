@@ -213,7 +213,16 @@ csecs = {csd(0x2000 >> 9), csd(0x110000 >> 9)}
 if card.writes:                                    # v54 : journal du jeu ecrit sur la carte
     js = card.writes[-1]; jb = disk[js * 512:js * 512 + 512]; open('journal.bin', 'wb').write(jb)
     u = lambda o: struct.unpack_from('>I', jb, o)[0]
-    jok = set(card.writes) - csecs == {js} and jb[:4] == b'GCSN' and u(0x4C) == 6 and u(0x90) == 3
+    jok = set(card.writes) - csecs == ({js, js + 1} if EXC else {js}) and jb[:4] == b'GCSN' and u(0x4C) == 6 and u(0x90) == 3
+    if EXC:                                        # v79 : details du plantage dans le secteur suivant
+        cb = disk[(js + 1) * 512:(js + 2) * 512]; open('journal.bin', 'ab').write(cb)
+        cu = lambda o: struct.unpack_from('>I', cb, o)[0]
+        cok = cb[:4] == b'GCSC' and cu(0x0C) == 0x80001234 and cu(0x14) == 0x80005678 and cu(0x30 + 4) == 0x80001A00 and cu(0x30 + 16) == 0x01234567
+        cok &= cu(0x2C) == 2 and cu(0xD0) == 0x80007777 and cu(0xD4) == 0x80008888 and cb[0x110:0x120] == b'm_Do_machine.cpp'
+        cok &= all(cu(0xB0 + i * 4) == rd32(0x80000000 + o) for i, o in enumerate((0x28, 0x2C, 0x30, 0x34, 0x38, 0x3C, 0xF0, 0xF4)))
+        print(('OK   ' if cok else 'FAUX ') + 'details du plantage : PC %08X LR %08X r1 %08X r4 %08X, %d appels %08X %08X, texte r3 %r' % (
+            cu(0x0C), cu(0x14), cu(0x34), cu(0x40), cu(0x2C), cu(0xD0), cu(0xD4), bytes(cb[0x110:0x120])))
+        jok &= cok
     print('journal : musique %d blocs, %d tampons ; carte %d commandes (derniere %02X), %d ecritures, %d interruptions' % (u(0x108), u(0x10C), u(0x110), u(0x118), u(0x114), u(0x11C)))
     print('echantillons : %d, code %08X LR %08X' % (u(0x130), u(0x138), u(0x134)))
     jok &= u(0x130) > 0 and u(0x134) == 0x80003100 and 0x80003100 < u(0x138) < 0x80004000

@@ -198,6 +198,42 @@ _start:
     lis 12,0x8000
     ori 12,12,0x5678
     stw 12,0x84(4)
+    # v79 : comme un jeu qui s'arrete expres : message en r3, adresse bidon en r4,
+    # et une pile avec 2 appels (cadres 80001A00 -> 80001A40 -> 80001A80 -> fin)
+    lis 5,0x8000
+    ori 5,5,0x1A00
+    stw 5,4(4)
+    addi 12,5,0x40
+    stw 12,0(5)
+    addi 11,5,0x80
+    stw 11,0(12)
+    li 0,0
+    stw 0,0(11)
+    lis 0,0x8000
+    ori 0,0,0x7777
+    stw 0,4(12)
+    lis 0,0x8000
+    ori 0,0,0x8888
+    stw 0,4(11)
+    lis 0,0x6D5F
+    ori 0,0,0x446F
+    stw 0,0x100(5)
+    lis 0,0x5F6D
+    ori 0,0,0x6163
+    stw 0,0x104(5)
+    lis 0,0x6869
+    ori 0,0,0x6E65
+    stw 0,0x108(5)
+    lis 0,0x2E63
+    ori 0,0,0x7070
+    stw 0,0x10C(5)
+    li 0,0
+    stw 0,0x110(5)
+    addi 12,5,0x100
+    stw 12,0x0C(4)
+    lis 0,0x0123
+    ori 0,0,0x4567
+    stw 0,0x10(4)
     lwz 12,0x3008(20)
     mtctr 12
     li 3,2

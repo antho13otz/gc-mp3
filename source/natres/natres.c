@@ -416,6 +416,39 @@ void exc_c(u32 ex, u32 ctx) __attribute__((used));
 extern void exc_entry(void);
 __asm__(".pushsection .text\n.globl exc_entry\nexc_entry:\n"
         "  lis 1,exc_stack@ha\n  addi 1,1,exc_stack@l\n  addi 1,1,2032\n  b exc_c\n.popsection\n");
+/* v79 : details d'un plantage (format : natres.h, NATRES_CRASH_*), pour savoir POURQUOI le
+   jeu s'est arrete : registres, chaine des appels (pile du jeu), textes passes a sa fonction
+   d'erreur (un jeu qui s'arrete expres ecrit souvent a une adresse bidon comme 01234567,
+   apres avoir prepare un message), et la memoire que le jeu a recue. */
+static u8 crashbuf[512] __attribute__((aligned(32)));
+static int ram_ok(u32 a, u32 n) { return a >= 0x80000000u && a < 0x81800000u && a + n <= 0x81800000u; }
+static void cw(u32 o, u32 v) { crashbuf[o] = (u8)(v >> 24); crashbuf[o + 1] = (u8)(v >> 16); crashbuf[o + 2] = (u8)(v >> 8); crashbuf[o + 3] = (u8)v; }
+static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
+    if (!(H.flags & NRF_CRASH) || !H.log_sec || !di_ready) return;
+    for (u32 i = 0; i < 512; i++) crashbuf[i] = 0;
+    cw(0x00, NATRES_CRASH_MAGIC); cw(0x04, NATRES_CRASH_VER); cw(0x08, ex);
+    cw(0x20, dar); cw(0x24, dsisr); cw(0x28, ctx);
+    static const u32 low[8] = { 0x28, 0x2C, 0x30, 0x34, 0x38, 0x3C, 0xF0, 0xF4 };
+    for (int i = 0; i < 8; i++) cw(0xB0 + i * 4, *(volatile u32 *)(0x80000000u + low[i]));
+    if (ctx < 0x80000000u || ctx >= 0x817F0000u || (ctx & 3)) { nr_write_sd(H.log_sec + 1, crashbuf); return; }
+    volatile u32 *c = (volatile u32 *)ctx;               /* OSContext : r0-r31 0x00, CR 0x80, LR 0x84, CTR 0x88, srr0 0x198, srr1 0x19C */
+    cw(0x0C, c[0x198 / 4]); cw(0x10, c[0x19C / 4]); cw(0x14, c[0x84 / 4]); cw(0x18, c[0x80 / 4]); cw(0x1C, c[0x88 / 4]);
+    for (int r = 0; r < 32; r++) cw(0x30 + r * 4, c[r]);
+    u32 sp = c[1], n = 0;                                /* pile : [sp] = cadre de l'appelant, [cadre + 4] = adresse de retour */
+    while (n < NATRES_CRASH_NBT && ram_ok(sp, 8) && !(sp & 3)) {
+        u32 up = *(volatile u32 *)sp;
+        if (up <= sp || !ram_ok(up, 8) || (up & 3)) break;
+        cw(0xD0 + n * 4, *(volatile u32 *)(up + 4));
+        n++; sp = up;
+    }
+    cw(0x2C, n);
+    for (int r = 3; r <= 10; r++) {                      /* textes : ce que pointent r3 ... r10 (si c'est de la memoire) */
+        u32 a = c[r];
+        if (!ram_ok(a, NATRES_CRASH_STR)) continue;
+        for (u32 i = 0; i < NATRES_CRASH_STR; i++) crashbuf[0x110 + (r - 3) * NATRES_CRASH_STR + i] = *(volatile u8 *)(a + i);
+    }
+    nr_write_sd(H.log_sec + 1, crashbuf);
+}
 void exc_c(u32 ex, u32 ctx) {
     u32 dar, dsisr;
     __asm__ volatile("mfdar %0" : "=r"(dar));
@@ -424,6 +457,8 @@ void exc_c(u32 ex, u32 ctx) {
     H.exc_num = 0x100u | (ex & 0xFF);
     H.exc_dar = dar; H.exc_dsisr = dsisr;
     if (ctx >= 0x80000000u && ctx < 0x817F0000u) { H.exc_srr0 = *(volatile u32 *)(ctx + 0x198); H.exc_lr = *(volatile u32 *)(ctx + 0x84); }
+    if (!di_ready) di_ready = nr_init() == 0;             /* v79 : (plantage avant la 1re commande au lecteur : carte pas encore demarree) */
+    crash_dump(ex, ctx, dar, dsisr);                      /* v79 : details (registres, appels, textes) dans le 2e secteur */
     nr_log_flush();
     ret_to_gcstation();                                  /* (ou redemarrage si impossible) */
 }

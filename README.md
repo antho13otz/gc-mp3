@@ -21,6 +21,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v79 — Resident : pourquoi un jeu plante
+- Quand un jeu plante avec Resident, `SD:/gc-mp3/natif/journal-jeu.txt` contient maintenant une partie **« Détails du plantage »** : tous les registres du jeu, la **chaîne des appels** (quelles fonctions du jeu ont mené au plantage), les **textes que le jeu avait en main** (souvent le message ou le nom de fichier de son erreur), la mémoire que le jeu a reçue (et combien il en aurait eu sur une vraie console), et le code du jeu autour de chaque adresse.
+- Une adresse visée `01234567` est signalée : c'est un jeu qui s'arrête **exprès** après avoir détecté une erreur (Wind Waker au démarrage).
+- Le journal du jeu passe à 2 secteurs (le 2e n'est écrit qu'en cas de plantage). Si le jeu plante avant sa 1re commande au lecteur, la carte SD est démarrée pour l'écrire quand même.
+- Banc d'essai : le faux jeu plante comme Wind Waker (message en main, adresse bidon, 2 appels sur la pile) et le test vérifie les détails écrits sur la carte.
+
 ## Nouveautés v78 — la mise à jour se télécharge de nouveau
 - **Correction** : START > « Mise à jour » affichait « Téléchargement interrompu ». GitHub répond maintenant avec plus de 11 Ko d'en-têtes avant de donner le fichier, et GC Station n'en acceptait que 8 Ko. Les lignes inutiles sont maintenant oubliées : le téléchargement passe, même avec des en-têtes bien plus gros.
 - **Important** : une console qui a encore une build plus ancienne ne peut pas se mettre à jour toute seule une dernière fois. Il faut copier une fois `gc-mp3player-b…dol` (release « dernier ») sur la carte SD, à la place de l'ancien fichier. Ensuite, START > « Mise à jour » refonctionne.
