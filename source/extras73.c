@@ -51,7 +51,7 @@ static void x73_save(FILE *f) {
             fe_show_hidden ? "oui" : "non", fe_hide_unknown ? "oui" : "non");
     if (sram_back_lang >= 0) fprintf(f, "retour_langue_console = %d\n", sram_back_lang);
     if (sram_back_sound >= 0) fprintf(f, "retour_son_console = %d\n", sram_back_sound);
-    fprintf(f, "# Resident : carte memoire virtuelle utilisee (fichier de gc-mp3/resident)\nresident_carte_fichier = %s\n", vc_active);
+    fprintf(f, "# Resident : carte memoire virtuelle utilisee (fichier de gc-mp3/resident)\nresident_carte_fichier = %s\n", vc_keep[0] ? vc_keep : vc_active);   /* (v76 : pas la carte d'un jeu) */
 }
 static void x73_menu_value(int i, char *out, int cap) {
     switch (i) {
