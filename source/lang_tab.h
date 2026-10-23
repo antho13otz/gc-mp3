@@ -1047,3 +1047,4 @@
     { "Sauvegardes : carte m\xC3\xA9moire virtuelle (slot A, sur la carte SD)", "Saves: virtual memory card (slot A, on the SD card)" },
     { "Mesure de fluidit\xC3\xA9", "Smoothness meter" },
     { "Images/s en haut de l'\xC3\xA9" "cran ; en coupant : rapport SD:/gc-mp3/fluidite.txt", "Frames/s shown at the top; when turned off: report in SD:/gc-mp3/fluidite.txt" },
+    { "L / R : d\xC3\xA9" "calage des notes  %+d ms  (si elles semblent en avance ou en retard)", "L / R: note offset  %+d ms  (if notes feel early or late)" },

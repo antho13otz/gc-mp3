@@ -240,6 +240,13 @@ static float rg_avg = 0, rg_period = 500;
 static double rg_anchor = 0, rg_sched = 0;
 static int rg_armed = 1;
 static u64 rg_last_on = 0, rg_start_t = 0;
+/* v70 : les coups sont cherches dans le son deja decode (jusqu'a 4 s d'avance) : chaque note tombe
+   sur un vrai coup du morceau (avant : une grille de tempo devinee, en temps de la console : au
+   moindre retard du son, tout se decalait). L'horloge est la position du son entendu (audio_ms). */
+#define RG_FR 512                                 /* (une "image" d'analyse : 10,7 ms de son) */
+static u32 rg_scan = 0;
+static float rg_lp = 0, rg_prev = 0, rg_lo_h[3], rg_hi_h[3], rg_od[5], rg_odlo[5], rg_odhi[5], rg_th_avg = 1, rg_th_dev = 1;
+static double rg_last_onset = -1e9, rg_last_note = -1e9, rg_last_low = -1e9;
 static const char *const rg_diff_names[3] = { "Facile", "Normal", "Difficile" };
 #define RG_FILE GCD "/gc-mp3-jeux.txt"
 
@@ -289,6 +296,10 @@ static void rg_new_game(int k) {
     rg_period = 500;
     rg_anchor = rg_sched = 0;
     rg_armed = 1;
+    rg_scan = 0; rg_lp = rg_prev = 0; rg_th_avg = rg_th_dev = 1;
+    memset(rg_lo_h, 0, sizeof(rg_lo_h)); memset(rg_hi_h, 0, sizeof(rg_hi_h)); memset(rg_od, 0, sizeof(rg_od));
+    memset(rg_odlo, 0, sizeof(rg_odlo)); memset(rg_odhi, 0, sizeof(rg_odhi));
+    rg_last_onset = rg_last_note = rg_last_low = -1e9;
     rg_track = k;
     queue_build(k);
     start_track(k);
@@ -329,18 +340,9 @@ static void rg_estimate(void) {
     }
 }
 
-static double rg_next_after(double t) {
-    if (rg_period < 100) return t + 500;
-    double k = ceil((t - rg_anchor) / rg_period);
-    return rg_anchor + k * rg_period;
-}
 
-static void rg_spawn(double t, int strong) {
-    float b = 0, m = 0, h = 0;
-    for (int i = 11; i < 36; i++) m += bar_val[i];
-    for (int i = 36; i < NBARS; i++) h += bar_val[i];
-    b = bass_lvl; m /= 25; h /= (NBARS - 36);
-    int lane = b >= m && b >= h ? 0 : m >= h ? 1 : 2 + (int)(lib_rand() % 2);
+static void rg_spawn(double t, int strong) {               /* strong : 1 = coup grave, 0 = aigu */
+    int lane = strong ? (int)(lib_rand() % 2) : 2 + (int)(lib_rand() % 2);
     if (lib_rand() % 3 == 0) lane = (int)(lib_rand() % 4);
     if (lane == rg_lastlane && ++rg_samelane >= 2) { lane = (lane + 1 + (int)(lib_rand() % 3)) % 4; rg_samelane = 0; }
     else if (lane != rg_lastlane) rg_samelane = 0;
@@ -367,71 +369,100 @@ static void rg_finish(void) {
     rumble(best, 250);
 }
 
+/* un coup trouve dans le son a venir (index d'echantillon dans le morceau) */
+static void rg_onset(u32 smp, float lo, float hi, float od) {
+    double t = smp / 48.0 + rg_offset;
+    if (t - rg_last_onset < 100) return;
+    rg_last_onset = t;
+    memmove(rg_ons + 1, rg_ons, sizeof(rg_ons) - sizeof(rg_ons[0]));      /* (tempo affiche) */
+    rg_ons[0] = (u64)t; rg_non++;
+    if (rg_non >= 6) rg_estimate();
+    static const float gap[3] = { 430, 280, 165 }, need[3] = { 1.6f, 1.2f, 1.0f };
+    if (od < rg_th_avg + 1.5f * rg_th_dev * need[rg_diff]) return;        /* (facile : seulement les gros coups) */
+    /* (les coups graves d'abord : ils ne regardent que la note grave d'avant ; les aigus ne
+       viennent qu'entre deux, s'il y a la place) */
+    int low = lo >= hi;
+    if (low) { if (t - rg_last_low < gap[rg_diff] || t - rg_last_note < 150) return; rg_last_low = t; }
+    else if (t - rg_last_note < gap[rg_diff] * (rg_diff == 0 ? 2.2f : rg_diff == 1 ? 1.6f : 1.0f) || t - rg_last_low < gap[rg_diff] * 0.5f) return;
+    if (t < audio_ms() + 700) return;                                   /* (trop tard pour la voir tomber) */
+    rg_last_note = t;
+    rg_lock = 1;
+    rg_spawn(t, low);
+}
+static void rg_analyse(void) {
+    u32 lv = IRQ_Disable();
+    u32 c = consumed, sk = consumed_skip, h = (u32)f_head, n = (u32)f_count;
+    IRQ_Restore(lv);
+    if (n <= sk) return;
+    u32 end = c + (n - sk);
+    if (rg_scan < c) rg_scan = c;                       /* (en retard : on saute) */
+    for (int fr = 0; fr < 96 && rg_scan + RG_FR <= end; fr++) {
+        float elo = 0, ehi = 0;
+        u32 j = rg_scan - c + sk;
+        for (int i = 0; i < RG_FR; i++) {
+            const stereo_t *st = &fifo[(h + j + i) % FIFO_SIZE];
+            float x = ((float)st->l + (float)st->r) * (1.0f / 65536.0f);
+            rg_lp += 0.02f * (x - rg_lp);                   /* (graves : en dessous de ~150 Hz) */
+            float d = x - rg_prev; rg_prev = x;               /* (aigus : caisse claire, charleston) */
+            elo += rg_lp * rg_lp; ehi += d * d;
+        }
+        float ldb = 10.0f * log10f(elo / RG_FR + 1e-10f), hdb = 10.0f * log10f(ehi / RG_FR + 1e-10f);
+        float pl = rg_lo_h[0] > rg_lo_h[1] ? rg_lo_h[0] : rg_lo_h[1]; if (rg_lo_h[2] > pl) pl = rg_lo_h[2];
+        float ph = rg_hi_h[0] > rg_hi_h[1] ? rg_hi_h[0] : rg_hi_h[1]; if (rg_hi_h[2] > ph) ph = rg_hi_h[2];
+        float rl = ldb - pl, rh = hdb - ph;
+        if (rl < 0) rl = 0;
+        if (rh < 0) rh = 0;
+        if (ldb < -60.0f) rl = 0;
+        if (hdb < -60.0f) rh = 0;
+        rg_lo_h[2] = rg_lo_h[1]; rg_lo_h[1] = rg_lo_h[0]; rg_lo_h[0] = ldb;
+        rg_hi_h[2] = rg_hi_h[1]; rg_hi_h[1] = rg_hi_h[0]; rg_hi_h[0] = hdb;
+        float od = rl + 0.6f * rh;
+        for (int k = 4; k > 0; k--) { rg_od[k] = rg_od[k - 1]; rg_odlo[k] = rg_odlo[k - 1]; rg_odhi[k] = rg_odhi[k - 1]; }
+        rg_od[0] = od; rg_odlo[0] = rl; rg_odhi[0] = 0.6f * rh;
+        /* sommet 2 images plus tot (on regarde avant et apres) */
+        float v = rg_od[2], thr = rg_th_avg + 1.5f * rg_th_dev;
+        if (thr < 1.5f) thr = 1.5f;
+        if (v > thr && v > rg_od[3] && v > rg_od[4] && v >= rg_od[1] && v >= rg_od[0])
+            rg_onset(rg_scan - 2 * RG_FR + RG_FR / 2, rg_odlo[2], rg_odhi[2], v);
+        rg_th_avg = rg_th_avg * 0.97f + od * 0.03f;
+        float ad = od - rg_th_avg; if (ad < 0) ad = -ad;
+        rg_th_dev = rg_th_dev * 0.97f + ad * 0.03f;
+        rg_scan += RG_FR;
+    }
+}
+
 static void rhythm_pump(void) {
     if (rg_phase != 1) return;
-    u64 now = now_ms();
     if (src != SRC_FILE || !playing || cur_track != rg_track) { rg_finish(); return; }
     if (paused) return;
-    /* coups de basse */
-    /* v29 : coups de grosse caisse detectes par l'analyseur (FFT, 40-140 Hz) */
-    static u32 rg_kick_seen = 0;
-    float b = bass_lvl;
-    if (kick_count != rg_kick_seen && now - rg_last_on > 180) {
-        rg_kick_seen = kick_count;
-        rg_last_on = now;
-        rg_armed = 0;
-        memmove(rg_ons + 1, rg_ons, sizeof(rg_ons) - sizeof(rg_ons[0]));
-        rg_ons[0] = now;
-        rg_non++;
-        if (rg_non >= 6) {
-            rg_estimate();
-            double nb = rg_next_after((double)now - rg_period / 2);
-            double err = (double)now - nb;
-            if (!rg_lock) { rg_lock = 1; rg_anchor = now; rg_sched = now; }
-            else if (fabs(err) < rg_period * 0.3) rg_anchor += err * 0.25;
-        }
-    } else { rg_kick_seen = kick_count; if (!rg_armed) rg_armed = 1; }
-    rg_avg = rg_avg * 0.96f + b * 0.04f;
-    if (!rg_lock && now - rg_start_t > 9000 && rg_non > 0) { rg_lock = 1; rg_anchor = rg_last_on; rg_sched = now; }  /* musique calme */
-
-    /* notes : sur les prochains temps */
-    if (rg_lock) {
-        for (int guard = 0; guard < 8; guard++) {
-            double t = rg_next_after(rg_sched + rg_period * 0.5);
-            if (t > (double)now + RG_FALL) break;
-            rg_beatn++;
-            int put = rg_diff == 0 ? (rg_beatn % 2 == 0) : rg_diff == 1 ? (pt_energy > 0.05f || rg_beatn % 2 == 0) : 1;
-            if (put && t > (double)now + 250) rg_spawn(t, 1);
-            if (rg_diff == 2 && pt_energy > 0.22f && (rg_beatn % 2) && t - rg_period / 2 > (double)now + 250) rg_spawn(t - rg_period / 2, 0);
-            rg_sched = t;
-        }
-    }
+    rg_analyse();
+    double now = audio_ms();
     /* notes ratees */
     for (int i = 0; i < RG_NOTES; i++) {
         if (!rg_n[i].t) continue;
         for (int p = 0; p < rg_players; p++)
-            if (rg_n[i].st[p] == 0 && now > rg_n[i].t + 170) {
+            if (rg_n[i].st[p] == 0 && now > (double)rg_n[i].t + 170) {
                 rg_n[i].st[p] = 2;
                 rgp[p].total++;
                 rgp[p].combo = 0;
                 rg_judge_set(p, "Rat\xC3\xA9", RGBA(255, 110, 110, 255));
                 rumble(p, 60);
             }
-        if (now > rg_n[i].t + 600) rg_n[i].t = 0;              /* (place libre) */
+        if (now > (double)rg_n[i].t + 600) rg_n[i].t = 0;              /* (place libre) */
     }
     for (int p = 0; p < 2; p++) for (int l = 0; l < 4; l++) rgp[p].flash[l] *= expf(-ui_dt * 8.0f);
-    last_input_ms = now;
+    last_input_ms = now_ms();
 }
 
 static void rg_press(int p, int lane) {
-    u64 now = now_ms();
+    double now = audio_ms();
     rgp_t *g = &rgp[p];
     g->flash[lane] = 1.0f;
     int best = -1;
     long bd = 1000000;
     for (int i = 0; i < RG_NOTES; i++) {
         if (!rg_n[i].t || rg_n[i].st[p] || rg_n[i].lane != lane) continue;
-        long d = (long)((long long)now - (long long)rg_n[i].t);
+        long d = (long)(now - (double)rg_n[i].t);
         if (labs(d) < labs(bd)) { bd = d; best = i; }
     }
     if (best < 0 || labs(bd) > 170) {                       /* rien a toucher */
@@ -457,6 +488,8 @@ static void rhythm_input(u32 down, u32 nav, int fire) {
         if (fire && (nav & PAD_BUTTON_LEFT)) rg_diff = (rg_diff + 2) % 3;
         if (fire && (nav & (PAD_BUTTON_RIGHT))) rg_diff = (rg_diff + 1) % 3;
         if (fire && (nav & (PAD_BUTTON_UP | PAD_BUTTON_DOWN))) rg_players = 3 - rg_players;   /* solo / duel */
+        if (down & PAD_TRIGGER_L) { rg_offset -= 10; if (rg_offset < -200) rg_offset = -200; settings_dirty = 1; }
+        if (down & PAD_TRIGGER_R) { rg_offset += 10; if (rg_offset > 200) rg_offset = 200; settings_dirty = 1; }
         if (down & PAD_BUTTON_A) rg_new_game(rg_track);
         if (down & PAD_BUTTON_X) rg_new_game(-1);
         if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) fun_leave();
@@ -489,20 +522,12 @@ static void rg_button(f32 cx, f32 cy, f32 r, int lane, f32 glow) {
 
 /* une piste de 4 boutons (joueur p) */
 static void rg_highway(int p, f32 lx, f32 lw) {
-    u64 now = now_ms();
+    double now = audio_ms();
     rgp_t *g = &rgp[p];
     f32 rb = lw * 0.31f;
     for (int l = 0; l < 4; l++) {
         f32 x = lx + l * lw;
         gx_vgrad(x + 2, RG_TOP_Y - 10, lw - 4, RG_HIT_Y - RG_TOP_Y + 40, RGBA(255, 255, 255, 8), RGBA(lane_top[l].r, lane_top[l].g, lane_top[l].b, (u8)(30 + g->flash[l] * 90)));
-    }
-    if (rg_lock && rg_period > 100) {                            /* les temps */
-        for (int k = 0; k < 6; k++) {
-            double bt = rg_next_after((double)now) + k * rg_period;
-            f32 y = RG_HIT_Y - (f32)((bt - (double)now) / RG_FALL) * (RG_HIT_Y - RG_TOP_Y);
-            if (y < RG_TOP_Y) break;
-            gx_rect(lx, y, lw * 4, 1, RGBA(255, 255, 255, 30));
-        }
     }
     gx_rect(lx - 6, RG_HIT_Y - 1, lw * 4 + 12, 3, RGBA(255, 255, 255, 120));
     for (int l = 0; l < 4; l++) {
@@ -512,7 +537,7 @@ static void rg_highway(int p, f32 lx, f32 lw) {
     }
     for (int i = 0; i < RG_NOTES; i++) {
         if (!rg_n[i].t || rg_n[i].st[p] == 1) continue;
-        f32 dt = (f32)((long long)rg_n[i].t - (long long)now);
+        f32 dt = (f32)((double)rg_n[i].t - now);
         f32 y = RG_HIT_Y - dt / RG_FALL * (RG_HIT_Y - RG_TOP_Y);
         if (y < RG_TOP_Y - 20 || y > 480) continue;
         int l = rg_n[i].lane;
@@ -540,6 +565,8 @@ static void draw_rhythm(void) {
         else snprintf(t, sizeof(t), "un morceau au hasard");
         gx_text_c(F_MED, 320, 330, t, RGBA(200, 190, 245, 255));
         gx_text_c(F_SMALL, 320, 352, "(haut / bas : solo ou duel ; les morceaux bien rythm\xC3\xA9s marchent le mieux)", RGBA(170, 160, 220, 220));
+        snprintf(t, sizeof(t), TR("L / R : d\xC3\xA9" "calage des notes  %+d ms  (si elles semblent en avance ou en retard)"), rg_offset);
+        gx_text_c(F_SMALL, 320, 372, t, rg_offset ? RGBA(255, 220, 140, 230) : RGBA(170, 160, 220, 200));
         fun_footer(rg_track >= 0 ? "A : jouer ce morceau     X : un morceau au hasard     B : sortir" : "A : jouer     X : un autre morceau au hasard     B : sortir");
         return;
     }
@@ -602,7 +629,7 @@ static void draw_rhythm(void) {
     if (mult > 1) { snprintf(t, sizeof(t), "x%d", mult); fun_shadow_text(F_LARGE, 90, 230, t, 1.3f, RGBA(255, 210, 90, 255)); }
     if (rg_record > 0) { snprintf(t, sizeof(t), "Record : %d", rg_record); gx_text_c(F_SMALL, 90, 270, t, RGBA(180, 170, 230, 220)); }
     gx_text_c(F_SMALL, 550, 110, rg_diff_names[rg_diff], RGBA(200, 190, 245, 255));
-    if (rg_lock) { snprintf(t, sizeof(t), "%d BPM", (int)(60000.0f / rg_period + 0.5f)); gx_text_c(F_MED, 550, 134, t, RGBA(230, 220, 255, 255)); }
+    if (rg_non >= 6) { snprintf(t, sizeof(t), "%d BPM", (int)(60000.0f / rg_period + 0.5f)); gx_text_c(F_MED, 550, 134, t, RGBA(230, 220, 255, 255)); }
     if (rgp[0].judge[0] && now - rgp[0].judge_t < 700) {
         f32 a = 1.0f - (f32)(now - rgp[0].judge_t) / 700.0f;
         fun_shadow_text(F_LARGE, 550, 240, rgp[0].judge, 1.2f, RGBA(rgp[0].judge_c.r, rgp[0].judge_c.g, rgp[0].judge_c.b, (u8)(a * 255)));

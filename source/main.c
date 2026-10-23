@@ -367,9 +367,25 @@ static u32 consumed_skip;
    de trou dans le son. S'il n'y a vraiment plus rien, on joue du silence. */
 static volatile int in_fill = 0;           /* v42 : la boucle principale remplit un bloc en ce moment */
 static void fill_buf(int idx);
+/* v70 : horloge du son entendu (jeu de rythme) : position dans le morceau du bloc qui vient de
+   commencer a jouer, + le temps passe depuis (interpole a la microseconde) */
+static u32 blk_pos[NUM_BUFS], blk_cnt[NUM_BUFS];
+static volatile u32 aclk_base = 0, aclk_cnt = 0, aclk_us = 0;
+static double audio_ms(void) {
+    u32 lv = IRQ_Disable();
+    u32 b = aclk_base, c = aclk_cnt, t0 = aclk_us;
+    IRQ_Restore(lv);
+    u32 el = (u32)((u64)(perf_us() - t0) * 48u / 1000u);
+    if (el > c) el = c;
+    return (double)(b + el) / 48.0;
+}
 static void dma_cb(void) {
     u32 blk = cb_n;
     s16 *buf = dmabuf[blk % NUM_BUFS];
+    {                                                       /* (le bloc programme avant celui-ci vient de commencer) */
+        u32 pi = (blk + NUM_BUFS - 1) % NUM_BUFS;
+        aclk_base = blk_pos[pi]; aclk_cnt = blk_cnt[pi]; aclk_us = perf_us();
+    }
     /* v42 : plus de bloc pret (la boucle principale est occupee : reseau securise, carte SD...) :
        on remplit ici directement depuis le son deja decode (jusqu'a 10 s d'avance), au lieu d'un trou */
     if ((s32)(fill_n - blk) <= 0 && !in_fill && f_count > DMA_SAMPLES) {
@@ -377,6 +393,7 @@ static void dma_cb(void) {
         fill_n = blk + 1;
     }
     if ((s32)(fill_n - blk) <= 0) {
+        blk_pos[blk % NUM_BUFS] = consumed; blk_cnt[blk % NUM_BUFS] = 0;
         memset(buf, 0, DMA_BYTES);
         DCFlushRange(buf, DMA_BYTES);
         memset(viz + viz_pos, 0, VIZ_BLK * sizeof(s16));
@@ -390,6 +407,7 @@ static int audio_mono = 0;                   /* v34 : son de la console en mono 
 static void fill_buf(int idx) {
     s16 *d = dmabuf[idx];
     s16 *vz = vizbuf[idx];
+    u32 c0 = consumed;
     int live = (src == SRC_RADIO && state == ST_PLAY) || (src == SRC_FILE && !paused);
     for (int i = 0; i < DMA_SAMPLES; i++) {
         s16 l = 0, r = 0;
@@ -412,6 +430,7 @@ static void fill_buf(int idx) {
         d[2 * i] = l;
         d[2 * i + 1] = r;
     }
+    blk_pos[idx] = c0; blk_cnt[idx] = consumed - c0;
     DCFlushRange(d, DMA_BYTES);
 }
 
@@ -3758,6 +3777,7 @@ static const char *const layout_keys[LAYOUT_COUNT] = { "classique", "pochette", 
 /* v43 : paroles dans le lecteur (0 spectre seul, 1 paroles a la place du spectre, 2 les deux) ;
    eclair blanc sur les basses du mode soiree (0 partout, 1 sauf spectrogramme, 2 jamais) */
 static int lyr_show = 1, flash_mode = 1;
+static int rg_offset = 0;                     /* v70 : jeu de rythme : decalage des notes (ms) */
 static int ld_mode = 0;                     /* v44 : lanceur des jeux : 0 = GC-MP3 (lanceur.c), 1 = Swiss / Indigo */
 static const char *const lyr_keys[3] = { "spectre", "paroles", "les_deux" };
 static const char *const lyr_names[3] = { "Spectre seulement", "Paroles (sinon spectre)", "Paroles + spectre" };
@@ -3876,6 +3896,7 @@ static void setting_apply(const char *k, char *v) {
         }
         else if (!strcasecmp(k, "paroles_affichage")) { for (int i = 0; i < 3; i++) if (!strcasecmp(v, lyr_keys[i])) lyr_show = i; }
         else if (!strcasecmp(k, "lanceur_jeux")) ld_mode = !strcasecmp(v, "swiss");
+        else if (!strcasecmp(k, "rythme_decalage")) { rg_offset = atoi(v); if (rg_offset < -200 || rg_offset > 200) rg_offset = 0; }
         else if (!strcasecmp(k, "eclair_basses")) { for (int i = 0; i < 3; i++) if (!strcasecmp(v, flash_keys[i])) flash_mode = i; }
         else if (!strcasecmp(k, "ordre_onglets")) {
             u8 o[TAB_COUNT]; int n = 0; u32 seen = 0;
@@ -4038,7 +4059,7 @@ static void save_settings(void) {
                "disposition_radio = %s\ndisposition_retro = %s\ndisposition_podcasts = %s\n",
             layout_keys[layout_tab[TAB_RADIO]], layout_keys[layout_tab[TAB_RETRO]], layout_keys[layout_tab[TAB_PODCAST]]);
     fprintf(f, "# Paroles dans le lecteur : spectre / paroles / les_deux ; eclair sur les basses (mode soiree) : partout / sauf_spectrogramme / jamais\n"
-               "paroles_affichage = %s\neclair_basses = %s\n", lyr_keys[lyr_show], flash_keys[flash_mode]);
+               "paroles_affichage = %s\neclair_basses = %s\nrythme_decalage = %d\n", lyr_keys[lyr_show], flash_keys[flash_mode], rg_offset);
     fprintf(f, "# Jeux GameCube : tri (az / recents / taille / region) ; animations de JEUX / APPS (oui / non)\n"
                "jeux_tri = %s\njeux_animations = %s\n", gl_sort_keys[gl_sort & 3], gl_anim ? "oui" : "non");
     fprintf(f, "# Resident (X) : A+Z+START = retour a GC Station (oui / non)\nlanceur_maison_retour = %s\n", nat_igr ? "oui" : "non");
