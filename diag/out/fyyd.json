@@ -1,0 +1,51 @@
+{
+    "status": 1,
+    "msg": "ok",
+    "meta": {
+        "paging": {
+            "count": 10,
+            "page": 0,
+            "first_page": 0,
+            "last_page": 0,
+            "next_page": null,
+            "prev_page": null
+        },
+        "API_INFO": {
+            "API_VERSION": "0.2"
+        },
+        "SERVER": "88.99.101.163",
+        "duration": 0
+    },
+    "data": [
+        {
+            "title": "Les Matins de France Culture",
+            "id": 60723,
+            "xmlURL": "https:\/\/radiofrance-podcast.net\/podcast09\/35099478-7c72-4f9e-a6de-1b928400e9e5\/podcast_c415e197-8562-44ce-9a53-4e5846e0d855.xml",
+            "htmlURL": "https:\/\/www.radiofrance.fr",
+            "imgURL": "https:\/\/www.radiofrance.fr\/s3\/cruiser-production-eu3\/2025\/02\/c82f77f0-edd6-421b-a686-4c0464b21c41\/1400x1400_sc_les-matins.jpg?1792768577220",
+            "status": 200,
+            "status_since": "2026-08-26 18:14:08",
+            "slug": "les-matins-de-france-culture",
+            "layoutImageURL": "https:\/\/img-1.fyyd.de\/pd\/layout\/60723e87dbeb2a7420ed0527908ffaac1bc69.jpg",
+            "thumbImageURL": "https:\/\/img-1.fyyd.de\/pd\/thumbs\/60723e87dbeb2a7420ed0527908ffaac1bc69.png",
+            "smallImageURL": "https:\/\/img-1.fyyd.de\/pd\/small\/60723e87dbeb2a7420ed0527908ffaac1bc69.jpg",
+            "microImageURL": "https:\/\/img-1.fyyd.de\/pd\/micro\/60723e87dbeb2a7420ed0527908ffaac1bc69.png",
+            "language": "fr",
+            "generator": "Radio France",
+            "categories": [
+                155
+            ],
+            "lastpub": "2026-10-23T06:30:00+02:00",
+            "rank": 2164,
+            "url_fyyd": "https:\/\/fyyd.de\/podcast\/les-matins-de-france-culture\/0",
+            "description": "Une lecture quotidienne du monde et de la culture. Du lundi au vendredi de 7h30 \u00e0 9h. \n\nVous aimez ce podcast ? Pour \u00e9couter tous les \u00e9pisodes sans limite, rendez-vous sur Radio France",
+            "subtitle": "Les Matins de France Culture",
+            "tcolor": "#fff",
+            "color": "#994863",
+            "episode_count": 11215,
+            "iflags": "99",
+            "paymentURL": null,
+            "author": "France Culture"
+        }
+    ]
+}
