@@ -79,6 +79,20 @@ typedef struct {
 
 #define NRF_REAL_IRQ  1u   /* reveiller le jeu par une vraie commande "inquiry" du lecteur */
 #define NRF_IGR       2u   /* v59 : A+Z+START = retour a GC Station (crochet des manettes) */
+#define NRF_CRASH     8u   /* v79 : le secteur juste apres le journal est libre pour les details d'un plantage */
+
+/* v79 : details d'un plantage (2e secteur du journal, ecrit seulement si le jeu plante).
+   Mots de 32 bits, big-endian :
+   0x00 "GCSC"   0x04 version   0x08 exception   0x0C srr0 (PC)   0x10 srr1   0x14 LR
+   0x18 CR       0x1C CTR       0x20 DAR         0x24 DSISR       0x28 contexte 0x2C nb d'appels
+   0x30 r0..r31 (32 mots)
+   0xB0 memoire basse : 28 2C 30 34 38 3C F0 F4 (8 mots)
+   0xD0 chaine des appels : adresses de retour lues sur la pile du jeu (16 mots)
+   0x110 textes : 30 octets lus a l'adresse contenue dans r3, r4 ... r10 (8 x 30) */
+#define NATRES_CRASH_MAGIC 0x47435343u      /* "GCSC" */
+#define NATRES_CRASH_VER   1
+#define NATRES_CRASH_NBT   16
+#define NATRES_CRASH_STR   30
 
 typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x150 ? 1 : -1];
 

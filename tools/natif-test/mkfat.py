@@ -36,6 +36,14 @@ for f in range(2):
     for c, v in fat.items():
         off = c * fatsz_e
         img.seek((base * 512) + off); img.write(struct.pack('<I' if kind == '32' else '<H', v))
+# v79 : journal du jeu (2 secteurs) aux clusters 20000 et suivants
+nj = (1024 + csize - 1) // csize
+for i in range(nj):
+    c = 20000 + i
+    nxt = 20000 + i + 1 if i + 1 < nj else (0x0FFFFFFF if kind == '32' else 0xFFFF)
+    for f in range(2):
+        base = part + rsvd + f * fatsz
+        img.seek(base * 512 + c * fatsz_e); img.write(struct.pack('<I' if kind == '32' else '<H', nxt))
 # v64 : 2e fichier (faux .dol de GC Station) aux clusters 30000... (a la suite)
 if len(sys.argv) > 5:
     extra = open(sys.argv[5], 'rb').read()
