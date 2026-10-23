@@ -9,7 +9,7 @@
 #define GL_MAX      400
 #define GL_UI       SD_ROOT "/swiss/ui"
 #define GL_CACHE    GCD "/cache/jeux"
-#define GL_SLOTS    20                       /* jaquettes gardees en memoire (128x128) */
+#define GL_SLOTS    32                       /* jaquettes gardees en memoire (128x128) ; v68 : 32 */
 #define GL_BSLOTS   40                       /* bannieres gardees en memoire */
 
 typedef struct {
@@ -717,11 +717,14 @@ static void gl_card_banner(int k, f32 x, f32 y, f32 w, f32 h, int on) {
     }
 }
 /* ---------- v28 : 6 facons d'afficher les jeux (R pour changer) ---------- */
-static int gl_loaded_frame = 0;                       /* jaquettes lues pendant cette image (3 au plus) */
+static int gl_loaded_frame = 0;                       /* jaquettes lues pendant cette image */
+/* v68 : une seule lecture par image (avant 3 : l'image sautait en defilant) ; pendant qu'on
+   navigue, seulement la jaquette choisie ; les voisines quand on s'arrete */
+static int gl_may_load(int k) { return gl_loaded_frame < 1 && (k == gl_sel || now_ms() - last_input_ms > 150); }
 /* une jaquette (ou la banniere) dans le cadre x, y, w, h */
 static void gl_draw_cover(int k, f32 x, f32 y, f32 w, f32 h, int on) {
     int had = gl[k].post >= 0 && gl_find_slot(gl_cov, GL_SLOTS, k) != NULL;
-    GXTexObj *cov = gl[k].post >= 0 ? gl_cover(k, gl_loaded_frame < 3) : NULL;
+    GXTexObj *cov = gl[k].post >= 0 ? gl_cover(k, gl_may_load(k)) : NULL;
     if (cov && !had) gl_loaded_frame++;
     if (cov) draw_tex_fit(cov, 128, 128, 96, 128, x, y, w, h);
     else gl_card_banner(k, x, y, w, h, on);
@@ -861,7 +864,7 @@ static void gl_draw_list(void) {
         GXTexObj *cov = NULL;
         if (gl[k].post >= 0) {
             int had = gl_find_slot(gl_cov, GL_SLOTS, k) != NULL;
-            cov = gl_cover(k, gl_loaded_frame < 3);
+            cov = gl_cover(k, gl_may_load(k));
             if (cov && !had) gl_loaded_frame++;
         }
         if (cov) draw_tex_fit(cov, 128, 128, 96, 128, 26, y + 2, 19, 25);

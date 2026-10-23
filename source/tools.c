@@ -434,9 +434,47 @@ static unsigned char *ap_png(const char *path, int *w, int *h) {
     if (px && (*w <= 0 || *h <= 0)) { stbi_image_free(px); px = NULL; }
     return px;
 }
+/* v68 : pochettes deja calculees, gardees sur la carte SD (SD:/gc-mp3/cache/applis) : la 2e fois,
+   une simple lecture de 38 Ko au lieu de decoder le PNG et de tout recalculer (l'onglet ramait) */
+#define AP_CACHE GCD "/cache/applis"
+static void ap_cache_name(const ap_ent *a, char *out, int cap) {
+    char dir[NAME_LEN], p[NAME_LEN];
+    snprintf(dir, sizeof(dir), "%s", a->icon);
+    char *sl = strrchr(dir, '/');
+    if (sl) *sl = 0;
+    static const char *const cn[] = { "cover.png", "pochette.png", "boxart.png", "cover.jpg", "pochette.jpg" };
+    u32 hsh = 2166136261u;
+    struct stat st;
+    for (int i = 0; i < 6; i++) {
+        if (i < 5) snprintf(p, sizeof(p), "%s/%s", dir, cn[i]); else snprintf(p, sizeof(p), "%s", a->icon);
+        if (stat(p, &st) == 0) {
+            for (const char *q = p; *q; q++) hsh = (hsh ^ (u8)*q) * 16777619u;
+            hsh ^= (u32)st.st_size * 2654435761u ^ (u32)st.st_mtime;
+            break;
+        }
+    }
+    snprintf(out, cap, AP_CACHE "/%08x.tex", (unsigned)hsh);
+}
+static int ap_cache_read(ap_ent *a, const char *cp) {
+    FILE *f = fopen(cp, "rb");
+    if (!f) return 0;
+    u16 *t = (u16 *)memalign(32, AP_IW * AP_IH * 2);
+    int ok = t && fread(t, 1, AP_IW * AP_IH * 2, f) == AP_IW * AP_IH * 2;
+    fclose(f);
+    if (!ok) { free(t); return 0; }
+    DCFlushRange(t, AP_IW * AP_IH * 2);
+    a->tex = t;
+    GX_InitTexObj(&a->obj, t, AP_IW, AP_IH, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InitTexObjFilterMode(&a->obj, GX_LINEAR, GX_LINEAR);
+    a->istate = 1;
+    return 1;
+}
 static void ap_icon_load(ap_ent *a) {
     a->istate = -1;
     if (!a->icon[0]) return;
+    char cachep[NAME_LEN];
+    ap_cache_name(a, cachep, sizeof(cachep));
+    if (ap_cache_read(a, cachep)) return;
     char dir[NAME_LEN], p[NAME_LEN];
     snprintf(dir, sizeof(dir), "%s", a->icon);
     char *sl = strrchr(dir, '/');
@@ -507,6 +545,11 @@ static void ap_icon_load(ap_ent *a) {
         if ((y & 31) == 31) service_audio();
     }
     stbi_image_free(px);
+    if (sd_ok && !sd_virtual) {                                         /* v68 : gardee pour la prochaine fois */
+        mkdir(GCD, 0777); mkdir(GCD "/cache", 0777); mkdir(AP_CACHE, 0777);
+        FILE *cf = fopen(cachep, "wb");
+        if (cf) { int okw = fwrite(t, 1, AP_IW * AP_IH * 2, cf) == AP_IW * AP_IH * 2; if (fclose(cf) || !okw) remove(cachep); }
+    }
     DCFlushRange(t, AP_IW * AP_IH * 2);
     a->tex = t;
     GX_InitTexObj(&a->obj, t, AP_IW, AP_IH, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
@@ -902,7 +945,7 @@ static void draw_apps(void) {
     /* (memoire : on ne garde que les pochettes proches de l'ecran) */
     for (int k = 0; k < ap_n; k++) {
         int r = k / cols;
-        if (ap[k].tex && (r < top - 2 || r > top + rows + 2)) { free(ap[k].tex); ap[k].tex = NULL; ap[k].istate = 0; }
+        if (ap[k].tex && (r < top - 4 || r > top + rows + 4)) { free(ap[k].tex); ap[k].tex = NULL; ap[k].istate = 0; }
     }
     static f32 hx = -10000.0f, hy = -10000.0f;
     f32 tx = x0 + (ap_n ? ap_sel % cols : 0) * sw, ty = y0 + ((ap_n ? ap_sel / cols : 0) - tf) * rh;
@@ -921,7 +964,8 @@ static void draw_apps(void) {
             f32 bx = on ? x - ex : x, by = on ? y - ey : y, bw = on ? cw + 2 * ex : cw, bh = on ? ch + 2 * ey : ch;
             gp_zone(x, y, cw, ch + 18, &ap_sel, k, GPZ_SEL);
             /* la selection d'abord, puis ses voisines : on voit vite celle qu'on regarde */
-            if (!a->istate && r >= top && r < top + rows && (on || (loads < 1 && (ap_sel >= ap_n || ap[ap_sel].istate)))) { ap_icon_load(a); loads++; }
+            int idle = now_ms() - last_input_ms > 150;           /* v68 : en navigation, seulement la selection */
+            if (!a->istate && loads < 1 && r >= top && r < top + rows && (on || (idle && (ap_sel >= ap_n || ap[ap_sel].istate)))) { ap_icon_load(a); loads++; }
             if (a->istate > 0) draw_tex_fit(&a->obj, AP_IW, AP_IH, AP_IW, AP_IH, bx, by, bw, bh);
             else {                                              /* pas d'icone : une pochette avec les initiales */
                 gx_rrect_fill(bx, by, bw, bh, 6, on ? RGBA(70, 36, 160, 255) : RGBA(40, 24, 98, 255), on ? RGBA(30, 14, 80, 255) : RGBA(18, 10, 46, 255));
