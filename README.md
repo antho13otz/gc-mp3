@@ -21,6 +21,9 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v69
+- **Mesure de fluidité** (START > « Mesure de fluidité ») : images par seconde, pire image et tâche la plus lente affichées en haut de l'écran. En coupant la mesure, GC Station écrit `SD:/gc-mp3/fluidite.txt` : pour chaque onglet, le nombre d'images ratées et ce qui les a causées (réseau, pochettes, décodage, dessin, processeur graphique…). À envoyer pour corriger les saccades à coup sûr.
+
 ## Nouveautés v68
 - **Onglet JEUX / APPS plus fluide** : les pochettes des applis sont calculées une seule fois puis gardées dans `SD:/gc-mp3/cache/applis` (avant, le PNG était décodé et recalculé à chaque passage : ça saccadait). Pendant qu'on navigue, seule la pochette choisie se charge (jeux et applis), les autres quand on s'arrête ; une seule lecture par image au lieu de 3 ; plus de jaquettes gardées en mémoire.
 - Resident : un **« machine check »** (accès matériel invalide) du jeu est maintenant attrapé comme un plantage : journal + retour à GC Station au lieu d'un écran noir figé.
