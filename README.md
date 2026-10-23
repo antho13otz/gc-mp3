@@ -21,6 +21,9 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v62
+- Lanceur maison : les « signes de vie » et la détection de plantage se branchent aussi quand le jeu n'a fait qu'une commande au lecteur (Paper Mario : écran noir juste après la 1re commande, le journal ne disait rien de la suite).
+
 ## Nouveautés v61
 - **Lanceur maison : 1080° Avalanche est jouable !** (sans Swiss, l'ISO lue sur la carte SD par le programme résident de GC Station).
 - **Son** : les grosses lectures (512 Ko) se faisaient d'un coup, interruptions coupées pendant ~0,5 s, ce qui faisait craquer le son. Elles se font maintenant **en fond, par morceaux de 8 Ko**, entre lesquels la console continue de servir le son et l'image, comme avec un vrai lecteur. Le journal du jeu s'écrit aussi moins souvent (moins de micro-coupures).

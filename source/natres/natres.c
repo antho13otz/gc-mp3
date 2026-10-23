@@ -343,6 +343,7 @@ void exc_c(u32 ex, u32 ctx) {
 static void si_hook(u32 irq, u32 ctx) {
     if (si_orig) ((void (*)(u32, u32))si_orig)(irq, ctx);
     H.si_count++;
+    alive_tick();
     volatile u32 *si = (volatile u32 *)0xCC006400u;
     int on = 0;
     u32 sr = si[14];                                     /* SISR (lecture sans effet) */
@@ -459,8 +460,11 @@ done:
     nr_log(H.last_off, H.last_len, info | (di[0] & 0xFF) << 8);
 }
 
+static u32 hk_n = 0;
+static void hooks_lazy(void) { if ((++hk_n & 255) == 1) hooks_check(); }   /* v62 : le jeu installe ses fonctions apres sa 1re commande */
 static u32 di_load(u32 reg) {
     u32 i = (reg & 0x3F) >> 2;
+    hooks_lazy();
     if (i == 1) return di[1] & 0x02;                      /* couvercle ferme, pas d'interruption */
     if (i == 9) return DI_REAL[9];                        /* DICFG : celui du vrai lecteur */
     return i < 10 ? di[i] : 0;
@@ -468,6 +472,7 @@ static u32 di_load(u32 reg) {
 
 static void di_store(u32 reg, u32 val) {
     u32 i = (reg & 0x3F) >> 2;
+    hooks_lazy();
     if (i == 0) {                                        /* DISR : 1 = effacer l'interruption ; masques */
         di[0] = (di[0] & ~(val & 0x54u) & 0x54u) | (val & 0x2Au);
         u32 rs = DI_REAL[0];
