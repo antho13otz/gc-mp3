@@ -38,7 +38,14 @@ static u64 pod_save_t = 0;
 
 /* recherche (iTunes) */
 static hfetch_t pdf = { .c = { -1, 0, 0 } };
-enum { PF_IDLE, PF_FEED, PF_SEARCH };
+enum { PF_IDLE, PF_FEED, PF_SEARCH, PF_SEARCH2, PF_SEARCH3 };
+#ifndef GPODDER_BASE
+#define GPODDER_BASE "https://gpodder.net"
+#endif
+#ifndef FYYD_BASE
+#define FYYD_BASE "https://api.fyyd.de"
+#endif
+static char pf_query[400];                  /* v74 : recherche en cours (encodee) */
 static int pf_state = PF_IDLE;
 static pod_t *psr = NULL;                   /* resultats de recherche */
 static int npsr = 0;
@@ -282,6 +289,7 @@ static void podcast_search(const char *q) {
     char enc[400], url[URL_MAX];
     if (!url_encode(q, enc, sizeof(enc))) return;
     net_start_async();
+    snprintf(pf_query, sizeof(pf_query), "%s", enc);
     snprintf(url, sizeof(url), ITUNES_BASE "/search?media=podcast&entity=podcast&country=%s&limit=40&term=%s", lang_country(), enc);
     pdf.image = 0;
     pdf.maxbytes = 1024 * 1024;
@@ -307,6 +315,29 @@ static void search_parse(const char *js, int len) {
             jstr(js, t, jget(js, t, n, r, "collectionName"), psr[npsr].name, sizeof(psr[npsr].name));
             jstr(js, t, jget(js, t, n, r, "feedUrl"), psr[npsr].url, sizeof(psr[npsr].url));
             if (psr[npsr].url[0]) npsr++;
+        }
+    free(t);
+}
+
+/* v74 : complement : fyyd.de (annuaire libre, sans compte) : {"data":[{"title":..,"xmlURL":..}]} */
+static void fyyd_parse(const char *js, int len) {
+    int maxt = len / 6 + 64;
+    if (maxt > 60000) maxt = 60000;
+    jtok_t *t = (jtok_t *)malloc(sizeof(jtok_t) * maxt);
+    if (!psr) psr = (pod_t *)malloc(sizeof(pod_t) * 40);
+    if (!t || !psr) { free(t); return; }
+    int n = json_tokens(js, len, t, maxt);
+    int res = (n > 0 && t[0].type == JT_OBJ) ? jget(js, t, n, 0, "data") : (n > 0 && t[0].type == JT_ARR) ? 0 : -1;   /* (fyyd ; gpodder : liste) */
+    if (res >= 0 && t[res].type == JT_ARR)
+        for (int r = res + 1; r < n && t[r].start < t[res].end && npsr < 40; r = jskip(t, n, r)) {
+            pod_t *p = &psr[npsr];
+            jstr(js, t, jget(js, t, n, r, "title"), p->name, sizeof(p->name));
+            jstr(js, t, jget(js, t, n, r, "xmlURL"), p->url, sizeof(p->url));
+            if (!p->url[0]) jstr(js, t, jget(js, t, n, r, "url"), p->url, sizeof(p->url));
+            if (strncasecmp(p->url, "http", 4)) continue;
+            int dup = 0;
+            for (int k = 0; k < npsr && !dup; k++) if (!strcmp(psr[k].url, p->url) || !strcasecmp(psr[k].name, p->name)) dup = 1;
+            if (!dup) npsr++;
         }
     free(t);
 }
@@ -500,7 +531,25 @@ static void podcast_pump(void) {
     }
     if (pf_state == PF_IDLE) return;
     hf_pump(&pdf);
-    if (pdf.st == HF_FAIL) { pod_note(pf_state == PF_FEED ? "Flux du podcast introuvable" : "Recherche impossible"); pf_state = PF_IDLE; hf_drop(&pdf); return; }
+    if (pdf.st == HF_FAIL && pf_state == PF_SEARCH && pf_query[0]) {   /* v74 : iTunes ne repond pas : fyyd.de */
+        hf_drop(&pdf);
+        char url[URL_MAX];
+        snprintf(url, sizeof(url), FYYD_BASE "/0.2/search/podcast?title=%s&count=30", pf_query);
+        pdf.image = 0; pdf.maxbytes = 1024 * 1024; pdf.accept = "application/json";
+        hf_start(&pdf, url, NULL);
+        pf_state = PF_SEARCH2;
+        return;
+    }
+    if (pdf.st == HF_FAIL && pf_state == PF_SEARCH2 && pf_query[0]) {  /* fyyd ne repond pas : gpodder.net */
+        hf_drop(&pdf);
+        char url[URL_MAX];
+        snprintf(url, sizeof(url), GPODDER_BASE "/search.json?q=%s", pf_query);
+        pdf.image = 0; pdf.maxbytes = 1024 * 1024; pdf.accept = "application/json";
+        hf_start(&pdf, url, NULL);
+        pf_state = PF_SEARCH3;
+        return;
+    }
+    if (pdf.st == HF_FAIL) { if (pf_state == PF_FEED || !npsr) pod_note(pf_state == PF_FEED ? "Flux du podcast introuvable" : "Recherche impossible"); pf_state = PF_IDLE; hf_drop(&pdf); return; }
     if (pdf.st != HF_DONE) return;
     pdf.st = HF_IDLE;
     char *txt = (char *)malloc(pdf.len + 1);
@@ -508,10 +557,28 @@ static void podcast_pump(void) {
         memcpy(txt, pdf.buf, pdf.len);
         txt[pdf.len] = 0;
         if (pf_state == PF_FEED) { rss_parse(txt, pdf.len); if (neps == 0) pod_note("Aucun \xC3\xA9pisode lisible dans ce flux"); }
-        else { search_parse(txt, pdf.len); if (npsr == 0) pod_note("Aucun podcast trouv\xC3\xA9"); }
+        else if (pf_state == PF_SEARCH) search_parse(txt, pdf.len);
+        else fyyd_parse(txt, pdf.len);
         free(txt);
     }
     hf_drop(&pdf);
+    if (pf_state == PF_SEARCH && npsr < 10 && pf_query[0]) {          /* v74 : pas assez : fyyd.de en plus */
+        char url[URL_MAX];
+        snprintf(url, sizeof(url), FYYD_BASE "/0.2/search/podcast?title=%s&count=30", pf_query);
+        pdf.image = 0; pdf.maxbytes = 1024 * 1024; pdf.accept = "application/json";
+        hf_start(&pdf, url, NULL);
+        pf_state = PF_SEARCH2;
+        return;
+    }
+    if (pf_state == PF_SEARCH2 && npsr < 10 && pf_query[0]) {         /* encore peu : gpodder.net */
+        char url[URL_MAX];
+        snprintf(url, sizeof(url), GPODDER_BASE "/search.json?q=%s", pf_query);
+        pdf.image = 0; pdf.maxbytes = 1024 * 1024; pdf.accept = "application/json";
+        hf_start(&pdf, url, NULL);
+        pf_state = PF_SEARCH3;
+        return;
+    }
+    if (pf_state != PF_FEED && npsr == 0) pod_note("Aucun podcast trouv\xC3\xA9");
     pf_state = PF_IDLE;
 }
 

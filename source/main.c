@@ -1945,7 +1945,41 @@ static void set_error(const char *msg) {
 }
 
 /* Ouvre un flux http:// ou https://. Suit les redirections et les listes .m3u/.pls. */
+static int hexv(int c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+typedef struct { int on, st, ext; long rem; } dechunk_t;
+
+/* "Transfer-Encoding: chunked" : retire les tailles de blocs (sur place). */
+static int dechunk(dechunk_t *d, unsigned char *buf, int n) {
+    int o = 0, i = 0;
+    while (i < n) {
+        if (d->st == 0) {
+            int c = buf[i++];
+            if (c == '\n') { d->st = d->rem ? 1 : 3; d->ext = 0; }
+            else if (c == ';') d->ext = 1;
+            else if (!d->ext && hexv(c) >= 0) {
+                if (d->rem > (1L << 26)) d->st = 3;          /* taille absurde : on arrete */
+                else d->rem = d->rem * 16 + hexv(c);
+            }
+        } else if (d->st == 1) {
+            int take = (int)((long)(n - i) < d->rem ? (long)(n - i) : d->rem);
+            memmove(buf + o, buf + i, take);
+            o += take; i += take; d->rem -= take;
+            if (d->rem == 0) d->st = 2;
+        } else if (d->st == 2) {
+            if (buf[i++] == '\n') { d->st = 0; d->rem = 0; }
+        } else i = n;                       /* fin (st 3) */
+    }
+    return o;
+}
+
 static long http_range = 0;                 /* podcasts : commencer a cet octet */
+static char http11_host[128] = "";              /* v74 : serveur qui refuse HTTP/1.0 (code 426) : HTTP/1.1 */
+static dechunk_t st_dc;                          /* v74 : flux en "Transfer-Encoding: chunked" */
 static void podcast_leave(void);
 static void podcast_finished(void);
 static void podcast_play_at(int sec);
@@ -1997,9 +2031,13 @@ static int http_open(const char *url_in, int depth) {
 
     char range[48] = "";
     if (http_range > 0) snprintf(range, sizeof(range), "Range: bytes=%ld-\r\n", http_range);
+    char hosthdr[160];
+    int v11 = !strcmp(host, http11_host);
+    if (port == (tls ? 443 : 80)) snprintf(hosthdr, sizeof(hosthdr), "%s", host);
+    else snprintf(hosthdr, sizeof(hosthdr), "%s:%d", host, port);
     int rl = snprintf(req, sizeof(req),
-                      "GET %s HTTP/1.0\r\nHost: %s\r\nUser-Agent: GC-MP3/1.0 (GameCube)\r\n"
-                      "%sIcy-MetaData: 1\r\nAccept: */*\r\nConnection: close\r\n\r\n", path, host, range);
+                      "GET %s HTTP/1.%d\r\nHost: %s\r\nUser-Agent: GC-MP3/1.0 (GameCube)\r\n"
+                      "%sIcy-MetaData: 1\r\nAccept: */*\r\nConnection: close\r\n\r\n", path, v11, hosthdr, range);
     if (!conn_send_all(&cn, req, rl)) { set_error("Erreur d'envoi de la requête"); return 0; }
 
     /* lecture des en-tetes */
@@ -2016,6 +2054,9 @@ static int http_open(const char *url_in, int depth) {
     }
     if (body_off < 0) { set_error("Réponse du serveur invalide"); return 0; }
 
+#ifdef HTTP_TRACE
+    printf("HTTP> %s%s\n<<<\n%s>>>\n", host, path, (char *)hdr);
+#endif
     int code = 0;
     if (sscanf((char *)hdr, "HTTP/%*d.%*d %d", &code) != 1 && sscanf((char *)hdr, "ICY %d", &code) != 1) {
         set_error("Réponse du serveur invalide");
@@ -2042,6 +2083,13 @@ static int http_open(const char *url_in, int depth) {
         stream_close();
         return http_open(next, depth + 1);
     }
+    if ((code == 426 || code == 505) && !v11) {               /* v74 : le serveur veut HTTP/1.1 */
+        static char again[URL_MAX];
+        snprintf(again, sizeof(again), "%s", url);
+        snprintf(http11_host, sizeof(http11_host), "%s", host);
+        stream_close();
+        return http_open(again, depth + 1);
+    }
     if (code != 200 && code != 206) {
         char m[64];
         snprintf(m, sizeof(m), "Erreur du serveur (HTTP %d)", code);
@@ -2050,6 +2098,12 @@ static int http_open(const char *url_in, int depth) {
     }
     http_last_code = code;
     snprintf(http_final_url, sizeof(http_final_url), "%s", url);
+    memset(&st_dc, 0, sizeof(st_dc));
+    {                                                    /* v74 : reponse HTTP/1.1 en morceaux */
+        const char *te = header_value(hdrs, "Transfer-Encoding");
+        st_dc.on = te && strstr(te, "hunked") != NULL;
+    }
+    if (st_dc.on) body_len = dechunk(&st_dc, body, body_len);
 
     const char *ct = header_value(hdrs, "Content-Type");
     char ctype[96] = "";
@@ -2072,6 +2126,7 @@ static int http_open(const char *url_in, int depth) {
         while (pn < (int)sizeof(pl) - 1) {
             int r = recv_timeout((unsigned char *)pl + pn, (int)sizeof(pl) - 1 - pn, 5000);
             if (r <= 0) break;
+            if (st_dc.on) r = dechunk(&st_dc, (unsigned char *)pl + pn, r);
             pn += r;
         }
         pl[pn] = 0;
@@ -2179,7 +2234,7 @@ static void stream_recv(void) {
     int got = 0;
     while (cn.fd >= 0 && !stream_closed && cbuf_free() > (int)sizeof(tmp) && got < 64 * 1024) {
         s32 r = conn_recv(&cn, tmp, sizeof(tmp));
-        if (r > 0) { stream_feed(tmp, r); got += r; last_data_ms = now_ms(); continue; }
+        if (r > 0) { int m = st_dc.on ? dechunk(&st_dc, tmp, r) : r; if (m > 0) stream_feed(tmp, m); got += r; last_data_ms = now_ms(); continue; }
         if (r == -EAGAIN || r == -EWOULDBLOCK) break;
         stream_closed = 1;                                     /* fin ou erreur */
         stream_close();
@@ -6194,7 +6249,10 @@ static int settings_dirty;
 // ====================================================================
 #define WEB_PAGE_MAX   (1536 * 1024)        // taille maxi d'une page HTML
 #define FAV_FILE       GCD "/favoris.txt"
-#define SEARCH_URL     "https://www.mojeek.com/search?q="
+#define SEARCH_URL     "https://html.duckduckgo.com/html/?q="   /* v74 : Mojeek refuse souvent (403) */
+static const char *const ws_engines[] = { "https://html.duckduckgo.com/html/?q=", "https://www.bing.com/search?q=",
+                                          "https://www.mojeek.com/search?q=", "https://search.marginalia.nu/search?query=", NULL };
+static char ws_q[700] = "";                    /* derniere recherche (encodee) */
 #define HIST_MAX       20
 #define W_MAX_ITEMS    60000
 #define W_MAX_LINKS    12000
@@ -6325,12 +6383,6 @@ static u32 pool_add(wpage_t *p, const char *s) {
 }
 
 // ---------- Adresses (URL) ----------
-static int hexv(int c) {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-    return -1;
-}
 
 static void url_decode(const char *in, char *out, int outsz, int plus_space) {
     int n = 0;
@@ -6428,6 +6480,24 @@ static void url_clean(const char *in, char *out, int outsz) {
 
 /* Lien des resultats DuckDuckGo (//duckduckgo.com/l/?uddg=...) -> vraie adresse */
 static void url_unwrap(char *url, int sz) {
+    if (strstr(url, "bing.com/ck/a")) {                    /* v74 : liens des resultats Bing */
+        const char *u = strstr(url, "&u=a1");
+        if (!u) u = strstr(url, "?u=a1");
+        if (!u) return;
+        u += 5;
+        static const char b64[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        char dec[URL_MAX];
+        int n = 0, bits = 0; u32 acc = 0;
+        for (; *u && *u != '&' && n < (int)sizeof(dec) - 1; u++) {
+            const char *k = strchr(b64, *u == '+' ? '-' : *u == '/' ? '_' : *u);
+            if (!k) break;
+            acc = acc << 6 | (u32)(k - b64); bits += 6;
+            if (bits >= 8) { bits -= 8; dec[n++] = (char)(acc >> bits & 0xFF); }
+        }
+        dec[n] = 0;
+        if (strncasecmp(dec, "http", 4) == 0) snprintf(url, sz, "%s", dec);
+        return;
+    }
     if (!strstr(url, "duckduckgo.com/l/")) return;
     const char *u = strstr(url, "uddg=");
     if (!u) return;
@@ -7365,32 +7435,6 @@ static int wpi = 0;                         // wconn[wpi] = page, wconn[1 - wpi]
 enum { WK_HTML, WK_TEXT, WK_ARCHIVE, WK_ARCHMETA };
 enum { NAV_PUSH, NAV_BACK, NAV_REPLACE };
 
-typedef struct { int on, st, ext; long rem; } dechunk_t;
-
-/* "Transfer-Encoding: chunked" : retire les tailles de blocs (sur place). */
-static int dechunk(dechunk_t *d, unsigned char *buf, int n) {
-    int o = 0, i = 0;
-    while (i < n) {
-        if (d->st == 0) {
-            int c = buf[i++];
-            if (c == '\n') { d->st = d->rem ? 1 : 3; d->ext = 0; }
-            else if (c == ';') d->ext = 1;
-            else if (!d->ext && hexv(c) >= 0) {
-                if (d->rem > (1L << 26)) d->st = 3;          /* taille absurde : on arrete */
-                else d->rem = d->rem * 16 + hexv(c);
-            }
-        } else if (d->st == 1) {
-            int take = (int)((long)(n - i) < d->rem ? (long)(n - i) : d->rem);
-            memmove(buf + o, buf + i, take);
-            o += take; i += take; d->rem -= take;
-            if (d->rem == 0) d->st = 2;
-        } else if (d->st == 2) {
-            if (buf[i++] == '\n') { d->st = 0; d->rem = 0; }
-        } else i = n;                       /* fin (st 3) */
-    }
-    return o;
-}
-
 typedef struct { char url[URL_MAX]; char title[96]; s32 scroll; int sel; } whist_t;
 static whist_t hist[HIST_MAX];
 static int hist_n = 0;
@@ -7671,7 +7715,7 @@ static void sb_esc(sbuf_t *s, const char *t) {
 }
 
 static const char DEFAULT_FAVS[] =
-    "Recherche web (Mojeek) | https://www.mojeek.com/\n"
+    "Recherche web (DuckDuckGo) | https://html.duckduckgo.com/html/\n"
     "Wikipédia (version mobile) | https://fr.m.wikipedia.org/\n"
     "FrogFind (le web en version simple) | http://frogfind.com/\n"
     "68k.news (actualités en texte) | http://68k.news/\n";
@@ -7700,6 +7744,10 @@ static void add_favorites(sbuf_t *s) {
         *bar = 0;
         char *nm = trim(line), *u = trim(bar + 1);
         if (!*u || (strncasecmp(u, "http", 4) != 0)) continue;
+        if (!strcmp(u, "https://www.mojeek.com/") && !strcmp(nm, "Recherche web (Mojeek)")) {   /* v74 : Mojeek refuse (403) */
+            static char ddg[] = "https://html.duckduckgo.com/html/", ddgn[] = "Recherche web (DuckDuckGo)";
+            u = ddg; nm = ddgn;
+        }
         sb_add(s, "<li><a href=\"");
         sb_esc(s, u);
         sb_add(s, "\">");
@@ -8233,7 +8281,7 @@ static void web_fetch(const char *url_in, int mode, int typed) {
         char post_hdr[120] = "";
         if (post) snprintf(post_hdr, sizeof(post_hdr), "Content-Type: application/x-www-form-urlencoded\r\nContent-Length: %d\r\n", post_len);
         int rl = snprintf(req, sizeof(req),
-                          "%s %s HTTP/1.0\r\nHost: %s\r\n"
+                          "%s %s HTTP/1.1\r\nHost: %s\r\n"
                           "User-Agent: Mozilla/5.0 (compatible; GC-MP3/1.0; Nintendo GameCube)\r\n"
                           "Accept: text/html,application/xhtml+xml,*/*;q=0.8\r\n"
                           "Accept-Language: %s%s\r\n%s%sConnection: close\r\n\r\n",
@@ -8330,6 +8378,18 @@ static void web_fetch(const char *url_in, int mode, int typed) {
         wb_trunc = 0;
         wb_last = now_ms();
         wb_loading = 1;
+        if (code >= 400 && ws_q[0]) {                       /* v74 : moteur de recherche qui refuse : le suivant */
+            for (int e = 0; ws_engines[e]; e++) {
+                size_t el = strlen(ws_engines[e]);
+                if (strncmp(url, ws_engines[e], el) || strcmp(url + el, ws_q) || !ws_engines[e + 1]) continue;
+                char next[URL_MAX];
+                snprintf(next, sizeof(next), "%s%s", ws_engines[e + 1], ws_q);
+                crumb("web : moteur %d refuse (%d), essai suivant", e, code);
+                web_cancel_load();
+                web_fetch(next, mode, 0);
+                return;
+            }
+        }
         if (code != 200) {
             char m[64];
             snprintf(m, sizeof(m), "Le serveur a répondu : erreur %d", code);
@@ -9138,12 +9198,18 @@ static void img_pump(void) {
 #define CAA_BASE "https://coverartarchive.org"
 #endif
 /* --- recherche --- */
-enum { CL_IDLE, CL_WAIT, CL_MB, CL_ART, CL_DONE };
+enum { CL_IDLE, CL_WAIT, CL_MB, CL_ART, CL_DONE, CL_IT };   /* (v74 : CL_IT = iTunes en renfort) */
+#ifndef ITUNES_BASE
+#define ITUNES_BASE "https://itunes.apple.com"
+#endif
 static hfetch_t chf = { .c = { -1, 0, 0 } };
-static int cl_state = CL_IDLE, cl_track = -1, cl_try = 0;
+static int cl_state = CL_IDLE, cl_track = -1, cl_try = 0, cl_mb_retry = 0;
 static u64 cl_t0 = 0, cl_next_mb = 0;
 static char cl_rgid[40], cl_relid[40];
 static char cl_album[128], cl_year[8];
+static char cl_qart[128];                       /* v74 : artiste cherche (album d'un autre artiste : en dernier) */
+static int cl_best = -100;                      /* v74 : note du meilleur album MusicBrainz (< 5 : compilation, autre artiste...) */
+static char cl_art_url[URL_MAX];                /* v74 : image trouvee par iTunes */
 /* albums trouves pendant la session (chemin du MP3 -> album, annee) */
 static struct { char path[NAME_LEN]; char album[128]; char year[8]; } cl_info[32];
 static int cl_ninfo = 0;
@@ -9197,13 +9263,14 @@ static void lucene_quote(const char *in, char *out, int cap) {
 static void cl_start_mb(void) {
     char art[128], tit[160], qa[300], qt[340], q[700], enc[1500], url[URL_MAX];
     if (!cl_query_terms(art, sizeof(art), tit, sizeof(tit))) { cl_give_up(); return; }
+    snprintf(cl_qart, sizeof(cl_qart), "%s", art);
     lucene_quote(tit, qt, sizeof(qt));
     if (art[0]) { lucene_quote(art, qa, sizeof(qa)); snprintf(q, sizeof(q), "recording:%s AND artist:%s", qt, qa); }
     else snprintf(q, sizeof(q), "recording:%s", qt);
     if (!url_encode(q, enc, sizeof(enc))) { cl_give_up(); return; }
-    snprintf(url, sizeof(url), MB_BASE "/ws/2/recording/?query=%s&limit=5&fmt=json", enc);
+    snprintf(url, sizeof(url), MB_BASE "/ws/2/recording/?query=%s&limit=25&fmt=json", enc);   /* (v74 : 25 : l'album original n'est souvent pas dans les 5 premiers) */
     chf.image = 0;
-    chf.maxbytes = 1024 * 1024;
+    chf.maxbytes = 3 * 1024 * 1024;
     chf.accept = "application/json";
     cl_next_mb = now_ms() + 1100;           /* MusicBrainz : 1 demande par seconde au plus */
     hf_start(&chf, url, NULL);
@@ -9212,7 +9279,8 @@ static void cl_start_mb(void) {
 
 /* Choisit l'album le plus probable : officiel, album studio, le plus ancien. */
 static int cl_pick(const char *js, int len) {
-    int maxt = 12000;
+    int maxt = len / 5 + 64;                           /* (v74 : avant 12000 : trop peu pour un tube a 100 sorties) */
+    if (maxt > 120000) maxt = 120000;
     jtok_t *t = (jtok_t *)malloc(sizeof(jtok_t) * maxt);
     if (!t) return 0;
     int n = json_tokens(js, len, t, maxt);
@@ -9220,14 +9288,18 @@ static int cl_pick(const char *js, int len) {
     if (n > 0 && t[0].type == JT_OBJ) {
         int recs = jget(js, t, n, 0, "recordings");
         if (recs >= 0 && t[recs].type == JT_ARR) {
-            for (int r = recs + 1; r < n && t[r].start < t[recs].end && !found; r = jskip(t, n, r)) {
+            /* v74 : le meilleur album parmi TOUS les enregistrements bien notes (avant : le premier
+               seulement, souvent un remix sur une compilation) */
+            int best = -1, bestscore = -1, top = -1;
+            char bestdate[16] = "";
+            for (int r = recs + 1; r < n && t[r].start < t[recs].end; r = jskip(t, n, r)) {
                 char sc[16];
                 jstr(js, t, jget(js, t, n, r, "score"), sc, sizeof(sc));
-                if (sc[0] && atoi(sc) < 70) break;          /* resultats tries par score */
+                int rs = sc[0] ? atoi(sc) : 100;
+                if (top < 0) top = rs;
+                if (rs < 70 || rs < top - 15) break;        /* resultats tries par score */
                 int rels = jget(js, t, n, r, "releases");
                 if (rels < 0 || t[rels].type != JT_ARR) continue;
-                int best = -1, bestscore = -1;
-                char bestdate[16] = "";
                 for (int e = rels + 1; e < n && t[e].start < t[rels].end; e = jskip(t, n, e)) {
                     char status[24], ptype[24], date[16];
                     jstr(js, t, jget(js, t, n, e, "status"), status, sizeof(status));
@@ -9236,16 +9308,34 @@ static int cl_pick(const char *js, int len) {
                     jstr(js, t, jget(js, t, n, rg, "primary-type"), ptype, sizeof(ptype));
                     int sec = jget(js, t, n, rg, "secondary-types");
                     int nsec = (sec >= 0 && t[sec].type == JT_ARR && jskip(t, n, sec) > sec + 1);
+                    int compil = 0;                         /* v74 : compilations et mixes : en dernier */
+                    for (int q = sec + 1; nsec && q < n && t[q].start < t[sec].end; q++) {
+                        char st2[24];
+                        jstr(js, t, q, st2, sizeof(st2));
+                        if (!strcasecmp(st2, "Compilation") || !strcasecmp(st2, "DJ-mix") || !strcasecmp(st2, "Remix") || !strcasecmp(st2, "Live")) compil = 1;
+                    }
                     int score = (strcmp(status, "Official") == 0 ? 4 : 0) +
-                                (strcmp(ptype, "Album") == 0 ? 3 : (ptype[0] ? 1 : 0)) + (nsec ? 0 : 2);
-                    int earlier = date[0] && (!bestdate[0] || strcmp(date, bestdate) < 0);
+                                (strcmp(ptype, "Album") == 0 ? 3 : (ptype[0] ? 1 : 0)) + (nsec ? 0 : 2) - (compil ? 4 : 0);
+                    {                                       /* v74 : compilation "Various Artists" : en dernier */
+                        int ac = jget(js, t, n, e, "artist-credit");
+                        char acn[64] = "";
+                        if (ac >= 0 && t[ac].type == JT_ARR && ac + 1 < n && t[ac + 1].start < t[ac].end) {
+                            jstr(js, t, jget(js, t, n, ac + 1, "name"), acn, sizeof(acn));
+                            if (!acn[0]) jstr(js, t, jget(js, t, n, jget(js, t, n, ac + 1, "artist"), "name"), acn, sizeof(acn));
+                        }
+                        if (!strcasecmp(acn, "Various Artists")) score -= 6;
+                        else if (acn[0] && cl_qart[0] && strcasecmp(acn, cl_qart)) score -= 3;
+                    }
+                    int earlier = date[0] && (!bestdate[0] || strncmp(date, bestdate, 4) < 0);   /* (annee : une date partielle n'est pas plus ancienne) */
                     if (score > bestscore || (score == bestscore && earlier)) {
                         best = e;
                         bestscore = score;
                         snprintf(bestdate, sizeof(bestdate), "%s", date);
                     }
                 }
-                if (best < 0) continue;
+            }
+            cl_best = bestscore;
+            if (best >= 0) {
                 jstr(js, t, jget(js, t, n, best, "id"), cl_relid, sizeof(cl_relid));
                 jstr(js, t, jget(js, t, n, jget(js, t, n, best, "release-group"), "id"), cl_rgid, sizeof(cl_rgid));
                 jstr(js, t, jget(js, t, n, best, "title"), cl_album, sizeof(cl_album));
@@ -9258,8 +9348,57 @@ static int cl_pick(const char *js, int len) {
     return found;
 }
 
+/* v74 : iTunes : la pochette du morceau (quand MusicBrainz ne trouve que des compilations) */
+static void cl_start_it(void) {
+    char art[128], tit[160], q[300], enc[900], url[URL_MAX];
+    if (!cl_query_terms(art, sizeof(art), tit, sizeof(tit))) { cl_give_up(); return; }
+    snprintf(q, sizeof(q), "%s %s", art, tit);
+    if (!url_encode(q, enc, sizeof(enc))) { cl_give_up(); return; }
+    snprintf(url, sizeof(url), ITUNES_BASE "/search?media=music&entity=song&limit=5&term=%s", enc);
+    chf.image = 0;
+    chf.maxbytes = 512 * 1024;
+    chf.accept = "application/json";
+    hf_start(&chf, url, NULL);
+    cl_state = CL_IT;
+}
+static int cl_it_pick(const char *js, int len) {
+    int maxt = len / 6 + 64;
+    if (maxt > 30000) maxt = 30000;
+    jtok_t *t = (jtok_t *)malloc(sizeof(jtok_t) * maxt);
+    if (!t) return 0;
+    int n = json_tokens(js, len, t, maxt), ok = 0;
+    int res = (n > 0 && t[0].type == JT_OBJ) ? jget(js, t, n, 0, "results") : -1;
+    if (res >= 0 && t[res].type == JT_ARR && res + 1 < n && t[res + 1].start < t[res].end) {
+        int r = res + 1;
+        char a[URL_MAX], an[128], al[128], d[32];
+        jstr(js, t, jget(js, t, n, r, "artworkUrl100"), a, sizeof(a));
+        jstr(js, t, jget(js, t, n, r, "artistName"), an, sizeof(an));
+        jstr(js, t, jget(js, t, n, r, "collectionName"), al, sizeof(al));
+        jstr(js, t, jget(js, t, n, r, "releaseDate"), d, sizeof(d));
+        char *sz = strstr(a, "100x100bb");
+        if (sz) memcpy(sz, "300x300", 7);                    /* (plus net : 300 x 300) */
+        int same = !cl_qart[0] || ci_find(an, cl_qart) || ci_find(cl_qart, an);
+        if (!strncmp(a, "http", 4) && same) {
+            snprintf(cl_art_url, sizeof(cl_art_url), "%s", a);
+            snprintf(cl_album, sizeof(cl_album), "%s", al);
+            snprintf(cl_year, sizeof(cl_year), "%.4s", d);
+            ok = 1;
+        }
+    }
+    free(t);
+    return ok;
+}
+
 static void cl_start_art(void) {
     char url[URL_MAX];
+    if (cl_art_url[0]) {                                     /* v74 : image iTunes */
+        chf.image = 1;
+        chf.maxbytes = 2 * 1024 * 1024;
+        chf.accept = "image/jpeg,image/*;q=0.8";
+        hf_start(&chf, cl_art_url, NULL);
+        cl_state = CL_ART;
+        return;
+    }
     const char *id = (cl_try == 0 && cl_rgid[0]) ? cl_rgid : cl_relid;
     if (!id[0]) { cl_give_up(); return; }
     for (const char *p = id; *p; p++)
@@ -9299,7 +9438,7 @@ static int cover_info(char *out, int cap) {
     int searching = 0;
     if (alb[0] && yr[0]) snprintf(raw, sizeof(raw), "%s (%s)", alb, yr);
     else snprintf(raw, sizeof(raw), "%s%s", alb, yr);
-    if (covers_auto && !cover_ok && cl_track == cur_track && cl_state >= CL_WAIT && cl_state <= CL_ART) {
+    if (covers_auto && !cover_ok && cl_track == cur_track && ((cl_state >= CL_WAIT && cl_state <= CL_ART) || cl_state == CL_IT)) {
         snprintf(raw, sizeof(raw), "Recherche de la pochette...");
         searching = 1;
     }
@@ -9320,7 +9459,10 @@ static void cover_pump(void) {
         if (net_phase != NET_DONE || !net_ok) return;
         cl_track = cur_track;
         cl_rgid[0] = cl_relid[0] = 0;
+        cl_art_url[0] = 0;
+        cl_best = -100;
         cl_try = 0;
+        cl_mb_retry = 0;
         cl_t0 = now_ms() + 1500;            /* on attend un peu : l'utilisateur zappe peut-etre */
         cl_state = CL_WAIT;
         return;
@@ -9332,13 +9474,21 @@ static void cover_pump(void) {
     }
     if (cl_state == CL_MB) {
         hf_pump(&chf);
-        if (chf.st == HF_FAIL) { cl_give_up(); return; }
+        if (chf.st == HF_FAIL && cl_mb_retry < 2 && (chf.code == 503 || chf.code == 429 || chf.code == 0)) {   /* v74 : MusicBrainz occupe : on reessaie */
+            cl_mb_retry++;
+            hf_drop(&chf);
+            cl_next_mb = now_ms() + 2500u * cl_mb_retry;
+            cl_t0 = 0;
+            cl_state = CL_WAIT;
+            return;
+        }
+        if (chf.st == HF_FAIL) { hf_drop(&chf); cl_start_it(); return; }   /* (v74 : MusicBrainz en panne : iTunes) */
         if (chf.st != HF_DONE) return;
         chf.st = HF_IDLE;
         cl_album[0] = cl_year[0] = 0;
         int ok = cl_pick((const char *)chf.buf, chf.len);
         hf_drop(&chf);
-        if (!ok) { cl_give_up(); return; }
+        if (!ok || cl_best < 5) { cl_start_it(); return; }   /* v74 : rien de sur (compilation...) : iTunes */
         int k = cl_ninfo++ % 32;
         snprintf(cl_info[k].path, NAME_LEN, "%s", names[cl_track]);
         snprintf(cl_info[k].album, sizeof(cl_info[k].album), "%s", cl_album);
@@ -9346,9 +9496,26 @@ static void cover_pump(void) {
         cl_start_art();
         return;
     }
+    if (cl_state == CL_IT) {                                   /* v74 : iTunes */
+        hf_pump(&chf);
+        if (chf.st != HF_DONE && chf.st != HF_FAIL) return;
+        int ok = chf.st == HF_DONE && cl_it_pick((const char *)chf.buf, chf.len);
+        chf.st = HF_IDLE;
+        hf_drop(&chf);
+        if (!ok && !cl_relid[0] && !cl_rgid[0]) { cl_give_up(); return; }
+        if (ok) {
+            int k = cl_ninfo++ % 32;
+            snprintf(cl_info[k].path, NAME_LEN, "%s", names[cl_track]);
+            snprintf(cl_info[k].album, sizeof(cl_info[k].album), "%s", cl_album);
+            snprintf(cl_info[k].year, sizeof(cl_info[k].year), "%s", cl_year);
+        }
+        cl_start_art();                                          /* (sinon : l'album MusicBrainz, meme moyen) */
+        return;
+    }
     if (cl_state == CL_ART) {
         hf_pump(&chf);
         if (chf.st == HF_FAIL) {
+            if (cl_art_url[0] && (cl_relid[0] || cl_rgid[0])) { cl_art_url[0] = 0; cl_start_art(); return; }   /* (v74 : iTunes refuse : MusicBrainz) */
             if (cl_try == 0 && cl_rgid[0] && cl_relid[0]) { cl_try = 1; cl_start_art(); return; }
             cl_give_up();
             return;
@@ -9377,7 +9544,7 @@ static void cover_pump(void) {
 #endif
 enum { LY_IDLE, LY_WAIT, LY_FETCH, LY_DONE };
 static hfetch_t lhf = { .c = { -1, 0, 0 } };
-static int ly_state = LY_IDLE, ly_track = -1;
+static int ly_state = LY_IDLE, ly_track = -1, ly_retry = 0;
 static u64 ly_t0 = 0;
 static char ly_failed[32][NAME_LEN];       /* morceaux sans paroles (pour ne pas redemander) */
 static int ly_nfailed = 0;
@@ -9472,16 +9639,24 @@ static void lyrics_pump(void) {
         if (ly_is_failed(names[cur_track])) return;
         if (net_phase != NET_DONE || !net_ok) return;
         ly_track = cur_track;
+        ly_retry = 0;
         ly_t0 = now_ms() + 2500;            /* on attend un peu : l'utilisateur zappe peut-etre */
         ly_state = LY_WAIT;
         return;
     }
     if (ly_state == LY_WAIT) {
-        if (now_ms() >= ly_t0 && cl_state != CL_MB && cl_state != CL_ART) ly_start();   /* une demande a la fois */
+        if (now_ms() >= ly_t0 && cl_state != CL_MB && cl_state != CL_ART && cl_state != CL_IT) ly_start();   /* une demande a la fois */
         return;
     }
     if (ly_state == LY_FETCH) {
         hf_pump(&lhf);
+        if (lhf.st == HF_FAIL && ly_retry < 2 && (lhf.code == 0 || lhf.code >= 500 || lhf.code == 429)) {   /* v74 : LRCLIB occupe : on reessaie */
+            ly_retry++;
+            hf_drop(&lhf);
+            ly_t0 = now_ms() + 3000u * ly_retry;
+            ly_state = LY_WAIT;
+            return;
+        }
         if (lhf.st == HF_FAIL) { ly_give_up(); return; }
         if (lhf.st != HF_DONE) return;
         lhf.st = HF_IDLE;
@@ -9609,6 +9784,7 @@ static void web_go(const char *url, int mode) {
 static void web_search(const char *q) {
     char enc[600], url[URL_MAX];
     if (!url_encode(q, enc, sizeof(enc))) return;
+    snprintf(ws_q, sizeof(ws_q), "%s", enc);
     snprintf(url, sizeof(url), "%s%s", SEARCH_URL, enc);
     web_fetch(url, NAV_PUSH, 0);
 }
@@ -10183,7 +10359,7 @@ static hfetch_t rhf = { .c = { -1, 0, 0 } };
 #ifndef RB_SCHEME
 #define RB_SCHEME "https"
 static const char *const rb_servers[] = { "all.api.radio-browser.info", "de1.api.radio-browser.info",
-                                          "de2.api.radio-browser.info", "fi1.api.radio-browser.info", NULL };
+                                          "de2.api.radio-browser.info", NULL };       /* (v74 : fi1 n'existe plus) */
 #else
 static const char *const rb_servers[] = { RB_TEST_HOST, NULL };       /* (essais sur PC) */
 #endif
@@ -10243,6 +10419,7 @@ static void rb_parse(const char *js, int len) {
             jstr(js, t, jget(js, t, n, i, "url_resolved"), url, sizeof(url));
             if (!url[0]) jstr(js, t, jget(js, t, n, i, "url"), url, sizeof(url));
             if (strncasecmp(url, "http", 4) != 0 || strlen(url) >= sizeof(r->url)) continue;
+            if (ci_find(url, "opus") || ci_find(url, "flac")) continue;   /* v74 : Opus / FLAC annonces "OGG" : illisibles ici */
             snprintf(r->url, sizeof(r->url), "%s", url);
             char nm[200];
             jstr(js, t, jget(js, t, n, i, "name"), nm, sizeof(nm));

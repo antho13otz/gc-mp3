@@ -1155,6 +1155,7 @@ static void x73_launch_pump(void) {
     if (e) gl_note(e);
 }
 
+static void rf_pump(void);
 /* =================== boucle principale =================== */
 static void x73_pump(void) {
     ts_want = (ts_speed != 100 || ts_sil) && ((pod_on && src == SRC_RADIO) || (pod_local_k >= 0 && src == SRC_FILE && cur_track == pod_local_k));
@@ -1167,8 +1168,108 @@ static void x73_pump(void) {
         rp_tick(m, day);
         if (saver_on && saver_style == SV_TABLEAU && city[0] && meteo_t && now - meteo_t > 30 * 60000 && if_state == IF_IDLE) meteo_t = 0;
     }
+    rf_pump();                                                /* v74 : titres de Radio France */
     rh_capture();
     if (fun_mode == FUN_OFF || fun_mode == FUN_KARAOKE || fun_mode == FUN_WAKE) rhc_pump();
     if (x73_gj_want) { x73_gj_want = 0; x73_games_build(); }
     x73_launch_pump();
+}
+
+/* =================== v74 : titres des radios de Radio France ===================
+   Les flux de Radio France (FIP, France Inter...) n'annoncent pas leurs titres (pas d'ICY) :
+   on les demande a leur service "livemeta" (le morceau en cours : levels[0].items[position]). */
+#ifndef RF_LIVE
+#define RF_LIVE "https://api.radiofrance.fr/livemeta/pull/"
+#endif
+static hfetch_t rff = { .c = { -1, 0, 0 } };
+static int rf_state = 0, rf_station = -2;
+static u64 rf_next = 0;
+static int rf_id_of(const char *url) {                  /* radio de Radio France -> numero de station */
+    if (!strstr(url, "radiofrance.fr") && !strstr(url, "radiofrance.com")) return -1;
+    static const struct { const char *k; int id; } m[] = {
+        { "fip", 7 }, { "franceinter", 1 }, { "franceinfo", 2 }, { "francemusique", 4 }, { "franceculture", 5 }, { "mouv", 6 } };
+    const char *p = strstr(url, "://");
+    p = p ? strchr(p + 3, '/') : NULL;
+    if (!p) return -1;
+    p++;
+    char slug[40]; int n = 0;
+    while (p[n] && n < 39 && (isalpha((unsigned char)p[n]))) { slug[n] = (char)tolower((unsigned char)p[n]); n++; }
+    slug[n] = 0;
+    if (p[n] && p[n] != '-' && p[n] != '/' && p[n] != '_' && p[n] != '.') return -1;   /* (fip-midfi, fip/fip_hifi, fip.mp3) */
+    for (unsigned i = 0; i < sizeof(m) / sizeof(m[0]); i++) if (!strcmp(slug, m[i].k)) return m[i].id;
+    return -1;
+}
+/* le morceau en cours dans la reponse : "Artiste - Titre" (ou le nom de l'emission) */
+static int rf_parse(const char *js, int len, char *out, int cap) {
+    int maxt = len / 6 + 64;
+    if (maxt > 40000) maxt = 40000;
+    jtok_t *t = (jtok_t *)malloc(sizeof(jtok_t) * maxt);
+    if (!t) return 0;
+    int n = json_tokens(js, len, t, maxt), ok = 0;
+    out[0] = 0;
+    if (n > 0 && t[0].type == JT_OBJ) {
+        int lv = jget(js, t, n, 0, "levels"), steps = jget(js, t, n, 0, "steps");
+        if (lv >= 0 && t[lv].type == JT_ARR && lv + 1 < n && steps >= 0) {
+            int l0 = lv + 1;
+            char ps[16], id[96];
+            jstr(js, t, jget(js, t, n, l0, "position"), ps, sizeof(ps));
+            int items = jget(js, t, n, l0, "items"), pos = atoi(ps), k = 0;
+            if (items >= 0 && t[items].type == JT_ARR) {
+                int it = -1;
+                for (int i = items + 1; i < n && t[i].start < t[items].end; i = jskip(t, n, i), k++) if (k == pos) it = i;
+                if (it >= 0) {
+                    jstr(js, t, it, id, sizeof(id));
+                    int st = jget(js, t, n, steps, id);
+                    if (st >= 0) {
+                        char ti[160], au[120], ty[24];
+                        jstr(js, t, jget(js, t, n, st, "title"), ti, sizeof(ti));
+                        jstr(js, t, jget(js, t, n, st, "embedType"), ty, sizeof(ty));
+                        int ha = jget(js, t, n, st, "highlightedArtists");
+                        au[0] = 0;
+                        if (ha >= 0 && t[ha].type == JT_ARR && ha + 1 < n && t[ha + 1].start < t[ha].end) jstr(js, t, ha + 1, au, sizeof(au));
+                        if (!au[0]) jstr(js, t, jget(js, t, n, st, "authors"), au, sizeof(au));
+                        if (ti[0] && au[0] && !strcmp(ty, "song")) snprintf(out, cap, "%s - %s", au, ti);
+                        else if (ti[0]) snprintf(out, cap, "%s", ti);
+                        ok = out[0] != 0;
+                    }
+                }
+            }
+        }
+    }
+    free(t);
+    return ok;
+}
+static void rf_pump(void) {
+    int id = (src == SRC_RADIO && !pod_on && state == ST_PLAY && cur_station >= 0 && cur_station <= nstations) ? rf_id_of(stations[cur_station].url) : -1;
+    if (id < 0 && cur_station >= 0 && cur_station <= nstations && src == SRC_RADIO && !pod_on && state == ST_PLAY) id = rf_id_of(http_final_url);
+    if (id != rf_station) {                                   /* autre radio : on repart de zero */
+        if (rf_state) hf_abort(&rff);
+        rf_state = 0; rf_station = id; rf_next = now_ms() + 1500;
+    }
+    if (id < 0) return;
+    if (rf_state == 0) {
+        if (now_ms() < rf_next || net_phase != NET_DONE || !net_ok) return;
+        char url[160];
+        snprintf(url, sizeof(url), RF_LIVE "%d", id);
+        rff.image = 0; rff.maxbytes = 256 * 1024; rff.accept = "application/json";
+        hf_start(&rff, url, NULL);
+        rf_state = 1;
+        return;
+    }
+    hf_pump(&rff);
+    if (rff.st == HF_FAIL) { hf_drop(&rff); rf_state = 0; rf_next = now_ms() + 60000; return; }
+    if (rff.st != HF_DONE) return;
+    rff.st = HF_IDLE;
+    char ti[160];
+    char *js = (char *)malloc(rff.len + 1);
+    if (js) {
+        memcpy(js, rff.buf, rff.len); js[rff.len] = 0;
+        if (rf_parse(js, rff.len, ti, sizeof(ti))) {
+            snprintf(now_title, sizeof(now_title), "%s", ti);   /* (UTF-8 : l'affichage le reconnait) */
+        }
+        free(js);
+    }
+    hf_drop(&rff);
+    rf_state = 0;
+    rf_next = now_ms() + 20000;                               /* (toutes les 20 s) */
 }

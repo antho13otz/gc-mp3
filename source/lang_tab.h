@@ -1144,3 +1144,4 @@
     { "Chaque joueur : A  B  X  Y  R sur sa manette     Z : pause     START : arr\xC3\xAAter", "Each player: A  B  X  Y  R on their controller     Z: pause     START: stop" },
     { "A  B  X  Y  R : jouer     Z : pause     START : arr\xC3\xAAter", "A  B  X  Y  R: play     Z: pause     START: stop" },
     { "jou\xC3\xA9 :", "played:" },
+    { "Recherche web (DuckDuckGo)", "Web search (DuckDuckGo)" },

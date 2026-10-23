@@ -21,6 +21,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v74 — tout le réseau vérifié en vrai
+Chaque fonction réseau a été essayée pour de vrai sur Internet (le programme lui-même, dans un simulateur sur un serveur GitHub) : 79 essais. Ce qui ne marchait plus a été réparé :
+- **Podcasts : l'écoute ne marchait plus** (les serveurs de Radio France refusent maintenant les vieilles requêtes HTTP/1.0 : erreur 426). GC Station repasse tout seul en HTTP/1.1 (avec les réponses « en morceaux »), pour les podcasts comme pour les radios ; le navigateur web passe aussi en HTTP/1.1.
+- **Recherche de podcasts : 0 résultat** pour beaucoup de podcasts français (iTunes ne donne plus l'adresse de leur flux). GC Station cherche maintenant aussi dans les annuaires libres fyyd.de et gpodder.net.
+- **Recherche web : Mojeek refusait (erreur 403)**. Le moteur par défaut est maintenant DuckDuckGo ; si un moteur refuse, GC Station essaie tout seul Bing, puis Mojeek, puis Marginalia. Les liens des résultats Bing mènent directement au site. L'ancien favori « Recherche web (Mojeek) » est remplacé.
+- **Titres des radios de Radio France** (FIP, France Inter, franceinfo, France Culture, France Musique, Mouv') : leurs flux n'annoncent rien ; les titres sont maintenant demandés à Radio France (le morceau en cours, toutes les 20 s) : affichés, gardés dans l'historique avec leur pochette.
+- **Pochettes automatiques** : MusicBrainz donnait souvent la pochette d'une compilation (« Now! 6 », « Boom 2001 »…) ; il compare maintenant 25 résultats, écarte les compilations, mixes et albums d'autres artistes, et demande à iTunes quand il n'est pas sûr. MusicBrainz et LRCLIB occupés (erreur 503) : nouvel essai quelques secondes après.
+- **Annuaire des radios** : un des serveurs n'existe plus (retiré) ; les radios en Opus ou FLAC (illisibles sur GameCube) ne sont plus proposées.
+- **Vérifiés et qui marchent** : les 8 radios de la liste, l'annuaire (MP3, AAC, HLS, https), la réparation des adresses mortes, les podcasts (flux, écoute, avance, ×1,5, téléchargement), paroles (LRCLIB), météo, actualités, mise à jour (vérification et téléchargement), pages web, archive.org, certificats HTTPS de tous les sites utilisés.
+- **Réglages** : chaque réglage du menu START et de `gc-mp3.txt` a été vérifié (lu, enregistré, et utilisé) : aucun n'était factice. Seule limite : les réglages de la section Indigo / Swiss s'appliquent aux jeux lancés avec Swiss ou le lanceur GC Station, pas avec Resident.
+
 ## Nouveautés v73
 - **Listes intelligentes** (MUSIQUE, vue « Mes listes ») : **« Jamais écoutés »** (mélangés, un autre ordre chaque jour) et **« Ajoutés récemment »** (date d'arrivée des fichiers sur la carte, lue une fois puis gardée dans `SD:/gc-mp3/cache/ajouts.txt`).
 - **Égaliseur 5 bandes** : graves, **bas-médiums** (350 Hz), médiums, **présence** (4 kHz), aigus ; 15 réglages tout prêts par genre (nouveaux : Métal, Reggae, Acoustique, Soirée, R&B / Soul, Petit volume).
