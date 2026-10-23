@@ -147,7 +147,7 @@ static void theme_apply(int id) {
 static int ui_skin = 0;
 static int gl_view;                                     /* gclib.c : affichage de Mes jeux GameCube */
 static int gl_anim = 1;                                 /* v45 : animations de JEUX / APPS */
-static int nat_igr = 0;                                 /* v59 : A+Z+START dans le lanceur maison (natif.c) ; v60 : coupe par defaut (manette) */
+static int nat_igr = 1;                                 /* v59 : A+Z+START dans Resident (natif.c) ; v63 : de nouveau actif (lecture H + L : la manette marche) */
 static int gl_sort = 0;                                 /* v45 : tri des jeux : A-Z, derniers lances, taille, region */
 static const char *const gl_sort_keys[4] = { "az", "recents", "taille", "region" };
 static const char *const gl_sort_names[4] = { "A \xE2\x86\x92 Z", "Derniers lanc\xC3\xA9s", "Taille", "R\xC3\xA9gion" };
@@ -3987,7 +3987,7 @@ static void save_settings(void) {
                "paroles_affichage = %s\neclair_basses = %s\n", lyr_keys[lyr_show], flash_keys[flash_mode]);
     fprintf(f, "# Jeux GameCube : tri (az / recents / taille / region) ; animations de JEUX / APPS (oui / non)\n"
                "jeux_tri = %s\njeux_animations = %s\n", gl_sort_keys[gl_sort & 3], gl_anim ? "oui" : "non");
-    fprintf(f, "# Lanceur maison (X) : A+Z+START = retour a GC Station (oui / non)\nlanceur_maison_retour = %s\n", nat_igr ? "oui" : "non");
+    fprintf(f, "# Resident (X) : A+Z+START = retour a GC Station (oui / non)\nlanceur_maison_retour = %s\n", nat_igr ? "oui" : "non");
     fprintf(f, "# Lanceur des jeux GameCube : gcmp3 (sans menu Swiss) / swiss\nlanceur_jeux = %s\n", ld_mode ? "swiss" : "gcmp3");
     fprintf(f, "# Ordre des onglets\nordre_onglets = ");
     for (int i = 0; i < TAB_COUNT; i++) fprintf(f, "%s%s", i ? "," : "", tab_keys[tab_order[i]]);
@@ -10120,7 +10120,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
     "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
     "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Animations (jeux / applis)", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre", "Couleurs du spectrogramme", "Paroles dans le lecteur", "\xC3\x89" "clair sur les basses",
-    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer la console sur GC Station", "Retour en jeu (A+Z+START)", "A+Z+START (lanceur maison, test)", "Lanceur de jeux", "Mise \xC3\xA0 jour", "Quitter GC Station" };
+    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer la console sur GC Station", "Retour en jeu (A+Z+START)", "A+Z+START (Resident)", "Lanceur de jeux", "Mise \xC3\xA0 jour", "Quitter GC Station" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -10392,7 +10392,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_VIDEO) hint = "Pris en compte au prochain lancement (B maintenu au d\xC3\xA9marrage = 480i)";
     if (menu_sel == MI_AUTOSTART) hint = "Copie GC Station dans ipl.dol (PicoLoader) : Reset = GC Station ; Z au d\xC3\xA9marrage = Swiss";
     if (menu_sel == MI_IGR) hint = igr_hint();
-    if (menu_sel == MI_NATIGR) hint = "Jeux lanc\xC3\xA9s avec X : A+Z+START = retour. ATTENTION : peut bloquer la manette du jeu";
+    if (menu_sel == MI_NATIGR) hint = "Jeux lanc\xC3\xA9s avec Resident (X) : A+Z+START tenus 1 s = retour \xC3\xA0 GC Station";
     if (menu_sel == MI_LAUNCHER) hint = ld_hint();
     if (menu_sel == MI_GLANIM) hint = "D\xC3\xA9" "filement doux, cadre qui glisse, carrousel (onglet JEUX / APPS)";
     if (menu_sel == MI_QUIT) hint = "Ouvre le menu de la GameCube (lecteur de disque). Bouton Reset = relancer GC Station";
