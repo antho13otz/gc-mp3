@@ -115,17 +115,20 @@ typedef struct { u8 r, g, b, a; } col_t;
 
 /* ---------- Themes : toutes les couleurs de l'interface passent par une matrice
    (rotation de teinte + saturation). Indigo = couleurs d'origine. ---------- */
-enum { THEME_INDIGO, THEME_OCEAN, THEME_EMERAUDE, THEME_RUBIS, THEME_AMBRE, THEME_DOUX, THEME_GRAPHITE, THEME_COUNT };
-static const char *const theme_names[THEME_COUNT] = { "Indigo", "Oc\xC3\xA9" "an", "\xC3\x89meraude", "Rubis", "Ambre", "Couleurs douces", "Graphite" };
-static const char *const theme_keys[THEME_COUNT] = { "indigo", "ocean", "emeraude", "rubis", "ambre", "doux", "graphite" };
+enum { THEME_INDIGO, THEME_OCEAN, THEME_EMERAUDE, THEME_RUBIS, THEME_AMBRE, THEME_DOUX, THEME_GRAPHITE,
+       THEME_LAVANDE, THEME_FORET, THEME_CREPUSCULE, THEME_COUNT };
+static const char *const theme_names[THEME_COUNT] = { "Indigo", "Oc\xC3\xA9" "an", "\xC3\x89meraude", "Rubis", "Ambre", "Couleurs douces", "Graphite",
+                                                      "Lavande", "For\xC3\xAAt", "Cr\xC3\xA9puscule" };
+static const char *const theme_keys[THEME_COUNT] = { "indigo", "ocean", "emeraude", "rubis", "ambre", "doux", "graphite",
+                                                     "lavande", "foret", "crepuscule" };
 static int theme_id = THEME_INDIGO;
 static int th_m[9] = { 256, 0, 0, 0, 256, 0, 0, 0, 256 };   /* matrice 8.8 */
 static int th_identity = 1;
 
 static void skin_accent(void);
 static void theme_apply(int id) {
-    static const float hue[THEME_COUNT] = { 0, -55, -145, 65, 140, 0, 0 };
-    static const float sat[THEME_COUNT] = { 1, 1, 1, 1, 1, 0.55f, 0.12f };
+    static const float hue[THEME_COUNT] = { 0, -55, -145, 65, 140, 0, 0, -28, -120, 40 };
+    static const float sat[THEME_COUNT] = { 1, 1, 1, 1, 1, 0.55f, 0.12f, 0.75f, 0.8f, 1.15f };
     theme_id = (id % THEME_COUNT + THEME_COUNT) % THEME_COUNT;
     float a = hue[theme_id] * 3.14159265f / 180.0f, c = cosf(a), sn = sinf(a), sv = sat[theme_id];
     float m[9] = {
@@ -168,7 +171,8 @@ static const char *const glview_keys[6] = { "grille", "carrousel", "liste", "mur
 static u8 mod_acc[3] = { 0, 190, 230 };
 static void skin_accent(void) {
     static const u8 acc[THEME_COUNT][3] = { { 0, 190, 230 }, { 40, 120, 255 }, { 0, 200, 120 }, { 235, 60, 70 },
-                                            { 255, 150, 30 }, { 240, 110, 180 }, { 225, 225, 230 } };
+                                            { 255, 150, 30 }, { 240, 110, 180 }, { 225, 225, 230 },
+                                            { 180, 120, 255 }, { 70, 200, 90 }, { 255, 110, 90 } };
     memcpy(mod_acc, acc[theme_id], 3);
 }
 static inline col_t mod_col(col_t c) {
@@ -369,6 +373,8 @@ static s16 viz[VIZ_N];
 static int viz_pos = 0;
 static u32 consumed = 0;                 // echantillons joues depuis le debut de l'ecoute
 static int sleep_fade = 256;             // minuterie : baisse du volume dans les 30 dernieres secondes
+static int sleep_eot = 0;                // v76 : minuterie "a la fin du morceau"
+static int party_on;                     // (defini plus bas ; utilise des track_next)
 static int alarm_fade;                   // reveil : volume qui monte (onglet INFOS)
 static u32 consumed_skip;
 
@@ -2319,6 +2325,7 @@ static const char *base_of(const char *path) {
 enum { FMT_MP3, FMT_FLAC, FMT_OGG, FMT_WAV, FMT_M4A, FMT_GME, FMT_XMP, FMT_GCN };
 static int retro_ext_fmt(const char *path);       /* onglet RETRO (tab_retro.c) */
 static u8 is_retro[MAX_FILES];
+static u8 rating[MAX_FILES];            /* v76 : note (etoiles) de chaque morceau, 0 a 5 (lib_extra.c) */
 
 /* longueur de l'extension audio (".mp3" = 4, ".flac" = 5), 0 si ce n'est pas un son */
 static int audio_ext_len(const char *path) {
@@ -3828,6 +3835,9 @@ static void pl_load_all(void);
 static void stats_load(void);
 static void stats_save(void);
 static int stats_dirty;
+static void rating_load(void);
+static void rating_save(void);
+static int rating_dirty;
 
 /* reconstruit la liste en gardant l'element selectionne */
 static void lib_rebuild(void) {
@@ -3935,6 +3945,7 @@ static void track_next(int dir, int automatic) {
         if (cur_track < 0) return;
         queue_build(cur_track);
     }
+    if (automatic && sleep_eot) { sleep_eot = 0; sleep_fade = 256; stop_track(); stop_station(); party_on = 0; return; }   /* v76 : arret a la fin du morceau */
     if (automatic && repeat_mode == REP_ONE) { play_queue_pos(qpos); return; }
     int p = qpos + dir;
     if (p >= qn) {
@@ -4113,7 +4124,7 @@ static int covers_auto = 1;
 static int lyrics_auto = 1;                 /* paroles cherchees sur LRCLIB */
 static char city[64];                       /* onglet INFOS (tab_infos.c) */
 static char news_url[256];
-static int alarm_on, alarm_min, alarm_src;
+static int alarm_on, alarm_min, alarm_src, alarm_days;   /* v76 : alarm_days 0=tous,1=semaine,2=week-end */
 static int phone_auto;                      /* onglet TELEPHONE (tab_phone.c) */
 static int rumble_on = 1;                   /* v18 : la manette vibre (mode soiree, jeux) */
 static int pod_auto = 1;                    /* v18 : nouveaux episodes telecharges tout seuls */
@@ -4147,7 +4158,7 @@ static void party_start(void);
 static int saver_min = 5;                   /* economiseur d'ecran (minutes, 0 = jamais) */
 enum { SV_SPECTRE, SV_POCHETTE, SV_HORLOGE, SV_ETOILES, SV_PHOTOS, SV_NOIR, SV_AQUARIUM, SV_SPECTRO, SV_TABLEAU, SV_COUNT };
 static int saver_style = SV_SPECTRE;        /* ce qu'affiche l'economiseur */
-static int sleep_min = 0;                   /* minuterie : arret apres N minutes (0 = non) */
+static int sleep_min = 0;                   /* minuterie : arret apres N minutes (0 = non, -1 = a la fin du morceau) */
 static u64 sleep_at = 0;
 static const char *const saver_keys[SV_COUNT] = { "spectre", "pochette", "horloge", "etoiles", "photos", "noir", "aquarium", "spectrogramme", "horloge_meteo" };
 static const char *const saver_names[SV_COUNT] = { "Spectre", "Pochette", "Horloge", "\xC3\x89toiles",
@@ -4234,6 +4245,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "actualites")) { if (!strncasecmp(v, "http", 4)) snprintf(news_url, sizeof(news_url), "%s", v); }
         else if (!strcasecmp(k, "reveil")) { int h, m; if (sscanf(v, "%d:%d", &h, &m) == 2 && h >= 0 && h < 24 && m >= 0 && m < 60) { alarm_on = 1; alarm_min = h * 60 + m; } else alarm_on = 0; }
         else if (!strcasecmp(k, "reveil_joue")) alarm_src = atoi(v) < 0 ? 0 : atoi(v);
+        else if (!strcasecmp(k, "reveil_jours")) { alarm_days = atoi(v); if (alarm_days < 0 || alarm_days > 2) alarm_days = 0; }
         else if (!strcasecmp(k, "telephone")) phone_auto = yes(v);
         else if (!strcasecmp(k, "veilleuse_luminosite")) { night_lum = atoi(v); if (night_lum < 1) night_lum = 1; if (night_lum > 5) night_lum = 5; }
         else if (!strcasecmp(k, "veilleuse_radio")) night_radio = yes(v);
@@ -4379,7 +4391,7 @@ static void save_settings(void) {
                "# Liste MUSIQUE : tous / dossiers / artistes / albums\n"
                "affichage = %s\n"
                "volume = %d\n"
-               "# Theme : indigo / ocean / emeraude / rubis / ambre / doux / graphite\n"
+               "# Theme : indigo / ocean / emeraude / rubis / ambre / doux / graphite / lavande / foret / crepuscule\n"
                "theme = %s\n"
                "# Economiseur d'ecran apres N minutes sans toucher la manette (0 = jamais)\n"
                "economiseur = %d\n"
@@ -4411,6 +4423,7 @@ static void save_settings(void) {
             volume_pct, theme_keys[theme_id], saver_min, saver_keys[saver_style], vid[video_pref], tv_crt ? "cathodique" : "plat",
             lang_pref >= 0 ? lang_keys[lang_pref] : "auto", ui_lang == 1 ? "en" : ui_lang == 0 ? "fr" : "auto", skin_keys[ui_skin ? 1 : 0], glview_keys[gl_view >= 0 && gl_view < 6 ? gl_view : 0], scr_pct, scr_hpct, scr_vpos, scr_wide ? "16:9" : "4:3", resume_on ? "oui" : "non",
             resume_path, resume_pos);
+    fprintf(f, "# Reveil, jours : 0 = tous les jours, 1 = du lundi au vendredi, 2 = samedi et dimanche\nreveil_jours = %d\n", alarm_days);
     fprintf(f, "# Style du spectre : led / barres / miroir / courbe / spectrogramme / oscilloscope / cercle\nspectre = %s\n", viz_keys[viz_style]);
     fprintf(f, "# Couleurs du spectrogramme : feu / violet / arc-en-ciel / ocean / vert / gris\nspectrogramme_couleurs = %s\n", sgp_keys[sg_pal_id]);
     fprintf(f, "# Disposition des onglets RADIO / RETRO / PODCASTS (classique / pochette / minimal / spectre)\n"
@@ -5940,6 +5953,22 @@ static void draw_note(f32 cx, f32 cy, col_t c) {
     gx_ellipse(cx - 2.0f, cy + 5.0f, 3.4f, 2.6f, c, c);
     gx_rect(cx + 0.6f, cy - 6.0f, 1.6f, 11.0f, c);
     gx_tri(cx + 0.6f, cy - 6.0f, cx + 5.5f, cy - 3.0f, cx + 0.6f, cy - 1.0f, c);
+}
+
+/* v76 : une etoile a 5 branches (pleine), centree en (cx, cy), rayon r */
+static void draw_star1(f32 cx, f32 cy, f32 r, col_t c) {
+    f32 px[10], py[10];
+    for (int i = 0; i < 10; i++) {
+        f32 a = -1.5707963f + i * 0.62831853f;             /* pointe en haut, tous les 36 deg */
+        f32 rr = (i & 1) ? r * 0.42f : r;
+        px[i] = cx + rr * cosf(a);
+        py[i] = cy + rr * sinf(a);
+    }
+    for (int i = 0; i < 10; i++) gx_tri(cx, cy, px[i], py[i], px[(i + 1) % 10], py[(i + 1) % 10], c);
+}
+/* n etoiles pleines sur 5 : les pleines en 'hot', les vides en 'dim' */
+static void draw_stars(f32 x, f32 cy, f32 r, int n, col_t hot, col_t dim) {
+    for (int i = 0; i < 5; i++) draw_star1(x + i * (r * 2.0f + 2.0f) + r, cy, r, i < n ? hot : dim);
 }
 
 #define MUSIC_ROWS 13
@@ -10893,7 +10922,8 @@ static void menu_value(int i, char *out, int cap) {
     case MI_ELEMS: { int c = 0; for (int i = 0; i < EL_COUNT; i++) c += EL(i); snprintf(out, cap, "%d / %d  (A)", c, EL_COUNT); break; }
     case MI_TABS:  { int c = 0; for (int i = 0; i < TAB_COUNT; i++) c += tab_shown(i); snprintf(out, cap, "%d / %d  (A)", c, TAB_COUNT); break; }
     case MI_SLEEP:
-        if (!sleep_at) snprintf(out, cap, "Non");
+        if (sleep_eot) snprintf(out, cap, "\xC3\x80 la fin du morceau");
+        else if (!sleep_at) snprintf(out, cap, "Non");
         else { u64 n = now_ms(); int m = n >= sleep_at ? 0 : (int)((sleep_at - n + 59999) / 60000); snprintf(out, cap, "Arr\xC3\xAAt dans %d min", m); }
         break;
     case MI_THEME:   snprintf(out, cap, "%s", theme_names[theme_id]); break;
@@ -11028,11 +11058,13 @@ static void menu_change(int i, int d) {
     case MI_ELEMS:   checklist_open(&ck_elems); return;
     case MI_TABS:    checklist_open(&ck_tabs); return;
     case MI_SLEEP: {
-        static const int sl[] = { 0, 15, 30, 45, 60, 90, 120 };
+        static const int sl[] = { 0, -1, 5, 10, 20, 30, 45, 60, 90, 120 };   /* -1 = fin du morceau */
+        const int N = (int)(sizeof(sl) / sizeof(sl[0]));
         int k = 0;
-        for (int j = 0; j < 7; j++) if (sl[j] == sleep_min) k = j;
-        sleep_min = sl[(k + d + 7) % 7];
-        sleep_at = sleep_min ? now_ms() + (u64)sleep_min * 60000 : 0;
+        for (int j = 0; j < N; j++) if (sl[j] == sleep_min) k = j;
+        sleep_min = sl[(k + d + N) % N];
+        sleep_eot = (sleep_min == -1);
+        sleep_at = sleep_min > 0 ? now_ms() + (u64)sleep_min * 60000 : 0;
         sleep_fade = 256;
         return;                                      /* (pas enregistre dans les reglages) */
     }
@@ -12140,11 +12172,13 @@ static void music_rescan(void) {
     if (src == SRC_FILE && cur_track >= 0) snprintf(playing_path, sizeof(playing_path), "%s", names[cur_track]);
     if (bib_dirty) bib_save();                             /* garde ce qui est deja lu */
     if (stats_dirty) stats_save();
+    if (rating_dirty) rating_save();
     scan_files();
     tags_reset();
     bib_load();
     pl_load_all();
     stats_load();
+    rating_load();
     cur_track = -1;
     for (int i = 0; i < nfiles && playing_path[0]; i++)
         if (strcmp(names[i], playing_path) == 0) { cur_track = i; break; }
@@ -12245,7 +12279,29 @@ static void music_pump(void) {
 #include "natif.c"                             /* v50 : lanceur natif GC Station, etape 1 : analyse */
 #include "extras73.c"                          /* v73 : podcasts plus rapides, historique radio, cartes virtuelles... */
 
+/* v76 : petit controle au demarrage (memoire libre, carte SD, duree), note dans le
+   journal (Outils > Infos console > journal) ; un message bref si un souci. */
+static u64 boot_t0 = 0;
+static char boot_check[160] = "";
+static void boot_selfcheck(void) {
+    /* plus grosse reservation possible (par paliers) : marge pour pochettes, photos, pages web */
+    size_t big = 0;
+    for (size_t mb = 12; mb >= 1; mb--) { void *p = malloc(mb * 1024 * 1024); if (p) { free(p); big = mb; break; } }
+    int sd_wr = 0;
+    if (sd_ok) {
+        mkdir(GCD, 0777);
+        FILE *f = fopen(GCD "/.ecriture", "wb");
+        if (f) { sd_wr = (fwrite("ok", 1, 2, f) == 2); fclose(f); remove(GCD "/.ecriture"); }
+    }
+    u32 ms = boot_t0 ? (u32)(now_ms() - boot_t0) : 0;
+    crumb("demarrage : %u ms, memoire libre >= %u Mo, carte SD %s", (unsigned)ms, (unsigned)big,
+          !sd_ok ? "absente" : sd_wr ? "ecriture OK" : "LECTURE SEULE");
+    if (sd_ok && !sd_wr) snprintf(boot_check, sizeof(boot_check), "Carte SD en lecture seule : les r\xC3\xA9glages ne seront pas gard\xC3\xA9s (languette de protection ?)");
+    else if (big && big < 2) snprintf(boot_check, sizeof(boot_check), "M\xC3\xA9moire presque pleine : certaines images peuvent ne pas s'afficher");
+}
+
 int main(int argc, char **argv) {
+    boot_t0 = ticks_to_millisecs(gettime());
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;
     if (!setlocale(LC_CTYPE, "C.UTF-8")) setlocale(LC_CTYPE, "C-UTF-8");   /* v26 : noms de fichiers en UTF-8 (accents, tirets longs...) : sans ca, libfat s'arrete sur certains noms */
     sd_ok = mount_sd();                     /* d'abord les reglages (mode video, theme...) */
@@ -12268,10 +12324,12 @@ int main(int argc, char **argv) {
         }
     }
 
-    if (sd_ok) { scan_files(); bib_load(); pl_load_all(); stats_load(); }
+    if (sd_ok) { scan_files(); bib_load(); pl_load_all(); stats_load(); rating_load(); }
     if (sd_ok) nat_journal_convert();       /* v54 : journal du dernier jeu lance par le lanceur maison */
     load_stations();
     lib_rebuild();
+    boot_selfcheck();                        /* v76 : controle memoire / carte SD / duree */
+    if (boot_check[0]) lib_note(boot_check);
     if (covers_auto) net_start_async();     /* reseau en fond, pour les pochettes */
 
     AUDIO_Init(NULL);
@@ -12349,6 +12407,7 @@ int main(int argc, char **argv) {
             if (now >= sleep_at) { stop_track(); stop_station(); sleep_at = 0; sleep_min = 0; sleep_fade = 256; party_on = 0; }
             else sleep_fade = (sleep_at - now < 30000) ? (int)((sleep_at - now) * 256 / 30000) : 256;
         }
+        if (sleep_eot && src == SRC_NONE) sleep_eot = 0;    /* v76 : plus rien ne joue : minuterie finie */
 
         /* mode soiree : B / START pour sortir, stick C pour le style */
         if (party_on && !menu_open && !kb_open) {
@@ -12509,6 +12568,7 @@ int main(int argc, char **argv) {
     resume_note(1);                          /* garde la position pour la prochaine fois */
     if (bib_dirty) bib_save();
     if (stats_dirty) stats_save();
+    if (rating_dirty) rating_save();
     if (sd_virtual && rf_dirty) rf_card_save();
     AUDIO_RegisterDMACallback(NULL);
     stop_track();

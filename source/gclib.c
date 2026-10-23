@@ -26,6 +26,7 @@ typedef struct {
     u16 runs;                                /* v45 : nombre de lancements depuis GC-MP3 */
     u32 last;                                /* v45 : dernier lancement (secondes) */
     u32 play;                                /* v73 : temps de jeu mesure par Resident (secondes) */
+    u8 fav;                                  /* v76 : jeu favori (remonte en haut de la liste) */
 } gcg_t;
 /* v28 : 6 facons d'afficher les jeux (R / L pour changer) */
 enum { GLV_GRID, GLV_CAROUSEL, GLV_LIST, GLV_WALL, GLV_SHOW, GLV_SHELF, GLV_COUNT };
@@ -38,6 +39,8 @@ static void gl_load_big(int k);
 /* v46 : cheats du jeu k : -1 = pas de fichier de cheats, sinon nombre de cheats actives */
 static int gl_cheats_on(int k);
 static void gl_stats_load(void);
+static void gl_fav_load(void);
+static void gl_fav_save(void);
 static void gl_apply_sort(void);
 static int ld_ready(void);
 static gcg_t *gl = NULL;
@@ -337,6 +340,7 @@ static void gl_scan_full(int force) {
     for (int k = 0; k < gl_n; k++) { gl[k].post = (s16)swpk_find(&gl_post, gl[k].id); gl[k].still = (s16)swpk_find(&gl_still, gl[k].id); }
     if (!cached) gl_list_save();
     gl_stats_load();                                     /* v45 : lancements, puis tri choisi */
+    gl_fav_load();                                        /* v76 : favoris */
     gl_apply_sort();
     gl_busy[0] = 0;
     gl_scanned = 1;
@@ -364,6 +368,34 @@ static int gl_cheats_on(int k) {
 }
 /* ---------- v45 : lancements (SD:/gc-mp3/jeux_stats.txt : ID|disque|nombre|date) et tri ---------- */
 #define GL_STATS GCD "/jeux_stats.txt"
+#define GL_FAV   GCD "/jeux-favoris.txt"
+/* v76 : jeux favoris (une ligne "id|disc" par jeu) */
+static void gl_fav_load(void) {
+    for (int k = 0; k < gl_n; k++) gl[k].fav = 0;
+    long n = 0;
+    char *d = (char *)read_file(GL_FAV, 16 * 1024, &n);
+    if (!d) return;
+    char *t = (char *)realloc(d, n + 1);
+    if (!t) { free(d); return; }
+    t[n] = 0;
+    for (char *l = t; l && *l; ) {
+        char *e = strchr(l, '\n');
+        if (e) *e = 0;
+        char id[8] = ""; int disc = 0;
+        if (sscanf(l, "%6[^|]|%d", id, &disc) >= 1)
+            for (int k = 0; k < gl_n; k++) if (!strcmp(gl[k].id, id) && gl[k].disc == disc) gl[k].fav = 1;
+        l = e ? e + 1 : NULL;
+    }
+    free(t);
+}
+static void gl_fav_save(void) {
+    if (!sd_ok) return;
+    mkdir(GCD, 0777);
+    FILE *f = fopen(GL_FAV, "wb");
+    if (!f) return;
+    for (int k = 0; k < gl_n; k++) if (gl[k].fav) fprintf(f, "%s|%d\n", gl[k].id, gl[k].disc);
+    fclose(f);
+}
 static void gl_stats_load(void) {
     for (int k = 0; k < gl_n; k++) { gl[k].runs = 0; gl[k].last = 0; gl[k].play = 0; }
     long n = 0;
@@ -432,6 +464,7 @@ static void gl_stats_add_play(const char *id6, u32 sec) {
 }
 static int gl_cmp_key(const void *a, const void *b) {
     const gcg_t *x = (const gcg_t *)a, *y = (const gcg_t *)b;
+    if (x->fav != y->fav) return y->fav - x->fav;                   /* v76 : favoris en haut */
     if (x->key != y->key) return x->key < y->key ? -1 : 1;
     return gl_cmp(a, b);
 }
@@ -662,6 +695,12 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         if ((down & PAD_BUTTON_Y) && gl_n) indigo_game_open(gl[gl_sel].id, gl[gl_sel].title);   /* v35 : reglages du jeu */
         if ((down & PAD_BUTTON_A) && gl_n) gl_launch_sel = gl_sel;
         if ((down & PAD_TRIGGER_R) && gl_n) nat_run(gl_sel);          /* v50 : analyse native (natif.c) */
+        if ((down & PAD_TRIGGER_L) && gl_n) {                         /* v76 : favori */
+            gl[gl_sel].fav = !gl[gl_sel].fav;
+            gl_note(gl[gl_sel].fav ? "Ajout\xC3\xA9 aux favoris" : "Retir\xC3\xA9 des favoris");
+            gl_fav_save();
+            gl_apply_sort();
+        }
         if (down & PAD_BUTTON_B) gl_detail = 0;
         return;
     }
@@ -1056,6 +1095,8 @@ static void draw_gclib_main(void) {
         snprintf(buf, sizeof(buf), "%s   %s%s%s%s", g->id, TR(reg), reg[0] ? "   " : "", sz, g->ciso ? "   CISO" : "");
         gx_text1(F_SMALL, rx, y + 4, buf, RGBA(255, 210, 120, 255));
         if (g->disc) { snprintf(buf, sizeof(buf), "Disque %d", g->disc + 1); gx_text_r(F_SMALL, 614, y + 4, buf, RGBA(255, 210, 120, 255)); }
+        if (g->fav) { draw_star1(rx + 7, 120, 7.0f, RGBA(255, 210, 90, 255)); gx_text1(F_SMALL, rx + 18, 124, TR("Favori  (L)"), RGBA(255, 210, 90, 255)); }   /* v76 */
+        else gx_text1(F_SMALL, rx, 124, TR("L : ajouter aux favoris"), RGBA(130, 118, 180, 255));
         text_display(g->path, d, sizeof(d));
         fit_text(F_SMALL, d, rw, buf, sizeof(buf));
         gx_text1(F_SMALL, rx, y + 22, buf, RGBA(150, 135, 210, 255));

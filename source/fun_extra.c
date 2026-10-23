@@ -994,12 +994,17 @@ static void draw_wake(void) {
         gx_rrect_fill(250, 408, 140.0f * alarm_fade / 256, 4, 2, RGBA(255, 230, 160, 230), RGBA(255, 230, 160, 230));
         gx_text_c(F_SMALL, 320, 428, "le son monte doucement", RGBA(255, 240, 220, 200));
     }
-    fun_footer("A : garder la musique     B : arr\xC3\xAAter le r\xC3\xA9veil     Y : pause");
+    fun_footer("A : garder     X : +10 min     B : arr\xC3\xAAter     Y : pause");
 }
 
 static void wake_input(u32 down) {
+    if (down & PAD_BUTTON_X) {                            /* v76 : report (+10 min) */
+        stop_track(); stop_station(); alarm_t0 = 0; alarm_fade = 256;
+        alarm_snooze_at = now_ms() + 10 * 60000;
+        fun_mode = FUN_OFF; return;
+    }
     if (down & (PAD_BUTTON_A | PAD_BUTTON_START)) { fun_mode = FUN_OFF; return; }
-    if (down & PAD_BUTTON_B) { stop_track(); stop_station(); alarm_t0 = 0; alarm_fade = 256; fun_mode = FUN_OFF; return; }
+    if (down & PAD_BUTTON_B) { stop_track(); stop_station(); alarm_t0 = 0; alarm_fade = 256; alarm_snooze_at = 0; fun_mode = FUN_OFF; return; }
     if (down & PAD_BUTTON_Y) {
         if (src == SRC_FILE && playing) paused = !paused;
         else if (src == SRC_RADIO) muted = !muted;

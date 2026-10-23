@@ -14,6 +14,9 @@ static char city[64] = "";                  /* reglage : ville */
 static char news_url[256] = NEWS_DEFAULT;   /* reglage : flux des actualites */
 static int alarm_on = 0, alarm_min = 7 * 60;   /* reveil : heure en minutes */
 static int alarm_src = 0;                   /* 0 = musique au hasard, 1.. = station */
+/* alarm_days declare dans main.c : 0 = tous les jours, 1 = semaine (lun-ven), 2 = week-end */
+static const char *const alarm_days_names[3] = { "tous les jours", "du lundi au vendredi", "le week-end" };
+static u64 alarm_snooze_at = 0;             /* v76 : report (+10 min) */
 static int alarm_fired_day = -1;
 static int alarm_fade = 256;                /* volume qui monte au reveil */
 static u64 alarm_t0 = 0;
@@ -191,19 +194,20 @@ static void infos_enter(void) { if (!city[0]) inf_sel = 0; }
 
 /* lignes de l'onglet : 0 ville, 1 reveil, 2 ce que joue le reveil, puis les actualites */
 static void infos_input(u32 down, u32 nav, int fire) {
-    int rows = 3 + nnews;
+    int rows = 4 + nnews;
     if (fire && (nav & PAD_BUTTON_DOWN)) inf_sel = (inf_sel + 1) % rows;
     if (fire && (nav & PAD_BUTTON_UP)) inf_sel = (inf_sel + rows - 1) % rows;
     int lr = (fire && (nav & PAD_BUTTON_RIGHT)) ? 1 : (fire && (nav & PAD_BUTTON_LEFT)) ? -1 : 0;
     if (inf_sel == 1 && lr) { alarm_min = (alarm_min + lr * 5 + 1440) % 1440; alarm_on = 1; settings_dirty = 1; }
-    if (inf_sel == 2 && lr) { alarm_src = (alarm_src + lr + nstations + 1) % (nstations + 1); settings_dirty = 1; }
+    if (inf_sel == 2 && lr) { alarm_days = (alarm_days + lr + 3) % 3; settings_dirty = 1; }
+    if (inf_sel == 3 && lr) { alarm_src = (alarm_src + lr + nstations + 1) % (nstations + 1); settings_dirty = 1; }
     if (down & PAD_BUTTON_A) {
         if (inf_sel == 0) kb_start(KB_CITY, city, -1, -1);
         else if (inf_sel == 1) { alarm_on = !alarm_on; settings_dirty = 1; }
-        else if (inf_sel >= 3 && inf_sel - 3 < nnews && news_link[inf_sel - 3][0]) {   /* l'article dans l'onglet WEB */
+        else if (inf_sel >= 4 && inf_sel - 4 < nnews && news_link[inf_sel - 4][0]) {   /* l'article dans l'onglet WEB */
             tab = TAB_WEB;
             web_enter_tab();
-            web_fetch(news_link[inf_sel - 3], NAV_PUSH, 0);
+            web_fetch(news_link[inf_sel - 4], NAV_PUSH, 0);
         }
     }
     if (down & PAD_BUTTON_X) { meteo_t = news_t = 0; inf_note("Actualisation..."); }
@@ -211,6 +215,7 @@ static void infos_input(u32 down, u32 nav, int fire) {
 }
 
 /* reveil : a l'heure choisie, une fois par jour */
+static void alarm_fire(void);
 static void alarm_check(void) {
     if (alarm_t0) {                                       /* volume qui monte tout doucement (3 min) */
         u64 dt = now_ms() - alarm_t0;
@@ -218,12 +223,19 @@ static void alarm_check(void) {
         alarm_fade = 8 + (int)(248.0f * x * x);
         if (dt >= 180000) { alarm_t0 = 0; alarm_fade = 256; }
     }
+    if (alarm_snooze_at && now_ms() >= alarm_snooze_at) { alarm_snooze_at = 0; alarm_fire(); return; }   /* v76 : report */
     if (!alarm_on) return;
     time_t now = time(NULL);
     struct tm *tm = localtime(&now);
     if (!tm || tm->tm_year < 100) return;
     if (tm->tm_hour * 60 + tm->tm_min != alarm_min || tm->tm_yday == alarm_fired_day) return;
+    int wd = tm->tm_wday;                                   /* 0 = dimanche */
+    int weekend = (wd == 0 || wd == 6);
+    if ((alarm_days == 1 && weekend) || (alarm_days == 2 && !weekend)) { alarm_fired_day = tm->tm_yday; return; }   /* pas aujourd'hui */
     alarm_fired_day = tm->tm_yday;
+    alarm_fire();
+}
+static void alarm_fire(void) {
     saver_on = 0;
     party_on = 0;
     last_input_ms = now_ms();
@@ -329,8 +341,8 @@ static void draw_tab_infos(void) {
     /* reglages et actualites, a droite */
     gx_rect(306, 120, 1, 270, RGBA(76, 52, 150, 200));
     const f32 rx = 318, rw = 296;
-    for (int i = 0; i < 3 + nnews; i++) {
-        f32 ry = i < 3 ? 118 + i * 24 : 216 + (i - 3) * 21;
+    for (int i = 0; i < 4 + nnews; i++) {
+        f32 ry = i < 4 ? 118 + i * 24 : 216 + (i - 4) * 21;
         if (ry > 382) break;
         int on = (i == inf_sel);
         gp_zone(rx - 6, ry + 1, rw + 6, 21, &inf_sel, i, GPZ_SEL);
@@ -338,18 +350,19 @@ static void draw_tab_infos(void) {
         col_t c = on ? RGBA(255, 255, 255, 255) : RGBA(210, 200, 240, 255);
         if (i == 0) snprintf(buf, sizeof(buf), "Ville : %s", city[0] ? city : "(choisir)");
         else if (i == 1) { if (alarm_on) snprintf(buf, sizeof(buf), "R\xC3\xA9veil : %02d:%02d", alarm_min / 60, alarm_min % 60); else snprintf(buf, sizeof(buf), "R\xC3\xA9veil : non"); }
-        else if (i == 2) snprintf(buf, sizeof(buf), "Le r\xC3\xA9veil joue : %s", alarm_src > 0 && alarm_src <= nstations ? stations[alarm_src - 1].name : TR("ma musique (al\xC3\xA9" "atoire)"));
+        else if (i == 2) snprintf(buf, sizeof(buf), "Jours : %s", TR(alarm_days_names[alarm_days % 3]));
+        else if (i == 3) snprintf(buf, sizeof(buf), "Le r\xC3\xA9veil joue : %s", alarm_src > 0 && alarm_src <= nstations ? stations[alarm_src - 1].name : TR("ma musique (al\xC3\xA9" "atoire)"));
         else {
-            text_display(news_title[i - 3], d, sizeof(d));
+            text_display(news_title[i - 4], d, sizeof(d));
             fit_text(F_SMALL, d, (int)rw - 46, buf, sizeof(buf));
             gx_text1(F_SMALL, rx + 40, ry + 15, buf, c);
-            gx_text1(F_SMALL, rx, ry + 15, news_time[i - 3], on ? c : RGBA(150, 135, 210, 255));
+            gx_text1(F_SMALL, rx, ry + 15, news_time[i - 4], on ? c : RGBA(150, 135, 210, 255));
             continue;
         }
         text_display(buf, d, sizeof(d));
         fit_text(F_MED, d, (int)rw, buf, sizeof(buf));
         gx_text1(F_MED, rx, ry + 17, buf, c);
-        if (on && (i == 1 || i == 2)) {
+        if (on && (i == 1 || i == 2 || i == 3)) {
             gx_tri(rx + rw - 18, ry + 6, rx + rw - 18, ry + 16, rx + rw - 12, ry + 11, RGBA(255, 255, 255, 200));
             gx_tri(rx + rw - 24, ry + 6, rx + rw - 24, ry + 16, rx + rw - 30, ry + 11, RGBA(255, 255, 255, 200));
         }

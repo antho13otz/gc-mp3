@@ -11,9 +11,10 @@
 #define GRID_ROWS   3
 #define SLIDE_MS    6000
 
-typedef struct { char path[NAME_LEN]; u8 video; u8 bad; } pfile_t;
+typedef struct { char path[NAME_LEN]; u8 video; u8 bad; u32 date; } pfile_t;
 static pfile_t *pf = NULL;
 static int npf = -1, pf_sel = 0, pf_top = 0;
+static int pf_sort = 0;                     /* v76 : 0 = par nom, 1 = par date (recentes d'abord) */
 static int pv_mode = 0;                     /* 0 = vignettes, 1 = plein ecran, 2 = video */
 static int pv_slide = 0;
 static u64 pv_slide_t = 0;
@@ -51,8 +52,16 @@ static void pf_scan_dir(const char *dir, int depth, int video) {
         int n = snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
         if (n <= 0 || n >= (int)sizeof(path)) continue;
         const char *dot = strrchr(e->d_name, '.');
-        if (!video && img_ext(e->d_name)) { snprintf(pf[npf].path, NAME_LEN, "%s", path); pf[npf].video = 0; pf[npf].bad = 0; npf++; }
-        else if (video && dot && !strcasecmp(dot, ".avi")) { snprintf(pf[npf].path, NAME_LEN, "%s", path); pf[npf].video = 1; pf[npf].bad = 0; npf++; }
+        int add = 0;
+        if (!video && img_ext(e->d_name)) { pf[npf].video = 0; add = 1; }
+        else if (video && dot && !strcasecmp(dot, ".avi")) { pf[npf].video = 1; add = 1; }
+        if (add) {
+            snprintf(pf[npf].path, NAME_LEN, "%s", path);
+            pf[npf].bad = 0;
+            struct stat sb;
+            pf[npf].date = (stat(path, &sb) == 0 && sb.st_mtime > 1) ? (u32)sb.st_mtime : 0;
+            npf++;
+        }
         else if (depth < 2 && is_dir(path, e)) pf_scan_dir(path, depth + 1, video);
         if ((npf & 15) == 0) service_audio();
     }
@@ -62,6 +71,7 @@ static void pf_scan_dir(const char *dir, int depth, int video) {
 static int pf_cmp(const void *a, const void *b) {
     const pfile_t *x = (const pfile_t *)a, *y = (const pfile_t *)b;
     if (x->video != y->video) return y->video - x->video;           /* videos en premier */
+    if (pf_sort == 1 && x->date != y->date) return x->date < y->date ? 1 : -1;   /* v76 : recentes d'abord */
     return strcasecmp(x->path, y->path);
 }
 
@@ -512,6 +522,14 @@ static void photo_input(u32 down, u32 nav, int fire) {
     }
     if ((down & PAD_BUTTON_A) && npf > 0) pv_open(pf_sel);
     if (down & PAD_BUTTON_X) photo_rescan();
+    if ((down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) && npf > 0) {   /* v76 : trier par nom / par date */
+        char keep[NAME_LEN];
+        snprintf(keep, sizeof(keep), "%s", pf[pf_sel >= 0 && pf_sel < npf ? pf_sel : 0].path);
+        pf_sort ^= 1;
+        qsort(pf, npf, sizeof(pfile_t), pf_cmp);
+        thumbs_clear();
+        for (int f = 0; f < npf; f++) if (!strcmp(pf[f].path, keep)) { pf_sel = f; break; }
+    }
     if ((down & PAD_BUTTON_Y) && npf > 0) { pv_open(pf_sel); if (pv_mode == 1) pv_slide = 1; }
 }
 
@@ -584,6 +602,10 @@ static void draw_tab_photo(void) {
             fit_text(F_SMALL, d, TH_W, buf, sizeof(buf));
             gx_text1(F_SMALL, x, y + TH_H - 6, buf, on ? RGBA(255, 255, 255, 255) : RGBA(190, 180, 235, 255));
         }
+    }
+    if (npf > 0) {
+        snprintf(buf, sizeof(buf), "L / R : tri %s", pf_sort ? TR("par date") : TR("par nom"));
+        gx_text_r(F_SMALL, 614, 99, buf, RGBA(150, 135, 210, 255));
     }
     static const char *const k[] = { "A", "Y", "X" };
     static const char *const l[] = { "OUVRIR", "DIAPORAMA", "ACTUALISER" };
