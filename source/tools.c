@@ -8,7 +8,14 @@
 // Chaque outil s'ouvre en fenetre par-dessus l'ecran (tl_screen).
 
 static void indigo_game_open(const char *id, const char *title);
-enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO };
+enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST };   /* v73 : cartes virtuelles, historique radio */
+static void vc_open(void);
+static void vc_input(u32 down, u32 nav, int fire);
+static void draw_vcard(void);
+static void rh_input(u32 down, u32 nav, int fire);
+static void draw_rhist(void);
+static int bk_save(char *msg, int cap);
+static int bk_restore(char *msg, int cap);
 static int tl_screen = TL_NONE;
 static char tl_msg[200];
 static u64 tl_msg_t = 0;
@@ -1053,6 +1060,8 @@ static void tools_input(u32 down, u32 nav, int fire) {
     case TL_APPS: ap_input(down, nav, fire); break;
     case TL_RECENT: rc_input(down, nav, fire); break;
     case TL_INFO: info_input(down, nav, fire); break;
+    case TL_VCARD: vc_input(down, nav, fire); break;
+    case TL_RHIST: rh_input(down, nav, fire); break;
     }
 }
 static void draw_tools(void) {
@@ -1061,24 +1070,41 @@ static void draw_tools(void) {
     case TL_APPS: draw_apps(); break;
     case TL_RECENT: draw_recent(); break;
     case TL_INFO: draw_info(); break;
+    case TL_VCARD: draw_vcard(); break;
+    case TL_RHIST: draw_rhist(); break;
     }
 }
 
 /* ---------- section "Outils" de la page Reglages ---------- */
-enum { TO_RECENT, TO_GAMES, TO_CHEATS, TO_INFO, TO_COUNT };   /* (v57 : plus de "Quitter vers Swiss" : Z au demarrage) */
+enum { TO_RECENT, TO_GAMES, TO_CHEATS, TO_VCARD, TO_BACKUP, TO_RESTORE, TO_INFO, TO_COUNT };   /* (v57 : plus de "Quitter vers Swiss" : Z au demarrage) */
 #define TO_SWISS (-1)
 static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s",
-    "Mes jeux, applis et cartes m\xC3\xA9moire", "Cheats (\xC3\xA9" "diteur)", "Infos console" };
+    "Mes jeux, applis et cartes m\xC3\xA9moire", "Cheats (\xC3\xA9" "diteur)", "Cartes m\xC3\xA9moire virtuelles (Resident)",
+    "Sauvegarder tous les r\xC3\xA9glages", "Restaurer les r\xC3\xA9glages", "Infos console" };
 static const char *const to_help[TO_COUNT] = {
     "Relancer un jeu en un clic.",
     "Onglet JEUX / APPS. Dans la fiche d'un jeu : Y = r\xC3\xA9glages du jeu.",
     "Modifier et activer les cheats de tes jeux (dossier swiss/cheats).",
+    "Plusieurs cartes, sauvegardes copi\xC3\xA9" "es depuis / vers la SD et la vraie carte.",
+    "R\xC3\xA9glages, radios, favoris, listes, podcasts... dans SD:/gc-mp3-sauvegarde.txt",
+    "Remet les r\xC3\xA9glages de SD:/gc-mp3-sauvegarde.txt (A deux fois pour confirmer).",
     "Version, vid\xC3\xA9o, m\xC3\xA9moire, carte SD, r\xC3\xA9seau." };
 static int to_sel = 0;
 static void tools_menu_input(u32 down, u32 nav, int fire) {
     if (fire && (nav & PAD_BUTTON_DOWN)) to_sel = (to_sel + 1) % TO_COUNT;
     if (fire && (nav & PAD_BUTTON_UP)) to_sel = (to_sel + TO_COUNT - 1) % TO_COUNT;
+    static int to_confirm = 0;
+    if (nav) to_confirm = 0;
     if (!(down & PAD_BUTTON_A)) return;
+    if (to_sel == TO_BACKUP || to_sel == TO_RESTORE) {           /* v73 : sans quitter les reglages */
+        char m[200];
+        if (to_sel == TO_RESTORE && !to_confirm) { to_confirm = 1; lib_note("A encore une fois : les r\xC3\xA9glages actuels seront remplac\xC3\xA9s"); return; }
+        to_confirm = 0;
+        ui_status(to_sel == TO_BACKUP ? "Sauvegarde des r\xC3\xA9glages..." : "Restauration des r\xC3\xA9glages...");
+        if (to_sel == TO_BACKUP) bk_save(m, sizeof(m)); else bk_restore(m, sizeof(m));
+        lib_note(m);
+        return;
+    }
     menu_open = 0;
     if (settings_dirty) save_settings();
     crumb("outils : %d", to_sel);
@@ -1087,6 +1113,7 @@ static void tools_menu_input(u32 down, u32 nav, int fire) {
     case TO_INFO: info_open(); break;
     case TO_GAMES: tab = TAB_GAMES; tab_enter(TAB_GAMES); gm_sel = GM_COUNT; break;
     case TO_CHEATS: cheats_open(); break;
+    case TO_VCARD: vc_open(); break;
     case TO_SWISS: {
         ui_status("Lancement de Swiss...");
         const char *e = gl_boot_swiss(NULL);                   /* (ne revient pas si ca marche) */

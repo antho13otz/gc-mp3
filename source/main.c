@@ -149,6 +149,14 @@ static int gl_view;                                     /* gclib.c : affichage d
 static int gl_anim = 1;                                 /* v45 : animations de JEUX / APPS */
 static int gapless_on = 1;                              /* v72 : enchainement sans blanc (meme album / dossier) */
 static int radio_resume = 1;                            /* v72 : la derniere radio reprend au demarrage */
+/* v73 : nouveautes (extras73.c, inclus a la fin) */
+static int x73_setting(const char *k, const char *v);
+static void x73_save(FILE *f);
+static void x73_menu_value(int i, char *out, int cap);
+static void x73_menu_change(int i, int d);
+static void x73_pump(void);
+static void rh_open(void);
+static void saver_tableau(float t);
 static char radio_last_url[URL_MAX], radio_last_name[48];
 static int nat_card = 1;                                /* v65 : carte memoire virtuelle (slot A) pour Resident */
 static int nat_igr = 1;                                 /* v59 : A+Z+START dans Resident (natif.c) ; v63 : de nouveau actif (lecture H + L : la manette marche) */
@@ -407,6 +415,8 @@ static void dma_cb(void) {
 }
 
 static int audio_mono = 0;                   /* v34 : son de la console en mono (reglage Indigo / SRAM) */
+static volatile u32 ts_rate_q8, ts_credit;   /* v73 : podcasts plus rapides (plus bas) */
+static u32 ts_frac = 0;
 static void fill_buf(int idx) {
     s16 *d = dmabuf[idx];
     s16 *vz = vizbuf[idx];
@@ -420,7 +430,8 @@ static void fill_buf(int idx) {
             f_head = (f_head + 1) % FIFO_SIZE;
             f_count--;
             if (consumed_skip) consumed_skip--;     /* fin du morceau precedent (fondu) */
-            else consumed++;
+            else if (ts_rate_q8 == 256) consumed++;
+            else { ts_frac += ts_rate_q8; consumed += ts_frac >> 8; ts_frac &= 255; }   /* v73 : podcast plus rapide */
         }
         if (i < VIZ_BLK) vz[i] = (s16)(((int)l + (int)r) / 2);
         if (audio_mono) { s16 m = (s16)(((int)l + (int)r) / 2); l = r = m; }
@@ -433,6 +444,7 @@ static void fill_buf(int idx) {
         d[2 * i] = l;
         d[2 * i + 1] = r;
     }
+    if (ts_credit && live) { consumed += ts_credit; ts_credit = 0; }   /* (blancs sautes) */
     blk_pos[idx] = c0; blk_cnt[idx] = consumed - c0;
     DCFlushRange(d, DMA_BYTES);
 }
@@ -668,15 +680,20 @@ static void cbuf_append(const unsigned char *d, int n) {
 static float rg_gain = 1.0f;                 /* volume egalise (ReplayGain) du morceau en cours */
 static int eq_bass = 0, eq_treble = 0;       /* egaliseur : graves / aigus en dB (-12..+12) */
 static int eq_mid = 0;                       /* mediums (voix), en cloche autour de 1,2 kHz */
+static int eq_lowmid = 0, eq_pres = 0;       /* v73 : bas-mediums (350 Hz) et presence (4 kHz) : egaliseur 5 bandes */
 static int eq_preset = 0;                    /* reglage tout pret (0 = personnalise) */
 static int eq_on = 0;
-static float eq_c[3][5];                     /* filtres : graves, aigus (plateau), mediums (cloche) : b0 b1 b2 a1 a2 */
-static float eq_s[3][2][4];                  /* [filtre][voie] : x1 x2 y1 y2 */
-#define EQ_PRESETS 10
-static const char *const eq_names[EQ_PRESETS] = { "Personnalis\xC3\xA9", "Plat", "Rap", "Rock", "Pop", "Basses", "Voix", "\xC3\x89lectro", "Classique", "Jazz" };
-static const char *const eq_keys[EQ_PRESETS] = { "perso", "plat", "rap", "rock", "pop", "basses", "voix", "electro", "classique", "jazz" };
-static const s8 eq_vals[EQ_PRESETS][3] = {   /* graves, mediums, aigus */
-    { 0, 0, 0 }, { 0, 0, 0 }, { 8, -1, 2 }, { 5, -2, 4 }, { 2, 2, 3 }, { 10, 0, 0 }, { -3, 4, 2 }, { 6, -2, 5 }, { 0, 0, 3 }, { 3, 1, 2 } };
+static float eq_c[5][5];                     /* filtres : graves, aigus (plateau), mediums, bas-mediums, presence (cloche) : b0 b1 b2 a1 a2 */
+static float eq_s[5][2][4];                  /* [filtre][voie] : x1 x2 y1 y2 */
+#define EQ_PRESETS 16
+static const char *const eq_names[EQ_PRESETS] = { "Personnalis\xC3\xA9", "Plat", "Rap", "Rock", "Pop", "Basses", "Voix", "\xC3\x89lectro", "Classique", "Jazz",
+                                                  "M\xC3\xA9tal", "Reggae", "Acoustique", "Soir\xC3\xA9" "e", "R&B / Soul", "Petit volume" };
+static const char *const eq_keys[EQ_PRESETS] = { "perso", "plat", "rap", "rock", "pop", "basses", "voix", "electro", "classique", "jazz",
+                                                 "metal", "reggae", "acoustique", "soiree", "rnb", "petit_volume" };
+static const s8 eq_vals[EQ_PRESETS][5] = {   /* v73 : graves, bas-mediums, mediums, presence, aigus */
+    { 0, 0, 0, 0, 0 }, { 0, 0, 0, 0, 0 }, { 8, 2, -1, 1, 2 }, { 5, -1, -2, 3, 4 }, { 2, -1, 2, 3, 3 }, { 10, 3, 0, 0, 0 }, { -3, -1, 4, 3, 1 },
+    { 6, 0, -2, 2, 5 }, { 0, 0, 0, 1, 3 }, { 3, 2, 1, -1, 2 }, { 4, -2, -3, 4, 5 }, { 6, 2, -2, 0, 2 }, { 1, 2, 1, 2, 2 }, { 7, 1, -2, 2, 4 },
+    { 5, 3, 1, 1, 2 }, { 6, 2, 0, 2, 5 } };
 static int xf_sec = 0;                       /* fondu enchaine (secondes, 0 = non) */
 static int xf_request = 0;                   /* longueur du fondu demande pour le prochain morceau */
 static int xf_left = 0, xf_total = 0, xf_pos = 0;   /* zone de la file en cours de melange */
@@ -713,11 +730,17 @@ static void eq_setup(void) {
     if (eq_treble < -12) eq_treble = -12;
     if (eq_treble > 12) eq_treble = 12;
     eq_shelf(eq_c[0], 0, 200.0f, (float)eq_bass);
-    eq_shelf(eq_c[1], 1, 4000.0f, (float)eq_treble);
+    eq_shelf(eq_c[1], 1, 8000.0f, (float)eq_treble);   /* (v73 : 8 kHz, la presence est a 4 kHz) */
     if (eq_mid < -12) eq_mid = -12;
     if (eq_mid > 12) eq_mid = 12;
     eq_peak(eq_c[2], 1200.0f, (float)eq_mid);
-    eq_on = (eq_bass != 0 || eq_treble != 0 || eq_mid != 0);
+    if (eq_lowmid < -12) eq_lowmid = -12;
+    if (eq_lowmid > 12) eq_lowmid = 12;
+    if (eq_pres < -12) eq_pres = -12;
+    if (eq_pres > 12) eq_pres = 12;
+    eq_peak(eq_c[3], 350.0f, (float)eq_lowmid);
+    eq_peak(eq_c[4], 4000.0f, (float)eq_pres);
+    eq_on = (eq_bass != 0 || eq_treble != 0 || eq_mid != 0 || eq_lowmid != 0 || eq_pres != 0);
 }
 
 static inline float eq_run(int f, int ch, float x) {
@@ -763,7 +786,95 @@ static inline void rgm_put(s16 l, s16 r) {
         rgm_acc = 0; rgm_n = 0;
     }
 }
+static int out_put2(s16 l, s16 r);
+/* ---------- v73 : podcasts plus rapides (x1,25 / x1,5) sans voix aigue, et blancs sautes ----------
+   Etirement du temps WSOLA : des morceaux de 32 ms (fenetre de Hann, recouvrement de moitie) sont
+   pris dans le son a la vitesse voulue ; chacun est decale de +-5 ms pour se raccorder au mieux au
+   precedent (correlation), puis additionne : le debit change, pas la hauteur de la voix.
+   Les blancs (plus de 0,25 s sous -42 dB) ne sont plus mis dans la file. La position du morceau
+   (consumed) avance de la vitesse a chaque echantillon entendu, plus ce qui a ete saute. */
+#define TS_N 1536
+#define TS_H (TS_N / 2)
+#define TS_T 240
+#define TS_CAP 16384
+static int ts_want = 0;                      /* 1 = podcast en cours avec vitesse ou blancs (x73_pump) */
+static int ts_speed = 100, ts_sil = 0;       /* reglages : 100 / 125 / 150 %, sauter les blancs */
+static volatile u32 ts_rate_q8 = 256;        /* vitesse du son dans la file (fill_buf), en 1/256 */
+static volatile u32 ts_credit = 0;           /* echantillons de blanc sautes, a ajouter a consumed */
+static s16 ts_L[TS_CAP], ts_R[TS_CAP];
+static u32 ts_base = 0, ts_end = 0;          /* indices absolus : ts_L[0] = ts_base */
+static double ts_pos = 0;                    /* debut nominal du prochain morceau */
+static u32 ts_nat = 0;                       /* suite naturelle du morceau precedent */
+static int ts_first = 1, ts_on = 0, ts_q = 0, ts_qi = 0, ts_quiet = 0;
+static float ts_tail[TS_H][2], ts_win[TS_N];
+static s16 ts_out[TS_H][2];
+static void ts_reset(void) {
+    ts_base = ts_end = 0; ts_pos = 0; ts_nat = 0; ts_first = 1; ts_q = ts_qi = 0;
+    memset(ts_tail, 0, sizeof(ts_tail));
+}
+static inline float ts_m(u32 i) { u32 k = i - ts_base; return (float)ts_L[k] + (float)ts_R[k]; }
+static void ts_step(void) {
+    if (ts_win[TS_H] == 0.0f) for (int i = 0; i < TS_N; i++) ts_win[i] = 0.5f - 0.5f * cosf(2.0f * PI_F * i / TS_N);
+    u32 s = (u32)ts_pos;
+    if (!ts_first) {                                      /* meilleur raccord avec la suite du precedent */
+        double best = -1e30;
+        int bd = 0;
+        u32 lo = s >= ts_base + TS_T ? s - TS_T : ts_base;
+        for (u32 c = lo; c <= s + TS_T; c += 3) {
+            float xy = 0, xx = 1.0f;
+            for (int j = 0; j < TS_H; j += 6) { float a = ts_m(c + j), b = ts_m(ts_nat + j); xy += a * b; xx += a * a; }
+            double sc = xy / sqrtf(xx);
+            if (sc > best) { best = sc; bd = (int)(c - s); }
+        }
+        s = (u32)((int)s + bd);
+    }
+    for (int i = 0; i < TS_H; i++) {
+        u32 k = s + i - ts_base, k2 = k + TS_H;
+        float w = ts_win[i], w2 = ts_win[i + TS_H];
+        ts_out[i][0] = clamp16(ts_tail[i][0] + ts_L[k] * w);
+        ts_out[i][1] = clamp16(ts_tail[i][1] + ts_R[k] * w);
+        ts_tail[i][0] = ts_L[k2] * w2; ts_tail[i][1] = ts_R[k2] * w2;
+    }
+    ts_first = 0;
+    ts_nat = s + TS_H;
+    ts_pos += TS_H * ts_speed / 100.0;
+    ts_q = TS_H; ts_qi = 0;
+    u32 keep = (u32)ts_pos > ts_base + TS_T ? (u32)ts_pos - TS_T : ts_base;   /* ce qui ne sert plus */
+    if (ts_nat < keep) keep = ts_nat;
+    if (keep > ts_base + TS_CAP / 2) {
+        u32 d = keep - ts_base;
+        memmove(ts_L, ts_L + d, (ts_end - keep) * sizeof(s16));
+        memmove(ts_R, ts_R + d, (ts_end - keep) * sizeof(s16));
+        ts_base = keep;
+    }
+}
 static int out_put(s16 l, s16 r) {
+    if (!ts_want) {
+        if (ts_on) { ts_on = 0; ts_reset(); ts_rate_q8 = 256; }
+        return out_put2(l, r);
+    }
+    if (!ts_on) { ts_on = 1; ts_reset(); ts_quiet = 0; }
+    while (ts_q > 0) {                                    /* d'abord ce qui attend */
+        if (!out_put2(ts_out[ts_qi][0], ts_out[ts_qi][1])) return 0;
+        ts_qi++; ts_q--;
+    }
+    if (ts_sil) {                                         /* blancs */
+        int a = l < 0 ? -l : l, b = r < 0 ? -r : r;
+        if ((a > b ? a : b) < 260) ts_quiet++; else ts_quiet = 0;
+        if (ts_quiet > 12000) { ts_credit++; return 1; }
+    }
+    ts_rate_q8 = (u32)(ts_speed * 256 / 100);
+    if (ts_speed == 100) return out_put2(l, r);
+    if (ts_end - ts_base >= TS_CAP) ts_reset();          /* (ne devrait pas arriver) */
+    ts_L[ts_end - ts_base] = l; ts_R[ts_end - ts_base] = r; ts_end++;
+    if (ts_end >= (u32)ts_pos + TS_T + TS_N && ts_end >= ts_nat + TS_H + TS_T) ts_step();
+    while (ts_q > 0) {
+        if (!out_put2(ts_out[ts_qi][0], ts_out[ts_qi][1])) break;
+        ts_qi++; ts_q--;
+    }
+    return 1;
+}
+static int out_put2(s16 l, s16 r) {
     if (rgm_on) rgm_put(l, r);
     if (rg_gain != 1.0f || eq_on) {
         float fl = (float)l * rg_gain, fr = (float)r * rg_gain;
@@ -771,6 +882,8 @@ static int out_put(s16 l, s16 r) {
             fl = eq_run(1, 0, eq_run(0, 0, fl));
             fr = eq_run(1, 1, eq_run(0, 1, fr));
             if (eq_mid) { fl = eq_run(2, 0, fl); fr = eq_run(2, 1, fr); }
+            if (eq_lowmid) { fl = eq_run(3, 0, fl); fr = eq_run(3, 1, fr); }
+            if (eq_pres) { fl = eq_run(4, 0, fl); fr = eq_run(4, 1, fr); }
         }
         l = clamp16(fl);
         r = clamp16(fr);
@@ -3974,13 +4087,13 @@ static int has_word(const char *v, const char *w) {
 static const char *const party_names[PARTY_STYLES] = { "Pulsation", "Barres", "Tunnel", "Spectrogramme" };
 static void party_start(void);
 static int saver_min = 5;                   /* economiseur d'ecran (minutes, 0 = jamais) */
-enum { SV_SPECTRE, SV_POCHETTE, SV_HORLOGE, SV_ETOILES, SV_PHOTOS, SV_NOIR, SV_AQUARIUM, SV_SPECTRO, SV_COUNT };
+enum { SV_SPECTRE, SV_POCHETTE, SV_HORLOGE, SV_ETOILES, SV_PHOTOS, SV_NOIR, SV_AQUARIUM, SV_SPECTRO, SV_TABLEAU, SV_COUNT };
 static int saver_style = SV_SPECTRE;        /* ce qu'affiche l'economiseur */
 static int sleep_min = 0;                   /* minuterie : arret apres N minutes (0 = non) */
 static u64 sleep_at = 0;
-static const char *const saver_keys[SV_COUNT] = { "spectre", "pochette", "horloge", "etoiles", "photos", "noir", "aquarium", "spectrogramme" };
+static const char *const saver_keys[SV_COUNT] = { "spectre", "pochette", "horloge", "etoiles", "photos", "noir", "aquarium", "spectrogramme", "horloge_meteo" };
 static const char *const saver_names[SV_COUNT] = { "Spectre", "Pochette", "Horloge", "\xC3\x89toiles",
-                                                   "Photos (sd:/ecran)", "\xC3\x89" "cran noir", "Aquarium", "Spectrogramme" };
+                                                   "Photos (sd:/ecran)", "\xC3\x89" "cran noir", "Aquarium", "Spectrogramme", "Horloge + m\xC3\xA9t\xC3\xA9o + pochette" };
 static int video_pref = VID_AUTO;
 static int vid_active = VID_480I;           /* mode vraiment utilise depuis le demarrage */
 static int tv_crt = 0;                      /* v22 : tele cathodique (480i, 4:3) */
@@ -4105,6 +4218,9 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "graves")) eq_bass = atoi(v);
         else if (!strcasecmp(k, "aigus")) eq_treble = atoi(v);
         else if (!strcasecmp(k, "mediums")) eq_mid = atoi(v);
+        else if (!strcasecmp(k, "bas_mediums")) eq_lowmid = atoi(v);
+        else if (!strcasecmp(k, "presence")) eq_pres = atoi(v);
+        else if (x73_setting(k, v)) { }                  /* v73 : podcasts, enregistrement programme, cartes virtuelles... */
         else if (!strcasecmp(k, "egaliseur")) { eq_preset = 0; for (int i = 0; i < EQ_PRESETS; i++) if (!strcasecmp(v, eq_keys[i])) eq_preset = i; }
         else if (!strcasecmp(k, "fondu")) { xf_sec = atoi(v); if (xf_sec < 0) xf_sec = 0; if (xf_sec > 8) xf_sec = 8; }
         else if (!strcasecmp(k, "volume_egalise")) rg_mode = !strncasecmp(v, "album", 5) ? 2 : (!strncasecmp(v, "morceau", 7) || !strncasecmp(v, "oui", 3)) ? 1 : 0;
@@ -4272,6 +4388,8 @@ static void save_settings(void) {
     fprintf(f, "# La derniere radio ecoutee reprend au demarrage : oui / non\nradio_reprise = %s\nradio_derniere = %s\nradio_derniere_nom = %s\n",
             radio_resume ? "oui" : "non", radio_last_url, radio_last_name);
     fprintf(f, "# Morceaux d'un meme album (dossier) enchaines sans blanc : oui / non\nenchainement_sans_blanc = %s\n", gapless_on ? "oui" : "non");
+    fprintf(f, "# Egaliseur 5 bandes (v73) : bas-mediums (350 Hz) et presence (4 kHz), en dB\nbas_mediums = %d\npresence = %d\n", eq_lowmid, eq_pres);
+    x73_save(f);
     fclose(f);
 }
 
@@ -5147,6 +5265,7 @@ static void begin_frame(void) {
 
 // ---------- Interface GC-Radio ----------
 static int sel_station = 0;
+#define RS_N 3                                     /* v73 : lignes speciales en haut de la liste RADIO (recherche, populaires, historique) */
 static char conn_msg[160];
 
 static void cover_for_station(int idx) {
@@ -10201,7 +10320,7 @@ static int radio_fav_has(const char *url) {
 static void radio_fav_sort(void) {                       /* favorites d'abord (ordre garde), station en cours suivie */
     static station_t tmp[MAX_STATIONS];
     static u8 tf[MAX_STATIONS];
-    int n = 0, cur = cur_station, ncur = cur, sel = sel_station - 2, nsel = sel;
+    int n = 0, cur = cur_station, ncur = cur, sel = sel_station - RS_N, nsel = sel;
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < nstations; i++) if (st_fav[i] == (pass == 0)) {
             if (i == cur) ncur = n;
@@ -10210,7 +10329,7 @@ static void radio_fav_sort(void) {                       /* favorites d'abord (o
         }
     memcpy(stations, tmp, sizeof(station_t) * n); memcpy(st_fav, tf, n);
     if (cur >= 0 && cur < nstations) cur_station = ncur;
-    if (sel >= 0 && sel < nstations && !rb_mode) sel_station = nsel + 2;
+    if (sel >= 0 && sel < nstations && !rb_mode) sel_station = nsel + RS_N;
 }
 static void radio_fav_load(void) {
     memset(st_fav, 0, sizeof(st_fav));
@@ -10349,7 +10468,7 @@ static void radio_resume_pump(void) {
 }
 
 /* lignes de la liste RADIO : 2 raccourcis + les stations, ou "retour" + les resultats */
-static int radio_rows(void) { return rb_mode ? 1 + rb_n : 2 + nstations; }
+static int radio_rows(void) { return rb_mode ? 1 + rb_n : RS_N + nstations; }
 
 static void radio_activate(void) {
     int r = sel_station;
@@ -10359,6 +10478,7 @@ static void radio_activate(void) {
         return;
     }
     if (r == 0) { kb_start(KB_RADIO, "", -1, -1); return; }
+    if (r == 2) { rh_open(); return; }                       /* v73 : historique des titres */
     if (r == 1) {
         char q[32], t[96];
         snprintf(q, sizeof(q), "countrycode=%s", lang_country());
@@ -10366,7 +10486,7 @@ static void radio_activate(void) {
         rb_search(q, t);
         return;
     }
-    start_station(r - 2, 0);
+    start_station(r - RS_N, 0);
 }
 
 static void draw_list_radio(void) {
@@ -10399,12 +10519,13 @@ static void draw_list_radio(void) {
         char nm[64];
 
         /* lignes speciales */
-        if ((rb_mode && r == 0) || (!rb_mode && r < 2)) {
+        if ((rb_mode && r == 0) || (!rb_mode && r < RS_N)) {
             char popl[96];
             snprintf(popl, sizeof(popl), "Les plus \xC3\xA9" "cout\xC3\xA9" "es %s", lang_country_name());
-            const char *lab = rb_mode ? rb_title : (r == 0 ? "Rechercher une radio..." : popl);
+            const char *lab = rb_mode ? rb_title : (r == 0 ? "Rechercher une radio..." : r == 2 ? "Titres pass\xC3\xA9s (historique)" : popl);
             if (rb_mode) gx_tri(38, cy - 6, 38, cy + 6, 30, cy, ic);
             else if (r == 0) { gx_ring(34, cy - 1.5f, 3.5f, 5.2f, ic); gx_poly4(37, cy + 2, 39, cy + 1, 42, cy + 5, 40, cy + 6, ic, ic, ic, ic); }
+            else if (r == 2) { gx_ring(36, cy, 5.0f, 6.6f, ic); gx_rect(35.4f, cy - 4, 1.4f, 4.4f, ic); gx_rect(35.4f, cy - 0.4f, 4, 1.4f, ic); }
             else { gx_tri(36, cy - 7, 31, cy + 5, 41, cy + 5, ic); }
             fit_text(F_MED, lab, 196, nm, sizeof(nm));
             gx_text1(F_MED, 50, cy + 5, nm, is_sel ? txt : RGBA(190, 160, 255, 255));
@@ -10421,7 +10542,7 @@ static void draw_list_radio(void) {
             if (res->kbps > 0) snprintf(t, sizeof(t), "%s%s %d", res->hls ? "HLS " : "", cn, res->kbps);
             else snprintf(t, sizeof(t), "%s%s", res->hls ? "HLS " : "", cn);
         } else {
-            int k = r - 2;
+            int k = r - RS_N;
             name = stations[k].name;
             is_cur = (k == cur_station && state != ST_IDLE && src == SRC_RADIO);
             if (st_fav[k]) t[0] = 0; else snprintf(t, sizeof(t), "%02d", k + 1);
@@ -10433,7 +10554,7 @@ static void draw_list_radio(void) {
             gx_text_r(F_SMALL, is_cur ? 236 : 256, cy + 4, t, dim);
             name_w = (is_cur ? 236 : 256) - text_width(F_SMALL, t, 0) - 8 - 50;
         } else {
-            if (st_fav[r - 2]) draw_star(60, cy, 7, is_sel ? RGBA(255, 230, 120, 255) : RGBA(255, 205, 80, 255));
+            if (st_fav[r - RS_N]) draw_star(60, cy, 7, is_sel ? RGBA(255, 230, 120, 255) : RGBA(255, 205, 80, 255));
             else gx_text1(F_SMALL, 50, cy + 4, t, dim);
             name_w = (is_cur ? 228 : 256) - 76;
         }
@@ -10485,8 +10606,8 @@ static void draw_list_radio(void) {
 }
 
 // ---------- Menu (START) : reglages et Quitter ----------
-enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PERF, MI_LAUNCHER, MI_UPDATE, MI_QUIT, MI_COUNT };
+enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_RECAT, MI_RECLEN, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PERF, MI_LAUNCHER, MI_UPDATE, MI_QUIT, MI_COUNT };
 static int autostart_get(void);
 static const char *autostart_set(int on);
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
@@ -10526,6 +10647,9 @@ static void menu_value(int i, char *out, int cap) {
     case MI_EQ:      snprintf(out, cap, "%s", eq_names[eq_preset]); break;
     case MI_BASS:    if (eq_bass) snprintf(out, cap, "%+d dB", eq_bass); else snprintf(out, cap, "0"); break;
     case MI_MID:     if (eq_mid) snprintf(out, cap, "%+d dB", eq_mid); else snprintf(out, cap, "0"); break;
+    case MI_LOWMID:  if (eq_lowmid) snprintf(out, cap, "%+d dB", eq_lowmid); else snprintf(out, cap, "0"); break;
+    case MI_PRES:    if (eq_pres) snprintf(out, cap, "%+d dB", eq_pres); else snprintf(out, cap, "0"); break;
+    case MI_PODSPEED: case MI_PODSIL: case MI_RECAT: case MI_RECLEN: x73_menu_value(i, out, cap); break;
     case MI_TREBLE:  if (eq_treble) snprintf(out, cap, "%+d dB", eq_treble); else snprintf(out, cap, "0"); break;
     case MI_LYRICS:  snprintf(out, cap, "%s", lyrics_auto ? "Oui" : "Non"); break;
     case MI_PODAUTO: snprintf(out, cap, "%s", pod_auto ? "T\xC3\xA9l\xC3\xA9" "charg\xC3\xA9s tout seuls" : "Non"); break;
@@ -10598,11 +10722,11 @@ static void menu_value(int i, char *out, int cap) {
 
 static const char *const menu_labels[MI_COUNT] = {
     "Lecture al\xC3\xA9" "atoire", "R\xC3\xA9p\xC3\xA9tition", "Fondu encha\xC3\xAEn\xC3\xA9", "Liste MUSIQUE", "Volume",
-    "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "M\xC3\xA9" "diums", "Aigus", "Style de l'interface", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran", "D\xC3\xA9" "cor de saison",
-    "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
+    "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "Bas-m\xC3\xA9" "diums", "M\xC3\xA9" "diums", "Pr\xC3\xA9sence", "Aigus", "Style de l'interface", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran", "D\xC3\xA9" "cor de saison",
+    "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts", "Vitesse des podcasts", "Podcasts : sauter les silences",
     "Reprendre au d\xC3\xA9marrage", "Reprendre la radio au d\xC3\xA9marrage", "Encha\xC3\xAEnement sans blanc", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
     "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Animations (jeux / applis)", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre", "Couleurs du spectrogramme", "Paroles dans le lecteur", "\xC3\x89" "clair sur les basses",
-    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer la console sur GC Station", "Retour en jeu (A+Z+START)", "A+Z+START (Resident)", "Carte m\xC3\xA9moire virtuelle (Resident)", "Mesure de fluidit\xC3\xA9", "Lanceur de jeux", "Mise \xC3\xA0 jour", "Quitter GC Station" };
+    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "Retour en jeu (A+Z+START)", "A+Z+START (Resident)", "Carte m\xC3\xA9moire virtuelle (Resident)", "Mesure de fluidit\xC3\xA9", "Lanceur de jeux", "Mise \xC3\xA0 jour", "Quitter GC Station" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -10637,10 +10761,13 @@ static void menu_change(int i, int d) {
     case MI_RG:      rg_mode = (rg_mode + d + 3) % 3; break;   /* pris en compte au morceau suivant */
     case MI_EQ:
         eq_preset = (eq_preset + d + EQ_PRESETS) % EQ_PRESETS;
-        if (eq_preset) { eq_bass = eq_vals[eq_preset][0]; eq_mid = eq_vals[eq_preset][1]; eq_treble = eq_vals[eq_preset][2]; }
+        if (eq_preset) { eq_bass = eq_vals[eq_preset][0]; eq_lowmid = eq_vals[eq_preset][1]; eq_mid = eq_vals[eq_preset][2]; eq_pres = eq_vals[eq_preset][3]; eq_treble = eq_vals[eq_preset][4]; }
         eq_setup();
         break;
     case MI_MID:     eq_mid += 2 * d; eq_preset = 0; eq_setup(); break;
+    case MI_LOWMID:  eq_lowmid += 2 * d; eq_preset = 0; eq_setup(); break;
+    case MI_PRES:    eq_pres += 2 * d; eq_preset = 0; eq_setup(); break;
+    case MI_PODSPEED: case MI_PODSIL: case MI_RECAT: case MI_RECLEN: x73_menu_change(i, d); break;
     case MI_BASS:    eq_bass += 2 * d; eq_preset = 0; eq_setup(); break;
     case MI_TREBLE:  eq_treble += 2 * d; eq_preset = 0; eq_setup(); break;
     case MI_LYRICS:  lyrics_auto = !lyrics_auto; if (lyrics_auto) net_start_async(); break;
@@ -10880,8 +11007,13 @@ static void draw_menu(void) {
     if (menu_sel == MI_IGR) hint = igr_hint();
     if (menu_sel == MI_GAPLESS) hint = "Les morceaux d'un m\xC3\xAAme album s'encha\xC3\xAEnent sans silence (albums live, mixes)";
     if (menu_sel == MI_RADIORES) hint = "La derni\xC3\xA8re radio \xC3\xA9" "cout\xC3\xA9" "e repart toute seule (si rien d'autre ne joue)";
+    if (menu_sel == MI_PODSPEED) hint = "Plus rapide sans voix aigu\xC3\xAB (podcasts seulement)";
+    if (menu_sel == MI_PODSIL) hint = "Les blancs de plus d'un quart de seconde sont saut\xC3\xA9s (podcasts seulement)";
+    if (menu_sel == MI_RECAT) hint = "\xC3\x80 cette heure, la radio choisie est lanc\xC3\xA9" "e et enregistr\xC3\xA9" "e (SD:/gc-mp3/radio/enregistrements)";
+    if (menu_sel == MI_RECLEN) hint = "La radio enregistr\xC3\xA9" "e est celle qui joue quand tu r\xC3\xA8gles l'heure";
+    if (menu_sel == MI_LOWMID || menu_sel == MI_PRES) hint = "\xC3\x89galiseur 5 bandes : graves, bas-m\xC3\xA9" "diums, m\xC3\xA9" "diums, pr\xC3\xA9sence, aigus";
     if (menu_sel == MI_PERF) hint = "Images/s en haut de l'\xC3\xA9" "cran ; en coupant : rapport SD:/gc-mp3/fluidite.txt";
-    if (menu_sel == MI_NATCARD) hint = "Jeux lanc\xC3\xA9s avec Resident : sauvegardes dans SD:/gc-mp3/resident/carte-A.raw";
+    if (menu_sel == MI_NATCARD) hint = "Jeux lanc\xC3\xA9s avec Resident : sauvegardes dans SD:/gc-mp3/resident (choix : Outils > Cartes virtuelles)";
     if (menu_sel == MI_NATIGR) hint = "Jeux lanc\xC3\xA9s avec Resident (X) : A+Z+START tenus 1 s = retour \xC3\xA0 GC Station";
     if (menu_sel == MI_LAUNCHER) hint = ld_hint();
     if (menu_sel == MI_GLANIM) hint = "D\xC3\xA9" "filement doux, cadre qui glisse, carrousel (onglet JEUX / APPS)";
@@ -11493,6 +11625,7 @@ static void draw_saver(void) {
     case SV_NOIR:     break;
     case SV_AQUARIUM: saver_aquarium(t); break;
     case SV_SPECTRO:  saver_spectro(t); break;
+    case SV_TABLEAU:  saver_tableau(t); break;
     default:          saver_spectre(t); break;
     }
     service_audio();
@@ -11822,7 +11955,7 @@ static void transport_step(int d) {
     else if (src == SRC_RADIO && nstations > 0) {
         int base = (cur_station >= 0 && cur_station < nstations) ? cur_station : (d > 0 ? -1 : 0);
         int nx = (base + d + nstations) % nstations;
-        if (!rb_mode) sel_station = nx + 2;
+        if (!rb_mode) sel_station = nx + RS_N;
         start_station(nx, 0);
     }
 }
@@ -11874,6 +12007,7 @@ static void music_pump(void) {
 #include "igr.c"                               /* v39 : A + Z + START en jeu -> GC-MP3 */
 #include "lanceur.c"                           /* v44 : lanceur de jeux GC-MP3 (moteur Swiss) */
 #include "natif.c"                             /* v50 : lanceur natif GC Station, etape 1 : analyse */
+#include "extras73.c"                          /* v73 : podcasts plus rapides, historique radio, cartes virtuelles... */
 
 int main(int argc, char **argv) {
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;
@@ -12076,7 +12210,7 @@ int main(int argc, char **argv) {
             else if (!rb_mode) {                                  /* v72 : X court : garder le titre ; X maintenu : radio favorite */
                 static u64 x_t0 = 0; static int x_armed = 0;
                 if (down & PAD_BUTTON_X) { x_t0 = now; x_armed = 1; }
-                if (x_armed && (held & PAD_BUTTON_X) && now - x_t0 > 600) { x_armed = 0; if (sel_station >= 2) radio_fav_toggle(sel_station - 2); }
+                if (x_armed && (held & PAD_BUTTON_X) && now - x_t0 > 600) { x_armed = 0; if (sel_station >= RS_N) radio_fav_toggle(sel_station - RS_N); }
                 if (x_armed && !(held & PAD_BUTTON_X)) { x_armed = 0; radio_title_keep(); }   /* garder le titre qui passe */
             }
             if (down & PAD_BUTTON_Y) {
@@ -12108,7 +12242,7 @@ int main(int argc, char **argv) {
         if (!in_game) {
             PF(PH_MISC, igr_pump(); ld_pump());
         }
-        PF(PH_MISC, night_pump(); rb_pump(); stats_pump());
+        PF(PH_MISC, night_pump(); rb_pump(); stats_pump(); x73_pump());
         if (!in_game) {
             PF(PH_LIB, lib_pump(); bib_pump(); ramfs_pump());
             PF(PH_PHOTO, photo_pump());

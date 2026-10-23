@@ -479,6 +479,123 @@ static void tp_send_cover(s32 c) {
     free(b);
 }
 
+/* ---------- v73 : fichiers de la carte SD et jeux, depuis le telephone ----------
+   Les chemins voyagent en hexadecimal (les noms de la carte ne sont pas toujours en UTF-8) ;
+   on entre dans un dossier par son numero dans la liste : rien ne sort de la carte SD. */
+static void x73_json_raw(sbuf_t *s, const char *t) {          /* (texte deja en UTF-8, sans traduction) */
+    char e[8];
+    sb_add(s, "\"");
+    for (const unsigned char *p = (const unsigned char *)t; *p; p++) {
+        if (*p == '"' || *p == '\\') { e[0] = '\\'; e[1] = (char)*p; e[2] = 0; sb_add(s, e); }
+        else if (*p < 0x20) { snprintf(e, sizeof(e), "\\u%04x", *p); sb_add(s, e); }
+        else { e[0] = (char)*p; e[1] = 0; sb_add(s, e); }
+    }
+    sb_add(s, "\"");
+}
+static int tp_param(const char *q, const char *key, char *out, int cap);
+static char *x73_gj = NULL;                              /* JSON des jeux (construit par la boucle : extras73.c) */
+static volatile int x73_gj_want = 0, x73_gj_ready = 0;
+static volatile int x73_launch_k = -1, x73_launch_m = 0;
+static void tp_hex_enc(const char *s, char *o, int cap) {
+    static const char hx[] = "0123456789abcdef";
+    int n = 0;
+    for (const unsigned char *p = (const unsigned char *)s; *p && n + 2 < cap; p++) { o[n++] = hx[*p >> 4]; o[n++] = hx[*p & 15]; }
+    o[n] = 0;
+}
+static int tp_hex_dec(const char *h, char *o, int cap) {
+    int n = 0;
+    for (; h[0] && h[1]; h += 2) {
+        int a = isdigit((unsigned char)h[0]) ? h[0] - '0' : (tolower((unsigned char)h[0]) - 'a' + 10);
+        int b = isdigit((unsigned char)h[1]) ? h[1] - '0' : (tolower((unsigned char)h[1]) - 'a' + 10);
+        if (a < 0 || a > 15 || b < 0 || b > 15 || n >= cap - 1) return 0;
+        o[n++] = (char)(a * 16 + b);
+    }
+    o[n] = 0;
+    return 1;
+}
+typedef struct { char *name; u8 dir; long size; } tpf_t;
+static int tpf_cmp(const void *a, const void *b) {
+    const tpf_t *x = (const tpf_t *)a, *y = (const tpf_t *)b;
+    if (x->dir != y->dir) return y->dir - x->dir;
+    return strcasecmp(x->name, y->name);
+}
+/* liste d'un dossier de la carte SD (dossiers d'abord) ; retourne le nombre */
+static int tp_list_dir(const char *dir, tpf_t **out) {
+    *out = NULL;
+    int sl = (int)strlen(SD_ROOT);
+    if (strncmp(dir, SD_ROOT, sl) || (dir[sl] && dir[sl] != '/') || strstr(dir, "/..")) return -1;
+    char od[NAME_LEN + 4];
+    snprintf(od, sizeof(od), "%s%s", dir, dir[sl] ? "" : "/");
+    DIR *d = opendir(od);
+    if (!d) return -1;
+    int n = 0, cap = 64;
+    tpf_t *v = (tpf_t *)malloc(cap * sizeof(tpf_t));
+    struct dirent *e;
+    while (v && (e = readdir(d)) != NULL && n < 3000) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        if (n == cap) { tpf_t *nv = (tpf_t *)realloc(v, cap * 2 * sizeof(tpf_t)); if (!nv) break; v = nv; cap *= 2; }
+        char p[NAME_LEN + 260];
+        snprintf(p, sizeof(p), "%s/%s", dir, e->d_name);
+        struct stat st;
+        int isd = 0; long sz = 0;
+        if (stat(p, &st) == 0) { isd = S_ISDIR(st.st_mode); sz = (long)st.st_size; }
+        v[n].name = strdup(e->d_name); v[n].dir = (u8)isd; v[n].size = sz;
+        if (v[n].name) n++;
+    }
+    closedir(d);
+    if (v) qsort(v, n, sizeof(tpf_t), tpf_cmp);
+    *out = v;
+    return v ? n : -1;
+}
+static void tp_free_list(tpf_t *v, int n) { for (int i = 0; i < n; i++) free(v[i].name); free(v); }
+/* chemin d'apres h (dossier, en hexadecimal) et i (numero d'une entree, ou absent) */
+static int tp_fs_path(const char *q, char *out, int cap, int *isdir) {
+    char h[2 * NAME_LEN + 4], is[16], dir[NAME_LEN];
+    tp_param(q, "h", h, sizeof(h));
+    tp_param(q, "i", is, sizeof(is));
+    if (!h[0]) snprintf(dir, sizeof(dir), "%s", SD_ROOT);
+    else if (!tp_hex_dec(h, dir, sizeof(dir))) return 0;
+    if (!is[0]) { snprintf(out, cap, "%s", dir); *isdir = 1; return 1; }
+    tpf_t *v; int n = tp_list_dir(dir, &v), i = atoi(is), ok = 0;
+    if (n > 0 && i >= 0 && i < n && (int)(strlen(dir) + strlen(v[i].name) + 2) < cap) { snprintf(out, cap, "%s/%s", dir, v[i].name); *isdir = v[i].dir; ok = 1; }
+    if (n >= 0) tp_free_list(v, n);
+    return ok;
+}
+static void tp_send_files(s32 c, const char *q) {
+    char dir[NAME_LEN], hx[2 * NAME_LEN + 4], d[NAME_LEN * 2];
+    int isdir = 0;
+    if (!tp_fs_path(q, dir, sizeof(dir), &isdir) || !isdir) { tp_reply(c, 400, "application/json", "{}", 2); return; }
+    tpf_t *v; int n = tp_list_dir(dir, &v);
+    if (n < 0) { tp_reply(c, 404, "application/json", "{}", 2); return; }
+    sbuf_t s = { NULL, 0, 0 };
+    text_display(dir, d, sizeof(d));
+    sb_add(&s, "{\"d\":"); x73_json_raw(&s, d);
+    tp_hex_enc(dir, hx, sizeof(hx));
+    sb_add(&s, ",\"h\":\""); sb_add(&s, hx); sb_add(&s, "\",\"uh\":");
+    int sl = (int)strlen(SD_ROOT);
+    if (dir[sl]) {                                         /* dossier parent */
+        char up[NAME_LEN];
+        snprintf(up, sizeof(up), "%s", dir);
+        char *k = strrchr(up, '/');
+        if (k && k - up >= sl) *k = 0;
+        tp_hex_enc(up, hx, sizeof(hx));
+        sb_add(&s, "\""); sb_add(&s, hx); sb_add(&s, "\"");
+    } else sb_add(&s, "null");
+    sb_add(&s, ",\"e\":[");
+    for (int i = 0; i < n; i++) {
+        char m[48];
+        if (i) sb_add(&s, ",");
+        text_display(v[i].name, d, sizeof(d));
+        sb_add(&s, "["); x73_json_raw(&s, d);
+        snprintf(m, sizeof(m), ",%d,%ld]", v[i].dir, v[i].size);
+        sb_add(&s, m);
+    }
+    sb_add(&s, "]}");
+    tp_free_list(v, n);
+    tp_reply(c, 200, "application/json", s.b ? s.b : "{}", s.b ? (int)strlen(s.b) : 2);
+    free(s.b);
+}
+
 static void tp_update_free(void) {
     struct statvfs sv;
     if (sd_ok && statvfs(SD_ROOT "/", &sv) == 0)
@@ -723,6 +840,28 @@ static void tp_handle(s32 c) {
             tp_set_busy = 1;
             tp_push(PC_SET, 0);
         } else ok = 0;
+        tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
+    }
+    else if (!strcmp(target, "/api/files")) tp_send_files(c, q ? q : "");      /* v73 : fichiers de la carte SD */
+    else if (!strcmp(target, "/api/get")) {
+        char p[NAME_LEN];
+        int isdir = 1;
+        if (tp_fs_path(q ? q : "", p, sizeof(p), &isdir) && !isdir) sh_send_file(c, p, 0, (char *)req);
+        else tp_reply(c, 404, "text/plain", "", 0);
+    }
+    else if (!strcmp(target, "/api/games")) {                /* v73 : jeux GameCube (liste faite par la boucle) */
+        x73_gj_ready = 0; x73_gj_want = 1;
+        for (int k = 0; k < 400 && !x73_gj_ready; k++) usleep(20000);
+        char *t = x73_gj_ready && x73_gj ? strdup(x73_gj) : NULL;
+        if (t) { tp_reply(c, 200, "application/json", t, (int)strlen(t)); free(t); }
+        else tp_reply(c, 503, "application/json", "[]", 2);
+    }
+    else if (!strcmp(target, "/api/launch")) {               /* v73 : lancer un jeu (m=1 : Resident) */
+        char is[16], ms[8];
+        tp_param(q ? q : "", "i", is, sizeof(is));
+        tp_param(q ? q : "", "m", ms, sizeof(ms));
+        int ok = is[0] && atoi(is) >= 0;
+        if (ok) { x73_launch_m = atoi(ms) == 1; x73_launch_k = atoi(is); }
         tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
     }
     else if (!strcmp(target, "/api/cmd")) {

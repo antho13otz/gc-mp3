@@ -25,6 +25,7 @@ typedef struct {
     long key;                                /* v45 : cle de tri */
     u16 runs;                                /* v45 : nombre de lancements depuis GC-MP3 */
     u32 last;                                /* v45 : dernier lancement (secondes) */
+    u32 play;                                /* v73 : temps de jeu mesure par Resident (secondes) */
 } gcg_t;
 /* v28 : 6 facons d'afficher les jeux (R / L pour changer) */
 enum { GLV_GRID, GLV_CAROUSEL, GLV_LIST, GLV_WALL, GLV_SHOW, GLV_SHELF, GLV_COUNT };
@@ -363,7 +364,7 @@ static int gl_cheats_on(int k) {
 /* ---------- v45 : lancements (SD:/gc-mp3/jeux_stats.txt : ID|disque|nombre|date) et tri ---------- */
 #define GL_STATS GCD "/jeux_stats.txt"
 static void gl_stats_load(void) {
-    for (int k = 0; k < gl_n; k++) { gl[k].runs = 0; gl[k].last = 0; }
+    for (int k = 0; k < gl_n; k++) { gl[k].runs = 0; gl[k].last = 0; gl[k].play = 0; }
     long n = 0;
     char *d = (char *)read_file(GL_STATS, 64 * 1024, &n);
     if (!d) return;
@@ -373,10 +374,10 @@ static void gl_stats_load(void) {
     for (char *l = t; l && *l; ) {
         char *e = strchr(l, '\n');
         if (e) *e = 0;
-        char id[8] = ""; int disc = 0; unsigned runs = 0, last = 0;
-        if (sscanf(l, "%6[^|]|%d|%u|%u", id, &disc, &runs, &last) == 4)
+        char id[8] = ""; int disc = 0; unsigned runs = 0, last = 0, play = 0;
+        if (sscanf(l, "%6[^|]|%d|%u|%u|%u", id, &disc, &runs, &last, &play) >= 4)
             for (int k = 0; k < gl_n; k++)
-                if (!strcmp(gl[k].id, id) && gl[k].disc == disc) { gl[k].runs = (u16)(runs > 65535 ? 65535 : runs); gl[k].last = last; }
+                if (!strcmp(gl[k].id, id) && gl[k].disc == disc) { gl[k].runs = (u16)(runs > 65535 ? 65535 : runs); gl[k].last = last; gl[k].play = play; }
         l = e ? e + 1 : NULL;
     }
     free(t);
@@ -390,7 +391,7 @@ static void gl_stats_bump(int k) {
     mkdir(GCD, 0777);
     FILE *f = fopen(GL_STATS ".tmp", "wb");
     if (!f) { free(d); return; }
-    fprintf(f, "%s|%d|%u|%u\n", gl[k].id, gl[k].disc, (unsigned)gl[k].runs, (unsigned)gl[k].last);
+    fprintf(f, "%s|%d|%u|%u|%u\n", gl[k].id, gl[k].disc, (unsigned)gl[k].runs, (unsigned)gl[k].last, (unsigned)gl[k].play);
     char me[16];
     snprintf(me, sizeof(me), "%s|%d|", gl[k].id, gl[k].disc);
     for (long i = 0; d && i < n; ) {                     /* les autres jeux, tels quels */
@@ -401,6 +402,32 @@ static void gl_stats_bump(int k) {
     }
     free(d);
     if (fclose(f) == 0) { remove(GL_STATS); rename(GL_STATS ".tmp", GL_STATS); }
+}
+/* v73 : temps de jeu (Resident : images comptees pendant le jeu), ajoute par l'identifiant du jeu,
+   meme si la liste des jeux n'est pas encore lue (au demarrage) */
+static void gl_stats_add_play(const char *id6, u32 sec) {
+    if (!sd_ok || !id6[0] || !sec) return;
+    long n = 0;
+    char *d = (char *)read_file(GL_STATS, 64 * 1024, &n);
+    mkdir(GCD, 0777);
+    FILE *f = fopen(GL_STATS ".tmp", "wb");
+    if (!f) { free(d); return; }
+    int found = 0;
+    for (long i = 0; d && i < n; ) {
+        long s = i;
+        while (i < n && d[i] != '\n') i++;
+        char l[96]; long ln = i - s < 95 ? i - s : 95;
+        memcpy(l, d + s, ln); l[ln] = 0;
+        char id[8] = ""; int disc = 0; unsigned runs = 0, last = 0, play = 0;
+        if (!found && sscanf(l, "%6[^|]|%d|%u|%u|%u", id, &disc, &runs, &last, &play) >= 4 && !strcmp(id, id6)) {
+            fprintf(f, "%s|%d|%u|%u|%u\n", id, disc, runs, last, play + sec); found = 1;
+        } else if (ln > 0) { fwrite(d + s, 1, i - s, f); fputc('\n', f); }
+        i++;
+    }
+    if (!found) fprintf(f, "%s|0|1|%u|%u\n", id6, (unsigned)time(NULL), (unsigned)sec);
+    free(d);
+    if (fclose(f) == 0) { remove(GL_STATS); rename(GL_STATS ".tmp", GL_STATS); }
+    for (int k = 0; k < gl_n; k++) if (!strcmp(gl[k].id, id6)) { gl[k].play += sec; break; }
 }
 static int gl_cmp_key(const void *a, const void *b) {
     const gcg_t *x = (const gcg_t *)a, *y = (const gcg_t *)b;
@@ -1051,6 +1078,11 @@ static void draw_gclib_main(void) {
             struct tm *tm = g->last ? localtime(&lt) : NULL;
             if (tm) snprintf(buf, sizeof(buf), "%s %u   %s %02d/%02d/%04d", TR("Lanc\xC3\xA9 :"), (unsigned)g->runs, TR("dernier :"), tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900);
             else snprintf(buf, sizeof(buf), "%s %u", TR("Lanc\xC3\xA9 :"), (unsigned)g->runs);
+            if (g->play >= 60) {                               /* v73 : temps de jeu (Resident) */
+                size_t bl = strlen(buf);
+                if (g->play >= 3600) snprintf(buf + bl, sizeof(buf) - bl, "   %s %u h %02u", TR("jou\xC3\xA9 :"), (unsigned)(g->play / 3600), (unsigned)(g->play / 60 % 60));
+                else snprintf(buf + bl, sizeof(buf) - bl, "   %s %u min", TR("jou\xC3\xA9 :"), (unsigned)(g->play / 60));
+            }
             gx_text1(F_SMALL, has_st ? rx + 186 : rx, 380, buf, RGBA(170, 155, 225, 255));
         }
         scr_viewport();

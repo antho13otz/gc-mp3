@@ -576,6 +576,14 @@ static void nat_journal_convert(void) {
         if (lt) { fprintf(f, "\n---------- dernier-lancement.txt ----------\n"); fwrite(lt, 1, ll, f); free(lt); }
         fclose(f);
     }
+#ifndef NATIF_BENCH
+    if (be32(d + 4) >= 3 && be32(d + 0x90)) {             /* v73 : temps de jeu (images comptees par Resident) */
+        long ll = 0;
+        char *lt = (char *)read_file(NA_LOG, 16384, &ll), id[8] = "";
+        if (lt) { char *p = strstr(lt, "Jeu : "); if (p && ll > (p - lt) + 12) { memcpy(id, p + 6, 6); id[6] = 0; } free(lt); }
+        if (id[0] && id[5]) gl_stats_add_play(id, be32(d + 0x90) / (id[3] == 'P' ? 50u : 60u));
+    }
+#endif
     memset(d, 0, 512);                                    /* (traduit : on ne le refait pas au prochain demarrage) */
     FILE *b = fopen(NA_JBIN, "r+b");
     if (b) { fwrite(d, 1, 512, b); fclose(b); }
@@ -1064,7 +1072,13 @@ static void nat_ret_prep(void) {
    (2 Mo, 251 blocs, vide : le jeu propose alors de formater la carte, comme une carte neuve).
    Une image de carte deja faite (Dolphin, GCMM : 59 a 2043 blocs) peut aussi etre posee la. */
 #define NA_CARD_DIR  GCD "/resident"
-#define NA_CARD      NA_CARD_DIR "/carte-A.raw"
+static char vc_active[64] = "carte-A.raw";                /* v73 : carte choisie (Outils > Cartes virtuelles) */
+static const char *na_card_file(int part) {
+    static char p[2][160];
+    snprintf(p[part], sizeof(p[0]), NA_CARD_DIR "/%s%s", vc_active, part ? ".part" : "");
+    return p[part];
+}
+#define NA_CARD      na_card_file(0)
 #define NA_CARD_NEW  (2u << 20)
 static natres_ext_t na_card[NATRES_CARDMAX];
 static u32 na_card_n = 0, na_card_size = 0;
@@ -1079,24 +1093,24 @@ static int nat_card_prep(void) {
         nat_ld("Pr\xC3\xA9paration de la carte m\xC3\xA9moire virtuelle", 12);
         static u8 ff[32768];
         memset(ff, 0xFF, sizeof(ff));
-        FILE *f = fopen(NA_CARD ".part", "wb");
+        FILE *f = fopen(na_card_file(1), "wb");
         int ok = f != NULL;
         for (u32 o = 0; ok && o < NA_CARD_NEW; o += sizeof(ff)) { if (fwrite(ff, 1, sizeof(ff), f) != sizeof(ff)) ok = 0; nat_ld_tick(); service_audio(); }
         if (f && fclose(f) != 0) ok = 0;
-        if (!ok || rename(NA_CARD ".part", NA_CARD) != 0 || stat(NA_CARD, &st) != 0) {
-            remove(NA_CARD ".part"); snprintf(na_card_msg, sizeof(na_card_msg), "creation du fichier impossible"); return 0;
+        if (!ok || rename(na_card_file(1), NA_CARD) != 0 || stat(NA_CARD, &st) != 0) {
+            remove(na_card_file(1)); snprintf(na_card_msg, sizeof(na_card_msg), "creation du fichier impossible"); return 0;
         }
     }
     u32 sz = (u32)st.st_size;
     if (sz < 0x80000u || sz > 0x1000000u || (sz & (sz - 1))) {      /* (on ne touche pas a un fichier inconnu) */
-        snprintf(na_card_msg, sizeof(na_card_msg), "carte-A.raw : taille %u octets, pas une image de carte (512 Ko a 16 Mo)", (unsigned)sz); return 0;
+        snprintf(na_card_msg, sizeof(na_card_msg), "%s : taille %u octets, pas une image de carte (512 Ko a 16 Mo)", vc_active, (unsigned)sz); return 0;
     }
     char e[80];
     if (nat_map(NA_CARD, e, sizeof(e))) { snprintf(na_card_msg, sizeof(na_card_msg), "%s", e); return 0; }
     if (na_next > NATRES_CARDMAX) { snprintf(na_card_msg, sizeof(na_card_msg), "carte-A.raw trop morcele sur la carte SD (%u morceaux)", (unsigned)na_next); return 0; }
     memcpy(na_card, na_ext, na_next * sizeof(natres_ext_t));
     na_card_n = na_next; na_card_size = sz;
-    snprintf(na_card_msg, sizeof(na_card_msg), "active (gc-mp3/resident/carte-A.raw, %u blocs)", (unsigned)(sz / 8192u - 5u));
+    snprintf(na_card_msg, sizeof(na_card_msg), "active (gc-mp3/resident/%s, %u blocs)", vc_active, (unsigned)(sz / 8192u - 5u));
     return 1;
 }
 
@@ -1106,6 +1120,10 @@ static const char *nat_boot(int k) {
     snprintf(nat_ld_title, sizeof(nat_ld_title), "%s", gl[k].title);
     nat_ld_k = k;
     nat_ld("Analyse du jeu", 4);
+#ifndef NATIF_BENCH
+    gl_stats_bump(k);                                      /* v73 : les lancements par Resident comptent aussi */
+    tl_recent_add(gl[k].path);
+#endif
     if (!nat_analyse(gl[k].path, &in)) return in.err;
     if (in.problems) return in.err;
     if (in.fst_max < in.fst_sz || in.fst_max > (4u << 20)) return "FST : taille maximale invalide";
