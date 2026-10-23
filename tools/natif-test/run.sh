@@ -29,7 +29,7 @@ python3 $T/mkiso.py game.text game.iso
 # (v64 : faux .dol de GC Station, pour le retour depuis le jeu)
 clang --target=powerpc-none-eabi -mcpu=750 -c $T/selfdol.s -o selfdol.o && ld.lld -Ttext=0x80004000 -e _start selfdol.o -o selfdol.elf && llvm-objcopy -O binary -j .text selfdol.elf selfdol.text
 python3 -c "import struct,sys; t=open('selfdol.text','rb').read(); t+=b'\0'*(-len(t)%32); h=bytearray(0x100); struct.pack_into('>I',h,0,0x100); struct.pack_into('>I',h,0x48,0x80004000); struct.pack_into('>I',h,0x90,len(t)); struct.pack_into('>I',h,0xE0,0x80004000); open('selfdol.dol','wb').write(bytes(h)+t)"
-python3 $T/mkfat.py 32 game.iso sd.img 1 selfdol.dol >/dev/null
+python3 $T/mkfat.py 32 game.iso sd.img 1 selfdol.dol 2097152 >/dev/null     # (v65 : + la carte memoire virtuelle)
 rm -rf out; mkdir -p out; NATIF_SELF=selfdol.dol NATIF_DUMP=boot.bin ./h2 game.iso sd.img 10 >/dev/null
 python3 $T/emu_e2e.py boot.bin sd.img game.iso | tail -1
 python3 $T/emu_e2e.py boot.bin sd.img game.iso exc | tail -1     # (v60 : plantage du jeu -> journal + redemarrage)

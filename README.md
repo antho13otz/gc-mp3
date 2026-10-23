@@ -21,6 +21,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v66
+- **Paper Mario (écran noir)** : la commande « infos lecteur » du jeu reçoit maintenant la **vraie réponse du lecteur** (date, révision) au lieu d'une réponse inventée. Le journal du jeu dit aussi quelles fonctions du jeu Resident a branchées et si le jeu reste bloqué dans sa fonction d'image (pour trouver la suite si l'écran reste noir).
+- **Nouvel écran de chargement de Resident**, dans le style de GC Station : jaquette du jeu avec halo, panneau arrondi, barre de progression lumineuse, étapes cochées une à une, rappel « A + Z + START = retour à GC Station ».
+- **Carte mémoire virtuelle** pour les jeux lancés avec Resident : le slot A est émulé et les sauvegardes vont dans `SD:/gc-mp3/resident/carte-A.raw` (2 Mo, 251 blocs). Le fichier est créé vide au 1er lancement : le jeu propose alors de formater la carte, comme une carte neuve. Réglage START > « Carte mémoire virtuelle (Resident) ». Le slot B, l'horloge et la SRAM restent les vrais. Si un jeu parle à la carte d'une façon que Resident ne sait pas encore brancher, la carte virtuelle est coupée pour ce jeu (le journal dit pourquoi) et le jeu garde la vraie carte du slot A.
+- **Musique du disque (audio en streaming)** : Resident lit l'ADPCM dans l'ISO, le décode et l'ajoute au son du jeu, au volume et à la fréquence choisis par le jeu (1080° Avalanche, Zelda, F-Zero…).
+- Journal du jeu : blocs de musique décodés, commandes et écritures de la carte virtuelle. Rapport d'analyse : accès EXI (carte mémoire) trouvés et branchés.
+- Banc d'essai : le faux jeu teste aussi la musique du disque et la carte mémoire (accès EXI écrits comme ceux du SDK, adresse calculée pendant le jeu).
+
 ## Nouveautés v64
 - **Écran de chargement de Resident** (style « Minimal ») : nom du jeu, ligne de progression, étape en cours, « GC STATION · RESIDENT ».
 - **A + Z + START (et un plantage) ramènent directement sur GC Station**, sans redémarrer la console : Resident relit le `.dol` de GC Station sur la carte et le lance (avant, le redémarrage passait par le menu de la GameCube).

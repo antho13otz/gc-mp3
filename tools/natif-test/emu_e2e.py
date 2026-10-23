@@ -52,6 +52,9 @@ class Card:
         s.out = r + [0x04]
 card = Card()
 exi = [[0] * 5 for _ in range(3)]
+ai = [0] * 8                                          # v65 : registres AI (0xCC006C00)
+dspr = {}                                             # v65 : registres DSP / DMA du son (0xCC005000, 16 bits)
+bad0 = []                                             # v65 : la vraie carte du slot A ne doit jamais etre choisie
 di_real = [0] * 10
 kicks = []
 
@@ -71,6 +74,7 @@ def io_read(uc, off, size, data):
     if off == 0x438:                                    # SISR : RDST (donnees neuves pas encore prises)
         si_sr[1] += 1
         return si_sr[0] if si_sr[1] <= 20 else 0
+    if 0xC00 <= off < 0xC20: return ai[(off - 0xC00) // 4]
     if off >= 0x800:
         o = off - 0x800; ch, reg = o // 0x14, (o % 0x14) // 4
         return exi[ch][reg] if ch < 3 else 0
@@ -88,9 +92,12 @@ def io_write(uc, off, size, value, data):
             di_real[7] = value & ~1
             di_real[0] |= 0x10 if di_real[2] >> 24 == 0x12 else 0x04
         return
+    if 0xC00 <= off < 0xC20: ai[(off - 0xC00) // 4] = value; return
     if off < 0x800: return
     o = off - 0x800; ch, reg = o // 0x14, (o % 0x14) // 4
     if ch >= 3: return
+    if ch == 0 and reg == 0 and value & 0x80: bad0.append(('CSR', value))
+    if ch == 0 and reg == 3 and value & 1 and exi[0][0] & 0x80: bad0.append(('CR', value))
     exi[ch][reg] = value
     if reg == 0 and ch == CHAN and not (value & (0x80 << DEV)): card.deselect()
     if reg == 3 and (value & 1):
@@ -110,7 +117,12 @@ mu.mem_map(0x80000000, 0x01800000)
 mu.mmio_map(0xCC006000, 0x1000, io_read, None, io_write, None)
 mu.mmio_map(0xCC003000, 0x1000, pi_read, None, pi_write, None)
 mu.mmio_map(0xCC000000, 0x1000, pi_read, None, lambda *a: None, None)      # (CP : ecritures ignorees)
-mu.mmio_map(0xCC005000, 0x1000, pi_read, None, lambda *a: None, None)      # (DSP / DMA du son)
+def dsp_write(uc, off, size, value, data):
+    if size == 2: dspr[off] = value & 0xFFFF
+    elif size == 4: dspr[off] = (value >> 16) & 0xFFFF; dspr[off + 2] = value & 0xFFFF
+def dsp_read(uc, off, size, data):
+    return dspr.get(off, 0) if size == 2 else (dspr.get(off, 0) << 16) | dspr.get(off + 2, 0)
+mu.mmio_map(0xCC005000, 0x1000, dsp_read, None, dsp_write, None)          # (DSP / DMA du son)
 b = open(BOOT, 'rb').read()
 entry, n = struct.unpack_from('>II', b, 0); p = 8
 for i in range(n):
@@ -157,11 +169,53 @@ nolat = all(not (o == 0x40C and n <= 20) for o, n in si_reads) and (EXC or len(s
 print(('OK   ' if nolat else 'FAUX ') + 'manettes : donnees neuves pas touchees (%d lectures SI)' % len(si_reads))
 ok &= nolat
 ok &= struct.unpack('>I', mu.mem_read(0x80001F24, 4))[0] == 0 and struct.unpack('>I', mu.mem_read(0x80001F20, 4))[0] == 0
-ok &= rd(0x4C) == 4 and len(kicks) == 4 + 31 and all(k == 0x12000000 for k in kicks)   # (v61 : + 31 reveils pour les morceaux)
+ok &= rd(0x4C) == 6 and len(kicks) == 6 + 31 and all(k == 0x12000000 for k in kicks)   # (v61 : + 31 reveils pour les morceaux ; v65 : + E1, E2)
+# v65 : musique du disque (ADPCM du disque decode et ajoute au tampon du son)
+def adp(bits, q, h):
+    hist = 0
+    if q >> 4 == 1: hist = h[0] * 0x3c
+    elif q >> 4 == 2: hist = h[0] * 0x73 - h[1] * 0x34
+    elif q >> 4 == 3: hist = h[0] * 0x62 - h[1] * 0x37
+    hist = max(-0x200000, min(0x1fffff, (hist + 0x20) >> 6))
+    b = (bits << 12) & 0xFFFF
+    b = b - 0x10000 if b & 0x8000 else b
+    cur = ((b >> (q & 0xf)) << 6) + hist
+    h[1] = h[0]; h[0] = cur
+    return max(-0x8000, min(0x7fff, cur >> 6))
+pcm = []; hl = [0, 0]; hr = [0, 0]
+for blk in range(6):
+    a = iso[0x10000 + blk * 32:0x10000 + blk * 32 + 32]
+    for i in range(28): pcm.append((adp(a[i + 4] & 0xF, a[0], hl), adp(a[i + 4] >> 4, a[1], hr)))
+want = b''.join(struct.pack('>hh', max(-0x8000, min(0x7fff, (l * 255) >> 8)), max(-0x8000, min(0x7fff, (r * 255) >> 8))) for l, r in pcm[:160])
+got = bytes(mu.mem_read(0x80300000, 0x280))
+dtk = got == want and rd32(0x80001F28) == 1 and rd32(0x80001F08) == 1
+print(('OK   ' if dtk else 'FAUX ') + 'musique du disque : 160 echantillons ajoutes au son (%d identiques), etat E2 = %d, fonction son du jeu %d' % (sum(1 for i in range(0, 0x280, 4) if got[i:i + 4] == want[i:i + 4]), rd32(0x80001F28), rd32(0x80001F08)))
+ok &= dtk
+# v65 : carte memoire virtuelle : ID, ecritures (DMA) et relecture, contenu dans le fichier sur la carte SD
+cn, ct = rd(0xF8), rd(0xFC)
+ext = [struct.unpack('>III', mu.mem_read(ct + i * 12, 12)) for i in range(cn)]
+def csd(sec):
+    for i0, sd, c in ext:
+        if i0 <= sec < i0 + c: return sd + sec - i0
+    return None
+pat = b''.join(struct.pack('>I', 0xA5000000 | (i * 4)) for i in range(32))
+orig = lambda o, n: bytes(((x >> 9) * 7 + x) & 0xFF for x in range(o, o + n))
+exp = pat + orig(0x2080, 0x180)
+exp2 = pat + orig(0x110080, 0x180)
+r1 = bytes(mu.mem_read(0x80410000, 0x200)); r2 = bytes(mu.mem_read(0x80410200, 0x200))
+s1, s2 = csd(0x2000 >> 9), csd(0x110000 >> 9)
+f1 = bytes(disk[s1 * 512:s1 * 512 + 512]) if s1 else b''; f2 = bytes(disk[s2 * 512:s2 * 512 + 512]) if s2 else b''
+mc = rd32(0x80001F2C) == 0x10 and rd32(0x80001F30) & 0x1000 and r1 == exp and r2 == exp2 and f1 == exp and f2 == exp2 and not bad0 and exi[1][4] == 0x5A5A5A5A and cn == 2 and rd(0x48) & 4
+print(('OK   ' if mc else 'FAUX ') + 'carte memoire virtuelle : ID %X, CSR %X, relu %s/%s, fichier %s/%s, %d morceaux, canal 1 reel %X, vraie carte touchee %s' % (
+    rd32(0x80001F2C), rd32(0x80001F30), r1 == exp, r2 == exp2, f1 == exp, f2 == exp2, cn, exi[1][4], bad0[:3]))
+ok &= bool(mc)
+csecs = {csd(0x2000 >> 9), csd(0x110000 >> 9)}
 if card.writes:                                    # v54 : journal du jeu ecrit sur la carte
     js = card.writes[-1]; jb = disk[js * 512:js * 512 + 512]; open('journal.bin', 'wb').write(jb)
     u = lambda o: struct.unpack_from('>I', jb, o)[0]
-    jok = len(set(card.writes)) == 1 and jb[:4] == b'GCSN' and u(0x4C) == 4 and u(0x90) == 3
+    jok = set(card.writes) - csecs == {js} and jb[:4] == b'GCSN' and u(0x4C) == 6 and u(0x90) == 3
+    print('journal : musique %d blocs, %d tampons ; carte %d commandes (derniere %02X), %d ecritures, %d interruptions' % (u(0x108), u(0x10C), u(0x110), u(0x118), u(0x114), u(0x11C)))
+    jok &= u(0x108) == 6 and u(0x10C) == 1 and u(0x110) == 5 and u(0x118) == 0x52 and u(0x114) == 2
     print('lectures en fond : %d (%d morceaux)' % (u(0xD0), u(0xD4)))
     jok &= u(0xD0) == 1 and u(0xD4) == 32                # (0x40000 octets en morceaux de 8 Ko)
     jok &= (u(0xB0) == 0x102 and u(0xB4) == 0x80001234 and u(0xB8) == 0x80005678 and u(0x98) == 0) if EXC else (u(0x98) == 1 and u(0xB0) == 0)

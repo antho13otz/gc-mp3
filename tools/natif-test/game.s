@@ -16,6 +16,10 @@ _start:
     lis 12,dummy_vi@ha
     addi 12,12,dummy_vi@l
     stw 12,0x30A0(11)
+    # v65 : DSP_AI (5) : interruption DMA du son
+    lis 12,dummy_ai@ha
+    addi 12,12,dummy_ai@l
+    stw 12,0x3054(11)
     # v60 : table des exceptions du SDK (0x80003000) : 2 DSI, 3 ISI, 5 alignement, 6 programme
     lis 12,dummy_di@ha
     addi 12,12,dummy_di@l
@@ -72,6 +76,99 @@ _start:
     stw 10,0x1F1C(20)
     stw 30,0x1F20(20)
     stw 31,0x1F24(20)
+    # 9) v65 : musique du disque : E1 (0x10000, 0x400 octets d'ADPCM), etat E2, puis une
+    #    interruption DMA du son : Resident doit ajouter la musique au tampon du jeu
+    li 3,0
+    li 4,0x400
+    lis 5,1
+    lis 6,0xE100
+    bl dvd_cmd
+    li 3,0
+    li 4,0
+    li 5,0
+    lis 6,0xE200
+    bl dvd_cmd
+    lis 9,0xCC00
+    lwz 26,0x6020(9)
+    stw 26,0x1F28(20)
+    li 0,3                  # AICR : PSTAT + 48 kHz (disque), DSP 48 kHz
+    stw 0,0x6C00(9)
+    li 0,0
+    ori 0,0,0xFFFF          # AIVR : volume max
+    stw 0,0x6C04(9)
+    li 0,0x30               # DMA du son : 0x00300000, 0x280 octets (160 echantillons stereo)
+    sth 0,0x5030(9)
+    li 0,0
+    sth 0,0x5032(9)
+    ori 0,0,0x8014
+    sth 0,0x5036(9)
+    lwz 12,0x3054(20)
+    mtctr 12
+    li 3,5
+    li 4,0
+    bctrl
+    # 10) v65 : carte memoire du slot A par les registres EXI, ecrits comme le SDK
+    #     (__EXIRegs[canal * 5 + n] : adresse calculee) ; resultats en 0x80001F2C...
+    lis 9,0xCC00
+    li 0,0
+    stw 0,0x6800(9)         # (comme EXIInit / OSInterrupt : adresse fixe du canal 0)
+    li 3,0
+    bl exi_probe
+    stw 3,0x1F30(20)
+    li 3,0                  # ID : 00 00 puis 4 octets
+    li 4,0xC0
+    bl exi_sel
+    li 3,0
+    li 4,0
+    li 5,1
+    li 6,1
+    bl exi_imm
+    li 3,0
+    li 4,0
+    li 5,3
+    li 6,0
+    bl exi_imm
+    stw 3,0x1F2C(20)
+    li 3,0
+    bl exi_desel
+    lis 10,0x8040           # motif de 128 octets en 0x80400000
+    li 11,0
+    li 12,32
+    mtctr 12
+5:  lis 12,0xA500
+    or 12,12,11
+    stwx 12,10,11
+    addi 11,11,4
+    bdnz 5b
+    lis 3,0xF200            # ecriture : F2 00 10 00 | 00 + DMA de 128 octets -> carte 0x2000
+    ori 3,3,0x1000
+    lis 4,0x0040
+    bl card_prog
+    lis 3,0xF208            # F2 08 80 00 | 00 -> carte 0x110000 (2e morceau du fichier)
+    ori 3,3,0x8000
+    lis 4,0x0040
+    bl card_prog
+    lis 3,0x5200            # lecture : 52 00 10 00 | 00 | 4 octets d'attente + DMA de 512 octets
+    ori 3,3,0x1000
+    lis 4,0x0041
+    bl card_read
+    lis 3,0x5208
+    ori 3,3,0x8000
+    lis 4,0x0041
+    ori 4,4,0x0200
+    bl card_read
+    li 3,1                  # canal 1 (pas la carte) : doit aller au vrai materiel
+    li 4,0
+    bl exi_sel
+    li 3,1
+    lis 4,0x5A5A
+    ori 4,4,0x5A5A
+    li 5,3
+    li 6,1
+    bl exi_imm
+    li 3,1
+    bl exi_desel
+    lis 20,0x8000
     # 7) v57 : 3 images (VI) par la table, puis A+Z+START tenus (SI) : retour a GC Station
     lis 20,0x8000
     li 21,3
@@ -150,6 +247,149 @@ dvd_cmd:
     lis 9,0xCC00
     b 1b
 
+# --- v65 : fonctions EXI, comme celles du SDK (adresse = 0xCC006800 + canal * 0x14) ---
+# exi_sel(r3=canal, r4=CS et horloge)
+exi_sel:
+    mulli 0,3,0x14
+    lis 5,0xCC00
+    addi 5,5,0x6800
+    add 5,5,0
+    lwz 6,0(5)
+    andi. 6,6,0x405
+    or 6,6,4
+    stw 6,0(5)
+    blr
+# exi_desel(r3=canal)
+exi_desel:
+    lis 5,0xCC00
+    mulli 0,3,0x14
+    ori 5,5,0x6800
+    add 5,0,5
+    lwz 6,0(5)
+    andi. 6,6,0x405
+    stw 6,0(5)
+    blr
+# exi_probe(r3=canal) -> r3 = CSR (lwzx)
+exi_probe:
+    mulli 0,3,0x14
+    lis 7,0xCC00
+    addi 7,7,0x6800
+    lwzx 3,7,0
+    blr
+# exi_imm(r3=canal, r4=donnees, r5=octets-1, r6=0 lire / 1 ecrire) -> r3 = DATA
+exi_imm:
+    lis 7,0xCC00
+    mulli 0,3,0x14
+    addi 7,7,0x6800
+    add 7,7,0
+    stw 4,0x10(7)
+    slwi 5,5,4
+    slwi 6,6,2
+    or 5,5,6
+    ori 5,5,1
+    stw 5,0x0C(7)
+1:  lwz 0,0x0C(7)
+    andi. 0,0,1
+    bne 1b
+    lwz 3,0x10(7)
+    blr
+# exi_dma(r3=canal, r4=adresse physique, r5=taille, r6=0 lire / 1 ecrire)
+exi_dma:
+    lis 7,0xCC00
+    addi 7,7,0x6800
+    mulli 0,3,0x14
+    add 8,7,0
+    stw 4,4(8)
+    stw 5,8(8)
+    slwi 6,6,2
+    ori 6,6,3
+    stw 6,0x0C(8)
+1:  lwz 0,0x0C(8)
+    andi. 0,0,1
+    bne 1b
+    blr
+# card_prog(r3 = F2 a1 a2 a3, r4 = adresse physique des 128 octets) : canal 0
+card_prog:
+    stwu 1,-32(1)
+    mflr 0
+    stw 0,36(1)
+    stw 31,28(1)
+    stw 30,24(1)
+    mr 31,3
+    mr 30,4
+    li 3,0
+    li 4,0xC0
+    bl exi_sel
+    li 3,0
+    mr 4,31
+    li 5,3
+    li 6,1
+    bl exi_imm
+    li 3,0
+    li 4,0
+    li 5,0
+    li 6,1
+    bl exi_imm
+    li 3,0
+    mr 4,30
+    li 5,0x80
+    li 6,1
+    bl exi_dma
+    li 3,0
+    bl exi_desel
+    lwz 30,24(1)
+    lwz 31,28(1)
+    lwz 0,36(1)
+    mtlr 0
+    addi 1,1,32
+    blr
+# card_read(r3 = 52 a1 a2 a3, r4 = adresse physique des 512 octets) : canal 0
+card_read:
+    stwu 1,-32(1)
+    mflr 0
+    stw 0,36(1)
+    stw 31,28(1)
+    stw 30,24(1)
+    mr 31,3
+    mr 30,4
+    li 3,0
+    li 4,0xC0
+    bl exi_sel
+    li 3,0
+    mr 4,31
+    li 5,3
+    li 6,1
+    bl exi_imm
+    li 3,0
+    li 4,0
+    li 5,0
+    li 6,1
+    bl exi_imm
+    li 3,0
+    li 4,0
+    li 5,3
+    li 6,1
+    bl exi_imm
+    li 3,0
+    mr 4,30
+    li 5,0x200
+    li 6,0
+    bl exi_dma
+    li 3,0
+    bl exi_desel
+    lwz 30,24(1)
+    lwz 31,28(1)
+    lwz 0,36(1)
+    mtlr 0
+    addi 1,1,32
+    blr
+
+dummy_ai:
+    lis 9,0x8000
+    lwz 10,0x1F08(9)
+    addi 10,10,1
+    stw 10,0x1F08(9)
+    blr
 dummy_di:
     blr
 dummy_vi:
