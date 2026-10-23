@@ -1067,7 +1067,7 @@ static void draw_gclib_main(void) {
                 gx_text_c(F_SMALL, x + w / 2, y + 76, buf, RGBA(130, 230, 150, 255));
             } else
             gx_text_c(F_SMALL, x + w / 2, y + 76, ld_ready() ? "Lanceur GC Station (B maintenu : \xC3\xA9" "cran du jeu de Swiss)" : "GC Station se ferme et Swiss ouvre directement le jeu.", RGBA(190, 180, 235, 255));
-            gx_text_c(F_SMALL, x + w / 2, y + 98, "A : lancer     X : lanceur maison (test)     B : annuler", RGBA(255, 210, 120, 255));
+            gx_text_c(F_SMALL, x + w / 2, y + 98, "A : lancer     X : Resident     B : annuler", RGBA(255, 210, 120, 255));
         }
         snprintf(buf, sizeof(buf), "%d / %d   (gauche / droite)", gl_sel + 1, gl_n);
         gx_text_r(F_SMALL, 614, 396, buf, RGBA(150, 135, 210, 255));

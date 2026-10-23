@@ -187,5 +187,5 @@ static void igr_value(char *out, int cap) {
 }
 static const char *igr_hint(void) {
     if (igr_msg[0]) return igr_msg;
-    return "En jeu, A + Z + START revient sur GC Station (aussi pour le lanceur maison, touche X)";
+    return "En jeu, A + Z + START revient sur GC Station (aussi avec Resident, touche X)";
 }

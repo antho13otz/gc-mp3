@@ -21,6 +21,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v63
+- Le lanceur maison s'appelle maintenant **Resident** (dans « Lancer ce jeu ? » : **X : Resident**).
+- **A+Z+START avec Resident remarche** et la manette du jeu aussi (1080° Avalanche : retour à GC Station en jeu). Réglage « A+Z+START (Resident) », de nouveau actif par défaut.
+
 ## Nouveautés v62
 - Lanceur maison : les « signes de vie » et la détection de plantage se branchent aussi quand le jeu n'a fait qu'une commande au lecteur (Paper Mario : écran noir juste après la 1re commande, le journal ne disait rien de la suite).
 

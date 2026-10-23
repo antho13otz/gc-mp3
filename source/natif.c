@@ -223,7 +223,7 @@ static void nat_write_report(const nat_info_t *in, const char *path, char *out, 
     snprintf(out, cap, "%s/%s.txt", NA_DIR, in->id[0] ? in->id : "inconnu");
     FILE *f = fopen(out, "w");
     if (!f) { out[0] = 0; return; }
-    fprintf(f, "GC Station - analyse native (etape 1 du lanceur maison)\n");
+    fprintf(f, "GC Station - analyse native (pour Resident)\n");
     fprintf(f, "Fichier : %s\nAdaptateur SD : %s\n\n", path, na_adapter());
     fprintf(f, "[Disque]\nID : %s   disque %u   version %u\nNom : %s\nRegion : %s\nAudio en streaming : %s\n\n",
             in->id, in->disc + 1, in->ver, in->title, na_region(in->region), in->stream ? "oui" : "non");
@@ -254,10 +254,10 @@ static void nat_write_report(const nat_info_t *in, const char *path, char *out, 
     }
     fprintf(f, "Fonctions concernees : %d\n", in->nfunc);
     for (int i = 0; i < in->nfunc; i++) fprintf(f, "  %08X\n", (unsigned)in->func_addr[i]);
-    fprintf(f, "\n(Ce sont elles que le lanceur maison branche sur son faux lecteur.)\n");
+    fprintf(f, "\n(Ce sont elles que Resident branche sur son faux lecteur.)\n");
     if (in->stream) fprintf(f, "Attention : ce jeu lit sa musique en streaming par le lecteur DVD ; le faux lecteur\nne sait pas encore le faire (le jeu risque d'etre sans musique).\n");
     fprintf(f, "\n");
-    fprintf(f, "Bilan : %s%s\n", in->problems ? "probleme : " : "OK, le lanceur maison peut essayer ce jeu", in->problems ? in->err : "");
+    fprintf(f, "Bilan : %s%s\n", in->problems ? "probleme : " : "OK, Resident peut essayer ce jeu", in->problems ? in->err : "");
     fclose(f);
 }
 
@@ -408,7 +408,7 @@ static void nat_journal_convert(void) {
         if (!v5) for (int i = 44; i < 56; i++) H[i] = 0;
         if (!v6) for (int i = 52; i < 56; i++) H[i] = 0;
         static const char *const en[] = { "OK", "pas de carte", "la carte ne demarre pas", "commande refusee", "pas de donnees", "hors de l'ISO", "delai depasse" };
-        fprintf(f, "GC Station - journal du dernier jeu lance par le lanceur maison\n\n");
+        fprintf(f, "GC Station - journal du dernier jeu lance avec Resident\n\n");
         if (v5 && H[44]) {
             static const char *const xn[16] = { "?", "?", "acces memoire interdit (DSI)", "code introuvable (ISI)", "?", "alignement", "instruction invalide", "?", "?", "?", "?", "?", "?", "?", "?", "?" };
             fprintf(f, "*** PLANTAGE DU JEU : %s ***\n    a l'adresse %08X (LR %08X), adresse visee %08X (DSISR %08X)\n    -> la console a redemarre toute seule\n\n",
@@ -635,7 +635,7 @@ static void nat_run(int k) {
     /* etape 3a : l'ISO sur la carte, et le programme resident qui la lit */
     char me[120] = "", rt[120] = "";
     int mok = -1, rok = -1;
-    if (gl[k].ciso) snprintf(me, sizeof(me), "fichier .ciso : pas encore pris en charge par le lanceur maison");
+    if (gl[k].ciso) snprintf(me, sizeof(me), "fichier .ciso : pas encore pris en charge par Resident");
     else {
         gl_status("Analyse native : position du jeu sur la carte...");
         mok = nat_map(gl[k].path, me, sizeof(me));
@@ -741,7 +741,7 @@ static void na_drive_wake(void) { snprintf(na_drv, sizeof(na_drv), "(simulateur)
 static const char *nat_boot(int k) {
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
     static nat_info_t in;
-    gl_status("Lanceur maison : analyse du jeu...");
+    gl_status("Resident : analyse du jeu...");
     if (!nat_analyse(gl[k].path, &in)) return in.err;
     if (in.problems) return in.err;
     if (in.fst_max < in.fst_sz || in.fst_max > (4u << 20)) return "FST : taille maximale invalide";
@@ -781,11 +781,11 @@ static const char *nat_boot(int k) {
         }
     }
     gdisc_t d;
-    gl_status("Lanceur maison : lecture de main.dol...");
+    gl_status("Resident : lecture de main.dol...");
     int ok = gd_open(&d, gl[k].path);
     if (ok) ok = gd_read(&d, in.dol_off, buf + o_dol, dol_len);
     if (ok) ok = gd_read(&d, 0x440, buf + o_bi2, NA_BI2);
-    if (ok) { gl_status("Lanceur maison : lecture de la FST..."); ok = gd_read(&d, in.fst_off, buf + o_fst, in.fst_sz); }
+    if (ok) { gl_status("Resident : lecture de la FST..."); ok = gd_read(&d, in.fst_off, buf + o_fst, in.fst_sz); }
     u8 hdr[0x20];
     if (ok) ok = gd_read(&d, 0, hdr, sizeof(hdr));
     gd_close(&d);
@@ -798,14 +798,14 @@ static const char *nat_boot(int k) {
         mkdir(NA_DIR, 0777);
         FILE *lf = fopen(NA_LOG, "w");                    /* (v52 : le journal dit lesquels et pourquoi) */
         if (lf) {
-            fprintf(lf, "GC Station - lanceur maison : jeu PAS lance\nJeu : %s (%s)\n", in.title, in.id);
+            fprintf(lf, "GC Station - Resident : jeu PAS lance\nJeu : %s (%s)\n", in.title, in.id);
             fprintf(lf, "Acces au lecteur : %d trouves, %d branches, %d non branches\n", in.ntotal, patched, skipped + (in.ntotal - in.nhit));
             if (in.ntotal > in.nhit) fprintf(lf, "  %d au-dela de la limite de %d\n", in.ntotal - in.nhit, NA_MAXHIT);
             for (int i = 0; i < na_nskip; i++) fprintf(lf, "  %08X  instruction %08X : %s\n", (unsigned)na_skip_at[i], (unsigned)na_skip_ins[i], na_skip_why[i]);
             fclose(lf);
         }
         static char e[120];
-        snprintf(e, sizeof(e), "Lanceur maison : %d acc\xC3\xA8s au lecteur non branch\xC3\xA9s, jeu pas lanc\xC3\xA9", skipped + (in.ntotal - in.nhit));
+        snprintf(e, sizeof(e), "Resident : %d acc\xC3\xA8s au lecteur non branch\xC3\xA9s, jeu pas lanc\xC3\xA9", skipped + (in.ntotal - in.nhit));
         return e;
     }
     /* table de copie pour gl_stub : {destination, source, taille} */
@@ -824,7 +824,7 @@ static const char *nat_boot(int k) {
     mkdir(NA_DIR, 0777);
     FILE *f = fopen(NA_LOG, "w");
     if (f) {
-        fprintf(f, "GC Station - lanceur maison, etape 2 (demarrage natif)\n");
+        fprintf(f, "GC Station - Resident (lancement sans Swiss)\n");
         fprintf(f, "Jeu : %s  %s\nFichier : %s\nAdaptateur SD : %s\n\n", in.id, in.title, gl[k].path, na_adapter());
         fprintf(f, "Donnees rangees en %08X (%u octets)\nbi2.bin -> %08X   FST -> %08X (%u / %u octets)\n",
                 (unsigned)stage, (unsigned)total, (unsigned)bi2_dest, (unsigned)fst_dest, (unsigned)in.fst_sz, (unsigned)in.fst_max);
@@ -843,7 +843,7 @@ static const char *nat_boot(int k) {
 #endif
                 );
         fprintf(f, "\nSaut vers le jeu... Ce que tu vois a l'ecran ensuite, c'est le resultat :\n"
-                   "- le jeu demarre et joue = lanceur maison OK !\n"
+                   "- le jeu demarre et joue = Resident OK !\n"
                    "- message d'erreur de disque du jeu = le faux lecteur n'a pas suffi ;\n"
                    "- ecran noir fige / retour au menu = a me signaler.\n");
         fclose(f);
