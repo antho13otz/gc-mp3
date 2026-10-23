@@ -8448,12 +8448,38 @@ typedef struct {
     char referer[URL_MAX];
     unsigned char hdr[8192];
     int hlen;
+    int hskip;                              /* v77 : ligne d'en-tete trop longue en cours d'oubli (jusqu'a la fin de ligne) */
     unsigned char *buf;
     int len, cap;
     long expect;
     dechunk_t dc;
     u64 t0, last_use;
 } hfetch_t;
+
+/* v77 : en-tetes plus gros que le tampon (GitHub : 11 Ko, dont une tres longue
+   "Content-Security-Policy") : on oublie les lignes dont on ne se sert pas.
+   Retourne 1 si de la place a ete faite. */
+static char *crlf_in(char *p, int n) { for (int i = 0; i + 1 < n; i++) if (p[i] == '\r' && p[i + 1] == '\n') return p + i; return NULL; }
+static int hf_hdr_trim(hfetch_t *h) {
+    static const char *const keep[] = { "Location:", "Content-Length:", "Content-Type:", "Transfer-Encoding:", "Connection:", NULL };
+    char *b = (char *)h->hdr;
+    int n = h->hlen;
+    char *first = crlf_in(b, n);
+    if (!first) return 0;                               /* (ligne d'etat demesuree : ce n'est pas du HTTP) */
+    int w = (int)(first - b) + 2, r = w;
+    while (r < n) {
+        char *e = crlf_in(b + r, n - r);
+        if (!e) break;
+        int ll = (int)(e - (b + r)) + 2, k = 0;
+        for (int i = 0; keep[i] && !k; i++) k = ll >= (int)strlen(keep[i]) && !strncasecmp(b + r, keep[i], strlen(keep[i]));
+        if (k) { memmove(b + w, b + r, ll); w += ll; }
+        r += ll;
+    }
+    int tail = n - r;
+    if (w + tail < n) { memmove(b + w, b + r, tail); h->hlen = w + tail; b[h->hlen] = 0; return 1; }
+    if (tail > 0) { h->hlen = w; b[w] = 0; h->hskip = 1; return 1; }   /* une seule ligne enorme : oubliee jusqu'a sa fin */
+    return 0;
+}
 
 static void hf_close(hfetch_t *h) { conn_close(&h->c); h->alive = 0; }
 static void hf_drop(hfetch_t *h) { free(h->buf); h->buf = NULL; h->len = h->cap = 0; }
@@ -8478,6 +8504,7 @@ static int hf_send(hfetch_t *h) {
                       h->accept ? h->accept : "*/*", ref);
     if (rl >= (int)sizeof(req) || !conn_send_all(&h->c, req, rl)) return 0;
     h->hlen = 0;
+    h->hskip = 0;
     h->st = HF_HEAD;
     h->t0 = now_ms();
     return 1;
@@ -8554,7 +8581,8 @@ static void hf_pump(hfetch_t *h) {
     }
     if (h->st == HF_HEAD) {
         for (;;) {
-            if (h->hlen >= (int)sizeof(h->hdr) - 1) { hf_close(h); hf_fail(h); return; }
+            if (h->hlen >= (int)sizeof(h->hdr) - 1 && !hf_hdr_trim(h)) { hf_close(h); hf_fail(h); return; }
+            int before = h->hlen;
             int r = conn_recv(&h->c, h->hdr + h->hlen, (int)sizeof(h->hdr) - 1 - h->hlen);
             if (r == -EAGAIN || r == -EWOULDBLOCK) {
                 if (now_ms() - h->t0 > 15000) { hf_close(h); hf_fail(h); }
@@ -8568,6 +8596,14 @@ static void hf_pump(hfetch_t *h) {
                 return;
             }
             h->hlen += r;
+            if (h->hskip) {                                          /* v77 : fin de la ligne trop longue ? */
+                char *nl = (char *)memchr(h->hdr + before, '\n', h->hlen - before);
+                if (!nl) { h->hlen = before; h->hdr[before] = 0; continue; }
+                int cut = (int)(nl - (char *)h->hdr) + 1;
+                memmove(h->hdr + before, h->hdr + cut, h->hlen - cut);
+                h->hlen -= cut - before;
+                h->hskip = 0;
+            }
             h->hdr[h->hlen] = 0;
             char *e = strstr((char *)h->hdr, "\r\n\r\n");
             if (!e) continue;

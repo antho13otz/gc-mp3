@@ -21,6 +21,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v78 — la mise à jour se télécharge de nouveau
+- **Correction** : START > « Mise à jour » affichait « Téléchargement interrompu ». GitHub répond maintenant avec plus de 11 Ko d'en-têtes avant de donner le fichier, et GC Station n'en acceptait que 8 Ko. Les lignes inutiles sont maintenant oubliées : le téléchargement passe, même avec des en-têtes bien plus gros.
+- **Important** : une console qui a encore une build plus ancienne ne peut pas se mettre à jour toute seule une dernière fois. Il faut copier une fois `gc-mp3player-b…dol` (release « dernier ») sur la carte SD, à la place de l'ancien fichier. Ensuite, START > « Mise à jour » refonctionne.
+
 ## Nouveautés v77 — cartes mémoire virtuelles vérifiées
 - **Correction** : quand un jeu avait sa propre carte virtuelle (fiche du jeu, Y > « Carte mémoire (Resident) ») **et** une langue ou un son à lui, la carte de ce jeu devenait par erreur la carte de tous les autres jeux après son lancement. La carte générale (START > Outils > Cartes mémoire virtuelles) est maintenant toujours gardée.
 - Le message d'erreur « carte trop morcelée » donne le nom de la carte réellement utilisée.
