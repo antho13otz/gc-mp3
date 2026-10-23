@@ -236,11 +236,16 @@ static void pj_start(int f, int big) {
 
 static void pj_pump(void) {
     if (pj_state == PJ_READ) {
-        long want = pj_size - pj_len;
-        if (want > 32768) want = 32768;
-        size_t got = fread(pj_buf + pj_len, 1, want, pj_fp);
-        if (got == 0) { fclose(pj_fp); pj_fp = NULL; free(pj_buf); pj_buf = NULL; pf[pj_file].bad = 1; pj_state = PJ_IDLE; return; }
-        pj_len += (long)got;
+        /* v80 : lecture par morceaux de 8 Ko, au plus 6 ms par image (avant : 32 Ko d'un coup,
+           ~21 ms sur une carte SD de GameCube : chaque image ratait le balayage, ~40 ms) */
+        u32 t0 = perf_us();
+        do {
+            long want = pj_size - pj_len;
+            if (want > 8192) want = 8192;
+            size_t got = fread(pj_buf + pj_len, 1, want, pj_fp);
+            if (got == 0) { fclose(pj_fp); pj_fp = NULL; free(pj_buf); pj_buf = NULL; pf[pj_file].bad = 1; pj_state = PJ_IDLE; return; }
+            pj_len += (long)got;
+        } while (pj_len < pj_size && perf_us() - t0 < 6000);
         if (pj_len < pj_size) return;
         if (!pj_exif_done) {                             /* vignette : petite image EXIF ? */
             pj_exif_done = 1;
