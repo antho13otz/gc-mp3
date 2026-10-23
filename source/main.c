@@ -12230,6 +12230,14 @@ static void music_rescan(void) {
    radio continuent d'etre decodees. */
 /* son decode d'avance : 4 s, ou la duree du fondu enchaine + 1 s */
 #define FILE_LEAD (xf_sec > 0 ? (xf_sec + 1) * 48000 : 48000 * 4)
+/* v80 : combien de trames decoder maintenant ? 2 par tour quand l'avance est confortable ;
+   sous 2 s d'avance (images lentes : photos, pages web, carte SD...), on rattrape : autant
+   que possible en 8 ms. Avant, avec 2 trames par image seulement, une interface a 20 images/s
+   ne suivait plus un MP3 ou un FLAC et le son finissait par couper (mesure : simulateur). */
+static int decode_more(int k, u32 t0) {
+    if (k < 2) return 1;
+    return f_count < 48000 * 2 && k < 64 && perf_us() - t0 < 8000;
+}
 static int in_bg = 0;
 static void bg_tick(void) {
     main_beat++;
@@ -12238,7 +12246,8 @@ static void bg_tick(void) {
     in_bg = 1;
     if (src == SRC_FILE && playing && !paused) {
         int k = 0;
-        while (!eof && k < 2 && f_count < FILE_LEAD && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
+        u32 t0 = perf_us();
+        while (!eof && decode_more(k, t0) && f_count < FILE_LEAD && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
             decode_file_one();
             service_audio();
             k++;
@@ -12284,7 +12293,8 @@ static void music_pump(void) {
     if (video_playing) return;                          /* (le son vient de la video) */
     if (src != SRC_FILE || !playing || paused) return;
     int k = 0;
-    while (!eof && k < 2 && f_count < FILE_LEAD && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
+    u32 t0 = perf_us();
+    while (!eof && decode_more(k, t0) && f_count < FILE_LEAD && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
         decode_file_one();
         service_audio();
         k++;

@@ -21,6 +21,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v80 — optimisée pour la vraie GameCube
+GC Station a été mesurée dans un nouveau simulateur qui a les limites de la console (12,7 Mo de tas, processeur Gekko, carte SD et Broadband Adapter à leur vrai débit) : voir `tools/pc-sim`.
+- **Le son ne coupe plus quand l'interface ralentit** (chargement de photos, pages web, carte SD lente) : sous 2 s de son d'avance, GC Station rattrape en décodant autant que possible en 8 ms, au lieu de 2 trames par image seulement. Mesure (FLAC 24 bits / 96 kHz pendant le diaporama de photos 1920 × 1080) : 125 coupures avant, aucune après.
+- **Photos plus fluides au chargement** : elles sont lues sur la carte SD par morceaux de 8 Ko, au plus 6 ms par image (avant : 32 Ko d'un coup, plus long qu'une image entière sur une carte SD de GameCube). Images très lentes pendant le même essai : 164 avant, 62 après.
+- Encore lourd pour la console : le FLAC **24 bits / 96 kHz** (environ 35 % du processeur, par blocs) : préfère le FLAC 16 bits / 44,1 kHz ou le MP3 si l'image saccade.
+
 ## Nouveautés v79 — Resident : pourquoi un jeu plante
 - Quand un jeu plante avec Resident, `SD:/gc-mp3/natif/journal-jeu.txt` contient maintenant une partie **« Détails du plantage »** : tous les registres du jeu, la **chaîne des appels** (quelles fonctions du jeu ont mené au plantage), les **textes que le jeu avait en main** (souvent le message ou le nom de fichier de son erreur), la mémoire que le jeu a reçue (et combien il en aurait eu sur une vraie console), et le code du jeu autour de chaque adresse.
 - Une adresse visée `01234567` est signalée : c'est un jeu qui s'arrête **exprès** après avoir détecté une erreur (Wind Waker au démarrage).
