@@ -47,5 +47,18 @@ if len(sys.argv) > 5:
         for f in range(2):
             base = part + rsvd + f * fatsz
             img.seek(base * 512 + c * fatsz_e); img.write(struct.pack('<I' if kind == '32' else '<H', fat2))
+# v65 : 3e fichier : la carte memoire virtuelle (2 Mo) en 2 morceaux, clusters 40000... et 50000...
+# (contenu reconnaissable : octet = (secteur * 7 + position) & 0xFF)
+if len(sys.argv) > 6:
+    size = int(sys.argv[6])
+    card = bytes(((o >> 9) * 7 + o) & 0xFF for o in range(size))
+    n3 = size // csize
+    cl = [40000 + i for i in range(2000 // spc)] + [50000 + i for i in range(n3 - 2000 // spc)]
+    for i, c in enumerate(cl):
+        nxt = cl[i + 1] if i + 1 < len(cl) else (0x0FFFFFFF if kind == '32' else 0xFFFF)
+        w(part + data + (c - 2) * spc, card[i * csize:(i + 1) * csize])
+        for f in range(2):
+            base = part + rsvd + f * fatsz
+            img.seek(base * 512 + c * fatsz_e); img.write(struct.pack('<I' if kind == '32' else '<H', nxt))
 img.close()
 print(pool[0], len(iso))

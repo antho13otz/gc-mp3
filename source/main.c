@@ -147,6 +147,7 @@ static void theme_apply(int id) {
 static int ui_skin = 0;
 static int gl_view;                                     /* gclib.c : affichage de Mes jeux GameCube */
 static int gl_anim = 1;                                 /* v45 : animations de JEUX / APPS */
+static int nat_card = 1;                                /* v65 : carte memoire virtuelle (slot A) pour Resident */
 static int nat_igr = 1;                                 /* v59 : A+Z+START dans Resident (natif.c) ; v63 : de nouveau actif (lecture H + L : la manette marche) */
 static int gl_sort = 0;                                 /* v45 : tri des jeux : A-Z, derniers lances, taille, region */
 static const char *const gl_sort_keys[4] = { "az", "recents", "taille", "region" };
@@ -3867,6 +3868,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "jeux_tri")) { for (int i = 0; i < 4; i++) if (!strcasecmp(v, gl_sort_keys[i])) gl_sort = i; }
         else if (!strcasecmp(k, "jeux_animations")) gl_anim = !has_word(v, "non");
         else if (!strcasecmp(k, "lanceur_maison_retour")) nat_igr = !has_word(v, "non");
+        else if (!strcasecmp(k, "resident_carte_virtuelle")) nat_card = !has_word(v, "non");
         else if (!strcasecmp(k, "interface")) { ui_lang = !strncasecmp(v, "en", 2) ? 1 : !strncasecmp(v, "fr", 2) ? 0 : -1; ui_lang_apply(); }
         else if (!strcasecmp(k, "langue")) { lang_pref = -1; for (int i = 0; i < LANG_COUNT; i++) if (!strncasecmp(v, lang_keys[i], 2)) lang_pref = i; }
         else if (!strcasecmp(k, "swiss")) snprintf(swiss_pref, sizeof(swiss_pref), "%s", v);
@@ -3988,6 +3990,7 @@ static void save_settings(void) {
     fprintf(f, "# Jeux GameCube : tri (az / recents / taille / region) ; animations de JEUX / APPS (oui / non)\n"
                "jeux_tri = %s\njeux_animations = %s\n", gl_sort_keys[gl_sort & 3], gl_anim ? "oui" : "non");
     fprintf(f, "# Resident (X) : A+Z+START = retour a GC Station (oui / non)\nlanceur_maison_retour = %s\n", nat_igr ? "oui" : "non");
+    fprintf(f, "# Resident (X) : carte memoire virtuelle du slot A (gc-mp3/resident/carte-A.raw)\nresident_carte_virtuelle = %s\n", nat_card ? "oui" : "non");
     fprintf(f, "# Lanceur des jeux GameCube : gcmp3 (sans menu Swiss) / swiss\nlanceur_jeux = %s\n", ld_mode ? "swiss" : "gcmp3");
     fprintf(f, "# Ordre des onglets\nordre_onglets = ");
     for (int i = 0; i < TAB_COUNT; i++) fprintf(f, "%s%s", i ? "," : "", tab_keys[tab_order[i]]);
@@ -10011,7 +10014,7 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_LAUNCHER, MI_UPDATE, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_LAUNCHER, MI_UPDATE, MI_QUIT, MI_COUNT };
 static int autostart_get(void);
 static const char *autostart_set(int on);
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
@@ -10076,6 +10079,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_LAYOUT:  snprintf(out, cap, "%s (%s)", TR(layout_names[player_layout]), TR(tab_names[IS_PLAYER_TAB(tab) ? tab : TAB_MUSIC])); break;
     case MI_GLANIM:  snprintf(out, cap, "%s", gl_anim ? "Oui" : "Non"); break;
     case MI_NATIGR:  snprintf(out, cap, "%s", nat_igr ? "Oui" : "Non"); break;
+    case MI_NATCARD: snprintf(out, cap, "%s", nat_card ? "Oui (slot A)" : "Non"); break;
     case MI_LYRSHOW: snprintf(out, cap, "%s", lyr_names[lyr_show]); break;
     case MI_FLASH:   snprintf(out, cap, "%s", flash_names[flash_mode]); break;
     case MI_VIZ:     snprintf(out, cap, "%s", viz_names[viz_style]); break;
@@ -10123,7 +10127,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
     "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
     "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Animations (jeux / applis)", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre", "Couleurs du spectrogramme", "Paroles dans le lecteur", "\xC3\x89" "clair sur les basses",
-    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer la console sur GC Station", "Retour en jeu (A+Z+START)", "A+Z+START (Resident)", "Lanceur de jeux", "Mise \xC3\xA0 jour", "Quitter GC Station" };
+    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer la console sur GC Station", "Retour en jeu (A+Z+START)", "A+Z+START (Resident)", "Carte m\xC3\xA9moire virtuelle (Resident)", "Lanceur de jeux", "Mise \xC3\xA0 jour", "Quitter GC Station" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -10178,6 +10182,7 @@ static void menu_change(int i, int d) {
     case MI_GLVIEW:  gl_view = (gl_view + d + 6) % 6; break;
     case MI_GLANIM:  gl_anim = !gl_anim; break;
     case MI_NATIGR:  nat_igr = !nat_igr; break;
+    case MI_NATCARD: nat_card = !nat_card; break;
     case MI_RUMBLE:  rumble_on = !rumble_on; if (rumble_on) rumble(0, 200); ic_put("Disable PAD Rumble", rumble_on ? "No" : "Yes"); break;
     case MI_PARTY:   party_style = (party_style + d + PARTY_STYLES) % PARTY_STYLES; break;
     case MI_NIGHT:   night_lum += d; if (night_lum < 1) night_lum = 1; if (night_lum > 5) night_lum = 5; break;
@@ -10395,6 +10400,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_VIDEO) hint = "Pris en compte au prochain lancement (B maintenu au d\xC3\xA9marrage = 480i)";
     if (menu_sel == MI_AUTOSTART) hint = "Copie GC Station dans ipl.dol (PicoLoader) : Reset = GC Station ; Z au d\xC3\xA9marrage = Swiss";
     if (menu_sel == MI_IGR) hint = igr_hint();
+    if (menu_sel == MI_NATCARD) hint = "Jeux lanc\xC3\xA9s avec Resident : sauvegardes dans SD:/gc-mp3/resident/carte-A.raw";
     if (menu_sel == MI_NATIGR) hint = "Jeux lanc\xC3\xA9s avec Resident (X) : A+Z+START tenus 1 s = retour \xC3\xA0 GC Station";
     if (menu_sel == MI_LAUNCHER) hint = ld_hint();
     if (menu_sel == MI_GLANIM) hint = "D\xC3\xA9" "filement doux, cadre qui glisse, carrousel (onglet JEUX / APPS)";

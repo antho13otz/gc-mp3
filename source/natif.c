@@ -15,9 +15,13 @@
 #include "natres/natres.h"                  /* programme resident (source/natres/natres.c) */
 #define NA_DIR   GCD "/natif"
 #define NA_DI    0xCC006000u                 /* registres du lecteur DVD (DI) */
-#define NA_MAXHIT 160                        /* (1080 Avalanche en a plus de 48) */
+#define NA_EXI0  0xCC006800u                 /* v65 : registres EXI du canal 0 (carte memoire slot A, horloge, SRAM) */
+#define NA_XREG  0x1000u                     /* (hit_reg : marque d'un registre EXI) */
+#define NA_XIDX  0x80u                       /* (hit_reg EXI : lwzx/stwx, registre connu pendant le jeu seulement) */
+#define NA_MAXHIT 400                        /* (1080 Avalanche : 83 acces au lecteur ; v65 : + EXI) */
 static void nat_qr_open(const char *id);      /* v51 : QR code vers le rapport (plus bas) */
 static const char *na_tramp_why(u32 ins);     /* v52 (plus bas) */
+static const char *na_xtramp_why(u32 ins);    /* v65 (plus bas) */
 
 typedef struct {
     char id[7], title[72];
@@ -32,7 +36,8 @@ typedef struct {
     /* FST */
     u32 nfiles, ndirs, fst_dest;
     /* acces aux registres du lecteur */
-    int nhit, ntotal;                         /* ntotal : tous ceux trouves, meme au-dela de la limite */
+    int nhit, ntotal, nexi;                   /* ntotal : tous ceux trouves, meme au-dela de la limite ; nexi : dont EXI */
+    int di_lost, x_lost;                      /* v65 : au-dela de la limite (lecteur : jeu pas lance ; EXI : pas de carte virtuelle) */
     u32 hit_addr[NA_MAXHIT];
     u16 hit_reg[NA_MAXHIT];
     u8 hit_store[NA_MAXHIT];
@@ -45,6 +50,12 @@ typedef struct {
 
 static const char *na_adapter(void);
 static const char *na_reg_name(u32 r) {
+    if (r & NA_XREG) {
+        static const char *const xn[5] = { "EXI CSR (etat, choix)", "EXI MAR (adresse DMA)", "EXI LENGTH (taille DMA)", "EXI CR (demarrage)", "EXI DATA (donnees)" };
+        if (r & NA_XIDX) return "EXI (registre calcule pendant le jeu)";
+        u32 x = (r & 0x7F) >> 2;
+        return x < 5 ? xn[x] : "EXI ?";
+    }
     switch (r) {
     case 0x00: return "DISR (etat)";
     case 0x04: return "DICVR (couvercle)";
@@ -76,14 +87,85 @@ static u32 na_func_start(const u8 *txt, u32 base, u32 addr) {
     return addr;
 }
 
+static void na_hit(nat_info_t *in, const u8 *txt, u32 base, u32 at, u32 reg, int store, u32 ins) {
+    in->ntotal++;
+    if (reg & NA_XREG) in->nexi++;
+    if (in->nhit >= NA_MAXHIT) { if (reg & NA_XREG) in->x_lost++; else in->di_lost++; return; }
+    in->hit_addr[in->nhit] = at;
+    in->hit_reg[in->nhit] = (u16)reg;
+    in->hit_store[in->nhit] = (u8)store;
+    in->hit_ins[in->nhit] = ins;
+    in->nhit++;
+    u32 f = na_func_start(txt, base, at);
+    for (int i = 0; i < in->nfunc; i++) if (in->func_addr[i] == f) return;
+    if (in->nfunc < NA_MAXHIT) in->func_addr[in->nfunc++] = f;
+}
+
+/* v65 : acces EXI (carte memoire, horloge). Le SDK ecrit __EXIRegs[canal * 5 + n] : l'adresse
+   vaut 0xCC006800 + un decalage connu seulement pendant le jeu (le canal). On suit donc les
+   registres "base connue + inconnu" (lis/addi/ori, add, mr), et on ne les oublie qu'au debut
+   ou a la fin d'une fonction (blr, bctr, prologue). L'aiguillage recalcule l'adresse pendant
+   le jeu : seul le canal 0 va a la carte virtuelle, le reste au vrai materiel. Un faux positif
+   ne change donc rien (meme acces, fait par le resident). */
+static void na_xscan(nat_info_t *in, const u8 *txt, u32 base, u32 o, u32 *xv, u32 *xm) {
+    u32 ins = be32(txt + o), op = ins >> 26, rd = (ins >> 21) & 31, ra = (ins >> 16) & 31, rb = (ins >> 11) & 31, xo = (ins >> 1) & 0x3FF;
+    s32 simm = (s16)(ins & 0xFFFF);
+    u32 uimm = ins & 0xFFFF, m = *xm, ea = 0;
+    int acc = 0, store = 0, idx = 0;
+#define XK(r) ((m >> (r)) & 1u)
+#define XS(r, v) do { xv[r] = (v); m |= 1u << (r); } while (0)
+#define XC(r) (m &= ~(1u << (r)))
+    if (op == 37 && rd == 1 && ra == 1 && simm < 0) m = 0;            /* stwu r1,-N(r1) : debut de fonction */
+    if (op == 15) { if (!ra) XS(rd, uimm << 16); else if (XK(ra)) XS(rd, xv[ra] + (uimm << 16)); else XC(rd); }
+    else if (op == 14) { if (!ra) XS(rd, (u32)simm); else if (XK(ra)) XS(rd, xv[ra] + (u32)simm); else XC(rd); }
+    else if (op == 24) { if (XK(rd)) XS(ra, xv[rd] | uimm); else XC(ra); }   /* ori rA,rS,imm */
+    else if (op >= 32 && op <= 45) {                                   /* lwz lwzu lbz lbzu stw stwu stb stbu lhz lhzu lha lhau sth sthu */
+        store = op >= 36 && op <= 39 ? 1 : op >= 44;
+        if (ra && XK(ra)) { ea = xv[ra] + (u32)simm; acc = op == 32 || op == 33 || op == 36 || op == 37 || op == 40 || op == 44 ? 1 : 2; }
+        if ((op & 1) && ra && XK(ra)) xv[ra] += (u32)simm;              /* (forme "u" : rA avance, toujours "base + inconnu") */
+        else if (op & 1) XC(ra);
+        if (!store) XC(rd);
+    }
+    else if (op == 46) m &= (1u << rd) - 1u;                           /* lmw : rD..r31 */
+    else if (op == 31) {
+        if (xo == 266) {                                               /* add rD,rA,rB */
+            if (XK(ra) && XK(rb)) XS(rd, xv[ra] + xv[rb]); else if (XK(ra)) XS(rd, xv[ra]); else if (XK(rb)) XS(rd, xv[rb]); else XC(rd);
+        } else if (xo == 444 && rd == rb) { if (XK(rd)) XS(ra, xv[rd]); else XC(ra); }   /* mr rA,rS */
+        else if (xo == 23 || xo == 151 || xo == 279 || xo == 407 || xo == 87 || xo == 215 || xo == 55 || xo == 183) {   /* lwzx stwx lhzx sthx lbzx stbx lwzux stwux */
+            store = xo == 151 || xo == 407 || xo == 215 || xo == 183;
+            if ((ra && XK(ra)) || XK(rb)) { ea = (ra && XK(ra) ? xv[ra] : 0) + (XK(rb) ? xv[rb] : 0); acc = xo == 23 || xo == 151 ? 1 : 2; idx = 1; }
+            if (xo == 55 || xo == 183) XC(ra);
+            if (!store) XC(rd);
+        } else m &= ~((1u << rd) | (1u << ra));
+    }
+    else if (op == 16 || op == 18 || op == 19) {
+        u32 lk = ins & 1, bo = (ins >> 21) & 31;
+        int uncond = op == 18 || ((bo & 0x14) == 0x14);
+        if (op == 19 && xo != 16 && xo != 528) { /* (crand, isync...) */ }
+        else if (lk) m &= ~0x00001FF9u;                                /* appel : r0, r3-r12 */
+        else if (op == 19 && uncond) m = 0;                            /* blr, bctr : fin de fonction */
+    }
+    else if (op == 7 || op == 8 || op == 12 || op == 13) XC(rd);
+    else if (op >= 20 && op <= 29) XC(ra);                             /* (rotations, logiques : destination rA) */
+#undef XK
+#undef XS
+#undef XC
+    *xm = m;
+    if (acc && ea >= NA_EXI0 && ea < NA_EXI0 + 0x40) {
+        na_hit(in, txt, base, base + o, NA_XREG | (idx ? NA_XIDX : (ea - NA_EXI0) % 0x14), store, ins);
+    }
+}
+
 /* Cherche les acces aux registres du lecteur. On suit, instruction par instruction,
    les registres qui contiennent une adresse connue (lis rX,0xCC00 puis addi / ori),
    et on note les lectures / ecritures dont l'adresse tombe dans 0xCC006000..0xCC00603F.
    L'etat est oublie a chaque branchement (simple, mais suffisant pour un rapport). */
 static void na_scan_text(nat_info_t *in, const u8 *txt, u32 base, u32 len) {
     u32 val[32]; u32 known = 0;
+    u32 xv[32], xm = 0;                                       /* v65 : suivi EXI (voir na_xscan) */
     for (u32 o = 0; o + 4 <= len; o += 4) {
         if ((o & 0x3FFFF) == 0) service_audio();                  /* (v50 : la musique continue pendant l'analyse) */
+        na_xscan(in, txt, base, o, xv, &xm);
         u32 ins = be32(txt + o);
         u32 op = ins >> 26, rd = (ins >> 21) & 31, ra = (ins >> 16) & 31;
         s32 simm = (s16)(ins & 0xFFFF);
@@ -111,19 +193,7 @@ static void na_scan_text(nat_info_t *in, const u8 *txt, u32 base, u32 len) {
             int store = op >= 36 && op != 40;
             if (ra && (known & (1u << ra))) {
                 u32 ea = val[ra] + (u32)simm;
-                if (ea >= NA_DI && ea < NA_DI + 0x40) in->ntotal++;
-                if (ea >= NA_DI && ea < NA_DI + 0x40 && in->nhit < NA_MAXHIT) {
-                    u32 at = base + o;
-                    in->hit_addr[in->nhit] = at;
-                    in->hit_reg[in->nhit] = (u16)(ea - NA_DI);
-                    in->hit_store[in->nhit] = (u8)store;
-                    in->hit_ins[in->nhit] = ins;
-                    in->nhit++;
-                    u32 f = na_func_start(txt, base, at);
-                    int seen = 0;
-                    for (int i = 0; i < in->nfunc; i++) if (in->func_addr[i] == f) seen = 1;
-                    if (!seen && in->nfunc < NA_MAXHIT) in->func_addr[in->nfunc++] = f;
-                }
+                if (ea >= NA_DI && ea < NA_DI + 0x40) na_hit(in, txt, base, base + o, ea - NA_DI, store, ins);   /* (EXI : na_xscan) */
                 if (op == 33 || op == 37) val[ra] = ea;       /* (forme "u" : rA avance) */
             }
             if (!store) known &= ~(1u << rd);
@@ -242,20 +312,22 @@ static void nat_write_report(const nat_info_t *in, const char *path, char *out, 
             (unsigned)in->fst_dest, (unsigned)in->fst_dest, (unsigned)in->fst_max);
     fprintf(f, "bi2.bin : %08X   programme resident : %08X - 81800000\n", (unsigned)(NATRES_AT - 0x2000u), (unsigned)NATRES_AT);
     fprintf(f, "800000F4 : copie de bi2.bin   800000F8 : 09A7EC80 (bus)   800000FC : 1CF7C580 (processeur)\n\n");
-    fprintf(f, "[Lecteur DVD] acces aux registres CC006000 trouves dans main.dol : %d\n", in->ntotal);
+    fprintf(f, "[Lecteur DVD et carte memoire] acces aux registres CC006000 (lecteur) et CC006800 (EXI, carte memoire) trouves dans main.dol : %d (dont %d EXI)\n", in->ntotal, in->nexi);
     if (in->ntotal > in->nhit) fprintf(f, "  (limite atteinte : seuls les %d premiers sont notes)\n", in->nhit);
     for (int i = 0; i < in->nhit; i++)
     {
-        static const char *const opn[] = { "lwz ", "lwzu", "", "", "stw ", "stwu", "", "", "lhz ", "", "", "", "sth " };
-        u32 op = in->hit_ins[i] >> 26;
-        const char *why = na_tramp_why(in->hit_ins[i]);
-        fprintf(f, "  %08X  %s %s %s%s%s\n", (unsigned)in->hit_addr[i], op >= 32 && op <= 44 ? opn[op - 32] : "?", in->hit_store[i] ? "ecrit " : "lit   ",
+        static const char *const opn[] = { "lwz ", "lwzu", "lbz ", "lbzu", "stw ", "stwu", "stb ", "stbu", "lhz ", "lhzu", "lha ", "lhau", "sth ", "sthu" };
+        u32 op = in->hit_ins[i] >> 26, xo = (in->hit_ins[i] >> 1) & 0x3FF;
+        int isx = (in->hit_reg[i] & NA_XREG) != 0;
+        const char *why = isx ? na_xtramp_why(in->hit_ins[i]) : na_tramp_why(in->hit_ins[i]);
+        const char *nm = op >= 32 && op <= 45 ? opn[op - 32] : op == 31 && xo == 23 ? "lwzx" : op == 31 && xo == 151 ? "stwx" : "?";
+        fprintf(f, "  %08X  %s %s %s%s%s\n", (unsigned)in->hit_addr[i], nm, in->hit_store[i] ? "ecrit " : "lit   ",
                 na_reg_name(in->hit_reg[i]), why ? "   <- NON BRANCHABLE : " : "", why ? why : "");
     }
     fprintf(f, "Fonctions concernees : %d\n", in->nfunc);
     for (int i = 0; i < in->nfunc; i++) fprintf(f, "  %08X\n", (unsigned)in->func_addr[i]);
-    fprintf(f, "\n(Ce sont elles que Resident branche sur son faux lecteur.)\n");
-    if (in->stream) fprintf(f, "Attention : ce jeu lit sa musique en streaming par le lecteur DVD ; le faux lecteur\nne sait pas encore le faire (le jeu risque d'etre sans musique).\n");
+    fprintf(f, "\n(Ce sont elles que Resident branche sur son faux lecteur ; les acces EXI, sur la carte memoire virtuelle.)\n");
+    if (in->stream) fprintf(f, "Ce jeu lit sa musique en streaming sur le disque : Resident la decode et l'ajoute au son (v65).\n");
     fprintf(f, "\n");
     fprintf(f, "Bilan : %s%s\n", in->problems ? "probleme : " : "OK, Resident peut essayer ce jeu", in->problems ? in->err : "");
     fclose(f);
@@ -400,14 +472,16 @@ static void nat_journal_convert(void) {
     if (len < 512 || be32(d) != NATRES_MAGIC) { free(d); return; }
     FILE *f = fopen(NA_JTXT, "w");
     if (f) {
-        u32 H[60];
-        for (int i = 0; i < 60; i++) H[i] = be32(d + i * 4);
-        int v3 = H[1] >= 3, v4 = H[1] >= 4, v5 = H[1] >= 5, v6 = H[1] >= 6, v7 = H[1] >= 7;   /* (en-tete : 0x80 ... 0xF0 (v64) octets) */
-        if (!v3) for (int i = 32; i < 60; i++) H[i] = 0;
-        if (!v4) for (int i = 40; i < 60; i++) H[i] = 0;
-        if (!v5) for (int i = 44; i < 60; i++) H[i] = 0;
-        if (!v6) for (int i = 52; i < 60; i++) H[i] = 0;
-        if (!v7) for (int i = 56; i < 60; i++) H[i] = 0;
+        u32 H[76];
+        for (int i = 0; i < 76; i++) H[i] = be32(d + i * 4);
+        int v3 = H[1] >= 3, v4 = H[1] >= 4, v5 = H[1] >= 5, v6 = H[1] >= 6, v7 = H[1] >= 7, v8 = H[1] >= 8, v9 = H[1] >= 9;   /* (en-tete : 0x80 ... 0x130 (v66) octets) */
+        if (!v3) for (int i = 32; i < 76; i++) H[i] = 0;
+        if (!v4) for (int i = 40; i < 76; i++) H[i] = 0;
+        if (!v5) for (int i = 44; i < 76; i++) H[i] = 0;
+        if (!v6) for (int i = 52; i < 76; i++) H[i] = 0;
+        if (!v7) for (int i = 56; i < 76; i++) H[i] = 0;
+        if (!v8) for (int i = 60; i < 76; i++) H[i] = 0;
+        if (!v9) for (int i = 72; i < 76; i++) H[i] = 0;
         static const char *const en[] = { "OK", "pas de carte", "la carte ne demarre pas", "commande refusee", "pas de donnees", "hors de l'ISO", "delai depasse" };
         fprintf(f, "GC Station - journal du dernier jeu lance avec Resident\n\n");
         if (v5 && H[44]) {
@@ -429,13 +503,26 @@ static void nat_journal_convert(void) {
             if (v5) fprintf(f, "Signes de vie : son %u, DSP %u, dessin %u (le journal est reecrit toutes les 3 s tant que le jeu vit)\n", (unsigned)H[49], (unsigned)H[50], (unsigned)H[51]);
             if (v6) fprintf(f, "Lectures en fond (le son continue) : %u, en %u morceaux de 8 Ko ; reveil du vrai lecteur : %u us en moyenne, %u us au pire\n",
                             (unsigned)H[52], (unsigned)H[53], H[53] ? (unsigned)(H[54] / H[53]) : 0u, (unsigned)H[55]);
+            if (v8) {
+                fprintf(f, "Musique du disque : %u blocs decodes, ajoutee dans %u tampons du son\n", (unsigned)H[66], (unsigned)H[67]);
+                fprintf(f, "Carte memoire virtuelle : %s ; %u commandes (derniere %02X), %u secteurs ecrits, %u interruptions\n",
+                        H[18] & NRF_CARD ? "active" : "coupee", (unsigned)H[68], (unsigned)H[70], (unsigned)H[69], (unsigned)H[71]);
+            }
+            if (v9) {
+                fprintf(f, "Fonctions du jeu branchees : %s%s%s%s%s%s%s(masque %08X) ; vraies inquiry : %u\n",
+                        H[73] & (1u << 21) ? "lecteur " : "", H[73] & (1u << 24) ? "image " : "", H[73] & (1u << 20) ? "manettes " : "",
+                        H[73] & (1u << 5) ? "son " : "", H[73] & (1u << 7) ? "DSP " : "", H[73] & (3u << 18) ? "dessin " : "", H[73] ? "" : "aucune ",
+                        (unsigned)H[73], (unsigned)H[72]);
+                fprintf(f, "Entrees : image (VI) %u, sorties %u ; manettes (SI) %u, sorties %u%s\n", (unsigned)H[74], (unsigned)H[36], (unsigned)H[75], (unsigned)H[37],
+                        H[74] > H[36] ? "  <- le jeu est reste bloque DANS sa fonction d'image" : H[73] & (1u << 24) && !H[74] ? "  <- plus aucune image : interruptions coupees par le jeu ?" : "");
+            }
             if (H[38]) fprintf(f, "Retour a GC Station demande (A+Z+START)%s\n", v7 ? (H[56] ? " : .dol de GC Station recharge" : " : redemarrage de la console") : "");
             if (v4) fprintf(f, "Manettes (A+Z+START %s) : %u lues, %u laissees au jeu, touches manette 1 : %04X (%u changements)\n",
                             H[18] & NRF_IGR ? "actif" : "coupe", (unsigned)H[40], (unsigned)H[41], (unsigned)H[42], (unsigned)H[43]);
             fprintf(f, "\n");
         }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
-        int rbase = v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
+        int rbase = v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
         for (int k = 0; k < nring; k++) {
             const u8 *e = d + rbase + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);
@@ -542,11 +629,24 @@ static const char *na_tramp_why(u32 ins) {             /* NULL = on sait branche
     if ((op == 33 || op == 37) && (ra == 0 || ra == 1 || (op == 33 && ra == rt))) return "forme u invalide";
     return NULL;
 }
+/* v65 : acces EXI : mots seulement (lwz lwzu stw stwu lwzx stwx), jamais la pile */
+static const char *na_xtramp_why(u32 ins) {
+    u32 op = ins >> 26, rt = (ins >> 21) & 31, ra = (ins >> 16) & 31, rb = (ins >> 11) & 31, xo = (ins >> 1) & 0x3FF;
+    int x = op == 31 && (xo == 23 || xo == 151);
+    if (!x && op != 32 && op != 33 && op != 36 && op != 37) return op == 40 || op == 44 || (op == 31 && (xo == 279 || xo == 407)) ? "demi-mot EXI" : "instruction inconnue";
+    if (ra == 1 || (x && rb == 1)) return "adresse sur la pile";
+    if (!x && ra == 0) return "adresse fixe";
+    if ((op == 32 || op == 33 || (x && xo == 23)) && rt == 1) return "lecture dans r1 (pile)";
+    if ((op == 33 && ra == rt) || (op == 37 && ra == 0)) return "forme u invalide";
+    return NULL;
+}
 static int na_tramp(u8 *w, u32 at, u32 site, u32 ins, u32 reg, u32 fn_load, u32 fn_store) {
-    u32 op = ins >> 26, rt = (ins >> 21) & 31, ra = (ins >> 16) & 31;
+    u32 op = ins >> 26, rt = (ins >> 21) & 31, ra = (ins >> 16) & 31, rb = (ins >> 11) & 31;
     s32 simm = (s16)(ins & 0xFFFF);
-    if (na_tramp_why(ins)) return 0;
-    int load = op == 32 || op == 33 || op == 40, half = op == 40 || op == 44;
+    int dyn = (reg & NA_XREG) != 0;                       /* v65 : EXI : r3 = adresse, calculee pendant le jeu */
+    if (dyn ? na_xtramp_why(ins) != NULL : na_tramp_why(ins) != NULL) return 0;
+    int xf = op == 31;
+    int load = op == 32 || op == 33 || op == 40 || (xf && ((ins >> 1) & 0x3FF) == 23), half = op == 40 || op == 44;
     u32 ral = reg & ~3u, k = reg & 3u;
     if (half && (k & 1)) return 0;
     u32 c[64]; int n = 0;
@@ -559,8 +659,10 @@ static int na_tramp(u8 *w, u32 at, u32 site, u32 ins, u32 reg, u32 fn_load, u32 
     c[n++] = 0x7C000026u; c[n++] = PPC_STW(0, 1, 0x8C);  /* mfcr r0 */
     c[n++] = 0x7C0902A6u; c[n++] = PPC_STW(0, 1, 0x90);  /* mfctr r0 */
     c[n++] = 0x7C0102A6u; c[n++] = PPC_STW(0, 1, 0x94);  /* mfxer r0 */
+#define NA_EA() do { if (xf) { c[n++] = PPC_LWZ(3, 1, na_slot(rb)); if (ra) { c[n++] = PPC_LWZ(0, 1, na_slot(ra)); c[n++] = 0x7C630214u; } } \
+                     else { c[n++] = PPC_LWZ(3, 1, na_slot(ra)); c[n++] = PPC_ADDI(3, 3, simm); } } while (0)   /* (add r3,r3,r0) */
     if (load) {
-        c[n++] = PPC_ADDI(3, 0, ral);                    /* li r3,reg */
+        if (dyn) NA_EA(); else c[n++] = PPC_ADDI(3, 0, ral);   /* li r3,reg */
         NA_CALL(fn_load);
         if (half) c[n++] = PPC_RLW(21, 3, 3, k ? 0 : 16, 16, 31);   /* rlwinm : le demi-registre voulu */
         c[n++] = PPC_STW(3, 1, na_slot(rt));             /* resultat -> rD (sur la pile) */
@@ -572,9 +674,10 @@ static int na_tramp(u8 *w, u32 at, u32 site, u32 ins, u32 reg, u32 fn_load, u32 
             c[n++] = PPC_RLW(20, 4, 3, k ? 0 : 16, k ? 16 : 0, k ? 31 : 15);   /* rlwimi r3,r4 */
             c[n++] = 0x7C641B78u;                        /* mr r4,r3 */
         } else c[n++] = rt == 1 ? PPC_ADDI(4, 1, NA_FRAME) : PPC_LWZ(4, 1, na_slot(rt));   /* valeur -> r4 */
-        c[n++] = PPC_ADDI(3, 0, ral);
+        if (dyn) NA_EA(); else c[n++] = PPC_ADDI(3, 0, ral);
         NA_CALL(fn_store);
     }
+#undef NA_EA
 #undef NA_CALL
     c[n++] = PPC_LWZ(0, 1, 0x94); c[n++] = 0x7C0103A6u;  /* mtxer */
     c[n++] = PPC_LWZ(0, 1, 0x90); c[n++] = 0x7C0903A6u;  /* mtctr */
@@ -596,29 +699,60 @@ static int na_tramp(u8 *w, u32 at, u32 site, u32 ins, u32 reg, u32 fn_load, u32 
 static u32 na_skip_at[NA_MAXSKIP], na_skip_ins[NA_MAXSKIP];
 static const char *na_skip_why[NA_MAXSKIP];
 static int na_nskip = 0;
-static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped) {
+static u32 na_xfo[NA_MAXHIT], na_xold[NA_MAXHIT];
+static char na_xwhy[120] = "";
+static int na_xdone = 0;
+static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *card_on) {
     u32 at = (be32(res + 0x3C) + 31) & ~31u;             /* (h->end, lu en big-endian) */
-    u32 fl = be32(res + 0x40), fs = be32(res + 0x44);   /* (h->di_load, h->di_store) */
+    u32 dl = be32(res + 0x40), ds = be32(res + 0x44);   /* (h->di_load, h->di_store) */
+    u32 xl = be32(res + 0xF0), xs = be32(res + 0xF4);   /* v65 : (h->exi_load, h->exi_store) */
     int done = 0;
-    *skipped = 0; na_nskip = 0;
-    for (int i = 0; i < in->nhit; i++) {
-        u32 a = in->hit_addr[i], fo = 0;
-        int sec = -1;
-        for (int k = 0; k < in->nsec; k++) if (a >= in->sec_addr[k] && a - in->sec_addr[k] < in->sec_sz[k]) { sec = k; fo = in->sec_off[k] + (a - in->sec_addr[k]); }
-        const char *why = sec < 0 ? "hors des sections" : be32(dol + fo) != in->hit_ins[i] ? "instruction differente"
-                        : at + 64 * 4 > NATRES_AT + NATRES_SIZE ? "plus de place" : na_tramp_why(in->hit_ins[i]);
-        s32 d = (s32)(at - a);
-        if (!why && (d >= 0x02000000 || d < -0x02000000)) why = "trop loin";
-        int n = why ? 0 : na_tramp(res + (at - NATRES_AT), at, a, in->hit_ins[i], in->hit_reg[i], fl, fs);
-        if (!why && !n) why = "demi-registre impair";
-        if (why) {
-            if (na_nskip < NA_MAXSKIP) { na_skip_at[na_nskip] = a; na_skip_ins[na_nskip] = in->hit_ins[i]; na_skip_why[na_nskip] = why; na_nskip++; }
-            (*skipped)++; continue;
+    *skipped = 0; na_nskip = 0; na_xdone = 0; na_xwhy[0] = 0;
+    /* passe 0 : le lecteur (tous, sinon le jeu n'est pas lance) ; passe 1 : la carte (tout ou rien) */
+    for (int pass = 0; pass < 2; pass++) {
+        if (pass == 1 && !*card_on) break;
+        u32 at0 = at, cov = 0;
+        int nx = 0;
+        const char *xfail = NULL;
+        u32 xfail_at = 0;
+        for (int i = 0; i < in->nhit; i++) {
+            int isx = (in->hit_reg[i] & NA_XREG) != 0;
+            if (isx != pass) continue;
+            u32 a = in->hit_addr[i], fo = 0;
+            int sec = -1;
+            for (int k = 0; k < in->nsec; k++) if (a >= in->sec_addr[k] && a - in->sec_addr[k] < in->sec_sz[k]) { sec = k; fo = in->sec_off[k] + (a - in->sec_addr[k]); }
+            const char *why = sec < 0 ? "hors des sections" : be32(dol + fo) != in->hit_ins[i] ? "instruction differente"
+                            : at + 64 * 4 > NATRES_AT + NATRES_SIZE ? "plus de place"
+                            : isx ? na_xtramp_why(in->hit_ins[i]) : na_tramp_why(in->hit_ins[i]);
+            s32 d = (s32)(at - a);
+            if (!why && (d >= 0x02000000 || d < -0x02000000)) why = "trop loin";
+            int n = why ? 0 : na_tramp(res + (at - NATRES_AT), at, a, in->hit_ins[i], in->hit_reg[i], isx ? xl : dl, isx ? xs : ds);
+            if (!why && !n) why = "demi-registre impair";
+            if (why && isx) { xfail = why; xfail_at = a; break; }
+            if (why) {
+                if (na_nskip < NA_MAXSKIP) { na_skip_at[na_nskip] = a; na_skip_ins[na_nskip] = in->hit_ins[i]; na_skip_why[na_nskip] = why; na_nskip++; }
+                (*skipped)++; continue;
+            }
+            if (isx) {
+                na_xfo[nx] = fo; na_xold[nx] = be32(dol + fo); nx++;
+                if (!(in->hit_reg[i] & NA_XIDX)) cov |= 1u << (((in->hit_reg[i] & 0x7F) >> 2) + (in->hit_store[i] ? 8 : 0));
+            }
+            u32 b = 0x48000000u | ((u32)d & 0x03FFFFFCu);    /* b aiguillage */
+            na_wbe32(dol + fo, b);
+            at += ((u32)n * 4 + 31) & ~31u;
+            done++;
         }
-        u32 b = 0x48000000u | ((u32)d & 0x03FFFFFCu);    /* b aiguillage */
-        dol[fo] = (u8)(b >> 24); dol[fo + 1] = (u8)(b >> 16); dol[fo + 2] = (u8)(b >> 8); dol[fo + 3] = (u8)b;
-        at += ((u32)n * 4 + 31) & ~31u;
-        done++;
+        if (pass == 1) {
+            /* (au minimum : CSR lu et ecrit, CR ecrit, DATA lu : sinon une partie irait a la vraie carte) */
+            const u32 need = (1u << 0) | (1u << 8) | (1u << 11) | (1u << 4);
+            if (!xfail && in->x_lost) xfail = "trop d'acces EXI";
+            if (!xfail && (cov & need) != need) xfail = "acces EXI incomplets";
+            if (xfail) {
+                for (int j = 0; j < nx; j++) na_wbe32(dol + na_xfo[j], na_xold[j]);   /* on rend au jeu ses acces : la vraie carte, comme avant */
+                at = at0; done -= nx; *card_on = 0;
+                snprintf(na_xwhy, sizeof(na_xwhy), "coupee pour ce jeu : %s (%08X, trouves %03X)", xfail, (unsigned)xfail_at, (unsigned)cov);
+            } else na_xdone = nx;
+        }
     }
     return done;
 }
@@ -748,26 +882,75 @@ static void na_drive_wake(void) {
 static void na_drive_wake(void) { snprintf(na_drv, sizeof(na_drv), "(simulateur)"); }
 #endif
 
-/* ---------- v64 : ecran de chargement de Resident (style "Minimal" : nom du jeu, ligne fine,
-   pourcentage, GC STATION en bas a droite) ---------- */
+/* ---------- v65 : ecran de chargement de Resident, dans le style de GC Station (degrade,
+   jaquette du jeu avec halo, panneau arrondi, barre lumineuse, etapes cochees) ---------- */
 static char nat_ld_title[96], nat_ld_step[96];
-static int nat_ld_pct = 0, nat_ld_from = 0, nat_ld_to = 0;
+static int nat_ld_pct = 0, nat_ld_from = 0, nat_ld_to = 0, nat_ld_k = -1;
 static u64 nat_ld_t0 = 0, nat_ld_last = 0;
 #ifdef NATIF_BENCH
 static void nat_draw_loading(void) {}
 #else
 static void nat_draw_loading(void) {
-    char b[120];
-    gx_rect(0, 0, 640, 480, RGBA(5, 3, 9, 255));
+    char b[120], fv[120];
+    f32 t = (f32)(now_ms() % 100000u) / 1000.0f;
+    gx_vgrad(0, 0, 640, 480, RGBA(20, 10, 44, 255), RGBA(4, 2, 12, 255));
+    gx_circle(168, 232, 230, RGBA(120, 60, 255, 60), RGBA(120, 60, 255, 0));   /* (lueur derriere la jaquette) */
+    /* jaquette */
+    const f32 cx = 72, cy = 104, cw = 192, chh = 256;
+    gx_glow(cx, cy, cw, chh, 10, RGBA(160, 100, 255, 170), 6);
+    if (nat_ld_k >= 0 && nat_ld_k < gl_n) gl_draw_cover(nat_ld_k, cx, cy, cw, chh, 1);
+    else {
+        gx_rrect_fill(cx, cy, cw, chh, 10, RGBA(44, 26, 88, 255), RGBA(22, 12, 46, 255));
+        gx_circle(cx + cw / 2, cy + chh / 2, 62, RGBA(200, 190, 230, 255), RGBA(120, 110, 160, 255));   /* (un disque) */
+        gx_circle(cx + cw / 2, cy + chh / 2, 14, RGBA(22, 12, 46, 255), RGBA(22, 12, 46, 255));
+    }
+    gx_rrect_stroke(cx - 1, cy - 1, cw + 2, chh + 2, 10, 1.5f, RGBA(220, 190, 255, 200));
+    /* panneau */
+    const f32 px = 288, py = 104, pw = 304, ph = 256;
+    gx_rrect_fill(px, py, pw, ph, 12, RGBA(38, 22, 76, 235), RGBA(18, 10, 38, 235));
+    gx_rrect_stroke(px, py, pw, ph, 12, 1.0f, RGBA(130, 90, 230, 140));
+    gx_rrect_fill(px + 18, py + 16, 92, 20, 10, RGBA(170, 100, 255, 255), RGBA(120, 60, 235, 255));   /* badge */
+    gx_text_c(F_SMALL, px + 18 + 46, py + 31, "RESIDENT", RGBA(255, 255, 255, 255));
+    gx_text_r(F_SMALL, px + pw - 18, py + 31, TR("Lancement sans Swiss"), RGBA(150, 136, 196, 255));
     text_display(nat_ld_title, b, sizeof(b));
-    char fv[120];
-    fit_text(F_MED, b, 560, fv, sizeof(fv));
-    gx_text_c(F_MED, 320, 220, fv, RGBA(255, 255, 255, 255));
-    gx_rect(210, 240, 220, 2, RGBA(28, 21, 48, 255));
-    gx_rect(210, 240, 220.0f * nat_ld_pct / 100.0f, 2, RGBA(156, 108, 255, 255));
+    fit_text(F_MED, b, (int)pw - 36, fv, sizeof(fv));
+    gx_text1(F_MED, px + 18, py + 70, fv, RGBA(255, 255, 255, 255));
+    /* barre */
+    const f32 bx = px + 18, by = py + 90, bw = pw - 36, bh = 8;
+    f32 fw = bw * (f32)nat_ld_pct / 100.0f;
+    gx_rrect_fill(bx, by, bw, bh, 4, RGBA(16, 8, 34, 255), RGBA(30, 18, 60, 255));
+    if (fw >= 8) {
+        gx_glow(bx, by, fw, bh, 4, RGBA(180, 110, 255, 150), 4);
+        gx_rrect_fill(bx, by, fw, bh, 4, RGBA(210, 150, 255, 255), RGBA(130, 70, 245, 255));
+        f32 sh = fmodf(t * 160.0f, fw + 60.0f) - 30.0f;           /* (reflet qui court) */
+        if (sh > 2 && sh < fw - 10) gx_hgrad(bx + sh, by + 1, 8, bh - 2, RGBA(255, 255, 255, 0), RGBA(255, 255, 255, 120));
+        gx_circle_glow(bx + fw - 4, by + bh / 2, 5, RGBA(230, 200, 255, 200), 5);
+    }
     snprintf(b, sizeof(b), "%d %%", nat_ld_pct);
-    gx_text_c(F_SMALL, 320, 266, b, RGBA(156, 146, 190, 255));
-    gx_text_c(F_SMALL, 320, 292, nat_ld_step, RGBA(110, 100, 150, 255));
+    gx_text_r(F_SMALL, bx + bw, by + 26, b, RGBA(220, 205, 255, 255));
+    fit_text(F_SMALL, nat_ld_step, (int)bw - 50, fv, sizeof(fv));
+    gx_text1(F_SMALL, bx, by + 26, fv, RGBA(180, 166, 226, 255));
+    /* etapes */
+    static const char *const st[5] = { "Analyse du jeu", "Carte SD : jeu et sauvegardes", "Lecture du jeu", "Pr\xC3\xA9paration du lecteur", "D\xC3\xA9marrage" };
+    static const int at[6] = { 0, 10, 22, 40, 100, 101 };
+    for (int i = 0; i < 5; i++) {
+        f32 ry = by + 52 + i * 21;
+        int done = nat_ld_pct >= at[i + 1], cur = !done && nat_ld_pct >= at[i];
+        if (done) {
+            gx_circle(bx + 7, ry - 4, 7, RGBA(190, 130, 255, 255), RGBA(140, 80, 245, 255));
+            gx_tri(bx + 3, ry - 4, bx + 6, ry - 1, bx + 6, ry + 1, RGBA(255, 255, 255, 255));   /* (coche) */
+            gx_poly4(bx + 5, ry - 1, bx + 10, ry - 8, bx + 12, ry - 7, bx + 6, ry + 1,
+                     RGBA(255, 255, 255, 255), RGBA(255, 255, 255, 255), RGBA(255, 255, 255, 255), RGBA(255, 255, 255, 255));
+        } else if (cur) {
+            f32 p = 0.5f + 0.5f * sinf(t * 6.0f);
+            gx_circle_glow(bx + 7, ry - 4, 6, RGBA(200, 150, 255, (u8)(120 + 120 * p)), 4);
+            gx_ring(bx + 7, ry - 4, 5, 7, RGBA(210, 170, 255, 255));
+        } else gx_ring(bx + 7, ry - 4, 5.5f, 7, RGBA(90, 74, 140, 255));
+        gx_text1(F_SMALL, bx + 22, ry + 1, TR(st[i]), done ? RGBA(200, 190, 235, 255) : cur ? RGBA(255, 255, 255, 255) : RGBA(110, 98, 150, 255));
+    }
+    /* bas */
+    if (nat_igr) gx_text_c(F_SMALL, 320, 400, TR("Pendant le jeu : A + Z + START = retour \xC3\xA0 GC Station"), RGBA(150, 136, 196, 255));
+    if (nat_card) gx_text_c(F_SMALL, 320, 420, TR("Sauvegardes : carte m\xC3\xA9moire virtuelle (slot A, sur la carte SD)"), RGBA(120, 108, 166, 255));
     gx_text_r(F_SMALL, 616, 460, "GC STATION  \xC2\xB7  RESIDENT", RGBA(142, 124, 196, 255));
 }
 #endif
@@ -820,10 +1003,51 @@ static void nat_ret_prep(void) {
     na_ret_n = na_next; na_ret_size = (u32)st.st_size;
 }
 
+/* v65 : carte memoire virtuelle (slot A) : un fichier sur la carte SD. Absent : il est cree
+   (2 Mo, 251 blocs, vide : le jeu propose alors de formater la carte, comme une carte neuve).
+   Une image de carte deja faite (Dolphin, GCMM : 59 a 2043 blocs) peut aussi etre posee la. */
+#define NA_CARD_DIR  GCD "/resident"
+#define NA_CARD      NA_CARD_DIR "/carte-A.raw"
+#define NA_CARD_NEW  (2u << 20)
+static natres_ext_t na_card[NATRES_CARDMAX];
+static u32 na_card_n = 0, na_card_size = 0;
+static char na_card_msg[128] = "";
+static int nat_card_prep(void) {
+    na_card_n = 0; na_card_size = 0;
+    if (!nat_card) { snprintf(na_card_msg, sizeof(na_card_msg), "coupee (reglage)"); return 0; }
+    if (sd_virtual) { snprintf(na_card_msg, sizeof(na_card_msg), "pas de vraie carte SD"); return 0; }
+    struct stat st;
+    mkdir(NA_CARD_DIR, 0777);
+    if (stat(NA_CARD, &st) != 0) {
+        nat_ld("Pr\xC3\xA9paration de la carte m\xC3\xA9moire virtuelle", 12);
+        static u8 ff[32768];
+        memset(ff, 0xFF, sizeof(ff));
+        FILE *f = fopen(NA_CARD ".part", "wb");
+        int ok = f != NULL;
+        for (u32 o = 0; ok && o < NA_CARD_NEW; o += sizeof(ff)) { if (fwrite(ff, 1, sizeof(ff), f) != sizeof(ff)) ok = 0; nat_ld_tick(); service_audio(); }
+        if (f && fclose(f) != 0) ok = 0;
+        if (!ok || rename(NA_CARD ".part", NA_CARD) != 0 || stat(NA_CARD, &st) != 0) {
+            remove(NA_CARD ".part"); snprintf(na_card_msg, sizeof(na_card_msg), "creation du fichier impossible"); return 0;
+        }
+    }
+    u32 sz = (u32)st.st_size;
+    if (sz < 0x80000u || sz > 0x1000000u || (sz & (sz - 1))) {      /* (on ne touche pas a un fichier inconnu) */
+        snprintf(na_card_msg, sizeof(na_card_msg), "carte-A.raw : taille %u octets, pas une image de carte (512 Ko a 16 Mo)", (unsigned)sz); return 0;
+    }
+    char e[80];
+    if (nat_map(NA_CARD, e, sizeof(e))) { snprintf(na_card_msg, sizeof(na_card_msg), "%s", e); return 0; }
+    if (na_next > NATRES_CARDMAX) { snprintf(na_card_msg, sizeof(na_card_msg), "carte-A.raw trop morcele sur la carte SD (%u morceaux)", (unsigned)na_next); return 0; }
+    memcpy(na_card, na_ext, na_next * sizeof(natres_ext_t));
+    na_card_n = na_next; na_card_size = sz;
+    snprintf(na_card_msg, sizeof(na_card_msg), "active (gc-mp3/resident/carte-A.raw, %u blocs)", (unsigned)(sz / 8192u - 5u));
+    return 1;
+}
+
 static const char *nat_boot(int k) {
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
     static nat_info_t in;
     snprintf(nat_ld_title, sizeof(nat_ld_title), "%s", gl[k].title);
+    nat_ld_k = k;
     nat_ld("Analyse du jeu", 4);
     if (!nat_analyse(gl[k].path, &in)) return in.err;
     if (in.problems) return in.err;
@@ -836,6 +1060,7 @@ static const char *nat_boot(int k) {
     char merr[120] = "";
     nat_ld("Position du jeu sur la carte SD", 10);
     nat_ret_prep();                                        /* v64 : retour a GC Station (avant la carte de l'ISO : meme tableau) */
+    int card_on = nat_card_prep();                         /* v65 : carte memoire virtuelle */
     u32 log_sec = nat_journal_prep();                      /* v54 : journal du jeu (un secteur de la carte) */
     int res = !gl[k].ciso && !nat_map(gl[k].path, merr, sizeof(merr)) && sizeof(natres_bin) <= NATRES_SIZE;
     u32 total = ((dol_len + 31) & ~31u) + NA_BI2 + ((in.fst_sz + 31) & ~31u) + (res ? NATRES_SIZE : 0);
@@ -858,7 +1083,15 @@ static const char *nat_boot(int k) {
             na_wbe32(r + 0x14, sd_slot == 0 ? 2 : sd_slot == 1 ? 0 : 1);   /* canal EXI */
             na_wbe32(r + 0x18, 0); na_wbe32(r + 0x1C, 4);                   /* peripherique, 16 MHz */
             na_wbe32(r + 0x20, na_next);
-            na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0));
+            u32 co = be32(r + 0xFC) - NATRES_AT;                            /* (natres_hdr_t.card_tab) */
+            if (card_on && co + na_card_n * 12 > NATRES_SIZE) card_on = 0;
+            na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0) | (card_on ? NRF_CARD : 0));
+            if (card_on) {                                                  /* v65 : carte memoire virtuelle */
+                na_wbe32(r + 0xF8, na_card_n); na_wbe32(r + 0x100, na_card_size); na_wbe32(r + 0x104, na_card_size >> 17);   /* (ID = taille en Mbits) */
+                for (u32 i = 0; i < na_card_n; i++) {
+                    na_wbe32(r + co + i * 12, na_card[i].iso); na_wbe32(r + co + i * 12 + 4, na_card[i].sd); na_wbe32(r + co + i * 12 + 8, na_card[i].cnt);
+                }
+            }
             na_wbe32(r + 0x60, log_sec);                                    /* (natres_hdr_t.log_sec) */
             u32 ro = be32(r + 0xE4) - NATRES_AT;                            /* (natres_hdr_t.ret_tab) */
             if (na_ret_n && ro + na_ret_n * 12 <= NATRES_SIZE) {             /* v64 : .dol de GC Station */
@@ -884,20 +1117,29 @@ static const char *nat_boot(int k) {
     if (!ok) { free(buf); return "Lecture du jeu impossible (carte SD)"; }
     /* etape 3b : le jeu parle au faux lecteur (programme resident) au lieu du vrai */
     int patched = 0, skipped = 0;
-    if (res) patched = na_patch(&in, buf + o_dol, buf + o_res, &skipped);
-    if (res && (skipped || in.ntotal > in.nhit)) {       /* un acces oublie = vrai lecteur interroge : on ne lance pas */
+    if (res) {
+        int was = card_on;
+        patched = na_patch(&in, buf + o_dol, buf + o_res, &skipped, &card_on);
+        if (was && !card_on) {                              /* (carte refusee pour ce jeu : flag et table retires) */
+            u8 *r = buf + o_res;
+            na_wbe32(r + 0x48, be32(r + 0x48) & ~NRF_CARD);
+            na_wbe32(r + 0xF8, 0);
+            snprintf(na_card_msg, sizeof(na_card_msg), "%s", na_xwhy);
+        }
+    }
+    if (res && (skipped || in.di_lost)) {                /* un acces oublie = vrai lecteur interroge : on ne lance pas */
         free(buf);
         mkdir(NA_DIR, 0777);
         FILE *lf = fopen(NA_LOG, "w");                    /* (v52 : le journal dit lesquels et pourquoi) */
         if (lf) {
             fprintf(lf, "GC Station - Resident : jeu PAS lance\nJeu : %s (%s)\n", in.title, in.id);
-            fprintf(lf, "Acces au lecteur : %d trouves, %d branches, %d non branches\n", in.ntotal, patched, skipped + (in.ntotal - in.nhit));
-            if (in.ntotal > in.nhit) fprintf(lf, "  %d au-dela de la limite de %d\n", in.ntotal - in.nhit, NA_MAXHIT);
+            fprintf(lf, "Acces au lecteur : %d trouves, %d branches, %d non branches\n", in.ntotal - in.nexi, patched - na_xdone, skipped + in.di_lost);
+            if (in.di_lost) fprintf(lf, "  %d au-dela de la limite de %d\n", in.di_lost, NA_MAXHIT);
             for (int i = 0; i < na_nskip; i++) fprintf(lf, "  %08X  instruction %08X : %s\n", (unsigned)na_skip_at[i], (unsigned)na_skip_ins[i], na_skip_why[i]);
             fclose(lf);
         }
         static char e[120];
-        snprintf(e, sizeof(e), "Resident : %d acc\xC3\xA8s au lecteur non branch\xC3\xA9s, jeu pas lanc\xC3\xA9", skipped + (in.ntotal - in.nhit));
+        snprintf(e, sizeof(e), "Resident : %d acc\xC3\xA8s au lecteur non branch\xC3\xA9s, jeu pas lanc\xC3\xA9", skipped + in.di_lost);
         return e;
     }
     /* table de copie pour gl_stub : {destination, source, taille} */
@@ -925,9 +1167,10 @@ static const char *nat_boot(int k) {
         fprintf(f, "Point d'entree : %08X\n", (unsigned)in.entry);
         fprintf(f, "Programme resident : %s\n", res ? "installe" : merr[0] ? merr : "non installe");
         fprintf(f, "Journal du jeu : %s\n", log_sec ? "oui (gc-mp3/natif/journal-jeu.txt au prochain demarrage de GC Station)" : "non");
-        fprintf(f, "Faux lecteur DVD : %d acces branches, %d non branches (sur %d trouves)\n", patched, skipped, in.nhit);
+        fprintf(f, "Faux lecteur DVD : %d acces branches, %d non branches (sur %d trouves)\n", patched - na_xdone, skipped, in.ntotal - in.nexi);
         fprintf(f, "Vrai lecteur : %s\n", na_drv[0] ? na_drv : "pas teste");
         fprintf(f, "Retour a GC Station (A+Z+START, plantage) : %s\n", na_ret_n ? "pret (le .dol de GC Station est relu sur la carte)" : "redemarrage de la console");
+        fprintf(f, "Carte memoire virtuelle (slot A) : %s ; %d acces EXI trouves, %d branches\n", na_card_msg[0] ? na_card_msg : "non", in.nexi, na_xdone);
         fprintf(f, "Memoire basse avant : 28=%08X 2C=%08X CC=%08X F8=%08X FC=%08X\n",
 #ifdef GEKKO
                 (unsigned)*(volatile u32 *)0x80000028, (unsigned)*(volatile u32 *)0x8000002C, (unsigned)*(volatile u32 *)0x800000CC,
