@@ -5323,6 +5323,8 @@ static void gp_draw(void);
 static void gp_player_zones(void);
 static void draw_night(void);
 static void draw_update_notice(void);
+static int nat_ld_on = 0;                       /* v64 : ecran de chargement de Resident (natif.c) */
+static void nat_draw_loading(void);
 static void draw(void) {
     {
         static u64 last = 0;
@@ -5332,6 +5334,7 @@ static void draw(void) {
         last = n;
     }
     gp_frame_begin();
+    if (nat_ld_on) { begin_frame(); nat_draw_loading(); service_audio(); present_frame(); return; }
     if (night_on) { draw_night(); return; }
     if (saver_on) { draw_saver(); return; }
     if (fun_mode && !menu_open && !kb_is_open()) { draw_fun(); return; }

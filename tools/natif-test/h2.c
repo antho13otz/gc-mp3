@@ -12,6 +12,13 @@ static int nat_igr = 1;
 static int sd_virtual = 0, sd_slot = 0, sd_ok = 1, settings_dirty = 0;
 static u32 be32(const unsigned char *p){return (u32)p[0]<<24|p[1]<<16|p[2]<<8|p[3];}
 static void service_audio(void){}
+#include <time.h>
+static u64 now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (u64)t.tv_sec * 1000 + t.tv_nsec / 1000000; }
+static int nat_ld_on = 0;
+static void draw(void) {}
+#define TR(x) (x)
+static const char *nat_self_path(void) { return getenv("NATIF_SELF"); }   /* (v64 : .dol "GC Station" pour le retour) */
+
 static void *read_file(const char *p, long max, long *len) { FILE *f = fopen(p, "rb"); if (!f) return NULL; void *b = malloc(max); *len = b ? (long)fread(b, 1, max, f) : 0; fclose(f); return b; }
 static void crumb(const char*f,...){}
 static void stop_track(void){}
@@ -25,7 +32,7 @@ static const unsigned gl_stub[1];
 #include "gd.inc"
 static FILE *img;
 static u32 first_clus;
-static int host_stat(const char *p, struct stat *st) { int r = stat(p, st); if (!r) st->st_ino = strstr(p, "journal-jeu") ? 20000 : first_clus; return r; }   /* (journal : un cluster libre de mkfat.py) */
+static int host_stat(const char *p, struct stat *st) { int r = stat(p, st); if (!r) st->st_ino = strstr(p, "journal-jeu") ? 20000 : strstr(p, "selfdol") ? 30000 : first_clus; return r; }   /* (journal : un cluster libre de mkfat.py) */
 #define stat(p, s) host_stat(p, s)
 #include "natif.c"
 #undef stat

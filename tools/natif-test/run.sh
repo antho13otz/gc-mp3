@@ -21,12 +21,15 @@ echo 'static void nat_qr_open(const char *id) { (void)id; }' >> natif.c
 mkdir -p fakeinc/gnu; touch fakeinc/gnu/stubs-32.h
 printf '#pragma once\n#include <stdbool.h>\n#include <sys/types.h>\nbool fatMountSimple(const char*, const void*);\nvoid fatUnmount(const char*);\n' > fakeinc/fat.h
 sed -n '/^\/\* ---------- lecture des disques/,/^static int gl_id_ok/p' $R/source/gclib.c | sed '$d' > gd.inc
-clang --target=powerpc-linux-gnu -fsyntax-only -Wall -Wno-unused-function -Wno-unused-variable -DHW_DOL -D__gamecube__ -Ilibogc/gc -Ifakeinc -I. -I$R/source -isystem /usr/include -isystem /usr/include/x86_64-linux-gnu $T/gk.c && echo "console : syntaxe OK"
+clang --target=powerpc-linux-gnu -DNATIF_BENCH -fsyntax-only -Wall -Wno-unused-function -Wno-unused-variable -DHW_DOL -D__gamecube__ -Ilibogc/gc -Ifakeinc -I. -I$R/source -isystem /usr/include -isystem /usr/include/x86_64-linux-gnu $T/gk.c && echo "console : syntaxe OK"
 # 3) bout en bout : faux jeu -> ISO -> carte SD FAT32 -> lancement natif -> emulateur
 gcc -DNATIF_BENCH -Wall -Wno-unused-function -Wno-unused-variable -I. -I$R/source -o h2 $T/h2.c
 clang --target=powerpc-none-eabi -mcpu=750 -c $T/game.s -o game.o && ld.lld -Ttext=0x80003100 -e _start game.o -o game.elf && llvm-objcopy -O binary -j .text game.elf game.text
 python3 $T/mkiso.py game.text game.iso
-python3 $T/mkfat.py 32 game.iso sd.img 1 >/dev/null
-rm -rf out; mkdir -p out; NATIF_DUMP=boot.bin ./h2 game.iso sd.img 10 >/dev/null
+# (v64 : faux .dol de GC Station, pour le retour depuis le jeu)
+clang --target=powerpc-none-eabi -mcpu=750 -c $T/selfdol.s -o selfdol.o && ld.lld -Ttext=0x80004000 -e _start selfdol.o -o selfdol.elf && llvm-objcopy -O binary -j .text selfdol.elf selfdol.text
+python3 -c "import struct,sys; t=open('selfdol.text','rb').read(); t+=b'\0'*(-len(t)%32); h=bytearray(0x100); struct.pack_into('>I',h,0,0x100); struct.pack_into('>I',h,0x48,0x80004000); struct.pack_into('>I',h,0x90,len(t)); struct.pack_into('>I',h,0xE0,0x80004000); open('selfdol.dol','wb').write(bytes(h)+t)"
+python3 $T/mkfat.py 32 game.iso sd.img 1 selfdol.dol >/dev/null
+rm -rf out; mkdir -p out; NATIF_SELF=selfdol.dol NATIF_DUMP=boot.bin ./h2 game.iso sd.img 10 >/dev/null
 python3 $T/emu_e2e.py boot.bin sd.img game.iso | tail -1
 python3 $T/emu_e2e.py boot.bin sd.img game.iso exc | tail -1     # (v60 : plantage du jeu -> journal + redemarrage)

@@ -21,6 +21,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v64
+- **Écran de chargement de Resident** (style « Minimal ») : nom du jeu, ligne de progression, étape en cours, « GC STATION · RESIDENT ».
+- **A + Z + START (et un plantage) ramènent directement sur GC Station**, sans redémarrer la console : Resident relit le `.dol` de GC Station sur la carte et le lance (avant, le redémarrage passait par le menu de la GameCube).
+- **Le lecteur reste silencieux** : après son réveil (nécessaire pour Resident), son moteur est arrêté. Quand on revient d'un jeu Resident, il n'a même plus besoin d'être redémarré.
+
 ## Nouveautés v63
 - Le lanceur maison s'appelle maintenant **Resident** (dans « Lancer ce jeu ? » : **X : Resident**).
 - **A+Z+START avec Resident remarche** et la manette du jeu aussi (1080° Avalanche : retour à GC Station en jeu). Réglage « A+Z+START (Resident) », de nouveau actif par défaut.
