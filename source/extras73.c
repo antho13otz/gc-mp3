@@ -24,6 +24,14 @@ static int x73_setting(const char *k, const char *v) {
     if (!strcasecmp(k, "radio_prog_duree")) { int d = atoi(v); rp_len = d < 5 ? 5 : d > 600 ? 600 : d; return 1; }
     if (!strcasecmp(k, "radio_prog_url")) { snprintf(rp_url, sizeof(rp_url), "%s", v); return 1; }
     if (!strcasecmp(k, "radio_prog_nom")) { snprintf(rp_name, sizeof(rp_name), "%s", v); return 1; }
+    if (!strcasecmp(k, "reseau_dhcp")) { net_dhcp = yes(v); net_cfg_seen = 1; return 1; }        /* v75 : reseau de GC Station */
+    if (!strcasecmp(k, "reseau_ip")) { snprintf(net_cfg_ip, sizeof(net_cfg_ip), "%.15s", v); return 1; }
+    if (!strcasecmp(k, "reseau_passerelle")) { snprintf(net_cfg_gw, sizeof(net_cfg_gw), "%.15s", v); return 1; }
+    if (!strcasecmp(k, "reseau_masque")) { int b = atoi(v); net_cfg_bits = b >= 8 && b <= 30 ? b : 24; return 1; }
+    if (!strcasecmp(k, "fichiers_caches")) { fe_show_hidden = yes(v); return 1; }
+    if (!strcasecmp(k, "fichiers_inconnus_caches")) { fe_hide_unknown = yes(v); return 1; }
+    if (!strcasecmp(k, "retour_langue_console")) { int l = atoi(v); sram_back_lang = v[0] && l >= 0 && l < 6 ? l : -1; return 1; }
+    if (!strcasecmp(k, "retour_son_console")) { sram_back_sound = v[0] ? atoi(v) != 0 : -1; if (!v[0] || v[0] == '-') sram_back_sound = -1; return 1; }
     if (!strcasecmp(k, "resident_carte_fichier")) {
         int ok = v[0] && strlen(v) < sizeof(vc_active) - 1 && !strchr(v, '/') && !strchr(v, '\\') && strstr(v, "..") == NULL;
         if (ok) snprintf(vc_active, sizeof(vc_active), "%s", v);
@@ -37,6 +45,12 @@ static void x73_save(FILE *f) {
     else fprintf(f, "# Enregistrement programme de la radio : heure (HH:MM ou non), duree en minutes, radio\nradio_prog = non\n");
     fprintf(f, "radio_prog_duree = %d\nradio_prog_url = %s\nradio_prog_nom = %s\n", rp_len, rp_url, rp_name);
     fprintf(f, "# Jeu de rythme : 4 touches (A B X Y) ou 5 (+ R)\nrythme_touches = %d\n", rg_lanes);
+    fprintf(f, "# Reseau : adresse automatique (oui) ou fixe (non : ip, masque en bits, passerelle)\nreseau_dhcp = %s\nreseau_ip = %s\nreseau_masque = %d\nreseau_passerelle = %s\n",
+            net_dhcp ? "oui" : "non", net_cfg_ip, net_cfg_bits, net_cfg_gw);
+    fprintf(f, "# Onglet FICHIERS : fichiers caches affiches, fichiers inconnus caches (oui / non)\nfichiers_caches = %s\nfichiers_inconnus_caches = %s\n",
+            fe_show_hidden ? "oui" : "non", fe_hide_unknown ? "oui" : "non");
+    if (sram_back_lang >= 0) fprintf(f, "retour_langue_console = %d\n", sram_back_lang);
+    if (sram_back_sound >= 0) fprintf(f, "retour_son_console = %d\n", sram_back_sound);
     fprintf(f, "# Resident : carte memoire virtuelle utilisee (fichier de gc-mp3/resident)\nresident_carte_fichier = %s\n", vc_active);
 }
 static void x73_menu_value(int i, char *out, int cap) {
@@ -1149,8 +1163,8 @@ static void x73_launch_pump(void) {
     tab = TAB_GAMES; tab_enter(TAB_GAMES);
     gl_sel = k;
     const char *e;
-    if (m) { e = nat_boot(k); nat_ld_on = 0; }          /* (ne revient pas si ca marche) */
-    else { gl_status(ld_ready() ? "Lancement du jeu..." : "Lancement de Swiss..."); e = gl_launch(k); }
+    if (m) { e = game_boot(k, 1); nat_ld_on = 0; }      /* (ne revient pas si ca marche) */
+    else { gl_status(ld_ready() ? "Lancement du jeu..." : "Lancement de Swiss..."); e = game_boot(k, 0); }
     gl_busy[0] = 0;
     if (e) gl_note(e);
 }
@@ -1272,4 +1286,30 @@ static void rf_pump(void) {
     hf_drop(&rff);
     rf_state = 0;
     rf_next = now_ms() + 20000;                               /* (toutes les 20 s) */
+}
+
+/* =================== v75 : reseau de GC Station (section Reseau des reglages) =================== */
+static int net_ip_ok(const char *t) {
+    int a, b, c, d; char x;
+    return sscanf(t, "%d.%d.%d.%d%c", &a, &b, &c, &d, &x) == 4 && a >= 0 && a < 256 && b >= 0 && b < 256 && c >= 0 && c < 256 && d >= 0 && d < 256;
+}
+static void net_kb_done(const char *t) {
+    char v[32];
+    snprintf(v, sizeof(v), "%s", t);
+    char *p = trim(v);
+    if (p[0] && !net_ip_ok(p)) { lib_note("Adresse invalide (exemple : 192.168.1.32)"); return; }
+    if (kb_field == MI_GW) snprintf(net_cfg_gw, sizeof(net_cfg_gw), "%.15s", p);
+    else snprintf(net_cfg_ip, sizeof(net_cfg_ip), "%.15s", p);
+    settings_dirty = 1;
+    lib_note("Pris en compte au prochain d\xC3\xA9marrage de GC Station");
+}
+/* au demarrage, avant la connexion : adresse fixe si DHCP = non */
+static void net_cfg_apply(void) {
+    if (net_phase != NET_NONE) return;
+    net_static = !net_dhcp && net_ip_ok(net_cfg_ip);
+    if (!net_static) return;
+    u32 m = net_cfg_bits ? 0xFFFFFFFFu << (32 - net_cfg_bits) : 0;
+    snprintf(ip_str, sizeof(ip_str), "%.15s", net_cfg_ip);
+    snprintf(mask_str, sizeof(mask_str), "%u.%u.%u.%u", m >> 24, (m >> 16) & 255, (m >> 8) & 255, m & 255);
+    snprintf(gw_str, sizeof(gw_str), "%.15s", net_cfg_gw);
 }

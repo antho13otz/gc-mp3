@@ -49,6 +49,7 @@ static int gl_list_dirty = 0;
 static char gl_busy[96] = "";                            /* v27 : message "en cours" affiche par-dessus */
 static void gl_status(const char *m) { snprintf(gl_busy, sizeof(gl_busy), "%s", TR(m)); ui_status(m); }                            /* v27 : noms / descriptions lus dans les bannieres */
 static const char *gl_launch(int k);
+static const char *game_boot(int k, int resident);         /* v75 : lancement avec les reglages du jeu (jeux_cfg.c) */
 static void nat_run(int k);                                /* v50 : lanceur natif, analyse (natif.c) */
 static const char *nat_boot(int k);                        /* v51 : lanceur maison, demarrage natif (natif.c), en test */
 static int nat_qr_input(u32 down);                         /* v51 : QR code du rapport */
@@ -638,14 +639,14 @@ static void gclib_input(u32 down, u32 nav, int fire) {
             int k = gl_launch_sel;
             gl_launch_sel = -1;
             gl_status(ld_ready() ? "Lancement du jeu..." : "Lancement de Swiss...");
-            const char *e = gl_launch(k);                   /* (ne revient pas si ca marche) */
+            const char *e = game_boot(k, 0);                /* (ne revient pas si ca marche ; v75 : avec les reglages du jeu) */
             gl_busy[0] = 0;
             if (e) gl_note(e);
         }
         if (down & PAD_BUTTON_X) {                         /* v51 : lanceur maison (natif.c), en test */
             int k = gl_launch_sel;
             gl_launch_sel = -1;
-            const char *e = nat_boot(k);                    /* (ne revient pas si ca marche) */
+            const char *e = game_boot(k, 1);                /* (ne revient pas si ca marche) */
             gl_busy[0] = 0;
             nat_ld_on = 0;                                  /* v64 : fin de l'ecran de chargement */
             if (e) gl_note(e);
