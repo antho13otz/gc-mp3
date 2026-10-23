@@ -21,6 +21,9 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v70
+- **Jeu de rythme refait** : les coups (grosse caisse, caisse claire, charleston) sont cherchés dans le son **déjà décodé, avant qu'on l'entende** : chaque note tombe exactement sur un vrai coup du morceau (avant : une grille de tempo devinée, qui se décalait au moindre retard du son). Les notes suivent l'horloge du son entendu (pause, petit retard : elles restent calées). Facile / Normal : surtout les coups graves ; Difficile : tous. **L / R** dans l'écran de choix : décalage des notes (±10 ms) si ta télé ajoute un retard ; il est gardé.
+
 ## Nouveautés v69
 - **Mesure de fluidité** (START > « Mesure de fluidité ») : images par seconde, pire image et tâche la plus lente affichées en haut de l'écran. En coupant la mesure, GC Station écrit `SD:/gc-mp3/fluidite.txt` : pour chaque onglet, le nombre d'images ratées et ce qui les a causées (réseau, pochettes, décodage, dessin, processeur graphique…). À envoyer pour corriger les saccades à coup sûr.
 
