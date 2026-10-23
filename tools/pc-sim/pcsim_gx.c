@@ -273,8 +273,29 @@ static void vtx_done(void) { if (vn < (int)(sizeof(vb) / sizeof(vb[0]))) vb[vn++
 void pcsim_gx_pos(f32 x, f32 y, f32 z) { cur.x = x; cur.y = y; cur.z = z; if (!vd_clr && !vd_tex) vtx_done(); }
 void pcsim_gx_clr(u8 r, u8 g, u8 b, u8 a) { cur.r = r / 255.0f; cur.g = g / 255.0f; cur.b = b / 255.0f; cur.a = a / 255.0f; if (!vd_tex) vtx_done(); }
 void pcsim_gx_tex(f32 s, f32 t) { cur.s = s; cur.t = t; vtx_done(); }
+/* charge du processeur graphique (toutes les images, meme non dessinees) */
+static double gp_tri = 0, gp_pix = 0, gp_tex_pix = 0;
+static double gp_tri_max = 0, gp_pix_max = 0, gp_tri_sum = 0, gp_pix_sum = 0, gp_tex_sum = 0; static unsigned long long gp_frames = 0;
+static void gp_count(const vtx_t *a, const vtx_t *b, const vtx_t *c) {
+    sv_t p[3]; xform(a, &p[0]); xform(b, &p[1]); xform(c, &p[2]);
+    double ar = fabs((p[1].x - p[0].x) * (p[2].y - p[0].y) - (p[2].x - p[0].x) * (p[1].y - p[0].y)) * 0.5;
+    if (ar > 640.0 * 480.0) ar = 640.0 * 480.0;
+    gp_tri++; gp_pix += ar;
+    if (ntexgen > 0) gp_tex_pix += ar;
+}
+void pcsim_gp_report(void) {
+    if (!gp_frames) return;
+    printf("[pcsim] processeur graphique : %.0f triangles et %.0f pixels par image en moyenne (%.1f ecrans ; %.0f%% avec texture), au plus %.0f triangles et %.0f pixels\n",
+           gp_tri_sum / gp_frames, gp_pix_sum / gp_frames, gp_pix_sum / gp_frames / (640.0 * 480.0), gp_pix_sum ? 100.0 * gp_tex_sum / gp_pix_sum : 0, gp_tri_max, gp_pix_max);
+}
 static unsigned long long gx_now(void) { struct timespec t; clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t); return (unsigned long long)t.tv_sec * 1000000000ull + t.tv_nsec; }
 void GX_End(void) {
+    switch (vprim) {                                           /* (compte toujours : charge du GPU) */
+    case GX_QUADS: for (int i = 0; i + 3 < vn; i += 4) { gp_count(&vb[i], &vb[i + 1], &vb[i + 2]); gp_count(&vb[i], &vb[i + 2], &vb[i + 3]); } break;
+    case GX_TRIANGLES: for (int i = 0; i + 2 < vn; i += 3) gp_count(&vb[i], &vb[i + 1], &vb[i + 2]); break;
+    case GX_TRIANGLESTRIP: for (int i = 0; i + 2 < vn; i++) gp_count(&vb[i], &vb[i + 1], &vb[i + 2]); break;
+    case GX_TRIANGLEFAN: for (int i = 1; i + 1 < vn; i++) gp_count(&vb[0], &vb[i], &vb[i + 1]); break;
+    }
     if (!pcsim_capture) { vn = 0; return; }
     unsigned long long t0 = gx_now();
     switch (vprim) {
@@ -356,6 +377,9 @@ void GX_CopyDisp(void *dst, u8 clear) {
         }
         if (!fr_last) fr_t0 = n;
         fr_last = n; fr_n++; was_cap = pcsim_capture != 0;
+        if (gp_tri) { gp_frames++; gp_tri_sum += gp_tri; gp_pix_sum += gp_pix; gp_tex_sum += gp_tex_pix;
+            if (gp_tri > gp_tri_max) gp_tri_max = gp_tri; if (gp_pix > gp_pix_max) gp_pix_max = gp_pix; }
+        gp_tri = gp_pix = gp_tex_pix = 0;
     }
     unsigned long long t0 = gx_now();
     if (!efb_inited) { efb_clear(); efb_inited = 1; }

@@ -709,10 +709,12 @@ s32 if_configex(struct in_addr *ip, struct in_addr *mask, struct in_addr *gw, bo
 
 /* ======================= fin ======================= */
 void pcsim_fps_report(void);
+void pcsim_gp_report(void);
 void pcsim_finish(int code) {
     if (!pcsim_fast) printf("[pcsim] processeur : %.2f s de calcul sur le PC = %.1f s sur la GameCube (sur %.1f s)\n", cpu_host_ns / 1e9, cpu_host_ns * pcsim_cpu_k / 1e9, gettime() / 1000.0 - 1);
     pcsim_limits_report();
     pcsim_fps_report();
+    pcsim_gp_report();
     if (wav) { wav_header(); fclose(wav); wav = NULL; }
     fflush(stdout);
     _exit(code);
