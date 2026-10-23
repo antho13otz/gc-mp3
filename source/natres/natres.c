@@ -47,6 +47,7 @@ natres_hdr_t natres_hdr = {
     (u32)exi_load, (u32)exi_store, 0, (u32)card_tab, 0, 0x10,
     0, 0, 0, 0, 0, 0,
     0, 0, 0, 0,
+    0, 0, { 0, 0, 0, 0 }, 0, 0,
 };
 #define H natres_hdr
 
@@ -426,8 +427,10 @@ void exc_c(u32 ex, u32 ctx) {
     nr_log_flush();
     ret_to_gcstation();                                  /* (ou redemarrage si impossible) */
 }
+static void nr_sample(u32 ctx);
 static void si_hook(u32 irq, u32 ctx) {
     H.si_in++;
+    if (!H.vi_count) nr_sample(ctx);
     if (si_orig) ((void (*)(u32, u32))si_orig)(irq, ctx);
     H.si_count++;
     alive_tick();
@@ -740,6 +743,15 @@ static void x_kick(void) {                               /* v65 : vraie fin de c
     x_kicked = 1;
     di_real_kick();
 }
+/* v67 : echantillon : ou le jeu a ete interrompu (OSContext : srr0 en 0x198, lr en 0x84) */
+static void nr_sample(u32 ctx) {
+    if (ctx < 0x80000000u || ctx >= 0x817F0000u || (ctx & 3)) return;
+    u32 pc = *(volatile u32 *)(ctx + 0x198);
+    H.n_samp++; H.samp_lr = *(volatile u32 *)(ctx + 0x84);
+    if (pc != H.samp_pc[0]) { H.samp_pc[3] = H.samp_pc[2]; H.samp_pc[2] = H.samp_pc[1]; H.samp_pc[1] = H.samp_pc[0]; H.samp_pc[0] = pc; }
+    volatile unsigned short *dsp = (volatile unsigned short *)0xCC005000u;
+    H.dsp_csr = dsp[5]; H.dsp_mbox = (u32)dsp[0] << 16 | dsp[2];     /* (boites : vers le DSP haut, depuis le DSP haut ; jamais 5006 : sa lecture vide la boite) */
+}
 static void di_hook(u32 irq, u32 ctx) {
     int chain = di_game_pending;
     if (rd_on) {
@@ -766,6 +778,10 @@ static void di_hook(u32 irq, u32 ctx) {
     x_dispatch(ctx);
     if (chain && di_orig) ((void (*)(u32, u32))di_orig)(irq, ctx);
     alive_tick();
+    if (!H.vi_count && !rd_on && !di_game_pending && (H.flags & NRF_REAL_IRQ) && H.n_samp < 2000000u) {   /* v67 : pas encore d'image : on regarde ou en est le jeu */
+        nr_sample(ctx);
+        if (!(DI_REAL[7] & 1)) { x_kicked = 1; di_real_kick(); }
+    }
 }
 static int nr_game_fn(u32 a) { return a >= 0x80003100u && a < 0x817F0000u; }
 static void hook1(int idx, u32 *orig, u32 fn) {

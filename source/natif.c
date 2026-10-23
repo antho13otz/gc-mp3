@@ -465,6 +465,32 @@ static const char *na_cmd_name(u32 c) {
     default: return "?";
     }
 }
+/* v67 : code du jeu autour d'une adresse (lu dans main.dol de l'ISO du dernier lancement), pour comprendre ou il bloque */
+static void na_code_dump(FILE *f, u32 addr, const char *label) {
+    if (addr < 0x80003000u || addr >= 0x81800000u) return;
+    static char iso[NAME_LEN];
+    iso[0] = 0;
+    FILE *lf = fopen(NA_LOG, "r");
+    if (lf) { char l[NAME_LEN + 16]; while (fgets(l, sizeof(l), lf)) if (!strncmp(l, "Fichier : ", 10)) { snprintf(iso, sizeof(iso), "%s", l + 10); iso[strcspn(iso, "\r\n")] = 0; break; } fclose(lf); }
+    if (!iso[0]) return;
+    gdisc_t g;
+    if (!gd_open(&g, iso)) return;
+    u8 h[0x100], w[96];
+    u32 dol = 0;
+    int ok = gd_read(&g, 0x420, w, 4);
+    if (ok) { dol = be32(w); ok = gd_read(&g, dol, h, sizeof(h)); }
+    u32 a0 = (addr - 48) & ~3u, fo = 0;
+    for (int i = 0; ok && i < 18 && !fo; i++) {
+        u32 off = be32(h + i * 4), at = be32(h + 0x48 + i * 4), sz = be32(h + 0x90 + i * 4);
+        if (sz && a0 >= at && a0 + sizeof(w) <= at + sz) fo = dol + off + (a0 - at);
+    }
+    if (fo && gd_read(&g, fo, w, sizeof(w))) {
+        fprintf(f, "  code (%s) :", label);
+        for (int i = 0; i < 24; i++) fprintf(f, "%s%s%08X", i % 8 ? " " : "\n    ", a0 + i * 4 == (addr & ~3u) ? ">" : "", (unsigned)be32(w + i * 4));
+        fprintf(f, "\n    (debut %08X)\n", (unsigned)a0);
+    }
+    gd_close(&g);
+}
 static void nat_journal_convert(void) {
     long len = 0;
     u8 *d = (u8 *)read_file(NA_JBIN, 4096, &len);
@@ -472,16 +498,17 @@ static void nat_journal_convert(void) {
     if (len < 512 || be32(d) != NATRES_MAGIC) { free(d); return; }
     FILE *f = fopen(NA_JTXT, "w");
     if (f) {
-        u32 H[76];
-        for (int i = 0; i < 76; i++) H[i] = be32(d + i * 4);
-        int v3 = H[1] >= 3, v4 = H[1] >= 4, v5 = H[1] >= 5, v6 = H[1] >= 6, v7 = H[1] >= 7, v8 = H[1] >= 8, v9 = H[1] >= 9;   /* (en-tete : 0x80 ... 0x130 (v66) octets) */
-        if (!v3) for (int i = 32; i < 76; i++) H[i] = 0;
-        if (!v4) for (int i = 40; i < 76; i++) H[i] = 0;
-        if (!v5) for (int i = 44; i < 76; i++) H[i] = 0;
-        if (!v6) for (int i = 52; i < 76; i++) H[i] = 0;
-        if (!v7) for (int i = 56; i < 76; i++) H[i] = 0;
-        if (!v8) for (int i = 60; i < 76; i++) H[i] = 0;
-        if (!v9) for (int i = 72; i < 76; i++) H[i] = 0;
+        u32 H[84];
+        for (int i = 0; i < 84; i++) H[i] = be32(d + i * 4);
+        int v3 = H[1] >= 3, v4 = H[1] >= 4, v5 = H[1] >= 5, v6 = H[1] >= 6, v7 = H[1] >= 7, v8 = H[1] >= 8, v9 = H[1] >= 9, v10 = H[1] >= 10;   /* (en-tete : 0x80 ... 0x150 (v67) octets) */
+        if (!v3) for (int i = 32; i < 84; i++) H[i] = 0;
+        if (!v4) for (int i = 40; i < 84; i++) H[i] = 0;
+        if (!v5) for (int i = 44; i < 84; i++) H[i] = 0;
+        if (!v6) for (int i = 52; i < 84; i++) H[i] = 0;
+        if (!v7) for (int i = 56; i < 84; i++) H[i] = 0;
+        if (!v8) for (int i = 60; i < 84; i++) H[i] = 0;
+        if (!v9) for (int i = 72; i < 84; i++) H[i] = 0;
+        if (!v10) for (int i = 76; i < 84; i++) H[i] = 0;
         static const char *const en[] = { "OK", "pas de carte", "la carte ne demarre pas", "commande refusee", "pas de donnees", "hors de l'ISO", "delai depasse" };
         fprintf(f, "GC Station - journal du dernier jeu lance avec Resident\n\n");
         if (v5 && H[44]) {
@@ -516,13 +543,20 @@ static void nat_journal_convert(void) {
                 fprintf(f, "Entrees : image (VI) %u, sorties %u ; manettes (SI) %u, sorties %u%s\n", (unsigned)H[74], (unsigned)H[36], (unsigned)H[75], (unsigned)H[37],
                         H[74] > H[36] ? "  <- le jeu est reste bloque DANS sa fonction d'image" : H[73] & (1u << 24) && !H[74] ? "  <- plus aucune image : interruptions coupees par le jeu ?" : "");
             }
+            if (v10 && (H[76] || !H[36])) {
+                fprintf(f, "Ou en etait le jeu avant sa 1re image : %u echantillons ; dernier code %08X (LR %08X), avant : %08X %08X %08X\n",
+                        (unsigned)H[76], (unsigned)H[78], (unsigned)H[77], (unsigned)H[79], (unsigned)H[80], (unsigned)H[81]);
+                fprintf(f, "DSP : controle %04X, boites aux lettres %08X%s\n", (unsigned)H[82], (unsigned)H[83],
+                        !H[76] ? "\n  (aucun echantillon : le jeu a coupe ses interruptions et tourne en boucle)" : "");
+                na_code_dump(f, H[78], "dernier code"); na_code_dump(f, H[77], "LR");
+            }
             if (H[38]) fprintf(f, "Retour a GC Station demande (A+Z+START)%s\n", v7 ? (H[56] ? " : .dol de GC Station recharge" : " : redemarrage de la console") : "");
             if (v4) fprintf(f, "Manettes (A+Z+START %s) : %u lues, %u laissees au jeu, touches manette 1 : %04X (%u changements)\n",
                             H[18] & NRF_IGR ? "actif" : "coupe", (unsigned)H[40], (unsigned)H[41], (unsigned)H[42], (unsigned)H[43]);
             fprintf(f, "\n");
         }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
-        int rbase = v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
+        int rbase = v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
         for (int k = 0; k < nring; k++) {
             const u8 *e = d + rbase + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);

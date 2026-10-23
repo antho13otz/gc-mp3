@@ -169,7 +169,7 @@ nolat = all(not (o == 0x40C and n <= 20) for o, n in si_reads) and (EXC or len(s
 print(('OK   ' if nolat else 'FAUX ') + 'manettes : donnees neuves pas touchees (%d lectures SI)' % len(si_reads))
 ok &= nolat
 ok &= struct.unpack('>I', mu.mem_read(0x80001F24, 4))[0] == 0 and struct.unpack('>I', mu.mem_read(0x80001F20, 4))[0] == 0
-ok &= rd(0x4C) == 6 and len(kicks) == 6 + 31 and all(k == 0x12000000 for k in kicks)   # (v61 : + 31 reveils pour les morceaux ; v65 : + E1, E2)
+ok &= rd(0x4C) == 6 and len(kicks) >= 6 + 31 and all(k == 0x12000000 for k in kicks)   # (v61 : + 31 reveils pour les morceaux ; v65 : + E1, E2)
 # v65 : musique du disque (ADPCM du disque decode et ajoute au tampon du son)
 def adp(bits, q, h):
     hist = 0
@@ -215,6 +215,8 @@ if card.writes:                                    # v54 : journal du jeu ecrit 
     u = lambda o: struct.unpack_from('>I', jb, o)[0]
     jok = set(card.writes) - csecs == {js} and jb[:4] == b'GCSN' and u(0x4C) == 6 and u(0x90) == 3
     print('journal : musique %d blocs, %d tampons ; carte %d commandes (derniere %02X), %d ecritures, %d interruptions' % (u(0x108), u(0x10C), u(0x110), u(0x118), u(0x114), u(0x11C)))
+    print('echantillons : %d, code %08X LR %08X' % (u(0x130), u(0x138), u(0x134)))
+    jok &= u(0x130) > 0 and u(0x134) == 0x80003100 and 0x80003100 < u(0x138) < 0x80004000
     jok &= u(0x108) == 6 and u(0x10C) == 1 and u(0x110) == 5 and u(0x118) == 0x52 and u(0x114) == 2
     print('lectures en fond : %d (%d morceaux)' % (u(0xD0), u(0xD4)))
     jok &= u(0xD0) == 1 and u(0xD4) == 32                # (0x40000 octets en morceaux de 8 Ko)

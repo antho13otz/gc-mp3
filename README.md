@@ -21,6 +21,9 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v67
+- Écran noir (Paper Mario) : tant que le jeu n'a pas affiché sa 1re image, Resident regarde régulièrement **où en est le jeu** (adresse du code, état du DSP). Au démarrage suivant, `journal-jeu.txt` montre ces adresses et le code du jeu autour (lu dans l'ISO), pour trouver ce qu'il attend.
+
 ## Nouveautés v66
 - **Paper Mario (écran noir)** : la commande « infos lecteur » du jeu reçoit maintenant la **vraie réponse du lecteur** (date, révision) au lieu d'une réponse inventée. Le journal du jeu dit aussi quelles fonctions du jeu Resident a branchées et si le jeu reste bloqué dans sa fonction d'image (pour trouver la suite si l'écran reste noir).
 - **Nouvel écran de chargement de Resident**, dans le style de GC Station : jaquette du jeu avec halo, panneau arrondi, barre de progression lumineuse, étapes cochées une à une, rappel « A + Z + START = retour à GC Station ».
