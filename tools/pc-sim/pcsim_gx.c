@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include "pcsim.h"
+void *__real_malloc(size_t); void __real_free(void *);
 
 #define EW 640
 #define EH 576
@@ -327,13 +328,14 @@ static int png_write(const char *path, int w, int h) {
     u8 ih[13]; be32w(ih, w); be32w(ih + 4, h); ih[8] = 8; ih[9] = 2; ih[10] = ih[11] = ih[12] = 0;
     chunk(f, "IHDR", ih, 13);
     size_t row = (size_t)w * 3 + 1, raw = row * h;
-    u8 *r = malloc(raw);
+    u8 *r = __real_malloc(raw);                                /* (memoire du simulateur, pas celle de la GameCube) */
     for (int y = 0; y < h; y++) {
         r[y * row] = 0;
         for (int x = 0; x < w; x++) for (int c = 0; c < 3; c++) r[y * row + 1 + x * 3 + c] = (u8)(efb[y][x][c] * 255.0f + 0.5f);
     }
     size_t nb = (raw + 65534) / 65535, zn = 2 + raw + nb * 5 + 4;
-    u8 *z = malloc(zn), *o = z;
+    u8 *z = __real_malloc(zn), *o = z;
+    if (!r || !z) { fclose(f); __real_free(r); __real_free(z); return -1; }
     *o++ = 0x78; *o++ = 0x01;
     u32 a = 1, b = 0;
     for (size_t i = 0; i < raw; i++) { a = (a + r[i]) % 65521; b = (b + a) % 65521; }
@@ -345,7 +347,7 @@ static int png_write(const char *path, int w, int h) {
     be32w(o, b << 16 | a); o += 4;
     chunk(f, "IDAT", z, (u32)(o - z));
     chunk(f, "IEND", NULL, 0);
-    fclose(f); free(r); free(z);
+    fclose(f); __real_free(r); __real_free(z);
     return 0;
 }
 
@@ -372,7 +374,8 @@ void GX_CopyDisp(void *dst, u8 clear) {
         if (fr_last && !was_cap && !pcsim_capture) {
             unsigned long long d = n - fr_last;
             if (d > 20000) fr_slow++;
-            if (d > 34000) { fr_vslow++; printf("[pcsim] image lente : %.0f ms a %.1f s (%s)\n", d / 1000.0, (n - fr_t0) / 1e6, pcsim_script_where()); }
+            if (d > 34000) fr_vslow++;
+            if (d > (getenv("PCSIM_SLOWMS") ? (unsigned long long)atoi(getenv("PCSIM_SLOWMS")) * 1000ull : 34000ull)) { printf("[pcsim] image lente : %.0f ms a %.1f s (%s)\n", d / 1000.0, (n - fr_t0) / 1e6, pcsim_script_where()); }
             if (d > fr_worst) fr_worst = d;
         }
         if (!fr_last) fr_t0 = n;

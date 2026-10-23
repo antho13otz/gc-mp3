@@ -1,0 +1,15 @@
+wait 3s
+press A
+wait 2s
+press Z
+press Z
+press Z
+press Z
+press Z
+wait 2s
+press A
+log chargement
+wait 4s
+log photo-affichee
+wait 6s
+quit

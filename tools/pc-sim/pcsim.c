@@ -26,40 +26,117 @@
 #include <ctype.h>
 #include <malloc.h>
 #include "pcsim.h"
+void *__real_malloc(size_t); void __real_free(void *);
 
-/* ======================= verrou global (un seul thread a la fois) ======================= */
+/* ======================= un seul processeur, des priorites (comme les threads LWP) =======================
+   Un seul thread de GC Station tourne a la fois (verrou global). Quand il attend (usleep, reseau,
+   image...), il rend la main au thread pret le PLUS PRIORITAIRE. Comme sur la console, un thread
+   plus prioritaire qui se reveille interrompt tout de suite un thread moins prioritaire (signal
+   SIGUSR1 : le thread interrompu rend la main, sauf au milieu d'une fonction du simulateur, ou il
+   la rend juste apres). Priorites : principal 64 (libogc), puis celles de LWP_CreateThread. */
+#include <signal.h>
 static pthread_mutex_t big_m = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t big_c = PTHREAD_COND_INITIALIZER;
-static unsigned big_next = 0, big_serving = 0;            /* (ticket : chacun son tour) */
+static int big_active = 0, big_owner_prio = 0;
+static pthread_t big_owner;
+static volatile int preempt_req = 0;
+#define NWQ 64
+static struct { int used, prio; unsigned seq; } wq[NWQ];
+static unsigned wq_seq = 0;
 static __thread int big_held = 0;
-/* processeur de la GameCube : le temps de calcul d'un thread (entre la prise et la remise du
-   verrou) est multiplie par PCSIM_CPU ; l'attente se fait AVANT de rendre la main (un seul
-   processeur : rien d'autre ne tourne pendant ce temps). Le dessin logiciel n'est pas compte. */
-static __thread u64 cpu_t0 = 0, gx_t0 = 0;
+static __thread int my_prio = 64;
+__thread volatile int pcsim_in_lib = 0, pcsim_preempt_pending = 0;
+/* processeur de la GameCube : le temps de calcul (PC) d'un thread est multiplie par PCSIM_CPU ;
+   le surplus est une "dette" payee en attendant, verrou garde (un seul processeur), sauf si un
+   thread plus prioritaire demande la main : il passe devant, la dette sera payee plus tard. */
+static __thread u64 cpu_t0 = 0, gx_t0 = 0, debt_ns = 0;
 __thread unsigned long long pcsim_gx_ns = 0;
 static u64 cpu_host_ns = 0;                                /* temps de calcul (PC) de GC Station */
+static u64 cpu_by_prio[128];
+static u64 n_preempt = 0;
 static u64 thread_ns(void) { struct timespec t; clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t); return (u64)t.tv_sec * 1000000000ull + t.tv_nsec; }
+static int wq_best(void) {
+    int b = -1;
+    for (int i = 0; i < NWQ; i++) if (wq[i].used && (b < 0 || wq[i].prio > wq[b].prio || (wq[i].prio == wq[b].prio && (int)(wq[i].seq - wq[b].seq) < 0))) b = i;
+    return b;
+}
+static void acquire_raw(void) {
+    pthread_mutex_lock(&big_m);
+    int me = -1;
+    for (int i = 0; i < NWQ; i++) if (!wq[i].used) { me = i; break; }
+    if (me < 0) me = 0;                                    /* (jamais : 64 threads) */
+    wq[me].used = 1; wq[me].prio = my_prio; wq[me].seq = wq_seq++;
+    for (;;) {
+        if (!big_active && wq_best() == me) break;
+        if (big_active && my_prio > big_owner_prio && !preempt_req && !getenv("PCSIM_NOPREEMPT")) { preempt_req = 1; pthread_kill(big_owner, SIGUSR1); }
+        struct timespec t; clock_gettime(CLOCK_REALTIME, &t); t.tv_nsec += 1000000; if (t.tv_nsec >= 1000000000) { t.tv_sec++; t.tv_nsec -= 1000000000; }
+        pthread_cond_timedwait(&big_c, &big_m, &t);
+    }
+    wq[me].used = 0;
+    big_active = 1; big_owner = pthread_self(); big_owner_prio = my_prio; preempt_req = 0;
+    pthread_mutex_unlock(&big_m);
+}
+static void release_raw(void) {
+    pthread_mutex_lock(&big_m);
+    big_active = 0;
+    pthread_cond_broadcast(&big_c);
+    pthread_mutex_unlock(&big_m);
+}
+static void cpu_account(void) {
+    if (pcsim_fast || !cpu_t0) return;
+    u64 now = thread_ns(), used = now - cpu_t0, gx = pcsim_gx_ns - gx_t0;
+    used = used > gx ? used - gx : 0;
+    debt_ns += (u64)(used * (pcsim_cpu_k - 1.0));
+    __atomic_add_fetch(&cpu_host_ns, used, __ATOMIC_RELAXED);
+    __atomic_add_fetch(&cpu_by_prio[my_prio & 127], used, __ATOMIC_RELAXED);
+    cpu_t0 = now; gx_t0 = pcsim_gx_ns;
+}
+static void pay_debt(void) {                               /* (interrompu si un thread plus prioritaire attend) */
+    if (pcsim_fast) { debt_ns = 0; return; }
+    while (debt_ns > 200000 && !preempt_req) {
+        u64 d = debt_ns > 2000000 ? 2000000 : debt_ns;
+        struct timespec t = { 0, (long)d }; nanosleep(&t, NULL);
+        debt_ns -= d;
+    }
+}
 void pcsim_lock(void) {
     if (big_held++) return;
-    pthread_mutex_lock(&big_m);
-    unsigned me = big_next++;
-    while (me != big_serving) pthread_cond_wait(&big_c, &big_m);
-    pthread_mutex_unlock(&big_m);
+    pcsim_in_lib++;
+    acquire_raw();
     cpu_t0 = thread_ns(); gx_t0 = pcsim_gx_ns;
+    pay_debt();
+    pcsim_preempt_pending = 0;
+    pcsim_in_lib--;
 }
 void pcsim_unlock(void) {
     if (--big_held) return;
-    if (!pcsim_fast && cpu_t0) {
-        u64 used = thread_ns() - cpu_t0, gx = pcsim_gx_ns - gx_t0;
-        used = used > gx ? used - gx : 0;
-        u64 extra = (u64)(used * (pcsim_cpu_k - 1.0));
-        __atomic_add_fetch(&cpu_host_ns, used, __ATOMIC_RELAXED);
-        if (extra > 200000) { struct timespec t = { (time_t)(extra / 1000000000ull), (long)(extra % 1000000000ull) }; nanosleep(&t, NULL); }
-    }
-    pthread_mutex_lock(&big_m);
-    big_serving++;
-    pthread_cond_broadcast(&big_c);
-    pthread_mutex_unlock(&big_m);
+    pcsim_in_lib++;
+    cpu_account();
+    pay_debt();
+    release_raw();
+    pcsim_in_lib--;
+}
+/* rendre la main a un thread plus prioritaire, puis la reprendre */
+void pcsim_yield_now(void) {
+    if (big_held <= 0) return;
+    pcsim_in_lib++;
+    int h = big_held;
+    cpu_account();
+    big_held = 0; release_raw();
+    acquire_raw(); big_held = h;
+    cpu_t0 = thread_ns(); gx_t0 = pcsim_gx_ns;
+    pay_debt();
+    pcsim_preempt_pending = 0;
+    pcsim_in_lib--;
+}
+static void preempt_sig(int sig) {
+    (void)sig;
+    if (big_held <= 0) return;
+    if (pcsim_in_lib) { pcsim_preempt_pending = 1; return; }
+    int e = errno;
+    n_preempt++;
+    pcsim_yield_now();
+    errno = e;
 }
 /* attente : on rend la main pendant l'appel bloquant */
 #define BLOCKING(call) ({ int h_ = big_held; while (big_held) pcsim_unlock(); __typeof__(call) r_ = (call); while (big_held < h_) pcsim_lock(); r_; })
@@ -93,6 +170,7 @@ __attribute__((constructor)) static void pcsim_boot(void) {
     mallopt(M_MMAP_MAX, 0);                                /* (toute la memoire sous 4 Go : le programme range des adresses sur 32 bits, comme sur la console) */
     mallopt(M_TRIM_THRESHOLD, -1);
     setvbuf(stdout, NULL, _IOLBF, 0);
+    struct sigaction sa; memset(&sa, 0, sizeof(sa)); sa.sa_handler = preempt_sig; sa.sa_flags = SA_RESTART; sigaction(SIGUSR1, &sa, NULL);
     pcsim_lock();                                          /* le thread principal a la main */
     script_load();
     pcsim_limits_init();
@@ -156,17 +234,18 @@ void SYS_SwitchFiber(u32 a, u32 b, u32 c, u32 d, u32 pc, u32 sp) { (void)a; (voi
 void SYS_ProtectRange(u32 chan, void *addr, u32 bytes, u32 cntrlbits) { (void)chan; (void)addr; (void)bytes; (void)cntrlbits; }
 
 /* ======================= threads ======================= */
-typedef struct { void *(*fn)(void *); void *arg; } th_start_t;
+typedef struct { void *(*fn)(void *); void *arg; int prio; } th_start_t;
 static void *th_tramp(void *p) {
-    th_start_t s = *(th_start_t *)p; free(p);
+    th_start_t s = *(th_start_t *)p; __real_free(p);
+    my_prio = s.prio;
     pcsim_lock();
     void *r = s.fn(s.arg);
     pcsim_unlock();
     return r;
 }
 s32 LWP_CreateThread(lwp_t *t, void *(*fn)(void *), void *arg, void *stack, u32 size, u8 prio) {
-    (void)stack; (void)size; (void)prio;
-    th_start_t *s = malloc(sizeof(*s)); s->fn = fn; s->arg = arg;
+    (void)stack; (void)size;
+    th_start_t *s = __real_malloc(sizeof(*s)); s->fn = fn; s->arg = arg; s->prio = prio;
     pthread_t pt;
     pthread_attr_t at; pthread_attr_init(&at); pthread_attr_setstacksize(&at, 1 << 20);
     if (pthread_create(&pt, &at, th_tramp, s)) { free(s); return -1; }
@@ -179,7 +258,7 @@ lwp_t LWP_GetSelf(void) { return (lwp_t)(uintptr_t)pthread_self(); }
 void LWP_YieldThread(void) { BLOCKINGV(sched_yield()); }
 s32 LWP_SuspendThread(lwp_t t) { (void)t; return 0; }
 s32 LWP_ResumeThread(lwp_t t) { (void)t; return 0; }
-void LWP_SetThreadPriority(lwp_t t, u32 p) { (void)t; (void)p; }
+void LWP_SetThreadPriority(lwp_t t, u32 p) { if (t == LWP_THREAD_NULL || t == LWP_GetSelf()) my_prio = (int)p; }
 /* verrous du jeu : par-dessus le verrou global (on le rend en attendant) */
 #define NMX 256
 static struct { int used, rec, depth; pthread_t owner; } mx[NMX];
@@ -381,7 +460,7 @@ static void script_load(void) {
         char w[4][96] = { "", "", "", "" };
         int n = sscanf(l, "%95s %95s %95s %95s", w[0], w[1], w[2], w[3]);
         if (n <= 0) continue;
-        sc = realloc(sc, sizeof(sc_cmd) * (sc_n + 1));
+        { void *__real_realloc(void *, size_t); sc = __real_realloc(sc, sizeof(sc_cmd) * (sc_n + 1)); }   /* (memoire du simulateur) */
         sc_cmd *c = &sc[sc_n]; memset(c, 0, sizeof(*c));
         if (!strcasecmp(w[0], "wait")) { u32 d = dur_of(w[1], 1); c->op = d & 0x80000000u ? SC_WAIT_F : SC_WAIT_MS; c->dur = d & 0x7FFFFFFFu; }
         else if (!strcasecmp(w[0], "press") || !strcasecmp(w[0], "combo")) { c->op = SC_PRESS; c->btn = btn_of(w[1]); c->dur = n > 2 ? (u32)atoi(w[2]) : 3; }
@@ -712,6 +791,11 @@ void pcsim_fps_report(void);
 void pcsim_gp_report(void);
 void pcsim_finish(int code) {
     if (!pcsim_fast) printf("[pcsim] processeur : %.2f s de calcul sur le PC = %.1f s sur la GameCube (sur %.1f s)\n", cpu_host_ns / 1e9, cpu_host_ns * pcsim_cpu_k / 1e9, gettime() / 1000.0 - 1);
+    if (!pcsim_fast) {
+        printf("[pcsim] calcul par thread (priorite : secondes GameCube) :");
+        for (int i = 127; i >= 0; i--) if (cpu_by_prio[i] > 1000000) printf("  %d : %.1f s", i, cpu_by_prio[i] * pcsim_cpu_k / 1e9);
+        printf("  ; %llu interruptions par un thread prioritaire\n", (unsigned long long)n_preempt);
+    }
     pcsim_limits_report();
     pcsim_fps_report();
     pcsim_gp_report();

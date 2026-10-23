@@ -1,0 +1,30 @@
+# Charge : musique FLAC 24/96 pendant le diaporama des photos 1920x1080
+wait 3s
+press A
+wait 3s
+shot s01-musique-flac
+press Z
+press Z
+press Z
+press Z
+press Z
+log onglet PHOTOS
+wait 3s
+shot s02-photos
+press A
+wait 3s
+shot s03-photo-plein-ecran
+press RIGHT
+wait 3s
+press RIGHT
+wait 3s
+shot s04-photo-suivante
+press B
+wait 1s
+press Y
+log diaporama
+wait 20s
+shot s05-diaporama
+press B
+wait 1s
+quit

@@ -84,12 +84,12 @@ static void heap_give(void *p) {
     size_t n = malloc_usable_size(p) + CHUNK_OVH;
     pthread_mutex_lock(&heap_m); heap_used = heap_used > n ? heap_used - n : 0; pthread_mutex_unlock(&heap_m);
 }
-void *__wrap_malloc(size_t n) { void *p = __real_malloc(n); return heap_take(p) ? p : NULL; }
-void __wrap_free(void *p) { heap_give(p); __real_free(p); }
-void *__wrap_calloc(size_t a, size_t b) { void *p = __real_calloc(a, b); return heap_take(p) ? p : NULL; }
-void *__wrap_memalign(size_t al, size_t n) { void *p = __real_memalign(al, n); return heap_take(p) ? p : NULL; }
-void *__wrap_aligned_alloc(size_t al, size_t n) { void *p = __real_aligned_alloc(al, n); return heap_take(p) ? p : NULL; }
-int __wrap_posix_memalign(void **o, size_t al, size_t n) { int r = __real_posix_memalign(o, al, n); if (r) return r; if (!heap_take(*o)) { *o = NULL; return ENOMEM; } return 0; }
+void *__wrap_malloc(size_t n) { PCSIM_LIB_ENTER(); void *p = __real_malloc(n); if (!heap_take(p)) p = NULL; PCSIM_LIB_EXIT(); return p; }
+void __wrap_free(void *p) { PCSIM_LIB_ENTER(); heap_give(p); __real_free(p); PCSIM_LIB_EXIT(); }
+void *__wrap_calloc(size_t a, size_t b) { PCSIM_LIB_ENTER(); void *p = __real_calloc(a, b); if (!heap_take(p)) p = NULL; PCSIM_LIB_EXIT(); return p; }
+void *__wrap_memalign(size_t al, size_t n) { PCSIM_LIB_ENTER(); void *p = __real_memalign(al, n); if (!heap_take(p)) p = NULL; PCSIM_LIB_EXIT(); return p; }
+void *__wrap_aligned_alloc(size_t al, size_t n) { PCSIM_LIB_ENTER(); void *p = __real_aligned_alloc(al, n); if (!heap_take(p)) p = NULL; PCSIM_LIB_EXIT(); return p; }
+int __wrap_posix_memalign(void **o, size_t al, size_t n) { PCSIM_LIB_ENTER(); int r = __real_posix_memalign(o, al, n); if (!r && !heap_take(*o)) { *o = NULL; r = ENOMEM; } PCSIM_LIB_EXIT(); return r; }
 void *__wrap_realloc(void *p, size_t n) {
     if (!p) return __wrap_malloc(n);
     if (!n) { __wrap_free(p); return NULL; }
@@ -131,8 +131,8 @@ int __wrap_fileno(FILE *f) {
 }
 static int is_sd(const char *p) { return p && !strncmp(p, "sd:", 3); }
 typedef struct { FILE *f; } sdc_t;
-static ssize_t sdc_read(void *c, char *b, size_t n) { size_t r = fread(b, 1, n, ((sdc_t *)c)->f); io_wait(r * 1000.0 / sd_rkbs); return (ssize_t)r; }
-static ssize_t sdc_write(void *c, const char *b, size_t n) { size_t r = fwrite(b, 1, n, ((sdc_t *)c)->f); io_wait(r * 1000.0 / sd_wkbs); return r == n ? (ssize_t)r : -1; }
+static ssize_t sdc_read(void *c, char *b, size_t n) { PCSIM_LIB_ENTER(); size_t r = fread(b, 1, n, ((sdc_t *)c)->f); PCSIM_LIB_EXIT(); io_wait(r * 1000.0 / sd_rkbs); return (ssize_t)r; }
+static ssize_t sdc_write(void *c, const char *b, size_t n) { PCSIM_LIB_ENTER(); size_t r = fwrite(b, 1, n, ((sdc_t *)c)->f); PCSIM_LIB_EXIT(); io_wait(r * 1000.0 / sd_wkbs); return r == n ? (ssize_t)r : -1; }
 static int sdc_seek(void *c, off64_t *o, int w) { FILE *f = ((sdc_t *)c)->f; if (fseeko(f, *o, w)) return -1; *o = ftello(f); return 0; }
 static int sdc_close(void *c) {
     FILE *in = ((sdc_t *)c)->f;
@@ -141,22 +141,22 @@ static int sdc_close(void *c) {
 }
 FILE *__real_fopen(const char *p, const char *m);
 FILE *__wrap_fopen(const char *p, const char *m) {
-    FILE *f = __real_fopen(p, m);
+    PCSIM_LIB_ENTER(); FILE *f = __real_fopen(p, m); PCSIM_LIB_EXIT();
     if (!f || pcsim_fast || !is_sd(p)) return f;
     io_wait(3000);                                             /* (recherche du fichier dans la FAT) */
     sdc_t *c = __real_malloc(sizeof(sdc_t)); c->f = f;
     cookie_io_functions_t io = { sdc_read, sdc_write, sdc_seek, sdc_close };
-    FILE *g = fopencookie(c, m, io);
+    PCSIM_LIB_ENTER(); FILE *g = fopencookie(c, m, io); PCSIM_LIB_EXIT();
     if (!g) { __real_free(c); return f; }
     pthread_mutex_lock(&sdf_m); for (int i = 0; i < NSDF; i++) if (!sdf[i].outer) { sdf[i].outer = g; sdf[i].inner = f; break; } pthread_mutex_unlock(&sdf_m);
     return g;
 }
 int __real_stat(const char *p, struct stat *s);
-int __wrap_stat(const char *p, struct stat *s) { if (is_sd(p)) io_wait(1500); return __real_stat(p, s); }
+int __wrap_stat(const char *p, struct stat *s) { if (is_sd(p)) io_wait(1500); PCSIM_LIB_ENTER(); int r = __real_stat(p, s); PCSIM_LIB_EXIT(); return r; }
 DIR *__real_opendir(const char *p);
-DIR *__wrap_opendir(const char *p) { if (is_sd(p)) io_wait(2000); return __real_opendir(p); }
+DIR *__wrap_opendir(const char *p) { if (is_sd(p)) io_wait(2000); PCSIM_LIB_ENTER(); DIR *d = __real_opendir(p); PCSIM_LIB_EXIT(); return d; }
 struct dirent *__real_readdir(DIR *d);
-struct dirent *__wrap_readdir(DIR *d) { io_wait(150); return __real_readdir(d); }
+struct dirent *__wrap_readdir(DIR *d) { io_wait(150); PCSIM_LIB_ENTER(); struct dirent *e = __real_readdir(d); PCSIM_LIB_EXIT(); return e; }
 
 /* ======================= reseau (reception) ======================= */
 static double net_tokens = 64 * 1024; static u64 net_t = 0;

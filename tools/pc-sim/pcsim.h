@@ -15,4 +15,8 @@ extern int pcsim_fast;
 extern double pcsim_cpu_k;
 extern __thread unsigned long long pcsim_gx_ns;   /* temps du dessin logiciel (pas compte au processeur) */
 const char *pcsim_script_where(void);   /* derniere commande du scenario (journal) */
+void pcsim_yield_now(void);
+extern __thread volatile int pcsim_in_lib, pcsim_preempt_pending;   /* (preemption : pas au milieu du simulateur) */
+#define PCSIM_LIB_ENTER() (pcsim_in_lib++)
+#define PCSIM_LIB_EXIT() do { if (--pcsim_in_lib == 0 && pcsim_preempt_pending) { pcsim_preempt_pending = 0; pcsim_yield_now(); } } while (0)
 #endif

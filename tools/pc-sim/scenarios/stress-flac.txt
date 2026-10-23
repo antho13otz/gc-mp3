@@ -1,0 +1,4 @@
+wait 3s
+press A
+wait 15s
+quit
