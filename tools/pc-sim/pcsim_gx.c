@@ -10,6 +10,7 @@
 #include <string.h>
 #include <math.h>
 #include <sys/stat.h>
+#include <time.h>
 #include "pcsim.h"
 
 #define EW 640
@@ -272,8 +273,10 @@ static void vtx_done(void) { if (vn < (int)(sizeof(vb) / sizeof(vb[0]))) vb[vn++
 void pcsim_gx_pos(f32 x, f32 y, f32 z) { cur.x = x; cur.y = y; cur.z = z; if (!vd_clr && !vd_tex) vtx_done(); }
 void pcsim_gx_clr(u8 r, u8 g, u8 b, u8 a) { cur.r = r / 255.0f; cur.g = g / 255.0f; cur.b = b / 255.0f; cur.a = a / 255.0f; if (!vd_tex) vtx_done(); }
 void pcsim_gx_tex(f32 s, f32 t) { cur.s = s; cur.t = t; vtx_done(); }
+static unsigned long long gx_now(void) { struct timespec t; clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t); return (unsigned long long)t.tv_sec * 1000000000ull + t.tv_nsec; }
 void GX_End(void) {
     if (!pcsim_capture) { vn = 0; return; }
+    unsigned long long t0 = gx_now();
     switch (vprim) {
     case GX_QUADS: for (int i = 0; i + 3 < vn; i += 4) { tri(&vb[i], &vb[i + 1], &vb[i + 2]); tri(&vb[i], &vb[i + 2], &vb[i + 3]); } break;
     case GX_TRIANGLES: for (int i = 0; i + 2 < vn; i += 3) tri(&vb[i], &vb[i + 1], &vb[i + 2]); break;
@@ -281,6 +284,7 @@ void GX_End(void) {
     case GX_TRIANGLEFAN: for (int i = 1; i + 1 < vn; i++) tri(&vb[0], &vb[i], &vb[i + 1]); break;
     }
     vn = 0;
+    pcsim_gx_ns += gx_now() - t0;                              /* (travail du processeur graphique : pas compte au Gekko) */
 }
 
 /* ---------- PNG (sans compression : blocs "stockes" de zlib) ---------- */
@@ -330,8 +334,30 @@ static void efb_clear(void) {
     for (int y = 0; y < EH; y++) for (int x = 0; x < EW; x++) memcpy(efb[y][x], c, sizeof(c));
 }
 static int efb_inited = 0;
+/* fluidite : intervalle entre deux images (temps reel) */
+static unsigned long long fr_last = 0, fr_n = 0, fr_slow = 0, fr_vslow = 0, fr_worst = 0, fr_t0 = 0;
+static unsigned long long mono_us(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return (unsigned long long)t.tv_sec * 1000000ull + t.tv_nsec / 1000; }
+void pcsim_fps_report(void) {
+    if (fr_n < 2) return;
+    double sec = (fr_last - fr_t0) / 1e6;
+    printf("[pcsim] fluidite : %llu images en %.1f s (%.1f images/s), %llu images ratees (> 20 ms), %llu tres lentes (> 34 ms), pire %.0f ms\n",
+           fr_n, sec, (fr_n - 1) / sec, fr_slow, fr_vslow, fr_worst / 1000.0);
+}
 void GX_CopyDisp(void *dst, u8 clear) {
     (void)dst;
+    {   /* (les images dessinees pour une capture ne comptent pas : le dessin logiciel est lent, pas GC Station) */
+        static int was_cap = 0;
+        unsigned long long n = mono_us();
+        if (fr_last && !was_cap && !pcsim_capture) {
+            unsigned long long d = n - fr_last;
+            if (d > 20000) fr_slow++;
+            if (d > 34000) { fr_vslow++; printf("[pcsim] image lente : %.0f ms a %.1f s (%s)\n", d / 1000.0, (n - fr_t0) / 1e6, pcsim_script_where()); }
+            if (d > fr_worst) fr_worst = d;
+        }
+        if (!fr_last) fr_t0 = n;
+        fr_last = n; fr_n++; was_cap = pcsim_capture != 0;
+    }
+    unsigned long long t0 = gx_now();
     if (!efb_inited) { efb_clear(); efb_inited = 1; }
     if (pcsim_capture == 1) pcsim_capture = 2;              /* (1 : demande faite pendant cette image : on dessine la suivante en entier) */
     else if (pcsim_capture == 2) {
@@ -341,5 +367,6 @@ void GX_CopyDisp(void *dst, u8 clear) {
         if (png_write(p, 640, efb_h) == 0) printf("[pcsim] capture : %s\n", p);
         pcsim_capture = 0;
     }
-    if (clear) efb_clear();
+    if (clear && pcsim_capture) efb_clear();
+    pcsim_gx_ns += gx_now() - t0;
 }

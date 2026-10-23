@@ -32,15 +32,30 @@ static pthread_mutex_t big_m = PTHREAD_MUTEX_INITIALIZER;
 static pthread_cond_t big_c = PTHREAD_COND_INITIALIZER;
 static unsigned big_next = 0, big_serving = 0;            /* (ticket : chacun son tour) */
 static __thread int big_held = 0;
+/* processeur de la GameCube : le temps de calcul d'un thread (entre la prise et la remise du
+   verrou) est multiplie par PCSIM_CPU ; l'attente se fait AVANT de rendre la main (un seul
+   processeur : rien d'autre ne tourne pendant ce temps). Le dessin logiciel n'est pas compte. */
+static __thread u64 cpu_t0 = 0, gx_t0 = 0;
+__thread unsigned long long pcsim_gx_ns = 0;
+static u64 cpu_host_ns = 0;                                /* temps de calcul (PC) de GC Station */
+static u64 thread_ns(void) { struct timespec t; clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t); return (u64)t.tv_sec * 1000000000ull + t.tv_nsec; }
 void pcsim_lock(void) {
     if (big_held++) return;
     pthread_mutex_lock(&big_m);
     unsigned me = big_next++;
     while (me != big_serving) pthread_cond_wait(&big_c, &big_m);
     pthread_mutex_unlock(&big_m);
+    cpu_t0 = thread_ns(); gx_t0 = pcsim_gx_ns;
 }
 void pcsim_unlock(void) {
     if (--big_held) return;
+    if (!pcsim_fast && cpu_t0) {
+        u64 used = thread_ns() - cpu_t0, gx = pcsim_gx_ns - gx_t0;
+        used = used > gx ? used - gx : 0;
+        u64 extra = (u64)(used * (pcsim_cpu_k - 1.0));
+        __atomic_add_fetch(&cpu_host_ns, used, __ATOMIC_RELAXED);
+        if (extra > 200000) { struct timespec t = { (time_t)(extra / 1000000000ull), (long)(extra % 1000000000ull) }; nanosleep(&t, NULL); }
+    }
     pthread_mutex_lock(&big_m);
     big_serving++;
     pthread_cond_broadcast(&big_c);
@@ -80,6 +95,7 @@ __attribute__((constructor)) static void pcsim_boot(void) {
     setvbuf(stdout, NULL, _IOLBF, 0);
     pcsim_lock();                                          /* le thread principal a la main */
     script_load();
+    pcsim_limits_init();
     pthread_t t;
     pthread_create(&t, NULL, vsync_thread, NULL);
     pthread_create(&t, NULL, audio_thread, NULL);
@@ -92,8 +108,11 @@ void DCStoreRange(void *p, u32 n) { (void)p; (void)n; }
 void DCFlushRangeNoSync(void *p, u32 n) { (void)p; (void)n; }
 void DCStoreRangeNoSync(void *p, u32 n) { (void)p; (void)n; }
 void ICInvalidateRange(void *p, u32 n) { (void)p; (void)n; }
-u32 IRQ_Disable(void) { return 0; }                         /* (deja seul : verrou global) */
-void IRQ_Restore(u32 l) { (void)l; }
+/* interruptions : le son (DMA) tourne a cote, comme une vraie interruption ; IRQ_Disable
+   empeche seulement qu'il passe pendant une section protegee */
+static pthread_mutex_t irq_m = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+u32 IRQ_Disable(void) { pthread_mutex_lock(&irq_m); return 1; }
+void IRQ_Restore(u32 l) { if (l) pthread_mutex_unlock(&irq_m); }
 
 /* ======================= systeme ======================= */
 static u32 sys_lang = SYS_LANG_FRENCH, sys_sound = SYS_SOUND_STEREO, sys_rumble = 1, sys_vmode = 0, sys_prog = 0, sys_eu60 = 0;
@@ -121,13 +140,14 @@ u32 SYS_GetEuRGB60(void) { return sys_eu60; }
 void SYS_SetEuRGB60(u32 o) { sys_eu60 = o; }
 u32 SYS_GetRumbleMode(void) { return sys_rumble; }
 void SYS_SetRumbleMode(u32 m) { sys_rumble = m; }
-void *SYS_AllocateFramebuffer(void *mode) { (void)mode; return calloc(1, 720 * 576 * 2 + 64); }
-static u8 arena1[24 << 20];                               /* (comme la memoire principale : pour les mesures de memoire libre) */
-void *SYS_GetArena1Lo(void) { return arena1; }
-void *SYS_GetArena1Hi(void) { return arena1 + sizeof(arena1); }
+void *SYS_AllocateFramebuffer(void *mode) { GXRModeObj *m = mode; return memalign(32, m ? (size_t)m->fbWidth * m->xfbHeight * 2 : 640 * 576 * 2); }   /* (libogc : memalign, dans le tas) */
+/* arene : la memoire pas encore prise par le tas (voir pcsim_limits.c) */
+static u8 arena_mark[16];
+void *SYS_GetArena1Lo(void) { return arena_mark; }
+void *SYS_GetArena1Hi(void) { return (void *)((uintptr_t)arena_mark + pcsim_heap_left()); }
 void SYS_SetArena1Lo(void *p) { (void)p; }
 void SYS_SetArena1Hi(void *p) { (void)p; }
-u32 SYS_GetArena1Size(void) { return sizeof(arena1); }
+u32 SYS_GetArena1Size(void) { return (u32)pcsim_heap_left(); }
 void *SYS_GetArenaLo(void) { return SYS_GetArena1Lo(); }
 void *SYS_GetArenaHi(void) { return SYS_GetArena1Hi(); }
 s32 SYS_ResetButtonDown(void) { return 0; }
@@ -285,14 +305,14 @@ static void *audio_thread(void *a) {
         if (next > now) { struct timespec ts = { 0, (long)(next - now) * 1000 }; nanosleep(&ts, NULL); }
         else next = now;
         if (!ai_on) continue;
-        pcsim_lock();
+        pthread_mutex_lock(&irq_m);                         /* (interruption du son : pas le verrou global) */
         if (wav && ai_start && ai_len) {                    /* (s16 ecrits par le programme : deja dans l'ordre du PC) */
             u32 n = ai_len;
             fwrite((const void *)(uintptr_t)ai_start, 1, n, wav); wav_bytes += n;
             if ((wav_bytes & 0xFFFF) < n) { wav_header(); fflush(wav); }
         }
         if (ai_cb) ai_cb();
-        pcsim_unlock();
+        pthread_mutex_unlock(&irq_m);
     }
     return NULL;
 }
@@ -410,6 +430,19 @@ static void script_step(void) {
         sc_i++; sc_started = 0;
         if (c->op == SC_SHOT) return;                     /* (la capture prend l'image de ce tour) */
     }
+}
+const char *pcsim_script_where(void) {
+    static char b[128];
+    if (!sc || !sc_n) return "pas de scenario";
+    int i = sc_i > 0 ? sc_i - 1 : 0;
+    static const char *const nm[] = { "wait", "wait", "press", "hold", "stick", "stick c", "shot", "log", "quit" };
+    sc_cmd *c = &sc[i];
+    if (c->op == SC_SHOT || c->op == SC_LOG) snprintf(b, sizeof(b), "apres %s %s", nm[c->op], c->s);
+    else if (c->op == SC_PRESS || c->op == SC_HOLD) {
+        const char *bn = c->btn & PAD_TRIGGER_Z ? "Z" : c->btn & PAD_BUTTON_A ? "A" : c->btn & PAD_BUTTON_B ? "B" : c->btn & PAD_BUTTON_START ? "START" : "...";
+        snprintf(b, sizeof(b), "apres %s %s, ligne %d", nm[c->op], bn, i + 1);
+    } else snprintf(b, sizeof(b), "apres %s, ligne %d", nm[c->op], i + 1);
+    return b;
 }
 u32 PAD_Init(void) { return 1; }
 u32 PAD_ScanPads(void) {
@@ -567,7 +600,9 @@ static int dns_fake(s32 s, const u8 *q, int ql) {            /* requete DNS du p
     if (getenv("PCSIM_NETLOG")) printf("[pcsim] DNS %s -> %s\n", name, ok ? inet_ntoa(*(struct in_addr *)&ip) : "inconnu");
     return 1;
 }
+static char denied[64][128]; static int n_denied = 0;    /* (sites refuses par le proxy : refus immediat ensuite) */
 static int proxy_connect(s32 s, const char *host, int port) {   /* tunnel CONNECT par le proxy HTTPS */
+    for (int i = 0; i < n_denied; i++) if (!strcasecmp(denied[i], host)) return -ECONNREFUSED;
     const char *p = getenv("HTTPS_PROXY"); if (!p) p = getenv("https_proxy"); if (!p) return -ECONNREFUSED;
     if (!strncmp(p, "http://", 7)) p += 7;
     char ph[128]; snprintf(ph, sizeof(ph), "%s", p); char *c = strchr(ph, ':'); int pp = 80;
@@ -590,6 +625,7 @@ static int proxy_connect(s32 s, const char *host, int port) {   /* tunnel CONNEC
     fcntl(s, F_SETFL, fl);
     int ok = got > 12 && !strncmp(resp, "HTTP/1.", 7) && !strncmp(resp + 9, "200", 3);
     if (getenv("PCSIM_NETLOG")) printf("[pcsim] proxy %s:%d -> %.12s\n", host, port, got > 12 ? resp + 9 : "pas de reponse");
+    if (!ok && got > 12 && n_denied < 64) snprintf(denied[n_denied++], 128, "%s", host);
     return ok ? 0 : -ECONNREFUSED;
 }
 s32 net_init(void) { return 0; }
@@ -620,7 +656,16 @@ s32 net_bind(s32 s, struct sockaddr *a, socklen_t l) {
 s32 net_listen(s32 s, u32 b) { return NE(listen(s, (int)b)); }
 s32 net_accept(s32 s, struct sockaddr *a, socklen_t *l) { int r = BLOCKING(accept(s, a, l)); return NE(r); }
 s32 net_send(s32 s, const void *d, s32 l, u32 f) { int r = BLOCKING((int)send(s, d, l, (int)f | MSG_NOSIGNAL)); return NE(r); }
-s32 net_recv(s32 s, void *d, s32 l, u32 f) { int r = BLOCKING((int)recv(s, d, l, (int)f)); return NE(r); }
+s32 net_recv(s32 s, void *d, s32 l, u32 f) {               /* (debit du Broadband Adapter : pcsim_limits.c) */
+    int ok;
+    while ((ok = pcsim_net_allow(l)) <= 0) {
+        if ((f & MSG_DONTWAIT) || (fcntl(s, F_GETFL) & O_NONBLOCK)) return -EAGAIN;
+        usleep(2000);
+    }
+    int r = BLOCKING((int)recv(s, d, ok, (int)f));
+    if (r > 0) pcsim_net_used(r);
+    return NE(r);
+}
 s32 net_write(s32 s, const void *d, s32 l) { return net_send(s, d, l, 0); }
 s32 net_read(s32 s, void *d, s32 l) { return net_recv(s, d, l, 0); }
 s32 net_sendto(s32 s, const void *d, s32 l, u32 f, struct sockaddr *a, socklen_t al) {
@@ -663,7 +708,11 @@ s32 if_configex(struct in_addr *ip, struct in_addr *mask, struct in_addr *gw, bo
 }
 
 /* ======================= fin ======================= */
+void pcsim_fps_report(void);
 void pcsim_finish(int code) {
+    if (!pcsim_fast) printf("[pcsim] processeur : %.2f s de calcul sur le PC = %.1f s sur la GameCube (sur %.1f s)\n", cpu_host_ns / 1e9, cpu_host_ns * pcsim_cpu_k / 1e9, gettime() / 1000.0 - 1);
+    pcsim_limits_report();
+    pcsim_fps_report();
     if (wav) { wav_header(); fclose(wav); wav = NULL; }
     fflush(stdout);
     _exit(code);

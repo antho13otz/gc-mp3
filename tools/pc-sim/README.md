@@ -33,6 +33,25 @@ connexions passent par le proxy, les sites interdits sont refusés tout de suite
 ou `off` (hors ligne). `PCSIM_HOSTS="nom=127.0.0.1"` : pour un serveur de test local.
 `PCSIM_NETLOG=1` : affiche les noms demandés et les connexions.
 
+## Comme sur la vraie GameCube
+Par défaut, le simulateur a les **limites de la console** (`pcsim_limits.c`), pour que ce qui
+passe ici passe aussi sur le matériel officiel :
+
+| | GameCube | Réglage |
+|---|---|---|
+| Mémoire | 24 Mo, dont ~10,3 Mo pris par le programme lui-même (v79) : il reste **~12,7 Mo** de tas. Au-delà, `malloc` rend NULL, comme sur la console. La mémoire libre affichée par GC Station suit ce tas. | `PCSIM_DOL=gc.dol` (calcul exact ; `run.sh` lit le .dol de la release), `PCSIM_HEAP=octets` |
+| Processeur | Gekko 486 MHz : le calcul de GC Station est **12 fois plus lent** que sur le PC de test (Xeon 2,1 GHz). Le dessin (processeur graphique) n'est pas compté. | `PCSIM_CPU=12` |
+| Son | interruption DMA en temps réel : si GC Station calcule trop lentement, le son coupe (audible dans `son.wav`) | |
+| Carte SD | SD2SP2 / SD Gecko avec libfat : **1,5 Mo/s** en lecture, **0,6 Mo/s** en écriture, + temps d'accès (ouverture 3 ms, stat 1,5 ms, dossier 2 ms) | `PCSIM_SD_KBS`, `PCSIM_SD_WKBS` |
+| Réseau | Broadband Adapter : **500 Ko/s** en réception | `PCSIM_NET_KBS` |
+
+À la fin, `log.txt` donne : le temps de calcul « GameCube » utilisé, le pic de mémoire (et les
+réservations refusées), la fluidité (images/s, images ratées et à quel moment du scénario).
+`PCSIM_FAST=1` enlève toutes les limites. `PCSIM_MEMLOG=1` signale chaque réservation refusée.
+
+Le facteur processeur est une estimation : pour le recaler, il suffit de comparer
+`SD:/gc-mp3/fluidite.txt` (START > « Mesure de fluidité ») de la vraie console avec le simulateur.
+
 ## Scénarios
 Un fichier texte, une commande par ligne (`#` = commentaire) :
 ```
@@ -54,3 +73,7 @@ Boutons : `A B X Y Z L R START UP DOWN LEFT RIGHT`.
   écrit avec le processeur) ; une texture copiée telle quelle depuis un fichier GameCube
   aurait des couleurs fausses ici (pas sur la console).
 - Le temps est réel : un scénario de 20 s dure 20 s.
+- Le processeur graphique n'est pas limité (le dessin de GC Station est léger pour Flipper).
+- Réseau des sessions cloud : chaque connexion passe par un proxy (~200 ms de plus qu'Internet
+  depuis chez toi), et beaucoup de sites y sont interdits (refusés tout de suite ici, mais pas
+  sur ta console).

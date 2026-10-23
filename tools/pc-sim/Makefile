@@ -17,7 +17,9 @@ GME_SRC  := $(wildcard $(L)/gme/*.cpp)
 XMP_SRC  := $(wildcard $(L)/xmp/src/*.c) $(wildcard $(L)/xmp/src/loaders/*.c)
 WEBP_SRC := $(wildcard $(L)/webp/src/dec/*.c) $(wildcard $(L)/webp/src/dsp/*.c) $(wildcard $(L)/webp/src/utils/*.c)
 LIBOBJ   := $(patsubst $(L)/%.c,$(O)/%.o,$(MBED_SRC) $(HELIX_SRC) $(XMP_SRC) $(WEBP_SRC)) $(patsubst $(L)/%.cpp,$(O)/%.o,$(GME_SRC)) $(O)/gme/emu2413.o $(O)/codecs.o
-SIMOBJ   := $(O)/pcsim.o $(O)/pcsim_gx.o $(O)/main.o
+SIMOBJ   := $(O)/pcsim.o $(O)/pcsim_gx.o $(O)/pcsim_limits.o $(O)/pcsim_new.o $(O)/main.o
+# limites de la GameCube (pcsim_limits.c) : memoire du tas, carte SD
+WRAP     := -Wl,--wrap=malloc,--wrap=free,--wrap=calloc,--wrap=realloc,--wrap=memalign,--wrap=posix_memalign,--wrap=aligned_alloc,--wrap=mallinfo,--wrap=strdup,--wrap=strndup,--wrap=fopen,--wrap=fileno,--wrap=stat,--wrap=opendir,--wrap=readdir
 
 all: gcstation
 
@@ -57,12 +59,18 @@ $(O)/pcsim.o: pcsim.c pcsim.h $(wildcard include/*.h include/*/*.h)
 $(O)/pcsim_gx.o: pcsim_gx.c pcsim.h $(wildcard include/*.h)
 	@mkdir -p $(O)
 	$(CC) -fno-pie -O2 -g -Wall $(INC) -c $< -o $@
+$(O)/pcsim_limits.o: pcsim_limits.c pcsim.h
+	@mkdir -p $(O)
+	$(CC) -fno-pie -O2 -g -Wall $(INC) -c $< -o $@
+$(O)/pcsim_new.o: pcsim_new.cpp
+	@mkdir -p $(O)
+	$(CXX) -fno-pie -O2 -g -Wall -c $< -o $@
 $(O)/main.o: $(wildcard $(R)/source/*.c $(R)/source/*.h $(R)/source/natres/*.h) $(W)/gen/natres_bin.h $(wildcard include/*.h)
 	@mkdir -p $(O)
 	$(CC) $(CFLAGS) -w -c $(R)/source/main.c -o $@
 
 gcstation: $(SIMOBJ) $(LIBOBJ)
-	@$(CXX) -no-pie $(SAN) $^ -o $@ -lpthread -lm && echo "-> tools/pc-sim/gcstation"
+	@$(CXX) -no-pie $(SAN) $(WRAP) $^ -o $@ -lpthread -lm && echo "-> tools/pc-sim/gcstation"
 
 clean:
 	rm -rf $(O) gcstation
