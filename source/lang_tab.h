@@ -1045,3 +1045,5 @@
     { "Pr\xC3\xA9paration de la carte m\xC3\xA9moire virtuelle", "Preparing the virtual memory card" },
     { "Pendant le jeu : A + Z + START = retour \xC3\xA0 GC Station", "In game: A + Z + START = back to GC Station" },
     { "Sauvegardes : carte m\xC3\xA9moire virtuelle (slot A, sur la carte SD)", "Saves: virtual memory card (slot A, on the SD card)" },
+    { "Mesure de fluidit\xC3\xA9", "Smoothness meter" },
+    { "Images/s en haut de l'\xC3\xA9" "cran ; en coupant : rapport SD:/gc-mp3/fluidite.txt", "Frames/s shown at the top; when turned off: report in SD:/gc-mp3/fluidite.txt" },

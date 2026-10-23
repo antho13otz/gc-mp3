@@ -198,6 +198,58 @@ static int displayed_fb = 0;
 
 static u64 now_ms(void) { return ticks_to_millisecs(gettime()); }
 
+/* ---------- v69 : mesure de fluidite (START > « Mesure de fluidite ») ----------
+   Chaque image : temps de chaque tache de la boucle (reseau, pochettes, decodage, dessin,
+   processeur graphique, attente de l'ecran). A l'ecran : images/s, pire image, tache la plus
+   lente. Quand on coupe la mesure : rapport SD:/gc-mp3/fluidite.txt (par onglet). */
+enum { PH_INPUT, PH_WEB, PH_COVERS, PH_LYRICS, PH_RETRO, PH_PODCAST, PH_PHOTO, PH_FILES, PH_INFOS, PH_PHONE, PH_DL, PH_UPDATE,
+       PH_MISC, PH_LIB, PH_SETTINGS, PH_AUDIO, PH_MUSIC, PH_STREAM, PH_SPECTRUM, PH_DRAW, PH_GPU, PH_WAIT, PH_N };
+static const char *const pfx_names[PH_N] = { "manette", "web", "pochettes", "paroles", "retro", "podcasts", "photos", "fichiers", "infos",
+    "telephone", "telechargements", "mise a jour", "divers", "bibliotheque", "reglages", "son", "musique", "radio", "spectre",
+    "dessin", "processeur graphique", "attente de l'ecran" };
+static int perf_on = 0;
+static u32 pfx_cur[PH_N], pfx_frame_t0 = 0;
+#define PF_TABS 12
+static u32 pfx_frames[PF_TABS], pfx_slow[PF_TABS], pfx_vslow[PF_TABS], pfx_worst[PF_TABS];
+static u64 pfx_sum[PF_TABS][PH_N];
+static u32 pfx_max[PF_TABS][PH_N], pfx_top[PF_TABS][PH_N];
+static u32 pfx_sec_t0 = 0, pfx_sec_n = 0, pfx_sec_worst = 0, pfx_fps = 0, pfx_worst_ms = 0, pfx_last_top = PH_N, pfx_last_top_us = 0;
+static u32 perf_us(void) {
+#ifdef GEKKO
+    return (u32)ticks_to_microsecs(gettime());
+#else
+    return (u32)(gettime() * 1000u);
+#endif
+}
+#define PF(ph, call) do { if (perf_on) { u32 pf_t0_ = perf_us(); call; pfx_cur[ph] += perf_us() - pf_t0_; } else { call; } } while (0)
+static void perf_frame(int tb) {                    /* debut d'une image : on compte la precedente */
+    u32 n = perf_us();
+    if (!perf_on) { pfx_frame_t0 = n; return; }
+    if (tb < 0 || tb >= PF_TABS) tb = PF_TABS - 1;
+    if (pfx_frame_t0) {
+        u32 tot = n - pfx_frame_t0;
+        pfx_frames[tb]++;
+        if (tot > pfx_worst[tb]) pfx_worst[tb] = tot;
+        int top = PH_N; u32 tv = 0;
+        for (int i = 0; i < PH_N; i++) {
+            pfx_sum[tb][i] += pfx_cur[i];
+            if (pfx_cur[i] > pfx_max[tb][i]) pfx_max[tb][i] = pfx_cur[i];
+            if (i != PH_WAIT && pfx_cur[i] > tv) { tv = pfx_cur[i]; top = i; }
+        }
+        if (tot > 20000u) {                              /* (une image ratee : plus de 1/60 s + marge) */
+            pfx_slow[tb]++;
+            if (tot > 34000u) pfx_vslow[tb]++;
+            if (top < PH_N) pfx_top[tb][top]++;
+            pfx_last_top = (u32)top; pfx_last_top_us = tv;
+        }
+        pfx_sec_n++;
+        if (tot > pfx_sec_worst) pfx_sec_worst = tot;
+    }
+    if (n - pfx_sec_t0 >= 1000000u) { pfx_fps = pfx_sec_n; pfx_worst_ms = pfx_sec_worst / 1000u; pfx_sec_n = 0; pfx_sec_worst = 0; pfx_sec_t0 = n; }
+    for (int i = 0; i < PH_N; i++) pfx_cur[i] = 0;
+    pfx_frame_t0 = n;
+}
+
 /* Compteur d'images, incremente a chaque balayage vertical (interruption video). */
 static volatile u32 retrace_count = 0;
 static void retrace_cb(u32 count) { (void)count; retrace_count++; }
@@ -4347,9 +4399,12 @@ static void present_frame(void) {
        vers l'ecran passe apres le dessin dans la file de commandes) */
     GX_SetColorUpdate(GX_TRUE);
     GX_CopyDisp(xfb[next_fb], GX_TRUE);
+    u32 pg0 = perf_on ? perf_us() : 0;
     if (!gx_finish(1500)) gx_fatal("copie de l'image vers l'ecran");
     VIDEO_SetNextFramebuffer(xfb[next_fb]);
     VIDEO_Flush();
+    u32 pw0 = perf_on ? perf_us() : 0;
+    if (perf_on) pfx_cur[PH_GPU] += pw0 - pg0;
     /* attente de l'image suivante, en continuant a lire le reseau */
     u32 rc = retrace_count;
     u64 t0 = now_ms();
@@ -4358,6 +4413,7 @@ static void present_frame(void) {
         service_audio();
         usleep(500);
     }
+    if (perf_on) pfx_cur[PH_WAIT] += perf_us() - pw0;
     displayed_fb = next_fb;
     ui_started = 1;
 }
@@ -5328,6 +5384,39 @@ static void draw_night(void);
 static void draw_update_notice(void);
 static int nat_ld_on = 0;                       /* v64 : ecran de chargement de Resident (natif.c) */
 static void nat_draw_loading(void);
+static void perf_overlay(void) {
+    char b[160];
+    snprintf(b, sizeof(b), "%u img/s  pire %u ms%s%s", (unsigned)pfx_fps, (unsigned)pfx_worst_ms,
+             pfx_last_top < PH_N ? "  lent : " : "", pfx_last_top < PH_N ? pfx_names[pfx_last_top] : "");
+    f32 w = (f32)text_width(F_SMALL, b, 1) + 16;
+    gx_rrect_fill(320 - w / 2, 2, w, 18, 6, RGBA(0, 0, 0, 220), RGBA(0, 0, 0, 220));
+    gx_text_c(F_SMALL, 320, 15, b, pfx_fps >= 58 ? RGBA(140, 255, 160, 255) : pfx_fps >= 45 ? RGBA(255, 220, 120, 255) : RGBA(255, 120, 120, 255));
+}
+static const char *perf_ver(void);
+static void perf_report(void) {                      /* SD:/gc-mp3/fluidite.txt */
+    if (!sd_ok) return;
+    FILE *f = fopen(GCD "/fluidite.txt", "w");
+    if (!f) return;
+    fprintf(f, "GC Station %s - mesure de fluidite (une image ratee = plus de 20 ms ; tres lente = plus de 34 ms)\n\n", perf_ver());
+    for (int t = 0; t < PF_TABS; t++) {
+        if (!pfx_frames[t]) continue;
+        fprintf(f, "[%s] %u images, %u ratees (%u%%), %u tres lentes, pire %u ms\n", t < TAB_COUNT ? tab_names[t] : "autre",
+                (unsigned)pfx_frames[t], (unsigned)pfx_slow[t], (unsigned)(pfx_slow[t] * 100u / pfx_frames[t]), (unsigned)pfx_vslow[t], (unsigned)(pfx_worst[t] / 1000u));
+        for (int i = 0; i < PH_N; i++) {
+            u32 avg = (u32)(pfx_sum[t][i] / pfx_frames[t]);
+            if (avg < 200 && pfx_max[t][i] < 5000 && !pfx_top[t][i]) continue;
+            fprintf(f, "   %-22s moyenne %5.1f ms  pire %5.1f ms  cause de %u images ratees\n", pfx_names[i], avg / 1000.0f, pfx_max[t][i] / 1000.0f, (unsigned)pfx_top[t][i]);
+        }
+        fprintf(f, "\n");
+    }
+    fclose(f);
+}
+static void perf_toggle(void) {
+    if (perf_on) { perf_on = 0; perf_report(); return; }
+    memset(pfx_frames, 0, sizeof(pfx_frames)); memset(pfx_slow, 0, sizeof(pfx_slow)); memset(pfx_vslow, 0, sizeof(pfx_vslow)); memset(pfx_worst, 0, sizeof(pfx_worst));
+    memset(pfx_sum, 0, sizeof(pfx_sum)); memset(pfx_max, 0, sizeof(pfx_max)); memset(pfx_top, 0, sizeof(pfx_top));
+    pfx_frame_t0 = 0; pfx_last_top = PH_N; perf_on = 1;
+}
 static void draw(void) {
     {
         static u64 last = 0;
@@ -5398,6 +5487,7 @@ static void draw(void) {
     if (!menu_open && !kb_is_open()) season_overlay();
     draw_actions();
     gp_draw();
+    if (perf_on) perf_overlay();
     service_audio();
     present_frame();
 }
@@ -10014,7 +10104,7 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_MID, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_LAUNCHER, MI_UPDATE, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_RESUME, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PERF, MI_LAUNCHER, MI_UPDATE, MI_QUIT, MI_COUNT };
 static int autostart_get(void);
 static const char *autostart_set(int on);
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
@@ -10080,6 +10170,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_GLANIM:  snprintf(out, cap, "%s", gl_anim ? "Oui" : "Non"); break;
     case MI_NATIGR:  snprintf(out, cap, "%s", nat_igr ? "Oui" : "Non"); break;
     case MI_NATCARD: snprintf(out, cap, "%s", nat_card ? "Oui (slot A)" : "Non"); break;
+    case MI_PERF:    snprintf(out, cap, "%s", perf_on ? "Oui" : "Non"); break;
     case MI_LYRSHOW: snprintf(out, cap, "%s", lyr_names[lyr_show]); break;
     case MI_FLASH:   snprintf(out, cap, "%s", flash_names[flash_mode]); break;
     case MI_VIZ:     snprintf(out, cap, "%s", viz_names[viz_style]); break;
@@ -10127,7 +10218,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts",
     "Reprendre au d\xC3\xA9marrage", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
     "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Animations (jeux / applis)", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre", "Couleurs du spectrogramme", "Paroles dans le lecteur", "\xC3\x89" "clair sur les basses",
-    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer la console sur GC Station", "Retour en jeu (A+Z+START)", "A+Z+START (Resident)", "Carte m\xC3\xA9moire virtuelle (Resident)", "Lanceur de jeux", "Mise \xC3\xA0 jour", "Quitter GC Station" };
+    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "D\xC3\xA9marrer la console sur GC Station", "Retour en jeu (A+Z+START)", "A+Z+START (Resident)", "Carte m\xC3\xA9moire virtuelle (Resident)", "Mesure de fluidit\xC3\xA9", "Lanceur de jeux", "Mise \xC3\xA0 jour", "Quitter GC Station" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -10183,6 +10274,7 @@ static void menu_change(int i, int d) {
     case MI_GLANIM:  gl_anim = !gl_anim; break;
     case MI_NATIGR:  nat_igr = !nat_igr; break;
     case MI_NATCARD: nat_card = !nat_card; break;
+    case MI_PERF:    perf_toggle(); return;
     case MI_RUMBLE:  rumble_on = !rumble_on; if (rumble_on) rumble(0, 200); ic_put("Disable PAD Rumble", rumble_on ? "No" : "Yes"); break;
     case MI_PARTY:   party_style = (party_style + d + PARTY_STYLES) % PARTY_STYLES; break;
     case MI_NIGHT:   night_lum += d; if (night_lum < 1) night_lum = 1; if (night_lum > 5) night_lum = 5; break;
@@ -10400,6 +10492,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_VIDEO) hint = "Pris en compte au prochain lancement (B maintenu au d\xC3\xA9marrage = 480i)";
     if (menu_sel == MI_AUTOSTART) hint = "Copie GC Station dans ipl.dol (PicoLoader) : Reset = GC Station ; Z au d\xC3\xA9marrage = Swiss";
     if (menu_sel == MI_IGR) hint = igr_hint();
+    if (menu_sel == MI_PERF) hint = "Images/s en haut de l'\xC3\xA9" "cran ; en coupant : rapport SD:/gc-mp3/fluidite.txt";
     if (menu_sel == MI_NATCARD) hint = "Jeux lanc\xC3\xA9s avec Resident : sauvegardes dans SD:/gc-mp3/resident/carte-A.raw";
     if (menu_sel == MI_NATIGR) hint = "Jeux lanc\xC3\xA9s avec Resident (X) : A+Z+START tenus 1 s = retour \xC3\xA0 GC Station";
     if (menu_sel == MI_LAUNCHER) hint = ld_hint();
@@ -11246,6 +11339,7 @@ static void draw_party(void) {
 #include "tab_infos.c"
 #include "tab_phone.c"
 #include "crashlog.c"
+static const char *perf_ver(void) { return GCMP3_VERSION; }
 #include "update.c"
 
 static void tab_enter(int t) {
@@ -11422,6 +11516,8 @@ int main(int argc, char **argv) {
     u64 settings_t = 0;
 
     while (1) {
+        perf_frame(tl_screen || menu_open ? PF_TABS - 1 : tab);     /* v69 : mesure de fluidite */
+        u32 pf_in0 = perf_on ? perf_us() : 0;
         crash_beat();
         u32 pads = PAD_ScanPads();
         u32 down = PAD_ButtonsDown(0);
@@ -11582,53 +11678,51 @@ int main(int argc, char **argv) {
         /* v49 : pendant un mini-jeu, rien de lourd en fond (reseau https, carte SD, pochettes,
            etiquettes) : chaque image doit tenir dans 1/60 s pour que le jeu reste fluide */
         int in_game = fun_mode != FUN_OFF && fun_mode != FUN_KARAOKE && fun_mode != FUN_WAKE;
+        if (perf_on) pfx_cur[PH_INPUT] += perf_us() - pf_in0;
         /* navigateur : reception des pages et des telechargements */
-        web_pump();
+        PF(PH_WEB, web_pump());
         if (!in_game) {
-            cover_async_pump();
-            cover_pump();
-            lyrics_pump();
-            retro_pump();
-            podcast_pump();
-            photo_pump_tab();
-            files_pump();
-            infos_pump();
+            PF(PH_COVERS, cover_async_pump(); cover_pump());
+            PF(PH_LYRICS, lyrics_pump());
+            PF(PH_RETRO, retro_pump());
+            PF(PH_PODCAST, podcast_pump());
+            PF(PH_PHOTO, photo_pump_tab());
+            PF(PH_FILES, files_pump());
+            PF(PH_INFOS, infos_pump());
         }
-        phone_pump();
-        dltab_pump();
-        if (!in_game) update_pump();
-        cheats_tick();                       /* v37 : cheats coches ecrits un peu apres */
-        reset_pump();                        /* v38 : bouton Reset = relancer GC-MP3 */
+        PF(PH_PHONE, phone_pump());
+        PF(PH_DL, dltab_pump());
+        if (!in_game) PF(PH_UPDATE, update_pump());
+        PF(PH_MISC, cheats_tick(); reset_pump());
         if (!in_game) {
-            igr_pump();                      /* v39 : fichier du retour en jeu */
-            ld_pump();                       /* v44 : lanceur de jeux GC-MP3 */
+            PF(PH_MISC, igr_pump(); ld_pump());
         }
-        night_pump();
-        rb_pump();
-        stats_pump();                        /* (compte les ecoutes ; n'enregistre qu'au calme) */
+        PF(PH_MISC, night_pump(); rb_pump(); stats_pump());
         if (!in_game) {
-            lib_pump();
-            bib_pump();
-            ramfs_pump();
-            photo_pump();
-            resume_note(0);
+            PF(PH_LIB, lib_pump(); bib_pump(); ramfs_pump());
+            PF(PH_PHOTO, photo_pump());
+            PF(PH_LIB, resume_note(0));
         }
         if (settings_dirty && !in_game) {                   /* reglages changes : enregistres 2 s apres */
             if (!settings_t) settings_t = now;
-            else if (now - settings_t > 2000) { save_settings(); settings_t = 0; }
+            else if (now - settings_t > 2000) { PF(PH_SETTINGS, save_settings()); settings_t = 0; }
         }
 
-        service_audio();
+        PF(PH_AUDIO, service_audio());
 
         /* musique : decodage du fichier en cours */
-        music_pump();
+        PF(PH_MUSIC, music_pump());
 
         /* radio : reception, decodage, tampon */
-        stream_pump();
-        service_audio();
+        PF(PH_STREAM, stream_pump());
+        PF(PH_AUDIO, service_audio());
 
-        update_spectrum();
-        draw();
+        PF(PH_SPECTRUM, update_spectrum());
+        {
+            u32 pd0 = perf_on ? perf_us() : 0, pg = pfx_cur[PH_GPU] + pfx_cur[PH_WAIT];
+            draw();
+            if (perf_on) pfx_cur[PH_DRAW] += perf_us() - pd0 - (pfx_cur[PH_GPU] + pfx_cur[PH_WAIT] - pg);   /* (dessin seul) */
+        }
     }
 
     resume_note(1);                          /* garde la position pour la prochaine fois */
