@@ -348,7 +348,7 @@ static void tp_cfg_build(void) {
     sb_add(&s, "{\"m\":[");
     int first = 1;
     for (int i = 0; i < MI_COUNT; i++) {
-        if (i == MI_QUIT || i == MI_ELEMS || i == MI_TABS || i == MI_GAMES || i == MI_TITLES || i == MI_AUTOSTART) continue;
+        if (i == MI_QUIT || i == MI_ELEMS || i == MI_TABS || i == MI_GAMES || i == MI_TITLES || i == MI_AUTOSTART || i == MI_IP || i == MI_GW) continue;
         menu_value(i, v, sizeof(v));
         if (!first) sb_add(&s, ",");
         first = 0;

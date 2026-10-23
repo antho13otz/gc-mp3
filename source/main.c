@@ -1330,7 +1330,10 @@ static void load_stations(void) {
 
 // ---------- Reseau ----------
 static char ip_str[16] = "", mask_str[16] = "", gw_str[16] = "";
-static int net_static = 0;                   /* v34 : adresse fixe (reglages BBA d'Indigo, DHCP = No) */
+static int net_static = 0;                   /* v34 : adresse fixe (v75 : reglage de GC Station, section Reseau) */
+static void net_kb_done(const char *t);       /* v75 (extras73.c) */
+static int net_dhcp = 1, net_cfg_bits = 24;  /* v75 : adresse automatique (DHCP), ou adresse fixe : */
+static char net_cfg_ip[16] = "", net_cfg_gw[16] = "";
 static int net_ok = 0;
 enum { NET_NONE, NET_BUSY, NET_DONE };
 static volatile int net_phase = NET_NONE;
@@ -5738,7 +5741,7 @@ static int ic_on;                               /* v32 : reglages d'Indigo (indi
 static void draw_indigo_cfg(void);
 static void indigo_cfg_input(u32 down, u32 nav, int fire);
 static void indigo_cfg_open(void);
-static void indigo_cfg_boot(void);
+static void jeux_cfg_boot(void);
 static int tl_screen;                           /* v35 : outils (tools.c) */
 static void tools_input(u32 down, u32 nav, int fire);
 static void draw_tools(void);
@@ -9726,7 +9729,7 @@ static void web_pump(void) {
 }
 
 // ---------- Navigateur : actions ----------
-enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR, KB_LIBFIND, KB_PLNAME, KB_CHEATID, KB_CHEATNAME, KB_CHEATCODE, KB_ICTEXT };
+enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR, KB_LIBFIND, KB_PLNAME, KB_CHEATID, KB_CHEATNAME, KB_CHEATCODE, KB_NETTXT };
 static void cheats_kb_done(int mode, const char *t);
 static void ic_kb_done(const char *t);
 static void cheats_open(void);
@@ -9851,7 +9854,7 @@ static void kb_validate(void) {
     }
     if (kb_mode == KB_LIBFIND || kb_mode == KB_PLNAME) { lib_kb_done(kb_mode, t); return; }
     if (kb_mode == KB_CHEATID || kb_mode == KB_CHEATNAME || kb_mode == KB_CHEATCODE) { if (*t || kb_mode == KB_CHEATNAME) cheats_kb_done(kb_mode, t); return; }
-    if (kb_mode == KB_ICTEXT) { ic_kb_done(t); return; }        /* v32 : reglage d'Indigo (vide permis) */
+    if (kb_mode == KB_NETTXT) { net_kb_done(t); return; }      /* v75 : adresse IP / passerelle */
     if (!*t) return;
     if (kb_mode == KB_RADIO) { rb_search_name(t); return; }
     if (kb_mode == KB_PODCAST) { podcast_search(t); return; }
@@ -10306,7 +10309,7 @@ static void draw_keyboard(void) {
                         kb_mode == KB_LIBFIND ? "Chercher un morceau (titre, artiste, album)" : kb_mode == KB_PLNAME ? "Nom de la nouvelle liste" :
                         kb_mode == KB_CHEATID ? "ID du jeu (6 caract\xC3\xA8res, ex. GALE01)" : kb_mode == KB_CHEATNAME ? "Nom du cheat" :
                         kb_mode == KB_CHEATCODE ? "Ligne de code (XXXXXXXX YYYYYYYY)" :
-                        kb_mode == KB_ICTEXT ? "R\xC3\xA9glage d'Indigo / Swiss" :
+                        kb_mode == KB_NETTXT ? "Adresse (ex. 192.168.1.32)" :
                         "Adresse ou recherche";
     gx_text1(F_MED, 46, 143, title, RGBA(255, 255, 255, 255));
     if (kb_shift) gx_text_r(F_SMALL, 594, 142, "MAJUSCULES", RGBA(255, 210, 120, 255));
@@ -10784,16 +10787,36 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_RECAT, MI_RECLEN, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PERF, MI_LAUNCHER, MI_UPDATE, MI_QUIT, MI_COUNT };
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_RECAT, MI_RECLEN, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PERF, MI_LAUNCHER, MI_UPDATE,
+       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_QUIT, MI_COUNT };
 static int autostart_get(void);
 static const char *autostart_set(int on);
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
 static const char *ipl_set(int on);
 /* v35 : page Reglages en sections (L / R) : GC-MP3, Indigo, Swiss, Outils */
-enum { SEC_GCMP3, SEC_VIDEO, SEC_PAD, SEC_EMU, SEC_GAMES, SEC_NET, SEC_TOOLS, SEC_COUNT };   /* v57 : plus de sections Indigo / Swiss */
-#define SEC_IS_IC(s) ((s) >= SEC_VIDEO && (s) <= SEC_NET)
+/* v75 : les reglages de GC Station, ranges par sections (plus aucune page d'Indigo / Swiss) */
+enum { SEC_MUSIC, SEC_RADIO, SEC_DISPLAY, SEC_VIDEO, SEC_GAMES, SEC_NET, SEC_TOOLS, SEC_COUNT };
+static const s8 sec_items[6][24] = {
+    { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_GAPLESS, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE,
+      MI_COVERS, MI_LYRICS, MI_RESUME, MI_PARTY, MI_GAMES, MI_SLEEP, -1 },
+    { MI_RADIORES, MI_TITLES, MI_REC, MI_RECAT, MI_RECLEN, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, -1 },
+    { MI_UILANG, MI_LANG, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH,
+      MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, MI_HIDDEN, MI_UNKNOWN, MI_PERF, -1 },
+    { MI_TV, MI_VIDEO, MI_WIDE, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, -1 },
+    { MI_LAUNCHER, MI_GLANG, MI_GSOUND, MI_RUMBLE, MI_IGR, MI_NATIGR, MI_NATCARD, MI_AUTOSTART, MI_GLVIEW, MI_GLANIM, -1 },
+    { MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_UPDATE, -1 } };
+static int sec_n(int sec) { int n = 0; if (sec < 0 || sec >= SEC_TOOLS) return 0; while (n < 24 && sec_items[sec][n] >= 0) n++; return n; }
+static int sec_pos(int sec, int mi) { for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] == mi) return i; return -1; }
+static int fe_show_hidden, fe_hide_unknown;                   /* (tab_files.c) */
+static void files_refresh_opts(void);                         /* (jeux_cfg.c) */
+static const char *const gc_lang_names[6];                     /* (jeux_cfg.c) */
+static void ic_put2(const char *key, const char *val, int force);
+static void gc_lang_set(int l, int sync);
+static void gc_sound_set(int stereo, int sync);
+static void gc_screenx_set(int h);
+
 static int menu_sec = 0;
-static void ic_menu_input(int sec, u32 down, u32 nav, int fire);
+
 static void igr_value(char *out, int cap);                  /* v39 : retour en jeu vers GC-MP3 (igr.c) */
 static void igr_toggle(void);
 static void ld_boot(void);
@@ -10801,9 +10824,7 @@ static void ld_value(char *out, int cap);                   /* v44 : lanceur de 
 static void ld_change(int a);
 static const char *ld_hint(void);
 static const char *igr_hint(void);
-static void ic_menu_draw(int sec, f32 x, f32 y, f32 w, int vis, f32 rh, f32 help_y);
-static void ic_menu_close(void);
-static int ic_menu_dirty(void);
+
 static void tools_menu_input(u32 down, u32 nav, int fire);
 static void tools_menu_draw(f32 x, f32 y, f32 w, int vis, f32 rh, f32 help_y);
 static const char *gl_boot_swiss(const char *path);
@@ -10827,6 +10848,17 @@ static void menu_value(int i, char *out, int cap) {
     case MI_LOWMID:  if (eq_lowmid) snprintf(out, cap, "%+d dB", eq_lowmid); else snprintf(out, cap, "0"); break;
     case MI_PRES:    if (eq_pres) snprintf(out, cap, "%+d dB", eq_pres); else snprintf(out, cap, "0"); break;
     case MI_PODSPEED: case MI_PODSIL: case MI_RECAT: case MI_RECLEN: x73_menu_value(i, out, cap); break;
+    case MI_SCREENX: { int h = SYS_GetDisplayOffsetH(); if (h) snprintf(out, cap, "%s %d", TR(h > 0 ? "Plus \xC3\xA0 droite" : "Plus \xC3\xA0 gauche"), abs(h)); else snprintf(out, cap, "Centr\xC3\xA9" "e"); break; }
+    case MI_HIDDEN:  snprintf(out, cap, "%s", fe_show_hidden ? "Affich\xC3\xA9s" : "Cach\xC3\xA9s"); break;
+    case MI_UNKNOWN: snprintf(out, cap, "%s", fe_hide_unknown ? "Oui" : "Non"); break;
+    case MI_GLANG:   { int l = SYS_GetLanguage(); snprintf(out, cap, "%s", l >= 0 && l < 6 ? gc_lang_names[l] : "?"); break; }
+    case MI_GSOUND:  snprintf(out, cap, "%s", SYS_GetSoundMode() == SYS_SOUND_MONO ? "Mono" : "St\xC3\xA9r\xC3\xA9o"); break;
+    case MI_DHCP:    snprintf(out, cap, "%s", net_dhcp ? "Oui" : "Non (adresse fixe)"); break;
+    case MI_IP:      snprintf(out, cap, "%s", net_dhcp ? (ip_str[0] ? ip_str : "-") : net_cfg_ip[0] ? net_cfg_ip : "(A : taper)"); break;
+    case MI_MASK:    { u32 m = net_cfg_bits ? 0xFFFFFFFFu << (32 - net_cfg_bits) : 0; snprintf(out, cap, "%u.%u.%u.%u", m >> 24, (m >> 16) & 255, (m >> 8) & 255, m & 255); break; }
+    case MI_GW:      snprintf(out, cap, "%s", net_dhcp ? (gw_str[0] ? gw_str : "-") : net_cfg_gw[0] ? net_cfg_gw : "(A : taper)"); break;
+    case MI_PHONEAUTO: snprintf(out, cap, "%s", phone_auto ? "Oui" : "Non"); break;
+    case MI_UPDAUTO: snprintf(out, cap, "%s", upd_auto ? "Oui" : "Non"); break;
     case MI_TREBLE:  if (eq_treble) snprintf(out, cap, "%+d dB", eq_treble); else snprintf(out, cap, "0"); break;
     case MI_LYRICS:  snprintf(out, cap, "%s", lyrics_auto ? "Oui" : "Non"); break;
     case MI_PODAUTO: snprintf(out, cap, "%s", pod_auto ? "T\xC3\xA9l\xC3\xA9" "charg\xC3\xA9s tout seuls" : "Non"); break;
@@ -10901,9 +10933,12 @@ static const char *const menu_labels[MI_COUNT] = {
     "Lecture al\xC3\xA9" "atoire", "R\xC3\xA9p\xC3\xA9tition", "Fondu encha\xC3\xAEn\xC3\xA9", "Liste MUSIQUE", "Volume",
     "Volume \xC3\xA9galis\xC3\xA9", "\xC3\x89galiseur", "Graves", "Bas-m\xC3\xA9" "diums", "M\xC3\xA9" "diums", "Pr\xC3\xA9sence", "Aigus", "Style de l'interface", "Th\xC3\xA8me", "Fond d'\xC3\xA9" "cran", "D\xC3\xA9" "cor de saison",
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts", "Vitesse des podcasts", "Podcasts : sauter les silences",
-    "Reprendre au d\xC3\xA9marrage", "Reprendre la radio au d\xC3\xA9marrage", "Encha\xC3\xAEnement sans blanc", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
+    "Reprendre au d\xC3\xA9marrage", "Reprendre la radio au d\xC3\xA9marrage", "Encha\xC3\xAEnement sans blanc", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Position horizontale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
     "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Animations (jeux / applis)", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre", "Couleurs du spectrogramme", "Paroles dans le lecteur", "\xC3\x89" "clair sur les basses",
-    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "Retour en jeu (A+Z+START)", "A+Z+START (Resident)", "Carte m\xC3\xA9moire virtuelle (Resident)", "Mesure de fluidit\xC3\xA9", "Lanceur de jeux", "Mise \xC3\xA0 jour", "Quitter GC Station" };
+    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "Retour en jeu (A+Z+START)", "A+Z+START (Resident)", "Carte m\xC3\xA9moire virtuelle (Resident)", "Mesure de fluidit\xC3\xA9", "Lanceur de jeux", "Mise \xC3\xA0 jour",
+    "Fichiers cach\xC3\xA9s (FICHIERS)", "Cacher les fichiers inconnus", "Langue des jeux (console)", "Son (console)",
+    "Adresse automatique (DHCP)", "Adresse IP de la console", "Masque", "Passerelle (box)", "T\xC3\xA9l\xC3\xA9" "commande au d\xC3\xA9marrage",
+    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Quitter GC Station" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -10945,6 +10980,19 @@ static void menu_change(int i, int d) {
     case MI_LOWMID:  eq_lowmid += 2 * d; eq_preset = 0; eq_setup(); break;
     case MI_PRES:    eq_pres += 2 * d; eq_preset = 0; eq_setup(); break;
     case MI_PODSPEED: case MI_PODSIL: case MI_RECAT: case MI_RECLEN: x73_menu_change(i, d); break;
+    case MI_SCREENX: gc_screenx_set(SYS_GetDisplayOffsetH() + 2 * d); return;
+    case MI_HIDDEN:  fe_show_hidden = !fe_show_hidden; files_refresh_opts(); break;
+    case MI_UNKNOWN: fe_hide_unknown = !fe_hide_unknown; files_refresh_opts(); break;
+    case MI_GLANG:   gc_lang_set((SYS_GetLanguage() + d + 6) % 6, 1); return;
+    case MI_GSOUND:  gc_sound_set(SYS_GetSoundMode() == SYS_SOUND_MONO, 1); return;
+    case MI_DHCP:    net_dhcp = !net_dhcp; lib_note("Pris en compte au prochain d\xC3\xA9marrage de GC Station"); break;
+    case MI_MASK:    net_cfg_bits += d; if (net_cfg_bits < 8) net_cfg_bits = 8; if (net_cfg_bits > 30) net_cfg_bits = 30; break;
+    case MI_IP: case MI_GW:
+        if (net_dhcp) { lib_note("Adresse automatique : mets d'abord DHCP sur Non"); return; }
+        kb_start(KB_NETTXT, i == MI_IP ? net_cfg_ip : net_cfg_gw, i, -1);
+        return;
+    case MI_PHONEAUTO: phone_auto = !phone_auto; break;
+    case MI_UPDAUTO: upd_auto = !upd_auto; break;
     case MI_BASS:    eq_bass += 2 * d; eq_preset = 0; eq_setup(); break;
     case MI_TREBLE:  eq_treble += 2 * d; eq_preset = 0; eq_setup(); break;
     case MI_LYRICS:  lyrics_auto = !lyrics_auto; if (lyrics_auto) net_start_async(); break;
@@ -10963,7 +11011,7 @@ static void menu_change(int i, int d) {
     case MI_NATIGR:  nat_igr = !nat_igr; break;
     case MI_NATCARD: nat_card = !nat_card; break;
     case MI_PERF:    perf_toggle(); return;
-    case MI_RUMBLE:  rumble_on = !rumble_on; if (rumble_on) rumble(0, 200); ic_put("Disable PAD Rumble", rumble_on ? "No" : "Yes"); break;
+    case MI_RUMBLE:  rumble_on = !rumble_on; if (rumble_on) rumble(0, 200); ic_put2("Disable PAD Rumble", rumble_on ? "No" : "Yes", 1); break;
     case MI_PARTY:   party_style = (party_style + d + PARTY_STYLES) % PARTY_STYLES; break;
     case MI_NIGHT:   night_lum += d; if (night_lum < 1) night_lum = 1; if (night_lum > 5) night_lum = 5; break;
     case MI_UPDATE:  return;
@@ -11017,23 +11065,25 @@ static void menu_change(int i, int d) {
 static void menu_input_gcmp3(u32 down, u32 nav, int fire);
 static void menu_input(u32 down, u32 nav, int fire) {
     if (down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) {                /* v35 : sections */
+        static s8 last[SEC_COUNT] = { -1, -1, -1, -1, -1, -1, -1 };
+        if (menu_sec < SEC_TOOLS) last[menu_sec] = (s8)menu_sel;
         menu_sec = (menu_sec + ((down & PAD_TRIGGER_R) ? 1 : SEC_COUNT - 1)) % SEC_COUNT;
+        if (menu_sec < SEC_TOOLS) { menu_sel = last[menu_sec] >= 0 ? last[menu_sec] : sec_items[menu_sec][0]; menu_top = 0; }
         return;
     }
     if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) {
         menu_open = 0;
         if (settings_dirty) save_settings();
-        ic_menu_close();                                         /* (reglages d'Indigo changes : enregistres) */
         return;
     }
-    if (SEC_IS_IC(menu_sec)) ic_menu_input(menu_sec - SEC_VIDEO, down, nav, fire);
-    else if (menu_sec == SEC_TOOLS) tools_menu_input(down, nav, fire);
+    if (menu_sec == SEC_TOOLS) tools_menu_input(down, nav, fire);
     else menu_input_gcmp3(down, nav, fire);
-    if (!menu_open) ic_menu_close();                             /* (page fermee par une action) */
 }
 static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
-    if (fire && (nav & PAD_BUTTON_DOWN)) menu_sel = (menu_sel + 1) % MI_COUNT;
-    if (fire && (nav & PAD_BUTTON_UP)) menu_sel = (menu_sel + MI_COUNT - 1) % MI_COUNT;
+    int n = sec_n(menu_sec), p = sec_pos(menu_sec, menu_sel);
+    if (p < 0) { p = 0; menu_sel = sec_items[menu_sec][0]; }
+    if (fire && (nav & PAD_BUTTON_DOWN)) menu_sel = sec_items[menu_sec][(p + 1) % n];
+    if (fire && (nav & PAD_BUTTON_UP)) menu_sel = sec_items[menu_sec][(p + n - 1) % n];
     if (fire && (nav & (PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT)) && menu_sel != MI_QUIT)
         menu_change(menu_sel, (nav & PAD_BUTTON_RIGHT) ? 1 : -1);
     if (down & PAD_BUTTON_A) {
@@ -11052,6 +11102,7 @@ static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
             return;
         }
         else if (menu_sel == MI_UPDATE) { update_activate(); return; }
+        else if (menu_sel == MI_IP || menu_sel == MI_GW) { menu_change(menu_sel, 1); return; }
         else if (menu_sel == MI_AUTOSTART) { menu_change(MI_AUTOSTART, 1); return; }
         else if (menu_sel == MI_IGR) { igr_toggle(); return; }
         else if (menu_sel == MI_LAUNCHER) { ld_change(1); return; }
@@ -11104,10 +11155,10 @@ static void draw_menu(void) {
     draw_panel(x, y, w, h);
     gx_text1(F_LARGE, x + 18, y + 32, "R\xC3\xA9glages", RGBA(255, 255, 255, 255));
     gx_text1(F_SMALL, x + 150, y + 30, ui_en ? "L / R : sections" : "L / R : sections", RGBA(150, 135, 210, 255));
-    if (ic_menu_dirty()) gx_text_r(F_SMALL, x + w - 16, y + 30, ui_en ? "modified (saved on close)" : "modifi\xC3\xA9 (enregistr\xC3\xA9 en fermant)", RGBA(255, 210, 120, 255));
+
     {   /* v57 : sections sur une 2e ligne (7 sections) */
-        static const char *const sec_fr[SEC_COUNT] = { "GC Station", "Vid\xC3\xA9o", "Manettes", "\xC3\x89mulation", "Jeux", "R\xC3\xA9seau", "Outils" };
-        static const char *const sec_en[SEC_COUNT] = { "GC Station", "Video", "Pads", "Emulation", "Games", "Network", "Tools" };
+        static const char *const sec_fr[SEC_COUNT] = { "Musique", "Radio", "Affichage", "Vid\xC3\xA9o", "Jeux", "R\xC3\xA9seau", "Outils" };
+        static const char *const sec_en[SEC_COUNT] = { "Music", "Radio", "Display", "Video", "Games", "Network", "Tools" };
         f32 tws[SEC_COUNT], tot = 0, avail = w - 36;
         for (int p = 0; p < SEC_COUNT; p++) { tws[p] = (f32)text_width(F_SMALL, ui_en ? sec_en[p] : sec_fr[p], 0); tot += tws[p]; }
         f32 pad = (avail - tot - 5 * (SEC_COUNT - 1)) / SEC_COUNT;
@@ -11127,33 +11178,33 @@ static void draw_menu(void) {
         }
     }
     gx_rect(x + 18, y + h - 58, w - 36, 1, RGBA(76, 52, 150, 200));
-    if (SEC_IS_IC(menu_sec)) {
-        ic_menu_draw(menu_sec - SEC_VIDEO, x + 12, ly, w - 24, vis, rh, help_y);
-        draw_menu_legend(1);
-        return;
-    }
+
     if (menu_sec == SEC_TOOLS) {
         tools_menu_draw(x + 12, ly, w - 24, vis, rh, help_y);
         draw_menu_legend(2);
         return;
     }
-    if (menu_sel < menu_top) menu_top = menu_sel;
-    if (menu_sel >= menu_top + vis) menu_top = menu_sel - vis + 1;
-    if (menu_top > MI_COUNT - vis) menu_top = MI_COUNT - vis;
+    const s8 *L = sec_items[menu_sec];
+    int LN = sec_n(menu_sec), ps = sec_pos(menu_sec, menu_sel);
+    if (ps < 0) { ps = 0; menu_sel = L[0]; }
+    if (ps < menu_top) menu_top = ps;
+    if (ps >= menu_top + vis) menu_top = ps - vis + 1;
+    if (menu_top > LN - vis) menu_top = LN - vis;
     if (menu_top < 0) menu_top = 0;
     char v[96], fv[96];
     if (menu_top > 0)                                   /* fleches : il y a d'autres reglages */
         gx_tri(x + w / 2 - 7, ly - 2, x + w / 2 + 7, ly - 2, x + w / 2, ly - 8, RGBA(190, 160, 255, 220));
-    if (menu_top + vis < MI_COUNT)
+    if (menu_top + vis < LN)
         gx_tri(x + w / 2 - 7, ly + vis * rh, x + w / 2 + 7, ly + vis * rh, x + w / 2, ly + vis * rh + 6, RGBA(190, 160, 255, 220));
     {
         static f32 sel_anim = -2000;
-        f32 sy = smooth_to(&sel_anim, ly + (menu_sel - menu_top) * rh);
+        f32 sy = smooth_to(&sel_anim, ly + (ps - menu_top) * rh);
         gx_glow(x + 12, sy, w - 24, rh - 2, 6, RGBA(150, 80, 255, 120), 2);
         gx_rrect_fill(x + 12, sy, w - 24, rh - 2, 6, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
     }
-    for (int i = menu_top; i < MI_COUNT && i < menu_top + vis; i++) {
-        f32 ry = ly + (i - menu_top) * rh;
+    for (int r = menu_top; r < LN && r < menu_top + vis; r++) {
+        int i = L[r];
+        f32 ry = ly + (r - menu_top) * rh;
         int on = (i == menu_sel);
         gp_zone(x + 12, ry, w - 24, rh - 2, &menu_sel, i, GPZ_SEL);
         if (i == MI_QUIT) gx_rect(x + 18, ry - 2, w - 36, 1, RGBA(76, 52, 150, 200));
@@ -11200,7 +11251,15 @@ static void draw_menu(void) {
     if (menu_sel == MI_FLASH) hint = "Le flash blanc du mode soir\xC3\xA9" "e sur chaque coup de basse";
     if (menu_sel == MI_TABS) hint = "A : afficher / cacher un onglet   X / Y : changer l'ordre";
     if (menu_sel == MI_SGPAL) hint = "Spectrogramme plein \xC3\xA9" "cran (\xC3\xA9" "conomiseur, mode soir\xC3\xA9" "e) et style Spectrogramme";
-    if (menu_sel == MI_RUMBLE) hint = "M\xC3\xAAme r\xC3\xA9glage que \xC2\xAB Couper les vibrations \xC2\xBB (section Manettes)";
+    if (menu_sel == MI_RUMBLE) hint = "Mode soir\xC3\xA9" "e, mini-jeux, et les jeux lanc\xC3\xA9s avec le lanceur GC Station";
+    if (menu_sel == MI_SCREENX) hint = "D\xC3\xA9" "cale l'image de GC Station et des jeux (r\xC3\xA9glage de la console)";
+    if (menu_sel == MI_GLANG) hint = "Langue de la console : les jeux multilingues (PAL) l'utilisent. Un jeu peut avoir la sienne (Y dans sa fiche)";
+    if (menu_sel == MI_GSOUND) hint = "R\xC3\xA9glage de la console : GC Station et les jeux";
+    if (menu_sel == MI_HIDDEN || menu_sel == MI_UNKNOWN) hint = "Onglet FICHIERS : fichiers commen\xC3\xA7" "ant par un point / autres que musique, images, jeux, .dol";
+    if (menu_sel == MI_DHCP) hint = "Non : adresse fixe (lignes suivantes). Pris en compte au prochain d\xC3\xA9marrage";
+    if (menu_sel == MI_IP || menu_sel == MI_GW) hint = "A : taper l'adresse (DHCP sur Non). Pris en compte au prochain d\xC3\xA9marrage";
+    if (menu_sel == MI_PHONEAUTO) hint = "La page du t\xC3\xA9l\xC3\xA9phone (onglet T\xC3\x89L\xC3\x89PHONE) est pr\xC3\xAAte d\xC3\xA8s le d\xC3\xA9marrage";
+    if (menu_sel == MI_UPDAUTO) hint = "Une nouvelle version est signal\xC3\xA9" "e au d\xC3\xA9marrage (rien n'est install\xC3\xA9 sans toi)";
     if (hint) gx_text1(F_SMALL, x + 20, help_y + 8, hint, RGBA(255, 210, 120, 255));
     draw_menu_legend(0);
 }
@@ -12180,7 +12239,7 @@ static void music_pump(void) {
 #include "cheats.c"                            /* v25 : editeur de cheats Swiss */
 #include "gclib.c"                             /* v25 : Mes jeux GameCube (jaquettes du pack Swiss Indigo) */
 #include "tools.c"                             /* v35 : cartes memoire, applis, recents, infos */
-#include "indigo_cfg.c"                        /* v32 : reglages d'Indigo / Swiss */
+#include "jeux_cfg.c"                          /* v75 : reglages des jeux (plus de pages Indigo / Swiss) */
 #include "igr.c"                               /* v39 : A + Z + START en jeu -> GC-MP3 */
 #include "lanceur.c"                           /* v44 : lanceur de jeux GC-MP3 (moteur Swiss) */
 #include "natif.c"                             /* v50 : lanceur natif GC Station, etape 1 : analyse */
@@ -12195,7 +12254,7 @@ int main(int argc, char **argv) {
     crash_init();                           /* journal de plantage */
     ui_lang_apply();                        /* v24 : langue de la console, sauf reglage */
     load_settings();
-    if (sd_ok) indigo_cfg_boot();           /* v34 : reglages d'Indigo qui valent aussi pour GC-MP3 */
+    jeux_cfg_boot();                        /* v75 : langue / son de la console, reseau (et reprise des anciens reglages d'Indigo) */
     if (sd_ok) ld_boot();                   /* v45 : retour.txt (retour en jeu) + journal du lanceur */
     if (!init_video()) return 1;
     gx_init();

@@ -21,6 +21,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v75 — fini les pages Indigo / Swiss : les réglages de GC Station
+Les pages de réglages qui n'étaient en fait que des réglages de Swiss (`swiss/settings/global.ini`) sont supprimées. À la place, des sections propres à GC Station (START, L / R) : **Musique, Radio, Affichage, Vidéo, Jeux, Réseau, Outils**.
+- **Vidéo** : nouvelle ligne « Position horizontale » (réglage de la console : décale l'image de GC Station et des jeux).
+- **Jeux** : « Langue des jeux (console) » et « Son (console) » : réglages de la vraie console, utilisés par tous les jeux (Resident compris), plus vibrations, lanceur, IGR…
+- **Réglages d'un jeu** : dans la fiche d'un jeu, **Y** : langue du jeu, son, carte mémoire virtuelle (Resident), pour ce jeu seulement (`SD:/gc-mp3/jeux/<ID>.txt`). La console reprend ses réglages après le jeu.
+- **Réseau** : adresse automatique (DHCP) ou fixe (adresse, masque, passerelle, tapées au clavier et vérifiées), télécommande et vérification des mises à jour au démarrage.
+- **Affichage** : fichiers cachés / fichiers inconnus de l'onglet FICHIERS.
+- **Outils** : « Quitter GC Station ».
+- Au premier démarrage, l'adresse réseau fixe et l'affichage des fichiers cachés déjà réglés dans Swiss sont repris. Les jeux lancés avec Swiss ou le lanceur gardent les mêmes vibrations, mode vidéo et IGR (GC Station les recopie pour eux).
+
 ## Nouveautés v74 — tout le réseau vérifié en vrai
 Chaque fonction réseau a été essayée pour de vrai sur Internet (le programme lui-même, dans un simulateur sur un serveur GitHub) : 79 essais. Ce qui ne marchait plus a été réparé :
 - **Podcasts : l'écoute ne marchait plus** (les serveurs de Radio France refusent maintenant les vieilles requêtes HTTP/1.0 : erreur 426). GC Station repasse tout seul en HTTP/1.1 (avec les réponses « en morceaux »), pour les podcasts comme pour les radios ; le navigateur web passe aussi en HTTP/1.1.

@@ -745,7 +745,7 @@ static void rc_input(u32 down, u32 nav, int fire) {
             if (settings_dirty) save_settings();
             int k = rc_game(i);
             const char *e;
-            if (k >= 0) e = gl_launch(k);
+            if (k >= 0) e = game_boot(k, 0);
             else {
                 size_t l = strlen(rc_path[i]);
                 if (l > 4 && !strcasecmp(rc_path[i] + l - 4, ".dol")) e = gl_boot_dol(rc_path[i], NULL, NULL, base_of(rc_path[i]));
@@ -1076,11 +1076,11 @@ static void draw_tools(void) {
 }
 
 /* ---------- section "Outils" de la page Reglages ---------- */
-enum { TO_RECENT, TO_GAMES, TO_CHEATS, TO_VCARD, TO_BACKUP, TO_RESTORE, TO_INFO, TO_COUNT };   /* (v57 : plus de "Quitter vers Swiss" : Z au demarrage) */
+enum { TO_RECENT, TO_GAMES, TO_CHEATS, TO_VCARD, TO_BACKUP, TO_RESTORE, TO_INFO, TO_QUIT, TO_COUNT };   /* (v57 : plus de "Quitter vers Swiss" : Z au demarrage) */
 #define TO_SWISS (-1)
 static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s",
     "Mes jeux, applis et cartes m\xC3\xA9moire", "Cheats (\xC3\xA9" "diteur)", "Cartes m\xC3\xA9moire virtuelles (Resident)",
-    "Sauvegarder tous les r\xC3\xA9glages", "Restaurer les r\xC3\xA9glages", "Infos console" };
+    "Sauvegarder tous les r\xC3\xA9glages", "Restaurer les r\xC3\xA9glages", "Infos console", "Quitter GC Station" };
 static const char *const to_help[TO_COUNT] = {
     "Relancer un jeu en un clic.",
     "Onglet JEUX / APPS. Dans la fiche d'un jeu : Y = r\xC3\xA9glages du jeu.",
@@ -1088,7 +1088,8 @@ static const char *const to_help[TO_COUNT] = {
     "Plusieurs cartes, sauvegardes copi\xC3\xA9" "es depuis / vers la SD et la vraie carte.",
     "R\xC3\xA9glages, radios, favoris, listes, podcasts... dans SD:/gc-mp3-sauvegarde.txt",
     "Remet les r\xC3\xA9glages de SD:/gc-mp3-sauvegarde.txt (A deux fois pour confirmer).",
-    "Version, vid\xC3\xA9o, m\xC3\xA9moire, carte SD, r\xC3\xA9seau." };
+    "Version, vid\xC3\xA9o, m\xC3\xA9moire, carte SD, r\xC3\xA9seau.",
+    "Ouvre le menu de la GameCube (lecteur de disque). Bouton Reset = relancer GC Station" };
 static int to_sel = 0;
 static void tools_menu_input(u32 down, u32 nav, int fire) {
     if (fire && (nav & PAD_BUTTON_DOWN)) to_sel = (to_sel + 1) % TO_COUNT;
@@ -1111,6 +1112,7 @@ static void tools_menu_input(u32 down, u32 nav, int fire) {
     switch (to_sel) {
     case TO_RECENT: rc_open(); break;
     case TO_INFO: info_open(); break;
+    case TO_QUIT: quit_requested = 1; break;
     case TO_GAMES: tab = TAB_GAMES; tab_enter(TAB_GAMES); gm_sel = GM_COUNT; break;
     case TO_CHEATS: cheats_open(); break;
     case TO_VCARD: vc_open(); break;
@@ -1128,7 +1130,7 @@ static void tools_menu_draw(f32 x, f32 y, f32 w, int vis, f32 rh, f32 help_y) {
         int on = i == to_sel;
         gp_zone(x, ry, w, rh, &to_sel, i, GPZ_SEL);
         if (on) gx_rrect_fill(x, ry, w, rh, 6, TL_SEL1, TL_SEL2);
-        gx_text1(F_MED, x + 14, ry + 17, to_names[i], on ? RGBA(255, 255, 255, 255) : i == TO_SWISS ? RGBA(255, 190, 190, 255) : RGBA(230, 222, 255, 255));
+        gx_text1(F_MED, x + 14, ry + 17, to_names[i], on ? RGBA(255, 255, 255, 255) : i == TO_QUIT ? RGBA(255, 170, 170, 255) : RGBA(230, 222, 255, 255));
         gx_text_r(F_MED, x + w - 14, ry + 17, "(A)", on ? RGBA(255, 255, 255, 255) : RGBA(190, 160, 255, 255));
     }
     char fv[200];
