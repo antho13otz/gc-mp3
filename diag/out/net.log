@@ -1,0 +1,130 @@
+
+
+   GC Station
+
+   Video OK
+   Initialisation de GX...
+   GX_Init... OK
+   Reglages GX... OK
+   Textures... OK
+RESULTAT OK    reseau                       ip 192.168.1.42 passerelle 127.0.0.53
+
+== DNS et HTTPS (certificats) ==
+RESULTAT OK    api.open-meteo.com           DNS ok  TLS ok  0.7 s  (TLS 1.3)
+RESULTAT OK    geocoding-api.open-meteo.com DNS ok  TLS ok  0.7 s  (TLS 1.3)
+RESULTAT OK    lrclib.net                   DNS ok  TLS ok  0.4 s  (TLS 1.3)
+RESULTAT OK    musicbrainz.org              DNS ok  TLS ok  0.6 s  (TLS 1.3)
+RESULTAT OK    coverartarchive.org          DNS ok  TLS ok  0.9 s  (TLS 1.3)
+RESULTAT OK    itunes.apple.com             DNS ok  TLS ok  0.3 s  (TLS 1.3)
+RESULTAT OK    all.api.radio-browser.info   DNS ok  TLS ok  0.6 s  (TLS 1.3)
+RESULTAT OK    de1.api.radio-browser.info   DNS ok  TLS ok  0.6 s  (TLS 1.3)
+RESULTAT OK    de2.api.radio-browser.info   DNS ok  TLS ok  0.7 s  (TLS 1.3)
+RESULTAT KO    fi1.api.radio-browser.info   DNS ECHEC  TLS -  0.0 s  (TLS 1.0)
+RESULTAT OK    api.github.com               DNS ok  TLS ok  0.3 s  (TLS 1.3)
+RESULTAT OK    www.francetvinfo.fr          DNS ok  TLS ok  0.4 s  (TLS 1.3)
+RESULTAT OK    archive.org                  DNS ok  TLS ok  0.3 s  (TLS 1.3)
+RESULTAT OK    www.mojeek.com               DNS ok  TLS ok  0.6 s  (TLS 1.3)
+RESULTAT OK    radiofrance-podcast.net      DNS ok  TLS ok  0.5 s  (TLS 1.3)
+RESULTAT OK    github.com                   DNS ok  TLS ok  0.3 s  (TLS 1.3)
+RESULTAT OK    objects.githubusercontent.com DNS ok  TLS ok  0.3 s  (TLS 1.3)
+RESULTAT OK    icecast.radiofrance.fr       DNS ok  TLS ok  0.6 s  (TLS 1.3)
+RESULTAT OK    fr.wikipedia.org             DNS ok  TLS ok  0.3 s  (TLS 1.3)
+
+== Radios de la liste par defaut ==
+RESULTAT OK    FIP                          http://icecast.radiofrance.fr/fip-midfi.mp3  4.1 s  codec MP3  titre ''  err ''  finale http://icecast.radiofrance.fr/fip-midfi.mp3
+RESULTAT OK    France Inter                 http://icecast.radiofrance.fr/franceinter-midfi.mp3  4.0 s  codec MP3  titre ''  err ''  finale http://icecast.radiofrance.fr/franceinter-midfi.mp3
+RESULTAT OK    franceinfo                   http://icecast.radiofrance.fr/franceinfo-midfi.mp3  3.9 s  codec MP3  titre ''  err ''  finale http://icecast.radiofrance.fr/franceinfo-midfi.mp3
+RESULTAT OK    France Culture               http://icecast.radiofrance.fr/franceculture-midfi.mp3  4.8 s  codec MP3  titre ''  err ''  finale http://icecast.radiofrance.fr/franceculture-midfi.mp3
+RESULTAT OK    Mouv'                        http://icecast.radiofrance.fr/mouv-midfi.mp3  3.9 s  codec MP3  titre ''  err ''  finale http://icecast.radiofrance.fr/mouv-midfi.mp3
+RESULTAT OK    SomaFM Groove Salad          http://ice1.somafm.com/groovesalad-128-mp3  3.3 s  codec MP3  titre 'Sounds From The Ground - Bodega Bay'  err ''  finale http://ice1.somafm.com/groovesalad-128-mp3
+RESULTAT OK    SomaFM Drone Zone            http://ice1.somafm.com/dronezone-128-mp3  3.3 s  codec MP3  titre 'Ambiente Solstice - Living Water'  err ''  finale http://ice1.somafm.com/dronezone-128-mp3
+RESULTAT OK    Radio Paradise               http://stream.radioparadise.com/mp3-128  3.4 s  codec MP3  titre 'Love - A House is Not a Motel'  err ''  finale http://stream.radioparadise.com/mp3-128
+
+== Annuaire des radios ==
+RESULTAT OK    annuaire : populaires FR     74 radios (serveur 0)
+RESULTAT OK    annuaire : recherche fip     59 radios
+RESULTAT OK    annuaire MP3 : France Info   http://direct.franceinfo.fr/live/franceinfo-midfi.mp3  4.5 s  codec MP3  titre ''  err ''  finale http://icecast.radiofrance.fr/franceinfo-midfi.mp3
+RESULTAT OK    annuaire AAC : Europe 1      https://stream.europe1.fr/europe1.aac  5.0 s  codec AAC  titre 'Europe1'  err ''  finale https://europe1.lmn.fm/europe1.aac
+  (pas de radio OGG dans les resultats)
+RESULTAT OK    annuaire HLS : RTL           https://live.m6radio.quortex.io/webM89Hc99XApzgfhXNX8ASN5/grouprtl/national/short/audio-64000/index.m3u8  4.6 s  codec AAC  titre ''  err ''  finale https://hls.rtl.fr/ZWIyMTRiZTgyODBkYTE1MjYwN2M5N2FkNWUzZjcwMjMuMTc5Mjc4NTQ0MA~~/
+RESULTAT OK    annuaire HTTPS : RMC FR      https://audio.bfmtv.com/rmcradio_128.mp3  4.7 s  codec MP3  titre ''  err ''  finale https://audio.bfmtv.com/rmcradio_128.mp3
+SONDE ok  code 200  123 octets  https://all.api.radio-browser.info/json/servers
+      [{"ip":"91.98.4.78","name":"de1.api.radio-browser.info"},{"ip":"2a01:4f8:1c1d:699::1","name":"de1.api.radio-browser.info"}]
+RESULTAT KO    annuaire OGG                 https://stream.radioparadise.com/rock-flac  20.6 s  codec OGG  titre ''  err ''  finale https://stream.radioparadise.com/rock-flac
+
+== Reparation d'une radio (adresse perimee) ==
+RESULTAT KO    reparation 404               etat 2  url maintenant http://icecast.radiofrance.fr/fip-hifi.aac  note ''  err ''
+
+== Podcasts ==
+RESULTAT OK    podcast (flux)               La MÃ©thode scientifique : 120 episodes, 1er 'Mettre en pause les Ã©oliennes pour rÃ©duire la mo' https://proxycast.radiofrance.fr/0760f712-f39e-4aba-a3f2-891453f91f66/423b51d8-3f44-4b9a-b906-e0d14bdf0516/ed62d49c-4cff-41e8-a001-3708b73ed79f/27053-23.10.2026-ITEMA_24723666-2026C26620S0296-NET_MFC_9D08F87B-EE4F-4884-97A5-1DC510905FB6-25-2eb06b0c69b2a0f65c3676b17c38b609.m4a
+RESULTAT OK    podcast (flux)               Le Cours de l'histoire : 97 episodes, 1er 'DÃ©couvrez la sÃ©rie "Cuicui, meuh, tagada, histoi' https://proxycast.radiofrance.fr/0760f712-f39e-4aba-a3f2-891453f91f66/c951e8a9-6121-4400-a3ef-5f9c958d36c3/ab856a55-86c0-41b6-833d-2d3702a6f461/26625-28.09.2026-ITEMA_24689698-2026C36128T0044-ITE_00162128_RSCE-25-3d8eabd22a565d5d4ffc284cd91a8dde.m4a
+RESULTAT OK    podcast (flux)               Les odyssÃ©es : 120 episodes, 1er 'Camille du Gast, Ã  toute allure vers la libertÃ©Â' https://proxycast.radiofrance.fr/0760f712-f39e-4aba-a3f2-891453f91f66/c361798b-d6e3-4282-ba0a-ebb051b9e424/3252b6a1-aaff-46b3-b4ec-0072b51417ec/26819-03.07.2026-ITEMA_24582044-2026F35387E0019-NET_MFI_A370722B-F326-4380-A75F-6C8EFB323C63-27-1aa75f329eb63cff085d1aca0ac65091.m4a
+RESULTAT OK    podcast (flux)               Interception : 18 episodes, 1er '"Je vais voter Le Pen"' https://proxycast.radiofrance.fr/0760f712-f39e-4aba-a3f2-891453f91f66/886cc3b6-cd86-11e0-b8ee-842b2b72cd1d/35c4a199-5a97-4037-b901-498d9a031952/26711-18.10.2026-ITEMA_24716167-2026F4934S2291-NET_MFI_0B2E9B38-2CB2-4C4F-99E0-979E6D700C2E-27-84287695432f8296634309fd12341686.m4a
+RESULTAT OK    podcast (ecoute)             'Mettre en pause les Ã©oliennes pour rÃ©duire la mortalitÃ© des chauves-souris'  err ''  finale https://media.radiofrance-podcast.net/podcast09/27053-23.10.2026-ITEMA_24723666-2026C26620
+RESULTAT OK    podcast (avance 10 min)      position 301 s  err ''
+RESULTAT KO    podcast (x1,5)               position 302 s  etat 0  ts_want 0  pod_on 0 src 0 err ''
+-rw-r--r-- 1 runner runner 86261569 Oct 23 14:24 [DÃ‰COUVERTE] Les rumeurs qui ont changÃ© le monde _ _Le virus du sida n'existe pas_.m4a
+-rw-r--r-- 1 runner runner      281 Oct 23 14:24 positions.txt
+-rw-r--r-- 1 runner runner      390 Oct 23 14:24 telecharges.txt
+RESULTAT OK    podcast (telechargement)     2 fichier(s), msg 'TÃ©lÃ©chargÃ© : [DÃ‰COUVERTE] Les rumeurs qui ont changÃ© le monde _ _Le virus du sida n'existe pas_.m4a (dans l'onglet MUSIQUE, 12559 Ko/s)'
+SONDE ok  code 200  64706 octets  https://itunes.apple.com/search?media=podcast&entity=podcast&country=FR&limit=40&term=france%20culture
+         {  "resultCount":40,  "results": [ {"wrapperType":"track", "kind":"podcast", "artistId":729430130, "collectionId":160879442, "trackId":160879442, "artistName":"France Culture", "collectionName":"Les pieds sur terre", "trackName":"Les pieds sur ter
+RESULTAT KO    podcast (recherche iTunes)   0 resultats, 1er '' 
+
+== Pochettes et paroles automatiques ==
+RESULTAT KO    pochette (MusicBrainz)       album 'Now!6' (2001)  etat 4
+SONDE ECHEC  code 503  0 octets  https://musicbrainz.org/ws/2/recording/?query=recording%3A%22One%20More%20Time%22%20AND%20artist%3A%22Daft%20Punk%22&limit=5&fmt=json
+      
+RESULTAT OK    paroles (LRCLIB)             104 lignes
+RESULTAT OK    pochette d'un titre radio    iTunes
+
+== Meteo et actualites ==
+RESULTAT OK    meteo (open-meteo)           Marseille : 19.3 deg, code 0, vent 21, 5 jours
+RESULTAT OK    actualites (RSS)             10 titres, 1er 'Un mort et plusieurs blessÃ©s graves, un suspect arrÃªtÃ©, "'
+
+== Mise a jour (GitHub) ==
+RESULTAT OK    mise a jour                  etat 3 build 352  https://github.com/antho13otz/gc-mp3/releases/download/dernier/gc-mp3player-b352.dol  Build 352 disponible : A pour installer
+RESULTAT OK    mise a jour (telechargement) etat 5, 3932160 octets, InstallÃ©e (build 352) : A pour relancer GC Station
+
+== Navigateur web ==
+RESULTAT OK    web                          https://www.mojeek.com/search?q=gamecube : 7 elements, 1 liens, 0/0 images, titre '403 - Forbidden'  msg 'Le serveur a rÃ©pondu : erreur 403'
+RESULTAT OK    web                          https://html.duckduckgo.com/html/?q=gamecube : 117 elements, 55 liens, 1/10 images, titre 'gamecube at DuckDuckGo'  msg ''
+RESULTAT OK    web                          https://lite.duckduckgo.com/lite/?q=gamecube : 171 elements, 22 liens, 0/1 images, titre 'gamecube at DuckDuckGo'  msg ''
+RESULTAT OK    web                          https://www.bing.com/search?q=gamecube : 353 elements, 119 liens, 1/13 images, titre 'gamecube - Recherche'  msg ''
+RESULTAT OK    web                          https://search.marginalia.nu/search?query=gamecube : 183 elements, 29 liens, 0/0 images, titre 'gamecube - Marginalia Search'  msg ''
+RESULTAT OK    web                          https://www.startpage.com/do/search?q=gamecube : 92 elements, 31 liens, 0/3 images, titre 'Startpage Blocked'  msg ''
+RESULTAT OK    web                          https://search.brave.com/search?q=gamecube : 503 elements, 137 liens, 2/57 images, titre 'gamecube - Brave Search'  msg ''
+RESULTAT OK    web                          https://www.google.com/search?q=gamecube&gbv=1 : 99 elements, 5 liens, 0/0 images, titre 'Activez JavaScript pour utiliser la recherche'  msg ''
+RESULTAT KO    web                          https://www.ecosia.org/search?q=gamecube : 4 elements, 0 liens, 0/0 images, titre 'Ecosia Firewall'  msg 'Le serveur a rÃ©pondu : erreur 403'
+      image 0 : etat 2  y 189  https://fr.wikipedia.org/static/images/donate/donate.gif
+      image 1 : etat 3  y -1  https://fr.wikipedia.org/static/images/mobile/copyright/wikipedia-wordmark-fr.svg
+      image 2 : etat 0  y 1048  https://thumb.wikimedia.org/wikipedia/commons/thumb/2/2b/GameCube-Console-Set.png/250px-GameCube-Console-Set.png?utm_source=fr.wikipedia.org&utm_campa
+      image 3 : etat 0  y 1477  https://thumb.wikimedia.org/wikipedia/commons/thumb/9/9e/Flag_of_Japan.svg/20px-Flag_of_Japan.svg.png?utm_source=fr.wikipedia.org&utm_campaign=parser&
+      image 4 : etat 0  y 1500  https://thumb.wikimedia.org/wikipedia/commons/thumb/a/a4/Flag_of_the_United_States.svg/20px-Flag_of_the_United_States.svg.png?utm_source=fr.wikipedia.
+      image 5 : etat 0  y 1519  https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b7/Flag_of_Europe.svg/20px-Flag_of_Europe.svg.png?utm_source=fr.wikipedia.org&utm_campaign=parse
+      image 6 : etat 0  y 1543  https://thumb.wikimedia.org/wikipedia/commons/thumb/b/b9/Flag_of_Australia.svg/20px-Flag_of_Australia.svg.png?utm_source=fr.wikipedia.org&utm_campaign
+      image 7 : etat 0  y 1581  https://thumb.wikimedia.org/wikipedia/commons/thumb/5/57/Crystal_Clear_app_package_network.png/20px-Crystal_Clear_app_package_network.png?utm_source=f
+RESULTAT OK    web                          https://fr.wikipedia.org/wiki/GameCube : 2508 elements, 704 liens, 1/30 images, titre 'Nintendo GameCube - WikipÃ©dia'  msg ''
+RESULTAT OK    web                          http://info.cern.ch/ : 10 elements, 4 liens, 0/0 images, titre 'http://info.cern.ch'  msg ''
+      HTML : <!doctype html><html lang=en><head><meta charset=utf-8><link rel=icon href=data:,><meta name=viewport content="width=device-width,initial-scale=1"><title>Example Domain</title><style>html{color-scheme:light dark;background:light-dark(#eee,#222)}body{font:16px/1.6 system-ui,sans-serif;max-width:26em;margin:auto;padding:25vh 2em 2em;text-align:center}</style></head><body><p>This domain is for use in documentation examples without needing permission. This is not a service; avoid relying on it for testing and monitoring purposes.</p><script src=/s.js></script></body></html>
+tml>
+
+¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾¾
+      element 0 : style 0 lien -1 This domain is for use in documentation examples without needing permission. Thi
+      element 1 : style 0 lien -1 not a service; avoid relying on it for testing and monitoring purposes.
+RESULTAT KO    web                          https://example.com/ : 2 elements, 0 liens, 0/0 images, titre 'Example Domain'  msg ''
+      image 0 : etat 3  y -1  https://www.franceinfo.fr/assets/components/headers/header/img/franceinfo-1d7b76a5.svg
+      image 1 : etat 0  y 8827  https://www.franceinfo.fr/assets/components/overlay/notification-app/img/app-logo-baddbe32.svg
+      image 2 : etat 0  y 9057  https://www.franceinfo.fr/pictures/-iK0uyFHDe1_ibr9etVOZz0fop4/165x0:5463x3642/432x297/filters:format(jpg)/2026/10/23/6adb4010e2c63048013679.jpg
+      image 3 : etat 0  y 9863  https://www.franceinfo.fr/pictures/B1xIferu5H5YgqK8QQCgxO6yWT4/0x0:1080x1920/432x768/filters:format(jpg)/2026/10/23/6adb53f6d7e49543377217.png
+      image 4 : etat 0  y 10266  https://www.franceinfo.fr/pictures/IrlOpMjPlZKs4QyKFieDpECaBNM/0x0:900x1600/432x768/filters:format(jpg)/2026/10/23/6adb4dbac69bd122600471.jpg
+      image 5 : etat 0  y 10648  https://www.franceinfo.fr/pictures/TGtXsm5JQHtTW6FeNdOv7MmMuow/34x0:482x795/432x768/filters:format(jpg)/2026/10/23/6adb4a3e8bda1878573037.jpg
+      image 6 : etat 0  y 11051  https://www.franceinfo.fr/pictures/nktHhZcjWXwTBaIj3d4O9rZG8UQ/0x0:1080x1920/432x768/filters:format(jpg)/2026/10/23/6adb47a7d38b9867490148.jpg
+      image 7 : etat 0  y 11433  https://www.franceinfo.fr/pictures/ZzOfywZ4O37dV1l4EtcSxcvsMvo/0x0:1080x1920/432x768/filters:format(jpg)/2026/10/23/6adb4477b2fd3227562828.jpg
+RESULTAT OK    web                          https://www.francetvinfo.fr/ : 2265 elements, 662 liens, 0/96 images, titre 'franceinfo - ActualitÃ©s en temps rÃ©el et info en'  msg 'Page trop grande : seul le dÃ©but est affichÃ©'
+RESULTAT OK    web                          https://news.ycombinator.com/ : 419 elements, 228 liens, 0/2 images, titre 'Hacker News'  msg ''
+RESULTAT OK    recherche web                https://html.duckduckgo.com/html/?q=gamecube : 55 liens  titre 'gamecube at DuckDuckGo'  msg ''
+RESULTAT OK    recherche web (repli)        https://marginalia-search.com/search?query=gamecube : 29 liens  titre 'gamecube - Marginalia Search'  msg ''
+RESULTAT OK    archive.org (recherche)      60 liens  titre 'archive.org : chiptune'  msg ''
+
+FIN : 61 OK, 8 KO
