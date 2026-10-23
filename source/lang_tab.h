@@ -1048,3 +1048,6 @@
     { "Mesure de fluidit\xC3\xA9", "Smoothness meter" },
     { "Images/s en haut de l'\xC3\xA9" "cran ; en coupant : rapport SD:/gc-mp3/fluidite.txt", "Frames/s shown at the top; when turned off: report in SD:/gc-mp3/fluidite.txt" },
     { "L / R : d\xC3\xA9" "calage des notes  %+d ms  (si elles semblent en avance ou en retard)", "L / R: note offset  %+d ms  (if notes feel early or late)" },
+    { "Reconnexion dans %d s... (essai %d)", "Reconnecting in %d s... (try %d)" },
+    { "Manche %d / %d   -   Qui chante ?   (extrait de %d s)", "Round %d / %d   -   Who is singing?   (%d s clip)" },
+    { "Manche %d / %d   -   Quel morceau ?   (extrait de %d s)", "Round %d / %d   -   Which song?   (%d s clip)" },

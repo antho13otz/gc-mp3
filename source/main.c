@@ -100,7 +100,7 @@
 #define DMA_BYTES      (DMA_SAMPLES * 4)
 #define FIFO_SIZE      (48000 * 10)         // 10 s de son decode d'avance (48 kHz stereo)
 #define FIFO_MARGIN    8192                 // place minimale avant de decoder une trame
-#define PREBUFFER      (48000 * 2)          // 2 s de son avant de commencer a jouer
+#define PREBUFFER      (rebuffers == 0 ? 48000 : rebuffers < 3 ? 48000 * 2 : 48000 * 4)   // v71 : 1 s pour demarrer vite ; plus si le flux a deja coupe
 #define CBUF_SIZE      (192 * 1024)         // donnees MP3 recues, pas encore decodees
 #define MP3_MIN_BYTES  16384                // minimp3 a besoin de plusieurs trames pour se caler
 #define GX_FIFO_SIZE   (256 * 1024)
@@ -1300,7 +1300,7 @@ static int resolve_host(const char *host, u32 *out) {
         if (*p == '.') dots++;
         else if (!isdigit((unsigned char)*p)) digits = 0;
     }
-    if (digits && dots == 3) { *out = inet_addr(host); return 1; }
+    if (digits && dots == 3) { if (out) *out = inet_addr(host); return out != NULL; }   /* (v72 : "oublier" une adresse IP : rien a faire, avant : plantage) */
 
     /* petit cache : evite une requete DNS par image d'un meme site */
     static struct { char host[96]; u32 addr; u64 t; } cache[16];   /* (v19 : 16 sites, 30 min) */
@@ -1958,6 +1958,9 @@ static void stop_station(void) {
     cb_start = cb_end = 0;
 }
 
+static char rad_final[URL_MAX];              /* v71 : adresse finale de la station (reconnexions rapides) */
+static int rad_final_idx = -1, rad_played = 0, rt_n = 0;
+static u64 rt_at = 0;                         /* v71 : prochaine reconnexion automatique */
 static void start_station(int idx, int is_reconnect) {
     if (idx < 0 || idx > nstations || idx >= MAX_STATIONS) return;   /* (nstations = station d'essai) */
     crumb("radio : %s | %.60s", stations[idx].name, stations[idx].url);
@@ -1970,6 +1973,8 @@ static void start_station(int idx, int is_reconnect) {
     if (!is_reconnect) {
         reconnects = 0;
         rebuffers = 0;
+        rad_played = 0; rt_n = 0; rt_at = 0;
+        if (rad_final_idx != idx) rad_final[0] = 0;
         consumed = 0;
         now_title[0] = 0;
         cover_for_station(idx);
@@ -1986,7 +1991,13 @@ static void start_station(int idx, int is_reconnect) {
     state = ST_CONNECT;
     if (net_phase != NET_DONE) { set_error("Réseau en cours de connexion..."); return; }
     if (!net_ok) { set_error("Pas de réseau (Broadband Adapter)"); return; }
-    if (http_open(stations[idx].url, 0)) {
+    /* v71 : reconnexion : d'abord l'adresse finale deja trouvee (sans redirections ni liste .m3u) */
+    int ok = 0;
+    if (is_reconnect && rad_final_idx == idx && rad_final[0]) { ok = http_open(rad_final, 0); if (!ok) { stream_close(); hls_stop(); state = ST_CONNECT; } }
+    if (!ok) ok = http_open(stations[idx].url, 0);
+    if (ok) {
+        if (!hls_on) { snprintf(rad_final, sizeof(rad_final), "%s", http_final_url); rad_final_idx = idx; }
+        err_msg[0] = 0;
         state = ST_BUFFER;
         last_data_ms = connect_ms = now_ms();
     }
@@ -2011,7 +2022,17 @@ static void stream_recv(void) {
 
 /* Appele a chaque tour de boucle : recoit, decode, gere le tampon. */
 static void stream_pump(void) {
+    /* v71 : la radio a deja joue puis s'est arretee (reseau, serveur) : on reessaie tout seul,
+       de plus en plus espace (1, 2, 4, 8, 15 puis 30 s), au lieu de rester sur une erreur */
+    if (state == ST_ERROR && src == SRC_RADIO && !pod_on && rad_played && reconnects != 99 && rt_n < 30) {
+        static const u32 dl[6] = { 1000, 2000, 4000, 8000, 15000, 30000 };
+        u64 n = now_ms();
+        if (!rt_at) rt_at = n + dl[rt_n < 6 ? rt_n : 5];
+        else if (n >= rt_at && net_ok) { rt_n++; rt_at = 0; reconnects = 0; start_station(cur_station, 1); }
+        return;
+    }
     if (state != ST_BUFFER && state != ST_PLAY) return;
+    if (state == ST_PLAY && src == SRC_RADIO) { rad_played = 1; if (rt_n && now_ms() - connect_ms > 60000) rt_n = 0; }
 
     /* 1. reception (sans bloquer) */
     stream_recv();
@@ -5236,7 +5257,10 @@ static void draw_player_radio(void) {
                      muted ? "  (muet)" : "");
         else snprintf(buf, sizeof(buf), "En direct%s", muted ? "  (muet)" : "");
         break;
-    case ST_ERROR: snprintf(buf, sizeof(buf), "A : réessayer"); break;
+    case ST_ERROR:
+        if (rt_at && src == SRC_RADIO) { u64 n = now_ms(); snprintf(buf, sizeof(buf), TR("Reconnexion dans %d s... (essai %d)"), rt_at > n ? (int)((rt_at - n + 999) / 1000) : 0, rt_n + 1); }
+        else snprintf(buf, sizeof(buf), "A : réessayer");
+        break;
     default:
         if (net_phase == NET_BUSY) snprintf(buf, sizeof(buf), "Connexion au réseau...");
         else if (net_phase == NET_DONE && !net_ok) { snprintf(buf, sizeof(buf), "Pas de réseau (Broadband Adapter)"); sc = RGBA(255, 150, 80, 255); }
@@ -7157,6 +7181,8 @@ static char dl_dest_dir_used[NAME_LEN] = "";
 static char dl_name_hint[160] = "";         /* (podcasts) nom du prochain fichier */
 static int dl_force = 0;                    /* (podcasts) telecharger sans demander "ecouter ou telecharger" */
 static char dl_name[128], dl_path[NAME_LEN], dl_part[NAME_LEN + 8];
+static char dl_ep_url[URL_MAX], dl_ep_used[URL_MAX];   /* v71 : episode de podcast telecharge (son adresse) */
+static void pod_dl_note(const char *url, const char *path);
 static long dl_total = -1, dl_got = 0;
 static u64 dl_t0 = 0, dl_last = 0;
 static dechunk_t dl_dc;
@@ -7249,6 +7275,7 @@ static void dl_begin(const unsigned char *body, int n, const char *ctype, const 
         if (hint[0]) snprintf(name, sizeof(name), "%s%s", hint, ext);
     }
     dl_dest_dir[0] = dl_name_hint[0] = 0;
+    snprintf(dl_ep_used, sizeof(dl_ep_used), "%s", dl_ep_url); dl_ep_url[0] = 0;
     snprintf(dl_path, sizeof(dl_path), "%s/%s", dir, name);
     struct stat st;
     for (int k = 2; k < 100 && stat(dl_path, &st) == 0; k++) {          /* nom deja pris : "nom (2).mp3" */
@@ -7296,6 +7323,7 @@ static void dl_finish(void) {
     u64 el = now_ms() - dl_t0;
     if (el > 0 && dl_got > 65536) snprintf(spd, sizeof(spd), ", %ld Ko/s", (long)((long long)dl_got * 1000 / 1024 / (long long)el));
     dlh_add(strstr(dl_dest_dir_used, "podcasts") ? "podcast" : "web", dl_path);   /* (onglet TELECHARGEMENTS) */
+    if (dl_ep_used[0]) { pod_dl_note(dl_ep_used, dl_path); dl_ep_used[0] = 0; }
     if (n > 4 && audio_ext_len(dl_path)) {
         music_add_file(dl_path);
         snprintf(msg, sizeof(msg), "Téléchargé : %s (dans l'onglet MUSIQUE%s)", dl_name, spd);
