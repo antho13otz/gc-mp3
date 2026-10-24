@@ -14,13 +14,15 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v95)
-- **Disques à plusieurs programmes** (Zelda Collector's Edition : les jeux et le film inédit) :
-  quand le jeu relance la console sur un autre programme du disque (OSExec), Resident branche au
-  faux lecteur le code de redémarrage et le programme suivant pendant qu'ils sont lus, au lieu de
-  laisser la console repartir sur le vrai lecteur. Les deux variantes du SDK sont gérées (ancien
-  apploader : code de redémarrage en 0x81300000 ; récent : programme recopié à sa place).
-- (v94) Resident lit la carte SD par DMA et à 32 MHz quand ton adaptateur le permet (CRC vérifié).
+## Nouveautés de la version actuelle (v96)
+- **Écran rouge en lançant un jeu corrigé** : une lecture en fond de l'onglet Jeux (bannière, grande
+  jaquette) pouvait encore tourner quand GC Station libérait la carte SD pour lancer le jeu. Elle
+  se termine maintenant avant.
+- **Reprise des fichiers de Swiss** : les gros fichiers (jaquettes, sauvegardes) sont maintenant
+  copiés petit à petit en arrière-plan, et plus jamais déplacés : Swiss garde les siens.
+- Journal du jeu : les touches de la manette vues par Resident (pour comprendre un A+Z+START qui ne
+  marche pas dans un jeu).
+- (v95) Disques à plusieurs programmes (Zelda Collector's Edition) ; (v94) lecture SD par DMA / 32 MHz.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

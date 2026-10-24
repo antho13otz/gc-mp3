@@ -9300,6 +9300,8 @@ static u8 dec_stack[64 * 1024] ATTRIBUTE_ALIGN(32);
 static int dec_started = 0;
 static void *dec_thread_fn(void *arg);
 static volatile int gj_state = 0;           /* v92 : lecture pour l'onglet JEUX (gclib.c) : 0 libre, 1 a faire, 2 fini */
+static volatile int gj_hold = 0;            /* v96 : plus de nouvelle lecture en fond (la carte SD va etre demontee) */
+static void bg_quiesce(void);
 static void gl_job_run(void);
 static int dj_photo = 0;                    /* 1 = photo de l'economiseur (RGB, ajustee a dj_aw x dj_ah) */
 static int dj_owner = 0;                    /* qui attend le resultat : 1 web, 2 economiseur, 3 photos, 4 video */
@@ -9402,6 +9404,14 @@ static void *dec_thread_fn(void *arg) {
     return NULL;
 }
 
+/* v96 : avant de demonter la carte SD (lancement d'un jeu, d'une appli, essai de Resident) : la lecture
+   en fond en cours doit finir. Sinon le fil de decodage fermait son fichier sur une carte demontee :
+   ecran rouge (DSI dans _lseek_r <- fclose <- dec_thread_fn), vu en lancant Wind Waker. */
+static void bg_quiesce(void) {
+    gj_hold = 1;
+    u64 t0 = now_ms();
+    while (gj_state == 1 && now_ms() - t0 < 3000) usleep(2000);
+}
 static void img_loader_reset(void) {
     if (il_state == IL_FETCH) { hf_abort(&ihf); il_state = IL_IDLE; }
     il_img = -1;                            /* un decodage en cours sera jete (generation) */

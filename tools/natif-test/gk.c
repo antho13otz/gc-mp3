@@ -23,7 +23,7 @@ static const char *nat_self_path(void) { return getenv("NATIF_SELF"); }   /* (v6
 static u64 now_ms(void){ return ticks_to_millisecs(gettime()); }
 static void *read_file(const char *p, long max, long *len) { FILE *f = fopen(p, "rb"); if (!f) return NULL; void *b = malloc(max); *len = b ? (long)fread(b, 1, max, f) : 0; fclose(f); return b; }
 static void crumb(const char*f,...){}
-static void stop_track(void){} static void stop_station(void){} static void save_settings(void){}
+static void stop_track(void){} static void stop_station(void){} static void save_settings(void){} static volatile int gj_hold; static void bg_quiesce(void){} /* v96 */
 static int mount_sd(void){return 1;}
 typedef struct { char path[NAME_LEN]; u8 ciso; long size; char title[72]; } gcg_t;
 static gcg_t gl[1]; static int gl_n=1; static char gl_busy[96];

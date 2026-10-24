@@ -233,14 +233,16 @@ static int mg_copy(const char *src, const char *dst, const char *skip) {
 /* v91 : la reprise se fait en fond, un fichier a la fois, depuis la boucle principale (v90 : tout au
    demarrage, avant l'ecran : la console restait figee). Le fichier migration.txt est ecrit avant de
    commencer : si quelque chose bloque, la reprise ne recommence pas au demarrage suivant.
-   Les gros fichiers (sauvegardes, jaquettes) sont deplaces (instantane) au lieu d'etre copies. */
+   v96 : les gros fichiers (sauvegardes, jaquettes) sont copies par morceaux de 32 Ko, un par image
+   (v91 : deplaces : Swiss, s'il sert encore, perdait ses jaquettes). */
 #define MG_MAXJ 160
-#define MG_BIG  (2 * 1024 * 1024)
+#define MG_BIG  (64 * 1024)                        /* (v96 : au-dela, copie par morceaux) */
 enum { MG_COPYINI, MG_COPY, MG_MOVE };
 typedef struct { char src[NAME_LEN], dst[NAME_LEN]; u8 mode, kind; } mg_job_t;
 enum { MK_REG, MK_GAME, MK_CH, MK_SAV, MK_COV, MK_IGR, MK_IPL, MK_N };
 static mg_job_t *mg_jobs = NULL;
 static int mg_nj = 0, mg_pos = 0, mg_state = 0;              /* 0 = pas commence, 1 = en cours, 2 = fini */
+static FILE *mg_in = NULL, *mg_out = NULL;                    /* v96 : gros fichier en cours de copie */
 static int mg_cnt[MK_N];
 static void mg_add(const char *src, const char *dst, int mode, int kind) {
     if (!mg_jobs || mg_nj >= MG_MAXJ || !mg_exists(src) || mg_exists(dst)) return;
@@ -291,8 +293,8 @@ static void mg_start(void) {
         mg_add_dir(SW_OLD "/settings/game", LD_DIR "/settings/game", MK_GAME);
         mg_add_dir(SW_OLD "/saves", LD_DIR "/saves", MK_SAV);
         mkdir(GL_UI, 0777);
-        mg_add(SW_OLD "/ui/posters.pak", GL_UI "/posters.pak", MG_MOVE, MK_COV);
-        mg_add(SW_OLD "/ui/stills.pak", GL_UI "/stills.pak", MG_MOVE, MK_COV);
+        mg_add(SW_OLD "/ui/posters.pak", GL_UI "/posters.pak", MG_COPY, MK_COV);   /* v96 : copies (Swiss garde les siens) */
+        mg_add(SW_OLD "/ui/stills.pak", GL_UI "/stills.pak", MG_COPY, MK_COV);
         mg_add(SW_OLD "/ui/descriptions.txt", GL_UI "/descriptions.txt", MG_COPY, MK_COV);
     }
     if (mg_jobs) mg_add(IPL_OLD_V89, IPL_OLD, MG_MOVE, MK_IPL);
@@ -307,7 +309,31 @@ static void mg_pump(void) {
         mg_job_t *j = &mg_jobs[mg_pos];
         struct stat st;
         int mode = j->mode;
-        if (mode == MG_COPY && stat(j->src, &st) == 0 && st.st_size > MG_BIG) mode = MG_MOVE;   /* (gros fichier : deplace) */
+        if (mode == MG_COPY && (mg_in || (stat(j->src, &st) == 0 && st.st_size > MG_BIG))) {   /* v96 : gros fichier : copie par morceaux (plus jamais deplace) */
+            if (!mg_in) {
+                char part[NAME_LEN + 8];
+                snprintf(part, sizeof(part), "%s.part", j->dst);
+                mg_in = fopen(j->src, "rb");
+                mg_out = mg_in && !mg_exists(j->dst) ? fopen(part, "wb") : NULL;
+                if (!mg_out) { if (mg_in) fclose(mg_in); mg_in = NULL; mg_pos++; return; }
+                crumb("reprise : %s (copie par morceaux)", j->src);
+                return;
+            }
+            static u8 b[4096];                                /* (4 Ko par image, rien pendant qu'on bouge : l'ecran reste fluide) */
+            if (now_ms() - last_input_ms < 400) return;
+            size_t n = fread(b, 1, sizeof(b), mg_in);
+            int ok = !n || fwrite(b, 1, n, mg_out) == n;
+            if (ok && n) return;                             /* (suite a l'image suivante) */
+            fclose(mg_in); mg_in = NULL;
+            ok = fclose(mg_out) == 0 && ok;
+            mg_out = NULL;
+            char part[NAME_LEN + 8];
+            snprintf(part, sizeof(part), "%s.part", j->dst);
+            if (ok && rename(part, j->dst) == 0) mg_cnt[j->kind]++; else remove(part);
+            mg_pos++;
+            if (mg_pos % 8 == 0) mg_mark(0);
+            return;
+        }
         crumb("reprise : %s (%s)", j->src, mode == MG_MOVE ? "deplace" : "copie");
         int ok = 0;
         if (!mg_exists(j->dst)) {

@@ -605,7 +605,7 @@ static void gl_job_run(void) {                               /* (thread de fond)
     fclose(f);
 }
 static int gl_job_post(int kind, int k) {
-    if (gj_state != 0 || k < 0 || k >= gl_n || !dec_ensure()) return 0;
+    if (gj_state != 0 || gj_hold || k < 0 || k >= gl_n || !dec_ensure()) return 0;
     gcg_t *g = &gl[k];
     gj.kind = kind; gj.k = k; gj.res = NULL;
     snprintf(gj.path, sizeof(gj.path), "%s", g->path);
@@ -1370,6 +1370,7 @@ static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *
     if (settings_dirty) save_settings();
     stop_track(); stop_station();
     AUDIO_StopDMA();
+    bg_quiesce();                                        /* v96 : la lecture en fond finit avant le demontage */
     fatUnmount("sd");
     VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();
     SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
