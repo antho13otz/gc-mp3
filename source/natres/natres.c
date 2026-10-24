@@ -389,8 +389,16 @@ static u32 log_ring[NATRES_LOGN][4];
 static u8 logbuf[512] __attribute__((aligned(32)));
 static inline u32 tbl(void) { u32 t; __asm__ volatile("mftb %0" : "=r"(t)); return t; }   /* (declaree plus haut) */
 #define TB_SEC 40500000u                                  /* (horloge : 162 MHz / 4) */
+static void vi_snap(void) {                              /* v99 : etat de l'ecran (journal) */
+    volatile unsigned short *v = (volatile unsigned short *)0xCC002000u;
+    u32 now = (u32)v[1] << 16 | (v[0x6C / 2] & 1u);
+    if (H.vi_now && ((now ^ H.vi_now) & ~0x00010000u)) { H.vi_chg++; H.vi_chg_at = H.vi_count; }
+    H.vi_now = now;
+    H.vi_dtv = (u32)v[0x6E / 2] << 16 | v[0];
+}
 static void nr_log_flush(void) {
     H.flush_tb = tbl();
+    vi_snap();
     if (!H.log_sec || !di_ready) return;
     const u8 *p = (const u8 *)&H;
     for (u32 i = 0; i < sizeof(natres_hdr_t); i++) logbuf[i] = p[i];
@@ -494,7 +502,7 @@ static void igr_poll2(int count);
 static void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee avant la fonction du jeu */
     if (++H.vi_in == 1) nr_log_flush();                  /* (1re image : on sait si le jeu y arrive) */
     if (vi_orig) ((void (*)(u32, u32))vi_orig)(irq, ctx);
-    H.vi_count++; alive_tick();
+    H.vi_count++; vi_snap(); alive_tick();
     igr_poll();                                          /* v86 : (apres le jeu : il a lu les manettes) */
 }
 static u32 ai_orig;

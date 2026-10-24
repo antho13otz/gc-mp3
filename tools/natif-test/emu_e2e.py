@@ -148,6 +148,8 @@ def dsp_write(uc, off, size, value, data):
 def dsp_read(uc, off, size, data):
     return dspr.get(off, 0) if size == 2 else (dspr.get(off, 0) << 16) | dspr.get(off + 2, 0)
 mu.mmio_map(0xCC005000, 0x1000, dsp_read, None, dsp_write, None)          # (DSP / DMA du son)
+vir = {0x02: 0x0001, 0x6C: 0, 0x6E: 1}                # v99 : ecran (VI) : DCR actif NTSC, 27 MHz, cable numerique
+mu.mmio_map(0xCC002000, 0x1000, lambda uc, off, size, data: vir.get(off, 0) if size == 2 else (vir.get(off, 0) << 16) | vir.get(off + 2, 0), None, lambda *a: None, None)
 b = open(BOOT, 'rb').read()
 entry, n = struct.unpack_from('>II', b, 0); p = 8
 for i in range(n):
@@ -229,12 +231,17 @@ def adp(bits, q, h):
     h[1] = h[0]; h[0] = cur
     return max(-0x8000, min(0x7fff, cur >> 6))
 pcm = []; hl = [0, 0]; hr = [0, 0]
-for blk in range(6):
+for blk in range(12):
     a = iso[0x10000 + blk * 32:0x10000 + blk * 32 + 32]
     for i in range(28): pcm.append((adp(a[i + 4] & 0xF, a[0], hl), adp(a[i + 4] >> 4, a[1], hr)))
 want = b''.join(struct.pack('>hh', max(-0x8000, min(0x7fff, (l * 255) >> 8)), max(-0x8000, min(0x7fff, (r * 255) >> 8))) for l, r in pcm[:160])
 got = bytes(mu.mem_read(0x80300000, 0x280))
-dtk = got == want and rd32(0x80001F28) == 1 and rd32(0x80001F08) == 1
+want2 = b''.join(struct.pack('>hh', max(-0x8000, min(0x7fff, (l * 255) >> 8)), max(-0x8000, min(0x7fff, (r * 255) >> 8))) for l, r in pcm[160:320])
+got2 = bytes(mu.mem_read(0x80301000, 0x280))
+dsp2 = got2 == want2                                  # v99 : tampon programme dans l'interruption DSP, complete une fois
+print(('OK   ' if dsp2 else 'FAUX ') + 'musique du disque (v99) : tampon programme par le DSP complete (%d identiques), tampons rejoues laisses tels quels' % sum(1 for i in range(0, 0x280, 4) if got2[i:i + 4] == want2[i:i + 4]))
+ok &= dsp2
+dtk = got == want and rd32(0x80001F28) == 1 and rd32(0x80001F08) == 3
 print(('OK   ' if dtk else 'FAUX ') + 'musique du disque : 160 echantillons ajoutes au son (%d identiques), etat E2 = %d, fonction son du jeu %d' % (sum(1 for i in range(0, 0x280, 4) if got[i:i + 4] == want[i:i + 4]), rd32(0x80001F28), rd32(0x80001F08)))
 ok &= dtk
 # v65 : carte memoire virtuelle : ID, ecritures (DMA) et relecture, contenu dans le fichier sur la carte SD
@@ -292,7 +299,7 @@ if card.writes:                                    # v54 : journal du jeu ecrit 
     print('journal : musique %d blocs, %d tampons ; carte %d commandes (derniere %02X), %d ecritures, %d interruptions' % (u(0x108), u(0x10C), u(0x110), u(0x118), u(0x114), u(0x11C)))
     print('echantillons : %d, code %08X LR %08X' % (u(0x130), u(0x138), u(0x134)))
     jok &= u(0x130) > 0 and u(0x134) == 0x80003100 and 0x80003100 < u(0x138) < 0x80004000
-    jok &= u(0x108) == 6 and u(0x10C) == 1 and u(0x110) == 5 and u(0x118) == 0x52 and u(0x114) == 2
+    jok &= u(0x108) == 12 and u(0x10C) == 2 and u(0x110) == 5 and u(0x118) == 0x52 and u(0x114) == 2
     print('lectures en fond : %d (%d morceaux)' % (u(0xD0), u(0xD4)))
     jok &= u(0xD0) == 2 and u(0xD4) == 132               # (v88 : 0x2000 + 0x40000 octets, morceaux de 2 Ko)
     jok &= (u(0xB0) == 0x102 and u(0xB4) == 0x80001234 and u(0xB8) == 0x80005678 and u(0x98) == 0) if EXC else (u(0x98) == 1 and u(0xB0) == 0)

@@ -21,6 +21,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v100 — tests de la musique, journal de l'écran
+- Banc d'essai : la musique du disque est vérifiée quand le jeu programme le tampon du son dans
+  l'interruption du DSP (Cocoto) et quand un tampon est rejoué (ces deux cas échouent avec la v97).
+- Journal du jeu (Resident, en-tête v14) : état de l'écran (actif ou coupé, 480i / 480p, horloge
+  27 / 54 MHz, câble numérique), nombre de changements de mode et l'image du dernier : pour l'écran
+  noir de Mario Superstar Baseball après le choix du 480p.
+- Lanceur de secours vérifié : son A+Z+START (code de Swiss) teste chaque manette à chaque lecture,
+  il n'a pas le problème des ports vides corrigé dans Resident en v99.
+
 ## Nouveautés v99 — A+Z+START (Resident)
 - Un port de manette vide que le jeu n'interroge pas garde 00000000, sans le bit d'erreur : Resident le
   prenait pour une manette sans A+Z+START et remettait le compte à zéro plusieurs fois par seconde

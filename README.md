@@ -14,11 +14,13 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v99)
-- **A+Z+START dans les jeux (Resident)** : les ports de manette vides faisaient croire à Resident que
-  les touches étaient relâchées, plusieurs fois par seconde : le retour à GC Station ne se déclenchait pas.
+## Nouveautés de la version actuelle (v100)
+- **A+Z+START dans les jeux (Resident)** (v99) : les ports de manette vides ne remettent plus le
+  compte à zéro.
+- **Journal du jeu** : l'état de l'écran (480i / 480p, câble, changements de mode), pour comprendre
+  un écran noir après le choix du 480p.
 - (v98) Musique du disque sans saccades (Cocoto) ; (v97) case **Disque de la console**, cartes SD de
-  1 To rapides, Cocoto Kart Racer relancé ; (v96) écran rouge corrigé.
+  1 To rapides, Cocoto Kart Racer relancé.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

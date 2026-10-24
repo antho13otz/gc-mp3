@@ -8,7 +8,7 @@
 #define NATRES_AT     0x817F0000u        /* adresse fixe (liee par tools/natres.ld) */
 #define NATRES_SIZE   0x0000FF00u        /* place reservee (le haut, 817FFF00+, est laisse a la console) */
 #define NATRES_MAGIC  0x4743534Eu        /* "GCSN" */
-#define NATRES_VER    13
+#define NATRES_VER    14
 #define NATRES_MAXEXT 1500               /* morceaux de l'ISO sur la carte (fichier fragmente) ; v60 : 2000 (place pour les aiguillages) */
 
 /* erreurs (champ err) */
@@ -83,9 +83,14 @@ typedef struct {
        branches au faux lecteur pendant le jeu, avec des aiguillages ecrits par le resident */
     unsigned int reboot_off, reboot_len;                  /* (GC Station) position du code de redemarrage dans l'ISO, taille (0 = apploader recent) */
     unsigned int tramp_at, tramp_n;                       /* place libre pour les aiguillages (GC Station) ; acces branches pendant le jeu */
+    /* v99 : l'ecran (ecran noir apres le choix 480p : jeu fige, ou image envoyee mais pas affichee ?) */
+    unsigned int vi_now;                                  /* DCR (0xCC002002) << 16 | horloge VI (0xCC00206C : 1 = 54 MHz, 480p) */
+    unsigned int vi_dtv;                                  /* cable numerique / composante (0xCC00206E) << 16 | VTR (0xCC002000) */
+    unsigned int vi_chg;                                  /* changements de mode vus (DCR sans le bit "actif", horloge) */
+    unsigned int vi_chg_at;                               /* image (VI) du dernier changement */
 } natres_hdr_t;
 
-#define NATRES_LOGN 8                     /* anneau : {commande, position, longueur, infos} (v95 : 0x180 + 8 x 16 = 0x200) */
+#define NATRES_LOGN 7                     /* anneau : {commande, position, longueur, infos} (v99 : 0x190 + 7 x 16 = 0x200) */
 #define NATRES_CARDMAX 64                 /* morceaux du fichier de la carte virtuelle */
 #define NRF_CARD      4u                  /* v65 : carte memoire virtuelle active */
 #define NATRES_RETMAX 64                  /* morceaux du .dol de GC Station */
@@ -124,6 +129,6 @@ typedef struct {
 #define NATRES_SNAP_MAGIC 0x4743534Du       /* "GCSM" */
 #define NATRES_SNAP_SECS  704               /* taille du fichier : 704 secteurs (352 Ko) */
 
-typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x180 ? 1 : -1];
+typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x190 ? 1 : -1];
 
 #endif
