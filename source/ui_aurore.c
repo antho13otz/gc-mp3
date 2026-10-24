@@ -139,3 +139,35 @@ static void au_sel_paint(f32 x, f32 y, f32 w, f32 h, f32 r) {
     au_pill_h(x, y, w, h, r, au_a(235), au_b(235));
     if (w > 30) gx_hgrad(x + r, y + 1, w - 2 * r, 1, RGBA(255, 255, 255, 80), RGBA(255, 255, 255, 10));
 }
+
+/* ---------- v103 : menu START : il monte et grandit en s'ouvrant (260 ms), le fond s'assombrit ---------- */
+static int au_menu_was = 0;
+static u64 au_menu_t0 = 0;
+static int au_menu_mtx = 0;
+static void au_menu_begin(void) {
+    if (!au_menu_was) au_menu_t0 = now_ms();
+    au_menu_was = 1;
+    if (ui_skin != 3) return;
+    f32 p = gl_anim ? (now_ms() - au_menu_t0) / 260.0f : 1.0f;
+    if (p > 1) p = 1;
+    f32 e = 1 - (1 - p) * (1 - p) * (1 - p);
+    nv_raw = 1;
+    gx_rect(0, 0, 640, 480, RGBA(2, 2, 6, (u8)(120 * e)));
+    nv_raw = 0;
+    if (e < 1) {
+        f32 s = 0.94f + 0.06f * e, cx = UX(320), cy = 232, dy = (1 - e) * 28;
+        Mtx m;
+        guMtxIdentity(m);
+        m[0][0] = s; m[1][1] = s; m[0][3] = cx * (1 - s); m[1][3] = cy * (1 - s) + dy;
+        GX_LoadPosMtxImm(m, GX_PNMTX0);
+        au_menu_mtx = 1;
+    }
+}
+static void au_menu_end(void) {
+    if (!au_menu_mtx) return;
+    Mtx m;
+    guMtxIdentity(m);
+    GX_LoadPosMtxImm(m, GX_PNMTX0);
+    au_menu_mtx = 0;
+}
+static void au_menu_closed(void) { au_menu_was = 0; }

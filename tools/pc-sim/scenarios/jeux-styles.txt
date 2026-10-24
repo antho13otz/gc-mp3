@@ -1,0 +1,23 @@
+# v103 : onglet Jeux dans le style choisi (rangee de jaquettes)
+wait 2s
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+wait 800ms
+press UP
+wait 300ms
+press A
+wait 2500ms
+shot j01-jeux
+press RIGHT
+wait 90ms
+shot j02-defile
+wait 900ms
+shot j03-arrive
+quit
