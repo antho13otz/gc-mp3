@@ -21,6 +21,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v88 — Resident : le son des jeux (1080, Wind Waker)
+- **Son qui grésillait, coupait ou hachait avec Resident** (parfait avec Swiss) : les jeux lisent le disque pendant qu'ils jouent (musique, chargements), et Resident lisait la carte SD **8 Ko d'un coup dans l'interruption du lecteur**, interruptions coupées, un secteur à la fois : 10 à 20 ms pendant lesquelles le son du jeu n'était pas nourri (la sortie audio en demande toutes les ~5 ms).
+- Maintenant :
+  - **Plusieurs secteurs par commande** de la carte SD (CMD18 au lieu d'une commande CMD17 par secteur) : bien plus rapide.
+  - **Au plus ~1,5 ms par interruption** (morceaux de 2 Ko, 8 Ko au plus), puis la suite à l'interruption suivante.
+  - Les lectures de plus de 2 Ko (avant : 8 Ko) passent en fond.
+- Banc natif-test : la fausse carte SD sait lire plusieurs secteurs (CMD18 / CMD12).
+
 ## Nouveautés v87 — Fichiers sur le réseau : SMB, FTP, FSP
 - **Onglet FICHIERS** : B depuis la racine de la carte SD affiche les **appareils** (carte SD, partage SMB, serveur FTP, serveur FSP). On parcourt les dossiers du PC ou du NAS. **Musique** : A joue le morceau, et tout le dossier passe dans la file. **Photos et vidéos** s'ouvrent en plein écran. Les textes s'affichent. Copier / Coller vers la carte SD fonctionne. Accès en lecture seule.
 - **START > Réglages > Réseau** : *Partage SMB*, *Serveur FTP*, *Serveur FSP* : adresse, partage, utilisateur, mot de passe, port, **Tester la connexion**, **Reprendre les réglages de Swiss**, **Ouvrir dans FICHIERS**. Au premier démarrage, les réglages de Swiss (`SD:/swiss/settings/global.ini`) sont repris tout seuls. Ils sont gardés dans `gc-mp3.txt` (`smb_…`, `ftp_…`, `fsp_…`).
