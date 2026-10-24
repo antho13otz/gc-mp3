@@ -21,6 +21,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v116 — décors de saison testés dans tous les onglets
+- Essai de chaque décor sur le tour complet du simulateur (12 onglets + menu START) : Noël coûtait
+  13,3 s de calcul GameCube sur 21 s (84 images ratées), Hiver 10,2 s. Cause : chaque flocon = 2 cercles
+  de 42 sommets, chacun envoyé à part. Maintenant les petits ronds (neige, lumières, étincelles, feux
+  d'artifice) partent ensemble (10 triangles chacun, 128 par envoi) : Noël 7,7 s, Hiver 7,4 s (comme
+  sans décor, ~7 s).
+- Été (styles Nouvelle et Aurore) : soleil plus petit dans le coin (il cachait « En ligne ») ; Noël :
+  sapin plus petit dans le coin (il cachait « < Tous les morceaux » et les boutons).
+
 ## Nouveautés v115 — décors de saison au choix
 - Réglage « Décor de saison » : Non, Auto (selon la date), ou un décor imposé (gauche / droite ou A pour
   changer). gc-mp3.txt : `decor_saison = non / auto / printemps / ete / automne / halloween / hiver /
