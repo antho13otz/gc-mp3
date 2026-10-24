@@ -162,6 +162,7 @@ static void au_panel(float x, float y, float w, float h);
 static void au_legend_box(float x, float w);
 static int au_draw_tabs(const char *count);
 static void au_header(void);
+static void au_player(void);                            /* v103 : Aurore : lecteur de MUSIQUE (ui_aurore2.c) */
 static int gl_view;                                     /* gclib.c : affichage de Mes jeux GameCube */
 static int gl_anim = 1;                                 /* v45 : animations de JEUX / APPS */
 static int gapless_on = 1;                              /* v72 : enchainement sans blanc (meme album / dossier) */
@@ -386,7 +387,7 @@ static u64 gp_t = 0;
 
 static void gp_zone(f32 x, f32 y, f32 w, f32 h, int *sel, int val, int code) {
     if (gp_nz >= GP_ZONES) return;
-    gp_z[gp_nz++] = (gpzone_t){ x, y, w, h, sel, val, code };
+    gp_z[gp_nz++] = (gpzone_t){ x + nv_cdx, y, w, h, sel, val, code };   /* (v103 : page qui glisse) */
 }
 static void gp_frame_begin(void) {                          /* (debut de chaque image) */
     memcpy(gp_zl, gp_z, sizeof(gpzone_t) * gp_nz);
@@ -6148,7 +6149,8 @@ static void draw(void) {
         else draw_list_podcast();
         /* panneau de droite : ce qui joue, sinon l'onglet affiche */
         int view = (src != SRC_NONE) ? src : ((tab == TAB_RADIO || tab == TAB_PODCAST) ? SRC_RADIO : SRC_FILE);
-        if (view == SRC_RADIO) draw_player_radio();
+        if (ui_skin == 3 && tab == TAB_MUSIC) au_player();   /* v103 : Aurore */
+        else if (view == SRC_RADIO) draw_player_radio();
         else draw_player_music();
         if (kb_is_open()) draw_legend_web();
         else draw_legend();
@@ -6169,7 +6171,8 @@ static void draw(void) {
     draw_tab_strip();
     if (tl_screen) draw_tools();                   /* v35 : outils */
     if (ic_on) draw_indigo_cfg();                  /* v32 : reglages d'un jeu (par-dessus l'onglet) */
-    if (menu_open) draw_menu();
+    if (menu_open) { au_menu_begin(); draw_menu(); au_menu_end(); }   /* v103 : Aurore : le menu s'ouvre en douceur */
+    else au_menu_closed();
     if (kb_is_open()) draw_keyboard();             /* (v35 : par-dessus la page Reglages) */
     draw_checklist();
     if (!menu_open && !kb_is_open()) season_overlay();
@@ -6558,6 +6561,7 @@ static void tag_scan_one(int k);
 static void save_settings(void);
 static int settings_dirty;
 #include "ui_extra.c"
+#include "ui_aurore2.c"                         /* v103 : Aurore : lecteur de MUSIQUE */
 
 // ====================================================================
 // ---------- Navigateur web (onglet WEB) ----------

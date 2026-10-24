@@ -1,0 +1,13 @@
+# v103 : Aurore : lecteur MUSIQUE, menu START qui s'ouvre
+wait 3s
+press A
+wait 2500ms
+shot a01-musique
+press START
+wait 80ms
+shot a02-menu-ouverture
+wait 600ms
+shot a03-menu
+press B
+wait 300ms
+quit

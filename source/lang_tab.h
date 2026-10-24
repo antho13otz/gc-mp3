@@ -762,6 +762,8 @@
     { "Moderne", "Modern" },
     { "Nouvelle", "New" },
     { "Aurore", "Aurora" },
+    { "Favori", "Favorite" },
+    { "Jaquettes", "Covers" },
     { "En ligne", "Online" },
     { "Hors ligne", "Offline" },
     { "Radio", "Radio" },

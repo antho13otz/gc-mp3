@@ -35,7 +35,11 @@ static void tl_recent_add(const char *path);            /* v35 : derniers jeux l
 static void indigo_game_open(const char *id, const char *title);   /* v35 : reglages du jeu (indigo_cfg.c) */
 static int gl_view = GLV_GRID;
 static const char *const gl_view_names[GLV_COUNT] = { "Grille", "Carrousel", "Liste", "Mur de jaquettes", "Vitrine", "\xC3\x89tag\xC3\xA8re" };
-static int gl_view_cols(void) { return gl_view == GLV_WALL ? 9 : gl_view == GLV_GRID || gl_view == GLV_SHELF ? 6 : 1; }
+/* v103 : styles Moderne, Nouvelle et Aurore : la vue Grille (et Carrousel) devient une rangee de grandes
+   jaquettes qui defile, dessinee dans le style choisi (Classique : inchange) */
+static int gl_styled(void) { return ui_skin >= 1 && gl_view != GLV_LIST; }   /* (R : jaquettes <-> liste) */
+static const char *gl_view_name(void) { return gl_styled() ? "Jaquettes" : gl_view_names[gl_view]; }
+static int gl_view_cols(void) { return gl_styled() ? 1 : gl_view == GLV_WALL ? 9 : gl_view == GLV_GRID || gl_view == GLV_SHELF ? 6 : 1; }
 static void gl_load_big(int k);
 /* v46 : cheats du jeu k : -1 = pas de fichier de cheats, sinon nombre de cheats actives */
 static int gl_cheats_on(int k);
@@ -779,9 +783,10 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         if (gl_sel < 0) gl_sel = 0;
     }
     if (down & (PAD_TRIGGER_R | PAD_TRIGGER_L)) {          /* v28 : changer d'affichage */
-        gl_view = (gl_view + ((down & PAD_TRIGGER_R) ? 1 : GLV_COUNT - 1)) % GLV_COUNT;
+        if (ui_skin >= 1) gl_view = gl_view == GLV_LIST ? GLV_GRID : GLV_LIST;   /* v103 : styles : jaquettes ou liste */
+        else gl_view = (gl_view + ((down & PAD_TRIGGER_R) ? 1 : GLV_COUNT - 1)) % GLV_COUNT;
         settings_dirty = 1;
-        gl_note(gl_view_names[gl_view]);
+        gl_note(gl_view_name());
     }
     if ((down & PAD_BUTTON_A) && gl_n) { gl_detail = 1; if (gl[gl_sel].dvd) gl_launch_sel = gl_sel; }   /* v97 : disque : tout de suite "Lancer ?" */
     if ((down & PAD_BUTTON_X) && gl_n && !gl[gl_sel].dvd) gl_open_cheats(gl_sel);
@@ -932,6 +937,122 @@ static f32 gl_tab_at(const f32 *t, f32 d) {                  /* valeur du tablea
     if (d >= 4.0f) return t[4];
     int i = (int)d;
     return t[i] + (t[i + 1] - t[i]) * (d - i);
+}
+/* ---------- v103 : rangee de jaquettes dans le style choisi (Moderne, Nouvelle, Aurore) ---------- */
+/* reflet : le bas de l'image, retourne, qui s'efface (alpha a en haut, 0 en bas) */
+static void gl_tex_refl(GXTexObj *o, int tw, int th, int iw, int ih, f32 x, f32 y, f32 w, f32 h, f32 rh, u8 a) {
+    f32 cxd = x + w / 2;
+    w *= ux_k;
+    uxsave_t uz = ux_native(cxd);
+    x = cxd - w / 2;
+    f32 s = w / iw;
+    if (ih * s > h) s = h / ih;
+    f32 dw = iw * s, dh = ih * s, x0 = x + (w - dw) / 2, y0 = y + (h - dh) / 2 + dh + 3;
+    if (rh > dh) rh = dh;
+    f32 u1 = (f32)iw / tw, v1 = (f32)ih / th, v0 = v1 * (1 - rh / dh);
+    gx_set_image(o);
+    GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+    GX_Position2f32(UX(x0), y0);           GX_Color4u8(255, 255, 255, a); GX_TexCoord2f32(0.0f, v1);
+    GX_Position2f32(UX(x0 + dw), y0);      GX_Color4u8(255, 255, 255, a); GX_TexCoord2f32(u1, v1);
+    GX_Position2f32(UX(x0 + dw), y0 + rh); GX_Color4u8(255, 255, 255, 0); GX_TexCoord2f32(u1, v0);
+    GX_Position2f32(UX(x0), y0 + rh);      GX_Color4u8(255, 255, 255, 0); GX_TexCoord2f32(0.0f, v0);
+    GX_End();
+    ux_restore(uz);
+}
+static void gl_draw_styled(void) {
+    char buf[NAME_LEN], d[NAME_LEN];
+    static f32 pos = -10000.0f;
+    int loop = gl_n >= 7, st = ui_skin;
+    if (pos < -9000.0f || !gl_anim) pos = (f32)gl_sel;
+    else {
+        f32 diff = (f32)gl_sel - pos;
+        if (loop) { while (diff > gl_n / 2.0f) diff -= gl_n; while (diff < -gl_n / 2.0f) diff += gl_n; }
+        if (fabsf(diff) > 6.0f) diff = diff > 0 ? 6.0f : -6.0f, pos = (f32)gl_sel - diff;
+        pos += diff * (1.0f - expf(-ui_dt * 12.0f));
+        if (fabsf((f32)gl_sel - pos) < 0.003f) pos = (f32)gl_sel;
+        if (loop) { while (pos < 0) pos += gl_n; while (pos >= gl_n) pos -= gl_n; }
+    }
+    if (now_ms() - last_input_ms > 300 && gl_n) gl_load_big(gl_sel);   /* (grande jaquette du jeu choisi, en fond) */
+    /* tailles et ecarts selon le style */
+    static const f32 scl3[5] = { 1.0f, 0.70f, 0.52f, 0.40f, 0.31f }, off3[5] = { 0, 150, 246, 308, 350 };
+    static const f32 scl2[5] = { 1.0f, 0.78f, 0.62f, 0.50f, 0.42f }, off2[5] = { 0, 140, 238, 314, 372 };
+    static const f32 scl1[5] = { 1.0f, 0.80f, 0.66f, 0.56f, 0.48f }, off1[5] = { 0, 136, 236, 318, 388 };
+    const f32 *scl = st == 3 ? scl3 : st == 2 ? scl2 : scl1, *off = st == 3 ? off3 : st == 2 ? off2 : off1;
+    const f32 CW = st == 3 ? 160 : 140, CH = CW * 4 / 3, top = st == 3 ? 114 : 122;
+    int base = (int)floorf(pos + 0.5f);
+    int order[11], no = 0;
+    for (int i = -5; i <= 5; i++) order[no++] = i;
+    for (int a = 0; a < no; a++)
+        for (int b2 = a + 1; b2 < no; b2++) {
+            f32 da = fabsf(base + order[a] - pos), db = fabsf(base + order[b2] - pos);
+            if (db > da) { int t = order[a]; order[a] = order[b2]; order[b2] = t; }
+        }
+    scr_scissor(14, 104, 612, 304);
+    if (st == 3) {                                         /* Aurore : lueur sous la jaquette du centre */
+        nv_raw = 1;
+        gx_ellipse(320, top + CH + 6, 150, 26, au_mix(0.4f, 70), au_mix(0.4f, 0));
+        nv_raw = 0;
+    }
+    for (int oi = 0; oi < no; oi++) {
+        int i = order[oi];
+        f32 p = base + i - pos, ad = fabsf(p);
+        if (ad > 4.4f) continue;
+        int k = base + i;
+        if (loop) k = (k % gl_n + gl_n) % gl_n;
+        else if (k < 0 || k >= gl_n) continue;
+        f32 sc = gl_tab_at(scl, ad), w = CW * sc, h = CH * sc;
+        f32 cx = 320 + (p < 0 ? -1 : 1) * gl_tab_at(off, ad);
+        f32 y = st == 3 ? top + (CH - h) : top + (CH - h) / 2;     /* (Aurore : tout pose sur la meme ligne) */
+        f32 near = ad < 1 ? 1 - ad : 0;
+        int on = ad < 0.5f;
+        nv_raw = 1;
+        if (st == 2) {                                     /* Nouvelle : carte en verre autour */
+            gx_rrect_fill(cx - w / 2 - 7 + 2, y - 7 + 6, w + 14, h + 14, 14, RGBA(0, 0, 0, 60), RGBA(0, 0, 0, 80));
+            gx_rrect_fill(cx - w / 2 - 7, y - 7, w + 14, h + 14, 14, RGBA(40, 44, 72, 230), RGBA(26, 29, 50, 236));
+            gx_rrect_stroke(cx - w / 2 - 7, y - 7, w + 14, h + 14, 14, 1.0f, RGBA(255, 255, 255, 26));
+            if (near > 0.05f) gx_glow(cx - w / 2 - 7, y - 7, w + 14, h + 14, 14, nv_acc((u8)(120 * near)), 4);
+        } else if (st == 1) {                              /* Moderne : ombre portee */
+            gx_rrect_fill(cx - w / 2 + 3, y + 5, w, h, 6, RGBA(0, 0, 0, 90), RGBA(0, 0, 0, 90));
+        } else if (near > 0.05f) {                         /* Aurore : halo en degrade */
+            gx_glow(cx - w / 2, y, w, h, 8, au_mix(0.5f, (u8)(150 * near)), 5);
+        }
+        nv_raw = 0;
+        int big = on && gl[k].post >= 0 && gl_big.game == k && gl_big.tex;
+        if (big) draw_tex_fit(&gl_big.obj, 256, 256, 192, 256, cx - w / 2, y, w, h);
+        else gl_draw_cover(k, cx - w / 2, y, w, h, on);
+        if (st == 3) {                                     /* reflet sur le sol */
+            GXTexObj *ro = big ? &gl_big.obj : gl[k].post >= 0 ? gl_cover(k, 0) : NULL;
+            if (ro) gl_tex_refl(ro, big ? 256 : 128, big ? 256 : 128, big ? 192 : 96, big ? 256 : 128, cx - w / 2, y, w, h, h * 0.30f, (u8)(70 + 40 * near));
+        }
+        nv_raw = 1;
+        f32 dm = ad < 1 ? ad * (st == 3 ? 130.0f : 90.0f) : (st == 3 ? 130.0f : 90.0f) + (ad - 1) * 40.0f;
+        u8 dim = (u8)(dm > 210 ? 210 : dm);
+        col_t bg = st == 3 ? RGBA(4, 4, 8, dim) : st == 2 ? RGBA(16, 18, 34, dim) : RGBA(40, 40, 44, dim);
+        if (dim) gx_rect(cx - w / 2, y, w, h, bg);
+        if (st == 1 && near > 0.05f) gx_rrect_fill(cx - 22, y + h + 8, 44, 3, 1.5f, RGBA(mod_acc[0], mod_acc[1], mod_acc[2], (u8)(255 * near)), RGBA(mod_acc[0], mod_acc[1], mod_acc[2], (u8)(255 * near)));
+        nv_raw = 0;
+        gp_zone(cx - w / 2, y, w, h, &gl_sel, k, GPZ_SEL);
+    }
+    scr_viewport();
+    /* le jeu choisi : nom, puis ID, region, taille ; position */
+    gcg_t *g = &gl[gl_sel];
+    gl_title_of(gl_sel, d, sizeof(d));
+    fit_text(F_LARGE, d, 560, buf, sizeof(buf));
+    f32 ty = st == 3 ? 380 : 372;
+    nv_raw = 1;
+    gx_text_c(F_LARGE, 320, ty, buf, RGBA(255, 255, 255, 255));
+    if (g->dvd) snprintf(d, sizeof(d), "%s", TR("Lecteur de la console"));
+    else {
+        char sz[32]; gl_size_txt(g->size, sz, sizeof(sz));
+        const char *reg = g->id[3] == 'E' ? "USA" : g->id[3] == 'P' ? "Europe" : g->id[3] == 'J' ? "Japon" : g->id[3] == 'F' ? "France" : g->id[3] == 'D' ? "Allemagne" : "";
+        snprintf(d, sizeof(d), "%s  \xC2\xB7  %s%s%s", g->id, TR(reg), reg[0] ? "  \xC2\xB7  " : "", sz);
+    }
+    col_t sub = st == 3 ? RGBA(170, 170, 195, 255) : st == 2 ? RGBA(160, 168, 200, 255) : RGBA(170, 170, 178, 255);
+    gx_text_c(F_SMALL, 320, ty + 19, d, sub);
+    snprintf(d, sizeof(d), "%d / %d", gl_sel + 1, gl_n);
+    gx_text_r(F_SMALL, 614, 404, d, sub);
+    if (g->fav) { draw_star1(30, 400, 6.0f, RGBA(255, 210, 90, 255)); gx_text1(F_SMALL, 40, 404, TR("Favori"), RGBA(255, 210, 90, 255)); }
+    nv_raw = 0;
 }
 static void gl_draw_carousel(void) {
     char buf[NAME_LEN], d[NAME_LEN];
@@ -1245,6 +1366,7 @@ static void draw_gclib_main(void) {
         nat_draw_qr();                                         /* v51 : rapport d'analyse sur le telephone */
         return;
     }
+    if (gl_styled()) gl_draw_styled(); else
     switch (gl_view) {
     case GLV_CAROUSEL: gl_draw_carousel(); break;
     case GLV_LIST:     gl_draw_list(); break;
@@ -1260,8 +1382,8 @@ static void draw_gclib_main(void) {
     else snprintf(d, sizeof(d), "%s   %s", g->id, sz);
     fit_text(F_MED, g->dvd ? TR(g->title) : g->title, 420, buf, sizeof(buf));
     if (now_ms() - gl_msg_t < 3500) gx_text1(F_SMALL, 30, 400, gl_msg, RGBA(255, 210, 120, 255));
-    else if (gl_view != GLV_CAROUSEL && gl_view != GLV_SHOW) { gx_text1(F_MED, 30, 400, buf, RGBA(255, 255, 255, 255)); gx_text_r(F_SMALL, 614, 400, d, RGBA(255, 210, 120, 255)); }
-    snprintf(d, sizeof(d), "R : %s", TR(gl_view_names[gl_view]));
+    else if (gl_view != GLV_CAROUSEL && gl_view != GLV_SHOW && !gl_styled()) { gx_text1(F_MED, 30, 400, buf, RGBA(255, 255, 255, 255)); gx_text_r(F_SMALL, 614, 400, d, RGBA(255, 210, 120, 255)); }
+    snprintf(d, sizeof(d), "R : %s", TR(gl_view_name()));
     gx_text_r(F_SMALL, 614, 99, d, RGBA(170, 160, 220, 255));
     static const char *const k[] = { "A", "X", "Y", "R", "B" };
     static const char *const l[] = { "FICHE", "CHEATS", "OPTIONS", "AFFICHAGE", "RETOUR" };

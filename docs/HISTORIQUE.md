@@ -21,6 +21,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v103 — Aurore : Musique, Jeux, menu START ; jeux dans chaque style
+- Aurore, onglet Musique (`source/ui_aurore2.c`) : grande pochette avec reflet, lumière aux couleurs
+  de la pochette qui respire avec la musique, titre en grand, barre d'avancement en dégradé, trois
+  boutons (aussi au curseur). La liste des morceaux reste à gauche.
+- Onglet Jeux : en Moderne, Nouvelle et Aurore, les jeux s'affichent en rangée de grandes jaquettes qui
+  défile, dessinée dans le style choisi (Aurore : reflet et halo ; Nouvelle : cartes en verre ;
+  Moderne : cartes plates avec ombre). R : jaquettes ↔ liste. Classique : inchangé (6 vues).
+- Aurore, menu START : il monte et grandit en s'ouvrant, le fond s'assombrit.
+
 ## Nouveautés v102 — style Aurore
 - START > Réglages > Affichage > Style : Classique, Moderne, Nouvelle, **Aurore**.
 - Aurore (`source/ui_aurore.c`) : noir profond avec des aurores (rubans rose, violet, bleu) qui

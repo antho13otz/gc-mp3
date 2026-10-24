@@ -14,10 +14,13 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v102)
+## Nouveautés de la version actuelle (v103)
 - **Trois looks au choix** (START > Réglages > Affichage > Style) : **Classique** (inchangé),
-  **Nouvelle** (dock d'icônes, cartes en verre) et **Aurore** (noir profond et aurores lumineuses, nom
-  de l'onglet en grand qui défile, sélection en dégradé rose → bleu). Seul le visuel change.
+  **Nouvelle** et **Aurore**. Seul le visuel change.
+- **Aurore** : lecteur Musique avec grande pochette, reflet et lumière aux couleurs de la pochette ;
+  menu START qui s'ouvre en douceur.
+- **Jeux dans le style choisi** (Moderne, Nouvelle, Aurore) : rangée de grandes jaquettes qui défile
+  (R : jaquettes ou liste).
 - (v99 / v100) A+Z+START dans les jeux (Resident) ; (v98) musique du disque sans saccades ;
   (v97) case **Disque de la console**, cartes SD de 1 To.
 
