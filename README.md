@@ -14,12 +14,12 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v116)
-- **Décors de saison, plus riches et au choix** (START > Réglages > Affichage > Décor de saison) :
-  Auto (selon la date) ou au choix Printemps, Été, Automne, Halloween, Hiver, Noël, Saint-Valentin,
-  Nouvel An — fantômes, araignée, sapin, neige au sol, vagues, fleurs, feuilles, cœurs, feux d'artifice…
-  (v116 : neige et lumières plus légères, plus de saccades en Noël / Hiver ; soleil et sapin ne cachent plus de texte).
-- (v114) Écran de chargement Minimal avec le logo complet de Pulse ; (v113) nouveau logo de Pulse.
+## Nouveautés de la version actuelle (v117)
+- **Réseau plus rapide avec les serveurs lointains** (web, téléchargements, radios, mise à jour) : fenêtre
+  TCP de 62 Ko au lieu de 23 Ko, et deux fois plus de tampons de réception.
+- **Sans carte SD (Dolphin)** : la mise à jour se télécharge en mémoire et se lance tout de suite
+  (elle n'est pas enregistrée : à refaire au prochain démarrage).
+- (v115–v116) **Décors de saison** plus riches et au choix (Réglages > Affichage > Décor de saison).
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
