@@ -8,7 +8,7 @@
 #define IGR_OLD     SD_ROOT "/swiss/patches/apploader.img"      /* (v89 et avant : repris une fois, mg_pump, lanceur.c) */
 #define IGR_MINE    GCD "/igr.img"
 
-enum { IGR_IDLE, IGR_CHECK, IGR_DL };
+enum { IGR_IDLE, IGR_CHECK, IGR_DL, IGR_W1, IGR_W2 };   /* v93 : W1 / W2 = ecriture par morceaux (igr.img, puis apploader.img) */
 static int igr_state = IGR_IDLE, igr_cache = -1, igr_auto_done = 0, igr_enable_after = 0;
 static int igr_have_b = 0;                    /* v81 : verification auto : numero installe (pas de telechargement si GitHub n'a pas plus recent) */
 static char igr_msg[120] = "";
@@ -46,13 +46,23 @@ static int igr_on(void) {
     if (igr_cache < 0) igr_cache = igr_build_of(IGR_IMG) > 0;
     return igr_cache;
 }
-/* v45 : ecriture par morceaux de 64 Ko, la musique continue pendant ce temps */
-static int igr_fwrite_all(FILE *f, const u8 *d, long n) {
-    for (long o = 0; o < n; o += 65536) {
-        long k = n - o < 65536 ? n - o : 65536;
-        if (fwrite(d + o, 1, k, f) != (size_t)k) return 0;
-        service_audio();
-    }
+/* v93 : ecriture d'un fichier par morceaux de 32 Ko, un par image (avant : tout d'un coup, ~1,5 s d'ecran
+   fige pour 900 Ko, une fois apres chaque nouvelle version du lanceur ou du retour en jeu) */
+typedef struct { FILE *f; const u8 *d; long n, o; char path[NAME_LEN + 8]; } fw_t;
+static int fw_open(fw_t *w, const char *path, const u8 *d, long n) {
+    snprintf(w->path, sizeof(w->path), "%s", path);
+    w->f = fopen(path, "wb"); w->d = d; w->n = n; w->o = 0;
+    return w->f != NULL;
+}
+static int fw_step(fw_t *w) {                        /* 1 = fini (ferme), 0 = encore, -1 = erreur (efface) */
+    if (!w->f) return -1;
+    long k = w->n - w->o < 32768 ? w->n - w->o : 32768;
+    if (k > 0 && fwrite(w->d + w->o, 1, k, w->f) != (size_t)k) { fclose(w->f); w->f = NULL; remove(w->path); return -1; }
+    w->o += k;
+    if (w->o < w->n) return 0;
+    int ok = fclose(w->f) == 0;
+    w->f = NULL;
+    if (!ok) { remove(w->path); return -1; }
     return 1;
 }
 static int igr_copy(const char *src, const char *dst) {
@@ -117,6 +127,32 @@ static void igr_pump(void) {
         if (b > 0 && b < GCMP3_BUILD) { igr_fetch(1); if (igr_state == IGR_CHECK) igr_have_b = b; }   /* v81 : seulement s'il a change sur GitHub */
     }
     if (igr_state == IGR_IDLE) return;
+    if (igr_state == IGR_W1 || igr_state == IGR_W2) {      /* v93 : un morceau par image */
+        static fw_t w;
+        if (!w.f) {
+            mkdir(GCD, 0777); mkdir(LD_DIR, 0777); mkdir(LD_DIR "/patches", 0777);
+            if (!fw_open(&w, igr_state == IGR_W1 ? IGR_MINE : IGR_IMG ".tmp", igr_hf.buf, igr_hf.len)) goto werr;
+        }
+        int r = fw_step(&w);
+        if (r == 0) return;
+        if (r < 0) goto werr;
+        if (igr_state == IGR_W1 && igr_enable_after) { igr_state = IGR_W2; return; }
+        if (igr_state == IGR_W2) {
+            remove(IGR_IMG);
+            if (rename(IGR_IMG ".tmp", IGR_IMG) != 0) goto werr;
+            igr_set_type("Apploader");
+            igr_cache = 1;
+            snprintf(igr_msg, sizeof(igr_msg), "%s", TR("A + Z + START en jeu : retour sur GC Station"));
+            crumb("retour en jeu : GC Station");
+        }
+        hf_drop(&igr_hf); igr_hf.st = HF_IDLE; igr_state = IGR_IDLE;
+        return;
+    werr:
+        remove(IGR_IMG ".tmp");
+        hf_drop(&igr_hf); igr_hf.st = HF_IDLE; igr_state = IGR_IDLE;
+        snprintf(igr_msg, sizeof(igr_msg), "%s", TR("\xC3\x89" "criture sur la carte SD impossible"));
+        return;
+    }
     hf_pump(&igr_hf);
     if (igr_hf.st == HF_FAIL) {
         hf_drop(&igr_hf); igr_hf.st = HF_IDLE; igr_state = IGR_IDLE; igr_have_b = 0;
@@ -155,18 +191,14 @@ static void igr_pump(void) {
         igr_state = IGR_DL;
         return;
     }
-    /* fichier recu */
-    igr_state = IGR_IDLE;
-    int ok = igr_valid(igr_hf.buf, igr_hf.len);
-    if (ok) {
-        mkdir(GCD, 0777);
-        FILE *f = fopen(IGR_MINE, "wb");
-        ok = f && igr_fwrite_all(f, igr_hf.buf, igr_hf.len);
-        if (f && fclose(f) != 0) ok = 0;
+    /* fichier recu : ecrit par morceaux (IGR_W1, puis IGR_W2 si on l'active) */
+    if (!igr_valid(igr_hf.buf, igr_hf.len)) {
+        igr_state = IGR_IDLE;
+        hf_drop(&igr_hf); igr_hf.st = HF_IDLE;
+        snprintf(igr_msg, sizeof(igr_msg), "%s", TR("Fichier re\xC3\xA7u invalide"));
+        return;
     }
-    hf_drop(&igr_hf); igr_hf.st = HF_IDLE;
-    if (!ok) { remove(IGR_MINE); snprintf(igr_msg, sizeof(igr_msg), "%s", TR("Fichier re\xC3\xA7u invalide")); return; }
-    if (igr_enable_after) igr_install();
+    igr_state = IGR_W1;
 }
 /* menu : A ou Gauche / Droite = changer */
 static void igr_toggle(void) {

@@ -21,6 +21,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v93 — A+Z+START enfin réparé, moins de saccades
+- **A+Z+START (Resident)** ne marchait dans aucun jeu depuis la v89 : chaque fois que Resident regardait les manettes alors que le jeu n'avait pas encore pris leurs nouvelles données (très souvent, surtout depuis l'interruption du son), le compte des « 1 seconde tenue » repartait à zéro. Maintenant, une lecture impossible ne compte plus comme « boutons relâchés ». Le banc d'essai simule ce cas (données neuves une fois sur trois) : l'ancienne version échoue, la nouvelle passe.
+- **Mises à jour du lanceur de secours et du retour en jeu** (~900 Ko chacun) : écrites sur la carte par morceaux de 32 Ko, un par image, au lieu d'un coup (~1,5 s d'écran figé, une fois après chaque nouvelle version, environ 25 s après le démarrage).
+- **Flux RSS** (actualités de l'onglet INFOS, podcasts) : les recherches de balises restent dans l'épisode lu ; avant, une balise absente faisait relire tout le reste du document à chaque épisode (écran figé pendant le chargement des infos ou d'un gros podcast).
+
 ## Nouveautés v92 — vitesse, onglet Jeux fluide, disque de démarrage
 - **Démarrage plus rapide** (environ 2 s de moins si la console démarre sur `ipl.dol`) : GC Station relisait tout son propre `.dol` (plusieurs Mo) à chaque démarrage pour se reconnaître, et une deuxième fois à la première ouverture des Réglages. La réponse est maintenant gardée (`SD:/gc-mp3/cache/dol-id.txt`).
 - **Onglet Jeux** (simulateur, 120 jeux) : 42 → 58 images/s, pire image 2,4 s → 55 ms au deuxième passage.

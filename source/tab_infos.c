@@ -125,9 +125,9 @@ static void infos_set_city(const char *c) {
 static void news_parse(const char *x, int len) {
     nnews = 0;
     const char *end = x + len, *p = x;
-    while (nnews < NEWS_MAX && (p = strstr(p, "<item")) != NULL && p < end) {
-        const char *e = strstr(p, "</item>");
-        if (!e || e > end) break;
+    while (nnews < NEWS_MAX && (p = xml_find(p, end, "<item")) != NULL) {
+        const char *e = xml_find(p, end, "</item>");
+        if (!e) break;
         char d[64];
         xml_tag(p, e, "title", news_title[nnews], sizeof(news_title[0]));
         xml_tag(p, e, "link", news_link[nnews], sizeof(news_link[0]));

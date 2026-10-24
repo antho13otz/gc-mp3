@@ -157,14 +157,27 @@ static void podcast_leave(void) {
 }
 
 /* --- RSS --- */
+/* v93 : recherche limitee a [p, b) (strstr allait jusqu'a la fin du document a chaque balise absente :
+   flux de plusieurs centaines de Ko = plusieurs secondes d'ecran fige) */
+static const char *xml_find(const char *p, const char *b, const char *s) {
+    size_t n = strlen(s);
+    if (!p || !n) return NULL;
+    while (p && b - p >= (long)n) {
+        p = (const char *)memchr(p, s[0], (size_t)(b - p) - n + 1);
+        if (!p) return NULL;
+        if (!memcmp(p, s, n)) return p;
+        p++;
+    }
+    return NULL;
+}
 /* texte XML -> UTF-8 (CDATA, entites) */
 static void xml_text(const char *a, const char *b, char *out, int cap) {
     int n = 0;
     while (a < b && (*a == ' ' || *a == '\n' || *a == '\r' || *a == '\t')) a++;
     if (b - a > 9 && !strncmp(a, "<![CDATA[", 9)) {
         a += 9;
-        const char *e = strstr(a, "]]>");
-        if (e && e < b) b = e;
+        const char *e = xml_find(a, b, "]]>");
+        if (e) b = e;
     }
     while (a < b && n < cap - 4) {
         if (*a == '&') {
@@ -201,17 +214,17 @@ static int xml_tag(const char *a, const char *b, const char *tag, char *out, int
     int ol = (int)strlen(open);
     out[0] = 0;
     for (const char *p = a; p && p < b; ) {
-        p = strstr(p, open);
-        if (!p || p >= b) return 0;
+        p = xml_find(p, b, open);
+        if (!p) return 0;
         char c = p[ol];
         if (c != '>' && c != ' ' && c != '/') { p += ol; continue; }
-        const char *gt = strchr(p, '>');
-        if (!gt || gt >= b) return 0;
+        const char *gt = (const char *)memchr(p, '>', (size_t)(b - p));
+        if (!gt) return 0;
         if (gt[-1] == '/') return 0;
         char close[52];
         snprintf(close, sizeof(close), "</%s>", tag);
-        const char *e = strstr(gt + 1, close);
-        if (!e || e > b) return 0;
+        const char *e = xml_find(gt + 1, b, close);
+        if (!e) return 0;
         xml_text(gt + 1, e, out, cap);
         return 1;
     }
@@ -224,12 +237,12 @@ static int xml_attr(const char *a, const char *b, const char *tag, const char *a
     snprintf(open, sizeof(open), "<%s", tag);
     snprintf(key, sizeof(key), " %s=", attr);
     out[0] = 0;
-    const char *p = strstr(a, open);
-    if (!p || p >= b) return 0;
-    const char *gt = strchr(p, '>');
-    if (!gt || gt > b) return 0;
-    const char *k = strstr(p, key);
-    if (!k || k > gt) return 0;
+    const char *p = xml_find(a, b, open);
+    if (!p) return 0;
+    const char *gt = (const char *)memchr(p, '>', (size_t)(b - p));
+    if (!gt) return 0;
+    const char *k = xml_find(p, gt, key);
+    if (!k) return 0;
     k += strlen(key);
     char q = *k;
     if (q != '"' && q != '\'') return 0;
@@ -252,8 +265,8 @@ static void rss_parse(const char *x, int len) {
     if (!eps) return;
     const char *end = x + len;
     const char *p = x;
-    while (neps < EP_MAX && (p = strstr(p, "<item")) != NULL && p < end) {
-        const char *e = strstr(p, "</item>");
+    while (neps < EP_MAX && (p = xml_find(p, end, "<item")) != NULL) {
+        const char *e = xml_find(p, end, "</item>");
         if (!e || e > end) break;
         ep_t *ep = &eps[neps];
         char tmp[64];
