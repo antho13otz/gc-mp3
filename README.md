@@ -14,11 +14,11 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v98)
-- **Musique du disque sans saccades** (Cocoto et les jeux qui préparent leur son de la même façon) :
-  Resident ajoute la musique au bon tampon, au bon moment, et la lit sur la carte 4 fois moins souvent.
-- (v97) Case **Disque de la console** dans l'onglet Jeux, cartes SD de 1 To rapides, Cocoto Kart Racer
-  relancé ; (v96) écran rouge corrigé ; (v95) Zelda Collector's Edition.
+## Nouveautés de la version actuelle (v99)
+- **A+Z+START dans les jeux (Resident)** : les ports de manette vides faisaient croire à Resident que
+  les touches étaient relâchées, plusieurs fois par seconde : le retour à GC Station ne se déclenchait pas.
+- (v98) Musique du disque sans saccades (Cocoto) ; (v97) case **Disque de la console**, cartes SD de
+  1 To rapides, Cocoto Kart Racer relancé ; (v96) écran rouge corrigé.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
