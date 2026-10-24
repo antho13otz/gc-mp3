@@ -5,7 +5,7 @@
 # (gc-mp3player-bN.dol) d'abord, puis le texte "build=N".
 # Usage (dans GitHub Actions) : python3 tools/publish_release.py fichier.dol NUMERO
 # Variables : GH_TOKEN, GITHUB_REPOSITORY, GITHUB_SHA
-import json, os, sys, urllib.error, urllib.request
+import json, os, re, sys, urllib.error, urllib.request
 
 TAG = "dernier"
 dol, build = sys.argv[1], sys.argv[2]
@@ -87,6 +87,9 @@ if len(sys.argv) > 3 and os.path.isfile(sys.argv[3]):
     # numero ; les consoles ne le retelechargent pas a chaque version
     new_img = open(sys.argv[3], "rb").read()
     same = [a for a in imgs if a.get("name") != myimg and (lambda b: b is not None and b[16:] == new_img[16:])(asset_bytes(a))]
+    # v87 : garde seulement s'il porte son numero ("gc-mp3-igr-bN.img") : sinon les consoles ne
+    # le reconnaissent pas (renvoye a la main sans numero) : on le republie, numerote
+    same = [a for a in same if re.search(r"-b\d+\.img$", a.get("name", ""))]
     if same:
         print("retour en jeu inchange : %s garde" % same[0]["name"])
         imgs = []
@@ -110,6 +113,7 @@ if len(sys.argv) > 4 and os.path.isfile(sys.argv[4]):
     mybin = "gc-mp3-loader-b%s.bin" % build
     new_bin = open(sys.argv[4], "rb").read()
     same = [a for a in bins if a.get("name") != mybin and asset_bytes(a) == new_bin]   # v81 : inchange : garde
+    same = [a for a in same if re.search(r"-b\d+\.bin$", a.get("name", ""))]          # v87 : (s'il porte son numero)
     if same:
         print("lanceur inchange : %s garde" % same[0]["name"])
         bins = []
