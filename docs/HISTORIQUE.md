@@ -21,6 +21,24 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v97 — disque de la console, grosses cartes SD, Cocoto Kart Racer
+- Onglet Jeux : case « Disque de la console » (avant le premier jeu) : lance le jeu du vrai lecteur
+  comme le BIOS (reset du lecteur, ID du disque, musique en streaming, main.dol et FST lus sur le
+  disque), sans Resident. Journal : `SD:/gc-mp3/natif/disque-console.txt`.
+- Cartes SD de 1 To : la place libre est lue dans le secteur FSInfo de la FAT32 (avant : toute la FAT
+  relue à chaque dossier de l'onglet Fichiers, dans Téléphone et Infos console) ; cache de libfat doublé.
+- Resident : la table des morceaux de l'ISO est rangée tout en haut, à la taille utile : plus de place
+  pour les aiguillages (Cocoto Kart Racer : « 3 accès au lecteur non branchés » depuis la v94).
+
+## Nouveautés v96 — écran rouge corrigé
+- Une lecture en fond de l'onglet Jeux finit avant que la carte SD soit libérée pour lancer un jeu.
+- Reprise des fichiers de Swiss : gros fichiers copiés petit à petit, plus jamais déplacés.
+- Journal du jeu : touches de la manette vues par Resident.
+
+## Nouveautés v95 / v94 — disques à plusieurs programmes, lecture SD plus rapide
+- v95 : OSExec (Zelda Collector's Edition : film, jeux du disque) suivi par Resident.
+- v94 : lecture de la carte par DMA et à 32 MHz quand l'adaptateur le permet (CRC vérifié).
+
 ## Nouveautés v93 — A+Z+START enfin réparé, moins de saccades
 - **A+Z+START (Resident)** ne marchait dans aucun jeu depuis la v89 : chaque fois que Resident regardait les manettes alors que le jeu n'avait pas encore pris leurs nouvelles données (très souvent, surtout depuis l'interruption du son), le compte des « 1 seconde tenue » repartait à zéro. Maintenant, une lecture impossible ne compte plus comme « boutons relâchés ». Le banc d'essai simule ce cas (données neuves une fois sur trois) : l'ancienne version échoue, la nouvelle passe.
 - **Mises à jour du lanceur de secours et du retour en jeu** (~900 Ko chacun) : écrites sur la carte par morceaux de 32 Ko, un par image, au lieu d'un coup (~1,5 s d'écran figé, une fois après chaque nouvelle version, environ 25 s après le démarrage).

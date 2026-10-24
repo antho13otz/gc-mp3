@@ -14,21 +14,20 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v96)
-- **Écran rouge en lançant un jeu corrigé** : une lecture en fond de l'onglet Jeux (bannière, grande
-  jaquette) pouvait encore tourner quand GC Station libérait la carte SD pour lancer le jeu. Elle
-  se termine maintenant avant.
-- **Reprise des fichiers de Swiss** : les gros fichiers (jaquettes, sauvegardes) sont maintenant
-  copiés petit à petit en arrière-plan, et plus jamais déplacés : Swiss garde les siens.
-- Journal du jeu : les touches de la manette vues par Resident (pour comprendre un A+Z+START qui ne
-  marche pas dans un jeu).
-- (v95) Disques à plusieurs programmes (Zelda Collector's Edition) ; (v94) lecture SD par DMA / 32 MHz.
+## Nouveautés de la version actuelle (v97)
+- **Disque de la console** : dans l'onglet Jeux, une case avant le premier jeu lance le jeu qui est
+  dans le lecteur de la GameCube (lu par le vrai lecteur, comme au démarrage de la console).
+- **Cartes SD de 1 To** : la place libre est lue instantanément (avant, toute la FAT était relue à
+  chaque dossier ouvert dans Fichiers) ; cache de la carte doublé.
+- **Cocoto Kart Racer se lance de nouveau** avec Resident (plus de place pour ses aiguillages).
+- (v96) Écran rouge au lancement corrigé ; (v95) Zelda Collector's Edition ; (v94) lecture SD par DMA / 32 MHz.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
   Albums, listes de lecture, égaliseur, fondu enchaîné, enchaînement sans blanc, reprise au démarrage.
 - **Radio** : webradios (recherche radio-browser, HLS), favoris, enregistrement, titres gardés.
 - **Jeux GameCube** (`.iso`, `.gcm`, `.ciso`) avec jaquettes, bannières, favoris, temps de jeu :
+  - **Disque de la console** : le jeu du vrai lecteur, lancé depuis la même liste ;
   - **Resident** (A), le lanceur de GC Station : faux lecteur DVD sur la carte SD, musique du disque,
     carte mémoire virtuelle, A+Z+START tenus 1 s = retour à GC Station, journal en cas de problème ;
   - **lanceur de secours** (X, et les jeux avec cheats) ; réglages par jeu (langue, son, carte) ;

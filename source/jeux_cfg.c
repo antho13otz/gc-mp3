@@ -294,6 +294,7 @@ static void jeux_cfg_undo(const char *card) {
     save_settings();
 }
 static const char *game_boot_auto(int k) {                   /* v90 : Resident ; le lanceur de secours si des cheats sont actives */
+    if (k >= 0 && k < gl_n && gl[k].dvd) { const char *e = nat_boot_disc(k); nat_ld_on = 0; return e; }   /* v97 : vrai lecteur */
     int sec = k >= 0 && k < gl_n && gl_cheats_on(k) > 0 && ld_ready();
     if (sec) gl_status("Lancement du jeu...");
     const char *e = game_boot(k, !sec);
@@ -302,6 +303,7 @@ static const char *game_boot_auto(int k) {                   /* v90 : Resident ;
 }
 static const char *game_boot(int k, int resident) {
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
+    if (gl[k].dvd) { const char *e = nat_boot_disc(k); nat_ld_on = 0; return e; }   /* v97 : vrai lecteur */
     char card[64];
     snprintf(card, sizeof(card), "%s", vc_active);
     jeux_cfg_apply(gl[k].id, resident);
