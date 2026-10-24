@@ -21,6 +21,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v109 — Resident devient Pulse
+- Le lanceur de GC Station s'appelle **Pulse**. Logo (`source/pulse_logo.c`, dessiné en GX) :
+  hexagone du cube en néon (rose → violet → bleu → cyan), cœur en dégradé qui bat, trait de battement
+  blanc, contours qui s'éloignent à chaque battement.
+- Nouvel écran de chargement : noir et aurores, logo animé, jaquette avec halo, panneau en verre,
+  barre et étapes en dégradé. Le nom remplace « Resident » dans tous les textes (réglages, outils,
+  fiche du jeu, journaux, page du téléphone, traductions). Les fichiers et réglages gardent leurs
+  noms (`SD:/gc-mp3/resident`, `resident_carte_virtuelle`…) pour ne rien perdre.
+- Simulateur : `PCSIM_CHARGEMENT=1` affiche l'écran de chargement.
+
 ## Nouveautés v108 — retour par A+Z+START : plus de « GX ne répond plus » au redémarrage
 - Après A+Z+START (Cocoto), GC Station se bloquait parfois à sa 1re image (« GX ne répond plus,
   copie de l'image vers l'écran », underflow=1) : le processeur graphique avait été arrêté au milieu

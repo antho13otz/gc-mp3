@@ -51,7 +51,7 @@ static void x73_save(FILE *f) {
             fe_show_hidden ? "oui" : "non", fe_hide_unknown ? "oui" : "non");
     if (sram_back_lang >= 0) fprintf(f, "retour_langue_console = %d\n", sram_back_lang);
     if (sram_back_sound >= 0) fprintf(f, "retour_son_console = %d\n", sram_back_sound);
-    fprintf(f, "# Resident : carte memoire virtuelle utilisee (fichier de gc-mp3/resident)\nresident_carte_fichier = %s\n", vc_keep[0] ? vc_keep : vc_active);   /* (v76 : pas la carte d'un jeu) */
+    fprintf(f, "# Pulse : carte memoire virtuelle utilisee (fichier de gc-mp3/resident)\nresident_carte_fichier = %s\n", vc_keep[0] ? vc_keep : vc_active);   /* (v76 : pas la carte d'un jeu) */
 }
 static void x73_menu_value(int i, char *out, int cap) {
     switch (i) {
@@ -686,7 +686,7 @@ static int vc_load(void) {
     if (!vc_sys || !vc_nf) { snprintf(vc_why, sizeof(vc_why), "Pas de carte virtuelle"); return 0; }
     char p[NAME_LEN];
     FILE *f = fopen(vc_path(vc_cur, p, sizeof(p)), "rb");
-    if (!f) { snprintf(vc_why, sizeof(vc_why), "Pas encore cr\xC3\xA9\xC3\xA9" "e (le Resident la cr\xC3\xA9" "e au premier jeu)"); return 0; }
+    if (!f) { snprintf(vc_why, sizeof(vc_why), "Pas encore cr\xC3\xA9\xC3\xA9" "e (Pulse la cr\xC3\xA9" "e au premier jeu)"); return 0; }
     struct stat sb;
     if (fstat(fileno(f), &sb) != 0 || sb.st_size < 0x80000 || sb.st_size > 0x1000000 || (sb.st_size & (sb.st_size - 1))) {
         fclose(f); snprintf(vc_why, sizeof(vc_why), "Ce fichier n'est pas une image de carte (512 Ko \xC3\xA0 16 Mo)"); return 0;
@@ -1028,7 +1028,7 @@ static void vc_input(u32 down, u32 nav, int fire) {
     if (down & PAD_BUTTON_A) {
         if (vc_sel == 0) { mc_gci_scan(); vc_gsel = 0; vc_mode = 1; if (!mc_gn) tl_note("Aucun fichier .gci dans SD:/gci"); }
         else if (vc_sel == 1) { vc_mode = 2; vc_rsel = 0; mc_mount(vc_rslot); }
-        else if (vc_sel == 2) { tl_status("Cr\xC3\xA9" "ation de la carte..."); int ok = vc_new(); gl_busy[0] = 0; tl_note(ok ? "Nouvelle carte cr\xC3\xA9\xC3\xA9" "e (Y pour l'utiliser avec Resident)" : "Cr\xC3\xA9" "ation impossible"); }
+        else if (vc_sel == 2) { tl_status("Cr\xC3\xA9" "ation de la carte..."); int ok = vc_new(); gl_busy[0] = 0; tl_note(ok ? "Nouvelle carte cr\xC3\xA9\xC3\xA9" "e (Y pour l'utiliser avec Pulse)" : "Cr\xC3\xA9" "ation impossible"); }
         else if (vc_ok) { vc_pop = 1; vc_psel = 0; vc_pconfirm = 0; }
     }
     if ((down & PAD_BUTTON_X) && (vc_blank || (!vc_ok && vc_size))) {                   /* formater */
@@ -1039,7 +1039,7 @@ static void vc_input(u32 down, u32 nav, int fire) {
     if ((down & PAD_BUTTON_Y) && vc_nf) {                      /* carte utilisee par Resident */
         snprintf(vc_active, sizeof(vc_active), "%s", vc_files[vc_cur]);
         settings_dirty = 1;
-        tl_note("Cette carte sera la carte du slot A des jeux lanc\xC3\xA9s avec Resident");
+        tl_note("Cette carte sera la carte du slot A des jeux lanc\xC3\xA9s avec Pulse");
     }
     if (down & PAD_BUTTON_B) { vc_pconfirm = 0; tl_screen = TL_NONE; }
 }
@@ -1083,7 +1083,7 @@ static void draw_vcard(void) {
         return;
     }
     /* carte affichee */
-    snprintf(buf, sizeof(buf), "%s%s", vc_nf ? vc_files[vc_cur] : "-", vc_nf && !strcasecmp(vc_files[vc_cur], vc_active) ? "   (Resident)" : "");
+    snprintf(buf, sizeof(buf), "%s%s", vc_nf ? vc_files[vc_cur] : "-", vc_nf && !strcasecmp(vc_files[vc_cur], vc_active) ? "   (Pulse)" : "");
     gx_text_r(F_SMALL, 582, 70, buf, RGBA(190, 160, 255, 255));
     if (vc_ok) snprintf(buf, sizeof(buf), "%d sauvegarde%s, %d blocs libres sur %d", vc_n, vc_n > 1 ? "s" : "", vc_free_blocks(), vc_nblocks() - 5);
     else snprintf(buf, sizeof(buf), "%s%s", vc_why, vc_blank || (vc_size && !vc_ok) ? "  -  X : formater" : "");
@@ -1128,7 +1128,7 @@ static void draw_vcard(void) {
         gx_text_c(F_SMALL, x + w / 2, y + h - 8, "A : valider   B : fermer", RGBA(255, 210, 120, 255));
     }
     tl_msgbox();
-    static const char *const k[] = { "A", "Y", "B", "L", "R" }, *const l[] = { "CHOISIR", "POUR RESIDENT", "RETOUR", "", "CARTE" };
+    static const char *const k[] = { "A", "Y", "B", "L", "R" }, *const l[] = { "CHOISIR", "POUR PULSE", "RETOUR", "", "CARTE" };
     tl_legend(k, l, 5);
 }
 
@@ -1158,7 +1158,7 @@ static void x73_launch_pump(void) {
     x73_launch_k = -1;
     if (!gl_scanned) gl_scan();
     if (k < 0 || k >= gl_n) return;
-    crumb("telephone : lancement du jeu %d (%s)", k, m ? "Resident" : "lanceur");
+    crumb("telephone : lancement du jeu %d (%s)", k, m ? "Pulse" : "lanceur");
     menu_open = 0; kb_open = 0; tl_screen = TL_NONE;
     tab = TAB_GAMES; tab_enter(TAB_GAMES);
     gl_sel = k;

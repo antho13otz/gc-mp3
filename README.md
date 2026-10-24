@@ -14,10 +14,13 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v108)
+## Nouveautés de la version actuelle (v109)
+- **Resident s'appelle maintenant Pulse**, avec son logo (l'hexagone du cube en néon et un cœur qui
+  bat) : nouvel écran de chargement aux couleurs d'Aurore, et le nom partout dans GC Station.
+- (v108) Retour par A+Z+START sans blocage ; (v107) musique du disque sans grésillement.
 - **Retour par A+Z+START** : GC Station ne se bloque plus au redémarrage (« GX ne répond plus »).
-- **Musique du disque plus propre** (Resident) : plus de grésillement dans les aigus.
-- **Musique de Cocoto Kart Racer sans saccades** (Resident) : la musique du disque n'est plus effacée
+- **Musique du disque plus propre** (Pulse) : plus de grésillement dans les aigus.
+- **Musique de Cocoto Kart Racer sans saccades** (Pulse) : la musique du disque n'est plus effacée
   puis rejouée en avance quand le jeu prépare son son en deux temps.
 - **Correctif** : plus d'écran « BLOQUÉ - GX ne répond plus » en lançant un morceau avec le style Aurore.
 - **Curseur** : en haut de l'écran, tous les onglets s'affichent pour en choisir un d'un clic ; la croix
@@ -28,7 +31,7 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   menu START qui s'ouvre en douceur.
 - **Jeux dans le style choisi** (Moderne, Nouvelle, Aurore) : rangée de grandes jaquettes qui défile
   (R : jaquettes ou liste).
-- (v99 / v100) A+Z+START dans les jeux (Resident) ; (v98) musique du disque sans saccades ;
+- (v99 / v100) A+Z+START dans les jeux (Pulse) ; (v98) musique du disque sans saccades ;
   (v97) case **Disque de la console**, cartes SD de 1 To.
 
 ## Fonctionnalités principales
@@ -37,7 +40,7 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
 - **Radio** : webradios (recherche radio-browser, HLS), favoris, enregistrement, titres gardés.
 - **Jeux GameCube** (`.iso`, `.gcm`, `.ciso`) avec jaquettes, bannières, favoris, temps de jeu :
   - **Disque de la console** : le jeu du vrai lecteur, lancé depuis la même liste ;
-  - **Resident** (A), le lanceur de GC Station : faux lecteur DVD sur la carte SD, musique du disque,
+  - **Pulse** (A), le lanceur de GC Station (ancien nom : Resident) : faux lecteur DVD sur la carte SD, musique du disque,
     carte mémoire virtuelle, A+Z+START tenus 1 s = retour à GC Station, journal en cas de problème ;
   - **lanceur de secours** (X, et les jeux avec cheats) ; réglages par jeu (langue, son, carte) ;
   - **cheats** (`SD:/gc-mp3/cheats`), **cartes mémoire virtuelles**.
@@ -63,11 +66,11 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
 ## Fichiers sur la carte SD
 - Tes fichiers : `SD:/mp3`, `SD:/retro`, `SD:/photos`, `SD:/videos`, `SD:/ecran`, `SD:/downloads`, tes jeux où tu veux.
 - Tout ce que GC Station crée est dans **`SD:/gc-mp3`** : réglages (`gc-mp3.txt`), radios, podcasts,
-  listes, caches, jaquettes, cheats, lanceur de secours (`lanceur/`), Resident (`natif/`, `resident/`).
+  listes, caches, jaquettes, cheats, lanceur de secours (`lanceur/`), Pulse (`natif/`, `resident/`).
 
 ## Pour les développeurs
 - Compilation : GitHub Actions (devkitPPC), voir `.github/workflows/build.yml`.
-- Simulateur sur PC : `tools/pc-sim` ; banc d'essai de Resident : `tools/natif-test`.
+- Simulateur sur PC : `tools/pc-sim` ; banc d'essai de Pulse : `tools/natif-test`.
 - Historique complet des versions et détails : [`docs/HISTORIQUE.md`](docs/HISTORIQUE.md).
 
 ## Crédits

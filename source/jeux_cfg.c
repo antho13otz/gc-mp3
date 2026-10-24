@@ -261,11 +261,11 @@ static void draw_indigo_cfg(void) {
     tl_frame("R\xC3\xA9glages du jeu", NULL);
     fit_text(F_MED, jc_title, 500, fv, sizeof(fv));
     gx_text1(F_MED, 58, 100, fv, RGBA(255, 210, 120, 255));
-    static const char *const lab[JC_N] = { "Langue du jeu", "Son", "Carte m\xC3\xA9moire (Resident)" };
+    static const char *const lab[JC_N] = { "Langue du jeu", "Son", "Carte m\xC3\xA9moire (Pulse)" };
     static const char *const help[JC_N] = {
         "Langue des jeux multilingues (PAL), pour ce jeu seulement. La console revient \xC3\xA0 la sienne apr\xC3\xA8s.",
         "St\xC3\xA9r\xC3\xA9o ou mono pour ce jeu seulement.",
-        "Carte virtuelle utilis\xC3\xA9" "e par ce jeu avec Resident (Outils > Cartes m\xC3\xA9moire virtuelles)." };
+        "Carte virtuelle utilis\xC3\xA9" "e par ce jeu avec Pulse (Outils > Cartes m\xC3\xA9moire virtuelles)." };
     for (int i = 0; i < JC_N; i++) {
         f32 ry = 124 + i * 34;
         int on = i == jc_sel;

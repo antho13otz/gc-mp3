@@ -1,0 +1,5 @@
+wait 1500ms
+shot l01
+wait 450ms
+shot l02
+quit
