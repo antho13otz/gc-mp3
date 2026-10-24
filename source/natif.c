@@ -671,7 +671,7 @@ static void nat_journal_convert(void) {
             fprintf(f, "\n");
         }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
-        int rbase = H[1] >= 11 ? 0x160 : v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
+        int rbase = H[1] >= 12 ? 0x170 : H[1] >= 11 ? 0x160 : v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
         for (int k = 0; k < nring; k++) {
             const u8 *e = d + rbase + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);
@@ -686,6 +686,12 @@ static void nat_journal_convert(void) {
         }
         if (len >= 1024 && be32(d + 512) == NATRES_CRASH_MAGIC) na_crash_print(f, d + 512);   /* v79 */
         if (len >= 1536 && be32(d + 1024) == NATRES_STACK_MAGIC) na_stack_print(f, d + 1024);  /* v82 */
+        if (H[1] >= 12) {                                                     /* v94 */
+            u32 xf = be32(d + 0x160);
+            fprintf(f, "Lecture de la carte : %s, %s%s ; blocs au CRC faux : %u\n", xf & 1 ? "DMA" : "sans DMA", xf & 2 ? "32 MHz" : "16 MHz",
+                    xf & 4 ? " (32 MHz abandonne : CRC faux)" : "", (unsigned)be32(d + 0x164));
+            if (be32(d + 0x168)) fprintf(f, "Le jeu a redemarre sur un autre programme du disque : %u fois (dernier : %08X)\n", (unsigned)be32(d + 0x168), (unsigned)be32(d + 0x16C));
+        }
         if (H[1] >= 11 && be32(d + 0x15C)) {                                  /* v83 : photo de la memoire */
             fprintf(f, "\n========== Photo de la memoire du jeu au plantage ==========\n");
             long sl = 0;

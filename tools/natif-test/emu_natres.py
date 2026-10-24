@@ -15,6 +15,19 @@ AT = 0x817F0000
 random.seed(1)
 disk = bytearray(random.getrandbits(8) for _ in range(4096 * 512))   # carte de 2 Mo
 
+def crc16(b):                                          # v94 : CRC des blocs (CCITT), verifie a 32 MHz
+    c = 0
+    for x in b:
+        c ^= x << 8
+        for _ in range(8): c = ((c << 1) ^ 0x1021) & 0xFFFF if c & 0x8000 else (c << 1) & 0xFFFF
+    return c
+BAD32 = os.environ.get('EMU_BAD32') == '1'             # (32 MHz qui abime les donnees : le resident doit repasser a 16 MHz)
+NODMA = os.environ.get('EMU_NODMA') == '1'             # (adaptateur sans DMA : le resident doit le voir)
+fast = [False]
+def blk(sec):
+    d = bytes(disk[sec * 512:(sec + 1) * 512]); c = crc16(d)
+    if BAD32 and fast[0]: d = bytes([d[0] ^ 1]) + d[1:]
+    return list(d) + [c >> 8, c & 0xFF]
 class Card:
     def __init__(s):
         s.cmd = []; s.out = []; s.idle = True; s.app = False; s.acmd41 = 0; s.log = []; s.multi = None
@@ -27,7 +40,7 @@ class Card:
     def xfer_out(s):
         if not s.out and s.multi is not None:          # v88 : CMD18 : secteurs suivants (un peu d'attente avant chacun)
             sec = s.multi; s.multi += 1
-            s.out = [0xFF] * 3 + [0xFE] + list(disk[sec * 512:(sec + 1) * 512]) + [0x12, 0x34]
+            s.out = [0xFF] * 3 + [0xFE] + blk(sec)
         return s.out.pop(0) if s.out else 0xFF
     def exec_cmd(s):
         c = s.cmd[0] & 0x3F; arg = int.from_bytes(bytes(s.cmd[1:5]), 'big'); crc = s.cmd[5]
@@ -53,11 +66,12 @@ class Card:
             if s.idle: s.out = r + [0x01]; return
             sec = arg if SDHC else arg // 512
             if not SDHC and arg % 512: s.out = r + [0x40]; return
-            s.out = r + [0] + [0xFF] * 5 + [0xFE] + list(disk[sec * 512:(sec + 1) * 512]) + [0x12, 0x34]; return
+            s.out = r + [0] + [0xFF] * 5 + [0xFE] + blk(sec); return
         s.out = r + [0x04]
 
 card = Card()
 exi = [[0] * 5 for _ in range(3)]
+dma_n = [0]
 def mmio_read(uc, off, size, data):
     ch, reg = off // 0x14, (off % 0x14) // 4
     return exi[ch][reg] if ch < 3 else 0
@@ -69,7 +83,12 @@ def mmio_write(uc, off, size, value, data):
     if reg == 3 and (value & 1):
         n = ((value >> 4) & 3) + 1; mode = (value >> 2) & 3
         sel = ch == CHAN and (exi[ch][0] & (0x80 << DEV))
+        fast[0] = ((exi[ch][0] >> 4) & 7) >= 5
         clk = ch == CHAN                       # horloge sans CS : la carte ne repond pas
+        if value & 2:                          # v94 : DMA (lecture) : MAR, longueur
+            ln = exi[ch][2]; data = bytes((card.xfer_out() if sel else 0xFF) ^ (0x5A if NODMA else 0) for _ in range(ln))
+            dma_n[0] += 1
+            uc.mem_write(0x80000000 | exi[ch][1], data); exi[ch][3] = value & ~1; return
         if mode == 1:
             for i in range(n):
                 b = (exi[ch][4] >> (24 - 8 * i)) & 0xFF
@@ -126,4 +145,9 @@ for off, ln in tests:
 # hors de l'ISO -> erreur propre
 assert call(f_read, buf, len(iso) + 10, 4) != 0 and rd32(AT + 0x2C) == 5
 print('commandes:', sorted(set(c for c, a in card.log)), 'lectures SD:', rd32(AT + 0x38))
+xf = rd32(AT + 0x160)
+print('transfert : DMA %d, 32 MHz %d, abandonne %d, CRC faux %d, DMA faits %d' % (xf & 1, xf >> 1 & 1, xf >> 2 & 1, rd32(AT + 0x164), dma_n[0]))
+assert (xf & 1) == (0 if NODMA else 1) and (dma_n[0] > 8 or NODMA), 'DMA'
+assert (xf >> 1 & 1) == (0 if BAD32 else 1), '32 MHz'
+
 print('TOUT OK')
