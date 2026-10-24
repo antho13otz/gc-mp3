@@ -21,6 +21,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v114 — écran Minimal avec le logo complet
+- L'écran de chargement Minimal affiche le logo de Pulse à l'identique (cube, hexagone ouvert, battement
+  animé) au lieu du seul cube ; l'avancement passe dans une fine ligne en dégradé sous le nom du jeu.
+
 ## Nouveautés v113 — nouveau logo de Pulse
 - Logo choisi parmi plusieurs maquettes : cube GameCube aux trois faces écartées (rose dessus, violet à
   gauche, bleu à droite) avec une lueur rose au centre, hexagone en dégradé diagonal (rose → cyan) et

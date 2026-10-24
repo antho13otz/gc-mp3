@@ -14,11 +14,10 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v113)
-- **Nouveau logo de Pulse** : un cube aux trois faces écartées (rose, violet, bleu) dans l'hexagone en
-  dégradé, traversé par un battement de cœur qui sort de l'hexagone par une ouverture. Partout où Pulse
-  apparaît (écrans de chargement, fenêtre de lancement d'un jeu), avec le battement animé.
-- (v112) **Mise à jour plus fiable** : plus de « GitHub ne répond pas » après de nombreux redémarrages.
+## Nouveautés de la version actuelle (v114)
+- **Écran de chargement Minimal** : le logo complet de Pulse, avec son battement animé.
+- (v113) **Nouveau logo de Pulse** : un cube aux trois faces écartées dans l'hexagone en dégradé,
+  traversé par un battement de cœur qui sort par une ouverture, partout où Pulse apparaît.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
