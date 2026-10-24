@@ -14,7 +14,8 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v104)
+## Nouveautés de la version actuelle (v105)
+- **Correctif** : plus d'écran « BLOQUÉ - GX ne répond plus » en lançant un morceau avec le style Aurore.
 - **Curseur** : en haut de l'écran, tous les onglets s'affichent pour en choisir un d'un clic ; la croix
   cache le curseur, le stick le fait revenir.
 - **Trois looks au choix** (START > Réglages > Affichage > Style) : **Classique** (inchangé),

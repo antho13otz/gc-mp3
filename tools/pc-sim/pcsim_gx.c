@@ -306,6 +306,10 @@ void pcsim_gp_report(void) {
 }
 static unsigned long long gx_now(void) { struct timespec t; clock_gettime(CLOCK_THREAD_CPUTIME_ID, &t); return (unsigned long long)t.tv_sec * 1000000000ull + t.tv_nsec; }
 void GX_End(void) {
+    if (vn != vexp) {                                          /* v105 : la vraie console se bloque (GX ne repond plus) */
+        fprintf(stderr, "[pcsim] ERREUR GX : %d sommets envoyes pour %d annonces dans GX_Begin\n", vn, (int)vexp);
+        abort();
+    }
     switch (vprim) {                                           /* (compte toujours : charge du GPU) */
     case GX_QUADS: for (int i = 0; i + 3 < vn; i += 4) { gp_count(&vb[i], &vb[i + 1], &vb[i + 2]); gp_count(&vb[i], &vb[i + 2], &vb[i + 3]); } break;
     case GX_TRIANGLES: for (int i = 0; i + 2 < vn; i += 3) gp_count(&vb[i], &vb[i + 1], &vb[i + 2]); break;

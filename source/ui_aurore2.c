@@ -49,7 +49,7 @@ static void au_player(void) {
     if (have) {
         uxsave_t uz = ux_native(cx);
         gx_set_cover();
-        GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+        GX_Begin(GX_QUADS, GX_VTXFMT0, 8);                 /* (v105 : 8 sommets : pochette + reflet ; avant 4 annonces = GX bloque) */
         GX_Position2f32(UX(x), y);           GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 0.0f);
         GX_Position2f32(UX(x + sz), y);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 0.0f);
         GX_Position2f32(UX(x + sz), y + sz); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 1.0f);
