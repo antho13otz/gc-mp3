@@ -62,7 +62,59 @@ static int up_find_dol(const char *dir, int depth, char *out, int cap) {
 
 /* v30 : GC-MP3 renomme (ex. ipl.dol pour demarrer directement) : on le reconnait
    a son contenu (texte "INDIGO AUDIO PLAYER" dans le .dol) */
+/* v92 : la reponse est gardee dans SD:/gc-mp3/cache/dol-id.txt (chemin|taille|date|0-1) : sans ca, chaque
+   demarrage relisait ipl.dol en entier (plusieurs Mo : quelques secondes avant le premier ecran) */
+static int up_is_me_scan(const char *path);
+static void up_idc_store(const char *path, int r);
+#define UP_IDC GCD "/cache/dol-id.txt"
 static int up_is_me(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) return 0;
+    char key[NAME_LEN + 48];
+    int kl = snprintf(key, sizeof(key), "%s|%ld|%ld|", path, (long)st.st_size, (long)st.st_mtime);
+    long n = 0;
+    char *c = (char *)read_file(UP_IDC, 16 * 1024, &n);
+    if (c) {
+        char *t = (char *)realloc(c, n + 1);
+        if (t) {
+            t[n] = 0;
+            for (char *l = t; l && *l; ) {
+                char *e = strchr(l, '\n');
+                if (e) *e = 0;
+                if (!strncmp(l, key, kl)) { int r = l[kl] == '1'; free(t); return r; }
+                l = e ? e + 1 : NULL;
+            }
+            free(t);
+        } else free(c);
+    }
+    int r = up_is_me_scan(path);
+    up_idc_store(path, r);
+    return r;
+}
+/* nouvelle ligne pour ce fichier (les anciennes lignes du meme chemin sont enlevees) */
+static void up_idc_store(const char *path, int r) {
+    struct stat st;
+    if (stat(path, &st) != 0) return;
+    char key[NAME_LEN + 48];
+    snprintf(key, sizeof(key), "%s|%ld|%ld|", path, (long)st.st_size, (long)st.st_mtime);
+    long n = 0;
+    char *c = (char *)read_file(UP_IDC, 16 * 1024, &n);
+    mkdir(GCD, 0777); mkdir(GCD "/cache", 0777);
+    FILE *f = fopen(UP_IDC ".tmp", "w");
+    if (f) {
+        fprintf(f, "%s%d\n", key, r);
+        size_t pl = strlen(path);
+        for (long i = 0; c && i < n; ) {
+            long s0 = i;
+            while (i < n && c[i] != '\n') i++;
+            if (i - s0 > 0 && !(i - s0 > (long)pl && !memcmp(c + s0, path, pl) && c[s0 + pl] == '|')) { fwrite(c + s0, 1, i - s0, f); fputc('\n', f); }
+            i++;
+        }
+        if (fclose(f) == 0) { remove(UP_IDC); rename(UP_IDC ".tmp", UP_IDC); }
+    }
+    free(c);
+}
+static int up_is_me_scan(const char *path) {
     FILE *f = fopen(path, "rb");
     if (!f) return 0;
     static u8 b[65536 + 32];
@@ -79,6 +131,16 @@ static int up_is_me(const char *path) {
     }
     fclose(f);
     return found;
+}
+/* v92 : numero de build ecrit par GitHub dans les 32 derniers octets du .dol ("GCSTATION-BUILD=393") :
+   lu sans relire tout le fichier (0 = inconnu) */
+static int up_dol_build(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    char t[33] = { 0 };
+    int ok = fseek(f, -32, SEEK_END) == 0 && fread(t, 1, 32, f) == 32;
+    fclose(f);
+    return ok && !memcmp(t, "GCSTATION-BUILD=", 16) ? atoi(t + 16) : 0;
 }
 static char up_found[NAME_LEN] = "";                  /* (v57 : remis a zero quand ipl.dol change) */
 static void up_pick_target(void) {
@@ -222,6 +284,7 @@ static void up_install_finish(const u8 *d, long n) {
         up_fail("Impossible de remplacer le fichier");
         return;
     }
+    up_idc_store(up_target, 1);                          /* v92 : c'est GC Station (pas besoin de le relire au demarrage) */
     /* les autres copies (ipl.dol, apps...) */
     ui_status("Mise \xC3\xA0 jour des autres copies de GC Station...");
     up_ncopies = 0;
@@ -230,6 +293,7 @@ static void up_install_finish(const u8 *d, long n) {
     for (int i = 0; i < up_ncopies; i++) {
         int ok = up_write_copy(up_copies[i], d, n);
         nok += ok;
+        if (ok) up_idc_store(up_copies[i], 1);
         crumb("mise a jour : copie %s %s", up_copies[i], ok ? "ok" : "ECHEC");
     }
     up_state = UP_DONE;

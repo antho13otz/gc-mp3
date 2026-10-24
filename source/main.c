@@ -9299,6 +9299,8 @@ static lwp_t dec_thread_h;
 static u8 dec_stack[64 * 1024] ATTRIBUTE_ALIGN(32);
 static int dec_started = 0;
 static void *dec_thread_fn(void *arg);
+static volatile int gj_state = 0;           /* v92 : lecture pour l'onglet JEUX (gclib.c) : 0 libre, 1 a faire, 2 fini */
+static void gl_job_run(void);
 static int dj_photo = 0;                    /* 1 = photo de l'economiseur (RGB, ajustee a dj_aw x dj_ah) */
 static int dj_owner = 0;                    /* qui attend le resultat : 1 web, 2 economiseur, 3 photos, 4 video */
 #define PHOTO_MAX_PIXELS (1920 * 1088)
@@ -9392,7 +9394,10 @@ static void *dec_thread_fn(void *arg) {
         } else if (cv_state == 1) {                        /* pochette du morceau (v19) */
             cover_job();
             cv_state = 2;
-        } else usleep(8000);
+        } else if (gj_state == 1) {                        /* v92 : banniere / grande image d'un jeu */
+            gl_job_run();
+            gj_state = 2;
+        } else usleep(4000);
     }
     return NULL;
 }
@@ -12607,6 +12612,41 @@ static void music_pump(void) {
    journal (Outils > Infos console > journal) ; un message bref si un souci. */
 static u64 boot_t0 = 0;
 static char boot_check[160] = "";
+/* v92 : GC Station lance depuis un disque (mini-DVD grave) ou une vieille copie : s'il y a sur la carte SD
+   une version plus recente (numero ecrit par GitHub a la fin du .dol), on la lance a la place. B maintenu au
+   demarrage : on reste sur cette version. */
+static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *a2, const char *what);
+static void disc_chain(void) {
+    if (!sd_ok || sd_virtual) return;
+    PAD_ScanPads();
+    if (PAD_ButtonsHeld(0) & PAD_BUTTON_B) { crumb("demarrage : B maintenu, pas de version de la carte SD"); return; }
+    up_pick_target();
+    int b = up_dol_build(up_target);
+    if (b <= GCMP3_BUILD) return;
+    if (up_argv0 && !strcasecmp(up_argv0, up_target)) return;            /* (c'est deja ce fichier) */
+    crumb("demarrage : version plus recente sur la carte SD : %s (build %d > %d)", up_target, b, GCMP3_BUILD);
+    say("   Version plus recente sur la carte SD : lancement... %s", "");
+    const char *e = gl_boot_dol(up_target, NULL, NULL, "GC Station");   /* (ne revient pas si ca marche) */
+    if (e) crumb("demarrage : lancement de %s impossible : %s", up_target, e);
+}
+/* v92 : temps de chaque etape du demarrage (SD:/gc-mp3/demarrage.txt) */
+static char bt_txt[640];
+static int bt_len = 0;
+static u64 bt_prev = 0;
+static void bt_step(const char *what) {
+    u64 n = ticks_to_millisecs(gettime());
+    if (!bt_prev) bt_prev = boot_t0;
+    if (bt_len < (int)sizeof(bt_txt) - 64) bt_len += snprintf(bt_txt + bt_len, sizeof(bt_txt) - bt_len, "%-24s %6u ms\n", what, (unsigned)(n - bt_prev));
+    bt_prev = n;
+}
+static void bt_save(void) {
+    crumb("demarrage : %s", bt_txt);
+    if (!sd_ok || sd_virtual) return;
+    FILE *f = fopen(GCD "/demarrage.txt", "w");
+    if (!f) return;
+    fprintf(f, "GC Station %s : temps du dernier demarrage (total %u ms)\n%s", GCMP3_VERSION, (unsigned)(ticks_to_millisecs(gettime()) - boot_t0), bt_txt);
+    fclose(f);
+}
 static void boot_selfcheck(void) {
     /* memoire libre, sans rien reserver (v80 : un essai de 12 Mo faussait la mesure du simulateur pc-sim) :
        place jamais donnee (arene) + memoire rendue au tas, comme Outils > Infos console */
@@ -12631,22 +12671,36 @@ int main(int argc, char **argv) {
     if (!setlocale(LC_CTYPE, "C.UTF-8")) setlocale(LC_CTYPE, "C-UTF-8");   /* v26 : noms de fichiers en UTF-8 (accents, tirets longs...) : sans ca, libfat s'arrete sur certains noms */
     sd_ok = mount_sd();                     /* d'abord les reglages (mode video, theme...) */
     if (!sd_ok) sd_ok = ramfs_mount();      /* (Dolphin : SD en memoire, reglages sur la carte memoire) */
+    bt_step("carte SD");
     if (sd_ok) gcd_migrate();               /* v22 : tout dans SD:/gc-mp3 */
     crash_init();                           /* journal de plantage */
     ui_lang_apply();                        /* v24 : langue de la console, sauf reglage */
     load_settings();
+    bt_step("reglages");
     nfs_mount();
     jeux_cfg_boot();                        /* v75 : langue / son de la console, reseau */
     if (sd_ok) ld_boot();                   /* v45 : retour.txt (retour en jeu) + journal du lanceur */
+    bt_step("jeux et lanceur");
     if (!init_video()) return 1;
+    bt_step("video");
     gx_init();
     init_spectrum();
+    bt_step("gx");
+    disc_chain();                            /* v92 : lance depuis un disque : la version plus recente de la carte SD */
 
-    if (sd_ok) { scan_files(); bib_load(); pl_load_all(); stats_load(); rating_load(); }
+    /* v92 : chaque etape du demarrage a l'ecran et dans SD:/gc-mp3/demarrage.txt (temps en ms) */
+    if (sd_ok) { say("   Musique de la carte SD... %s", ""); scan_files(); { char nb[16]; snprintf(nb, sizeof(nb), "%d", nfiles); say("%s\n", nb); } bt_step("liste de la musique"); }
+    if (sd_ok) { say("   Bibliotheque... %s", ""); bib_load(); pl_load_all(); stats_load(); rating_load(); say("%s\n", "OK"); bt_step("bibliotheque"); }
     if (sd_ok) nat_journal_convert();       /* v54 : journal du dernier jeu lance par le lanceur maison */
+    bt_step("journal Resident");
+    say("   Radios... %s", "");
     load_stations();
+    say("%s\n", "OK");
+    bt_step("radios");
     lib_rebuild();
+    bt_step("tri de la musique");
     boot_selfcheck();                        /* v76 : controle memoire / carte SD / duree */
+    bt_save();
     if (boot_check[0]) lib_note(boot_check);
     if (covers_auto) net_start_async();     /* reseau en fond, pour les pochettes */
 

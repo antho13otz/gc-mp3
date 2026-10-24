@@ -9,7 +9,7 @@
 #define GL_MAX      400
 #define GL_UI       GCD "/jaquettes"
 #define GL_CACHE    GCD "/cache/jeux"
-#define GL_SLOTS    32                       /* jaquettes gardees en memoire (128x128) ; v68 : 32 */
+#define GL_SLOTS    96                       /* jaquettes gardees en memoire (128x128 CMPR : 8 Ko chacune) ; v92 : 96 */
 #define GL_BSLOTS   40                       /* bannieres gardees en memoire */
 
 typedef struct {
@@ -98,53 +98,19 @@ static int swpk_find(const swpk_t *k, const char *id) {
     for (int i = 0; i < k->n; i++) if (!memcmp(k->idx + i * 32, id, 4) && (k->idx[i * 32 + 6] & 1)) return i;
     return -1;
 }
-/* lit le niveau "level" (0 = taille reelle) d'une texture CMPR */
+/* lit le niveau "level" (0 = taille reelle) d'une texture CMPR ; v92 : alignee, prete pour GX (GX_TF_CMPR) */
 static u8 *swpk_read(const swpk_t *k, int r, int level, int *w, int *h) {
     if (!k->fp || r < 0 || r >= k->n || level >= (k->levels ? k->levels : 1)) return NULL;
     u32 off = be32(k->idx + r * 32 + 8);
     int lw = k->cw, lh = k->ch;
     for (int l = 0; l < level; l++) { off += (u32)lw * lh / 2; lw /= 2; lh /= 2; }
     u32 len = (u32)lw * lh / 2;
-    u8 *b = (u8 *)malloc(len);
+    u8 *b = (u8 *)memalign(32, len);
     if (!b) return NULL;
     if (fseek(k->fp, (long)off, SEEK_SET) != 0 || fread(b, 1, len, k->fp) != len) { free(b); return NULL; }
+    DCFlushRange(b, len);
     *w = lw; *h = lh;
     return b;
-}
-
-/* CMPR (blocs DXT1 ranges par tuiles de 8x8) -> RGB5A3 en tuiles 4x4 */
-static void gl_put5a3(u16 *tex, int tw, int x, int y, u16 v) {
-    tex[((y >> 2) * (tw >> 2) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)] = v;
-}
-static u16 *gl_cmpr_to_5a3(const u8 *src, int w, int h) {
-    u16 *tex = (u16 *)memalign(32, (size_t)w * h * 2);
-    if (!tex) return NULL;
-    const u8 *p = src;
-    for (int ty = 0; ty < h; ty += 8)
-        for (int tx = 0; tx < w; tx += 8)
-            for (int sb = 0; sb < 4; sb++, p += 8) {
-                int bx = tx + (sb & 1) * 4, by = ty + (sb >> 1) * 4;
-                u16 c0 = be16(p), c1 = be16(p + 2);
-                int r[4], g[4], b[4], a[4] = { 255, 255, 255, 255 };
-                r[0] = (c0 >> 11) * 255 / 31; g[0] = ((c0 >> 5) & 63) * 255 / 63; b[0] = (c0 & 31) * 255 / 31;
-                r[1] = (c1 >> 11) * 255 / 31; g[1] = ((c1 >> 5) & 63) * 255 / 63; b[1] = (c1 & 31) * 255 / 31;
-                if (c0 > c1) {
-                    r[2] = (2 * r[0] + r[1]) / 3; g[2] = (2 * g[0] + g[1]) / 3; b[2] = (2 * b[0] + b[1]) / 3;
-                    r[3] = (r[0] + 2 * r[1]) / 3; g[3] = (g[0] + 2 * g[1]) / 3; b[3] = (b[0] + 2 * b[1]) / 3;
-                } else {
-                    r[2] = (r[0] + r[1]) / 2; g[2] = (g[0] + g[1]) / 2; b[2] = (b[0] + b[1]) / 2;
-                    r[3] = g[3] = b[3] = 0; a[3] = 0;
-                }
-                for (int yy = 0; yy < 4; yy++) {
-                    u8 bits = p[4 + yy];
-                    for (int xx = 0; xx < 4; xx++) {
-                        int i = (bits >> (6 - xx * 2)) & 3;
-                        if (bx + xx < w && by + yy < h) gl_put5a3(tex, w, bx + xx, by + yy, rgb5a3(r[i], g[i], b[i], a[i]));
-                    }
-                }
-            }
-    DCFlushRange(tex, (u32)w * h * 2);
-    return tex;
 }
 
 /* ---------- lecture des disques (.iso / .gcm / .ciso) ---------- */
@@ -520,22 +486,32 @@ static GXTexObj *gl_cover(int k, int load) {                 /* jaquette 128x256
     if (s) return &s->obj;
     if (!load || gl[k].post < 0) return NULL;
     int w, h;
-    u8 *c = swpk_read(&gl_post, gl[k].post, 1, &w, &h);
+    u8 *c = swpk_read(&gl_post, gl[k].post, 1, &w, &h);    /* v92 : texture CMPR telle quelle (plus de conversion) */
     if (!c) { gl[k].post = -1; return NULL; }
-    u16 *t = gl_cmpr_to_5a3(c, w, h);
-    free(c);
-    if (!t) return NULL;
     s = gl_new_slot(gl_cov, GL_SLOTS);
-    s->tex = t; s->game = k; s->used = now_ms();
-    GX_InitTexObj(&s->obj, t, w, h, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    s->tex = (u16 *)c; s->game = k; s->used = now_ms();
+    GX_InitTexObj(&s->obj, c, w, h, GX_TF_CMPR, GX_CLAMP, GX_CLAMP, GX_FALSE);
     GX_InitTexObjFilterMode(&s->obj, GX_LINEAR, GX_LINEAR);
     return &s->obj;
 }
+/* v92 : lectures dans la table des fichiers du disque par fenetres de 4 Ko (deux fenetres : entrees, noms) */
+typedef struct { u32 base; int ok; u8 b[4096]; } gl_win_t;
+static int gl_win_read(gdisc_t *d, gl_win_t *w, u32 off, void *out, u32 len, u32 lim) {
+    if (len > 64) return gd_read(d, off, out, len);
+    if (!w->ok || off < w->base || off + len > w->base + sizeof(w->b)) {
+        u32 b0 = off & ~2047u, n = sizeof(w->b);
+        if (lim > b0 && lim - b0 < n) n = lim - b0;
+        if (n < (off - b0) + len || !gd_read(d, b0, w->b, n)) { w->ok = 0; return gd_read(d, off, out, len); }
+        w->base = b0; w->ok = 1;
+        usleep(300);                                         /* (thread de fond : l'ecran passe devant) */
+    }
+    memcpy(out, w->b + (off - w->base), len);
+    return 1;
+}
 /* banniere du disque : cache SD:/gc-mp3/cache/jeux/<ID><disque>.bnr, sinon lue dans le jeu */
-static void gl_banner_load(int k) {
-    gcg_t *g = &gl[k];
-    char cp[NAME_LEN];
-    snprintf(cp, sizeof(cp), GL_CACHE "/%s%u.bnr", g->id, g->disc);
+/* v92 : lecture de la banniere (cache, sinon dans le jeu, puis mise en cache) : faite par le thread de
+   fond (gl_job_run), sans rien toucher de la liste des jeux */
+static u8 *gl_banner_fetch(const char *path, const char *cp) {
     u8 *b = NULL;
     long len = 0;
     unsigned char *c = read_file(cp, 0x2000, &len);
@@ -543,33 +519,35 @@ static void gl_banner_load(int k) {
     else {
         free(c);
         gdisc_t d;
-        if (gd_open(&d, g->path)) {
+        if (gd_open(&d, path)) {
             u8 h[0x440];
             if (gd_read(&d, 0, h, sizeof(h))) {
+                /* v92 : seulement les fichiers a la racine du disque (on saute le contenu des dossiers),
+                   au lieu de lire toute la table des fichiers (jusqu'a plusieurs centaines de Ko) */
                 u32 fo = be32(h + 0x424), fs = be32(h + 0x428);
-                u8 *fst = (fs >= 12 && fs < (4u << 20)) ? (u8 *)malloc(fs) : NULL;
-                if (fst && gd_read(&d, fo, fst, fs)) {
-                    u32 ne = be32(fst + 8);
-                    if (ne > 0 && (u64)ne * 12 <= fs) {
-                        const char *names = (const char *)fst + ne * 12;
-                        u32 nl = fs - ne * 12;
-                        for (u32 i = 1; i < ne; i++) {
-                            const u8 *e = fst + i * 12;
-                            u32 no = be32(e) & 0xFFFFFF;
-                            if (e[0] != 0 || no + 12 > nl) continue;
-                            if (!strncasecmp(names + no, "opening.bnr", 12)) {
-                                u32 bo = be32(e + 4), bl = be32(e + 8);
-                                if (bl >= 0x1960) {
-                                    b = (u8 *)malloc(0x1960);
-                                    if (b && !gd_read(&d, bo, b, 0x1960)) { free(b); b = NULL; }
-                                    if (b && memcmp(b, "BNR", 3)) { free(b); b = NULL; }
-                                }
-                                break;
+                u8 e[12], root[12];
+                static gl_win_t we, wn;
+                we.ok = wn.ok = 0;
+                if (fs >= 12 && fs < (4u << 20) && gd_read(&d, fo, root, 12)) {
+                    u32 ne = be32(root + 8), st = fo + ne * 12;
+                    int guard = 0;
+                    for (u32 i = 1; ne <= fs / 12 && i < ne && guard < 2048; guard++) {
+                        if (!gl_win_read(&d, &we, fo + i * 12, e, 12, fo + fs)) break;
+                        if (e[0]) { u32 nx = be32(e + 8); if (nx <= i) break; i = nx; continue; }   /* (dossier : on le saute) */
+                        char nm[16] = { 0 };
+                        u32 no = be32(e) & 0xFFFFFF;
+                        if (st + no + 12 <= fo + fs && gl_win_read(&d, &wn, st + no, nm, 12, fo + fs) && !strncasecmp(nm, "opening.bnr", 12)) {
+                            u32 bo = be32(e + 4), bl = be32(e + 8);
+                            if (bl >= 0x1960) {
+                                b = (u8 *)malloc(0x1960);
+                                if (b && !gd_read(&d, bo, b, 0x1960)) { free(b); b = NULL; }
+                                if (b && memcmp(b, "BNR", 3)) { free(b); b = NULL; }
                             }
+                            break;
                         }
+                        i++;
                     }
                 }
-                free(fst);
             }
             gd_close(&d);
         }
@@ -579,6 +557,10 @@ static void gl_banner_load(int k) {
             if (f) { fwrite(b, 1, 0x1960, f); fclose(f); }
         }
     }
+    return b;
+}
+static void gl_banner_apply(int k, u8 *b) {
+    gcg_t *g = &gl[k];
     if (!b) { g->bstate = 2; return; }
     g->bstate = 1;
     if (!g->desc && g->id[3] != 'J') {                     /* description de la banniere */
@@ -600,6 +582,59 @@ static void gl_banner_load(int k) {
         g->bslot = (s8)(s - gl_ban);
     }
     free(b);
+}
+/* ---------- v92 : lectures sur la carte SD dans le thread de fond (dec_thread_fn, main.c) ----------
+   Bannieres des jeux et grandes images (jaquette 256x256, capture 320x240) : l'ecran ne s'arrete plus
+   pendant ces lectures. Un travail a la fois ; le resultat est verifie (chemin du jeu) avant usage. */
+enum { GJ_BANNER = 1, GJ_BIG, GJ_STILL };
+static struct { int kind, k; char path[NAME_LEN], cp[NAME_LEN], pak[NAME_LEN]; u32 off, len; u8 *res; } gj;
+static void gl_job_run(void) {                               /* (thread de fond) */
+    gj.res = NULL;
+    if (gj.kind == GJ_BANNER) { gj.res = gl_banner_fetch(gj.path, gj.cp); return; }
+    FILE *f = fopen(gj.pak, "rb");
+    if (!f) return;
+    u8 *b = (u8 *)memalign(32, gj.len);
+    int ok = b && fseek(f, (long)gj.off, SEEK_SET) == 0;
+    for (u32 o = 0; ok && o < gj.len; o += 4096) {            /* (par 4 Ko : l'ecran garde la main entre deux) */
+        u32 n = gj.len - o < 4096 ? gj.len - o : 4096;
+        ok = fread(b + o, 1, n, f) == n;
+        usleep(500);
+    }
+    if (ok) { DCFlushRange(b, gj.len); gj.res = b; }
+    else free(b);
+    fclose(f);
+}
+static int gl_job_post(int kind, int k) {
+    if (gj_state != 0 || k < 0 || k >= gl_n || !dec_ensure()) return 0;
+    gcg_t *g = &gl[k];
+    gj.kind = kind; gj.k = k; gj.res = NULL;
+    snprintf(gj.path, sizeof(gj.path), "%s", g->path);
+    if (kind == GJ_BANNER) snprintf(gj.cp, sizeof(gj.cp), GL_CACHE "/%s%u.bnr", g->id, g->disc);
+    else {
+        const swpk_t *pk = kind == GJ_BIG ? &gl_post : &gl_still;
+        int r = kind == GJ_BIG ? g->post : g->still;
+        if (!pk->idx || r < 0 || r >= pk->n) return 0;
+        snprintf(gj.pak, sizeof(gj.pak), "%s", kind == GJ_BIG ? GL_UI "/posters.pak" : GL_UI "/stills.pak");
+        gj.off = be32(pk->idx + r * 32 + 8); gj.len = (u32)pk->cw * pk->ch / 2;
+    }
+    gj_state = 1;
+    return 1;
+}
+static void gl_job_done(void) {
+    if (gj_state != 2) return;
+    int k = gj.k;
+    u8 *b = gj.res;
+    gj.res = NULL;
+    gj_state = 0;
+    if (k < 0 || k >= gl_n || strcmp(gl[k].path, gj.path)) { free(b); return; }   /* (liste changee entre-temps) */
+    if (gj.kind == GJ_BANNER) { gl_banner_apply(k, b); return; }
+    if (gj.kind == GJ_BIG) {
+        free(gl_big.tex); gl_big.tex = (u16 *)b; gl_big.game = k;
+        if (b) { GX_InitTexObj(&gl_big.obj, b, 256, 256, GX_TF_CMPR, GX_CLAMP, GX_CLAMP, GX_FALSE); GX_InitTexObjFilterMode(&gl_big.obj, GX_LINEAR, GX_LINEAR); }
+    } else {
+        free(gl_bigst.tex); gl_bigst.tex = (u16 *)b; gl_bigst.game = k;
+        if (b) { GX_InitTexObj(&gl_bigst.obj, b, 320, 240, GX_TF_CMPR, GX_CLAMP, GX_CLAMP, GX_FALSE); GX_InitTexObjFilterMode(&gl_bigst.obj, GX_LINEAR, GX_LINEAR); }
+    }
 }
 static GXTexObj *gl_banner(int k) {
     glslot_t *s = gl_find_slot(gl_ban, GL_BSLOTS, k);
@@ -950,7 +985,7 @@ static void gl_draw_list(void) {
 static void gl_draw_showcase(void) {
     char buf[NAME_LEN], d[NAME_LEN];
     gcg_t *g = &gl[gl_sel];
-    if (now_ms() - last_input_ms > 150) gl_load_big(gl_sel);     /* (pas pendant le defilement) */
+    if (now_ms() - last_input_ms > 150) gl_load_big(gl_sel);     /* (pas pendant le defilement ; v92 : en fond) */
     /* grande image : la capture, sinon la jaquette */
     const f32 px = 24, py = 114, pw = 280, ph = 198;
     if (g->still >= 0 && gl_bigst.game == gl_sel && gl_bigst.tex) draw_tex_fit(&gl_bigst.obj, 320, 240, 320, 240, px, py, pw, ph);
@@ -1025,21 +1060,12 @@ static void gl_draw_shelf(void) {
     (void)buf; (void)d;
 }
 
-/* grande jaquette (niveau 0 : 256x256, dont 192x256 d'image) et capture du jeu k */
+/* grande jaquette (niveau 0 : 256x256, dont 192x256 d'image) et capture du jeu k : v92 : demandees au
+   thread de fond (gl_job_post), affichees des qu'elles sont lues */
 static void gl_load_big(int k) {
     gcg_t *g = &gl[k];
-    if (g->post >= 0 && gl_big.game != k) {
-        free(gl_big.tex); gl_big.tex = NULL; gl_big.game = k;
-        int w, h; u8 *c = swpk_read(&gl_post, g->post, 0, &w, &h);
-        if (c) { gl_big.tex = gl_cmpr_to_5a3(c, w, h); free(c); }
-        if (gl_big.tex) { GX_InitTexObj(&gl_big.obj, gl_big.tex, 256, 256, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE); GX_InitTexObjFilterMode(&gl_big.obj, GX_LINEAR, GX_LINEAR); }
-    }
-    if (g->still >= 0 && gl_bigst.game != k) {
-        free(gl_bigst.tex); gl_bigst.tex = NULL; gl_bigst.game = k;
-        int w, h; u8 *c = swpk_read(&gl_still, g->still, 0, &w, &h);
-        if (c) { gl_bigst.tex = gl_cmpr_to_5a3(c, w, h); free(c); }
-        if (gl_bigst.tex) { GX_InitTexObj(&gl_bigst.obj, gl_bigst.tex, 320, 240, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE); GX_InitTexObjFilterMode(&gl_bigst.obj, GX_LINEAR, GX_LINEAR); }
-    }
+    if (g->post >= 0 && gl_big.game != k) { gl_job_post(GJ_BIG, k); return; }
+    if (g->still >= 0 && gl_bigst.game != k) gl_job_post(GJ_STILL, k);
 }
 static void draw_gclib_main(void);
 static void draw_gclib(void) {
@@ -1065,11 +1091,12 @@ static void draw_gclib_main(void) {
     if (!gl_post.fp && hub_end + 12 < 590 - text_width(F_SMALL, TR("(pas de jaquettes)"), 1))
         gx_text_r(F_SMALL, 590, 99, TR("(pas de jaquettes)"), RGBA(150, 135, 210, 255));
     /* une banniere a lire par image, quand on ne bouge pas */
-    if (gl_n && now_ms() - last_input_ms > 120) {
+    gl_job_done();                                           /* v92 : resultat du thread de fond */
+    if (gl_n && now_ms() - last_input_ms > 150 && gj_state == 0) {   /* (v92 : la banniere est lue en fond) */
         int first = gl_detail ? gl_sel : (gl_sel / GL_COLS - (gl_sel / GL_COLS > 0)) * GL_COLS;
         if (first < 0) first = 0;
         for (int k = first; k < gl_n && k < first + GL_COLS * 3; k++)
-            if (gl[k].bstate == 0 || (gl[k].bstate == 1 && !gl_banner(k) && (gl[k].post < 0 || gl_detail))) { gl_banner_load(k); break; }
+            if (gl[k].bstate == 0 || (gl[k].bstate == 1 && !gl_banner(k) && (gl[k].post < 0 || gl_detail))) { gl_job_post(GJ_BANNER, k); break; }
     }
     if (!gl_n) {
         gx_text1(F_MED, 34, 150, "Aucun jeu GameCube trouv\xC3\xA9 sur la carte SD", RGBA(255, 255, 255, 255));
@@ -1083,7 +1110,7 @@ static void draw_gclib_main(void) {
     if (gl_sel >= gl_n) gl_sel = gl_n - 1;
     gcg_t *g = &gl[gl_sel];
     if (gl_detail) {
-        gl_load_big(gl_sel);
+        if (now_ms() - last_input_ms > 100) gl_load_big(gl_sel);   /* v92 : en fond, pas pendant qu'on fait defiler les fiches */
         /* v45 : en changeant de jeu, la fiche glisse (gauche / droite) */
         gl_slide *= gl_anim ? expf(-ui_dt * 11.0f) : 0.0f;
         if (fabsf(gl_slide) < 0.004f) gl_slide = 0;
@@ -1093,7 +1120,11 @@ static void draw_gclib_main(void) {
         if (g->post >= 0 && gl_big.game == gl_sel && gl_big.tex) {
             gx_glow(cx, cy, cw, chh, 8, RGBA(150, 80, 255, 110), 3);
             draw_tex_fit(&gl_big.obj, 256, 256, 192, 256, cx, cy, cw, chh);
-        } else gl_card_banner(gl_sel, cx, cy, cw, chh, 1);
+        } else {
+            GXTexObj *sc = g->post >= 0 ? gl_cover(gl_sel, 1) : NULL;   /* v92 : la petite jaquette en attendant la grande */
+            if (sc) { gx_glow(cx, cy, cw, chh, 8, RGBA(150, 80, 255, 110), 3); draw_tex_fit(sc, 128, 128, 96, 128, cx, cy, cw, chh); }
+            else gl_card_banner(gl_sel, cx, cy, cw, chh, 1);
+        }
         const f32 rx = 236 + ox * 1.4f; const int rw = 380;
         int nl = gl_wrap(F_LARGE, g->title, rx, 134, rw, 26, 2, RGBA(255, 255, 255, 255));
         f32 y = 134 + nl * 26 - 4;
@@ -1391,7 +1422,7 @@ static int ipl_cache = -1;
 static int ipl_get(void) {
     if (ipl_cache < 0) {
         struct stat st;
-        ipl_cache = sd_ok && !sd_virtual && stat(IPL_DOL, &st) == 0 && up_is_me(IPL_DOL);
+        ipl_cache = sd_ok && !sd_virtual && stat(IPL_DOL, &st) == 0 && up_is_me(IPL_DOL);   /* (v92 : resultat garde, update.c) */
     }
     return ipl_cache;
 }

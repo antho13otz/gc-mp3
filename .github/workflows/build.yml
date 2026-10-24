@@ -223,6 +223,8 @@ jobs:
       # Swiss lit les DOL par blocs de 128 Kio : on complete le fichier
       # jusqu'a un bloc entier (le chargeur ignore ces octets).
       - name: Aligner le DOL sur les blocs de lecture Swiss
+        env:
+          BUILD_NUM: ${{ github.run_number }}
         run: |
           python3 - <<'PY'
           import os
@@ -233,9 +235,11 @@ jobs:
           size = os.path.getsize(path)
           if size < 0x100:
               raise SystemExit("ERREUR: DOL trop petit")
-          padded = ((size + block - 1) // block) * block
+          padded = ((size + 32 + block - 1) // block) * block
+          # v92 : numero de build dans les 32 derniers octets (lu par GC Station sans relire le fichier)
+          tag = ("GCSTATION-BUILD=%s" % os.environ["BUILD_NUM"]).encode().ljust(32, b"\0")
           with open(path, "ab") as f:
-              f.write(b"\0" * (padded - size))
+              f.write(b"\0" * (padded - size - 32) + tag)
           print("DOL aligne:", size, "->", padded)
           PY
 
@@ -316,3 +320,49 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: python3 tools/publish_release.py gc-mp3player.dol ${{ github.run_number }} loader/gc-mp3-igr.img loader/gc-mp3-loader.bin
+
+  # v92 : disque de demarrage (mini-DVD, consoles avec puce) : en-tetes El Torito de swiss-gc + le .dol
+  disque:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SWISS_COMMIT: 99b59e7a042cb5633cd341d86b7b92a65cd39851
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: gcmp3
+
+      - name: En-têtes de démarrage de swiss-gc
+        uses: actions/checkout@v4
+        with:
+          repository: emukidid/swiss-gc
+          ref: ${{ env.SWISS_COMMIT }}
+          path: swiss
+          sparse-checkout: buildtools/iso
+
+      - name: Récupérer le .dol
+        uses: actions/download-artifact@v4
+        with:
+          name: gc-mp3player
+          path: dol
+
+      - name: Fabriquer les images du disque
+        run: |
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y --no-install-recommends xorriso >/dev/null
+          python3 gcmp3/tools/mkdisc.py dol/gc-mp3player.dol swiss/buildtools/iso ${{ github.run_number }} disque
+
+      - name: Publier les images (artefact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: gc-station-disque
+          path: disque/*.iso
+
+      - name: Publier les images (release « dernier »)
+        if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: python3 gcmp3/tools/publish_disc.py disque/*.iso

@@ -155,6 +155,21 @@ static void texel(const tex_t *t, int x, int y, float out[4]) {
         int tw = (w + 3) / 4, ti = (y / 4) * tw + x / 4, o = ti * 64 + ((y & 3) * 4 + (x & 3)) * 2;
         out[3] = d[o] / 255.0f; out[0] = d[o + 1] / 255.0f; out[1] = d[o + 32] / 255.0f; out[2] = d[o + 33] / 255.0f;
         return; }
+    case GX_TF_CMPR: {                                     /* v92 : tuiles 8x8 de 4 blocs DXT1 (octets gros-boutistes) */
+        int tw = (w + 7) / 8, ti = (y / 8) * tw + x / 8, sb = ((y & 7) >> 2) * 2 + ((x & 7) >> 2);
+        const u8 *p = d + ti * 32 + sb * 8;
+        u32 c0 = (u32)p[0] << 8 | p[1], c1 = (u32)p[2] << 8 | p[3];
+        u32 i = (p[4 + (y & 3)] >> (6 - (x & 3) * 2)) & 3;
+        float a0[3] = { c5(c0 >> 11), c6((c0 >> 5) & 63), c5(c0 & 31) }, a1[3] = { c5(c1 >> 11), c6((c1 >> 5) & 63), c5(c1 & 31) };
+        out[3] = 1;
+        for (int k = 0; k < 3; k++) {
+            if (i == 0) out[k] = a0[k];
+            else if (i == 1) out[k] = a1[k];
+            else if (c0 > c1) out[k] = i == 2 ? (2 * a0[k] + a1[k]) / 3 : (a0[k] + 2 * a1[k]) / 3;
+            else if (i == 2) out[k] = (a0[k] + a1[k]) / 2;
+            else { out[k] = 0; out[3] = 0; }
+        }
+        return; }
     }
     out[0] = 1; out[1] = 0; out[2] = 1; out[3] = 1;        /* (format pas gere : magenta) */
 }
