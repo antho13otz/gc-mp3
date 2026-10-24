@@ -37,7 +37,7 @@ for f in range(2):
         off = c * fatsz_e
         img.seek((base * 512) + off); img.write(struct.pack('<I' if kind == '32' else '<H', v))
 # v79 : journal du jeu (2 secteurs) aux clusters 20000 et suivants
-nj = (1024 + csize - 1) // csize
+nj = (1536 + csize - 1) // csize
 for i in range(nj):
     c = 20000 + i
     nxt = 20000 + i + 1 if i + 1 < nj else (0x0FFFFFFF if kind == '32' else 0xFFFF)

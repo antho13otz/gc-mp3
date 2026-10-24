@@ -423,6 +423,37 @@ __asm__(".pushsection .text\n.globl exc_entry\nexc_entry:\n"
 static u8 crashbuf[512] __attribute__((aligned(32)));
 static int ram_ok(u32 a, u32 n) { return a >= 0x80000000u && a < 0x81800000u && a + n <= 0x81800000u; }
 static void cw(u32 o, u32 v) { crashbuf[o] = (u8)(v >> 24); crashbuf[o + 1] = (u8)(v >> 16); crashbuf[o + 2] = (u8)(v >> 8); crashbuf[o + 3] = (u8)v; }
+/* v82 : la pile du jeu au moment du plantage (3e secteur du journal) : un jeu qui s'arrete
+   expres (OSPanic) y a range le nom du fichier, la ligne et le message de son erreur */
+static int is_txt(u32 a) {
+    if (!ram_ok(a, 8)) return 0;
+    int n = 0;
+    for (u32 i = 0; i < 24; i++) { u8 ch = *(volatile u8 *)(a + i); if (!ch) break; if (ch < 0x20 || ch > 0x7E) return 0; n++; }
+    return n >= 4;
+}
+static void stack_dump(u32 sp) {
+    for (u32 i = 0; i < 512; i++) crashbuf[i] = 0;
+    cw(0x00, NATRES_STACK_MAGIC); cw(0x04, sp);
+    if (!ram_ok(sp & ~3u, NATRES_STACK_WORDS * 4)) { nr_write_sd(H.log_sec + 2, crashbuf); return; }
+    sp &= ~3u;
+    cw(0x08, NATRES_STACK_WORDS);
+    u32 ns = 0;
+    for (u32 i = 0; i < NATRES_STACK_WORDS; i++) {
+        u32 v = *(volatile u32 *)(sp + i * 4);
+        cw(0x10 + i * 4, v);
+        if (ns < NATRES_STACK_NSTR && is_txt(v)) {
+            int dup = 0;
+            for (u32 k = 0; k < ns; k++) { u32 o = 0x150 + k * 32; if (((u32)crashbuf[o] << 24 | crashbuf[o + 1] << 16 | crashbuf[o + 2] << 8 | crashbuf[o + 3]) == v) dup = 1; }
+            if (dup) continue;
+            u32 o = 0x150 + ns * 32;
+            cw(o, v);
+            for (u32 j = 0; j < NATRES_STACK_SLEN; j++) crashbuf[o + 4 + j] = *(volatile u8 *)(v + j);
+            ns++;
+        }
+    }
+    cw(0x0C, ns);
+    nr_write_sd(H.log_sec + 2, crashbuf);
+}
 static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
     if (!(H.flags & NRF_CRASH) || !H.log_sec || !di_ready) return;
     for (u32 i = 0; i < 512; i++) crashbuf[i] = 0;
@@ -448,6 +479,7 @@ static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
         for (u32 i = 0; i < NATRES_CRASH_STR; i++) crashbuf[0x110 + (r - 3) * NATRES_CRASH_STR + i] = *(volatile u8 *)(a + i);
     }
     nr_write_sd(H.log_sec + 1, crashbuf);
+    if (H.flags & NRF_STACK) stack_dump(c[1]);
 }
 void exc_c(u32 ex, u32 ctx) {
     u32 dar, dsisr;

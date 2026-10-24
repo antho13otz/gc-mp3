@@ -446,19 +446,21 @@ static int nat_map_check(const char *path, long size, char *err, int cap) {
 #define NA_LOG   NA_DIR "/dernier-lancement.txt"
 #define NA_JTXT NA_DIR "/journal-jeu.txt"
 static int na_jcrash = 0;                              /* v79 : 2e secteur du journal (details d'un plantage) disponible */
+static int na_jstack = 0;                              /* v82 : 3e secteur (pile du jeu au plantage) disponible */
 static u32 nat_journal_prep(void) {
-    na_jcrash = 0;
+    na_jcrash = na_jstack = 0;
     if (sd_virtual) return 0;
     mkdir(NA_DIR, 0777);
-    static u8 z[1024];
+    static u8 z[1536];
     memset(z, 0, sizeof(z));
     FILE *f = fopen(NA_JBIN, "wb");
     if (!f) return 0;
-    int ok = fwrite(z, 1, 1024, f) == 1024;                /* v79 : 2 secteurs (le 2e : details d'un plantage) */
+    int ok = fwrite(z, 1, 1536, f) == 1536;                /* v79 : 2 secteurs (le 2e : details d'un plantage) ; v82 : 3 (le 3e : pile du jeu) */
     fclose(f);
     char e[80];
     if (!ok || nat_map(NA_JBIN, e, sizeof(e)) || !na_next || na_next > 2) return 0;
     na_jcrash = na_next == 1 && na_ext[0].cnt >= 2;       /* (les 2 secteurs a la suite sur la carte) */
+    na_jstack = na_next == 1 && na_ext[0].cnt >= 3;
     return na_ext[0].sd;
 }
 static const char *na_cmd_name(u32 c) {
@@ -534,6 +536,34 @@ static void na_crash_print(FILE *f, const u8 *c) {
     na_code_dump(f, w[3], "PC");
     na_code_dump(f, w[5], "LR");
     for (u32 i = 0; i < w[11] && i < 3; i++) { char lb[24]; snprintf(lb, sizeof(lb), "appel %u", (unsigned)i + 1); na_code_dump(f, bt[i], lb); }
+}
+/* v82 : pile du jeu au plantage (3e secteur) : textes (message, fichier) et adresses de code */
+static void na_stack_print(FILE *f, const u8 *b) {
+    u32 sp = be32(b + 4), nw = be32(b + 8), ns = be32(b + 12);
+    if (nw > NATRES_STACK_WORDS) nw = NATRES_STACK_WORDS;
+    if (ns > NATRES_STACK_NSTR) ns = NATRES_STACK_NSTR;
+    fprintf(f, "\n========== Pile du jeu au plantage (r1 = %08X) ==========\n", (unsigned)sp);
+    if (ns) {
+        fprintf(f, "Textes trouves sur la pile (souvent : fichier du jeu, ligne, message de l'erreur) :\n");
+        for (u32 k = 0; k < ns; k++) {
+            const u8 *e = b + 0x150 + k * 32;
+            char t[NATRES_STACK_SLEN + 1]; int n = 0;
+            while (n < NATRES_STACK_SLEN && e[4 + n] >= 0x20 && e[4 + n] < 0x7F) { t[n] = (char)e[4 + n]; n++; }
+            t[n] = 0;
+            fprintf(f, "  %08X -> \"%s\"%s\n", (unsigned)be32(e), t, n == NATRES_STACK_SLEN ? "..." : "");
+        }
+    } else fprintf(f, "Textes : aucun texte trouve sur la pile\n");
+    u32 code[8]; int nc = 0;
+    for (u32 i = 0; i < nw; i++) {
+        u32 v = be32(b + 0x10 + i * 4);
+        if (i % 4 == 0) fprintf(f, "  %08X :", (unsigned)(sp + i * 4));
+        int isc = v >= 0x80003100u && v < 0x80600000u && !(v & 3);
+        fprintf(f, " %08X%c", (unsigned)v, isc ? '*' : ' ');
+        if (i % 4 == 3) fputc('\n', f);
+        if (isc && nc < 8) { int dup = 0; for (int k = 0; k < nc; k++) if (code[k] == v) dup = 1; if (!dup) code[nc++] = v; }
+    }
+    fprintf(f, "(* = adresse dans le code du jeu : probablement un appel en cours)\n");
+    for (int k = 0; k < nc && k < 3; k++) { char lb[32]; snprintf(lb, sizeof(lb), "pile %08X", (unsigned)code[k]); na_code_dump(f, code[k], lb); }
 }
 static void nat_journal_convert(void) {
     long len = 0;
@@ -614,6 +644,7 @@ static void nat_journal_convert(void) {
                     (unsigned)((in >> 8) & 0xFF), (unsigned)((in >> 16) & 0xFF));
         }
         if (len >= 1024 && be32(d + 512) == NATRES_CRASH_MAGIC) na_crash_print(f, d + 512);   /* v79 */
+        if (len >= 1536 && be32(d + 1024) == NATRES_STACK_MAGIC) na_stack_print(f, d + 1024);  /* v82 */
         long ll = 0;                                      /* (et le journal du lancement, ecrit avant le saut) */
         char *lt = (char *)read_file(NA_LOG, 16384, &ll);
         if (lt) { fprintf(f, "\n---------- dernier-lancement.txt ----------\n"); fwrite(lt, 1, ll, f); free(lt); }
@@ -1203,7 +1234,7 @@ static const char *nat_boot(int k) {
             na_wbe32(r + 0x20, na_next);
             u32 co = be32(r + 0xFC) - NATRES_AT;                            /* (natres_hdr_t.card_tab) */
             if (card_on && co + na_card_n * 12 > NATRES_SIZE) card_on = 0;
-            na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0) | (card_on ? NRF_CARD : 0) | (na_jcrash ? NRF_CRASH : 0));
+            na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0) | (card_on ? NRF_CARD : 0) | (na_jcrash ? NRF_CRASH : 0) | (na_jstack ? NRF_STACK : 0));
             if (card_on) {                                                  /* v65 : carte memoire virtuelle */
                 na_wbe32(r + 0xF8, na_card_n); na_wbe32(r + 0x100, na_card_size); na_wbe32(r + 0x104, na_card_size >> 17);   /* (ID = taille en Mbits) */
                 for (u32 i = 0; i < na_card_n; i++) {
