@@ -10,6 +10,7 @@
 
 enum { IGR_IDLE, IGR_CHECK, IGR_DL };
 static int igr_state = IGR_IDLE, igr_cache = -1, igr_auto_done = 0, igr_enable_after = 0;
+static int igr_have_b = 0;                    /* v81 : verification auto : numero installe (pas de telechargement si GitHub n'a pas plus recent) */
 static char igr_msg[120] = "";
 static char igr_url[URL_MAX];
 static hfetch_t igr_hf = { .c = { -1, 0, 0 } };
@@ -124,12 +125,12 @@ static void igr_pump(void) {
     if (!igr_auto_done && sd_ok && net_phase == NET_DONE && net_ok && now_ms() > 20000 && igr_state == IGR_IDLE && up_state != UP_DL && up_state != UP_WRITE && up_state != UP_CHECK) {
         igr_auto_done = 1;
         int b = igr_build_of(IGR_IMG);
-        if (b > 0 && b < GCMP3_BUILD) { crumb("retour en jeu : mise a jour %d -> %d", b, GCMP3_BUILD); igr_fetch(1); }
+        if (b > 0 && b < GCMP3_BUILD) { igr_fetch(1); if (igr_state == IGR_CHECK) igr_have_b = b; }   /* v81 : seulement s'il a change sur GitHub */
     }
     if (igr_state == IGR_IDLE) return;
     hf_pump(&igr_hf);
     if (igr_hf.st == HF_FAIL) {
-        hf_drop(&igr_hf); igr_hf.st = HF_IDLE; igr_state = IGR_IDLE;
+        hf_drop(&igr_hf); igr_hf.st = HF_IDLE; igr_state = IGR_IDLE; igr_have_b = 0;
         snprintf(igr_msg, sizeof(igr_msg), "%s", TR("GitHub ne r\xC3\xA9pond pas"));
         return;
     }
@@ -151,7 +152,15 @@ static void igr_pump(void) {
             free(js);
         }
         hf_drop(&igr_hf); igr_hf.st = HF_IDLE;
-        if (!igr_url[0]) { igr_state = IGR_IDLE; snprintf(igr_msg, sizeof(igr_msg), "%s", TR("Pas encore de fichier pour le retour en jeu")); return; }
+        if (!igr_url[0]) { igr_state = IGR_IDLE; igr_have_b = 0; snprintf(igr_msg, sizeof(igr_msg), "%s", TR("Pas encore de fichier pour le retour en jeu")); return; }
+        if (igr_have_b) {                                    /* v81 : "gc-mp3-igr-b<N>.img" : N = version ou il a vraiment change */
+            const char *nb = strstr(igr_url, "gc-mp3-igr-b");
+            int n = nb ? atoi(nb + 12) : 0;
+            int have = igr_have_b;
+            igr_have_b = 0;
+            if (n > 0 && n <= have) { igr_state = IGR_IDLE; igr_msg[0] = 0; crumb("retour en jeu : deja a jour (b%d, GitHub b%d)", have, n); return; }
+            crumb("retour en jeu : mise a jour b%d -> b%d", have, n);
+        }
         igr_hf.maxbytes = 6 * 1024 * 1024; igr_hf.image = 0; igr_hf.accept = "application/octet-stream";
         hf_start(&igr_hf, igr_url, NULL);
         igr_state = IGR_DL;
@@ -176,7 +185,7 @@ static void igr_toggle(void) {
     if (igr_on()) { igr_disable(); return; }
     long n = 0;
     u8 *d = read_file(IGR_MINE, 8 * 1024 * 1024, &n);
-    int have = d && igr_valid(d, n) && igr_build_of(IGR_MINE) >= GCMP3_BUILD;
+    int have = d && igr_valid(d, n);              /* v81 : la copie gardee sert (son numero = version ou il a change) */
     free(d);
     if (have) igr_install();
     else igr_fetch(1);
