@@ -21,6 +21,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v101 — Nouvelle interface
+- START > Réglages > Affichage > Style : **Classique** (inchangé), Moderne, **Nouvelle**.
+- Nouvelle (`source/ui_nova.c`) : seul le visuel change. Fond sombre bleuté avec des lumières
+  douces qui bougent ; en-tête avec un dock d'icônes des onglets (l'onglet choisi s'ouvre en
+  pastille avec son nom, les autres glissent) ; cartes en verre ; légende en pastille flottante ;
+  la page glisse et apparaît en fondu en changeant d'onglet ; toutes les sélections (listes,
+  grilles, réglages) glissent d'une ligne à l'autre, en couleur d'accent du thème.
+- Les animations suivent le réglage « Animations » de l'onglet Jeux (Y > Animations : Non = tout de suite).
+
 ## Nouveautés v100 — tests de la musique, journal de l'écran
 - Banc d'essai : la musique du disque est vérifiée quand le jeu programme le tampon du son dans
   l'interruption du DSP (Cocoto) et quand un tampon est rejoué (ces deux cas échouent avec la v97).
