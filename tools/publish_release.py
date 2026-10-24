@@ -152,7 +152,7 @@ print("release '%s' publiee : build %s" % (TAG, build))
 st, relf = call("GET", api + "/releases/%d" % rel["id"])
 if st == 200 and relf:
     keep = [{"name": a["name"], "size": a.get("size", 0), "browser_download_url": a["browser_download_url"]}
-            for a in relf.get("assets", []) if a.get("name") != "release.json" and a not in [] and a.get("id") not in [o["id"] for o in old_dols]]
+            for a in relf.get("assets", []) if a.get("name", "").endswith((".dol", ".img", ".bin")) and a.get("id") not in [o["id"] for o in old_dols]]   # (fichiers des consoles ; les .iso du disque sont publies apres)
     js = json.dumps({"tag_name": TAG, "name": relf.get("name"), "body": relf.get("body"), "assets": keep}, ensure_ascii=False).encode()
     for a in relf.get("assets", []):
         if a.get("name") == "release.json":

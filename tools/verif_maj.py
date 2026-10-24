@@ -20,7 +20,10 @@ dols = [a for a in rel["assets"] if a["name"].endswith(".dol")]
 mine = [a for a in dols if a["name"] == "gc-mp3player-b%d.dol" % build]
 if not mine: print("FAUX : pas de gc-mp3player-b%d.dol" % build); ok = False
 for a in rel["assets"]:
-    st, d = get(a["browser_download_url"])
+    try:
+        st, d = get(a["browser_download_url"])
+    except Exception as e:
+        print("FAUX %s : %s" % (a["name"], e)); ok = False; continue
     good = st == 200 and len(d) == a["size"] and len(d) > 0
     extra = ""
     if a["name"].endswith(".dol"):
