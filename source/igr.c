@@ -5,7 +5,7 @@
 // "dernier") : GC Station le telecharge. (v90 : plus dans SD:/swiss/patches.)
 // Resident (touche A) a son propre retour en jeu (natres.c), sans ce fichier.
 #define IGR_IMG     LD_DIR "/patches/apploader.img"
-#define IGR_OLD     SD_ROOT "/swiss/patches/apploader.img"      /* (v89 et avant : repris une fois, swiss_migrate) */
+#define IGR_OLD     SD_ROOT "/swiss/patches/apploader.img"      /* (v89 et avant : repris une fois, mg_pump, lanceur.c) */
 #define IGR_MINE    GCD "/igr.img"
 
 enum { IGR_IDLE, IGR_CHECK, IGR_DL };

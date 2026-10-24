@@ -5,7 +5,7 @@
 //    vibrations, mode video, langue et son de la console, position de l'image, retour en jeu.
 //    Les autres lignes du fichier ne changent pas. (v90 : plus rien dans SD:/swiss.)
 //  - v90 : au premier demarrage, les fichiers de SD:/swiss utiles a GC Station sont repris une fois
-//    dans SD:/gc-mp3 (swiss_migrate, plus bas).
+//    dans SD:/gc-mp3 (mg_pump, lanceur.c).
 //  - Reglages d'un jeu (Y dans la fiche d'un jeu) : langue, son, carte memoire virtuelle (Resident).
 
 static char vc_active[64];                                    /* (natif.c / extras73.c) */

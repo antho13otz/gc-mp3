@@ -222,55 +222,100 @@ static int mg_copy(const char *src, const char *dst, const char *skip) {
     if (rename(part, dst) != 0) { remove(part); return 0; }
     return 1;
 }
-/* tous les fichiers d'un dossier (sans sous-dossiers), sans remplacer ceux deja la */
-static int mg_copy_dir(const char *from, const char *to) {
+/* v91 : la reprise se fait en fond, un fichier a la fois, depuis la boucle principale (v90 : tout au
+   demarrage, avant l'ecran : la console restait figee). Le fichier migration.txt est ecrit avant de
+   commencer : si quelque chose bloque, la reprise ne recommence pas au demarrage suivant.
+   Les gros fichiers (sauvegardes, jaquettes) sont deplaces (instantane) au lieu d'etre copies. */
+#define MG_MAXJ 160
+#define MG_BIG  (2 * 1024 * 1024)
+enum { MG_COPYINI, MG_COPY, MG_MOVE };
+typedef struct { char src[NAME_LEN], dst[NAME_LEN]; u8 mode, kind; } mg_job_t;
+enum { MK_REG, MK_GAME, MK_CH, MK_SAV, MK_COV, MK_IGR, MK_IPL, MK_N };
+static mg_job_t *mg_jobs = NULL;
+static int mg_nj = 0, mg_pos = 0, mg_state = 0;              /* 0 = pas commence, 1 = en cours, 2 = fini */
+static int mg_cnt[MK_N];
+static void mg_add(const char *src, const char *dst, int mode, int kind) {
+    if (!mg_jobs || mg_nj >= MG_MAXJ || !mg_exists(src) || mg_exists(dst)) return;
+    mg_job_t *j = &mg_jobs[mg_nj++];
+    snprintf(j->src, sizeof(j->src), "%s", src);
+    snprintf(j->dst, sizeof(j->dst), "%s", dst);
+    j->mode = (u8)mode; j->kind = (u8)kind;
+}
+static void mg_add_dir(const char *from, const char *to, int kind) {
     DIR *d = opendir(from);
-    if (!d) return 0;
-    int n = 0;
+    if (!d) return;
     struct dirent *e;
     char a[NAME_LEN], b[NAME_LEN];
-    while ((e = readdir(d)) != NULL) {
+    while ((e = readdir(d)) != NULL && mg_nj < MG_MAXJ) {
         if (e->d_name[0] == '.') continue;
         snprintf(a, sizeof(a), "%s/%s", from, e->d_name);
         snprintf(b, sizeof(b), "%s/%s", to, e->d_name);
-        struct stat st;
-        if (stat(a, &st) != 0 || S_ISDIR(st.st_mode) || mg_exists(b)) continue;
-        if (mg_copy(a, b, NULL)) n++;
+        mg_add(a, b, MG_COPY, kind);
     }
     closedir(d);
-    return n;
 }
-static void swiss_migrate(void) {
-    if (!sd_ok || sd_virtual || mg_exists(MG_MARK)) return;
-    mkdir(GCD, 0777); mkdir(LD_DIR, 0777); mkdir(LD_DIR "/settings", 0777); mkdir(LD_DIR "/settings/game", 0777);
-    mkdir(LD_DIR "/patches", 0777); mkdir(LD_DIR "/saves", 0777); mkdir(CH_DIR, 0777);
-    int reg = 0, game = 0, ch = 0, sav = 0, cov = 0, igr = 0, ipl = 0;
-    if (mg_exists(SW_OLD)) {
-        ui_status("Reprise des fichiers de SD:/swiss dans SD:/gc-mp3...");
-        if (!mg_exists(LD_INI) && mg_exists(SW_OLD "/settings/global.ini")) reg = mg_copy(SW_OLD "/settings/global.ini", LD_INI, "Autoload=");
-        if (!mg_exists(LD_DIR "/settings/recent.ini") && mg_exists(SW_OLD "/settings/recent.ini")) mg_copy(SW_OLD "/settings/recent.ini", LD_DIR "/settings/recent.ini", NULL);
-        game = mg_copy_dir(SW_OLD "/settings/game", LD_DIR "/settings/game");
-        ch = mg_copy_dir(SW_OLD "/cheats", CH_DIR);
-        sav = mg_copy_dir(SW_OLD "/saves", LD_DIR "/saves");
-        static const char *const ui[3] = { "posters.pak", "stills.pak", "descriptions.txt" };
-        for (int i = 0; i < 3; i++) {
-            char a[NAME_LEN], b[NAME_LEN];
-            snprintf(a, sizeof(a), SW_OLD "/ui/%s", ui[i]);
-            snprintf(b, sizeof(b), GL_UI "/%s", ui[i]);
-            if (!mg_exists(a) || mg_exists(b)) continue;
-            mkdir(GL_UI, 0777);
-            if (rename(a, b) == 0 || mg_copy(a, b, NULL)) cov++;
-        }
-        if (!mg_exists(IGR_IMG) && igr_build_of(IGR_OLD) > 0 && mg_copy(IGR_OLD, IGR_IMG, NULL)) { igr = 1; igr_cache = -1; }
-    }
-    if (!mg_exists(IPL_OLD) && mg_exists(IPL_OLD_V89) && rename(IPL_OLD_V89, IPL_OLD) == 0) ipl = 1;
+static void mg_mark(int done) {
     FILE *f = fopen(MG_MARK, "w");
-    if (f) {
-        fprintf(f, "# GC Station v90 : fichiers repris de SD:/swiss (une seule fois ; effacer ce fichier pour recommencer)\n"
-                   "reglages_lanceur = %d\nreglages_jeux = %d\ncheats = %d\nsauvegardes = %d\njaquettes = %d\nretour_en_jeu = %d\nipl = %d\n",
-                reg, game, ch, sav, cov, igr, ipl);
-        fclose(f);
+    if (!f) return;
+    fprintf(f, "# GC Station : fichiers repris de SD:/swiss (une seule fois ; effacer ce fichier pour recommencer)\n"
+               "etat = %s\nfichiers = %d / %d\n"
+               "reglages_lanceur = %d\nreglages_jeux = %d\ncheats = %d\nsauvegardes = %d\njaquettes = %d\nretour_en_jeu = %d\nipl = %d\n",
+            done ? "fini" : "en cours", mg_pos, mg_nj,
+            mg_cnt[MK_REG], mg_cnt[MK_GAME], mg_cnt[MK_CH], mg_cnt[MK_SAV], mg_cnt[MK_COV], mg_cnt[MK_IGR], mg_cnt[MK_IPL]);
+    fclose(f);
+}
+static void mg_start(void) {
+    mg_state = 2;
+    if (!sd_ok || sd_virtual || mg_exists(MG_MARK)) return;
+    mkdir(GCD, 0777); mkdir(LD_DIR, 0777);
+    memset(mg_cnt, 0, sizeof(mg_cnt));
+    mg_nj = mg_pos = 0;
+    mg_mark(0);                                               /* (d'abord : jamais deux fois) */
+    if (!mg_exists(MG_MARK)) return;                          /* (carte en lecture seule) */
+    mkdir(LD_DIR "/settings", 0777); mkdir(LD_DIR "/settings/game", 0777);
+    mkdir(LD_DIR "/patches", 0777); mkdir(LD_DIR "/saves", 0777); mkdir(CH_DIR, 0777);
+    mg_jobs = (mg_job_t *)calloc(MG_MAXJ, sizeof(mg_job_t));
+    if (mg_jobs && mg_exists(SW_OLD)) {
+        mg_add(SW_OLD "/settings/global.ini", LD_INI, MG_COPYINI, MK_REG);
+        mg_add(SW_OLD "/settings/recent.ini", LD_DIR "/settings/recent.ini", MG_COPY, MK_REG);
+        if (igr_build_of(IGR_OLD) > 0) mg_add(IGR_OLD, IGR_IMG, MG_COPY, MK_IGR);
+        mg_add_dir(SW_OLD "/cheats", CH_DIR, MK_CH);
+        mg_add_dir(SW_OLD "/settings/game", LD_DIR "/settings/game", MK_GAME);
+        mg_add_dir(SW_OLD "/saves", LD_DIR "/saves", MK_SAV);
+        mkdir(GL_UI, 0777);
+        mg_add(SW_OLD "/ui/posters.pak", GL_UI "/posters.pak", MG_MOVE, MK_COV);
+        mg_add(SW_OLD "/ui/stills.pak", GL_UI "/stills.pak", MG_MOVE, MK_COV);
+        mg_add(SW_OLD "/ui/descriptions.txt", GL_UI "/descriptions.txt", MG_COPY, MK_COV);
     }
-    crumb("v90 : SD:/swiss -> SD:/gc-mp3 (reglages %d, jeux %d, cheats %d, sauvegardes %d, jaquettes %d, retour %d, ipl %d)", reg, game, ch, sav, cov, igr, ipl);
-    if (reg || game || ch || sav || cov || igr || ipl) lib_note("Fichiers de Swiss repris dans SD:/gc-mp3 : GC Station n'utilise plus SD:/swiss");
+    if (mg_jobs) mg_add(IPL_OLD_V89, IPL_OLD, MG_MOVE, MK_IPL);
+    crumb("reprise de SD:/swiss : %d fichiers", mg_nj);
+    if (mg_nj) mg_state = 1; else { free(mg_jobs); mg_jobs = NULL; mg_mark(1); }
+}
+/* appele a chaque image (boucle principale) : un fichier a la fois */
+static void mg_pump(void) {
+    if (mg_state == 2) return;
+    if (mg_state == 0) { if (now_ms() > 6000) mg_start(); return; }
+    if (mg_pos < mg_nj) {
+        mg_job_t *j = &mg_jobs[mg_pos];
+        struct stat st;
+        int mode = j->mode;
+        if (mode == MG_COPY && stat(j->src, &st) == 0 && st.st_size > MG_BIG) mode = MG_MOVE;   /* (gros fichier : deplace) */
+        crumb("reprise : %s (%s)", j->src, mode == MG_MOVE ? "deplace" : "copie");
+        int ok = 0;
+        if (!mg_exists(j->dst)) {
+            if (mode == MG_MOVE) ok = rename(j->src, j->dst) == 0;
+            if (!ok && (mode != MG_MOVE || (stat(j->src, &st) == 0 && st.st_size <= MG_BIG))) ok = mg_copy(j->src, j->dst, mode == MG_COPYINI ? "Autoload=" : NULL);
+        }
+        if (ok) { mg_cnt[j->kind]++; if (j->kind == MK_IGR) igr_cache = -1; }
+        mg_pos++;
+        if (mg_pos % 8 == 0) mg_mark(0);
+        return;
+    }
+    mg_mark(1);
+    free(mg_jobs); mg_jobs = NULL;
+    mg_state = 2;
+    int tot = 0;
+    for (int k = 0; k < MK_N; k++) tot += mg_cnt[k];
+    crumb("reprise de SD:/swiss finie : %d fichiers", tot);
+    if (tot) lib_note("Fichiers de Swiss repris dans SD:/gc-mp3 : GC Station n'utilise plus SD:/swiss");
 }

@@ -21,6 +21,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v91 — correctif : écran figé au premier démarrage de la v90
+- La reprise des fichiers de `SD:/swiss` se faisait au démarrage, avant que l'écran réponde : la console restait figée. Elle se fait maintenant **en fond**, un fichier à la fois, quelques secondes après le démarrage (la musique et les menus marchent pendant ce temps).
+- `SD:/gc-mp3/lanceur/migration.txt` est écrit **avant** de commencer : si quelque chose bloque, la reprise ne recommence jamais au démarrage suivant.
+- Les fichiers de plus de 2 Mo (sauvegardes, jaquettes) sont **déplacés** (instantané) au lieu d'être copiés.
+
 ## Nouveautés v90 — plus rien de Swiss
 - **Resident lance les jeux** (A dans la fiche d'un jeu). L'ancien lanceur devient le **lanceur de secours** (X, et les jeux avec des cheats activés, car Resident ne les applique pas encore). L'option « Swiss / Indigo » et la recherche de Swiss sur la carte SD disparaissent, ainsi que Z au démarrage.
 - **Tout est dans SD:/gc-mp3** : le lanceur de secours lit maintenant ses réglages, sauvegardes et patches dans `SD:/gc-mp3/lanceur`, et ses cheats dans `SD:/gc-mp3/cheats` (compilé ainsi par GitHub : il se met à jour tout seul). Langue, son, vibrations, mode vidéo et position de l'image y sont recopiés, plus jamais dans `SD:/swiss`.
