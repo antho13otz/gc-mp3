@@ -21,6 +21,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v102 — style Aurore
+- START > Réglages > Affichage > Style : Classique, Moderne, Nouvelle, **Aurore**.
+- Aurore (`source/ui_aurore.c`) : noir profond avec des aurores (rubans rose, violet, bleu) qui
+  ondulent ; le nom de l'onglet en grand au centre de l'en-tête, les voisins s'effacent vers les bords
+  et défilent quand on change d'onglet ; points d'avancement ; cadres presque invisibles avec un filet
+  lumineux ; sélection en dégradé rose → bleu qui glisse ; la page arrive en zoom doux.
+
 ## Nouveautés v101 — Nouvelle interface
 - START > Réglages > Affichage > Style : **Classique** (inchangé), Moderne, **Nouvelle**.
 - Nouvelle (`source/ui_nova.c`) : seul le visuel change. Fond sombre bleuté avec des lumières

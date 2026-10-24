@@ -761,6 +761,7 @@
     { "Style de l'interface", "Interface style" },
     { "Moderne", "Modern" },
     { "Nouvelle", "New" },
+    { "Aurore", "Aurora" },
     { "En ligne", "Online" },
     { "Hors ligne", "Offline" },
     { "Radio", "Radio" },
