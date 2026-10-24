@@ -394,7 +394,7 @@ static void vi_snap(void) {                              /* v99 : etat de l'ecra
     u32 now = (u32)v[1] << 16 | (v[0x6C / 2] & 1u);
     if (H.vi_now && ((now ^ H.vi_now) & ~0x00010000u)) { H.vi_chg++; H.vi_chg_at = H.vi_count; }
     H.vi_now = now;
-    H.vi_dtv = (u32)v[0x6E / 2] << 16 | v[0];
+    H.vi_dtv = (u32)v[0x6E / 2] << 16 | v[26];           /* (v111 : bas = DI1, interruption de la 1re ligne) */
 }
 static void nr_log_flush(void) {
     H.flush_tb = tbl();

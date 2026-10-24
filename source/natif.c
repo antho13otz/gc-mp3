@@ -752,11 +752,11 @@ static void nat_journal_convert(void) {
         }
         if (H[1] >= 14) {                                                     /* v99 : l'ecran */
             u32 vn = be32(d + 0x180), vd = be32(d + 0x184), dcr = vn >> 16;
-            fprintf(f, "Ecran : %s, %s, %s%s ; cable %s ; changements de mode : %u (dernier a l'image %u)\n",
+            fprintf(f, "Ecran : %s, %s, %s%s ; cable %s ; changements de mode : %u (dernier a l'image %u) ; interruption de 1re ligne (DI1) : %s\n",
                     dcr & 1 ? "actif" : "COUPE", (dcr >> 8 & 3) == 1 ? "PAL" : (dcr >> 8 & 3) == 2 ? "MPAL" : "NTSC",
                     dcr & 4 ? (vn & 1 ? "480p (progressif, 54 MHz)" : "non entrelace 27 MHz") : (vn & 1 ? "entrelace mais horloge 54 MHz (incoherent)" : "entrelace (480i/576i)"),
                     "", vd >> 16 & 1 ? "numerique / composante (480p possible)" : "analogique",
-                    (unsigned)be32(d + 0x188), (unsigned)be32(d + 0x18C));
+                    (unsigned)be32(d + 0x188), (unsigned)be32(d + 0x18C), vd & 0x1000 ? "active" : "COUPEE (480p impossible)");
         }
         if (H[1] >= 11 && be32(d + 0x15C)) {                                  /* v83 : photo de la memoire */
             fprintf(f, "\n========== Photo de la memoire du jeu au plantage ==========\n");
@@ -1138,25 +1138,159 @@ static u64 nat_ld_t0 = 0, nat_ld_last = 0;
 #ifdef NATIF_BENCH
 static void nat_draw_loading(void) {}
 #else
-static void nat_draw_loading(void) {
-    /* v109 : ecran de chargement de Pulse : noir et aurores, logo qui bat, jaquette, etapes */
-    char b[120], fv[120];
-    f32 t = (f32)(now_ms() % 100000u) / 1000.0f;
-    nv_raw = 1;
+/* v111 : fond commun : noir et aurores (force 0..1) */
+static void nl_bg(f32 t, f32 k) {
     gx_vgrad(0, 0, 640, 480, RGBA(8, 6, 16, 255), RGBA(3, 3, 7, 255));
-    for (int band = 0; band < 3; band++) {                      /* aurores */
+    for (int band = 0; band < 3; band++) {
         static const f32 base[3] = { 70, 418, 446 }, amp[3] = { 14, 20, 11 }, th[3] = { 60, 90, 50 }, sp[3] = { 0.30f, 0.22f, 0.40f };
         static const u8 al[3] = { 34, 40, 24 };
         for (int i = 0; i < 24; i++) {
             f32 x0 = -10 + i * 660.0f / 24, x1 = -10 + (i + 1) * 660.0f / 24;
             f32 y0 = base[band] + amp[band] * sinf(x0 * 0.012f + t * sp[band] + band * 2.1f);
             f32 y1 = base[band] + amp[band] * sinf(x1 * 0.012f + t * sp[band] + band * 2.1f);
-            col_t c0 = pl_grad((f32)i / 24, al[band]), c1 = pl_grad((f32)(i + 1) / 24, al[band]), z0 = c0, z1 = c1;
+            u8 a = (u8)(al[band] * k);
+            col_t c0 = pl_grad((f32)i / 24, a), c1 = pl_grad((f32)(i + 1) / 24, a), z0 = c0, z1 = c1;
             z0.a = 0; z1.a = 0;
             gx_poly4(x0, y0 - th[band], x1, y1 - th[band], x1, y1, x0, y0, z0, z1, c1, c0);
             gx_poly4(x0, y0, x1, y1, x1, y1 + th[band] * 0.35f, x0, y0 + th[band] * 0.35f, c0, c1, z1, z0);
         }
     }
+}
+/* barre en degrade (avancement en douceur) ; rend la valeur affichee */
+static f32 nl_shown = -1;
+static f32 nl_progress(void) {
+    if (nl_shown < 0 || nl_shown > nat_ld_pct + 0.5f || nat_ld_pct < 5) nl_shown = (f32)nat_ld_pct;
+    else nl_shown += ((f32)nat_ld_pct - nl_shown) * (1.0f - expf(-ui_dt * 10.0f));
+    return nl_shown;
+}
+static void nl_bar(f32 bx, f32 by, f32 bw, f32 bh, f32 shown, f32 t) {
+    f32 fw = bw * shown / 100.0f;
+    gx_rrect_fill(bx, by, bw, bh, bh / 2, RGBA(255, 255, 255, 22), RGBA(255, 255, 255, 22));
+    if (fw >= bh) {
+        gx_glow(bx, by, fw, bh, bh / 2, pl_grad(0.3f, 120), 4);
+        gx_rrect_fill(bx, by, bh, bh, bh / 2, pl_grad(0, 255), pl_grad(0, 255));
+        gx_rrect_fill(bx + fw - bh, by, bh, bh, bh / 2, pl_grad(fw / bw * 0.8f, 255), pl_grad(fw / bw * 0.8f, 255));
+        gx_hgrad(bx + bh / 2, by, fw - bh, bh, pl_grad(0, 255), pl_grad(fw / bw * 0.8f, 255));
+        f32 sh = fmodf(t * 160.0f, fw + 60.0f) - 30.0f;
+        if (sh > 2 && sh < fw - 10) gx_hgrad(bx + sh, by + 1, 8, bh - 2, RGBA(255, 255, 255, 0), RGBA(255, 255, 255, 140));
+        gx_circle_glow(bx + fw - bh / 2, by + bh / 2, bh * 0.6f, RGBA(255, 255, 255, 200), 5);
+    }
+}
+static void nl_title(char *out, int cap) {
+    char b[120];
+    text_display(nat_ld_title, b, sizeof(b));
+    snprintf(out, cap, "%s", b);
+}
+/* 1 : Coeur : le logo en grand au centre, qui bat ; le nom du jeu et la barre dessous */
+static void nl_coeur(f32 t) {
+    char b[120], fv[120];
+    nl_bg(t, 0.8f);
+    f32 ph = fmodf(t, 1.1f) / 1.1f, beat = expf(-ph * 9.0f);
+    gx_circle(320, 168, 190 + 30 * beat, pl_grad(0.3f, (u8)(40 + 40 * beat)), pl_grad(0.3f, 0));
+    pulse_logo(320, 168, 72, t);
+    nl_title(b, sizeof(b));
+    fit_text(F_LARGE, b, 520, fv, sizeof(fv));
+    gx_text_c(F_LARGE, 320, 318, fv, RGBA(255, 255, 255, 255));
+    f32 sh = nl_progress();
+    nl_bar(170, 336, 300, 6, sh, t);
+    snprintf(b, sizeof(b), "%s  \xC2\xB7  %d %%", nat_ld_step, nat_ld_pct);
+    fit_text(F_SMALL, b, 500, fv, sizeof(fv));
+    gx_text_c(F_SMALL, 320, 364, fv, RGBA(175, 175, 200, 255));
+    if (nat_igr) gx_text_c(F_SMALL, 320, 430, TR("Pendant le jeu : A + Z + START = retour \xC3\xA0 GC Station"), RGBA(130, 130, 160, 255));
+    pulse_word(F_MED, 296, 456, 1.0f);
+}
+/* 2 : Cinema : grande jaquette, nom du jeu en grand, une ligne de battement qui se dessine (avancement) */
+static void nl_cinema(f32 t) {
+    char b[120], fv[120];
+    nl_bg(t, 0.6f);
+    const f32 cx = 40, cy = 64, cw = 222, chh = 296;
+    gx_circle(cx + cw / 2, cy + chh / 2, 240, pl_grad(0.35f, 70), pl_grad(0.35f, 0));
+    gx_glow(cx, cy, cw, chh, 12, pl_grad(0.3f + 0.2f * sinf(t * 2), 190), 7);
+    nv_raw = 0;
+    if (nat_ld_k >= 0 && nat_ld_k < gl_n) gl_draw_cover(nat_ld_k, cx, cy, cw, chh, 1);
+    else gx_rrect_fill(cx, cy, cw, chh, 12, RGBA(30, 24, 60, 255), RGBA(12, 10, 26, 255));
+    nv_raw = 1;
+    pulse_logo(300, 92, 14, t);
+    pulse_word(F_MED, 322, 100, 1.0f);
+    nl_title(b, sizeof(b));
+    char l1[120], l2[120];
+    wrap2(F_LARGE, b, 310, l1, l2, sizeof(l1));
+    txt_scale = 1.15f;
+    gx_text1(F_LARGE, 290, 160, l1, RGBA(255, 255, 255, 255));
+    if (l2[0]) gx_text1(F_LARGE, 290, 194, l2, RGBA(255, 255, 255, 255));
+    txt_scale = 1.0f;
+    fit_text(F_SMALL, nat_ld_step, 300, fv, sizeof(fv));
+    gx_text1(F_SMALL, 292, 236, fv, RGBA(175, 175, 200, 255));
+    /* ligne de battement qui avance avec le chargement */
+    f32 sh = nl_progress();
+    const f32 lx0 = 290, lx1 = 610, ly = 300;
+    f32 xe = lx0 + (lx1 - lx0) * sh / 100.0f;
+    gx_rect(lx0, ly, lx1 - lx0, 1, RGBA(255, 255, 255, 30));
+    f32 px = lx0, py = ly;
+    for (f32 x = lx0 + 3; x <= xe; x += 3) {
+        f32 u = fmodf((x - lx0) / 64.0f, 1.0f), y = ly;
+        if (u > 0.40f && u < 0.47f) y = ly - 30 * (u - 0.40f) / 0.07f;
+        else if (u >= 0.47f && u < 0.55f) y = ly - 30 + 52 * (u - 0.47f) / 0.08f;
+        else if (u >= 0.55f && u < 0.61f) y = ly + 22 - 22 * (u - 0.55f) / 0.06f;
+        col_t c = pl_grad((x - lx0) / (lx1 - lx0), 255);
+        pl_seg(px, py, x, y, 6, RGBA(c.r, c.g, c.b, 60), RGBA(c.r, c.g, c.b, 60));
+        pl_seg(px, py, x, y, 2.4f, c, c);
+        px = x; py = y;
+    }
+    gx_circle_glow(px, py, 4, RGBA(255, 255, 255, 220), 5);
+    gx_circle(px, py, 3, RGBA(255, 255, 255, 255), RGBA(255, 255, 255, 255));
+    snprintf(b, sizeof(b), "%d %%", nat_ld_pct);
+    gx_text_r(F_MED, 610, 346, b, RGBA(235, 235, 250, 255));
+    if (nat_igr) gx_text1(F_SMALL, 290, 400, TR("Pendant le jeu : A + Z + START = retour \xC3\xA0 GC Station"), RGBA(130, 130, 160, 255));
+}
+/* 3 : Minimal : noir, petit logo, l'hexagone se remplit en degrade (avancement), le nom du jeu */
+static void nl_minimal(f32 t) {
+    char b[120], fv[120];
+    gx_vgrad(0, 0, 640, 480, RGBA(4, 4, 8, 255), RGBA(0, 0, 0, 255));
+    const f32 cx = 320, cy = 196, r = 92;
+    f32 sh = nl_progress();
+    f32 per = sh / 100.0f * 6.0f;                               /* (6 cotes) */
+    for (int i = 0; i < 6; i++) {
+        f32 a0 = -PI_F / 2 + i * PI_F / 3, a1 = a0 + PI_F / 3;
+        f32 x0 = cx + r * cosf(a0), y0 = cy + r * sinf(a0), x1 = cx + r * cosf(a1), y1 = cy + r * sinf(a1);
+        pl_seg(x0, y0, x1, y1, 3, RGBA(255, 255, 255, 26), RGBA(255, 255, 255, 26));
+        f32 f = per - i;
+        if (f <= 0) continue;
+        if (f > 1) f = 1;
+        f32 xe = x0 + (x1 - x0) * f, ye = y0 + (y1 - y0) * f;
+        col_t c0 = pl_grad(i / 6.0f, 255), c1 = pl_grad((i + f) / 6.0f, 255);
+        pl_seg(x0, y0, xe, ye, 12, RGBA(c0.r, c0.g, c0.b, 50), RGBA(c1.r, c1.g, c1.b, 50));
+        pl_seg(x0, y0, xe, ye, 4, c0, c1);
+        gx_circle(xe, ye, 2, c1, c1);
+    }
+    f32 ph = fmodf(t, 1.1f) / 1.1f, beat = expf(-ph * 9.0f);
+    pl_heart(cx, cy + 3, 2.3f * (1.0f + 0.08f * beat), 255);
+    nl_title(b, sizeof(b));
+    fit_text(F_MED, b, 520, fv, sizeof(fv));
+    gx_text_c(F_MED, cx, 340, fv, RGBA(235, 235, 250, 255));
+    snprintf(b, sizeof(b), "%d %%", nat_ld_pct);
+    gx_text_c(F_SMALL, cx, 362, b, RGBA(130, 130, 160, 255));
+    gx_text_c(F_SMALL, cx, 456, "PULSE", RGBA(90, 90, 120, 255));
+}
+static int nl_style = -1;                                       /* (choisi au debut de chaque lancement) */
+static void nl_aurore(f32 t);
+static void nat_draw_loading(void) {
+    f32 t = (f32)(now_ms() % 100000u) / 1000.0f;
+    if (nl_style < 0) nl_style = pulse_ld >= 0 && pulse_ld < 4 ? pulse_ld : (int)(now_ms() % 4);
+    nv_raw = 1;
+    switch (nl_style) {
+    case 1: nl_coeur(t); break;
+    case 2: nl_cinema(t); break;
+    case 3: nl_minimal(t); break;
+    default: nl_aurore(t); break;
+    }
+    nv_raw = 0;
+}
+/* 0 : Aurore (v109) : noir et aurores, logo qui bat, jaquette, etapes */
+static void nl_aurore(f32 t) {
+    char b[120], fv[120];
+    nv_raw = 1;
+    nl_bg(t, 1.0f);
     /* marque : logo qui bat + Pulse */
     pulse_logo(62, 54, 27, t);
     int ww = pulse_word(F_LARGE, 106, 66, 1.4f);
@@ -1236,6 +1370,8 @@ static void nat_sim_loading(void) {
     static int once = 0;
     if (once || !getenv("PCSIM_CHARGEMENT")) return;
     once = 1;
+    nl_style = atoi(getenv("PCSIM_CHARGEMENT")) - 1;            /* (1 = Aurore, 2 = Coeur, 3 = Cinema, 4 = Minimal) */
+    if (nl_style < 0 || nl_style > 3) nl_style = 0;
     snprintf(nat_ld_title, sizeof(nat_ld_title), "Mario Superstar Baseball");
     snprintf(nat_ld_step, sizeof(nat_ld_step), "%s", TR("Lecture du jeu"));
     nat_ld_k = gl_n > 1 ? 1 : -1;
@@ -1250,6 +1386,9 @@ static void nat_ld_draw(void) {                          /* v72 : une image, san
     nat_ld_rc = retrace_count; nat_ld_last = now_ms();
 }
 static void nat_ld(const char *step, int pct) {         /* une etape (et dessine tout de suite) */
+#ifndef NATIF_BENCH
+    if (!nat_ld_on) { nl_style = -1; nl_shown = -1; }      /* v111 : nouveau lancement : style (au hasard) choisi de nouveau */
+#endif
     snprintf(nat_ld_step, sizeof(nat_ld_step), "%s", TR(step));
     nat_ld_pct = nat_ld_from = nat_ld_to = pct;
     nat_ld_on = 1;
@@ -1356,6 +1495,18 @@ static int nat_card_prep(void) {
     return 1;
 }
 
+#ifdef GEKKO
+/* v111 : interruptions d'ecran comme les met le BIOS (__VIInit du SDK) : DI0 au milieu de l'image ET DI1 a la
+   1re ligne. libogc (GC Station) laisse DI1 coupee ; le jeu n'avait alors plus que DI0, toujours dans la 2e
+   trame, et son passage en 480p (applique seulement sur la 1re trame) attendait pour toujours, ecran
+   deja au noir (Mario Superstar Baseball). vb : 1 = PAL (625 lignes), sinon 525 lignes. */
+static void na_vi_irqs(u32 vb) {
+    volatile unsigned short *vi = (volatile unsigned short *)0xCC002000u;
+    u32 nh = vb == 1 ? 625 : 525, hlw = vb == 1 ? 432 : 429;
+    vi[24] = (unsigned short)((nh / 2 + 1) | 0x1000); vi[25] = (unsigned short)(hlw + 1);   /* DI0 */
+    vi[26] = 0x1001; vi[27] = 1;                                                       /* DI1 */
+}
+#endif
 static const char *nat_boot(int k) {
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
     static nat_info_t in;
@@ -1536,6 +1687,7 @@ static const char *nat_boot(int k) {
     VIDEO_Configure(na_gm); VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();
     SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
     u32 level = IRQ_Disable();                            /* plus d'interruptions : on ecrase GC Station */
+    na_vi_irqs(na_vb);                                    /* v111 : 480p (interruptions d'ecran comme le BIOS) */
     (void)level;
     memmove((void *)stage, buf, total);
     DCFlushRange((void *)stage, total);
@@ -1717,6 +1869,7 @@ static const char *nat_boot_disc(int k) {
     SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
     u32 level = IRQ_Disable();
     (void)level;
+    na_vi_irqs(vb);                                       /* v111 */
     memmove((void *)stage, buf, total);
     DCFlushRange((void *)stage, total);
     volatile u32 *lm = (volatile u32 *)0x80000000;

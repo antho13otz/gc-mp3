@@ -14,11 +14,11 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v110)
-- **Mes applis** : beaucoup plus fluide (images préparées en arrière-plan), seulement les applis qui ont
-  une image, et une rangée de grandes pochettes qui défile dans les styles modernes.
-- **Aurore** : l'onglet Jeux / Apps en cartes de verre.
-- (v109) **Resident s'appelle maintenant Pulse**, avec son logo et un nouvel écran de chargement.
+## Nouveautés de la version actuelle (v111)
+- **480p avec Pulse** : les jeux qui proposent le mode progressif (Mario Superstar Baseball…) passent
+  enfin en 480p au lieu de rester sur un écran noir.
+- **4 écrans de chargement pour Pulse** (Réglages > Jeux > Écran de chargement) : Aurore, Cœur, Cinéma,
+  Minimal, ou Au hasard.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
