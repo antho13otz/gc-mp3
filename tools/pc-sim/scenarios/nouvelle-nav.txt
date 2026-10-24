@@ -1,0 +1,22 @@
+# v101 : Nouvelle interface : selection qui glisse, transition d'onglet, menu START
+wait 3s
+press DOWN
+wait 60ms
+shot n01-glisse
+wait 400ms
+shot n02-arrivee
+press Z
+wait 70ms
+shot n03-transition
+wait 400ms
+shot n04-radio
+press START
+wait 800ms
+press DOWN
+wait 60ms
+shot n05-menu-glisse
+wait 500ms
+shot n06-menu
+press B
+wait 300ms
+quit

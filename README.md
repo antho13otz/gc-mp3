@@ -14,13 +14,12 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v100)
-- **A+Z+START dans les jeux (Resident)** (v99) : les ports de manette vides ne remettent plus le
-  compte à zéro.
-- **Journal du jeu** : l'état de l'écran (480i / 480p, câble, changements de mode), pour comprendre
-  un écran noir après le choix du 480p.
-- (v98) Musique du disque sans saccades (Cocoto) ; (v97) case **Disque de la console**, cartes SD de
-  1 To rapides, Cocoto Kart Racer relancé.
+## Nouveautés de la version actuelle (v101)
+- **Nouvelle interface** (START > Réglages > Affichage > Style : Nouvelle) : dock d'icônes animé
+  pour les onglets, cartes en verre, pages qui glissent en changeant d'onglet, sélections qui glissent
+  d'une ligne à l'autre. Seul le visuel change ; le style **Classique** reste exactement le même.
+- (v99 / v100) A+Z+START dans les jeux (Resident) ; état de l'écran dans le journal du jeu ;
+  (v98) musique du disque sans saccades ; (v97) case **Disque de la console**, cartes SD de 1 To.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
@@ -41,7 +40,7 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
 ## Fonctionnalités secondaires
 - Mode soirée, karaoké et mini-jeux (jeu de rythme, quiz musical, snake, casse-briques, pong…).
 - Économiseur d'écran (8 styles), mode veilleuse, minuterie, réveil.
-- Thèmes de couleurs, style Classique ou Moderne, fond d'écran, décor de saison, dispositions du lecteur.
+- Thèmes de couleurs, style Classique, Moderne ou Nouvelle (animée), fond d'écran, décor de saison, dispositions du lecteur.
 - Réglages vidéo (480i / 480p, 4:3 / 16:9, taille et position de l'image), français / anglais.
 - Clavier GameCube ASCII, curseur dans tous les onglets.
 - Fonctionne aussi dans Dolphin (carte SD virtuelle, réglages sur la carte mémoire).

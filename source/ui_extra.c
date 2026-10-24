@@ -21,7 +21,7 @@ static void tab_next(int dir) {
 
 /* bandeau de tous les onglets, en haut de l'ecran, apres un appui sur Z */
 static void draw_tab_strip(void) {
-    if (now_ms() >= tab_strip_until) return;
+    if (now_ms() >= tab_strip_until || ui_skin == 2) return;   /* (v101 : Nouvelle : le dock est toujours la) */
     int n = 0, total = 0;
     FOR_TABS(t) if (tab_shown(t)) { total += text_width(F_SMALL, tab_names[t], 1) + 16; n++; }
     total += (n - 1) * 4;
