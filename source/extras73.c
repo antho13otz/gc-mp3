@@ -1164,7 +1164,7 @@ static void x73_launch_pump(void) {
     gl_sel = k;
     const char *e;
     if (m) { e = game_boot(k, 1); nat_ld_on = 0; }      /* (ne revient pas si ca marche) */
-    else { gl_status(ld_ready() ? "Lancement du jeu..." : "Lancement de Swiss..."); e = game_boot(k, 0); }
+    else { gl_status("Lancement du jeu..."); e = game_boot(k, 0); }
     gl_busy[0] = 0;
     if (e) gl_note(e);
 }

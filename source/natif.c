@@ -1083,7 +1083,7 @@ static void nat_draw_loading(void) {
     gx_rrect_stroke(px, py, pw, ph, 12, 1.0f, RGBA(130, 90, 230, 140));
     gx_rrect_fill(px + 18, py + 16, 92, 20, 10, RGBA(170, 100, 255, 255), RGBA(120, 60, 235, 255));   /* badge */
     gx_text_c(F_SMALL, px + 18 + 46, py + 31, "RESIDENT", RGBA(255, 255, 255, 255));
-    gx_text_r(F_SMALL, px + pw - 18, py + 31, TR("Lancement sans Swiss"), RGBA(150, 136, 196, 255));
+    gx_text_r(F_SMALL, px + pw - 18, py + 31, TR("Lanceur GC Station"), RGBA(150, 136, 196, 255));
     text_display(nat_ld_title, b, sizeof(b));
     fit_text(F_MED, b, (int)pw - 36, fv, sizeof(fv));
     gx_text1(F_MED, px + 18, py + 70, fv, RGBA(255, 255, 255, 255));
@@ -1367,7 +1367,7 @@ static const char *nat_boot(int k) {
     mkdir(NA_DIR, 0777);
     FILE *f = fopen(NA_LOG, "w");
     if (f) {
-        fprintf(f, "GC Station - Resident (lancement sans Swiss)\n");
+        fprintf(f, "GC Station - Resident\n");
         fprintf(f, "Jeu : %s  %s\nFichier : %s\nAdaptateur SD : %s\n\n", in.id, in.title, gl[k].path, na_adapter());
         fprintf(f, "Donnees rangees en %08X (%u octets)\nbi2.bin -> %08X   FST -> %08X (%u / %u octets)\n",
                 (unsigned)stage, (unsigned)total, (unsigned)bi2_dest, (unsigned)fst_dest, (unsigned)in.fst_sz, (unsigned)in.fst_max);

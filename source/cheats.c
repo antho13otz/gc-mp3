@@ -1,13 +1,14 @@
-// GC-MP3 v25 : editeur de cheats Swiss (inclus dans main.c, apres tabs_extra.c)
-// Swiss lit les cheats dans SD:/swiss/cheats/<ID du jeu>.txt, par exemple GALE01.txt :
+// GC-MP3 v25 : editeur de cheats (inclus dans main.c, apres tabs_extra.c)
+// v90 : les cheats sont dans SD:/gc-mp3/cheats/<ID du jeu>.txt (avant SD:/swiss/cheats), ex. GALE01.txt ;
+// le lanceur de secours les lit la (format des cheats de swiss-gc) :
 //     Nom du cheat
 //     XXXXXXXX YYYYYYYY        (une ou plusieurs lignes de code Action Replay / Gecko)
 //     (ligne vide entre deux cheats)
-// Ouverture : onglet FICHIERS > X > Cheats Swiss, START > Cheats Swiss, ou un .txt
-// de SD:/swiss/cheats ouvert dans l'onglet FICHIERS.
+// Ouverture : onglet FICHIERS > X > Cheats, START > Cheats, ou un .txt
+// de SD:/gc-mp3/cheats ouvert dans l'onglet FICHIERS.
 // Le fichier est garde ligne par ligne : ce que l'editeur ne comprend pas reste intact.
 
-#define CH_DIR      SD_ROOT "/swiss/cheats"
+#define CH_DIR      GCD "/cheats"
 #define CH_MAXL     3000                    /* lignes par fichier */
 #define CH_LW       128                     /* longueur d'une ligne */
 #define CH_MAXF     300                     /* fichiers dans le dossier */
@@ -213,7 +214,7 @@ static int ch_codes_hash(u64 *out) {
     free(hb.b);
     return 1;
 }
-/* SD:/swiss/cheats/<ID>.chtsel (le nom du .txt doit etre l'ID du jeu, 6 caracteres) */
+/* SD:/gc-mp3/cheats/<ID>.chtsel (le nom du .txt doit etre l'ID du jeu, 6 caracteres) */
 static int ch_sel_path(const char *txtname, char *out, int cap) {
     const char *dot = strrchr(txtname, '.');
     if (!dot || dot - txtname != 6) return 0;
@@ -292,7 +293,7 @@ static void ch_toggle(int c) {
     char p[NAME_LEN];
     if (!ch_sel_path(ch_name, p, sizeof(p))) { ch_note("Le fichier doit s'appeler comme l'ID du jeu (ex. GALE01.txt)"); return; }
     if (!ch_swn[c]) {
-        if (ch_swbad[c]) ch_note("Code non pris en charge par Swiss (lettres XX)");
+        if (ch_swbad[c]) ch_note("Code non pris en charge (lettres XX)");
         else if (!ch_ncodes(c, NULL)) ch_note("Ce n'est pas un cheat (pas de ligne de code)");
         else ch_note("Code pas au bon format (XXXXXXXX YYYYYYYY)");
         return;
@@ -349,7 +350,7 @@ static void ch_scan(void) {
     if (!ch_fn) { ch_fn = malloc(sizeof(*ch_fn) * CH_MAXF); ch_fsz = malloc(sizeof(long) * CH_MAXF); }
     ch_nf = 0;
     if (!ch_fn || !ch_fsz || !sd_ok) return;
-    mkdir(SD_ROOT "/swiss", 0777);
+    mkdir(GCD, 0777);
     mkdir(CH_DIR, 0777);
     DIR *d = opendir(CH_DIR);
     if (!d) return;
@@ -434,7 +435,7 @@ static int ch_save(void) {
     ch_dirty = 0; ch_quit_warn = 0;
     ch_sel_dirty = 0;
     ch_sel_save();                                            /* (garde les cheats actives : l'empreinte change) */
-    ch_note("Enregistr\xC3\xA9 : Swiss l'utilisera au prochain lancement du jeu");
+    ch_note("Enregistr\xC3\xA9 : appliqu\xC3\xA9 au prochain lancement du jeu (lanceur de secours)");
     return 1;
 }
 
@@ -491,7 +492,7 @@ static void cheats_kb_done(int mode, const char *t) {
         char path[NAME_LEN]; struct stat st;
         snprintf(path, sizeof(path), "%s/%s.txt", CH_DIR, id);
         if (stat(path, &st) != 0) {
-            mkdir(SD_ROOT "/swiss", 0777); mkdir(CH_DIR, 0777);
+            mkdir(GCD, 0777); mkdir(CH_DIR, 0777);
             FILE *f = fopen(path, "wb");
             if (!f) { ch_note("Impossible d'\xC3\xA9" "crire sur la carte SD"); return; }
             fclose(f);
@@ -754,7 +755,7 @@ static void draw_cheats(void) {
     char buf[NAME_LEN], d[NAME_LEN];
     draw_panel(11, 73, 618, 338);
     int tx = draw_tabs(NULL);
-    const char *where = ch_view == CHV_LIST ? "Cheats Swiss : SD:/swiss/cheats" : ch_name;
+    const char *where = ch_view == CHV_LIST ? "Cheats : SD:/gc-mp3/cheats" : ch_name;
     if (ch_view == CHV_CODES && ch_csel < ch_nc) {
         text_display(ch_cname(ch_csel), d, sizeof(d));
         snprintf(buf, sizeof(buf), "%s  >  %s", ch_name, d);
@@ -795,7 +796,7 @@ static void draw_cheats(void) {
         }
         if (!ch_nf) {
             gx_text1(F_SMALL, 34, 172, "Aucun fichier de cheats pour l'instant.", RGBA(170, 155, 225, 255));
-            gx_text1(F_SMALL, 34, 190, "Un fichier par jeu, nomm\xC3\xA9 avec l'ID du jeu (affich\xC3\xA9 par Swiss), ex. GALE01.txt", RGBA(170, 155, 225, 255));
+            gx_text1(F_SMALL, 34, 190, "Un fichier par jeu, nomm\xC3\xA9 avec l'ID du jeu (affich\xC3\xA9 dans la fiche du jeu), ex. GALE01.txt", RGBA(170, 155, 225, 255));
         }
     } else if (ch_view == CHV_FILE) {
         int rows = ch_nc + 1, start = ch_csel - vis / 2;

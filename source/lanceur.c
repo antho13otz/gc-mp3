@@ -1,14 +1,14 @@
-// GC-MP3 v44 : lanceur de jeux GC-MP3 (inclus dans main.c, apres igr.c)
-// Le moteur de Swiss (licence GPL v2), modifie pour GC-MP3 (tools/mkloader.py) : le jeu
-// demarre tout de suite, sans menu Swiss, aux couleurs de GC-MP3 ; en cas d'erreur
-// (ou B maintenu puis B), retour sur GC-MP3. Il est compile par GitHub
-// (gc-mp3-loader-bN.bin, release "dernier") : GC-MP3 le telecharge dans
-// SD:/gc-mp3/lanceur.dol et le tient a jour. Reglage : START > Reglages > Lanceur de jeux.
+// GC-MP3 v44 : lanceur de secours (inclus dans main.c, apres igr.c)
+// Moteur GPL v2 (swiss-gc) modifie pour GC Station (tools/mkloader.py) : le jeu demarre tout
+// de suite, aux couleurs de GC Station ; en cas d'erreur, retour sur GC Station. Il est compile
+// par GitHub (gc-mp3-loader-bN.bin, release "dernier") : GC Station le telecharge dans
+// SD:/gc-mp3/lanceur.dol et le tient a jour. v90 : ses reglages, sauvegardes et patches sont
+// dans SD:/gc-mp3/lanceur, ses cheats dans SD:/gc-mp3/cheats. Resident (natif.c) est le
+// lanceur principal (touche A) ; celui-ci sert de secours (touche X, ou cheats actives).
 /* (LD_DOL, LD_VER : dans gclib.c) */
 
 enum { LD_IDLE, LD_CHECK, LD_DL };
 static int ld_state = LD_IDLE, ld_auto_done = 0, ld_cache = -1, ld_new_b = 0, ld_loud = 0;
-/* (ld_mode : dans main.c) */
 static char ld_msg[120] = "";
 static char ld_url[URL_MAX];
 static hfetch_t ld_hf = { .c = { -1, 0, 0 } };
@@ -29,7 +29,7 @@ static int ld_build(void) {
     } else ld_cache = 1;
     return ld_cache;
 }
-static int ld_ready(void) { return ld_mode == 0 && ld_build() > 0; }
+static int ld_ready(void) { return ld_build() > 0; }
 
 /* un .dol GameCube correct (sections dans le fichier et en memoire, point d'entree, "_arg") */
 static int ld_dol_ok(const u8 *d, long n) {
@@ -70,7 +70,7 @@ static void ld_pump(void) {
         lib_note_until = now_ms() + 10000;
     }
     /* une fois par session : lanceur absent ou plus ancien que celui de GitHub */
-    if (!ld_auto_done && ld_mode == 0 && sd_ok && net_phase == NET_DONE && net_ok && now_ms() > 25000 && ld_state == LD_IDLE
+    if (!ld_auto_done && sd_ok && net_phase == NET_DONE && net_ok && now_ms() > 25000 && ld_state == LD_IDLE
         && igr_state == IGR_IDLE && up_state != UP_DL && up_state != UP_WRITE && up_state != UP_CHECK && now_ms() - last_input_ms > 3000) {
         ld_auto_done = 1;
         ld_fetch(0);
@@ -134,26 +134,20 @@ static void ld_pump(void) {
     FILE *v = fopen(LD_VER, "w");
     if (v) { fprintf(v, "%d\n", ld_new_b > 0 ? ld_new_b : 1); fclose(v); }
     ld_cache = -1;
-    snprintf(ld_msg, sizeof(ld_msg), "%s", TR("Lanceur GC Station pr\xC3\xAAt : les jeux d\xC3\xA9marrent sans Swiss"));
+    snprintf(ld_msg, sizeof(ld_msg), "%s", TR("Lanceur de secours pr\xC3\xAAt (touche X dans la fiche d'un jeu)"));
     crumb("lanceur : installe b%d", ld_new_b);
 }
 
-/* menu : Gauche / Droite = GC-MP3 ou Swiss ; A = telecharger / mettre a jour */
-static void ld_change(int a) {
-    if (!a) { ld_mode = !ld_mode; settings_dirty = 1; ld_msg[0] = 0; return; }
-    if (ld_mode == 1) { ld_mode = 0; settings_dirty = 1; }
-    ld_fetch(1);
-}
+/* menu : A (ou Gauche / Droite) = telecharger / mettre a jour */
+static void ld_change(int a) { (void)a; ld_fetch(1); }
 static void ld_value(char *out, int cap) {
-    if (ld_mode == 1) { snprintf(out, cap, "Swiss / Indigo"); return; }
     if (ld_state != LD_IDLE) snprintf(out, cap, "%s", TR("T\xC3\xA9l\xC3\xA9" "chargement..."));
-    else if (ld_build() > 0) snprintf(out, cap, "GC Station (b%d)", ld_build());
-    else snprintf(out, cap, "%s", TR("GC Station (A : t\xC3\xA9l\xC3\xA9" "charger)"));
+    else if (ld_build() > 0) snprintf(out, cap, "Build %d", ld_build());
+    else snprintf(out, cap, "%s", TR("A : t\xC3\xA9l\xC3\xA9" "charger"));
 }
 static const char *ld_hint(void) {
     if (ld_msg[0]) return ld_msg;
-    if (ld_mode == 1) return "Les jeux d\xC3\xA9marrent avec ton Swiss / Indigo";
-    return "Jeux lanc\xC3\xA9s sans le menu de Swiss (B maintenu : \xC3\xA9" "cran du jeu). A : mettre \xC3\xA0 jour";
+    return "Secours : X dans la fiche d'un jeu, et les jeux avec cheats. A : mettre \xC3\xA0 jour";
 }
 
 /* v45 : au demarrage de GC-MP3 :
@@ -194,4 +188,89 @@ static void ld_boot(void) {
     free(d);
     remove(GCD "/lanceur-dernier.log");
     rename(GCD "/lanceur.log", GCD "/lanceur-dernier.log");
+}
+
+/* ======================= v90 : plus rien dans SD:/swiss =======================
+   Une seule fois (SD:/gc-mp3/lanceur/migration.txt) : ce que GC Station utilisait dans SD:/swiss
+   passe dans SD:/gc-mp3. Rien n'est efface dans SD:/swiss, sauf les jaquettes (deplacees : gros
+   fichiers) et ipl-swiss.dol (renomme ipl-avant-gcstation.dol). */
+#define SW_OLD SD_ROOT "/swiss"
+#define MG_MARK LD_DIR "/migration.txt"
+static int mg_exists(const char *p) { struct stat st; return stat(p, &st) == 0; }
+/* copie par morceaux (la musique continue) ; skip = ligne a ne pas recopier (ex. "Autoload=") */
+static int mg_copy(const char *src, const char *dst, const char *skip) {
+    FILE *in = fopen(src, "rb");
+    if (!in) return 0;
+    char part[NAME_LEN + 8];
+    snprintf(part, sizeof(part), "%s.part", dst);
+    FILE *out = fopen(part, "wb");
+    if (!out) { fclose(in); return 0; }
+    int ok = 1;
+    if (skip) {                                                /* (petit fichier texte, ligne par ligne) */
+        char line[512];
+        size_t sl = strlen(skip);
+        while (ok && fgets(line, sizeof(line), in)) if (strncmp(line, skip, sl) && fputs(line, out) < 0) ok = 0;
+    } else {
+        static u8 b[65536];
+        size_t n;
+        while (ok && (n = fread(b, 1, sizeof(b), in)) > 0) { if (fwrite(b, 1, n, out) != n) ok = 0; service_audio(); }
+    }
+    fclose(in);
+    if (fclose(out) != 0) ok = 0;
+    if (!ok) { remove(part); return 0; }
+    remove(dst);
+    if (rename(part, dst) != 0) { remove(part); return 0; }
+    return 1;
+}
+/* tous les fichiers d'un dossier (sans sous-dossiers), sans remplacer ceux deja la */
+static int mg_copy_dir(const char *from, const char *to) {
+    DIR *d = opendir(from);
+    if (!d) return 0;
+    int n = 0;
+    struct dirent *e;
+    char a[NAME_LEN], b[NAME_LEN];
+    while ((e = readdir(d)) != NULL) {
+        if (e->d_name[0] == '.') continue;
+        snprintf(a, sizeof(a), "%s/%s", from, e->d_name);
+        snprintf(b, sizeof(b), "%s/%s", to, e->d_name);
+        struct stat st;
+        if (stat(a, &st) != 0 || S_ISDIR(st.st_mode) || mg_exists(b)) continue;
+        if (mg_copy(a, b, NULL)) n++;
+    }
+    closedir(d);
+    return n;
+}
+static void swiss_migrate(void) {
+    if (!sd_ok || sd_virtual || mg_exists(MG_MARK)) return;
+    mkdir(GCD, 0777); mkdir(LD_DIR, 0777); mkdir(LD_DIR "/settings", 0777); mkdir(LD_DIR "/settings/game", 0777);
+    mkdir(LD_DIR "/patches", 0777); mkdir(LD_DIR "/saves", 0777); mkdir(CH_DIR, 0777);
+    int reg = 0, game = 0, ch = 0, sav = 0, cov = 0, igr = 0, ipl = 0;
+    if (mg_exists(SW_OLD)) {
+        ui_status("Reprise des fichiers de SD:/swiss dans SD:/gc-mp3...");
+        if (!mg_exists(LD_INI) && mg_exists(SW_OLD "/settings/global.ini")) reg = mg_copy(SW_OLD "/settings/global.ini", LD_INI, "Autoload=");
+        if (!mg_exists(LD_DIR "/settings/recent.ini") && mg_exists(SW_OLD "/settings/recent.ini")) mg_copy(SW_OLD "/settings/recent.ini", LD_DIR "/settings/recent.ini", NULL);
+        game = mg_copy_dir(SW_OLD "/settings/game", LD_DIR "/settings/game");
+        ch = mg_copy_dir(SW_OLD "/cheats", CH_DIR);
+        sav = mg_copy_dir(SW_OLD "/saves", LD_DIR "/saves");
+        static const char *const ui[3] = { "posters.pak", "stills.pak", "descriptions.txt" };
+        for (int i = 0; i < 3; i++) {
+            char a[NAME_LEN], b[NAME_LEN];
+            snprintf(a, sizeof(a), SW_OLD "/ui/%s", ui[i]);
+            snprintf(b, sizeof(b), GL_UI "/%s", ui[i]);
+            if (!mg_exists(a) || mg_exists(b)) continue;
+            mkdir(GL_UI, 0777);
+            if (rename(a, b) == 0 || mg_copy(a, b, NULL)) cov++;
+        }
+        if (!mg_exists(IGR_IMG) && igr_build_of(IGR_OLD) > 0 && mg_copy(IGR_OLD, IGR_IMG, NULL)) { igr = 1; igr_cache = -1; }
+    }
+    if (!mg_exists(IPL_OLD) && mg_exists(IPL_OLD_V89) && rename(IPL_OLD_V89, IPL_OLD) == 0) ipl = 1;
+    FILE *f = fopen(MG_MARK, "w");
+    if (f) {
+        fprintf(f, "# GC Station v90 : fichiers repris de SD:/swiss (une seule fois ; effacer ce fichier pour recommencer)\n"
+                   "reglages_lanceur = %d\nreglages_jeux = %d\ncheats = %d\nsauvegardes = %d\njaquettes = %d\nretour_en_jeu = %d\nipl = %d\n",
+                reg, game, ch, sav, cov, igr, ipl);
+        fclose(f);
+    }
+    crumb("v90 : SD:/swiss -> SD:/gc-mp3 (reglages %d, jeux %d, cheats %d, sauvegardes %d, jaquettes %d, retour %d, ipl %d)", reg, game, ch, sav, cov, igr, ipl);
+    if (reg || game || ch || sav || cov || igr || ipl) lib_note("Fichiers de Swiss repris dans SD:/gc-mp3 : GC Station n'utilise plus SD:/swiss");
 }

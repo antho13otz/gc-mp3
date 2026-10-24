@@ -1,8 +1,8 @@
 // GC Station v86 : fichiers sur le reseau, comme des disques : smb:/  ftp:/  fsp:/
 // (inclus dans main.c, apres les fonctions de connexion). Clients ecrits pour GC Station :
-// FTP (TCP, mode passif), FSP (UDP, le protocole leger de Swiss) et SMB2 (smb2.c).
-// Les reglages viennent de Swiss (SD:/swiss/settings/global.ini) et se modifient dans
-// START > Reglages > Reseau ; ils sont gardes dans gc-mp3.txt.
+// FTP (TCP, mode passif), FSP (UDP, protocole leger) et SMB2 (smb2.c).
+// Les reglages se font dans START > Reglages > Reseau ; ils sont gardes dans gc-mp3.txt
+// (v90 : plus de reprise depuis SD:/swiss).
 // Sur la console, chaque protocole est un "disque" de newlib (devoptab) : fopen, opendir,
 // stat... marchent comme sur la carte SD (musique, photos, videos, copie vers la carte).
 // Lecture seulement.
@@ -25,48 +25,6 @@ static char nfs_err[120] = "";
 static int nfs_cfg_ok(int p) { return nfs_cfg[p].host[0] && (p != NFS_SMB || nfs_cfg[p].share[0]); }
 static void nfs_seterr(const char *m) { snprintf(nfs_err, sizeof(nfs_err), "%s", m); }
 
-/* reglages de Swiss : seulement ceux que GC Station n'a pas encore (rend le nombre repris) */
-static int nfs_swiss_import(int force) {
-    static const char *const files[] = { SD_ROOT "/swiss/settings/global.ini", SD_ROOT "/swiss/swiss.ini", SD_ROOT "/swiss.ini" };
-    long len = 0;
-    char *d = NULL;
-    for (int i = 0; i < 3 && !d; i++) d = (char *)read_file(files[i], 64 * 1024, &len);
-    if (!d) return 0;
-    char *t = (char *)realloc(d, len + 1);
-    if (!t) { free(d); return 0; }
-    d = t; d[len] = 0;
-    int n = 0;
-    nfs_cfg_t old[NFS_N];
-    memcpy(old, nfs_cfg, sizeof(old));
-    for (char *l = strtok(d, "\r\n"); l; l = strtok(NULL, "\r\n")) {
-        char *eq = strchr(l, '=');
-        if (!eq) continue;
-        *eq = 0;
-        const char *k = l, *v = eq + 1;
-        char *dst = NULL; int *ip = NULL, p = -1;
-        if (!strcmp(k, "SMBHostIP")) { p = NFS_SMB; dst = nfs_cfg[p].host; }
-        else if (!strcmp(k, "SMBShareName")) { p = NFS_SMB; dst = nfs_cfg[p].share; }
-        else if (!strcmp(k, "SMBUserName")) { p = NFS_SMB; dst = nfs_cfg[p].user; }
-        else if (!strcmp(k, "SMBPassword")) { p = NFS_SMB; dst = nfs_cfg[p].pass; }
-        else if (!strcmp(k, "FTPHostIP")) { p = NFS_FTP; dst = nfs_cfg[p].host; }
-        else if (!strcmp(k, "FTPUserName")) { p = NFS_FTP; dst = nfs_cfg[p].user; }
-        else if (!strcmp(k, "FTPPassword")) { p = NFS_FTP; dst = nfs_cfg[p].pass; }
-        else if (!strcmp(k, "FTPPort")) { p = NFS_FTP; ip = &nfs_cfg[p].port; }
-        else if (!strcmp(k, "FTPUsePasv")) { p = NFS_FTP; ip = &nfs_cfg[p].pasv; }
-        else if (!strcmp(k, "FSPHostIP")) { p = NFS_FSP; dst = nfs_cfg[p].host; }
-        else if (!strcmp(k, "FSPPassword")) { p = NFS_FSP; dst = nfs_cfg[p].pass; }
-        else if (!strcmp(k, "FSPPort")) { p = NFS_FSP; ip = &nfs_cfg[p].port; }
-        else if (!strcmp(k, "FSPPathMTU")) { p = NFS_FSP; ip = &nfs_cfg[p].mtu; }
-        if (p < 0 || !*v) continue;
-        if (!force && old[p].host[0]) continue;                  /* (deja regle dans GC Station : on garde) */
-        if (dst) snprintf(dst, 64, "%s", v);
-        else if (ip == &nfs_cfg[p].pasv) *ip = !strcasecmp(v, "Yes");
-        else if (atoi(v) > 0) *ip = atoi(v);
-        n++;
-    }
-    free(d);
-    return n;
-}
 
 /* ---------- utilitaires ---------- */
 static const char *nfs_rel(const char *path, int *proto) {        /* "ftp:/a/b" -> "/a/b" */
@@ -693,7 +651,7 @@ static int nfs_setting(const char *k, const char *v) {
     return 0;
 }
 static void nfs_save(FILE *f) {
-    fprintf(f, "# Serveurs du reseau (v86 : onglet FICHIERS ; repris de Swiss au premier demarrage)\n");
+    fprintf(f, "# Serveurs du reseau (onglet FICHIERS)\n");
     for (int p = 0; p < NFS_N; p++) {
         const nfs_cfg_t *c = &nfs_cfg[p];
         fprintf(f, "%s_adresse = %s\n", nfs_key[p], c->host);
