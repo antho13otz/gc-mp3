@@ -1366,6 +1366,9 @@ static void net_start_async(void) {
     }
 }
 
+/* v83 : verrous (mbedTLS, cache DNS) : actifs des que le fil des connexions existe */
+static mutex_t tls_mx = LWP_MUTEX_NULL, dns_mx = LWP_MUTEX_NULL;
+static volatile int tls_mx_ok = 0;
 static void set_nonblock(s32 s, int on) {
     u32 v = on ? 1 : 0;
     net_ioctl(s, FIONBIO, &v);
@@ -1450,7 +1453,14 @@ static int dns_query(u32 server, const char *host, u32 *out) {
     return found == 1;
 }
 
-static int resolve_host(const char *host, u32 *out) {
+static int resolve_host_raw(const char *host, u32 *out);
+static int resolve_host(const char *host, u32 *out) {          /* v83 : (2 fils : un verrou pour le cache) */
+    if (tls_mx_ok) LWP_MutexLock(dns_mx);
+    int r = resolve_host_raw(host, out);
+    if (tls_mx_ok) LWP_MutexUnlock(dns_mx);
+    return r;
+}
+static int resolve_host_raw(const char *host, u32 *out) {
     /* adresse IP ecrite directement ? */
     int dots = 0, digits = 1;
     for (const char *p = host; *p; p++) {
@@ -1530,6 +1540,12 @@ typedef struct {
 } conn_t;
 static conn_t cn = { -1, 0, 0 };          /* radio */
 
+/* v83 : mbedTLS (et son PSA) n'est pas prevu pour plusieurs fils : un verrou le protege des
+   que le fil des connexions en tache de fond existe (avant : un seul fil, pas de verrou). La
+   boucle principale ne l'attend pas pour lire / ecrire : elle reessaie a l'image suivante. */
+#define TLS_LOCK()   do { if (tls_mx_ok) LWP_MutexLock(tls_mx); } while (0)
+#define TLS_UNLOCK() do { if (tls_mx_ok) LWP_MutexUnlock(tls_mx); } while (0)
+static int tls_try(void) { return !tls_mx_ok || LWP_MutexTryLock(tls_mx) == 0; }
 static int tls_ready = 0;                 /* 1 = generateur et certificats prets */
 static mbedtls_entropy_context tls_entropy;
 static mbedtls_ctr_drbg_context tls_drbg;
@@ -1544,7 +1560,15 @@ static int tls_verify_cb(void *p, mbedtls_x509_crt *crt, int depth, uint32_t *fl
     return 0;
 }
 
+static int tls_global_init_raw(void);
 static int tls_global_init(void) {
+    if (tls_ready) return 1;
+    TLS_LOCK();
+    int r = tls_global_init_raw();
+    TLS_UNLOCK();
+    return r;
+}
+static int tls_global_init_raw(void) {
     if (tls_ready) return 1;
     static const char pers[] = "GC-MP3 radio";
     mbedtls_entropy_init(&tls_entropy);
@@ -1578,7 +1602,9 @@ static int tls_global_init(void) {
 typedef struct { char host[96]; int ok; u32 used; mbedtls_ssl_session s; } tls_sc_t;
 static tls_sc_t tls_sc[TLS_SC];
 static u32 tls_sc_clock = 0;
-static void tls_sc_put(mbedtls_ssl_context *ssl, const char *host) {
+static void tls_sc_put_raw(mbedtls_ssl_context *ssl, const char *host);
+static void tls_sc_put(mbedtls_ssl_context *ssl, const char *host) { TLS_LOCK(); tls_sc_put_raw(ssl, host); TLS_UNLOCK(); }
+static void tls_sc_put_raw(mbedtls_ssl_context *ssl, const char *host) {
     if (!host || !host[0]) return;
     int k = -1;
     for (int i = 0; i < TLS_SC; i++) if (tls_sc[i].ok && !strcmp(tls_sc[i].host, host)) k = i;
@@ -1594,20 +1620,26 @@ static void tls_sc_put(mbedtls_ssl_context *ssl, const char *host) {
     tls_sc[k].used = ++tls_sc_clock;
 }
 static int tls_sc_use(mbedtls_ssl_context *ssl, const char *host) {
+    int r = 0;
+    TLS_LOCK();
     for (int i = 0; i < TLS_SC; i++)
         if (tls_sc[i].ok && !strcmp(tls_sc[i].host, host)) {
-            if (mbedtls_ssl_set_session(ssl, &tls_sc[i].s) != 0) return 0;
-            tls_sc[i].used = ++tls_sc_clock;
-            return 1;
+            if (mbedtls_ssl_set_session(ssl, &tls_sc[i].s) == 0) { tls_sc[i].used = ++tls_sc_clock; r = 1; }
+            break;
         }
-    return 0;
+    TLS_UNLOCK();
+    return r;
 }
 static void tls_sc_drop(const char *host) {          /* session refusee : on l'oublie */
+    TLS_LOCK();
     for (int i = 0; i < TLS_SC; i++)
         if (tls_sc[i].ok && !strcmp(tls_sc[i].host, host)) { mbedtls_ssl_session_free(&tls_sc[i].s); tls_sc[i].ok = 0; }
+    TLS_UNLOCK();
 }
 static void tls_sc_done(conn_t *c) {                 /* poignee de main finie (TLS 1.2 : session a garder) */
+    TLS_LOCK();
     if (mbedtls_ssl_get_version_number(&c->ssl) == MBEDTLS_SSL_VERSION_TLS1_2) tls_sc_put(&c->ssl, c->host);
+    TLS_UNLOCK();
 }
 
 static int bio_send(void *ctx, const unsigned char *buf, size_t len) {
@@ -1623,7 +1655,7 @@ static int bio_recv(void *ctx, unsigned char *buf, size_t len) {
 }
 
 static void conn_close(conn_t *c) {
-    if (c->ssl_inited) { mbedtls_ssl_free(&c->ssl); c->ssl_inited = 0; }
+    if (c->ssl_inited) { TLS_LOCK(); mbedtls_ssl_free(&c->ssl); c->ssl_inited = 0; TLS_UNLOCK(); }
     if (c->fd >= 0) net_close(c->fd);
     c->fd = -1;
     c->tls = 0;
@@ -1635,7 +1667,9 @@ static int conn_recv(conn_t *c, unsigned char *buf, int len) {
     if (c->fd < 0) return -EIO;
     if (!c->tls) return net_recv(c->fd, buf, len, 0);
     for (;;) {
+        if (!tls_try()) return -EAGAIN;                    /* v83 : (le fil des connexions calcule : a l'image suivante) */
         int r = mbedtls_ssl_read(&c->ssl, buf, (size_t)len);
+        TLS_UNLOCK();
         if (r > 0) return r;
         if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) return -EAGAIN;
 #ifdef MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
@@ -1650,7 +1684,11 @@ static int conn_send_all(conn_t *c, const void *data, int len) {
     const unsigned char *p = (const unsigned char *)data;
     u64 t0 = now_ms();
     while (len > 0) {
-        int r = c->tls ? mbedtls_ssl_write(&c->ssl, p, (size_t)len) : net_send(c->fd, p, len, 0);
+        int r;
+        if (c->tls) {
+            if (tls_try()) { r = mbedtls_ssl_write(&c->ssl, p, (size_t)len); TLS_UNLOCK(); }
+            else r = MBEDTLS_ERR_SSL_WANT_WRITE;           /* v83 : (verrou pris : on reessaie) */
+        } else r = net_send(c->fd, p, len, 0);
         if (r > 0) { p += r; len -= r; continue; }
         if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE || r == -EAGAIN || r == -EWOULDBLOCK) {
             if (now_ms() - t0 > 8000) return 0;
@@ -1667,24 +1705,32 @@ static int conn_send_all(conn_t *c, const void *data, int len) {
    En cas d'echec, *err recoit le message a afficher. */
 static int conn_start_tls(conn_t *c, const char *host, const char **err) {
     if (!tls_global_init()) { *err = "Erreur d'initialisation HTTPS"; return 0; }
+    TLS_LOCK();
     mbedtls_ssl_init(&c->ssl);
     c->ssl_inited = 1;
-    if (mbedtls_ssl_setup(&c->ssl, &tls_conf) != 0 || mbedtls_ssl_set_hostname(&c->ssl, host) != 0) {
+    int su = mbedtls_ssl_setup(&c->ssl, &tls_conf) != 0 || mbedtls_ssl_set_hostname(&c->ssl, host) != 0;
+    TLS_UNLOCK();
+    if (su) {
         *err = "Erreur d'initialisation HTTPS";
         return 0;
     }
     c->sc_used = tls_sc_use(&c->ssl, c->host);
+    TLS_LOCK();
     mbedtls_ssl_set_bio(&c->ssl, &c->fd, bio_send, bio_recv, NULL);
+    TLS_UNLOCK();
     c->tls = 1;
     u64 t0 = now_ms();
     for (;;) {
+        TLS_LOCK();
         int r = mbedtls_ssl_handshake(&c->ssl);
+        int vr = r ? (int)mbedtls_ssl_get_verify_result(&c->ssl) : 0;
+        TLS_UNLOCK();
         if (r == 0) { tls_sc_done(c); return 1; }
 #ifdef MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
         if (r == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) { tls_sc_put(&c->ssl, c->host); continue; }
 #endif
         if (r != MBEDTLS_ERR_SSL_WANT_READ && r != MBEDTLS_ERR_SSL_WANT_WRITE) {
-            if (r == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED || mbedtls_ssl_get_verify_result(&c->ssl) != 0)
+            if (r == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED || vr != 0)
                 *err = "Certificat du serveur refusé";
             else
                 *err = "Échec de la connexion sécurisée";
@@ -1764,6 +1810,112 @@ static int conn_open(conn_t *c, const char *host, int port, int tls, const char 
         }
     }
     return 1;
+}
+
+/* ---------- v83 : connexions en tache de fond ----------
+   La recherche DNS, la connexion TCP et la poignee de main HTTPS (calculs de cles et
+   verification des certificats : jusqu'a 1 s pour le Gekko) se faisaient pendant une image :
+   l'ecran sautait de 200 a 300 ms a chaque parole, pochette, meteo, verification de mise a
+   jour... Un fil de faible priorite (sous la boucle principale ET sous le decodage du son :
+   il ne prend que le temps libre) les fait maintenant ; la boucle principale reprend la
+   connexion prete. Il utilise la pile du fil du demarrage du reseau (fini avant). */
+#define AC_N 6
+typedef struct {
+    volatile int st;                        /* 0 libre, 1 en attente, 2 en cours, 3 fini (a reprendre) */
+    volatile int cancel;                    /* 1 = plus personne n'en veut : fermee par la boucle principale */
+    int ok, port, tls;
+    char host[128];
+    conn_t c;
+} acjob_t;
+static acjob_t ac_job[AC_N];
+static int ac_on = 0;                       /* 1 = fil lance ; -1 = impossible (on fait comme avant) */
+static sem_t ac_sem;
+static lwp_t ac_h;
+static int ac_open(acjob_t *j) {
+    const char *err = NULL;
+    j->c.fd = -1; j->c.tls = 0; j->c.ssl_inited = 0; j->c.sc_used = 0;
+    if (!conn_tcp(&j->c, j->host, j->port, &err, NULL, 0)) return 0;
+    if (!j->tls) return 1;
+    for (int attempt = 0; attempt < 2; attempt++) {
+        if (!tls_global_init()) { conn_close(&j->c); return 0; }
+        snprintf(j->c.host, sizeof(j->c.host), "%s:%d", j->host, j->port);
+        TLS_LOCK();
+        mbedtls_ssl_init(&j->c.ssl);
+        j->c.ssl_inited = 1;
+        int ok = mbedtls_ssl_setup(&j->c.ssl, &tls_conf) == 0 && mbedtls_ssl_set_hostname(&j->c.ssl, j->host) == 0;
+        if (ok) { mbedtls_ssl_set_bio(&j->c.ssl, &j->c.fd, bio_send, bio_recv, NULL); j->c.tls = 1; }
+        TLS_UNLOCK();
+        if (!ok) { conn_close(&j->c); return 0; }
+        j->c.sc_used = tls_sc_use(&j->c.ssl, j->c.host);
+        u64 t0 = now_ms();
+        int r;
+        for (;;) {
+            if (j->cancel) { conn_close(&j->c); return 0; }
+            TLS_LOCK();
+            r = mbedtls_ssl_handshake(&j->c.ssl);
+            TLS_UNLOCK();
+            if (r == 0) { tls_sc_done(&j->c); return 1; }
+#ifdef MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
+            if (r == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) { tls_sc_put(&j->c.ssl, j->c.host); continue; }
+#endif
+            if ((r != MBEDTLS_ERR_SSL_WANT_READ && r != MBEDTLS_ERR_SSL_WANT_WRITE) || now_ms() - t0 > 15000) break;
+            usleep(2000);
+        }
+        int retry = attempt == 0 && j->c.sc_used && now_ms() - t0 <= 15000;
+        if (retry) tls_sc_drop(j->c.host);                 /* session refusee : sans elle */
+        conn_close(&j->c);
+        if (!retry || !conn_tcp(&j->c, j->host, j->port, &err, NULL, 0)) return 0;
+    }
+    conn_close(&j->c);
+    return 0;
+}
+static void *ac_thread(void *arg) {
+    (void)arg;
+    for (;;) {
+        LWP_SemWait(ac_sem);
+        for (int k = 0; k < AC_N; k++) {
+            acjob_t *j = &ac_job[k];
+            if (j->st != 1) continue;
+            j->st = 2;
+            j->ok = j->cancel ? 0 : ac_open(j);
+            j->st = 3;                                     /* (la boucle principale reprend ou ferme) */
+        }
+    }
+    return NULL;
+}
+static void ac_sweep(void) {                               /* (boucle principale) connexions abandonnees */
+    for (int k = 0; k < AC_N; k++) if (ac_job[k].st == 3 && ac_job[k].cancel) { conn_close(&ac_job[k].c); ac_job[k].cancel = 0; ac_job[k].st = 0; }
+}
+static int ac_start(void) {
+    if (ac_on) return ac_on > 0;
+    if (net_phase != NET_DONE) return 0;
+    ac_on = -1;
+    LWP_JoinThread(net_thread_h, NULL);                    /* (sa pile sert au nouveau fil) */
+    if (LWP_MutexInit(&tls_mx, true) < 0 || LWP_MutexInit(&dns_mx, true) < 0 || LWP_SemInit(&ac_sem, 0, 64) < 0) return 0;
+    tls_mx_ok = 1;
+    if (LWP_CreateThread(&ac_h, ac_thread, NULL, net_thread_stack, sizeof(net_thread_stack), 15) < 0) { tls_mx_ok = 0; return 0; }
+    ac_on = 1;
+    return 1;
+}
+/* rend le numero de la demande + 1 (0 = pas possible : connexion comme avant) */
+static int ac_submit(const char *host, int port, int tls) {
+    if (!ac_start()) return 0;
+    ac_sweep();
+    for (int k = 0; k < AC_N; k++) {
+        acjob_t *j = &ac_job[k];
+        if (j->st) continue;
+        snprintf(j->host, sizeof(j->host), "%s", host);
+        j->port = port; j->tls = tls; j->ok = 0; j->cancel = 0;
+        j->st = 1;
+        LWP_SemPost(ac_sem);
+        return k + 1;
+    }
+    return 0;
+}
+static void ac_cancel(int id) {
+    if (id < 1 || id > AC_N) return;
+    ac_job[id - 1].cancel = 1;
+    ac_sweep();
 }
 
 // ---------- HTTP + metadonnees ICY ----------
@@ -5820,6 +5972,9 @@ static void perf_toggle(void) {
     memset(pfx_sum, 0, sizeof(pfx_sum)); memset(pfx_max, 0, sizeof(pfx_max)); memset(pfx_top, 0, sizeof(pfx_top));
     pfx_frame_t0 = 0; pfx_last_top = PH_N; perf_on = 1;
 }
+#ifndef GEKKO
+void gcs_perf_sim(int on) { if (!on != !perf_on) perf_toggle(); }   /* (simulateur sur PC : PCSIM_PERF=1) */
+#endif
 static void draw(void) {
     {
         static u64 last = 0;
@@ -8436,7 +8591,7 @@ static void web_fetch(const char *url_in, int mode, int typed) {
 // ---------- Petit client HTTP en tache de fond (images, pochettes) ----------
 /* Avance par petites etapes a chaque image affichee : rien ne bloque l'ecran
    longtemps. Garde la connexion ouverte pour la demande suivante au meme site. */
-enum { HF_IDLE, HF_HANDSHAKE, HF_HEAD, HF_BODY, HF_DONE, HF_FAIL };
+enum { HF_IDLE, HF_HANDSHAKE, HF_HEAD, HF_BODY, HF_DONE, HF_FAIL, HF_CONNECT };   /* v83 : HF_CONNECT = connexion en tache de fond */
 typedef struct {
     conn_t c;
     int st, alive, reused, close_after, redirs, port, tls, code;
@@ -8454,6 +8609,7 @@ typedef struct {
     long expect;
     dechunk_t dc;
     u64 t0, last_use;
+    int job;                                /* v83 : demande au fil des connexions (+1 ; 0 = aucune) */
 } hfetch_t;
 
 /* v77 : en-tetes plus gros que le tampon (GitHub : 11 Ko, dont une tres longue
@@ -8485,6 +8641,7 @@ static void hf_close(hfetch_t *h) { conn_close(&h->c); h->alive = 0; }
 static void hf_drop(hfetch_t *h) { free(h->buf); h->buf = NULL; h->len = h->cap = 0; }
 static void hf_fail(hfetch_t *h) { hf_drop(h); h->st = HF_FAIL; }
 static void hf_abort(hfetch_t *h) {
+    if (h->job) { ac_cancel(h->job); h->job = 0; }
     if (h->st == HF_HANDSHAKE || h->st == HF_HEAD || h->st == HF_BODY) hf_close(h);
     hf_drop(h);
     h->st = HF_IDLE;
@@ -8518,6 +8675,17 @@ static void hf_request(hfetch_t *h) {
     if (!h->reused) {
         const char *err = NULL;
         hf_close(h);
+        if (h->job) { ac_cancel(h->job); h->job = 0; }
+        int id = ac_submit(u.host, u.port, u.tls);             /* v83 : en tache de fond (l'ecran continue) */
+        if (id) {
+            snprintf(h->host, sizeof(h->host), "%s", u.host);
+            h->port = u.port;
+            h->tls = u.tls;
+            h->job = id;
+            h->st = HF_CONNECT;
+            h->t0 = now_ms();
+            return;
+        }
         if (!conn_tcp(&h->c, u.host, u.port, &err, NULL, 0)) { hf_fail(h); return; }
         snprintf(h->host, sizeof(h->host), "%s", u.host);
         h->port = u.port;
@@ -8525,14 +8693,17 @@ static void hf_request(hfetch_t *h) {
         h->alive = 1;
         if (u.tls) {
             if (!tls_global_init()) { hf_close(h); hf_fail(h); return; }
+            TLS_LOCK();
             mbedtls_ssl_init(&h->c.ssl);
             h->c.ssl_inited = 1;
-            if (mbedtls_ssl_setup(&h->c.ssl, &tls_conf) != 0 || mbedtls_ssl_set_hostname(&h->c.ssl, u.host) != 0) {
-                hf_close(h); hf_fail(h); return;
-            }
+            int su = mbedtls_ssl_setup(&h->c.ssl, &tls_conf) != 0 || mbedtls_ssl_set_hostname(&h->c.ssl, u.host) != 0;
+            TLS_UNLOCK();
+            if (su) { hf_close(h); hf_fail(h); return; }
             snprintf(h->c.host, sizeof(h->c.host), "%s:%d", u.host, u.port);
             h->c.sc_used = tls_sc_use(&h->c.ssl, h->c.host);
+            TLS_LOCK();
             mbedtls_ssl_set_bio(&h->c.ssl, &h->c.fd, bio_send, bio_recv, NULL);
+            TLS_UNLOCK();
             h->c.tls = 1;
             h->st = HF_HANDSHAKE;
             h->t0 = now_ms();
@@ -8547,6 +8718,7 @@ static void hf_request(hfetch_t *h) {
 }
 
 static void hf_start(hfetch_t *h, const char *url, const char *referer) {
+    if (h->job) { ac_cancel(h->job); h->job = 0; }
     hf_drop(h);
     h->redirs = 0;
     h->code = 0;
@@ -8564,8 +8736,30 @@ static void hf_done(hfetch_t *h) {
 }
 
 static void hf_pump(hfetch_t *h) {
+    if (h->st == HF_CONNECT) {                               /* v83 : connexion prete ? */
+        ac_sweep();
+        acjob_t *j = h->job ? &ac_job[h->job - 1] : NULL;
+        if (j && j->st != 3) {
+            if (now_ms() - h->t0 > 40000) { ac_cancel(h->job); h->job = 0; hf_fail(h); }
+            return;
+        }
+        int ok = j && j->ok;
+        if (ok) {
+            h->c = j->c;                                     /* (la connexion change de place : le TLS suit) */
+            if (h->c.tls) { TLS_LOCK(); mbedtls_ssl_set_bio(&h->c.ssl, &h->c.fd, bio_send, bio_recv, NULL); TLS_UNLOCK(); }
+            j->c.fd = -1; j->c.ssl_inited = 0; j->c.tls = 0;
+        }
+        if (j) j->st = 0;
+        h->job = 0;
+        if (!ok) { hf_fail(h); return; }
+        h->alive = 1;
+        if (!hf_send(h)) { hf_close(h); hf_fail(h); }
+        return;
+    }
     if (h->st == HF_HANDSHAKE) {
+        if (!tls_try()) return;                              /* v83 : (le fil des connexions calcule) */
         int r = mbedtls_ssl_handshake(&h->c.ssl);
+        TLS_UNLOCK();
         if (r == 0) { tls_sc_done(&h->c); if (!hf_send(h)) { hf_close(h); hf_fail(h); } return; }
 #ifdef MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
         if (r == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) { tls_sc_put(&h->c.ssl, h->c.host); return; }

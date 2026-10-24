@@ -33,7 +33,7 @@ static const unsigned gl_stub[1];
 #include "gd.inc"
 static FILE *img;
 static u32 first_clus;
-static int host_stat(const char *p, struct stat *st) { int r = stat(p, st); if (!r) st->st_ino = strstr(p, "journal-jeu") ? 20000 : strstr(p, "selfdol") ? 30000 : strstr(p, "carte-A") ? 40000 : first_clus; return r; }   /* (journal : un cluster libre de mkfat.py) */
+static int host_stat(const char *p, struct stat *st) { int r = stat(p, st); if (!r) st->st_ino = strstr(p, "journal-jeu") ? 20000 : strstr(p, "memoire-jeu") ? 60000 : strstr(p, "selfdol") ? 30000 : strstr(p, "carte-A") ? 40000 : first_clus; return r; }   /* (journal : un cluster libre de mkfat.py) */
 #define stat(p, s) host_stat(p, s)
 #include "natif.c"
 #undef stat

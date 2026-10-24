@@ -366,6 +366,14 @@ void pcsim_fps_report(void) {
     printf("[pcsim] fluidite : %llu images en %.1f s (%.1f images/s), %llu images ratees (> 20 ms), %llu tres lentes (> 34 ms), pire %.0f ms\n",
            fr_n, sec, (fr_n - 1) / sec, fr_slow, fr_vslow, fr_worst / 1000.0);
 }
+/* repere du scenario (mark) : fluidite depuis le repere precedent */
+static unsigned long long sg_n = 0, sg_slow = 0, sg_vslow = 0, sg_worst = 0, sg_t0 = 0;
+void pcsim_seg_report(const char *name) {
+    unsigned long long n = mono_us();
+    if (sg_t0 && sg_n) printf("[pcsim] portion %-22s %5llu images (%.1f/s), %3llu ratees (> 20 ms), %3llu tres lentes (> 34 ms), pire %3.0f ms\n",
+                              name, sg_n, sg_n / ((n - sg_t0) / 1e6), sg_slow, sg_vslow, sg_worst / 1000.0);
+    sg_n = sg_slow = sg_vslow = sg_worst = 0; sg_t0 = n;
+}
 void GX_CopyDisp(void *dst, u8 clear) {
     (void)dst;
     {   /* (les images dessinees pour une capture ne comptent pas : le dessin logiciel est lent, pas GC Station) */
@@ -377,6 +385,7 @@ void GX_CopyDisp(void *dst, u8 clear) {
             if (d > 34000) fr_vslow++;
             if (d > (getenv("PCSIM_SLOWMS") ? (unsigned long long)atoi(getenv("PCSIM_SLOWMS")) * 1000ull : 34000ull)) { printf("[pcsim] image lente : %.0f ms a %.1f s (%s)\n", d / 1000.0, (n - fr_t0) / 1e6, pcsim_script_where()); }
             if (d > fr_worst) fr_worst = d;
+            sg_n++; if (d > 20000) sg_slow++; if (d > 34000) sg_vslow++; if (d > sg_worst) sg_worst = d;
         }
         if (!fr_last) fr_t0 = n;
         fr_last = n; fr_n++; was_cap = pcsim_capture != 0;

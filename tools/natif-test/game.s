@@ -239,6 +239,11 @@ _start:
     lwz 12,0x3008(20)
     mtctr 12
     li 3,2
+    # (v83 : vrais registres au plantage : r1 = pile, r25 = repere ; le contexte garde les anciens)
+    mr 1,5
+    lis 13,0x8001
+    lis 25,0x5151
+    ori 25,25,0x5151
     bctr
 9:  li 21,90
 4:  lwz 12,0x3090(20)

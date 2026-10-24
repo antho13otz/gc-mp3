@@ -445,6 +445,7 @@ static int nat_map_check(const char *path, long size, char *err, int cap) {
 #define NA_JBIN NA_DIR "/journal-jeu.bin"
 #define NA_LOG   NA_DIR "/dernier-lancement.txt"
 #define NA_JTXT NA_DIR "/journal-jeu.txt"
+#define NA_SNAP NA_DIR "/memoire-jeu.bin"             /* v83 : photo de la memoire du jeu au plantage */
 static int na_jcrash = 0;                              /* v79 : 2e secteur du journal (details d'un plantage) disponible */
 static int na_jstack = 0;                              /* v82 : 3e secteur (pile du jeu au plantage) disponible */
 static u32 nat_journal_prep(void) {
@@ -461,6 +462,29 @@ static u32 nat_journal_prep(void) {
     if (!ok || nat_map(NA_JBIN, e, sizeof(e)) || !na_next || na_next > 2) return 0;
     na_jcrash = na_next == 1 && na_ext[0].cnt >= 2;       /* (les 2 secteurs a la suite sur la carte) */
     na_jstack = na_next == 1 && na_ext[0].cnt >= 3;
+    return na_ext[0].sd;
+}
+/* v83 : fichier de la photo de la memoire (cree une fois, 352 Ko ; 1er secteur remis a zero a
+   chaque lancement) ; rend son 1er secteur sur la carte (0 = pas d'un seul morceau : pas de photo) */
+static u32 nat_snap_prep(void) {
+    if (sd_virtual) return 0;
+    const long want = (long)NATRES_SNAP_SECS * 512;
+    struct stat st;
+    FILE *f = NULL;
+    if (stat(NA_SNAP, &st) == 0 && st.st_size == want) f = fopen(NA_SNAP, "r+b");
+    static u8 z[4096];
+    memset(z, 0, sizeof(z));
+    int ok;
+    if (f) ok = fwrite(z, 1, 512, f) == 512;
+    else {
+        f = fopen(NA_SNAP, "wb");
+        if (!f) return 0;
+        ok = 1;
+        for (long o = 0; ok && o < want; o += sizeof(z)) ok = fwrite(z, 1, sizeof(z), f) == sizeof(z);
+    }
+    fclose(f);
+    char e[80];
+    if (!ok || nat_map(NA_SNAP, e, sizeof(e)) || na_next != 1 || na_ext[0].cnt < NATRES_SNAP_SECS) return 0;
     return na_ext[0].sd;
 }
 static const char *na_cmd_name(u32 c) {
@@ -630,7 +654,7 @@ static void nat_journal_convert(void) {
             fprintf(f, "\n");
         }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
-        int rbase = v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
+        int rbase = H[1] >= 11 ? 0x160 : v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
         for (int k = 0; k < nring; k++) {
             const u8 *e = d + rbase + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);
@@ -645,6 +669,19 @@ static void nat_journal_convert(void) {
         }
         if (len >= 1024 && be32(d + 512) == NATRES_CRASH_MAGIC) na_crash_print(f, d + 512);   /* v79 */
         if (len >= 1536 && be32(d + 1024) == NATRES_STACK_MAGIC) na_stack_print(f, d + 1024);  /* v82 */
+        if (H[1] >= 11 && be32(d + 0x15C)) {                                  /* v83 : photo de la memoire */
+            fprintf(f, "\n========== Photo de la memoire du jeu au plantage ==========\n");
+            long sl = 0;
+            u8 *sd = (u8 *)read_file(NA_SNAP, 512, &sl);
+            if (sd && sl == 512 && be32(sd) == NATRES_SNAP_MAGIC) {
+                u32 nz = be32(sd + 4);
+                static const char *const zn[4] = { "memoire basse", "variables du jeu (r13)", "pile (r1)", "debut de l'arene (tas du jeu)" };
+                for (u32 z = 0; z < nz && z < 4; z++)
+                    fprintf(f, "  %-30s %08X  %6u octets\n", zn[z], (unsigned)be32(sd + 8 + z * 16), (unsigned)be32(sd + 12 + z * 16));
+                fprintf(f, "%u secteurs ecrits : envoie aussi le fichier gc-mp3/natif/memoire-jeu.bin\n(il est remplace au prochain plantage)\n", (unsigned)be32(d + 0x15C));
+            } else fprintf(f, "  (photo incomplete : %u secteurs ecrits)\n", (unsigned)be32(d + 0x15C));
+            free(sd);
+        }
         long ll = 0;                                      /* (et le journal du lancement, ecrit avant le saut) */
         char *lt = (char *)read_file(NA_LOG, 16384, &ll);
         if (lt) { fprintf(f, "\n---------- dernier-lancement.txt ----------\n"); fwrite(lt, 1, ll, f); free(lt); }
@@ -1210,6 +1247,7 @@ static const char *nat_boot(int k) {
     nat_ld("Position du jeu sur la carte SD", 10);
     nat_ret_prep();                                        /* v64 : retour a GC Station (avant la carte de l'ISO : meme tableau) */
     int card_on = nat_card_prep();                         /* v65 : carte memoire virtuelle */
+    u32 snap_sec = nat_snap_prep();                        /* v83 : photo de la memoire au plantage */
     u32 log_sec = nat_journal_prep();                      /* v54 : journal du jeu (un secteur de la carte) */
     int res = !gl[k].ciso && !nat_map(gl[k].path, merr, sizeof(merr)) && sizeof(natres_bin) <= NATRES_SIZE;
     u32 total = ((dol_len + 31) & ~31u) + NA_BI2 + ((in.fst_sz + 31) & ~31u) + (res ? NATRES_SIZE : 0);
@@ -1242,6 +1280,10 @@ static const char *nat_boot(int k) {
                 }
             }
             na_wbe32(r + 0x60, log_sec);                                    /* (natres_hdr_t.log_sec) */
+            if (snap_sec && log_sec && na_jcrash) {                         /* v83 : (natres_hdr_t.snap_sec, snap_cnt, snap_hi) */
+                na_wbe32(r + 0x150, snap_sec); na_wbe32(r + 0x154, NATRES_SNAP_SECS); na_wbe32(r + 0x158, in.hi);
+                na_wbe32(r + 0x48, be32(r + 0x48) | NRF_SNAP);
+            }
             u32 ro = be32(r + 0xE4) - NATRES_AT;                            /* (natres_hdr_t.ret_tab) */
             if (na_ret_n && ro + na_ret_n * 12 <= NATRES_SIZE) {             /* v64 : .dol de GC Station */
                 na_wbe32(r + 0xE0, na_ret_n); na_wbe32(r + 0xE8, na_ret_size);

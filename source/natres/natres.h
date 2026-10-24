@@ -8,7 +8,7 @@
 #define NATRES_AT     0x817F0000u        /* adresse fixe (liee par tools/natres.ld) */
 #define NATRES_SIZE   0x0000FF00u        /* place reservee (le haut, 817FFF00+, est laisse a la console) */
 #define NATRES_MAGIC  0x4743534Eu        /* "GCSN" */
-#define NATRES_VER    10
+#define NATRES_VER    11
 #define NATRES_MAXEXT 1500               /* morceaux de l'ISO sur la carte (fichier fragmente) ; v60 : 2000 (place pour les aiguillages) */
 
 /* erreurs (champ err) */
@@ -70,9 +70,13 @@ typedef struct {
     /* v67 : ou en est le jeu tant qu'il n'affiche rien : adresse du code interrompu (echantillons
        pris aux fins de commande du vrai lecteur, relance aussitot), etat du DSP */
     unsigned int n_samp, samp_lr, samp_pc[4], dsp_csr, dsp_mbox;
+    /* v83 : photo de la memoire du jeu au plantage (fichier natif/memoire-jeu.bin, d'un seul morceau) */
+    unsigned int snap_sec, snap_cnt;                      /* 1er secteur du fichier, nombre de secteurs */
+    unsigned int snap_hi;                                 /* fin du programme du jeu (main.dol + bss) : debut de son arene */
+    unsigned int snap_done;                               /* secteurs ecrits */
 } natres_hdr_t;
 
-#define NATRES_LOGN 11                    /* anneau : {commande, position, longueur, infos} (0x150 + 11 x 16 = 0x200) */
+#define NATRES_LOGN 10                    /* anneau : {commande, position, longueur, infos} (v83 : 0x160 + 10 x 16 = 0x200) */
 #define NATRES_CARDMAX 64                 /* morceaux du fichier de la carte virtuelle */
 #define NRF_CARD      4u                  /* v65 : carte memoire virtuelle active */
 #define NATRES_RETMAX 64                  /* morceaux du .dol de GC Station */
@@ -103,6 +107,14 @@ typedef struct {
 #define NATRES_STACK_NSTR  6
 #define NATRES_STACK_SLEN  28
 
-typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x150 ? 1 : -1];
+/* v83 : photo de la memoire au plantage. 1er secteur : 0x00 "GCSM" 0x04 nombre de zones
+   0x08 + 16 * i : adresse, taille, 1er secteur (relatif au fichier), 0 ; puis les zones, a la suite.
+   Zones : memoire basse (0x80000000, 0x3200), variables du jeu (r13 +/- 32 Ko), pile (r1),
+   debut de l'arene (fin du programme, 256 Ko : en-tetes des tas du jeu). */
+#define NRF_SNAP      32u
+#define NATRES_SNAP_MAGIC 0x4743534Du       /* "GCSM" */
+#define NATRES_SNAP_SECS  704               /* taille du fichier : 704 secteurs (352 Ko) */
+
+typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x160 ? 1 : -1];
 
 #endif

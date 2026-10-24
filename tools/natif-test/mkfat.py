@@ -44,6 +44,14 @@ for i in range(nj):
     for f in range(2):
         base = part + rsvd + f * fatsz
         img.seek(base * 512 + c * fatsz_e); img.write(struct.pack('<I' if kind == '32' else '<H', nxt))
+# v83 : photo de la memoire au plantage (704 secteurs) aux clusters 60000 et suivants
+ns = (704 * 512 + csize - 1) // csize
+for i in range(ns):
+    c = 60000 + i
+    nxt = 60000 + i + 1 if i + 1 < ns else (0x0FFFFFFF if kind == '32' else 0xFFFF)
+    for f in range(2):
+        base = part + rsvd + f * fatsz
+        img.seek(base * 512 + c * fatsz_e); img.write(struct.pack('<I' if kind == '32' else '<H', nxt))
 # v64 : 2e fichier (faux .dol de GC Station) aux clusters 30000... (a la suite)
 if len(sys.argv) > 5:
     extra = open(sys.argv[5], 'rb').read()

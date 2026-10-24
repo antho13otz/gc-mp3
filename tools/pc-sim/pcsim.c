@@ -423,7 +423,8 @@ void AUDIO_SetStreamPlayState(u32 s) { (void)s; }
      quit                                 fin (sinon : fin du scenario = fin)
    Boutons : A B X Y Z L R START UP DOWN LEFT RIGHT. */
 typedef struct { int op; u32 btn; int a, b; u32 dur; char s[96]; } sc_cmd;
-enum { SC_WAIT_MS, SC_WAIT_F, SC_PRESS, SC_HOLD, SC_STICK, SC_CSTICK, SC_SHOT, SC_LOG, SC_QUIT };
+enum { SC_WAIT_MS, SC_WAIT_F, SC_PRESS, SC_HOLD, SC_STICK, SC_CSTICK, SC_SHOT, SC_LOG, SC_QUIT, SC_MARK };
+void pcsim_seg_report(const char *name);
 static sc_cmd *sc = NULL; static int sc_n = 0, sc_i = 0;
 static u32 sc_scan = 0;
 static u16 pad_held = 0, pad_prev = 0, pad_down = 0, pad_up = 0;
@@ -469,6 +470,7 @@ static void script_load(void) {
         else if (!strcasecmp(w[0], "shot")) { c->op = SC_SHOT; snprintf(c->s, sizeof(c->s), "%s", w[1]); }
         else if (!strcasecmp(w[0], "log")) { c->op = SC_LOG; char *q = strstr(l, w[0]) + 3; while (*q == ' ') q++; snprintf(c->s, sizeof(c->s), "%s", q); c->s[strcspn(c->s, "\r\n")] = 0; }
         else if (!strcasecmp(w[0], "quit")) c->op = SC_QUIT;
+        else if (!strcasecmp(w[0], "mark")) { c->op = SC_MARK; snprintf(c->s, sizeof(c->s), "%s", w[1]); }
         else { fprintf(stderr, "[pcsim] commande inconnue : %s\n", w[0]); continue; }
         sc_n++;
     }
@@ -481,8 +483,10 @@ static int dur_done(u32 d, u64 t0, u32 f0) {               /* duree ecoulee ? (m
 }
 /* avance le scenario : appele a chaque lecture des manettes (une fois par tour de boucle) */
 static u64 sc_t0 = 0; static u32 sc_f0 = 0; static int sc_started = 0;
+void gcs_perf_sim(int on) __attribute__((weak));
 static void script_step(void) {
     sc_scan++;
+    { static int pf = 0; if (!pf && getenv("PCSIM_PERF") && gcs_perf_sim) { pf = 1; gcs_perf_sim(1); } }
     if (!sc || pcsim_capture) return;                      /* (capture en cours : le scenario attend) */
     for (int guard = 0; guard < 64; guard++) {
         if (sc_i >= sc_n) { if (!pcsim_capture) { printf("[pcsim] fin du scenario\n"); pcsim_finish(0); } return; }
@@ -504,6 +508,7 @@ static void script_step(void) {
             next = 1; break;
         case SC_LOG: printf("[scenario] %s\n", c->s); next = 1; break;
         case SC_QUIT: printf("[pcsim] quit\n"); pcsim_finish(0); return;
+        case SC_MARK: pcsim_seg_report(c->s); next = 1; break;
         }
         if (!next) return;
         sc_i++; sc_started = 0;
@@ -514,7 +519,7 @@ const char *pcsim_script_where(void) {
     static char b[128];
     if (!sc || !sc_n) return "pas de scenario";
     int i = sc_i > 0 ? sc_i - 1 : 0;
-    static const char *const nm[] = { "wait", "wait", "press", "hold", "stick", "stick c", "shot", "log", "quit" };
+    static const char *const nm[] = { "wait", "wait", "press", "hold", "stick", "stick c", "shot", "log", "quit", "mark" };
     sc_cmd *c = &sc[i];
     if (c->op == SC_SHOT || c->op == SC_LOG) snprintf(b, sizeof(b), "apres %s %s", nm[c->op], c->s);
     else if (c->op == SC_PRESS || c->op == SC_HOLD) {
@@ -790,6 +795,7 @@ s32 if_configex(struct in_addr *ip, struct in_addr *mask, struct in_addr *gw, bo
 void pcsim_fps_report(void);
 void pcsim_gp_report(void);
 void pcsim_finish(int code) {
+    if (getenv("PCSIM_PERF") && gcs_perf_sim) gcs_perf_sim(0);   /* (rapport SD:/gc-mp3/fluidite.txt) */
     if (!pcsim_fast) printf("[pcsim] processeur : %.2f s de calcul sur le PC = %.1f s sur la GameCube (sur %.1f s)\n", cpu_host_ns / 1e9, cpu_host_ns * pcsim_cpu_k / 1e9, gettime() / 1000.0 - 1);
     if (!pcsim_fast) {
         printf("[pcsim] calcul par thread (priorite : secondes GameCube) :");
