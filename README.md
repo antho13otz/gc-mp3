@@ -21,6 +21,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v85 — Fluidité pendant la musique
+- **La musique se décode pendant le temps libre de chaque image** (l'attente de l'écran) au lieu de passer avant le dessin. Un bloc n'est décodé que s'il tient avant l'image suivante (durée mesurée, FLAC haute résolution compris). Avant l'image, on ne décode qu'en secours, quand il reste moins de 0,5 s de son d'avance. Simulateur limité à la GameCube : images ratées pendant la lecture de 100–106 → 10–21, son identique.
+- **Lecture des MP3 sur la carte SD par 8 Ko** (avant : jusqu'à 48 Ko d'un coup, des dizaines de ms bloquées).
+- **Étiquettes des MP3 sans la pochette intégrée** : les cadres ID3 sont lus un par un, et la grosse image est sautée. Lancer un morceau avec une pochette intégrée de 300 Ko : 499 ms figées → 308 ms la première fois (le reste, c'est l'image elle-même ; ensuite elle vient du cache). La bibliothèque (vues Artistes / Albums) trouve maintenant l'artiste et l'album même quand la pochette est rangée avant eux.
+- Simulateur : l'horloge vue par GC Station compte le calcul de la GameCube au moment où il a lieu (avant, la dette n'était comptée qu'au prochain appel bloquant : durées mesurées fausses) ; scénario `id3-pochette.txt`.
+
 ## Nouveautés v84 — Wind Waker (et les jeux PAL) avec Resident ; onglet Jeux / Apps
 - **Resident : les jeux PAL démarrent.** Grâce aux vrais registres de la v83, le journal de Wind Waker a enfin donné son message : `vi.c` ligne 1884, « VIConfigure(): Tried to change mode ... which is forbidden ». La console doit indiquer au jeu son mode vidéo (adresse `800000CC`), ce que fait normalement son menu. GC Station démarre sans ce menu : la valeur restait 0 (NTSC) et tout jeu PAL s'arrêtait exprès à son démarrage. Resident donne maintenant PAL aux jeux PAL (EURGB60 si GC Station est déjà en PAL 60 Hz) et NTSC aux jeux NTSC. `dernier-lancement.txt` indique le mode donné.
 - **Onglet Jeux / Apps** : une barre **Jeux | Applis | Cartes** en haut des trois vues, et le **stick C (gauche / droite)** passe directement de l'une à l'autre, sans revenir à l'onglet. B ramène sur la bonne barre de l'onglet. La liste des applis est gardée (avant : la carte SD était relue à chaque ouverture) ; Y la relit.

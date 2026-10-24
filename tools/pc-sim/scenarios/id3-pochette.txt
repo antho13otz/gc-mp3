@@ -1,0 +1,14 @@
+# v85 : MP3 avec une grosse pochette (300 Ko) AVANT le titre : etiquettes lues, sans a-coup
+wait 3s
+press UP
+press UP
+press UP
+press UP
+press UP
+wait 300ms
+mark avant
+press A
+wait 2s
+mark lancement
+shot id3-lecture
+quit

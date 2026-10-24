@@ -3668,6 +3668,50 @@ static void stop_track(void) {
     consumed_skip = 0;
 }
 
+/* v85 : etiquettes ID3v2 sans lire la pochette integree : les cadres sont lus un par un dans le
+   fichier, les gros (APIC : image, souvent des centaines de Ko, 0,3 s de lecture sur la carte SD
+   de la GameCube) sont sautes. Rend un en-tete ID3 recompose (pour parse_tags), ou NULL :
+   on lit alors tout, comme avant (desynchronisation de tout l'en-tete, format inattendu). */
+static unsigned char *id3_text_only(FILE *fp, const unsigned char *head, long tagend, long *outlen) {
+    int ver = head[3];
+    if (ver < 2 || ver > 4 || (head[5] & 0x80)) return NULL;          /* (desynchronisation : lecture complete) */
+    int hdr = ver == 2 ? 6 : 10;
+    long pos = 10;
+    if (ver >= 3 && (head[5] & 0x40)) {                              /* en-tete etendu : saute */
+        unsigned char e[4];
+        if (fseek(fp, 10, SEEK_SET) != 0 || fread(e, 1, 4, fp) != 4) return NULL;
+        pos += ver == 4 ? (long)synchsafe(e) : (long)be32(e) + 4;
+    }
+    long cap = 16384, n = 10;
+    unsigned char *b = (unsigned char *)malloc(cap);
+    if (!b) return NULL;
+    memcpy(b, head, 10);
+    b[5] &= (unsigned char)~0x40;                                     /* (plus d'en-tete etendu) */
+    for (int guard = 0; guard < 256 && pos + hdr <= tagend; guard++) {
+        unsigned char f[10];
+        if (fseek(fp, pos, SEEK_SET) != 0 || fread(f, 1, hdr, fp) != (size_t)hdr || f[0] == 0) break;
+        long sz = ver == 2 ? (long)(((u32)f[3] << 16) | ((u32)f[4] << 8) | f[5]) : (ver == 4 ? (long)synchsafe(f + 4) : (long)be32(f + 4));
+        if (sz <= 0 || pos + hdr + sz > tagend) break;
+        int text = f[0] == 'T' && sz <= 4096;                         /* (titre, artiste, album, annee, TXXX : petits) */
+        if (text) {
+            if (n + hdr + sz > cap) {
+                long nc = (n + hdr + sz) * 2;
+                unsigned char *nb = (unsigned char *)realloc(b, nc);
+                if (!nb) break;
+                b = nb; cap = nc;
+            }
+            memcpy(b + n, f, hdr);
+            if (fread(b + n + hdr, 1, sz, fp) != (size_t)sz) break;
+            n += hdr + sz;
+        }
+        pos += hdr + sz;
+    }
+    long body = n - 10;                                               /* taille de l'en-tete recompose (synchsafe) */
+    b[6] = (unsigned char)((body >> 21) & 0x7F); b[7] = (unsigned char)((body >> 14) & 0x7F);
+    b[8] = (unsigned char)((body >> 7) & 0x7F);  b[9] = (unsigned char)(body & 0x7F);
+    *outlen = n;
+    return b;
+}
 static int start_track(int idx) {
     if (idx < 0 || idx >= nfiles) { xf_request = 0; return 0; }
     mp3_skip = 0; mp3_left = -1; rgm_on = 0;
@@ -3707,9 +3751,13 @@ static int start_track(int idx) {
         if (fseek(fp, 0, SEEK_SET) == 0 && fread(head, 1, 10, fp) == 10 && memcmp(head, "ID3", 3) == 0) {
             audio = 10 + (long)synchsafe(head + 6) + ((head[5] & 0x10) ? 10 : 0);
             taglen = audio < size ? audio : size;
-            if (taglen > 4 * 1024 * 1024) taglen = 4 * 1024 * 1024;   /* (grosse pochette integree) */
-            tag = (unsigned char *)malloc(taglen);
-            if (tag && (fseek(fp, 0, SEEK_SET) != 0 || fread(tag, 1, taglen, fp) != (size_t)taglen)) { free(tag); tag = NULL; }
+            if (taglen > 65536) tag = id3_text_only(fp, head, taglen, &taglen);   /* v85 : gros en-tete : sans la pochette integree */
+            if (!tag) {                                               /* (comme avant : tout l'en-tete) */
+                taglen = audio < size ? audio : size;
+                if (taglen > 4 * 1024 * 1024) taglen = 4 * 1024 * 1024;   /* (grosse pochette integree) */
+                tag = (unsigned char *)malloc(taglen);
+                if (tag && (fseek(fp, 0, SEEK_SET) != 0 || fread(tag, 1, taglen, fp) != (size_t)taglen)) { free(tag); tag = NULL; }
+            }
         }
         parse_tags(tag, tag ? taglen : 0, has_v1 ? v1 : NULL, &tg);
         free(tag);
@@ -3827,7 +3875,11 @@ static void tag_scan_one(int k) {
         size_t n = fread(head, 1, sizeof(head), fp);
         int has_v1 = 0;
         if (fseek(fp, -128, SEEK_END) == 0 && fread(v1, 1, 128, fp) == 128) has_v1 = 1;
-        parse_tags(head, (long)n, has_v1 ? v1 : NULL, &tg);
+        long tl = 0;
+        unsigned char *t2 = NULL;                                 /* v85 : cadres de texte meme apres une grosse pochette */
+        if (n >= 10 && !memcmp(head, "ID3", 3) && 10 + (long)synchsafe(head + 6) > (long)n) t2 = id3_text_only(fp, head, 10 + (long)synchsafe(head + 6), &tl);
+        parse_tags(t2 ? t2 : head, t2 ? tl : (long)n, has_v1 ? v1 : NULL, &tg);
+        free(t2);
     }
     fclose(fp);
     snprintf(tg_artist[k], sizeof(tg_artist[k]), "%s", tg.artist);
