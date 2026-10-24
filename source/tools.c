@@ -833,11 +833,7 @@ static void info_lines(char (*l)[2][120], int *n) {
     struct mallinfo mi = mallinfo();
     IL("M\xC3\xA9moire", ("%d Ko utilis\xC3\xA9s, %d Ko libres"), (int)(mi.uordblks / 1024), (int)(((u32)SYS_GetArena1Hi() - (u32)SYS_GetArena1Lo() + mi.fordblks) / 1024));
     static const char *const sl[3] = { "SD2SP2 (port s\xC3\xA9rie 2)", "SD Gecko slot A", "SD Gecko slot B" };
-    struct statvfs sv;
-    if (sd_ok && !tl_sd_known && statvfs(SD_ROOT "/", &sv) == 0) {        /* (une fois par ouverture : lent) */
-        tl_sd_tot = (unsigned long long)sv.f_blocks * sv.f_frsize; tl_sd_free = (unsigned long long)sv.f_bavail * sv.f_frsize;
-        tl_sd_known = 1;
-    }
+    if (sd_ok && !tl_sd_known && sd_space(&tl_sd_tot, &tl_sd_free)) tl_sd_known = 1;   /* v97 : FSInfo (instantane) */
     if (sd_ok && tl_sd_known) {
         unsigned long long tot = tl_sd_tot, fr = tl_sd_free;
         IL("Carte SD", ("%s : %llu Mo libres sur %llu Mo"), TR(sl[sd_slot >= 0 && sd_slot < 3 ? sd_slot : 0]), fr >> 20, tot >> 20);

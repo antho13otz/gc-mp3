@@ -1072,9 +1072,11 @@ static void gcd_migrate(void) {
 
 static int sd_slot = -1;                               /* v26 : 0 = SD2SP2, 1 = slot A, 2 = slot B (pour le lanceur de secours) */
 static int mount_sd(void) {
-    if (fatMountSimple("sd", &__io_gcsd2)) { sd_slot = 0; return 1; }   // SD2SP2 (port serie 2)
-    if (fatMountSimple("sd", &__io_gcsda)) { sd_slot = 1; return 1; }   // SD Gecko slot A
-    if (fatMountSimple("sd", &__io_gcsdb)) { sd_slot = 2; return 1; }   // SD Gecko slot B
+    /* v97 : cache de libfat double (8 pages de 64 secteurs = 256 Ko au lieu de 128) : sur une grosse carte
+       (1 To, FAT de 120 Mo), les chaines de clusters et les dossiers sont relus bien moins souvent */
+    if (fatMount("sd", &__io_gcsd2, 0, 8, 64)) { sd_slot = 0; return 1; }   // SD2SP2 (port serie 2)
+    if (fatMount("sd", &__io_gcsda, 0, 8, 64)) { sd_slot = 1; return 1; }   // SD Gecko slot A
+    if (fatMount("sd", &__io_gcsdb, 0, 8, 64)) { sd_slot = 2; return 1; }   // SD Gecko slot B
     return 0;
 }
 
@@ -12435,6 +12437,7 @@ static void draw_party(void) {
 #include "tab_podcast.c"
 #include "tab_photo.c"
 #include "netfs.c"                             /* v86 : fichiers sur le reseau (SMB, FTP, FSP) */
+static int sd_space(unsigned long long *tot, unsigned long long *fre);   /* v97 (natif.c) */
 #include "tab_files.c"
 #include "tab_infos.c"
 #include "tab_phone.c"

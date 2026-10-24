@@ -114,8 +114,8 @@ static void fe_load(void) {
     closedir(d);
     qsort(fe, nfe, sizeof(fent_t), fe_cmp);
     if (fe_sel >= nfe + 1) fe_sel = nfe;
-    struct statvfs sv;
-    if (!net && statvfs(SD_ROOT "/", &sv) == 0) fe_free = (long)((unsigned long long)sv.f_bavail * sv.f_frsize / (1024 * 1024));
+    unsigned long long st_, sf_;                       /* v97 : FSInfo (statvfs relisait toute la FAT : carte 1 To) */
+    if (!net && sd_space(&st_, &sf_)) fe_free = (long)(sf_ >> 20);
 }
 
 static void files_enter(void) { if (!fe || !nfe) fe_load(); }

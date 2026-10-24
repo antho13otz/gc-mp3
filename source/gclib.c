@@ -27,6 +27,7 @@ typedef struct {
     u32 last;                                /* v45 : dernier lancement (secondes) */
     u32 play;                                /* v73 : temps de jeu mesure par Resident (secondes) */
     u8 fav;                                  /* v76 : jeu favori (remonte en haut de la liste) */
+    u8 dvd;                                  /* v97 : case "Disque de la console" (vrai lecteur), toujours la 1re */
 } gcg_t;
 /* v28 : 6 facons d'afficher les jeux (R / L pour changer) */
 enum { GLV_GRID, GLV_CAROUSEL, GLV_LIST, GLV_WALL, GLV_SHOW, GLV_SHELF, GLV_COUNT };
@@ -57,6 +58,8 @@ static const char *game_boot(int k, int resident);         /* v75 : lancement av
 static const char *game_boot_auto(int k);                  /* v90 : Resident, ou le lanceur de secours si des cheats sont actives */
 static void nat_run(int k);                                /* v50 : lanceur natif, analyse (natif.c) */
 static const char *nat_boot(int k);                        /* v51 : lanceur maison, demarrage natif (natif.c), en test */
+static const char *nat_boot_disc(int k);                   /* v97 : disque du vrai lecteur (natif.c) */
+static int gl_has_dvd(void);
 static int nat_qr_input(u32 down);                         /* v51 : QR code du rapport */
 static void nat_draw_qr(void);
 
@@ -257,7 +260,7 @@ static void gl_list_save(void) {
     FILE *f = fopen(GL_LIST, "w");
     if (!f) return;
     fprintf(f, "GLC1\n");
-    for (int k = 0; k < gl_n; k++)
+    for (int k = 0; k < gl_n; k++) if (!gl[k].dvd)
         fprintf(f, "%s\t%ld\t%s\t%u\t%u\t%s\t%s\n", gl[k].path, gl[k].size, gl[k].id, gl[k].disc, gl[k].ciso, gl[k].title, gl[k].desc ? gl[k].desc : "");
     fclose(f);
 }
@@ -291,10 +294,23 @@ static int gl_list_load(void) {
     free(d);
     return 1;
 }
+/* v97 : la case "Disque de la console" : lance le jeu qui est dans le vrai lecteur */
+static int gl_has_dvd(void) { return gl_n > 0 && gl[0].dvd; }
+static void gl_dvd_add(void) {
+    if (!gl || gl_n >= GL_MAX) return;
+    for (int k = 0; k < gl_n; k++) if (gl[k].dvd) return;
+    memmove(&gl[1], &gl[0], sizeof(gcg_t) * gl_n);
+    gcg_t *g = &gl[0];
+    memset(g, 0, sizeof(*g));
+    snprintf(g->path, sizeof(g->path), "dvd:");
+    snprintf(g->title, sizeof(g->title), "Disque de la console");
+    g->dvd = 1; g->post = g->still = -1; g->bslot = -1; g->bstate = 2;
+    gl_n++;
+}
 static void gl_scan_full(int force) {
     if (!gl) gl = (gcg_t *)calloc(GL_MAX, sizeof(gcg_t));
     gl_free_list();
-    if (!gl || !sd_ok) { gl_scanned = 1; return; }
+    if (!gl || !sd_ok) { gl_dvd_add(); gl_scanned = 1; return; }
     int cached = !force && gl_list_load();
     if (!cached) {
         gl_status("Recherche des jeux GameCube sur la carte SD...");
@@ -307,12 +323,14 @@ static void gl_scan_full(int force) {
     swpk_open(&gl_still, GL_UI "/stills.pak", 320, 240);
     for (int k = 0; k < gl_n; k++) { gl[k].post = (s16)swpk_find(&gl_post, gl[k].id); gl[k].still = (s16)swpk_find(&gl_still, gl[k].id); }
     if (!cached) gl_list_save();
+    gl_dvd_add();                                          /* v97 : case du vrai lecteur */
     gl_stats_load();                                     /* v45 : lancements, puis tri choisi */
     gl_fav_load();                                        /* v76 : favoris */
     gl_apply_sort();
     gl_busy[0] = 0;
     gl_scanned = 1;
     if (gl_sel >= gl_n) gl_sel = gl_n ? gl_n - 1 : 0;
+    if (gl_sel == 0 && gl_has_dvd() && gl_n > 1) gl_sel = 1;   /* v97 : le 1er jeu choisi (la case du lecteur juste avant) */
 }
 static void gl_scan(void) { gl_scan_full(1); }
 
@@ -432,6 +450,7 @@ static void gl_stats_add_play(const char *id6, u32 sec) {
 }
 static int gl_cmp_key(const void *a, const void *b) {
     const gcg_t *x = (const gcg_t *)a, *y = (const gcg_t *)b;
+    if (x->dvd != y->dvd) return y->dvd - x->dvd;                   /* v97 : le disque de la console d'abord */
     if (x->fav != y->fav) return y->fav - x->fav;                   /* v76 : favoris en haut */
     if (x->key != y->key) return x->key < y->key ? -1 : 1;
     return gl_cmp(a, b);
@@ -727,9 +746,10 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         if (nat_qr_input(down)) return;
         if (fire && (nav & PAD_BUTTON_LEFT) && gl_n) { gl_sel = nav_wrap(gl_sel, gl_n, 1, -1, 0); if (gl_anim) gl_slide = -1.0f; }
         if (fire && (nav & PAD_BUTTON_RIGHT) && gl_n) { gl_sel = nav_wrap(gl_sel, gl_n, 1, 1, 0); if (gl_anim) gl_slide = 1.0f; }
+        if ((down & PAD_BUTTON_A) && gl_n) gl_launch_sel = gl_sel;
+        if (gl_n && gl[gl_sel].dvd) { if (down & PAD_BUTTON_B) gl_detail = 0; return; }   /* v97 : (case du vrai lecteur) */
         if (down & PAD_BUTTON_X && gl_n) gl_open_cheats(gl_sel);
         if ((down & PAD_BUTTON_Y) && gl_n) indigo_game_open(gl[gl_sel].id, gl[gl_sel].title);   /* v35 : reglages du jeu */
-        if ((down & PAD_BUTTON_A) && gl_n) gl_launch_sel = gl_sel;
         if ((down & PAD_TRIGGER_R) && gl_n) nat_run(gl_sel);          /* v50 : analyse native (natif.c) */
         if ((down & PAD_TRIGGER_L) && gl_n) {                         /* v76 : favori */
             gl[gl_sel].fav = !gl[gl_sel].fav;
@@ -763,8 +783,8 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         settings_dirty = 1;
         gl_note(gl_view_names[gl_view]);
     }
-    if ((down & PAD_BUTTON_A) && gl_n) gl_detail = 1;
-    if ((down & PAD_BUTTON_X) && gl_n) gl_open_cheats(gl_sel);
+    if ((down & PAD_BUTTON_A) && gl_n) { gl_detail = 1; if (gl[gl_sel].dvd) gl_launch_sel = gl_sel; }   /* v97 : disque : tout de suite "Lancer ?" */
+    if ((down & PAD_BUTTON_X) && gl_n && !gl[gl_sel].dvd) gl_open_cheats(gl_sel);
     if (down & PAD_BUTTON_Y) gl_opt = 0;                      /* v45 : options (tri, hasard, animations, actualiser) */
     if (gm_hub_input()) return;                               /* v84 : stick C : applis / cartes memoire */
     if (down & PAD_BUTTON_B) { gl_on = 0; if (gl_list_dirty) { gl_list_dirty = 0; gl_list_save(); } }
@@ -807,7 +827,20 @@ static int gl_wrap(int f, const char *s, f32 x, f32 y, int maxw, f32 lh, int max
     }
     return nl;
 }
+static void gl_card_dvd(f32 x, f32 y, f32 w, f32 h, int on) {   /* v97 : case du vrai lecteur */
+    gx_rrect_fill(x, y, w, h, 6, on ? RGBA(40, 120, 170, 255) : RGBA(18, 54, 92, 240), on ? RGBA(20, 70, 120, 255) : RGBA(10, 28, 56, 240));
+    f32 r = (w < h ? w : h) * 0.30f, cx = x + w / 2, cy = y + h / 2 - (h > 60 ? h * 0.10f : 0);
+    gx_circle(cx, cy, r, RGBA(225, 230, 245, 255), RGBA(150, 160, 190, 255));
+    gx_circle(cx, cy, r * 0.62f, RGBA(190, 200, 225, 255), RGBA(120, 130, 165, 255));
+    gx_circle(cx, cy, r * 0.20f, on ? RGBA(20, 70, 120, 255) : RGBA(10, 28, 56, 255), on ? RGBA(20, 70, 120, 255) : RGBA(10, 28, 56, 255));
+    if (h > 60) {
+        char b[64];
+        fit_text(F_SMALL, TR("Lecteur de la console"), (int)w - 6, b, sizeof(b));
+        gx_text_c(F_SMALL, cx, y + h - 10, b, RGBA(220, 235, 255, 255));
+    }
+}
 static void gl_card_banner(int k, f32 x, f32 y, f32 w, f32 h, int on) {
+    if (gl[k].dvd) { gl_card_dvd(x, y, w, h, on); return; }
     /* pas de jaquette : banniere du disque + ID */
     gx_rrect_fill(x, y, w, h, 6, on ? RGBA(70, 40, 150, 255) : RGBA(34, 20, 84, 240), on ? RGBA(44, 22, 110, 255) : RGBA(20, 12, 52, 240));
     GXTexObj *b = gl_banner(k);
@@ -834,6 +867,7 @@ static void gl_draw_cover(int k, f32 x, f32 y, f32 w, f32 h, int on) {
     else gl_card_banner(k, x, y, w, h, on);
 }
 static void gl_title_of(int k, char *out, int cap) {
+    if (gl[k].dvd) { snprintf(out, cap, "%s", TR(gl[k].title)); return; }
     if (gl[k].disc) snprintf(out, cap, "%s (%d)", gl[k].title, gl[k].disc + 1); else snprintf(out, cap, "%s", gl[k].title);
 }
 /* v45 : suit une valeur en douceur (k = vitesse) ; sans animations : tout de suite */
@@ -977,7 +1011,8 @@ static void gl_draw_list(void) {
         fit_text(F_MED, d, 380, buf, sizeof(buf));
         gx_text1(F_MED, 56, y + 21, buf, on ? RGBA(255, 255, 255, 255) : RGBA(215, 205, 245, 255));
         gl_size_txt(gl[k].size, sz, sizeof(sz));
-        snprintf(d, sizeof(d), "%s   %s", gl[k].id, sz);
+        if (gl[k].dvd) snprintf(d, sizeof(d), "%s", TR("vrai lecteur"));
+        else snprintf(d, sizeof(d), "%s   %s", gl[k].id, sz);
         gx_text_r(F_SMALL, 610, y + 20, d, on ? RGBA(255, 230, 170, 255) : RGBA(170, 155, 225, 255));
     }
     scr_viewport();
@@ -1085,7 +1120,7 @@ static void draw_gclib_main(void) {
     f32 hub_end = 0;
     if (!gl_detail && tab == TAB_GAMES) hub_end = gm_hub_bar(tx + 6, 85);   /* v84 : jeux / applis / cartes (stick C) */
     else {
-        snprintf(buf, sizeof(buf), gl_detail ? "Mes jeux GameCube (%d)  >  fiche" : "Mes jeux GameCube (%d)", gl_n);
+        snprintf(buf, sizeof(buf), gl_detail ? "Mes jeux GameCube (%d)  >  fiche" : "Mes jeux GameCube (%d)", gl_n - gl_has_dvd());
         gx_text1(F_SMALL, tx + 6, 99, buf, RGBA(200, 190, 240, 255));
     }
     if (!gl_post.fp && hub_end + 12 < 590 - text_width(F_SMALL, TR("(pas de jaquettes)"), 1))
@@ -1109,6 +1144,26 @@ static void draw_gclib_main(void) {
     }
     if (gl_sel >= gl_n) gl_sel = gl_n - 1;
     gcg_t *g = &gl[gl_sel];
+    if (gl_detail && g->dvd) {                                 /* v97 : fiche du vrai lecteur */
+        gl_card_dvd(28, 112, 188, 250, 1);
+        gx_text1(F_LARGE, 236, 140, TR("Disque de la console"), RGBA(255, 255, 255, 255));
+        gl_wrap(F_SMALL, "Lance le jeu qui est dans le lecteur de la GameCube, comme le BIOS de la console : "
+                         "le vrai lecteur lit le jeu (pas la carte SD). Mets le disque et ferme le couvercle avant.", 236, 172, 380, 18, 5, RGBA(215, 205, 245, 255));
+        gl_wrap(F_SMALL, "Pas de A + Z + START dans ce mode : pour revenir, red\xC3\xA9marre la console.", 236, 272, 380, 18, 2, RGBA(170, 155, 225, 255));
+        if (now_ms() - gl_msg_t < 6000) { char m[200]; fit_text(F_SMALL, gl_msg, 586, m, sizeof(m)); gx_text1(F_SMALL, 30, 404, m, RGBA(255, 210, 120, 255)); }
+        static const char *const k[] = { "A", "B" };
+        static const char *const l[] = { "LANCER", "RETOUR" };
+        draw_legend_keys(k, l, 2);
+        if (gl_launch_sel >= 0) {
+            const f32 w = 420, h = 100, x = 110, y = 170;
+            gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
+            draw_panel(x, y, w, h);
+            gx_text_c(F_MED, x + w / 2, y + 34, "Lancer le disque de la console ?", RGBA(255, 255, 255, 255));
+            gx_text_c(F_SMALL, x + w / 2, y + 58, TR("Le jeu est lu par le vrai lecteur"), RGBA(190, 180, 235, 255));
+            gx_text_c(F_SMALL, x + w / 2, y + 84, "A : lancer     B : annuler", RGBA(255, 210, 120, 255));
+        }
+        return;
+    }
     if (gl_detail) {
         if (now_ms() - last_input_ms > 100) gl_load_big(gl_sel);   /* v92 : en fond, pas pendant qu'on fait defiler les fiches */
         /* v45 : en changeant de jeu, la fiche glisse (gauche / droite) */
@@ -1200,9 +1255,10 @@ static void draw_gclib_main(void) {
     }
     /* le jeu choisi */
     char sz[32]; gl_size_txt(g->size, sz, sizeof(sz));
-    if (g->disc) snprintf(d, sizeof(d), "%s   disque %d   %s", g->id, g->disc + 1, sz);
+    if (g->dvd) snprintf(d, sizeof(d), "%s", TR("vrai lecteur"));
+    else if (g->disc) snprintf(d, sizeof(d), "%s   disque %d   %s", g->id, g->disc + 1, sz);
     else snprintf(d, sizeof(d), "%s   %s", g->id, sz);
-    fit_text(F_MED, g->title, 420, buf, sizeof(buf));
+    fit_text(F_MED, g->dvd ? TR(g->title) : g->title, 420, buf, sizeof(buf));
     if (now_ms() - gl_msg_t < 3500) gx_text1(F_SMALL, 30, 400, gl_msg, RGBA(255, 210, 120, 255));
     else if (gl_view != GLV_CAROUSEL && gl_view != GLV_SHOW) { gx_text1(F_MED, 30, 400, buf, RGBA(255, 255, 255, 255)); gx_text_r(F_SMALL, 614, 400, d, RGBA(255, 210, 120, 255)); }
     snprintf(d, sizeof(d), "R : %s", TR(gl_view_names[gl_view]));

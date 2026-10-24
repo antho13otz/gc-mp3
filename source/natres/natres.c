@@ -21,7 +21,10 @@ static void di_store(u32 reg, u32 val);
 static u32 exi_load(u32 a);
 static void exi_store(u32 a, u32 val);
 
-static natres_ext_t ext_tab[NATRES_MAXEXT];
+/* v97 : la table des morceaux de l'ISO n'est plus dans le programme (18 Ko reserves pour 1500 morceaux) :
+   GC Station la range tout en haut de la place du resident, a la taille utile ; il reste ainsi bien plus
+   de place pour les aiguillages (Cocoto Kart Racer : 3 acces non branches faute de place en v95). */
+#define ext_tab ((natres_ext_t *)natres_hdr.ext)
 static natres_ext_t ret_tab[NATRES_RETMAX];              /* v64 : le .dol de GC Station sur la carte */
 static natres_ext_t card_tab[NATRES_CARDMAX];            /* v65 : le fichier de la carte memoire virtuelle */
 static u8 secbuf[512] __attribute__((aligned(32)));
@@ -33,7 +36,7 @@ __attribute__((section(".res_head"), used))
 natres_hdr_t natres_hdr = {
     NATRES_MAGIC, NATRES_VER, (u32)nr_init, (u32)nr_read, (u32)nr_read_sd,
     2, 0, 4,                      /* SD2SP2, peripherique 0, 16 MHz */
-    0, (u32)ext_tab,
+    0, NATRES_AT + NATRES_SIZE - NATRES_MAXEXT * 12u,
     0, 0, 0, 0, 0,
     (u32)__natres_end,
     (u32)di_load, (u32)di_store, 0,
@@ -1108,7 +1111,7 @@ static void nx_patch2(u32 a, u32 fin, u32 len) {        /* a = ou est le code ma
     if (fin < 0x80003000u || fin >= 0x817F0000u) return;
     if (a + len > 0x817F0000u) len = 0x817F0000u - a;
     volatile u32 *t = (volatile u32 *)a;
-    u32 val[32], known = 0, end = (H.tramp_at ? 0x817FFF00u : 0);
+    u32 val[32], known = 0, end = (H.tramp_at ? H.ext : 0);   /* (v97 : la table des morceaux est au-dessus) */
     for (u32 o = 0; o + 4 <= len; o += 4) {
         u32 ins = t[o >> 2], op = ins >> 26, rd = (ins >> 21) & 31, ra = (ins >> 16) & 31;
         int simm = (short)(ins & 0xFFFF);

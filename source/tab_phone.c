@@ -597,9 +597,8 @@ static void tp_send_files(s32 c, const char *q) {
 }
 
 static void tp_update_free(void) {
-    struct statvfs sv;
-    if (sd_ok && statvfs(SD_ROOT "/", &sv) == 0)
-        tp_free_mb = (long)((unsigned long long)sv.f_bavail * sv.f_frsize / (1024 * 1024));
+    unsigned long long st_, sf_;
+    if (sd_ok && sd_space(&st_, &sf_)) tp_free_mb = (long)(sf_ >> 20);
 }
 
 /* parametre d'une adresse ("?dir=mp3&name=x") */

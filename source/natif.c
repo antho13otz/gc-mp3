@@ -365,6 +365,60 @@ static int na_is_fat(const u8 *b) {
     return b[510] == 0x55 && b[511] == 0xAA && na_le16(b + 0x0B) == 512 && b[0x0D] && (!memcmp(b + 0x36, "FAT", 3) || !memcmp(b + 0x52, "FAT", 3));
 }
 
+/* v97 : place libre et taille de la carte, lues dans le secteur FSInfo de la FAT32 (2 secteurs, instantane).
+   Avant : statvfs(), qui fait relire TOUTE la FAT par libfat : sur une carte de 1 To (30 millions de
+   clusters), des dizaines de secondes a chaque ouverture d'un dossier de l'onglet FICHIERS.
+   La geometrie est gardee ; le compteur de place libre est relu a chaque appel (libfat le tient a jour). */
+#ifndef NATIF_BENCH
+static int sd_space_fast(unsigned long long *tot, unsigned long long *fre) {
+    static int geo = 0;                                  /* 0 = pas encore lu, 1 = ok, -1 = pas une FAT32 lisible */
+    static u32 g_part, g_fsi, g_ncl, g_spc;
+    static u8 b[512] ATTRIBUTE_ALIGN(32);
+    if (geo < 0 || sd_virtual || !sd_ok) return 0;
+    if (!geo) {
+        geo = -1;
+        if (na_rawsec(0, b)) return 0;
+        u32 part = 0;
+        if (!na_is_fat(b)) {
+            u8 mbr[64]; memcpy(mbr, b + 0x1BE, 64);
+            int found = 0;
+            for (int i = 0; i < 4 && !found; i++) { u32 lba = na_le32(mbr + i * 16 + 8); if (lba && !na_rawsec(lba, b) && na_is_fat(b)) { part = lba; found = 1; } }
+            if (!found) return 0;
+        }
+        u32 spc = b[0x0D], rsvd = na_le16(b + 0x0E), nfats = b[0x10];
+        u32 totsec = na_le16(b + 0x13) ? na_le16(b + 0x13) : na_le32(b + 0x20);
+        u32 fatsz = na_le16(b + 0x16) ? na_le16(b + 0x16) : na_le32(b + 0x24);
+        u32 fsi = na_le16(b + 0x30);
+        if (!spc || na_le16(b + 0x16) || !fsi || fsi == 0xFFFF) return 0;      /* (FAT32 seulement) */
+        u32 data = rsvd + nfats * fatsz;
+        if (totsec <= data) return 0;
+        g_part = part; g_fsi = fsi; g_spc = spc; g_ncl = (totsec - data) / spc;
+        geo = 1;
+    }
+    if (na_rawsec(g_part + g_fsi, b)) return 0;
+    u32 freecl = na_le32(b + 0x1E8);
+    if (na_le32(b) != 0x41615252u || na_le32(b + 0x1E4) != 0x61417272u || freecl > g_ncl) return 0;   /* (0xFFFFFFFF = inconnu) */
+    *tot = (unsigned long long)g_ncl * g_spc * 512; *fre = (unsigned long long)freecl * g_spc * 512;
+    return 1;
+}
+
+/* place libre / taille : FSInfo si possible, sinon statvfs une seule fois par session (lent) */
+static int sd_space(unsigned long long *tot, unsigned long long *fre) {
+    static int slow_known = 0;
+    static unsigned long long s_tot, s_fre;
+    if (sd_space_fast(tot, fre)) return 1;
+    if (!sd_ok) return 0;
+    if (!slow_known) {
+        struct statvfs sv;
+        if (statvfs(SD_ROOT "/", &sv) != 0) return 0;
+        s_tot = (unsigned long long)sv.f_blocks * sv.f_frsize; s_fre = (unsigned long long)sv.f_bavail * sv.f_frsize;
+        slow_known = 1;
+    }
+    *tot = s_tot; *fre = s_fre;
+    return 1;
+}
+#endif
+
 /* morceaux de l'ISO sur la carte ; 0 = OK */
 static int nat_map(const char *path, char *err, int cap) {
     static u8 b[512] ATTRIBUTE_ALIGN(32), fb[512] ATTRIBUTE_ALIGN(32);
@@ -755,6 +809,7 @@ static int nat_res_test(const char *path, long size, char *msg, int cap) {
         h->chan = sd_slot == 0 ? 2 : sd_slot == 1 ? 0 : 1;
         h->dev = 0; h->freq = 4;
         h->n_ext = na_next;
+        h->ext = (NATRES_AT + NATRES_SIZE - (na_next > NATRES_RETMAX ? na_next : NATRES_RETMAX) * 12) & ~31u;   /* (v97) */
         memcpy((void *)h->ext, na_ext, na_next * sizeof(natres_ext_t));
         DCFlushRange((void *)NATRES_AT, NATRES_SIZE);
         ICInvalidateRange((void *)NATRES_AT, NATRES_SIZE);
@@ -904,7 +959,7 @@ static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *c
             int sec = -1;
             for (int k = 0; k < in->nsec; k++) if (a >= in->sec_addr[k] && a - in->sec_addr[k] < in->sec_sz[k]) { sec = k; fo = in->sec_off[k] + (a - in->sec_addr[k]); }
             const char *why = sec < 0 ? "hors des sections" : be32(dol + fo) != in->hit_ins[i] ? "instruction differente"
-                            : at + 64 * 4 > NATRES_AT + NATRES_SIZE ? "plus de place"
+                            : at + 64 * 4 > be32(res + 0x24) ? "plus de place"   /* (v97 : sous la table des morceaux) */
                             : isx ? na_xtramp_why(in->hit_ins[i]) : na_tramp_why(in->hit_ins[i]);
             s32 d = (s32)(at - a);
             if (!why && (d >= 0x02000000 || d < -0x02000000)) why = "trop loin";
@@ -1292,8 +1347,13 @@ static const char *nat_boot(int k) {
     if (res) {                                            /* image du resident, deja reglee (en-tete : natres.h) */
         u8 *r = buf + o_res;
         memcpy(r, natres_bin, sizeof(natres_bin));
-        u32 eo = be32(r + 0x24) - NATRES_AT;
-        if (be32(r) != NATRES_MAGIC || be32(r + 0x3C) > NATRES_AT + NATRES_SIZE || eo + na_next * 12 > NATRES_SIZE) res = 0;
+        /* v97 : table des morceaux tout en haut, a la taille utile (au moins la place du .dol de GC Station,
+           recopie la au retour A+Z+START) : le reste sert aux aiguillages */
+        u32 ext_n = na_next > NATRES_RETMAX ? na_next : NATRES_RETMAX;
+        u32 ext_at = (NATRES_AT + NATRES_SIZE - ext_n * 12) & ~31u;
+        na_wbe32(r + 0x24, ext_at);
+        u32 eo = ext_at - NATRES_AT;
+        if (be32(r) != NATRES_MAGIC || be32(r + 0x3C) > ext_at) res = 0;
         else {
             na_wbe32(r + 0x14, sd_slot == 0 ? 2 : sd_slot == 1 ? 0 : 1);   /* canal EXI */
             na_wbe32(r + 0x18, 0); na_wbe32(r + 0x1C, 4);                   /* peripherique, 16 MHz */
@@ -1474,6 +1534,167 @@ static const char *nat_boot(int k) {
            in.id, (unsigned)stage, (unsigned)total, (unsigned)bi2_dest, (unsigned)fst_dest, (unsigned)in.entry, (unsigned)n);
     free(buf);
     return "(simulateur : lancement natif simul\xC3\xA9)";
+#endif
+}
+
+/* ======================= v97 : lancer le disque du vrai lecteur de la console =======================
+   Case "Disque de la console" de l'onglet Jeux. Comme le BIOS : reset du lecteur, lecture de l'ID du
+   disque (le lecteur se deverrouille, la puce s'il y en a une fait son travail), reglage de la musique
+   en streaming, puis main.dol, bi2.bin et la FST sont lus sur le disque et le jeu demarre directement
+   (sans Resident : c'est le vrai lecteur qui sert le jeu ; pas de A+Z+START). */
+#ifdef GEKKO
+/* une commande au lecteur (masques coupes : pas d'interruption) ; 0 = fin OK, 1 = erreur, -1 = rien */
+static int na_di(volatile u32 *di, u32 c0, u32 c1, u32 c2, void *dst, u32 len, u32 ms) {
+    di[0] = 0x54u;
+    if (dst) DCInvalidateRange(dst, len);
+    di[2] = c0; di[3] = c1; di[4] = c2;
+    if (dst) { di[5] = (u32)MEM_VIRTUAL_TO_PHYSICAL(dst); di[6] = len; di[7] = 3; }
+    else di[7] = 1;
+    u64 t0 = now_ms();
+    while (di[7] & 1) {
+        nat_ld_tick();
+        if (now_ms() - t0 > ms) { di[0] = 1u; u64 t1 = now_ms(); while ((di[7] & 1) && now_ms() - t1 < 200) { } di[0] = 0x54u; return -1; }
+    }
+    u32 sr = di[0];
+    di[0] = 0x54u;
+    if (dst) DCInvalidateRange(dst, len);
+    return sr & 0x04u ? 1 : 0;
+}
+static int na_dvd_read(volatile u32 *di, u32 off, u8 *dst, u32 len, int pf, int pt) {   /* (len : multiple de 32) */
+    for (u32 o = 0; o < len; ) {
+        u32 n = len - o > 0x40000u ? 0x40000u : len - o;
+        if (na_di(di, 0xA8000000u, (off + o) >> 2, n, dst + o, n, 10000)) return 0;
+        o += n;
+        nat_ld_pct = nat_ld_from = nat_ld_to = pf + (int)((u64)(pt - pf) * o / len);
+        nat_ld_tick();
+    }
+    return 1;
+}
+#endif
+static const char *nat_boot_disc(int k) {
+    snprintf(nat_ld_title, sizeof(nat_ld_title), "%s", TR("Disque de la console"));
+    nat_ld_k = k;
+    nat_ld("Pr\xC3\xA9paration du lecteur", 4);
+#ifdef GEKKO
+    volatile u32 *di = (volatile u32 *)0xCC006000u, *pi = (volatile u32 *)0xCC003000u;
+    static u8 hdr[0x440] ATTRIBUTE_ALIGN(32), dh[0x100] ATTRIBUTE_ALIGN(32);
+    stop_track(); stop_station();
+    {   /* reset du lecteur (GC Station le tient en reset), puis on attend qu'il reponde */
+        u32 level = IRQ_Disable();
+        pi[9] = (pi[9] & ~4u) | 1u;
+        u64 t = now_ms(); while (now_ms() - t < 2) ;
+        pi[9] = pi[9] | 5u;
+        IRQ_Restore(level);
+        static u8 inq[32] ATTRIBUTE_ALIGN(32);
+        u64 t0 = now_ms(); int r;
+        nat_ld_span("Pr\xC3\xA9paration du lecteur", 4, 30);
+        do r = na_di(di, 0x12000000u, 0, 32, inq, 32, 1500); while (r < 0 && now_ms() - t0 < 8000);
+        if (r < 0) return "Le lecteur de la console ne r\xC3\xA9pond pas";
+    }
+    di[1] = 4u;                                            /* (couvercle : acquitte) */
+    nat_ld_span("Lecture du disque", 30, 50);
+    int r = -1;
+    u64 t0 = now_ms();
+    do r = na_di(di, 0xA8000040u, 0, 0x20, hdr, 0x20, 15000); while (r > 0 && now_ms() - t0 < 4000 && (nat_ld_tick(), 1));
+    if (r) {
+        u32 err = 0;
+        if (!na_di(di, 0xE0000000u, 0, 0, NULL, 0, 2000)) err = di[8];
+        if ((err & 0x00FFFFFFu) == 0x023A00u) return "Pas de disque dans le lecteur";
+        if ((err >> 24) == 1) return "Le couvercle du lecteur est ouvert";
+        static char e[96];
+        snprintf(e, sizeof(e), "Disque illisible (erreur du lecteur %08X)", (unsigned)err);
+        return e;
+    }
+    if (!na_dvd_read(di, 0, hdr, sizeof(hdr), 50, 52) || be32(hdr + 0x1C) != 0xC2339F3Du) return "Ce n'est pas un disque GameCube";
+    char id[7]; memcpy(id, hdr, 6); id[6] = 0;
+    char title[72]; gl_latin(hdr + 0x20, 0x40, title, sizeof(title));
+    snprintf(nat_ld_title, sizeof(nat_ld_title), "%s", title[0] ? title : id);
+    u32 dol_off = be32(hdr + 0x420), fst_off = be32(hdr + 0x424), fst_sz = be32(hdr + 0x428), fst_max = be32(hdr + 0x42C);
+    if (!dol_off || (dol_off & 3) || (fst_off & 3) || !fst_sz || fst_max < fst_sz || fst_max > (4u << 20)) return "Disque : en-t\xC3\xAAte inattendu";
+    if (!na_dvd_read(di, dol_off, dh, sizeof(dh), 52, 54)) return "Disque : main.dol illisible";
+    u32 entry = be32(dh + 0xE0), lo = 0xFFFFFFFFu, hi = 0, dol_len = 0x100;
+    for (int i = 0; i < 18; i++) {
+        u32 off = be32(dh + i * 4), addr = be32(dh + 0x48 + i * 4), sz = be32(dh + 0x90 + i * 4);
+        if (!sz) continue;
+        if (addr < 0x80003000u || addr + (u64)sz > 0x81800000u) return "Disque : main.dol inattendu";
+        if (addr < lo) lo = addr;
+        if (addr + sz > hi) hi = addr + sz;
+        if (off + sz > dol_len) dol_len = off + sz;
+    }
+    if (be32(dh + 0xD8) + be32(dh + 0xDC) > hi) hi = be32(dh + 0xD8) + be32(dh + 0xDC);
+    if (entry < lo || entry >= hi) return "Disque : point d'entr\xC3\xA9" "e invalide";
+    /* memoire du haut : [ jeu ... | FST | bi2.bin ] 0x81800000 */
+    u32 bi2_dest = 0x81800000u - NA_BI2;
+    u32 fst_dest = (bi2_dest - fst_max) & ~31u;
+    if (hi > fst_dest) return "Pas assez de m\xC3\xA9moire pour ce jeu";
+    u32 o_bi2 = (dol_len + 31) & ~31u, o_fst = o_bi2 + NA_BI2, total = o_fst + ((fst_sz + 31) & ~31u);
+    u32 top = fst_dest < 0x81700000u - 0x400u ? fst_dest : 0x81700000u - 0x400u;
+    if (total + hi + 32 > top) return "Pas assez de m\xC3\xA9moire pour ce jeu (main.dol trop gros)";
+    u32 stage = (top - total) & ~31u;
+    u8 *buf = (u8 *)memalign(32, total);
+    if (!buf) return "Pas assez de m\xC3\xA9moire libre dans GC Station";
+    memset(buf, 0, total);
+    int ok = na_dvd_read(di, dol_off, buf, o_bi2, 54, 88)
+          && na_dvd_read(di, 0x440, buf + o_bi2, NA_BI2, 88, 90)
+          && na_dvd_read(di, fst_off, buf + o_fst, (fst_sz + 31) & ~31u, 90, 96);
+    if (!ok) { free(buf); return "Lecture du disque impossible"; }
+    /* musique en streaming (comme le BIOS) : octet 8 = oui / non, octet 9 = taille du tampon */
+    na_di(di, 0xE4000000u | (hdr[8] ? 0x00010000u | hdr[9] : 0), 0, 0, NULL, 0, 2000);
+    u32 tab[18 * 3 + 6], n = 0;
+    for (int i = 0; i < 18; i++) {
+        u32 off = be32(buf + i * 4), addr = be32(buf + 0x48 + i * 4), sz = be32(buf + 0x90 + i * 4);
+        if (!sz) continue;
+        tab[n * 3] = addr; tab[n * 3 + 1] = stage + off; tab[n * 3 + 2] = sz; n++;
+    }
+    tab[n * 3] = bi2_dest; tab[n * 3 + 1] = stage + o_bi2; tab[n * 3 + 2] = NA_BI2; n++;
+    tab[n * 3] = fst_dest; tab[n * 3 + 1] = stage + o_fst; tab[n * 3 + 2] = fst_sz; n++;
+    nat_ld("D\xC3\xA9marrage", 100);
+    mkdir(NA_DIR, 0777);
+    FILE *f = fopen(NA_DIR "/disque-console.txt", "w");
+    if (f) {
+        fprintf(f, "GC Station - disque du vrai lecteur\nJeu : %s  %s\nmain.dol %08X (%u octets), entree %08X\nFST %08X -> %08X (%u / %u)\nStreaming : %s (tampon %u)\n",
+                id, title, (unsigned)dol_off, (unsigned)dol_len, (unsigned)entry, (unsigned)fst_off, (unsigned)fst_dest, (unsigned)fst_sz, (unsigned)fst_max,
+                hdr[8] ? "oui" : "non", (unsigned)hdr[9]);
+        fclose(f);
+    }
+    crumb("disque : saut vers %s (entree %08X)", id, (unsigned)entry);
+    if (settings_dirty) save_settings();
+    AUDIO_StopDMA();
+    bg_quiesce();
+    fatUnmount("sd");
+    u32 vb = na_vi_bootrom(id);
+    GXRModeObj *gm = vb == 1 ? &TVPal576IntDfScale : vb == 5 ? &TVEurgb60Hz480IntDf : &TVNtsc480IntDf;
+    VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync();
+    VIDEO_Configure(gm); VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();
+    SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
+    u32 level = IRQ_Disable();
+    (void)level;
+    memmove((void *)stage, buf, total);
+    DCFlushRange((void *)stage, total);
+    volatile u32 *lm = (volatile u32 *)0x80000000;
+    memcpy((void *)0x80000000, hdr, 0x20);
+    lm[0x20 / 4] = 0x0D15EA5Eu;
+    lm[0x24 / 4] = 1;
+    if (!lm[0x28 / 4]) lm[0x28 / 4] = 0x01800000u;
+    lm[0x30 / 4] = 0;
+    lm[0x34 / 4] = fst_dest;
+    lm[0x38 / 4] = fst_dest;
+    lm[0x3C / 4] = fst_max;
+    lm[0xF0 / 4] = 0x01800000u;
+    lm[0xCC / 4] = vb;
+    lm[0xF4 / 4] = bi2_dest;
+    if (!lm[0xF8 / 4]) lm[0xF8 / 4] = 0x09A7EC80u;
+    if (!lm[0xFC / 4]) lm[0xFC / 4] = 0x1CF7C580u;
+    DCFlushRange((void *)0x80000000, 0x100);
+    u32 *t = (u32 *)GL_TAB_AT;
+    for (u32 i = 0; i < n * 3; i++) t[i] = tab[i];
+    memcpy((void *)GL_STUB_AT, gl_stub, sizeof(gl_stub));
+    DCFlushRange((void *)0x80001800, 0x1800);
+    ICInvalidateRange((void *)GL_STUB_AT, sizeof(gl_stub));
+    ((void (*)(u32 *, u32, u32))GL_STUB_AT)(t, n, entry);
+    for (;;) ;
+#else
+    return "(simulateur : pas de vrai lecteur)";
 #endif
 }
 
