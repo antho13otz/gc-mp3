@@ -507,7 +507,14 @@ static void ai_hook(u32 irq, u32 ctx) {                  /* v65 : apres le jeu, 
     igr_poll2(0);                                        /* v89 : aussi ici (~ toutes les 5 ms) : a l'image (VI), le jeu n'a
                                                             souvent pas encore pris les manettes (Wind Waker) : lecture interdite */
 }
-NR_HOOK(dsp, H.cnt_dsp)
+static u32 dsp_orig = 0;
+static void st_mix_from(int from_dsp);
+static void dsp_hook(u32 irq, u32 ctx) {                 /* v98 : le jeu y programme parfois le tampon du son suivant */
+    if (dsp_orig) ((void (*)(u32, u32))dsp_orig)(irq, ctx);
+    H.cnt_dsp++;
+    st_mix_from(1);
+    alive_tick();
+}
 NR_HOOK(pet, H.cnt_pe)
 NR_HOOK(pef, H.cnt_pe)
 
@@ -688,8 +695,12 @@ static int st_hl1 = 0, st_hl2 = 0, st_hr1 = 0, st_hr2 = 0;
 static short st_pcm[56];
 static u32 st_pcm_i = 28, st_phase = 0;
 static int st_cl = 0, st_cr = 0;
-static u8 st_sec[512] __attribute__((aligned(32)));
-static u32 st_sec_off = 0xFFFFFFFFu;
+/* v98 : lu par 4 secteurs a la suite (2 Ko = 37 ms de musique) : 4 fois moins de recherches de la carte
+   pendant l'interruption du son (avant : un secteur toutes les 9 ms) */
+#define ST_SECS 4u
+static u8 st_sec[512 * ST_SECS] __attribute__((aligned(32)));
+static u32 st_sec_off = 0xFFFFFFFFu, st_sec_n = 0;
+static int nr_read_multi(u32 sector, u32 count, u8 *o);
 static int st_clamp(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 static int st_dec(int bits, int q, int *h1, int *h2) {
     int hist = 0;
@@ -711,11 +722,14 @@ static int st_block(void) {                              /* bloc suivant (32 oct
         st_hl1 = st_hl2 = st_hr1 = st_hr2 = 0;
     }
     u32 so = st_pos & ~511u, sd;
-    if (so != st_sec_off) {
-        if (iso_to_sd(so >> 9, &sd) || nr_read_sd(sd, st_sec)) { st_on = 0; return -1; }
-        st_sec_off = so;
+    if (st_sec_off == 0xFFFFFFFFu || so < st_sec_off || so >= st_sec_off + st_sec_n) {
+        if (iso_to_sd(so >> 9, &sd)) { st_on = 0; return -1; }
+        u32 n = iso_run < ST_SECS ? iso_run : ST_SECS;
+        if (!n) n = 1;
+        if (n == 1 ? nr_read_sd(sd, st_sec) : nr_read_multi(sd, n, st_sec)) { st_sec_off = 0xFFFFFFFFu; st_on = 0; return -1; }
+        st_sec_off = so; st_sec_n = n * 512;
     }
-    const u8 *a = st_sec + (st_pos & 511);
+    const u8 *a = st_sec + (st_pos - st_sec_off);
     for (int i = 0; i < 28; i++) {
         st_pcm[i * 2] = (short)st_dec(a[i + 4] & 0xF, a[0], &st_hl1, &st_hl2);
         st_pcm[i * 2 + 1] = (short)st_dec(a[i + 4] >> 4, a[1], &st_hr1, &st_hr2);
@@ -753,7 +767,13 @@ static u32 st_status(u32 c0) {                           /* E2 */
 }
 /* apres la fonction du jeu (interruption DMA du son) : le tampon qu'il vient de programmer
    va etre joue ; on y ajoute la musique du disque, au bon volume et a la bonne frequence */
-static void st_mix(void) {
+/* v98 : le tampon est complete des que le jeu le programme, depuis l'interruption du son OU celle du DSP
+   (certains jeux, Cocoto, programment le tampon suivant a la fin du calcul du DSP : avant, la musique
+   etait ajoutee au tampon deja en train d'etre joue, donc en partie seulement : saccades), et jamais deux
+   fois (un tampon rejoue tel quel quand le DSP est en retard gardait sa musique, et en recevait une 2e). */
+static u32 st_last_addr = 0xFFFFFFFFu, st_last_sum = 0, st_dsp_n = 0;
+static u32 st_sum(const u32 *w, u32 n) { u32 s = 0x9E3779B9u; for (u32 i = 0; i < n; i++) s = (s ^ w[i]) * 0x01000193u; return s; }
+static void st_mix_from(int from_dsp) {
     volatile u32 *ai = (volatile u32 *)0xCC006C00u;
     u32 cr = ai[0];
     if (!st_on || !(cr & 1)) return;                     /* (PSTAT : le jeu a lance la lecture du disque) */
@@ -761,6 +781,14 @@ static void st_mix(void) {
     u32 addr = ((((u32)dsp[0x30 / 2] & 0x3FFu) << 16) | dsp[0x32 / 2]) & ~31u;
     u32 len = ((u32)dsp[0x36 / 2] & 0x7FFFu) << 5;
     if (!len || len > 0x8000u || addr + len > 0x01800000u) return;
+    {
+        u8 *q = (u8 *)(addr | 0x80000000u);
+        for (u32 a = (u32)q; a < (u32)q + len; a += 32) __asm__ volatile("dcbi 0,%0" :: "r"(a) : "memory");
+        if (addr == st_last_addr && st_sum((const u32 *)q, len / 4) == st_last_sum) {   /* (deja complete) */
+            if (!from_dsp && H.crc_err < 0xFFFF0000u) H.crc_err += 0x10000u;            /* (journal : tampons rejoues) */
+            return;
+        }
+    }
     u32 vol = ai[1];
     int vl = (int)(vol & 0xFF), vr = (int)((vol >> 8) & 0xFF);
     u32 drate = (cr & 0x40) ? 32000u : 48000u, srate = (cr & 2) ? 48000u : 32000u;
@@ -775,9 +803,12 @@ static void st_mix(void) {
         s[i * 2] = (short)st_clamp(s[i * 2] + ((st_cl * vl) >> 8), -0x8000, 0x7fff);
         s[i * 2 + 1] = (short)st_clamp(s[i * 2 + 1] + ((st_cr * vr) >> 8), -0x8000, 0x7fff);
     }
+    st_last_addr = addr; st_last_sum = st_sum((const u32 *)p, len / 4);
     cache_flush((u32)p, len);
     H.st_mix++;
+    if (from_dsp && st_dsp_n < 0xFFFFu) { st_dsp_n++; H.xfer = (H.xfer & 0xFFFFu) | st_dsp_n << 16; }
 }
+static void st_mix(void) { st_mix_from(0); }
 
 /* ======================= v65 : carte memoire virtuelle (slot A) =======================
    Les acces du jeu aux registres EXI du canal 0 (0xCC006800-13) sont branches ici (comme ceux
