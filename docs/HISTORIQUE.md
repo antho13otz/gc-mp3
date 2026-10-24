@@ -21,6 +21,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v113 — nouveau logo de Pulse
+- Logo choisi parmi plusieurs maquettes : cube GameCube aux trois faces écartées (rose dessus, violet à
+  gauche, bleu à droite) avec une lueur rose au centre, hexagone en dégradé diagonal (rose → cyan) et
+  deux contours ; battement de type cardio (petite bosse, grand pic, petite bosse) blanc sur le cube,
+  qui sort de l'hexagone en dégradé et s'efface ; l'hexagone passe par-dessus avec une ouverture en
+  dégradé là où passe le battement.
+- Dessiné en GX (`source/pulse_logo.c` : `pl_hexo`, `pl_cube`, `pl_beat`) : écrans de chargement Aurore,
+  Cœur, Cinéma, la fenêtre de lancement des jeux ; l'écran Minimal montre le cube. Animation : la lueur
+  et le battement s'allument à chaque battement, un contour s'éloigne.
+
 ## Nouveautés v112 — mise à jour sans « GitHub ne répond pas »
 - L'API de GitHub n'accepte que 60 demandes par heure et par connexion sans compte ; chaque démarrage
   de GC Station en faisait jusqu'à 3 (mise à jour, retour en jeu, lanceur de secours) : après beaucoup
