@@ -710,6 +710,7 @@ static u32 st_snap_addr = 0xFFFFFFFFu;                /* v106 : tampon de la der
 static short st_pcm[56];
 static u32 st_pcm_i = 28, st_phase = 0;
 static int st_cl = 0, st_cr = 0;
+static int st_pl = 0, st_pr = 0;                          /* v107 : dernier echantillon de l'image precedente (filtre) */
 /* v98 : lu par 4 secteurs a la suite (2 Ko = 37 ms de musique) : 4 fois moins de recherches de la carte
    pendant l'interruption du son (avant : un secteur toutes les 9 ms) */
 #define ST_SECS 4u
@@ -766,7 +767,7 @@ static void st_cmd(u32 c0, u32 off, u32 len) {           /* E1 */
             st_next_start = off; st_next_len = len;
             if (!st_on) {
                 st_cur_start = st_next_start; st_cur_len = st_next_len; st_pos = st_cur_start;
-                st_hl1 = st_hl2 = st_hr1 = st_hr2 = 0; st_pcm_i = 28; st_phase = 0;
+                st_hl1 = st_hl2 = st_hr1 = st_hr2 = 0; st_pcm_i = 28; st_phase = 0; st_pl = st_pr = 0;
                 st_on = 1;
             }
         }
@@ -793,19 +794,19 @@ static u32 st_last_addr = 0xFFFFFFFFu, st_last_sum = 0, st_dsp_n = 0;
    la fin du DSP avec les echantillons suivants : la musique avancait deux fois trop vite et sautait un
    morceau sur deux (saccades). Maintenant : l'etat du decodeur est garde avant chaque ajout ; si le DSP a
    reecrit ce meme tampon, on revient a cet etat et on ajoute les memes echantillons. */
-typedef struct { u32 on, stop_end, pos, cs, clen, ns, nl, pcm_i, phase; int hl1, hl2, hr1, hr2, cl, cr; short pcm[56]; } stsnap_t;
+typedef struct { u32 on, stop_end, pos, cs, clen, ns, nl, pcm_i, phase; int hl1, hl2, hr1, hr2, cl, cr, pl, pr; short pcm[56]; } stsnap_t;
 static stsnap_t st_snap;
 static void st_save(u32 addr) {
     stsnap_t *s = &st_snap;
     s->on = st_on; s->stop_end = st_stop_end; s->pos = st_pos; s->cs = st_cur_start; s->clen = st_cur_len; s->ns = st_next_start; s->nl = st_next_len;
-    s->pcm_i = st_pcm_i; s->phase = st_phase; s->hl1 = st_hl1; s->hl2 = st_hl2; s->hr1 = st_hr1; s->hr2 = st_hr2; s->cl = st_cl; s->cr = st_cr;
+    s->pcm_i = st_pcm_i; s->phase = st_phase; s->hl1 = st_hl1; s->hl2 = st_hl2; s->hr1 = st_hr1; s->hr2 = st_hr2; s->cl = st_cl; s->cr = st_cr; s->pl = st_pl; s->pr = st_pr;
     for (int i = 0; i < 56; i++) s->pcm[i] = st_pcm[i];
     st_snap_addr = addr;
 }
 static void st_load(void) {
     const stsnap_t *s = &st_snap;
     st_on = s->on; st_stop_end = s->stop_end; st_pos = s->pos; st_cur_start = s->cs; st_cur_len = s->clen; st_next_start = s->ns; st_next_len = s->nl;
-    st_pcm_i = s->pcm_i; st_phase = s->phase; st_hl1 = s->hl1; st_hl2 = s->hl2; st_hr1 = s->hr1; st_hr2 = s->hr2; st_cl = s->cl; st_cr = s->cr;
+    st_pcm_i = s->pcm_i; st_phase = s->phase; st_hl1 = s->hl1; st_hl2 = s->hl2; st_hr1 = s->hr1; st_hr2 = s->hr2; st_cl = s->cl; st_cr = s->cr; st_pl = s->pl; st_pr = s->pr;
     for (int i = 0; i < 56; i++) st_pcm[i] = s->pcm[i];
 }
 static u32 st_sum(const u32 *w, u32 n) { u32 s = 0x9E3779B9u; for (u32 i = 0; i < n; i++) s = (s ^ w[i]) * 0x01000193u; return s; }
@@ -838,11 +839,24 @@ static void st_mix_from(int from_dsp) {
     for (u32 a = (u32)p; a < (u32)p + len; a += 32) __asm__ volatile("dcbi 0,%0" :: "r"(a) : "memory");   /* (ecrit par le DSP) */
     short *s = (short *)p;
     u32 n = len / 4;
+    /* v107 : musique a 48 kHz, son du jeu a 32 kHz : chaque echantillon de sortie est la moyenne des
+       echantillons du disque qu'il remplace (et du dernier d'avant). Avant : un sur 1,5 simplement garde :
+       les aigus se repliaient en grezillement. (Meme frequence : echantillons tels quels.) */
     for (u32 i = 0; i < n; i++) {
+        int ol, orr;
         st_phase += step;
-        while (st_phase >= 0x10000u) { st_phase -= 0x10000u; st_adv(); }
-        s[i * 2] = (short)st_clamp(s[i * 2] + ((st_cl * vl) >> 8), -0x8000, 0x7fff);
-        s[i * 2 + 1] = (short)st_clamp(s[i * 2 + 1] + ((st_cr * vr) >> 8), -0x8000, 0x7fff);
+        if (step == 0x10000u) {
+            while (st_phase >= 0x10000u) { st_phase -= 0x10000u; st_adv(); }
+            ol = st_cl; orr = st_cr;
+        } else {
+            int al = st_pl, ar = st_pr, k = 1;
+            while (st_phase >= 0x10000u) { st_phase -= 0x10000u; st_adv(); al += st_cl; ar += st_cr; k++; }
+            if (k == 1) { al += st_cl; ar += st_cr; k = 2; }
+            ol = al / k; orr = ar / k;
+            st_pl = st_cl; st_pr = st_cr;
+        }
+        s[i * 2] = (short)st_clamp(s[i * 2] + ((ol * vl) >> 8), -0x8000, 0x7fff);
+        s[i * 2 + 1] = (short)st_clamp(s[i * 2 + 1] + ((orr * vr) >> 8), -0x8000, 0x7fff);
     }
     st_last_addr = addr; st_last_sum = st_sum((const u32 *)p, len / 4);
     cache_flush((u32)p, len);
