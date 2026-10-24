@@ -1,4 +1,4 @@
-// GC Station v109 : logo de Pulse (le lanceur de GC Station, avant « Resident »). Inclus dans main.c.
+// GC Station v109 (logo refait en v113) : logo de Pulse (le lanceur de GC Station, avant « Resident »). Inclus dans main.c.
 // Hexagone du cube GameCube en neon (degrade rose -> violet -> bleu -> cyan), un coeur en degrade au
 // centre qui bat, un trait de battement blanc qui le traverse, et des contours qui s'eloignent a chaque
 // battement. Couleurs fixes (ce sont celles du logo), quel que soit le theme.
@@ -40,39 +40,103 @@ static void pl_heart(f32 cx, f32 cy, f32 s, u8 a) {
     }
     GX_End();
 }
+/* v113 : nouveau logo (choisi par l'utilisateur, « cardio realiste ») : cube aux 3 faces ecartees
+   (rose, violet, bleu) dans l'hexagone en degrade diagonal ; un battement de cardio blanc traverse le
+   cube et sort de l'hexagone en degrade (rose a gauche, cyan a droite) en s'effacant ; l'hexagone passe
+   par-dessus le battement, avec une ouverture en degrade la ou il passe. */
+static col_t pl_dcol(f32 x, f32 y, f32 cx, f32 cy, f32 r, u8 a, f32 dim) {   /* rose en haut a gauche -> cyan en bas a droite */
+    col_t c = pl_grad(((x - cx) + (y - cy)) / (2.5f * r) + 0.5f, a);
+    c.r = (u8)(c.r * dim); c.g = (u8)(c.g * dim); c.b = (u8)(c.b * dim);
+    return c;
+}
+static f32 pl_open(f32 y, f32 ly, f32 r) {                  /* ouverture de l'hexagone autour du battement */
+    f32 dy = fabsf(y - ly), gh = r * 0.073f, fd = r * 0.173f;
+    if (dy <= gh) return 0;
+    f32 f = (dy - gh) / fd;
+    if (f >= 1) return 1;
+    return f * sqrtf(f);
+}
+/* hexagone de rayon hr (logo de rayon r), ouvert autour de ly */
+static void pl_hexo(f32 cx, f32 cy, f32 r, f32 hr, f32 w, u8 a, f32 dim, f32 ly) {
+    enum { SUB = 8 };
+    if (w < 1.0f) w = 1.0f;
+    for (int i = 0; i < 6; i++) {
+        f32 a0 = -PI_F / 2 + i * PI_F / 3, a1 = a0 + PI_F / 3;
+        f32 x0 = cx + hr * cosf(a0), y0 = cy + hr * sinf(a0), x1 = cx + hr * cosf(a1), y1 = cy + hr * sinf(a1);
+        for (int k = 0; k < SUB; k++) {
+            f32 u0 = (f32)k / SUB, u1 = (f32)(k + 1) / SUB;
+            f32 px = x0 + (x1 - x0) * u0, py = y0 + (y1 - y0) * u0, qx = x0 + (x1 - x0) * u1, qy = y0 + (y1 - y0) * u1;
+            f32 o0 = pl_open(py, ly, r), o1 = pl_open(qy, ly, r);
+            if (o0 <= 0 && o1 <= 0) continue;
+            pl_seg(px, py, qx, qy, w, pl_dcol(px, py, cx, cy, r, (u8)(a * o0), dim), pl_dcol(qx, qy, cx, cy, r, (u8)(a * o1), dim));
+        }
+        f32 o = pl_open(y1, ly, r);                          /* (coins arrondis) */
+        if (o > 0) { col_t c = pl_dcol(x1, y1, cx, cy, r, (u8)(a * o), dim); gx_circle(x1, y1, w / 2, c, c); }
+    }
+}
+/* le cube aux faces ecartees, centre en (cx, cy) ; s = taille d'une arete, g = ecart */
+static void pl_cube(f32 cx, f32 cy, f32 s, f32 g) {
+    const f32 k = 0.866f;
+    col_t ct = RGBA(255, 150, 220, 255), cl = RGBA(150, 90, 255, 255), cr = RGBA(60, 100, 230, 255);
+    gx_poly4(cx, cy - s - g, cx + s * k, cy - s * 0.5f - g, cx, cy - g, cx - s * k, cy - s * 0.5f - g, ct, ct, ct, ct);
+    f32 lx = -g * 0.87f, ry = g * 0.5f;
+    gx_poly4(cx - s * k + lx, cy - s * 0.5f + ry, cx + lx, cy + ry, cx + lx, cy + s + ry, cx - s * k + lx, cy + s * 0.5f + ry, cl, cl, cl, cl);
+    gx_poly4(cx - lx, cy + ry, cx + s * k - lx, cy - s * 0.5f + ry, cx + s * k - lx, cy + s * 0.5f + ry, cx - lx, cy + s + ry, cr, cr, cr, cr);
+}
+/* battement de cardio (petite bosse, grand pic, petite bosse), du bord gauche au bord droit du logo */
+static void pl_beat(f32 cx, f32 ly, f32 r, f32 glow) {
+    static const f32 e[13][2] = { { -1.42f, 0 }, { -0.5f, 0 }, { -0.44f, -0.08f }, { -0.38f, 0 }, { -0.2f, 0 }, { -0.15f, 0.08f },
+                                  { -0.07f, -0.66f }, { 0.01f, 0.3f }, { 0.06f, 0 }, { 0.18f, 0 }, { 0.26f, -0.14f }, { 0.34f, 0 }, { 1.42f, 0 } };
+    const f32 x0 = cx - 1.42f * r, x1 = cx + 1.42f * r;
+    for (int pass = 0; pass < 2; pass++) {
+        f32 w = pass ? r * 0.047f : r * 0.17f;
+        if (w < 1.0f) w = 1.0f;
+        for (int i = 0; i < 12; i++) {
+            f32 ax = cx + e[i][0] * (i == 0 ? r : r * 1.05f), ay = ly + e[i][1] * r * 0.55f;
+            f32 bx = cx + e[i + 1][0] * (i == 11 ? r : r * 1.05f), by = ly + e[i + 1][1] * r * 0.55f;
+            f32 l = fabsf(bx - ax) + fabsf(by - ay);
+            int n = (int)(l / (r * 0.08f)) + 1;
+            if (n > 16) n = 16;
+            for (int k = 0; k < n; k++) {
+                f32 u0 = (f32)k / n, u1 = (f32)(k + 1) / n;
+                f32 p[2][2] = { { ax + (bx - ax) * u0, ay + (by - ay) * u0 }, { ax + (bx - ax) * u1, ay + (by - ay) * u1 } };
+                col_t c[2];
+                for (int j = 0; j < 2; j++) {
+                    f32 dx = fabsf(p[j][0] - cx);
+                    f32 fa = (1.42f * r - dx) / (0.5f * r); if (fa > 1) fa = 1; if (fa < 0) fa = 0;   /* (s'efface vers les bords) */
+                    col_t g2 = pl_grad((p[j][0] - x0) / (x1 - x0), 255);
+                    if (pass) {
+                        f32 wv = (dx - 0.48f * r) / (0.43f * r); if (wv > 1) wv = 1; if (wv < 0) wv = 0;   /* (blanc au centre) */
+                        c[j] = RGBA(255 + (g2.r - 255) * wv, 255 + (g2.g - 255) * wv, 255 + (g2.b - 255) * wv, (u8)(255 * fa));
+                    } else { g2.a = (u8)((60 + 70 * glow) * fa); c[j] = g2; }
+                }
+                pl_seg(p[0][0], p[0][1], p[1][0], p[1][1], w, c[0], c[1]);
+            }
+            if (pass && i > 0 && fabsf(e[i][0]) < 0.48f) gx_circle(ax, ay, w / 2, RGBA(255, 255, 255, 255), RGBA(255, 255, 255, 255));
+        }
+    }
+}
 /* le logo, centre en (cx, cy), r = rayon de l'hexagone ; t = temps (s) pour l'animation (0 : fixe) */
 static void pulse_logo(f32 cx, f32 cy, f32 r, f32 t) {
     int sr = nv_raw;
     nv_raw = 1;
     uxsave_t uz = ux_native(cx);
     f32 ph = t > 0 ? fmodf(t, 1.1f) / 1.1f : 0;           /* (un battement toutes les 1,1 s) */
-    f32 beat = t > 0 ? expf(-ph * 9.0f) : 0;               /* (grossit d'un coup, puis revient) */
-    /* contours qui s'eloignent */
-    pl_hex(cx, cy, r * 1.42f, r * 0.05f, 60, 0.6f);
-    pl_hex(cx, cy, r * 1.22f, r * 0.06f, 110, 0.8f);
-    if (t > 0) pl_hex(cx, cy, r * (1.05f + 0.55f * ph), r * 0.07f, (u8)(150 * (1 - ph)), 1.0f);
-    /* hexagone (lueur, puis trait) */
-    pl_hex(cx, cy, r, r * 0.26f, 40, 1.0f);
-    pl_hex(cx, cy, r, r * 0.15f, 90, 1.0f);
-    pl_hex(cx, cy, r, r * 0.075f, 255, 1.0f);
-    /* coeur */
-    f32 hs = r * 0.033f * (1.0f + 0.10f * beat);
-    gx_circle(cx, cy, r * 0.75f, RGBA(255, 120, 220, (u8)(50 + 60 * beat)), RGBA(255, 120, 220, 0));
-    pl_heart(cx, cy + r * 0.04f, hs, 255);
+    f32 beat = t > 0 ? expf(-ph * 9.0f) : 0;               /* (s'allume d'un coup, puis revient) */
+    f32 ly = cy + r * 0.013f;
+    /* contours exterieurs (et celui qui s'eloigne a chaque battement) */
+    pl_hexo(cx, cy, r, r * 1.29f, r * 0.017f, 90, 0.5f, ly);
+    pl_hexo(cx, cy, r, r * 1.15f, r * 0.027f, 150, 0.6f, ly);
+    if (t > 0) pl_hexo(cx, cy, r, r * (1.05f + 0.45f * ph), r * 0.04f, (u8)(150 * (1 - ph)), 1.0f, ly);
+    /* lueur rose au centre, puis le cube */
+    gx_circle(cx, cy, r * 0.62f, RGBA(255, 120, 220, (u8)(110 + 70 * beat)), RGBA(255, 120, 220, 0));
+    pl_cube(cx, cy, r * 0.552f * (1.0f + 0.03f * beat), r * 0.067f);
     /* battement */
-    static const f32 ecg[8][2] = { { -1.75f, 0 }, { -0.42f, 0 }, { -0.30f, 0 }, { -0.19f, -0.44f }, { -0.02f, 0.38f }, { 0.13f, -0.14f }, { 0.24f, 0 }, { 1.75f, 0 } };
-    f32 ly = cy + r * 0.02f;
-    for (int pass = 0; pass < 2; pass++) {
-        f32 w = pass ? r * 0.06f : r * 0.17f;
-        col_t c = pass ? RGBA(255, 255, 255, 255) : RGBA(255, 220, 250, 70);
-        for (int i = 0; i < 7; i++) {
-            f32 ax = cx + ecg[i][0] * r, ay = ly + ecg[i][1] * r, bx = cx + ecg[i + 1][0] * r, by = ly + ecg[i + 1][1] * r;
-            col_t c0 = c, c1 = c;
-            if (i == 0) c0.a = 0;                           /* (les bouts s'effacent) */
-            if (i == 6) c1.a = 0;
-            pl_seg(ax, ay, bx, by, w, c0, c1);
-        }
-    }
+    pl_beat(cx, ly, r, beat);
+    /* hexagone par-dessus (lueur, puis trait), ouvert la ou passe le battement */
+    pl_hexo(cx, cy, r, r, r * 0.22f, 35, 1.0f, ly);
+    pl_hexo(cx, cy, r, r, r * 0.13f, 80, 1.0f, ly);
+    pl_hexo(cx, cy, r, r, r * 0.073f, 255, 1.0f, ly);
     ux_restore(uz);
     nv_raw = sr;
 }

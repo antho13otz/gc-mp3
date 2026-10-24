@@ -1264,7 +1264,8 @@ static void nl_minimal(f32 t) {
         gx_circle(xe, ye, 2, c1, c1);
     }
     f32 ph = fmodf(t, 1.1f) / 1.1f, beat = expf(-ph * 9.0f);
-    pl_heart(cx, cy + 3, 2.3f * (1.0f + 0.08f * beat), 255);
+    gx_circle(cx, cy, 52, RGBA(255, 120, 220, (u8)(90 + 70 * beat)), RGBA(255, 120, 220, 0));
+    pl_cube(cx, cy, 46 * (1.0f + 0.03f * beat), 6);     /* (v113 : le cube du logo) */
     nl_title(b, sizeof(b));
     fit_text(F_MED, b, 520, fv, sizeof(fv));
     gx_text_c(F_MED, cx, 340, fv, RGBA(235, 235, 250, 255));
