@@ -205,6 +205,11 @@ jobs:
             "https://github.com/devkitPro/libogc/archive/refs/tags/v$V.tar.gz"
           python3 tools/fast_net.py libogc.tar.gz
 
+      # v117 : dit dans le resume de la compilation si le reseau rapide est bien inclus
+      - name: Vérifier le réseau rapide
+        run: |
+          if [ -f netfast/libbba_fast.a ]; then echo "::notice::Reseau rapide inclus (fenetre TCP 44 paquets, 256 tampons)"; else echo "::warning::Reseau rapide absent : libbba normale"; fi
+
       # Certificats racines pour les sites https:// (liste Mozilla)
       - name: Générer source/cacert.h
         run: |

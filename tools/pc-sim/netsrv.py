@@ -165,6 +165,10 @@ class SMB(socketserver.BaseRequestHandler):
                 m = self.rd(n)
                 cmd = struct.unpack_from('<H', m, 12)[0]; flags = struct.unpack_from('<I', m, 16)[0]
                 b = m[64:]
+                # v117 : numeros de demande (une demande a N credits prend N numeros) et credits
+                mid = struct.unpack_from('<Q', m, 24)[0]; charge = max(1, struct.unpack_from('<H', m, 6)[0])
+                if hasattr(self, 'nmid') and mid != self.nmid: print('[smb] NUMERO DE DEMANDE FAUX', mid, 'attendu', self.nmid, flush=True)
+                self.nmid = mid + charge
                 if cmd not in (0, 1):                      # signature exigee : verifiee
                     if not (flags & 8): print('[smb] PAS SIGNE', cmd, flush=True); self.reply(m, 0xC0000022, struct.pack('<HH', 9, 0) + b'\0' * 4); continue
                     z = bytearray(m); z[48:64] = b'\0' * 16
@@ -175,7 +179,9 @@ class SMB(socketserver.BaseRequestHandler):
                     dc = struct.unpack_from('<H', b, 2)[0]
                     ds = struct.unpack_from('<%dH' % dc, b, 36)
                     dial = 0x0210 if 0x0210 in ds else 0x0202
-                    body = struct.pack('<HHHH', 65, 0x03, dial, 0) + uuid.uuid4().bytes + struct.pack('<IIIIQQHHI', 0, 65536, 65536, 65536, 0, 0, 128, 0, 0)
+                    self.dial = dial
+                    big = 8388608 if dial == 0x0210 else 65536    # v117 : SMB 2.1 « large MTU » (GC Station lit quand meme par 64 Ko : plus fluide)
+                    body = struct.pack('<HHHH', 65, 0x03, dial, 0) + uuid.uuid4().bytes + struct.pack('<IIIIQQHHI', 0x04 if dial == 0x0210 else 0, big, big, big, 0, 0, 128, 0, 0)
                     self.reply(m, 0, body + b'\0')
                 elif cmd == 1:                             # SESSION_SETUP
                     so, sl = struct.unpack_from('<HH', b, 12)
@@ -230,6 +236,8 @@ class SMB(socketserver.BaseRequestHandler):
                     self.reply(m, 0, struct.pack('<HHI', 9, 72, len(out)) + out)
                 elif cmd == 8:                             # READ
                     ln, off = struct.unpack_from('<IQ', b, 4); fid = b[16:32]
+                    if ln > 65536 * charge: print('[smb] LECTURE TROP GROSSE POUR LES CREDITS', ln, charge, flush=True); self.reply(m, 0xC000000D, struct.pack('<HH', 9, 0) + b'\0' * 4); continue
+                    print('[smb] lire %d octets (%d credits)' % (ln, charge), flush=True)
                     e = self.files.get(fid)
                     with open(e[0], 'rb') as f: f.seek(off); d = f.read(ln)
                     if not d: self.reply(m, 0xC0000011, struct.pack('<HH', 9, 0) + b'\0' * 4); continue

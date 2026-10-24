@@ -1500,6 +1500,7 @@ static const char *gl_boot_loader(const char *path) {
     ld_fetch(1);                                   /* (pas encore la : telecharge pour la prochaine fois) */
     return "Lanceur de secours pas encore t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9 (R\xC3\xA9glages > Jeux) : A lance avec Pulse";
 }
+static const char *gl_boot_mem(unsigned char *dol, long len, const char *dolpath, const char *a1, const char *a2);
 static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *a2, const char *what) {
     char stmsg[96];
     snprintf(stmsg, sizeof(stmsg), "Lancement de %s...", what);
@@ -1526,6 +1527,11 @@ static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *
         if (f) fclose(f);
     }
     if (!dol) return "Lecture du .dol impossible (m\xC3\xA9moire ou carte SD)";
+    return gl_boot_mem(dol, len, dolpath, a1, a2);
+}
+/* v117 : lance un .dol deja en memoire (dol : rendu libre si erreur) ; dolpath = chemin donne en argument
+   au programme (ex. mise a jour sans carte SD, sous Dolphin : la nouvelle version part de la memoire) */
+static const char *gl_boot_mem(unsigned char *dol, long len, const char *dolpath, const char *a1, const char *a2) {
     if (len < 0x100) { free(dol); return "Fichier .dol invalide"; }
     /* sections du .dol */
     u32 tab[18 * 3 + 3], n = 0, lo = 0xFFFFFFFFu, hi = 0;

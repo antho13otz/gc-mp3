@@ -21,6 +21,20 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v117 — réseau et mise à jour sans carte SD
+- Pile réseau recompilée (`tools/fast_net.py`) avec une fenêtre TCP de 44 paquets (64 240 octets, le
+  maximum sans option TCP ; 16 avant) et 256 tampons de réception (128) : avec un serveur à 30 ms, la
+  limite passe d'environ 780 Ko/s à environ 2 Mo/s (web, téléchargements, radios, mise à jour).
+  En réseau local (SMB, FTP), la limite reste l'adaptateur réseau lui-même. La compilation dit
+  maintenant si ce réseau rapide est bien inclus (note dans le résumé GitHub).
+- Essayé puis écarté : lectures SMB de 128 Ko (SMB 2.1 « large MTU ») ; dans le simulateur, l'écran se
+  figeait jusqu'à 409 ms à l'ouverture d'un morceau (54 ms avec 64 Ko). Le serveur de test SMB
+  (`tools/pc-sim/netsrv.py`) vérifie désormais les numéros de demande et les crédits.
+- Déjà en place : noms de serveurs gardés en cache, écritures sur la carte par blocs de 64 Ko, copies
+  par blocs de 64 Ko. FSP : une demande à la fois par nature (le serveur donne une clé pour la suivante).
+- Sans carte SD (Dolphin, ou pas d'adaptateur) : la mise à jour n'était pas possible ; maintenant le .dol
+  est téléchargé en mémoire et lancé directement (`gl_boot_mem`), sans être enregistré.
+
 ## Nouveautés v116 — décors de saison testés dans tous les onglets
 - Essai de chaque décor sur le tour complet du simulateur (12 onglets + menu START) : Noël coûtait
   13,3 s de calcul GameCube sur 21 s (84 images ratées), Hiver 10,2 s. Cause : chaque flocon = 2 cercles

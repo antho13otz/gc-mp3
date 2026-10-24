@@ -198,8 +198,18 @@ static long uw_len = 0, uw_pos = 0;
 static FILE *uw_f = NULL;
 static char uw_part[NAME_LEN + 8];
 static void up_install_finish(const u8 *d, long n);
+static u8 *up_mem = NULL;                                /* v117 : sans carte SD (Dolphin) : la version telechargee, en memoire */
+static long up_mem_len = 0;
 static void up_install(u8 *d, long n) {                  /* garde d (libere a la fin) */
     up_pick_target();
+    if (sd_virtual) {                                    /* pas de carte SD : rien a ecrire, on la lancera depuis la memoire */
+        if (up_mem) free(up_mem);
+        up_mem = d; up_mem_len = n;
+        up_state = UP_DONE;
+        snprintf(up_msg, sizeof(up_msg), "Build %d t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9" "e (pas de carte SD : non enregistr\xC3\xA9" "e) : A pour la lancer", up_build);
+        crumb("mise a jour en memoire (sans carte SD) : build %d, %ld octets", up_build, n);
+        return;
+    }
     snprintf(uw_part, sizeof(uw_part), "%s.part", up_target);
     uw_f = fopen(uw_part, "wb");
     if (!uw_f) { free(d); up_fail("Impossible d'\xC3\xA9" "crire sur la carte SD"); return; }
@@ -411,13 +421,16 @@ static void update_start_download(void) {
 /* v38 : relance la nouvelle version directement (sans redemarrer la console : un
    redemarrage peut ouvrir le lecteur de disque au lieu de GC-MP3) */
 static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *a2, const char *what);
+static const char *gl_boot_mem(unsigned char *dol, long len, const char *dolpath, const char *a1, const char *a2);
 static void update_relaunch(void) {
     crumb("relance apres mise a jour : %s", up_target);
     if (bib_dirty) bib_save();
     if (stats_dirty) stats_save();
     resume_note(1);
     if (settings_dirty) save_settings();
-    const char *e = gl_boot_dol(up_target, NULL, NULL, "GC Station");     /* (ne revient pas si ca marche) */
+    const char *e;
+    if (up_mem) { e = gl_boot_mem(up_mem, up_mem_len, up_target, NULL, NULL); up_mem = NULL; }   /* (v117 : sans carte SD) */
+    else e = gl_boot_dol(up_target, NULL, NULL, "GC Station");     /* (ne revient pas si ca marche) */
     if (e) { snprintf(up_msg, sizeof(up_msg), "%s", TR(e)); quit_requested = 1; }
 }
 /* v38 : bouton Reset de la console pendant GC-MP3 : relance GC-MP3 (sans passer par
@@ -446,7 +459,6 @@ static void reset_pump(void) {
     if (e) lib_note(e);
 }
 static void update_activate(void) {
-    if (sd_virtual) { up_fail("Pas de carte SD : mise \xC3\xA0 jour impossible ici"); return; }
     if (up_state == UP_AVAIL) update_start_download();
     else if (up_state == UP_DONE) update_relaunch();
     else update_check();

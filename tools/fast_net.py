@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Reseau plus rapide : recompile la pile reseau de libogc (lwIP + pilote du
-# Broadband Adapter = libbba) avec une fenetre TCP de 16 paquets au lieu d'un
-# seul. Avec 1 paquet (1460 octets) par aller-retour, un serveur a 30 ms ne
+# Broadband Adapter = libbba) avec une fenetre TCP de 44 paquets (v117 ; 16 avant) au
+# lieu d'un seul, et 256 tampons de reception. Avec 1 paquet (1460 octets) par aller-retour, un serveur a 30 ms ne
 # peut pas depasser ~50 Ko/s ; avec 16 paquets, la limite passe a ~750 Ko/s.
 #
 # Les sources viennent de la meme version de libogc que celle installee dans
@@ -11,7 +11,8 @@
 # Usage : python3 tools/fast_net.py libogc.tar.gz
 import os, re, shutil, subprocess, sys, tarfile
 
-WND_SEGMENTS = 16
+WND_SEGMENTS = 44                                  # v117 : 44 x 1460 = 64240 octets (le maximum sans option de TCP)
+PBUF_POOL = 256                                    # v117 : tampons de reception (128 avant) pour la grande fenetre
 OUT = "netfast"
 SOURCES = [
     "network.c", "netio.c", "arch/gc/netif/gcif.c",
@@ -58,6 +59,9 @@ s2, n = re.subn(r"#define[ \t]+TCP_WND[ \t]+[^\n]*",
                 "#define TCP_WND                 (%d*TCP_MSS)" % WND_SEGMENTS, s, count=1)
 if n != 1:
     fail("reglage TCP_WND introuvable")
+s2, n = re.subn(r"#define[ \t]+PBUF_POOL_SIZE[ \t]+[0-9]+", "#define PBUF_POOL_SIZE          %d" % PBUF_POOL, s2, count=1)
+if n != 1:
+    fail("reglage PBUF_POOL_SIZE introuvable")
 open(opts, "w").write(s2)
 
 # repere lisible par GC-MP3 (affiche dans l'onglet TELEPHONE)
