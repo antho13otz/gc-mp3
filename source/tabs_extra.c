@@ -149,6 +149,14 @@ static void gm_icon(int g, f32 cx, f32 cy, f32 t) {
         break;
     }
 }
+/* v110 : Aurore : carte en verre ; la choisie : la selection en degrade (qui glisse) */
+static void gm_au_card(f32 x, f32 y, f32 w, f32 h, f32 r, int on) {
+    nv_raw = 1;
+    gx_rrect_fill(x, y, w, h, r, RGBA(255, 255, 255, 12), RGBA(255, 255, 255, 5));
+    gx_rrect_stroke(x, y, w, h, r, 1.0f, RGBA(255, 255, 255, 24));
+    nv_raw = 0;
+    if (on) gx_rrect_fill(x, y, w, h, r, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
+}
 static void draw_tab_games(void) {
     if (gl_on) { draw_gclib(); return; }
     char buf[96];
@@ -164,9 +172,12 @@ static void draw_tab_games(void) {
         static const char *const bl[3] = { "Jeux GameCube", "Mes applis", "Cartes m\xC3\xA9moire" };
         int on = gm_sel == GM_COUNT + k;
         const f32 bw = 196, bx = 22 + k * (bw + 4), by = 110, bh = 30;
+        if (ui_skin == 3) gm_au_card(bx, by, bw, bh, 15, on);          /* v110 : Aurore : verre */
+        else {
         if (on) gx_glow(bx, by, bw, bh, 8, RGBA(150, 80, 255, 140), 3);
         gx_rrect_fill(bx, by, bw, bh, 8, on ? RGBA(116, 46, 236, 255) : RGBA(34, 20, 84, 230), on ? RGBA(74, 22, 172, 255) : RGBA(20, 12, 52, 230));
         gx_rrect_stroke(bx, by, bw, bh, 8, 1.2f, on ? RGBA(200, 150, 255, 255) : RGBA(90, 64, 170, 255));
+        }
         if (k == 0) {                                          /* disque */
             gx_circle(bx + 22, by + bh / 2, 10, RGBA(200, 200, 215, 255), RGBA(120, 120, 140, 255));
             gx_circle(bx + 22, by + bh / 2, 3, RGBA(30, 20, 60, 255), RGBA(30, 20, 60, 255));
@@ -187,9 +198,12 @@ static void draw_tab_games(void) {
     for (int g = 0; g < GM_COUNT; g++) {
         f32 x = x0 + (g % GM_COLS) * (cw + 8), y = y0 + (g / GM_COLS) * (ch + 5);
         int on = g == gm_sel;
+        if (ui_skin == 3) gm_au_card(x, y, cw, ch, 16, on);           /* v110 : Aurore : verre */
+        else {
         if (on) gx_glow(x, y, cw, ch, 10, RGBA(150, 80, 255, 140), 3);
         gx_rrect_fill(x, y, cw, ch, 10, on ? RGBA(116, 46, 236, 255) : RGBA(34, 20, 84, 230), on ? RGBA(74, 22, 172, 255) : RGBA(20, 12, 52, 230));
         gx_rrect_stroke(x, y, cw, ch, 10, 1.2f, on ? RGBA(200, 150, 255, 255) : RGBA(90, 64, 170, 255));
+        }
         gm_icon(g, x + 42, y + ch / 2, t);
         fit_text(F_MED, gm_names[g], (int)cw - 88, buf, sizeof(buf));
         gx_text1(F_MED, x + 82, y + 26, buf, RGBA(255, 255, 255, 255));

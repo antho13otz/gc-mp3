@@ -478,12 +478,27 @@ static int ap_cache_read(ap_ent *a, const char *cp) {
     a->istate = 1;
     return 1;
 }
+/* v110 : la pochette est calculee dans le thread de fond (avant : dans la boucle principale, jusqu'a une
+   demi-seconde par appli pour decoder un grand PNG : l'onglet Applis ramait beaucoup). ap_build ne touche
+   qu'a son propre tampon ; la boucle principale l'installe ensuite (ap_job_done). */
+static u16 *ap_build(const char *icon);
 static void ap_icon_load(ap_ent *a) {
     a->istate = -1;
     if (!a->icon[0]) return;
+    u16 *t = ap_build(a->icon);
+    if (!t) return;
+    a->tex = t;
+    GX_InitTexObj(&a->obj, t, AP_IW, AP_IH, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InitTexObjFilterMode(&a->obj, GX_LINEAR, GX_LINEAR);
+    a->istate = 1;
+}
+static u16 *ap_build(const char *icon) {
+    ap_ent tmp, *a = &tmp;
+    memset(a, 0, sizeof(*a));
+    snprintf(a->icon, sizeof(a->icon), "%s", icon);
     char cachep[NAME_LEN];
     ap_cache_name(a, cachep, sizeof(cachep));
-    if (ap_cache_read(a, cachep)) return;
+    if (ap_cache_read(a, cachep)) return a->tex;
     char dir[NAME_LEN], p[NAME_LEN];
     snprintf(dir, sizeof(dir), "%s", a->icon);
     char *sl = strrchr(dir, '/');
@@ -497,9 +512,9 @@ static void ap_icon_load(ap_ent *a) {
         if (stat(p, &st) == 0 && (px = ap_png(p, &w, &h)) != NULL) cover = 1;
     }
     if (!px) px = ap_png(a->icon, &w, &h);
-    if (!px) return;
+    if (!px) return NULL;
     u16 *t = (u16 *)memalign(32, AP_IW * AP_IH * 2);
-    if (!t) { stbi_image_free(px); return; }
+    if (!t) { stbi_image_free(px); return NULL; }
     /* le fond : l'image en "remplissage" (recadree), en 15 x 20 blocs, agrandie en douceur */
     enum { BW = 15, BH = 20 };
     static u32 bg[BH][BW][4];
@@ -551,7 +566,7 @@ static void ap_icon_load(ap_ent *a) {
             if (B > 255) B = 255;
             t[((y >> 2) * (AP_IW >> 2) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)] = (u16)(0x8000 | ((R >> 3) << 10) | ((G >> 3) << 5) | (B >> 3));
         }
-        if ((y & 31) == 31) service_audio();
+        if ((y & 31) == 31) usleep(200);                         /* (thread de fond : laisse la main) */
     }
     stbi_image_free(px);
     if (sd_ok && !sd_virtual) {                                         /* v68 : gardee pour la prochaine fois */
@@ -560,10 +575,7 @@ static void ap_icon_load(ap_ent *a) {
         if (cf) { int okw = fwrite(t, 1, AP_IW * AP_IH * 2, cf) == AP_IW * AP_IH * 2; if (fclose(cf) || !okw) remove(cachep); }
     }
     DCFlushRange(t, AP_IW * AP_IH * 2);
-    a->tex = t;
-    GX_InitTexObj(&a->obj, t, AP_IW, AP_IH, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
-    GX_InitTexObjFilterMode(&a->obj, GX_LINEAR, GX_LINEAR);
-    a->istate = 1;
+    return t;
 }
 static ap_ent *ap = NULL;
 static int ap_n = 0, ap_sel = 0, ap_confirm = -1;
@@ -604,6 +616,13 @@ static void ap_add(const char *path, const char *dir) {
     if (dir) snprintf(a->name, sizeof(a->name), "%s", base_of(dir));     /* (v41 : nom du dossier, ex. VBA-GX au lieu de default) */
     else { snprintf(a->name, sizeof(a->name), "%s", b); char *dot = strrchr(a->name, '.'); if (dot) *dot = 0; }
     if (dir) { ap_meta(dir, a); snprintf(a->icon, sizeof(a->icon), "%s/icon.png", dir); }
+    {   /* v110 : seulement les applis qui ont une image (icon.png, ou une pochette dans leur dossier) */
+        static const char *const cn[] = { "icon.png", "cover.png", "pochette.png", "boxart.png", "cover.jpg", "pochette.jpg" };
+        int img = 0;
+        char ip[NAME_LEN];
+        for (int i = 0; dir && i < 6 && !img; i++) { snprintf(ip, sizeof(ip), "%s/%s", dir, cn[i]); img = stat(ip, &st) == 0; }
+        if (!img) return;
+    }
     ap_n++;
 }
 static void ap_scan_dir(const char *dir, int depth) {
@@ -639,6 +658,28 @@ static void ap_rescan(void) {
     ap_scan_dir(SD_ROOT, 0);
     qsort(ap, ap_n, sizeof(ap_ent), ap_cmp);
     if (ap_sel >= ap_n) ap_sel = ap_n ? ap_n - 1 : 0;
+}
+/* v110 : pochette d'une appli calculee en fond */
+static struct { int k; char icon[NAME_LEN]; u16 *res; } apj = { -1, "", NULL };
+static void ap_job_fn(void) { apj.res = ap_build(apj.icon); }
+static void ap_job_done(void) {
+    u16 *t = apj.res;
+    int k = apj.k;
+    apj.res = NULL; apj.k = -1;
+    if (!ap || k < 0 || k >= ap_n || strcmp(ap[k].icon, apj.icon) || ap[k].istate != 2) { free(t); return; }
+    ap_ent *a = &ap[k];
+    if (!t) { a->istate = -1; return; }
+    a->tex = t;
+    GX_InitTexObj(&a->obj, t, AP_IW, AP_IH, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InitTexObjFilterMode(&a->obj, GX_LINEAR, GX_LINEAR);
+    a->istate = 1;
+}
+static int ap_post(int k) {                              /* 1 = demande envoyee */
+    if (!ap[k].icon[0]) { ap[k].istate = -1; return 0; }
+    apj.k = k; snprintf(apj.icon, sizeof(apj.icon), "%s", ap[k].icon); apj.res = NULL;
+    if (!gj_post_fn(ap_job_fn, ap_job_done)) { apj.k = -1; return 0; }
+    ap[k].istate = 2;                                    /* (en cours) */
+    return 1;
 }
 #define AP_COLS 4
 static void ap_input(u32 down, u32 nav, int fire) {
@@ -859,7 +900,7 @@ static void info_input(u32 down, u32 nav, int fire) {
 /* =================== affichage =================== */
 static void tl_legend(const char *const *K, const char *const *L, int cnt) {
     const f32 lx = 11, lw = 618, cy = 438.5f;
-    gx_rrect_fill(lx, 419, lw, 39, 9, RGBA(10, 6, 30, 255), RGBA(10, 6, 30, 255));
+    if (ui_skin < 2 || tl_screen != TL_APPS || tab != TAB_GAMES) gx_rrect_fill(lx, 419, lw, 39, 9, RGBA(10, 6, 30, 255), RGBA(10, 6, 30, 255));
     legend_box(lx, lw);
     f32 total = 0;
     for (int i = 0; i < cnt; i++) total += (L[i][0] ? 25 : 22) + text_width(F_SMALL, L[i], 1);
@@ -982,11 +1023,121 @@ static void draw_cards(void) {
     static const char *const k[] = { "A", "Y", "B", "L", "R" }, *const l[] = { "CHOISIR", "RELIRE", "RETOUR", "", "SLOT" };
     tl_legend(k, l, 5);
 }
+/* v110 : styles Moderne, Nouvelle, Aurore : les applis en rangee de grandes pochettes qui defile, comme
+   les jeux (Aurore : reflet et halo ; Nouvelle : cartes en verre ; Moderne : ombre). Classique : grille. */
+static void ap_draw_row(void) {
+    char buf[160], fv[160];
+    static f32 pos = -10000.0f;
+    int st = ui_skin, loop = ap_n >= 7;
+    if (!ap_n) return;
+    if (pos < -9000.0f || !gl_anim) pos = (f32)ap_sel;
+    else {
+        f32 diff = (f32)ap_sel - pos;
+        if (loop) { while (diff > ap_n / 2.0f) diff -= ap_n; while (diff < -ap_n / 2.0f) diff += ap_n; }
+        if (fabsf(diff) > 6.0f) diff = diff > 0 ? 6.0f : -6.0f, pos = (f32)ap_sel - diff;
+        pos += diff * (1.0f - expf(-ui_dt * 12.0f));
+        if (fabsf((f32)ap_sel - pos) < 0.003f) pos = (f32)ap_sel;
+        if (loop) { while (pos < 0) pos += ap_n; while (pos >= ap_n) pos -= ap_n; }
+    }
+    static const f32 scl[5] = { 1.0f, 0.70f, 0.52f, 0.40f, 0.31f }, off[5] = { 0, 150, 246, 308, 350 };
+    const f32 CW = 150, CH = 200, top = 116;
+    int base = (int)floorf(pos + 0.5f);
+    /* pochettes : la choisie d'abord, puis ses voisines, une a la fois, dans le thread de fond */
+    for (int k = 0; k < ap_n; k++) {
+        int d = abs(k - ap_sel); if (loop && ap_n - d < d) d = ap_n - d;
+        if (ap[k].tex && d > 6) { free(ap[k].tex); ap[k].tex = NULL; ap[k].istate = 0; }
+    }
+    if (gj_state == 0) {
+        int idle = now_ms() - last_input_ms > 150;
+        for (int dd = 0; dd <= (idle ? 4 : 0); dd++) {
+            int done = 0;
+            for (int sg = -1; sg <= 1 && !done; sg += 2) {
+                int k = ap_sel + sg * dd;
+                if (loop) k = (k % ap_n + ap_n) % ap_n; else if (k < 0 || k >= ap_n) continue;
+                if (!ap[k].istate && ap_post(k)) done = 1;
+                if (!dd) break;
+            }
+            if (done) break;
+        }
+    }
+    int order[11], no = 0;
+    for (int i = -5; i <= 5; i++) order[no++] = i;
+    for (int a2 = 0; a2 < no; a2++)
+        for (int b2 = a2 + 1; b2 < no; b2++) {
+            f32 da = fabsf(base + order[a2] - pos), db = fabsf(base + order[b2] - pos);
+            if (db > da) { int t = order[a2]; order[a2] = order[b2]; order[b2] = t; }
+        }
+    scr_scissor(14, 112, 612, 262);
+    if (st == 3) { nv_raw = 1; gx_ellipse(320, top + CH + 6, 150, 24, au_mix(0.4f, 70), au_mix(0.4f, 0)); nv_raw = 0; }
+    for (int oi = 0; oi < no; oi++) {
+        int i = order[oi];
+        f32 p = base + i - pos, ad = fabsf(p);
+        if (ad > 4.4f) continue;
+        int k = base + i;
+        if (loop) k = (k % ap_n + ap_n) % ap_n; else if (k < 0 || k >= ap_n) continue;
+        ap_ent *a = &ap[k];
+        f32 sc = gl_tab_at(scl, ad), w = CW * sc, h = CH * sc;
+        f32 cx = 320 + (p < 0 ? -1 : 1) * gl_tab_at(off, ad), y = st == 3 ? top + (CH - h) : top + (CH - h) / 2;
+        f32 near = ad < 1 ? 1 - ad : 0;
+        nv_raw = 1;
+        if (st == 2) {
+            gx_rrect_fill(cx - w / 2 - 7, y - 7, w + 14, h + 14, 14, RGBA(40, 44, 72, 230), RGBA(26, 29, 50, 236));
+            gx_rrect_stroke(cx - w / 2 - 7, y - 7, w + 14, h + 14, 14, 1.0f, RGBA(255, 255, 255, 26));
+            if (near > 0.05f) gx_glow(cx - w / 2 - 7, y - 7, w + 14, h + 14, 14, nv_acc((u8)(120 * near)), 4);
+        } else if (st == 1) gx_rrect_fill(cx - w / 2 + 3, y + 5, w, h, 6, RGBA(0, 0, 0, 90), RGBA(0, 0, 0, 90));
+        else if (near > 0.05f) gx_glow(cx - w / 2, y, w, h, 8, au_mix(0.5f, (u8)(150 * near)), 5);
+        nv_raw = 0;
+        if (a->istate > 0) {
+            draw_tex_fit(&a->obj, AP_IW, AP_IH, AP_IW, AP_IH, cx - w / 2, y, w, h);
+            if (st == 3) gl_tex_refl(&a->obj, AP_IW, AP_IH, AP_IW, AP_IH, cx - w / 2, y, w, h, h * 0.30f, (u8)(70 + 40 * near));
+        } else {                                                /* (en cours de chargement) */
+            nv_raw = 1;
+            f32 sh = 0.5f + 0.5f * sinf(now_ms() / 180.0f + k);
+            gx_rrect_fill(cx - w / 2, y, w, h, 8, RGBA(255, 255, 255, (u8)(14 + 10 * sh)), RGBA(255, 255, 255, 6));
+            nv_raw = 0;
+        }
+        nv_raw = 1;
+        f32 dm = ad < 1 ? ad * (st == 3 ? 130.0f : 90.0f) : (st == 3 ? 130.0f : 90.0f) + (ad - 1) * 40.0f;
+        u8 dim = (u8)(dm > 210 ? 210 : dm);
+        col_t bg = st == 3 ? RGBA(4, 4, 8, dim) : st == 2 ? RGBA(16, 18, 34, dim) : RGBA(40, 40, 44, dim);
+        if (dim) gx_rect(cx - w / 2, y, w, h, bg);
+        if (st == 1 && near > 0.05f) gx_rrect_fill(cx - 22, y + h + 8, 44, 3, 1.5f, RGBA(mod_acc[0], mod_acc[1], mod_acc[2], (u8)(255 * near)), RGBA(mod_acc[0], mod_acc[1], mod_acc[2], (u8)(255 * near)));
+        nv_raw = 0;
+        gp_zone(cx - w / 2, y, w, h, &ap_sel, k, GPZ_SEL);
+    }
+    scr_viewport();
+    ap_ent *a = &ap[ap_sel];
+    nv_raw = 1;
+    text_display(a->name, buf, sizeof(buf)); fit_text(F_LARGE, buf, 520, fv, sizeof(fv));
+    f32 ty = st == 3 ? 368 : 360;
+    gx_text_c(F_LARGE, 320, ty, fv, RGBA(255, 255, 255, 255));
+    const char *sub = a->desc[0] ? a->desc : a->path + strlen(SD_ROOT);
+    text_display(sub, buf, sizeof(buf)); fit_text(F_SMALL, buf, 520, fv, sizeof(fv));
+    col_t subc = st == 3 ? RGBA(170, 170, 195, 255) : st == 2 ? RGBA(160, 168, 200, 255) : RGBA(170, 170, 178, 255);
+    gx_text_c(F_SMALL, 320, ty + 19, fv, subc);
+    fmt_size(buf, sizeof(buf), a->size);
+    snprintf(fv, sizeof(fv), "%d / %d  \xC2\xB7  %s", ap_sel + 1, ap_n, buf);
+    gx_text_r(F_SMALL, 614, 404, fv, subc);
+    nv_raw = 0;
+}
 static void draw_apps(void) {
     char buf[160], fv[160];
+    gl_job_done();                                              /* v110 : pochette calculee en fond */
     snprintf(buf, sizeof(buf), ap_n == 1 ? "1 appli" : "%d applis", ap_n);
-    if (tab == TAB_GAMES) { tl_frame("", buf); gm_hub_bar(58, 54); }   /* v84 */
+    if (tab == TAB_GAMES && ui_skin >= 2) {                     /* v110 : dans l'onglet, comme les jeux (pas de fenetre) */
+        draw_panel(11, 73, 618, 338);
+        gm_hub_bar(26, 85);
+        nv_raw = 1; gx_text_r(F_SMALL, 614, 99, buf, RGBA(160, 160, 190, 255)); nv_raw = 0;
+    } else if (tab == TAB_GAMES) { tl_frame("", buf); gm_hub_bar(58, 54); }   /* v84 */
     else tl_frame("Mes applis", buf);
+    if (ui_skin >= 1 && ap_n) {
+        ap_draw_row();
+        if (ap_confirm >= 0) tl_confirm("Lancer cette appli ?", ap[ap_confirm].name);
+        tl_msgbox();
+        static const char *const k2[] = { "A", "Y", "B" }, *const l2[] = { "LANCER", "ACTUALISER", "RETOUR" };
+        tl_legend(k2, l2, 3);
+        return;
+    }
     /* v52 : de grandes pochettes 3:4 comme les jeux (126 x 168), 4 par rangee, le nom dessous */
     const int cols = AP_COLS, rows = 1;
     const f32 cw = 126, ch = 168, sw = 142, rh = 216, y0 = 104;
@@ -1020,7 +1171,7 @@ static void draw_apps(void) {
             gp_zone(x, y, cw, ch + 18, &ap_sel, k, GPZ_SEL);
             /* la selection d'abord, puis ses voisines : on voit vite celle qu'on regarde */
             int idle = now_ms() - last_input_ms > 150;           /* v68 : en navigation, seulement la selection */
-            if (!a->istate && loads < 1 && r >= top && r < top + rows && (on || (idle && (ap_sel >= ap_n || ap[ap_sel].istate)))) { ap_icon_load(a); loads++; }
+            if (!a->istate && loads < 1 && gj_state == 0 && r >= top && r < top + rows && (on || (idle && (ap_sel >= ap_n || ap[ap_sel].istate)))) { if (ap_post(k)) loads++; }   /* v110 : en fond */
             if (a->istate > 0) draw_tex_fit(&a->obj, AP_IW, AP_IH, AP_IW, AP_IH, bx, by, bw, bh);
             else {                                              /* pas d'icone : une pochette avec les initiales */
                 gx_rrect_fill(bx, by, bw, bh, 6, on ? RGBA(70, 36, 160, 255) : RGBA(40, 24, 98, 255), on ? RGBA(30, 14, 80, 255) : RGBA(18, 10, 46, 255));
