@@ -20,6 +20,10 @@ _start:
     lis 12,dummy_ai@ha
     addi 12,12,dummy_ai@l
     stw 12,0x3054(11)
+    # v99 : DSP (7) : certains jeux (Cocoto) y programment le tampon du son suivant
+    lis 12,dummy_dsp@ha
+    addi 12,12,dummy_dsp@l
+    stw 12,0x305C(11)
     # v60 : table des exceptions du SDK (0x80003000) : 2 DSI, 3 ISI, 5 alignement, 6 programme
     lis 12,dummy_di@ha
     addi 12,12,dummy_di@l
@@ -109,6 +113,24 @@ _start:
     sth 0,0x5032(9)
     ori 0,0,0x8014
     sth 0,0x5036(9)
+    lwz 12,0x3054(20)
+    mtctr 12
+    li 3,5
+    li 4,0
+    bctrl
+    # 9b) v99 : le meme tampon rejoue (le DSP du jeu en retard) : pas de 2e couche de musique
+    lwz 12,0x3054(20)
+    mtctr 12
+    li 3,5
+    li 4,0
+    bctrl
+    # 9c) v99 : le jeu programme le tampon suivant (0x00301000) dans son interruption DSP :
+    #     Resident doit y ajouter la suite de la musique, puis rien de plus au son suivant
+    lwz 12,0x305C(20)
+    mtctr 12
+    li 3,7
+    li 4,0
+    bctrl
     lwz 12,0x3054(20)
     mtctr 12
     li 3,5
@@ -478,6 +500,22 @@ card_read:
     addi 1,1,32
     blr
 
+dummy_dsp:                  # (v99 : programme le tampon 0x00301000 la 1re fois)
+    lis 9,0x8000
+    lwz 10,0x1F0C(9)
+    addi 10,10,1
+    stw 10,0x1F0C(9)
+    cmpwi 10,1
+    bnelr
+    lis 9,0xCC00
+    li 0,0x30
+    sth 0,0x5030(9)
+    li 0,0x1000
+    sth 0,0x5032(9)
+    li 0,0
+    ori 0,0,0x8014
+    sth 0,0x5036(9)
+    blr
 dummy_ai:
     lis 9,0x8000
     lwz 10,0x1F08(9)

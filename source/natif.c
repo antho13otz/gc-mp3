@@ -726,7 +726,7 @@ static void nat_journal_convert(void) {
             fprintf(f, "\n");
         }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
-        int rbase = H[1] >= 13 ? 0x180 : H[1] >= 12 ? 0x170 : H[1] >= 11 ? 0x160 : v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
+        int rbase = H[1] >= 14 ? 0x190 : H[1] >= 13 ? 0x180 : H[1] >= 12 ? 0x170 : H[1] >= 11 ? 0x160 : v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
         for (int k = 0; k < nring; k++) {
             const u8 *e = d + rbase + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);
@@ -749,6 +749,14 @@ static void nat_journal_convert(void) {
                                (unsigned)(xf >> 16), (unsigned)(be32(d + 0x164) >> 16));
             if (be32(d + 0x168) || be32(d + 0x16C)) fprintf(f, "Programme suivant du disque (OSExec) : %u demande(s), dernier %08X%s ; acces au lecteur branches pendant le jeu : %u\n",
                     (unsigned)be32(d + 0x168), (unsigned)be32(d + 0x16C), H[1] >= 13 && !be32(d + 0x174) ? " (apploader recent : pas encore pris en charge)" : "", H[1] >= 13 ? (unsigned)be32(d + 0x17C) : 0);
+        }
+        if (H[1] >= 14) {                                                     /* v99 : l'ecran */
+            u32 vn = be32(d + 0x180), vd = be32(d + 0x184), dcr = vn >> 16;
+            fprintf(f, "Ecran : %s, %s, %s%s ; cable %s ; changements de mode : %u (dernier a l'image %u)\n",
+                    dcr & 1 ? "actif" : "COUPE", (dcr >> 8 & 3) == 1 ? "PAL" : (dcr >> 8 & 3) == 2 ? "MPAL" : "NTSC",
+                    dcr & 4 ? (vn & 1 ? "480p (progressif, 54 MHz)" : "non entrelace 27 MHz") : (vn & 1 ? "entrelace mais horloge 54 MHz (incoherent)" : "entrelace (480i/576i)"),
+                    "", vd >> 16 & 1 ? "numerique / composante (480p possible)" : "analogique",
+                    (unsigned)be32(d + 0x188), (unsigned)be32(d + 0x18C));
         }
         if (H[1] >= 11 && be32(d + 0x15C)) {                                  /* v83 : photo de la memoire */
             fprintf(f, "\n========== Photo de la memoire du jeu au plantage ==========\n");
