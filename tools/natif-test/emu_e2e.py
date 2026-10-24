@@ -155,6 +155,9 @@ for i in range(n):
 mu.mem_write(0x80000000, b[p:p + 0x20])
 EXC = len(sys.argv) > 4 and sys.argv[4] == 'exc'          # v60 : faux plantage
 if EXC: mu.mem_write(0x80001F40, struct.pack('>I', 1))
+EXEC = len(sys.argv) > 4 and sys.argv[4] in ('exec', 'execa')   # v95 : OSExec (ancien / recent apploader)
+EXECA = EXEC and sys.argv[4] == 'execa'
+if EXEC: mu.mem_write(0x80001F44, struct.pack('>I', 2 if EXECA else 1))
 STOP = 0x80001000
 mu.mem_write(STOP, struct.pack('>I', 0x48000000))
 mu.reg_write(UC_PPC_REG_1, 0x81000000); mu.reg_write(UC_PPC_REG_LR, STOP)
@@ -173,6 +176,24 @@ def chk(name, addr, want):
     ok &= good
     print(('OK   ' if good else 'FAUX ') + name)
 chk('ID du disque (A8000040)', 0x80100000, iso[0:0x20])
+if EXEC:                                                 # v95 : OSExec : le code de redemarrage puis le programme suivant
+    H0 = 0x817F0000
+    u = lambda o: struct.unpack('>I', mu.mem_read(H0 + o, 4))[0]
+    rd32 = lambda a: struct.unpack('>I', mu.mem_read(a, 4))[0]
+    if not EXECA:
+        got = bytes(mu.mem_read(0x81300000, 0x48)); want = iso[0x3460:0x3460 + 0x48]
+        diff = [i for i in range(0, 0x48, 4) if got[i:i + 4] != want[i:i + 4]]
+        rb = len(diff) == 7 and all(got[i] & 0xFC == 0x48 for i in diff)
+        print(('OK   ' if rb else 'FAUX ') + 'code de redemarrage lu en 0x81300000, %d acces au lecteur remplaces par un saut' % len(diff)); ok &= rb
+    m = rd32(0x80001F60) == 0x77777777 and pc == STOP
+    print(('OK   ' if m else 'FAUX ') + 'programme suivant lance (repere %08X, pc %08X)' % (rd32(0x80001F60), pc)); ok &= m
+    chk('programme suivant : lecture par ses propres acces au lecteur', 0x80420000, iso[0x1004:0x1024])
+    print('exec_n %d exec_last %08X tramp_at %08X tramp_n %d vi %d reboot %08X/%d' % (u(0x168), u(0x16C), u(0x178), u(0x17C), u(0x90), u(0x170), u(0x174)))
+    nk = all(k == 0x12000000 for k in kicks)
+    print(('OK   ' if nk else 'FAUX ') + 'rien envoye au vrai lecteur pendant OSExec (%d commandes)' % len(kicks)); ok &= nk
+    br = u(0x17C) == (7 if EXECA else 7 + 7)
+    print(('OK   ' if br else 'FAUX ') + 'acces branches pendant le jeu : %d (attendu : 7 dans le code de redemarrage + 7 dans le programme suivant)' % u(0x17C)); ok &= br
+    print('TOUT OK' if ok else 'ECHEC'); sys.exit(0 if ok else 1)
 chk('lecture non alignee 0x2000 @0x1004', 0x80101000, iso[0x1004:0x3004])
 chk('grosse lecture 0x40000 @0x20000', 0x80200000, iso[0x20000:0x60000])
 H = 0x817F0000

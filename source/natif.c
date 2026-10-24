@@ -671,7 +671,7 @@ static void nat_journal_convert(void) {
             fprintf(f, "\n");
         }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
-        int rbase = H[1] >= 12 ? 0x170 : H[1] >= 11 ? 0x160 : v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
+        int rbase = H[1] >= 13 ? 0x180 : H[1] >= 12 ? 0x170 : H[1] >= 11 ? 0x160 : v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
         for (int k = 0; k < nring; k++) {
             const u8 *e = d + rbase + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);
@@ -690,7 +690,8 @@ static void nat_journal_convert(void) {
             u32 xf = be32(d + 0x160);
             fprintf(f, "Lecture de la carte : %s, %s%s ; blocs au CRC faux : %u\n", xf & 1 ? "DMA" : "sans DMA", xf & 2 ? "32 MHz" : "16 MHz",
                     xf & 4 ? " (32 MHz abandonne : CRC faux)" : "", (unsigned)be32(d + 0x164));
-            if (be32(d + 0x168)) fprintf(f, "Le jeu a redemarre sur un autre programme du disque : %u fois (dernier : %08X)\n", (unsigned)be32(d + 0x168), (unsigned)be32(d + 0x16C));
+            if (be32(d + 0x168) || be32(d + 0x16C)) fprintf(f, "Programme suivant du disque (OSExec) : %u demande(s), dernier %08X%s ; acces au lecteur branches pendant le jeu : %u\n",
+                    (unsigned)be32(d + 0x168), (unsigned)be32(d + 0x16C), H[1] >= 13 && !be32(d + 0x174) ? " (apploader recent : pas encore pris en charge)" : "", H[1] >= 13 ? (unsigned)be32(d + 0x17C) : 0);
         }
         if (H[1] >= 11 && be32(d + 0x15C)) {                                  /* v83 : photo de la memoire */
             fprintf(f, "\n========== Photo de la memoire du jeu au plantage ==========\n");
@@ -932,6 +933,7 @@ static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *c
             } else na_xdone = nx;
         }
     }
+    na_wbe32(res + offsetof(natres_hdr_t, tramp_at), at);   /* v95 : la suite de la place libre, pour les aiguillages poses pendant le jeu (OSExec) */
     return done;
 }
 
@@ -1334,6 +1336,12 @@ static const char *nat_boot(int k) {
     if (res) {
         int was = card_on;
         patched = na_patch(&in, buf + o_dol, buf + o_res, &skipped, &card_on);
+        {   /* v95 : code de redemarrage de l'apploader (OSExec, ancien apploader : <= 2004/02/01) */
+            u8 *r = buf + o_res;
+            int old = in.al_trailer && strncmp(in.al_date, "2004/02/01", 10) <= 0;
+            na_wbe32(r + offsetof(natres_hdr_t, reboot_off), 0x2440 + 0x20 + in.al_size);
+            na_wbe32(r + offsetof(natres_hdr_t, reboot_len), old ? (in.al_trailer + 31) & ~31u : 0);
+        }
         if (was && !card_on) {                              /* (carte refusee pour ce jeu : flag et table retires) */
             u8 *r = buf + o_res;
             na_wbe32(r + 0x48, be32(r + 0x48) & ~NRF_CARD);
