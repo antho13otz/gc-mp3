@@ -1191,4 +1191,3 @@
     { "adresse fixe", "fixed address" },
     { "Lanceur GC Station", "GC Station launcher" },
     { "Fichiers de Swiss repris dans SD:/gc-mp3 : GC Station n'utilise plus SD:/swiss", "Swiss files moved into SD:/gc-mp3: GC Station no longer uses SD:/swiss" },
-    { "Reprise des fichiers de SD:/swiss dans SD:/gc-mp3...", "Moving files from SD:/swiss to SD:/gc-mp3..." },

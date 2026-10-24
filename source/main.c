@@ -12641,7 +12641,6 @@ int main(int argc, char **argv) {
     if (!init_video()) return 1;
     gx_init();
     init_spectrum();
-    swiss_migrate();                        /* v90 : une fois, SD:/swiss -> SD:/gc-mp3 (plus rien de Swiss) */
 
     if (sd_ok) { scan_files(); bib_load(); pl_load_all(); stats_load(); rating_load(); }
     if (sd_ok) nat_journal_convert();       /* v54 : journal du dernier jeu lance par le lanceur maison */
@@ -12855,7 +12854,7 @@ int main(int argc, char **argv) {
         if (!in_game) PF(PH_UPDATE, update_pump());
         PF(PH_MISC, cheats_tick(); reset_pump());
         if (!in_game) {
-            PF(PH_MISC, igr_pump(); ld_pump());
+            PF(PH_MISC, igr_pump(); ld_pump(); mg_pump());   /* v91 : reprise de SD:/swiss en fond */
         }
         PF(PH_MISC, night_pump(); rb_pump(); stats_pump(); x73_pump());
         if (!in_game) {
