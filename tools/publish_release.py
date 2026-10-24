@@ -31,6 +31,17 @@ def call(method, url, data=None, ctype="application/json"):
         return e.code, None
 
 
+def asset_bytes(a):
+    """contenu d'un fichier deja publie (depot public : lien de telechargement direct)"""
+    try:
+        req = urllib.request.Request(a["browser_download_url"], headers={"User-Agent": "gc-mp3-workflow"})
+        with urllib.request.urlopen(req, timeout=180) as r:
+            return r.read()
+    except Exception as e:
+        print("  lecture de %s impossible : %s" % (a.get("name"), e))
+        return None
+
+
 def fail(m):
     print("ERREUR : " + m)
     print("Verifie : Settings > Actions > General > Workflow permissions = 'Read and write permissions'")
@@ -72,11 +83,20 @@ if len(sys.argv) > 3 and os.path.isfile(sys.argv[3]):
     st, rel2 = call("GET", api + "/releases/%d" % rel["id"])
     imgs = [a for a in (rel2 or rel).get("assets", []) if a.get("name", "").endswith(".img")]
     myimg = "gc-mp3-igr-b%s.img" % build
+    # v81 : identique a celui deja publie (sauf les 16 octets du numero) : on le garde, avec son
+    # numero ; les consoles ne le retelechargent pas a chaque version
+    new_img = open(sys.argv[3], "rb").read()
+    same = [a for a in imgs if a.get("name") != myimg and (lambda b: b is not None and b[16:] == new_img[16:])(asset_bytes(a))]
+    if same:
+        print("retour en jeu inchange : %s garde" % same[0]["name"])
+        imgs = []
     for a in imgs:
         if a.get("name") == myimg:
             call("DELETE", api + "/releases/assets/%d" % a["id"])
-    st, _ = call("POST", rel["upload_url"].split("{")[0] + "?name=" + myimg, open(sys.argv[3], "rb").read(), "application/octet-stream")
-    print("%s envoye : HTTP %d" % (myimg, st))
+    st = 0
+    if not same:
+        st, _ = call("POST", rel["upload_url"].split("{")[0] + "?name=" + myimg, new_img, "application/octet-stream")
+        print("%s envoye : HTTP %d" % (myimg, st))
     if st == 201:
         for a in imgs:
             if a.get("name") != myimg:
@@ -88,11 +108,18 @@ if len(sys.argv) > 4 and os.path.isfile(sys.argv[4]):
     st, rel3 = call("GET", api + "/releases/%d" % rel["id"])
     bins = [a for a in (rel3 or rel).get("assets", []) if a.get("name", "").startswith("gc-mp3-loader")]
     mybin = "gc-mp3-loader-b%s.bin" % build
+    new_bin = open(sys.argv[4], "rb").read()
+    same = [a for a in bins if a.get("name") != mybin and asset_bytes(a) == new_bin]   # v81 : inchange : garde
+    if same:
+        print("lanceur inchange : %s garde" % same[0]["name"])
+        bins = []
     for a in bins:
         if a.get("name") == mybin:
             call("DELETE", api + "/releases/assets/%d" % a["id"])
-    st, _ = call("POST", rel["upload_url"].split("{")[0] + "?name=" + mybin, open(sys.argv[4], "rb").read(), "application/octet-stream")
-    print("%s envoye : HTTP %d" % (mybin, st))
+    st = 0
+    if not same:
+        st, _ = call("POST", rel["upload_url"].split("{")[0] + "?name=" + mybin, new_bin, "application/octet-stream")
+        print("%s envoye : HTTP %d" % (mybin, st))
     if st == 201:
         for a in bins:
             if a.get("name") != mybin:
