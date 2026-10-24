@@ -148,7 +148,21 @@ static u64 real_us(void) {
     struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
     return (u64)(t.tv_sec - t_start.tv_sec) * 1000000ull + (u64)((t.tv_nsec - t_start.tv_nsec) / 1000);
 }
-u64 gettime(void) { return real_us() / 1000ull + 1000ull; }   /* (ms ; jamais 0) */
+/* v85 : le temps de la GameCube = le temps reel + le calcul pas encore "paye" (la dette du
+   thread : on ralentit le PC en dormant au prochain appel bloquant). Sans elle, un calcul long
+   ne faisait pas avancer l'horloge vue par GC Station (mesures de duree fausses). */
+static u64 pending_us(void) {
+    if (pcsim_fast) return 0;
+    u64 p = debt_ns;
+    if (big_held && cpu_t0) {
+        u64 used = thread_ns() - cpu_t0, gx = pcsim_gx_ns - gx_t0;
+        used = used > gx ? used - gx : 0;
+        p += (u64)(used * (pcsim_cpu_k - 1.0));
+    }
+    return p / 1000ull;
+}
+u64 pcsim_now_us(void) { return real_us() + pending_us(); }
+u64 gettime(void) { return pcsim_now_us() / 1000ull + 1000ull; }   /* (ms ; jamais 0) */
 u32 gettick(void) { return (u32)gettime(); }
 void settime(u64 t) { (void)t; }
 int usleep(useconds_t us) {

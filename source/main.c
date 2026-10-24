@@ -233,7 +233,8 @@ static u32 perf_us(void) {
 #ifdef GEKKO
     return (u32)ticks_to_microsecs(gettime());
 #else
-    return (u32)(gettime() * 1000u);
+    extern u64 pcsim_now_us(void);                       /* (simulateur sur PC : a la microseconde) */
+    return (u32)pcsim_now_us();
 #endif
 }
 #define PF(ph, call) do { if (perf_on) { u32 pf_t0_ = perf_us(); call; pfx_cur[ph] += perf_us() - pf_t0_; } else { call; } } while (0)
@@ -2782,7 +2783,9 @@ static void fbuf_fill(void) {
         fb_end -= fb_start;
         fb_start = 0;
     }
-    size_t n = fread(fbuf + fb_end, 1, FBUF_SIZE - fb_end, ffp);
+    size_t want = FBUF_SIZE - fb_end;
+    if (want > 8192) want = 8192;                       /* v85 : par 8 Ko (48 Ko d'un coup : des dizaines de ms sur la carte SD) */
+    size_t n = fread(fbuf + fb_end, 1, want, ffp);
     fb_end += (int)n;
     if (n == 0) f_file_eof = 1;
 }
@@ -4942,6 +4945,10 @@ static int init_video(void) {
     return 1;
 }
 
+/* v85 : la musique se decode pendant l'attente de l'ecran (le temps libre de chaque image),
+   au lieu de passer avant le dessin : l'image n'attend plus le decodeur. */
+static u32 frame_t0_us = 0;                     /* debut de l'image en cours (boucle principale) */
+static int music_idle_decode(void);
 /* Copie l'image GX vers le framebuffer inactif et l'affiche. */
 static int present_nowait = 0;                  /* v72 : ecran de chargement : pas d'attente de l'ecran (le travail continue) */
 static void present_frame(void) {
@@ -4962,6 +4969,7 @@ static void present_frame(void) {
     while (!present_nowait && retrace_count == rc && now_ms() - t0 < 40) {
         stream_recv();
         service_audio();
+        if (music_idle_decode()) continue;               /* v85 : (s'il reste le temps d'un bloc avant l'image suivante) */
         usleep(500);
     }
     if (perf_on) pfx_cur[PH_WAIT] += perf_us() - pw0;
@@ -12435,7 +12443,23 @@ static int decode_more(int k, u32 t0) {
     if (k < 2) return 1;
     return f_count < 48000 * 2 && k < 64 && perf_us() - t0 < 8000;
 }
-static int in_bg = 0;
+/* v85 : un bloc decode pendant l'attente de l'ecran (rend 1 si on a decode) */
+static int in_bg;
+static int music_idle_decode(void) {
+    if (video_playing || src != SRC_FILE || !playing || paused || eof || in_bg) return 0;
+    if (f_count >= FILE_LEAD || (FIFO_SIZE - f_count) < FIFO_MARGIN) return 0;
+    static u32 cost = 2000;                              /* duree d'un bloc (moyenne glissante, us) */
+    u32 t = perf_us();
+    if (t - frame_t0_us + cost > 15500) return 0;       /* (pas le temps avant l'image suivante : 16,7 ms) */
+    in_bg = 1;
+    decode_file_one();
+    service_audio();
+    in_bg = 0;
+    u32 d = perf_us() - t;
+    cost = d > cost ? d : (cost * 7 + d) / 8;            /* (monte vite, redescend doucement) */
+    return 1;
+}
+static int in_bg = 0;   /* (declare plus haut : decodage pendant l'attente de l'ecran) */
 static void bg_tick(void) {
     main_beat++;
     service_audio();
@@ -12491,7 +12515,9 @@ static void music_pump(void) {
     if (src != SRC_FILE || !playing || paused) return;
     int k = 0;
     u32 t0 = perf_us();
-    while (!eof && decode_more(k, t0) && f_count < FILE_LEAD && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
+    /* v85 : le gros du decodage se fait pendant l'attente de l'ecran (music_idle_decode) ; ici,
+       seulement si le son risque de manquer (moins de 0,5 s d'avance : debut d'un morceau...) */
+    while (!eof && f_count < 24000 && decode_more(k, t0) && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
         decode_file_one();
         service_audio();
         k++;
@@ -12594,6 +12620,7 @@ int main(int argc, char **argv) {
     u64 settings_t = 0;
 
     while (1) {
+        frame_t0_us = perf_us();                                    /* v85 : (decodage pendant l'attente de l'ecran) */
         perf_frame(tl_screen || menu_open ? PF_TABS - 1 : tab);     /* v69 : mesure de fluidite */
         u32 pf_in0 = perf_on ? perf_us() : 0;
         crash_beat();
