@@ -159,6 +159,34 @@ static int nr_read_sd(u32 sector, void *dst) {
     return 0;
 }
 
+/* v88 : plusieurs secteurs a la suite (CMD18 : une commande, puis les blocs ; CMD12 : arret).
+   Avant : une commande par secteur (CMD17) : la carte cherche a chaque fois (lecture lente,
+   le jeu attendait, le son du jeu craquait / coupait). */
+static int nr_read_multi(u32 sector, u32 count, u8 *o) {
+    u32 r = sd_cmd(18, H.sdhc ? sector : sector << 9, 0x01);
+    if (r != 0) { sd_end(); H.err = NR_ECMD; return -1; }
+    int ok = 1;
+    for (u32 s = 0; s < count && ok; s++) {
+        u32 t = 0xFF;
+        for (u32 i = 0; i < 400000u; i++) { t = ex_get8(); if (t != 0xFF) break; }
+        if (t != 0xFE) { H.err = NR_ETOKEN; H.r1 = t; ok = 0; break; }
+        for (int i = 0; i < 128; i++) {
+            u32 w = ex_get(4);
+            o[0] = (u8)(w >> 24); o[1] = (u8)(w >> 16); o[2] = (u8)(w >> 8); o[3] = (u8)w;
+            o += 4;
+        }
+        ex_get(2);                                    /* CRC (pas verifie) */
+        H.nread++;
+    }
+    ex_put(0x4C000000u, 4);                           /* CMD12 : arret de la lecture */
+    ex_put(0x00010000u, 2);
+    ex_get8();                                        /* (octet de bourrage) */
+    for (int i = 0; i < 16; i++) { r = ex_get8(); if (!(r & 0x80)) break; }
+    for (u32 i = 0; i < 400000u; i++) if (ex_get8() == 0xFF) break;   /* (occupee : 00) */
+    sd_end();
+    return ok ? 0 : -1;
+}
+
 /* v54 : ecrire un secteur (CMD24) : seulement le journal, dans un fichier prepare par GC Station */
 static int nr_write_sd(u32 sector, const u8 *s) {
     u32 r = sd_cmd(24, H.sdhc ? sector : sector << 9, 0x01);
@@ -174,12 +202,13 @@ static int nr_write_sd(u32 sector, const u8 *s) {
     return (t & 0x1F) == 0x05 ? 0 : -1;
 }
 
-/* secteur de l'ISO -> secteur de la carte */
+/* secteur de l'ISO -> secteur de la carte (v88 : *run = secteurs a la suite sur la carte) */
+static u32 iso_run = 1;
 static int iso_to_sd(u32 isec, u32 *sd) {
     u32 n = H.n_ext;
     if (ext_last < n) {
         const natres_ext_t *e = &ext_tab[ext_last];
-        if (isec >= e->iso && isec - e->iso < e->cnt) { *sd = e->sd + (isec - e->iso); return 0; }
+        if (isec >= e->iso && isec - e->iso < e->cnt) { *sd = e->sd + (isec - e->iso); iso_run = e->cnt - (isec - e->iso); return 0; }
     }
     u32 lo = 0, hi = n;                           /* (morceaux ranges dans l'ordre de l'ISO) */
     while (lo < hi) {
@@ -187,7 +216,7 @@ static int iso_to_sd(u32 isec, u32 *sd) {
         const natres_ext_t *e = &ext_tab[mid];
         if (isec < e->iso) hi = mid;
         else if (isec - e->iso >= e->cnt) lo = mid + 1;
-        else { ext_last = mid; *sd = e->sd + (isec - e->iso); return 0; }
+        else { ext_last = mid; *sd = e->sd + (isec - e->iso); iso_run = e->cnt - (isec - e->iso); return 0; }
     }
     H.err = NR_ERANGE;
     return -1;
@@ -212,7 +241,13 @@ static int nr_read1(void *dst, u32 off, u32 len) {
         if (n > len) n = len;
         u32 sd;
         if (iso_to_sd(isec, &sd)) return -1;
-        if (in == 0 && n == 512) {                 /* secteur entier : directement a destination */
+        u32 run = len >> 9;
+        if (in == 0 && run >= 2 && iso_run >= 2) {        /* v88 : plusieurs secteurs entiers a la suite : une commande */
+            if (run > iso_run) run = iso_run;
+            if (run > 64) run = 64;
+            if (nr_read_multi(sd, run, o)) return -1;
+            n = run << 9;
+        } else if (in == 0 && n == 512) {          /* secteur entier : directement a destination */
             if (nr_read_sd(sd, o)) return -1;
         } else {
             if (sec_cached != sd) {
@@ -319,7 +354,9 @@ static void nr_log(u32 off, u32 len, u32 info) {
    - SI : APRES la fonction du jeu (elle a deja lu les manettes), A+Z+START tenus 1 s
      = retour a GC Station : redemarrage de la console (PicoLoader -> ipl.dol). */
 #define OS_INT_TABLE ((volatile u32 *)0x80003040u)
-#define RD_CHUNK 8192u                                    /* v61 : morceau d'une lecture en fond */
+#define RD_CHUNK 2048u                                    /* v61 : morceau d'une lecture en fond (v88 : 8 Ko -> 2 Ko) */
+#define RD_BUDGET (TB_SEC / 1000u * 3u / 2u)              /* v88 : au plus ~1,5 ms de lecture par interruption (le son du jeu
+                                                             attend : une sortie audio toutes les ~5 ms) */
 static u32 si_orig = 0, igr_hold = 0;
 static void hot_reset(void);
 /* ---------- v64 : retour a GC Station ----------
@@ -871,15 +908,18 @@ static void di_hook(u32 irq, u32 ctx) {
         u32 dt = (tbl() - kick_tb) / 41u;                /* (us depuis le reveil) */
         H.kick_us += dt; if (dt > H.kick_max_us) H.kick_max_us = dt;
         r[0] = (r[0] & 0x2Au) | 0x54u;                   /* (vraie fin : acquittee ici, le jeu n'en sait rien) */
-        u32 n = rd_left > RD_CHUNK ? RD_CHUNK : rd_left;
-        H.n_chunks++;
-        if (nr_read((void *)rd_dst, rd_off, n)) {
-            rd_on = 0; di[0] |= 0x04; di[7] &= ~1u;      /* DEINT : erreur, le jeu redemande */
-            nr_log_add(di[2], rd_off, n, 1 | (H.err & 0xFF) << 24);
-        } else {
+        u32 t0 = tbl();
+        int err = 0, k = 0;
+        do {                                             /* v88 : des morceaux de 2 Ko tant qu'on reste sous ~1,5 ms */
+            u32 n = rd_left > RD_CHUNK ? RD_CHUNK : rd_left;
+            H.n_chunks++;
+            if (nr_read((void *)rd_dst, rd_off, n)) { err = 1; nr_log_add(di[2], rd_off, n, 1 | (H.err & 0xFF) << 24); break; }
             cache_flush(rd_dst, n);
             rd_dst += n; rd_off += n; rd_left -= n;
             di[5] += n; di[6] -= n;
+        } while (rd_left && ++k < 4 && tbl() - t0 < RD_BUDGET);   /* (et 8 Ko au plus) */
+        if (err) { rd_on = 0; di[0] |= 0x04; di[7] &= ~1u; }   /* DEINT : erreur, le jeu redemande */
+        else {
             if (rd_left) { di_real_kick(); x_dispatch(ctx); return; }   /* (morceau suivant a la prochaine fin) */
             rd_on = 0; di[0] |= 0x10; di[7] &= ~1u;      /* TCINT : lecture terminee */
         }

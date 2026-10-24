@@ -17,14 +17,17 @@ disk = bytearray(random.getrandbits(8) for _ in range(4096 * 512))   # carte de 
 
 class Card:
     def __init__(s):
-        s.cmd = []; s.out = []; s.idle = True; s.app = False; s.acmd41 = 0; s.log = []
-    def deselect(s): s.cmd = []; s.out = []
+        s.cmd = []; s.out = []; s.idle = True; s.app = False; s.acmd41 = 0; s.log = []; s.multi = None
+    def deselect(s): s.cmd = []; s.out = []; s.multi = None
     def xfer_in(s, b):
         if s.out and b == 0xFF: return
         if not s.cmd and (b & 0xC0) != 0x40: return
         s.cmd.append(b)
         if len(s.cmd) == 6: s.exec_cmd(); s.cmd = []
     def xfer_out(s):
+        if not s.out and s.multi is not None:          # v88 : CMD18 : secteurs suivants (un peu d'attente avant chacun)
+            sec = s.multi; s.multi += 1
+            s.out = [0xFF] * 3 + [0xFE] + list(disk[sec * 512:(sec + 1) * 512]) + [0x12, 0x34]
         return s.out.pop(0) if s.out else 0xFF
     def exec_cmd(s):
         c = s.cmd[0] & 0x3F; arg = int.from_bytes(bytes(s.cmd[1:5]), 'big'); crc = s.cmd[5]
@@ -41,6 +44,11 @@ class Card:
             s.out = r + [0x01 if s.idle else 0]; return
         if c == 58: s.out = r + [0, 0xC0 if SDHC else 0x80, 0xFF, 0x80, 0]; return
         if c == 16: s.out = r + [0]; return
+        if c == 18:
+            if s.idle: s.out = r + [0x01]; return
+            if not SDHC and arg % 512: s.out = r + [0x40]; return
+            s.multi = arg if SDHC else arg // 512; s.out = r + [0]; return
+        if c == 12: s.multi = None; s.out = [0xFF, 0x00, 0x00, 0x00, 0xFF]; return
         if c == 17:
             if s.idle: s.out = r + [0x01]; return
             sec = arg if SDHC else arg // 512

@@ -16,8 +16,8 @@ iso = open(ISO, 'rb').read()
 CHAN, DEV, SDHC = 2, 0, 1
 
 class Card:
-    def __init__(s): s.cmd = []; s.out = []; s.idle = True; s.app = False; s.acmd41 = 0; s.log = []; s.wr = None; s.wbuf = None; s.writes = []
-    def deselect(s): s.cmd = []; s.out = []; s.wr = None; s.wbuf = None
+    def __init__(s): s.cmd = []; s.out = []; s.idle = True; s.app = False; s.acmd41 = 0; s.log = []; s.wr = None; s.wbuf = None; s.writes = []; s.multi = None
+    def deselect(s): s.cmd = []; s.out = []; s.wr = None; s.wbuf = None; s.multi = None
     def xfer_in(s, b):
         if s.wr is not None:                        # ecriture (CMD24) : jeton FE, 512 octets, CRC
             if s.wbuf is None:
@@ -32,7 +32,11 @@ class Card:
         if not s.cmd and (b & 0xC0) != 0x40: return
         s.cmd.append(b)
         if len(s.cmd) == 6: s.exec_cmd(); s.cmd = []
-    def xfer_out(s): return s.out.pop(0) if s.out else 0xFF
+    def xfer_out(s):
+        if not s.out and s.multi is not None:          # v88 : CMD18 : les secteurs suivants, jusqu'a CMD12
+            sec = s.multi; s.multi += 1
+            s.out = [0xFF, 0xFE] + list(disk[sec * 512:(sec + 1) * 512]) + [0, 0]
+        return s.out.pop(0) if s.out else 0xFF
     def exec_cmd(s):
         c = s.cmd[0] & 0x3F; arg = int.from_bytes(bytes(s.cmd[1:5]), 'big'); crc = s.cmd[5]
         s.log.append((c, arg)); r = [0xFF]
@@ -46,6 +50,8 @@ class Card:
             s.out = r + [0x01 if s.idle else 0]; return
         if c == 58: s.out = r + [0, 0xC0, 0xFF, 0x80, 0]; return
         if c == 24: s.out = r + [0]; s.wr = arg; return
+        if c == 18: s.multi = arg; s.out = r + [0]; return
+        if c == 12: s.multi = None; s.out = [0xFF, 0x00, 0x00, 0x00, 0xFF]; return   # (octet de bourrage, R1, occupe, pret)
         if c == 17:
             sec = arg
             s.out = r + [0, 0xFF, 0xFE] + list(disk[sec * 512:(sec + 1) * 512]) + [0, 0]; return
@@ -248,7 +254,7 @@ if card.writes:                                    # v54 : journal du jeu ecrit 
     jok &= u(0x130) > 0 and u(0x134) == 0x80003100 and 0x80003100 < u(0x138) < 0x80004000
     jok &= u(0x108) == 6 and u(0x10C) == 1 and u(0x110) == 5 and u(0x118) == 0x52 and u(0x114) == 2
     print('lectures en fond : %d (%d morceaux)' % (u(0xD0), u(0xD4)))
-    jok &= u(0xD0) == 1 and u(0xD4) == 32                # (0x40000 octets en morceaux de 8 Ko)
+    jok &= u(0xD0) == 2 and u(0xD4) == 132               # (v88 : 0x2000 + 0x40000 octets, morceaux de 2 Ko)
     jok &= (u(0xB0) == 0x102 and u(0xB4) == 0x80001234 and u(0xB8) == 0x80005678 and u(0x98) == 0) if EXC else (u(0x98) == 1 and u(0xB0) == 0)
     if EXC: print('plantage note : %X a %08X LR %08X' % (u(0xB0), u(0xB4), u(0xB8)))
     print(('OK   ' if jok else 'FAUX ') + 'journal du jeu : %d ecritures, secteur %X, commandes=%d' % (len(card.writes), js, struct.unpack_from('>I', jb, 0x4C)[0]))
