@@ -1243,34 +1243,21 @@ static void nl_cinema(f32 t) {
     gx_text_r(F_MED, 610, 346, b, RGBA(235, 235, 250, 255));
     if (nat_igr) gx_text1(F_SMALL, 290, 400, TR("Pendant le jeu : A + Z + START = retour \xC3\xA0 GC Station"), RGBA(130, 130, 160, 255));
 }
-/* 3 : Minimal : noir, petit logo, l'hexagone se remplit en degrade (avancement), le nom du jeu */
+/* 3 : Minimal : noir, le logo de Pulse qui bat (v113 : identique au logo), le nom du jeu, une fine barre */
 static void nl_minimal(f32 t) {
     char b[120], fv[120];
     gx_vgrad(0, 0, 640, 480, RGBA(4, 4, 8, 255), RGBA(0, 0, 0, 255));
-    const f32 cx = 320, cy = 196, r = 92;
+    const f32 cx = 320, cy = 190;
+    pulse_logo(cx, cy, 88, t);
     f32 sh = nl_progress();
-    f32 per = sh / 100.0f * 6.0f;                               /* (6 cotes) */
-    for (int i = 0; i < 6; i++) {
-        f32 a0 = -PI_F / 2 + i * PI_F / 3, a1 = a0 + PI_F / 3;
-        f32 x0 = cx + r * cosf(a0), y0 = cy + r * sinf(a0), x1 = cx + r * cosf(a1), y1 = cy + r * sinf(a1);
-        pl_seg(x0, y0, x1, y1, 3, RGBA(255, 255, 255, 26), RGBA(255, 255, 255, 26));
-        f32 f = per - i;
-        if (f <= 0) continue;
-        if (f > 1) f = 1;
-        f32 xe = x0 + (x1 - x0) * f, ye = y0 + (y1 - y0) * f;
-        col_t c0 = pl_grad(i / 6.0f, 255), c1 = pl_grad((i + f) / 6.0f, 255);
-        pl_seg(x0, y0, xe, ye, 12, RGBA(c0.r, c0.g, c0.b, 50), RGBA(c1.r, c1.g, c1.b, 50));
-        pl_seg(x0, y0, xe, ye, 4, c0, c1);
-        gx_circle(xe, ye, 2, c1, c1);
-    }
-    f32 ph = fmodf(t, 1.1f) / 1.1f, beat = expf(-ph * 9.0f);
-    gx_circle(cx, cy, 52, RGBA(255, 120, 220, (u8)(90 + 70 * beat)), RGBA(255, 120, 220, 0));
-    pl_cube(cx, cy, 46 * (1.0f + 0.03f * beat), 6);     /* (v113 : le cube du logo) */
+    const f32 bx = 220, bw = 200, by = 370;                      /* (avancement : fine ligne en degrade) */
+    gx_rrect_fill(bx, by, bw, 2, 1, RGBA(255, 255, 255, 26), RGBA(255, 255, 255, 26));
+    if (sh > 0.5f) gx_hgrad(bx, by, bw * sh / 100.0f, 2, pl_grad(0, 255), pl_grad(sh / 100.0f, 255));
     nl_title(b, sizeof(b));
     fit_text(F_MED, b, 520, fv, sizeof(fv));
-    gx_text_c(F_MED, cx, 340, fv, RGBA(235, 235, 250, 255));
+    gx_text_c(F_MED, cx, 350, fv, RGBA(235, 235, 250, 255));
     snprintf(b, sizeof(b), "%d %%", nat_ld_pct);
-    gx_text_c(F_SMALL, cx, 362, b, RGBA(130, 130, 160, 255));
+    gx_text_c(F_SMALL, cx, 392, b, RGBA(130, 130, 160, 255));
     gx_text_c(F_SMALL, cx, 456, "PULSE", RGBA(90, 90, 120, 255));
 }
 static int nl_style = -1;                                       /* (choisi au debut de chaque lancement) */
