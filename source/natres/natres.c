@@ -444,6 +444,14 @@ static void ret_to_gcstation(void) {
     dsp[0x0A / 2] = (unsigned short)((dsp[0x0A / 2] & ~0x0150u) | 0x00ACu);   /* DSP : arret, masques coupes, acquitte */
     *(volatile u32 *)0xCC006C00u &= ~1u;                 /* son du disque (streaming) arrete */
     *(volatile unsigned short *)0xCC000002u = 0;         /* processeur graphique : plus de lecture de la file */
+    {   /* v108 : remise a zero du processeur graphique (comme GX_AbortFrame) : sinon, arrete au milieu d'une
+           commande du jeu, il prenait les premieres commandes de GC Station pour la suite de celle-ci et se
+           bloquait (« GX ne repond plus » au demarrage, apres A+Z+START dans Cocoto) */
+        pi[6] = 1;
+        for (volatile u32 i = 0; i < 4000u; i++) ;           /* (~20 us ; pas l'horloge : arretee dans le banc d'essai) */
+        pi[6] = 0;
+        for (volatile u32 i = 0; i < 1000u; i++) ;
+    }
     if (!di_ready) di_ready = nr_init() == 0;
     for (u32 i = 0; i < H.ret_n; i++) ext_tab[i] = ret_tab[i];
     H.n_ext = H.ret_n; ext_last = 0; sec_cached = 0xFFFFFFFFu;

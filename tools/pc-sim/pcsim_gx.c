@@ -38,6 +38,7 @@ static vtx_t cur;
 static int vd_pos = 1, vd_clr = 0, vd_tex = 0;
 
 static void ident34(float m[3][4]) { memset(m, 0, sizeof(float) * 12); m[0][0] = m[1][1] = m[2][2] = 1; }
+void GX_AbortFrame(void) {}
 GXFifoObj *GX_Init(void *base, u32 size) {
     (void)base; (void)size;
     static GXFifoObj f;

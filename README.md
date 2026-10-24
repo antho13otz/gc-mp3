@@ -14,7 +14,8 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v107)
+## Nouveautés de la version actuelle (v108)
+- **Retour par A+Z+START** : GC Station ne se bloque plus au redémarrage (« GX ne répond plus »).
 - **Musique du disque plus propre** (Resident) : plus de grésillement dans les aigus.
 - **Musique de Cocoto Kart Racer sans saccades** (Resident) : la musique du disque n'est plus effacée
   puis rejouée en avance quand le jeu prépare son son en deux temps.
