@@ -136,6 +136,21 @@ _start:
     li 3,5
     li 4,0
     bctrl
+    # 9d) v106 : le DSP recalcule ce meme tampon (Cocoto Kart Racer) : Resident doit y remettre les
+    #     MEMES echantillons (pas les suivants : la musique avancerait deux fois trop vite)
+    lis 9,0x8030
+    ori 9,9,0x1000
+    li 0,0
+    li 10,0xA0
+    mtctr 10
+1:  stw 0,0(9)
+    addi 9,9,4
+    bdnz 1b
+    lwz 12,0x305C(20)
+    mtctr 12
+    li 3,7
+    li 4,0
+    bctrl
     # 10) v65 : carte memoire du slot A par les registres EXI, ecrits comme le SDK
     #     (__EXIRegs[canal * 5 + n] : adresse calculee) ; resultats en 0x80001F2C...
     lis 9,0xCC00

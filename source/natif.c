@@ -745,7 +745,7 @@ static void nat_journal_convert(void) {
             u32 xf = be32(d + 0x160);
             fprintf(f, "Lecture de la carte : %s, %s%s ; blocs au CRC faux : %u\n", xf & 1 ? "DMA" : "sans DMA", xf & 2 ? "32 MHz" : "16 MHz",
                     xf & 4 ? " (32 MHz abandonne : CRC faux)" : "", (unsigned)(be32(d + 0x164) & 0xFFFFu));
-            if (H[67]) fprintf(f, "Musique du disque (v98) : %u tampons completes depuis l'interruption du DSP, %u tampons rejoues laisses tels quels\n",
+            if (H[67]) fprintf(f, "Musique du disque : %u tampons recalcules par le DSP (musique remise), %u tampons rejoues laisses tels quels\n",
                                (unsigned)(xf >> 16), (unsigned)(be32(d + 0x164) >> 16));
             if (be32(d + 0x168) || be32(d + 0x16C)) fprintf(f, "Programme suivant du disque (OSExec) : %u demande(s), dernier %08X%s ; acces au lecteur branches pendant le jeu : %u\n",
                     (unsigned)be32(d + 0x168), (unsigned)be32(d + 0x16C), H[1] >= 13 && !be32(d + 0x174) ? " (apploader recent : pas encore pris en charge)" : "", H[1] >= 13 ? (unsigned)be32(d + 0x17C) : 0);

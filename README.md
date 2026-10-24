@@ -14,7 +14,9 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v105)
+## Nouveautés de la version actuelle (v106)
+- **Musique de Cocoto Kart Racer sans saccades** (Resident) : la musique du disque n'est plus effacée
+  puis rejouée en avance quand le jeu prépare son son en deux temps.
 - **Correctif** : plus d'écran « BLOQUÉ - GX ne répond plus » en lançant un morceau avec le style Aurore.
 - **Curseur** : en haut de l'écran, tous les onglets s'affichent pour en choisir un d'un clic ; la croix
   cache le curseur, le stick le fait revenir.

@@ -706,6 +706,7 @@ static void igr_poll2(int count) {
    interruptions DMA. Commandes : E1 (jouer / arreter), E2 (etat, position). */
 static u32 st_on = 0, st_stop_end = 0, st_pos = 0, st_cur_start = 0, st_cur_len = 0, st_next_start = 0, st_next_len = 0;
 static int st_hl1 = 0, st_hl2 = 0, st_hr1 = 0, st_hr2 = 0;
+static u32 st_snap_addr = 0xFFFFFFFFu;                /* v106 : tampon de la derniere sauvegarde du decodeur */
 static short st_pcm[56];
 static u32 st_pcm_i = 28, st_phase = 0;
 static int st_cl = 0, st_cr = 0;
@@ -757,6 +758,7 @@ static void st_adv(void) {                               /* echantillon suivant 
     st_cl = st_pcm[st_pcm_i * 2]; st_cr = st_pcm[st_pcm_i * 2 + 1]; st_pcm_i++;
 }
 static void st_cmd(u32 c0, u32 off, u32 len) {           /* E1 */
+    st_snap_addr = 0xFFFFFFFFu;                          /* (v106 : nouvelle commande : pas de retour en arriere) */
     u32 sub = (c0 >> 16) & 0xFF;
     if (sub == 0) {
         if (off == 0 && len == 0) st_stop_end = 1;
@@ -786,6 +788,26 @@ static u32 st_status(u32 c0) {                           /* E2 */
    etait ajoutee au tampon deja en train d'etre joue, donc en partie seulement : saccades), et jamais deux
    fois (un tampon rejoue tel quel quand le DSP est en retard gardait sa musique, et en recevait une 2e). */
 static u32 st_last_addr = 0xFFFFFFFFu, st_last_sum = 0, st_dsp_n = 0;
+/* v106 : certains jeux (Cocoto Kart Racer) programment le tampon suivant a l'interruption du son, PUIS
+   le DSP le calcule : la musique ajoutee a l'interruption du son etait effacee, puis ajoutee une 2e fois a
+   la fin du DSP avec les echantillons suivants : la musique avancait deux fois trop vite et sautait un
+   morceau sur deux (saccades). Maintenant : l'etat du decodeur est garde avant chaque ajout ; si le DSP a
+   reecrit ce meme tampon, on revient a cet etat et on ajoute les memes echantillons. */
+typedef struct { u32 on, stop_end, pos, cs, clen, ns, nl, pcm_i, phase; int hl1, hl2, hr1, hr2, cl, cr; short pcm[56]; } stsnap_t;
+static stsnap_t st_snap;
+static void st_save(u32 addr) {
+    stsnap_t *s = &st_snap;
+    s->on = st_on; s->stop_end = st_stop_end; s->pos = st_pos; s->cs = st_cur_start; s->clen = st_cur_len; s->ns = st_next_start; s->nl = st_next_len;
+    s->pcm_i = st_pcm_i; s->phase = st_phase; s->hl1 = st_hl1; s->hl2 = st_hl2; s->hr1 = st_hr1; s->hr2 = st_hr2; s->cl = st_cl; s->cr = st_cr;
+    for (int i = 0; i < 56; i++) s->pcm[i] = st_pcm[i];
+    st_snap_addr = addr;
+}
+static void st_load(void) {
+    const stsnap_t *s = &st_snap;
+    st_on = s->on; st_stop_end = s->stop_end; st_pos = s->pos; st_cur_start = s->cs; st_cur_len = s->clen; st_next_start = s->ns; st_next_len = s->nl;
+    st_pcm_i = s->pcm_i; st_phase = s->phase; st_hl1 = s->hl1; st_hl2 = s->hl2; st_hr1 = s->hr1; st_hr2 = s->hr2; st_cl = s->cl; st_cr = s->cr;
+    for (int i = 0; i < 56; i++) st_pcm[i] = s->pcm[i];
+}
 static u32 st_sum(const u32 *w, u32 n) { u32 s = 0x9E3779B9u; for (u32 i = 0; i < n; i++) s = (s ^ w[i]) * 0x01000193u; return s; }
 static void st_mix_from(int from_dsp) {
     volatile u32 *ai = (volatile u32 *)0xCC006C00u;
@@ -803,6 +825,11 @@ static void st_mix_from(int from_dsp) {
             return;
         }
     }
+    if (from_dsp && addr == st_last_addr && st_snap_addr == addr) {   /* v106 : le DSP a reecrit le tampon : memes echantillons */
+        st_load();
+        if (st_dsp_n < 0xFFFFu) { st_dsp_n++; H.xfer = (H.xfer & 0xFFFFu) | st_dsp_n << 16; }
+    }
+    st_save(addr);
     u32 vol = ai[1];
     int vl = (int)(vol & 0xFF), vr = (int)((vol >> 8) & 0xFF);
     u32 drate = (cr & 0x40) ? 32000u : 48000u, srate = (cr & 2) ? 48000u : 32000u;
@@ -820,7 +847,6 @@ static void st_mix_from(int from_dsp) {
     st_last_addr = addr; st_last_sum = st_sum((const u32 *)p, len / 4);
     cache_flush((u32)p, len);
     H.st_mix++;
-    if (from_dsp && st_dsp_n < 0xFFFFu) { st_dsp_n++; H.xfer = (H.xfer & 0xFFFFu) | st_dsp_n << 16; }
 }
 static void st_mix(void) { st_mix_from(0); }
 

@@ -21,6 +21,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v106 — musique du disque de Cocoto Kart Racer sans saccades
+- Journal de Cocoto Kart Racer (v105) : 16 452 tampons complétés pour 13 902 interruptions du son,
+  dont 7 639 depuis le DSP : le jeu programme le tampon suivant, PUIS le DSP le calcule. La musique
+  ajoutée était effacée par le DSP, puis ajoutée une 2e fois avec les échantillons suivants : elle
+  avançait deux fois trop vite et un morceau sur deux manquait.
+- Resident garde l'état du décodeur avant chaque ajout ; si le DSP réécrit ce même tampon, il revient à
+  cet état et remet les mêmes échantillons. Banc d'essai : nouveau cas (échoue avec la v105).
+
 ## Nouveautés v105 — correctif : écran « BLOQUÉ, GX ne répond plus » en lançant un morceau (Aurore)
 - Le lecteur Musique du style Aurore envoyait 8 sommets (pochette + reflet) au processeur graphique
   après en avoir annoncé 4 : la vraie console se bloquait. Corrigé.
