@@ -71,6 +71,13 @@ static void ex_sel(int cs) {
     exi[0] = v;
 }
 static void ex_desel(void) { exi[0] = exi[0] & 0x405; }
+/* v94 : CRC16 des blocs de donnees (CCITT, comme la carte) : sert a verifier le 32 MHz */
+static unsigned short crc_tab[256];
+static void crc_init(void) {
+    for (u32 i = 0; i < 256; i++) { u32 c = i << 8; for (int k = 0; k < 8; k++) c = c & 0x8000 ? (c << 1) ^ 0x1021 : c << 1; crc_tab[i] = (unsigned short)c; }
+}
+static u32 crc16(const u8 *p, u32 n) { u32 c = 0; while (n--) c = ((c << 8) ^ crc_tab[((c >> 8) ^ *p++) & 0xFF]) & 0xFFFF; return c; }
+static int x_dma = 0, x_fast = 0, x_fast_off = 0, x_crcbad = 0;   /* (H.xfer) */
 static void ex_put(u32 v, int n) { exi[4] = v; exi[3] = ((u32)(n - 1) << 4) | (1u << 2) | 1u; ex_wait(); }
 static u32 ex_get(int n) { exi[4] = 0xFFFFFFFFu; exi[3] = ((u32)(n - 1) << 4) | 1u; ex_wait(); return exi[4]; }
 static u32 ex_get8(void) { return ex_get(1) >> 24; }
@@ -91,6 +98,31 @@ static u32 sd_cmd(u32 cmd, u32 arg, u32 crc) {  /* envoie la commande, rend la r
     return r;
 }
 
+/* v94 : DMA et 32 MHz, essayes une fois (le meme secteur lu en mode simple, en DMA, puis a 32 MHz,
+   4 fois, CRC verifie) : gardes seulement si tout est identique */
+static int nr_read_sd(u32 sector, void *dst);
+static u8 t_ref[512] __attribute__((aligned(32))), t_buf[512] __attribute__((aligned(32)));
+static int t_same(void) { for (int i = 0; i < 512; i++) if (t_ref[i] != t_buf[i]) return 0; return 1; }
+static void nr_speed(void) {
+    static int tried = 0;
+    u32 sec = H.n_ext ? ext_tab[0].sd : 0;
+    if (!crc_tab[1]) crc_init();
+    if (tried) { x_fast = x_fast && !x_fast_off; if (x_fast) freq = 5; goto out; }
+    tried = 1;
+    x_dma = 0; x_fast = 1;                                  /* (CRC verifie pendant l'essai) */
+    u32 slow = freq > 4 ? 4 : freq;
+    freq = slow;
+    if (nr_read_sd(sec, t_ref)) { x_fast = 0; goto done; }
+    x_dma = 1;
+    if (nr_read_sd(sec, t_buf) || !t_same()) x_dma = 0;
+    freq = 5;
+    for (int k = 0; k < 4 && x_fast; k++) if (nr_read_sd(sec, t_buf) || !t_same()) x_fast = 0;
+    if (!x_fast) freq = slow;
+done:
+    H.err = NR_OK; H.crc_err = 0; x_crcbad = 0;
+out:
+    H.xfer = (u32)x_dma | (u32)x_fast << 1 | (u32)x_fast_off << 2;
+}
 static int nr_init(void) {
     exi = (volatile u32 *)(0xCC006800u + H.chan * 0x14u);
     H.err = NR_OK; H.sdhc = 0; H.stage = 1;
@@ -138,9 +170,34 @@ static int nr_init(void) {
     if (!H.sdhc) { sd_cmd(16, 512, 0x01); sd_end(); }   /* CMD16 : secteurs de 512 octets */
     freq = want;
     H.stage = 5;
+    nr_speed();
     return 0;
 }
 
+/* v94 : les 512 octets d'un bloc (apres le jeton FE) puis son CRC. En DMA, le bus EXI copie le bloc
+   tout seul en memoire (adresse alignee sur 32) : bien moins de travail pour le processeur. A 32 MHz,
+   le CRC est verifie (un bloc faux = erreur : relu, et on repasse a 16 MHz). Rend 0 si bon. */
+static u8 dmabuf[512] __attribute__((aligned(32)));
+static int nr_block(u8 *o) {
+    u8 *d = o;
+    if (x_dma) {
+        if ((u32)o & 31) d = dmabuf;
+        for (u32 a = (u32)d; a < (u32)d + 512; a += 32) __asm__ volatile("dcbi 0,%0" :: "r"(a) : "memory");
+        exi[1] = (u32)d & 0x1FFFFFE0u;
+        exi[2] = 512;
+        exi[3] = 3;                               /* DMA, lecture, depart */
+        if (ex_wait()) return -1;
+        if (d != o) for (int i = 0; i < 512; i++) o[i] = d[i];
+    } else {
+        for (int i = 0; i < 128; i++) {
+            u32 w = ex_get(4);
+            o[i * 4] = (u8)(w >> 24); o[i * 4 + 1] = (u8)(w >> 16); o[i * 4 + 2] = (u8)(w >> 8); o[i * 4 + 3] = (u8)w;
+        }
+    }
+    u32 crc = ex_get(2) >> 16;
+    if (x_fast && crc16(o, 512) != crc) { H.crc_err++; x_crcbad = 1; H.err = NR_ETOKEN; return -1; }
+    return 0;
+}
 static int nr_read_sd(u32 sector, void *dst) {
     u8 *o = (u8 *)dst;
     u32 r = sd_cmd(17, H.sdhc ? sector : sector << 9, 0x01);   /* CMD17 : lire un secteur */
@@ -148,13 +205,9 @@ static int nr_read_sd(u32 sector, void *dst) {
     u32 t = 0xFF;
     for (u32 i = 0; i < 400000u; i++) { t = ex_get8(); if (t != 0xFF) break; }
     if (t != 0xFE) { sd_end(); H.err = NR_ETOKEN; H.r1 = t; return -1; }
-    for (int i = 0; i < 128; i++) {
-        u32 w = ex_get(4);
-        o[0] = (u8)(w >> 24); o[1] = (u8)(w >> 16); o[2] = (u8)(w >> 8); o[3] = (u8)w;
-        o += 4;
-    }
-    ex_get(2);                                    /* CRC (pas verifie) */
+    int e = nr_block(o);
     sd_end();
+    if (e) return -1;
     H.nread++;
     return 0;
 }
@@ -170,12 +223,8 @@ static int nr_read_multi(u32 sector, u32 count, u8 *o) {
         u32 t = 0xFF;
         for (u32 i = 0; i < 400000u; i++) { t = ex_get8(); if (t != 0xFF) break; }
         if (t != 0xFE) { H.err = NR_ETOKEN; H.r1 = t; ok = 0; break; }
-        for (int i = 0; i < 128; i++) {
-            u32 w = ex_get(4);
-            o[0] = (u8)(w >> 24); o[1] = (u8)(w >> 16); o[2] = (u8)(w >> 8); o[3] = (u8)w;
-            o += 4;
-        }
-        ex_get(2);                                    /* CRC (pas verifie) */
+        if (nr_block(o)) { ok = 0; break; }
+        o += 512;
         H.nread++;
     }
     ex_put(0x4C000000u, 4);                           /* CMD12 : arret de la lecture */
@@ -188,7 +237,15 @@ static int nr_read_multi(u32 sector, u32 count, u8 *o) {
 }
 
 /* v54 : ecrire un secteur (CMD24) : seulement le journal, dans un fichier prepare par GC Station */
-static int nr_write_sd(u32 sector, const u8 *s) {
+static int nr_write_sd1(u32 sector, const u8 *s);
+static int nr_write_sd(u32 sector, const u8 *s) {       /* v94 : ecriture toujours a 16 MHz au plus (pas de CRC verifie) */
+    u32 f = freq;
+    if (freq > 4) freq = 4;
+    int r = nr_write_sd1(sector, s);
+    freq = f;
+    return r;
+}
+static int nr_write_sd1(u32 sector, const u8 *s) {
     u32 r = sd_cmd(24, H.sdhc ? sector : sector << 9, 0x01);
     if (r != 0) { sd_end(); return -1; }
     ex_put(0xFF000000u, 1);
@@ -229,6 +286,8 @@ static int nr_read(void *dst, u32 off, u32 len) {    /* v54 : une erreur de la c
         if (nr_read1(dst, off, len) == 0) { if (t) H.nretry++; return 0; }
         if (H.err == NR_ERANGE) break;
         H.nrderr++;
+        if (x_fast && x_crcbad) x_fast_off = 1;           /* v94 : CRC faux a 32 MHz : retour a 16 MHz */
+        x_crcbad = 0;
         sec_cached = 0xFFFFFFFFu;
         di_ready = nr_init() == 0;
     }
@@ -927,7 +986,7 @@ static void di_hook(u32 irq, u32 ctx) {
             cache_flush(rd_dst, n);
             rd_dst += n; rd_off += n; rd_left -= n;
             di[5] += n; di[6] -= n;
-        } while (rd_left && ++k < 4 && tbl() - t0 < RD_BUDGET);   /* (et 8 Ko au plus) */
+        } while (rd_left && ++k < 8 && tbl() - t0 < RD_BUDGET);   /* (v94 : 16 Ko au plus : la carte est plus rapide en DMA / 32 MHz) */
         if (err) { rd_on = 0; di[0] |= 0x04; di[7] &= ~1u; }   /* DEINT : erreur, le jeu redemande */
         else {
             if (rd_left) { di_real_kick(); x_dispatch(ctx); return; }   /* (morceau suivant a la prochaine fin) */

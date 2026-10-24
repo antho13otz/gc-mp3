@@ -15,6 +15,19 @@ disk = bytearray(open(SDIMG, 'rb').read())
 iso = open(ISO, 'rb').read()
 CHAN, DEV, SDHC = 2, 0, 1
 
+def crc16(b):                                          # v94 : CRC des blocs (CCITT), verifie a 32 MHz
+    c = 0
+    for x in b:
+        c ^= x << 8
+        for _ in range(8): c = ((c << 1) ^ 0x1021) & 0xFFFF if c & 0x8000 else (c << 1) & 0xFFFF
+    return c
+BAD32 = os.environ.get('EMU_BAD32') == '1'             # (32 MHz qui abime les donnees : le resident doit repasser a 16 MHz)
+NODMA = os.environ.get('EMU_NODMA') == '1'             # (adaptateur sans DMA : le resident doit le voir)
+fast = [False]
+def blk(sec):
+    d = bytes(disk[sec * 512:(sec + 1) * 512]); c = crc16(d)
+    if BAD32 and fast[0]: d = bytes([d[0] ^ 1]) + d[1:]
+    return list(d) + [c >> 8, c & 0xFF]
 class Card:
     def __init__(s): s.cmd = []; s.out = []; s.idle = True; s.app = False; s.acmd41 = 0; s.log = []; s.wr = None; s.wbuf = None; s.writes = []; s.multi = None
     def deselect(s): s.cmd = []; s.out = []; s.wr = None; s.wbuf = None; s.multi = None
@@ -35,7 +48,7 @@ class Card:
     def xfer_out(s):
         if not s.out and s.multi is not None:          # v88 : CMD18 : les secteurs suivants, jusqu'a CMD12
             sec = s.multi; s.multi += 1
-            s.out = [0xFF, 0xFE] + list(disk[sec * 512:(sec + 1) * 512]) + [0, 0]
+            s.out = [0xFF, 0xFE] + blk(sec)
         return s.out.pop(0) if s.out else 0xFF
     def exec_cmd(s):
         c = s.cmd[0] & 0x3F; arg = int.from_bytes(bytes(s.cmd[1:5]), 'big'); crc = s.cmd[5]
@@ -54,7 +67,7 @@ class Card:
         if c == 12: s.multi = None; s.out = [0xFF, 0x00, 0x00, 0x00, 0xFF]; return   # (octet de bourrage, R1, occupe, pret)
         if c == 17:
             sec = arg
-            s.out = r + [0, 0xFF, 0xFE] + list(disk[sec * 512:(sec + 1) * 512]) + [0, 0]; return
+            s.out = r + [0, 0xFF, 0xFE] + blk(sec); return
         s.out = r + [0x04]
 card = Card()
 exi = [[0] * 5 for _ in range(3)]
@@ -109,6 +122,10 @@ def io_write(uc, off, size, value, data):
     if reg == 3 and (value & 1):
         n = ((value >> 4) & 3) + 1; mode = (value >> 2) & 3
         sel = ch == CHAN and (exi[ch][0] & (0x80 << DEV))
+        fast[0] = ((exi[ch][0] >> 4) & 7) >= 5
+        if value & 2:                          # v94 : DMA (lecture)
+            ln = exi[ch][2]; data = bytes((card.xfer_out() if sel else 0xFF) ^ (0x5A if NODMA else 0) for _ in range(ln))
+            uc.mem_write(0x80000000 | exi[ch][1], data); exi[ch][3] = value & ~1; return
         if mode == 1:
             for k in range(n):
                 if sel: card.xfer_in((exi[ch][4] >> (24 - 8 * k)) & 0xFF)
@@ -175,7 +192,7 @@ nolat = all(not (o == 0x40C and n <= 20) for o, n in si_reads) and (EXC or len(s
 print(('OK   ' if nolat else 'FAUX ') + 'manettes : donnees neuves pas touchees (%d lectures SI)' % len(si_reads))
 ok &= nolat
 ok &= struct.unpack('>I', mu.mem_read(0x80001F24, 4))[0] == 0 and struct.unpack('>I', mu.mem_read(0x80001F20, 4))[0] == 0
-ok &= rd(0x4C) == 6 and len(kicks) >= 6 + 31 and all(k == 0x12000000 for k in kicks)   # (v61 : + 31 reveils pour les morceaux ; v65 : + E1, E2)
+ok &= rd(0x4C) == 6 and len(kicks) >= 6 + 15 and all(k == 0x12000000 for k in kicks)   # (v61 : + reveils pour les morceaux ; v65 : + E1, E2 ; v94 : 16 Ko par reveil)
 # v65 : musique du disque (ADPCM du disque decode et ajoute au tampon du son)
 def adp(bits, q, h):
     hist = 0

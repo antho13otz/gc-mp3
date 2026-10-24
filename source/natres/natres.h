@@ -8,7 +8,7 @@
 #define NATRES_AT     0x817F0000u        /* adresse fixe (liee par tools/natres.ld) */
 #define NATRES_SIZE   0x0000FF00u        /* place reservee (le haut, 817FFF00+, est laisse a la console) */
 #define NATRES_MAGIC  0x4743534Eu        /* "GCSN" */
-#define NATRES_VER    11
+#define NATRES_VER    12
 #define NATRES_MAXEXT 1500               /* morceaux de l'ISO sur la carte (fichier fragmente) ; v60 : 2000 (place pour les aiguillages) */
 
 /* erreurs (champ err) */
@@ -74,9 +74,13 @@ typedef struct {
     unsigned int snap_sec, snap_cnt;                      /* 1er secteur du fichier, nombre de secteurs */
     unsigned int snap_hi;                                 /* fin du programme du jeu (main.dol + bss) : debut de son arene */
     unsigned int snap_done;                               /* secteurs ecrits */
+    /* v94 : lecture plus rapide de la carte (DMA du bus EXI, 32 MHz verifie par le CRC des blocs) */
+    unsigned int xfer;                                    /* bit 0 = DMA, bit 1 = 32 MHz, bit 2 = 32 MHz abandonne (CRC faux) */
+    unsigned int crc_err;                                 /* blocs au CRC faux (relus) */
+    unsigned int exec_n, exec_last;                       /* v94 : redemarrages du jeu sur un autre programme du disque */
 } natres_hdr_t;
 
-#define NATRES_LOGN 10                    /* anneau : {commande, position, longueur, infos} (v83 : 0x160 + 10 x 16 = 0x200) */
+#define NATRES_LOGN 9                     /* anneau : {commande, position, longueur, infos} (v94 : 0x170 + 9 x 16 = 0x200) */
 #define NATRES_CARDMAX 64                 /* morceaux du fichier de la carte virtuelle */
 #define NRF_CARD      4u                  /* v65 : carte memoire virtuelle active */
 #define NATRES_RETMAX 64                  /* morceaux du .dol de GC Station */
@@ -115,6 +119,6 @@ typedef struct {
 #define NATRES_SNAP_MAGIC 0x4743534Du       /* "GCSM" */
 #define NATRES_SNAP_SECS  704               /* taille du fichier : 704 secteurs (352 Ko) */
 
-typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x160 ? 1 : -1];
+typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x170 ? 1 : -1];
 
 #endif

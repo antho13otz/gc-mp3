@@ -14,6 +14,8 @@ ld.lld -T $R/tools/natres.ld natres.o -o natres.elf
 llvm-objcopy -O binary natres.elf natres.bin
 python3 $R/tools/bin2h.py natres.bin natres_bin.h natres_bin
 for a in "1 2 0" "0 2 0" "1 0 0" "1 1 0" "1 0 2"; do python3 $T/emu_natres.py natres.bin $a | tail -1; done
+EMU_NODMA=1 python3 $T/emu_natres.py natres.bin 1 0 0 | tail -1     # (v94 : adaptateur sans DMA)
+EMU_BAD32=1 python3 $T/emu_natres.py natres.bin 1 0 0 | tail -1     # (v94 : 32 MHz qui abime les donnees)
 # (natif.c sans la partie QR code / telephone, qui depend du reste de GC Station)
 sed '/^\/\* ---------- v51 : le rapport sur le telephone/,$d' $R/source/natif.c > natif.c
 echo 'static void nat_qr_open(const char *id) { (void)id; }' >> natif.c
