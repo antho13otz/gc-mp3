@@ -231,6 +231,8 @@ _start:
     stw 0,0x110(5)
     addi 12,5,0x100
     stw 12,0x0C(4)
+    stw 12,8(5)
+    # (v82 : le message est aussi sur la pile, comme dans la fonction d'erreur d'un jeu)
     lis 0,0x0123
     ori 0,0,0x4567
     stw 0,0x10(4)

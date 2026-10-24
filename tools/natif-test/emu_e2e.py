@@ -213,7 +213,7 @@ csecs = {csd(0x2000 >> 9), csd(0x110000 >> 9)}
 if card.writes:                                    # v54 : journal du jeu ecrit sur la carte
     js = card.writes[-1]; jb = disk[js * 512:js * 512 + 512]; open('journal.bin', 'wb').write(jb)
     u = lambda o: struct.unpack_from('>I', jb, o)[0]
-    jok = set(card.writes) - csecs == ({js, js + 1} if EXC else {js}) and jb[:4] == b'GCSN' and u(0x4C) == 6 and u(0x90) == 3
+    jok = set(card.writes) - csecs == ({js, js + 1, js + 2} if EXC else {js}) and jb[:4] == b'GCSN' and u(0x4C) == 6 and u(0x90) == 3
     if EXC:                                        # v79 : details du plantage dans le secteur suivant
         cb = disk[(js + 1) * 512:(js + 2) * 512]; open('journal.bin', 'ab').write(cb)
         cu = lambda o: struct.unpack_from('>I', cb, o)[0]
@@ -223,6 +223,12 @@ if card.writes:                                    # v54 : journal du jeu ecrit 
         print(('OK   ' if cok else 'FAUX ') + 'details du plantage : PC %08X LR %08X r1 %08X r4 %08X, %d appels %08X %08X, texte r3 %r' % (
             cu(0x0C), cu(0x14), cu(0x34), cu(0x40), cu(0x2C), cu(0xD0), cu(0xD4), bytes(cb[0x110:0x120])))
         jok &= cok
+        sb = disk[(js + 2) * 512:(js + 3) * 512]; open('journal.bin', 'ab').write(sb)   # v82 : pile du jeu
+        su = lambda o: struct.unpack_from('>I', sb, o)[0]
+        sok = sb[:4] == b'GCSS' and su(4) == 0x80001A00 and su(8) == 80 and su(0x10) == 0x80001A40 and su(0x18) == 0x80001B00
+        sok &= su(0x0C) >= 1 and su(0x150) == 0x80001B00 and sb[0x154:0x164] == b'm_Do_machine.cpp'
+        print(('OK   ' if sok else 'FAUX ') + 'pile du jeu au plantage : r1 %08X, %d mots, %d textes, 1er texte %r' % (su(4), su(8), su(0x0C), bytes(sb[0x154:0x164])))
+        jok &= sok
     print('journal : musique %d blocs, %d tampons ; carte %d commandes (derniere %02X), %d ecritures, %d interruptions' % (u(0x108), u(0x10C), u(0x110), u(0x118), u(0x114), u(0x11C)))
     print('echantillons : %d, code %08X LR %08X' % (u(0x130), u(0x138), u(0x134)))
     jok &= u(0x130) > 0 and u(0x134) == 0x80003100 and 0x80003100 < u(0x138) < 0x80004000

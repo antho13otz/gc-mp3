@@ -93,6 +93,15 @@ typedef struct {
 #define NATRES_CRASH_VER   1
 #define NATRES_CRASH_NBT   16
 #define NATRES_CRASH_STR   30
+#define NRF_STACK     16u  /* v82 : un 3e secteur du journal est libre pour la pile du jeu au moment du plantage */
+/* v82 : 3e secteur du journal (pile du jeu au plantage) :
+   0x00 "GCSS"   0x04 r1 (pile)   0x08 nombre de mots   0x0C nombre de textes
+   0x10 80 mots lus a partir de r1 (0x140 octets : la fonction d'erreur y range fichier, ligne, message)
+   0x150 6 textes : adresse (4 octets) + 28 caracteres, pointes par des mots de la pile (0x200 en tout) */
+#define NATRES_STACK_MAGIC 0x47435353u      /* "GCSS" */
+#define NATRES_STACK_WORDS 80
+#define NATRES_STACK_NSTR  6
+#define NATRES_STACK_SLEN  28
 
 typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x150 ? 1 : -1];
 
