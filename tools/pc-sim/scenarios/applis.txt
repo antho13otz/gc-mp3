@@ -1,0 +1,28 @@
+# v110 : onglet Jeux / Apps et Mes applis (Aurore) : pochettes en fond, rangee qui defile
+wait 2s
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+wait 800ms
+shot a01-hub
+press UP
+wait 200ms
+press RIGHT
+wait 200ms
+press A
+wait 2500ms
+shot a02-applis
+press RIGHT
+wait 100ms
+press RIGHT
+wait 100ms
+press RIGHT
+wait 1500ms
+shot a03-applis
+quit

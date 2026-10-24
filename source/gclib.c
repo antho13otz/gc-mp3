@@ -609,9 +609,10 @@ static void gl_banner_apply(int k, u8 *b) {
 /* ---------- v92 : lectures sur la carte SD dans le thread de fond (dec_thread_fn, main.c) ----------
    Bannieres des jeux et grandes images (jaquette 256x256, capture 320x240) : l'ecran ne s'arrete plus
    pendant ces lectures. Un travail a la fois ; le resultat est verifie (chemin du jeu) avant usage. */
-enum { GJ_BANNER = 1, GJ_BIG, GJ_STILL };
-static struct { int kind, k; char path[NAME_LEN], cp[NAME_LEN], pak[NAME_LEN]; u32 off, len; u8 *res; } gj;
+enum { GJ_BANNER = 1, GJ_BIG, GJ_STILL, GJ_FN };
+static struct { int kind, k; char path[NAME_LEN], cp[NAME_LEN], pak[NAME_LEN]; u32 off, len; u8 *res; void (*fn)(void); void (*done)(void); } gj;
 static void gl_job_run(void) {                               /* (thread de fond) */
+    if (gj.kind == GJ_FN) { if (gj.fn) gj.fn(); return; }   /* v110 : travail d'un autre ecran (pochettes des applis) */
     gj.res = NULL;
     if (gj.kind == GJ_BANNER) { gj.res = gl_banner_fetch(gj.path, gj.cp); return; }
     FILE *f = fopen(gj.pak, "rb");
@@ -643,8 +644,16 @@ static int gl_job_post(int kind, int k) {
     gj_state = 1;
     return 1;
 }
+/* v110 : un travail quelconque pour le thread de fond (fn), puis done() dans la boucle principale */
+static int gj_post_fn(void (*fn)(void), void (*done)(void)) {
+    if (gj_state != 0 || gj_hold || !dec_ensure()) return 0;
+    gj.kind = GJ_FN; gj.k = -1; gj.res = NULL; gj.fn = fn; gj.done = done;
+    gj_state = 1;
+    return 1;
+}
 static void gl_job_done(void) {
     if (gj_state != 2) return;
+    if (gj.kind == GJ_FN) { gj_state = 0; if (gj.done) gj.done(); return; }
     int k = gj.k;
     u8 *b = gj.res;
     gj.res = NULL;

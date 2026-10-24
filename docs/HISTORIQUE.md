@@ -21,6 +21,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v110 — Mes applis fluide, seulement les applis avec image, Jeux / Apps façon Aurore
+- Les pochettes des applis sont calculées dans le thread de fond (avant : dans la boucle principale,
+  jusqu'à une demi-seconde par grand PNG : l'écran ramait). Travail générique du thread de fond
+  (`gj_post_fn`).
+- Seules les applis qui ont une image (icon.png, cover.png, pochette.png, boxart.png…) sont listées.
+- Moderne, Nouvelle, Aurore : Mes applis en rangée de grandes pochettes qui défile (Aurore : reflet et
+  halo), dans l'onglet (plus de fenêtre par-dessus l'en-tête). Aurore : l'onglet Jeux / Apps en cartes
+  de verre, la sélection en dégradé qui glisse.
+
 ## Nouveautés v109 — Resident devient Pulse
 - Le lanceur de GC Station s'appelle **Pulse**. Logo (`source/pulse_logo.c`, dessiné en GX) :
   hexagone du cube en néon (rose → violet → bleu → cyan), cœur en dégradé qui bat, trait de battement
