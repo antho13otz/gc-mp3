@@ -14,11 +14,9 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v111)
-- **480p avec Pulse** : les jeux qui proposent le mode progressif (Mario Superstar Baseball…) passent
-  enfin en 480p au lieu de rester sur un écran noir.
-- **4 écrans de chargement pour Pulse** (Réglages > Jeux > Écran de chargement) : Aurore, Cœur, Cinéma,
-  Minimal, ou Au hasard.
+## Nouveautés de la version actuelle (v112)
+- **Mise à jour plus fiable** : plus de « GitHub ne répond pas » après de nombreux redémarrages.
+- (v111) **480p avec Pulse** ; **4 écrans de chargement pour Pulse** (Réglages > Jeux > Écran de chargement).
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

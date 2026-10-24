@@ -21,6 +21,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v112 — mise à jour sans « GitHub ne répond pas »
+- L'API de GitHub n'accepte que 60 demandes par heure et par connexion sans compte ; chaque démarrage
+  de GC Station en faisait jusqu'à 3 (mise à jour, retour en jeu, lanceur de secours) : après beaucoup
+  de redémarrages (A+Z+START), « GitHub ne répond pas ».
+- La publication met maintenant aussi `release.json` dans la release (texte + liste des fichiers) ; les
+  consoles le lisent sur github.com (pas de limite), puis par l'API seulement s'il manque. Message clair
+  si la limite est atteinte. Les anciens .dol ne sont supprimés qu'après release.json.
+- `tools/verif_maj.py` : vérifie la release comme une console (release.json, numéro, chaque fichier
+  téléchargé en entier et le numéro inscrit dans le .dol), lancé après chaque publication.
+
 ## Nouveautés v111 — 480p avec Pulse, 4 écrans de chargement
 - 480p / mode progressif avec Pulse (Mario Superstar Baseball : écran noir après « Oui ») : le SDK des jeux
   n'applique un changement de mode qu'à l'interruption d'écran de la 1re ligne (DI1, getCurrentFieldEvenOdd

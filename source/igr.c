@@ -108,12 +108,14 @@ static void igr_disable(void) {
     crumb("retour en jeu (lanceur de secours) : non");
 }
 /* telecharge gc-mp3-igr-bN.img depuis la release "dernier" */
+static int igr_via_api = 0;
 static void igr_fetch(int enable_after) {
     if (igr_state != IGR_IDLE) return;
     if (net_phase != NET_DONE) { net_start_async(); snprintf(igr_msg, sizeof(igr_msg), "%s", TR("R\xC3\xA9seau en cours de connexion, r\xC3\xA9" "essaie")); return; }
     if (!net_ok) { snprintf(igr_msg, sizeof(igr_msg), "%s", TR("Pas de r\xC3\xA9seau")); return; }
     char url[256];
-    snprintf(url, sizeof(url), UPD_API "/repos/%s/releases/tags/dernier", upd_repo);
+    igr_via_api = 0;
+    upd_rel_url(url, sizeof(url), 0);                              /* v112 : release.json d'abord */
     igr_hf.maxbytes = 512 * 1024; igr_hf.image = 0; igr_hf.accept = "application/vnd.github+json";
     hf_start(&igr_hf, url, NULL);
     igr_state = IGR_CHECK; igr_enable_after = enable_after;
@@ -155,8 +157,16 @@ static void igr_pump(void) {
     }
     hf_pump(&igr_hf);
     if (igr_hf.st == HF_FAIL) {
+        if (igr_state == IGR_CHECK && !igr_via_api) {               /* v112 : puis l'API */
+            char url[256];
+            hf_drop(&igr_hf); igr_hf.st = HF_IDLE;
+            igr_via_api = 1;
+            upd_rel_url(url, sizeof(url), 1);
+            hf_start(&igr_hf, url, NULL);
+            return;
+        }
         hf_drop(&igr_hf); igr_hf.st = HF_IDLE; igr_state = IGR_IDLE; igr_have_b = 0;
-        snprintf(igr_msg, sizeof(igr_msg), "%s", TR("GitHub ne r\xC3\xA9pond pas"));
+        snprintf(igr_msg, sizeof(igr_msg), "%s", TR(upd_fail_msg(igr_hf.code)));
         return;
     }
     if (igr_hf.st != HF_DONE) return;

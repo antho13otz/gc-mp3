@@ -72,11 +72,9 @@ if st != 201:
     fail("envoi du .dol impossible (HTTP %d)" % st)
 print("%s envoye" % mine)
 
-# 2. les anciens .dol (s'ils ne partent pas, GC-MP3 choisit quand meme celui du build)
-for a in old:
-    if a.get("name") != mine:
-        st3, _ = call("DELETE", api + "/releases/assets/%d" % a["id"])
-        print("ancien %s supprime : HTTP %d" % (a.get("name"), st3))
+# 2. les anciens .dol : supprimes a la fin, apres release.json (une console qui verifie pendant la
+#    publication trouve toujours un fichier qui existe)
+old_dols = [a for a in old if a.get("name") != mine]
 
 # 2b. v39 : le fichier du retour en jeu (apploader.img avec GC-MP3), facultatif
 if len(sys.argv) > 3 and os.path.isfile(sys.argv[3]):
@@ -146,3 +144,21 @@ st2, _ = call("PATCH", api + "/releases/%d" % rel["id"], json.dumps(info).encode
 if st2 != 200:
     fail("mise a jour du texte de la release impossible (HTTP %d)" % st2)
 print("release '%s' publiee : build %s" % (TAG, build))
+
+# 4. v112 : release.json, copie reduite de la release (texte + fichiers), publiee comme un fichier :
+#    les consoles la lisent par github.com/.../releases/download/dernier/release.json, qui n'a pas la
+#    limite de l'API (60 demandes par heure et par connexion : depassee apres beaucoup de redemarrages,
+#    « GitHub ne repond pas »).
+st, relf = call("GET", api + "/releases/%d" % rel["id"])
+if st == 200 and relf:
+    keep = [{"name": a["name"], "size": a.get("size", 0), "browser_download_url": a["browser_download_url"]}
+            for a in relf.get("assets", []) if a.get("name") != "release.json" and a not in [] and a.get("id") not in [o["id"] for o in old_dols]]
+    js = json.dumps({"tag_name": TAG, "name": relf.get("name"), "body": relf.get("body"), "assets": keep}, ensure_ascii=False).encode()
+    for a in relf.get("assets", []):
+        if a.get("name") == "release.json":
+            call("DELETE", api + "/releases/assets/%d" % a["id"])
+    st, _ = call("POST", rel["upload_url"].split("{")[0] + "?name=release.json", js, "application/json")
+    print("release.json envoye : HTTP %d (%d fichiers)" % (st, len(keep)))
+for a in old_dols:
+    st3, _ = call("DELETE", api + "/releases/assets/%d" % a["id"])
+    print("ancien %s supprime : HTTP %d" % (a.get("name"), st3))

@@ -48,13 +48,15 @@ static int ld_dol_ok(const u8 *d, long n) {
     return text && args;
 }
 
+static int ld_via_api = 0;
 static void ld_fetch(int loud) {
     if (ld_state != LD_IDLE) return;
     ld_loud = loud;
     if (net_phase != NET_DONE) { net_start_async(); if (loud) snprintf(ld_msg, sizeof(ld_msg), "%s", TR("R\xC3\xA9seau en cours de connexion, r\xC3\xA9" "essaie")); return; }
     if (!net_ok) { if (loud) snprintf(ld_msg, sizeof(ld_msg), "%s", TR("Pas de r\xC3\xA9seau")); return; }
     char url[256];
-    snprintf(url, sizeof(url), UPD_API "/repos/%s/releases/tags/dernier", upd_repo);
+    ld_via_api = 0;
+    upd_rel_url(url, sizeof(url), 0);                              /* v112 : release.json d'abord */
     ld_hf.maxbytes = 512 * 1024; ld_hf.image = 0; ld_hf.accept = "application/vnd.github+json";
     hf_start(&ld_hf, url, NULL);
     ld_state = LD_CHECK;
@@ -95,8 +97,16 @@ static void ld_pump(void) {
     }
     hf_pump(&ld_hf);
     if (ld_hf.st == HF_FAIL) {
+        if (ld_state == LD_CHECK && !ld_via_api) {                  /* v112 : puis l'API */
+            char url[256];
+            hf_drop(&ld_hf); ld_hf.st = HF_IDLE;
+            ld_via_api = 1;
+            upd_rel_url(url, sizeof(url), 1);
+            hf_start(&ld_hf, url, NULL);
+            return;
+        }
         hf_drop(&ld_hf); ld_hf.st = HF_IDLE; ld_state = LD_IDLE;
-        if (ld_loud) snprintf(ld_msg, sizeof(ld_msg), "%s", TR("GitHub ne r\xC3\xA9pond pas"));
+        if (ld_loud) snprintf(ld_msg, sizeof(ld_msg), "%s", TR(upd_fail_msg(ld_hf.code)));
         return;
     }
     if (ld_hf.st != HF_DONE) return;
