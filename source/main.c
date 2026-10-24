@@ -155,6 +155,11 @@ static int radio_resume = 1;                            /* v72 : la derniere rad
 /* v73 : nouveautes (extras73.c, inclus a la fin) */
 static int x73_setting(const char *k, const char *v);
 static void x73_save(FILE *f);
+static int nfs_setting(const char *k, const char *v);   /* v86 : serveurs SMB / FTP / FSP (netfs.c) */
+static void nfs_menu_value(int p, char *out, int cap);  /* (tools.c) */
+static void nfs_ui_open(int p);
+static void nfs_kb_done(const char *t);
+static void nfs_save(FILE *f);
 static void x73_menu_value(int i, char *out, int cap);
 static void x73_menu_change(int i, int d);
 static void x73_pump(void);
@@ -4497,7 +4502,8 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "mediums")) eq_mid = atoi(v);
         else if (!strcasecmp(k, "bas_mediums")) eq_lowmid = atoi(v);
         else if (!strcasecmp(k, "presence")) eq_pres = atoi(v);
-        else if (x73_setting(k, v)) { }                  /* v73 : podcasts, enregistrement programme, cartes virtuelles... */
+        else if (x73_setting(k, v)) { }
+        else if (nfs_setting(k, v)) { }                  /* v86 : serveurs du reseau */                  /* v73 : podcasts, enregistrement programme, cartes virtuelles... */
         else if (!strcasecmp(k, "egaliseur")) { eq_preset = 0; for (int i = 0; i < EQ_PRESETS; i++) if (!strcasecmp(v, eq_keys[i])) eq_preset = i; }
         else if (!strcasecmp(k, "fondu")) { xf_sec = atoi(v); if (xf_sec < 0) xf_sec = 0; if (xf_sec > 8) xf_sec = 8; }
         else if (!strcasecmp(k, "volume_egalise")) rg_mode = !strncasecmp(v, "album", 5) ? 2 : (!strncasecmp(v, "morceau", 7) || !strncasecmp(v, "oui", 3)) ? 1 : 0;
@@ -4668,6 +4674,7 @@ static void save_settings(void) {
     fprintf(f, "# Morceaux d'un meme album (dossier) enchaines sans blanc : oui / non\nenchainement_sans_blanc = %s\n", gapless_on ? "oui" : "non");
     fprintf(f, "# Egaliseur 5 bandes (v73) : bas-mediums (350 Hz) et presence (4 kHz), en dB\nbas_mediums = %d\npresence = %d\n", eq_lowmid, eq_pres);
     x73_save(f);
+    nfs_save(f);
     fclose(f);
 }
 
@@ -10048,7 +10055,7 @@ static void web_pump(void) {
 }
 
 // ---------- Navigateur : actions ----------
-enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR, KB_LIBFIND, KB_PLNAME, KB_CHEATID, KB_CHEATNAME, KB_CHEATCODE, KB_NETTXT };
+enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR, KB_LIBFIND, KB_PLNAME, KB_CHEATID, KB_CHEATNAME, KB_CHEATCODE, KB_NETTXT, KB_NFS };
 static void cheats_kb_done(int mode, const char *t);
 static void ic_kb_done(const char *t);
 static void cheats_open(void);
@@ -10174,6 +10181,7 @@ static void kb_validate(void) {
     if (kb_mode == KB_LIBFIND || kb_mode == KB_PLNAME) { lib_kb_done(kb_mode, t); return; }
     if (kb_mode == KB_CHEATID || kb_mode == KB_CHEATNAME || kb_mode == KB_CHEATCODE) { if (*t || kb_mode == KB_CHEATNAME) cheats_kb_done(kb_mode, t); return; }
     if (kb_mode == KB_NETTXT) { net_kb_done(t); return; }      /* v75 : adresse IP / passerelle */
+    if (kb_mode == KB_NFS) { nfs_kb_done(t); return; }         /* v86 : serveur SMB / FTP / FSP */
     if (!*t) return;
     if (kb_mode == KB_RADIO) { rb_search_name(t); return; }
     if (kb_mode == KB_PODCAST) { podcast_search(t); return; }
@@ -10632,6 +10640,7 @@ static void draw_keyboard(void) {
                         kb_mode == KB_CHEATID ? "ID du jeu (6 caract\xC3\xA8res, ex. GALE01)" : kb_mode == KB_CHEATNAME ? "Nom du cheat" :
                         kb_mode == KB_CHEATCODE ? "Ligne de code (XXXXXXXX YYYYYYYY)" :
                         kb_mode == KB_NETTXT ? "Adresse (ex. 192.168.1.32)" :
+                        kb_mode == KB_NFS ? "Serveur du r\xC3\xA9seau (SMB / FTP / FSP)" :
                         "Adresse ou recherche";
     gx_text1(F_MED, 46, 143, title, RGBA(255, 255, 255, 255));
     if (kb_shift) gx_text_r(F_SMALL, 594, 142, "MAJUSCULES", RGBA(255, 210, 120, 255));
@@ -11110,7 +11119,7 @@ static void draw_list_radio(void) {
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
        MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_RECAT, MI_RECLEN, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PERF, MI_LAUNCHER, MI_UPDATE,
-       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_QUIT, MI_COUNT };
+       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_QUIT, MI_COUNT };
 static int autostart_get(void);
 static const char *autostart_set(int on);
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
@@ -11126,7 +11135,7 @@ static const s8 sec_items[6][24] = {
       MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, MI_HIDDEN, MI_UNKNOWN, MI_PERF, -1 },
     { MI_TV, MI_VIDEO, MI_WIDE, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, -1 },
     { MI_LAUNCHER, MI_GLANG, MI_GSOUND, MI_RUMBLE, MI_IGR, MI_NATIGR, MI_NATCARD, MI_AUTOSTART, MI_GLVIEW, MI_GLANIM, -1 },
-    { MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_UPDATE, -1 } };
+    { MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_PHONEAUTO, MI_UPDAUTO, MI_UPDATE, -1 } };
 static int sec_n(int sec) { int n = 0; if (sec < 0 || sec >= SEC_TOOLS) return 0; while (n < 24 && sec_items[sec][n] >= 0) n++; return n; }
 static int sec_pos(int sec, int mi) { for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] == mi) return i; return -1; }
 static int fe_show_hidden, fe_hide_unknown;                   /* (tab_files.c) */
@@ -11181,6 +11190,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_GW:      snprintf(out, cap, "%s", net_dhcp ? (gw_str[0] ? gw_str : "-") : net_cfg_gw[0] ? net_cfg_gw : "(A : taper)"); break;
     case MI_PHONEAUTO: snprintf(out, cap, "%s", phone_auto ? "Oui" : "Non"); break;
     case MI_UPDAUTO: snprintf(out, cap, "%s", upd_auto ? "Oui" : "Non"); break;
+    case MI_NETSMB: case MI_NETFTP: case MI_NETFSP: nfs_menu_value(i - MI_NETSMB, out, cap); break;   /* v86 */
     case MI_TREBLE:  if (eq_treble) snprintf(out, cap, "%+d dB", eq_treble); else snprintf(out, cap, "0"); break;
     case MI_LYRICS:  snprintf(out, cap, "%s", lyrics_auto ? "Oui" : "Non"); break;
     case MI_PODAUTO: snprintf(out, cap, "%s", pod_auto ? "T\xC3\xA9l\xC3\xA9" "charg\xC3\xA9s tout seuls" : "Non"); break;
@@ -11261,7 +11271,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "Retour en jeu (A+Z+START)", "A+Z+START (Resident)", "Carte m\xC3\xA9moire virtuelle (Resident)", "Mesure de fluidit\xC3\xA9", "Lanceur de jeux", "Mise \xC3\xA0 jour",
     "Fichiers cach\xC3\xA9s (FICHIERS)", "Cacher les fichiers inconnus", "Langue des jeux (console)", "Son (console)",
     "Adresse automatique (DHCP)", "Adresse IP de la console", "Masque", "Passerelle (box)", "T\xC3\xA9l\xC3\xA9" "commande au d\xC3\xA9marrage",
-    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Quitter GC Station" };
+    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Quitter GC Station" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -11316,6 +11326,7 @@ static void menu_change(int i, int d) {
         return;
     case MI_PHONEAUTO: phone_auto = !phone_auto; break;
     case MI_UPDAUTO: upd_auto = !upd_auto; break;
+    case MI_NETSMB: case MI_NETFTP: case MI_NETFSP: nfs_ui_open(i - MI_NETSMB); return;   /* v86 */
     case MI_BASS:    eq_bass += 2 * d; eq_preset = 0; eq_setup(); break;
     case MI_TREBLE:  eq_treble += 2 * d; eq_preset = 0; eq_setup(); break;
     case MI_LYRICS:  lyrics_auto = !lyrics_auto; if (lyrics_auto) net_start_async(); break;
@@ -11414,6 +11425,7 @@ static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
     if (down & PAD_BUTTON_A) {
         crumb("menu : %s", menu_labels[menu_sel]);
         if (menu_sel == MI_QUIT) quit_requested = 1;
+        else if (menu_sel >= MI_NETSMB && menu_sel <= MI_NETFSP) { nfs_ui_open(menu_sel - MI_NETSMB); return; }   /* v86 */
         else if (menu_sel == MI_PARTY) {                      /* A = lancer le mode soiree */
             menu_open = 0;
             if (settings_dirty) save_settings();
@@ -11584,6 +11596,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_DHCP) hint = "Non : adresse fixe (lignes suivantes). Pris en compte au prochain d\xC3\xA9marrage";
     if (menu_sel == MI_IP || menu_sel == MI_GW) hint = "A : taper l'adresse (DHCP sur Non). Pris en compte au prochain d\xC3\xA9marrage";
     if (menu_sel == MI_PHONEAUTO) hint = "La page du t\xC3\xA9l\xC3\xA9phone (onglet T\xC3\x89L\xC3\x89PHONE) est pr\xC3\xAAte d\xC3\xA8s le d\xC3\xA9marrage";
+    if (menu_sel >= MI_NETSMB && menu_sel <= MI_NETFSP) hint = "A : adresse, utilisateur, mot de passe, test ; puis onglet FICHIERS (B depuis la carte SD)";
     if (menu_sel == MI_UPDAUTO) hint = "Une nouvelle version est signal\xC3\xA9" "e au d\xC3\xA9marrage (rien n'est install\xC3\xA9 sans toi)";
     if (hint) gx_text1(F_SMALL, x + 20, help_y + 8, hint, RGBA(255, 210, 120, 255));
     draw_menu_legend(0);
@@ -12417,6 +12430,7 @@ static void draw_party(void) {
 #include "tab_retro.c"
 #include "tab_podcast.c"
 #include "tab_photo.c"
+#include "netfs.c"                             /* v86 : fichiers sur le reseau (SMB, FTP, FSP) */
 #include "tab_files.c"
 #include "tab_infos.c"
 #include "tab_phone.c"
@@ -12632,6 +12646,8 @@ int main(int argc, char **argv) {
     crash_init();                           /* journal de plantage */
     ui_lang_apply();                        /* v24 : langue de la console, sauf reglage */
     load_settings();
+    if (sd_ok && !nfs_cfg[NFS_SMB].host[0] && !nfs_cfg[NFS_FTP].host[0] && !nfs_cfg[NFS_FSP].host[0] && nfs_swiss_import(0)) settings_dirty = 1;   /* v86 : serveurs de Swiss */
+    nfs_mount();
     jeux_cfg_boot();                        /* v75 : langue / son de la console, reseau (et reprise des anciens reglages d'Indigo) */
     if (sd_ok) ld_boot();                   /* v45 : retour.txt (retour en jeu) + journal du lanceur */
     if (!init_video()) return 1;

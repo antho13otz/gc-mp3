@@ -60,13 +60,42 @@ static int fe_known(const char *n) {
     for (int i = 0; ext[i]; i++) if (!strcasecmp(dot, ext[i])) return 1;
     return 0;
 }
+/* v86 : au-dessus de la carte SD : les appareils (carte SD, serveurs SMB / FTP / FSP regles) */
+static int fe_devs = 0;                                /* 1 = liste des appareils */
+static char fe_dev[1 + NFS_N][8];
+static int fe_net(void) { return nfs_is_net(fe_cwd); }
+static int fe_at_root(void) { return !strchr(fe_cwd, '/'); }   /* "sd:", "ftp:"... */
+static void fe_load_devs(void) {
+    nfe = 0;
+    snprintf(fe[nfe].name, sizeof(fe[nfe].name), "Carte SD");
+    snprintf(fe_dev[nfe], sizeof(fe_dev[0]), "%s", SD_ROOT);
+    fe[nfe].dir = 1; fe[nfe].mark = 0; fe[nfe].size = 0; nfe++;
+    for (int p = 0; p < NFS_N; p++) {
+        if (!nfs_cfg_ok(p)) continue;
+        if (p == NFS_SMB) snprintf(fe[nfe].name, sizeof(fe[nfe].name), "%s  \\\\%s\\%s", nfs_label[p], nfs_cfg[p].host, nfs_cfg[p].share);
+        else snprintf(fe[nfe].name, sizeof(fe[nfe].name), "%s  %s", nfs_label[p], nfs_cfg[p].host);
+        snprintf(fe_dev[nfe], sizeof(fe_dev[0]), "%s:", nfs_scheme[p]);
+        fe[nfe].dir = 1; fe[nfe].mark = 0; fe[nfe].size = 0; nfe++;
+    }
+    if (fe_sel > nfe) fe_sel = nfe;
+}
 static void fe_load(void) {
     if (!fe) fe = (fent_t *)malloc(sizeof(fent_t) * FE_MAX);
     nfe = 0;
-    if (!fe || !sd_ok) return;
+    if (!fe) return;
+    fe_free = -1;                                          /* (place libre : carte SD seulement) */
+    if (fe_devs) { fe_load_devs(); return; }
     if (!fe_cwd[0]) snprintf(fe_cwd, sizeof(fe_cwd), "%s", SD_ROOT);
+    int net = fe_net();
+    if (!net && !sd_ok) return;
+    if (net && net_phase != NET_DONE) {                   /* (reseau pas encore pret : il demarre) */
+        net_start_async();
+        fe_note("R\xC3\xA9seau en cours de connexion... (B puis A pour r\xC3\xA9" "essayer)");
+        return;
+    }
+    if (net) nfs_err[0] = 0;
     DIR *d = opendir(fe_cwd);
-    if (!d) return;
+    if (!d) { if (net) fe_note(nfs_err[0] ? nfs_err : "Serveur injoignable"); return; }
     struct dirent *e;
     char path[NAME_LEN];
     while ((e = readdir(d)) != NULL && nfe < FE_MAX) {
@@ -78,7 +107,7 @@ static void fe_load(void) {
         fe[nfe].dir = (u8)is_dir(path, e);
         fe[nfe].mark = 0;
         fe[nfe].size = 0;
-        if (!fe[nfe].dir) { struct stat st; if (stat(path, &st) == 0) fe[nfe].size = (long)st.st_size; }
+        if (!fe[nfe].dir) { struct stat st; if (stat(path, &st) == 0) fe[nfe].size = (long)st.st_size; }   /* (reseau : taille deja connue, cache de netfs) */
         nfe++;
         if ((nfe & 31) == 0) service_audio();
     }
@@ -86,7 +115,7 @@ static void fe_load(void) {
     qsort(fe, nfe, sizeof(fent_t), fe_cmp);
     if (fe_sel >= nfe + 1) fe_sel = nfe;
     struct statvfs sv;
-    if (statvfs(SD_ROOT "/", &sv) == 0) fe_free = (long)((unsigned long long)sv.f_bavail * sv.f_frsize / (1024 * 1024));
+    if (!net && statvfs(SD_ROOT "/", &sv) == 0) fe_free = (long)((unsigned long long)sv.f_bavail * sv.f_frsize / (1024 * 1024));
 }
 
 static void files_enter(void) { if (!fe || !nfe) fe_load(); }
@@ -116,10 +145,54 @@ static void tv_open(const char *path, const char *name) {
     snprintf(tv_name, sizeof(tv_name), "%s", name);
 }
 
+/* v86 : un fichier du reseau : musique (tout le dossier dans la file), photo, video */
+static int fe_track_of(const char *path) { for (int k = 0; k < nfiles; k++) if (!strcmp(names[k], path)) return k; return -1; }
+static int fe_net_music(int i) {
+    char p[NAME_LEN];
+    for (int k = 0; k < nfe; k++) {
+        if (fe[k].dir || !audio_ext_len(fe[k].name)) continue;
+        fe_path(k, p, sizeof(p));
+        if (fe_track_of(p) < 0) music_add_file(p);
+    }
+    fe_path(i, p, sizeof(p));
+    int t = fe_track_of(p);
+    if (t < 0) { fe_note("Biblioth\xC3\xA8que pleine"); return 0; }
+    queue_build(t);
+    start_track(t);
+    fe_note(track_err ? track_err : "Lecture lanc\xC3\xA9" "e");
+    return 1;
+}
+static void fe_net_photo(int i) {
+    if (npf < 0) photo_rescan();
+    if (!pf) return;
+    char p[NAME_LEN];
+    int want = -1;
+    fe_path(i, p, sizeof(p));
+    for (int k = 0; k < nfe; k++) {                           /* (les photos du dossier, pour passer de l'une a l'autre) */
+        const char *dot = strrchr(fe[k].name, '.');
+        int vid = dot && !strcasecmp(dot, ".avi");
+        if (fe[k].dir || (!img_ext(fe[k].name) && !vid)) continue;
+        char q[NAME_LEN];
+        fe_path(k, q, sizeof(q));
+        int f = -1;
+        for (int j = 0; j < npf; j++) if (!strcmp(pf[j].path, q)) { f = j; break; }
+        if (f < 0 && npf < PH_MAXF) { f = npf++; snprintf(pf[f].path, NAME_LEN, "%s", q); pf[f].video = (u8)vid; pf[f].bad = 0; pf[f].date = 0; }
+        if (!strcmp(q, p)) want = f;
+    }
+    if (want < 0) { fe_note("Trop de photos"); return; }
+    tab = TAB_PHOTO;
+    pv_open(want);
+}
 static void fe_open(int i) {
     char path[NAME_LEN];
+    if (fe_devs) { snprintf(fe_cwd, sizeof(fe_cwd), "%s", fe_dev[i]); fe_devs = 0; fe_sel = 0; fe_load(); return; }
     fe_path(i, path, sizeof(path));
     if (fe[i].dir) { snprintf(fe_cwd, sizeof(fe_cwd), "%s", path); fe_sel = 0; fe_load(); return; }
+    if (fe_net()) {
+        const char *dot = strrchr(fe[i].name, '.');
+        if (audio_ext_len(fe[i].name) > 0) { fe_net_music(i); return; }
+        if (img_ext(fe[i].name) || (dot && !strcasecmp(dot, ".avi"))) { fe_net_photo(i); return; }
+    }
     for (int k = 0; k < nfiles; k++)                                 /* un son de la bibliotheque */
         if (!strcmp(names[k], path)) { queue_build(k); start_track(k); fe_note("Lecture lanc\xC3\xA9" "e"); return; }
     const char *dot = strrchr(fe[i].name, '.');
@@ -328,6 +401,15 @@ static void files_kb_done(int mode, const char *t) {
     if (rename(path, dst) == 0) { fe_note("Renomm\xC3\xA9"); fe_changed(); } else fe_note("Impossible de renommer");
 }
 
+static void fe_up(void) {                                /* v86 : dossier parent ; au-dessus de la racine : les appareils */
+    if (fe_devs) return;
+    char *sl = strrchr(fe_cwd, '/');
+    fe_sel = 0;
+    if (sl) { *sl = 0; fe_load(); return; }
+    fe_devs = 1;
+    fe_load();
+    for (int i = 0; i < nfe; i++) if (!strcmp(fe_dev[i], fe_cwd)) fe_sel = i + 1;   /* (sur l'appareil qu'on quitte) */
+}
 static void files_input(u32 down, u32 nav, int fire) {
     if (ch_on) { cheats_input(down, nav, fire); return; }
     if (share_input(down)) return;                           /* v55 : fenetre du QR code */
@@ -359,10 +441,11 @@ static void files_input(u32 down, u32 nav, int fire) {
         if (fe_sel > rows - 1) fe_sel = rows - 1;
     }
     if (down & PAD_BUTTON_A) {
-        if (fe_sel == 0) { char *sl = strrchr(fe_cwd, '/'); if (sl && strcmp(fe_cwd, SD_ROOT)) { *sl = 0; fe_sel = 0; fe_load(); } }
+        if (fe_sel == 0) fe_up();
         else fe_open(fe_sel - 1);
     }
-    if (down & PAD_BUTTON_B) { char *sl = strrchr(fe_cwd, '/'); if (sl && strcmp(fe_cwd, SD_ROOT)) { *sl = 0; fe_sel = 0; fe_load(); } }
+    if (down & PAD_BUTTON_B) fe_up();
+    if ((down & PAD_BUTTON_X) && fe_devs) down &= ~PAD_BUTTON_X;   /* (pas d'actions sur la liste des appareils) */
     if (down & PAD_BUTTON_X) { fa_open = 1; fa_sel = fe_sel == 0 ? FA_PASTE : 0; fa_confirm = 0; }
     if ((down & PAD_BUTTON_Y) && fe_sel > 0 && fe_sel - 1 < nfe) {   /* v72 : Y = cocher (plusieurs fichiers d'un coup) */
         fe[fe_sel - 1].mark = !fe[fe_sel - 1].mark;
@@ -375,7 +458,9 @@ static void draw_tab_files(void) {
     char buf[NAME_LEN], d[NAME_LEN];
     draw_panel(11, 73, 618, 338);
     int tx = draw_tabs(NULL);
-    text_display(fe_cwd, d, sizeof(d));
+    if (fe_devs) snprintf(d, sizeof(d), "%s", "Appareils");
+    else if (fe_net() && fe_at_root()) { int p = -1; nfs_rel(fe_cwd, &p); snprintf(d, sizeof(d), "%s  (%s)", p >= 0 ? nfs_label[p] : fe_cwd, p >= 0 ? nfs_cfg[p].host : ""); }
+    else text_display(fe_cwd, d, sizeof(d));
     fit_text(F_SMALL, d, 600 - tx - (fe_free >= 0 ? 110 : 0), buf, sizeof(buf));
     gx_text1(F_SMALL, tx + 6, 99, buf, RGBA(200, 190, 240, 255));
     if (fe_free >= 0) { snprintf(buf, sizeof(buf), "Libre : %ld Mo", fe_free); gx_text_r(F_SMALL, 614, 99, buf, RGBA(150, 135, 210, 255)); }
@@ -412,7 +497,7 @@ static void draw_tab_files(void) {
         if (on) gx_rrect_fill(20, ry + 1, 600, 22, 5, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
         col_t txt = on ? RGBA(255, 255, 255, 255) : RGBA(210, 200, 240, 255);
         col_t dim = on ? RGBA(235, 225, 255, 255) : RGBA(140, 125, 200, 255);
-        if (r == 0) { gx_text1(F_MED, 34, cy + 5, strcmp(fe_cwd, SD_ROOT) ? ".. (dossier parent)" : "(racine de la carte SD)", dim); continue; }
+        if (r == 0) { gx_text1(F_MED, 34, cy + 5, fe_devs ? "Carte SD et serveurs du r\xC3\xA9seau" : !fe_at_root() ? ".. (dossier parent)" : ".. (appareils : carte SD, SMB, FTP, FSP)", dim); continue; }
         fent_t *e = &fe[r - 1];
         if (e->mark) {                                           /* v72 : coche */
             gx_rrect_fill(28, cy - 8, 16, 16, 4, RGBA(255, 210, 110, 255), RGBA(230, 160, 60, 255));
@@ -428,7 +513,8 @@ static void draw_tab_files(void) {
         if (!e->dir) { fmt_size(buf, sizeof(buf), e->size); gx_text_r(F_SMALL, 612, cy + 4, buf, dim); }
         if (clip_n == 1 && clip_path[0] && !strcmp(base_of(clip_path), e->name)) gx_text_r(F_SMALL, 540, cy + 4, clip_cut ? "coup\xC3\xA9" : "copi\xC3\xA9", RGBA(255, 210, 120, 255));
     }
-    if (nfe == 0) gx_text1(F_SMALL, 34, 166, "Dossier vide", RGBA(170, 155, 225, 255));
+    if (nfe == 0) gx_text1(F_SMALL, 34, 166, fe_net() && nfs_err[0] ? nfs_err : "Dossier vide", RGBA(170, 155, 225, 255));
+    if (fe_devs && nfe == 1) gx_text1(F_SMALL, 34, 190, "Serveurs SMB, FTP, FSP : START > R\xC3\xA9glages > R\xC3\xA9seau (repris de Swiss)", RGBA(170, 155, 225, 255));
     if ((fcp_in || cpq_i < cpq_n) && cpq_total > 0) {
         snprintf(buf, sizeof(buf), "Copie : fichier %d / %d  -  %ld %%", cpq_i + 1, cpq_n, (long)((long long)cpq_bytes * 100 / cpq_total));
         gx_text1(F_SMALL, 30, 404, buf, RGBA(255, 210, 120, 255));

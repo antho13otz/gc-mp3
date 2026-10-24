@@ -19,7 +19,7 @@ WEBP_SRC := $(wildcard $(L)/webp/src/dec/*.c) $(wildcard $(L)/webp/src/dsp/*.c) 
 LIBOBJ   := $(patsubst $(L)/%.c,$(O)/%.o,$(MBED_SRC) $(HELIX_SRC) $(XMP_SRC) $(WEBP_SRC)) $(patsubst $(L)/%.cpp,$(O)/%.o,$(GME_SRC)) $(O)/gme/emu2413.o $(O)/codecs.o
 SIMOBJ   := $(O)/pcsim.o $(O)/pcsim_gx.o $(O)/pcsim_limits.o $(O)/pcsim_new.o $(O)/main.o
 # limites de la GameCube (pcsim_limits.c) : memoire du tas, carte SD
-WRAP     := -Wl,--wrap=malloc,--wrap=free,--wrap=calloc,--wrap=realloc,--wrap=memalign,--wrap=posix_memalign,--wrap=aligned_alloc,--wrap=mallinfo,--wrap=strdup,--wrap=strndup,--wrap=fopen,--wrap=fileno,--wrap=stat,--wrap=opendir,--wrap=readdir
+WRAP     := -Wl,--wrap=malloc,--wrap=free,--wrap=calloc,--wrap=realloc,--wrap=memalign,--wrap=posix_memalign,--wrap=aligned_alloc,--wrap=mallinfo,--wrap=strdup,--wrap=strndup,--wrap=fopen,--wrap=fileno,--wrap=stat,--wrap=opendir,--wrap=readdir,--wrap=closedir
 
 all: gcstation
 

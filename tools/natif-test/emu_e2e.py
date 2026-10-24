@@ -162,7 +162,7 @@ tbl = [rd32(0x80003040 + i * 4) for i in (20, 21, 24)]
 ret = rd32(0x80001F50) == 0x42424242 and pc == STOP      # v64 : retour a GC Station (.dol recharge, pas de redemarrage)
 print(('OK   ' if ret else 'FAUX ') + 'retour a GC Station : faux .dol recharge depuis la carte et lance (%08X, pc %08X)' % (rd32(0x80001F50), pc))
 ok &= ret
-hk = resets == [] and 0x817F0000 <= tbl[0] < 0x81800000 and 0x817F0000 <= tbl[2] < 0x81800000 and rd32(0x80001F00) == 3 and (EXC or 55 <= rd32(0x80001F04) <= 70)
+hk = resets == [] and 0x817F0000 <= tbl[0] < 0x81800000 and 0x817F0000 <= tbl[2] < 0x81800000 and rd32(0x80001F00) == 3 and (EXC or 55 <= rd32(0x80001F04) <= 90)   # (v86 : 60 lectures des manettes, SI ou image)
 print(('OK   ' if hk else 'FAUX ') + 'crochets + A+Z+START / plantage : redemarrages %s, table SI %08X VI %08X, images %d, manettes %d' % (resets, tbl[0], tbl[2], rd32(0x80001F00), rd32(0x80001F04)))
 ok &= hk
 nolat = all(not (o == 0x40C and n <= 20) for o, n in si_reads) and (EXC or len(si_reads) > 0)

@@ -21,6 +21,19 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v87 — Fichiers sur le réseau : SMB, FTP, FSP
+- **Onglet FICHIERS** : B depuis la racine de la carte SD affiche les **appareils** (carte SD, partage SMB, serveur FTP, serveur FSP). On parcourt les dossiers du PC ou du NAS. **Musique** : A joue le morceau, et tout le dossier passe dans la file. **Photos et vidéos** s'ouvrent en plein écran. Les textes s'affichent. Copier / Coller vers la carte SD fonctionne. Accès en lecture seule.
+- **START > Réglages > Réseau** : *Partage SMB*, *Serveur FTP*, *Serveur FSP* : adresse, partage, utilisateur, mot de passe, port, **Tester la connexion**, **Reprendre les réglages de Swiss**, **Ouvrir dans FICHIERS**. Au premier démarrage, les réglages de Swiss (`SD:/swiss/settings/global.ini`) sont repris tout seuls. Ils sont gardés dans `gc-mp3.txt` (`smb_…`, `ftp_…`, `fsp_…`).
+- Clients écrits pour GC Station (`source/netfs.c`, `source/smb2.c`) :
+  - **SMB2** (2.0.2 / 2.1, Windows 10 / 11, Samba, NAS) : identification NTLMv2 (MD4 et NTOWFv2 vérifiés avec les vecteurs officiels RFC 1320 / MS-NLMP), signature HMAC-SHA256 quand le serveur l'exige (Windows 11), invité possible. Le vieux SMB1 de Swiss est désactivé par défaut sur Windows récent.
+  - **FTP** (EPSV / PASV, MLSD ou LIST Unix / Windows, reprise avec REST).
+  - **FSP** (UDP, comme Swiss, mot de passe).
+- Sur la console, chaque serveur est un disque comme la carte SD (`smb:/`, `ftp:/`, `fsp:/`). Simulateur : serveurs de test `tools/pc-sim/netsrv.py`, scénarios `reseau*.txt`.
+
+## Nouveautés v86 — Resident : A+Z+START marche dans les jeux récents
+- **Wind Waker démarre avec Resident** depuis la v84, sans Swiss.
+- **A+Z+START** (retour à GC Station) ne faisait rien dans Wind Waker : Resident ne regardait les manettes que dans l'interruption des manettes (SI), et les jeux faits avec un kit Nintendo récent lisent les manettes à chaque image, sans presque plus d'interruption SI. Resident regarde maintenant aussi à chaque image, après le jeu. Le retour se fait après environ 1 s (ou 60 lectures des manettes de suite).
+
 ## Nouveautés v85 — Fluidité pendant la musique
 - **La musique se décode pendant le temps libre de chaque image** (l'attente de l'écran) au lieu de passer avant le dessin. Un bloc n'est décodé que s'il tient avant l'image suivante (durée mesurée, FLAC haute résolution compris). Avant l'image, on ne décode qu'en secours, quand il reste moins de 0,5 s de son d'avance. Simulateur limité à la GameCube : images ratées pendant la lecture de 100–106 → 10–21, son identique.
 - **Lecture des MP3 sur la carte SD par 8 Ko** (avant : jusqu'à 48 Ko d'un coup, des dizaines de ms bloquées).
