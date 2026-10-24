@@ -21,6 +21,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v107 — musique du disque sans grésillement
+- La musique du disque (48 kHz) est ajoutée au son du jeu (32 kHz) : avant, un échantillon sur 1,5
+  était simplement gardé, et les aigus se repliaient en grésillement. Maintenant chaque échantillon de
+  sortie est la moyenne des échantillons du disque qu'il remplace : repli divisé par 7 à 100
+  (18-22 kHz), la musique elle-même ne change pas (3 kHz : -0,3 dB). Même fréquence : inchangé.
+
 ## Nouveautés v106 — musique du disque de Cocoto Kart Racer sans saccades
 - Journal de Cocoto Kart Racer (v105) : 16 452 tampons complétés pour 13 902 interruptions du son,
   dont 7 639 depuis le DSP : le jeu programme le tampon suivant, PUIS le DSP le calcule. La musique
