@@ -21,6 +21,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v105 — correctif : écran « BLOQUÉ, GX ne répond plus » en lançant un morceau (Aurore)
+- Le lecteur Musique du style Aurore envoyait 8 sommets (pochette + reflet) au processeur graphique
+  après en avoir annoncé 4 : la vraie console se bloquait. Corrigé.
+- Simulateur : il s'arrête désormais sur toute erreur de ce genre (nombre de sommets différent de
+  celui annoncé), comme la console ; tous les scénarios passent dans les 4 styles.
+
 ## Nouveautés v104 — curseur : tous les onglets en haut, la croix le cache
 - Curseur (stick) tout en haut de l'écran : un bandeau descend avec tous les onglets (icône + nom),
   dans le style choisi ; A ouvre l'onglet survolé. Le bandeau remonte quand le curseur s'en va.
