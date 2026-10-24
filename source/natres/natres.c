@@ -655,6 +655,7 @@ static void igr_poll(void) { igr_poll2(1); }
 static void igr_poll2(int count) {
     if (!(H.flags & NRF_IGR)) return;
     volatile u32 *si = (volatile u32 *)0xCC006400u;
+    static u8 igr_ch[4];                                 /* v99 : derniere chose vue sur chaque port (1 = A+Z+START tenus) */
     int on = 0, seen = 0;
     u32 sr = si[14];                                     /* SISR (lecture sans effet) */
     for (int ch = 0; ch < 4; ch++) {
@@ -666,10 +667,15 @@ static void igr_poll2(int count) {
         (void)si[ch * 3 + 2];                            /* v59 : puis INBUFL, comme le jeu (H puis L : rien de bloque) */
         H.si_reads++;
         if (ch == 0 && (b >> 16) != H.si_last) { H.si_last = b >> 16; H.si_changes = ((H.si_changes & 0xFFFFu) + 1) | (H.si_changes & 0xFFFF0000u) | ((b >> 16) & 0x1F7Fu) << 16; }   /* v96 : bits hauts = toutes les touches vues (diagnostic A+Z+START) */
-        if (b & 0x80000000u) continue;                   /* (pas de manette) */
+        /* v99 : une vraie manette met toujours le bit 0x0080 de ses touches. Un port que le jeu n'interroge
+           pas (rien de branche) garde 00000000, sans le bit d'erreur : avant, il comptait comme "manette sans
+           A+Z+START" chaque fois que la manette 1 etait sautee (donnees neuves) et remettait le compte a zero,
+           plusieurs fois par seconde : A+Z+START ne pouvait jamais etre tenu 1 s. */
+        if ((b & 0x80000000u) || !(b & 0x00800000u)) { igr_ch[ch] = 0; continue; }   /* (pas de manette) */
         seen = 1;
-        if ((b & 0x11000000u) == 0x11000000u && (b & 0x00100000u)) on = 1;   /* A + START, Z */
+        igr_ch[ch] = (b & 0x11000000u) == 0x11000000u && (b & 0x00100000u);   /* A + START, Z */
     }
+    for (int ch = 0; ch < 4; ch++) if (igr_ch[ch]) on = 1;   /* (port saute cette fois : son dernier etat) */
     u32 now = tbl();
     /* v93 : aucune manette lue cette fois (donnees pas encore prises par le jeu) : on ne sait rien, on garde
        l'etat. Avant, cela remettait le compte a zero : tres frequent depuis l'interruption du son (v89),

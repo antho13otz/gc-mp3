@@ -78,6 +78,8 @@ di_real = [0] * 10
 kicks = []
 
 si_inbuf = [0x80000000, 0x11900000, 0x80000000, 0x80000000]   # manette 1 : A + START + Z
+if os.environ.get('EMU_SISTALE'):                     # v99 : ports sans manette pas interroges par le jeu : 0 (pas le bit d'erreur)
+    si_inbuf = [0, 0x11900000, 0, 0]
 si_sr = [0x00200000, 0]                               # (v58 : manette 1 avec RDST les 20 premieres fois : ne doit pas etre lue)
 si_reads = []
 resets = []

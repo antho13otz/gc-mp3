@@ -21,6 +21,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v99 — A+Z+START (Resident)
+- Un port de manette vide que le jeu n'interroge pas garde 00000000, sans le bit d'erreur : Resident le
+  prenait pour une manette sans A+Z+START et remettait le compte à zéro plusieurs fois par seconde
+  (chaque fois que la manette 1 était sautée parce que le jeu n'avait pas encore pris ses données).
+  Maintenant : une manette doit avoir le bit 0x0080, et un port sauté garde son dernier état.
+- Banc d'essai : nouveau cas « ports vides à 0 » (échouait avant, passe maintenant).
+
 ## Nouveautés v98 — musique du disque sans saccades (Cocoto)
 - Resident ajoute la musique du disque au tampon du son au moment où le jeu le programme, que ce soit
   dans l'interruption du son ou dans celle du DSP (Cocoto : avant, la musique tombait dans le tampon
