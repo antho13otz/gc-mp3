@@ -21,6 +21,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v82 — Resident : le message d'erreur des jeux qui s'arrêtent
+- Wind Waker s'arrête **exprès** avec Resident : il appelle sa propre fonction d'erreur (qui écrit à l'adresse `01234567`) avant sa première image, sans avoir rien lu sur le disque. Son message n'allait nulle part.
+- Au plantage, Resident enregistre maintenant **la pile du jeu** : `journal-jeu.txt` a une partie « Pile du jeu au plantage » avec les **textes** trouvés (le nom du fichier du jeu, la ligne et le message de l'erreur, en général) et les endroits du jeu qui ont appelé la fonction d'erreur.
+- Le journal du jeu passe à 3 secteurs (les 2 derniers ne sont écrits qu'en cas de plantage).
+
 ## Nouveautés v81 — mesure de la mémoire corrigée
 - Le contrôle au démarrage (v76) mesurait la mémoire libre en essayant de réserver jusqu'à 12 Mo d'un coup. Ça ne gênait pas l'utilisation, mais ça faussait la mesure du simulateur `tools/pc-sim` (pic à 12,4 Mo et une réservation refusée, uniquement à cause de ce test). Il lit maintenant la mémoire libre sans rien réserver, comme Outils > Infos console. Mesure réelle dans pc-sim pendant le tour de tous les onglets : **2,4 Mo utilisés sur 12,7 Mo**, aucune réservation refusée.
 
