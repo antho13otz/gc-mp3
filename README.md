@@ -21,6 +21,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v92 — vitesse, onglet Jeux fluide, disque de démarrage
+- **Démarrage plus rapide** (environ 2 s de moins si la console démarre sur `ipl.dol`) : GC Station relisait tout son propre `.dol` (plusieurs Mo) à chaque démarrage pour se reconnaître, et une deuxième fois à la première ouverture des Réglages. La réponse est maintenant gardée (`SD:/gc-mp3/cache/dol-id.txt`).
+- **Onglet Jeux** (simulateur, 120 jeux) : 42 → 58 images/s, pire image 2,4 s → 55 ms au deuxième passage.
+  - Les jaquettes sont envoyées telles quelles au processeur graphique (format CMPR), sans conversion : 4 fois moins de mémoire, 96 jaquettes gardées au lieu de 32.
+  - Les grandes images de la fiche (jaquette, capture) et les bannières des jeux sont lues **en fond** : l'écran ne s'arrête plus en passant d'un jeu à l'autre. En attendant la grande jaquette, la petite est affichée.
+  - La bannière d'un jeu est trouvée sans lire toute la table des fichiers du disque.
+- **Disque de démarrage** (mini-DVD gravé, consoles avec puce) : `gc-station-disque-pal / ntsc-u / ntsc-j-bN.iso` dans la release « dernier ». Au démarrage, si la carte SD a une version plus récente de GC Station (numéro écrit par GitHub à la fin du `.dol`), c'est elle qui est lancée : on grave le disque une fois, les mises à jour passent par la carte SD. B maintenu : rester sur la version du disque.
+- `SD:/gc-mp3/demarrage.txt` : le temps de chaque étape du dernier démarrage.
+
 ## Nouveautés v91 — correctif : écran figé au premier démarrage de la v90
 - La reprise des fichiers de `SD:/swiss` se faisait au démarrage, avant que l'écran réponde : la console restait figée. Elle se fait maintenant **en fond**, un fichier à la fois, quelques secondes après le démarrage (la musique et les menus marchent pendant ce temps).
 - `SD:/gc-mp3/lanceur/migration.txt` est écrit **avant** de commencer : si quelque chose bloque, la reprise ne recommence jamais au démarrage suivant.
