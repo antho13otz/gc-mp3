@@ -27,6 +27,8 @@ static u32 gp_input(u32 down) {
         if (gp_y < 2) gp_y = 2;
         if (gp_y > 476) gp_y = 476;
     } else if (gp_on && now_ms() - gp_t > 6000) gp_on = 0;
+    /* v104 : la croix reprend la main : la fleche disparait (le stick la fait revenir) */
+    else if (gp_on && (down & (PAD_BUTTON_UP | PAD_BUTTON_DOWN | PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT))) gp_on = 0;
     if (!gp_on || !(down & PAD_BUTTON_A)) return down;
     int i = gp_hit();
     if (i < 0) return down;
