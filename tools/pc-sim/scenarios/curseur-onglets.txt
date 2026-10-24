@@ -1,0 +1,15 @@
+# v104 : curseur en haut = tous les onglets ; croix = la fleche disparait
+wait 3s
+stick main 0 100 1500ms
+wait 300ms
+shot c01-onglets
+stick main 60 0 400ms
+wait 200ms
+shot c02-survol
+press A
+wait 600ms
+shot c03-choisi
+press DOWN
+wait 400ms
+shot c04-croix
+quit

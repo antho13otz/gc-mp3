@@ -21,6 +21,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v104 — curseur : tous les onglets en haut, la croix le cache
+- Curseur (stick) tout en haut de l'écran : un bandeau descend avec tous les onglets (icône + nom),
+  dans le style choisi ; A ouvre l'onglet survolé. Le bandeau remonte quand le curseur s'en va.
+- Un appui sur la croix cache le curseur aussitôt ; le stick le fait revenir.
+
 ## Nouveautés v103 — Aurore : Musique, Jeux, menu START ; jeux dans chaque style
 - Aurore, onglet Musique (`source/ui_aurore2.c`) : grande pochette avec reflet, lumière aux couleurs
   de la pochette qui respire avec la musique, titre en grand, barre d'avancement en dégradé, trois

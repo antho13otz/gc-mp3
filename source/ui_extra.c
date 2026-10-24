@@ -20,7 +20,49 @@ static void tab_next(int dir) {
 }
 
 /* bandeau de tous les onglets, en haut de l'ecran, apres un appui sur Z */
+/* v104 : le curseur en haut de l'ecran : tous les onglets s'affichent (icone + nom), dans le style choisi ;
+   un clic (A) ouvre l'onglet. Le bandeau reste tant que le curseur est dessus, puis remonte. */
+static u64 tm_seen = 0, tm_open_t = 0;
+static int tm_vis = 0;
+static int tab_menu_draw(void) {
+    int hot = gp_on && gp_y < (tm_vis ? 70 : 40) && !menu_open && !tl_screen && !ic_on;
+    if (hot) { if (!tm_vis) tm_open_t = now_ms(); tm_seen = now_ms(); tm_vis = 1; }
+    else if (tm_vis && now_ms() - tm_seen > 350) tm_vis = 0;
+    if (!tm_vis) return 0;
+    f32 p = gl_anim ? (now_ms() - tm_open_t) / 160.0f : 1.0f;
+    if (p > 1) p = 1;
+    f32 dy = -66 * (1 - p) * (1 - p);
+    int n = 0;
+    FOR_TABS(t) if (tab_shown(t)) n++;
+    f32 iw = n ? 612.0f / n : 60, x = 14;
+    int sk = ui_skin;
+    nv_raw = 1;
+    col_t bg1 = sk == 3 ? RGBA(10, 10, 18, 245) : sk == 2 ? RGBA(26, 30, 52, 245) : sk == 1 ? RGBA(46, 46, 50, 245) : RGBA(16, 10, 44, 245);
+    col_t bg2 = sk == 3 ? RGBA(4, 4, 8, 248) : sk == 2 ? RGBA(16, 18, 34, 248) : sk == 1 ? RGBA(36, 36, 40, 248) : RGBA(8, 5, 26, 248);
+    gx_rrect_fill(6, 4 + dy, 628, 62, 16, bg1, bg2);
+    gx_rrect_stroke(6, 4 + dy, 628, 62, 16, 1.0f, sk == 0 ? RGBA(120, 80, 230, 255) : RGBA(255, 255, 255, 30));
+    nv_raw = 0;
+    FOR_TABS(t) {
+        if (!tab_shown(t)) continue;
+        int on = t == tab;
+        if (on) gx_rrect_fill(x + 2, 8 + dy, iw - 4, 54, 10, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));   /* (selection du style) */
+        nv_raw = 1;
+        col_t c = on ? RGBA(255, 255, 255, 255) : sk == 0 ? RGBA(180, 165, 235, 255) : RGBA(175, 180, 205, 255);
+        nv_icon(t, x + iw / 2, 25 + dy, c);
+        char nm[48];
+        txt_scale = 0.82f;
+        fit_text(F_SMALL, TR(nv_tab_names[t]), (int)(iw - 4), nm, sizeof(nm));
+        f32 tw = (f32)text_width(F_SMALL, nm, 0);
+        gx_text1(F_SMALL, x + iw / 2 - tw / 2, 53 + dy, nm, c);
+        txt_scale = 1.0f;
+        nv_raw = 0;
+        gp_zone(x, 0, iw, 66 + dy, NULL, t, GPZ_TAB);          /* (jusqu'au bord : la fleche s'arrete en haut) */
+        x += iw;
+    }
+    return 1;
+}
 static void draw_tab_strip(void) {
+    if (tab_menu_draw()) return;
     if (now_ms() >= tab_strip_until || ui_skin >= 2) return;   /* (v101 : Nouvelle : le dock est toujours la) */
     int n = 0, total = 0;
     FOR_TABS(t) if (tab_shown(t)) { total += text_width(F_SMALL, tab_names[t], 1) + 16; n++; }
