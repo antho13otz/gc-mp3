@@ -428,6 +428,7 @@ static void alive_tick(void) {
 static u32 vi_orig = 0;
 static void nr_log_flush(void);
 static void igr_poll(void);
+static void igr_poll2(int count);
 static void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee avant la fonction du jeu */
     if (++H.vi_in == 1) nr_log_flush();                  /* (1re image : on sait si le jeu y arrive) */
     if (vi_orig) ((void (*)(u32, u32))vi_orig)(irq, ctx);
@@ -441,6 +442,8 @@ static void ai_hook(u32 irq, u32 ctx) {                  /* v65 : apres le jeu, 
     H.cnt_ai++;
     st_mix();
     alive_tick();
+    igr_poll2(0);                                        /* v89 : aussi ici (~ toutes les 5 ms) : a l'image (VI), le jeu n'a
+                                                            souvent pas encore pris les manettes (Wind Waker) : lecture interdite */
 }
 NR_HOOK(dsp, H.cnt_dsp)
 NR_HOOK(pet, H.cnt_pe)
@@ -578,7 +581,9 @@ static void si_hook(u32 irq, u32 ctx) {
     alive_tick();
     igr_poll();
 }
-static void igr_poll(void) {
+static void igr_poll(void) { igr_poll2(1); }
+/* count = 0 : ne compte que le temps (interruption du son : trop frequente pour compter les lectures) */
+static void igr_poll2(int count) {
     if (!(H.flags & NRF_IGR)) return;
     volatile u32 *si = (volatile u32 *)0xCC006400u;
     int on = 0;
@@ -597,8 +602,8 @@ static void igr_poll(void) {
     }
     u32 now = tbl();
     if (!on) { igr_hold = 0; return; }
-    if (!igr_hold) igr_t0 = now;
-    igr_hold++;
+    if (!igr_hold) { igr_t0 = now; igr_hold = 1; }
+    if (count) igr_hold++;
     if (now - igr_t0 > TB_SEC || igr_hold > 60) {        /* (tenus 1 s, ou 60 lectures des manettes de suite) */
         H.igr = 1;
         nr_log_flush();

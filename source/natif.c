@@ -1401,7 +1401,13 @@ static const char *nat_boot(int k) {
     stop_track(); stop_station();
     AUDIO_StopDMA();
     fatUnmount("sd");
-    VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();
+    /* v89 : l'ecran dans le mode du jeu avant le saut (comme le fait Swiss) : PAL 576i, PAL 60 (EURGB60) ou
+       NTSC 480i. Avant : le mode de GC Station (souvent 480p) restait, et certains jeux le reprenaient tel quel
+       (Paper Mario : rouge et bleu inverses sur la prise numerique / adaptateur HDMI) */
+    u32 na_vb = na_vi_bootrom(in.id);
+    GXRModeObj *na_gm = na_vb == 1 ? &TVPal576IntDfScale : na_vb == 5 ? &TVEurgb60Hz480IntDf : &TVNtsc480IntDf;
+    VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync();
+    VIDEO_Configure(na_gm); VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();
     SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
     u32 level = IRQ_Disable();                            /* plus d'interruptions : on ecrase GC Station */
     (void)level;
@@ -1419,7 +1425,7 @@ static const char *nat_boot(int k) {
     lm[0x38 / 4] = fst_dest;                              /* FST */
     lm[0x3C / 4] = in.fst_max;
     lm[0xF0 / 4] = 0x01800000u;                           /* memoire simulee */
-    lm[0xCC / 4] = na_vi_bootrom(in.id);                  /* v84 : mode video "du BIOS" (sinon les jeux PAL s'arretent : VIConfigure) */
+    lm[0xCC / 4] = na_vb;                                 /* v84 : mode video "du BIOS" (sinon les jeux PAL s'arretent : VIConfigure) */
     lm[0xF4 / 4] = bi2_dest;                              /* bi2.bin */
     if (!lm[0xF8 / 4]) lm[0xF8 / 4] = 0x09A7EC80u;        /* vitesse du bus */
     if (!lm[0xFC / 4]) lm[0xFC / 4] = 0x1CF7C580u;        /* vitesse du processeur */
