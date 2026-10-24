@@ -85,7 +85,7 @@ typedef struct {
     unsigned int tramp_at, tramp_n;                       /* place libre pour les aiguillages (GC Station) ; acces branches pendant le jeu */
     /* v99 : l'ecran (ecran noir apres le choix 480p : jeu fige, ou image envoyee mais pas affichee ?) */
     unsigned int vi_now;                                  /* DCR (0xCC002002) << 16 | horloge VI (0xCC00206C : 1 = 54 MHz, 480p) */
-    unsigned int vi_dtv;                                  /* cable numerique / composante (0xCC00206E) << 16 | VTR (0xCC002000) */
+    unsigned int vi_dtv;                                  /* cable numerique / composante (0xCC00206E) << 16 | DI1 (0xCC002034, v111) */
     unsigned int vi_chg;                                  /* changements de mode vus (DCR sans le bit "actif", horloge) */
     unsigned int vi_chg_at;                               /* image (VI) du dernier changement */
 } natres_hdr_t;

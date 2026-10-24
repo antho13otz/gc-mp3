@@ -182,6 +182,9 @@ static void rh_open(void);
 static void saver_tableau(float t);
 static char radio_last_url[URL_MAX], radio_last_name[48];
 static int nat_card = 1;                                /* v65 : carte memoire virtuelle (slot A) pour Resident */
+static int pulse_ld = 0;                                /* v111 : ecran de chargement de Pulse (natif.c) */
+static const char *const pulse_ld_names[5] = { "Aurore", "C\xC5\x93ur", "Cin\xC3\xA9ma", "Minimal", "Au hasard" };
+static const char *const pulse_ld_keys[5] = { "aurore", "coeur", "cinema", "minimal", "hasard" };
 static int nat_igr = 1;                                 /* v59 : A+Z+START dans Resident (natif.c) ; v63 : de nouveau actif (lecture H + L : la manette marche) */
 static int gl_sort = 0;                                 /* v45 : tri des jeux : A-Z, derniers lances, taille, region */
 static const char *const gl_sort_keys[4] = { "az", "recents", "taille", "region" };
@@ -4572,6 +4575,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "jeux_animations")) gl_anim = !has_word(v, "non");
         else if (!strcasecmp(k, "lanceur_maison_retour")) nat_igr = !has_word(v, "non");
         else if (!strcasecmp(k, "resident_carte_virtuelle")) nat_card = !has_word(v, "non");
+        else if (!strcasecmp(k, "pulse_chargement")) { for (int i = 0; i < 5; i++) if (!strcasecmp(v, pulse_ld_keys[i])) pulse_ld = i; }
         else if (!strcasecmp(k, "interface")) { ui_lang = !strncasecmp(v, "en", 2) ? 1 : !strncasecmp(v, "fr", 2) ? 0 : -1; ui_lang_apply(); }
         else if (!strcasecmp(k, "langue")) { lang_pref = -1; for (int i = 0; i < LANG_COUNT; i++) if (!strncasecmp(v, lang_keys[i], 2)) lang_pref = i; }
         else if (!strcasecmp(k, "tele")) tv_crt = !strncasecmp(v, "cath", 4) || !strncasecmp(v, "crt", 3);
@@ -4698,6 +4702,7 @@ static void save_settings(void) {
                "jeux_tri = %s\njeux_animations = %s\n", gl_sort_keys[gl_sort & 3], gl_anim ? "oui" : "non");
     fprintf(f, "# Pulse (X) : A+Z+START = retour a GC Station (oui / non)\nlanceur_maison_retour = %s\n", nat_igr ? "oui" : "non");
     fprintf(f, "# Pulse (X) : carte memoire virtuelle du slot A (gc-mp3/resident/carte-A.raw)\nresident_carte_virtuelle = %s\n", nat_card ? "oui" : "non");
+    fprintf(f, "# Pulse : ecran de chargement (aurore / coeur / cinema / minimal / hasard)\npulse_chargement = %s\n", pulse_ld_keys[pulse_ld >= 0 && pulse_ld < 5 ? pulse_ld : 0]);
     fprintf(f, "# Ordre des onglets\nordre_onglets = ");
     for (int i = 0; i < TAB_COUNT; i++) fprintf(f, "%s%s", i ? "," : "", tab_keys[tab_order[i]]);
     fprintf(f, "\n");
@@ -11210,7 +11215,7 @@ static void draw_list_radio(void) {
 
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
-       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_RECAT, MI_RECLEN, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PERF, MI_LAUNCHER, MI_UPDATE,
+       MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_RECAT, MI_RECLEN, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PULSELD, MI_PERF, MI_LAUNCHER, MI_UPDATE,
        MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_QUIT, MI_COUNT };
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
 static const char *ipl_set(int on);
@@ -11223,7 +11228,7 @@ static const s8 sec_items[6][24] = {
     { MI_UILANG, MI_LANG, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH,
       MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, MI_HIDDEN, MI_UNKNOWN, MI_PERF, -1 },
     { MI_TV, MI_VIDEO, MI_WIDE, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, -1 },
-    { MI_NATIGR, MI_NATCARD, MI_GLANG, MI_GSOUND, MI_RUMBLE, MI_AUTOSTART, MI_LAUNCHER, MI_IGR, MI_GLVIEW, MI_GLANIM, -1 },
+    { MI_NATIGR, MI_NATCARD, MI_PULSELD, MI_GLANG, MI_GSOUND, MI_RUMBLE, MI_AUTOSTART, MI_LAUNCHER, MI_IGR, MI_GLVIEW, MI_GLANIM, -1 },
     { MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_PHONEAUTO, MI_UPDAUTO, MI_UPDATE, -1 } };
 static int sec_n(int sec) { int n = 0; if (sec < 0 || sec >= SEC_TOOLS) return 0; while (n < 24 && sec_items[sec][n] >= 0) n++; return n; }
 static int sec_pos(int sec, int mi) { for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] == mi) return i; return -1; }
@@ -11305,6 +11310,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_GLANIM:  snprintf(out, cap, "%s", gl_anim ? "Oui" : "Non"); break;
     case MI_NATIGR:  snprintf(out, cap, "%s", nat_igr ? "Oui" : "Non"); break;
     case MI_NATCARD: snprintf(out, cap, "%s", nat_card ? "Oui (slot A)" : "Non"); break;
+    case MI_PULSELD: snprintf(out, cap, "%s", pulse_ld_names[pulse_ld >= 0 && pulse_ld < 5 ? pulse_ld : 0]); break;
     case MI_PERF:    snprintf(out, cap, "%s", perf_on ? "Oui" : "Non"); break;
     case MI_LYRSHOW: snprintf(out, cap, "%s", lyr_names[lyr_show]); break;
     case MI_FLASH:   snprintf(out, cap, "%s", flash_names[flash_mode]); break;
@@ -11356,7 +11362,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts", "Vitesse des podcasts", "Podcasts : sauter les silences",
     "Reprendre au d\xC3\xA9marrage", "Reprendre la radio au d\xC3\xA9marrage", "Encha\xC3\xAEnement sans blanc", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Position horizontale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
     "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Animations (jeux / applis)", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre", "Couleurs du spectrogramme", "Paroles dans le lecteur", "\xC3\x89" "clair sur les basses",
-    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "A+Z+START (lanceur de secours)", "A+Z+START (Pulse)", "Carte m\xC3\xA9moire virtuelle (Pulse)", "Mesure de fluidit\xC3\xA9", "Lanceur de secours", "Mise \xC3\xA0 jour",
+    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "A+Z+START (lanceur de secours)", "A+Z+START (Pulse)", "Carte m\xC3\xA9moire virtuelle (Pulse)", "\xC3\x89" "cran de chargement (Pulse)", "Mesure de fluidit\xC3\xA9", "Lanceur de secours", "Mise \xC3\xA0 jour",
     "Fichiers cach\xC3\xA9s (FICHIERS)", "Cacher les fichiers inconnus", "Langue des jeux (console)", "Son (console)",
     "Adresse automatique (DHCP)", "Adresse IP de la console", "Masque", "Passerelle (box)", "T\xC3\xA9l\xC3\xA9" "commande au d\xC3\xA9marrage",
     "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Quitter GC Station" };
@@ -11432,6 +11438,7 @@ static void menu_change(int i, int d) {
     case MI_GLANIM:  gl_anim = !gl_anim; break;
     case MI_NATIGR:  nat_igr = !nat_igr; break;
     case MI_NATCARD: nat_card = !nat_card; break;
+    case MI_PULSELD: pulse_ld = (pulse_ld + (d < 0 ? 4 : 1)) % 5; break;
     case MI_PERF:    perf_toggle(); return;
     case MI_RUMBLE:  rumble_on = !rumble_on; if (rumble_on) rumble(0, 200); ic_put2("Disable PAD Rumble", rumble_on ? "No" : "Yes", 1); break;
     case MI_PARTY:   party_style = (party_style + d + PARTY_STYLES) % PARTY_STYLES; break;
@@ -11666,6 +11673,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_RECLEN) hint = "La radio enregistr\xC3\xA9" "e est celle qui joue quand tu r\xC3\xA8gles l'heure";
     if (menu_sel == MI_LOWMID || menu_sel == MI_PRES) hint = "\xC3\x89galiseur 5 bandes : graves, bas-m\xC3\xA9" "diums, m\xC3\xA9" "diums, pr\xC3\xA9sence, aigus";
     if (menu_sel == MI_PERF) hint = "Images/s en haut de l'\xC3\xA9" "cran ; en coupant : rapport SD:/gc-mp3/fluidite.txt";
+    if (menu_sel == MI_PULSELD) hint = "Le style de l'\xC3\xA9" "cran qui s'affiche pendant le lancement d'un jeu avec Pulse";
     if (menu_sel == MI_NATCARD) hint = "Jeux lanc\xC3\xA9s avec Pulse : sauvegardes dans SD:/gc-mp3/resident (choix : Outils > Cartes virtuelles)";
     if (menu_sel == MI_NATIGR) hint = "Jeux lanc\xC3\xA9s avec Pulse (A) : A+Z+START tenus 1 s = retour \xC3\xA0 GC Station";
     if (menu_sel == MI_LAUNCHER) hint = ld_hint();

@@ -21,6 +21,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v111 — 480p avec Pulse, 4 écrans de chargement
+- 480p / mode progressif avec Pulse (Mario Superstar Baseball : écran noir après « Oui ») : le SDK des jeux
+  n'applique un changement de mode qu'à l'interruption d'écran de la 1re ligne (DI1, getCurrentFieldEvenOdd
+  dans VISetRegs). Le BIOS l'active, libogc (GC Station) non : avec la seule interruption du milieu
+  d'image, le changement attendait pour toujours, écran déjà au noir. Pulse programme maintenant DI0 et
+  DI1 comme le BIOS (__VIInit) juste avant de lancer le jeu (aussi pour le disque de la console).
+  Journal du jeu : état de DI1.
+- Réglages > Jeux > Écran de chargement (Pulse) : Aurore, Cœur (logo en grand qui bat), Cinéma (grande
+  jaquette, ligne de battement qui se dessine), Minimal (l'hexagone se remplit), Au hasard.
+
 ## Nouveautés v110 — Mes applis fluide, seulement les applis avec image, Jeux / Apps façon Aurore
 - Les pochettes des applis sont calculées dans le thread de fond (avant : dans la boucle principale,
   jusqu'à une demi-seconde par grand PNG : l'écran ramait). Travail générique du thread de fond
