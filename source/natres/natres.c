@@ -48,6 +48,7 @@ natres_hdr_t natres_hdr = {
     0, 0, 0, 0, 0, 0,
     0, 0, 0, 0,
     0, 0, { 0, 0, 0, 0 }, 0, 0,
+    0, 0, 0, 0,
 };
 #define H natres_hdr
 
@@ -414,8 +415,13 @@ NR_HOOK(pef, H.cnt_pe)
 u8 exc_stack[2048] __attribute__((aligned(16), used));
 void exc_c(u32 ex, u32 ctx) __attribute__((used));
 extern void exc_entry(void);
+/* v83 : le vecteur du SDK ne sauve que r3-r5, CR, LR, CTR, XER, SRR0/1 : r0-r2 et r6-r31 sont
+   sauves par le gestionnaire (comme OSDefaultExceptionHandler), sinon le contexte garde les
+   valeurs d'un ancien changement de tache (journal faux : r1, pile, appels). (CTR : deja sauve) */
 __asm__(".pushsection .text\n.globl exc_entry\nexc_entry:\n"
-        "  lis 1,exc_stack@ha\n  addi 1,1,exc_stack@l\n  addi 1,1,2032\n  b exc_c\n.popsection\n");
+        "  mtctr 0\n  oris 5,4,0x8000\n  rlwinm 0,5,7,25,31\n  cmplwi 0,0x40\n  mfctr 0\n  bne 1f\n"
+        "  stw 0,0(5)\n  stw 1,4(5)\n  stw 2,8(5)\n  stmw 6,0x18(5)\n"
+        "1:\n  lis 1,exc_stack@ha\n  addi 1,1,exc_stack@l\n  addi 1,1,2032\n  b exc_c\n.popsection\n");
 /* v79 : details d'un plantage (format : natres.h, NATRES_CRASH_*), pour savoir POURQUOI le
    jeu s'est arrete : registres, chaine des appels (pile du jeu), textes passes a sa fonction
    d'erreur (un jeu qui s'arrete expres ecrit souvent a une adresse bidon comme 01234567,
@@ -454,6 +460,31 @@ static void stack_dump(u32 sp) {
     cw(0x0C, ns);
     nr_write_sd(H.log_sec + 2, crashbuf);
 }
+/* v83 : photo de la memoire du jeu (format : natres.h, NATRES_SNAP_*) */
+static void mem_snap(volatile u32 *c) {
+    if (!(H.flags & NRF_SNAP) || !H.snap_sec || H.snap_cnt < 2) return;
+    u32 zb[4], zl[4];
+    zb[0] = 0x80000000u; zl[0] = 0x3200;
+    zb[1] = (c[13] & ~31u) - 0x8000u; zl[1] = 0x10000;
+    zb[2] = (c[1] & ~31u) - 0x200u; zl[2] = 0x4000;
+    zb[3] = (H.snap_hi + 31) & ~31u; zl[3] = 0x40000;
+    for (u32 i = 0; i < 512; i++) crashbuf[i] = 0;
+    cw(0x00, NATRES_SNAP_MAGIC);
+    u32 sec = 1, nz = 0;
+    for (int z = 0; z < 4; z++) {
+        u32 b = zb[z], l = (zl[z] + 511) & ~511u;
+        if (b < 0x80000000u) b = 0x80000000u;
+        if (b >= 0x81800000u) continue;
+        if (b + l > 0x81800000u) l = (0x81800000u - b) & ~511u;
+        if (sec + (l >> 9) > H.snap_cnt) l = (H.snap_cnt - sec) << 9;
+        if (!l) continue;
+        cw(0x08 + nz * 16, b); cw(0x0C + nz * 16, l); cw(0x10 + nz * 16, sec);
+        for (u32 o = 0; o < l; o += 512, sec++) if (nr_write_sd(H.snap_sec + sec, (const u8 *)(b + o)) == 0) H.snap_done++;
+        nz++;
+    }
+    cw(0x04, nz);
+    nr_write_sd(H.snap_sec, crashbuf);
+}
 static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
     if (!(H.flags & NRF_CRASH) || !H.log_sec || !di_ready) return;
     for (u32 i = 0; i < 512; i++) crashbuf[i] = 0;
@@ -480,6 +511,7 @@ static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
     }
     nr_write_sd(H.log_sec + 1, crashbuf);
     if (H.flags & NRF_STACK) stack_dump(c[1]);
+    mem_snap(c);
 }
 void exc_c(u32 ex, u32 ctx) {
     u32 dar, dsisr;

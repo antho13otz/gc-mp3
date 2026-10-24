@@ -21,6 +21,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v83 — Fluidité (réseau) et Resident : photo de la mémoire au plantage
+- **Fluidité** : les paroles, pochettes, météo, infos, podcasts et la vérification de mise à jour ne figent plus l'écran. La recherche du site, la connexion et la négociation HTTPS (jusqu'à 1 s de calcul pour la GameCube) se font maintenant dans un fil de faible priorité, qui ne prend que le temps libre, après l'affichage et le décodage du son. Mesuré dans le simulateur limité à la GameCube : pire image 250–300 ms → 60 ms, tous les onglets et les Réglages à 60 images/s.
+- **Resident** : au plantage d'un jeu, les registres notés sont maintenant les vrais. Avant, r0–r2 et r6–r31 étaient d'anciennes valeurs, donc la pile était lue au mauvais endroit.
+- **Resident** : au plantage, une **photo de la mémoire du jeu** est enregistrée dans `gc-mp3/natif/memoire-jeu.bin` (352 Ko : mémoire basse, variables du jeu, pile, début de l'arène avec les tas du jeu). Pour Wind Waker, elle dira pourquoi le jeu estime manquer de mémoire (`mDoMch_Create`, `m_Do_machine.cpp` ligne 1143).
+- Simulateur : commande `mark` dans les scénarios (fluidité par portion), `PCSIM_PERF=1` (rapport `fluidite.txt` de GC Station), scénario `fluidite-onglets.txt` (tous les onglets et les Réglages).
+
 ## Nouveautés v82 — Resident : le message d'erreur des jeux qui s'arrêtent
 - Wind Waker s'arrête **exprès** avec Resident : il appelle sa propre fonction d'erreur (qui écrit à l'adresse `01234567`) avant sa première image, sans avoir rien lu sur le disque. Son message n'allait nulle part.
 - Au plantage, Resident enregistre maintenant **la pile du jeu** : `journal-jeu.txt` a une partie « Pile du jeu au plantage » avec les **textes** trouvés (le nom du fichier du jeu, la ligne et le message de l'erreur, en général) et les endroits du jeu qui ont appelé la fonction d'erreur.

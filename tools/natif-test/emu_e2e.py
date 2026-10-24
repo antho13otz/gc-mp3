@@ -213,11 +213,17 @@ csecs = {csd(0x2000 >> 9), csd(0x110000 >> 9)}
 if card.writes:                                    # v54 : journal du jeu ecrit sur la carte
     js = card.writes[-1]; jb = disk[js * 512:js * 512 + 512]; open('journal.bin', 'wb').write(jb)
     u = lambda o: struct.unpack_from('>I', jb, o)[0]
-    jok = set(card.writes) - csecs == ({js, js + 1, js + 2} if EXC else {js}) and jb[:4] == b'GCSN' and u(0x4C) == 6 and u(0x90) == 3
+    SS = None
+    if EXC:                                        # v83 : photo de la memoire (secteurs ecrits avant le journal)
+        dd = [w for w in card.writes if bytes(disk[w * 512:w * 512 + 4]) == b'GCSM']
+        SS = dd[-1] if dd else None
+    snap = set(range(SS, SS + 704)) if SS is not None else set()
+    jok = set(card.writes) - csecs - snap == ({js, js + 1, js + 2} if EXC else {js}) and jb[:4] == b'GCSN' and u(0x4C) == 6 and u(0x90) == 3
     if EXC:                                        # v79 : details du plantage dans le secteur suivant
         cb = disk[(js + 1) * 512:(js + 2) * 512]; open('journal.bin', 'ab').write(cb)
         cu = lambda o: struct.unpack_from('>I', cb, o)[0]
         cok = cb[:4] == b'GCSC' and cu(0x0C) == 0x80001234 and cu(0x14) == 0x80005678 and cu(0x30 + 4) == 0x80001A00 and cu(0x30 + 16) == 0x01234567
+        cok &= cu(0x30 + 25 * 4) == 0x51515151           # v83 : registre sauve par le gestionnaire (pas l'ancien contexte)
         cok &= cu(0x2C) == 2 and cu(0xD0) == 0x80007777 and cu(0xD4) == 0x80008888 and cb[0x110:0x120] == b'm_Do_machine.cpp'
         cok &= all(cu(0xB0 + i * 4) == rd32(0x80000000 + o) for i, o in enumerate((0x28, 0x2C, 0x30, 0x34, 0x38, 0x3C, 0xF0, 0xF4)))
         print(('OK   ' if cok else 'FAUX ') + 'details du plantage : PC %08X LR %08X r1 %08X r4 %08X, %d appels %08X %08X, texte r3 %r' % (
@@ -229,6 +235,14 @@ if card.writes:                                    # v54 : journal du jeu ecrit 
         sok &= su(0x0C) >= 1 and su(0x150) == 0x80001B00 and sb[0x154:0x164] == b'm_Do_machine.cpp'
         print(('OK   ' if sok else 'FAUX ') + 'pile du jeu au plantage : r1 %08X, %d mots, %d textes, 1er texte %r' % (su(4), su(8), su(0x0C), bytes(sb[0x154:0x164])))
         jok &= sok
+        nok = SS is not None
+        if nok:
+            sd0 = bytes(disk[SS * 512:SS * 512 + 512]); su0 = lambda o: struct.unpack_from('>I', sd0, o)[0]
+            nz = su0(4); zs = [(su0(8 + z * 16), su0(12 + z * 16), su0(16 + z * 16)) for z in range(nz)]
+            nok &= nz == 4 and zs[0][0] == 0x80000000 and zs[1][0] == 0x80008000 and zs[2][0] == 0x80001A00 - 0x200
+            if nok: nok &= bytes(disk[(SS + zs[2][2]) * 512 + 0x200:(SS + zs[2][2]) * 512 + 0x240]) == bytes(mu.mem_read(0x80001A00, 64))
+        print(('OK   ' if nok else 'FAUX ') + 'photo de la memoire au plantage : %s' % (['%08X+%X' % (b, l) for b, l, s0 in zs] if SS is not None else 'rien'))
+        jok &= nok
     print('journal : musique %d blocs, %d tampons ; carte %d commandes (derniere %02X), %d ecritures, %d interruptions' % (u(0x108), u(0x10C), u(0x110), u(0x118), u(0x114), u(0x11C)))
     print('echantillons : %d, code %08X LR %08X' % (u(0x130), u(0x138), u(0x134)))
     jok &= u(0x130) > 0 and u(0x134) == 0x80003100 and 0x80003100 < u(0x138) < 0x80004000
