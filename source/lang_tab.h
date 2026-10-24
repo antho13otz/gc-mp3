@@ -762,6 +762,7 @@
     { "Moderne", "Modern" },
     { "Nouvelle", "New" },
     { "Aurore", "Aurora" },
+    { "GitHub : trop de v\xC3\xA9rifications, r\xC3\xA9" "essaie dans une heure", "GitHub: too many checks, try again in an hour" },
     { "\xC3\x89" "cran de chargement (Pulse)", "Loading screen (Pulse)" },
     { "C\xC5\x93ur", "Heart" },
     { "Cin\xC3\xA9ma", "Cinema" },

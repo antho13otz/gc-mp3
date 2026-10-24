@@ -8,6 +8,17 @@
 #endif
 #ifndef UPD_API
 #define UPD_API "https://api.github.com"
+/* v112 : la release est lue d'abord dans le fichier release.json publie avec elle (github.com, sans la limite
+   de l'API : 60 demandes par heure et par connexion, vite depassee quand GC Station redemarre souvent),
+   puis par l'API si ce fichier manque. */
+static void upd_rel_url(char *url, int cap, int api) {
+    if (api) snprintf(url, cap, UPD_API "/repos/%s/releases/tags/dernier", upd_repo);
+    else snprintf(url, cap, "https://github.com/%s/releases/download/dernier/release.json", upd_repo);
+}
+static const char *upd_fail_msg(int code) {
+    return code == 403 || code == 429 ? "GitHub : trop de v\xC3\xA9rifications, r\xC3\xA9" "essaie dans une heure" : "GitHub ne r\xC3\xA9pond pas";
+}
+static int up_via_api = 0;
 #endif
 
 enum { UP_IDLE, UP_CHECK, UP_NONE, UP_AVAIL, UP_DL, UP_DONE, UP_ERR, UP_WRITE };
@@ -33,7 +44,8 @@ static void update_check(void) {
     if (net_phase != NET_DONE) { net_start_async(); up_fail("R\xC3\xA9seau en cours de connexion, r\xC3\xA9" "essaie"); return; }
     if (!net_ok) { up_fail("Pas de r\xC3\xA9seau"); return; }
     char url[256];
-    snprintf(url, sizeof(url), UPD_API "/repos/%s/releases/tags/dernier", upd_repo);
+    up_via_api = 0;
+    upd_rel_url(url, sizeof(url), 0);
     up_hf.maxbytes = 512 * 1024;
     up_hf.image = 0;
     up_hf.accept = "application/vnd.github+json";
@@ -315,8 +327,15 @@ static void update_pump(void) {
         hf_drop(&up_hf);
         up_hf.st = HF_IDLE;
         if (up_state == UP_CHECK) {
+            if (!up_via_api) {                                    /* v112 : release.json absent : l'API */
+                char url[256];
+                up_via_api = 1;
+                upd_rel_url(url, sizeof(url), 1);
+                hf_start(&up_hf, url, NULL);
+                return;
+            }
             if (up_hf.code == 404) { up_state = UP_NONE; snprintf(up_msg, sizeof(up_msg), "Aucune version publi\xC3\xA9" "e"); }
-            else up_fail("GitHub ne r\xC3\xA9pond pas");
+            else up_fail(upd_fail_msg(up_hf.code));
         } else up_fail("T\xC3\xA9l\xC3\xA9" "chargement interrompu");
         return;
     }
