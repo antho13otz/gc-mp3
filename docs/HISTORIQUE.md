@@ -21,6 +21,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v108 — retour par A+Z+START : plus de « GX ne répond plus » au redémarrage
+- Après A+Z+START (Cocoto), GC Station se bloquait parfois à sa 1re image (« GX ne répond plus,
+  copie de l'image vers l'écran », underflow=1) : le processeur graphique avait été arrêté au milieu
+  d'une commande du jeu et prenait les premières commandes de GC Station pour la suite.
+- Resident remet maintenant le processeur graphique à zéro avant de relancer GC Station (registre
+  d'abandon du PI, comme GX_AbortFrame), et GC Station le fait aussi avant GX_Init.
+
 ## Nouveautés v107 — musique du disque sans grésillement
 - La musique du disque (48 kHz) est ajoutée au son du jeu (32 kHz) : avant, un échantillon sur 1,5
   était simplement gardé, et les aigus se repliaient en grésillement. Maintenant chaque échantillon de

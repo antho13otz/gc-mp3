@@ -4919,6 +4919,8 @@ static void gx_init(void) {
     /* La FIFO est ecrite par le "write gather pipe", hors cache : on vide le cache
        pour qu'aucune ligne restee du memset n'ecrase plus tard des commandes GX. */
     DCFlushRange(gx_fifo, GX_FIFO_SIZE);
+    GX_AbortFrame();                                    /* v108 : processeur graphique remis a zero AVANT GX_Init (retour d'un jeu,
+                                                           A+Z+START : il pouvait etre arrete au milieu d'une commande du jeu) */
     GX_Init(gx_fifo, GX_FIFO_SIZE);
     GX_SetDrawDoneCallback(gx_done_cb);
     say("%s\n", "OK");
