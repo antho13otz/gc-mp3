@@ -21,6 +21,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v98 — musique du disque sans saccades (Cocoto)
+- Resident ajoute la musique du disque au tampon du son au moment où le jeu le programme, que ce soit
+  dans l'interruption du son ou dans celle du DSP (Cocoto : avant, la musique tombait dans le tampon
+  déjà en train d'être joué, donc à moitié). Un tampon rejoué tel quel ne reçoit plus une 2e couche.
+- Musique lue par 4 secteurs (37 ms) au lieu d'un (9 ms) : 4 fois moins d'attentes de la carte.
+- Journal du jeu : tampons complétés depuis le DSP, tampons rejoués.
+
 ## Nouveautés v97 — disque de la console, grosses cartes SD, Cocoto Kart Racer
 - Onglet Jeux : case « Disque de la console » (avant le premier jeu) : lance le jeu du vrai lecteur
   comme le BIOS (reset du lecteur, ID du disque, musique en streaming, main.dol et FST lus sur le

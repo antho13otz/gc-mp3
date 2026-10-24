@@ -14,13 +14,11 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v97)
-- **Disque de la console** : dans l'onglet Jeux, une case avant le premier jeu lance le jeu qui est
-  dans le lecteur de la GameCube (lu par le vrai lecteur, comme au démarrage de la console).
-- **Cartes SD de 1 To** : la place libre est lue instantanément (avant, toute la FAT était relue à
-  chaque dossier ouvert dans Fichiers) ; cache de la carte doublé.
-- **Cocoto Kart Racer se lance de nouveau** avec Resident (plus de place pour ses aiguillages).
-- (v96) Écran rouge au lancement corrigé ; (v95) Zelda Collector's Edition ; (v94) lecture SD par DMA / 32 MHz.
+## Nouveautés de la version actuelle (v98)
+- **Musique du disque sans saccades** (Cocoto et les jeux qui préparent leur son de la même façon) :
+  Resident ajoute la musique au bon tampon, au bon moment, et la lit sur la carte 4 fois moins souvent.
+- (v97) Case **Disque de la console** dans l'onglet Jeux, cartes SD de 1 To rapides, Cocoto Kart Racer
+  relancé ; (v96) écran rouge corrigé ; (v95) Zelda Collector's Edition.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
