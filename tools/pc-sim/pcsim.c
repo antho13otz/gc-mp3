@@ -466,7 +466,7 @@ static void script_load(void) {
         if (!strcasecmp(w[0], "wait")) { u32 d = dur_of(w[1], 1); c->op = d & 0x80000000u ? SC_WAIT_F : SC_WAIT_MS; c->dur = d & 0x7FFFFFFFu; }
         else if (!strcasecmp(w[0], "press") || !strcasecmp(w[0], "combo")) { c->op = SC_PRESS; c->btn = btn_of(w[1]); c->dur = n > 2 ? (u32)atoi(w[2]) : 3; }
         else if (!strcasecmp(w[0], "hold")) { c->op = SC_HOLD; c->btn = btn_of(w[1]); c->dur = dur_of(w[2], 30); }
-        else if (!strcasecmp(w[0], "stick")) { c->op = strcasecmp(w[1], "c") ? SC_STICK : SC_CSTICK; c->a = atoi(w[2]); c->b = atoi(w[3]); char *q = strstr(l, w[3]) + strlen(w[3]); while (*q == ' ') q++; char d[32] = ""; sscanf(q, "%31s", d); c->dur = dur_of(d, 10); }
+        else if (!strcasecmp(w[0], "stick")) { c->op = strcasecmp(w[1], "c") ? SC_STICK : SC_CSTICK; c->a = atoi(w[2]); c->b = atoi(w[3]); char d[32] = "", z[4][96]; sscanf(l, "%95s %95s %95s %95s %31s", z[0], z[1], z[2], z[3], d); c->dur = dur_of(d, 10); }   /* (v84 : la duree est le 5e mot) */
         else if (!strcasecmp(w[0], "shot")) { c->op = SC_SHOT; snprintf(c->s, sizeof(c->s), "%s", w[1]); }
         else if (!strcasecmp(w[0], "log")) { c->op = SC_LOG; char *q = strstr(l, w[0]) + 3; while (*q == ' ') q++; snprintf(c->s, sizeof(c->s), "%s", q); c->s[strcspn(c->s, "\r\n")] = 0; }
         else if (!strcasecmp(w[0], "quit")) c->op = SC_QUIT;

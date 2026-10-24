@@ -10312,6 +10312,9 @@ static void draw_mini_badge(f32 cx, f32 cy, const char *k) {
     else if (k[0] == 'Z') {
         gx_rrect_fill(cx - 8, cy - 7, 16, 14, 4, RGBA(110, 90, 190, 255), RGBA(70, 50, 140, 255));
         gx_text_c(F_SMALL, cx, cy + 4.5f, "Z", RGBA(255, 255, 255, 255));
+    } else if (k[0] == 'C' && !k[1]) {                                /* v84 : stick C (jaune) */
+        gx_circle(cx, cy, 7.5f, RGBA(255, 214, 70, 255), RGBA(205, 150, 20, 255));
+        gx_text_c(F_SMALL, cx, cy + 4.5f, "C", RGBA(70, 45, 0, 255));
     } else if ((k[0] == 'L' || k[0] == 'R') && !k[1]) {                /* gachettes */
         gx_rrect_fill(cx - 9, cy - 7, 18, 14, 6, RGBA(150, 150, 175, 255), RGBA(90, 90, 120, 255));
         gx_text_c(F_SMALL, cx, cy + 4.5f, k, RGBA(255, 255, 255, 255));

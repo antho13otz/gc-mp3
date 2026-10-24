@@ -487,6 +487,23 @@ static u32 nat_snap_prep(void) {
     if (!ok || nat_map(NA_SNAP, e, sizeof(e)) || na_next != 1 || na_ext[0].cnt < NATRES_SNAP_SECS) return 0;
     return na_ext[0].sd;
 }
+/* v84 : mode video de la console (0x800000CC), normalement mis par le menu de la console (BIOS).
+   GC Station demarre sans lui : la valeur restait 0 (NTSC) et les jeux PAL s'arretaient expres
+   au demarrage (VIConfigure : "Tried to change mode ... which is forbidden" ; Wind Waker PAL).
+   Jeu PAL -> PAL (EURGB60 si GC Station est deja en PAL 60 Hz), jeu NTSC -> NTSC. */
+static int na_game_pal(const char *id) {
+    switch (id[3]) {
+    case 'P': case 'D': case 'F': case 'S': case 'I': case 'X': case 'Y': case 'Z': case 'U': case 'H': case 'R': case 'W': case 'V': return 1;
+    default: return 0;
+    }
+}
+static u32 na_vi_bootrom(const char *id) {
+    if (!na_game_pal(id)) return 0;                       /* VI_NTSC */
+#ifdef GEKKO
+    if (VIDEO_GetCurrentTvMode() == VI_EURGB60) return 5;
+#endif
+    return 1;                                             /* VI_PAL */
+}
 static const char *na_cmd_name(u32 c) {
     switch (c >> 24) {
     case 0xA8: return (c & 0xC0) == 0x40 ? "lire l'ID du disque" : "lire";
@@ -1362,6 +1379,8 @@ static const char *nat_boot(int k) {
         fprintf(f, "Vrai lecteur : %s\n", na_drv[0] ? na_drv : "pas teste");
         fprintf(f, "Retour a GC Station (A+Z+START, plantage) : %s\n", na_ret_n ? "pret (le .dol de GC Station est relu sur la carte)" : "redemarrage de la console");
         fprintf(f, "Carte memoire virtuelle (slot A) : %s ; %d acces EXI trouves, %d branches\n", na_card_msg[0] ? na_card_msg : "non", in.nexi, na_xdone);
+        fprintf(f, "Mode video donne au jeu (800000CC) : %s (jeu %s)\n", na_vi_bootrom(in.id) == 1 ? "PAL" : na_vi_bootrom(in.id) == 5 ? "EURGB60 (PAL 60 Hz)" : "NTSC",
+                na_game_pal(in.id) ? "PAL" : "NTSC");
         fprintf(f, "Memoire basse avant : 28=%08X 2C=%08X CC=%08X F8=%08X FC=%08X\n",
 #ifdef GEKKO
                 (unsigned)*(volatile u32 *)0x80000028, (unsigned)*(volatile u32 *)0x8000002C, (unsigned)*(volatile u32 *)0x800000CC,
@@ -1400,6 +1419,7 @@ static const char *nat_boot(int k) {
     lm[0x38 / 4] = fst_dest;                              /* FST */
     lm[0x3C / 4] = in.fst_max;
     lm[0xF0 / 4] = 0x01800000u;                           /* memoire simulee */
+    lm[0xCC / 4] = na_vi_bootrom(in.id);                  /* v84 : mode video "du BIOS" (sinon les jeux PAL s'arretent : VIConfigure) */
     lm[0xF4 / 4] = bi2_dest;                              /* bi2.bin */
     if (!lm[0xF8 / 4]) lm[0xF8 / 4] = 0x09A7EC80u;        /* vitesse du bus */
     if (!lm[0xFC / 4]) lm[0xFC / 4] = 0x1CF7C580u;        /* vitesse du processeur */

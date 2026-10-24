@@ -363,7 +363,9 @@ static void mc_open(void) {
 }
 enum { MCP_SD, MCP_OTHER, MCP_DEL, MCP_COUNT };
 static const char *const mcp_names[MCP_COUNT] = { "Copier sur la carte SD (.gci)", "Copier vers l'autre carte", "Supprimer" };
+static int gm_hub_input(void);
 static void mc_input(u32 down, u32 nav, int fire) {
+    if (!mc_pop && !mc_gci && gm_hub_input()) return;     /* v84 : stick C : autre vue */
     if (mc_pop) {
         if (fire && (nav & PAD_BUTTON_DOWN)) { mc_psel = (mc_psel + 1) % MCP_COUNT; mc_pconfirm = 0; }
         if (fire && (nav & PAD_BUTTON_UP)) { mc_psel = (mc_psel + MCP_COUNT - 1) % MCP_COUNT; mc_pconfirm = 0; }
@@ -620,12 +622,19 @@ static void ap_scan_dir(const char *dir, int depth) {
     service_audio();
 }
 static int ap_cmp(const void *a, const void *b) { return strcasecmp(((const ap_ent *)a)->name, ((const ap_ent *)b)->name); }
+static int ap_scanned = 0;                            /* v84 : liste gardee (Y : relire la carte) */
+static void ap_rescan(void);
 static void ap_open(void) {
+    ap_confirm = -1;
+    tl_screen = TL_APPS;
+    if (!ap_scanned) ap_rescan();
+}
+static void ap_rescan(void) {
     if (!ap) ap = (ap_ent *)malloc(sizeof(ap_ent) * AP_MAX);
     for (int i = 0; ap && i < ap_n; i++) if (ap[i].tex) { free(ap[i].tex); ap[i].tex = NULL; }
     ap_n = 0; ap_confirm = -1;
-    tl_screen = TL_APPS;
     if (!ap || !sd_ok) return;
+    ap_scanned = 1;
     ap_scan_dir(SD_ROOT "/apps", 1);
     ap_scan_dir(SD_ROOT, 0);
     qsort(ap, ap_n, sizeof(ap_ent), ap_cmp);
@@ -653,8 +662,48 @@ static void ap_input(u32 down, u32 nav, int fire) {
         if (nav & PAD_BUTTON_UP) ap_sel = nav_wrap(ap_sel, ap_n, AP_COLS, 0, -1);
     }
     if ((down & PAD_BUTTON_A) && ap_n) ap_confirm = ap_sel;
-    if (down & PAD_BUTTON_Y) { ap_open(); tl_note("Liste actualis\xC3\xA9" "e"); }
+    if (down & PAD_BUTTON_Y) { ap_rescan(); tl_note("Liste actualis\xC3\xA9" "e"); }
     if (down & PAD_BUTTON_B) tl_screen = TL_NONE;
+    gm_hub_input();
+}
+
+/* ---------- v84 : onglet Jeux / Apps : passer directement d'une vue a l'autre ----------
+   Jeux GameCube, Mes applis, Cartes memoire : une barre en haut de chaque vue montre ou l'on
+   est, et le stick C (gauche / droite) passe a la vue voisine, sans revenir a l'onglet
+   (avant : B, croix, A). Les listes sont gardees : le passage est immediat. */
+static int gm_hub_cur(void) { return tl_screen == TL_APPS ? 1 : tl_screen == TL_CARDS ? 2 : (tl_screen == TL_NONE && gl_on) ? 0 : -1; }
+static void gm_hub_go(int k) {
+    int cur = gm_hub_cur();
+    if (cur < 0 || k == cur) return;
+    if (cur == 0) { gl_on = 0; if (gl_list_dirty) { gl_list_dirty = 0; gl_list_save(); } }
+    tl_screen = TL_NONE;
+    gm_sel = GM_COUNT + k;                                 /* (B : retour sur la bonne barre de l'onglet) */
+    if (k == 0) gclib_open(); else if (k == 1) ap_open(); else mc_open();
+}
+static int gm_hub_input(void) {                            /* 1 = on a change de vue */
+    static int armed = 1;
+    int sx = PAD_SubStickX(0);
+    if (abs(sx) < 30) { armed = 1; return 0; }
+    if (!armed || abs(sx) < 55 || tab != TAB_GAMES || gm_hub_cur() < 0) return 0;
+    armed = 0;
+    gm_hub_go((gm_hub_cur() + (sx > 0 ? 1 : 2)) % 3);
+    return 1;
+}
+static f32 gm_hub_bar(f32 x, f32 y) {                      /* rend la fin (x) ; y = haut de la barre (20 de haut) */
+    static const char *const nm[3] = { "Jeux", "Applis", "Cartes" };   /* (courts : tient a cote de l'affichage / des slots) */
+    int cur = gm_hub_cur();
+    for (int k = 0; k < 3; k++) {
+        const char *t = TR(nm[k]);
+        f32 w = (f32)text_width(F_SMALL, t, 1) + 22;
+        int on = k == cur;
+        gx_rrect_fill(x, y, w, 20, 6, on ? RGBA(116, 46, 236, 255) : RGBA(34, 20, 84, 230), on ? RGBA(74, 22, 172, 255) : RGBA(20, 12, 52, 230));
+        if (!on) gx_rrect_stroke(x, y, w, 20, 6, 1.0f, RGBA(90, 64, 170, 255));
+        gx_text1(F_SMALL, x + 11, y + 15, t, on ? RGBA(255, 255, 255, 255) : RGBA(170, 155, 225, 255));
+        x += w + 4;
+    }
+    draw_mini_badge(x + 10, y + 10, "C");
+    gx_text1(F_SMALL, x + 22, y + 15, "< >", RGBA(170, 155, 225, 255));
+    return x + 22 + text_width(F_SMALL, "< >", 1);
 }
 
 /* =================== derniers jeux lances =================== */
@@ -853,7 +902,8 @@ static void tl_confirm(const char *q, const char *name) {
 
 static void draw_cards(void) {
     char buf[160], fv[160];
-    tl_frame("Cartes m\xC3\xA9moire", NULL);
+    if (tab == TAB_GAMES) { tl_frame("", NULL); gm_hub_bar(58, 54); }   /* v84 */
+    else tl_frame("Cartes m\xC3\xA9moire", NULL);
     /* slots A / B */
     for (int s = 0; s < 2; s++) {
         f32 px = 400 + s * 92;
@@ -938,7 +988,8 @@ static void draw_cards(void) {
 static void draw_apps(void) {
     char buf[160], fv[160];
     snprintf(buf, sizeof(buf), ap_n == 1 ? "1 appli" : "%d applis", ap_n);
-    tl_frame("Mes applis", buf);
+    if (tab == TAB_GAMES) { tl_frame("", buf); gm_hub_bar(58, 54); }   /* v84 */
+    else tl_frame("Mes applis", buf);
     /* v52 : de grandes pochettes 3:4 comme les jeux (126 x 168), 4 par rangee, le nom dessous */
     const int cols = AP_COLS, rows = 1;
     const f32 cw = 126, ch = 168, sw = 142, rh = 216, y0 = 104;

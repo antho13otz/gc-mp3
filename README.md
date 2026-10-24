@@ -21,6 +21,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v84 — Wind Waker (et les jeux PAL) avec Resident ; onglet Jeux / Apps
+- **Resident : les jeux PAL démarrent.** Grâce aux vrais registres de la v83, le journal de Wind Waker a enfin donné son message : `vi.c` ligne 1884, « VIConfigure(): Tried to change mode ... which is forbidden ». La console doit indiquer au jeu son mode vidéo (adresse `800000CC`), ce que fait normalement son menu. GC Station démarre sans ce menu : la valeur restait 0 (NTSC) et tout jeu PAL s'arrêtait exprès à son démarrage. Resident donne maintenant PAL aux jeux PAL (EURGB60 si GC Station est déjà en PAL 60 Hz) et NTSC aux jeux NTSC. `dernier-lancement.txt` indique le mode donné.
+- **Onglet Jeux / Apps** : une barre **Jeux | Applis | Cartes** en haut des trois vues, et le **stick C (gauche / droite)** passe directement de l'une à l'autre, sans revenir à l'onglet. B ramène sur la bonne barre de l'onglet. La liste des applis est gardée (avant : la carte SD était relue à chaque ouverture) ; Y la relit.
+- Simulateur : la durée de `stick` est bien lue ; scénario `jeux-apps.txt`.
+
 ## Nouveautés v83 — Fluidité (réseau) et Resident : photo de la mémoire au plantage
 - **Fluidité** : les paroles, pochettes, météo, infos, podcasts et la vérification de mise à jour ne figent plus l'écran. La recherche du site, la connexion et la négociation HTTPS (jusqu'à 1 s de calcul pour la GameCube) se font maintenant dans un fil de faible priorité, qui ne prend que le temps libre, après l'affichage et le décodage du son. Mesuré dans le simulateur limité à la GameCube : pire image 250–300 ms → 60 ms, tous les onglets et les Réglages à 60 images/s.
 - **Resident** : au plantage d'un jeu, les registres notés sont maintenant les vrais. Avant, r0–r2 et r6–r31 étaient d'anciennes valeurs, donc la pile était lue au mauvais endroit.
