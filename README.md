@@ -21,6 +21,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v90 — plus rien de Swiss
+- **Resident lance les jeux** (A dans la fiche d'un jeu). L'ancien lanceur devient le **lanceur de secours** (X, et les jeux avec des cheats activés, car Resident ne les applique pas encore). L'option « Swiss / Indigo » et la recherche de Swiss sur la carte SD disparaissent, ainsi que Z au démarrage.
+- **Tout est dans SD:/gc-mp3** : le lanceur de secours lit maintenant ses réglages, sauvegardes et patches dans `SD:/gc-mp3/lanceur`, et ses cheats dans `SD:/gc-mp3/cheats` (compilé ainsi par GitHub : il se met à jour tout seul). Langue, son, vibrations, mode vidéo et position de l'image y sont recopiés, plus jamais dans `SD:/swiss`.
+- **Reprise automatique, une seule fois** (`SD:/gc-mp3/lanceur/migration.txt`) : les réglages du lanceur (sans la ligne Autoload), les réglages par jeu, la liste des derniers jeux, les cheats, les sauvegardes et le retour en jeu sont copiés depuis `SD:/swiss`. Les jaquettes (`posters.pak`, `stills.pak`, `descriptions.txt`) sont déplacées dans `SD:/gc-mp3/jaquettes`, et `ipl-swiss.dol` devient `ipl-avant-gcstation.dol`.
+- **Réglages > Jeux** : A+Z+START (Resident) et la carte virtuelle en premier ; « Lanceur de secours » et « A+Z+START (lanceur de secours) » (Oui / Non). **Réseau** : plus de reprise des serveurs de Swiss (ils sont déjà dans gc-mp3.txt). Le style classique s'appelle « Classique ».
+
+## Nouveautés v89 — Resident : A+Z+START (Wind Waker) et couleurs (Paper Mario)
+- **A+Z+START** ne marchait toujours pas dans Wind Waker : à l'image (VI), le jeu n'a pas encore pris les nouvelles données des manettes, et Resident ne doit pas les lire avant lui (sinon le jeu croit la manette débranchée, 1080). Il regarde maintenant aussi pendant l'interruption du son (~ toutes les 5 ms), où le jeu les a déjà prises. Retour après environ 1 s.
+- **Couleurs** (Paper Mario : rouge et bleu inversés, avec un adaptateur HDMI sur la prise numérique) : comme Swiss, Resident met maintenant l'écran dans le mode du jeu avant de le lancer (PAL 576i, PAL 60 ou NTSC 480i). Avant, le mode de GC Station (souvent 480p) restait, et certains jeux le reprenaient tel quel.
+
 ## Nouveautés v88 — Resident : le son des jeux (1080, Wind Waker)
 - **Son qui grésillait, coupait ou hachait avec Resident** (parfait avec Swiss) : les jeux lisent le disque pendant qu'ils jouent (musique, chargements), et Resident lisait la carte SD **8 Ko d'un coup dans l'interruption du lecteur**, interruptions coupées, un secteur à la fois : 10 à 20 ms pendant lesquelles le son du jeu n'était pas nourri (la sortie audio en demande toutes les ~5 ms).
 - Maintenant :

@@ -30,7 +30,7 @@ static char *tv_text = NULL;
 static int tv_lines = 0, tv_top = 0;
 static char tv_name[128];
 
-/* v25 : editeur de cheats Swiss (cheats.c) */
+/* v25 : editeur de cheats (cheats.c) */
 static int ch_on = 0;
 static void cheats_input(u32 down, u32 nav, int fire);
 static void draw_cheats(void);
@@ -202,12 +202,12 @@ static void fe_open(int i) {
         fe_note("Range la photo dans SD:/photos pour l'ouvrir");
         return;
     }
-    if (dot && !strcasecmp(dot, ".txt")) {                          /* v25 : cheats Swiss -> editeur */
+    if (dot && !strcasecmp(dot, ".txt")) {                          /* v25 : cheats -> editeur */
         char low[NAME_LEN];
         int n = 0;
         for (; path[n] && n < NAME_LEN - 1; n++) low[n] = (char)tolower((unsigned char)path[n]);
         low[n] = 0;
-        if (strstr(low, "/swiss/cheats/")) { cheats_open_file(path); return; }
+        if (strstr(low, "/gc-mp3/cheats/") || strstr(low, "/swiss/cheats/")) { cheats_open_file(path); return; }
     }
     if (dot && (!strcasecmp(dot, ".txt") || !strcasecmp(dot, ".lrc") || !strcasecmp(dot, ".m3u") || !strcasecmp(dot, ".pls") ||
                 !strcasecmp(dot, ".md") || !strcasecmp(dot, ".ini") || !strcasecmp(dot, ".cfg"))) { tv_open(path, fe[i].name); return; }
@@ -315,7 +315,7 @@ fini:
 }
 
 enum { FA_SHARE, FA_RENAME, FA_DELETE, FA_COPY, FA_CUT, FA_PASTE, FA_MKDIR, FA_ALL, FA_CHEATS, FA_COUNT };
-static const char *const fa_names[FA_COUNT] = { "Partager (QR code)", "Renommer", "Supprimer", "Copier", "Couper", "Coller ici", "Nouveau dossier", "Tout s\xC3\xA9lectionner / rien", "Cheats Swiss (\xC3\xA9" "diteur)" };
+static const char *const fa_names[FA_COUNT] = { "Partager (QR code)", "Renommer", "Supprimer", "Copier", "Couper", "Coller ici", "Nouveau dossier", "Tout s\xC3\xA9lectionner / rien", "Cheats (\xC3\xA9" "diteur)" };
 
 static void fe_action(int a) {
     char path[NAME_LEN];
@@ -514,7 +514,7 @@ static void draw_tab_files(void) {
         if (clip_n == 1 && clip_path[0] && !strcmp(base_of(clip_path), e->name)) gx_text_r(F_SMALL, 540, cy + 4, clip_cut ? "coup\xC3\xA9" : "copi\xC3\xA9", RGBA(255, 210, 120, 255));
     }
     if (nfe == 0) gx_text1(F_SMALL, 34, 166, fe_net() && nfs_err[0] ? nfs_err : "Dossier vide", RGBA(170, 155, 225, 255));
-    if (fe_devs && nfe == 1) gx_text1(F_SMALL, 34, 190, "Serveurs SMB, FTP, FSP : START > R\xC3\xA9glages > R\xC3\xA9seau (repris de Swiss)", RGBA(170, 155, 225, 255));
+    if (fe_devs && nfe == 1) gx_text1(F_SMALL, 34, 190, "Serveurs SMB, FTP, FSP : START > R\xC3\xA9glages > R\xC3\xA9seau", RGBA(170, 155, 225, 255));
     if ((fcp_in || cpq_i < cpq_n) && cpq_total > 0) {
         snprintf(buf, sizeof(buf), "Copie : fichier %d / %d  -  %ld %%", cpq_i + 1, cpq_n, (long)((long long)cpq_bytes * 100 / cpq_total));
         gx_text1(F_SMALL, 30, 404, buf, RGBA(255, 210, 120, 255));

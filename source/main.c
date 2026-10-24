@@ -1070,8 +1070,7 @@ static void gcd_migrate(void) {
     }
 }
 
-static int sd_slot = -1;                               /* v26 : 0 = SD2SP2, 1 = slot A, 2 = slot B (pour Swiss) */
-static char swiss_pref[NAME_LEN] = "";                 /* v26 : Swiss a lancer (vide = trouve tout seul) */
+static int sd_slot = -1;                               /* v26 : 0 = SD2SP2, 1 = slot A, 2 = slot B (pour le lanceur de secours) */
 static int mount_sd(void) {
     if (fatMountSimple("sd", &__io_gcsd2)) { sd_slot = 0; return 1; }   // SD2SP2 (port serie 2)
     if (fatMountSimple("sd", &__io_gcsda)) { sd_slot = 1; return 1; }   // SD Gecko slot A
@@ -4352,7 +4351,6 @@ static const char *const layout_keys[LAYOUT_COUNT] = { "classique", "pochette", 
    eclair blanc sur les basses du mode soiree (0 partout, 1 sauf spectrogramme, 2 jamais) */
 static int lyr_show = 1, flash_mode = 1;
 static int rg_offset = 0;                     /* v70 : jeu de rythme : decalage des notes (ms) */
-static int ld_mode = 0;                     /* v44 : lanceur des jeux : 0 = GC-MP3 (lanceur.c), 1 = Swiss / Indigo */
 static const char *const lyr_keys[3] = { "spectre", "paroles", "les_deux" };
 static const char *const lyr_names[3] = { "Spectre seulement", "Paroles (sinon spectre)", "Paroles + spectre" };
 static const char *const flash_keys[3] = { "partout", "sauf_spectrogramme", "jamais" };
@@ -4470,7 +4468,6 @@ static void setting_apply(const char *k, char *v) {
                 for (int i = 0; i < LAYOUT_COUNT; i++) if (!strcasecmp(v, layout_keys[i])) layout_tab[t] = i;
         }
         else if (!strcasecmp(k, "paroles_affichage")) { for (int i = 0; i < 3; i++) if (!strcasecmp(v, lyr_keys[i])) lyr_show = i; }
-        else if (!strcasecmp(k, "lanceur_jeux")) ld_mode = !strcasecmp(v, "swiss");
         else if (!strcasecmp(k, "rythme_decalage")) { rg_offset = atoi(v); if (rg_offset < -200 || rg_offset > 200) rg_offset = 0; }
         else if (!strcasecmp(k, "eclair_basses")) { for (int i = 0; i < 3; i++) if (!strcasecmp(v, flash_keys[i])) flash_mode = i; }
         else if (!strcasecmp(k, "ordre_onglets")) {
@@ -4523,7 +4520,6 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "resident_carte_virtuelle")) nat_card = !has_word(v, "non");
         else if (!strcasecmp(k, "interface")) { ui_lang = !strncasecmp(v, "en", 2) ? 1 : !strncasecmp(v, "fr", 2) ? 0 : -1; ui_lang_apply(); }
         else if (!strcasecmp(k, "langue")) { lang_pref = -1; for (int i = 0; i < LANG_COUNT; i++) if (!strncasecmp(v, lang_keys[i], 2)) lang_pref = i; }
-        else if (!strcasecmp(k, "swiss")) snprintf(swiss_pref, sizeof(swiss_pref), "%s", v);
         else if (!strcasecmp(k, "tele")) tv_crt = !strncasecmp(v, "cath", 4) || !strncasecmp(v, "crt", 3);
         else if (!strcasecmp(k, "video")) video_pref = !strcasecmp(v, "480p") ? VID_480P : !strcasecmp(v, "480i") ? VID_480I : VID_AUTO;
         else if (!strcasecmp(k, "reprise")) resume_on = yes(v);
@@ -4648,7 +4644,6 @@ static void save_settings(void) {
                "jeux_tri = %s\njeux_animations = %s\n", gl_sort_keys[gl_sort & 3], gl_anim ? "oui" : "non");
     fprintf(f, "# Resident (X) : A+Z+START = retour a GC Station (oui / non)\nlanceur_maison_retour = %s\n", nat_igr ? "oui" : "non");
     fprintf(f, "# Resident (X) : carte memoire virtuelle du slot A (gc-mp3/resident/carte-A.raw)\nresident_carte_virtuelle = %s\n", nat_card ? "oui" : "non");
-    fprintf(f, "# Lanceur des jeux GameCube : gcmp3 (sans menu Swiss) / swiss\nlanceur_jeux = %s\n", ld_mode ? "swiss" : "gcmp3");
     fprintf(f, "# Ordre des onglets\nordre_onglets = ");
     for (int i = 0; i < TAB_COUNT; i++) fprintf(f, "%s%s", i ? "," : "", tab_keys[tab_order[i]]);
     fprintf(f, "\n");
@@ -4667,8 +4662,6 @@ static void save_settings(void) {
                "# Decor de saison (Halloween, Noel, ete) selon la date : oui / non\n"
                "decor_saison = %s\n",
             rumble_on ? "oui" : "non", pod_auto ? "oui" : "non", wall_on && wall_path[0] ? wall_path : "non", wall_path, season_on ? "oui" : "non");
-    fprintf(f, "# Swiss pour lancer les jeux (onglet JEUX) : chemin du .dol, vide = trouve tout seul\n"
-               "swiss = %s\n", swiss_pref);
     fprintf(f, "# La derniere radio ecoutee reprend au demarrage : oui / non\nradio_reprise = %s\nradio_derniere = %s\nradio_derniere_nom = %s\n",
             radio_resume ? "oui" : "non", radio_last_url, radio_last_name);
     fprintf(f, "# Morceaux d'un meme album (dossier) enchaines sans blanc : oui / non\nenchainement_sans_blanc = %s\n", gapless_on ? "oui" : "non");
@@ -5624,7 +5617,7 @@ static void draw_header(void) {
     txt_scale = 0.84f;                       /* v47 : GC STATION (plus long que GC-MP3) */
     gx_text(F_LOGO, 88, 46, "GC STATION", RGBA(240, 232, 255, 255), RGBA(150, 84, 255, 255), 0);
     txt_scale = 1.0f;
-    gx_text(F_SMALL, 91, 63, "INDIGO MEDIA CENTER", RGBA(170, 150, 225, 255), RGBA(170, 150, 225, 255), 4);
+    gx_text(F_SMALL, 91, 63, "GAMECUBE MEDIA CENTER", RGBA(170, 150, 225, 255), RGBA(170, 150, 225, 255), 4);
 
     gx_hgrad(330, 46, 140, 1, RGBA(110, 70, 255, 0), RGBA(110, 70, 255, 200));
     if (viz_style != VZ_LED) draw_viz(390, 64, 86, 38);     /* v43 : le style choisi aussi en haut */
@@ -11120,12 +11113,9 @@ static void draw_list_radio(void) {
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
        MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_RECAT, MI_RECLEN, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PERF, MI_LAUNCHER, MI_UPDATE,
        MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_QUIT, MI_COUNT };
-static int autostart_get(void);
-static const char *autostart_set(int on);
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
 static const char *ipl_set(int on);
-/* v35 : page Reglages en sections (L / R) : GC-MP3, Indigo, Swiss, Outils */
-/* v75 : les reglages de GC Station, ranges par sections (plus aucune page d'Indigo / Swiss) */
+/* v75 : les reglages de GC Station, ranges par sections (v90 : plus rien de Swiss) */
 enum { SEC_MUSIC, SEC_RADIO, SEC_DISPLAY, SEC_VIDEO, SEC_GAMES, SEC_NET, SEC_TOOLS, SEC_COUNT };
 static const s8 sec_items[6][24] = {
     { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_GAPLESS, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE,
@@ -11134,7 +11124,7 @@ static const s8 sec_items[6][24] = {
     { MI_UILANG, MI_LANG, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH,
       MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, MI_HIDDEN, MI_UNKNOWN, MI_PERF, -1 },
     { MI_TV, MI_VIDEO, MI_WIDE, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, -1 },
-    { MI_LAUNCHER, MI_GLANG, MI_GSOUND, MI_RUMBLE, MI_IGR, MI_NATIGR, MI_NATCARD, MI_AUTOSTART, MI_GLVIEW, MI_GLANIM, -1 },
+    { MI_NATIGR, MI_NATCARD, MI_GLANG, MI_GSOUND, MI_RUMBLE, MI_AUTOSTART, MI_LAUNCHER, MI_IGR, MI_GLVIEW, MI_GLANIM, -1 },
     { MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_PHONEAUTO, MI_UPDAUTO, MI_UPDATE, -1 } };
 static int sec_n(int sec) { int n = 0; if (sec < 0 || sec >= SEC_TOOLS) return 0; while (n < 24 && sec_items[sec][n] >= 0) n++; return n; }
 static int sec_pos(int sec, int mi) { for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] == mi) return i; return -1; }
@@ -11158,7 +11148,6 @@ static const char *igr_hint(void);
 
 static void tools_menu_input(u32 down, u32 nav, int fire);
 static void tools_menu_draw(f32 x, f32 y, f32 w, int vis, f32 rh, f32 help_y);
-static const char *gl_boot_swiss(const char *path);
 #define MENU_VIS 13                         /* lignes visibles (le menu defile) */
 static int menu_top = 0;
 static int menu_sel = 0, quit_requested = 0;
@@ -11203,7 +11192,7 @@ static void menu_value(int i, char *out, int cap) {
     }
     case MI_GAMES:   snprintf(out, cap, "(A)"); break;
     case MI_TITLES:  snprintf(out, cap, "(A)"); break;
-    case MI_SKIN:    snprintf(out, cap, "%s", ui_skin ? "Moderne" : "Indigo (classique)"); break;
+    case MI_SKIN:    snprintf(out, cap, "%s", ui_skin ? "Moderne" : "Classique"); break;
     case MI_GLVIEW:  { static const char *const nm[6] = { "Grille", "Carrousel", "Liste", "Mur de jaquettes", "Vitrine", "\xC3\x89tag\xC3\xA8re" };
                        snprintf(out, cap, "%s", nm[gl_view >= 0 && gl_view < 6 ? gl_view : 0]); } break;
     case MI_RUMBLE:  snprintf(out, cap, "%s", rumble_on ? "Oui" : "Non"); break;
@@ -11268,7 +11257,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts", "Vitesse des podcasts", "Podcasts : sauter les silences",
     "Reprendre au d\xC3\xA9marrage", "Reprendre la radio au d\xC3\xA9marrage", "Encha\xC3\xAEnement sans blanc", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Position horizontale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
     "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Animations (jeux / applis)", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre", "Couleurs du spectrogramme", "Paroles dans le lecteur", "\xC3\x89" "clair sur les basses",
-    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "Retour en jeu (A+Z+START)", "A+Z+START (Resident)", "Carte m\xC3\xA9moire virtuelle (Resident)", "Mesure de fluidit\xC3\xA9", "Lanceur de jeux", "Mise \xC3\xA0 jour",
+    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "A+Z+START (lanceur de secours)", "A+Z+START (Resident)", "Carte m\xC3\xA9moire virtuelle (Resident)", "Mesure de fluidit\xC3\xA9", "Lanceur de secours", "Mise \xC3\xA0 jour",
     "Fichiers cach\xC3\xA9s (FICHIERS)", "Cacher les fichiers inconnus", "Langue des jeux (console)", "Son (console)",
     "Adresse automatique (DHCP)", "Adresse IP de la console", "Masque", "Passerelle (box)", "T\xC3\xA9l\xC3\xA9" "commande au d\xC3\xA9marrage",
     "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Quitter GC Station" };
@@ -11568,7 +11557,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_RG) hint = "Selon les \xC3\xA9tiquettes ReplayGain des fichiers (au morceau suivant)";
     if (menu_sel == MI_XFADE) hint = "Les morceaux se m\xC3\xA9langent en fin de lecture (pas avec L / R)";
     if (menu_sel == MI_VIDEO) hint = "Pris en compte au prochain lancement (B maintenu au d\xC3\xA9marrage = 480i)";
-    if (menu_sel == MI_AUTOSTART) hint = "Copie GC Station dans ipl.dol (PicoLoader) : Reset = GC Station ; Z au d\xC3\xA9marrage = Swiss";
+    if (menu_sel == MI_AUTOSTART) hint = "Copie GC Station dans ipl.dol (PicoLoader) : la console et le bouton Reset ouvrent GC Station";
     if (menu_sel == MI_IGR) hint = igr_hint();
     if (menu_sel == MI_GAPLESS) hint = "Les morceaux d'un m\xC3\xAAme album s'encha\xC3\xAEnent sans silence (albums live, mixes)";
     if (menu_sel == MI_RADIORES) hint = "La derni\xC3\xA8re radio \xC3\xA9" "cout\xC3\xA9" "e repart toute seule (si rien d'autre ne joue)";
@@ -11579,7 +11568,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_LOWMID || menu_sel == MI_PRES) hint = "\xC3\x89galiseur 5 bandes : graves, bas-m\xC3\xA9" "diums, m\xC3\xA9" "diums, pr\xC3\xA9sence, aigus";
     if (menu_sel == MI_PERF) hint = "Images/s en haut de l'\xC3\xA9" "cran ; en coupant : rapport SD:/gc-mp3/fluidite.txt";
     if (menu_sel == MI_NATCARD) hint = "Jeux lanc\xC3\xA9s avec Resident : sauvegardes dans SD:/gc-mp3/resident (choix : Outils > Cartes virtuelles)";
-    if (menu_sel == MI_NATIGR) hint = "Jeux lanc\xC3\xA9s avec Resident (X) : A+Z+START tenus 1 s = retour \xC3\xA0 GC Station";
+    if (menu_sel == MI_NATIGR) hint = "Jeux lanc\xC3\xA9s avec Resident (A) : A+Z+START tenus 1 s = retour \xC3\xA0 GC Station";
     if (menu_sel == MI_LAUNCHER) hint = ld_hint();
     if (menu_sel == MI_GLANIM) hint = "D\xC3\xA9" "filement doux, cadre qui glisse, carrousel (onglet JEUX / APPS)";
     if (menu_sel == MI_QUIT) hint = "Ouvre le menu de la GameCube (lecteur de disque). Bouton Reset = relancer GC Station";
@@ -11588,7 +11577,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_FLASH) hint = "Le flash blanc du mode soir\xC3\xA9" "e sur chaque coup de basse";
     if (menu_sel == MI_TABS) hint = "A : afficher / cacher un onglet   X / Y : changer l'ordre";
     if (menu_sel == MI_SGPAL) hint = "Spectrogramme plein \xC3\xA9" "cran (\xC3\xA9" "conomiseur, mode soir\xC3\xA9" "e) et style Spectrogramme";
-    if (menu_sel == MI_RUMBLE) hint = "Mode soir\xC3\xA9" "e, mini-jeux, et les jeux lanc\xC3\xA9s avec le lanceur GC Station";
+    if (menu_sel == MI_RUMBLE) hint = "Mode soir\xC3\xA9" "e, mini-jeux, et les jeux lanc\xC3\xA9s avec le lanceur de secours";
     if (menu_sel == MI_SCREENX) hint = "D\xC3\xA9" "cale l'image de GC Station et des jeux (r\xC3\xA9glage de la console)";
     if (menu_sel == MI_GLANG) hint = "Langue de la console : les jeux multilingues (PAL) l'utilisent. Un jeu peut avoir la sienne (Y dans sa fiche)";
     if (menu_sel == MI_GSOUND) hint = "R\xC3\xA9glage de la console : GC Station et les jeux";
@@ -12605,12 +12594,12 @@ static void music_pump(void) {
 #include "gckb.c"
 #include "fun_extra.c"                         /* v18 : karaoke, jeux, reveil, titres radio... */
 #include "tabs_extra.c"                        /* v23 : onglets JEUX et TELECHARGEMENTS, curseur partout */
-#include "cheats.c"                            /* v25 : editeur de cheats Swiss */
-#include "gclib.c"                             /* v25 : Mes jeux GameCube (jaquettes du pack Swiss Indigo) */
+#include "cheats.c"                            /* v25 : editeur de cheats (SD:/gc-mp3/cheats) */
+#include "gclib.c"                             /* v25 : Mes jeux GameCube (jaquettes : SD:/gc-mp3/jaquettes) */
 #include "tools.c"                             /* v35 : cartes memoire, applis, recents, infos */
-#include "jeux_cfg.c"                          /* v75 : reglages des jeux (plus de pages Indigo / Swiss) */
+#include "jeux_cfg.c"                          /* v75 : reglages des jeux */
 #include "igr.c"                               /* v39 : A + Z + START en jeu -> GC-MP3 */
-#include "lanceur.c"                           /* v44 : lanceur de jeux GC-MP3 (moteur Swiss) */
+#include "lanceur.c"                           /* v44 : lanceur de secours ; v90 : reprise de SD:/swiss */
 #include "natif.c"                             /* v50 : lanceur natif GC Station, etape 1 : analyse */
 #include "extras73.c"                          /* v73 : podcasts plus rapides, historique radio, cartes virtuelles... */
 
@@ -12646,21 +12635,13 @@ int main(int argc, char **argv) {
     crash_init();                           /* journal de plantage */
     ui_lang_apply();                        /* v24 : langue de la console, sauf reglage */
     load_settings();
-    if (sd_ok && !nfs_cfg[NFS_SMB].host[0] && !nfs_cfg[NFS_FTP].host[0] && !nfs_cfg[NFS_FSP].host[0] && nfs_swiss_import(0)) settings_dirty = 1;   /* v86 : serveurs de Swiss */
     nfs_mount();
-    jeux_cfg_boot();                        /* v75 : langue / son de la console, reseau (et reprise des anciens reglages d'Indigo) */
+    jeux_cfg_boot();                        /* v75 : langue / son de la console, reseau */
     if (sd_ok) ld_boot();                   /* v45 : retour.txt (retour en jeu) + journal du lanceur */
     if (!init_video()) return 1;
     gx_init();
     init_spectrum();
-    {   /* v30 : Z tenu au demarrage = retour direct au menu de Swiss / Indigo
-           (utile si GC-MP3 est regle pour s'ouvrir tout seul au demarrage) */
-        PAD_ScanPads();
-        if (sd_ok && (PAD_ButtonsHeld(0) & PAD_TRIGGER_Z)) {
-            ui_status("Lancement de Swiss...");
-            gl_boot_swiss(NULL);
-        }
-    }
+    swiss_migrate();                        /* v90 : une fois, SD:/swiss -> SD:/gc-mp3 (plus rien de Swiss) */
 
     if (sd_ok) { scan_files(); bib_load(); pl_load_all(); stats_load(); rating_load(); }
     if (sd_ok) nat_journal_convert();       /* v54 : journal du dernier jeu lance par le lanceur maison */

@@ -9,8 +9,8 @@
 #  - journal dans SD:/gc-mp3/lanceur.log (GC-MP3 affiche l'erreur) ;
 #  - pas de questions au demarrage (reglages video / appareil de config) ;
 #  - fond et barre de titre aux couleurs de GC-MP3 (tools/loader/backdrop.png).
-# Les reglages restent ceux de Swiss / Indigo (SD:/swiss/settings) : les reglages par jeu
-# faits dans GC-MP3 s'appliquent.
+# v90 : plus rien dans SD:/swiss : reglages, patches, sauvegardes dans SD:/gc-mp3/lanceur,
+# cheats dans SD:/gc-mp3/cheats (ceux de l'editeur de GC Station).
 # Usage : python3 tools/mkloader.py <dossier swiss-gc> <dossier tools/loader>
 import os, shutil, sys
 
@@ -345,4 +345,30 @@ static void _DrawTitleBar(uiDrawObj_t *evt) {
 shutil.copy(os.path.join(assets, "backdrop.png"), os.path.join(sw, "source", "images", "backdrop.png"))
 patch("source/images/images.scf", [('<filepath="backdrop.png" id="backdrop" colfmt=8 palfmt=0 magfilt=0 />',
                                     '<filepath="backdrop.png" id="backdrop" colfmt=8 palfmt=1 magfilt=0 />')])
+# 5. v90 : dossiers de GC Station au lieu de SD:/swiss
+import re
+nrep = 0
+for dp, dn, fn in os.walk(os.path.join(sw, "source")):
+    for f in fn:
+        if not f.endswith((".c", ".h")):
+            continue
+        p = os.path.join(dp, f)
+        s0 = open(p, encoding="latin-1").read()
+        s = s0.replace('"swiss/cheats", "cheats", false)', '"gc-mp3/cheats", NULL, false)')
+        s = s.replace('"swiss/patches", "swiss_patches", false)', '"gc-mp3/lanceur/patches", NULL, false)')
+        s = s.replace('"swiss/cheats', '"gc-mp3/cheats')
+        s = s.replace('"swiss/', '"gc-mp3/lanceur/')
+        s = s.replace('"swiss", NULL, true)', '"gc-mp3/lanceur", NULL, false)')
+        s = s.replace('#define SWISS_BASE_DIR "swiss"', '#define SWISS_BASE_DIR "gc-mp3/lanceur"')
+        s = s.replace('SWISS_BASE_DIR, NULL, true)', 'SWISS_BASE_DIR, NULL, false)')
+        s = s.replace('fsp_getpro(fsp_session, "swiss",', 'fsp_getpro(fsp_session, "gc-mp3/lanceur",')
+        if s != s0:
+            nrep += 1
+            open(p, "w", encoding="latin-1").write(s)
+        left = re.findall(r'"swiss[/"]', s)
+        if left:
+            sys.exit("ERREUR %s : chemin swiss restant %s" % (p, left))
+if nrep < 10:
+    sys.exit("ERREUR : dossiers swiss : seulement %d fichiers modifies" % nrep)
+print("ok dossiers gc-mp3 (%d fichiers)" % nrep)
 print("lanceur GC-MP3 pret")

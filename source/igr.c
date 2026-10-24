@@ -1,11 +1,11 @@
-// GC-MP3 v39 : retour en jeu (A + Z + START) vers GC-MP3 (inclus dans main.c, apres indigo_cfg.c)
-// Indigo / Swiss, reglage "Retour en jeu" = Apploader : en jeu, A + Z + START charge
-// SD:/swiss/patches/apploader.img et le lance. Celui d'Indigo contient Indigo (compresse).
-// Le workflow GitHub fabrique le meme fichier avec GC-MP3 dedans (gc-mp3-igr-bN.img,
-// dans la release "dernier") : GC-MP3 le telecharge et le met a la place ; celui
-// d'Indigo est garde (apploader-indigo.img) pour revenir en arriere.
-#define IGR_IMG     SD_ROOT "/swiss/patches/apploader.img"
-#define IGR_BACKUP  SD_ROOT "/swiss/patches/apploader-indigo.img"
+// GC-MP3 v39 : retour en jeu (A + Z + START) vers GC Station, pour les jeux lances avec le
+// lanceur de secours (inclus dans main.c, apres jeux_cfg.c). Reglage "IGRType" = Apploader :
+// en jeu, A + Z + START charge SD:/gc-mp3/lanceur/patches/apploader.img et le lance.
+// Le workflow GitHub fabrique ce fichier avec GC Station dedans (gc-mp3-igr-bN.img, release
+// "dernier") : GC Station le telecharge. (v90 : plus dans SD:/swiss/patches.)
+// Resident (touche A) a son propre retour en jeu (natres.c), sans ce fichier.
+#define IGR_IMG     LD_DIR "/patches/apploader.img"
+#define IGR_OLD     SD_ROOT "/swiss/patches/apploader.img"      /* (v89 et avant : repris une fois, swiss_migrate) */
 #define IGR_MINE    GCD "/igr.img"
 
 enum { IGR_IDLE, IGR_CHECK, IGR_DL };
@@ -75,7 +75,7 @@ static int igr_copy(const char *src, const char *dst) {
     if (rename(tmp, dst) != 0) { remove(tmp); return 0; }
     return 1;
 }
-/* reglage "Retour en jeu" d'Indigo (global.ini) : ecrit tout de suite, ou en fermant la page Reglages */
+/* reglage "IGRType" du lanceur de secours (global.ini) */
 static void igr_set_type(const char *v) {
     int k = ic_find("IGRType");
     if (k < 0) return;
@@ -83,11 +83,7 @@ static void igr_set_type(const char *v) {
     ic_use_global(); ic_load(); ic_set(k, v); ic_save();
 }
 static void igr_install(void) {
-    mkdir(SD_ROOT "/swiss", 0777); mkdir(SD_ROOT "/swiss/patches", 0777);
-    struct stat st;
-    if (stat(IGR_IMG, &st) == 0 && !igr_build_of(IGR_IMG) && stat(IGR_BACKUP, &st) != 0) {
-        if (rename(IGR_IMG, IGR_BACKUP) != 0) { snprintf(igr_msg, sizeof(igr_msg), "%s", TR("Impossible de garder l'apploader d'Indigo")); return; }
-    }
+    mkdir(GCD, 0777); mkdir(LD_DIR, 0777); mkdir(LD_DIR "/patches", 0777);
     if (!igr_copy(IGR_MINE, IGR_IMG)) { snprintf(igr_msg, sizeof(igr_msg), "%s", TR("\xC3\x89" "criture sur la carte SD impossible")); return; }
     igr_set_type("Apploader");
     igr_cache = 1;
@@ -95,18 +91,11 @@ static void igr_install(void) {
     crumb("retour en jeu : GC Station");
 }
 static void igr_disable(void) {
-    struct stat st;
-    if (stat(IGR_BACKUP, &st) == 0) {
-        remove(IGR_IMG);
-        if (rename(IGR_BACKUP, IGR_IMG) != 0) igr_copy(IGR_BACKUP, IGR_IMG);
-        snprintf(igr_msg, sizeof(igr_msg), "%s", TR("A + Z + START en jeu : retour sur Indigo"));
-    } else {
-        remove(IGR_IMG);
-        igr_set_type("Reboot");                                    /* (plus d'apploader : redemarrage) */
-        snprintf(igr_msg, sizeof(igr_msg), "%s", TR("A + Z + START en jeu : red\xC3\xA9marrage de la console"));
-    }
+    remove(IGR_IMG);
+    igr_set_type("Reboot");                                        /* (plus d'apploader : redemarrage) */
+    snprintf(igr_msg, sizeof(igr_msg), "%s", TR("A + Z + START en jeu : red\xC3\xA9marrage de la console"));
     igr_cache = 0;
-    crumb("retour en jeu : Indigo");
+    crumb("retour en jeu (lanceur de secours) : non");
 }
 /* telecharge gc-mp3-igr-bN.img depuis la release "dernier" */
 static void igr_fetch(int enable_after) {
@@ -192,9 +181,9 @@ static void igr_toggle(void) {
 }
 static void igr_value(char *out, int cap) {
     if (igr_state != IGR_IDLE) snprintf(out, cap, "%s", TR("T\xC3\xA9l\xC3\xA9" "chargement..."));
-    else snprintf(out, cap, "%s", igr_on() ? "GC Station" : "Indigo");
+    else snprintf(out, cap, "%s", igr_on() ? "Oui" : "Non (red\xC3\xA9marrage)");
 }
 static const char *igr_hint(void) {
     if (igr_msg[0]) return igr_msg;
-    return "En jeu, A + Z + START revient sur GC Station (aussi avec Resident, touche X)";
+    return "Jeux lanc\xC3\xA9s avec le lanceur de secours : A + Z + START = retour \xC3\xA0 GC Station";
 }

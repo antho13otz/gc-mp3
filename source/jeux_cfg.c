@@ -1,11 +1,11 @@
 // GC Station v75 : reglages des jeux (inclus dans main.c, apres gclib.c). Remplace indigo_cfg.c :
 // les pages de reglages d'Indigo / Swiss ne sont plus dans GC Station.
 //  - Reglages de GC Station qui comptent aussi pour les jeux : ils sont recopies, sans rien montrer,
-//    dans SD:/swiss/settings/global.ini, le fichier que lit le lanceur GC Station (moteur de Swiss) :
+//    dans SD:/gc-mp3/lanceur/settings/global.ini, le fichier que lit le lanceur de secours :
 //    vibrations, mode video, langue et son de la console, position de l'image, retour en jeu.
-//    Les autres lignes du fichier ne changent pas.
-//  - Premier lancement de la v75 : l'adresse reseau fixe et l'affichage des fichiers caches, qui se
-//    reglaient dans les pages d'Indigo, sont repris dans gc-mp3.txt.
+//    Les autres lignes du fichier ne changent pas. (v90 : plus rien dans SD:/swiss.)
+//  - v90 : au premier demarrage, les fichiers de SD:/swiss utiles a GC Station sont repris une fois
+//    dans SD:/gc-mp3 (swiss_migrate, plus bas).
 //  - Reglages d'un jeu (Y dans la fiche d'un jeu) : langue, son, carte memoire virtuelle (Resident).
 
 static char vc_active[64];                                    /* (natif.c / extras73.c) */
@@ -23,8 +23,8 @@ static int ic_on = 0, ic_dirty = 0, ic_menu_loaded = 0;
 static char ic_val[IC_N][IC_VLEN];
 static unsigned char ic_has[IC_N], ic_chg[IC_N];
 static int ic_file_ok = 0;
-static char ic_path[NAME_LEN] = GL_SWISS_INI;
-static void ic_use_global(void) { snprintf(ic_path, sizeof(ic_path), "%s", GL_SWISS_INI); }
+static char ic_path[NAME_LEN] = LD_INI;
+static void ic_use_global(void) { snprintf(ic_path, sizeof(ic_path), "%s", LD_INI); }
 static int ic_find(const char *k) { for (int i = 0; i < IC_N; i++) if (!strcmp(ic_items[i].key, k)) return i; return -1; }
 static const char *ic_get(const char *k) { int i = ic_find(k); return i >= 0 && ic_has[i] ? ic_val[i] : NULL; }
 
@@ -51,7 +51,7 @@ static void ic_load(void) {
             int vl = (int)(n - kl - 1);
             if (vl > IC_VLEN - 1) vl = IC_VLEN - 1;
             memcpy(ic_val[k], eq + 1, vl); ic_val[k][vl] = 0;
-            ic_has[k] = 1;                 /* (la derniere ligne gagne, comme dans Swiss) */
+            ic_has[k] = 1;                 /* (la derniere ligne gagne, comme dans le lanceur) */
         }
     }
     free(d);
@@ -64,7 +64,7 @@ static int ic_save(void) {
     int crlf = 1;
     if (d) { crlf = 0; for (long i = 0; i < len; i++) if (d[i] == '\n') { crlf = i > 0 && d[i - 1] == '\r'; break; } }
     const char *nl = crlf ? "\r\n" : "\n";
-    mkdir(SD_ROOT "/swiss", 0777); mkdir(SD_ROOT "/swiss/settings", 0777);
+    mkdir(GCD, 0777); mkdir(LD_DIR, 0777); mkdir(LD_DIR "/settings", 0777);
     char tmp[NAME_LEN + 8];
     snprintf(tmp, sizeof(tmp), "%s.tmp", ic_path);
     FILE *f = fopen(tmp, "wb");
@@ -88,7 +88,7 @@ static int ic_save(void) {
                     if (ic_chg[k] && (int)strlen(ic_items[k].key) == kl && !memcmp(ic_items[k].key, d + s, kl)) { rep = k; break; }
             }
         }
-        if (n >= 23 && !memcmp(d + s, "#!!Swiss Settings End!!", 23)) {
+        if (n >= 23 && !memcmp(d + s, "#!!Swiss Settings End!!", 23)) {   /* (fin des reglages, format du lanceur) */
             for (int k = 0; k < IC_N && ok; k++)
                 if (ic_chg[k] && !done[k]) { if (fprintf(f, "%s=%s%s", ic_items[k].key, ic_val[k], nl) < 0) ok = 0; done[k] = 1; }
         }
@@ -109,7 +109,6 @@ static int ic_save(void) {
     if (!ok) { remove(tmp); return 0; }
     remove(ic_path);
     if (rename(tmp, ic_path) != 0) return 0;
-    as_cache = -1;                                           /* (demarrage auto : relire) */
     memset(ic_chg, 0, sizeof(ic_chg));
     ic_dirty = 0; ic_file_ok = 1;
     return 1;
@@ -134,14 +133,14 @@ static void ic_put2(const char *key, const char *val, int force) {
 static void ic_put(const char *key, const char *val) { ic_put2(key, val, 0); }
 
 /* ---------- langue et son de la console (SRAM : les jeux les lisent) ---------- */
-static const char *const gc_lang_swiss[6] = { "English", "German", "French", "Spanish", "Italian", "Dutch" };
+static const char *const gc_lang_ini[6] = { "English", "German", "French", "Spanish", "Italian", "Dutch" };
 static const char *const gc_lang_keys[6] = { "en", "de", "fr", "es", "it", "nl" };
 static const char *const gc_lang_names[6] = { "English", "Deutsch", "Fran\xC3\xA7" "ais", "Espa\xC3\xB1ol", "Italiano", "Nederlands" };
 static void gc_lang_set(int l, int sync) {                   /* sync = aussi pour le lanceur (global.ini) */
     if (l < 0 || l > 5) return;
     if (SYS_GetLanguage() != l) SYS_SetLanguage((u8)l);
     ui_lang_apply();
-    if (sync) ic_put2("System Language", gc_lang_swiss[l], 1);
+    if (sync) ic_put2("System Language", gc_lang_ini[l], 1);
 }
 static void gc_sound_set(int stereo, int sync) {
     u8 m = stereo ? SYS_SOUND_STEREO : SYS_SOUND_MONO;
@@ -169,22 +168,6 @@ static void jeux_cfg_boot(void) {
     if (sram_back_lang >= 0) { gc_lang_set(sram_back_lang, 1); sram_back_lang = -1; settings_dirty = 1; }   /* (langue d'un jeu : on remet celle de la console) */
     if (sram_back_sound >= 0) { gc_sound_set(sram_back_sound, 1); sram_back_sound = -1; settings_dirty = 1; }
     audio_mono = SYS_GetSoundMode() == SYS_SOUND_MONO;
-    if (!net_cfg_seen && sd_ok && !sd_virtual) {              /* v75 : reprise des reglages faits dans les pages d'Indigo */
-        ic_use_global();
-        ic_load();
-        if (ic_file_ok) {
-            const char *v = ic_get("BBAUseDHCP"), *ip = ic_get("BBALocalIP"), *gw = ic_get("BBAGateway"), *nm = ic_get("BBANetmask");
-            if (v && !strcmp(v, "No") && ip && ip[0]) {
-                net_dhcp = 0;
-                snprintf(net_cfg_ip, sizeof(net_cfg_ip), "%.15s", ip);
-                snprintf(net_cfg_gw, sizeof(net_cfg_gw), "%.15s", gw ? gw : "");
-                net_cfg_bits = nm && nm[0] ? atoi(nm) : 24;
-            }
-            if ((v = ic_get("ShowHiddenFiles"))) fe_show_hidden = !strcmp(v, "Yes");
-            if ((v = ic_get("Hide Unknown file types"))) fe_hide_unknown = !strcmp(v, "Yes");
-        }
-        settings_dirty = 1;                                   /* (enregistres dans gc-mp3.txt) */
-    }
     net_cfg_apply();
 }
 
@@ -309,6 +292,13 @@ static void jeux_cfg_undo(const char *card) {
     snprintf(vc_active, sizeof(vc_active), "%s", card);
     vc_keep[0] = 0;
     save_settings();
+}
+static const char *game_boot_auto(int k) {                   /* v90 : Resident ; le lanceur de secours si des cheats sont actives */
+    int sec = k >= 0 && k < gl_n && gl_cheats_on(k) > 0 && ld_ready();
+    if (sec) gl_status("Lancement du jeu...");
+    const char *e = game_boot(k, !sec);
+    if (!sec) nat_ld_on = 0;                                 /* (fin de l'ecran de chargement de Resident) */
+    return e;
 }
 static const char *game_boot(int k, int resident) {
     if (k < 0 || k >= gl_n) return "Jeu introuvable";

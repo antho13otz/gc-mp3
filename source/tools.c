@@ -3,7 +3,7 @@
 //   - cartes memoire : sauvegardes des slots A / B, copie sur la SD (.gci), restauration,
 //     copie vers l'autre carte, suppression
 //   - applis : les .dol de la carte SD (racine, apps/), lances directement
-//   - derniers jeux lances (GC-MP3 + liste "recent" d'Indigo / Swiss)
+//   - derniers jeux lances (GC Station + liste "recent" du lanceur de secours)
 //   - infos sur la console
 // Chaque outil s'ouvre en fenetre par-dessus l'ecran (tl_screen).
 
@@ -761,8 +761,8 @@ static void rc_open(void) {
         }
         free(d);
     }
-    /* liste d'Indigo / Swiss : Recent_0=sdc:/games/xxx.iso */
-    d = (char *)read_file(SD_ROOT "/swiss/settings/recent.ini", 32768, &len);
+    /* liste du lanceur de secours : Recent_0=sdc:/games/xxx.iso (v90 : SD:/gc-mp3/lanceur) */
+    d = (char *)read_file(LD_DIR "/settings/recent.ini", 32768, &len);
     if (d) {
         long i = 0;
         while (i < len) {
@@ -794,11 +794,11 @@ static void rc_input(u32 down, u32 nav, int fire) {
             if (settings_dirty) save_settings();
             int k = rc_game(i);
             const char *e;
-            if (k >= 0) e = game_boot(k, 0);
+            if (k >= 0) e = game_boot_auto(k);
             else {
                 size_t l = strlen(rc_path[i]);
                 if (l > 4 && !strcasecmp(rc_path[i] + l - 4, ".dol")) e = gl_boot_dol(rc_path[i], NULL, NULL, base_of(rc_path[i]));
-                else { tl_recent_add(rc_path[i]); e = gl_boot_swiss(rc_path[i]); }
+                else { tl_recent_add(rc_path[i]); e = gl_boot_loader(rc_path[i]); }
             }
             gl_busy[0] = 0;
             if (e) tl_note(e);
@@ -843,8 +843,9 @@ static void info_lines(char (*l)[2][120], int *n) {
         IL("Carte SD", ("%s : %llu Mo libres sur %llu Mo"), TR(sl[sd_slot >= 0 && sd_slot < 3 ? sd_slot : 0]), fr >> 20, tot >> 20);
     } else IL("Carte SD", "%s", TR("absente"));
     IL("R\xC3\xA9seau", "%s", net_phase != NET_DONE ? TR("pas encore connect\xC3\xA9") : net_ok ? ip_str : TR("pas de r\xC3\xA9seau"));
-    if (net_ok && net_static) IL("", "%s", TR("adresse fixe (r\xC3\xA9glages d'Indigo)"));
-    IL("Indigo / Swiss", "%s", gl_find_swiss() ? base_of(gl_swiss) : TR("introuvable"));
+    if (net_ok && net_static) IL("", "%s", TR("adresse fixe"));
+    if (ld_build() > 0) IL("Lanceur de secours", "build %d", ld_build());
+    else IL("Lanceur de secours", "%s", TR("pas encore t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9"));
     IL("D\xC3\xA9marrage", "%s", access(SD_ROOT "/ipl.dol", R_OK) == 0 ? TR("ipl.dol pr\xC3\xA9sent \xC3\xA0 la racine") : TR("pas d'ipl.dol"));
     u64 s = now_ms() / 1000;
     IL("Allum\xC3\xA9" "e depuis", "%d h %02d min", (int)(s / 3600), (int)(s / 60 % 60));
@@ -1106,7 +1107,7 @@ static void draw_info(void) {
 }
 
 /* =================== v86 : serveur du reseau (SMB / FTP / FSP) : START > Reglages > Reseau =================== */
-enum { NF_HOST, NF_SHARE, NF_USER, NF_PASS, NF_PORT, NF_TEST, NF_SWISS, NF_OPEN };
+enum { NF_HOST, NF_SHARE, NF_USER, NF_PASS, NF_PORT, NF_TEST, NF_OPEN };
 static int nfs_ui_p = 0, nfs_ui_sel = 0;
 static char nfs_ui_res[140] = "";
 static int nfs_ui_rows(int *r) {                           /* lignes affichees pour ce protocole */
@@ -1114,7 +1115,7 @@ static int nfs_ui_rows(int *r) {                           /* lignes affichees p
     r[n++] = NF_HOST;
     if (nfs_ui_p == NFS_SMB) r[n++] = NF_SHARE;
     if (nfs_ui_p != NFS_FSP) r[n++] = NF_USER;
-    r[n++] = NF_PASS; r[n++] = NF_PORT; r[n++] = NF_TEST; r[n++] = NF_SWISS; r[n++] = NF_OPEN;
+    r[n++] = NF_PASS; r[n++] = NF_PORT; r[n++] = NF_TEST; r[n++] = NF_OPEN;
     return n;
 }
 static void nfs_menu_value(int p, char *out, int cap) {
@@ -1170,11 +1171,6 @@ static void nfs_ui_act(int f) {
         if (ok) snprintf(nfs_ui_res, sizeof(nfs_ui_res), "OK : %d %s (%u ms)", n, n > 1 ? "\xC3\xA9l\xC3\xA9ments" : "\xC3\xA9l\xC3\xA9ment", (unsigned)(now_ms() - t0));
         else snprintf(nfs_ui_res, sizeof(nfs_ui_res), "%s", nfs_err[0] ? nfs_err : TR("Connexion impossible"));
         return; }
-    case NF_SWISS: {
-        int n = nfs_swiss_import(1);
-        if (n) { settings_dirty = 1; smb_close_c(); fsp_close_s(); nfs_cache_put("", NULL, 0); }
-        snprintf(nfs_ui_res, sizeof(nfs_ui_res), "%s", TR(n ? "R\xC3\xA9glages de Swiss repris" : "Aucun r\xC3\xA9glage dans SD:/swiss/settings/global.ini"));
-        return; }
     case NF_OPEN:
         if (!nfs_cfg_ok(nfs_ui_p)) { snprintf(nfs_ui_res, sizeof(nfs_ui_res), "%s", TR("R\xC3\xA8gle d'abord l'adresse")); return; }
         if (settings_dirty) save_settings();
@@ -1196,9 +1192,9 @@ static void nfs_ui_input(u32 down, u32 nav, int fire) {
     if (down & PAD_BUTTON_B) { tl_screen = TL_NONE; menu_open = 1; if (settings_dirty) save_settings(); }
 }
 static void nfs_ui_draw(void) {
-    static const char *const lab[] = { "Adresse du serveur", "Nom du partage", "Utilisateur", "Mot de passe", "Port", "Tester la connexion", "Reprendre les r\xC3\xA9glages de Swiss", "Ouvrir dans FICHIERS" };
+    static const char *const lab[] = { "Adresse du serveur", "Nom du partage", "Utilisateur", "Mot de passe", "Port", "Tester la connexion", "Ouvrir dans FICHIERS" };
     const nfs_cfg_t *c = &nfs_cfg[nfs_ui_p];
-    tl_frame(TR(nfs_label[nfs_ui_p]), nfs_ui_p == NFS_SMB ? "SMB2 (Windows, Samba, NAS)" : nfs_ui_p == NFS_FTP ? "FTP (mode passif)" : "FSP (comme Swiss)");
+    tl_frame(TR(nfs_label[nfs_ui_p]), nfs_ui_p == NFS_SMB ? "SMB2 (Windows, Samba, NAS)" : nfs_ui_p == NFS_FTP ? "FTP (mode passif)" : "FSP (UDP)");
     int r[8], n = nfs_ui_rows(r);
     char v[96];
     for (int i = 0; i < n; i++) {
@@ -1251,15 +1247,14 @@ static void draw_tools(void) {
 }
 
 /* ---------- section "Outils" de la page Reglages ---------- */
-enum { TO_RECENT, TO_GAMES, TO_CHEATS, TO_VCARD, TO_BACKUP, TO_RESTORE, TO_INFO, TO_QUIT, TO_COUNT };   /* (v57 : plus de "Quitter vers Swiss" : Z au demarrage) */
-#define TO_SWISS (-1)
+enum { TO_RECENT, TO_GAMES, TO_CHEATS, TO_VCARD, TO_BACKUP, TO_RESTORE, TO_INFO, TO_QUIT, TO_COUNT };
 static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s",
     "Mes jeux, applis et cartes m\xC3\xA9moire", "Cheats (\xC3\xA9" "diteur)", "Cartes m\xC3\xA9moire virtuelles (Resident)",
     "Sauvegarder tous les r\xC3\xA9glages", "Restaurer les r\xC3\xA9glages", "Infos console", "Quitter GC Station" };
 static const char *const to_help[TO_COUNT] = {
     "Relancer un jeu en un clic.",
     "Onglet JEUX / APPS. Dans la fiche d'un jeu : Y = r\xC3\xA9glages du jeu.",
-    "Modifier et activer les cheats de tes jeux (dossier swiss/cheats).",
+    "Modifier et activer les cheats de tes jeux (dossier gc-mp3/cheats).",
     "Plusieurs cartes, sauvegardes copi\xC3\xA9" "es depuis / vers la SD et la vraie carte.",
     "R\xC3\xA9glages, radios, favoris, listes, podcasts... dans SD:/gc-mp3-sauvegarde.txt",
     "Remet les r\xC3\xA9glages de SD:/gc-mp3-sauvegarde.txt (A deux fois pour confirmer).",
@@ -1291,11 +1286,6 @@ static void tools_menu_input(u32 down, u32 nav, int fire) {
     case TO_GAMES: tab = TAB_GAMES; tab_enter(TAB_GAMES); gm_sel = GM_COUNT; break;
     case TO_CHEATS: cheats_open(); break;
     case TO_VCARD: vc_open(); break;
-    case TO_SWISS: {
-        ui_status("Lancement de Swiss...");
-        const char *e = gl_boot_swiss(NULL);                   /* (ne revient pas si ca marche) */
-        if (e) lib_note(e);
-        break; }
     }
 }
 static void tools_menu_draw(f32 x, f32 y, f32 w, int vis, f32 rh, f32 help_y) {

@@ -1,13 +1,13 @@
 // GC-MP3 v25 : « Mes jeux GameCube » (onglet JEUX) — inclus dans main.c apres cheats.c
 // Liste les jeux de la carte SD (.iso, .gcm, .ciso, .nkit.iso) avec :
 //  - l'ID et le nom lus dans le jeu, la banniere du disque (opening.bnr) ;
-//  - les jaquettes du pack Swiss Indigo : SD:/swiss/ui/posters.pak (192x256, CMPR),
-//    les captures SD:/swiss/ui/stills.pak (320x240) et SD:/swiss/ui/descriptions.txt.
-// Format des packs : SWPK v1 (docs/PACKS.md d'Indigo), nombres en big-endian.
-// Les jeux se lancent depuis Swiss ; ici on les voit, et X ouvre leurs cheats.
+//  - les jaquettes : SD:/gc-mp3/jaquettes/posters.pak (192x256, CMPR), les captures
+//    stills.pak (320x240) et descriptions.txt (v90 : avant dans SD:/swiss/ui, deplaces une fois).
+// Format des packs : SWPK v1, nombres en big-endian.
+// v90 : les jeux se lancent avec Resident (natif.c), ou le lanceur de secours (lanceur.c).
 
 #define GL_MAX      400
-#define GL_UI       SD_ROOT "/swiss/ui"
+#define GL_UI       GCD "/jaquettes"
 #define GL_CACHE    GCD "/cache/jeux"
 #define GL_SLOTS    32                       /* jaquettes gardees en memoire (128x128) ; v68 : 32 */
 #define GL_BSLOTS   40                       /* bannieres gardees en memoire */
@@ -43,6 +43,7 @@ static void gl_fav_load(void);
 static void gl_fav_save(void);
 static void gl_apply_sort(void);
 static int ld_ready(void);
+static int ld_build(void);                                 /* (lanceur.c) */
 static gcg_t *gl = NULL;
 static int gl_n = 0, gl_scanned = 0, gl_on = 0, gl_sel = 0, gl_detail = 0;
 static char gl_msg[160];
@@ -53,6 +54,7 @@ static char gl_busy[96] = "";                            /* v27 : message "en co
 static void gl_status(const char *m) { snprintf(gl_busy, sizeof(gl_busy), "%s", TR(m)); ui_status(m); }                            /* v27 : noms / descriptions lus dans les bannieres */
 static const char *gl_launch(int k);
 static const char *game_boot(int k, int resident);         /* v75 : lancement avec les reglages du jeu (jeux_cfg.c) */
+static const char *game_boot_auto(int k);                  /* v90 : Resident, ou le lanceur de secours si des cheats sont actives */
 static void nat_run(int k);                                /* v50 : lanceur natif, analyse (natif.c) */
 static const char *nat_boot(int k);                        /* v51 : lanceur maison, demarrage natif (natif.c), en test */
 static int nat_qr_input(u32 down);                         /* v51 : QR code du rapport */
@@ -637,7 +639,7 @@ static void gl_open_cheats(int k) {
     struct stat st;
     snprintf(p, sizeof(p), "%s/%s.txt", CH_DIR, gl[k].id);
     if (stat(p, &st) != 0) {
-        mkdir(SD_ROOT "/swiss", 0777); mkdir(CH_DIR, 0777);
+        mkdir(CH_DIR, 0777);
         FILE *f = fopen(p, "wb");
         if (!f) { gl_note("Impossible d'\xC3\xA9" "crire sur la carte SD"); return; }
         fprintf(f, "%s\n%s\n", gl[k].id, gl[k].title);          /* en-tete : ID et nom du jeu */
@@ -668,20 +670,19 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         return;
     }
     if (gl_launch_sel >= 0) {                              /* "Lancer ce jeu ?" */
-        if (down & PAD_BUTTON_A) {
+        if (down & PAD_BUTTON_A) {                         /* v90 : Resident (le lanceur de secours si des cheats sont actives) */
             int k = gl_launch_sel;
             gl_launch_sel = -1;
-            gl_status(ld_ready() ? "Lancement du jeu..." : "Lancement de Swiss...");
-            const char *e = game_boot(k, 0);                /* (ne revient pas si ca marche ; v75 : avec les reglages du jeu) */
+            const char *e = game_boot_auto(k);              /* (ne revient pas si ca marche ; avec les reglages du jeu) */
             gl_busy[0] = 0;
             if (e) gl_note(e);
         }
-        if (down & PAD_BUTTON_X) {                         /* v51 : lanceur maison (natif.c), en test */
+        if (down & PAD_BUTTON_X) {                         /* v90 : lanceur de secours */
             int k = gl_launch_sel;
             gl_launch_sel = -1;
-            const char *e = game_boot(k, 1);                /* (ne revient pas si ca marche) */
+            gl_status("Lancement du jeu...");
+            const char *e = game_boot(k, 0);                /* (ne revient pas si ca marche) */
             gl_busy[0] = 0;
-            nat_ld_on = 0;                                  /* v64 : fin de l'ecran de chargement */
             if (e) gl_note(e);
         }
         if (down & PAD_BUTTON_B) gl_launch_sel = -1;
@@ -1061,8 +1062,8 @@ static void draw_gclib_main(void) {
         snprintf(buf, sizeof(buf), gl_detail ? "Mes jeux GameCube (%d)  >  fiche" : "Mes jeux GameCube (%d)", gl_n);
         gx_text1(F_SMALL, tx + 6, 99, buf, RGBA(200, 190, 240, 255));
     }
-    if (!gl_post.fp && hub_end + 12 < 590 - text_width(F_SMALL, "(pas de jaquettes : swiss/ui/posters.pak)", 1))
-        gx_text_r(F_SMALL, 590, 99, "(pas de jaquettes : swiss/ui/posters.pak)", RGBA(150, 135, 210, 255));
+    if (!gl_post.fp && hub_end + 12 < 590 - text_width(F_SMALL, TR("(pas de jaquettes)"), 1))
+        gx_text_r(F_SMALL, 590, 99, TR("(pas de jaquettes)"), RGBA(150, 135, 210, 255));
     /* une banniere a lire par image, quand on ne bouge pas */
     if (gl_n && now_ms() - last_input_ms > 120) {
         int first = gl_detail ? gl_sel : (gl_sel / GL_COLS - (gl_sel / GL_COLS > 0)) * GL_COLS;
@@ -1073,7 +1074,7 @@ static void draw_gclib_main(void) {
     if (!gl_n) {
         gx_text1(F_MED, 34, 150, "Aucun jeu GameCube trouv\xC3\xA9 sur la carte SD", RGBA(255, 255, 255, 255));
         gx_text1(F_SMALL, 34, 176, "Jeux reconnus : .iso, .gcm, .ciso (et .nkit.iso), dans n'importe quel dossier (3 niveaux).", RGBA(190, 180, 235, 255));
-        gx_text1(F_SMALL, 34, 196, "Jaquettes : le pack Swiss Indigo, SD:/swiss/ui/posters.pak (+ stills.pak, descriptions.txt).", RGBA(190, 180, 235, 255));
+        gx_text1(F_SMALL, 34, 196, "Jaquettes : SD:/gc-mp3/jaquettes/posters.pak (+ stills.pak, descriptions.txt).", RGBA(190, 180, 235, 255));
         static const char *const k[] = { "Y", "B" };
         static const char *const l[] = { "ACTUALISER", "RETOUR" };
         draw_legend_keys(k, l, 2);
@@ -1142,16 +1143,16 @@ static void draw_gclib_main(void) {
             const f32 w = 420, h = 112, x = 110, y = 170;
             gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
             draw_panel(x, y, w, h);
-            gx_text_c(F_MED, x + w / 2, y + 32, ld_ready() ? "Lancer ce jeu ?" : "Lancer ce jeu avec Swiss ?", RGBA(255, 255, 255, 255));
+            gx_text_c(F_MED, x + w / 2, y + 32, "Lancer ce jeu ?", RGBA(255, 255, 255, 255));
             fit_text(F_SMALL, g->title, (int)w - 30, buf, sizeof(buf));
             gx_text_c(F_SMALL, x + w / 2, y + 56, buf, RGBA(255, 210, 120, 255));
             int cn = gl_cheats_on(gl_sel);
             if (cn > 0) {
-                snprintf(buf, sizeof(buf), cn == 1 ? TR("Avec 1 cheat activ\xC3\xA9") : TR("Avec %d cheats activ\xC3\xA9s"), cn);
+                snprintf(buf, sizeof(buf), cn == 1 ? TR("Avec 1 cheat activ\xC3\xA9 (lanceur de secours)") : TR("Avec %d cheats activ\xC3\xA9s (lanceur de secours)"), cn);
                 gx_text_c(F_SMALL, x + w / 2, y + 76, buf, RGBA(130, 230, 150, 255));
             } else
-            gx_text_c(F_SMALL, x + w / 2, y + 76, ld_ready() ? "Lanceur GC Station (B maintenu : \xC3\xA9" "cran du jeu de Swiss)" : "GC Station se ferme et Swiss ouvre directement le jeu.", RGBA(190, 180, 235, 255));
-            gx_text_c(F_SMALL, x + w / 2, y + 98, "A : lancer     X : Resident     B : annuler", RGBA(255, 210, 120, 255));
+            gx_text_c(F_SMALL, x + w / 2, y + 76, TR("Resident : A + Z + START tenus 1 s = retour \xC3\xA0 GC Station"), RGBA(190, 180, 235, 255));
+            gx_text_c(F_SMALL, x + w / 2, y + 98, "A : lancer     X : lanceur de secours     B : annuler", RGBA(255, 210, 120, 255));
         }
         snprintf(buf, sizeof(buf), "%d / %d   (gauche / droite)", gl_sel + 1, gl_n);
         gx_text_r(F_SMALL, 614, 396, buf, RGBA(150, 135, 210, 255));
@@ -1198,97 +1199,12 @@ static void draw_gclib_main(void) {
     }
 }
 
-/* ======================= v26 : lancer un jeu avec Swiss =======================
-   GC-MP3 charge le .dol de Swiss en memoire et le demarre avec l'argument
-   "Autoload=sdc:/chemin/du/jeu.iso" : Swiss (et Indigo) lisent leurs arguments
-   comme des lignes de reglages, ouvrent le jeu tout de suite, sans rien garder. */
+/* ======================= lancer un jeu avec le lanceur de secours =======================
+   GC Station charge SD:/gc-mp3/lanceur.dol en memoire et le demarre avec l'argument
+   "Autoload=sdc:/chemin/du/jeu.iso" (v90 : plus de Swiss / Indigo). */
 static int gl_launch_sel = -1;                      /* fenetre "Lancer ?" ouverte (-1 = non) */
-static char gl_swiss[NAME_LEN];
-
-static int gl_mem_has(const u8 *d, long n, const char *pat) {    /* (sans tenir compte des majuscules) */
-    int m = (int)strlen(pat);
-    for (long i = 0; i + m <= n; i++) {
-        int k = 0;
-        while (k < m && tolower(d[i + k]) == pat[k]) k++;
-        if (k == m) return 1;
-    }
-    return 0;
-}
-/* un .dol de Swiss ? (on lit les 2 premiers Mo : les textes "swiss" y sont) */
-static int gl_is_swiss(const char *path) {
-    FILE *f = fopen(path, "rb");
-    if (!f) return 0;
-    static u8 b[1 << 16];
-    int found = 0, mine = 0, indigo = 0;
-    long tot = 0;
-    size_t n;
-    u8 tail[32] = { 0 };
-    while (tot < (2 << 20) && (n = fread(b + 32, 1, sizeof(b) - 32, f)) > 0) {
-        memcpy(b, tail, 32);
-        if (gl_mem_has(b, (long)n + 32, "swiss")) found = 1;
-        if (gl_mem_has(b, (long)n + 32, "indigo audio player")) mine = 1;
-        if (gl_mem_has(b, (long)n + 32, "posters.pak")) indigo = 1;      /* (Swiss Indigo : jaquettes) */
-        memcpy(tail, b + n, 32);
-        tot += (long)n;
-        service_audio();
-    }
-    fclose(f);
-    return found && !mine ? 1 + indigo : 0;          /* 2 = Swiss Indigo, 1 = autre Swiss */
-}
-#define GL_SWISS_CACHE GL_CACHE "/swiss.txt"            /* v27 : Swiss deja trouve (chemin | taille) */
-static int gl_find_swiss(void) {
-    if (swiss_pref[0]) { snprintf(gl_swiss, sizeof(gl_swiss), "%s", swiss_pref); return access(gl_swiss, R_OK) == 0; }
-    {
-        long len = 0;
-        char *c = (char *)read_file(GL_SWISS_CACHE, 4096, &len);
-        if (c) {
-            char *bar = strchr(c, '|');
-            struct stat st;
-            if (bar) {
-                *bar = 0;
-                if (stat(c, &st) == 0 && (long)st.st_size == atol(bar + 1)) { snprintf(gl_swiss, sizeof(gl_swiss), "%s", c); free(c); return 1; }
-            }
-            free(c);
-        }
-    }
-    gl_status("Recherche de Swiss sur la carte SD...");
-    char cand[24][NAME_LEN];
-    int nc = 0;
-    const char *dirs[] = { SD_ROOT, SD_ROOT "/swiss", SD_ROOT "/apps/swiss", SD_ROOT "/apps/indigo", SD_ROOT "/apps/Swiss", NULL };
-    for (int pass = 0; pass < 2; pass++)                      /* 1 : nom avec "swiss" / "indigo" ; 2 : ipl.dol, boot.dol... */
-        for (int di = 0; dirs[di] && nc < 24; di++) {
-            DIR *d = opendir(dirs[di]);
-            if (!d) continue;
-            struct dirent *e;
-            while ((e = readdir(d)) != NULL && nc < 24) {
-                const char *dot = strrchr(e->d_name, '.');
-                if (!dot || strcasecmp(dot, ".dol")) continue;
-                char low[128]; int i = 0;
-                for (; e->d_name[i] && i < 127; i++) low[i] = (char)tolower((u8)e->d_name[i]);
-                low[i] = 0;
-                if (strstr(low, "gc-mp3") || strstr(low, "gcmp3")) continue;
-                int named = strstr(low, "swiss") || strstr(low, "indigo");
-                int generic = !strcmp(low, "ipl.dol") || !strcmp(low, "boot.dol") || !strcmp(low, "autoexec.dol") || !strcmp(low, "igr.dol");
-                if (pass == 0 ? !named : !generic) continue;
-                snprintf(cand[nc++], NAME_LEN, "%s/%s", dirs[di], e->d_name);
-            }
-            closedir(d);
-        }
-    int best = 0;                                             /* Swiss Indigo d'abord (celui des jaquettes) */
-    for (int i = 0; i < nc && best < 2; i++) {
-        int sc = gl_is_swiss(cand[i]);
-        if (sc > best) { best = sc; snprintf(gl_swiss, sizeof(gl_swiss), "%s", cand[i]); }
-    }
-    if (best > 0) {                                         /* garde-le pour la prochaine fois */
-        struct stat st;
-        FILE *f = stat(gl_swiss, &st) == 0 ? fopen(GL_SWISS_CACHE, "w") : NULL;
-        if (f) { fprintf(f, "%s|%ld\n", gl_swiss, (long)st.st_size); fclose(f); }
-    }
-    return best > 0;
-}
-
 /* petit programme copie a 0x80001800 : recopie les sections du .dol a leur
-   place (par-dessus GC-MP3), vide les caches, puis saute au debut de Swiss.
+   place (par-dessus GC-MP3), vide les caches, puis saute au debut du .dol.
    r3 = table {dest, source, taille}, r4 = nombre de lignes, r5 = point d'entree */
 static const u32 gl_stub[] = {
     0x7cc000a6, 0x54c6045e, 0x7cc00124, 0x4c00012c, 0x2c040000, 0x41820060, 0x80e30000, 0x81030004,
@@ -1300,7 +1216,7 @@ static const u32 gl_stub[] = {
 #define GL_STUB_AT  0x80001800u
 #define GL_TAB_AT   0x80002000u
 #define GL_ARGV_AT  0x80002900u
-#define GL_CMD_AT   (0x81700000u - 0x400u)        /* ligne de commande : en haut de la memoire, comme le fait Swiss */
+#define GL_CMD_AT   (0x81700000u - 0x400u)        /* ligne de commande : en haut de la memoire */
 #define LD_DOL  GCD "/lanceur.dol"                 /* v44 : lanceur de jeux GC-MP3 (lanceur.c) */
 #define LD_VER  GCD "/lanceur.txt"
 static void ld_fetch(int loud);
@@ -1309,9 +1225,8 @@ static const char *gl_arg3 = NULL;                 /* v44 : 3e argument (GCMP3=.
 static const char *gl_arg4 = NULL;                 /* v46 : 4e argument (GCMP3TITLE=... : nom du jeu, ecran de chargement) */
 static const char *gl_boot_title = NULL;           /* v46 : nom du jeu lance */
 
-/* demarre Swiss avec "Autoload=<jeu>" (path = chemin sd:/...), ou "Autoload=" (vide :
-   le menu de Swiss / Indigo, meme si GC-MP3 y est regle pour demarrer tout seul) */
-static const char *gl_boot_swiss(const char *path);
+/* lanceur de secours avec "Autoload=<jeu>" (path = chemin sd:/...) */
+static const char *gl_boot_loader(const char *path);
 static int gl_boot_cheats = 0;                         /* v31 : ajoute "AutoCheats=Yes" (cheats actives pour ce jeu) */
 static const char *gl_launch(int k) {                  /* retourne un message d'erreur, ou ne revient pas */
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
@@ -1322,20 +1237,20 @@ static const char *gl_launch(int k) {                  /* retourne un message d'
     tl_recent_add(gl[k].path);
     gl_stats_bump(k);                                  /* v45 : compteur de lancements */
     gl_boot_title = gl[k].title;
-    const char *e = gl_boot_swiss(gl[k].path);
+    const char *e = gl_boot_loader(gl[k].path);
     gl_boot_title = NULL;
     gl_boot_cheats = 0;
     return e;
 }
-/* v35 : lance n'importe quel .dol (Swiss, ou une appli), avec jusqu'a 2 arguments */
+/* v35 : lance n'importe quel .dol (lanceur, ou une appli), avec jusqu'a 2 arguments */
 static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *a2, const char *what);
 static int ld_cache;
-static const char *gl_boot_swiss(const char *path) {
+static const char *gl_boot_loader(const char *path) {
     static const char *const dev[3] = { "sdc:", "sda:", "sdb:" };
     char a1[NAME_LEN + 32];
-    if (path) snprintf(a1, sizeof(a1), "Autoload=%s%s", dev[sd_slot >= 0 && sd_slot < 3 ? sd_slot : 0], path + strlen(SD_ROOT));
-    else snprintf(a1, sizeof(a1), "Autoload=");
-    if (path && ld_ready()) {                      /* v44 : lanceur GC-MP3 (pas de menu Swiss) */
+    if (!path) return "Jeu introuvable";
+    snprintf(a1, sizeof(a1), "Autoload=%s%s", dev[sd_slot >= 0 && sd_slot < 3 ? sd_slot : 0], path + strlen(SD_ROOT));
+    if (ld_ready()) {
         static char a3[NAME_LEN + 16];
         char me[NAME_LEN + 8];
         as_self(me, sizeof(me));
@@ -1356,13 +1271,11 @@ static const char *gl_boot_swiss(const char *path) {
         const char *e = gl_boot_dol(LD_DOL, a1, gl_boot_cheats ? "AutoCheats=Yes" : NULL, "jeu");
         gl_arg3 = NULL; gl_arg4 = NULL;
         crumb("lanceur GC Station : %s", e ? e : "?");
-        if (e && strncmp(e, "(simulateur", 11)) { remove(LD_DOL); ld_cache = -1; }   /* (lanceur abime : Swiss, puis nouveau telechargement) */
-        else return e;
-    } else if (path) ld_fetch(0);                 /* (pas encore la : pret pour la prochaine fois) */
-    if (!gl_find_swiss()) return "Swiss introuvable : mets son .dol a la racine (ex. swiss.dol) ou indique-le dans gc-mp3.txt (swiss = ...)";
-    const char *e = gl_boot_dol(gl_swiss, a1, path && gl_boot_cheats ? "AutoCheats=Yes" : NULL, "Swiss");
-    if (e && !strcmp(e, "-noarg")) return "Ce Swiss ne prend pas d'arguments : mets-le a jour";
-    return e;
+        if (e && strncmp(e, "(simulateur", 11)) { remove(LD_DOL); ld_cache = -1; ld_fetch(0); return "Lanceur de secours ab\xC3\xAEm\xC3\xA9 : nouveau t\xC3\xA9l\xC3\xA9" "chargement (ou A : Resident)"; }
+        return e;
+    }
+    ld_fetch(1);                                   /* (pas encore la : telecharge pour la prochaine fois) */
+    return "Lanceur de secours pas encore t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9 (R\xC3\xA9glages > Jeux) : A lance avec Resident";
 }
 static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *a2, const char *what) {
     char stmsg[96];
@@ -1406,11 +1319,11 @@ static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *
     if (!n || entry < lo || entry >= hi) { free(dol); return "Fichier .dol invalide"; }
     u32 dst = (GL_CMD_AT - (u32)len) & ~31u;           /* le .dol est d'abord range tout en haut de la memoire */
     if (dst < hi + 32) { free(dol); return "Ce .dol est trop gros pour etre lance d'ici"; }
-    /* arguments : chemin du .dol, puis a1 / a2 (ex. Autoload=sdX:/chemin pour Swiss) */
+    /* arguments : chemin du .dol, puis a1 / a2 (ex. Autoload=sdX:/chemin pour le lanceur) */
     char cmd[NAME_LEN * 3 + 96];
     int cl = snprintf(cmd, sizeof(cmd), "%s", dolpath);
     if (a1) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", a1);
-    if (a2) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", a2);   /* (ex. AutoCheats=Yes : Swiss applique les cheats coches) */
+    if (a2) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", a2);   /* (ex. AutoCheats=Yes : le lanceur applique les cheats coches) */
     if (gl_arg3) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", gl_arg3);
     if (gl_arg4 && cl + 2 < (int)sizeof(cmd)) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", gl_arg4);
     if (cl >= (int)sizeof(cmd)) cl = (int)sizeof(cmd) - 1;
@@ -1456,20 +1369,9 @@ static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *
 #endif
 }
 
-/* ======================= v30 : demarrer GC-MP3 avec Indigo / Swiss =======================
-   Indigo (et Swiss) ouvrent tout seuls le fichier ecrit dans la ligne "Autoload="
-   de SD:/swiss/settings/global.ini. GC-MP3 y ecrit son propre .dol (ou l'enleve).
-   Pour revenir au menu d'Indigo : START > Quitter vers Swiss (Autoload vide). */
-#define GL_SWISS_INI SD_ROOT "/swiss/settings/global.ini"
-static int as_cache = -1;
-static char *as_read(long *len) {                            /* global.ini, termine par un zero */
-    unsigned char *r = read_file(GL_SWISS_INI, 256 * 1024, len);
-    if (!r) return NULL;
-    char *d = (char *)malloc(*len + 1);
-    if (d) { memcpy(d, r, *len); d[*len] = 0; }
-    free(r);
-    return d;
-}
+/* reglages du lanceur de secours (v90 : dans SD:/gc-mp3/lanceur, plus dans SD:/swiss) */
+#define LD_DIR      GCD "/lanceur"
+#define LD_INI      LD_DIR "/settings/global.ini"
 static void as_self(char *out, int cap) {                    /* "sdc:/chemin/gc-mp3player.dol" */
     static const char *const dev[3] = { "sdc:", "sda:", "sdb:" };
     up_pick_target();
@@ -1478,66 +1380,13 @@ static void as_self(char *out, int cap) {                    /* "sdc:/chemin/gc-
     else { const char *c = strchr(rel, ':'); if (c && c - rel <= 5) rel = c + 1; }   /* ("sdc:/...", "carda:/...") */
     snprintf(out, cap, "%s%s%s", dev[sd_slot >= 0 && sd_slot < 3 ? sd_slot : 0], rel[0] == '/' ? "" : "/", rel);
 }
-static int autostart_get(void) {
-    if (as_cache >= 0) return as_cache;
-    as_cache = 0;
-    if (!sd_ok) return 0;
-    long len = 0;
-    char *d = as_read(&len);
-    if (!d) return 0;
-    char me[NAME_LEN + 8];
-    as_self(me, sizeof(me));
-    for (char *l = d; l && *l; ) {
-        char *e = strchr(l, '\n');
-        if (e) *e = 0;
-        int n = (int)strlen(l);
-        if (n && l[n - 1] == '\r') l[n - 1] = 0;
-        if (!strncmp(l, "Autoload=", 9) && !strcasecmp(l + 9, me)) as_cache = 1;
-        l = e ? e + 1 : NULL;
-    }
-    free(d);
-    return as_cache;
-}
-static const char *autostart_set(int on) {
-    if (!sd_ok || sd_virtual) return "Pas de carte SD";
-    long len = 0;
-    char *d = as_read(&len);
-    if (!d && !on) { as_cache = 0; return NULL; }
-    char me[NAME_LEN + 8];
-    as_self(me, sizeof(me));
-    mkdir(SD_ROOT "/swiss", 0777); mkdir(SD_ROOT "/swiss/settings", 0777);
-    char tmp[NAME_LEN];
-    snprintf(tmp, sizeof(tmp), "%s.tmp", GL_SWISS_INI);
-    FILE *f = fopen(tmp, "wb");
-    if (!f) { free(d); return "Impossible d'\xC3\xA9" "crire sur la carte SD"; }
-    int crlf = !d || strstr(d, "\r\n") != NULL, put = 0;
-    for (char *l = d; l && *l; ) {
-        char *e = strchr(l, '\n');
-        if (e) *e = 0;
-        int n = (int)strlen(l);
-        if (n && l[n - 1] == '\r') l[--n] = 0;
-        if (!strncmp(l, "Autoload=", 9)) {                   /* (une seule ligne Autoload, la notre) */
-            if (on && !put) { fprintf(f, "Autoload=%s%s", me, crlf ? "\r\n" : "\n"); put = 1; }
-            else if (!on) fprintf(f, "Autoload=%s", crlf ? "\r\n" : "\n");
-        } else fprintf(f, "%s%s", l, crlf ? "\r\n" : "\n");
-        l = e ? e + 1 : NULL;
-    }
-    if (on && !put) fprintf(f, "Autoload=%s%s", me, crlf ? "\r\n" : "\n");
-    free(d);
-    if (fclose(f) != 0) { remove(tmp); return "Impossible d'\xC3\xA9" "crire sur la carte SD"; }
-    remove(GL_SWISS_INI);
-    if (rename(tmp, GL_SWISS_INI) != 0) return "Impossible d'\xC3\xA9" "crire sur la carte SD";
-    as_cache = on;
-    lib_note(on ? "GC Station s'ouvrira au d\xC3\xA9marrage d'Indigo / Swiss" : "Indigo / Swiss s'ouvrira normalement");
-    return NULL;
-}
-
 /* v57 : demarrer la console sur GC Station. PicoLoader (comme iplboot) lance SD:/ipl.dol :
-   GC Station s'y copie, l'ancien ipl.dol (Swiss / Indigo) est garde sous ipl-swiss.dol.
-   Le bouton Reset et le retour en jeu ramenent alors sur GC Station ; Z tenu au demarrage
-   de GC Station ouvre toujours Swiss. La mise a jour remplace aussi ipl.dol (update.c). */
+   GC Station s'y copie, l'ancien ipl.dol est garde sous ipl-avant-gcstation.dol (v90 : avant
+   ipl-swiss.dol, renomme une fois). Le bouton Reset et le retour en jeu ramenent alors sur
+   GC Station. La mise a jour remplace aussi ipl.dol (update.c). */
 #define IPL_DOL SD_ROOT "/ipl.dol"
-#define IPL_OLD SD_ROOT "/ipl-swiss.dol"
+#define IPL_OLD SD_ROOT "/ipl-avant-gcstation.dol"
+#define IPL_OLD_V89 SD_ROOT "/ipl-swiss.dol"
 static int ipl_cache = -1;
 static int ipl_get(void) {
     if (ipl_cache < 0) {
@@ -1586,20 +1435,19 @@ static const char *ipl_set(int on) {
             ipl_cache = -1;
             return "Copie impossible (carte pleine ?)";
         }
-        if (autostart_get()) autostart_set(0);              /* (Swiss n'a plus a relancer GC Station) */
         ipl_cache = 1;
         crumb("ipl.dol = GC Station (ancien : %s)", had ? IPL_OLD : "aucun");
-        return had ? "La console d\xC3\xA9marre sur GC Station (Swiss gard\xC3\xA9 : ipl-swiss.dol, Z au d\xC3\xA9marrage)"
+        return had ? "La console d\xC3\xA9marre sur GC Station (ancien ipl.dol gard\xC3\xA9 : ipl-avant-gcstation.dol)"
                    : "La console d\xC3\xA9marre sur GC Station";
     }
     if (!ipl_get()) return NULL;
-    if (stat(IPL_OLD, &st) != 0) return "Pas d'ancien ipl.dol \xC3\xA0 remettre (ipl-swiss.dol)";
+    if (stat(IPL_OLD, &st) != 0) return "Pas d'ancien ipl.dol \xC3\xA0 remettre (ipl-avant-gcstation.dol)";
     /* GC Station doit rester quelque part sur la carte */
     char other[NAME_LEN];
     if (!up_find_dol(SD_ROOT, 2, other, sizeof(other)) && !ipl_copy(IPL_DOL, SD_ROOT "/gc-mp3player.dol")) return "Copie de GC Station impossible";
     remove(IPL_DOL);
     if (rename(IPL_OLD, IPL_DOL) != 0) { ipl_cache = -1; return "Impossible de remettre l'ancien ipl.dol"; }
     ipl_cache = 0;
-    crumb("ipl.dol remis (Swiss)");
+    crumb("ipl.dol remis (ancien)");
     return "La console d\xC3\xA9marre de nouveau sur l'ancien ipl.dol";
 }
