@@ -148,7 +148,21 @@ static u64 real_us(void) {
     struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
     return (u64)(t.tv_sec - t_start.tv_sec) * 1000000ull + (u64)((t.tv_nsec - t_start.tv_nsec) / 1000);
 }
-u64 gettime(void) { return real_us() / 1000ull + 1000ull; }   /* (ms ; jamais 0) */
+/* v85 : le temps de la GameCube = le temps reel + le calcul pas encore "paye" (la dette du
+   thread : on ralentit le PC en dormant au prochain appel bloquant). Sans elle, un calcul long
+   ne faisait pas avancer l'horloge vue par GC Station (mesures de duree fausses). */
+static u64 pending_us(void) {
+    if (pcsim_fast) return 0;
+    u64 p = debt_ns;
+    if (big_held && cpu_t0) {
+        u64 used = thread_ns() - cpu_t0, gx = pcsim_gx_ns - gx_t0;
+        used = used > gx ? used - gx : 0;
+        p += (u64)(used * (pcsim_cpu_k - 1.0));
+    }
+    return p / 1000ull;
+}
+u64 pcsim_now_us(void) { return real_us() + pending_us(); }
+u64 gettime(void) { return pcsim_now_us() / 1000ull + 1000ull; }   /* (ms ; jamais 0) */
 u32 gettick(void) { return (u32)gettime(); }
 void settime(u64 t) { (void)t; }
 int usleep(useconds_t us) {
@@ -466,7 +480,7 @@ static void script_load(void) {
         if (!strcasecmp(w[0], "wait")) { u32 d = dur_of(w[1], 1); c->op = d & 0x80000000u ? SC_WAIT_F : SC_WAIT_MS; c->dur = d & 0x7FFFFFFFu; }
         else if (!strcasecmp(w[0], "press") || !strcasecmp(w[0], "combo")) { c->op = SC_PRESS; c->btn = btn_of(w[1]); c->dur = n > 2 ? (u32)atoi(w[2]) : 3; }
         else if (!strcasecmp(w[0], "hold")) { c->op = SC_HOLD; c->btn = btn_of(w[1]); c->dur = dur_of(w[2], 30); }
-        else if (!strcasecmp(w[0], "stick")) { c->op = strcasecmp(w[1], "c") ? SC_STICK : SC_CSTICK; c->a = atoi(w[2]); c->b = atoi(w[3]); char *q = strstr(l, w[3]) + strlen(w[3]); while (*q == ' ') q++; char d[32] = ""; sscanf(q, "%31s", d); c->dur = dur_of(d, 10); }
+        else if (!strcasecmp(w[0], "stick")) { c->op = strcasecmp(w[1], "c") ? SC_STICK : SC_CSTICK; c->a = atoi(w[2]); c->b = atoi(w[3]); char d[32] = "", z[4][96]; sscanf(l, "%95s %95s %95s %95s %31s", z[0], z[1], z[2], z[3], d); c->dur = dur_of(d, 10); }   /* (v84 : la duree est le 5e mot) */
         else if (!strcasecmp(w[0], "shot")) { c->op = SC_SHOT; snprintf(c->s, sizeof(c->s), "%s", w[1]); }
         else if (!strcasecmp(w[0], "log")) { c->op = SC_LOG; char *q = strstr(l, w[0]) + 3; while (*q == ' ') q++; snprintf(c->s, sizeof(c->s), "%s", q); c->s[strcspn(c->s, "\r\n")] = 0; }
         else if (!strcasecmp(w[0], "quit")) c->op = SC_QUIT;

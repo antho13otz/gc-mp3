@@ -730,6 +730,7 @@ static void gclib_input(u32 down, u32 nav, int fire) {
     if ((down & PAD_BUTTON_A) && gl_n) gl_detail = 1;
     if ((down & PAD_BUTTON_X) && gl_n) gl_open_cheats(gl_sel);
     if (down & PAD_BUTTON_Y) gl_opt = 0;                      /* v45 : options (tri, hasard, animations, actualiser) */
+    if (gm_hub_input()) return;                               /* v84 : stick C : applis / cartes memoire */
     if (down & PAD_BUTTON_B) { gl_on = 0; if (gl_list_dirty) { gl_list_dirty = 0; gl_list_save(); } }
 }
 
@@ -1054,9 +1055,14 @@ static void draw_gclib_main(void) {
     char buf[NAME_LEN], d[NAME_LEN];
     draw_panel(11, 73, 618, 338);
     int tx = draw_tabs(NULL);
-    snprintf(buf, sizeof(buf), gl_detail ? "Mes jeux GameCube (%d)  >  fiche" : "Mes jeux GameCube (%d)", gl_n);
-    gx_text1(F_SMALL, tx + 6, 99, buf, RGBA(200, 190, 240, 255));
-    if (!gl_post.fp) gx_text_r(F_SMALL, 590, 99, "(pas de jaquettes : swiss/ui/posters.pak)", RGBA(150, 135, 210, 255));
+    f32 hub_end = 0;
+    if (!gl_detail && tab == TAB_GAMES) hub_end = gm_hub_bar(tx + 6, 85);   /* v84 : jeux / applis / cartes (stick C) */
+    else {
+        snprintf(buf, sizeof(buf), gl_detail ? "Mes jeux GameCube (%d)  >  fiche" : "Mes jeux GameCube (%d)", gl_n);
+        gx_text1(F_SMALL, tx + 6, 99, buf, RGBA(200, 190, 240, 255));
+    }
+    if (!gl_post.fp && hub_end + 12 < 590 - text_width(F_SMALL, "(pas de jaquettes : swiss/ui/posters.pak)", 1))
+        gx_text_r(F_SMALL, 590, 99, "(pas de jaquettes : swiss/ui/posters.pak)", RGBA(150, 135, 210, 255));
     /* une banniere a lire par image, quand on ne bouge pas */
     if (gl_n && now_ms() - last_input_ms > 120) {
         int first = gl_detail ? gl_sel : (gl_sel / GL_COLS - (gl_sel / GL_COLS > 0)) * GL_COLS;

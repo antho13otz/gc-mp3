@@ -1,0 +1,34 @@
+# Onglet Jeux / Apps : les 3 vues (jeux GameCube, applis, cartes memoire) et le stick C (v84)
+wait 2s
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+wait 800ms
+shot j01-onglet
+press UP
+wait 300ms
+press A
+wait 1500ms
+shot j02-jeux
+stick c 100 0 200ms
+wait 800ms
+shot j03-applis
+stick c 100 0 200ms
+wait 800ms
+shot j04-cartes
+stick c 100 0 200ms
+wait 800ms
+shot j05-jeux-encore
+stick c -100 0 200ms
+wait 800ms
+shot j06-cartes-encore
+press B
+wait 500ms
+shot j07-retour-onglet
+quit

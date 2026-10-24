@@ -233,7 +233,8 @@ static u32 perf_us(void) {
 #ifdef GEKKO
     return (u32)ticks_to_microsecs(gettime());
 #else
-    return (u32)(gettime() * 1000u);
+    extern u64 pcsim_now_us(void);                       /* (simulateur sur PC : a la microseconde) */
+    return (u32)pcsim_now_us();
 #endif
 }
 #define PF(ph, call) do { if (perf_on) { u32 pf_t0_ = perf_us(); call; pfx_cur[ph] += perf_us() - pf_t0_; } else { call; } } while (0)
@@ -2782,7 +2783,9 @@ static void fbuf_fill(void) {
         fb_end -= fb_start;
         fb_start = 0;
     }
-    size_t n = fread(fbuf + fb_end, 1, FBUF_SIZE - fb_end, ffp);
+    size_t want = FBUF_SIZE - fb_end;
+    if (want > 8192) want = 8192;                       /* v85 : par 8 Ko (48 Ko d'un coup : des dizaines de ms sur la carte SD) */
+    size_t n = fread(fbuf + fb_end, 1, want, ffp);
     fb_end += (int)n;
     if (n == 0) f_file_eof = 1;
 }
@@ -3665,6 +3668,50 @@ static void stop_track(void) {
     consumed_skip = 0;
 }
 
+/* v85 : etiquettes ID3v2 sans lire la pochette integree : les cadres sont lus un par un dans le
+   fichier, les gros (APIC : image, souvent des centaines de Ko, 0,3 s de lecture sur la carte SD
+   de la GameCube) sont sautes. Rend un en-tete ID3 recompose (pour parse_tags), ou NULL :
+   on lit alors tout, comme avant (desynchronisation de tout l'en-tete, format inattendu). */
+static unsigned char *id3_text_only(FILE *fp, const unsigned char *head, long tagend, long *outlen) {
+    int ver = head[3];
+    if (ver < 2 || ver > 4 || (head[5] & 0x80)) return NULL;          /* (desynchronisation : lecture complete) */
+    int hdr = ver == 2 ? 6 : 10;
+    long pos = 10;
+    if (ver >= 3 && (head[5] & 0x40)) {                              /* en-tete etendu : saute */
+        unsigned char e[4];
+        if (fseek(fp, 10, SEEK_SET) != 0 || fread(e, 1, 4, fp) != 4) return NULL;
+        pos += ver == 4 ? (long)synchsafe(e) : (long)be32(e) + 4;
+    }
+    long cap = 16384, n = 10;
+    unsigned char *b = (unsigned char *)malloc(cap);
+    if (!b) return NULL;
+    memcpy(b, head, 10);
+    b[5] &= (unsigned char)~0x40;                                     /* (plus d'en-tete etendu) */
+    for (int guard = 0; guard < 256 && pos + hdr <= tagend; guard++) {
+        unsigned char f[10];
+        if (fseek(fp, pos, SEEK_SET) != 0 || fread(f, 1, hdr, fp) != (size_t)hdr || f[0] == 0) break;
+        long sz = ver == 2 ? (long)(((u32)f[3] << 16) | ((u32)f[4] << 8) | f[5]) : (ver == 4 ? (long)synchsafe(f + 4) : (long)be32(f + 4));
+        if (sz <= 0 || pos + hdr + sz > tagend) break;
+        int text = f[0] == 'T' && sz <= 4096;                         /* (titre, artiste, album, annee, TXXX : petits) */
+        if (text) {
+            if (n + hdr + sz > cap) {
+                long nc = (n + hdr + sz) * 2;
+                unsigned char *nb = (unsigned char *)realloc(b, nc);
+                if (!nb) break;
+                b = nb; cap = nc;
+            }
+            memcpy(b + n, f, hdr);
+            if (fread(b + n + hdr, 1, sz, fp) != (size_t)sz) break;
+            n += hdr + sz;
+        }
+        pos += hdr + sz;
+    }
+    long body = n - 10;                                               /* taille de l'en-tete recompose (synchsafe) */
+    b[6] = (unsigned char)((body >> 21) & 0x7F); b[7] = (unsigned char)((body >> 14) & 0x7F);
+    b[8] = (unsigned char)((body >> 7) & 0x7F);  b[9] = (unsigned char)(body & 0x7F);
+    *outlen = n;
+    return b;
+}
 static int start_track(int idx) {
     if (idx < 0 || idx >= nfiles) { xf_request = 0; return 0; }
     mp3_skip = 0; mp3_left = -1; rgm_on = 0;
@@ -3704,9 +3751,13 @@ static int start_track(int idx) {
         if (fseek(fp, 0, SEEK_SET) == 0 && fread(head, 1, 10, fp) == 10 && memcmp(head, "ID3", 3) == 0) {
             audio = 10 + (long)synchsafe(head + 6) + ((head[5] & 0x10) ? 10 : 0);
             taglen = audio < size ? audio : size;
-            if (taglen > 4 * 1024 * 1024) taglen = 4 * 1024 * 1024;   /* (grosse pochette integree) */
-            tag = (unsigned char *)malloc(taglen);
-            if (tag && (fseek(fp, 0, SEEK_SET) != 0 || fread(tag, 1, taglen, fp) != (size_t)taglen)) { free(tag); tag = NULL; }
+            if (taglen > 65536) tag = id3_text_only(fp, head, taglen, &taglen);   /* v85 : gros en-tete : sans la pochette integree */
+            if (!tag) {                                               /* (comme avant : tout l'en-tete) */
+                taglen = audio < size ? audio : size;
+                if (taglen > 4 * 1024 * 1024) taglen = 4 * 1024 * 1024;   /* (grosse pochette integree) */
+                tag = (unsigned char *)malloc(taglen);
+                if (tag && (fseek(fp, 0, SEEK_SET) != 0 || fread(tag, 1, taglen, fp) != (size_t)taglen)) { free(tag); tag = NULL; }
+            }
         }
         parse_tags(tag, tag ? taglen : 0, has_v1 ? v1 : NULL, &tg);
         free(tag);
@@ -3824,7 +3875,11 @@ static void tag_scan_one(int k) {
         size_t n = fread(head, 1, sizeof(head), fp);
         int has_v1 = 0;
         if (fseek(fp, -128, SEEK_END) == 0 && fread(v1, 1, 128, fp) == 128) has_v1 = 1;
-        parse_tags(head, (long)n, has_v1 ? v1 : NULL, &tg);
+        long tl = 0;
+        unsigned char *t2 = NULL;                                 /* v85 : cadres de texte meme apres une grosse pochette */
+        if (n >= 10 && !memcmp(head, "ID3", 3) && 10 + (long)synchsafe(head + 6) > (long)n) t2 = id3_text_only(fp, head, 10 + (long)synchsafe(head + 6), &tl);
+        parse_tags(t2 ? t2 : head, t2 ? tl : (long)n, has_v1 ? v1 : NULL, &tg);
+        free(t2);
     }
     fclose(fp);
     snprintf(tg_artist[k], sizeof(tg_artist[k]), "%s", tg.artist);
@@ -4942,6 +4997,10 @@ static int init_video(void) {
     return 1;
 }
 
+/* v85 : la musique se decode pendant l'attente de l'ecran (le temps libre de chaque image),
+   au lieu de passer avant le dessin : l'image n'attend plus le decodeur. */
+static u32 frame_t0_us = 0;                     /* debut de l'image en cours (boucle principale) */
+static int music_idle_decode(void);
 /* Copie l'image GX vers le framebuffer inactif et l'affiche. */
 static int present_nowait = 0;                  /* v72 : ecran de chargement : pas d'attente de l'ecran (le travail continue) */
 static void present_frame(void) {
@@ -4962,6 +5021,7 @@ static void present_frame(void) {
     while (!present_nowait && retrace_count == rc && now_ms() - t0 < 40) {
         stream_recv();
         service_audio();
+        if (music_idle_decode()) continue;               /* v85 : (s'il reste le temps d'un bloc avant l'image suivante) */
         usleep(500);
     }
     if (perf_on) pfx_cur[PH_WAIT] += perf_us() - pw0;
@@ -10312,6 +10372,9 @@ static void draw_mini_badge(f32 cx, f32 cy, const char *k) {
     else if (k[0] == 'Z') {
         gx_rrect_fill(cx - 8, cy - 7, 16, 14, 4, RGBA(110, 90, 190, 255), RGBA(70, 50, 140, 255));
         gx_text_c(F_SMALL, cx, cy + 4.5f, "Z", RGBA(255, 255, 255, 255));
+    } else if (k[0] == 'C' && !k[1]) {                                /* v84 : stick C (jaune) */
+        gx_circle(cx, cy, 7.5f, RGBA(255, 214, 70, 255), RGBA(205, 150, 20, 255));
+        gx_text_c(F_SMALL, cx, cy + 4.5f, "C", RGBA(70, 45, 0, 255));
     } else if ((k[0] == 'L' || k[0] == 'R') && !k[1]) {                /* gachettes */
         gx_rrect_fill(cx - 9, cy - 7, 18, 14, 6, RGBA(150, 150, 175, 255), RGBA(90, 90, 120, 255));
         gx_text_c(F_SMALL, cx, cy + 4.5f, k, RGBA(255, 255, 255, 255));
@@ -12432,7 +12495,23 @@ static int decode_more(int k, u32 t0) {
     if (k < 2) return 1;
     return f_count < 48000 * 2 && k < 64 && perf_us() - t0 < 8000;
 }
-static int in_bg = 0;
+/* v85 : un bloc decode pendant l'attente de l'ecran (rend 1 si on a decode) */
+static int in_bg;
+static int music_idle_decode(void) {
+    if (video_playing || src != SRC_FILE || !playing || paused || eof || in_bg) return 0;
+    if (f_count >= FILE_LEAD || (FIFO_SIZE - f_count) < FIFO_MARGIN) return 0;
+    static u32 cost = 2000;                              /* duree d'un bloc (moyenne glissante, us) */
+    u32 t = perf_us();
+    if (t - frame_t0_us + cost > 15500) return 0;       /* (pas le temps avant l'image suivante : 16,7 ms) */
+    in_bg = 1;
+    decode_file_one();
+    service_audio();
+    in_bg = 0;
+    u32 d = perf_us() - t;
+    cost = d > cost ? d : (cost * 7 + d) / 8;            /* (monte vite, redescend doucement) */
+    return 1;
+}
+static int in_bg = 0;   /* (declare plus haut : decodage pendant l'attente de l'ecran) */
 static void bg_tick(void) {
     main_beat++;
     service_audio();
@@ -12488,7 +12567,9 @@ static void music_pump(void) {
     if (src != SRC_FILE || !playing || paused) return;
     int k = 0;
     u32 t0 = perf_us();
-    while (!eof && decode_more(k, t0) && f_count < FILE_LEAD && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
+    /* v85 : le gros du decodage se fait pendant l'attente de l'ecran (music_idle_decode) ; ici,
+       seulement si le son risque de manquer (moins de 0,5 s d'avance : debut d'un morceau...) */
+    while (!eof && f_count < 24000 && decode_more(k, t0) && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
         decode_file_one();
         service_audio();
         k++;
@@ -12591,6 +12672,7 @@ int main(int argc, char **argv) {
     u64 settings_t = 0;
 
     while (1) {
+        frame_t0_us = perf_us();                                    /* v85 : (decodage pendant l'attente de l'ecran) */
         perf_frame(tl_screen || menu_open ? PF_TABS - 1 : tab);     /* v69 : mesure de fluidite */
         u32 pf_in0 = perf_on ? perf_us() : 0;
         crash_beat();

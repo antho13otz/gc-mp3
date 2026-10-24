@@ -94,6 +94,8 @@ static void gclib_open(void);
 static void ap_open(void);                         /* v41 : applis (tools.c) */
 static void mc_open(void);                         /* v43 : cartes memoire (tools.c) */
 static void gclib_input(u32 down, u32 nav, int fire);
+static int gm_hub_input(void);                         /* v84 : stick C : jeux GameCube / applis / cartes memoire (tools.c) */
+static f32 gm_hub_bar(f32 x, f32 y);
 static void draw_gclib(void);
 static void games_tab_input(u32 down, u32 nav, int fire) {
     if (gl_on) { gclib_input(down, nav, fire); return; }
