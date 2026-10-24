@@ -21,6 +21,19 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v115 — décors de saison au choix
+- Réglage « Décor de saison » : Non, Auto (selon la date), ou un décor imposé (gauche / droite ou A pour
+  changer). gc-mp3.txt : `decor_saison = non / auto / printemps / ete / automne / halloween / hiver /
+  noel / valentin / nouvelan` (l'ancien « oui » vaut « auto »).
+- Dates en Auto : Nouvel An (31 déc.–1er janv.), Noël (déc.–6 janv.), Saint-Valentin (10–15 fév.),
+  Halloween (15 oct.–2 nov.), Hiver, Printemps (dès le 20 mars), Été (dès le 21 juin), Automne (dès le 22 sept.).
+- Décors (`source/saisons.c`), surtout sur les bords de l'écran : Halloween (chauves-souris, araignée qui
+  descend, fantômes, brume, citrouilles), Noël (guirlande, neige sur deux plans, neige au sol, sapin
+  illuminé, étoile filante), Hiver (stalactites, givre, neige), Printemps (pétales, fleurs, papillons),
+  Été (soleil, mouettes, vagues, éclats), Automne (feuilles qui tombent et tas de feuilles), Saint-Valentin
+  (cœurs qui montent en battant, guirlande de cœurs), Nouvel An (feux d'artifice, confettis).
+- Simulateur : `PCSIM_SAISON=1..8` impose un décor (scénario `saisons.txt`).
+
 ## Nouveautés v114 — écran Minimal avec le logo complet
 - L'écran de chargement Minimal affiche le logo de Pulse à l'identique (cube, hexagone ouvert, battement
   animé) au lieu du seul cube ; l'avancement passe dans une fine ligne en dégradé sous le nom du jeu.

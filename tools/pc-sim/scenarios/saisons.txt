@@ -1,0 +1,5 @@
+wait 2500ms
+shot s01
+wait 800ms
+shot s02
+quit

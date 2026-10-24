@@ -14,10 +14,11 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v114)
-- **Écran de chargement Minimal** : le logo complet de Pulse, avec son battement animé.
-- (v113) **Nouveau logo de Pulse** : un cube aux trois faces écartées dans l'hexagone en dégradé,
-  traversé par un battement de cœur qui sort par une ouverture, partout où Pulse apparaît.
+## Nouveautés de la version actuelle (v115)
+- **Décors de saison, plus riches et au choix** (START > Réglages > Affichage > Décor de saison) :
+  Auto (selon la date) ou au choix Printemps, Été, Automne, Halloween, Hiver, Noël, Saint-Valentin,
+  Nouvel An — fantômes, araignée, sapin, neige au sol, vagues, fleurs, feuilles, cœurs, feux d'artifice…
+- (v114) Écran de chargement Minimal avec le logo complet de Pulse ; (v113) nouveau logo de Pulse.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
@@ -38,7 +39,7 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
 ## Fonctionnalités secondaires
 - Mode soirée, karaoké et mini-jeux (jeu de rythme, quiz musical, snake, casse-briques, pong…).
 - Économiseur d'écran (8 styles), mode veilleuse, minuterie, réveil.
-- Thèmes de couleurs, style Classique, Moderne, Nouvelle ou Aurore (animés), fond d'écran, décor de saison, dispositions du lecteur.
+- Thèmes de couleurs, style Classique, Moderne, Nouvelle ou Aurore (animés), fond d'écran, décor de saison (8 décors, automatique ou au choix), dispositions du lecteur.
 - Réglages vidéo (480i / 480p, 4:3 / 16:9, taille et position de l'image), français / anglais.
 - Clavier GameCube ASCII, curseur au stick dans tous les onglets (en haut : tous les onglets ; la croix le cache).
 - Fonctionne aussi dans Dolphin (carte SD virtuelle, réglages sur la carte mémoire).

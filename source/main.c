@@ -4397,7 +4397,7 @@ static int phone_auto;                      /* onglet TELEPHONE (tab_phone.c) */
 static int rumble_on = 1;                   /* v18 : la manette vibre (mode soiree, jeux) */
 static int pod_auto = 1;                    /* v18 : nouveaux episodes telecharges tout seuls */
 static int wall_on = 0;                     /* v18 : fond d'ecran = une photo */
-static int season_on = 1;                   /* v21 : decor de saison (Halloween, Noel, ete) */
+static int season_on = 1;                   /* v21 : decor de saison ; v115 : 0 non, 1 auto (date), 2.. decor choisi (saisons.c) */
 static char wall_path[NAME_LEN];
 #define PARTY_STYLES 4
 static int party_style = 0;                 /* mode soiree : style du visualiseur */
@@ -4491,6 +4491,8 @@ static char resume_path[NAME_LEN] = "";
 static int resume_pos = 0;
 static int settings_dirty = 0;
 
+static void season_parse(const char *v);              /* (saisons.c) */
+static const char *season_key_of(int m);
 static int yes(const char *v) {
     return !(strncasecmp(v, "non", 3) == 0 || strcmp(v, "0") == 0 || strncasecmp(v, "no", 2) == 0);
 }
@@ -4584,7 +4586,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "reprise_fichier")) snprintf(resume_path, sizeof(resume_path), "%s", v);
         else if (!strcasecmp(k, "reprise_position")) resume_pos = atoi(v);
         else if (!strcasecmp(k, "vibrations")) rumble_on = yes(v);
-        else if (!strcasecmp(k, "decor_saison")) season_on = yes(v);
+        else if (!strcasecmp(k, "decor_saison")) season_parse(v);
         else if (!strcasecmp(k, "podcasts_auto")) pod_auto = yes(v);
         else if (!strcasecmp(k, "radio_reprise")) radio_resume = yes(v);
         else if (!strcasecmp(k, "enchainement_sans_blanc")) gapless_on = yes(v);
@@ -4718,9 +4720,9 @@ static void save_settings(void) {
                "podcasts_auto = %s\n"
                "# Fond d'ecran : chemin d'une photo (PHOTOS, plein ecran, X) ou non\n"
                "fond_ecran = %s\nfond_ecran_photo = %s\n"
-               "# Decor de saison (Halloween, Noel, ete) selon la date : oui / non\n"
+               "# Decor de saison : non / auto (selon la date) / printemps / ete / automne / halloween / hiver / noel / valentin / nouvelan\n"
                "decor_saison = %s\n",
-            rumble_on ? "oui" : "non", pod_auto ? "oui" : "non", wall_on && wall_path[0] ? wall_path : "non", wall_path, season_on ? "oui" : "non");
+            rumble_on ? "oui" : "non", pod_auto ? "oui" : "non", wall_on && wall_path[0] ? wall_path : "non", wall_path, season_key_of(season_on));
     fprintf(f, "# La derniere radio ecoutee reprend au demarrage : oui / non\nradio_reprise = %s\nradio_derniere = %s\nradio_derniere_nom = %s\n",
             radio_resume ? "oui" : "non", radio_last_url, radio_last_name);
     fprintf(f, "# Morceaux d'un meme album (dossier) enchaines sans blanc : oui / non\nenchainement_sans_blanc = %s\n", gapless_on ? "oui" : "non");
@@ -5376,88 +5378,7 @@ static void titles_open(void);
 static void radio_title_keep(void);
 static void lib_note(const char *m);
 static void wall_set(const char *path);
-/* ---- Decor de saison (v21) : Halloween, Noel, ete, selon la date ---- */
-enum { SEASON_NONE, SEASON_HALLOWEEN, SEASON_NOEL, SEASON_ETE };
-static int season_test = 0;                 /* (essais : saison imposee) */
-static int season_now(void) {
-    if (!season_on) return SEASON_NONE;
-    if (season_test) return season_test;
-    time_t tt = time(NULL);
-    struct tm *tm = localtime(&tt);
-    if (!tm || tm->tm_year < 100) return SEASON_NONE;
-    int m = tm->tm_mon + 1, d = tm->tm_mday;
-    if ((m == 10 && d >= 15) || (m == 11 && d <= 2)) return SEASON_HALLOWEEN;
-    if (m == 12 || (m == 1 && d <= 6)) return SEASON_NOEL;
-    if ((m == 6 && d >= 21) || m == 7 || m == 8) return SEASON_ETE;
-    return SEASON_NONE;
-}
-static void season_pumpkin(f32 cx, f32 cy, f32 r, f32 glow) {
-    gx_circle(cx, cy, r * 1.8f, RGBA(255, 140, 30, (u8)(40 + glow * 60)), RGBA(255, 140, 30, 0));
-    gx_ellipse(cx - r * 0.45f, cy, r * 0.62f, r * 0.9f, RGBA(255, 150, 40, 255), RGBA(200, 90, 10, 255));
-    gx_ellipse(cx + r * 0.45f, cy, r * 0.62f, r * 0.9f, RGBA(255, 150, 40, 255), RGBA(200, 90, 10, 255));
-    gx_ellipse(cx, cy, r * 0.7f, r * 0.95f, RGBA(255, 170, 60, 255), RGBA(220, 100, 20, 255));
-    gx_rect(cx - r * 0.1f, cy - r * 1.2f, r * 0.2f, r * 0.35f, RGBA(70, 120, 40, 255));
-    col_t f = RGBA(255, 240, (u8)(120 + glow * 100), 255);
-    gx_tri(cx - r * 0.5f, cy - r * 0.15f, cx - r * 0.2f, cy - r * 0.15f, cx - r * 0.35f, cy - r * 0.45f, f);
-    gx_tri(cx + r * 0.2f, cy - r * 0.15f, cx + r * 0.5f, cy - r * 0.15f, cx + r * 0.35f, cy - r * 0.45f, f);
-    gx_poly4(cx - r * 0.5f, cy + r * 0.2f, cx + r * 0.5f, cy + r * 0.2f, cx + r * 0.3f, cy + r * 0.5f, cx - r * 0.3f, cy + r * 0.5f, f, f, f, f);
-}
-static void season_bat(f32 x, f32 y, f32 s, f32 flap) {
-    gx_circle(x, y, 12 * s, RGBA(255, 140, 40, 90), RGBA(255, 140, 40, 0));           /* (lueur orange : visible sur le fond sombre) */
-    col_t c = RGBA(25, 12, 35, 240);
-    f32 w = 14 * s, up = flap * 6 * s;
-    gx_ellipse(x, y, 3.5f * s, 4.5f * s, c, c);
-    gx_tri(x - 2 * s, y - 1 * s, x - w, y - up, x - w * 0.6f, y + 4 * s, c);
-    gx_tri(x + 2 * s, y - 1 * s, x + w, y - up, x + w * 0.6f, y + 4 * s, c);
-}
-/* dessine par-dessus l'interface (petit, pour ne rien cacher d'important) */
-static void season_overlay(void) {
-    int sn = season_now();
-    if (!sn) return;
-    f32 t = (f32)(now_ms() % 600000) / 1000.0f;
-    if (sn == SEASON_HALLOWEEN) {
-        for (int i = 0; i < 4; i++) {                              /* chauves-souris dans le haut */
-            f32 sp = 22 + i * 9, x = fmodf(t * sp + i * 173, 760) - 60;
-            f32 y = 16 + i * 11 + 8 * sinf(t * 1.3f + i * 2);
-            season_bat(x, y, 0.8f + 0.15f * (i % 2), sinf(t * 9 + i));
-        }
-        f32 g = 0.5f + 0.5f * sinf(t * 2.0f);
-        f32 px = ui_skin >= 2 ? -100 : ui_skin ? 140 : 345, py = ui_skin ? 24 : 36, pr = ui_skin ? 10 : 15;   /* (Moderne : a cote du nom ; Nouvelle : pas en haut) */
-        gx_circle(px, py, pr * 2.1f, RGBA(255, 120, 30, (u8)(50 + g * 50)), RGBA(255, 120, 30, 0));   /* citrouille dans le bandeau du haut */
-        season_pumpkin(px, py, pr, g);
-        season_pumpkin(618, 466, 9, 1 - g);
-        season_pumpkin(22, 466, 8, g);
-    } else if (sn == SEASON_NOEL) {
-        static const u8 lc[4][3] = { { 255, 60, 60 }, { 60, 220, 90 }, { 255, 210, 60 }, { 90, 160, 255 } };
-        for (int i = 0; i < 24; i++) {                              /* guirlande en haut */
-            f32 x = 10 + i * 27, y = 4 + 3 * sinf(i * 0.9f);
-            int on = ((int)(t * 2) + i) % 3 != 0;
-            const u8 *c = lc[i % 4];
-            if (on) gx_circle_glow(x, y, 4, RGBA(c[0], c[1], c[2], 120), 3);
-            gx_circle(x, y, 2.5f, RGBA(c[0], c[1], c[2], on ? 255 : 90), RGBA(c[0], c[1], c[2], on ? 255 : 90));
-        }
-        for (int i = 0; i < 46; i++) {                              /* flocons */
-            f32 sp = 14 + (i * 7) % 20, x0 = (f32)((i * 97) % 640);
-            f32 y = fmodf(t * sp + i * 53, 520) - 20, x = x0 + 12 * sinf(t * 0.7f + i);
-            f32 r = 1.2f + (i % 3) * 0.7f;
-            gx_circle(x, y, r, RGBA(255, 255, 255, 170), RGBA(220, 235, 255, 110));
-        }
-    } else {
-        f32 p = 0.5f + 0.5f * sinf(t * 0.5f);                      /* soleil d'ete dans le coin */
-        gx_circle(345, 34, 40 + p * 6, RGBA(255, 210, 90, 80), RGBA(255, 210, 90, 0));         /* soleil dans le bandeau du haut */
-        gx_circle(345, 34, 17, RGBA(255, 245, 170, 240), RGBA(255, 190, 60, 200));
-        for (int k = 0; k < 10; k++) {
-            f32 a = k * 0.628f + t * 0.3f, r0 = 21, r1 = 28 + 3 * p;
-            gx_poly4(345 + cosf(a - 0.08f) * r0, 34 + sinf(a - 0.08f) * r0, 345 + cosf(a + 0.08f) * r0, 34 + sinf(a + 0.08f) * r0,
-                     345 + cosf(a) * r1, 34 + sinf(a) * r1, 345 + cosf(a) * r1, 34 + sinf(a) * r1,
-                     RGBA(255, 220, 100, 220), RGBA(255, 220, 100, 220), RGBA(255, 200, 80, 120), RGBA(255, 200, 80, 120));
-        }
-        for (int i = 0; i < 12; i++) {
-            f32 x = fmodf(t * (8 + i % 4 * 3) + i * 131, 680) - 20, y = 470 - fmodf(t * (5 + i % 3 * 2) + i * 47, 480);
-            gx_circle(x, y, 1.5f, RGBA(255, 240, 180, 120), RGBA(255, 240, 180, 0));
-        }
-    }
-}
+#include "saisons.c"                                   /* v115 : decors de saison (8 au choix + Auto) */
 
 static void draw_background(void) {
     if (wall_draw()) return;
@@ -11289,9 +11210,9 @@ static void menu_value(int i, char *out, int cap) {
     case MI_PODAUTO: snprintf(out, cap, "%s", pod_auto ? "T\xC3\xA9l\xC3\xA9" "charg\xC3\xA9s tout seuls" : "Non"); break;
     case MI_WALL:    snprintf(out, cap, "%s", wall_on && wall_path[0] ? "Ma photo" : "Violet"); break;
     case MI_SEASON: {
-        static const char *const sn[4] = { "Oui (rien en ce moment)", "Oui (Halloween)", "Oui (No\xC3\xABl)", "Oui (\xC3\xA9t\xC3\xA9)" };
-        int k = season_on ? season_now() : 0;
-        snprintf(out, cap, "%s", season_on ? sn[k] : "Non");
+        if (season_on <= 0) snprintf(out, cap, "%s", TR("Non"));
+        else if (season_on == 1) snprintf(out, cap, TR("Auto (%s)"), TR(season_name[season_by_date()]));
+        else snprintf(out, cap, "%s", TR(season_name[season_now()]));
         break;
     }
     case MI_GAMES:   snprintf(out, cap, "(A)"); break;
@@ -11430,7 +11351,7 @@ static void menu_change(int i, int d) {
         wall_on = !wall_on;
         wall_reload();
         break;
-    case MI_SEASON:  season_on = !season_on; break;
+    case MI_SEASON:  season_on = (season_on + (d < 0 ? SEASON_MODES - 1 : 1)) % SEASON_MODES; break;   /* v115 : choix du decor */
     case MI_GAMES:   return;
     case MI_TITLES:  return;
     case MI_SKIN:    ui_skin = (ui_skin + (d < 0 ? 3 : 1)) % 4; break;
