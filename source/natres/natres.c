@@ -390,10 +390,12 @@ static void alive_tick(void) {
     }
 static u32 vi_orig = 0;
 static void nr_log_flush(void);
+static void igr_poll(void);
 static void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee avant la fonction du jeu */
     if (++H.vi_in == 1) nr_log_flush();                  /* (1re image : on sait si le jeu y arrive) */
     if (vi_orig) ((void (*)(u32, u32))vi_orig)(irq, ctx);
     H.vi_count++; alive_tick();
+    igr_poll();                                          /* v86 : (apres le jeu : il a lu les manettes) */
 }
 static u32 ai_orig = 0;
 static void st_mix(void);
@@ -527,12 +529,20 @@ void exc_c(u32 ex, u32 ctx) {
     ret_to_gcstation();                                  /* (ou redemarrage si impossible) */
 }
 static void nr_sample(u32 ctx);
+/* v86 : A+Z+START vu aussi a chaque image (VI) : les jeux recents lisent les manettes pendant
+   l'interruption de l'ecran et ne declenchent presque plus d'interruption SI (Wind Waker) */
+static u32 igr_t0 = 0;
+static void igr_poll(void);
 static void si_hook(u32 irq, u32 ctx) {
     H.si_in++;
     if (!H.vi_count) nr_sample(ctx);
     if (si_orig) ((void (*)(u32, u32))si_orig)(irq, ctx);
     H.si_count++;
     alive_tick();
+    igr_poll();
+}
+static void igr_poll(void) {
+    if (!(H.flags & NRF_IGR)) return;
     volatile u32 *si = (volatile u32 *)0xCC006400u;
     int on = 0;
     u32 sr = si[14];                                     /* SISR (lecture sans effet) */
@@ -548,8 +558,11 @@ static void si_hook(u32 irq, u32 ctx) {
         if (b & 0x80000000u) continue;                   /* (pas de manette) */
         if ((b & 0x11000000u) == 0x11000000u && (b & 0x00100000u)) on = 1;   /* A + START, Z */
     }
-    igr_hold = on ? igr_hold + 1 : 0;
-    if (igr_hold > 40) {                                 /* (environ 1 s) */
+    u32 now = tbl();
+    if (!on) { igr_hold = 0; return; }
+    if (!igr_hold) igr_t0 = now;
+    igr_hold++;
+    if (now - igr_t0 > TB_SEC || igr_hold > 60) {        /* (tenus 1 s, ou 60 lectures des manettes de suite) */
         H.igr = 1;
         nr_log_flush();
         ret_entry();

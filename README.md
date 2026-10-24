@@ -21,6 +21,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v86 — Resident : A+Z+START marche dans les jeux récents
+- **Wind Waker démarre avec Resident** depuis la v84, sans Swiss.
+- **A+Z+START** (retour à GC Station) ne faisait rien dans Wind Waker : Resident ne regardait les manettes que dans l'interruption des manettes (SI), et les jeux faits avec un kit Nintendo récent lisent les manettes à chaque image, sans presque plus d'interruption SI. Resident regarde maintenant aussi à chaque image, après le jeu. Le retour se fait après environ 1 s (ou 60 lectures des manettes de suite).
+
 ## Nouveautés v85 — Fluidité pendant la musique
 - **La musique se décode pendant le temps libre de chaque image** (l'attente de l'écran) au lieu de passer avant le dessin. Un bloc n'est décodé que s'il tient avant l'image suivante (durée mesurée, FLAC haute résolution compris). Avant l'image, on ne décode qu'en secours, quand il reste moins de 0,5 s de son d'avance. Simulateur limité à la GameCube : images ratées pendant la lecture de 100–106 → 10–21, son identique.
 - **Lecture des MP3 sur la carte SD par 8 Ko** (avant : jusqu'à 48 Ko d'un coup, des dizaines de ms bloquées).
