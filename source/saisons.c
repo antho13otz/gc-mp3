@@ -81,6 +81,38 @@ static void sz_heart(f32 cx, f32 cy, f32 s, f32 ang, col_t mid, col_t edge) {
     }
     GX_End();
 }
+/* v115b : petits ronds (neige, lumieres, etincelles) dessines tous ensemble en un seul envoi au GX :
+   un cercle normal = 42 sommets et un envoi chacun ; ici 10 triangles par rond, tous d'un coup */
+typedef struct { f32 x, y, r; col_t m, e; } sz_dot_t;
+#define SZ_DOTS 128                                         /* (128 x 30 = 3840 sommets par envoi : sous la limite de 4096) */
+static sz_dot_t sz_dq[SZ_DOTS];
+static int sz_dn = 0;
+static void sz_flush(void) {
+    enum { K = 10 };
+    static f32 kc[K + 1], ks[K + 1];
+    static int init = 0;
+    if (!init) { init = 1; for (int i = 0; i <= K; i++) { kc[i] = cosf(i * 2 * PI_F / K); ks[i] = sinf(i * 2 * PI_F / K); } }
+    if (!sz_dn) return;
+    gx_set_flat();
+    GX_Begin(GX_TRIANGLES, GX_VTXFMT0, (u16)(sz_dn * K * 3));
+    for (int n = 0; n < sz_dn; n++) {
+        const sz_dot_t *d = &sz_dq[n];
+        f32 rx = d->r / ux_k;
+        for (int i = 0; i < K; i++) {
+            vtx(d->x, d->y, d->m);
+            vtx(d->x + rx * kc[i], d->y + d->r * ks[i], d->e);
+            vtx(d->x + rx * kc[i + 1], d->y + d->r * ks[i + 1], d->e);
+        }
+    }
+    GX_End();
+    sz_dn = 0;
+}
+static void sz_dot(f32 x, f32 y, f32 r, col_t m, col_t e) {
+    if (x < -r || x > 640 + r || y < -r || y > 480 + r) return;   /* (hors de l'ecran) */
+    if (sz_dn >= SZ_DOTS) sz_flush();
+    sz_dot_t *d = &sz_dq[sz_dn++];
+    d->x = x; d->y = y; d->r = r; d->m = m; d->e = e;
+}
 static col_t sz_a(col_t c, f32 a) { c.a = (u8)(c.a * (a < 0 ? 0 : a > 1 ? 1 : a)); return c; }
 
 /* ---------- Halloween ---------- */
@@ -163,15 +195,16 @@ static void sz_snow(f32 t, int n, f32 speed) {
         f32 sp = (far ? 9 : 16) + sz_h(i) * 14 * speed, x0 = sz_h(i + 500) * 660 - 10;
         f32 y = fmodf(t * sp + sz_h(i + 900) * 520, 520) - 20, x = x0 + (far ? 6 : 14) * sinf(t * 0.7f + i);
         f32 r = far ? 1.0f : 1.4f + sz_h(i + 77) * 1.6f;
-        gx_circle(x, y, r * 2.2f, RGBA(200, 220, 255, far ? 25 : 45), RGBA(200, 220, 255, 0));
-        gx_circle(x, y, r, RGBA(255, 255, 255, far ? 120 : 200), RGBA(225, 238, 255, far ? 70 : 140));
+        if (!far) sz_dot(x, y, r * 2.2f, RGBA(200, 220, 255, 45), RGBA(200, 220, 255, 0));
+        sz_dot(x, y, r, RGBA(255, 255, 255, far ? 120 : 200), RGBA(225, 238, 255, far ? 70 : 140));
     }
 }
 static void sz_snow_ground(void) {                                 /* neige tombee, en bas */
     for (int i = 0; i < 24; i++) {
         f32 x = i * 28 + 6, r = 11 + 6 * sz_h(i + 31);
-        gx_circle(x, 482 - r * 0.15f, r, RGBA(250, 252, 255, 225), RGBA(215, 230, 250, 225));
+        sz_dot(x, 482 - r * 0.15f, r, RGBA(250, 252, 255, 225), RGBA(215, 230, 250, 225));
     }
+    sz_flush();
     gx_hgrad(0, 478, 640, 2, RGBA(255, 255, 255, 120), RGBA(255, 255, 255, 120));
 }
 static void sz_tree(f32 x, f32 y, f32 s, f32 t) {
@@ -186,9 +219,10 @@ static void sz_tree(f32 x, f32 y, f32 s, f32 t) {
         f32 lx = x + (sz_h(i + 40) - 0.5f) * (26 - (i % 3) * 8) * s, ly = y - 8 * s - (i % 3) * 12 * s - sz_h(i + 60) * 6 * s;
         int on = ((int)(t * 3) + i) % 3 != 0;
         const u8 *c = lc[i % 4];
-        if (on) gx_circle(lx, ly, 4 * s, RGBA(c[0], c[1], c[2], 110), RGBA(c[0], c[1], c[2], 0));
-        gx_circle(lx, ly, 1.4f * s, RGBA(c[0], c[1], c[2], on ? 255 : 110), RGBA(c[0], c[1], c[2], on ? 255 : 110));
+        if (on) sz_dot(lx, ly, 4 * s, RGBA(c[0], c[1], c[2], 110), RGBA(c[0], c[1], c[2], 0));
+        sz_dot(lx, ly, 1.4f * s, RGBA(c[0], c[1], c[2], on ? 255 : 110), RGBA(c[0], c[1], c[2], on ? 255 : 110));
     }
+    sz_flush();
     f32 st = 0.5f + 0.5f * sinf(t * 3);                            /* etoile */
     f32 sy = y - 4 * s - 2 * 12 * s - 17 * s;
     gx_circle(x, sy, (8 + 4 * st) * s, RGBA(255, 230, 120, 120), RGBA(255, 230, 120, 0));
@@ -205,12 +239,13 @@ static void sz_noel(f32 t) {
         if (i < 23) sz_line(x, y, x + 27, 5 + 4 * fabsf(sinf((i + 1) * 0.52f)), 1, RGBA(40, 90, 50, 200), RGBA(40, 90, 50, 200));
         int on = ((int)(t * 2) + i) % 3 != 0;
         const u8 *c = lc[i % 4];
-        if (on) gx_circle_glow(x, y + 3, 5, RGBA(c[0], c[1], c[2], 140), 4);
+        if (on) sz_dot(x, y + 3, 9, RGBA(c[0], c[1], c[2], 120), RGBA(c[0], c[1], c[2], 0));
         gx_ellipse(x, y + 3, 2.6f, 3.6f, RGBA(c[0], c[1], c[2], on ? 255 : 90), RGBA(c[0], c[1], c[2], on ? 255 : 90));
     }
+    sz_flush();
     sz_snow(t, 60, 1.0f);
     sz_snow_ground();
-    sz_tree(28, 470, 1.0f, t);
+    sz_tree(13, 471, 0.7f, t);                                   /* (petit, dans le coin : ne cache pas la legende) */
     f32 u = fmodf(t, 22.0f);                                       /* etoile filante de temps en temps */
     if (u < 1.4f) {
         f32 k = u / 1.4f, x = 520 - k * 380, y = 40 + k * 60;
@@ -271,11 +306,14 @@ static void sz_printemps(f32 t) {
 /* ---------- Ete : soleil, vagues, mouettes, eclats ---------- */
 static void sz_ete(f32 t) {
     f32 p = 0.5f + 0.5f * sinf(t * 0.5f);
-    f32 sx = ui_skin >= 2 ? 600 : 345, sy = ui_skin >= 2 ? 26 : 34;
-    gx_circle(sx, sy, 60 + p * 10, RGBA(255, 200, 90, 70), RGBA(255, 200, 90, 0));
-    gx_circle(sx, sy, 17, RGBA(255, 245, 170, 245), RGBA(255, 190, 60, 220));
-    for (int k = 0; k < 12; k++) {
-        f32 a = k * 0.5236f + t * 0.3f, r0 = 21, r1 = 30 + 4 * p * (k % 2 ? 1 : 0.5f);
+    /* soleil : style Classique et Moderne dans le bandeau du haut ; Nouvelle et Aurore dans le coin en haut
+       a droite, plus petit (sinon il cache « En ligne ») */
+    int corner = ui_skin >= 2;
+    f32 sx = corner ? 630 : 345, sy = corner ? 6 : 34, k = corner ? 0.72f : 1.0f;
+    gx_circle(sx, sy, (60 + p * 10) * k, RGBA(255, 200, 90, 70), RGBA(255, 200, 90, 0));
+    gx_circle(sx, sy, 17 * k, RGBA(255, 245, 170, 245), RGBA(255, 190, 60, 220));
+    for (int j = 0; j < 12; j++) {
+        f32 a = j * 0.5236f + t * 0.3f, r0 = 21 * k, r1 = (30 + 4 * p * (j % 2 ? 1 : 0.5f)) * k;
         gx_poly4(sx + cosf(a - 0.08f) * r0, sy + sinf(a - 0.08f) * r0, sx + cosf(a + 0.08f) * r0, sy + sinf(a + 0.08f) * r0,
                  sx + cosf(a) * r1, sy + sinf(a) * r1, sx + cosf(a) * r1, sy + sinf(a) * r1,
                  RGBA(255, 220, 100, 220), RGBA(255, 220, 100, 220), RGBA(255, 200, 80, 120), RGBA(255, 200, 80, 120));
@@ -299,7 +337,7 @@ static void sz_ete(f32 t) {
     for (int i = 0; i < 16; i++) {                                 /* eclats de soleil */
         f32 x = fmodf(t * (8 + i % 4 * 3) + i * 131, 680) - 20, y = 450 - fmodf(t * (5 + i % 3 * 2) + i * 47, 440);
         f32 tw = 0.5f + 0.5f * sinf(t * 4 + i);
-        gx_circle(x, y, 2 + tw, RGBA(255, 240, 180, (u8)(80 + 80 * tw)), RGBA(255, 240, 180, 0));
+        sz_dot(x, y, 2 + tw, RGBA(255, 240, 180, (u8)(80 + 80 * tw)), RGBA(255, 240, 180, 0));
     }
 }
 
@@ -363,7 +401,7 @@ static void sz_nouvelan(f32 t) {
                 f32 a = j * 2 * PI_F / 18 + sz_h(id + j) * 0.2f, px = bx + cosf(a) * rr, py = by + sinf(a) * rr + fall;
                 f32 tx = bx + cosf(a) * rr * 0.75f, ty = by + sinf(a) * rr * 0.75f + fall * 0.8f;
                 sz_line(tx, ty, px, py, 1.6f, RGBA(c[0], c[1], c[2], 0), RGBA(c[0], c[1], c[2], (u8)(230 * al)));
-                gx_circle(px, py, 2.2f, RGBA(255, 255, 255, (u8)(255 * al)), RGBA(c[0], c[1], c[2], (u8)(160 * al)));
+                sz_dot(px, py, 2.2f, RGBA(255, 255, 255, (u8)(255 * al)), RGBA(c[0], c[1], c[2], (u8)(160 * al)));
             }
         }
     }
@@ -392,5 +430,6 @@ static void season_overlay(void) {
     case SEASON_VALENTIN:  sz_valentin(t); break;
     case SEASON_NOUVELAN:  sz_nouvelan(t); break;
     }
+    sz_flush();
     nv_raw = sr;
 }

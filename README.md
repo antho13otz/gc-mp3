@@ -14,10 +14,11 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v115)
+## Nouveautés de la version actuelle (v116)
 - **Décors de saison, plus riches et au choix** (START > Réglages > Affichage > Décor de saison) :
   Auto (selon la date) ou au choix Printemps, Été, Automne, Halloween, Hiver, Noël, Saint-Valentin,
   Nouvel An — fantômes, araignée, sapin, neige au sol, vagues, fleurs, feuilles, cœurs, feux d'artifice…
+  (v116 : neige et lumières plus légères, plus de saccades en Noël / Hiver ; soleil et sapin ne cachent plus de texte).
 - (v114) Écran de chargement Minimal avec le logo complet de Pulse ; (v113) nouveau logo de Pulse.
 
 ## Fonctionnalités principales
