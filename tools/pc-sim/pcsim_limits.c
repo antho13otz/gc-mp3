@@ -139,8 +139,33 @@ static int sdc_close(void *c) {
     pthread_mutex_lock(&sdf_m); for (int i = 0; i < NSDF; i++) if (sdf[i].inner == in) sdf[i].outer = sdf[i].inner = NULL; pthread_mutex_unlock(&sdf_m);
     int r = fclose(in); __real_free(c); return r;
 }
+/* v86 : smb: ftp: fsp: (fichiers sur le reseau) : le code de GC Station (netfs.c), comme les disques
+   de newlib sur la console */
+int gcs_nfs_is(const char *path);
+void *gcs_nfs_fopen(const char *path);
+int gcs_nfs_fread(void *f, void *b, int n);
+long gcs_nfs_fseek(void *f, long o, int w);
+void gcs_nfs_fclose(void *f);
+int gcs_nfs_stat(const char *path, int *dir, unsigned *size);
+int gcs_nfs_list(const char *path, void **ents, int *n, int *esz);
+static ssize_t nfc_read(void *c, char *b, size_t n) { int r = gcs_nfs_fread(c, b, (int)n); return r < 0 ? -1 : r; }
+static int nfc_seek(void *c, off64_t *o, int w) { long r = gcs_nfs_fseek(c, (long)*o, w); if (r < 0) return -1; *o = r; return 0; }
+static int nfc_close(void *c) { gcs_nfs_fclose(c); return 0; }
+typedef struct { unsigned magic; char *ents; int n, i, esz; struct dirent de; } nfd_t;
+#define NFD_MAGIC 0x4E464431u
+static nfd_t *nfd_list[16];
+static int nfd_of(void *d) { for (int i = 0; i < 16; i++) if (nfd_list[i] && (void *)nfd_list[i] == d) return i; return -1; }
 FILE *__real_fopen(const char *p, const char *m);
 FILE *__wrap_fopen(const char *p, const char *m) {
+    if (gcs_nfs_is(p)) {
+        if (m[0] != 'r') { errno = EROFS; return NULL; }
+        void *h = gcs_nfs_fopen(p);
+        if (!h) { errno = ENOENT; return NULL; }
+        cookie_io_functions_t io = { nfc_read, NULL, nfc_seek, nfc_close };
+        PCSIM_LIB_ENTER(); FILE *g = fopencookie(h, "r", io); PCSIM_LIB_EXIT();
+        if (!g) gcs_nfs_fclose(h);
+        return g;
+    }
     PCSIM_LIB_ENTER(); FILE *f = __real_fopen(p, m); PCSIM_LIB_EXIT();
     if (!f || pcsim_fast || !is_sd(p)) return f;
     io_wait(3000);                                             /* (recherche du fichier dans la FAT) */
@@ -152,11 +177,47 @@ FILE *__wrap_fopen(const char *p, const char *m) {
     return g;
 }
 int __real_stat(const char *p, struct stat *s);
-int __wrap_stat(const char *p, struct stat *s) { if (is_sd(p)) io_wait(1500); PCSIM_LIB_ENTER(); int r = __real_stat(p, s); PCSIM_LIB_EXIT(); return r; }
+int __wrap_stat(const char *p, struct stat *s) {
+    if (gcs_nfs_is(p)) {
+        int dir = 0; unsigned size = 0;
+        if (!gcs_nfs_stat(p, &dir, &size)) { errno = ENOENT; return -1; }
+        memset(s, 0, sizeof(*s)); s->st_mode = dir ? (S_IFDIR | 0555) : (S_IFREG | 0444); s->st_size = size; s->st_nlink = 1;
+        return 0;
+    }
+    if (is_sd(p)) io_wait(1500); PCSIM_LIB_ENTER(); int r = __real_stat(p, s); PCSIM_LIB_EXIT(); return r; }
 DIR *__real_opendir(const char *p);
-DIR *__wrap_opendir(const char *p) { if (is_sd(p)) io_wait(2000); PCSIM_LIB_ENTER(); DIR *d = __real_opendir(p); PCSIM_LIB_EXIT(); return d; }
+DIR *__wrap_opendir(const char *p) {
+    if (gcs_nfs_is(p)) {
+        nfd_t *d = __real_malloc(sizeof(nfd_t));
+        if (!d) return NULL;
+        memset(d, 0, sizeof(*d)); d->magic = NFD_MAGIC;
+        void *e = NULL;
+        if (!gcs_nfs_list(p, &e, &d->n, &d->esz)) { __real_free(d); errno = ENOENT; return NULL; }
+        d->ents = e;
+        for (int i = 0; i < 16; i++) if (!nfd_list[i]) { nfd_list[i] = d; return (DIR *)d; }
+        __wrap_free(e); __real_free(d); return NULL;
+    }
+    if (is_sd(p)) io_wait(2000); PCSIM_LIB_ENTER(); DIR *d = __real_opendir(p); PCSIM_LIB_EXIT(); return d; }
 struct dirent *__real_readdir(DIR *d);
-struct dirent *__wrap_readdir(DIR *d) { io_wait(150); PCSIM_LIB_ENTER(); struct dirent *e = __real_readdir(d); PCSIM_LIB_EXIT(); return e; }
+struct dirent *__wrap_readdir(DIR *d) {
+    int k = nfd_of(d);
+    if (k >= 0) {                                              /* (entree : nom[128], dossier (1 octet), taille, date : netfs.c) */
+        nfd_t *x = nfd_list[k];
+        if (x->i >= x->n) return NULL;
+        const char *e = x->ents + (size_t)x->i++ * x->esz;
+        memset(&x->de, 0, sizeof(x->de));
+        snprintf(x->de.d_name, sizeof(x->de.d_name), "%s", e);
+        x->de.d_type = e[128] ? DT_DIR : DT_REG;
+        return &x->de;
+    }
+    io_wait(150); PCSIM_LIB_ENTER(); struct dirent *e = __real_readdir(d); PCSIM_LIB_EXIT(); return e; }
+
+int __real_closedir(DIR *d);
+int __wrap_closedir(DIR *d) {
+    int k = nfd_of(d);
+    if (k >= 0) { nfd_t *x = nfd_list[k]; nfd_list[k] = NULL; __wrap_free(x->ents); __real_free(x); return 0; }
+    return __real_closedir(d);
+}
 
 /* ======================= reseau (reception) ======================= */
 static double net_tokens = 64 * 1024; static u64 net_t = 0;

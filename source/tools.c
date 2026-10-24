@@ -8,7 +8,7 @@
 // Chaque outil s'ouvre en fenetre par-dessus l'ecran (tl_screen).
 
 static void indigo_game_open(const char *id, const char *title);
-enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST };   /* v73 : cartes virtuelles, historique radio */
+enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV };   /* v86 : serveur SMB / FTP / FSP */   /* v73 : cartes virtuelles, historique radio */
 static void vc_open(void);
 static void vc_input(u32 down, u32 nav, int fire);
 static void draw_vcard(void);
@@ -1105,6 +1105,128 @@ static void draw_info(void) {
     tl_legend(k, lb, 1);
 }
 
+/* =================== v86 : serveur du reseau (SMB / FTP / FSP) : START > Reglages > Reseau =================== */
+enum { NF_HOST, NF_SHARE, NF_USER, NF_PASS, NF_PORT, NF_TEST, NF_SWISS, NF_OPEN };
+static int nfs_ui_p = 0, nfs_ui_sel = 0;
+static char nfs_ui_res[140] = "";
+static int nfs_ui_rows(int *r) {                           /* lignes affichees pour ce protocole */
+    int n = 0;
+    r[n++] = NF_HOST;
+    if (nfs_ui_p == NFS_SMB) r[n++] = NF_SHARE;
+    if (nfs_ui_p != NFS_FSP) r[n++] = NF_USER;
+    r[n++] = NF_PASS; r[n++] = NF_PORT; r[n++] = NF_TEST; r[n++] = NF_SWISS; r[n++] = NF_OPEN;
+    return n;
+}
+static void nfs_menu_value(int p, char *out, int cap) {
+    const nfs_cfg_t *c = &nfs_cfg[p];
+    if (!c->host[0]) snprintf(out, cap, "%s", TR("(A : r\xC3\xA9gler)"));
+    else if (p == NFS_SMB) snprintf(out, cap, "\\\\%s\\%s", c->host, c->share[0] ? c->share : "?");
+    else snprintf(out, cap, "%s", c->host);
+}
+static void nfs_ui_open(int p) {
+    nfs_ui_p = p; nfs_ui_sel = 0; nfs_ui_res[0] = 0;
+    tl_screen = TL_NETSRV;
+    menu_open = 0;                                         /* (B : retour aux Reglages) */
+}
+static void nfs_kb_done(const char *t) {
+    nfs_cfg_t *c = &nfs_cfg[nfs_ui_p];
+    char v[64];
+    snprintf(v, sizeof(v), "%s", t);
+    switch (kb_field) {
+    case NF_HOST: snprintf(c->host, sizeof(c->host), "%s", trim(v)); break;
+    case NF_SHARE: snprintf(c->share, sizeof(c->share), "%s", trim(v)); break;
+    case NF_USER: snprintf(c->user, sizeof(c->user), "%s", v); break;
+    case NF_PASS: snprintf(c->pass, sizeof(c->pass), "%s", v); break;
+    case NF_PORT: if (atoi(v) > 0 && atoi(v) < 65536) c->port = atoi(v); break;
+    }
+    if (nfs_ui_p == NFS_SMB) smb_close_c();                /* (nouveaux reglages : nouvelle connexion) */
+    if (nfs_ui_p == NFS_FSP) fsp_close_s();
+    nfs_cache_put("", NULL, 0);
+    settings_dirty = 1;
+    tl_screen = TL_NETSRV;
+}
+static void nfs_ui_act(int f) {
+    nfs_cfg_t *c = &nfs_cfg[nfs_ui_p];
+    char cur[64] = "";
+    switch (f) {
+    case NF_HOST: snprintf(cur, sizeof(cur), "%s", c->host); break;
+    case NF_SHARE: snprintf(cur, sizeof(cur), "%s", c->share); break;
+    case NF_USER: snprintf(cur, sizeof(cur), "%s", c->user); break;
+    case NF_PASS: snprintf(cur, sizeof(cur), "%s", c->pass); break;
+    case NF_PORT: snprintf(cur, sizeof(cur), "%d", c->port); break;
+    case NF_TEST: {
+        if (!nfs_cfg_ok(nfs_ui_p)) { snprintf(nfs_ui_res, sizeof(nfs_ui_res), "%s", TR(nfs_ui_p == NFS_SMB ? "R\xC3\xA8gle d'abord l'adresse et le partage" : "R\xC3\xA8gle d'abord l'adresse")); return; }
+        if (net_phase != NET_DONE) { net_start_async(); snprintf(nfs_ui_res, sizeof(nfs_ui_res), "%s", TR("R\xC3\xA9seau en cours de connexion, r\xC3\xA9" "essaie dans un instant")); return; }
+        char root[8];
+        snprintf(root, sizeof(root), "%s:/", nfs_scheme[nfs_ui_p]);
+        if (nfs_ui_p == NFS_SMB) smb_close_c();
+        nfs_err[0] = 0;
+        tl_status("Connexion au serveur...");
+        u64 t0 = now_ms();
+        nfs_ent_t *e = NULL; int n = 0;
+        int ok = nfs_list(root, &e, &n);
+        gl_busy[0] = 0;
+        free(e);
+        if (ok) snprintf(nfs_ui_res, sizeof(nfs_ui_res), "OK : %d %s (%u ms)", n, n > 1 ? "\xC3\xA9l\xC3\xA9ments" : "\xC3\xA9l\xC3\xA9ment", (unsigned)(now_ms() - t0));
+        else snprintf(nfs_ui_res, sizeof(nfs_ui_res), "%s", nfs_err[0] ? nfs_err : TR("Connexion impossible"));
+        return; }
+    case NF_SWISS: {
+        int n = nfs_swiss_import(1);
+        if (n) { settings_dirty = 1; smb_close_c(); fsp_close_s(); nfs_cache_put("", NULL, 0); }
+        snprintf(nfs_ui_res, sizeof(nfs_ui_res), "%s", TR(n ? "R\xC3\xA9glages de Swiss repris" : "Aucun r\xC3\xA9glage dans SD:/swiss/settings/global.ini"));
+        return; }
+    case NF_OPEN:
+        if (!nfs_cfg_ok(nfs_ui_p)) { snprintf(nfs_ui_res, sizeof(nfs_ui_res), "%s", TR("R\xC3\xA8gle d'abord l'adresse")); return; }
+        if (settings_dirty) save_settings();
+        tl_screen = TL_NONE; menu_open = 0;
+        snprintf(fe_cwd, sizeof(fe_cwd), "%s:", nfs_scheme[nfs_ui_p]);
+        fe_devs = 0; fe_sel = 0;
+        tab = TAB_FILES;
+        fe_load();
+        return;
+    }
+    kb_start(KB_NFS, cur, f, -1);
+}
+static void nfs_ui_input(u32 down, u32 nav, int fire) {
+    int r[8], n = nfs_ui_rows(r);
+    if (nfs_ui_sel >= n) nfs_ui_sel = n - 1;
+    if (fire && (nav & PAD_BUTTON_DOWN)) nfs_ui_sel = (nfs_ui_sel + 1) % n;
+    if (fire && (nav & PAD_BUTTON_UP)) nfs_ui_sel = (nfs_ui_sel + n - 1) % n;
+    if (down & PAD_BUTTON_A) nfs_ui_act(r[nfs_ui_sel]);
+    if (down & PAD_BUTTON_B) { tl_screen = TL_NONE; menu_open = 1; if (settings_dirty) save_settings(); }
+}
+static void nfs_ui_draw(void) {
+    static const char *const lab[] = { "Adresse du serveur", "Nom du partage", "Utilisateur", "Mot de passe", "Port", "Tester la connexion", "Reprendre les r\xC3\xA9glages de Swiss", "Ouvrir dans FICHIERS" };
+    const nfs_cfg_t *c = &nfs_cfg[nfs_ui_p];
+    tl_frame(TR(nfs_label[nfs_ui_p]), nfs_ui_p == NFS_SMB ? "SMB2 (Windows, Samba, NAS)" : nfs_ui_p == NFS_FTP ? "FTP (mode passif)" : "FSP (comme Swiss)");
+    int r[8], n = nfs_ui_rows(r);
+    char v[96];
+    for (int i = 0; i < n; i++) {
+        f32 ry = 100 + i * 30;
+        int on = i == nfs_ui_sel;
+        gp_zone(52, ry, 536, 26, &nfs_ui_sel, i, GPZ_SEL);
+        if (on) gx_rrect_fill(52, ry, 536, 26, 6, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
+        int act = r[i] >= NF_TEST;
+        gx_text1(F_MED, 64, ry + 19, TR(lab[r[i]]), act ? RGBA(255, 210, 120, 255) : RGBA(240, 232, 255, 255));
+        v[0] = 0;
+        switch (r[i]) {
+        case NF_HOST: snprintf(v, sizeof(v), "%s", c->host[0] ? c->host : TR("(A : taper, ex. 192.168.1.20)")); break;
+        case NF_SHARE: snprintf(v, sizeof(v), "%s", c->share[0] ? c->share : TR("(A : taper)")); break;
+        case NF_USER: snprintf(v, sizeof(v), "%s", c->user[0] ? c->user : TR(nfs_ui_p == NFS_FTP ? "(anonyme)" : "(invit\xC3\xA9)")); break;
+        case NF_PASS: { int k = (int)strlen(c->pass); if (!k) snprintf(v, sizeof(v), "%s", TR("(aucun)")); else { if (k > 12) k = 12; memset(v, '*', k); v[k] = 0; } break; }
+        case NF_PORT: snprintf(v, sizeof(v), "%d", c->port); break;
+        }
+        if (v[0]) { char fv[96]; fit_text(F_MED, v, 250, fv, sizeof(fv)); gx_text_r(F_MED, 576, ry + 19, fv, on ? RGBA(255, 255, 255, 255) : RGBA(190, 175, 240, 255)); }
+    }
+    if (nfs_ui_res[0]) {
+        char fv[160];
+        fit_text(F_SMALL, nfs_ui_res, 520, fv, sizeof(fv));
+        gx_text1(F_SMALL, 60, 112 + n * 30, fv, !strncmp(nfs_ui_res, "OK", 2) ? RGBA(140, 255, 160, 255) : RGBA(255, 160, 140, 255));
+    }
+    static const char *const k[] = { "A", "B" }, *const lb[] = { "MODIFIER / LANCER", "RETOUR" };
+    tl_legend(k, lb, 2);
+}
+
 static void tools_input(u32 down, u32 nav, int fire) {
     switch (tl_screen) {
     case TL_CARDS: mc_input(down, nav, fire); break;
@@ -1113,6 +1235,7 @@ static void tools_input(u32 down, u32 nav, int fire) {
     case TL_INFO: info_input(down, nav, fire); break;
     case TL_VCARD: vc_input(down, nav, fire); break;
     case TL_RHIST: rh_input(down, nav, fire); break;
+    case TL_NETSRV: nfs_ui_input(down, nav, fire); break;
     }
 }
 static void draw_tools(void) {
@@ -1123,6 +1246,7 @@ static void draw_tools(void) {
     case TL_INFO: draw_info(); break;
     case TL_VCARD: draw_vcard(); break;
     case TL_RHIST: draw_rhist(); break;
+    case TL_NETSRV: nfs_ui_draw(); break;
     }
 }
 

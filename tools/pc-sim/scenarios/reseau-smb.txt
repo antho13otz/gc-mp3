@@ -1,0 +1,34 @@
+# v86 : partage SMB (serveur de test : tools/pc-sim/netsrv.py, port 4450, signature exigee)
+wait 3s
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+wait 800ms
+press B
+wait 800ms
+press DOWN
+wait 300ms
+press A
+wait 2500ms
+shot s01-smb
+press DOWN
+press A
+wait 2500ms
+shot s02-smb-album
+press DOWN
+press A
+wait 3s
+shot s03-smb-lecture
+press B
+wait 1500ms
+press DOWN
+press DOWN
+press DOWN
+press A
+wait 3s
+shot s04-smb-photo
+wait 4s
+quit
