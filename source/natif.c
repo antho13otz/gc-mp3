@@ -295,7 +295,7 @@ static void nat_write_report(const nat_info_t *in, const char *path, char *out, 
     snprintf(out, cap, "%s/%s.txt", NA_DIR, in->id[0] ? in->id : "inconnu");
     FILE *f = fopen(out, "w");
     if (!f) { out[0] = 0; return; }
-    fprintf(f, "GC Station - analyse native (pour Resident)\n");
+    fprintf(f, "GC Station - analyse native (pour Pulse)\n");
     fprintf(f, "Fichier : %s\nAdaptateur SD : %s\n\n", path, na_adapter());
     fprintf(f, "[Disque]\nID : %s   disque %u   version %u\nNom : %s\nRegion : %s\nAudio en streaming : %s\n\n",
             in->id, in->disc + 1, in->ver, in->title, na_region(in->region), in->stream ? "oui" : "non");
@@ -328,10 +328,10 @@ static void nat_write_report(const nat_info_t *in, const char *path, char *out, 
     }
     fprintf(f, "Fonctions concernees : %d\n", in->nfunc);
     for (int i = 0; i < in->nfunc; i++) fprintf(f, "  %08X\n", (unsigned)in->func_addr[i]);
-    fprintf(f, "\n(Ce sont elles que Resident branche sur son faux lecteur ; les acces EXI, sur la carte memoire virtuelle.)\n");
-    if (in->stream) fprintf(f, "Ce jeu lit sa musique en streaming sur le disque : Resident la decode et l'ajoute au son (v65).\n");
+    fprintf(f, "\n(Ce sont elles que Pulse branche sur son faux lecteur ; les acces EXI, sur la carte memoire virtuelle.)\n");
+    if (in->stream) fprintf(f, "Ce jeu lit sa musique en streaming sur le disque : Pulse la decode et l'ajoute au son (v65).\n");
     fprintf(f, "\n");
-    fprintf(f, "Bilan : %s%s\n", in->problems ? "probleme : " : "OK, Resident peut essayer ce jeu", in->problems ? in->err : "");
+    fprintf(f, "Bilan : %s%s\n", in->problems ? "probleme : " : "OK, Pulse peut essayer ce jeu", in->problems ? in->err : "");
     fclose(f);
 }
 
@@ -626,7 +626,7 @@ static void na_crash_print(FILE *f, const u8 *c) {
     fprintf(f, "Memoire basse : taille %08X, console %08X, arene %08X - %08X, FST %08X (max %u), simulee %08X, bi2 %08X\n",
             (unsigned)lo[0], (unsigned)lo[1], (unsigned)lo[2], (unsigned)lo[3], (unsigned)lo[4], (unsigned)lo[5], (unsigned)lo[6], (unsigned)lo[7]);
     if (hi && fstmax < 0x400000u && real > hi)
-        fprintf(f, "Memoire laissee au jeu : haut de l'arene %08X ; sur une vraie console : environ %08X (%u Ko de moins avec Resident)\n",
+        fprintf(f, "Memoire laissee au jeu : haut de l'arene %08X ; sur une vraie console : environ %08X (%u Ko de moins avec Pulse)\n",
                 (unsigned)hi, (unsigned)real, (unsigned)((real - hi) >> 10));
     na_code_dump(f, w[3], "PC");
     na_code_dump(f, w[5], "LR");
@@ -679,7 +679,7 @@ static void nat_journal_convert(void) {
         if (!v9) for (int i = 72; i < 84; i++) H[i] = 0;
         if (!v10) for (int i = 76; i < 84; i++) H[i] = 0;
         static const char *const en[] = { "OK", "pas de carte", "la carte ne demarre pas", "commande refusee", "pas de donnees", "hors de l'ISO", "delai depasse" };
-        fprintf(f, "GC Station - journal du dernier jeu lance avec Resident\n\n");
+        fprintf(f, "GC Station - journal du dernier jeu lance avec Pulse\n\n");
         if (v5 && H[44]) {
             static const char *const xn[16] = { "?", "machine check (acces materiel ou memoire invalide)", "acces memoire interdit (DSI)", "code introuvable (ISI)", "?", "alignement", "instruction invalide", "?", "?", "?", "?", "?", "?", "?", "?", "?" };
             fprintf(f, "*** PLANTAGE DU JEU : %s ***\n    a l'adresse %08X (LR %08X), adresse visee %08X (DSISR %08X)\n    -> la console a redemarre toute seule\n\n",
@@ -1018,7 +1018,7 @@ static void nat_run(int k) {
     /* etape 3a : l'ISO sur la carte, et le programme resident qui la lit */
     char me[120] = "", rt[120] = "";
     int mok = -1, rok = -1;
-    if (gl[k].ciso) snprintf(me, sizeof(me), "fichier .ciso : pas encore pris en charge par Resident");
+    if (gl[k].ciso) snprintf(me, sizeof(me), "fichier .ciso : pas encore pris en charge par Pulse");
     else {
         gl_status("Analyse native : position du jeu sur la carte...");
         mok = nat_map(gl[k].path, me, sizeof(me));
@@ -1139,48 +1139,73 @@ static u64 nat_ld_t0 = 0, nat_ld_last = 0;
 static void nat_draw_loading(void) {}
 #else
 static void nat_draw_loading(void) {
+    /* v109 : ecran de chargement de Pulse : noir et aurores, logo qui bat, jaquette, etapes */
     char b[120], fv[120];
     f32 t = (f32)(now_ms() % 100000u) / 1000.0f;
-    gx_vgrad(0, 0, 640, 480, RGBA(20, 10, 44, 255), RGBA(4, 2, 12, 255));
-    gx_circle(168, 232, 230, RGBA(120, 60, 255, 60), RGBA(120, 60, 255, 0));   /* (lueur derriere la jaquette) */
+    nv_raw = 1;
+    gx_vgrad(0, 0, 640, 480, RGBA(8, 6, 16, 255), RGBA(3, 3, 7, 255));
+    for (int band = 0; band < 3; band++) {                      /* aurores */
+        static const f32 base[3] = { 70, 418, 446 }, amp[3] = { 14, 20, 11 }, th[3] = { 60, 90, 50 }, sp[3] = { 0.30f, 0.22f, 0.40f };
+        static const u8 al[3] = { 34, 40, 24 };
+        for (int i = 0; i < 24; i++) {
+            f32 x0 = -10 + i * 660.0f / 24, x1 = -10 + (i + 1) * 660.0f / 24;
+            f32 y0 = base[band] + amp[band] * sinf(x0 * 0.012f + t * sp[band] + band * 2.1f);
+            f32 y1 = base[band] + amp[band] * sinf(x1 * 0.012f + t * sp[band] + band * 2.1f);
+            col_t c0 = pl_grad((f32)i / 24, al[band]), c1 = pl_grad((f32)(i + 1) / 24, al[band]), z0 = c0, z1 = c1;
+            z0.a = 0; z1.a = 0;
+            gx_poly4(x0, y0 - th[band], x1, y1 - th[band], x1, y1, x0, y0, z0, z1, c1, c0);
+            gx_poly4(x0, y0, x1, y1, x1, y1 + th[band] * 0.35f, x0, y0 + th[band] * 0.35f, c0, c1, z1, z0);
+        }
+    }
+    /* marque : logo qui bat + Pulse */
+    pulse_logo(62, 54, 27, t);
+    int ww = pulse_word(F_LARGE, 106, 66, 1.4f);
+    gx_text1(F_SMALL, 112 + ww, 66, TR("lanceur GC Station"), RGBA(150, 150, 180, 255));
     /* jaquette */
     const f32 cx = 72, cy = 104, cw = 192, chh = 256;
-    gx_glow(cx, cy, cw, chh, 10, RGBA(160, 100, 255, 170), 6);
+    gx_circle(cx + cw / 2, cy + chh / 2, 200, pl_grad(0.35f, 60), pl_grad(0.35f, 0));
+    gx_glow(cx, cy, cw, chh, 10, pl_grad(0.3f + 0.2f * sinf(t * 2), 170), 6);
+    nv_raw = 0;
     if (nat_ld_k >= 0 && nat_ld_k < gl_n) gl_draw_cover(nat_ld_k, cx, cy, cw, chh, 1);
     else {
         gx_rrect_fill(cx, cy, cw, chh, 10, RGBA(44, 26, 88, 255), RGBA(22, 12, 46, 255));
         gx_circle(cx + cw / 2, cy + chh / 2, 62, RGBA(200, 190, 230, 255), RGBA(120, 110, 160, 255));   /* (un disque) */
         gx_circle(cx + cw / 2, cy + chh / 2, 14, RGBA(22, 12, 46, 255), RGBA(22, 12, 46, 255));
     }
-    gx_rrect_stroke(cx - 1, cy - 1, cw + 2, chh + 2, 10, 1.5f, RGBA(220, 190, 255, 200));
-    /* panneau */
+    nv_raw = 1;
+    gx_rrect_stroke(cx - 1, cy - 1, cw + 2, chh + 2, 10, 1.5f, RGBA(255, 255, 255, 60));
+    /* panneau en verre */
     const f32 px = 288, py = 104, pw = 304, ph = 256;
-    gx_rrect_fill(px, py, pw, ph, 12, RGBA(38, 22, 76, 235), RGBA(18, 10, 38, 235));
-    gx_rrect_stroke(px, py, pw, ph, 12, 1.0f, RGBA(130, 90, 230, 140));
-    gx_rrect_fill(px + 18, py + 16, 92, 20, 10, RGBA(170, 100, 255, 255), RGBA(120, 60, 235, 255));   /* badge */
-    gx_text_c(F_SMALL, px + 18 + 46, py + 31, "RESIDENT", RGBA(255, 255, 255, 255));
-    gx_text_r(F_SMALL, px + pw - 18, py + 31, TR("Lanceur GC Station"), RGBA(150, 136, 196, 255));
+    gx_rrect_fill(px, py, pw, ph, 18, RGBA(255, 255, 255, 12), RGBA(255, 255, 255, 6));
+    gx_rrect_stroke(px, py, pw, ph, 18, 1.0f, RGBA(255, 255, 255, 26));
+    gx_hgrad(px + pw / 2 - 110, py, 110, 1.2f, pl_grad(0, 0), pl_grad(0, 160));
+    gx_hgrad(px + pw / 2, py, 110, 1.2f, pl_grad(0.7f, 160), pl_grad(0.7f, 0));
+    pulse_logo(px + 30, py + 26, 9, 0);
+    gx_text1(F_SMALL, px + 46, py + 31, "PULSE", RGBA(255, 255, 255, 255));
+    gx_text_r(F_SMALL, px + pw - 18, py + 31, TR("Lancement du jeu"), RGBA(150, 150, 180, 255));
     text_display(nat_ld_title, b, sizeof(b));
     fit_text(F_MED, b, (int)pw - 36, fv, sizeof(fv));
     gx_text1(F_MED, px + 18, py + 70, fv, RGBA(255, 255, 255, 255));
-    /* barre */
+    /* barre en degrade */
     const f32 bx = px + 18, by = py + 90, bw = pw - 36, bh = 8;
     static f32 shown = -1;                                       /* v72 : la barre glisse vers sa valeur */
     if (shown < 0 || shown > nat_ld_pct + 0.5f || nat_ld_pct < 5) shown = (f32)nat_ld_pct;
     else shown += ((f32)nat_ld_pct - shown) * (1.0f - expf(-ui_dt * 10.0f));
     f32 fw = bw * shown / 100.0f;
-    gx_rrect_fill(bx, by, bw, bh, 4, RGBA(16, 8, 34, 255), RGBA(30, 18, 60, 255));
+    gx_rrect_fill(bx, by, bw, bh, 4, RGBA(255, 255, 255, 22), RGBA(255, 255, 255, 22));
     if (fw >= 8) {
-        gx_glow(bx, by, fw, bh, 4, RGBA(180, 110, 255, 150), 4);
-        gx_rrect_fill(bx, by, fw, bh, 4, RGBA(210, 150, 255, 255), RGBA(130, 70, 245, 255));
+        gx_glow(bx, by, fw, bh, 4, pl_grad(0.3f, 120), 4);
+        gx_rrect_fill(bx, by, 8, bh, 4, pl_grad(0, 255), pl_grad(0, 255));
+        gx_rrect_fill(bx + fw - 8, by, 8, bh, 4, pl_grad(fw / bw * 0.8f, 255), pl_grad(fw / bw * 0.8f, 255));
+        gx_hgrad(bx + 4, by, fw - 8, bh, pl_grad(0, 255), pl_grad(fw / bw * 0.8f, 255));
         f32 sh = fmodf(t * 160.0f, fw + 60.0f) - 30.0f;           /* (reflet qui court) */
-        if (sh > 2 && sh < fw - 10) gx_hgrad(bx + sh, by + 1, 8, bh - 2, RGBA(255, 255, 255, 0), RGBA(255, 255, 255, 120));
-        gx_circle_glow(bx + fw - 4, by + bh / 2, 5, RGBA(230, 200, 255, 200), 5);
+        if (sh > 2 && sh < fw - 10) gx_hgrad(bx + sh, by + 1, 8, bh - 2, RGBA(255, 255, 255, 0), RGBA(255, 255, 255, 140));
+        gx_circle_glow(bx + fw - 4, by + bh / 2, 5, RGBA(255, 255, 255, 200), 5);
     }
     snprintf(b, sizeof(b), "%d %%", nat_ld_pct);
-    gx_text_r(F_SMALL, bx + bw, by + 26, b, RGBA(220, 205, 255, 255));
+    gx_text_r(F_SMALL, bx + bw, by + 26, b, RGBA(235, 235, 250, 255));
     fit_text(F_SMALL, nat_ld_step, (int)bw - 50, fv, sizeof(fv));
-    gx_text1(F_SMALL, bx, by + 26, fv, RGBA(180, 166, 226, 255));
+    gx_text1(F_SMALL, bx, by + 26, fv, RGBA(175, 175, 200, 255));
     /* etapes */
     static const char *const st[5] = { "Analyse du jeu", "Carte SD : jeu et sauvegardes", "Lecture du jeu", "Pr\xC3\xA9paration du lecteur", "D\xC3\xA9marrage" };
     static const int at[6] = { 0, 10, 22, 40, 100, 101 };
@@ -1188,21 +1213,34 @@ static void nat_draw_loading(void) {
         f32 ry = by + 52 + i * 21;
         int done = nat_ld_pct >= at[i + 1], cur = !done && nat_ld_pct >= at[i];
         if (done) {
-            gx_circle(bx + 7, ry - 4, 7, RGBA(190, 130, 255, 255), RGBA(140, 80, 245, 255));
+            gx_circle(bx + 7, ry - 4, 7, pl_grad(i / 5.0f, 255), pl_grad(i / 5.0f + 0.15f, 255));
             gx_tri(bx + 3, ry - 4, bx + 6, ry - 1, bx + 6, ry + 1, RGBA(255, 255, 255, 255));   /* (coche) */
             gx_poly4(bx + 5, ry - 1, bx + 10, ry - 8, bx + 12, ry - 7, bx + 6, ry + 1,
                      RGBA(255, 255, 255, 255), RGBA(255, 255, 255, 255), RGBA(255, 255, 255, 255), RGBA(255, 255, 255, 255));
         } else if (cur) {
             f32 p = 0.5f + 0.5f * sinf(t * 6.0f);
-            gx_circle_glow(bx + 7, ry - 4, 6, RGBA(200, 150, 255, (u8)(120 + 120 * p)), 4);
-            gx_ring(bx + 7, ry - 4, 5, 7, RGBA(210, 170, 255, 255));
-        } else gx_ring(bx + 7, ry - 4, 5.5f, 7, RGBA(90, 74, 140, 255));
-        gx_text1(F_SMALL, bx + 22, ry + 1, TR(st[i]), done ? RGBA(200, 190, 235, 255) : cur ? RGBA(255, 255, 255, 255) : RGBA(110, 98, 150, 255));
+            gx_circle_glow(bx + 7, ry - 4, 6, pl_grad(0.2f, (u8)(120 + 120 * p)), 4);
+            gx_ring(bx + 7, ry - 4, 5, 7, pl_grad(0.3f, 255));
+        } else gx_ring(bx + 7, ry - 4, 5.5f, 7, RGBA(90, 90, 120, 255));
+        gx_text1(F_SMALL, bx + 22, ry + 1, TR(st[i]), done ? RGBA(200, 200, 225, 255) : cur ? RGBA(255, 255, 255, 255) : RGBA(110, 110, 140, 255));
     }
     /* bas */
-    if (nat_igr) gx_text_c(F_SMALL, 320, 400, TR("Pendant le jeu : A + Z + START = retour \xC3\xA0 GC Station"), RGBA(150, 136, 196, 255));
-    if (nat_card) gx_text_c(F_SMALL, 320, 420, TR("Sauvegardes : carte m\xC3\xA9moire virtuelle (slot A, sur la carte SD)"), RGBA(120, 108, 166, 255));
-    gx_text_r(F_SMALL, 616, 460, "GC STATION  \xC2\xB7  RESIDENT", RGBA(142, 124, 196, 255));
+    if (nat_igr) gx_text_c(F_SMALL, 320, 400, TR("Pendant le jeu : A + Z + START = retour \xC3\xA0 GC Station"), RGBA(170, 170, 200, 255));
+    if (nat_card) gx_text_c(F_SMALL, 320, 420, TR("Sauvegardes : carte m\xC3\xA9moire virtuelle (slot A, sur la carte SD)"), RGBA(130, 130, 160, 255));
+    gx_text_r(F_SMALL, 616, 460, "GC STATION  \xC2\xB7  PULSE", RGBA(150, 150, 180, 255));
+    nv_raw = 0;
+}
+#endif
+#if !defined(GEKKO) && !defined(NATIF_BENCH)
+static void nat_sim_loading(void) {
+    static int once = 0;
+    if (once || !getenv("PCSIM_CHARGEMENT")) return;
+    once = 1;
+    snprintf(nat_ld_title, sizeof(nat_ld_title), "Mario Superstar Baseball");
+    snprintf(nat_ld_step, sizeof(nat_ld_step), "%s", TR("Lecture du jeu"));
+    nat_ld_k = gl_n > 1 ? 1 : -1;
+    nat_ld_pct = 32;
+    nat_ld_on = 1;
 }
 #endif
 static u32 nat_ld_rc = 0;
@@ -1427,14 +1465,14 @@ static const char *nat_boot(int k) {
         mkdir(NA_DIR, 0777);
         FILE *lf = fopen(NA_LOG, "w");                    /* (v52 : le journal dit lesquels et pourquoi) */
         if (lf) {
-            fprintf(lf, "GC Station - Resident : jeu PAS lance\nJeu : %s (%s)\n", in.title, in.id);
+            fprintf(lf, "GC Station - Pulse : jeu PAS lance\nJeu : %s (%s)\n", in.title, in.id);
             fprintf(lf, "Acces au lecteur : %d trouves, %d branches, %d non branches\n", in.ntotal - in.nexi, patched - na_xdone, skipped + in.di_lost);
             if (in.di_lost) fprintf(lf, "  %d au-dela de la limite de %d\n", in.di_lost, NA_MAXHIT);
             for (int i = 0; i < na_nskip; i++) fprintf(lf, "  %08X  instruction %08X : %s\n", (unsigned)na_skip_at[i], (unsigned)na_skip_ins[i], na_skip_why[i]);
             fclose(lf);
         }
         static char e[120];
-        snprintf(e, sizeof(e), "Resident : %d acc\xC3\xA8s au lecteur non branch\xC3\xA9s, jeu pas lanc\xC3\xA9", skipped + in.di_lost);
+        snprintf(e, sizeof(e), "Pulse : %d acc\xC3\xA8s au lecteur non branch\xC3\xA9s, jeu pas lanc\xC3\xA9", skipped + in.di_lost);
         return e;
     }
     /* table de copie pour gl_stub : {destination, source, taille} */
@@ -1454,7 +1492,7 @@ static const char *nat_boot(int k) {
     mkdir(NA_DIR, 0777);
     FILE *f = fopen(NA_LOG, "w");
     if (f) {
-        fprintf(f, "GC Station - Resident\n");
+        fprintf(f, "GC Station - Pulse\n");
         fprintf(f, "Jeu : %s  %s\nFichier : %s\nAdaptateur SD : %s\n\n", in.id, in.title, gl[k].path, na_adapter());
         fprintf(f, "Donnees rangees en %08X (%u octets)\nbi2.bin -> %08X   FST -> %08X (%u / %u octets)\n",
                 (unsigned)stage, (unsigned)total, (unsigned)bi2_dest, (unsigned)fst_dest, (unsigned)in.fst_sz, (unsigned)in.fst_max);
@@ -1477,7 +1515,7 @@ static const char *nat_boot(int k) {
 #endif
                 );
         fprintf(f, "\nSaut vers le jeu... Ce que tu vois a l'ecran ensuite, c'est le resultat :\n"
-                   "- le jeu demarre et joue = Resident OK !\n"
+                   "- le jeu demarre et joue = Pulse OK !\n"
                    "- message d'erreur de disque du jeu = le faux lecteur n'a pas suffi ;\n"
                    "- ecran noir fige / retour au menu = a me signaler.\n");
         fclose(f);

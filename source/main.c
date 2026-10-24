@@ -249,6 +249,7 @@ static inline col_t aur_col(col_t c) {
     return c;
 }
 static inline col_t th_col(col_t c) {
+    if (nv_raw) return c;                                /* (v109 : logos et decors : couleurs exactes, tous styles) */
     if (ui_skin == 3) return nv_raw ? c : aur_col(c);
     if (ui_skin == 2) return nv_raw ? c : nova_col(c);
     if (ui_skin) return mod_col(c);
@@ -4695,8 +4696,8 @@ static void save_settings(void) {
                "paroles_affichage = %s\neclair_basses = %s\nrythme_decalage = %d\n", lyr_keys[lyr_show], flash_keys[flash_mode], rg_offset);
     fprintf(f, "# Jeux GameCube : tri (az / recents / taille / region) ; animations de JEUX / APPS (oui / non)\n"
                "jeux_tri = %s\njeux_animations = %s\n", gl_sort_keys[gl_sort & 3], gl_anim ? "oui" : "non");
-    fprintf(f, "# Resident (X) : A+Z+START = retour a GC Station (oui / non)\nlanceur_maison_retour = %s\n", nat_igr ? "oui" : "non");
-    fprintf(f, "# Resident (X) : carte memoire virtuelle du slot A (gc-mp3/resident/carte-A.raw)\nresident_carte_virtuelle = %s\n", nat_card ? "oui" : "non");
+    fprintf(f, "# Pulse (X) : A+Z+START = retour a GC Station (oui / non)\nlanceur_maison_retour = %s\n", nat_igr ? "oui" : "non");
+    fprintf(f, "# Pulse (X) : carte memoire virtuelle du slot A (gc-mp3/resident/carte-A.raw)\nresident_carte_virtuelle = %s\n", nat_card ? "oui" : "non");
     fprintf(f, "# Ordre des onglets\nordre_onglets = ");
     for (int i = 0; i < TAB_COUNT; i++) fprintf(f, "%s%s", i ? "," : "", tab_keys[tab_order[i]]);
     fprintf(f, "\n");
@@ -5675,6 +5676,7 @@ static void draw_header_modern(void) {
 }
 #include "ui_nova.c"                            /* v101 : Nouvelle interface */
 #include "ui_aurore.c"                          /* v102 : style Aurore */
+#include "pulse_logo.c"                         /* v109 : logo de Pulse (le lanceur, avant Resident) */
 static void draw_viz(f32 x, f32 base, f32 w, f32 h);
 static void draw_header(void) {
     if (ui_skin == 3) { au_header(); return; }
@@ -6069,6 +6071,9 @@ static void gp_player_zones(void);
 static void draw_night(void);
 static void draw_update_notice(void);
 static int nat_ld_on = 0;                       /* v64 : ecran de chargement de Resident (natif.c) */
+#ifndef GEKKO
+static void nat_sim_loading(void);                     /* v109 : simulateur : PCSIM_CHARGEMENT=1 montre l'ecran de chargement */
+#endif
 static void nat_draw_loading(void);
 static void perf_overlay(void) {
     char b[160];
@@ -6115,6 +6120,9 @@ static void draw(void) {
         last = n;
     }
     gp_frame_begin();
+#ifndef GEKKO
+    nat_sim_loading();
+#endif
     if (nat_ld_on) { begin_frame(); nat_draw_loading(); service_audio(); present_frame(); return; }
     if (night_on) { draw_night(); return; }
     if (saver_on) { draw_saver(); return; }
@@ -11348,7 +11356,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89" "conomiseur d'\xC3\xA9" "cran", "Style de l'\xC3\xA9" "conomiseur", "Pochettes automatiques", "Paroles automatiques", "Nouveaux podcasts", "Vitesse des podcasts", "Podcasts : sauter les silences",
     "Reprendre au d\xC3\xA9marrage", "Reprendre la radio au d\xC3\xA9marrage", "Encha\xC3\xAEnement sans blanc", "Type de t\xC3\xA9l\xC3\xA9", "Vid\xC3\xA9o", "Taille de l'\xC3\xA9" "cran", "Hauteur de l'\xC3\xA9" "cran", "Position verticale", "Position horizontale", "Format de l'\xC3\xA9" "cran", "Langue / Language", "Langue du contenu",
     "Jeux et karaok\xC3\xA9", "Affichage des jeux GameCube", "Animations (jeux / applis)", "Titres radio gard\xC3\xA9s", "Mode soir\xC3\xA9" "e", "Vibrations de la manette", "Minuterie", "Mode veilleuse", "Disposition du lecteur", "Style du spectre", "Couleurs du spectrogramme", "Paroles dans le lecteur", "\xC3\x89" "clair sur les basses",
-    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "A+Z+START (lanceur de secours)", "A+Z+START (Resident)", "Carte m\xC3\xA9moire virtuelle (Resident)", "Mesure de fluidit\xC3\xA9", "Lanceur de secours", "Mise \xC3\xA0 jour",
+    "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "A+Z+START (lanceur de secours)", "A+Z+START (Pulse)", "Carte m\xC3\xA9moire virtuelle (Pulse)", "Mesure de fluidit\xC3\xA9", "Lanceur de secours", "Mise \xC3\xA0 jour",
     "Fichiers cach\xC3\xA9s (FICHIERS)", "Cacher les fichiers inconnus", "Langue des jeux (console)", "Son (console)",
     "Adresse automatique (DHCP)", "Adresse IP de la console", "Masque", "Passerelle (box)", "T\xC3\xA9l\xC3\xA9" "commande au d\xC3\xA9marrage",
     "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Quitter GC Station" };
@@ -11658,8 +11666,8 @@ static void draw_menu(void) {
     if (menu_sel == MI_RECLEN) hint = "La radio enregistr\xC3\xA9" "e est celle qui joue quand tu r\xC3\xA8gles l'heure";
     if (menu_sel == MI_LOWMID || menu_sel == MI_PRES) hint = "\xC3\x89galiseur 5 bandes : graves, bas-m\xC3\xA9" "diums, m\xC3\xA9" "diums, pr\xC3\xA9sence, aigus";
     if (menu_sel == MI_PERF) hint = "Images/s en haut de l'\xC3\xA9" "cran ; en coupant : rapport SD:/gc-mp3/fluidite.txt";
-    if (menu_sel == MI_NATCARD) hint = "Jeux lanc\xC3\xA9s avec Resident : sauvegardes dans SD:/gc-mp3/resident (choix : Outils > Cartes virtuelles)";
-    if (menu_sel == MI_NATIGR) hint = "Jeux lanc\xC3\xA9s avec Resident (A) : A+Z+START tenus 1 s = retour \xC3\xA0 GC Station";
+    if (menu_sel == MI_NATCARD) hint = "Jeux lanc\xC3\xA9s avec Pulse : sauvegardes dans SD:/gc-mp3/resident (choix : Outils > Cartes virtuelles)";
+    if (menu_sel == MI_NATIGR) hint = "Jeux lanc\xC3\xA9s avec Pulse (A) : A+Z+START tenus 1 s = retour \xC3\xA0 GC Station";
     if (menu_sel == MI_LAUNCHER) hint = ld_hint();
     if (menu_sel == MI_GLANIM) hint = "D\xC3\xA9" "filement doux, cadre qui glisse, carrousel (onglet JEUX / APPS)";
     if (menu_sel == MI_QUIT) hint = "Ouvre le menu de la GameCube (lecteur de disque). Bouton Reset = relancer GC Station";
@@ -12779,7 +12787,7 @@ int main(int argc, char **argv) {
     if (sd_ok) { say("   Musique de la carte SD... %s", ""); scan_files(); { char nb[16]; snprintf(nb, sizeof(nb), "%d", nfiles); say("%s\n", nb); } bt_step("liste de la musique"); }
     if (sd_ok) { say("   Bibliotheque... %s", ""); bib_load(); pl_load_all(); stats_load(); rating_load(); say("%s\n", "OK"); bt_step("bibliotheque"); }
     if (sd_ok) nat_journal_convert();       /* v54 : journal du dernier jeu lance par le lanceur maison */
-    bt_step("journal Resident");
+    bt_step("journal Pulse");
     say("   Radios... %s", "");
     load_stations();
     say("%s\n", "OK");

@@ -1358,7 +1358,12 @@ static void draw_gclib_main(void) {
                 snprintf(buf, sizeof(buf), cn == 1 ? TR("Avec 1 cheat activ\xC3\xA9 (lanceur de secours)") : TR("Avec %d cheats activ\xC3\xA9s (lanceur de secours)"), cn);
                 gx_text_c(F_SMALL, x + w / 2, y + 76, buf, RGBA(130, 230, 150, 255));
             } else
-            gx_text_c(F_SMALL, x + w / 2, y + 76, TR("Resident : A + Z + START tenus 1 s = retour \xC3\xA0 GC Station"), RGBA(190, 180, 235, 255));
+            {   /* v109 : avec le logo de Pulse */
+                const char *pm = TR("Pulse : A + Z + START tenus 1 s = retour \xC3\xA0 GC Station");
+                f32 pw2 = (f32)text_width(F_SMALL, pm, 0);
+                pulse_logo(x + w / 2 - pw2 / 2 - 12, y + 72, 7, 0);
+                gx_text_c(F_SMALL, x + w / 2 + 6, y + 76, pm, RGBA(190, 180, 235, 255));
+            }
             gx_text_c(F_SMALL, x + w / 2, y + 98, "A : lancer     X : lanceur de secours     B : annuler", RGBA(255, 210, 120, 255));
         }
         snprintf(buf, sizeof(buf), "%d / %d   (gauche / droite)", gl_sel + 1, gl_n);
@@ -1480,11 +1485,11 @@ static const char *gl_boot_loader(const char *path) {
         const char *e = gl_boot_dol(LD_DOL, a1, gl_boot_cheats ? "AutoCheats=Yes" : NULL, "jeu");
         gl_arg3 = NULL; gl_arg4 = NULL;
         crumb("lanceur GC Station : %s", e ? e : "?");
-        if (e && strncmp(e, "(simulateur", 11)) { remove(LD_DOL); ld_cache = -1; ld_fetch(0); return "Lanceur de secours ab\xC3\xAEm\xC3\xA9 : nouveau t\xC3\xA9l\xC3\xA9" "chargement (ou A : Resident)"; }
+        if (e && strncmp(e, "(simulateur", 11)) { remove(LD_DOL); ld_cache = -1; ld_fetch(0); return "Lanceur de secours ab\xC3\xAEm\xC3\xA9 : nouveau t\xC3\xA9l\xC3\xA9" "chargement (ou A : Pulse)"; }
         return e;
     }
     ld_fetch(1);                                   /* (pas encore la : telecharge pour la prochaine fois) */
-    return "Lanceur de secours pas encore t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9 (R\xC3\xA9glages > Jeux) : A lance avec Resident";
+    return "Lanceur de secours pas encore t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9 (R\xC3\xA9glages > Jeux) : A lance avec Pulse";
 }
 static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *a2, const char *what) {
     char stmsg[96];

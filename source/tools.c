@@ -1245,7 +1245,7 @@ static void draw_tools(void) {
 /* ---------- section "Outils" de la page Reglages ---------- */
 enum { TO_RECENT, TO_GAMES, TO_CHEATS, TO_VCARD, TO_BACKUP, TO_RESTORE, TO_INFO, TO_QUIT, TO_COUNT };
 static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s",
-    "Mes jeux, applis et cartes m\xC3\xA9moire", "Cheats (\xC3\xA9" "diteur)", "Cartes m\xC3\xA9moire virtuelles (Resident)",
+    "Mes jeux, applis et cartes m\xC3\xA9moire", "Cheats (\xC3\xA9" "diteur)", "Cartes m\xC3\xA9moire virtuelles (Pulse)",
     "Sauvegarder tous les r\xC3\xA9glages", "Restaurer les r\xC3\xA9glages", "Infos console", "Quitter GC Station" };
 static const char *const to_help[TO_COUNT] = {
     "Relancer un jeu en un clic.",

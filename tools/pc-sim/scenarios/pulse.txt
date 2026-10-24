@@ -1,0 +1,29 @@
+# v109 : Pulse : fiche du jeu, confirmation, ecran de chargement (simulateur : lancement simule)
+wait 2s
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+wait 800ms
+press UP
+wait 300ms
+press A
+wait 2500ms
+press RIGHT
+wait 600ms
+press A
+wait 800ms
+press A
+wait 600ms
+shot p01-confirmation
+press A
+wait 300ms
+shot p02-chargement
+wait 700ms
+shot p03-chargement
+quit
