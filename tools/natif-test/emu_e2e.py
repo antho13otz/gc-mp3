@@ -79,7 +79,7 @@ def io_read(uc, off, size, data):
     if 0x400 <= off < 0x430 and (off - 0x400) % 12 == 8: return 0
     if off == 0x438:                                    # SISR : RDST (donnees neuves pas encore prises)
         si_sr[1] += 1
-        return si_sr[0] if si_sr[1] <= 20 else 0
+        return si_sr[0] if si_sr[1] <= 20 or si_sr[1] % 3 == 0 else 0   # (v93 : ensuite, donnees neuves une fois sur 3, comme un vrai jeu)
     if 0xC00 <= off < 0xC20: return ai[(off - 0xC00) // 4]
     if off >= 0x800:
         o = off - 0x800; ch, reg = o // 0x14, (o % 0x14) // 4
@@ -168,7 +168,7 @@ tbl = [rd32(0x80003040 + i * 4) for i in (20, 21, 24)]
 ret = rd32(0x80001F50) == 0x42424242 and pc == STOP      # v64 : retour a GC Station (.dol recharge, pas de redemarrage)
 print(('OK   ' if ret else 'FAUX ') + 'retour a GC Station : faux .dol recharge depuis la carte et lance (%08X, pc %08X)' % (rd32(0x80001F50), pc))
 ok &= ret
-hk = resets == [] and 0x817F0000 <= tbl[0] < 0x81800000 and 0x817F0000 <= tbl[2] < 0x81800000 and rd32(0x80001F00) == 3 and (EXC or 55 <= rd32(0x80001F04) <= 90)   # (v86 : 60 lectures des manettes, SI ou image)
+hk = resets == [] and 0x817F0000 <= tbl[0] < 0x81800000 and 0x817F0000 <= tbl[2] < 0x81800000 and rd32(0x80001F00) == 3 and (EXC or 55 <= rd32(0x80001F04) <= 140)   # (v86 : 60 lectures des manettes, SI ou image ; v93 : 1 sur 3 pas encore prise)
 print(('OK   ' if hk else 'FAUX ') + 'crochets + A+Z+START / plantage : redemarrages %s, table SI %08X VI %08X, images %d, manettes %d' % (resets, tbl[0], tbl[2], rd32(0x80001F00), rd32(0x80001F04)))
 ok &= hk
 nolat = all(not (o == 0x40C and n <= 20) for o, n in si_reads) and (EXC or len(si_reads) > 0)

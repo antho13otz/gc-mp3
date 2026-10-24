@@ -7,7 +7,7 @@
 // lanceur principal (touche A) ; celui-ci sert de secours (touche X, ou cheats actives).
 /* (LD_DOL, LD_VER : dans gclib.c) */
 
-enum { LD_IDLE, LD_CHECK, LD_DL };
+enum { LD_IDLE, LD_CHECK, LD_DL, LD_WRITE };            /* v93 : LD_WRITE = ecriture par morceaux */
 static int ld_state = LD_IDLE, ld_auto_done = 0, ld_cache = -1, ld_new_b = 0, ld_loud = 0;
 static char ld_msg[120] = "";
 static char ld_url[URL_MAX];
@@ -76,6 +76,23 @@ static void ld_pump(void) {
         ld_fetch(0);
     }
     if (ld_state == LD_IDLE) return;
+    if (ld_state == LD_WRITE) {                            /* v93 : un morceau par image */
+        static fw_t w;
+        int r = w.f ? fw_step(&w) : (fw_open(&w, LD_DOL ".tmp", ld_hf.buf, ld_hf.len) ? 0 : -1);
+        if (r == 0) return;
+        int ok = r > 0;
+        if (ok) { remove(LD_DOL); ok = rename(LD_DOL ".tmp", LD_DOL) == 0; }
+        if (!ok) remove(LD_DOL ".tmp");
+        ld_state = LD_IDLE;
+        hf_drop(&ld_hf); ld_hf.st = HF_IDLE;
+        if (!ok) { snprintf(ld_msg, sizeof(ld_msg), "%s", TR("\xC3\x89" "criture sur la carte SD impossible")); return; }
+        FILE *v = fopen(LD_VER, "w");
+        if (v) { fprintf(v, "%d\n", ld_new_b > 0 ? ld_new_b : 1); fclose(v); }
+        ld_cache = -1;
+        snprintf(ld_msg, sizeof(ld_msg), "%s", TR("Lanceur de secours pr\xC3\xAAt (touche X dans la fiche d'un jeu)"));
+        crumb("lanceur : installe b%d", ld_new_b);
+        return;
+    }
     hf_pump(&ld_hf);
     if (ld_hf.st == HF_FAIL) {
         hf_drop(&ld_hf); ld_hf.st = HF_IDLE; ld_state = LD_IDLE;
@@ -118,24 +135,15 @@ static void ld_pump(void) {
         crumb("lanceur : telechargement b%d", ld_new_b);
         return;
     }
-    /* fichier recu */
-    ld_state = LD_IDLE;
-    int ok = ld_dol_ok(ld_hf.buf, ld_hf.len);
-    if (ok) {
-        mkdir(GCD, 0777);
-        FILE *f = fopen(LD_DOL ".tmp", "wb");
-        ok = f && igr_fwrite_all(f, ld_hf.buf, ld_hf.len);
-        if (f && fclose(f) != 0) ok = 0;
-        if (ok) { remove(LD_DOL); ok = rename(LD_DOL ".tmp", LD_DOL) == 0; }
-        if (!ok) remove(LD_DOL ".tmp");
+    /* fichier recu : ecrit par morceaux (LD_WRITE) */
+    if (!ld_dol_ok(ld_hf.buf, ld_hf.len)) {
+        ld_state = LD_IDLE;
+        hf_drop(&ld_hf); ld_hf.st = HF_IDLE;
+        snprintf(ld_msg, sizeof(ld_msg), "%s", TR("Fichier re\xC3\xA7u invalide"));
+        return;
     }
-    hf_drop(&ld_hf); ld_hf.st = HF_IDLE;
-    if (!ok) { snprintf(ld_msg, sizeof(ld_msg), "%s", TR("Fichier re\xC3\xA7u invalide")); return; }
-    FILE *v = fopen(LD_VER, "w");
-    if (v) { fprintf(v, "%d\n", ld_new_b > 0 ? ld_new_b : 1); fclose(v); }
-    ld_cache = -1;
-    snprintf(ld_msg, sizeof(ld_msg), "%s", TR("Lanceur de secours pr\xC3\xAAt (touche X dans la fiche d'un jeu)"));
-    crumb("lanceur : installe b%d", ld_new_b);
+    mkdir(GCD, 0777);
+    ld_state = LD_WRITE;
 }
 
 /* menu : A (ou Gauche / Droite) = telecharger / mettre a jour */

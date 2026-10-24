@@ -586,7 +586,7 @@ static void igr_poll(void) { igr_poll2(1); }
 static void igr_poll2(int count) {
     if (!(H.flags & NRF_IGR)) return;
     volatile u32 *si = (volatile u32 *)0xCC006400u;
-    int on = 0;
+    int on = 0, seen = 0;
     u32 sr = si[14];                                     /* SISR (lecture sans effet) */
     for (int ch = 0; ch < 4; ch++) {
         /* v58 : lire SICnINBUFH efface le drapeau "donnees neuves" (RDST) : si le jeu ne les a
@@ -598,9 +598,14 @@ static void igr_poll2(int count) {
         H.si_reads++;
         if (ch == 0 && (b >> 16) != H.si_last) { H.si_last = b >> 16; H.si_changes++; }
         if (b & 0x80000000u) continue;                   /* (pas de manette) */
+        seen = 1;
         if ((b & 0x11000000u) == 0x11000000u && (b & 0x00100000u)) on = 1;   /* A + START, Z */
     }
     u32 now = tbl();
+    /* v93 : aucune manette lue cette fois (donnees pas encore prises par le jeu) : on ne sait rien, on garde
+       l'etat. Avant, cela remettait le compte a zero : tres frequent depuis l'interruption du son (v89),
+       A+Z+START n'etait jamais tenu 1 s "sans interruption" et ne marchait dans aucun jeu. */
+    if (!seen) return;
     if (!on) { igr_hold = 0; return; }
     if (!igr_hold) { igr_t0 = now; igr_hold = 1; }
     if (count) igr_hold++;
