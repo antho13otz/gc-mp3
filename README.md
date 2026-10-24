@@ -14,13 +14,13 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v94)
-- **Resident lit la carte SD bien plus vite** : les blocs arrivent par DMA (le bus EXI les copie
-  tout seul en mémoire, le processeur est libre) et à 32 MHz au lieu de 16. Les deux sont essayés
-  au lancement du jeu et gardés seulement s'ils marchent sur ton adaptateur ; à 32 MHz, chaque bloc
-  est vérifié (CRC) et Resident repasse à 16 MHz à la moindre erreur. Moins de saccades dans les jeux
-  qui lisent beaucoup le disque (intros, vidéos, musique du disque : Mario Superstar Baseball).
-- Le journal du jeu indique le mode de lecture utilisé (DMA, 16 / 32 MHz).
+## Nouveautés de la version actuelle (v95)
+- **Disques à plusieurs programmes** (Zelda Collector's Edition : les jeux et le film inédit) :
+  quand le jeu relance la console sur un autre programme du disque (OSExec), Resident branche au
+  faux lecteur le code de redémarrage et le programme suivant pendant qu'ils sont lus, au lieu de
+  laisser la console repartir sur le vrai lecteur. Les deux variantes du SDK sont gérées (ancien
+  apploader : code de redémarrage en 0x81300000 ; récent : programme recopié à sa place).
+- (v94) Resident lit la carte SD par DMA et à 32 MHz quand ton adaptateur le permet (CRC vérifié).
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

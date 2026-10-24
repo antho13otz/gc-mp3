@@ -27,7 +27,8 @@ clang --target=powerpc-linux-gnu -DNATIF_BENCH -fsyntax-only -Wall -Wno-unused-f
 # 3) bout en bout : faux jeu -> ISO -> carte SD FAT32 -> lancement natif -> emulateur
 gcc -DNATIF_BENCH -Wall -Wno-unused-function -Wno-unused-variable -I. -I$R/source -o h2 $T/h2.c
 clang --target=powerpc-none-eabi -mcpu=750 -c $T/game.s -o game.o && ld.lld -Ttext=0x80003100 -e _start game.o -o game.elf && llvm-objcopy -O binary -j .text game.elf game.text
-python3 $T/mkiso.py game.text game.iso
+for x in reboot prog2; do clang --target=powerpc-none-eabi -mcpu=750 -c $T/$x.s -o $x.o && ld.lld -Ttext=0x80400000 -e _start $x.o -o $x.elf && llvm-objcopy -O binary -j .text $x.elf $x.text; done   # (v95 : OSExec)
+python3 $T/mkiso.py game.text game.iso reboot.text prog2.text
 # (v64 : faux .dol de GC Station, pour le retour depuis le jeu)
 clang --target=powerpc-none-eabi -mcpu=750 -c $T/selfdol.s -o selfdol.o && ld.lld -Ttext=0x80004000 -e _start selfdol.o -o selfdol.elf && llvm-objcopy -O binary -j .text selfdol.elf selfdol.text
 python3 -c "import struct,sys; t=open('selfdol.text','rb').read(); t+=b'\0'*(-len(t)%32); h=bytearray(0x100); struct.pack_into('>I',h,0,0x100); struct.pack_into('>I',h,0x48,0x80004000); struct.pack_into('>I',h,0x90,len(t)); struct.pack_into('>I',h,0xE0,0x80004000); open('selfdol.dol','wb').write(bytes(h)+t)"
@@ -35,3 +36,7 @@ python3 $T/mkfat.py 32 game.iso sd.img 1 selfdol.dol 2097152 >/dev/null     # (v
 rm -rf out; mkdir -p out; NATIF_SELF=selfdol.dol NATIF_DUMP=boot.bin ./h2 game.iso sd.img 10 >/dev/null
 python3 $T/emu_e2e.py boot.bin sd.img game.iso | tail -1
 python3 $T/emu_e2e.py boot.bin sd.img game.iso exc | tail -1     # (v60 : plantage du jeu -> journal + redemarrage)
+python3 $T/emu_e2e.py boot.bin sd.img game.iso exec | tail -1    # (v95 : OSExec : code de redemarrage et programme suivant branches au faux lecteur)
+python3 $T/mkiso.py game.text game-a.iso reboot.text prog2.text 2026/10/22 && python3 $T/mkfat.py 32 game-a.iso sd-a.img 1 selfdol.dol 2097152 >/dev/null
+NATIF_SELF=selfdol.dol NATIF_DUMP=boot-a.bin ./h2 game-a.iso sd-a.img 10 >/dev/null
+python3 $T/emu_e2e.py boot-a.bin sd-a.img game-a.iso execa | tail -1   # (v95 : OSExec, apploader recent : .dol recopie a sa place)

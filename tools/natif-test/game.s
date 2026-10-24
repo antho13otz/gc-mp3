@@ -245,7 +245,50 @@ _start:
     lis 25,0x5151
     ori 25,25,0x5151
     bctr
-9:  li 21,150
+9:  lwz 12,0x1F44(20)       # v95 : si 0x80001F44 = 1 : OSExec (ancien apploader) au lieu de A+Z+START
+    cmpwi 12,2
+    beq 7f
+    cmpwi 12,1
+    bne 8f
+    lis 3,0x8130            # le code de redemarrage (0x60 octets en 0x3460 de l'ISO) -> 0x81300000
+    li 4,0x60
+    li 5,0x3460
+    lis 6,0xA800
+    bl dvd_cmd
+    lis 12,0x8130
+    mtctr 12
+    bctr
+    # v95 : 0x80001F44 = 2 : OSExec, apploader recent : le jeu relit l'apploader, lit l'en-tete du .dol
+    # suivant et sa section dans un tampon, la recopie a sa place (0x80400000), puis y saute
+7:  lis 3,0x8050
+    li 4,0x20
+    li 5,0x2440
+    lis 6,0xA800
+    bl dvd_cmd
+    lis 3,0x8050
+    ori 3,3,0x0100
+    li 4,0x100
+    li 5,0x5800
+    lis 6,0xA800
+    bl dvd_cmd
+    lis 3,0x8051
+    li 4,0x60
+    li 5,0x5900
+    lis 6,0xA800
+    bl dvd_cmd
+    lis 10,0x8051
+    lis 11,0x8040
+    li 12,0x60/4
+    mtctr 12
+6:  lwz 0,0(10)
+    stw 0,0(11)
+    addi 10,10,4
+    addi 11,11,4
+    bdnz 6b
+    lis 12,0x8040
+    mtctr 12
+    bctr
+8:  li 21,150
 4:  lwz 12,0x3090(20)
     mtctr 12
     li 3,20

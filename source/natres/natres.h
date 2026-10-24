@@ -8,7 +8,7 @@
 #define NATRES_AT     0x817F0000u        /* adresse fixe (liee par tools/natres.ld) */
 #define NATRES_SIZE   0x0000FF00u        /* place reservee (le haut, 817FFF00+, est laisse a la console) */
 #define NATRES_MAGIC  0x4743534Eu        /* "GCSN" */
-#define NATRES_VER    12
+#define NATRES_VER    13
 #define NATRES_MAXEXT 1500               /* morceaux de l'ISO sur la carte (fichier fragmente) ; v60 : 2000 (place pour les aiguillages) */
 
 /* erreurs (champ err) */
@@ -78,9 +78,14 @@ typedef struct {
     unsigned int xfer;                                    /* bit 0 = DMA, bit 1 = 32 MHz, bit 2 = 32 MHz abandonne (CRC faux) */
     unsigned int crc_err;                                 /* blocs au CRC faux (relus) */
     unsigned int exec_n, exec_last;                       /* v94 : redemarrages du jeu sur un autre programme du disque */
+    /* v95 : OSExec (disques a plusieurs programmes : Zelda Collector's Edition) : le code de
+       redemarrage de l'apploader (lu par le jeu en 0x81300000) et les programmes qu'il charge sont
+       branches au faux lecteur pendant le jeu, avec des aiguillages ecrits par le resident */
+    unsigned int reboot_off, reboot_len;                  /* (GC Station) position du code de redemarrage dans l'ISO, taille (0 = apploader recent) */
+    unsigned int tramp_at, tramp_n;                       /* place libre pour les aiguillages (GC Station) ; acces branches pendant le jeu */
 } natres_hdr_t;
 
-#define NATRES_LOGN 9                     /* anneau : {commande, position, longueur, infos} (v94 : 0x170 + 9 x 16 = 0x200) */
+#define NATRES_LOGN 8                     /* anneau : {commande, position, longueur, infos} (v95 : 0x180 + 8 x 16 = 0x200) */
 #define NATRES_CARDMAX 64                 /* morceaux du fichier de la carte virtuelle */
 #define NRF_CARD      4u                  /* v65 : carte memoire virtuelle active */
 #define NATRES_RETMAX 64                  /* morceaux du .dol de GC Station */
@@ -119,6 +124,6 @@ typedef struct {
 #define NATRES_SNAP_MAGIC 0x4743534Du       /* "GCSM" */
 #define NATRES_SNAP_SECS  704               /* taille du fichier : 704 secteurs (352 Ko) */
 
-typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x170 ? 1 : -1];
+typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x180 ? 1 : -1];
 
 #endif

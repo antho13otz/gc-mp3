@@ -416,7 +416,7 @@ static void nr_log(u32 off, u32 len, u32 info) {
 #define RD_CHUNK 2048u                                    /* v61 : morceau d'une lecture en fond (v88 : 8 Ko -> 2 Ko) */
 #define RD_BUDGET (TB_SEC / 1000u * 3u / 2u)              /* v88 : au plus ~1,5 ms de lecture par interruption (le son du jeu
                                                              attend : une sortie audio toutes les ~5 ms) */
-static u32 si_orig = 0, igr_hold = 0;
+static u32 si_orig, igr_hold = 0;
 static void hot_reset(void);
 /* ---------- v64 : retour a GC Station ----------
    Le jeu est abandonne : on arrete ce qui tourne (interruptions, son, DSP, dessin), puis le
@@ -484,7 +484,7 @@ static void alive_tick(void) {
         if (nm##_orig) ((void (*)(u32, u32))nm##_orig)(irq, ctx); \
         counter++; alive_tick(); \
     }
-static u32 vi_orig = 0;
+static u32 vi_orig;
 static void nr_log_flush(void);
 static void igr_poll(void);
 static void igr_poll2(int count);
@@ -494,7 +494,7 @@ static void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee
     H.vi_count++; alive_tick();
     igr_poll();                                          /* v86 : (apres le jeu : il a lu les manettes) */
 }
-static u32 ai_orig = 0;
+static u32 ai_orig;
 static void st_mix(void);
 static void ai_hook(u32 irq, u32 ctx) {                  /* v65 : apres le jeu, la musique du disque */
     if (ai_orig) ((void (*)(u32, u32))ai_orig)(irq, ctx);
@@ -954,6 +954,10 @@ static void x_dispatch(u32 ctx) {
    entre deux morceaux, la console sert les autres interruptions (son, image), comme avec un
    vrai lecteur. A la fin : TCINT dans le faux DISR, et la fonction du jeu est appelee. */
 static u32 di_orig = 0, rd_dst = 0, rd_off = 0, rd_left = 0;
+static u32 rd_dst0 = 0, rd_off0 = 0, rd_len0 = 0;          /* v95 : la lecture en fond entiere (OSExec) */
+static int exec_on = 0;                                    /* v95 : OSExec en cours (voir nx_read_done) */
+static int exec_a = 0;                                     /* v95 : OSExec, apploader recent : le jeu lit encore tout lui-meme */
+static void nx_read_done(u32 dst, u32 off, u32 len);
 static int rd_on = 0, di_game_pending = 0, x_kicked = 0;
 static void x_kick(void) {                               /* v65 : vraie fin de commande du lecteur -> fonctions EXI du jeu */
     if (x_kicked || rd_on || !(H.flags & NRF_REAL_IRQ)) return;   /* (une lecture en fond reveille deja souvent) */
@@ -991,6 +995,7 @@ static void di_hook(u32 irq, u32 ctx) {
         else {
             if (rd_left) { di_real_kick(); x_dispatch(ctx); return; }   /* (morceau suivant a la prochaine fin) */
             rd_on = 0; di[0] |= 0x10; di[7] &= ~1u;      /* TCINT : lecture terminee */
+            nx_read_done(rd_dst0, rd_off0, rd_len0);
         }
         chain = 1;
     }
@@ -1008,7 +1013,10 @@ static int nr_game_fn(u32 a) { return a >= 0x80003100u && a < 0x817F0000u; }
 static void hook1(int idx, u32 *orig, u32 fn) {
     volatile u32 *t = OS_INT_TABLE;
     u32 v = t[idx];
-    if (v && v != fn && nr_game_fn(v)) { *orig = v; t[idx] = fn; H.hook_mask |= 1u << idx; }
+    if (v && v != fn && nr_game_fn(v)) {
+        *orig = v; t[idx] = fn; H.hook_mask |= 1u << idx;
+        if (idx == 21 && (exec_on || exec_a)) { exec_on = exec_a = 0; nr_log_add(0xEF000000u, v, H.tramp_n, 0); nr_log_flush(); }   /* v95 : le nouveau programme a pris la main */
+    }
 }
 static void hooks_check(void) {
     volatile u32 *t = OS_INT_TABLE;
@@ -1027,6 +1035,173 @@ static void hooks_check(void) {
     }
 }
 
+/* ======================= v95 : OSExec (programme suivant du disque) =======================
+   Les disques a plusieurs programmes (Zelda Collector's Edition : jeux, film) relancent la console
+   sur un autre programme du disque : le jeu lit le code de redemarrage de l'apploader en 0x81300000
+   et y saute ; ce code lit lui-meme le disque (registres du lecteur, sans la bibliotheque du jeu),
+   puis le nouveau programme. Ici : des que ce code est lu, ses acces au lecteur sont branches au faux
+   lecteur (memes aiguillages que GC Station, ecrits ici), et tout ce qui est lu ensuite aussi
+   (le nouveau programme arrive directement a sa place), jusqu'a ce que le nouveau programme ait
+   installe sa propre fonction d'interruption du lecteur. Lectures sans attente pendant ce temps. */
+static u32 nx_w(u32 *w, int n, u32 v) { w[n] = v; return n + 1; }
+#define PD(op, d, a, imm) ((u32)(op) << 26 | (u32)(d) << 21 | (u32)(a) << 16 | ((u32)(imm) & 0xFFFFu))
+#define PRLW(op, s_, a, sh, mb, me) ((u32)(op) << 26 | (u32)(s_) << 21 | (u32)(a) << 16 | (u32)(sh) << 11 | (u32)(mb) << 6 | (u32)(me) << 1)
+static u32 nx_slot(u32 r) { return r == 0 ? 0x08 : 0x0C + (r - 2) * 4; }
+/* meme aiguillage que GC Station (natif.c, na_tramp), pour un acces au lecteur (registre reg) */
+static int nx_tramp(u32 *c, u32 at, u32 site, u32 ins, u32 reg) {
+    u32 op = ins >> 26, rt = (ins >> 21) & 31, ra = (ins >> 16) & 31;
+    int simm = (short)(ins & 0xFFFF);
+    if (op != 32 && op != 33 && op != 36 && op != 37 && op != 40 && op != 44) return 0;
+    if ((op == 32 || op == 33 || op == 40) && rt == 1) return 0;
+    if ((op == 33 || op == 37) && (ra == 0 || ra == 1 || (op == 33 && ra == rt))) return 0;
+    int load = op == 32 || op == 33 || op == 40, half = op == 40 || op == 44;
+    u32 ral = reg & ~3u, k = reg & 3u;
+    if (half && (k & 1)) return 0;
+    u32 fl = (u32)di_load, fs = (u32)di_store;
+    int n = 0;
+#define NX_CALL(fn) do { n = nx_w(c, n, PD(15, 12, 0, (fn) >> 16)); n = nx_w(c, n, PD(24, 12, 12, (fn) & 0xFFFF)); \
+                         n = nx_w(c, n, 0x7D8903A6u); n = nx_w(c, n, 0x4E800421u); } while (0)
+    n = nx_w(c, n, PD(37, 1, 1, -0x100));
+    n = nx_w(c, n, PD(36, 0, 1, 0x08));
+    n = nx_w(c, n, PD(47, 2, 1, 0x0C));
+    n = nx_w(c, n, 0x7C0802A6u); n = nx_w(c, n, PD(36, 0, 1, 0x88));
+    n = nx_w(c, n, 0x7C000026u); n = nx_w(c, n, PD(36, 0, 1, 0x8C));
+    n = nx_w(c, n, 0x7C0902A6u); n = nx_w(c, n, PD(36, 0, 1, 0x90));
+    n = nx_w(c, n, 0x7C0102A6u); n = nx_w(c, n, PD(36, 0, 1, 0x94));
+    if (load) {
+        n = nx_w(c, n, PD(14, 3, 0, ral));
+        NX_CALL(fl);
+        if (half) n = nx_w(c, n, PRLW(21, 3, 3, k ? 0 : 16, 16, 31));
+        n = nx_w(c, n, PD(36, 3, 1, nx_slot(rt)));
+    } else {
+        if (half) {
+            n = nx_w(c, n, PD(14, 3, 0, ral));
+            NX_CALL(fl);
+            n = nx_w(c, n, rt == 1 ? PD(14, 4, 1, 0x100) : PD(32, 4, 1, nx_slot(rt)));
+            n = nx_w(c, n, PRLW(20, 4, 3, k ? 0 : 16, k ? 16 : 0, k ? 31 : 15));
+            n = nx_w(c, n, 0x7C641B78u);
+        } else n = nx_w(c, n, rt == 1 ? PD(14, 4, 1, 0x100) : PD(32, 4, 1, nx_slot(rt)));
+        n = nx_w(c, n, PD(14, 3, 0, ral));
+        NX_CALL(fs);
+    }
+#undef NX_CALL
+    n = nx_w(c, n, PD(32, 0, 1, 0x94)); n = nx_w(c, n, 0x7C0103A6u);
+    n = nx_w(c, n, PD(32, 0, 1, 0x90)); n = nx_w(c, n, 0x7C0903A6u);
+    n = nx_w(c, n, PD(32, 0, 1, 0x8C)); n = nx_w(c, n, 0x7C0FF120u);
+    n = nx_w(c, n, PD(32, 0, 1, 0x88)); n = nx_w(c, n, 0x7C0803A6u);
+    n = nx_w(c, n, PD(32, 0, 1, 0x08));
+    n = nx_w(c, n, PD(46, 2, 1, 0x0C));
+    n = nx_w(c, n, PD(14, 1, 1, 0x100));
+    if (op == 33 || op == 37) n = nx_w(c, n, PD(14, ra, ra, simm));
+    u32 back = site + 4, here = at + (u32)n * 4;
+    n = nx_w(c, n, 0x48000000u | ((back - here) & 0x03FFFFFCu));
+    return n;
+}
+static void nx_sync(u32 a, u32 len) {                     /* code ecrit : cache de donnees -> memoire, puis cache d'instructions */
+    for (u32 x = a & ~31u; x < a + len; x += 32) __asm__ volatile("dcbst 0,%0; sync; icbi 0,%0" :: "r"(x) : "memory");
+    __asm__ volatile("sync; isync" ::: "memory");
+}
+/* cherche les acces au lecteur dans [a, a + len) (code deja a sa place) et les branche ; meme suivi
+   des registres que GC Station (lis 0xCC00, addi, ori ; oublie aux sauts) */
+static void nx_patch2(u32 a, u32 fin, u32 len) {        /* a = ou est le code maintenant, fin = ou il tournera */
+    if (a < 0x80003000u || a >= 0x817F0000u || (a & 3) || (fin & 3) || len < 8) return;
+    if (fin < 0x80003000u || fin >= 0x817F0000u) return;
+    if (a + len > 0x817F0000u) len = 0x817F0000u - a;
+    volatile u32 *t = (volatile u32 *)a;
+    u32 val[32], known = 0, end = (H.tramp_at ? 0x817FFF00u : 0);
+    for (u32 o = 0; o + 4 <= len; o += 4) {
+        u32 ins = t[o >> 2], op = ins >> 26, rd = (ins >> 21) & 31, ra = (ins >> 16) & 31;
+        int simm = (short)(ins & 0xFFFF);
+        u32 uimm = ins & 0xFFFF;
+        if (op == 15) { if (!ra) { val[rd] = uimm << 16; known |= 1u << rd; } else if (known & (1u << ra)) { val[rd] = val[ra] + (uimm << 16); known |= 1u << rd; } else known &= ~(1u << rd); continue; }
+        if (op == 14) { if (!ra) { val[rd] = (u32)simm; known |= 1u << rd; } else if (known & (1u << ra)) { val[rd] = val[ra] + (u32)simm; known |= 1u << rd; } else known &= ~(1u << rd); continue; }
+        if (op == 24) { if (known & (1u << rd)) { val[ra] = val[rd] | uimm; known |= 1u << ra; } else known &= ~(1u << ra); continue; }
+        if (op == 32 || op == 33 || op == 36 || op == 37 || op == 40 || op == 44) {
+            int store = op >= 36 && op != 40;
+            if (ra && (known & (1u << ra))) {
+                u32 ea = val[ra] + (u32)simm;
+                if (ea >= 0xCC006000u && ea < 0xCC006040u && H.tramp_at && H.tramp_at + 64 * 4 <= end) {
+                    u32 site = fin + o, at = H.tramp_at;
+                    int d = (int)(at - site);
+                    int n = d < 0x02000000 && d >= -0x02000000 ? nx_tramp((u32 *)at, at, site, ins, ea - 0xCC006000u) : 0;
+                    if (n) {
+                        nx_sync(at, (u32)n * 4);
+                        t[o >> 2] = 0x48000000u | ((u32)d & 0x03FFFFFCu);
+                        nx_sync(a + o, 4);
+                        H.tramp_at = (at + (u32)n * 4 + 31) & ~31u;
+                        H.tramp_n++;
+                    }
+                }
+                if (op == 33 || op == 37) val[ra] = ea;
+            }
+            if (!store) known &= ~(1u << rd);
+            continue;
+        }
+        if (op == 16 || op == 18 || op == 19) {
+            u32 lk = ins & 1, bo = (ins >> 21) & 31, xo = (ins >> 1) & 0x3FF;
+            int uncond = op == 18 || ((op == 16 || op == 19) && (bo & 0x14) == 0x14);
+            if (op == 19 && xo != 16 && xo != 528) continue;
+            if (lk) known &= ~0x00001FF9u; else if (uncond) known = 0;
+            continue;
+        }
+        if (op == 31) known &= ~((1u << rd) | (1u << ra));
+        else if (op == 7 || op == 8 || op == 12 || op == 13) known &= ~(1u << rd);
+        else if (op == 46) known = 0;
+        else if ((op >= 20 && op <= 29) || op == 34 || op == 35 || op == 41 || op == 42 || op == 43) known &= ~((1u << ra) | (1u << rd));
+    }
+}
+static void nx_patch(u32 a, u32 len) { nx_patch2(a, a, len); }
+static u32 vi_orig, si_orig, ai_orig, dsp_orig, pet_orig, pef_orig;
+/* le programme suivant : son en-tete .dol (sections : position dans l'ISO, adresse finale, taille). Ses
+   sections peuvent etre lues ailleurs puis recopiees (apploader recent) : on branche avec l'adresse finale. */
+static struct { u32 off, so[18], sa[18], ss[18]; int ok; } xdol;
+static u32 rbe(u32 a) { return *(volatile u32 *)a; }
+static int nx_dol(u32 dst, u32 off, u32 len) {
+    if (len < 0x100 || (dst & 3)) return 0;
+    u32 entry = rbe(dst + 0xE0);
+    int text = 0, n = 0;
+    for (int i = 0; i < 18; i++) {
+        u32 so = rbe(dst + i * 4), sa = rbe(dst + 0x48 + i * 4), ss = rbe(dst + 0x90 + i * 4);
+        if (!ss) continue;
+        if (so < 0x100 || ss > 0x01800000u || sa < 0x80000000u || sa + ss > 0x81800000u || (sa & 3)) return 0;
+        if (i < 7 && entry >= sa && entry < sa + ss) text = 1;
+        n++;
+    }
+    if (!text || !n) return 0;
+    xdol.off = off;
+    for (int i = 0; i < 18; i++) { xdol.so[i] = rbe(dst + i * 4); xdol.sa[i] = rbe(dst + 0x48 + i * 4); xdol.ss[i] = i < 7 ? rbe(dst + 0x90 + i * 4) : 0; }
+    xdol.ok = 1;
+    H.exec_last = entry;
+    return 1;
+}
+/* une lecture terminee (dst = memoire, off / len = ISO) : le code de redemarrage, puis tout ce qu'il charge */
+static void nx_read_done(u32 dst, u32 off, u32 len) {
+    if (!exec_on && !exec_a) {
+        if (off == 0x2440 && len == 0x20 && H.vi_count) {   /* OSExec commence : le jeu relit l'en-tete de l'apploader */
+            H.exec_n++; H.exec_last = off; xdol.ok = 0;
+            if (!H.reboot_len) { exec_a = 1; nr_log_add(0xED000000u, off, len, H.tramp_n); nr_log_flush(); }
+            return;
+        }
+        if (!H.reboot_len || off != H.reboot_off || dst != 0x81300000u || len < H.reboot_len) return;
+        exec_on = 1; H.exec_last = 0x81300000u; xdol.ok = 0;   /* ancien apploader : code de redemarrage en 0x81300000 */
+        di_orig = vi_orig = si_orig = ai_orig = dsp_orig = pet_orig = pef_orig = 0;   /* (le jeu va disparaitre : plus de chainage) */
+        nr_log_add(0xEE000000u, off, len, H.tramp_n);
+        nx_patch(dst, len);
+        nr_log_flush();
+        return;
+    }
+    if (nx_dol(dst, off, len)) return;                    /* en-tete du programme suivant */
+    if (xdol.ok) {                                        /* une section (ou un morceau) : branchee a son adresse finale */
+        for (int i = 0; i < 7; i++) {
+            u32 so = xdol.off + xdol.so[i], ss = xdol.ss[i];   /* (position dans l'ISO = debut du .dol + position dans le .dol) */
+            if (!ss || off >= so + ss || off + len <= so) continue;
+            u32 a0 = off > so ? off : so, a1 = off + len < so + ss ? off + len : so + ss;
+            nx_patch2(dst + (a0 - off), xdol.sa[i] + (a0 - so), a1 - a0);
+        }
+        return;
+    }
+    if (exec_on) nx_patch(dst & ~3u, len);                /* (ancien apploader : ce qu'il charge arrive a sa place) */
+}
 static void di_exec(void) {
     u32 info = 0;
     rd_on = 0;                                           /* (nouvelle commande : une lecture en fond oubliee s'arrete) */
@@ -1039,8 +1214,9 @@ static void di_exec(void) {
         u32 off = (di[2] & 0xC0) == 0x40 ? 0 : di[3] << 2;   /* A8000040 : ID du disque (debut de l'ISO) */
         if ((di[2] & 0xC0) == 0x40 && len > 0x20) len = 0x20;
         H.last_off = off; H.last_len = len;
-        if (len > RD_CHUNK && di_orig && (H.flags & NRF_REAL_IRQ)) {   /* v61 : grosse lecture : en fond */
+        if (len > RD_CHUNK && di_orig && (H.flags & NRF_REAL_IRQ) && !exec_on) {   /* v61 : grosse lecture : en fond */
             rd_dst = dst; rd_off = off; rd_left = len; rd_on = 1;
+            rd_dst0 = dst; rd_off0 = off; rd_len0 = len;
             H.n_async++;
             info |= di_real_kick() | 0x10;                 /* (le lecteur reste "occupe" : DICR bit 0) */
             nr_log(off, len, info | (di[0] & 0xFF) << 8);
@@ -1049,6 +1225,7 @@ static void di_exec(void) {
         if (len && nr_read((void *)dst, off, len)) { di[0] |= 0x04; info |= 1; goto done; }   /* DEINT : erreur */
         cache_flush(dst, len);
         di[5] += len; di[6] = 0;
+        nx_read_done(dst, off, len);                     /* v95 : OSExec */
     } else if (cmd == 0x12) {                            /* infos du lecteur */
         u8 *o = (u8 *)dst;
         int real = di_real_inq();                        /* v66 : la vraie reponse du lecteur (date, revision) */
@@ -1065,7 +1242,7 @@ static void di_exec(void) {
     di[0] |= 0x10;                                       /* TCINT : termine */
 done:
     di[7] &= ~1u;
-    if (H.flags & NRF_REAL_IRQ) { di_game_pending = 1; info |= di_real_kick(); }
+    if ((H.flags & NRF_REAL_IRQ) && !exec_on) { di_game_pending = 1; info |= di_real_kick(); }   /* (v95 : pendant OSExec, personne n'attend d'interruption) */
     nr_log(H.last_off, H.last_len, info | (di[0] & 0xFF) << 8);
 }
 
