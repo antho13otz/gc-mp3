@@ -666,8 +666,9 @@ static void nat_journal_convert(void) {
                 na_code_dump(f, H[78], "dernier code"); na_code_dump(f, H[77], "LR");
             }
             if (H[38]) fprintf(f, "Retour a GC Station demande (A+Z+START)%s\n", v7 ? (H[56] ? " : .dol de GC Station recharge" : " : redemarrage de la console") : "");
-            if (v4) fprintf(f, "Manettes (A+Z+START %s) : %u lues, %u laissees au jeu, touches manette 1 : %04X (%u changements)\n",
-                            H[18] & NRF_IGR ? "actif" : "coupe", (unsigned)H[40], (unsigned)H[41], (unsigned)H[42], (unsigned)H[43]);
+            if (v4) fprintf(f, "Manettes (A+Z+START %s) : %u lues, %u laissees au jeu, touches manette 1 : %04X (%u changements ; touches vues : %04X%s)\n",
+                            H[18] & NRF_IGR ? "actif" : "coupe", (unsigned)H[40], (unsigned)H[41], (unsigned)H[42], (unsigned)(H[43] & 0xFFFF), (unsigned)(H[43] >> 16),
+                            (H[43] >> 16 & 0x1110) == 0x1110 ? " : A, Z et START vus" : "");
             fprintf(f, "\n");
         }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
@@ -741,6 +742,7 @@ static int nat_res_test(const char *path, long size, char *msg, int cap) {
     if (!save) { snprintf(msg, cap, "Pas assez de m\xC3\xA9moire"); return -1; }
     if ((u32)save < NATRES_AT + NATRES_SIZE && (u32)save + NATRES_SIZE > NATRES_AT) { free(save); snprintf(msg, cap, "M\xC3\xA9moire du r\xC3\xA9sident occup\xC3\xA9" "e"); return -1; }   /* (v52) */
     stop_track();
+    bg_quiesce();                                         /* v96 : la lecture en fond (onglet JEUX) finit d'abord */
     fatUnmount("sd");                                     /* (v52 : la FAT est ecrite sur la carte AVANT qu'on la prenne) */
     u32 level = IRQ_Disable();                            /* (personne d'autre sur le bus EXI pendant le test) */
     memcpy(save, (void *)NATRES_AT, NATRES_SIZE);
@@ -771,6 +773,7 @@ static int nat_res_test(const char *path, long size, char *msg, int cap) {
     free(save);
     /* la carte a ete redemarree : on remonte la FAT pour que GC Station continue */
     if (!mount_sd()) { sd_ok = 0; }
+    gj_hold = 0;                                          /* v96 : lectures en fond de nouveau permises */
     if (!ok) snprintf(msg, cap, "programme r\xC3\xA9sident abim\xC3\xA9");
     else if (r == 0) snprintf(msg, cap, "OK (carte %s, p\xC3\xA9riph\xC3\xA9rique %u)", sdhc ? "SDHC" : "SD", (unsigned)dev);
     else if (r == -2) snprintf(msg, cap, "donn\xC3\xA9" "es diff\xC3\xA9rentes (endroit %d)", bad + 1);
@@ -1414,6 +1417,7 @@ static const char *nat_boot(int k) {
     if (settings_dirty) save_settings();
     stop_track(); stop_station();
     AUDIO_StopDMA();
+    bg_quiesce();                                         /* v96 : la lecture en fond finit avant le demontage */
     fatUnmount("sd");
     /* v89 : l'ecran dans le mode du jeu avant le saut (comme le fait Swiss) : PAL 576i, PAL 60 (EURGB60) ou
        NTSC 480i. Avant : le mode de GC Station (souvent 480p) restait, et certains jeux le reprenaient tel quel

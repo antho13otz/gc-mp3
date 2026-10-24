@@ -655,7 +655,7 @@ static void igr_poll2(int count) {
         u32 b = si[ch * 3 + 1];                          /* SICnINBUFH : boutons (deja lus par le jeu) */
         (void)si[ch * 3 + 2];                            /* v59 : puis INBUFL, comme le jeu (H puis L : rien de bloque) */
         H.si_reads++;
-        if (ch == 0 && (b >> 16) != H.si_last) { H.si_last = b >> 16; H.si_changes++; }
+        if (ch == 0 && (b >> 16) != H.si_last) { H.si_last = b >> 16; H.si_changes = ((H.si_changes & 0xFFFFu) + 1) | (H.si_changes & 0xFFFF0000u) | ((b >> 16) & 0x1F7Fu) << 16; }   /* v96 : bits hauts = toutes les touches vues (diagnostic A+Z+START) */
         if (b & 0x80000000u) continue;                   /* (pas de manette) */
         seen = 1;
         if ((b & 0x11000000u) == 0x11000000u && (b & 0x00100000u)) on = 1;   /* A + START, Z */
