@@ -14,20 +14,10 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v121)
-- **Pulse lit les .ciso** : plus besoin du lanceur de secours pour ces jeux (blocs vides lus comme des zéros).
-- **Jeux à 2 disques avec Pulse** : quand le jeu demande l'autre disque, Pulse le change tout seul (les deux
-  fichiers sur la carte SD, même jeu, disque 1 et disque 2).
-- **16:9 forcé** (Pulse) : fiche du jeu > Y > « 16:9 forcé ». L'image 3D est élargie pour une télé réglée
-  en 16:9 ; les menus en 2D restent étirés.
-- **Cheats appliqués par Pulse** : les codes Gecko courants (écritures, conditions, pointeurs, codes
-  insérés) ; le lanceur de secours ne sert plus que pour les codes que Pulse ne connaît pas.
-- **GC Loader** : ses jeux (sur sa propre carte SD) apparaissent dans la liste (Y = chercher à nouveau) et
-  se lancent directement, disque 2 compris.
-- **Jeux sur le réseau** (SMB, FTP, FSP) : A sur un .iso / .gcm / .ciso dans l'onglet FICHIERS = copie sur la
-  carte SD (`SD:/jeux-reseau`) puis lancement ; déjà copié = lancement immédiat.
-- Copie de fichiers plus douce pour l'interface (petits morceaux, moins d'à-coups).
-- (v120) Style Aurore plus fluide.
+## Nouveautés de la version actuelle (v122)
+- **Cases à cocher lisibles** (onglets affichés, éléments du lecteur...) : case verte avec une coche quand
+  c'est activé, case vide et nom grisé sinon (avant : un petit point à peine visible sur la télé).
+- (v121) Pulse : .ciso, jeux à 2 disques, 16:9 forcé, cheats ; GC Loader ; jeux du réseau copiés puis lancés.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

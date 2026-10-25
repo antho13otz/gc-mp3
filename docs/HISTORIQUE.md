@@ -21,6 +21,9 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v122 — cases à cocher lisibles
+- Listes à cocher (onglets affichés, éléments du lecteur) : coche verte bien visible, nom grisé quand c'est décoché.
+
 ## Nouveautés v121 — Pulse : .ciso, 2 disques, 16:9, cheats ; GC Loader ; jeux du réseau
 - **.ciso** : la table des morceaux de Pulse est faite à partir de la carte du .ciso (blocs présents = leurs
   secteurs dans le fichier, blocs absents = morceaux « zéro », jusqu'à la taille d'un disque). Vérifications
