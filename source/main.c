@@ -430,6 +430,9 @@ static int paused = 0;                  /* pause de la musique */
 static int video_playing = 0;           /* une video (onglet PHOTOS) joue son son dans la file */
 static void video_stop(void);
 static void stop_track(void);
+static void share_draw(void);                           /* v137 : (tab_phone.c) fenetre du QR code, partout */
+static int share_input(u32 down);
+static int sh_on;
 static int stat_counted;                    /* morceau en cours deja compte (lib_extra.c) */
 static void lyrics_load(int track);
 static void bg_tick(void);              /* musique/radio pendant les attentes reseau */
@@ -6338,6 +6341,7 @@ static void draw(void) {
     DP("draw_checklist", draw_checklist());
     if (!menu_open && !kb_is_open() && !(tab == TAB_WEB && web_full)) DP("decor", season_overlay());
     DP("draw_actions", draw_actions());
+    if (tab != TAB_FILES) DP("share_draw", share_draw());   /* v137 : QR code d'un partage, dans tous les onglets (journal du jeu) */
     DP("gp_draw", gp_draw());
     if (perf_on) perf_overlay();
     service_audio();
@@ -12636,6 +12640,11 @@ static void draw_party(void) {
 }
 
 // ---------- Onglets supplementaires (fichiers a part) ----------
+static int cp_action(int code);                         /* v137 : base de compatibilite (compat.c) */
+static void cp_after_game(const char *id, const char *title, int crashed, int slow, int vmode);
+static void cp_badge(const char *id, f32 x, f32 y, f32 r);
+static int cp_line(const char *id, char *out, int cap, col_t *c);
+static void cp_pump(void);
 #include "lib_extra.c"                         /* listes, recherche, ecoutes */
 #include "tab_retro.c"
 #include "tab_podcast.c"
@@ -12825,6 +12834,7 @@ static void music_pump(void) {
 #include "igr.c"                               /* v39 : A + Z + START en jeu -> GC-MP3 */
 #include "lanceur.c"                           /* v44 : lanceur de secours ; v90 : reprise de SD:/swiss */
 #include "natif.c"                             /* v50 : lanceur natif GC Station, etape 1 : analyse */
+#include "compat.c"                            /* v137 : base de compatibilite des jeux */
 #include "gcl.c"                               /* v121 : GC Loader */
 #include "extras73.c"                          /* v73 : podcasts plus rapides, historique radio, cartes virtuelles... */
 
@@ -12998,6 +13008,7 @@ int main(int argc, char **argv) {
         else if (menu_open) { menu_input(down, nav, fire); down = 0; fire = 0; }
         else if (ic_on) { indigo_cfg_input(down, nav, fire); down = 0; fire = 0; }   /* v32 : reglages d'un jeu */
         else if (tl_screen) { tools_input(down, nav, fire); down = 0; fire = 0; }   /* v35 : outils (cartes memoire, applis...) */
+        else if (sh_on && tab != TAB_FILES) { share_input(down); down = 0; fire = 0; }   /* v137 */
         else if (am_open) { actions_input(down, nav, fire); down = 0; fire = 0; }
         else if (fun_mode && !night_on) {                     /* karaoke, jeux, reveil */
             u32 keep = fun_mode == FUN_KARAOKE ? (down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) : 0;
@@ -13140,14 +13151,14 @@ int main(int argc, char **argv) {
             if (tab_shown(TAB_FILES)) PF(PH_FILES, files_pump());
             if (tab_shown(TAB_INFO)) PF(PH_INFOS, infos_pump());
         }
-        if (tab_shown(TAB_PHONE)) PF(PH_PHONE, phone_pump());
+        if (tab_shown(TAB_PHONE) || sh_on) PF(PH_PHONE, phone_pump());   /* (v137 : un partage demande le serveur) */
         PF(PH_DL, dltab_pump());
         if (!in_game) PF(PH_UPDATE, update_pump());
         PF(PH_MISC, cheats_tick(); reset_pump());
         if (!in_game) {
             PF(PH_MISC, igr_pump(); ld_pump(); mg_pump());   /* v91 : reprise de SD:/swiss en fond */
         }
-        PF(PH_MISC, night_pump(); rb_pump(); stats_pump(); x73_pump());
+        PF(PH_MISC, night_pump(); rb_pump(); stats_pump(); x73_pump(); cp_pump());
         if (!in_game) {
             PF(PH_LIB, lib_pump(); bib_pump(); ramfs_pump());
             PF(PH_PHOTO, photo_pump());

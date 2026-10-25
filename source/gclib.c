@@ -901,6 +901,7 @@ static void gl_draw_cover(int k, f32 x, f32 y, f32 w, f32 h, int on) {
     if (cov && !had) gl_loaded_frame++;
     if (cov) draw_tex_fit(cov, 128, 128, 96, 128, x, y, w, h);
     else gl_card_banner(k, x, y, w, h, on);
+    if (!gl[k].dvd && w >= 30) cp_badge(gl[k].id, x + w - 7, y + 7, w >= 80 ? 5.0f : 3.5f);   /* v137 : dernier essai avec Pulse */
 }
 static void gl_title_of(int k, char *out, int cap) {
     if (gl[k].dvd) { snprintf(out, cap, "%s", TR(gl[k].title)); return; }
@@ -1378,7 +1379,7 @@ static void draw_gclib_main(void) {
         static const char *const l[] = { "LANCER", "CHEATS", "R\xC3\x89GLAGES", "ANALYSE", "RETOUR" };
         draw_legend_keys(k, l, 5);
         if (gl_launch_sel >= 0) {                              /* confirmation */
-            const f32 w = 420, h = 112, x = 110, y = 170;
+            const f32 w = 420, h = 132, x = 110, y = 160;
             gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
             draw_panel(x, y, w, h);
             gx_text_c(F_MED, x + w / 2, y + 32, "Lancer ce jeu ?", RGBA(255, 255, 255, 255));
@@ -1398,7 +1399,11 @@ static void draw_gclib_main(void) {
                 pulse_logo(x + w / 2 - pw2 / 2 - 12, y + 72, 7, 0);
                 gx_text_c(F_SMALL, x + w / 2 + 6, y + 76, pm, RGBA(190, 180, 235, 255));
             }
-            gx_text_c(F_SMALL, x + w / 2, y + 98, "A : lancer     X : lanceur de secours     B : annuler", RGBA(255, 210, 120, 255));
+            {   /* v137 : dernier essai (base de compatibilite) */
+                col_t cc; char cl[120];
+                if (cp_line(g->id, cl, sizeof(cl), &cc)) { fit_text(F_SMALL, cl, (int)w - 30, buf, sizeof(buf)); gx_text_c(F_SMALL, x + w / 2, y + 98, buf, cc); }
+            }
+            gx_text_c(F_SMALL, x + w / 2, y + 120, "A : lancer     X : lanceur de secours     B : annuler", RGBA(255, 210, 120, 255));
         }
         snprintf(buf, sizeof(buf), "%d / %d   (gauche / droite)", gl_sel + 1, gl_n);
         gx_text_r(F_SMALL, 614, 396, buf, RGBA(150, 135, 210, 255));

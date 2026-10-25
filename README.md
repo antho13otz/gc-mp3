@@ -14,23 +14,21 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v136)
+## Nouveautés de la version actuelle (v137)
+- **Base de compatibilité des jeux** : au retour d'un jeu lancé avec Pulse, GC Station demande comment ça s'est
+  passé (marche / marche mal / écran noir) ; un plantage est noté tout seul. Pastille de couleur sur la jaquette
+  (vert, orange, rouge) et « Dernier essai » dans la fenêtre de lancement (build, date, vitesse du lecteur).
+  Tout est gardé dans `SD:/gc-mp3/compat.txt`.
+- **Journal envoyé au téléphone** : « Écran noir » ou « Envoyer le journal » ouvre un QR code : le téléphone
+  télécharge `journal-jeu.txt` directement (même si l'onglet TÉLÉPHONE est enlevé).
+
+## Version précédente (v136)
 - **Mario Superstar Baseball** : la vidéo d'intro ne bloque plus le jeu (écran noir). Sa boucle d'attente ne
   relisait jamais la place libre de son tampon : elle la relit maintenant à chaque tour (correction dans le
   code du jeu, seulement si c'est bien la bonne instruction). La vitesse « vrai lecteur » n'est plus forcée.
 - **Corrections dans les autres exécutables du disque** : les `.dol`, `.elf` et ceux des `.tgc` sont trouvés
   dans la table des fichiers ; l'endroit à corriger est changé au moment où le jeu le lit (images au démarrage
   de GON, GOY, GR8, GRZJ, GGIJ…). Le journal du jeu dit combien d'octets ont été changés.
-
-## Version précédente (v135)
-- **Mario Superstar Baseball** : vitesse d'un vrai lecteur automatique (code GYQ). Le journal montrait le jeu
-  figé dans sa vidéo d'intro : il attendait de la place dans un tampon que le son vide peu à peu ; avec un
-  disque trop rapide, la vidéo était lue d'un coup et le tampon débordait.
-- **Corrections par jeu dans Pulse** (reprises de l'étude de Swiss, réécrites en table) : transfert ARAM (GDR,
-  GHA, GLE), cartes mémoire 1019 / 2043 blocs (GDK, GDX, GWT), image au démarrage (GGIJ, GON, GOY, GR8, GRZJ),
-  anti-débogage (Pokémon Colosseum, disques de démo), langue (GMSP). Le journal du lancement dit lesquelles.
-- **Journal du retour A+Z+START plus complet** : les fonctions entières où était le jeu (PC, LR, 2 appels) et
-  la mémoire autour de r3, r4 et r30, en clair.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

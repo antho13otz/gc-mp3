@@ -544,7 +544,7 @@ static void actions_do(int i) {
         if (am_track >= 0) { rating_set(am_track, (rating[am_track] + 1) % 6); rating_label(am_track, am_txt[i], sizeof(am_txt[0])); am_open = 1; }
         break;
     case AC_CLOSE: break;
-    default: fun_action(code, arg, am_track, am_txt[i]); break;
+    default: if (cp_action(code)) break; fun_action(code, arg, am_track, am_txt[i]); break;   /* (v137 : base de compatibilite) */
     }
 }
 
