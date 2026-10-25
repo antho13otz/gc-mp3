@@ -21,6 +21,19 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v128 — onglets coupés, 576i / 576p, début de morceau plus fluide
+- **Onglets** : enlever un onglet (START > Onglets affichés) arrête aussi tout ce qu'il fait en fond : leurs
+  tâches de chaque image ne tournent plus (web, podcasts et téléchargements automatiques d'épisodes, photos /
+  vidéo, fichiers, infos : météo et réveil, téléphone), la reprise de la radio au démarrage est sautée, la
+  télécommande refuse les connexions, et ce qui était en lecture depuis cet onglet s'arrête (`tab_disable`).
+- **576i / 576p** : modes `TVPal576IntDfScale` / `TVPal576ProgScale` de libogc : l'image reste dessinée en
+  640 × 480 et la copie vers l'écran l'étire sur 576 lignes (le dessin ne change pas). 576p seulement avec le
+  câble composante (sinon 576i). Aussi transmis au lanceur de secours (Apps Video Mode).
+- **Banc d'essai complet** (simulateur, limites de la GameCube) : 25 scénarios, aucun plantage ni manque de
+  mémoire ; même temps de calcul et mêmes images/s que la v124. Seule saccade régulière trouvée : ~86 ms au
+  début de chaque morceau (pochette ~30 ms + étiquettes ~40 ms dans la même image) ; la pochette est
+  maintenant lue à l'image suivante (~59 ms au pire).
+
 ## Nouveautés v127 — textes qui défilent, Dolphin PC / Android
 - **Textes trop longs** : `fit_text` fait défiler le texte (1,5 s de pause, une lettre toutes les 0,18 s, 1,5 s
   de pause à la fin, puis on recommence) au lieu de le couper. Dans une liste (le même endroit du programme

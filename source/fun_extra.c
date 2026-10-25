@@ -2017,7 +2017,7 @@ static void fun_pump(u32 pads) {
     rumble_pump();
     wake_prefetch();
     wall_pump();
-    podauto_pump();
+    if (tab_shown(TAB_PODCAST)) podauto_pump();     /* v128 */
     if (fun_mode == FUN_OFF) return;
     if (fun_mode == FUN_RHYTHM) { party_update(); rhythm_pump(); }
     else if (fun_mode == FUN_QUIZ) { party_update(); quiz_pump(); }

@@ -14,12 +14,13 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v127)
-- **Textes trop longs** : ils défilent pour qu'on les lise en entier (la ligne choisie d'une liste, les titres).
-- **Dolphin (PC et Android)** : la mise à jour se lance toute seule 3 s après le téléchargement ; les réglages
-  sont de nouveau gardés sur la carte mémoire quand il n'y a pas de carte SD ; tous les dossiers de GC Station
-  sont créés au démarrage.
-- (v126) Pulse : la carte mémoire virtuelle n'est plus coupée faute de place (Mario Superstar Baseball).
+## Nouveautés de la version actuelle (v128)
+- **Onglet enlevé = onglet coupé** : ce qu'il faisait en fond s'arrête (radio, podcasts, téléchargements
+  automatiques, télécommande du téléphone, météo et réveil, diaporama / vidéo, copies de fichiers, web).
+- **576i / 576p** (PAL 50 Hz) : START > Réglages > Vidéo ; 576p avec le câble composante. B maintenu au
+  démarrage : retour en 480i.
+- **Fluidité** : au début de chaque morceau, la pochette est lue à l'image suivante (saccade de ~86 ms → ~59 ms).
+- (v127) Textes trop longs qui défilent ; Dolphin : mise à jour automatique, réglages gardés, dossiers créés.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

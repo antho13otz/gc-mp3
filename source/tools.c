@@ -865,7 +865,7 @@ static void info_lines(char (*l)[2][120], int *n) {
     IL("GC Station", "%s (build %d)", GCMP3_VERSION, GCMP3_BUILD);
     u32 tv = VIDEO_GetCurrentTvMode();
     IL("Console", "%s", tv == VI_PAL ? "PAL (50 Hz)" : tv == VI_EURGB60 ? "PAL (60 Hz)" : tv == VI_MPAL ? "PAL-M" : "NTSC");
-    IL("Vid\xC3\xA9o", "%s%s", vid_active == VID_480P ? "480p" : "480i", VIDEO_HaveComponentCable() ? TR(" (c\xC3\xA2" "ble composante)") : "");
+    IL("Vid\xC3\xA9o", "%s%s", vid_active == VID_576P ? "576p" : vid_active == VID_576I ? "576i" : vid_active == VID_480P ? "480p" : "480i", VIDEO_HaveComponentCable() ? TR(" (c\xC3\xA2" "ble composante)") : "");
     static const char *const ln[] = { "English", "Deutsch", "Fran\xC3\xA7" "ais", "Espa\xC3\xB1ol", "Italiano", "Nederlands" };
     int lg = SYS_GetLanguage();
     IL("Langue de la console", "%s", lg >= 0 && lg < 6 ? ln[lg] : "?");
