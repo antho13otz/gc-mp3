@@ -474,6 +474,7 @@ static void web_open_from_phone(const char *t) {
     web_enter_tab();
     crumb("telephone : ouvrir %.70s", s);
     snprintf(kb_text, sizeof(kb_text), "%s", s);       /* meme logique que la barre d'adresse */
+    kb_cur = (int)strlen(kb_text);
     kb_mode = KB_URL;
     kb_validate();
 }

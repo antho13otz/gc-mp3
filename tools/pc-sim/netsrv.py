@@ -14,9 +14,27 @@ def safe(rel):
     return p if p == ROOT or p.startswith(ROOT + os.sep) else None
 
 # ---------------- FTP ----------------
+FTP_MAXCONN = int(os.environ.get('FTP_MAXCONN', '50'))
+FTP_DELAY = float(os.environ.get('FTP_DELAY', '0'))
+ftp_lock = threading.Lock(); ftp_open = 0; ftp_total = 0
 class FTP(socketserver.StreamRequestHandler):
     def send(self, s): self.wfile.write((s + '\r\n').encode()); self.wfile.flush()
+    # v119 : comme un petit serveur (telephone, NAS) : FTP_MAXCONN connexions a la fois au plus (au-dela :
+    # connexion refusee), FTP_DELAY secondes de delai par commande ; chaque connexion est comptee
     def handle(self):
+        global ftp_open, ftp_total
+        with ftp_lock:
+            ftp_total += 1
+            if ftp_open >= FTP_MAXCONN:
+                print('[ftp] REFUSEE (deja %d connexions ouvertes)' % ftp_open, flush=True)
+                self.request.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER, struct.pack('ii', 1, 0))
+                return
+            ftp_open += 1
+        print('[ftp] connexion %d (%d ouvertes)' % (ftp_total, ftp_open), flush=True)
+        try: self.handle2()
+        finally:
+            with ftp_lock: ftp_open -= 1
+    def handle2(self):
         self.cwd = '/'; self.pasv = None; self.rest = 0; ok = False; user = ''
         self.send('220 GC test FTP')
         while True:
@@ -25,6 +43,7 @@ class FTP(socketserver.StreamRequestHandler):
             l = l.decode('utf-8', 'replace').rstrip('\r\n')
             cmd, _, arg = l.partition(' '); cmd = cmd.upper()
             print('[ftp]', l if cmd != 'PASS' else 'PASS ***', flush=True)
+            if FTP_DELAY: time.sleep(FTP_DELAY)
             if cmd == 'USER': user = arg; self.send('331 mot de passe')
             elif cmd == 'PASS':
                 ok = user == USER and arg == PASS

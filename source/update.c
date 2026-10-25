@@ -200,19 +200,21 @@ static char uw_part[NAME_LEN + 8];
 static void up_install_finish(const u8 *d, long n);
 static u8 *up_mem = NULL;                                /* v117 : sans carte SD (Dolphin) : la version telechargee, en memoire */
 static long up_mem_len = 0;
+/* v117 / v119 : pas de carte SD, ou carte ou l'on ne peut pas ecrire (Dolphin...) : la version telechargee
+   reste en memoire et se lance directement (A), sans etre enregistree */
+static void up_to_memory(u8 *d, long n, const char *why) {
+    if (up_mem && up_mem != d) free(up_mem);
+    up_mem = d; up_mem_len = n;
+    up_state = UP_DONE;
+    snprintf(up_msg, sizeof(up_msg), "Build %d pr\xC3\xAAte (%s : non enregistr\xC3\xA9" "e) : A pour la lancer", up_build, why);
+    crumb("mise a jour en memoire (%s) : build %d, %ld octets", why, up_build, n);
+}
 static void up_install(u8 *d, long n) {                  /* garde d (libere a la fin) */
     up_pick_target();
-    if (sd_virtual) {                                    /* pas de carte SD : rien a ecrire, on la lancera depuis la memoire */
-        if (up_mem) free(up_mem);
-        up_mem = d; up_mem_len = n;
-        up_state = UP_DONE;
-        snprintf(up_msg, sizeof(up_msg), "Build %d t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9" "e (pas de carte SD : non enregistr\xC3\xA9" "e) : A pour la lancer", up_build);
-        crumb("mise a jour en memoire (sans carte SD) : build %d, %ld octets", up_build, n);
-        return;
-    }
+    if (sd_virtual) { up_to_memory(d, n, "pas de carte SD"); return; }
     snprintf(uw_part, sizeof(uw_part), "%s.part", up_target);
     uw_f = fopen(uw_part, "wb");
-    if (!uw_f) { free(d); up_fail("Impossible d'\xC3\xA9" "crire sur la carte SD"); return; }
+    if (!uw_f) { up_to_memory(d, n, "carte SD en lecture seule"); return; }
     uw_buf = d; uw_len = n; uw_pos = 0;
     up_state = UP_WRITE;
 }
@@ -226,15 +228,17 @@ static void up_write_pump(void) {
         service_audio();
     }
     if (uw_pos < uw_len && now_ms() - t0 < 12) {          /* ecriture refusee */
-        fclose(uw_f); uw_f = NULL; remove(uw_part); free(uw_buf); uw_buf = NULL;
-        up_fail("\xC3\x89" "criture incompl\xC3\xA8te (carte pleine ?)");
+        fclose(uw_f); uw_f = NULL; remove(uw_part);
+        up_to_memory(uw_buf, uw_len, "carte SD pleine ou en lecture seule");
+        uw_buf = NULL;
         return;
     }
     if (uw_pos < uw_len) return;                          /* (la suite a l'image suivante) */
     int ok = fclose(uw_f) == 0;
     uw_f = NULL;
-    if (!ok) { remove(uw_part); free(uw_buf); uw_buf = NULL; up_fail("\xC3\x89" "criture incompl\xC3\xA8te (carte pleine ?)"); return; }
+    if (!ok) { remove(uw_part); up_to_memory(uw_buf, uw_len, "carte SD pleine ou en lecture seule"); uw_buf = NULL; return; }
     up_install_finish(uw_buf, uw_len);
+    if (up_mem == uw_buf) uw_buf = NULL;                 /* (gardee en memoire : l'ecriture a echoue) */
     free(uw_buf); uw_buf = NULL;
 }
 /* v33 : apres l'installation, les autres copies de GC-MP3 sur la carte sont aussi
@@ -297,13 +301,13 @@ static void up_install_finish(const u8 *d, long n) {
     snprintf(part, sizeof(part), "%s", uw_part);
     snprintf(old, sizeof(old), "%s.ancien", up_target);
     struct stat st;
-    if (stat(part, &st) != 0 || st.st_size != n) { remove(part); up_fail("Fichier \xC3\xA9" "crit incorrect"); return; }
+    if (stat(part, &st) != 0 || st.st_size != n) { remove(part); up_to_memory((u8 *)d, n, "fichier mal \xC3\xA9" "crit sur la carte"); return; }
     remove(old);
     int had = stat(up_target, &st) == 0;
-    if (had && rename(up_target, old) != 0) { remove(part); up_fail("Impossible de garder l'ancienne version"); return; }
+    if (had && rename(up_target, old) != 0) { remove(part); up_to_memory((u8 *)d, n, "fichier impossible \xC3\xA0 remplacer"); return; }
     if (rename(part, up_target) != 0) {
         if (had) rename(old, up_target);
-        up_fail("Impossible de remplacer le fichier");
+        up_to_memory((u8 *)d, n, "fichier impossible \xC3\xA0 remplacer");
         return;
     }
     up_idc_store(up_target, 1);                          /* v92 : c'est GC Station (pas besoin de le relire au demarrage) */
@@ -431,6 +435,7 @@ static void update_relaunch(void) {
     const char *e;
     if (up_mem) { e = gl_boot_mem(up_mem, up_mem_len, up_target, NULL, NULL); up_mem = NULL; }   /* (v117 : sans carte SD) */
     else e = gl_boot_dol(up_target, NULL, NULL, "GC Station");     /* (ne revient pas si ca marche) */
+    if (e) crumb("relance apres mise a jour impossible : %s", e);
     if (e) { snprintf(up_msg, sizeof(up_msg), "%s", TR(e)); quit_requested = 1; }
 }
 /* v38 : bouton Reset de la console pendant GC-MP3 : relance GC-MP3 (sans passer par
