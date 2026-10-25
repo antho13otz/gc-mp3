@@ -731,6 +731,7 @@ static void tp_handle(s32 c) {
         return;
     }
     if (sh_route(c, target, (char *)req)) return;          /* v55 : fichiers partages (QR code) */
+    if (!tab_shown(TAB_PHONE)) { tp_reply(c, 403, "text/plain", "", 0); return; }   /* v128 / v137 : onglet enleve = telecommande coupee */
     if (!strcmp(target, "/") || !strcmp(target, "/index.html"))
         tp_reply(c, 200, "text/html; charset=utf-8", ui_en ? phone_page_en : phone_page, (int)strlen(ui_en ? phone_page_en : phone_page));
     else if (!strcmp(target, "/api/state")) {
@@ -898,7 +899,7 @@ static void *phone_thread(void *arg) {
         s32 c = net_accept(ls, (struct sockaddr *)&ca, &cl);
         if (c < 0) { usleep(50000); continue; }
         set_nonblock(c, 1);
-        if (tab_shown(TAB_PHONE)) tp_handle(c);          /* v128 : onglet enleve = telecommande coupee */
+        tp_handle(c);                                    /* (v137 : onglet enleve : seulement les partages, voir tp_handle) */
         net_close(c);
     }
     return NULL;

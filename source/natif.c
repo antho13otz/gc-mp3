@@ -991,6 +991,21 @@ static void nat_journal_convert(void) {
         if (lt) { char *p = strstr(lt, "Jeu : "); if (p && ll > (p - lt) + 12) { memcpy(id, p + 6, 6); id[6] = 0; } free(lt); }
         if (id[0] && id[5]) gl_stats_add_play(id, be32(d + 0x90) / (id[3] == 'P' ? 50u : 60u));
     }
+    {   /* v137 : base de compatibilite : plantage note tout seul, sinon question au retour */
+        long ll = 0;
+        char *lt = (char *)read_file(NA_LOG, 16384, &ll), id[8] = "", title[72] = "";
+        int slow = 0, vm = 0;
+        if (lt) {
+            char *p = strstr(lt, "Jeu : ");
+            if (p && ll > (p - lt) + 12) { memcpy(id, p + 6, 6); id[6] = 0; snprintf(title, sizeof(title), "%s", p + 14); title[strcspn(title, "\r\n")] = 0; }
+            slow = strstr(lt, "Vitesse du lecteur : comme un vrai lecteur") != NULL;
+            p = strstr(lt, "\nVideo : ");
+            if (p) vm = !strncmp(p + 9, "480p", 4) ? 1 : !strncmp(p + 9, "PAL 60", 6) ? 2 : !strncmp(p + 9, "240p", 4) ? 3 : 0;
+            if (!strstr(lt, "Saut vers le jeu")) id[0] = 0;   /* (jeu pas lance : rien a demander) */
+            free(lt);
+        }
+        if (id[0] && id[5]) cp_after_game(id, title, (be32(d + 4) >= 5 && be32(d + 44 * 4) != 0), slow, vm);
+    }
 #endif
     memset(d, 0, len);                                    /* (traduit : on ne le refait pas au prochain demarrage) */
     FILE *b = fopen(NA_JBIN, "r+b");

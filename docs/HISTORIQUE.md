@@ -21,6 +21,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v137 — base de compatibilité des jeux
+- `source/compat.c` : après la conversion du journal de Pulse (`nat_journal_convert`), `cp_after_game` note un
+  plantage tout seul (exception notée par le résident), sinon une question est posée 3 s après le démarrage
+  (menu d'actions : marche, marche mal, écran noir, envoyer le journal, plus tard). Un jeu pas lancé (pas de
+  « Saut vers le jeu » dans `dernier-lancement.txt`) n'est pas demandé.
+- `SD:/gc-mp3/compat.txt` : une ligne par jeu (`code|verdict|build|date|vitesse vrai lecteur|mode vidéo`).
+- Pastille sur les jaquettes (`gl_draw_cover`), ligne « Dernier essai » dans la fenêtre de lancement.
+- La fenêtre de partage (QR code, v55) s'affiche et se ferme dans tous les onglets ; les partages passent même
+  si l'onglet TÉLÉPHONE est enlevé (le reste de la télécommande reste coupé, v128).
+
 ## Nouveautés v136 — Pulse : Mario Superstar Baseball, corrections dans les autres exécutables
 - **Mario Superstar Baseball (GYQE01)** : 2e journal (build 489, vitesse d'un vrai lecteur) : même boucle
   (PC 800AF558), autres valeurs : r30+0x158 et r30+0x160 sont les pointeurs de lecture et d'écriture d'un tampon
