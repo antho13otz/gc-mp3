@@ -14,7 +14,15 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v132)
+## Nouveautés de la version actuelle (v133)
+- **Pulse : un jeu ne reste plus bloqué sur une lecture jamais finie** (écran noir alors que le jeu tourne,
+  vu sur Mario Superstar Baseball) : si la fin d'une commande du lecteur n'arrive pas, Pulse la donne au jeu
+  lui-même après 3 images ; la fonction du jeu est aussi rebranchée pendant une lecture en fond.
+- **A+Z+START note où en était le jeu** dans le journal (code, appels, pile, mémoire), même sans plantage :
+  un écran noir peut ainsi être compris et corrigé.
+- Étude de Swiss (ce qu'il corrige et comment) et plan pour Pulse : `docs/ETUDE-SWISS.md`.
+
+## Version précédente (v132)
 - **Nouveau logo** : un cube violet avec, sur sa face, un ovale et trois barres de son ; plus gros en haut à
   gauche (et en grand en haut du rail de Vitrine).
 - **Musique s'ouvre toujours sur tous les morceaux** (plus besoin d'entrer dans le dossier) ; le stick C
@@ -22,10 +30,6 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
 - **Vitrine : les vraies pochettes d'album** sur toutes les cases de la rangée (image à côté du morceau, dans
   le fichier MP3 / FLAC, ou cover.jpg / folder.jpg du dossier), chargées en fond sans ralentir.
 - Îlots : « Choisis un morceau » n'est plus écrit deux fois quand rien ne joue.
-
-## Version précédente (v131)
-- Styles **Vitrine** (rail d'onglets à gauche, rangée de pochettes) et **Îlots** (tuiles de verre, onglets en
-  bas dans un dock d'icônes) à la place de Nébula et Halo.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

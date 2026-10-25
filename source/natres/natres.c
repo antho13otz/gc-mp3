@@ -520,10 +520,14 @@ static void nr_log_flush(void);
 static void igr_poll(void);
 static void igr_poll2(int count);
 static void gk_run(void);
+static u32 igr_ctx = 0;                                  /* v133 : le jeu interrompu (pour le journal au retour A+Z+START) */
+static void di_watchdog(u32 ctx);
 static void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee avant la fonction du jeu */
     if (++H.vi_in == 1) nr_log_flush();                  /* (1re image : on sait si le jeu y arrive) */
     if (vi_orig) ((void (*)(u32, u32))vi_orig)(irq, ctx);
     H.vi_count++; vi_snap(); alive_tick();
+    igr_ctx = ctx;
+    di_watchdog(ctx);                                    /* v133 */
     if (H.chts) gk_run();                                /* v121 : cheats, une fois par image (apres le jeu) */
     igr_poll();                                          /* v86 : (apres le jeu : il a lu les manettes) */
 }
@@ -534,6 +538,7 @@ static void ai_hook(u32 irq, u32 ctx) {                  /* v65 : apres le jeu, 
     H.cnt_ai++;
     st_mix();
     alive_tick();
+    igr_ctx = ctx;
     igr_poll2(0);                                        /* v89 : aussi ici (~ toutes les 5 ms) : a l'image (VI), le jeu n'a
                                                             souvent pas encore pris les manettes (Wind Waker) : lecture interdite */
 }
@@ -678,6 +683,7 @@ static void si_hook(u32 irq, u32 ctx) {
     if (si_orig) ((void (*)(u32, u32))si_orig)(irq, ctx);
     H.si_count++;
     alive_tick();
+    igr_ctx = ctx;
     igr_poll();
 }
 static void igr_poll(void) { igr_poll2(1); }
@@ -716,6 +722,12 @@ static void igr_poll2(int count) {
     if (count) igr_hold++;
     if (now - igr_t0 > TB_SEC || igr_hold > 60) {        /* (tenus 1 s, ou 60 lectures des manettes de suite) */
         H.igr = 1;
+        /* v133 : ou en etait le jeu (comme un plantage : code, appels, pile, memoire) : un jeu fige
+           (ecran noir, il tourne encore) montre ainsi ce qu'il attend */
+        if (igr_ctx >= 0x80000000u && igr_ctx < 0x817F0000u && !(igr_ctx & 3)) {
+            H.exc_srr0 = *(volatile u32 *)(igr_ctx + 0x198); H.exc_lr = *(volatile u32 *)(igr_ctx + 0x84);
+            crash_dump(0xFF, igr_ctx, 0, 0);
+        }
         nr_log_flush();
         ret_entry();
     }
@@ -1272,6 +1284,28 @@ static void nr_sample(u32 ctx) {
     volatile unsigned short *dsp = (volatile unsigned short *)0xCC005000u;
     H.dsp_csr = dsp[5]; H.dsp_mbox = (u32)dsp[0] << 16 | dsp[2];     /* (boites : vers le DSP haut, depuis le DSP haut ; jamais 5006 : sa lecture vide la boite) */
 }
+/* v133 : image (VI) du dernier progres d'une lecture en fond, et de la derniere fin a donner au jeu */
+static u32 rd_vi = 0, dp_vi = 0;
+/* lecture en fond : les morceaux suivants. 0 = pas finie, 1 = finie (TCINT), -1 = erreur (DEINT) */
+static int rd_pump(void) {
+    u32 t0 = tbl();
+    int err = 0, k = 0;
+    if (rd_left) do {                                    /* v88 : des morceaux de 2 Ko tant qu'on reste sous ~1,5 ms (v122 : rien si deja tout lu) */
+        u32 n = rd_left > RD_CHUNK ? RD_CHUNK : rd_left;
+        H.n_chunks++;
+        if (nr_read((void *)rd_dst, rd_off, n)) { err = 1; nr_log_add(di[2], rd_off, n, 1 | (H.err & 0xFF) << 24); break; }
+        cache_flush(rd_dst, n);
+        rd_dst += n; rd_off += n; rd_left -= n;
+        di[5] += n; di[6] -= n;
+    } while (rd_left && ++k < 8 && tbl() - t0 < RD_BUDGET);   /* (v94 : 16 Ko au plus : la carte est plus rapide en DMA / 32 MHz) */
+    rd_vi = H.vi_count;
+    if (err) { rd_on = 0; di[0] |= 0x04; di[7] &= ~1u; return -1; }   /* DEINT : erreur, le jeu redemande */
+    if (rd_left) return 0;                               /* (morceau suivant a la prochaine fin) */
+    if ((H.opt & NRO_SPEED) && (int)(sp_until - tbl()) > 0 && ++sp_kicks < 20000u) return 0;   /* v122 : un vrai lecteur n'aurait pas fini */
+    rd_on = 0; di[0] |= 0x10; di[7] &= ~1u;              /* TCINT : lecture terminee */
+    nx_read_done(rd_dst0, rd_off0, rd_len0);
+    return 1;
+}
 static void di_hook(u32 irq, u32 ctx) {
     int chain = di_game_pending;
     if (rd_on) {
@@ -1279,23 +1313,7 @@ static void di_hook(u32 irq, u32 ctx) {
         u32 dt = (tbl() - kick_tb) / 41u;                /* (us depuis le reveil) */
         H.kick_us += dt; if (dt > H.kick_max_us) H.kick_max_us = dt;
         r[0] = (r[0] & 0x2Au) | 0x54u;                   /* (vraie fin : acquittee ici, le jeu n'en sait rien) */
-        u32 t0 = tbl();
-        int err = 0, k = 0;
-        if (rd_left) do {                                /* v88 : des morceaux de 2 Ko tant qu'on reste sous ~1,5 ms (v122 : rien si deja tout lu) */
-            u32 n = rd_left > RD_CHUNK ? RD_CHUNK : rd_left;
-            H.n_chunks++;
-            if (nr_read((void *)rd_dst, rd_off, n)) { err = 1; nr_log_add(di[2], rd_off, n, 1 | (H.err & 0xFF) << 24); break; }
-            cache_flush(rd_dst, n);
-            rd_dst += n; rd_off += n; rd_left -= n;
-            di[5] += n; di[6] -= n;
-        } while (rd_left && ++k < 8 && tbl() - t0 < RD_BUDGET);   /* (v94 : 16 Ko au plus : la carte est plus rapide en DMA / 32 MHz) */
-        if (err) { rd_on = 0; di[0] |= 0x04; di[7] &= ~1u; }   /* DEINT : erreur, le jeu redemande */
-        else {
-            if (rd_left) { di_real_kick(); x_dispatch(ctx); return; }   /* (morceau suivant a la prochaine fin) */
-            if ((H.opt & NRO_SPEED) && (int)(sp_until - tbl()) > 0 && ++sp_kicks < 20000u) { di_real_kick(); x_dispatch(ctx); return; }   /* v122 : un vrai lecteur n'aurait pas fini */
-            rd_on = 0; di[0] |= 0x10; di[7] &= ~1u;      /* TCINT : lecture terminee */
-            nx_read_done(rd_dst0, rd_off0, rd_len0);
-        }
+        if (rd_pump() == 0) { di_real_kick(); x_dispatch(ctx); return; }
         chain = 1;
     }
     if (!chain) DI_REAL[0] = (DI_REAL[0] & 0x2Au) | 0x54u;   /* (reveil pour la carte : le jeu n'attend rien du lecteur) */
@@ -1309,6 +1327,27 @@ static void di_hook(u32 irq, u32 ctx) {
     }
 }
 static int nr_game_fn(u32 a) { return a >= 0x80003100u && a < 0x817F0000u; }
+/* v133 : fin de commande jamais arrivee au jeu. Le reveil passe par une vraie commande du lecteur : si son
+   interruption se perd (fonction du jeu remise, lecteur qui ne repond pas), une lecture en fond s'arretait au
+   milieu, ou la fin d'une commande n'etait jamais donnee : le jeu attendait pour toujours (ecran noir, le jeu
+   tourne encore : Mario Superstar Baseball). A chaque image : rien depuis 3 images, vrai lecteur au repos,
+   interruption du lecteur pas coupee par le jeu : la lecture continue d'ici, et la fin est donnee au jeu. */
+#define OS_INT_MASKS (*(volatile u32 *)0x800000C4u | *(volatile u32 *)0x800000C8u)   /* (masques du SDK : global, local) */
+static void di_watchdog(u32 ctx) {
+    if (!(H.flags & NRF_REAL_IRQ) || exec_on || (DI_REAL[7] & 1)) return;
+    if (OS_INT_MASKS & (0x80000000u >> 21)) return;      /* (le jeu ne veut pas de l'interruption du lecteur pour l'instant) */
+    if (rd_on) {
+        if (H.vi_count - rd_vi < 3u) return;
+        int r = rd_pump();
+        nr_log_add(0xDD000000u | (r < 0 ? 2u : (u32)r), rd_off, rd_left, H.vi_count);
+        if (r == 0) { di_real_kick(); return; }
+    } else if (!di_game_pending || H.vi_count - dp_vi < 3u) return;
+    else nr_log_add(0xDD000003u, H.last_off, H.last_len, H.vi_count);
+    di_game_pending = 0; x_kicked = 0;
+    volatile u32 *t = OS_INT_TABLE;
+    u32 f = t[21] == (u32)di_hook ? di_orig : t[21];
+    if (nr_game_fn(f)) ((void (*)(u32, u32))f)(21, ctx);
+}
 static void hook1(int idx, u32 *orig, u32 fn) {
     volatile u32 *t = OS_INT_TABLE;
     u32 v = t[idx];
@@ -1320,7 +1359,8 @@ static void hook1(int idx, u32 *orig, u32 fn) {
 static void hooks_check(void) {
     volatile u32 *t = OS_INT_TABLE;
     if (!nr_game_fn(t[21]) && t[21] != (u32)di_hook) return;   /* (pas la table du SDK : on ne touche a rien) */
-    if (!rd_on) hook1(21, &di_orig, (u32)di_hook);       /* v61 : DI (lectures en fond) */
+    hook1(21, &di_orig, (u32)di_hook);                   /* v61 : DI (lectures en fond) ; v133 : aussi pendant une lecture en fond (avant :
+                                                            si le jeu remettait sa fonction pendant ce temps, la lecture ne finissait jamais) */
     hook1(24, &vi_orig, (u32)vi_hook);
     hook1(5, &ai_orig, (u32)ai_hook);                    /* (DSP_AI : DMA du son) */
     hook1(7, &dsp_orig, (u32)dsp_hook);
@@ -1545,7 +1585,7 @@ static void di_exec(void) {
                 sp_until = tbl() + (d > 0x100000u ? TB_SEC / 1000u * 60u : TB_SEC / 1000u * 1u) + (len / 3000u) * (TB_SEC / 1000u);
                 sp_kicks = 0; sp_next = off + len;
             }
-            rd_dst = dst; rd_off = off; rd_left = len; rd_on = 1;
+            rd_dst = dst; rd_off = off; rd_left = len; rd_on = 1; rd_vi = H.vi_count;
             rd_dst0 = dst; rd_off0 = off; rd_len0 = len;
             H.n_async++;
             info |= di_real_kick() | 0x10;                 /* (le lecteur reste "occupe" : DICR bit 0) */
@@ -1572,7 +1612,7 @@ static void di_exec(void) {
     di[0] |= 0x10;                                       /* TCINT : termine */
 done:
     di[7] &= ~1u;
-    if ((H.flags & NRF_REAL_IRQ) && !exec_on) { di_game_pending = 1; info |= di_real_kick(); }   /* (v95 : pendant OSExec, personne n'attend d'interruption) */
+    if ((H.flags & NRF_REAL_IRQ) && !exec_on) { di_game_pending = 1; dp_vi = H.vi_count; info |= di_real_kick(); }   /* (v95 : pendant OSExec, personne n'attend d'interruption) */
     nr_log(H.last_off, H.last_len, info | (di[0] & 0xFF) << 8);
 }
 
