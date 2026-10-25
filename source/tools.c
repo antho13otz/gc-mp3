@@ -8,7 +8,10 @@
 // Chaque outil s'ouvre en fenetre par-dessus l'ecran (tl_screen).
 
 static void indigo_game_open(const char *id, const char *title);
-enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV };   /* v86 : serveur SMB / FTP / FSP */   /* v73 : cartes virtuelles, historique radio */
+enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV, TL_SAVES };   /* v141 : historique des sauvegardes */
+static void sv_open(void);
+static void sv_input(u32 down, u32 nav, int fire);
+static void draw_saves(void);   /* v86 : serveur SMB / FTP / FSP */   /* v73 : cartes virtuelles, historique radio */
 static void vc_open(void);
 static void vc_input(u32 down, u32 nav, int fire);
 static void draw_vcard(void);
@@ -1379,6 +1382,7 @@ static void tools_input(u32 down, u32 nav, int fire) {
     case TL_VCARD: vc_input(down, nav, fire); break;
     case TL_RHIST: rh_input(down, nav, fire); break;
     case TL_NETSRV: nfs_ui_input(down, nav, fire); break;
+    case TL_SAVES: sv_input(down, nav, fire); break;
     }
 }
 static void draw_tools(void) {
@@ -1390,19 +1394,21 @@ static void draw_tools(void) {
     case TL_VCARD: draw_vcard(); break;
     case TL_RHIST: draw_rhist(); break;
     case TL_NETSRV: nfs_ui_draw(); break;
+    case TL_SAVES: draw_saves(); break;
     }
 }
 
 /* ---------- section "Outils" de la page Reglages ---------- */
-enum { TO_RECENT, TO_GAMES, TO_CHEATS, TO_VCARD, TO_BACKUP, TO_RESTORE, TO_INFO, TO_QUIT, TO_COUNT };
+enum { TO_RECENT, TO_GAMES, TO_CHEATS, TO_VCARD, TO_SAVES, TO_BACKUP, TO_RESTORE, TO_INFO, TO_QUIT, TO_COUNT };
 static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s",
-    "Mes jeux, applis et cartes m\xC3\xA9moire", "Cheats (\xC3\xA9" "diteur)", "Cartes m\xC3\xA9moire virtuelles (Pulse)",
+    "Mes jeux, applis et cartes m\xC3\xA9moire", "Cheats (\xC3\xA9" "diteur)", "Cartes m\xC3\xA9moire virtuelles (Pulse)", "Historique des sauvegardes",
     "Sauvegarder tous les r\xC3\xA9glages", "Restaurer les r\xC3\xA9glages", "Infos console", "Quitter GC Station" };
 static const char *const to_help[TO_COUNT] = {
     "Relancer un jeu en un clic.",
     "Onglet JEUX / APPS. Dans la fiche d'un jeu : Y = r\xC3\xA9glages du jeu.",
     "Modifier et activer les cheats de tes jeux (dossier gc-mp3/cheats).",
     "Plusieurs cartes, sauvegardes copi\xC3\xA9" "es depuis / vers la SD et la vraie carte.",
+    "Copies faites apr\xC3\xA8s chaque partie (et celles des autres consoles du Salon) : revenir en arri\xC3\xA8re, reprendre ailleurs.",
     "R\xC3\xA9glages, radios, favoris, listes, podcasts... dans SD:/gc-mp3-sauvegarde.txt",
     "Remet les r\xC3\xA9glages de SD:/gc-mp3-sauvegarde.txt (A deux fois pour confirmer).",
     "Version, vid\xC3\xA9o, m\xC3\xA9moire, carte SD, r\xC3\xA9seau.",
@@ -1433,6 +1439,7 @@ static void tools_menu_input(u32 down, u32 nav, int fire) {
     case TO_GAMES: tab = TAB_GAMES; tab_enter(TAB_GAMES); gm_sel = GM_COUNT; break;
     case TO_CHEATS: cheats_open(); break;
     case TO_VCARD: vc_open(); break;
+    case TO_SAVES: sv_open(); break;
     }
 }
 static void tools_menu_draw(f32 x, f32 y, f32 w, int vis, f32 rh, f32 help_y) {

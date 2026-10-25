@@ -1024,6 +1024,7 @@ static void nat_journal_convert(void) {
                 int trap = strstr(lt, "Acces au lecteur par exception") != NULL;
                 u32 vi = be32(d + 4) >= 3 ? be32(d + 36 * 4) : 1, vin = be32(d + 4) >= 9 ? be32(d + 74 * 4) : 0;
                 rep_diag_set(id, be32(d + 4) >= 5 && be32(d + 44 * 4) != 0, vi == 0, vin > vi, sk, cheats, ws, card, vm, slow, trap);
+                sv_after_game(id, lt);                    /* v141 : copie des sauvegardes du jeu (carte virtuelle) */
             }
             free(lt);
         }
