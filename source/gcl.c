@@ -1,7 +1,7 @@
 // GC Station v121 : GC Loader (remplace le lecteur DVD : les jeux sont sur sa propre carte SD).
 // Inclus dans main.c apres natif.c. Code de GC Station ; protocole public du GC Loader (commandes
 // du lecteur B0 = identifiant, B3 = choix du fichier), comme le decrivent ses outils libres.
-//  - sa carte SD se lit par le lecteur (libogc : __io_gcode) : montee en "gcl:", ses jeux sont dans la liste ;
+//  - sa carte SD se lit par le lecteur (commande B2, lecture seule) : montee en "gcl:", ses jeux sont dans la liste ;
 //  - pour lancer un jeu : la position du fichier sur sa carte (morceaux : position dans le fichier, taille,
 //    secteur), pour le disque 1 et, s'il existe, le disque 2 (le GC Loader change lui-meme de disque) ;
 //  - puis le jeu demarre comme un vrai disque (natif.c, nat_boot_drive), sans Pulse.
@@ -12,7 +12,42 @@ static int gcl_state = 0;                            /* 0 = pas cherche, 1 = GC 
 static char gcl_msg[120] = "";
 
 #ifdef GEKKO
-static int gcl_rawsec(u32 sec, void *buf) { return __io_gcode.readSectors(&__io_gcode, sec, 1, buf) ? 0 : -1; }
+/* carte SD du GC Loader, lue par le lecteur : commande B2 (secteur, taille), DMA ; lecture seule */
+static u8 gcl_bounce[4096] ATTRIBUTE_ALIGN(32);
+static int gcl_dma(u32 sec, u32 len, void *buf) {
+    volatile u32 *di = (volatile u32 *)0xCC006000u;
+    di[0] = 0x54u;
+    DCInvalidateRange(buf, len);
+    di[2] = 0xB2000000u; di[3] = sec; di[4] = len;
+    di[5] = (u32)MEM_VIRTUAL_TO_PHYSICAL(buf); di[6] = len;
+    di[7] = 3;
+    u64 t0 = now_ms();
+    while (di[7] & 1) if (now_ms() - t0 > 5000) { di[0] = 1u; u64 t1 = now_ms(); while ((di[7] & 1) && now_ms() - t1 < 200) ; di[0] = 0x54u; return -1; }
+    u32 sr = di[0];
+    di[0] = 0x54u;
+    DCInvalidateRange(buf, len);
+    return sr & 0x04u ? -1 : 0;
+}
+static bool gcl_io_read(sec_t sector, sec_t num, void *buf) {
+    u8 *o = (u8 *)buf;
+    while (num) {
+        if (((u32)o & 31) == 0) {                        /* (adresse alignee : directement, 1 Mo au plus par commande) */
+            u32 n = num > 2048 ? 2048 : (u32)num;
+            if (gcl_dma((u32)sector, n * 512, o)) return false;
+            o += n * 512; sector += n; num -= n;
+        } else {
+            u32 n = num > 8 ? 8 : (u32)num;
+            if (gcl_dma((u32)sector, n * 512, gcl_bounce)) return false;
+            memcpy(o, gcl_bounce, n * 512);
+            o += n * 512; sector += n; num -= n;
+        }
+    }
+    return true;
+}
+static bool gcl_io_ok(void) { return true; }
+static bool gcl_io_write(sec_t sector, sec_t num, const void *buf) { (void)sector; (void)num; (void)buf; return false; }
+static DISC_INTERFACE gcl_io = { 0x47434C44u, FEATURE_MEDIUM_CANREAD, gcl_io_ok, gcl_io_ok, gcl_io_read, gcl_io_write, gcl_io_ok, gcl_io_ok };
+static int gcl_rawsec(u32 sec, void *buf) { return gcl_io_read(sec, 1, buf) ? 0 : -1; }
 /* une commande "immediate" du GC Loader : rend la reponse (DIIMMBUF), ou 0xFFFFFFFF si rien */
 static u32 gcl_imm(u32 c0, u32 c1, u32 c2) {
     volatile u32 *di = (volatile u32 *)0xCC006000u;
@@ -50,7 +85,7 @@ static int gcl_probe(void) {
         snprintf(gcl_msg, sizeof(gcl_msg), r < 0 ? "pas de lecteur" : "lecteur Nintendo (pas un GC Loader)");
         return 0;
     }
-    if (!__io_gcode.startup(&__io_gcode) || !fatMountSimple("gcl", &__io_gcode)) {
+    if (!fatMountSimple("gcl", &gcl_io)) {
         gcl_state = -1;
         snprintf(gcl_msg, sizeof(gcl_msg), "GC Loader trouv\xC3\xA9, mais sa carte SD ne se monte pas");
         return 0;
