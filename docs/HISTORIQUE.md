@@ -21,6 +21,23 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v120 — fluidité du style Aurore
+- Couleurs du thème : la conversion (Aurore, Nouvelle, Moderne, thèmes de couleur) était refaite à
+  chaque sommet ; elle est gardée (256 cases), recalculée seulement si le style ou le thème change.
+- Textes d'une seule couleur : plus de mélange de couleurs lettre par lettre ; rectangles arrondis unis
+  idem. Largeurs des noms d'onglets d'Aurore gardées.
+- Petits ronds et petits anneaux (points, curseurs, boutons) avec 10 ou 20 côtés au lieu de 40.
+- Fond d'Aurore : chaque ruban en un seul envoi (avant : 48), points calculés une fois.
+- Décors de saison (Halloween) : lueurs, citrouilles, fantômes, chauves-souris, araignée et brume
+  envoyés ensemble (avant : un cercle de 42 sommets et un envoi chacun).
+- Photos : vignettes du cache lues par morceaux de 4 Ko, nouvelles vignettes écrites 2 Ko par image ;
+  photos lues par morceaux de 4 Ko (8 Ko dépassaient le temps d'une image).
+- Musique : dans la boucle, un seul bloc décodé tant qu'il reste 0,25 s d'avance (le reste pendant
+  l'attente de l'écran).
+- Simulateur : le comptage du travail du processeur graphique n'est plus compté comme calcul de la
+  GameCube ; mesure du dessin par partie (`PCSIM_DRAWPROF=<ms>`), scénario `aurore-perf.txt`.
+  Les à-coups de 100 à 460 ms vus aux changements d'onglet venaient des captures d'écran du simulateur.
+
 ## Nouveautés v119 — FTP, clavier, mise à jour sans écriture possible
 - FTP (`source/netfs.c`) : 2 sessions gardées ouvertes (50 s) et réutilisées, une de plus seulement si
   les deux sont prises ; une session gardée que le serveur a fermée est refaite une fois. Listes des 8

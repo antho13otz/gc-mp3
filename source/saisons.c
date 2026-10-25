@@ -83,44 +83,57 @@ static void sz_heart(f32 cx, f32 cy, f32 s, f32 ang, col_t mid, col_t edge) {
 }
 /* v115b : petits ronds (neige, lumieres, etincelles) dessines tous ensemble en un seul envoi au GX :
    un cercle normal = 42 sommets et un envoi chacun ; ici 10 triangles par rond, tous d'un coup */
-typedef struct { f32 x, y, r; col_t m, e; } sz_dot_t;
-#define SZ_DOTS 128                                         /* (128 x 30 = 3840 sommets par envoi : sous la limite de 4096) */
+typedef struct { f32 x, y, rx, ry; col_t m, e; u8 k; } sz_dot_t;
+#define SZ_DOTS 160
+#define SZ_VMAX 3840                                        /* (sommets par envoi : sous la limite de 4096) */
 static sz_dot_t sz_dq[SZ_DOTS];
-static int sz_dn = 0;
+static int sz_dn = 0, sz_vn = 0;
+/* v120 : aussi les ovales et les lueurs (citrouilles, fantomes, chauves-souris...) : 10 cotes pour les
+   petits ronds, 16 pour les grands ; un seul envoi pour tous au lieu d'un cercle de 42 sommets chacun */
 static void sz_flush(void) {
-    enum { K = 10 };
-    static f32 kc[K + 1], ks[K + 1];
+    static f32 c10[11], s10[11], c16[17], s16[17];
     static int init = 0;
-    if (!init) { init = 1; for (int i = 0; i <= K; i++) { kc[i] = cosf(i * 2 * PI_F / K); ks[i] = sinf(i * 2 * PI_F / K); } }
+    if (!init) {
+        init = 1;
+        for (int i = 0; i <= 10; i++) { c10[i] = cosf(i * 2 * PI_F / 10); s10[i] = sinf(i * 2 * PI_F / 10); }
+        for (int i = 0; i <= 16; i++) { c16[i] = cosf(i * 2 * PI_F / 16); s16[i] = sinf(i * 2 * PI_F / 16); }
+    }
     if (!sz_dn) return;
     gx_set_flat();
-    GX_Begin(GX_TRIANGLES, GX_VTXFMT0, (u16)(sz_dn * K * 3));
+    GX_Begin(GX_TRIANGLES, GX_VTXFMT0, (u16)sz_vn);
     for (int n = 0; n < sz_dn; n++) {
         const sz_dot_t *d = &sz_dq[n];
-        f32 rx = d->r / ux_k;
-        for (int i = 0; i < K; i++) {
+        const f32 *kc = d->k == 16 ? c16 : c10, *ks = d->k == 16 ? s16 : s10;
+        f32 rx = d->rx / ux_k;
+        for (int i = 0; i < d->k; i++) {
             vtx(d->x, d->y, d->m);
-            vtx(d->x + rx * kc[i], d->y + d->r * ks[i], d->e);
-            vtx(d->x + rx * kc[i + 1], d->y + d->r * ks[i + 1], d->e);
+            vtx(d->x + rx * kc[i], d->y + d->ry * ks[i], d->e);
+            vtx(d->x + rx * kc[i + 1], d->y + d->ry * ks[i + 1], d->e);
         }
     }
     GX_End();
-    sz_dn = 0;
+    sz_dn = 0; sz_vn = 0;
 }
-static void sz_dot(f32 x, f32 y, f32 r, col_t m, col_t e) {
-    if (x < -r || x > 640 + r || y < -r || y > 480 + r) return;   /* (hors de l'ecran) */
-    if (sz_dn >= SZ_DOTS) sz_flush();
+static void sz_ell(f32 x, f32 y, f32 rx, f32 ry, col_t m, col_t e) {
+    if (x < -rx || x > 640 + rx || y < -ry || y > 480 + ry) return;   /* (hors de l'ecran) */
+    u8 k = (rx > 5 || ry > 5) ? 16 : 10;
+    if (sz_dn >= SZ_DOTS || sz_vn + k * 3 > SZ_VMAX) sz_flush();
     sz_dot_t *d = &sz_dq[sz_dn++];
-    d->x = x; d->y = y; d->r = r; d->m = m; d->e = e;
+    d->x = x; d->y = y; d->rx = rx; d->ry = ry; d->m = m; d->e = e; d->k = k;
+    sz_vn += k * 3;
 }
+static void sz_dot(f32 x, f32 y, f32 r, col_t m, col_t e) { sz_ell(x, y, r, r, m, e); }
 static col_t sz_a(col_t c, f32 a) { c.a = (u8)(c.a * (a < 0 ? 0 : a > 1 ? 1 : a)); return c; }
 
 /* ---------- Halloween ---------- */
+/* (v120 : les ronds passent par sz_ell ; sz_flush() avant ce qui doit etre dessine par-dessus) */
 static void season_pumpkin(f32 cx, f32 cy, f32 r, f32 glow) {
-    gx_circle(cx, cy, r * 1.8f, RGBA(255, 140, 30, (u8)(40 + glow * 60)), RGBA(255, 140, 30, 0));
-    gx_ellipse(cx - r * 0.45f, cy, r * 0.62f, r * 0.9f, RGBA(255, 150, 40, 255), RGBA(200, 90, 10, 255));
-    gx_ellipse(cx + r * 0.45f, cy, r * 0.62f, r * 0.9f, RGBA(255, 150, 40, 255), RGBA(200, 90, 10, 255));
-    gx_ellipse(cx, cy, r * 0.7f, r * 0.95f, RGBA(255, 170, 60, 255), RGBA(220, 100, 20, 255));
+    sz_dot(cx, cy, r * 1.8f, RGBA(255, 140, 30, (u8)(40 + glow * 60)), RGBA(255, 140, 30, 0));
+    sz_ell(cx - r * 0.45f, cy, r * 0.62f, r * 0.9f, RGBA(255, 150, 40, 255), RGBA(200, 90, 10, 255));
+    sz_ell(cx + r * 0.45f, cy, r * 0.62f, r * 0.9f, RGBA(255, 150, 40, 255), RGBA(200, 90, 10, 255));
+    sz_ell(cx, cy, r * 0.7f, r * 0.95f, RGBA(255, 170, 60, 255), RGBA(220, 100, 20, 255));
+}
+static void season_pumpkin_face(f32 cx, f32 cy, f32 r, f32 glow) {
     gx_rect(cx - r * 0.1f, cy - r * 1.2f, r * 0.2f, r * 0.35f, RGBA(70, 120, 40, 255));
     col_t f = RGBA(255, 240, (u8)(120 + glow * 100), 255);
     gx_tri(cx - r * 0.5f, cy - r * 0.15f, cx - r * 0.2f, cy - r * 0.15f, cx - r * 0.35f, cy - r * 0.45f, f);
@@ -128,25 +141,24 @@ static void season_pumpkin(f32 cx, f32 cy, f32 r, f32 glow) {
     gx_poly4(cx - r * 0.5f, cy + r * 0.2f, cx + r * 0.5f, cy + r * 0.2f, cx + r * 0.3f, cy + r * 0.5f, cx - r * 0.3f, cy + r * 0.5f, f, f, f, f);
 }
 static void season_bat(f32 x, f32 y, f32 s, f32 flap) {
-    gx_circle(x, y, 16 * s, RGBA(255, 140, 40, 140), RGBA(255, 140, 40, 0));           /* (lueur orange : visible sur le fond sombre) */
     col_t c = RGBA(25, 12, 35, 240);
     f32 w = 14 * s, up = flap * 6 * s;
-    gx_ellipse(x, y, 3.5f * s, 4.5f * s, c, c);
     gx_tri(x - 2 * s, y - 1 * s, x - w, y - up, x - w * 0.6f, y + 4 * s, c);
     gx_tri(x + 2 * s, y - 1 * s, x + w, y - up, x + w * 0.6f, y + 4 * s, c);
     gx_tri(x - 3 * s, y - 3 * s, x - 1 * s, y - 3 * s, x - 2.5f * s, y - 6.5f * s, c);    /* (oreilles) */
     gx_tri(x + 1 * s, y - 3 * s, x + 3 * s, y - 3 * s, x + 2.5f * s, y - 6.5f * s, c);
+    sz_ell(x, y, 3.5f * s, 4.5f * s, c, c);                                              /* (corps : envoye plus tard) */
 }
 static void season_ghost(f32 x, f32 y, f32 s, f32 t) {
-    col_t w = RGBA(240, 240, 255, 170), w0 = RGBA(240, 240, 255, 0);
-    gx_circle(x, y + 4 * s, 26 * s, RGBA(170, 150, 255, 50), RGBA(170, 150, 255, 0));
-    gx_circle(x, y, 11 * s, w, w);
+    col_t w = RGBA(240, 240, 255, 170);
+    sz_dot(x, y + 4 * s, 26 * s, RGBA(170, 150, 255, 50), RGBA(170, 150, 255, 0));
+    sz_dot(x, y, 11 * s, w, w);
+    for (int k = 0; k < 3; k++) sz_dot(x - 7.3f * s + k * 7.3f * s, y + 12 * s + 1.5f * s * sinf(t * 5 + k * 2), 3.7f * s, w, w);
+    sz_flush();
     gx_rect(x - 11 * s, y, 22 * s, 12 * s, w);
-    for (int k = 0; k < 3; k++) gx_circle(x - 7.3f * s + k * 7.3f * s, y + 12 * s + 1.5f * s * sinf(t * 5 + k * 2), 3.7f * s, w, w);
-    (void)w0;
-    gx_ellipse(x - 4 * s, y - 1 * s, 2 * s, 3 * s, RGBA(30, 20, 50, 230), RGBA(30, 20, 50, 230));
-    gx_ellipse(x + 4 * s, y - 1 * s, 2 * s, 3 * s, RGBA(30, 20, 50, 230), RGBA(30, 20, 50, 230));
-    gx_ellipse(x, y + 5 * s, 2 * s, 2.5f * s, RGBA(30, 20, 50, 200), RGBA(30, 20, 50, 200));
+    sz_ell(x - 4 * s, y - 1 * s, 2 * s, 3 * s, RGBA(30, 20, 50, 230), RGBA(30, 20, 50, 230));
+    sz_ell(x + 4 * s, y - 1 * s, 2 * s, 3 * s, RGBA(30, 20, 50, 230), RGBA(30, 20, 50, 230));
+    sz_ell(x, y + 5 * s, 2 * s, 2.5f * s, RGBA(30, 20, 50, 200), RGBA(30, 20, 50, 200));
 }
 static void season_spider(f32 x, f32 y, f32 t) {
     sz_line(x, 0, x, y - 4, 1, RGBA(220, 220, 230, 140), RGBA(220, 220, 230, 140));
@@ -159,33 +171,45 @@ static void season_spider(f32 x, f32 y, f32 t) {
             sz_line(mx, my, mx + sd * 4, my + 7, 1.4f, c, c);
         }
     }
-    gx_circle(x, y, 7, RGBA(255, 120, 30, 60), RGBA(255, 120, 30, 0));
-    gx_ellipse(x, y + 2, 4.5f, 5.5f, c, c);
-    gx_circle(x, y - 4, 3, c, c);
-    gx_circle(x - 1.2f, y - 4.5f, 0.8f, RGBA(255, 60, 60, 255), RGBA(255, 60, 60, 255));
-    gx_circle(x + 1.2f, y - 4.5f, 0.8f, RGBA(255, 60, 60, 255), RGBA(255, 60, 60, 255));
+    sz_dot(x, y, 7, RGBA(255, 120, 30, 60), RGBA(255, 120, 30, 0));
+    sz_ell(x, y + 2, 4.5f, 5.5f, c, c);
+    sz_dot(x, y - 4, 3, c, c);
+    sz_dot(x - 1.2f, y - 4.5f, 0.8f, RGBA(255, 60, 60, 255), RGBA(255, 60, 60, 255));
+    sz_dot(x + 1.2f, y - 4.5f, 0.8f, RGBA(255, 60, 60, 255), RGBA(255, 60, 60, 255));
 }
 static void sz_halloween(f32 t) {
     for (int i = 0; i < 7; i++) {                                  /* brume violette et verte en bas */
         f32 x = fmodf(t * (6 + i * 2) + i * 110, 840) - 100;
         col_t c = i % 2 ? RGBA(120, 60, 180, 45) : RGBA(70, 160, 90, 35);
-        sz_blob(x, 468 + 6 * sinf(t * 0.4f + i), 90, 22, 0, c, sz_a(c, 0));
+        sz_ell(x, 468 + 6 * sinf(t * 0.4f + i), 90, 22, c, sz_a(c, 0));
     }
-    for (int i = 0; i < 7; i++) {                                  /* chauves-souris */
-        f32 sp = 22 + i * 7, x = fmodf(t * sp + i * 173, 760) - 60;
-        f32 y = 16 + (i % 4) * 12 + 9 * sinf(t * 1.3f + i * 2);
-        season_bat(x, y, 1.0f + 0.2f * (i % 3), sinf(t * 9 + i));
+    f32 bx[7], by[7], bs[7];
+    for (int i = 0; i < 7; i++) {                                  /* chauves-souris : les lueurs d'abord */
+        f32 sp = 22 + i * 7;
+        bx[i] = fmodf(t * sp + i * 173, 760) - 60;
+        by[i] = 16 + (i % 4) * 12 + 9 * sinf(t * 1.3f + i * 2);
+        bs[i] = 1.0f + 0.2f * (i % 3);
+        sz_dot(bx[i], by[i], 16 * bs[i], RGBA(255, 140, 40, 140), RGBA(255, 140, 40, 0));
     }
+    sz_flush();
+    for (int i = 0; i < 7; i++) season_bat(bx[i], by[i], bs[i], sinf(t * 9 + i));
     season_spider(604, 46 + 22 * (0.5f + 0.5f * sinf(t * 0.6f)), t);
+    sz_flush();
     season_ghost(40 + 10 * sinf(t * 0.8f), 400 + 8 * sinf(t * 1.6f), 0.9f, t);
     season_ghost(600 + 8 * sinf(t * 0.7f + 2), 380 + 7 * sinf(t * 1.4f + 1), 0.7f, t + 1);
     f32 g = 0.5f + 0.5f * sinf(t * 2.0f);
     f32 px = ui_skin >= 2 ? -100 : ui_skin ? 140 : 345, py = ui_skin ? 24 : 36, pr = ui_skin ? 10 : 15;   /* (Moderne : a cote du nom ; Nouvelle : pas en haut) */
-    gx_circle(px, py, pr * 2.1f, RGBA(255, 120, 30, (u8)(50 + g * 50)), RGBA(255, 120, 30, 0));
-    season_pumpkin(px, py, pr, g);
-    season_pumpkin(620, 466, 10, 1 - g);
-    season_pumpkin(596, 470, 7, g);
-    season_pumpkin(22, 466, 9, g);
+    sz_dot(px, py, pr * 2.1f, RGBA(255, 120, 30, (u8)(50 + g * 50)), RGBA(255, 120, 30, 0));
+    static const f32 pk[4][4] = { { 0 }, { 620, 466, 10, 0 }, { 596, 470, 7, 0 }, { 22, 466, 9, 0 } };
+    for (int i = 0; i < 4; i++) {
+        f32 x = i ? pk[i][0] : px, y = i ? pk[i][1] : py, r = i ? pk[i][2] : pr, gl = i == 1 ? 1 - g : g;
+        season_pumpkin(x, y, r, gl);
+    }
+    sz_flush();
+    for (int i = 0; i < 4; i++) {
+        f32 x = i ? pk[i][0] : px, y = i ? pk[i][1] : py, r = i ? pk[i][2] : pr, gl = i == 1 ? 1 - g : g;
+        if (x > -50) season_pumpkin_face(x, y, r, gl);
+    }
 }
 
 /* ---------- neige (Noel, Hiver) ---------- */

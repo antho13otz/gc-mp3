@@ -251,10 +251,26 @@ static inline col_t aur_col(col_t c) {
     c.r = c.g = (u8)(gr * 96 / 100); c.b = (u8)(gr * 96 / 100 + (gr < 240 ? 6 : 0));
     return c;
 }
+/* v120 : couleurs deja converties gardees (256 cases) : la conversion (des divisions) etait refaite a
+   chaque sommet, des milliers de fois par image, pour une poignee de couleurs differentes */
+static u32 thc_key[256], thc_val[256];
+static int thc_skin = -1, thc_theme = -1, thc_ident = -1;
+static col_t th_col_slow(col_t c);
 static inline col_t th_col(col_t c) {
     if (nv_raw) return c;                                /* (v109 : logos et decors : couleurs exactes, tous styles) */
-    if (ui_skin == 3) return nv_raw ? c : aur_col(c);
-    if (ui_skin == 2) return nv_raw ? c : nova_col(c);
+    if (ui_skin != thc_skin || theme_id != thc_theme || th_identity != thc_ident) {
+        memset(thc_key, 0, sizeof(thc_key)); thc_skin = ui_skin; thc_theme = theme_id; thc_ident = th_identity;
+    }
+    u32 k = 0x01000000u | (u32)c.r << 16 | (u32)c.g << 8 | c.b;
+    u32 h = (k * 2654435761u) >> 24;
+    if (thc_key[h] != k) { col_t m = th_col_slow(c); thc_key[h] = k; thc_val[h] = (u32)m.r << 16 | (u32)m.g << 8 | m.b; }
+    u32 v = thc_val[h];
+    c.r = (u8)(v >> 16); c.g = (u8)(v >> 8); c.b = (u8)v;
+    return c;
+}
+static col_t th_col_slow(col_t c) {
+    if (ui_skin == 3) return aur_col(c);
+    if (ui_skin == 2) return nova_col(c);
     if (ui_skin) return mod_col(c);
     if (th_identity) return c;
     int r = (th_m[0] * c.r + th_m[1] * c.g + th_m[2] * c.b) >> 8;
@@ -2816,7 +2832,13 @@ static int track_duration(int k) {
     if (k < 0 || k >= nfiles) return -1;
     if (dur_cache[k] == -2 && dur_budget > 0) {
         dur_budget--;
+#ifndef GEKKO
+        u32 q0_ = perf_us();
+#endif
         dur_cache[k] = file_duration(names[k]);
+#ifndef GEKKO
+        if (getenv("PCSIM_DRAWPROF")) printf("[sd] duree %s : %.1f ms\n", names[k], (perf_us() - q0_) / 1000.0);
+#endif
         bib_dirty = 1;
     }
     return dur_cache[k];
@@ -5086,9 +5108,16 @@ static void present_frame(void) {
     u32 rc = retrace_count;
     u64 t0 = now_ms();
     while (!present_nowait && retrace_count == rc && now_ms() - t0 < 40) {
+#ifndef GEKKO
+        u32 w0_ = perf_us(); stream_recv(); u32 w1_ = perf_us(); service_audio(); u32 w2_ = perf_us();
+        int dec_ = music_idle_decode(); u32 w3_ = perf_us();
+        if (getenv("PCSIM_DRAWPROF") && w3_ - w0_ > 12000) printf("[attente] flux %.1f son %.1f decodage %.1f ms\n", (w1_ - w0_) / 1000.0, (w2_ - w1_) / 1000.0, (w3_ - w2_) / 1000.0);
+        if (dec_) continue;
+#else
         stream_recv();
         service_audio();
         if (music_idle_decode()) continue;               /* v85 : (s'il reste le temps d'un bloc avant l'image suivante) */
+#endif
         usleep(500);
     }
     if (perf_on) pfx_cur[PH_WAIT] += perf_us() - pw0;
@@ -5143,10 +5172,13 @@ static void gx_tri(f32 x0, f32 y0, f32 x1, f32 y1, f32 x2, f32 y2, col_t c) {
 
 static void gx_ellipse(f32 cx, f32 cy, f32 rx, f32 ry, col_t center, col_t edge) {
     gx_set_flat();
-    GX_Begin(GX_TRIANGLEFAN, GX_VTXFMT0, NSEG + 2);
+    /* v120 : les petits ronds (points, boutons, curseurs) avec moins de cotes : invisibles a cette taille */
+    f32 rm = rx > ry ? rx : ry;
+    int st = rm < 4.5f ? 4 : rm < 12.0f ? 2 : 1;
+    GX_Begin(GX_TRIANGLEFAN, GX_VTXFMT0, NSEG / st + 2);
     vtx(cx, cy, center);
     rx /= ux_k;                                          /* (16:9 : reste rond) */
-    for (int i = 0; i <= NSEG; i++) vtx(cx + rx * seg_c[i], cy + ry * seg_s[i], edge);
+    for (int i = 0; i <= NSEG; i += st) vtx(cx + rx * seg_c[i], cy + ry * seg_s[i], edge);
     GX_End();
 }
 static void gx_circle(f32 cx, f32 cy, f32 r, col_t center, col_t edge) {
@@ -5156,10 +5188,13 @@ static void gx_circle(f32 cx, f32 cy, f32 r, col_t center, col_t edge) {
 /* Anneau ; avec n != NSEG, polygone creux a n cotes tourne de rot. */
 static void gx_ring_n(f32 cx, f32 cy, f32 r0, f32 r1, int n, f32 rot, col_t c) {
     gx_set_flat();
+    int st = 1;
+    if (n == NSEG && rot == 0.0f && r1 < 12.0f) { st = r1 < 4.5f ? 4 : 2; n = NSEG / st; }   /* (v120 : petits anneaux) */
     GX_Begin(GX_TRIANGLESTRIP, GX_VTXFMT0, 2 * (n + 1));
     for (int i = 0; i <= n; i++) {
         f32 co, si;
-        if (n == NSEG && rot == 0.0f) { co = seg_c[i]; si = seg_s[i]; }
+        if (st > 1) { co = seg_c[i * st]; si = seg_s[i * st]; }
+        else if (n == NSEG && rot == 0.0f) { co = seg_c[i]; si = seg_s[i]; }
         else { f32 a = rot + 2.0f * PI_F * (f32)i / (f32)n; co = cosf(a); si = sinf(a); }
         vtx(cx + r1 * co / ux_k, cy + r1 * si, c);
         vtx(cx + r0 * co / ux_k, cy + r0 * si, c);
@@ -5194,10 +5229,11 @@ static void gx_rrect_fill(f32 x, f32 y, f32 w, f32 h, f32 r, col_t top, col_t bo
     rr_points(x, y, w, h, r, px, py);
     gx_set_flat();
     GX_Begin(GX_TRIANGLEFAN, GX_VTXFMT0, RR_N + 2);
-    vtx(x + w / 2, y + h / 2, lerp_c(top, bot, 0.5f));
+    int same = top.r == bot.r && top.g == bot.g && top.b == bot.b && top.a == bot.a;   /* (v120 : uni : pas de melange) */
+    vtx(x + w / 2, y + h / 2, same ? top : lerp_c(top, bot, 0.5f));
     for (int i = 0; i <= RR_N; i++) {
         int k = i % RR_N;
-        vtx(px[k], py[k], lerp_c(top, bot, (py[k] - y) / h));
+        vtx(px[k], py[k], same ? top : lerp_c(top, bot, (py[k] - y) / h));
     }
     GX_End();
 }
@@ -5298,6 +5334,8 @@ static int gx_text_raw(int f, f32 x, f32 base, const char *s, col_t top, col_t b
     f32 pen = 0, sc = txt_scale;
     f32 ty = -(f32)font_ascent[f];
     f32 fh = (f32)font_height[f];
+    int same = top.r == bot.r && top.g == bot.g && top.b == bot.b && top.a == bot.a;
+    col_t c1 = th_col(top);
     for (const char *p = s; *p;) {
         int cp = next_cp(&p);
         const fglyph_t *g = &font_glyphs[f][glyph_index(cp)];
@@ -5309,8 +5347,9 @@ static int gx_text_raw(int f, f32 x, f32 base, const char *s, col_t top, col_t b
             f32 x1 = x0 + (g->w + 2) * sc,         y1 = y0 + (g->h + 2) * sc;
             f32 u0 = (f32)(g->x - 1) / FONT_TEX_W, v0 = (f32)(g->y - 1) / FONT_TEX_H;
             f32 u1 = (f32)(g->x + g->w + 1) / FONT_TEX_W, v1 = (f32)(g->y + g->h + 1) / FONT_TEX_H;
-            col_t ct = th_col(lerp_c(top, bot, (f32)g->yoff / fh));
-            col_t cb = th_col(lerp_c(top, bot, (f32)(g->yoff + g->h) / fh));
+            col_t ct, cb;
+            if (same) ct = cb = c1;                       /* (v120 : une seule couleur : pas de melange par lettre) */
+            else { ct = th_col(lerp_c(top, bot, (f32)g->yoff / fh)); cb = th_col(lerp_c(top, bot, (f32)(g->yoff + g->h) / fh)); }
             GX_Position2f32(x0, y0); GX_Color4u8(ct.r, ct.g, ct.b, ct.a); GX_TexCoord2f32(u0, v0);
             GX_Position2f32(x1, y0); GX_Color4u8(ct.r, ct.g, ct.b, ct.a); GX_TexCoord2f32(u1, v0);
             GX_Position2f32(x1, y1); GX_Color4u8(cb.r, cb.g, cb.b, cb.a); GX_TexCoord2f32(u1, v1);
@@ -6041,6 +6080,26 @@ static void perf_toggle(void) {
 #ifndef GEKKO
 void gcs_perf_sim(int on) { if (!on != !perf_on) perf_toggle(); }   /* (simulateur sur PC : PCSIM_PERF=1) */
 #endif
+/* v120 : simulateur (PCSIM_DRAWPROF=1) : detail du dessin des images lentes */
+#ifndef GEKKO
+static u32 dp_t[32], dp_t0;
+static const char *dp_n[32];
+static int dp_k = 0;
+#define DP(name, call) do { u32 t0_ = perf_us(); call; if (dp_k < 32) { dp_n[dp_k] = name; dp_t[dp_k++] = perf_us() - t0_; } } while (0)
+static void dp_report(void) {
+    static int on = -1, thr = 25;
+    if (on < 0) { const char *e = getenv("PCSIM_DRAWPROF"); on = e != NULL; if (e && atoi(e) > 1) thr = atoi(e); }
+    u32 tot = perf_us() - dp_t0;
+    if (on && tot > (u32)thr * 1000u) {
+        printf("[dessin] %u ms (onglet %d) :", (unsigned)(tot / 1000), tab);
+        for (int i = 0; i < dp_k; i++) if (dp_t[i] > 1500) printf(" %s %.1f", dp_n[i], dp_t[i] / 1000.0f);
+        printf("\n");
+    }
+    dp_k = 0;
+}
+#else
+#define DP(name, call) call
+#endif
 static void draw(void) {
     {
         static u64 last = 0;
@@ -6062,64 +6121,70 @@ static void draw(void) {
        d'avance : la lecture d'un fichier ne coupe plus la musique - v29) */
     dur_budget = now_ms() - last_input_ms > 250 && io_safe() ? 1 : 0;
     tag_budget = dur_budget;
-    begin_frame();
-    draw_header();
-    draw_header_clock();
-    nv_page_begin();                               /* v101 : Nouvelle : la page glisse en changeant d'onglet */
+#ifndef GEKKO
+    dp_t0 = perf_us();
+#endif
+    DP("begin_frame", begin_frame());
+    DP("draw_header", draw_header());
+    DP("draw_header_clock", draw_header_clock());
+    DP("nv_page_begin", nv_page_begin());                               /* v101 : Nouvelle : la page glisse en changeant d'onglet */
     if (menu_open || tl_screen || ic_on) {
         /* v42 : une fenetre plein ecran est ouverte (Reglages, outils...) : l'onglet derriere
            n'est pas redessine (cache par la fenetre) : beaucoup moins de travail par image */
     } else if (tab == TAB_WEB) {
         if (web_full && !kb_is_open()) draw_web_full();          /* v118 : plein ecran */
-        else { draw_web(); draw_legend_web(); }
+        else { DP("web", draw_web()); draw_legend_web(); }
     } else if (IS_PLAYER_TAB(tab) && player_layout == L_COVER) {
-        draw_layout_cover();
+        DP("draw_layout_cover", draw_layout_cover());
         if (kb_is_open()) draw_legend_web(); else draw_legend();
-        draw_layout_hint();
+        DP("draw_layout_hint", draw_layout_hint());
     } else if (IS_PLAYER_TAB(tab) && player_layout == L_MINIMAL) {
-        draw_layout_minimal();
+        DP("draw_layout_minimal", draw_layout_minimal());
     } else if (IS_PLAYER_TAB(tab) && player_layout == L_BIGVIZ) {
-        draw_layout_bigviz();
+        DP("draw_layout_bigviz", draw_layout_bigviz());
     } else if (tab == TAB_MUSIC && player_layout == L_LIST) {
-        draw_layout_list();
+        DP("draw_layout_list", draw_layout_list());
     } else if (IS_PLAYER_TAB(tab)) {
-        if (tab == TAB_MUSIC) draw_list_music(sel_row);
-        else if (tab == TAB_RADIO) draw_list_radio();
-        else if (tab == TAB_RETRO) draw_list_retro();
-        else draw_list_podcast();
+        if (tab == TAB_MUSIC) DP("liste musique", draw_list_music(sel_row));
+        else if (tab == TAB_RADIO) DP("liste radio", draw_list_radio());
+        else if (tab == TAB_RETRO) DP("liste retro", draw_list_retro());
+        else DP("liste podcasts", draw_list_podcast());
         /* panneau de droite : ce qui joue, sinon l'onglet affiche */
         int view = (src != SRC_NONE) ? src : ((tab == TAB_RADIO || tab == TAB_PODCAST) ? SRC_RADIO : SRC_FILE);
-        if (ui_skin == 3 && tab == TAB_MUSIC) au_player();   /* v103 : Aurore */
-        else if (view == SRC_RADIO) draw_player_radio();
-        else draw_player_music();
+        if (ui_skin == 3 && tab == TAB_MUSIC) DP("au_player", au_player());   /* v103 : Aurore */
+        else if (view == SRC_RADIO) DP("lecteur radio", draw_player_radio());
+        else DP("lecteur musique", draw_player_music());
         if (kb_is_open()) draw_legend_web();
-        else draw_legend();
+        else DP("legende", draw_legend());
     } else {
         switch (tab) {
-        case TAB_PHOTO: draw_tab_photo(); break;
-        case TAB_FILES: draw_tab_files(); break;
-        case TAB_INFO:  draw_tab_infos(); break;
-        case TAB_GAMES: draw_tab_games(); break;
-        case TAB_DL:    draw_tab_dl(); break;
-        default:        draw_tab_phone(); break;
+        case TAB_PHOTO: DP("photos", draw_tab_photo()); break;
+        case TAB_FILES: DP("fichiers", draw_tab_files()); break;
+        case TAB_INFO:  DP("infos", draw_tab_infos()); break;
+        case TAB_GAMES: DP("jeux", draw_tab_games()); break;
+        case TAB_DL:    DP("telechargements", draw_tab_dl()); break;
+        default:        DP("telephone", draw_tab_phone()); break;
         }
     }
-    nv_page_end();
-    draw_layout_toast();
-    draw_crash_notice();
-    draw_update_notice();
-    draw_tab_strip();
+    DP("nv_page_end", nv_page_end());
+    DP("draw_layout_toast", draw_layout_toast());
+    DP("draw_crash_notice", draw_crash_notice());
+    DP("draw_update_notice", draw_update_notice());
+    DP("draw_tab_strip", draw_tab_strip());
     if (tl_screen) draw_tools();                   /* v35 : outils */
     if (ic_on) draw_indigo_cfg();                  /* v32 : reglages d'un jeu (par-dessus l'onglet) */
-    if (menu_open) { au_menu_begin(); draw_menu(); au_menu_end(); }   /* v103 : Aurore : le menu s'ouvre en douceur */
+    if (menu_open) { au_menu_begin(); DP("menu", draw_menu()); au_menu_end(); }   /* v103 : Aurore : le menu s'ouvre en douceur */
     else au_menu_closed();
     if (kb_is_open()) draw_keyboard();             /* (v35 : par-dessus la page Reglages) */
-    draw_checklist();
-    if (!menu_open && !kb_is_open() && !(tab == TAB_WEB && web_full)) season_overlay();
-    draw_actions();
-    gp_draw();
+    DP("draw_checklist", draw_checklist());
+    if (!menu_open && !kb_is_open() && !(tab == TAB_WEB && web_full)) DP("decor", season_overlay());
+    DP("draw_actions", draw_actions());
+    DP("gp_draw", gp_draw());
     if (perf_on) perf_overlay();
     service_audio();
+#ifndef GEKKO
+    dp_report();
+#endif
     present_frame();
 }
 
@@ -6278,7 +6343,11 @@ static void draw_list_music(int sel) {
             }
         }
         char nm[NAME_LEN], lb[NAME_LEN], ld[NAME_LEN];
+#ifndef GEKKO
+        if (!tg_done[k] && tag_budget > 0) { u32 q0_ = perf_us(); tag_budget--; tag_scan_one(k); service_audio(); if (getenv("PCSIM_DRAWPROF")) printf("[sd] etiquettes %d : %.1f ms\n", k, (perf_us() - q0_) / 1000.0); }
+#else
         if (!tg_done[k] && tag_budget > 0) { tag_budget--; tag_scan_one(k); service_audio(); }   /* (une par image) */
+#endif
         track_label(k, lb, sizeof(lb), !(cur_group >= 0 && (view_mode == VIEW_ARTISTS || view_mode == VIEW_ALBUMS)));
         text_display(lb, ld, sizeof(ld));
         fit_text(F_MED, ld, name_w, nm, sizeof(nm));
@@ -12537,6 +12606,7 @@ static void music_pump(void) {
         decode_file_one();
         service_audio();
         k++;
+        if (f_count >= 12000) break;                    /* v120 : encore 0,25 s d'avance : un seul bloc ici, le reste pendant l'attente de l'ecran */
     }
     if (eof && rgm_on) rgm_finish(rgm_track == cur_track);   /* v72 : sonie mesuree sur tout le morceau */
     if (eof && f_count > 0 && xf_sec == 0 && gapless_on && xf_left == 0 && gapless_next_ok()) {

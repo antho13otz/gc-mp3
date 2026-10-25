@@ -29,9 +29,13 @@ static GXTexObj big_obj;
 static int big_tw, big_th, big_iw, big_ih, big_file = -1;
 
 /* chargement asynchrone : lecture par morceaux, puis decodage par le thread des images */
-enum { PJ_IDLE, PJ_READ, PJ_DEC };
+enum { PJ_IDLE, PJ_READ, PJ_DEC, PJ_CREAD, PJ_CWRITE };   /* (v120 : vignettes en cache lues / ecrites par morceaux) */
 static int pj_state = PJ_IDLE, pj_file = -1, pj_big = 0;
 static FILE *pj_fp = NULL;
+static char pj_cpath[NAME_LEN];                         /* v120 : fichier de vignette en cours */
+static int pj_ctw, pj_cth, pj_ciw, pj_cih;
+static thumb_t *pj_ct;
+static u16 *pj_ctex;
 static unsigned char *pj_buf = NULL;
 static long pj_len = 0, pj_size = 0;
 #define DJ_OWNER_PHOTO 3
@@ -92,7 +96,11 @@ static void photo_rescan(void) {
     }
     qsort(pf, npf, sizeof(pfile_t), pf_cmp);
     thumbs_clear();
-    if (pj_state == PJ_READ) { if (pj_fp) fclose(pj_fp); pj_fp = NULL; free(pj_buf); pj_buf = NULL; pj_state = PJ_IDLE; }
+    if (pj_state == PJ_READ || pj_state == PJ_CREAD || pj_state == PJ_CWRITE) {
+        if (pj_fp) fclose(pj_fp);
+        if (pj_state == PJ_CWRITE) remove(pj_cpath);           /* (vignette a moitie ecrite) */
+        pj_fp = NULL; free(pj_buf); pj_buf = NULL; pj_state = PJ_IDLE;
+    }
     pj_file = -1;
     big_file = -1;
     if (pf_sel >= npf) pf_sel = npf > 0 ? npf - 1 : 0;
@@ -171,43 +179,41 @@ static thumb_t *thumb_slot(void) {
     thumbs[slot].tex = NULL;
     return &thumbs[slot];
 }
-static int th_cache_read(int f) {
-    char path[NAME_LEN];
-    th_cache_name(f, path, sizeof(path));
-    FILE *fp = fopen(path, "rb");
+/* v120 : vignette deja prete : on ouvre le fichier et on lit l'en-tete ; l'image elle-meme est lue par
+   morceaux dans pj_pump (avant : 32 Ko d'un coup, ~25 ms sur la carte SD : une image ratee par vignette) */
+static int th_cache_open(int f) {
+    th_cache_name(f, pj_cpath, sizeof(pj_cpath));
+    FILE *fp = fopen(pj_cpath, "rb");
     if (!fp) return 0;
     unsigned char hd[12];
-    int ok = 0;
     if (fread(hd, 1, 12, fp) == 12 && !memcmp(hd, "GCT1", 4)) {
         int tw = hd[4] << 8 | hd[5], th = hd[6] << 8 | hd[7], iw = hd[8] << 8 | hd[9], ih = hd[10] << 8 | hd[11];
         if (tw > 0 && th > 0 && tw <= 256 && th <= 256 && iw <= tw && ih <= th) {
             u16 *tex = (u16 *)memalign(32, (size_t)tw * th * 2);
-            if (tex && fread(tex, 1, (size_t)tw * th * 2, fp) == (size_t)tw * th * 2) {
-                DCFlushRange(tex, (u32)tw * th * 2);
-                thumb_t *t = thumb_slot();
-                t->file = f; t->tex = tex; t->tw = tw; t->th = th; t->iw = iw; t->ih = ih; t->used = ++th_clock;
-                GX_InitTexObj(&t->obj, t->tex, t->tw, t->th, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
-                GX_InitTexObjFilterMode(&t->obj, GX_LINEAR, GX_LINEAR);
-                GX_InvalidateTexAll();
-                ok = 1;
-            } else free(tex);
+            if (tex) {
+                pj_ctex = tex; pj_ctw = tw; pj_cth = th; pj_ciw = iw; pj_cih = ih;
+                pj_fp = fp; pj_file = f; pj_len = 0; pj_size = (long)tw * th * 2;
+                pj_state = PJ_CREAD;
+                return 1;
+            }
         }
     }
     fclose(fp);
-    return ok;
+    return 0;
 }
-static void th_cache_write(int f, const thumb_t *t) {
+/* v120 : ecrite par morceaux (8 Ko par image) dans pj_pump au lieu d'un coup */
+static void th_cache_write(int f, thumb_t *t) {
     if (!sd_ok || sd_virtual || !t->tex) return;
-    char path[NAME_LEN];
     mkdir(GCD "/cache", 0777);
     mkdir(TH_DIR, 0777);
-    th_cache_name(f, path, sizeof(path));
-    FILE *fp = fopen(path, "wb");
+    th_cache_name(f, pj_cpath, sizeof(pj_cpath));
+    FILE *fp = fopen(pj_cpath, "wb");
     if (!fp) return;
+    setvbuf(fp, NULL, _IOFBF, 2048);                     /* (tampon de 2 Ko : chaque morceau part tout de suite) */
     unsigned char hd[12] = { 'G', 'C', 'T', '1', (u8)(t->tw >> 8), (u8)t->tw, (u8)(t->th >> 8), (u8)t->th, (u8)(t->iw >> 8), (u8)t->iw, (u8)(t->ih >> 8), (u8)t->ih };
-    int ok = fwrite(hd, 1, 12, fp) == 12 && fwrite(t->tex, 1, (size_t)t->tw * t->th * 2, fp) == (size_t)t->tw * t->th * 2;
-    fclose(fp);
-    if (!ok) remove(path);
+    if (fwrite(hd, 1, 12, fp) != 12) { fclose(fp); remove(pj_cpath); return; }
+    pj_fp = fp; pj_ct = t; pj_ctex = t->tex; pj_file = f; pj_len = 0; pj_size = (long)t->tw * t->th * 2;
+    pj_state = PJ_CWRITE;
 }
 
 /* lance le chargement de l'image f (vignette ou plein ecran) */
@@ -217,7 +223,11 @@ static void pj_start(int f, int big) {
     long size = -1;
     if (pj_fp && fseek(pj_fp, 0, SEEK_END) == 0) size = ftell(pj_fp);
     pj_fsize = size;
-    if (!big && size > 0 && pj_fp && th_cache_read(f)) { fclose(pj_fp); pj_fp = NULL; return; }   /* vignette deja prete */
+    if (!big && size > 0 && pj_fp) {                                  /* vignette deja prete ? */
+        fclose(pj_fp); pj_fp = NULL;
+        if (th_cache_open(f)) return;
+        pj_fp = fopen(pf[f].path, "rb");
+    }
     long want = big || size <= PJ_HEAD ? size : PJ_HEAD;              /* vignette : le debut d'abord (EXIF) */
     long maxf = big ? PHOTO_MAX_FILE : 64L * 1024 * 1024;
     if (!pj_fp || size <= 0 || size > maxf || fseek(pj_fp, 0, SEEK_SET) != 0 || !(pj_buf = (unsigned char *)malloc(want))) {
@@ -235,17 +245,49 @@ static void pj_start(int f, int big) {
 }
 
 static void pj_pump(void) {
+    if (pj_state == PJ_CREAD || pj_state == PJ_CWRITE) {
+        int wr = pj_state == PJ_CWRITE;
+        if (wr && (pj_ct->tex != pj_ctex || pj_ct->file != pj_file)) {   /* (vignette jetee entre-temps) */
+            fclose(pj_fp); pj_fp = NULL; remove(pj_cpath); pj_state = PJ_IDLE; return;
+        }
+        u32 t0 = perf_us();
+        do {
+            long n = pj_size - pj_len, ck = wr ? 2048 : 4096;     /* (ecriture SD ~600 Ko/s : 2 Ko = ~3 ms) */
+            if (n > ck) n = ck;
+            size_t got = wr ? fwrite((u8 *)pj_ctex + pj_len, 1, n, pj_fp) : fread((u8 *)pj_ctex + pj_len, 1, n, pj_fp);
+            if (got != (size_t)n) {
+                fclose(pj_fp); pj_fp = NULL;
+                if (wr) remove(pj_cpath); else free(pj_ctex);
+                pj_ctex = NULL; pj_state = PJ_IDLE; return;
+            }
+            pj_len += n;
+            if (wr) { fflush(pj_fp); break; }          /* (ecriture : un morceau par image, envoye tout de suite) */
+        } while (pj_len < pj_size && perf_us() - t0 < 5000);
+        if (pj_len < pj_size) return;
+        fclose(pj_fp); pj_fp = NULL;
+        pj_state = PJ_IDLE;
+        if (!wr) {
+            DCFlushRange(pj_ctex, (u32)pj_size);
+            thumb_t *t = thumb_slot();
+            t->file = pj_file; t->tex = pj_ctex; t->tw = pj_ctw; t->th = pj_cth; t->iw = pj_ciw; t->ih = pj_cih; t->used = ++th_clock;
+            GX_InitTexObj(&t->obj, t->tex, t->tw, t->th, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+            GX_InitTexObjFilterMode(&t->obj, GX_LINEAR, GX_LINEAR);
+            GX_InvalidateTexAll();
+        }
+        pj_ctex = NULL;
+        return;
+    }
     if (pj_state == PJ_READ) {
         /* v80 : lecture par morceaux de 8 Ko, au plus 6 ms par image (avant : 32 Ko d'un coup,
            ~21 ms sur une carte SD de GameCube : chaque image ratait le balayage, ~40 ms) */
         u32 t0 = perf_us();
         do {
             long want = pj_size - pj_len;
-            if (want > 8192) want = 8192;
+            if (want > 4096) want = 4096;                /* (v120 : 4 Ko : ~3 ms ; 8 Ko depassaient le budget) */
             size_t got = fread(pj_buf + pj_len, 1, want, pj_fp);
             if (got == 0) { fclose(pj_fp); pj_fp = NULL; free(pj_buf); pj_buf = NULL; pf[pj_file].bad = 1; pj_state = PJ_IDLE; return; }
             pj_len += (long)got;
-        } while (pj_len < pj_size && perf_us() - t0 < 6000);
+        } while (pj_len < pj_size && perf_us() - t0 < 5000);
         if (pj_len < pj_size) return;
         if (!pj_exif_done) {                             /* vignette : petite image EXIF ? */
             pj_exif_done = 1;

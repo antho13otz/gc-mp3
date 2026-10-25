@@ -14,15 +14,16 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v119)
-- **FTP fiable et plus rapide** : la connexion est gardée et réutilisée (avant : une nouvelle connexion à
-  chaque dossier, chaque fichier cherché, chaque fichier ouvert : les petits serveurs refusaient), le
-  contenu des 8 derniers dossiers est gardé, les fichiers sont lus par morceaux gardés en mémoire,
-  3 essais de connexion. Beaucoup moins de blocages en naviguant pendant la lecture.
-- **Clavier** : L et R déplacent le curseur dans le texte (maintenus : il continue).
-- **Mise à jour** : si la carte SD refuse l'écriture (ou s'il n'y en a pas, comme sous Dolphin), la
-  nouvelle version se lance quand même depuis la mémoire.
-- (v118) Navigateur : pages comme sur un ordinateur, images entières, plus de saccades, R plein écran.
+## Nouveautés de la version actuelle (v120)
+- **Style Aurore plus fluide** : le dessin de chaque image prend nettement moins de temps (fond, onglets,
+  textes, petits ronds, décors de saison envoyés d'un coup au processeur graphique, couleurs du thème
+  calculées une seule fois). Mesure sur le simulateur : environ 5 fois moins d'images ratées sur un
+  tour de tous les onglets avec la musique.
+- **Photos** : les vignettes déjà prêtes sont lues, et les nouvelles écrites, petit à petit (avant : un
+  à-coup à chaque vignette en ouvrant l'onglet).
+- **Musique** : le décodage passe davantage pendant l'attente de l'écran, moins d'à-coups pendant le
+  dessin.
+- (v119) FTP fiable et plus rapide, L / R dans le clavier, mise à jour même sans carte SD inscriptible.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
