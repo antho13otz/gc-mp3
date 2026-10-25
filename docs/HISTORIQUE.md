@@ -21,6 +21,27 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v121 — Pulse : .ciso, 2 disques, 16:9, cheats ; GC Loader ; jeux du réseau
+- **.ciso** : la table des morceaux de Pulse est faite à partir de la carte du .ciso (blocs présents = leurs
+  secteurs dans le fichier, blocs absents = morceaux « zéro », jusqu'à la taille d'un disque). Vérifications
+  (3 endroits, test du lecteur SD maison) par la même lecture que l'analyse.
+- **2 disques** : GC Station cherche l'autre disque (même ID, autre numéro) et range sa table sous celle du
+  disque en cours. Quand le jeu arrête le moteur (E3) puis attend le couvercle (masque DICVR), Pulse échange
+  les tables au bout d'une seconde et donne l'interruption « couvercle refermé » ; le jeu relit l'ID.
+  Journal : « CHANGEMENT DE DISQUE », nombre de changements.
+- **16:9 forcé** : GXSetProjection est reconnue à ses lectures de la matrice ; un aiguillage multiplie par 3/4
+  la 1re ligne des matrices en perspective, sur une copie. Réglage par jeu (`SD:/gc-mp3/jeux/<ID>.txt` :
+  `ecran169 = oui`).
+- **Cheats** : interpréteur de codes Gecko dans Pulse, appelé à chaque image : 00-08 (+10), 20-2E (+30),
+  40/42/48/4A, C0, C2, CE/DE, E0, E2, F0. Codes choisis comme Swiss (`<ID>.txt` + `<ID>.chtsel`).
+- **GC Loader** : détecté en cherchant les jeux (inquiry : date 2019-6C-64), carte montée en `gcl:` ;
+  lancement : morceaux des fichiers (disque 1 et 2) envoyés par les commandes B3, puis démarrage comme un
+  vrai disque (sans Pulse : pas de A+Z+START).
+- **Réseau** : copie dans `SD:/jeux-reseau`, place vérifiée, puis lancement par Pulse.
+- Copie de fichiers : morceaux de 16 Ko, au plus ~10 ms par image.
+- Résident v15 (en-tête 0x1A0, journal à 6 entrées). Banc d'essai natif : + .ciso, changement de disque,
+  cheats, 16:9 (17 tests).
+
 ## Nouveautés v120 — fluidité du style Aurore
 - Couleurs du thème : la conversion (Aurore, Nouvelle, Moderne, thèmes de couleur) était refaite à
   chaque sommet ; elle est gardée (256 cases), recalculée seulement si le style ou le thème change.

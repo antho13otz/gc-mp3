@@ -24,16 +24,18 @@ static void *read_file(const char *p, long max, long *len) { FILE *f = fopen(p, 
 static void crumb(const char*f,...){}
 static void stop_track(void){} static volatile int gj_hold; static void bg_quiesce(void){} /* v96 */
 static int mount_sd(void){return 1;}
-typedef struct { char path[NAME_LEN]; u8 ciso; long size; char title[72]; } gcg_t;
-static gcg_t gl[1]; static int gl_n=1; static char gl_busy[96];
+typedef struct { char path[NAME_LEN]; u8 ciso; long size; char title[72]; char id[7]; u8 disc, dvd; } gcg_t;   /* (v121 : id, disque) */
+static gcg_t gl[2]; static int gl_n=1; static char gl_busy[96];
 static void gl_status(const char*m){} static void gl_note(const char*m){printf("NOTE: %s\n",m);}
 #define GL_STUB_AT 0
 #define GL_TAB_AT 0
 static const unsigned gl_stub[1];
 #include "gd.inc"
+/* v121 : cheats du banc d'essai : mots hexa dans le fichier NATIF_CHEATS */
+static int ch_collect(const char *id, u32 *out, int cap) { (void)id; const char *p = getenv("NATIF_CHEATS"); FILE *f = p ? fopen(p, "r") : NULL; int n = 0; unsigned v; if (!f) return 0; while (n < cap && fscanf(f, "%x", &v) == 1) out[n++] = v; fclose(f); return n; }
 static FILE *img;
 static u32 first_clus;
-static int host_stat(const char *p, struct stat *st) { int r = stat(p, st); if (!r) st->st_ino = strstr(p, "journal-jeu") ? 20000 : strstr(p, "memoire-jeu") ? 60000 : strstr(p, "selfdol") ? 30000 : strstr(p, "carte-A") ? 40000 : first_clus; return r; }   /* (journal : un cluster libre de mkfat.py) */
+static int host_stat(const char *p, struct stat *st) { int r = stat(p, st); if (!r) st->st_ino = strstr(p, "disc2") ? 10000 : strstr(p, "journal-jeu") ? 20000 : strstr(p, "memoire-jeu") ? 60000 : strstr(p, "selfdol") ? 30000 : strstr(p, "carte-A") ? 40000 : first_clus; return r; }   /* (journal : un cluster libre de mkfat.py) */
 #define stat(p, s) host_stat(p, s)
 #include "natif.c"
 #undef stat
@@ -41,6 +43,13 @@ static int na_rawsec(u32 sec, void *buf) { return fseek(img, (long)sec * 512, SE
 int main(int c, char **v) {
     img = fopen(v[2], "rb"); first_clus = atoi(v[3]);
     strcpy(gl[0].path, v[1]); struct stat st; host_stat(v[1], &st); gl[0].size = st.st_size; gl[0].ciso = c > 4;
+    { gdisc_t d; u8 h[8]; if (gd_open(&d, v[1])) { if (gd_read(&d, 0, h, 8)) { memcpy(gl[0].id, h, 6); gl[0].disc = h[6]; } gd_close(&d); } }
+    if (getenv("NATIF_DISC2")) {                          /* v121 : l'autre disque */
+        const char *p2 = getenv("NATIF_DISC2"); strcpy(gl[1].path, p2); host_stat(p2, &st); gl[1].size = st.st_size;
+        gdisc_t d; u8 h[8]; if (gd_open(&d, p2)) { if (gd_read(&d, 0, h, 8)) { memcpy(gl[1].id, h, 6); gl[1].disc = h[6]; } gd_close(&d); }
+        gl_n = 2;
+    }
+    nat_ws = getenv("NATIF_WS") != NULL;
     nat_run(0);
     printf("%s\n", nat_boot(0));
     return 0;

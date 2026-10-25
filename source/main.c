@@ -12632,6 +12632,7 @@ static void music_pump(void) {
 #include "igr.c"                               /* v39 : A + Z + START en jeu -> GC-MP3 */
 #include "lanceur.c"                           /* v44 : lanceur de secours ; v90 : reprise de SD:/swiss */
 #include "natif.c"                             /* v50 : lanceur natif GC Station, etape 1 : analyse */
+#include "gcl.c"                               /* v121 : GC Loader */
 #include "extras73.c"                          /* v73 : podcasts plus rapides, historique radio, cartes virtuelles... */
 
 /* v76 : petit controle au demarrage (memoire libre, carte SD, duree), note dans le

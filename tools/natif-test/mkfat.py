@@ -76,5 +76,16 @@ if len(sys.argv) > 6:
         for f in range(2):
             base = part + rsvd + f * fatsz
             img.seek(base * 512 + c * fatsz_e); img.write(struct.pack('<I' if kind == '32' else '<H', nxt))
+# v121 : 4e fichier : l'autre disque d'un jeu a 2 disques (clusters 10000... a la suite)
+if len(sys.argv) > 7:
+    d2 = open(sys.argv[7], 'rb').read()
+    n4 = (len(d2) + csize - 1) // csize
+    for i in range(n4):
+        c = 10000 + i
+        nxt = c + 1 if i + 1 < n4 else (0x0FFFFFFF if kind == '32' else 0xFFFF)
+        w(part + data + (c - 2) * spc, d2[i * csize:(i + 1) * csize].ljust(csize, b'\0'))
+        for f in range(2):
+            base = part + rsvd + f * fatsz
+            img.seek(base * 512 + c * fatsz_e); img.write(struct.pack('<I' if kind == '32' else '<H', nxt))
 img.close()
 print(pool[0], len(iso))

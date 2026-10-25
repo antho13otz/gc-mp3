@@ -268,7 +268,7 @@ static int iso_to_sd(u32 isec, u32 *sd) {
     u32 n = H.n_ext;
     if (ext_last < n) {
         const natres_ext_t *e = &ext_tab[ext_last];
-        if (isec >= e->iso && isec - e->iso < e->cnt) { *sd = e->sd + (isec - e->iso); iso_run = e->cnt - (isec - e->iso); return 0; }
+        if (isec >= e->iso && isec - e->iso < e->cnt) { *sd = e->sd == NATRES_ZERO ? NATRES_ZERO : e->sd + (isec - e->iso); iso_run = e->cnt - (isec - e->iso); return 0; }
     }
     u32 lo = 0, hi = n;                           /* (morceaux ranges dans l'ordre de l'ISO) */
     while (lo < hi) {
@@ -276,7 +276,7 @@ static int iso_to_sd(u32 isec, u32 *sd) {
         const natres_ext_t *e = &ext_tab[mid];
         if (isec < e->iso) hi = mid;
         else if (isec - e->iso >= e->cnt) lo = mid + 1;
-        else { ext_last = mid; *sd = e->sd + (isec - e->iso); iso_run = e->cnt - (isec - e->iso); return 0; }
+        else { ext_last = mid; *sd = e->sd == NATRES_ZERO ? NATRES_ZERO : e->sd + (isec - e->iso); iso_run = e->cnt - (isec - e->iso); return 0; }
     }
     H.err = NR_ERANGE;
     return -1;
@@ -304,7 +304,13 @@ static int nr_read1(void *dst, u32 off, u32 len) {
         u32 sd;
         if (iso_to_sd(isec, &sd)) return -1;
         u32 run = len >> 9;
-        if (in == 0 && run >= 2 && iso_run >= 2) {        /* v88 : plusieurs secteurs entiers a la suite : une commande */
+        if (sd == NATRES_ZERO) {                          /* v121 : bloc absent d'un .ciso : des zeros */
+            u32 z = iso_run * 512u - in;
+            if (z < n) z = n;
+            if (z > len) z = len;
+            for (u32 i = 0; i < z; i++) o[i] = 0;
+            n = z;
+        } else if (in == 0 && run >= 2 && iso_run >= 2) {        /* v88 : plusieurs secteurs entiers a la suite : une commande */
             if (run > iso_run) run = iso_run;
             if (run > 64) run = 64;
             if (nr_read_multi(sd, run, o)) return -1;
@@ -491,8 +497,10 @@ static void hooks_check(void);
 static u32 alive_n = 0;
 static void x_kick(void);
 static u32 x_int = 0, x_csr = 0;
+static void sw_tick(void);
 static void alive_tick(void) {
     if ((++alive_n & 63) == 0) hooks_check();            /* (le jeu a pu remettre sa fonction : on se rebranche) */
+    sw_tick();                                           /* v121 : changement de disque en attente ? */
     if (x_int & ((x_csr & 1 ? 2u : 0) | (x_csr & 4 ? 8u : 0))) x_kick();   /* (carte : interruption pas encore donnee) */
     /* (une ecriture sur la carte coupe le son quelques ms : toutes les 3 s la 1re minute, puis toutes les 20 s) */
     if (tbl() - H.flush_tb > (H.vi_count < 3000u ? TB_SEC * 3 : TB_SEC * 20)) nr_log_flush();
@@ -507,10 +515,12 @@ static u32 vi_orig;
 static void nr_log_flush(void);
 static void igr_poll(void);
 static void igr_poll2(int count);
+static void gk_run(void);
 static void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee avant la fonction du jeu */
     if (++H.vi_in == 1) nr_log_flush();                  /* (1re image : on sait si le jeu y arrive) */
     if (vi_orig) ((void (*)(u32, u32))vi_orig)(irq, ctx);
     H.vi_count++; vi_snap(); alive_tick();
+    if (H.chts) gk_run();                                /* v121 : cheats, une fois par image (apres le jeu) */
     igr_poll();                                          /* v86 : (apres le jeu : il a lu les manettes) */
 }
 static u32 ai_orig;
@@ -750,7 +760,8 @@ static int st_block(void) {                              /* bloc suivant (32 oct
         if (iso_to_sd(so >> 9, &sd)) { st_on = 0; return -1; }
         u32 n = iso_run < ST_SECS ? iso_run : ST_SECS;
         if (!n) n = 1;
-        if (n == 1 ? nr_read_sd(sd, st_sec) : nr_read_multi(sd, n, st_sec)) { st_sec_off = 0xFFFFFFFFu; st_on = 0; return -1; }
+        if (sd == NATRES_ZERO) { for (u32 i = 0; i < n * 512; i++) st_sec[i] = 0; }   /* (v121 : .ciso, bloc absent) */
+        else if (n == 1 ? nr_read_sd(sd, st_sec) : nr_read_multi(sd, n, st_sec)) { st_sec_off = 0xFFFFFFFFu; st_on = 0; return -1; }
         st_sec_off = so; st_sec_n = n * 512;
     }
     const u8 *a = st_sec + (st_pos - st_sec_off);
@@ -1043,6 +1054,119 @@ static void x_dispatch(u32 ctx) {
     }
 }
 
+/* ======================= v121 : cheats (codes Gecko) =======================
+   GC Station range ici les codes actives du jeu : {nombre de mots, puis les codes (2 mots chacun)}.
+   A chaque image, ils sont appliques comme le fait un gestionnaire de codes Gecko (format public des codes
+   "WiiRD / Gecko"). Types pris en charge (GC Station verifie avant le lancement, sinon : lanceur de secours) :
+   00-07 ecritures (8, 16, 32 bits, avec repetition ; texte), 08 ecriture en serie, 20-2F conditions (32 bits,
+   16 bits masque), 40 42 48 4A adresse de base / pointeur, C2 code insere, E0 E2 fins de conditions, F0 fin.
+   Bit 0x10 du 1er octet : adresse relative au pointeur (po) au lieu de l'adresse de base (ba). */
+static int gk_ram(u32 a, u32 n) { return a >= 0x80000000u && a + n <= NATRES_AT && a + n > a; }
+static void gk_sync(u32 a, u32 len) {
+    for (u32 x = a & ~31u; x < a + len; x += 32) __asm__ volatile("dcbst 0,%0; sync; icbi 0,%0" :: "r"(x) : "memory");
+    __asm__ volatile("sync; isync" ::: "memory");
+}
+static void gk_w8(u32 a, u32 v) { if (gk_ram(a, 1)) { *(volatile u8 *)a = (u8)v; gk_sync(a, 1); } }
+static void gk_w16(u32 a, u32 v) { a &= ~1u; if (gk_ram(a, 2)) { *(volatile unsigned short *)a = (unsigned short)v; gk_sync(a, 2); } }
+static void gk_w32(u32 a, u32 v) { a &= ~3u; if (gk_ram(a, 4)) { *(volatile u32 *)a = v; gk_sync(a, 4); } }
+static u32 gk_r32(u32 a) { a &= ~3u; return gk_ram(a, 4) ? *(volatile u32 *)a : 0; }
+static u32 gk_r16(u32 a) { a &= ~1u; return gk_ram(a, 2) ? *(volatile unsigned short *)a : 0; }
+/* niveaux de conditions : depth = ouverts, skip = 1er niveau faux (0 = tout est vrai, on applique) */
+static void gk_endif(u32 *depth, u32 *skip, u32 n) {
+    *depth = n > *depth ? 0 : *depth - n;
+    if (*skip > *depth) *skip = 0;
+}
+static void gk_run(void) {
+    const u32 *w = (const u32 *)H.chts;
+    u32 nw = w[0], ba = 0x80000000u, po = 0x80000000u, depth = 0, skip = 0;
+    w++;
+    for (u32 i = 0; i + 1 < nw; i += 2) {
+        u32 a = w[i], b = w[i + 1], t = a >> 24;
+        if (t == 0xF0) break;                            /* fin des codes */
+        if (t == 0xE0) {                                 /* fin de toutes les conditions ; ba / po (16 bits hauts) */
+            depth = skip = 0;
+            if (b >> 16) ba = b & 0xFFFF0000u;
+            if (b & 0xFFFFu) po = b << 16;
+            continue;
+        }
+        if (t == 0xE2) {                                 /* E2T000VV : VV fins de condition ; T = 1 : puis "sinon" */
+            gk_endif(&depth, &skip, a & 0xFFu);
+            if ((a >> 20) & 1) { if (depth && skip == depth) skip = 0; else if (depth && !skip) skip = depth; }
+            if (!skip) { if (b >> 16) ba = b & 0xFFFF0000u; if (b & 0xFFFFu) po = b << 16; }
+            continue;
+        }
+        if (t == 0xDE || t == 0xCE) {                    /* DE : si 0xXXXX0000 <= po < 0xYYYY0000 (CE : ba) */
+            depth++;
+            u32 v = t == 0xDE ? po : ba;
+            if (!skip && !(v >= (b & 0xFFFF0000u) && v < (b << 16))) skip = depth;
+            continue;
+        }
+        u32 ct = t & 0xEE, ad = ((t & 0x10) ? po : ba) + (a & 0x01FFFFFFu);
+        if (ct == 0x40 || ct == 0x42 || ct == 0x48 || ct == 0x4A) {   /* adresse de base / pointeur */
+            if (skip) continue;
+            int isp = ct >= 0x48, set = (a >> 20) & 0xF ? 0 : 1, y = (a >> 16) & 0xF;
+            u32 x = b + (y == 1 ? (isp ? po : ba) : 0);
+            u32 v = (ct == 0x40 || ct == 0x48) ? gk_r32(x) : x;
+            if (isp) po = set ? v : po + v; else ba = set ? v : ba + v;
+            continue;
+        }
+        if (ct >= 0x20 && ct <= 0x2E) {                  /* conditions (bit 0 de l'adresse : une fin de condition d'abord) */
+            if (a & 1) { gk_endif(&depth, &skip, 1); ad &= ~1u; }
+            depth++;
+            if (skip) continue;
+            int ok;
+            if (ct < 0x28) {
+                u32 v = gk_r32(ad);
+                ok = ct == 0x20 ? v == b : ct == 0x22 ? v != b : ct == 0x24 ? v > b : v < b;
+            } else {
+                u32 v = gk_r16(ad) & ~(b >> 16) & 0xFFFFu, z = b & 0xFFFFu;
+                ok = ct == 0x28 ? v == z : ct == 0x2A ? v != z : ct == 0x2C ? v > z : v < z;
+            }
+            if (!ok) skip = depth;
+            continue;
+        }
+        if (ct == 0x06) {                                /* texte : b octets, sur les lignes suivantes */
+            u32 nl = (b + 7) >> 3;
+            if (!skip && i + 2 + nl * 2 <= nw) { const u8 *src = (const u8 *)&w[i + 2]; for (u32 k = 0; k < b; k++) gk_w8(ad + k, src[k]); }
+            i += nl * 2;
+            continue;
+        }
+        if (ct == 0x08) {                                /* ecriture en serie : 2 lignes */
+            if (i + 3 >= nw) break;
+            u32 c = w[i + 2], d = w[i + 3], sz = c >> 28, cnt = ((c >> 16) & 0xFFFu) + 1, step = c & 0xFFFFu, v = b;
+            if (!skip) for (u32 k = 0; k < cnt; k++, ad += step, v += d) { if (sz == 0) gk_w8(ad, v); else if (sz == 1) gk_w16(ad, v); else gk_w32(ad, v); }
+            i += 2;
+            continue;
+        }
+        if (t == 0xC0) {                                 /* code execute a chaque image : b lignes, finit par blr */
+            static u32 c0_synced = 0;
+            u32 nl = b, code = (u32)&w[i + 2];
+            if (!skip && nl && i + 2 + nl * 2 <= nw) {
+                if (c0_synced != code) { gk_sync(code, nl * 8); c0_synced = code; }
+                ((void (*)(void))code)();
+            }
+            i += nl * 2;
+            continue;
+        }
+        if (t == 0xC2 || t == 0xC3) {                    /* code insere : b lignes d'instructions, la derniere finit par 00000000 */
+            u32 nl = b, code = (u32)&w[i + 2];
+            if (!skip && nl && i + 2 + nl * 2 <= nw && gk_ram(ad, 4) && !(ad & 3)) {
+                u32 *last = (u32 *)&w[i + 1 + nl * 2];
+                u32 bb = 0x48000000u | ((ad + 4 - (u32)last) & 0x03FFFFFCu), jj = 0x48000000u | ((code - ad) & 0x03FFFFFCu);
+                if (*last == 0) { *last = bb; gk_sync(code, nl * 8); }
+                if (*last == bb && *(volatile u32 *)ad != jj) gk_w32(ad, jj);
+            }
+            i += nl * 2;
+            continue;
+        }
+        if (skip) continue;
+        if (ct == 0x00) { u32 n = (b >> 16) + 1; for (u32 k = 0; k < n; k++) gk_w8(ad + k, b); }
+        else if (ct == 0x02) { u32 n = (b >> 16) + 1; for (u32 k = 0; k < n; k++) gk_w16(ad + k * 2, b); }
+        else if (ct == 0x04) gk_w32(ad, b);
+    }
+    if ((H.disc >> 16) < 0xFFFFu) H.disc += 0x10000u;   /* (journal : images avec cheats appliques, 16 bits hauts) */
+}
+
 /* ---------- v61 : lectures en fond ----------
    Avant, une lecture de 512 Ko se faisait d'un coup, interruptions coupees (~0,5 s) : le son
    du jeu (DMA audio, DSP) n'etait plus servi et craquait. Maintenant une grosse lecture se fait
@@ -1204,7 +1328,7 @@ static void nx_patch2(u32 a, u32 fin, u32 len) {        /* a = ou est le code ma
     if (fin < 0x80003000u || fin >= 0x817F0000u) return;
     if (a + len > 0x817F0000u) len = 0x817F0000u - a;
     volatile u32 *t = (volatile u32 *)a;
-    u32 val[32], known = 0, end = (H.tramp_at ? H.ext : 0);   /* (v97 : la table des morceaux est au-dessus) */
+    u32 val[32], known = 0, end = (H.tramp_at ? (H.ext2 && H.ext2 < H.ext ? H.ext2 : H.ext) : 0);   /* (v97 : la table des morceaux est au-dessus ; v121 : les deux disques) */
     for (u32 o = 0; o + 4 <= len; o += 4) {
         u32 ins = t[o >> 2], op = ins >> 26, rd = (ins >> 21) & 31, ra = (ins >> 16) & 31;
         int simm = (short)(ins & 0xFFFF);
@@ -1298,6 +1422,29 @@ static void nx_read_done(u32 dst, u32 off, u32 len) {
     }
     if (exec_on) nx_patch(dst & ~3u, len);                /* (ancien apploader : ce qu'il charge arrive a sa place) */
 }
+/* ======================= v121 : jeux a 2 disques =======================
+   Pour changer de disque, la bibliotheque du jeu arrete le moteur (commande E3), active l'interruption du
+   couvercle (DICVR, masque) et attend qu'on ouvre puis referme le couvercle. Ici : une fois le masque pose
+   (et au moins une seconde apres E3), la table des morceaux de l'autre disque prend la place de celle-ci, et
+   le jeu recoit l'interruption "couvercle referme" (CVRINT) : il relit l'ID du disque et trouve l'autre. */
+static u32 sw_pending = 0, sw_vi = 0;
+static void disc_swap(void) {
+    u32 e = H.ext, n = H.n_ext;
+    H.ext = H.ext2; H.n_ext = H.n_ext2; H.ext2 = e; H.n_ext2 = n;
+    ext_last = 0; sec_cached = 0xFFFFFFFFu;
+    st_on = 0; st_stop_end = 0; st_sec_off = 0xFFFFFFFFu;  /* (musique du disque : arretee, comme un vrai changement) */
+    H.disc = ((H.disc & 1u) ^ 1u) | ((H.disc & 0xFFFFFF00u) + 0x100u);
+    di[1] = (di[1] & ~1u) | 4u;                           /* couvercle ferme + CVRINT */
+    nr_log_add(0xE3D15C00u | (H.disc & 1u), H.n_ext, H.disc, 0);
+    nr_log_flush();
+    if (H.flags & NRF_REAL_IRQ) { di_game_pending = 1; di_real_kick(); }   /* (reveil : la fonction DI du jeu voit le couvercle) */
+}
+static void sw_tick(void) {
+    if (!sw_pending || !(di[1] & 2u) || rd_on || H.vi_count - sw_vi < 60u) return;
+    if (DI_REAL[7] & 1) return;                           /* (le vrai lecteur doit pouvoir reveiller le jeu) */
+    sw_pending = 0;
+    disc_swap();
+}
 static void di_exec(void) {
     u32 info = 0;
     rd_on = 0;                                           /* (nouvelle commande : une lecture en fond oubliee s'arrete) */
@@ -1306,6 +1453,8 @@ static void di_exec(void) {
     u32 cmd = di[2] >> 24, len = di[6], dst = di[5] | 0x80000000u;
     H.ncmd++; H.last_cmd = di[2]; H.last_off = di[3] << 2; H.last_len = len;
     di[8] = 0;
+    if (cmd == 0xA8) sw_pending = 0;                     /* (v121 : le jeu relit : ce n'etait pas un changement de disque) */
+    if (cmd == 0xE3 && H.n_ext2) { sw_pending = 1; sw_vi = H.vi_count; }   /* v121 : moteur arrete : le jeu va demander l'autre disque */
     if (cmd == 0xA8) {
         u32 off = (di[2] & 0xC0) == 0x40 ? 0 : di[3] << 2;   /* A8000040 : ID du disque (debut de l'ISO) */
         if ((di[2] & 0xC0) == 0x40 && len > 0x20) len = 0x20;
@@ -1347,7 +1496,7 @@ static void hooks_lazy(void) { if ((++hk_n & 255) == 1) hooks_check(); }   /* v6
 static u32 di_load(u32 reg) {
     u32 i = (reg & 0x3F) >> 2;
     hooks_lazy();
-    if (i == 1) return di[1] & 0x02;                      /* couvercle ferme, pas d'interruption */
+    if (i == 1) return di[1] & 0x07;                      /* couvercle ferme ; v121 : CVRINT apres un changement de disque */
     if (i == 9) return DI_REAL[9];                        /* DICFG : celui du vrai lecteur */
     return i < 10 ? di[i] : 0;
 }
@@ -1368,7 +1517,7 @@ static void di_store(u32 reg, u32 val) {
         }
         return;
     }
-    if (i == 1) { di[1] = val & 0x02; DI_REAL[1] = 4u; return; }   /* (vrai couvercle : acquitte, sans interruption) */
+    if (i == 1) { di[1] = (di[1] & 1u) | (val & 2u) | (di[1] & 4u & ~val); DI_REAL[1] = 4u; return; }   /* (vrai couvercle : acquitte, sans interruption ; v121 : CVRINT efface par 1) */
     if (i == 7) {
         di[7] = val;
         if (val & 1) { u32 m = irq_off(); di_exec(); irq_restore(m); }

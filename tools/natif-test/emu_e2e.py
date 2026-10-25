@@ -162,10 +162,13 @@ if EXC: mu.mem_write(0x80001F40, struct.pack('>I', 1))
 EXEC = len(sys.argv) > 4 and sys.argv[4] in ('exec', 'execa')   # v95 : OSExec (ancien / recent apploader)
 EXECA = EXEC and sys.argv[4] == 'execa'
 if EXEC: mu.mem_write(0x80001F44, struct.pack('>I', 2 if EXECA else 1))
+MODE = sys.argv[4] if len(sys.argv) > 4 else ''
+if MODE in ('swap', 'cheat', 'ws'): mu.mem_write(0x80001F44, struct.pack('>I', {'swap': 3, 'cheat': 4, 'ws': 5}[MODE]))   # v121
 STOP = 0x80001000
 mu.mem_write(STOP, struct.pack('>I', 0x48000000))
 mu.reg_write(UC_PPC_REG_1, 0x81000000); mu.reg_write(UC_PPC_REG_LR, STOP)
 mu.reg_write(UC_PPC_REG_31, 0xDEAD); mu.reg_write(UC_PPC_REG_30, 0xBEEF)
+if MODE == 'ws': mu.reg_write(UC_PPC_REG_MSR, mu.reg_read(UC_PPC_REG_MSR) | 0x2000)   # (v121 : virgule flottante permise, comme dans un jeu)
 try:
     mu.emu_start(entry, STOP, timeout=300 * 1000000)
 except UcError as e:
@@ -180,6 +183,32 @@ def chk(name, addr, want):
     ok &= good
     print(('OK   ' if good else 'FAUX ') + name)
 chk('ID du disque (A8000040)', 0x80100000, iso[0:0x20])
+if MODE in ('swap', 'cheat', 'ws'):                      # v121
+    rd32 = lambda a: struct.unpack('>I', mu.mem_read(a, 4))[0]
+    u = lambda o: struct.unpack('>I', mu.mem_read(0x817F0000 + o, 4))[0]
+    back = rd32(0x80001F50) == 0x42424242 and pc == STOP
+    print(('OK   ' if back else 'FAUX ') + 'retour a GC Station a la fin (%08X)' % rd32(0x80001F50)); ok &= back
+    if MODE == 'swap':
+        d2 = open(sys.argv[5], 'rb').read()
+        cv = rd32(0x80001F48) & 7 == 6 and rd32(0x80001F4C) & 7 == 2
+        print(('OK   ' if cv else 'FAUX ') + 'couvercle : %X apres le changement (attendu 6 : masque + CVRINT), %X apres acquittement (attendu 2)' % (rd32(0x80001F48), rd32(0x80001F4C))); ok &= cv
+        chk('ID de l\'autre disque apres le changement', 0x80110000, d2[0:0x20])
+        chk('donnees de l\'autre disque (0x200 @0x1000)', 0x80110100, d2[0x1000:0x1200])
+        dz = u(0x198)
+        dk = dz & 0xFFFF == 0x101
+        print(('OK   ' if dk else 'FAUX ') + 'resident : disque en cours %d, %d changement(s)' % ((dz & 1) + 1, (dz >> 8) & 0xFF)); ok &= dk
+    if MODE == 'cheat':
+        want = {0x80001F70: 0x12345678, 0x80001F78: 0xABCD0000, 0x80001F80: 0, 0x80001F84: 0xCAFEBABE, 0x80001F88: 0x11111111, 0x80001F8C: 0x80000000, 0x80001F60: 0x00005A5A}
+        for a, v in want.items():
+            g = rd32(a); good = g == v
+            print(('OK   ' if good else 'FAUX ') + 'cheat : %08X = %08X (attendu %08X)' % (a, g, v)); ok &= good
+        n = u(0x198) >> 16
+        print(('OK   ' if n >= 3 else 'FAUX ') + 'cheats appliques a %d images' % n); ok &= n >= 3
+    if MODE == 'ws':
+        r = [rd32(a) for a in (0x80001F90, 0x80001F94, 0x80001FA0, 0x80001F98, 0x80001F9C, 0x80001D00, 0x80001D08)]
+        good = r == [0x3F400000, 0x3EC00000, 0x40000000, 0x3F800000, 0x3E800000, 0x3F800000, 0x3F000000]
+        print(('OK   ' if good else 'FAUX ') + '16:9 force : perspective m00 %08X m02 %08X m11 %08X ; orthographique m00 %08X m03 %08X ; matrice du jeu %08X %08X' % tuple(r)); ok &= good
+    print('TOUT OK' if ok else 'ECHEC'); sys.exit(0 if ok else 1)
 if EXEC:                                                 # v95 : OSExec : le code de redemarrage puis le programme suivant
     H0 = 0x817F0000
     u = lambda o: struct.unpack('>I', mu.mem_read(H0 + o, 4))[0]

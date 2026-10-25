@@ -14,16 +14,20 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v120)
-- **Style Aurore plus fluide** : le dessin de chaque image prend nettement moins de temps (fond, onglets,
-  textes, petits ronds, décors de saison envoyés d'un coup au processeur graphique, couleurs du thème
-  calculées une seule fois). Mesure sur le simulateur : environ 5 fois moins d'images ratées sur un
-  tour de tous les onglets avec la musique.
-- **Photos** : les vignettes déjà prêtes sont lues, et les nouvelles écrites, petit à petit (avant : un
-  à-coup à chaque vignette en ouvrant l'onglet).
-- **Musique** : le décodage passe davantage pendant l'attente de l'écran, moins d'à-coups pendant le
-  dessin.
-- (v119) FTP fiable et plus rapide, L / R dans le clavier, mise à jour même sans carte SD inscriptible.
+## Nouveautés de la version actuelle (v121)
+- **Pulse lit les .ciso** : plus besoin du lanceur de secours pour ces jeux (blocs vides lus comme des zéros).
+- **Jeux à 2 disques avec Pulse** : quand le jeu demande l'autre disque, Pulse le change tout seul (les deux
+  fichiers sur la carte SD, même jeu, disque 1 et disque 2).
+- **16:9 forcé** (Pulse) : fiche du jeu > Y > « 16:9 forcé ». L'image 3D est élargie pour une télé réglée
+  en 16:9 ; les menus en 2D restent étirés.
+- **Cheats appliqués par Pulse** : les codes Gecko courants (écritures, conditions, pointeurs, codes
+  insérés) ; le lanceur de secours ne sert plus que pour les codes que Pulse ne connaît pas.
+- **GC Loader** : ses jeux (sur sa propre carte SD) apparaissent dans la liste (Y = chercher à nouveau) et
+  se lancent directement, disque 2 compris.
+- **Jeux sur le réseau** (SMB, FTP, FSP) : A sur un .iso / .gcm / .ciso dans l'onglet FICHIERS = copie sur la
+  carte SD (`SD:/jeux-reseau`) puis lancement ; déjà copié = lancement immédiat.
+- Copie de fichiers plus douce pour l'interface (petits morceaux, moins d'à-coups).
+- (v120) Style Aurore plus fluide.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
@@ -31,8 +35,10 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
 - **Radio** : webradios (recherche radio-browser, HLS), favoris, enregistrement, titres gardés.
 - **Jeux GameCube** (`.iso`, `.gcm`, `.ciso`) avec jaquettes, bannières, favoris, temps de jeu :
   - **Disque de la console** : le jeu du vrai lecteur, lancé depuis la même liste ;
-  - **Pulse** (A), le lanceur de GC Station (ancien nom : Resident) : faux lecteur DVD sur la carte SD, musique du disque,
-    carte mémoire virtuelle, A+Z+START tenus 1 s = retour à GC Station, journal en cas de problème ;
+  - **Pulse** (A), le lanceur de GC Station (ancien nom : Resident) : faux lecteur DVD sur la carte SD (.iso, .gcm,
+    .ciso), musique du disque, jeux à 2 disques, carte mémoire virtuelle, cheats, 16:9 forcé, A+Z+START tenus 1 s =
+    retour à GC Station, journal en cas de problème ;
+  - **GC Loader** : ses jeux dans la même liste ; **jeux du réseau** copiés puis lancés ;
   - **lanceur de secours** (X, et les jeux avec cheats) ; réglages par jeu (langue, son, carte) ;
   - **cheats** (`SD:/gc-mp3/cheats`), **cartes mémoire virtuelles**.
 - **Applis** : les homebrews `.dol` de la carte SD.
