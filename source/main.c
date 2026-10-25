@@ -11357,17 +11357,23 @@ static int ipl_get(void);                                  /* v57 : la console d
 static const char *ipl_set(int on);
 /* v75 : les reglages de GC Station, ranges par sections (v90 : plus rien de Swiss) */
 enum { SEC_MUSIC, SEC_RADIO, SEC_DISPLAY, SEC_VIDEO, SEC_GAMES, SEC_NET, SEC_TOOLS, SEC_COUNT };
-static const s8 sec_items[6][24] = {
-    { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_GAPLESS, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE,
-      MI_COVERS, MI_LYRICS, MI_RESUME, MI_PARTY, MI_GAMES, MI_SLEEP, -1 },
-    { MI_RADIORES, MI_TITLES, MI_REC, MI_RECAT, MI_RECLEN, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, -1 },
-    { MI_UILANG, MI_LANG, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_LAYOUT, MI_ELEMS, MI_TABS, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH,
-      MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, MI_HIDDEN, MI_UNKNOWN, MI_PERF, -1 },
-    { MI_TV, MI_VIDEO, MI_WIDE, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, -1 },
-    { MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_PULSELD, MI_GLANG, MI_GSOUND, MI_RUMBLE, MI_AUTOSTART, MI_LAUNCHER, MI_IGR, MI_GLVIEW, MI_GLANIM, -1 },
-    { MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_SALON, MI_PHONEAUTO, MI_UPDAUTO, MI_UPDATE, -1 } };
-static int sec_n(int sec) { int n = 0; if (sec < 0 || sec >= SEC_TOOLS) return 0; while (n < 24 && sec_items[sec][n] >= 0) n++; return n; }
+/* v148 : chaque section en groupes, avec un sous-titre (valeur -2 - k : sec_heads[k], pas un reglage) */
+static const char *const sec_heads[] = { "Lecture", "Son", "Biblioth\xC3\xA8que", "F\xC3\xAAte", "Radio", "Enregistrement", "Podcasts", "Langue", "Apparence", "Lecteur", "Veille", "Fichiers", "Diagnostic", "T\xC3\xA9l\xC3\xA9", "Image", "Console", "Liste des jeux", "Pulse", "Lanceur de secours", "Connexion", "Partages", "Salon et t\xC3\xA9l\xC3\xA9phone", "Mises \xC3\xA0 jour" };
+static const s8 sec_items[6][32] = {
+    { -2, MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_GAPLESS, MI_RESUME, MI_SLEEP, -3, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, -4, MI_VIEW, MI_COVERS, MI_LYRICS, -5, MI_PARTY, MI_FLASH, MI_GAMES, -1 },
+    { -6, MI_RADIORES, MI_TITLES, -7, MI_REC, MI_RECAT, MI_RECLEN, -8, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, -1 },
+    { -9, MI_UILANG, MI_LANG, -10, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_TABS, -11, MI_LAYOUT, MI_ELEMS, MI_VIZ, MI_SGPAL, MI_LYRSHOW, -12, MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, -13, MI_HIDDEN, MI_UNKNOWN, -14, MI_PERF, -1 },
+    { -15, MI_TV, MI_VIDEO, MI_WIDE, -16, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, -1 },
+    { -17, MI_GLANG, MI_GSOUND, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
+    { -21, MI_DHCP, MI_IP, MI_MASK, MI_GW, -22, MI_NETSMB, MI_NETFTP, MI_NETFSP, -23, MI_SALON, MI_PHONEAUTO, -24, MI_UPDAUTO, MI_UPDATE, -1 } };
+static int sec_n(int sec) { int n = 0; if (sec < 0 || sec >= SEC_TOOLS) return 0; while (n < 32 && sec_items[sec][n] != -1) n++; return n; }
 static int sec_pos(int sec, int mi) { for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] == mi) return i; return -1; }
+static int sec_first(int sec) { for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] >= 0) return sec_items[sec][i]; return 0; }
+static int sec_step(int sec, int p, int d) {             /* reglage suivant / precedent (les sous-titres sont sautes) */
+    int n = sec_n(sec);
+    for (int k = 0; k < n; k++) { p = (p + d + n) % n; if (sec_items[sec][p] >= 0) return sec_items[sec][p]; }
+    return sec_first(sec);
+}
 static int fe_show_hidden, fe_hide_unknown;                   /* (tab_files.c) */
 static void files_refresh_opts(void);                         /* (jeux_cfg.c) */
 static const char *const gc_lang_names[6];                     /* (jeux_cfg.c) */
@@ -11642,7 +11648,7 @@ static void menu_input(u32 down, u32 nav, int fire) {
         static s8 last[SEC_COUNT] = { -1, -1, -1, -1, -1, -1, -1 };
         if (menu_sec < SEC_TOOLS) last[menu_sec] = (s8)menu_sel;
         menu_sec = (menu_sec + ((down & PAD_TRIGGER_R) ? 1 : SEC_COUNT - 1)) % SEC_COUNT;
-        if (menu_sec < SEC_TOOLS) { menu_sel = last[menu_sec] >= 0 ? last[menu_sec] : sec_items[menu_sec][0]; menu_top = 0; }
+        if (menu_sec < SEC_TOOLS) { menu_sel = last[menu_sec] >= 0 ? last[menu_sec] : sec_first(menu_sec); menu_top = 0; }
         return;
     }
     if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) {
@@ -11654,10 +11660,10 @@ static void menu_input(u32 down, u32 nav, int fire) {
     else menu_input_gcmp3(down, nav, fire);
 }
 static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
-    int n = sec_n(menu_sec), p = sec_pos(menu_sec, menu_sel);
-    if (p < 0) { p = 0; menu_sel = sec_items[menu_sec][0]; }
-    if (fire && (nav & PAD_BUTTON_DOWN)) menu_sel = sec_items[menu_sec][(p + 1) % n];
-    if (fire && (nav & PAD_BUTTON_UP)) menu_sel = sec_items[menu_sec][(p + n - 1) % n];
+    int p = sec_pos(menu_sec, menu_sel);
+    if (p < 0) { menu_sel = sec_first(menu_sec); p = sec_pos(menu_sec, menu_sel); }
+    if (fire && (nav & PAD_BUTTON_DOWN)) menu_sel = sec_step(menu_sec, p, 1);
+    if (fire && (nav & PAD_BUTTON_UP)) menu_sel = sec_step(menu_sec, p, -1);
     if (fire && (nav & (PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT)) && menu_sel != MI_QUIT)
         menu_change(menu_sel, (nav & PAD_BUTTON_RIGHT) ? 1 : -1);
     if (down & PAD_BUTTON_A) {
@@ -11761,7 +11767,8 @@ static void draw_menu(void) {
     }
     const s8 *L = sec_items[menu_sec];
     int LN = sec_n(menu_sec), ps = sec_pos(menu_sec, menu_sel);
-    if (ps < 0) { ps = 0; menu_sel = L[0]; }
+    if (ps < 0) { menu_sel = sec_first(menu_sec); ps = sec_pos(menu_sec, menu_sel); }
+    if (ps > 0 && L[ps - 1] <= -2 && ps - 1 < menu_top) menu_top = ps - 1;   /* v148 : le sous-titre du groupe reste visible */
     if (ps < menu_top) menu_top = ps;
     if (ps >= menu_top + vis) menu_top = ps - vis + 1;
     if (menu_top > LN - vis) menu_top = LN - vis;
@@ -11780,6 +11787,13 @@ static void draw_menu(void) {
     for (int r = menu_top; r < LN && r < menu_top + vis; r++) {
         int i = L[r];
         f32 ry = ly + (r - menu_top) * rh;
+        if (i <= -2) {                                    /* v148 : sous-titre d'un groupe */
+            const char *hd = sec_heads[-2 - i];
+            int tw = text_width(F_SMALL, hd, 0);
+            gx_text1(F_SMALL, x + 22, ry + 16, hd, RGBA(255, 200, 110, 255));
+            gx_rect(x + 30 + tw, ry + 11, w - 64 - tw, 1, RGBA(110, 80, 190, 160));
+            continue;
+        }
         int on = (i == menu_sel);
         gp_zone(x + 12, ry, w - 24, rh - 2, &menu_sel, i, GPZ_SEL);
         if (i == MI_QUIT) gx_rect(x + 18, ry - 2, w - 36, 1, RGBA(76, 52, 150, 200));

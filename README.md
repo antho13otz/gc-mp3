@@ -14,23 +14,17 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v147)
+## Nouveautés de la version actuelle (v148)
+- **Réglages mieux rangés** (START) : les 7 sections restent, mais chaque réglage est à sa place, en groupes avec un
+  sous-titre : Musique (Lecture, Son, Bibliothèque, Fête), Radio (Radio, Enregistrement, Podcasts), Affichage (Langue,
+  Apparence, Lecteur, Veille, Fichiers, Diagnostic), Vidéo (Télé, Image), Jeux (Console, Liste des jeux, Pulse,
+  Lanceur de secours), Réseau (Connexion, Partages, Salon et téléphone, Mises à jour). Rien n'est caché ni retiré.
+
+## Version précédente (v147)
 - **Sauvegardes partagées par QR code** : sur une sauvegarde (vraie carte, carte virtuelle), A > « Envoyer au
   téléphone (QR code) » : le téléphone la télécharge en .gci (même Wi-Fi). « Tout envoyer au téléphone » partage
   toutes les sauvegardes de la carte d'un coup (une page avec chaque fichier). Aussi dans START > Outils >
   « Historique des sauvegardes » : une copie entière d'un jeu.
-
-## Version précédente (v146)
-- **Pulse plus proche de Swiss** : tout ce que fait Swiss a été passé en revue (docs/ETUDE-SWISS.md, partie 7), et
-  ce qui manquait à Pulse est ajouté :
-  - **la console est préparée comme Swiss la prépare** avant chaque jeu (valeurs que le BIOS met en mémoire : code du
-    lecteur, norme des manettes, taille de l'ARAM, zone réservée en haut de la mémoire, cartes virtuelles « insérées »).
-    Utile surtout quand GC Station démarre sans le BIOS (ipl.dol, Swiss) ;
-  - **nouveaux jeux corrigés** : F-Zero GX / AX, Pokémon XD, Pokémon Colosseum (japonais), Hulk, Ultimate
-    Spider-Man, Star Wars : The Clone Wars ; Resident Evil 2 et 3 corrigés aussi dans leurs modules (`.rel`) ;
-  - **Star Wars Rogue Leader** : son programme est compressé, Pulse prend ses accès au lecteur au vol (Pulse universel,
-    automatique pour ce jeu).
-  - Rien de tout ça n'a pu être essayé sur une vraie console : dis-moi quels jeux marchent mieux (ou moins bien).
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
