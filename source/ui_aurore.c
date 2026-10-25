@@ -32,17 +32,27 @@ static void au_pill_h(f32 x, f32 y, f32 w, f32 h, f32 r, col_t l, col_t rr) {
 }
 
 /* ---------- fond : noir et aurores ---------- */
+/* v120 : points et couleurs calcules une fois chacun (avant : deux fois), un seul envoi au GX par ruban
+   (avant : 48 petits envois) */
 static void au_ribbon(f32 base, f32 amp, f32 th, f32 t, f32 sp, f32 ph, u8 alpha) {
-    const int N = 24;
-    for (int i = 0; i < N; i++) {
-        f32 x0 = -10 + i * 660.0f / N, x1 = -10 + (i + 1) * 660.0f / N;
-        f32 y0 = base + amp * sinf(x0 * 0.012f + t * sp + ph) + 0.4f * amp * sinf(x0 * 0.031f - t * sp * 1.7f);
-        f32 y1 = base + amp * sinf(x1 * 0.012f + t * sp + ph) + 0.4f * amp * sinf(x1 * 0.031f - t * sp * 1.7f);
-        col_t c0 = au_mix((f32)i / N, alpha), c1 = au_mix((f32)(i + 1) / N, alpha);
-        col_t z0 = c0, z1 = c1; z0.a = 0; z1.a = 0;
-        gx_poly4(x0, y0 - th, x1, y1 - th, x1, y1, x0, y0, z0, z1, c1, c0);           /* (fondu vers le haut) */
-        gx_poly4(x0, y0, x1, y1, x1, y1 + th * 0.35f, x0, y0 + th * 0.35f, c0, c1, z1, z0);
+    enum { N = 24 };
+    f32 xs[N + 1], ys[N + 1];
+    col_t cs[N + 1], zs[N + 1];
+    for (int i = 0; i <= N; i++) {
+        f32 x = -10 + i * 660.0f / N;
+        xs[i] = x;
+        ys[i] = base + amp * sinf(x * 0.012f + t * sp + ph) + 0.4f * amp * sinf(x * 0.031f - t * sp * 1.7f);
+        cs[i] = au_mix((f32)i / N, alpha);
+        zs[i] = cs[i]; zs[i].a = 0;
     }
+    gx_set_flat();
+    GX_Begin(GX_QUADS, GX_VTXFMT0, N * 8);
+    for (int i = 0; i < N; i++) {
+        f32 x0 = xs[i], x1 = xs[i + 1], y0 = ys[i], y1 = ys[i + 1];
+        vtx(x0, y0 - th, zs[i]); vtx(x1, y1 - th, zs[i + 1]); vtx(x1, y1, cs[i + 1]); vtx(x0, y0, cs[i]);   /* (fondu vers le haut) */
+        vtx(x0, y0, cs[i]); vtx(x1, y1, cs[i + 1]); vtx(x1, y1 + th * 0.35f, zs[i + 1]); vtx(x0, y0 + th * 0.35f, zs[i]);
+    }
+    GX_End();
 }
 static void au_background(void) {
     nv_raw = 1;
@@ -102,7 +112,13 @@ static void au_header(void) {
     /* noms : chacun a sa place sur une rangee (largeurs reelles), la rangee glisse pour mettre
        l'onglet choisi au centre ; plus gros et plus clair au centre */
     f32 wd[TAB_COUNT], cx[TAB_COUNT], acc = 0;
-    for (int i = 0; i < n; i++) { wd[i] = (f32)text_width(F_MED, TR(nv_tab_names[ids[i]]), 0); cx[i] = acc + wd[i] / 2; acc += wd[i] + 46; }
+    static f32 wc[TAB_COUNT]; static const char *wk[TAB_COUNT]; static f32 wk_ux;   /* (v120 : largeurs gardees) */
+    if (wk_ux != ux_k) { memset(wk, 0, sizeof(wk)); wk_ux = ux_k; }
+    for (int i = 0; i < n; i++) {
+        const char *nm = TR(nv_tab_names[ids[i]]);
+        if (wk[ids[i]] != nm) { wk[ids[i]] = nm; wc[ids[i]] = (f32)text_width(F_MED, nm, 0); }
+        wd[i] = wc[ids[i]]; cx[i] = acc + wd[i] / 2; acc += wd[i] + 46;
+    }
     int i0 = (int)floorf(au_p); if (i0 < 0) i0 = 0; if (i0 > n - 1) i0 = n - 1;
     int i1 = i0 + 1 < n ? i0 + 1 : i0;
     f32 fr = au_p - i0, center = cx[i0] + (cx[i1] - cx[i0]) * fr;
@@ -113,7 +129,7 @@ static void au_header(void) {
         if (d > 1.2f) continue;
         f32 near = 1 - fabsf(i - au_p); if (near < 0) near = 0;
         txt_scale = 1.0f + 0.32f * near;
-        f32 tw = text_width(F_MED, TR(nv_tab_names[ids[i]]), 0);
+        f32 tw = wd[i] * txt_scale;
         u8 al = (u8)(255 * (d >= 1 ? 0 : 1 - d * d) * (0.45f + 0.55f * near));
         col_t c = lerp_c(RGBA(150, 150, 175, al), RGBA(255, 255, 255, al), near);
         gx_text1(F_MED, x - tw / 2, 44, TR(nv_tab_names[ids[i]]), c);

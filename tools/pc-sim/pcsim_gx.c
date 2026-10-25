@@ -311,14 +311,15 @@ void GX_End(void) {
         fprintf(stderr, "[pcsim] ERREUR GX : %d sommets envoyes pour %d annonces dans GX_Begin\n", vn, (int)vexp);
         abort();
     }
+    unsigned long long tc = gx_now();                          /* v120 : ce comptage (calcul du PC) n'est pas du travail du Gekko */
     switch (vprim) {                                           /* (compte toujours : charge du GPU) */
     case GX_QUADS: for (int i = 0; i + 3 < vn; i += 4) { gp_count(&vb[i], &vb[i + 1], &vb[i + 2]); gp_count(&vb[i], &vb[i + 2], &vb[i + 3]); } break;
     case GX_TRIANGLES: for (int i = 0; i + 2 < vn; i += 3) gp_count(&vb[i], &vb[i + 1], &vb[i + 2]); break;
     case GX_TRIANGLESTRIP: for (int i = 0; i + 2 < vn; i++) gp_count(&vb[i], &vb[i + 1], &vb[i + 2]); break;
     case GX_TRIANGLEFAN: for (int i = 1; i + 1 < vn; i++) gp_count(&vb[0], &vb[i], &vb[i + 1]); break;
     }
-    if (!pcsim_capture) { vn = 0; return; }
-    unsigned long long t0 = gx_now();
+    if (!pcsim_capture) { vn = 0; pcsim_gx_ns += gx_now() - tc; return; }
+    unsigned long long t0 = tc;
     switch (vprim) {
     case GX_QUADS: for (int i = 0; i + 3 < vn; i += 4) { tri(&vb[i], &vb[i + 1], &vb[i + 2]); tri(&vb[i], &vb[i + 2], &vb[i + 3]); } break;
     case GX_TRIANGLES: for (int i = 0; i + 2 < vn; i += 3) tri(&vb[i], &vb[i + 1], &vb[i + 2]); break;
