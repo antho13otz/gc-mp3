@@ -7,7 +7,7 @@
 // stat... marchent comme sur la carte SD (musique, photos, videos, copie vers la carte).
 // Lecture seulement.
 
-enum { NFS_SMB, NFS_FTP, NFS_FSP, NFS_N };
+enum { NFS_SMB, NFS_FTP, NFS_FSP, NFS_GCS, NFS_N };   /* v138 : gcs:/ = une autre GC Station (Salon) */
 #define NFS_NAME 128
 typedef struct { char name[NFS_NAME]; u8 dir; u32 size, mtime; } nfs_ent_t;
 static const char *nfs_cistr(const char *h, const char *n) {      /* (strcasestr) */
@@ -15,12 +15,12 @@ static const char *nfs_cistr(const char *h, const char *n) {      /* (strcasestr
     for (; *h; h++) if (!strncasecmp(h, n, l)) return h;
     return NULL;
 }
-static const char *const nfs_scheme[NFS_N] = { "smb", "ftp", "fsp" };
-static const char *const nfs_label[NFS_N] = { "Partage SMB", "Serveur FTP", "Serveur FSP" };
+static const char *const nfs_scheme[NFS_N] = { "smb", "ftp", "fsp", "gcs" };
+static const char *const nfs_label[NFS_N] = { "Partage SMB", "Serveur FTP", "Serveur FSP", "GC Station" };
 
 /* ---------- reglages ---------- */
 typedef struct { char host[64], share[64], user[64], pass[64]; int port, pasv, mtu; } nfs_cfg_t;
-static nfs_cfg_t nfs_cfg[NFS_N] = { { "", "", "", "", 445, 0, 0 }, { "", "", "", "", 21, 1, 0 }, { "", "", "", "", 21, 0, 0 } };
+static nfs_cfg_t nfs_cfg[NFS_N] = { { "", "", "", "", 445, 0, 0 }, { "", "", "", "", 21, 1, 0 }, { "", "", "", "", 21, 0, 0 }, { "", "", "", "", 80, 0, 0 } };
 static char nfs_err[120] = "";
 static int nfs_cfg_ok(int p) { return nfs_cfg[p].host[0] && (p != NFS_SMB || nfs_cfg[p].share[0]); }
 static void nfs_seterr(const char *m) { snprintf(nfs_err, sizeof(nfs_err), "%s", m); }
@@ -591,6 +591,120 @@ static int nfs_cache_find(const char *path, int *dir, u32 *size) {
     return -1;
 }
 
+
+/* ======================= v138 : GC Station (Salon) =======================
+   L'autre console sert sa carte SD par son serveur du telephone : /s/list, /s/stat, /s/get (morceaux, en-tete
+   Range), en HTTP tout simple (une connexion par demande). Chemins relatifs a sa carte SD. */
+typedef struct { char rel[NAME_LEN]; u32 size, pos; } gcs_file_t;
+static void gcs_pct(char *o, int cap, const char *t) {           /* chemin -> morceau d'adresse (%XX) */
+    static const char hx[] = "0123456789ABCDEF";
+    int n = 0;
+    for (const unsigned char *q = (const unsigned char *)t; *q && n < cap - 4; q++) {
+        if (isalnum(*q) || *q == '/' || *q == '.' || *q == '-' || *q == '_') o[n++] = (char)*q;
+        else { o[n++] = '%'; o[n++] = hx[*q >> 4]; o[n++] = hx[*q & 15]; }
+    }
+    o[n] = 0;
+}
+/* demande HTTP ; corps dans out (cap octets au plus) ; rend la taille lue, -1 si erreur ; *total : taille entiere
+   (Content-Range, sinon Content-Length) */
+static int gcs_http(const char *what, const char *rel, u32 from, u32 len, u8 *out, int cap, u32 *total) {
+    char q[NAME_LEN * 3 + 16], req[NAME_LEN * 3 + 256];
+    gcs_pct(q, sizeof(q), rel);
+    s32 fd = nfs_tcp(nfs_cfg[NFS_GCS].host, nfs_cfg[NFS_GCS].port);
+    if (fd < 0) return -1;
+    int rl = len ? snprintf(req, sizeof(req), "GET /s/%s?p=%s HTTP/1.0\r\nHost: %s\r\nRange: bytes=%u-%u\r\n\r\n", what, q, nfs_cfg[NFS_GCS].host, (unsigned)from, (unsigned)(from + len - 1))
+                 : snprintf(req, sizeof(req), "GET /s/%s?p=%s HTTP/1.0\r\nHost: %s\r\n\r\n", what, q, nfs_cfg[NFS_GCS].host);
+    if (!nfs_send(fd, req, rl)) { net_close(fd); nfs_seterr("Envoi impossible"); return -1; }
+    static char h[2048];
+    int hl = 0, body = -1;
+    while (hl < (int)sizeof(h) - 1) {                    /* en-tetes (le debut du corps peut suivre) */
+        int r = nfs_recv(fd, h + hl, (int)sizeof(h) - 1 - hl, 8000);
+        if (r <= 0) break;
+        hl += r; h[hl] = 0;
+        char *e = strstr(h, "\r\n\r\n");
+        if (e) { body = (int)(e - h) + 4; break; }
+    }
+    int code = 0;
+    if (body < 0 || sscanf(h, "HTTP/%*d.%*d %d", &code) != 1 || (code != 200 && code != 206)) {
+        net_close(fd);
+        nfs_seterr(code == 404 ? "Introuvable sur l'autre console" : code == 403 ? "L'autre console n'a pas le Salon actif" : "L'autre console ne r\xC3\xA9pond pas");
+        return -1;
+    }
+    if (total) {
+        const char *cr = nfs_cistr(h, "\ncontent-range:"), *cl = nfs_cistr(h, "\ncontent-length:");
+        const char *sl = cr ? strchr(cr, '/') : NULL;
+        *total = sl && sl < h + body ? (u32)strtoul(sl + 1, NULL, 10) : cl ? (u32)strtoul(cl + 16, NULL, 10) : 0;
+    }
+    int got = hl - body;
+    if (got > cap) got = cap;
+    if (got > 0) memcpy(out, h + body, got);
+    while (got < cap) {
+        int r = nfs_recv(fd, out + got, cap - got, 8000);
+        if (r <= 0) break;
+        got += r;
+    }
+    net_close(fd);
+    return got;
+}
+static int gcs_list(const char *rel, nfs_ent_t **out, int *n) {
+    char *t = (char *)malloc(256 * 1024);
+    if (!t) return 0;
+    int len = gcs_http("list", rel, 0, 0, (u8 *)t, 256 * 1024 - 1, NULL);
+    if (len < 0) { free(t); return 0; }
+    t[len] = 0;
+    int cap = 64, k = 0;
+    nfs_ent_t *e = (nfs_ent_t *)malloc(sizeof(nfs_ent_t) * cap);
+    for (char *l = strtok(t, "\n"); l && e; l = strtok(NULL, "\n")) {   /* "d\ttaille\tnom" */
+        char *a = strchr(l, '\t'), *b = a ? strchr(a + 1, '\t') : NULL;
+        if (!a || !b || !b[1]) continue;
+        if (k == cap) { nfs_ent_t *ne = (nfs_ent_t *)realloc(e, sizeof(nfs_ent_t) * cap * 2); if (!ne) break; e = ne; cap *= 2; }
+        memset(&e[k], 0, sizeof(e[k]));
+        e[k].dir = l[0] == 'd';
+        e[k].size = (u32)strtoul(a + 1, NULL, 10);
+        snprintf(e[k].name, sizeof(e[k].name), "%s", b + 1);
+        k++;
+    }
+    free(t);
+    *out = e; *n = k;
+    return e != NULL;
+}
+static int gcs_stat(const char *rel, int *dir, u32 *size) {
+    char t[64];
+    int len = gcs_http("stat", rel, 0, 0, (u8 *)t, sizeof(t) - 1, NULL);
+    if (len <= 0) return 0;
+    t[len] = 0;
+    if (dir) *dir = t[0] == 'd';
+    if (size) *size = (u32)strtoul(t + 2, NULL, 10);
+    return 1;
+}
+static int gcs_fopen(gcs_file_t *h, const char *rel) {
+    int d = 0; u32 sz = 0;
+    if (!gcs_stat(rel, &d, &sz) || d) return 0;
+    snprintf(h->rel, sizeof(h->rel), "%s", rel);
+    h->size = sz; h->pos = 0;
+    return 1;
+}
+static int gcs_fread(gcs_file_t *h, u8 *dst, int len) {
+    if (h->pos >= h->size) return 0;
+    if ((u32)len > h->size - h->pos) len = (int)(h->size - h->pos);
+    u32 tot = 0;
+    int got = gcs_http("get", h->rel, h->pos, (u32)len, dst, len, &tot);
+    if (got <= 0) return got;
+    h->pos += got;
+    return got;
+}
+
+/* v138 : le Salon (salon.c) : consoles trouvees sur le reseau */
+#define SALON_MAX 8
+typedef struct { char name[40]; char ip[16]; char now[80]; u64 seen; } salon_peer_t;
+static salon_peer_t salon_peers[SALON_MAX];
+static int salon_n = 0;
+static int salon_gen = 0;                              /* (change quand une console arrive ou part : liste des appareils a refaire) */
+static int salon_on = 0;                                  /* (reglage : salon = oui) */
+static char salon_name[40] = "";                          /* (reglage : salon_nom) */
+static const char *salon_listen(int k);
+static int salon_route(s32 c, const char *target, const char *q, char *req);
+
 /* ======================= commun ======================= */
 static int nfs_list(const char *path, nfs_ent_t **out, int *n) {
     int p = -1;
@@ -598,7 +712,7 @@ static int nfs_list(const char *path, nfs_ent_t **out, int *n) {
     *out = NULL; *n = 0;
     if (!rel) return 0;
     if (!nfs_cfg_ok(p)) { nfs_seterr("Pas r\xC3\xA9gl\xC3\xA9 : START > R\xC3\xA9glages > R\xC3\xA9seau"); return 0; }
-    int ok = p == NFS_FTP ? ftp_list(rel, out, n) : p == NFS_FSP ? fsp_list(rel, out, n) : smb_list(rel, out, n);
+    int ok = p == NFS_FTP ? ftp_list(rel, out, n) : p == NFS_FSP ? fsp_list(rel, out, n) : p == NFS_GCS ? gcs_list(rel, out, n) : smb_list(rel, out, n);
     if (ok) nfs_cache_put(path, *out, *n);
     return ok;
 }
@@ -611,6 +725,7 @@ static int nfs_stat(const char *path, int *dir, u32 *size) {
     if (c >= 0) return c;
     if (p == NFS_FTP) return ftp_stat(rel, dir, size);
     if (p == NFS_FSP) return fsp_stat(rel, dir, size);
+    if (p == NFS_GCS) return gcs_stat(rel, dir, size);
     return smb_stat(rel, dir, size);
 }
 /* v119 : FTP et FSP : le fichier est lu par morceaux de 32 Ko gardes en memoire (4 par fichier). Lire les
@@ -619,7 +734,7 @@ static int nfs_stat(const char *path, int *dir, u32 *size) {
 #define NFS_NBLK 4
 typedef struct {
     int proto;
-    union { ftp_file_t ftp; fsp_file_t fsp; smb_file_t smb; } u;
+    union { ftp_file_t ftp; fsp_file_t fsp; smb_file_t smb; gcs_file_t gcs; } u;
     u32 lpos;                                   /* position lue par le programme (FTP / FSP) */
     u8 *blk[NFS_NBLK]; u32 bpos[NFS_NBLK]; int blen[NFS_NBLK]; u32 bused[NFS_NBLK], bclock;
 } nfile_t;
@@ -634,20 +749,20 @@ static nfile_t *nfs_fopen(const char *path) {
     f->proto = p;
     int kd = 0; u32 ksz = 0;
     int known = p == NFS_FTP && nfs_cache_find(path, &kd, &ksz) == 1 && !kd;   /* (taille deja lue dans la liste) */
-    int ok = p == NFS_FTP ? ftp_fopen(&f->u.ftp, rel, ksz, known) : p == NFS_FSP ? fsp_fopen(&f->u.fsp, rel) : smb_fopen(&f->u.smb, rel);
+    int ok = p == NFS_FTP ? ftp_fopen(&f->u.ftp, rel, ksz, known) : p == NFS_FSP ? fsp_fopen(&f->u.fsp, rel) : p == NFS_GCS ? gcs_fopen(&f->u.gcs, rel) : smb_fopen(&f->u.smb, rel);
     if (!ok) { free(f); return NULL; }
     return f;
 }
-static u32 nfs_fsize(nfile_t *f) { return f->proto == NFS_FTP ? f->u.ftp.size : f->proto == NFS_FSP ? f->u.fsp.size : f->u.smb.size; }
+static u32 nfs_fsize(nfile_t *f) { return f->proto == NFS_FTP ? f->u.ftp.size : f->proto == NFS_FSP ? f->u.fsp.size : f->proto == NFS_GCS ? f->u.gcs.size : f->u.smb.size; }
 static u32 *nfs_fpos(nfile_t *f) { return f->proto == NFS_SMB ? &f->u.smb.pos : &f->lpos; }
 /* lit un morceau entier a la position bp (FTP : a la suite du transfert en cours si c'est la suite) */
 static int nfs_blk_fill(nfile_t *f, u32 bp, u8 *dst) {
     u32 size = nfs_fsize(f);
     int want = size - bp < NFS_BLK ? (int)(size - bp) : NFS_BLK;
     int got = 0;
-    if (f->proto == NFS_FTP) f->u.ftp.pos = bp; else f->u.fsp.pos = bp;
+    if (f->proto == NFS_FTP) f->u.ftp.pos = bp; else if (f->proto == NFS_GCS) f->u.gcs.pos = bp; else f->u.fsp.pos = bp;
     while (got < want) {
-        int k = f->proto == NFS_FTP ? ftp_fread(&f->u.ftp, dst + got, want - got) : fsp_fread(&f->u.fsp, dst + got, want - got);
+        int k = f->proto == NFS_FTP ? ftp_fread(&f->u.ftp, dst + got, want - got) : f->proto == NFS_GCS ? gcs_fread(&f->u.gcs, dst + got, want - got) : fsp_fread(&f->u.fsp, dst + got, want - got);
         if (k <= 0) return got ? got : k;
         got += k;
     }
@@ -783,9 +898,9 @@ int gcs_nfs_list(const char *path, void **ents, int *n, int *esz) { *esz = (int)
 #endif
 
 /* ---------- reglages dans gc-mp3.txt ---------- */
-static const char *const nfs_key[NFS_N] = { "smb", "ftp", "fsp" };
+static const char *const nfs_key[NFS_N] = { "smb", "ftp", "fsp", "gcs" };
 static int nfs_setting(const char *k, const char *v) {
-    for (int p = 0; p < NFS_N; p++) {
+    for (int p = 0; p < NFS_GCS; p++) {                   /* (gcs : choisi dans le Salon, pas un reglage) */
         size_t l = strlen(nfs_key[p]);
         if (strncasecmp(k, nfs_key[p], l) || k[l] != '_') continue;
         const char *f = k + l + 1;
@@ -802,7 +917,7 @@ static int nfs_setting(const char *k, const char *v) {
 }
 static void nfs_save(FILE *f) {
     fprintf(f, "# Serveurs du reseau (onglet FICHIERS)\n");
-    for (int p = 0; p < NFS_N; p++) {
+    for (int p = 0; p < NFS_GCS; p++) {
         const nfs_cfg_t *c = &nfs_cfg[p];
         fprintf(f, "%s_adresse = %s\n", nfs_key[p], c->host);
         if (p == NFS_SMB) fprintf(f, "%s_partage = %s\n", nfs_key[p], c->share);

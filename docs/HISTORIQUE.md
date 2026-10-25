@@ -21,6 +21,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v138 — le Salon (plusieurs GC Station sur le réseau)
+- `source/salon.c` : annonce UDP (port 51234, `GCST1\tnom\tport\ttitre`) toutes les 5 s à 255.255.255.255 et au
+  sous-réseau ; les annonces des autres consoles remplissent `salon_peers` (partie après 20 s sans annonce).
+- Le serveur du téléphone répond à `/s/list`, `/s/stat`, `/s/get` (avec Range) et `/s/now`, seulement Salon actif
+  (403 sinon), chemins limités à la carte SD (`..` refusé).
+- `netfs.c` : 4e système `gcs:` (client de ces routes) : les autres consoles se parcourent et se copient comme un
+  serveur SMB/FTP. La liste des appareils (onglet FICHIERS) se refait quand une console arrive ou part.
+- « Écouter avec » (Y) : `/s/now` donne le chemin et la position ; le morceau est lu en `gcs:/…` et avancé.
+- Réglages `salon` et `salon_nom` dans `gc-mp3.txt`.
+- Mario Superstar Baseball (v136) confirmé sur la console.
+
 ## Nouveautés v137 — base de compatibilité des jeux
 - `source/compat.c` : après la conversion du journal de Pulse (`nat_journal_convert`), `cp_after_game` note un
   plantage tout seul (exception notée par le résident), sinon une question est posée 3 s après le démarrage
