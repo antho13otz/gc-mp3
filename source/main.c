@@ -11497,7 +11497,7 @@ static void menu_change(int i, int d) {
     case MI_RADIORES: radio_resume = !radio_resume; break;
     case MI_GAPLESS: gapless_on = !gapless_on; break;
     case MI_VIDEO:   video_pref = (video_pref + d + VID_COUNT) % VID_COUNT; if (video_pref != VID_480I) tv_crt = 0;
-                     ic_put("Apps Video Mode", video_pref == VID_480I ? "480i" : video_pref == VID_480P ? "480p" : video_pref == VID_576I ? "576i" : video_pref == VID_576P ? "576p" : "Auto"); break;
+                     ic_put("Apps Video Mode", video_pref == VID_480I ? "480i" : video_pref == VID_480P ? "480p" : "Auto"); break;   /* v130 : 576 : pas pour les jeux */
     case MI_TV:
         tv_crt = !tv_crt;
         if (tv_crt) { video_pref = VID_480I; scr_set_wide(0); }
@@ -12822,6 +12822,7 @@ int main(int argc, char **argv) {
     nfs_mount();
     jeux_cfg_boot();                        /* v75 : langue / son de la console, reseau */
     if (sd_ok) ld_boot();                   /* v45 : retour.txt (retour en jeu) + journal du lanceur */
+    if (sd_ok && !sd_virtual && (video_pref == VID_576I || video_pref == VID_576P)) ic_put("Apps Video Mode", "Auto");   /* v130 : (v128 y mettait 576 : pas pour les jeux) */
     bt_step("jeux et lanceur");
     if (!init_video()) return 1;
     bt_step("video");

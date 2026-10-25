@@ -1596,6 +1596,10 @@ static const char *gl_boot_mem(unsigned char *dol, long len, const char *dolpath
     bg_quiesce();                                        /* v96 : la lecture en fond finit avant le demontage */
     fatUnmount("sd");
     VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();
+    if (rmode && rmode->xfbHeight >= 574) {              /* v130 : 576p / 576i de GC Station : le programme lance repart d'un mode standard */
+        VIDEO_Configure(VIDEO_GetCurrentTvMode() == VI_PAL ? &TVPal576IntDfScale : &TVEurgb60Hz480IntDf);
+        VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();
+    }
     SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
     u32 level = IRQ_Disable();                           /* plus d'interruptions : on ecrase GC-MP3 */
     (void)level;

@@ -14,7 +14,11 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v129)
+## Nouveautés de la version actuelle (v130)
+- **576p / 576i et les jeux** : en lançant un jeu ou une appli, la sortie vidéo revient toujours à un mode
+  standard (le jeu choisit le sien) ; le lanceur de secours ne reçoit plus « 576 » dans ses réglages.
+
+## Version précédente (v129)
 - **Deux nouveaux styles** (START > Réglages > Affichage > Style) :
   - **Nébula** : la suite d'Aurore : grandes lueurs floues rose, violette et cyan qui dérivent, cadres en verre
     avec reflet, sélection en dégradé rose → cyan, légende dans une pastille de verre ;
