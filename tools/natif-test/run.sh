@@ -41,3 +41,28 @@ python3 $T/emu_e2e.py boot.bin sd.img game.iso exec | tail -1    # (v95 : OSExec
 python3 $T/mkiso.py game.text game-a.iso reboot.text prog2.text 2026/10/22 && python3 $T/mkfat.py 32 game-a.iso sd-a.img 1 selfdol.dol 2097152 >/dev/null
 NATIF_SELF=selfdol.dol NATIF_DUMP=boot-a.bin ./h2 game-a.iso sd-a.img 10 >/dev/null
 python3 $T/emu_e2e.py boot-a.bin sd-a.img game-a.iso execa | tail -1   # (v95 : OSExec, apploader recent : .dol recopie a sa place)
+# v121 : .ciso (un bloc absent = des zeros), jeux a 2 disques, cheats (codes Gecko), 16:9 force
+python3 - <<'PY'
+import struct
+iso = bytearray(open('game.iso', 'rb').read()); bs = 0x8000
+iso[9 * bs:10 * bs] = bytes(bs)                       # (bloc 9 : des zeros -> absent du .ciso)
+open('game-c.iso', 'wb').write(iso)
+hdr = bytearray(0x8000); hdr[0:4] = b'CISO'; struct.pack_into('<I', hdr, 4, bs)
+body = bytearray()
+for b in range(len(iso) // bs):
+    blk = iso[b * bs:(b + 1) * bs]
+    if any(blk): hdr[8 + b] = 1; body += blk
+open('game.ciso', 'wb').write(hdr + body)
+d2 = bytearray(open('game.iso', 'rb').read()); d2[6] = 1; d2[0x1000:0x1200] = bytes(x ^ 0xFF for x in d2[0x1000:0x1200])
+open('disc2.iso', 'wb').write(d2)
+PY
+python3 $T/mkfat.py 32 game.ciso sd-c.img 1 selfdol.dol 2097152 >/dev/null
+NATIF_SELF=selfdol.dol NATIF_DUMP=boot-c.bin ./h2 game.ciso sd-c.img 10 ciso >/dev/null
+python3 $T/emu_e2e.py boot-c.bin sd-c.img game-c.iso | tail -1                  # (.ciso : meme jeu, bloc absent lu comme des zeros)
+python3 $T/mkfat.py 32 game.iso sd-s.img 1 selfdol.dol 2097152 disc2.iso >/dev/null
+NATIF_SELF=selfdol.dol NATIF_DISC2=disc2.iso NATIF_DUMP=boot-s.bin ./h2 game.iso sd-s.img 10 >/dev/null
+python3 $T/emu_e2e.py boot-s.bin sd-s.img game.iso swap disc2.iso | tail -1      # (changement de disque)
+printf '04001F70 12345678\n20001F74 00000000\n02001F78 0000ABCD\nE2000001 00000000\n20001F7C 00000001\n04001F80 DEADBEEF\nE2000001 00000000\n4A000000 80001F00\n14000084 CAFEBABE\nDE000000 80008180\n14000088 11111111\nE0000000 80008000\nC0000000 00000002\n3C608000 90631F8C\n4E800020 00000000\n00001F62 0001005A\nF0000000 00000000\n' > cheats.txt
+NATIF_SELF=selfdol.dol NATIF_CHEATS=cheats.txt NATIF_WS=1 NATIF_DUMP=boot-g.bin ./h2 game.iso sd.img 10 > h2-g.txt
+python3 $T/emu_e2e.py boot-g.bin sd.img game.iso cheat | tail -1                # (cheats appliques par Pulse)
+python3 $T/emu_e2e.py boot-g.bin sd.img game.iso ws | tail -1                   # (16:9 force : GXSetProjection)

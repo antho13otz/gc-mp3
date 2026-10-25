@@ -244,6 +244,75 @@ static void ch_sel_load(void) {
     }
     free(d);
 }
+/* v121 : les codes actives d'un jeu (pour Pulse, sans le lanceur de secours) : memes regles que Swiss (un
+   cheat = des lignes de code a la suite ; choix dans <ID>.chtsel, valable si l'empreinte des codes est la
+   meme). Ne touche pas a l'editeur. Rend le nombre de mots ecrits dans out (2 par ligne), 0 = rien
+   d'active, -1 = trop de codes ou memoire insuffisante. */
+static int ch_collect(const char *id, u32 *out, int cap) {
+    char p[NAME_LEN];
+    snprintf(p, sizeof(p), "%s/%.6s.txt", CH_DIR, id);
+    long len = 0;
+    unsigned char *d = read_file(p, 1024 * 1024, &len);
+    if (!d) return 0;
+    char (*l)[CH_LW] = malloc(sizeof(*l) * CH_MAXL);
+    if (!l) { free(d); return -1; }
+    int nl = 0;
+    long i = len >= 3 && d[0] == 0xEF && d[1] == 0xBB && d[2] == 0xBF ? 3 : 0;
+    while (i < len && nl < CH_MAXL) {
+        long st = i;
+        while (i < len && d[i] != '\n') i++;
+        long n = i - st;
+        if (n > 0 && d[st + n - 1] == '\r') n--;
+        if (n > CH_LW - 1) n = CH_LW - 1;
+        memcpy(l[nl], d + st, n); l[nl][n] = 0;
+        nl++; i++;
+    }
+    free(d);
+    /* cheats valides (comme ch_sw_walk) : debut, fin ; empreinte de tous leurs codes */
+    int ns = 0, cs[CH_MAXC], ce[CH_MAXC];
+    ch_hbuf hb = { NULL, 0, 0 };
+    for (int k = 0; k < nl;) {
+        if (!l[k][0] || !ch_sw_iscode_raw(l[k])) { k++; continue; }
+        int s0 = k, bad = !ch_sw_valid_raw(l[k]);
+        k++;
+        while (k < nl) { if (!l[k][0]) { k++; continue; } if (!ch_sw_iscode_raw(l[k])) break; if (!ch_sw_valid_raw(l[k])) bad = 1; k++; }
+        if (bad) continue;
+        if (ns < CH_MAXC) { cs[ns] = s0; ce[ns] = k; }
+        ns++;
+        for (int j = s0; j < k; j++) {
+            if (!l[j][0] || !ch_sw_iscode_raw(l[j])) continue;
+            const char *pp = l[j];
+            u32 a = ch_hexval(&pp), b = ch_hexval(&pp);
+            if (hb.cap >= 0 && hb.n + 8 > hb.cap) { int nc = hb.cap ? hb.cap * 2 : 4096; u8 *nb = realloc(hb.b, nc); if (!nb) hb.cap = -1; else { hb.b = nb; hb.cap = nc; } }
+            if (hb.cap < 0) continue;
+            u8 *q = hb.b + hb.n;
+            q[0] = a >> 24; q[1] = a >> 16; q[2] = a >> 8; q[3] = a; q[4] = b >> 24; q[5] = b >> 16; q[6] = b >> 8; q[7] = b;
+            hb.n += 8;
+        }
+    }
+    int r = 0;
+    snprintf(p, sizeof(p), "%s/%.6s.chtsel", CH_DIR, id);
+    long sl = 0;
+    unsigned char *sel = hb.cap >= 0 ? read_file(p, 65536, &sl) : NULL;
+    if (hb.cap < 0) r = -1;
+    else if (sel && sl >= 8) {
+        u64 h = xxh64(hb.b ? hb.b : (const u8 *)"", (size_t)hb.n), old = 0;
+        for (int k = 0; k < 8; k++) old = (old << 8) | sel[sl - 8 + k];
+        if (old == h) {
+            for (int c = 0; c < ns && c < CH_MAXC && c < sl - 8 && r >= 0; c++) {
+                if (!sel[c]) continue;
+                for (int j = cs[c]; j < ce[c]; j++) {
+                    if (!l[j][0] || !ch_sw_iscode_raw(l[j])) continue;
+                    if (r + 2 > cap) { r = -1; break; }
+                    const char *pp = l[j];
+                    out[r] = ch_hexval(&pp); out[r + 1] = ch_hexval(&pp); r += 2;
+                }
+            }
+        }
+    }
+    free(sel); free(hb.b); free(l);
+    return r;
+}
 typedef struct { u8 *sel; int n, any; } ch_sctx;
 static void ch_sel_save_cb(int no, int s, int e, void *ctx) {
     (void)e;

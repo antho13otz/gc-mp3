@@ -283,6 +283,10 @@ _start:
     ori 25,25,0x5151
     bctr
 9:  lwz 12,0x1F44(20)       # v95 : si 0x80001F44 = 1 : OSExec (ancien apploader) au lieu de A+Z+START
+    cmpwi 12,3              # v121 : 3 = changement de disque, 4 = cheats, 5 = 16:9 force
+    beq swap_test
+    cmpwi 12,5
+    beq ws_test
     cmpwi 12,2
     beq 7f
     cmpwi 12,1
@@ -336,6 +340,106 @@ _start:
     lwz 0,36(1)
     mtlr 0
     addi 1,1,32
+    blr
+
+# v121 : changement de disque : moteur arrete (E3), masque du couvercle, 70 images ; le resident doit
+# donner "couvercle referme" (CVRINT) puis servir l'autre disque
+swap_test:
+    li 3,0
+    li 4,0
+    li 5,0
+    lis 6,0xE300
+    bl dvd_cmd
+    lis 9,0xCC00
+    li 0,2
+    stw 0,0x6004(9)
+    li 21,70
+1:  lwz 12,0x30A0(20)
+    mtctr 12
+    li 3,24
+    li 4,0
+    bctrl
+    addic. 21,21,-1
+    bne 1b
+    lis 9,0xCC00
+    lwz 0,0x6004(9)
+    stw 0,0x1F48(20)
+    li 0,6
+    stw 0,0x6004(9)
+    lwz 0,0x6004(9)
+    stw 0,0x1F4C(20)
+    lis 3,0x8011
+    li 4,0x20
+    li 5,0
+    lis 6,0xA800
+    ori 6,6,0x40
+    bl dvd_cmd
+    lis 3,0x8011
+    ori 3,3,0x0100
+    li 4,0x200
+    li 5,0x1000
+    lis 6,0xA800
+    bl dvd_cmd
+    b 8b
+
+# v121 : 16:9 force : matrice en 0x80001D00 (m00 = 1, m02 = 0,5, m03 = 0,25), perspective puis orthographique
+ws_test:
+    lis 9,0x8000
+    lis 0,0x3F80
+    stw 0,0x1D00(9)
+    lis 0,0x3F00
+    stw 0,0x1D08(9)
+    lis 0,0x3E80
+    stw 0,0x1D0C(9)
+    lis 0,0x4000
+    stw 0,0x1D14(9)
+    li 4,0
+    lis 3,0x8000
+    ori 3,3,0x1D00
+    bl gxsetproj
+    lis 9,0x8000
+    lwz 0,0x1E04(9)
+    stw 0,0x1F90(9)
+    lwz 0,0x1E08(9)
+    stw 0,0x1F94(9)
+    lwz 0,0x1E0C(9)
+    stw 0,0x1FA0(9)
+    li 4,1
+    lis 3,0x8000
+    ori 3,3,0x1D00
+    bl gxsetproj
+    lis 9,0x8000
+    lwz 0,0x1E04(9)
+    stw 0,0x1F98(9)
+    lwz 0,0x1E08(9)
+    stw 0,0x1F9C(9)
+    b 8b
+
+# comme GXSetProjection du SDK : lit m[0][0] m[1][1] m[2][2] m[2][3], puis selon le type
+gxsetproj:
+    stwu 1,-16(1)
+    lis 5,0x8000
+    cmpwi 4,1
+    lfs 0,0(3)
+    stw 4,0x1E00(5)
+    stfs 0,0x1E04(5)
+    lfs 0,0x14(3)
+    stfs 0,0x1E0C(5)
+    lfs 0,0x28(3)
+    stfs 0,0x1E14(5)
+    lfs 0,0x2C(3)
+    stfs 0,0x1E18(5)
+    beq 1f
+    lfs 0,0x8(3)
+    stfs 0,0x1E08(5)
+    lfs 0,0x18(3)
+    stfs 0,0x1E10(5)
+    b 2f
+1:  lfs 0,0xC(3)
+    stfs 0,0x1E08(5)
+    lfs 0,0x1C(3)
+    stfs 0,0x1E10(5)
+2:  addi 1,1,16
     blr
 
 # dvd_cmd(r3=memoire, r4=taille, r5=position, r6=commande) : fonction feuille (sans pile)

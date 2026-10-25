@@ -47,6 +47,8 @@ typedef struct {
     u32 func_addr[NA_MAXHIT];
     int problems;
     char err[160];
+    u32 ws_fn, ws_ins;                        /* v121 : GXSetProjection (16:9 force) : adresse, 1re instruction */
+    int ws_n;                                 /* (nombre de fonctions qui lui ressemblent : 1 = sur) */
 } nat_info_t;
 
 static const char *na_adapter(void);
@@ -220,6 +222,32 @@ static void na_scan_text(nat_info_t *in, const u8 *txt, u32 base, u32 len) {
     }
 }
 
+/* v121 : 16:9 force. Toutes les images 3D passent par GXSetProjection(matrice, type) de la bibliotheque
+   graphique du jeu : elle lit dans la matrice (r3) les cases 0x00 0x14 0x28 0x2C, puis selon le type (r4,
+   compare a 1 = orthographique) 0x0C 0x1C ou 0x08 0x18. On la reconnait a ces lectures, sans rien savoir
+   d'autre du jeu. Pulse y pose un aiguillage : pour une perspective, la 1re ligne de la matrice (largeur)
+   est multipliee par 3/4 sur une copie : l'image 4:3 etiree par une tele 16:9 retrouve ses proportions, et
+   on voit plus large. Les menus en 2D (orthographiques) restent etires, comme avec le reglage de Swiss. */
+static void na_ws_scan(nat_info_t *in, const u8 *txt, u32 base, u32 len) {
+    for (u32 o = 0; o + 4 <= len; o += 4) {
+        u32 ins = be32(txt + o);
+        if (ins != 0x2C040001u && ins != 0x28040001u) continue;      /* cmpwi / cmplwi r4,1 */
+        u32 f = na_func_start(txt, base, base + o);
+        if (base + o - f > 0x40) continue;
+        u32 seen = 0;
+        for (u32 a = f; a < f + 0x80 && a + 4 <= base + len; a += 4) {
+            u32 w = be32(txt + (a - base)), op = w >> 26, ra = (w >> 16) & 31, d = w & 0xFFFF;
+            if ((op == 48 || op == 32) && ra == 3 && d < 0x40 && !(d & 3)) seen |= 1u << (d >> 2);
+            if (w == 0x4E800020u) break;                                  /* blr */
+        }
+        const u32 need = 1u << 0 | 1u << 5 | 1u << 10 | 1u << 11 | 1u << 2 | 1u << 6 | 1u << 3 | 1u << 7;
+        if ((seen & need) != need) continue;
+        if (in->ws_n && in->ws_fn == f) continue;
+        in->ws_n++;
+        in->ws_fn = f; in->ws_ins = be32(txt + (f - base));
+    }
+}
+
 /* analyse complete ; retourne 0 si le disque est illisible */
 static int nat_analyse(const char *path, nat_info_t *in) {
     memset(in, 0, sizeof(*in));
@@ -265,7 +293,7 @@ static int nat_analyse(const char *path, nat_info_t *in) {
                 okr = gd_read(&d, in->dol_off + off + o, t + o, k);
                 service_audio(); nat_ld_tick();
             }
-            if (okr) na_scan_text(in, t, addr, sz);
+            if (okr) { na_scan_text(in, t, addr, sz); na_ws_scan(in, t, addr, sz); }
             else { in->problems++; snprintf(in->err, sizeof(in->err), "Section %d illisible (m\xC3\xA9moire ?)", i); }
             free(t);
             service_audio();
@@ -419,24 +447,27 @@ static int sd_space(unsigned long long *tot, unsigned long long *fre) {
 }
 #endif
 
+/* v121 : lecture brute d'une autre carte que celle de GC Station (carte SD du GC Loader) */
+static int (*na_dev_rd)(u32 sec, void *buf) = NULL;
+static int na_rs(u32 sec, void *buf) { return na_dev_rd ? na_dev_rd(sec, buf) : na_rawsec(sec, buf); }
 /* morceaux de l'ISO sur la carte ; 0 = OK */
 static int nat_map(const char *path, char *err, int cap) {
     static u8 b[512] ATTRIBUTE_ALIGN(32), fb[512] ATTRIBUTE_ALIGN(32);
     struct stat st;
     na_next = 0;
-    if (sd_virtual) { snprintf(err, cap, "Pas de vraie carte SD"); return -1; }
+    if (sd_virtual && !na_dev_rd) { snprintf(err, cap, "Pas de vraie carte SD"); return -1; }
     if (stat(path, &st) != 0) { snprintf(err, cap, "Jeu introuvable"); return -1; }
     u32 clus = (u32)st.st_ino;
     u32 need = (u32)(((u64)st.st_size + 511) >> 9);
     /* partition FAT : secteur 0, sinon la 1re partition de la table (MBR) qui est en FAT */
     u32 part = 0;
-    if (na_rawsec(0, b)) { snprintf(err, cap, "Lecture brute de la carte impossible"); return -1; }
+    if (na_rs(0, b)) { snprintf(err, cap, "Lecture brute de la carte impossible"); return -1; }
     if (!na_is_fat(b)) {
         int found = 0;
         u8 mbr[64]; memcpy(mbr, b + 0x1BE, 64);
         for (int i = 0; i < 4 && !found; i++) {
             u32 lba = na_le32(mbr + i * 16 + 8);
-            if (lba && !na_rawsec(lba, b) && na_is_fat(b)) { part = lba; found = 1; }
+            if (lba && !na_rs(lba, b) && na_is_fat(b)) { part = lba; found = 1; }
         }
         if (!found) { snprintf(err, cap, "Carte SD : partition FAT introuvable (exFAT ?)"); return -1; }
     }
@@ -463,7 +494,7 @@ static int nat_map(const char *path, char *err, int cap) {
         isec += cnt;
         if (isec >= need) break;
         u32 off = fat32 ? clus * 4 : clus * 2, fs = fat_lba + off / 512;
-        if (fs != cached) { if (na_rawsec(fs, fb)) { snprintf(err, cap, "Lecture de la FAT impossible"); return -1; } cached = fs; }
+        if (fs != cached) { if (na_rs(fs, fb)) { snprintf(err, cap, "Lecture de la FAT impossible"); return -1; } cached = fs; }
         clus = fat32 ? na_le32(fb + off % 512) & 0x0FFFFFFFu : na_le16(fb + off % 512);
         if ((fat32 && clus >= 0x0FFFFFF8u) || (!fat32 && clus >= 0xFFF8u)) break;
         if ((guard & 255) == 0) { service_audio(); nat_ld_tick(); }
@@ -472,23 +503,84 @@ static int nat_map(const char *path, char *err, int cap) {
     return 0;
 }
 
-/* verification : 3 endroits de l'ISO, lus par la carte des secteurs et par libfat */
-static int nat_map_check(const char *path, long size, char *err, int cap) {
-    static u8 a[512] ATTRIBUTE_ALIGN(32), r[512] ATTRIBUTE_ALIGN(32);
-    u32 last = (u32)(((u64)size - 1) >> 9);
-    u32 at[3] = { 0, last / 2, last };
+/* v121 : .ciso (en-tete "CISO", taille de bloc, carte des blocs presents ; les blocs presents sont a la
+   suite dans le fichier, a partir de 0x8000). Les morceaux du FICHIER sur la carte (nat_map) deviennent des
+   morceaux de l'ISO : un bloc present = ses secteurs dans le fichier ; un bloc absent = des zeros
+   (NATRES_ZERO), jusqu'a la taille d'un vrai disque. */
+#define NA_DISC_SECS 2851520u                 /* (1 459 978 240 octets : un disque GameCube) */
+static natres_ext_t na_fext[NATRES_MAXEXT];
+static u32 na_iso_secs = 0;                   /* taille de l'ISO vue par le jeu (secteurs) */
+static int na_ext_add(u32 iso, u32 sd, u32 cnt) {
+    if (!cnt) return 0;
+    natres_ext_t *l = na_next ? &na_ext[na_next - 1] : NULL;
+    if (l && l->iso + l->cnt == iso && ((sd == NATRES_ZERO && l->sd == NATRES_ZERO) || (sd != NATRES_ZERO && l->sd != NATRES_ZERO && l->sd + l->cnt == sd))) { l->cnt += cnt; return 0; }
+    if (na_next >= NATRES_MAXEXT) return -1;
+    na_ext[na_next].iso = iso; na_ext[na_next].sd = sd; na_ext[na_next].cnt = cnt; na_next++;
+    return 0;
+}
+static int nat_map_game(const char *path, int ciso, char *err, int cap) {
+    if (nat_map(path, err, cap)) return -1;
+    if (!ciso) { na_iso_secs = na_next ? na_ext[na_next - 1].iso + na_ext[na_next - 1].cnt : 0; return 0; }
+    u32 nf = na_next;
+    memcpy(na_fext, na_ext, nf * sizeof(natres_ext_t));
     FILE *f = fopen(path, "rb");
-    if (!f) { snprintf(err, cap, "Jeu introuvable"); return -1; }
-    for (int i = 0; i < 3; i++) {
-        u32 isec = at[i], sd = 0, ok = 0;
-        for (u32 k = 0; k < na_next; k++) if (isec >= na_ext[k].iso && isec - na_ext[k].iso < na_ext[k].cnt) { sd = na_ext[k].sd + (isec - na_ext[k].iso); ok = 1; break; }
-        memset(a, 0, 512);
-        size_t want = (u64)isec * 512 + 512 <= (u64)size ? 512 : (size_t)((u64)size - (u64)isec * 512);
-        if (!ok || fseek(f, (long)isec * 512, SEEK_SET) || fread(a, 1, want, f) != want || na_rawsec(sd, r) || memcmp(a, r, want)) {
-            fclose(f); snprintf(err, cap, "Carte des secteurs fausse (secteur %u)", (unsigned)isec); return -1;
+    static u8 hm[0x8000];
+    if (!f || fread(hm, 1, sizeof(hm), f) != sizeof(hm) || memcmp(hm, "CISO", 4)) { if (f) fclose(f); snprintf(err, cap, ".ciso illisible"); return -1; }
+    fclose(f);
+    u32 bs = na_le32(hm + 4), bsec = bs >> 9;
+    if (!bs || (bs & 511) || bs > (64u << 20)) { snprintf(err, cap, ".ciso : taille de bloc %u non prise en charge", (unsigned)bs); return -1; }
+    u32 nb = 0x8000 - 8, last = 0, pos = 0;
+    for (u32 b = 0; b < nb; b++) if (hm[8 + b]) last = b + 1;
+    na_next = 0;
+    for (u32 b = 0; b < last; b++) {
+        u32 iso = b * bsec;
+        if (!hm[8 + b]) { if (na_ext_add(iso, NATRES_ZERO, bsec)) goto frag; continue; }
+        u32 fs = 0x8000u / 512 + pos * bsec, left = bsec;            /* (secteurs du bloc dans le fichier) */
+        pos++;
+        while (left) {
+            u32 k = 0;
+            while (k < nf && !(fs >= na_fext[k].iso && fs - na_fext[k].iso < na_fext[k].cnt)) k++;
+            if (k >= nf) { snprintf(err, cap, ".ciso plus court que pr\xC3\xA9vu"); return -1; }
+            u32 n = na_fext[k].cnt - (fs - na_fext[k].iso);
+            if (n > left) n = left;
+            if (na_ext_add(iso, na_fext[k].sd + (fs - na_fext[k].iso), n)) goto frag;
+            iso += n; fs += n; left -= n;
         }
     }
-    fclose(f);
+    if (last * bsec < NA_DISC_SECS && na_ext_add(last * bsec, NATRES_ZERO, NA_DISC_SECS - last * bsec)) goto frag;
+    na_iso_secs = last * bsec > NA_DISC_SECS ? last * bsec : NA_DISC_SECS;
+    return 0;
+frag:
+    snprintf(err, cap, "Jeu trop fragment\xC3\xA9 sur la carte (d\xC3\xA9" "fragmente-la)");
+    return -1;
+}
+
+/* verification : 3 endroits de l'ISO, lus par la carte des secteurs et par libfat (v121 : par gd_read : .ciso aussi) */
+static int nat_map_check(const char *path, long size, char *err, int cap) {
+    static u8 a[512] ATTRIBUTE_ALIGN(32), r[512] ATTRIBUTE_ALIGN(32);
+    (void)size;
+    if (!na_iso_secs) { snprintf(err, cap, "Jeu vide"); return -1; }
+    u32 last = na_iso_secs - 1;
+    u32 at[3] = { 0, last / 2, last };
+    gdisc_t d;
+    if (!gd_open(&d, path)) { snprintf(err, cap, "Jeu introuvable"); return -1; }
+    for (int i = 0; i < 3; i++) {
+        u32 isec = at[i], sd = 0, ok = 0;
+        for (u32 k = 0; k < na_next; k++) if (isec >= na_ext[k].iso && isec - na_ext[k].iso < na_ext[k].cnt) { sd = na_ext[k].sd == NATRES_ZERO ? NATRES_ZERO : na_ext[k].sd + (isec - na_ext[k].iso); ok = 1; break; }
+        memset(a, 0, 512);
+        if (!d.ciso) {                                   /* (la fin d'un .iso peut ne pas faire un secteur entier) */
+            long sz = 0; fseek(d.fp, 0, SEEK_END); sz = ftell(d.fp);
+            u32 want = (u64)isec * 512 + 512 <= (u64)sz ? 512 : (u32)((u64)sz - (u64)isec * 512);
+            if (!ok || !gd_read(&d, isec * 512u, a, want)) { gd_close(&d); snprintf(err, cap, "Carte des secteurs fausse (secteur %u)", (unsigned)isec); return -1; }
+            if (na_rawsec(sd, r) || memcmp(a, r, want)) { gd_close(&d); snprintf(err, cap, "Carte des secteurs fausse (secteur %u)", (unsigned)isec); return -1; }
+            continue;
+        }
+        if (!ok || !gd_read(&d, isec * 512u, a, 512)) { gd_close(&d); snprintf(err, cap, "Carte des secteurs fausse (secteur %u)", (unsigned)isec); return -1; }
+        if (sd == NATRES_ZERO) memset(r, 0, 512);
+        else if (na_rawsec(sd, r)) { gd_close(&d); snprintf(err, cap, "Lecture brute de la carte impossible"); return -1; }
+        if (memcmp(a, r, 512)) { gd_close(&d); snprintf(err, cap, "Carte des secteurs fausse (secteur %u)", (unsigned)isec); return -1; }
+    }
+    gd_close(&d);
     return 0;
 }
 
@@ -559,6 +651,7 @@ static u32 na_vi_bootrom(const char *id) {
     return 1;                                             /* VI_PAL */
 }
 static const char *na_cmd_name(u32 c) {
+    if ((c & 0xFFFFFF00u) == 0xE3D15C00u) return "CHANGEMENT DE DISQUE";   /* v121 */
     switch (c >> 24) {
     case 0xA8: return (c & 0xC0) == 0x40 ? "lire l'ID du disque" : "lire";
     case 0xAB: return "chercher"; case 0xE0: return "demander l'erreur"; case 0x12: return "infos lecteur";
@@ -725,8 +818,14 @@ static void nat_journal_convert(void) {
                             (H[43] >> 16 & 0x1110) == 0x1110 ? " : A, Z et START vus" : "");
             fprintf(f, "\n");
         }
+        if (H[1] >= 15) {                                     /* v121 : 2e disque, cheats (natres_hdr_t.disc, 0x198) */
+            u32 dz = be32(d + 0x198);
+            if (be32(d + 0x194) || (dz >> 8 & 0xFF)) fprintf(f, "Changements de disque : %u (disque en cours : %u)\n", (unsigned)(dz >> 8 & 0xFF), (unsigned)(dz & 1) + 1);
+            if (be32(d + 0x19C)) fprintf(f, "Cheats appliques par Pulse : %u images\n", (unsigned)(dz >> 16));
+            fprintf(f, "\n");
+        }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
-        int rbase = H[1] >= 14 ? 0x190 : H[1] >= 13 ? 0x180 : H[1] >= 12 ? 0x170 : H[1] >= 11 ? 0x160 : v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
+        int rbase = H[1] >= 15 ? 0x1A0 : H[1] >= 14 ? 0x190 : H[1] >= 13 ? 0x180 : H[1] >= 12 ? 0x170 : H[1] >= 11 ? 0x160 : v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
         for (int k = 0; k < nring; k++) {
             const u8 *e = d + rbase + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);
@@ -796,11 +895,12 @@ static const char *na_res_names[] = { "OK", "pas de carte", "la carte ne d\xC3\x
 static int nat_res_test(const char *path, long size, char *msg, int cap) {
 #ifdef GEKKO
     static u8 want[3][512] ATTRIBUTE_ALIGN(32), got[512] ATTRIBUTE_ALIGN(32);
-    u32 offs[3] = { 0, (u32)(size / 2) & ~511u, (u32)(size - 512) & ~511u };
-    FILE *f = fopen(path, "rb");
-    if (!f) { snprintf(msg, cap, "Jeu introuvable"); return -1; }
-    for (int i = 0; i < 3; i++) if (fseek(f, (long)offs[i], SEEK_SET) || fread(want[i], 1, 512, f) != 512) { fclose(f); snprintf(msg, cap, "Lecture du jeu impossible"); return -1; }
-    fclose(f);
+    gdisc_t gd;
+    if (!gd_open(&gd, path)) { snprintf(msg, cap, "Jeu introuvable"); return -1; }
+    u32 vsz = gd.ciso ? na_iso_secs * 512u : (u32)size;   /* (v121 : taille vue par le jeu, .ciso compris) */
+    u32 offs[3] = { 0, (vsz / 2) & ~511u, (vsz - 512) & ~511u };
+    for (int i = 0; i < 3; i++) { memset(want[i], 0, 512); if (!gd_read(&gd, offs[i], want[i], 512) && !gd.ciso) { gd_close(&gd); snprintf(msg, cap, "Lecture du jeu impossible"); return -1; } }
+    gd_close(&gd);
     if (sizeof(natres_bin) > NATRES_SIZE) { snprintf(msg, cap, "Programme r\xC3\xA9sident trop gros"); return -1; }
     u8 *save = (u8 *)memalign(32, NATRES_SIZE);
     if (!save) { snprintf(msg, cap, "Pas assez de m\xC3\xA9moire"); return -1; }
@@ -942,6 +1042,11 @@ static int na_tramp(u8 *w, u32 at, u32 site, u32 ins, u32 reg, u32 fn_load, u32 
 
 /* pose les aiguillages : dol = main.dol (copie a modifier), res = image du resident (NATRES_AT) ;
    rend le nombre d'acces branches, et dans *skipped ceux qu'on n'a pas su brancher */
+/* v121 : haut de la place libre du resident : la table des morceaux (ou celle de l'autre disque, en dessous) */
+static u32 na_ceil(const u8 *res) {
+    u32 c = be32(res + 0x24), e2 = be32(res + offsetof(natres_hdr_t, ext2));
+    return be32(res + offsetof(natres_hdr_t, n_ext2)) && e2 && e2 < c ? e2 : c;
+}
 #define NA_MAXSKIP 16
 static u32 na_skip_at[NA_MAXSKIP], na_skip_ins[NA_MAXSKIP];
 static const char *na_skip_why[NA_MAXSKIP];
@@ -969,7 +1074,7 @@ static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *c
             int sec = -1;
             for (int k = 0; k < in->nsec; k++) if (a >= in->sec_addr[k] && a - in->sec_addr[k] < in->sec_sz[k]) { sec = k; fo = in->sec_off[k] + (a - in->sec_addr[k]); }
             const char *why = sec < 0 ? "hors des sections" : be32(dol + fo) != in->hit_ins[i] ? "instruction differente"
-                            : at + 64 * 4 > be32(res + 0x24) ? "plus de place"   /* (v97 : sous la table des morceaux) */
+                            : at + 64 * 4 > na_ceil(res) ? "plus de place"   /* (v97 : sous la table des morceaux ; v121 : des 2 disques) */
                             : isx ? na_xtramp_why(in->hit_ins[i]) : na_tramp_why(in->hit_ins[i]);
             s32 d = (s32)(at - a);
             if (!why && (d >= 0x02000000 || d < -0x02000000)) why = "trop loin";
@@ -1005,6 +1110,91 @@ static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *c
     return done;
 }
 
+/* ---------- v121 : 16:9 force (voir na_ws_scan) ----------
+   aiguillage, a l'entree de GXSetProjection : si type = perspective (r4 = 0), les 12 premiers mots de la
+   matrice sont recopies dans un tampon du resident, la 1re ligne (0x00 et 0x08) multipliee par 3/4, et r3
+   pointe sur la copie (la matrice du jeu n'est jamais changee) ; puis la 1re instruction de la fonction et
+   retour juste apres. Registres touches : r0, r12, f0, f1, cr0 (libres a l'entree d'une fonction). */
+static int nat_ws = 0;                                     /* (reglage du jeu, pose par jeux_cfg_apply) */
+static char na_ws_msg[120] = "";
+static u32 na_ws_patch(const nat_info_t *in, u8 *dol, u8 *res, u32 at, u32 ceil) {
+    if (in->ws_n != 1) { snprintf(na_ws_msg, sizeof(na_ws_msg), "non : %s", in->ws_n ? "plusieurs fonctions possibles" : "fonction GXSetProjection introuvable"); return at; }
+    u32 f = in->ws_fn, fo = 0, ins = in->ws_ins, op = ins >> 26;
+    int sec = -1;
+    for (int k = 0; k < in->nsec; k++) if (f >= in->sec_addr[k] && f - in->sec_addr[k] < in->sec_sz[k]) { sec = k; fo = in->sec_off[k] + (f - in->sec_addr[k]); }
+    if (sec < 0 || be32(dol + fo) != ins) { snprintf(na_ws_msg, sizeof(na_ws_msg), "non : fonction %08X introuvable dans main.dol", (unsigned)f); return at; }
+    if (op == 16 || op == 18 || (op == 19 && (((ins >> 1) & 0x3FF) == 16 || ((ins >> 1) & 0x3FF) == 528))) { snprintf(na_ws_msg, sizeof(na_ws_msg), "non : la fonction commence par un saut"); return at; }
+    u32 c[48], n = 0, buf = (at + 38 * 4 + 31) & ~31u;
+    if (buf + 0x40 + 64 * 4 > ceil) { snprintf(na_ws_msg, sizeof(na_ws_msg), "non : plus de place dans le resident"); return at; }
+    s32 dj = (s32)(at - f);
+    if (dj >= 0x02000000 || dj < -0x02000000) { snprintf(na_ws_msg, sizeof(na_ws_msg), "non : trop loin"); return at; }
+    c[n++] = 0x2C040000u;                                 /* cmpwi r4,0 (perspective ?) */
+    c[n++] = 0x40820000u | (35u * 4);                     /* bne -> instruction d'origine */
+    c[n++] = 0x3D800000u | (buf >> 16);                   /* lis r12,tampon */
+    c[n++] = 0x618C0000u | (buf & 0xFFFF);                /* ori r12,r12,tampon */
+    for (u32 o = 0; o < 0x30; o += 4) { c[n++] = 0x80030000u | o; c[n++] = 0x900C0000u | o; }   /* lwz r0,o(r3) ; stw r0,o(r12) */
+    c[n++] = 0xC00C0030u;                                 /* lfs f0,0x30(r12) : 0,75 */
+    c[n++] = 0xC02C0000u; c[n++] = 0xEC210032u; c[n++] = 0xD02C0000u;   /* m[0][0] *= 0,75 */
+    c[n++] = 0xC02C0008u; c[n++] = 0xEC210032u; c[n++] = 0xD02C0008u;   /* m[0][2] *= 0,75 */
+    c[n++] = 0x7D836378u;                                 /* mr r3,r12 */
+    c[n++] = ins;                                         /* (instruction d'origine) */
+    u32 here = at + n * 4;
+    c[n++] = 0x48000000u | ((f + 4 - here) & 0x03FFFFFCu);   /* b fonction + 4 */
+    for (u32 i = 0; i < n; i++) na_wbe32(res + (at - NATRES_AT) + i * 4, c[i]);
+    for (u32 i = 0; i < 16; i++) na_wbe32(res + (buf - NATRES_AT) + i * 4, i == 12 ? 0x3F400000u : 0);   /* (0,75 en 0x30) */
+    na_wbe32(dol + fo, 0x48000000u | ((u32)dj & 0x03FFFFFCu));          /* b aiguillage */
+    snprintf(na_ws_msg, sizeof(na_ws_msg), "oui (GXSetProjection %08X)", (unsigned)f);
+    return (buf + 0x40 + 31) & ~31u;
+}
+
+/* ---------- v121 : cheats dans Pulse (codes Gecko : voir gk_run dans natres.c) ---------- */
+#define NA_GKMAX 4096
+static u32 na_gk[NA_GKMAX];
+static int na_gk_n = 0;
+static char na_gk_msg[120] = "";
+#ifndef NATIF_BENCH
+static int ch_collect(const char *id, u32 *out, int cap);  /* (cheats.c) */
+#endif
+/* les codes sont-ils tous compris par Pulse ? (sinon : lanceur de secours) */
+static int na_gk_ok(const u32 *w, int n, char *why, int cap) {
+    for (int i = 0; i + 1 < n; i += 2) {
+        u32 a = w[i], b = w[i + 1], t = a >> 24, ct = t & 0xEE;
+        if (t == 0xF0) return 1;
+        if (t == 0xE0 || t == 0xDE || t == 0xCE) continue;
+        if (t == 0xE2) { if (((a >> 20) & 0xF) > 1) goto no; continue; }
+        if (t < 0x40 && (ct == 0x00 || ct == 0x02 || ct == 0x04 || (ct >= 0x20 && ct <= 0x2E))) continue;
+        if (t < 0x40 && ct == 0x06) { i += (int)(((b + 7) >> 3) * 2); continue; }
+        if (t < 0x40 && ct == 0x08) { if (i + 3 >= n || (w[i + 2] >> 28) > 2) goto no; i += 2; continue; }
+        if (t == 0x40 || t == 0x42 || t == 0x48 || t == 0x4A) { if (((a >> 20) & 0xF) > 1 || ((a >> 16) & 0xF) > 1 || ((a >> 12) & 0xF)) goto no; continue; }
+        if (t == 0xC2 || t == 0xC3 || t == 0xC0) { if (!b || i + 2 + (int)b * 2 > n) goto no; i += (int)b * 2; continue; }
+    no:
+        snprintf(why, cap, "code %08X %08X pas compris par Pulse", (unsigned)a, (unsigned)b);
+        return 0;
+    }
+    return 1;
+}
+/* rend 1 = codes prets pour Pulse, 0 = aucun cheat active, -1 = cheats a confier au lanceur de secours */
+static int nat_cheats_prep(const char *id) {
+    na_gk_n = 0; na_gk_msg[0] = 0;
+    int n = ch_collect(id, na_gk, NA_GKMAX);
+    if (n == 0) return 0;
+    if (n < 0) { snprintf(na_gk_msg, sizeof(na_gk_msg), "trop de codes"); return -1; }
+    if (!na_gk_ok(na_gk, n, na_gk_msg, sizeof(na_gk_msg))) return -1;
+    na_gk_n = n;
+    snprintf(na_gk_msg, sizeof(na_gk_msg), "%d ligne%s de code appliqu\xC3\xA9" "e%s par Pulse", n / 2, n > 2 ? "s" : "", n > 2 ? "s" : "");
+    return 1;
+}
+
+/* ---------- v121 : jeux a 2 disques : l'autre disque (meme ID, autre numero) ---------- */
+static natres_ext_t na_ext2[NATRES_MAXEXT];
+static u32 na_n2 = 0;
+static char na_disc2_msg[140] = "";
+static int na_disc2(int k) {
+    for (int j = 0; j < gl_n; j++)
+        if (j != k && !gl[j].dvd && !strncmp(gl[j].id, gl[k].id, 6) && gl[j].disc != gl[k].disc) return j;
+    return -1;
+}
+
 /* fiche d'un jeu : R */
 static void nat_run(int k) {
     if (k < 0 || k >= gl_n) return;
@@ -1018,10 +1208,9 @@ static void nat_run(int k) {
     /* etape 3a : l'ISO sur la carte, et le programme resident qui la lit */
     char me[120] = "", rt[120] = "";
     int mok = -1, rok = -1;
-    if (gl[k].ciso) snprintf(me, sizeof(me), "fichier .ciso : pas encore pris en charge par Pulse");
-    else {
+    {
         gl_status("Analyse native : position du jeu sur la carte...");
-        mok = nat_map(gl[k].path, me, sizeof(me));
+        mok = nat_map_game(gl[k].path, gl[k].ciso, me, sizeof(me));   /* (v121 : .ciso aussi) */
         if (!mok) mok = nat_map_check(gl[k].path, gl[k].size, me, sizeof(me));
         if (!mok) {
             snprintf(me, sizeof(me), "OK, %u morceau%s", (unsigned)na_next, na_next > 1 ? "x" : "");
@@ -1519,7 +1708,16 @@ static const char *nat_boot(int k) {
     int card_on = nat_card_prep();                         /* v65 : carte memoire virtuelle */
     u32 snap_sec = nat_snap_prep();                        /* v83 : photo de la memoire au plantage */
     u32 log_sec = nat_journal_prep();                      /* v54 : journal du jeu (un secteur de la carte) */
-    int res = !gl[k].ciso && !nat_map(gl[k].path, merr, sizeof(merr)) && sizeof(natres_bin) <= NATRES_SIZE;
+    na_n2 = 0; na_disc2_msg[0] = 0;                        /* v121 : l'autre disque (jeux a 2 disques) */
+    int k2 = na_disc2(k);
+    if (k2 >= 0) {
+        char e2[120];
+        nat_ld("Position de l'autre disque sur la carte SD", 14);
+        if (nat_map_game(gl[k2].path, gl[k2].ciso, e2, sizeof(e2))) snprintf(na_disc2_msg, sizeof(na_disc2_msg), "disque %d : %s", gl[k2].disc + 1, e2);
+        else { memcpy(na_ext2, na_ext, na_next * sizeof(natres_ext_t)); na_n2 = na_next; snprintf(na_disc2_msg, sizeof(na_disc2_msg), "disque %d pr\xC3\xAAt (%u morceaux)", gl[k2].disc + 1, (unsigned)na_n2); }
+    }
+    int gk = nat_cheats_prep(in.id);                       /* v121 : cheats appliques par Pulse */
+    int res = !nat_map_game(gl[k].path, gl[k].ciso, merr, sizeof(merr)) && sizeof(natres_bin) <= NATRES_SIZE;   /* (v121 : .ciso aussi) */
     u32 total = ((dol_len + 31) & ~31u) + NA_BI2 + ((in.fst_sz + 31) & ~31u) + (res ? NATRES_SIZE : 0);
     /* zone d'attente : sous 0x81700000 (au-dessus vit la pile de GC Station jusqu'au saut),
        au-dessus du jeu, et sous ce que le jeu recevra en haut (FST, bi2, resident) */
@@ -1539,8 +1737,19 @@ static const char *nat_boot(int k) {
         u32 ext_n = na_next > NATRES_RETMAX ? na_next : NATRES_RETMAX;
         u32 ext_at = (NATRES_AT + NATRES_SIZE - ext_n * 12) & ~31u;
         na_wbe32(r + 0x24, ext_at);
-        u32 eo = ext_at - NATRES_AT;
-        if (be32(r) != NATRES_MAGIC || be32(r + 0x3C) > ext_at) res = 0;
+        u32 eo = ext_at - NATRES_AT, low = ext_at;
+        if (na_n2) {                                                        /* v121 : table de l'autre disque, juste en dessous */
+            u32 e2n = na_n2 > NATRES_RETMAX ? na_n2 : NATRES_RETMAX;
+            u32 e2 = (ext_at - e2n * 12) & ~31u;
+            if (e2 > be32(r + 0x3C) + 0x4000u) {
+                low = e2;
+                na_wbe32(r + offsetof(natres_hdr_t, ext2), e2); na_wbe32(r + offsetof(natres_hdr_t, n_ext2), na_n2);
+                for (u32 i = 0; i < na_n2; i++) {
+                    na_wbe32(r + (e2 - NATRES_AT) + i * 12, na_ext2[i].iso); na_wbe32(r + (e2 - NATRES_AT) + i * 12 + 4, na_ext2[i].sd); na_wbe32(r + (e2 - NATRES_AT) + i * 12 + 8, na_ext2[i].cnt);
+                }
+            } else { na_n2 = 0; snprintf(na_disc2_msg, sizeof(na_disc2_msg), "pas assez de place dans le r\xC3\xA9sident (jeu trop fragment\xC3\xA9)"); }
+        }
+        if (be32(r) != NATRES_MAGIC || be32(r + 0x3C) > low) res = 0;
         else {
             na_wbe32(r + 0x14, sd_slot == 0 ? 2 : sd_slot == 1 ? 0 : 1);   /* canal EXI */
             na_wbe32(r + 0x18, 0); na_wbe32(r + 0x1C, 4);                   /* peripherique, 16 MHz */
@@ -1591,6 +1800,22 @@ static const char *nat_boot(int k) {
             int old = in.al_trailer && strncmp(in.al_date, "2004/02/01", 10) <= 0;
             na_wbe32(r + offsetof(natres_hdr_t, reboot_off), 0x2440 + 0x20 + in.al_size);
             na_wbe32(r + offsetof(natres_hdr_t, reboot_len), old ? (in.al_trailer + 31) & ~31u : 0);
+        }
+        {   /* v121 : 16:9 force et cheats, a la suite des aiguillages (la suite reste libre pour OSExec) */
+            u8 *r = buf + o_res;
+            u32 at = be32(r + offsetof(natres_hdr_t, tramp_at)), ceil = na_ceil(r);
+            na_ws_msg[0] = 0;
+            if (nat_ws) at = na_ws_patch(&in, buf + o_dol, r, at, ceil);
+            if (gk > 0 && na_gk_n > 0) {
+                u32 need = 4 + (u32)na_gk_n * 4;
+                if (at + need + 64 * 4 <= ceil) {
+                    na_wbe32(r + (at - NATRES_AT), (u32)na_gk_n);
+                    for (int i = 0; i < na_gk_n; i++) na_wbe32(r + (at - NATRES_AT) + 4 + i * 4, na_gk[i]);
+                    na_wbe32(r + offsetof(natres_hdr_t, chts), at);
+                    at = (at + need + 31) & ~31u;
+                } else snprintf(na_gk_msg, sizeof(na_gk_msg), "pas assez de place dans le r\xC3\xA9sident");
+            }
+            na_wbe32(r + offsetof(natres_hdr_t, tramp_at), at);
         }
         if (was && !card_on) {                              /* (carte refusee pour ce jeu : flag et table retires) */
             u8 *r = buf + o_res;
@@ -1643,6 +1868,10 @@ static const char *nat_boot(int k) {
         fprintf(f, "Vrai lecteur : %s\n", na_drv[0] ? na_drv : "pas teste");
         fprintf(f, "Retour a GC Station (A+Z+START, plantage) : %s\n", na_ret_n ? "pret (le .dol de GC Station est relu sur la carte)" : "redemarrage de la console");
         fprintf(f, "Carte memoire virtuelle (slot A) : %s ; %d acces EXI trouves, %d branches\n", na_card_msg[0] ? na_card_msg : "non", in.nexi, na_xdone);
+        fprintf(f, "Format : %s\n", gl[k].ciso ? ".ciso (blocs absents lus comme des zeros)" : ".iso / .gcm");
+        fprintf(f, "Autre disque : %s\n", na_disc2_msg[0] ? na_disc2_msg : "aucun");
+        fprintf(f, "16:9 force : %s\n", !nat_ws ? "non (reglage du jeu)" : na_ws_msg[0] ? na_ws_msg : "non");
+        fprintf(f, "Cheats : %s\n", na_gk_msg[0] ? na_gk_msg : "aucun");
         fprintf(f, "Mode video donne au jeu (800000CC) : %s (jeu %s)\n", na_vi_bootrom(in.id) == 1 ? "PAL" : na_vi_bootrom(in.id) == 5 ? "EURGB60 (PAL 60 Hz)" : "NTSC",
                 na_game_pal(in.id) ? "PAL" : "NTSC");
         fprintf(f, "Memoire basse avant : 28=%08X 2C=%08X CC=%08X F8=%08X FC=%08X\n",
@@ -1759,15 +1988,18 @@ static int na_dvd_read(volatile u32 *di, u32 off, u8 *dst, u32 len, int pf, int 
     return 1;
 }
 #endif
-static const char *nat_boot_disc(int k) {
-    snprintf(nat_ld_title, sizeof(nat_ld_title), "%s", TR("Disque de la console"));
+static const char *nat_boot_drive(int k, int reset);
+static const char *nat_boot_disc(int k) { return nat_boot_drive(k, 1); }
+/* v121 : reset = 0 : le lecteur repond deja (GC Loader : le jeu vient d'y etre choisi, un reset l'oublierait) */
+static const char *nat_boot_drive(int k, int reset) {
+    if (reset) snprintf(nat_ld_title, sizeof(nat_ld_title), "%s", TR("Disque de la console"));
     nat_ld_k = k;
     nat_ld("Pr\xC3\xA9paration du lecteur", 4);
 #ifdef GEKKO
     volatile u32 *di = (volatile u32 *)0xCC006000u, *pi = (volatile u32 *)0xCC003000u;
     static u8 hdr[0x440] ATTRIBUTE_ALIGN(32), dh[0x100] ATTRIBUTE_ALIGN(32);
     stop_track(); stop_station();
-    {   /* reset du lecteur (GC Station le tient en reset), puis on attend qu'il reponde */
+    if (reset) {   /* reset du lecteur (GC Station le tient en reset), puis on attend qu'il reponde */
         u32 level = IRQ_Disable();
         pi[9] = (pi[9] & ~4u) | 1u;
         u64 t = now_ms(); while (now_ms() - t < 2) ;

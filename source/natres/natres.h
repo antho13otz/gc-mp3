@@ -8,7 +8,7 @@
 #define NATRES_AT     0x817F0000u        /* adresse fixe (liee par tools/natres.ld) */
 #define NATRES_SIZE   0x0000FF00u        /* place reservee (le haut, 817FFF00+, est laisse a la console) */
 #define NATRES_MAGIC  0x4743534Eu        /* "GCSN" */
-#define NATRES_VER    14
+#define NATRES_VER    15
 #define NATRES_MAXEXT 1500               /* morceaux de l'ISO sur la carte (fichier fragmente) ; v60 : 2000 (place pour les aiguillages) */
 
 /* erreurs (champ err) */
@@ -88,9 +88,15 @@ typedef struct {
     unsigned int vi_dtv;                                  /* cable numerique / composante (0xCC00206E) << 16 | DI1 (0xCC002034, v111) */
     unsigned int vi_chg;                                  /* changements de mode vus (DCR sans le bit "actif", horloge) */
     unsigned int vi_chg_at;                               /* image (VI) du dernier changement */
+    /* v121 : 2e disque (jeux a 2 disques) : table des morceaux de l'autre disque, echangee avec ext / n_ext
+       quand le jeu demande un changement de disque (moteur arrete, E3) ; cheats (codes Gecko) */
+    unsigned int ext2, n_ext2;                            /* (GC Station) l'autre disque : table, nombre de morceaux (0 = aucun) */
+    unsigned int disc;                                    /* disque en cours (0 / 1) | changements faits << 8 */
+    unsigned int chts;                                    /* (GC Station) codes Gecko : adresse de {nombre de mots, mots...} (0 = aucun) */
 } natres_hdr_t;
 
-#define NATRES_LOGN 7                     /* anneau : {commande, position, longueur, infos} (v99 : 0x190 + 7 x 16 = 0x200) */
+#define NATRES_LOGN 6                     /* anneau : {commande, position, longueur, infos} (v121 : 0x1A0 + 6 x 16 = 0x200) */
+#define NATRES_ZERO 0xFFFFFFFFu           /* v121 : morceau sans donnees (bloc absent d'un .ciso) : lu comme des zeros */
 #define NATRES_CARDMAX 64                 /* morceaux du fichier de la carte virtuelle */
 #define NRF_CARD      4u                  /* v65 : carte memoire virtuelle active */
 #define NATRES_RETMAX 64                  /* morceaux du .dol de GC Station */
@@ -129,6 +135,6 @@ typedef struct {
 #define NATRES_SNAP_MAGIC 0x4743534Du       /* "GCSM" */
 #define NATRES_SNAP_SECS  704               /* taille du fichier : 704 secteurs (352 Ko) */
 
-typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x190 ? 1 : -1];
+typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x1A0 ? 1 : -1];
 
 #endif

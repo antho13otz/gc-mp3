@@ -146,8 +146,7 @@ static int gd_read(gdisc_t *d, u32 off, void *out, u32 len) {
     while (len > 0) {
         u32 b = off / d->bs, in = off % d->bs, n = d->bs - in;
         if (n > len) n = len;
-        if ((int)b >= d->nb) return 0;
-        if (d->pos[b] == 0xFFFFFFFFu) memset(o, 0, n);
+        if ((int)b >= d->nb || d->pos[b] == 0xFFFFFFFFu) memset(o, 0, n);   /* (bloc absent, ou apres la carte : des zeros) */
         else if (fseek(d->fp, (long)(0x8000 + (u64)d->pos[b] * d->bs + in), SEEK_SET) != 0 || fread(o, 1, n, d->fp) != n) return 0;
         o += n; off += n; len -= n;
     }
@@ -311,18 +310,23 @@ static void gl_dvd_add(void) {
     g->dvd = 1; g->post = g->still = -1; g->bslot = -1; g->bstate = 2;
     gl_n++;
 }
+static int gcl_probe(void);                                   /* v121 : GC Loader (gcl.c) */
+static int gcl_path(const char *p);
+static int nat_cheats_prep(const char *id);                  /* v121 : cheats dans Pulse (natif.c) */
 static void gl_scan_full(int force) {
     if (!gl) gl = (gcg_t *)calloc(GL_MAX, sizeof(gcg_t));
     gl_free_list();
-    if (!gl || !sd_ok) { gl_dvd_add(); gl_scanned = 1; return; }
-    int cached = !force && gl_list_load();
+    if (!gl) { gl_scanned = 1; return; }
+    int cached = sd_ok && !force && gl_list_load();
     if (!cached) {
-        gl_status("Recherche des jeux GameCube sur la carte SD...");
         int budget = 6000;
-        gl_walk(SD_ROOT, 0, &budget);
+        if (sd_ok) { gl_status("Recherche des jeux GameCube sur la carte SD..."); gl_walk(SD_ROOT, 0, &budget); }
+        gl_status("Recherche d'un GC Loader...");
+        if (gcl_probe()) { gl_status("Recherche des jeux sur le GC Loader..."); budget = 6000; gl_walk("gcl:", 0, &budget); }   /* v121 */
         qsort(gl, gl_n, sizeof(gcg_t), gl_cmp);
-        gl_load_desc();
+        if (sd_ok) gl_load_desc();
     }
+    if (!sd_ok) { gl_dvd_add(); gl_busy[0] = 0; gl_scanned = 1; return; }
     swpk_open(&gl_post, GL_UI "/posters.pak", 256, 256);
     swpk_open(&gl_still, GL_UI "/stills.pak", 320, 240);
     for (int k = 0; k < gl_n; k++) { gl[k].post = (s16)swpk_find(&gl_post, gl[k].id); gl[k].still = (s16)swpk_find(&gl_still, gl[k].id); }
@@ -355,6 +359,24 @@ static int gl_cheats_on(int k) {
     u8 *d = read_file(p, 65536, &n);
     if (d) { for (long i = 0; i + 8 < n; i++) if (d[i]) cval++; free(d); }
     return cval;
+}
+/* v121 : lance le jeu de ce fichier (onglet FICHIERS, jeux du reseau copies) ; rend un message si ca ne demarre pas */
+static const char *gl_play_path(const char *path) {
+    if (!gl_scanned) gl_scan();
+    int k = -1;
+    for (int i = 0; i < gl_n; i++) if (!strcasecmp(gl[i].path, path)) k = i;
+    if (k < 0) {
+        struct stat st;
+        int n0 = gl_n;
+        if (stat(path, &st) == 0) gl_add(path, (long)st.st_size);
+        if (gl_n == n0) return "Ce n'est pas un jeu GameCube";
+        k = gl_n - 1;
+        gl_list_save();
+    }
+    if (settings_dirty) save_settings();
+    const char *e = game_boot_auto(k);                     /* (ne revient pas si ca marche) */
+    gl_busy[0] = 0;
+    return e;
 }
 /* ---------- v45 : lancements (SD:/gc-mp3/jeux_stats.txt : ID|disque|nombre|date) et tri ---------- */
 #define GL_STATS GCD "/jeux_stats.txt"
@@ -1363,8 +1385,11 @@ static void draw_gclib_main(void) {
             fit_text(F_SMALL, g->title, (int)w - 30, buf, sizeof(buf));
             gx_text_c(F_SMALL, x + w / 2, y + 56, buf, RGBA(255, 210, 120, 255));
             int cn = gl_cheats_on(gl_sel);
+            static int pk = -1, pgen = -1, ppul = 0;             /* v121 : Pulse applique-t-il ces cheats ? (lu une fois) */
+            if (cn > 0 && (pk != gl_sel || pgen != ch_sel_gen)) { pk = gl_sel; pgen = ch_sel_gen; ppul = gcl_path(g->path) ? -1 : nat_cheats_prep(g->id) > 0; }
             if (cn > 0) {
-                snprintf(buf, sizeof(buf), cn == 1 ? TR("Avec 1 cheat activ\xC3\xA9 (lanceur de secours)") : TR("Avec %d cheats activ\xC3\xA9s (lanceur de secours)"), cn);
+                if (ppul > 0) snprintf(buf, sizeof(buf), cn == 1 ? TR("Avec 1 cheat activ\xC3\xA9 (Pulse)") : TR("Avec %d cheats activ\xC3\xA9s (Pulse)"), cn);
+                else snprintf(buf, sizeof(buf), cn == 1 ? TR("Avec 1 cheat activ\xC3\xA9 (lanceur de secours)") : TR("Avec %d cheats activ\xC3\xA9s (lanceur de secours)"), cn);
                 gx_text_c(F_SMALL, x + w / 2, y + 76, buf, RGBA(130, 230, 150, 255));
             } else
             {   /* v109 : avec le logo de Pulse */

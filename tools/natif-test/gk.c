@@ -25,12 +25,14 @@ static void *read_file(const char *p, long max, long *len) { FILE *f = fopen(p, 
 static void crumb(const char*f,...){}
 static void stop_track(void){} static void stop_station(void){} static void save_settings(void){} static volatile int gj_hold; static void bg_quiesce(void){} /* v96 */
 static int mount_sd(void){return 1;}
-typedef struct { char path[NAME_LEN]; u8 ciso; long size; char title[72]; } gcg_t;
-static gcg_t gl[1]; static int gl_n=1; static char gl_busy[96];
+typedef struct { char path[NAME_LEN]; u8 ciso; long size; char title[72]; char id[7]; u8 disc, dvd; } gcg_t;   /* (v121 : id, disque) */
+static gcg_t gl[2]; static int gl_n=1; static char gl_busy[96];
 static void gl_status(const char*m){} static void gl_note(const char*m){}
 static const u32 gl_stub[] = {0};
 #define GL_STUB_AT  0x80001800u
 #define GL_TAB_AT   0x80002000u
 #include "gd.inc"
+/* v121 : cheats du banc d'essai : mots hexa dans le fichier NATIF_CHEATS */
+static int ch_collect(const char *id, u32 *out, int cap) { (void)id; const char *p = getenv("NATIF_CHEATS"); FILE *f = p ? fopen(p, "r") : NULL; int n = 0; unsigned v; if (!f) return 0; while (n < cap && fscanf(f, "%x", &v) == 1) out[n++] = v; fclose(f); return n; }
 #include "natif.c"
 int main(void){ nat_run(0); return nat_boot(0) != 0; }

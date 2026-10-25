@@ -183,6 +183,36 @@ static void fe_net_photo(int i) {
     tab = TAB_PHOTO;
     pv_open(want);
 }
+/* v121 : jeu GameCube sur un serveur du reseau (SMB, FTP, FSP) : copie sur la carte SD (SD:/jeux-reseau),
+   puis lancement (Pulse lit la carte SD pendant le jeu). Deja copie (meme taille) : lance tout de suite. */
+static const char *gl_play_path(const char *path);           /* (gclib.c) */
+static char fe_play_after[NAME_LEN] = "";
+static void cpq_add(const char *src, const char *dst);
+static int fe_is_game(const char *n) {
+    const char *dot = strrchr(n, '.');
+    return dot && (!strcasecmp(dot, ".iso") || !strcasecmp(dot, ".gcm") || !strcasecmp(dot, ".ciso"));
+}
+static void fe_net_game(int i, const char *path) {
+    char dst[NAME_LEN];
+    if (!sd_ok || sd_virtual) { fe_note("Il faut une carte SD dans GC Station pour jouer \xC3\xA0 un jeu du r\xC3\xA9seau"); return; }
+    if (fcp_in || cpq_i < cpq_n) { fe_note("Une copie est d\xC3\xA9j\xC3\xA0 en cours"); return; }
+    mkdir(SD_ROOT "/jeux-reseau", 0777);
+    snprintf(dst, sizeof(dst), SD_ROOT "/jeux-reseau/%s", fe[i].name);
+    struct stat st;
+    if (stat(dst, &st) == 0 && (long)st.st_size == fe[i].size) {   /* (deja sur la carte) */
+        const char *e = gl_play_path(dst);
+        if (e) fe_note(e);
+        return;
+    }
+    unsigned long long tot = 0, fre = 0;
+    if (sd_space(&tot, &fre) && fre < (unsigned long long)fe[i].size + (16ull << 20)) { fe_note("Pas assez de place sur la carte SD pour ce jeu"); return; }
+    remove(dst);
+    cpq_n = cpq_i = cpq_fail = 0; cpq_bytes = cpq_total = 0;
+    cpq_add(path, dst);
+    if (!cpq_n) { fe_note("Copie impossible"); return; }
+    snprintf(fe_play_after, sizeof(fe_play_after), "%s", dst);
+    fe_note("Copie du jeu sur la carte SD, puis lancement...");
+}
 static void fe_open(int i) {
     char path[NAME_LEN];
     if (fe_devs) { snprintf(fe_cwd, sizeof(fe_cwd), "%s", fe_dev[i]); fe_devs = 0; fe_sel = 0; fe_load(); return; }
@@ -192,7 +222,9 @@ static void fe_open(int i) {
         const char *dot = strrchr(fe[i].name, '.');
         if (audio_ext_len(fe[i].name) > 0) { fe_net_music(i); return; }
         if (img_ext(fe[i].name) || (dot && !strcasecmp(dot, ".avi"))) { fe_net_photo(i); return; }
+        if (fe_is_game(fe[i].name)) { fe_net_game(i, path); return; }   /* v121 */
     }
+    if (fe_is_game(fe[i].name)) { const char *e = gl_play_path(path); if (e) fe_note(e); return; }   /* v121 : un jeu de la carte : lance */
     for (int k = 0; k < nfiles; k++)                                 /* un son de la bibliotheque */
         if (!strcmp(names[k], path)) { queue_build(k); start_track(k); fe_note("Lecture lanc\xC3\xA9" "e"); return; }
     const char *dot = strrchr(fe[i].name, '.');
@@ -292,13 +324,24 @@ static void files_pump(void) {
         if (!fcp_in) goto fini;
     }
     {
-        static unsigned char b[65536];
-        size_t n = fread(b, 1, sizeof(b), fcp_in);
-        if (n > 0 && fwrite(b, 1, n, fcp_out) != n) {
-            fclose(fcp_in); fclose(fcp_out); fcp_in = fcp_out = NULL; remove(fcp_dst); cpq_i = cpq_n; fe_note("Copie interrompue : carte pleine ?"); fe_changed(); return;
+        /* v121 : morceaux de 16 Ko tant qu'on reste sous ~10 ms par image (avant : 64 Ko d'un coup : depuis le
+           reseau, chaque image attendait ~100 ms pendant toute la copie d'un jeu) */
+        static unsigned char b[16384];
+        u64 t0 = now_ms();
+        int werr = 0, eof = 0;
+        for (;;) {
+            size_t n = fread(b, 1, sizeof(b), fcp_in);
+            if (n == 0) { eof = 1; break; }
+            if (fwrite(b, 1, n, fcp_out) != n) { werr = 1; break; }
+            fcp_done += (long)n; cpq_bytes += (long)n;
+            if (fcp_done >= fcp_total) { eof = 1; break; }
+            if (now_ms() - t0 >= 10) break;
         }
-        fcp_done += (long)n; cpq_bytes += (long)n;
-        if (n > 0 && fcp_done < fcp_total) return;
+        if (werr) {
+            fclose(fcp_in); fclose(fcp_out); fcp_in = fcp_out = NULL; remove(fcp_dst); cpq_i = cpq_n; fe_note("Copie interrompue : carte pleine ?"); fe_changed(); fe_play_after[0] = 0; return;
+        }
+        if (!eof) return;
+        if (fcp_done < fcp_total) cpq_fail++;                 /* (fichier plus court que prevu : reseau coupe) */
         fclose(fcp_in); fclose(fcp_out); fcp_in = fcp_out = NULL;
         cpq_i++;
         if (cpq_i < cpq_n) return;
@@ -311,6 +354,12 @@ fini:
         fe_note(m);
         cpq_n = cpq_i = 0;
         fe_changed();
+        if (fe_play_after[0]) {                               /* v121 : jeu du reseau copie : on le lance */
+            char p[NAME_LEN];
+            snprintf(p, sizeof(p), "%s", fe_play_after);
+            fe_play_after[0] = 0;
+            if (!cpq_fail) { const char *e = gl_play_path(p); if (e) fe_note(e); }
+        }
     }
 }
 

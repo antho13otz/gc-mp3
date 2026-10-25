@@ -173,13 +173,16 @@ static void jeux_cfg_boot(void) {
 
 /* ---------- reglages d'un jeu (Y dans la fiche) : SD:/gc-mp3/jeux/<ID>.txt ---------- */
 #define JC_DIR GCD "/jeux"
-enum { JC_LANG, JC_SOUND, JC_CARD, JC_N };
+enum { JC_LANG, JC_SOUND, JC_CARD, JC_WS, JC_N };   /* v121 : JC_WS = 16:9 force (Pulse) */
 static char jc_id[8], jc_title[96];
 static int jc_lang = -1, jc_sound = -1, jc_sel = 0, jc_changed = 0;   /* -1 = comme la console */
+static int jc_ws = 0;                                        /* v121 : 16:9 force avec Pulse */
+static int nat_ws;                                           /* (natif.c) */
+static int nat_cheats_prep(const char *id);                  /* (natif.c) */
 static char jc_card[64] = "";                                 /* "" = carte du reglage general */
 static void jc_path(const char *id, char *out, int cap) { snprintf(out, cap, JC_DIR "/%.6s.txt", id); }
 static void jc_load(const char *id) {
-    jc_lang = jc_sound = -1; jc_card[0] = 0;
+    jc_lang = jc_sound = -1; jc_card[0] = 0; jc_ws = 0;
     char p[NAME_LEN];
     jc_path(id, p, sizeof(p));
     FILE *f = fopen(p, "r");
@@ -193,6 +196,7 @@ static void jc_load(const char *id) {
         if (!strcasecmp(k, "langue")) { for (int i = 0; i < 6; i++) if (!strcasecmp(v, gc_lang_keys[i])) jc_lang = i; }
         else if (!strcasecmp(k, "son")) jc_sound = !strcasecmp(v, "stereo") ? 1 : !strcasecmp(v, "mono") ? 0 : -1;
         else if (!strcasecmp(k, "carte") && strlen(v) < sizeof(jc_card) && !strchr(v, '/') && !strstr(v, "..")) snprintf(jc_card, sizeof(jc_card), "%s", v);
+        else if (!strcasecmp(k, "ecran169")) jc_ws = !strcasecmp(v, "oui");
     }
     fclose(f);
 }
@@ -200,18 +204,20 @@ static void jc_save(void) {
     if (!sd_ok || !jc_id[0]) return;
     char p[NAME_LEN];
     jc_path(jc_id, p, sizeof(p));
-    if (jc_lang < 0 && jc_sound < 0 && !jc_card[0]) { remove(p); return; }   /* (tout par defaut : pas de fichier) */
+    if (jc_lang < 0 && jc_sound < 0 && !jc_card[0] && !jc_ws) { remove(p); return; }   /* (tout par defaut : pas de fichier) */
     mkdir(JC_DIR, 0777);
     FILE *f = fopen(p, "w");
     if (!f) return;
     fprintf(f, "# GC Station : reglages du jeu %s (%s)\n", jc_id, jc_title);
     fprintf(f, "langue = %s\nson = %s\ncarte = %s\n", jc_lang >= 0 ? gc_lang_keys[jc_lang] : "console",
             jc_sound < 0 ? "console" : jc_sound ? "stereo" : "mono", jc_card);
+    fprintf(f, "ecran169 = %s\n", jc_ws ? "oui" : "non");
     fclose(f);
 }
 /* juste avant de lancer un jeu : ses reglages (resident = lance avec Resident) */
 static void jeux_cfg_apply(const char *id, int resident) {
     jc_load(id);
+    nat_ws = jc_ws;                                           /* v121 : 16:9 force (Pulse) */
     int changed = 0;
     if (jc_lang >= 0 && jc_lang != SYS_GetLanguage()) { sram_back_lang = SYS_GetLanguage(); gc_lang_set(jc_lang, !resident); changed = 1; }
     int st = SYS_GetSoundMode() != SYS_SOUND_MONO;
@@ -251,9 +257,10 @@ static void indigo_cfg_input(u32 down, u32 nav, int fire) {
         jc_changed = 1;
         if (jc_sel == JC_LANG) { jc_lang += d; if (jc_lang > 5) jc_lang = -1; if (jc_lang < -1) jc_lang = 5; }
         else if (jc_sel == JC_SOUND) { jc_sound += d; if (jc_sound > 1) jc_sound = -1; if (jc_sound < -1) jc_sound = 1; }
+        else if (jc_sel == JC_WS) jc_ws = !jc_ws;
         else jc_card_step(d);
     }
-    if (down & PAD_BUTTON_Y) { jc_lang = jc_sound = -1; jc_card[0] = 0; jc_changed = 1; gl_note("Tout comme la console"); }
+    if (down & PAD_BUTTON_Y) { jc_lang = jc_sound = -1; jc_card[0] = 0; jc_ws = 0; jc_changed = 1; gl_note("Tout comme la console"); }
     if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) jc_close();
 }
 static void draw_indigo_cfg(void) {
@@ -261,11 +268,12 @@ static void draw_indigo_cfg(void) {
     tl_frame("R\xC3\xA9glages du jeu", NULL);
     fit_text(F_MED, jc_title, 500, fv, sizeof(fv));
     gx_text1(F_MED, 58, 100, fv, RGBA(255, 210, 120, 255));
-    static const char *const lab[JC_N] = { "Langue du jeu", "Son", "Carte m\xC3\xA9moire (Pulse)" };
+    static const char *const lab[JC_N] = { "Langue du jeu", "Son", "Carte m\xC3\xA9moire (Pulse)", "16:9 forc\xC3\xA9 (Pulse)" };
     static const char *const help[JC_N] = {
         "Langue des jeux multilingues (PAL), pour ce jeu seulement. La console revient \xC3\xA0 la sienne apr\xC3\xA8s.",
         "St\xC3\xA9r\xC3\xA9o ou mono pour ce jeu seulement.",
-        "Carte virtuelle utilis\xC3\xA9" "e par ce jeu avec Pulse (Outils > Cartes m\xC3\xA9moire virtuelles)." };
+        "Carte virtuelle utilis\xC3\xA9" "e par ce jeu avec Pulse (Outils > Cartes m\xC3\xA9moire virtuelles).",
+        "Image 3D \xC3\xA9largie pour une t\xC3\xA9l\xC3\xA9 16:9 (mets la t\xC3\xA9l\xC3\xA9 en 16:9). Les menus 2D restent \xC3\xA9tir\xC3\xA9s." };
     for (int i = 0; i < JC_N; i++) {
         f32 ry = 124 + i * 34;
         int on = i == jc_sel;
@@ -274,12 +282,13 @@ static void draw_indigo_cfg(void) {
         gx_text1(F_MED, 66, ry + 20, TR(lab[i]), on ? RGBA(255, 255, 255, 255) : RGBA(230, 222, 255, 255));
         if (i == JC_LANG) snprintf(buf, sizeof(buf), "%s", jc_lang < 0 ? TR("Comme la console") : gc_lang_names[jc_lang]);
         else if (i == JC_SOUND) snprintf(buf, sizeof(buf), "%s", jc_sound < 0 ? TR("Comme la console") : jc_sound ? TR("St\xC3\xA9r\xC3\xA9o") : "Mono");
+        else if (i == JC_WS) snprintf(buf, sizeof(buf), "%s", jc_ws ? TR("Oui") : TR("Non"));
         else snprintf(buf, sizeof(buf), "%s", jc_card[0] ? jc_card : TR("R\xC3\xA9glage g\xC3\xA9n\xC3\xA9ral"));
         fit_text(F_MED, buf, 240, fv, sizeof(fv));
         gx_text_r(F_MED, 576, ry + 20, fv, on ? RGBA(255, 255, 255, 255) : RGBA(190, 160, 255, 255));
     }
     fit_text(F_SMALL, TR(help[jc_sel]), 520, fv, sizeof(fv));
-    gx_text1(F_SMALL, 58, 248, fv, RGBA(210, 200, 240, 255));
+    gx_text1(F_SMALL, 58, 124 + JC_N * 34 + 22, fv, RGBA(210, 200, 240, 255));
     tl_msgbox();
     static const char *const k[] = { "A", "Y", "B" }, *const l[] = { "CHANGER", "TOUT PAR D\xC3\x89" "FAUT", "FERMER" };
     tl_legend(k, l, 3);
@@ -293,9 +302,12 @@ static void jeux_cfg_undo(const char *card) {
     vc_keep[0] = 0;
     save_settings();
 }
+static const char *gcl_boot(int k);                           /* v121 : GC Loader (gcl.c) */
+static int gcl_path(const char *p);
 static const char *game_boot_auto(int k) {                   /* v90 : Resident ; le lanceur de secours si des cheats sont actives */
+    if (k >= 0 && k < gl_n && gcl_path(gl[k].path)) { const char *e = gcl_boot(k); nat_ld_on = 0; return e; }   /* v121 : jeu du GC Loader */
     if (k >= 0 && k < gl_n && gl[k].dvd) { const char *e = nat_boot_disc(k); nat_ld_on = 0; return e; }   /* v97 : vrai lecteur */
-    int sec = k >= 0 && k < gl_n && gl_cheats_on(k) > 0 && ld_ready();
+    int sec = k >= 0 && k < gl_n && gl_cheats_on(k) > 0 && nat_cheats_prep(gl[k].id) < 0 && ld_ready();   /* (v121 : Pulse applique les cheats qu'il comprend) */
     if (sec) gl_status("Lancement du jeu...");
     const char *e = game_boot(k, !sec);
     if (!sec) nat_ld_on = 0;                                 /* (fin de l'ecran de chargement de Resident) */
@@ -304,6 +316,7 @@ static const char *game_boot_auto(int k) {                   /* v90 : Resident ;
 static const char *game_boot(int k, int resident) {
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
     if (gl[k].dvd) { const char *e = nat_boot_disc(k); nat_ld_on = 0; return e; }   /* v97 : vrai lecteur */
+    if (gcl_path(gl[k].path)) { const char *e = gcl_boot(k); nat_ld_on = 0; return e; }   /* v121 : GC Loader */
     char card[64];
     snprintf(card, sizeof(card), "%s", vc_active);
     jeux_cfg_apply(gl[k].id, resident);
