@@ -1404,7 +1404,8 @@ static void draw_gclib_main(void) {
             }
             {   /* v137 : dernier essai (base de compatibilite) */
                 col_t cc; char cl[120];
-                if (cp_line(g->id, cl, sizeof(cl), &cc)) { fit_text(F_SMALL, cl, (int)w - 30, buf, sizeof(buf)); gx_text_c(F_SMALL, x + w / 2, y + 98, buf, cc); }
+                if (rep_line(g->id, cl, sizeof(cl))) { fit_text(F_SMALL, cl, (int)w - 30, buf, sizeof(buf)); gx_text_c(F_SMALL, x + w / 2, y + 98, buf, RGBA(120, 200, 255, 255)); }   /* v140 */
+                else if (cp_line(g->id, cl, sizeof(cl), &cc)) { fit_text(F_SMALL, cl, (int)w - 30, buf, sizeof(buf)); gx_text_c(F_SMALL, x + w / 2, y + 98, buf, cc); }
             }
             gx_text_c(F_SMALL, x + w / 2, y + 120, "A : lancer     X : lanceur de secours     B : annuler", RGBA(255, 210, 120, 255));
         }

@@ -13,6 +13,9 @@ static const char *const cp_keys[CP_N] = { "", "ok", "mal", "noir", "plantage" }
 static const char *const cp_names[CP_N] = { "jamais essay\xC3\xA9", "marche", "marche mal", "\xC3\xA9" "cran noir / fig\xC3\xA9", "plantage" };
 typedef struct { char id[7]; u8 v; u8 slow; u8 vmode; int build; u32 day; } cp_t;
 static cp_t cp_tab[CP_MAX];
+static void rep_verdict(const char *id, const char *title, int v, int old);   /* v140 : reparation automatique (repair.c) */
+static char rep_note_txt[200];
+static int rep_show = 0;
 static int cp_n = -1;
 static char cp_ask_id[7] = "", cp_ask_title[72] = "";
 static int cp_ask = 0, cp_ask_slow = 0, cp_ask_vmode = 0;
@@ -70,6 +73,7 @@ static int cp_verdict(const char *id) { cp_t *c = cp_find(id); return c ? c->v :
 static void cp_set(const char *id, int v, int slow, int vmode) {
     if (!id || strlen(id) < 6 || v <= CP_NONE || v >= CP_N) return;
     cp_t *c = cp_find(id);
+    int old = c ? c->v : CP_NONE;
     if (!c) {
         if (cp_n >= CP_MAX) return;
         c = &cp_tab[cp_n++];
@@ -79,18 +83,32 @@ static void cp_set(const char *id, int v, int slow, int vmode) {
     c->v = (u8)v; c->build = GCMP3_BUILD; c->day = cp_today(); c->slow = (u8)(slow != 0); c->vmode = (u8)vmode;
     cp_save();
     crumb("compat : %s = %s", id, cp_keys[v]);
+    rep_verdict(id, cp_ask_title, v, old);                 /* v140 : essai suivant, ou reglage garde */
+    if (rep_note_txt[0]) rep_show = 1;
 }
 /* (natif.c) apres la conversion du journal : un jeu vient d'etre lance avec Pulse */
 static void cp_after_game(const char *id, const char *title, int crashed, int slow, int vmode) {
     if (!id || strlen(id) < 6) return;
-    if (crashed) { cp_set(id, CP_PLANTE, slow, vmode); return; }
+    if (crashed) { snprintf(cp_ask_id, sizeof(cp_ask_id), "%.6s", id); snprintf(cp_ask_title, sizeof(cp_ask_title), "%s", title && title[0] ? title : id); cp_set(id, CP_PLANTE, slow, vmode); return; }
     snprintf(cp_ask_id, sizeof(cp_ask_id), "%.6s", id);
     snprintf(cp_ask_title, sizeof(cp_ask_title), "%s", title && title[0] ? title : id);
     cp_ask = 1; cp_ask_slow = slow; cp_ask_vmode = vmode; cp_ask_t = 0;
 }
 /* la question, avec le menu d'actions (lib_extra.c) : 3 s apres le demarrage, si rien d'autre n'est ouvert */
-enum { AC_CP_OK = 200, AC_CP_MAL, AC_CP_NOIR, AC_CP_QR, AC_CP_LATER };
+enum { AC_CP_OK = 200, AC_CP_MAL, AC_CP_NOIR, AC_CP_QR, AC_CP_LATER, AC_RP_OK, AC_RP_STOP };
+static void rep_drop(const char *id);
+static char rep_show_id[7];
 static void cp_pump(void) {
+    if (rep_show && !am_open && !menu_open && !kb_is_open() && !cp_ask) {   /* v140 : reparation : ce qui va se passer */
+        rep_show = 0;
+        snprintf(rep_show_id, sizeof(rep_show_id), "%s", cp_ask_id[0] ? cp_ask_id : "");
+        am_n = 0; am_sel = 0; am_track = -1; am_list = -1; am_pos = -1;
+        snprintf(am_title, sizeof(am_title), "R\xC3\xA9paration automatique : %.50s", cp_ask_title);
+        am_item(rep_note_txt, AC_RP_OK, 0);
+        if (strstr(rep_note_txt, "prochain")) am_item("Arr\xC3\xAAter les essais pour ce jeu", AC_RP_STOP, 0);
+        am_open = 1;
+        return;
+    }
     if (!cp_ask || am_open || menu_open || kb_is_open()) return;
     if (!cp_ask_t) cp_ask_t = now_ms();
     if (now_ms() - cp_ask_t < 3000) return;
@@ -111,6 +129,8 @@ static int cp_action(int code) {                         /* 1 = action de la bas
     case AC_CP_NOIR: cp_set(cp_ask_id, CP_NOIR, cp_ask_slow, cp_ask_vmode); share_open(NA_JTXT, 0); return 1;
     case AC_CP_QR:   share_open(NA_JTXT, 0); cp_ask = 1; cp_ask_t = now_ms() + 600000ull; return 1;   /* (la question revient apres : pas avant 10 min) */
     case AC_CP_LATER: return 1;
+    case AC_RP_OK: return 1;
+    case AC_RP_STOP: if (rep_show_id[0]) rep_drop(rep_show_id); lib_note("Essais de r\xC3\xA9paration arr\xC3\xAAt\xC3\xA9s"); return 1;
     }
     return 0;
 }
