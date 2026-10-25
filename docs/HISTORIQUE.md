@@ -21,6 +21,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v148 — réglages en groupes
+- `main.c` : `sec_items` (32 places) avec des sous-titres (valeur -2 - k : `sec_heads[k]`), sautés par la navigation
+  (`sec_step`, `sec_first`) ; le sous-titre du groupe reste visible en remontant. Réglages déplacés : minuterie et reprise
+  dans Lecture, éclair sur les basses dans Fête, onglets affichés dans Apparence, mesure de fluidité dans Diagnostic,
+  démarrage sur GC Station dans Jeux > Console. Scénario `reglages-groupes.txt`.
+
 ## Nouveautés v147 — sauvegardes par QR code
 - `tools.c` / `extras73.c` : menus des sauvegardes (vraie carte, carte virtuelle) : « Envoyer au téléphone (QR code) »
   (.gci écrit dans SD:/gci/sauvegardes, vidé avant) et « Tout envoyer » (le dossier partagé : `share_open`, v55).
