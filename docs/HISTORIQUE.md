@@ -21,6 +21,9 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v124 — erreurs du navigateur visibles
+- Une page qui ne s'ouvre pas : bandeau rouge sur la page avec la raison (8 s).
+
 ## Nouveautés v123 — Pulse : vidéo, manettes, vitesse du lecteur, slot B, régions, .nkit
 - **Modes vidéo** : les « GXRenderModeObj » du jeu (0x3C octets dans main.dol) sont reconnus à leur contenu
   (valeurs possibles, filtre vertical dont la somme fait 64) et modifiés avant le lancement : 480p (mode
