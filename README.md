@@ -14,15 +14,15 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v118)
-- **Navigateur web : des pages comme sur un ordinateur** : fond blanc, couleurs et fonds de la page,
-  encadrés, gras, tailles de texte, centrage, vrais tableaux en colonnes, et tout ce que la page cache
-  (menus d'ordinateur, bandeaux de cookies…) reste caché : feuilles de style (CSS) lues.
-- **Images entières et plus vite** : grandes photos JPEG / WebP / JPEG progressifs affichées (avant :
-  rien au-delà de 1,2 million de points), 3 images téléchargées à la fois, pages compressées (gzip).
-- **Plus de saccades en faisant défiler** : la remise en page se fait en tâche de fond.
-- **R : plein écran** dans le navigateur.
-- (v117) Réseau plus rapide avec les serveurs lointains ; mise à jour sans carte SD (Dolphin).
+## Nouveautés de la version actuelle (v119)
+- **FTP fiable et plus rapide** : la connexion est gardée et réutilisée (avant : une nouvelle connexion à
+  chaque dossier, chaque fichier cherché, chaque fichier ouvert : les petits serveurs refusaient), le
+  contenu des 8 derniers dossiers est gardé, les fichiers sont lus par morceaux gardés en mémoire,
+  3 essais de connexion. Beaucoup moins de blocages en naviguant pendant la lecture.
+- **Clavier** : L et R déplacent le curseur dans le texte (maintenus : il continue).
+- **Mise à jour** : si la carte SD refuse l'écriture (ou s'il n'y en a pas, comme sous Dolphin), la
+  nouvelle version se lance quand même depuis la mémoire.
+- (v118) Navigateur : pages comme sur un ordinateur, images entières, plus de saccades, R plein écran.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
