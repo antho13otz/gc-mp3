@@ -73,3 +73,7 @@ python3 $T/emu_e2e.py boot-b.bin sd-b.img game.iso cardb | tail -1              
 python3 $T/emu_e2e.py boot-b.bin sd-b.img game.iso pad | tail -1                 # (manettes, lecture apres la fin du fichier)
 NATIF_SELF=selfdol.dol NATIF_VMODE=1 NATIF_WIDE=1 NATIF_DUMP=boot-v.bin ./h2 game.iso sd.img 10 > h2-v.txt
 python3 $T/emu_e2e.py boot-v.bin sd.img game.iso video | tail -1               # (480p force, image large)
+# v133 : fins de commande : sans le vrai lecteur (console sans lecteur), et reveil perdu (secours a l'image)
+NATIF_SELF=selfdol.dol NATIF_NODRIVE=1 NATIF_DUMP=boot-t.bin ./h2 game.iso sd.img 10 > h2-t.txt
+EMU_NODRIVE=1 python3 $T/emu_e2e.py boot-t.bin sd.img game.iso tick | tail -1
+python3 $T/emu_e2e.py boot.bin sd.img game.iso tick | tail -1

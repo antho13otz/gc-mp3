@@ -760,8 +760,13 @@ s32 net_recv(s32 s, void *d, s32 l, u32 f) {               /* (debit du Broadban
         if ((f & MSG_DONTWAIT) || (fcntl(s, F_GETFL) & O_NONBLOCK)) return -EAGAIN;
         usleep(2000);
     }
+    /* v133 : PCSIM_NETCUT=N : la connexion est coupee apres N octets recus (reseau qui lache : reprises) */
+    static long cut_got[1024];
+    const char *ce = getenv("PCSIM_NETCUT");
+    if (ce && s >= 0 && s < 1024 && cut_got[s] >= atol(ce)) { cut_got[s] = 0; shutdown(s, SHUT_RDWR); return -ECONNRESET; }
     int r = BLOCKING((int)recv(s, d, ok, (int)f));
     if (r > 0) pcsim_net_used(r);
+    if (ce && r > 0 && s >= 0 && s < 1024) cut_got[s] += r;
     return NE(r);
 }
 s32 net_write(s32 s, const void *d, s32 l) { return net_send(s, d, l, 0); }

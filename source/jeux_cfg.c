@@ -181,10 +181,19 @@ static int nat_ws;                                           /* (natif.c) */
 /* v122 : jc_v[] = reglages Pulse du jeu (0 = comme le jeu), dans l'ordre JC_VIDEO ... JC_SPEED */
 #define JC_V0 JC_VIDEO
 static int jc_v[JC_N - JC_VIDEO];
-static const int jc_vmax[JC_N - JC_VIDEO] = { 4, 2, 2, 4, 4, 3, 2 };
+static const int jc_vmax[JC_N - JC_VIDEO] = { 4, 2, 2, 4, 4, 3, 3 };   /* (v133 : vitesse : auto / vrai lecteur / rapide) */
 static const char *const jc_vkey[JC_N - JC_VIDEO] = { "video", "sans_flou", "image_large", "stick_c", "gachettes", "frequence_manette", "vitesse_lecteur" };
 static int nat_vmode, nat_deflick, nat_wide, nat_cstick, nat_trig, nat_poll, nat_speed;   /* (natif.c) */
 static int nat_cheats_prep(const char *id);                  /* (natif.c) */
+/* v133 : jeux qui se bloquent quand le disque repond trop vite (une lecture finie avant que le jeu soit pret) :
+   ceux que Swiss corrige pour cette raison (rappel du lecteur, transfert vers l'ARAM). Reglage "Auto" :
+   vitesse d'un vrai lecteur pour eux, rapide pour les autres. */
+static int nat_speed_auto = 0;                               /* (journal : 1 = choisi automatiquement) */
+static int jc_slow_known(const char *id) {
+    static const char *const slow[] = { "GS2", "GDR", "GHA", "GLE" };
+    for (unsigned i = 0; i < sizeof(slow) / sizeof(slow[0]); i++) if (!strncmp(id, slow[i], 3)) return 1;
+    return 0;
+}
 static char jc_card[64] = "";                                 /* "" = carte du reglage general */
 static void jc_path(const char *id, char *out, int cap) { snprintf(out, cap, JC_DIR "/%.6s.txt", id); }
 static void jc_load(const char *id) {
@@ -229,7 +238,9 @@ static void jeux_cfg_apply(const char *id, int resident) {
     jc_load(id);
     nat_ws = jc_ws;                                           /* v121 : 16:9 force (Pulse) */
     nat_vmode = jc_v[JC_VIDEO - JC_V0]; nat_deflick = jc_v[JC_FLOU - JC_V0]; nat_wide = jc_v[JC_WIDE - JC_V0];   /* v122 */
-    nat_cstick = jc_v[JC_CSTICK - JC_V0]; nat_trig = jc_v[JC_TRIG - JC_V0]; nat_poll = jc_v[JC_POLL - JC_V0]; nat_speed = jc_v[JC_SPEED - JC_V0];
+    nat_cstick = jc_v[JC_CSTICK - JC_V0]; nat_trig = jc_v[JC_TRIG - JC_V0]; nat_poll = jc_v[JC_POLL - JC_V0];
+    nat_speed = jc_v[JC_SPEED - JC_V0] == 1 || (jc_v[JC_SPEED - JC_V0] == 0 && jc_slow_known(id));   /* v133 : 0 = auto, 1 = vrai lecteur, 2 = rapide */
+    nat_speed_auto = jc_v[JC_SPEED - JC_V0] == 0 && nat_speed;
     int changed = 0;
     if (jc_lang >= 0 && jc_lang != SYS_GetLanguage()) { sram_back_lang = SYS_GetLanguage(); gc_lang_set(jc_lang, !resident); changed = 1; }
     int st = SYS_GetSoundMode() != SYS_SOUND_MONO;
@@ -295,12 +306,12 @@ static void draw_indigo_cfg(void) {
         "Invers\xC3\xA9 : haut / bas (ou tout) ; \xC3\xA9" "chang\xC3\xA9 : le stick C devient le stick principal et inversement.",
         "L et R comptent comme enfonc\xC3\xA9s d\xC3\xA8s que la g\xC3\xA2" "chette d\xC3\xA9passe ce seuil.",
         "Manettes lues plus souvent : moins de d\xC3\xA9lai (jeux de combat, de rythme).",
-        "Comme un vrai lecteur : pour les jeux qui plantent ou bloquent quand le disque r\xC3\xA9pond trop vite." };
+        "Auto : vitesse d'un vrai lecteur pour les jeux connus pour bloquer, rapide sinon." };
     static const char *const vv[JC_N - JC_V0][4] = {
         { "Comme le jeu", "480p forc\xC3\xA9", "PAL 60 Hz", "240p" }, { "Non", "Oui" }, { "Non", "Oui (704)" },
         { "Normal", "Invers\xC3\xA9 haut / bas", "Invers\xC3\xA9 (tout)", "\xC3\x89" "chang\xC3\xA9 avec le stick" },
         { "Comme le jeu", "Seuil bas (30 %)", "Seuil moyen (50 %)", "Seuil haut (75 %)" }, { "Normale", "2 fois plus", "4 fois plus" },
-        { "Rapide (carte SD)", "Comme un vrai lecteur" } };
+        { "Auto", "Comme un vrai lecteur", "Rapide (carte SD)" } };
     const int rh = 24, vis = 11;                          /* (v122 : 11 lignes, la liste defile au-dela) */
     static int top = 0;
     if (jc_sel < top) top = jc_sel;
@@ -315,6 +326,7 @@ static void draw_indigo_cfg(void) {
         if (i == JC_LANG) snprintf(buf, sizeof(buf), "%s", jc_lang < 0 ? TR("Comme la console") : gc_lang_names[jc_lang]);
         else if (i == JC_SOUND) snprintf(buf, sizeof(buf), "%s", jc_sound < 0 ? TR("Comme la console") : jc_sound ? TR("St\xC3\xA9r\xC3\xA9o") : "Mono");
         else if (i == JC_WS) snprintf(buf, sizeof(buf), "%s", jc_ws ? TR("Oui") : TR("Non"));
+        else if (i == JC_SPEED && !jc_v[i - JC_V0]) snprintf(buf, sizeof(buf), "%s", jc_slow_known(jc_id) ? TR("Auto : vrai lecteur") : TR("Auto : rapide"));   /* v133 */
         else if (i >= JC_V0) snprintf(buf, sizeof(buf), "%s", TR(vv[i - JC_V0][jc_v[i - JC_V0]]));
         else snprintf(buf, sizeof(buf), "%s", jc_card[0] ? jc_card : TR("R\xC3\xA9glage g\xC3\xA9n\xC3\xA9ral"));
         fit_text_sel(on, F_MED, buf, 240, fv, sizeof(fv));

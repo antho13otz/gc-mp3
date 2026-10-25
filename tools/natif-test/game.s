@@ -299,6 +299,8 @@ _start:
     beq cardb_test
     cmpwi 12,7
     beq pad_test
+    cmpwi 12,8              # v133 : fins de commande sans le vrai lecteur (ou reveil perdu)
+    beq tick_test
     cmpwi 12,2
     beq 7f
     cmpwi 12,1
@@ -468,6 +470,93 @@ pad_test:
     lis 6,0xA800
     bl dvd_cmd
     b 8b
+
+# v133 : le jeu remet sa propre fonction du lecteur, lance ses lectures sans attendre (comme le SDK) et
+# attend que sa fonction voie la fin ; seules des images (VI) arrivent : aucune interruption du lecteur.
+# Pulse doit donner chaque fin depuis l'image (sans lecteur : tout de suite ; avec : secours apres 3 images).
+tick_test:
+    # v133 : acces au lecteur apres un saut : seule la recherche large le trouve (branche en secours)
+    lis 9,0xCC00
+    lis 0,0x1234
+    ori 0,0,0x5678
+    b 1f
+1:  stw 0,0x6010(9)
+    lis 9,0xCC00
+    lwz 0,0x6010(9)
+    stw 0,0x1FCC(20)
+    lis 12,tick_di@ha
+    addi 12,12,tick_di@l
+    stw 12,0x3094(20)
+    li 0,0
+    stw 0,0x1FC0(20)
+    lis 3,0x8013            # petite lecture : 0x200 octets a 0x1000 -> 0x80130000
+    li 4,0x200
+    li 5,0x1000
+    lis 6,0xA800
+    bl dvd_start
+    bl wait_flag
+    lis 20,0x8000
+    stw 3,0x1FC4(20)
+    li 0,0
+    stw 0,0x1FC0(20)
+    lis 3,0x8014            # grosse lecture (en fond) : 0x8000 octets a 0x20000 -> 0x80140000
+    li 4,0x4000
+    add 4,4,4
+    lis 5,2
+    lis 6,0xA800
+    bl dvd_start
+    bl wait_flag
+    lis 20,0x8000
+    stw 3,0x1FC8(20)
+    b 8b
+dvd_start:
+    lis 9,0xCC00
+    stw 6,0x6008(9)
+    srwi 5,5,2
+    stw 5,0x600C(9)
+    stw 4,0x6010(9)
+    stw 3,0x6014(9)
+    stw 4,0x6018(9)
+    li 0,3
+    stw 0,0x601C(9)
+    blr
+wait_flag:
+    stwu 1,-32(1)
+    mflr 0
+    stw 0,36(1)
+    stw 31,28(1)
+    li 31,0
+1:  lis 9,0x8000
+    lwz 0,0x1FC0(9)
+    cmpwi 0,0
+    bne 2f
+    cmpwi 31,600
+    bge 2f
+    addi 31,31,1
+    lwz 12,0x30A0(9)
+    mtctr 12
+    li 3,24
+    lis 4,0x8000
+    ori 4,4,0x1C00
+    bctrl
+    b 1b
+2:  mr 3,31
+    lwz 31,28(1)
+    lwz 0,36(1)
+    mtlr 0
+    addi 1,1,32
+    blr
+tick_di:
+    lis 9,0xCC00
+    lwz 7,0x6000(9)
+    andi. 0,7,0x10
+    beqlr
+    ori 7,7,0x10
+    stw 7,0x6000(9)
+    lis 9,0x8000
+    li 0,1
+    stw 0,0x1FC0(9)
+    blr
 
 # v122 : modes video (GXRenderModeObj) : NTSC 480i, puis PAL 528i
     .balign 32

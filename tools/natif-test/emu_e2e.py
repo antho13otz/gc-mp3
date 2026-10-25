@@ -169,7 +169,7 @@ EXEC = len(sys.argv) > 4 and sys.argv[4] in ('exec', 'execa')   # v95 : OSExec (
 EXECA = EXEC and sys.argv[4] == 'execa'
 if EXEC: mu.mem_write(0x80001F44, struct.pack('>I', 2 if EXECA else 1))
 MODE = sys.argv[4] if len(sys.argv) > 4 else ''
-if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad'): mu.mem_write(0x80001F44, struct.pack('>I', {'swap': 3, 'cheat': 4, 'ws': 5, 'cardb': 6, 'pad': 7}[MODE]))   # v121, v122
+if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'tick'): mu.mem_write(0x80001F44, struct.pack('>I', {'swap': 3, 'cheat': 4, 'ws': 5, 'cardb': 6, 'pad': 7, 'tick': 8}[MODE]))   # v121, v122, v133
 STOP = 0x80001000
 mu.mem_write(STOP, struct.pack('>I', 0x48000000))
 mu.reg_write(UC_PPC_REG_1, 0x81000000); mu.reg_write(UC_PPC_REG_LR, STOP)
@@ -189,7 +189,7 @@ def chk(name, addr, want):
     ok &= good
     print(('OK   ' if good else 'FAUX ') + name)
 chk('ID du disque (A8000040)', 0x80100000, iso[0:0x20])
-if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'video'):   # v121, v122
+if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'video', 'tick'):   # v121, v122, v133
     rd32 = lambda a: struct.unpack('>I', mu.mem_read(a, 4))[0]
     u = lambda o: struct.unpack('>I', mu.mem_read(0x817F0000 + o, 4))[0]
     back = rd32(0x80001F50) == 0x42424242 and pc == STOP
@@ -203,6 +203,22 @@ if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'video'):   # v121, v122
         dz = u(0x198)
         dk = dz & 0xFFFF == 0x101
         print(('OK   ' if dk else 'FAUX ') + 'resident : disque en cours %d, %d changement(s)' % ((dz & 1) + 1, (dz >> 8) & 0xFF)); ok &= dk
+    if MODE == 'tick':                                  # v133 : fins donnees depuis l'image (sans lecteur, ou secours)
+        nodrive = os.environ.get('EMU_NODRIVE') == '1'
+        f1, f2 = rd32(0x80001FC4), rd32(0x80001FC8)
+        d1 = bytes(mu.mem_read(0x80130000, 0x200)) == iso[0x1000:0x1200]
+        d2 = bytes(mu.mem_read(0x80140000, 0x8000)) == iso[0x20000:0x28000]
+        good = d1 and d2 and 0 < f1 < 600 and 0 < f2 < 600 and (f1 <= 2 if nodrive else f1 >= 3)
+        print(('OK   ' if good else 'FAUX ') + 'fins de commande %s : petite lecture vue apres %d image(s) (%s), grosse lecture en fond apres %d image(s) (%s)' % (
+            'sans le lecteur' if nodrive else 'perdues -> secours', f1, d1, f2, d2)); ok &= good
+        sv = rd32(0x80001FCC) == 0x12345678 and di_real[4] != 0x12345678
+        print(('OK   ' if sv else 'FAUX ') + 'acces au lecteur trouve seulement par la recherche large : %08X (vrai registre %08X)' % (rd32(0x80001FCC), di_real[4])); ok &= sv
+        nk = (len(kicks) == 0) if nodrive else True
+        print(('OK   ' if nk else 'FAUX ') + 'vrai lecteur : %d commande(s)%s' % (len(kicks), ' (attendu : aucune)' if nodrive else '')); ok &= nk
+        if not nodrive:
+            jb = bytes(disk[card.writes[-1] * 512:card.writes[-1] * 512 + 512]) if card.writes else bytes(512)
+            dd = [i for i in range(4) if (struct.unpack_from('>I', jb, 0x1C0 + i * 16)[0] >> 24) == 0xDD]
+            print(('OK   ' if dd else 'FAUX ') + 'journal : secours note (%d entree(s) DD)' % len(dd)); ok &= bool(dd)
     if MODE == 'cheat':
         want = {0x80001F70: 0x12345678, 0x80001F78: 0xABCD0000, 0x80001F80: 0, 0x80001F84: 0xCAFEBABE, 0x80001F88: 0x11111111, 0x80001F8C: 0x80000000, 0x80001F60: 0x00005A5A}
         for a, v in want.items():
