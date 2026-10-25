@@ -917,6 +917,12 @@ static void nat_journal_convert(void) {
                 u32 rt = be32(d + 0x1D8);
                 fprintf(f, "Pulse par le reseau : %s ; %u paquets recus, %u demandes refaites\n", (rt >> 24) < 6 ? nw[rt >> 24] : "?", (unsigned)be32(d + 0x1D4), (unsigned)(rt & 0xFFFFFF));
             }
+            if (H[1] >= 19 && (be32(d + 0x1E0) || be32(d + 0x1E4) || be32(d + 0x1E8))) {   /* v145 : BBA du jeu, bus EXI partage */
+                if (be32(d + 0x1E0)) fprintf(f, "Le jeu se sert du Broadband Adapter (jeu en reseau) : %u acces%s\n", (unsigned)be32(d + 0x1E0),
+                                             be32(d + 0x1D0) ? " ; CONFLIT : Pulse lit le jeu par ce meme adaptateur" : "");
+                if (be32(d + 0x1E4) || be32(d + 0x1E8)) fprintf(f, "Bus EXI partage avec le jeu : %u lectures remises a plus tard, %u lectures passees en fond\n",
+                                                                (unsigned)be32(d + 0x1E4), (unsigned)be32(d + 0x1E8));
+            }
             if (H[1] >= 17 && (be32(d + 0x1B8) & NRO_TRAP)) {     /* v139 : Pulse universel */
                 static const char *const why[] = { "pas encore active (le jeu n'a pas installe ses fonctions)", "actif", "refuse : BAT de la zone 0xC0000000 inattendu",
                     "refuse : 2e BAT deja utilise par le jeu", "refuse : le jeu a sa propre table des pages", "refuse : vecteur 0x300 inattendu",
@@ -929,7 +935,7 @@ static void nat_journal_convert(void) {
             fprintf(f, "\n");
         }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
-        int rbase = H[1] >= 18 ? 0x1E0 : H[1] >= 17 ? 0x1D0 : H[1] >= 16 ? 0x1C0 : H[1] >= 15 ? 0x1A0 : H[1] >= 14 ? 0x190 : H[1] >= 13 ? 0x180 : H[1] >= 12 ? 0x170 : H[1] >= 11 ? 0x160 : v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
+        int rbase = H[1] >= 19 ? 0x1F0 : H[1] >= 18 ? 0x1E0 : H[1] >= 17 ? 0x1D0 : H[1] >= 16 ? 0x1C0 : H[1] >= 15 ? 0x1A0 : H[1] >= 14 ? 0x190 : H[1] >= 13 ? 0x180 : H[1] >= 12 ? 0x170 : H[1] >= 11 ? 0x160 : v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
         for (int k = 0; k < nring; k++) {
             const u8 *e = d + rbase + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);
@@ -1222,6 +1228,32 @@ static int na_tramp(u8 *w, u32 at, u32 site, u32 ins, u32 reg, u32 fn_load, u32 
 /* pose les aiguillages : dol = main.dol (copie a modifier), res = image du resident (NATRES_AT) ;
    rend le nombre d'acces branches, et dans *skipped ceux qu'on n'a pas su brancher */
 /* v121 : haut de la place libre du resident : la table des morceaux (ou celle de l'autre disque, en dessous) */
+/* v145 : avant le saut vers le jeu, le Broadband Adapter est remis a zero, sans interruptions (GC Station s'en
+   servait : Salon, telephone). Un jeu en reseau local (Kirby Air Ride, Mario Kart Double Dash, Phantasy Star
+   Online) trouve ainsi l'adaptateur comme au demarrage de la console. Interruptions coupees : rien d'autre sur le bus. */
+#ifdef GEKKO
+static void na_bba_quiet(void) {
+    volatile u32 *x = (volatile u32 *)0xCC006800u;        /* EXI canal 0, peripherique 2 */
+    #define NBQ_WAIT() for (u32 _i = 0; _i < 100000u && (x[3] & 1); _i++) { }
+    #define NBQ_SEL() x[0] = (x[0] & 0x405) | (3u << 4) | (0x80u << 2)
+    #define NBQ_DES() x[0] = x[0] & 0x405
+    #define NBQ_W(v, n) do { x[4] = (v); x[3] = ((u32)((n) - 1) << 4) | 5u; NBQ_WAIT(); } while (0)
+    NBQ_SEL(); NBQ_W(0, 2); x[4] = 0; x[3] = (3u << 4) | 1u; NBQ_WAIT(); u32 id = x[4]; NBQ_DES();
+    if (id != 0x04020200u) return;                        /* (pas de BBA) */
+    NBQ_SEL(); NBQ_W(((0x02u << 8) | 0x4000u) << 16, 2); NBQ_W(0, 1); NBQ_DES();   /* interruptions du BBA : aucune */
+    NBQ_SEL(); NBQ_W(0xC0000000u | (0x00u << 8), 4); NBQ_W(0x01000000u, 1); NBQ_DES();   /* NCRA : remise a zero */
+    for (volatile u32 i = 0; i < 20000u; i++) { }
+    NBQ_SEL(); NBQ_W(0xC0000000u | (0x00u << 8), 4); NBQ_W(0, 1); NBQ_DES();
+    NBQ_SEL(); NBQ_W(0xC0000000u | (0x08u << 8), 4); NBQ_W(0, 1); NBQ_DES();           /* IMR = 0 */
+    NBQ_SEL(); NBQ_W(0xC0000000u | (0x09u << 8), 4); NBQ_W(0xFF000000u, 1); NBQ_DES(); /* IR : tout acquitte */
+    volatile u32 *x2 = (volatile u32 *)(0xCC006800u + 2 * 0x14u);   /* canal 2 : la ligne d'interruption du BBA */
+    x2[0] = (x2[0] & 0x405u & ~1u) | 0x2u;
+    #undef NBQ_WAIT
+    #undef NBQ_SEL
+    #undef NBQ_DES
+    #undef NBQ_W
+}
+#endif
 static u32 na_ceil(const u8 *res) {
     u32 c = be32(res + 0x24), e2 = be32(res + offsetof(natres_hdr_t, ext2));
     return be32(res + offsetof(natres_hdr_t, n_ext2)) && e2 && e2 < c ? e2 : c;
@@ -2495,6 +2527,7 @@ static const char *nat_boot(int k) {
     VIDEO_Configure(na_gm); VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();
     SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
     u32 level = IRQ_Disable();                            /* plus d'interruptions : on ecrase GC Station */
+    if (!na_net_on) na_bba_quiet();                      /* v145 : (par le reseau : le resident remet lui-meme le BBA a zero) */
     na_vi_irqs(na_vb);                                    /* v111 : 480p (interruptions d'ecran comme le BIOS) */
     (void)level;
     memmove((void *)stage, buf, total);
@@ -2583,6 +2616,12 @@ static int na_dvd_read(volatile u32 *di, u32 off, u8 *dst, u32 len, int pf, int 
 /* v143 : jouer a un jeu d'une autre GC Station sans le copier : path = "gcs:/chemin" (serveur : nfs_cfg[NFS_GCS]) */
 static u32 na_ipv4(const char *s) { unsigned a, b, c, d; return sscanf(s, "%u.%u.%u.%u", &a, &b, &c, &d) == 4 ? (u32)a << 24 | (u32)b << 16 | (u32)c << 8 | d : 0; }
 static const char *game_boot(int k, int resident);
+/* v145 : jeux qui se servent du Broadband Adapter (mode reseau local / en ligne) */
+static int na_lan_game(const char *id) {
+    static const char *const ids[] = { "GKY", "GM4", "GTE", "GPO", "GPS" };   /* Kirby Air Ride, Mario Kart Double Dash, 1080 Avalanche, Phantasy Star Online */
+    for (unsigned i = 0; i < sizeof(ids) / sizeof(ids[0]); i++) if (!strncmp(id, ids[i], 3)) return 1;
+    return 0;
+}
 static const char *nat_boot_net(const char *path) {
     if (strncmp(path, "gcs:/", 5)) return "Pas un jeu d'une autre GC Station";
     if (!gl) gl_scan();
@@ -2608,6 +2647,8 @@ static const char *nat_boot_net(const char *path) {
     if (ok) { ok = gd_read(&d, 0, h, sizeof(h)); gd_close(&d); }
     if (!ok || h[0x1C] != 0xC2 || h[0x1D] != 0x33) return "Ce fichier n'est pas un jeu GameCube lisible";
     memcpy(g->id, h, 6); g->id[6] = 0; g->disc = h[6];
+    if (na_lan_game(g->id))                                 /* v145 : le jeu et Pulse se disputeraient l'adaptateur */
+        return "Ce jeu se sert du Broadband Adapter (jeu en r\xC3\xA9seau) : Pulse ne peut pas le lire par ce m\xC3\xAA" "me adaptateur. Choisis \xC2\xAB Copier sur la carte SD, puis jouer \xC2\xBB";
     gl_latin(h + 0x20, 63, g->title, sizeof(g->title));
     int k = gl_n++;
     na_net_on = 1;
@@ -2719,6 +2760,7 @@ static const char *nat_boot_drive(int k, int reset) {
     SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
     u32 level = IRQ_Disable();
     (void)level;
+    na_bba_quiet();                                       /* v145 : (jeux en reseau local) */
     na_vi_irqs(vb);                                       /* v111 */
     memmove((void *)stage, buf, total);
     DCFlushRange((void *)stage, total);

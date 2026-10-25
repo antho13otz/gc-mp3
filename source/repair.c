@@ -112,6 +112,16 @@ static int rep_plan(const char *id, int verdict, char *s) {
 static void rep_apply(const char *id) {
     rep_msg[0] = 0;
     rep_t *p = rep_find(id);
+    if (!p && cp_verdict(id) == CP_NONE && rep_n < RP_MAX) {   /* v145 : jamais essaye ici, marche sur une autre console avec un reglage */
+        cpp_t *q = cpp_find(id);
+        int c = q && q->v == CP_OK ? (q->fix ? q->fix : q->slow ? RPS_SPEED : 0) : 0;
+        if (c && rep_name(c)[0] != '?') {
+            p = &rep_tab[rep_n++];
+            memset(p, 0, sizeof(*p));
+            snprintf(p->id, sizeof(p->id), "%.6s", id); p->steps[0] = (char)c; p->base = CP_NONE;   /* (base 0 : repris du Salon) */
+            rep_save();
+        }
+    }
     if (!p || p->cur >= strlen(p->steps)) return;
     int c = p->steps[p->cur];
     switch (c) {
@@ -124,7 +134,8 @@ static void rep_apply(const char *id) {
     case RPS_VIDEO:   nat_vmode = 0; nat_deflick = 0; nat_wide = 0; break;
     case RPS_BOTH:    nat_speed = 1; nat_speed_auto = 0; nat_trap = 1; break;
     }
-    snprintf(rep_msg, sizeof(rep_msg), "essai %d / %d : %s", p->cur + 1, (int)strlen(p->steps), rep_name(c));
+    if (p->base == CP_NONE) snprintf(rep_msg, sizeof(rep_msg), "r\xC3\xA9glage d'une autre console : %s", rep_name(c));   /* v145 */
+    else snprintf(rep_msg, sizeof(rep_msg), "essai %d / %d : %s", p->cur + 1, (int)strlen(p->steps), rep_name(c));
     if (!p->tried) { p->tried = 1; rep_save(); }
     crumb("reparation %s : %s", id, rep_msg);
 }
@@ -156,11 +167,20 @@ static void rep_keep(const char *id, const char *title, int c) {
 static void rep_verdict(const char *id, const char *title, int v, int old) {
     rep_t *p = rep_find(id);
     rep_note_txt[0] = 0;
+    if (p && p->base == CP_NONE && p->steps[0]) {         /* v145 : reglage repris d'une autre console du Salon */
+        int c = p->steps[0], tried = p->tried;
+        rep_drop(id); p = NULL;
+        if (tried && (v == CP_OK || v == CP_MAL)) {
+            rep_keep(id, title, c); cp_set_fix(id, c);
+            snprintf(rep_note_txt, sizeof(rep_note_txt), "R\xC3\xA9glage d'une autre console : %s (gard\xC3\xA9)", rep_name(c));
+            if (v == CP_OK) return;
+        }
+    }
     if (p && p->tried && p->cur < strlen(p->steps)) {
         int c = p->steps[p->cur];
         int better = v == CP_OK || (v == CP_MAL && (p->base == CP_NOIR || p->base == CP_PLANTE));
         if (better) {
-            rep_keep(id, title, c);
+            rep_keep(id, title, c); cp_set_fix(id, c);
             if (v == CP_OK) {
                 snprintf(rep_note_txt, sizeof(rep_note_txt), "R\xC3\xA9par\xC3\xA9 avec : %s (gard\xC3\xA9)", rep_name(c));
                 rep_drop(id);
@@ -207,6 +227,7 @@ static void rep_verdict(const char *id, const char *title, int v, int old) {
 static int rep_line(const char *id, char *out, int cap) {
     rep_t *p = rep_find(id);
     if (!p || p->cur >= strlen(p->steps)) return 0;
+    if (p->base == CP_NONE) { snprintf(out, cap, "R\xC3\xA9glage d'une autre console : %s", rep_name(p->steps[p->cur])); return 1; }
     snprintf(out, cap, "R\xC3\xA9paration, essai %d / %d : %s", p->cur + 1, (int)strlen(p->steps), rep_name(p->steps[p->cur]));
     return 1;
 }

@@ -194,8 +194,8 @@ static const char *const pulse_ld_names[5] = { "Aurore", "C\xC5\x93ur", "Cin\xC3
 static const char *const pulse_ld_keys[5] = { "aurore", "coeur", "cinema", "minimal", "hasard" };
 static int nat_igr = 1;                                 /* v59 : A+Z+START dans Resident (natif.c) ; v63 : de nouveau actif (lecture H + L : la manette marche) */
 static int gl_sort = 0;                                 /* v45 : tri des jeux : A-Z, derniers lances, taille, region */
-static const char *const gl_sort_keys[4] = { "az", "recents", "taille", "region" };
-static const char *const gl_sort_names[4] = { "A \xE2\x86\x92 Z", "Derniers lanc\xC3\xA9s", "Taille", "R\xC3\xA9gion" };
+static const char *const gl_sort_keys[5] = { "az", "recents", "taille", "region", "etat" };   /* v145 : + etat avec Pulse */
+static const char *const gl_sort_names[5] = { "A \xE2\x86\x92 Z", "Derniers lanc\xC3\xA9s", "Taille", "R\xC3\xA9gion", "\xC3\x89tat (Pulse)" };
 static const char *const skin_keys[6] = { "indigo", "moderne", "nouvelle", "aurore", "vitrine", "ilots" };   /* v131 : + Vitrine, Ilots (a la place de Nebula, Halo) ; Moderne et Nouvelle retires du choix */
 static const char *const glview_keys[6] = { "grille", "carrousel", "liste", "mur", "vitrine", "etagere" };
 static u8 mod_acc[3] = { 0, 190, 230 };
@@ -4671,7 +4671,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "spectrogramme_couleurs")) { for (int i = 0; i < SGP_COUNT; i++) if (!strcasecmp(v, sgp_keys[i])) sg_pal_id = i; }
         else if (!strcasecmp(k, "spectre")) { for (int i = 0; i < VZ_COUNT; i++) if (!strcasecmp(v, viz_keys[i])) viz_style = i; }
         else if (!strcasecmp(k, "jeux_affichage")) { for (int i = 0; i < 6; i++) if (!strcasecmp(v, glview_keys[i])) gl_view = i; }
-        else if (!strcasecmp(k, "jeux_tri")) { for (int i = 0; i < 4; i++) if (!strcasecmp(v, gl_sort_keys[i])) gl_sort = i; }
+        else if (!strcasecmp(k, "jeux_tri")) { for (int i = 0; i < 5; i++) if (!strcasecmp(v, gl_sort_keys[i])) gl_sort = i; }
         else if (!strcasecmp(k, "jeux_animations")) gl_anim = !has_word(v, "non");
         else if (!strcasecmp(k, "lanceur_maison_retour")) nat_igr = !has_word(v, "non");
         else if (!strcasecmp(k, "resident_carte_virtuelle")) nat_card = has_word(v, "non") ? 0 : strchr(v, 'b') || strchr(v, 'B') ? 2 : 1;   /* (v122 : "a+b" = slots A et B) */
@@ -4800,7 +4800,7 @@ static void save_settings(void) {
     fprintf(f, "# Paroles dans le lecteur : spectre / paroles / les_deux ; eclair sur les basses (mode soiree) : partout / sauf_spectrogramme / jamais\n"
                "paroles_affichage = %s\neclair_basses = %s\nrythme_decalage = %d\n", lyr_keys[lyr_show], flash_keys[flash_mode], rg_offset);
     fprintf(f, "# Jeux GameCube : tri (az / recents / taille / region) ; animations de JEUX / APPS (oui / non)\n"
-               "jeux_tri = %s\njeux_animations = %s\n", gl_sort_keys[gl_sort & 3], gl_anim ? "oui" : "non");
+               "jeux_tri = %s\njeux_animations = %s\n", gl_sort_keys[gl_sort % 5], gl_anim ? "oui" : "non");
     fprintf(f, "# Pulse (X) : A+Z+START = retour a GC Station (oui / non)\nlanceur_maison_retour = %s\n", nat_igr ? "oui" : "non");
     fprintf(f, "# Pulse (X) : cartes memoire virtuelles (gc-mp3/resident/carte-A.raw ; a+b : aussi carte-B.raw au slot B)\nresident_carte_virtuelle = %s\n", nat_card >= 2 ? "a+b" : nat_card ? "oui" : "non");
     fprintf(f, "# Pulse : une carte par region du jeu (carte-A-EUR.raw, -USA, -JAP)\nresident_carte_par_region = %s\n", nat_card_reg ? "oui" : "non");
@@ -12672,6 +12672,7 @@ static int fe_am_action(int code);                      /* v143 : jeu d'une autr
 static void cp_after_game(const char *id, const char *title, int crashed, int slow, int vmode);
 static void cp_badge(const char *id, f32 x, f32 y, f32 r);
 static int cp_line(const char *id, char *out, int cap, col_t *c);
+static int cp_rank(const char *id);                     /* v145 : tri par etat (compat.c) */
 static void cp_pump(void);
 static int rep_line(const char *id, char *out, int cap);   /* v140 : reparation automatique (repair.c) */
 static void sv_after_game(const char *id, const char *launch_log);   /* v141 : copies des sauvegardes (saves.c) */

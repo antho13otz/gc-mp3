@@ -507,6 +507,7 @@ static void gl_apply_sort(void) {
         case 1: g->key = -(long)g->last; break;
         case 2: g->key = -(g->size >> 10); break;
         case 3: g->key = r == 'P' ? 0 : r == 'F' || r == 'D' || r == 'S' || r == 'I' ? 1 : r == 'E' ? 2 : r == 'J' ? 3 : 4; break;
+        case 4: g->key = g->dvd ? 9 : cp_rank(g->id); break;   /* v145 : marche, marche mal, pas essaye, ecran noir, plantage */
         default: g->key = 0; break;
         }
     }
@@ -758,7 +759,7 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         if (fire && (nav & PAD_BUTTON_DOWN)) gl_opt = (gl_opt + 1) % 4;
         if (fire && (nav & PAD_BUTTON_UP)) gl_opt = (gl_opt + 3) % 4;
         int ch = (fire && (nav & PAD_BUTTON_RIGHT)) ? 1 : (fire && (nav & PAD_BUTTON_LEFT)) ? -1 : (down & PAD_BUTTON_A) ? 1 : 0;
-        if (gl_opt == 0 && ch) { gl_sort = (gl_sort + ch + 4) % 4; gl_apply_sort(); settings_dirty = 1; }
+        if (gl_opt == 0 && ch) { gl_sort = (gl_sort + ch + 5) % 5; gl_apply_sort(); settings_dirty = 1; }
         else if (gl_opt == 1 && (down & PAD_BUTTON_A) && gl_n) {
             gl_sel = (int)(lib_rand() % (u32)gl_n); gl_opt = -1; gl_detail = 1; gl_slide = gl_anim ? 1.0f : 0.0f;
             return;
@@ -1463,7 +1464,7 @@ static void draw_gclib_main(void) {
             gp_zone(x + 12, ry, w - 24, rh - 3, &gl_opt, i, GPZ_SEL);
             if (on) gx_rrect_fill(x + 12, ry, w - 24, rh - 3, 6, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
             gx_text1(F_MED, x + 24, ry + 19, nm[i], RGBA(240, 232, 255, 255));
-            const char *v = i == 0 ? gl_sort_names[gl_sort & 3] : i == 2 ? (gl_anim ? "Oui" : "Non") : "(A)";
+            const char *v = i == 0 ? gl_sort_names[gl_sort % 5] : i == 2 ? (gl_anim ? "Oui" : "Non") : "(A)";
             gx_text_r(F_MED, x + w - 24, ry + 19, v, on ? RGBA(255, 255, 255, 255) : RGBA(190, 160, 255, 255));
         }
         gx_text_c(F_SMALL, 320, y + h - 8, "Gauche / Droite ou A : changer     B : fermer", RGBA(255, 210, 120, 255));
