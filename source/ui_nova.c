@@ -230,7 +230,7 @@ static void au_sel_paint(f32 x, f32 y, f32 w, f32 h, f32 r);   /* (ui_aurore.c) 
 static void nv_shift(f32 dx) {
     Mtx m;
     guMtxIdentity(m);
-    if (ui_skin == 3 && nv_page_r > 0) {                 /* v102 : Aurore : la page arrive en zoom doux */
+    if (ui_skin >= 3 && nv_page_r > 0) {                 /* v102 : Aurore : la page arrive en zoom doux */
         f32 s = 1.0f - 0.035f * nv_page_r, cx = UX(320), cy = 270;
         m[0][0] = s; m[1][1] = s; m[0][3] = cx * (1 - s); m[1][3] = cy * (1 - s);
         GX_LoadPosMtxImm(m, GX_PNMTX0);
@@ -251,7 +251,7 @@ static void nv_page_end(void) {                          /* apres : fondu par-de
     nv_page_r = 0;
     nv_shift(0);
     nv_raw = 1;
-    gx_rect(0, 72, 640, 408, ui_skin == 3 ? RGBA(4, 4, 8, (u8)(220 * r)) : RGBA(12, 14, 28, (u8)(200 * r)));
+    gx_rect(0, 72, 640, 408, ui_skin >= 3 ? RGBA(4, 4, 8, (u8)(220 * r)) : RGBA(12, 14, 28, (u8)(200 * r)));
     nv_raw = 0;
 }
 
@@ -277,7 +277,7 @@ static void nv_sel_draw(f32 x, f32 y, f32 w, f32 h, f32 r) {
     }
     s->frame = nv_frame + 1;
     nv_raw = 1;
-    if (ui_skin == 3) { au_sel_paint(s->x, s->y, w, h, r); nv_raw = 0; return; }   /* v102 : Aurore */
+    if (ui_skin >= 3) { au_sel_paint(s->x, s->y, w, h, r); nv_raw = 0; return; }   /* v102 : Aurore */
     gx_glow(s->x, s->y, w, h, r, nv_acc(70), 3);
     gx_rrect_fill(s->x, s->y, w, h, r, nv_acc(255), nv_acc2(255));
     if (w > 30) gx_hgrad(s->x + r, s->y + 1, w - 2 * r, 1, RGBA(255, 255, 255, 70), RGBA(255, 255, 255, 0));

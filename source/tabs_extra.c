@@ -172,7 +172,7 @@ static void draw_tab_games(void) {
         static const char *const bl[3] = { "Jeux GameCube", "Mes applis", "Cartes m\xC3\xA9moire" };
         int on = gm_sel == GM_COUNT + k;
         const f32 bw = 196, bx = 22 + k * (bw + 4), by = 110, bh = 30;
-        if (ui_skin == 3) gm_au_card(bx, by, bw, bh, 15, on);          /* v110 : Aurore : verre */
+        if (ui_skin >= 3) gm_au_card(bx, by, bw, bh, 15, on);          /* v110 : Aurore : verre */
         else {
         if (on) gx_glow(bx, by, bw, bh, 8, RGBA(150, 80, 255, 140), 3);
         gx_rrect_fill(bx, by, bw, bh, 8, on ? RGBA(116, 46, 236, 255) : RGBA(34, 20, 84, 230), on ? RGBA(74, 22, 172, 255) : RGBA(20, 12, 52, 230));
@@ -198,7 +198,7 @@ static void draw_tab_games(void) {
     for (int g = 0; g < GM_COUNT; g++) {
         f32 x = x0 + (g % GM_COLS) * (cw + 8), y = y0 + (g / GM_COLS) * (ch + 5);
         int on = g == gm_sel;
-        if (ui_skin == 3) gm_au_card(x, y, cw, ch, 16, on);           /* v110 : Aurore : verre */
+        if (ui_skin >= 3) gm_au_card(x, y, cw, ch, 16, on);           /* v110 : Aurore : verre */
         else {
         if (on) gx_glow(x, y, cw, ch, 10, RGBA(150, 80, 255, 140), 3);
         gx_rrect_fill(x, y, cw, ch, 10, on ? RGBA(116, 46, 236, 255) : RGBA(34, 20, 84, 230), on ? RGBA(74, 22, 172, 255) : RGBA(20, 12, 52, 230));

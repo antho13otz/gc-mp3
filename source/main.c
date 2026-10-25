@@ -190,7 +190,7 @@ static int nat_igr = 1;                                 /* v59 : A+Z+START dans 
 static int gl_sort = 0;                                 /* v45 : tri des jeux : A-Z, derniers lances, taille, region */
 static const char *const gl_sort_keys[4] = { "az", "recents", "taille", "region" };
 static const char *const gl_sort_names[4] = { "A \xE2\x86\x92 Z", "Derniers lanc\xC3\xA9s", "Taille", "R\xC3\xA9gion" };
-static const char *const skin_keys[4] = { "indigo", "moderne", "nouvelle", "aurore" };
+static const char *const skin_keys[6] = { "indigo", "moderne", "nouvelle", "aurore", "nebula", "halo" };   /* v129 : + Nebula, Halo ; Moderne et Nouvelle retires du choix */
 static const char *const glview_keys[6] = { "grille", "carrousel", "liste", "mur", "vitrine", "etagere" };
 static u8 mod_acc[3] = { 0, 190, 230 };
 static void skin_accent(void) {
@@ -252,15 +252,32 @@ static inline col_t aur_col(col_t c) {
     c.r = c.g = (u8)(gr * 96 / 100); c.b = (u8)(gr * 96 / 100 + (gr < 240 ? 6 : 0));
     return c;
 }
+static int tab;                                          /* (onglet affiche : defini plus bas) */
+/* v129 : Halo : une couleur vive par onglet ; les violets de l'interface la prennent, le reste en graphite */
+static const u8 halo_tab_rgb[11][3] = { {167,123,255}, {47,211,255}, {77,139,255}, {255,154,60}, {255,79,176}, {166,255,61},
+                                        {47,224,192}, {255,200,60}, {77,255,136}, {255,77,94}, {232,230,255} };
+static inline col_t halo_acc(u8 a) { int t = tab >= 0 && tab < 11 ? tab : 0; return RGBA(halo_tab_rgb[t][0], halo_tab_rgb[t][1], halo_tab_rgb[t][2], a); }
+static inline col_t halo_col(col_t c) {
+    int mx = c.r > c.g ? (c.r > c.b ? c.r : c.b) : (c.g > c.b ? c.g : c.b);
+    int mn = c.r < c.g ? (c.r < c.b ? c.r : c.b) : (c.g < c.b ? c.g : c.b);
+    int sat = mx ? (mx - mn) * 255 / mx : 0;
+    int purple = c.b >= c.r && c.b >= c.g && c.r + 8 >= c.g;
+    if (!purple || sat < 30) return c;
+    if (sat > 120 && mx > 140) { col_t a = halo_acc(255); c.r = (u8)(a.r * mx / 255); c.g = (u8)(a.g * mx / 255); c.b = (u8)(a.b * mx / 255); return c; }
+    int lum = (c.r * 54 + c.g * 183 + c.b * 19) >> 8;
+    int gr = lum * 80 / 100 + (mx - lum) / 4;               /* (plus sombre qu'Aurore : noir profond) */
+    c.r = c.g = (u8)gr; c.b = (u8)(gr + (gr < 245 ? 8 : 0));
+    return c;
+}
 /* v120 : couleurs deja converties gardees (256 cases) : la conversion (des divisions) etait refaite a
    chaque sommet, des milliers de fois par image, pour une poignee de couleurs differentes */
 static u32 thc_key[256], thc_val[256];
-static int thc_skin = -1, thc_theme = -1, thc_ident = -1;
+static int thc_skin = -1, thc_theme = -1, thc_ident = -1, thc_tab = -1;
 static col_t th_col_slow(col_t c);
 static inline col_t th_col(col_t c) {
     if (nv_raw) return c;                                /* (v109 : logos et decors : couleurs exactes, tous styles) */
-    if (ui_skin != thc_skin || theme_id != thc_theme || th_identity != thc_ident) {
-        memset(thc_key, 0, sizeof(thc_key)); thc_skin = ui_skin; thc_theme = theme_id; thc_ident = th_identity;
+    if (ui_skin != thc_skin || theme_id != thc_theme || th_identity != thc_ident || (ui_skin == 5 && thc_tab != tab)) {
+        memset(thc_key, 0, sizeof(thc_key)); thc_skin = ui_skin; thc_theme = theme_id; thc_ident = th_identity; thc_tab = tab;
     }
     u32 k = 0x01000000u | (u32)c.r << 16 | (u32)c.g << 8 | c.b;
     u32 h = (k * 2654435761u) >> 24;
@@ -270,7 +287,8 @@ static inline col_t th_col(col_t c) {
     return c;
 }
 static col_t th_col_slow(col_t c) {
-    if (ui_skin == 3) return aur_col(c);
+    if (ui_skin == 5) return halo_col(c);
+    if (ui_skin >= 3) return aur_col(c);
     if (ui_skin == 2) return nova_col(c);
     if (ui_skin) return mod_col(c);
     if (th_identity) return c;
@@ -4616,7 +4634,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "ecran_hauteur")) { scr_hpct = atoi(v); if (scr_hpct < 80) scr_hpct = 80; if (scr_hpct > 100) scr_hpct = 100; }
         else if (!strcasecmp(k, "ecran_position")) { scr_vpos = atoi(v); if (scr_vpos < -24) scr_vpos = -24; if (scr_vpos > 24) scr_vpos = 24; }
         else if (!strcasecmp(k, "ecran_taille")) { scr_pct = atoi(v); if (scr_pct < 80) scr_pct = 80; if (scr_pct > SCR_MAX) scr_pct = SCR_MAX; }
-        else if (!strcasecmp(k, "style")) ui_skin = !strncasecmp(v, "mod", 3) ? 1 : !strncasecmp(v, "nouv", 4) ? 2 : !strncasecmp(v, "aur", 3) ? 3 : 0;
+        else if (!strcasecmp(k, "style")) ui_skin = !strncasecmp(v, "mod", 3) || !strncasecmp(v, "nouv", 4) || !strncasecmp(v, "aur", 3) ? 3 : !strncasecmp(v, "neb", 3) || !strncasecmp(v, "n\xC3\xA9" "b", 4) ? 4 : !strncasecmp(v, "halo", 4) ? 5 : 0;   /* v129 : Moderne / Nouvelle -> Aurore */
         else if (!strcasecmp(k, "spectrogramme_couleurs")) { for (int i = 0; i < SGP_COUNT; i++) if (!strcasecmp(v, sgp_keys[i])) sg_pal_id = i; }
         else if (!strcasecmp(k, "spectre")) { for (int i = 0; i < VZ_COUNT; i++) if (!strcasecmp(v, viz_keys[i])) viz_style = i; }
         else if (!strcasecmp(k, "jeux_affichage")) { for (int i = 0; i < 6; i++) if (!strcasecmp(v, glview_keys[i])) gl_view = i; }
@@ -4738,7 +4756,7 @@ static void save_settings(void) {
             rg_mode == 2 ? "album" : rg_mode == 1 ? "morceau" : "non", party_keys[party_style],
             layout_keys[layout_tab[TAB_MUSIC]], els, hid, city, news_url, alarm_txt, alarm_src, phone_auto ? "oui" : "non", shuffle_on ? "oui" : "non", rep[repeat_mode], aff[view_mode],
             volume_pct, theme_keys[theme_id], saver_min, saver_keys[saver_style], vid[video_pref], tv_crt ? "cathodique" : "plat",
-            lang_pref >= 0 ? lang_keys[lang_pref] : "auto", ui_lang == 1 ? "en" : ui_lang == 0 ? "fr" : "auto", skin_keys[ui_skin >= 0 && ui_skin <= 3 ? ui_skin : 0], glview_keys[gl_view >= 0 && gl_view < 6 ? gl_view : 0], scr_pct, scr_hpct, scr_vpos, scr_wide ? "16:9" : "4:3", resume_on ? "oui" : "non",
+            lang_pref >= 0 ? lang_keys[lang_pref] : "auto", ui_lang == 1 ? "en" : ui_lang == 0 ? "fr" : "auto", skin_keys[ui_skin >= 0 && ui_skin <= 5 ? ui_skin : 0], glview_keys[gl_view >= 0 && gl_view < 6 ? gl_view : 0], scr_pct, scr_hpct, scr_vpos, scr_wide ? "16:9" : "4:3", resume_on ? "oui" : "non",
             resume_path, resume_pos);
     fprintf(f, "# Reveil, jours : 0 = tous les jours, 1 = du lundi au vendredi, 2 = samedi et dimanche\nreveil_jours = %d\n", alarm_days);
     fprintf(f, "# Style du spectre : led / barres / miroir / courbe / spectrogramme / oscilloscope / cercle\nspectre = %s\n", viz_keys[viz_style]);
@@ -5496,7 +5514,7 @@ static void wall_set(const char *path);
 static void draw_background(void) {
     if (wall_draw()) return;
     const f32 L = 0, R = 640;
-    if (ui_skin == 3) { au_background(); return; }                    /* v102 : Aurore */
+    if (ui_skin >= 3) { au_background(); return; }                    /* v102 : Aurore */
     if (ui_skin == 2) { nv_background(); return; }                    /* v101 : Nouvelle */
     if (ui_skin) {                                                    /* Moderne : gris uni */
         gx_quad4(L, 0, R, 480, RGBA(45, 45, 48, 255), RGBA(45, 45, 48, 255), RGBA(33, 33, 36, 255), RGBA(33, 33, 36, 255));
@@ -5547,7 +5565,7 @@ static void draw_console_corner(void) {
 }
 
 static void draw_panel(f32 x, f32 y, f32 w, f32 h) {
-    if (ui_skin == 3) { au_panel(x, y, w, h); return; }
+    if (ui_skin >= 3) { au_panel(x, y, w, h); return; }
     if (ui_skin == 2) { nv_panel(x, y, w, h); return; }
     if (ui_skin) {                                                    /* Moderne : carte plate */
         col_t t = RGBA(58, 58, 62, 236), b = RGBA(52, 52, 56, 236);
@@ -5718,7 +5736,7 @@ static void draw_header_modern(void) {
 #include "pulse_logo.c"                         /* v109 : logo de Pulse (le lanceur, avant Resident) */
 static void draw_viz(f32 x, f32 base, f32 w, f32 h);
 static void draw_header(void) {
-    if (ui_skin == 3) { au_header(); return; }
+    if (ui_skin >= 3) { au_header(); return; }
     if (ui_skin == 2) { nv_header(); return; }
     if (ui_skin) { draw_header_modern(); return; }
     draw_logo_cube(54, 38, 23);
@@ -5761,7 +5779,7 @@ static void draw_radio_icon(f32 cx, f32 cy, col_t c) {
 /* Onglets MUSIQUE / RADIO / WEB en haut de la liste (Z pour changer).
    Retourne la position x apres le rappel de la touche Z. */
 static int draw_tabs(const char *count) {
-    if (ui_skin == 3) return au_draw_tabs(count);
+    if (ui_skin >= 3) return au_draw_tabs(count);
     if (ui_skin == 2) return nv_draw_tabs(count);
     if (ui_skin) {                                                    /* Moderne : onglets deja en haut */
         if (count) gx_text_r(F_SMALL, IS_PLAYER_TAB(tab) ? 266 : 614, 99, count, RGBA(170, 170, 178, 255));
@@ -6020,7 +6038,7 @@ static void draw_player_radio(void) {
 /* Legende des touches, selon l'onglet affiche. */
 /* cadre de legende (en bas) ; v28 : plat en style Moderne */
 static void legend_box(f32 x, f32 w) {
-    if (ui_skin == 3) { au_legend_box(x, w); return; }
+    if (ui_skin >= 3) { au_legend_box(x, w); return; }
     if (ui_skin == 2) { nv_legend_box(x, w); return; }
     if (ui_skin) { gx_rrect_fill(x, 419, w, 39, 12, RGBA(52, 52, 56, 230), RGBA(52, 52, 56, 230)); return; }
     gx_rrect_fill(x, 419, w, 39, 9, C_PANEL_TOP, C_PANEL_BOT);
@@ -6221,7 +6239,7 @@ static void draw(void) {
         else DP("liste podcasts", draw_list_podcast());
         /* panneau de droite : ce qui joue, sinon l'onglet affiche */
         int view = (src != SRC_NONE) ? src : ((tab == TAB_RADIO || tab == TAB_PODCAST) ? SRC_RADIO : SRC_FILE);
-        if (ui_skin == 3 && tab == TAB_MUSIC) DP("au_player", au_player());   /* v103 : Aurore */
+        if (ui_skin >= 3 && tab == TAB_MUSIC) DP("au_player", au_player());   /* v103 : Aurore */
         else if (view == SRC_RADIO) DP("lecteur radio", draw_player_radio());
         else DP("lecteur musique", draw_player_music());
         if (kb_is_open()) draw_legend_web();
@@ -11298,7 +11316,7 @@ static void menu_value(int i, char *out, int cap) {
     }
     case MI_GAMES:   snprintf(out, cap, "(A)"); break;
     case MI_TITLES:  snprintf(out, cap, "(A)"); break;
-    case MI_SKIN:    snprintf(out, cap, "%s", ui_skin == 3 ? "Aurore" : ui_skin == 2 ? "Nouvelle" : ui_skin ? "Moderne" : "Classique"); break;
+    case MI_SKIN:    snprintf(out, cap, "%s", ui_skin == 5 ? "Halo" : ui_skin == 4 ? "N\xC3\xA9" "bula" : ui_skin >= 1 ? "Aurore" : "Classique"); break;
     case MI_GLVIEW:  { static const char *const nm[6] = { "Grille", "Carrousel", "Liste", "Mur de jaquettes", "Vitrine", "\xC3\x89tag\xC3\xA8re" };
                        snprintf(out, cap, "%s", nm[gl_view >= 0 && gl_view < 6 ? gl_view : 0]); } break;
     case MI_RUMBLE:  snprintf(out, cap, "%s", rumble_on ? "Oui" : "Non"); break;
@@ -11436,7 +11454,10 @@ static void menu_change(int i, int d) {
     case MI_SEASON:  season_on = (season_on + (d < 0 ? SEASON_MODES - 1 : 1)) % SEASON_MODES; break;   /* v115 : choix du decor */
     case MI_GAMES:   return;
     case MI_TITLES:  return;
-    case MI_SKIN:    ui_skin = (ui_skin + (d < 0 ? 3 : 1)) % 4; break;
+    case MI_SKIN: {                                    /* v129 : Classique, Aurore, Nebula, Halo */
+        static const int order[4] = { 0, 3, 4, 5 };
+        int k = 0; for (int i = 0; i < 4; i++) if (order[i] == ui_skin) k = i;
+        ui_skin = order[(k + (d < 0 ? 3 : 1)) % 4]; break; }
     case MI_GLVIEW:  gl_view = (gl_view + d + 6) % 6; break;
     case MI_GLANIM:  gl_anim = !gl_anim; break;
     case MI_NATIGR:  nat_igr = !nat_igr; break;

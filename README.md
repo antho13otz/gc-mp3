@@ -14,13 +14,15 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v128)
-- **Onglet enlevé = onglet coupé** : ce qu'il faisait en fond s'arrête (radio, podcasts, téléchargements
-  automatiques, télécommande du téléphone, météo et réveil, diaporama / vidéo, copies de fichiers, web).
-- **576i / 576p** (PAL 50 Hz) : START > Réglages > Vidéo ; 576p avec le câble composante. B maintenu au
-  démarrage : retour en 480i.
-- **Fluidité** : au début de chaque morceau, la pochette est lue à l'image suivante (saccade de ~86 ms → ~59 ms).
-- (v127) Textes trop longs qui défilent ; Dolphin : mise à jour automatique, réglages gardés, dossiers créés.
+## Nouveautés de la version actuelle (v129)
+- **Deux nouveaux styles** (START > Réglages > Affichage > Style) :
+  - **Nébula** : la suite d'Aurore : grandes lueurs floues rose, violette et cyan qui dérivent, cadres en verre
+    avec reflet, sélection en dégradé rose → cyan, légende dans une pastille de verre ;
+  - **Halo** : noir profond et contrastes forts : **une couleur par onglet** (violet Musique, cyan Radio, orange
+    Rétro, rose Podcasts, vert Photos, rouge Jeux…), contours lumineux, nom de l'onglet en grand avec les
+    icônes des onglets.
+- Les styles **Moderne** et **Nouvelle** sont retirés (ceux qui les utilisaient passent à Aurore).
+- (v128) Onglet enlevé = coupé ; 576i / 576p ; début de morceau plus fluide.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
@@ -43,7 +45,7 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
 ## Fonctionnalités secondaires
 - Mode soirée, karaoké et mini-jeux (jeu de rythme, quiz musical, snake, casse-briques, pong…).
 - Économiseur d'écran (8 styles), mode veilleuse, minuterie, réveil.
-- Thèmes de couleurs, style Classique, Moderne, Nouvelle ou Aurore (animés), fond d'écran, décor de saison (8 décors, automatique ou au choix), dispositions du lecteur.
+- Thèmes de couleurs, style Classique, Aurore, Nébula ou Halo (animés), fond d'écran, décor de saison (8 décors, automatique ou au choix), dispositions du lecteur.
 - Réglages vidéo (480i / 480p, 4:3 / 16:9, taille et position de l'image), français / anglais.
 - Clavier GameCube ASCII, curseur au stick dans tous les onglets (en haut : tous les onglets ; la croix le cache).
 - Fonctionne aussi dans Dolphin (carte SD virtuelle, réglages sur la carte mémoire).

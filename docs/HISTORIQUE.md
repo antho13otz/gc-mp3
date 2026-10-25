@@ -21,6 +21,20 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v129 — styles Nébula et Halo, fin de Moderne et Nouvelle
+- **Nébula** (`ui_skin` 4) et **Halo** (5) reprennent le moteur d'Aurore (sélection qui glisse, transitions,
+  lecteur de MUSIQUE, menu START) : partout où Aurore était testé (`ui_skin == 3`), c'est maintenant la
+  famille Aurore (`>= 3`) ; chaque style change son fond, ses cadres, sa légende et sa sélection
+  (`ui_aurore.c` : `nb_background`, `hl_background`, `au_panel`, `au_legend_box`, `au_sel_paint`).
+- Nébula : trois lueurs (cercles en dégradé jusqu'au transparent) qui dérivent ; verre plus présent (bord,
+  reflet) ; rose #FF4FB0 → cyan #2FD3FF.
+- Halo : une couleur par onglet (`halo_tab_rgb`) ; les violets de l'interface prennent cette couleur
+  (`halo_col`, cache des couleurs vidé au changement d'onglet), le reste en graphite sombre ; la grande carte
+  (à droite ou pleine largeur) a le contour lumineux ; en-tête maison (`hl_header`) : nom de l'onglet en
+  grand, point de sa couleur, icônes des onglets (l'onglet choisi en pastille lumineuse).
+- Moderne et Nouvelle ne sont plus proposés : un réglage `style = moderne / nouvelle` devient Aurore
+  (leur code reste : Aurore s'appuie sur celui de Nouvelle).
+
 ## Nouveautés v128 — onglets coupés, 576i / 576p, début de morceau plus fluide
 - **Onglets** : enlever un onglet (START > Onglets affichés) arrête aussi tout ce qu'il fait en fond : leurs
   tâches de chaque image ne tournent plus (web, podcasts et téléchargements automatiques d'épisodes, photos /
