@@ -161,7 +161,7 @@ static int sv_count(const char *dir) {
 }
 static void sv_peer_host(int k) {                    /* les fichiers d'une autre console : gcs:/ (netfs.c) */
     snprintf(nfs_cfg[NFS_GCS].host, sizeof(nfs_cfg[NFS_GCS].host), "%s", salon_peers[k].ip);
-    nfs_cfg[NFS_GCS].port = 80;
+    nfs_cfg[NFS_GCS].port = salon_peers[k].port;
 }
 static void sv_scan_snaps(void) {
     sv_ns = 0;

@@ -80,3 +80,6 @@ python3 $T/emu_e2e.py boot.bin sd.img game.iso tick | tail -1
 # v139 : Pulse universel : acces au lecteur que personne n'a remplaces, pris par exception (option du jeu)
 NATIF_SELF=selfdol.dol NATIF_TRAP=1 NATIF_DUMP=boot-x.bin ./h2 game.iso sd.img 10 > h2-x.txt
 python3 $T/emu_e2e.py boot-x.bin sd.img game.iso trap | tail -1
+# v143 : Pulse par le reseau : ISO lue par le Broadband Adapter sur un serveur (simule : ARP, UDP, une reponse perdue)
+NATIF_SELF=selfdol.dol NATIF_NET=1 NATIF_DUMP=boot-n.bin ./h2 game.iso sd.img 10 > h2-n.txt
+python3 $T/emu_e2e.py boot-n.bin sd.img game.iso net | tail -1

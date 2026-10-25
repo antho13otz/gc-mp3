@@ -300,6 +300,8 @@ static int iso_to_sd(u32 isec, u32 *sd) {
 
 static int nr_read1(void *dst, u32 off, u32 len);
 static int di_ready = 0;
+static int pn_read(void *dst, u32 off, u32 len);   /* v143 : (ISO sur le reseau) */
+static int pn_ready = 0;
 /* v136 : corrections par jeu dans les autres executables du disque (.dol, .elf, .tgc) : GC Station a calcule
    la position dans l'ISO de chaque instruction a changer ; elle est changee quand le jeu lit cet endroit.
    Table a la suite des cheats : {mots de cheats, mots..., "FIXT", n, n x {position, valeur, taille (1-4)}} */
@@ -328,11 +330,13 @@ static int nr_read(void *dst, u32 off, u32 len) {    /* v54 : une erreur de la c
         if (x_fast && x_crcbad) x_fast_off = 1;           /* v94 : CRC faux a 32 MHz : retour a 16 MHz */
         x_crcbad = 0;
         sec_cached = 0xFFFFFFFFu;
+        if (H.net) { pn_ready = 0; continue; }          /* v143 : (reseau : on redemarre le BBA) */
         di_ready = nr_init() == 0;
     }
     return -1;
 }
 static int nr_read1(void *dst, u32 off, u32 len) {
+    if (H.net) return pn_read(dst, off, len);           /* v143 : ISO sur le reseau */
     u8 *o = (u8 *)dst;
     while (len) {
         u32 isec = off >> 9, in = off & 511, n = 512 - in;
@@ -465,6 +469,203 @@ static void nr_log(u32 off, u32 len, u32 info) {
     nr_log_add(di[2], off, len, info | (H.err & 0xFF) << 24);
     if (info & 1 || H.ncmd <= 40 || tbl() - H.flush_tb > TB_SEC * 2) nr_log_flush();   /* (debut du jeu, erreurs, puis toutes les 2 s) */
 }
+/* ======================= v143 : Pulse par le reseau (option, experimental) =======================
+   L'ISO n'est pas sur la carte SD : elle est lue sur une autre GC Station (ou un PC, tools/pulse-serveur.py)
+   par le Broadband Adapter (EXI canal 0, peripherique 2). Pilote minimal ecrit ici : registres du
+   controleur reseau (commandes EXI de 2 octets pour ses registres a lui, de 4 octets pour ceux du
+   controleur Ethernet), anneau de reception dans sa memoire (pages de 256 octets, descripteur de 4 octets),
+   envoi par sa file. Par-dessus : ARP (repondre, trouver le serveur), IPv4, UDP. Protocole a nous :
+   demande "PNR1" {numero, fichier, position, longueur <= 2048} ; reponses "PNA1" {numero, position,
+   longueur <= 1024, donnees}. Une demande perdue est refaite apres 25 ms. */
+#define PN_NET ((const natres_net_t *)H.net)
+#define BB_NCRA 0x00
+#define BB_NCRB 0x01
+#define BB_IMR  0x08
+#define BB_IR   0x09
+#define BB_BP   0x0A
+#define BB_TLBP 0x0C
+#define BB_RWP  0x16
+#define BB_RRP  0x18
+#define BB_RHBP 0x1A
+#define BB_PAR  0x20
+#define BB_NWAYS 0x31
+#define BB_GCA  0x32
+#define BB_TXFIFOCNT 0x3E
+#define BB_WRTXFIFOD 0x48
+#define BB_MISC2 0x50
+#define BB_SI_ACTRL2 0x60
+#define BB_RXINTT 0x14
+static volatile u32 *bx;                                   /* registres EXI du canal 0 */
+extern u8 exc_stack[2048];
+#define pn_fr exc_stack                                   /* (trame : la pile du retour a GC Station ne sert pas en meme temps) */
+static u8 pn_mac[6], pn_smac[6];
+static u32 pn_seq = 0x5000;
+static void bb_sel(void) { bx[0] = (bx[0] & 0x405) | (5u << 4) | (0x80u << 2); }   /* 32 MHz, peripherique 2 */
+static void bb_desel(void) { bx[0] = bx[0] & 0x405; }
+static void bb_w(u32 v, int n) { bx[4] = v; bx[3] = ((u32)(n - 1) << 4) | 4u | 1u; for (u32 i = 0; i < 100000u && (bx[3] & 1); i++) { } }
+static u32 bb_r(int n) { bx[4] = 0; bx[3] = ((u32)(n - 1) << 4) | 1u; for (u32 i = 0; i < 100000u && (bx[3] & 1); i++) { } return bx[4]; }
+static void bb_cout(u32 r, u32 v) { bb_sel(); bb_w(((r << 8) | 0x4000u) << 16, 2); bb_w(v << 24, 1); bb_desel(); }
+static void bb_mx(u32 a, int wr) { bb_w(0x80000000u | (wr ? 0x40000000u : 0) | (a << 8), 4); }
+static u32 bb_in8(u32 a) { bb_sel(); bb_mx(a, 0); u32 v = bb_r(1) >> 24; bb_desel(); return v; }
+static void bb_out8(u32 a, u32 v) { bb_sel(); bb_mx(a, 1); bb_w(v << 24, 1); bb_desel(); }
+static u32 bb_in16(u32 a) { return bb_in8(a) | bb_in8(a + 1) << 8; }       /* (registres de 16 bits : petit-boutiste) */
+static void bb_out16(u32 a, u32 v) { bb_out8(a, v & 0xFF); bb_out8(a + 1, (v >> 8) & 0xFF); }
+static void bb_ins(u32 a, u8 *d, u32 n) {
+    bb_sel(); bb_mx(a, 0);
+    for (; n >= 4; n -= 4, d += 4) { u32 w = bb_r(4); d[0] = (u8)(w >> 24); d[1] = (u8)(w >> 16); d[2] = (u8)(w >> 8); d[3] = (u8)w; }
+    for (; n; n--) *d++ = (u8)(bb_r(1) >> 24);
+    bb_desel();
+}
+static void bb_outs(u32 a, const u8 *s, u32 n) {
+    bb_sel(); bb_mx(a, 1);
+    for (; n >= 4; n -= 4, s += 4) bb_w((u32)s[0] << 24 | (u32)s[1] << 16 | (u32)s[2] << 8 | s[3], 4);
+    for (; n; n--) bb_w((u32)*s++ << 24, 1);
+    bb_desel();
+}
+static u32 pn_be16(const u8 *p) { return (u32)p[0] << 8 | p[1]; }
+static u32 pn_be32(const u8 *p) { return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3]; }
+static void pn_p16(u8 *p, u32 v) { p[0] = (u8)(v >> 8); p[1] = (u8)v; }
+static void pn_p32(u8 *p, u32 v) { p[0] = (u8)(v >> 24); p[1] = (u8)(v >> 16); p[2] = (u8)(v >> 8); p[3] = (u8)v; }
+static void pn_send(u8 *f, u32 n) {                       /* trame Ethernet complete (adresses comprises) */
+    while (n < 60) f[n++] = 0;
+    u32 m = irq_off();
+    bb_out16(BB_TXFIFOCNT, n);
+    bb_outs(BB_WRTXFIFOD, f, n);
+    bb_out8(BB_NCRA, (bb_in8(BB_NCRA) & ~2u) | 4u);       /* ST1 : envoyer */
+    for (u32 i = 0; i < 20000u && (bb_in8(BB_NCRA) & 6u); i++) { }
+    irq_restore(m);
+}
+/* une trame recue (0 = aucune) : copiee dans pn_fr */
+static u32 pn_recv(void) {
+    u32 m = irq_off(), n = 0;
+    u32 rrp = bb_in16(BB_RRP) & 0xFFF, rwp = bb_in16(BB_RWP) & 0xFFF;
+    if (rrp != rwp) {
+        u8 d[4];
+        bb_ins(rrp << 8, d, 4);
+        u32 w = (u32)d[0] | (u32)d[1] << 8 | (u32)d[2] << 16 | (u32)d[3] << 24;
+        u32 next = w & 0xFFF, len = (w >> 12) & 0xFFF;
+        if (len > 4 && len - 4 <= 1536u) {
+            n = len - 4;
+            u32 a = (rrp << 8) + 4, end = 0x10u << 8, first = end - a < n ? end - a : n;   /* (l'anneau finit a la page 0x10) */
+            bb_ins(a, pn_fr, first);
+            if (first < n) bb_ins(0x01u << 8, pn_fr + first, n - first);
+        }
+        bb_out16(BB_RRP, next ? next : 1);
+    }
+    irq_restore(m);
+    return n;
+}
+static u32 pn_ipsum(const u8 *h) { u32 s = 0; for (int i = 0; i < 20; i += 2) s += pn_be16(h + i); while (s >> 16) s = (s & 0xFFFF) + (s >> 16); return ~s & 0xFFFF; }
+static void pn_eth(u8 *f, const u8 *dst, u32 type) { for (int i = 0; i < 6; i++) { f[i] = dst[i]; f[6 + i] = pn_mac[i]; } pn_p16(f + 12, type); }
+static void pn_arp(int op, const u8 *tmac, u32 tip) {      /* 1 = demande (a tous), 2 = reponse */
+    static const u8 all[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+    u8 *f = pn_fr;
+    pn_eth(f, op == 1 ? all : tmac, 0x0806);
+    pn_p16(f + 14, 1); pn_p16(f + 16, 0x0800); f[18] = 6; f[19] = 4; pn_p16(f + 20, (u32)op);
+    for (int i = 0; i < 6; i++) { f[22 + i] = pn_mac[i]; f[32 + i] = op == 1 ? 0 : tmac[i]; }
+    pn_p32(f + 28, PN_NET->ip); pn_p32(f + 38, tip);
+    pn_send(f, 42);
+}
+/* trame recue : ARP (on repond pour notre adresse, on note celle du serveur) ; rend 1 si c'est une reponse du serveur */
+static int pn_rx(u32 n, u32 seq) {
+    const u8 *f = pn_fr;
+    if (n < 42) return 0;
+    u32 type = pn_be16(f + 12);
+    if (type == 0x0806) {
+        u32 op = pn_be16(f + 20), sip = pn_be32(f + 28), tip = pn_be32(f + 38);
+        u32 hop = PN_NET->gw && ((PN_NET->srv ^ PN_NET->ip) & PN_NET->mask) ? PN_NET->gw : PN_NET->srv;
+        if (sip == hop) for (int i = 0; i < 6; i++) pn_smac[i] = f[22 + i];
+        if (op == 1 && tip == PN_NET->ip) { u8 m[6]; for (int i = 0; i < 6; i++) m[i] = f[22 + i]; pn_arp(2, m, sip); }
+        return 0;
+    }
+    if (type != 0x0800 || f[23] != 17 || pn_be32(f + 26) != PN_NET->srv || n < 42 + 16) return 0;
+    const u8 *u = f + 14 + (f[14] & 15) * 4;
+    if (pn_be16(u) != PN_NET->port || pn_be32(u + 8) != 0x504E4131u || pn_be32(u + 12) != seq) return 0;   /* "PNA1" */
+    return 1;
+}
+static int __attribute__((noinline)) pn_init(void) {
+    if (!H.net || PN_NET->magic != NATRES_NET_MAGIC) return -1;
+    bx = HW6(0xCC006800u);
+    u32 m = irq_off();
+    bb_sel(); bb_w(0, 2); u32 id = bb_r(4); bb_desel();      /* (identifiant du peripherique EXI) */
+    if (id != 0x04020200u) { irq_restore(m); H.net_rt = (H.net_rt & 0xFFFFFFu) | (u32)NRN_NOBBA << 24; return -1; }
+    bb_cout(0x02, 0x00);                                  /* (interruptions du BBA : aucune) */
+    bb_out8(BB_NCRA, 1);                                  /* remise a zero */
+    for (volatile u32 i = 0; i < 20000u; i++) { }
+    bb_out8(BB_NCRA, 0);
+    bb_out8(0x5B, bb_in8(0x5B) & ~0x80u);
+    bb_out8(0x5E, 0x01);
+    bb_out8(0x5C, bb_in8(0x5C) | 0x04u);
+    bb_out8(BB_NCRB, 0x00);
+    bb_out8(BB_SI_ACTRL2, 0x74);
+    bb_out8(BB_RXINTT, 0x00); bb_out8(BB_RXINTT + 1, 0x06);
+    bb_out8(BB_MISC2, 0x80);                              /* (reprise automatique apres une erreur de reception) */
+    bb_out16(BB_TLBP, 0x00); bb_out16(BB_BP, 0x01); bb_out16(BB_RHBP, 0x0F); bb_out16(BB_RWP, 0x01); bb_out16(BB_RRP, 0x01);
+    bb_out8(BB_GCA, 0x08);
+    bb_out8(BB_IMR, 0x00); bb_out8(BB_IR, 0xFF);
+    bb_out8(BB_NCRB, 0x04);                               /* (diffusion acceptee : ARP) */
+    bb_out8(BB_NCRA, 0x08);                               /* SR : reception */
+    bb_ins(BB_PAR, pn_mac, 6);
+    irq_restore(m);
+    u32 hop = PN_NET->gw && ((PN_NET->srv ^ PN_NET->ip) & PN_NET->mask) ? PN_NET->gw : PN_NET->srv;
+    for (int i = 0; i < 6; i++) pn_smac[i] = 0;
+    for (int t = 0; t < 40; t++) {                        /* adresse Ethernet du serveur (ou de la passerelle) : ARP */
+        pn_arp(1, pn_smac, hop);
+        u32 t0 = tbl();
+        for (u32 it = 0; it < 400000u && tbl() - t0 < TB_SEC / 20u; it++) {   /* (et un nombre de tours : horloge arretee dans le banc d'essai) */
+            u32 n = pn_recv();
+            if (n) pn_rx(n, 0);
+            if (pn_smac[0] | pn_smac[1] | pn_smac[2] | pn_smac[3] | pn_smac[4] | pn_smac[5]) { H.net_rt = (H.net_rt & 0xFFFFFFu) | (u32)NRN_ON << 24; return 0; }
+        }
+    }
+    H.net_rt = (H.net_rt & 0xFFFFFFu) | (u32)NRN_NOARP << 24;
+    return -1;
+}
+/* une demande (<= 2048 octets) et ses reponses */
+static int __attribute__((noinline)) pn_req(u8 *dst, u32 off, u32 len) {
+    u32 tok = PN_NET->tok[H.disc & 1u];
+    for (int t = 0; t < 120; t++) {
+        u32 seq = ++pn_seq, got = 0;
+        u8 *f = pn_fr;
+        pn_eth(f, pn_smac, 0x0800);
+        u8 *ip = f + 14, *u = ip + 20;
+        ip[0] = 0x45; ip[1] = 0; pn_p16(ip + 2, 20 + 8 + 18); pn_p16(ip + 4, seq & 0xFFFF); pn_p16(ip + 6, 0x4000); ip[8] = 64; ip[9] = 17;
+        pn_p16(ip + 10, 0); pn_p32(ip + 12, PN_NET->ip); pn_p32(ip + 16, PN_NET->srv); pn_p16(ip + 10, pn_ipsum(ip));
+        pn_p16(u, 51236); pn_p16(u + 2, PN_NET->port); pn_p16(u + 4, 8 + 18); pn_p16(u + 6, 0);
+        pn_p32(u + 8, 0x504E5231u); pn_p32(u + 12, seq); pn_p32(u + 16, tok); pn_p32(u + 20, off); pn_p16(u + 24, len);   /* "PNR1" */
+        pn_send(f, 14 + 20 + 8 + 18);
+        u32 t0 = tbl(), it = 0;
+        while (got < len && tbl() - t0 < TB_SEC / 40u && ++it < 200000u) {
+            u32 n = pn_recv();
+            if (!n || !pn_rx(n, seq)) continue;
+            const u8 *uh = pn_fr + 14 + (pn_fr[14] & 15) * 4, *d = uh + 8;
+            u32 po = pn_be32(d + 8), pl = pn_be16(d + 12);
+            if (po < off || po + pl > off + len || pl > 1024 || 14 + 20 + 8 + 14 + pl > n + 4) continue;
+            for (u32 i = 0; i < pl; i++) dst[po - off + i] = d[14 + i];
+            got += pl; H.net_pk++;
+            t0 = tbl(); it = 0;
+        }
+        if (got >= len) return 0;
+        H.net_rt++;
+    }
+    H.net_rt = (H.net_rt & 0xFFFFFFu) | (u32)NRN_TIMEOUT << 24;
+    H.err = NR_ETIMEOUT;
+    return -1;
+}
+static int __attribute__((noinline)) pn_read(void *dst, u32 off, u32 len) {
+    if (!pn_ready) { pn_ready = pn_init() == 0; if (!pn_ready) { H.err = NR_ENOCARD; return -1; } }
+    u8 *o = (u8 *)dst;
+    u32 sz = PN_NET->size[H.disc & 1u];
+    while (len) {
+        if (sz && off >= sz) { for (u32 i = 0; i < len; i++) o[i] = 0; return 0; }   /* (apres la fin : des zeros, comme .nkit) */
+        u32 n = len > 2048 ? 2048 : len;
+        if (sz && off + n > sz) n = sz - off;
+        if (pn_req(o, off, n)) return -1;
+        o += n; off += n; len -= n;
+    }
+    return 0;
+}
+
 /* ---------- v57 : crochets dans la table des interruptions du jeu ----------
    Le systeme des jeux (SDK Nintendo) range ses fonctions d'interruption dans une table a
    0x80003040 (une par source : 20 = manettes SI, 21 = lecteur DI, 24 = image VI).
@@ -502,6 +703,7 @@ static void ret_to_gcstation(void) {
         pi[6] = 0;
         for (volatile u32 i = 0; i < 1000u; i++) ;
     }
+    H.net = 0;                                           /* v143 : (le .dol de GC Station est sur la carte SD) */
     if (!di_ready) di_ready = nr_init() == 0;
     for (u32 i = 0; i < H.ret_n; i++) ext_tab[i] = ret_tab[i];
     H.n_ext = H.ret_n; ext_last = 0; sec_cached = 0xFFFFFFFFu;
@@ -825,6 +1027,11 @@ static int st_block(void) {                              /* bloc suivant (32 oct
     }
     u32 so = st_pos & ~511u, sd;
     if (st_sec_off == 0xFFFFFFFFu || so < st_sec_off || so >= st_sec_off + st_sec_n) {
+        if (H.net) {                                      /* v143 : (ISO sur le reseau) */
+            if (pn_read(st_sec, so, ST_SECS * 512u)) { st_sec_off = 0xFFFFFFFFu; st_on = 0; return -1; }
+            st_sec_off = so; st_sec_n = ST_SECS * 512u;
+            goto have;
+        }
         if (iso_to_sd(so >> 9, &sd)) { st_on = 0; return -1; }
         u32 n = iso_run < ST_SECS ? iso_run : ST_SECS;
         if (!n) n = 1;
@@ -832,6 +1039,8 @@ static int st_block(void) {                              /* bloc suivant (32 oct
         else if (n == 1 ? nr_read_sd(sd, st_sec) : nr_read_multi(sd, n, st_sec)) { st_sec_off = 0xFFFFFFFFu; st_on = 0; return -1; }
         st_sec_off = so; st_sec_n = n * 512;
     }
+have:
+    { }
     const u8 *a = st_sec + (st_pos - st_sec_off);
     for (int i = 0; i < 28; i++) {
         st_pcm[i * 2] = (short)st_dec(a[i + 4] & 0xF, a[0], &st_hl1, &st_hl2);
@@ -1415,10 +1624,10 @@ static void di_tick(u32 ctx, int vi) {
     if (OS_INT_MASKS & (0x80000000u >> 21)) return;      /* (le jeu ne veut pas de l'interruption du lecteur pour l'instant) */
     if (rd_on) {
         int r = rd_pump();
-        if (rescue) nr_log_add(0xDD000000u | (r < 0 ? 2u : (u32)r), rd_off, rd_left, H.vi_count);
+        if (rescue) { nr_log_add(0xDD000000u | (r < 0 ? 2u : (u32)r), rd_off, rd_left, H.vi_count); H.n_rescue++; }
         if (r == 0) { if (!wake_tick()) di_real_kick(); return; }
     } else if (!di_game_pending) { if (vc_pending()) x_dispatch(ctx); return; }
-    else if (rescue) nr_log_add(0xDD000003u, H.last_off, H.last_len, H.vi_count);
+    else if (rescue) { nr_log_add(0xDD000003u, H.last_off, H.last_len, H.vi_count); H.n_rescue++; }
     if (rescue && ++wd_n >= 3 && !wk_tick) { wk_tick = 1; nr_log_add(0xDE000000u, wd_n, 0, H.vi_count); }
     if (rescue) nr_log_flush();
     di_game_pending = 0; x_kicked = 0;

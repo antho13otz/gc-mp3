@@ -21,6 +21,23 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v143 — Pulse par le réseau (Broadband Adapter)
+- Résident : pilote minimal du BBA (EXI canal 0, périphérique 2, 32 MHz) écrit pour GC Station : commandes EXI de
+  2 octets (registres du BBA) et de 4 octets (registres du contrôleur Ethernet, 0x80000000 | écriture 0x40000000 |
+  adresse << 8), anneau de réception pages 1 à 15 (descripteur de 4 octets petit-boutiste : page suivante, longueur),
+  envoi par la file (TXFIFOCNT, WRTXFIFOD, NCRA ST1). ARP (réponse pour notre adresse, recherche du serveur), IPv4,
+  UDP. `pn_read` remplace la lecture de la carte quand `natres_hdr_t.net` est réglé (aussi pour la musique du disque).
+- Protocole : `/s/open?p=` (HTTP, Salon) -> « numéro taille port » ; puis UDP 51235 : "PNR1" {numéro, fichier,
+  position, longueur <= 2048} -> "PNA1" {numéro, position, longueur <= 1024, données}. Délai 25 ms, 120 essais.
+- GC Station : serveur des ISO dans le Salon (`pns_thread`, salon.c) ; `nat_boot_net` (natif.c) : entrée provisoire
+  dans la liste des jeux, en-tête lu par `gcs:`, réglages `natres_net_t` rangés dans la place libre du résident.
+- `tools/pulse-serveur.py` : le même serveur sur un PC (annonce du Salon, port HTTP annoncé : 8080).
+- En-tête du résident : version 18, 0x1E0 octets (anneau du journal : 2 commandes) ; `n_rescue` compte les fins de
+  commande données en secours. Place gardée pour les aiguillages avant la table du 2e disque : 8 Ko.
+- Tests : banc d'essai, nouveau test `net` (BBA et serveur simulés : ARP dans les deux sens, une réponse perdue
+  exprès, tout l'ISO et la musique du disque lus par le réseau) ; simulateur : serveur des ISO de GC Station
+  interrogé par un client Python (4 lectures identiques), lancement d'un jeu de `pulse-serveur.py` par l'onglet FICHIERS.
+
 ## Nouveautés v142 — téléphone : manette, jaquettes, photos, Salon, file de lecture
 - `tab_phone.c` : `/api/key?k=` (boutons ajoutés à ceux de la manette pour une image, `tp_keys`), `/api/cover?i=`
   (jaquette en CMPR telle qu'elle est dans posters.pak, décodée par la page dans un canvas ; `X-Size` : taille de la

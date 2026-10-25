@@ -12649,6 +12649,7 @@ static void draw_party(void) {
 
 // ---------- Onglets supplementaires (fichiers a part) ----------
 static int cp_action(int code);                         /* v137 : base de compatibilite (compat.c) */
+static int fe_am_action(int code);                      /* v143 : jeu d'une autre GC Station (tab_files.c) */
 static void cp_after_game(const char *id, const char *title, int crashed, int slow, int vmode);
 static void cp_badge(const char *id, f32 x, f32 y, f32 r);
 static int cp_line(const char *id, char *out, int cap, col_t *c);

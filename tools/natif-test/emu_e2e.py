@@ -78,6 +78,77 @@ di_real = [0] * 10
 kicks = []
 
 si_inbuf = [0x80000000, 0x11900000, 0x80000000, 0x80000000]   # manette 1 : A + START + Z
+# v143 : Broadband Adapter (EXI canal 0, peripherique 2) et serveur Pulse simule (ARP, UDP "PNR1" -> "PNA1")
+NET = len(sys.argv) > 4 and sys.argv[4] == 'net'
+GC_IP, SRV_IP, SRV_MAC = bytes([192, 168, 1, 50]), bytes([192, 168, 1, 10]), bytes([0x02, 0x11, 0x22, 0x33, 0x44, 0x55])
+class BBA:
+    def __init__(s):
+        s.mem = bytearray(0x10000); s.mem[0x20:0x26] = bytes([0x00, 0x09, 0xBF, 0x01, 0x02, 0x03])
+        s.st = None; s.addr = 0; s.wr = False; s.tx = bytearray(); s.sent = []; s.reqs = 0; s.drop = 0; s.arp_ok = False; s.dropped = 0
+    def rd16(s, a): return s.mem[a] | s.mem[a + 1] << 8
+    def wr16(s, a, v): s.mem[a] = v & 0xFF; s.mem[a + 1] = (v >> 8) & 0xFF
+    def cs(s, on):
+        if not on: s.st = None
+    def put(s, v, n):
+        b = [(v >> (24 - 8 * k)) & 0xFF for k in range(n)]
+        if s.st is None:
+            c = 0
+            for x in b: c = c << 8 | x
+            if n == 2 and c == 0: s.st = 'id'; return
+            if n == 4 and c & 0x80000000: s.st = 'mx'; s.addr = (c >> 8) & 0xFFFF; s.wr = bool(c & 0x40000000); return
+            s.st = 'exi'; s.addr = (c >> 8) & 0x3F; s.wr = bool(c & 0x4000); return
+        if s.st != 'mx' or not s.wr: return
+        for x in b:
+            if s.addr == 0x48: s.tx.append(x); continue                     # (file d'envoi : l'adresse n'avance pas)
+            s.mem[s.addr] = x
+            if s.addr == 0x00 and x & 0x04: s.send(); s.mem[0] &= ~0x06 & 0xFF
+            s.addr += 1
+    def get(s, n):
+        if s.st == 'id': return 0x04020200
+        if s.st != 'mx': return 0
+        v = 0
+        for k in range(n): v |= s.mem[(s.addr + k) & 0xFFFF] << (24 - 8 * k)
+        s.addr += n
+        return v
+    def deliver(s, f):
+        bp, rh = s.rd16(0x0A) & 0xFFF, s.rd16(0x1A) & 0xFFF
+        rwp, rrp = s.rd16(0x16) & 0xFFF, s.rd16(0x18) & 0xFFF
+        need = (4 + len(f) + 255) // 256
+        free = (rrp - rwp - 1) % (rh - bp + 1)
+        if need > free or not (s.mem[0] & 0x08): s.dropped += 1; return
+        a = rwp << 8; data = bytes(4) + f
+        for x in data:
+            if a >= (rh + 1) << 8: a = bp << 8
+            s.mem[a] = x; a += 1
+        nxt = (a + 255) >> 8
+        if nxt > rh: nxt = bp
+        w = nxt | (4 + len(f)) << 12
+        s.mem[(rwp << 8):(rwp << 8) + 4] = struct.pack('<I', w)
+        s.wr16(0x16, nxt)
+    def send(s):
+        f = bytes(s.tx); s.tx = bytearray(); s.sent.append(f)
+        if len(f) < 42: return
+        mac = bytes(s.mem[0x20:0x26])
+        if f[12:14] == b'\x08\x06' and f[20:22] == b'\x00\x01' and f[38:42] == SRV_IP:      # qui a 192.168.1.10 ?
+            q = b'\xff' * 6 + SRV_MAC + b'\x08\x06' + bytes([0, 1, 8, 0, 6, 4, 0, 1]) + SRV_MAC + SRV_IP + bytes(6) + GC_IP   # (le serveur demande aussi la console)
+            s.deliver(q + bytes(60 - len(q)))
+            r = mac + SRV_MAC + b'\x08\x06' + bytes([0, 1, 8, 0, 6, 4, 0, 2]) + SRV_MAC + SRV_IP + mac + GC_IP
+            s.deliver(r + bytes(60 - len(r))); return
+        if f[12:14] == b'\x08\x06' and f[20:22] == b'\x00\x02' and f[28:32] == GC_IP and f[38:42] == SRV_IP: s.arp_ok = True; return
+        if f[12:14] != b'\x08\x00' or f[23] != 17 or f[30:34] != SRV_IP: return
+        u = f[34:]; d = u[8:]
+        if d[:4] != b'PNR1': return
+        seq, tok, off, ln = struct.unpack('>III', d[4:16]) + struct.unpack('>H', d[16:18])
+        s.reqs += 1
+        if s.reqs == 10 and not s.drop: s.drop = 1; return                   # (une demande perdue : le resident doit la refaire)
+        o = 0
+        while o < ln:
+            n = min(1024, ln - o); blob = iso[off + o:off + o + n]; blob += bytes(n - len(blob))
+            pl = b'PNA1' + struct.pack('>IIH', seq, off + o, n) + blob
+            udp = struct.pack('>HHHH', 51235, 51236, 8 + len(pl), 0) + pl
+            ip = bytearray(struct.pack('>BBHHHBBH', 0x45, 0, 20 + len(udp), 0, 0, 64, 17, 0) + SRV_IP + GC_IP)
+            s.deliver(mac + SRV_MAC + b'\x08\x00' + bytes(ip) + udp); o += n
+bba = BBA()
 if os.environ.get('EMU_SISTALE'):                     # v99 : ports sans manette pas interroges par le jeu : 0 (pas le bit d'erreur)
     si_inbuf = [0, 0x11900000, 0, 0]
 si_sr = [0x00200000, 0]                               # (v58 : manette 1 avec RDST les 20 premieres fois : ne doit pas etre lue)
@@ -125,6 +196,12 @@ def io_write(uc, off, size, value, data):
     if ch == 0 and reg == 0 and value & 0x80: bad0.append(('CSR', value))
     if ch == 0 and reg == 3 and value & 1 and exi[0][0] & 0x80: bad0.append(('CR', value))
     if MODE == 'cardb' and ch == 1 and reg == 0 and value & 0x80: bad0.append(('CSR1', value))   # (v122 : vraie carte du slot B jamais choisie)
+    if NET and ch == 0 and reg == 0: bba.cs(bool(value & 0x200))
+    if NET and ch == 0 and reg == 3 and (value & 1) and exi[0][0] & 0x200:    # v143 : transfert avec le BBA
+        n = ((value >> 4) & 3) + 1
+        if (value >> 2) & 3 == 1: bba.put(exi[0][4], n)
+        else: exi[0][4] = bba.get(n)
+        exi[0][3] = value & ~1; exi[0][0] = exi[0][0]; return
     exi[ch][reg] = value
     if reg == 0 and ch == CHAN and not (value & (0x80 << DEV)): card.deselect()
     if reg == 3 and (value & 1):
@@ -256,7 +333,7 @@ if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'video', 'tick', 'trap'):   #
         print(('OK   ' if nk else 'FAUX ') + 'vrai lecteur : %d commande(s)%s' % (len(kicks), ' (attendu : aucune)' if nodrive else '')); ok &= nk
         if not nodrive:
             jb = bytes(disk[card.writes[-1] * 512:card.writes[-1] * 512 + 512]) if card.writes else bytes(512)
-            dd = [i for i in range(3) if (struct.unpack_from('>I', jb, 0x1D0 + i * 16)[0] >> 24) == 0xDD]   # (v139 : anneau en 0x1D0)
+            dd = [1] * struct.unpack_from('>I', jb, 0x1DC)[0]   # (v143 : compteur n_rescue ; l'anneau n'a plus que 2 entrees)
             print(('OK   ' if dd else 'FAUX ') + 'journal : secours note (%d entree(s) DD)' % len(dd)); ok &= bool(dd)
     if MODE == 'trap':                                  # v139
         st, n, last, bad = u(0x1C0), u(0x1C4), u(0x1C8), u(0x1CC)
@@ -443,4 +520,10 @@ r = lambda n: struct.unpack('>I', mu.mem_read(0x80000000 + _m[n], 4))[0]
 v52 = r(29) == 0xE000 and r(28) == 0xE0000000 and r(10) == 0xCC006008 and r(27) == 0x1234
 print(('OK   ' if v52 else 'FAUX ') + 'lhz / lwzu / sth (r29=%X r28=%X r10=%X r27=%X)' % (r(29), r(28), r(10), r(27)))
 ok &= v52
+if NET:                                                   # v143 : tout l'ISO est venu par le reseau
+    pk, rt = rd(0x1D4), rd(0x1D8)
+    good = pk > 0 and (rt >> 24) == 1 and (rt & 0xFFFFFF) >= 1 and bba.reqs > 0 and bba.arp_ok and bba.dropped == 0
+    print(('OK   ' if good else 'FAUX ') + 'Pulse par le reseau : %d demandes, %d paquets recus, %d refaites (1 perdue expres), etat %d, reponse ARP %s, trames perdues %d' % (
+        bba.reqs, pk, rt & 0xFFFFFF, rt >> 24, bba.arp_ok, bba.dropped))
+    ok &= good
 print('TOUT OK' if ok else 'ECHEC')

@@ -8,7 +8,7 @@
 #define NATRES_AT     0x817F0000u        /* adresse fixe (liee par tools/natres.ld) */
 #define NATRES_SIZE   0x0000FF00u        /* place reservee (le haut, 817FFF00+, est laisse a la console) */
 #define NATRES_MAGIC  0x4743534Eu        /* "GCSN" */
-#define NATRES_VER    17
+#define NATRES_VER    18
 #define NATRES_MAXEXT 1500               /* morceaux de l'ISO sur la carte (fichier fragmente) ; v60 : 2000 (place pour les aiguillages) */
 
 /* erreurs (champ err) */
@@ -103,9 +103,25 @@ typedef struct {
     unsigned int trap_n;                                  /* acces pris */
     unsigned int trap_pc;                                 /* code du dernier acces pris */
     unsigned int trap_bad;                                /* derniere instruction pas prise en charge (sautee) */
+    /* v143 : Pulse par le reseau (ISO lue sur une autre GC Station ou un PC, par le Broadband Adapter) */
+    unsigned int net;                                     /* (GC Station) adresse d'un natres_net_t (0 = ISO sur la carte SD) */
+    unsigned int net_pk;                                  /* paquets de donnees recus */
+    unsigned int net_rt;                                  /* demandes refaites (paquet perdu, delai) | etat << 24 (NRN_...) */
+    unsigned int n_rescue;                                /* fins de commande donnees en secours (depuis l'image, v133) */
 } natres_hdr_t;
+/* v143 : reglages du reseau (ranges par GC Station dans la place libre du resident) */
+typedef struct {
+    unsigned int magic;                                   /* "PNET" */
+    unsigned int ip, srv, port;                           /* adresse de la console, du serveur (IPv4), port UDP du serveur */
+    unsigned int tok[2];                                  /* fichier de chaque disque chez le serveur */
+    unsigned int size[2];                                 /* taille de chaque disque (octets) */
+    unsigned int gw;                                      /* passerelle (serveur sur un autre reseau : rarement) */
+    unsigned int mask;
+} natres_net_t;
+#define NATRES_NET_MAGIC 0x504E4554u                    /* "PNET" */
+enum { NRN_OFF = 0, NRN_ON = 1, NRN_NOBBA = 2, NRN_NOLINK = 3, NRN_NOARP = 4, NRN_TIMEOUT = 5 };
 
-#define NATRES_LOGN 3                     /* anneau : {commande, position, longueur, infos} (v139 : 0x1D0 + 3 x 16 = 0x200) */
+#define NATRES_LOGN 2                     /* anneau : {commande, position, longueur, infos} (v143 : 0x1E0 + 2 x 16 = 0x200) */
 /* v122 : opt : bit 0 stick C haut/bas inverses, 1 gauche/droite inverses, 2 sticks echanges, bits 8-15 seuil des
    gachettes (0 = rien), bits 16-19 manettes lues N fois plus souvent, bit 24 vitesse d'un vrai lecteur */
 #define NRO_SPEED  0x01000000u
@@ -153,6 +169,6 @@ enum { NRT_OFF = 0, NRT_ON = 1, NRT_BAT = 2, NRT_BAT2 = 3, NRT_MMU = 4, NRT_VEC 
 #define NATRES_SNAP_MAGIC 0x4743534Du       /* "GCSM" */
 #define NATRES_SNAP_SECS  704               /* taille du fichier : 704 secteurs (352 Ko) */
 
-typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x1D0 ? 1 : -1];   /* v139 : 0x1D0 + 3 x 16 = 0x200 */
+typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x1E0 ? 1 : -1];   /* v143 : 0x1E0 + 2 x 16 = 0x200 */
 
 #endif

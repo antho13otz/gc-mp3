@@ -60,6 +60,11 @@ int main(int c, char **v) {
     if (getenv("NATIF_POLL")) nat_poll = atoi(getenv("NATIF_POLL"));
     nat_speed = getenv("NATIF_SPEED") != NULL;
     nat_trap = getenv("NATIF_TRAP") != NULL;                 /* v139 */
+    if (getenv("NATIF_NET")) {                                 /* v143 : ISO lue par le reseau (serveur simule par le banc) */
+        na_net_on = 1; memset(&na_netc, 0, sizeof(na_netc));
+        na_netc.magic = NATRES_NET_MAGIC; na_netc.ip = 0xC0A80132u; na_netc.srv = 0xC0A8010Au; na_netc.port = 51235;
+        na_netc.tok[0] = 7; na_netc.size[0] = (u32)gl[0].size; na_netc.mask = 0xFFFFFF00u;
+    }
     nat_run(0);
     printf("%s\n", nat_boot(0));
     return 0;

@@ -912,6 +912,11 @@ static void nat_journal_convert(void) {
             if (be32(d + 0x19C)) fprintf(f, "Cheats appliques par Pulse : %u images\n", (unsigned)(dz >> 16));
             if (H[1] >= 16 && be32(d + 0x1B8)) fprintf(f, "Manettes / lecteur (options %08X) : %u lectures des manettes modifiees\n", (unsigned)be32(d + 0x1B8), (unsigned)(be32(d + 0x1BC) & 0xFFFFu));
             if (H[1] >= 16 && (be32(d + 0x1BC) >> 16)) fprintf(f, "Corrections du jeu dans les fichiers lus : %u octets changes au passage\n", (unsigned)(be32(d + 0x1BC) >> 16));   /* v136 */
+            if (H[1] >= 18 && be32(d + 0x1D0)) {               /* v143 : Pulse par le reseau */
+                static const char *const nw[] = { "pas demarre", "pret", "pas de Broadband Adapter", "pas de liaison", "serveur introuvable (ARP)", "le serveur ne repond plus" };
+                u32 rt = be32(d + 0x1D8);
+                fprintf(f, "Pulse par le reseau : %s ; %u paquets recus, %u demandes refaites\n", (rt >> 24) < 6 ? nw[rt >> 24] : "?", (unsigned)be32(d + 0x1D4), (unsigned)(rt & 0xFFFFFF));
+            }
             if (H[1] >= 17 && (be32(d + 0x1B8) & NRO_TRAP)) {     /* v139 : Pulse universel */
                 static const char *const why[] = { "pas encore active (le jeu n'a pas installe ses fonctions)", "actif", "refuse : BAT de la zone 0xC0000000 inattendu",
                     "refuse : 2e BAT deja utilise par le jeu", "refuse : le jeu a sa propre table des pages", "refuse : vecteur 0x300 inattendu",
@@ -924,7 +929,7 @@ static void nat_journal_convert(void) {
             fprintf(f, "\n");
         }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
-        int rbase = H[1] >= 17 ? 0x1D0 : H[1] >= 16 ? 0x1C0 : H[1] >= 15 ? 0x1A0 : H[1] >= 14 ? 0x190 : H[1] >= 13 ? 0x180 : H[1] >= 12 ? 0x170 : H[1] >= 11 ? 0x160 : v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
+        int rbase = H[1] >= 18 ? 0x1E0 : H[1] >= 17 ? 0x1D0 : H[1] >= 16 ? 0x1C0 : H[1] >= 15 ? 0x1A0 : H[1] >= 14 ? 0x190 : H[1] >= 13 ? 0x180 : H[1] >= 12 ? 0x170 : H[1] >= 11 ? 0x160 : v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
         for (int k = 0; k < nring; k++) {
             const u8 *e = d + rbase + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);
@@ -2210,6 +2215,10 @@ static void na_vi_irqs(u32 vb) {
     vi[26] = 0x1001; vi[27] = 1;                                                       /* DI1 */
 }
 #endif
+/* v143 : Pulse par le reseau : l'ISO est lue sur une autre GC Station (ou un PC) par le Broadband Adapter */
+static int na_net_on = 0;
+static natres_net_t na_netc;                               /* (ordre de la machine ; ecrit en gros-boutiste dans le resident) */
+static char na_net_msg[120];
 static const char *nat_boot(int k) {
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
     static nat_info_t in;
@@ -2236,7 +2245,7 @@ static const char *nat_boot(int k) {
     u32 snap_sec = nat_snap_prep();                        /* v83 : photo de la memoire au plantage */
     u32 log_sec = nat_journal_prep();                      /* v54 : journal du jeu (un secteur de la carte) */
     na_n2 = 0; na_disc2_msg[0] = 0;                        /* v121 : l'autre disque (jeux a 2 disques) */
-    int k2 = na_disc2(k);
+    int k2 = na_net_on ? -1 : na_disc2(k);
     if (k2 >= 0) {
         char e2[120];
         nat_ld("Position de l'autre disque sur la carte SD", 14);
@@ -2244,7 +2253,7 @@ static const char *nat_boot(int k) {
         else { memcpy(na_ext2, na_ext, na_next * sizeof(natres_ext_t)); na_n2 = na_next; snprintf(na_disc2_msg, sizeof(na_disc2_msg), "disque %d pr\xC3\xAAt (%u morceaux)", gl[k2].disc + 1, (unsigned)na_n2); }
     }
     int gk = nat_cheats_prep(in.id);                       /* v121 : cheats appliques par Pulse */
-    int res = !nat_map_game(gl[k].path, gl[k].ciso, merr, sizeof(merr)) && sizeof(natres_bin) <= NATRES_SIZE;   /* (v121 : .ciso aussi) */
+    int res = (na_net_on ? (na_next = 0, 1) : !nat_map_game(gl[k].path, gl[k].ciso, merr, sizeof(merr))) && sizeof(natres_bin) <= NATRES_SIZE;   /* (v121 : .ciso aussi ; v143 : reseau : pas de morceaux sur la carte) */
     u32 total = ((dol_len + 31) & ~31u) + NA_BI2 + ((in.fst_sz + 31) & ~31u) + (res ? NATRES_SIZE : 0);
     /* zone d'attente : sous 0x81700000 (au-dessus vit la pile de GC Station jusqu'au saut),
        au-dessus du jeu, et sous ce que le jeu recevra en haut (FST, bi2, resident) */
@@ -2268,7 +2277,7 @@ static const char *nat_boot(int k) {
         if (na_n2) {                                                        /* v121 : table de l'autre disque, juste en dessous */
             u32 e2n = na_n2 > NATRES_RETMAX ? na_n2 : NATRES_RETMAX;
             u32 e2 = (ext_at - e2n * 12) & ~31u;
-            if (e2 > be32(r + 0x3C) + 0x3000u) {                         /* (v139 : 12 Ko gardes pour les aiguillages, 16 avant) */
+            if (e2 > be32(r + 0x3C) + 0x2000u) {                         /* (v143 : 8 Ko gardes pour les aiguillages ; 12 en v139, 16 avant) */
                 low = e2;
                 na_wbe32(r + offsetof(natres_hdr_t, ext2), e2); na_wbe32(r + offsetof(natres_hdr_t, n_ext2), na_n2);
                 for (u32 i = 0; i < na_n2; i++) {
@@ -2363,8 +2372,18 @@ static const char *nat_boot(int k) {
                     if (na_fx_n) { snprintf(na_fx_msg, sizeof(na_fx_msg), "pas assez de place dans le r\xC3\xA9sident"); na_fx_n = 0; }
                 }
             }
+            if (na_net_on) {                              /* v143 : reglages du reseau pour le resident */
+                na_net_msg[0] = 0;
+                if (at + sizeof(natres_net_t) + 64 * 4 <= ceil) {
+                    const u32 *w = (const u32 *)&na_netc;
+                    for (u32 i = 0; i < sizeof(natres_net_t) / 4; i++) na_wbe32(r + (at - NATRES_AT) + i * 4, w[i]);
+                    na_wbe32(r + offsetof(natres_hdr_t, net), at);
+                    at = (at + sizeof(natres_net_t) + 31) & ~31u;
+                } else snprintf(na_net_msg, sizeof(na_net_msg), "pas assez de place dans le r\xC3\xA9sident");
+            }
             na_wbe32(r + offsetof(natres_hdr_t, tramp_at), at);
         }
+        if (na_net_on && (!res || na_net_msg[0])) { free(buf); return na_net_msg[0] ? na_net_msg : "Pulse par le r\xC3\xA9seau : r\xC3\xA9sident impossible"; }
         if (was && !card_on) {                              /* (carte refusee pour ce jeu : flag et table retires) */
             u8 *r = buf + o_res;
             na_wbe32(r + 0x48, be32(r + 0x48) & ~(NRF_CARD | NRF_CARDB));
@@ -2438,6 +2457,10 @@ static const char *nat_boot(int k) {
         fprintf(f, "Vitesse du lecteur : %s%s\n", nat_speed ? "comme un vrai lecteur" : "rapide (carte SD)", nat_speed_auto ? " (automatique : jeu connu pour bloquer si le disque repond trop vite)" : "");
         if (nat_trap) fprintf(f, "Acces au lecteur par exception (Pulse universel, experimental) : demande\n");
         if (rep_msg[0]) fprintf(f, "Reparation automatique : %s\n", rep_msg);   /* v140 */
+        if (na_net_on) fprintf(f, "Pulse par le reseau : serveur %u.%u.%u.%u port %u, fichier %u (%u octets), console %u.%u.%u.%u\n",   /* v143 */
+                               (unsigned)(na_netc.srv >> 24), (unsigned)(na_netc.srv >> 16 & 255), (unsigned)(na_netc.srv >> 8 & 255), (unsigned)(na_netc.srv & 255),
+                               (unsigned)na_netc.port, (unsigned)na_netc.tok[0], (unsigned)na_netc.size[0],
+                               (unsigned)(na_netc.ip >> 24), (unsigned)(na_netc.ip >> 16 & 255), (unsigned)(na_netc.ip >> 8 & 255), (unsigned)(na_netc.ip & 255));
         fprintf(f, "Carte memoire virtuelle (slot B) : %s\n", nat_card >= 2 ? (na_card2_msg[0] ? na_card2_msg : "non") : "non (reglage)");
         fprintf(f, "Mode video donne au jeu (800000CC) : %s (jeu %s)\n", na_vi_bootrom(in.id) == 1 ? "PAL" : na_vi_bootrom(in.id) == 5 ? "EURGB60 (PAL 60 Hz)" : "NTSC",
                 na_game_pal(in.id) ? "PAL" : "NTSC");
@@ -2554,6 +2577,45 @@ static int na_dvd_read(volatile u32 *di, u32 off, u8 *dst, u32 len, int pf, int 
         nat_ld_tick();
     }
     return 1;
+}
+#endif
+#ifndef NATIF_BENCH
+/* v143 : jouer a un jeu d'une autre GC Station sans le copier : path = "gcs:/chemin" (serveur : nfs_cfg[NFS_GCS]) */
+static u32 na_ipv4(const char *s) { unsigned a, b, c, d; return sscanf(s, "%u.%u.%u.%u", &a, &b, &c, &d) == 4 ? (u32)a << 24 | (u32)b << 16 | (u32)c << 8 | d : 0; }
+static const char *game_boot(int k, int resident);
+static const char *nat_boot_net(const char *path) {
+    if (strncmp(path, "gcs:/", 5)) return "Pas un jeu d'une autre GC Station";
+    if (!gl) gl_scan();
+    if (!gl || gl_n >= GL_MAX - 1) return "Liste des jeux pleine";
+    char t[96];
+    int n = gcs_http("open", path + 5, 0, 0, (u8 *)t, sizeof(t) - 1, NULL);
+    if (n <= 0) return nfs_err[0] ? nfs_err : "L'autre console ne r\xC3\xA9pond pas";
+    t[n] = 0;
+    unsigned tok = 0, size = 0, port = 0;
+    if (sscanf(t, "%u %u %u", &tok, &size, &port) < 2 || !tok) return "L'autre console refuse (Salon coup\xC3\xA9 ?)";
+    memset(&na_netc, 0, sizeof(na_netc));
+    na_netc.magic = NATRES_NET_MAGIC; na_netc.ip = na_ipv4(ip_str); na_netc.srv = na_ipv4(nfs_cfg[NFS_GCS].host);
+    na_netc.port = port ? port : 51235; na_netc.tok[0] = tok; na_netc.size[0] = size;
+    na_netc.mask = na_ipv4(mask_str); na_netc.gw = na_ipv4(gw_str);
+    if (!na_netc.ip || !na_netc.srv) return "Adresse r\xC3\xA9seau inconnue";
+    gcg_t *g = &gl[gl_n];                                   /* (entree provisoire, apres la liste) */
+    memset(g, 0, sizeof(*g));
+    snprintf(g->path, sizeof(g->path), "%s", path);
+    g->size = (long)size; g->post = g->still = -1; g->bslot = -1;
+    u8 h[0x60];
+    gdisc_t d;
+    int ok = gd_open(&d, path);
+    if (ok) { ok = gd_read(&d, 0, h, sizeof(h)); gd_close(&d); }
+    if (!ok || h[0x1C] != 0xC2 || h[0x1D] != 0x33) return "Ce fichier n'est pas un jeu GameCube lisible";
+    memcpy(g->id, h, 6); g->id[6] = 0; g->disc = h[6];
+    gl_latin(h + 0x20, 63, g->title, sizeof(g->title));
+    int k = gl_n++;
+    na_net_on = 1;
+    crumb("pulse reseau : %s (%s, fichier %u)", path, nfs_cfg[NFS_GCS].host, tok);
+    const char *e = game_boot(k, 1);                       /* (ne revient pas si ca marche) */
+    na_net_on = 0;
+    gl_n = k;
+    return e;
 }
 #endif
 static const char *nat_boot_drive(int k, int reset);

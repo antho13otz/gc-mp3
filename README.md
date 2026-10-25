@@ -14,22 +14,23 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v142)
+## Nouveautés de la version actuelle (v143)
+- **Pulse par le réseau (expérimental) : jouer sans copier le jeu**. Avec le Broadband Adapter, un jeu qui est
+  sur une autre GC Station (Salon actif sur les deux) ou sur un PC se lance directement : onglet FICHIERS >
+  Appareils > la console ou le PC > le jeu (.iso, .gcm) > « Jouer par le réseau, sans copier ». Pulse lit le
+  jeu morceau par morceau pendant la partie ; la carte SD sert seulement aux sauvegardes et au journal.
+  - **Sur un PC** : `python3 tools/pulse-serveur.py <dossier des jeux>` (Python 3) ; le PC apparaît comme une
+    GC Station du Salon. Même réseau que la GameCube (câble conseillé).
+  - Pas encore essayé sur une vraie console : le journal du jeu dit où ça bloque (BBA, serveur, paquets).
+  - Les jeux qui utilisent eux-mêmes le Broadband Adapter (jeux en LAN, Phantasy Star Online) ne vont pas.
+
+## Version précédente (v142)
 - **Le téléphone, vraie télécommande** (page de l'onglet TÉLÉPHONE) :
   - **Manette** : la croix, A, B, X, Y, Z, L, R et START agissent sur la GameCube comme la vraie manette ;
   - **Jeux** avec leurs jaquettes (lancer avec Pulse ou le lanceur habituel) ;
   - **Photos** : toutes les photos en vignettes, une touche = la photo s'affiche sur la télé ;
   - **Salon** : les autres GC Station du réseau, ce qu'elles jouent, « Écouter avec », lien vers leur télécommande ;
   - **Musique** : la file « À suivre ».
-
-## Version précédente (v141)
-- **Sauvegardes : copies automatiques et historique** : après chaque partie avec Pulse (carte mémoire virtuelle),
-  les sauvegardes du jeu sont copiées dans `SD:/gc-mp3/sauvegardes/<jeu>/<date>/` (les 10 dernières, rien si
-  rien n'a changé). START > Réglages > Outils > « Historique des sauvegardes » : choisir un jeu, puis une copie,
-  et la remettre sur la carte virtuelle du jeu ou sur une vraie carte (slot A ou B) : revenir en arrière.
-- **Reprendre sa partie sur une autre console** : avec le Salon actif, l'historique montre aussi les copies des
-  autres GC Station du réseau ; en remettre une, c'est continuer ici la partie commencée là-bas.
-- « Tout sauvegarder maintenant » : une copie de chaque jeu de toutes les cartes virtuelles.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
