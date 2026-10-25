@@ -952,7 +952,7 @@ static void gl_draw_grid(int cols, int rows, f32 cw, f32 ch, f32 sw, f32 rh, int
             else gl_draw_cover(k, x, y, cw, ch, on);
             if (titles) {
                 gl_title_of(k, d, sizeof(d));
-                fit_text(F_SMALL, d, (int)cw + 6, buf, sizeof(buf));
+                fit_text_sel(on, F_SMALL, d, (int)cw + 6, buf, sizeof(buf));
                 gx_text_c(F_SMALL, x + cw / 2, y + ch + 14 + (on ? ey : 0), buf, on ? RGBA(255, 255, 255, 255) : RGBA(180, 168, 228, 255));
             }
         }
@@ -1160,7 +1160,7 @@ static void gl_draw_list(void) {
         if (cov) draw_tex_fit(cov, 128, 128, 96, 128, 26, y + 2, 19, 25);
         else { GXTexObj *b = gl_banner(k); if (b) draw_tex_fit(b, 96, 32, 96, 32, 24, y + 8, 26, 9); }
         gl_title_of(k, d, sizeof(d));
-        fit_text(F_MED, d, 380, buf, sizeof(buf));
+        fit_text_sel(on, F_MED, d, 380, buf, sizeof(buf));
         gx_text1(F_MED, 56, y + 21, buf, on ? RGBA(255, 255, 255, 255) : RGBA(215, 205, 245, 255));
         gl_size_txt(gl[k].size, sz, sizeof(sz));
         if (gl[k].dvd) snprintf(d, sizeof(d), "%s", TR("vrai lecteur"));

@@ -997,9 +997,9 @@ static void draw_cards(void) {
         if (!m->loaded && loads < 1 && mc_mounted >= 0) { mc_load_meta(r - 1); loads++; }   /* (une par image) */
         if (m->icon) draw_tex_fit(&m->obj, 32, 32, 32, 32, 60, ry + 2, 31, 31);
         else gx_rrect_fill(62, ry + 4, 28, 28, 5, RGBA(60, 40, 120, 255), RGBA(40, 26, 90, 255));
-        text_display(m->title, buf, sizeof(buf)); fit_text(F_MED, buf, 380, fv, sizeof(fv));
+        text_display(m->title, buf, sizeof(buf)); fit_text_sel(on, F_MED, buf, 380, fv, sizeof(fv));
         gx_text1(F_MED, 100, ry + 16, fv, on ? RGBA(255, 255, 255, 255) : RGBA(230, 222, 255, 255));
-        text_display(m->sub, buf, sizeof(buf)); fit_text(F_SMALL, buf, 380, fv, sizeof(fv));
+        text_display(m->sub, buf, sizeof(buf)); fit_text_sel(on, F_SMALL, buf, 380, fv, sizeof(fv));
         gx_text1(F_SMALL, 100, ry + 32, fv, on ? RGBA(230, 220, 255, 255) : RGBA(150, 135, 210, 255));
         snprintf(buf, sizeof(buf), m->blocks == 1 ? "1 bloc" : "%d blocs", m->blocks);
         gx_text_r(F_SMALL, 578, ry + 16, buf, on ? RGBA(235, 225, 255, 255) : RGBA(150, 135, 210, 255));
@@ -1181,10 +1181,10 @@ static void draw_apps(void) {
                 txt_scale = 2.0f;
                 gx_text_c(F_LARGE, bx + bw / 2, by + bh * 0.45f + 16, ini, RGBA(210, 195, 255, 255));
                 txt_scale = 1.0f;
-                text_display(a->name, buf, sizeof(buf)); fit_text(F_SMALL, buf, (int)bw - 12, fv, sizeof(fv));
+                text_display(a->name, buf, sizeof(buf)); fit_text_sel(on, F_SMALL, buf, (int)bw - 12, fv, sizeof(fv));
                 gx_text_c(F_SMALL, bx + bw / 2, by + bh - 14, fv, RGBA(190, 170, 250, 255));
             }
-            text_display(a->name, buf, sizeof(buf)); fit_text(F_SMALL, buf, (int)sw - 6, fv, sizeof(fv));
+            text_display(a->name, buf, sizeof(buf)); fit_text_sel(on, F_SMALL, buf, (int)sw - 6, fv, sizeof(fv));
             gx_text_c(F_SMALL, x + cw / 2, y + ch + 18 + (on ? ey : 0), fv, on ? RGBA(255, 255, 255, 255) : RGBA(200, 188, 240, 255));
         }
     if (ap_n) gx_rrect_stroke(hx - ex - 2, hy - ey - 2, cw + 2 * ex + 4, ch + 2 * ey + 4, 7, 2.0f, RGBA(255, 210, 120, 255));
@@ -1222,9 +1222,9 @@ static void draw_recent(void) {
         if (on) gx_rrect_fill(52, ry, 536, rh - 3, 6, TL_SEL1, TL_SEL2);
         int k = rc_game(r);
         const char *t = k >= 0 ? gl[k].title : base_of(rc_path[r]);
-        text_display(t, buf, sizeof(buf)); fit_text(F_MED, buf, 420, fv, sizeof(fv));
+        text_display(t, buf, sizeof(buf)); fit_text_sel(on, F_MED, buf, 420, fv, sizeof(fv));
         gx_text1(F_MED, 64, ry + 15, fv, on ? RGBA(255, 255, 255, 255) : RGBA(230, 222, 255, 255));
-        text_display(rc_path[r] + strlen(SD_ROOT), buf, sizeof(buf)); fit_text(F_SMALL, buf, 440, fv, sizeof(fv));
+        text_display(rc_path[r] + strlen(SD_ROOT), buf, sizeof(buf)); fit_text_sel(on, F_SMALL, buf, 440, fv, sizeof(fv));
         gx_text1(F_SMALL, 64, ry + 28, fv, on ? RGBA(230, 220, 255, 255) : RGBA(150, 135, 210, 255));
         if (k >= 0) gx_text_r(F_SMALL, 578, ry + 15, gl[k].id, RGBA(150, 135, 210, 255));
     }
@@ -1359,7 +1359,7 @@ static void nfs_ui_draw(void) {
         case NF_PASS: { int k = (int)strlen(c->pass); if (!k) snprintf(v, sizeof(v), "%s", TR("(aucun)")); else { if (k > 12) k = 12; memset(v, '*', k); v[k] = 0; } break; }
         case NF_PORT: snprintf(v, sizeof(v), "%d", c->port); break;
         }
-        if (v[0]) { char fv[96]; fit_text(F_MED, v, 250, fv, sizeof(fv)); gx_text_r(F_MED, 576, ry + 19, fv, on ? RGBA(255, 255, 255, 255) : RGBA(190, 175, 240, 255)); }
+        if (v[0]) { char fv[96]; fit_text_sel(on, F_MED, v, 250, fv, sizeof(fv)); gx_text_r(F_MED, 576, ry + 19, fv, on ? RGBA(255, 255, 255, 255) : RGBA(190, 175, 240, 255)); }
     }
     if (nfs_ui_res[0]) {
         char fv[160];

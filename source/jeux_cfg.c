@@ -317,7 +317,7 @@ static void draw_indigo_cfg(void) {
         else if (i == JC_WS) snprintf(buf, sizeof(buf), "%s", jc_ws ? TR("Oui") : TR("Non"));
         else if (i >= JC_V0) snprintf(buf, sizeof(buf), "%s", TR(vv[i - JC_V0][jc_v[i - JC_V0]]));
         else snprintf(buf, sizeof(buf), "%s", jc_card[0] ? jc_card : TR("R\xC3\xA9glage g\xC3\xA9n\xC3\xA9ral"));
-        fit_text(F_MED, buf, 240, fv, sizeof(fv));
+        fit_text_sel(on, F_MED, buf, 240, fv, sizeof(fv));
         gx_text_r(F_MED, 576, ry + 16, fv, on ? RGBA(255, 255, 255, 255) : jc_sel >= 0 && i >= JC_V0 && jc_v[i - JC_V0] ? RGBA(130, 230, 160, 255) : RGBA(190, 160, 255, 255));
     }
     if (top > 0) gx_tri(316, 112, 324, 112, 320, 107, RGBA(255, 255, 255, 180));

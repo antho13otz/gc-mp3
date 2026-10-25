@@ -14,11 +14,12 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v126)
-- **Pulse** : la carte mémoire virtuelle n'est plus coupée faute de place sur les jeux qui accèdent beaucoup au
-  lecteur et à la carte (Mario Superstar Baseball : écran noir avant le menu). Les branchements de Pulse prennent
-  environ deux fois moins de place.
-- (v125) Navigateur : les pages s'ouvrent de nouveau sur la console (fenêtre TCP de 16 paquets).
+## Nouveautés de la version actuelle (v127)
+- **Textes trop longs** : ils défilent pour qu'on les lise en entier (la ligne choisie d'une liste, les titres).
+- **Dolphin (PC et Android)** : la mise à jour se lance toute seule 3 s après le téléchargement ; les réglages
+  sont de nouveau gardés sur la carte mémoire quand il n'y a pas de carte SD ; tous les dossiers de GC Station
+  sont créés au démarrage.
+- (v126) Pulse : la carte mémoire virtuelle n'est plus coupée faute de place (Mario Superstar Baseball).
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

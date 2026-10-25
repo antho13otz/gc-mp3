@@ -849,7 +849,7 @@ static void draw_cheats(void) {
             if (r == 0) { gx_text1(F_MED, 34, cy + 5, "+ Nouveau fichier (ID du jeu, ex. GALE01)", on ? txt : RGBA(255, 210, 120, 255)); continue; }
             draw_note(36, cy, on ? txt : RGBA(120, 100, 190, 255));
             text_display(ch_fn[r - 1], d, sizeof(d));
-            fit_text(F_MED, d, 470, buf, sizeof(buf));
+            fit_text_sel(on, F_MED, d, 470, buf, sizeof(buf));
             gx_text1(F_MED, 52, cy + 5, buf, txt);
             if (ch_fsz[r - 1] < 0) {                       /* (taille : une seule fois, a l'affichage) */
                 char p[NAME_LEN]; struct stat st;
@@ -890,7 +890,7 @@ static void draw_cheats(void) {
                 nx = 54;
             }
             text_display(ch_cname(r), d, sizeof(d));
-            fit_text(F_MED, d, 440 - (nx - 34), buf, sizeof(buf));
+            fit_text_sel(on, F_MED, d, 440 - (nx - 34), buf, sizeof(buf));
             gx_text1(F_MED, nx, cy + 5, buf, txt);
             if (!nc && r == 0 && !bad) snprintf(d, sizeof(d), "en-t\xC3\xAAte (ID et nom du jeu)");
             else if (bad) snprintf(d, sizeof(d), "%d ligne(s) fausse(s)", bad);
@@ -922,7 +922,7 @@ static void draw_cheats(void) {
                 ch_draw_code(66, cy + 6, nrm, on && ch_edit ? ch_dig : -1, txt, txt);
             } else {
                 text_display(ln, d, sizeof(d));
-                fit_text(F_MED, d, 530, buf, sizeof(buf));
+                fit_text_sel(on, F_MED, d, 530, buf, sizeof(buf));
                 gx_text1(F_MED, 66, cy + 5, buf, (ch_codeish(ln) || ch_ncodes(ch_csel, NULL)) ? RGBA(255, 140, 140, 255) : RGBA(190, 220, 255, 255));
             }
         }

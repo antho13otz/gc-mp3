@@ -189,7 +189,7 @@ static void draw_tab_games(void) {
             gx_rect(bx + 18, by + 9, 8, 4, RGBA(30, 20, 60, 255));
         }
         char lb[64];
-        fit_text(F_MED, TR(bl[k]), (int)bw - 72, lb, sizeof(lb));
+        fit_text_sel(on, F_MED, TR(bl[k]), (int)bw - 72, lb, sizeof(lb));
         gx_text1(F_MED, bx + 40, by + 21, lb, RGBA(255, 255, 255, 255));
         gx_text_r(F_SMALL, bx + bw - 10, by + 20, "(A)", on ? RGBA(235, 225, 255, 255) : RGBA(170, 155, 225, 255));
         gp_zone(bx, by, bw, bh, &gm_sel, GM_COUNT + k, GPZ_SEL);
@@ -205,9 +205,9 @@ static void draw_tab_games(void) {
         gx_rrect_stroke(x, y, cw, ch, 10, 1.2f, on ? RGBA(200, 150, 255, 255) : RGBA(90, 64, 170, 255));
         }
         gm_icon(g, x + 42, y + ch / 2, t);
-        fit_text(F_MED, gm_names[g], (int)cw - 88, buf, sizeof(buf));
+        fit_text_sel(on, F_MED, gm_names[g], (int)cw - 88, buf, sizeof(buf));
         gx_text1(F_MED, x + 82, y + 26, buf, RGBA(255, 255, 255, 255));
-        fit_text(F_SMALL, gm_desc[g], (int)cw - 88, buf, sizeof(buf));
+        fit_text_sel(on, F_SMALL, gm_desc[g], (int)cw - 88, buf, sizeof(buf));
         gx_text1(F_SMALL, x + 82, y + 44, buf, on ? RGBA(235, 225, 255, 255) : RGBA(170, 155, 225, 255));
         if (gm_record[g] > 0) { snprintf(buf, sizeof(buf), "Record %d", gm_record[g]); gx_text1(F_SMALL, x + 82, y + 62, buf, RGBA(255, 210, 120, 255)); }
         gp_zone(x, y, cw, ch, &gm_sel, g, GPZ_SEL);
@@ -380,7 +380,7 @@ static void draw_tab_dl(void) {
             int gone = dl_confirm == row ? 0 : 0;
             (void)gone;
             text_display(base_of(dlh[r].path), d, sizeof(d));
-            fit_text(F_MED, d, 330, buf, sizeof(buf));
+            fit_text_sel(on, F_MED, d, 330, buf, sizeof(buf));
             gx_text1(F_MED, 30, ry + 16, buf, on ? RGBA(255, 255, 255, 255) : RGBA(215, 205, 245, 255));
             gx_text1(F_SMALL, 372, ry + 15, dlh[r].from, on ? RGBA(255, 230, 160, 255) : RGBA(170, 155, 225, 255));
             dl_fmt_size(dlh[r].size, t, sizeof(t));

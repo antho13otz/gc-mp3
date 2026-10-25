@@ -51,6 +51,7 @@ static rf_node *rf_find(const char *norm) {
 }
 
 static int rf_persist(const char *p) {           /* garde sur la carte memoire ? */
+    if (!strncasecmp(p, "/gc-mp3/", 8)) p += 7;          /* v127 : depuis la v22, les reglages sont dans /gc-mp3 : ils n'etaient plus gardes (Dolphin) */
     if (!strcasecmp(p, "/podcasts/positions.txt")) return 1;
     if (strchr(p + 1, '/')) return 0;
     size_t l = strlen(p);
@@ -395,8 +396,11 @@ static u32 rf_pack(u8 *out, u32 cap) {
     u32 o = 8;
     if (cap < 10) return 0;
     memcpy(out, "GCMPRAM1", 8);
+    for (int pass = 0; pass < 2; pass++)                 /* v127 : les reglages d'abord (s'il manque de place, ce sont les gros fichiers qui restent dehors) */
     for (rf_node *n = rf_head; n; n = n->next) {
         if (n->gone || n->dir || !rf_persist(n->path)) continue;
+        int first = !strcasecmp(n->path, "/gc-mp3/gc-mp3.txt") || !strcasecmp(n->path, "/gc-mp3.txt");
+        if (first != (pass == 0)) continue;
         u32 pl = (u32)strlen(n->path);
         if (o + 2 + pl + 4 + n->len + 2 > cap) continue;        /* (trop gros : ignore) */
         out[o++] = (u8)(pl >> 8); out[o++] = (u8)pl;

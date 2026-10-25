@@ -1116,6 +1116,21 @@ static void gcd_move_dir(const char *from, const char *to) {
     closedir(d);
     if (!left) remove(from);                             /* (dossier vide) */
 }
+/* v127 : tous les dossiers dont GC Station se sert, crees au demarrage (carte neuve, Dolphin PC / Android :
+   carte SD emulee ou SD en memoire) : rien a preparer a la main, tout marche du premier coup */
+static void sd_layout(void) {
+    static const char *const dirs[] = {
+        "/mp3", "/retro", "/photos", "/videos", "/ecran", "/downloads", "/games",
+        "/gc-mp3", "/gc-mp3/cache", "/gc-mp3/cache/pochettes", "/gc-mp3/cache/vignettes", "/gc-mp3/listes",
+        "/gc-mp3/podcasts", "/gc-mp3/radio", "/gc-mp3/radio/enregistrements", "/gc-mp3/cheats", "/gc-mp3/jeux",
+        "/gc-mp3/natif", "/gc-mp3/resident", NULL };
+    char p[NAME_LEN];
+    struct stat st;
+    for (int i = 0; dirs[i]; i++) {
+        snprintf(p, sizeof(p), SD_ROOT "%s", dirs[i]);
+        if (stat(p, &st) != 0) mkdir(p, 0777);
+    }
+}
 static void gcd_migrate(void) {
     static const char *const files[] = { "gc-mp3.txt", "gc-mp3-bib.txt", "gc-mp3-ecoutes.txt", "gc-mp3-jeux.txt", "gc-mp3-titres.txt",
         "gc-mp3-crash.txt", "gc-mp3-crash-ancien.txt", "cookies.txt", "favoris.txt", "podcasts.txt", "radio.txt", NULL };
@@ -5377,14 +5392,15 @@ static void gx_text_c(int f, f32 xc, f32 base, const char *s, col_t c) {
     gx_text_raw(f, UX(xc) - text_width_px(f, s, 0) / 2, base, s, c, c, 0);
 }
 
-/* Copie s dans out, tronque avec "..." pour tenir dans maxw pixels. */
-static void fit_text(int f, const char *s, int maxw, char *out, int outsz) {
-    s = tr(s);
-    maxw = (int)(maxw * ux_k);                           /* (16:9 : la place reelle) */
-    if (text_width_px(f, s, 0) <= maxw) { snprintf(out, outsz, "%s", s); return; }
-    int dots = text_width_px(f, "...", 0);
+/* Copie s dans out, tronque avec "..." pour tenir dans maxw pixels.
+   v127 : un texte trop long DEFILE (pause au debut, une lettre toutes les 0,18 s, pause a la fin) pour
+   qu'on le voie en entier. Dans une liste (le meme endroit du programme dessine plusieurs lignes par
+   image), seule la ligne choisie defile : la liste met fit_sel = 1 pour elle. */
+static int fit_sel = 0;
+typedef struct { const void *site; u32 fr, n, nprev; u32 h; int kmax; u64 t0, tlast; } fit_site_t;
+static fit_site_t fit_sites[256];
+static void fit_cut(int f, const char *p, int maxw, int dots, char *out, int outsz) {
     int w = 0, len = 0;
-    const char *p = s;
     while (*p) {
         const char *q = p;
         int cp = next_cp(&q);
@@ -5394,8 +5410,49 @@ static void fit_text(int f, const char *s, int maxw, char *out, int outsz) {
         len += (int)(q - p);
         p = q;
     }
-    memcpy(out + len, "...", 4);
+    if (dots) memcpy(out + len, "...", 4); else out[len] = 0;
 }
+static void fit_text_at(const void *site, int f, const char *s, int maxw, char *out, int outsz) {
+    s = tr(s);
+    maxw = (int)(maxw * ux_k);                           /* (16:9 : la place reelle) */
+    int sel = fit_sel;
+    fit_sel = 0;
+    /* endroit du programme : combien de lignes il dessine par image (liste ou texte seul) */
+    u32 hs = ((u32)(uintptr_t)site * 2654435761u) >> 24;
+    fit_site_t *e = NULL;
+    for (int i = 0; i < 8 && !e; i++) {                  /* (place libre ou deja a cet endroit ; sinon la plus ancienne) */
+        fit_site_t *c = &fit_sites[(hs + i) & 255];
+        if (c->site == site || !c->site) e = c;
+    }
+    if (!e) e = &fit_sites[hs];
+    if (e->site != site) { memset(e, 0, sizeof(*e)); e->site = site; }
+    if (e->fr != frame_t0_us) { e->nprev = e->n; e->n = 0; e->fr = frame_t0_us; }
+    e->n++;                                              /* (toutes les lignes comptent, meme celles qui tiennent) */
+    if (text_width_px(f, s, 0) <= maxw) { snprintf(out, outsz, "%s", s); return; }
+    int dots = text_width_px(f, "...", 0);
+    int scroll = sel || (e->nprev <= 1 && e->n == 1);
+    if (!scroll) { fit_cut(f, s, maxw, dots, out, outsz); return; }
+    u32 h = 5381;
+    for (const char *q = s; *q; q++) h = h * 33 + (u8)*q;
+    u64 now = now_ms();
+    if (h != e->h || !e->t0 || now - e->tlast > 200) {   /* nouveau texte (ou on y revient) : on repart du debut */
+        e->h = h; e->t0 = now;
+        const char *q = s; int k = 0;                    /* debut le plus loin possible : la fin du texte tient juste */
+        while (*q && text_width_px(f, q, 0) > maxw) { next_cp(&q); k++; }
+        e->kmax = k;
+    }
+    e->tlast = now;
+    int kmax = e->kmax;
+    const u32 pause = 1500, step = 180;
+    u32 cycle = pause + (u32)kmax * step + pause;
+    u32 t = (u32)((now - e->t0) % cycle);
+    int k = t < pause ? 0 : t >= pause + (u32)kmax * step ? kmax : (int)((t - pause) / step);
+    const char *p = s;
+    for (int i = 0; i < k && *p; i++) next_cp(&p);
+    fit_cut(f, p, maxw, k < kmax ? dots : 0, out, outsz);
+}
+#define fit_text_sel(sel, f, s, maxw, out, outsz) (fit_sel = (sel), fit_text(f, s, maxw, out, outsz))   /* v127 : ligne choisie d'une liste */
+#define fit_text(f, s, maxw, out, outsz) fit_text_at((const char *)__FILE__ + __LINE__, f, s, maxw, out, outsz)   /* (l'endroit = fichier + ligne) */
 
 static void fmt_time(char *buf, int sec) {
     if (sec < 0) snprintf(buf, 16, "--:--");
@@ -6315,7 +6372,7 @@ static void draw_list_music(int sel) {
         if (e.type == E_UP) {
             gx_tri(38, cy - 6, 38, cy + 6, 30, cy, ic);
             char nm[NAME_LEN];
-            fit_text(F_MED, group_label(e.idx), 196, nm, sizeof(nm));
+            fit_text_sel(is_sel, F_MED, group_label(e.idx), 196, nm, sizeof(nm));
             gx_text1(F_MED, 50, cy + 5, nm, txt);
             continue;
         }
@@ -6326,7 +6383,7 @@ static void draw_list_music(int sel) {
             snprintf(t, sizeof(t), "%d", grp_count[e.idx]);
             gx_text_r(F_SMALL, 256, cy + 4, t, dim);
             char nm[NAME_LEN];
-            fit_text(F_MED, group_label(e.idx), 196 - text_width(F_SMALL, t, 0), nm, sizeof(nm));
+            fit_text_sel(is_sel, F_MED, group_label(e.idx), 196 - text_width(F_SMALL, t, 0), nm, sizeof(nm));
             gx_text1(F_MED, 52, cy + 5, nm, txt);
             continue;
         }
@@ -6353,7 +6410,7 @@ static void draw_list_music(int sel) {
 #endif
         track_label(k, lb, sizeof(lb), !(cur_group >= 0 && (view_mode == VIEW_ARTISTS || view_mode == VIEW_ALBUMS)));
         text_display(lb, ld, sizeof(ld));
-        fit_text(F_MED, ld, name_w, nm, sizeof(nm));
+        fit_text_sel(is_sel, F_MED, ld, name_w, nm, sizeof(nm));
         gx_text1(F_MED, 52, cy + 5, nm, txt);
     }
 
@@ -10437,7 +10494,7 @@ static void draw_web_page(void) {
                     GX_End();
                 } else if (pg.text[it->off]) {
                     char lab[64];
-                    fit_text(F_SMALL, pg.text + it->off, it->w - 8, lab, sizeof(lab));
+                    fit_text_sel(sel, F_SMALL, pg.text + it->off, it->w - 8, lab, sizeof(lab));
                     gx_text1(F_SMALL, bx + 5, iy + ih / 2 + 4, lab, RGBA(95, 99, 104, 255));
                 }
                 continue;
@@ -10481,7 +10538,7 @@ static void draw_web_page(void) {
                     f32 ax2 = bx + it->w - 14, ay = top + font_height[F_MED] / 2.0f - 2;
                     gx_tri(ax2, ay, ax2 + 9, ay, ax2 + 4.5f, ay + 6, RGBA(60, 64, 67, 255));
                     text_display(v, dv, sizeof(dv));
-                    fit_text(F_MED, dv, it->w - 28, fit, sizeof(fit));
+                    fit_text_sel(sel, F_MED, dv, it->w - 28, fit, sizeof(fit));
                 } else {
                     if (fd) v = fd->value;
                     if (fd && fd->secret) {                                      /* mot de passe : masque */
@@ -10490,7 +10547,7 @@ static void draw_web_page(void) {
                         memset(dv, '*', n);
                         dv[n] = 0;
                     } else text_display(v, dv, sizeof(dv));
-                    fit_text(F_MED, dv, it->w - 12, fit, sizeof(fit));
+                    fit_text_sel(sel, F_MED, dv, it->w - 12, fit, sizeof(fit));
                 }
                 gx_text1(F_MED, bx + 6, by, fit, RGBA(32, 33, 34, 255));
                 continue;
@@ -11070,7 +11127,7 @@ static void draw_list_radio(void) {
             else if (r == 0) { gx_ring(34, cy - 1.5f, 3.5f, 5.2f, ic); gx_poly4(37, cy + 2, 39, cy + 1, 42, cy + 5, 40, cy + 6, ic, ic, ic, ic); }
             else if (r == 2) { gx_ring(36, cy, 5.0f, 6.6f, ic); gx_rect(35.4f, cy - 4, 1.4f, 4.4f, ic); gx_rect(35.4f, cy - 0.4f, 4, 1.4f, ic); }
             else { gx_tri(36, cy - 7, 31, cy + 5, 41, cy + 5, ic); }
-            fit_text(F_MED, lab, 196, nm, sizeof(nm));
+            fit_text_sel(is_sel, F_MED, lab, 196, nm, sizeof(nm));
             gx_text1(F_MED, 50, cy + 5, nm, is_sel ? txt : RGBA(190, 160, 255, 255));
             continue;
         }
@@ -11581,7 +11638,7 @@ static void draw_menu(void) {
         gx_text1(F_MED, x + 26, ry + 17, menu_labels[i], on ? RGBA(255, 255, 255, 255) : lc);
         menu_value(i, v, sizeof(v));
         if (v[0]) {
-            fit_text(F_MED, v, 230, fv, sizeof(fv));
+            fit_text_sel(on, F_MED, v, 230, fv, sizeof(fv));
             int vw = text_width(F_MED, fv, 0);
             f32 vx = x + w - 34 - vw;
             gx_text1(F_MED, vx, ry + 17, fv, on ? RGBA(255, 255, 255, 255) : RGBA(190, 160, 255, 255));
@@ -12716,6 +12773,7 @@ int main(int argc, char **argv) {
     if (!sd_ok) sd_ok = ramfs_mount();      /* (Dolphin : SD en memoire, reglages sur la carte memoire) */
     bt_step("carte SD");
     if (sd_ok) gcd_migrate();               /* v22 : tout dans SD:/gc-mp3 */
+    if (sd_ok) sd_layout();                 /* v127 : dossiers de GC Station (Dolphin PC / Android aussi) */
     crash_init();                           /* journal de plantage */
     ui_lang_apply();                        /* v24 : langue de la console, sauf reglage */
     load_settings();
