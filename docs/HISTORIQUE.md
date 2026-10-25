@@ -21,6 +21,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v150 — heure : décalage au lieu de changer l'horloge du processeur
+- `clock_settime` de libogc réécrit le registre de temps du processeur (base de tous les minuteurs, des fils et de
+  `gettime`) : remplacé par `clk_ofs`, ajouté par `gc_time` (macro `time()` dans tout GC Station). Le décalage SRAM
+  (`SYS_SetCounterBias`) est toujours écrit : au démarrage suivant, libogc part de la bonne heure et `clk_ofs` = 0.
+
 ## Nouveautés v149 — date et heure
 - `main.c` : `MI_CLOCK` (Jeux > Console). `clk_set` : décalage de l'horloge (SRAM, `SYS_SetCounterBias` = heure voulue
   - 2000 - RTC lue par `__SYS_GetRTC`), puis `clock_settime` pour GC Station. Édition par champ (`clk_edit`, `clk_f`),
