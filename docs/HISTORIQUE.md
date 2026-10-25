@@ -21,6 +21,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v133 — Pulse : fins de commande de secours, journal au retour
+- `natres.c` : `rd_pump` (morceaux d'une lecture en fond, sorti de `di_hook`) ; `di_watchdog`, appelé à chaque image
+  (VI) : si le vrai lecteur est au repos, que l'interruption du lecteur n'est pas masquée par le jeu (masques du
+  SDK en 0x800000C4 / 0x800000C8) et que rien n'a avancé depuis 3 images, la lecture en fond continue d'ici
+  (puis un nouveau réveil) et la fin est donnée à la fonction du jeu (`t[21]`, ou celle qu'on chaîne). Entrées
+  `DD` dans le journal (« SECOURS »). `hooks_check` rebranche la fonction du lecteur même pendant une lecture en fond.
+- Retour A+Z+START : `crash_dump(0xFF, contexte interrompu)` (crochets VI / AI / SI) : PC, LR, appels, pile et
+  photo de la mémoire, comme un plantage ; GC Station l'affiche « Où en était le jeu au retour ».
+- `docs/ETUDE-SWISS.md` : comparaison avec Swiss et plan.
+
 ## Nouveautés v132 — nouveau logo, tous les morceaux d'emblée, pochettes dans la rangée
 - `draw_logo_cube` dessine le nouveau logo (cube isométrique violet, filets clairs entre les faces, ovale et
   trois barres sur la face gauche, dessinés dans le repère de la face) ; couleurs exactes dans tous les styles

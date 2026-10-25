@@ -674,6 +674,7 @@ static const char *na_cmd_name(u32 c) {
     case 0xA8: return (c & 0xC0) == 0x40 ? "lire l'ID du disque" : "lire";
     case 0xAB: return "chercher"; case 0xE0: return "demander l'erreur"; case 0x12: return "infos lecteur";
     case 0xAC: return "jeu : ecrit DISR";
+    case 0xDD: return (c & 0xFF) == 3 ? "SECOURS : fin donnee" : (c & 0xFF) == 1 ? "SECOURS : lecture finie" : (c & 0xFF) == 2 ? "SECOURS : erreur" : "SECOURS : lecture relancee";   /* v133 */
     case 0xE1: return "audio : jouer"; case 0xE2: return "audio : etat"; case 0xE3: return "arreter le moteur"; case 0xE4: return "audio : tampon";
     default: return "?";
     }
@@ -709,7 +710,9 @@ static void na_crash_print(FILE *f, const u8 *c) {
     u32 w[0x110 / 4];
     for (int i = 0; i < 0x110 / 4; i++) w[i] = be32(c + i * 4);
     const u32 *g = w + 0x30 / 4, *lo = w + 0xB0 / 4, *bt = w + 0xD0 / 4;
-    fprintf(f, "\n========== Details du plantage ==========\n");
+    if (w[2] == 0xFF) fprintf(f, "\n========== Ou en etait le jeu au retour (A+Z+START) ==========\n"
+                                 "(le jeu ne plantait pas : c'est l'endroit ou il tournait, utile pour un ecran noir ou un jeu fige)\n");   /* v133 */
+    else fprintf(f, "\n========== Details du plantage ==========\n");
     fprintf(f, "PC %08X   LR %08X   CTR %08X   CR %08X   SRR1 %08X\n", (unsigned)w[3], (unsigned)w[5], (unsigned)w[7], (unsigned)w[6], (unsigned)w[4]);
     fprintf(f, "Adresse visee %08X (DSISR %08X)%s\n", (unsigned)w[8], (unsigned)w[9],
             w[8] == 0x01234567u ? "  <- adresse bidon : le jeu s'est tres probablement arrete EXPRES (erreur detectee au demarrage)" : "");
