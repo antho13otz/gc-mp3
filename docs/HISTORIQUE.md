@@ -21,6 +21,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v142 — téléphone : manette, jaquettes, photos, Salon, file de lecture
+- `tab_phone.c` : `/api/key?k=` (boutons ajoutés à ceux de la manette pour une image, `tp_keys`), `/api/cover?i=`
+  (jaquette en CMPR telle qu'elle est dans posters.pak, décodée par la page dans un canvas ; `X-Size` : taille de la
+  texture et de l'image), `/api/photos`, `/api/photo?i=`, `/api/show?i=` (onglet PHOTOS, `pv_open`), `/api/queue`,
+  `/api/salon`, `/api/listen?i=` (`salon_listen`).
+- `phone_page.h` (français et anglais) : onglets Manette, Photos, Salon ; jeux en grille avec jaquettes (chargées une
+  par une) ; « À suivre ».
+- Testé : page ouverte dans Chromium contre le simulateur (aucune erreur JS), jaquette décodée, photo affichée sur la
+  télé, START envoyé depuis la page ouvre les réglages.
+
 ## Nouveautés v141 — copies des sauvegardes, historique, reprise sur une autre console
 - `source/saves.c` : `sv_after_game` (appelé par `nat_journal_convert`) lit dans `dernier-lancement.txt` la carte
   virtuelle utilisée (slots A et B) et copie en `.gci` les sauvegardes du jeu (code + éditeur) avec les fonctions

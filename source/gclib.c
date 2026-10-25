@@ -105,6 +105,20 @@ static int swpk_find(const swpk_t *k, const char *id) {
     for (int i = 0; i < k->n; i++) if (!memcmp(k->idx + i * 32, id, 4) && (k->idx[i * 32 + 6] & 1)) return i;
     return -1;
 }
+/* v142 : (fil du serveur du telephone) la jaquette du jeu k, en CMPR, telle qu'elle est dans posters.pak */
+static u8 *gl_cover_raw(int k, int *w, int *h, int *iw, int *ih, u32 *len) {
+    if (k < 0 || k >= gl_n || !gl_post.idx) return NULL;
+    int r = gl[k].post;
+    u32 n = (u32)gl_post.cw * gl_post.ch / 2;
+    if (r < 0 || r >= gl_post.n || !n || n > 65536) return NULL;
+    u32 off = be32(gl_post.idx + r * 32 + 8);
+    FILE *f = fopen(GL_UI "/posters.pak", "rb");
+    u8 *b = (u8 *)malloc(n);
+    if (!f || !b || fseek(f, (long)off, SEEK_SET) != 0 || fread(b, 1, n, f) != n) { free(b); b = NULL; }
+    if (f) fclose(f);
+    if (b) { *w = gl_post.cw; *h = gl_post.ch; *iw = gl_post.iw; *ih = gl_post.ih; *len = n; }
+    return b;
+}
 /* lit le niveau "level" (0 = taille reelle) d'une texture CMPR ; v92 : alignee, prete pour GX (GX_TF_CMPR) */
 static u8 *swpk_read(const swpk_t *k, int r, int level, int *w, int *h) {
     if (!k->fp || r < 0 || r >= k->n || level >= (k->levels ? k->levels : 1)) return NULL;
