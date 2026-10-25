@@ -14,21 +14,21 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v138)
+## Nouveautés de la version actuelle (v139)
+- **Pulse universel (expérimental)** : nouveau réglage par jeu (fiche du jeu > Y > « Pulse universel »). Pour un
+  jeu qui ne marche pas avec Pulse : les accès au lecteur que GC Station n'a pas trouvés dans le code du jeu
+  (adresse rangée en mémoire, code chargé plus tard) sont attrapés par le processeur et envoyés au faux lecteur,
+  comme les autres. Le journal du jeu dit si l'option était active et combien d'accès ont été pris. (Dans
+  Dolphin, il faut activer l'émulation de la MMU.)
+- Onglet JEUX : « (pas de jaquettes) » ne passe plus sur « R : affichage ».
+
+## Version précédente (v138)
 - **Le Salon : plusieurs GC Station sur le même réseau** (START > Réglages > Réseau > « Salon ») : les consoles
   qui l'ont activé se trouvent toutes seules et apparaissent dans l'onglet FICHIERS (liste des appareils, B à la
   racine de la carte SD). On parcourt la carte SD de l'autre console comme un serveur : musique, photos, vidéos,
   copie vers sa carte (sauvegardes `.gci` comprises).
 - **Écouter avec** : Y sur une console du Salon joue le morceau qu'elle joue, à la même position.
 - **Mario Superstar Baseball** fonctionne avec Pulse (confirmé sur la console).
-
-## Version précédente (v137)
-- **Base de compatibilité des jeux** : au retour d'un jeu lancé avec Pulse, GC Station demande comment ça s'est
-  passé (marche / marche mal / écran noir) ; un plantage est noté tout seul. Pastille de couleur sur la jaquette
-  (vert, orange, rouge) et « Dernier essai » dans la fenêtre de lancement (build, date, vitesse du lecteur).
-  Tout est gardé dans `SD:/gc-mp3/compat.txt`.
-- **Journal envoyé au téléphone** : « Écran noir » ou « Envoyer le journal » ouvre un QR code : le téléphone
-  télécharge `journal-jeu.txt` directement (même si l'onglet TÉLÉPHONE est enlevé).
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

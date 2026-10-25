@@ -29,6 +29,18 @@ static natres_ext_t ret_tab[NATRES_RETMAX];              /* v64 : le .dol de GC 
 static natres_ext_t card_tab[NATRES_CARDMAX];            /* v65 : le fichier de la carte memoire virtuelle */
 static natres_ext_t card2_tab[NATRES_CARDMAX];           /* v122 : celui du slot B */
 static u32 si_load(u32 a);
+/* v139 : acces du jeu a la page des registres DI / SI / EXI / AI (0xCC006000) pris par exception (option) : le
+   resident passe alors par une 2e adresse de la meme page (0xCC406000), qui ne declenche rien */
+static u32 hw_d = 0;
+#define HW6(a) ((volatile u32 *)((u32)(a) + hw_d))
+#define MFSPR(n) ({ u32 _v; __asm__ volatile("mfspr %0," #n : "=r"(_v)); _v; })
+#define MTSPR(n, v) __asm__ volatile("mtspr " #n ",%0" :: "r"(v) : "memory")
+extern u32 trap_vec[];
+#define TRAP_BR (0x48000002u | ((u32)trap_vec & 0x03FFFFFCu))   /* (ba trap_vec, en adresse physique) */
+static u32 trap_br = 0, trap_mmu = 0;
+static void trap_fix(void);
+/* a chaque entree dans le resident : un autre programme du disque a pu remettre ses BAT ou ses vecteurs */
+static void __attribute__((noinline)) trap_guard(void) { if (hw_d && ((trap_mmu && MFSPR(538) != trap_br) || *(volatile u32 *)0x80000300u != TRAP_BR)) trap_fix(); }
 static void si_store(u32 a, u32 val);
 static u8 secbuf[512] __attribute__((aligned(32)));
 static u32 sec_cached = 0xFFFFFFFFu;
@@ -39,7 +51,7 @@ __attribute__((section(".res_head"), used))
 natres_hdr_t natres_hdr = {
     NATRES_MAGIC, NATRES_VER, (u32)nr_init, (u32)nr_read, (u32)nr_read_sd,
     2, 0, 4,                      /* SD2SP2, peripherique 0, 16 MHz */
-    0, NATRES_AT + NATRES_SIZE - NATRES_MAXEXT * 12u,
+    0, NATRES_AT + NATRES_SIZE - 256 * 12u,      /* (v139 : GC Station la place lui-meme, a la taille utile) */
     0, 0, 0, 0, 0,
     (u32)__natres_end,
     (u32)di_load, (u32)di_store, 0,
@@ -131,7 +143,7 @@ out:
     H.xfer = (u32)x_dma | (u32)x_fast << 1 | (u32)x_fast_off << 2;
 }
 static int nr_init(void) {
-    exi = (volatile u32 *)(0xCC006800u + H.chan * 0x14u);
+    exi = (volatile u32 *)(0xCC006800u + hw_d + H.chan * 0x14u);
     H.err = NR_OK; H.sdhc = 0; H.stage = 1;
     sec_cached = 0xFFFFFFFFu;
     u32 want = H.freq ? H.freq : 4;
@@ -364,7 +376,7 @@ static int nr_read1(void *dst, u32 off, u32 len) {
    1C DICR  : bit 0 demarrer, 1 DMA, 2 ecriture ; 20 DIIMMBUF : reponse ; 24 DICFG
    Commandes : A8 lire (A8000040 = ID du disque), AB chercher, E0 erreur, 12 infos,
    E1-E4 audio en streaming. */
-#define DI_REAL ((volatile u32 *)0xCC006000u)
+#define DI_REAL ((volatile u32 *)(0xCC006000u + hw_d))
 static u32 di[10];                                      /* faux registres */
 static u8 di_scratch[64] __attribute__((aligned(32)));  /* (cible de la vraie commande "inquiry") */
 
@@ -469,8 +481,10 @@ static void hot_reset(void);
    Le jeu est abandonne : on arrete ce qui tourne (interruptions, son, DSP, dessin), puis le
    .dol de GC Station est relu sur la carte (meme lecteur SD que pour l'ISO) et lance.
    GC Station (libogc) remet tout le reste en route. Sans .dol prepare : redemarrage. */
+static void trap_disarm(void);
 static void ret_to_gcstation(void) {
     irq_off();
+    trap_disarm();                                       /* v139 : (BAT, table des pages, vecteur du jeu remis) */
     if (!H.ret_n || H.ret_n > NATRES_RETMAX || H.ret_state) hot_reset();
     H.ret_state = 1;
     volatile u32 *pi = (volatile u32 *)0xCC003000u;
@@ -478,7 +492,7 @@ static void ret_to_gcstation(void) {
     pi[1] = 0;                                           /* (plus aucune interruption) */
     dsp[0x36 / 2] = 0;                                   /* DMA du son arrete */
     dsp[0x0A / 2] = (unsigned short)((dsp[0x0A / 2] & ~0x0150u) | 0x00ACu);   /* DSP : arret, masques coupes, acquitte */
-    *(volatile u32 *)0xCC006C00u &= ~1u;                 /* son du disque (streaming) arrete */
+    *HW6(0xCC006C00u) &= ~1u;                 /* son du disque (streaming) arrete */
     *(volatile unsigned short *)0xCC000002u = 0;         /* processeur graphique : plus de lecture de la file */
     {   /* v108 : remise a zero du processeur graphique (comme GX_AbortFrame) : sinon, arrete au milieu d'une
            commande du jeu, il prenait les premieres commandes de GC Station pour la suite de celle-ci et se
@@ -549,6 +563,7 @@ static void gk_run(void);
 static u32 igr_ctx = 0;                                  /* v133 : le jeu interrompu (pour le journal au retour A+Z+START) */
 static void di_tick(u32 ctx, int vi);
 static void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee avant la fonction du jeu */
+    trap_guard();
     if (++H.vi_in == 1) nr_log_flush();                  /* (1re image : on sait si le jeu y arrive) */
     if (vi_orig) ((void (*)(u32, u32))vi_orig)(irq, ctx);
     H.vi_count++; vi_snap(); alive_tick();
@@ -560,6 +575,7 @@ static void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee
 static u32 ai_orig;
 static void st_mix(void);
 static void ai_hook(u32 irq, u32 ctx) {                  /* v65 : apres le jeu, la musique du disque */
+    trap_guard();
     if (ai_orig) ((void (*)(u32, u32))ai_orig)(irq, ctx);
     H.cnt_ai++;
     st_mix();
@@ -572,6 +588,7 @@ static void ai_hook(u32 irq, u32 ctx) {                  /* v65 : apres le jeu, 
 static u32 dsp_orig = 0;
 static void st_mix_from(int from_dsp);
 static void dsp_hook(u32 irq, u32 ctx) {                 /* v98 : le jeu y programme parfois le tampon du son suivant */
+    trap_guard();
     if (dsp_orig) ((void (*)(u32, u32))dsp_orig)(irq, ctx);
     H.cnt_dsp++;
     st_mix_from(1);
@@ -692,6 +709,7 @@ static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
     mem_snap(c);
 }
 void exc_c(u32 ex, u32 ctx) {
+    trap_guard();
     u32 dar, dsisr;
     __asm__ volatile("mfdar %0" : "=r"(dar));
     __asm__ volatile("mfdsisr %0" : "=r"(dsisr));
@@ -710,6 +728,7 @@ static void nr_sample(u32 ctx);
 static u32 igr_t0 = 0;
 static void igr_poll(void);
 static void si_hook(u32 irq, u32 ctx) {
+    trap_guard();
     H.si_in++;
     if (!H.vi_count) nr_sample(ctx);
     if (si_orig) ((void (*)(u32, u32))si_orig)(irq, ctx);
@@ -723,7 +742,7 @@ static void igr_poll(void) { igr_poll2(1); }
 /* count = 0 : ne compte que le temps (interruption du son : trop frequente pour compter les lectures) */
 static void igr_poll2(int count) {
     if (!(H.flags & NRF_IGR)) return;
-    volatile u32 *si = (volatile u32 *)0xCC006400u;
+    volatile u32 *si = HW6(0xCC006400u);
     static u8 igr_ch[4];                                 /* v99 : derniere chose vue sur chaque port (1 = A+Z+START tenus) */
     int on = 0, seen = 0;
     u32 sr = si[14];                                     /* SISR (lecture sans effet) */
@@ -879,7 +898,7 @@ static void st_load(void) {
 }
 static u32 st_sum(const u32 *w, u32 n) { u32 s = 0x9E3779B9u; for (u32 i = 0; i < n; i++) s = (s ^ w[i]) * 0x01000193u; return s; }
 static void st_mix_from(int from_dsp) {
-    volatile u32 *ai = (volatile u32 *)0xCC006C00u;
+    volatile u32 *ai = HW6(0xCC006C00u);
     u32 cr = ai[0];
     if (!st_on || !(cr & 1)) return;                     /* (PSTAT : le jeu a lance la lecture du disque) */
     volatile unsigned short *dsp = (volatile unsigned short *)0xCC005000u;
@@ -1077,10 +1096,11 @@ static vcard_t *vc_of(u32 a) {
     return v->on ? v : 0;
 }
 static u32 exi_load(u32 a) {
+    trap_guard();
     if (a - 0xCC006000u < 0x40u) return di_load(a);      /* v133 : acces au lecteur branches en secours (adresse calculee) */
     vcard_t *v = vc_of(a);
-    if (!v) return *(volatile u32 *)a;                   /* (autres canaux, cartes reelles : vrai materiel) */
-    volatile u32 *real = (volatile u32 *)(a & ~3u) - (((a & ~3u) - 0xCC006800u) % 0x14u) / 4u;   /* (registres du canal) */
+    if (!v) return *HW6(a);                              /* (autres canaux, cartes reelles : vrai materiel) */
+    volatile u32 *real = HW6(a & ~3u) - (((a & ~3u) - 0xCC006800u) % 0x14u) / 4u;   /* (registres du canal) */
     u32 m = irq_off(), x;
     switch ((((a - 0xCC006800u) % 0x14u)) >> 2) {
     case 0: {
@@ -1098,10 +1118,11 @@ static u32 exi_load(u32 a) {
     return x;
 }
 static void exi_store(u32 a, u32 val) {
+    trap_guard();
     if (a - 0xCC006000u < 0x40u) { di_store(a, val); return; }   /* v133 */
     vcard_t *v = vc_of(a);
-    if (!v) { *(volatile u32 *)a = val; return; }
-    volatile u32 *real = (volatile u32 *)(a & ~3u) - (((a & ~3u) - 0xCC006800u) % 0x14u) / 4u;
+    if (!v) { *HW6(a) = val; return; }
+    volatile u32 *real = HW6(a & ~3u) - (((a & ~3u) - 0xCC006800u) % 0x14u) / 4u;
     u32 m = irq_off();
     switch ((((a - 0xCC006800u) % 0x14u)) >> 2) {
     case 0: {
@@ -1142,7 +1163,7 @@ static void x_dispatch(u32 ctx) {
    gachette analogique depasse un seuil, manettes lues plus souvent (SIPOLL). Mode analogique 3 seulement
    (celui des jeux) : pour les autres, rien n'est change. */
 static u32 si_h[4], si_l[4];                             /* dernieres valeurs brutes lues (manette, stick C / gachettes) */
-static u32 si_mode(int ch) { return (*(volatile u32 *)(0xCC006400u + ch * 12) >> 8) & 7; }
+static u32 si_mode(int ch) { return (*HW6(0xCC006400u + ch * 12) >> 8) & 7; }
 static u32 si_inv(u32 v) { return v ? 256u - v > 255u ? 255u : 256u - v : 255u; }
 static u32 si_fix(int ch, int lo) {
     u32 o = H.opt, h = si_h[ch], l = si_l[ch];
@@ -1157,17 +1178,19 @@ static u32 si_fix(int ch, int lo) {
     return btn | sx << 8 | sy;
 }
 static u32 si_load(u32 a) {
-    u32 o = a - 0xCC006400u, v = *(volatile u32 *)a;
+    trap_guard();
+    u32 o = a - 0xCC006400u, v = *HW6(a);
     if (o < 0x30u && (H.opt & 0xFF07u)) {
         int ch = (int)(o / 12u), r = (int)(o % 12u);
         if ((r == 4 || r == 8) && si_mode(ch) == 3) {
-            if (r == 4) { si_h[ch] = v; si_l[ch] = *(volatile u32 *)(a + 4); return si_fix(ch, 0); }   /* (H : on lit aussi L) */
+            if (r == 4) { si_h[ch] = v; si_l[ch] = *HW6(a + 4); return si_fix(ch, 0); }   /* (H : on lit aussi L) */
             si_l[ch] = v; return si_fix(ch, 1);
         }
     }
     return v;
 }
 static void si_store(u32 a, u32 val) {
+    trap_guard();
     u32 k = (H.opt >> 16) & 0xF;
     if (a == 0xCC006430u && k > 1) {                     /* SIPOLL : Y lectures par image, X lignes entre deux */
         u32 x = (val >> 16) & 0x3FF, y = (val >> 8) & 0xFF;
@@ -1175,7 +1198,7 @@ static void si_store(u32 a, u32 val) {
         x /= k; if (x < 1) x = 1;
         val = (val & 0xFC0000FFu) | x << 16 | y << 8;
     }
-    *(volatile u32 *)a = val;
+    *HW6(a) = val;
 }
 
 /* ======================= v121 : cheats (codes Gecko) =======================
@@ -1343,6 +1366,7 @@ static int rd_pump(void) {
     return 1;
 }
 static void di_hook(u32 irq, u32 ctx) {
+    trap_guard();
     int chain = di_game_pending;
     if (rd_on) {
         volatile u32 *r = DI_REAL;
@@ -1403,6 +1427,184 @@ static void di_tick(u32 ctx, int vi) {
     u32 f = t[21] == (u32)di_hook ? di_orig : t[21];
     if (nr_game_fn(f)) ((void (*)(u32, u32))f)(21, ctx);
 }
+/* ======================= v139 : Pulse universel (option par jeu, experimental) =======================
+   D'habitude, GC Station trouve les acces du jeu aux registres du lecteur dans son code et les remplace par
+   des aiguillages (natif.c ; le resident en ajoute pendant le jeu). Ce qui echappe a cette recherche (adresse
+   lue en memoire, code charge ou decompresse plus tard) touchait le vrai lecteur. Avec cette option, c'est le
+   processeur qui les attrape : la page des registres DI / SI / EXI / AI (0xCC006000) n'est plus traduite,
+   donc chaque acces du jeu a cette page provoque une exception DSI, que le resident traite comme un aiguillage
+   (meme faux lecteur, memes cartes virtuelles, memes manettes), puis le jeu continue a l'instruction suivante.
+   - La zone 0xC0000000 (memoire sans cache) etait couverte par un seul BAT de 256 Mo : il est reduit a 32 Mo
+     (la memoire), un 2e BAT couvre l'image (EFB, 0xC8000000), et les pages des registres sont decrites une par
+     une dans une table des pages (64 Ko, HTABORG = la place du resident ; seuls 16 groupes nous servent, dans
+     0x817FFC00, laisse libre par GC Station : le segment 0xC a un VSID choisi pour que les pages tombent la).
+   - Le resident lui-meme passe par une 2e adresse de cette page (0xCC406000, hw_d), traduite normalement.
+   - Vecteur 0x300 : la 1re instruction du SDK est remplacee par un saut vers trap_vec (en adresse physique :
+     les exceptions demarrent sans traduction). Ce qui n'est pas pour nous repart dans le vecteur du SDK.
+   Refuse (trap_state) si le jeu a deja sa propre table des pages ou un autre BAT dans cette zone. */
+static u32 trap_regs[40] __attribute__((aligned(32), used));   /* r0-r31, CR, LR, CTR, XER, SRR0, SRR1, DAR, DSISR */
+#define trap_pteg ((u32 *)(NATRES_AT + NATRES_PTEG))              /* 12 groupes de 8 entrees de la table des pages (place laissee par GC Station) */
+#define TRAP_PTEG_LEN 0x300u
+static u32 trap_vsid = 0;
+extern u32 trap_orig[];
+void trap_c(void) __attribute__((used));
+/* vecteur (sans traduction : adresses physiques) */
+__asm__(".pushsection .text\n.globl trap_vec\n.globl trap_orig\n.globl trap_entry\n.p2align 5\ntrap_vec:\n"
+        "  mtspr 274,3\n  mtspr 275,4\n  mfcr 3\n"
+        "  lis 4,trap_regs@ha\n  addi 4,4,trap_regs@l\n  clrlwi 4,4,2\n  stw 3,128(4)\n"
+        "  mfspr 3,18\n  andis. 3,3,0x4000\n  beq 9f\n"                      /* DSISR : pas de traduction trouvee */
+        "  mfspr 3,19\n  rlwinm 3,3,0,0,19\n  addis 3,3,0x3400\n  cmplwi 3,0x6000\n  bne 9f\n"   /* DAR dans 0xCC006000 */
+        "  mfspr 3,26\n  srwi 3,3,25\n  cmplwi 3,0x40\n  bne 9f\n"           /* code du jeu en 0x80000000-0x81FFFFFF */
+        "  stw 0,0(4)\n  stw 1,4(4)\n  stw 2,8(4)\n  stmw 5,20(4)\n"
+        "  mfspr 3,274\n  stw 3,12(4)\n  mfspr 3,275\n  stw 3,16(4)\n"
+        "  mflr 3\n  stw 3,132(4)\n  mfctr 3\n  stw 3,136(4)\n  mfxer 3\n  stw 3,140(4)\n"
+        "  mfspr 3,26\n  stw 3,144(4)\n  mfspr 3,27\n  stw 3,148(4)\n  mfspr 3,19\n  stw 3,152(4)\n  mfspr 3,18\n  stw 3,156(4)\n"
+        "  addi 1,1,-512\n  clrrwi 1,1,4\n"                                    /* (sur la pile du jeu, plus bas) */
+        "  lis 3,trap_entry@ha\n  addi 3,3,trap_entry@l\n  mtspr 26,3\n"
+        "  mfspr 3,27\n  rlwinm 3,3,0,17,15\n  mtspr 27,3\n  rfi\n"            /* (traduction comme le jeu, sans EE) */
+        "9:\n  lwz 3,128(4)\n  mtcrf 0xFF,3\n  mfspr 3,274\n  mfspr 4,275\n"
+        "trap_orig:\n  nop\n  ba 0x304\n"
+        /* (avec traduction) : traitement, puis retour a l'instruction suivante du jeu */
+        "trap_entry:\n  bl trap_c\n"
+        "  lis 31,trap_regs@ha\n  addi 31,31,trap_regs@l\n"
+        "  lwz 0,144(31)\n  mtspr 26,0\n  lwz 0,148(31)\n  mtspr 27,0\n"
+        "  lwz 0,128(31)\n  mtcrf 0xFF,0\n  lwz 0,132(31)\n  mtlr 0\n  lwz 0,136(31)\n  mtctr 0\n  lwz 0,140(31)\n  mtxer 0\n"
+        "  lwz 0,0(31)\n  lwz 1,4(31)\n  lwz 2,8(31)\n"
+        "  .irp r,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30\n  lwz \\r,(\\r*4)(31)\n  .endr\n"
+        "  lwz 31,124(31)\n  rfi\n.popsection\n");
+static void trap_sync(u32 a) { __asm__ volatile("dcbst 0,%0; sync; icbi 0,%0; sync; isync" :: "r"(a) : "memory"); }
+/* registres de la page, en 32 bits : les memes fonctions que les aiguillages */
+static u32 __attribute__((noinline)) trap_rd(u32 a) {
+    u32 o = a & 0xFFFu;
+    if (o < 0x40u) return di_load(a);
+    if (o >= 0x400u && o < 0x440u) return si_load(a);
+    if (o >= 0x800u && o < 0x828u) return exi_load(a);
+    return *HW6(a);
+}
+static void __attribute__((noinline)) trap_wr(u32 a, u32 v) {
+    u32 o = a & 0xFFFu;
+    if (o < 0x40u) { di_store(a, v); return; }
+    if (o >= 0x400u && o < 0x440u) { si_store(a, v); return; }
+    if (o >= 0x800u && o < 0x828u) { exi_store(a, v); return; }
+    *HW6(a) = v;
+}
+static int trap_emul(u32 a) { u32 o = a & 0xFFFu; return o < 0x40u || (o >= 0x400u && o < 0x440u) || (o >= 0x800u && o < 0x828u); }
+static u32 bswap(u32 v, int n) { return n == 4 ? v >> 24 | (v >> 8 & 0xFF00u) | (v << 8 & 0xFF0000u) | v << 24 : (v >> 8 & 0xFFu) | (v << 8 & 0xFF00u); }
+/* formes prises en charge : taille (1, 2, 4) | 8 lecture | 16 mise a jour de rA | 32 signe | 64 octets inverses */
+static const unsigned short trap_xo[18] = { 23, 55, 87, 119, 151, 183, 215, 247, 279, 311, 343, 375, 407, 439, 534, 662, 790, 918 };
+static const u8 trap_xf[18] = { 4|8, 4|8|16, 1|8, 1|8|16, 4, 4|16, 1, 1|16, 2|8, 2|8|16, 2|8|32, 2|8|32|16, 2, 2|16, 4|8|64, 4|64, 2|8|64, 2|64 };
+static const u8 trap_df[14] = { 4|8, 4|8|16, 1|8, 1|8|16, 4, 4|16, 1, 1|16, 2|8, 2|8|16, 2|8|32, 2|8|32|16, 2, 2|16 };   /* (lwz ... sthu) */
+void trap_c(void) {
+    u32 *r = trap_regs, pc = r[36], ins = *(volatile u32 *)pc, ea = r[38];
+    u32 op = ins >> 26, rd = (ins >> 21) & 31, ra = (ins >> 16) & 31, f = 0;
+    if (op == 31) { u32 xo = (ins >> 1) & 0x3FF; for (int i = 0; i < 18; i++) if (trap_xo[i] == xo) f = trap_xf[i]; }
+    else if (op >= 32 && op <= 45) f = trap_df[op - 32];
+    int n = (int)(f & 7), ld = f & 8, up = f & 16, sg = f & 32, rv = f & 64;
+    H.trap_n++; H.trap_pc = pc;
+    r[36] = pc + 4;
+    if (!n) { H.trap_bad = ins; return; }                 /* (lmw, dcb*... : saute, note dans le journal) */
+    u32 a4 = ea & ~3u, sh = (4u - (ea & 3u) - (u32)n) * 8u, m = n == 4 ? 0xFFFFFFFFu : (1u << (n * 8)) - 1u;
+    if (ld) {
+        u32 v;
+        if (n == 4 || trap_emul(ea)) v = (trap_rd(a4) >> sh) & m;
+        else v = n == 2 ? *(volatile unsigned short *)(ea + hw_d) : *(volatile u8 *)(ea + hw_d);
+        if (rv) v = bswap(v, n);
+        if (sg && (v & 0x8000u)) v |= 0xFFFF0000u;
+        r[rd] = v;
+    } else {
+        u32 v = r[rd] & m;
+        if (rv) v = bswap(v, n);
+        if (n == 4) trap_wr(a4, v);
+        else if (trap_emul(ea)) trap_wr(a4, (trap_rd(a4) & ~(m << sh)) | v << sh);   /* (comme les aiguillages) */
+        else if (n == 2) *(volatile unsigned short *)(ea + hw_d) = (unsigned short)v;
+        else *(volatile u8 *)(ea + hw_d) = (u8)v;
+    }
+    if (up && ra) r[ra] = ea;
+}
+static void trap_pte(u32 page, u32 phys) {               /* page = adresse (0xCC0xx000) -> phys, sans cache, garde */
+    u32 pi = (page >> 12) & 0xFFFFu, hash = (trap_vsid ^ pi) & 0x3FFu;
+    u32 *g = (u32 *)(NATRES_AT + hash * 64u);
+    if ((u32)g < (u32)trap_pteg || (u32)g >= (u32)trap_pteg + TRAP_PTEG_LEN) return;
+    for (int i = 0; i < 8; i++) if (!(g[i * 2] & 0x80000000u)) {
+        g[i * 2 + 1] = (phys & 0xFFFFF000u) | 0x180u | 0x28u | 2u;   /* R, C, WIMG = I + G, lecture / ecriture */
+        g[i * 2] = 0x80000000u | trap_vsid << 7 | (pi >> 10);
+        return;
+    }
+}
+static int trap_pteg_clear(u32 hash) {                   /* groupe secondaire (hors de trap_pteg) : rien qui nous ressemble */
+    const u32 *g = (const u32 *)(NATRES_AT + (hash & 0x3FFu) * 64u);
+    for (int i = 0; i < 8; i++) if ((g[i * 2] & 0x80000040u) == 0x80000040u && ((g[i * 2] >> 7) & 0xFFFFFFu) == trap_vsid) return 0;   /* (V, H = 1, notre VSID) */
+    return 1;
+}
+static void __attribute__((noinline)) trap_arm(void) {
+    u32 msr, m = irq_off();
+    __asm__ volatile("mfmsr %0" : "=r"(msr));
+    volatile u32 *vec = (volatile u32 *)0x80000300u;
+    u32 w = vec[0], o = w >> 26;
+    if (o == 16 || o == 18 || (o == 19 && (((w >> 1) & 0x3FF) == 16 || ((w >> 1) & 0x3FF) == 528))) { H.trap_state = NRT_VEC; irq_restore(m); return; }
+    trap_mmu = (msr & 0x10u) != 0;                       /* (banc d'essai : sans traduction, pas de BAT a changer) */
+    if (trap_mmu) {
+        u32 b1u = MFSPR(538), b2u = MFSPR(540), sdr = MFSPR(25);
+        if ((b1u & 0xFFFE1FFFu) != 0xC0001FFFu) { H.trap_state = NRT_BAT; irq_restore(m); return; }   /* (256 Mo en 0xC0000000) */
+        if (b2u & 3u) { H.trap_state = NRT_BAT2; irq_restore(m); return; }
+        if (sdr) { H.trap_state = NRT_MMU; irq_restore(m); return; }   /* (le jeu a sa table des pages : Rogue Squadron...) */
+        trap_vsid = 0x00A50000u | (NATRES_PTEG / 64u);
+        for (u32 i = 0; i < TRAP_PTEG_LEN / 4; i++) trap_pteg[i] = 0;
+        for (u32 k = 0; k < 9; k++) if (k != 6 && k != 7) trap_pte(0xCC000000u + k * 0x1000u, 0x0C000000u + k * 0x1000u);
+        trap_pte(0xCC406000u, 0x0C006000u);              /* (la 2e adresse, pour le resident) */
+        if (!trap_pteg_clear(~(trap_vsid ^ 0xC006u)) || !trap_pteg_clear(~(trap_vsid ^ 0xC007u))) { H.trap_state = NRT_PTE; irq_restore(m); return; }
+        for (u32 a = (u32)trap_pteg; a < (u32)trap_pteg + TRAP_PTEG_LEN; a += 32) __asm__ volatile("dcbf 0,%0" :: "r"(a) : "memory");
+        __asm__ volatile("sync; isync" ::: "memory");
+        __asm__ volatile("mtsr 12,%0" :: "r"(trap_vsid) : "memory");
+        MTSPR(25, 0x017F0000u);                          /* SDR1 : table de 64 Ko a la place du resident */
+        MTSPR(541, 0x0800002Au); MTSPR(540, 0xC80001FFu); /* DBAT2 : image (EFB), 16 Mo, sans cache */
+        __asm__ volatile("isync" ::: "memory");
+        trap_br = 0xC00003FFu;
+        MTSPR(538, trap_br);                             /* DBAT1 : 32 Mo (la memoire) : 0xCC000000 passe par la table */
+        __asm__ volatile("isync" ::: "memory");
+        for (u32 a = 0xCC000000u; a < 0xCC009000u; a += 0x1000u) __asm__ volatile("tlbie %0" :: "r"(a) : "memory");
+        __asm__ volatile("tlbie %0; sync; isync" :: "r"(0xCC406000u) : "memory");
+    }
+    hw_d = 0x00400000u;
+    exi = (volatile u32 *)((u32)exi + hw_d);
+    trap_orig[0] = w; trap_sync((u32)trap_orig);
+    vec[0] = TRAP_BR;
+    trap_sync(0x80000300u);
+    H.trap_state = NRT_ON;
+    irq_restore(m);
+}
+static void __attribute__((noinline)) trap_disarm(void) {                          /* (retour a GC Station ; trap_state reste : journal) */
+    if (!hw_d) return;
+    u32 m = irq_off();
+    volatile u32 *vec = (volatile u32 *)0x80000300u;
+    if (vec[0] == TRAP_BR) { vec[0] = trap_orig[0]; trap_sync(0x80000300u); }
+    if (trap_mmu) {
+        MTSPR(538, 0xC0001FFFu);
+        __asm__ volatile("isync" ::: "memory");
+        MTSPR(540, 0); MTSPR(541, 0); MTSPR(25, 0);
+        __asm__ volatile("mtsr 12,%0; isync" :: "r"(0x80000000u) : "memory");
+    }
+    exi = (volatile u32 *)((u32)exi - hw_d);
+    hw_d = 0;
+    irq_restore(m);
+}
+static void trap_fix(void) {
+    volatile u32 *vec = (volatile u32 *)0x80000300u;
+    if (trap_mmu && MFSPR(538) != trap_br) {             /* (un autre programme du disque a remis ses BAT : on suit) */
+        u32 m = irq_off();
+        exi = (volatile u32 *)((u32)exi - hw_d); hw_d = 0;
+        H.trap_state = NRT_OFF;
+        irq_restore(m);
+        if (nr_game_fn(OS_INT_TABLE[21])) trap_arm();
+        return;
+    }
+    if (vec[0] != TRAP_BR) { trap_orig[0] = vec[0]; trap_sync((u32)trap_orig); vec[0] = TRAP_BR; trap_sync(0x80000300u); }   /* (vecteurs remis par le jeu) */
+}
+static void trap_check(void) {
+    if (!(H.opt & NRO_TRAP)) return;
+    if (H.trap_state == NRT_OFF) { if (nr_game_fn(OS_INT_TABLE[21])) trap_arm(); return; }
+    trap_guard();
+}
 static void hook1(int idx, u32 *orig, u32 fn) {
     volatile u32 *t = OS_INT_TABLE;
     u32 v = t[idx];
@@ -1414,6 +1616,7 @@ static void hook1(int idx, u32 *orig, u32 fn) {
 static void hooks_check(void) {
     volatile u32 *t = OS_INT_TABLE;
     if (!nr_game_fn(t[21]) && t[21] != (u32)di_hook) return;   /* (pas la table du SDK : on ne touche a rien) */
+    trap_check();                                        /* v139 */
     hook1(21, &di_orig, (u32)di_hook);                   /* v61 : DI (lectures en fond) ; v133 : aussi pendant une lecture en fond (avant :
                                                             si le jeu remettait sa fonction pendant ce temps, la lecture ne finissait jamais) */
     hook1(24, &vi_orig, (u32)vi_hook);
@@ -1672,7 +1875,7 @@ done:
 }
 
 static u32 hk_n = 0;
-static void hooks_lazy(void) { if ((++hk_n & 255) == 1) hooks_check(); }   /* v62 : le jeu installe ses fonctions apres sa 1re commande */
+static void hooks_lazy(void) { trap_guard(); if (H.trap_state == NRT_OFF && (H.opt & NRO_TRAP)) trap_check(); if ((++hk_n & 255) == 1) hooks_check(); }   /* v62 : le jeu installe ses fonctions apres sa 1re commande */
 static u32 di_load(u32 reg) {
     u32 i = (reg & 0x3F) >> 2;
     hooks_lazy();

@@ -173,7 +173,7 @@ static void jeux_cfg_boot(void) {
 
 /* ---------- reglages d'un jeu (Y dans la fiche) : SD:/gc-mp3/jeux/<ID>.txt ---------- */
 #define JC_DIR GCD "/jeux"
-enum { JC_LANG, JC_SOUND, JC_CARD, JC_WS, JC_VIDEO, JC_FLOU, JC_WIDE, JC_CSTICK, JC_TRIG, JC_POLL, JC_SPEED, JC_N };   /* v121 : JC_WS = 16:9 force ; v122 : video, manette, lecteur (Pulse) */
+enum { JC_LANG, JC_SOUND, JC_CARD, JC_WS, JC_VIDEO, JC_FLOU, JC_WIDE, JC_CSTICK, JC_TRIG, JC_POLL, JC_SPEED, JC_TRAP, JC_N };   /* v121 : JC_WS = 16:9 force ; v122 : video, manette, lecteur (Pulse) */
 static char jc_id[8], jc_title[96];
 static int jc_lang = -1, jc_sound = -1, jc_sel = 0, jc_changed = 0;   /* -1 = comme la console */
 static int jc_ws = 0;                                        /* v121 : 16:9 force avec Pulse */
@@ -181,9 +181,9 @@ static int nat_ws;                                           /* (natif.c) */
 /* v122 : jc_v[] = reglages Pulse du jeu (0 = comme le jeu), dans l'ordre JC_VIDEO ... JC_SPEED */
 #define JC_V0 JC_VIDEO
 static int jc_v[JC_N - JC_VIDEO];
-static const int jc_vmax[JC_N - JC_VIDEO] = { 4, 2, 2, 4, 4, 3, 3 };   /* (v133 : vitesse : auto / vrai lecteur / rapide) */
-static const char *const jc_vkey[JC_N - JC_VIDEO] = { "video", "sans_flou", "image_large", "stick_c", "gachettes", "frequence_manette", "vitesse_lecteur" };
-static int nat_vmode, nat_deflick, nat_wide, nat_cstick, nat_trig, nat_poll, nat_speed;   /* (natif.c) */
+static const int jc_vmax[JC_N - JC_VIDEO] = { 4, 2, 2, 4, 4, 3, 3, 2 };   /* (v133 : vitesse : auto / vrai lecteur / rapide) */
+static const char *const jc_vkey[JC_N - JC_VIDEO] = { "video", "sans_flou", "image_large", "stick_c", "gachettes", "frequence_manette", "vitesse_lecteur", "acces_exception" };
+static int nat_vmode, nat_deflick, nat_wide, nat_cstick, nat_trig, nat_poll, nat_speed, nat_trap;   /* (natif.c) */
 static int nat_cheats_prep(const char *id);                  /* (natif.c) */
 /* v133 : jeux qui se bloquent quand le disque repond trop vite (une lecture finie avant que le jeu soit pret) :
    ceux que Swiss corrige pour cette raison (rappel du lecteur, transfert vers l'ARAM). Reglage "Auto" :
@@ -241,6 +241,7 @@ static void jeux_cfg_apply(const char *id, int resident) {
     nat_cstick = jc_v[JC_CSTICK - JC_V0]; nat_trig = jc_v[JC_TRIG - JC_V0]; nat_poll = jc_v[JC_POLL - JC_V0];
     nat_speed = jc_v[JC_SPEED - JC_V0] == 1 || (jc_v[JC_SPEED - JC_V0] == 0 && jc_slow_known(id));   /* v133 : 0 = auto, 1 = vrai lecteur, 2 = rapide */
     nat_speed_auto = jc_v[JC_SPEED - JC_V0] == 0 && nat_speed;
+    nat_trap = jc_v[JC_TRAP - JC_V0] == 1;                   /* v139 : Pulse universel (experimental) */
     int changed = 0;
     if (jc_lang >= 0 && jc_lang != SYS_GetLanguage()) { sram_back_lang = SYS_GetLanguage(); gc_lang_set(jc_lang, !resident); changed = 1; }
     int st = SYS_GetSoundMode() != SYS_SOUND_MONO;
@@ -294,7 +295,7 @@ static void draw_indigo_cfg(void) {
     gx_text1(F_MED, 58, 100, fv, RGBA(255, 210, 120, 255));
     static const char *const lab[JC_N] = { "Langue du jeu", "Son", "Carte m\xC3\xA9moire (Pulse)", "16:9 forc\xC3\xA9 (Pulse)",
         "Mode vid\xC3\xA9o (Pulse)", "Sans flou (Pulse)", "Image plus large (Pulse)", "Stick C (Pulse)", "G\xC3\xA2" "chettes L / R (Pulse)",
-        "Lecture des manettes (Pulse)", "Vitesse du lecteur (Pulse)" };
+        "Lecture des manettes (Pulse)", "Vitesse du lecteur (Pulse)", "Pulse universel (exp\xC3\xA9rimental)" };
     static const char *const help[JC_N] = {
         "Langue des jeux multilingues (PAL), pour ce jeu seulement. La console revient \xC3\xA0 la sienne apr\xC3\xA8s.",
         "St\xC3\xA9r\xC3\xA9o ou mono pour ce jeu seulement.",
@@ -306,12 +307,13 @@ static void draw_indigo_cfg(void) {
         "Invers\xC3\xA9 : haut / bas (ou tout) ; \xC3\xA9" "chang\xC3\xA9 : le stick C devient le stick principal et inversement.",
         "L et R comptent comme enfonc\xC3\xA9s d\xC3\xA8s que la g\xC3\xA2" "chette d\xC3\xA9passe ce seuil.",
         "Manettes lues plus souvent : moins de d\xC3\xA9lai (jeux de combat, de rythme).",
-        "Auto : vitesse d'un vrai lecteur pour les jeux connus pour bloquer, rapide sinon." };
+        "Auto : vitesse d'un vrai lecteur pour les jeux connus pour bloquer, rapide sinon.",
+        "Jeu qui ne marche pas : les acc\xC3\xA8s au lecteur oubli\xC3\xA9s sont attrap\xC3\xA9s par le processeur." };
     static const char *const vv[JC_N - JC_V0][4] = {
         { "Comme le jeu", "480p forc\xC3\xA9", "PAL 60 Hz", "240p" }, { "Non", "Oui" }, { "Non", "Oui (704)" },
         { "Normal", "Invers\xC3\xA9 haut / bas", "Invers\xC3\xA9 (tout)", "\xC3\x89" "chang\xC3\xA9 avec le stick" },
         { "Comme le jeu", "Seuil bas (30 %)", "Seuil moyen (50 %)", "Seuil haut (75 %)" }, { "Normale", "2 fois plus", "4 fois plus" },
-        { "Auto", "Comme un vrai lecteur", "Rapide (carte SD)" } };
+        { "Auto", "Comme un vrai lecteur", "Rapide (carte SD)" }, { "Non", "Oui" } };
     const int rh = 24, vis = 11;                          /* (v122 : 11 lignes, la liste defile au-dela) */
     static int top = 0;
     if (jc_sel < top) top = jc_sel;

@@ -1276,8 +1276,11 @@ static void draw_gclib_main(void) {
         snprintf(buf, sizeof(buf), gl_detail ? "Mes jeux GameCube (%d)  >  fiche" : "Mes jeux GameCube (%d)", gl_n - gl_has_dvd());
         gx_text1(F_SMALL, tx + 6, 99, buf, RGBA(200, 190, 240, 255));
     }
-    if (!gl_post.fp && hub_end + 12 < 590 - text_width(F_SMALL, TR("(pas de jaquettes)"), 1))
-        gx_text_r(F_SMALL, 590, 99, TR("(pas de jaquettes)"), RGBA(150, 135, 210, 255));
+    if (!gl_post.fp) {                                       /* v139 : a gauche de "R : affichage" (se chevauchaient) */
+        f32 rx = 590;
+        if (!gl_detail && gl_n) { snprintf(d, sizeof(d), "R : %s", TR(gl_view_name())); rx = 614 - text_width(F_SMALL, d, 1) - 14; }
+        if (hub_end + 12 < rx - text_width(F_SMALL, TR("(pas de jaquettes)"), 1)) gx_text_r(F_SMALL, rx, 99, TR("(pas de jaquettes)"), RGBA(150, 135, 210, 255));
+    }
     /* une banniere a lire par image, quand on ne bouge pas */
     gl_job_done();                                           /* v92 : resultat du thread de fond */
     if (gl_n && now_ms() - last_input_ms > 150 && gj_state == 0) {   /* (v92 : la banniere est lue en fond) */

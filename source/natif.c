@@ -912,10 +912,19 @@ static void nat_journal_convert(void) {
             if (be32(d + 0x19C)) fprintf(f, "Cheats appliques par Pulse : %u images\n", (unsigned)(dz >> 16));
             if (H[1] >= 16 && be32(d + 0x1B8)) fprintf(f, "Manettes / lecteur (options %08X) : %u lectures des manettes modifiees\n", (unsigned)be32(d + 0x1B8), (unsigned)(be32(d + 0x1BC) & 0xFFFFu));
             if (H[1] >= 16 && (be32(d + 0x1BC) >> 16)) fprintf(f, "Corrections du jeu dans les fichiers lus : %u octets changes au passage\n", (unsigned)(be32(d + 0x1BC) >> 16));   /* v136 */
+            if (H[1] >= 17 && (be32(d + 0x1B8) & NRO_TRAP)) {     /* v139 : Pulse universel */
+                static const char *const why[] = { "pas encore active (le jeu n'a pas installe ses fonctions)", "actif", "refuse : BAT de la zone 0xC0000000 inattendu",
+                    "refuse : 2e BAT deja utilise par le jeu", "refuse : le jeu a sa propre table des pages", "refuse : vecteur 0x300 inattendu",
+                    "refuse : table des pages", "perdu (le programme suivant a remis ses BAT)" };
+                u32 ts = be32(d + 0x1C0);
+                fprintf(f, "Acces au lecteur par exception (experimental) : %s ; %u acces pris (dernier en %08X)", ts < 8 ? why[ts] : "?", (unsigned)be32(d + 0x1C4), (unsigned)be32(d + 0x1C8));
+                if (be32(d + 0x1CC)) fprintf(f, " ; instruction pas prise en charge (sautee) : %08X", (unsigned)be32(d + 0x1CC));
+                fprintf(f, "\n");
+            }
             fprintf(f, "\n");
         }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
-        int rbase = H[1] >= 16 ? 0x1C0 : H[1] >= 15 ? 0x1A0 : H[1] >= 14 ? 0x190 : H[1] >= 13 ? 0x180 : H[1] >= 12 ? 0x170 : H[1] >= 11 ? 0x160 : v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
+        int rbase = H[1] >= 17 ? 0x1D0 : H[1] >= 16 ? 0x1C0 : H[1] >= 15 ? 0x1A0 : H[1] >= 14 ? 0x190 : H[1] >= 13 ? 0x180 : H[1] >= 12 ? 0x170 : H[1] >= 11 ? 0x160 : v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
         for (int k = 0; k < nring; k++) {
             const u8 *e = d + rbase + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);
@@ -1323,7 +1332,7 @@ static u32 na_ws_patch(const nat_info_t *in, u8 *dol, u8 *res, u32 at, u32 ceil)
 /* ---------- v122 : reglages du jeu pour Pulse (poses par jeux_cfg_apply) ---------- */
 static int nat_vmode = 0;                                  /* 0 = comme le jeu, 1 = 480p, 2 = PAL 60 Hz, 3 = 240p */
 static int nat_deflick = 0, nat_wide = 0;                  /* sans flou ; image plus large (704 points) */
-static int nat_cstick = 0, nat_trig = 0, nat_poll = 0, nat_speed = 0;   /* stick C, seuil des gachettes, frequence, vitesse du lecteur */
+static int nat_cstick = 0, nat_trig = 0, nat_poll = 0, nat_speed = 0, nat_trap = 0;   /* stick C, seuil des gachettes, frequence, vitesse du lecteur ; v139 : acces au lecteur par exception */
 static u32 na_opt(void) {
     static const u8 thr[4] = { 0, 77, 128, 192 };
     u32 o = 0;
@@ -1331,6 +1340,7 @@ static u32 na_opt(void) {
     o |= (u32)thr[nat_trig & 3] << 8;
     if (nat_poll == 1) o |= 2u << 16; else if (nat_poll == 2) o |= 4u << 16;
     if (nat_speed) o |= NRO_SPEED;
+    if (nat_trap) o |= NRO_TRAP;
     return o;
 }
 /* v122 : modes video du jeu. Les jeux decrivent l'image dans des "GXRenderModeObj" (0x3C octets : mode de la
@@ -2236,13 +2246,13 @@ static const char *nat_boot(int k) {
         /* v97 : table des morceaux tout en haut, a la taille utile (au moins la place du .dol de GC Station,
            recopie la au retour A+Z+START) : le reste sert aux aiguillages */
         u32 ext_n = na_next > NATRES_RETMAX ? na_next : NATRES_RETMAX;
-        u32 ext_at = (NATRES_AT + NATRES_SIZE - ext_n * 12) & ~31u;
+        u32 ext_at = ((nat_trap ? NATRES_AT + NATRES_PTEG : NATRES_AT + NATRES_SIZE) - ext_n * 12) & ~31u;   /* (v139 : place de la table des pages) */
         na_wbe32(r + 0x24, ext_at);
         u32 eo = ext_at - NATRES_AT, low = ext_at;
         if (na_n2) {                                                        /* v121 : table de l'autre disque, juste en dessous */
             u32 e2n = na_n2 > NATRES_RETMAX ? na_n2 : NATRES_RETMAX;
             u32 e2 = (ext_at - e2n * 12) & ~31u;
-            if (e2 > be32(r + 0x3C) + 0x4000u) {
+            if (e2 > be32(r + 0x3C) + 0x3000u) {                         /* (v139 : 12 Ko gardes pour les aiguillages, 16 avant) */
                 low = e2;
                 na_wbe32(r + offsetof(natres_hdr_t, ext2), e2); na_wbe32(r + offsetof(natres_hdr_t, n_ext2), na_n2);
                 for (u32 i = 0; i < na_n2; i++) {
@@ -2410,6 +2420,7 @@ static const char *nat_boot(int k) {
         fprintf(f, "Video : %s%s%s ; %s\n", vmn[nat_vmode & 3], nat_deflick ? ", sans flou" : "", nat_wide ? ", image large" : "", na_rm_msg[0] ? na_rm_msg : "rien a changer");
         fprintf(f, "Manettes : options %08X ; %d acces branches, %d laisses au vrai materiel (sur %d trouves%s)\n", (unsigned)(na_opt() & 0x00FFFFFFu), na_si_done, na_si_skip, in.nsi, in.si_lost ? ", limite atteinte" : "");
         fprintf(f, "Vitesse du lecteur : %s%s\n", nat_speed ? "comme un vrai lecteur" : "rapide (carte SD)", nat_speed_auto ? " (automatique : jeu connu pour bloquer si le disque repond trop vite)" : "");
+        if (nat_trap) fprintf(f, "Acces au lecteur par exception (Pulse universel, experimental) : demande\n");
         fprintf(f, "Carte memoire virtuelle (slot B) : %s\n", nat_card >= 2 ? (na_card2_msg[0] ? na_card2_msg : "non") : "non (reglage)");
         fprintf(f, "Mode video donne au jeu (800000CC) : %s (jeu %s)\n", na_vi_bootrom(in.id) == 1 ? "PAL" : na_vi_bootrom(in.id) == 5 ? "EURGB60 (PAL 60 Hz)" : "NTSC",
                 na_game_pal(in.id) ? "PAL" : "NTSC");
