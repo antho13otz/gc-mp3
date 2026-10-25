@@ -12654,6 +12654,7 @@ static void cp_badge(const char *id, f32 x, f32 y, f32 r);
 static int cp_line(const char *id, char *out, int cap, col_t *c);
 static void cp_pump(void);
 static int rep_line(const char *id, char *out, int cap);   /* v140 : reparation automatique (repair.c) */
+static void sv_after_game(const char *id, const char *launch_log);   /* v141 : copies des sauvegardes (saves.c) */
 #include "lib_extra.c"                         /* listes, recherche, ecoutes */
 #include "tab_retro.c"
 #include "tab_podcast.c"
@@ -12848,6 +12849,7 @@ static void music_pump(void) {
 #include "repair.c"                            /* v140 : reparation automatique des jeux (Pulse) */
 #include "gcl.c"                               /* v121 : GC Loader */
 #include "extras73.c"                          /* v73 : podcasts plus rapides, historique radio, cartes virtuelles... */
+#include "saves.c"                             /* v141 : copies des sauvegardes apres chaque partie, historique */
 
 /* v76 : petit controle au demarrage (memoire libre, carte SD, duree), note dans le
    journal (Outils > Infos console > journal) ; un message bref si un souci. */

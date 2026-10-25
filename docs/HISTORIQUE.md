@@ -21,6 +21,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v141 — copies des sauvegardes, historique, reprise sur une autre console
+- `source/saves.c` : `sv_after_game` (appelé par `nat_journal_convert`) lit dans `dernier-lancement.txt` la carte
+  virtuelle utilisée (slots A et B) et copie en `.gci` les sauvegardes du jeu (code + éditeur) avec les fonctions
+  des cartes virtuelles (extras73.c) ; copie sautée si identique à la dernière ; 10 copies gardées par jeu.
+- Outils > Historique des sauvegardes (`TL_SAVES`) : jeux, puis copies locales et copies des consoles du Salon
+  (`gcs:/gc-mp3/sauvegardes/<ID>`, routes `/s/list` et `/s/get` de v138). Remettre : la sauvegarde de même nom est
+  d'abord effacée, puis la copie est écrite (carte virtuelle du jeu, `na_card_name`, ou vraie carte, `mc_import`).
+- Testé dans le simulateur : 2 parties -> 2 copies, 3e identique sautée ; copie locale et copie d'une 2e console
+  simulée remises sur la carte virtuelle (contenu vérifié).
+
 ## Nouveautés v140 — réparation automatique des jeux
 - `source/repair.c` : `rep_diag_set` (appelé par `nat_journal_convert`) retient ce que disent les journaux : plantage,
   aucune image, bloqué dans la fonction d'image, accès au lecteur non branchés, cheats, 16:9, carte virtuelle,
