@@ -38,6 +38,10 @@ _start:
     lis 12,_start@ha
     addi 12,12,_start@l
     stw 12,0x1C84(11)
+    # v122 : adresse des modes video de test (pour l'emulateur)
+    lis 12,rm_ntsc@ha
+    addi 12,12,rm_ntsc@l
+    stw 12,0x1FAC(11)
     # active les interruptions de fin (masque TCINT) et acquitte
     lis 9,0xCC00
     li 0,0x3A
@@ -187,19 +191,23 @@ _start:
     lis 3,0xF200            # ecriture : F2 00 10 00 | 00 + DMA de 128 octets -> carte 0x2000
     ori 3,3,0x1000
     lis 4,0x0040
+    li 5,0
     bl card_prog
     lis 3,0xF208            # F2 08 80 00 | 00 -> carte 0x110000 (2e morceau du fichier)
     ori 3,3,0x8000
     lis 4,0x0040
+    li 5,0
     bl card_prog
     lis 3,0x5200            # lecture : 52 00 10 00 | 00 | 4 octets d'attente + DMA de 512 octets
     ori 3,3,0x1000
     lis 4,0x0041
+    li 5,0
     bl card_read
     lis 3,0x5208
     ori 3,3,0x8000
     lis 4,0x0041
     ori 4,4,0x0200
+    li 5,0
     bl card_read
     li 3,1                  # canal 1 (pas la carte) : doit aller au vrai materiel
     li 4,0
@@ -287,6 +295,10 @@ _start:
     beq swap_test
     cmpwi 12,5
     beq ws_test
+    cmpwi 12,6
+    beq cardb_test
+    cmpwi 12,7
+    beq pad_test
     cmpwi 12,2
     beq 7f
     cmpwi 12,1
@@ -414,6 +426,67 @@ ws_test:
     lwz 0,0x1E08(9)
     stw 0,0x1F9C(9)
     b 8b
+
+# v122 : carte memoire virtuelle du slot B (canal 1) : ecriture puis relecture
+cardb_test:
+    lis 3,0xF200            # F2 00 20 00 | 00 -> carte B 0x4000
+    ori 3,3,0x2000
+    lis 4,0x0040
+    li 5,1
+    bl card_prog
+    lis 3,0x5200
+    ori 3,3,0x2000
+    lis 4,0x0042
+    li 5,1
+    bl card_read
+    b 8b
+
+# v122 : manettes (registres SI, adresse calculee comme le SDK) ; puis lecture apres la fin du fichier
+pad_test:
+    lis 9,0xCC00
+    ori 9,9,0x6400
+    lis 0,0x0040
+    ori 0,0,0x0300
+    stw 0,0x0C(9)           # SIC1OUTBUF : mode analogique 3
+    lwz 3,0x10(9)           # SIC1INBUFH
+    lwz 4,0x14(9)           # SIC1INBUFL
+    stw 3,0x1FB0(20)
+    stw 4,0x1FB4(20)
+    lis 0,0x00C8
+    ori 0,0,0x02F0
+    stw 0,0x30(9)           # SIPOLL : X = 200, Y = 2
+    lis 9,0x8012            # 0x80120000 rempli de FF, puis lu a 0x90000 (apres la fin du fichier : des zeros)
+    li 0,-1
+    li 10,0x80
+    mtctr 10
+1:  stw 0,0(9)
+    addi 9,9,4
+    bdnz 1b
+    lis 3,0x8012
+    li 4,0x200
+    lis 5,0x0009
+    lis 6,0xA800
+    bl dvd_cmd
+    b 8b
+
+# v122 : modes video (GXRenderModeObj) : NTSC 480i, puis PAL 528i
+    .balign 32
+rm_ntsc:
+    .long 0
+    .short 640, 480, 480, 40, 0, 640, 480, 0
+    .long 1
+    .byte 0, 0
+    .byte 6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6
+    .byte 8,8,10,12,10,8,8, 0
+    .short 0
+rm_pal:
+    .long 4
+    .short 640, 528, 528, 40, 23, 640, 528, 0
+    .long 1
+    .byte 0, 0
+    .byte 6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6,6
+    .byte 8,8,10,12,10,8,8, 0
+    .short 0
 
 # comme GXSetProjection du SDK : lit m[0][0] m[1][1] m[2][2] m[2][3], puis selon le type
 gxsetproj:
@@ -550,28 +623,31 @@ card_prog:
     stw 0,36(1)
     stw 31,28(1)
     stw 30,24(1)
+    stw 29,20(1)
     mr 31,3
     mr 30,4
-    li 3,0
+    mr 29,5                 # (v122 : canal dans r5 : 0 = slot A, 1 = slot B)
+    mr 3,29
     li 4,0xC0
     bl exi_sel
-    li 3,0
+    mr 3,29
     mr 4,31
     li 5,3
     li 6,1
     bl exi_imm
-    li 3,0
+    mr 3,29
     li 4,0
     li 5,0
     li 6,1
     bl exi_imm
-    li 3,0
+    mr 3,29
     mr 4,30
     li 5,0x80
     li 6,1
     bl exi_dma
-    li 3,0
+    mr 3,29
     bl exi_desel
+    lwz 29,20(1)
     lwz 30,24(1)
     lwz 31,28(1)
     lwz 0,36(1)
@@ -585,33 +661,36 @@ card_read:
     stw 0,36(1)
     stw 31,28(1)
     stw 30,24(1)
+    stw 29,20(1)
     mr 31,3
     mr 30,4
-    li 3,0
+    mr 29,5
+    mr 3,29
     li 4,0xC0
     bl exi_sel
-    li 3,0
+    mr 3,29
     mr 4,31
     li 5,3
     li 6,1
     bl exi_imm
-    li 3,0
+    mr 3,29
     li 4,0
     li 5,0
     li 6,1
     bl exi_imm
-    li 3,0
+    mr 3,29
     li 4,0
     li 5,3
     li 6,1
     bl exi_imm
-    li 3,0
+    mr 3,29
     mr 4,30
     li 5,0x200
     li 6,0
     bl exi_dma
-    li 3,0
+    mr 3,29
     bl exi_desel
+    lwz 29,20(1)
     lwz 30,24(1)
     lwz 31,28(1)
     lwz 0,36(1)

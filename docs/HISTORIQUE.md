@@ -21,6 +21,23 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v123 — Pulse : vidéo, manettes, vitesse du lecteur, slot B, régions, .nkit
+- **Modes vidéo** : les « GXRenderModeObj » du jeu (0x3C octets dans main.dol) sont reconnus à leur contenu
+  (valeurs possibles, filtre vertical dont la somme fait 64) et modifiés avant le lancement : 480p (mode
+  progressif, une trame, filtre neutre ; refusé sans câble composante), PAL 50 Hz -> EURGB60 480 lignes,
+  240p (entrelacé 480 lignes -> non entrelacé 240), sans flou (filtre 0 0 21 22 21 0 0), image large
+  (704 points, origine 8). Mémoire basse 0xCC = EURGB60 pour un jeu PAL passé en 60 Hz.
+- **Manettes** : les accès du jeu aux registres SI (0xCC006400-3F, adresse calculée comme le SDK) sont branchés
+  sur le résident quand un réglage de manette est choisi : stick C inversé / échangé (mode analogique 3),
+  L / R numériques au-delà d'un seuil, SIPOLL (lectures par image x2 / x4).
+- **Vitesse d'un vrai lecteur** : toutes les lectures en fond, fin pas avant ~1 ms (60 ms si la tête doit
+  aller loin) + 1 ms par 3 Ko.
+- **Cartes mémoire** : émulation du slot B (canal EXI 1, interruptions 12 / 13), fichier `carte-B.raw` ;
+  une carte par région du jeu (réglage). Réglage `resident_carte_virtuelle = a+b`.
+- **.nkit.iso** : morceau « zéro » après la fin du fichier, jusqu'à la taille d'un disque.
+- Résident v16 (en-tête 0x1C0, journal à 4 entrées). Banc d'essai natif : + slot B, manettes, lecture
+  après la fin, modes vidéo (20 tests).
+
 ## Nouveautés v122 — cases à cocher lisibles
 - Listes à cocher (onglets affichés, éléments du lecteur) : coche verte bien visible, nom grisé quand c'est décoché.
 

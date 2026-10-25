@@ -173,16 +173,22 @@ static void jeux_cfg_boot(void) {
 
 /* ---------- reglages d'un jeu (Y dans la fiche) : SD:/gc-mp3/jeux/<ID>.txt ---------- */
 #define JC_DIR GCD "/jeux"
-enum { JC_LANG, JC_SOUND, JC_CARD, JC_WS, JC_N };   /* v121 : JC_WS = 16:9 force (Pulse) */
+enum { JC_LANG, JC_SOUND, JC_CARD, JC_WS, JC_VIDEO, JC_FLOU, JC_WIDE, JC_CSTICK, JC_TRIG, JC_POLL, JC_SPEED, JC_N };   /* v121 : JC_WS = 16:9 force ; v122 : video, manette, lecteur (Pulse) */
 static char jc_id[8], jc_title[96];
 static int jc_lang = -1, jc_sound = -1, jc_sel = 0, jc_changed = 0;   /* -1 = comme la console */
 static int jc_ws = 0;                                        /* v121 : 16:9 force avec Pulse */
 static int nat_ws;                                           /* (natif.c) */
+/* v122 : jc_v[] = reglages Pulse du jeu (0 = comme le jeu), dans l'ordre JC_VIDEO ... JC_SPEED */
+#define JC_V0 JC_VIDEO
+static int jc_v[JC_N - JC_VIDEO];
+static const int jc_vmax[JC_N - JC_VIDEO] = { 4, 2, 2, 4, 4, 3, 2 };
+static const char *const jc_vkey[JC_N - JC_VIDEO] = { "video", "sans_flou", "image_large", "stick_c", "gachettes", "frequence_manette", "vitesse_lecteur" };
+static int nat_vmode, nat_deflick, nat_wide, nat_cstick, nat_trig, nat_poll, nat_speed;   /* (natif.c) */
 static int nat_cheats_prep(const char *id);                  /* (natif.c) */
 static char jc_card[64] = "";                                 /* "" = carte du reglage general */
 static void jc_path(const char *id, char *out, int cap) { snprintf(out, cap, JC_DIR "/%.6s.txt", id); }
 static void jc_load(const char *id) {
-    jc_lang = jc_sound = -1; jc_card[0] = 0; jc_ws = 0;
+    jc_lang = jc_sound = -1; jc_card[0] = 0; jc_ws = 0; memset(jc_v, 0, sizeof(jc_v));
     char p[NAME_LEN];
     jc_path(id, p, sizeof(p));
     FILE *f = fopen(p, "r");
@@ -197,6 +203,7 @@ static void jc_load(const char *id) {
         else if (!strcasecmp(k, "son")) jc_sound = !strcasecmp(v, "stereo") ? 1 : !strcasecmp(v, "mono") ? 0 : -1;
         else if (!strcasecmp(k, "carte") && strlen(v) < sizeof(jc_card) && !strchr(v, '/') && !strstr(v, "..")) snprintf(jc_card, sizeof(jc_card), "%s", v);
         else if (!strcasecmp(k, "ecran169")) jc_ws = !strcasecmp(v, "oui");
+        else for (int i = 0; i < JC_N - JC_V0; i++) if (!strcasecmp(k, jc_vkey[i])) { int x = atoi(v); jc_v[i] = x >= 0 && x < jc_vmax[i] ? x : 0; }
     }
     fclose(f);
 }
@@ -204,7 +211,9 @@ static void jc_save(void) {
     if (!sd_ok || !jc_id[0]) return;
     char p[NAME_LEN];
     jc_path(jc_id, p, sizeof(p));
-    if (jc_lang < 0 && jc_sound < 0 && !jc_card[0] && !jc_ws) { remove(p); return; }   /* (tout par defaut : pas de fichier) */
+    int anyv = 0;
+    for (int i = 0; i < JC_N - JC_V0; i++) if (jc_v[i]) anyv = 1;
+    if (jc_lang < 0 && jc_sound < 0 && !jc_card[0] && !jc_ws && !anyv) { remove(p); return; }   /* (tout par defaut : pas de fichier) */
     mkdir(JC_DIR, 0777);
     FILE *f = fopen(p, "w");
     if (!f) return;
@@ -212,12 +221,15 @@ static void jc_save(void) {
     fprintf(f, "langue = %s\nson = %s\ncarte = %s\n", jc_lang >= 0 ? gc_lang_keys[jc_lang] : "console",
             jc_sound < 0 ? "console" : jc_sound ? "stereo" : "mono", jc_card);
     fprintf(f, "ecran169 = %s\n", jc_ws ? "oui" : "non");
+    for (int i = 0; i < JC_N - JC_V0; i++) fprintf(f, "%s = %d\n", jc_vkey[i], jc_v[i]);
     fclose(f);
 }
 /* juste avant de lancer un jeu : ses reglages (resident = lance avec Resident) */
 static void jeux_cfg_apply(const char *id, int resident) {
     jc_load(id);
     nat_ws = jc_ws;                                           /* v121 : 16:9 force (Pulse) */
+    nat_vmode = jc_v[JC_VIDEO - JC_V0]; nat_deflick = jc_v[JC_FLOU - JC_V0]; nat_wide = jc_v[JC_WIDE - JC_V0];   /* v122 */
+    nat_cstick = jc_v[JC_CSTICK - JC_V0]; nat_trig = jc_v[JC_TRIG - JC_V0]; nat_poll = jc_v[JC_POLL - JC_V0]; nat_speed = jc_v[JC_SPEED - JC_V0];
     int changed = 0;
     if (jc_lang >= 0 && jc_lang != SYS_GetLanguage()) { sram_back_lang = SYS_GetLanguage(); gc_lang_set(jc_lang, !resident); changed = 1; }
     int st = SYS_GetSoundMode() != SYS_SOUND_MONO;
@@ -258,9 +270,10 @@ static void indigo_cfg_input(u32 down, u32 nav, int fire) {
         if (jc_sel == JC_LANG) { jc_lang += d; if (jc_lang > 5) jc_lang = -1; if (jc_lang < -1) jc_lang = 5; }
         else if (jc_sel == JC_SOUND) { jc_sound += d; if (jc_sound > 1) jc_sound = -1; if (jc_sound < -1) jc_sound = 1; }
         else if (jc_sel == JC_WS) jc_ws = !jc_ws;
+        else if (jc_sel >= JC_V0) { int i = jc_sel - JC_V0; jc_v[i] = (jc_v[i] + d + jc_vmax[i]) % jc_vmax[i]; }
         else jc_card_step(d);
     }
-    if (down & PAD_BUTTON_Y) { jc_lang = jc_sound = -1; jc_card[0] = 0; jc_ws = 0; jc_changed = 1; gl_note("Tout comme la console"); }
+    if (down & PAD_BUTTON_Y) { jc_lang = jc_sound = -1; jc_card[0] = 0; jc_ws = 0; memset(jc_v, 0, sizeof(jc_v)); jc_changed = 1; gl_note("Tout comme la console"); }
     if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) jc_close();
 }
 static void draw_indigo_cfg(void) {
@@ -268,27 +281,49 @@ static void draw_indigo_cfg(void) {
     tl_frame("R\xC3\xA9glages du jeu", NULL);
     fit_text(F_MED, jc_title, 500, fv, sizeof(fv));
     gx_text1(F_MED, 58, 100, fv, RGBA(255, 210, 120, 255));
-    static const char *const lab[JC_N] = { "Langue du jeu", "Son", "Carte m\xC3\xA9moire (Pulse)", "16:9 forc\xC3\xA9 (Pulse)" };
+    static const char *const lab[JC_N] = { "Langue du jeu", "Son", "Carte m\xC3\xA9moire (Pulse)", "16:9 forc\xC3\xA9 (Pulse)",
+        "Mode vid\xC3\xA9o (Pulse)", "Sans flou (Pulse)", "Image plus large (Pulse)", "Stick C (Pulse)", "G\xC3\xA2" "chettes L / R (Pulse)",
+        "Lecture des manettes (Pulse)", "Vitesse du lecteur (Pulse)" };
     static const char *const help[JC_N] = {
         "Langue des jeux multilingues (PAL), pour ce jeu seulement. La console revient \xC3\xA0 la sienne apr\xC3\xA8s.",
         "St\xC3\xA9r\xC3\xA9o ou mono pour ce jeu seulement.",
         "Carte virtuelle utilis\xC3\xA9" "e par ce jeu avec Pulse (Outils > Cartes m\xC3\xA9moire virtuelles).",
-        "Image 3D \xC3\xA9largie pour une t\xC3\xA9l\xC3\xA9 16:9 (mets la t\xC3\xA9l\xC3\xA9 en 16:9). Les menus 2D restent \xC3\xA9tir\xC3\xA9s." };
-    for (int i = 0; i < JC_N; i++) {
-        f32 ry = 124 + i * 34;
+        "Image 3D \xC3\xA9largie pour une t\xC3\xA9l\xC3\xA9 16:9 (mets la t\xC3\xA9l\xC3\xA9 en 16:9). Les menus 2D restent \xC3\xA9tir\xC3\xA9s.",
+        "480p : c\xC3\xA2" "ble composante. PAL 60 Hz : jeu PAL en 480 lignes. 240p : t\xC3\xA9l\xC3\xA9s cathodiques, \xC3\xA9" "crans r\xC3\xA9tro.",
+        "Enl\xC3\xA8ve le flou anti-scintillement de l'image (plus net, peut scintiller en entrelac\xC3\xA9).",
+        "Image sur 704 points au lieu de 640 : moins de bords noirs sur les c\xC3\xB4t\xC3\xA9s.",
+        "Invers\xC3\xA9 : haut / bas (ou tout) ; \xC3\xA9" "chang\xC3\xA9 : le stick C devient le stick principal et inversement.",
+        "L et R comptent comme enfonc\xC3\xA9s d\xC3\xA8s que la g\xC3\xA2" "chette d\xC3\xA9passe ce seuil.",
+        "Manettes lues plus souvent : moins de d\xC3\xA9lai (jeux de combat, de rythme).",
+        "Comme un vrai lecteur : pour les jeux qui plantent ou bloquent quand le disque r\xC3\xA9pond trop vite." };
+    static const char *const vv[JC_N - JC_V0][4] = {
+        { "Comme le jeu", "480p forc\xC3\xA9", "PAL 60 Hz", "240p" }, { "Non", "Oui" }, { "Non", "Oui (704)" },
+        { "Normal", "Invers\xC3\xA9 haut / bas", "Invers\xC3\xA9 (tout)", "\xC3\x89" "chang\xC3\xA9 avec le stick" },
+        { "Comme le jeu", "Seuil bas (30 %)", "Seuil moyen (50 %)", "Seuil haut (75 %)" }, { "Normale", "2 fois plus", "4 fois plus" },
+        { "Rapide (carte SD)", "Comme un vrai lecteur" } };
+    const int rh = 24, vis = 11;                          /* (v122 : 11 lignes, la liste defile au-dela) */
+    static int top = 0;
+    if (jc_sel < top) top = jc_sel;
+    if (jc_sel >= top + vis) top = jc_sel - vis + 1;
+    for (int r = 0; r < vis && top + r < JC_N; r++) {
+        int i = top + r;
+        f32 ry = 116 + r * rh;
         int on = i == jc_sel;
-        gp_zone(52, ry, 536, 30, &jc_sel, i, GPZ_SEL);
-        if (on) gx_rrect_fill(52, ry, 536, 30, 6, TL_SEL1, TL_SEL2);
-        gx_text1(F_MED, 66, ry + 20, TR(lab[i]), on ? RGBA(255, 255, 255, 255) : RGBA(230, 222, 255, 255));
+        gp_zone(52, ry, 536, rh - 2, &jc_sel, i, GPZ_SEL);
+        if (on) gx_rrect_fill(52, ry, 536, rh - 2, 6, TL_SEL1, TL_SEL2);
+        gx_text1(F_MED, 66, ry + 16, TR(lab[i]), on ? RGBA(255, 255, 255, 255) : RGBA(230, 222, 255, 255));
         if (i == JC_LANG) snprintf(buf, sizeof(buf), "%s", jc_lang < 0 ? TR("Comme la console") : gc_lang_names[jc_lang]);
         else if (i == JC_SOUND) snprintf(buf, sizeof(buf), "%s", jc_sound < 0 ? TR("Comme la console") : jc_sound ? TR("St\xC3\xA9r\xC3\xA9o") : "Mono");
         else if (i == JC_WS) snprintf(buf, sizeof(buf), "%s", jc_ws ? TR("Oui") : TR("Non"));
+        else if (i >= JC_V0) snprintf(buf, sizeof(buf), "%s", TR(vv[i - JC_V0][jc_v[i - JC_V0]]));
         else snprintf(buf, sizeof(buf), "%s", jc_card[0] ? jc_card : TR("R\xC3\xA9glage g\xC3\xA9n\xC3\xA9ral"));
         fit_text(F_MED, buf, 240, fv, sizeof(fv));
-        gx_text_r(F_MED, 576, ry + 20, fv, on ? RGBA(255, 255, 255, 255) : RGBA(190, 160, 255, 255));
+        gx_text_r(F_MED, 576, ry + 16, fv, on ? RGBA(255, 255, 255, 255) : jc_sel >= 0 && i >= JC_V0 && jc_v[i - JC_V0] ? RGBA(130, 230, 160, 255) : RGBA(190, 160, 255, 255));
     }
-    fit_text(F_SMALL, TR(help[jc_sel]), 520, fv, sizeof(fv));
-    gx_text1(F_SMALL, 58, 124 + JC_N * 34 + 22, fv, RGBA(210, 200, 240, 255));
+    if (top > 0) gx_tri(316, 112, 324, 112, 320, 107, RGBA(255, 255, 255, 180));
+    if (top + vis < JC_N) gx_tri(316, 116 + vis * rh, 324, 116 + vis * rh, 320, 121 + vis * rh, RGBA(255, 255, 255, 180));
+    fit_text(F_SMALL, TR(help[jc_sel]), 540, fv, sizeof(fv));
+    gx_text1(F_SMALL, 58, 116 + vis * rh + 18, fv, RGBA(210, 200, 240, 255));
     tl_msgbox();
     static const char *const k[] = { "A", "Y", "B" }, *const l[] = { "CHANGER", "TOUT PAR D\xC3\x89" "FAUT", "FERMER" };
     tl_legend(k, l, 3);

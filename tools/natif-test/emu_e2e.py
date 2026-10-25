@@ -81,6 +81,8 @@ si_inbuf = [0x80000000, 0x11900000, 0x80000000, 0x80000000]   # manette 1 : A + 
 if os.environ.get('EMU_SISTALE'):                     # v99 : ports sans manette pas interroges par le jeu : 0 (pas le bit d'erreur)
     si_inbuf = [0, 0x11900000, 0, 0]
 si_sr = [0x00200000, 0]                               # (v58 : manette 1 avec RDST les 20 premieres fois : ne doit pas etre lue)
+si_inl = [0, 0x20E0C010, 0, 0]                          # v122 : stick C (20, E0), gachettes L C0, R 10 (manette 2)
+si_out = [0, 0, 0, 0]; si_poll = []                    # v122 : OUTBUF (mode des manettes), ecritures de SIPOLL
 si_reads = []
 resets = []
 def pi_write(uc, off, size, value, data):
@@ -91,7 +93,8 @@ def pi_read(uc, off, size, data): return 0
 def io_read(uc, off, size, data):
     if 0x400 <= off < 0x430 and (off - 0x400) % 12 == 4:
         si_reads.append((off, si_sr[1])); return si_inbuf[(off - 0x400) // 12]
-    if 0x400 <= off < 0x430 and (off - 0x400) % 12 == 8: return 0
+    if 0x400 <= off < 0x430 and (off - 0x400) % 12 == 8: return si_inl[(off - 0x400) // 12]
+    if 0x400 <= off < 0x430 and (off - 0x400) % 12 == 0: return si_out[(off - 0x400) // 12]
     if off == 0x438:                                    # SISR : RDST (donnees neuves pas encore prises)
         si_sr[1] += 1
         return si_sr[0] if si_sr[1] <= 20 or si_sr[1] % 3 == 0 else 0   # (v93 : ensuite, donnees neuves une fois sur 3, comme un vrai jeu)
@@ -114,11 +117,14 @@ def io_write(uc, off, size, value, data):
             di_real[0] |= 0x10 if di_real[2] >> 24 == 0x12 else 0x04
         return
     if 0xC00 <= off < 0xC20: ai[(off - 0xC00) // 4] = value; return
+    if 0x400 <= off < 0x430 and (off - 0x400) % 12 == 0: si_out[(off - 0x400) // 12] = value; return
+    if off == 0x430: si_poll.append(value); return
     if off < 0x800: return
     o = off - 0x800; ch, reg = o // 0x14, (o % 0x14) // 4
     if ch >= 3: return
     if ch == 0 and reg == 0 and value & 0x80: bad0.append(('CSR', value))
     if ch == 0 and reg == 3 and value & 1 and exi[0][0] & 0x80: bad0.append(('CR', value))
+    if MODE == 'cardb' and ch == 1 and reg == 0 and value & 0x80: bad0.append(('CSR1', value))   # (v122 : vraie carte du slot B jamais choisie)
     exi[ch][reg] = value
     if reg == 0 and ch == CHAN and not (value & (0x80 << DEV)): card.deselect()
     if reg == 3 and (value & 1):
@@ -163,7 +169,7 @@ EXEC = len(sys.argv) > 4 and sys.argv[4] in ('exec', 'execa')   # v95 : OSExec (
 EXECA = EXEC and sys.argv[4] == 'execa'
 if EXEC: mu.mem_write(0x80001F44, struct.pack('>I', 2 if EXECA else 1))
 MODE = sys.argv[4] if len(sys.argv) > 4 else ''
-if MODE in ('swap', 'cheat', 'ws'): mu.mem_write(0x80001F44, struct.pack('>I', {'swap': 3, 'cheat': 4, 'ws': 5}[MODE]))   # v121
+if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad'): mu.mem_write(0x80001F44, struct.pack('>I', {'swap': 3, 'cheat': 4, 'ws': 5, 'cardb': 6, 'pad': 7}[MODE]))   # v121, v122
 STOP = 0x80001000
 mu.mem_write(STOP, struct.pack('>I', 0x48000000))
 mu.reg_write(UC_PPC_REG_1, 0x81000000); mu.reg_write(UC_PPC_REG_LR, STOP)
@@ -183,7 +189,7 @@ def chk(name, addr, want):
     ok &= good
     print(('OK   ' if good else 'FAUX ') + name)
 chk('ID du disque (A8000040)', 0x80100000, iso[0:0x20])
-if MODE in ('swap', 'cheat', 'ws'):                      # v121
+if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'video'):   # v121, v122
     rd32 = lambda a: struct.unpack('>I', mu.mem_read(a, 4))[0]
     u = lambda o: struct.unpack('>I', mu.mem_read(0x817F0000 + o, 4))[0]
     back = rd32(0x80001F50) == 0x42424242 and pc == STOP
@@ -226,6 +232,35 @@ if EXEC:                                                 # v95 : OSExec : le cod
     print(('OK   ' if nk else 'FAUX ') + 'rien envoye au vrai lecteur pendant OSExec (%d commandes)' % len(kicks)); ok &= nk
     br = u(0x17C) == (7 if EXECA else 7 + 7)
     print(('OK   ' if br else 'FAUX ') + 'acces branches pendant le jeu : %d (attendu : 7 dans le code de redemarrage + 7 dans le programme suivant)' % u(0x17C)); ok &= br
+    if MODE == 'cardb':
+        cn, ct = u(0x1A0), u(0x1A4)
+        ext = [struct.unpack('>III', mu.mem_read(ct + i * 12, 12)) for i in range(cn)]
+        def csd(sec):
+            for i0, sd, c in ext:
+                if i0 <= sec < i0 + c: return sd + sec - i0
+            return None
+        pat = b''.join(struct.pack('>I', 0xA5000000 | (i * 4)) for i in range(32))
+        exp = pat + bytes(((x >> 9) * 7 + x) & 0xFF for x in range(0x4080, 0x4200))
+        got = bytes(mu.mem_read(0x80420000, 0x200)); s1 = csd(0x4000 >> 9)
+        f1 = bytes(disk[s1 * 512:s1 * 512 + 512]) if s1 else b''
+        good = got == exp and f1 == exp and not bad0 and u(0x48) & 64
+        print(('OK   ' if good else 'FAUX ') + 'carte du slot B : relu %s, fichier %s, %d morceaux, vraie carte touchee %s' % (got == exp, f1 == exp, cn, bad0[:3])); ok &= bool(good)
+    if MODE == 'pad':
+        h, l = rd32(0x80001FB0), rd32(0x80001FB4)
+        good = h == 0x11D00000 and l == 0x2020C010 and si_poll and si_poll[-1] == 0x003208F0
+        print(('OK   ' if good else 'FAUX ') + 'manette : H %08X (attendu 11D00000 : L enfonce), L %08X (attendu 2020C010 : stick C inverse), SIPOLL %s (attendu 003208F0)' % (h, l, ['%08X' % x for x in si_poll])); ok &= bool(good)
+        z = bytes(mu.mem_read(0x80120000, 0x200)) == bytes(0x200)
+        print(('OK   ' if z else 'FAUX ') + 'lecture apres la fin du fichier (.nkit.iso) : des zeros'); ok &= z
+    if MODE == 'video':
+        a = rd32(0x80001FAC)
+        def rm(o): return struct.unpack('>IHHHHHHHHIBB', bytes(mu.mem_read(a + o, 0x1A))), bytes(mu.mem_read(a + o + 0x32, 7))
+        (n, nf), (p, pf) = rm(0), rm(0x3C)
+        flat = bytes([0, 0, 21, 22, 21, 0, 0])
+        g1 = n[0] == 2 and n[9] == 0 and nf == flat and n[6] == 704 and n[4] == 8 and n[3] == 480
+        g2 = p[0] == 2 and p[2] == 480 and p[3] == 480 and p[7] == 480 and p[5] == 0 and pf == flat and p[6] == 704
+        print(('OK   ' if g1 else 'FAUX ') + 'mode NTSC 480i -> 480p, large : %s %s' % (n, nf.hex()))
+        print(('OK   ' if g2 else 'FAUX ') + 'mode PAL 528i -> 480p (60 Hz), large : %s %s' % (p, pf.hex()))
+        ok &= g1 and g2
     print('TOUT OK' if ok else 'ECHEC'); sys.exit(0 if ok else 1)
 chk('lecture non alignee 0x2000 @0x1004', 0x80101000, iso[0x1004:0x3004])
 chk('grosse lecture 0x40000 @0x20000', 0x80200000, iso[0x20000:0x60000])

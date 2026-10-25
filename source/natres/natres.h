@@ -8,7 +8,7 @@
 #define NATRES_AT     0x817F0000u        /* adresse fixe (liee par tools/natres.ld) */
 #define NATRES_SIZE   0x0000FF00u        /* place reservee (le haut, 817FFF00+, est laisse a la console) */
 #define NATRES_MAGIC  0x4743534Eu        /* "GCSN" */
-#define NATRES_VER    15
+#define NATRES_VER    16
 #define NATRES_MAXEXT 1500               /* morceaux de l'ISO sur la carte (fichier fragmente) ; v60 : 2000 (place pour les aiguillages) */
 
 /* erreurs (champ err) */
@@ -93,9 +93,18 @@ typedef struct {
     unsigned int ext2, n_ext2;                            /* (GC Station) l'autre disque : table, nombre de morceaux (0 = aucun) */
     unsigned int disc;                                    /* disque en cours (0 / 1) | changements faits << 8 */
     unsigned int chts;                                    /* (GC Station) codes Gecko : adresse de {nombre de mots, mots...} (0 = aucun) */
+    /* v122 : carte memoire virtuelle du slot B ; manettes ; vitesse d'un vrai lecteur */
+    unsigned int card2_n, card2_tab, card2_size, card2_id;  /* comme card_* (slot A) */
+    unsigned int si_load, si_store;                       /* aiguillages des registres des manettes (SI) */
+    unsigned int opt;                                     /* (GC Station) NRO_... */
+    unsigned int si_fixes;                                /* lectures des manettes modifiees (journal) */
 } natres_hdr_t;
 
-#define NATRES_LOGN 6                     /* anneau : {commande, position, longueur, infos} (v121 : 0x1A0 + 6 x 16 = 0x200) */
+#define NATRES_LOGN 4                     /* anneau : {commande, position, longueur, infos} (v122 : 0x1C0 + 4 x 16 = 0x200) */
+/* v122 : opt : bit 0 stick C haut/bas inverses, 1 gauche/droite inverses, 2 sticks echanges, bits 8-15 seuil des
+   gachettes (0 = rien), bits 16-19 manettes lues N fois plus souvent, bit 24 vitesse d'un vrai lecteur */
+#define NRO_SPEED  0x01000000u
+#define NRF_CARDB  64u                    /* v122 : carte memoire virtuelle du slot B active */
 #define NATRES_ZERO 0xFFFFFFFFu           /* v121 : morceau sans donnees (bloc absent d'un .ciso) : lu comme des zeros */
 #define NATRES_CARDMAX 64                 /* morceaux du fichier de la carte virtuelle */
 #define NRF_CARD      4u                  /* v65 : carte memoire virtuelle active */
@@ -135,6 +144,6 @@ typedef struct {
 #define NATRES_SNAP_MAGIC 0x4743534Du       /* "GCSM" */
 #define NATRES_SNAP_SECS  704               /* taille du fichier : 704 secteurs (352 Ko) */
 
-typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x1A0 ? 1 : -1];
+typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x1C0 ? 1 : -1];
 
 #endif

@@ -66,3 +66,10 @@ printf '04001F70 12345678\n20001F74 00000000\n02001F78 0000ABCD\nE2000001 000000
 NATIF_SELF=selfdol.dol NATIF_CHEATS=cheats.txt NATIF_WS=1 NATIF_DUMP=boot-g.bin ./h2 game.iso sd.img 10 > h2-g.txt
 python3 $T/emu_e2e.py boot-g.bin sd.img game.iso cheat | tail -1                # (cheats appliques par Pulse)
 python3 $T/emu_e2e.py boot-g.bin sd.img game.iso ws | tail -1                   # (16:9 force : GXSetProjection)
+# v122 : carte du slot B, manettes (stick C inverse, seuil des gachettes, frequence), lecture apres la fin (.nkit), modes video
+python3 $T/mkfat.py 32 game.iso sd-b.img 1 selfdol.dol 2097152 disc2.iso 2097152 >/dev/null
+NATIF_SELF=selfdol.dol NATIF_CARD=2 NATIF_CSTICK=1 NATIF_TRIG=2 NATIF_POLL=2 NATIF_DUMP=boot-b.bin ./h2 game.iso sd-b.img 10 > h2-b.txt
+python3 $T/emu_e2e.py boot-b.bin sd-b.img game.iso cardb | tail -1               # (carte memoire du slot B)
+python3 $T/emu_e2e.py boot-b.bin sd-b.img game.iso pad | tail -1                 # (manettes, lecture apres la fin du fichier)
+NATIF_SELF=selfdol.dol NATIF_VMODE=1 NATIF_WIDE=1 NATIF_DUMP=boot-v.bin ./h2 game.iso sd.img 10 > h2-v.txt
+python3 $T/emu_e2e.py boot-v.bin sd.img game.iso video | tail -1               # (480p force, image large)

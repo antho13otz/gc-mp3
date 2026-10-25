@@ -87,5 +87,17 @@ if len(sys.argv) > 7:
         for f in range(2):
             base = part + rsvd + f * fatsz
             img.seek(base * 512 + c * fatsz_e); img.write(struct.pack('<I' if kind == '32' else '<H', nxt))
+# v122 : 5e fichier : la carte du slot B (clusters 55000... a la suite)
+if len(sys.argv) > 8:
+    size = int(sys.argv[8])
+    card = bytes(((o >> 9) * 7 + o) & 0xFF for o in range(size))
+    n5 = size // csize
+    for i in range(n5):
+        c = 55000 + i
+        nxt = c + 1 if i + 1 < n5 else (0x0FFFFFFF if kind == '32' else 0xFFFF)
+        w(part + data + (c - 2) * spc, card[i * csize:(i + 1) * csize])
+        for f in range(2):
+            base = part + rsvd + f * fatsz
+            img.seek(base * 512 + c * fatsz_e); img.write(struct.pack('<I' if kind == '32' else '<H', nxt))
 img.close()
 print(pool[0], len(iso))
