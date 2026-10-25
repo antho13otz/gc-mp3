@@ -21,6 +21,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v149 — date et heure
+- `main.c` : `MI_CLOCK` (Jeux > Console). `clk_set` : décalage de l'horloge (SRAM, `SYS_SetCounterBias` = heure voulue
+  - 2000 - RTC lue par `__SYS_GetRTC`), puis `clock_settime` pour GC Station. Édition par champ (`clk_edit`, `clk_f`),
+  jours du mois et années bissextiles. Scénario `heure.txt` (le simulateur ne change pas l'heure du PC).
+
 ## Nouveautés v148 — réglages en groupes
 - `main.c` : `sec_items` (32 places) avec des sous-titres (valeur -2 - k : `sec_heads[k]`), sautés par la navigation
   (`sec_step`, `sec_first`) ; le sous-titre du groupe reste visible en remontant. Réglages déplacés : minuterie et reprise

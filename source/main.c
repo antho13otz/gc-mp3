@@ -11352,7 +11352,7 @@ static void draw_list_radio(void) {
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
        MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_RECAT, MI_RECLEN, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PULSELD, MI_PERF, MI_LAUNCHER, MI_UPDATE,
-       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_QUIT, MI_COUNT };
+       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_QUIT, MI_COUNT };
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
 static const char *ipl_set(int on);
 /* v75 : les reglages de GC Station, ranges par sections (v90 : plus rien de Swiss) */
@@ -11364,7 +11364,7 @@ static const s8 sec_items[6][32] = {
     { -6, MI_RADIORES, MI_TITLES, -7, MI_REC, MI_RECAT, MI_RECLEN, -8, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, -1 },
     { -9, MI_UILANG, MI_LANG, -10, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_TABS, -11, MI_LAYOUT, MI_ELEMS, MI_VIZ, MI_SGPAL, MI_LYRSHOW, -12, MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, -13, MI_HIDDEN, MI_UNKNOWN, -14, MI_PERF, -1 },
     { -15, MI_TV, MI_VIDEO, MI_WIDE, -16, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, -1 },
-    { -17, MI_GLANG, MI_GSOUND, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
+    { -17, MI_GLANG, MI_GSOUND, MI_CLOCK, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
     { -21, MI_DHCP, MI_IP, MI_MASK, MI_GW, -22, MI_NETSMB, MI_NETFTP, MI_NETFSP, -23, MI_SALON, MI_PHONEAUTO, -24, MI_UPDAUTO, MI_UPDATE, -1 } };
 static int sec_n(int sec) { int n = 0; if (sec < 0 || sec >= SEC_TOOLS) return 0; while (n < 32 && sec_items[sec][n] != -1) n++; return n; }
 static int sec_pos(int sec, int mi) { for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] == mi) return i; return -1; }
@@ -11398,6 +11398,51 @@ static void tools_menu_draw(f32 x, f32 y, f32 w, int vis, f32 rh, f32 help_y);
 static int menu_top = 0;
 static int menu_sel = 0, quit_requested = 0;
 
+/* ---------- v149 : date et heure de la console ----------
+   L'horloge de la GameCube (RTC) compte les secondes depuis le 1er janvier 2000 ; l'heure affichee = horloge + un
+   decalage garde dans la memoire de la console (SRAM), comme le fait le menu de la GameCube. Changer l'heure = changer
+   ce decalage (les jeux et le BIOS la voient aussi), puis l'heure de GC Station tout de suite (clock_settime). */
+static int clk_edit = 0, clk_f = 0;                          /* edition en cours ; champ : 0 jour, 1 mois, 2 annee, 3 heure, 4 minute */
+static struct tm clk_tm;
+static int clk_set(time_t t) {
+#ifdef GEKKO
+    extern u32 __SYS_GetRTC(u32 *gctime);
+    u32 rtc = 0;
+    if (__SYS_GetRTC(&rtc) != 1) return 0;
+    SYS_SetCounterBias((u32)((s64)t - 946684800LL - (s64)rtc));
+    struct timespec ts = { t, 0 };
+    clock_settime(CLOCK_REALTIME, &ts);
+    return 1;
+#else
+    (void)t;
+    return 1;                                                /* (simulateur : l'heure du PC ne change pas) */
+#endif
+}
+static void clk_begin(void) { time_t t = time(NULL); struct tm *tm = localtime(&t); if (tm) clk_tm = *tm; clk_tm.tm_sec = 0; clk_f = 0; clk_edit = 1; }
+static void clk_change(int d) {
+    static const int mdays[12] = { 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31 };
+    struct tm *m = &clk_tm;
+    if (clk_f == 0) m->tm_mday += d;
+    else if (clk_f == 1) m->tm_mon = (m->tm_mon + d + 12) % 12;
+    else if (clk_f == 2) { m->tm_year += d; if (m->tm_year < 100) m->tm_year = 100; if (m->tm_year > 199) m->tm_year = 199; }
+    else if (clk_f == 3) m->tm_hour = (m->tm_hour + d + 24) % 24;
+    else m->tm_min = (m->tm_min + d + 60) % 60;
+    int y = m->tm_year + 1900, md = mdays[m->tm_mon] + (m->tm_mon == 1 && ((y % 4 == 0 && y % 100) || y % 400 == 0));
+    if (m->tm_mday < 1) m->tm_mday = md;
+    if (m->tm_mday > md) m->tm_mday = clk_f == 0 ? 1 : md;
+}
+static void clk_text(char *out, int cap) {
+    if (!clk_edit) {
+        time_t t = time(NULL); struct tm *tm = localtime(&t);
+        if (tm) snprintf(out, cap, "%02d/%02d/%04d  %02d:%02d", tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900, tm->tm_hour, tm->tm_min);
+        else snprintf(out, cap, "?");
+        return;
+    }
+    int v[5] = { clk_tm.tm_mday, clk_tm.tm_mon + 1, clk_tm.tm_year + 1900, clk_tm.tm_hour, clk_tm.tm_min };
+    static const char *const sep[5] = { "/", "/", "  ", ":", "" };
+    int n = 0;
+    for (int k = 0; k < 5 && n < cap; k++) n += snprintf(out + n, cap - n, k == clk_f ? "[%0*d]%s" : "%0*d%s", k == 2 ? 4 : 2, v[k], sep[k]);
+}
 static void menu_value(int i, char *out, int cap) {
     static const char *const rep[3] = { "Non", "Tout", "Un morceau" };
     static const char *const vid[VID_COUNT] = { "Auto (480p si c\xC3\xA2" "ble composante)", "480i", "480p", "576i (50 Hz)", "576p (50 Hz, composante)" };
@@ -11419,6 +11464,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_UNKNOWN: snprintf(out, cap, "%s", fe_hide_unknown ? "Oui" : "Non"); break;
     case MI_GLANG:   { int l = SYS_GetLanguage(); snprintf(out, cap, "%s", l >= 0 && l < 6 ? gc_lang_names[l] : "?"); break; }
     case MI_GSOUND:  snprintf(out, cap, "%s", SYS_GetSoundMode() == SYS_SOUND_MONO ? "Mono" : "St\xC3\xA9r\xC3\xA9o"); break;
+    case MI_CLOCK:   clk_text(out, cap); break;   /* v149 */
     case MI_DHCP:    snprintf(out, cap, "%s", net_dhcp ? "Oui" : "Non (adresse fixe)"); break;
     case MI_IP:      snprintf(out, cap, "%s", net_dhcp ? (ip_str[0] ? ip_str : "-") : net_cfg_ip[0] ? net_cfg_ip : "(A : taper)"); break;
     case MI_MASK:    { u32 m = net_cfg_bits ? 0xFFFFFFFFu << (32 - net_cfg_bits) : 0; snprintf(out, cap, "%u.%u.%u.%u", m >> 24, (m >> 16) & 255, (m >> 8) & 255, m & 255); break; }
@@ -11509,7 +11555,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "A+Z+START (lanceur de secours)", "A+Z+START (Pulse)", "Carte m\xC3\xA9moire virtuelle (Pulse)", "\xC3\x89" "cran de chargement (Pulse)", "Mesure de fluidit\xC3\xA9", "Lanceur de secours", "Mise \xC3\xA0 jour",
     "Fichiers cach\xC3\xA9s (FICHIERS)", "Cacher les fichiers inconnus", "Langue des jeux (console)", "Son (console)",
     "Adresse automatique (DHCP)", "Adresse IP de la console", "Masque", "Passerelle (box)", "T\xC3\xA9l\xC3\xA9" "commande au d\xC3\xA9marrage",
-    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Quitter GC Station" };
+    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Date et heure (console)", "Quitter GC Station" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -11644,6 +11690,8 @@ static void menu_change(int i, int d) {
 
 static void menu_input_gcmp3(u32 down, u32 nav, int fire);
 static void menu_input(u32 down, u32 nav, int fire) {
+    if (clk_edit && (down & (PAD_BUTTON_B | PAD_BUTTON_START))) { clk_edit = 0; return; }   /* v149 : annuler */
+    if (clk_edit && (down & (PAD_TRIGGER_L | PAD_TRIGGER_R))) return;
     if (down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) {                /* v35 : sections */
         static s8 last[SEC_COUNT] = { -1, -1, -1, -1, -1, -1, -1 };
         if (menu_sec < SEC_TOOLS) last[menu_sec] = (s8)menu_sel;
@@ -11660,6 +11708,19 @@ static void menu_input(u32 down, u32 nav, int fire) {
     else menu_input_gcmp3(down, nav, fire);
 }
 static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
+    if (clk_edit) {                                              /* v149 : date et heure en cours de reglage */
+        if (fire && (nav & PAD_BUTTON_LEFT)) clk_f = (clk_f + 4) % 5;
+        if (fire && (nav & PAD_BUTTON_RIGHT)) clk_f = (clk_f + 1) % 5;
+        if (fire && (nav & PAD_BUTTON_UP)) clk_change(1);
+        if (fire && (nav & PAD_BUTTON_DOWN)) clk_change(-1);
+        if (down & PAD_BUTTON_A) {
+            struct tm m = clk_tm; m.tm_isdst = -1;
+            time_t t = mktime(&m);
+            clk_edit = 0;
+            lib_note(t != (time_t)-1 && clk_set(t) ? "Heure de la console r\xC3\xA9gl\xC3\xA9" "e" : "Impossible de r\xC3\xA9gler l'heure");
+        }
+        return;
+    }
     int p = sec_pos(menu_sec, menu_sel);
     if (p < 0) { menu_sel = sec_first(menu_sec); p = sec_pos(menu_sec, menu_sel); }
     if (fire && (nav & PAD_BUTTON_DOWN)) menu_sel = sec_step(menu_sec, p, 1);
@@ -11683,6 +11744,7 @@ static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
             return;
         }
         else if (menu_sel == MI_UPDATE) { update_activate(); return; }
+        else if (menu_sel == MI_CLOCK) { clk_begin(); return; }   /* v149 */
         else if (menu_sel == MI_IP || menu_sel == MI_GW) { menu_change(menu_sel, 1); return; }
         else if (menu_sel == MI_AUTOSTART) { menu_change(MI_AUTOSTART, 1); return; }
         else if (menu_sel == MI_IGR) { igr_toggle(); return; }
@@ -11845,6 +11907,8 @@ static void draw_menu(void) {
     if (menu_sel == MI_RUMBLE) hint = "Mode soir\xC3\xA9" "e, mini-jeux, et les jeux lanc\xC3\xA9s avec le lanceur de secours";
     if (menu_sel == MI_SCREENX) hint = "D\xC3\xA9" "cale l'image de GC Station et des jeux (r\xC3\xA9glage de la console)";
     if (menu_sel == MI_GLANG) hint = "Langue de la console : les jeux multilingues (PAL) l'utilisent. Un jeu peut avoir la sienne (Y dans sa fiche)";
+    if (menu_sel == MI_CLOCK) hint = clk_edit ? "Gauche / Droite : jour, mois, ann\xC3\xA9" "e, heure, minute   Haut / Bas : changer   A : valider   B : annuler"
+                                             : "A : r\xC3\xA9gler (gard\xC3\xA9" "e dans la console : aussi pour les jeux et le menu de la GameCube)";
     if (menu_sel == MI_GSOUND) hint = "R\xC3\xA9glage de la console : GC Station et les jeux";
     if (menu_sel == MI_HIDDEN || menu_sel == MI_UNKNOWN) hint = "Onglet FICHIERS : fichiers commen\xC3\xA7" "ant par un point / autres que musique, images, jeux, .dol";
     if (menu_sel == MI_DHCP) hint = "Non : adresse fixe (lignes suivantes). Pris en compte au prochain d\xC3\xA9marrage";
