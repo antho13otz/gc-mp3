@@ -134,9 +134,16 @@ static void draw_checklist(void) {
         gp_zone(x + 14, ry + 1, w - 28, rh - 3, &ck_sel, i, GPZ_SEL);
         if (on) gx_rrect_fill(x + 14, ry + 1, w - 28, rh - 3, 6, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
         int v = ck->get(i);
-        gx_rrect_stroke(x + 26, ry + 6, 13, 13, 3, 1.2f, RGBA(220, 210, 255, 255));
-        if (v) gx_rrect_fill(x + 29, ry + 9, 7, 7, 2, RGBA(255, 255, 255, 255), RGBA(200, 190, 255, 255));
-        gx_text1(F_MED, x + 50, ry + 18, ck->labels[i], i == lk ? RGBA(150, 135, 210, 255) : RGBA(240, 232, 255, 255));
+        /* v122 : coche bien visible (case pleine + coche ; avant : un point de 7 pixels, a peine visible a la tele) ;
+           decoche : case vide et nom grise */
+        if (v) {
+            gx_rrect_fill(x + 25, ry + 5, 15, 15, 3, RGBA(120, 230, 160, 255), RGBA(60, 190, 120, 255));
+            col_t ckc = RGBA(20, 40, 30, 255);
+            f32 cx = x + 25, cy = ry + 5;
+            gx_poly4(cx + 3, cy + 7.5f, cx + 5, cy + 5.5f, cx + 7.5f, cy + 8, cx + 6, cy + 10.5f, ckc, ckc, ckc, ckc);
+            gx_poly4(cx + 6, cy + 10.5f, cx + 5.5f, cy + 8.5f, cx + 11, cy + 3, cx + 12.5f, cy + 4.5f, ckc, ckc, ckc, ckc);
+        } else gx_rrect_stroke(x + 25, ry + 5, 15, 15, 3, 1.5f, RGBA(200, 190, 235, 200));
+        gx_text1(F_MED, x + 50, ry + 18, ck->labels[i], i == lk ? RGBA(150, 135, 210, 255) : v || on ? RGBA(240, 232, 255, 255) : RGBA(150, 140, 185, 255));
         if (ck->move && on) {                                 /* fleches : X descend, Y monte */
             if (i > 0) gx_tri(x + w - 40, ry + 15, x + w - 34, ry + 6, x + w - 28, ry + 15, RGBA(255, 255, 255, 220));
             if (i + 1 < ck->n) gx_tri(x + w - 58, ry + 8, x + w - 46, ry + 8, x + w - 52, ry + 17, RGBA(255, 255, 255, 220));
