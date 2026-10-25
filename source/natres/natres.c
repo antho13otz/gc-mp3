@@ -617,22 +617,26 @@ static void stack_dump(u32 sp) {
 /* v83 : photo de la memoire du jeu (format : natres.h, NATRES_SNAP_*) */
 static void mem_snap(volatile u32 *c) {
     if (!(H.flags & NRF_SNAP) || !H.snap_sec || H.snap_cnt < 2) return;
-    u32 zb[4], zl[4];
+    u32 zb[7], zl[7];                                    /* v135 : + 0x800 octets autour de r3, r4 et r30 (structures du jeu) */
     zb[0] = 0x80000000u; zl[0] = 0x3200;
     zb[1] = (c[13] & ~31u) - 0x8000u; zl[1] = 0x10000;
     zb[2] = (c[1] & ~31u) - 0x200u; zl[2] = 0x4000;
-    zb[3] = (H.snap_hi + 31) & ~31u; zl[3] = 0x40000;
+    zb[3] = (c[3] & ~511u) - 0x200u; zl[3] = 0x800;
+    zb[4] = (c[4] & ~511u) - 0x200u; zl[4] = 0x800;
+    zb[5] = (c[30] & ~511u) - 0x200u; zl[5] = 0x800;
+    zb[6] = (H.snap_hi + 31) & ~31u; zl[6] = 0x3E800;      /* (arene : 0x40000 avant, pour garder 704 secteurs) */
     for (u32 i = 0; i < 512; i++) crashbuf[i] = 0;
     cw(0x00, NATRES_SNAP_MAGIC);
     u32 sec = 1, nz = 0;
-    for (int z = 0; z < 4; z++) {
+    for (int z = 0; z < 7; z++) {
+        if (z >= 3 && z <= 5 && (c[z == 3 ? 3 : z == 4 ? 4 : 30] < 0x80000000u || c[z == 3 ? 3 : z == 4 ? 4 : 30] >= 0x81800000u)) continue;   /* (pas une adresse) */
         u32 b = zb[z], l = (zl[z] + 511) & ~511u;
         if (b < 0x80000000u) b = 0x80000000u;
         if (b >= 0x81800000u) continue;
         if (b + l > 0x81800000u) l = (0x81800000u - b) & ~511u;
         if (sec + (l >> 9) > H.snap_cnt) l = (H.snap_cnt - sec) << 9;
         if (!l) continue;
-        cw(0x08 + nz * 16, b); cw(0x0C + nz * 16, l); cw(0x10 + nz * 16, sec);
+        cw(0x08 + nz * 16, b); cw(0x0C + nz * 16, l); cw(0x10 + nz * 16, sec); cw(0x14 + nz * 16, (u32)z);   /* v135 : + le genre de zone */
         for (u32 o = 0; o < l; o += 512, sec++) if (nr_write_sd(H.snap_sec + sec, (const u8 *)(b + o)) == 0) H.snap_done++;
         nz++;
     }

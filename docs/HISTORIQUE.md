@@ -21,6 +21,30 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v135 — Pulse : Mario Superstar Baseball, corrections par jeu, journal plus complet
+- **GYQ (Mario Superstar Baseball)** ajouté à `jc_slow_known` (vitesse d'un vrai lecteur en « Auto »). Le journal
+  (build 487) : PC 800AF56C dans une boucle 800AF558-800AF570 qui compare des champs de la structure du lecteur
+  vidéo HVQM4 (r30 + 0x158 / 0x15C / 0x160) chargés AVANT la boucle : le jeu attend qu'il y ait de la place
+  dans un anneau de 0xF00 octets (0x10B0 demandés) que l'autre côté (le son de la vidéo) libère, mais le
+  compilateur a sorti les lectures de la boucle : si l'anneau est plein en arrivant, c'est une boucle sans fin.
+  Sur une vraie console le lecteur est lent et l'anneau n'est jamais plein ici ; avec Pulse en rapide, tout le
+  fichier vidéo était lu d'un coup (lectures de 16 Ko jusqu'à la fin, puis plus rien).
+- **Corrections par jeu** (`na_fixes` dans `natif.c`) : code du jeu + taille exacte du main.dol + adresse +
+  valeur, l'adresse convertie par les sections du .dol (hors sections : ignorée). Les endroits viennent de
+  `Patch_GameSpecific` de Swiss (GPL 2 : méthode et données, pas son code) : transfert ARAM (nop), cartes
+  1019 / 2043 (taille acceptée = celle de la vraie carte du slot A ; la carte virtuelle de Pulse, 251 blocs,
+  est déjà acceptée), initialisation de l'image (exécutables de 200-340 Ko : ceux chargés comme main.dol),
+  anti-débogage (D58-D62, D78/D86/D89, E22/E23, GC6 E/J/P), langue (GMSP01 : `li r3, langue`).
+  Ligne « Corrections du jeu » dans `dernier-lancement.txt`.
+- **Journal au retour A+Z+START** : `na_func_dump` imprime la fonction entière (du `stwu r1` au `blr`, 200 mots
+  au plus) autour de PC, LR et des 2 premiers appels, lue dans le main.dol de l'ISO ; la photo de la mémoire
+  (`mem_snap`) ajoute 0x800 octets autour de r3, r4 et r30 (seulement si ce sont des adresses ; l'arène passe
+  de 0x40000 à 0x3E800 pour rester dans 704 secteurs), avec le genre de chaque zone dans l'en-tête ; ces trois
+  zones sont imprimées en hexadécimal dans le journal.
+- Pas encore fait (voir `docs/ETUDE-SWISS.md`) : corriger les autres exécutables du disque à la volée (`.elf`,
+  `.tgc`, `switcher.prs`) et gérer les alarmes de délai du lecteur (`SetTimeoutAlarm`).
+- Banc d'essai de Pulse : 21 « TOUT OK » (la photo de la mémoire accepte 4 à 7 zones).
+
 ## Nouveautés v134 — Pulse sans le vrai lecteur, vitesse auto, accès en secours, mise à jour qui reprend
 - `natres.c` : `wk_tick` (0 = réveil par une vraie commande « inquiry », 1 = sans le lecteur). Sans lecteur
   (`NRF_REAL_IRQ` absent : GC Station ne le pose plus si le lecteur ne répond pas au lancement), `di_real_kick`

@@ -737,6 +737,40 @@ static void na_code_dump(FILE *f, u32 addr, const char *label) {
     }
     gd_close(&g);
 }
+/* v135 : la fonction ENTIERE qui contient addr (du prologue "stwu r1,-n(r1)" jusqu'au "blr", 200 mots au plus),
+   lue dans le main.dol de l'ISO : pour la desassembler sans avoir le jeu */
+static void na_func_dump(FILE *f, u32 addr, const char *label) {
+    if (addr < 0x80003000u || addr >= 0x81800000u) return;
+    static char iso[NAME_LEN];
+    iso[0] = 0;
+    FILE *lf = fopen(NA_LOG, "r");
+    if (lf) { char l[NAME_LEN + 16]; while (fgets(l, sizeof(l), lf)) if (!strncmp(l, "Fichier : ", 10)) { snprintf(iso, sizeof(iso), "%s", l + 10); iso[strcspn(iso, "\r\n")] = 0; break; } fclose(lf); }
+    if (!iso[0]) return;
+    gdisc_t g;
+    if (!gd_open(&g, iso)) return;
+    enum { NW = 400 };                                   /* (fenetre : 200 mots avant, 200 apres) */
+    static u8 w[NW * 4];
+    u8 h[0x100];
+    u32 dol = 0, a0 = ((addr & ~3u) - 200 * 4), fo = 0, nw = NW;
+    int ok = gd_read(&g, 0x420, h, 4);
+    if (ok) { dol = be32(h); ok = gd_read(&g, dol, h, sizeof(h)); }
+    for (int i = 0; ok && i < 18 && !fo; i++) {           /* (la fenetre est rognee aux bords de la section) */
+        u32 off = be32(h + i * 4), at = be32(h + 0x48 + i * 4), sz = be32(h + 0x90 + i * 4);
+        if (!sz || addr < at || addr >= at + sz) continue;
+        if (a0 < at) a0 = at;
+        if (a0 + nw * 4 > at + sz) nw = (at + sz - a0) / 4;
+        fo = dol + off + (a0 - at);
+    }
+    if (!fo || !nw || !gd_read(&g, fo, w, nw * 4)) { gd_close(&g); return; }
+    gd_close(&g);
+    int at = (int)((addr & ~3u) - a0) / 4, b = at, e = at;
+    while (b > 0 && at - b < 199 && (be32(w + b * 4) & 0xFFFF0000u) != 0x94210000u) b--;   /* stwu r1,-n(r1) */
+    while (e < (int)nw - 1 && e - b < 199 && be32(w + e * 4) != 0x4E800020u) e++;        /* blr */
+    fprintf(f, "  fonction (%s) : %08X - %08X%s :", label, (unsigned)(a0 + b * 4), (unsigned)(a0 + e * 4),
+            (be32(w + b * 4) & 0xFFFF0000u) == 0x94210000u ? "" : " (debut pas trouve)");
+    for (int i = b; i <= e; i++) fprintf(f, "%s%s%08X", (i - b) % 8 ? " " : "\n    ", i == at ? ">" : "", (unsigned)be32(w + i * 4));
+    fprintf(f, "\n");
+}
 /* v79 : details d'un plantage (2e secteur du journal, format : natres.h) */
 static void na_crash_print(FILE *f, const u8 *c) {
     u32 w[0x110 / 4];
@@ -774,9 +808,10 @@ static void na_crash_print(FILE *f, const u8 *c) {
     if (hi && fstmax < 0x400000u && real > hi)
         fprintf(f, "Memoire laissee au jeu : haut de l'arene %08X ; sur une vraie console : environ %08X (%u Ko de moins avec Pulse)\n",
                 (unsigned)hi, (unsigned)real, (unsigned)((real - hi) >> 10));
-    na_code_dump(f, w[3], "PC");
-    na_code_dump(f, w[5], "LR");
-    for (u32 i = 0; i < w[11] && i < 3; i++) { char lb[24]; snprintf(lb, sizeof(lb), "appel %u", (unsigned)i + 1); na_code_dump(f, bt[i], lb); }
+    na_func_dump(f, w[3], "PC");                          /* v135 : fonctions entieres (PC, LR, 2 premiers appels) */
+    na_func_dump(f, w[5], "LR");
+    for (u32 i = 0; i < w[11] && i < 2; i++) { char lb[24]; snprintf(lb, sizeof(lb), "appel %u", (unsigned)i + 1); na_func_dump(f, bt[i], lb); }
+    if (w[11] > 2) { char lb[24]; snprintf(lb, sizeof(lb), "appel 3"); na_code_dump(f, bt[2], lb); }
 }
 /* v82 : pile du jeu au plantage (3e secteur) : textes (message, fichier) et adresses de code */
 static void na_stack_print(FILE *f, const u8 *b) {
@@ -917,9 +952,28 @@ static void nat_journal_convert(void) {
             u8 *sd = (u8 *)read_file(NA_SNAP, 512, &sl);
             if (sd && sl == 512 && be32(sd) == NATRES_SNAP_MAGIC) {
                 u32 nz = be32(sd + 4);
-                static const char *const zn[4] = { "memoire basse", "variables du jeu (r13)", "pile (r1)", "debut de l'arene (tas du jeu)" };
-                for (u32 z = 0; z < nz && z < 4; z++)
-                    fprintf(f, "  %-30s %08X  %6u octets\n", zn[z], (unsigned)be32(sd + 8 + z * 16), (unsigned)be32(sd + 12 + z * 16));
+                static const char *const zn[7] = { "memoire basse", "variables du jeu (r13)", "pile (r1)", "autour de r3", "autour de r4", "autour de r30",
+                                                   "debut de l'arene (tas du jeu)" };   /* v135 : + r3, r4, r30 */
+                for (u32 z = 0; z < nz && z < 7; z++) {
+                    u32 k = be32(sd + 20 + z * 16); if (k > 6) k = 6;
+                    fprintf(f, "  %-30s %08X  %6u octets\n", zn[k], (unsigned)be32(sd + 8 + z * 16), (unsigned)be32(sd + 12 + z * 16));
+                }
+                FILE *sf = fopen(NA_SNAP, "rb");                  /* v135 : les zones r3 / r4 / r30 en clair dans le journal */
+                for (u32 z = 0; sf && z < nz && z < 7; z++) {
+                    u32 k = be32(sd + 20 + z * 16);
+                    if (k < 3 || k > 5) continue;
+                    u32 zb = be32(sd + 8 + z * 16), zl = be32(sd + 12 + z * 16), zs = be32(sd + 16 + z * 16);
+                    static u8 zd[0x800];
+                    if (zl > sizeof(zd)) zl = sizeof(zd);
+                    if (fseek(sf, (long)zs * 512, SEEK_SET) != 0 || fread(zd, 1, zl, sf) != zl) continue;
+                    fprintf(f, "\n  %s (%08X) :\n", zn[k], (unsigned)zb);
+                    for (u32 o = 0; o < zl; o += 32) {
+                        fprintf(f, "    %08X :", (unsigned)(zb + o));
+                        for (u32 i = 0; i < 32; i += 4) fprintf(f, " %08X", (unsigned)be32(zd + o + i));
+                        fputc('\n', f);
+                    }
+                }
+                if (sf) fclose(sf);
                 fprintf(f, "%u secteurs ecrits : envoie aussi le fichier gc-mp3/natif/memoire-jeu.bin\n(il est remplace au prochain plantage)\n", (unsigned)be32(d + 0x15C));
             } else fprintf(f, "  (photo incomplete : %u secteurs ecrits)\n", (unsigned)be32(d + 0x15C));
             free(sd);
@@ -1282,6 +1336,131 @@ static int na_rm_ok(const u8 *p) {
     for (int i = 0; i < 7; i++) { if (p[50 + i] > 63) return 0; sum += p[50 + i]; }
     return sum == 64 && p[57] == 0;
 }
+/* ======================= v135 : corrections par jeu =======================
+   Quelques jeux ont besoin qu'on change une instruction pour tourner sans le vrai lecteur, ou avec une autre
+   carte memoire. Les endroits viennent de l'etude de Swiss (swiss-gc, GPL 2, cube/swiss/source/patcher.c,
+   Patch_GameSpecific : docs/ETUDE-SWISS.md) ; ici c'est une table de donnees propre a Pulse : le jeu est
+   reconnu a son code (6 lettres, ou 4) ET a la taille exacte de son main.dol, l'adresse est convertie en
+   position dans le fichier par les sections du .dol (une adresse hors des sections est ignoree). */
+enum { NF_WORD, NF_LANG, NF_CARD };                       /* mot ; "li r3, langue" ; taille de carte acceptee (demi-mot) */
+typedef struct { const char *ids; u32 len, addr, val; u8 kind; const char *why; } na_fix_t;
+static const na_fix_t na_fixes[] = {
+    /* course entre une copie vers l'ARAM et sa fin (lecture instantanee) : une instruction retiree */
+    { "GDREAF", 1881216, 0x8000AF34, 0x60000000, NF_WORD, "transfert ARAM" },
+    { "GDRP69", 1950240, 0x8000B7EC, 0x60000000, NF_WORD, "transfert ARAM" },
+    { "GHAE08",  800672, 0x800339E4, 0x60000000, NF_WORD, "transfert ARAM" },
+    { "GHAJ08", 1072288, 0x80065FFC, 0x60000000, NF_WORD, "transfert ARAM" },
+    { "GHAP08",  805984, 0x80033D60, 0x60000000, NF_WORD, "transfert ARAM" },
+    { "GLEE08", 2303296, 0x80150E94, 0x60000000, NF_WORD, "transfert ARAM" },
+    { "GLEJ08", 2298208, 0x8015110C, 0x60000000, NF_WORD, "transfert ARAM" },
+    /* cartes memoire 1019 / 2043 blocs acceptees (le jeu n'accepte que 507 au plus) */
+    { "GDKEA4", 3009280, 0x801F1FF2, 0, NF_CARD, "carte 1019 / 2043" },
+    { "GDKJA4", 3075488, 0x801FF53E, 0, NF_CARD, "carte 1019 / 2043" },
+    { "GDXEA4", 2039904, 0x800EFF3A, 0, NF_CARD, "carte 1019 / 2043" },
+    { "GDXEA4", 2039904, 0x800F0082, 0, NF_CARD, "carte 1019 / 2043" },
+    { "GDXEA4", 2039904, 0x800F0502, 0, NF_CARD, "carte 1019 / 2043" },
+    { "GDXJA4", 1853024, 0x800E65EE, 0, NF_CARD, "carte 1019 / 2043" },
+    { "GDXJA4", 1853024, 0x800E6736, 0, NF_CARD, "carte 1019 / 2043" },
+    { "GDXJA4", 1853024, 0x800E6BB6, 0, NF_CARD, "carte 1019 / 2043" },
+    { "GWTEA4",  839584, 0x8003758E, 0, NF_CARD, "carte 1019 / 2043" },
+    { "GWTJA4",  804544, 0x8003740A, 0, NF_CARD, "carte 1019 / 2043" },
+    { "GWTPA4",  834912, 0x800374D6, 0, NF_CARD, "carte 1019 / 2043" },
+    /* initialisation de l'image (ecran noir au demarrage) */
+    { "GGIJ13",  205696, 0x8001501C, 0x807E0000, NF_WORD, "image" },
+    { "GGIJ13",  266336, 0x807023F0, 0x807E0000, NF_WORD, "image" },
+    { "GOND69 GONE69 GONF69 GONP69", 277472, 0x80014C54, 0x807E0000, NF_WORD, "image" },
+    { "GOND69 GONE69 GONF69 GONP69", 339520, 0x80701C38, 0x807E0000, NF_WORD, "image" },
+    { "GONJ13",  276416, 0x80014C54, 0x807E0000, NF_WORD, "image" },
+    { "GONJ13",  338400, 0x80701C38, 0x807E0000, NF_WORD, "image" },
+    { "GOYD69 GOYE69 GOYF69 GOYP69 GOYS69", 207232, 0x8001501C, 0x807E0000, NF_WORD, "image" },
+    { "GOYD69 GOYE69 GOYF69 GOYP69 GOYS69", 268384, 0x807023F0, 0x807E0000, NF_WORD, "image" },
+    { "GR8D69 GR8E69 GR8F69 GR8P69", 206016, 0x80500EB4, 0x387D2720, NF_WORD, "image" },
+    { "GR8D69 GR8E69 GR8F69 GR8P69", 260192, 0x80500EB4, 0x387D2720, NF_WORD, "image" },
+    { "GRZJ13",  206240, 0x80500EB4, 0x387D2800, NF_WORD, "image" },
+    { "GRZJ13",  260864, 0x80500EB4, 0x387D2800, NF_WORD, "image" },
+    /* langue forcee (celle de la console, ou celle du reglage du jeu) */
+    { "GMSP01", 4083072, 0x80289B4C, 0, NF_LANG, "langue" },
+    { "GMSP01", 4083072, 0x80289B9C, 0, NF_LANG, "langue" },
+    /* code anti-debogage retire (disques de demo, Pokemon Colosseum) */
+#define NF_AD(ids, len, a) { ids, len, a, 0x60000000, NF_WORD, "anti-debogage" }
+    NF_AD("D58E01 D59E01 D62E01", 4336128, 0x8000F614), NF_AD("D58E01 D59E01 D62E01", 4336128, 0x8005CC4C),
+    NF_AD("D58E01 D59E01 D62E01", 4336128, 0x8005CD00), NF_AD("D58E01 D59E01 D62E01", 4336128, 0x8005CD24),
+    NF_AD("D58E01 D59E01 D62E01", 4336128, 0x80086CCC), NF_AD("D58E01 D59E01 D62E01", 4336128, 0x80086DD0),
+    NF_AD("D58E01 D59E01 D62E01", 4336128, 0x8008789C),
+    NF_AD("D78P01 D86U01", 4548544, 0x800089D8), NF_AD("D78P01 D86U01", 4548544, 0x800569C8), NF_AD("D78P01 D86U01", 4548544, 0x80056A7C),
+    NF_AD("D78P01 D86U01", 4548544, 0x80056AA0), NF_AD("D78P01 D86U01", 4548544, 0x800815F0), NF_AD("D78P01 D86U01", 4548544, 0x800816F4),
+    NF_AD("D78P01 D86U01", 4548544, 0x80082090),
+    NF_AD("D86P01 D89U01", 4101504, 0x80005614), NF_AD("D86P01 D89U01", 4101504, 0x80005E08), NF_AD("D86P01 D89U01", 4101504, 0x80005F10),
+    NF_AD("D86P01 D89U01", 4101504, 0x80005F34), NF_AD("D86P01 D89U01", 4101504, 0x80038D24), NF_AD("D86P01 D89U01", 4101504, 0x80038E14),
+    NF_AD("D86P01 D89U01", 4101504, 0x80038ECC),
+    NF_AD("E22J01 E23J01", 4205664, 0x8000F510), NF_AD("E22J01 E23J01", 4205664, 0x8005C9A4), NF_AD("E22J01 E23J01", 4205664, 0x8005CA0C),
+    NF_AD("E22J01 E23J01", 4205664, 0x8005CA30), NF_AD("E22J01 E23J01", 4205664, 0x80086448), NF_AD("E22J01 E23J01", 4205664, 0x8008654C),
+    NF_AD("E22J01 E23J01", 4205664, 0x80086FDC),
+    NF_AD("GC6E01", 3779808, 0x80005614), NF_AD("GC6E01", 3779808, 0x80005C24), NF_AD("GC6E01", 3779808, 0x80005D2C),
+    NF_AD("GC6E01", 3779808, 0x80005D50), NF_AD("GC6E01", 3779808, 0x80036598), NF_AD("GC6E01", 3779808, 0x80036688),
+    NF_AD("GC6E01", 3779808, 0x80036740),
+    NF_AD("GC6J01", 3699680, 0x80005CA4),
+    NF_AD("GC6P01", 4096576, 0x80005614), NF_AD("GC6P01", 4096576, 0x80005D1C), NF_AD("GC6P01", 4096576, 0x80005E24),
+    NF_AD("GC6P01", 4096576, 0x80005E48), NF_AD("GC6P01", 4096576, 0x800387E4), NF_AD("GC6P01", 4096576, 0x800388D4),
+    NF_AD("GC6P01", 4096576, 0x8003898C),
+#undef NF_AD
+};
+static char na_fix_msg[120] = "";
+static int na_id_in(const char *ids, const char *id) {    /* "GOND69 GONE69" contient-il ce code ? */
+    for (const char *p = ids; *p; ) {
+        int n = (int)strcspn(p, " ");
+        if (n && !strncmp(p, id, n)) return 1;
+        p += n; while (*p == ' ') p++;
+    }
+    return 0;
+}
+static int na_lang_now(void);
+static int na_card_size_now(int virt);
+static int na_lang_now(void) {                            /* langue du reglage du jeu, sinon celle de la console */
+#if defined(NATIF_BENCH)
+    return 0;
+#elif defined(GEKKO)
+    return jc_lang >= 0 ? jc_lang : SYS_GetLanguage();
+#else
+    return jc_lang >= 0 ? jc_lang : 0;
+#endif
+}
+static int na_card_size_now(int virt) {                   /* taille (Mbit) de la vraie carte du slot A ; 0 = rien a changer */
+    if (virt) return 0;                                   /* (carte virtuelle de Pulse : 16 Mbit, acceptee telle quelle) */
+#ifdef GEKKO
+    s32 mb = 0, sec = 0;
+    u64 t0 = gettime();
+    s32 r;
+    while ((r = CARD_ProbeEx(CARD_SLOTA, &mb, &sec)) == CARD_ERROR_BUSY && ticks_to_millisecs(gettime() - t0) < 500) ;
+    return r == CARD_ERROR_READY && mb > 32 ? (int)mb : 0;   /* (507 blocs et moins : deja acceptee) */
+#else
+    return 0;
+#endif
+}
+/* applique les corrections du jeu au main.dol (avant le lancement) ; rend le nombre d'endroits changes */
+static int na_game_fix(const nat_info_t *in, u8 *dol, int card_virtual) {
+    int done = 0;
+    const char *why = NULL;
+    na_fix_msg[0] = 0;
+    for (unsigned i = 0; i < sizeof(na_fixes) / sizeof(na_fixes[0]); i++) {
+        const na_fix_t *f = &na_fixes[i];
+        if (f->len != in->dol_len || !na_id_in(f->ids, in->id)) continue;
+        u32 fo = 0; int sec = -1;
+        for (int k = 0; k < in->nsec; k++) if (f->addr >= in->sec_addr[k] && f->addr - in->sec_addr[k] < in->sec_sz[k]) { sec = k; fo = in->sec_off[k] + (f->addr - in->sec_addr[k]); }
+        if (sec < 0 || fo + 4 > in->dol_len) continue;
+        if (f->kind == NF_CARD) {                         /* (carte virtuelle de Pulse : 251 blocs, deja acceptee) */
+            int sz = na_card_size_now(card_virtual);
+            if (sz <= 0) continue;
+            u32 v = (u32)(sz < 32 ? 64 : sz);
+            dol[fo] = (u8)(v >> 8); dol[fo + 1] = (u8)v;
+        } else if (f->kind == NF_LANG) na_wbe32(dol + fo, 0x38600000u | ((u32)na_lang_now() & 0xFFFF));
+        else na_wbe32(dol + fo, f->val);
+        done++; why = f->why;
+    }
+    if (done) snprintf(na_fix_msg, sizeof(na_fix_msg), "%s (%d endroit%s)", why, done, done > 1 ? "s" : "");
+    return done;
+}
+
 static int na_rm_patch(const nat_info_t *in, u8 *dol) {
     (void)in;
     static const u8 flat[7] = { 0, 0, 21, 22, 21, 0, 0 };
@@ -2051,6 +2230,7 @@ static const char *nat_boot(int k) {
         if (nat_vmode == 1 && !VIDEO_HaveComponentCable()) { nat_vmode = 0; snprintf(na_rm_msg, sizeof(na_rm_msg), "480p : pas de c\xC3\xA2" "ble composante / num\xC3\xA9rique"); }
 #endif
         na_rm_patch(&in, buf + o_dol);                      /* v122 : mode video, flou, largeur, position de l'image */
+        na_game_fix(&in, buf + o_dol, card_on);             /* v135 : corrections par jeu (table) */
     }
     if (res && (skipped || in.di_lost)) {                /* un acces oublie = vrai lecteur interroge : on ne lance pas */
         free(buf);
@@ -2102,6 +2282,7 @@ static const char *nat_boot(int k) {
         fprintf(f, "Format : %s\n", gl[k].ciso ? ".ciso (blocs absents lus comme des zeros)" : ".iso / .gcm");
         fprintf(f, "Autre disque : %s\n", na_disc2_msg[0] ? na_disc2_msg : "aucun");
         fprintf(f, "16:9 force : %s\n", !nat_ws ? "non (reglage du jeu)" : na_ws_msg[0] ? na_ws_msg : "non");
+        fprintf(f, "Corrections du jeu : %s\n", na_fix_msg[0] ? na_fix_msg : "aucune pour ce jeu");
         fprintf(f, "Cheats : %s\n", na_gk_msg[0] ? na_gk_msg : "aucun");
         static const char *const vmn[4] = { "comme le jeu", "480p force", "PAL 60 Hz", "240p" };
         fprintf(f, "Video : %s%s%s ; %s\n", vmn[nat_vmode & 3], nat_deflick ? ", sans flou" : "", nat_wide ? ", image large" : "", na_rm_msg[0] ? na_rm_msg : "rien a changer");
