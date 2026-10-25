@@ -576,32 +576,106 @@ u32 SI_IsChanBusy(s32 c) { (void)c; return 0; }
 void SI_TransferCommands(void) {}
 u32 SI_GetResponse(s32 c, void *b) { (void)c; if (b) memset(b, 0, 8); return 0; }
 
-/* ======================= carte memoire : absente ======================= */
+/* ======================= carte memoire ======================= */
+/* absente, sauf PCSIM_CARTE=1 (v145) : cartes en memoire dans les slots A et B (251 blocs de 8 Ko),
+   le slot A avec 2 sauvegardes d'exemple (pour essayer les copies vraie carte <-> carte virtuelle) */
+#define SC_MAXF 32
+typedef struct { int used; card_direntry e; u8 *data; u32 len; } sc_file;
+static sc_file sc_f[2][SC_MAXF];
+static int sc_on = -1;
+static char sc_gc[5] = "GMP3", sc_co[3] = "GC";
+static void sc_init(void) {
+    if (sc_on >= 0) return;
+    sc_on = getenv("PCSIM_CARTE") != NULL;
+    if (!sc_on) return;
+    static const char *const ex[2][3] = { { "GALE", "01", "SuperSmashBros0110290334" }, { "GZLE", "01", "gczelda" } };
+    for (int k = 0; k < 2; k++) {
+        sc_file *f = &sc_f[0][k];
+        f->used = 1; f->len = 8192 * (k + 1); f->data = calloc(1, f->len);
+        memcpy(f->e.gamecode, ex[k][0], 4); memcpy(f->e.company, ex[k][1], 2);
+        snprintf((char *)f->e.filename, CARD_FILENAMELEN, "%s", ex[k][2]);
+        f->e.length = (u16)(f->len / 8192); f->e.icon_addr = 0xFFFFFFFFu; f->e.comment_addr = 0;
+        snprintf((char *)f->data, 32, k ? "Zelda Wind Waker" : "Super Smash Bros. Melee");
+        snprintf((char *)f->data + 32, 32, k ? "Fichier 1" : "Donnees de jeu");
+    }
+}
+static int sc_used_blocks(int c) { int n = 0; for (int i = 0; i < SC_MAXF; i++) if (sc_f[c][i].used) n += sc_f[c][i].len / 8192; return n; }
+static int sc_ok(s32 c) { sc_init(); return sc_on && c >= 0 && c < 2; }
 s32 CARD_Init(const char *g, const char *c) { (void)g; (void)c; return CARD_ERROR_READY; }
-s32 CARD_Mount(s32 chn, void *w, cardcallback cb) { (void)chn; (void)w; (void)cb; return CARD_ERROR_NOCARD; }
+s32 CARD_Mount(s32 chn, void *w, cardcallback cb) { (void)w; (void)cb; return sc_ok(chn) ? CARD_ERROR_READY : CARD_ERROR_NOCARD; }
 s32 CARD_Unmount(s32 chn) { (void)chn; return CARD_ERROR_READY; }
-s32 CARD_Probe(s32 chn) { (void)chn; return 0; }
-s32 CARD_ProbeEx(s32 chn, s32 *m, s32 *s) { (void)chn; if (m) *m = 0; if (s) *s = 0; return CARD_ERROR_NOCARD; }
-s32 CARD_Open(s32 chn, const char *n, card_file *f) { (void)chn; (void)n; (void)f; return CARD_ERROR_NOCARD; }
-s32 CARD_OpenEntry(s32 chn, card_dir *e, card_file *f) { (void)chn; (void)e; (void)f; return CARD_ERROR_NOCARD; }
+s32 CARD_Probe(s32 chn) { return sc_ok(chn); }
+s32 CARD_ProbeEx(s32 chn, s32 *m, s32 *s) { if (m) *m = sc_ok(chn) ? 16 : 0; if (s) *s = 8192; return sc_ok(chn) ? CARD_ERROR_READY : CARD_ERROR_NOCARD; }
+s32 CARD_Open(s32 chn, const char *n, card_file *f) { (void)chn; (void)n; (void)f; return CARD_ERROR_NOFILE; }
+s32 CARD_OpenEntry(s32 chn, card_dir *e, card_file *f) {
+    if (!sc_ok(chn) || e->fileno >= SC_MAXF || !sc_f[chn][e->fileno].used) return CARD_ERROR_NOFILE;
+    f->chn = chn; f->filenum = (s32)e->fileno; f->len = (s32)sc_f[chn][e->fileno].len; f->offset = 0;
+    return CARD_ERROR_READY;
+}
 s32 CARD_Close(card_file *f) { (void)f; return CARD_ERROR_READY; }
-s32 CARD_Create(s32 chn, const char *n, u32 s, card_file *f) { (void)chn; (void)n; (void)s; (void)f; return CARD_ERROR_NOCARD; }
-s32 CARD_Read(card_file *f, void *b, u32 l, u32 o) { (void)f; (void)b; (void)l; (void)o; return CARD_ERROR_NOCARD; }
-s32 CARD_Write(card_file *f, void *b, u32 l, u32 o) { (void)f; (void)b; (void)l; (void)o; return CARD_ERROR_NOCARD; }
-s32 CARD_Delete(s32 chn, const char *n) { (void)chn; (void)n; return CARD_ERROR_NOCARD; }
-s32 CARD_DeleteEntry(s32 chn, card_dir *d) { (void)chn; (void)d; return CARD_ERROR_NOCARD; }
-s32 CARD_FindFirst(s32 chn, card_dir *d, bool all) { (void)chn; (void)d; (void)all; return CARD_ERROR_NOFILE; }
-s32 CARD_FindNext(card_dir *d) { (void)d; return CARD_ERROR_NOFILE; }
+s32 CARD_Create(s32 chn, const char *n, u32 s, card_file *f) {
+    if (!sc_ok(chn)) return CARD_ERROR_NOCARD;
+    int slot = -1;
+    for (int i = 0; i < SC_MAXF; i++) {
+        sc_file *x = &sc_f[chn][i];
+        if (x->used && !memcmp(x->e.gamecode, sc_gc, 4) && !memcmp(x->e.company, sc_co, 2) && !strncmp((const char *)x->e.filename, n, CARD_FILENAMELEN)) return CARD_ERROR_EXIST;
+        if (!x->used && slot < 0) slot = i;
+    }
+    if (slot < 0) return CARD_ERROR_NOENT;
+    u32 bl = (s + 8191) / 8192;
+    if (sc_used_blocks(chn) + (int)bl > 251) return CARD_ERROR_INSSPACE;
+    sc_file *x = &sc_f[chn][slot];
+    memset(x, 0, sizeof(*x));
+    x->used = 1; x->len = bl * 8192; x->data = calloc(1, x->len);
+    memcpy(x->e.gamecode, sc_gc, 4); memcpy(x->e.company, sc_co, 2);
+    snprintf((char *)x->e.filename, CARD_FILENAMELEN, "%s", n);
+    x->e.length = (u16)bl; x->e.icon_addr = 0xFFFFFFFFu; x->e.comment_addr = 0xFFFFFFFFu;
+    f->chn = chn; f->filenum = slot; f->len = (s32)x->len; f->offset = 0;
+    return CARD_ERROR_READY;
+}
+s32 CARD_Read(card_file *f, void *b, u32 l, u32 o) {
+    sc_file *x = &sc_f[f->chn & 1][f->filenum % SC_MAXF];
+    if (!sc_on || !x->used || o + l > x->len) return CARD_ERROR_IOERROR;
+    memcpy(b, x->data + o, l); return CARD_ERROR_READY;
+}
+s32 CARD_Write(card_file *f, void *b, u32 l, u32 o) {
+    sc_file *x = &sc_f[f->chn & 1][f->filenum % SC_MAXF];
+    if (!sc_on || !x->used || o + l > x->len) return CARD_ERROR_IOERROR;
+    memcpy(x->data + o, b, l); return CARD_ERROR_READY;
+}
+s32 CARD_Delete(s32 chn, const char *n) { (void)chn; (void)n; return CARD_ERROR_NOFILE; }
+s32 CARD_DeleteEntry(s32 chn, card_dir *d) {
+    if (!sc_ok(chn) || d->fileno >= SC_MAXF || !sc_f[chn][d->fileno].used) return CARD_ERROR_NOFILE;
+    free(sc_f[chn][d->fileno].data); memset(&sc_f[chn][d->fileno], 0, sizeof(sc_file)); return CARD_ERROR_READY;
+}
+static s32 sc_fill(s32 chn, u32 from, card_dir *d) {
+    for (u32 i = from; i < SC_MAXF; i++) {
+        sc_file *x = &sc_f[chn][i];
+        if (!x->used) continue;
+        d->chn = chn; d->fileno = i; d->filelen = x->len; d->permissions = 4;
+        memcpy(d->filename, x->e.filename, CARD_FILENAMELEN); memcpy(d->gamecode, x->e.gamecode, 4); memcpy(d->company, x->e.company, 2);
+        return CARD_ERROR_READY;
+    }
+    return CARD_ERROR_NOFILE;
+}
+s32 CARD_FindFirst(s32 chn, card_dir *d, bool all) { (void)all; if (!sc_ok(chn)) return CARD_ERROR_NOCARD; return sc_fill(chn, 0, d); }
+s32 CARD_FindNext(card_dir *d) { if (!sc_ok(d->chn)) return CARD_ERROR_NOFILE; return sc_fill(d->chn, d->fileno + 1, d); }
 s32 CARD_GetStatus(s32 chn, s32 n, card_stat *s) { (void)chn; (void)n; (void)s; return CARD_ERROR_NOCARD; }
 s32 CARD_SetStatus(s32 chn, s32 n, card_stat *s) { (void)chn; (void)n; (void)s; return CARD_ERROR_NOCARD; }
-s32 CARD_GetStatusEx(s32 chn, s32 n, card_direntry *e) { (void)chn; (void)n; (void)e; return CARD_ERROR_NOCARD; }
-s32 CARD_SetStatusEx(s32 chn, s32 n, card_direntry *e) { (void)chn; (void)n; (void)e; return CARD_ERROR_NOCARD; }
-s32 CARD_GetSectorSize(s32 chn, u32 *s) { (void)chn; if (s) *s = 8192; return CARD_ERROR_NOCARD; }
-s32 CARD_GetBlockCount(s32 chn, u32 *b) { (void)chn; if (b) *b = 0; return CARD_ERROR_NOCARD; }
-s32 CARD_GetFreeBlocks(s32 chn, u16 *f) { (void)chn; if (f) *f = 0; return CARD_ERROR_NOCARD; }
-s32 CARD_GetMemSize(s32 chn, u16 *m) { (void)chn; if (m) *m = 0; return CARD_ERROR_NOCARD; }
-s32 CARD_SetCompany(const char *c) { (void)c; return 0; }
-s32 CARD_SetGamecode(const char *g) { (void)g; return 0; }
+s32 CARD_GetStatusEx(s32 chn, s32 n, card_direntry *e) { if (!sc_ok(chn) || n < 0 || n >= SC_MAXF || !sc_f[chn][n].used) return CARD_ERROR_NOFILE; *e = sc_f[chn][n].e; return CARD_ERROR_READY; }
+s32 CARD_SetStatusEx(s32 chn, s32 n, card_direntry *e) {
+    if (!sc_ok(chn) || n < 0 || n >= SC_MAXF || !sc_f[chn][n].used) return CARD_ERROR_NOFILE;
+    card_direntry *d = &sc_f[chn][n].e;
+    d->banner_fmt = e->banner_fmt; d->last_modified = e->last_modified; d->icon_addr = e->icon_addr; d->icon_fmt = e->icon_fmt;
+    d->icon_speed = e->icon_speed; d->permission = e->permission; d->copy_times = e->copy_times; d->comment_addr = e->comment_addr;
+    return CARD_ERROR_READY;
+}
+s32 CARD_GetSectorSize(s32 chn, u32 *s) { if (s) *s = 8192; return sc_ok(chn) ? CARD_ERROR_READY : CARD_ERROR_NOCARD; }
+s32 CARD_GetBlockCount(s32 chn, u32 *b) { if (b) *b = sc_ok(chn) ? 251 : 0; return sc_ok(chn) ? CARD_ERROR_READY : CARD_ERROR_NOCARD; }
+s32 CARD_GetFreeBlocks(s32 chn, u16 *f) { if (f) *f = sc_ok(chn) ? (u16)(251 - sc_used_blocks(chn)) : 0; return sc_ok(chn) ? CARD_ERROR_READY : CARD_ERROR_NOCARD; }
+s32 CARD_GetMemSize(s32 chn, u16 *m) { if (m) *m = sc_ok(chn) ? 16 : 0; return sc_ok(chn) ? CARD_ERROR_READY : CARD_ERROR_NOCARD; }
+s32 CARD_SetCompany(const char *c) { snprintf(sc_co, sizeof(sc_co), "%.2s", c); return 0; }
+s32 CARD_SetGamecode(const char *g) { snprintf(sc_gc, sizeof(sc_gc), "%.4s", g); return 0; }
 s32 CARD_Format(s32 chn) { (void)chn; return CARD_ERROR_NOCARD; }
 s32 CARD_GetSerialNo(s32 chn, u32 *a, u32 *b) { (void)chn; if (a) *a = 0; if (b) *b = 0; return CARD_ERROR_NOCARD; }
 /* EXI : rien de branche (lanceur maison et pilotes bas niveau : pas sur PC) */

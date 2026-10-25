@@ -21,6 +21,22 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v145 — sauvegardes, compatibilité partagée, jeux en réseau local
+- Cartes (`tools.c`, `extras73.c`) : 3e choix « Virtuelle » dans la vue Cartes de l'onglet JEUX (L / R, stick C) ;
+  menus : copier vers la carte virtuelle, tout copier (carte virtuelle, autre carte, SD:/gci). `vc_load_active`
+  formate une carte virtuelle vierge. Simulateur : `PCSIM_CARTE=1` = cartes mémoire en mémoire (scénario `cartes-copie.txt`).
+- Compatibilité (`compat.c`, `repair.c`) : `compat.txt` a un 7e champ (réglage gardé par la réparation). Fil `cpp_thread` :
+  `/s/get?p=gc-mp3/compat.txt` de chaque console du Salon (toutes les 10 min au plus, onglet JEUX). Jeu jamais essayé
+  ici et qui marche ailleurs avec un réglage : essai de ce réglage au 1er lancement (`rep_t.base = 0`), gardé s'il
+  marche, sinon réparation normale. Tri `jeux_tri = etat`. Scénario `compat-salon.txt` (avec `tools/pulse-serveur.py`,
+  `PULSE_IP=127.0.0.2 PULSE_ANNONCE=127.0.0.1`).
+- Résident v19 (`natres_hdr_t` 0x1F0, anneau du journal : 1 entrée) : `bba_n` (le jeu choisit le BBA, canal 0
+  périphérique 2), `exi_wait` / `exi_sync`. `exi_busy` : un autre périphérique choisi sur le canal de la carte SD, ou un
+  transfert en cours -> la lecture en fond attend (au plus 1 s de suite), une petite lecture passe en fond, le journal
+  attend. Banc : `EMU_EXIBUSY=2000`.
+- `na_bba_quiet` : BBA remis à zéro, sans interruptions, avant le saut vers le jeu (Pulse et disque de la console).
+  `na_lan_game` (GKY, GM4, GTE, GPO, GPS) : refusés en « Jouer par le réseau ».
+
 ## Nouveautés v144 — accents et serveurs absents
 - `source/main.c` : 64 lignes de textes passées par un double décodage UTF-8 -> Latin-1 (commit b45433f, v134) remises
   en UTF-8 (page d'accueil du web, erreurs TLS / connexion, téléchargements, favoris par défaut, et le test

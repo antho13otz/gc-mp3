@@ -35,6 +35,7 @@ python3 -c "import struct,sys; t=open('selfdol.text','rb').read(); t+=b'\0'*(-le
 python3 $T/mkfat.py 32 game.iso sd.img 1 selfdol.dol 2097152 >/dev/null     # (v65 : + la carte memoire virtuelle)
 rm -rf out; mkdir -p out; NATIF_SELF=selfdol.dol NATIF_DUMP=boot.bin ./h2 game.iso sd.img 10 >/dev/null
 python3 $T/emu_e2e.py boot.bin sd.img game.iso | tail -1
+EMU_EXIBUSY=2000 python3 $T/emu_e2e.py boot.bin sd.img game.iso | tail -1   # (v145 : bus EXI pris par le jeu : lectures remises a plus tard)
 EMU_SISTALE=1 python3 $T/emu_e2e.py boot.bin sd.img game.iso | tail -1     # (v99 : ports vides a 0 : A+Z+START doit marcher quand meme)
 python3 $T/emu_e2e.py boot.bin sd.img game.iso exc | tail -1     # (v60 : plantage du jeu -> journal + redemarrage)
 python3 $T/emu_e2e.py boot.bin sd.img game.iso exec | tail -1    # (v95 : OSExec : code de redemarrage et programme suivant branches au faux lecteur)

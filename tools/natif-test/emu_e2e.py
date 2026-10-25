@@ -14,6 +14,7 @@ BOOT, SDIMG, ISO = sys.argv[1], sys.argv[2], sys.argv[3]
 disk = bytearray(open(SDIMG, 'rb').read())
 iso = open(ISO, 'rb').read()
 CHAN, DEV, SDHC = 2, 0, 1
+EXIBUSY = [int(os.environ.get('EMU_EXIBUSY', '0'))]   # v145 : bus EXI pris par le jeu pendant N lectures du registre
 
 def crc16(b):                                          # v94 : CRC des blocs (CCITT), verifie a 32 MHz
     c = 0
@@ -172,6 +173,8 @@ def io_read(uc, off, size, data):
     if 0xC00 <= off < 0xC20: return ai[(off - 0xC00) // 4]
     if off >= 0x800:
         o = off - 0x800; ch, reg = o // 0x14, (o % 0x14) // 4
+        if EXIBUSY[0] > 0 and ch == CHAN and reg == 0 and not (exi[ch][0] & (0x80 << DEV)):   # v145 : le jeu se sert du bus (autre peripherique choisi)
+            EXIBUSY[0] -= 1; return exi[ch][0] | 0x100
         return exi[ch][reg] if ch < 3 else 0
     if off < 0x28: return di_real[off // 4]
     return 0
@@ -508,7 +511,7 @@ if card.writes:                                    # v54 : journal du jeu ecrit 
     jok &= u(0x130) > 0 and u(0x134) == 0x80003100 and 0x80003100 < u(0x138) < 0x80004000
     jok &= u(0x108) == 18 and u(0x10C) == 3 and u(0x110) == 5 and u(0x118) == 0x52 and u(0x114) == 2
     print('lectures en fond : %d (%d morceaux)' % (u(0xD0), u(0xD4)))
-    jok &= u(0xD0) == 2 and u(0xD4) == 132               # (v88 : 0x2000 + 0x40000 octets, morceaux de 2 Ko)
+    jok &= u(0xD0) == 2 + u(0x1E8) and u(0xD4) == 132 + u(0x1E8)   # (v88 : 0x2000 + 0x40000 octets, morceaux de 2 Ko ; v145 : + lectures passees en fond, bus EXI pris)
     jok &= (u(0xB0) == 0x102 and u(0xB4) == 0x80001234 and u(0xB8) == 0x80005678 and u(0x98) == 0) if EXC else (u(0x98) == 1 and u(0xB0) == 0)
     if EXC: print('plantage note : %X a %08X LR %08X' % (u(0xB0), u(0xB4), u(0xB8)))
     print(('OK   ' if jok else 'FAUX ') + 'journal du jeu : %d ecritures, secteur %X, commandes=%d' % (len(card.writes), js, struct.unpack_from('>I', jb, 0x4C)[0]))
@@ -525,5 +528,10 @@ if NET:                                                   # v143 : tout l'ISO es
     good = pk > 0 and (rt >> 24) == 1 and (rt & 0xFFFFFF) >= 1 and bba.reqs > 0 and bba.arp_ok and bba.dropped == 0
     print(('OK   ' if good else 'FAUX ') + 'Pulse par le reseau : %d demandes, %d paquets recus, %d refaites (1 perdue expres), etat %d, reponse ARP %s, trames perdues %d' % (
         bba.reqs, pk, rt & 0xFFFFFF, rt >> 24, bba.arp_ok, bba.dropped))
+    ok &= good
+if os.environ.get('EMU_EXIBUSY'):                   # v145 : lectures remises a plus tard, sans rien abimer
+    w, y = rd(0x1E4), rd(0x1E8)
+    good = w + y > 0 and EXIBUSY[0] == 0
+    print(('OK   ' if good else 'FAUX ') + 'bus EXI partage : %d lectures remises a plus tard, %d passees en fond (reste %d)' % (w, y, EXIBUSY[0]))
     ok &= good
 print('TOUT OK' if ok else 'ECHEC')

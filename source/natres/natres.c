@@ -78,6 +78,22 @@ void *memcpy(void *d, const void *s, unsigned long n) { u8 *p = (u8 *)d; const u
 /* ---------- bus EXI ---------- */
 static volatile u32 *exi;
 static u32 freq;
+/* v145 : bus EXI partage. Avec un adaptateur SD dans un port de carte (SD Gecko : canal 0 ou 1), le jeu se sert
+   du meme canal pour d'autres peripheriques : horloge / SRAM (canal 0, peripherique 1), Broadband Adapter
+   (canal 0, peripherique 2 : jeux en reseau local), vraie carte memoire. S'il a choisi un autre peripherique
+   (CS) ou si un transfert est en cours, parler a la carte SD couperait sa commande au milieu : on attend.
+   (Swiss passe par EXILock du jeu ; ici on regarde l'etat du canal lui-meme.) */
+static int exi_busy(void) {
+    if (!exi) return 0;
+    return ((exi[0] & 0x380u) & ~(0x80u << H.dev)) || (exi[3] & 1u);
+}
+static u32 eb_tb = 0, eb_n = 0;
+static int exi_defer(void) {                             /* 1 = attendre (au plus 1 s de suite : un bus jamais rendu -> comme avant) */
+    if (H.net || !exi_busy()) { eb_n = 0; return 0; }
+    u32 t; __asm__ volatile("mftb %0" : "=r"(t));
+    if (!eb_n++) eb_tb = t;
+    return t - eb_tb < 40500000u && eb_n < 100000u;      /* (et un nombre de fois : horloge arretee dans le banc d'essai) */
+}
 
 static int ex_wait(void) {
     for (u32 i = 0; i < 1000000u; i++) if (!(exi[3] & 1)) return 0;
@@ -452,6 +468,7 @@ static void nr_log_flush(void) {
     H.flush_tb = tbl();
     vi_snap();
     if (!H.log_sec || !di_ready) return;
+    if (exi_defer()) return;                             /* v145 : (le jeu se sert du bus : ecrit la prochaine fois) */
     const u8 *p = (const u8 *)&H;
     for (u32 i = 0; i < sizeof(natres_hdr_t); i++) logbuf[i] = p[i];
     for (u32 k = 0; k < NATRES_LOGN; k++) {                     /* le plus ancien d'abord */
@@ -1329,6 +1346,7 @@ static u32 exi_load(u32 a) {
 static void exi_store(u32 a, u32 val) {
     trap_guard();
     if (a - 0xCC006000u < 0x40u) { di_store(a, val); return; }   /* v133 */
+    if (a == 0xCC006800u && (val & 0x200u)) H.bba_n++;   /* v145 : le jeu parle au Broadband Adapter (jeu en reseau) */
     vcard_t *v = vc_of(a);
     if (!v) { *HW6(a) = val; return; }
     volatile u32 *real = HW6(a & ~3u) - (((a & ~3u) - 0xCC006800u) % 0x14u) / 4u;
@@ -1558,6 +1576,7 @@ static u32 rd_vi = 0, dp_vi = 0;
 static int rd_pump(void) {
     u32 t0 = tbl(), bud = wake_tick() ? RD_BUDGET * 2u : RD_BUDGET;   /* (v133 : sans le lecteur, moins souvent : plus par fois) */
     int err = 0, k = 0;
+    if (rd_left && exi_defer()) { H.exi_wait++; rd_vi = H.vi_count; return 0; }   /* v145 : bus EXI pris par le jeu : plus tard */
     if (rd_left) do {                                    /* v88 : des morceaux de 2 Ko tant qu'on reste sous ~1,5 ms (v122 : rien si deja tout lu) */
         u32 n = rd_left > RD_CHUNK ? RD_CHUNK : rd_left;
         H.n_chunks++;
@@ -2046,7 +2065,9 @@ static void di_exec(void) {
         if ((di[2] & 0xC0) == 0x40 && len > 0x20) len = 0x20;
         H.last_off = off; H.last_len = len;
         int slow = (H.opt & NRO_SPEED) != 0;             /* v122 : vitesse d'un vrai lecteur : toutes les lectures en fond */
-        if ((len > RD_CHUNK || (slow && len)) && di_orig && !exec_on) {   /* v61 : grosse lecture : en fond */
+        int busy = len && exi_defer();         /* v145 : bus EXI pris par le jeu (SD Gecko + BBA...) : en fond, attendre */
+        if (busy) H.exi_sync++;
+        if ((len > RD_CHUNK || (slow && len) || busy) && di_orig && !exec_on) {   /* v61 : grosse lecture : en fond */
             if (slow) {                                  /* (deplacement de la tete si loin, puis ~3 Mo/s) */
                 u32 d = off > sp_next ? off - sp_next : sp_next - off;
                 sp_until = tbl() + (d > 0x100000u ? TB_SEC / 1000u * 60u : TB_SEC / 1000u * 1u) + (len / 3000u) * (TB_SEC / 1000u);

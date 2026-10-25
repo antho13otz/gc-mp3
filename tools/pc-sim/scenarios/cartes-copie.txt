@@ -1,0 +1,69 @@
+# v145 : vue Cartes de l'onglet JEUX : slot A, slot B, carte virtuelle (L / R) ; copies "Tout copier"
+# (lancer avec PCSIM_CARTE=1 : cartes simulees, slot A avec 2 sauvegardes)
+wait 2s
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+wait 800ms
+press UP
+wait 300ms
+press A
+wait 1500ms
+stick c 100 0 200ms
+wait 800ms
+stick c 100 0 200ms
+wait 1200ms
+shot c01-slot-a
+press DOWN
+wait 200ms
+press A
+wait 400ms
+shot c02-menu
+press DOWN
+wait 150ms
+press DOWN
+wait 150ms
+press DOWN
+wait 150ms
+press A
+wait 1500ms
+shot c03-tout-vers-virtuelle
+press R
+wait 1000ms
+shot c04-slot-b
+press R
+wait 1200ms
+shot c05-virtuelle
+press DOWN
+wait 150ms
+press DOWN
+wait 150ms
+press DOWN
+wait 150ms
+press A
+wait 400ms
+shot c06-menu-virtuelle
+press DOWN
+wait 150ms
+press DOWN
+wait 150ms
+press DOWN
+wait 150ms
+press DOWN
+wait 150ms
+press A
+wait 1500ms
+shot c07-tout-vers-slot-b
+press L
+wait 1200ms
+shot c08-slot-b-rempli
+stick c 100 0 200ms
+wait 800ms
+shot c09-stick-c
+quit

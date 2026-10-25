@@ -45,6 +45,10 @@ static int mc_pop = 0, mc_psel = 0, mc_pconfirm = 0;
 static int mc_gci = 0;                          /* 1 = liste des .gci de la SD (restaurer) */
 static char (*mc_gfiles)[96] = NULL;
 static int mc_gn = 0, mc_gsel = 0;
+static int vc_hub = 0;                          /* v145 : carte virtuelle ouverte depuis l'onglet JEUX (3e choix de la vue Cartes) */
+static void vc_open(void);
+static const char *vc_load_active(void);
+static const char *vc_import(const u8 *g, long len);
 
 static u16 mc_be16(const u8 *p) { return (u16)(p[0] << 8 | p[1]); }
 static u32 mc_be32(const u8 *p) { return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3]; }
@@ -274,26 +278,72 @@ static void mc_safe_name(const u8 *de, char *out, int cap) {
     snprintf(out, cap, "%c%c%c%c%c%c-%s", de[0], de[1], de[2], de[3], de[4], de[5], clean);
     for (int i = 0; out[i]; i++) if (!isalnum((u8)out[i]) && out[i] != '-' && out[i] != '_' && out[i] != '.') out[i] = '_';
 }
-static void mc_to_sd(int i) {
-    tl_status("Copie sur la carte SD...");
-    long n = 0;
-    u8 *g = mc_export(i, &n);
-    gl_busy[0] = 0;
-    if (!g) { tl_note("Lecture de la sauvegarde impossible"); return; }
+/* v145 : .gci en memoire -> SD:/gci (nom libre) ; rend 1 si ecrit (nom dans out) */
+static int mc_gci_write(const u8 *g, long n, char *out, int cap) {
     mkdir(MC_DIR, 0777);
     char base[80], p[NAME_LEN];
-    mc_safe_name(mc[i].de, base, sizeof(base));
+    mc_safe_name(g, base, sizeof(base));
     snprintf(p, sizeof(p), "%s/%s.gci", MC_DIR, base);
     struct stat st;
     for (int k = 2; stat(p, &st) == 0 && k < 100; k++) snprintf(p, sizeof(p), "%s/%s_%d.gci", MC_DIR, base, k);
     FILE *f = fopen(p, "wb");
     int ok = f && fwrite(g, 1, n, f) == (size_t)n;
     if (f && fclose(f) != 0) ok = 0;
+    if (!ok) { remove(p); return 0; }
+    if (out) snprintf(out, cap, "%s", base_of(p));
+    return 1;
+}
+static void mc_to_sd(int i) {
+    tl_status("Copie sur la carte SD...");
+    long n = 0;
+    u8 *g = mc_export(i, &n);
+    gl_busy[0] = 0;
+    if (!g) { tl_note("Lecture de la sauvegarde impossible"); return; }
+    char nm[96];
+    int ok = mc_gci_write(g, n, nm, sizeof(nm));
     free(g);
-    if (!ok) { remove(p); tl_note("\xC3\x89" "criture sur la carte SD impossible"); return; }
+    if (!ok) { tl_note("\xC3\x89" "criture sur la carte SD impossible"); return; }
+    snprintf(tl_msg, sizeof(tl_msg), "Copi\xC3\xA9" "e : SD:/gci/%s", nm); tl_msg_t = now_ms();
+}
+/* v145 : bilan d'une copie de plusieurs sauvegardes */
+static void mc_bilan(int ok, int dup, int bad, const char *err) {
     char m[200];
-    snprintf(m, sizeof(m), "Copi\xC3\xA9" "e : SD:/gci/%s", base_of(p));
+    int l = snprintf(m, sizeof(m), ok == 1 ? "1 sauvegarde copi\xC3\xA9" "e" : "%d sauvegardes copi\xC3\xA9" "es", ok);
+    if (dup) l += snprintf(m + l, sizeof(m) - l, ", %d d\xC3\xA9j\xC3\xA0 l\xC3\xA0", dup);
+    if (bad && l < (int)sizeof(m)) snprintf(m + l, sizeof(m) - l, ", %d impossible%s (%s)", bad, bad > 1 ? "s" : "", err ? err : "?");
     snprintf(tl_msg, sizeof(tl_msg), "%s", m); tl_msg_t = now_ms();
+}
+/* v145 : une sauvegarde (ou toutes) de la vraie carte -> carte virtuelle de Pulse */
+static void mc_to_vc(int i, int all) {
+    const char *e = vc_load_active();
+    if (e) { tl_note(e); return; }
+    int ok = 0, dup = 0, bad = 0;
+    const char *err = NULL;
+    for (int k = all ? 0 : i; k < (all ? mc_n : i + 1); k++) {
+        tl_status("Copie sur la carte virtuelle...");
+        long n = 0;
+        u8 *g = mc_export(k, &n);
+        const char *r = g ? vc_import(g, n) : "lecture impossible";
+        free(g);
+        if (!r) ok++;
+        else if (strstr(r, "existe d")) dup++;
+        else { bad++; if (!err) err = r; }
+    }
+    gl_busy[0] = 0;
+    if (!all) { tl_note(ok ? "Sauvegarde copi\xC3\xA9" "e sur la carte virtuelle de Pulse" : dup ? "Cette sauvegarde est d\xC3\xA9j\xC3\xA0 sur la carte virtuelle" : err); return; }
+    mc_bilan(ok, dup, bad, err);
+}
+static void mc_all_to_sd(void) {
+    int ok = 0, bad = 0;
+    for (int k = 0; k < mc_n; k++) {
+        tl_status("Copie sur la carte SD...");
+        long n = 0;
+        u8 *g = mc_export(k, &n);
+        if (g && mc_gci_write(g, n, NULL, 0)) ok++; else bad++;
+        free(g);
+    }
+    gl_busy[0] = 0;
+    mc_bilan(ok, 0, bad, "\xC3\xA9" "criture");
 }
 static void mc_to_other(int i) {
     tl_status("Copie vers l'autre carte...");
@@ -364,8 +414,9 @@ static void mc_open(void) {
     tl_screen = TL_CARDS; mc_gci = 0; mc_pop = 0; mc_sel = 0; mc_top = 0;
     mc_mount(mc_slot);
 }
-enum { MCP_SD, MCP_OTHER, MCP_DEL, MCP_COUNT };
-static const char *const mcp_names[MCP_COUNT] = { "Copier sur la carte SD (.gci)", "Copier vers l'autre carte", "Supprimer" };
+enum { MCP_SD, MCP_OTHER, MCP_VC, MCP_ALLVC, MCP_ALLSD, MCP_DEL, MCP_COUNT };
+static const char *const mcp_names[MCP_COUNT] = { "Copier sur la carte SD (.gci)", "Copier vers l'autre carte", "Copier vers la carte virtuelle (Pulse)",
+    "Tout copier vers la carte virtuelle", "Tout copier sur la carte SD (.gci)", "Supprimer" };
 static int gm_hub_input(void);
 static void mc_input(u32 down, u32 nav, int fire) {
     if (!mc_pop && !mc_gci && gm_hub_input()) return;     /* v84 : stick C : autre vue */
@@ -379,6 +430,8 @@ static void mc_input(u32 down, u32 nav, int fire) {
             mc_pop = 0; mc_pconfirm = 0;
             if (mc_psel == MCP_SD) mc_to_sd(i);
             else if (mc_psel == MCP_OTHER) mc_to_other(i);
+            else if (mc_psel == MCP_VC || mc_psel == MCP_ALLVC) mc_to_vc(i, mc_psel == MCP_ALLVC);
+            else if (mc_psel == MCP_ALLSD) mc_all_to_sd();
             else mc_delete(i);
         }
         if (down & (PAD_BUTTON_B | PAD_BUTTON_X)) { mc_pop = 0; mc_pconfirm = 0; }
@@ -393,7 +446,12 @@ static void mc_input(u32 down, u32 nav, int fire) {
         if (down & PAD_BUTTON_B) mc_gci = 0;
         return;
     }
-    if (down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) { mc_slot = 1 - mc_slot; mc_sel = 0; mc_top = 0; mc_mount(mc_slot); return; }
+    if (down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) {              /* slot A, slot B, v145 : carte virtuelle (onglet JEUX) */
+        int to = (mc_slot + ((down & PAD_TRIGGER_R) ? 1 : 2)) % 3;
+        if (to == 2 && tab != TAB_GAMES) to = 1 - mc_slot;
+        if (to == 2) { mc_unmount(); vc_open(); vc_hub = 1; return; }
+        mc_slot = to; mc_sel = 0; mc_top = 0; mc_mount(mc_slot); return;
+    }
     if (fire && (nav & PAD_BUTTON_DOWN) && mc_sel < mc_n) mc_sel++;
     if (fire && (nav & PAD_BUTTON_UP) && mc_sel > 0) mc_sel--;
     if (fire && (nav & PAD_BUTTON_RIGHT)) { mc_sel += 7; if (mc_sel > mc_n) mc_sel = mc_n; }
@@ -715,12 +773,12 @@ static void ap_input(u32 down, u32 nav, int fire) {
    Jeux GameCube, Mes applis, Cartes memoire : une barre en haut de chaque vue montre ou l'on
    est, et le stick C (gauche / droite) passe a la vue voisine, sans revenir a l'onglet
    (avant : B, croix, A). Les listes sont gardees : le passage est immediat. */
-static int gm_hub_cur(void) { return tl_screen == TL_APPS ? 1 : tl_screen == TL_CARDS ? 2 : (tl_screen == TL_NONE && gl_on) ? 0 : -1; }
+static int gm_hub_cur(void) { return tl_screen == TL_APPS ? 1 : tl_screen == TL_CARDS || (tl_screen == TL_VCARD && vc_hub) ? 2 : (tl_screen == TL_NONE && gl_on) ? 0 : -1; }
 static void gm_hub_go(int k) {
     int cur = gm_hub_cur();
     if (cur < 0 || k == cur) return;
     if (cur == 0) { gl_on = 0; if (gl_list_dirty) { gl_list_dirty = 0; gl_list_save(); } }
-    tl_screen = TL_NONE;
+    tl_screen = TL_NONE; vc_hub = 0;
     gm_sel = GM_COUNT + k;                                 /* (B : retour sur la bonne barre de l'onglet) */
     if (k == 0) gclib_open(); else if (k == 1) ap_open(); else mc_open();
 }
@@ -941,16 +999,20 @@ static void tl_confirm(const char *q, const char *name) {
 #define TL_SEL1 RGBA(116, 46, 236, 255)
 #define TL_SEL2 RGBA(74, 22, 172, 255)
 
+/* slots A / B (v145 : + carte virtuelle de Pulse, dans l'onglet JEUX) : L / R */
+static void mc_pills(int cur) {
+    int n = tab == TAB_GAMES ? 3 : 2;
+    for (int s = 0; s < n; s++) {
+        f32 px = (n == 3 ? 312 : 400) + s * 92;
+        if (s == cur) gx_rrect_fill(px, 52, 86, 22, 6, TL_SEL1, TL_SEL2);
+        gx_text_c(F_SMALL, px + 43, 68, s == 2 ? "Virtuelle" : s ? "Slot B" : "Slot A", s == cur ? RGBA(255, 255, 255, 255) : RGBA(170, 155, 225, 255));
+    }
+}
 static void draw_cards(void) {
     char buf[160], fv[160];
     if (tab == TAB_GAMES) { tl_frame("", NULL); gm_hub_bar(58, 54); }   /* v84 */
     else tl_frame("Cartes m\xC3\xA9moire", NULL);
-    /* slots A / B */
-    for (int s = 0; s < 2; s++) {
-        f32 px = 400 + s * 92;
-        if (s == mc_slot) gx_rrect_fill(px, 52, 86, 22, 6, TL_SEL1, TL_SEL2);
-        gx_text_c(F_SMALL, px + 43, 68, s ? "Slot B" : "Slot A", s == mc_slot ? RGBA(255, 255, 255, 255) : RGBA(170, 155, 225, 255));
-    }
+    mc_pills(mc_slot);
     if (mc_gci) {
         gx_text1(F_SMALL, 58, 98, "Remettre une sauvegarde de SD:/gci sur la carte :", RGBA(200, 190, 240, 255));
         const int vis = 11;
@@ -1010,7 +1072,7 @@ static void draw_cards(void) {
         gx_text_r(F_SMALL, 578, ry + 32, buf, RGBA(130, 115, 185, 255));
     }
     if (mc_pop) {
-        const f32 w = 300, h = 46 + MCP_COUNT * 24, x = 290, y = 170;
+        const f32 w = 370, h = 46 + MCP_COUNT * 24, x = 230, y = 150;
         gx_rrect_fill(x, y, w, h, 10, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
         draw_panel(x, y, w, h);
         for (int a = 0; a < MCP_COUNT; a++) {

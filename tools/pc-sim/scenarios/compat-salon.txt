@@ -1,0 +1,29 @@
+# v145 : compatibilite partagee (Salon) : verdicts d'une autre console (tools/pulse-serveur.py), tri par etat
+wait 2s
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+wait 800ms
+press UP
+wait 300ms
+press A
+wait 14s
+shot s01-jeux-tries
+press RIGHT
+wait 600ms
+shot s02-2e
+press A
+wait 1500ms
+shot s03-fiche
+press A
+wait 1200ms
+shot s04-lancement
+press B
+wait 500ms
+quit
