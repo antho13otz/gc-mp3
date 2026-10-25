@@ -14,11 +14,10 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v124)
-- **Navigateur** : quand une page ne s'ouvre pas, la raison s'affiche en grand sur la page (avant : une petite
-  ligne en bas, cachée par le décor).
-- (v123) Pulse : modes vidéo, sans flou, image large, manettes, vitesse du lecteur, carte au slot B, carte par
-  région, .nkit.iso (voir docs/HISTORIQUE.md).
+## Nouveautés de la version actuelle (v125)
+- **Navigateur** : les pages s'ouvrent de nouveau sur la console (« Connexion coupée » / « Le serveur ne répond
+  pas » juste après la demande). La fenêtre TCP revient à 16 paquets (44 depuis la v117).
+- (v124) Navigateur : quand une page ne s'ouvre pas, la raison s'affiche en grand sur la page.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
