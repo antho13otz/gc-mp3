@@ -910,7 +910,8 @@ static void nat_journal_convert(void) {
             u32 dz = be32(d + 0x198);
             if (be32(d + 0x194) || (dz >> 8 & 0xFF)) fprintf(f, "Changements de disque : %u (disque en cours : %u)\n", (unsigned)(dz >> 8 & 0xFF), (unsigned)(dz & 1) + 1);
             if (be32(d + 0x19C)) fprintf(f, "Cheats appliques par Pulse : %u images\n", (unsigned)(dz >> 16));
-            if (H[1] >= 16 && be32(d + 0x1B8)) fprintf(f, "Manettes / lecteur (options %08X) : %u lectures des manettes modifiees\n", (unsigned)be32(d + 0x1B8), (unsigned)be32(d + 0x1BC));
+            if (H[1] >= 16 && be32(d + 0x1B8)) fprintf(f, "Manettes / lecteur (options %08X) : %u lectures des manettes modifiees\n", (unsigned)be32(d + 0x1B8), (unsigned)(be32(d + 0x1BC) & 0xFFFFu));
+            if (H[1] >= 16 && (be32(d + 0x1BC) >> 16)) fprintf(f, "Corrections du jeu dans les fichiers lus : %u octets changes au passage\n", (unsigned)(be32(d + 0x1BC) >> 16));   /* v136 */
             fprintf(f, "\n");
         }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
@@ -1343,7 +1344,7 @@ static int na_rm_ok(const u8 *p) {
    reconnu a son code (6 lettres, ou 4) ET a la taille exacte de son main.dol, l'adresse est convertie en
    position dans le fichier par les sections du .dol (une adresse hors des sections est ignoree). */
 enum { NF_WORD, NF_LANG, NF_CARD };                       /* mot ; "li r3, langue" ; taille de carte acceptee (demi-mot) */
-typedef struct { const char *ids; u32 len, addr, val; u8 kind; const char *why; } na_fix_t;
+typedef struct { const char *ids; u32 len, addr, val; u8 kind; const char *why; u32 orig; } na_fix_t;   /* orig : instruction attendue (0 = pas verifiee) */
 static const na_fix_t na_fixes[] = {
     /* course entre une copie vers l'ARAM et sa fin (lecture instantanee) : une instruction retiree */
     { "GDREAF", 1881216, 0x8000AF34, 0x60000000, NF_WORD, "transfert ARAM" },
@@ -1378,6 +1379,12 @@ static const na_fix_t na_fixes[] = {
     { "GR8D69 GR8E69 GR8F69 GR8P69", 260192, 0x80500EB4, 0x387D2720, NF_WORD, "image" },
     { "GRZJ13",  206240, 0x80500EB4, 0x387D2800, NF_WORD, "image" },
     { "GRZJ13",  260864, 0x80500EB4, 0x387D2800, NF_WORD, "image" },
+    /* v136 : Mario Superstar Baseball (USA) : la video d'intro (HVQM4) attend de la place dans son tampon avec une
+       boucle qui ne relit jamais les pointeurs (lus avant la boucle) : si le tampon est plein en arrivant, elle ne
+       finit jamais (journaux des builds 487 et 489 : PC 800AF558-800AF570). Le saut de fin de boucle repart
+       0x30 octets plus haut (800AF540) : les pointeurs sont relus a chaque tour, c'est une vraie attente.
+       Taille du main.dol : 0 = toute taille, mais seulement si l'instruction d'origine est la bonne. */
+    { "GYQE01", 0, 0x800AF570, 0x4080FFD0, NF_WORD, "attente de la video d'intro", 0x4080FFE8 },
     /* langue forcee (celle de la console, ou celle du reglage du jeu) */
     { "GMSP01", 4083072, 0x80289B4C, 0, NF_LANG, "langue" },
     { "GMSP01", 4083072, 0x80289B9C, 0, NF_LANG, "langue" },
@@ -1444,10 +1451,11 @@ static int na_game_fix(const nat_info_t *in, u8 *dol, int card_virtual) {
     na_fix_msg[0] = 0;
     for (unsigned i = 0; i < sizeof(na_fixes) / sizeof(na_fixes[0]); i++) {
         const na_fix_t *f = &na_fixes[i];
-        if (f->len != in->dol_len || !na_id_in(f->ids, in->id)) continue;
+        if ((f->len ? f->len != in->dol_len : !f->orig) || !na_id_in(f->ids, in->id)) continue;   /* (v136 : taille 0 = toute taille, instruction verifiee) */
         u32 fo = 0; int sec = -1;
         for (int k = 0; k < in->nsec; k++) if (f->addr >= in->sec_addr[k] && f->addr - in->sec_addr[k] < in->sec_sz[k]) { sec = k; fo = in->sec_off[k] + (f->addr - in->sec_addr[k]); }
         if (sec < 0 || fo + 4 > in->dol_len) continue;
+        if (f->orig && be32(dol + fo) != f->orig) continue;   /* (v136 : pas l'instruction attendue : on ne touche a rien) */
         if (f->kind == NF_CARD) {                         /* (carte virtuelle de Pulse : 251 blocs, deja acceptee) */
             int sz = na_card_size_now(card_virtual);
             if (sz <= 0) continue;
@@ -1461,6 +1469,93 @@ static int na_game_fix(const nat_info_t *in, u8 *dol, int card_virtual) {
     return done;
 }
 
+
+/* ---------- v136 : les autres executables du disque (.dol, .elf, et ceux des .tgc) ----------
+   Pulse ne reecrit pas l'ISO : GC Station cherche ces fichiers dans la table des fichiers du disque, et pour
+   chaque correction dont la taille est celle d'un de ces fichiers, calcule la position dans l'ISO de l'endroit
+   a changer (sections du .dol, segments du .elf) ; le resident le change au moment ou le jeu lit ce morceau
+   (fx_apply). switcher.prs est compresse : pas possible ainsi (aucune correction de la table ne le vise). */
+#define NA_FXMAX 48
+static u32 na_fx[NA_FXMAX][3];                            /* {position dans l'ISO, valeur, taille} */
+static int na_fx_n = 0;
+static char na_fx_msg[160] = "";
+static int na_map_dol(const u8 *h, u32 addr, u32 *fo) {  /* adresse -> position dans le fichier .dol (en-tete de 0x100) */
+    for (int i = 0; i < 18; i++) {
+        u32 off = be32(h + i * 4), at = be32(h + 0x48 + i * 4), sz = be32(h + 0x90 + i * 4);
+        if (sz && addr >= at && addr - at < sz) { *fo = off + (addr - at); return 1; }
+    }
+    return 0;
+}
+static int na_map_elf(gdisc_t *g, u32 base, u32 addr, u32 *fo) {   /* ... dans un .elf (segments PT_LOAD) */
+    u8 e[0x34], ph[32];
+    if (!gd_read(g, base, e, sizeof(e)) || memcmp(e, "\x7F" "ELF", 4) || e[5] != 2) return 0;   /* (gros-boutiste) */
+    u32 phoff = be32(e + 0x1C), phn = (u32)(e[0x2C] << 8 | e[0x2D]), phs = (u32)(e[0x2A] << 8 | e[0x2B]);
+    if (phs < 32 || phn > 32) return 0;
+    for (u32 i = 0; i < phn; i++) {
+        if (!gd_read(g, base + phoff + i * phs, ph, sizeof(ph))) return 0;
+        u32 type = be32(ph), off = be32(ph + 4), va = be32(ph + 8), fsz = be32(ph + 16);
+        if (type == 1 && fsz && addr >= va && addr - va < fsz) { *fo = off + (addr - va); return 1; }
+    }
+    return 0;
+}
+/* un fichier candidat : base = position dans l'ISO, len = sa taille, elf = 1 si .elf */
+static void na_fx_file(gdisc_t *g, const nat_info_t *in, u32 base, u32 len, int elf, int card_virtual, const char *name) {
+    if (base == in->dol_off) return;                      /* (le main.dol : deja corrige avant le lancement) */
+    u8 h[0x100];
+    int hok = !elf && gd_read(g, base, h, sizeof(h));
+    for (unsigned i = 0; i < sizeof(na_fixes) / sizeof(na_fixes[0]); i++) {
+        const na_fix_t *f = &na_fixes[i];
+        if (!f->len || f->len != len || !na_id_in(f->ids, in->id) || na_fx_n >= NA_FXMAX) continue;
+        u32 fo = 0;
+        if (!(elf ? na_map_elf(g, base, f->addr, &fo) : hok && na_map_dol(h, f->addr, &fo)) || fo + 4 > len) continue;
+        u8 cur[4];
+        if (f->orig && (!gd_read(g, base + fo, cur, 4) || be32(cur) != f->orig)) continue;
+        u32 v = f->val, sz = 4;
+        if (f->kind == NF_CARD) { int mb = na_card_size_now(card_virtual); if (mb <= 0) continue; v = (u32)(mb < 32 ? 64 : mb); sz = 2; }
+        else if (f->kind == NF_LANG) v = 0x38600000u | ((u32)na_lang_now() & 0xFFFF);
+        na_fx[na_fx_n][0] = base + fo; na_fx[na_fx_n][1] = v; na_fx[na_fx_n][2] = sz; na_fx_n++;
+        snprintf(na_fx_msg, sizeof(na_fx_msg), "%s : %s", name, f->why);
+    }
+}
+static int na_name_end(const char *n, const char *ext) { size_t a = strlen(n), b = strlen(ext); return a > b && !strcasecmp(n + a - b, ext); }
+/* parcourt une table des fichiers (FST) ; delta : decalage des positions (fichiers d'un .tgc), depth : .tgc dans un .tgc */
+static void na_fx_fst(gdisc_t *g, const nat_info_t *in, const u8 *fst, u32 fsz, s32 delta, int card_virtual, int depth) {
+    if (fsz < 12) return;
+    u32 n = be32(fst + 8);
+    if (n < 1 || n * 12 > fsz) return;
+    const char *names = (const char *)fst + n * 12;
+    for (u32 i = 1; i < n; i++) {
+        const u8 *e = fst + i * 12;
+        if (e[0]) continue;                               /* (dossier) */
+        u32 no = be32(e) & 0xFFFFFFu, off = be32(e + 4) + (u32)delta, len = be32(e + 8);
+        if ((const u8 *)names + no >= fst + fsz) continue;
+        const char *nm = names + no;
+        if (na_name_end(nm, ".dol")) na_fx_file(g, in, off, len, 0, card_virtual, nm);
+        else if (na_name_end(nm, ".elf")) na_fx_file(g, in, off, len, 1, card_virtual, nm);
+        else if (na_name_end(nm, ".tgc") && depth == 0) {   /* .tgc : son default.dol et ses propres fichiers */
+            u8 t[0x40];
+            if (!gd_read(g, off, t, sizeof(t)) || be32(t) != 0xAE0F38A2u) continue;
+            u32 dol_s = be32(t + 0x1C), dol_l = be32(t + 0x20), fst_s = be32(t + 0x10), fst_l = be32(t + 0x14), user = be32(t + 0x24), guser = be32(t + 0x34);
+            if (dol_l) na_fx_file(g, in, off + dol_s, dol_l, 0, card_virtual, nm);
+            if (fst_l && fst_l < 0x40000) {
+                u8 *tf = (u8 *)malloc(fst_l);
+                if (tf && gd_read(g, off + fst_s, tf, fst_l)) na_fx_fst(g, in, tf, fst_l, (s32)(off + user) - (s32)guser, card_virtual, 1);
+                free(tf);
+            }
+        }
+    }
+}
+static int na_fx_scan(const char *path, const nat_info_t *in, const u8 *fst, int card_virtual) {
+    na_fx_n = 0; na_fx_msg[0] = 0;
+    int any = 0;                                          /* (rien a chercher si aucune correction ne vise ce jeu) */
+    for (unsigned i = 0; i < sizeof(na_fixes) / sizeof(na_fixes[0]) && !any; i++) any = na_id_in(na_fixes[i].ids, in->id) && na_fixes[i].len && na_fixes[i].len != in->dol_len;
+    if (!any) return 0;
+    gdisc_t g;
+    if (!gd_open(&g, path)) return 0;
+    na_fx_fst(&g, in, fst, in->fst_sz, 0, card_virtual, 0);
+    gd_close(&g);
+    return na_fx_n;
+}
 static int na_rm_patch(const nat_info_t *in, u8 *dol) {
     (void)in;
     static const u8 flat[7] = { 0, 0, 21, 22, 21, 0, 0 };
@@ -2208,14 +2303,24 @@ static const char *nat_boot(int k) {
             u32 at = be32(r + offsetof(natres_hdr_t, tramp_at)), ceil = na_ceil(r);
             na_ws_msg[0] = 0;
             if (nat_ws) at = na_ws_patch(&in, buf + o_dol, r, at, ceil);
-            if (gk > 0 && na_gk_n > 0) {
-                u32 need = 4 + (u32)na_gk_n * 4;
+            int ngk = gk > 0 ? na_gk_n : 0;
+            if (ngk > 0 || na_fx_n > 0) {                 /* v136 : {cheats} puis {"FIXT", n, corrections dans les fichiers lus} */
+                u32 need = 4 + (u32)ngk * 4 + (na_fx_n ? 8 + (u32)na_fx_n * 12 : 0);
                 if (at + need + 64 * 4 <= ceil) {
-                    na_wbe32(r + (at - NATRES_AT), (u32)na_gk_n);
-                    for (int i = 0; i < na_gk_n; i++) na_wbe32(r + (at - NATRES_AT) + 4 + i * 4, na_gk[i]);
+                    u8 *q = r + (at - NATRES_AT);
+                    na_wbe32(q, (u32)ngk);
+                    for (int i = 0; i < ngk; i++) na_wbe32(q + 4 + i * 4, na_gk[i]);
+                    q += 4 + ngk * 4;
+                    if (na_fx_n) {
+                        na_wbe32(q, 0x46495854u); na_wbe32(q + 4, (u32)na_fx_n);
+                        for (int i = 0; i < na_fx_n; i++) for (int j = 0; j < 3; j++) na_wbe32(q + 8 + i * 12 + j * 4, na_fx[i][j]);
+                    }
                     na_wbe32(r + offsetof(natres_hdr_t, chts), at);
                     at = (at + need + 31) & ~31u;
-                } else snprintf(na_gk_msg, sizeof(na_gk_msg), "pas assez de place dans le r\xC3\xA9sident");
+                } else {
+                    if (ngk) snprintf(na_gk_msg, sizeof(na_gk_msg), "pas assez de place dans le r\xC3\xA9sident");
+                    if (na_fx_n) { snprintf(na_fx_msg, sizeof(na_fx_msg), "pas assez de place dans le r\xC3\xA9sident"); na_fx_n = 0; }
+                }
             }
             na_wbe32(r + offsetof(natres_hdr_t, tramp_at), at);
         }
@@ -2231,6 +2336,7 @@ static const char *nat_boot(int k) {
 #endif
         na_rm_patch(&in, buf + o_dol);                      /* v122 : mode video, flou, largeur, position de l'image */
         na_game_fix(&in, buf + o_dol, card_on);             /* v135 : corrections par jeu (table) */
+        na_fx_scan(gl[k].path, &in, buf + o_fst, card_on);   /* v136 : ... et dans les autres executables du disque */
     }
     if (res && (skipped || in.di_lost)) {                /* un acces oublie = vrai lecteur interroge : on ne lance pas */
         free(buf);
@@ -2283,6 +2389,7 @@ static const char *nat_boot(int k) {
         fprintf(f, "Autre disque : %s\n", na_disc2_msg[0] ? na_disc2_msg : "aucun");
         fprintf(f, "16:9 force : %s\n", !nat_ws ? "non (reglage du jeu)" : na_ws_msg[0] ? na_ws_msg : "non");
         fprintf(f, "Corrections du jeu : %s\n", na_fix_msg[0] ? na_fix_msg : "aucune pour ce jeu");
+        if (na_fx_msg[0]) fprintf(f, "Corrections dans les autres fichiers du disque : %d endroit(s) ; %s\n", na_fx_n, na_fx_msg);   /* v136 */
         fprintf(f, "Cheats : %s\n", na_gk_msg[0] ? na_gk_msg : "aucun");
         static const char *const vmn[4] = { "comme le jeu", "480p force", "PAL 60 Hz", "240p" };
         fprintf(f, "Video : %s%s%s ; %s\n", vmn[nat_vmode & 3], nat_deflick ? ", sans flou" : "", nat_wide ? ", image large" : "", na_rm_msg[0] ? na_rm_msg : "rien a changer");

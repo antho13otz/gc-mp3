@@ -288,9 +288,29 @@ static int iso_to_sd(u32 isec, u32 *sd) {
 
 static int nr_read1(void *dst, u32 off, u32 len);
 static int di_ready = 0;
+/* v136 : corrections par jeu dans les autres executables du disque (.dol, .elf, .tgc) : GC Station a calcule
+   la position dans l'ISO de chaque instruction a changer ; elle est changee quand le jeu lit cet endroit.
+   Table a la suite des cheats : {mots de cheats, mots..., "FIXT", n, n x {position, valeur, taille (1-4)}} */
+#define NATRES_FIXT 0x46495854u
+static void fx_apply(u8 *dst, u32 off, u32 len) {
+    if (!H.chts) return;
+    const u32 *w = (const u32 *)H.chts;
+    const u32 *f = w + 1 + w[0];
+    if (f[0] != NATRES_FIXT) return;
+    u32 n = f[1];
+    f += 2;
+    for (u32 i = 0; i < n; i++, f += 3) {
+        u32 iso = f[0], val = f[1], sz = f[2] & 7;
+        if (iso + sz <= off || iso >= off + len) continue;
+        for (u32 k = 0; k < sz; k++) {
+            u32 o = iso + k;
+            if (o >= off && o < off + len) { dst[o - off] = (u8)(val >> (8 * (sz - 1 - k))); H.si_fixes += 0x10000u; }
+        }
+    }
+}
 static int nr_read(void *dst, u32 off, u32 len) {    /* v54 : une erreur de la carte -> on la redemarre et on reessaie */
     for (int t = 0; t < 3; t++) {
-        if (nr_read1(dst, off, len) == 0) { if (t) H.nretry++; return 0; }
+        if (nr_read1(dst, off, len) == 0) { if (t) H.nretry++; fx_apply((u8 *)dst, off, len); return 0; }
         if (H.err == NR_ERANGE) break;
         H.nrderr++;
         if (x_fast && x_crcbad) x_fast_off = 1;           /* v94 : CRC faux a 32 MHz : retour a 16 MHz */
