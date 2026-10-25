@@ -14,10 +14,18 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v122)
-- **Cases à cocher lisibles** (onglets affichés, éléments du lecteur...) : case verte avec une coche quand
-  c'est activé, case vide et nom grisé sinon (avant : un petit point à peine visible sur la télé).
-- (v121) Pulse : .ciso, jeux à 2 disques, 16:9 forcé, cheats ; GC Loader ; jeux du réseau copiés puis lancés.
+## Nouveautés de la version actuelle (v123)
+Nouveaux réglages par jeu pour Pulse (fiche du jeu > Y) :
+- **Mode vidéo** : 480p forcé (câble composante / numérique), jeu PAL en 60 Hz, 240p.
+- **Sans flou** (anti-scintillement enlevé) et **image plus large** (704 points : moins de bords noirs).
+- **Manette** : stick C inversé (haut / bas, ou tout) ou échangé avec le stick, seuil des gâchettes L / R,
+  manettes lues 2 ou 4 fois plus souvent.
+- **Vitesse du lecteur** : « comme un vrai lecteur » pour les jeux qui plantent quand le disque répond trop vite.
+Et aussi :
+- **Carte mémoire virtuelle au slot B** (Réglages > Jeux : « Slots A et B », fichier `carte-B.raw`) et
+  **une carte par région** (`carte-A-EUR.raw`, `-USA`, `-JAP`).
+- **.nkit.iso** : lus par Pulse (ce qui dépasse la fin du fichier est lu comme des zéros).
+- (v122) Cases à cocher lisibles ; (v121) Pulse : .ciso, 2 disques, 16:9, cheats ; GC Loader ; jeux du réseau.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

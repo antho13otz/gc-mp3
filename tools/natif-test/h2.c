@@ -9,6 +9,7 @@ typedef uint8_t u8; typedef uint16_t u16; typedef uint32_t u32; typedef uint64_t
 #define NAME_LEN 256
 #define ATTRIBUTE_ALIGN(n) __attribute__((aligned(n)))
 static int nat_igr = 1, nat_card = 1;
+static char vc_keep[64] = "";                                 /* (v122 : jeux_cfg.c) */
 static int sd_virtual = 0, sd_slot = 0, sd_ok = 1, settings_dirty = 0;
 static u32 be32(const unsigned char *p){return (u32)p[0]<<24|p[1]<<16|p[2]<<8|p[3];}
 static void service_audio(void){}
@@ -35,7 +36,7 @@ static const unsigned gl_stub[1];
 static int ch_collect(const char *id, u32 *out, int cap) { (void)id; const char *p = getenv("NATIF_CHEATS"); FILE *f = p ? fopen(p, "r") : NULL; int n = 0; unsigned v; if (!f) return 0; while (n < cap && fscanf(f, "%x", &v) == 1) out[n++] = v; fclose(f); return n; }
 static FILE *img;
 static u32 first_clus;
-static int host_stat(const char *p, struct stat *st) { int r = stat(p, st); if (!r) st->st_ino = strstr(p, "disc2") ? 10000 : strstr(p, "journal-jeu") ? 20000 : strstr(p, "memoire-jeu") ? 60000 : strstr(p, "selfdol") ? 30000 : strstr(p, "carte-A") ? 40000 : first_clus; return r; }   /* (journal : un cluster libre de mkfat.py) */
+static int host_stat(const char *p, struct stat *st) { int r = stat(p, st); if (!r) st->st_ino = strstr(p, "disc2") ? 10000 : strstr(p, "carte-B") ? 55000 : strstr(p, "journal-jeu") ? 20000 : strstr(p, "memoire-jeu") ? 60000 : strstr(p, "selfdol") ? 30000 : strstr(p, "carte-A") ? 40000 : first_clus; return r; }   /* (journal : un cluster libre de mkfat.py) */
 #define stat(p, s) host_stat(p, s)
 #include "natif.c"
 #undef stat
@@ -50,6 +51,13 @@ int main(int c, char **v) {
         gl_n = 2;
     }
     nat_ws = getenv("NATIF_WS") != NULL;
+    if (getenv("NATIF_CARD")) nat_card = atoi(getenv("NATIF_CARD"));          /* v122 : 2 = slots A et B */
+    if (getenv("NATIF_VMODE")) nat_vmode = atoi(getenv("NATIF_VMODE"));
+    nat_wide = getenv("NATIF_WIDE") != NULL; nat_deflick = getenv("NATIF_DEFLICK") != NULL;
+    if (getenv("NATIF_CSTICK")) nat_cstick = atoi(getenv("NATIF_CSTICK"));
+    if (getenv("NATIF_TRIG")) nat_trig = atoi(getenv("NATIF_TRIG"));
+    if (getenv("NATIF_POLL")) nat_poll = atoi(getenv("NATIF_POLL"));
+    nat_speed = getenv("NATIF_SPEED") != NULL;
     nat_run(0);
     printf("%s\n", nat_boot(0));
     return 0;

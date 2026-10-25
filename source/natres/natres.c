@@ -27,6 +27,9 @@ static void exi_store(u32 a, u32 val);
 #define ext_tab ((natres_ext_t *)natres_hdr.ext)
 static natres_ext_t ret_tab[NATRES_RETMAX];              /* v64 : le .dol de GC Station sur la carte */
 static natres_ext_t card_tab[NATRES_CARDMAX];            /* v65 : le fichier de la carte memoire virtuelle */
+static natres_ext_t card2_tab[NATRES_CARDMAX];           /* v122 : celui du slot B */
+static u32 si_load(u32 a);
+static void si_store(u32 a, u32 val);
 static u8 secbuf[512] __attribute__((aligned(32)));
 static u32 sec_cached = 0xFFFFFFFFu;
 static u32 ext_last = 0;
@@ -52,6 +55,7 @@ natres_hdr_t natres_hdr = {
     0, 0, 0, 0,
     0, 0, { 0, 0, 0, 0 }, 0, 0,
     0, 0, 0, 0,
+    .card2_tab = (u32)card2_tab, .si_load = (u32)si_load, .si_store = (u32)si_store,   /* (v122) */
 };
 #define H natres_hdr
 
@@ -496,12 +500,12 @@ static void hot_reset(void) {
 static void hooks_check(void);
 static u32 alive_n = 0;
 static void x_kick(void);
-static u32 x_int = 0, x_csr = 0;
+static int vc_pending(void);
 static void sw_tick(void);
 static void alive_tick(void) {
     if ((++alive_n & 63) == 0) hooks_check();            /* (le jeu a pu remettre sa fonction : on se rebranche) */
     sw_tick();                                           /* v121 : changement de disque en attente ? */
-    if (x_int & ((x_csr & 1 ? 2u : 0) | (x_csr & 4 ? 8u : 0))) x_kick();   /* (carte : interruption pas encore donnee) */
+    if (vc_pending()) x_kick();                          /* (carte : interruption pas encore donnee) */
     /* (une ecriture sur la carte coupe le son quelques ms : toutes les 3 s la 1re minute, puis toutes les 20 s) */
     if (tbl() - H.flush_tb > (H.vi_count < 3000u ? TB_SEC * 3 : TB_SEC * 20)) nr_log_flush();
 }
@@ -883,175 +887,248 @@ static void st_mix_from(int from_dsp) {
 }
 static void st_mix(void) { st_mix_from(0); }
 
-/* ======================= v65 : carte memoire virtuelle (slot A) =======================
-   Les acces du jeu aux registres EXI du canal 0 (0xCC006800-13) sont branches ici (comme ceux
-   du lecteur). Peripherique 0 (la carte du slot A) : emule, le contenu est un fichier de la
-   carte SD (morceaux prepares par GC Station). Peripheriques 1 et 2 (horloge, SRAM, police
-   de la console, port serie 1) : transmis tels quels au vrai materiel. Protocole de la carte :
-   comme Dolphin (EXI_DeviceMemoryCard). Les "interruptions" de la carte (fin de transfert,
-   fin d'ecriture) sont donnees au jeu en appelant ses fonctions EXI, au rythme d'une vraie
-   fin de commande du lecteur (meme mecanisme que pour le faux lecteur). */
-#define EXI0_REAL ((volatile u32 *)0xCC006800u)
-static u32 x_mar = 0, x_len = 0, x_cr = 0, x_data = 0, x_disp = 0;
-static u32 c_pos = 0, c_cmd = 0, c_addr = 0, c_status = 0xC1u, c_irq_sw = 0;   /* (occupe | debloquee | prete) */
-static u8 c_prog[128];
-static u8 c_sec[512] __attribute__((aligned(32)));
-static u32 c_sec_no = 0xFFFFFFFFu;
-static int card_sd(u32 csec, u32 *sd) {
-    for (u32 k = 0; k < H.card_n && k < NATRES_CARDMAX; k++) {
-        const natres_ext_t *e = &card_tab[k];
+/* ======================= v65 : cartes memoire virtuelles (v122 : slots A et B) =======================
+   Les acces du jeu aux registres EXI des canaux 0 et 1 (0xCC006800-27) sont branches ici (comme ceux du
+   lecteur). Peripherique 0 du canal 0 = carte du slot A, du canal 1 = carte du slot B : emulees, le contenu
+   est un fichier de la carte SD (morceaux prepares par GC Station). Les autres peripheriques (horloge, SRAM,
+   police de la console, port serie 1) : transmis tels quels au vrai materiel. Protocole de la carte : comme
+   Dolphin (EXI_DeviceMemoryCard). Les "interruptions" de la carte (fin de transfert, fin d'ecriture) sont
+   donnees au jeu en appelant ses fonctions EXI, au rythme d'une vraie fin de commande du lecteur (meme
+   mecanisme que pour le faux lecteur). */
+typedef struct {
+    u32 mar, len, cr, data, irq, csr;                    /* registres vus par le jeu (irq : EXIINT 2, TCINT 8) */
+    u32 pos, cmd, addr, status, irq_sw, sec_no;
+    u8 prog[128];
+    const natres_ext_t *tab;
+    u32 n, size, id, on;
+} vcard_t;
+static vcard_t vc[2] = { { .status = 0xC1u, .sec_no = 0xFFFFFFFFu }, { .status = 0xC1u, .sec_no = 0xFFFFFFFFu } };   /* (occupe | debloquee | prete) */
+static u8 c_sec[2][512] __attribute__((aligned(32)));
+static u32 x_disp = 0;
+static void vc_setup(void) {                             /* (au 1er acces : tables donnees par GC Station) */
+    vc[0].tab = card_tab; vc[0].n = H.card_n; vc[0].size = H.card_size; vc[0].id = H.card_id; vc[0].on = (H.flags & NRF_CARD) && H.card_n;
+    vc[1].tab = card2_tab; vc[1].n = H.card2_n; vc[1].size = H.card2_size; vc[1].id = H.card2_id; vc[1].on = (H.flags & NRF_CARDB) && H.card2_n;
+}
+static int card_sd(vcard_t *v, u32 csec, u32 *sd) {
+    for (u32 k = 0; k < v->n && k < NATRES_CARDMAX; k++) {
+        const natres_ext_t *e = &v->tab[k];
         if (csec >= e->iso && csec - e->iso < e->cnt) { *sd = e->sd + (csec - e->iso); return 0; }
     }
     return -1;
 }
-static int card_load(u32 csec) {                         /* secteur de la carte dans c_sec */
-    if (csec == c_sec_no) return 0;
+static u8 *card_buf(vcard_t *v) { return c_sec[v == &vc[1]]; }
+static int card_load(vcard_t *v, u32 csec) {             /* secteur de la carte dans c_sec */
+    if (csec == v->sec_no) return 0;
     u32 sd;
-    c_sec_no = 0xFFFFFFFFu;
-    if (card_sd(csec, &sd) || nr_read_sd(sd, c_sec)) return -1;
-    c_sec_no = csec;
+    v->sec_no = 0xFFFFFFFFu;
+    if (card_sd(v, csec, &sd) || nr_read_sd(sd, card_buf(v))) return -1;
+    v->sec_no = csec;
     return 0;
 }
-static u8 card_rd1(u32 a) { return card_load(a >> 9) ? 0xFF : c_sec[a & 511]; }
-static void card_rd(u8 *dst, u32 a, u32 len) {
+static u8 card_rd1(vcard_t *v, u32 a) { return card_load(v, a >> 9) ? 0xFF : card_buf(v)[a & 511]; }
+static void card_rd(vcard_t *v, u8 *dst, u32 a, u32 len) {
     while (len) {
         u32 n = 512 - (a & 511);
         if (n > len) n = len;
-        if (card_load(a >> 9)) { for (u32 i = 0; i < n; i++) dst[i] = 0xFF; }
-        else for (u32 i = 0; i < n; i++) dst[i] = c_sec[(a & 511) + i];
+        if (card_load(v, a >> 9)) { for (u32 i = 0; i < n; i++) dst[i] = 0xFF; }
+        else for (u32 i = 0; i < n; i++) dst[i] = card_buf(v)[(a & 511) + i];
         dst += n; a += n; len -= n;
     }
 }
-static void card_wr(u32 a, const u8 *src, int fill, u32 len) {   /* src = NULL : remplir avec fill */
+static void card_wr(vcard_t *v, u32 a, const u8 *src, int fill, u32 len) {   /* src = NULL : remplir avec fill */
     while (len) {
         u32 n = 512 - (a & 511), sd;
         if (n > len) n = len;
-        if (n == 512) c_sec_no = a >> 9;                  /* (secteur entier : pas besoin de le relire) */
-        if (!card_load(a >> 9)) {
-            for (u32 i = 0; i < n; i++) c_sec[(a & 511) + i] = src ? src[i] : (u8)fill;
-            if (!card_sd(a >> 9, &sd) && !nr_write_sd(sd, c_sec)) H.card_writes++;
-            else c_sec_no = 0xFFFFFFFFu;
+        if (n == 512) v->sec_no = a >> 9;                 /* (secteur entier : pas besoin de le relire) */
+        if (!card_load(v, a >> 9)) {
+            u8 *b = card_buf(v);
+            for (u32 i = 0; i < n; i++) b[(a & 511) + i] = src ? src[i] : (u8)fill;
+            if (!card_sd(v, a >> 9, &sd) && !nr_write_sd(sd, b)) H.card_writes++;
+            else v->sec_no = 0xFFFFFFFFu;
         }
         if (src) src += n;
         a += n; len -= n;
     }
 }
 static void x_kick(void);
-static void card_done(void) {                            /* fin d'effacement / d'ecriture */
-    c_status |= 0x01; c_status &= ~0x80u;
-    if (c_irq_sw) { x_int |= 0x2; H.card_irqs++; x_kick(); }   /* EXIINT */
+static void card_done(vcard_t *v) {                      /* fin d'effacement / d'ecriture */
+    v->status |= 0x01; v->status &= ~0x80u;
+    if (v->irq_sw) { v->irq |= 0x2; H.card_irqs++; x_kick(); }   /* EXIINT */
 }
-static void card_cs(int on) {
-    if (on) { c_pos = 0; return; }
-    u32 mask = H.card_size - 1;
-    if (c_cmd == 0xF1 && c_pos > 2) { card_wr(c_addr & mask & ~0x1FFFu, 0, 0xFF, 0x2000); card_done(); }
-    else if (c_cmd == 0xF4 && c_pos > 2) { card_wr(0, 0, 0xFF, H.card_size); c_status &= ~0x80u; }
-    else if (c_cmd == 0xF2 && c_pos >= 5) {
-        u32 cnt = c_pos - 5, a = c_addr;
+static void card_cs(vcard_t *v, int on) {
+    if (on) { v->pos = 0; return; }
+    u32 mask = v->size - 1;
+    if (v->cmd == 0xF1 && v->pos > 2) { card_wr(v, v->addr & mask & ~0x1FFFu, 0, 0xFF, 0x2000); card_done(v); }
+    else if (v->cmd == 0xF4 && v->pos > 2) { card_wr(v, 0, 0, 0xFF, v->size); v->status &= ~0x80u; }
+    else if (v->cmd == 0xF2 && v->pos >= 5) {
+        u32 cnt = v->pos - 5, a = v->addr;
         u8 one;
         for (u32 i = 0; i < cnt; i++) {                  /* (octets envoyes en direct ; le DMA, lui, ecrit tout de suite) */
-            one = c_prog[i & 127];
-            card_wr(a & mask, &one, 0, 1);
+            one = v->prog[i & 127];
+            card_wr(v, a & mask, &one, 0, 1);
             a = (a & ~0x1FFu) | ((a + 1) & 0x1FFu);
         }
-        card_done();
+        card_done(v);
     }
 }
-static u8 card_byte(u8 b) {
-    if (c_pos == 0) {
-        c_cmd = b; b = 0xFF;
-        H.card_cmds++; H.card_last = c_cmd;
-        if (c_cmd == 0x89) { c_status &= ~0x18u; c_status |= 0x01; x_int &= ~0x2u; c_pos = 0; }
+static u8 card_byte(vcard_t *v, u8 b) {
+    if (v->pos == 0) {
+        v->cmd = b; b = 0xFF;
+        H.card_cmds++; H.card_last = v->cmd;
+        if (v->cmd == 0x89) { v->status &= ~0x18u; v->status |= 0x01; v->irq &= ~0x2u; v->pos = 0; }
     } else {
-        switch (c_cmd) {
-        case 0x00: b = c_pos == 1 ? 0x80 : (u8)(H.card_id >> (24 - (((c_pos - 2) & 3) * 8))); break;
+        switch (v->cmd) {
+        case 0x00: b = v->pos == 1 ? 0x80 : (u8)(v->id >> (24 - (((v->pos - 2) & 3) * 8))); break;
         case 0x52:
         case 0xF2:
-            if (c_pos == 1) c_addr = (u32)b << 17;
-            else if (c_pos == 2) c_addr |= (u32)b << 9;
-            else if (c_pos == 3) c_addr |= ((u32)b & 3) << 7;
-            else if (c_pos == 4) c_addr |= (u32)b & 0x7F;
-            if (c_cmd == 0xF2) { if (c_pos >= 5) c_prog[(c_pos - 5) & 0x7F] = b; b = 0xFF; break; }
-            if (c_pos == 1) b = 0xFF;
+            if (v->pos == 1) v->addr = (u32)b << 17;
+            else if (v->pos == 2) v->addr |= (u32)b << 9;
+            else if (v->pos == 3) v->addr |= ((u32)b & 3) << 7;
+            else if (v->pos == 4) v->addr |= (u32)b & 0x7F;
+            if (v->cmd == 0xF2) { if (v->pos >= 5) v->prog[(v->pos - 5) & 0x7F] = b; b = 0xFF; break; }
+            if (v->pos == 1) b = 0xFF;
             else {
-                b = card_rd1(c_addr & (H.card_size - 1));
-                if (c_pos >= 9) c_addr = (c_addr & ~0x1FFu) | ((c_addr + 1) & 0x1FFu);
+                b = card_rd1(v, v->addr & (v->size - 1));
+                if (v->pos >= 9) v->addr = (v->addr & ~0x1FFu) | ((v->addr + 1) & 0x1FFu);
             }
             break;
-        case 0x83: b = (u8)c_status; break;
-        case 0x85: b = c_pos == 1 ? 0xC2 : ((c_pos & 1) ? 0x21 : 0xC2); break;   /* (ID 0xC221 : carte Nintendo) */
-        case 0xF1: if (c_pos == 1) c_addr = (u32)b << 17; else if (c_pos == 2) c_addr |= (u32)b << 9; b = 0xFF; break;
-        case 0x81: if (c_pos == 1) c_irq_sw = b; b = 0xFF; break;
+        case 0x83: b = (u8)v->status; break;
+        case 0x85: b = v->pos == 1 ? 0xC2 : ((v->pos & 1) ? 0x21 : 0xC2); break;   /* (ID 0xC221 : carte Nintendo) */
+        case 0xF1: if (v->pos == 1) v->addr = (u32)b << 17; else if (v->pos == 2) v->addr |= (u32)b << 9; b = 0xFF; break;
+        case 0x81: if (v->pos == 1) v->irq_sw = b; b = 0xFF; break;
         default: b = 0xFF; break;
         }
     }
-    c_pos++;
+    v->pos++;
     return b;
 }
-static void x_xfer(void) {                               /* transfert vers la carte virtuelle */
-    u32 n = ((x_cr >> 4) & 3) + 1, rw = (x_cr >> 2) & 3;
-    if (!(x_cr & 2)) {                                   /* immediat (1 a 4 octets dans DATA) */
-        if (rw == 1) { for (u32 i = 0; i < n; i++) card_byte((u8)(x_data >> (24 - i * 8))); }
-        else if (rw == 0) { u32 v = 0; for (u32 i = 0; i < n; i++) v |= (u32)card_byte(0) << (24 - i * 8); x_data = v; }
+static void x_xfer(vcard_t *v) {                         /* transfert vers la carte virtuelle */
+    u32 n = ((v->cr >> 4) & 3) + 1, rw = (v->cr >> 2) & 3;
+    if (!(v->cr & 2)) {                                  /* immediat (1 a 4 octets dans DATA) */
+        if (rw == 1) { for (u32 i = 0; i < n; i++) card_byte(v, (u8)(v->data >> (24 - i * 8))); }
+        else if (rw == 0) { u32 x = 0; for (u32 i = 0; i < n; i++) x |= (u32)card_byte(v, 0) << (24 - i * 8); v->data = x; }
     } else {                                             /* DMA */
-        u32 dst = (x_mar & 0x01FFFFE0u) | 0x80000000u, len = x_len & 0x03FFFFE0u;
+        u32 dst = (v->mar & 0x01FFFFE0u) | 0x80000000u, len = v->len & 0x03FFFFE0u;
         if (len && dst + len <= 0x81800000u) {
-            if (rw == 0) { card_rd((u8 *)dst, c_addr & (H.card_size - 1), len); cache_flush(dst, len); }
-            else if (rw == 1) card_wr(c_addr & (H.card_size - 1), (const u8 *)dst, 0, len);
+            if (rw == 0) { card_rd(v, (u8 *)dst, v->addr & (v->size - 1), len); cache_flush(dst, len); }
+            else if (rw == 1) card_wr(v, v->addr & (v->size - 1), (const u8 *)dst, 0, len);
         }
     }
-    x_cr &= ~1u;
-    x_int |= 0x8;                                        /* TCINT */
-    if (x_csr & 0x4) x_kick();                            /* (le jeu attend une interruption) */
+    v->cr &= ~1u;
+    v->irq |= 0x8;                                       /* TCINT */
+    if (v->csr & 0x4) x_kick();                          /* (le jeu attend une interruption) */
 }
-/* v65 : a = adresse visee par le jeu (calculee pendant le jeu) : seul le canal 0 est virtuel */
+static int vc_pending(void) {                            /* une interruption de carte attend d'etre donnee au jeu */
+    int p = 0;
+    for (int c = 0; c < 2; c++) if (vc[c].on && (vc[c].irq & ((vc[c].csr & 1 ? 2u : 0) | (vc[c].csr & 4 ? 8u : 0)))) p = 1;
+    return p;
+}
+/* a = adresse visee par le jeu (calculee pendant le jeu) : canal 0 (slot A), canal 1 (slot B) si emules */
+static vcard_t *vc_of(u32 a) {
+    u32 o = a - 0xCC006800u;
+    if (o >= 0x28u) return 0;
+    if (!vc[0].tab) vc_setup();
+    vcard_t *v = &vc[o / 0x14u];
+    return v->on ? v : 0;
+}
 static u32 exi_load(u32 a) {
-    if (a - 0xCC006800u >= 0x14u || !(H.flags & NRF_CARD)) return *(volatile u32 *)a;   /* (canaux 1 et 2 : vrai materiel) */
-    u32 m = irq_off(), v;
-    switch ((a - 0xCC006800u) >> 2) {
+    vcard_t *v = vc_of(a);
+    if (!v) return *(volatile u32 *)a;                   /* (autres canaux, cartes reelles : vrai materiel) */
+    volatile u32 *real = (volatile u32 *)(a & ~3u) - (((a & ~3u) - 0xCC006800u) % 0x14u) / 4u;   /* (registres du canal) */
+    u32 m = irq_off(), x;
+    switch ((((a - 0xCC006800u) % 0x14u)) >> 2) {
     case 0: {
-        u32 r = EXI0_REAL[0];
-        v = (r & ~0x1F8Fu) | (x_csr & 0x0785u) | x_int | (r & 0x2u) | 0x1000u;   /* (masques et CS du jeu, carte presente) */
-        if (!(x_csr & 0x80)) v |= r & 0x8u;              /* (fin d'un vrai transfert : horloge, SRAM...) */
+        u32 r = real[0];
+        x = (r & ~0x1F8Fu) | (v->csr & 0x0785u) | v->irq | (r & 0x2u) | 0x1000u;   /* (masques et CS du jeu, carte presente) */
+        if (!(v->csr & 0x80)) x |= r & 0x8u;             /* (fin d'un vrai transfert : horloge, SRAM...) */
         break; }
-    case 1: v = (x_csr & 0x80) ? x_mar : EXI0_REAL[1]; break;
-    case 2: v = (x_csr & 0x80) ? x_len : EXI0_REAL[2]; break;
-    case 3: v = (x_csr & 0x80) ? x_cr : EXI0_REAL[3]; break;
-    case 4: v = (x_csr & 0x80) ? x_data : EXI0_REAL[4]; break;
-    default: v = 0; break;
+    case 1: x = (v->csr & 0x80) ? v->mar : real[1]; break;
+    case 2: x = (v->csr & 0x80) ? v->len : real[2]; break;
+    case 3: x = (v->csr & 0x80) ? v->cr : real[3]; break;
+    case 4: x = (v->csr & 0x80) ? v->data : real[4]; break;
+    default: x = 0; break;
     }
     irq_restore(m);
-    return v;
+    return x;
 }
 static void exi_store(u32 a, u32 val) {
-    if (a - 0xCC006800u >= 0x14u || !(H.flags & NRF_CARD)) { *(volatile u32 *)a = val; return; }
+    vcard_t *v = vc_of(a);
+    if (!v) { *(volatile u32 *)a = val; return; }
+    volatile u32 *real = (volatile u32 *)(a & ~3u) - (((a & ~3u) - 0xCC006800u) % 0x14u) / 4u;
     u32 m = irq_off();
-    switch ((a - 0xCC006800u) >> 2) {
+    switch ((((a - 0xCC006800u) % 0x14u)) >> 2) {
     case 0: {
-        u32 old = x_csr;
-        if (val & 0x2) x_int &= ~0x2u;
-        if (val & 0x8) x_int &= ~0x8u;
-        x_csr = val & 0x27F5u;                           /* (masques, CLK, CS, EXTINTMASK, ROMDIS) */
-        if ((old & 0x80) && !(val & 0x80)) card_cs(0);
-        if (!(old & 0x80) && (val & 0x80)) card_cs(1);
-        EXI0_REAL[0] = val & ~0x0C80u;                    /* (vrai materiel : jamais la carte du slot A, pas d'insertion) */
+        u32 old = v->csr;
+        if (val & 0x2) v->irq &= ~0x2u;
+        if (val & 0x8) v->irq &= ~0x8u;
+        v->csr = val & 0x27F5u;                          /* (masques, CLK, CS, EXTINTMASK, ROMDIS) */
+        if ((old & 0x80) && !(val & 0x80)) card_cs(v, 0);
+        if (!(old & 0x80) && (val & 0x80)) card_cs(v, 1);
+        real[0] = val & ~0x0C80u;                        /* (vrai materiel : jamais la vraie carte du slot, pas d'insertion) */
         break; }
-    case 1: x_mar = val; EXI0_REAL[1] = val; break;
-    case 2: x_len = val; EXI0_REAL[2] = val; break;
-    case 3: if (x_csr & 0x80) { x_cr = val; if (val & 1) x_xfer(); } else EXI0_REAL[3] = val; break;
-    case 4: x_data = val; EXI0_REAL[4] = val; break;
+    case 1: v->mar = val; real[1] = val; break;
+    case 2: v->len = val; real[2] = val; break;
+    case 3: if (v->csr & 0x80) { v->cr = val; if (val & 1) x_xfer(v); } else real[3] = val; break;
+    case 4: v->data = val; real[4] = val; break;
     }
     irq_restore(m);
 }
-/* les "interruptions" de la carte : fonctions EXI du jeu appelees depuis une interruption */
+/* les "interruptions" des cartes : fonctions EXI du jeu appelees depuis une interruption
+   (table du SDK : canal 0 = 9 EXI, 10 TC ; canal 1 = 12 EXI, 13 TC) */
 static void x_dispatch(u32 ctx) {
-    if (!(H.flags & NRF_CARD)) return;
     volatile u32 *t = OS_INT_TABLE;
-    for (int g = 0; g < 3 && (x_int & ((x_csr & 1 ? 2u : 0) | (x_csr & 4 ? 8u : 0))); g++) {
-        if ((x_int & 0x8) && (x_csr & 0x4) && t[10] >= 0x80003100u && t[10] < 0x817F0000u) ((void (*)(u32, u32))t[10])(10, ctx);   /* EXI_0_TC */
-        if ((x_int & 0x2) && (x_csr & 0x1) && t[9] >= 0x80003100u && t[9] < 0x817F0000u) ((void (*)(u32, u32))t[9])(9, ctx);       /* EXI_0_EXI */
-        x_disp++;
+    for (int c = 0; c < 2; c++) {
+        vcard_t *v = &vc[c];
+        if (!v->on) continue;
+        u32 itc = c ? 13 : 10, iex = c ? 12 : 9;
+        for (int g = 0; g < 3 && (v->irq & ((v->csr & 1 ? 2u : 0) | (v->csr & 4 ? 8u : 0))); g++) {
+            if ((v->irq & 0x8) && (v->csr & 0x4) && t[itc] >= 0x80003100u && t[itc] < 0x817F0000u) ((void (*)(u32, u32))t[itc])(itc, ctx);
+            if ((v->irq & 0x2) && (v->csr & 0x1) && t[iex] >= 0x80003100u && t[iex] < 0x817F0000u) ((void (*)(u32, u32))t[iex])(iex, ctx);
+            x_disp++;
+        }
     }
+}
+
+/* ======================= v122 : manettes (registres SI) =======================
+   Si un reglage de manette est choisi pour ce jeu, les acces du jeu aux registres des manettes
+   (0xCC006400-3F) passent par ici : stick C inverse / echange avec le stick, L et R "enfonces" des que la
+   gachette analogique depasse un seuil, manettes lues plus souvent (SIPOLL). Mode analogique 3 seulement
+   (celui des jeux) : pour les autres, rien n'est change. */
+static u32 si_h[4], si_l[4];                             /* dernieres valeurs brutes lues (manette, stick C / gachettes) */
+static u32 si_mode(int ch) { return (*(volatile u32 *)(0xCC006400u + ch * 12) >> 8) & 7; }
+static u32 si_inv(u32 v) { return v ? 256u - v > 255u ? 255u : 256u - v : 255u; }
+static u32 si_fix(int ch, int lo) {
+    u32 o = H.opt, h = si_h[ch], l = si_l[ch];
+    u32 sx = (h >> 8) & 0xFF, sy = h & 0xFF, cx = l >> 24, cy = (l >> 16) & 0xFF, tl = (l >> 8) & 0xFF, tr = l & 0xFF, thr = (o >> 8) & 0xFF;
+    if (o & 4u) { u32 t = sx; sx = cx; cx = t; t = sy; sy = cy; cy = t; }   /* (sticks echanges) */
+    if (o & 1u) cy = si_inv(cy);                         /* (stick C : haut / bas inverses) */
+    if (o & 2u) cx = si_inv(cx);                         /* (stick C : gauche / droite inverses) */
+    H.si_fixes++;
+    if (lo) return cx << 24 | cy << 16 | tl << 8 | tr;
+    u32 btn = h & 0xFFFF0000u;
+    if (thr && !(h & 0x80000000u)) { if (tl >= thr) btn |= 0x00400000u; if (tr >= thr) btn |= 0x00200000u; }   /* (L, R numeriques) */
+    return btn | sx << 8 | sy;
+}
+static u32 si_load(u32 a) {
+    u32 o = a - 0xCC006400u, v = *(volatile u32 *)a;
+    if (o < 0x30u && (H.opt & 0xFF07u)) {
+        int ch = (int)(o / 12u), r = (int)(o % 12u);
+        if ((r == 4 || r == 8) && si_mode(ch) == 3) {
+            if (r == 4) { si_h[ch] = v; si_l[ch] = *(volatile u32 *)(a + 4); return si_fix(ch, 0); }   /* (H : on lit aussi L) */
+            si_l[ch] = v; return si_fix(ch, 1);
+        }
+    }
+    return v;
+}
+static void si_store(u32 a, u32 val) {
+    u32 k = (H.opt >> 16) & 0xF;
+    if (a == 0xCC006430u && k > 1) {                     /* SIPOLL : Y lectures par image, X lignes entre deux */
+        u32 x = (val >> 16) & 0x3FF, y = (val >> 8) & 0xFF;
+        y *= k; if (y > 255) y = 255;
+        x /= k; if (x < 1) x = 1;
+        val = (val & 0xFC0000FFu) | x << 16 | y << 8;
+    }
+    *(volatile u32 *)a = val;
 }
 
 /* ======================= v121 : cheats (codes Gecko) =======================
@@ -1179,6 +1256,7 @@ static int exec_on = 0;                                    /* v95 : OSExec en co
 static int exec_a = 0;                                     /* v95 : OSExec, apploader recent : le jeu lit encore tout lui-meme */
 static void nx_read_done(u32 dst, u32 off, u32 len);
 static int rd_on = 0, di_game_pending = 0, x_kicked = 0;
+static u32 sp_until = 0, sp_next = 0, sp_kicks = 0;       /* v122 : vitesse d'un vrai lecteur (fin pas avant sp_until) */
 static void x_kick(void) {                               /* v65 : vraie fin de commande du lecteur -> fonctions EXI du jeu */
     if (x_kicked || rd_on || !(H.flags & NRF_REAL_IRQ)) return;   /* (une lecture en fond reveille deja souvent) */
     if (DI_REAL[7] & 1) return;
@@ -1203,7 +1281,7 @@ static void di_hook(u32 irq, u32 ctx) {
         r[0] = (r[0] & 0x2Au) | 0x54u;                   /* (vraie fin : acquittee ici, le jeu n'en sait rien) */
         u32 t0 = tbl();
         int err = 0, k = 0;
-        do {                                             /* v88 : des morceaux de 2 Ko tant qu'on reste sous ~1,5 ms */
+        if (rd_left) do {                                /* v88 : des morceaux de 2 Ko tant qu'on reste sous ~1,5 ms (v122 : rien si deja tout lu) */
             u32 n = rd_left > RD_CHUNK ? RD_CHUNK : rd_left;
             H.n_chunks++;
             if (nr_read((void *)rd_dst, rd_off, n)) { err = 1; nr_log_add(di[2], rd_off, n, 1 | (H.err & 0xFF) << 24); break; }
@@ -1214,6 +1292,7 @@ static void di_hook(u32 irq, u32 ctx) {
         if (err) { rd_on = 0; di[0] |= 0x04; di[7] &= ~1u; }   /* DEINT : erreur, le jeu redemande */
         else {
             if (rd_left) { di_real_kick(); x_dispatch(ctx); return; }   /* (morceau suivant a la prochaine fin) */
+            if ((H.opt & NRO_SPEED) && (int)(sp_until - tbl()) > 0 && ++sp_kicks < 20000u) { di_real_kick(); x_dispatch(ctx); return; }   /* v122 : un vrai lecteur n'aurait pas fini */
             rd_on = 0; di[0] |= 0x10; di[7] &= ~1u;      /* TCINT : lecture terminee */
             nx_read_done(rd_dst0, rd_off0, rd_len0);
         }
@@ -1459,7 +1538,13 @@ static void di_exec(void) {
         u32 off = (di[2] & 0xC0) == 0x40 ? 0 : di[3] << 2;   /* A8000040 : ID du disque (debut de l'ISO) */
         if ((di[2] & 0xC0) == 0x40 && len > 0x20) len = 0x20;
         H.last_off = off; H.last_len = len;
-        if (len > RD_CHUNK && di_orig && (H.flags & NRF_REAL_IRQ) && !exec_on) {   /* v61 : grosse lecture : en fond */
+        int slow = (H.opt & NRO_SPEED) != 0;             /* v122 : vitesse d'un vrai lecteur : toutes les lectures en fond */
+        if ((len > RD_CHUNK || (slow && len)) && di_orig && (H.flags & NRF_REAL_IRQ) && !exec_on) {   /* v61 : grosse lecture : en fond */
+            if (slow) {                                  /* (deplacement de la tete si loin, puis ~3 Mo/s) */
+                u32 d = off > sp_next ? off - sp_next : sp_next - off;
+                sp_until = tbl() + (d > 0x100000u ? TB_SEC / 1000u * 60u : TB_SEC / 1000u * 1u) + (len / 3000u) * (TB_SEC / 1000u);
+                sp_kicks = 0; sp_next = off + len;
+            }
             rd_dst = dst; rd_off = off; rd_left = len; rd_on = 1;
             rd_dst0 = dst; rd_off0 = off; rd_len0 = len;
             H.n_async++;

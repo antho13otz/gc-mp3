@@ -18,6 +18,8 @@
 #define NA_EXI0  0xCC006800u                 /* v65 : registres EXI du canal 0 (carte memoire slot A, horloge, SRAM) */
 #define NA_XREG  0x1000u                     /* (hit_reg : marque d'un registre EXI) */
 #define NA_XIDX  0x80u                       /* (hit_reg EXI : lwzx/stwx, registre connu pendant le jeu seulement) */
+#define NA_SREG  0x4000u                     /* v122 : (hit_reg) registre des manettes (SI, 0xCC006400) ; avec NA_XREG */
+#define NA_SIO   0xCC006400u
 #define NA_MAXHIT 400                        /* (1080 Avalanche : 83 acces au lecteur ; v65 : + EXI) */
 static void nat_qr_open(const char *id);      /* v51 : QR code vers le rapport (plus bas) */
 static const char *na_tramp_why(u32 ins);     /* v52 (plus bas) */
@@ -39,6 +41,7 @@ typedef struct {
     /* acces aux registres du lecteur */
     int nhit, ntotal, nexi;                   /* ntotal : tous ceux trouves, meme au-dela de la limite ; nexi : dont EXI */
     int di_lost, x_lost;                      /* v65 : au-dela de la limite (lecteur : jeu pas lance ; EXI : pas de carte virtuelle) */
+    int nsi, si_lost;                         /* v122 : acces aux manettes (SI) trouves, au-dela de la limite */
     u32 hit_addr[NA_MAXHIT];
     u16 hit_reg[NA_MAXHIT];
     u8 hit_store[NA_MAXHIT];
@@ -53,6 +56,7 @@ typedef struct {
 
 static const char *na_adapter(void);
 static const char *na_reg_name(u32 r) {
+    if (r & NA_SREG) return "SI (manettes)";
     if (r & NA_XREG) {
         static const char *const xn[5] = { "EXI CSR (etat, choix)", "EXI MAR (adresse DMA)", "EXI LENGTH (taille DMA)", "EXI CR (demarrage)", "EXI DATA (donnees)" };
         if (r & NA_XIDX) return "EXI (registre calcule pendant le jeu)";
@@ -91,8 +95,13 @@ static u32 na_func_start(const u8 *txt, u32 base, u32 addr) {
 }
 
 static void na_hit(nat_info_t *in, const u8 *txt, u32 base, u32 at, u32 reg, int store, u32 ins) {
-    in->ntotal++;
-    if (reg & NA_XREG) in->nexi++;
+    if (reg & NA_SREG) {                                  /* v122 : manettes : a part (pas comptees avec le lecteur) */
+        in->nsi++;
+        if (in->nhit >= NA_MAXHIT - 40) { in->si_lost++; return; }   /* (place gardee pour le lecteur) */
+    } else {
+        in->ntotal++;
+        if (reg & NA_XREG) in->nexi++;
+    }
     if (in->nhit >= NA_MAXHIT) { if (reg & NA_XREG) in->x_lost++; else in->di_lost++; return; }
     in->hit_addr[in->nhit] = at;
     in->hit_reg[in->nhit] = (u16)reg;
@@ -156,6 +165,8 @@ static void na_xscan(nat_info_t *in, const u8 *txt, u32 base, u32 o, u32 *xv, u3
     *xm = m;
     if (acc && ea >= NA_EXI0 && ea < NA_EXI0 + 0x40) {
         na_hit(in, txt, base, base + o, NA_XREG | (idx ? NA_XIDX : (ea - NA_EXI0) % 0x14), store, ins);
+    } else if (acc == 1 && ea >= NA_SIO && ea < NA_SIO + 0x40) {   /* v122 : manettes (mots seulement) */
+        na_hit(in, txt, base, base + o, NA_XREG | NA_SREG | (idx ? NA_XIDX : (ea - NA_SIO)), store, ins);
     }
 }
 
@@ -520,7 +531,14 @@ static int na_ext_add(u32 iso, u32 sd, u32 cnt) {
 }
 static int nat_map_game(const char *path, int ciso, char *err, int cap) {
     if (nat_map(path, err, cap)) return -1;
-    if (!ciso) { na_iso_secs = na_next ? na_ext[na_next - 1].iso + na_ext[na_next - 1].cnt : 0; return 0; }
+    if (!ciso) {                                          /* v122 : apres la fin du fichier (.nkit.iso, plus court) : des zeros */
+        na_iso_secs = na_next ? na_ext[na_next - 1].iso + na_ext[na_next - 1].cnt : 0;
+        if (na_iso_secs && na_iso_secs < NA_DISC_SECS && na_next < NATRES_MAXEXT) {
+            u32 e0 = na_iso_secs;
+            if (na_ext_add(e0, NATRES_ZERO, NA_DISC_SECS - e0)) { snprintf(err, cap, "Jeu trop fragment\xC3\xA9"); return -1; }
+        }
+        return 0;
+    }
     u32 nf = na_next;
     memcpy(na_fext, na_ext, nf * sizeof(natres_ext_t));
     FILE *f = fopen(path, "rb");
@@ -822,10 +840,11 @@ static void nat_journal_convert(void) {
             u32 dz = be32(d + 0x198);
             if (be32(d + 0x194) || (dz >> 8 & 0xFF)) fprintf(f, "Changements de disque : %u (disque en cours : %u)\n", (unsigned)(dz >> 8 & 0xFF), (unsigned)(dz & 1) + 1);
             if (be32(d + 0x19C)) fprintf(f, "Cheats appliques par Pulse : %u images\n", (unsigned)(dz >> 16));
+            if (H[1] >= 16 && be32(d + 0x1B8)) fprintf(f, "Manettes / lecteur (options %08X) : %u lectures des manettes modifiees\n", (unsigned)be32(d + 0x1B8), (unsigned)be32(d + 0x1BC));
             fprintf(f, "\n");
         }
         fprintf(f, "Dernieres commandes (la plus ancienne en premier) :\n");
-        int rbase = H[1] >= 15 ? 0x1A0 : H[1] >= 14 ? 0x190 : H[1] >= 13 ? 0x180 : H[1] >= 12 ? 0x170 : H[1] >= 11 ? 0x160 : v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
+        int rbase = H[1] >= 16 ? 0x1C0 : H[1] >= 15 ? 0x1A0 : H[1] >= 14 ? 0x190 : H[1] >= 13 ? 0x180 : H[1] >= 12 ? 0x170 : H[1] >= 11 ? 0x160 : v10 ? 0x150 : v9 ? 0x130 : v8 ? 0x120 : v7 ? 0xF0 : v6 ? 0xE0 : v5 ? 0xD0 : v4 ? 0xB0 : v3 ? 0xA0 : 0x80, nring = (512 - rbase) / 16;
         for (int k = 0; k < nring; k++) {
             const u8 *e = d + rbase + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);
@@ -1054,22 +1073,27 @@ static int na_nskip = 0;
 static u32 na_xfo[NA_MAXHIT], na_xold[NA_MAXHIT];
 static char na_xwhy[120] = "";
 static int na_xdone = 0;
-static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *card_on) {
+static int na_si_done = 0, na_si_skip = 0;
+static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *card_on, int *si_on) {
     u32 at = (be32(res + 0x3C) + 31) & ~31u;             /* (h->end, lu en big-endian) */
     u32 dl = be32(res + 0x40), ds = be32(res + 0x44);   /* (h->di_load, h->di_store) */
     u32 xl = be32(res + 0xF0), xs = be32(res + 0xF4);   /* v65 : (h->exi_load, h->exi_store) */
     int done = 0;
     *skipped = 0; na_nskip = 0; na_xdone = 0; na_xwhy[0] = 0;
-    /* passe 0 : le lecteur (tous, sinon le jeu n'est pas lance) ; passe 1 : la carte (tout ou rien) */
-    for (int pass = 0; pass < 2; pass++) {
-        if (pass == 1 && !*card_on) break;
+    /* passe 0 : le lecteur (tous, sinon le jeu n'est pas lance) ; passe 1 : la carte (tout ou rien) ;
+       v122 : passe 2 : les manettes (ceux qu'on sait brancher ; les autres restent au vrai materiel) */
+    u32 sl = be32(res + offsetof(natres_hdr_t, si_load)), ss = be32(res + offsetof(natres_hdr_t, si_store));
+    na_si_done = na_si_skip = 0;
+    for (int pass = 0; pass < 3; pass++) {
+        if (pass == 1 && !*card_on) continue;
+        if (pass == 2 && !*si_on) break;
         u32 at0 = at, cov = 0;
         int nx = 0;
         const char *xfail = NULL;
         u32 xfail_at = 0;
         for (int i = 0; i < in->nhit; i++) {
-            int isx = (in->hit_reg[i] & NA_XREG) != 0;
-            if (isx != pass) continue;
+            int kind = in->hit_reg[i] & NA_SREG ? 2 : in->hit_reg[i] & NA_XREG ? 1 : 0, isx = kind != 0;
+            if (kind != pass) continue;
             u32 a = in->hit_addr[i], fo = 0;
             int sec = -1;
             for (int k = 0; k < in->nsec; k++) if (a >= in->sec_addr[k] && a - in->sec_addr[k] < in->sec_sz[k]) { sec = k; fo = in->sec_off[k] + (a - in->sec_addr[k]); }
@@ -1078,8 +1102,15 @@ static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *c
                             : isx ? na_xtramp_why(in->hit_ins[i]) : na_tramp_why(in->hit_ins[i]);
             s32 d = (s32)(at - a);
             if (!why && (d >= 0x02000000 || d < -0x02000000)) why = "trop loin";
-            int n = why ? 0 : na_tramp(res + (at - NATRES_AT), at, a, in->hit_ins[i], in->hit_reg[i], isx ? xl : dl, isx ? xs : ds);
+            int n = why ? 0 : na_tramp(res + (at - NATRES_AT), at, a, in->hit_ins[i], in->hit_reg[i], kind == 2 ? sl : isx ? xl : dl, kind == 2 ? ss : isx ? xs : ds);
             if (!why && !n) why = "demi-registre impair";
+            if (kind == 2) {                                  /* (manettes : un acces pas branche reste au vrai materiel) */
+                if (why) { na_si_skip++; continue; }
+                na_wbe32(dol + fo, 0x48000000u | ((u32)d & 0x03FFFFFCu));
+                at += ((u32)n * 4 + 31) & ~31u;
+                na_si_done++;
+                continue;
+            }
             if (why && isx) { xfail = why; xfail_at = a; break; }
             if (why) {
                 if (na_nskip < NA_MAXSKIP) { na_skip_at[na_nskip] = a; na_skip_ins[na_nskip] = in->hit_ins[i]; na_skip_why[na_nskip] = why; na_nskip++; }
@@ -1145,6 +1176,84 @@ static u32 na_ws_patch(const nat_info_t *in, u8 *dol, u8 *res, u32 at, u32 ceil)
     na_wbe32(dol + fo, 0x48000000u | ((u32)dj & 0x03FFFFFCu));          /* b aiguillage */
     snprintf(na_ws_msg, sizeof(na_ws_msg), "oui (GXSetProjection %08X)", (unsigned)f);
     return (buf + 0x40 + 31) & ~31u;
+}
+
+/* ---------- v122 : reglages du jeu pour Pulse (poses par jeux_cfg_apply) ---------- */
+static int nat_vmode = 0;                                  /* 0 = comme le jeu, 1 = 480p, 2 = PAL 60 Hz, 3 = 240p */
+static int nat_deflick = 0, nat_wide = 0;                  /* sans flou ; image plus large (704 points) */
+static int nat_cstick = 0, nat_trig = 0, nat_poll = 0, nat_speed = 0;   /* stick C, seuil des gachettes, frequence, vitesse du lecteur */
+static u32 na_opt(void) {
+    static const u8 thr[4] = { 0, 77, 128, 192 };
+    u32 o = 0;
+    if (nat_cstick == 1) o |= 1; else if (nat_cstick == 2) o |= 3; else if (nat_cstick == 3) o |= 4;
+    o |= (u32)thr[nat_trig & 3] << 8;
+    if (nat_poll == 1) o |= 2u << 16; else if (nat_poll == 2) o |= 4u << 16;
+    if (nat_speed) o |= NRO_SPEED;
+    return o;
+}
+/* v122 : modes video du jeu. Les jeux decrivent l'image dans des "GXRenderModeObj" (0x3C octets : mode de la
+   tele, largeur, hauteurs, position, mode de la memoire d'image, filtres...) ranges dans main.dol. On les
+   reconnait a leur contenu (valeurs possibles, filtre vertical dont la somme fait 64), et on les modifie
+   avant le lancement : 480p (progressif), PAL en 60 Hz (480 lignes), 240p, sans flou (filtre vertical neutre),
+   image plus large (704 points sur 720), le tout sans connaitre le code du jeu. */
+static char na_rm_msg[160] = "";
+static u32 na_be16(const u8 *p) { return (u32)p[0] << 8 | p[1]; }
+static void na_wbe16(u8 *p, u32 v) { p[0] = (u8)(v >> 8); p[1] = (u8)v; }
+static int na_rm_ok(const u8 *p) {
+    u32 tv = be32(p), fmt = tv >> 2, md = tv & 3;
+    if (tv > 23 || (fmt != 0 && fmt != 1 && fmt != 2 && fmt != 5) || md > 2) return 0;
+    u32 fbw = na_be16(p + 4), efb = na_be16(p + 6), xfb = na_be16(p + 8), vxo = na_be16(p + 10), vyo = na_be16(p + 12), vw = na_be16(p + 14), vh = na_be16(p + 16);
+    if (fbw < 512 || fbw > 720 || efb < 200 || efb > 600 || xfb < 200 || xfb > 600 || vw < 512 || vw > 720 || vh < 200 || vh > 600 || vxo > 120 || vyo > 120) return 0;
+    if (na_be16(p + 18) || be32(p + 20) > 1 || p[24] > 1 || p[25] > 1) return 0;
+    for (int i = 0; i < 24; i++) if (p[26 + i] > 12) return 0;
+    u32 sum = 0;
+    for (int i = 0; i < 7; i++) { if (p[50 + i] > 63) return 0; sum += p[50 + i]; }
+    return sum == 64 && p[57] == 0;
+}
+static int na_rm_patch(const nat_info_t *in, u8 *dol) {
+    (void)in;
+    static const u8 flat[7] = { 0, 0, 21, 22, 21, 0, 0 };
+    int found = 0, changed = 0, prog = 0, p60 = 0, ds = 0;
+    na_rm_msg[0] = 0;
+    if (!nat_vmode && !nat_deflick && !nat_wide) return 0;
+    for (int sct = 0; sct < 18; sct++) {
+        u32 off = be32(dol + sct * 4), sz = be32(dol + 0x90 + sct * 4);
+        if (!sz || off < 0x100) continue;
+        for (u32 o = 0; o + 0x3C <= sz; o += 4) {
+            u8 *p = dol + off + o;
+            if (!na_rm_ok(p)) continue;
+            found++;
+            u32 tv = be32(p), fmt = tv >> 2, md = tv & 3, ch = 0;
+            if ((nat_vmode == 1 || nat_vmode == 2 || nat_vmode == 3) && fmt == 1 && md != 1) {   /* PAL 50 Hz -> 480 lignes, 60 Hz */
+                if (na_be16(p + 6) > 480) na_wbe16(p + 6, 480);
+                if (na_be16(p + 8) > 480) na_wbe16(p + 8, 480);
+                if (na_be16(p + 16) > 480) na_wbe16(p + 16, 480);
+                na_wbe16(p + 12, (480 - na_be16(p + 16)) / 2);
+                fmt = 5; tv = fmt << 2 | md; ch = 1; p60++;
+            }
+            if (nat_vmode == 1 && md == 0) {                     /* entrelace -> progressif (480p) */
+                tv = 0u << 2 | 2;                                /* (NTSC progressif : memes timings que EURGB60) */
+                na_wbe32(p + 20, 0); p[24] = 0;                  /* (une seule trame, pas de rendu par trame) */
+                memcpy(p + 50, flat, 7);
+                ch = 1; prog++;
+            } else if (nat_vmode == 3 && md == 0 && na_be16(p + 16) >= 448) {   /* entrelace 480 lignes -> 240p */
+                tv = fmt << 2 | 1;
+                na_wbe16(p + 8, 240); na_wbe16(p + 16, 240); na_wbe16(p + 12, na_be16(p + 12) / 2);
+                na_wbe32(p + 20, 0); p[24] = 0;
+                memcpy(p + 50, flat, 7);
+                ch = 1; ds++;
+            }
+            na_wbe32(p, tv);
+            if (nat_deflick && memcmp(p + 50, flat, 7)) { memcpy(p + 50, flat, 7); ch = 1; }
+            if (nat_wide && na_be16(p + 14) == 640) { na_wbe16(p + 14, 704); na_wbe16(p + 10, 8); ch = 1; }
+            if (ch) changed++;
+            o += 0x38;                                       /* (le suivant ne peut pas chevaucher) */
+        }
+    }
+    snprintf(na_rm_msg, sizeof(na_rm_msg), "%d mode%s video trouve%s, %d modifie%s (480p %d, 60 Hz %d, 240p %d)%s%s",
+             found, found > 1 ? "s" : "", found > 1 ? "s" : "", changed, changed > 1 ? "s" : "", prog, p60, ds,
+             nat_deflick ? ", sans flou" : "", nat_wide ? ", image large" : "");
+    return changed;
 }
 
 /* ---------- v121 : cheats dans Pulse (codes Gecko : voir gk_run dans natres.c) ---------- */
@@ -1537,7 +1646,7 @@ static void nl_aurore(f32 t) {
     }
     /* bas */
     if (nat_igr) gx_text_c(F_SMALL, 320, 400, TR("Pendant le jeu : A + Z + START = retour \xC3\xA0 GC Station"), RGBA(170, 170, 200, 255));
-    if (nat_card) gx_text_c(F_SMALL, 320, 420, TR("Sauvegardes : carte m\xC3\xA9moire virtuelle (slot A, sur la carte SD)"), RGBA(130, 130, 160, 255));
+    if (nat_card) gx_text_c(F_SMALL, 320, 420, nat_card >= 2 ? TR("Sauvegardes : cartes m\xC3\xA9moire virtuelles (slots A et B, sur la carte SD)") : TR("Sauvegardes : carte m\xC3\xA9moire virtuelle (slot A, sur la carte SD)"), RGBA(130, 130, 160, 255));
     gx_text_r(F_SMALL, 616, 460, "GC STATION  \xC2\xB7  PULSE", RGBA(150, 150, 180, 255));
     nv_raw = 0;
 }
@@ -1638,38 +1747,61 @@ static const char *na_card_file(int part) {
 }
 #define NA_CARD      na_card_file(0)
 #define NA_CARD_NEW  (2u << 20)
-static natres_ext_t na_card[NATRES_CARDMAX];
-static u32 na_card_n = 0, na_card_size = 0;
-static char na_card_msg[128] = "";
-static int nat_card_prep(void) {
-    na_card_n = 0; na_card_size = 0;
-    if (!nat_card) { snprintf(na_card_msg, sizeof(na_card_msg), "coupee (reglage)"); return 0; }
-    if (sd_virtual) { snprintf(na_card_msg, sizeof(na_card_msg), "pas de vraie carte SD"); return 0; }
+static natres_ext_t na_card[NATRES_CARDMAX], na_card2[NATRES_CARDMAX];
+static u32 na_card_n = 0, na_card_size = 0, na_card2_n = 0, na_card2_size = 0;
+static char na_card_msg[128] = "", na_card2_msg[128] = "";
+static int nat_card_reg = 0;                              /* v122 : une carte par region du jeu (reglage) */
+/* v122 : nom du fichier de la carte (slot 0 = A, 1 = B), avec la region du jeu si le reglage est mis :
+   carte-A.raw -> carte-A-EUR.raw (sauf carte choisie pour ce jeu : prise telle quelle) */
+static const char *na_card_name(int slot, const char *id) {
+    static char nm[2][96];
+    const char *base = slot ? "carte-B.raw" : vc_active;
+    if (!nat_card_reg || (!slot && vc_keep[0]) || !id) { snprintf(nm[slot], sizeof(nm[0]), "%s", base); return nm[slot]; }
+    const char *reg = id[3] == 'J' ? "JAP" : na_game_pal(id) ? "EUR" : "USA";
+    int bl = (int)strlen(base);
+    if (bl > 4 && !strcasecmp(base + bl - 4, ".raw")) bl -= 4;
+    snprintf(nm[slot], sizeof(nm[0]), "%.*s-%s.raw", bl, base, reg);
+    return nm[slot];
+}
+/* prepare une carte (fichier cree s'il manque) ; rend 1 si prete (morceaux dans out) */
+static int na_card_map(const char *name, natres_ext_t *out, u32 *n, u32 *size, char *msg, int cap) {
+    *n = 0; *size = 0;
+    if (sd_virtual) { snprintf(msg, cap, "pas de vraie carte SD"); return 0; }
+    char path[192], part[200];
+    snprintf(path, sizeof(path), NA_CARD_DIR "/%s", name);
+    snprintf(part, sizeof(part), "%s.part", path);
     struct stat st;
     mkdir(NA_CARD_DIR, 0777);
-    if (stat(NA_CARD, &st) != 0) {
+    if (stat(path, &st) != 0) {
         nat_ld("Pr\xC3\xA9paration de la carte m\xC3\xA9moire virtuelle", 12);
         static u8 ff[32768];
         memset(ff, 0xFF, sizeof(ff));
-        FILE *f = fopen(na_card_file(1), "wb");
+        FILE *f = fopen(part, "wb");
         int ok = f != NULL;
         for (u32 o = 0; ok && o < NA_CARD_NEW; o += sizeof(ff)) { if (fwrite(ff, 1, sizeof(ff), f) != sizeof(ff)) ok = 0; nat_ld_tick(); service_audio(); }
         if (f && fclose(f) != 0) ok = 0;
-        if (!ok || rename(na_card_file(1), NA_CARD) != 0 || stat(NA_CARD, &st) != 0) {
-            remove(na_card_file(1)); snprintf(na_card_msg, sizeof(na_card_msg), "creation du fichier impossible"); return 0;
-        }
+        if (!ok || rename(part, path) != 0 || stat(path, &st) != 0) { remove(part); snprintf(msg, cap, "creation du fichier impossible"); return 0; }
     }
     u32 sz = (u32)st.st_size;
     if (sz < 0x80000u || sz > 0x1000000u || (sz & (sz - 1))) {      /* (on ne touche pas a un fichier inconnu) */
-        snprintf(na_card_msg, sizeof(na_card_msg), "%s : taille %u octets, pas une image de carte (512 Ko a 16 Mo)", vc_active, (unsigned)sz); return 0;
+        snprintf(msg, cap, "%s : taille %u octets, pas une image de carte (512 Ko a 16 Mo)", name, (unsigned)sz); return 0;
     }
     char e[80];
-    if (nat_map(NA_CARD, e, sizeof(e))) { snprintf(na_card_msg, sizeof(na_card_msg), "%s", e); return 0; }
-    if (na_next > NATRES_CARDMAX) { snprintf(na_card_msg, sizeof(na_card_msg), "%s trop morcele sur la carte SD (%u morceaux)", vc_active, (unsigned)na_next); return 0; }
-    memcpy(na_card, na_ext, na_next * sizeof(natres_ext_t));
-    na_card_n = na_next; na_card_size = sz;
-    snprintf(na_card_msg, sizeof(na_card_msg), "active (gc-mp3/resident/%s, %u blocs)", vc_active, (unsigned)(sz / 8192u - 5u));
+    if (nat_map(path, e, sizeof(e))) { snprintf(msg, cap, "%s", e); return 0; }
+    if (na_next > NATRES_CARDMAX) { snprintf(msg, cap, "%s trop morcele sur la carte SD (%u morceaux)", name, (unsigned)na_next); return 0; }
+    memcpy(out, na_ext, na_next * sizeof(natres_ext_t));
+    *n = na_next; *size = sz;
+    snprintf(msg, cap, "active (gc-mp3/resident/%s, %u blocs)", name, (unsigned)(sz / 8192u - 5u));
     return 1;
+}
+/* rend bit 0 = slot A pret, bit 1 = slot B pret */
+static int nat_card_prep(const char *id) {
+    int r = 0;
+    na_card_n = na_card2_n = 0; na_card2_msg[0] = 0;
+    if (!nat_card) { snprintf(na_card_msg, sizeof(na_card_msg), "coupee (reglage)"); return 0; }
+    if (na_card_map(na_card_name(0, id), na_card, &na_card_n, &na_card_size, na_card_msg, sizeof(na_card_msg))) r |= 1;
+    if (nat_card >= 2 && na_card_map(na_card_name(1, id), na_card2, &na_card2_n, &na_card2_size, na_card2_msg, sizeof(na_card2_msg))) r |= 2;
+    return r;
 }
 
 #ifdef GEKKO
@@ -1705,7 +1837,8 @@ static const char *nat_boot(int k) {
     char merr[120] = "";
     nat_ld("Position du jeu sur la carte SD", 10);
     nat_ret_prep();                                        /* v64 : retour a GC Station (avant la carte de l'ISO : meme tableau) */
-    int card_on = nat_card_prep();                         /* v65 : carte memoire virtuelle */
+    int cards = nat_card_prep(in.id);                      /* v65 : carte memoire virtuelle ; v122 : bit 1 = slot B aussi */
+    int card_on = cards != 0;
     u32 snap_sec = nat_snap_prep();                        /* v83 : photo de la memoire au plantage */
     u32 log_sec = nat_journal_prep();                      /* v54 : journal du jeu (un secteur de la carte) */
     na_n2 = 0; na_disc2_msg[0] = 0;                        /* v121 : l'autre disque (jeux a 2 disques) */
@@ -1755,9 +1888,20 @@ static const char *nat_boot(int k) {
             na_wbe32(r + 0x18, 0); na_wbe32(r + 0x1C, 4);                   /* peripherique, 16 MHz */
             na_wbe32(r + 0x20, na_next);
             u32 co = be32(r + 0xFC) - NATRES_AT;                            /* (natres_hdr_t.card_tab) */
-            if (card_on && co + na_card_n * 12 > NATRES_SIZE) card_on = 0;
-            na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0) | (card_on ? NRF_CARD : 0) | (na_jcrash ? NRF_CRASH : 0) | (na_jstack ? NRF_STACK : 0));
-            if (card_on) {                                                  /* v65 : carte memoire virtuelle */
+            if ((cards & 1) && co + na_card_n * 12 > NATRES_SIZE) cards &= ~1;
+            u32 co2 = be32(r + offsetof(natres_hdr_t, card2_tab)) - NATRES_AT;   /* v122 : slot B */
+            if ((cards & 2) && co2 + na_card2_n * 12 > NATRES_SIZE) cards &= ~2;
+            card_on = cards != 0;
+            na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0) | (cards & 1 ? NRF_CARD : 0) | (cards & 2 ? NRF_CARDB : 0) | (na_jcrash ? NRF_CRASH : 0) | (na_jstack ? NRF_STACK : 0));
+            if (cards & 2) {
+                na_wbe32(r + offsetof(natres_hdr_t, card2_n), na_card2_n); na_wbe32(r + offsetof(natres_hdr_t, card2_size), na_card2_size);
+                na_wbe32(r + offsetof(natres_hdr_t, card2_id), na_card2_size >> 17);
+                for (u32 i = 0; i < na_card2_n; i++) {
+                    na_wbe32(r + co2 + i * 12, na_card2[i].iso); na_wbe32(r + co2 + i * 12 + 4, na_card2[i].sd); na_wbe32(r + co2 + i * 12 + 8, na_card2[i].cnt);
+                }
+            }
+            na_wbe32(r + offsetof(natres_hdr_t, opt), na_opt());          /* v122 : manettes, vitesse du lecteur */
+            if (cards & 1) {                                                  /* v65 : carte memoire virtuelle */
                 na_wbe32(r + 0xF8, na_card_n); na_wbe32(r + 0x100, na_card_size); na_wbe32(r + 0x104, na_card_size >> 17);   /* (ID = taille en Mbits) */
                 for (u32 i = 0; i < na_card_n; i++) {
                     na_wbe32(r + co + i * 12, na_card[i].iso); na_wbe32(r + co + i * 12 + 4, na_card[i].sd); na_wbe32(r + co + i * 12 + 8, na_card[i].cnt);
@@ -1793,8 +1937,8 @@ static const char *nat_boot(int k) {
     /* etape 3b : le jeu parle au faux lecteur (programme resident) au lieu du vrai */
     int patched = 0, skipped = 0;
     if (res) {
-        int was = card_on;
-        patched = na_patch(&in, buf + o_dol, buf + o_res, &skipped, &card_on);
+        int was = card_on, si_on = (na_opt() & 0x000FFF07u) != 0;
+        patched = na_patch(&in, buf + o_dol, buf + o_res, &skipped, &card_on, &si_on);
         {   /* v95 : code de redemarrage de l'apploader (OSExec, ancien apploader : <= 2004/02/01) */
             u8 *r = buf + o_res;
             int old = in.al_trailer && strncmp(in.al_date, "2004/02/01", 10) <= 0;
@@ -1819,10 +1963,15 @@ static const char *nat_boot(int k) {
         }
         if (was && !card_on) {                              /* (carte refusee pour ce jeu : flag et table retires) */
             u8 *r = buf + o_res;
-            na_wbe32(r + 0x48, be32(r + 0x48) & ~NRF_CARD);
-            na_wbe32(r + 0xF8, 0);
+            na_wbe32(r + 0x48, be32(r + 0x48) & ~(NRF_CARD | NRF_CARDB));
+            na_wbe32(r + 0xF8, 0); na_wbe32(r + offsetof(natres_hdr_t, card2_n), 0);
             snprintf(na_card_msg, sizeof(na_card_msg), "%s", na_xwhy);
+            if (na_card2_n) snprintf(na_card2_msg, sizeof(na_card2_msg), "%s", na_xwhy);
         }
+#ifdef GEKKO
+        if (nat_vmode == 1 && !VIDEO_HaveComponentCable()) { nat_vmode = 0; snprintf(na_rm_msg, sizeof(na_rm_msg), "480p : pas de c\xC3\xA2" "ble composante / num\xC3\xA9rique"); }
+#endif
+        na_rm_patch(&in, buf + o_dol);                      /* v122 : mode video, flou, largeur, position de l'image */
     }
     if (res && (skipped || in.di_lost)) {                /* un acces oublie = vrai lecteur interroge : on ne lance pas */
         free(buf);
@@ -1872,6 +2021,11 @@ static const char *nat_boot(int k) {
         fprintf(f, "Autre disque : %s\n", na_disc2_msg[0] ? na_disc2_msg : "aucun");
         fprintf(f, "16:9 force : %s\n", !nat_ws ? "non (reglage du jeu)" : na_ws_msg[0] ? na_ws_msg : "non");
         fprintf(f, "Cheats : %s\n", na_gk_msg[0] ? na_gk_msg : "aucun");
+        static const char *const vmn[4] = { "comme le jeu", "480p force", "PAL 60 Hz", "240p" };
+        fprintf(f, "Video : %s%s%s ; %s\n", vmn[nat_vmode & 3], nat_deflick ? ", sans flou" : "", nat_wide ? ", image large" : "", na_rm_msg[0] ? na_rm_msg : "rien a changer");
+        fprintf(f, "Manettes : options %08X ; %d acces branches, %d laisses au vrai materiel (sur %d trouves%s)\n", (unsigned)(na_opt() & 0x00FFFFFFu), na_si_done, na_si_skip, in.nsi, in.si_lost ? ", limite atteinte" : "");
+        fprintf(f, "Vitesse du lecteur : %s\n", nat_speed ? "comme un vrai lecteur" : "rapide (carte SD)");
+        fprintf(f, "Carte memoire virtuelle (slot B) : %s\n", nat_card >= 2 ? (na_card2_msg[0] ? na_card2_msg : "non") : "non (reglage)");
         fprintf(f, "Mode video donne au jeu (800000CC) : %s (jeu %s)\n", na_vi_bootrom(in.id) == 1 ? "PAL" : na_vi_bootrom(in.id) == 5 ? "EURGB60 (PAL 60 Hz)" : "NTSC",
                 na_game_pal(in.id) ? "PAL" : "NTSC");
         fprintf(f, "Memoire basse avant : 28=%08X 2C=%08X CC=%08X F8=%08X FC=%08X\n",
@@ -1899,6 +2053,7 @@ static const char *nat_boot(int k) {
        NTSC 480i. Avant : le mode de GC Station (souvent 480p) restait, et certains jeux le reprenaient tel quel
        (Paper Mario : rouge et bleu inverses sur la prise numerique / adaptateur HDMI) */
     u32 na_vb = na_vi_bootrom(in.id);
+    if (nat_vmode && na_game_pal(in.id)) na_vb = 5;          /* v122 : jeu PAL mis en 60 Hz (480 lignes) : EURGB60 */
     GXRModeObj *na_gm = na_vb == 1 ? &TVPal576IntDfScale : na_vb == 5 ? &TVEurgb60Hz480IntDf : &TVNtsc480IntDf;
     VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync();
     VIDEO_Configure(na_gm); VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();

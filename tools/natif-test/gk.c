@@ -10,6 +10,7 @@
 #define GCD "sd:/gc-mp3"
 #define NAME_LEN 256
 static int nat_igr = 1, nat_card = 1;
+static char vc_keep[64] = "";                                 /* (v122 : jeux_cfg.c) */
 static int sd_virtual = 0, sd_slot = 0, sd_ok = 1, settings_dirty = 0;
 static u32 be32(const unsigned char *p){return (u32)p[0]<<24|p[1]<<16|p[2]<<8|p[3];}
 static void service_audio(void){}
