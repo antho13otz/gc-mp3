@@ -898,7 +898,7 @@ static void *phone_thread(void *arg) {
         s32 c = net_accept(ls, (struct sockaddr *)&ca, &cl);
         if (c < 0) { usleep(50000); continue; }
         set_nonblock(c, 1);
-        tp_handle(c);
+        if (tab_shown(TAB_PHONE)) tp_handle(c);          /* v128 : onglet enleve = telecommande coupee */
         net_close(c);
     }
     return NULL;

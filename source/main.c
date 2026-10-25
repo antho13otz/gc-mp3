@@ -3601,6 +3601,9 @@ static int cover_from_id3(const char *path) {
 
 #include "mp4.c"                             /* M4A / MP4 (son AAC) */
 
+static int cv_next = 0;                 /* v128 : pochette a lire a l'image suivante (morceau + 1) */
+static u32 frame_t0_us;                 /* (defini plus bas) */
+static u32 cv_next_fr = 0;
 static void load_cover(int idx) {
     static const char *exts[] = { ".jpg", ".jpeg", ".png" };
     static const char *common[] = { "cover.jpg", "folder.jpg", "cover.png", "folder.png" };
@@ -3822,7 +3825,9 @@ static int start_track(int idx) {
     track_err = NULL;
     artist[0] = 0;
     muted = 0;
-    load_cover(idx);          /* avant le son : la memoire du decodage est deja liberee */
+    cover_ok = 0; cv_gen++;                              /* v128 : la pochette a l'image suivante (avant : pochette + etiquettes
+                                                            dans la meme image, ~70 ms sur la GameCube = saccade a chaque morceau) */
+    cv_next = idx + 1; cv_next_fr = frame_t0_us;
 
     FILE *fp = fopen(names[idx], "rb");
     long size = -1;
@@ -4425,7 +4430,7 @@ static const char *lyrics_line(int i) {
 
 // ---------- Reglages (sd:/gc-mp3/gc-mp3.txt) et reprise de la lecture ----------
 #define SETTINGS_FILE GCD "/gc-mp3.txt"
-enum { VID_AUTO, VID_480I, VID_480P, VID_COUNT };
+enum { VID_AUTO, VID_480I, VID_480P, VID_576I, VID_576P, VID_COUNT };   /* v128 : + 576i / 576p (PAL 50 Hz) */
 static int covers_auto = 1;
 static int lyrics_auto = 1;                 /* paroles cherchees sur LRCLIB */
 static char city[64];                       /* onglet INFOS (tab_infos.c) */
@@ -4624,7 +4629,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "interface")) { ui_lang = !strncasecmp(v, "en", 2) ? 1 : !strncasecmp(v, "fr", 2) ? 0 : -1; ui_lang_apply(); }
         else if (!strcasecmp(k, "langue")) { lang_pref = -1; for (int i = 0; i < LANG_COUNT; i++) if (!strncasecmp(v, lang_keys[i], 2)) lang_pref = i; }
         else if (!strcasecmp(k, "tele")) tv_crt = !strncasecmp(v, "cath", 4) || !strncasecmp(v, "crt", 3);
-        else if (!strcasecmp(k, "video")) video_pref = !strcasecmp(v, "480p") ? VID_480P : !strcasecmp(v, "480i") ? VID_480I : VID_AUTO;
+        else if (!strcasecmp(k, "video")) video_pref = !strcasecmp(v, "480p") ? VID_480P : !strcasecmp(v, "480i") ? VID_480I : !strcasecmp(v, "576p") ? VID_576P : !strcasecmp(v, "576i") ? VID_576I : VID_AUTO;
         else if (!strcasecmp(k, "reprise")) resume_on = yes(v);
         else if (!strcasecmp(k, "reprise_fichier")) snprintf(resume_path, sizeof(resume_path), "%s", v);
         else if (!strcasecmp(k, "reprise_position")) resume_pos = atoi(v);
@@ -4660,7 +4665,7 @@ static void load_settings(void) {
 static void save_settings(void) {
     static const char *const rep[3] = { "non", "tout", "un" };
     static const char *const aff[VIEW_COUNT] = { "tous", "dossiers", "artistes", "albums", "listes" };
-    static const char *const vid[VID_COUNT] = { "auto", "480i", "480p" };
+    static const char *const vid[VID_COUNT] = { "auto", "480i", "480p", "576i", "576p" };
     settings_dirty = 0;
     if (!sd_ok) return;
     static const char *const ek[EL_COUNT] = { "pochette", "paroles", "boutons", "infos", "horloge" };
@@ -4710,7 +4715,7 @@ static void save_settings(void) {
                "# Style de l'economiseur : spectre / pochette / horloge / etoiles / photos / noir\n"
                "# (photos : mets tes images .jpg / .png dans sd:/ecran, 1920x1080 maximum)\n"
                "economiseur_style = %s\n"
-               "# Video : auto (480p si cable composante) / 480i / 480p\n"
+               "# Video : auto (480p si cable composante) / 480i / 480p / 576i / 576p (PAL 50 Hz)\n"
                "video = %s\n"
                "# Type de tele : plat / cathodique (cathodique = 480i et 4:3)\n"
                "tele = %s\n"
@@ -5067,7 +5072,11 @@ static int init_video(void) {
     /* 480p (progressif) : cable composante (ou GCVideo) ; B maintenu au demarrage = 480i */
     PAD_ScanPads();
     int hold_b = (PAD_ButtonsHeld(0) & PAD_BUTTON_B) != 0;
-    if (!hold_b && (video_pref == VID_480P || (video_pref == VID_AUTO && VIDEO_HaveComponentCable()))) {
+    if (!hold_b && (video_pref == VID_576P || video_pref == VID_576I)) {
+        /* v128 : 576 lignes (PAL 50 Hz) : l'image de 640 x 480 est etiree sur 576 lignes a la copie vers
+           l'ecran (meme dessin, rien d'autre a changer) ; 576p seulement avec le cable composante */
+        rmode = video_pref == VID_576P && VIDEO_HaveComponentCable() ? &TVPal576ProgScale : &TVPal576IntDfScale;
+    } else if (!hold_b && (video_pref == VID_480P || (video_pref == VID_AUTO && VIDEO_HaveComponentCable()))) {
         u32 tv = VIDEO_GetCurrentTvMode();
         rmode = (tv == VI_PAL || tv == VI_EURGB60) ? &TVEurgb60Hz480Prog : &TVNtsc480Prog;
     } else if ((hold_b || video_pref == VID_480I) && (rmode->viTVMode & 3) == VI_PROGRESSIVE) {
@@ -5076,7 +5085,8 @@ static int init_video(void) {
         u32 tv = VIDEO_GetCurrentTvMode();
         rmode = tv == VI_PAL ? &TVPal528IntDf : tv == VI_EURGB60 ? &TVEurgb60Hz480IntDf : tv == VI_MPAL ? &TVMpal480IntDf : &TVNtsc480IntDf;
     }
-    vid_active = (rmode->viTVMode & 3) == VI_PROGRESSIVE ? VID_480P : VID_480I;
+    vid_active = rmode->xfbHeight >= 574 ? ((rmode->viTVMode & 3) == VI_PROGRESSIVE ? VID_576P : VID_576I)
+               : (rmode->viTVMode & 3) == VI_PROGRESSIVE ? VID_480P : VID_480I;
 
     static GXRModeObj vmode;                 /* copie modifiable (largeur de sortie, voir scr_vi) */
     vmode = *rmode;
@@ -11250,7 +11260,7 @@ static int menu_sel = 0, quit_requested = 0;
 
 static void menu_value(int i, char *out, int cap) {
     static const char *const rep[3] = { "Non", "Tout", "Un morceau" };
-    static const char *const vid[VID_COUNT] = { "Auto (480p si c\xC3\xA2" "ble composante)", "480i", "480p" };
+    static const char *const vid[VID_COUNT] = { "Auto (480p si c\xC3\xA2" "ble composante)", "480i", "480p", "576i (50 Hz)", "576p (50 Hz, composante)" };
     switch (i) {
     case MI_SHUFFLE: snprintf(out, cap, "%s", shuffle_on ? "Oui" : "Non"); break;
     case MI_REPEAT:  snprintf(out, cap, "%s", rep[repeat_mode]); break;
@@ -11466,7 +11476,7 @@ static void menu_change(int i, int d) {
     case MI_RADIORES: radio_resume = !radio_resume; break;
     case MI_GAPLESS: gapless_on = !gapless_on; break;
     case MI_VIDEO:   video_pref = (video_pref + d + VID_COUNT) % VID_COUNT; if (video_pref != VID_480I) tv_crt = 0;
-                     ic_put("Apps Video Mode", video_pref == VID_480I ? "480i" : video_pref == VID_480P ? "480p" : "Auto"); break;
+                     ic_put("Apps Video Mode", video_pref == VID_480I ? "480i" : video_pref == VID_480P ? "480p" : video_pref == VID_576I ? "576i" : video_pref == VID_576P ? "576p" : "Auto"); break;
     case MI_TV:
         tv_crt = !tv_crt;
         if (tv_crt) { video_pref = VID_480I; scr_set_wide(0); }
@@ -12765,6 +12775,16 @@ static void boot_selfcheck(void) {
     else if (freekb < 2048) snprintf(boot_check, sizeof(boot_check), "M\xC3\xA9moire presque pleine : certaines images peuvent ne pas s'afficher");
 }
 
+/* v128 : un onglet enleve est aussi coupe : ce qu'il faisait s'arrete (lecture, diaporama, telecommande...) */
+static void tab_disable(int t) {
+    if (t == TAB_RADIO && src == SRC_RADIO && !pod_on) stop_station();
+    if (t == TAB_PODCAST && pod_on) { podcast_leave(); if (src == SRC_RADIO) stop_station(); }
+    if (t == TAB_PODCAST && pod_local_k >= 0 && src == SRC_FILE && cur_track == pod_local_k) stop_track();
+    if (t == TAB_RETRO && src == SRC_FILE && playing && cur_track >= 0 && cur_track < nfiles && is_retro[cur_track]) stop_track();
+    if (t == TAB_PHOTO && video_playing) video_stop();
+    if (t == TAB_PHONE) tp_wanted = 0;
+}
+
 int main(int argc, char **argv) {
     boot_t0 = ticks_to_millisecs(gettime());
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;
@@ -12998,17 +13018,18 @@ int main(int argc, char **argv) {
         int in_game = fun_mode != FUN_OFF && fun_mode != FUN_KARAOKE && fun_mode != FUN_WAKE;
         if (perf_on) pfx_cur[PH_INPUT] += perf_us() - pf_in0;
         /* navigateur : reception des pages et des telechargements */
-        PF(PH_WEB, web_pump());
+        if (tab_shown(TAB_WEB)) PF(PH_WEB, web_pump());
         if (!in_game) {
+            if (cv_next && cv_next_fr != frame_t0_us) { int k = cv_next - 1; cv_next = 0; if (k == cur_track) PF(PH_COVERS, load_cover(k)); }
             PF(PH_COVERS, cover_async_pump(); cover_pump());
             PF(PH_LYRICS, lyrics_pump());
             PF(PH_RETRO, retro_pump());
-            PF(PH_PODCAST, podcast_pump());
-            PF(PH_PHOTO, photo_pump_tab());
-            PF(PH_FILES, files_pump());
-            PF(PH_INFOS, infos_pump());
+            if (tab_shown(TAB_PODCAST)) PF(PH_PODCAST, podcast_pump());   /* v128 : onglet enleve = tout arrete */
+            if (tab_shown(TAB_PHOTO)) PF(PH_PHOTO, photo_pump_tab());
+            if (tab_shown(TAB_FILES)) PF(PH_FILES, files_pump());
+            if (tab_shown(TAB_INFO)) PF(PH_INFOS, infos_pump());
         }
-        PF(PH_PHONE, phone_pump());
+        if (tab_shown(TAB_PHONE)) PF(PH_PHONE, phone_pump());
         PF(PH_DL, dltab_pump());
         if (!in_game) PF(PH_UPDATE, update_pump());
         PF(PH_MISC, cheats_tick(); reset_pump());
@@ -13032,7 +13053,7 @@ int main(int argc, char **argv) {
         PF(PH_MUSIC, music_pump());
 
         /* radio : reception, decodage, tampon */
-        PF(PH_STREAM, stream_pump(); radio_repair_ok(); radio_last_note(); radio_repair_pump(); radio_resume_pump());
+        PF(PH_STREAM, stream_pump(); radio_repair_ok(); radio_last_note(); radio_repair_pump(); if (tab_shown(TAB_RADIO)) radio_resume_pump());
         PF(PH_AUDIO, service_audio());
 
         PF(PH_SPECTRUM, update_spectrum());

@@ -154,7 +154,8 @@ static void draw_checklist(void) {
 }
 
 static int ck_tab_get(int i) { return tab_shown(i); }
-static void ck_tab_toggle(int i) { if (i != TAB_MUSIC) tab_hidden ^= (1u << i); if (!tab_shown(tab)) tab = TAB_MUSIC; }
+static void tab_disable(int t);
+static void ck_tab_toggle(int i) { if (i != TAB_MUSIC) tab_hidden ^= (1u << i); if (!tab_shown(i)) tab_disable(i); if (!tab_shown(tab)) tab = TAB_MUSIC; }
 /* v43 : la liste suit l'ordre des onglets ; X / Y les deplacent */
 static const char *ck_tab_lab[TAB_COUNT];
 static void ck_tab_labels(void) { for (int i = 0; i < TAB_COUNT; i++) ck_tab_lab[i] = tab_names[tab_order[i]]; }
