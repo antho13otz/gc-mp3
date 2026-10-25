@@ -62,22 +62,40 @@ static int fe_known(const char *n) {
 }
 /* v86 : au-dessus de la carte SD : les appareils (carte SD, serveurs SMB / FTP / FSP regles) */
 static int fe_devs = 0;                                /* 1 = liste des appareils */
-static char fe_dev[1 + NFS_N][8];
+static char fe_dev[1 + NFS_N + SALON_MAX][8];
+static int fe_peer[1 + NFS_N + SALON_MAX];
+static int fe_gen = -1;             /* v138 : console du Salon (-1 = non) */
 static int fe_net(void) { return nfs_is_net(fe_cwd); }
 static int fe_at_root(void) { return !strchr(fe_cwd, '/'); }   /* "sd:", "ftp:"... */
 static void fe_load_devs(void) {
     nfe = 0;
     snprintf(fe[nfe].name, sizeof(fe[nfe].name), "Carte SD");
     snprintf(fe_dev[nfe], sizeof(fe_dev[0]), "%s", SD_ROOT);
-    fe[nfe].dir = 1; fe[nfe].mark = 0; fe[nfe].size = 0; nfe++;
-    for (int p = 0; p < NFS_N; p++) {
+    fe[nfe].dir = 1; fe[nfe].mark = 0; fe[nfe].size = 0; fe_peer[nfe] = -1; nfe++;
+    for (int p = 0; p < NFS_GCS; p++) {
         if (!nfs_cfg_ok(p)) continue;
+        fe_peer[nfe] = -1;
         if (p == NFS_SMB) snprintf(fe[nfe].name, sizeof(fe[nfe].name), "%s  \\\\%s\\%s", nfs_label[p], nfs_cfg[p].host, nfs_cfg[p].share);
         else snprintf(fe[nfe].name, sizeof(fe[nfe].name), "%s  %s", nfs_label[p], nfs_cfg[p].host);
         snprintf(fe_dev[nfe], sizeof(fe_dev[0]), "%s:", nfs_scheme[p]);
         fe[nfe].dir = 1; fe[nfe].mark = 0; fe[nfe].size = 0; nfe++;
     }
+    for (int k = 0; k < salon_n && nfe < 1 + NFS_N + SALON_MAX; k++) {   /* v138 : les autres GC Station (Salon) */
+        snprintf(fe[nfe].name, sizeof(fe[nfe].name), "GC Station : %s  %s%s%s", salon_peers[k].name, salon_peers[k].ip,
+                 salon_peers[k].now[0] ? "  \xE2\x99\xAA " : "", salon_peers[k].now);
+        snprintf(fe_dev[nfe], sizeof(fe_dev[0]), "gcs:");
+        fe_peer[nfe] = k;
+        fe[nfe].dir = 1; fe[nfe].mark = 0; fe[nfe].size = 0; nfe++;
+    }
     if (fe_sel > nfe) fe_sel = nfe;
+    fe_gen = salon_gen;
+}
+static void fe_devs_refresh(void) {                   /* v138 : une console du Salon arrive ou part : la liste suit */
+    if (!fe_devs || fe_gen == salon_gen || !fe) return;
+    char dev[8] = "";                                     /* (carte SD ou serveur choisi : on reste dessus) */
+    if (fe_sel > 0 && fe_sel - 1 < nfe && fe_peer[fe_sel - 1] < 0) snprintf(dev, sizeof(dev), "%s", fe_dev[fe_sel - 1]);
+    fe_load_devs();
+    if (dev[0]) for (int i = 0; i < nfe; i++) if (!strcmp(fe_dev[i], dev) && fe_peer[i] < 0) fe_sel = i + 1;
 }
 static void fe_load(void) {
     if (!fe) fe = (fent_t *)malloc(sizeof(fent_t) * FE_MAX);
@@ -215,7 +233,10 @@ static void fe_net_game(int i, const char *path) {
 }
 static void fe_open(int i) {
     char path[NAME_LEN];
-    if (fe_devs) { snprintf(fe_cwd, sizeof(fe_cwd), "%s", fe_dev[i]); fe_devs = 0; fe_sel = 0; fe_load(); return; }
+    if (fe_devs) {
+        if (fe_peer[i] >= 0 && fe_peer[i] < salon_n) { snprintf(nfs_cfg[NFS_GCS].host, sizeof(nfs_cfg[NFS_GCS].host), "%s", salon_peers[fe_peer[i]].ip); nfs_cfg[NFS_GCS].port = 80; }   /* v138 : (port du serveur du telephone) */
+        snprintf(fe_cwd, sizeof(fe_cwd), "%s", fe_dev[i]); fe_devs = 0; fe_sel = 0; fe_load(); return;
+    }
     fe_path(i, path, sizeof(path));
     if (fe[i].dir) { snprintf(fe_cwd, sizeof(fe_cwd), "%s", path); fe_sel = 0; fe_load(); return; }
     if (fe_net()) {
@@ -480,6 +501,7 @@ static void files_input(u32 down, u32 nav, int fire) {
         if (down & (PAD_BUTTON_B | PAD_BUTTON_X)) { fa_open = 0; fa_confirm = 0; }
         return;
     }
+    fe_devs_refresh();
     int rows = nfe + 1;
     if (fire) {
         if (nav & PAD_BUTTON_DOWN) fe_sel++;
@@ -496,6 +518,11 @@ static void files_input(u32 down, u32 nav, int fire) {
     if (down & PAD_BUTTON_B) fe_up();
     if ((down & PAD_BUTTON_X) && fe_devs) down &= ~PAD_BUTTON_X;   /* (pas d'actions sur la liste des appareils) */
     if (down & PAD_BUTTON_X) { fa_open = 1; fa_sel = fe_sel == 0 ? FA_PASTE : 0; fa_confirm = 0; }
+    if ((down & PAD_BUTTON_Y) && fe_devs && fe_sel > 0 && fe_sel - 1 < nfe && fe_peer[fe_sel - 1] >= 0) {   /* v138 : Y = ecouter avec cette console */
+        const char *e = salon_listen(fe_peer[fe_sel - 1]);
+        fe_note(e ? e : "\xC3\x89" "coute avec l'autre console");
+        down &= ~PAD_BUTTON_Y;
+    }
     if ((down & PAD_BUTTON_Y) && fe_sel > 0 && fe_sel - 1 < nfe) {   /* v72 : Y = cocher (plusieurs fichiers d'un coup) */
         fe[fe_sel - 1].mark = !fe[fe_sel - 1].mark;
         if (fe_sel < rows - 1) fe_sel++;
@@ -533,6 +560,7 @@ static void draw_tab_files(void) {
         draw_legend_keys(k, l, 1);
         return;
     }
+    fe_devs_refresh();
     int rows = nfe + 1, vis = 12;
     int start = fe_sel - vis / 2;
     if (start > rows - vis) start = rows - vis;

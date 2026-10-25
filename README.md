@@ -14,21 +14,21 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v137)
+## Nouveautés de la version actuelle (v138)
+- **Le Salon : plusieurs GC Station sur le même réseau** (START > Réglages > Réseau > « Salon ») : les consoles
+  qui l'ont activé se trouvent toutes seules et apparaissent dans l'onglet FICHIERS (liste des appareils, B à la
+  racine de la carte SD). On parcourt la carte SD de l'autre console comme un serveur : musique, photos, vidéos,
+  copie vers sa carte (sauvegardes `.gci` comprises).
+- **Écouter avec** : Y sur une console du Salon joue le morceau qu'elle joue, à la même position.
+- **Mario Superstar Baseball** fonctionne avec Pulse (confirmé sur la console).
+
+## Version précédente (v137)
 - **Base de compatibilité des jeux** : au retour d'un jeu lancé avec Pulse, GC Station demande comment ça s'est
   passé (marche / marche mal / écran noir) ; un plantage est noté tout seul. Pastille de couleur sur la jaquette
   (vert, orange, rouge) et « Dernier essai » dans la fenêtre de lancement (build, date, vitesse du lecteur).
   Tout est gardé dans `SD:/gc-mp3/compat.txt`.
 - **Journal envoyé au téléphone** : « Écran noir » ou « Envoyer le journal » ouvre un QR code : le téléphone
   télécharge `journal-jeu.txt` directement (même si l'onglet TÉLÉPHONE est enlevé).
-
-## Version précédente (v136)
-- **Mario Superstar Baseball** : la vidéo d'intro ne bloque plus le jeu (écran noir). Sa boucle d'attente ne
-  relisait jamais la place libre de son tampon : elle la relit maintenant à chaque tour (correction dans le
-  code du jeu, seulement si c'est bien la bonne instruction). La vitesse « vrai lecteur » n'est plus forcée.
-- **Corrections dans les autres exécutables du disque** : les `.dol`, `.elf` et ceux des `.tgc` sont trouvés
-  dans la table des fichiers ; l'endroit à corriger est changé au moment où le jeu le lit (images au démarrage
-  de GON, GOY, GR8, GRZJ, GGIJ…). Le journal du jeu dit combien d'octets ont été changés.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
@@ -43,7 +43,7 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   - **lanceur de secours** (X, et les jeux avec cheats) ; réglages par jeu (langue, son, carte) ;
   - **cheats** (`SD:/gc-mp3/cheats`), **cartes mémoire virtuelles**.
 - **Applis** : les homebrews `.dol` de la carte SD.
-- **Fichiers** : carte SD et **serveurs du réseau SMB, FTP, FSP** (musique, photos, vidéos, copie).
+- **Fichiers** : carte SD, **serveurs du réseau SMB, FTP, FSP** et **autres GC Station** (Salon) (musique, photos, vidéos, copie).
 - **Photos** et **vidéos**, **Web** (navigateur), **Podcasts**, **Rétro** (musique de jeux NSF, SPC…),
   **Infos** (météo, actualités, réveil), **Téléphone** (télécommande et envoi de fichiers par QR code),
   **Téléchargements**.
