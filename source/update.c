@@ -12,6 +12,9 @@
    de l'API : 60 demandes par heure et par connexion, vite depassee quand GC Station redemarre souvent),
    puis par l'API si ce fichier manque. */
 static void upd_rel_url(char *url, int cap, int api) {
+#ifndef GEKKO
+    if (getenv("PCSIM_UPD")) { snprintf(url, cap, "%s/release.json", getenv("PCSIM_UPD")); return; }   /* (simulateur : serveur de test) */
+#endif
     if (api) snprintf(url, cap, UPD_API "/repos/%s/releases/tags/dernier", upd_repo);
     else snprintf(url, cap, "https://github.com/%s/releases/download/dernier/release.json", upd_repo);
 }
@@ -29,11 +32,28 @@ static long up_size = 0;
 static char up_msg[160] = "";
 static char up_target[NAME_LEN] = "";
 static int up_auto_done = 0;
+/* v133 : telechargement qui reprend ou il s'est arrete (avant : une coupure du reseau = "Telechargement
+   interrompu", tout etait a refaire) : ce qui est arrive est garde, la suite est redemandee (Range) */
+static u8 *up_acc = NULL;
+static long up_acc_len = 0, up_total = 0;
+static int up_tries = 0;
+static int up_acc_add(const u8 *d, long n) {
+    if (n <= 0) return 1;
+    u8 *nb = (u8 *)realloc(up_acc, up_acc_len + n);
+    if (!nb) return 0;
+    up_acc = nb;
+    memcpy(up_acc + up_acc_len, d, n);
+    up_acc_len += n;
+    return 1;
+}
 static u64 up_notice_until = 0;
 static hfetch_t up_hf = { .c = { -1, 0, 0 } };
 static const char *up_argv0 = NULL;
 
 static void up_fail(const char *m) {
+#ifndef GEKKO
+    if (getenv("PCSIM_NETLOG")) printf("[pcsim] mise a jour : %s (HTTP %d, %s)\n", m, up_hf.code, up_hf.url);
+#endif
     snprintf(up_msg, sizeof(up_msg), "%s", m);
     up_state = UP_ERR;
     crumb("mise a jour : %s", m);
@@ -342,6 +362,27 @@ static void update_pump(void) {
     if (up_state == UP_DONE && up_auto_at && now_ms() >= up_auto_at) { up_auto_at = 0; update_relaunch(); return; }   /* v127 */
     if (up_state != UP_CHECK && up_state != UP_DL) return;
     hf_pump(&up_hf);
+    if (up_hf.st == HF_FAIL && up_state == UP_DL) {         /* v133 : on garde ce qui est arrive et on reprend */
+        if (up_hf.code == 200 || up_hf.code == 206) {
+            if (up_hf.code == 200 && up_hf.range == 0 && up_hf.expect > 0) up_total = up_hf.expect;
+            if (up_hf.code == 206 && up_total == 0 && up_hf.expect > 0) up_total = up_hf.range + up_hf.expect;
+            if (up_hf.code == 200 && up_hf.range > 0) { free(up_acc); up_acc = NULL; up_acc_len = 0; }   /* (le site a tout renvoye) */
+            if (!up_acc_add(up_hf.buf, up_hf.len)) { hf_drop(&up_hf); up_hf.st = HF_IDLE; up_fail("M\xC3\xA9moire insuffisante"); return; }
+        }
+        long before = up_hf.range;
+        hf_drop(&up_hf);
+        up_hf.st = HF_IDLE;
+        if (up_acc_len > before) up_tries = 0;                    /* (ca avance : on continue tant qu'il faut) */
+        if (++up_tries <= 6 && net_ok) {
+            crumb("mise a jour : reprise a %ld octets (essai %d)", up_acc_len, up_tries);
+            up_hf.range = up_acc_len;
+            hf_start(&up_hf, up_url, NULL);
+            return;
+        }
+        free(up_acc); up_acc = NULL; up_acc_len = 0; up_hf.range = 0; up_hf.keep = 0;
+        up_fail("T\xC3\xA9l\xC3\xA9" "chargement interrompu (r\xC3\xA9seau)");
+        return;
+    }
     if (up_hf.st == HF_FAIL) {
         hf_drop(&up_hf);
         up_hf.st = HF_IDLE;
@@ -408,11 +449,20 @@ static void update_pump(void) {
         }
         return;
     }
-    /* telechargement fini */
-    if (!up_dol_valid(up_hf.buf, up_hf.len)) { hf_drop(&up_hf); up_hf.st = HF_IDLE; up_fail("Fichier re\xC3\xA7u invalide"); return; }
-    u8 *b = up_hf.buf; long bl = up_hf.len;
-    up_hf.buf = NULL; up_hf.len = up_hf.cap = 0;        /* (le tampon passe a l'ecriture) */
-    up_hf.st = HF_IDLE;
+    /* telechargement fini (v133 : la suite d'une reprise est ajoutee a ce qui etait deja arrive) */
+    u8 *b; long bl;
+    if (up_hf.range > 0 && up_hf.code == 206) {
+        if (!up_acc_add(up_hf.buf, up_hf.len)) { hf_drop(&up_hf); up_hf.st = HF_IDLE; up_fail("M\xC3\xA9moire insuffisante"); return; }
+        hf_drop(&up_hf);
+        b = up_acc; bl = up_acc_len; up_acc = NULL; up_acc_len = 0;
+    } else {
+        free(up_acc); up_acc = NULL; up_acc_len = 0;
+        b = up_hf.buf; bl = up_hf.len;
+        up_hf.buf = NULL; up_hf.len = up_hf.cap = 0;    /* (le tampon passe a l'ecriture) */
+    }
+    up_hf.st = HF_IDLE; up_hf.range = 0; up_hf.keep = 0;
+    if (up_total > 0 && bl != up_total) { free(b); up_fail("Fichier re\xC3\xA7u incomplet"); return; }
+    if (!up_dol_valid(b, bl)) { free(b); up_fail("Fichier re\xC3\xA7u invalide"); return; }
     up_install(b, bl);
 }
 
@@ -421,6 +471,8 @@ static void update_start_download(void) {
     up_hf.maxbytes = 16 * 1024 * 1024;
     up_hf.image = 0;
     up_hf.accept = "application/octet-stream";
+    free(up_acc); up_acc = NULL; up_acc_len = 0; up_total = 0; up_tries = 0;
+    up_hf.range = 0; up_hf.keep = 1;                      /* v133 : reprise possible */
     hf_start(&up_hf, up_url, NULL);
     up_state = UP_DL;
     crumb("mise a jour : telechargement build %d", up_build);
@@ -478,8 +530,10 @@ static void update_value(char *out, int cap) {
     switch (up_state) {
     case UP_CHECK: snprintf(out, cap, "V\xC3\xA9rification..."); break;
     case UP_DL:
-        if (up_hf.st == HF_BODY && up_hf.expect > 0)
-            snprintf(out, cap, "T\xC3\xA9l\xC3\xA9" "chargement %ld %%", (long)((long long)up_hf.len * 100 / up_hf.expect));
+        if (up_hf.st == HF_BODY && (up_total > 0 || up_hf.expect > 0)) {
+            long tot = up_total > 0 ? up_total : up_hf.expect + up_acc_len;
+            snprintf(out, cap, "T\xC3\xA9l\xC3\xA9" "chargement %ld %%%s", (long)((long long)(up_acc_len + up_hf.len) * 100 / tot), up_tries ? " (reprise)" : "");
+        }
         else snprintf(out, cap, "T\xC3\xA9l\xC3\xA9" "chargement...");
         break;
     case UP_WRITE: snprintf(out, cap, "Installation %ld %%", uw_len ? (long)((long long)uw_pos * 100 / uw_len) : 0L); break;

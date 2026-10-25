@@ -21,6 +21,25 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v134 — Pulse sans le vrai lecteur, vitesse auto, accès en secours, mise à jour qui reprend
+- `natres.c` : `wk_tick` (0 = réveil par une vraie commande « inquiry », 1 = sans le lecteur). Sans lecteur
+  (`NRF_REAL_IRQ` absent : GC Station ne le pose plus si le lecteur ne répond pas au lancement), `di_real_kick`
+  ne fait rien et `di_tick`, appelé après la fonction du jeu dans les crochets VI, AI, DSP, SI et dessin, fait
+  avancer la lecture en fond (`rd_pump`, budget doublé) et donne chaque fin au jeu (ainsi que les interruptions
+  de la carte virtuelle). Avec lecteur : secours à l'image (3 images sans réveil), et passage définitif sans lui
+  après 3 secours ou un lecteur occupé plus de 2 s (entrées `DE` dans le journal). Pas de réveil si le jeu a
+  masqué l'interruption du lecteur. Banc d'essai : test `tick` (sans lecteur, et réveils perdus).
+- Pourquoi pas l'interruption fabriquée de Swiss (erreur PI) : elle arrive aussitôt, avant que la bibliothèque
+  du jeu ait posé son alarme de délai (Swiss modifie ces fonctions) ; depuis les interruptions du jeu, l'ordre
+  reste celui d'un vrai lecteur.
+- `jeux_cfg.c` : vitesse du lecteur 0 = Auto (`jc_slow_known` : GS2, GDR, GHA, GLE), 1 = vrai lecteur, 2 = rapide.
+- `natif.c` : `na_xscan` note aussi les accès au lecteur (mots) ; ceux que `na_scan_text` n'a pas trouvés sont
+  branchés avec un aiguillage à adresse calculée (`NA_DDYN`, fonctions EXI du résident qui renvoient la plage
+  du lecteur vers `di_load` / `di_store`) ; un échec ne bloque pas le lancement.
+- `update.c` / `hfetch_t` : `range` (en-tête Range, réponse 206) et `keep` (ce qui est arrivé est gardé) :
+  téléchargement repris jusqu'à 6 fois de suite, taille finale vérifiée. Simulateur : `PCSIM_NETCUT` (coupe une
+  connexion après N octets), `PCSIM_UPD` (serveur de mise à jour local), `PCSIM_CA`.
+
 ## Nouveautés v133 — Pulse : fins de commande de secours, journal au retour
 - `natres.c` : `rd_pump` (morceaux d'une lecture en fond, sorti de `di_hook`) ; `di_watchdog`, appelé à chaque image
   (VI) : si le vrai lecteur est au repos, que l'interruption du lecteur n'est pas masquée par le jeu (masques du

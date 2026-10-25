@@ -46,11 +46,11 @@ Conséquences pour Pulse :
 
 | Problème | Pulse aujourd'hui | Plan |
 |---|---|---|
-| Fin de commande perdue | **v133 : secours** à chaque image (lecture en fond relancée, fin donnée au jeu après 3 images sans réveil, si le jeu n'a pas coupé l'interruption du lecteur) ; la fonction du jeu est rebranchée même pendant une lecture en fond | **interruption fabriquée sans le lecteur** (comme Swiss) : plus de dépendance au vrai lecteur, marche aussi avec un GC Loader ou sans lecteur |
+| Fin de commande perdue | **v134 : réveil sans le lecteur** (console sans lecteur, lecteur qui ne répond plus) ; **v133 : secours** à chaque image (lecture en fond relancée, fin donnée au jeu après 3 images sans réveil, si le jeu n'a pas coupé l'interruption du lecteur) ; la fonction du jeu est rebranchée même pendant une lecture en fond | fait en v134, depuis les interruptions du jeu plutôt qu'avec l'erreur PI de Swiss (voir l'historique) |
 | Jeu figé, écran noir, sans plantage | **v133** : A+Z+START écrit où en était le jeu (code, appels, pile, mémoire) dans le journal | lire ces journaux jeu par jeu |
-| Accès au lecteur pas trouvés | recherche dans le code | piéger les accès restants (exception) en secours |
+| Accès au lecteur pas trouvés | **v134** : recherche large (après un saut, adresses calculées), branchés en secours | piéger les accès restants par exception (table de pages : risqué) |
 | Délais de la bibliothèque | pas gérés (lectures rapides : rarement un souci) | reconnaître `SetTimeoutAlarm` si un jeu se plaint d'une erreur de disque |
-| Courses lecture / rappel | « vitesse d'un vrai lecteur » (réglage du jeu, v122) | réglage proposé automatiquement pour les jeux connus (`GS2`, `GDR`, `GHA`, `GLE`) |
+| Courses lecture / rappel | **v134** : vitesse « Auto » (vrai lecteur pour `GS2`, `GDR`, `GHA`, `GLE`) | compléter la liste avec les journaux |
 | Initialisation de l'image | rien | vérifier `GON` (Pokémon Colosseum) / `GOY` / `GR8` avec un journal |
 | Bus EXI partagé (SD2SP2 : port série 2, pas le bus des cartes mémoire) | pas de conflit en SD2SP2 ; possible avec un adaptateur dans un port de carte | passer par le verrou EXI du jeu pour les adaptateurs SD Gecko |
 | Exécutables secondaires | OSExec suivi (v95) | patcher aussi `.elf`, `.tgc`, `switcher.prs` à la volée |

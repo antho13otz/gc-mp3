@@ -20,6 +20,7 @@
 #define NA_XIDX  0x80u                       /* (hit_reg EXI : lwzx/stwx, registre connu pendant le jeu seulement) */
 #define NA_SREG  0x4000u                     /* v122 : (hit_reg) registre des manettes (SI, 0xCC006400) ; avec NA_XREG */
 #define NA_SIO   0xCC006400u
+#define NA_DDYN  0x2000u                     /* v133 : (hit_reg) acces au lecteur trouve seulement par le suivi large (adresse recalculee pendant le jeu) */
 #define NA_MAXHIT 400                        /* (1080 Avalanche : 83 acces au lecteur ; v65 : + EXI) */
 static void nat_qr_open(const char *id);      /* v51 : QR code vers le rapport (plus bas) */
 static const char *na_tramp_why(u32 ins);     /* v52 (plus bas) */
@@ -57,6 +58,7 @@ typedef struct {
 static const char *na_adapter(void);
 static const char *na_reg_name(u32 r) {
     if (r & NA_SREG) return "SI (manettes)";
+    if (r & NA_DDYN) return "lecteur (adresse calculee pendant le jeu)";
     if (r & NA_XREG) {
         static const char *const xn[5] = { "EXI CSR (etat, choix)", "EXI MAR (adresse DMA)", "EXI LENGTH (taille DMA)", "EXI CR (demarrage)", "EXI DATA (donnees)" };
         if (r & NA_XIDX) return "EXI (registre calcule pendant le jeu)";
@@ -113,6 +115,15 @@ static void na_hit(nat_info_t *in, const u8 *txt, u32 base, u32 at, u32 reg, int
     if (in->nfunc < NA_MAXHIT) in->func_addr[in->nfunc++] = f;
 }
 
+/* v133 : acces au lecteur vus par le suivi large (na_xscan : il ne s'arrete pas aux sauts, suit add / mr et les
+   formes indexees) ; ceux que la recherche simple n'a pas trouves sont branches "en secours" : l'aiguillage
+   recalcule l'adresse pendant le jeu (un faux positif ne change rien : meme acces, fait par le resident) */
+#define NA_DCMAX 64
+static u32 na_dc_at[NA_DCMAX], na_dc_ins[NA_DCMAX];
+static u8 na_dc_st[NA_DCMAX];
+static int na_dc_n = 0;
+static int na_dd_found = 0, na_dd_done = 0, na_dd_skip = 0;   /* (journal) */
+
 /* v65 : acces EXI (carte memoire, horloge). Le SDK ecrit __EXIRegs[canal * 5 + n] : l'adresse
    vaut 0xCC006800 + un decalage connu seulement pendant le jeu (le canal). On suit donc les
    registres "base connue + inconnu" (lis/addi/ori, add, mr), et on ne les oublie qu'au debut
@@ -163,6 +174,12 @@ static void na_xscan(nat_info_t *in, const u8 *txt, u32 base, u32 o, u32 *xv, u3
 #undef XS
 #undef XC
     *xm = m;
+    {   /* v133 : lecteur, mots seulement (lwz lwzu stw stwu lwzx stwx) */
+        int wop = op == 32 || op == 33 || op == 36 || op == 37 || (op == 31 && (xo == 23 || xo == 151));
+        if (acc && wop && ea >= NA_DI && ea < NA_DI + 0x40 && na_dc_n < NA_DCMAX) {
+            na_dc_at[na_dc_n] = base + o; na_dc_ins[na_dc_n] = ins; na_dc_st[na_dc_n] = (u8)store; na_dc_n++;
+        }
+    }
     if (acc && ea >= NA_EXI0 && ea < NA_EXI0 + 0x40) {
         na_hit(in, txt, base, base + o, NA_XREG | (idx ? NA_XIDX : (ea - NA_EXI0) % 0x14), store, ins);
     } else if (acc == 1 && ea >= NA_SIO && ea < NA_SIO + 0x40) {   /* v122 : manettes (mots seulement) */
@@ -174,7 +191,20 @@ static void na_xscan(nat_info_t *in, const u8 *txt, u32 base, u32 o, u32 *xv, u3
    les registres qui contiennent une adresse connue (lis rX,0xCC00 puis addi / ori),
    et on note les lectures / ecritures dont l'adresse tombe dans 0xCC006000..0xCC00603F.
    L'etat est oublie a chaque branchement (simple, mais suffisant pour un rapport). */
+static void na_scan_text2(nat_info_t *in, const u8 *txt, u32 base, u32 len);
 static void na_scan_text(nat_info_t *in, const u8 *txt, u32 base, u32 len) {
+    int h0 = in->nhit;
+    na_dc_n = 0;
+    na_scan_text2(in, txt, base, len);
+    for (int c = 0; c < na_dc_n; c++) {                      /* v133 : acces au lecteur oublies par la recherche simple */
+        int seen = 0;
+        for (int i = h0; i < in->nhit && !seen; i++) if (in->hit_addr[i] == na_dc_at[c]) seen = 1;
+        if (seen) continue;
+        na_dd_found++;
+        na_hit(in, txt, base, na_dc_at[c], NA_DDYN | NA_XIDX, na_dc_st[c], na_dc_ins[c]);
+    }
+}
+static void na_scan_text2(nat_info_t *in, const u8 *txt, u32 base, u32 len) {
     u32 val[32]; u32 known = 0;
     u32 xv[32], xm = 0;                                       /* v65 : suivi EXI (voir na_xscan) */
     for (u32 o = 0; o + 4 <= len; o += 4) {
@@ -262,6 +292,7 @@ static void na_ws_scan(nat_info_t *in, const u8 *txt, u32 base, u32 len) {
 /* analyse complete ; retourne 0 si le disque est illisible */
 static int nat_analyse(const char *path, nat_info_t *in) {
     memset(in, 0, sizeof(*in));
+    na_dd_found = 0;                                      /* v133 */
     gdisc_t d;
     if (!gd_open(&d, path)) { snprintf(in->err, sizeof(in->err), "Fichier illisible"); return 0; }
     u8 h[0x440], b2[0x40], al[0x20];
@@ -674,6 +705,7 @@ static const char *na_cmd_name(u32 c) {
     case 0xA8: return (c & 0xC0) == 0x40 ? "lire l'ID du disque" : "lire";
     case 0xAB: return "chercher"; case 0xE0: return "demander l'erreur"; case 0x12: return "infos lecteur";
     case 0xAC: return "jeu : ecrit DISR";
+    case 0xDE: return (c & 0xFF) == 1 ? "LECTEUR BLOQUE : sans lui" : "PASSE SANS LE LECTEUR";   /* v133 */
     case 0xDD: return (c & 0xFF) == 3 ? "SECOURS : fin donnee" : (c & 0xFF) == 1 ? "SECOURS : lecture finie" : (c & 0xFF) == 2 ? "SECOURS : erreur" : "SECOURS : lecture relancee";   /* v133 */
     case 0xE1: return "audio : jouer"; case 0xE2: return "audio : etat"; case 0xE3: return "arreter le moteur"; case 0xE4: return "audio : tampon";
     default: return "?";
@@ -1032,7 +1064,7 @@ static u32 na_stubs(u8 *w, u32 at) {                     /* rend la place prise 
 static int na_tramp(u8 *w, u32 at, u32 site, u32 ins, u32 reg, u32 fn_load, u32 fn_store) {
     u32 op = ins >> 26, rt = (ins >> 21) & 31, ra = (ins >> 16) & 31, rb = (ins >> 11) & 31;
     s32 simm = (s16)(ins & 0xFFFF);
-    int dyn = (reg & NA_XREG) != 0;                       /* v65 : EXI : r3 = adresse, calculee pendant le jeu */
+    int dyn = (reg & (NA_XREG | NA_DDYN)) != 0;           /* v65 : EXI : r3 = adresse, calculee pendant le jeu ; v133 : lecteur en secours */
     if (dyn ? na_xtramp_why(ins) != NULL : na_tramp_why(ins) != NULL) return 0;
     int xf = op == 31;
     int load = op == 32 || op == 33 || op == 40 || (xf && ((ins >> 1) & 0x3FF) == 23), half = op == 40 || op == 44;
@@ -1108,7 +1140,7 @@ static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *c
     u32 dl = be32(res + 0x40), ds = be32(res + 0x44);   /* (h->di_load, h->di_store) */
     u32 xl = be32(res + 0xF0), xs = be32(res + 0xF4);   /* v65 : (h->exi_load, h->exi_store) */
     int done = 0;
-    *skipped = 0; na_nskip = 0; na_xdone = 0; na_xwhy[0] = 0;
+    *skipped = 0; na_nskip = 0; na_xdone = 0; na_xwhy[0] = 0; na_dd_done = 0; na_dd_skip = 0;
     na_ssave = na_srest = 0;
     if (at + 0x80 <= na_ceil(res)) at += na_stubs(res + (at - NATRES_AT), at);   /* v126 */
     /* passe 0 : le lecteur (tous, sinon le jeu n'est pas lance) ; passe 1 : la carte (tout ou rien) ;
@@ -1124,22 +1156,30 @@ static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *c
         u32 xfail_at = 0;
         for (int i = 0; i < in->nhit; i++) {
             int kind = in->hit_reg[i] & NA_SREG ? 2 : in->hit_reg[i] & NA_XREG ? 1 : 0, isx = kind != 0;
+            int dd = (in->hit_reg[i] & NA_DDYN) != 0;     /* v133 : lecteur, en secours (adresse recalculee : fonctions EXI du resident) */
             if (kind != pass) continue;
             u32 a = in->hit_addr[i], fo = 0;
             int sec = -1;
             for (int k = 0; k < in->nsec; k++) if (a >= in->sec_addr[k] && a - in->sec_addr[k] < in->sec_sz[k]) { sec = k; fo = in->sec_off[k] + (a - in->sec_addr[k]); }
             const char *why = sec < 0 ? "hors des sections" : be32(dol + fo) != in->hit_ins[i] ? "instruction differente"
                             : at + 64 * 4 > na_ceil(res) ? "plus de place"   /* (v97 : sous la table des morceaux ; v121 : des 2 disques) */
-                            : isx ? na_xtramp_why(in->hit_ins[i]) : na_tramp_why(in->hit_ins[i]);
+                            : isx || dd ? na_xtramp_why(in->hit_ins[i]) : na_tramp_why(in->hit_ins[i]);
             s32 d = (s32)(at - a);
             if (!why && (d >= 0x02000000 || d < -0x02000000)) why = "trop loin";
-            int n = why ? 0 : na_tramp(res + (at - NATRES_AT), at, a, in->hit_ins[i], in->hit_reg[i], kind == 2 ? sl : isx ? xl : dl, kind == 2 ? ss : isx ? xs : ds);
+            int n = why ? 0 : na_tramp(res + (at - NATRES_AT), at, a, in->hit_ins[i], in->hit_reg[i], kind == 2 ? sl : isx || dd ? xl : dl, kind == 2 ? ss : isx || dd ? xs : ds);
             if (!why && !n) why = "demi-registre impair";
             if (kind == 2) {                                  /* (manettes : un acces pas branche reste au vrai materiel) */
                 if (why) { na_si_skip++; continue; }
                 na_wbe32(dol + fo, 0x48000000u | ((u32)d & 0x03FFFFFCu));
                 at += (u32)n * 4;                         /* v126 : serres (avant : arrondis a 32 octets) */
                 na_si_done++;
+                continue;
+            }
+            if (dd) {                                     /* (secours : un acces pas branche ne bloque pas le lancement) */
+                if (why) { na_dd_skip++; continue; }
+                na_wbe32(dol + fo, 0x48000000u | ((u32)d & 0x03FFFFFCu));
+                at += (u32)n * 4;
+                na_dd_done++; done++;
                 continue;
             }
             if (why && isx) { xfail = why; xfail_at = a; break; }
@@ -1400,6 +1440,7 @@ static const char *na_adapter(void) {
    le jeu attend 10 s puis affiche "Une erreur est survenue". On le libere et on verifie
    qu'il repond a une commande "inquiry" (interruptions coupees, sans libogc). */
 static char na_drv[220] = "";
+static int na_drv_ok = 1;                               /* v133 : le vrai lecteur repond (sinon : Pulse reveille le jeu sans lui) */
 #ifdef GEKKO
 static void nat_ld_tick(void);                          /* (ecran de chargement, plus bas) */
 static int na_inq(volatile u32 *di, u8 *buf, u32 ms) {  /* 0x10 fin, 0x04 erreur (repond quand meme), -1 rien */
@@ -1443,6 +1484,7 @@ static void na_drive_wake(void) {
     }
     di[1] = 4u;                                           /* (couvercle : acquitte, sans interruption) */
     int ok = r1 >= 0 || r2 >= 0, mot = -2;
+    na_drv_ok = ok;
     if (ok) {                                             /* v64 : moteur arrete (E3) : le lecteur reste silencieux */
         di[0] = 0x54u; di[2] = 0xE3000000u; di[3] = 0; di[4] = 0; di[7] = 1;
         u64 t0 = now_ms();
@@ -1457,7 +1499,12 @@ static void na_drive_wake(void) {
              inq[4], inq[5], inq[6], inq[7], mot == -2 ? "non" : mot < 0 ? "pas de reponse" : mot & 0x10 ? "oui" : "erreur");
 }
 #else
-static void na_drive_wake(void) { snprintf(na_drv, sizeof(na_drv), "(simulateur)"); }
+static void na_drive_wake(void) {
+    snprintf(na_drv, sizeof(na_drv), "(simulateur)");
+#ifdef NATIF_BENCH
+    na_drv_ok = !getenv("NATIF_NODRIVE");                /* (banc d'essai : console sans lecteur) */
+#endif
+}
 #endif
 
 /* ---------- v65 : ecran de chargement de Resident, dans le style de GC Station (degrade,
@@ -2032,6 +2079,7 @@ static const char *nat_boot(int k) {
     if (res) { tab[n * 3] = NATRES_AT; tab[n * 3 + 1] = stage + o_res; tab[n * 3 + 2] = NATRES_SIZE; n++; }
     /* v55 : le vrai lecteur doit repondre (sa fin de commande reveille le jeu) */
     if (res) { stop_track(); nat_ld_span("Pr\xC3\xA9paration du lecteur", 40, 92); na_drive_wake(); }
+    if (res && !na_drv_ok) { u8 *r = buf + o_res; na_wbe32(r + 0x48, be32(r + 0x48) & ~NRF_REAL_IRQ); }   /* v133 : pas de lecteur : Pulse reveille le jeu sans lui */
     nat_ld("D\xC3\xA9marrage", 100);
     /* journal, ecrit AVANT le saut (apres, plus rien ne peut ecrire sur la carte) */
     mkdir(NA_DIR, 0777);
@@ -2046,7 +2094,9 @@ static const char *nat_boot(int k) {
         fprintf(f, "Programme resident : %s\n", res ? "installe" : merr[0] ? merr : "non installe");
         fprintf(f, "Journal du jeu : %s\n", log_sec ? "oui (gc-mp3/natif/journal-jeu.txt au prochain demarrage de GC Station)" : "non");
         fprintf(f, "Faux lecteur DVD : %d acces branches, %d non branches (sur %d trouves)\n", patched - na_xdone, skipped, in.ntotal - in.nexi);
+        if (na_dd_found) fprintf(f, "  dont %d trouves seulement par le suivi large (branches en secours : %d, pas branches : %d)\n", na_dd_found, na_dd_done, na_dd_skip);   /* v133 */
         fprintf(f, "Vrai lecteur : %s\n", na_drv[0] ? na_drv : "pas teste");
+        fprintf(f, "Reveil du jeu (fins de commande) : %s\n", na_drv_ok ? "par le vrai lecteur (secours sans lui si un reveil se perd)" : "sans le lecteur (depuis les interruptions du jeu)");   /* v133 */
         fprintf(f, "Retour a GC Station (A+Z+START, plantage) : %s\n", na_ret_n ? "pret (le .dol de GC Station est relu sur la carte)" : "redemarrage de la console");
         fprintf(f, "Carte memoire virtuelle (slot A) : %s ; %d acces EXI trouves, %d branches\n", na_card_msg[0] ? na_card_msg : "non", in.nexi, na_xdone);
         fprintf(f, "Format : %s\n", gl[k].ciso ? ".ciso (blocs absents lus comme des zeros)" : ".iso / .gcm");
@@ -2056,7 +2106,7 @@ static const char *nat_boot(int k) {
         static const char *const vmn[4] = { "comme le jeu", "480p force", "PAL 60 Hz", "240p" };
         fprintf(f, "Video : %s%s%s ; %s\n", vmn[nat_vmode & 3], nat_deflick ? ", sans flou" : "", nat_wide ? ", image large" : "", na_rm_msg[0] ? na_rm_msg : "rien a changer");
         fprintf(f, "Manettes : options %08X ; %d acces branches, %d laisses au vrai materiel (sur %d trouves%s)\n", (unsigned)(na_opt() & 0x00FFFFFFu), na_si_done, na_si_skip, in.nsi, in.si_lost ? ", limite atteinte" : "");
-        fprintf(f, "Vitesse du lecteur : %s\n", nat_speed ? "comme un vrai lecteur" : "rapide (carte SD)");
+        fprintf(f, "Vitesse du lecteur : %s%s\n", nat_speed ? "comme un vrai lecteur" : "rapide (carte SD)", nat_speed_auto ? " (automatique : jeu connu pour bloquer si le disque repond trop vite)" : "");
         fprintf(f, "Carte memoire virtuelle (slot B) : %s\n", nat_card >= 2 ? (na_card2_msg[0] ? na_card2_msg : "non") : "non (reglage)");
         fprintf(f, "Mode video donne au jeu (800000CC) : %s (jeu %s)\n", na_vi_bootrom(in.id) == 1 ? "PAL" : na_vi_bootrom(in.id) == 5 ? "EURGB60 (PAL 60 Hz)" : "NTSC",
                 na_game_pal(in.id) ? "PAL" : "NTSC");
