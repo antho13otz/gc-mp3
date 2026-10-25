@@ -1,0 +1,6 @@
+TJpgDec R0.03 (C)ChaN, 2021 - http://elm-chan.org/fsw/tjpgd/
+Copie de https://github.com/Bodmer/TJpg_Decoder (src/tjpgd.c, src/tjpgd.h), sans modification ;
+tjpgdcnf.h : reglages de GC Station. Licence : voir l'en-tete de tjpgd.c (utilisation libre,
+la mention de copyright doit rester dans les sources).
+Utilise par le navigateur (v118) : les grandes photos JPEG sont decodees directement en 1/2, 1/4 ou 1/8
+de leur taille, avec tres peu de memoire.

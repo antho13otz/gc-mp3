@@ -21,6 +21,33 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v118 — navigateur : affichage classique, images entières, fluidité
+- **CSS** (`source/web_css.c`) : feuilles `<style>`, `<link rel=stylesheet>` (lues après la page, gardées
+  en mémoire, compressées gzip) et `style=""` ; sélecteurs balise / .classe / #id / combinés /
+  descendants ; @media évalué pour un écran de 640 points (souvent la version « téléphone » du site).
+  Propriétés : display (none / bloc / en ligne), visibility, opacity 0, clip, texte hors de l'écran
+  (cachés), color, background(-color) (aussi la 1re couleur d'un dégradé), font-weight, font-size
+  (px, em, rem, %, calc), text-align, text-decoration, border(-*), list-style. Attributs d'autrefois :
+  bgcolor, color, align, `<center>`, `<font>`, `hidden`. Contraste vérifié (texte toujours lisible).
+- **Mise en page** (`source/web_layout.c`) : pile des éléments ouverts (fermetures implicites de `<p>`,
+  `<li>`, cases de tableau), fond blanc et texte foncé par défaut, liens bleus soulignés, encadrés
+  colorés avec marge, lignes centrées / à droite, gras (texte dessiné deux fois), tableaux de 2 à 8
+  colonnes en vraies colonnes (bordures, fonds de cases, largeur donnée), menus horizontaux
+  (`li` en ligne), `<picture>` / `srcset` (la taille qui convient à l'écran).
+- **Images** : JPEG décodés directement réduits (TJpgDec, `source/tjpgd`, 1/2 à 1/8) jusqu'à 40 millions
+  de points ; WebP réduits au décodage ; JPEG progressifs trop grands pour stb_image : premier passage
+  seulement (image 8 fois plus petite, agrandie en douceur) ; jusqu'à 600 points de haut (320 avant) ;
+  3 téléchargements à la fois ; petite barre qui avance sur les images en cours.
+- **Pages compressées** (gzip) : 5 à 10 fois moins de données ; les pages de plus de 1,5 Mo sont coupées.
+- **Fluidité** : la remise en page (image qui donne sa taille, feuille de style lue) se fait dans le fil
+  de décodage pour les pages de plus de 60 Ko : page de 600 Ko dans le simulateur, plus aucune image
+  ratée en faisant défiler (avant : 90 à 170 ms de blocage à chaque image arrivée). Mémoire : sur une
+  très grande page, moins d'images gardées.
+- **Plein écran** : R (la page sur 446 points de haut au lieu de 272) ; dans le navigateur, R ne change
+  plus de morceau (L oui).
+- Banc d'essai : `tools/pc-sim/websrv/run.sh page.html [scénario]` (serveur de test avec gzip et délai,
+  pages et images de test, scénarios `web-*.txt`).
+
 ## Nouveautés v117 — réseau et mise à jour sans carte SD
 - Pile réseau recompilée (`tools/fast_net.py`) avec une fenêtre TCP de 44 paquets (64 240 octets, le
   maximum sans option TCP ; 16 avant) et 256 tampons de réception (128) : avec un serveur à 30 ms, la

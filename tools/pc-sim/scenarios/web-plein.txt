@@ -1,0 +1,16 @@
+wait 4500ms
+log OUVERTURE
+wait 5s
+shot f01-normal
+press R
+wait 400ms
+shot f02-plein
+stick c 0 -100 600ms
+wait 900ms
+shot f03-plein
+wait 1500ms
+shot f04-plein
+press R
+wait 400ms
+shot f05-normal
+quit

@@ -6,7 +6,7 @@
 /* Les fichiers d'images deja telecharges (compresses) restent en memoire :
    revenir sur une page ou retrouver le logo d'un site ne coute plus rien. */
 #define ICACHE_N       48
-#define ICACHE_BUDGET  (3 * 1024 * 1024)
+#define ICACHE_BUDGET  (2 * 1024 * 1024)    /* v118 : 3 Mo avant (images plus grandes en memoire) */
 #define ICACHE_MAX_ONE (640 * 1024)
 typedef struct { char *url; unsigned char *data; int len; u32 used; } icache_t;
 static icache_t icache[ICACHE_N];
@@ -406,7 +406,7 @@ static void draw_select_picker(void) {
 /* ========================== Pointeur au stick ========================== */
 /* Le stick principal deplace une fleche sur la page ; elle selectionne le lien
    (ou le champ, le bouton) qu'elle survole, A l'ouvre. Le stick C fait defiler. */
-static f32 ptr_x = WV_X + WV_W / 2, ptr_y = WV_Y + WV_H / 2;
+static f32 ptr_x = WV_X + WV_W / 2, ptr_y = 116 + 272 / 2;
 static u64 ptr_t = 0;
 
 /* lien sous un point de l'ecran, -1 = aucun */
