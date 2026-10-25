@@ -14,17 +14,16 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v148)
+## Nouveautés de la version actuelle (v149)
+- **Date et heure de la console** : START > Réglages > Jeux > Console > « Date et heure (console) ». A, puis Gauche /
+  Droite pour choisir jour, mois, année, heure ou minute, Haut / Bas pour changer, A pour valider (B : annuler).
+  L'heure est gardée dans la console comme avec son propre menu : les jeux et le menu de la GameCube la voient aussi.
+
+## Version précédente (v148)
 - **Réglages mieux rangés** (START) : les 7 sections restent, mais chaque réglage est à sa place, en groupes avec un
   sous-titre : Musique (Lecture, Son, Bibliothèque, Fête), Radio (Radio, Enregistrement, Podcasts), Affichage (Langue,
   Apparence, Lecteur, Veille, Fichiers, Diagnostic), Vidéo (Télé, Image), Jeux (Console, Liste des jeux, Pulse,
   Lanceur de secours), Réseau (Connexion, Partages, Salon et téléphone, Mises à jour). Rien n'est caché ni retiré.
-
-## Version précédente (v147)
-- **Sauvegardes partagées par QR code** : sur une sauvegarde (vraie carte, carte virtuelle), A > « Envoyer au
-  téléphone (QR code) » : le téléphone la télécharge en .gci (même Wi-Fi). « Tout envoyer au téléphone » partage
-  toutes les sauvegardes de la carte d'un coup (une page avec chaque fichier). Aussi dans START > Outils >
-  « Historique des sauvegardes » : une copie entière d'un jeu.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

@@ -1,0 +1,37 @@
+# v149 : date et heure de la console
+wait 3s
+press START
+wait 600ms
+press R
+wait 300ms
+press R
+wait 300ms
+press R
+wait 300ms
+press R
+wait 500ms
+press DOWN
+wait 150ms
+press DOWN
+wait 300ms
+shot h01-ligne
+press A
+wait 300ms
+shot h02-edition
+press RIGHT
+wait 150ms
+press RIGHT
+wait 150ms
+press RIGHT
+wait 150ms
+press UP
+wait 150ms
+press UP
+wait 300ms
+shot h03-heure
+press A
+wait 500ms
+shot h04-valide
+press B
+wait 300ms
+quit
