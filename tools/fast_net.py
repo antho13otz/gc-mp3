@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Reseau plus rapide : recompile la pile reseau de libogc (lwIP + pilote du
-# Broadband Adapter = libbba) avec une fenetre TCP de 44 paquets (v117 ; 16 avant) au
-# lieu d'un seul, et 256 tampons de reception. Avec 1 paquet (1460 octets) par aller-retour, un serveur a 30 ms ne
+# Broadband Adapter = libbba) avec une fenetre TCP de 16 paquets au
+# lieu d'un seul (v125 : 44 paquets et 256 tampons en v117 coupaient les pages web sur la console). Avec 1 paquet (1460 octets) par aller-retour, un serveur a 30 ms ne
 # peut pas depasser ~50 Ko/s ; avec 16 paquets, la limite passe a ~750 Ko/s.
 #
 # Les sources viennent de la meme version de libogc que celle installee dans
@@ -11,8 +11,8 @@
 # Usage : python3 tools/fast_net.py libogc.tar.gz
 import os, re, shutil, subprocess, sys, tarfile
 
-WND_SEGMENTS = 44                                  # v117 : 44 x 1460 = 64240 octets (le maximum sans option de TCP)
-PBUF_POOL = 256                                    # v117 : tampons de reception (128 avant) pour la grande fenetre
+WND_SEGMENTS = 16                                  # v125 : retour a 16 (44 en v117 : pages web coupees sur la console)
+PBUF_POOL = 128                                    # v125 : retour a 128 (256 en v117)
 OUT = "netfast"
 SOURCES = [
     "network.c", "netio.c", "arch/gc/netif/gcif.c",

@@ -21,6 +21,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v125 — le web s'ouvre de nouveau sur la console
+- Sur la console, toutes les pages échouaient juste après l'envoi de la demande (archive.org : « Connexion
+  coupée », Wikipédia : « Le serveur ne répond pas »), alors que tout marchait dans le simulateur (qui
+  n'utilise pas la pile réseau de la GameCube). Seule différence côté console depuis la veille : la pile
+  réseau recompilée en v117 avec une fenêtre TCP de 44 paquets et 256 tampons. Retour aux réglages
+  d'avant (16 paquets, 128 tampons) : avec 44 paquets, le serveur envoie jusqu'à 64 Ko d'un coup, bien
+  plus que ce que l'adaptateur réseau peut garder en attendant d'être lu.
+
 ## Nouveautés v124 — erreurs du navigateur visibles
 - Une page qui ne s'ouvre pas : bandeau rouge sur la page avec la raison (8 s).
 
