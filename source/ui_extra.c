@@ -35,7 +35,7 @@ static int tab_menu_draw(void) {
     int n = 0;
     FOR_TABS(t) if (tab_shown(t)) n++;
     f32 iw = n ? 612.0f / n : 60, x = 14;
-    int sk = ui_skin;
+    int sk = ui_skin >= 3 ? 3 : ui_skin;
     nv_raw = 1;
     col_t bg1 = sk == 3 ? RGBA(10, 10, 18, 245) : sk == 2 ? RGBA(26, 30, 52, 245) : sk == 1 ? RGBA(46, 46, 50, 245) : RGBA(16, 10, 44, 245);
     col_t bg2 = sk == 3 ? RGBA(4, 4, 8, 248) : sk == 2 ? RGBA(16, 18, 34, 248) : sk == 1 ? RGBA(36, 36, 40, 248) : RGBA(8, 5, 26, 248);

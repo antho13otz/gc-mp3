@@ -411,7 +411,7 @@ static u64 ptr_t = 0;
 
 /* lien sous un point de l'ecran, -1 = aucun */
 static int web_link_at(f32 x, f32 y) {
-    x = WV_X + (x - WV_X) * ux_k;                         /* (16:9 : coordonnees de la page) */
+    x = WV_X + (x - WV_X) * web_kx;                       /* (16:9, Vitrine : coordonnees de la page) */
     int lo = 0, hi = pg.nitems;
     while (lo < hi) {
         int mid = (lo + hi) / 2;

@@ -993,7 +993,7 @@ static void gl_tex_refl(GXTexObj *o, int tw, int th, int iw, int ih, f32 x, f32 
 static void gl_draw_styled(void) {
     char buf[NAME_LEN], d[NAME_LEN];
     static f32 pos = -10000.0f;
-    int loop = gl_n >= 7, st = ui_skin;
+    int loop = gl_n >= 7, st = ui_skin >= 3 ? 3 : ui_skin;   /* (v131 : Vitrine, Ilots = Aurore) */
     if (pos < -9000.0f || !gl_anim) pos = (f32)gl_sel;
     else {
         f32 diff = (f32)gl_sel - pos;

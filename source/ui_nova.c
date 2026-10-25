@@ -230,29 +230,35 @@ static void au_sel_paint(f32 x, f32 y, f32 w, f32 h, f32 r);   /* (ui_aurore.c) 
 static void nv_shift(f32 dx) {
     Mtx m;
     guMtxIdentity(m);
+    f32 dy = st_on ? st_dy : 0;                          /* (v131 : Vitrine, Ilots : page remontee) */
     if (ui_skin >= 3 && nv_page_r > 0) {                 /* v102 : Aurore : la page arrive en zoom doux */
-        f32 s = 1.0f - 0.035f * nv_page_r, cx = UX(320), cy = 270;
-        m[0][0] = s; m[1][1] = s; m[0][3] = cx * (1 - s); m[1][3] = cy * (1 - s);
+        f32 s = 1.0f - 0.035f * nv_page_r, cx = UX(320), cy = 270 + dy;
+        m[0][0] = s; m[1][1] = s; m[0][3] = cx * (1 - s); m[1][3] = cy * (1 - s) + dy;
         GX_LoadPosMtxImm(m, GX_PNMTX0);
         return;
     }
     m[0][3] = dx * ux_k;
+    m[1][3] = dy;
     GX_LoadPosMtxImm(m, GX_PNMTX0);
     nv_cdx = dx;
 }
 static void nv_page_begin(void) {                        /* avant le contenu de l'onglet */
     nv_frame++;
     nv_page_r = ui_skin >= 2 ? nv_trans() : 0;
-    if (nv_page_r > 0) nv_shift(nv_dir * 46 * nv_page_r);
+    st_page_map();                                       /* (v131 : Vitrine, Ilots : zone de la page) */
+    if (nv_page_r > 0 || (st_on && st_dy != 0)) nv_shift(nv_dir * 46 * nv_page_r);
 }
 static void nv_page_end(void) {                          /* apres : fondu par-dessus, puis plus de decalage */
-    if (nv_page_r <= 0) return;
     f32 r = nv_page_r;
-    nv_page_r = 0;
-    nv_shift(0);
-    nv_raw = 1;
-    gx_rect(0, 72, 640, 408, ui_skin >= 3 ? RGBA(4, 4, 8, (u8)(220 * r)) : RGBA(12, 14, 28, (u8)(200 * r)));
-    nv_raw = 0;
+    if (r > 0) {
+        nv_page_r = 0;
+        nv_shift(0);                                     /* (plus de zoom ; encore remontee) */
+        nv_raw = 1;
+        gx_rect(0, 72, 640, 408, ui_skin >= 3 ? RGBA(4, 4, 8, (u8)(220 * r)) : RGBA(12, 14, 28, (u8)(200 * r)));
+        nv_raw = 0;
+    }
+    if (st_on && st_dy != 0) { Mtx m; guMtxIdentity(m); GX_LoadPosMtxImm(m, GX_PNMTX0); }
+    st_page_unmap();
 }
 
 /* ---------- selection qui glisse (toutes les listes et grilles) ----------

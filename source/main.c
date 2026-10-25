@@ -157,6 +157,12 @@ static int nv_draw_tabs(const char *count);
 static void nv_header(void);
 static void nv_page_begin(void);
 static void nv_page_end(void);
+static void st_page_map(void);                         /* v131 : Vitrine, Ilots (ui_styles.c) : zone de la page */
+static void st_page_unmap(void);
+static void st_after_page(void);
+static int st_on = 0;                                  /* (la page est dessinee dans sa zone) */
+static int st_skip = 0;                                /* (fenetre plein ecran ouverte : pas de page) */
+static f32 st_dy = 0, st_bk = 1, st_bo = 0;            /* (decalage vertical de la page ; repere de l'ecran) */
 static void au_background(void);                        /* v102 : Aurore (ui_aurore.c) */
 static void au_panel(float x, float y, float w, float h);
 static void au_legend_box(float x, float w);
@@ -190,7 +196,7 @@ static int nat_igr = 1;                                 /* v59 : A+Z+START dans 
 static int gl_sort = 0;                                 /* v45 : tri des jeux : A-Z, derniers lances, taille, region */
 static const char *const gl_sort_keys[4] = { "az", "recents", "taille", "region" };
 static const char *const gl_sort_names[4] = { "A \xE2\x86\x92 Z", "Derniers lanc\xC3\xA9s", "Taille", "R\xC3\xA9gion" };
-static const char *const skin_keys[6] = { "indigo", "moderne", "nouvelle", "aurore", "nebula", "halo" };   /* v129 : + Nebula, Halo ; Moderne et Nouvelle retires du choix */
+static const char *const skin_keys[6] = { "indigo", "moderne", "nouvelle", "aurore", "vitrine", "ilots" };   /* v131 : + Vitrine, Ilots (a la place de Nebula, Halo) ; Moderne et Nouvelle retires du choix */
 static const char *const glview_keys[6] = { "grille", "carrousel", "liste", "mur", "vitrine", "etagere" };
 static u8 mod_acc[3] = { 0, 190, 230 };
 static void skin_accent(void) {
@@ -253,31 +259,15 @@ static inline col_t aur_col(col_t c) {
     return c;
 }
 static int tab;                                          /* (onglet affiche : defini plus bas) */
-/* v129 : Halo : une couleur vive par onglet ; les violets de l'interface la prennent, le reste en graphite */
-static const u8 halo_tab_rgb[11][3] = { {167,123,255}, {47,211,255}, {77,139,255}, {255,154,60}, {255,79,176}, {166,255,61},
-                                        {47,224,192}, {255,200,60}, {77,255,136}, {255,77,94}, {232,230,255} };
-static inline col_t halo_acc(u8 a) { int t = tab >= 0 && tab < 11 ? tab : 0; return RGBA(halo_tab_rgb[t][0], halo_tab_rgb[t][1], halo_tab_rgb[t][2], a); }
-static inline col_t halo_col(col_t c) {
-    int mx = c.r > c.g ? (c.r > c.b ? c.r : c.b) : (c.g > c.b ? c.g : c.b);
-    int mn = c.r < c.g ? (c.r < c.b ? c.r : c.b) : (c.g < c.b ? c.g : c.b);
-    int sat = mx ? (mx - mn) * 255 / mx : 0;
-    int purple = c.b >= c.r && c.b >= c.g && c.r + 8 >= c.g;
-    if (!purple || sat < 30) return c;
-    if (sat > 120 && mx > 140) { col_t a = halo_acc(255); c.r = (u8)(a.r * mx / 255); c.g = (u8)(a.g * mx / 255); c.b = (u8)(a.b * mx / 255); return c; }
-    int lum = (c.r * 54 + c.g * 183 + c.b * 19) >> 8;
-    int gr = lum * 80 / 100 + (mx - lum) / 4;               /* (plus sombre qu'Aurore : noir profond) */
-    c.r = c.g = (u8)gr; c.b = (u8)(gr + (gr < 245 ? 8 : 0));
-    return c;
-}
 /* v120 : couleurs deja converties gardees (256 cases) : la conversion (des divisions) etait refaite a
    chaque sommet, des milliers de fois par image, pour une poignee de couleurs differentes */
 static u32 thc_key[256], thc_val[256];
-static int thc_skin = -1, thc_theme = -1, thc_ident = -1, thc_tab = -1;
+static int thc_skin = -1, thc_theme = -1, thc_ident = -1;
 static col_t th_col_slow(col_t c);
 static inline col_t th_col(col_t c) {
     if (nv_raw) return c;                                /* (v109 : logos et decors : couleurs exactes, tous styles) */
-    if (ui_skin != thc_skin || theme_id != thc_theme || th_identity != thc_ident || (ui_skin == 5 && thc_tab != tab)) {
-        memset(thc_key, 0, sizeof(thc_key)); thc_skin = ui_skin; thc_theme = theme_id; thc_ident = th_identity; thc_tab = tab;
+    if (ui_skin != thc_skin || theme_id != thc_theme || th_identity != thc_ident) {
+        memset(thc_key, 0, sizeof(thc_key)); thc_skin = ui_skin; thc_theme = theme_id; thc_ident = th_identity;
     }
     u32 k = 0x01000000u | (u32)c.r << 16 | (u32)c.g << 8 | c.b;
     u32 h = (k * 2654435761u) >> 24;
@@ -287,7 +277,6 @@ static inline col_t th_col(col_t c) {
     return c;
 }
 static col_t th_col_slow(col_t c) {
-    if (ui_skin == 5) return halo_col(c);
     if (ui_skin >= 3) return aur_col(c);
     if (ui_skin == 2) return nova_col(c);
     if (ui_skin) return mod_col(c);
@@ -424,9 +413,12 @@ static int gp_on = 0;
 static void gp_player_zones(void);
 static u64 gp_t = 0;
 
+static void st_zone_fix(f32 *x, f32 *y, f32 *w);           /* (v131 : ui_styles.c) */
 static void gp_zone(f32 x, f32 y, f32 w, f32 h, int *sel, int val, int code) {
     if (gp_nz >= GP_ZONES) return;
-    gp_z[gp_nz++] = (gpzone_t){ x + nv_cdx, y, w, h, sel, val, code };   /* (v103 : page qui glisse) */
+    x += nv_cdx;                                            /* (v103 : page qui glisse) */
+    if (st_on) st_zone_fix(&x, &y, &w);                     /* (v131 : page dans sa zone : en repere de l'ecran) */
+    gp_z[gp_nz++] = (gpzone_t){ x, y, w, h, sel, val, code };
 }
 static void gp_frame_begin(void) {                          /* (debut de chaque image) */
     memcpy(gp_zl, gp_z, sizeof(gpzone_t) * gp_nz);
@@ -4508,6 +4500,7 @@ static int web_full = 0;                    /* v118 : navigateur en plein ecran 
 static void draw_web_full(void);
 static void web_set_full(int on);
 static int wv_lw = WV_W;                    // largeur de mise en page (16:9 : plus large)
+static f32 web_kx = 1;                      // v131 : echelle de la page a l'ecran (16:9, Vitrine) : pour la fleche
 static f32 scr_x0 = 0, scr_w = 640;         /* bords gauche et largeur du repere (16:9 : -107 et 853) */
 /* 16:9 : l'interface (dessinee pour 0..640) est elargie a tout l'ecran : les
    positions et les largeurs sont etirees, mais le texte, les cercles, les
@@ -4634,7 +4627,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "ecran_hauteur")) { scr_hpct = atoi(v); if (scr_hpct < 80) scr_hpct = 80; if (scr_hpct > 100) scr_hpct = 100; }
         else if (!strcasecmp(k, "ecran_position")) { scr_vpos = atoi(v); if (scr_vpos < -24) scr_vpos = -24; if (scr_vpos > 24) scr_vpos = 24; }
         else if (!strcasecmp(k, "ecran_taille")) { scr_pct = atoi(v); if (scr_pct < 80) scr_pct = 80; if (scr_pct > SCR_MAX) scr_pct = SCR_MAX; }
-        else if (!strcasecmp(k, "style")) ui_skin = !strncasecmp(v, "mod", 3) || !strncasecmp(v, "nouv", 4) || !strncasecmp(v, "aur", 3) ? 3 : !strncasecmp(v, "neb", 3) || !strncasecmp(v, "n\xC3\xA9" "b", 4) ? 4 : !strncasecmp(v, "halo", 4) ? 5 : 0;   /* v129 : Moderne / Nouvelle -> Aurore */
+        else if (!strcasecmp(k, "style")) ui_skin = !strncasecmp(v, "mod", 3) || !strncasecmp(v, "nouv", 4) || !strncasecmp(v, "aur", 3) ? 3 : !strncasecmp(v, "vit", 3) || !strncasecmp(v, "neb", 3) || !strncasecmp(v, "n\xC3\xA9" "b", 4) ? 4 : !strncasecmp(v, "ilot", 4) || !strncasecmp(v, "\xC3\xAElot", 5) || !strncasecmp(v, "halo", 4) ? 5 : 0;   /* v129 : Moderne / Nouvelle -> Aurore ; v131 : Nebula -> Vitrine, Halo -> Ilots */
         else if (!strcasecmp(k, "spectrogramme_couleurs")) { for (int i = 0; i < SGP_COUNT; i++) if (!strcasecmp(v, sgp_keys[i])) sg_pal_id = i; }
         else if (!strcasecmp(k, "spectre")) { for (int i = 0; i < VZ_COUNT; i++) if (!strcasecmp(v, viz_keys[i])) viz_style = i; }
         else if (!strcasecmp(k, "jeux_affichage")) { for (int i = 0; i < 6; i++) if (!strcasecmp(v, glview_keys[i])) gl_view = i; }
@@ -4742,7 +4735,7 @@ static void save_settings(void) {
                "langue = %s\n"
                "# Langue de l'interface / interface language : auto / fr / en\n"
                "interface = %s\n"
-               "# Style de l'interface : indigo / moderne ; affichage des jeux : grille / carrousel / liste / mur / vitrine / etagere\n"
+               "# Style de l'interface : indigo / aurore / vitrine / ilots ; affichage des jeux : grille / carrousel / liste / mur / vitrine / etagere\n"
                "style = %s\njeux_affichage = %s\n"
                "# Taille de l'image (80 a 100 %%) : a reduire si les bords sont coupes sur la tele\n"
                "ecran_taille = %d\n"
@@ -5285,6 +5278,7 @@ static void gx_rrect_fill(f32 x, f32 y, f32 w, f32 h, f32 r, col_t top, col_t bo
 }
 
 static void gx_rrect_stroke(f32 x, f32 y, f32 w, f32 h, f32 r, f32 t, col_t c) {
+    if (ui_skin >= 4 && !nv_raw && c.r == 180 && c.g == 104 && c.b == 255) return;   /* (v131 : ni contour de selection) */
     f32 ox[RR_N], oy[RR_N], ix[RR_N], iy[RR_N];
     rr_points(x, y, w, h, r, ox, oy);
     rr_points(x + t, y + t, w - 2 * t, h - 2 * t, r - t, ix, iy);
@@ -5300,6 +5294,7 @@ static void gx_rrect_stroke(f32 x, f32 y, f32 w, f32 h, f32 r, f32 t, col_t c) {
 
 /* Halo lumineux autour d'un rectangle arrondi ou d'un cercle. */
 static void gx_glow(f32 x, f32 y, f32 w, f32 h, f32 r, col_t c, int layers) {
+    if (ui_skin >= 4 && !nv_raw && c.r == 150 && c.g == 80 && c.b == 255) return;   /* (v131 : Vitrine, Ilots : selections sans lueur violette) */
     for (int k = layers; k >= 1; k--) {
         col_t cc = c;
         cc.a = (u8)((int)c.a * (layers + 1 - k) / (layers + 1));
@@ -5626,8 +5621,7 @@ static void scr_viewport(void) {
     }
     scr_sx = w / scr_w;
     scr_sy = h / 480.0f;
-    ux_k = scr_w / 640.0f;
-    ux_o = scr_x0;
+    if (!st_on) { ux_k = scr_w / 640.0f; ux_o = scr_x0; }   /* (v131 : page dans sa zone : on la garde) */
     GX_SetViewport(scr_ox, scr_oy, w, h, 0.0f, 1.0f);
     GX_SetScissor((u32)scr_ox, (u32)scr_oy, (u32)(w + 0.5f), (u32)(h + 0.5f));
 }
@@ -5638,6 +5632,7 @@ static void scr_scissor(f32 x, f32 y, f32 w, f32 h) {
     if (w < 0) w = 0;
     if (h < 0) h = 0;
     x = UX(x + nv_cdx) - scr_x0;                         /* (v101 : page qui glisse) */
+    if (st_on) { y += st_dy; if (y < 0) { h += y; y = 0; } if (h < 0) h = 0; }   /* (v131 : page remontee) */
     w *= ux_k;
     GX_SetScissor((u32)(scr_ox + x * scr_sx), (u32)(scr_oy + y * scr_sy), (u32)(w * scr_sx + 0.5f), (u32)(h * scr_sy + 0.5f));
 }
@@ -5733,6 +5728,7 @@ static void draw_header_modern(void) {
 }
 #include "ui_nova.c"                            /* v101 : Nouvelle interface */
 #include "ui_aurore.c"                          /* v102 : style Aurore */
+#include "ui_styles.c"                          /* v131 : styles Vitrine et Ilots */
 #include "pulse_logo.c"                         /* v109 : logo de Pulse (le lanceur, avant Resident) */
 static void draw_viz(f32 x, f32 base, f32 w, f32 h);
 static void draw_header(void) {
@@ -6117,6 +6113,9 @@ static void draw_tab_strip(void);
 static void draw_checklist(void);
 static void draw_list_retro(void);
 static void draw_list_podcast(void);
+static int st_music_page(void);                 /* v131 : Vitrine, Ilots (ui_styles2.c) */
+static int st_player_side(void);
+static int st_infos_page(void);
 static void draw_tab_photo(void);
 static void draw_tab_files(void);
 static void draw_tab_infos(void);
@@ -6215,6 +6214,7 @@ static void draw(void) {
     DP("begin_frame", begin_frame());
     DP("draw_header", draw_header());
     DP("draw_header_clock", draw_header_clock());
+    st_skip = menu_open || tl_screen || ic_on;
     DP("nv_page_begin", nv_page_begin());                               /* v101 : Nouvelle : la page glisse en changeant d'onglet */
     if (menu_open || tl_screen || ic_on) {
         /* v42 : une fenetre plein ecran est ouverte (Reglages, outils...) : l'onglet derriere
@@ -6232,6 +6232,8 @@ static void draw(void) {
         DP("draw_layout_bigviz", draw_layout_bigviz());
     } else if (tab == TAB_MUSIC && player_layout == L_LIST) {
         DP("draw_layout_list", draw_layout_list());
+    } else if (IS_PLAYER_TAB(tab) && st_music_page()) {
+        /* v131 : Vitrine, Ilots : page MUSIQUE propre au style (ui_styles2.c) */
     } else if (IS_PLAYER_TAB(tab)) {
         if (tab == TAB_MUSIC) DP("liste musique", draw_list_music(sel_row));
         else if (tab == TAB_RADIO) DP("liste radio", draw_list_radio());
@@ -6239,7 +6241,8 @@ static void draw(void) {
         else DP("liste podcasts", draw_list_podcast());
         /* panneau de droite : ce qui joue, sinon l'onglet affiche */
         int view = (src != SRC_NONE) ? src : ((tab == TAB_RADIO || tab == TAB_PODCAST) ? SRC_RADIO : SRC_FILE);
-        if (ui_skin >= 3 && tab == TAB_MUSIC) DP("au_player", au_player());   /* v103 : Aurore */
+        if (ui_skin >= 4 && st_player_side()) {}                          /* v131 : Vitrine, Ilots */
+        else if (ui_skin >= 3 && tab == TAB_MUSIC) DP("au_player", au_player());   /* v103 : Aurore */
         else if (view == SRC_RADIO) DP("lecteur radio", draw_player_radio());
         else DP("lecteur musique", draw_player_music());
         if (kb_is_open()) draw_legend_web();
@@ -6248,13 +6251,14 @@ static void draw(void) {
         switch (tab) {
         case TAB_PHOTO: DP("photos", draw_tab_photo()); break;
         case TAB_FILES: DP("fichiers", draw_tab_files()); break;
-        case TAB_INFO:  DP("infos", draw_tab_infos()); break;
+        case TAB_INFO:  if (!st_infos_page()) DP("infos", draw_tab_infos()); break;   /* (v131 : Ilots : en tuiles) */
         case TAB_GAMES: DP("jeux", draw_tab_games()); break;
         case TAB_DL:    DP("telechargements", draw_tab_dl()); break;
         default:        DP("telephone", draw_tab_phone()); break;
         }
     }
     DP("nv_page_end", nv_page_end());
+    DP("st_after_page", st_after_page());                               /* v131 : Ilots : le dock */
     DP("draw_layout_toast", draw_layout_toast());
     DP("draw_crash_notice", draw_crash_notice());
     DP("draw_update_notice", draw_update_notice());
@@ -10450,13 +10454,14 @@ static void draw_web_page(void) {
     /* contenu */
     if (img_tex_dirty) { GX_InvalidateTexAll(); img_tex_dirty = 0; }
     scr_scissor(WV_X - 6, WV_Y - 4, WV_W + 12, WV_H + 6);
+    web_kx = ux_k;
     uxsave_t wz = ux_native(WV_X);                         /* (16:9 : la page en taille reelle, plus large) */
 #define WCOL(c) RGBA((u8)((c) >> 24), (u8)((c) >> 16), (u8)((c) >> 8), (u8)(c))
     {   /* v118 : fond de la page (blanc par defaut, comme un navigateur), puis fonds et bordures des blocs */
         int sr = nv_raw;
         nv_raw = 1;
         u32 pb = pg.pagebg ? pg.pagebg : 0xffffffffu;
-        gx_rect(WV_X - 6, WV_Y - 4, (wv_lw > WV_W ? wv_lw : WV_W) + 12, WV_H + 6, WCOL(pb));
+        gx_rect(WV_X - 6, WV_Y - 4, (wv_lw > WV_W || ui_skin == 4 ? wv_lw : WV_W) + 12, WV_H + 6, WCOL(pb));
         for (int i = 0; i < pg.nboxes; i++) {
             const wbox_t *b = &pg.boxes[i];
             if (b->y1 <= b->y0 || b->y1 < pg_scroll || b->y0 > pg_scroll + WV_H) continue;
@@ -10608,8 +10613,14 @@ static void draw_web_page(void) {
 
 }
 
+static void web_relayout(void);
 static void draw_web(void) {
     char buf[URL_MAX], fit[400];
+    {   /* v131 : Vitrine : la page web est mise en page pour la place a cote du rail */
+        int lw = scr_wide ? WV_W * 4 / 3 : WV_W;
+        if (ui_skin == 4) lw = lw * (636 - VI_RAIL - 8) / 640;
+        if (lw != wv_lw) { wv_lw = lw; if (pg.nitems) web_relayout(); }
+    }
     draw_panel(11, 73, 618, 340);
     int tx = draw_tabs(NULL);
 
@@ -11316,7 +11327,7 @@ static void menu_value(int i, char *out, int cap) {
     }
     case MI_GAMES:   snprintf(out, cap, "(A)"); break;
     case MI_TITLES:  snprintf(out, cap, "(A)"); break;
-    case MI_SKIN:    snprintf(out, cap, "%s", ui_skin == 5 ? "Halo" : ui_skin == 4 ? "N\xC3\xA9" "bula" : ui_skin >= 1 ? "Aurore" : "Classique"); break;
+    case MI_SKIN:    snprintf(out, cap, "%s", ui_skin == 5 ? "\xC3\x8Elots" : ui_skin == 4 ? "Vitrine" : ui_skin >= 1 ? "Aurore" : "Classique"); break;
     case MI_GLVIEW:  { static const char *const nm[6] = { "Grille", "Carrousel", "Liste", "Mur de jaquettes", "Vitrine", "\xC3\x89tag\xC3\xA8re" };
                        snprintf(out, cap, "%s", nm[gl_view >= 0 && gl_view < 6 ? gl_view : 0]); } break;
     case MI_RUMBLE:  snprintf(out, cap, "%s", rumble_on ? "Oui" : "Non"); break;
@@ -11454,7 +11465,7 @@ static void menu_change(int i, int d) {
     case MI_SEASON:  season_on = (season_on + (d < 0 ? SEASON_MODES - 1 : 1)) % SEASON_MODES; break;   /* v115 : choix du decor */
     case MI_GAMES:   return;
     case MI_TITLES:  return;
-    case MI_SKIN: {                                    /* v129 : Classique, Aurore, Nebula, Halo */
+    case MI_SKIN: {                                    /* v131 : Classique, Aurore, Vitrine, Ilots */
         static const int order[4] = { 0, 3, 4, 5 };
         int k = 0; for (int i = 0; i < 4; i++) if (order[i] == ui_skin) k = i;
         ui_skin = order[(k + (d < 0 ? 3 : 1)) % 4]; break; }
@@ -12556,6 +12567,7 @@ static void draw_party(void) {
 static int sd_space(unsigned long long *tot, unsigned long long *fre);   /* v97 (natif.c) */
 #include "tab_files.c"
 #include "tab_infos.c"
+#include "ui_styles2.c"                        /* v131 : Vitrine, Ilots : pages propres (MUSIQUE, lecteurs, INFOS) */
 #include "tab_phone.c"
 #include "crashlog.c"
 static const char *perf_ver(void) { return GCMP3_VERSION; }
@@ -12994,8 +13006,8 @@ int main(int argc, char **argv) {
             if (fire && nents > 0) {
                 if (nav & PAD_BUTTON_DOWN)  sel_row++;
                 if (nav & PAD_BUTTON_UP)    sel_row--;
-                if (nav & PAD_BUTTON_RIGHT) sel_row += MUSIC_ROWS;
-                if (nav & PAD_BUTTON_LEFT)  sel_row -= MUSIC_ROWS;
+                if (nav & PAD_BUTTON_RIGHT) sel_row += ui_skin == 4 ? 1 : MUSIC_ROWS;   /* (v131 : Vitrine : rangee de pochettes) */
+                if (nav & PAD_BUTTON_LEFT)  sel_row -= ui_skin == 4 ? 1 : MUSIC_ROWS;
                 if (sel_row < 0) sel_row = 0;
                 if (sel_row > nents - 1) sel_row = nents - 1;
             }

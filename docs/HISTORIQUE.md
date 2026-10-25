@@ -21,6 +21,27 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v131 — styles Vitrine et Îlots (à la place de Nébula et Halo)
+- `ui_skin` 4 = **Vitrine**, 5 = **Îlots** (`skin_keys` : `vitrine`, `ilots` ; `nebula` → Vitrine, `halo` → Îlots).
+  Ils gardent le moteur d'Aurore (famille `>= 3`). Le code de Nébula et Halo est retiré (`halo_col`,
+  `nb_background`, `hl_header`…). Nouveaux fichiers : `ui_styles.c` (cadre : fonds, rail, dock, cadres,
+  sélections, zone de la page) et `ui_styles2.c` (pages propres : MUSIQUE, lecteurs, INFOS).
+- **Zone de la page** (`st_page_map` / `st_page_unmap`, appelés par `nv_page_begin` / `nv_page_end`) :
+  Vitrine resserre la page à droite du rail avec le mécanisme du 16:9 (`ux_k`, `ux_o` : positions et largeurs
+  resserrées, pas le texte ni les images) et la remonte de 22 points. Îlots la remonte de 58 points
+  (matrice de position du GX) pour laisser la place au dock. Les zones du curseur (`gp_zone` →
+  `st_zone_fix`), les découpes (`scr_scissor`) et `scr_viewport` (qui ne remet plus le repère pendant la
+  page) suivent.
+- Vitrine, MUSIQUE : rangée de pochettes qui glisse (`vi_music`) ; pochette du morceau qui joue, sinon une
+  pochette dessinée (dégradé choisi par album / artiste, lueur, icône) ; ← / → = ligne précédente / suivante.
+- Îlots : dock d'icônes (`il_dock`, dessiné après la page) ; tuiles (`il_tile`, `il_np`, `il_clock`,
+  `il_meteo`, `il_list`, `il_spectrum`, `il_infos`).
+- Les sélections violettes classiques n'ont plus de lueur ni de contour en Vitrine / Îlots ;
+  `au_pill_h` est une seule forme (plus de bande foncée aux bouts quand elle est transparente).
+- Web : la page est mise en page pour la place à côté du rail (Vitrine) ; le curseur du web utilise
+  l'échelle réelle de la page (`web_kx` : corrige aussi le 16:9). Téléphone : QR code et texte adaptés à
+  une page plus étroite.
+
 ## Nouveautés v130 — 576 lignes seulement dans GC Station
 - Pulse, le disque de la console et GC Loader remettaient déjà la vidéo dans le mode du jeu avant de le lancer
   (`na_vi_bootrom` : NTSC 480i, PAL 576i ou PAL 60). Restaient : les programmes lancés par `gl_boot_mem`

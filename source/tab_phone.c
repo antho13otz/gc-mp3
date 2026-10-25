@@ -1068,36 +1068,46 @@ static void phone_input(u32 down, u32 nav, int fire) {
     if (down & PAD_BUTTON_A) { tp_wanted = 1; net_start_async(); }
 }
 
+/* v131 : une ligne qui tient dans maxw (sinon plus petite, puis coupee) : page plus etroite (style Vitrine) */
+static void ph_text(int f, f32 x, f32 y, f32 maxw, const char *s, col_t c) {
+    if (f == F_LARGE && text_width(F_LARGE, s, 0) > maxw) f = F_MED;
+    if (f == F_MED && text_width(F_MED, s, 0) > maxw) f = F_SMALL;
+    char b[200];
+    fit_text(f, s, (int)maxw, b, sizeof(b));
+    gx_text1(f, x, y, b, c);
+}
 static void draw_tab_phone(void) {
     char buf[200];
     draw_panel(11, 73, 618, 338);
     draw_tabs(NULL);
     if (tp_state == PS_ON && tp_qr_ok > 0) {
-        draw_qr(34, 124, 220);
-        gx_text1(F_LARGE, 280, 148, "Depuis ton t\xC3\xA9l\xC3\xA9phone", RGBA(255, 255, 255, 255));
-        gx_text1(F_MED, 280, 178, "1. Connecte-le au m\xC3\xAAme Wi-Fi que la GameCube", RGBA(210, 200, 240, 255));
-        gx_text1(F_MED, 280, 200, "2. Scanne le QR code, ou ouvre :", RGBA(210, 200, 240, 255));
-        gx_text1(F_LARGE, 300, 230, tp_url, RGBA(190, 160, 255, 255));
-        gx_text1(F_SMALL, 280, 256, "Envoie musique, photos et vid\xC3\xA9os sur la carte SD,", RGBA(160, 145, 215, 255));
-        gx_text1(F_SMALL, 280, 272, "et pilote la lecture sans la manette.", RGBA(160, 145, 215, 255));
+        int narrow = ux_k < 0.95f;                       /* (v131 : Vitrine : la page est plus etroite) */
+        f32 qs = narrow ? 172 : 220, tx = narrow ? 34 + qs / 2 + (qs / 2 + 22) / ux_k : 280, tw = 616 - tx;
+        draw_qr(34, 124, qs);
+        ph_text(F_LARGE, tx, 148, tw, "Depuis ton t\xC3\xA9l\xC3\xA9phone", RGBA(255, 255, 255, 255));
+        ph_text(F_MED, tx, 178, tw, "1. Connecte-le au m\xC3\xAAme Wi-Fi que la GameCube", RGBA(210, 200, 240, 255));
+        ph_text(F_MED, tx, 200, tw, "2. Scanne le QR code, ou ouvre :", RGBA(210, 200, 240, 255));
+        ph_text(F_LARGE, tx + 20, 230, tw - 20, tp_url, RGBA(190, 160, 255, 255));
+        ph_text(F_SMALL, tx, 256, tw, "Envoie musique, photos et vid\xC3\xA9os sur la carte SD,", RGBA(160, 145, 215, 255));
+        ph_text(F_SMALL, tx, 272, tw, "et pilote la lecture sans la manette.", RGBA(160, 145, 215, 255));
         if (tp_up_active && tp_up_total > 0) {
             char nm[120];
-            fit_text(F_MED, tp_up_name, 300, nm, sizeof(nm));
+            fit_text(F_MED, tp_up_name, (int)(tw - 90), nm, sizeof(nm));
             snprintf(buf, sizeof(buf), "R\xC3\xA9" "ception : %s", nm);
-            gx_text1(F_MED, 280, 304, buf, RGBA(255, 210, 120, 255));
+            gx_text1(F_MED, tx, 304, buf, RGBA(255, 210, 120, 255));
             f32 frac = (f32)tp_up_done / (f32)tp_up_total;
-            gx_rrect_fill(280, 314, 320, 6, 3, RGBA(70, 50, 140, 230), RGBA(70, 50, 140, 230));
-            gx_hgrad(280, 314, 320 * frac, 6, RGBA(120, 64, 255, 255), RGBA(180, 100, 255, 255));
+            gx_rrect_fill(tx, 314, tw - 16, 6, 3, RGBA(70, 50, 140, 230), RGBA(70, 50, 140, 230));
+            gx_hgrad(tx, 314, (tw - 16) * frac, 6, RGBA(120, 64, 255, 255), RGBA(180, 100, 255, 255));
             u64 el = now_ms() - tp_up_t0;
             long kbs = el > 500 ? (long)((long long)tp_up_done * 1000 / 1024 / (long long)el) : 0;
             snprintf(buf, sizeof(buf), "%ld / %ld Ko   %ld Ko/s", tp_up_done / 1024, tp_up_total / 1024, kbs);
-            gx_text1(F_SMALL, 280, 334, buf, RGBA(180, 165, 235, 255));
+            gx_text1(F_SMALL, tx, 334, buf, RGBA(180, 165, 235, 255));
         } else {
             int nl = tp_nlog;
             for (int i = 0; i < 3 && i < nl; i++) {
                 char nm[140];
-                fit_text(F_SMALL, tp_log[(nl - 1 - i) % 5], 330, nm, sizeof(nm));
-                gx_text1(F_SMALL, 280, 304 + i * 16, nm, RGBA(150, 220, 170, 255));
+                fit_text(F_SMALL, tp_log[(nl - 1 - i) % 5], (int)tw, nm, sizeof(nm));
+                gx_text1(F_SMALL, tx, 304 + i * 16, nm, RGBA(150, 220, 170, 255));
             }
         }
         if (tp_free_mb >= 0) {
@@ -1107,7 +1117,7 @@ static void draw_tab_phone(void) {
         if (&gcmp3_tcp_wnd && gcmp3_tcp_wnd > 1460)
             snprintf(buf, sizeof(buf), "R\xC3\xA9seau rapide (fen\xC3\xAAtre %d Ko)", gcmp3_tcp_wnd / 1024);
         else snprintf(buf, sizeof(buf), "R\xC3\xA9seau standard");
-        gx_text1(F_SMALL, 280, 370, buf, RGBA(150, 135, 210, 255));
+        gx_text1(F_SMALL, tx, 370, buf, RGBA(150, 135, 210, 255));
         if (tp_last_req && now_ms() - tp_last_req < 5000)
             gx_text1(F_SMALL, 34, 388, "T\xC3\xA9l\xC3\xA9phone connect\xC3\xA9", RGBA(120, 230, 150, 255));
     } else {

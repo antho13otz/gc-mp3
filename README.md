@@ -14,19 +14,18 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v130)
-- **576p / 576i et les jeux** : en lançant un jeu ou une appli, la sortie vidéo revient toujours à un mode
-  standard (le jeu choisit le sien) ; le lanceur de secours ne reçoit plus « 576 » dans ses réglages.
-
-## Version précédente (v129)
-- **Deux nouveaux styles** (START > Réglages > Affichage > Style) :
-  - **Nébula** : la suite d'Aurore : grandes lueurs floues rose, violette et cyan qui dérivent, cadres en verre
-    avec reflet, sélection en dégradé rose → cyan, légende dans une pastille de verre ;
-  - **Halo** : noir profond et contrastes forts : **une couleur par onglet** (violet Musique, cyan Radio, orange
-    Rétro, rose Podcasts, vert Photos, rouge Jeux…), contours lumineux, nom de l'onglet en grand avec les
-    icônes des onglets.
-- Les styles **Moderne** et **Nouvelle** sont retirés (ceux qui les utilisaient passent à Aurore).
-- (v128) Onglet enlevé = coupé ; 576i / 576p ; début de morceau plus fluide.
+## Nouveautés de la version actuelle (v131)
+- **Deux nouveaux styles à la place de Nébula et Halo** (START > Réglages > Affichage > Style) :
+  - **Vitrine** : un rail de verre à gauche avec le logo, les noms des onglets et l'heure ; la page à côté, sur
+    un fond noir avec deux grandes lueurs (rose et bleu). Dans **Musique**, la liste devient une **rangée de
+    pochettes** : celle du milieu en grand avec son reflet, le titre en grand dessous, puis ce qui joue
+    (← / → : morceau précédent / suivant). Radio, Rétro et Podcasts : ce qui joue en vitrine à droite.
+  - **Îlots** : tout en **tuiles de verre** et les **onglets en bas, dans un dock d'icônes** (l'onglet choisi
+    grandit et montre son nom). **Musique** : tuiles « ce qui joue », heure, météo, « à suivre » et spectre ;
+    Radio, Rétro, Podcasts : la liste, ce qui joue, l'heure et le spectre en tuiles ; **Infos** : heure,
+    météo et prévisions, réveil, actualités en tuiles.
+  - Ceux qui avaient Nébula passent à Vitrine, ceux qui avaient Halo à Îlots.
+- Le curseur au stick du navigateur web vise juste aussi en 16:9.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
@@ -49,7 +48,7 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
 ## Fonctionnalités secondaires
 - Mode soirée, karaoké et mini-jeux (jeu de rythme, quiz musical, snake, casse-briques, pong…).
 - Économiseur d'écran (8 styles), mode veilleuse, minuterie, réveil.
-- Thèmes de couleurs, style Classique, Aurore, Nébula ou Halo (animés), fond d'écran, décor de saison (8 décors, automatique ou au choix), dispositions du lecteur.
+- Thèmes de couleurs, style Classique, Aurore, Vitrine ou Îlots (animés), fond d'écran, décor de saison (8 décors, automatique ou au choix), dispositions du lecteur.
 - Réglages vidéo (480i / 480p, 4:3 / 16:9, taille et position de l'image), français / anglais.
 - Clavier GameCube ASCII, curseur au stick dans tous les onglets (en haut : tous les onglets ; la croix le cache).
 - Fonctionne aussi dans Dolphin (carte SD virtuelle, réglages sur la carte mémoire).
