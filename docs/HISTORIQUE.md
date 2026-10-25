@@ -21,6 +21,27 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v139 — Pulse universel (accès au lecteur pris par exception)
+- Option par jeu `acces_exception = 1` (`SD:/gc-mp3/jeux/<ID>.txt`) -> `NRO_TRAP` dans `natres_hdr_t.opt`.
+- Le résident, dès que le jeu a installé ses fonctions d'interruption : BAT de 256 Mo en 0xC0000000 réduit à
+  32 Mo (la mémoire), 2e BAT pour l'image (EFB, 0xC8000000), table des pages de 64 Ko (SDR1 = 0x017F0000) avec
+  le segment 0xC sur un VSID qui fait tomber les pages 0xCC000-0xCC008 dans 0x817FFC00 (place laissée libre par
+  GC Station). La page 0xCC006 (DI, SI, EXI, AI) n'y est pas : chaque accès du jeu provoque une DSI.
+- Vecteur 0x300 : 1re instruction du SDK remplacée par `ba trap_vec` (adresse physique). `trap_vec` (sans
+  traduction) vérifie DSISR (pas de traduction), DAR (page 0xCC006) et SRR0 (code du jeu), sauve les registres,
+  puis `trap_c` (avec traduction, sur la pile du jeu) décode l'instruction (lwz, lhz, lha, lbz, stw, sth, stb,
+  formes x, u, ux, lwbrx...), appelle les mêmes fonctions que les aiguillages (`di_load`, `exi_load`, `si_load`...)
+  ou fait l'accès réel, et repart à l'instruction suivante. Le reste repart dans le vecteur du SDK.
+- Le résident passe par une 2e adresse de la page (0xCC406000, `hw_d`). BAT ou vecteur remis par un autre
+  programme du disque : vu à chaque entrée dans le résident (`trap_guard`), l'option est réarmée. Retour à GC
+  Station : tout est remis (`trap_disarm`).
+- Refus notés dans le journal (`trap_state`) : BAT inattendu, 2e BAT utilisé, jeu avec sa table des pages, etc.
+- Journal : en-tête de 0x1D0 octets (version 17), anneau de 3 commandes.
+- Banc d'essai : nouveau test `trap` (l'émulateur provoque l'exception DSI quand la page n'est plus traduite) :
+  lecture complète faite par des accès dont l'adresse est lue en mémoire (stw, stwx, stwu, sth, lhz, lwz, lbz).
+- Place des aiguillages : 12 Ko gardés quand la table du 2e disque est rangée (16 avant).
+- Onglet JEUX : « (pas de jaquettes) » placé à gauche de « R : affichage ».
+
 ## Nouveautés v138 — le Salon (plusieurs GC Station sur le réseau)
 - `source/salon.c` : annonce UDP (port 51234, `GCST1\tnom\tport\ttitre`) toutes les 5 s à 255.255.255.255 et au
   sous-réseau ; les annonces des autres consoles remplissent `salon_peers` (partie après 20 s sans annonce).

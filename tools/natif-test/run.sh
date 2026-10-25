@@ -77,3 +77,6 @@ python3 $T/emu_e2e.py boot-v.bin sd.img game.iso video | tail -1               #
 NATIF_SELF=selfdol.dol NATIF_NODRIVE=1 NATIF_DUMP=boot-t.bin ./h2 game.iso sd.img 10 > h2-t.txt
 EMU_NODRIVE=1 python3 $T/emu_e2e.py boot-t.bin sd.img game.iso tick | tail -1
 python3 $T/emu_e2e.py boot.bin sd.img game.iso tick | tail -1
+# v139 : Pulse universel : acces au lecteur que personne n'a remplaces, pris par exception (option du jeu)
+NATIF_SELF=selfdol.dol NATIF_TRAP=1 NATIF_DUMP=boot-x.bin ./h2 game.iso sd.img 10 > h2-x.txt
+python3 $T/emu_e2e.py boot-x.bin sd.img game.iso trap | tail -1

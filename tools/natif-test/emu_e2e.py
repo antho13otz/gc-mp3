@@ -143,8 +143,16 @@ def io_write(uc, off, size, value, data):
             exi[ch][4] = v
         exi[ch][3] = value & ~1
 
+MODE = sys.argv[4] if len(sys.argv) > 4 else ''
+TRAP = MODE == 'trap'                                 # v139 : acces pris par exception (option du jeu)
 mu = Uc(UC_ARCH_PPC, UC_MODE_PPC32 | UC_MODE_BIG_ENDIAN)
-mu.mem_map(0x80000000, 0x01800000)
+if TRAP:                                              # (memoire aussi en adresses physiques : les exceptions demarrent sans traduction)
+    import ctypes
+    ram = ctypes.create_string_buffer(0x01800000)
+    mu.mem_map_ptr(0x80000000, 0x01800000, UC_PROT_ALL, ctypes.addressof(ram))
+    mu.mem_map_ptr(0x00000000, 0x01800000, UC_PROT_ALL, ctypes.addressof(ram))
+    mu.mmio_map(0xCC406000, 0x1000, io_read, None, io_write, None)   # (2e adresse de la page : celle du resident)
+else: mu.mem_map(0x80000000, 0x01800000)
 mu.mmio_map(0xCC006000, 0x1000, io_read, None, io_write, None)
 mu.mmio_map(0xCC003000, 0x1000, pi_read, None, pi_write, None)
 mu.mmio_map(0xCC000000, 0x1000, pi_read, None, lambda *a: None, None)      # (CP : ecritures ignorees)
@@ -168,17 +176,48 @@ if EXC: mu.mem_write(0x80001F40, struct.pack('>I', 1))
 EXEC = len(sys.argv) > 4 and sys.argv[4] in ('exec', 'execa')   # v95 : OSExec (ancien / recent apploader)
 EXECA = EXEC and sys.argv[4] == 'execa'
 if EXEC: mu.mem_write(0x80001F44, struct.pack('>I', 2 if EXECA else 1))
-MODE = sys.argv[4] if len(sys.argv) > 4 else ''
-if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'tick'): mu.mem_write(0x80001F44, struct.pack('>I', {'swap': 3, 'cheat': 4, 'ws': 5, 'cardb': 6, 'pad': 7, 'tick': 8}[MODE]))   # v121, v122, v133
+if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'tick', 'trap'): mu.mem_write(0x80001F44, struct.pack('>I', {'swap': 3, 'cheat': 4, 'ws': 5, 'cardb': 6, 'pad': 7, 'tick': 8, 'trap': 9}[MODE]))   # v121, v122, v133, v139
 STOP = 0x80001000
 mu.mem_write(STOP, struct.pack('>I', 0x48000000))
 mu.reg_write(UC_PPC_REG_1, 0x81000000); mu.reg_write(UC_PPC_REG_LR, STOP)
 mu.reg_write(UC_PPC_REG_31, 0xDEAD); mu.reg_write(UC_PPC_REG_30, 0xBEEF)
 if MODE == 'ws': mu.reg_write(UC_PPC_REG_MSR, mu.reg_read(UC_PPC_REG_MSR) | 0x2000)   # (v121 : virgule flottante permise, comme dans un jeu)
-try:
-    mu.emu_start(entry, STOP, timeout=300 * 1000000)
-except UcError as e:
-    print('ERREUR emulateur', e, 'pc=%08X lr=%08X' % (mu.reg_read(UC_PPC_REG_PC), mu.reg_read(UC_PPC_REG_LR))); sys.exit(1)
+# v139 : quand le resident active l'option (trap_state = 1), la page 0xCC006000 n'est plus traduite : chaque
+# acces du jeu provoque une exception DSI (SRR0, SRR1, DAR, DSISR, vecteur 0x300 sans traduction), comme sur la console
+TRAP_ST = 0x817F01C0; armed = [False, False, False]; fault = []; ntrap = [0]
+if TRAP:
+    def on_arm(uc, access, addr, size, value, data):
+        if addr == TRAP_ST and value == 1 and not armed[0]: armed[0] = True; armed[1] = True; uc.emu_stop()
+    mu.hook_add(UC_HOOK_MEM_WRITE, on_arm, begin=TRAP_ST, end=TRAP_ST + 3)
+    def on_vec(uc, access, addr, size, value, data):     # (vecteur du jeu remis : option coupee, la page redevient normale)
+        if armed[0] and value >> 26 != 18: armed[0] = False; armed[2] = True; uc.emu_stop()
+    mu.hook_add(UC_HOOK_MEM_WRITE, on_vec, begin=0x80000300, end=0x80000303)
+    def on_unmapped(uc, access, addr, size, value, data):
+        if armed[0] and 0xCC006000 <= addr < 0xCC007000: fault.append((addr, access == UC_MEM_WRITE_UNMAPPED))
+        return False
+    mu.hook_add(UC_HOOK_MEM_UNMAPPED, on_unmapped)
+    # (injecteur : SRR0 SRR1 DAR DSISR depuis r3-r6, puis r3-r6 du jeu, puis le vecteur)
+    mts = lambda spr, rs: 0x7C0003A6 | rs << 21 | (spr & 0x1F) << 16 | (spr >> 5) << 11
+    inj = [mts(26, 3), mts(27, 4), mts(19, 5), mts(18, 6)] + [0x80000000 | r << 21 | (0x7F00 + (r - 3) * 4) for r in (3, 4, 5, 6)] + [0x48000302]
+    mu.mem_write(0x80007E00, b''.join(struct.pack('>I', w) for w in inj))
+pc0 = entry
+while True:
+    try:
+        mu.emu_start(pc0, STOP, timeout=300 * 1000000)
+    except UcError as e:
+        if fault:
+            addr, wr = fault.pop(); pc = mu.reg_read(UC_PPC_REG_PC); msr = mu.reg_read(UC_PPC_REG_MSR)
+            ntrap[0] += 1
+            if os.environ.get("EMU_DBG"): print("DSI pc=%08X addr=%08X wr=%d msr=%08X" % (pc, addr, wr, msr))
+            mu.mem_write(0x80007F00, b''.join(struct.pack('>I', mu.reg_read(UC_PPC_REG_0 + r)) for r in (3, 4, 5, 6)))
+            for r, v in zip((3, 4, 5, 6), (pc, msr, addr, 0x40000000 | (0x02000000 if wr else 0))): mu.reg_write(UC_PPC_REG_0 + r, v)
+            mu.reg_write(UC_PPC_REG_MSR, msr & ~0x8000); pc0 = 0x00007E00; continue
+        print('ERREUR emulateur', e, 'pc=%08X lr=%08X' % (mu.reg_read(UC_PPC_REG_PC), mu.reg_read(UC_PPC_REG_LR))); sys.exit(1)
+    if armed[1]:
+        armed[1] = False; mu.mem_unmap(0xCC006000, 0x1000); pc0 = mu.reg_read(UC_PPC_REG_PC); continue
+    if armed[2]:
+        armed[2] = False; mu.mmio_map(0xCC006000, 0x1000, io_read, None, io_write, None); pc0 = mu.reg_read(UC_PPC_REG_PC); continue
+    break
 pc = mu.reg_read(UC_PPC_REG_PC)
 print('fin pc=%08X r1=%08X r30=%X r31=%X' % (pc, mu.reg_read(UC_PPC_REG_1), mu.reg_read(UC_PPC_REG_30), mu.reg_read(UC_PPC_REG_31)))
 ok = True
@@ -189,7 +228,7 @@ def chk(name, addr, want):
     ok &= good
     print(('OK   ' if good else 'FAUX ') + name)
 chk('ID du disque (A8000040)', 0x80100000, iso[0:0x20])
-if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'video', 'tick'):   # v121, v122, v133
+if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'video', 'tick', 'trap'):   # v121, v122, v133, v139
     rd32 = lambda a: struct.unpack('>I', mu.mem_read(a, 4))[0]
     u = lambda o: struct.unpack('>I', mu.mem_read(0x817F0000 + o, 4))[0]
     back = rd32(0x80001F50) == 0x42424242 and pc == STOP
@@ -217,8 +256,18 @@ if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'video', 'tick'):   # v121, v
         print(('OK   ' if nk else 'FAUX ') + 'vrai lecteur : %d commande(s)%s' % (len(kicks), ' (attendu : aucune)' if nodrive else '')); ok &= nk
         if not nodrive:
             jb = bytes(disk[card.writes[-1] * 512:card.writes[-1] * 512 + 512]) if card.writes else bytes(512)
-            dd = [i for i in range(4) if (struct.unpack_from('>I', jb, 0x1C0 + i * 16)[0] >> 24) == 0xDD]
+            dd = [i for i in range(3) if (struct.unpack_from('>I', jb, 0x1D0 + i * 16)[0] >> 24) == 0xDD]   # (v139 : anneau en 0x1D0)
             print(('OK   ' if dd else 'FAUX ') + 'journal : secours note (%d entree(s) DD)' % len(dd)); ok &= bool(dd)
+    if MODE == 'trap':                                  # v139
+        st, n, last, bad = u(0x1C0), u(0x1C4), u(0x1C8), u(0x1CC)
+        d = bytes(mu.mem_read(0x80150000, 0x200)) == iso[0x1000:0x1200]
+        good = st == 1 and n >= 10 and bad == 0 and d and 0 < rd32(0x80001FD8) < 600 and rd32(0x80001FD4) == 0xCC006014
+        print(('OK   ' if good else 'FAUX ') + 'acces pris par exception : etat %d, %d acces (%d exceptions), dernier %08X, lecture %s, fin apres %d image(s), stwu -> %08X' % (
+            st, n, ntrap[0], last, d, rd32(0x80001FD8), rd32(0x80001FD4))); ok &= good
+        pt = rd32(0x80001FE0) == 3 and rd32(0x80001FE4) == 3 and di_real[2] != 0xA8000000
+        print(('OK   ' if pt else 'FAUX ') + 'autres registres de la page (son, 3 ecrit plus tot par le jeu) : lwz %08X, lbz %02X ; vrai lecteur jamais commande pour lire (%08X)' % (rd32(0x80001FE0), rd32(0x80001FE4), di_real[2])); ok &= pt
+        vec = rd32(0x80000300)
+        print(('OK   ' if vec == 0 else 'FAUX ') + 'retour a GC Station : vecteur 0x300 du jeu remis (%08X), option %s' % (vec, 'coupee' if st == 1 and vec == 0 else '?')); ok &= vec == 0
     if MODE == 'cheat':
         want = {0x80001F70: 0x12345678, 0x80001F78: 0xABCD0000, 0x80001F80: 0, 0x80001F84: 0xCAFEBABE, 0x80001F88: 0x11111111, 0x80001F8C: 0x80000000, 0x80001F60: 0x00005A5A}
         for a, v in want.items():

@@ -301,6 +301,8 @@ _start:
     beq pad_test
     cmpwi 12,8              # v133 : fins de commande sans le vrai lecteur (ou reveil perdu)
     beq tick_test
+    cmpwi 12,9              # v139 : acces au lecteur que personne n'a remplaces (pris par exception)
+    beq trap_test
     cmpwi 12,2
     beq 7f
     cmpwi 12,1
@@ -508,6 +510,47 @@ tick_test:
     bl wait_flag
     lis 20,0x8000
     stw 3,0x1FC8(20)
+    b 8b
+# v139 : Pulse universel : une lecture complete faite par des acces au lecteur dont l'adresse est lue en
+# memoire (comme __DIRegs du SDK) : ni GC Station ni le resident ne peuvent les trouver dans le code.
+# Le processeur les attrape (exception DSI) ; plusieurs formes : stw, stwx, stwu, sth, lhz, lwz, lbz.
+trap_test:
+    lis 12,tick_di@ha
+    addi 12,12,tick_di@l
+    stw 12,0x3094(20)
+    lis 9,0xCC00
+    lwz 0,0x6024(9)         # (acces remplace : le resident voit que le jeu a installe ses fonctions)
+    lis 9,0x6600
+    ori 9,9,0x3000
+    add 9,9,9               # 0xCC006000, sans lis 0xCC00
+    stw 9,0x1FD0(20)
+    lwz 9,0x1FD0(20)
+    li 0,0
+    stw 0,0x1FC0(20)
+    lis 6,0xA800
+    stw 6,0x8(9)
+    li 5,0x400              # 0x1000 >> 2
+    li 11,0xC
+    stwx 5,9,11
+    li 4,0x200
+    stw 4,0x10(9)
+    lis 3,0x8015
+    addi 10,9,0x10
+    stwu 3,4(10)
+    stw 10,0x1FD4(20)
+    stw 4,0x18(9)
+    li 0,3
+    sth 0,0x1E(9)
+    bl wait_flag
+    lis 20,0x8000
+    stw 3,0x1FD8(20)
+    lwz 9,0x1FD0(20)
+    lhz 11,0x6(9)
+    stw 11,0x1FDC(20)
+    lwz 11,0xC00(9)
+    stw 11,0x1FE0(20)
+    lbz 11,0xC03(9)
+    stw 11,0x1FE4(20)
     b 8b
 dvd_start:
     lis 9,0xCC00

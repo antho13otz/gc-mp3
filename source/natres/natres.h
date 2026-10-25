@@ -8,7 +8,7 @@
 #define NATRES_AT     0x817F0000u        /* adresse fixe (liee par tools/natres.ld) */
 #define NATRES_SIZE   0x0000FF00u        /* place reservee (le haut, 817FFF00+, est laisse a la console) */
 #define NATRES_MAGIC  0x4743534Eu        /* "GCSN" */
-#define NATRES_VER    16
+#define NATRES_VER    17
 #define NATRES_MAXEXT 1500               /* morceaux de l'ISO sur la carte (fichier fragmente) ; v60 : 2000 (place pour les aiguillages) */
 
 /* erreurs (champ err) */
@@ -98,12 +98,21 @@ typedef struct {
     unsigned int si_load, si_store;                       /* aiguillages des registres des manettes (SI) */
     unsigned int opt;                                     /* (GC Station) NRO_... */
     unsigned int si_fixes;                                /* lectures des manettes modifiees (journal) */
+    /* v139 : Pulse universel (option NRO_TRAP) : acces du jeu a la page DI / SI / EXI / AI pris par exception */
+    unsigned int trap_state;                              /* 0 = pas demande, 1 = actif, 2.. = refuse (NRT_...) */
+    unsigned int trap_n;                                  /* acces pris */
+    unsigned int trap_pc;                                 /* code du dernier acces pris */
+    unsigned int trap_bad;                                /* derniere instruction pas prise en charge (sautee) */
 } natres_hdr_t;
 
-#define NATRES_LOGN 4                     /* anneau : {commande, position, longueur, infos} (v122 : 0x1C0 + 4 x 16 = 0x200) */
+#define NATRES_LOGN 3                     /* anneau : {commande, position, longueur, infos} (v139 : 0x1D0 + 3 x 16 = 0x200) */
 /* v122 : opt : bit 0 stick C haut/bas inverses, 1 gauche/droite inverses, 2 sticks echanges, bits 8-15 seuil des
    gachettes (0 = rien), bits 16-19 manettes lues N fois plus souvent, bit 24 vitesse d'un vrai lecteur */
 #define NRO_SPEED  0x01000000u
+#define NRO_TRAP   0x02000000u              /* v139 : acces au lecteur pris par exception (experimental) */
+#define NATRES_PTEG 0xFC00u                 /* v139 : (NRO_TRAP) groupes de la table des pages : GC Station laisse 0x817FFC00-0x817FFEFF libre */
+/* v139 : trap_state : pourquoi l'option n'a pas pu etre activee */
+enum { NRT_OFF = 0, NRT_ON = 1, NRT_BAT = 2, NRT_BAT2 = 3, NRT_MMU = 4, NRT_VEC = 5, NRT_PTE = 6, NRT_LOST = 7 };
 #define NRF_CARDB  64u                    /* v122 : carte memoire virtuelle du slot B active */
 #define NATRES_ZERO 0xFFFFFFFFu           /* v121 : morceau sans donnees (bloc absent d'un .ciso) : lu comme des zeros */
 #define NATRES_CARDMAX 64                 /* morceaux du fichier de la carte virtuelle */
@@ -144,6 +153,6 @@ typedef struct {
 #define NATRES_SNAP_MAGIC 0x4743534Du       /* "GCSM" */
 #define NATRES_SNAP_SECS  704               /* taille du fichier : 704 secteurs (352 Ko) */
 
-typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x1C0 ? 1 : -1];
+typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x1D0 ? 1 : -1];   /* v139 : 0x1D0 + 3 x 16 = 0x200 */
 
 #endif

@@ -59,6 +59,7 @@ int main(int c, char **v) {
     if (getenv("NATIF_TRIG")) nat_trig = atoi(getenv("NATIF_TRIG"));
     if (getenv("NATIF_POLL")) nat_poll = atoi(getenv("NATIF_POLL"));
     nat_speed = getenv("NATIF_SPEED") != NULL;
+    nat_trap = getenv("NATIF_TRAP") != NULL;                 /* v139 */
     nat_run(0);
     printf("%s\n", nat_boot(0));
     return 0;
