@@ -1,0 +1,50 @@
+# v147 : sauvegardes envoyees au telephone par QR code (lancer avec PCSIM_CARTE=1)
+wait 2s
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+wait 800ms
+press UP
+wait 300ms
+press A
+wait 1500ms
+stick c 100 0 200ms
+wait 800ms
+stick c 100 0 200ms
+wait 1200ms
+press DOWN
+wait 200ms
+press A
+wait 400ms
+press DOWN
+wait 150ms
+press DOWN
+wait 150ms
+press DOWN
+wait 150ms
+shot q01-menu
+press A
+wait 3000ms
+shot q02-qr-une
+press B
+wait 500ms
+press A
+wait 400ms
+press UP
+wait 150ms
+press UP
+wait 150ms
+press A
+wait 3000ms
+shot q03-qr-toutes
+wait 6s
+press B
+wait 500ms
+shot q04-ferme
+quit

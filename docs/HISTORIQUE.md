@@ -21,6 +21,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v147 — sauvegardes par QR code
+- `tools.c` / `extras73.c` : menus des sauvegardes (vraie carte, carte virtuelle) : « Envoyer au téléphone (QR code) »
+  (.gci écrit dans SD:/gci/sauvegardes, vidé avant) et « Tout envoyer » (le dossier partagé : `share_open`, v55).
+  `saves.c` : une copie de l'historique (dossier) par QR code. `main.c` : la fenêtre du QR code passe avant les outils
+  (touches). Scénario `cartes-qr.txt` (`PCSIM_CARTE=1`).
+
 ## Nouveautés v146 — Pulse rapproché de Swiss
 - Étude complète de Swiss : docs/ETUDE-SWISS.md, partie 7 (chaque partie de `patcher.c` et de `load_app`, ce que Pulse
   en reprend, ce qui ne s'applique pas).

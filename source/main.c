@@ -13042,8 +13042,8 @@ int main(int argc, char **argv) {
         else if (kb_open) { kb_input(down, nav, fire); down = 0; fire = 0; }   /* START = valider (v35 : avant le menu : clavier ouvert depuis les reglages) */
         else if (menu_open) { menu_input(down, nav, fire); down = 0; fire = 0; }
         else if (ic_on) { indigo_cfg_input(down, nav, fire); down = 0; fire = 0; }   /* v32 : reglages d'un jeu */
+        else if (sh_on && tab != TAB_FILES) { share_input(down); down = 0; fire = 0; }   /* v137 (v147 : avant les outils : QR code d'une sauvegarde) */
         else if (tl_screen) { tools_input(down, nav, fire); down = 0; fire = 0; }   /* v35 : outils (cartes memoire, applis...) */
-        else if (sh_on && tab != TAB_FILES) { share_input(down); down = 0; fire = 0; }   /* v137 */
         else if (am_open) { actions_input(down, nav, fire); down = 0; fire = 0; }
         else if (fun_mode && !night_on) {                     /* karaoke, jeux, reveil */
             u32 keep = fun_mode == FUN_KARAOKE ? (down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) : 0;

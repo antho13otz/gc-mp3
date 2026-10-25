@@ -14,7 +14,13 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v146)
+## Nouveautés de la version actuelle (v147)
+- **Sauvegardes partagées par QR code** : sur une sauvegarde (vraie carte, carte virtuelle), A > « Envoyer au
+  téléphone (QR code) » : le téléphone la télécharge en .gci (même Wi-Fi). « Tout envoyer au téléphone » partage
+  toutes les sauvegardes de la carte d'un coup (une page avec chaque fichier). Aussi dans START > Outils >
+  « Historique des sauvegardes » : une copie entière d'un jeu.
+
+## Version précédente (v146)
 - **Pulse plus proche de Swiss** : tout ce que fait Swiss a été passé en revue (docs/ETUDE-SWISS.md, partie 7), et
   ce qui manquait à Pulse est ajouté :
   - **la console est préparée comme Swiss la prépare** avant chaque jeu (valeurs que le BIOS met en mémoire : code du
@@ -25,22 +31,6 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   - **Star Wars Rogue Leader** : son programme est compressé, Pulse prend ses accès au lecteur au vol (Pulse universel,
     automatique pour ce jeu).
   - Rien de tout ça n'a pu être essayé sur une vraie console : dis-moi quels jeux marchent mieux (ou moins bien).
-
-## Version précédente (v145)
-- **Sauvegardes** : la vue « Cartes » de l'onglet JEUX a trois choix (L / R) : **Slot A, Slot B et la carte
-  virtuelle de Pulse**. Sur une sauvegarde (A) : copier vers la carte virtuelle, **tout copier** d'une carte à
-  l'autre ou sur la carte SD (.gci), en une fois. Une carte virtuelle jamais utilisée est formatée toute seule.
-- **Compatibilité partagée (Salon)** : les GC Station du réseau s'échangent leurs résultats avec Pulse. Un jeu
-  jamais essayé ici montre ce qu'il a donné ailleurs (pastille en anneau, ligne « Sur … : marche » au lancement),
-  et le réglage qui l'a fait marcher là-bas est repris au premier lancement (gardé s'il marche).
-  Nouveau tri des jeux : **État (Pulse)** (Options > Trier par).
-- **Jeux en réseau local (Broadband Adapter)** : Kirby Air Ride, Mario Kart Double Dash, Phantasy Star Online…
-  - avec un adaptateur SD dans un port de carte mémoire (SD Gecko), Pulse ne parle plus à la carte SD pendant que
-    le jeu se sert du bus (adaptateur réseau, horloge, carte) : il attend son tour, comme Swiss ;
-  - l'adaptateur réseau est remis à zéro avant le lancement (GC Station s'en servait) ;
-  - le journal du jeu dit si le jeu s'est servi de l'adaptateur ;
-  - « Jouer par le réseau » refuse ces jeux (Pulse occupe déjà l'adaptateur) : les copier sur la carte SD.
-  - Pas encore essayé avec une vraie partie en réseau : dis-moi ce que ça donne.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

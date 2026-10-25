@@ -942,9 +942,20 @@ static const char *vc_load_active(void) {
     if (vc_blank) return "Carte virtuelle pas format\xC3\xA9" "e : START > Outils > Cartes m\xC3\xA9moire virtuelles, X";
     return vc_why[0] ? vc_why : "Carte virtuelle illisible";
 }
-enum { VCP_SD, VCP_REALA, VCP_REALB, VCP_ALLA, VCP_ALLB, VCP_ALLSD, VCP_DEL, VCP_COUNT };
+enum { VCP_SD, VCP_REALA, VCP_REALB, VCP_QR, VCP_ALLA, VCP_ALLB, VCP_ALLSD, VCP_ALLQR, VCP_DEL, VCP_COUNT };
 static const char *const vcp_names[VCP_COUNT] = { "Copier sur la carte SD (.gci)", "Copier vers la vraie carte (slot A)", "Copier vers la vraie carte (slot B)",
-    "Tout copier vers la vraie carte (slot A)", "Tout copier vers la vraie carte (slot B)", "Tout copier sur la carte SD (.gci)", "Supprimer" };
+    "Envoyer au t\xC3\xA9l\xC3\xA9phone (QR code)",
+    "Tout copier vers la vraie carte (slot A)", "Tout copier vers la vraie carte (slot B)", "Tout copier sur la carte SD (.gci)",
+    "Tout envoyer au t\xC3\xA9l\xC3\xA9phone (QR code)", "Supprimer" };
+/* v147 : partage par QR code (une sauvegarde, ou toutes : SD:/gci/sauvegardes) */
+static void vc_to_qr(int i, int all) {
+    if (!all) { long n = 0; u8 *g = vc_export(i, &n); if (!g) { tl_note("Lecture de la sauvegarde impossible"); return; } mc_qr_one(g, n); free(g); return; }
+    mc_qr_clear();
+    int ok = 0;
+    for (int k = 0; k < vc_n; k++) { long n = 0; u8 *g = vc_export(k, &n); if (g && mc_gci_write_in(MC_QR_DIR, g, n, NULL, 0)) ok++; free(g); }
+    if (!ok) { tl_note("Aucune sauvegarde copi\xC3\xA9" "e"); return; }
+    share_open(MC_QR_DIR, 1);
+}
 static void vc_to_sd(int i) {
     long n = 0;
     u8 *g = vc_export(i, &n);
@@ -1010,6 +1021,7 @@ static void vc_input(u32 down, u32 nav, int fire) {
             else if (vc_psel == VCP_REALA || vc_psel == VCP_REALB) vc_to_real(i, vc_psel == VCP_REALB);
             else if (vc_psel == VCP_ALLA || vc_psel == VCP_ALLB) vc_all_to(vc_psel == VCP_ALLB);
             else if (vc_psel == VCP_ALLSD) vc_all_to(-1);
+            else if (vc_psel == VCP_QR || vc_psel == VCP_ALLQR) vc_to_qr(i, vc_psel == VCP_ALLQR);   /* v147 */
             else { const char *e = vc_delete(i); tl_note(e ? e : "Sauvegarde supprim\xC3\xA9" "e"); if (vc_sel >= vc_n + 3) vc_sel = vc_n + 2; }
         }
         if (down & (PAD_BUTTON_B | PAD_BUTTON_X)) { vc_pop = 0; vc_pconfirm = 0; }
@@ -1149,7 +1161,7 @@ static void draw_vcard(void) {
         gx_text_r(F_SMALL, 578, ry + 29, buf, RGBA(130, 115, 185, 255));
     }
     if (vc_pop) {
-        const f32 w = 380, h = 46 + VCP_COUNT * 24, x = 220, y = 140;
+        const f32 w = 380, h = 46 + VCP_COUNT * 24, x = 220, y = 108;
         gx_rrect_fill(x, y, w, h, 10, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
         draw_panel(x, y, w, h);
         for (int a = 0; a < VCP_COUNT; a++) {

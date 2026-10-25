@@ -271,12 +271,19 @@ static void sv_backup_all(void) {                    /* une copie de chaque jeu 
     snprintf(tl_msg, sizeof(tl_msg), "%s", m); tl_msg_t = now_ms();
 }
 static void sv_open(void) { tl_screen = TL_SAVES; sv_lv = 0; sv_pop = 0; sv_gsel = 0; sv_scan_games(); }
-enum { SVP_VC, SVP_A, SVP_B, SVP_N };
-static const char *const svp_names[SVP_N] = { "Remettre sur la carte virtuelle du jeu (Pulse)", "Remettre sur la vraie carte (slot A)", "Remettre sur la vraie carte (slot B)" };
+enum { SVP_VC, SVP_A, SVP_B, SVP_QR, SVP_N };
+static const char *const svp_names[SVP_N] = { "Remettre sur la carte virtuelle du jeu (Pulse)", "Remettre sur la vraie carte (slot A)", "Remettre sur la vraie carte (slot B)",
+    "Envoyer au t\xC3\xA9l\xC3\xA9phone (QR code)" };
 static void sv_input(u32 down, u32 nav, int fire) {
     if (sv_pop) {
         if (fire && (nav & PAD_BUTTON_DOWN)) sv_psel = (sv_psel + 1) % SVP_N;
         if (fire && (nav & PAD_BUTTON_UP)) sv_psel = (sv_psel + SVP_N - 1) % SVP_N;
+        if ((down & PAD_BUTTON_A) && sv_psel == SVP_QR) {          /* v147 : la copie (dossier de .gci) par QR code */
+            sv_pop = 0;
+            if (sv_ssel < sv_ns && sv_snaps[sv_ssel].peer < 0) { char p[NAME_LEN]; snprintf(p, sizeof(p), "%s/%.6s/%s", SV_DIR, sv_gid, sv_snaps[sv_ssel].st); share_open(p, 1); }
+            else tl_note("Copie d'une autre console : remets-la d'abord sur une carte");
+            return;
+        }
         if (down & PAD_BUTTON_A) { sv_pop = 0; if (sv_ssel < sv_ns) sv_restore(&sv_snaps[sv_ssel], sv_psel == SVP_VC ? -1 : sv_psel - SVP_A); }
         if (down & PAD_BUTTON_B) sv_pop = 0;
         return;
