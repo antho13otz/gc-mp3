@@ -210,7 +210,31 @@ static int fe_is_game(const char *n) {
     const char *dot = strrchr(n, '.');
     return dot && (!strcasecmp(dot, ".iso") || !strcasecmp(dot, ".gcm") || !strcasecmp(dot, ".ciso"));
 }
+/* v143 : jeu d'une autre GC Station : jouer par le reseau (sans copier) ou copier puis jouer */
+enum { AC_FE_NET = 230, AC_FE_COPY };
+static const char *nat_boot_net(const char *path);
+static char fe_ng_path[NAME_LEN];
+static int fe_ng_i = -1;
+static void fe_net_game_copy(int i, const char *path);
+static int fe_am_action(int code) {
+    if (code == AC_FE_NET) { fe_note("Pulse par le r\xC3\xA9seau..."); const char *e = nat_boot_net(fe_ng_path); if (e) fe_note(e); return 1; }
+    if (code == AC_FE_COPY) { if (fe_ng_i >= 0 && fe_ng_i < nfe) fe_net_game_copy(fe_ng_i, fe_ng_path); return 1; }
+    return 0;
+}
 static void fe_net_game(int i, const char *path) {
+    const char *dot = strrchr(fe[i].name, '.');
+    if (!strncmp(path, "gcs:", 4) && dot && strcasecmp(dot, ".ciso")) {
+        snprintf(fe_ng_path, sizeof(fe_ng_path), "%s", path); fe_ng_i = i;
+        am_n = 0; am_sel = 0; am_track = -1; am_list = -1; am_pos = -1;
+        snprintf(am_title, sizeof(am_title), "%.80s", fe[i].name);
+        am_item("Jouer par le r\xC3\xA9seau, sans copier (Pulse, exp\xC3\xA9rimental)", AC_FE_NET, 0);
+        am_item("Copier sur la carte SD, puis jouer", AC_FE_COPY, 0);
+        am_open = 1;
+        return;
+    }
+    fe_net_game_copy(i, path);
+}
+static void fe_net_game_copy(int i, const char *path) {
     char dst[NAME_LEN];
     if (!sd_ok || sd_virtual) { fe_note("Il faut une carte SD dans GC Station pour jouer \xC3\xA0 un jeu du r\xC3\xA9seau"); return; }
     if (fcp_in || cpq_i < cpq_n) { fe_note("Une copie est d\xC3\xA9j\xC3\xA0 en cours"); return; }
@@ -234,7 +258,7 @@ static void fe_net_game(int i, const char *path) {
 static void fe_open(int i) {
     char path[NAME_LEN];
     if (fe_devs) {
-        if (fe_peer[i] >= 0 && fe_peer[i] < salon_n) { snprintf(nfs_cfg[NFS_GCS].host, sizeof(nfs_cfg[NFS_GCS].host), "%s", salon_peers[fe_peer[i]].ip); nfs_cfg[NFS_GCS].port = 80; }   /* v138 : (port du serveur du telephone) */
+        if (fe_peer[i] >= 0 && fe_peer[i] < salon_n) { snprintf(nfs_cfg[NFS_GCS].host, sizeof(nfs_cfg[NFS_GCS].host), "%s", salon_peers[fe_peer[i]].ip); nfs_cfg[NFS_GCS].port = salon_peers[fe_peer[i]].port; }   /* v138 : (port du serveur du telephone) */
         snprintf(fe_cwd, sizeof(fe_cwd), "%s", fe_dev[i]); fe_devs = 0; fe_sel = 0; fe_load(); return;
     }
     fe_path(i, path, sizeof(path));

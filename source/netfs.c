@@ -696,7 +696,7 @@ static int gcs_fread(gcs_file_t *h, u8 *dst, int len) {
 
 /* v138 : le Salon (salon.c) : consoles trouvees sur le reseau */
 #define SALON_MAX 8
-typedef struct { char name[40]; char ip[16]; char now[80]; u64 seen; } salon_peer_t;
+typedef struct { char name[40]; char ip[16]; char now[80]; u64 seen; int port; } salon_peer_t;   /* (v143 : port HTTP annonce : 80, ou 8080 pour tools/pulse-serveur.py) */
 static salon_peer_t salon_peers[SALON_MAX];
 static int salon_n = 0;
 static int salon_gen = 0;                              /* (change quand une console arrive ou part : liste des appareils a refaire) */
