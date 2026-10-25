@@ -21,6 +21,22 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v119 — FTP, clavier, mise à jour sans écriture possible
+- FTP (`source/netfs.c`) : 2 sessions gardées ouvertes (50 s) et réutilisées, une de plus seulement si
+  les deux sont prises ; une session gardée que le serveur a fermée est refaite une fois. Listes des 8
+  derniers dossiers gardées 60 s : stat() / fopen() d'un fichier répondent sans le réseau (taille déjà
+  connue : pas de SIZE). FTP et FSP : fichiers lus par morceaux de 32 Ko (4 gardés par fichier) : lire
+  les étiquettes, la fin puis le début ne relance plus le transfert. Connexion : 3 essais (300 ms,
+  700 ms) ; délais d'attente 10 s -> 6 s.
+- Mesuré au simulateur (serveur à 30 ms par commande, `tools/pc-sim/ftp-run.sh`, scénario
+  `ftp-test.txt`) : 15 connexions -> 2 ; pire blocage 2,4 s -> 0,28 s ; début de lecture 0,9 s -> 0,25 s.
+  Avec un serveur limité à 2 connexions (`FTP_MAXCONN=2`, comme sur un téléphone) : avant, connexion
+  refusée ; maintenant aucune.
+- Clavier virtuel : curseur dans le texte (L / R, répétition en maintenant), saisie et effacement au
+  curseur, la partie visible suit le curseur.
+- Mise à jour : écriture sur la carte impossible (lecture seule, pleine, fichier non remplaçable) ->
+  la version téléchargée reste en mémoire et A la lance (`up_to_memory`).
+
 ## Nouveautés v118 — navigateur : affichage classique, images entières, fluidité
 - **CSS** (`source/web_css.c`) : feuilles `<style>`, `<link rel=stylesheet>` (lues après la page, gardées
   en mémoire, compressées gzip) et `style=""` ; sélecteurs balise / .classe / #id / combinés /

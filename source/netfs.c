@@ -68,8 +68,12 @@ static s32 nfs_tcp(const char *host, int port) {                 /* socket non b
     conn_t c = { -1, 0, 0 };
     const char *err = NULL;
     if (net_phase != NET_DONE || !net_ok) { nfs_seterr(net_phase != NET_DONE ? "R\xC3\xA9seau en cours de connexion" : "Pas de r\xC3\xA9seau"); return -1; }
-    if (!conn_tcp(&c, host, port, &err, NULL, 0)) { nfs_seterr(err ? err : "Connexion impossible"); return -1; }
-    return c.fd;
+    for (int t = 0; t < 3; t++) {                                   /* v119 : 3 essais (serveur occupe, paquet perdu) */
+        if (conn_tcp(&c, host, port, &err, NULL, 0)) return c.fd;
+        if (t < 2) { u64 t0 = now_ms(); while (now_ms() - t0 < (t ? 700u : 300u)) { service_audio(); usleep(10000); } }
+    }
+    nfs_seterr(err ? err : "Connexion impossible");
+    return -1;
 }
 
 /* ======================= FTP ======================= */
@@ -85,7 +89,7 @@ static int ftp_resp(ftp_t *f, char *out, int cap) {               /* code de la 
         char *nl;
         while (!(nl = memchr(f->rbuf, '\n', f->rlen))) {
             if (f->rlen >= (int)sizeof(f->rbuf) - 1) f->rlen = 0;       /* (ligne trop longue : oubliee) */
-            int r = nfs_recv(f->ctl, f->rbuf + f->rlen, (int)sizeof(f->rbuf) - 1 - f->rlen, 10000);
+            int r = nfs_recv(f->ctl, f->rbuf + f->rlen, (int)sizeof(f->rbuf) - 1 - f->rlen, 6000);
             if (r <= 0) { nfs_seterr("Le serveur FTP ne r\xC3\xA9pond plus"); return -1; }
             f->rlen += r;
         }
@@ -114,6 +118,46 @@ static void ftp_close(ftp_t *f) {
     if (f->data >= 0) net_close(f->data);
     if (f->ctl >= 0) { nfs_send(f->ctl, "QUIT\r\n", 6); net_close(f->ctl); }
     f->data = f->ctl = -1; f->rlen = 0;
+}
+static int ftp_login(ftp_t *f);
+/* v119 : sessions gardees ouvertes et reutilisees (avant : une connexion + identification a chaque liste,
+   chaque fichier cherche, chaque fichier ouvert : les petits serveurs finissaient par refuser) */
+#define FTP_POOL 2
+static ftp_t ftp_pool[FTP_POOL] = { { -1, -1 }, { -1, -1 } };
+static u8 ftp_pool_busy[FTP_POOL];
+static u64 ftp_pool_t[FTP_POOL];
+static int ftp_reused = 0;                                        /* (la derniere session donnee etait deja ouverte) */
+static ftp_t *ftp_get(void) {
+    u64 now = now_ms();
+    for (int i = 0; i < FTP_POOL; i++) {                          /* une session libre deja identifiee */
+        if (ftp_pool_busy[i] || ftp_pool[i].ctl < 0) continue;
+        if (now - ftp_pool_t[i] > 50000) { ftp_close(&ftp_pool[i]); continue; }   /* (trop vieille : le serveur l'a peut-etre fermee) */
+        ftp_pool_busy[i] = 1; ftp_reused = 1;
+        return &ftp_pool[i];
+    }
+    for (int i = 0; i < FTP_POOL; i++) {
+        if (ftp_pool_busy[i]) continue;
+        ftp_reused = 0;
+        if (!ftp_login(&ftp_pool[i])) return NULL;
+        ftp_pool_busy[i] = 1;
+        return &ftp_pool[i];
+    }
+    ftp_t *t = (ftp_t *)malloc(sizeof(ftp_t));                    /* (toutes prises : une de plus, fermee apres) */
+    if (!t) { nfs_seterr("M\xC3\xA9moire pleine"); return NULL; }
+    ftp_reused = 0;
+    if (!ftp_login(t)) { free(t); return NULL; }
+    return t;
+}
+static void ftp_put(ftp_t *f, int ok) {                           /* ok = 0 : la session a eu un probleme : fermee */
+    if (!f) return;
+    for (int i = 0; i < FTP_POOL; i++) {
+        if (f != &ftp_pool[i]) continue;
+        if (f->data >= 0) { net_close(f->data); f->data = -1; }
+        if (!ok) ftp_close(f);
+        ftp_pool_busy[i] = 0; ftp_pool_t[i] = now_ms();
+        return;
+    }
+    ftp_close(f); free(f);
 }
 static int ftp_login(ftp_t *f) {
     const nfs_cfg_t *c = &nfs_cfg[NFS_FTP];
@@ -155,35 +199,46 @@ static int ftp_pasv(ftp_t *f) {
     return f->data >= 0;
 }
 /* chemin pour le serveur : ftp:/a/b -> /a/b (UTF-8 tel quel) */
+static int ftp_nomlsd = 0;                                        /* (le serveur ne connait pas MLSD : LIST directement) */
 static int ftp_list(const char *rel, nfs_ent_t **out, int *n) {
-    ftp_t f;
-    if (!ftp_login(&f)) return 0;
+    ftp_t *f = NULL;
     char l[512], cmd[600];
     *out = NULL; *n = 0;
-    int cap = 0, mlsd = 1;
-    if (!ftp_pasv(&f)) { ftp_close(&f); return 0; }
-    snprintf(cmd, sizeof(cmd), "MLSD %s", rel);
-    int r = ftp_cmd(&f, cmd, l, sizeof(l));
-    if (r == 500 || r == 502 || r == 504) {                          /* (pas de MLSD : LIST) */
-        net_close(f.data); f.data = -1; mlsd = 0;
-        if (!ftp_pasv(&f)) { ftp_close(&f); return 0; }
-        snprintf(cmd, sizeof(cmd), "LIST %s", rel);
-        r = ftp_cmd(&f, cmd, l, sizeof(l));
+    int cap = 0, mlsd = !ftp_nomlsd, r = -1;
+    for (int tries = 0; tries < 2; tries++) {
+        f = ftp_get();
+        if (!f) return 0;
+        int reused = ftp_reused;
+        mlsd = !ftp_nomlsd;
+        r = -1;
+        if (ftp_pasv(f)) {
+            snprintf(cmd, sizeof(cmd), "%s %s", mlsd ? "MLSD" : "LIST", rel);
+            r = ftp_cmd(f, cmd, l, sizeof(l));
+            if (mlsd && (r == 500 || r == 502 || r == 504)) {             /* (pas de MLSD : LIST) */
+                net_close(f->data); f->data = -1; mlsd = 0; ftp_nomlsd = 1;
+                r = -1;
+                if (ftp_pasv(f)) { snprintf(cmd, sizeof(cmd), "LIST %s", rel); r = ftp_cmd(f, cmd, l, sizeof(l)); }
+            }
+        }
+        if (r == 150 || r == 125) break;
+        int lost = r < 0 || r == 421;
+        ftp_put(f, !lost);
+        f = NULL;
+        if (!(lost && reused)) break;                                 /* (session gardee mais fermee par le serveur : on recommence) */
     }
-    if (r != 150 && r != 125) { nfs_seterr(r == 550 ? "FTP : dossier introuvable" : "FTP : liste refus\xC3\xA9" "e"); ftp_close(&f); return 0; }
+    if (!f) { if (r > 0) nfs_seterr(r == 550 ? "FTP : dossier introuvable" : "FTP : liste refus\xC3\xA9" "e"); return 0; }
     /* toute la liste (texte), puis decoupee en lignes */
     int blen = 0, bcap = 16384;
     char *buf = (char *)malloc(bcap);
     for (;;) {
         if (!buf) break;
         if (blen + 4096 > bcap) { char *nb = (char *)realloc(buf, bcap * 2); if (!nb) break; buf = nb; bcap *= 2; }
-        int k = nfs_recv(f.data, buf + blen, bcap - blen - 1, 10000);
+        int k = nfs_recv(f->data, buf + blen, bcap - blen - 1, 6000);
         if (k <= 0) break;
         blen += k;
     }
-    net_close(f.data); f.data = -1;
-    ftp_resp(&f, l, sizeof(l));                                       /* 226 */
-    ftp_close(&f);
+    net_close(f->data); f->data = -1;
+    ftp_put(f, ftp_resp(f, l, sizeof(l)) > 0);                       /* 226 */
     if (!buf) { nfs_seterr("M\xC3\xA9moire pleine"); return 0; }
     buf[blen] = 0;
     for (char *ln = strtok(buf, "\r\n"); ln; ln = strtok(NULL, "\r\n")) {
@@ -231,41 +286,54 @@ static int ftp_list(const char *rel, nfs_ent_t **out, int *n) {
     return 1;
 }
 static int ftp_stat(const char *rel, int *dir, u32 *size) {
-    ftp_t f;
-    if (!ftp_login(&f)) return 0;
     char l[512], cmd[600];
-    int ok = 0;
-    snprintf(cmd, sizeof(cmd), "SIZE %s", rel);
-    if (ftp_cmd(&f, cmd, l, sizeof(l)) == 213) { *dir = 0; *size = (u32)strtoul(l + 4, NULL, 10); ok = 1; }
-    else {
-        snprintf(cmd, sizeof(cmd), "CWD %s", rel);
-        if (ftp_cmd(&f, cmd, l, sizeof(l)) == 250) { *dir = 1; *size = 0; ok = 1; }
-        else nfs_seterr("FTP : fichier introuvable");
+    for (int tries = 0; tries < 2; tries++) {
+        ftp_t *f = ftp_get();
+        if (!f) return 0;
+        int reused = ftp_reused;
+        snprintf(cmd, sizeof(cmd), "SIZE %s", rel);
+        int r = ftp_cmd(f, cmd, l, sizeof(l));
+        if (r == 213) { *dir = 0; *size = (u32)strtoul(l + 4, NULL, 10); ftp_put(f, 1); return 1; }
+        if (r > 0 && r != 421) {
+            snprintf(cmd, sizeof(cmd), "CWD %s", rel);
+            r = ftp_cmd(f, cmd, l, sizeof(l));
+            if (r == 250) { *dir = 1; *size = 0; ftp_cmd(f, "CWD /", l, sizeof(l)); ftp_put(f, 1); return 1; }
+            if (r > 0 && r != 421) { nfs_seterr("FTP : fichier introuvable"); ftp_put(f, 1); return 0; }
+        }
+        ftp_put(f, 0);
+        if (!reused) return 0;
     }
-    ftp_close(&f);
-    return ok;
+    return 0;
 }
 /* fichier ouvert : une session par fichier, connexion des donnees gardee (lecture a la suite) */
-typedef struct { ftp_t f; char rel[NAME_LEN]; u32 size, pos, dpos; int live; } ftp_file_t;
-static int ftp_fopen(ftp_file_t *h, const char *rel) {
+typedef struct { ftp_t *s; char rel[NAME_LEN]; u32 size, pos, dpos; int live; } ftp_file_t;
+static int ftp_fopen(ftp_file_t *h, const char *rel, u32 known_size, int known) {
     memset(h, 0, sizeof(*h));
-    h->f.ctl = h->f.data = -1;
     snprintf(h->rel, sizeof(h->rel), "%s", rel);
-    if (!ftp_login(&h->f)) return 0;
     char l[512], cmd[600];
-    snprintf(cmd, sizeof(cmd), "SIZE %s", rel);
-    if (ftp_cmd(&h->f, cmd, l, sizeof(l)) != 213) { nfs_seterr("FTP : fichier introuvable"); ftp_close(&h->f); return 0; }
-    h->size = (u32)strtoul(l + 4, NULL, 10);
-    return 1;
+    for (int tries = 0; tries < 2; tries++) {
+        h->s = ftp_get();
+        if (!h->s) return 0;
+        if (known) { h->size = known_size; return 1; }             /* v119 : taille deja connue (liste du dossier) : pas de SIZE */
+        int reused = ftp_reused;
+        snprintf(cmd, sizeof(cmd), "SIZE %s", rel);
+        int r = ftp_cmd(h->s, cmd, l, sizeof(l));
+        if (r == 213) { h->size = (u32)strtoul(l + 4, NULL, 10); return 1; }
+        ftp_put(h->s, r > 0 && r != 421);
+        h->s = NULL;
+        if (r > 0 && r != 421) { nfs_seterr("FTP : fichier introuvable"); return 0; }
+        if (!reused) return 0;
+    }
+    return 0;
 }
 static void ftp_data_stop(ftp_file_t *h) {                         /* fin d'un transfert commence (saut ailleurs) */
-    if (!h->live) return;
+    if (!h->live || !h->s) return;
     h->live = 0;
-    net_close(h->f.data); h->f.data = -1;
+    net_close(h->s->data); h->s->data = -1;
     char l[512];
     /* une seule reponse pour ce transfert : 226 (fini) ou 426 / 451 (interrompu : connexion fermee).
        (pas d'ABOR : si le transfert etait deja fini, certains serveurs repondent deux fois) */
-    if (ftp_resp(&h->f, l, sizeof(l)) < 0) ftp_close(&h->f);
+    if (ftp_resp(h->s, l, sizeof(l)) < 0) ftp_close(h->s);
 }
 static int ftp_fread(ftp_file_t *h, u8 *dst, int len) {
     if (h->pos >= h->size) return 0;
@@ -274,22 +342,23 @@ static int ftp_fread(ftp_file_t *h, u8 *dst, int len) {
     if (!h->live) {
         char l[512], cmd[600];
         for (int tries = 0; tries < 2; tries++) {
-            if (h->f.ctl < 0 && !ftp_login(&h->f)) return -1;
-            int ok = ftp_pasv(&h->f);
+            if (!h->s) { h->s = ftp_get(); if (!h->s) return -1; }
+            else if (h->s->ctl < 0 && !ftp_login(h->s)) return -1;
+            int ok = ftp_pasv(h->s);
             if (ok) {
                 snprintf(cmd, sizeof(cmd), "REST %u", (unsigned)h->pos);
-                int r = h->pos ? ftp_cmd(&h->f, cmd, l, sizeof(l)) : 350;
+                int r = h->pos ? ftp_cmd(h->s, cmd, l, sizeof(l)) : 350;
                 snprintf(cmd, sizeof(cmd), "RETR %s", h->rel);
-                if (r == 350 && ((r = ftp_cmd(&h->f, cmd, l, sizeof(l))) == 150 || r == 125)) { h->live = 1; h->dpos = h->pos; break; }
+                if (r == 350 && ((r = ftp_cmd(h->s, cmd, l, sizeof(l))) == 150 || r == 125)) { h->live = 1; h->dpos = h->pos; break; }
                 ok = 0;
             }
-            ftp_close(&h->f);                                        /* (connexion perdue ? on reessaie une fois) */
+            ftp_close(h->s);                                         /* (connexion perdue ? on reessaie une fois) */
         }
         if (!h->live) { nfs_seterr("FTP : lecture refus\xC3\xA9" "e"); return -1; }
     }
     int got = 0;
     while (got < len) {
-        int r = nfs_recv(h->f.data, dst + got, len - got, 10000);
+        int r = nfs_recv(h->s->data, dst + got, len - got, 6000);
         if (r <= 0) break;
         got += r;
     }
@@ -297,7 +366,16 @@ static int ftp_fread(ftp_file_t *h, u8 *dst, int len) {
     if (h->dpos >= h->size) ftp_data_stop(h);
     return got;
 }
-static void ftp_fclose(ftp_file_t *h) { ftp_close(&h->f); }
+static void ftp_fclose(ftp_file_t *h) {
+    if (!h->s) return;
+    int ok = h->s->ctl >= 0;
+    if (h->live) {                                                    /* (transfert pas fini : on l'arrete, la session reste) */
+        ftp_data_stop(h);
+        ok = h->s->ctl >= 0;
+    }
+    ftp_put(h->s, ok);
+    h->s = NULL;
+}
 
 /* ======================= FSP (UDP) =======================
    Paquet : commande, somme, cle, numero, longueur, position (12 octets), donnees, extra.
@@ -462,34 +540,55 @@ static int fsp_fread(fsp_file_t *h, u8 *dst, int len) {
 /* ======================= SMB2 ======================= */
 #include "smb2.c"
 
-/* ---------- cache de la derniere liste : stat() et fopen() d'un fichier absent repondent tout de suite ---------- */
-static char nfs_cdir[NAME_LEN] = "";
-static nfs_ent_t *nfs_cent = NULL;
-static int nfs_cn = 0;
+/* ---------- v119 : listes des 8 derniers dossiers (60 s) : stat() et fopen() d'un fichier repondent tout de suite
+   (avant : seulement le dernier dossier ; chercher une pochette ou des paroles ouvrait une connexion par essai) ---------- */
+#define NFS_CDIRS 8
+typedef struct { char dir[NAME_LEN]; nfs_ent_t *e; int n; u64 t; } nfs_cdir_t;
+static nfs_cdir_t nfs_cd[NFS_CDIRS];
+static void nfs_cdir_norm(char *d) { size_t l = strlen(d); while (l > 1 && d[l - 1] == '/') d[--l] = 0; }
 static void nfs_cache_put(const char *dir, const nfs_ent_t *e, int n) {
-    free(nfs_cent); nfs_cent = NULL; nfs_cn = 0; nfs_cdir[0] = 0;
-    if (n <= 0) return;
-    nfs_cent = (nfs_ent_t *)malloc(sizeof(nfs_ent_t) * n);
-    if (!nfs_cent) return;
-    memcpy(nfs_cent, e, sizeof(nfs_ent_t) * n);
-    nfs_cn = n;
-    snprintf(nfs_cdir, sizeof(nfs_cdir), "%s", dir);
-    size_t l = strlen(nfs_cdir);
-    while (l > 1 && nfs_cdir[l - 1] == '/') nfs_cdir[--l] = 0;
+    char d[NAME_LEN];
+    snprintf(d, sizeof(d), "%s", dir);
+    nfs_cdir_norm(d);
+    int k = -1;
+    for (int i = 0; i < NFS_CDIRS && k < 0; i++) if (nfs_cd[i].dir[0] && !strcmp(nfs_cd[i].dir, d)) k = i;
+    if (k < 0) {                                                   /* place libre, sinon la plus ancienne */
+        k = 0;
+        for (int i = 0; i < NFS_CDIRS; i++) {
+            if (!nfs_cd[i].dir[0]) { k = i; break; }
+            if (nfs_cd[i].t < nfs_cd[k].t) k = i;
+        }
+    }
+    free(nfs_cd[k].e);
+    memset(&nfs_cd[k], 0, sizeof(nfs_cd[k]));
+    if (n < 0) return;
+    nfs_cd[k].e = n > 0 ? (nfs_ent_t *)malloc(sizeof(nfs_ent_t) * n) : NULL;
+    if (n > 0 && !nfs_cd[k].e) return;
+    if (n > 0) memcpy(nfs_cd[k].e, e, sizeof(nfs_ent_t) * n);
+    nfs_cd[k].n = n;
+    nfs_cd[k].t = now_ms();
+    snprintf(nfs_cd[k].dir, sizeof(nfs_cd[k].dir), "%s", d);
 }
-/* 1 = trouve dans le cache, 0 = absent du dossier en cache, -1 = pas en cache */
+/* 1 = trouve dans un dossier deja lu, 0 = absent de ce dossier, -1 = dossier pas en memoire */
 static int nfs_cache_find(const char *path, int *dir, u32 *size) {
-    if (!nfs_cdir[0]) return -1;
     const char *sl = strrchr(path, '/');
     if (!sl) return -1;
-    size_t dl = (size_t)(sl - path);
-    if (dl != strlen(nfs_cdir) || strncmp(path, nfs_cdir, dl)) {
-        if (!(dl == strlen(nfs_cdir) - 1 && nfs_cdir[dl] == '/')) return -1;   /* ("ftp:/" : racine) */
-        if (strncmp(path, nfs_cdir, dl)) return -1;
+    char d[NAME_LEN];
+    int dl = (int)(sl - path);
+    if (dl >= (int)sizeof(d)) return -1;
+    memcpy(d, path, dl); d[dl] = 0;
+    if (dl > 0 && d[dl - 1] == ':') { d[dl] = '/'; d[dl + 1] = 0; }   /* ("ftp:/nom" : racine "ftp:/") */
+    nfs_cdir_norm(d);
+    u64 now = now_ms();
+    for (int i = 0; i < NFS_CDIRS; i++) {
+        nfs_cdir_t *c = &nfs_cd[i];
+        if (!c->dir[0] || strcmp(c->dir, d)) continue;
+        if (now - c->t > 60000) return -1;                         /* (trop vieux : le dossier a pu changer) */
+        for (int k = 0; k < c->n; k++)
+            if (!strcmp(c->e[k].name, sl + 1)) { if (dir) *dir = c->e[k].dir; if (size) *size = c->e[k].size; return 1; }
+        return 0;
     }
-    for (int i = 0; i < nfs_cn; i++)
-        if (!strcmp(nfs_cent[i].name, sl + 1)) { if (dir) *dir = nfs_cent[i].dir; if (size) *size = nfs_cent[i].size; return 1; }
-    return 0;
+    return -1;
 }
 
 /* ======================= commun ======================= */
@@ -514,7 +613,16 @@ static int nfs_stat(const char *path, int *dir, u32 *size) {
     if (p == NFS_FSP) return fsp_stat(rel, dir, size);
     return smb_stat(rel, dir, size);
 }
-typedef struct { int proto; union { ftp_file_t ftp; fsp_file_t fsp; smb_file_t smb; } u; } nfile_t;
+/* v119 : FTP et FSP : le fichier est lu par morceaux de 32 Ko gardes en memoire (4 par fichier). Lire les
+   etiquettes au debut, puis la fin, puis revenir au debut ne redemande plus le fichier au serveur. */
+#define NFS_BLK  32768
+#define NFS_NBLK 4
+typedef struct {
+    int proto;
+    union { ftp_file_t ftp; fsp_file_t fsp; smb_file_t smb; } u;
+    u32 lpos;                                   /* position lue par le programme (FTP / FSP) */
+    u8 *blk[NFS_NBLK]; u32 bpos[NFS_NBLK]; int blen[NFS_NBLK]; u32 bused[NFS_NBLK], bclock;
+} nfile_t;
 static nfile_t *nfs_fopen(const char *path) {
     int p = -1;
     const char *rel = nfs_rel(path, &p);
@@ -522,15 +630,56 @@ static nfile_t *nfs_fopen(const char *path) {
     if (nfs_cache_find(path, NULL, NULL) == 0) { nfs_seterr("Fichier introuvable"); return NULL; }   /* (absent du dossier deja lu) */
     nfile_t *f = (nfile_t *)malloc(sizeof(nfile_t));
     if (!f) return NULL;
+    memset(f, 0, sizeof(*f));
     f->proto = p;
-    int ok = p == NFS_FTP ? ftp_fopen(&f->u.ftp, rel) : p == NFS_FSP ? fsp_fopen(&f->u.fsp, rel) : smb_fopen(&f->u.smb, rel);
+    int kd = 0; u32 ksz = 0;
+    int known = p == NFS_FTP && nfs_cache_find(path, &kd, &ksz) == 1 && !kd;   /* (taille deja lue dans la liste) */
+    int ok = p == NFS_FTP ? ftp_fopen(&f->u.ftp, rel, ksz, known) : p == NFS_FSP ? fsp_fopen(&f->u.fsp, rel) : smb_fopen(&f->u.smb, rel);
     if (!ok) { free(f); return NULL; }
     return f;
 }
 static u32 nfs_fsize(nfile_t *f) { return f->proto == NFS_FTP ? f->u.ftp.size : f->proto == NFS_FSP ? f->u.fsp.size : f->u.smb.size; }
-static u32 *nfs_fpos(nfile_t *f) { return f->proto == NFS_FTP ? &f->u.ftp.pos : f->proto == NFS_FSP ? &f->u.fsp.pos : &f->u.smb.pos; }
+static u32 *nfs_fpos(nfile_t *f) { return f->proto == NFS_SMB ? &f->u.smb.pos : &f->lpos; }
+/* lit un morceau entier a la position bp (FTP : a la suite du transfert en cours si c'est la suite) */
+static int nfs_blk_fill(nfile_t *f, u32 bp, u8 *dst) {
+    u32 size = nfs_fsize(f);
+    int want = size - bp < NFS_BLK ? (int)(size - bp) : NFS_BLK;
+    int got = 0;
+    if (f->proto == NFS_FTP) f->u.ftp.pos = bp; else f->u.fsp.pos = bp;
+    while (got < want) {
+        int k = f->proto == NFS_FTP ? ftp_fread(&f->u.ftp, dst + got, want - got) : fsp_fread(&f->u.fsp, dst + got, want - got);
+        if (k <= 0) return got ? got : k;
+        got += k;
+    }
+    return got;
+}
 static int nfs_fread(nfile_t *f, void *dst, int len) {
-    return f->proto == NFS_FTP ? ftp_fread(&f->u.ftp, (u8 *)dst, len) : f->proto == NFS_FSP ? fsp_fread(&f->u.fsp, (u8 *)dst, len) : smb_fread(&f->u.smb, (u8 *)dst, len);
+    if (f->proto == NFS_SMB) return smb_fread(&f->u.smb, (u8 *)dst, len);
+    u8 *o = (u8 *)dst;
+    u32 size = nfs_fsize(f);
+    int got = 0;
+    while (got < len && f->lpos < size) {
+        u32 bp = f->lpos & ~(u32)(NFS_BLK - 1);
+        int k = -1;
+        for (int i = 0; i < NFS_NBLK; i++) if (f->blk[i] && f->blen[i] > 0 && f->bpos[i] == bp) { k = i; break; }
+        if (k < 0) {                                                  /* pas en memoire : le morceau entier */
+            k = 0;
+            for (int i = 0; i < NFS_NBLK; i++) { if (!f->blk[i]) { k = i; break; } if (f->bused[i] < f->bused[k]) k = i; }
+            if (!f->blk[k]) { f->blk[k] = (u8 *)malloc(NFS_BLK); if (!f->blk[k]) return got ? got : -1; }
+            f->blen[k] = 0;
+            int n = nfs_blk_fill(f, bp, f->blk[k]);
+            if (n <= 0) return got ? got : n;
+            f->bpos[k] = bp; f->blen[k] = n;
+        }
+        f->bused[k] = ++f->bclock;
+        u32 off = f->lpos - bp;
+        if (off >= (u32)f->blen[k]) break;                             /* (fin du fichier plus tot que prevu) */
+        int c = f->blen[k] - (int)off;
+        if (c > len - got) c = len - got;
+        memcpy(o + got, f->blk[k] + off, c);
+        got += c; f->lpos += c;
+    }
+    return got;
 }
 static long nfs_fseek(nfile_t *f, long off, int whence) {
     long base = whence == SEEK_SET ? 0 : whence == SEEK_CUR ? (long)*nfs_fpos(f) : (long)nfs_fsize(f);
@@ -541,6 +690,7 @@ static long nfs_fseek(nfile_t *f, long off, int whence) {
 }
 static void nfs_fclose(nfile_t *f) {
     if (!f) return;
+    for (int i = 0; i < NFS_NBLK; i++) free(f->blk[i]);
     if (f->proto == NFS_FTP) ftp_fclose(&f->u.ftp);
     else if (f->proto == NFS_SMB) smb_fclose(&f->u.smb);
     free(f);

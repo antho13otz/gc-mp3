@@ -9907,6 +9907,7 @@ static void rb_search_name(const char *q);
 static int kb_open = 0, kb_mode = KB_URL, kb_field = -1, kb_form = -1;
 static char kb_text[256];
 static int kb_row = 1, kb_col = 0, kb_shift = 0;
+static int kb_cur = 0;                      /* v119 : position du curseur dans kb_text (octets ; L / R le deplacent) */
 
 static void kb_start(int mode, const char *init, int field, int form) {
     kb_open = 1;
@@ -9914,6 +9915,7 @@ static void kb_start(int mode, const char *init, int field, int form) {
     kb_field = field;
     kb_form = form;
     snprintf(kb_text, sizeof(kb_text), "%s", init ? init : "");
+    kb_cur = (int)strlen(kb_text);
     kb_shift = 0;
 }
 
@@ -10158,17 +10160,33 @@ static int kb_special_col(int i) {
     return x;
 }
 
+static int kb_cur_ok(void) {                /* (le texte a pu changer ailleurs) */
+    int n = (int)strlen(kb_text);
+    if (kb_cur < 0 || kb_cur > n) kb_cur = n;
+    while (kb_cur > 0 && kb_cur < n && ((unsigned char)kb_text[kb_cur] & 0xC0) == 0x80) kb_cur--;
+    return n;
+}
+/* v119 : le texte s'ajoute au curseur (plus seulement a la fin) */
 static void kb_append(const char *s) {
-    int n = (int)strlen(kb_text), l = (int)strlen(s);
-    if (n + l < (int)sizeof(kb_text) - 1) memcpy(kb_text + n, s, l + 1);
+    int n = kb_cur_ok(), l = (int)strlen(s);
+    if (n + l >= (int)sizeof(kb_text) - 1) return;
+    memmove(kb_text + kb_cur + l, kb_text + kb_cur, n - kb_cur + 1);
+    memcpy(kb_text + kb_cur, s, l);
+    kb_cur += l;
 }
 
-static void kb_backspace(void) {
-    int n = (int)strlen(kb_text);
-    if (n == 0) return;
-    n--;
-    while (n > 0 && ((unsigned char)kb_text[n] & 0xC0) == 0x80) n--;
-    kb_text[n] = 0;
+static void kb_backspace(void) {            /* efface la lettre avant le curseur */
+    int n = kb_cur_ok();
+    if (kb_cur == 0) return;
+    int a = kb_cur - 1;
+    while (a > 0 && ((unsigned char)kb_text[a] & 0xC0) == 0x80) a--;
+    memmove(kb_text + a, kb_text + kb_cur, n - kb_cur + 1);
+    kb_cur = a;
+}
+static void kb_move(int d) {                /* v119 : L / R : une lettre a gauche / a droite */
+    int n = kb_cur_ok();
+    if (d < 0 && kb_cur > 0) { kb_cur--; while (kb_cur > 0 && ((unsigned char)kb_text[kb_cur] & 0xC0) == 0x80) kb_cur--; }
+    if (d > 0 && kb_cur < n) { kb_cur++; while (kb_cur < n && ((unsigned char)kb_text[kb_cur] & 0xC0) == 0x80) kb_cur++; }
 }
 
 static void kb_press(void) {
@@ -10206,6 +10224,14 @@ static void kb_input(u32 down, u32 nav, int fire) {
             } else kb_col = (kb_col + d + KB_COLS) % KB_COLS;
         }
     }
+    {   /* v119 : gachettes L / R : le curseur dans le texte (maintenues : il continue) */
+        static u64 lr_t0 = 0, lr_next = 0;
+        u32 held = PAD_ButtonsHeld(0) & (PAD_TRIGGER_L | PAD_TRIGGER_R);
+        u64 t = now_ms();
+        if (down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) { kb_move((down & PAD_TRIGGER_R) ? 1 : -1); lr_t0 = t; lr_next = t + 380; }
+        else if (held && lr_t0 && t >= lr_next) { kb_move((held & PAD_TRIGGER_R) ? 1 : -1); lr_next = t + 70; }
+        if (!held) lr_t0 = 0;
+    }
     if (down & PAD_BUTTON_A) kb_press();
     if (down & PAD_BUTTON_B) kb_backspace();
     if (down & PAD_BUTTON_X) kb_append(" ");
@@ -10236,11 +10262,11 @@ static void draw_mini_badge(f32 cx, f32 cy, const char *k) {
 static void draw_legend_web(void) {
     static const char *const keys_web[7] = { "A", "B", "Y", "X", "R", "Z", "ST" };
     static const char *const lab_web[7] = { "OUVRIR", "RETOUR", "ADRESSE", "ACCUEIL", "PLEIN \xC3\x89" "CRAN", "ONGLET", "MENU" };
-    static const char *const keys_kb[6] = { "A", "B", "X", "Y", "ST", "" };
-    static const char *const lab_kb[6] = { "TAPER", "EFFACER", "ESPACE", "ANNULER", "VALIDER", "" };
+    static const char *const keys_kb[7] = { "A", "B", "X", "Y", "L", "R", "ST" };
+    static const char *const lab_kb[7] = { "TAPER", "EFFACER", "ESPACE", "ANNULER", "<", ">", "VALIDER" };
     const char *const *keys = kb_open ? keys_kb : keys_web;
     const char *const *lab = kb_open ? lab_kb : lab_web;
-    int cnt = kb_open ? 5 : 7;
+    int cnt = 7;
     const f32 x0 = 11, w = 618, cy = 438.5f;
     legend_box(x0, w);
     f32 total = 0;
@@ -10557,10 +10583,24 @@ static void draw_keyboard(void) {
     /* zone de texte */
     gx_rrect_fill(42, 151, 556, 26, 6, RGBA(6, 4, 20, 255), RGBA(14, 9, 36, 255));
     gx_rrect_stroke(42, 151, 556, 26, 6, 1.5f, RGBA(170, 110, 255, 255));
-    const char *t = kb_text;
-    while (text_width(F_MED, t, 0) > 530 && *t) { const char *q = t; next_cp(&q); t = q; }   /* fin du texte visible */
-    int w = gx_text1(F_MED, 50, 170, t, RGBA(240, 236, 255, 255));
-    if ((retrace_count / 30) & 1) gx_rect(51 + w, 156, 2, 17, RGBA(200, 160, 255, 255));
+    {   /* v119 : la partie visible suit le curseur (L / R) */
+        kb_cur_ok();
+        char pre[256], vis[256];
+        int start = 0;
+        for (;;) {
+            int k = kb_cur - start;
+            memcpy(pre, kb_text + start, k); pre[k] = 0;
+            if (text_width(F_MED, pre, 0) <= 500 || start >= kb_cur) break;
+            const char *q = kb_text + start; next_cp(&q); start = (int)(q - kb_text);
+        }
+        int k = kb_cur - start;
+        memcpy(pre, kb_text + start, k); pre[k] = 0;
+        int cw = text_width(F_MED, pre, 0);
+        snprintf(vis, sizeof(vis), "%s", kb_text + start);
+        while (text_width(F_MED, vis, 0) > 536 && vis[0]) { int n = (int)strlen(vis) - 1; while (n > 0 && ((unsigned char)vis[n] & 0xC0) == 0x80) n--; vis[n] = 0; }
+        gx_text1(F_MED, 50, 170, vis, RGBA(240, 236, 255, 255));
+        if ((retrace_count / 30) & 1) gx_rect(50 + cw, 156, 2, 17, RGBA(200, 160, 255, 255));
+    }
     if (!kb_text[0]) {
         const char *hint = kb_mode == KB_URL ? "ex. : fr.m.wikipedia.org  ou  musique libre" : "";
         gx_text1(F_MED, 56, 170, hint, RGBA(110, 96, 170, 255));
