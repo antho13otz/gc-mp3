@@ -450,9 +450,9 @@ static void draw_list_wide(void) {
         col_t txt = is_sel ? RGBA(255, 255, 255, 255) : RGBA(210, 200, 240, 255);
         col_t dim = is_sel ? RGBA(235, 225, 255, 255) : RGBA(140, 125, 200, 255);
         if (e.type != E_TRACK) {
-            fit_text(F_MED, group_label(e.idx), 520, d, sizeof(d));
+            fit_text_sel(is_sel, F_MED, group_label(e.idx), 520, d, sizeof(d));
             gx_text1(F_MED, 50, cy + 5, e.type == E_UP ? ".." : d, txt);
-            if (e.type == E_UP) { fit_text(F_MED, group_label(e.idx), 480, d, sizeof(d)); gx_text1(F_MED, 76, cy + 5, d, txt); }
+            if (e.type == E_UP) { fit_text_sel(is_sel, F_MED, group_label(e.idx), 480, d, sizeof(d)); gx_text1(F_MED, 76, cy + 5, d, txt); }
             continue;
         }
         int k = e.idx;
@@ -462,13 +462,13 @@ static void draw_list_wide(void) {
         char raw[NAME_LEN];
         track_label(k, raw, sizeof(raw), !(cur_group >= 0 && (view_mode == VIEW_ARTISTS || view_mode == VIEW_ALBUMS)));
         text_display(raw, d, sizeof(d));
-        fit_text(F_MED, d, 270, buf, sizeof(buf));
+        fit_text_sel(is_sel, F_MED, d, 270, buf, sizeof(buf));
         gx_text1(F_MED, 52, cy + 5, buf, txt);
         text_display(tg_artist[k], d, sizeof(d));
-        fit_text(F_SMALL, d, 122, buf, sizeof(buf));
+        fit_text_sel(is_sel, F_SMALL, d, 122, buf, sizeof(buf));
         gx_text1(F_SMALL, 330, cy + 4, buf, dim);
         text_display(tg_album[k], d, sizeof(d));
-        fit_text(F_SMALL, d, 96, buf, sizeof(buf));
+        fit_text_sel(is_sel, F_SMALL, d, 96, buf, sizeof(buf));
         gx_text1(F_SMALL, 460, cy + 4, buf, dim);
         if (rating[k] > 0) {                                 /* v76 : note (une etoile + chiffre) */
             draw_star1(566, cy, 4.2f, is_sel ? RGBA(255, 225, 140, 255) : RGBA(255, 205, 80, 255));

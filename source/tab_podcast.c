@@ -634,7 +634,7 @@ static void draw_list_podcast(void) {
         if (label != d) text_display(label, d, sizeof(d));
         int tw = t[0] ? text_width(F_SMALL, t, 0) + 6 : 0;
         if (t[0]) gx_text_r(F_SMALL, 260, cy + 4, t, dim);
-        fit_text(F_MED, d, 222 - tw, buf, sizeof(buf));
+        fit_text_sel(is_sel, F_MED, d, 222 - tw, buf, sizeof(buf));
         gx_text1(F_MED, 34, cy + 5, buf, txt);
     }
     gx_rect(25, 430, 241, 1, RGBA(76, 52, 150, 200));

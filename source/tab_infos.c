@@ -354,13 +354,13 @@ static void draw_tab_infos(void) {
         else if (i == 3) snprintf(buf, sizeof(buf), "Le r\xC3\xA9veil joue : %s", alarm_src > 0 && alarm_src <= nstations ? stations[alarm_src - 1].name : TR("ma musique (al\xC3\xA9" "atoire)"));
         else {
             text_display(news_title[i - 4], d, sizeof(d));
-            fit_text(F_SMALL, d, (int)rw - 46, buf, sizeof(buf));
+            fit_text_sel(on, F_SMALL, d, (int)rw - 46, buf, sizeof(buf));
             gx_text1(F_SMALL, rx + 40, ry + 15, buf, c);
             gx_text1(F_SMALL, rx, ry + 15, news_time[i - 4], on ? c : RGBA(150, 135, 210, 255));
             continue;
         }
         text_display(buf, d, sizeof(d));
-        fit_text(F_MED, d, (int)rw, buf, sizeof(buf));
+        fit_text_sel(on, F_MED, d, (int)rw, buf, sizeof(buf));
         gx_text1(F_MED, rx, ry + 17, buf, c);
         if (on && (i == 1 || i == 2 || i == 3)) {
             gx_tri(rx + rw - 18, ry + 6, rx + rw - 18, ry + 16, rx + rw - 12, ry + 11, RGBA(255, 255, 255, 200));

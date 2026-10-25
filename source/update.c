@@ -199,6 +199,7 @@ static FILE *uw_f = NULL;
 static char uw_part[NAME_LEN + 8];
 static void up_install_finish(const u8 *d, long n);
 static u8 *up_mem = NULL;                                /* v117 : sans carte SD (Dolphin) : la version telechargee, en memoire */
+static u64 up_auto_at = 0;                               /* v127 : relance automatique apres la mise a jour (0 = non) */
 static long up_mem_len = 0;
 /* v117 / v119 : pas de carte SD, ou carte ou l'on ne peut pas ecrire (Dolphin...) : la version telechargee
    reste en memoire et se lance directement (A), sans etre enregistree */
@@ -206,7 +207,8 @@ static void up_to_memory(u8 *d, long n, const char *why) {
     if (up_mem && up_mem != d) free(up_mem);
     up_mem = d; up_mem_len = n;
     up_state = UP_DONE;
-    snprintf(up_msg, sizeof(up_msg), "Build %d pr\xC3\xAAte (%s : non enregistr\xC3\xA9" "e) : A pour la lancer", up_build, why);
+    snprintf(up_msg, sizeof(up_msg), "Build %d pr\xC3\xAAte (%s : non enregistr\xC3\xA9" "e) : relance automatique...", up_build, why);
+    up_auto_at = now_ms() + 3000;                        /* v127 : se lance toute seule (Dolphin PC / Android) */
     crumb("mise a jour en memoire (%s) : build %d, %ld octets", why, up_build, n);
 }
 static void up_install(u8 *d, long n) {                  /* garde d (libere a la fin) */
@@ -323,11 +325,13 @@ static void up_install_finish(const u8 *d, long n) {
         crumb("mise a jour : copie %s %s", up_copies[i], ok ? "ok" : "ECHEC");
     }
     up_state = UP_DONE;
-    snprintf(up_msg, sizeof(up_msg), "Install\xC3\xA9" "e (build %d) : A pour relancer GC Station", up_build);   /* v38 */
+    snprintf(up_msg, sizeof(up_msg), "Install\xC3\xA9" "e (build %d) : relance automatique...", up_build);   /* v38 ; v127 : toute seule */
+    up_auto_at = now_ms() + 3000;
     (void)nok;
     crumb("mise a jour installee : build %d -> %s (+%d copies)", up_build, up_target, nok);
 }
 
+static void update_relaunch(void);
 static void update_pump(void) {
     /* verification automatique, une fois, quand le reseau est pret */
     if (!up_auto_done && upd_auto && net_phase == NET_DONE && net_ok && now_ms() > 15000 && up_state == UP_IDLE) {
@@ -335,6 +339,7 @@ static void update_pump(void) {
         update_check();
     }
     if (up_state == UP_WRITE) { up_write_pump(); return; }
+    if (up_state == UP_DONE && up_auto_at && now_ms() >= up_auto_at) { up_auto_at = 0; update_relaunch(); return; }   /* v127 */
     if (up_state != UP_CHECK && up_state != UP_DL) return;
     hf_pump(&up_hf);
     if (up_hf.st == HF_FAIL) {
@@ -484,9 +489,15 @@ static void update_value(char *out, int cap) {
 }
 
 static void draw_update_notice(void) {
-    if (!up_notice_until || now_ms() >= up_notice_until || up_state != UP_AVAIL) return;
     char m[120];
-    snprintf(m, sizeof(m), "Nouvelle version de GC Station (build %d) : START > Mise \xC3\xA0 jour", up_build);
+    if (up_state == UP_DONE && up_auto_at) {             /* v127 : relance automatique : visible dans tous les onglets */
+        u64 t = now_ms();
+        int sec = t < up_auto_at ? (int)((up_auto_at - t + 999) / 1000) : 0;
+        snprintf(m, sizeof(m), "Mise \xC3\xA0 jour (build %d) pr\xC3\xAAte : GC Station red\xC3\xA9marre dans %d s", up_build, sec);
+    } else {
+        if (!up_notice_until || now_ms() >= up_notice_until || up_state != UP_AVAIL) return;
+        snprintf(m, sizeof(m), "Nouvelle version de GC Station (build %d) : START > Mise \xC3\xA0 jour", up_build);
+    }
     int w = text_width(F_SMALL, m, 0) + 30;
     gx_rrect_fill(320 - w / 2.0f, 92, (f32)w, 26, 9, RGBA(20, 70, 40, 240), RGBA(20, 70, 40, 240));
     gx_text_c(F_SMALL, 320, 110, m, RGBA(255, 255, 255, 255));

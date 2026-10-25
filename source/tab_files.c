@@ -557,7 +557,7 @@ static void draw_tab_files(void) {
         else if (e->dir) draw_folder_icon(36, cy, on ? txt : RGBA(150, 120, 235, 255));
         else draw_note(36, cy, on ? txt : RGBA(120, 100, 190, 255));
         text_display(e->name, d, sizeof(d));
-        fit_text(F_MED, d, 470, buf, sizeof(buf));
+        fit_text_sel(on, F_MED, d, 470, buf, sizeof(buf));
         gx_text1(F_MED, 52, cy + 5, buf, e->mark ? RGBA(255, 225, 150, 255) : txt);
         if (!e->dir) { fmt_size(buf, sizeof(buf), e->size); gx_text_r(F_SMALL, 612, cy + 4, buf, dim); }
         if (clip_n == 1 && clip_path[0] && !strcmp(base_of(clip_path), e->name)) gx_text_r(F_SMALL, 540, cy + 4, clip_cut ? "coup\xC3\xA9" : "copi\xC3\xA9", RGBA(255, 210, 120, 255));

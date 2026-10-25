@@ -646,7 +646,7 @@ static void draw_tab_photo(void) {
                 gx_text_c(F_SMALL, x + TH_W / 2, y + 68, "VID\xC3\x89O", RGBA(200, 185, 250, 255));
             } else if (pf[f].bad) gx_text_c(F_SMALL, x + TH_W / 2, y + 40, "trop grande", RGBA(255, 190, 120, 255));
             text_display(base_of(pf[f].path), d, sizeof(d));
-            fit_text(F_SMALL, d, TH_W, buf, sizeof(buf));
+            fit_text_sel(on, F_SMALL, d, TH_W, buf, sizeof(buf));
             gx_text1(F_SMALL, x, y + TH_H - 6, buf, on ? RGBA(255, 255, 255, 255) : RGBA(190, 180, 235, 255));
         }
     }

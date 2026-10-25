@@ -681,7 +681,7 @@ static void draw_list_retro(void) {
         char *dot = strrchr(raw, '.');
         if (dot) *dot = 0;
         text_display(raw, d, sizeof(d));
-        fit_text(F_MED, d, 210 - tw, buf, sizeof(buf));
+        fit_text_sel(is_sel, F_MED, d, 210 - tw, buf, sizeof(buf));
         gx_text1(F_MED, 42, cy + 5, buf, txt);
         (void)dim;
     }

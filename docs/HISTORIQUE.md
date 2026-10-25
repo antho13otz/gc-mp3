@@ -21,6 +21,19 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v127 — textes qui défilent, Dolphin PC / Android
+- **Textes trop longs** : `fit_text` fait défiler le texte (1,5 s de pause, une lettre toutes les 0,18 s, 1,5 s
+  de pause à la fin, puis on recommence) au lieu de le couper. Dans une liste (le même endroit du programme
+  dessine plusieurs lignes par image), seule la ligne choisie défile (`fit_text_sel`) ; elle repart du début
+  quand on y revient.
+- **Mise à jour automatique** : une fois la nouvelle version téléchargée (et enregistrée, ou gardée en mémoire
+  sans carte SD), GC Station redémarre tout seul au bout de 3 s ; un bandeau l'annonce dans tous les onglets.
+- **Réglages sur Dolphin sans carte SD** : depuis la v22, les réglages sont dans `SD:/gc-mp3/`, mais la SD en
+  mémoire ne gardait sur la carte mémoire que les fichiers de la racine : rien n'était gardé. Les fichiers de
+  `gc-mp3/` le sont de nouveau, `gc-mp3.txt` en premier.
+- **Dossiers** : `mp3`, `retro`, `photos`, `videos`, `ecran`, `downloads`, `games` et ceux de `gc-mp3/` sont
+  créés au démarrage (carte neuve, carte SD de Dolphin, SD en mémoire).
+
 ## Nouveautés v126 — Pulse : plus de place pour la carte mémoire virtuelle
 - Mario Superstar Baseball : écran noir juste avant le menu principal. Le journal montrait « carte mémoire
   virtuelle coupée pour ce jeu : plus de place » (83 accès au lecteur + 93 accès EXI à brancher) : le jeu
