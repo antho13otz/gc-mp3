@@ -1028,7 +1028,7 @@ static void draw_cards(void) {
 static void ap_draw_row(void) {
     char buf[160], fv[160];
     static f32 pos = -10000.0f;
-    int st = ui_skin, loop = ap_n >= 7;
+    int st = ui_skin >= 3 ? 3 : ui_skin, loop = ap_n >= 7;   /* (v131 : Vitrine, Ilots = Aurore) */
     if (!ap_n) return;
     if (pos < -9000.0f || !gl_anim) pos = (f32)ap_sel;
     else {
