@@ -29,7 +29,10 @@ static volatile int tp_json_cur = 0;
 static u64 tp_json_t = 0;
 
 /* commandes envoyees par la page */
-enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN, PC_MENU, PC_CHECK, PC_SET, PC_UPDATE };
+enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN, PC_MENU, PC_CHECK, PC_SET, PC_UPDATE, PC_SHOW, PC_SALON };   /* v142 : photo sur la tele, ecouter avec (Salon) */
+static volatile u32 tp_keys = 0;                /* v142 : boutons de la manette du telephone (pris par la boucle) */
+static u8 *gl_cover_raw(int k, int *w, int *h, int *iw, int *ih, u32 *len);   /* (gclib.c) jaquette telle qu'elle est dans posters.pak */
+static int tl_screen;                                        /* (tools.c : 0 = aucun outil ouvert) */
 static char tp_open_url[2048];                 /* "ouvrir sur la tele" (ecrit par le fil du serveur) */
 static volatile int tp_open_busy = 0;
 typedef struct { int c, i; } phcmd_t;
@@ -865,6 +868,88 @@ static void tp_handle(s32 c) {
         if (ok) { x73_launch_m = atoi(ms) == 1; x73_launch_k = atoi(is); }
         tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
     }
+    else if (!strcmp(target, "/api/key")) {                  /* v142 : manette sur le telephone */
+        static const char *const kn[] = { "up", "down", "left", "right", "a", "b", "x", "y", "z", "l", "r", "start", NULL };
+        static const u32 km[] = { PAD_BUTTON_UP, PAD_BUTTON_DOWN, PAD_BUTTON_LEFT, PAD_BUTTON_RIGHT, PAD_BUTTON_A, PAD_BUTTON_B, PAD_BUTTON_X,
+                                  PAD_BUTTON_Y, PAD_TRIGGER_Z, PAD_TRIGGER_L, PAD_TRIGGER_R, PAD_BUTTON_START };
+        char k[12];
+        tp_param(q ? q : "", "k", k, sizeof(k));
+        int ok = 0;
+        for (int i = 0; kn[i]; i++) if (!strcmp(k, kn[i])) { tp_keys |= km[i]; ok = 1; }
+        tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
+    }
+    else if (!strcmp(target, "/api/cover")) {                /* v142 : jaquette d'un jeu (CMPR 256x256, decodee par la page) */
+        char is[12];
+        tp_param(q ? q : "", "i", is, sizeof(is));
+        int cw = 0, ch = 0, iw = 0, ih = 0;
+        u32 len = 0;
+        u8 *b = is[0] ? gl_cover_raw(atoi(is), &cw, &ch, &iw, &ih, &len) : NULL;
+        if (b) {
+            char h[320];
+            int hn = snprintf(h, sizeof(h), "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nX-Size: %dx%dx%dx%d\r\nCache-Control: max-age=86400\r\nContent-Length: %u\r\nConnection: close\r\n\r\n", cw, ch, iw, ih, (unsigned)len);
+            tp_send(c, h, hn); tp_send(c, b, (int)len);
+            free(b);
+        } else tp_reply(c, 404, "text/plain", "", 0);
+    }
+    else if (!strcmp(target, "/api/photos")) {               /* v142 : photos et videos (liste de l'onglet PHOTOS) */
+        if (npf < 0) { tp_rescan |= 2; for (int k = 0; k < 150 && npf < 0; k++) usleep(20000); }
+        sbuf_t sb = { NULL, 0, 0 };
+        char d[NAME_LEN], m[32];
+        sb_add(&sb, "[");
+        int n = npf;
+        for (int i = 0; i < n && pf; i++) {
+            if (i) sb_add(&sb, ",");
+            snprintf(m, sizeof(m), "[%d,", i); sb_add(&sb, m);
+            text_display(base_of(pf[i].path), d, sizeof(d)); sb_json_str(&sb, d);
+            sb_add(&sb, pf[i].video ? ",1]" : ",0]");
+        }
+        sb_add(&sb, "]");
+        tp_reply(c, 200, "application/json", sb.b, sb.b ? sb.n : 0);
+        free(sb.b);
+    }
+    else if (!strcmp(target, "/api/photo")) {
+        char is[12];
+        tp_param(q ? q : "", "i", is, sizeof(is));
+        int i = atoi(is);
+        if (is[0] && pf && i >= 0 && i < npf && !pf[i].video) { char p[NAME_LEN]; snprintf(p, sizeof(p), "%s", pf[i].path); sh_send_file(c, p, 0, (char *)req); }
+        else tp_reply(c, 404, "text/plain", "", 0);
+    }
+    else if (!strcmp(target, "/api/show")) {                 /* v142 : la photo (ou video) sur la tele */
+        char is[12];
+        tp_param(q ? q : "", "i", is, sizeof(is));
+        int ok = is[0] && atoi(is) >= 0 && atoi(is) < npf;
+        if (ok) tp_push(PC_SHOW, atoi(is));
+        tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
+    }
+    else if (!strcmp(target, "/api/queue")) {                /* v142 : la file de lecture (a suivre) */
+        sbuf_t sb = { NULL, 0, 0 };
+        char m[24];
+        sb_add(&sb, "[");
+        int p = qpos, n = qn, w = 0;
+        for (int i = p + 1; i < n && w < 40 && p >= 0; i++, w++) { snprintf(m, sizeof(m), w ? ",%d" : "%d", queue[i]); sb_add(&sb, m); }
+        sb_add(&sb, "]");
+        tp_reply(c, 200, "application/json", sb.b, sb.b ? sb.n : 0);
+        free(sb.b);
+    }
+    else if (!strcmp(target, "/api/salon")) {                /* v142 : les autres GC Station (Salon) */
+        sbuf_t sb = { NULL, 0, 0 };
+        sb_add(&sb, salon_on ? "{\"on\":1,\"c\":[" : "{\"on\":0,\"c\":[");
+        for (int k = 0; k < salon_n; k++) {
+            if (k) sb_add(&sb, ",");
+            sb_add(&sb, "["); sb_json_str(&sb, salon_peers[k].name); sb_add(&sb, ","); sb_json_str(&sb, salon_peers[k].ip);
+            sb_add(&sb, ","); sb_json_str(&sb, salon_peers[k].now); sb_add(&sb, "]");
+        }
+        sb_add(&sb, "]}");
+        tp_reply(c, 200, "application/json", sb.b, sb.b ? sb.n : 0);
+        free(sb.b);
+    }
+    else if (!strcmp(target, "/api/listen")) {
+        char is[12];
+        tp_param(q ? q : "", "i", is, sizeof(is));
+        int ok = is[0] && atoi(is) >= 0 && atoi(is) < salon_n;
+        if (ok) tp_push(PC_SALON, atoi(is));
+        tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
+    }
     else if (!strcmp(target, "/api/cmd")) {
         static const char *const cmds[] = { "", "toggle", "next", "prev", "stop", "volup", "voldown", "play", "radio", "party", "layout" };
         char cmd[16], is[16];
@@ -975,6 +1060,12 @@ static void phone_pump(void) {
             tp_cfg_now = 1;
             break;
         }
+        case PC_SHOW:                                    /* v142 : photo choisie sur le telephone */
+            if (!tab_shown(TAB_PHOTO)) break;
+            if (npf < 0) photo_rescan();
+            if (cm.i >= 0 && cm.i < npf) { menu_open = 0; tl_screen = 0; tab = TAB_PHOTO; tab_enter(TAB_PHOTO); pv_open(cm.i); }
+            break;
+        case PC_SALON: { const char *e = salon_listen(cm.i); if (e) lib_note(e); break; }
         }
     }
     if (tp_rescan & 1) { tp_rescan &= ~1; tp_add_r = tp_add_w; music_rescan(); retro_rescan(); }

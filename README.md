@@ -14,7 +14,15 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v141)
+## Nouveautés de la version actuelle (v142)
+- **Le téléphone, vraie télécommande** (page de l'onglet TÉLÉPHONE) :
+  - **Manette** : la croix, A, B, X, Y, Z, L, R et START agissent sur la GameCube comme la vraie manette ;
+  - **Jeux** avec leurs jaquettes (lancer avec Pulse ou le lanceur habituel) ;
+  - **Photos** : toutes les photos en vignettes, une touche = la photo s'affiche sur la télé ;
+  - **Salon** : les autres GC Station du réseau, ce qu'elles jouent, « Écouter avec », lien vers leur télécommande ;
+  - **Musique** : la file « À suivre ».
+
+## Version précédente (v141)
 - **Sauvegardes : copies automatiques et historique** : après chaque partie avec Pulse (carte mémoire virtuelle),
   les sauvegardes du jeu sont copiées dans `SD:/gc-mp3/sauvegardes/<jeu>/<date>/` (les 10 dernières, rien si
   rien n'a changé). START > Réglages > Outils > « Historique des sauvegardes » : choisir un jeu, puis une copie,
@@ -22,14 +30,6 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
 - **Reprendre sa partie sur une autre console** : avec le Salon actif, l'historique montre aussi les copies des
   autres GC Station du réseau ; en remettre une, c'est continuer ici la partie commencée là-bas.
 - « Tout sauvegarder maintenant » : une copie de chaque jeu de toutes les cartes virtuelles.
-
-## Version précédente (v140)
-- **Réparation automatique des jeux (Pulse)** : quand un jeu plante, reste sur un écran noir ou marche mal, GC
-  Station lit son journal et prépare une liste d'essais (vitesse d'un vrai lecteur, Pulse universel, sans carte
-  mémoire virtuelle, sans cheats, sans 16:9 forcé, mode vidéo du jeu…), du plus probable au moins probable.
-  Au lancement suivant, l'essai est appliqué tout seul (la fenêtre de lancement l'affiche) ; si le jeu marche,
-  le réglage est gardé dans les réglages du jeu, sinon on passe au suivant. On peut arrêter les essais.
-- Réglages d'un jeu : « Cheats : coupés » et « Carte mémoire : aucune (vraie carte) ».
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
