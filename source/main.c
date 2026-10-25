@@ -10596,6 +10596,16 @@ static void draw_web(void) {
         draw_note((f32)(614 - w - 10), 400, RGBA(150, 120, 235, 255));
         gx_text_r(F_SMALL, 614, 406, fit, RGBA(150, 135, 210, 255));
     }
+    if (msg_on && web_msg_err && !dl_active) {                 /* v124 : erreur bien visible (avant : petite ligne en bas, cachee par le decor) */
+        text_display(web_msg, st, sizeof(st));
+        fit_text(F_MED, st, 520, fit, sizeof(fit));
+        u64 left = 8000 - (now_ms() - web_msg_t);
+        f32 a = left < 1000 ? (f32)left / 1000.0f : 1.0f;    /* (fondu la derniere seconde) */
+        u8 al = (u8)(255 * a);
+        gx_rrect_fill(50, 336, 540, 44, 10, RGBA(170, 60, 45, al), RGBA(120, 35, 30, al));
+        gx_rrect_stroke(50, 336, 540, 44, 10, 1.5f, RGBA(255, 170, 120, al));
+        gx_text_c(F_MED, 320, 364, fit, RGBA(255, 235, 220, (u8)(255 * a)));
+    }
     draw_web_overlays();
 }
 
