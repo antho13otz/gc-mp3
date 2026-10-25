@@ -52,7 +52,7 @@ Conséquences pour Pulse :
 | Délais de la bibliothèque | **v136** : rien à faire : l'alarme du SDK est annulée par chaque fin de commande (quelques ms, 3 images au pire) ; chez Swiss, `SetTimeoutAlarm` sert à reconnaître la lecture du SDK qu'il remplace | — |
 | Courses lecture / rappel | **v134** : vitesse « Auto » (vrai lecteur pour `GS2`, `GDR`, `GHA`, `GLE`) ; **v135** : + `GYQ` ; corrections ARAM de `GDR`, `GHA`, `GLE` dans la table | compléter la liste avec les journaux |
 | Initialisation de l'image | **v135** : table `na_fixes` (`GGIJ`, `GON`, `GOY`, `GR8`, `GRZJ`) quand l'exécutable est le main.dol | les mêmes dans les exécutables secondaires |
-| Bus EXI partagé (SD2SP2 : port série 2, pas le bus des cartes mémoire) | pas de conflit en SD2SP2 ; possible avec un adaptateur dans un port de carte | passer par le verrou EXI du jeu pour les adaptateurs SD Gecko |
+| Bus EXI partagé (SD2SP2 : port série 2, pas le bus des cartes mémoire) | pas de conflit en SD2SP2 ; **v145** : avec un SD Gecko, Pulse attend que le jeu libère le bus | — |
 | Exécutables secondaires | OSExec suivi (v95) ; **v136** : corrections de la table appliquées au passage dans les `.dol`, `.elf`, `.tgc` du disque | `switcher.prs` (compressé) si un jeu en a besoin |
 
 ## 4. Mario Superstar Baseball (GYQE01) : écran noir figé
@@ -77,3 +77,58 @@ automatique pour `GYQ` en v135.
 - Corrections dans les exécutables secondaires : appliquées à la lecture (le résident change les octets visés
   dans chaque lecture du jeu), positions calculées par GC Station depuis la FST, les sections / segments.
 - Mario Superstar Baseball : boucle d'attente du lecteur HVQM4 corrigée dans le code du jeu (pointeurs relus).
+
+## 7. v146 : tout Swiss passé en revue (dépôt du 24/10/2026)
+Swiss applique à chaque jeu, dans l'ordre (`Patch_ExecutableFile`) : son hyperviseur (faux lecteur, faux matériel),
+les corrections par jeu, puis les réglages (manettes, carte mémoire, vidéo, police). Voici chaque partie et ce que
+Pulse en fait.
+
+### Corrections par jeu (`Patch_GameSpecific`, 77 codes de jeu)
+| Jeux | Problème | Pulse |
+|---|---|---|
+| RE2, RE3, Disney's Dinosaur (`GHA`, `GLE`, `GDR`) | course du transfert ARAM | v135 (main.dol) ; **v146 : aussi dans les modules `.rel`** (`claire.rel`, `leon.rel`, `eng.rel`…) |
+| `GDK`, `GDX`, `GWT` | cartes 1019 / 2043 blocs | v135 |
+| `GGI`, `GON`, `GOY`, `GR8`, `GRZ` | image au démarrage | v135 |
+| démos `D58`… `D89`, `E22`, `E23`, `GC6` | anti-débogage | v135 |
+| **Pokémon XD (`GXX`), Colosseum japonais (`NXX`, `PCK`, `PCS`)** | anti-débogage | **v146** |
+| **F-Zero GX / AX (`GFZ`, `UFZ`)** | le jeu remplace les vecteurs d'exception | **v146** |
+| **Hulk (`GH9`), Ultimate Spider-Man (`GUM`), `GWJ`** | haut de la mémoire écrit en dur (0x81800000) | **v146** : lu à 0x800000EC, que Pulse remplit maintenant |
+| `GS2` (2 courses lecture / son) | lecture instantanée | v134 : vitesse d'un vrai lecteur automatique |
+| `GMS` (langue) | — | v135 |
+| PSO (`GPO`, `GPS`), Pokémon Box (`GPX`) | tampons en 0x80001800 | **pas utile** : c'est là que vit Swiss, pas Pulse |
+| Wind Waker (`GZL`) sur Wii | — | pas une GameCube |
+| BIOS (`case 1435200`…) | démarrage par le BIOS | Pulse ne lance pas le BIOS |
+
+### Fichiers du disque (`Patch_GameSpecificFile`)
+- `boot.bin` / `bi2.bin` : **norme des manettes écrite pour tous les jeux (v146)** ; `DPOJ8P` : mémoire simulée ;
+  **Star Wars : The Clone Wars (`GSX`) : programme et langue en arguments (v146)**.
+- `GCC` (`ffcc_cli.bin`, programme de la GBA pour le lien GBA) : pas repris (lié au câble GBA émulé par Swiss).
+- `GS8P7D` (hauteur d'image) : réglage vidéo, pas un blocage.
+
+### Mémoire basse au lancement (`load_app`) — v146
+Swiss écrit toujours : type de console, taille de l'ARAM, mode vidéo, **moniteur de débogage 0xE8 / 0xEC** (sa zone
+réservée en haut), mémoire simulée, vitesses, 0x30E0, options 0x30E3, **code du lecteur 0x30E6**, **norme des manettes
+0x30E9**, et l'instant d'insertion des cartes mémoire émulées (0x30C0 / 0x30C4). Pulse ne les écrivait pas : si
+GC Station avait démarré sans le BIOS, certaines restaient à zéro. Pulse les écrit maintenant comme Swiss
+(`na_lowmem`), avec sa propre zone réservée (FST, bi2, résident) comme moniteur de débogage.
+
+### Programme compressé
+Star Wars Rogue Leader (`GLR`) et `GWXJ13` : l'essentiel du code est compressé (zlib, en 0x80200000) ; Swiss le
+décompresse pour le corriger puis le recompresse. Pulse ne voit pas ces accès avant le lancement : **v146 : Pulse
+universel (accès pris au vol) activé automatiquement pour ces jeux.**
+
+### Hyperviseur (`Patch_Hypervisor`, `Patch_GameSpecificHypervisor`)
+Le cœur de Swiss : faux lecteur, interruptions, EXI, arène. Pulse fait la même chose à sa façon (registres branchés,
+résident) ; les jeux de `Patch_GameSpecificHypervisor` (`G3F`, `GHB`, `GIS`, `GMI`, `GSX`, `GT6`, `GXX`, démos) ont
+leur propre gestionnaire d'erreur d'accès mémoire (DSI) : à reprendre seulement pour Pulse universel (à faire si un
+journal le montre).
+
+### Réglages (`Patch_Miscellaneous`) : reconnus par signature
+Fonctions du SDK reconnues à leur « empreinte » (nombre d'instructions de chaque sorte) : manettes (stick C inversé,
+fréquence : Pulse le fait au niveau des registres), bouton reset, police, et la carte mémoire :
+`VerifyID` (accepter une carte formatée sur une autre console), `DoMount`, délais des commandes de la carte allongés.
+Pas encore repris : la carte virtuelle de Pulse est formatée avec l'identifiant de la console, donc `VerifyID` passe ;
+ce serait utile pour une carte venue d'une autre console. À faire si un jeu refuse la carte.
+
+### Vidéo (`Patch_GameSpecificVideo`, `Patch_Video`)
+Largeur et position de l'image par jeu, modes forcés : du confort, pas des blocages (Pulse a ses propres réglages v122).

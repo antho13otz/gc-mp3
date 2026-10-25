@@ -21,6 +21,21 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v146 — Pulse rapproché de Swiss
+- Étude complète de Swiss : docs/ETUDE-SWISS.md, partie 7 (chaque partie de `patcher.c` et de `load_app`, ce que Pulse
+  en reprend, ce qui ne s'applique pas).
+- `na_lowmem` (lancement Pulse et disque de la console) : 0x2C, 0xD0 si absents ; 0xE8 / 0xEC = zone réservée (FST,
+  bi2, résident ; disque : 0 / 0x81800000) ; 0x30E0 = 6 ; 0x30E3 = 0 ; 0x30E6 = code du lecteur (`na_inq_note` :
+  0x8000 | code de l'inquiry, 1 sans lecteur, inchangé pour un lecteur optique remplacé) ; 0x30E9 = 5 si vide ;
+  0x30C0 / 0x30C4 = instant d'insertion des cartes virtuelles.
+- `na_bi2_fix` : bi2 0x24 = norme des manettes (tous les jeux) ; `DPOJ8P` : mémoire simulée ; `GSX*` : arguments
+  (`Clonewars.elf`, `/pal`, `/language`, n).
+- Table `na_fixes` : + F-Zero GX / AX (vecteurs d'exception), `GH9` / `GUM` / `GWJ` (haut de la mémoire lu en 0xEC),
+  `GXX*`, `NXXJ01`, `PCKJ01`, `PCSJ01` (anti-débogage). Table `na_ffixes` : corrections dans des fichiers du disque par
+  nom (modules `.rel` de `GHA*`, `GLEP08`), appliquées par le résident à la lecture ; `NA_FXMAX` 96.
+- `GLR*`, `GWXJ13` : Pulse universel automatique (programme compressé).
+- Banc : `t146.c` (bi2, arguments, table des `.rel`) ; e2e : bi2 0x24 = 5.
+
 ## Nouveautés v145 — sauvegardes, compatibilité partagée, jeux en réseau local
 - Cartes (`tools.c`, `extras73.c`) : 3e choix « Virtuelle » dans la vue Cartes de l'onglet JEUX (L / R, stick C) ;
   menus : copier vers la carte virtuelle, tout copier (carte virtuelle, autre carte, SD:/gci). `vc_load_active`

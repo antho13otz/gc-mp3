@@ -246,6 +246,10 @@ static void jeux_cfg_apply(const char *id, int resident) {
     nat_speed = jc_v[JC_SPEED - JC_V0] == 1 || (jc_v[JC_SPEED - JC_V0] == 0 && jc_slow_known(id));   /* v133 : 0 = auto, 1 = vrai lecteur, 2 = rapide */
     nat_speed_auto = jc_v[JC_SPEED - JC_V0] == 0 && nat_speed;
     nat_trap = jc_v[JC_TRAP - JC_V0] == 1;                   /* v139 : Pulse universel (experimental) */
+    /* v146 : Star Wars Rogue Leader (GLR) et GWXJ13 : la plus grande partie du programme est compressee dans main.dol
+       (decompressee par le jeu en 0x80200000) : ses acces au lecteur sont invisibles avant le lancement. Swiss la
+       decompresse pour la corriger ; Pulse les prend au vol (Pulse universel), automatiquement pour ces jeux. */
+    if (!nat_trap && (!strncmp(id, "GLR", 3) || !strncmp(id, "GWXJ13", 6))) nat_trap = 1;
     nat_nocheat = jc_v[JC_NOCHEAT - JC_V0] == 1;             /* v140 */
     nat_nocard = !strcmp(jc_card, "-");
     if (resident) rep_apply(id);                              /* v140 : essai de reparation (pour ce lancement) */

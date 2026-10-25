@@ -529,6 +529,10 @@ if NET:                                                   # v143 : tout l'ISO es
     print(('OK   ' if good else 'FAUX ') + 'Pulse par le reseau : %d demandes, %d paquets recus, %d refaites (1 perdue expres), etat %d, reponse ARP %s, trames perdues %d' % (
         bba.reqs, pk, rt & 0xFFFFFF, rt >> 24, bba.arp_ok, bba.dropped))
     ok &= good
+if MODE == '':                                        # v146 : bi2.bin : norme des manettes (5) ecrite pour le jeu, comme Swiss
+    sp = rd32(0x817EE000 + 0x24)
+    print(('OK   ' if sp == 5 else 'FAUX ') + 'bi2.bin : norme des manettes %d' % sp)
+    ok &= sp == 5
 if os.environ.get('EMU_EXIBUSY'):                   # v145 : lectures remises a plus tard, sans rien abimer
     w, y = rd(0x1E4), rd(0x1E8)
     good = w + y > 0 and EXIBUSY[0] == 0

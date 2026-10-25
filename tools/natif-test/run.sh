@@ -26,6 +26,7 @@ sed -n '/^\/\* ---------- lecture des disques/,/^static int gl_id_ok/p' $R/sourc
 clang --target=powerpc-linux-gnu -DNATIF_BENCH -fsyntax-only -Wall -Wno-unused-function -Wno-unused-variable -DHW_DOL -D__gamecube__ -Ilibogc/gc -Ifakeinc -I. -I$R/source -isystem /usr/include -isystem /usr/include/x86_64-linux-gnu $T/gk.c && echo "console : syntaxe OK"
 # 3) bout en bout : faux jeu -> ISO -> carte SD FAT32 -> lancement natif -> emulateur
 gcc -DNATIF_BENCH -Wall -Wno-unused-function -Wno-unused-variable -I. -I$R/source -o h2 $T/h2.c
+sed -n 1,44p $T/h2.c > t146.c && cat $T/t146.c >> t146.c && gcc -DNATIF_BENCH -Wall -Wno-unused-function -Wno-unused-variable -I. -I$R/source -o t146 t146.c && ./t146 | tail -1   # (v146)
 clang --target=powerpc-none-eabi -mcpu=750 -c $T/game.s -o game.o && ld.lld -Ttext=0x80003100 -e _start game.o -o game.elf && llvm-objcopy -O binary -j .text game.elf game.text
 for x in reboot prog2; do clang --target=powerpc-none-eabi -mcpu=750 -c $T/$x.s -o $x.o && ld.lld -Ttext=0x80400000 -e _start $x.o -o $x.elf && llvm-objcopy -O binary -j .text $x.elf $x.text; done   # (v95 : OSExec)
 python3 $T/mkiso.py game.text game.iso reboot.text prog2.text
