@@ -52,10 +52,32 @@ static int st_have_cover(void) {
     return (src == SRC_FILE && playing && cover_ok) || (src == SRC_RADIO && cover_ok && cur_station >= 0 && state != ST_IDLE);
 }
 /* pochette carree (vraie image, ou dessinee : degrade, lueur, icone) ; refl = reflet dessous ; dim = assombrie */
-static void st_cover(f32 x, f32 y, f32 s, int img, u32 h, int kind, f32 refl, u8 dim) {
+static void st_cover_th(f32 x, f32 y, f32 s, int img, int th, u32 h, int kind, f32 refl, u8 dim) {
     uxsave_t uz = ux_native(x + s / 2);
     f32 r = s * 0.11f;
     nv_raw = 1;
+    if (th >= 0 && !img) {                                   /* v132 : vignette de la pochette de l'album */
+        gx_set_image(&th_s[th].obj);
+        int n = refl > 0 ? 8 : 4;
+        GX_Begin(GX_QUADS, GX_VTXFMT0, n);
+        GX_Position2f32(UX(x), y);           GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 0.0f);
+        GX_Position2f32(UX(x + s), y);       GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 0.0f);
+        GX_Position2f32(UX(x + s), y + s);   GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 1.0f);
+        GX_Position2f32(UX(x), y + s);       GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 1.0f);
+        if (refl > 0) {
+            f32 ry = y + s + 4;
+            GX_Position2f32(UX(x), ry);          GX_Color4u8(255, 255, 255, 70); GX_TexCoord2f32(0.0f, 1.0f);
+            GX_Position2f32(UX(x + s), ry);      GX_Color4u8(255, 255, 255, 70); GX_TexCoord2f32(1.0f, 1.0f);
+            GX_Position2f32(UX(x + s), ry + refl); GX_Color4u8(255, 255, 255, 0); GX_TexCoord2f32(1.0f, 1.0f - refl / s);
+            GX_Position2f32(UX(x), ry + refl);   GX_Color4u8(255, 255, 255, 0); GX_TexCoord2f32(0.0f, 1.0f - refl / s);
+        }
+        GX_End();
+        if (dim) gx_rect(x, y, s, s, RGBA(5, 5, 9, dim));
+        gx_rrect_stroke(x, y, s, s, 2, 1.0f, RGBA(255, 255, 255, 40));
+        nv_raw = 0;
+        ux_restore(uz);
+        return;
+    }
     if (img) {
         gx_set_cover();
         u8 c = (u8)(255 - dim);
@@ -93,6 +115,7 @@ static void st_cover(f32 x, f32 y, f32 s, int img, u32 h, int kind, f32 refl, u8
     nv_raw = 0;
     ux_restore(uz);
 }
+static void st_cover(f32 x, f32 y, f32 s, int img, u32 h, int kind, f32 refl, u8 dim) { st_cover_th(x, y, s, img, -1, h, kind, refl, dim); }
 /* barre d'avancement fine en degrade (avec le temps) */
 static void st_progress(f32 x, f32 y, f32 w, const np_t *n, int times) {
     f32 frac = (n->active && n->dur > 0) ? (f32)n->elapsed / (f32)n->dur : 0.0f;
@@ -164,9 +187,16 @@ static void vi_music(void) {
         ux_restore(u2);
         nv_raw = 0;
     }
-    /* rangee : du plus loin au plus pres */
-    scr_scissor(0, 40, W, 300);
+    /* rangee : du plus loin au plus pres ; v132 : vignettes demandees du plus pres au plus loin */
+    th_frame();
     int c0 = (int)floorf(vm_pos + 0.5f);
+    for (int far = 0; far <= 5; far++)
+        for (int sd = -1; sd <= 1; sd += 2) {
+            int r = sel_row + sd * far;
+            if ((far == 0 && sd > 0) || r < 0 || r >= nents || ents[r].type != E_TRACK) continue;
+            th_get(ents[r].idx, 1);
+        }
+    scr_scissor(0, 40, W, 300);
     for (int far = 4; far >= 0; far--) {
         for (int sd = -1; sd <= 1; sd += 2) {
             if (far == 0 && sd > 0) continue;
@@ -181,7 +211,8 @@ static void vi_music(void) {
             if (r == sel_row) e = ec; else st_entry(r, &e);
             f32 dm = ad < 1 ? ad * 120 : 120 + (ad - 1) * 30;
             if (dm > 200) dm = 200;
-            st_cover(x, y, s, e.cover, e.h, e.kind, ad < 1 ? 34 * (1 - ad) : 0, (u8)dm);
+            int th = e.kind == 0 && !e.cover ? th_get(e.k, 0) : -1;
+            st_cover_th(x, y, s, e.cover, th, e.h, e.kind, ad < 1 ? 34 * (1 - ad) : 0, (u8)dm);
             gp_zone(x, y, s, s, &sel_row, r, GPZ_SEL);
         }
     }
@@ -272,8 +303,7 @@ static void il_np(f32 x, f32 y, f32 w, f32 h) {
     txt_scale = 1.0f;
     if (n.sub[0]) { fit_text(F_MED, n.sub, (int)tw, buf, sizeof(buf)); gx_text1(F_MED, px, y + h * 0.36f + 24, buf, RGBA(172, 172, 192, 255)); }
     nv_raw = 0;
-    if (n.active) st_progress(px, y + h - 50, tw, &n, 1);
-    else { nv_raw = 1; gx_text1(F_SMALL, px, y + h - 30, TR("Choisis un morceau et appuie sur A"), RGBA(130, 130, 150, 255)); nv_raw = 0; }
+    if (n.active) st_progress(px, y + h - 50, tw, &n, 1);           /* (v132 : rien en cours : la phrase n'est plus en double) */
 }
 /* tuile : l'heure et la date (et la meteo si on a la place) */
 static void il_clock(f32 x, f32 y, f32 w, f32 h, int wx) {

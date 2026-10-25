@@ -21,6 +21,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v132 — nouveau logo, tous les morceaux d'emblée, pochettes dans la rangée
+- `draw_logo_cube` dessine le nouveau logo (cube isométrique violet, filets clairs entre les faces, ovale et
+  trois barres sur la face gauche, dessinés dans le repère de la face) ; couleurs exactes dans tous les styles
+  (`nv_raw`). En-tête d'Aurore : logo de rayon 17 et « GC Station » en moyen ; rail de Vitrine : logo en grand.
+- Réglage `affichage` : MUSIQUE démarre toujours sur « Tous les morceaux » (la vue reste changeable au stick C).
+- `vignettes.c` : 40 vignettes 64x64 (RGB565), une par album (album + artiste) sinon par morceau ; le fil de
+  décodage (`tj_run`) lit le cache des pochettes ou cherche l'image comme `load_cover` (image à côté, APIC
+  du MP3 via `id3_pic`, image du FLAC via `flac_meta_pic`, cover / folder du dossier), la réduit et la range
+  dans le cache (le lecteur la retrouve aussitôt). Une demande par image, seulement si le son a de
+  l'avance (`io_safe`) ; `bg_quiesce` attend aussi cette lecture avant de démonter la carte.
+
 ## Nouveautés v131 — styles Vitrine et Îlots (à la place de Nébula et Halo)
 - `ui_skin` 4 = **Vitrine**, 5 = **Îlots** (`skin_keys` : `vitrine`, `ilots` ; `nebula` → Vitrine, `halo` → Îlots).
   Ils gardent le moteur d'Aurore (famille `>= 3`). Le code de Nébula et Halo est retiré (`halo_col`,

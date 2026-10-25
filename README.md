@@ -14,18 +14,18 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v131)
-- **Deux nouveaux styles à la place de Nébula et Halo** (START > Réglages > Affichage > Style) :
-  - **Vitrine** : un rail de verre à gauche avec le logo, les noms des onglets et l'heure ; la page à côté, sur
-    un fond noir avec deux grandes lueurs (rose et bleu). Dans **Musique**, la liste devient une **rangée de
-    pochettes** : celle du milieu en grand avec son reflet, le titre en grand dessous, puis ce qui joue
-    (← / → : morceau précédent / suivant). Radio, Rétro et Podcasts : ce qui joue en vitrine à droite.
-  - **Îlots** : tout en **tuiles de verre** et les **onglets en bas, dans un dock d'icônes** (l'onglet choisi
-    grandit et montre son nom). **Musique** : tuiles « ce qui joue », heure, météo, « à suivre » et spectre ;
-    Radio, Rétro, Podcasts : la liste, ce qui joue, l'heure et le spectre en tuiles ; **Infos** : heure,
-    météo et prévisions, réveil, actualités en tuiles.
-  - Ceux qui avaient Nébula passent à Vitrine, ceux qui avaient Halo à Îlots.
-- Le curseur au stick du navigateur web vise juste aussi en 16:9.
+## Nouveautés de la version actuelle (v132)
+- **Nouveau logo** : un cube violet avec, sur sa face, un ovale et trois barres de son ; plus gros en haut à
+  gauche (et en grand en haut du rail de Vitrine).
+- **Musique s'ouvre toujours sur tous les morceaux** (plus besoin d'entrer dans le dossier) ; le stick C
+  donne toujours Dossiers, Artistes, Albums, Mes listes.
+- **Vitrine : les vraies pochettes d'album** sur toutes les cases de la rangée (image à côté du morceau, dans
+  le fichier MP3 / FLAC, ou cover.jpg / folder.jpg du dossier), chargées en fond sans ralentir.
+- Îlots : « Choisis un morceau » n'est plus écrit deux fois quand rien ne joue.
+
+## Version précédente (v131)
+- Styles **Vitrine** (rail d'onglets à gauche, rangée de pochettes) et **Îlots** (tuiles de verre, onglets en
+  bas dans un dock d'icônes) à la place de Nébula et Halo.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

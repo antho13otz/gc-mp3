@@ -122,8 +122,8 @@ static void au_header(void) {
     if (ui_skin == 4) { vi_header(); return; }           /* v131 : Vitrine : le rail ; Ilots : le dock (apres la page) */
     if (ui_skin == 5) return;
     nv_raw = 1;
-    draw_logo_cube(22, 22, 9);
-    gx_text1(F_SMALL, 36, 26, "GC Station", RGBA(150, 150, 170, 255));
+    draw_logo_cube(30, 30, 17);                           /* v132 : nouveau logo, plus gros */
+    gx_text1(F_MED, 54, 36, "GC Station", RGBA(205, 205, 222, 255));
     time_t tt = time(NULL);
     struct tm *tm = localtime(&tt);
     char b[40];
@@ -133,7 +133,7 @@ static void au_header(void) {
         gx_circle(612, 44, 2.6f, nc, nc);
         gx_text_r(F_SMALL, 604, 48, net_ok ? TR("En ligne") : TR("Hors ligne"), RGBA(120, 120, 140, 255));
     }
-    if (rec_fp) { gx_circle(22, 52, 4, RGBA(255, 70, 70, 255), RGBA(255, 70, 70, 255)); gx_text1(F_SMALL, 30, 56, "REC", RGBA(255, 120, 120, 255)); }
+    if (rec_fp) { gx_circle(58, 52, 4, RGBA(255, 70, 70, 255), RGBA(255, 70, 70, 255)); gx_text1(F_SMALL, 66, 56, "REC", RGBA(255, 120, 120, 255)); }
     /* rangs des onglets affiches */
     int ids[TAB_COUNT], n = 0, cur = 0;
     FOR_TABS(t) if (tab_shown(t)) { if (t == tab) cur = n; ids[n++] = t; }

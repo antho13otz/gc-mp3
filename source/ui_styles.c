@@ -125,14 +125,18 @@ static void vi_header(void) {
     const f32 rx = 8, ry = 8, rw = VI_RAIL - 10, rh = 464;
     gx_rrect_fill(rx, ry, rw, rh, 20, RGBA(255, 255, 255, 14), RGBA(255, 255, 255, 7));
     gx_rrect_stroke(rx, ry, rw, rh, 20, 1.0f, RGBA(255, 255, 255, 24));
-    gx_text(F_MED, rx + 14, ry + 30, "GC", RGBA(255, 255, 255, 255), RGBA(255, 255, 255, 255), 3);
-    gx_text(F_SMALL, rx + 14, ry + 47, "STATION", RGBA(235, 235, 245, 255), RGBA(235, 235, 245, 255), 3);
+    draw_logo_cube(rx + rw / 2, ry + 30, 21);             /* v132 : le logo en grand, le nom dessous */
+    {
+        const char *nm = "GC STATION";
+        f32 w = (f32)text_width(F_SMALL, nm, 1);
+        gx_text(F_SMALL, rx + rw / 2 - w / 2, ry + 68, nm, RGBA(235, 235, 245, 255), RGBA(235, 235, 245, 255), 1);
+    }
     /* onglets */
     int ids[TAB_COUNT], n = 0, cur = 0;
     FOR_TABS(t) if (tab_shown(t)) { if (t == tab) cur = n; ids[n++] = t; }
     if (vi_p < -0.5f || !gl_anim) vi_p = (f32)cur;
     else { f32 k = 1.0f - expf(-ui_dt * 14.0f); vi_p += (cur - vi_p) * k; if (fabsf(cur - vi_p) < 0.003f) vi_p = (f32)cur; }
-    f32 y0 = 82, step = n ? (392 - y0) / n : 30;
+    f32 y0 = 90, step = n ? (396 - y0) / n : 30;
     if (step > 30) step = 30;
     f32 rh2 = step - 4 < 24 ? step - 4 : 24;
     f32 sy = y0 + vi_p * step;                              /* (fond et barre de la selection, qui glissent) */
