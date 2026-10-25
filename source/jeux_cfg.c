@@ -190,7 +190,7 @@ static int nat_cheats_prep(const char *id);                  /* (natif.c) */
    vitesse d'un vrai lecteur pour eux, rapide pour les autres. */
 static int nat_speed_auto = 0;                               /* (journal : 1 = choisi automatiquement) */
 static int jc_slow_known(const char *id) {
-    static const char *const slow[] = { "GS2", "GDR", "GHA", "GLE" };
+    static const char *const slow[] = { "GS2", "GDR", "GHA", "GLE", "GYQ" };   /* v135 : + GYQ (Mario Superstar Baseball : video d'intro) */
     for (unsigned i = 0; i < sizeof(slow) / sizeof(slow[0]); i++) if (!strncmp(id, slow[i], 3)) return 1;
     return 0;
 }

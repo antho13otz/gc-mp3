@@ -14,7 +14,17 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v134)
+## Nouveautés de la version actuelle (v135)
+- **Mario Superstar Baseball** : vitesse d'un vrai lecteur automatique (code GYQ). Le journal montrait le jeu
+  figé dans sa vidéo d'intro : il attendait de la place dans un tampon que le son vide peu à peu ; avec un
+  disque trop rapide, la vidéo était lue d'un coup et le tampon débordait.
+- **Corrections par jeu dans Pulse** (reprises de l'étude de Swiss, réécrites en table) : transfert ARAM (GDR,
+  GHA, GLE), cartes mémoire 1019 / 2043 blocs (GDK, GDX, GWT), image au démarrage (GGIJ, GON, GOY, GR8, GRZJ),
+  anti-débogage (Pokémon Colosseum, disques de démo), langue (GMSP). Le journal du lancement dit lesquelles.
+- **Journal du retour A+Z+START plus complet** : les fonctions entières où était le jeu (PC, LR, 2 appels) et
+  la mémoire autour de r3, r4 et r30, en clair.
+
+## Version précédente (v134)
 - **Pulse réveille le jeu sans le vrai lecteur** quand il le faut : console sans lecteur, lecteur qui ne
   répond plus, ou réveil perdu. La fin de chaque commande est alors donnée au jeu depuis ses propres
   interruptions (image, son, dessin, manettes). Avec un lecteur qui marche, Pulse le garde (plus rapide) et
@@ -25,14 +35,6 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   saut, adresse calculée) et les branche en secours, sans bloquer le lancement.
 - **Mise à jour qui reprend** : si la connexion coupe pendant le téléchargement, il reprend là où il s'était
   arrêté (jusqu'à 6 fois de suite) au lieu de finir sur « Téléchargement interrompu ».
-
-## Version précédente (v133)
-- **Pulse : un jeu ne reste plus bloqué sur une lecture jamais finie** (écran noir alors que le jeu tourne,
-  vu sur Mario Superstar Baseball) : si la fin d'une commande du lecteur n'arrive pas, Pulse la donne au jeu
-  lui-même après 3 images ; la fonction du jeu est aussi rebranchée pendant une lecture en fond.
-- **A+Z+START note où en était le jeu** dans le journal (code, appels, pile, mémoire), même sans plantage :
-  un écran noir peut ainsi être compris et corrigé.
-- Étude de Swiss (ce qu'il corrige et comment) et plan pour Pulse : `docs/ETUDE-SWISS.md`.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

@@ -50,8 +50,8 @@ Conséquences pour Pulse :
 | Jeu figé, écran noir, sans plantage | **v133** : A+Z+START écrit où en était le jeu (code, appels, pile, mémoire) dans le journal | lire ces journaux jeu par jeu |
 | Accès au lecteur pas trouvés | **v134** : recherche large (après un saut, adresses calculées), branchés en secours | piéger les accès restants par exception (table de pages : risqué) |
 | Délais de la bibliothèque | pas gérés (lectures rapides : rarement un souci) | reconnaître `SetTimeoutAlarm` si un jeu se plaint d'une erreur de disque |
-| Courses lecture / rappel | **v134** : vitesse « Auto » (vrai lecteur pour `GS2`, `GDR`, `GHA`, `GLE`) | compléter la liste avec les journaux |
-| Initialisation de l'image | rien | vérifier `GON` (Pokémon Colosseum) / `GOY` / `GR8` avec un journal |
+| Courses lecture / rappel | **v134** : vitesse « Auto » (vrai lecteur pour `GS2`, `GDR`, `GHA`, `GLE`) ; **v135** : + `GYQ` ; corrections ARAM de `GDR`, `GHA`, `GLE` dans la table | compléter la liste avec les journaux |
+| Initialisation de l'image | **v135** : table `na_fixes` (`GGIJ`, `GON`, `GOY`, `GR8`, `GRZJ`) quand l'exécutable est le main.dol | les mêmes dans les exécutables secondaires |
 | Bus EXI partagé (SD2SP2 : port série 2, pas le bus des cartes mémoire) | pas de conflit en SD2SP2 ; possible avec un adaptateur dans un port de carte | passer par le verrou EXI du jeu pour les adaptateurs SD Gecko |
 | Exécutables secondaires | OSExec suivi (v95) | patcher aussi `.elf`, `.tgc`, `switcher.prs` à la volée |
 
@@ -62,3 +62,13 @@ la lecture en fond s'est arrêtée au milieu (réveil perdu, ou fonction d'inter
 la lecture : Pulse ne la rebranchait pas tant que la lecture n'était pas finie). Le jeu attendait donc une
 fin qui ne venait jamais. Corrigé en v133 (secours + rebranchement) ; si l'écran reste noir, le journal
 du retour (A+Z+START) montrera désormais l'endroit exact où le jeu attend.
+
+## 5. v135 : table des corrections par jeu
+`na_fixes` (`source/natif.c`) : transfert ARAM, cartes 1019 / 2043, image au démarrage, anti-débogage, langue.
+Appliquée au main.dol avant le lancement (code du jeu + taille exacte du main.dol). Restent : les exécutables
+secondaires (`.elf`, `.tgc`, `switcher.prs`, chargés par le jeu lui-même : il faudrait les corriger au moment où
+le jeu les lit) et les alarmes de délai (`SetTimeoutAlarm`, à reconnaître par signature).
+
+Mario Superstar Baseball (build 487) : boucle sans fin dans le lecteur vidéo HVQM4 (anneau plein, lectures
+sorties de la boucle par le compilateur) : course due aux lectures trop rapides ; vitesse d'un vrai lecteur
+automatique pour `GYQ` en v135.

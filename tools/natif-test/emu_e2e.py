@@ -372,7 +372,8 @@ if card.writes:                                    # v54 : journal du jeu ecrit 
         if nok:
             sd0 = bytes(disk[SS * 512:SS * 512 + 512]); su0 = lambda o: struct.unpack_from('>I', sd0, o)[0]
             nz = su0(4); zs = [(su0(8 + z * 16), su0(12 + z * 16), su0(16 + z * 16)) for z in range(nz)]
-            nok &= nz == 4 and zs[0][0] == 0x80000000 and zs[1][0] == 0x80008000 and zs[2][0] == 0x80001A00 - 0x200
+            nok &= 4 <= nz <= 7 and zs[0][0] == 0x80000000 and zs[1][0] == 0x80008000 and zs[2][0] == 0x80001A00 - 0x200   # (v135 : + zones r3 / r4 / r30)
+            nok &= all(su0(20 + z * 16) in (3, 4, 5) for z in range(3, nz - 1)) and su0(20 + (nz - 1) * 16) == 6
             if nok: nok &= bytes(disk[(SS + zs[2][2]) * 512 + 0x200:(SS + zs[2][2]) * 512 + 0x240]) == bytes(mu.mem_read(0x80001A00, 64))
         print(('OK   ' if nok else 'FAUX ') + 'photo de la memoire au plantage : %s' % (['%08X+%X' % (b, l) for b, l, s0 in zs] if SS is not None else 'rien'))
         jok &= nok
