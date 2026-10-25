@@ -49,11 +49,11 @@ Conséquences pour Pulse :
 | Fin de commande perdue | **v134 : réveil sans le lecteur** (console sans lecteur, lecteur qui ne répond plus) ; **v133 : secours** à chaque image (lecture en fond relancée, fin donnée au jeu après 3 images sans réveil, si le jeu n'a pas coupé l'interruption du lecteur) ; la fonction du jeu est rebranchée même pendant une lecture en fond | fait en v134, depuis les interruptions du jeu plutôt qu'avec l'erreur PI de Swiss (voir l'historique) |
 | Jeu figé, écran noir, sans plantage | **v133** : A+Z+START écrit où en était le jeu (code, appels, pile, mémoire) dans le journal | lire ces journaux jeu par jeu |
 | Accès au lecteur pas trouvés | **v134** : recherche large (après un saut, adresses calculées), branchés en secours | piéger les accès restants par exception (table de pages : risqué) |
-| Délais de la bibliothèque | pas gérés (lectures rapides : rarement un souci) | reconnaître `SetTimeoutAlarm` si un jeu se plaint d'une erreur de disque |
+| Délais de la bibliothèque | **v136** : rien à faire : l'alarme du SDK est annulée par chaque fin de commande (quelques ms, 3 images au pire) ; chez Swiss, `SetTimeoutAlarm` sert à reconnaître la lecture du SDK qu'il remplace | — |
 | Courses lecture / rappel | **v134** : vitesse « Auto » (vrai lecteur pour `GS2`, `GDR`, `GHA`, `GLE`) ; **v135** : + `GYQ` ; corrections ARAM de `GDR`, `GHA`, `GLE` dans la table | compléter la liste avec les journaux |
 | Initialisation de l'image | **v135** : table `na_fixes` (`GGIJ`, `GON`, `GOY`, `GR8`, `GRZJ`) quand l'exécutable est le main.dol | les mêmes dans les exécutables secondaires |
 | Bus EXI partagé (SD2SP2 : port série 2, pas le bus des cartes mémoire) | pas de conflit en SD2SP2 ; possible avec un adaptateur dans un port de carte | passer par le verrou EXI du jeu pour les adaptateurs SD Gecko |
-| Exécutables secondaires | OSExec suivi (v95) | patcher aussi `.elf`, `.tgc`, `switcher.prs` à la volée |
+| Exécutables secondaires | OSExec suivi (v95) ; **v136** : corrections de la table appliquées au passage dans les `.dol`, `.elf`, `.tgc` du disque | `switcher.prs` (compressé) si un jeu en a besoin |
 
 ## 4. Mario Superstar Baseball (GYQE01) : écran noir figé
 Journal reçu : le jeu tournait (1956 images, 1915 dessinées, son actif) et ne demandait plus rien au lecteur.
@@ -72,3 +72,8 @@ le jeu les lit) et les alarmes de délai (`SetTimeoutAlarm`, à reconnaître par
 Mario Superstar Baseball (build 487) : boucle sans fin dans le lecteur vidéo HVQM4 (anneau plein, lectures
 sorties de la boucle par le compilateur) : course due aux lectures trop rapides ; vitesse d'un vrai lecteur
 automatique pour `GYQ` en v135.
+
+## 6. v136
+- Corrections dans les exécutables secondaires : appliquées à la lecture (le résident change les octets visés
+  dans chaque lecture du jeu), positions calculées par GC Station depuis la FST, les sections / segments.
+- Mario Superstar Baseball : boucle d'attente du lecteur HVQM4 corrigée dans le code du jeu (pointeurs relus).

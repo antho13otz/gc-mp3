@@ -21,6 +21,29 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v136 — Pulse : Mario Superstar Baseball, corrections dans les autres exécutables
+- **Mario Superstar Baseball (GYQE01)** : 2e journal (build 489, vitesse d'un vrai lecteur) : même boucle
+  (PC 800AF558), autres valeurs : r30+0x158 et r30+0x160 sont les pointeurs de lecture et d'écriture d'un tampon
+  presque plein (r30+0x15C = fin) ; la boucle 800AF558-800AF570 attend de la place mais les pointeurs sont lus
+  avant elle (800AF540-800AF54C) : boucle sans fin dès que le tampon est plein en arrivant. Correction
+  (`na_fixes`) : le saut de fin de boucle en 800AF570 (`bge 800AF558`, 4080FFE8) repart en 800AF540
+  (4080FFD0) : les pointeurs sont relus à chaque tour, le son de la vidéo libère la place, le jeu continue.
+  Écartés : rendre 2 (« erreur » pour l'appelant 800AED9C : message et arrêt de la vidéo) ou 1 (le paquet déjà
+  lu serait perdu). Appliquée seulement si l'instruction d'origine est 4080FFE8 (taille du main.dol libre :
+  `len` 0 + `orig`). GYQ retiré de `jc_slow_known` (la vitesse ne suffisait pas).
+- **Autres exécutables du disque** : `na_fx_scan` parcourt la table des fichiers (FST) : `.dol` (sections),
+  `.elf` (segments PT_LOAD), `.tgc` (son `default.dol` et les fichiers de sa propre FST, positions recalées :
+  base du .tgc + userStart - gcmUserStart). Pour chaque correction de la table dont la taille est celle du
+  fichier, la position dans l'ISO est calculée ; la liste {position, valeur, taille} est passée au résident à la
+  suite des cheats (`"FIXT"`, `chts`), et `fx_apply` change ces octets dans chaque lecture du jeu qui les
+  contient (aussi à cheval sur deux morceaux ; essai à part : OK). Compteur dans le journal du jeu (16 bits
+  hauts de `si_fixes`). `switcher.prs` (compressé) : pas possible ainsi ; aucune correction de la table ne le vise.
+- **Alarmes de délai du lecteur** (`SetTimeoutAlarm`) : chez Swiss, ces signatures servent à reconnaître la
+  lecture du SDK, que Swiss remplace par la sienne. Pulse garde la bibliothèque du jeu : l'alarme est armée et
+  annulée par la fin de chaque commande, que Pulse donne en quelques millisecondes (au pire en 3 images, secours
+  v133) : rien à changer.
+- Banc d'essai de Pulse : 21 « TOUT OK ».
+
 ## Nouveautés v135 — Pulse : Mario Superstar Baseball, corrections par jeu, journal plus complet
 - **GYQ (Mario Superstar Baseball)** ajouté à `jc_slow_known` (vitesse d'un vrai lecteur en « Auto »). Le journal
   (build 487) : PC 800AF56C dans une boucle 800AF558-800AF570 qui compare des champs de la structure du lecteur
