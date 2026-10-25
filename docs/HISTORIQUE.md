@@ -21,6 +21,18 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v140 — réparation automatique des jeux
+- `source/repair.c` : `rep_diag_set` (appelé par `nat_journal_convert`) retient ce que disent les journaux : plantage,
+  aucune image, bloqué dans la fonction d'image, accès au lecteur non branchés, cheats, 16:9, carte virtuelle,
+  mode vidéo, vitesse, Pulse universel.
+- Au verdict (`cp_set`, compat.c) : `rep_verdict` crée la liste d'essais (`rep_plan`, lettres S F T C H W V X), ou
+  passe à l'essai suivant, ou garde le réglage qui a marché (`rep_keep` -> `SD:/gc-mp3/jeux/<ID>.txt`). « Marche
+  mal » après un écran noir compte comme un progrès : le réglage est gardé et de nouveaux essais suivent.
+- `SD:/gc-mp3/reparation.txt` : `code|essais|essai en cours|essayé au dernier lancement|verdict de départ`.
+- `rep_apply` (dans `jeux_cfg_apply`, Pulse seulement) applique l'essai pour ce lancement ; `rep_pre` (avant le
+  choix Pulse / lanceur de secours) pour les cheats. Ligne « Réparation automatique » dans `dernier-lancement.txt`.
+- Réglages du jeu : `cheats_coupes`, `carte = -` (aucune carte virtuelle).
+
 ## Nouveautés v139 — Pulse universel (accès au lecteur pris par exception)
 - Option par jeu `acces_exception = 1` (`SD:/gc-mp3/jeux/<ID>.txt`) -> `NRO_TRAP` dans `natres_hdr_t.opt`.
 - Le résident, dès que le jeu a installé ses fonctions d'interruption : BAT de 256 Mo en 0xC0000000 réduit à

@@ -1011,6 +1011,20 @@ static void nat_journal_convert(void) {
             p = strstr(lt, "\nVideo : ");
             if (p) vm = !strncmp(p + 9, "480p", 4) ? 1 : !strncmp(p + 9, "PAL 60", 6) ? 2 : !strncmp(p + 9, "240p", 4) ? 3 : 0;
             if (!strstr(lt, "Saut vers le jeu")) id[0] = 0;   /* (jeu pas lance : rien a demander) */
+            if (id[0]) {                                  /* v140 : diagnostic pour la reparation automatique */
+                int br = 0, sk = 0;
+                char *q = strstr(lt, "Faux lecteur DVD : ");
+                if (q) sscanf(q, "Faux lecteur DVD : %d acces branches, %d non branches", &br, &sk);
+                q = strstr(lt, "\nCheats : ");
+                int cheats = q && strncmp(q + 10, "aucun", 5) && strncmp(q + 10, "coup", 4);
+                q = strstr(lt, "\n16:9 force : ");
+                int ws = q && strncmp(q + 15, "non", 3);
+                q = strstr(lt, "Carte memoire virtuelle (slot A) : ");
+                int card = q && strncmp(q + 35, "non", 3) && strncmp(q + 35, "coupee", 6);
+                int trap = strstr(lt, "Acces au lecteur par exception") != NULL;
+                u32 vi = be32(d + 4) >= 3 ? be32(d + 36 * 4) : 1, vin = be32(d + 4) >= 9 ? be32(d + 74 * 4) : 0;
+                rep_diag_set(id, be32(d + 4) >= 5 && be32(d + 44 * 4) != 0, vi == 0, vin > vi, sk, cheats, ws, card, vm, slow, trap);
+            }
             free(lt);
         }
         if (id[0] && id[5]) cp_after_game(id, title, (be32(d + 4) >= 5 && be32(d + 44 * 4) != 0), slow, vm);
@@ -1332,7 +1346,7 @@ static u32 na_ws_patch(const nat_info_t *in, u8 *dol, u8 *res, u32 at, u32 ceil)
 /* ---------- v122 : reglages du jeu pour Pulse (poses par jeux_cfg_apply) ---------- */
 static int nat_vmode = 0;                                  /* 0 = comme le jeu, 1 = 480p, 2 = PAL 60 Hz, 3 = 240p */
 static int nat_deflick = 0, nat_wide = 0;                  /* sans flou ; image plus large (704 points) */
-static int nat_cstick = 0, nat_trig = 0, nat_poll = 0, nat_speed = 0, nat_trap = 0;   /* stick C, seuil des gachettes, frequence, vitesse du lecteur ; v139 : acces au lecteur par exception */
+static int nat_cstick = 0, nat_trig = 0, nat_poll = 0, nat_speed = 0, nat_trap = 0, nat_nocard = 0, nat_nocheat = 0;   /* (v140 : carte virtuelle / cheats coupes pour ce jeu) */   /* stick C, seuil des gachettes, frequence, vitesse du lecteur ; v139 : acces au lecteur par exception */
 static u32 na_opt(void) {
     static const u8 thr[4] = { 0, 77, 128, 192 };
     u32 o = 0;
@@ -1656,6 +1670,7 @@ static int na_gk_ok(const u32 *w, int n, char *why, int cap) {
 /* rend 1 = codes prets pour Pulse, 0 = aucun cheat active, -1 = cheats a confier au lanceur de secours */
 static int nat_cheats_prep(const char *id) {
     na_gk_n = 0; na_gk_msg[0] = 0;
+    if (nat_nocheat) { snprintf(na_gk_msg, sizeof(na_gk_msg), "coup\xC3\xA9s (r\xC3\xA9glage du jeu)"); return 0; }   /* v140 */
     int n = ch_collect(id, na_gk, NA_GKMAX);
     if (n == 0) return 0;
     if (n < 0) { snprintf(na_gk_msg, sizeof(na_gk_msg), "trop de codes"); return -1; }
@@ -2176,7 +2191,7 @@ static int na_card_map(const char *name, natres_ext_t *out, u32 *n, u32 *size, c
 static int nat_card_prep(const char *id) {
     int r = 0;
     na_card_n = na_card2_n = 0; na_card2_msg[0] = 0;
-    if (!nat_card) { snprintf(na_card_msg, sizeof(na_card_msg), "coupee (reglage)"); return 0; }
+    if (!nat_card || nat_nocard) { snprintf(na_card_msg, sizeof(na_card_msg), nat_nocard ? "coupee (reglage du jeu)" : "coupee (reglage)"); return 0; }
     if (na_card_map(na_card_name(0, id), na_card, &na_card_n, &na_card_size, na_card_msg, sizeof(na_card_msg))) r |= 1;
     if (nat_card >= 2 && na_card_map(na_card_name(1, id), na_card2, &na_card2_n, &na_card2_size, na_card2_msg, sizeof(na_card2_msg))) r |= 2;
     return r;
@@ -2421,6 +2436,7 @@ static const char *nat_boot(int k) {
         fprintf(f, "Manettes : options %08X ; %d acces branches, %d laisses au vrai materiel (sur %d trouves%s)\n", (unsigned)(na_opt() & 0x00FFFFFFu), na_si_done, na_si_skip, in.nsi, in.si_lost ? ", limite atteinte" : "");
         fprintf(f, "Vitesse du lecteur : %s%s\n", nat_speed ? "comme un vrai lecteur" : "rapide (carte SD)", nat_speed_auto ? " (automatique : jeu connu pour bloquer si le disque repond trop vite)" : "");
         if (nat_trap) fprintf(f, "Acces au lecteur par exception (Pulse universel, experimental) : demande\n");
+        if (rep_msg[0]) fprintf(f, "Reparation automatique : %s\n", rep_msg);   /* v140 */
         fprintf(f, "Carte memoire virtuelle (slot B) : %s\n", nat_card >= 2 ? (na_card2_msg[0] ? na_card2_msg : "non") : "non (reglage)");
         fprintf(f, "Mode video donne au jeu (800000CC) : %s (jeu %s)\n", na_vi_bootrom(in.id) == 1 ? "PAL" : na_vi_bootrom(in.id) == 5 ? "EURGB60 (PAL 60 Hz)" : "NTSC",
                 na_game_pal(in.id) ? "PAL" : "NTSC");

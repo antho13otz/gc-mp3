@@ -12653,6 +12653,7 @@ static void cp_after_game(const char *id, const char *title, int crashed, int sl
 static void cp_badge(const char *id, f32 x, f32 y, f32 r);
 static int cp_line(const char *id, char *out, int cap, col_t *c);
 static void cp_pump(void);
+static int rep_line(const char *id, char *out, int cap);   /* v140 : reparation automatique (repair.c) */
 #include "lib_extra.c"                         /* listes, recherche, ecoutes */
 #include "tab_retro.c"
 #include "tab_podcast.c"
@@ -12844,6 +12845,7 @@ static void music_pump(void) {
 #include "lanceur.c"                           /* v44 : lanceur de secours ; v90 : reprise de SD:/swiss */
 #include "natif.c"                             /* v50 : lanceur natif GC Station, etape 1 : analyse */
 #include "compat.c"                            /* v137 : base de compatibilite des jeux */
+#include "repair.c"                            /* v140 : reparation automatique des jeux (Pulse) */
 #include "gcl.c"                               /* v121 : GC Loader */
 #include "extras73.c"                          /* v73 : podcasts plus rapides, historique radio, cartes virtuelles... */
 
