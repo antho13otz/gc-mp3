@@ -21,6 +21,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v126 — Pulse : plus de place pour la carte mémoire virtuelle
+- Mario Superstar Baseball : écran noir juste avant le menu principal. Le journal montrait « carte mémoire
+  virtuelle coupée pour ce jeu : plus de place » (83 accès au lecteur + 93 accès EXI à brancher) : le jeu
+  parlait donc à la vraie fente A au moment de vérifier la carte, et attendait sans fin.
+- Chaque aiguillage recopiait toute la sauvegarde / restauration des registres (stmw, cr, ctr, xer, lmw…) et
+  était arrondi à 32 octets. Maintenant deux petites routines communes (posées une fois au début de la place
+  libre, appelées par bl) et des aiguillages serrés : ~72 à 84 octets au lieu de 128 à 160.
+
 ## Nouveautés v125 — le web s'ouvre de nouveau sur la console
 - Sur la console, toutes les pages échouaient juste après l'envoi de la demande (archive.org : « Connexion
   coupée », Wikipédia : « Le serveur ne répond pas »), alors que tout marchait dans le simulateur (qui

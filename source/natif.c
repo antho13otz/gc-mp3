@@ -1006,6 +1006,26 @@ static const char *na_xtramp_why(u32 ins) {
     if ((op == 33 && ra == rt) || (op == 37 && ra == 0)) return "forme u invalide";
     return NULL;
 }
+/* v126 : sauvegarde / restauration des registres communes a tous les aiguillages (avant : recopiees dans
+   chacun, ~13 instructions de plus par aiguillage) ; posees une fois au debut de la place libre. */
+static u32 na_ssave = 0, na_srest = 0;
+static u32 na_stubs(u8 *w, u32 at) {                     /* rend la place prise (octets) */
+    u32 c[16]; int n = 0;
+    na_ssave = at;
+    c[n++] = PPC_D(47, 2, 1, 0x0C);                      /* stmw r2,0x0C(r1) */
+    c[n++] = 0x7C000026u; c[n++] = PPC_STW(0, 1, 0x8C);  /* mfcr r0 */
+    c[n++] = 0x7C0902A6u; c[n++] = PPC_STW(0, 1, 0x90);  /* mfctr r0 */
+    c[n++] = 0x7C0102A6u; c[n++] = PPC_STW(0, 1, 0x94);  /* mfxer r0 */
+    c[n++] = 0x4E800020u;                                /* blr */
+    na_srest = at + (u32)n * 4;
+    c[n++] = PPC_LWZ(0, 1, 0x94); c[n++] = 0x7C0103A6u;  /* mtxer */
+    c[n++] = PPC_LWZ(0, 1, 0x90); c[n++] = 0x7C0903A6u;  /* mtctr */
+    c[n++] = PPC_LWZ(0, 1, 0x8C); c[n++] = 0x7C0FF120u;  /* mtcrf 0xFF */
+    c[n++] = PPC_D(46, 2, 1, 0x0C);                      /* lmw r2,0x0C(r1) */
+    c[n++] = 0x4E800020u;                                /* blr */
+    for (int i = 0; i < n; i++) { w[i * 4] = (u8)(c[i] >> 24); w[i * 4 + 1] = (u8)(c[i] >> 16); w[i * 4 + 2] = (u8)(c[i] >> 8); w[i * 4 + 3] = (u8)c[i]; }
+    return ((u32)n * 4 + 31) & ~31u;
+}
 static int na_tramp(u8 *w, u32 at, u32 site, u32 ins, u32 reg, u32 fn_load, u32 fn_store) {
     u32 op = ins >> 26, rt = (ins >> 21) & 31, ra = (ins >> 16) & 31, rb = (ins >> 11) & 31;
     s32 simm = (s16)(ins & 0xFFFF);
@@ -1020,11 +1040,14 @@ static int na_tramp(u8 *w, u32 at, u32 site, u32 ins, u32 reg, u32 fn_load, u32 
                          c[n++] = 0x7D8903A6u; c[n++] = 0x4E800421u; } while (0)   /* lis/ori r12 ; mtctr ; bctrl */
     c[n++] = PPC_D(37, 1, 1, -NA_FRAME);                 /* stwu r1,-0x100(r1) */
     c[n++] = PPC_STW(0, 1, 0x08);
-    c[n++] = PPC_D(47, 2, 1, 0x0C);                      /* stmw r2,0x0C(r1) */
     c[n++] = 0x7C0802A6u; c[n++] = PPC_STW(0, 1, 0x88);  /* mflr r0 */
-    c[n++] = 0x7C000026u; c[n++] = PPC_STW(0, 1, 0x8C);  /* mfcr r0 */
-    c[n++] = 0x7C0902A6u; c[n++] = PPC_STW(0, 1, 0x90);  /* mfctr r0 */
-    c[n++] = 0x7C0102A6u; c[n++] = PPC_STW(0, 1, 0x94);  /* mfxer r0 */
+    if (na_ssave) { c[n] = 0x48000001u | ((na_ssave - (at + (u32)n * 4)) & 0x03FFFFFCu); n++; }   /* v126 : bl sauvegarde commune */
+    else {
+        c[n++] = PPC_D(47, 2, 1, 0x0C);                  /* stmw r2,0x0C(r1) */
+        c[n++] = 0x7C000026u; c[n++] = PPC_STW(0, 1, 0x8C);  /* mfcr r0 */
+        c[n++] = 0x7C0902A6u; c[n++] = PPC_STW(0, 1, 0x90);  /* mfctr r0 */
+        c[n++] = 0x7C0102A6u; c[n++] = PPC_STW(0, 1, 0x94);  /* mfxer r0 */
+    }
 #define NA_EA() do { if (xf) { c[n++] = PPC_LWZ(3, 1, na_slot(rb)); if (ra) { c[n++] = PPC_LWZ(0, 1, na_slot(ra)); c[n++] = 0x7C630214u; } } \
                      else { c[n++] = PPC_LWZ(3, 1, na_slot(ra)); c[n++] = PPC_ADDI(3, 3, simm); } } while (0)   /* (add r3,r3,r0) */
     if (load) {
@@ -1045,12 +1068,15 @@ static int na_tramp(u8 *w, u32 at, u32 site, u32 ins, u32 reg, u32 fn_load, u32 
     }
 #undef NA_EA
 #undef NA_CALL
-    c[n++] = PPC_LWZ(0, 1, 0x94); c[n++] = 0x7C0103A6u;  /* mtxer */
-    c[n++] = PPC_LWZ(0, 1, 0x90); c[n++] = 0x7C0903A6u;  /* mtctr */
-    c[n++] = PPC_LWZ(0, 1, 0x8C); c[n++] = 0x7C0FF120u;  /* mtcrf 0xFF */
+    if (na_srest) { c[n] = 0x48000001u | ((na_srest - (at + (u32)n * 4)) & 0x03FFFFFCu); n++; }   /* v126 : bl restauration commune (xer ctr cr r2-r31) */
+    else {
+        c[n++] = PPC_LWZ(0, 1, 0x94); c[n++] = 0x7C0103A6u;  /* mtxer */
+        c[n++] = PPC_LWZ(0, 1, 0x90); c[n++] = 0x7C0903A6u;  /* mtctr */
+        c[n++] = PPC_LWZ(0, 1, 0x8C); c[n++] = 0x7C0FF120u;  /* mtcrf 0xFF */
+        c[n++] = PPC_D(46, 2, 1, 0x0C);                  /* lmw r2,0x0C(r1) */
+    }
     c[n++] = PPC_LWZ(0, 1, 0x88); c[n++] = 0x7C0803A6u;  /* mtlr */
     c[n++] = PPC_LWZ(0, 1, 0x08);
-    c[n++] = PPC_D(46, 2, 1, 0x0C);                      /* lmw r2,0x0C(r1) */
     c[n++] = PPC_ADDI(1, 1, NA_FRAME);
     if (op == 33 || op == 37) c[n++] = PPC_ADDI(ra, ra, simm);   /* forme "u" : rA = adresse visee */
     u32 back = site + 4, here = at + (u32)n * 4;
@@ -1080,6 +1106,8 @@ static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *c
     u32 xl = be32(res + 0xF0), xs = be32(res + 0xF4);   /* v65 : (h->exi_load, h->exi_store) */
     int done = 0;
     *skipped = 0; na_nskip = 0; na_xdone = 0; na_xwhy[0] = 0;
+    na_ssave = na_srest = 0;
+    if (at + 0x80 <= na_ceil(res)) at += na_stubs(res + (at - NATRES_AT), at);   /* v126 */
     /* passe 0 : le lecteur (tous, sinon le jeu n'est pas lance) ; passe 1 : la carte (tout ou rien) ;
        v122 : passe 2 : les manettes (ceux qu'on sait brancher ; les autres restent au vrai materiel) */
     u32 sl = be32(res + offsetof(natres_hdr_t, si_load)), ss = be32(res + offsetof(natres_hdr_t, si_store));
@@ -1107,7 +1135,7 @@ static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *c
             if (kind == 2) {                                  /* (manettes : un acces pas branche reste au vrai materiel) */
                 if (why) { na_si_skip++; continue; }
                 na_wbe32(dol + fo, 0x48000000u | ((u32)d & 0x03FFFFFCu));
-                at += ((u32)n * 4 + 31) & ~31u;
+                at += (u32)n * 4;                         /* v126 : serres (avant : arrondis a 32 octets) */
                 na_si_done++;
                 continue;
             }
@@ -1122,7 +1150,7 @@ static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *c
             }
             u32 b = 0x48000000u | ((u32)d & 0x03FFFFFCu);    /* b aiguillage */
             na_wbe32(dol + fo, b);
-            at += ((u32)n * 4 + 31) & ~31u;
+            at += (u32)n * 4;                         /* v126 : serres (avant : arrondis a 32 octets) */
             done++;
         }
         if (pass == 1) {
@@ -1137,6 +1165,7 @@ static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *c
             } else na_xdone = nx;
         }
     }
+    at = (at + 31) & ~31u;                                /* v126 : (la suite reste alignee) */
     na_wbe32(res + offsetof(natres_hdr_t, tramp_at), at);   /* v95 : la suite de la place libre, pour les aiguillages poses pendant le jeu (OSExec) */
     return done;
 }
