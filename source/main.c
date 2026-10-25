@@ -79,6 +79,13 @@
 // Atlas de polices lissees (genere par tools/gen_font.py)
 #include "font_atlas.h"
 
+/* v150 : l'heure de GC Station = celle de la console + un decalage choisi dans Reglages > Jeux > Date et heure.
+   (Avant : clock_settime, qui recule ou avance l'horloge du processeur sur laquelle tournent tous les minuteurs de
+   GC Station et de libogc : risque de blocage.) Au prochain demarrage, l'horloge de la console est deja a la bonne heure. */
+static s64 clk_ofs = 0;
+static time_t gc_time(time_t *p) { time_t t = (time)(NULL) + (time_t)clk_ofs; if (p) *p = t; return t; }
+#define time(p) gc_time(p)
+
 #ifndef SD_ROOT
 #define SD_ROOT        "sd:"
 #endif
@@ -11409,14 +11416,10 @@ static int clk_set(time_t t) {
     extern u32 __SYS_GetRTC(u32 *gctime);
     u32 rtc = 0;
     if (__SYS_GetRTC(&rtc) != 1) return 0;
-    SYS_SetCounterBias((u32)((s64)t - 946684800LL - (s64)rtc));
-    struct timespec ts = { t, 0 };
-    clock_settime(CLOCK_REALTIME, &ts);
-    return 1;
-#else
-    (void)t;
-    return 1;                                                /* (simulateur : l'heure du PC ne change pas) */
+    SYS_SetCounterBias((u32)((s64)t - 946684800LL - (s64)rtc));   /* (garde dans la console : jeux, BIOS, prochain demarrage) */
 #endif
+    clk_ofs = (s64)t - (s64)(time)(NULL);                       /* (GC Station : tout de suite, sans toucher a l'horloge du processeur) */
+    return 1;
 }
 static void clk_begin(void) { time_t t = time(NULL); struct tm *tm = localtime(&t); if (tm) clk_tm = *tm; clk_tm.tm_sec = 0; clk_f = 0; clk_edit = 1; }
 static void clk_change(int d) {
