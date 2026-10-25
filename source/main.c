@@ -3228,7 +3228,8 @@ static int flac_picture(const unsigned char *b, long n, const unsigned char **im
 }
 
 /* Parcourt les blocs de metadonnees d'un FLAC : etiquettes, et pochette si want_pic. */
-static int flac_meta(FILE *fp, tags_t *tg, int want_pic) {
+/* v132 : pic_out != NULL : l'image est rendue (a liberer) au lieu d'etre decodee ici (vignettes, fil de decodage) */
+static int flac_meta_pic(FILE *fp, tags_t *tg, int want_pic, unsigned char **pic_out, long *pic_len) {
     unsigned char h[4];
     long off = skip_id3(fp);
     if (off < 0 || fseek(fp, off, SEEK_SET) != 0 || fread(h, 1, 4, fp) != 4 || memcmp(h, "fLaC", 4) != 0) return 0;
@@ -3262,9 +3263,11 @@ static int flac_meta(FILE *fp, tags_t *tg, int want_pic) {
         if (last) break;
     }
     int ok = 0;
+    if (best && pic_out) { *pic_out = best; *pic_len = got; return 1; }
     if (best) { ok = cover_from_memory(best, got); free(best); }
     return ok;
 }
+static int flac_meta(FILE *fp, tags_t *tg, int want_pic) { return flac_meta_pic(fp, tg, want_pic, NULL, NULL); }
 
 static int cover_from_flac(const char *path) {
     FILE *fp = fopen(path, "rb");
@@ -3546,7 +3549,8 @@ static long id3_unsync(unsigned char *d, long n) {
 }
 
 /* Pochette integree (cadre APIC / PIC), lue sans charger tout le MP3. */
-static int cover_from_id3(const char *path) {
+/* v132 : image APIC d'un MP3 : *tagp = etiquette lue (a liberer), *img / *len = l'image dedans */
+static int id3_pic(const char *path, unsigned char **tagp, const unsigned char **img, long *len) {
     unsigned char hdr[10];
     FILE *fp = fopen(path, "rb");
     if (!fp) return 0;
@@ -3604,7 +3608,14 @@ static int cover_from_id3(const char *path) {
         }
         pos += fhdr + sz;
     }
-    int ok = best ? cover_from_memory(best, best_len) : 0;
+    if (!best) { free(tag); return 0; }
+    *tagp = tag; *img = best; *len = best_len;
+    return 1;
+}
+static int cover_from_id3(const char *path) {
+    unsigned char *tag; const unsigned char *b; long l;
+    if (!id3_pic(path, &tag, &b, &l)) return 0;
+    int ok = cover_from_memory(b, l);
     free(tag);
     return ok;
 }
@@ -4562,9 +4573,8 @@ static void setting_apply(const char *k, char *v) {
         if (!strcasecmp(k, "pochettes_auto")) covers_auto = yes(v);
         else if (!strcasecmp(k, "aleatoire")) shuffle_on = yes(v);
         else if (!strcasecmp(k, "repetition")) repeat_mode = !strncasecmp(v, "tout", 4) ? REP_ALL : !strncasecmp(v, "un", 2) ? REP_ONE : REP_OFF;
-        else if (!strcasecmp(k, "affichage"))
-            view_mode = !strncasecmp(v, "dossier", 7) ? VIEW_FOLDERS : !strncasecmp(v, "artiste", 7) ? VIEW_ARTISTS :
-                        !strncasecmp(v, "album", 5) ? VIEW_ALBUMS : !strncasecmp(v, "liste", 5) ? VIEW_LISTS : VIEW_ALL;
+        else if (!strcasecmp(k, "affichage"))             /* v132 : MUSIQUE s'ouvre toujours sur tous les morceaux */
+            view_mode = VIEW_ALL;                          /* (dossiers, artistes, albums, listes : stick C) */
         else if (!strcasecmp(k, "volume")) { volume_pct = atoi(v); if (volume_pct < 0) volume_pct = 0; if (volume_pct > 100) volume_pct = 100; }
         else if (!strcasecmp(k, "theme")) { for (int i = 0; i < THEME_COUNT; i++) if (!strcasecmp(v, theme_keys[i])) theme_apply(i); }
         else if (!strcasecmp(k, "paroles_auto")) lyrics_auto = yes(v);
@@ -4716,7 +4726,7 @@ static void save_settings(void) {
                "telephone = %s\n"
                "# Lecture : aleatoire = oui / non ; repetition = non / tout / un\n"
                "aleatoire = %s\nrepetition = %s\n"
-               "# Liste MUSIQUE : tous / dossiers / artistes / albums\n"
+               "# Liste MUSIQUE (au demarrage : toujours tous les morceaux ; stick C pour dossiers / artistes / albums)\n"
                "affichage = %s\n"
                "volume = %d\n"
                "# Theme : indigo / ocean / emeraude / rubis / ambre / doux / graphite / lavande / foret / crepuscule\n"
@@ -5527,22 +5537,58 @@ static void draw_background(void) {
              RGBA(110, 60, 230, 40), RGBA(110, 60, 230, 0));
 }
 
+/* v132 : nouveau logo : un cube violet (faces separees par un filet clair), sur sa face gauche un ovale
+   avec trois barres de son. R = rayon (le cube tient dans un hexagone de ce rayon). */
+static void lg_face_pt(const f32 *o, const f32 *u, const f32 *v, f32 a, f32 b, f32 *x, f32 *y) {
+    *x = o[0] + a * u[0] + b * v[0];
+    *y = o[1] + a * u[1] + b * v[1];
+}
 static void draw_logo_cube(f32 cx, f32 cy, f32 R) {
     uxsave_t uz = ux_native(cx);
-    gx_ring_n(cx, cy, R - 3.5f, R, 6, -PI_F / 2.0f, RGBA(150, 110, 255, 255));
-    f32 r = R * 0.62f, k = 0.866f;
+    int sr = nv_raw;
+    nv_raw = 1;                                          /* (couleurs exactes dans tous les styles) */
+    const col_t pu = RGBA(91, 75, 219, 255), pt = RGBA(103, 87, 230, 255), pr = RGBA(80, 64, 200, 255);
+    const col_t cr = RGBA(240, 236, 228, 255);
+    f32 r = R * 0.94f, k = 0.866f;
     f32 P0x = cx,         P0y = cy - r;
     f32 P1x = cx + k * r, P1y = cy - r / 2;
     f32 P2x = cx + k * r, P2y = cy + r / 2;
     f32 P3x = cx,         P3y = cy + r;
     f32 P4x = cx - k * r, P4y = cy + r / 2;
     f32 P5x = cx - k * r, P5y = cy - r / 2;
-    gx_poly4(P0x, P0y, P1x, P1y, cx, cy, P5x, P5y,
-             RGBA(205, 180, 255, 255), RGBA(170, 135, 255, 255), RGBA(150, 110, 250, 255), RGBA(170, 135, 255, 255));
-    gx_poly4(P5x, P5y, cx, cy, P3x, P3y, P4x, P4y,
-             RGBA(130, 80, 245, 255), RGBA(120, 70, 240, 255), RGBA(96, 50, 210, 255), RGBA(104, 56, 220, 255));
-    gx_poly4(cx, cy, P1x, P1y, P2x, P2y, P3x, P3y,
-             RGBA(86, 40, 190, 255), RGBA(80, 36, 180, 255), RGBA(60, 26, 150, 255), RGBA(66, 28, 160, 255));
+    gx_poly4(P0x, P0y, P1x, P1y, cx, cy, P5x, P5y, pt, pt, pt, pt);          /* dessus */
+    gx_poly4(P5x, P5y, cx, cy, P3x, P3y, P4x, P4y, pu, pu, pu, pu);          /* gauche */
+    gx_poly4(cx, cy, P1x, P1y, P2x, P2y, P3x, P3y, pr, pr, pr, pr);          /* droite */
+    /* filets clairs entre les faces */
+    f32 t = R * 0.05f; if (t < 0.8f) t = 0.8f;
+    gx_poly4(P5x, P5y - t, cx, cy - t, cx, cy + t, P5x, P5y + t, cr, cr, cr, cr);
+    gx_poly4(cx, cy - t, P1x, P1y - t, P1x, P1y + t, cx, cy + t, cr, cr, cr, cr);
+    gx_poly4(cx - t, cy, cx + t, cy, cx + t, P3y, cx - t, P3y, cr, cr, cr, cr);
+    /* face gauche : ovale et trois barres (repere de la face : u vers le centre, v vers le bas) */
+    if (R >= 7) {
+        f32 o[2] = { P5x, P5y }, u[2] = { cx - P5x, cy - P5y }, v[2] = { P4x - P5x, P4y - P5y };
+        enum { N = 28 };
+        f32 rr = 0.30f, th = R >= 16 ? 0.055f : 0.08f;
+        gx_set_flat();
+        GX_Begin(GX_TRIANGLESTRIP, GX_VTXFMT0, 2 * (N + 1));
+        for (int i = 0; i <= N; i++) {
+            f32 a = i * 2 * PI_F / N, ca = cosf(a), sa = sinf(a), x, y;
+            lg_face_pt(o, u, v, 0.5f + (rr + th / 2) * ca, 0.5f + (rr + th / 2) * 1.12f * sa, &x, &y); vtx(x, y, cr);
+            lg_face_pt(o, u, v, 0.5f + (rr - th / 2) * ca, 0.5f + (rr - th / 2) * 1.12f * sa, &x, &y); vtx(x, y, cr);
+        }
+        GX_End();
+        static const f32 bu[3] = { 0.38f, 0.5f, 0.62f }, bh[3] = { 0.36f, 0.46f, 0.30f };
+        f32 bw = R >= 16 ? 0.055f : 0.075f;
+        for (int i = 0; i < 3; i++) {
+            f32 ax, ay, bx, by, qx, qy, dx, dy;
+            lg_face_pt(o, u, v, bu[i] - bw / 2, 0.5f - bh[i] / 2, &ax, &ay);
+            lg_face_pt(o, u, v, bu[i] + bw / 2, 0.5f - bh[i] / 2, &bx, &by);
+            lg_face_pt(o, u, v, bu[i] + bw / 2, 0.5f + bh[i] / 2, &qx, &qy);
+            lg_face_pt(o, u, v, bu[i] - bw / 2, 0.5f + bh[i] / 2, &dx, &dy);
+            gx_poly4(ax, ay, bx, by, qx, qy, dx, dy, cr, cr, cr, cr);
+        }
+    }
+    nv_raw = sr;
     ux_restore(uz);
 }
 
@@ -9301,6 +9347,7 @@ static void img_decode_job(void) {
     dj_ok = 1;
 }
 
+#include "vignettes.c"                         /* v132 : vignettes des pochettes (rangee de pochettes) */
 static void rl_job(void);
 static void *dec_thread_fn(void *arg) {
     (void)arg;
@@ -9320,6 +9367,9 @@ static void *dec_thread_fn(void *arg) {
         } else if (gj_state == 1) {                        /* v92 : banniere / grande image d'un jeu */
             gl_job_run();
             gj_state = 2;
+        } else if (tj_state == 1) {                        /* v132 : vignette d'une pochette */
+            tj_run();
+            tj_state = 2;
         } else usleep(4000);
     }
     return NULL;
@@ -9331,7 +9381,7 @@ static void *dec_thread_fn(void *arg) {
 static void bg_quiesce(void) {
     gj_hold = 1;
     u64 t0 = now_ms();
-    while (gj_state == 1 && now_ms() - t0 < 3000) usleep(2000);
+    while ((gj_state == 1 || tj_state == 1) && now_ms() - t0 < 3000) usleep(2000);
 }
 /* v118 : jusqu'a 3 images telechargees en meme temps (avant : une a la fois) ; le decodage reste un a un */
 #define IL_N 3
