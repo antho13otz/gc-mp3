@@ -21,6 +21,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v130 — 576 lignes seulement dans GC Station
+- Pulse, le disque de la console et GC Loader remettaient déjà la vidéo dans le mode du jeu avant de le lancer
+  (`na_vi_bootrom` : NTSC 480i, PAL 576i ou PAL 60). Restaient : les programmes lancés par `gl_boot_mem`
+  (applis, lanceur de secours, relance de GC Station) qui partaient avec la sortie 576 de GC Station :
+  la vidéo est remise en mode standard (PAL 576i entrelacé ou PAL 60 480i) juste avant ; et le réglage
+  « Apps Video Mode » du lanceur de secours, qui recevait 576i / 576p depuis la v128 : il reçoit « Auto »
+  (et un ancien 576 est remplacé au démarrage).
+- 576 lignes à 60 Hz n'existe pas comme mode vidéo standard (576 lignes = 50 Hz, 60 Hz = 480 lignes) :
+  pour du 60 Hz progressif, c'est 480p (sur une console PAL : PAL 60).
+
 ## Nouveautés v129 — styles Nébula et Halo, fin de Moderne et Nouvelle
 - **Nébula** (`ui_skin` 4) et **Halo** (5) reprennent le moteur d'Aurore (sélection qui glisse, transitions,
   lecteur de MUSIQUE, menu START) : partout où Aurore était testé (`ui_skin == 3`), c'est maintenant la
