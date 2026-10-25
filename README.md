@@ -14,7 +14,19 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v145)
+## Nouveautés de la version actuelle (v146)
+- **Pulse plus proche de Swiss** : tout ce que fait Swiss a été passé en revue (docs/ETUDE-SWISS.md, partie 7), et
+  ce qui manquait à Pulse est ajouté :
+  - **la console est préparée comme Swiss la prépare** avant chaque jeu (valeurs que le BIOS met en mémoire : code du
+    lecteur, norme des manettes, taille de l'ARAM, zone réservée en haut de la mémoire, cartes virtuelles « insérées »).
+    Utile surtout quand GC Station démarre sans le BIOS (ipl.dol, Swiss) ;
+  - **nouveaux jeux corrigés** : F-Zero GX / AX, Pokémon XD, Pokémon Colosseum (japonais), Hulk, Ultimate
+    Spider-Man, Star Wars : The Clone Wars ; Resident Evil 2 et 3 corrigés aussi dans leurs modules (`.rel`) ;
+  - **Star Wars Rogue Leader** : son programme est compressé, Pulse prend ses accès au lecteur au vol (Pulse universel,
+    automatique pour ce jeu).
+  - Rien de tout ça n'a pu être essayé sur une vraie console : dis-moi quels jeux marchent mieux (ou moins bien).
+
+## Version précédente (v145)
 - **Sauvegardes** : la vue « Cartes » de l'onglet JEUX a trois choix (L / R) : **Slot A, Slot B et la carte
   virtuelle de Pulse**. Sur une sauvegarde (A) : copier vers la carte virtuelle, **tout copier** d'une carte à
   l'autre ou sur la carte SD (.gci), en une fois. Une carte virtuelle jamais utilisée est formatée toute seule.
@@ -29,14 +41,6 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   - le journal du jeu dit si le jeu s'est servi de l'adaptateur ;
   - « Jouer par le réseau » refuse ces jeux (Pulse occupe déjà l'adaptateur) : les copier sur la carte SD.
   - Pas encore essayé avec une vraie partie en réseau : dis-moi ce que ça donne.
-
-## Version précédente (v144)
-- **Accents réparés** : la page d'accueil du web, les messages d'erreur (connexion, sécurité, téléchargements) et
-  la liste des favoris affichaient « Ã© » à la place des lettres accentuées (depuis la v134).
-  Les favoris déjà abîmés (`SD:/gc-mp3/favoris.txt`) sont réparés à la lecture.
-- **Plus de blocage de 15 secondes** en ouvrant un serveur FSP éteint (onglet FICHIERS > Réseau) : 4 s au plus.
-  Un serveur FTP / SMB où rien n'écoute répond « Serveur absent » tout de suite, sans nouvel essai.
-- Vérification automatique à chaque construction : plus d'accents abîmés dans le code.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

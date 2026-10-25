@@ -1487,7 +1487,180 @@ static const na_fix_t na_fixes[] = {
     NF_AD("GC6P01", 4096576, 0x80005614), NF_AD("GC6P01", 4096576, 0x80005D1C), NF_AD("GC6P01", 4096576, 0x80005E24),
     NF_AD("GC6P01", 4096576, 0x80005E48), NF_AD("GC6P01", 4096576, 0x800387E4), NF_AD("GC6P01", 4096576, 0x800388D4),
     NF_AD("GC6P01", 4096576, 0x8003898C),
+    /* v146 : le reste de Patch_GameSpecific de Swiss utile a Pulse (etude complete : docs/ETUDE-SWISS.md, 7) :
+       - F-Zero GX / AX : le jeu remplace les vecteurs d'exception par les siens (Pulse universel s'en sert) ;
+       - Hulk (GH9), Ultimate Spider-Man (GUM), GWJ : le haut de la memoire etait ecrit en dur (0x81800000 : la ou
+         vit le resident) ; lu maintenant a 0x800000EC (debut de la zone reservee, donnee par Pulse comme Swiss) ;
+       - Pokemon XD (GXX), Pokemon Colosseum japonais (NXX, PCK, PCS) : code anti-debogage retire.
+       (PSO / Pokemon Box : Swiss deplace des tampons de 0x80001800 ou il vit lui-meme ; Pulse n'y est pas.) */
+    { "GFZE01 UFZE01", 1414848, 0x80005608, 0x48000038, NF_WORD, "exceptions du jeu" },
+    { "GFZE01 UFZE01", 1414848, 0x8000560C, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZE01 UFZE01", 1414848, 0x80005610, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZE01 UFZE01", 1414848, 0x80005614, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZE01 UFZE01", 1414848, 0x80005618, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZE01 UFZE01", 1414848, 0x8000561C, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZE01 UFZE01", 1414848, 0x80005620, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZE01 UFZE01", 1414848, 0x80005624, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZE01 UFZE01", 1414848, 0x80005628, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZE01 UFZE01", 1414848, 0x8000562C, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZE01 UFZE01", 1414848, 0x80005630, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZE01 UFZE01", 1414848, 0x80005634, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZE01 UFZE01", 1414848, 0x80005638, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZE01 UFZE01", 1414848, 0x8000563C, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZE01 UFZE01", 1414848, 0x80005640, 0x38000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x80005608, 0x48000050, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x8000560C, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x80005610, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x80005614, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x80005618, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x8000561C, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x80005620, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x80005624, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x80005628, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x8000562C, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x80005630, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x80005634, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x80005638, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x8000563C, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x80005640, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x80005644, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x80005648, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x8000564C, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x80005650, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x80005654, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZJ01 UFZJ01", 1412928, 0x80005658, 0x38000005, NF_WORD, "exceptions du jeu" },
+    { "GFZP01 UFZP01", 1425760, 0x80005608, 0x48000038, NF_WORD, "exceptions du jeu" },
+    { "GFZP01 UFZP01", 1425760, 0x8000560C, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZP01 UFZP01", 1425760, 0x80005610, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZP01 UFZP01", 1425760, 0x80005614, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZP01 UFZP01", 1425760, 0x80005618, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZP01 UFZP01", 1425760, 0x8000561C, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZP01 UFZP01", 1425760, 0x80005620, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZP01 UFZP01", 1425760, 0x80005624, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZP01 UFZP01", 1425760, 0x80005628, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZP01 UFZP01", 1425760, 0x8000562C, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZP01 UFZP01", 1425760, 0x80005630, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZP01 UFZP01", 1425760, 0x80005634, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZP01 UFZP01", 1425760, 0x80005638, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZP01 UFZP01", 1425760, 0x8000563C, 0x60000000, NF_WORD, "exceptions du jeu" },
+    { "GFZP01 UFZP01", 1425760, 0x80005640, 0x38000000, NF_WORD, "exceptions du jeu" },
+    { "GH9P52", 3420832, 0x800142C8, 0x3D608000, NF_WORD, "haut de la memoire" },
+    { "GH9P52", 3420832, 0x800142CC, 0x816B00EC, NF_WORD, "haut de la memoire" },
+    { "GH9P52", 3420832, 0x80014598, 0x3D208000, NF_WORD, "haut de la memoire" },
+    { "GH9P52", 3420832, 0x8001459C, 0x812900EC, NF_WORD, "haut de la memoire" },
+    { "GUMD52 GUMP52", 3314144, 0x8000DD4C, 0x3D608000, NF_WORD, "haut de la memoire" },
+    { "GUMD52 GUMP52", 3314144, 0x8000DD50, 0x816B00EC, NF_WORD, "haut de la memoire" },
+    { "GUMD52 GUMP52", 3314144, 0x8000DFD4, 0x3C608000, NF_WORD, "haut de la memoire" },
+    { "GUMD52 GUMP52", 3314144, 0x8000DFD8, 0x806300EC, NF_WORD, "haut de la memoire" },
+    { "GUME52", 3314080, 0x8000DD4C, 0x3D608000, NF_WORD, "haut de la memoire" },
+    { "GUME52", 3314080, 0x8000DD50, 0x816B00EC, NF_WORD, "haut de la memoire" },
+    { "GUME52", 3314080, 0x8000DFD4, 0x3C608000, NF_WORD, "haut de la memoire" },
+    { "GUME52", 3314080, 0x8000DFD8, 0x806300EC, NF_WORD, "haut de la memoire" },
+    { "GWJE52", 3420512, 0x800142C8, 0x3D608000, NF_WORD, "haut de la memoire" },
+    { "GWJE52", 3420512, 0x800142CC, 0x816B00EC, NF_WORD, "haut de la memoire" },
+    { "GWJE52", 3420512, 0x80014598, 0x3D208000, NF_WORD, "haut de la memoire" },
+    { "GWJE52", 3420512, 0x8001459C, 0x812900EC, NF_WORD, "haut de la memoire" },
+    NF_AD("GXXE01", 4333056, 0x8000F614),
+    NF_AD("GXXE01", 4333056, 0x8005C8AC),
+    NF_AD("GXXE01", 4333056, 0x8005C960),
+    NF_AD("GXXE01", 4333056, 0x8005C984),
+    NF_AD("GXXE01", 4333056, 0x80086930),
+    NF_AD("GXXE01", 4333056, 0x80086A34),
+    NF_AD("GXXE01", 4333056, 0x800875BC),
+    NF_AD("GXXE01", 4336128, 0x8000F614),
+    NF_AD("GXXE01", 4336128, 0x8005CC4C),
+    NF_AD("GXXE01", 4336128, 0x8005CD00),
+    NF_AD("GXXE01", 4336128, 0x8005CD24),
+    NF_AD("GXXE01", 4336128, 0x80086CCC),
+    NF_AD("GXXE01", 4336128, 0x80086DD0),
+    NF_AD("GXXE01", 4336128, 0x8008789C),
+    NF_AD("GXXJ01", 4191264, 0x8000F50C),
+    NF_AD("GXXJ01", 4191264, 0x8005AF90),
+    NF_AD("GXXJ01", 4191264, 0x8005AFF8),
+    NF_AD("GXXJ01", 4191264, 0x8005B01C),
+    NF_AD("GXXJ01", 4191264, 0x800842F8),
+    NF_AD("GXXJ01", 4191264, 0x800843FC),
+    NF_AD("GXXJ01", 4191264, 0x80084E70),
+    NF_AD("GXXP01", 4573216, 0x8000F11C),
+    NF_AD("GXXP01", 4573216, 0x8005CC60),
+    NF_AD("GXXP01", 4573216, 0x8005CD14),
+    NF_AD("GXXP01", 4573216, 0x8005CD38),
+    NF_AD("GXXP01", 4573216, 0x80087AD4),
+    NF_AD("GXXP01", 4573216, 0x80087BD8),
+    NF_AD("GXXP01", 4573216, 0x80088574),
+    NF_AD("NXXJ01", 4205664, 0x8000F510),
+    NF_AD("NXXJ01", 4205664, 0x8005C9A4),
+    NF_AD("NXXJ01", 4205664, 0x8005CA0C),
+    NF_AD("NXXJ01", 4205664, 0x8005CA30),
+    NF_AD("NXXJ01", 4205664, 0x80086448),
+    NF_AD("NXXJ01", 4205664, 0x8008654C),
+    NF_AD("NXXJ01", 4205664, 0x80086FDC),
+    NF_AD("PCKJ01", 3771872, 0x80005DD0),
+    NF_AD("PCSJ01", 3771872, 0x80005DD0),
 #undef NF_AD
+};
+/* v146 : corrections dans des fichiers du disque autres que des programmes (modules .rel de Resident Evil 2 / 3 :
+   meme course du transfert ARAM que dans leur main.dol, et la relocation qui remettrait l'instruction annulee).
+   Position = dans le fichier ; appliquees par le resident au moment ou le jeu lit ce morceau (comme v136). */
+typedef struct { const char *ids, *name; u32 off, val, sz; } na_ffix_t;
+static const na_ffix_t na_ffixes[] = {
+    { "GHAE08", "claire.rel", 0x190294, 0x60000000, 4 },
+    { "GHAE08", "claire.rel", 0x1EFDF6, 0, 1 },
+    { "GHAE08", "claire.rel", 0x1EFDF8, 0, 4 },
+    { "GHAE08", "leon.rel", 0x1903FC, 0x60000000, 4 },
+    { "GHAE08", "leon.rel", 0x1EFF86, 0, 1 },
+    { "GHAE08", "leon.rel", 0x1EFF88, 0, 4 },
+    { "GHAJ08", "claire.rel", 0x1903FC, 0x60000000, 4 },
+    { "GHAJ08", "claire.rel", 0x1FD19A, 0, 1 },
+    { "GHAJ08", "claire.rel", 0x1FD19C, 0, 4 },
+    { "GHAJ08", "leon.rel", 0x1904C4, 0x60000000, 4 },
+    { "GHAJ08", "leon.rel", 0x1FD30A, 0, 1 },
+    { "GHAJ08", "leon.rel", 0x1FD30C, 0, 4 },
+    { "GHAP08", "claire.rel", 0x190710, 0x60000000, 4 },
+    { "GHAP08", "claire.rel", 0x1F0FBE, 0, 1 },
+    { "GHAP08", "claire.rel", 0x1F0FC0, 0, 4 },
+    { "GHAP08", "claire_f.rel", 0x1912E8, 0x60000000, 4 },
+    { "GHAP08", "claire_f.rel", 0x1F251E, 0, 1 },
+    { "GHAP08", "claire_f.rel", 0x1F2520, 0, 4 },
+    { "GHAP08", "claire_g.rel", 0x1905A8, 0x60000000, 4 },
+    { "GHAP08", "claire_g.rel", 0x1F1AE6, 0, 1 },
+    { "GHAP08", "claire_g.rel", 0x1F1AE8, 0, 4 },
+    { "GHAP08", "claire_i.rel", 0x19113C, 0x60000000, 4 },
+    { "GHAP08", "claire_i.rel", 0x1F269E, 0, 1 },
+    { "GHAP08", "claire_i.rel", 0x1F26A0, 0, 4 },
+    { "GHAP08", "claire_s.rel", 0x1912E4, 0x60000000, 4 },
+    { "GHAP08", "claire_s.rel", 0x1F281E, 0, 1 },
+    { "GHAP08", "claire_s.rel", 0x1F2820, 0, 4 },
+    { "GHAP08", "leon.rel", 0x190878, 0x60000000, 4 },
+    { "GHAP08", "leon.rel", 0x1F116E, 0, 1 },
+    { "GHAP08", "leon.rel", 0x1F1170, 0, 4 },
+    { "GHAP08", "leon_f.rel", 0x191408, 0x60000000, 4 },
+    { "GHAP08", "leon_f.rel", 0x1F25EE, 0, 1 },
+    { "GHAP08", "leon_f.rel", 0x1F25F0, 0, 4 },
+    { "GHAP08", "leon_g.rel", 0x190638, 0x60000000, 4 },
+    { "GHAP08", "leon_g.rel", 0x1F1AF6, 0, 1 },
+    { "GHAP08", "leon_g.rel", 0x1F1AF8, 0, 4 },
+    { "GHAP08", "leon_i.rel", 0x19125C, 0x60000000, 4 },
+    { "GHAP08", "leon_i.rel", 0x1F278E, 0, 1 },
+    { "GHAP08", "leon_i.rel", 0x1F2790, 0, 4 },
+    { "GHAP08", "leon_s.rel", 0x191380, 0x60000000, 4 },
+    { "GHAP08", "leon_s.rel", 0x1F286E, 0, 1 },
+    { "GHAP08", "leon_s.rel", 0x1F2870, 0, 4 },
+    { "GLEP08", "eng.rel", 0x14C354, 0x60000000, 4 },
+    { "GLEP08", "eng.rel", 0x1BFCE6, 0, 1 },
+    { "GLEP08", "eng.rel", 0x1BFCE8, 0, 4 },
+    { "GLEP08", "fra.rel", 0x14D21C, 0x60000000, 4 },
+    { "GLEP08", "fra.rel", 0x1C0FE6, 0, 1 },
+    { "GLEP08", "fra.rel", 0x1C0FE8, 0, 4 },
+    { "GLEP08", "ger.rel", 0x14D020, 0x60000000, 4 },
+    { "GLEP08", "ger.rel", 0x1C1886, 0, 1 },
+    { "GLEP08", "ger.rel", 0x1C1888, 0, 4 },
+    { "GLEP08", "ita.rel", 0x14D084, 0x60000000, 4 },
+    { "GLEP08", "ita.rel", 0x1C1246, 0, 1 },
+    { "GLEP08", "ita.rel", 0x1C1248, 0, 4 },
+    { "GLEP08", "spa.rel", 0x14D204, 0x60000000, 4 },
+    { "GLEP08", "spa.rel", 0x1C1386, 0, 1 },
+    { "GLEP08", "spa.rel", 0x1C1388, 0, 4 },
 };
 static char na_fix_msg[120] = "";
 static int na_id_in(const char *ids, const char *id) {    /* "GOND69 GONE69" contient-il ce code ? */
@@ -1552,7 +1725,7 @@ static int na_game_fix(const nat_info_t *in, u8 *dol, int card_virtual) {
    chaque correction dont la taille est celle d'un de ces fichiers, calcule la position dans l'ISO de l'endroit
    a changer (sections du .dol, segments du .elf) ; le resident le change au moment ou le jeu lit ce morceau
    (fx_apply). switcher.prs est compresse : pas possible ainsi (aucune correction de la table ne le vise). */
-#define NA_FXMAX 48
+#define NA_FXMAX 96
 static u32 na_fx[NA_FXMAX][3];                            /* {position dans l'ISO, valeur, taille} */
 static int na_fx_n = 0;
 static char na_fx_msg[160] = "";
@@ -1607,6 +1780,13 @@ static void na_fx_fst(gdisc_t *g, const nat_info_t *in, const u8 *fst, u32 fsz, 
         u32 no = be32(e) & 0xFFFFFFu, off = be32(e + 4) + (u32)delta, len = be32(e + 8);
         if ((const u8 *)names + no >= fst + fsz) continue;
         const char *nm = names + no;
+        for (unsigned j = 0; j < sizeof(na_ffixes) / sizeof(na_ffixes[0]); j++) {   /* v146 */
+            const na_ffix_t *x = &na_ffixes[j];
+            const char *bn = strrchr(nm, '/'); bn = bn ? bn + 1 : nm;
+            if (na_fx_n >= NA_FXMAX || strcasecmp(bn, x->name) || !na_id_in(x->ids, in->id) || x->off + x->sz > len) continue;
+            na_fx[na_fx_n][0] = off + x->off; na_fx[na_fx_n][1] = x->val; na_fx[na_fx_n][2] = x->sz; na_fx_n++;
+            snprintf(na_fx_msg, sizeof(na_fx_msg), "%s : transfert ARAM", nm);
+        }
         if (na_name_end(nm, ".dol")) na_fx_file(g, in, off, len, 0, card_virtual, nm);
         else if (na_name_end(nm, ".elf")) na_fx_file(g, in, off, len, 1, card_virtual, nm);
         else if (na_name_end(nm, ".tgc") && depth == 0) {   /* .tgc : son default.dol et ses propres fichiers */
@@ -1626,6 +1806,7 @@ static int na_fx_scan(const char *path, const nat_info_t *in, const u8 *fst, int
     na_fx_n = 0; na_fx_msg[0] = 0;
     int any = 0;                                          /* (rien a chercher si aucune correction ne vise ce jeu) */
     for (unsigned i = 0; i < sizeof(na_fixes) / sizeof(na_fixes[0]) && !any; i++) any = na_id_in(na_fixes[i].ids, in->id) && na_fixes[i].len && na_fixes[i].len != in->dol_len;
+    for (unsigned i = 0; i < sizeof(na_ffixes) / sizeof(na_ffixes[0]) && !any; i++) any = na_id_in(na_ffixes[i].ids, in->id);   /* v146 */
     if (!any) return 0;
     gdisc_t g;
     if (!gd_open(&g, path)) return 0;
@@ -1792,6 +1973,7 @@ static const char *na_adapter(void) {
    le jeu attend 10 s puis affiche "Une erreur est survenue". On le libere et on verifie
    qu'il repond a une commande "inquiry" (interruptions coupees, sans libogc). */
 static char na_drv[220] = "";
+static void na_inq_note(int ok, const u8 *inq);          /* v146 (plus bas) */
 static int na_drv_ok = 1;                               /* v133 : le vrai lecteur repond (sinon : Pulse reveille le jeu sans lui) */
 #ifdef GEKKO
 static void nat_ld_tick(void);                          /* (ecran de chargement, plus bas) */
@@ -1837,6 +2019,7 @@ static void na_drive_wake(void) {
     di[1] = 4u;                                           /* (couvercle : acquitte, sans interruption) */
     int ok = r1 >= 0 || r2 >= 0, mot = -2;
     na_drv_ok = ok;
+    na_inq_note(ok, inq);                                 /* v146 : code du lecteur (0x800030E6) */
     if (ok) {                                             /* v64 : moteur arrete (E3) : le lecteur reste silencieux */
         di[0] = 0x54u; di[2] = 0xE3000000u; di[3] = 0; di[4] = 0; di[7] = 1;
         u64 t0 = now_ms();
@@ -2235,6 +2418,71 @@ static int nat_card_prep(const char *id) {
     return r;
 }
 
+/* ---------- v146 : etat de depart de la console, comme le laisse Swiss ----------
+   GC Station peut demarrer sans le BIOS (ipl.dol, Swiss) : des valeurs que le BIOS met en memoire basse peuvent
+   manquer ou venir d'un autre programme. Swiss les ecrit toutes avant chaque jeu (swiss.c, load_app) ; Pulse fait
+   pareil, avec ses propres valeurs :
+   - 0x2C type de console (retail + revision du Flipper), 0xD0 taille de l'ARAM (16 Mo) : si absents ;
+   - 0xE8 / 0xEC « moniteur de debogage » : taille et debut de la zone reservee en haut (FST, bi2, resident) :
+     le systeme du jeu y arrete son arene, et les jeux qui lisent le haut de la memoire a 0xEC aussi ;
+   - 0x30E0 = 6, 0x30E3 = 0 (options de Swiss), 0x30E6 = code du lecteur (0x8000 | code de l'inquiry, ou 1 sans
+     lecteur), 0x30E9 = norme des manettes (5 si rien), 0x30C0 / 0x30C4 = debut de la detection d'une carte
+     memoire virtuelle (sinon le jeu attend qu'elle soit « inseree ») ;
+   - bi2.bin : norme des manettes (0x24) pour tous les jeux ; quelques jeux : taille de la memoire simulee, arguments. */
+static u16 na_devcode = 0;                                /* (code du lecteur vu par l'inquiry ; 0 = pas encore vu) */
+static void na_inq_note(int ok, const u8 *inq) {
+    u32 rel = be32(inq + 4);
+    if (!ok) na_devcode = 0x0001;
+    else if (rel == 0x20220420u || rel == 0x20220426u) na_devcode = 0;   /* (lecteur optique remplace : on garde la valeur en place) */
+    else na_devcode = rel ? (u16)(0x8000u | na_be16(inq + 2)) : 0x0001;
+}
+static void na_bi2_args(u8 *b, const char *const *av, int ac) {   /* arguments du programme (bi2 0x08 : position) */
+    u32 at = NA_BI2, sl = 0;
+    for (int i = 0; i < ac; i++) sl += (u32)strlen(av[i]) + 1;
+    u32 base = (NA_BI2 - sl - 4 * (u32)(ac + 2)) & ~3u;
+    u32 a = be32(b + 8);
+    if (a && a < NA_BI2) memset(b + a, 0, NA_BI2 - a);
+    na_wbe32(b + 8, base); na_wbe32(b + base, (u32)ac);
+    at = base + 4 * (u32)(ac + 2);
+    for (int i = 0; i < ac; i++) { na_wbe32(b + base + 4 + 4 * (u32)i, at); strcpy((char *)b + at, av[i]); at += (u32)strlen(av[i]) + 1; }
+    na_wbe32(b + base + 4 + 4 * (u32)ac, 0);
+}
+static void na_bi2_fix(u8 *b, const char *id) {
+    u32 spec = 5;
+#ifdef GEKKO
+    if (*(volatile u8 *)0x800030E9u) spec = *(volatile u8 *)0x800030E9u;
+#endif
+    na_wbe32(b + 0x24, spec);                             /* (norme des manettes, pour tous les jeux, comme Swiss) */
+    if (!strncmp(id, "DPOJ8P", 6)) na_wbe32(b + 4, 0x01800000u);   /* (memoire simulee : 24 Mo) */
+    if (!strncmp(id, "GSX", 3)) {                         /* Star Wars : The Clone Wars : le programme et sa langue */
+        static const char *const e[] = { "Clonewars.elf" }, *const pp[] = { "Clonewars.elf", "/pal" };
+        static const char *const j[] = { "Clonewars.elf", "/language", "5", "/japanese" };
+        static const char *l[] = { "Clonewars.elf", "/pal", "/language", "1" };
+        if (!strncmp(id, "GSXE64", 6)) na_bi2_args(b, e, 1);
+        else if (!strncmp(id, "GSXP64", 6)) na_bi2_args(b, pp, 2);
+        else if (!strncmp(id, "GSXJ13", 6)) na_bi2_args(b, j, 4);
+        else {
+            l[3] = !strncmp(id, "GSXD64", 6) ? "1" : !strncmp(id, "GSXF64", 6) ? "2" : !strncmp(id, "GSXS64", 6) ? "3" : !strncmp(id, "GSXI64", 6) ? "4" : NULL;
+            if (l[3]) na_bi2_args(b, l, 4);
+        }
+    }
+}
+#ifdef GEKKO
+static void na_lowmem(volatile u32 *lm, u32 resv, int cards) {
+    if (!lm[0x2C / 4]) lm[0x2C / 4] = 1u + ((*(volatile u32 *)0xCC00302Cu >> 28) & 7u);
+    if (!lm[0xD0 / 4]) lm[0xD0 / 4] = 0x01000000u;
+    lm[0xE8 / 4] = 0x81800000u - resv;
+    lm[0xEC / 4] = resv;
+    volatile u8 *b = (volatile u8 *)0x80000000u;
+    b[0x30E0] = 0; b[0x30E1] = 6;
+    b[0x30E3] = 0;
+    if (na_devcode) { b[0x30E6] = (u8)(na_devcode >> 8); b[0x30E7] = (u8)na_devcode; }
+    if (!b[0x30E9]) b[0x30E9] = 5;
+    u32 t = (u32)(ticks_to_millisecs(gettime()) / 100u) + 1u;
+    if (cards & 1) lm[0x30C0 / 4] = t;
+    if (cards & 2) lm[0x30C4 / 4] = t;
+}
+#endif
 #ifdef GEKKO
 /* v111 : interruptions d'ecran comme les met le BIOS (__VIInit du SDK) : DI0 au milieu de l'image ET DI1 a la
    1re ligne. libogc (GC Station) laisse DI1 coupee ; le jeu n'avait alors plus que DI0, toujours dans la 2e
@@ -2364,6 +2612,7 @@ static const char *nat_boot(int k) {
     int ok = gd_open(&d, gl[k].path);
     if (ok) ok = na_read_ticked(&d, in.dol_off, buf + o_dol, dol_len, 22, 33);
     if (ok) ok = gd_read(&d, 0x440, buf + o_bi2, NA_BI2);
+    if (ok) na_bi2_fix(buf + o_bi2, in.id);              /* v146 */
     if (ok) ok = na_read_ticked(&d, in.fst_off, buf + o_fst, in.fst_sz, 33, 38);
     u8 hdr[0x20];
     if (ok) ok = gd_read(&d, 0, hdr, sizeof(hdr));
@@ -2548,7 +2797,9 @@ static const char *nat_boot(int k) {
     lm[0xF4 / 4] = bi2_dest;                              /* bi2.bin */
     if (!lm[0xF8 / 4]) lm[0xF8 / 4] = 0x09A7EC80u;        /* vitesse du bus */
     if (!lm[0xFC / 4]) lm[0xFC / 4] = 0x1CF7C580u;        /* vitesse du processeur */
+    na_lowmem(lm, fst_dest, res ? cards : 0);             /* v146 : comme Swiss */
     DCFlushRange((void *)0x80000000, 0x100);
+    DCFlushRange((void *)0x800030C0, 0x40);
     u32 *t = (u32 *)GL_TAB_AT;
     for (u32 i = 0; i < n * 3; i++) t[i] = tab[i];
     memcpy((void *)GL_STUB_AT, gl_stub, sizeof(gl_stub));
@@ -2681,6 +2932,7 @@ static const char *nat_boot_drive(int k, int reset) {
         nat_ld_span("Pr\xC3\xA9paration du lecteur", 4, 30);
         do r = na_di(di, 0x12000000u, 0, 32, inq, 32, 1500); while (r < 0 && now_ms() - t0 < 8000);
         if (r < 0) return "Le lecteur de la console ne r\xC3\xA9pond pas";
+        na_inq_note(1, inq);                               /* v146 */
     }
     di[1] = 4u;                                            /* (couvercle : acquitte) */
     nat_ld_span("Lecture du disque", 30, 50);
@@ -2727,6 +2979,7 @@ static const char *nat_boot_drive(int k, int reset) {
     memset(buf, 0, total);
     int ok = na_dvd_read(di, dol_off, buf, o_bi2, 54, 88)
           && na_dvd_read(di, 0x440, buf + o_bi2, NA_BI2, 88, 90)
+          && (na_bi2_fix(buf + o_bi2, id), 1)                       /* v146 */
           && na_dvd_read(di, fst_off, buf + o_fst, (fst_sz + 31) & ~31u, 90, 96);
     if (!ok) { free(buf); return "Lecture du disque impossible"; }
     /* musique en streaming (comme le BIOS) : octet 8 = oui / non, octet 9 = taille du tampon */
@@ -2778,7 +3031,9 @@ static const char *nat_boot_drive(int k, int reset) {
     lm[0xF4 / 4] = bi2_dest;
     if (!lm[0xF8 / 4]) lm[0xF8 / 4] = 0x09A7EC80u;
     if (!lm[0xFC / 4]) lm[0xFC / 4] = 0x1CF7C580u;
+    na_lowmem(lm, 0x81800000u, 0);                        /* v146 : comme Swiss (rien de reserve en haut) */
     DCFlushRange((void *)0x80000000, 0x100);
+    DCFlushRange((void *)0x800030C0, 0x40);
     u32 *t = (u32 *)GL_TAB_AT;
     for (u32 i = 0; i < n * 3; i++) t[i] = tab[i];
     memcpy((void *)GL_STUB_AT, gl_stub, sizeof(gl_stub));
