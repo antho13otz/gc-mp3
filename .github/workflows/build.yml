@@ -26,6 +26,11 @@ jobs:
         with:
           path: gcmp3
 
+      - name: Textes du code intacts (pas d'accents abimes)
+        run: |
+          # (v144 : des accents re-encodes plusieurs fois, "Ã©" au lieu de "é", etaient passes inapercus)
+          if grep -rlP '\xc3\x83\xc2|\xc3\x82\xc2' gcmp3/source; then echo "Accents abimes dans ces fichiers"; exit 1; fi
+
       - name: Lanceur déjà compilé ?
         id: cache
         uses: actions/cache@v4

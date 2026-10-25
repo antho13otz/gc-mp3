@@ -297,7 +297,7 @@ static int displayed_fb = 0;
 
 static u64 now_ms(void) { return ticks_to_millisecs(gettime()); }
 
-/* ---------- v69 : mesure de fluidite (START > ÃÂÃÂÃÂÃÂ« Mesure de fluidite ÃÂÃÂÃÂÃÂ») ----------
+/* ---------- v69 : mesure de fluidite (START > « Mesure de fluidite ») ----------
    Chaque image : temps de chaque tache de la boucle (reseau, pochettes, decodage, dessin,
    processeur graphique, attente de l'ecran). A l'ecran : images/s, pire image, tache la plus
    lente. Quand on coupe la mesure : rapport SD:/gc-mp3/fluidite.txt (par onglet). */
@@ -1854,12 +1854,12 @@ static int conn_start_tls(conn_t *c, const char *host, const char **err) {
 #endif
         if (r != MBEDTLS_ERR_SSL_WANT_READ && r != MBEDTLS_ERR_SSL_WANT_WRITE) {
             if (r == MBEDTLS_ERR_X509_CERT_VERIFY_FAILED || vr != 0)
-                *err = "Certificat du serveur refusÃÂÃÂÃÂÃÂ©";
+                *err = "Certificat du serveur refusé";
             else
-                *err = "ÃÂÃÂÃÂÃÂchec de la connexion sÃÂÃÂÃÂÃÂ©curisÃÂÃÂÃÂÃÂ©e";
+                *err = "Échec de la connexion sécurisée";
             return 0;
         }
-        if (now_ms() - t0 > 15000) { *err = "Connexion sÃÂÃÂÃÂÃÂ©curisÃÂÃÂÃÂÃÂ©e trop lente"; return 0; }
+        if (now_ms() - t0 > 15000) { *err = "Connexion sécurisée trop lente"; return 0; }
         bg_tick();
         usleep(1000);
     }
@@ -1871,6 +1871,7 @@ static void ui_status(const char *text);   /* redessine l'ecran pendant la conne
    Retourne 1 si c'est bon ; sinon 0 et *err = message. *refused = 1 si le
    serveur n'accepte pas la connexion (utile pour reessayer en http://). */
 /* Connexion TCP seule (show = afficher l'avancement a l'ecran). */
+static s32 conn_last_cr = 0;                 /* v144 : resultat du dernier connect (-ECONNREFUSED : rien n'ecoute) */
 static int conn_tcp(conn_t *c, const char *host, int port, const char **err, int *refused, int show) {
     char msg[200];
     if (refused) *refused = 0;
@@ -1880,10 +1881,10 @@ static int conn_tcp(conn_t *c, const char *host, int port, const char **err, int
     u32 addr;
     if (!resolve_host(host, &addr)) { *err = "Serveur introuvable (DNS)"; return 0; }
 
-    snprintf(msg, sizeof(msg), "Connexion ÃÂÃÂÃÂÃÂ  %s...", host);
+    snprintf(msg, sizeof(msg), "Connexion à %s...", host);
     if (show) ui_status(msg);
     s32 s = net_socket(AF_INET, SOCK_STREAM, 0);
-    if (s < 0) { *err = "Erreur rÃÂÃÂÃÂÃÂ©seau (socket)"; return 0; }
+    if (s < 0) { *err = "Erreur réseau (socket)"; return 0; }
     struct sockaddr_in sa;
     memset(&sa, 0, sizeof(sa));
     sa.sin_family = AF_INET;
@@ -1898,12 +1899,13 @@ static int conn_tcp(conn_t *c, const char *host, int port, const char **err, int
         if (!resolve_host(host, &addr)) { *err = "Serveur introuvable (DNS)"; return 0; }
         sa.sin_addr.s_addr = addr;
         s = net_socket(AF_INET, SOCK_STREAM, 0);
-        if (s < 0) { *err = "Erreur rÃÂÃÂÃÂÃÂ©seau (socket)"; return 0; }
+        if (s < 0) { *err = "Erreur réseau (socket)"; return 0; }
         cr = net_connect(s, (struct sockaddr *)&sa, sizeof(sa));
     }
+    conn_last_cr = cr;
     if (cr < 0) {
         net_close(s);
-        *err = "Connexion refusÃÂÃÂÃÂÃÂ©e par le serveur";
+        *err = "Connexion refusée par le serveur";
         if (refused) *refused = 1;
         return 0;
     }
@@ -1917,7 +1919,7 @@ static int conn_open(conn_t *c, const char *host, int port, int tls, const char 
     char msg[200];
     if (!conn_tcp(c, host, port, err, refused, 1)) return 0;
     if (tls) {
-        snprintf(msg, sizeof(msg), "Connexion sÃÂÃÂÃÂÃÂ©curisÃÂÃÂÃÂÃÂ©e ÃÂÃÂÃÂÃÂ  %s...", host);
+        snprintf(msg, sizeof(msg), "Connexion sécurisée à %s...", host);
         ui_status(msg);
         snprintf(c->host, sizeof(c->host), "%s:%d", host, port);
         if (!conn_start_tls(c, host, err)) {
@@ -2327,13 +2329,13 @@ static int http_open(const char *url_in, int depth) {
     int rl = snprintf(req, sizeof(req),
                       "GET %s HTTP/1.%d\r\nHost: %s\r\nUser-Agent: GC-MP3/1.0 (GameCube)\r\n"
                       "%sIcy-MetaData: 1\r\nAccept: */*\r\nConnection: close\r\n\r\n", path, v11, hosthdr, range);
-    if (!conn_send_all(&cn, req, rl)) { set_error("Erreur d'envoi de la requÃÂÃÂÃÂÃÂªte"); return 0; }
+    if (!conn_send_all(&cn, req, rl)) { set_error("Erreur d'envoi de la requête"); return 0; }
 
     /* lecture des en-tetes */
     int hlen = 0, body_off = -1;
     while (hlen < (int)sizeof(hdr) - 1) {
         int r = recv_timeout(hdr + hlen, (int)sizeof(hdr) - 1 - hlen, 8000);
-        if (r <= 0) { set_error(r == -2 ? "Le serveur ne rÃÂÃÂÃÂÃÂ©pond pas" : "Connexion coupÃÂÃÂÃÂÃÂ©e"); return 0; }
+        if (r <= 0) { set_error(r == -2 ? "Le serveur ne répond pas" : "Connexion coupée"); return 0; }
         hlen += r;
         hdr[hlen] = 0;
         char *e = strstr((char *)hdr, "\r\n\r\n");
@@ -2341,14 +2343,14 @@ static int http_open(const char *url_in, int depth) {
         char *e2 = strstr((char *)hdr, "\n\n");                /* serveurs approximatifs */
         if (e2) { body_off = (int)(e2 - (char *)hdr) + 2; e2[1] = 0; break; }
     }
-    if (body_off < 0) { set_error("RÃÂÃÂÃÂÃÂ©ponse du serveur invalide"); return 0; }
+    if (body_off < 0) { set_error("Réponse du serveur invalide"); return 0; }
 
 #ifdef HTTP_TRACE
     printf("HTTP> %s%s\n<<<\n%s>>>\n", host, path, (char *)hdr);
 #endif
     int code = 0;
     if (sscanf((char *)hdr, "HTTP/%*d.%*d %d", &code) != 1 && sscanf((char *)hdr, "ICY %d", &code) != 1) {
-        set_error("RÃÂÃÂÃÂÃÂ©ponse du serveur invalide");
+        set_error("Réponse du serveur invalide");
         return 0;
     }
     char *hdrs = (char *)hdr;
@@ -2437,7 +2439,7 @@ static int http_open(const char *url_in, int depth) {
     } else {
         stream_codec = strstr(ctype, "aac") ? 1 : (strstr(ctype, "ogg") || strstr(ctype, "vorbis")) ? 2 : 0;
         if (strstr(ctype, "opus") || strstr(ctype, "flac")) {
-            set_error("Format non gÃÂÃÂÃÂÃÂ©rÃÂÃÂÃÂÃÂ© (MP3, AAC, M4A ou OGG Vorbis)");
+            set_error("Format non géré (MP3, AAC, M4A ou OGG Vorbis)");
             return 0;
         }
     }
@@ -2499,8 +2501,8 @@ static void start_station(int idx, int is_reconnect) {
     mp3dec_init(&dec);
     rpos = 0.0; prevL = prevR = 0;
     state = ST_CONNECT;
-    if (net_phase != NET_DONE) { set_error("RÃÂÃÂÃÂÃÂ©seau en cours de connexion..."); return; }
-    if (!net_ok) { set_error("Pas de rÃÂÃÂÃÂÃÂ©seau (Broadband Adapter)"); return; }
+    if (net_phase != NET_DONE) { set_error("Réseau en cours de connexion..."); return; }
+    if (!net_ok) { set_error("Pas de réseau (Broadband Adapter)"); return; }
     /* v71 : reconnexion : d'abord l'adresse finale deja trouvee (sans redirections ni liste .m3u) */
     int ok = 0;
     if (is_reconnect && rad_final_idx == idx && rad_final[0]) { ok = http_open(rad_final, 0); if (!ok) { stream_close(); hls_stop(); state = ST_CONNECT; } }
@@ -6028,12 +6030,12 @@ static void draw_player_radio(void) {
         break;
     case ST_ERROR:
         if (rt_at && src == SRC_RADIO) { u64 n = now_ms(); snprintf(buf, sizeof(buf), TR("Reconnexion dans %d s... (essai %d)"), rt_at > n ? (int)((rt_at - n + 999) / 1000) : 0, rt_n + 1); }
-        else snprintf(buf, sizeof(buf), "A : rÃÂÃÂÃÂÃÂ©essayer");
+        else snprintf(buf, sizeof(buf), "A : réessayer");
         break;
     default:
-        if (net_phase == NET_BUSY) snprintf(buf, sizeof(buf), "Connexion au rÃÂÃÂÃÂÃÂ©seau...");
-        else if (net_phase == NET_DONE && !net_ok) { snprintf(buf, sizeof(buf), "Pas de rÃÂÃÂÃÂÃÂ©seau (Broadband Adapter)"); sc = RGBA(255, 150, 80, 255); }
-        else snprintf(buf, sizeof(buf), "PrÃÂÃÂÃÂÃÂªt");
+        if (net_phase == NET_BUSY) snprintf(buf, sizeof(buf), "Connexion au réseau...");
+        else if (net_phase == NET_DONE && !net_ok) { snprintf(buf, sizeof(buf), "Pas de réseau (Broadband Adapter)"); sc = RGBA(255, 150, 80, 255); }
+        else snprintf(buf, sizeof(buf), "Prêt");
         break;
     }
     char fb[200];
@@ -7445,8 +7447,8 @@ static void dl_filename(const char *disp, const char *url, const char *ctype, ch
 /* La reponse en cours (sur PCONN) est un fichier : on le telecharge en tache de fond. */
 static void dl_begin(const unsigned char *body, int n, const char *ctype, const char *disp,
                      const char *url, long clen, int chunked) {
-    if (dl_active) { conn_close(PCONN); web_note("Un tÃÂÃÂÃÂÃÂ©lÃÂÃÂÃÂÃÂ©chargement est dÃÂÃÂÃÂÃÂ©jÃÂÃÂÃÂÃÂ  en cours (X : accueil pour l'annuler)", 1); return; }
-    if (!sd_ok) { conn_close(PCONN); web_note("Carte SD absente : tÃÂÃÂÃÂÃÂ©lÃÂÃÂÃÂÃÂ©chargement impossible", 1); return; }
+    if (dl_active) { conn_close(PCONN); web_note("Un téléchargement est déjà en cours (X : accueil pour l'annuler)", 1); return; }
+    if (!sd_ok) { conn_close(PCONN); web_note("Carte SD absente : téléchargement impossible", 1); return; }
     snprintf(dl_dest_dir_used, sizeof(dl_dest_dir_used), "%s", dl_dest_dir[0] ? dl_dest_dir : DL_DIR);
     const char *dir = dl_dest_dir_used;
     mkdir(dir, 0777);
@@ -7473,7 +7475,7 @@ static void dl_begin(const unsigned char *body, int n, const char *ctype, const 
     crumb("telechargement : %s", dl_name);
     snprintf(dl_part, sizeof(dl_part), "%s.part", dl_path);
     dl_fp = fopen(dl_part, "wb");
-    if (!dl_fp) { conn_close(PCONN); web_note("Impossible de crÃÂÃÂÃÂÃÂ©er le fichier sur la carte SD", 1); return; }
+    if (!dl_fp) { conn_close(PCONN); web_note("Impossible de créer le fichier sur la carte SD", 1); return; }
     static char dl_vbuf[65536];                 /* ecritures SD par gros blocs : plus rapide */
     setvbuf(dl_fp, dl_vbuf, _IOFBF, sizeof(dl_vbuf));
     wpi = 1 - wpi;                          /* la connexion devient celle du telechargement */
@@ -7487,11 +7489,11 @@ static void dl_begin(const unsigned char *body, int n, const char *ctype, const 
         static unsigned char first[16384];
         memcpy(first, body, n);
         int m = chunked ? dechunk(&dl_dc, first, n) : n;
-        if (m > 0 && fwrite(first, 1, m, dl_fp) != (size_t)m) { dl_stop("ÃÂÃÂÃÂÃÂcriture impossible sur la carte SD (pleine ?)", 1); return; }
+        if (m > 0 && fwrite(first, 1, m, dl_fp) != (size_t)m) { dl_stop("Écriture impossible sur la carte SD (pleine ?)", 1); return; }
         dl_got += m;
     }
     char msg[200];
-    snprintf(msg, sizeof(msg), "TÃÂÃÂÃÂÃÂ©lÃÂÃÂÃÂÃÂ©chargement de %s...", dl_name);
+    snprintf(msg, sizeof(msg), "Téléchargement de %s...", dl_name);
     web_note(msg, 0);
 }
 
@@ -7500,10 +7502,10 @@ static void dl_finish(void) {
     fclose(dl_fp);
     dl_fp = NULL;
     dl_active = 0;
-    if (dl_total > 0 && dl_got < dl_total) { remove(dl_part); web_note("TÃÂÃÂÃÂÃÂ©lÃÂÃÂÃÂÃÂ©chargement interrompu (fichier incomplet)", 1); return; }
-    if (dl_got == 0) { remove(dl_part); web_note("Le fichier reÃÂÃÂÃÂÃÂ§u est vide", 1); return; }
+    if (dl_total > 0 && dl_got < dl_total) { remove(dl_part); web_note("Téléchargement interrompu (fichier incomplet)", 1); return; }
+    if (dl_got == 0) { remove(dl_part); web_note("Le fichier reçu est vide", 1); return; }
     remove(dl_path);
-    if (rename(dl_part, dl_path) != 0) { web_note("Fichier reÃÂÃÂÃÂÃÂ§u mais impossible de le renommer", 1); return; }
+    if (rename(dl_part, dl_path) != 0) { web_note("Fichier reçu mais impossible de le renommer", 1); return; }
     int n = (int)strlen(dl_path);
     char msg[260], spd[40] = "";
     u64 el = now_ms() - dl_t0;
@@ -7512,8 +7514,8 @@ static void dl_finish(void) {
     if (dl_ep_used[0]) { pod_dl_note(dl_ep_used, dl_path); dl_ep_used[0] = 0; }
     if (n > 4 && audio_ext_len(dl_path)) {
         music_add_file(dl_path);
-        snprintf(msg, sizeof(msg), "TÃÂÃÂÃÂÃÂ©lÃÂÃÂÃÂÃÂ©chargÃÂÃÂÃÂÃÂ© : %s (dans l'onglet MUSIQUE%s)", dl_name, spd);
-    } else snprintf(msg, sizeof(msg), "EnregistrÃÂÃÂÃÂÃÂ© : SD:/downloads/%s%s", dl_name, spd[0] ? spd + 1 : "");
+        snprintf(msg, sizeof(msg), "Téléchargé : %s (dans l'onglet MUSIQUE%s)", dl_name, spd);
+    } else snprintf(msg, sizeof(msg), "Enregistré : SD:/downloads/%s%s", dl_name, spd[0] ? spd + 1 : "");
     web_note(msg, 0);
 }
 
@@ -7525,7 +7527,7 @@ static void dl_pump(void) {
         int r = conn_recv(DCONN, tmp, sizeof(tmp));
         if (r > 0) {
             int m = dl_dc.on ? dechunk(&dl_dc, tmp, r) : r;
-            if (m > 0 && fwrite(tmp, 1, m, dl_fp) != (size_t)m) { dl_stop("ÃÂÃÂÃÂÃÂcriture impossible sur la carte SD (pleine ?)", 1); return; }
+            if (m > 0 && fwrite(tmp, 1, m, dl_fp) != (size_t)m) { dl_stop("Écriture impossible sur la carte SD (pleine ?)", 1); return; }
             dl_got += m;
             got += r;
             dl_last = now_ms();
@@ -7537,7 +7539,7 @@ static void dl_pump(void) {
         dl_finish();                        /* fin du fichier (ou coupure) */
         return;
     }
-    if (now_ms() - dl_last > 30000) dl_stop("TÃÂÃÂÃÂÃÂ©lÃÂÃÂÃÂÃÂ©chargement interrompu (le serveur ne rÃÂÃÂÃÂÃÂ©pond plus)", 1);
+    if (now_ms() - dl_last > 30000) dl_stop("Téléchargement interrompu (le serveur ne répond plus)", 1);
 }
 
 // ---------- Pages internes (accueil, favoris) ----------
@@ -7571,10 +7573,26 @@ static void sb_esc(sbuf_t *s, const char *t) {
 
 static const char DEFAULT_FAVS[] =
     "Recherche web (DuckDuckGo) | https://html.duckduckgo.com/html/\n"
-    "WikipÃÂÃÂÃÂÃÂ©dia (version mobile) | https://fr.m.wikipedia.org/\n"
+    "Wikipédia (version mobile) | https://fr.m.wikipedia.org/\n"
     "FrogFind (le web en version simple) | http://frogfind.com/\n"
-    "68k.news (actualitÃÂÃÂÃÂÃÂ©s en texte) | http://68k.news/\n";
+    "68k.news (actualités en texte) | http://68k.news/\n";
 
+/* v144 : accents abimes (texte UTF-8 re-encode une ou plusieurs fois : "\xC3\x83\xC2\xA9" au lieu de "\xC3\xA9") :
+   on defait l'encodage en trop tant qu'il y en a (favoris.txt cree par les versions 134 a 143) */
+static void utf8_unmangle(char *t) {
+    for (int pass = 0; pass < 8; pass++) {
+        unsigned char *p = (unsigned char *)t;
+        int bad = 0;
+        for (; p[0] && p[1]; p++) if ((p[0] == 0xC3 || p[0] == 0xC2) && (p[1] == 0x82 || p[1] == 0x83) && p[0] == 0xC3) { bad = 1; break; }
+        if (!bad) return;
+        unsigned char *r = (unsigned char *)t, *w = r;
+        while (*r) {
+            if ((r[0] == 0xC2 || r[0] == 0xC3) && (r[1] & 0xC0) == 0x80) { *w++ = (unsigned char)(((r[0] & 0x03) << 6) | (r[1] & 0x3F)); r += 2; }
+            else *w++ = *r++;
+        }
+        *w = 0;
+    }
+}
 static void add_favorites(sbuf_t *s) {
     char line[URL_MAX + 200];
     FILE *f = sd_ok ? fopen(FAV_FILE, "r") : NULL;
@@ -7594,6 +7612,7 @@ static void add_favorites(sbuf_t *s) {
             snprintf(line, sizeof(line), "%.*s", n, mem);
             mem += n + (mem[n] == '\n');
         }
+        utf8_unmangle(line);                                     /* v144 */
         char *bar = strchr(line, '|');
         if (!bar) continue;
         *bar = 0;
@@ -7626,16 +7645,16 @@ static char *build_home(void) {
     sbuf_t s = { NULL, 0, 0 };
     char t[300];
     sb_add(&s, "<html><head><title>Accueil</title></head><body><h1>GC Station Web</h1>");
-    sb_add(&s, "<p>Y : taper une adresse ou une recherche. X : revenir ÃÂÃÂÃÂÃÂ  l'accueil. B : page prÃÂÃÂÃÂÃÂ©cÃÂÃÂÃÂÃÂ©dente. "
-               "Croix : choisir un lien, A : l'ouvrir. Stick principal : la flÃÂÃÂÃÂÃÂ¨che (pointer un lien, A pour l'ouvrir). "
-               "Stick C : faire dÃÂÃÂÃÂÃÂ©filer. Depuis le tÃÂÃÂÃÂÃÂ©lÃÂÃÂÃÂÃÂ©phone : ÃÂÃÂÃÂÃÂ« Ouvrir sur la tÃÂÃÂÃÂÃÂ©lÃÂÃÂÃÂÃÂ© ÃÂÃÂÃÂÃÂ».</p>");
+    sb_add(&s, "<p>Y : taper une adresse ou une recherche. X : revenir à l'accueil. B : page précédente. "
+               "Croix : choisir un lien, A : l'ouvrir. Stick principal : la flèche (pointer un lien, A pour l'ouvrir). "
+               "Stick C : faire défiler. Depuis le téléphone : « Ouvrir sur la télé ».</p>");
     if (dl_active) {
-        sb_add(&s, "<h2>TÃÂÃÂÃÂÃÂ©lÃÂÃÂÃÂÃÂ©chargement en cours</h2><p>");
+        sb_add(&s, "<h2>Téléchargement en cours</h2><p>");
         sb_esc(&s, dl_name);
         if (dl_total > 0) snprintf(t, sizeof(t), " : %ld %%", (long)((long long)dl_got * 100 / dl_total));
         else snprintf(t, sizeof(t), " : %ld Ko", dl_got / 1024);
         sb_add(&s, t);
-        sb_add(&s, "</p><p><a href=\"gc:annuler\">Annuler le tÃÂÃÂÃÂÃÂ©lÃÂÃÂÃÂÃÂ©chargement</a></p>");
+        sb_add(&s, "</p><p><a href=\"gc:annuler\">Annuler le téléchargement</a></p>");
     }
     sb_add(&s, "<h2>Rechercher</h2><ul>"
                "<li><a href=\"gc:recherche\">Rechercher sur le web</a></li>"
@@ -7657,9 +7676,9 @@ static char *build_home(void) {
         else sb_add(&s, "Aucun cookie pour l'instant.");
         sb_add(&s, "</p>");
     }
-    sb_add(&s, "<h2>TÃÂÃÂÃÂÃÂ©lÃÂÃÂÃÂÃÂ©chargements</h2><p>Un lien vers un fichier (MP3, ZIP...) est enregistrÃÂÃÂÃÂÃÂ© dans SD:/downloads. "
-               "Les MP3 apparaissent ensuite dans l'onglet MUSIQUE. La musique continue pendant le tÃÂÃÂÃÂÃÂ©lÃÂÃÂÃÂÃÂ©chargement.</p>"
-               "<p>Ce navigateur n'exÃÂÃÂÃÂÃÂ©cute pas le JavaScript : les sites simples marchent, "
+    sb_add(&s, "<h2>Téléchargements</h2><p>Un lien vers un fichier (MP3, ZIP...) est enregistré dans SD:/downloads. "
+               "Les MP3 apparaissent ensuite dans l'onglet MUSIQUE. La musique continue pendant le téléchargement.</p>"
+               "<p>Ce navigateur n'exécute pas le JavaScript : les sites simples marchent, "
                "pas YouTube, Spotify ni SoundCloud.</p></body></html>");
     return s.b;
 }
@@ -7814,7 +7833,7 @@ static char *archive_meta_to_html(const char *js, int len, const char *url) {
     sb_esc(&s, title[0] ? title : id);
     sb_add(&s, "</h1>");
     if (creator[0]) { sb_add(&s, "<p>"); sb_esc(&s, creator); sb_add(&s, "</p>"); }
-    sb_add(&s, "<p>Choisis un fichier MP3 : il sera enregistrÃÂÃÂÃÂÃÂ© dans SD:/downloads.</p><ul>");
+    sb_add(&s, "<p>Choisis un fichier MP3 : il sera enregistré dans SD:/downloads.</p><ul>");
     int count = 0;
     if (files >= 0 && tk[files].type == JT_ARR) {
         for (int f = files + 1; f < n && tk[f].start < tk[files].end; f = jskip(tk, n, f)) {
@@ -7843,7 +7862,7 @@ static char *archive_meta_to_html(const char *js, int len, const char *url) {
         }
     }
     sb_add(&s, "</ul>");
-    if (!count) sb_add(&s, "<p>Aucun fichier MP3 dans cet ÃÂÃÂÃÂÃÂ©lÃÂÃÂÃÂÃÂ©ment.</p>");
+    if (!count) sb_add(&s, "<p>Aucun fichier MP3 dans cet élément.</p>");
     sb_add(&s, "<p><a href=\"https://archive.org/download/");
     path_encode(id, enc, sizeof(enc));
     sb_add(&s, enc);
@@ -7859,7 +7878,7 @@ static char *archive_to_html(const char *js, int len) {
     sb_esc(&s, arch_query);
     sb_add(&s, "</title></head><body><h1>archive.org : ");
     sb_esc(&s, arch_query);
-    sb_add(&s, "</h1><p>Ouvre un rÃÂÃÂÃÂÃÂ©sultat, puis choisis un fichier .mp3 pour le tÃÂÃÂÃÂÃÂ©lÃÂÃÂÃÂÃÂ©charger.</p><ul>");
+    sb_add(&s, "</h1><p>Ouvre un résultat, puis choisis un fichier .mp3 pour le télécharger.</p><ul>");
     const char *end = js + len;
     const char *p = js;
     const char *d = NULL;
@@ -7890,7 +7909,7 @@ static char *archive_to_html(const char *js, int len) {
         d = e + 1;
     }
     sb_add(&s, "</ul>");
-    if (!count) sb_add(&s, "<p>Aucun rÃÂÃÂÃÂÃÂ©sultat. Essaie avec d'autres mots (en anglais par exemple).</p>");
+    if (!count) sb_add(&s, "<p>Aucun résultat. Essaie avec d'autres mots (en anglais par exemple).</p>");
     sb_add(&s, "</body></html>");
     return s.b;
 }
@@ -8063,7 +8082,7 @@ static void web_finish_load(void) {
         web_check_refresh();
     } else web_show(buf, len, wb_url, wb_kind, wb_latin, wb_mode);
     wb_partial = 0;
-    if (wb_trunc) web_note("Page trop grande : seul le dÃÂÃÂÃÂÃÂ©but est affichÃÂÃÂÃÂÃÂ©", 1);
+    if (wb_trunc) web_note("Page trop grande : seul le début est affiché", 1);
 }
 
 /* v118 : met np (nouvelle mise en page de la page affichee) a la place de pg, sans bouger ce qu'on lit */
@@ -8179,8 +8198,8 @@ static void web_fetch(const char *url_in, int mode, int typed) {
     wb_partial = 0;
     wb_shown_len = 0;
     crumb("web : %.80s", url_in);
-    if (net_phase != NET_DONE) { net_start_async(); web_note("RÃÂÃÂÃÂÃÂ©seau en cours de connexion, rÃÂÃÂÃÂÃÂ©essaie dans quelques secondes", 1); return; }
-    if (!net_ok) { web_note("Pas de rÃÂÃÂÃÂÃÂ©seau (vÃÂÃÂÃÂÃÂ©rifie le Broadband Adapter et le cÃÂÃÂÃÂÃÂ¢ble)", 1); return; }
+    if (net_phase != NET_DONE) { net_start_async(); web_note("Réseau en cours de connexion, réessaie dans quelques secondes", 1); return; }
+    if (!net_ok) { web_note("Pas de réseau (vérifie le Broadband Adapter et le câble)", 1); return; }
     snprintf(url, sizeof(url), "%s", url_in);
     web_msg[0] = 0;
 
@@ -8188,12 +8207,12 @@ static void web_fetch(const char *url_in, int mode, int typed) {
         urlp_t u;
         if (!url_parse(url, &u)) { web_note("Adresse invalide", 1); return; }
         conn_t *c = PCONN;
-        const char *err = "Erreur rÃÂÃÂÃÂÃÂ©seau";
+        const char *err = "Erreur réseau";
         int refused = 0;
         wb_busy = 1;
         if (!conn_open(c, u.host, u.port, u.tls, &err, &refused)) {
             wb_busy = 0;
-            if (typed && u.tls && hop == 0 && (refused || strstr(err, "sÃÂÃÂÃÂÃÂ©curisÃÂÃÂÃÂÃÂ©e"))) {
+            if (typed && u.tls && hop == 0 && (refused || strstr(err, "sécurisée"))) {
                 char alt[URL_MAX];
                 snprintf(alt, sizeof(alt), "http://%s", url + 8);
                 snprintf(url, sizeof(url), "%s", alt);
@@ -8219,13 +8238,13 @@ static void web_fetch(const char *url_in, int mode, int typed) {
         ui_status("Envoi de la demande...");
         int sent_ok = rl < (int)sizeof(req) && conn_send_all(c, req, rl);
         if (sent_ok && post && post_len > 0) sent_ok = conn_send_all(c, post, post_len);
-        if (!sent_ok) { conn_close(c); wb_busy = 0; web_note("Erreur d'envoi de la requÃÂÃÂÃÂÃÂªte", 1); return; }
-        ui_status("Attente de la rÃÂÃÂÃÂÃÂ©ponse...");
+        if (!sent_ok) { conn_close(c); wb_busy = 0; web_note("Erreur d'envoi de la requête", 1); return; }
+        ui_status("Attente de la réponse...");
 
         int hlen = 0, body_off = -1;
         while (hlen < (int)sizeof(hdr) - 1) {
             int r = crecv_timeout(c, hdr + hlen, (int)sizeof(hdr) - 1 - hlen, 15000);
-            if (r <= 0) { conn_close(c); wb_busy = 0; web_note(r == -2 ? "Le serveur ne rÃÂÃÂÃÂÃÂ©pond pas" : "Connexion coupÃÂÃÂÃÂÃÂ©e", 1); return; }
+            if (r <= 0) { conn_close(c); wb_busy = 0; web_note(r == -2 ? "Le serveur ne répond pas" : "Connexion coupée", 1); return; }
             hlen += r;
             hdr[hlen] = 0;
             char *e = strstr((char *)hdr, "\r\n\r\n");
@@ -8237,7 +8256,7 @@ static void web_fetch(const char *url_in, int mode, int typed) {
         int code = 0;
         if (body_off < 0 || sscanf((char *)hdr, "HTTP/%*d.%*d %d", &code) != 1) {
             conn_close(c);
-            web_note("RÃÂÃÂÃÂÃÂ©ponse du serveur invalide", 1);
+            web_note("Réponse du serveur invalide", 1);
             return;
         }
         char *hdrs = (char *)hdr;
@@ -8293,7 +8312,7 @@ static void web_fetch(const char *url_in, int mode, int typed) {
         /* page : le reste arrive dans web_pump() */
         wb_cap = 64 * 1024;
         wb_buf = (unsigned char *)malloc(wb_cap);
-        if (!wb_buf) { conn_close(c); web_note("MÃÂÃÂÃÂÃÂ©moire insuffisante", 1); return; }
+        if (!wb_buf) { conn_close(c); web_note("Mémoire insuffisante", 1); return; }
         memset(&wb_dc, 0, sizeof(wb_dc));
         wb_dc.on = chunked;
         if (body_len > 0) {
@@ -8323,7 +8342,7 @@ static void web_fetch(const char *url_in, int mode, int typed) {
         }
         if (code != 200) {
             char m[64];
-            snprintf(m, sizeof(m), "Le serveur a rÃÂÃÂÃÂÃÂ©pondu : erreur %d", code);
+            snprintf(m, sizeof(m), "Le serveur a répondu : erreur %d", code);
             web_note(m, 1);
         }
         if ((wb_expect >= 0 && wb_len >= wb_expect) || (wb_dc.on && wb_dc.st == 3)) web_finish_load();
@@ -10118,7 +10137,7 @@ static void web_pump(void) {
         }
         if (wb_loading && now_ms() - wb_last > 20000) {
             if (wb_len > 0) web_finish_load();
-            else { web_cancel_load(); web_note("Le serveur ne rÃÂÃÂÃÂÃÂ©pond plus", 1); }
+            else { web_cancel_load(); web_note("Le serveur ne répond plus", 1); }
         }
         /* le texte tout de suite : debut de la page affiche pendant le chargement */
         if (wb_loading && !wb_gz && wb_kind == WK_HTML && wb_buf && wb_len >= 3000 && wb_len < 600 * 1024 &&
@@ -10175,13 +10194,13 @@ static void add_favorite(void) {
     const whist_t *lp = last_web_page();
     if (!lp || !sd_ok) return;
     FILE *f = fopen(FAV_FILE, "a");
-    if (!f) { web_note("Impossible d'ÃÂÃÂÃÂÃÂ©crire SD:/gc-mp3/favoris.txt", 1); return; }
+    if (!f) { web_note("Impossible d'écrire SD:/gc-mp3/favoris.txt", 1); return; }
     char name[96];
     snprintf(name, sizeof(name), "%s", lp->title[0] ? lp->title : lp->url);
     for (char *p = name; *p; p++) if (*p == '|' || *p == '\n' || *p == '\r') *p = '-';
     fprintf(f, "%s | %s\n", name, lp->url);
     fclose(f);
-    web_note("AjoutÃÂÃÂÃÂÃÂ© aux favoris", 0);
+    web_note("Ajouté aux favoris", 0);
 }
 
 static void web_go(const char *url, int mode) {
@@ -10191,8 +10210,8 @@ static void web_go(const char *url, int mode) {
         else if (strcmp(w, "archive") == 0) kb_start(KB_ARCHIVE, "", -1, -1);
         else if (strcmp(w, "adresse") == 0) kb_start(KB_URL, "", -1, -1);
         else if (strcmp(w, "favori") == 0) { add_favorite(); web_render_home(NAV_REPLACE); }
-        else if (strcmp(w, "annuler") == 0) { if (dl_active) dl_stop("TÃÂÃÂÃÂÃÂ©lÃÂÃÂÃÂÃÂ©chargement annulÃÂÃÂÃÂÃÂ©", 0); web_render_home(NAV_REPLACE); }
-        else if (strcmp(w, "cookies") == 0) { ck_clear(); web_note("Cookies effacÃÂÃÂÃÂÃÂ©s", 0); web_render_home(NAV_REPLACE); }
+        else if (strcmp(w, "annuler") == 0) { if (dl_active) dl_stop("Téléchargement annulé", 0); web_render_home(NAV_REPLACE); }
+        else if (strcmp(w, "cookies") == 0) { ck_clear(); web_note("Cookies effacés", 0); web_render_home(NAV_REPLACE); }
         else web_render_home(mode);
         return;
     }
@@ -10364,7 +10383,7 @@ static void web_input(u32 down, u32 nav, int fire) {
     }
     if (down & PAD_BUTTON_A) { if (!pointer || pg_sel >= 0) web_activate(); }
     if (down & PAD_BUTTON_B) {
-        if (wb_loading) { web_cancel_load(); web_note("Chargement annulÃÂÃÂÃÂÃÂ©", 0); }
+        if (wb_loading) { web_cancel_load(); web_note("Chargement annulé", 0); }
         else if (hist_n > 1) { wb_refreshes = 0; web_go(hist[hist_n - 2].url, NAV_BACK); }
     }
     if (down & PAD_BUTTON_X) web_go("gc:accueil", NAV_PUSH);
@@ -10391,7 +10410,7 @@ static void kb_key_label(int r, int c, char *out, int sz) {
     snprintf(out, sz, "%s", k);
     if (kb_shift) {
         if (out[0] >= 'a' && out[0] <= 'z') out[0] = (char)(out[0] - 32);
-        else if ((unsigned char)out[0] == 0xC3) out[1] = (char)((unsigned char)out[1] - 0x20);   /* ÃÂÃÂÃÂÃÂ© -> ÃÂÃÂÃÂÃÂ */
+        else if ((unsigned char)out[0] == 0xC3) out[1] = (char)((unsigned char)out[1] - 0x20);   /* é -> É */
     }
 }
 

@@ -14,7 +14,15 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v143)
+## Nouveautés de la version actuelle (v144)
+- **Accents réparés** : la page d'accueil du web, les messages d'erreur (connexion, sécurité, téléchargements) et
+  la liste des favoris affichaient « Ã© » à la place des lettres accentuées (depuis la v134).
+  Les favoris déjà abîmés (`SD:/gc-mp3/favoris.txt`) sont réparés à la lecture.
+- **Plus de blocage de 15 secondes** en ouvrant un serveur FSP éteint (onglet FICHIERS > Réseau) : 4 s au plus.
+  Un serveur FTP / SMB où rien n'écoute répond « Serveur absent » tout de suite, sans nouvel essai.
+- Vérification automatique à chaque construction : plus d'accents abîmés dans le code.
+
+## Version précédente (v143)
 - **Pulse par le réseau (expérimental) : jouer sans copier le jeu**. Avec le Broadband Adapter, un jeu qui est
   sur une autre GC Station (Salon actif sur les deux) ou sur un PC se lance directement : onglet FICHIERS >
   Appareils > la console ou le PC > le jeu (.iso, .gcm) > « Jouer par le réseau, sans copier ». Pulse lit le
@@ -23,14 +31,6 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
     GC Station du Salon. Même réseau que la GameCube (câble conseillé).
   - Pas encore essayé sur une vraie console : le journal du jeu dit où ça bloque (BBA, serveur, paquets).
   - Les jeux qui utilisent eux-mêmes le Broadband Adapter (jeux en LAN, Phantasy Star Online) ne vont pas.
-
-## Version précédente (v142)
-- **Le téléphone, vraie télécommande** (page de l'onglet TÉLÉPHONE) :
-  - **Manette** : la croix, A, B, X, Y, Z, L, R et START agissent sur la GameCube comme la vraie manette ;
-  - **Jeux** avec leurs jaquettes (lancer avec Pulse ou le lanceur habituel) ;
-  - **Photos** : toutes les photos en vignettes, une touche = la photo s'affiche sur la télé ;
-  - **Salon** : les autres GC Station du réseau, ce qu'elles jouent, « Écouter avec », lien vers leur télécommande ;
-  - **Musique** : la file « À suivre ».
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

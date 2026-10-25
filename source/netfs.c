@@ -70,6 +70,7 @@ static s32 nfs_tcp(const char *host, int port) {                 /* socket non b
     if (net_phase != NET_DONE || !net_ok) { nfs_seterr(net_phase != NET_DONE ? "R\xC3\xA9seau en cours de connexion" : "Pas de r\xC3\xA9seau"); return -1; }
     for (int t = 0; t < 3; t++) {                                   /* v119 : 3 essais (serveur occupe, paquet perdu) */
         if (conn_tcp(&c, host, port, &err, NULL, 0)) return c.fd;
+        if (conn_last_cr == -ECONNREFUSED) { err = "Serveur absent (rien n'\xC3\xA9" "coute sur ce port)"; break; }   /* v144 : refus net : inutile d'attendre et de reessayer */
         if (t < 2) { u64 t0 = now_ms(); while (now_ms() - t0 < (t ? 700u : 300u)) { service_audio(); usleep(10000); } }
     }
     nfs_seterr(err ? err : "Connexion impossible");
@@ -383,7 +384,7 @@ static void ftp_fclose(ftp_file_t *h) {
 #define FSP_HDR 12
 #define FSP_SPACE 1024
 enum { FSP_CC_VERSION = 0x10, FSP_CC_ERR = 0x40, FSP_CC_GET_DIR = 0x41, FSP_CC_GET_FILE = 0x42, FSP_CC_BYE = 0x4A, FSP_CC_STAT = 0x4D };
-typedef struct { s32 fd; u16 key, seq; struct sockaddr_in sa; } fsp_t;
+typedef struct { s32 fd; u16 key, seq; struct sockaddr_in sa; int alive; } fsp_t;   /* v144 : alive = le serveur a deja repondu */
 static fsp_t fsp_s = { -1, 0, 0 };
 static int fsp_open(void) {
     if (fsp_s.fd >= 0) return 1;
@@ -398,7 +399,7 @@ static int fsp_open(void) {
     fsp_s.sa.sin_family = AF_INET;
     fsp_s.sa.sin_port = htons((u16)(c->port > 0 ? c->port : 21));
     fsp_s.sa.sin_addr.s_addr = addr;
-    fsp_s.fd = s; fsp_s.key = 0; fsp_s.seq = (u16)(now_ms() & 0xFFF8);
+    fsp_s.fd = s; fsp_s.key = 0; fsp_s.seq = (u16)(now_ms() & 0xFFF8); fsp_s.alive = 0;
     return 1;
 }
 static void fsp_close_s(void) { if (fsp_s.fd >= 0) net_close(fsp_s.fd); fsp_s.fd = -1; }
@@ -407,8 +408,10 @@ static int fsp_req(u8 cmd, u32 pos, const u8 *data, int dlen, const u8 *xtra, in
     if (!fsp_open()) return -1;
     static u8 pk[FSP_HDR + FSP_SPACE], rp[FSP_HDR + FSP_SPACE + 64];
     if (dlen + xlen > FSP_SPACE) { nfs_seterr("FSP : chemin trop long"); return -1; }
-    int to = 400;
-    for (int tries = 0; tries < 7; tries++) {
+    /* v144 : serveur jamais entendu (eteint, mauvaise adresse) : abandon apres ~4 s (avant : 15 s, ecran fige) ;
+       une fois qu'il a repondu, les longues reprises restent (serveur lent pendant un transfert) */
+    int to = 400, ntries = fsp_s.alive ? 7 : 4;
+    for (int tries = 0; tries < ntries; tries++) {
         u16 seq = (u16)((fsp_s.seq & 0xFFF8) | (tries & 7));
         pk[0] = cmd; pk[1] = 0;
         pk[2] = (u8)(fsp_s.key >> 8); pk[3] = (u8)fsp_s.key;
@@ -435,6 +438,7 @@ static int fsp_req(u8 cmd, u32 pos, const u8 *data, int dlen, const u8 *xtra, in
             u16 rseq = (u16)(rp[4] << 8 | rp[5]);
             if ((rseq & 0xFFF8) != (fsp_s.seq & 0xFFF8)) continue;    /* (reponse a une ancienne demande) */
             fsp_s.key = (u16)(rp[2] << 8 | rp[3]);
+            fsp_s.alive = 1;
             int rl = rp[6] << 8 | rp[7];
             if (rl > r - FSP_HDR) rl = r - FSP_HDR;
             if (rpos) *rpos = (u32)rp[8] << 24 | (u32)rp[9] << 16 | (u32)rp[10] << 8 | rp[11];
@@ -450,7 +454,7 @@ static int fsp_req(u8 cmd, u32 pos, const u8 *data, int dlen, const u8 *xtra, in
             memcpy(rbuf, rp + FSP_HDR, rl);
             return rl;
         }
-        to = to * 2 > 3000 ? 3000 : to * 2;
+        to = fsp_s.alive ? (to * 2 > 3000 ? 3000 : to * 2) : to + 400;
     }
     fsp_s.seq += 8;
     nfs_seterr("Le serveur FSP ne r\xC3\xA9pond pas");

@@ -21,6 +21,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v144 — accents et serveurs absents
+- `source/main.c` : 64 lignes de textes passées par un double décodage UTF-8 -> Latin-1 (commit b45433f, v134) remises
+  en UTF-8 (page d'accueil du web, erreurs TLS / connexion, téléchargements, favoris par défaut, et le test
+  `strstr(err, "sécurisée")` qui décide du repli en HTTP). `utf8_unmangle` répare les lignes de `favoris.txt`
+  écrites par v134 à v143 (C3 83 / C3 82 suivis d'un octet de continuation, jusqu'à 8 passes).
+- `source/netfs.c` : FSP, 4 essais à délai court tant que le serveur n'a jamais répondu (`alive`), sinon 7 avec
+  délai doublé (3 s au plus) : 4 s au lieu de 14,8 s de gel quand le serveur est éteint. FTP / SMB : connexion
+  refusée (`conn_last_cr == -ECONNREFUSED`) -> « Serveur absent », sans nouvel essai (pire image 1043 -> 52 ms).
+- CI : la construction échoue si `source/` contient la signature d'un double encodage (C3 83 C2 / C3 82 C2).
+- Limite connue : la connexion TCP vers une machine absente du réseau reste bloquante (net_connect de libogc).
+
 ## Nouveautés v143 — Pulse par le réseau (Broadband Adapter)
 - Résident : pilote minimal du BBA (EXI canal 0, périphérique 2, 32 MHz) écrit pour GC Station : commandes EXI de
   2 octets (registres du BBA) et de 4 octets (registres du contrôleur Ethernet, 0x80000000 | écriture 0x40000000 |
