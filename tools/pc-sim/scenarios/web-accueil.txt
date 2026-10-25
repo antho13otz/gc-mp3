@@ -1,0 +1,9 @@
+wait 3s
+press Z
+press Z
+wait 2500ms
+shot a01-accueil
+stick c 0 -100 800ms
+wait 500ms
+shot a02-accueil
+quit

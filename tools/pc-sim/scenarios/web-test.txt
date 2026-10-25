@@ -1,0 +1,26 @@
+# v118 : navigateur (banc d'essai : sh tools/pc-sim/websrv/run.sh page.html)
+wait 4500ms
+log OUVERTURE
+wait 3s
+shot w01-debut
+wait 3s
+shot w02-images
+stick c 0 -100 1500ms
+wait 300ms
+shot w03-defile
+stick c 0 -100 1500ms
+wait 300ms
+shot w04-defile
+stick c 0 -100 2500ms
+wait 1s
+shot w05-defile
+stick c 0 -100 2500ms
+wait 1s
+shot w06-defile
+stick c 0 -100 3s
+wait 1s
+shot w07-defile
+stick c 0 -100 3s
+wait 1s
+shot w08-fin
+quit

@@ -1,0 +1,6 @@
+site_name: Wiki GameCube
+theme:
+  name: material
+markdown_extensions:
+  - tables
+  - admonition

@@ -1,0 +1,20 @@
+wait 4500ms
+log OUVERTURE
+wait 6s
+shot r00
+stick c 0 -100 500ms
+wait 700ms
+shot r01
+stick c 0 -100 500ms
+wait 700ms
+shot r02
+stick c 0 -100 500ms
+wait 700ms
+shot r03
+stick c 0 -100 500ms
+wait 700ms
+shot r04
+stick c 0 -100 500ms
+wait 700ms
+shot r05
+quit

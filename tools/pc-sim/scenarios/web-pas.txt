@@ -1,0 +1,59 @@
+# v118 : navigateur, defilement en petits pas (sh tools/pc-sim/websrv/run.sh page.html scenarios/web-pas.txt)
+wait 4500ms
+log OUVERTURE
+wait 6s
+stick c 0 -100 350ms
+wait 900ms
+shot p01
+stick c 0 -100 350ms
+wait 900ms
+shot p02
+stick c 0 -100 350ms
+wait 900ms
+shot p03
+stick c 0 -100 350ms
+wait 900ms
+shot p04
+stick c 0 -100 350ms
+wait 900ms
+shot p05
+stick c 0 -100 350ms
+wait 900ms
+shot p06
+stick c 0 -100 350ms
+wait 900ms
+shot p07
+stick c 0 -100 350ms
+wait 900ms
+shot p08
+stick c 0 -100 350ms
+wait 900ms
+shot p09
+stick c 0 -100 350ms
+wait 900ms
+shot p10
+stick c 0 -100 350ms
+wait 900ms
+shot p11
+stick c 0 -100 350ms
+wait 900ms
+shot p12
+stick c 0 -100 350ms
+wait 900ms
+shot p13
+stick c 0 -100 350ms
+wait 900ms
+shot p14
+stick c 0 -100 350ms
+wait 900ms
+shot p15
+stick c 0 -100 350ms
+wait 900ms
+shot p16
+stick c 0 -100 350ms
+wait 900ms
+shot p17
+stick c 0 -100 350ms
+wait 900ms
+shot p18
+quit

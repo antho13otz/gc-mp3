@@ -14,12 +14,15 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v117)
-- **Réseau plus rapide avec les serveurs lointains** (web, téléchargements, radios, mise à jour) : fenêtre
-  TCP de 62 Ko au lieu de 23 Ko, et deux fois plus de tampons de réception.
-- **Sans carte SD (Dolphin)** : la mise à jour se télécharge en mémoire et se lance tout de suite
-  (elle n'est pas enregistrée : à refaire au prochain démarrage).
-- (v115–v116) **Décors de saison** plus riches et au choix (Réglages > Affichage > Décor de saison).
+## Nouveautés de la version actuelle (v118)
+- **Navigateur web : des pages comme sur un ordinateur** : fond blanc, couleurs et fonds de la page,
+  encadrés, gras, tailles de texte, centrage, vrais tableaux en colonnes, et tout ce que la page cache
+  (menus d'ordinateur, bandeaux de cookies…) reste caché : feuilles de style (CSS) lues.
+- **Images entières et plus vite** : grandes photos JPEG / WebP / JPEG progressifs affichées (avant :
+  rien au-delà de 1,2 million de points), 3 images téléchargées à la fois, pages compressées (gzip).
+- **Plus de saccades en faisant défiler** : la remise en page se fait en tâche de fond.
+- **R : plein écran** dans le navigateur.
+- (v117) Réseau plus rapide avec les serveurs lointains ; mise à jour sans carte SD (Dolphin).
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

@@ -4439,9 +4439,13 @@ static int scr_hpct = 100;                  /* hauteur de l'image : 80 a 100 % (
 static int scr_vpos = 0;                    /* decalage vertical en points (-24 a +24, positif = plus bas) */
 static int scr_wide = 0;                    /* 1 = televiseur en 16:9 (image etiree par la tele) */
 #define WV_X           26                   // zone d'affichage de la page
-#define WV_Y           116
 #define WV_W           586
-#define WV_H           272
+static int wv_y = 116, wv_h = 272;          /* v118 : zone de la page (plus grande en plein ecran, R) */
+#define WV_Y           wv_y
+#define WV_H           wv_h
+static int web_full = 0;                    /* v118 : navigateur en plein ecran */
+static void draw_web_full(void);
+static void web_set_full(int on);
 static int wv_lw = WV_W;                    // largeur de mise en page (16:9 : plus large)
 static f32 scr_x0 = 0, scr_w = 640;         /* bords gauche et largeur du repere (16:9 : -107 et 853) */
 /* 16:9 : l'interface (dessinee pour 0..640) est elargie a tout l'ecran : les
@@ -6066,8 +6070,8 @@ static void draw(void) {
         /* v42 : une fenetre plein ecran est ouverte (Reglages, outils...) : l'onglet derriere
            n'est pas redessine (cache par la fenetre) : beaucoup moins de travail par image */
     } else if (tab == TAB_WEB) {
-        draw_web();
-        draw_legend_web();
+        if (web_full && !kb_is_open()) draw_web_full();          /* v118 : plein ecran */
+        else { draw_web(); draw_legend_web(); }
     } else if (IS_PLAYER_TAB(tab) && player_layout == L_COVER) {
         draw_layout_cover();
         if (kb_is_open()) draw_legend_web(); else draw_legend();
@@ -6111,7 +6115,7 @@ static void draw(void) {
     else au_menu_closed();
     if (kb_is_open()) draw_keyboard();             /* (v35 : par-dessus la page Reglages) */
     draw_checklist();
-    if (!menu_open && !kb_is_open()) season_overlay();
+    if (!menu_open && !kb_is_open() && !(tab == TAB_WEB && web_full)) season_overlay();
     draw_actions();
     gp_draw();
     if (perf_on) perf_overlay();
@@ -6521,7 +6525,10 @@ enum { LK_HREF, LK_INPUT, LK_SUBMIT, LK_TOGGLE, LK_SELECT };
 enum { FD_TEXT, FD_HIDDEN, FD_SUBMIT, FD_CHECK, FD_RADIO, FD_SELECT };
 
 /* element affiche : off = texte, src = position dans le HTML, img/h = image */
-typedef struct { u32 off; u32 src; s32 y; s16 x; u16 w; s16 link; s16 img; u16 h; u8 font; u8 style; } witem_t;
+typedef struct { u32 off; u32 src; s32 y; s16 x; u16 w; s16 link; s16 img; u16 h; u8 font; u8 style; u8 fx; u32 col, bg; } witem_t;
+enum { FX_ULINE = 1, FX_BOLD = 2 };            /* v118 : souligne, gras (dessine deux fois) */
+/* v118 : fond / bordure d'un bloc (en-tete colore, encadre, case de tableau) */
+typedef struct { s32 y0, y1; s16 x0, x1; u32 bg, border; u8 sides; } wbox_t;
 typedef struct { u32 url; s32 y0, y1; s16 field; u8 kind; s8 form; } wlink_t;
 typedef struct { s8 form; u8 type; u32 name; char value[256]; u8 checked, secret; s16 opt0, nopt, osel; } wfield_t;
 #define W_MAX_OPTS 2000                     /* choix des listes deroulantes */
@@ -6543,14 +6550,18 @@ typedef struct {
     int refresh_delay;
     unsigned char *src; int srclen;         // HTML d'origine (pour remettre en page)
     int kind, latin;
+    wbox_t *boxes; int nboxes, bcap;        // v118 : fonds et bordures des blocs
+    u32 pagebg;                             // v118 : couleur du fond de la page (0xRRGGBBAA)
+    u32 css_url[6]; int ncss, css_wait;     // v118 : feuilles de style externes (dans pool) ; nombre pas encore lues
 } wpage_t;
 
 // ---------- Images de la page ----------
 #define W_MAX_IMGS     96
-#define IMG_MAX_H      320                  // hauteur maxi affichee
-#define IMG_MAX_BYTES  (2 * 1024 * 1024)    // fichier image maxi
+#define IMG_MAX_H      600                  // hauteur maxi affichee (v118 : 320 avant ; texture GX : 1024 au plus)
+#define IMG_MAX_BYTES  (4 * 1024 * 1024)    // fichier image maxi (v118 : 2 Mo avant)
 #define IMG_MAX_PIXELS (1200 * 1000)        // image decodee maxi
-#define IMG_TEX_BUDGET (4 * 1024 * 1024)    // memoire des textures d'images
+#define IMG_TEX_BUDGET (4 * 1024 * 1024)    // memoire des textures d images (v118 : images plus hautes, meme budget)
+#define IMG_BIG_PIXELS (40 * 1000 * 1000)   // v118 : JPEG (sauf progressif) et WebP : decodes deja reduits
 enum { IMG_NONE, IMG_LOADING, IMG_OK, IMG_FAIL };
 typedef struct {
     char *url;
@@ -6570,7 +6581,13 @@ static int img_tex_dirty = 0;
 static int relayout_needed = 0;
 static void img_loader_reset(void);
 
+/* v118 : remise en page en tache de fond (fil de decodage, faible priorite) : la page affichee reste fluide */
+static volatile int rl_state = 0;           /* 0 rien, 1 demandee, 2 en cours, 3 finie */
+static volatile int rl_cancel = 0, lay_in_bg = 0;
+static int rl_pending = 0;
+static void web_wait_layout(void);
 static void img_reset(void) {
+    web_wait_layout();                      /* (la mise en page en fond lit les images) */
     img_loader_reset();
     for (int i = 0; i < nwimg; i++) { free(wimgs[i].url); free(wimgs[i].tex); }
     memset(wimgs, 0, sizeof(wimgs));
@@ -6611,7 +6628,7 @@ static s32 pg_scroll = 0;
 static int pg_sel = -1;                     // lien selectionne
 
 static void wpage_free(wpage_t *p) {
-    free(p->text); free(p->pool); free(p->items); free(p->links); free(p->fields); free(p->src); free(p->opts);
+    free(p->text); free(p->pool); free(p->items); free(p->links); free(p->fields); free(p->src); free(p->opts); free(p->boxes);
     memset(p, 0, sizeof(*p));
 }
 
@@ -6995,672 +7012,15 @@ static int tag_attr(const char *tag, int tlen, const char *name, char *out, int 
     return 0;
 }
 
-// ---------- Mise en page ----------
-typedef struct {
-    wpage_t *p;
-    s32 line_top;
-    int line_first;                         // premier element de la ligne en cours
-    int x, indent;
-    int space;                              // espace a inserer avant le prochain mot
-    int brk;                                // 0 = rien, 1 = ligne, 2 = paragraphe
-    int font, style, link;
-    int run;                                // element ouvert (on y ajoute les mots suivants)
-    int blank;                              // lignes vides consecutives
-    u32 srcpos;                             // position courante dans le HTML
-} wlay_t;
-
-static int font_space(int f) { return font_glyphs[f][0].adv; }
-
-static void lay_newline(wlay_t *L) {
-    wpage_t *p = L->p;
-    if (L->line_first < p->nitems) {
-        int asc = 0, h = 0;
-        for (int i = L->line_first; i < p->nitems; i++) {
-            int f = p->items[i].font;
-            int ih = (p->items[i].style & WS_FIELD) ? font_height[F_MED] + 6 : font_height[f];
-            int ia = font_ascent[f];
-            if (p->items[i].style & WS_IMG) { ia = p->items[i].h; ih = p->items[i].h + 3; }
-            if (ia > asc) asc = ia;
-            if (ih > h) h = ih;
-        }
-        if (p->items[L->line_first].style & WS_HR) { asc = 6; h = 12; }
-        for (int i = L->line_first; i < p->nitems; i++) {
-            p->items[i].y = L->line_top + asc;
-            if ((p->items[i].style & WS_IMG) && p->items[i].img >= 0) {
-                wimg_t *im = &wimgs[p->items[i].img];
-                if (im->y0 < 0) { im->y0 = L->line_top + asc - p->items[i].h; im->y1 = L->line_top + asc; }
-            }
-            int lk = p->items[i].link;
-            if (lk >= 0) {
-                if (p->links[lk].y0 < 0 || p->links[lk].y0 > L->line_top) p->links[lk].y0 = L->line_top;
-                if (p->links[lk].y1 < L->line_top + h) p->links[lk].y1 = L->line_top + h;
-            }
-        }
-        L->line_top += h + 3;
-        L->blank = 0;
-    }
-    L->line_first = p->nitems;
-    L->x = L->indent;
-    L->space = 0;
-    L->run = -1;
-}
-
-static void lay_break(wlay_t *L, int para) {
-    lay_newline(L);
-    if (para && L->brk < 2 && L->p->nitems > 0) L->line_top += 7;
-    if (L->brk < (para ? 2 : 1)) L->brk = para ? 2 : 1;
-}
-
-static void lay_br(wlay_t *L) {
-    if (L->line_first < L->p->nitems) lay_newline(L);
-    else if (L->blank < 1) { L->line_top += font_height[L->font] + 3; L->blank++; }
-    L->brk = 1;
-}
-
-static witem_t *lay_new_item(wlay_t *L, int x, int w) {
-    wpage_t *p = L->p;
-    if (!grow((void **)&p->items, &p->icap, p->nitems + 1, sizeof(witem_t), W_MAX_ITEMS)) { p->truncated = 1; return NULL; }
-    witem_t *it = &p->items[p->nitems++];
-    memset(it, 0, sizeof(*it));
-    it->x = (s16)x;
-    it->w = (u16)w;
-    it->link = (s16)L->link;
-    it->font = (u8)L->font;
-    it->style = (u8)L->style;
-    it->off = p->tlen;
-    it->src = L->srcpos;
-    it->img = -1;
-    L->brk = 0;
-    return it;
-}
-
-static int text_append(wpage_t *p, const char *s, int n, int join) {
-    int cap = (int)p->tcap;
-    if (!grow((void **)&p->text, &cap, (int)p->tlen + n + 2, 1, 8 * 1024 * 1024)) { p->truncated = 1; return 0; }
-    p->tcap = (u32)cap;
-    if (join && p->tlen > 0) p->tlen--;                     /* recolle a la chaine precedente */
-    memcpy(p->text + p->tlen, s, n);
-    p->tlen += n;
-    p->text[p->tlen++] = 0;
-    return 1;
-}
-
-/* ajoute un mot (UTF-8 affichable, n octets) */
-static void lay_word(wlay_t *L, const char *w, int n) {
-    if (n <= 0 || L->p->truncated) return;
-    char buf[300];
-    if (n > (int)sizeof(buf) - 2) n = (int)sizeof(buf) - 2;
-    memcpy(buf, w, n);
-    buf[n] = 0;
-    int ww = text_width_px(L->font, buf, 0);
-    int sw = (L->space && L->x > L->indent) ? font_space(L->font) : 0;
-    int maxw = wv_lw - L->indent;
-    if (ww > maxw) {                                         /* mot plus long qu'une ligne : on le coupe */
-        const char *s = buf;
-        int cut = 0, wsum = 0;
-        while (s[cut]) {
-            const char *q = s + cut;
-            int cp = next_cp(&q);
-            int a = font_glyphs[L->font][glyph_index(cp)].adv;
-            if (wsum + a > maxw - (L->x - L->indent) - sw && cut > 0) break;
-            wsum += a;
-            cut = (int)(q - s);
-        }
-        lay_word(L, buf, cut);
-        lay_newline(L);
-        lay_word(L, buf + cut, n - cut);
-        return;
-    }
-    if (L->x + sw + ww > wv_lw && L->x > L->indent) { lay_newline(L); sw = 0; }
-    wpage_t *p = L->p;
-    if (L->run >= 0) {
-        witem_t *r = &p->items[L->run];
-        if (r->font == L->font && r->style == L->style && r->link == L->link) {
-            if (sw) { if (!text_append(p, " ", 1, 1)) return; }
-            if (!text_append(p, buf, n, 1)) return;
-            r->w = (u16)(L->x + sw + ww - r->x);
-            L->x += sw + ww;
-            L->space = 0;
-            return;
-        }
-    }
-    witem_t *it = lay_new_item(L, L->x + sw, ww);
-    if (!it) return;
-    if (!text_append(p, buf, n, 0)) { p->nitems--; return; }
-    L->run = p->nitems - 1;
-    L->x += sw + ww;
-    L->space = 0;
-}
-
-static void lay_text(wlay_t *L, const char *s) {           /* plusieurs mots */
-    while (*s) {
-        while (*s == ' ') { L->space = 1; s++; }
-        int n = (int)strcspn(s, " ");
-        if (n) lay_word(L, s, n);
-        s += n;
-    }
-}
-
-/* champ de saisie ou bouton (largeur fixe) */
-static void lay_box(wlay_t *L, int w, int style, const char *label) {
-    int sw = (L->space && L->x > L->indent) ? font_space(L->font) : 0;
-    if (w > wv_lw - L->indent) w = wv_lw - L->indent;
-    if (L->x + sw + w > wv_lw && L->x > L->indent) { lay_newline(L); sw = 0; }
-    int save = L->style;
-    L->style = style;
-    witem_t *it = lay_new_item(L, L->x + sw, w);
-    L->style = save;
-    if (!it) return;
-    it->font = F_MED;
-    if (!text_append(L->p, label ? label : "", label ? (int)strlen(label) : 0, 0)) { L->p->nitems--; return; }
-    L->x += sw + w;
-    L->space = 1;
-    L->run = -1;
-}
-
-static void lay_hr(wlay_t *L) {
-    lay_newline(L);
-    int save = L->style;
-    L->style = WS_HR;
-    witem_t *it = lay_new_item(L, L->indent, wv_lw - L->indent);
-    L->style = save;
-    if (it && !text_append(L->p, "", 0, 0)) L->p->nitems--;
-    lay_newline(L);
-}
-
-/* image (ou sa case d'attente avec le texte label) */
-static void lay_img(wlay_t *L, int img, int w, int h, const char *label) {
-    int sw = (L->space && L->x > L->indent) ? font_space(L->font) : 0;
-    if (w > wv_lw - L->indent) w = wv_lw - L->indent;
-    if (L->x + sw + w > wv_lw && L->x > L->indent) { lay_newline(L); sw = 0; }
-    int save = L->style;
-    L->style = WS_IMG | (L->link >= 0 ? WS_LINK : 0);
-    witem_t *it = lay_new_item(L, L->x + sw, w);
-    L->style = save;
-    if (!it) return;
-    it->img = (s16)img;
-    it->h = (u16)h;
-    it->font = F_SMALL;
-    if (!text_append(L->p, label ? label : "", label ? (int)strlen(label) : 0, 0)) { L->p->nitems--; return; }
-    L->x += sw + w;
-    L->space = 0;
-    L->run = -1;
-}
-
-// ---------- Analyse du HTML ----------
-static int new_link(wpage_t *p, int kind, const char *url, int field, int form) {
-    if (!grow((void **)&p->links, &p->lcap, p->nlinks + 1, sizeof(wlink_t), W_MAX_LINKS)) { p->truncated = 1; return -1; }
-    wlink_t *l = &p->links[p->nlinks];
-    l->url = url ? pool_add(p, url) : 0;
-    l->y0 = -1; l->y1 = -1;
-    l->field = (s16)field;
-    l->kind = (u8)kind;
-    l->form = (s8)form;
-    return p->nlinks++;
-}
-
-static int new_field(wpage_t *p, int form, int type, const char *name, const char *value) {
-    if (!p->fields) p->fields = (wfield_t *)calloc(W_MAX_FIELDS, sizeof(wfield_t));
-    if (!p->fields || p->nfields >= W_MAX_FIELDS) return -1;
-    wfield_t *f = &p->fields[p->nfields];
-    f->form = (s8)form;
-    f->type = (u8)type;
-    f->name = pool_add(p, name);
-    snprintf(f->value, sizeof(f->value), "%s", value ? value : "");
-    f->osel = -1;
-    return p->nfields++;
-}
-
-/* choix d'une liste deroulante */
-static int new_opt(wpage_t *p, const char *value, const char *label) {
-    if (p->nopts >= W_MAX_OPTS) return -1;
-    if (!grow((void **)&p->opts, &p->ocap, (p->nopts + 1) * 2, sizeof(u32), W_MAX_OPTS * 2)) return -1;
-    p->opts[p->nopts * 2] = pool_add(p, value);
-    p->opts[p->nopts * 2 + 1] = pool_add(p, label);
-    return p->nopts++;
-}
-
-static char *ci_find(char *h, const char *n) {
-    int nl = (int)strlen(n);
-    for (; *h; h++) if (strncasecmp(h, n, nl) == 0) return h;
-    return NULL;
-}
-
-static int tag_is(const char *name, const char *const *list) {
-    for (int i = 0; list[i]; i++) if (strcmp(name, list[i]) == 0) return 1;
-    return 0;
-}
-
-/* cherche "</name" (sans tenir compte des majuscules) a partir de pos */
-static int find_close(const unsigned char *s, int len, int pos, const char *name) {
-    int nl = (int)strlen(name);
-    for (int i = pos; i + nl + 2 <= len; i++)
-        if (s[i] == '<' && s[i + 1] == '/' && strncasecmp((const char *)s + i + 2, name, nl) == 0) return i;
-    return len;
-}
-
-/* texte brut (titre, zone de texte) : entites decodees, espaces reduits */
-static void raw_text(const unsigned char *s, int a, int b, char *out, int outsz, int latin) {
-    char tmp[1024], col[1024];
-    int n = b - a;
-    if (n > (int)sizeof(tmp) - 1) n = (int)sizeof(tmp) - 1;
-    attr_decode((const char *)s + a, n, tmp, sizeof(tmp), latin);
-    int k = 0, sp = 0;
-    for (char *c = tmp; *c && k < (int)sizeof(col) - 2; c++) {
-        if (*c == ' ') { sp = 1; continue; }
-        if (sp && k > 0) col[k++] = ' ';
-        sp = 0;
-        col[k++] = *c;
-    }
-    col[k] = 0;
-    text_display(col, out, outsz);
-}
-
-static void web_layout_html(wpage_t *p, const unsigned char *s, int len, int latin) {
-    static const char *const para_tags[] = { "p", "ul", "ol", "dl", "table", "blockquote", "pre", "form",
-        "h1", "h2", "h3", "h4", "h5", "h6", "figure", "fieldset", "details", "center", "address", NULL };
-    static const char *const line_tags[] = { "div", "section", "article", "header", "footer", "nav", "main",
-        "aside", "tr", "li", "dt", "dd", "figcaption", "summary", "caption", "legend", "tbody", "thead", "option", NULL };
-    static const char *const hide_tags[] = { "svg", "select", "template", "iframe", "object", "canvas",
-        "audio", "video", "math", "datalist", "map", NULL };
-
-    wlay_t L;
-    memset(&L, 0, sizeof(L));
-    L.p = p;
-    L.font = F_MED;
-    L.link = -1;
-    L.run = -1;
-    L.brk = 2;
-    char base[URL_MAX];
-    snprintf(base, sizeof(base), "%s", p->url);
-
-    char word[300];
-    int wn = 0;
-    int pre = 0, bold = 0, in_head = 0;
-    int hide = 0, hide_n = 0;
-    char hide_name[16] = "";
-    int heading = 0;
-    int cur_form = -1, cur_select = -1, link_items = 0, link_open = 0;
-    int list_depth = 0, cell = 0;
-    int ol_num[8] = { 0 }, ol_is[8] = { 0 };
-    char tag[2048], name[16], val[URL_MAX], val2[URL_MAX];
-    int pos = 0;
-    u32 tick = 0;
-
-#define FLUSH_WORD() do { if (wn) { lay_word(&L, word, wn); wn = 0; } } while (0)
-#define SET_STYLE() (L.style = (link_open ? WS_LINK : 0) | (heading ? WS_HEAD : 0) | (bold ? WS_BOLD : 0) | \
-                     (L.link >= 0 && p->links[L.link].kind == LK_SUBMIT ? WS_BUTTON : 0))
-
-    for (int i = 0; i < nwimg; i++) wimgs[i].y0 = wimgs[i].y1 = -1;
-    while (pos < len && !p->truncated) {
-        if ((++tick & 1023) == 0) bg_tick();
-        L.srcpos = (u32)pos;
-        unsigned char c = s[pos];
-        if (c == '<') {
-            /* commentaire */
-            if (pos + 3 < len && s[pos + 1] == '!' && s[pos + 2] == '-' && s[pos + 3] == '-') {
-                int e = pos + 4;
-                while (e + 2 < len && !(s[e] == '-' && s[e + 1] == '-' && s[e + 2] == '>')) e++;
-                pos = e + 3;
-                continue;
-            }
-            int close = (pos + 1 < len && s[pos + 1] == '/');
-            int ns = pos + 1 + close;
-            if (ns >= len || !(isalpha(s[ns]) || s[ns] == '!' || s[ns] == '?')) {
-                /* '<' isole : simple texte */
-                if (!hide && !in_head && wn < (int)sizeof(word) - 4) word[wn++] = '<';
-                pos++;
-                continue;
-            }
-            /* fin de la balise (en sautant les guillemets) */
-            int e = ns;
-            char q = 0;
-            while (e < len) {
-                if (q) { if (s[e] == q) q = 0; }
-                else if (s[e] == '"' || s[e] == '\'') { if (e > ns && s[e - 1] == '=') q = (char)s[e]; }
-                else if (s[e] == '>') break;
-                e++;
-            }
-            int tl = e - ns;
-            if (tl > (int)sizeof(tag) - 1) tl = (int)sizeof(tag) - 1;
-            memcpy(tag, s + ns, tl);
-            tag[tl] = 0;
-            pos = e + 1;
-            if (tag[0] == '!' || tag[0] == '?') continue;     /* <!DOCTYPE>, <?xml?> */
-            int nl = 0;
-            while (nl < tl && nl < 15 && (isalnum((unsigned char)tag[nl]) || tag[nl] == '-')) {
-                name[nl] = (char)tolower((unsigned char)tag[nl]);
-                nl++;
-            }
-            name[nl] = 0;
-            if (!nl) continue;
-
-            /* contenus a sauter ou a lire en bloc */
-            if (!close && (strcmp(name, "script") == 0 || strcmp(name, "style") == 0)) {
-                int ce = find_close(s, len, pos, name);
-                pos = ce;
-                continue;
-            }
-            if (!close && strcmp(name, "title") == 0) {
-                int ce = find_close(s, len, pos, "title");
-                if (!p->title[0]) raw_text(s, pos, ce, p->title, sizeof(p->title), latin);
-                pos = ce;
-                continue;
-            }
-            if (!close && strcmp(name, "textarea") == 0) {
-                int ce = find_close(s, len, pos, "textarea");
-                if (!hide && cur_form >= 0) {
-                    char init[256];
-                    raw_text(s, pos, ce, init, sizeof(init), latin);
-                    if (!tag_attr(tag, tl, "name", val, sizeof(val), latin)) val[0] = 0;
-                    FLUSH_WORD();
-                    int f = new_field(p, cur_form, FD_TEXT, val, init);
-                    if (f >= 0) {
-                        int save = L.link;
-                        L.link = new_link(p, LK_INPUT, NULL, f, cur_form);
-                        if (L.link >= 0) lay_box(&L, 300, WS_FIELD, NULL);
-                        L.link = save;
-                    }
-                }
-                pos = ce;
-                continue;
-            }
-            /* <option> : un choix de la liste deroulante en cours */
-            if (!close && strcmp(name, "option") == 0 && cur_select >= 0) {
-                int nx = pos;
-                while (nx < len && s[nx] != '<') nx++;
-                char lab[200];
-                raw_text(s, pos, nx, lab, sizeof(lab), latin);
-                char *lt = trim(lab);
-                if (!tag_attr(tag, tl, "value", val, sizeof(val), latin)) snprintf(val, sizeof(val), "%s", lt);
-                wfield_t *f = &p->fields[cur_select];
-                if (new_opt(p, val, lt[0] ? lt : val) >= 0) {
-                    if (f->nopt == 0) f->opt0 = (s16)(p->nopts - 1);
-                    if (f->opt0 + f->nopt == p->nopts - 1) {
-                        if (tag_attr(tag, tl, "selected", NULL, 0, latin) || f->osel < 0) f->osel = f->nopt;
-                        f->nopt++;
-                    }
-                }
-                continue;
-            }
-            if (close && strcmp(name, "select") == 0 && cur_select >= 0) {
-                wfield_t *f = &p->fields[cur_select];
-                if (f->nopt > 0) {
-                    if (f->osel < 0 || f->osel >= f->nopt) f->osel = 0;
-                    snprintf(f->value, sizeof(f->value), "%s", p->pool + p->opts[(f->opt0 + f->osel) * 2]);
-                }
-                cur_select = -1;
-            }
-            /* elements caches */
-            if (hide) {
-                if (strcmp(name, hide_name) == 0) {
-                    if (close) { if (--hide_n <= 0) { hide = 0; hide_name[0] = 0; } }
-                    else hide_n++;
-                }
-                continue;
-            }
-            if (!close && tag_is(name, hide_tags)) {
-                if (strcmp(name, "select") == 0 && cur_form >= 0 && tag_attr(tag, tl, "name", val, sizeof(val), latin)) {
-                    FLUSH_WORD();
-                    cur_select = new_field(p, cur_form, FD_SELECT, val, "");
-                    if (cur_select >= 0) {                        /* case cliquable : le choix en cours */
-                        p->fields[cur_select].opt0 = (s16)p->nopts;
-                        int save = L.link;
-                        L.link = new_link(p, LK_SELECT, NULL, cur_select, cur_form);
-                        if (L.link >= 0) lay_box(&L, 220, WS_FIELD, NULL);
-                        L.link = save;
-                    }
-                }
-                int selfclose = (tl > 0 && tag[tl - 1] == '/');
-                if (!selfclose) { hide = 1; hide_n = 1; snprintf(hide_name, sizeof(hide_name), "%s", name); }
-                continue;
-            }
-            if (strcmp(name, "head") == 0) { in_head = !close; continue; }
-            if (strcmp(name, "body") == 0) { in_head = 0; continue; }
-            if (strcmp(name, "meta") == 0) {
-                if (tag_attr(tag, tl, "http-equiv", val, sizeof(val), latin) && strcasecmp(val, "refresh") == 0 &&
-                    tag_attr(tag, tl, "content", val, sizeof(val), latin)) {
-                    int d = atoi(val);
-                    char *u = ci_find(val, "url=");
-                    if (u && !p->refresh[0]) {
-                        u += 4;
-                        if (*u == '\'' || *u == '"') u++;
-                        u[strcspn(u, "'\"")] = 0;
-                        if (url_join(base, u, p->refresh, sizeof(p->refresh))) p->refresh_delay = d;
-                    }
-                }
-                continue;
-            }
-            if (strcmp(name, "base") == 0) {
-                if (tag_attr(tag, tl, "href", val, sizeof(val), latin) && url_join(p->url, val, val2, sizeof(val2)))
-                    snprintf(base, sizeof(base), "%s", val2);
-                continue;
-            }
-            if (in_head) continue;
-
-            FLUSH_WORD();
-            int is_h = (name[0] == 'h' && name[1] >= '1' && name[1] <= '6' && !name[2]);
-
-            if (tag_is(name, para_tags)) lay_break(&L, 1);
-            else if (tag_is(name, line_tags)) lay_break(&L, 0);
-
-            if (strcmp(name, "br") == 0) { lay_br(&L); continue; }
-            if (strcmp(name, "hr") == 0 && !close) { lay_hr(&L); continue; }
-            if (is_h) {
-                heading = !close;
-                L.font = (!close && name[1] <= '2') ? F_LARGE : F_MED;
-                SET_STYLE();
-                continue;
-            }
-            if (strcmp(name, "b") == 0 || strcmp(name, "strong") == 0 || strcmp(name, "th") == 0) {
-                bold += close ? -1 : 1;
-                if (bold < 0) bold = 0;
-                SET_STYLE();
-                if (strcmp(name, "th") != 0) continue;
-            }
-            if (strcmp(name, "pre") == 0) { pre = !close; continue; }
-            if (strcmp(name, "ul") == 0 || strcmp(name, "ol") == 0 || strcmp(name, "blockquote") == 0 ||
-                strcmp(name, "dd") == 0) {
-                int d = close ? -1 : 1;
-                if (strcmp(name, "dd") != 0 && strcmp(name, "blockquote") != 0) {
-                    if (!close) {
-                        if (list_depth < 8) { ol_is[list_depth] = (name[0] == 'o'); ol_num[list_depth] = 0; }
-                        list_depth++;
-                    } else if (list_depth > 0) list_depth--;
-                }
-                L.indent += d * 18;
-                if (L.indent < 0) L.indent = 0;
-                if (L.indent > 180) L.indent = 180;
-                L.x = L.indent;
-                continue;
-            }
-            if (strcmp(name, "li") == 0 && !close) {
-                int d = list_depth > 0 ? list_depth - 1 : 0;
-                char bullet[16];
-                if (d < 8 && ol_is[d]) snprintf(bullet, sizeof(bullet), "%d.", ++ol_num[d]);
-                else snprintf(bullet, sizeof(bullet), "\xC2\xB7");
-                int save = L.style, sl = L.link;
-                L.style = WS_DIM;
-                L.link = -1;
-                L.x = L.indent - 5 - text_width_px(L.font, bullet, 0);
-                if (L.x < 0) L.x = 0;
-                L.space = 0;
-                lay_word(&L, bullet, (int)strlen(bullet));
-                L.style = save;
-                L.link = sl;
-                L.run = -1;
-                if (L.x < L.indent + 3) L.x = L.indent + 3;
-                continue;
-            }
-            if (strcmp(name, "tr") == 0) { cell = 0; continue; }
-            if ((strcmp(name, "td") == 0 || strcmp(name, "th") == 0) && !close) {
-                if (cell++ > 0) { L.x += 16; L.space = 0; L.run = -1; }
-                continue;
-            }
-            if (strcmp(name, "a") == 0) {
-                if (link_open) {
-                    if (link_items == p->nitems) lay_text(&L, "[lien]");
-                    link_open = 0;
-                    L.link = -1;
-                }
-                if (!close && tag_attr(tag, tl, "href", val, sizeof(val), latin) && url_join(base, val, val2, sizeof(val2))) {
-                    L.link = new_link(p, LK_HREF, val2, -1, -1);
-                    if (L.link >= 0) { link_open = 1; link_items = p->nitems; }
-                }
-                SET_STYLE();
-                continue;
-            }
-            if (strcmp(name, "img") == 0) {
-                char alt[200] = "";
-                if (tag_attr(tag, tl, "alt", val, sizeof(val), latin) && strlen(val) < 120) text_display(val, alt, sizeof(alt));
-                /* adresse : src, ou data-src... (images chargees par JavaScript) */
-                static const char *const srcs[] = { "src", "data-src", "data-original", "data-lazy-src", NULL };
-                int idx = -1;
-                for (int k = 0; srcs[k] && idx < 0; k++) {
-                    if (!tag_attr(tag, tl, srcs[k], val, sizeof(val), latin) || !val[0] ||
-                        strncasecmp(val, "data:", 5) == 0) continue;
-                    if (url_join(base, val, val2, sizeof(val2))) idx = img_get(val2);
-                }
-                wimg_t *im = idx >= 0 ? &wimgs[idx] : NULL;
-                if (im) {
-                    char wv[24], hv[24];
-                    if (tag_attr(tag, tl, "width", wv, sizeof(wv), latin) && !strchr(wv, '%') && atoi(wv) > 0) im->aw = (s16)atoi(wv);
-                    if (tag_attr(tag, tl, "height", hv, sizeof(hv), latin) && !strchr(hv, '%') && atoi(hv) > 0) im->ah = (s16)atoi(hv);
-                }
-                int dw = 0, dh = 0;
-                if (im && im->st != IMG_FAIL) img_box(im->aw, im->ah, im->nw, im->nh, wv_lw - L.indent, &dw, &dh);
-                if (im && im->st != IMG_FAIL && dw > 0) {
-                    if (dw >= 3 && dh >= 3) lay_img(&L, idx, dw, dh, alt);   /* sinon : image d'espacement */
-                } else if (im && im->st != IMG_FAIL && im->st != IMG_OK) {
-                    /* taille inconnue tant que l'image n'est pas lue : petite case */
-                    char lab[48];
-                    fit_text(F_SMALL, alt, 160, lab, sizeof(lab));
-                    int w = text_width_px(F_SMALL, lab, 0) + 12;
-                    lay_img(&L, idx, w < 24 ? 24 : w, 18, lab);
-                } else if (alt[0] && (link_open || strlen(alt) > 2)) {
-                    char t2[210];
-                    snprintf(t2, sizeof(t2), "[%s]", alt);
-                    int save = L.style;
-                    if (!link_open) L.style |= WS_DIM;
-                    lay_text(&L, t2);
-                    L.style = save;
-                }
-                continue;
-            }
-            if (strcmp(name, "form") == 0) {
-                cur_form = -1;
-                if (!close && p->nforms < W_MAX_FORMS) {
-                    char act[URL_MAX];
-                    if (!tag_attr(tag, tl, "action", val, sizeof(val), latin) || !val[0] ||
-                        !url_join(base, val, act, sizeof(act)))
-                        snprintf(act, sizeof(act), "%s", p->url);
-                    p->forms[p->nforms].action = pool_add(p, act);
-                    p->forms[p->nforms].post = tag_attr(tag, tl, "method", val, sizeof(val), latin) && strcasecmp(val, "post") == 0;
-                    cur_form = p->nforms++;
-                }
-                continue;
-            }
-            if (strcmp(name, "input") == 0 && cur_form >= 0) {
-                char type[24] = "text", nm[128] = "", v[256] = "";
-                tag_attr(tag, tl, "type", type, sizeof(type), latin);
-                tag_attr(tag, tl, "name", nm, sizeof(nm), latin);
-                tag_attr(tag, tl, "value", v, sizeof(v), latin);
-                for (char *t = type; *t; t++) *t = (char)tolower((unsigned char)*t);
-                if (strcmp(type, "hidden") == 0) { if (nm[0]) new_field(p, cur_form, FD_HIDDEN, nm, v); }
-                else if (strcmp(type, "checkbox") == 0 || strcmp(type, "radio") == 0) {
-                    if (nm[0]) {                                  /* case a cocher / bouton radio */
-                        FLUSH_WORD();
-                        int f = new_field(p, cur_form, type[0] == 'c' ? FD_CHECK : FD_RADIO, nm, v[0] ? v : "on");
-                        if (f >= 0) {
-                            p->fields[f].checked = (u8)(tag_attr(tag, tl, "checked", NULL, 0, latin) != 0);
-                            int save = L.link;
-                            L.link = new_link(p, LK_TOGGLE, NULL, f, cur_form);
-                            if (L.link >= 0) lay_box(&L, 22, WS_FIELD, NULL);
-                            L.link = save;
-                        }
-                    }
-                } else if (strcmp(type, "submit") == 0 || strcmp(type, "image") == 0) {
-                    int f = new_field(p, cur_form, FD_SUBMIT, nm, v);
-                    int save = L.link;
-                    L.link = new_link(p, LK_SUBMIT, NULL, f, cur_form);
-                    if (L.link >= 0) {
-                        char disp[200];
-                        text_display(v[0] ? v : "Envoyer", disp, sizeof(disp));
-                        lay_box(&L, text_width_px(F_MED, disp, 0) + 20, WS_BUTTON, disp);
-                    }
-                    L.link = save;
-                } else if (strcmp(type, "text") == 0 || strcmp(type, "search") == 0 || strcmp(type, "email") == 0 ||
-                           strcmp(type, "url") == 0 || strcmp(type, "number") == 0 || strcmp(type, "tel") == 0 ||
-                           strcmp(type, "password") == 0) {
-                    int f = new_field(p, cur_form, FD_TEXT, nm, v);
-                    if (f >= 0) {
-                        p->fields[f].secret = (u8)(strcmp(type, "password") == 0);
-                        int save = L.link;
-                        L.link = new_link(p, LK_INPUT, NULL, f, cur_form);
-                        if (L.link >= 0) lay_box(&L, 240, WS_FIELD, NULL);
-                        L.link = save;
-                    }
-                }
-                continue;
-            }
-            if (strcmp(name, "button") == 0) {
-                if (close) {
-                    if (link_open && L.link >= 0 && p->links[L.link].kind == LK_SUBMIT) {
-                        if (link_items == p->nitems) lay_text(&L, "[Envoyer]");
-                        link_open = 0;
-                        L.link = -1;
-                        SET_STYLE();
-                    }
-                } else if (cur_form >= 0 && !link_open) {
-                    char type[24] = "submit", nm[128] = "", v[256] = "";
-                    tag_attr(tag, tl, "type", type, sizeof(type), latin);
-                    if (strcasecmp(type, "submit") == 0) {
-                        tag_attr(tag, tl, "name", nm, sizeof(nm), latin);
-                        tag_attr(tag, tl, "value", v, sizeof(v), latin);
-                        int f = new_field(p, cur_form, FD_SUBMIT, nm, v);
-                        L.link = new_link(p, LK_SUBMIT, NULL, f, cur_form);
-                        if (L.link >= 0) { link_open = 1; link_items = p->nitems; }
-                        SET_STYLE();
-                    }
-                }
-                continue;
-            }
-            continue;
-        }
-        if (hide || in_head) { pos++; continue; }
-
-        /* texte */
-        unsigned cp = (c == '&') ? read_entity(s, len, &pos) : read_cp(s, len, &pos, latin);
-        if (cp == '\r') continue;
-        if (cp == ' ' || cp == '\n' || cp == '\t' || cp == '\f') {
-            FLUSH_WORD();
-            if (pre && cp == '\n') lay_br(&L);
-            else L.space = 1;
-            continue;
-        }
-        if (cp == 0xA0) cp = ' ';                                    /* espace insecable : reste dans le mot */
-        if (wn > (int)sizeof(word) - 8) FLUSH_WORD();
-        wn += cp_out(cp, word + wn);
-    }
-    FLUSH_WORD();
-    if (link_open && link_items == p->nitems) lay_text(&L, "[lien]");
-    if (p->truncated) {
-        lay_break(&L, 1);
-        L.style = WS_DIM;
-        L.link = -1;
-        lay_text(&L, "(page trop longue : la suite n'est pas affichée)");
-    }
-    lay_newline(&L);
-    p->height = L.line_top;
-#undef FLUSH_WORD
-#undef SET_STYLE
-}
+#include "web_layout.c"                                /* v118 : mise en page (CSS, couleurs, tableaux) */
 
 /* texte brut (text/plain) : une ligne par ligne */
 static void web_layout_text(wpage_t *p, const unsigned char *s, int len, int latin) {
     wlay_t L;
     memset(&L, 0, sizeof(L));
     L.p = p;
+    L.right = wv_lw; L.col = WEB_FG; L.align = 1;
+    p->pagebg = WEB_PAGEBG;
     L.font = F_SMALL;
     L.link = -1;
     L.run = -1;
@@ -7707,6 +7067,7 @@ static int wb_refreshes = 0;
 static char *wb_post = NULL;                // formulaire POST : corps a envoyer
 static int wb_post_len = 0;
 static int wb_partial = 0, wb_shown_len = 0; // page affichee avant la fin du chargement
+static int wb_gz = 0;                       // v118 : page envoyee compressee (gzip) : decompressee a la fin
 static u64 wb_partial_t = 0;
 static int web_no_refresh = 0;             // pas de <meta refresh> sur une page incomplete
 static int ptr_on = 0;                     // pointeur au stick affiche (web_extra.c)
@@ -8434,6 +7795,20 @@ static void web_finish_load(void) {
     wb_loading = 0;
     if (!wb_buf) return;
     if (wb_len == 0) { web_note("Page vide", 1); web_cancel_load(); return; }
+    if (wb_gz) {                                               /* v118 : page compressee (5 a 10 fois moins a recevoir) */
+        int ol = 0;
+        unsigned char *u = web_gunzip(wb_buf, wb_len, &ol, 5 * WEB_PAGE_MAX / 2);
+        wb_gz = 0;
+        if (!u) { web_note("Page compress\xC3\xA9" "e illisible ou trop grande", 1); web_cancel_load(); return; }
+        free(wb_buf);
+        if (ol > WEB_PAGE_MAX) {                                   /* (trop longue : le debut seulement) */
+            unsigned char *r = (unsigned char *)realloc(u, WEB_PAGE_MAX);
+            if (r) u = r;
+            ol = WEB_PAGE_MAX;
+            wb_trunc = 1;
+        }
+        wb_buf = u; wb_len = wb_cap = ol;
+    }
     wb_detect_charset();
     unsigned char *buf = wb_buf;
     int len = wb_len;
@@ -8454,9 +7829,13 @@ static void web_finish_load(void) {
     if (wb_trunc) web_note("Page trop grande : seul le début est affiché", 1);
 }
 
-/* Remet la page en page (une image a revele sa taille) sans bouger ce qu'on lit. */
-static void web_relayout(void) {
-    if (!pg.src || pg.kind != WK_HTML) return;
+/* v118 : met np (nouvelle mise en page de la page affichee) a la place de pg, sans bouger ce qu'on lit */
+static void web_relayout_apply(wpage_t *np) {
+    if (np->truncated && !pg.truncated && pg.nitems > 0) {     /* (memoire pleine : on garde l'ancienne) */
+        if (!pg.src) { pg.src = np->src; np->src = NULL; }
+        wpage_free(np);
+        return;
+    }
     s32 delta = 0;
     u32 anchor = 0;
     int lo = 0, hi = pg.nitems;
@@ -8465,28 +7844,84 @@ static void web_relayout(void) {
         if (pg.items[mid].y < pg_scroll) lo = mid + 1; else hi = mid;
     }
     if (lo < pg.nitems) { anchor = pg.items[lo].src; delta = pg.items[lo].y - pg_scroll; }
+    if (!np->title[0]) snprintf(np->title, sizeof(np->title), "%s", pg.title);
+    for (int i = 0; i < np->nfields && i < pg.nfields; i++) {   /* garder ce qui a ete tape / coche / choisi */
+        if (np->fields[i].type != pg.fields[i].type) continue;
+        memcpy(np->fields[i].value, pg.fields[i].value, sizeof(np->fields[i].value));
+        np->fields[i].checked = pg.fields[i].checked;
+        if (pg.fields[i].osel >= 0 && pg.fields[i].osel < np->fields[i].nopt) np->fields[i].osel = pg.fields[i].osel;
+    }
+    int sel = pg_sel;
+    unsigned char *newer = pg.src;                              /* (suite de la page arrivee pendant la mise en page) */
+    int newer_len = pg.srclen;
+    pg.src = NULL;
+    wpage_free(&pg);
+    pg = *np;
+    memset(np, 0, sizeof(*np));
+    if (newer && newer != pg.src) { free(pg.src); pg.src = newer; pg.srclen = newer_len; rl_pending = 1; }
+    if (anchor) {                                               /* (elements ranges par position : le plus proche dans le HTML) */
+        int a = -1;
+        for (int i = 0; i < pg.nitems; i++)
+            if (pg.items[i].src >= anchor && (a < 0 || pg.items[i].src < pg.items[a].src)) a = i;
+        if (a >= 0) pg_scroll = pg.items[a].y - delta;
+    }
+    web_scroll_clamp();
+    pg_sel = (sel < pg.nlinks) ? sel : -1;
+}
+
+static wpage_t rl_np;
+static u32 rl_gen = 0;
+static void rl_job(void) {
+    lay_in_bg = 1;
+    web_layout_html(&rl_np, rl_np.src, rl_np.srclen, rl_np.latin);
+    lay_in_bg = 0;
+}
+/* attend la fin d'une mise en page en fond (et la jette) */
+static void web_wait_layout(void) {
+    if (rl_state == 0) return;
+    rl_cancel = 1;
+    u64 t0 = now_ms();
+    while ((rl_state == 1 || rl_state == 2) && now_ms() - t0 < 3000) usleep(1000);   /* (le fil la finit vite : rl_cancel) */
+    if (rl_state == 3) { wpage_free(&rl_np); rl_state = 0; }
+    rl_cancel = 0;
+    rl_pending = 0;
+}
+
+/* Remet la page en page (une image a revele sa taille, feuille de style lue...) sans bouger ce qu'on lit.
+   v118 : grande page -> en tache de fond ; petite -> tout de suite. */
+static void web_relayout(void) {
+    if (rl_state != 0 && pg.kind == WK_HTML) { rl_pending = 1; return; }   /* (une est deja en cours : une autre apres) */
+    if (!pg.src || pg.kind != WK_HTML) return;
+    if (pg.srclen >= 60000 && dec_ensure()) {
+        memset(&rl_np, 0, sizeof(rl_np));
+        snprintf(rl_np.url, sizeof(rl_np.url), "%s", pg.url);
+        rl_np.src = pg.src;                                     /* (le HTML passe a la mise en page en fond : pas de copie) */
+        pg.src = NULL;
+        {
+            rl_np.srclen = pg.srclen; rl_np.kind = pg.kind; rl_np.latin = pg.latin;
+            rl_gen = img_gen;
+            rl_cancel = 0;
+            rl_state = 1;
+            return;
+        }
+    }
+    web_wait_layout();
     wpage_t np;
     memset(&np, 0, sizeof(np));
     snprintf(np.url, sizeof(np.url), "%s", pg.url);
     np.src = pg.src; np.srclen = pg.srclen; np.kind = pg.kind; np.latin = pg.latin;
     pg.src = NULL;
     web_layout_html(&np, np.src, np.srclen, np.latin);
-    if (!np.title[0]) snprintf(np.title, sizeof(np.title), "%s", pg.title);
-    for (int i = 0; i < np.nfields && i < pg.nfields; i++) {   /* garder ce qui a ete tape / coche / choisi */
-        if (np.fields[i].type != pg.fields[i].type) continue;
-        memcpy(np.fields[i].value, pg.fields[i].value, sizeof(np.fields[i].value));
-        np.fields[i].checked = pg.fields[i].checked;
-        if (pg.fields[i].osel >= 0 && pg.fields[i].osel < np.fields[i].nopt) np.fields[i].osel = pg.fields[i].osel;
-    }
-    int sel = pg_sel;
-    wpage_free(&pg);
-    pg = np;
-    if (anchor) {
-        for (int i = 0; i < pg.nitems; i++)
-            if (pg.items[i].src >= anchor) { pg_scroll = pg.items[i].y - delta; break; }
-    }
-    web_scroll_clamp();
-    pg_sel = (sel < pg.nlinks) ? sel : -1;
+    web_relayout_apply(&np);
+}
+/* (appele a chaque image) : une mise en page en fond est prete ? */
+static void web_relayout_poll(void) {
+    if (rl_state != 3) return;
+    if (rl_gen == img_gen && !strcmp(rl_np.url, pg.url) && pg.kind == WK_HTML) web_relayout_apply(&rl_np);
+    else wpage_free(&rl_np);
+    if (rl_pending && !pg.src) rl_pending = 0;
+    rl_state = 0;
+    if (rl_pending) { rl_pending = 0; web_relayout(); }
 }
 
 /* Ouvre une adresse http(s) : connexion + en-tetes (quelques secondes au plus),
@@ -8541,6 +7976,7 @@ static void web_fetch(const char *url_in, int mode, int typed) {
                           "%s %s HTTP/1.1\r\nHost: %s\r\n"
                           "User-Agent: Mozilla/5.0 (compatible; GC-MP3/1.0; Nintendo GameCube)\r\n"
                           "Accept: text/html,application/xhtml+xml,*/*;q=0.8\r\n"
+                          "Accept-Encoding: gzip\r\n"
                           "Accept-Language: %s%s\r\n%s%sConnection: close\r\n\r\n",
                           post ? "POST" : "GET", u.path, hosthdr, lang_code(), lang_cur() == SYS_LANG_ENGLISH ? "" : ",en;q=0.5", cookie, post_hdr);
         ui_status("Envoi de la demande...");
@@ -8633,6 +8069,7 @@ static void web_fetch(const char *url_in, int mode, int typed) {
         wb_mode = mode;
         wb_expect = chunked ? -1 : clen;
         wb_trunc = 0;
+        { const char *ce = header_value(hdrs, "Content-Encoding"); wb_gz = ce && ci_find((char *)ce, "gzip"); }
         wb_last = now_ms();
         wb_loading = 1;
         if (code >= 400 && ws_q[0]) {                       /* v74 : moteur de recherche qui refuse : le suivant */
@@ -8680,6 +8117,7 @@ typedef struct {
     dechunk_t dc;
     u64 t0, last_use;
     int job;                                /* v83 : demande au fil des connexions (+1 ; 0 = aucune) */
+    int gz, gzipped;                        /* v118 : accepter gzip ; reponse compressee (decompressee a la fin) */
 } hfetch_t;
 
 /* v77 : en-tetes plus gros que le tampon (GitHub : 11 Ko, dont une tres longue
@@ -8687,7 +8125,7 @@ typedef struct {
    Retourne 1 si de la place a ete faite. */
 static char *crlf_in(char *p, int n) { for (int i = 0; i + 1 < n; i++) if (p[i] == '\r' && p[i + 1] == '\n') return p + i; return NULL; }
 static int hf_hdr_trim(hfetch_t *h) {
-    static const char *const keep[] = { "Location:", "Content-Length:", "Content-Type:", "Transfer-Encoding:", "Connection:", NULL };
+    static const char *const keep[] = { "Location:", "Content-Length:", "Content-Type:", "Transfer-Encoding:", "Connection:", "Content-Encoding:", NULL };
     char *b = (char *)h->hdr;
     int n = h->hlen;
     char *first = crlf_in(b, n);
@@ -8727,8 +8165,8 @@ static int hf_send(hfetch_t *h) {
     int rl = snprintf(req, sizeof(req),
                       "GET %s HTTP/1.1\r\nHost: %s\r\n"
                       "User-Agent: GC-MP3/1.0 (Nintendo GameCube; https://github.com/antho13otz/gc-mp3)\r\n"
-                      "Accept: %s\r\n%sConnection: keep-alive\r\n\r\n", u.path, hosthdr,
-                      h->accept ? h->accept : "*/*", ref);
+                      "Accept: %s\r\n%s%sConnection: keep-alive\r\n\r\n", u.path, hosthdr,
+                      h->accept ? h->accept : "*/*", h->gz ? "Accept-Encoding: gzip\r\n" : "", ref);
     if (rl >= (int)sizeof(req) || !conn_send_all(&h->c, req, rl)) return 0;
     h->hlen = 0;
     h->hskip = 0;
@@ -8801,6 +8239,14 @@ static void hf_start(hfetch_t *h, const char *url, const char *referer) {
 
 static void hf_done(hfetch_t *h) {
     if (h->close_after) hf_close(h);
+    if (h->gzipped && h->buf) {                                  /* v118 : reponse compressee */
+        int ol = 0;
+        unsigned char *u = web_gunzip(h->buf, h->len, &ol, h->maxbytes * 4);
+        h->gzipped = 0;
+        if (!u) { hf_fail(h); return; }
+        free(h->buf);
+        h->buf = u; h->len = h->cap = ol;
+    }
     h->last_use = now_ms();
     h->st = HF_DONE;
 }
@@ -8894,6 +8340,8 @@ static void hf_pump(hfetch_t *h) {
                 hf_request(h);
                 return;
             }
+            v = header_value(hd, "Content-Encoding");
+            h->gzipped = h->gz && v && ci_find((char *)v, "gzip");
             v = header_value(hd, "Content-Type");
             if (code != 200 || clen > h->maxbytes ||
                 (h->image && v && (ci_find((char *)v, "text/") || ci_find((char *)v, "svg")))) {
@@ -9295,7 +8743,6 @@ static void hls_pump(void) {
 /* Le decodage JPEG/PNG/GIF se fait dans un thread de faible priorite qui
    travaille pendant que le programme attend l'image suivante de l'ecran. */
 enum { IL_IDLE, IL_FETCH, IL_DECODE };
-static hfetch_t ihf = { .c = { -1, 0, 0 } };
 static int il_state = IL_IDLE, il_img = -1;
 static u32 il_gen = 0;
 
@@ -9334,43 +8781,341 @@ static int is_webp(const unsigned char *d, int n) {
     return n >= 16 && !memcmp(d, "RIFF", 4) && !memcmp(d + 8, "WEBP", 4);
 }
 
+/* v118 : JPEG decode directement reduit (1/2, 1/4, 1/8) avec TJpgDec : grandes photos sans manquer de memoire */
+#include "tjpgd/tjpgd.c"
+typedef struct { const unsigned char *d; int n, pos; unsigned char *out; int ow, oh; } tjd_t;
+static size_t tj_in(JDEC *jd, uint8_t *buf, size_t n) {
+    tjd_t *t = (tjd_t *)jd->device;
+    if (n > (size_t)(t->n - t->pos)) n = (size_t)(t->n - t->pos);
+    if (buf) memcpy(buf, t->d + t->pos, n);
+    t->pos += (int)n;
+    return n;
+}
+static int tj_out(JDEC *jd, void *bm, JRECT *r) {
+    tjd_t *t = (tjd_t *)jd->device;
+    const unsigned char *src = (const unsigned char *)bm;
+    int w = r->right - r->left + 1;
+    if (r->left >= t->ow) return 1;
+    int cw = r->left + w > t->ow ? t->ow - r->left : w;
+    for (int y = r->top; y <= r->bottom; y++, src += w * 3)
+        if (y < t->oh) memcpy(t->out + ((size_t)y * t->ow + r->left) * 3, src, (size_t)cw * 3);
+    return 1;
+}
+/* JPEG non progressif -> pixels RGB reduits (au moins want_w x want_h si possible) ; NULL si TJpgDec ne sait pas */
+static unsigned char *tj_decode(const unsigned char *d, int n, int want_w, int want_h, int *ow, int *oh, int *sw, int *shh) {
+    static u8 pool[16384] ATTRIBUTE_ALIGN(32);
+    JDEC jd;
+    tjd_t t = { d, n, 0, NULL, 0, 0 };
+    if (jd_prepare(&jd, tj_in, pool, sizeof(pool), &t) != JDR_OK) return NULL;
+    *sw = jd.width; *shh = jd.height;
+    if ((long)jd.width * jd.height > IMG_BIG_PIXELS) return NULL;
+    int sc = 0;
+    while (sc < 3 && (jd.width >> (sc + 1)) >= want_w && (jd.height >> (sc + 1)) >= want_h) sc++;
+    t.ow = (jd.width + (1 << sc) - 1) >> sc;
+    t.oh = (jd.height + (1 << sc) - 1) >> sc;
+    t.out = (unsigned char *)malloc((size_t)t.ow * t.oh * 3);
+    if (!t.out) return NULL;
+    memset(t.out, 0, (size_t)t.ow * t.oh * 3);
+    if (jd_decomp(&jd, tj_out, (uint8_t)sc) != JDR_OK) { free(t.out); return NULL; }
+    *ow = t.ow; *oh = t.oh;
+    return t.out;
+}
+/* v118 : JPEG progressif trop grand pour stb_image : on ne lit que le premier passage (la couleur moyenne de
+   chaque carre de 8 x 8 points) -> une image 8 fois plus petite, mais entiere, avec tres peu de memoire */
+typedef struct { const u8 *d; int n, p; u32 acc; int bits, marker; } jdc_br_t;
+static int jdc_bit(jdc_br_t *b) {
+    if (b->bits == 0) {
+        if (b->marker || b->p >= b->n) { b->acc = 0; b->bits = 8; }       /* (fin des donnees : des zeros) */
+        else {
+            u8 c = b->d[b->p++];
+            if (c == 0xFF) {
+                u8 c2 = b->p < b->n ? b->d[b->p] : 0;
+                if (c2 == 0) b->p++;
+                else { b->marker = 1; c = 0; }
+            }
+            b->acc = c; b->bits = 8;
+        }
+    }
+    b->bits--;
+    return (int)((b->acc >> b->bits) & 1);
+}
+typedef struct { u8 bits[17]; u8 val[256]; int mincode[17], maxcode[18], valptr[17]; } jdc_huff_t;
+static void jdc_huff_build(jdc_huff_t *h) {
+    int code = 0, k = 0;
+    for (int l = 1; l <= 16; l++) {
+        h->valptr[l] = k; h->mincode[l] = code;
+        code += h->bits[l]; k += h->bits[l];
+        h->maxcode[l] = h->bits[l] ? code - 1 : -1;
+        code <<= 1;
+    }
+    h->maxcode[17] = 0x7fffffff;
+}
+static int jdc_decode(jdc_br_t *b, const jdc_huff_t *h) {
+    int code = 0;
+    for (int l = 1; l <= 16; l++) {
+        code = (code << 1) | jdc_bit(b);
+        if (h->maxcode[l] >= 0 && code <= h->maxcode[l]) { int i = h->valptr[l] + code - h->mincode[l]; return i < 256 ? h->val[i] : 0; }
+    }
+    return 0;
+}
+static int jdc_receive(jdc_br_t *b, int s) {
+    if (s <= 0 || s > 15) return 0;
+    int v = 0;
+    for (int i = 0; i < s; i++) v = (v << 1) | jdc_bit(b);
+    if (v < (1 << (s - 1))) v -= (1 << s) - 1;
+    return v;
+}
+static unsigned char *jpeg_dc_decode(const u8 *d, int n, int *ow, int *oh) {
+    int W = 0, H = 0, nc = 0, hmax = 1, vmax = 1, dri = 0, have_sof = 0;
+    int cid[3] = { 0 }, ch_[3] = { 1, 1, 1 }, cv[3] = { 1, 1, 1 }, ctq[3] = { 0 }, done[3] = { 0 };
+    int q0[4] = { 1, 1, 1, 1 };
+    static jdc_huff_t hdc[4];
+    int hok[4] = { 0 };
+    s16 *pl[3] = { NULL, NULL, NULL };
+    int pw[3] = { 0 }, ph[3] = { 0 };
+    int p = 2;
+    if (n < 4 || d[0] != 0xFF || d[1] != 0xD8) return NULL;
+    while (p + 4 <= n) {
+        if (d[p] != 0xFF) { p++; continue; }
+        u8 m = d[p + 1];
+        p += 2;
+        if (m == 0xD8 || m == 0x01 || (m >= 0xD0 && m <= 0xD7) || m == 0xFF) { if (m == 0xFF) p--; continue; }
+        if (m == 0xD9) break;
+        if (p + 2 > n) break;
+        int len = d[p] << 8 | d[p + 1];
+        if (len < 2 || p + len > n) break;
+        const u8 *sg = d + p + 2;
+        int sl = len - 2;
+        if (m == 0xDB) {                                       /* DQT : la premiere valeur de chaque table */
+            int k = 0;
+            while (k < sl) {
+                int pq = sg[k] >> 4, tq = sg[k] & 3;
+                if (k + 1 >= sl) break;
+                q0[tq] = pq ? (sg[k + 1] << 8 | (k + 2 < sl ? sg[k + 2] : 0)) : sg[k + 1];
+                if (q0[tq] <= 0) q0[tq] = 1;
+                k += 1 + (pq ? 128 : 64);
+            }
+        } else if (m == 0xC0 || m == 0xC1 || m == 0xC3 || (m >= 0xC5 && m <= 0xCF && m != 0xC8 && m != 0xCC)) {
+            return NULL;                                       /* (que les JPEG progressifs : les autres passent par TJpgDec / stb) */
+        } else if (m == 0xC2) {
+            if (sl < 6 || have_sof) return NULL;
+            H = sg[1] << 8 | sg[2]; W = sg[3] << 8 | sg[4]; nc = sg[5];
+            if (nc != 1 && nc != 3) return NULL;
+            if (W <= 0 || H <= 0 || sl < 6 + nc * 3) return NULL;
+            for (int i = 0; i < nc; i++) {
+                cid[i] = sg[6 + i * 3]; ch_[i] = sg[7 + i * 3] >> 4; cv[i] = sg[7 + i * 3] & 15; ctq[i] = sg[8 + i * 3] & 3;
+                if (ch_[i] < 1 || ch_[i] > 4 || cv[i] < 1 || cv[i] > 4) return NULL;
+                if (ch_[i] > hmax) hmax = ch_[i];
+                if (cv[i] > vmax) vmax = cv[i];
+            }
+            int mx = (W + 8 * hmax - 1) / (8 * hmax), my = (H + 8 * vmax - 1) / (8 * vmax);
+            for (int i = 0; i < nc; i++) {
+                pw[i] = mx * ch_[i]; ph[i] = my * cv[i];
+                pl[i] = (s16 *)calloc((size_t)pw[i] * ph[i], sizeof(s16));
+                if (!pl[i]) { for (int k = 0; k < 3; k++) free(pl[k]); return NULL; }
+            }
+            have_sof = 1;
+        } else if (m == 0xC4) {                                /* DHT : tables DC */
+            int k = 0;
+            while (k + 17 <= sl) {
+                int tc = sg[k] >> 4, th = sg[k] & 3, tot = 0;
+                for (int l = 1; l <= 16; l++) tot += sg[k + l];
+                if (tot > 256 || k + 17 + tot > sl) break;
+                if (tc == 0) {
+                    hdc[th].bits[0] = 0;
+                    for (int l = 1; l <= 16; l++) hdc[th].bits[l] = sg[k + l];
+                    memcpy(hdc[th].val, sg + k + 17, tot);
+                    jdc_huff_build(&hdc[th]);
+                    hok[th] = 1;
+                }
+                k += 17 + tot;
+            }
+        } else if (m == 0xDD) {
+            if (sl >= 2) dri = sg[0] << 8 | sg[1];
+        } else if (m == 0xDA && have_sof) {                    /* SOS */
+            int ns = sl > 0 ? sg[0] : 0;
+            if (ns < 1 || ns > 3 || sl < 1 + ns * 2 + 3) break;
+            int sc[3], td[3];
+            for (int i = 0; i < ns; i++) {
+                sc[i] = -1;
+                for (int k = 0; k < nc; k++) if (cid[k] == sg[1 + i * 2]) sc[i] = k;
+                td[i] = sg[2 + i * 2] >> 4 & 3;
+                if (sc[i] < 0) sc[i] = 0;
+            }
+            int ss = sg[1 + ns * 2], se = sg[2 + ns * 2], ah = sg[3 + ns * 2] >> 4, al = sg[3 + ns * 2] & 15;
+            p += len;
+            int dc_first = ss == 0 && ah == 0;                /* (en JPEG normal, le seul passage : Se = 63) */
+            jdc_br_t b = { d, n, p, 0, 0, 0 };
+            if (dc_first) {
+                int ok = 1;
+                for (int i = 0; i < ns; i++) if (!hok[td[i]]) ok = 0;
+                if (!ok) break;
+                int pred[3] = { 0, 0, 0 }, cnt = 0;
+                if (ns > 1) {                                  /* entrelace : blocs par MCU */
+                    int mx = (W + 8 * hmax - 1) / (8 * hmax), my = (H + 8 * vmax - 1) / (8 * vmax);
+                    for (int my_ = 0; my_ < my; my_++) for (int mx_ = 0; mx_ < mx; mx_++) {
+                        if (dri && cnt && cnt % dri == 0) {   /* RSTn : on reprend */
+                            b.bits = 0; b.marker = 0;
+                            while (b.p + 1 < n && !(b.d[b.p] == 0xFF && b.d[b.p + 1] >= 0xD0 && b.d[b.p + 1] <= 0xD7)) b.p++;
+                            b.p += 2; pred[0] = pred[1] = pred[2] = 0;
+                        }
+                        cnt++;
+                        for (int i = 0; i < ns; i++) {
+                            int c = sc[i];
+                            for (int by = 0; by < cv[c]; by++) for (int bx = 0; bx < ch_[c]; bx++) {
+                                int t = jdc_decode(&b, &hdc[td[i]]);
+                                pred[i] += jdc_receive(&b, t);
+                                int X = mx_ * ch_[c] + bx, Y = my_ * cv[c] + by;
+                                if (X < pw[c] && Y < ph[c]) pl[c][Y * pw[c] + X] = (s16)(pred[i] << al > 32767 ? 32767 : pred[i] << al < -32768 ? -32768 : pred[i] << al);
+                            }
+                        }
+                    }
+                } else {                                       /* une seule composante */
+                    int c = sc[0];
+                    int cw = ((W * ch_[c] + hmax - 1) / hmax + 7) / 8, chh = ((H * cv[c] + vmax - 1) / vmax + 7) / 8;
+                    for (int Y = 0; Y < chh; Y++) for (int X = 0; X < cw; X++) {
+                        if (dri && cnt && cnt % dri == 0) {
+                            b.bits = 0; b.marker = 0;
+                            while (b.p + 1 < n && !(b.d[b.p] == 0xFF && b.d[b.p + 1] >= 0xD0 && b.d[b.p + 1] <= 0xD7)) b.p++;
+                            b.p += 2; pred[0] = 0;
+                        }
+                        cnt++;
+                        int t = jdc_decode(&b, &hdc[td[0]]);
+                        pred[0] += jdc_receive(&b, t);
+                        if (X < pw[c] && Y < ph[c]) pl[c][Y * pw[c] + X] = (s16)(pred[0] << al);
+                    }
+                }
+                for (int i = 0; i < ns; i++) done[sc[i]] = 1;
+                int all = 1;
+                for (int k = 0; k < nc; k++) all &= done[k];
+                if (all) break;
+            }
+            (void)se;
+            /* passer les donnees de ce passage : jusqu'au prochain marqueur (sauf RSTn et FF00) */
+            int q = b.p > p ? b.p - 1 : p;
+            if (q < p) q = p;
+            while (q + 1 < n && !(d[q] == 0xFF && d[q + 1] != 0 && !(d[q + 1] >= 0xD0 && d[q + 1] <= 0xD7))) q++;
+            p = q;
+            continue;
+        }
+        p += len;
+    }
+    int all = have_sof;
+    for (int k = 0; k < nc; k++) all &= done[k];
+    if (!all) { for (int k = 0; k < 3; k++) free(pl[k]); return NULL; }
+    int w = (W + 7) / 8, h = (H + 7) / 8;
+    unsigned char *out = (unsigned char *)malloc((size_t)w * h * 3);
+    if (!out) { for (int k = 0; k < 3; k++) free(pl[k]); return NULL; }
+    for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) {
+        int v[3] = { 128, 128, 128 };
+        for (int c = 0; c < nc; c++) {
+            int X = x * ch_[c] / hmax, Y = y * cv[c] / vmax;
+            if (X >= pw[c]) X = pw[c] - 1;
+            if (Y >= ph[c]) Y = ph[c] - 1;
+            v[c] = pl[c][Y * pw[c] + X] * q0[ctq[c]] / 8 + 128;
+        }
+        unsigned char *o = out + ((size_t)y * w + x) * 3;
+        if (nc == 1) { int g = v[0] < 0 ? 0 : v[0] > 255 ? 255 : v[0]; o[0] = o[1] = o[2] = (u8)g; continue; }
+        f32 Yv = (f32)v[0], cb = (f32)v[1] - 128, cr = (f32)v[2] - 128;
+        int r = (int)(Yv + 1.402f * cr), g = (int)(Yv - 0.344136f * cb - 0.714136f * cr), bl = (int)(Yv + 1.772f * cb);
+        o[0] = (u8)(r < 0 ? 0 : r > 255 ? 255 : r); o[1] = (u8)(g < 0 ? 0 : g > 255 ? 255 : g); o[2] = (u8)(bl < 0 ? 0 : bl > 255 ? 255 : bl);
+    }
+    for (int k = 0; k < 3; k++) free(pl[k]);
+    *ow = w; *oh = h;
+    return out;
+}
+static int is_jpeg(const unsigned char *d, int n) { return n > 4 && d[0] == 0xFF && d[1] == 0xD8; }
+
 static void img_decode_job(void) {
     int w, h, c;
     dj_ok = 0;
     dj_nw = dj_nh = 0;
     dj_tex = NULL;
-    int webp = is_webp(dj_in, dj_len);
+    int webp = is_webp(dj_in, dj_len), jpg = !webp && is_jpeg(dj_in, dj_len);
     if (webp) { if (!WebPGetInfo(dj_in, (size_t)dj_len, &w, &h) || w <= 0 || h <= 0) return; }
     else if (!stbi_info_from_memory(dj_in, dj_len, &w, &h, &c) || w <= 0 || h <= 0) return;
     dj_nw = w;
     dj_nh = h;
     int dw, dh;
     if (dj_photo) {
-        if ((long)w * h > PHOTO_MAX_PIXELS) return;
         dw = w; dh = h;                                     /* tient dans dj_aw x dj_ah */
         if (dw > dj_aw) { dh = (int)((long)dh * dj_aw / dw); dw = dj_aw; }
         if (dh > dj_ah) { dw = (int)((long)dw * dj_ah / dh); dh = dj_ah; }
-    } else {
-        if ((long)w * h > IMG_MAX_PIXELS) return;
-        img_box(dj_aw, dj_ah, w, h, dj_maxw, &dw, &dh);
-    }
+    } else img_box(dj_aw, dj_ah, w, h, dj_maxw, &dw, &dh);
     if (dw < 1 || dh < 1) return;
     if (dw > w) { dh = (int)((long)dh * w / dw); dw = w; }   /* jamais plus grand que l'original */
     if (dh > h) { dw = (int)((long)dw * h / dh); dh = h; }
     if (dw < 1) dw = 1;
     if (dh < 1) dh = 1;
+    if (dw > 1024) { dh = (int)((long)dh * 1024 / dw); dw = 1024; }   /* (texture GX : 1024 au plus) */
+    if (dh > 1024) { dw = (int)((long)dw * 1024 / dh); dh = 1024; }
+    long stb_max = dj_photo ? PHOTO_MAX_PIXELS : IMG_MAX_PIXELS;
     int ch = dj_photo ? 3 : 4;
-    unsigned char *px;
-    if (webp) {
-        int ww = 0, hh = 0;
-        px = dj_photo ? WebPDecodeRGB(dj_in, (size_t)dj_len, &ww, &hh) : WebPDecodeRGBA(dj_in, (size_t)dj_len, &ww, &hh);
-        if (px && (ww != w || hh != h)) { WebPFree(px); return; }
-    } else px = stbi_load_from_memory(dj_in, dj_len, &w, &h, &c, ch);
+    unsigned char *px = NULL;
+    int how = 0;                                            /* 0 stb, 1 webp, 2 TJpgDec */
+    if (jpg) {                                              /* v118 : JPEG : TJpgDec (deja reduit), sinon stb */
+        int ow = 0, oh = 0, sw = 0, sh = 0;
+        px = tj_decode(dj_in, dj_len, dw, dh, &ow, &oh, &sw, &sh);
+        if (px) { w = ow; h = oh; ch = 3; how = 2; }
+    }
+    if (!px && webp) {
+        if ((long)w * h <= stb_max) {
+            int ww = 0, hh = 0;
+            px = dj_photo ? WebPDecodeRGB(dj_in, (size_t)dj_len, &ww, &hh) : WebPDecodeRGBA(dj_in, (size_t)dj_len, &ww, &hh);
+            if (px && (ww != w || hh != h)) { WebPFree(px); return; }
+            how = 1;
+        } else if ((long)w * h <= IMG_BIG_PIXELS) {         /* v118 : grande image WebP : reduite au decodage */
+            WebPDecoderConfig cfg;
+            if (!WebPInitDecoderConfig(&cfg)) return;
+            cfg.options.use_scaling = 1;
+            cfg.options.scaled_width = dw;
+            cfg.options.scaled_height = dh;
+            cfg.output.colorspace = dj_photo ? MODE_RGB : MODE_RGBA;
+            if (WebPDecode(dj_in, (size_t)dj_len, &cfg) != VP8_STATUS_OK) { WebPFreeDecBuffer(&cfg.output); return; }
+            int bpp = dj_photo ? 3 : 4;
+            px = (unsigned char *)malloc((size_t)dw * dh * bpp);
+            if (px) for (int y = 0; y < dh; y++) memcpy(px + (size_t)y * dw * bpp, cfg.output.u.RGBA.rgba + (size_t)y * cfg.output.u.RGBA.stride, (size_t)dw * bpp);
+            WebPFreeDecBuffer(&cfg.output);
+            if (!px) return;
+            w = dw; h = dh; how = 2;                          /* (liberer avec free) */
+        } else return;
+    }
+    if (!px && !webp) {
+        if ((long)w * h > stb_max) {
+            if (!jpg || (long)w * h > IMG_BIG_PIXELS) return;
+            int ow = 0, oh = 0;                                 /* v118 : JPEG progressif trop grand : image 8 fois plus petite */
+            px = jpeg_dc_decode(dj_in, dj_len, &ow, &oh);
+            if (!px) return;
+            w = ow; h = oh; ch = 3; how = 2;
+        } else {
+            px = stbi_load_from_memory(dj_in, dj_len, &w, &h, &c, ch);
+            how = 0;
+        }
+    }
     if (!px) return;
     int tw = (dw + 3) & ~3, th = (dh + 3) & ~3;
     u16 *tex = (u16 *)memalign(32, (size_t)tw * th * 2);
-    if (!tex) { if (webp) WebPFree(px); else stbi_image_free(px); return; }
+    if (!tex) { if (how == 1) WebPFree(px); else if (how == 2) free(px); else stbi_image_free(px); return; }
     memset(tex, 0, (size_t)tw * th * 2);
+    if (w < dw || h < dh) {                                 /* v118 : agrandie (image 8 fois plus petite) : en douceur */
+        for (int y = 0; y < dh; y++) {
+            f32 fy = ((f32)y + 0.5f) * h / dh - 0.5f; if (fy < 0) fy = 0;
+            int y0 = (int)fy, y1 = y0 + 1 < h ? y0 + 1 : y0; f32 ty = fy - y0;
+            for (int x = 0; x < dw; x++) {
+                f32 fx = ((f32)x + 0.5f) * w / dw - 0.5f; if (fx < 0) fx = 0;
+                int x0 = (int)fx, x1 = x0 + 1 < w ? x0 + 1 : x0; f32 tx = fx - x0;
+                const unsigned char *a = px + ((size_t)y0 * w + x0) * ch, *b2 = px + ((size_t)y0 * w + x1) * ch;
+                const unsigned char *c2 = px + ((size_t)y1 * w + x0) * ch, *d2 = px + ((size_t)y1 * w + x1) * ch;
+                int v[4];
+                for (int k = 0; k < 4; k++) {
+                    if (k == 3 && ch < 4) { v[3] = 255; break; }
+                    f32 top = a[k] + (b2[k] - a[k]) * tx, bot = c2[k] + (d2[k] - c2[k]) * tx;
+                    v[k] = (int)(top + (bot - top) * ty);
+                }
+                tex[((y >> 2) * (tw >> 2) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)] = rgb5a3(v[0], v[1], v[2], v[3]);
+            }
+        }
+    } else
     for (int y = 0; y < dh; y++) {
         int sy0 = (int)((long)y * h / dh), sy1 = (int)((long)(y + 1) * h / dh);
         if (sy1 <= sy0) sy1 = sy0 + 1;
@@ -9389,16 +9134,21 @@ static void img_decode_job(void) {
                 rgb5a3(r / n, g / n, b / n, a / n);
         }
     }
-    if (webp) WebPFree(px); else stbi_image_free(px);
+    if (how == 1) WebPFree(px); else if (how == 2) free(px); else stbi_image_free(px);
     dj_tex = tex;
     dj_tw = tw; dj_th = th; dj_iw = dw; dj_ih = dh;
     dj_ok = 1;
 }
 
+static void rl_job(void);
 static void *dec_thread_fn(void *arg) {
     (void)arg;
     for (;;) {
-        if (dj_state == 1) {
+        if (rl_state == 1) {                               /* v118 : mise en page d'une page web */
+            rl_state = 2;
+            rl_job();
+            rl_state = 3;
+        } else if (dj_state == 1) {
             img_decode_job();
             free(dj_in);
             dj_in = NULL;
@@ -9422,14 +9172,23 @@ static void bg_quiesce(void) {
     u64 t0 = now_ms();
     while (gj_state == 1 && now_ms() - t0 < 3000) usleep(2000);
 }
+/* v118 : jusqu'a 3 images telechargees en meme temps (avant : une a la fois) ; le decodage reste un a un */
+#define IL_N 3
+static hfetch_t ilf[IL_N] = { { .c = { -1, 0, 0 } }, { .c = { -1, 0, 0 } }, { .c = { -1, 0, 0 } } };
+static int il_slot_img[IL_N] = { -1, -1, -1 }, il_slot_st[IL_N];   /* 0 libre, 1 telechargement, 2 recue (attend le decodeur) */
+static u32 il_slot_gen[IL_N];
 static void img_loader_reset(void) {
-    if (il_state == IL_FETCH) { hf_abort(&ihf); il_state = IL_IDLE; }
+    for (int k = 0; k < IL_N; k++) {
+        if (il_slot_st[k] == 1) hf_abort(&ilf[k]);
+        else if (il_slot_st[k] == 2) { hf_drop(&ilf[k]); ilf[k].st = HF_IDLE; }
+        il_slot_st[k] = 0; il_slot_img[k] = -1;
+    }
+    if (il_state == IL_FETCH) il_state = IL_IDLE;
     il_img = -1;                            /* un decodage en cours sera jete (generation) */
 }
 
 static void img_fail(void) {
     if (il_img >= 0 && il_gen == img_gen) { wimgs[il_img].st = IMG_FAIL; relayout_needed = 1; }
-    hf_drop(&ihf);
     il_state = IL_IDLE;
     il_img = -1;
 }
@@ -9441,95 +9200,120 @@ static int img_dist(const wimg_t *im) {
     return 0;
 }
 
-static void img_pump(void) {
-    if (tab != TAB_WEB && il_state == IL_IDLE) return;
-    if (il_state == IL_FETCH && il_gen != img_gen) img_loader_reset();
+/* le decodeur prend une image (donnees a liberer par lui) */
+static void img_decode_start(int idx, unsigned char *d, int n) {
+    dj_in = d; dj_len = n;
+    dj_aw = wimgs[idx].aw; dj_ah = wimgs[idx].ah; dj_maxw = wv_lw;
+    dj_photo = 0; dj_owner = 1;
+    il_img = idx;
+    il_gen = img_gen;
+    il_state = IL_DECODE;
+    dj_state = 1;
+}
 
-    if (il_state == IL_DECODE) {
-        if (dj_state != 2) return;
+static void img_pump(void) {
+    int busy = 0;
+    for (int k = 0; k < IL_N; k++) busy |= il_slot_st[k];
+    if (tab != TAB_WEB && il_state == IL_IDLE && !busy) return;
+
+    /* 1. decodage fini */
+    if (il_state == IL_DECODE && dj_state == 2) {
         dj_state = 0;
         il_state = IL_IDLE;
-        if (il_gen != img_gen || il_img < 0) { free(dj_tex); return; }   /* page changee */
-        wimg_t *im = &wimgs[il_img];
+        if (il_gen != img_gen || il_img < 0) free(dj_tex);       /* page changee */
+        else {
+            wimg_t *im = &wimgs[il_img];
+            int unsized = (im->aw <= 0 || im->ah <= 0);
+            im->nw = (s16)(dj_nw > 32767 ? 32767 : dj_nw);
+            im->nh = (s16)(dj_nh > 32767 ? 32767 : dj_nh);
+            if (!dj_ok) { im->st = IMG_FAIL; free(dj_tex); relayout_needed = 1; }
+            else {
+                im->tex = dj_tex;
+                im->tw = (u16)dj_tw; im->th = (u16)dj_th; im->iw = (u16)dj_iw; im->ih = (u16)dj_ih;
+                DCFlushRange(im->tex, (u32)im->tw * im->th * 2);
+                GX_InitTexObj(&im->obj, im->tex, im->tw, im->th, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+                GX_InitTexObjFilterMode(&im->obj, GX_LINEAR, GX_LINEAR);
+                img_bytes += (long)im->tw * im->th * 2;
+                img_tex_dirty = 1;
+                im->st = IMG_OK;
+                if (unsized) relayout_needed = 1;
+            }
+        }
         il_img = -1;
-        int unsized = (im->aw <= 0 || im->ah <= 0);
-        im->nw = (s16)(dj_nw > 32767 ? 32767 : dj_nw);
-        im->nh = (s16)(dj_nh > 32767 ? 32767 : dj_nh);
-        if (!dj_ok) { im->st = IMG_FAIL; free(dj_tex); relayout_needed = 1; return; }
-        im->tex = dj_tex;
-        im->tw = (u16)dj_tw; im->th = (u16)dj_th; im->iw = (u16)dj_iw; im->ih = (u16)dj_ih;
-        DCFlushRange(im->tex, (u32)im->tw * im->th * 2);
-        GX_InitTexObj(&im->obj, im->tex, im->tw, im->th, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
-        GX_InitTexObjFilterMode(&im->obj, GX_LINEAR, GX_LINEAR);
-        img_bytes += (long)im->tw * im->th * 2;
-        img_tex_dirty = 1;
-        im->st = IMG_OK;
-        if (unsized) relayout_needed = 1;
-        return;
     }
 
-    if (il_state == IL_IDLE) {
-        if (dj_state != 0) return;
-        int best = -1, bestd = 2 * WV_H + 1;
+    /* 2. telechargements en cours */
+    for (int k = 0; k < IL_N; k++) {
+        if (il_slot_st[k] != 1) continue;
+        if (il_slot_gen[k] != img_gen) { hf_abort(&ilf[k]); il_slot_st[k] = 0; continue; }
+        hf_pump(&ilf[k]);
+        if (ilf[k].st == HF_FAIL) {
+            int i = il_slot_img[k];
+            if (i >= 0 && i < nwimg) { wimgs[i].st = IMG_FAIL; relayout_needed = 1; }
+            hf_drop(&ilf[k]); ilf[k].st = HF_IDLE;
+            il_slot_st[k] = 0;
+        } else if (ilf[k].st == HF_DONE) {
+            if (pg.srclen < 300000) icache_put(wimgs[il_slot_img[k]].url, ilf[k].buf, ilf[k].len);   /* gardee pour la prochaine fois (pas sur une tres grande page : memoire) */
+            il_slot_st[k] = 2;
+        }
+    }
+
+    /* 3. le decodeur est libre : la plus proche de l'ecran parmi celles recues */
+    if (il_state != IL_DECODE && dj_state == 0 && dec_ensure()) {
+        int best = -1, bd = 1 << 30;
+        for (int k = 0; k < IL_N; k++) {
+            if (il_slot_st[k] != 2) continue;
+            int d = img_dist(&wimgs[il_slot_img[k]]);
+            if (d < bd) { bd = d; best = k; }
+        }
+        if (best >= 0) {
+            unsigned char *d = ilf[best].buf;
+            int n = ilf[best].len;
+            ilf[best].buf = NULL; ilf[best].len = ilf[best].cap = 0; ilf[best].st = HF_IDLE;
+            il_slot_st[best] = 0;
+            img_decode_start(il_slot_img[best], d, n);
+        }
+    }
+    if (tab != TAB_WEB) return;
+
+    /* 4. nouvelles images a demander (les plus proches de ce qu'on regarde) */
+    for (int k = 0; k < IL_N; k++) {
+        if (il_slot_st[k] != 0) continue;
+        int best = -1, bestd = 3 * WV_H + 1;
         for (int i = 0; i < nwimg; i++) {
             if (wimgs[i].st != IMG_NONE || wimgs[i].y0 < 0) continue;
             int d = img_dist(&wimgs[i]);
             if (d < bestd) { bestd = d; best = i; }
         }
-        if (best < 0) return;
+        if (best < 0) break;
         /* memoire : on oublie les images loin de l'ecran */
-        while (img_bytes > IMG_TEX_BUDGET) {
+        int full = 0;
+        long budget = IMG_TEX_BUDGET - (pg.srclen > 300000 || (rl_state && rl_np.srclen > 300000) ? 2048 * 1024 : 0);   /* (tres grande page : moins d'images gardees) */
+        while (img_bytes > budget) {
             int far = -1, fd = 2 * WV_H;
             for (int i = 0; i < nwimg; i++)
                 if (wimgs[i].st == IMG_OK && img_dist(&wimgs[i]) > fd) { fd = img_dist(&wimgs[i]); far = i; }
-            if (far < 0) return;                                      /* tout est proche : on attend */
+            if (far < 0) { full = 1; break; }                   /* tout est proche : on attend */
             img_bytes -= (long)wimgs[far].tw * wimgs[far].th * 2;
             free(wimgs[far].tex);
             wimgs[far].tex = NULL;
             wimgs[far].st = IMG_NONE;
         }
-        il_img = best;
-        il_gen = img_gen;
+        if (full) break;
         wimgs[best].st = IMG_LOADING;
         {                                               /* deja vue : directement au decodeur */
             int clen = 0;
-            unsigned char *cd = dj_state == 0 && dec_ensure() ? icache_get(wimgs[best].url, &clen) : NULL;
-            if (cd) {
-                dj_in = cd; dj_len = clen;
-                dj_aw = wimgs[best].aw; dj_ah = wimgs[best].ah; dj_maxw = wv_lw;
-                dj_photo = 0; dj_owner = 1;
-                il_state = IL_DECODE;
-                dj_state = 1;
-                return;
-            }
+            unsigned char *cd = (il_state != IL_DECODE && dj_state == 0 && dec_ensure()) ? icache_get(wimgs[best].url, &clen) : NULL;
+            if (cd) { img_decode_start(best, cd, clen); continue; }
         }
-        ihf.image = 1;
-        ihf.maxbytes = IMG_MAX_BYTES;
-        ihf.accept = "image/webp,image/jpeg,image/png,image/gif,image/*;q=0.8,*/*;q=0.5";
-        hf_start(&ihf, wimgs[best].url, pg.url);
-        il_state = IL_FETCH;
-    }
-
-    if (il_state == IL_FETCH) {
-        hf_pump(&ihf);
-        if (ihf.st == HF_FAIL) { img_fail(); return; }
-        if (ihf.st != HF_DONE) return;
-        if (dj_state != 0) return;                      /* decodeur occupe (photo de l'economiseur) */
-        if (!dec_ensure()) { img_fail(); return; }
-        wimg_t *im = &wimgs[il_img];
-        icache_put(im->url, ihf.buf, ihf.len);         /* gardee pour la prochaine fois */
-        dj_in = ihf.buf;
-        dj_len = ihf.len;
-        ihf.buf = NULL;
-        ihf.len = ihf.cap = 0;
-        ihf.st = HF_IDLE;
-        dj_aw = im->aw;
-        dj_ah = im->ah;
-        dj_maxw = wv_lw;
-        dj_photo = 0;
-        dj_owner = 1;
-        il_state = IL_DECODE;
-        dj_state = 1;
+        ilf[k].image = 1;
+        ilf[k].gz = 0;
+        ilf[k].maxbytes = IMG_MAX_BYTES;
+        ilf[k].accept = "image/webp,image/jpeg,image/png,image/gif,image/*;q=0.8,*/*;q=0.5";
+        hf_start(&ilf[k], wimgs[best].url, pg.url);
+        il_slot_st[k] = 1;
+        il_slot_img[k] = best;
+        il_slot_gen[k] = img_gen;
     }
 }
 
@@ -10019,6 +9803,42 @@ static void lyrics_pump(void) {
     }
 }
 
+/* v118 : feuilles de style externes de la page (une a la fois, gardees en memoire), puis remise en page */
+static hfetch_t cshf = { .c = { -1, 0, 0 } };
+static int css_busy = 0;
+static u32 css_gen = 0;
+static char css_cur[URL_MAX];
+static void css_pump(void) {
+    if (rl_state != 0) return;                                     /* (la mise en page en fond lit les feuilles gardees) */
+    if (css_busy) {
+        if (css_gen != img_gen) { hf_abort(&cshf); css_busy = 0; return; }   /* (autre page) */
+        hf_pump(&cshf);
+        if (cshf.st != HF_DONE && cshf.st != HF_FAIL) return;
+        if (cshf.st == HF_DONE && cshf.buf) cssc_put(css_cur, (const char *)cshf.buf, cshf.len);
+        else cssc_put(css_cur, "", 0);                             /* (illisible : on ne la redemande pas) */
+        crumb("web : feuille de style %s (%d octets)", cshf.st == HF_DONE ? "lue" : "illisible", cshf.st == HF_DONE ? cshf.len : 0);
+        hf_drop(&cshf);
+        cshf.st = HF_IDLE;
+        css_busy = 0;
+    }
+    if (wb_loading || pg.css_wait <= 0 || pg.kind != WK_HTML) return;
+    for (int k = 0; k < pg.ncss; k++) {
+        const char *u = pg.pool + pg.css_url[k];
+        if (cssc_get(u)) continue;
+        snprintf(css_cur, sizeof(css_cur), "%s", u);
+        cshf.image = 0;
+        cshf.gz = 1;
+        cshf.maxbytes = 900 * 1024;
+        cshf.accept = "text/css,*/*;q=0.1";
+        hf_start(&cshf, u, pg.url);
+        css_busy = 1;
+        css_gen = img_gen;
+        return;
+    }
+    pg.css_wait = 0;                                               /* toutes lues : la page avec son style */
+    web_relayout();
+}
+
 static void web_pump(void) {
     static unsigned char tmp[16384];
     if (wb_loading) {
@@ -10054,13 +9874,15 @@ static void web_pump(void) {
             else { web_cancel_load(); web_note("Le serveur ne répond plus", 1); }
         }
         /* le texte tout de suite : debut de la page affiche pendant le chargement */
-        if (wb_loading && wb_kind == WK_HTML && wb_buf && wb_len >= 3000 && wb_len < 600 * 1024 &&
+        if (wb_loading && !wb_gz && wb_kind == WK_HTML && wb_buf && wb_len >= 3000 && wb_len < 600 * 1024 &&
             wb_len - wb_shown_len >= (wb_partial ? 24 * 1024 : 3000) && now_ms() - wb_partial_t > (wb_partial ? 1200 : 300))
             web_partial_show();
     }
     ck_pump();
     dl_pump();
     img_pump();
+    web_relayout_poll();
+    css_pump();
     if (relayout_needed && !wb_loading) {                /* une image a donne sa taille */
         static u64 last = 0;
         u64 wait = pg.srclen > 300000 ? 3000 : 800;
@@ -10298,6 +10120,7 @@ static void web_input(u32 down, u32 nav, int fire) {
     }
     if (down & PAD_BUTTON_X) web_go("gc:accueil", NAV_PUSH);
     if (down & PAD_BUTTON_Y) kb_start(KB_URL, "", -1, -1);
+    if (down & PAD_TRIGGER_R) web_set_full(!web_full);          /* v118 : plein ecran */
 }
 
 // ---------- Clavier virtuel ----------
@@ -10411,13 +10234,13 @@ static void draw_mini_badge(f32 cx, f32 cy, const char *k) {
 }
 
 static void draw_legend_web(void) {
-    static const char *const keys_web[6] = { "A", "B", "Y", "X", "Z", "ST" };
-    static const char *const lab_web[6] = { "OUVRIR", "RETOUR", "ADRESSE", "ACCUEIL", "ONGLET", "MENU" };
+    static const char *const keys_web[7] = { "A", "B", "Y", "X", "R", "Z", "ST" };
+    static const char *const lab_web[7] = { "OUVRIR", "RETOUR", "ADRESSE", "ACCUEIL", "PLEIN \xC3\x89" "CRAN", "ONGLET", "MENU" };
     static const char *const keys_kb[6] = { "A", "B", "X", "Y", "ST", "" };
     static const char *const lab_kb[6] = { "TAPER", "EFFACER", "ESPACE", "ANNULER", "VALIDER", "" };
     const char *const *keys = kb_open ? keys_kb : keys_web;
     const char *const *lab = kb_open ? lab_kb : lab_web;
-    int cnt = kb_open ? 5 : 6;
+    int cnt = kb_open ? 5 : 7;
     const f32 x0 = 11, w = 618, cy = 438.5f;
     legend_box(x0, w);
     f32 total = 0;
@@ -10438,6 +10261,169 @@ static void fmt_size(char *b, int sz, long v) {
 
 static int draw_tabs(const char *count);
 #include "web_extra.c"
+
+static void draw_web_page(void) {
+    char fit[400];
+    /* contenu */
+    if (img_tex_dirty) { GX_InvalidateTexAll(); img_tex_dirty = 0; }
+    scr_scissor(WV_X - 6, WV_Y - 4, WV_W + 12, WV_H + 6);
+    uxsave_t wz = ux_native(WV_X);                         /* (16:9 : la page en taille reelle, plus large) */
+#define WCOL(c) RGBA((u8)((c) >> 24), (u8)((c) >> 16), (u8)((c) >> 8), (u8)(c))
+    {   /* v118 : fond de la page (blanc par defaut, comme un navigateur), puis fonds et bordures des blocs */
+        int sr = nv_raw;
+        nv_raw = 1;
+        u32 pb = pg.pagebg ? pg.pagebg : 0xffffffffu;
+        gx_rect(WV_X - 6, WV_Y - 4, (wv_lw > WV_W ? wv_lw : WV_W) + 12, WV_H + 6, WCOL(pb));
+        for (int i = 0; i < pg.nboxes; i++) {
+            const wbox_t *b = &pg.boxes[i];
+            if (b->y1 <= b->y0 || b->y1 < pg_scroll || b->y0 > pg_scroll + WV_H) continue;
+            f32 y0 = (f32)(WV_Y + b->y0 - pg_scroll), h = (f32)(b->y1 - b->y0);
+            if (b->bg) gx_rect(WV_X + b->x0, y0, b->x1 - b->x0, h, WCOL(b->bg));
+            if (b->border) {
+                col_t bc = WCOL(b->border);
+                int sd = b->sides ? b->sides : 15;
+                if (sd & 1) gx_rect(WV_X + b->x0, y0, b->x1 - b->x0, 1, bc);
+                if (sd & 4) gx_rect(WV_X + b->x0, y0 + h - 1, b->x1 - b->x0, 1, bc);
+                if (sd & 8) gx_rect(WV_X + b->x0, y0, 1, h, bc);
+                if (sd & 2) gx_rect(WV_X + b->x1 - 1, y0, 1, h, bc);
+            }
+        }
+        nv_raw = sr;
+    }
+    int lo = 0, hi = pg.nitems;
+    while (lo < hi) {                                          /* premier element visible */
+        int mid = (lo + hi) / 2;
+        if (pg.items[mid].y + 8 < pg_scroll) lo = mid + 1; else hi = mid;
+    }
+    int sr_raw = nv_raw;
+    nv_raw = 1;                                                /* (couleurs de la page telles quelles) */
+    for (int pass = 0; pass < 2; pass++) {
+        for (int i = lo; i < pg.nitems; i++) {
+            witem_t *it = &pg.items[i];
+            int f = it->font;
+            f32 by = (f32)(WV_Y + it->y - pg_scroll);
+            if (by - font_ascent[f] > WV_Y + WV_H + 4 && by - it->h > WV_Y + WV_H + 4 && by - (IMG_MAX_H + 10) > WV_Y + WV_H) break;
+            f32 bx = (f32)(WV_X + it->x);
+            int sel = (it->link >= 0 && it->link == pg_sel);
+            f32 top = by - font_ascent[f];
+            if (it->style & WS_IMG) {                          /* image ou case d'attente */
+                f32 ih = it->h, iy = by - ih;
+                if (iy > WV_Y + WV_H + 4 || by < WV_Y - 4) continue;
+                wimg_t *im = it->img >= 0 ? &wimgs[it->img] : NULL;
+                int ok = im && im->st == IMG_OK && im->tex;
+                if (pass == 0) {
+                    if (sel) gx_rrect_fill(bx - 4, iy - 4, it->w + 8, ih + 8, 5, RGBA(150, 80, 255, 255), RGBA(100, 40, 210, 255));
+                    if (!ok) {
+                        gx_rect(bx, iy, it->w, ih, RGBA(232, 234, 237, 255));
+                        gx_rect(bx, iy, it->w, 1, RGBA(200, 204, 210, 255)); gx_rect(bx, iy + ih - 1, it->w, 1, RGBA(200, 204, 210, 255));
+                        if (im && im->st == IMG_LOADING) {             /* (petite barre qui avance : l'image arrive) */
+                            f32 ph = (f32)(retrace_count % 50) / 50.0f, bw = it->w > 40 ? 24 : it->w / 2;
+                            gx_rect(bx + ph * (it->w - bw), iy + ih - 3, bw, 2, RGBA(120, 140, 220, 255));
+                        }
+                    }
+                    continue;
+                }
+                if (ok) {
+                    /* image centree dans sa case, proportions respectees */
+                    f32 sc = (f32)it->w / im->iw, sc2 = ih / im->ih;
+                    if (sc2 < sc) sc = sc2;
+                    f32 w = im->iw * sc, h = im->ih * sc;
+                    f32 x0 = bx + (it->w - w) / 2, y0 = iy + (ih - h) / 2;
+                    f32 u1 = (f32)im->iw / im->tw, v1 = (f32)im->ih / im->th;
+                    gx_set_image(&im->obj);
+                    GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+                    GX_Position2f32(UX(x0), y0);         GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0, 0);
+                    GX_Position2f32(UX(x0 + w), y0);     GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(u1, 0);
+                    GX_Position2f32(UX(x0 + w), y0 + h); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(u1, v1);
+                    GX_Position2f32(UX(x0), y0 + h);     GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0, v1);
+                    GX_End();
+                } else if (pg.text[it->off]) {
+                    char lab[64];
+                    fit_text(F_SMALL, pg.text + it->off, it->w - 8, lab, sizeof(lab));
+                    gx_text1(F_SMALL, bx + 5, iy + ih / 2 + 4, lab, RGBA(95, 99, 104, 255));
+                }
+                continue;
+            }
+            if (pass == 0) {                                   /* fonds : selection, boutons, champs, mots surlignes */
+                if (it->style & WS_FIELD) {
+                    gx_rect(bx, top - 3, it->w, font_height[F_MED] + 6, RGBA(255, 255, 255, 255));
+                    col_t bc = sel ? RGBA(124, 54, 240, 255) : RGBA(118, 118, 118, 255);
+                    f32 fh = font_height[F_MED] + 6, bw = sel ? 2 : 1;
+                    gx_rect(bx, top - 3, it->w, bw, bc); gx_rect(bx, top - 3 + fh - bw, it->w, bw, bc);
+                    gx_rect(bx, top - 3, bw, fh, bc); gx_rect(bx + it->w - bw, top - 3, bw, fh, bc);
+                } else if ((it->style & WS_BUTTON) && !(it->style & WS_LINK)) {
+                    gx_rrect_fill(bx, top - 3, it->w, font_height[F_MED] + 6, 4,
+                                  sel ? RGBA(150, 80, 255, 255) : RGBA(239, 239, 239, 255), sel ? RGBA(100, 40, 210, 255) : RGBA(225, 225, 225, 255));
+                    if (!sel) gx_rrect_stroke(bx, top - 3, it->w, font_height[F_MED] + 6, 4, 1.0f, RGBA(118, 118, 118, 255));
+                } else if (sel) {
+                    gx_rrect_fill(bx - 3, top - 2, it->w + 6, font_height[f] + 3, 4, RGBA(124, 54, 240, 255), RGBA(80, 26, 180, 255));
+                } else if (it->bg) {
+                    gx_rect(bx - 1, top - 1, it->w + 2, font_height[f] + 1, WCOL(it->bg));
+                } else if (it->style & WS_BUTTON) {
+                    gx_rrect_fill(bx - 4, top - 2, it->w + 8, font_height[f] + 3, 4, RGBA(239, 239, 239, 255), RGBA(225, 225, 225, 255));
+                }
+                continue;
+            }
+            const char *t = pg.text + it->off;
+            if (it->style & WS_HR) { gx_rect(bx, by - 1, it->w, 1, RGBA(162, 169, 177, 255)); continue; }
+            if (it->style & WS_FIELD) {
+                const char *v = "";
+                wfield_t *fd = (it->link >= 0 && pg.links[it->link].field >= 0) ? &pg.fields[pg.links[it->link].field] : NULL;
+                if (fd && (fd->type == FD_CHECK || fd->type == FD_RADIO)) {      /* case cochee / bouton radio */
+                    if (fd->checked) {
+                        f32 cx = bx + it->w / 2.0f, cy = top - 3 + (font_height[F_MED] + 6) / 2.0f;
+                        if (fd->type == FD_RADIO) gx_rrect_fill(cx - 5, cy - 5, 10, 10, 5, RGBA(26, 79, 191, 255), RGBA(26, 79, 191, 255));
+                        else { gx_tri(cx - 6, cy, cx - 2, cy + 5, cx - 1, cy + 1, RGBA(26, 79, 191, 255)); gx_tri(cx - 2, cy + 5, cx + 7, cy - 6, cx - 1, cy + 1, RGBA(26, 79, 191, 255)); }
+                    }
+                    continue;
+                }
+                char dv[300];
+                if (fd && fd->type == FD_SELECT) {                               /* liste : le choix en cours */
+                    v = (fd->nopt > 0 && fd->osel >= 0) ? pg.pool + pg.opts[(fd->opt0 + fd->osel) * 2 + 1] : "";
+                    f32 ax2 = bx + it->w - 14, ay = top + font_height[F_MED] / 2.0f - 2;
+                    gx_tri(ax2, ay, ax2 + 9, ay, ax2 + 4.5f, ay + 6, RGBA(60, 64, 67, 255));
+                    text_display(v, dv, sizeof(dv));
+                    fit_text(F_MED, dv, it->w - 28, fit, sizeof(fit));
+                } else {
+                    if (fd) v = fd->value;
+                    if (fd && fd->secret) {                                      /* mot de passe : masque */
+                        int n = (int)strlen(v);
+                        if (n > 40) n = 40;
+                        memset(dv, '*', n);
+                        dv[n] = 0;
+                    } else text_display(v, dv, sizeof(dv));
+                    fit_text(F_MED, dv, it->w - 12, fit, sizeof(fit));
+                }
+                gx_text1(F_MED, bx + 6, by, fit, RGBA(32, 33, 34, 255));
+                continue;
+            }
+            if ((it->style & WS_BUTTON) && !(it->style & WS_LINK)) {
+                gx_text1(F_MED, bx + 10, by, t, sel ? RGBA(255, 255, 255, 255) : RGBA(32, 33, 34, 255));
+                continue;
+            }
+            col_t c = sel ? RGBA(255, 255, 255, 255) : (it->style & WS_DIM) ? RGBA(114, 119, 125, 255) : WCOL(it->col ? it->col : 0x202122ffu);
+            gx_text1(f, bx, by, t, c);
+            if (it->fx & FX_BOLD) gx_text1(f, bx + 0.8f, by, t, c);          /* (gras : le texte une deuxieme fois, decale) */
+            if ((it->fx & FX_ULINE) && !sel) gx_rect(bx, by + 2, it->w, 1, RGBA(c.r, c.g, c.b, 170));
+        }
+    }
+    nv_raw = sr_raw;
+#undef WCOL
+    ux_restore(wz);
+    scr_viewport();
+    if (pg.nitems == 0 && !wb_loading && !wb_busy)
+        gx_text1(F_MED, WV_X, WV_Y + 20, "(page sans texte)", RGBA(114, 119, 125, 255));
+
+    /* barre de defilement */
+    if (pg.height > WV_H) {
+        f32 h = (f32)WV_H * WV_H / pg.height;
+        if (h < 16) h = 16;
+        f32 y = WV_Y + (WV_H - h) * pg_scroll / (f32)(pg.height - WV_H + 8);
+        gx_rect(619, WV_Y, 2, WV_H, RGBA(50, 34, 110, 255));
+        gx_rrect_fill(618, y, 4, h, 2, RGBA(170, 110, 255, 255), RGBA(120, 70, 230, 255));
+    }
+
+}
 
 static void draw_web(void) {
     char buf[URL_MAX], fit[400];
@@ -10467,136 +10453,7 @@ static void draw_web(void) {
         gx_rect(ax + 4 + ph * (aw - 40), 102, 32, 2, RGBA(255, 190, 90, 200));
     }
 
-    /* contenu */
-    if (img_tex_dirty) { GX_InvalidateTexAll(); img_tex_dirty = 0; }
-    scr_scissor(WV_X - 6, WV_Y - 4, WV_W + 12, WV_H + 6);
-    uxsave_t wz = ux_native(WV_X);                         /* (16:9 : la page en taille reelle, plus large) */
-    int lo = 0, hi = pg.nitems;
-    while (lo < hi) {                                          /* premier element visible */
-        int mid = (lo + hi) / 2;
-        if (pg.items[mid].y + 8 < pg_scroll) lo = mid + 1; else hi = mid;
-    }
-    for (int pass = 0; pass < 2; pass++) {
-        for (int i = lo; i < pg.nitems; i++) {
-            witem_t *it = &pg.items[i];
-            int f = it->font;
-            f32 by = (f32)(WV_Y + it->y - pg_scroll);
-            if (by - font_ascent[f] > WV_Y + WV_H + 4 && by - it->h > WV_Y + WV_H + 4) break;
-            f32 bx = (f32)(WV_X + it->x);
-            int sel = (it->link >= 0 && it->link == pg_sel);
-            f32 top = by - font_ascent[f];
-            if (it->style & WS_IMG) {                          /* image ou case d'attente */
-                f32 ih = it->h, iy = by - ih;
-                if (iy > WV_Y + WV_H + 4 || by < WV_Y - 4) continue;
-                wimg_t *im = it->img >= 0 ? &wimgs[it->img] : NULL;
-                int ok = im && im->st == IMG_OK && im->tex;
-                if (pass == 0) {
-                    if (sel) gx_rrect_fill(bx - 4, iy - 4, it->w + 8, ih + 8, 5, RGBA(150, 80, 255, 255), RGBA(100, 40, 210, 255));
-                    if (!ok) {
-                        gx_rrect_fill(bx, iy, it->w, ih, 3, RGBA(30, 20, 70, 255), RGBA(20, 12, 50, 255));
-                        gx_rrect_stroke(bx, iy, it->w, ih, 3, 1.0f, RGBA(80, 60, 150, 255));
-                    }
-                    continue;
-                }
-                if (ok) {
-                    /* image centree dans sa case, proportions respectees */
-                    f32 sc = (f32)it->w / im->iw, sc2 = ih / im->ih;
-                    if (sc2 < sc) sc = sc2;
-                    f32 w = im->iw * sc, h = im->ih * sc;
-                    f32 x0 = bx + (it->w - w) / 2, y0 = iy + (ih - h) / 2;
-                    f32 u1 = (f32)im->iw / im->tw, v1 = (f32)im->ih / im->th;
-                    gx_set_image(&im->obj);
-                    GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-                    GX_Position2f32(UX(x0), y0);         GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0, 0);
-                    GX_Position2f32(UX(x0 + w), y0);     GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(u1, 0);
-                    GX_Position2f32(UX(x0 + w), y0 + h); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(u1, v1);
-                    GX_Position2f32(UX(x0), y0 + h);     GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0, v1);
-                    GX_End();
-                } else if (pg.text[it->off]) {
-                    char lab[64];
-                    fit_text(F_SMALL, pg.text + it->off, it->w - 8, lab, sizeof(lab));
-                    gx_text1(F_SMALL, bx + 5, iy + ih / 2 + 4, lab, RGBA(150, 135, 210, 255));
-                }
-                continue;
-            }
-            if (pass == 0) {                                   /* fonds : selection, boutons, champs */
-                if (it->style & WS_FIELD) {
-                    gx_rrect_fill(bx, top - 3, it->w, font_height[F_MED] + 6, 4,
-                                  sel ? RGBA(60, 30, 140, 255) : RGBA(6, 4, 20, 255), sel ? RGBA(40, 20, 100, 255) : RGBA(14, 9, 36, 255));
-                    gx_rrect_stroke(bx, top - 3, it->w, font_height[F_MED] + 6, 4, sel ? 2.0f : 1.0f,
-                                    sel ? RGBA(200, 140, 255, 255) : RGBA(110, 80, 200, 255));
-                } else if ((it->style & WS_BUTTON) && !(it->style & WS_LINK)) {
-                    gx_rrect_fill(bx, top - 3, it->w, font_height[F_MED] + 6, 6,
-                                  sel ? RGBA(150, 80, 255, 255) : RGBA(90, 50, 190, 255), sel ? RGBA(100, 40, 210, 255) : RGBA(60, 30, 140, 255));
-                } else if (sel) {
-                    gx_rrect_fill(bx - 3, top - 2, it->w + 6, font_height[f] + 3, 4, RGBA(124, 54, 240, 255), RGBA(80, 26, 180, 255));
-                } else if (it->style & WS_BUTTON) {
-                    gx_rrect_fill(bx - 4, top - 2, it->w + 8, font_height[f] + 3, 5, RGBA(70, 40, 160, 255), RGBA(46, 24, 110, 255));
-                }
-                continue;
-            }
-            const char *t = pg.text + it->off;
-            if (it->style & WS_HR) { gx_rect(bx, by - 1, it->w, 1, RGBA(90, 64, 170, 255)); continue; }
-            if (it->style & WS_FIELD) {
-                const char *v = "";
-                wfield_t *fd = (it->link >= 0 && pg.links[it->link].field >= 0) ? &pg.fields[pg.links[it->link].field] : NULL;
-                if (fd && (fd->type == FD_CHECK || fd->type == FD_RADIO)) {      /* case cochee / bouton radio */
-                    if (fd->checked) {
-                        f32 cx = bx + it->w / 2.0f, cy = top - 3 + (font_height[F_MED] + 6) / 2.0f;
-                        if (fd->type == FD_RADIO) gx_rrect_fill(cx - 5, cy - 5, 10, 10, 5, RGBA(200, 150, 255, 255), RGBA(150, 90, 255, 255));
-                        else { gx_tri(cx - 6, cy, cx - 2, cy + 5, cx - 1, cy + 1, RGBA(200, 150, 255, 255)); gx_tri(cx - 2, cy + 5, cx + 7, cy - 6, cx - 1, cy + 1, RGBA(200, 150, 255, 255)); }
-                    }
-                    continue;
-                }
-                char dv[300];
-                if (fd && fd->type == FD_SELECT) {                               /* liste : le choix en cours */
-                    v = (fd->nopt > 0 && fd->osel >= 0) ? pg.pool + pg.opts[(fd->opt0 + fd->osel) * 2 + 1] : "";
-                    f32 ax2 = bx + it->w - 14, ay = top + font_height[F_MED] / 2.0f - 2;
-                    gx_tri(ax2, ay, ax2 + 9, ay, ax2 + 4.5f, ay + 6, RGBA(200, 170, 255, 255));
-                    text_display(v, dv, sizeof(dv));
-                    fit_text(F_MED, dv, it->w - 28, fit, sizeof(fit));
-                } else {
-                    if (fd) v = fd->value;
-                    if (fd && fd->secret) {                                      /* mot de passe : masque */
-                        int n = (int)strlen(v);
-                        if (n > 40) n = 40;
-                        memset(dv, '*', n);
-                        dv[n] = 0;
-                    } else text_display(v, dv, sizeof(dv));
-                    fit_text(F_MED, dv, it->w - 12, fit, sizeof(fit));
-                }
-                gx_text1(F_MED, bx + 6, by, fit, RGBA(235, 230, 255, 255));
-                continue;
-            }
-            if ((it->style & WS_BUTTON) && !(it->style & WS_LINK)) {
-                gx_text1(F_MED, bx + 10, by, t, RGBA(255, 255, 255, 255));
-                continue;
-            }
-            col_t c;
-            if (sel) c = RGBA(255, 255, 255, 255);
-            else if (it->style & WS_LINK) c = RGBA(150, 178, 255, 255);
-            else if (it->style & WS_HEAD) c = RGBA(255, 255, 255, 255);
-            else if (it->style & WS_DIM) c = RGBA(140, 122, 200, 255);
-            else if (it->style & WS_BOLD) c = RGBA(246, 242, 255, 255);
-            else c = RGBA(206, 198, 238, 255);
-            if (it->style & WS_HEAD) gx_text(f, bx, by, t, RGBA(255, 255, 255, 255), RGBA(190, 150, 255, 255), 0);
-            else gx_text1(f, bx, by, t, c);
-            if ((it->style & WS_LINK) && !sel && !(it->style & WS_BUTTON)) gx_rect(bx, by + 2, it->w, 1, RGBA(120, 140, 240, 110));
-        }
-    }
-    ux_restore(wz);
-    scr_viewport();
-    if (pg.nitems == 0 && !wb_loading && !wb_busy)
-        gx_text1(F_MED, WV_X, WV_Y + 20, "(page sans texte)", RGBA(140, 122, 200, 255));
-
-    /* barre de defilement */
-    if (pg.height > WV_H) {
-        f32 h = (f32)WV_H * WV_H / pg.height;
-        if (h < 16) h = 16;
-        f32 y = WV_Y + (WV_H - h) * pg_scroll / (f32)(pg.height - WV_H + 8);
-        gx_rect(619, WV_Y, 2, WV_H, RGBA(50, 34, 110, 255));
-        gx_rrect_fill(618, y, 4, h, 2, RGBA(170, 110, 255, 255), RGBA(120, 70, 230, 255));
-    }
+    draw_web_page();
 
     /* ligne d'etat : telechargement / message / morceau en cours */
     gx_rect(25, 392, 590, 1, RGBA(76, 52, 150, 200));
@@ -10642,6 +10499,41 @@ static void draw_web(void) {
         gx_text_r(F_SMALL, 614, 406, fit, RGBA(150, 135, 210, 255));
     }
     draw_web_overlays();
+}
+
+/* v118 : plein ecran (R) : la page sur tout l'ecran, une fine barre d'adresse en haut */
+static void draw_web_full(void) {
+    char buf[URL_MAX], disp[URL_MAX], fit[400];
+    int sr = nv_raw;
+    nv_raw = 1;
+    gx_rect(scr_x0, 0, scr_w, 480, RGBA(12, 10, 22, 255));
+    nv_raw = sr;
+    if (wb_busy) snprintf(buf, sizeof(buf), "%s", conn_msg);
+    else if (wb_loading) snprintf(buf, sizeof(buf), "Chargement... %ld Ko", (long)wb_len / 1024);
+    else if (strcmp(pg.url, "gc:accueil") == 0) snprintf(buf, sizeof(buf), "Accueil");
+    else snprintf(buf, sizeof(buf), "%s", pg.url);
+    text_display(buf, disp, sizeof(disp));
+    fit_text(F_SMALL, disp, 440, fit, sizeof(fit));
+    gx_text1(F_SMALL, WV_X, 17, fit, (wb_busy || wb_loading) ? RGBA(255, 210, 120, 255) : RGBA(200, 190, 240, 255));
+    gx_text_r(F_SMALL, 614, 17, TR("R : quitter le plein \xC3\xA9" "cran"), RGBA(140, 130, 180, 255));
+    if (wb_loading) { f32 ph = (f32)(retrace_count % 60) / 60.0f; gx_rect(WV_X + ph * 400, 21, 32, 2, RGBA(255, 190, 90, 200)); }
+    draw_web_page();
+    int msg_on = web_msg[0] && now_ms() - web_msg_t < 8000;
+    if (msg_on || dl_active) {                                /* message / telechargement : en bas, par-dessus */
+        char st[300];
+        if (dl_active) snprintf(st, sizeof(st), "%s  %ld Ko", dl_name, (long)dl_got / 1024);
+        else text_display(web_msg, st, sizeof(st));
+        fit_text(F_SMALL, st, 560, fit, sizeof(fit));
+        gx_rrect_fill(20, 452, 600, 22, 8, RGBA(20, 14, 40, 235), RGBA(20, 14, 40, 235));
+        gx_text1(F_SMALL, 30, 467, fit, web_msg_err && !dl_active ? RGBA(255, 160, 110, 255) : RGBA(170, 240, 180, 255));
+    }
+    draw_web_overlays();
+}
+static void web_set_full(int on) {
+    web_full = on;
+    wv_y = on ? 28 : 116;
+    wv_h = on ? 446 : 272;
+    web_scroll_clamp();
 }
 
 static void draw_keyboard(void) {
@@ -12910,7 +12802,11 @@ int main(int argc, char **argv) {
                 else if (src == SRC_RADIO) muted = !muted;
             }
         }
-        if (down & (PAD_TRIGGER_L | PAD_TRIGGER_R)) transport_step((down & PAD_TRIGGER_R) ? 1 : -1);
+        {
+            u32 tr = down & (PAD_TRIGGER_L | PAD_TRIGGER_R);
+            if (tab == TAB_WEB && !kb_is_open()) tr &= ~PAD_TRIGGER_R;   /* v118 : R = plein ecran dans le navigateur */
+            if (tr) transport_step((tr & PAD_TRIGGER_R) ? 1 : -1);
+        }
 
         /* v49 : pendant un mini-jeu, rien de lourd en fond (reseau https, carte SD, pochettes,
            etiquettes) : chaque image doit tenir dans 1/60 s pour que le jeu reste fluide */
