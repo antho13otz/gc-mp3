@@ -89,3 +89,5 @@ python3 $T/emu_e2e.py boot-n.bin sd.img game.iso net | tail -1
 python3 $T/mkiso_z.py game.text game-z.iso && python3 $T/mkfat.py 32 game-z.iso sd-z.img 1 selfdol.dol 2097152 >/dev/null
 NATIF_SELF=selfdol.dol NATIF_TRAP=1 NATIF_DUMP=boot-z.bin ./h2 game-z.iso sd-z.img 10 > h2-z.txt
 python3 $T/check_z.py boot-z.bin | tail -1
+# v153 : jeu en reseau local : le jeu se sert du BBA (canal 0, peripherique 2) avec la carte virtuelle du slot A et Pulse
+python3 $T/emu_e2e.py boot.bin sd.img game.iso lan | tail -1

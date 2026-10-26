@@ -14,19 +14,26 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v152)
+## Nouveautés de la version actuelle (v153)
+- **Jeux en réseau local (LAN)** : vérifié au banc d'essai qu'un jeu qui se sert lui-même du Broadband Adapter
+  (Kirby Air Ride, Mario Kart : Double Dash!!, 1080°…) le fait normalement avec Pulse : il envoie et reçoit ses
+  trames pendant que Pulse lit le disque et émule la carte mémoire sur le même bus, sans que la vraie carte soit
+  touchée. Lance le jeu avec Pulse sur chaque console, puis le mode LAN du jeu.
+- **LAN par Internet, avec un relais** : `tools/lan-relais.py` (Python 3) relie deux réseaux par Internet ; les
+  GameCube se croient côte à côte.
+  - Le relais, une fois, sur une machine joignable des deux côtés (port UDP 51240 ouvert) :
+    `python3 lan-relais.py relais`
+  - Chez chaque joueur, un PC sur le même réseau que la GameCube :
+    `python3 lan-relais.py pont <adresse du relais> <nom de la partie>` (Linux : sudo ; Windows/Mac : Npcap et
+    `pip install scapy`, en administrateur).
+  - Seules les trames des GameCube passent, sans boucle. Jouable si le ping est faible.
+
+## Version précédente (v152)
 - **Star Wars Rogue Squadron III (Rebel Strike) corrigé proprement** : la plus grande partie de son programme est
   compressée dans le jeu. GC Station la décompresse maintenant au lancement, branche ses accès au lecteur comme pour
   les autres jeux, puis la recompresse à sa place (avec son propre compresseur, un peu plus serré que zlib). Pulse
   universel n'est plus nécessaire pour ce jeu (il ne reste qu'en secours, si le programme corrigé ne tenait plus).
 - Catalogue d'applis : Neverball retiré (54 Mo, trop gros pour la mémoire de la GameCube), GCMM : la version normale.
-
-## Version précédente (v151)
-- **Catalogue d'applis** : START > Réglages > Outils > « Catalogue d'applis (Internet) ». Des homebrews GameCube
-  (Swiss, CleanRip, GCMM, Neverball, cubeboot…) à installer en un clic dans `SD:/apps`, comme GC Station se met à
-  jour lui-même : A = installer ou mettre à jour (la nouvelle version est signalée), X = supprimer, Y = relire le
-  catalogue. Chaque paquet est vérifié (taille, empreinte) avant d'être écrit ; l'appli apparaît ensuite dans Applis.
-  Le catalogue est refait chaque semaine depuis les versions publiées par leurs auteurs (liste : `catalogue/applis.txt`).
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

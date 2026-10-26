@@ -80,7 +80,8 @@ kicks = []
 
 si_inbuf = [0x80000000, 0x11900000, 0x80000000, 0x80000000]   # manette 1 : A + START + Z
 # v143 : Broadband Adapter (EXI canal 0, peripherique 2) et serveur Pulse simule (ARP, UDP "PNR1" -> "PNA1")
-NET = len(sys.argv) > 4 and sys.argv[4] == 'net'
+NET = len(sys.argv) > 4 and sys.argv[4] in ('net', 'lan')   # (v153 : 'lan' : le jeu lui-meme se sert du BBA)
+LAN = len(sys.argv) > 4 and sys.argv[4] == 'lan'
 GC_IP, SRV_IP, SRV_MAC = bytes([192, 168, 1, 50]), bytes([192, 168, 1, 10]), bytes([0x02, 0x11, 0x22, 0x33, 0x44, 0x55])
 class BBA:
     def __init__(s):
@@ -136,6 +137,7 @@ class BBA:
             r = mac + SRV_MAC + b'\x08\x06' + bytes([0, 1, 8, 0, 6, 4, 0, 2]) + SRV_MAC + SRV_IP + mac + GC_IP
             s.deliver(r + bytes(60 - len(r))); return
         if f[12:14] == b'\x08\x06' and f[20:22] == b'\x00\x02' and f[28:32] == GC_IP and f[38:42] == SRV_IP: s.arp_ok = True; return
+        if LAN: s.lan = f; s.deliver(f[6:12] + f[0:6] + f[12:]); return      # (v153 : jeu en reseau : la trame revient, adresses echangees)
         if f[12:14] != b'\x08\x00' or f[23] != 17 or f[30:34] != SRV_IP: return
         u = f[34:]; d = u[8:]
         if d[:4] != b'PNR1': return
@@ -256,8 +258,9 @@ if EXC: mu.mem_write(0x80001F40, struct.pack('>I', 1))
 EXEC = len(sys.argv) > 4 and sys.argv[4] in ('exec', 'execa')   # v95 : OSExec (ancien / recent apploader)
 EXECA = EXEC and sys.argv[4] == 'execa'
 if EXEC: mu.mem_write(0x80001F44, struct.pack('>I', 2 if EXECA else 1))
-if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'tick', 'trap'): mu.mem_write(0x80001F44, struct.pack('>I', {'swap': 3, 'cheat': 4, 'ws': 5, 'cardb': 6, 'pad': 7, 'tick': 8, 'trap': 9}[MODE]))   # v121, v122, v133, v139
+if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'tick', 'trap', 'lan'): mu.mem_write(0x80001F44, struct.pack('>I', {'swap': 3, 'cheat': 4, 'ws': 5, 'cardb': 6, 'pad': 7, 'tick': 8, 'trap': 9, 'lan': 10}[MODE]))   # v121, v122, v133, v139
 STOP = 0x80001000
+if MODE == 'lan': mu.mem_write(0x80001E00, bytes([0xFF] * 6 + [0x00, 0x09, 0xBF, 0x0A, 0x0B, 0x0C, 0x08, 0x00]) + bytes((i * 7 + 3) & 0xFF for i in range(48)))   # (v153 : trame du jeu)
 mu.mem_write(STOP, struct.pack('>I', 0x48000000))
 mu.reg_write(UC_PPC_REG_1, 0x81000000); mu.reg_write(UC_PPC_REG_LR, STOP)
 mu.reg_write(UC_PPC_REG_31, 0xDEAD); mu.reg_write(UC_PPC_REG_30, 0xBEEF)
@@ -308,7 +311,7 @@ def chk(name, addr, want):
     ok &= good
     print(('OK   ' if good else 'FAUX ') + name)
 chk('ID du disque (A8000040)', 0x80100000, iso[0:0x20])
-if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'video', 'tick', 'trap'):   # v121, v122, v133, v139
+if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'video', 'tick', 'trap', 'lan'):   # v121, v122, v133, v139, v153
     rd32 = lambda a: struct.unpack('>I', mu.mem_read(a, 4))[0]
     u = lambda o: struct.unpack('>I', mu.mem_read(0x817F0000 + o, 4))[0]
     back = rd32(0x80001F50) == 0x42424242 and pc == STOP
@@ -338,6 +341,13 @@ if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'video', 'tick', 'trap'):   #
             jb = bytes(disk[card.writes[-1] * 512:card.writes[-1] * 512 + 512]) if card.writes else bytes(512)
             dd = [1] * struct.unpack_from('>I', jb, 0x1DC)[0]   # (v143 : compteur n_rescue ; l'anneau n'a plus que 2 entrees)
             print(('OK   ' if dd else 'FAUX ') + 'journal : secours note (%d entree(s) DD)' % len(dd)); ok &= bool(dd)
+    if MODE == 'lan':                                   # v153 : le jeu et Pulse sur le meme canal EXI
+        frame = bytes(mu.mem_read(0x80001E00, 64)); back = bytes(mu.mem_read(0x80001E80, 64))
+        sent = getattr(bba, 'lan', None)
+        good = rd32(0x80001FE8) == 0x04020200 and sent == frame and back == frame[6:12] + frame[0:6] + frame[12:] and (struct.unpack('<I', struct.pack('>I', rd32(0x80001FEC)))[0] >> 12 & 0xFFF) == 68
+        print(('OK   ' if good else 'FAUX ') + 'jeu en reseau local : identifiant du BBA %08X, trame envoyee %s, trame recue %s (descripteur %08X)' % (rd32(0x80001FE8), sent == frame, back[:12].hex(), rd32(0x80001FEC))); ok &= good
+        d = bytes(mu.mem_read(0x80130000, 0x200)) == iso[0x1000:0x1200]
+        print(('OK   ' if d and not bad0 else 'FAUX ') + 'pendant ce temps : lecture du disque %s, vraie carte du slot A jamais choisie (%s)' % (d, bad0[:2])); ok &= d and not bad0
     if MODE == 'trap':                                  # v139
         st, n, last, bad = u(0x1C0), u(0x1C4), u(0x1C8), u(0x1CC)
         d = bytes(mu.mem_read(0x80150000, 0x200)) == iso[0x1000:0x1200]

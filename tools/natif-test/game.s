@@ -303,6 +303,8 @@ _start:
     beq tick_test
     cmpwi 12,9              # v139 : acces au lecteur que personne n'a remplaces (pris par exception)
     beq trap_test
+    cmpwi 12,10             # v153 : jeu en reseau local : le jeu se sert lui-meme du Broadband Adapter
+    beq lan_test
     cmpwi 12,2
     beq 7f
     cmpwi 12,1
@@ -552,6 +554,128 @@ trap_test:
     lbz 11,0xC03(9)
     stw 11,0x1FE4(20)
     b 8b
+# v153 : jeu en reseau local (Kirby Air Ride, Mario Kart : Double Dash!!) : le jeu parle lui-meme au BBA (canal 0,
+# peripherique 2) pendant que Pulse lit le disque et emule la carte du slot A (canal 0, peripherique 0).
+# Identifiant, anneau de reception, une trame envoyee (64 octets de 0x80001E00), une lecture du disque,
+# puis la trame recue (renvoyee par le reseau simule) lue en 0x80001E80.
+lan_test:
+    li 3,0
+    li 4,2
+    bl lan_sel
+    bl lan_w                # commande : identifiant du peripherique
+    li 4,4
+    bl lan_r
+    lis 20,0x8000
+    stw 3,0x1FE8(20)
+    bl lan_end
+    li 5,0x0A
+    li 6,1
+    bl lan_mx               # BP = 1
+    li 5,0x1A
+    li 6,0x0F
+    bl lan_mx               # RHBP = 0x0F
+    li 5,0x16
+    li 6,1
+    bl lan_mx               # RWP = 1
+    li 5,0x18
+    li 6,1
+    bl lan_mx               # RRP = 1
+    li 5,0x3E
+    li 6,64
+    bl lan_mx               # TXFIFOCNT = 64
+    li 5,0x3F
+    li 6,0
+    bl lan_mx
+    bl lan_sel              # 64 octets dans la file d'envoi (0x48)
+    lis 3,0xC000
+    ori 3,3,0x4800
+    li 4,4
+    bl lan_w
+    lis 20,0x8000
+    li 21,0x1E00
+    li 22,16
+1:  lwzx 3,20,21
+    li 4,4
+    bl lan_w
+    addi 21,21,4
+    addic. 22,22,-1
+    bne 1b
+    bl lan_end
+    li 5,0
+    li 6,0x0C
+    bl lan_mx               # NCRA : SR (reception) + ST1 (envoyer)
+    lis 3,0x8013            # pendant ce temps : une lecture du disque (Pulse)
+    li 4,0x200
+    li 5,0x1000
+    lis 6,0xA800
+    bl dvd_cmd
+    bl lan_sel              # trame recue : descripteur et 64 octets en page 1 (0x100)
+    lis 3,0x8001            # (commande MX : lecture en 0x0100)
+    li 4,4
+    bl lan_w
+    li 4,4
+    bl lan_r
+    lis 20,0x8000
+    stw 3,0x1FEC(20)
+    li 21,0x1E80
+    li 22,16
+2:  li 4,4
+    bl lan_r
+    stwx 3,20,21
+    addi 21,21,4
+    addic. 22,22,-1
+    bne 2b
+    bl lan_end
+    b 8b
+lan_sel:
+    lis 9,0xCC00
+    li 0,0x250              # peripherique 2, 32 MHz
+    stw 0,0x6800(9)
+    blr
+lan_end:
+    lis 9,0xCC00
+    li 0,0
+    stw 0,0x6800(9)
+    blr
+lan_w:                      # r3 : valeur (octets de poids fort), r4 : nombre d'octets
+    lis 9,0xCC00
+    stw 3,0x6810(9)
+    addi 0,4,-1
+    slwi 0,0,4
+    ori 0,0,5
+    stw 0,0x680C(9)
+3:  lwz 0,0x680C(9)
+    andi. 0,0,1
+    bne 3b
+    blr
+lan_r:                      # r4 : nombre d'octets -> r3
+    lis 9,0xCC00
+    addi 0,4,-1
+    slwi 0,0,4
+    ori 0,0,1
+    stw 0,0x680C(9)
+4:  lwz 0,0x680C(9)
+    andi. 0,0,1
+    bne 4b
+    lwz 3,0x6810(9)
+    blr
+lan_mx:                     # registre r5 du controleur Ethernet <- octet r6
+    stwu 1,-16(1)
+    mflr 0
+    stw 0,20(1)
+    bl lan_sel
+    slwi 3,5,8
+    oris 3,3,0xC000
+    li 4,4
+    bl lan_w
+    slwi 3,6,24
+    li 4,1
+    bl lan_w
+    bl lan_end
+    lwz 0,20(1)
+    mtlr 0
+    addi 1,1,16
+    blr
 dvd_start:
     lis 9,0xCC00
     stw 6,0x6008(9)
