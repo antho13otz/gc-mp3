@@ -684,6 +684,39 @@ static int nat_map_check(const char *path, long size, char *err, int cap) {
 #define NA_SNAP NA_DIR "/memoire-jeu.bin"             /* v83 : photo de la memoire du jeu au plantage */
 static int na_jcrash = 0;                              /* v79 : 2e secteur du journal (details d'un plantage) disponible */
 static int na_jstack = 0;                              /* v82 : 3e secteur (pile du jeu au plantage) disponible */
+/* v162 : code du jeu au point d'entree, et au debut des fonctions qu'il appelle (bl) : pour comprendre un
+   jeu qui se fige avant la moindre trace de Pulse (il ne passe meme pas par ses interruptions) */
+static int na_dol_at(const u8 *dol, u32 a, u32 *end) {   /* position dans le .dol de l'adresse a (code), -1 = pas trouvee */
+    for (int i = 0; i < 7; i++) {
+        u32 off = be32(dol + i * 4), addr = be32(dol + 0x48 + i * 4), sz = be32(dol + 0x90 + i * 4);
+        if (sz && a >= addr && a < addr + sz) { *end = addr + sz; return (int)(off + (a - addr)); }
+    }
+    return -1;
+}
+static void na_dump_words(FILE *f, const u8 *dol, u32 a, u32 nw, u32 *bl, int *nbl, int maxbl) {
+    u32 end = 0;
+    int o = na_dol_at(dol, a, &end);
+    if (o < 0) { fprintf(f, "  %08X : (hors du code)\n", (unsigned)a); return; }
+    if (a + nw * 4 > end) nw = (end - a) / 4;
+    for (u32 i = 0; i < nw; i++) {
+        u32 w = be32(dol + o + i * 4);
+        if (i % 8 == 0) fprintf(f, "%s  %08X :", i ? "\n" : "", (unsigned)(a + i * 4));
+        fprintf(f, " %08X", (unsigned)w);
+        if (bl && (w & 0xFC000003u) == 0x48000001u && *nbl < maxbl) {     /* bl : on suivra la fonction appelee */
+            s32 d = (s32)(w & 0x03FFFFFCu); if (d & 0x02000000) d -= 0x04000000;
+            u32 t = a + i * 4 + (u32)d; int dup = 0;
+            for (int k = 0; k < *nbl; k++) if (bl[k] == t) dup = 1;
+            if (!dup) bl[(*nbl)++] = t;
+        }
+    }
+    fprintf(f, "\n");
+}
+static void na_dump_start(FILE *f, const u8 *dol) {
+    u32 entry = be32(dol + 0xE0), bl[8]; int nbl = 0;
+    fprintf(f, "Code au point d'entree :\n");
+    na_dump_words(f, dol, entry, 128, bl, &nbl, 8);
+    for (int k = 0; k < nbl; k++) { fprintf(f, "Fonction appelee %d :\n", k + 1); na_dump_words(f, dol, bl[k], 48, NULL, NULL, 0); }
+}
 static u32 nat_journal_prep(void) {
     na_jcrash = na_jstack = 0;
     if (sd_virtual) return 0;
@@ -2833,7 +2866,8 @@ static const char *nat_boot(int k) {
         fprintf(f, "Donnees rangees en %08X (%u octets)\nbi2.bin -> %08X   FST -> %08X (%u / %u octets)\n",
                 (unsigned)stage, (unsigned)total, (unsigned)bi2_dest, (unsigned)fst_dest, (unsigned)in.fst_sz, (unsigned)in.fst_max);
         for (u32 i = 0; i < n; i++) fprintf(f, "  copie %08X <- %08X  %u octets\n", (unsigned)tab[i * 3], (unsigned)tab[i * 3 + 1], (unsigned)tab[i * 3 + 2]);
-        fprintf(f, "Point d'entree : %08X\n", (unsigned)in.entry);
+        fprintf(f, "Point d'entree : %08X   BSS %08X (%u octets)\n", (unsigned)in.entry, (unsigned)in.bss, (unsigned)in.bsz);
+        na_dump_start(f, buf + o_dol);                   /* v162 : debut du code du jeu (jeu fige avant toute trace : Crash Bandicoot) */
         fprintf(f, "Programme resident : %s\n", res ? "installe" : merr[0] ? merr : "non installe");
         fprintf(f, "Journal du jeu : %s\n", log_sec ? "oui (gc-mp3/natif/journal-jeu.txt au prochain demarrage de GC Station)" : "non");
         fprintf(f, "Faux lecteur DVD : %d acces branches, %d non branches (sur %d trouves)\n", patched - na_xdone, skipped, in.ntotal - in.nexi);

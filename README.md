@@ -14,21 +14,15 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v161)
+## Nouveautés de la version actuelle (v162)
+- **Pulse : diagnostic des jeux figés dès le début** (Crash Bandicoot : The Wrath of Cortex, écran noir) : le journal
+  du lancement (`gc-mp3/natif/dernier-lancement.txt`) contient maintenant le début du code du jeu et sa zone de
+  mémoire vide (BSS), pour comprendre ce que le jeu fait avant de se bloquer.
+
+## Version précédente (v161)
 - **Journal du jeu (Pulse) même quand le jeu reste sur un écran noir dès le début** : Pulse démarre la carte SD
   lui-même pour écrire le journal, même si le jeu n'a encore rien lu sur le disque (avant : rien n'était écrit, et le
   journal d'un ancien jeu restait affiché). Si le jeu n'a vraiment laissé aucune trace, le journal le dit.
-
-## Version précédente (v160)
-- **Pulse : plus d'erreur « accès non branchés »** (Mario Superstar Baseball et beaucoup d'autres jeux) : les
-  aiguillages des accès au lecteur et à la carte mémoire ont maintenant leur propre place en mémoire, sous le
-  lanceur, à la taille dont le jeu a besoin (avant : environ 4,5 Ko pour tous les jeux, il en faut 12 pour Mario Baseball).
-- **Disque du vrai lecteur** (Mario Kart Double Dash!! qui affichait une erreur de disque) : GC Station ne remplace
-  plus les informations du lecteur que la console a déjà écrites en mémoire.
-- **Nouveau logo** GC Station, plus grand, avec l'en-tête du style Classique (logo, GC STATION, GAMECUBE MEDIA
-  CENTER) dans tous les styles.
-- **Réglages du lecteur dans tous les styles** (Aurore, Nouvelle, Vitrine, Îlots) : paroles dans le lecteur
-  (paroles, ou paroles et spectre), style du spectre, éléments affichés (pochette, spectre, boutons, infos, heure).
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
