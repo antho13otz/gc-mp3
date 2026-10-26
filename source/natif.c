@@ -858,6 +858,20 @@ static void na_crash_print(FILE *f, const u8 *c) {
         if (w[8]) fprintf(f, "Tache du jeu en attente : %08X (etat %u, priorite %u) ; %u taches actives\n",
                           (unsigned)w[8], (unsigned)(w[9] >> 16 & 0xFF), (unsigned)(w[9] & 0xFFFF), (unsigned)(w[9] >> 24));
         else fprintf(f, "Aucune tache en attente : code interrompu par l'image (%u taches actives)\n", (unsigned)(w[9] >> 24));
+        if (be32(c + 0x110) == 0x56435244u) {                                     /* v171 : "VCRD" */
+            u32 v[34];
+            for (int i = 0; i < 34; i++) v[i] = be32(c + 0x110 + i * 4);
+            fprintf(f, "Carte virtuelle (slot A) : %s ; CSR %08X, interruptions en attente %X, CR %08X, MAR %08X, LEN %08X\n",
+                    v[1] ? "active" : "coupee", (unsigned)v[2], (unsigned)v[3], (unsigned)v[4], (unsigned)v[5], (unsigned)v[6]);
+            fprintf(f, "  commande %02X, octet %u, adresse %08X, etat %02X, interruption de fin d'ecriture %u\n",
+                    (unsigned)v[8], (unsigned)v[7], (unsigned)v[9], (unsigned)v[10], (unsigned)v[11]);
+            fprintf(f, "  reveil demande %u, lecture en fond %u, fin due au jeu %u, sans le lecteur %d ; vrai lecteur DISR %08X CR %08X ; fins donnees %u\n",
+                    (unsigned)(v[12] & 0xFF), (unsigned)(v[12] >> 8 & 0xFF), (unsigned)(v[12] >> 16 & 0xFF), (int)(signed char)(v[12] >> 24), (unsigned)v[13], (unsigned)v[14], (unsigned)v[15]);
+            fprintf(f, "  masques du jeu %08X / %08X ; PI : en attente %08X, masque %08X ; vrai EXI0 CSR %08X CR %08X, EXI1 CSR %08X, EXI2 CSR %08X (SD : canal %u)\n",
+                    (unsigned)v[16], (unsigned)v[17], (unsigned)v[18], (unsigned)v[19], (unsigned)v[20], (unsigned)v[21], (unsigned)v[22], (unsigned)v[23], (unsigned)v[24]);
+            fprintf(f, "  fonctions : EXI0 %08X, EXI0 fin %08X, lecteur %08X (jeu %08X, Pulse %08X) ; slot B %08X ; lecture en fond : reste %u, %u / %u images\n",
+                    (unsigned)v[25], (unsigned)v[26], (unsigned)v[27], (unsigned)v[28], (unsigned)v[29], (unsigned)v[30], (unsigned)v[31], (unsigned)v[32], (unsigned)v[33]);
+        }
     }
     else fprintf(f, "\n========== Details du plantage ==========\n");
     fprintf(f, "PC %08X   LR %08X   CTR %08X   CR %08X   SRR1 %08X\n", (unsigned)w[3], (unsigned)w[5], (unsigned)w[7], (unsigned)w[6], (unsigned)w[4]);
@@ -870,7 +884,7 @@ static void na_crash_print(FILE *f, const u8 *c) {
     }
     /* textes : ce que pointaient r3 ... r10 (un message d'erreur, un nom de fichier du jeu...) */
     int nt = 0;
-    for (int r = 3; r <= 10; r++) {
+    for (int r = 3; r <= 10 && be32(c + 0x110) != 0x56435244u; r++) {
         const u8 *t = c + 0x110 + (r - 3) * NATRES_CRASH_STR;
         int n = 0;
         while (n < NATRES_CRASH_STR && t[n] >= 0x20 && t[n] < 0x7F) n++;
