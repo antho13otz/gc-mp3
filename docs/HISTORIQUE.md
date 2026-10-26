@@ -21,6 +21,23 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v165 — morceau suivant préparé d'avance, onglet Photos
+- Mesure (simulateur, scénario court par onglet, `PCSIM_PERF=1`) : 4 styles × 7 spectres × 5 dispositions, paroles
+  « les deux » : le lecteur visible ne rate presque aucune image (dessin 3 à 4 ms en moyenne, spectre 0,3 ms). Les
+  saccades venaient de `start_track_u` (~40 ms : fopen, ID3v1, ID3v2, LAME), de `load_cover` à l'image suivante
+  (~30 ms) et de l'entrée dans PHOTOS (`photo_rescan` ~15 ms, `pj_start` 2 à 3 fopen).
+- `nx_t nx` : 2 s après le début d'un morceau, `nx_request` (boucle principale) demande le suivant prévu (comme
+  `gapless_next_ok`) ; `nx_work` (thread de décodage, sans variable de la boucle principale, lectures de 4 Ko) ouvre
+  le fichier, lit les étiquettes, l'en-tête LAME (`mp3_lame_parse`, sans variable partagée), `drflac_open` ou
+  `stb_vorbis_open_pushdata`, et la pochette du cache. `start_track_u` reprend tout si chemin et numéro sont les mêmes ;
+  `load_cover` reprend la pochette (`cvpre_tex`). Ouverture : MP3 ~7-12 ms, FLAC < 1 ms, OGG ~7 ms (avant 35-70 ms).
+- PHOTOS : `photo_scan_step` (un dossier par image à l'entrée de l'onglet), `stat` seulement pour le tri par date
+  (dates lues au passage au tri par date), taille gardée dans `pfile_t.size`, vignette du cache ouverte sans ouvrir la
+  photo ; lecture de la vignette à l'image suivante de son ouverture.
+- Scénario `tools/pc-sim/scenarios/enchainements.txt`. AddressSanitizer : enchainements, son-sauts, son-formats,
+  stress-photos, fluidite-onglets, tour : 0 erreur. Son : aucune coupure de plus (sans blanc, fondu 3 s, aléatoire,
+  répétition d'un morceau).
+
 ## Nouveautés v164 — bi2 : drapeau du débogueur, crochets plus tôt, 7z
 - `na_bi2_fix` : bi2 + 0x0C (drapeau du débogueur) remis à 0. Le `__start` du SDK lit `*(0x800000F4) + 0x0C` et, à
   2 ou plus, appelle l'initialisation de MetroTRK avant `OSInit` (code de Crash Bandicoot GCBP7D vu par v162 :

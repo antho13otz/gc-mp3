@@ -194,7 +194,7 @@ static void fe_net_photo(int i) {
         fe_path(k, q, sizeof(q));
         int f = -1;
         for (int j = 0; j < npf; j++) if (!strcmp(pf[j].path, q)) { f = j; break; }
-        if (f < 0 && npf < PH_MAXF) { f = npf++; snprintf(pf[f].path, NAME_LEN, "%s", q); pf[f].video = (u8)vid; pf[f].bad = 0; pf[f].date = 0; }
+        if (f < 0 && npf < PH_MAXF) { f = npf++; snprintf(pf[f].path, NAME_LEN, "%s", q); pf[f].video = (u8)vid; pf[f].bad = 0; pf[f].date = 0; pf[f].size = -1; }
         if (!strcmp(q, p)) want = f;
     }
     if (want < 0) { fe_note("Trop de photos"); return; }

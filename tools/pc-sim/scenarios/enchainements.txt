@@ -1,0 +1,6 @@
+# v165 : morceaux qui s enchainent tout seuls (le suivant est prepare d avance par le thread de decodage) ;
+# a lancer aussi avec fondu = 3, aleatoire = oui / repetition = tout, repetition = un (gc-mp3.txt)
+wait 3s
+press A
+wait 75s
+quit

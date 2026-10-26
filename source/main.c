@@ -1226,6 +1226,8 @@ static int mount_sd(void) {
 
 // ---------- Pochettes ----------
 static u16 cover_tex[COVER_SZ * COVER_SZ] ATTRIBUTE_ALIGN(32);
+static u16 *cvpre_tex = NULL;                             /* v165 : pochette du morceau lance, deja lue (reprise par load_cover) */
+static char cvpre_key[NAME_LEN + 24], cvpre_path[NAME_LEN];
 static int cover_ok = 0;
 
 /* Recadre au carre (centre) et reduit en 128x128 (RGB565, tuiles 4x4).
@@ -3709,6 +3711,15 @@ static void load_cover(int idx) {
     cv_gen++;
     free(cv_pend);
     cv_pend = NULL;
+    if (cvpre_tex && !strcmp(cvpre_path, names[idx])) {   /* v165 : deja lue par le thread de decodage */
+        memcpy(cover_tex, cvpre_tex, sizeof(cover_tex));
+        free(cvpre_tex); cvpre_tex = NULL;
+        snprintf(cv_key, sizeof(cv_key), "%s", cvpre_key);
+        DCFlushRange(cover_tex, sizeof(cover_tex));
+        GX_InvalidateTexAll();
+        cover_ok = 1;
+        return;
+    }
     {                                                     /* deja prete dans le cache ? */
         struct stat st;
         long sz = stat(names[idx], &st) == 0 ? (long)st.st_size : 0;
@@ -3779,9 +3790,10 @@ static float rg_db = 0.0f;                  /* gain applique au morceau en cours
 static const char *rg_cur_path = NULL;      /* v72 : fichier en cours (gain mesure) */
 static int rg_has = 0;
 
-static void mp3_lame_info(FILE *fp, long *audio, long size, tags_t *tg) {
-    static unsigned char b[1024];
-    mp3_skip = 0; mp3_left = -1;
+/* v165 : sans variable partagee (aussi appelee par le thread de decodage : morceau suivant prepare d'avance) */
+static void mp3_lame_parse(FILE *fp, long *audio, tags_t *tg, int *skip_, long *left_) {
+    unsigned char b[1024];
+    *skip_ = 0; *left_ = -1;
     if (fseek(fp, *audio, SEEK_SET) != 0) return;
     long n = (long)fread(b, 1, sizeof(b), fp);
     long o = 0;
@@ -3808,8 +3820,8 @@ static void mp3_lame_info(FILE *fp, long *audio, long size, tags_t *tg) {
     const unsigned char *lt = h + p;
     int delay = (lt[21] << 4) | (lt[22] >> 4), padding = ((lt[22] & 15) << 8) | lt[23];
     if (delay > 3000 || padding > 3000) return;
-    mp3_skip = delay + 529;                                /* (+ le delai du decodeur) */
-    if (frames > 0) { long tot = (long)frames * spf - delay - padding; if (tot > 0) mp3_left = tot; }
+    *skip_ = delay + 529;                                  /* (+ le delai du decodeur) */
+    if (frames > 0) { long tot = (long)frames * spf - delay - padding; if (tot > 0) *left_ = tot; }
     u32 pkraw = be32(lt + 11);                             /* (gain "radio" calcule par LAME) */
     int rgw = (lt[15] << 8) | lt[16];
     if (((rgw >> 13) & 7) == 1 && (rgw & 0x1FF)) {
@@ -3817,7 +3829,143 @@ static void mp3_lame_info(FILE *fp, long *audio, long size, tags_t *tg) {
         tg->lame_rg = ((rgw >> 9) & 1 ? -1.0f : 1.0f) * (rgw & 0x1FF) / 10.0f + 1.0f;   /* (LAME vise 89 dB : +1 dB vers ReplayGain 2) */
         tg->lame_pk = pkraw ? (float)pkraw / (float)(1 << 23) : 0.0f;
     }
-    (void)size;
+}
+static void mp3_lame_info(FILE *fp, long *audio, long size, tags_t *tg) { long l_ = -1; int k_ = 0; mp3_lame_parse(fp, audio, tg, &k_, &l_); mp3_skip = k_; mp3_left = l_; (void)size; }
+
+/* v165 : MORCEAU SUIVANT PREPARE D'AVANCE. Ouvrir un morceau (fichier, etiquettes, en-tete LAME / FLAC) prenait
+   ~40 ms a la boucle principale, puis la pochette ~30 ms a l'image suivante : 2 a 4 images ratees a chaque
+   changement de morceau (le spectre, les paroles, les animations sautaient). Pendant le morceau, le thread de
+   decodage prepare le suivant (MP3, FLAC ; pochette deja dans le cache) ; s'il est bien celui qu'on lance, il
+   est repris tel quel. Le fil principal ne touche a nx que quand st vaut 0, 2 ou 3 (1 : le thread s'en sert). */
+typedef struct {
+    volatile int st;                                      /* 0 libre, 1 demande, 2 pret, 3 rien de pret */
+    int idx, fmt;
+    char path[NAME_LEN];
+    FILE *fp;                                             /* (NULL : seule la pochette est prete) */
+    long size, audio, left;
+    int skip;
+    tags_t tg;
+    drflac *fl;
+    stb_vorbis *vb; int vrate;                            /* (OGG) */
+    u16 *cvtex;                                           /* pochette (cache des pochettes), ou NULL */
+    char cvkey[NAME_LEN + 24];
+} nx_t;
+static unsigned char *id3_text_only(FILE *fp, const unsigned char *head, long tagend, long *outlen);
+static nx_t nx;
+static int nx_gen = 0;                                    /* (un numero par morceau lance) */
+static int nx_asked = -1;                                 /* morceau en cours pour lequel le suivant a ete demande */
+static void nx_drop(void) {                               /* (fil principal) */
+    if (nx.st != 2 && nx.st != 3) return;
+    if (nx.fl) { drflac_close(nx.fl); nx.fl = NULL; }
+    if (nx.vb) { stb_vorbis_close(nx.vb); nx.vb = NULL; }
+    if (nx.fp) { fclose(nx.fp); nx.fp = NULL; }
+    free(nx.cvtex); nx.cvtex = NULL;
+    nx.st = 0;
+}
+/* (lectures par morceaux de 4 Ko : la carte SD n'est jamais tenue longtemps par ce thread ; avant chaque morceau, la
+   main est rendue si la boucle principale attend : 64 Ko d'un coup = ~45 ms ou elle ne pouvait pas lire la carte) */
+static size_t nx_fread(void *b, size_t n, FILE *fp) {
+    size_t got = 0;
+    while (got < n) {
+        size_t k = n - got > 4096 ? 4096 : n - got;
+        if (dec_wait) usleep(500);
+        size_t r = fread((u8 *)b + got, 1, k, fp);
+        got += r;
+        if (r < k) break;
+        usleep(100);
+    }
+    return got;
+}
+static void nx_work(void) {                               /* (thread de decodage : aucune variable de la boucle principale) */
+    nx.fp = NULL; nx.fl = NULL; nx.vb = NULL; nx.cvtex = NULL; nx.cvkey[0] = 0; nx.skip = 0; nx.left = -1; nx.audio = 0;
+    tags_clear(&nx.tg);
+    FILE *fp = fopen(nx.path, "rb");
+    long size = -1;
+    if (fp && fseek(fp, 0, SEEK_END) == 0) size = ftell(fp);
+    if (!fp || size <= 0) { if (fp) fclose(fp); nx.st = 3; return; }
+    nx.size = size;
+    int ok = 0;
+    if (nx.fmt == FMT_MP3) {                              /* (comme start_track_u) */
+        unsigned char head[10], v1[128];
+        int has_v1 = size >= 128 && fseek(fp, size - 128, SEEK_SET) == 0 && fread(v1, 1, 128, fp) == 128;
+        unsigned char *tag = NULL;
+        long taglen = 0, audio = 0;
+        if (fseek(fp, 0, SEEK_SET) == 0 && fread(head, 1, 10, fp) == 10 && memcmp(head, "ID3", 3) == 0) {
+            audio = 10 + (long)synchsafe(head + 6) + ((head[5] & 0x10) ? 10 : 0);
+            taglen = audio < size ? audio : size;
+            if (taglen > 65536) tag = id3_text_only(fp, head, taglen, &taglen);
+            if (!tag) {
+                taglen = audio < size ? audio : size;
+                if (taglen > 4 * 1024 * 1024) taglen = 4 * 1024 * 1024;
+                tag = (unsigned char *)malloc(taglen);
+                if (tag && (fseek(fp, 0, SEEK_SET) != 0 || nx_fread(tag, taglen, fp) != (size_t)taglen)) { free(tag); tag = NULL; }
+            }
+        }
+        parse_tags(tag, tag ? taglen : 0, has_v1 ? v1 : NULL, &nx.tg);
+        free(tag);
+        if (audio >= size) audio = 0;
+        mp3_lame_parse(fp, &audio, &nx.tg, &nx.skip, &nx.left);
+        if (audio >= size) audio = 0;
+        nx.audio = audio;
+        ok = fseek(fp, audio, SEEK_SET) == 0;
+    } else if (nx.fmt == FMT_FLAC) {
+        flac_meta(fp, &nx.tg, 0);
+        if (fseek(fp, 0, SEEK_SET) == 0) {
+            drflac *f = drflac_open(fl_read, fl_seek, fl_tell, fp, NULL);
+            if (f && f->channels >= 1 && f->channels <= 8 && f->sampleRate) { nx.fl = f; ok = 1; }
+            else if (f) drflac_close(f);
+        }
+    } else if (nx.fmt == FMT_OGG) {                       /* (comme start_track_u + ogg_open, sans service_audio) */
+        long cap = 65536, len = 0;
+        unsigned char *b = (unsigned char *)malloc(cap);
+        if (b && fseek(fp, 0, SEEK_SET) == 0) {
+            len = (long)nx_fread(b, cap, fp);
+            ogg_tags(b, len, &nx.tg);
+            int opus = len >= 36 && !memcmp(b, "OggS", 4) && !memcmp(b + 28, "OpusHead", 8);
+            for (int guard = 0; !opus && guard < 8; guard++) {
+                int hv = ogg_header_ok(b, len);
+                if (hv == 0 || (hv < 0 && len < cap)) break;
+                if (hv < 0) {
+                    if (cap >= 8 * 1024 * 1024) break;
+                    unsigned char *nb = (unsigned char *)realloc(b, cap * 2);
+                    if (!nb) break;
+                    b = nb; cap *= 2;
+                    if (fseek(fp, len, SEEK_SET) != 0) break;
+                    len += (long)nx_fread(b + len, cap - len, fp);
+                    continue;
+                }
+                int used = 0, err = 0;
+                stb_vorbis *v = stb_vorbis_open_pushdata(b, (int)len, &used, &err, NULL);
+                if (v) {
+                    stb_vorbis_info vi = stb_vorbis_get_info(v);
+                    if (vi.sample_rate && fseek(fp, used, SEEK_SET) == 0) { nx.vb = v; nx.vrate = (int)vi.sample_rate; nx.audio = used; ok = 1; }
+                    else stb_vorbis_close(v);
+                    break;
+                }
+                if (err != VORBIS_need_more_data || len < cap || cap >= 8 * 1024 * 1024) break;
+                unsigned char *nb = (unsigned char *)realloc(b, cap * 2);
+                if (!nb) break;
+                b = nb; cap *= 2;
+                if (fseek(fp, len, SEEK_SET) != 0) break;
+                len += (long)nx_fread(b + len, cap - len, fp);
+            }
+        }
+        free(b);
+    }
+    if (ok) nx.fp = fp; else fclose(fp);
+    /* pochette deja dans le cache des pochettes (cle : chemin | taille, comme load_cover) */
+    snprintf(nx.cvkey, sizeof(nx.cvkey), "%s|%ld", nx.path, size);
+    char cp[NAME_LEN];
+    cv_cache_name(nx.cvkey, cp, sizeof(cp));
+    FILE *cf = fopen(cp, "rb");
+    if (cf) {
+        char hd[4];
+        u16 *t = (u16 *)memalign(32, sizeof(cover_tex));
+        if (t && fread(hd, 1, 4, cf) == 4 && !memcmp(hd, "GCV1", 4) && nx_fread(t, sizeof(cover_tex), cf) == sizeof(cover_tex)) nx.cvtex = t;
+        else free(t);
+        fclose(cf);
+    }
+    nx.st = nx.fp || nx.cvtex ? 2 : 3;
 }
 #define VOL_FILE GCD "/volumes.txt"
 static int rg_lookup(const char *path, float *g, float *pk) {     /* gain deja mesure pour ce fichier */
@@ -3970,9 +4118,20 @@ static int start_track_u(int idx) {
                                                             dans la meme image, ~70 ms sur la GameCube = saccade a chaque morceau) */
     cv_next = idx + 1; cv_next_fr = frame_t0_us;
 
-    FILE *fp = fopen(names[idx], "rb");
+    /* v165 : morceau prepare d'avance par le thread de decodage ? */
+    int pre = nx.st == 2 && nx.idx == idx && !strcmp(nx.path, names[idx]);
+    free(cvpre_tex); cvpre_tex = NULL;
+    if (pre && nx.cvtex) { cvpre_tex = nx.cvtex; nx.cvtex = NULL; snprintf(cvpre_key, sizeof(cvpre_key), "%s", nx.cvkey); snprintf(cvpre_path, sizeof(cvpre_path), "%s", nx.path); }
+    if (pre && !nx.fp) pre = 0;                           /* (seule la pochette etait prete) */
+    if (!pre) nx_drop();                                  /* (prepare pour un autre morceau : jete) */
+    nx_gen++;
+    FILE *fp = NULL;
     long size = -1;
-    if (fp && fseek(fp, 0, SEEK_END) == 0) size = ftell(fp);
+    if (pre) { fp = nx.fp; size = nx.size; nx.fp = NULL; }
+    else {
+        fp = fopen(names[idx], "rb");
+        if (fp && fseek(fp, 0, SEEK_END) == 0) size = ftell(fp);
+    }
     if (!fp || size <= 0) {
         if (fp) fclose(fp);
         track_err = fp ? "Fichier vide" : "Ouverture impossible";
@@ -3986,7 +4145,14 @@ static int start_track_u(int idx) {
     long audio = 0;
     const char *err = NULL;
 
-    if (fmt == FMT_MP3) {
+    if (pre) {                                           /* v165 : deja lu par le thread de decodage */
+        tg = nx.tg;
+        audio = nx.audio;
+        if (fmt == FMT_MP3) { mp3_skip = nx.skip; mp3_left = nx.left; mp3dec_init(&dec); }
+        else if (fmt == FMT_OGG) { vorb = nx.vb; vorb_rate = nx.vrate; nx.vb = NULL; }
+        else { flac = nx.fl; nx.fl = NULL; }
+        nx.st = 0;                                        /* (tout est repris : la place est libre) */
+    } else if (fmt == FMT_MP3) {
         /* etiquettes : en-tete ID3v2 (lu a part) et ID3v1 (128 derniers octets) */
         unsigned char head[10], v1[128];
         int has_v1 = 0;
@@ -12991,6 +13157,7 @@ static int mdec_want(void) {
 static void *mdec_fn(void *a) {
     (void)a;
     for (;;) {
+        if (nx.st == 1 && (!mdec_want() || f_count >= 48000)) { nx_work(); continue; }   /* v165 : (avec 1 s de son d'avance) */
         if (!mdec_want()) { usleep(4000); continue; }
         if (dec_wait) { usleep(500); continue; }
         DEC_LOCK();
@@ -13007,9 +13174,29 @@ static void mdec_start(void) {
     dec_mx_ok = 1;
     if (LWP_CreateThread(&mdec_h, mdec_fn, NULL, mdec_stack, sizeof(mdec_stack), 55) < 0) mdec_h = LWP_THREAD_NULL;
 }
+/* v165 : demande au thread de decodage de preparer le morceau suivant (2 s apres le debut de celui-ci) */
+static void nx_request(void) {
+    if (mdec_h == LWP_THREAD_NULL || nx.st == 1) return;
+    if (src != SRC_FILE || !playing || !cur_on_sd || consumed < 48000u * 2 || cur_track < 0) return;
+    if (nx_asked == nx_gen && nx.st == 0) return;         /* (rien a preparer pour ce morceau) */
+    nx_asked = nx_gen;
+    int n = -1;
+    if (auto_next_exists()) {
+        if (repeat_mode == REP_ONE) n = cur_track;
+        else if (qpos + 1 < qn) n = queue[qpos + 1];
+        else if (repeat_mode == REP_ALL && !shuffle_on && qn > 0) n = queue[0];
+    }
+    if (n < 0 || n >= nfiles || is_retro[n] || strncasecmp(names[n], SD_ROOT, strlen(SD_ROOT))) { nx_drop(); return; }
+    if ((nx.st == 2 || nx.st == 3) && nx.idx == n && !strcmp(nx.path, names[n])) return;   /* (deja fait, ou rien a faire) */
+    nx_drop();                                            /* (prepare pour un autre : la file a change) */
+    nx.idx = n; nx.fmt = audio_fmt(names[n]);
+    snprintf(nx.path, sizeof(nx.path), "%s", names[n]);
+    nx.st = 1;
+}
 static void music_pump(void) {
     if (video_playing) return;                          /* (le son vient de la video) */
     if (src != SRC_FILE || !playing || paused) return;
+    nx_request();
     int k = 0;
     u32 t0 = perf_us();
     /* v85 : le gros du decodage se fait pendant l'attente de l'ecran (music_idle_decode) ; ici,
