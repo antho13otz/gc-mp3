@@ -61,7 +61,7 @@ def build(app, api, token, out):
     ver = rel.get('tag_name', '').lstrip('v') or 'inconnue'
     asset = next((a for a in rel.get('assets', []) if re.search(app['archive'], a['name'])), None)
     if not asset: raise RuntimeError('aucune archive %r dans %s' % (app['archive'], [a['name'] for a in rel.get('assets', [])]))
-    m = re.search(r'\d+(?:\.\d+)+', asset['name'])
+    m = re.search(r'\d+(?:\.\d+)+', re.sub(r'(?i)\.(?:7z|zip|tar|xz|gz|tgz|txz|dol)$', '', re.sub(r'(?i)\.tar\.\w+$', '', asset['name'])))   # (v164 : sans le .7 de .7z)
     if m and len(rel.get('assets', [])) > 1 and not asset['name'].lower().startswith(app['id'].lower() + '_r'): ver = m.group(0)   # (plusieurs applis dans la meme release)
     files = members(asset['name'], get(asset['browser_download_url'], token))
     dols = [(p, d) for p, d in files if re.search(app['dol'], p) and d[:4] != b'\x7fELF']
