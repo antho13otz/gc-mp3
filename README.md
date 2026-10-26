@@ -14,7 +14,16 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v157)
+## Nouveautés de la version actuelle (v158)
+- **Changement de morceau plus rapide** : la pochette est cherchée en une seule lecture du dossier (avant : jusqu'à
+  7 essais de fichiers sur la carte SD à chaque morceau ; les noms comme « Cover.JPG » sont aussi trouvés) ; un
+  morceau OGG s'ouvre en lisant 16 Ko au lieu de 64 Ko (120 → 85 ms sur le simulateur).
+- **Vérification de la mémoire** : les 41 scénarios du simulateur et 13 minutes d'endurance ont tourné sous
+  AddressSanitizer (débordements, mémoire relue après libération) : aucune erreur.
+- Thread de décodage (v157) plus sûr : il ne relit plus la liste des morceaux (qu'une nouvelle lecture de la
+  bibliothèque peut remplacer pendant la lecture).
+
+## Version précédente (v157)
 - **Interface plus fluide pendant la musique** : la musique de la carte SD est maintenant décodée à part, pendant les
   temps morts de l'écran. Une longue trame à décoder (OGG, FLAC 24 bits…) ne retarde plus l'image. Mesuré sur le
   simulateur, tour de tous les onglets en musique : 265 images ratées avant, 55 après (onglets Infos, Téléphone,
@@ -22,11 +31,6 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
 - Vérifications ajoutées au simulateur : cache d'images du processeur graphique (le bug de la jaquette de la v155 est
   maintenant détecté automatiquement ; aucun autre trouvé dans les 38 scénarios), endurance (49 minutes d'utilisation
   au hasard : mémoire stable à 3 Mo, aucun plantage, aucune coupure du son).
-
-## Version précédente (v156)
-- **Plus de blanc entre deux albums** : le morceau suivant est préparé pendant la fin du précédent, même quand il
-  vient d'un autre dossier ou d'un autre album (avant : seulement dans le même album, sinon ~50 ms de silence).
-  Réglage START > « Enchaînement sans blanc » (Non : comme avant, un court silence entre les morceaux).
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

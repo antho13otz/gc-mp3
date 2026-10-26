@@ -21,6 +21,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v158 — ouverture des morceaux, pochettes, AddressSanitizer
+- Mesure (`PCSIM_DRAWPROF` : « ouverture du morceau … : N ms ») : 33 à 41 ms (MP3, FLAC, WAV), 120 ms (OGG), dont
+  ~30 ms de lecture des en-têtes. `ogg_open` commence à 16 Ko (au lieu de 64 Ko, agrandi si besoin) : 85 ms.
+- `load_cover` : un `opendir` du dossier du morceau, puis seulement les fichiers présents (nom du morceau .jpg /
+  .jpeg / .png, cover / folder .jpg / .png, sans tenir compte des majuscules) ; avant, jusqu'à 7 `fopen` ratés.
+- `cur_on_sd` fixé à l'ouverture (sous le verrou) : `mdec_ok_file` ne lit plus `names[cur_track]` depuis le thread.
+- Rapport de fluidité : temps du processeur graphique borné (le simulateur pouvait donner 4294964 ms).
+- `tools/pc-sim/asan.sh` : binaire `gcstation-asan` à part (`O=work/obj-asan BIN=gcstation-asan`), scénarios sans
+  les limites de la GameCube. 38 scénarios + son-formats + son-sauts + endurance 13 min : 0 erreur.
+
 ## Nouveautés v157 — thread de décodage, cache de textures et endurance au simulateur
 - Mesure (PCSIM_PERF, `fluidite-onglets`) : dans les onglets Infos, Téléphone, Jeux, Téléchargements, 8 à 15 %
   d'images ratées, presque toutes à cause du décodage (moyenne 3,7 ms par image, pire 21 ms : une trame OGG / FLAC

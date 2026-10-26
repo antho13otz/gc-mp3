@@ -21,7 +21,8 @@ SIMOBJ   := $(O)/pcsim.o $(O)/pcsim_gx.o $(O)/pcsim_limits.o $(O)/pcsim_new.o $(
 # limites de la GameCube (pcsim_limits.c) : memoire du tas, carte SD
 WRAP     := -Wl,--wrap=malloc,--wrap=free,--wrap=calloc,--wrap=realloc,--wrap=memalign,--wrap=posix_memalign,--wrap=aligned_alloc,--wrap=mallinfo,--wrap=strdup,--wrap=strndup,--wrap=fopen,--wrap=fileno,--wrap=stat,--wrap=opendir,--wrap=readdir,--wrap=closedir
 
-all: gcstation
+BIN    ?= gcstation                                   # (v158 : asan.sh -> gcstation-asan, objets a part)
+all: $(BIN)
 
 $(W)/gen/natres_bin.h: $(R)/source/natres/natres.c $(R)/source/natres/natres.h $(R)/tools/natres.ld
 	@mkdir -p $(W)/gen
@@ -69,8 +70,8 @@ $(O)/main.o: $(wildcard $(R)/source/*.c $(R)/source/*.h $(R)/source/natres/*.h) 
 	@mkdir -p $(O)
 	$(CC) $(CFLAGS) -w -c $(R)/source/main.c -o $@
 
-gcstation: $(SIMOBJ) $(LIBOBJ)
-	@$(CXX) -no-pie $(SAN) $(WRAP) $^ -o $@ -lpthread -lm && echo "-> tools/pc-sim/gcstation"
+$(BIN): $(SIMOBJ) $(LIBOBJ)
+	@$(CXX) -no-pie $(SAN) $(WRAP) $^ -o $@ -lpthread -lm && echo "-> tools/pc-sim/$(BIN)"
 
 clean:
 	rm -rf $(O) gcstation
