@@ -14,7 +14,16 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v153)
+## Nouveautés de la version actuelle (v154)
+- **Lecture plus fluide, tous formats** (MP3, FLAC jusqu'à 24 bits / 96 kHz, OGG, WAV, AAC/M4A, rétro) :
+  - au début d'un morceau (ou si la carte SD a pris du retard), GC Station attend d'avoir 0,25 s de son d'avance
+    avant de jouer : un seul blanc court et net, au lieu de petits bouts de son hachés de silences ;
+  - 1,5 s de son décodé d'avance (au lieu de 0,5 s) même quand l'écran est chargé (diaporama, pages lourdes) : une
+    photo longue à afficher ne coupe plus la musique.
+  - Mesuré sur le simulateur (changements de morceau, diaporama, onglets, un morceau de chaque format) : 34 coupures
+    (1,5 s) avant, 19 après (0,8 s), toutes au moment d'un changement de morceau et d'un seul tenant.
+
+## Version précédente (v153)
 - **Jeux en réseau local (LAN)** : vérifié au banc d'essai qu'un jeu qui se sert lui-même du Broadband Adapter
   (Kirby Air Ride, Mario Kart : Double Dash!!, 1080°…) le fait normalement avec Pulse : il envoie et reçoit ses
   trames pendant que Pulse lit le disque et émule la carte mémoire sur le même bus, sans que la vraie carte soit
@@ -27,13 +36,6 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
     `python3 lan-relais.py pont <adresse du relais> <nom de la partie>` (Linux : sudo ; Windows/Mac : Npcap et
     `pip install scapy`, en administrateur).
   - Seules les trames des GameCube passent, sans boucle. Jouable si le ping est faible.
-
-## Version précédente (v152)
-- **Star Wars Rogue Squadron III (Rebel Strike) corrigé proprement** : la plus grande partie de son programme est
-  compressée dans le jeu. GC Station la décompresse maintenant au lancement, branche ses accès au lecteur comme pour
-  les autres jeux, puis la recompresse à sa place (avec son propre compresseur, un peu plus serré que zlib). Pulse
-  universel n'est plus nécessaire pour ce jeu (il ne reste qu'en secours, si le programme corrigé ne tenait plus).
-- Catalogue d'applis : Neverball retiré (54 Mo, trop gros pour la mémoire de la GameCube), GCMM : la version normale.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

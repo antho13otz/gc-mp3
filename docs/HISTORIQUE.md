@@ -21,6 +21,20 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v154 — fluidité de la lecture (tous formats)
+- Mesure : `au_gap` / `au_gap_ev` (échantillons joués en silence pendant un morceau non fini, hors 0,5 s du début) dans
+  `fill_buf` (file vide) et `dma_cb` (aucun bloc prêt) ; simulateur : `[pcsim] son : N trous` à la fin du journal et
+  `[pcsim] trou dans le son a ...` à chaque fois. `tools/pc-sim/formats-sd.sh` : un morceau difficile par format (bruit
+  rose : MP3 320k, FLAC 24/96, OGG q8, WAV, AAC 256k) ; scénarios `son-formats` et `son-sauts`.
+- Constat : au début de chaque morceau, les blocs du son étaient remplis dès qu'une trame était décodée (~1100
+  échantillons sur 2048) : 3 à 5 coupures de 16 à 40 ms hachées. `au_hold` : après une file vide (début de morceau,
+  retard), `service_audio` ne remplit plus de blocs avant `AU_PRE` (12000 échantillons) d'avance ; `dma_cb` rejoue
+  dès 5 blocs. Pas pour la vidéo, ni après la fin du fichier (`eof`).
+- `music_pump` : un bloc par image tant que l'avance est sous 1,5 s (avant 0,5 s) ; le rattrapage (plusieurs blocs)
+  reste sous 0,25 s.
+- Résultat (6 scénarios, réglages remis à zéro) : 34 coupures / 1520 ms → 19 / 786 ms ; celles qui restent sont le
+  changement de morceau lui-même (un blanc net de ~43 ms).
+
 ## Nouveautés v153 — LAN local vérifié, LAN par Internet
 - Banc : mode `lan` du faux jeu (`game.s`) : identifiant du BBA, anneau de réception, trame de 64 octets dans la file
   d'envoi et envoi (NCRA), une lecture du disque au milieu, trame renvoyée par le réseau simulé lue dans la page 1.

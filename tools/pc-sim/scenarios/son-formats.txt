@@ -1,0 +1,46 @@
+# v154 : fluidite du son, un morceau difficile par format (sh tools/pc-sim/formats-sd.sh tools/pc-sim/work/run d'abord).
+# Lecture du dossier Formats d'un bout a l'autre (MP3 320k, FLAC 24 bits 96 kHz, OGG q8, WAV, AAC 256k),
+# avec de la navigation dans les onglets pendant ce temps. Fin du journal : « [pcsim] son : N trous ».
+wait 3s
+hold UP 2s
+wait 300ms
+press DOWN
+wait 200ms
+press DOWN
+wait 200ms
+press DOWN
+wait 200ms
+press DOWN
+wait 500ms
+shot formats
+press A
+wait 5s
+shot lecture
+hold DOWN 2s
+wait 20s
+press Z
+wait 3s
+press Z
+wait 3s
+press Z
+wait 3s
+press Z
+wait 20s
+press Z
+wait 3s
+press Z
+wait 3s
+press Z
+wait 3s
+press Z
+wait 3s
+press Z
+wait 30s
+press START
+wait 2s
+hold DOWN 2s
+wait 2s
+press B
+wait 50s
+shot fin
+quit
