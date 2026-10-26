@@ -21,6 +21,20 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v152 — programme compressé de Rogue Squadron III
+- Méthode de Swiss comprise et réécrite : en 0x80200000 du main.dol (`GLR*`, `GWXJ13`) : {taille compressée, taille,
+  flux zlib d'un 2e programme .dol}. `na_zload` (natif.c, seulement pour un lancement : `na_z_want`) le décompresse
+  (`stbi_zlib_decode_buffer`) et cherche ses accès au lecteur (`na_scan_text`) ; au lancement, main.dol et ce
+  programme sont branchés ensemble (`na_patch` sur un tampon commun, sections du 2e décalées) : aiguillages et
+  couverture de la carte virtuelle communs. Puis `df_zlib` (source/deflate.c, écrit pour GC Station : chaînes de
+  hachage, choix différé, blocs à codes calculés, Adler-32) recompresse ; s'il tient dans la place d'origine, il est
+  écrit avec sa nouvelle taille et Pulse universel est retiré des options du résident ; sinon tout est remis comme
+  avant (résident restauré, Pulse universel). Ligne « Programme compresse » dans `dernier-lancement.txt`.
+- `deflate.c` : 3 Mo de GC Station -> 1 674 707 octets (zlib -9 : 1 682 753), relu par zlib.
+- `nat_info_t` : 36 sections. Banc : `mkiso_z.py` / `check_z.py` (faux `GLRE64`, 4 accès dans le programme
+  compressé : branchés, flux relu par zlib, Pulse universel coupé) ; `h2` et `t146` liés à zlib (-lz).
+- Catalogue : paquets de 8 Mo au plus (tenus en mémoire), Neverball retiré ; GCMM : `gcmm_GC.dol`.
+
 ## Nouveautés v151 — catalogue d'applis
 - `catalogue/applis.txt` : `id | nom | dépôt GitHub | archive (regex) | programme dans l'archive (regex) | fichiers en
   plus (regex) | description` (pas de `|` dans les expressions).

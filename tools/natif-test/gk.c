@@ -11,7 +11,8 @@
 #define NAME_LEN 256
 static int nat_igr = 1, nat_card = 1;
 static char vc_keep[64] = "";                                 /* (v122 : jeux_cfg.c) */
-static int nat_speed_auto = 0; static char rep_msg[120];   /* (v140 : jeux_cfg.c) */                              /* (v133 : jeux_cfg.c) */
+static int nat_speed_auto = 0; static char rep_msg[120];
+int stbi_zlib_decode_buffer(char *obuffer, int olen, const char *ibuffer, int ilen);   /* (v152 : stb_image) */   /* (v140 : jeux_cfg.c) */                              /* (v133 : jeux_cfg.c) */
 static int sd_virtual = 0, sd_slot = 0, sd_ok = 1, settings_dirty = 0;
 static u32 be32(const unsigned char *p){return (u32)p[0]<<24|p[1]<<16|p[2]<<8|p[3];}
 static void service_audio(void){}

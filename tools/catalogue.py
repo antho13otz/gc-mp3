@@ -59,6 +59,7 @@ def build(app, api, token, out):
     pk.append((base + 'meta.xml', meta.encode()))
     raw = b'GCSA1\n' + b''.join(p.encode() + b'\n' + str(len(d)).encode() + b'\n' + d for p, d in pk)
     blob = zlib.compress(raw, 9)
+    if len(blob) > 8 << 20: raise RuntimeError('paquet de %d octets : trop gros pour la memoire de la GameCube (8 Mo au plus)' % len(blob))
     fn = '%s-%s.gcsa' % (app['id'], re.sub(r'[^A-Za-z0-9._-]', '_', ver))
     open(os.path.join(out, fn), 'wb').write(blob)
     return {'id': app['id'], 'nom': app['nom'], 'version': ver, 'depot': app['depot'], 'description': app['desc'],

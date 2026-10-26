@@ -115,7 +115,8 @@ GC Station avait démarré sans le BIOS, certaines restaient à zéro. Pulse les
 ### Programme compressé
 Star Wars Rogue Leader (`GLR`) et `GWXJ13` : l'essentiel du code est compressé (zlib, en 0x80200000) ; Swiss le
 décompresse pour le corriger puis le recompresse. Pulse ne voit pas ces accès avant le lancement : **v146 : Pulse
-universel (accès pris au vol) activé automatiquement pour ces jeux.**
+universel (accès pris au vol) activé automatiquement pour ces jeux.** **v152 : décompressé, branché et recompressé
+par GC Station (deflate.c) ; Pulse universel seulement en secours.**
 
 ### Hyperviseur (`Patch_Hypervisor`, `Patch_GameSpecificHypervisor`)
 Le cœur de Swiss : faux lecteur, interruptions, EXI, arène. Pulse fait la même chose à sa façon (registres branchés,
