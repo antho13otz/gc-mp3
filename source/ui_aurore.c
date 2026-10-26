@@ -122,8 +122,8 @@ static void au_header(void) {
     if (ui_skin == 4) { vi_header(); return; }           /* v131 : Vitrine : le rail ; Ilots : le dock (apres la page) */
     if (ui_skin == 5) return;
     nv_raw = 1;
-    draw_logo_cube(36, 31, 25);                           /* v132 : nouveau logo, plus gros ; v159 : plus grand encore */
-    gx_text1(F_MED, 66, 37, "GC Station", RGBA(205, 205, 222, 255));
+    draw_brand(12, 5, 0.9f);                              /* v159 : la marque du style Classique (grand logo, nom, sous-titre) */
+    nv_raw = 1;
     time_t tt = time(NULL);
     struct tm *tm = localtime(&tt);
     char b[40];

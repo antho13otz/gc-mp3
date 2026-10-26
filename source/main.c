@@ -175,6 +175,7 @@ static void au_panel(float x, float y, float w, float h);
 static void au_legend_box(float x, float w);
 static int au_draw_tabs(const char *count);
 static void au_header(void);
+static void draw_brand(f32 x, f32 y, f32 k);              /* v159 : la marque du style Classique (dans tous les styles) */
 static void au_player(void);                            /* v103 : Aurore : lecteur de MUSIQUE (ui_aurore2.c) */
 static int gl_view;                                     /* gclib.c : affichage de Mes jeux GameCube */
 static int gl_anim = 1;                                 /* v45 : animations de JEUX / APPS */
@@ -5834,8 +5835,7 @@ static void draw_mini_badge(f32 cx, f32 cy, const char *k);
 static int gx_text_r_w(int f, f32 xr, f32 base, const char *s, col_t c) { gx_text_r(f, xr, base, s, c); return text_width(f, s, 0); }
 static void draw_header_modern(void) {
     col_t acc = RGBA(mod_acc[0], mod_acc[1], mod_acc[2], 255);
-    draw_logo_cube(36, 27, 19);                          /* (v159 : plus grand) */
-    gx_text1(F_MED, 60, 33, "GC Station", RGBA(240, 240, 245, 255));
+    draw_brand(16, 6, 0.8f);                             /* v159 : la marque du Classique */
     time_t tt = time(NULL);
     struct tm *tm = localtime(&tt);
     char b[40];
@@ -5873,15 +5873,23 @@ static void draw_header_modern(void) {
 #include "ui_styles.c"                          /* v131 : styles Vitrine et Ilots */
 #include "pulse_logo.c"                         /* v109 : logo de Pulse (le lanceur, avant Resident) */
 static void draw_viz(f32 x, f32 base, f32 w, f32 h);
+/* v159 : la marque du style Classique (grand logo, GC STATION, GAMECUBE MEDIA CENTER), dans tous les styles ;
+   k = taille (1 = Classique) */
+static void draw_brand(f32 x, f32 y, f32 k) {
+    int sr = nv_raw; nv_raw = 1;
+    draw_logo_cube(x + 22 * k, y + 22 * k, 29 * k);
+    txt_scale = 0.84f * k;
+    gx_text(F_LOGO, x + 58 * k, y + 30 * k, "GC STATION", RGBA(240, 232, 255, 255), RGBA(150, 84, 255, 255), 0);
+    txt_scale = k < 1 ? 0.9f : 1.0f;
+    gx_text(F_SMALL, x + 61 * k, y + 46 * k, "GAMECUBE MEDIA CENTER", RGBA(170, 150, 225, 255), RGBA(170, 150, 225, 255), k < 1 ? 2 : 4);
+    txt_scale = 1.0f;
+    nv_raw = sr;
+}
 static void draw_header(void) {
     if (ui_skin >= 3) { au_header(); return; }
     if (ui_skin == 2) { nv_header(); return; }
     if (ui_skin) { draw_header_modern(); return; }
-    draw_logo_cube(52, 38, 29);                          /* (v159 : plus grand) */
-    txt_scale = 0.84f;                       /* v47 : GC STATION (plus long que GC-MP3) */
-    gx_text(F_LOGO, 88, 46, "GC STATION", RGBA(240, 232, 255, 255), RGBA(150, 84, 255, 255), 0);
-    txt_scale = 1.0f;
-    gx_text(F_SMALL, 91, 63, "GAMECUBE MEDIA CENTER", RGBA(170, 150, 225, 255), RGBA(170, 150, 225, 255), 4);
+    draw_brand(30, 16, 1.0f);                            /* v47 : GC STATION ; v159 : partage avec les autres styles */
 
     gx_hgrad(330, 46, 140, 1, RGBA(110, 70, 255, 0), RGBA(110, 70, 255, 200));
     if (viz_style != VZ_LED) draw_viz(390, 64, 86, 38);     /* v43 : le style choisi aussi en haut */
