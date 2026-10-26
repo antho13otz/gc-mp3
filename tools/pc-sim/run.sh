@@ -31,5 +31,5 @@ if fs:
     s.save('planche.png')
 PY
 grep "capture" log.txt | wc -l | xargs echo "captures :"
-grep -E "\[pcsim\] (GameCube|processeur|memoire|fluidite)" log.txt || true
+grep -E "\[pcsim\] (GameCube|processeur|memoire|fluidite|son)" log.txt || true
 echo "resultats : $RUN/out (et $RUN/planche.png)"

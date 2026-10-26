@@ -1,0 +1,38 @@
+# v154 : debut de chaque morceau (le moment le plus fragile) : morceau suivant toutes les 3 s, dans tous les formats,
+# en changeant d'onglet. (sh tools/pc-sim/formats-sd.sh tools/pc-sim/work/run d'abord)
+wait 3s
+hold UP 2s
+wait 300ms
+press DOWN
+wait 200ms
+press DOWN
+wait 200ms
+press DOWN
+wait 200ms
+press DOWN
+wait 500ms
+press A
+wait 3s
+press R
+wait 3s
+press R
+wait 3s
+press Z
+wait 300ms
+press R
+wait 3s
+press Z
+wait 300ms
+press R
+wait 3s
+press L
+wait 3s
+press L
+wait 3s
+press L
+wait 3s
+press L
+wait 3s
+press B
+wait 1s
+quit

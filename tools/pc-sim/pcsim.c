@@ -887,7 +887,10 @@ s32 if_configex(struct in_addr *ip, struct in_addr *mask, struct in_addr *gw, bo
 /* ======================= fin ======================= */
 void pcsim_fps_report(void);
 void pcsim_gp_report(void);
+void gcs_audio_report(void) __attribute__((weak));
+void pcsim_au_gap(int kind, int n) { printf("[pcsim] trou dans le son a %.2f s (%s, %d echantillons prets)\n", gettime() / 1000.0 - 1, kind == 0 ? "file vide" : kind == 1 ? "aucun bloc pret" : "bloc en cours de remplissage", n); }
 void pcsim_finish(int code) {
+    if (gcs_audio_report) gcs_audio_report();
     if (getenv("PCSIM_PERF") && gcs_perf_sim) gcs_perf_sim(0);   /* (rapport SD:/gc-mp3/fluidite.txt) */
     if (!pcsim_fast) printf("[pcsim] processeur : %.2f s de calcul sur le PC = %.1f s sur la GameCube (sur %.1f s)\n", cpu_host_ns / 1e9, cpu_host_ns * pcsim_cpu_k / 1e9, gettime() / 1000.0 - 1);
     if (!pcsim_fast) {

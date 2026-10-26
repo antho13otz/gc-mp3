@@ -480,6 +480,17 @@ static u32 consumed_skip;
    v22 : plusieurs blocs sont remplis d'avance (~210 ms) ; un moment ou le
    programme est occupe (carte SD, reseau, image a decoder...) ne fait plus
    de trou dans le son. S'il n'y a vraiment plus rien, on joue du silence. */
+/* v154 : trous dans le son (echantillons joues en silence alors qu'un morceau joue et n'est pas fini) : mesure de la
+   fluidite (simulateur : ligne « son » a la fin du journal) */
+static volatile u32 au_gap = 0, au_gap_ev = 0, au_play = 0, au_tot = 0;
+static int au_in_gap = 0;
+/* v154 : apres un manque (debut d'un morceau, carte SD lente...), on attend d'avoir AU_PRE echantillons d'avance
+   avant de rejouer : un seul court silence net, au lieu de petits bouts de son entrecoupes de silences (mesure :
+   au debut de chaque morceau, 3 a 5 coupures de 20 a 40 ms, une trame decodee a la fois) */
+#define AU_PRE 12000                           /* (0,25 s) */
+static volatile int au_hold = 0;
+static int au_eof(void);                                     /* (fin du morceau : pas un trou) */
+void pcsim_au_gap(int kind, int n) __attribute__((weak));   /* (simulateur : moment de chaque trou) */
 static volatile int in_fill = 0;           /* v42 : la boucle principale remplit un bloc en ce moment */
 static void fill_buf(int idx);
 /* v70 : horloge du son entendu (jeu de rythme) : position dans le morceau du bloc qui vient de
@@ -503,11 +514,15 @@ static void dma_cb(void) {
     }
     /* v42 : plus de bloc pret (la boucle principale est occupee : reseau securise, carte SD...) :
        on remplit ici directement depuis le son deja decode (jusqu'a 10 s d'avance), au lieu d'un trou */
-    if ((s32)(fill_n - blk) <= 0 && !in_fill && f_count > DMA_SAMPLES) {
+    if ((s32)(fill_n - blk) <= 0 && !in_fill && f_count > DMA_SAMPLES * (au_hold ? 5 : 1)) {
+        au_hold = 0;                                        /* v154 : (assez d'avance pour ne pas hacher : on joue) */
         fill_buf((int)(blk % NUM_BUFS));
         fill_n = blk + 1;
     }
     if ((s32)(fill_n - blk) <= 0) {
+        if (au_play > 48000 / 2 && !au_eof() && ((src == SRC_FILE && !paused) || (src == SRC_RADIO && state == ST_PLAY))) {
+            au_gap += DMA_SAMPLES; au_gap_ev++; if (pcsim_au_gap) pcsim_au_gap(1 + in_fill, (int)f_count);   /* v154 */
+        }
         blk_pos[blk % NUM_BUFS] = consumed; blk_cnt[blk % NUM_BUFS] = 0;
         memset(buf, 0, DMA_BYTES);
         DCFlushRange(buf, DMA_BYTES);
@@ -526,9 +541,16 @@ static void fill_buf(int idx) {
     s16 *vz = vizbuf[idx];
     u32 c0 = consumed;
     int live = (src == SRC_RADIO && state == ST_PLAY) || (src == SRC_FILE && !paused);
+    if (src == SRC_FILE && au_hold) {                    /* v154 */
+        if (f_count >= AU_PRE || au_eof() || !live) au_hold = 0;
+        else { live = 0; if (au_play > 48000 / 2) au_gap += DMA_SAMPLES; }
+    }
     for (int i = 0; i < DMA_SAMPLES; i++) {
         s16 l = 0, r = 0;
+        if (live && f_count == 0 && au_play > 48000 / 2 && !au_eof()) { au_gap++; if (!au_in_gap) { au_in_gap = 1; au_gap_ev++; if (pcsim_au_gap) pcsim_au_gap(0, (int)f_count); } }   /* v154 : (pas le debut d'un morceau) */
+        if (live && f_count == 0 && src == SRC_FILE && !au_eof() && !video_playing) { au_hold = 1; live = 0; }   /* v154 : (on attend d'avoir de l'avance) */
         if (live && f_count > 0) {
+            au_in_gap = 0; au_play++; au_tot++;
             l = fifo[f_head].l;
             r = fifo[f_head].r;
             f_head = (f_head + 1) % FIFO_SIZE;
@@ -555,6 +577,7 @@ static void fill_buf(int idx) {
 
 static void service_audio(void) {
     for (int guard = 0; guard < AUDIO_AHEAD; guard++) {
+        if (au_hold && src == SRC_FILE && !paused && f_count < AU_PRE && !au_eof()) return;   /* v154 : (pas de blocs a moitie vides) */
         u32 level = IRQ_Disable();
         u32 blk = cb_n, f = fill_n;
         if ((s32)(f - blk) < 0) { f = blk; fill_n = f; }         /* (en retard : on repart du bloc a venir) */
@@ -2912,6 +2935,7 @@ static long fsize = 0, f_audio = 0;           // taille du fichier, debut du son
 static int playing = 0, eof = 0, cur_track = -1;
 /* v29 : lire un fichier (etiquettes, duree) sans couper la musique : seulement
    quand au moins 2 s de son sont deja decodees d'avance */
+static int au_eof(void) { return eof; }
 static int io_safe(void) { return !(src == SRC_FILE && playing && !paused) || eof || f_count > 48000 * 2; }
 static const char *track_err = NULL;   // message si un fichier ne peut pas etre lu
 static char artist[64];                // artiste lu dans les etiquettes ID3 (UTF-8)
@@ -3869,6 +3893,7 @@ static unsigned char *id3_text_only(FILE *fp, const unsigned char *head, long ta
     return b;
 }
 static int start_track(int idx) {
+    au_play = 0;                                          /* v154 : (debut d'un morceau : pas compte comme un trou) */
     if (idx < 0 || idx >= nfiles) { xf_request = 0; return 0; }
     mp3_skip = 0; mp3_left = -1; rgm_on = 0;
     crumb("morceau : %s", names[idx]);
@@ -6249,6 +6274,9 @@ static void perf_toggle(void) {
     pfx_frame_t0 = 0; pfx_last_top = PH_N; perf_on = 1;
 }
 #ifndef GEKKO
+void gcs_audio_report(void) {                              /* v154 : (simulateur) */
+    printf("[pcsim] son : %u trous (%u ms) sur %u s joues\n", (unsigned)au_gap_ev, (unsigned)(au_gap / 48), (unsigned)(au_tot / 48000));
+}
 void gcs_perf_sim(int on) { if (!on != !perf_on) perf_toggle(); }   /* (simulateur sur PC : PCSIM_PERF=1) */
 #endif
 /* v120 : simulateur (PCSIM_DRAWPROF=1) : detail du dessin des images lentes */
@@ -12917,7 +12945,10 @@ static void music_pump(void) {
     u32 t0 = perf_us();
     /* v85 : le gros du decodage se fait pendant l'attente de l'ecran (music_idle_decode) ; ici,
        seulement si le son risque de manquer (moins de 0,5 s d'avance : debut d'un morceau...) */
-    while (!eof && f_count < 24000 && decode_more(k, t0) && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
+    /* v154 : un bloc par image tant qu'il y a moins de 1,5 s d'avance (avant : 0,5 s) : quand l'ecran n'a jamais de
+       temps libre (diaporama, pages lourdes...), l'avance restait vers 0,5 s et une longue image (photo a decoder)
+       la vidait : coupure. Un bloc par image (~1100 echantillons x 60 images/s) va plus vite que le son. */
+    while (!eof && f_count < 72000 && decode_more(k, t0) && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
         decode_file_one();
         service_audio();
         k++;
