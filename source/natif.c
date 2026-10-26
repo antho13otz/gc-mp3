@@ -1246,6 +1246,35 @@ static const char *na_xtramp_why(u32 ins) {
 /* v126 : sauvegarde / restauration des registres communes a tous les aiguillages (avant : recopiees dans
    chacun, ~13 instructions de plus par aiguillage) ; posees une fois au debut de la place libre. */
 static u32 na_ssave = 0, na_srest = 0;
+/* v167 : morceaux du BSS du .dol hors de ses sections (texte et donnees), a mettre a zero ; rend leur nombre */
+#define NA_BSS_MAX 20
+static u32 na_bss_gaps(const u8 *dh, const nat_info_t *in, u32 ceil, u32 *tab, u32 max) {
+    u32 a = in->bss, e = in->bss + in->bsz, n = 0;
+    if (!in->bsz || e < a) return 0;
+    if (a < 0x80003100u) a = 0x80003100u;                   /* (jamais la memoire basse, ni la table de copie) */
+    if (e > ceil) e = ceil;                                   /* (jamais la FST, le bi2, Pulse) */
+    while (a < e && n < max) {
+        u32 cut = e, skip_to = a;
+        for (int i = 0; i < 18; i++) {                        /* la section qui commence le plus tot apres a */
+            u32 sa = be32(dh + 0x48 + i * 4), sz = be32(dh + 0x90 + i * 4);
+            if (!sz) continue;
+            u32 se = sa + sz;
+            if (sa <= a && se > a) { if (se > skip_to) skip_to = se; cut = a; }
+            else if (sa > a && sa < cut) cut = sa;
+        }
+        if (cut > a) { tab[n * 3] = a; tab[n * 3 + 1] = 0; tab[n * 3 + 2] = cut - a; n++; a = cut; }
+        else a = skip_to > a ? skip_to : a + 1;
+    }
+    return n;
+}
+/* v167 : comme gl_stub (copies puis saut), et source 0 = mise a zero (BSS) */
+static const u32 na_zstub[] = {
+    0x7cc000a6, 0x54c6045e, 0x7cc00124, 0x4c00012c, 0x2c040000, 0x41820078, 0x80e30000, 0x81030004,
+    0x81230008, 0x3863000c, 0x2c090000, 0x41820058, 0x7cea3b78, 0x7d674a14, 0x7d2903a6, 0x38e7ffff,
+    0x2c080000, 0x41820018, 0x3908ffff, 0x8d880001, 0x9d870001, 0x4200fff8, 0x48000010, 0x39800000,
+    0x9d870001, 0x4200fffc, 0x554a0034, 0x7c00506c, 0x7c0004ac, 0x7c0057ac, 0x394a0020, 0x7c0a5840,
+    0x4180ffec, 0x3484ffff, 0x4082ff90, 0x7c0004ac, 0x4c00012c, 0x7ca903a6, 0x4e800420,
+};
 static u32 na_stubs(u8 *w, u32 at) {                     /* rend la place prise (octets) */
     u32 c[16]; int n = 0;
     na_ssave = at;
@@ -2854,8 +2883,15 @@ static const char *nat_boot(int k) {
         snprintf(e, sizeof(e), "Pulse : %d acc\xC3\xA8s au lecteur non branch\xC3\xA9s, jeu pas lanc\xC3\xA9", skipped + in.di_lost);
         return e;
     }
-    /* table de copie pour gl_stub : {destination, source, taille} */
-    u32 tab[18 * 3 + 12], n = 0;
+    /* table de copie pour na_zstub : {destination, source, taille} ; source 0 = mise a zero */
+    u32 tab[(18 + 4 + NA_BSS_MAX) * 3], n = 0;
+    /* v167 : BSS du jeu mis a zero avant le saut (sauf les sections du .dol qui sont dedans), comme Swiss et la
+       console (dont la memoire est vide au demarrage). Crash Bandicoot : The Wrath of Cortex (GCBP7D) : son __start
+       appelle la remise a zero avec la taille dans le mauvais registre (r5 = 0) : rien n'etait efface, et
+       OSInit lisait dans les restes de GC Station son drapeau « deja fait » (803D8990, r13 - 0x6370) : il
+       sautait tout (pas d'interruptions, pas de lecteur : ecran noir). */
+    u32 nz = na_bss_gaps(buf, &in, fst_dest, tab, NA_BSS_MAX);
+    n = nz;
     for (int i = 0; i < 18; i++) {
         u32 off = be32(buf + i * 4), addr = be32(buf + 0x48 + i * 4), sz = be32(buf + 0x90 + i * 4);
         if (!sz) continue;
@@ -2876,7 +2912,10 @@ static const char *nat_boot(int k) {
         fprintf(f, "Jeu : %s  %s\nFichier : %s\nAdaptateur SD : %s\n\n", in.id, in.title, gl[k].path, na_adapter());
         fprintf(f, "Donnees rangees en %08X (%u octets)\nbi2.bin -> %08X   FST -> %08X (%u / %u octets)\n",
                 (unsigned)stage, (unsigned)total, (unsigned)bi2_dest, (unsigned)fst_dest, (unsigned)in.fst_sz, (unsigned)in.fst_max);
-        for (u32 i = 0; i < n; i++) fprintf(f, "  copie %08X <- %08X  %u octets\n", (unsigned)tab[i * 3], (unsigned)tab[i * 3 + 1], (unsigned)tab[i * 3 + 2]);
+        for (u32 i = 0; i < n; i++) {
+            if (tab[i * 3 + 1]) fprintf(f, "  copie %08X <- %08X  %u octets\n", (unsigned)tab[i * 3], (unsigned)tab[i * 3 + 1], (unsigned)tab[i * 3 + 2]);
+            else fprintf(f, "  zero  %08X  %u octets (BSS)\n", (unsigned)tab[i * 3], (unsigned)tab[i * 3 + 2]);   /* v167 */
+        }
         fprintf(f, "Point d'entree : %08X   BSS %08X (%u octets)\n", (unsigned)in.entry, (unsigned)in.bss, (unsigned)in.bsz);
         na_dump_start(f, buf + o_dol);
         fprintf(f, "bi2.bin : debogueur %u%s, memoire simulee %08X, arguments %08X\n", (unsigned)na_bi2_dbg,
@@ -2966,9 +3005,9 @@ static const char *nat_boot(int k) {
     DCFlushRange((void *)0x800030C0, 0x40);
     u32 *t = (u32 *)GL_TAB_AT;
     for (u32 i = 0; i < n * 3; i++) t[i] = tab[i];
-    memcpy((void *)GL_STUB_AT, gl_stub, sizeof(gl_stub));
+    memcpy((void *)GL_STUB_AT, na_zstub, sizeof(na_zstub));   /* v167 : (mise a zero du BSS) */
     DCFlushRange((void *)0x80001800, 0x1800);
-    ICInvalidateRange((void *)GL_STUB_AT, sizeof(gl_stub));
+    ICInvalidateRange((void *)GL_STUB_AT, sizeof(na_zstub));
     ((void (*)(u32 *, u32, u32))GL_STUB_AT)(t, n, in.entry);
     for (;;) ;
 #else
@@ -2980,7 +3019,8 @@ static const char *nat_boot(int k) {
             na_wbe32(w, n); fwrite(w, 1, 4, df);
             for (u32 i = 0; i < n; i++) {
                 na_wbe32(w, tab[i * 3]); fwrite(w, 1, 4, df); na_wbe32(w, tab[i * 3 + 2]); fwrite(w, 1, 4, df);
-                fwrite(buf + (tab[i * 3 + 1] - stage), 1, tab[i * 3 + 2], df);
+                if (tab[i * 3 + 1]) fwrite(buf + (tab[i * 3 + 1] - stage), 1, tab[i * 3 + 2], df);
+                else { static const u8 z[4096]; for (u32 o = 0; o < tab[i * 3 + 2]; o += sizeof(z)) fwrite(z, 1, tab[i * 3 + 2] - o < sizeof(z) ? tab[i * 3 + 2] - o : sizeof(z), df); }   /* v167 : BSS */
             }
             fwrite(hdr, 1, 0x20, df);
             fclose(df);

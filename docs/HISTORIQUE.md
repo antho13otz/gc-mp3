@@ -21,6 +21,22 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v167 — BSS remis à zéro avant le saut (Crash Bandicoot GCBP7D)
+- Code du point d'entrée (journal de la v162) désassemblé : le `__start` de GCBP7D appelle la remise à zéro
+  (`__fill_mem` en 800DB25C : r3 = destination, r4 = valeur, r5 = taille) avec r4 = début, r5 = 0, r6 = taille :
+  taille nulle, rien n'est effacé (801703C0..803D6D00 et 803D8680..803D9674). Le jeu marche avec Swiss et la console
+  parce que leur mémoire est vide ; avec Pulse, il restait la mémoire de GC Station. `OSInit` (800DD1C8) commence par
+  `lwz r0, -0x6370(r13)` (803D8990, dans le 2e morceau) : non nul = « déjà fait », il saute tout (exceptions,
+  interruptions, alarmes) : pas d'image, pas de manettes, pas de DVDInit, aucune nouvelle du jeu : exactement le
+  journal vide de v161 à v166.
+- `na_bss_gaps` (natif.c) : morceaux du BSS du .dol hors de ses sections (jamais sous 80003100 ni au-dessus de la
+  FST) ; `na_zstub` : comme `gl_stub` (copies puis saut), source 0 = mise à zéro. Le journal du lancement montre
+  les lignes « zero … (BSS) ». Sans effet pour les autres jeux (leur `__start` efface déjà ce BSS).
+- Banc : `t167.c` (morceaux sur la disposition exacte de GCBP7D : 801703C0 + 2517312, 803D8680 + 4084) et
+  `t167stub.py` (le programme de saut dans l'émulateur : mémoire remplie de restes, BSS à zéro, section copiée,
+  saut) : 29 TOUT OK.
+- Version affichée dans le journal de plantage remise à jour (restait « v159 »).
+
 ## Nouveautés v166 — journal d'un jeu figé avant ses interruptions
 - `early_note` (résident) dans `di_load`, `di_store`, `exi_load`, `exi_store` : seulement tant que `vi_in` et `si_in`
   valent 0 ; 3 s après le 1er accès aiguillé, puis toutes les 3 s : entrée `0xEE` dans le journal (nombre d'accès,

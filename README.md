@@ -14,19 +14,16 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v166)
+## Nouveautés de la version actuelle (v167)
+- **Crash Bandicoot : The Wrath of Cortex (GCBP7D) avec Pulse** : écran noir corrigé (à confirmer sur la console).
+  Pulse remet maintenant à zéro la mémoire de travail du jeu (son « BSS ») avant de le lancer, comme Swiss et la
+  console. Ce jeu ne la remettait pas à zéro lui-même et trouvait des restes de GC Station : son initialisation du
+  système croyait être déjà faite et ne démarrait rien (ni image, ni manettes, ni lecteur).
+
+## Version précédente (v166)
 - **Pulse : journal d'un jeu figé avant sa première image** (Crash Bandicoot : The Wrath of Cortex) : tant que le jeu
   n'a ni image ni manettes, Pulse compte ses accès au matériel et écrit dans le journal, toutes les 3 s, le dernier
   registre touché. Rien ne change pour les jeux qui démarrent normalement (lecteur, carte mémoire, retour : comme avant).
-
-## Version précédente (v165)
-- **Fluidité pendant la musique, vérifiée dans tous les réglages du lecteur** : les 4 styles, les 7 styles de spectre
-  (spectrogramme compris), les 5 dispositions et les paroles (seules ou avec le spectre), musique en cours, dans tous
-  les onglets (56 combinaisons sur le simulateur). Le lecteur lui-même reste à 60 images/s ; ce qui saccadait était ailleurs :
-  - **changement de morceau** : le morceau suivant (MP3, FLAC, OGG) et sa pochette sont préparés d'avance, pendant le
-    morceau en cours. Ouverture : 35 à 70 ms avant, 1 à 12 ms maintenant (le spectre et les paroles ne sautent plus) ;
-  - **onglet Photos** : la liste des photos se lit un dossier par image, les dates seulement pour le tri par date, et
-    chaque vignette demande une ouverture de fichier de moins.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
