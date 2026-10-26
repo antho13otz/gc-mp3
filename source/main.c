@@ -446,6 +446,7 @@ static volatile int dec_wait = 0;                 /* (la boucle principale atten
 #define DEC_LOCK()   do { if (dec_mx_ok) { dec_wait++; LWP_MutexLock(dec_mx); dec_wait--; } } while (0)
 #define DEC_UNLOCK() do { if (dec_mx_ok) LWP_MutexUnlock(dec_mx); } while (0)
 static lwp_t mdec_h = LWP_THREAD_NULL;
+static volatile int cur_on_sd = 0;                /* v158 : le morceau en cours est sur la carte SD (decode par le thread) */
 static void share_draw(void);                           /* v137 : (tab_phone.c) fenetre du QR code, partout */
 static int share_input(u32 down);
 static int sh_on;
@@ -3002,7 +3003,7 @@ static void other_close(void) {
 /* Ouvre le decodeur Vorbis : les en-tetes (parfois gros, avec une image) sont
    lus en entier, puis la lecture continue par blocs dans fbuf. */
 static int ogg_open(FILE *fp, long start) {
-    long cap = 64 * 1024, len = 0;
+    long cap = 16 * 1024, len = 0;                     /* v158 : (16 Ko suffisent aux en-tetes : avant 64 Ko lus a chaque morceau) */
     unsigned char *b = NULL;
     for (;;) {
         unsigned char *nb = (unsigned char *)realloc(b, cap);
@@ -3693,6 +3694,10 @@ static int cover_from_id3(const char *path) {
 static int cv_next = 0;                 /* v128 : pochette a lire a l'image suivante (morceau + 1) */
 static u32 frame_t0_us;                 /* (defini plus bas) */
 static u32 cv_next_fr = 0;
+static int cv_find_have(char (*h)[64], int n, const char *nm) {
+    for (int i = 0; i < n; i++) if (!strcasecmp(h[i], nm)) return 1;
+    return 0;
+}
 static void load_cover(int idx) {
     static const char *exts[] = { ".jpg", ".jpeg", ".png" };
     static const char *common[] = { "cover.jpg", "folder.jpg", "cover.png", "folder.png" };
@@ -3716,9 +3721,36 @@ static void load_cover(int idx) {
     char *slash = strrchr(dir, '/');
     if (slash) *slash = 0;
 
+    /* v158 : un seul passage dans le dossier (avant : jusqu'a 7 fopen ratees, chacune parcourant le dossier de la carte
+       SD : ~45 ms a chaque morceau) ; noms compares sans tenir compte des majuscules (Cover.JPG, Folder.jpg) */
+    static char cv_have[24][64];
+    int cv_nh = 0, cv_listed = 0;
+    {
+        DIR *dp = opendir(dir[0] ? dir : SD_ROOT "/");
+        if (dp) {
+            const char *base = strrchr(noext, '/'); base = base ? base + 1 : noext;
+            size_t bl = strlen(base);
+            struct dirent *e;
+            int guard = 0;
+            while ((e = readdir(dp)) && guard++ < 4096) {
+                const char *n = e->d_name;
+                size_t nl = strlen(n);
+                if (nl < 5 || nl >= sizeof(cv_have[0])) continue;
+                const char *dot = strrchr(n, '.');
+                if (!dot || (strcasecmp(dot, ".jpg") && strcasecmp(dot, ".jpeg") && strcasecmp(dot, ".png"))) continue;
+                int match = (size_t)(dot - n) == bl && !strncasecmp(n, base, bl);
+                for (int c = 0; c < 4 && !match; c++) match = !strcasecmp(n, common[c]);
+                if (match && cv_nh < 24) snprintf(cv_have[cv_nh++], sizeof(cv_have[0]), "%s", n);
+            }
+            closedir(dp);
+            cv_listed = 1;
+        }
+    }
+#define CV_EXISTS(nm_) (!cv_listed || strlen(nm_) >= 63 || cv_find_have(cv_have, cv_nh, (nm_)))
     for (int i = 0; i < 3 && !cover_ok; i++) {
         snprintf(path, sizeof(path), "%s%s", noext, exts[i]);
-        cover_ok = cover_from_file(path);
+        const char *b_ = strrchr(path, '/');
+        if (CV_EXISTS(b_ ? b_ + 1 : path)) cover_ok = cover_from_file(path);
     }
     if (!cover_ok) {
         int fm = audio_fmt(names[idx]);
@@ -3727,9 +3759,14 @@ static void load_cover(int idx) {
         else if (fm == FMT_M4A) cover_ok = m4a_meta(names[idx], NULL, 1);
     }
     for (int i = 0; i < 4 && !cover_ok; i++) {
-        snprintf(path, sizeof(path), "%s/%s", dir, common[i]);
+        if (!CV_EXISTS(common[i])) continue;
+        char real_[64];                                   /* (le vrai nom, majuscules comprises) */
+        snprintf(real_, sizeof(real_), "%s", common[i]);
+        for (int h = 0; h < cv_nh; h++) if (!strcasecmp(cv_have[h], common[i])) { snprintf(real_, sizeof(real_), "%s", cv_have[h]); break; }
+        snprintf(path, sizeof(path), "%s/%s", dir, real_);
         cover_ok = cover_from_file(path);
     }
+#undef CV_EXISTS
     cv_defer = 0;
     if (cover_ok == 2) cover_ok = 0;                      /* (l'image arrive dans un instant) */
 }
@@ -3906,7 +3943,16 @@ static unsigned char *id3_text_only(FILE *fp, const unsigned char *head, long ta
     return b;
 }
 static int start_track_u(int idx);
-static int start_track(int idx) { DEC_LOCK(); int r_ = start_track_u(idx); DEC_UNLOCK(); return r_; }   /* v157 */
+static int start_track(int idx) {
+#ifndef GEKKO
+    u32 t0_ = perf_us();
+#endif
+    DEC_LOCK(); int r_ = start_track_u(idx); DEC_UNLOCK();
+#ifndef GEKKO
+    if (getenv("PCSIM_DRAWPROF")) printf("[pcsim] ouverture du morceau %s : %.1f ms\n", idx >= 0 && idx < nfiles ? names[idx] : "?", (perf_us() - t0_) / 1000.0);
+#endif
+    return r_;
+}   /* v157 */
 static int start_track_u(int idx) {
     au_play = 0;                                          /* v154 : (debut d'un morceau : pas compte comme un trou) */
     if (idx < 0 || idx >= nfiles) { xf_request = 0; return 0; }
@@ -4033,6 +4079,7 @@ static int start_track_u(int idx) {
     consumed = 0;
     stat_counted = 0;
     eof = 0; playing = 1; paused = 0; cur_track = idx;
+    cur_on_sd = !strncasecmp(names[idx], SD_ROOT, strlen(SD_ROOT));   /* v158 */
     src = SRC_FILE;
     lyrics_load(idx);
     return 1;
@@ -5232,7 +5279,7 @@ static void present_frame(void) {
     VIDEO_SetNextFramebuffer(xfb[next_fb]);
     VIDEO_Flush();
     u32 pw0 = perf_on ? perf_us() : 0;
-    if (perf_on && pg0) pfx_cur[PH_GPU] += pw0 - pg0;
+    if (perf_on && pg0 && pw0 - pg0 < 1000000) pfx_cur[PH_GPU] += pw0 - pg0;
     /* attente de l'image suivante, en continuant a lire le reseau */
     u32 rc = retrace_count;
     u64 t0 = now_ms();
@@ -12960,7 +13007,8 @@ static int gapless_next_ok(void) {
 /* v157 : thread de decodage de la musique (fichiers de la carte SD seulement : les fichiers du reseau passent par des
    connexions partagees avec la boucle principale) */
 static u8 mdec_stack[65536] ATTRIBUTE_ALIGN(32);
-static int mdec_ok_file(void) { return cur_track >= 0 && cur_track < nfiles && !strncasecmp(names[cur_track], SD_ROOT, strlen(SD_ROOT)); }
+static int mdec_ok_file(void) { return cur_on_sd; }      /* (fixe a l'ouverture : le thread ne lit pas names[], qu'une
+                                                               nouvelle lecture de la bibliotheque peut liberer) */
 static int mdec_want(void) {
     return src == SRC_FILE && playing && !paused && !eof && !video_playing && mdec_ok_file()
         && f_count < FILE_LEAD && (FIFO_SIZE - f_count) >= FIFO_MARGIN;
