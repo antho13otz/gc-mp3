@@ -21,6 +21,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v155 — jaquettes sans morceaux d'une autre
+- Vu sur la console (vidéo) : un rectangle d'une autre jaquette dans le coin de la grande jaquette, qui disparaît
+  ensuite. Cause : une nouvelle image chargée à une adresse mémoire déjà servie par une image libérée ; le cache de
+  textures du processeur graphique (TMEM) gardait des morceaux de l'ancienne. `GX_InvalidateTexAll()` après chaque
+  `GX_InitTexObj` qui n'en avait pas : jaquettes, grande jaquette, bannières (gclib.c), icônes des cartes mémoire et
+  des applis (tools.c), images du tableau rétro (extras73.c). Le simulateur n'imite pas ce cache : pas vérifiable ici.
+
 ## Nouveautés v154 — fluidité de la lecture (tous formats)
 - Mesure : `au_gap` / `au_gap_ev` (échantillons joués en silence pendant un morceau non fini, hors 0,5 s du début) dans
   `fill_buf` (file vide) et `dma_cb` (aucun bloc prêt) ; simulateur : `[pcsim] son : N trous` à la fin du journal et
