@@ -112,7 +112,7 @@ typedef struct {
     unsigned int bba_n;                                   /* le jeu a choisi le BBA (canal 0, peripherique 2) : nombre de fois */
     unsigned int exi_wait;                                /* lectures de la carte SD remises a plus tard : le jeu se servait du bus */
     unsigned int exi_sync;                                /* lectures faites en attendant que le jeu libere le bus (lecture immediate) */
-    unsigned int rsv145;
+    unsigned int tramp_end;                               /* v159 : (GC Station) fin de la place des aiguillages (0 = sous la table des morceaux) */
 } natres_hdr_t;
 /* v143 : reglages du reseau (ranges par GC Station dans la place libre du resident) */
 typedef struct {

@@ -722,7 +722,7 @@ static void ret_to_gcstation(void) {
     }
     H.net = 0;                                           /* v143 : (le .dol de GC Station est sur la carte SD) */
     if (!di_ready) di_ready = nr_init() == 0;
-    for (u32 i = 0; i < H.ret_n; i++) ext_tab[i] = ret_tab[i];
+    natres_hdr.ext = (u32)ret_tab;                       /* v159 : la table du .dol de GC Station, en place (plus de recopie) */
     H.n_ext = H.ret_n; ext_last = 0; sec_cached = 0xFFFFFFFFu;
     static u8 dh[256] __attribute__((aligned(32)));
     if (!di_ready || nr_read(dh, 0, 256)) hot_reset();
@@ -1933,7 +1933,7 @@ static void nx_patch2(u32 a, u32 fin, u32 len) {        /* a = ou est le code ma
     if (fin < 0x80003000u || fin >= 0x817F0000u) return;
     if (a + len > 0x817F0000u) len = 0x817F0000u - a;
     volatile u32 *t = (volatile u32 *)a;
-    u32 val[32], known = 0, end = (H.tramp_at ? (H.ext2 && H.ext2 < H.ext ? H.ext2 : H.ext) : 0);   /* (v97 : la table des morceaux est au-dessus ; v121 : les deux disques) */
+    u32 val[32], known = 0, end = (H.tramp_at ? (H.tramp_end ? H.tramp_end : H.ext2 && H.ext2 < H.ext ? H.ext2 : H.ext) : 0);   /* (v159 : table hors du resident) */   /* (v97 : la table des morceaux est au-dessus ; v121 : les deux disques) */
     for (u32 o = 0; o + 4 <= len; o += 4) {
         u32 ins = t[o >> 2], op = ins >> 26, rd = (ins >> 21) & 31, ra = (ins >> 16) & 31;
         int simm = (short)(ins & 0xFFFF);

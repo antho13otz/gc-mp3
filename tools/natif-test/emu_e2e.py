@@ -539,8 +539,14 @@ if NET:                                                   # v143 : tout l'ISO es
     print(('OK   ' if good else 'FAUX ') + 'Pulse par le reseau : %d demandes, %d paquets recus, %d refaites (1 perdue expres), etat %d, reponse ARP %s, trames perdues %d' % (
         bba.reqs, pk, rt & 0xFFFFFF, rt >> 24, bba.arp_ok, bba.dropped))
     ok &= good
+if MODE == '':                                        # v159 : aiguillages et tables dans une place a part sous le resident
+    te, ta = rd(0x1EC), rd(0x178)
+    good = 0x81700000 < te <= 0x817F0000 and te - ta >= 0x2000
+    print(('OK   ' if good else 'FAUX ') + 'place des aiguillages : %d octets libres apres le branchement (%08X - %08X), sous le resident' % (te - ta, ta, te))
+    ok &= good
 if MODE == '':                                        # v146 : bi2.bin : norme des manettes (5) ecrite pour le jeu, comme Swiss
-    sp = rd32(0x817EE000 + 0x24)
+    b2 = next((a for a in range(0x817EE000, 0x81700000, -0x20) if rd32(a + 0x18) == 1 and rd32(a + 0x24) == 5), 0)   # (bi2 : plus a une adresse fixe depuis v159)
+    sp = rd32(b2 + 0x24) if b2 else 0
     print(('OK   ' if sp == 5 else 'FAUX ') + 'bi2.bin : norme des manettes %d' % sp)
     ok &= sp == 5
 if os.environ.get('EMU_EXIBUSY'):                   # v145 : lectures remises a plus tard, sans rien abimer
