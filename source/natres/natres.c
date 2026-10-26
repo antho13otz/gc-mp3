@@ -933,6 +933,7 @@ static void mem_snap(volatile u32 *c) {
     cw(0x04, nz);
     nr_write_sd(H.snap_sec, crashbuf);
 }
+static void vc_diag(void);
 static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
     if (!(H.flags & NRF_CRASH) || !H.log_sec || !di_ready) return;
     for (u32 i = 0; i < 512; i++) crashbuf[i] = 0;
@@ -957,6 +958,7 @@ static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
         if (!ram_ok(a, NATRES_CRASH_STR)) continue;
         for (u32 i = 0; i < NATRES_CRASH_STR; i++) crashbuf[0x110 + (r - 3) * NATRES_CRASH_STR + i] = *(volatile u8 *)(a + i);
     }
+    if (ex == 0xFE) vc_diag();                           /* v171 : jeu fige : etat de la carte virtuelle a la place des textes */
     nr_write_sd(H.log_sec + 1, crashbuf);
     if (H.flags & NRF_STACK) stack_dump(c[1]);
     mem_snap(c);
@@ -1608,6 +1610,20 @@ static void nr_sample(u32 ctx) {
 }
 /* v133 : image (VI) du dernier progres d'une lecture en fond, et de la derniere fin a donner au jeu */
 static u32 rd_vi = 0, dp_vi = 0;
+/* v171 : jeu fige (Crash Bandicoot GCBP7D, carte virtuelle) : tout ce qui decide si la fin d'un transfert de la
+   carte arrive au jeu, ecrit a la place des textes dans le 2e secteur du journal (0x110, magique "VCRD") */
+static void di_hook(u32 irq, u32 ctx);
+static void vc_diag(void) {
+    for (u32 i = 0x110; i < 0x200; i++) crashbuf[i] = 0;
+    vcard_t *v = &vc[0];
+    volatile u32 *t = OS_INT_TABLE, *e0 = HW6(0xCC006800u), *pi = (volatile u32 *)0xCC003000u;
+    const u32 w[] = { 0x56435244u, v->on, v->csr, v->irq, v->cr, v->mar, v->len, v->pos, v->cmd, v->addr, v->status, v->irq_sw,
+                      (u32)x_kicked | (u32)rd_on << 8 | (u32)di_game_pending << 16 | (u32)(wk_tick & 0xFF) << 24,
+                      DI_REAL[0], DI_REAL[7], x_disp, *(volatile u32 *)0x800000C4u, *(volatile u32 *)0x800000C8u,
+                      pi[0], pi[1], e0[0], e0[3], e0[5], e0[10], H.chan, t[9], t[10], t[21], di_orig, (u32)di_hook,
+                      vc[1].on ? vc[1].irq | vc[1].csr << 16 : 0xFFFFFFFFu, rd_left, H.vi_count - rd_vi, H.vi_count - dp_vi };
+    for (u32 i = 0; i < sizeof(w) / 4; i++) cw(0x110 + i * 4, w[i]);
+}
 /* lecture en fond : les morceaux suivants. 0 = pas finie, 1 = finie (TCINT), -1 = erreur (DEINT) */
 static int rd_pump(void) {
     u32 t0 = tbl(), bud = wake_tick() ? RD_BUDGET * 2u : RD_BUDGET;   /* (v133 : sans le lecteur, moins souvent : plus par fois) */

@@ -21,6 +21,21 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v171 — Crash : la carte virtuelle dans le journal du jeu figé
+- Nouveau banc `tools/natif-test/emu_game.py` : le VRAI programme d'un jeu (préparé par GC Station, avec Pulse)
+  tourne dans l'émulateur PowerPC : système du jeu, interruptions (PI, image, dessin, DSP, son), horloge et
+  décrémenteur, boîtes aux lettres du DSP, mémoire ARAM, instructions « paired single » du Gekko faites à part,
+  registres propres au Gekko. `EMU_CALL` fait appeler une fonction du jeu dans sa tâche, `EMU_WATCH` suit des
+  fonctions. Unicorn corrigé (`uc_patch.py`, variable `UC_NO_MEM_EXIT`) : un arrêt juste après un accès mémoire
+  refaisait l'instruction (lwz r5,0(r5) relu avec r5 déjà chargé).
+- Crash GCBP7D (main.dol) : le montage de la carte virtuelle par le SDK du jeu (CARDMount 800F2034, DoMount 800F18E8,
+  __CARDRead 800F5360, CARDInit 800EFD54) réussit dans le banc : 84 commandes, 5 blocs, vérification ; aussi avec un
+  vrai lecteur lent, une grosse lecture du disque en même temps, et sans le lecteur. Le blocage vu sur la console
+  dépend donc de ce qui n'est pas dans le banc.
+- Jeu figé (v169) : le 2e secteur du journal porte à la place des textes l'état de la carte virtuelle (« VCRD » en
+  0x110 : CSR, interruptions en attente, CR, commande, adresse, réveil demandé, lecture en fond, vrai lecteur,
+  masques du jeu, PI, vrais registres EXI, fonctions d'interruption), écrit dans `journal-jeu.txt`.
+
 ## Nouveautés v170 — copie du main.dol à l'analyse
 - Le journal figé de la v169 (Crash Bandicoot GCBP7D) : tâche principale (priorité 16) en attente dans la
   synchronisation de la carte mémoire du SDK (800F009C : tableau de 2 blocs de 0x110 en 802372A0, résultat -1 =

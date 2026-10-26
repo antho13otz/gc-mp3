@@ -7,6 +7,7 @@ R=$(pwd); T=$R/tools/natif-test; W=$T/work; mkdir -p $W; cd $W
 [ -d unicorn ] || git clone -q --depth 1 https://github.com/unicorn-engine/unicorn
 [ -f unicorn/build/libunicorn.so ] || (mkdir -p unicorn/build && cd unicorn/build && cmake .. -DUNICORN_ARCH=ppc -DCMAKE_BUILD_TYPE=Release -DUNICORN_BUILD_TESTS=OFF >/dev/null && make -j8 >/dev/null)
 [ -d libogc ] || git clone -q --depth 1 https://github.com/devkitPro/libogc
+python3 $T/uc_patch.py unicorn || (cd unicorn/build && make -j8 >/dev/null)   # (v171 : pour emu_game.py, sans effet sur le reste)
 export UNICORN_DIR=$W/unicorn
 # 1) programme resident (clang, PowerPC 750)
 clang --target=powerpc-none-eabi -mcpu=750 -Os -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -Wall -Wextra -c $R/source/natres/natres.c -o natres.o
