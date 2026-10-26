@@ -21,6 +21,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v156 — enchaînement sans blanc d'un album à l'autre
+- `gapless_next_ok` ne demande plus le même dossier / album : le morceau suivant (fin automatique) est ouvert pendant
+  que la fin du précédent joue encore (`xf_request = -1`), quel que soit l'album. Restent exclus : la fin de la file
+  en aléatoire + répétition (nouveau tirage), les morceaux rétro. Mesure (simulateur) : le blanc de 53 ms au passage
+  de « Lagon » (Demo Album) à « Vent du nord » (autre dossier) a disparu.
+
 ## Nouveautés v155 — jaquettes sans morceaux d'une autre
 - Vu sur la console (vidéo) : un rectangle d'une autre jaquette dans le coin de la grande jaquette, qui disparaît
   ensuite. Cause : une nouvelle image chargée à une adresse mémoire déjà servie par une image libérée ; le cache de

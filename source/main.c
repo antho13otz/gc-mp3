@@ -178,7 +178,7 @@ static void au_header(void);
 static void au_player(void);                            /* v103 : Aurore : lecteur de MUSIQUE (ui_aurore2.c) */
 static int gl_view;                                     /* gclib.c : affichage de Mes jeux GameCube */
 static int gl_anim = 1;                                 /* v45 : animations de JEUX / APPS */
-static int gapless_on = 1;                              /* v72 : enchainement sans blanc (meme album / dossier) */
+static int gapless_on = 1;                              /* v72 : enchainement sans blanc (v156 : tous les morceaux) */
 static int radio_resume = 1;                            /* v72 : la derniere radio reprend au demarrage */
 /* v73 : nouveautes (extras73.c, inclus a la fin) */
 static int x73_setting(const char *k, const char *v);
@@ -4857,7 +4857,7 @@ static void save_settings(void) {
             rumble_on ? "oui" : "non", pod_auto ? "oui" : "non", wall_on && wall_path[0] ? wall_path : "non", wall_path, season_key_of(season_on));
     fprintf(f, "# La derniere radio ecoutee reprend au demarrage : oui / non\nradio_reprise = %s\nradio_derniere = %s\nradio_derniere_nom = %s\n",
             radio_resume ? "oui" : "non", radio_last_url, radio_last_name);
-    fprintf(f, "# Morceaux d'un meme album (dossier) enchaines sans blanc : oui / non\nenchainement_sans_blanc = %s\n", gapless_on ? "oui" : "non");
+    fprintf(f, "# Morceaux enchaines sans blanc : oui / non\nenchainement_sans_blanc = %s\n", gapless_on ? "oui" : "non");
     fprintf(f, "# Egaliseur 5 bandes (v73) : bas-mediums (350 Hz) et presence (4 kHz), en dB\nbas_mediums = %d\npresence = %d\n", eq_lowmid, eq_pres);
     x73_save(f);
     fprintf(f, "# v138 : Salon (autres GC Station du reseau) ; nom de cette console (vide = automatique)\nsalon = %s\nsalon_nom = %s\n", salon_on ? "oui" : "non", salon_name);
@@ -11550,7 +11550,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_COVERS:  snprintf(out, cap, "%s", covers_auto ? "Oui" : "Non"); break;
     case MI_RESUME:  snprintf(out, cap, "%s", resume_on ? "Oui" : "Non"); break;
     case MI_RADIORES: snprintf(out, cap, "%s", radio_resume ? "Oui" : "Non"); break;
-    case MI_GAPLESS: snprintf(out, cap, "%s", gapless_on ? "Oui (m\xC3\xAAme album)" : "Non"); break;
+    case MI_GAPLESS: snprintf(out, cap, "%s", gapless_on ? "Oui" : "Non"); break;
     case MI_VIDEO: {
         int want = video_pref == VID_AUTO ? -1 : video_pref;
         snprintf(out, cap, "%s%s", vid[video_pref], want >= 0 && want != vid_active ? "  (au red\xC3\xA9marrage)" : "");
@@ -11915,7 +11915,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_VIDEO) hint = "Pris en compte au prochain lancement (B maintenu au d\xC3\xA9marrage = 480i)";
     if (menu_sel == MI_AUTOSTART) hint = "Copie GC Station dans ipl.dol (PicoLoader) : la console et le bouton Reset ouvrent GC Station";
     if (menu_sel == MI_IGR) hint = igr_hint();
-    if (menu_sel == MI_GAPLESS) hint = "Les morceaux d'un m\xC3\xAAme album s'encha\xC3\xAEnent sans silence (albums live, mixes)";
+    if (menu_sel == MI_GAPLESS) hint = "Les morceaux s'encha\xC3\xAEnent sans silence ajout\xC3\xA9 (albums live, mixes, d'un album \xC3\xA0 l'autre)";
     if (menu_sel == MI_RADIORES) hint = "La derni\xC3\xA8re radio \xC3\xA9" "cout\xC3\xA9" "e repart toute seule (si rien d'autre ne joue)";
     if (menu_sel == MI_PODSPEED) hint = "Plus rapide sans voix aigu\xC3\xAB (podcasts seulement)";
     if (menu_sel == MI_PODSIL) hint = "Les blancs de plus d'un quart de seconde sont saut\xC3\xA9s (podcasts seulement)";
@@ -12925,7 +12925,7 @@ static void transport_step(int d) {
 }
 
 /* musique : decodage d'avance, puis morceau suivant (avec fondu enchaine) */
-/* v72 : le morceau suivant (fin automatique) est-il du meme album (meme dossier) ? */
+/* v72 : le morceau suivant (fin automatique) peut-il enchainer sans blanc ? (v156 : quel que soit l'album) */
 static int gapless_next_ok(void) {
     if (!auto_next_exists() || cur_track < 0) return 0;
     int nx = -1;
@@ -12933,10 +12933,8 @@ static int gapless_next_ok(void) {
     else if (qpos + 1 < qn) nx = queue[qpos + 1];
     else if (repeat_mode == REP_ALL && !shuffle_on && qn > 0) nx = queue[0];
     if (nx < 0 || nx >= nfiles || is_retro[nx]) return 0;
-    const char *a = names[cur_track], *b = names[nx], *sa = strrchr(a, '/'), *sb = strrchr(b, '/');
-    if (!sa || !sb || sa - a != sb - b || strncmp(a, b, sa - a)) return 0;
-    if (id3_album[0] && tg_album[nx][0] && strcasecmp(id3_album, tg_album[nx])) return 0;
-    return 1;
+    return 1;                                            /* v156 : aussi d'un album a l'autre (avant : meme dossier seulement,
+                                                            sinon ~50 ms de blanc : ouverture du suivant apres la fin) */
 }
 static void music_pump(void) {
     if (video_playing) return;                          /* (le son vient de la video) */
@@ -12956,7 +12954,7 @@ static void music_pump(void) {
     }
     if (eof && rgm_on) rgm_finish(rgm_track == cur_track);   /* v72 : sonie mesuree sur tout le morceau */
     if (eof && f_count > 0 && xf_sec == 0 && gapless_on && xf_left == 0 && gapless_next_ok()) {
-        xf_request = -1;                                /* v72 : meme album : le suivant enchaine sans blanc */
+        xf_request = -1;                                /* v72 : le suivant enchaine sans blanc (v156 : tout album) */
         track_next(1, 1);
     }
     else if (eof && f_count == 0) track_next(1, 1);    /* morceau suivant (selon aleatoire / repetition) */
