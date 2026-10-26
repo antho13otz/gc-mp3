@@ -21,6 +21,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v164 — bi2 : drapeau du débogueur, crochets plus tôt, 7z
+- `na_bi2_fix` : bi2 + 0x0C (drapeau du débogueur) remis à 0. Le `__start` du SDK lit `*(0x800000F4) + 0x0C` et, à
+  2 ou plus, appelle l'initialisation de MetroTRK avant `OSInit` (code de Crash Bandicoot GCBP7D vu par v162 :
+  80003178-80003194). Valeur d'origine notée dans `dernier-lancement.txt`.
+- `hooks_lazy` : `hooks_check()` aux 64 premiers accès aiguillés (avant : 1 sur 256).
+- `tools/catalogue.py` : archive .7z que py7zr ne lit pas → `7z x` (cube64-1.4.4.7z).
+
 ## Nouveautés v163 — émulateurs dans le catalogue d'applis
 - `catalogue/applis.txt` : fceugx, snes9xgx, vbagx (dborth, archives `-GameCube.zip`), genplusgx (ekeeke, sans
   release), cubesx (emukidid/pcsxgc, `CubeSX-x.zip`), cube64 (emukidid/Wii64, `cube64-x.7z`).

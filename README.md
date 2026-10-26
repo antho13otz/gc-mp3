@@ -14,16 +14,18 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v163)
+## Nouveautés de la version actuelle (v164)
+- **Pulse : jeux qui démarrent le débogueur des consoles de développement** : certains disques gardent dans leur
+  `bi2.bin` un réglage qui fait lancer au jeu le débogueur MetroTRK, qui attend un matériel absent d'une console du
+  commerce. Pulse le remet à zéro. C'est la piste pour Crash Bandicoot : The Wrath of Cortex (écran noir dès le début).
+- Pulse se branche plus tôt sur le jeu (les 64 premiers accès au matériel) : un jeu qui se fige tôt laisse un journal.
+- Catalogue d'applis : Cube64 (Nintendo 64), dont l'archive ne pouvait pas être ouverte, est ajouté.
+
+## Version précédente (v163)
 - **Émulateurs dans le catalogue d'applis** (START > Réglages > Outils > Catalogue d'applis) : la version GameCube de
   FCE Ultra GX (NES), Snes9x GX (Super Nintendo), Visual Boy Advance GX (Game Boy, Color, Advance), Genesis Plus GX
   (Mega Drive, Master System, Game Gear, Mega-CD), CubeSX (PlayStation) et Cube64 (Nintendo 64), mises à jour
   chaque semaine depuis leurs dépôts.
-
-## Version précédente (v162)
-- **Pulse : diagnostic des jeux figés dès le début** (Crash Bandicoot : The Wrath of Cortex, écran noir) : le journal
-  du lancement (`gc-mp3/natif/dernier-lancement.txt`) contient maintenant le début du code du jeu et sa zone de
-  mémoire vide (BSS), pour comprendre ce que le jeu fait avant de se bloquer.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

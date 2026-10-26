@@ -2542,8 +2542,14 @@ static void na_bi2_args(u8 *b, const char *const *av, int ac) {   /* arguments d
     for (int i = 0; i < ac; i++) { na_wbe32(b + base + 4 + 4 * (u32)i, at); strcpy((char *)b + at, av[i]); at += (u32)strlen(av[i]) + 1; }
     na_wbe32(b + base + 4 + 4 * (u32)ac, 0);
 }
+static u32 na_bi2_dbg = 0;                               /* v164 : drapeau du debogueur trouve dans bi2.bin (journal) */
 static void na_bi2_fix(u8 *b, const char *id) {
     u32 spec = 5;
+    /* v164 : drapeau du debogueur (bi2 + 0x0C) : 2 ou 3 = le demarrage du jeu (__start) lance MetroTRK, le
+       debogueur des consoles de developpement, qui attend un materiel absent d'une console du commerce
+       (Crash Bandicoot : The Wrath of Cortex : ecran noir avant la 1re image). Remis a 0. */
+    na_bi2_dbg = be32(b + 0x0C);
+    if (na_bi2_dbg) na_wbe32(b + 0x0C, 0);
 #ifdef GEKKO
     if (*(volatile u8 *)0x800030E9u) spec = *(volatile u8 *)0x800030E9u;
 #endif
@@ -2867,7 +2873,9 @@ static const char *nat_boot(int k) {
                 (unsigned)stage, (unsigned)total, (unsigned)bi2_dest, (unsigned)fst_dest, (unsigned)in.fst_sz, (unsigned)in.fst_max);
         for (u32 i = 0; i < n; i++) fprintf(f, "  copie %08X <- %08X  %u octets\n", (unsigned)tab[i * 3], (unsigned)tab[i * 3 + 1], (unsigned)tab[i * 3 + 2]);
         fprintf(f, "Point d'entree : %08X   BSS %08X (%u octets)\n", (unsigned)in.entry, (unsigned)in.bss, (unsigned)in.bsz);
-        na_dump_start(f, buf + o_dol);                   /* v162 : debut du code du jeu (jeu fige avant toute trace : Crash Bandicoot) */
+        na_dump_start(f, buf + o_dol);
+        fprintf(f, "bi2.bin : debogueur %u%s, memoire simulee %08X, arguments %08X\n", (unsigned)na_bi2_dbg,
+                na_bi2_dbg ? " (remis a 0 : console du commerce)" : "", (unsigned)be32(buf + o_bi2 + 4), (unsigned)be32(buf + o_bi2 + 8));                   /* v162 : debut du code du jeu (jeu fige avant toute trace : Crash Bandicoot) */
         fprintf(f, "Programme resident : %s\n", res ? "installe" : merr[0] ? merr : "non installe");
         fprintf(f, "Journal du jeu : %s\n", log_sec ? "oui (gc-mp3/natif/journal-jeu.txt au prochain demarrage de GC Station)" : "non");
         fprintf(f, "Faux lecteur DVD : %d acces branches, %d non branches (sur %d trouves)\n", patched - na_xdone, skipped, in.ntotal - in.nexi);
