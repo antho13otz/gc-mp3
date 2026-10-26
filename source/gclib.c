@@ -61,6 +61,7 @@ static const char *gl_launch(int k);
 static const char *game_boot(int k, int resident);         /* v75 : lancement avec les reglages du jeu (jeux_cfg.c) */
 static const char *game_boot_auto(int k);                  /* v90 : Resident, ou le lanceur de secours si des cheats sont actives */
 static void nat_run(int k);                                /* v50 : lanceur natif, analyse (natif.c) */
+static void nat_bench_all(void);                           /* v171 : banc d'essai : export de tous les jeux (natif.c) */
 static const char *nat_boot(int k);                        /* v51 : lanceur maison, demarrage natif (natif.c), en test */
 static const char *nat_boot_disc(int k);                   /* v97 : disque du vrai lecteur (natif.c) */
 static int gl_has_dvd(void);
@@ -758,8 +759,8 @@ static int gl_opt = -1;                                    /* v45 : fenetre Opti
 static f32 gl_slide = 0;                                   /* v45 : fiche : glissement vers le jeu suivant */
 static void gclib_input(u32 down, u32 nav, int fire) {
     if (gl_opt >= 0) {                                     /* v45 : Options : tri, jeu au hasard, animations, actualiser */
-        if (fire && (nav & PAD_BUTTON_DOWN)) gl_opt = (gl_opt + 1) % 4;
-        if (fire && (nav & PAD_BUTTON_UP)) gl_opt = (gl_opt + 3) % 4;
+        if (fire && (nav & PAD_BUTTON_DOWN)) gl_opt = (gl_opt + 1) % 5;
+        if (fire && (nav & PAD_BUTTON_UP)) gl_opt = (gl_opt + 4) % 5;
         int ch = (fire && (nav & PAD_BUTTON_RIGHT)) ? 1 : (fire && (nav & PAD_BUTTON_LEFT)) ? -1 : (down & PAD_BUTTON_A) ? 1 : 0;
         if (gl_opt == 0 && ch) { gl_sort = (gl_sort + ch + 5) % 5; gl_apply_sort(); settings_dirty = 1; }
         else if (gl_opt == 1 && (down & PAD_BUTTON_A) && gl_n) {
@@ -772,6 +773,7 @@ static void gclib_input(u32 down, u32 nav, int fire) {
             gl_note(gl_n ? "Liste actualis\xC3\xA9" "e" : "Aucun jeu trouv\xC3\xA9");
             return;
         }
+        else if (gl_opt == 4 && (down & PAD_BUTTON_A)) { gl_opt = -1; nat_bench_all(); return; }   /* v171 */
         if (down & (PAD_BUTTON_B | PAD_BUTTON_Y)) gl_opt = -1;
         return;
     }
@@ -1454,13 +1456,13 @@ static void draw_gclib_main(void) {
     static const char *const l[] = { "FICHE", "CHEATS", "OPTIONS", "AFFICHAGE", "RETOUR" };
     draw_legend_keys(k, l, 5);
     if (gl_opt >= 0) {                                         /* v45 : fenetre Options */
-        static const char *const nm[4] = { "Trier par", "Jeu au hasard", "Animations", "Actualiser la liste" };
-        const f32 w = 400, rh = 30, h = 60 + 4 * rh, x = 120, y = 240 - h / 2;
+        static const char *const nm[5] = { "Trier par", "Jeu au hasard", "Animations", "Actualiser la liste", "Banc d'essai (export)" };
+        const f32 w = 400, rh = 30, h = 60 + 5 * rh, x = 120, y = 240 - h / 2;
         gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130));
         gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
         draw_panel(x, y, w, h);
         gx_text1(F_LARGE, x + 20, y + 32, "Options", RGBA(255, 255, 255, 255));
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 5; i++) {
             f32 ry = y + 44 + i * rh;
             int on = i == gl_opt;
             gp_zone(x + 12, ry, w - 24, rh - 3, &gl_opt, i, GPZ_SEL);

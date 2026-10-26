@@ -2059,6 +2059,103 @@ static int na_disc2(int k) {
     return -1;
 }
 
+/* ---------- v171 : banc d'essai (export) ----------
+   Pour chaque jeu, une image reduite du disque (gc-mp3/banc/<ID><disque>.gcb) : en-tete, apploader, FST, main.dol,
+   les petits fichiers en entier et le debut des gros (16 Mo au plus). Envoyee sur PC, elle fait tourner le vrai
+   programme du jeu avec Pulse dans l'emulateur (tools/banc) : demarrage, premieres lectures, carte memoire.
+   Format (gros-boutiste) : "GCB1", version, ID (8), taille de l'ISO, nombre de morceaux, octets de donnees,
+   titre (64) ; puis {position dans l'ISO, longueur} par morceau ; puis les donnees, dans l'ordre. */
+#define NB_DIR   GCD "/banc"
+#define NB_MAX   512
+#define NB_CAP   (16u << 20)
+#define NB_SMALL (256u << 10)
+#define NB_HEAD  (64u << 10)
+static u32 nb_off[NB_MAX], nb_len[NB_MAX];
+static int nb_n;
+static u32 nb_total;
+static void nb_add(u32 off, u32 len, int force) {
+    if (!len || nb_n >= NB_MAX) return;
+    if (!force && nb_total + len > NB_CAP) return;
+    for (int i = 0; i < nb_n; i++) if (off >= nb_off[i] && off + len <= nb_off[i] + nb_len[i]) return;   /* (deja dedans) */
+    nb_off[nb_n] = off; nb_len[nb_n] = len; nb_n++; nb_total += len;
+}
+static void nb_wbe(FILE *f, u32 v) { u8 w[4]; na_wbe32(w, v); fwrite(w, 1, 4, f); }
+static int nat_bench_export(int k, char *msg, size_t cap) {
+    gdisc_t d;
+    if (k < 0 || k >= gl_n || gl[k].dvd) { snprintf(msg, cap, "pas un fichier"); return -1; }
+    if (!gd_open(&d, gl[k].path)) { snprintf(msg, cap, "fichier illisible"); return -1; }
+    u8 h[0x440], al[0x20];
+    if (!gd_read(&d, 0, h, sizeof(h)) || be32(h + 0x1C) != 0xC2339F3Du) { gd_close(&d); snprintf(msg, cap, "pas un disque GameCube"); return -1; }
+    u32 dol = be32(h + 0x420), fst = be32(h + 0x424), fsz = be32(h + 0x428), iso = fst + fsz;
+    nb_n = 0; nb_total = 0;
+    u32 alen = 0x2460;
+    if (gd_read(&d, 0x2440, al, sizeof(al)) && be32(al + 0x14) < 0x100000u) alen += (be32(al + 0x14) + be32(al + 0x18) + 31) & ~31u;
+    nb_add(0, alen, 1);
+    u8 dh[0x100];
+    if (dol && gd_read(&d, dol, dh, sizeof(dh))) {
+        u32 end = 0x100;
+        for (int i = 0; i < 18; i++) { u32 o = be32(dh + i * 4), z = be32(dh + 0x90 + i * 4); if (o && z && o + z > end && z < (24u << 20)) end = o + z; }
+        nb_add(dol, end, 1);
+        if (dol + end > iso) iso = dol + end;
+    }
+    u8 *ft = fsz && fsz < (4u << 20) ? (u8 *)malloc(fsz) : NULL;
+    if (!ft || !gd_read(&d, fst, ft, fsz)) { free(ft); gd_close(&d); snprintf(msg, cap, "table des fichiers illisible"); return -1; }
+    nb_add(fst, fsz, 1);
+    u32 ne = be32(ft + 8);
+    if (ne * 12u > fsz) ne = fsz / 12u;
+    for (u32 pass = 0; pass < 2; pass++)                  /* (d'abord les petits fichiers en entier, puis le debut des gros) */
+        for (u32 i = 1; i < ne; i++) {
+            const u8 *e = ft + i * 12;
+            if (e[0]) continue;                               /* (dossier) */
+            u32 o = be32(e + 4), z = be32(e + 8);
+            if (o + z > iso) iso = o + z;
+            if (pass == 0 && z <= NB_SMALL) nb_add(o, z, 0);
+            if (pass == 1 && z > NB_SMALL) nb_add(o, NB_HEAD, 0);
+        }
+    free(ft);
+    mkdir(NB_DIR, 0777);
+    char fp[NAME_LEN];
+    snprintf(fp, sizeof(fp), NB_DIR "/%.6s%u.gcb", gl[k].id, (unsigned)gl[k].disc + 1);
+    FILE *f = fopen(fp, "wb");
+    if (!f) { gd_close(&d); snprintf(msg, cap, "ecriture impossible"); return -1; }
+    fwrite("GCB1", 1, 4, f); nb_wbe(f, 1);
+    char id[8] = { 0 }; memcpy(id, h, 8); fwrite(id, 1, 8, f);
+    nb_wbe(f, iso); nb_wbe(f, (u32)nb_n); nb_wbe(f, nb_total);
+    char t[64] = { 0 }; memcpy(t, h + 0x20, 63); fwrite(t, 1, 64, f);
+    for (int i = 0; i < nb_n; i++) { nb_wbe(f, nb_off[i]); nb_wbe(f, nb_len[i]); }
+    static u8 buf[64 << 10] __attribute__((aligned(32)));
+    int ok = 1;
+    for (int i = 0; i < nb_n && ok; i++)
+        for (u32 o = 0; o < nb_len[i] && ok; o += sizeof(buf)) {
+            u32 n = nb_len[i] - o < sizeof(buf) ? nb_len[i] - o : sizeof(buf);
+            if (!gd_read(&d, nb_off[i] + o, buf, n)) memset(buf, 0, n);   /* (apres la fin d'une image reduite : des zeros) */
+            if (fwrite(buf, 1, n, f) != n) ok = 0;
+        }
+    fclose(f); gd_close(&d);
+    if (!ok) { remove(fp); snprintf(msg, cap, "carte SD pleine ?"); return -1; }
+    snprintf(msg, cap, "%u morceaux, %u Ko", (unsigned)nb_n, (unsigned)(nb_total >> 10));
+    return 0;
+}
+static void nat_bench_all(void) {
+    int n = 0, bad = 0;
+    char msg[96], st[120];
+    mkdir(NB_DIR, 0777);
+    FILE *ix = fopen(NB_DIR "/index.txt", "w");
+    for (int k = 0; k < gl_n; k++) {
+        if (gl[k].dvd) continue;
+        snprintf(st, sizeof(st), "Banc d'essai : %d / %d  %.40s", k + 1, gl_n, gl[k].title);
+        gl_status(st);
+        int r = nat_bench_export(k, msg, sizeof(msg));
+        if (r) bad++; else n++;
+        if (ix) fprintf(ix, "%.6s%u\t%s\t%s\t%s\n", gl[k].id, (unsigned)gl[k].disc + 1, r ? "ERREUR" : "ok", msg, gl[k].title);
+    }
+    if (ix) fclose(ix);
+    gl_busy[0] = 0;
+    snprintf(st, sizeof(st), "Banc d'essai : %d jeux export\xC3\xA9s dans gc-mp3/banc%s", n, bad ? " (erreurs : voir index.txt)" : "");
+    gl_note(st);
+    crumb("banc : %d exportes, %d erreurs", n, bad);
+}
+
 /* fiche d'un jeu : R */
 static void nat_run(int k) {
     if (k < 0 || k >= gl_n) return;
