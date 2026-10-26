@@ -6,3 +6,10 @@ swiss | Swiss | emukidid/swiss-gc | ^swiss_r\d+\.tar\.xz$ | DOL/swiss_r\d+\.dol$
 cleanrip | CleanRip | emukidid/cleanrip | ^CleanRip-v[\d.]+-gc\.zip$ | \.dol$ | | Copie tes disques GameCube sur la carte SD ou un disque USB (fichiers .iso).
 gcmm | GCMM | suloku/gcmm | ^gcmm_[\d.]+\.zip$ | (?i)/gcmm_gc\.dol$ | | Gestionnaire de cartes memoire : sauvegarder, restaurer, effacer (.gci, .gcs, .sav).
 cubeboot | cubeboot | OffBroadway/cubeboot | ^cubeboot\.dol$ | \.dol$ | | Animation de demarrage de la GameCube, puis le disque (fait pour PicoBoot).
+# v163 : emulateurs (version GameCube de chaque emulateur ; les jeux se rangent dans les dossiers indiques par l'emulateur)
+fceugx | FCE Ultra GX | dborth/fceugx | (?i)-GameCube\.zip$ | (?i)\.dol$ | | Emulateur NES / Famicom (jeux .nes, .fds, .unf).
+snes9xgx | Snes9x GX | dborth/snes9xgx | (?i)-GameCube\.zip$ | (?i)\.dol$ | | Emulateur Super Nintendo (jeux .smc, .sfc).
+vbagx | Visual Boy Advance GX | dborth/vbagx | (?i)-GameCube\.zip$ | (?i)\.dol$ | | Emulateur Game Boy, Game Boy Color et Game Boy Advance (.gb, .gbc, .gba).
+genplusgx | Genesis Plus GX | ekeeke/Genesis-Plus-GX | dossier:builds/(?i)[_-](?:game)?(?:cube)?(?:gc)?\.[dz][oi][lp]$ | (?i)\.dol$ | | Emulateur Mega Drive, Master System, Game Gear, SG-1000, Mega-CD.
+cubesx | CubeSX | emukidid/pcsxgc | (?i)^CubeSX-[\d.]+\.zip$ | (?i)\.dol$ | | Emulateur PlayStation (PS1) ; le BIOS se range a part (voir la documentation de CubeSX).
+cube64 | Cube64 | emukidid/Wii64 | (?i)^cube64-[\d.]+\.7z$ | (?i)\.dol$ | | Emulateur Nintendo 64 (jeux .z64, .n64, .v64).
