@@ -21,6 +21,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v166 — journal d'un jeu figé avant ses interruptions
+- `early_note` (résident) dans `di_load`, `di_store`, `exi_load`, `exi_store` : seulement tant que `vi_in` et `si_in`
+  valent 0 ; 3 s après le 1er accès aiguillé, puis toutes les 3 s : entrée `0xEE` dans le journal (nombre d'accès,
+  lecture / écriture, registre, valeur, commandes au lecteur) et `nr_log_flush`. Journal texte : « JEU SANS IMAGE ».
+- Crash Bandicoot GCBP7D (v164) : drapeau du débogueur du bi2 à 0, ce n'était pas la cause.
+
 ## Nouveautés v165 — morceau suivant préparé d'avance, onglet Photos
 - Mesure (simulateur, scénario court par onglet, `PCSIM_PERF=1`) : 4 styles × 7 spectres × 5 dispositions, paroles
   « les deux » : le lecteur visible ne rate presque aucune image (dessin 3 à 4 ms en moyenne, spectre 0,3 ms). Les
