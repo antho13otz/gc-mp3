@@ -149,8 +149,8 @@ static int nv_init = 0;
 static void nv_header(void) {
     nv_raw = 1;
     /* logo */
-    draw_logo_cube(30, 33, 16);
-    gx_text1(F_MED, 50, 39, "GC Station", RGBA(244, 246, 255, 255));
+    draw_logo_cube(35, 33, 24);                          /* (v159 : plus grand) */
+    gx_text1(F_MED, 64, 39, "GC Station", RGBA(244, 246, 255, 255));
     /* heure, reseau, enregistrement */
     time_t tt = time(NULL);
     struct tm *tm = localtime(&tt);

@@ -5834,8 +5834,8 @@ static void draw_mini_badge(f32 cx, f32 cy, const char *k);
 static int gx_text_r_w(int f, f32 xr, f32 base, const char *s, col_t c) { gx_text_r(f, xr, base, s, c); return text_width(f, s, 0); }
 static void draw_header_modern(void) {
     col_t acc = RGBA(mod_acc[0], mod_acc[1], mod_acc[2], 255);
-    draw_logo_cube(34, 25, 12);
-    gx_text1(F_MED, 54, 31, "GC Station", RGBA(240, 240, 245, 255));
+    draw_logo_cube(36, 27, 19);                          /* (v159 : plus grand) */
+    gx_text1(F_MED, 60, 33, "GC Station", RGBA(240, 240, 245, 255));
     time_t tt = time(NULL);
     struct tm *tm = localtime(&tt);
     char b[40];
@@ -5877,7 +5877,7 @@ static void draw_header(void) {
     if (ui_skin >= 3) { au_header(); return; }
     if (ui_skin == 2) { nv_header(); return; }
     if (ui_skin) { draw_header_modern(); return; }
-    draw_logo_cube(54, 38, 23);
+    draw_logo_cube(52, 38, 29);                          /* (v159 : plus grand) */
     txt_scale = 0.84f;                       /* v47 : GC STATION (plus long que GC-MP3) */
     gx_text(F_LOGO, 88, 46, "GC STATION", RGBA(240, 232, 255, 255), RGBA(150, 84, 255, 255), 0);
     txt_scale = 1.0f;
