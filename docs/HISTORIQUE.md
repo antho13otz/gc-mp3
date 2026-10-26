@@ -21,6 +21,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v159 — fuzz et UBSan au simulateur
+- `tools/pc-sim/fuzz.py <minutes> [graine]` : tous les boutons au hasard (A, B, X, Y, Z, L, R, START, croix, sticks,
+  appuis longs) ; jamais A dans JEUX / FICHIERS / TÉLÉCHARGEMENTS ni dans le menu START (redémarrer, mise à jour) ; à
+  lancer sur une copie de la carte SD du simulateur (des réglages changent). Graines 2 et 3 (15 min) et 7 (23 min,
+  arrêtée par le temps limite) sous AddressSanitizer : 0 erreur, 0 plantage ; mémoire utilisée stable à 5,05 Mo à
+  partir de la 13e minute.
+- UndefinedBehaviorSanitizer (`O=work/obj-ubsan BIN=gcstation-ubsan SAN="-fsanitize=undefined,bounds
+  -fno-sanitize=alignment,vptr"`) : 38 scénarios + son-formats + son-sauts + endurance : 0 erreur.
+- Le simulateur peut tourner dans un 2e dossier (`work/run2`, binaire lancé directement) pendant qu'un long test
+  occupe `work/run`.
+
 ## Nouveautés v158 — ouverture des morceaux, pochettes, AddressSanitizer
 - Mesure (`PCSIM_DRAWPROF` : « ouverture du morceau … : N ms ») : 33 à 41 ms (MP3, FLAC, WAV), 120 ms (OGG), dont
   ~30 ms de lecture des en-têtes. `ogg_open` commence à 16 Ko (au lieu de 64 Ko, agrandi si besoin) : 85 ms.
