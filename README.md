@@ -14,15 +14,14 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v168)
+## Nouveautés de la version actuelle (v169)
+- **Diagnostic d'un jeu figé avec Pulse** (Crash Bandicoot : il démarre maintenant, puis se fige sur le logo) : quand
+  l'image continue mais que le jeu ne lit plus les manettes ni le disque depuis 6 s, Pulse note tout seul où il en est
+  (tâche du jeu en attente, appels, pile, photo de la mémoire), comme A+Z+START. À lire dans le journal du jeu.
+
+## Version précédente (v168)
 - Petite version pour essayer la **mise à jour depuis l'appli** (START > Mise à jour) : rien ne change dans
   l'utilisation. Elle contient tout ce qu'apporte la v167 (Crash Bandicoot avec Pulse).
-
-## Version précédente (v167)
-- **Crash Bandicoot : The Wrath of Cortex (GCBP7D) avec Pulse** : écran noir corrigé (à confirmer sur la console).
-  Pulse remet maintenant à zéro la mémoire de travail du jeu (son « BSS ») avant de le lancer, comme Swiss et la
-  console. Ce jeu ne la remettait pas à zéro lui-même et trouvait des restes de GC Station : son initialisation du
-  système croyait être déjà faite et ne démarrait rien (ni image, ni manettes, ni lecteur).
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

@@ -787,11 +787,39 @@ static void igr_poll2(int count);
 static void gk_run(void);
 static u32 igr_ctx = 0;                                  /* v133 : le jeu interrompu (pour le journal au retour A+Z+START) */
 static void di_tick(u32 ctx, int vi);
+/* v169 : jeu fige alors que l'image continue (Crash Bandicoot GCBP7D : bloque toujours apres 569 commandes) : plus de
+   lecture des manettes (interruptions SI) ni de commande au lecteur depuis 6 s, alors qu'il y en avait. On note, une
+   seule fois, ou en est le fil principal du jeu : la tache en attente la plus prioritaire (file des taches actives du
+   SDK : tete en 0x800000DC ; OSThread : contexte en 0, etat (u16) 0x2C8, priorite 0x2D0, suivante 0x2FC), sinon le
+   code interrompu par l'image. Comme A+Z+START : registres, appels, pile, photo de la memoire (exception FE). */
+static int ram_ok(u32 a, u32 n);
+static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr);
+static u32 frz_si = 0, frz_cmd = 0, frz_tb = 0, frz_done = 0;
+static void freeze_check(u32 ctx) {
+    if (frz_done || H.vi_count < 300) return;
+    u32 now = tbl();
+    if (H.si_count != frz_si || H.ncmd != frz_cmd || !frz_tb) { frz_si = H.si_count; frz_cmd = H.ncmd; frz_tb = now; return; }
+    if (frz_si < 600 || now - frz_tb < 6u * TB_SEC) return;  /* (manettes jamais lues par SI : rien a dire) */
+    frz_done = 1;
+    u32 best = 0, bprio = 0xFFFFFFFFu, nth = 0, t = *(volatile u32 *)0x800000DCu;
+    for (int g = 0; g < 24 && ram_ok(t, 0x304) && !(t & 3); g++) {
+        u32 st = *(volatile unsigned short *)(t + 0x2C8), pr = *(volatile u32 *)(t + 0x2D0);
+        nth++;
+        if (st == 4 && pr < bprio && pr < 31) { best = t; bprio = pr; }   /* (4 = en attente ; 31 = tache d'attente du SDK) */
+        t = *(volatile u32 *)(t + 0x2FC);
+    }
+    u32 c = best ? best : ctx;
+    if (!ram_ok(c, 0x2C8) || (c & 3)) return;
+    H.exc_srr0 = *(volatile u32 *)(c + 0x198); H.exc_lr = *(volatile u32 *)(c + 0x84);
+    crash_dump(0xFE, c, best, (best ? (*(volatile unsigned short *)(best + 0x2C8)) << 16 | (bprio & 0xFFFF) : 0) | nth << 24);
+    nr_log_flush();
+}
 static void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee avant la fonction du jeu */
     trap_guard();
     if (++H.vi_in == 1) nr_log_flush();                  /* (1re image : on sait si le jeu y arrive) */
     if (vi_orig) ((void (*)(u32, u32))vi_orig)(irq, ctx);
     H.vi_count++; vi_snap(); alive_tick();
+    freeze_check(ctx);                                   /* v169 */
     igr_ctx = ctx;
     di_tick(ctx, 1);                                     /* v133 : fins de commande (sans le lecteur, ou secours) */
     if (H.chts) gk_run();                                /* v121 : cheats, une fois par image (apres le jeu) */
