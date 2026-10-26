@@ -886,7 +886,25 @@ static void nat_journal_convert(void) {
     long len = 0;
     u8 *d = (u8 *)read_file(NA_JBIN, 4096, &len);
     if (!d) return;
-    if (len < 512 || be32(d) != NATRES_MAGIC) { free(d); return; }
+    if (len < 512 || be32(d) != NATRES_MAGIC) {
+        /* v161 : le jeu n'a laisse aucune trace (Crash Bandicoot, ecran noir) : avant, l'ancien journal (d'un
+           autre jeu) restait et faisait croire que rien n'avait ete lance */
+        int z = len >= 512;
+        for (long i = 0; z && i < 512; i++) if (d[i]) z = 0;
+        free(d);
+        FILE *f = z ? fopen(NA_JTXT, "w") : NULL;
+        if (!f) return;
+        fprintf(f, "GC Station - journal du dernier jeu lance avec Pulse\n\n"
+                   "*** AUCUNE NOUVELLE DU JEU ***\n"
+                   "Pulse n'a rien pu ecrire pendant le jeu : le jeu s'est bloque tres tot, avant sa 1re lecture du\n"
+                   "disque et avant ses premieres interruptions (image, manettes, son), ou la console a ete eteinte\n"
+                   "moins de 3 s apres le lancement.\n");
+        long ll = 0;
+        char *lt = (char *)read_file(NA_LOG, 16384, &ll);
+        if (lt) { fprintf(f, "\n---------- dernier-lancement.txt ----------\n"); fwrite(lt, 1, ll, f); free(lt); }
+        fclose(f);
+        return;
+    }
     FILE *f = fopen(NA_JTXT, "w");
     if (f) {
         u32 H[84];
