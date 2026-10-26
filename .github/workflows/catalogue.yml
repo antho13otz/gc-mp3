@@ -1,0 +1,47 @@
+name: Catalogue d'applis
+
+# v151 : catalogue d'applis (homebrews GameCube) installables depuis GC Station (Outils > Catalogue d'applis).
+# Chaque lundi (et a la demande, ou quand la liste change) : derniere version de chaque appli de
+# catalogue/applis.txt, rangee pour la carte SD, publiee dans la release « catalogue » du depot.
+on:
+  schedule:
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['catalogue/**', 'tools/catalogue.py', '.github/workflows/catalogue.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gc-station-catalogue
+
+jobs:
+  catalogue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Outils
+        run: pip install py7zr
+      - name: Catalogue precedent
+        run: gh release download catalogue -p catalogue.json -D ancien || true
+      - name: Construire
+        run: python3 tools/catalogue.py --liste catalogue/applis.txt --sortie out --ancien ancien/catalogue.json
+      - name: Publier (release « catalogue »)
+        run: |
+          gh release view catalogue >/dev/null 2>&1 || gh release create catalogue --title "Catalogue d'applis" --latest=false \
+            --notes "Applis (homebrews GameCube) installables depuis GC Station : START > Réglages > Outils > Catalogue d'applis. Sources : voir chaque appli (meta.xml)."
+          gh release upload catalogue out/* --clobber
+          # (paquets qui ne sont plus dans le catalogue : retires)
+          python3 - <<'PY'
+          import json, subprocess
+          keep = {a['fichier'] for a in json.load(open('out/catalogue.json'))['applis']} | {'catalogue.json'}
+          names = subprocess.run(['gh', 'release', 'view', 'catalogue', '--json', 'assets', '-q', '.assets[].name'], capture_output=True, text=True).stdout.split()
+          for n in names:
+              if n not in keep:
+                  subprocess.run(['gh', 'release', 'delete-asset', 'catalogue', n, '-y'])
+          PY

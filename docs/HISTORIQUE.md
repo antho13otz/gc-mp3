@@ -21,6 +21,22 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v151 — catalogue d'applis
+- `catalogue/applis.txt` : `id | nom | dépôt GitHub | archive (regex) | programme dans l'archive (regex) | fichiers en
+  plus (regex) | description` (pas de `|` dans les expressions).
+- `tools/catalogue.py` (workflow `catalogue.yml`, chaque lundi, à la demande, ou quand la liste change) : dernière
+  release de chaque dépôt, archive (.dol, .zip, .tar.xz/.gz, .7z), programme -> `apps/<id>/boot.dol`, fichiers en plus,
+  `meta.xml` ; paquet `<id>-<version>.gcsa` = zlib("GCSA1\n" + chemin, taille, contenu…) ; `catalogue.json` (version,
+  taille, taille sur la carte, SHA-256, dépôt). Une appli qui échoue garde l'entrée précédente. Release `catalogue`
+  (paquets retirés du catalogue effacés).
+- `source/catalog.c` (Outils, `TL_CATA`) : liste (`hfetch`), version installée dans `SD:/apps/<id>/gcstation.txt`
+  (sinon « ? » si un `boot.dol` existe), paquet vérifié (taille, SHA-256 mbedtls), décompressé
+  (`stbi_zlib_decode_malloc`), chaque chemin contrôlé (seulement `apps/<id>/`, pas de `..`), écrit en `.part` puis
+  renommé ; place libre vérifiée. Simulateur : `PCSIM_CATA=<adresse>`.
+- Outils : 10 lignes, resserrées pour tenir au-dessus de l'aide.
+- Testé : `catalogue.py` contre une fausse API GitHub (tar.xz, zip, deux applis dans une même release) ; simulateur :
+  catalogue lu, Swiss et Neverball installés (fichiers vérifiés), Neverball supprimé.
+
 ## Nouveautés v150 — heure : décalage au lieu de changer l'horloge du processeur
 - `clock_settime` de libogc réécrit le registre de temps du processeur (base de tous les minuteurs, des fils et de
   `gettime`) : remplacé par `clk_ofs`, ajouté par `gc_time` (macro `time()` dans tout GC Station). Le décalage SRAM

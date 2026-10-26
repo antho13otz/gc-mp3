@@ -14,14 +14,16 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v150)
+## Nouveautés de la version actuelle (v151)
+- **Catalogue d'applis** : START > Réglages > Outils > « Catalogue d'applis (Internet) ». Des homebrews GameCube
+  (Swiss, CleanRip, GCMM, Neverball, cubeboot…) à installer en un clic dans `SD:/apps`, comme GC Station se met à
+  jour lui-même : A = installer ou mettre à jour (la nouvelle version est signalée), X = supprimer, Y = relire le
+  catalogue. Chaque paquet est vérifié (taille, empreinte) avant d'être écrit ; l'appli apparaît ensuite dans Applis.
+  Le catalogue est refait chaque semaine depuis les versions publiées par leurs auteurs (liste : `catalogue/applis.txt`).
+
+## Version précédente (v150)
 - **Date et heure corrigées** : la nouvelle heure ne s'appliquait pas. Elle s'affiche maintenant tout de suite
   dans GC Station, et reste gardée dans la console (jeux, menu de la GameCube, prochain démarrage).
-
-## Version précédente (v149)
-- **Date et heure de la console** : START > Réglages > Jeux > Console > « Date et heure (console) ». A, puis Gauche /
-  Droite pour choisir jour, mois, année, heure ou minute, Haut / Bas pour changer, A pour valider (B : annuler).
-  L'heure est gardée dans la console comme avec son propre menu : les jeux et le menu de la GameCube la voient aussi.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

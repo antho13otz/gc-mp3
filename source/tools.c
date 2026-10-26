@@ -8,7 +8,10 @@
 // Chaque outil s'ouvre en fenetre par-dessus l'ecran (tl_screen).
 
 static void indigo_game_open(const char *id, const char *title);
-enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV, TL_SAVES };   /* v141 : historique des sauvegardes */
+enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV, TL_SAVES, TL_CATA };   /* v151 : catalogue d'applis */
+static void ct_open(void);
+static void ct_input(u32 down, u32 nav, int fire);
+static void draw_cata(void);   /* v141 : historique des sauvegardes */
 static void sv_open(void);
 static void sv_input(u32 down, u32 nav, int fire);
 static void draw_saves(void);   /* v86 : serveur SMB / FTP / FSP */   /* v73 : cartes virtuelles, historique radio */
@@ -1481,6 +1484,7 @@ static void tools_input(u32 down, u32 nav, int fire) {
     case TL_RHIST: rh_input(down, nav, fire); break;
     case TL_NETSRV: nfs_ui_input(down, nav, fire); break;
     case TL_SAVES: sv_input(down, nav, fire); break;
+    case TL_CATA: ct_input(down, nav, fire); break;
     }
 }
 static void draw_tools(void) {
@@ -1493,17 +1497,19 @@ static void draw_tools(void) {
     case TL_RHIST: draw_rhist(); break;
     case TL_NETSRV: nfs_ui_draw(); break;
     case TL_SAVES: draw_saves(); break;
+    case TL_CATA: draw_cata(); break;
     }
 }
 
 /* ---------- section "Outils" de la page Reglages ---------- */
-enum { TO_RECENT, TO_GAMES, TO_CHEATS, TO_VCARD, TO_SAVES, TO_BACKUP, TO_RESTORE, TO_INFO, TO_QUIT, TO_COUNT };
+enum { TO_RECENT, TO_GAMES, TO_CATA, TO_CHEATS, TO_VCARD, TO_SAVES, TO_BACKUP, TO_RESTORE, TO_INFO, TO_QUIT, TO_COUNT };
 static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s",
-    "Mes jeux, applis et cartes m\xC3\xA9moire", "Cheats (\xC3\xA9" "diteur)", "Cartes m\xC3\xA9moire virtuelles (Pulse)", "Historique des sauvegardes",
+    "Mes jeux, applis et cartes m\xC3\xA9moire", "Catalogue d'applis (Internet)", "Cheats (\xC3\xA9" "diteur)", "Cartes m\xC3\xA9moire virtuelles (Pulse)", "Historique des sauvegardes",
     "Sauvegarder tous les r\xC3\xA9glages", "Restaurer les r\xC3\xA9glages", "Infos console", "Quitter GC Station" };
 static const char *const to_help[TO_COUNT] = {
     "Relancer un jeu en un clic.",
     "Onglet JEUX / APPS. Dans la fiche d'un jeu : Y = r\xC3\xA9glages du jeu.",
+    "Homebrews \xC3\xA0 t\xC3\xA9l\xC3\xA9" "charger et installer dans SD:/apps (Swiss, CleanRip, GCMM...), avec mises \xC3\xA0 jour.",
     "Modifier et activer les cheats de tes jeux (dossier gc-mp3/cheats).",
     "Plusieurs cartes, sauvegardes copi\xC3\xA9" "es depuis / vers la SD et la vraie carte.",
     "Copies faites apr\xC3\xA8s chaque partie (et celles des autres consoles du Salon) : revenir en arri\xC3\xA8re, reprendre ailleurs.",
@@ -1538,17 +1544,21 @@ static void tools_menu_input(u32 down, u32 nav, int fire) {
     case TO_CHEATS: cheats_open(); break;
     case TO_VCARD: vc_open(); break;
     case TO_SAVES: sv_open(); break;
+    case TO_CATA: ct_open(); break;
     }
 }
 static void tools_menu_draw(f32 x, f32 y, f32 w, int vis, f32 rh, f32 help_y) {
     (void)vis;
+    f32 pitch = rh + 4;
+    if (y + TO_COUNT * pitch > help_y - 10) { pitch = (help_y - 10 - y) / TO_COUNT; rh = pitch - 3; }   /* v151 : (10 lignes : plus serrees) */
     for (int i = 0; i < TO_COUNT; i++) {
-        f32 ry = y + i * (rh + 4);
+        f32 ry = y + i * pitch;
         int on = i == to_sel;
         gp_zone(x, ry, w, rh, &to_sel, i, GPZ_SEL);
         if (on) gx_rrect_fill(x, ry, w, rh, 6, TL_SEL1, TL_SEL2);
-        gx_text1(F_MED, x + 14, ry + 17, to_names[i], on ? RGBA(255, 255, 255, 255) : i == TO_QUIT ? RGBA(255, 170, 170, 255) : RGBA(230, 222, 255, 255));
-        gx_text_r(F_MED, x + w - 14, ry + 17, "(A)", on ? RGBA(255, 255, 255, 255) : RGBA(190, 160, 255, 255));
+        f32 ty = ry + rh / 2 + 6;
+        gx_text1(F_MED, x + 14, ty, to_names[i], on ? RGBA(255, 255, 255, 255) : i == TO_QUIT ? RGBA(255, 170, 170, 255) : RGBA(230, 222, 255, 255));
+        gx_text_r(F_MED, x + w - 14, ty, "(A)", on ? RGBA(255, 255, 255, 255) : RGBA(190, 160, 255, 255));
     }
     char fv[200];
     fit_text(F_SMALL, to_help[to_sel], (int)w - 16, fv, sizeof(fv));
