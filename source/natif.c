@@ -1032,6 +1032,11 @@ static void nat_journal_convert(void) {
             const u8 *e = d + rbase + k * 16;
             u32 c = be32(e), o = be32(e + 4), l = be32(e + 8), in = be32(e + 12);
             if (!c && !o && !l && !in) continue;
+            if ((c >> 24) == 0xEE) {                      /* v166 : jeu sans image ni manettes (fige tot) */
+                fprintf(f, "  JEU SANS IMAGE (fige avant ses interruptions) : %u acces au materiel aiguilles ; dernier : %s %08X%s%08X ; commandes au lecteur : %u\n",
+                        (unsigned)(c & 0x7FFFFFu), (c >> 23) & 1 ? "ecriture" : "lecture", (unsigned)o, (c >> 23) & 1 ? " <- " : "", (c >> 23) & 1 ? (unsigned)l : 0u, (unsigned)in);
+                continue;
+            }
             if ((c >> 24) == 0xAC) {                      /* (le jeu acquitte : il a ete reveille) */
                 fprintf(f, "  %08X %-20s valeur %02X  vrai DISR avant %02X  faux DISR apres %02X\n", (unsigned)c, na_cmd_name(c), (unsigned)(c & 0xFF), (unsigned)(o & 0xFF), (unsigned)(l & 0xFF));
                 continue;

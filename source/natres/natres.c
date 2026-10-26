@@ -20,6 +20,7 @@ static u32 di_load(u32 reg);
 static void di_store(u32 reg, u32 val);
 static u32 exi_load(u32 a);
 static void exi_store(u32 a, u32 val);
+static void early_note(u32 a, u32 v, u32 st);           /* v166 */
 
 /* v97 : la table des morceaux de l'ISO n'est plus dans le programme (18 Ko reserves pour 1500 morceaux) :
    GC Station la range tout en haut de la place du resident, a la taille utile ; il reste ainsi bien plus
@@ -1329,6 +1330,7 @@ static vcard_t *vc_of(u32 a) {
 static u32 exi_load(u32 a) {
     trap_guard();
     if (a - 0xCC006000u < 0x40u) return di_load(a);      /* v133 : acces au lecteur branches en secours (adresse calculee) */
+    early_note(a, 0, 0);
     vcard_t *v = vc_of(a);
     if (!v) return *HW6(a);                              /* (autres canaux, cartes reelles : vrai materiel) */
     volatile u32 *real = HW6(a & ~3u) - (((a & ~3u) - 0xCC006800u) % 0x14u) / 4u;   /* (registres du canal) */
@@ -1351,6 +1353,7 @@ static u32 exi_load(u32 a) {
 static void exi_store(u32 a, u32 val) {
     trap_guard();
     if (a - 0xCC006000u < 0x40u) { di_store(a, val); return; }   /* v133 */
+    early_note(a, val, 1);
     if (a == 0xCC006800u && (val & 0x200u)) H.bba_n++;   /* v145 : le jeu parle au Broadband Adapter (jeu en reseau) */
     vcard_t *v = vc_of(a);
     if (!v) { *HW6(a) = val; return; }
@@ -2110,10 +2113,25 @@ done:
 }
 
 static u32 hk_n = 0;
+/* v166 : jeu fige avant sa 1re interruption (Crash Bandicoot : aucune trace) : tant qu'aucune fonction d'image ou de
+   manettes n'a tourne, chaque acces aiguille est compte et, 3 s apres le 1er, le journal est ecrit (puis toutes les
+   3 s) avec le dernier registre touche. Rien ne change pour un jeu qui a deja ses interruptions (tous les autres). */
+static u32 en_n = 0, en_t0 = 0;
+static void early_note(u32 a, u32 v, u32 st) {
+    if (H.vi_in || H.si_in || !H.log_sec) return;
+    en_n++;
+    u32 t = tbl();
+    if (!en_t0) { en_t0 = t; return; }
+    if (t - en_t0 < TB_SEC * 3) return;
+    en_t0 = t;
+    nr_log_add(0xEE000000u | (st << 23) | (en_n & 0x7FFFFFu), a, v, H.ncmd);
+    nr_log_flush();
+}
 static void hooks_lazy(void) { trap_guard(); if (H.trap_state == NRT_OFF && (H.opt & NRO_TRAP)) trap_check(); if (++hk_n <= 64 || (hk_n & 255) == 1) hooks_check(); }   /* v164 : (les 64 premiers acces : le jeu peut se figer tot) */   /* v62 : le jeu installe ses fonctions apres sa 1re commande */
 static u32 di_load(u32 reg) {
     u32 i = (reg & 0x3F) >> 2;
     hooks_lazy();
+    early_note(reg, 0, 0);
     if (i == 1) return di[1] & 0x07;                      /* couvercle ferme ; v121 : CVRINT apres un changement de disque */
     if (i == 9) return DI_REAL[9];                        /* DICFG : celui du vrai lecteur */
     return i < 10 ? di[i] : 0;
@@ -2122,6 +2140,7 @@ static u32 di_load(u32 reg) {
 static void di_store(u32 reg, u32 val) {
     u32 i = (reg & 0x3F) >> 2;
     hooks_lazy();
+    early_note(reg, val, 1);
     if (i == 0) {                                        /* DISR : 1 = effacer l'interruption ; masques */
         di[0] = (di[0] & ~(val & 0x54u) & 0x54u) | (val & 0x2Au);
         u32 rs = DI_REAL[0];
