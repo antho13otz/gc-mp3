@@ -30,8 +30,22 @@ def members(name, data):
 
 def esc(s): return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
+def from_folder(app, api, token):
+    """ v163 : appli sans release, programme range dans un dossier du depot (Genesis Plus GX : builds/) :
+        archive = "dossier:<chemin>/<expression>" ; version = date du dernier changement du fichier """
+    path, rx = app['archive'][len('dossier:'):].rsplit('/', 1)
+    items = json.loads(get('%s/repos/%s/contents/%s' % (api, app['depot'], path), token))
+    it = next((x for x in items if x.get('type') == 'file' and re.search(rx, x['name'])), None)
+    if not it: raise RuntimeError('aucun fichier %r dans %s : %s' % (rx, path, [x['name'] for x in items][:30]))
+    cm = json.loads(get('%s/repos/%s/commits?path=%s/%s&per_page=1' % (api, app['depot'], path, it['name']), token))
+    date = cm[0]['commit']['committer']['date'] if cm else ''
+    rel = {'tag_name': date[:10] or 'inconnue', 'published_at': date,
+           'assets': [{'name': it['name'], 'browser_download_url': it['download_url']}]}
+    return rel
+
 def build(app, api, token, out):
-    rel = json.loads(get('%s/repos/%s/releases/latest' % (api, app['depot']), token))
+    if app['archive'].startswith('dossier:'): rel = from_folder(app, api, token); app = dict(app, archive=r'.')
+    else: rel = json.loads(get('%s/repos/%s/releases/latest' % (api, app['depot']), token))
     ver = rel.get('tag_name', '').lstrip('v') or 'inconnue'
     asset = next((a for a in rel.get('assets', []) if re.search(app['archive'], a['name'])), None)
     if not asset: raise RuntimeError('aucune archive %r dans %s' % (app['archive'], [a['name'] for a in rel.get('assets', [])]))

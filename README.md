@@ -14,15 +14,16 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v162)
+## Nouveautés de la version actuelle (v163)
+- **Émulateurs dans le catalogue d'applis** (START > Réglages > Outils > Catalogue d'applis) : la version GameCube de
+  FCE Ultra GX (NES), Snes9x GX (Super Nintendo), Visual Boy Advance GX (Game Boy, Color, Advance), Genesis Plus GX
+  (Mega Drive, Master System, Game Gear, Mega-CD), CubeSX (PlayStation) et Cube64 (Nintendo 64), mises à jour
+  chaque semaine depuis leurs dépôts.
+
+## Version précédente (v162)
 - **Pulse : diagnostic des jeux figés dès le début** (Crash Bandicoot : The Wrath of Cortex, écran noir) : le journal
   du lancement (`gc-mp3/natif/dernier-lancement.txt`) contient maintenant le début du code du jeu et sa zone de
   mémoire vide (BSS), pour comprendre ce que le jeu fait avant de se bloquer.
-
-## Version précédente (v161)
-- **Journal du jeu (Pulse) même quand le jeu reste sur un écran noir dès le début** : Pulse démarre la carte SD
-  lui-même pour écrire le journal, même si le jeu n'a encore rien lu sur le disque (avant : rien n'était écrit, et le
-  journal d'un ancien jeu restait affiché). Si le jeu n'a vraiment laissé aucune trace, le journal le dit.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

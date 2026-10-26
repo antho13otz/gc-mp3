@@ -21,6 +21,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v163 — émulateurs dans le catalogue d'applis
+- `catalogue/applis.txt` : fceugx, snes9xgx, vbagx (dborth, archives `-GameCube.zip`), genplusgx (ekeeke, sans
+  release), cubesx (emukidid/pcsxgc, `CubeSX-x.zip`), cube64 (emukidid/Wii64, `cube64-x.7z`).
+- `tools/catalogue.py` : archive `dossier:<chemin>/<expression>` = fichier pris dans un dossier du dépôt (API contents),
+  version = date de son dernier commit (Genesis Plus GX publie ses programmes dans `builds/`).
+
 ## Nouveautés v162 — code de démarrage du jeu dans le journal
 - `na_dump_start` : `dernier-lancement.txt` montre 128 mots au point d'entrée du main.dol (pris dans le .dol déjà
   chargé) et 48 mots au début des 8 premières fonctions appelées (`bl`), plus l'adresse et la taille du BSS.
