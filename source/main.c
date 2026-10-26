@@ -12952,6 +12952,7 @@ static void music_pump(void) {
 #include "gcl.c"                               /* v121 : GC Loader */
 #include "extras73.c"                          /* v73 : podcasts plus rapides, historique radio, cartes virtuelles... */
 #include "saves.c"                             /* v141 : copies des sauvegardes apres chaque partie, historique */
+#include "catalog.c"                           /* v151 : catalogue d'applis (homebrews a installer depuis Internet) */
 
 /* v76 : petit controle au demarrage (memoire libre, carte SD, duree), note dans le
    journal (Outils > Infos console > journal) ; un message bref si un souci. */
@@ -13274,7 +13275,7 @@ int main(int argc, char **argv) {
         if (!in_game) {
             PF(PH_MISC, igr_pump(); ld_pump(); mg_pump());   /* v91 : reprise de SD:/swiss en fond */
         }
-        PF(PH_MISC, night_pump(); rb_pump(); stats_pump(); x73_pump(); cp_pump(); salon_pump());
+        PF(PH_MISC, night_pump(); rb_pump(); stats_pump(); x73_pump(); cp_pump(); salon_pump(); ct_pump());
         if (!in_game) {
             PF(PH_LIB, lib_pump(); bib_pump(); ramfs_pump());
             PF(PH_PHOTO, photo_pump());
