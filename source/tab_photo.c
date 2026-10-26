@@ -365,7 +365,9 @@ static GXTexObj av_obj;
 static int av_tw, av_th, av_iw, av_ih, av_shown = 0, av_dropped = 0;
 static u64 av_t0 = 0;
 
-static void video_stop(void) {
+static void video_stop_u(void);
+static void video_stop(void) { DEC_LOCK(); video_stop_u(); DEC_UNLOCK(); }   /* v157 */
+static void video_stop_u(void) {
     if (av_fp) { fclose(av_fp); av_fp = NULL; }
     free(av_jpg); av_jpg = NULL;
     av_on = 0;
@@ -373,7 +375,9 @@ static void video_stop(void) {
     video_playing = 0;
 }
 
-static int video_open(const char *path) {
+static int video_open_u(const char *path);
+static int video_open(const char *path) { DEC_LOCK(); int r_ = video_open_u(path); DEC_UNLOCK(); return r_; }   /* v157 */
+static int video_open_u(const char *path) {
     crumb("video : %s", path);
     stop_track();
     stop_station();

@@ -21,6 +21,30 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v157 — thread de décodage, cache de textures et endurance au simulateur
+- Mesure (PCSIM_PERF, `fluidite-onglets`) : dans les onglets Infos, Téléphone, Jeux, Téléchargements, 8 à 15 %
+  d'images ratées, presque toutes à cause du décodage (moyenne 3,7 ms par image, pire 21 ms : une trame OGG / FLAC
+  ne se coupe pas) fait par `music_pump` avant le dessin ; le décodage pendant l'attente de l'écran
+  (`music_idle_decode`) ne passait presque jamais (estimation du coût prudente).
+- `mdec_fn` : thread de décodage (priorité 55, sous la boucle principale 64) pour les morceaux de la carte SD
+  (`mdec_ok_file` : pas les fichiers du réseau, dont les connexions sont partagées). Il décode une trame à la fois
+  jusqu'à `FILE_LEAD` d'avance, quand la boucle principale attend ; elle le préempte dès qu'elle repart. Verrou
+  récursif `dec_mx` (`DEC_LOCK`) : `start_track`, `stop_track`, `track_seek`, `stop_station`, `video_open`,
+  `video_stop`, `retro_subsong_step` (enveloppes `*_u`) et les décodages faits par la boucle principale ; `dec_wait`
+  : le thread laisse passer la boucle principale qui attend le verrou. `music_pump` ne décode plus qu'en secours
+  (sous 0,5 s) ; `music_idle_decode` ne sert plus avec le thread ; `bg_tick` ne fait rien s'il est appelé depuis le
+  thread. Résultat : 265 → 55 images ratées (`fluidite-onglets`), 1054 → 495 sur 13 min d'endurance, son sans coupure.
+- Simulateur : `GX_LoadTexObj` retient chaque texture utilisée (adresse, taille, empreinte) jusqu'à
+  `GX_InvalidateTexAll` ; contenu changé entre-temps = « cache de textures perime » (+ ligne du dessin). Retrouve le
+  bug de la v155 sur l'ancien code (11 alertes), 0 sur les 38 scénarios depuis.
+- Simulateur : `IRQ_Disable` / `IRQ_Restore` sans préemption au milieu (un thread interrompu en tenant le verrou des
+  interruptions bloquait tout) ; « mark » affiche la mémoire utilisée ; `tools/pc-sim/endurance.py` : scénario au
+  hasard de N minutes (49 min : mémoire stable à 3,00 Mo dès la 7e minute, aucun plantage, 0 trou dans le son).
+- Simulateur : une demande de préemption arrivée pendant le paiement de la « dette » de calcul d'un thread était
+  oubliée (le moins prioritaire gardait le processeur 300 à 600 ms) ; `PCSIM_NODEC=1` : sans le thread (comparaison) ;
+  `PCSIM_DRAWPROF` : attente du processeur par la boucle principale.
+- Rapport de fluidité : plus de « 4294967 ms » d'attente de l'écran (mesure commencée en route).
+
 ## Nouveautés v156 — enchaînement sans blanc d'un album à l'autre
 - `gapless_next_ok` ne demande plus le même dossier / album : le morceau suivant (fin automatique) est ouvert pendant
   que la fin du précédent joue encore (`xf_request = -1`), quel que soit l'album. Restent exclus : la fin de la file
