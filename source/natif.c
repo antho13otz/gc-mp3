@@ -2518,9 +2518,11 @@ static void na_lowmem(volatile u32 *lm, u32 resv, int cards) {
     lm[0xE8 / 4] = 0x81800000u - resv;
     lm[0xEC / 4] = resv;
     volatile u8 *b = (volatile u8 *)0x80000000u;
-    b[0x30E0] = 0; b[0x30E1] = 6;
-    b[0x30E3] = 0;
-    if (na_devcode) { b[0x30E6] = (u8)(na_devcode >> 8); b[0x30E7] = (u8)na_devcode; }
+    /* v159 : seulement si le BIOS (ou ce qui a lance GC Station) ne les a pas mises : le code du lecteur ecrit
+       par GC Station a la place du sien donnait une erreur du jeu au lancement du disque de la console (Mario Kart
+       Double Dash, build 519) */
+    if (!b[0x30E0] && !b[0x30E1]) { b[0x30E0] = 0; b[0x30E1] = 6; }
+    if (na_devcode && !b[0x30E6] && !b[0x30E7]) { b[0x30E6] = (u8)(na_devcode >> 8); b[0x30E7] = (u8)na_devcode; }
     if (!b[0x30E9]) b[0x30E9] = 5;
     u32 t = (u32)(ticks_to_millisecs(gettime()) / 100u) + 1u;
     if (cards & 1) lm[0x30C0 / 4] = t;
