@@ -21,6 +21,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v153 — LAN local vérifié, LAN par Internet
+- Banc : mode `lan` du faux jeu (`game.s`) : identifiant du BBA, anneau de réception, trame de 64 octets dans la file
+  d'envoi et envoi (NCRA), une lecture du disque au milieu, trame renvoyée par le réseau simulé lue dans la page 1.
+  Les accès du jeu au canal 0 passent par les aiguillages EXI de la carte virtuelle (`exi_load` / `exi_store`) :
+  périphérique 2 laissé au vrai matériel, la vraie carte du slot A jamais choisie.
+- `tools/lan-relais.py` : `relais` (UDP 51240, parties par nom, pont muet 30 s = parti, signe de vie toutes les 5 s)
+  et `pont` (AF_PACKET sous Linux, scapy sinon) : trames dont l'adresse source est d'une GameCube (00:09:BF…) envoyées
+  au relais ; trames reçues remises sur le réseau ; adresses de l'autre côté jamais renvoyées, empreintes des trames
+  (2 s) : pas de boucle. `tools/lan-relais-test.py` : deux réseaux simulés, un PC filtré, pas de boucle.
+
 ## Nouveautés v152 — programme compressé de Rogue Squadron III
 - Méthode de Swiss comprise et réécrite : en 0x80200000 du main.dol (`GLR*`, `GWXJ13`) : {taille compressée, taille,
   flux zlib d'un 2e programme .dol}. `na_zload` (natif.c, seulement pour un lancement : `na_z_want`) le décompresse
