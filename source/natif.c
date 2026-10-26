@@ -852,6 +852,13 @@ static void na_crash_print(FILE *f, const u8 *c) {
     const u32 *g = w + 0x30 / 4, *lo = w + 0xB0 / 4, *bt = w + 0xD0 / 4;
     if (w[2] == 0xFF) fprintf(f, "\n========== Ou en etait le jeu au retour (A+Z+START) ==========\n"
                                  "(le jeu ne plantait pas : c'est l'endroit ou il tournait, utile pour un ecran noir ou un jeu fige)\n");   /* v133 */
+    else if (w[2] == 0xFE) {                                                       /* v169 */
+        fprintf(f, "\n========== Jeu fige : ou en etait-il (note par Pulse) ==========\n"
+                   "(l'image continuait, mais plus de manettes ni de lecteur depuis 6 s)\n");
+        if (w[8]) fprintf(f, "Tache du jeu en attente : %08X (etat %u, priorite %u) ; %u taches actives\n",
+                          (unsigned)w[8], (unsigned)(w[9] >> 16 & 0xFF), (unsigned)(w[9] & 0xFFFF), (unsigned)(w[9] >> 24));
+        else fprintf(f, "Aucune tache en attente : code interrompu par l'image (%u taches actives)\n", (unsigned)(w[9] >> 24));
+    }
     else fprintf(f, "\n========== Details du plantage ==========\n");
     fprintf(f, "PC %08X   LR %08X   CTR %08X   CR %08X   SRR1 %08X\n", (unsigned)w[3], (unsigned)w[5], (unsigned)w[7], (unsigned)w[6], (unsigned)w[4]);
     fprintf(f, "Adresse visee %08X (DSISR %08X)%s\n", (unsigned)w[8], (unsigned)w[9],

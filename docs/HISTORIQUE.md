@@ -21,6 +21,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v169 — jeu figé noté automatiquement par Pulse
+- Crash Bandicoot GCBP7D (v167 : il démarre) se fige sur son logo, toujours au même point : 569 commandes au lecteur,
+  25775 secteurs, 73055 blocs de musique du disque (42,6 s), dernière commande E2 01 (position de la musique) ; puis
+  plus de lecture des manettes (interruptions SI arrêtées vers 3300) ni de commande, l'image (VI) continue.
+  A+Z+START n'a pas pu servir (Z jamais vu).
+- `freeze_check` (natres.c, depuis le crochet de l'image) : SI et commandes au lecteur inchangés depuis 6 s alors
+  qu'il y avait eu au moins 600 lectures des manettes et 300 images : une seule fois, la tâche du SDK en attente la
+  plus prioritaire (file des tâches actives en 0x800000DC ; OSThread : état 0x2C8, priorité 0x2D0, suivante 0x2FC)
+  est notée comme un plantage (exception FE : registres, appels, pile, photo de la mémoire) ; sinon le code
+  interrompu par l'image. Journal : « Jeu figé : où en était-il ».
+
 ## Nouveautés v168 — version d'essai de la mise à jour
 - Aucun changement de code : nouveau numéro de build pour essayer START > Mise à jour sur une autre console.
 
