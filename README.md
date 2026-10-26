@@ -14,16 +14,19 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v151)
+## Nouveautés de la version actuelle (v152)
+- **Star Wars Rogue Squadron III (Rebel Strike) corrigé proprement** : la plus grande partie de son programme est
+  compressée dans le jeu. GC Station la décompresse maintenant au lancement, branche ses accès au lecteur comme pour
+  les autres jeux, puis la recompresse à sa place (avec son propre compresseur, un peu plus serré que zlib). Pulse
+  universel n'est plus nécessaire pour ce jeu (il ne reste qu'en secours, si le programme corrigé ne tenait plus).
+- Catalogue d'applis : Neverball retiré (54 Mo, trop gros pour la mémoire de la GameCube), GCMM : la version normale.
+
+## Version précédente (v151)
 - **Catalogue d'applis** : START > Réglages > Outils > « Catalogue d'applis (Internet) ». Des homebrews GameCube
   (Swiss, CleanRip, GCMM, Neverball, cubeboot…) à installer en un clic dans `SD:/apps`, comme GC Station se met à
   jour lui-même : A = installer ou mettre à jour (la nouvelle version est signalée), X = supprimer, Y = relire le
   catalogue. Chaque paquet est vérifié (taille, empreinte) avant d'être écrit ; l'appli apparaît ensuite dans Applis.
   Le catalogue est refait chaque semaine depuis les versions publiées par leurs auteurs (liste : `catalogue/applis.txt`).
-
-## Version précédente (v150)
-- **Date et heure corrigées** : la nouvelle heure ne s'appliquait pas. Elle s'affiche maintenant tout de suite
-  dans GC Station, et reste gardée dans la console (jeux, menu de la GameCube, prochain démarrage).
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
