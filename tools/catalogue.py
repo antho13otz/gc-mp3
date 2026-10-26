@@ -24,8 +24,20 @@ def members(name, data):
         t = tarfile.open(fileobj=io.BytesIO(data))
         return [(m.name, t.extractfile(m).read()) for m in t.getmembers() if m.isfile()]
     if n.endswith('.7z'):
-        import py7zr
-        with py7zr.SevenZipFile(io.BytesIO(data)) as z: return [(k, v.read()) for k, v in z.readall().items()]
+        try:
+            import py7zr
+            with py7zr.SevenZipFile(io.BytesIO(data)) as z: return [(k, v.read()) for k, v in z.readall().items()]
+        except Exception as ex:                              # v164 : (Cube64 : filtre que py7zr ne sait pas lire) -> 7z
+            import subprocess, tempfile
+            with tempfile.TemporaryDirectory() as d:
+                open(os.path.join(d, 'a.7z'), 'wb').write(data)
+                r = subprocess.run(['7z', 'x', '-y', '-o' + os.path.join(d, 'x'), os.path.join(d, 'a.7z')], capture_output=True)
+                if r.returncode: raise RuntimeError('7z : %s / py7zr : %s' % (r.stderr.decode()[-200:], ex))
+                out = []
+                for root, _, fs in os.walk(os.path.join(d, 'x')):
+                    for f in fs:
+                        fp = os.path.join(root, f); out.append((os.path.relpath(fp, os.path.join(d, 'x')).replace(os.sep, '/'), open(fp, 'rb').read()))
+                return out
     return [(name, data)]
 
 def esc(s): return s.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')

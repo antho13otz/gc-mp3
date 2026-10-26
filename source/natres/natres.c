@@ -2110,7 +2110,7 @@ done:
 }
 
 static u32 hk_n = 0;
-static void hooks_lazy(void) { trap_guard(); if (H.trap_state == NRT_OFF && (H.opt & NRO_TRAP)) trap_check(); if ((++hk_n & 255) == 1) hooks_check(); }   /* v62 : le jeu installe ses fonctions apres sa 1re commande */
+static void hooks_lazy(void) { trap_guard(); if (H.trap_state == NRT_OFF && (H.opt & NRO_TRAP)) trap_check(); if (++hk_n <= 64 || (hk_n & 255) == 1) hooks_check(); }   /* v164 : (les 64 premiers acces : le jeu peut se figer tot) */   /* v62 : le jeu installe ses fonctions apres sa 1re commande */
 static u32 di_load(u32 reg) {
     u32 i = (reg & 0x3F) >> 2;
     hooks_lazy();
