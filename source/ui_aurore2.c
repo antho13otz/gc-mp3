@@ -30,10 +30,27 @@ static void au_cover_color(int have) {
 }
 static col_t au_cc(u8 a) { return RGBA((u8)au_cr, (u8)au_cg, (u8)au_cb, a); }
 
+/* v159 : comme le style Classique : paroles (.lrc) dans le cadre de la pochette (Reglages > Affichage > Paroles dans
+   le lecteur : a la place / par-dessus le spectre), spectre au style choisi, elements du lecteur (pochette, spectre,
+   boutons, infos) */
+static int au_lyr_on(void) { return src == SRC_FILE && playing && lrc_n > 0 && lrc_track == cur_track && lyr_show && EL(EL_VIZ); }
+static void au_lyrics(f32 cx, f32 y, f32 w, f32 h) {
+    char a[300], b[300], d1[300];
+    int li = lyrics_current();
+    f32 my = y + h / 2;
+    if (li > 0) { text_display(lyrics_line(li - 1), d1, sizeof(d1)); fit_text(F_SMALL, d1, (int)w, a, sizeof(a)); gx_text_c(F_SMALL, cx, my - 34, a, RGBA(200, 190, 230, 200)); }
+    text_display(li >= 0 ? lyrics_line(li) : "...", d1, sizeof(d1));
+    wrap2(F_MED, d1, (int)w, a, b, sizeof(a));
+    gx_text_c(F_MED, cx, b[0] ? my - 2 : my + 6, a, RGBA(255, 255, 255, 255));
+    if (b[0]) gx_text_c(F_MED, cx, my + 17, b, RGBA(255, 255, 255, 255));
+    if (li + 1 < lrc_n) { text_display(lyrics_line(li + 1), d1, sizeof(d1)); fit_text(F_SMALL, d1, (int)w, a, sizeof(a)); gx_text_c(F_SMALL, cx, my + 44, a, RGBA(200, 190, 230, 200)); }
+}
 static void au_player(void) {
     np_t n;
     np_get(&n);
     int have = (src == SRC_FILE && playing && cover_ok) || (src == SRC_RADIO && cover_ok && cur_station >= 0 && state != ST_IDLE);
+    int lyr = au_lyr_on(), showc = EL(EL_COVER), viz = EL(EL_VIZ) && !lyr;   /* v159 */
+    if (!showc) have = 0;
     au_cover_color(have);
     const f32 cx = 459, sz = 180, x = cx - sz / 2, y = 84;
     f32 e = 0;
@@ -44,21 +61,25 @@ static void au_player(void) {
     nv_raw = 1;
     gx_circle(cx, y + sz / 2, 250, au_cc(60), au_cc(0));                               /* lumiere de la pochette */
     gx_circle(cx, y + sz / 2, sz * 0.62f + 26 * es, au_cc((u8)(70 + 90 * es)), au_cc(0));   /* (respire avec la musique) */
-    gx_rrect_fill(x + 4, y + 10, sz, sz, 10, RGBA(0, 0, 0, 110), RGBA(0, 0, 0, 140));        /* ombre */
+    if (showc || lyr) gx_rrect_fill(x + 4, y + 10, sz, sz, 10, RGBA(0, 0, 0, 110), RGBA(0, 0, 0, 140));        /* ombre */
     nv_raw = 0;
-    if (have) {
+    if (!showc && !lyr) {                                    /* v159 : sans pochette : le spectre en grand a sa place */
+        if (EL(EL_VIZ)) draw_viz(cx - 150, y + sz, 300, sz - 20);
+    } else if (have) {
         uxsave_t uz = ux_native(cx);
         gx_set_cover();
-        GX_Begin(GX_QUADS, GX_VTXFMT0, 8);                 /* (v105 : 8 sommets : pochette + reflet ; avant 4 annonces = GX bloque) */
+        GX_Begin(GX_QUADS, GX_VTXFMT0, viz ? 4 : 8);       /* (v105 : 8 sommets : pochette + reflet ; avant 4 annonces = GX bloque ; v159 : 4 si le spectre remplace le reflet) */
         GX_Position2f32(UX(x), y);           GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 0.0f);
         GX_Position2f32(UX(x + sz), y);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 0.0f);
         GX_Position2f32(UX(x + sz), y + sz); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(1.0f, 1.0f);
         GX_Position2f32(UX(x), y + sz);      GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0.0f, 1.0f);
+        if (!viz) {
         const f32 rh = 26, ry = y + sz + 3;                                                  /* reflet */
         GX_Position2f32(UX(x), ry);          GX_Color4u8(255, 255, 255, 80); GX_TexCoord2f32(0.0f, 1.0f);
         GX_Position2f32(UX(x + sz), ry);     GX_Color4u8(255, 255, 255, 80); GX_TexCoord2f32(1.0f, 1.0f);
         GX_Position2f32(UX(x + sz), ry + rh); GX_Color4u8(255, 255, 255, 0); GX_TexCoord2f32(1.0f, 1.0f - rh / sz);
         GX_Position2f32(UX(x), ry + rh);     GX_Color4u8(255, 255, 255, 0);  GX_TexCoord2f32(0.0f, 1.0f - rh / sz);
+        }
         GX_End();
         ux_restore(uz);
         nv_raw = 1;
@@ -68,8 +89,18 @@ static void au_player(void) {
         nv_raw = 1;
         gx_rrect_fill(x, y, sz, sz, 14, au_mix(0.15f, 255), au_mix(0.75f, 255));
         nv_raw = 0;
-        draw_logo_cube(cx, y + sz / 2, sz * 0.24f);
+        if (!lyr) draw_logo_cube(cx, y + sz / 2, sz * 0.24f);
     }
+    if (lyr) {                                               /* v159 : paroles par-dessus la pochette (assombrie) */
+        nv_raw = 1;
+        gx_rrect_fill(x - 40, y, sz + 80, sz, 14, RGBA(10, 6, 30, 175), RGBA(10, 6, 30, 200));
+        nv_raw = 0;
+        if (lyr_show == 2) draw_viz(x - 30, y + sz - 6, sz + 60, 60);   /* (paroles + spectre) */
+        nv_raw = 1;
+        au_lyrics(cx, y + 6, sz + 60, sz - 40);
+        nv_raw = 0;
+    }
+    if (viz && showc) draw_viz(x - 40, y + sz + 22, sz + 80, 18);   /* v159 : le spectre au style choisi, a la place du reflet */
     char buf[220];
     nv_raw = 1;
     fit_text(F_LARGE, n.title, 320, buf, sizeof(buf));
@@ -87,7 +118,8 @@ static void au_player(void) {
     fmt_time(t2, n.dur);
     gx_text1(F_SMALL, bx, by + 18, t1, RGBA(170, 170, 195, 255));
     if (!(n.radio && n.dur <= 0)) gx_text_r(F_SMALL, bx + bw, by + 18, t2, RGBA(170, 170, 195, 255));
-    if (n.info[0]) { fit_text(F_SMALL, n.info, 200, buf, sizeof(buf)); gx_text_c(F_SMALL, cx, by + 18, buf, RGBA(130, 130, 155, 255)); }
+    if (n.info[0] && EL(EL_INFO)) { fit_text(F_SMALL, n.info, 200, buf, sizeof(buf)); gx_text_c(F_SMALL, cx, by + 18, buf, RGBA(130, 130, 155, 255)); }
+    if (!EL(EL_BUTTONS)) { nv_raw = 0; return; }             /* v159 */
     /* boutons : precedent, lecture / pause, suivant */
     const f32 bcy = 393;
     col_t w = RGBA(235, 235, 245, 255);

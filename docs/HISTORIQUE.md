@@ -21,6 +21,20 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v160 — place des aiguillages de Pulse, disque du lecteur, logo, réglages du lecteur partout
+- Pulse : nouvelle disposition du haut de la mémoire `[ jeu | FST | bi2 | annexe | résident ]`. L'annexe (aiguillages,
+  tables des accès EXI) est calculée par jeu (`nhit*80 + 0x2400` + tables) et placée juste sous `NATRES_AT` ; en-tête
+  v19 : `tramp_end` (0x1EC) remplace `rsv145`. Le résident faisait 0xED20 octets : il ne restait qu'environ 4,5 Ko
+  d'aiguillages ; Mario Superstar Baseball en demande ~12 Ko (83 accès DI + 93 EXI). Au retour à GC Station, la
+  table des retours est utilisée directement. Banc `tools/natif-test` : 27 TOUT OK (vérifications adaptées).
+- Mémoire basse : 0x30E0 / 0x30E6 / 0x30E9 seulement s'ils sont vides, et 0x30E3 n'est plus forcé (erreur de disque
+  de Mario Kart Double Dash!! lancé depuis le vrai lecteur).
+- Logo : `tools/gen_logo.py` convertit `docs/logo/icone-{128,64,32}.png` en `source/logo_gcs.h` (RGB5A3) ;
+  `draw_brand()` = en-tête Classique, utilisé par Classique, moderne, Aurore et Nouvelle.
+- Aurore (`au_player`), Vitrine (`vi_music`, `vi_player`), Îlots (`il_np`, `il_spectrum`) : `lyr_show`, `viz_style`
+  (`draw_viz`), `EL_COVER`, `EL_VIZ`, `EL_BUTTONS`, `EL_INFO` comme le style Classique (Nouvelle utilise déjà le
+  lecteur Classique).
+
 ## Nouveautés v159 — fuzz et UBSan au simulateur
 - `tools/pc-sim/fuzz.py <minutes> [graine]` : tous les boutons au hasard (A, B, X, Y, Z, L, R, START, croix, sticks,
   appuis longs) ; jamais A dans JEUX / FICHIERS / TÉLÉCHARGEMENTS ni dans le menu START (redémarrer, mise à jour) ; à

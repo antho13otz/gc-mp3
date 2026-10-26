@@ -172,11 +172,13 @@ static void vi_music(void) {
     char lab[64], cnt[32];
     int pl = src == SRC_FILE && playing;
     snprintf(cnt, sizeof(cnt), "%d / %d", nents ? sel_row + 1 : 0, nents);
-    snprintf(lab, sizeof(lab), "%s", pl ? TR("En lecture") : TR("Biblioth\xC3\xA8que"));
-    vi_page_label(lab, cnt);
     /* lueur de la couleur de la pochette du milieu */
     st_ent_t ec;
     st_entry(sel_row, &ec);
+    /* v159 : paroles a la place du titre quand le morceau du milieu est celui qui joue */
+    int lyr = nents > 0 && au_lyr_on() && ents[sel_row].type == E_TRACK && ents[sel_row].idx == cur_track;
+    snprintf(lab, sizeof(lab), "%s", lyr ? ec.title : pl ? TR("En lecture") : TR("Biblioth\xC3\xA8que"));
+    vi_page_label(lab, cnt);
     {
         const u8 *p = st_pals[ec.h % 8];
         col_t g = ec.cover ? RGBA((u8)au_cr, (u8)au_cg, (u8)au_cb, 70) : RGBA(p[0], p[1], p[2], 56);
@@ -220,7 +222,12 @@ static void vi_music(void) {
     /* titre et sous-titre du milieu */
     char buf[220];
     nv_raw = 1;
-    if (nents > 0) {
+    if (lyr) {
+        nv_raw = 0;
+        if (lyr_show == 2) draw_viz(cx - 160, top + B + 104, 320, 90);
+        nv_raw = 1;
+        au_lyrics(cx, top + B + 30, W - 60, 76);
+    } else if (nents > 0) {
         txt_scale = 1.3f;
         fit_text(F_LARGE, ec.title, (int)(W - 40), buf, sizeof(buf));
         gx_text_c(F_LARGE, cx, top + B + 64, buf, RGBA(255, 255, 255, 255));
@@ -233,7 +240,7 @@ static void vi_music(void) {
     np_t n;
     np_get(&n);
     if (n.active) {
-        f32 bx = 46, bw = W - 92, by = top + B + 112;
+        f32 bx = 46, bw = W - 92, by = top + B + 112 + (lyr ? 18 : 0);
         if (!(ents[sel_row].type == E_TRACK && ents[sel_row].idx == cur_track && src == SRC_FILE)) {
             nv_raw = 1;
             snprintf(buf, sizeof(buf), "%s", n.title);
@@ -247,6 +254,7 @@ static void vi_music(void) {
             by += 8;
         }
         st_progress(bx, by, bw, &n, 1);
+        if (!lyr && EL(EL_VIZ) && viz_style != VZ_LED) draw_viz(cx - 150, by + 52, 300, 26);   /* v159 : le spectre choisi */
     }
     ux_restore(uz);
     st_music_foot(16, 447);
@@ -260,13 +268,15 @@ static void vi_player(void) {
     uxsave_t uz = st_real();
     f32 x0 = 289 * k, x1 = 630 * k, cx = (x0 + x1) / 2, s = 150, y = 88;
     int have = st_have_cover();
+    int lyr = au_lyr_on(), showc = EL(EL_COVER), viz = EL(EL_VIZ) && !lyr;   /* v159 : reglages du lecteur du style Classique */
+    if (!showc) have = 0;
     au_cover_color(have);
     nv_raw = 1;
     uxsave_t u2 = ux_native(cx);
     gx_circle(cx, y + s / 2, 190, au_cc(64), au_cc(0));
     ux_restore(u2);
     nv_raw = 0;
-    st_cover(cx - s / 2, y, s, have, st_hash(n.title), tab == TAB_RADIO ? 1 : 0, 30, 0);
+    if (showc) st_cover(cx - s / 2, y, s, have, st_hash(n.title), tab == TAB_RADIO ? 1 : 0, viz ? 0 : 30, 0);
     char buf[220];
     nv_raw = 1;
     f32 tw = x1 - x0 - 20;
@@ -275,10 +285,17 @@ static void vi_player(void) {
     gx_text_c(F_LARGE, cx, y + s + 62, buf, RGBA(255, 255, 255, 255));
     txt_scale = 1.0f;
     if (n.sub[0]) { fit_text(F_MED, n.sub, (int)tw, buf, sizeof(buf)); gx_text_c(F_MED, cx, y + s + 84, buf, au_cc(255)); }
-    if (n.info[0]) { fit_text(F_SMALL, n.info, (int)tw, buf, sizeof(buf)); gx_text_c(F_SMALL, cx, y + s + 140, buf, RGBA(130, 130, 152, 255)); }
+    if (n.info[0] && EL(EL_INFO)) { fit_text(F_SMALL, n.info, (int)tw, buf, sizeof(buf)); gx_text_c(F_SMALL, cx, y + s + 140, buf, RGBA(130, 130, 152, 255)); }
     nv_raw = 0;
     if (n.active) st_progress(x0 + 16, y + s + 100, x1 - x0 - 32, &n, 1);
     ux_restore(uz);
+    const f32 lcx = (289 + 630) / 2.0f;                       /* v159 : paroles, spectre (coordonnees de l'ecran 640) */
+    if (lyr) {
+        nv_raw = 1; gx_rrect_fill(lcx - 160, 84, 320, 158, 14, RGBA(10, 6, 30, 175), RGBA(10, 6, 30, 200)); nv_raw = 0;
+        if (lyr_show == 2) draw_viz(lcx - 150, 236, 300, 50);
+        nv_raw = 1; au_lyrics(lcx, 92, 300, 136); nv_raw = 0;
+    } else if (viz && showc) draw_viz(lcx - 150, 266, 300, 24);
+    else if (viz) draw_viz(lcx - 150, 236, 300, 140);
 }
 
 /* ======================= Ilots ======================= */
@@ -292,9 +309,9 @@ static void il_np(f32 x, f32 y, f32 w, f32 h) {
     il_tile(x, y, w, h);
     int have = st_have_cover();
     f32 s = h - 32;
-    st_cover(x + 16, y + 16, s, have, st_hash(n.title), tab == TAB_RADIO || tab == TAB_PODCAST ? 1 : 0, 0, 0);
-    /* (la pochette garde sa taille reelle : le texte commence juste apres) */
-    f32 px = x + 16 + s / ux_k + 18, tw = x + w - 18 - px;
+    if (EL(EL_COVER)) st_cover(x + 16, y + 16, s, have, st_hash(n.title), tab == TAB_RADIO || tab == TAB_PODCAST ? 1 : 0, 0, 0);
+    /* (la pochette garde sa taille reelle : le texte commence juste apres ; v159 : sans pochette si elle est decochee) */
+    f32 px = EL(EL_COVER) ? x + 16 + s / ux_k + 18 : x + 18, tw = x + w - 18 - px;
     char buf[220];
     nv_raw = 1;
     txt_scale = 1.2f;
@@ -348,8 +365,16 @@ static void il_meteo(f32 x, f32 y, f32 w, f32 h) {
 /* tuile : le spectre (barres en degrade bleu -> rose) */
 static void il_spectrum(f32 x, f32 y, f32 w, f32 h, int nb) {
     il_tile(x, y, w, h);
-    il_label(x + 16, y + 22, "Spectre");
+    int lyr = au_lyr_on();                                   /* v159 : les paroles dans cette tuile ; le spectre au style choisi */
+    il_label(x + 16, y + 22, lyr ? "Paroles" : "Spectre");
     f32 bx = x + 18, bw = w - 36, base = y + h - 18, mh = h - 54;
+    if (lyr) {
+        if (lyr_show == 2) draw_viz(bx, base, bw, mh * 0.5f);
+        nv_raw = 1; au_lyrics(x + w / 2, y + 30, w - 30, h - 50); nv_raw = 0;
+        return;
+    }
+    if (!EL(EL_VIZ)) return;
+    if (viz_style != VZ_LED) { draw_viz(bx, base, bw, mh); return; }
     f32 step = bw / nb, cw = step * 0.62f;
     nv_raw = 1;
     for (int i = 0; i < nb; i++) {

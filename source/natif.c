@@ -1295,7 +1295,10 @@ static void na_bba_quiet(void) {
     #undef NBQ_W
 }
 #endif
+static u32 na_tr_start = 0;                               /* v159 : debut de la place des aiguillages (0 = fin du resident) */
 static u32 na_ceil(const u8 *res) {
+    u32 te = be32(res + offsetof(natres_hdr_t, tramp_end));
+    if (te) return te;                                    /* v159 : place a part, sous le resident */
     u32 c = be32(res + 0x24), e2 = be32(res + offsetof(natres_hdr_t, ext2));
     return be32(res + offsetof(natres_hdr_t, n_ext2)) && e2 && e2 < c ? e2 : c;
 }
@@ -1308,13 +1311,13 @@ static char na_xwhy[120] = "";
 static int na_xdone = 0;
 static int na_si_done = 0, na_si_skip = 0;
 static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *card_on, int *si_on) {
-    u32 at = (be32(res + 0x3C) + 31) & ~31u;             /* (h->end, lu en big-endian) */
+    u32 at = na_tr_start ? na_tr_start : (be32(res + 0x3C) + 31) & ~31u;   /* (h->end, lu en big-endian ; v159 : place a part) */
     u32 dl = be32(res + 0x40), ds = be32(res + 0x44);   /* (h->di_load, h->di_store) */
     u32 xl = be32(res + 0xF0), xs = be32(res + 0xF4);   /* v65 : (h->exi_load, h->exi_store) */
     int done = 0;
     *skipped = 0; na_nskip = 0; na_xdone = 0; na_xwhy[0] = 0; na_dd_done = 0; na_dd_skip = 0;
     na_ssave = na_srest = 0;
-    if (at + 0x80 <= na_ceil(res)) at += na_stubs(res + (at - NATRES_AT), at);   /* v126 */
+    if (at + 0x80 <= na_ceil(res)) at += na_stubs(res + (s32)(at - NATRES_AT), at);   /* v126 */
     /* passe 0 : le lecteur (tous, sinon le jeu n'est pas lance) ; passe 1 : la carte (tout ou rien) ;
        v122 : passe 2 : les manettes (ceux qu'on sait brancher ; les autres restent au vrai materiel) */
     u32 sl = be32(res + offsetof(natres_hdr_t, si_load)), ss = be32(res + offsetof(natres_hdr_t, si_store));
@@ -1338,7 +1341,7 @@ static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *c
                             : isx || dd ? na_xtramp_why(in->hit_ins[i]) : na_tramp_why(in->hit_ins[i]);
             s32 d = (s32)(at - a);
             if (!why && (d >= 0x02000000 || d < -0x02000000)) why = "trop loin";
-            int n = why ? 0 : na_tramp(res + (at - NATRES_AT), at, a, in->hit_ins[i], in->hit_reg[i], kind == 2 ? sl : isx || dd ? xl : dl, kind == 2 ? ss : isx || dd ? xs : ds);
+            int n = why ? 0 : na_tramp(res + (s32)(at - NATRES_AT), at, a, in->hit_ins[i], in->hit_reg[i], kind == 2 ? sl : isx || dd ? xl : dl, kind == 2 ? ss : isx || dd ? xs : ds);
             if (!why && !n) why = "demi-registre impair";
             if (kind == 2) {                                  /* (manettes : un acces pas branche reste au vrai materiel) */
                 if (why) { na_si_skip++; continue; }
@@ -1415,8 +1418,8 @@ static u32 na_ws_patch(const nat_info_t *in, u8 *dol, u8 *res, u32 at, u32 ceil)
     c[n++] = ins;                                         /* (instruction d'origine) */
     u32 here = at + n * 4;
     c[n++] = 0x48000000u | ((f + 4 - here) & 0x03FFFFFCu);   /* b fonction + 4 */
-    for (u32 i = 0; i < n; i++) na_wbe32(res + (at - NATRES_AT) + i * 4, c[i]);
-    for (u32 i = 0; i < 16; i++) na_wbe32(res + (buf - NATRES_AT) + i * 4, i == 12 ? 0x3F400000u : 0);   /* (0,75 en 0x30) */
+    for (u32 i = 0; i < n; i++) na_wbe32(res + (s32)(at - NATRES_AT) + i * 4, c[i]);
+    for (u32 i = 0; i < 16; i++) na_wbe32(res + (s32)(buf - NATRES_AT) + i * 4, i == 12 ? 0x3F400000u : 0);   /* (0,75 en 0x30) */
     na_wbe32(dol + fo, 0x48000000u | ((u32)dj & 0x03FFFFFCu));          /* b aiguillage */
     snprintf(na_ws_msg, sizeof(na_ws_msg), "oui (GXSetProjection %08X)", (unsigned)f);
     return (buf + 0x40 + 31) & ~31u;
@@ -2515,9 +2518,11 @@ static void na_lowmem(volatile u32 *lm, u32 resv, int cards) {
     lm[0xE8 / 4] = 0x81800000u - resv;
     lm[0xEC / 4] = resv;
     volatile u8 *b = (volatile u8 *)0x80000000u;
-    b[0x30E0] = 0; b[0x30E1] = 6;
-    b[0x30E3] = 0;
-    if (na_devcode) { b[0x30E6] = (u8)(na_devcode >> 8); b[0x30E7] = (u8)na_devcode; }
+    /* v159 : seulement si le BIOS (ou ce qui a lance GC Station) ne les a pas mises : le code du lecteur ecrit
+       par GC Station a la place du sien donnait une erreur du jeu au lancement du disque de la console (Mario Kart
+       Double Dash, build 519) */
+    if (!b[0x30E0] && !b[0x30E1]) { b[0x30E0] = 0; b[0x30E1] = 6; }
+    if (na_devcode && !b[0x30E6] && !b[0x30E7]) { b[0x30E6] = (u8)(na_devcode >> 8); b[0x30E7] = (u8)na_devcode; }
     if (!b[0x30E9]) b[0x30E9] = 5;
     u32 t = (u32)(ticks_to_millisecs(gettime()) / 100u) + 1u;
     if (cards & 1) lm[0x30C0 / 4] = t;
@@ -2578,7 +2583,23 @@ static const char *nat_boot(int k) {
     }
     int gk = nat_cheats_prep(in.id);                       /* v121 : cheats appliques par Pulse */
     int res = (na_net_on ? (na_next = 0, 1) : !nat_map_game(gl[k].path, gl[k].ciso, merr, sizeof(merr))) && sizeof(natres_bin) <= NATRES_SIZE;   /* (v121 : .ciso aussi ; v143 : reseau : pas de morceaux sur la carte) */
-    u32 total = ((dol_len + 31) & ~31u) + NA_BI2 + ((in.fst_sz + 31) & ~31u) + (res ? NATRES_SIZE : 0);
+    /* v159 : aiguillages et tables des morceaux dans une place a part, juste sous le resident, a la taille utile.
+       Avant : dans le resident, apres son code ; depuis v143 (resident plus gros : pilote du BBA), il ne restait que
+       ~4,5 Ko, et un jeu a 83 acces au lecteur + 93 a la carte (Mario Superstar Baseball : ~12 Ko) ne se lancait plus
+       (« 31 acces au lecteur non branches »). Haut de la memoire : [ jeu | FST | bi2 | aiguillages | tables | resident ] */
+    u32 ann = 0, ann_tr = 0, ann_e1 = 0;
+    na_tr_start = 0;
+    if (res) {
+        ann_e1 = na_net_on ? 0 : ((u32)na_next * 12 + 31) & ~31u;
+        ann_tr = ((u32)in.nhit * 80 + 0x2400u + (gk > 0 ? (u32)na_gk_n * 4 : 0) + 31) & ~31u;
+        ann = ann_tr + ann_e1 + (na_net_on ? 0 : ((u32)na_n2 * 12 + 31) & ~31u);
+        bi2_dest = NATRES_AT - ann - NA_BI2;
+        fst_dest = (bi2_dest - in.fst_max) & ~31u;
+        if (in.hi > fst_dest) return "Pas assez de m\xC3\xA9moire pour ce jeu avec Pulse (jeu trop gros ou ISO trop fragment\xC3\xA9" "e)";
+        na_tr_start = NATRES_AT - ann;
+    }
+    u32 ann_dest = NATRES_AT - ann;
+    u32 total = ((dol_len + 31) & ~31u) + NA_BI2 + ((in.fst_sz + 31) & ~31u) + (res ? ann + NATRES_SIZE : 0);
     /* zone d'attente : sous 0x81700000 (au-dessus vit la pile de GC Station jusqu'au saut),
        au-dessus du jeu, et sous ce que le jeu recevra en haut (FST, bi2, resident) */
     u32 top = fst_dest < 0x81700000u - 0x400u ? fst_dest : 0x81700000u - 0x400u;   /* (v52 : jamais par-dessus la FST) */
@@ -2588,28 +2609,24 @@ static const char *nat_boot(int k) {
     u8 *buf = (u8 *)memalign(32, total);
     if (!buf) return "Pas assez de m\xC3\xA9moire libre dans GC Station";
     memset(buf, 0, total);
-    u32 o_dol = 0, o_bi2 = (dol_len + 31) & ~31u, o_fst = o_bi2 + NA_BI2, o_res = o_fst + ((in.fst_sz + 31) & ~31u);
+    u32 o_dol = 0, o_bi2 = (dol_len + 31) & ~31u, o_fst = o_bi2 + NA_BI2, o_ann = o_fst + ((in.fst_sz + 31) & ~31u), o_res = o_ann + ann;   /* (v159 : place a part juste avant le resident : memes positions qu'en memoire) */
     if (res) {                                            /* image du resident, deja reglee (en-tete : natres.h) */
         u8 *r = buf + o_res;
         memcpy(r, natres_bin, sizeof(natres_bin));
         /* v97 : table des morceaux tout en haut, a la taille utile (au moins la place du .dol de GC Station,
            recopie la au retour A+Z+START) : le reste sert aux aiguillages */
-        u32 ext_n = na_next > NATRES_RETMAX ? na_next : NATRES_RETMAX;
-        u32 ext_at = ((nat_trap ? NATRES_AT + NATRES_PTEG : NATRES_AT + NATRES_SIZE) - ext_n * 12) & ~31u;   /* (v139 : place de la table des pages) */
+        u32 ext_at = ann_dest + ann_tr;                                     /* v159 : tables au-dessus des aiguillages */
+        s32 eo = (s32)(ext_at - NATRES_AT);                                 /* (negatif : place a part, avant le resident dans buf) */
         na_wbe32(r + 0x24, ext_at);
-        u32 eo = ext_at - NATRES_AT, low = ext_at;
-        if (na_n2) {                                                        /* v121 : table de l'autre disque, juste en dessous */
-            u32 e2n = na_n2 > NATRES_RETMAX ? na_n2 : NATRES_RETMAX;
-            u32 e2 = (ext_at - e2n * 12) & ~31u;
-            if (e2 > be32(r + 0x3C) + 0x2000u) {                         /* (v143 : 8 Ko gardes pour les aiguillages ; 12 en v139, 16 avant) */
-                low = e2;
-                na_wbe32(r + offsetof(natres_hdr_t, ext2), e2); na_wbe32(r + offsetof(natres_hdr_t, n_ext2), na_n2);
-                for (u32 i = 0; i < na_n2; i++) {
-                    na_wbe32(r + (e2 - NATRES_AT) + i * 12, na_ext2[i].iso); na_wbe32(r + (e2 - NATRES_AT) + i * 12 + 4, na_ext2[i].sd); na_wbe32(r + (e2 - NATRES_AT) + i * 12 + 8, na_ext2[i].cnt);
-                }
-            } else { na_n2 = 0; snprintf(na_disc2_msg, sizeof(na_disc2_msg), "pas assez de place dans le r\xC3\xA9sident (jeu trop fragment\xC3\xA9)"); }
+        na_wbe32(r + offsetof(natres_hdr_t, tramp_end), ann_dest + ann_tr);
+        if (na_n2 && !na_net_on) {                                          /* v121 : table de l'autre disque, juste apres */
+            u32 e2 = ext_at + ann_e1;
+            na_wbe32(r + offsetof(natres_hdr_t, ext2), e2); na_wbe32(r + offsetof(natres_hdr_t, n_ext2), na_n2);
+            for (u32 i = 0; i < na_n2; i++) {
+                na_wbe32(r + (s32)(e2 - NATRES_AT) + i * 12, na_ext2[i].iso); na_wbe32(r + (s32)(e2 - NATRES_AT) + i * 12 + 4, na_ext2[i].sd); na_wbe32(r + (s32)(e2 - NATRES_AT) + i * 12 + 8, na_ext2[i].cnt);
+            }
         }
-        if (be32(r) != NATRES_MAGIC || be32(r + 0x3C) > low) res = 0;
+        if (be32(r) != NATRES_MAGIC || be32(r + 0x3C) > (nat_trap ? NATRES_AT + NATRES_PTEG : NATRES_AT + NATRES_SIZE)) res = 0;
         else {
             na_wbe32(r + 0x14, sd_slot == 0 ? 2 : sd_slot == 1 ? 0 : 1);   /* canal EXI */
             na_wbe32(r + 0x18, 0); na_wbe32(r + 0x1C, 4);                   /* peripherique, 16 MHz */
@@ -2719,7 +2736,7 @@ static const char *nat_boot(int k) {
             if (ngk > 0 || na_fx_n > 0) {                 /* v136 : {cheats} puis {"FIXT", n, corrections dans les fichiers lus} */
                 u32 need = 4 + (u32)ngk * 4 + (na_fx_n ? 8 + (u32)na_fx_n * 12 : 0);
                 if (at + need + 64 * 4 <= ceil) {
-                    u8 *q = r + (at - NATRES_AT);
+                    u8 *q = r + (s32)(at - NATRES_AT);
                     na_wbe32(q, (u32)ngk);
                     for (int i = 0; i < ngk; i++) na_wbe32(q + 4 + i * 4, na_gk[i]);
                     q += 4 + ngk * 4;
@@ -2738,7 +2755,7 @@ static const char *nat_boot(int k) {
                 na_net_msg[0] = 0;
                 if (at + sizeof(natres_net_t) + 64 * 4 <= ceil) {
                     const u32 *w = (const u32 *)&na_netc;
-                    for (u32 i = 0; i < sizeof(natres_net_t) / 4; i++) na_wbe32(r + (at - NATRES_AT) + i * 4, w[i]);
+                    for (u32 i = 0; i < sizeof(natres_net_t) / 4; i++) na_wbe32(r + (s32)(at - NATRES_AT) + i * 4, w[i]);
                     na_wbe32(r + offsetof(natres_hdr_t, net), at);
                     at = (at + sizeof(natres_net_t) + 31) & ~31u;
                 } else snprintf(na_net_msg, sizeof(na_net_msg), "pas assez de place dans le r\xC3\xA9sident");
@@ -2784,7 +2801,7 @@ static const char *nat_boot(int k) {
     }
     tab[n * 3] = bi2_dest; tab[n * 3 + 1] = stage + o_bi2; tab[n * 3 + 2] = NA_BI2; n++;
     if (in.fst_sz) { tab[n * 3] = fst_dest; tab[n * 3 + 1] = stage + o_fst; tab[n * 3 + 2] = in.fst_sz; n++; }
-    if (res) { tab[n * 3] = NATRES_AT; tab[n * 3 + 1] = stage + o_res; tab[n * 3 + 2] = NATRES_SIZE; n++; }
+    if (res) { tab[n * 3] = ann_dest; tab[n * 3 + 1] = stage + o_ann; tab[n * 3 + 2] = ann + NATRES_SIZE; n++; }   /* (v159 : aiguillages, tables, resident) */
     /* v55 : le vrai lecteur doit repondre (sa fin de commande reveille le jeu) */
     if (res) { stop_track(); nat_ld_span("Pr\xC3\xA9paration du lecteur", 40, 92); na_drive_wake(); }
     if (res && !na_drv_ok) { u8 *r = buf + o_res; na_wbe32(r + 0x48, be32(r + 0x48) & ~NRF_REAL_IRQ); }   /* v133 : pas de lecteur : Pulse reveille le jeu sans lui */
