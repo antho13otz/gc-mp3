@@ -39,6 +39,8 @@ static FILE *img;
 static u32 first_clus;
 static int host_stat(const char *p, struct stat *st) { int r = stat(p, st); if (!r) st->st_ino = strstr(p, "disc2") ? 10000 : strstr(p, "carte-B") ? 55000 : strstr(p, "journal-jeu") ? 20000 : strstr(p, "memoire-jeu") ? 60000 : strstr(p, "selfdol") ? 30000 : strstr(p, "carte-A") ? 40000 : first_clus; return r; }   /* (journal : un cluster libre de mkfat.py) */
 #define stat(p, s) host_stat(p, s)
+#include <zlib.h>
+static int stbi_zlib_decode_buffer(char *o, int ol, const char *i, int il) { uLongf d = (uLongf)ol; return uncompress((Bytef *)o, &d, (const Bytef *)i, (uLong)il) == Z_OK ? (int)d : -1; }   /* (v152) */
 #include "natif.c"
 #undef stat
 static int na_rawsec(u32 sec, void *buf) { return fseek(img, (long)sec * 512, SEEK_SET) || fread(buf, 1, 512, img) != 512 ? -1 : 0; }

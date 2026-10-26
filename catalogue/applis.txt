@@ -1,8 +1,8 @@
 # GC Station : catalogue d'applis (homebrews GameCube) - lu par tools/catalogue.py (workflow catalogue.yml)
+# (paquet de 8 Mo au plus : il est tenu en memoire par la GameCube ; Neverball, 54 Mo, n'y est donc pas)
 # (pas de barre verticale dans les expressions : c'est le separateur)
 # id | nom | depot GitHub | archive de la release (expression reguliere) | programme dans l'archive (expression reguliere) | fichiers en plus (expression reguliere, ou vide) | description
 swiss | Swiss | emukidid/swiss-gc | ^swiss_r\d+\.tar\.xz$ | DOL/swiss_r\d+\.dol$ | | Lanceur de jeux et d'applis, gestionnaire de fichiers et de cartes memoire.
 cleanrip | CleanRip | emukidid/cleanrip | ^CleanRip-v[\d.]+-gc\.zip$ | \.dol$ | | Copie tes disques GameCube sur la carte SD ou un disque USB (fichiers .iso).
-gcmm | GCMM | suloku/gcmm | ^gcmm_[\d.]+\.zip$ | (?i)gc[^/]*\.dol$ | | Gestionnaire de cartes memoire : sauvegarder, restaurer, effacer (.gci, .gcs, .sav).
-neverball | Neverball | emukidid/swiss-gc | ^neverball-.*-ogc\.zip$ | (?i)\.dol$ | .* | Jeu : guide une balle en inclinant le plateau (portage GameCube).
+gcmm | GCMM | suloku/gcmm | ^gcmm_[\d.]+\.zip$ | (?i)/gcmm_gc\.dol$ | | Gestionnaire de cartes memoire : sauvegarder, restaurer, effacer (.gci, .gcs, .sav).
 cubeboot | cubeboot | OffBroadway/cubeboot | ^cubeboot\.dol$ | \.dol$ | | Animation de demarrage de la GameCube, puis le disque (fait pour PicoBoot).

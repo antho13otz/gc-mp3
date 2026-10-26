@@ -25,8 +25,8 @@ printf '#pragma once\n#include <stdbool.h>\n#include <sys/types.h>\nbool fatMoun
 sed -n '/^\/\* ---------- lecture des disques/,/^static int gl_id_ok/p' $R/source/gclib.c | sed '$d' > gd.inc
 clang --target=powerpc-linux-gnu -DNATIF_BENCH -fsyntax-only -Wall -Wno-unused-function -Wno-unused-variable -DHW_DOL -D__gamecube__ -Ilibogc/gc -Ifakeinc -I. -I$R/source -isystem /usr/include -isystem /usr/include/x86_64-linux-gnu $T/gk.c && echo "console : syntaxe OK"
 # 3) bout en bout : faux jeu -> ISO -> carte SD FAT32 -> lancement natif -> emulateur
-gcc -DNATIF_BENCH -Wall -Wno-unused-function -Wno-unused-variable -I. -I$R/source -o h2 $T/h2.c
-sed -n 1,44p $T/h2.c > t146.c && cat $T/t146.c >> t146.c && gcc -DNATIF_BENCH -Wall -Wno-unused-function -Wno-unused-variable -I. -I$R/source -o t146 t146.c && ./t146 | tail -1   # (v146)
+gcc -DNATIF_BENCH -Wall -Wno-unused-function -Wno-unused-variable -I. -I$R/source -o h2 $T/h2.c -lz
+sed -n '1,/^static int na_rawsec/p' $T/h2.c > t146.c && cat $T/t146.c >> t146.c && gcc -DNATIF_BENCH -Wall -Wno-unused-function -Wno-unused-variable -I. -I$R/source -o t146 t146.c -lz && ./t146 | tail -1   # (v146)
 clang --target=powerpc-none-eabi -mcpu=750 -c $T/game.s -o game.o && ld.lld -Ttext=0x80003100 -e _start game.o -o game.elf && llvm-objcopy -O binary -j .text game.elf game.text
 for x in reboot prog2; do clang --target=powerpc-none-eabi -mcpu=750 -c $T/$x.s -o $x.o && ld.lld -Ttext=0x80400000 -e _start $x.o -o $x.elf && llvm-objcopy -O binary -j .text $x.elf $x.text; done   # (v95 : OSExec)
 python3 $T/mkiso.py game.text game.iso reboot.text prog2.text
@@ -85,3 +85,7 @@ python3 $T/emu_e2e.py boot-x.bin sd.img game.iso trap | tail -1
 # v143 : Pulse par le reseau : ISO lue par le Broadband Adapter sur un serveur (simule : ARP, UDP, une reponse perdue)
 NATIF_SELF=selfdol.dol NATIF_NET=1 NATIF_DUMP=boot-n.bin ./h2 game.iso sd.img 10 > h2-n.txt
 python3 $T/emu_e2e.py boot-n.bin sd.img game.iso net | tail -1
+# v152 : Rogue Squadron III : programme compresse (zlib en 0x80200000) decompresse, branche, recompresse a la meme place
+python3 $T/mkiso_z.py game.text game-z.iso && python3 $T/mkfat.py 32 game-z.iso sd-z.img 1 selfdol.dol 2097152 >/dev/null
+NATIF_SELF=selfdol.dol NATIF_TRAP=1 NATIF_DUMP=boot-z.bin ./h2 game-z.iso sd-z.img 10 > h2-z.txt
+python3 $T/check_z.py boot-z.bin | tail -1

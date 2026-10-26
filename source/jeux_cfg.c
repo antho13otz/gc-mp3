@@ -248,7 +248,9 @@ static void jeux_cfg_apply(const char *id, int resident) {
     nat_trap = jc_v[JC_TRAP - JC_V0] == 1;                   /* v139 : Pulse universel (experimental) */
     /* v146 : Star Wars Rogue Leader (GLR) et GWXJ13 : la plus grande partie du programme est compressee dans main.dol
        (decompressee par le jeu en 0x80200000) : ses acces au lecteur sont invisibles avant le lancement. Swiss la
-       decompresse pour la corriger ; Pulse les prend au vol (Pulse universel), automatiquement pour ces jeux. */
+       decompresse pour la corriger ; Pulse les prend au vol (Pulse universel), automatiquement pour ces jeux.
+       v152 : GC Station le decompresse aussi, le corrige et le recompresse (natif.c) ; Pulse universel est alors coupe
+       au lancement, et reste seulement si le programme corrige ne tient plus a sa place. */
     if (!nat_trap && (!strncmp(id, "GLR", 3) || !strncmp(id, "GWXJ13", 6))) nat_trap = 1;
     nat_nocheat = jc_v[JC_NOCHEAT - JC_V0] == 1;             /* v140 */
     nat_nocard = !strcmp(jc_card, "-");

@@ -36,7 +36,7 @@ typedef struct {
     /* main.dol */
     u32 dol_len, entry, lo, hi, bss, bsz;
     int nsec;
-    u32 sec_addr[18], sec_sz[18], sec_off[18];
+    u32 sec_addr[36], sec_sz[36], sec_off[36];         /* (v152 : 18 du main.dol + 18 du programme compresse dedans) */
     /* FST */
     u32 nfiles, ndirs, fst_dest;
     /* acces aux registres du lecteur */
@@ -290,6 +290,46 @@ static void na_ws_scan(nat_info_t *in, const u8 *txt, u32 base, u32 len) {
 }
 
 /* analyse complete ; retourne 0 si le disque est illisible */
+/* ---------- v152 : programme compresse dans main.dol (Star Wars Rogue Squadron III : GLR*, GWXJ13) ----------
+   A l'adresse 0x80200000 du main.dol : {taille compressee, taille decompressee, flux zlib} ; le flux est un 2e
+   programme (format .dol) que le jeu decompresse lui-meme au demarrage. Comme le fait Swiss : il est decompresse ici,
+   ses acces au lecteur trouves et branches comme ceux du main.dol, puis recompresse (deflate.c) a la meme place. S'il
+   ne tient plus, le jeu garde Pulse universel (acces pris au vol, v146). */
+#include "deflate.c"
+static u8 *na_zin = NULL;                                   /* programme decompresse */
+static u32 na_zlen = 0, na_zfo = 0, na_zdl = 0;            /* sa taille ; position de l'en-tete dans main.dol ; taille compressee */
+static nat_info_t na_zi;                                    /* ses sections et ses acces */
+static char na_z_msg[160];
+static int na_z_want = 0;                                  /* (seulement pour un lancement : jusqu'a 16 Mo de memoire) */
+static int na_zlib_game(const char *id) { return !strncmp(id, "GLR", 3) || !strncmp(id, "GWXJ13", 6); }
+static void na_scan_text(nat_info_t *in, const u8 *txt, u32 base, u32 len);
+static void na_zload(gdisc_t *d, const nat_info_t *in) {
+    free(na_zin); na_zin = NULL; na_zlen = na_zfo = na_zdl = 0; na_z_msg[0] = 0;
+    if (!na_z_want || !na_zlib_game(in->id)) return;
+    for (int k = 0; k < in->nsec; k++) if (0x80200000u >= in->sec_addr[k] && 0x80200000u - in->sec_addr[k] + 8 <= in->sec_sz[k]) na_zfo = in->sec_off[k] + (0x80200000u - in->sec_addr[k]);
+    u8 zh[8];
+    if (!na_zfo || !gd_read(d, in->dol_off + na_zfo, zh, 8)) { snprintf(na_z_msg, sizeof(na_z_msg), "programme compresse introuvable en 80200000"); return; }
+    u32 dl = be32(zh), il = be32(zh + 4);
+    if (!dl || dl > (12u << 20) || !il || il > (16u << 20) || na_zfo + 8 + dl > in->dol_len) { snprintf(na_z_msg, sizeof(na_z_msg), "en-tete du programme compresse inattendu (%08X %08X)", (unsigned)dl, (unsigned)il); return; }
+    u8 *z = (u8 *)malloc(dl);
+    na_zin = (u8 *)malloc(il);
+    int ok = z && na_zin && gd_read(d, in->dol_off + na_zfo + 8, z, dl);
+    if (ok) ok = stbi_zlib_decode_buffer((char *)na_zin, (int)il, (const char *)z, (int)dl) == (int)il;
+    free(z);
+    if (!ok) { free(na_zin); na_zin = NULL; snprintf(na_z_msg, sizeof(na_z_msg), "decompression impossible (memoire ou flux)"); return; }
+    na_zlen = il; na_zdl = dl;
+    memset(&na_zi, 0, sizeof(na_zi));
+    memcpy(na_zi.id, in->id, 7);
+    for (int i = 0; i < 18 && il >= 0x100; i++) {
+        u32 off = be32(na_zin + i * 4), addr = be32(na_zin + 0x48 + i * 4), sz = be32(na_zin + 0x90 + i * 4);
+        if (!sz) continue;
+        if (off + (u64)sz > il || addr < 0x80003000u || addr + (u64)sz > 0x81800000u) { free(na_zin); na_zin = NULL; snprintf(na_z_msg, sizeof(na_z_msg), "programme compresse : section %d invalide", i); return; }
+        na_zi.sec_addr[na_zi.nsec] = addr; na_zi.sec_sz[na_zi.nsec] = sz; na_zi.sec_off[na_zi.nsec] = off; na_zi.nsec++;
+        if (i < 7) na_scan_text(&na_zi, na_zin + off, addr, sz);
+        service_audio();
+    }
+    snprintf(na_z_msg, sizeof(na_z_msg), "programme compresse : %u -> %u octets, %d acces au lecteur trouves dedans", (unsigned)dl, (unsigned)il, na_zi.nhit);
+}
 static int nat_analyse(const char *path, nat_info_t *in) {
     memset(in, 0, sizeof(*in));
     na_dd_found = 0;                                      /* v133 */
@@ -342,6 +382,7 @@ static int nat_analyse(const char *path, nat_info_t *in) {
         }
     }
     in->dol_len = dol_end;
+    na_zload(&d, in);                                      /* v152 : (Rogue Squadron III) */
     if (in->bss + (u64)in->bsz > in->hi) in->hi = in->bss + in->bsz;
     if (!in->nsec || in->entry < in->lo || in->entry >= in->hi) { in->problems++; snprintf(in->err, sizeof(in->err), "Point d'entree invalide"); }
     /* memoire haute : [ jeu ... | FST | bi2.bin | programme resident ] 0x81800000 */
@@ -2509,7 +2550,10 @@ static const char *nat_boot(int k) {
     gl_stats_bump(k);                                      /* v73 : les lancements par Resident comptent aussi */
     tl_recent_add(gl[k].path);
 #endif
-    if (!nat_analyse(gl[k].path, &in)) return in.err;
+    na_z_want = 1;
+    int an = nat_analyse(gl[k].path, &in);
+    na_z_want = 0;
+    if (!an) return in.err;
     if (in.problems) return in.err;
     if (in.fst_max < in.fst_sz || in.fst_max > (4u << 20)) return "FST : taille maximale invalide";
     /* memoire du haut, une fois le jeu lance : [ jeu ... | FST | bi2 | resident ] 0x81800000 */
@@ -2622,7 +2666,44 @@ static const char *nat_boot(int k) {
     int patched = 0, skipped = 0;
     if (res) {
         int was = card_on, si_on = (na_opt() & 0x000FFF07u) != 0;
-        patched = na_patch(&in, buf + o_dol, buf + o_res, &skipped, &card_on, &si_on);
+        int zdone = 0;
+        if (na_zin && in.nsec + na_zi.nsec <= 36) {       /* v152 : main.dol et son programme compresse, branches ensemble */
+            nat_ld("Programme compress\xC3\xA9 : correction", 40);
+            static nat_info_t m;
+            m = in;
+            u32 base = (dol_len + 31) & ~31u;
+            for (int k = 0; k < na_zi.nsec; k++) { m.sec_addr[m.nsec] = na_zi.sec_addr[k]; m.sec_sz[m.nsec] = na_zi.sec_sz[k]; m.sec_off[m.nsec] = base + na_zi.sec_off[k]; m.nsec++; }
+            for (int k = 0; k < na_zi.nhit && m.nhit < NA_MAXHIT; k++) { m.hit_addr[m.nhit] = na_zi.hit_addr[k]; m.hit_reg[m.nhit] = na_zi.hit_reg[k]; m.hit_store[m.nhit] = na_zi.hit_store[k]; m.hit_ins[m.nhit] = na_zi.hit_ins[k]; m.nhit++; }
+            m.ntotal += na_zi.ntotal; m.nexi += na_zi.nexi; m.di_lost |= na_zi.di_lost; m.x_lost |= na_zi.x_lost;
+            u8 *cb = (u8 *)malloc(base + na_zlen), *rsave = (u8 *)malloc(NATRES_SIZE), *zo = (u8 *)malloc(na_zdl);
+            if (cb && rsave && zo) {
+                memcpy(rsave, buf + o_res, NATRES_SIZE);
+                memcpy(cb, buf + o_dol, dol_len); memset(cb + dol_len, 0, base - dol_len); memcpy(cb + base, na_zin, na_zlen);
+                int card2 = card_on, si2 = si_on, sk2 = 0;
+                int p2 = na_patch(&m, cb, buf + o_res, &sk2, &card2, &si2);
+                nat_ld("Programme compress\xC3\xA9 : recompression", 44);
+                u32 nz = df_zlib(cb + base, na_zlen, zo, na_zdl);
+                if (nz) {                                 /* (il tient : on garde) */
+                    memcpy(buf + o_dol, cb, dol_len);
+                    memcpy(buf + o_dol + na_zfo + 8, zo, nz);
+                    na_wbe32(buf + o_dol + na_zfo, nz);
+                    patched = p2; skipped = sk2; card_on = card2; si_on = si2; zdone = 1;
+                    if (nat_trap) {                       /* (Pulse universel n'est plus necessaire) */
+                        nat_trap = 0;
+                        na_wbe32(buf + o_res + offsetof(natres_hdr_t, opt), be32(buf + o_res + offsetof(natres_hdr_t, opt)) & ~NRO_TRAP);
+                    }
+                    size_t q = strlen(na_z_msg);
+                    snprintf(na_z_msg + q, sizeof(na_z_msg) - q, " ; recompresse : %u octets (place : %u)", (unsigned)nz, (unsigned)na_zdl);
+                } else {
+                    memcpy(buf + o_res, rsave, NATRES_SIZE);   /* (trop gros : comme avant, Pulse universel) */
+                    size_t q = strlen(na_z_msg);
+                    snprintf(na_z_msg + q, sizeof(na_z_msg) - q, " ; recompresse trop gros (place : %u) : Pulse universel", (unsigned)na_zdl);
+                }
+            }
+            free(cb); free(rsave); free(zo);
+        }
+        if (!zdone) patched = na_patch(&in, buf + o_dol, buf + o_res, &skipped, &card_on, &si_on);
+        free(na_zin); na_zin = NULL;
         {   /* v95 : code de redemarrage de l'apploader (OSExec, ancien apploader : <= 2004/02/01) */
             u8 *r = buf + o_res;
             int old = in.al_trailer && strncmp(in.al_date, "2004/02/01", 10) <= 0;
@@ -2738,6 +2819,7 @@ static const char *nat_boot(int k) {
         fprintf(f, "Vitesse du lecteur : %s%s\n", nat_speed ? "comme un vrai lecteur" : "rapide (carte SD)", nat_speed_auto ? " (automatique : jeu connu pour bloquer si le disque repond trop vite)" : "");
         if (nat_trap) fprintf(f, "Acces au lecteur par exception (Pulse universel, experimental) : demande\n");
         if (rep_msg[0]) fprintf(f, "Reparation automatique : %s\n", rep_msg);   /* v140 */
+        if (na_z_msg[0]) fprintf(f, "Programme compresse (v152) : %s\n", na_z_msg);
         if (na_net_on) fprintf(f, "Pulse par le reseau : serveur %u.%u.%u.%u port %u, fichier %u (%u octets), console %u.%u.%u.%u\n",   /* v143 */
                                (unsigned)(na_netc.srv >> 24), (unsigned)(na_netc.srv >> 16 & 255), (unsigned)(na_netc.srv >> 8 & 255), (unsigned)(na_netc.srv & 255),
                                (unsigned)na_netc.port, (unsigned)na_netc.tok[0], (unsigned)na_netc.size[0],

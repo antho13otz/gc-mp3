@@ -58,7 +58,7 @@ static void ct_parse(const char *js, int len) {
         t = strstr(o, "\"taille_sd\"");
         if (t && t < c) { t += 11; while (t < c && (*t == ':' || *t == ' ')) t++; e->sdsize = atol(t); }
         (void)num;
-        if (ct_safe_id(e->id) && e->file[0] && !strchr(e->file, '/') && e->size > 0 && strlen(e->sha) == 64) { ct_have(e); ct_n++; }
+        if (ct_safe_id(e->id) && e->file[0] && !strchr(e->file, '/') && e->size > 0 && e->size <= (8l << 20) && strlen(e->sha) == 64)   /* (tenu en memoire : 8 Mo au plus) */ { ct_have(e); ct_n++; }
         p = c + 1;
     }
     if (ct_sel >= ct_n) ct_sel = ct_n ? ct_n - 1 : 0;
