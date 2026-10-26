@@ -2055,6 +2055,22 @@ static void nat_run(int k) {
     gl_busy[0] = 0;
     if (!ok) { gl_note(in.err); crumb("natif : %s", in.err); return; }
     nat_write_report(&in, gl[k].path, rep, sizeof(rep));
+    {                                                        /* v170 : copie du programme du jeu (natif/<ID>-main.dol), pour
+                                                                l'etudier sur PC quand un jeu bloque avec Pulse */
+        gdisc_t d;
+        u8 *b = in.dol_len && in.dol_len < (16u << 20) ? (u8 *)malloc(in.dol_len) : NULL;
+        if (b && gd_open(&d, gl[k].path)) {
+            if (gd_read(&d, in.dol_off, b, in.dol_len)) {
+                char dp[NAME_LEN];
+                snprintf(dp, sizeof(dp), NA_DIR "/%s-main.dol", in.id);
+                mkdir(NA_DIR, 0777);
+                FILE *df = fopen(dp, "wb");
+                if (df) { fwrite(b, 1, in.dol_len, df); fclose(df); }
+            }
+            gd_close(&d);
+        }
+        free(b);
+    }
     /* etape 3a : l'ISO sur la carte, et le programme resident qui la lit */
     char me[120] = "", rt[120] = "";
     int mok = -1, rok = -1;

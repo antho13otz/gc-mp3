@@ -21,6 +21,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v170 — copie du main.dol à l'analyse
+- Le journal figé de la v169 (Crash Bandicoot GCBP7D) : tâche principale (priorité 16) en attente dans la
+  synchronisation de la carte mémoire du SDK (800F009C : tableau de 2 blocs de 0x110 en 802372A0, résultat -1 =
+  occupé, -128 pour un mauvais slot), appelée par 800F2038 ; carte virtuelle : 38 commandes, dernière 52 (lecture) :
+  le montage (5 blocs système de 8 Ko lus par morceaux de 512 octets) s'arrête vers la 3e. Essai avec la carte
+  virtuelle coupée : le jeu passe le logo et joue (1281 commandes au lecteur, musique, A+Z+START).
+- L'analyse Pulse (R sur la fiche) écrit `natif/<ID>-main.dol` : le code de la carte mémoire de ce SDK, pour
+  trouver la fin de lecture jamais donnée au jeu.
+
 ## Nouveautés v169 — jeu figé noté automatiquement par Pulse
 - Crash Bandicoot GCBP7D (v167 : il démarre) se fige sur son logo, toujours au même point : 569 commandes au lecteur,
   25775 secteurs, 73055 blocs de musique du disque (42,6 s), dernière commande E2 01 (position de la musique) ; puis
