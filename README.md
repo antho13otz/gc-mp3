@@ -14,18 +14,14 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v155)
+## Nouveautés de la version actuelle (v156)
+- **Plus de blanc entre deux albums** : le morceau suivant est préparé pendant la fin du précédent, même quand il
+  vient d'un autre dossier ou d'un autre album (avant : seulement dans le même album, sinon ~50 ms de silence).
+  Réglage START > « Enchaînement sans blanc » (Non : comme avant, un court silence entre les morceaux).
+
+## Version précédente (v155)
 - **Jaquettes corrigées** (onglet Jeux) : un morceau d'une autre jaquette pouvait s'incruster dans un coin de celle du
   jeu choisi, puis disparaître. Même correction pour les bannières, les icônes des applis et des cartes mémoire.
-
-## Version précédente (v154)
-- **Lecture plus fluide, tous formats** (MP3, FLAC jusqu'à 24 bits / 96 kHz, OGG, WAV, AAC/M4A, rétro) :
-  - au début d'un morceau (ou si la carte SD a pris du retard), GC Station attend d'avoir 0,25 s de son d'avance
-    avant de jouer : un seul blanc court et net, au lieu de petits bouts de son hachés de silences ;
-  - 1,5 s de son décodé d'avance (au lieu de 0,5 s) même quand l'écran est chargé (diaporama, pages lourdes) : une
-    photo longue à afficher ne coupe plus la musique.
-  - Mesuré sur le simulateur (changements de morceau, diaporama, onglets, un morceau de chaque format) : 34 coupures
-    (1,5 s) avant, 19 après (0,8 s), toutes au moment d'un changement de morceau et d'un seul tenant.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
