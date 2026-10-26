@@ -55,6 +55,7 @@ void pcsim_limits_init(void) {
     else printf("[pcsim] GameCube : tas %.2f Mo, processeur x%.0f plus lent, carte SD %.0f / %.0f Ko/s, reseau %.0f Ko/s\n",
                 heap_budget / 1048576.0, pcsim_cpu_k, sd_rkbs, sd_wkbs, net_kbs);
 }
+double pcsim_heap_mb(void) { return heap_used / 1048576.0; }
 void pcsim_limits_report(void) {
     if (pcsim_fast) return;
     printf("[pcsim] memoire : pic %.2f Mo sur %.2f Mo, %zu reservations refusees\n", heap_peak / 1048576.0, heap_budget / 1048576.0, heap_fail);

@@ -91,7 +91,64 @@ void GX_LoadProjectionMtx(Mtx44 m, u8 type) { memcpy(proj, m, sizeof(proj)); pro
 void GX_LoadPosMtxImm(Mtx m, u32 idx) { (void)idx; memcpy(posm, m, sizeof(posm)); }
 void GX_SetCurrentMtx(u32 idx) { (void)idx; }
 void GX_InvVtxCache(void) {}
-void GX_InvalidateTexAll(void) {}
+/* v157 : cache de textures du GPU (TMEM). Sur la GameCube, une texture deja lue reste en cache par adresse jusqu'a
+   GX_InvalidateTexAll : si son contenu change entre-temps (nouvelle image a la meme adresse, tampon reutilise), le
+   GPU affiche des morceaux de l'ancienne. Ici, chaque texture utilisee est retenue (adresse, taille, empreinte) ;
+   si on en reutilise une dont le contenu a change sans invalidation : « [pcsim] cache de textures perime ». */
+typedef struct { uintptr_t a; u32 n; u64 h; } tcache_t;
+static tcache_t tcache[1024];
+static int tcache_n = 0, tcache_reports = 0;
+u64 pcsim_tc_stale = 0;
+static u64 tc_hash(const void *p, u32 n) {
+    const u8 *b = (const u8 *)p; u64 h = 1469598103934665603ull;
+    u32 i = 0;
+    for (; i + 8 <= n; i += 8) { u64 v; memcpy(&v, b + i, 8); h = (h ^ v) * 1099511628211ull; h ^= h >> 29; }
+    for (; i < n; i++) h = (h ^ b[i]) * 1099511628211ull;
+    return h;
+}
+static u32 tc_bytes(int fmt, int w, int h) {
+    int bw = 8, bh = 8, bpp = 4;                            /* (blocs de la GameCube) */
+    switch (fmt) {
+    case GX_TF_I4: case GX_TF_CMPR: bw = 8; bh = 8; bpp = 4; break;
+    case GX_TF_I8: case GX_TF_IA4: bw = 8; bh = 4; bpp = 8; break;
+    case GX_TF_IA8: case GX_TF_RGB565: case GX_TF_RGB5A3: bw = 4; bh = 4; bpp = 16; break;
+    case GX_TF_RGBA8: bw = 4; bh = 4; bpp = 32; break;
+    default: bw = 4; bh = 4; bpp = 16; break;
+    }
+    u32 tw = (u32)((w + bw - 1) / bw * bw), th = (u32)((h + bh - 1) / bh * bh);
+    return tw * th * (u32)bpp / 8;
+}
+void GX_InvalidateTexAll(void) { tcache_n = 0; }
+static void tc_check(const tex_t *t, void *ra, void *ra2) {
+    if (!t->img || t->w <= 0 || t->h <= 0) return;
+    uintptr_t a = (uintptr_t)t->img; u32 n = tc_bytes(t->fmt, t->w, t->h);
+    u64 h = tc_hash(t->img, n);
+    int same = -1;
+    for (int i = 0; i < tcache_n; i++) {
+        tcache_t *e = &tcache[i];
+        if (e->a + e->n <= a || a + n <= e->a) continue;    /* (pas de recouvrement) */
+        if (e->a == a && e->n == n) {
+            same = i;
+            if (e->h != h) goto stale;
+            continue;
+        }
+        if (tc_hash((void *)e->a, e->n) != e->h) goto stale;    /* (autre texture au meme endroit, modifiee) */
+        tcache[i--] = tcache[--tcache_n];                   /* (elle sort du cache : la nouvelle la remplace) */
+        continue;
+    stale:
+        pcsim_tc_stale++;
+        if (tcache_reports++ < 30) {
+            extern double pcsim_time_s(void);
+            printf("[pcsim] cache de textures perime : image %dx%d (format %d) a %p, contenu change sans GX_InvalidateTexAll (dessin : %p <- %p) a %.2f s\n",
+                   t->w, t->h, t->fmt, t->img, ra, ra2, pcsim_time_s());
+        }
+        tcache_n = 0; same = -1;                            /* (une seule alerte, puis on repart) */
+        break;
+    }
+    if (same >= 0) { tcache[same].h = h; return; }
+    if (tcache_n == (int)(sizeof(tcache) / sizeof(tcache[0]))) { memmove(tcache, tcache + 1, sizeof(tcache) - sizeof(tcache[0])); tcache_n--; }
+    tcache[tcache_n].a = a; tcache[tcache_n].n = n; tcache[tcache_n].h = h; tcache_n++;
+}
 void GX_InitTexObj(GXTexObj *o, void *img, u16 w, u16 h, u8 fmt, u8 ws, u8 wt, u8 mip) {
     (void)mip;
     tex_t *t = (tex_t *)o;                                 /* (GXTexObj : 32 octets, assez pour tex_t) */
@@ -99,7 +156,7 @@ void GX_InitTexObj(GXTexObj *o, void *img, u16 w, u16 h, u8 fmt, u8 ws, u8 wt, u
     t->img = img; t->w = w; t->h = h; t->fmt = fmt; t->ws = ws; t->wt = wt; t->filt = GX_LINEAR;
 }
 void GX_InitTexObjFilterMode(GXTexObj *o, u8 minf, u8 magf) { (void)minf; ((tex_t *)o)->filt = magf; }
-void GX_LoadTexObj(GXTexObj *o, u8 map) { if (map < 8) texmap[map] = *(tex_t *)o; }
+void GX_LoadTexObj(GXTexObj *o, u8 map) { if (map < 8) { texmap[map] = *(tex_t *)o; tc_check(&texmap[map], __builtin_return_address(0), __builtin_frame_address(1) ? __builtin_return_address(1) : 0); } }
 static GXDrawDoneCallback dd_cb = NULL;
 void GX_DrawDone(void) {}
 void GX_SetDrawDone(void) { if (dd_cb) dd_cb(); }         /* (dessin logiciel : deja fini) */

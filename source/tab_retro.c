@@ -593,7 +593,9 @@ static int retro_quick_duration(const char *path) {
 }
 
 /* L / R : piste suivante dans un NSF / GBS a plusieurs morceaux */
-static int retro_subsong_step(int d) {
+static int retro_subsong_step_u(int d);
+static int retro_subsong_step(int d) { DEC_LOCK(); int r_ = retro_subsong_step_u(d); DEC_UNLOCK(); return r_; }   /* v157 */
+static int retro_subsong_step_u(int d) {
     if (!gme || gme_tracks <= 1) return 0;
     int t = gme_track + d;
     if (t < 0 || t >= gme_tracks) return 0;

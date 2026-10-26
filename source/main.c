@@ -437,6 +437,15 @@ static int paused = 0;                  /* pause de la musique */
 static int video_playing = 0;           /* une video (onglet PHOTOS) joue son son dans la file */
 static void video_stop(void);
 static void stop_track(void);
+/* v157 : la musique est decodee dans un thread moins prioritaire que l'ecran (mdec_fn) : il travaille quand la boucle
+   principale attend l'image suivante, et une longue trame (OGG, FLAC 24 bits...) ne retarde plus l'image. Tout ce qui
+   change le decodeur (ouvrir / fermer / se placer dans un morceau, radio, video) passe par ce verrou. */
+static mutex_t dec_mx;
+static int dec_mx_ok = 0;
+static volatile int dec_wait = 0;                 /* (la boucle principale attend le verrou : le thread lui laisse la place) */
+#define DEC_LOCK()   do { if (dec_mx_ok) { dec_wait++; LWP_MutexLock(dec_mx); dec_wait--; } } while (0)
+#define DEC_UNLOCK() do { if (dec_mx_ok) LWP_MutexUnlock(dec_mx); } while (0)
+static lwp_t mdec_h = LWP_THREAD_NULL;
 static void share_draw(void);                           /* v137 : (tab_phone.c) fenetre du QR code, partout */
 static int share_input(u32 down);
 static int sh_on;
@@ -2489,7 +2498,9 @@ static int http_open(const char *url_in, int depth) {
 
 static void cover_for_station(int idx);
 
-static void stop_station(void) {
+static void stop_station_u(void);
+static void stop_station(void) { DEC_LOCK(); stop_station_u(); DEC_UNLOCK(); }   /* v157 */
+static void stop_station_u(void) {
     rec_stop();
     stream_close();
     hls_stop();
@@ -3835,7 +3846,9 @@ static void rg_set(const tags_t *tg) {
     rg_db = 20.0f * log10f(lin);
 }
 
-static void stop_track(void) {
+static void stop_track_u(void);
+static void stop_track(void) { DEC_LOCK(); stop_track_u(); DEC_UNLOCK(); }   /* v157 */
+static void stop_track_u(void) {
     if (video_playing) video_stop();
     if (ffp) { fclose(ffp); ffp = NULL; }
     other_close();
@@ -3892,7 +3905,9 @@ static unsigned char *id3_text_only(FILE *fp, const unsigned char *head, long ta
     *outlen = n;
     return b;
 }
-static int start_track(int idx) {
+static int start_track_u(int idx);
+static int start_track(int idx) { DEC_LOCK(); int r_ = start_track_u(idx); DEC_UNLOCK(); return r_; }   /* v157 */
+static int start_track_u(int idx) {
     au_play = 0;                                          /* v154 : (debut d'un morceau : pas compte comme un trou) */
     if (idx < 0 || idx >= nfiles) { xf_request = 0; return 0; }
     mp3_skip = 0; mp3_left = -1; rgm_on = 0;
@@ -4879,7 +4894,9 @@ static void resume_note(int force) {
 }
 
 /* se place a 'sec' secondes dans le morceau en cours (position approchee) */
-static void track_seek(int sec) {
+static void track_seek_u(int sec);
+static void track_seek(int sec) { DEC_LOCK(); track_seek_u(sec); DEC_UNLOCK(); }   /* v157 */
+static void track_seek_u(int sec) {
     if (!ffp || cur_track < 0 || sec <= 0) return;
     mp3_skip = 0; mp3_left = -1; rgm_on = 0;             /* (v72 : mesure de sonie incomplete : abandonnee) */
     int d = file_duration(names[cur_track]);
@@ -5215,7 +5232,7 @@ static void present_frame(void) {
     VIDEO_SetNextFramebuffer(xfb[next_fb]);
     VIDEO_Flush();
     u32 pw0 = perf_on ? perf_us() : 0;
-    if (perf_on) pfx_cur[PH_GPU] += pw0 - pg0;
+    if (perf_on && pg0) pfx_cur[PH_GPU] += pw0 - pg0;
     /* attente de l'image suivante, en continuant a lire le reseau */
     u32 rc = retrace_count;
     u64 t0 = now_ms();
@@ -5225,6 +5242,8 @@ static void present_frame(void) {
         int dec_ = music_idle_decode(); u32 w3_ = perf_us();
         if (getenv("PCSIM_DRAWPROF") && w3_ - w0_ > 12000) printf("[attente] flux %.1f son %.1f decodage %.1f ms\n", (w1_ - w0_) / 1000.0, (w2_ - w1_) / 1000.0, (w3_ - w2_) / 1000.0);
         if (dec_) continue;
+        { u32 u0_ = perf_us(); usleep(500); u32 u1_ = perf_us(); if (getenv("PCSIM_DRAWPROF") && u1_ - u0_ > 20000) printf("[attente] usleep(500) : %.1f ms\n", (u1_ - u0_) / 1000.0); }
+        continue;
 #else
         stream_recv();
         service_audio();
@@ -5232,7 +5251,7 @@ static void present_frame(void) {
 #endif
         usleep(500);
     }
-    if (perf_on) pfx_cur[PH_WAIT] += perf_us() - pw0;
+    if (perf_on && pw0) { u32 d_ = perf_us() - pw0; if (d_ < 1000000) pfx_cur[PH_WAIT] += d_; }   /* v157 : (mesure commencee en route : ignoree ; avant, 4294967 ms dans le rapport) */
     displayed_fb = next_fb;
     ui_started = 1;
 }
@@ -12874,13 +12893,14 @@ static int decode_more(int k, u32 t0) {
 /* v85 : un bloc decode pendant l'attente de l'ecran (rend 1 si on a decode) */
 static int in_bg;
 static int music_idle_decode(void) {
+    if (mdec_h != LWP_THREAD_NULL) return 0;                 /* v157 : (le thread de decodage s'en charge) */
     if (video_playing || src != SRC_FILE || !playing || paused || eof || in_bg) return 0;
     if (f_count >= FILE_LEAD || (FIFO_SIZE - f_count) < FIFO_MARGIN) return 0;
     static u32 cost = 2000;                              /* duree d'un bloc (moyenne glissante, us) */
     u32 t = perf_us();
     if (t - frame_t0_us + cost > 15500) return 0;       /* (pas le temps avant l'image suivante : 16,7 ms) */
     in_bg = 1;
-    decode_file_one();
+    DEC_LOCK(); decode_file_one(); DEC_UNLOCK();
     service_audio();
     in_bg = 0;
     u32 d = perf_us() - t;
@@ -12889,6 +12909,7 @@ static int music_idle_decode(void) {
 }
 static int in_bg = 0;   /* (declare plus haut : decodage pendant l'attente de l'ecran) */
 static void bg_tick(void) {
+    if (mdec_h != LWP_THREAD_NULL && LWP_GetSelf() == mdec_h) { usleep(1000); return; }   /* v157 : (appele du thread de decodage : rien d'autre) */
     main_beat++;
     service_audio();
     if (in_bg) return;
@@ -12897,7 +12918,7 @@ static void bg_tick(void) {
         int k = 0;
         u32 t0 = perf_us();
         while (!eof && decode_more(k, t0) && f_count < FILE_LEAD && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
-            decode_file_one();
+            DEC_LOCK(); decode_file_one(); DEC_UNLOCK();
             service_audio();
             k++;
         }
@@ -12936,6 +12957,33 @@ static int gapless_next_ok(void) {
     return 1;                                            /* v156 : aussi d'un album a l'autre (avant : meme dossier seulement,
                                                             sinon ~50 ms de blanc : ouverture du suivant apres la fin) */
 }
+/* v157 : thread de decodage de la musique (fichiers de la carte SD seulement : les fichiers du reseau passent par des
+   connexions partagees avec la boucle principale) */
+static u8 mdec_stack[65536] ATTRIBUTE_ALIGN(32);
+static int mdec_ok_file(void) { return cur_track >= 0 && cur_track < nfiles && !strncasecmp(names[cur_track], SD_ROOT, strlen(SD_ROOT)); }
+static int mdec_want(void) {
+    return src == SRC_FILE && playing && !paused && !eof && !video_playing && mdec_ok_file()
+        && f_count < FILE_LEAD && (FIFO_SIZE - f_count) >= FIFO_MARGIN;
+}
+static void *mdec_fn(void *a) {
+    (void)a;
+    for (;;) {
+        if (!mdec_want()) { usleep(4000); continue; }
+        if (dec_wait) { usleep(500); continue; }
+        DEC_LOCK();
+        if (mdec_want()) decode_file_one();               /* (une trame a la fois : le verrou est vite rendu) */
+        DEC_UNLOCK();
+    }
+    return NULL;
+}
+static void mdec_start(void) {
+#ifndef GEKKO
+    if (getenv("PCSIM_NODEC")) return;                    /* (simulateur : comparaison sans le thread) */
+#endif
+    if (LWP_MutexInit(&dec_mx, true) < 0) return;
+    dec_mx_ok = 1;
+    if (LWP_CreateThread(&mdec_h, mdec_fn, NULL, mdec_stack, sizeof(mdec_stack), 55) < 0) mdec_h = LWP_THREAD_NULL;
+}
 static void music_pump(void) {
     if (video_playing) return;                          /* (le son vient de la video) */
     if (src != SRC_FILE || !playing || paused) return;
@@ -12946,8 +12994,11 @@ static void music_pump(void) {
     /* v154 : un bloc par image tant qu'il y a moins de 1,5 s d'avance (avant : 0,5 s) : quand l'ecran n'a jamais de
        temps libre (diaporama, pages lourdes...), l'avance restait vers 0,5 s et une longue image (photo a decoder)
        la vidait : coupure. Un bloc par image (~1100 echantillons x 60 images/s) va plus vite que le son. */
-    while (!eof && f_count < 72000 && decode_more(k, t0) && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
-        decode_file_one();
+    /* v157 : avec le thread de decodage (fichiers de la carte SD), la boucle principale ne decode plus qu'en secours,
+       sous 0,5 s d'avance (le thread est moins prioritaire : il peut manquer de temps si l'ecran est tres charge) */
+    u32 lead_ = mdec_h != LWP_THREAD_NULL && mdec_ok_file() ? 24000 : 72000;
+    while (!eof && f_count < lead_ && decode_more(k, t0) && (FIFO_SIZE - f_count) >= FIFO_MARGIN) {
+        DEC_LOCK(); decode_file_one(); DEC_UNLOCK();
         service_audio();
         k++;
         if (f_count >= 12000) break;                    /* v120 : encore 0,25 s d'avance : un seul bloc ici, le reste pendant l'attente de l'ecran */
@@ -13098,6 +13149,7 @@ int main(int argc, char **argv) {
     DCFlushRange(dmabuf, sizeof(dmabuf));
     dma_cb();
     AUDIO_StartDMA();
+    mdec_start();                            /* v157 : thread de decodage de la musique */
 
     reset_init();                            /* v38 : bouton Reset */
     resume_start();                          /* reprise du dernier morceau */

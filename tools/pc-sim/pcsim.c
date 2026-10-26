@@ -61,6 +61,7 @@ static int wq_best(void) {
     return b;
 }
 static void acquire_raw(void) {
+    struct timespec a0_; clock_gettime(CLOCK_MONOTONIC, &a0_); int last_owner_ = -1;
     pthread_mutex_lock(&big_m);
     int me = -1;
     for (int i = 0; i < NWQ; i++) if (!wq[i].used) { me = i; break; }
@@ -68,12 +69,18 @@ static void acquire_raw(void) {
     wq[me].used = 1; wq[me].prio = my_prio; wq[me].seq = wq_seq++;
     for (;;) {
         if (!big_active && wq_best() == me) break;
+        if (big_active) last_owner_ = big_owner_prio;
         if (big_active && my_prio > big_owner_prio && !preempt_req && !getenv("PCSIM_NOPREEMPT")) { preempt_req = 1; pthread_kill(big_owner, SIGUSR1); }
         struct timespec t; clock_gettime(CLOCK_REALTIME, &t); t.tv_nsec += 1000000; if (t.tv_nsec >= 1000000000) { t.tv_sec++; t.tv_nsec -= 1000000000; }
         pthread_cond_timedwait(&big_c, &big_m, &t);
     }
     wq[me].used = 0;
     big_active = 1; big_owner = pthread_self(); big_owner_prio = my_prio; preempt_req = 0;
+    if (my_prio == 64 && getenv("PCSIM_DRAWPROF")) {
+        struct timespec a1_; clock_gettime(CLOCK_MONOTONIC, &a1_);
+        double ms_ = (a1_.tv_sec - a0_.tv_sec) * 1e3 + (a1_.tv_nsec - a0_.tv_nsec) / 1e6;
+        if (ms_ > 30) printf("[pcsim] le thread principal a attendu le processeur %.0f ms (tenu par la priorite %d)\n", ms_, last_owner_);
+    }
     pthread_mutex_unlock(&big_m);
 }
 static void release_raw(void) {
@@ -105,8 +112,12 @@ void pcsim_lock(void) {
     acquire_raw();
     cpu_t0 = thread_ns(); gx_t0 = pcsim_gx_ns;
     pay_debt();
+    int want_ = preempt_req;                               /* v157 : un thread plus prioritaire a demande la main pendant la dette :
+                                                              avant, la demande etait oubliee (le moins prioritaire gardait le
+                                                              processeur jusqu'a sa prochaine attente : 300 a 600 ms) */
     pcsim_preempt_pending = 0;
     pcsim_in_lib--;
+    if (want_) pcsim_yield_now();
 }
 void pcsim_unlock(void) {
     if (--big_held) return;
@@ -123,9 +134,13 @@ void pcsim_yield_now(void) {
     int h = big_held;
     cpu_account();
     big_held = 0; release_raw();
-    acquire_raw(); big_held = h;
-    cpu_t0 = thread_ns(); gx_t0 = pcsim_gx_ns;
-    pay_debt();
+    for (;;) {
+        acquire_raw(); big_held = h;
+        cpu_t0 = thread_ns(); gx_t0 = pcsim_gx_ns;
+        pay_debt();
+        if (!preempt_req) break;                           /* v157 : (demande arrivee pendant la dette : on repasse la main) */
+        cpu_account(); big_held = 0; release_raw();
+    }
     pcsim_preempt_pending = 0;
     pcsim_in_lib--;
 }
@@ -162,6 +177,7 @@ static u64 pending_us(void) {
     return p / 1000ull;
 }
 u64 pcsim_now_us(void) { return real_us() + pending_us(); }
+double pcsim_time_s(void) { return pcsim_now_us() / 1e6; }
 u64 gettime(void) { return pcsim_now_us() / 1000ull + 1000ull; }   /* (ms ; jamais 0) */
 u32 gettick(void) { return (u32)gettime(); }
 void settime(u64 t) { (void)t; }
@@ -203,8 +219,10 @@ void ICInvalidateRange(void *p, u32 n) { (void)p; (void)n; }
 /* interruptions : le son (DMA) tourne a cote, comme une vraie interruption ; IRQ_Disable
    empeche seulement qu'il passe pendant une section protegee */
 static pthread_mutex_t irq_m = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
-u32 IRQ_Disable(void) { pthread_mutex_lock(&irq_m); return 1; }
-void IRQ_Restore(u32 l) { if (l) pthread_mutex_unlock(&irq_m); }
+/* v157 : pas de preemption entre IRQ_Disable et IRQ_Restore (comme sur la console : interruptions coupees) ;
+   avant, un thread interrompu en tenant irq_m bloquait tout (le principal attendait irq_m, le verrou global pris) */
+u32 IRQ_Disable(void) { pcsim_in_lib++; pthread_mutex_lock(&irq_m); return 1; }
+void IRQ_Restore(u32 l) { if (l) { pthread_mutex_unlock(&irq_m); PCSIM_LIB_EXIT(); } }
 
 /* ======================= systeme ======================= */
 static u32 sys_lang = SYS_LANG_FRENCH, sys_sound = SYS_SOUND_STEREO, sys_rumble = 1, sys_vmode = 0, sys_prog = 0, sys_eu60 = 0;
@@ -522,7 +540,7 @@ static void script_step(void) {
             next = 1; break;
         case SC_LOG: printf("[scenario] %s\n", c->s); next = 1; break;
         case SC_QUIT: printf("[pcsim] quit\n"); pcsim_finish(0); return;
-        case SC_MARK: pcsim_seg_report(c->s); next = 1; break;
+        case SC_MARK: { extern double pcsim_heap_mb(void); pcsim_seg_report(c->s); printf("[pcsim] memoire utilisee (%s) : %.2f Mo a %.0f s\n", c->s, pcsim_heap_mb(), pcsim_time_s()); next = 1; break; }
         }
         if (!next) return;
         sc_i++; sc_started = 0;
