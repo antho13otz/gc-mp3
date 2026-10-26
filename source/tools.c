@@ -216,6 +216,7 @@ static void mc_load_meta(int i) {
                 DCFlushRange(t, 32 * 32 * 2);
                 m->icon = t;
                 GX_InitTexObj(&m->obj, t, 32, 32, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+                GX_InvalidateTexAll();                 /* v155 : (nouvelle image a une adresse deja servie : le cache de textures du GPU gardait des morceaux de l'ancienne) */
                 GX_InitTexObjFilterMode(&m->obj, GX_LINEAR, GX_LINEAR);
             }
         }
@@ -574,6 +575,7 @@ static int ap_cache_read(ap_ent *a, const char *cp) {
     DCFlushRange(t, AP_IW * AP_IH * 2);
     a->tex = t;
     GX_InitTexObj(&a->obj, t, AP_IW, AP_IH, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InvalidateTexAll();                 /* v155 : (nouvelle image a une adresse deja servie : le cache de textures du GPU gardait des morceaux de l'ancienne) */
     GX_InitTexObjFilterMode(&a->obj, GX_LINEAR, GX_LINEAR);
     a->istate = 1;
     return 1;
@@ -589,6 +591,7 @@ static void ap_icon_load(ap_ent *a) {
     if (!t) return;
     a->tex = t;
     GX_InitTexObj(&a->obj, t, AP_IW, AP_IH, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InvalidateTexAll();                 /* v155 : (nouvelle image a une adresse deja servie : le cache de textures du GPU gardait des morceaux de l'ancienne) */
     GX_InitTexObjFilterMode(&a->obj, GX_LINEAR, GX_LINEAR);
     a->istate = 1;
 }
@@ -771,6 +774,7 @@ static void ap_job_done(void) {
     if (!t) { a->istate = -1; return; }
     a->tex = t;
     GX_InitTexObj(&a->obj, t, AP_IW, AP_IH, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InvalidateTexAll();                 /* v155 : (nouvelle image a une adresse deja servie : le cache de textures du GPU gardait des morceaux de l'ancienne) */
     GX_InitTexObjFilterMode(&a->obj, GX_LINEAR, GX_LINEAR);
     a->istate = 1;
 }

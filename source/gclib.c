@@ -551,6 +551,7 @@ static GXTexObj *gl_cover(int k, int load) {                 /* jaquette 128x256
     s = gl_new_slot(gl_cov, GL_SLOTS);
     s->tex = (u16 *)c; s->game = k; s->used = now_ms();
     GX_InitTexObj(&s->obj, c, w, h, GX_TF_CMPR, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InvalidateTexAll();                 /* v155 : (nouvelle image a une adresse deja servie : le cache de textures du GPU gardait des morceaux de l'ancienne) */
     GX_InitTexObjFilterMode(&s->obj, GX_LINEAR, GX_LINEAR);
     return &s->obj;
 }
@@ -638,6 +639,7 @@ static void gl_banner_apply(int k, u8 *b) {
         glslot_t *s = gl_new_slot(gl_ban, GL_BSLOTS);
         s->tex = t; s->game = k; s->used = now_ms();
         GX_InitTexObj(&s->obj, t, 96, 32, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+        GX_InvalidateTexAll();                 /* v155 : (nouvelle image a une adresse deja servie : le cache de textures du GPU gardait des morceaux de l'ancienne) */
         GX_InitTexObjFilterMode(&s->obj, GX_LINEAR, GX_LINEAR);
         g->bslot = (s8)(s - gl_ban);
     }
@@ -699,10 +701,10 @@ static void gl_job_done(void) {
     if (gj.kind == GJ_BANNER) { gl_banner_apply(k, b); return; }
     if (gj.kind == GJ_BIG) {
         free(gl_big.tex); gl_big.tex = (u16 *)b; gl_big.game = k;
-        if (b) { GX_InitTexObj(&gl_big.obj, b, 256, 256, GX_TF_CMPR, GX_CLAMP, GX_CLAMP, GX_FALSE); GX_InitTexObjFilterMode(&gl_big.obj, GX_LINEAR, GX_LINEAR); }
+        if (b) { GX_InitTexObj(&gl_big.obj, b, 256, 256, GX_TF_CMPR, GX_CLAMP, GX_CLAMP, GX_FALSE); GX_InitTexObjFilterMode(&gl_big.obj, GX_LINEAR, GX_LINEAR); GX_InvalidateTexAll(); }
     } else {
         free(gl_bigst.tex); gl_bigst.tex = (u16 *)b; gl_bigst.game = k;
-        if (b) { GX_InitTexObj(&gl_bigst.obj, b, 320, 240, GX_TF_CMPR, GX_CLAMP, GX_CLAMP, GX_FALSE); GX_InitTexObjFilterMode(&gl_bigst.obj, GX_LINEAR, GX_LINEAR); }
+        if (b) { GX_InitTexObj(&gl_bigst.obj, b, 320, 240, GX_TF_CMPR, GX_CLAMP, GX_CLAMP, GX_FALSE); GX_InitTexObjFilterMode(&gl_bigst.obj, GX_LINEAR, GX_LINEAR); GX_InvalidateTexAll(); }
     }
 }
 static GXTexObj *gl_banner(int k) {

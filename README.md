@@ -14,7 +14,11 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v154)
+## Nouveautés de la version actuelle (v155)
+- **Jaquettes corrigées** (onglet Jeux) : un morceau d'une autre jaquette pouvait s'incruster dans un coin de celle du
+  jeu choisi, puis disparaître. Même correction pour les bannières, les icônes des applis et des cartes mémoire.
+
+## Version précédente (v154)
 - **Lecture plus fluide, tous formats** (MP3, FLAC jusqu'à 24 bits / 96 kHz, OGG, WAV, AAC/M4A, rétro) :
   - au début d'un morceau (ou si la carte SD a pris du retard), GC Station attend d'avoir 0,25 s de son d'avance
     avant de jouer : un seul blanc court et net, au lieu de petits bouts de son hachés de silences ;
@@ -22,20 +26,6 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
     photo longue à afficher ne coupe plus la musique.
   - Mesuré sur le simulateur (changements de morceau, diaporama, onglets, un morceau de chaque format) : 34 coupures
     (1,5 s) avant, 19 après (0,8 s), toutes au moment d'un changement de morceau et d'un seul tenant.
-
-## Version précédente (v153)
-- **Jeux en réseau local (LAN)** : vérifié au banc d'essai qu'un jeu qui se sert lui-même du Broadband Adapter
-  (Kirby Air Ride, Mario Kart : Double Dash!!, 1080°…) le fait normalement avec Pulse : il envoie et reçoit ses
-  trames pendant que Pulse lit le disque et émule la carte mémoire sur le même bus, sans que la vraie carte soit
-  touchée. Lance le jeu avec Pulse sur chaque console, puis le mode LAN du jeu.
-- **LAN par Internet, avec un relais** : `tools/lan-relais.py` (Python 3) relie deux réseaux par Internet ; les
-  GameCube se croient côte à côte.
-  - Le relais, une fois, sur une machine joignable des deux côtés (port UDP 51240 ouvert) :
-    `python3 lan-relais.py relais`
-  - Chez chaque joueur, un PC sur le même réseau que la GameCube :
-    `python3 lan-relais.py pont <adresse du relais> <nom de la partie>` (Linux : sudo ; Windows/Mac : Npcap et
-    `pip install scapy`, en administrateur).
-  - Seules les trames des GameCube passent, sans boucle. Jouable si le ping est faible.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

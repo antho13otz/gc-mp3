@@ -351,6 +351,7 @@ static void rh_load_tex(rh_ent *e) {
     if (t && fread(t, 2, RH_TS * RH_TS, f) == RH_TS * RH_TS) {
         DCFlushRange(t, RH_TS * RH_TS * 2);
         GX_InitTexObj(&e->obj, t, RH_TS, RH_TS, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+        GX_InvalidateTexAll();                 /* v155 : (nouvelle image a une adresse deja servie : le cache de textures du GPU gardait des morceaux de l'ancienne) */
         GX_InitTexObjFilterMode(&e->obj, GX_LINEAR, GX_LINEAR);
         e->tex = t; e->cs = 1;
     } else free(t);
