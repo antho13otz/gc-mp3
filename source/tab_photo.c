@@ -11,7 +11,7 @@
 #define GRID_ROWS   3
 #define SLIDE_MS    6000
 
-typedef struct { char path[NAME_LEN]; u8 video; u8 bad; u32 date; } pfile_t;
+typedef struct { char path[NAME_LEN]; u8 video; u8 bad; u32 date; long size; } pfile_t;   /* (v165 : size -1 = pas encore lue) */
 static pfile_t *pf = NULL;
 static int npf = -1, pf_sel = 0, pf_top = 0;
 static int pf_sort = 0;                     /* v76 : 0 = par nom, 1 = par date (recentes d'abord) */
@@ -62,8 +62,12 @@ static void pf_scan_dir(const char *dir, int depth, int video) {
         if (add) {
             snprintf(pf[npf].path, NAME_LEN, "%s", path);
             pf[npf].bad = 0;
-            struct stat sb;
-            pf[npf].date = (stat(path, &sb) == 0 && sb.st_mtime > 1) ? (u32)sb.st_mtime : 0;
+            pf[npf].date = 0; pf[npf].size = -1;
+            if (pf_sort == 1) {                                /* v165 : la date seulement pour le tri par date (1,5 ms par photo sur
+                                                                  la carte SD, toutes a l'entree de l'onglet : saccade) */
+                struct stat sb;
+                if (stat(path, &sb) == 0) { pf[npf].date = sb.st_mtime > 1 ? (u32)sb.st_mtime : 0; pf[npf].size = (long)sb.st_size; }
+            }
             npf++;
         }
         else if (depth < 2 && is_dir(path, e)) pf_scan_dir(path, depth + 1, video);
@@ -83,7 +87,22 @@ static void thumbs_clear(void) {
     for (int i = 0; i < TH_CACHE; i++) { free(thumbs[i].tex); memset(&thumbs[i], 0, sizeof(thumbs[i])); thumbs[i].file = -1; }
 }
 
+/* v165 : a l'entree de l'onglet, un dossier par image (avant : les 4 d'un coup, ~15 ms : une image ratee) */
+static int ph_scan = 0, ph_scan_n = 0;                    /* 1..5 : prochaine etape ; npf reste a -1 pendant ce temps */
+static void photo_rescan_end(void);
+static void photo_scan_step(void) {
+    int st = ph_scan;
+    npf = ph_scan_n;
+    if (st == 1) { if (!pf) pf = (pfile_t *)malloc(sizeof(pfile_t) * PH_MAXF); if (!pf || !sd_ok) st = 5; else mkdir(SD_ROOT "/photos", 0777); }
+    if (st == 1) pf_scan_dir(SD_ROOT "/videos", 0, 1);
+    else if (st == 2) pf_scan_dir(SD_ROOT "/photos", 0, 0);
+    else if (st == 3) pf_scan_dir(SD_ROOT "/ecran", 0, 0);
+    else if (st == 4) pf_scan_dir(DL_DIR, 0, 0);
+    if (st >= 4 || !pf) { ph_scan = 0; if (!pf) npf = 0; photo_rescan_end(); return; }
+    ph_scan_n = npf; npf = -1; ph_scan = st + 1;
+}
 static void photo_rescan(void) {
+    ph_scan = 0;
     if (!pf) pf = (pfile_t *)malloc(sizeof(pfile_t) * PH_MAXF);
     if (!pf) { npf = 0; return; }
     npf = 0;
@@ -94,6 +113,9 @@ static void photo_rescan(void) {
         pf_scan_dir(SD_ROOT "/ecran", 0, 0);
         pf_scan_dir(DL_DIR, 0, 0);
     }
+    photo_rescan_end();
+}
+static void photo_rescan_end(void) {
     qsort(pf, npf, sizeof(pfile_t), pf_cmp);
     thumbs_clear();
     if (pj_state == PJ_READ || pj_state == PJ_CREAD || pj_state == PJ_CWRITE) {
@@ -106,7 +128,7 @@ static void photo_rescan(void) {
     if (pf_sel >= npf) pf_sel = npf > 0 ? npf - 1 : 0;
 }
 
-static void photo_enter(void) { if (npf < 0) photo_rescan(); }
+static void photo_enter(void) { if (npf < 0 && !ph_scan) { ph_scan = 1; ph_scan_n = 0; } }
 
 static thumb_t *thumb_find(int f) {
     for (int i = 0; i < TH_CACHE; i++) if (thumbs[i].file == f && thumbs[i].tex) { thumbs[i].used = ++th_clock; return &thumbs[i]; }
@@ -219,14 +241,19 @@ static void th_cache_write(int f, thumb_t *t) {
 /* lance le chargement de l'image f (vignette ou plein ecran) */
 static void pj_start(int f, int big) {
     if (pj_state != PJ_IDLE || f < 0 || f >= npf || pf[f].video) return;
-    pj_fp = fopen(pf[f].path, "rb");
     long size = -1;
-    if (pj_fp && fseek(pj_fp, 0, SEEK_END) == 0) size = ftell(pj_fp);
-    pj_fsize = size;
-    if (!big && size > 0 && pj_fp) {                                  /* vignette deja prete ? */
-        fclose(pj_fp); pj_fp = NULL;
-        if (th_cache_open(f)) return;
+    if (!big) {                                                       /* vignette deja prete ? */
+        /* v165 : taille par stat (1,5 ms) au lieu d'ouvrir la photo (3 ms) ; la photo n'est ouverte que s'il faut
+           faire la vignette (avant : photo ouverte, fermee, vignette ouverte, et photo rouverte : 2 a 3 ouvertures) */
+        if (pf[f].size < 0) { struct stat sb; pf[f].size = stat(pf[f].path, &sb) == 0 ? (long)sb.st_size : 0; }
+        size = pf[f].size;
+        pj_fsize = size;
+        if (size > 0 && th_cache_open(f)) return;
+        pj_fp = size > 0 ? fopen(pf[f].path, "rb") : NULL;
+    } else {
         pj_fp = fopen(pf[f].path, "rb");
+        if (pj_fp && fseek(pj_fp, 0, SEEK_END) == 0) size = ftell(pj_fp);
+        pj_fsize = size;
     }
     long want = big || size <= PJ_HEAD ? size : PJ_HEAD;              /* vignette : le debut d'abord (EXIF) */
     long maxf = big ? PHOTO_MAX_FILE : 64L * 1024 * 1024;
@@ -546,6 +573,7 @@ static void pv_open(int f) {
 }
 
 static void photo_input(u32 down, u32 nav, int fire) {
+    if (ph_scan) return;                                  /* v165 : (liste en cours de lecture : quelques images) */
     if (npf < 0) photo_rescan();
     if (pv_mode == 2) {                                   /* video */
         if (down & (PAD_BUTTON_B | PAD_BUTTON_A)) { video_stop(); pv_mode = 0; }
@@ -577,6 +605,8 @@ static void photo_input(u32 down, u32 nav, int fire) {
         char keep[NAME_LEN];
         snprintf(keep, sizeof(keep), "%s", pf[pf_sel >= 0 && pf_sel < npf ? pf_sel : 0].path);
         pf_sort ^= 1;
+        if (pf_sort == 1)                                  /* v165 : (dates lues seulement maintenant) */
+            for (int f = 0; f < npf; f++) if (pf[f].size < 0) { struct stat sb; if (stat(pf[f].path, &sb) == 0) { pf[f].date = sb.st_mtime > 1 ? (u32)sb.st_mtime : 0; pf[f].size = (long)sb.st_size; } }
         qsort(pf, npf, sizeof(pfile_t), pf_cmp);
         thumbs_clear();
         for (int f = 0; f < npf; f++) if (!strcmp(pf[f].path, keep)) { pf_sel = f; break; }
@@ -586,6 +616,7 @@ static void photo_input(u32 down, u32 nav, int fire) {
 
 static void photo_pump_tab(void) {
     video_pump();
+    if (ph_scan) { if (tab == TAB_PHOTO) photo_scan_step(); else { ph_scan = 0; npf = -1; } return; }   /* v165 */
     if (tab != TAB_PHOTO || npf <= 0) { if (pj_state != PJ_IDLE) pj_pump(); return; }
     if (pv_mode == 1) {
         if (pv_slide && now_ms() - pv_slide_t > SLIDE_MS) {     /* diaporama : photo suivante (pas les videos) */
@@ -599,7 +630,8 @@ static void photo_pump_tab(void) {
         for (int i = 0; i < GRID_COLS * (GRID_ROWS + 1); i++) {
             int f = pf_top + i;
             if (f >= npf) break;
-            if (!pf[f].bad && !pf[f].video && !thumb_find(f)) { pj_start(f, 0); break; }
+            if (!pf[f].bad && !pf[f].video && !thumb_find(f)) { pj_start(f, 0); return; }   /* v165 : (lecture a l'image suivante :
+                                                                                               ouverture + lecture dans la meme image = image ratee) */
         }
     }
     pj_pump();
@@ -626,7 +658,8 @@ static void draw_tab_photo(void) {
     draw_panel(11, 73, 618, 338);
     snprintf(buf, sizeof(buf), "%d", npf > 0 ? npf : 0);
     draw_tabs(buf);
-    if (npf <= 0) {
+    if (ph_scan) { }                                      /* v165 : (lecture de la liste : 4 images) */
+    else if (npf <= 0) {
         gx_text1(F_MED, 34, 150, "Aucune photo ni vid\xC3\xA9o", RGBA(255, 205, 110, 255));
         gx_text1(F_SMALL, 34, 172, "Photos (.jpg, .png, 1920 x 1080 maximum) : SD:/photos", RGBA(190, 180, 235, 255));
         gx_text1(F_SMALL, 34, 190, "Vid\xC3\xA9os .avi (MJPEG + son PCM, 640 x 480 maximum) : SD:/videos", RGBA(190, 180, 235, 255));

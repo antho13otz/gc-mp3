@@ -14,18 +14,21 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v164)
+## Nouveautés de la version actuelle (v165)
+- **Fluidité pendant la musique, vérifiée dans tous les réglages du lecteur** : les 4 styles, les 7 styles de spectre
+  (spectrogramme compris), les 5 dispositions et les paroles (seules ou avec le spectre), musique en cours, dans tous
+  les onglets (56 combinaisons sur le simulateur). Le lecteur lui-même reste à 60 images/s ; ce qui saccadait était ailleurs :
+  - **changement de morceau** : le morceau suivant (MP3, FLAC, OGG) et sa pochette sont préparés d'avance, pendant le
+    morceau en cours. Ouverture : 35 à 70 ms avant, 1 à 12 ms maintenant (le spectre et les paroles ne sautent plus) ;
+  - **onglet Photos** : la liste des photos se lit un dossier par image, les dates seulement pour le tri par date, et
+    chaque vignette demande une ouverture de fichier de moins.
+
+## Version précédente (v164)
 - **Pulse : jeux qui démarrent le débogueur des consoles de développement** : certains disques gardent dans leur
   `bi2.bin` un réglage qui fait lancer au jeu le débogueur MetroTRK, qui attend un matériel absent d'une console du
   commerce. Pulse le remet à zéro. C'est la piste pour Crash Bandicoot : The Wrath of Cortex (écran noir dès le début).
 - Pulse se branche plus tôt sur le jeu (les 64 premiers accès au matériel) : un jeu qui se fige tôt laisse un journal.
 - Catalogue d'applis : Cube64 (Nintendo 64), dont l'archive ne pouvait pas être ouverte, est ajouté.
-
-## Version précédente (v163)
-- **Émulateurs dans le catalogue d'applis** (START > Réglages > Outils > Catalogue d'applis) : la version GameCube de
-  FCE Ultra GX (NES), Snes9x GX (Super Nintendo), Visual Boy Advance GX (Game Boy, Color, Advance), Genesis Plus GX
-  (Mega Drive, Master System, Game Gear, Mega-CD), CubeSX (PlayStation) et Cube64 (Nintendo 64), mises à jour
-  chaque semaine depuis leurs dépôts.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
