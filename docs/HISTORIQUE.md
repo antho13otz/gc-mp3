@@ -21,6 +21,9 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v168 — version d'essai de la mise à jour
+- Aucun changement de code : nouveau numéro de build pour essayer START > Mise à jour sur une autre console.
+
 ## Nouveautés v167 — BSS remis à zéro avant le saut (Crash Bandicoot GCBP7D)
 - Code du point d'entrée (journal de la v162) désassemblé : le `__start` de GCBP7D appelle la remise à zéro
   (`__fill_mem` en 800DB25C : r3 = destination, r4 = valeur, r5 = taille) avec r4 = début, r5 = 0, r6 = taille :
