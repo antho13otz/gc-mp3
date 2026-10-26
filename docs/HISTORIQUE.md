@@ -21,6 +21,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v161 — journal d'un jeu bloqué tôt
+- `nr_log_flush` (résident) : si la carte n'est pas encore démarrée (aucune commande du jeu au lecteur), `nr_init()`
+  est fait là (pas en réseau, pas si le jeu se sert du bus EXI) : les crochets image / manettes / son écrivent le
+  journal toutes les 3 s dès qu'ils tournent. Avant, `di_ready` à 0 empêchait toute écriture.
+- `nat_journal_convert` : `journal-jeu.bin` resté à zéro (remis à zéro au lancement) → `journal-jeu.txt` « AUCUNE
+  NOUVELLE DU JEU » + `dernier-lancement.txt` ; avant, le texte du jeu précédent restait (Crash Bandicoot : écran
+  noir, journal de Mario Superstar Baseball).
+
 ## Nouveautés v160 — place des aiguillages de Pulse, disque du lecteur, logo, réglages du lecteur partout
 - Pulse : nouvelle disposition du haut de la mémoire `[ jeu | FST | bi2 | annexe | résident ]`. L'annexe (aiguillages,
   tables des accès EXI) est calculée par jeu (`nhit*80 + 0x2400` + tables) et placée juste sous `NATRES_AT` ; en-tête

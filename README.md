@@ -14,7 +14,12 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v160)
+## Nouveautés de la version actuelle (v161)
+- **Journal du jeu (Pulse) même quand le jeu reste sur un écran noir dès le début** : Pulse démarre la carte SD
+  lui-même pour écrire le journal, même si le jeu n'a encore rien lu sur le disque (avant : rien n'était écrit, et le
+  journal d'un ancien jeu restait affiché). Si le jeu n'a vraiment laissé aucune trace, le journal le dit.
+
+## Version précédente (v160)
 - **Pulse : plus d'erreur « accès non branchés »** (Mario Superstar Baseball et beaucoup d'autres jeux) : les
   aiguillages des accès au lecteur et à la carte mémoire ont maintenant leur propre place en mémoire, sous le
   lanceur, à la taille dont le jeu a besoin (avant : environ 4,5 Ko pour tous les jeux, il en faut 12 pour Mario Baseball).
@@ -24,12 +29,6 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   CENTER) dans tous les styles.
 - **Réglages du lecteur dans tous les styles** (Aurore, Nouvelle, Vitrine, Îlots) : paroles dans le lecteur
   (paroles, ou paroles et spectre), style du spectre, éléments affichés (pochette, spectre, boutons, infos, heure).
-
-## Version précédente (v159)
-- **Tests de robustesse** (simulateur) : plus d'une heure d'appuis au hasard sur tous les boutons, dans tous les écrans
-  (sauf lancer un jeu ou effacer un fichier), avec AddressSanitizer : aucun plantage, aucune erreur de mémoire ; la
-  mémoire utilisée se stabilise (5 Mo sur 12 Mo). Tous les scénarios passés aussi avec UndefinedBehaviorSanitizer :
-  aucune erreur. Pas de changement visible dans cette version.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

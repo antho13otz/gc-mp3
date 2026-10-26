@@ -467,8 +467,13 @@ static void vi_snap(void) {                              /* v99 : etat de l'ecra
 static void nr_log_flush(void) {
     H.flush_tb = tbl();
     vi_snap();
-    if (!H.log_sec || !di_ready) return;
+    if (!H.log_sec) return;
     if (exi_defer()) return;                             /* v145 : (le jeu se sert du bus : ecrit la prochaine fois) */
+    if (!di_ready) {                                     /* v161 : jeu bloque avant sa 1re lecture du disque : on demarre la carte */
+        if (H.net) return;                               /* (pour ecrire quand meme le journal ; avant : rien, et l'ancien restait) */
+        di_ready = nr_init() == 0;
+        if (!di_ready) return;
+    }
     const u8 *p = (const u8 *)&H;
     for (u32 i = 0; i < sizeof(natres_hdr_t); i++) logbuf[i] = p[i];
     for (u32 k = 0; k < NATRES_LOGN; k++) {                     /* le plus ancien d'abord */
