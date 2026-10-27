@@ -2860,19 +2860,21 @@ static int na_mus_convert(const char *src, const char *dst) {
 #endif
 static int na_mus_prep(const char *id) {
     na_mus_n = na_mus_size = 0; na_mus_msg[0] = 0;
-#ifdef NATIF_BENCH
-    (void)id; return 0;
-#else
     if (sd_virtual) return 0;
     char src[160], dst[160]; struct stat ss, sd2;
     snprintf(src, sizeof(src), NA_MUS_DIR "/%.6s.mp3", id);
     snprintf(dst, sizeof(dst), NA_MUS_DIR "/%.6s.adp", id);
+#ifdef NATIF_BENCH
+    (void)ss;
+    if (stat(dst, &sd2) != 0 || sd2.st_size < 64) return 0;   /* (banc d'essai : fichier ADP deja pret) */
+#else
     mkdir(NA_MUS_DIR, 0777);
     if (stat(src, &ss) != 0) return 0;
     if (stat(dst, &sd2) != 0 || sd2.st_mtime < ss.st_mtime || sd2.st_size < 64) {
         nat_ld("Conversion de ta musique pour le jeu", 13);
         if (na_mus_convert(src, dst) || stat(dst, &sd2) != 0) { snprintf(na_mus_msg, sizeof(na_mus_msg), "conversion de %.6s.mp3 impossible", id); return 0; }
     }
+#endif
     char e[80];
     if (nat_map(dst, e, sizeof(e))) { snprintf(na_mus_msg, sizeof(na_mus_msg), "%s", e); return 0; }
     if (na_next > NATRES_MUSMAX) { snprintf(na_mus_msg, sizeof(na_mus_msg), "fichier trop morcel\xC3\xA9 sur la carte SD"); return 0; }
@@ -2880,7 +2882,6 @@ static int na_mus_prep(const char *id) {
     na_mus_n = na_next; na_mus_size = (u32)sd2.st_size & ~31u;
     snprintf(na_mus_msg, sizeof(na_mus_msg), "gc-mp3/musique-jeux/%.6s.mp3 (%u s)", id, (unsigned)(na_mus_size / 32u * 28u / 48000u));
     return 1;
-#endif
 }
 /* rend bit 0 = slot A pret, bit 1 = slot B pret */
 static int nat_card_prep(const char *id) {

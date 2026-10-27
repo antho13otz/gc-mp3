@@ -37,7 +37,7 @@ static const unsigned gl_stub[1];
 static int ch_collect(const char *id, u32 *out, int cap) { (void)id; const char *p = getenv("NATIF_CHEATS"); FILE *f = p ? fopen(p, "r") : NULL; int n = 0; unsigned v; if (!f) return 0; while (n < cap && fscanf(f, "%x", &v) == 1) out[n++] = v; fclose(f); return n; }
 static FILE *img;
 static u32 first_clus;
-static int host_stat(const char *p, struct stat *st) { int r = stat(p, st); if (!r) st->st_ino = strstr(p, "disc2") ? 10000 : strstr(p, "carte-B") ? 55000 : strstr(p, "journal-jeu") ? 20000 : strstr(p, "memoire-jeu") ? 60000 : strstr(p, "selfdol") ? 30000 : strstr(p, "carte-A") ? 40000 : strstr(p, "captures") ? 90000 : first_clus; return r; }   /* (journal : un cluster libre de mkfat.py) */
+static int host_stat(const char *p, struct stat *st) { int r = stat(p, st); if (!r) st->st_ino = strstr(p, "disc2") ? 10000 : strstr(p, "carte-B") ? 55000 : strstr(p, "journal-jeu") ? 20000 : strstr(p, "memoire-jeu") ? 60000 : strstr(p, "selfdol") ? 30000 : strstr(p, "carte-A") ? 40000 : strstr(p, "captures") ? 90000 : strstr(p, "musique-jeux") ? 25000 : first_clus; return r; }   /* (journal : un cluster libre de mkfat.py) */
 #define stat(p, s) host_stat(p, s)
 #include <zlib.h>
 static int stbi_zlib_decode_buffer(char *o, int ol, const char *i, int il) { uLongf d = (uLongf)ol; return uncompress((Bytef *)o, &d, (const Bytef *)i, (uLong)il) == Z_OK ? (int)d : -1; }   /* (v152) */

@@ -1534,7 +1534,7 @@ static const sc_def_t sc_defs[] = {
     { "photo1",  "Photographe",        "Une capture d'\xC3\xA9" "cran en jeu (L + R + Z)",              SK_SHOTS,   1, NULL },
     { "photo20", "Album photo",        "20 captures d'\xC3\xA9" "cran",                                   SK_SHOTS,   20, NULL },
     { "favoris", "Coups de coeur",   "5 jeux en favoris (L dans la fiche)",                  SK_FAVS,    5, NULL },
-    { "arcade",  "Arcade",             "Un record dans chacun des 5 mini-jeux \xC3\xA0 score",       SK_MINIALL, 5, NULL },
+    { "arcade",  "Arcade",             "Un record dans les 5 mini-jeux \xC3\xA0 score",       SK_MINIALL, 5, NULL },
     { "serpent", "Serpent",            "30 points \xC3\xA0 Snake",                                   SK_REC,     30, "jeu:snake" },
     { "simon",   "M\xC3\xA9moire d'\xC3\xA9l\xC3\xA9phant", "Une suite de 10 \xC3\xA0 Simon",                   SK_REC,     10, "jeu:simon" },
 };
@@ -1716,7 +1716,7 @@ static void draw_soiree(void) {
             int pl = r - SO_P1, best = 0;
             for (int i = 0; i < so_np; i++) if (so_wins[i] > so_wins[best]) best = i;
             snprintf(b, sizeof(b), "Joueur %d%s", pl + 1, so_wins[pl] && pl == best ? "  (en t\xC3\xAAte)" : "");
-            l = b; snprintf(vb, sizeof(vb), "%d victoire%s", so_wins[pl], so_wins[pl] > 1 ? "s" : ""); v = vb;
+            l = b; snprintf(vb, sizeof(vb), "%d victoire%s", so_wins[pl], so_wins[pl] > 1 || (ui_en && so_wins[pl] != 1) ? "s" : ""); v = vb;
         }
         gx_text1(F_MED, 66, y + 20, l, RGBA(255, 255, 255, 255));
         gx_text_r(F_MED, 574, y + 20, v, on ? RGBA(255, 255, 255, 255) : RGBA(190, 160, 255, 255));

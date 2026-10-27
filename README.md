@@ -14,16 +14,17 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v179)
+## Nouveautés de la version actuelle (v180)
+- **Interface en anglais** : les écrans Succès, Mode soirée, la ligne « Dernier jeu » de JEUX / APPS, le banc
+  d'essai et le menu Outils sont maintenant traduits.
+- Vérifié au simulateur dans les 4 styles (Indigo, Aurore, Vitrine, Îlots) : rien ne se chevauche.
+- Banc d'essai du lanceur : 2 tests de plus (capture d'écran L + R + Z, ta musique dans les jeux) : 31 tests.
+
+## Version précédente (v179)
 - **Ta musique dans les jeux** (Pulse) : mets un MP3 dans `gc-mp3/musique-jeux/<ID du jeu>.mp3` (ex. `GTEP01.mp3`
   pour 1080 PAL : l'ID est sur la fiche du jeu). Au lancement, GC Station le convertit une fois au format du disque,
   et Pulse le joue en boucle à la place de la musique du jeu. Seulement pour les jeux qui lisent leur musique sur le
   disque (1080, F-Zero GX, Eternal Darkness…) ; les autres jeux gardent leur musique.
-
-## Version précédente (v178)
-- **Mode soirée** (START > Outils > Mode soirée) : 2 à 4 joueurs ; un jeu GameCube tiré au sort (parmi tes favoris
-  s'il y en a), les manettes tirées au sort, puis « Lancer ce jeu » ; A sur un joueur compte une victoire (Y : -1,
-  X deux fois : tout à zéro). Les scores restent d'une soirée à l'autre.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
