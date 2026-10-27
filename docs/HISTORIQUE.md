@@ -24,6 +24,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v187 — retour à GC Station en quittant une appli
+- source/natres/natret.c (tools/natret.ld, 0x80001800 - 0x80002C00, compilé en -Os) : signature « STUBHAXX » en
+  0x80001804, que libogc cherche dans `exit()` / `__reload` avant de redémarrer la console. Arrête le son, le DSP,
+  le dessin, redémarre la carte SD (SPI, comme Pulse), relit le .dol de GC Station d'après ses morceaux (au plus 48,
+  préparés par `nat_ret_prep`) et le lance ; sinon redémarrage.
+- gclib.c : `gl_ret_app` (applis et .dol des derniers lancés) ; avec le retour, programme de copie, table et
+  arguments en 0x80002C00 / 0x80002C80 / 0x80002D80 (avant : 0x80001800, inchangé pour le reste et pour Pulse).
+- Banc natif : `emu_natret.py` (carte SDHC sur SD2SP2, carte SD au slot A, slot B ; .dol en 3 morceaux) : 32 TOUT OK.
+
 ## Nouveautés v186 — nouveaux jeux vus tout seuls
 - gclib.c : `gl_quick_changed` à chaque ouverture de la liste : même parcours que `gl_walk` (mêmes dossiers sautés), mais
   seulement nom + taille (stat), comparés à la liste gardée ; nouveau fichier ou jeu disparu → `gl_scan`. Les .iso qui ne

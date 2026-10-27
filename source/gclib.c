@@ -1610,6 +1610,9 @@ static const char *gl_boot_loader(const char *path) {
     return "Lanceur de secours pas encore t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9 (R\xC3\xA9glages > Jeux) : A lance avec Pulse";
 }
 static const char *gl_boot_mem(unsigned char *dol, long len, const char *dolpath, const char *a1, const char *a2);
+static int gl_ret_app = 0;                             /* v187 : appli lancee : retour a GC Station quand elle quitte (natret) */
+static int nat_app_ret_prep(void);                     /* (natif.c) */
+static void nat_app_ret_install(void);
 static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *a2, const char *what) {
     char stmsg[96];
     snprintf(stmsg, sizeof(stmsg), "Lancement de %s...", what);
@@ -1673,6 +1676,10 @@ static const char *gl_boot_mem(unsigned char *dol, long len, const char *dolpath
             has_arg = !memcmp(dol + tab[i * 3 + 1] + (entry + 4 - tab[i * 3]), "_arg", 4);
     if (!has_arg && a1) { free(dol); return "-noarg"; }
     crumb("lancer : %s %s", dolpath, a1 ? a1 : "");
+    int ret = gl_ret_app && nat_app_ret_prep();         /* v187 : (liste des morceaux de GC Station : avant de demonter la carte) */
+    crumb("retour apres l'appli : %s", ret ? "oui" : "non");
+    /* (avec le retour : programme de copie et arguments plus haut, 0x80001800 - 0x80002C00 est au programme de retour) */
+    u32 stub_at = ret ? 0x80002C00u : GL_STUB_AT, tab_at = ret ? 0x80002C80u : GL_TAB_AT, argv_at = ret ? 0x80002D80u : GL_ARGV_AT;
 #ifdef GEKKO
     if (settings_dirty) save_settings();
     stop_track(); stop_station();
@@ -1688,21 +1695,23 @@ static const char *gl_boot_mem(unsigned char *dol, long len, const char *dolpath
     u32 level = IRQ_Disable();                           /* plus d'interruptions : on ecrase GC-MP3 */
     (void)level;
     memmove((void *)dst, dol, (size_t)len);
-    u32 *t = (u32 *)GL_TAB_AT;
+    u32 *t = (u32 *)tab_at;
     for (u32 i = 0; i < n; i++) { t[i * 3] = tab[i * 3]; t[i * 3 + 1] = dst + tab[i * 3 + 1]; t[i * 3 + 2] = tab[i * 3 + 2]; }
     memcpy((void *)GL_CMD_AT, cmd, cl);
     DCFlushRange((void *)GL_CMD_AT, 0x400);
-    u32 *a = (u32 *)GL_ARGV_AT;                          /* struct __argv */
+    u32 *a = (u32 *)argv_at;                             /* struct __argv */
     a[0] = 0x5f617267; a[1] = GL_CMD_AT; a[2] = (u32)cl; a[3] = 0; a[4] = 0; a[5] = 0;
-    if (has_arg) { t[n * 3] = entry + 8; t[n * 3 + 1] = GL_ARGV_AT; t[n * 3 + 2] = 24; n++; }   /* (copie apres le code du .dol) */
-    memcpy((void *)GL_STUB_AT, gl_stub, sizeof(gl_stub));
+    if (has_arg) { t[n * 3] = entry + 8; t[n * 3 + 1] = argv_at; t[n * 3 + 2] = 24; n++; }   /* (copie apres le code du .dol) */
+    if (ret) nat_app_ret_install();                      /* v187 : programme de retour en 0x80001800 ("STUBHAXX") */
+    memcpy((void *)stub_at, gl_stub, sizeof(gl_stub));
     DCFlushRange((void *)0x80001800, 0x1800);
-    ICInvalidateRange((void *)GL_STUB_AT, sizeof(gl_stub));
+    ICInvalidateRange((void *)0x80001800, 0x1800);
     DCFlushRange((void *)dst, (u32)len);
-    ((void (*)(u32 *, u32, u32))GL_STUB_AT)(t, n, entry);
+    ((void (*)(u32 *, u32, u32))stub_at)(t, n, entry);
     for (;;) ;
 #else
-    printf("LANCER dol=%s dst=%08x hi=%08x entree=%08x sections=%u args=%d arg=[%s]", dolpath, dst, hi, entry, n, has_arg, cmd + strlen(cmd) + 1);
+    (void)stub_at; (void)tab_at; (void)argv_at;
+    printf("LANCER dol=%s dst=%08x hi=%08x entree=%08x sections=%u args=%d retour=%d arg=[%s]", dolpath, dst, hi, entry, n, has_arg, ret, cmd + strlen(cmd) + 1);
     { const char *a2 = cmd + strlen(cmd) + 1; a2 += strlen(a2) + 1; if (a2 < cmd + cl) printf(" arg2=[%s]", a2);
       if (a2 < cmd + cl) { a2 += strlen(a2) + 1; if (a2 < cmd + cl) printf(" arg3=[%s]", a2); }
       if (a2 < cmd + cl) { a2 += strlen(a2) + 1; if (a2 < cmd + cl) printf(" arg4=[%s]", a2); } }

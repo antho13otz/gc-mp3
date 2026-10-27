@@ -798,7 +798,9 @@ static void ap_input(u32 down, u32 nav, int fire) {
             int k = ap_confirm;
             ap_confirm = -1;
             if (settings_dirty) save_settings();
+            gl_ret_app = 1;                                  /* v187 : retour a GC Station quand l'appli quitte */
             const char *e = gl_boot_dol(ap[k].path, NULL, NULL, ap[k].name);   /* (ne revient pas si ca marche) */
+            gl_ret_app = 0;
             gl_busy[0] = 0;
             if (e) tl_note(e);
         }
@@ -948,7 +950,7 @@ static void rc_input(u32 down, u32 nav, int fire) {
             if (k >= 0) e = game_boot_auto(k);
             else {
                 size_t l = strlen(rc_path[i]);
-                if (l > 4 && !strcasecmp(rc_path[i] + l - 4, ".dol")) e = gl_boot_dol(rc_path[i], NULL, NULL, base_of(rc_path[i]));
+                if (l > 4 && !strcasecmp(rc_path[i] + l - 4, ".dol")) { gl_ret_app = 1; e = gl_boot_dol(rc_path[i], NULL, NULL, base_of(rc_path[i])); gl_ret_app = 0; }
                 else { tl_recent_add(rc_path[i]); e = gl_boot_loader(rc_path[i]); }
             }
             gl_busy[0] = 0;

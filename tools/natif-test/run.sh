@@ -17,6 +17,10 @@ python3 $R/tools/bin2h.py natres.bin natres_bin.h natres_bin
 for a in "1 2 0" "0 2 0" "1 0 0" "1 1 0" "1 0 2"; do python3 $T/emu_natres.py natres.bin $a | tail -1; done
 EMU_NODMA=1 python3 $T/emu_natres.py natres.bin 1 0 0 | tail -1     # (v94 : adaptateur sans DMA)
 EMU_BAD32=1 python3 $T/emu_natres.py natres.bin 1 0 0 | tail -1     # (v94 : 32 MHz qui abime les donnees)
+# v187 : retour a GC Station en quittant une appli (natret en 0x80001800) : SD2SP2 SDHC, SD Gecko slot A carte SD, slot B
+clang --target=powerpc-none-eabi -mcpu=750 -Os -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -Wall -Wextra -c $R/source/natres/natret.c -o natret.o
+ld.lld -T $R/tools/natret.ld natret.o -o natret.elf && llvm-objcopy -O binary natret.elf natret.bin
+for a in "1 2" "0 0" "1 1"; do python3 $T/emu_natret.py natret.bin $a | tail -1; done
 # (natif.c sans la partie QR code / telephone, qui depend du reste de GC Station)
 sed '/^\/\* ---------- v51 : le rapport sur le telephone/,$d' $R/source/natif.c > natif.c
 echo 'static void nat_qr_open(const char *id) { (void)id; }' >> natif.c

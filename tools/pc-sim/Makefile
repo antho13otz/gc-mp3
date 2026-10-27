@@ -24,6 +24,13 @@ WRAP     := -Wl,--wrap=malloc,--wrap=free,--wrap=calloc,--wrap=realloc,--wrap=me
 BIN    ?= gcstation                                   # (v158 : asan.sh -> gcstation-asan, objets a part)
 all: $(BIN)
 
+$(W)/gen/natret_bin.h: $(R)/source/natres/natret.c $(R)/tools/natret.ld
+	@mkdir -p $(W)/gen
+	clang --target=powerpc-none-eabi -mcpu=750 -Os -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -c $< -o $(W)/gen/natret.o
+	ld.lld -T $(R)/tools/natret.ld $(W)/gen/natret.o -o $(W)/gen/natret.elf
+	llvm-objcopy -O binary $(W)/gen/natret.elf $(W)/gen/natret.bin
+	python3 $(R)/tools/bin2h.py $(W)/gen/natret.bin $@ natret_bin
+
 $(W)/gen/natres_bin.h: $(R)/source/natres/natres.c $(R)/source/natres/natres.h $(R)/tools/natres.ld
 	@mkdir -p $(W)/gen
 	clang --target=powerpc-none-eabi -mcpu=750 -Os -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -c $< -o $(W)/gen/natres.o
@@ -66,7 +73,7 @@ $(O)/pcsim_limits.o: pcsim_limits.c pcsim.h
 $(O)/pcsim_new.o: pcsim_new.cpp
 	@mkdir -p $(O)
 	$(CXX) -fno-pie -O2 -g -Wall -c $< -o $@
-$(O)/main.o: $(wildcard $(R)/source/*.c $(R)/source/*.h $(R)/source/natres/*.h) $(W)/gen/natres_bin.h $(wildcard include/*.h)
+$(O)/main.o: $(wildcard $(R)/source/*.c $(R)/source/*.h $(R)/source/natres/*.h) $(W)/gen/natres_bin.h $(W)/gen/natret_bin.h $(wildcard include/*.h)
 	@mkdir -p $(O)
 	$(CC) $(CFLAGS) -w -c $(R)/source/main.c -o $@
 
