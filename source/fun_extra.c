@@ -333,7 +333,7 @@ static double ba_next_strong(double after) {         /* prochain coup fort apres
 }
 static double rg_last_onset = -1e9, rg_last_note = -1e9, rg_last_low = -1e9;
 static const char *const rg_diff_names[3] = { "Facile", "Normal", "Difficile" };
-#define RG_FILE GCD_PARTIES "/gc-mp3-jeux.txt"
+#define RG_FILE gp_path("gc-mp3-jeux.txt")          /* v191 : records du profil actuel */
 
 static int rg_record_get(const char *path) {
     FILE *f = fopen(RG_FILE, "r");

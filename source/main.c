@@ -96,6 +96,17 @@ static time_t gc_time(time_t *p) { time_t t = (time)(NULL) + (time_t)clk_ofs; if
 #define GCD_PARTIES    GCD "/mes-parties"    // jeux lances, temps de jeu, favoris, succes, soiree, compatibilite, records
 #define GCD_LOG        GCD "/journaux"       // plantages, demarrage, fluidite, reparation, lanceur
 #define GCD_LD         GCD "/lanceur"        // lanceur de secours, retour en jeu, image IGR
+/* v191 : profils de joueurs : jeux lances, temps de jeu, favoris, succes, records, carte memoire virtuelle par profil.
+   Profil principal (gp_name vide) : gc-mp3/mes-parties ; les autres : gc-mp3/profils/<nom>. gp_path rend le chemin
+   d'un de ces fichiers pour le profil actuel (tampons tournants : 8 chemins en meme temps au plus). */
+#define GCD_PROF       GCD "/profils"
+static char gp_name[32] = "";
+static const char *gp_path(const char *file) {
+    static char b[8][160]; static int k = 0;
+    char *o = b[k++ & 7];
+    if (gp_name[0]) snprintf(o, 160, GCD_PROF "/%s/%s", gp_name, file); else snprintf(o, 160, GCD_PARTIES "/%s", file);
+    return o;
+}
 #define RADIO_LIST     GCD_REG "/radio.txt"
 #define LOGO_DIR       GCD "/radio"
 #define MP3_DIR        SD_ROOT "/mp3"
@@ -4833,13 +4844,14 @@ static int has_word(const char *v, const char *w) {
 static const char *const party_names[PARTY_STYLES] = { "Pulsation", "Barres", "Tunnel", "Spectrogramme" };
 static void party_start(void);
 static int saver_min = 5;                   /* economiseur d'ecran (minutes, 0 = jamais) */
-enum { SV_SPECTRE, SV_POCHETTE, SV_HORLOGE, SV_ETOILES, SV_PHOTOS, SV_NOIR, SV_AQUARIUM, SV_SPECTRO, SV_TABLEAU, SV_COUNT };
+enum { SV_SPECTRE, SV_POCHETTE, SV_HORLOGE, SV_ETOILES, SV_PHOTOS, SV_NOIR, SV_AQUARIUM, SV_SPECTRO, SV_TABLEAU, SV_JAQUETTES, SV_COUNT };
+static int saver_covers(f32 t);                          /* v191 : jaquettes des jeux (gclib.c) */
 static int saver_style = SV_SPECTRE;        /* ce qu'affiche l'economiseur */
 static int sleep_min = 0;                   /* minuterie : arret apres N minutes (0 = non, -1 = a la fin du morceau) */
 static u64 sleep_at = 0;
-static const char *const saver_keys[SV_COUNT] = { "spectre", "pochette", "horloge", "etoiles", "photos", "noir", "aquarium", "spectrogramme", "horloge_meteo" };
+static const char *const saver_keys[SV_COUNT] = { "spectre", "pochette", "horloge", "etoiles", "photos", "noir", "aquarium", "spectrogramme", "horloge_meteo", "jaquettes" };
 static const char *const saver_names[SV_COUNT] = { "Spectre", "Pochette", "Horloge", "\xC3\x89toiles",
-                                                   "Photos (sd:/ecran)", "\xC3\x89" "cran noir", "Aquarium", "Spectrogramme", "Horloge + m\xC3\xA9t\xC3\xA9o + pochette" };
+                                                   "Photos (sd:/ecran)", "\xC3\x89" "cran noir", "Aquarium", "Spectrogramme", "Horloge + m\xC3\xA9t\xC3\xA9o + pochette", "Jaquettes des jeux" };
 static int video_pref = VID_AUTO;
 static int vid_active = VID_480I;           /* mode vraiment utilise depuis le demarrage */
 static int tv_crt = 0;                      /* v22 : tele cathodique (480i, 4:3) */
@@ -4912,6 +4924,11 @@ static int yes(const char *v) {
     return !(strncasecmp(v, "non", 3) == 0 || strcmp(v, "0") == 0 || strncasecmp(v, "no", 2) == 0);
 }
 
+static int pj_settings_key(const char *k, const char *v);   /* v191 : profils (profils.c) */
+static void pj_settings_save(FILE *f);
+static void pj_save_file(void);
+static void pj_apply(void);
+static void pj_boot_ask(void);
 static void save_settings(void);
 
 /* un reglage "cle = valeur" (fichier gc-mp3.txt, ou page du telephone) */
@@ -4975,6 +4992,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "bas_mediums")) eq_lowmid = atoi(v);
         else if (!strcasecmp(k, "presence")) eq_pres = atoi(v);
         else if (x73_setting(k, v)) { }
+        else if (pj_settings_key(k, v)) { }                 /* v191 : profils */
         else if (nfs_setting(k, v)) { }                  /* v86 : serveurs du reseau */                  /* v73 : podcasts, enregistrement programme, cartes virtuelles... */
         else if (!strcasecmp(k, "egaliseur")) { eq_preset = 0; for (int i = 0; i < EQ_PRESETS; i++) if (!strcasecmp(v, eq_keys[i])) eq_preset = i; }
         else if (!strcasecmp(k, "fondu")) { xf_sec = atoi(v); if (xf_sec < 0) xf_sec = 0; if (xf_sec > 8) xf_sec = 8; }
@@ -5083,7 +5101,7 @@ static void save_settings(void) {
                "theme = %s\n"
                "# Economiseur d'ecran apres N minutes sans toucher la manette (0 = jamais)\n"
                "economiseur = %d\n"
-               "# Style de l'economiseur : spectre / pochette / horloge / etoiles / photos / noir\n"
+               "# Style de l'economiseur : spectre / pochette / horloge / etoiles / photos / noir / aquarium / spectrogramme / horloge_meteo / jaquettes\n"
                "# (photos : mets tes images .jpg / .png dans sd:/ecran, 1920x1080 maximum)\n"
                "economiseur_style = %s\n"
                "# Video : auto (480p si cable composante) / 480i / 480p / 576i / 576p (PAL 50 Hz)\n"
@@ -5148,6 +5166,8 @@ static void save_settings(void) {
     fprintf(f, "# Morceaux enchaines sans blanc : oui / non\nenchainement_sans_blanc = %s\n", gapless_on ? "oui" : "non");
     fprintf(f, "# Egaliseur 5 bandes (v73) : bas-mediums (350 Hz) et presence (4 kHz), en dB\nbas_mediums = %d\npresence = %d\n", eq_lowmid, eq_pres);
     x73_save(f);
+    pj_settings_save(f);                                  /* v191 */
+    pj_save_file();
     fprintf(f, "# v138 : Salon (autres GC Station du reseau) ; nom de cette console (vide = automatique)\nsalon = %s\nsalon_nom = %s\n", salon_on ? "oui" : "non", salon_name);
     nfs_save(f);
     fclose(f);
@@ -10462,8 +10482,9 @@ static void web_pump(void) {
 }
 
 // ---------- Navigateur : actions ----------
-enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR, KB_LIBFIND, KB_PLNAME, KB_CHEATID, KB_CHEATNAME, KB_CHEATCODE, KB_NETTXT, KB_NFS };
+enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR, KB_LIBFIND, KB_PLNAME, KB_CHEATID, KB_CHEATNAME, KB_CHEATCODE, KB_NETTXT, KB_NFS, KB_PROFILE };
 static void cheats_kb_done(int mode, const char *t);
+static void pj_kb_done(const char *t);                 /* v191 (profils.c) */
 static void ic_kb_done(const char *t);
 static void cheats_open(void);
 static void lib_kb_done(int mode, const char *t);
@@ -10588,6 +10609,7 @@ static void kb_validate(void) {
         return;
     }
     if (kb_mode == KB_LIBFIND || kb_mode == KB_PLNAME) { lib_kb_done(kb_mode, t); return; }
+    if (kb_mode == KB_PROFILE) { if (*t) pj_kb_done(t); return; }   /* v191 */
     if (kb_mode == KB_CHEATID || kb_mode == KB_CHEATNAME || kb_mode == KB_CHEATCODE) { if (*t || kb_mode == KB_CHEATNAME) cheats_kb_done(kb_mode, t); return; }
     if (kb_mode == KB_NETTXT) { net_kb_done(t); return; }      /* v75 : adresse IP / passerelle */
     if (kb_mode == KB_NFS) { nfs_kb_done(t); return; }         /* v86 : serveur SMB / FTP / FSP */
@@ -11161,6 +11183,7 @@ static void draw_keyboard(void) {
                         kb_mode == KB_CHEATCODE ? "Ligne de code (XXXXXXXX YYYYYYYY)" :
                         kb_mode == KB_NETTXT ? "Adresse (ex. 192.168.1.32)" :
                         kb_mode == KB_NFS ? "Serveur du r\xC3\xA9seau (SMB / FTP / FSP)" :
+                        kb_mode == KB_PROFILE ? "Nom du nouveau profil" :
                         "Adresse ou recherche";
     gx_text1(F_MED, 46, 143, title, RGBA(255, 255, 255, 255));
     if (kb_shift) gx_text_r(F_SMALL, 594, 142, "MAJUSCULES", RGBA(255, 210, 120, 255));
@@ -11653,7 +11676,9 @@ static void draw_list_radio(void) {
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
        MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_RECAT, MI_RECLEN, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PULSELD, MI_PERF, MI_LAUNCHER, MI_UPDATE,
-       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_QUIT, MI_COUNT };
+       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_PLAYLIM, MI_QUIT, MI_COUNT };
+static void pj_limit_text(char *o, int cap);            /* v191 (profils.c) */
+static void pj_limit_next(int d);
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
 static const char *ipl_set(int on);
 /* v75 : les reglages de GC Station, ranges par sections (v90 : plus rien de Swiss) */
@@ -11665,7 +11690,7 @@ static const s8 sec_items[6][32] = {
     { -6, MI_RADIORES, MI_TITLES, -7, MI_REC, MI_RECAT, MI_RECLEN, -8, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, -1 },
     { -9, MI_UILANG, MI_LANG, -10, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_TABS, -11, MI_LAYOUT, MI_ELEMS, MI_VIZ, MI_SGPAL, MI_LYRSHOW, -12, MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, -13, MI_HIDDEN, MI_UNKNOWN, -14, MI_PERF, -1 },
     { -15, MI_TV, MI_VIDEO, MI_WIDE, -16, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, -1 },
-    { -17, MI_GLANG, MI_GSOUND, MI_CLOCK, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
+    { -17, MI_GLANG, MI_GSOUND, MI_CLOCK, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, MI_PLAYLIM, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
     { -21, MI_DHCP, MI_IP, MI_MASK, MI_GW, -22, MI_NETSMB, MI_NETFTP, MI_NETFSP, -23, MI_SALON, MI_PHONEAUTO, -24, MI_UPDAUTO, MI_UPDATE, -1 } };
 static int sec_n(int sec) { int n = 0; if (sec < 0 || sec >= SEC_TOOLS) return 0; while (n < 32 && sec_items[sec][n] != -1) n++; return n; }
 static int sec_pos(int sec, int mi) { for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] == mi) return i; return -1; }
@@ -11795,6 +11820,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_LAYOUT:  snprintf(out, cap, "%s (%s)", TR(layout_names[player_layout]), TR(tab_names[IS_PLAYER_TAB(tab) ? tab : TAB_MUSIC])); break;
     case MI_GLANIM:  snprintf(out, cap, "%s", gl_anim ? "Oui" : "Non"); break;
     case MI_GLAUTO:  snprintf(out, cap, "%s", gl_auto ? "Oui" : "Non"); break;
+    case MI_PLAYLIM: pj_limit_text(out, cap); break;
     case MI_NATIGR:  snprintf(out, cap, "%s", nat_igr ? "Oui" : "Non"); break;
     case MI_NATCARD: snprintf(out, cap, "%s", nat_card >= 2 ? TR("Slots A et B") : nat_card ? TR("Oui (slot A)") : TR("Non")); break;
     case MI_NATCARDREG: snprintf(out, cap, "%s", nat_card_reg ? TR("Oui") : TR("Non")); break;
@@ -11853,7 +11879,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "A+Z+START (lanceur de secours)", "A+Z+START (Pulse)", "Carte m\xC3\xA9moire virtuelle (Pulse)", "\xC3\x89" "cran de chargement (Pulse)", "Mesure de fluidit\xC3\xA9", "Lanceur de secours", "Mise \xC3\xA0 jour",
     "Fichiers cach\xC3\xA9s (FICHIERS)", "Cacher les fichiers inconnus", "Langue des jeux (console)", "Son (console)",
     "Adresse automatique (DHCP)", "Adresse IP de la console", "Masque", "Passerelle (box)", "T\xC3\xA9l\xC3\xA9" "commande au d\xC3\xA9marrage",
-    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Date et heure (console)", "Nouveaux jeux vus tout seuls", "Quitter GC Station" };
+    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Date et heure (console)", "Nouveaux jeux vus tout seuls", "Limite de jeu par jour", "Quitter GC Station" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -11929,6 +11955,7 @@ static void menu_change(int i, int d) {
     case MI_GLVIEW:  gl_view = (gl_view + d + 6) % 6; break;
     case MI_GLANIM:  gl_anim = !gl_anim; break;
     case MI_GLAUTO:  gl_auto = !gl_auto; break;
+    case MI_PLAYLIM: pj_limit_next(1); break;
     case MI_NATIGR:  nat_igr = !nat_igr; break;
     case MI_NATCARD: nat_card = (nat_card + 1) % 3; break;
     case MI_NATCARDREG: nat_card_reg = !nat_card_reg; break;
@@ -12197,6 +12224,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_NATIGR) hint = "Jeux lanc\xC3\xA9s avec Pulse (A) : A+Z+START tenus 1 s = retour \xC3\xA0 GC Station";
     if (menu_sel == MI_LAUNCHER) hint = ld_hint();
     if (menu_sel == MI_GLANIM) hint = "D\xC3\xA9" "filement doux, cadre qui glisse, carrousel (onglet JEUX / APPS)";
+    if (menu_sel == MI_PLAYLIM) hint = "Pour le profil actuel (START > Outils > Profils) : au-del\xC3\xA0, plus de jeu jusqu'au lendemain";
     if (menu_sel == MI_GLAUTO) hint = "Non : la liste s'ouvre tout de suite ; jeux ajout\xC3\xA9s : Y > Actualiser la liste";
     if (menu_sel == MI_QUIT) hint = "Ouvre le menu de la GameCube (lecteur de disque). Bouton Reset = relancer GC Station";
     if (menu_sel == MI_LAYOUT) hint = "Une disposition par onglet (MUSIQUE, RADIO, R\xC3\x89TRO, PODCASTS) : change d'onglet pour r\xC3\xA9gler les autres";
@@ -12819,6 +12847,7 @@ static void draw_saver(void) {
     case SV_AQUARIUM: saver_aquarium(t); break;
     case SV_SPECTRO:  saver_spectro(t); break;
     case SV_TABLEAU:  saver_tableau(t); break;
+    case SV_JAQUETTES: if (!saver_covers(t)) saver_spectre(t); break;   /* v191 */
     default:          saver_spectre(t); break;
     }
     service_audio();
@@ -13305,6 +13334,8 @@ static void music_pump(void) {
 #include "extras73.c"                          /* v73 : podcasts plus rapides, historique radio, cartes virtuelles... */
 #include "saves.c"                             /* v141 : copies des sauvegardes apres chaque partie, historique */
 #include "catalog.c"                           /* v151 : catalogue d'applis (homebrews a installer depuis Internet) */
+#include "profils.c"                           /* v191 : profils de joueurs, limite de temps de jeu */
+#include "recap.c"                             /* v191 : ton recap (Outils, page /recap du telephone) */
 
 /* v76 : petit controle au demarrage (memoire libre, carte SD, duree), note dans le
    journal (Outils > Infos console > journal) ; un message bref si un souci. */
@@ -13386,6 +13417,7 @@ int main(int argc, char **argv) {
     crash_init();                           /* journal de plantage */
     ui_lang_apply();                        /* v24 : langue de la console, sauf reglage */
     load_settings();
+    pj_apply();                             /* v191 : carte et limite du profil */
     bt_step("reglages");
     nfs_mount();
     jeux_cfg_boot();                        /* v75 : langue / son de la console, reseau */
@@ -13404,6 +13436,7 @@ int main(int argc, char **argv) {
     if (sd_ok) { say("   Bibliotheque... %s", ""); bib_load(); pl_load_all(); stats_load(); rating_load(); say("%s\n", "OK"); bt_step("bibliotheque"); }
     if (sd_ok) nat_journal_convert();       /* v54 : journal du dernier jeu lance par le lanceur maison */
     if (gde_fresh && !gde_seen) gde_open();    /* v190 : carte SD neuve : le guide de demarrage */
+    else if (sd_ok) pj_boot_ask();         /* v191 : "Qui joue ?" (s'il y a des profils) */
     if (sd_ok && !sd_virtual) remove(GCD "/natif/captures.bin");   /* v185 : captures enlevees (fichier de 6 Mo devenu inutile) */
     bt_step("journal Pulse");
     say("   Radios... %s", "");

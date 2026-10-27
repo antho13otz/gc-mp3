@@ -9,6 +9,7 @@
 //  - Reglages d'un jeu (Y dans la fiche d'un jeu) : langue, son, carte memoire virtuelle (Resident).
 
 static char vc_active[64];                                    /* (natif.c / extras73.c) */
+static const char *pj_launch_check(void);                    /* v191 : limite de temps de jeu (profils.c) */
 static char vc_files[16][64];
 static int vc_nf;
 static void vc_scan(void);
@@ -423,6 +424,7 @@ static void jeux_cfg_undo(const char *card) {
 static const char *gcl_boot(int k);                           /* v121 : GC Loader (gcl.c) */
 static int gcl_path(const char *p);
 static const char *game_boot_auto(int k) {                   /* v90 : Resident ; le lanceur de secours si des cheats sont actives */
+    { const char *lim = pj_launch_check(); if (lim) return lim; }   /* v191 : (avant le GC Loader et le vrai lecteur aussi) */
     if (k >= 0 && k < gl_n && gcl_path(gl[k].path)) { const char *e = gcl_boot(k); nat_ld_on = 0; return e; }   /* v121 : jeu du GC Loader */
     if (k >= 0 && k < gl_n && gl[k].dvd) { const char *e = nat_boot_disc(k); nat_ld_on = 0; return e; }   /* v97 : vrai lecteur */
     if (k >= 0 && k < gl_n) rep_pre(gl[k].id);                /* v140 : cheats coupes pour ce jeu (reglage ou essai de reparation) */
@@ -434,6 +436,7 @@ static const char *game_boot_auto(int k) {                   /* v90 : Resident ;
 }
 static const char *game_boot(int k, int resident) {
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
+    { const char *lim = pj_launch_check(); if (lim) return lim; }
     if (gl[k].dvd) { const char *e = nat_boot_disc(k); nat_ld_on = 0; return e; }   /* v97 : vrai lecteur */
     if (gcl_path(gl[k].path)) { const char *e = gcl_boot(k); nat_ld_on = 0; return e; }   /* v121 : GC Loader */
     char card[64];

@@ -24,6 +24,19 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v191 — profils, limite de jeu, récap, économiseur, collection
+- main.c : `gp_path` (fichiers du profil : gc-mp3/mes-parties pour le principal, gc-mp3/profils/<nom> sinon) pour
+  jeux_stats, jeux-favoris, jeux_recents, succes, gc-mp3-jeux (records). profils.c : liste, « Qui joue ? »,
+  profil.txt (carte, limite), changement de profil (stats, favoris, succès relus), `KB_PROFILE`.
+- Limite : jour.txt du profil (date|secondes, ajouté dans `gl_stats_add_play`) ; `pj_launch_check` dans `game_boot` et
+  `game_boot_auto` ; ligne du temps restant dans « Lancer ce jeu ? ».
+- recap.c : écran `TL_RECAP` (2 pages), `/api/recap` + page `/recap` ; page `/collection` (jaquettes CMPR décodées dans
+  la page, tri, impression).
+- Économiseur `SV_JAQUETTES` (`saver_covers`, gclib.c) : colonnes qui défilent, une jaquette lue par image, fondu par
+  l'alpha des sommets (`draw_tex_fit_shade`).
+- Simulateur : profil choisi au démarrage, limite (2 min restantes, puis lancement refusé), récap (console et page),
+  économiseur, collection ; banc natif : 33 TOUT OK.
+
 ## Nouveautés v190 — téléphone (cartes, jeux), guide, licence
 - tab_phone.c : `/api/cards`, `/api/cardfile/<carte>`, `/api/gci/<carte>/<n>/<nom>.gci`, `/api/gciimp`, `/api/cardput` ;
   envoi par `/upload?dir=gci` (rend le nom gardé). Travail fait par la boucle (extras73.c : `x73_cards_build`,

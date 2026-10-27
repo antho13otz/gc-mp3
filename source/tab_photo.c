@@ -541,6 +541,26 @@ static void video_pump(void) {
     if (av_eof && f_count == 0 && !av_jpg) { video_stop(); pv_mode = 0; }
 }
 
+/* v191 : meme chose, avec une opacite en haut et en bas (0 - 255 : alpha, sur le fond) : economiseur "Jaquettes" (fondu) */
+static void draw_tex_fit_shade(GXTexObj *o, int tw, int th, int iw, int ih, f32 x, f32 y, f32 w, f32 h, int lt, int lb) {
+    f32 cxd = x + w / 2;
+    w *= ux_k;
+    uxsave_t uz = ux_native(cxd);
+    x = cxd - w / 2;
+    f32 s = w / iw;
+    if (ih * s > h) s = h / ih;
+    f32 dw = iw * s, dh = ih * s, x0 = x + (w - dw) / 2, y0 = y + (h - dh) / 2;
+    f32 u1 = (f32)iw / tw, v1 = (f32)ih / th;
+    u8 a = (u8)(lt < 0 ? 0 : lt > 255 ? 255 : lt), b = (u8)(lb < 0 ? 0 : lb > 255 ? 255 : lb);
+    gx_set_image(o);
+    GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+    GX_Position2f32(UX(x0), y0);           GX_Color4u8(255, 255, 255, a); GX_TexCoord2f32(0.0f, 0.0f);
+    GX_Position2f32(UX(x0 + dw), y0);      GX_Color4u8(255, 255, 255, a); GX_TexCoord2f32(u1, 0.0f);
+    GX_Position2f32(UX(x0 + dw), y0 + dh); GX_Color4u8(255, 255, 255, b); GX_TexCoord2f32(u1, v1);
+    GX_Position2f32(UX(x0), y0 + dh);      GX_Color4u8(255, 255, 255, b); GX_TexCoord2f32(0.0f, v1);
+    GX_End();
+    ux_restore(uz);
+}
 static void draw_tex_fit(GXTexObj *o, int tw, int th, int iw, int ih, f32 x, f32 y, f32 w, f32 h) {
     f32 cxd = x + w / 2;                                 /* (16:9 : image sans deformation, place reelle) */
     w *= ux_k;

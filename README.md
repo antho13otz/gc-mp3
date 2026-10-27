@@ -14,17 +14,23 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v190)
+## Nouveautés de la version actuelle (v191)
+- **Profils de joueurs** (START > Outils > Profils) : chaque profil a sa carte mémoire virtuelle, ses favoris, ses
+  succès, ses records, son temps de jeu et ses derniers jeux. « Qui joue ? » au démarrage s'il y a plusieurs profils.
+- **Limite de jeu par jour** (Réglages > Jeux, pour le profil actuel) : temps restant affiché avant de lancer un jeu ;
+  une fois atteinte, plus de jeu jusqu'au lendemain (le temps est mesuré par Pulse, compté au retour du jeu).
+- **Ton récap** (START > Outils, et la page /recap du téléphone) : morceaux et artistes préférés, jeux préférés, temps
+  de jeu, succès, records.
+- **Économiseur « Jaquettes des jeux »** : les jaquettes de tes jeux défilent en colonnes, avec l'heure.
+- **Ma collection** (page /collection du téléphone) : tous tes jeux avec jaquettes, triés, à imprimer ou en PDF.
+
+## Version précédente (v190)
 - **Téléphone, onglet Cartes** : les cartes mémoire virtuelles de Pulse et leurs sauvegardes. Télécharger une carte
   entière (.raw) ou une sauvegarde (.gci), ajouter une sauvegarde .gci, remplacer une carte (l'ancienne gardée en .bak).
 - **Téléphone, onglet Jeux** : recherche, tri (récents et favoris, A à Z, temps de jeu) ; « Pulse » lance le jeu comme
   A dans sa fiche (réglages, cheats, réparation).
 - **Guide de démarrage** : 4 pages au premier lancement (carte SD neuve), puis dans START > Outils.
 - Licence (MIT, `LICENSE`) et crédits de tous les projets utilisés (`CREDITS.md`).
-
-## Version précédente (v189)
-- **Correction : les applis se relancent** (Mes applis) : depuis la build 608, lancer une appli faisait redémarrer la
-  console. Le petit programme qui copie l'appli en mémoire écrasait la liste de ce qu'il devait copier.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

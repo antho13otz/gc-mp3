@@ -39,6 +39,7 @@ static int x73_setting(const char *k, const char *v) {
     }
     return 0;
 }
+static char pj_main_card[64];                          /* (profils.c) */
 static void x73_save(FILE *f) {
     fprintf(f, "# Podcasts : vitesse (100 / 125 / 150) et blancs sautes (oui / non)\npodcast_vitesse = %d\npodcast_blancs = %s\n", ts_speed, ts_sil ? "oui" : "non");
     if (rp_on) fprintf(f, "# Enregistrement programme de la radio : heure (HH:MM ou non), duree en minutes, radio\nradio_prog = %02d:%02d\n", rp_hm / 60, rp_hm % 60);
@@ -51,7 +52,7 @@ static void x73_save(FILE *f) {
             fe_show_hidden ? "oui" : "non", fe_hide_unknown ? "oui" : "non");
     if (sram_back_lang >= 0) fprintf(f, "retour_langue_console = %d\n", sram_back_lang);
     if (sram_back_sound >= 0) fprintf(f, "retour_son_console = %d\n", sram_back_sound);
-    fprintf(f, "# Pulse : carte memoire virtuelle utilisee (fichier de gc-mp3/resident)\nresident_carte_fichier = %s\n", vc_keep[0] ? vc_keep : vc_active);   /* (v76 : pas la carte d'un jeu) */
+    fprintf(f, "# Pulse : carte memoire virtuelle utilisee (fichier de gc-mp3/resident)\nresident_carte_fichier = %s\n", gp_name[0] ? (pj_main_card[0] ? pj_main_card : "carte-A.raw") : vc_keep[0] ? vc_keep : vc_active);   /* (v191 : profil : sa carte est dans profil.txt) */   /* (v76 : pas la carte d'un jeu) */
 }
 static void x73_menu_value(int i, char *out, int cap) {
     switch (i) {
@@ -1316,6 +1317,7 @@ static void x73_launch_pump(void) {
 }
 
 static void rf_pump(void);
+static void rcp_json(void);                             /* v191 (recap.c) */
 /* =================== boucle principale =================== */
 static void x73_pump(void) {
     ts_want = (ts_speed != 100 || ts_sil) && ((pod_on && src == SRC_RADIO) || (pod_local_k >= 0 && src == SRC_FILE && cur_track == pod_local_k));
@@ -1333,6 +1335,7 @@ static void x73_pump(void) {
     if (fun_mode == FUN_OFF || fun_mode == FUN_KARAOKE || fun_mode == FUN_WAKE) rhc_pump();
     if (x73_gj_want) { x73_gj_want = 0; x73_games_build(); }
     if (x73_cj_want) { x73_cj_want = 0; x73_cards_build(); }   /* v190 */
+    if (x73_rj_want) { x73_rj_want = 0; rcp_json(); }        /* v191 : recap */
     x73_vj_pump();
     x73_launch_pump();
 }

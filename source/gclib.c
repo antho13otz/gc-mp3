@@ -405,8 +405,8 @@ static const char *gl_play_path(const char *path) {
     return e;
 }
 /* ---------- v45 : lancements (SD:/gc-mp3/mes-parties/jeux_stats.txt : ID|disque|nombre|date) et tri ---------- */
-#define GL_STATS GCD_PARTIES "/jeux_stats.txt"
-#define GL_FAV   GCD_PARTIES "/jeux-favoris.txt"
+#define GL_STATS gp_path("jeux_stats.txt")          /* v191 : du profil actuel */
+#define GL_FAV   gp_path("jeux-favoris.txt")
 /* v76 : jeux favoris (une ligne "id|disc" par jeu) */
 static void gl_fav_load(void) {
     for (int k = 0; k < gl_n; k++) gl[k].fav = 0;
@@ -460,7 +460,7 @@ static void gl_stats_bump(int k) {
     long n = 0;
     char *d = (char *)read_file(GL_STATS, 64 * 1024, &n);
     mkdir(GCD, 0777);
-    FILE *f = fopen(GL_STATS ".tmp", "wb");
+    FILE *f = fopen(gp_path("jeux_stats.txt.tmp"), "wb");
     if (!f) { free(d); return; }
     fprintf(f, "%s|%d|%u|%u|%u\n", gl[k].id, gl[k].disc, (unsigned)gl[k].runs, (unsigned)gl[k].last, (unsigned)gl[k].play);
     char me[16];
@@ -472,16 +472,19 @@ static void gl_stats_bump(int k) {
         i++;
     }
     free(d);
-    if (fclose(f) == 0) { remove(GL_STATS); rename(GL_STATS ".tmp", GL_STATS); }
+    if (fclose(f) == 0) { remove(GL_STATS); rename(gp_path("jeux_stats.txt.tmp"), GL_STATS); }
 }
 /* v73 : temps de jeu (Resident : images comptees pendant le jeu), ajoute par l'identifiant du jeu,
    meme si la liste des jeux n'est pas encore lue (au demarrage) */
+static void pj_day_add(u32 sec);                           /* v191 : temps de jeu du jour (profils.c) */
+static int pj_left_line(char *o, int cap);
 static void gl_stats_add_play(const char *id6, u32 sec) {
     if (!sd_ok || !id6[0] || !sec) return;
+    pj_day_add(sec);
     long n = 0;
     char *d = (char *)read_file(GL_STATS, 64 * 1024, &n);
     mkdir(GCD, 0777);
-    FILE *f = fopen(GL_STATS ".tmp", "wb");
+    FILE *f = fopen(gp_path("jeux_stats.txt.tmp"), "wb");
     if (!f) { free(d); return; }
     int found = 0;
     for (long i = 0; d && i < n; ) {
@@ -497,7 +500,7 @@ static void gl_stats_add_play(const char *id6, u32 sec) {
     }
     if (!found) fprintf(f, "%s|0|1|%u|%u\n", id6, (unsigned)time(NULL), (unsigned)sec);
     free(d);
-    if (fclose(f) == 0) { remove(GL_STATS); rename(GL_STATS ".tmp", GL_STATS); }
+    if (fclose(f) == 0) { remove(GL_STATS); rename(gp_path("jeux_stats.txt.tmp"), GL_STATS); }
     for (int k = 0; k < gl_n; k++) if (!strcmp(gl[k].id, id6)) { gl[k].play += sec; break; }
 }
 static int gl_cmp_key(const void *a, const void *b) {
@@ -566,6 +569,43 @@ static GXTexObj *gl_cover(int k, int load) {                 /* jaquette 128x256
     GX_InvalidateTexAll();                 /* v155 : (nouvelle image a une adresse deja servie : le cache de textures du GPU gardait des morceaux de l'ancienne) */
     GX_InitTexObjFilterMode(&s->obj, GX_LINEAR, GX_LINEAR);
     return &s->obj;
+}
+/* v191 : economiseur "Jaquettes" : les jaquettes des jeux en colonnes qui defilent lentement (une lue par image) ;
+   rend 0 s'il n'y a aucune jaquette (l'economiseur montre alors le spectre) */
+static void draw_tex_fit_shade(GXTexObj *o, int tw, int th, int iw, int ih, f32 x, f32 y, f32 w, f32 h, int lt, int lb);   /* (tab_photo.c) */
+static int sv_light(f32 y) { f32 l = y < 120 ? 50 + y * 1.25f : y > 330 ? 200 - (y - 330) * 1.2f : 200; return (int)(l < 20 ? 20 : l); }
+static int saver_covers(f32 t) {
+    static int list[512], ln = -1, lgn = -1;
+    if (!gl_scanned) gl_scan_full(0);
+    if (!gl) return 0;
+    if (ln < 0 || lgn != gl_n) {
+        ln = 0; lgn = gl_n;
+        for (int k = 0; k < gl_n && ln < 512; k++) if (!gl[k].dvd && gl[k].post >= 0) list[ln++] = k;
+        for (int i = ln - 1; i > 0; i--) { int j = (int)((u32)(i * 2654435761u) % (u32)(i + 1)); int x = list[i]; list[i] = list[j]; list[j] = x; }
+    }
+    if (!ln) return 0;
+    const f32 cw = 100, ch = 134, gap = 8, step = ch + gap;
+    int loaded = 0;
+    for (int c = 0; c < 6; c++) {
+        f32 v = 10.0f + 5.0f * (c % 3), d = (c & 1) ? -1.0f : 1.0f;
+        f32 off = t * v;
+        int base = (int)floorf(off / step);
+        f32 frac = off - base * step;
+        for (int r = -1; r < 5; r++) {
+            int absr = d > 0 ? base + r : -base + r;
+            f32 y = d > 0 ? r * step - frac + 8 : r * step + frac - step + 8;
+            f32 x = -6 + c * (cw + gap);
+            int k = list[(u32)(c * 7 + absr * 3 + 100000) % (u32)ln];
+            GXTexObj *o = gl_cover(k, 0);
+            if (!o && !loaded) { o = gl_cover(k, 1); loaded = 1; }
+            if (o) draw_tex_fit_shade(o, 128, 128, 96, 128, x, y, cw, ch, sv_light(y), sv_light(y + ch));
+            else gx_rrect_fill(x, y, cw, ch, 6, RGBA(40, 26, 90, 255), RGBA(24, 14, 60, 255));
+        }
+    }
+    time_t now = time(NULL); struct tm *tm = localtime(&now);
+    char b[16];
+    if (tm) { snprintf(b, sizeof(b), "%02d:%02d", tm->tm_hour, tm->tm_min); gx_text_c(F_LARGE, 320 + 40 * sinf(t * 0.05f), 446, b, RGBA(255, 255, 255, 230)); }
+    return 1;
 }
 /* v92 : lectures dans la table des fichiers du disque par fenetres de 4 Ko (deux fenetres : entrees, noms) */
 typedef struct { u32 base; int ok; u8 b[4096]; } gl_win_t;
@@ -1457,7 +1497,9 @@ static void draw_gclib_main(void) {
         static const char *const l[] = { "LANCER", "CHEATS", "R\xC3\x89GLAGES", "ANALYSE", "RETOUR" };
         draw_legend_keys(k, l, 5);
         if (gl_launch_sel >= 0) {                              /* confirmation */
-            const f32 w = 420, h = 132, x = 110, y = 160;
+            char lim[96];                                      /* v191 : temps de jeu restant aujourd'hui (limite du profil) */
+            int hl = pj_left_line(lim, sizeof(lim));
+            const f32 w = 420, h = hl ? 154 : 132, x = 110, y = 160;
             gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
             draw_panel(x, y, w, h);
             gx_text_c(F_MED, x + w / 2, y + 32, "Lancer ce jeu ?", RGBA(255, 255, 255, 255));
@@ -1482,7 +1524,8 @@ static void draw_gclib_main(void) {
                 if (rep_line(g->id, cl, sizeof(cl))) { fit_text(F_SMALL, cl, (int)w - 30, buf, sizeof(buf)); gx_text_c(F_SMALL, x + w / 2, y + 98, buf, RGBA(120, 200, 255, 255)); }   /* v140 */
                 else if (cp_line(g->id, cl, sizeof(cl), &cc)) { fit_text(F_SMALL, cl, (int)w - 30, buf, sizeof(buf)); gx_text_c(F_SMALL, x + w / 2, y + 98, buf, cc); }
             }
-            gx_text_c(F_SMALL, x + w / 2, y + 120, "A : lancer     X : lanceur de secours     B : annuler", RGBA(255, 210, 120, 255));
+            if (hl) gx_text_c(F_SMALL, x + w / 2, y + 120, lim, RGBA(255, 170, 120, 255));
+            gx_text_c(F_SMALL, x + w / 2, y + (hl ? 142 : 120), "A : lancer     X : lanceur de secours     B : annuler", RGBA(255, 210, 120, 255));
         }
         snprintf(buf, sizeof(buf), "%d / %d   (gauche / droite)", gl_sel + 1, gl_n);
         gx_text_r(F_SMALL, 614, 396, buf, RGBA(150, 135, 210, 255));
