@@ -99,7 +99,16 @@ build/natres_bin.h: build/natres.elf tools/bin2h.py
 > $(OBJCOPY) -O binary build/natres.elf build/natres.bin
 > python3 tools/bin2h.py build/natres.bin $@ natres_bin
 
-build/main.o: $(MAINDEPS) build/natres_bin.h
+# v187 : retour a GC Station en quittant une appli (source/natres/natret.c), en 0x80001800 (-Os : place comptee)
+build/natret.elf: source/natres/natret.c tools/natret.ld
+> @mkdir -p build
+> $(CC) $(subst -O2,-Os,$(NATRESFLAGS)) -Wl,-T,tools/natret.ld -Wl,--no-gc-sections $< -o $@ -lgcc
+
+build/natret_bin.h: build/natret.elf tools/bin2h.py
+> $(OBJCOPY) -O binary build/natret.elf build/natret.bin
+> python3 tools/bin2h.py build/natret.bin $@ natret_bin
+
+build/main.o: $(MAINDEPS) build/natres_bin.h build/natret_bin.h
 > @mkdir -p build
 > $(CC) $(CFLAGS) -Ibuild -DUSE_DEFAULT_STDLIB -c source/main.c -o $@
 

@@ -2677,6 +2677,26 @@ static int na_card_map(const char *name, natres_ext_t *out, u32 *n, u32 *size, c
     snprintf(msg, cap, "active (gc-mp3/resident/%s, %u blocs)", name, (unsigned)(sz / 8192u - 5u));
     return 1;
 }
+/* ---------- v187 : retour a GC Station en quittant une appli (source/natres/natret.c, en 0x80001800) ---------- */
+#ifndef NATIF_BENCH
+#include "natret_bin.h"                               /* (build/natret_bin.h) */
+static int nat_app_ret_prep(void) {                    /* rend 1 si le .dol de GC Station est trouve sur la carte (assez peu morcele) */
+    nat_ret_prep();
+    return na_ret_n > 0 && na_ret_n <= 48 && sd_ok && !sd_virtual && sizeof(natret_bin) <= 0x1400;
+}
+static void nat_app_ret_install(void) {                /* (interruptions coupees, juste avant de lancer l'appli) */
+    u8 *r = (u8 *)0x80001800;
+    memcpy(r, natret_bin, sizeof(natret_bin));
+    memset(r + sizeof(natret_bin), 0, 0x1400 - sizeof(natret_bin));
+    na_wbe32(r + 0x10, sd_slot == 0 ? 2 : sd_slot == 1 ? 0 : 1);   /* canal EXI (comme Pulse) */
+    na_wbe32(r + 0x14, 0); na_wbe32(r + 0x18, 4);                   /* peripherique, 16 MHz */
+    na_wbe32(r + 0x1C, na_ret_n); na_wbe32(r + 0x20, na_ret_size);
+    for (u32 i = 0; i < na_ret_n; i++) { na_wbe32(r + 0x30 + i * 12, na_ret[i].iso); na_wbe32(r + 0x34 + i * 12, na_ret[i].sd); na_wbe32(r + 0x38 + i * 12, na_ret[i].cnt); }
+}
+#else
+static int nat_app_ret_prep(void) { return 0; }
+static void nat_app_ret_install(void) { }
+#endif
 /* rend bit 0 = slot A pret, bit 1 = slot B pret */
 static int nat_card_prep(const char *id) {
     int r = 0;

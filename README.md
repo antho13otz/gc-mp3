@@ -14,16 +14,16 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v186)
+## Nouveautés de la version actuelle (v187)
+- **Retour à GC Station en quittant une appli** (Mes applis, Derniers jeux lancés) : quand l'appli quitte normalement
+  (son menu « Quitter », fin du programme…), GC Station est relu sur la carte SD et revient, au lieu d'un redémarrage
+  de la console. Marche avec les applis faites avec libogc (la plupart des homebrews) ; celles qui redémarrent la
+  console elles-mêmes ne changent pas. A + Z + START n'existe pas dans les applis (seulement dans les jeux, avec Pulse).
+
+## Version précédente (v186)
 - **Jeux ajoutés ou enlevés sur la carte SD vus tout seuls** : en ouvrant la liste des jeux, GC Station regarde
   rapidement les noms et tailles des fichiers ; s'il y a du nouveau, la liste est refaite (« Liste des jeux mise à
   jour »). Avant, il fallait Y > Actualiser la liste.
-
-## Version précédente (v185)
-- **Captures d'écran en jeu (L + R + Z) et « ta musique dans les jeux » enlevées** : elles ne marchaient pas sur la
-  console. Pulse revient à son code d'avant ces deux fonctions ; les succès « Photographe » et « Album photo » sont
-  enlevés (12 succès). Le fichier `gc-mp3/natif/captures.bin` est effacé au démarrage ; ton dossier `musique-jeux`
-  n'est pas touché (tu peux l'effacer).
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
