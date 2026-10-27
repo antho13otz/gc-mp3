@@ -21,6 +21,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v179 — ta musique à la place de la musique du disque
+- natif.c : `gc-mp3/musique-jeux/<ID>.mp3` → `<ID>.adp` (minimp3, rééchantillonné à 48 kHz, ADPCM du disque : pour chaque
+  voie et bloc de 28 échantillons, les 4 filtres et le décalage estimé ± 1 essayés en boucle fermée, le meilleur
+  gardé ; ~25 dB sur un balayage de fréquences) ; refait si le .mp3 est plus récent ; table des morceaux dans le
+  résident (`mus_tab`, `mus_n`, `mus_size`), ligne dans dernier-lancement.txt.
+- Résident : `st_block` prend le bloc suivant du fichier (en boucle) à la place de celui du disque ; la position du
+  disque avance comme avant (le jeu voit sa musique continuer) ; `mus_pos` gardé dans l'état sauvé du décodeur.
+  En-tête du résident : 0x210.
+
 ## Nouveautés v178 — mode soirée
 - tools.c : écran TL_SOIREE ; jeu tiré parmi les favoris (sinon tous les jeux de la liste), manettes mélangées ;
   victoires dans `gc-mp3/soiree.txt` (« joueurs|v1|v2|v3|v4 ») ; « Lancer ce jeu » passe par `gclib_open_recent`.

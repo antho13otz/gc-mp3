@@ -119,6 +119,12 @@ typedef struct {
     unsigned int shot_max;                                /* (GC Station) nombre de places */
     unsigned int shot_n;                                  /* captures faites */
     unsigned int shot_last;                               /* derniere : largeur << 16 | hauteur (0 = image pas trouvee) */
+    /* v179 : ta musique a la place de la musique du disque (jeux en streaming DTK) : fichier ADP (blocs de 32 octets,
+       comme le disque) prepare par GC Station, joue en boucle */
+    unsigned int mus_n;                                   /* (GC Station) morceaux du fichier (0 = musique du jeu) */
+    unsigned int mus_tab;                                 /* table des morceaux (dans le resident) */
+    unsigned int mus_size;                                /* (GC Station) taille du fichier (octets) */
+    unsigned int mus_blocks;                              /* blocs joues */
 } natres_hdr_t;
 /* v143 : reglages du reseau (ranges par GC Station dans la place libre du resident) */
 typedef struct {
@@ -142,6 +148,7 @@ enum { NRN_OFF = 0, NRN_ON = 1, NRN_NOBBA = 2, NRN_NOLINK = 3, NRN_NOARP = 4, NR
 enum { NRT_OFF = 0, NRT_ON = 1, NRT_BAT = 2, NRT_BAT2 = 3, NRT_MMU = 4, NRT_VEC = 5, NRT_PTE = 6, NRT_LOST = 7 };
 #define NRF_CARDB  64u                    /* v122 : carte memoire virtuelle du slot B active */
 #define NATRES_ZERO 0xFFFFFFFFu           /* v121 : morceau sans donnees (bloc absent d'un .ciso) : lu comme des zeros */
+#define NATRES_MUSMAX 16                  /* v179 : morceaux du fichier de ta musique */
 #define NATRES_CARDMAX 64                 /* morceaux du fichier de la carte virtuelle */
 #define NRF_CARD      4u                  /* v65 : carte memoire virtuelle active */
 #define NATRES_RETMAX 64                  /* morceaux du .dol de GC Station */
@@ -180,7 +187,7 @@ enum { NRT_OFF = 0, NRT_ON = 1, NRT_BAT = 2, NRT_BAT2 = 3, NRT_MMU = 4, NRT_VEC 
 #define NATRES_SNAP_MAGIC 0x4743534Du       /* "GCSM" */
 #define NATRES_SNAP_SECS  704               /* taille du fichier : 704 secteurs (352 Ko) */
 
-typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x200 ? 1 : -1];   /* v175 : 0x1F0 dans le journal + 1 x 16 = 0x200 ; puis les captures */
+typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x210 ? 1 : -1];   /* v175 : 0x1F0 dans le journal ; puis captures, musique (v179) */
 #define NATRES_JHDR 0x1F0u                  /* v175 : partie de l'en-tete ecrite dans le journal */
 /* v175 : captures : par place, 1 secteur d'en-tete {"SHOT", largeur, hauteur, octets par ligne, ID du jeu (8), image (VI),
    format 0 = YUYV} puis l'image telle que l'ecran la montre (YUV 4:2:2), 640 x 576 au plus */
