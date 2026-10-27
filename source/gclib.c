@@ -224,6 +224,12 @@ static int gl_skip_dir(const char *name) {
     for (int i = 0; sk[i]; i++) if (!strcasecmp(name, sk[i])) return 1;
     return 0;
 }
+/* v186 : fichiers .iso / .gcm / .ciso qui ne sont pas des jeux GameCube (Wii, abimes...) : gardes dans la liste
+   (lignes "#R") pour que la verification rapide ne les prenne pas pour des jeux nouveaux */
+#define GL_REJ_MAX 256
+static u32 gl_rej[GL_REJ_MAX]; static int gl_rej_n = 0;
+static u32 gl_path_key(const char *p, long size) { u32 h = 2166136261u; while (*p) { h ^= (u8)tolower((u8)*p++); h *= 16777619u; } return h ^ (u32)size * 2654435761u; }
+static int gl_rejected(const char *p, long size) { u32 k = gl_path_key(p, size); for (int i = 0; i < gl_rej_n; i++) if (gl_rej[i] == k) return 1; return 0; }
 static void gl_walk(const char *dir, int depth, int *budget) {
     DIR *dp = opendir(dir);
     if (!dp) return;
@@ -237,7 +243,9 @@ static void gl_walk(const char *dir, int depth, int *budget) {
         if (!dot || !(!strcasecmp(dot, ".iso") || !strcasecmp(dot, ".gcm") || !strcasecmp(dot, ".ciso"))) continue;
         struct stat st;
         if (stat(p, &st) != 0 || st.st_size < 0x440) continue;
+        int n0 = gl_n;
         gl_add(p, (long)st.st_size);
+        if (gl_n == n0 && gl_rej_n < GL_REJ_MAX && !gl_rejected(p, (long)st.st_size)) gl_rej[gl_rej_n++] = gl_path_key(p, (long)st.st_size);
         service_audio();
     }
     closedir(dp);
@@ -280,6 +288,7 @@ static void gl_list_save(void) {
     fprintf(f, "GLC1\n");
     for (int k = 0; k < gl_n; k++) if (!gl[k].dvd)
         fprintf(f, "%s\t%ld\t%s\t%u\t%u\t%s\t%s\n", gl[k].path, gl[k].size, gl[k].id, gl[k].disc, gl[k].ciso, gl[k].title, gl[k].desc ? gl[k].desc : "");
+    for (int i = 0; i < gl_rej_n; i++) fprintf(f, "#R\t%08x\n", (unsigned)gl_rej[i]);   /* v186 */
     fclose(f);
 }
 static int gl_list_load(void) {
@@ -292,6 +301,7 @@ static int gl_list_load(void) {
         char *nl = memchr(p, '\n', end - p);
         if (!nl) nl = end;
         *nl = 0;
+        if (!strncmp(p, "#R\t", 3)) { if (gl_rej_n < GL_REJ_MAX) gl_rej[gl_rej_n++] = (u32)strtoul(p + 3, NULL, 16); p = nl + 1; continue; }   /* v186 */
         char *f[7]; int n = 0;
         f[n++] = p;
         for (char *c = p; *c && n < 7; c++) if (*c == '\t') { *c = 0; f[n++] = c + 1; }
@@ -332,6 +342,7 @@ static void gl_scan_full(int force) {
     if (!gl) gl = (gcg_t *)calloc(GL_MAX, sizeof(gcg_t));
     gl_free_list();
     if (!gl) { gl_scanned = 1; return; }
+    gl_rej_n = 0;
     int cached = sd_ok && !force && gl_list_load();
     if (!cached) {
         int budget = 6000;
@@ -735,10 +746,48 @@ static f32 ease_rows(f32 *v, f32 target) {
 }
 static void gl_note(const char *m) { snprintf(gl_msg, sizeof(gl_msg), "%s", TR(m)); gl_msg_t = now_ms(); }
 
+/* v186 : jeux ajoutes ou enleves depuis la liste gardee ? Seulement les noms et les tailles (pas les en-tetes) :
+   rapide. Rend 1 s'il faut refaire la liste. */
+static int gl_quick_walk(const char *dir, int depth, int *budget, int *found) {
+    DIR *dp = opendir(dir);
+    if (!dp) return 0;
+    struct dirent *e;
+    char p[NAME_LEN];
+    int ch = 0;
+    while (!ch && (e = readdir(dp)) != NULL && (*budget)-- > 0) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        if (snprintf(p, sizeof(p), "%s/%s", dir, e->d_name) >= (int)sizeof(p)) continue;
+        if (is_dir(p, e)) { if (depth < 3 && !gl_skip_dir(e->d_name)) ch = gl_quick_walk(p, depth + 1, budget, found); continue; }
+        const char *dot = strrchr(e->d_name, '.');
+        if (!dot || !(!strcasecmp(dot, ".iso") || !strcasecmp(dot, ".gcm") || !strcasecmp(dot, ".ciso"))) continue;
+        struct stat st;
+        if (stat(p, &st) != 0 || st.st_size < 0x440) continue;
+        int k = -1;
+        for (int i = 0; i < gl_n && k < 0; i++) if (!gl[i].dvd && gl[i].size == (long)st.st_size && !strcasecmp(gl[i].path, p)) k = i;
+        if (k >= 0) (*found)++;
+        else if (!gl_rejected(p, (long)st.st_size)) ch = 1;   /* (nouveau, ou change de taille) */
+    }
+    closedir(dp);
+    return ch;
+}
+static int gl_quick_changed(void) {
+    if (!sd_ok || sd_virtual || !gl) return 0;
+    int budget = 6000, found = 0, sdn = 0;
+    if (gl_quick_walk(SD_ROOT, 0, &budget, &found)) return 1;
+    for (int i = 0; i < gl_n; i++) if (!gl[i].dvd && !strncasecmp(gl[i].path, SD_ROOT "/", strlen(SD_ROOT) + 1)) sdn++;
+    return found < sdn;                                    /* (un jeu enleve) */
+}
+
 /* ---------- entree ---------- */
 static void gclib_open(void) {
     gl_on = 1; gl_detail = 0;
     if (!gl_scanned) gl_scan_full(0);                      /* (liste gardee : tout de suite) */
+    if (gl_quick_changed()) {                              /* v186 : jeux ajoutes / enleves sur la carte SD : liste refaite */
+        int n0 = gl_n;
+        gl_scanned = 0; gl_scan();
+        char m[96]; snprintf(m, sizeof(m), "%s (%d)", TR("Liste des jeux mise \xC3\xA0 jour"), gl_n - (gl_has_dvd() ? 1 : 0));
+        snprintf(gl_msg, sizeof(gl_msg), "%s", m); gl_msg_t = now_ms(); (void)n0;
+    }
     crumb("mes jeux");
 }
 /* v176 : X sur l'accueil de JEUX / APPS : le dernier jeu lance, tout de suite a "Lancer ce jeu ?" */

@@ -1338,3 +1338,5 @@
     { "Efface le fichier du jeu (A deux fois). Sauvegardes, r\xC3\xA9glages et cheats du jeu restent.", "Erases the game file (A twice). The game's saves, settings and cheats stay." },
     { "Jeu supprim\xC3\xA9 :", "Game deleted:" },
     { "Suppression impossible (carte SD en lecture seule ?)", "Cannot delete (read-only SD card?)" },
+    /* v186 */
+    { "Liste des jeux mise \xC3\xA0 jour", "Game list updated" },
