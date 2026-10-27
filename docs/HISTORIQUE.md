@@ -21,6 +21,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v173 — banc d'essai : rapide pour tous, complet pour un jeu
+- Options > « Banc d'essai rapide (tous) » : en-tête, apploader, main.dol et FST seulement (la taille du disque est
+  quand même calculée d'après la FST) ; l'export complet (petits fichiers, début des gros, 16 Mo au plus) est fait
+  par R sur la fiche d'un jeu, avec l'analyse Pulse. Fenêtre Options un peu plus haute (l'aide touchait la 5e ligne).
+
 ## Nouveautés v172 — banc d'essai automatique des jeux
 - GC Station : Jeux > Options > « Banc d'essai (export) » écrit `gc-mp3/banc/<ID><disque>.gcb` pour chaque jeu
   (format GCB1, gros-boutiste : en-tête 0x5C — « GCB1 », version, ID sur 8, taille de l'ISO, nombre de morceaux,

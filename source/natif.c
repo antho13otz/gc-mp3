@@ -2080,7 +2080,7 @@ static void nb_add(u32 off, u32 len, int force) {
     nb_off[nb_n] = off; nb_len[nb_n] = len; nb_n++; nb_total += len;
 }
 static void nb_wbe(FILE *f, u32 v) { u8 w[4]; na_wbe32(w, v); fwrite(w, 1, 4, f); }
-static int nat_bench_export(int k, char *msg, size_t cap) {
+static int nat_bench_export(int k, char *msg, size_t cap, int full) {   /* v173 : full = 0 : programme et FST seulement (rapide) */
     gdisc_t d;
     if (k < 0 || k >= gl_n || gl[k].dvd) { snprintf(msg, cap, "pas un fichier"); return -1; }
     if (!gd_open(&d, gl[k].path)) { snprintf(msg, cap, "fichier illisible"); return -1; }
@@ -2103,13 +2103,13 @@ static int nat_bench_export(int k, char *msg, size_t cap) {
     nb_add(fst, fsz, 1);
     u32 ne = be32(ft + 8);
     if (ne * 12u > fsz) ne = fsz / 12u;
-    for (u32 pass = 0; pass < 2; pass++)                  /* (d'abord les petits fichiers en entier, puis le debut des gros) */
+    for (u32 pass = 0; pass < (full ? 2u : 1u); pass++)   /* (d'abord les petits fichiers en entier, puis le debut des gros) */
         for (u32 i = 1; i < ne; i++) {
             const u8 *e = ft + i * 12;
             if (e[0]) continue;                               /* (dossier) */
             u32 o = be32(e + 4), z = be32(e + 8);
             if (o + z > iso) iso = o + z;
-            if (pass == 0 && z <= NB_SMALL) nb_add(o, z, 0);
+            if (pass == 0 && z <= NB_SMALL && full) nb_add(o, z, 0);   /* (rapide : taille du disque seulement) */
             if (pass == 1 && z > NB_SMALL) nb_add(o, NB_HEAD, 0);
         }
     free(ft);
@@ -2145,13 +2145,13 @@ static void nat_bench_all(void) {
         if (gl[k].dvd) continue;
         snprintf(st, sizeof(st), "Banc d'essai : %d / %d  %.40s", k + 1, gl_n, gl[k].title);
         gl_status(st);
-        int r = nat_bench_export(k, msg, sizeof(msg));
+        int r = nat_bench_export(k, msg, sizeof(msg), 0);
         if (r) bad++; else n++;
         if (ix) fprintf(ix, "%.6s%u\t%s\t%s\t%s\n", gl[k].id, (unsigned)gl[k].disc + 1, r ? "ERREUR" : "ok", msg, gl[k].title);
     }
     if (ix) fclose(ix);
     gl_busy[0] = 0;
-    snprintf(st, sizeof(st), "Banc d'essai : %d jeux export\xC3\xA9s dans gc-mp3/banc%s", n, bad ? " (erreurs : voir index.txt)" : "");
+    snprintf(st, sizeof(st), "Banc d'essai rapide : %d jeux export\xC3\xA9s dans gc-mp3/banc%s", n, bad ? " (erreurs : voir index.txt)" : "");
     gl_note(st);
     crumb("banc : %d exportes, %d erreurs", n, bad);
 }
@@ -2181,6 +2181,11 @@ static void nat_run(int k) {
             gd_close(&d);
         }
         free(b);
+    }
+    {                                                        /* v173 : banc d'essai de ce jeu seul : image reduite complete */
+        char bm[96];
+        gl_status("Analyse native : banc d'essai (export complet)...");
+        if (nat_bench_export(k, bm, sizeof(bm), 1) == 0) crumb("banc : %s exporte (%s)", in.id, bm);
     }
     /* etape 3a : l'ISO sur la carte, et le programme resident qui la lit */
     char me[120] = "", rt[120] = "";
