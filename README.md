@@ -14,7 +14,11 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v182)
+## Nouveautés de la version actuelle (v183)
+- Rangement : l'ancien `gc-mp3/retour.txt` disparaît bien dès que le lanceur de secours est à jour (build 597 ou plus).
+  En v182, GC Station ne savait pas reconnaître le nouveau lanceur, et le fichier restait.
+
+## Version précédente (v182)
 - **Dossier `gc-mp3` rangé** : il ne reste que `gc-mp3.txt` (tes réglages) et des sous-dossiers : `reglages/`,
   `bibliotheque/`, `mes-parties/`, `journaux/`, `lanceur/`… (détail plus bas, « Fichiers sur la carte SD »).
   Tes fichiers actuels sont déplacés tout seuls au premier démarrage, rien n'est perdu.
@@ -23,12 +27,6 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
 - Le dossier `gc-mp3/musique-jeux` est créé dès le démarrage (avant : seulement au premier jeu lancé avec Pulse).
 - Le lanceur de secours (il se met à jour tout seul, avec le réseau) range aussi ses fichiers dans `gc-mp3/lanceur/`.
   Tant qu'il n'est pas à jour, `gc-mp3/retour.txt` reste (il en a besoin pour le retour en jeu).
-
-## Version précédente (v181)
-- **Ta musique dans les jeux : tous les formats** de l'onglet MUSIQUE, plus seulement le MP3 : FLAC, OGG, WAV,
-  M4A / AAC, et les musiques rétro (SPC, NSF, MOD, XM…). Le fichier s'appelle toujours avec l'ID du jeu
-  (ex. `gc-mp3/musique-jeux/GTEP01.flac`). Il est reconverti dès que tu le changes (même avec une date ancienne).
-  Au plus 15 minutes par morceau. Enlève le fichier pour retrouver la musique du jeu.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
