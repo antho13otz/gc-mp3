@@ -20,6 +20,7 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   Tes fichiers actuels sont déplacés tout seuls au premier démarrage, rien n'est perdu.
 - La sauvegarde des réglages (`gc-mp3-sauvegarde.txt`) quitte la racine de la carte SD pour `gc-mp3/reglages/`.
   Une ancienne sauvegarde se restaure toujours.
+- Le dossier `gc-mp3/musique-jeux` est créé dès le démarrage (avant : seulement au premier jeu lancé avec Pulse).
 - Le lanceur de secours (il se met à jour tout seul, avec le réseau) range aussi ses fichiers dans `gc-mp3/lanceur/`.
   Tant qu'il n'est pas à jour, `gc-mp3/retour.txt` reste (il en a besoin pour le retour en jeu).
 

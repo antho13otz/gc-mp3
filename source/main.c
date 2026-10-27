@@ -1186,7 +1186,7 @@ static void sd_layout(void) {
         "/gc-mp3", "/gc-mp3/cache", "/gc-mp3/cache/pochettes", "/gc-mp3/cache/vignettes", "/gc-mp3/listes",
         "/gc-mp3/podcasts", "/gc-mp3/radio", "/gc-mp3/radio/enregistrements", "/gc-mp3/cheats", "/gc-mp3/jeux",
         "/gc-mp3/natif", "/gc-mp3/resident", "/gc-mp3/reglages", "/gc-mp3/bibliotheque", "/gc-mp3/mes-parties",
-        "/gc-mp3/journaux", "/gc-mp3/lanceur", NULL };
+        "/gc-mp3/journaux", "/gc-mp3/lanceur", "/gc-mp3/musique-jeux", NULL };
     char p[NAME_LEN];
     struct stat st;
     for (int i = 0; dirs[i]; i++) {
