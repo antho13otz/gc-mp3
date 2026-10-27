@@ -1888,8 +1888,29 @@ static int bio_recv(void *ctx, unsigned char *buf, size_t len) {
     return r < 0 ? MBEDTLS_ERR_SSL_INTERNAL_ERROR : (int)r;     /* 0 = connexion fermee */
 }
 
+/* v194 : fermer une connexion https demandait le verrou de mbedTLS : si le fil des connexions calculait
+   une poignee de main (jusqu'a 1 s), la boucle principale l'attendait (fluidite.txt : "radio",
+   "attente de l'ecran" ~ 1 s). Verrou pris : la socket est fermee tout de suite, le contexte TLS est
+   libere plus tard (tls_defer_pump, des que le verrou est libre). (Le fil des connexions, lui, attend.) */
+#define TLS_DEFER 8
+static mbedtls_ssl_context tls_defer[TLS_DEFER];
+static int tls_defer_n = 0;
+static lwp_t ac_h;
+static int ac_on;
+static int tls_in_ac_thread(void) { return ac_on > 0 && LWP_GetSelf() == ac_h; }
+static void tls_defer_pump(void) {                  /* (boucle principale) */
+    if (!tls_defer_n || tls_in_ac_thread() || !tls_try()) return;
+    while (tls_defer_n > 0) mbedtls_ssl_free(&tls_defer[--tls_defer_n]);
+    TLS_UNLOCK();
+}
 static void conn_close(conn_t *c) {
-    if (c->ssl_inited) { TLS_LOCK(); mbedtls_ssl_free(&c->ssl); c->ssl_inited = 0; TLS_UNLOCK(); }
+    if (c->ssl_inited) {
+        if (!tls_in_ac_thread()) tls_defer_pump();
+        if (tls_in_ac_thread() || tls_defer_n >= TLS_DEFER) { TLS_LOCK(); mbedtls_ssl_free(&c->ssl); TLS_UNLOCK(); }
+        else if (tls_try()) { mbedtls_ssl_free(&c->ssl); TLS_UNLOCK(); }
+        else tls_defer[tls_defer_n++] = c->ssl;        /* (le contexte change de place, comme pour hf) */
+        c->ssl_inited = 0;
+    }
     if (c->fd >= 0) net_close(c->fd);
     c->fd = -1;
     c->tls = 0;
@@ -1907,7 +1928,7 @@ static int conn_recv(conn_t *c, unsigned char *buf, int len) {
         if (r > 0) return r;
         if (r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE) return -EAGAIN;
 #ifdef MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET
-        if (r == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) { tls_sc_put(&c->ssl, c->host); continue; }   /* TLS 1.3 : ticket a garder */
+        if (r == MBEDTLS_ERR_SSL_RECEIVED_NEW_SESSION_TICKET) { if (tls_try()) { tls_sc_put_raw(&c->ssl, c->host); TLS_UNLOCK(); } continue; }   /* TLS 1.3 : ticket a garder (v194 : sans attendre le verrou) */
 #endif
         if (r == 0 || r == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) return 0;
         return -EIO;
@@ -2066,7 +2087,6 @@ typedef struct {
 static acjob_t ac_job[AC_N];
 static int ac_on = 0;                       /* 1 = fil lance ; -1 = impossible (on fait comme avant) */
 static sem_t ac_sem;
-static lwp_t ac_h;
 static int ac_open(acjob_t *j) {
     const char *err = NULL;
     j->c.fd = -1; j->c.tls = 0; j->c.ssl_inited = 0; j->c.sc_used = 0;
@@ -2125,6 +2145,7 @@ static void *ac_thread(void *arg) {
     return NULL;
 }
 static void ac_sweep(void) {                               /* (boucle principale) connexions abandonnees */
+    tls_defer_pump();                                       /* v194 */
     for (int k = 0; k < AC_N; k++) if (ac_job[k].st == 3 && ac_job[k].cancel) { conn_close(&ac_job[k].c); ac_job[k].cancel = 0; ac_job[k].st = 0; }
 }
 static int ac_start(void) {
@@ -2417,7 +2438,7 @@ static int rc_take(const char *url, int depth, const char *host, int port, int t
         rc_ready = 0;
         if (!strcmp(rc_host, host) && rc_port == port && rc_tls == tls) {
             cn = rc_conn;                                   /* (la connexion change de place : le TLS suit) */
-            if (cn.tls) { TLS_LOCK(); mbedtls_ssl_set_bio(&cn.ssl, &cn.fd, bio_send, bio_recv, NULL); TLS_UNLOCK(); }
+            if (cn.tls) mbedtls_ssl_set_bio(&cn.ssl, &cn.fd, bio_send, bio_recv, NULL);   /* v194 : (sans verrou : contexte a nous seuls) */
             rc_conn.fd = -1; rc_conn.ssl_inited = 0; rc_conn.tls = 0;
             return 1;
         }
@@ -2708,7 +2729,7 @@ static void station_pump(void) {
         set_error("Connexion au serveur impossible");
         return;
     }
-    if (rc_conn.tls) { TLS_LOCK(); mbedtls_ssl_set_bio(&rc_conn.ssl, &rc_conn.fd, bio_send, bio_recv, NULL); TLS_UNLOCK(); }
+    if (rc_conn.tls) mbedtls_ssl_set_bio(&rc_conn.ssl, &rc_conn.fd, bio_send, bio_recv, NULL);   /* v194 : (sans verrou) */
     rc_ready = 1;
     static char u[URL_MAX];
     snprintf(u, sizeof(u), "%s", rc_url);
@@ -2734,6 +2755,7 @@ static void stream_recv(void) {
 
 /* Appele a chaque tour de boucle : recoit, decode, gere le tampon. */
 static void stream_pump(void) {
+    tls_defer_pump();                                      /* v194 : contextes TLS a liberer */
     station_pump();                                        /* v193 : connexion en tache de fond */
     /* v71 : la radio a deja joue puis s'est arretee (reseau, serveur) : on reessaie tout seul,
        de plus en plus espace (1, 2, 4, 8, 15 puis 30 s), au lieu de rester sur une erreur */
@@ -4900,6 +4922,7 @@ static const char *lyrics_line(int i) {
 
 // ---------- Reglages (sd:/gc-mp3/gc-mp3.txt) et reprise de la lecture ----------
 #define SETTINGS_FILE GCD "/gc-mp3.txt"
+#define SETTINGS_TMP GCD "/gc-mp3.tmp"         /* v194 : enregistrement de fond (renomme ensuite) */
 enum { VID_AUTO, VID_480I, VID_480P, VID_576I, VID_576P, VID_COUNT };   /* v128 : + 576i / 576p (PAL 50 Hz) */
 static int covers_auto = 1;
 static int lyrics_auto = 1;                 /* paroles cherchees sur LRCLIB */
@@ -5131,6 +5154,11 @@ static void load_settings(void) {
     ui_lang_apply();
     if (!sd_ok) return;
     FILE *f = fopen(SETTINGS_FILE, "r");
+    {                                                    /* v194 : arret pendant un enregistrement de fond */
+        struct stat st;
+        if (!f && stat(SETTINGS_TMP, &st) == 0 && st.st_size > 64 && rename(SETTINGS_TMP, SETTINGS_FILE) == 0) f = fopen(SETTINGS_FILE, "r");
+        else if (f && stat(SETTINGS_TMP, &st) == 0) remove(SETTINGS_TMP);   /* (ecriture interrompue avant le renommage) */
+    }
     if (!f) { gde_fresh = 1; save_settings(); return; }   /* (v190 : premier lancement : le guide) */
     char line[NAME_LEN + 64];
     while (fgets(line, sizeof(line), f)) {
@@ -5145,12 +5173,10 @@ static void load_settings(void) {
     eq_setup();
 }
 
-static void save_settings(void) {
+static void settings_print(FILE *f) {                   /* v194 : le texte de gc-mp3.txt (voir save_settings) */
     static const char *const rep[3] = { "non", "tout", "un" };
     static const char *const aff[VIEW_COUNT] = { "tous", "dossiers", "artistes", "albums", "listes" };
     static const char *const vid[VID_COUNT] = { "auto", "480i", "480p", "576i", "576p" };
-    settings_dirty = 0;
-    if (!sd_ok) return;
     static const char *const ek[EL_COUNT] = { "pochette", "paroles", "boutons", "infos", "horloge" };
     char els[96] = "", hid[160] = "";
     for (int i = 0; i < EL_COUNT; i++) if (EL(i)) { if (els[0]) strcat(els, ", "); strcat(els, ek[i]); }
@@ -5158,8 +5184,6 @@ static void save_settings(void) {
     char alarm_txt[16];
     if (alarm_on) snprintf(alarm_txt, sizeof(alarm_txt), "%02d:%02d", alarm_min / 60, alarm_min % 60);
     else snprintf(alarm_txt, sizeof(alarm_txt), "non");
-    FILE *f = fopen(SETTINGS_FILE, "w");
-    if (!f) return;
     fprintf(f, "# Reglages de GC Station (aussi modifiables avec START > Reglages)\n"
                "# Pochettes manquantes cherchees sur Internet (MusicBrainz) : oui / non\n"
                "pochettes_auto = %s\n"
@@ -5261,10 +5285,101 @@ static void save_settings(void) {
     fprintf(f, "# Egaliseur 5 bandes (v73) : bas-mediums (350 Hz) et presence (4 kHz), en dB\nbas_mediums = %d\npresence = %d\n", eq_lowmid, eq_pres);
     x73_save(f);
     pj_settings_save(f);                                  /* v191 */
-    pj_save_file();
     fprintf(f, "# v138 : Salon (autres GC Station du reseau) ; nom de cette console (vide = automatique)\nsalon = %s\nsalon_nom = %s\n", salon_on ? "oui" : "non", salon_name);
     nfs_save(f);
-    fclose(f);
+}
+
+/* ---------- v194 : enregistrement des reglages sans figer l'ecran ----------
+   Reecrire gc-mp3.txt (7 Ko) prenait jusqu'a 860 ms sur la vraie carte SD (fluidite.txt : "reglages"),
+   par exemple a chaque nouvelle radio (radio_derniere). Le texte est maintenant prepare en memoire :
+   rien n'est ecrit s'il n'a pas change, et l'enregistrement automatique de la boucle (2 s apres un
+   changement) est ecrit par un fil de faible priorite. Le fil ecrit gc-mp3.tmp puis le renomme : si la
+   console s'arrete en route (jeu lance, redemarrage), l'ancien gc-mp3.txt reste, ou load_settings
+   reprend gc-mp3.tmp. save_settings() (appels qui ont besoin du fichier tout de suite) attend le fil. */
+static char *cfgw_last = NULL;                 /* texte de gc-mp3.txt sur la carte (NULL = inconnu) */
+static size_t cfgw_last_len = 0;
+static char *cfgw_pend = NULL;                 /* texte a ecrire par le fil */
+static size_t cfgw_pend_len = 0;
+static volatile int cfgw_bg = 0;               /* 1 = le fil ecrit cfgw_pend */
+static int cfgw_on = 0;                        /* 1 = fil lance, -1 = impossible */
+static sem_t cfgw_sem;
+static lwp_t cfgw_h;
+static u8 cfgw_stack[24 * 1024] ATTRIBUTE_ALIGN(32);
+static int cfgw_build(char **out, size_t *len) {          /* le texte complet, en memoire */
+    char *b = NULL; size_t n = 0;
+    FILE *f = open_memstream(&b, &n);
+    if (!f) return 0;
+    settings_print(f);
+    if (fclose(f) != 0 || !b) { free(b); return 0; }
+    *out = b; *len = n;
+    return 1;
+}
+static int cfgw_write_file(const char *path, const char *b, size_t n) {
+    FILE *f = fopen(path, "w");
+    if (!f) return 0;
+    int ok = fwrite(b, 1, n, f) == n;
+    if (fclose(f) != 0) ok = 0;
+    return ok;
+}
+static void *cfgw_thread(void *arg) {
+    (void)arg;
+    for (;;) {
+        LWP_SemWait(cfgw_sem);
+        if (cfgw_bg != 1) continue;
+        int ok = cfgw_write_file(SETTINGS_TMP, cfgw_pend, cfgw_pend_len);
+        if (ok) { remove(SETTINGS_FILE); ok = rename(SETTINGS_TMP, SETTINGS_FILE) == 0; }
+        if (ok) { free(cfgw_last); cfgw_last = cfgw_pend; cfgw_last_len = cfgw_pend_len; }
+        else { free(cfgw_pend); free(cfgw_last); cfgw_last = NULL; }    /* (rate : la prochaine fois, on reecrit) */
+        cfgw_pend = NULL;
+        cfgw_bg = 0;
+    }
+    return NULL;
+}
+static void cfgw_wait(void) {                  /* attend la fin de l'ecriture en cours (s'il y en a une) */
+    u64 t0 = now_ms();
+    while (cfgw_bg && now_ms() - t0 < 5000) usleep(2000);
+}
+static int cfgw_same(const char *b, size_t n) { return cfgw_last && n == cfgw_last_len && !memcmp(b, cfgw_last, n); }
+/* enregistrement immediat (le fichier est a jour au retour) */
+static void save_settings(void) {
+    settings_dirty = 0;
+    if (!sd_ok) return;
+    cfgw_wait();
+    char *b; size_t n;
+    if (!cfgw_bg && cfgw_build(&b, &n)) {
+        if (!cfgw_same(b, n)) {
+            if (cfgw_write_file(SETTINGS_FILE, b, n)) { free(cfgw_last); cfgw_last = b; cfgw_last_len = n; b = NULL; }
+            else { free(cfgw_last); cfgw_last = NULL; }
+        }
+        free(b);
+    } else {                                 /* (memoire pleine, ou fil bloque : comme avant) */
+        FILE *f = fopen(SETTINGS_FILE, "w");
+        if (f) { settings_print(f); fclose(f); }
+        if (!cfgw_bg) { free(cfgw_last); cfgw_last = NULL; }   /* (cfgw_last est au fil tant qu'il ecrit) */
+    }
+    pj_save_file();
+}
+/* enregistrement automatique de la boucle principale : en tache de fond */
+static void save_settings_bg(void) {
+    if (!sd_ok || sd_virtual) { save_settings(); return; }   /* (carte virtuelle en memoire : tout de suite) */
+    if (cfgw_bg) return;                       /* (le fil ecrit encore : on reessaie plus tard, settings_dirty reste) */
+    settings_dirty = 0;
+    char *b; size_t n;
+    if (!cfgw_build(&b, &n)) { save_settings(); return; }
+    pj_save_file();
+    if (cfgw_same(b, n)) { free(b); return; }  /* rien de change dans gc-mp3.txt */
+    if (!cfgw_on) {
+        cfgw_on = -1;
+        if (LWP_SemInit(&cfgw_sem, 0, 16) >= 0 && LWP_CreateThread(&cfgw_h, cfgw_thread, NULL, cfgw_stack, sizeof(cfgw_stack), 12) >= 0) cfgw_on = 1;
+    }
+    if (cfgw_on < 0) {                         /* (pas de fil : tout de suite) */
+        if (cfgw_write_file(SETTINGS_FILE, b, n)) { free(cfgw_last); cfgw_last = b; cfgw_last_len = n; }
+        else { free(b); free(cfgw_last); cfgw_last = NULL; }
+        return;
+    }
+    cfgw_pend = b; cfgw_pend_len = n;
+    cfgw_bg = 1;
+    LWP_SemPost(cfgw_sem);
 }
 
 /* memorise ou on en est (enregistre au plus toutes les 30 s, et en quittant) */
@@ -8937,7 +9052,7 @@ static void hf_pump(hfetch_t *h) {
         int ok = j && j->ok;
         if (ok) {
             h->c = j->c;                                     /* (la connexion change de place : le TLS suit) */
-            if (h->c.tls) { TLS_LOCK(); mbedtls_ssl_set_bio(&h->c.ssl, &h->c.fd, bio_send, bio_recv, NULL); TLS_UNLOCK(); }
+            if (h->c.tls) mbedtls_ssl_set_bio(&h->c.ssl, &h->c.fd, bio_send, bio_recv, NULL);   /* v194 : (sans verrou : contexte a nous seuls) */
             j->c.fd = -1; j->c.ssl_inited = 0; j->c.tls = 0;
         }
         if (j) j->st = 0;
@@ -13767,7 +13882,7 @@ int main(int argc, char **argv) {
         }
         if (settings_dirty && !in_game) {                   /* reglages changes : enregistres 2 s apres */
             if (!settings_t) settings_t = now;
-            else if (now - settings_t > 2000) { PF(PH_SETTINGS, save_settings()); settings_t = 0; }
+            else if (now - settings_t > 2000) { PF(PH_SETTINGS, save_settings_bg()); if (!settings_dirty) settings_t = 0; }   /* v194 : en tache de fond */
         }
 
         PF(PH_AUDIO, service_audio());

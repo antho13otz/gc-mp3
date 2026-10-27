@@ -52,14 +52,18 @@ static void pj_load_file(const char *name, char *card, int cap, int *limit) {
 }
 static void pj_save_file(void) {
     if (!gp_name[0] || !sd_ok) return;
+    static char last[NAME_LEN + 160];                       /* v194 : reecrit seulement s'il change */
+    char t[sizeof(last)];
+    snprintf(t, sizeof(t), "# GC Station : profil %s\ncarte = %s\nlimite = %d\n", gp_name, vc_keep[0] ? vc_keep : vc_active, pj_limit);
+    if (!strcmp(t, last)) return;
     char p[NAME_LEN];
     mkdir(GCD_PROF, 0777);
     snprintf(p, sizeof(p), GCD_PROF "/%s", gp_name); mkdir(p, 0777);
     snprintf(p, sizeof(p), GCD_PROF "/%s/profil.txt", gp_name);
     FILE *f = fopen(p, "w");
     if (!f) return;
-    fprintf(f, "# GC Station : profil %s\ncarte = %s\nlimite = %d\n", gp_name, vc_keep[0] ? vc_keep : vc_active, pj_limit);
-    fclose(f);
+    fputs(t, f);
+    if (fclose(f) == 0) snprintf(last, sizeof(last), "%s", t);
 }
 /* reglages (gc-mp3.txt) : appele par load_settings pour les cles inconnues */
 static int pj_settings_key(const char *k, const char *v) {

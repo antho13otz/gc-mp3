@@ -538,6 +538,7 @@ static int bk_add(FILE *o, const char *rel) {                    /* "@@@ fichier
 static int bk_save(char *msg, int cap) {
     if (!sd_ok) { snprintf(msg, cap, "Pas de carte SD"); return 0; }
     if (settings_dirty) save_settings();
+    cfgw_wait();                                          /* v194 : (enregistrement de fond fini) */
     if (stats_dirty) stats_save();
     FILE *o = fopen(BK_FILE ".part", "wb");
     if (!o) { snprintf(msg, cap, "\xC3\x89" "criture sur la carte SD impossible"); return 0; }

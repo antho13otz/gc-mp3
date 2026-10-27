@@ -24,6 +24,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v194 — moins de pauses (réglages, connexions HTTPS)
+- Réglages (`gc-mp3.txt`) : le texte est préparé en mémoire et n'est réécrit que s'il a changé ; l'enregistrement
+  automatique (2 s après un changement, par exemple la dernière radio écoutée) est écrit par un fil de fond
+  (fichier `gc-mp3.tmp` puis renommé ; repris au démarrage si la console s'est arrêtée en route).
+  `profil.txt` n'est réécrit que s'il change. Avant : jusqu'à 860 ms d'écran figé (« réglages »).
+- Connexions HTTPS : la boucle principale n'attend plus le verrou de mbedTLS pendant qu'une poignée de main
+  se calcule en arrière-plan (fermeture d'une connexion remise à plus tard, reprise d'une connexion prête et
+  tickets de session sans verrou). Avant : pauses d'environ 1 s (« radio », « attente de l'écran »).
+
 ## Nouveautés v193 — radio sans saccades
 - La connexion à une radio (recherche DNS, connexion, poignée de main HTTPS, redirections) se fait en tâche de fond,
   comme les pochettes et les paroles : l'écran ne se fige plus quand on lance une station ni pendant les reconnexions
