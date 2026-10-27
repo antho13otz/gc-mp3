@@ -14,15 +14,15 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v177)
+## Nouveautés de la version actuelle (v178)
+- **Mode soirée** (START > Outils > Mode soirée) : 2 à 4 joueurs ; un jeu GameCube tiré au sort (parmi tes favoris
+  s'il y en a), les manettes tirées au sort, puis « Lancer ce jeu » ; A sur un joueur compte une victoire (Y : -1,
+  X deux fois : tout à zéro). Les scores restent d'une soirée à l'autre.
+
+## Version précédente (v177)
 - **Succès** (START > Outils > Succès) : 14 succès d'après ce que tu fais déjà (temps de jeu et jeux différents
   mesurés par Pulse, lancements, captures d'écran, favoris, records des mini-jeux), avec ta progression. Un message
   « Succès débloqué » s'affiche en ouvrant JEUX / APPS. Les succès propres à chaque jeu viendront jeu par jeu.
-
-## Version précédente (v176)
-- **Accueil de JEUX / APPS** : le dernier jeu lancé, son temps de jeu et ton temps de jeu total (mesurés par Pulse) ;
-  **X** le relance directement (fenêtre « Lancer ce jeu ? »).
-- La fenêtre « Lancer ce jeu ? » rappelle la capture d'écran : L + R + Z.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
