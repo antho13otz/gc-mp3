@@ -1456,8 +1456,8 @@ static void draw_gclib_main(void) {
     static const char *const l[] = { "FICHE", "CHEATS", "OPTIONS", "AFFICHAGE", "RETOUR" };
     draw_legend_keys(k, l, 5);
     if (gl_opt >= 0) {                                         /* v45 : fenetre Options */
-        static const char *const nm[5] = { "Trier par", "Jeu au hasard", "Animations", "Actualiser la liste", "Banc d'essai (export)" };
-        const f32 w = 400, rh = 30, h = 60 + 5 * rh, x = 120, y = 240 - h / 2;
+        static const char *const nm[5] = { "Trier par", "Jeu au hasard", "Animations", "Actualiser la liste", "Banc d'essai rapide (tous)" };
+        const f32 w = 400, rh = 30, h = 74 + 5 * rh, x = 120, y = 240 - h / 2;
         gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130));
         gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
         draw_panel(x, y, w, h);
