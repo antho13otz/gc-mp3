@@ -741,6 +741,13 @@ static void gclib_open(void) {
     if (!gl_scanned) gl_scan_full(0);                      /* (liste gardee : tout de suite) */
     crumb("mes jeux");
 }
+/* v176 : X sur l'accueil de JEUX / APPS : le dernier jeu lance, tout de suite a "Lancer ce jeu ?" */
+static void gclib_open_recent(const char *path) {
+    gclib_open();
+    for (int k = 0; k < gl_n; k++)
+        if (!gl[k].dvd && !strcmp(gl[k].path, path)) { gl_sel = k; gl_detail = 1; gl_launch_sel = k; return; }
+    gl_note("Dernier jeu introuvable sur la carte SD");
+}
 static void gl_open_cheats(int k) {
     char p[NAME_LEN];
     struct stat st;
@@ -1416,7 +1423,7 @@ static void draw_gclib_main(void) {
                 gx_text_c(F_SMALL, x + w / 2, y + 76, buf, RGBA(130, 230, 150, 255));
             } else
             {   /* v109 : avec le logo de Pulse */
-                const char *pm = TR("Pulse : A + Z + START tenus 1 s = retour \xC3\xA0 GC Station");
+                const char *pm = TR("Pulse : A+Z+START (1 s) = retour     L+R+Z = capture");
                 f32 pw2 = (f32)text_width(F_SMALL, pm, 0);
                 pulse_logo(x + w / 2 - pw2 / 2 - 12, y + 72, 7, 0);
                 gx_text_c(F_SMALL, x + w / 2 + 6, y + 76, pm, RGBA(190, 180, 235, 255));
