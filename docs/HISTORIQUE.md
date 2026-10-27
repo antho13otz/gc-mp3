@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v186 — nouveaux jeux vus tout seuls
+- gclib.c : `gl_quick_changed` à chaque ouverture de la liste : même parcours que `gl_walk` (mêmes dossiers sautés), mais
+  seulement nom + taille (stat), comparés à la liste gardée ; nouveau fichier ou jeu disparu → `gl_scan`. Les .iso qui ne
+  sont pas des jeux GameCube sont notés (`#R` dans cache/jeux/liste.txt) pour ne pas tout refaire à chaque fois.
+- Simulateur : jeu ajouté → liste refaite (122), rien de changé → rien refait, jeu enlevé → (121).
+
 ## Nouveautés v185 — captures et musique en jeu enlevées
 - Pas de résultat sur la console : natres.c / natres.h remis tels qu'en v171 (avant v175 : `shot_take`, L + R + Z dans
   `igr_poll2`, `mus_block` dans `st_block`, `mpos` dans `stsnap_t`, en-tête 0x1F0 de nouveau en entier dans le journal).
