@@ -14,16 +14,14 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v188)
+## Nouveautés de la version actuelle (v189)
+- **Correction : les applis se relancent** (Mes applis) : depuis la build 608, lancer une appli faisait redémarrer la
+  console. Le petit programme qui copie l'appli en mémoire écrasait la liste de ce qu'il devait copier.
+
+## Version précédente (v188)
 - **Réglage « Nouveaux jeux vus tout seuls »** (START > Réglages > Jeux > Liste des jeux) : Oui (par défaut) = la carte
   SD est vérifiée à chaque ouverture de la liste ; Non = la liste s'ouvre tout de suite, sans aucune vérification
   (jeux ajoutés : Y > Actualiser la liste). Dans gc-mp3.txt : `jeux_actualiser = oui / non`.
-
-## Version précédente (v187)
-- **Retour à GC Station en quittant une appli** (Mes applis, Derniers jeux lancés) : quand l'appli quitte normalement
-  (son menu « Quitter », fin du programme…), GC Station est relu sur la carte SD et revient, au lieu d'un redémarrage
-  de la console. Marche avec les applis faites avec libogc (la plupart des homebrews) ; celles qui redémarrent la
-  console elles-mêmes ne changent pas. A + Z + START n'existe pas dans les applis (seulement dans les jeux, avec Pulse).
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

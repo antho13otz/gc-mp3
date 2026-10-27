@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v189 — applis : lancement réparé
+- gclib.c : avec le retour (v187), table des sections en 0x80002D00 et arguments en 0x80002E00 (avant : 0x80002C80,
+  sous les 132 octets du programme de copie en 0x80002C00 : sa fin écrasait la 1re ligne de la table → plantage,
+  redémarrage). Vérification à la compilation de la taille du programme de copie.
+- Banc natif : `emu_appstub.py` refait le lancement (copie, table, arguments, retour en 0x80001800) d'après les adresses
+  de gclib.c : la v188 plante, la v189 lance l'appli. 33 TOUT OK.
+
 ## Nouveautés v188 — réglage de la vérification des jeux
 - main.c : `gl_auto` (`jeux_actualiser`), ligne `MI_GLAUTO` dans Réglages > Jeux ; gclib.c : `gl_quick_changed` seulement
   si `gl_auto`. Simulateur : réglage changé et gardé dans gc-mp3.txt.
