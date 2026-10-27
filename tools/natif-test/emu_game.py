@@ -217,6 +217,7 @@ mu.mmio_map(0x0C006000, 0x1000, io_read2, None, io_write2, None)
 mu.mmio_map(0xCC008000, 0x1000, lambda *a: 0, None, lambda *a: None, None)   # (tuyau d'ecriture du GPU : ignore)
 mu.mmio_map(0x0C008000, 0x1000, lambda *a: 0, None, lambda *a: None, None)   # (tuyau d'ecriture du GPU : ignore)
 mu.mem_map(0xFFFF0000, 0x10000)                       # (petit code d'entree des exceptions, hors de la memoire du jeu)
+mu.mem_map(0xE0000000, 0x10000)                       # (cache verrouille du Gekko : 16 Ko en 0xE0000000)
 
 b = open(BOOT, 'rb').read()
 entry, n = struct.unpack_from('>II', b, 0); p = 8
@@ -273,11 +274,29 @@ def on_tb(uc, addr, size, data):
         dec['base'] = t; dec['val'] = uc.reg_read(UC_PPC_REG_0 + rd); dec['armed'] = True
     elif op == 467 and spr in (284, 285): pass           # (mttb : ignore)
     elif op == 339: uc.reg_write(UC_PPC_REG_0 + rd, sprs.get(spr, 0))   # (registres du Gekko que l'emulateur n'a pas)
-    elif op == 467: sprs[spr] = uc.reg_read(UC_PPC_REG_0 + rd)
+    elif op == 467:
+        sprs[spr] = uc.reg_read(UC_PPC_REG_0 + rd)
+        if spr == 923 and sprs[spr] & 2: lc_dma()       # (DMA du cache verrouille)
+def lc_dma():
+    u_, l_ = sprs.get(922, 0), sprs[923]
+    n = ((u_ & 0x1F) << 2 | (l_ >> 2) & 3) or 128; n *= 32
+    mem, lc = u_ & 0xFFFFFFE0, l_ & 0xFFFFFFE0
+    mem = (mem & 0x01FFFFFF) | 0x80000000; lcp = 0xE0000000 | (lc & 0x3FFF)
+    try:
+        if l_ & 0x10: mu.mem_write(lcp, bytes(mu.mem_read(mem, n)))
+        else: mu.mem_write(mem, bytes(mu.mem_read(lcp, n)))
+    except UcError: pass
+    sprs[923] = l_ & ~2
 ntb = 0
 sprs = {1008: 0x0011C464}
 GEKKO = {22, 1008, 1009, 1010, 1013, 1017, 1019, 1020, 1021, 1022, 920, 921, 922, 923} | set(range(912, 920)) | set(range(936, 960))
-for lo, hi in ((0x80003100, 0x80105100), (0x817E9F60, 0x81800000)):
+# (v173 : toutes les sections de code du main.dol, d'apres l'en-tete du disque ; puis le resident)
+dol_off = struct.unpack_from('>I', iso, 0x420)[0]
+TEXT = []
+for i in range(7):
+    o_, a_, z_ = (struct.unpack_from('>I', iso, dol_off + k * 4 + i * 4)[0] for k in (0, 0x48 // 4, 0x90 // 4))
+    if a_ and z_ and 0x80000000 <= a_ < 0x81800000: TEXT.append((a_, a_ + z_))
+for lo, hi in TEXT + [(0x817E9F60, 0x81800000)]:
     code = bytes(mu.mem_read(lo, hi - lo))
     for o in range(0, len(code), 4):
         ins = struct.unpack_from('>I', code, o)[0]
