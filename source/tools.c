@@ -8,7 +8,10 @@
 // Chaque outil s'ouvre en fenetre par-dessus l'ecran (tl_screen).
 
 static void indigo_game_open(const char *id, const char *title);
-enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV, TL_SAVES, TL_CATA, TL_SUCCES };
+enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV, TL_SAVES, TL_CATA, TL_SUCCES, TL_SOIREE };
+static void so_input(u32 down, u32 nav, int fire);       /* v178 : mode soiree */
+static void draw_soiree(void);
+static void so_open(void);
 static void sc_input(u32 down, u32 nav, int fire);       /* v177 : succes */
 static void draw_succes(void);
 static void sc_open(void);   /* v151 : catalogue d'applis */
@@ -1493,6 +1496,7 @@ static void tools_input(u32 down, u32 nav, int fire) {
     case TL_SAVES: sv_input(down, nav, fire); break;
     case TL_CATA: ct_input(down, nav, fire); break;
     case TL_SUCCES: sc_input(down, nav, fire); break;
+    case TL_SOIREE: so_input(down, nav, fire); break;
     }
 }
 static void draw_tools(void) {
@@ -1507,6 +1511,7 @@ static void draw_tools(void) {
     case TL_SAVES: draw_saves(); break;
     case TL_CATA: draw_cata(); break;
     case TL_SUCCES: draw_succes(); break;
+    case TL_SOIREE: draw_soiree(); break;
     }
 }
 
@@ -1639,14 +1644,104 @@ static void draw_succes(void) {
     static const char *const k[] = { "B" }, *const lb[] = { "RETOUR" };
     tl_legend(k, lb, 1);
 }
+
+/* =================== v178 : mode soiree (START > Outils > Mode soiree) ===================
+   2 a 4 joueurs : un jeu tire au sort (parmi les favoris s'il y en a, sinon tous les jeux), les manettes tirees au sort,
+   puis les victoires comptees (gc-mp3/soiree.txt : "nombre de joueurs|victoires...") ; A sur "Lancer" : la fiche du jeu. */
+#define SO_FILE GCD "/soiree.txt"
+static int so_np = 2, so_sel = 0, so_game = -1, so_pad[4], so_wins[4], so_zero = 0;
+enum { SO_PLAYERS, SO_DRAW, SO_LAUNCH, SO_P1 };
+static void so_save(void) {
+    if (!sd_ok) return;
+    mkdir(GCD, 0777);
+    FILE *f = fopen(SO_FILE, "wb");
+    if (f) { fprintf(f, "%d|%d|%d|%d|%d\n", so_np, so_wins[0], so_wins[1], so_wins[2], so_wins[3]); fclose(f); }
+}
+static void so_open(void) {
+    tl_screen = TL_SOIREE; so_sel = SO_DRAW; so_game = -1; so_zero = 0;
+    memset(so_wins, 0, sizeof(so_wins));
+    long n = 0;
+    char *d = (char *)read_file(SO_FILE, 256, &n);
+    if (d) { char l[128]; long ln = n < 127 ? n : 127; memcpy(l, d, ln); l[ln] = 0; sscanf(l, "%d|%d|%d|%d|%d", &so_np, &so_wins[0], &so_wins[1], &so_wins[2], &so_wins[3]); free(d); }
+    if (so_np < 2 || so_np > 4) so_np = 2;
+    for (int i = 0; i < 4; i++) so_pad[i] = i;
+    if (!gl_scanned) gl_scan_full(0);
+}
+static void so_draw_game(void) {
+    int fav = 0, cand[512], nc = 0;
+    for (int k = 0; k < gl_n; k++) if (!gl[k].dvd && gl[k].fav) fav = 1;
+    for (int k = 0; k < gl_n && nc < 512; k++) if (!gl[k].dvd && (!fav || gl[k].fav)) cand[nc++] = k;
+    if (!nc) { lib_note("Aucun jeu GameCube sur la carte SD"); return; }
+    so_game = cand[lib_rand() % (u32)nc];
+    for (int i = 0; i < 4; i++) so_pad[i] = i;
+    for (int i = so_np - 1; i > 0; i--) { int j = (int)(lib_rand() % (u32)(i + 1)), t = so_pad[i]; so_pad[i] = so_pad[j]; so_pad[j] = t; }
+}
+static void so_input(u32 down, u32 nav, int fire) {
+    int rows = SO_P1 + so_np;
+    if (fire && (nav & PAD_BUTTON_DOWN)) { so_sel = (so_sel + 1) % rows; so_zero = 0; }
+    if (fire && (nav & PAD_BUTTON_UP)) { so_sel = (so_sel + rows - 1) % rows; so_zero = 0; }
+    int ch = (fire && (nav & PAD_BUTTON_RIGHT)) ? 1 : (fire && (nav & PAD_BUTTON_LEFT)) ? -1 : 0;
+    if (so_sel == SO_PLAYERS && (ch || (down & PAD_BUTTON_A))) { so_np = so_np + (ch ? ch : 1); if (so_np > 4) so_np = 2; if (so_np < 2) so_np = 4; so_save(); }
+    else if (so_sel == SO_DRAW && (down & PAD_BUTTON_A)) so_draw_game();
+    else if (so_sel == SO_LAUNCH && (down & PAD_BUTTON_A)) {
+        if (so_game < 0 || so_game >= gl_n) { lib_note("Tire d'abord un jeu"); return; }
+        char p[NAME_LEN]; snprintf(p, sizeof(p), "%s", gl[so_game].path);
+        tl_screen = TL_NONE; tab = TAB_GAMES; tab_enter(TAB_GAMES);
+        gclib_open_recent(p);
+        return;
+    } else if (so_sel >= SO_P1 && (down & PAD_BUTTON_A)) {
+        int pl = so_sel - SO_P1; so_wins[pl]++; so_save();
+        char m[64]; snprintf(m, sizeof(m), "Victoire pour le joueur %d !", pl + 1); lib_note(m);
+    }
+    if (so_sel >= SO_P1 && (down & PAD_BUTTON_Y)) { int pl = so_sel - SO_P1; if (so_wins[pl] > 0) so_wins[pl]--; so_save(); }
+    if (down & PAD_BUTTON_X) {
+        if (!so_zero) { so_zero = 1; lib_note("X encore une fois : scores remis \xC3\xA0 z\xC3\xA9ro"); }
+        else { so_zero = 0; memset(so_wins, 0, sizeof(so_wins)); so_save(); lib_note("Scores remis \xC3\xA0 z\xC3\xA9ro"); }
+    }
+    if (down & PAD_BUTTON_B) tl_screen = TL_NONE;
+}
+static void draw_soiree(void) {
+    tl_frame("Mode soir\xC3\xA9" "e", "Jeux et victoires entre amis");
+    char b[160], fv[160];
+    for (int r = 0; r < SO_P1 + so_np; r++) {
+        f32 y = 92 + r * 30 + (r >= SO_P1 ? 20 : 0) + (r >= SO_LAUNCH ? 62 : 0);
+        int on = r == so_sel;
+        if (on) gx_rrect_fill(52, y, 536, 28, 7, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
+        const char *l = "", *v = "";
+        char vb[96] = "";
+        if (r == SO_PLAYERS) { l = "Joueurs"; snprintf(vb, sizeof(vb), "< %d >", so_np); v = vb; }
+        else if (r == SO_DRAW) { l = "Tirer un jeu au hasard"; v = "(A)"; }
+        else if (r == SO_LAUNCH) { l = "Lancer ce jeu"; v = so_game >= 0 ? "(A)" : "-"; }
+        else {
+            int pl = r - SO_P1, best = 0;
+            for (int i = 0; i < so_np; i++) if (so_wins[i] > so_wins[best]) best = i;
+            snprintf(b, sizeof(b), "Joueur %d%s", pl + 1, so_wins[pl] && pl == best ? "  (en t\xC3\xAAte)" : "");
+            l = b; snprintf(vb, sizeof(vb), "%d victoire%s", so_wins[pl], so_wins[pl] > 1 ? "s" : ""); v = vb;
+        }
+        gx_text1(F_MED, 66, y + 20, l, RGBA(255, 255, 255, 255));
+        gx_text_r(F_MED, 574, y + 20, v, on ? RGBA(255, 255, 255, 255) : RGBA(190, 160, 255, 255));
+        if (r == SO_DRAW && so_game >= 0 && so_game < gl_n) {   /* le jeu tire, et qui prend quelle manette */
+            fit_text(F_MED, gl[so_game].title, 500, fv, sizeof(fv));
+            gx_text_c(F_MED, 320, y + 50, fv, RGBA(255, 210, 120, 255));
+            int o = 0; b[0] = 0;
+            for (int i = 0; i < so_np; i++) o += snprintf(b + o, sizeof(b) - o, "%sManette %d : joueur %d", i ? "     " : "", i + 1, so_pad[i] + 1);
+            fit_text(F_SMALL, b, 520, fv, sizeof(fv));
+            gx_text_c(F_SMALL, 320, y + 72, fv, RGBA(200, 190, 245, 230));
+        }
+    }
+    gx_text_c(F_SMALL, 320, 404, "A sur un joueur : +1 victoire     Y : -1     X deux fois : tout \xC3\xA0 z\xC3\xA9ro", RGBA(200, 190, 245, 230));
+    static const char *const k[] = { "A", "B" }, *const lb[] = { "CHOISIR", "RETOUR" };
+    tl_legend(k, lb, 2);
+}
 /* ---------- section "Outils" de la page Reglages ---------- */
-enum { TO_RECENT, TO_SUCCES, TO_GAMES, TO_CATA, TO_CHEATS, TO_VCARD, TO_SAVES, TO_BACKUP, TO_RESTORE, TO_INFO, TO_QUIT, TO_COUNT };
-static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s", "Succ\xC3\xA8s",
+enum { TO_RECENT, TO_SUCCES, TO_SOIREE, TO_GAMES, TO_CATA, TO_CHEATS, TO_VCARD, TO_SAVES, TO_BACKUP, TO_RESTORE, TO_INFO, TO_QUIT, TO_COUNT };
+static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s", "Succ\xC3\xA8s", "Mode soir\xC3\xA9" "e",
     "Mes jeux, applis et cartes m\xC3\xA9moire", "Catalogue d'applis (Internet)", "Cheats (\xC3\xA9" "diteur)", "Cartes m\xC3\xA9moire virtuelles (Pulse)", "Historique des sauvegardes",
     "Sauvegarder tous les r\xC3\xA9glages", "Restaurer les r\xC3\xA9glages", "Infos console", "Quitter GC Station" };
 static const char *const to_help[TO_COUNT] = {
     "Relancer un jeu en un clic.",
     "Temps de jeu, jeux diff\xC3\xA9rents, captures, favoris, records des mini-jeux.",
+    "2 \xC3\xA0 4 joueurs : un jeu et les manettes tir\xC3\xA9s au sort, les victoires compt\xC3\xA9" "es.",
     "Onglet JEUX / APPS. Dans la fiche d'un jeu : Y = r\xC3\xA9glages du jeu.",
     "Homebrews \xC3\xA0 t\xC3\xA9l\xC3\xA9" "charger et installer dans SD:/apps (Swiss, CleanRip, GCMM...), avec mises \xC3\xA0 jour.",
     "Modifier et activer les cheats de tes jeux (dossier gc-mp3/cheats).",
@@ -1678,6 +1773,7 @@ static void tools_menu_input(u32 down, u32 nav, int fire) {
     switch (to_sel) {
     case TO_RECENT: rc_open(); break;
     case TO_SUCCES: sc_open(); break;
+    case TO_SOIREE: so_open(); break;
     case TO_INFO: info_open(); break;
     case TO_QUIT: quit_requested = 1; break;
     case TO_GAMES: tab = TAB_GAMES; tab_enter(TAB_GAMES); gm_sel = GM_COUNT; break;
