@@ -21,6 +21,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v177 — succès
+- tools.c : `sc_defs` (14 succès : lancements, jeux différents, temps de jeu total et sur un jeu, captures dans
+  photos/captures, favoris, records des mini-jeux) ; débloqués dans `gc-mp3/succes.txt` (« id|date ») ; vérifiés en
+  ouvrant JEUX / APPS (`sc_check`, message) et dans l'écran START > Outils > Succès (progression).
+
 ## Nouveautés v176 — dernier jeu et temps de jeu sur l'accueil de JEUX / APPS
 - tabs_extra.c : `jeux_recents.txt` (1re ligne : dernier jeu lancé) et `jeux_stats.txt` (temps de jeu par jeu) relus à
   l'ouverture de l'onglet ; ligne sous les cartes ; X → `gclib_open_recent` (gclib.c) : la liste des jeux, la fiche
