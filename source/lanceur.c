@@ -173,23 +173,11 @@ static const char *ld_hint(void) {
    - SD:/gc-mp3/lanceur/lanceur.log = journal du lanceur : s'il n'a pas pu lancer le jeu, on affiche pourquoi.
    v182 : ranges dans gc-mp3/lanceur ; un lanceur d'avant (qui lit gc-mp3/retour.txt) garde aussi l'ancien fichier. */
 static int ld_new_paths(void) {                           /* le lanceur installe connait gc-mp3/lanceur/retour.txt ? */
-    struct stat st;
-    if (stat(GCD_LD "/lanceur.dol", &st) != 0) return 1;  /* (pas de lanceur : rien d'ancien a servir) */
-    char key[64], old[64] = "";
-    snprintf(key, sizeof(key), "%lld|%lld|", (long long)st.st_size, (long long)st.st_mtime);
-    long n = 0;
-    u8 *d = read_file(GCD_LD "/chemins.txt", 63, &n);    /* (resultat garde : le lanceur n'est lu qu'apres un changement) */
-    if (d) { memcpy(old, d, n < 63 ? n : 63); old[n < 63 ? n : 63] = 0; free(d); }
-    if (!strncmp(old, key, strlen(key))) return old[strlen(key)] == '1';
-    d = read_file(GCD_LD "/lanceur.dol", 8 * 1024 * 1024, &n);
-    if (!d) return 1;
-    static const char k[] = "gc-mp3/lanceur/retour.txt";
-    int r = 0;
-    for (long i = 0; !r && i + (long)sizeof(k) - 1 <= n; i++) if (d[i] == 'g' && !memcmp(d + i, k, sizeof(k) - 1)) r = 1;
-    free(d);
-    FILE *f = fopen(GCD_LD "/chemins.txt", "w");
-    if (f) { fprintf(f, "%s%d\n", key, r); fclose(f); }
-    return r;
+    /* v183 : d'apres son numero (lanceur.txt) : le lanceur est compresse, son texte ne se lit pas dans le fichier.
+       Build 597 : le premier qui range ses fichiers dans gc-mp3/lanceur. */
+    remove(GCD_LD "/chemins.txt");                        /* (v182 : plus utilise) */
+    int b = ld_build();
+    return b == 0 || b >= 597;                            /* (pas de lanceur : rien d'ancien a servir) */
 }
 static void ld_write_ret(const char *path, const char *me) {
     long n = 0;

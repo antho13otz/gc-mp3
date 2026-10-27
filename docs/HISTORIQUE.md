@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v183 — lanceur rangé reconnu
+- lanceur.c : `ld_new_paths` d'après le numéro du lanceur installé (`lanceur.txt` ≥ 597) ; la v182 cherchait le texte
+  « gc-mp3/lanceur/retour.txt » dans lanceur.dol, mais le lanceur est compressé (packer de Swiss) : jamais trouvé.
+  `lanceur/chemins.txt` (v182) effacé.
+
 ## Nouveautés v182 — dossier gc-mp3 rangé
 - main.c : `GCD_REG`, `GCD_BIB`, `GCD_PARTIES`, `GCD_LOG`, `GCD_LD` ; table `gcd_moves` (ancien → nouveau) appliquée au
   démarrage par `gcd_tidy` (si les deux existent : le plus récent gardé) ; `SD:/gc-mp3-sauvegarde.txt` → `reglages/`.
