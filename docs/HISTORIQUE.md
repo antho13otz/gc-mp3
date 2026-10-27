@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v192 — écran 50 Hz (576p / 576i)
+- Compteur de fluidité (START > performances) adapté au 50 Hz : une image ratée = plus de 24 ms (au lieu de 20 ms,
+  qui comptait presque toutes les images comme ratées en 50 Hz) ; vert à 48 images/s ; `fluidite.txt` indique la fréquence.
+- Barres de chargement (web, téléchargements) et curseur du clavier à la même vitesse en 50 et 60 Hz.
+- Simulateur PC : écran à 50 Hz en mode PAL, `PCSIM_COMPOSANTE=1` pour le câble composante (576p).
+
 ## Nouveautés v191 — profils, limite de jeu, récap, économiseur, collection
 - main.c : `gp_path` (fichiers du profil : gc-mp3/mes-parties pour le principal, gc-mp3/profils/<nom> sinon) pour
   jeux_stats, jeux-favoris, jeux_recents, succes, gc-mp3-jeux (records). profils.c : liste, « Qui joue ? »,
