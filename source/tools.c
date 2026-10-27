@@ -8,7 +8,7 @@
 // Chaque outil s'ouvre en fenetre par-dessus l'ecran (tl_screen).
 
 static void indigo_game_open(const char *id, const char *title);
-enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV, TL_SAVES, TL_CATA, TL_SUCCES, TL_SOIREE };
+enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV, TL_SAVES, TL_CATA, TL_SUCCES, TL_SOIREE, TL_GUIDE };
 static void so_input(u32 down, u32 nav, int fire);       /* v178 : mode soiree */
 static void draw_soiree(void);
 static void so_open(void);
@@ -1486,6 +1486,37 @@ static void nfs_ui_draw(void) {
     tl_legend(k, lb, 2);
 }
 
+/* ---------- v190 : premier lancement guide (et START > Outils > Guide de demarrage) ---------- */
+#define GDE_N 4
+static int gde_page = 0;
+static const char *const gde_title[GDE_N] = { "Bienvenue sur GC Station", "O\xC3\xB9 mettre tes fichiers", "Tes jeux avec Pulse", "Ton t\xC3\xA9l\xC3\xA9phone comme t\xC3\xA9l\xC3\xA9" "commande" };
+static const char *const gde_text[GDE_N][8] = {
+    { "Ta GameCube devient un centre multim\xC3\xA9" "dia : musique,", "radios, web, photos, vid\xC3\xA9os, podcasts, et tes jeux.", "", "Z : onglet suivant", "START : menu et r\xC3\xA9glages", "A : choisir     B : retour", "Croix ou stick : se d\xC3\xA9placer", NULL },
+    { "Musique : SD:/mp3   (MP3, FLAC, OGG, M4A...)", "Photos : SD:/photos     Vid\xC3\xA9os : SD:/videos", "Musiques r\xC3\xA9tro : SD:/retro   (SPC, NSF, MOD...)", "Jeux GameCube (.iso, .gcm, .ciso) : o\xC3\xB9 tu veux,", "   par exemple SD:/games", "Applis homebrew : SD:/apps/<nom>/boot.dol", "GC Station range ses propres fichiers dans SD:/gc-mp3.", NULL },
+    { "Onglet JEUX > Jeux GameCube, puis A sur un jeu :", "il d\xC3\xA9marre avec Pulse, le lanceur de GC Station.", "En jeu : A + Z + START tenus 1 s = retour ici.", "Y dans la fiche d'un jeu : ses r\xC3\xA9glages", "   (langue, 16:9, 480p, cheats...).", "Les sauvegardes vont sur une carte m\xC3\xA9moire virtuelle", "   (gc-mp3/resident) : rien \xC3\xA0 brancher.", NULL },
+    { "Avec le Broadband Adapter branch\xC3\xA9 \xC3\xA0 ta box :", "onglet T\xC3\x89L\xC3\x89PHONE, puis scanne le QR code.", "Depuis le t\xC3\xA9l\xC3\xA9phone : musique, radios, envoi de fichiers,", "lancement d'un jeu, t\xC3\xA9l\xC3\xA9" "chargement de tes sauvegardes.", "", "Ce guide se revoit dans START > Outils > Guide de d\xC3\xA9marrage.", NULL } };
+static void gde_open(void) { tl_screen = TL_GUIDE; gde_page = 0; crumb("guide"); }
+static void gde_close(void) { tl_screen = TL_NONE; if (!gde_seen) { gde_seen = 1; save_settings(); } }
+static void gde_input(u32 down, u32 nav, int fire) {
+    if ((down & PAD_BUTTON_A) || (fire && (nav & PAD_BUTTON_RIGHT))) { if (gde_page < GDE_N - 1) gde_page++; else if (down & PAD_BUTTON_A) gde_close(); }
+    if (fire && (nav & PAD_BUTTON_LEFT) && gde_page > 0) gde_page--;
+    if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) gde_close();
+}
+static void draw_guide(void) {
+    char r[16], fv[200];
+    snprintf(r, sizeof(r), "%d / %d", gde_page + 1, GDE_N);
+    tl_frame(TR(gde_title[gde_page]), r);
+    for (int i = 0; i < 8 && gde_text[gde_page][i]; i++) {
+        const char *t = gde_text[gde_page][i];
+        if (!t[0]) continue;
+        fit_text(F_MED, TR(t), 520, fv, sizeof(fv));
+        gx_text1(F_MED, 62, 124 + i * 34, fv, i == 0 ? RGBA(255, 210, 120, 255) : RGBA(230, 222, 255, 255));
+    }
+    for (int i = 0; i < GDE_N; i++) gx_rrect_fill(296 + i * 14, 396, 8, 8, 4, i == gde_page ? RGBA(200, 150, 255, 255) : RGBA(90, 70, 150, 255), i == gde_page ? RGBA(160, 100, 255, 255) : RGBA(70, 50, 120, 255));
+    static const char *const k[] = { "A", "B" };
+    const char *l[] = { gde_page < GDE_N - 1 ? "SUIVANT" : "C'EST PARTI", "FERMER" };
+    tl_legend(k, l, 2);
+}
 static void tools_input(u32 down, u32 nav, int fire) {
     switch (tl_screen) {
     case TL_CARDS: mc_input(down, nav, fire); break;
@@ -1499,6 +1530,7 @@ static void tools_input(u32 down, u32 nav, int fire) {
     case TL_CATA: ct_input(down, nav, fire); break;
     case TL_SUCCES: sc_input(down, nav, fire); break;
     case TL_SOIREE: so_input(down, nav, fire); break;
+    case TL_GUIDE: gde_input(down, nav, fire); break;
     }
 }
 static void draw_tools(void) {
@@ -1514,6 +1546,7 @@ static void draw_tools(void) {
     case TL_CATA: draw_cata(); break;
     case TL_SUCCES: draw_succes(); break;
     case TL_SOIREE: draw_soiree(); break;
+    case TL_GUIDE: draw_guide(); break;
     }
 }
 
@@ -1725,14 +1758,15 @@ static void draw_soiree(void) {
     tl_legend(k, lb, 2);
 }
 /* ---------- section "Outils" de la page Reglages ---------- */
-enum { TO_RECENT, TO_SUCCES, TO_SOIREE, TO_GAMES, TO_CATA, TO_CHEATS, TO_VCARD, TO_SAVES, TO_BACKUP, TO_RESTORE, TO_INFO, TO_QUIT, TO_COUNT };
-static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s", "Succ\xC3\xA8s", "Mode soir\xC3\xA9" "e",
+enum { TO_RECENT, TO_SUCCES, TO_SOIREE, TO_GUIDE, TO_GAMES, TO_CATA, TO_CHEATS, TO_VCARD, TO_SAVES, TO_BACKUP, TO_RESTORE, TO_INFO, TO_QUIT, TO_COUNT };
+static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s", "Succ\xC3\xA8s", "Mode soir\xC3\xA9" "e", "Guide de d\xC3\xA9marrage",
     "Mes jeux, applis et cartes m\xC3\xA9moire", "Catalogue d'applis (Internet)", "Cheats (\xC3\xA9" "diteur)", "Cartes m\xC3\xA9moire virtuelles (Pulse)", "Historique des sauvegardes",
     "Sauvegarder tous les r\xC3\xA9glages", "Restaurer les r\xC3\xA9glages", "Infos console", "Quitter GC Station" };
 static const char *const to_help[TO_COUNT] = {
     "Relancer un jeu en un clic.",
     "Temps de jeu, jeux diff\xC3\xA9rents, favoris, records des mini-jeux.",
     "2 \xC3\xA0 4 joueurs : un jeu et les manettes tir\xC3\xA9s au sort, les victoires compt\xC3\xA9" "es.",
+    "Les bases en 4 pages : boutons, o\xC3\xB9 mettre tes fichiers, Pulse, le t\xC3\xA9l\xC3\xA9phone.",
     "Onglet JEUX / APPS. Dans la fiche d'un jeu : Y = r\xC3\xA9glages du jeu.",
     "Homebrews \xC3\xA0 t\xC3\xA9l\xC3\xA9" "charger et installer dans SD:/apps (Swiss, CleanRip, GCMM...), avec mises \xC3\xA0 jour.",
     "Modifier et activer les cheats de tes jeux (dossier gc-mp3/cheats).",
@@ -1765,6 +1799,7 @@ static void tools_menu_input(u32 down, u32 nav, int fire) {
     case TO_RECENT: rc_open(); break;
     case TO_SUCCES: sc_open(); break;
     case TO_SOIREE: so_open(); break;
+    case TO_GUIDE: gde_open(); break;
     case TO_INFO: info_open(); break;
     case TO_QUIT: quit_requested = 1; break;
     case TO_GAMES: tab = TAB_GAMES; tab_enter(TAB_GAMES); gm_sel = GM_COUNT; break;

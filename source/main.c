@@ -185,6 +185,7 @@ static void draw_brand(f32 x, f32 y, f32 k);              /* v159 : la marque du
 static void au_player(void);                            /* v103 : Aurore : lecteur de MUSIQUE (ui_aurore2.c) */
 static int gl_view;                                     /* gclib.c : affichage de Mes jeux GameCube */
 static int gl_anim = 1;                                 /* v45 : animations de JEUX / APPS */
+static int gde_seen = 0, gde_fresh = 0;                  /* v190 : guide de demarrage vu ; carte SD neuve (pas de reglages) */
 static int gl_auto = 1;                                 /* v188 : liste des jeux verifiee a chaque ouverture (jeux ajoutes / enleves) */
 static int gapless_on = 1;                              /* v72 : enchainement sans blanc (v156 : tous les morceaux) */
 static int radio_resume = 1;                            /* v72 : la derniere radio reprend au demarrage */
@@ -4991,6 +4992,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "jeux_tri")) { for (int i = 0; i < 5; i++) if (!strcasecmp(v, gl_sort_keys[i])) gl_sort = i; }
         else if (!strcasecmp(k, "jeux_animations")) gl_anim = !has_word(v, "non");
         else if (!strcasecmp(k, "jeux_actualiser")) gl_auto = !has_word(v, "non");   /* v188 */
+        else if (!strcasecmp(k, "guide_vu")) gde_seen = !has_word(v, "non");      /* v190 */
         else if (!strcasecmp(k, "lanceur_maison_retour")) nat_igr = !has_word(v, "non");
         else if (!strcasecmp(k, "resident_carte_virtuelle")) nat_card = has_word(v, "non") ? 0 : strchr(v, 'b') || strchr(v, 'B') ? 2 : 1;   /* (v122 : "a+b" = slots A et B) */
         else if (!strcasecmp(k, "resident_carte_par_region")) nat_card_reg = !has_word(v, "non");
@@ -5017,7 +5019,7 @@ static void load_settings(void) {
     ui_lang_apply();
     if (!sd_ok) return;
     FILE *f = fopen(SETTINGS_FILE, "r");
-    if (!f) { save_settings(); return; }
+    if (!f) { gde_fresh = 1; save_settings(); return; }   /* (v190 : premier lancement : le guide) */
     char line[NAME_LEN + 64];
     while (fgets(line, sizeof(line), f)) {
         char *t = trim(line);
@@ -5118,7 +5120,7 @@ static void save_settings(void) {
     fprintf(f, "# Paroles dans le lecteur : spectre / paroles / les_deux ; eclair sur les basses (mode soiree) : partout / sauf_spectrogramme / jamais\n"
                "paroles_affichage = %s\neclair_basses = %s\nrythme_decalage = %d\n", lyr_keys[lyr_show], flash_keys[flash_mode], rg_offset);
     fprintf(f, "# Jeux GameCube : tri (az / recents / taille / region) ; animations de JEUX / APPS (oui / non)\n"
-               "jeux_tri = %s\njeux_animations = %s\njeux_actualiser = %s\n", gl_sort_keys[gl_sort % 5], gl_anim ? "oui" : "non", gl_auto ? "oui" : "non");
+               "jeux_tri = %s\njeux_animations = %s\njeux_actualiser = %s\nguide_vu = %s\n", gl_sort_keys[gl_sort % 5], gl_anim ? "oui" : "non", gl_auto ? "oui" : "non", gde_seen ? "oui" : "non");
     fprintf(f, "# Pulse (X) : A+Z+START = retour a GC Station (oui / non)\nlanceur_maison_retour = %s\n", nat_igr ? "oui" : "non");
     fprintf(f, "# Pulse (X) : cartes memoire virtuelles (gc-mp3/resident/carte-A.raw ; a+b : aussi carte-B.raw au slot B)\nresident_carte_virtuelle = %s\n", nat_card >= 2 ? "a+b" : nat_card ? "oui" : "non");
     fprintf(f, "# Pulse : une carte par region du jeu (carte-A-EUR.raw, -USA, -JAP)\nresident_carte_par_region = %s\n", nat_card_reg ? "oui" : "non");
@@ -13401,6 +13403,7 @@ int main(int argc, char **argv) {
     if (sd_ok) { say("   Musique de la carte SD... %s", ""); scan_files(); { char nb[16]; snprintf(nb, sizeof(nb), "%d", nfiles); say("%s\n", nb); } bt_step("liste de la musique"); }
     if (sd_ok) { say("   Bibliotheque... %s", ""); bib_load(); pl_load_all(); stats_load(); rating_load(); say("%s\n", "OK"); bt_step("bibliotheque"); }
     if (sd_ok) nat_journal_convert();       /* v54 : journal du dernier jeu lance par le lanceur maison */
+    if (gde_fresh && !gde_seen) gde_open();    /* v190 : carte SD neuve : le guide de demarrage */
     if (sd_ok && !sd_virtual) remove(GCD "/natif/captures.bin");   /* v185 : captures enlevees (fichier de 6 Mo devenu inutile) */
     bt_step("journal Pulse");
     say("   Radios... %s", "");

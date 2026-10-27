@@ -1191,7 +1191,7 @@ static void x73_games_build(void) {
         sb_add(&s, "[");
         text_display(gl[k].title, d, sizeof(d)); x73_json_raw(&s, d); sb_add(&s, ",");
         snprintf(m, sizeof(m), "%.6s", gl[k].id); x73_json_raw(&s, m);
-        snprintf(m, sizeof(m), ",%u,%u]", (unsigned)gl[k].runs, (unsigned)(gl[k].play / 60));
+        snprintf(m, sizeof(m), ",%u,%u,%u,%u]", (unsigned)gl[k].runs, (unsigned)(gl[k].play / 60), (unsigned)gl[k].fav, (unsigned)gl[k].last);   /* (v190 : favori, dernier lancement) */
         sb_add(&s, m);
     }
     sb_add(&s, "]");
@@ -1199,6 +1199,104 @@ static void x73_games_build(void) {
     x73_gj = s.b ? s.b : strdup("[]");
     x73_gj_ready = 1;
     free(old);
+}
+/* v190 : telephone : cartes memoire virtuelles (liste, une sauvegarde en .gci, .gci ajoute, carte remplacee) */
+static int x73_vc_find(const char *card) {
+    vc_scan();
+    for (int i = 0; i < vc_nf; i++) if (!strcasecmp(vc_files[i], card)) return i;
+    return -1;
+}
+static void x73_cards_build(void) {
+    int keep = vc_cur;
+    sbuf_t s = { NULL, 0, 0 };
+    char m[200];
+    vc_scan();
+    sb_add(&s, "[");
+    for (int c = 0; c < vc_nf; c++) {
+        vc_cur = c;
+        int ok = vc_load();
+        char p[NAME_LEN]; struct stat st;
+        int exists = stat(vc_path(c, p, sizeof(p)), &st) == 0;
+        if (c) sb_add(&s, ",");
+        sb_add(&s, "{\"f\":"); x73_json_raw(&s, vc_files[c]);
+        snprintf(m, sizeof(m), ",\"a\":%d,\"x\":%d,\"ok\":%d,\"bl\":%d,\"b\":%d,\"free\":%d,\"w\":", !strcasecmp(vc_files[c], vc_active), exists, ok, !ok && vc_blank,
+                 ok ? vc_nblocks() - 5 : 0, ok ? vc_free_blocks() : 0);
+        sb_add(&s, m); x73_json_raw(&s, ok ? "" : vc_why);
+        sb_add(&s, ",\"e\":[");
+        for (int i = 0; ok && i < vc_n; i++) {
+            vc_ent *v = &vc_e[i];
+            vc_meta(v);
+            if (i) sb_add(&s, ",");
+            sb_add(&s, "["); x73_json_raw(&s, v->title); sb_add(&s, ","); x73_json_raw(&s, v->sub);
+            char id[8]; snprintf(id, sizeof(id), "%c%c%c%c%c%c", v->de[0], v->de[1], v->de[2], v->de[3], v->de[4], v->de[5]);
+            for (int k = 0; k < 6; k++) if ((u8)id[k] < 32 || (u8)id[k] > 126) id[k] = '?';
+            sb_add(&s, ","); x73_json_raw(&s, id);
+            char nm[80]; mc_safe_name(v->de, nm, sizeof(nm));
+            sb_add(&s, ","); x73_json_raw(&s, nm);
+            snprintf(m, sizeof(m), ",%d]", v->blocks); sb_add(&s, m);
+        }
+        sb_add(&s, "]}");
+        service_audio();
+    }
+    sb_add(&s, "]");
+    vc_cur = keep < vc_nf ? keep : 0;
+    if (tl_screen == TL_VCARD) vc_load();                     /* (l'ecran des cartes reste comme avant) */
+    char *old = x73_cj;
+    x73_cj = s.b ? s.b : strdup("[]");
+    x73_cj_ready = 1;
+    free(old);
+}
+static void x73_vj_pump(void) {
+    int op = x73_vj_op;
+    if (!op || x73_vj_done) return;
+    int keep = vc_cur, c = x73_vc_find(x73_vj_card);
+    x73_vj_ok = 0;
+    if (c < 0) snprintf(x73_vj_res, sizeof(x73_vj_res), "Carte introuvable");
+    else if (op == 1 || op == 2) {
+        vc_cur = c;
+        int okc = vc_load();
+        if (!okc && op == 2 && vc_blank && vc_format()) okc = vc_load();   /* (carte jamais servie : formatee pour y ajouter) */
+        if (!okc) snprintf(x73_vj_res, sizeof(x73_vj_res), "%s", vc_why[0] ? vc_why : "Carte illisible");
+        else if (op == 1) {                                   /* une sauvegarde -> SD:/gci/telephone/<nom>.gci (envoyee au telephone) */
+            long n = 0; u8 *g = x73_vj_i < vc_n ? vc_export(x73_vj_i, &n) : NULL;
+            char nm[96], dir[NAME_LEN];
+            snprintf(dir, sizeof(dir), "%s/telephone", MC_DIR);
+            mkdir(MC_DIR, 0777);
+            if (g) { char b[80]; mc_safe_name(g, b, sizeof(b)); snprintf(nm, sizeof(nm), "%s/%s.gci", dir, b); remove(nm); }
+            if (g && mc_gci_write_in(dir, g, n, nm, sizeof(nm))) { snprintf(x73_vj_res, sizeof(x73_vj_res), "%s/%s", dir, nm); x73_vj_ok = 1; }
+            else snprintf(x73_vj_res, sizeof(x73_vj_res), "Lecture de la sauvegarde impossible");
+            free(g);
+        } else {                                              /* .gci envoye dans SD:/gci -> la carte */
+            char p[NAME_LEN];
+            snprintf(p, sizeof(p), "%s/%s", MC_DIR, x73_vj_name);
+            long n = 0;
+            u8 *g = (!strchr(x73_vj_name, '/') && !strstr(x73_vj_name, "..")) ? read_file(p, 16L * 1024 * 1024, &n) : NULL;
+            const char *e = g ? vc_import(g, n) : "Fichier .gci introuvable";
+            free(g);
+            if (e) snprintf(x73_vj_res, sizeof(x73_vj_res), "%s", TR(e));
+            else { snprintf(x73_vj_res, sizeof(x73_vj_res), "%s %s", TR("Sauvegarde ajout\xC3\xA9" "e sur"), vc_files[c]); x73_vj_ok = 1; remove(p); }
+        }
+    } else {                                                  /* op 3 : la carte remplacee par un .raw envoye (l'ancienne : .bak) */
+        char src[NAME_LEN], dst[NAME_LEN], bak[NAME_LEN + 8];
+        snprintf(src, sizeof(src), "%s/%s", MC_DIR, x73_vj_name);
+        vc_path(c, dst, sizeof(dst));
+        snprintf(bak, sizeof(bak), "%s.bak", dst);
+        struct stat st;
+        if (strchr(x73_vj_name, '/') || strstr(x73_vj_name, "..") || stat(src, &st) != 0) snprintf(x73_vj_res, sizeof(x73_vj_res), "Fichier introuvable");
+        else if (st.st_size < 0x80000 || st.st_size > 0x1000000 || (st.st_size & (st.st_size - 1))) { snprintf(x73_vj_res, sizeof(x73_vj_res), "%s", TR("Ce fichier n'est pas une image de carte (512 Ko \xC3\xA0 16 Mo)")); remove(src); }
+        else {
+            mkdir(NA_CARD_DIR, 0777);
+            remove(bak);
+            struct stat sd;
+            int had = stat(dst, &sd) == 0;
+            if (had && rename(dst, bak) != 0) snprintf(x73_vj_res, sizeof(x73_vj_res), "\xC3\x89" "criture sur la carte SD impossible");
+            else if (rename(src, dst) != 0) { if (had) rename(bak, dst); snprintf(x73_vj_res, sizeof(x73_vj_res), "\xC3\x89" "criture sur la carte SD impossible"); }
+            else { snprintf(x73_vj_res, sizeof(x73_vj_res), "%s %s%s", TR("Carte remplac\xC3\xA9" "e :"), vc_files[c], had ? TR(" (l'ancienne : .bak)") : ""); x73_vj_ok = 1; }
+        }
+    }
+    vc_cur = keep < vc_nf ? keep : 0;
+    if (tl_screen == TL_VCARD) vc_load();
+    x73_vj_op = 0; x73_vj_done = 1;
 }
 static void x73_launch_pump(void) {
     if (x73_launch_k < 0) return;
@@ -1211,7 +1309,7 @@ static void x73_launch_pump(void) {
     tab = TAB_GAMES; tab_enter(TAB_GAMES);
     gl_sel = k;
     const char *e;
-    if (m) { e = game_boot(k, 1); nat_ld_on = 0; }      /* (ne revient pas si ca marche) */
+    if (m) e = game_boot_auto(k);                       /* (ne revient pas si ca marche ; v190 : comme A dans la fiche) */
     else { gl_status("Lancement du jeu..."); e = game_boot(k, 0); }
     gl_busy[0] = 0;
     if (e) gl_note(e);
@@ -1234,6 +1332,8 @@ static void x73_pump(void) {
     rh_capture();
     if (fun_mode == FUN_OFF || fun_mode == FUN_KARAOKE || fun_mode == FUN_WAKE) rhc_pump();
     if (x73_gj_want) { x73_gj_want = 0; x73_games_build(); }
+    if (x73_cj_want) { x73_cj_want = 0; x73_cards_build(); }   /* v190 */
+    x73_vj_pump();
     x73_launch_pump();
 }
 
