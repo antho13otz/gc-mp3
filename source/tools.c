@@ -8,7 +8,13 @@
 // Chaque outil s'ouvre en fenetre par-dessus l'ecran (tl_screen).
 
 static void indigo_game_open(const char *id, const char *title);
-enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV, TL_SAVES, TL_CATA, TL_SUCCES, TL_SOIREE, TL_GUIDE };
+enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV, TL_SAVES, TL_CATA, TL_SUCCES, TL_SOIREE, TL_GUIDE, TL_PROFILS, TL_RECAP };
+static void rcp_input(u32 down, u32 nav, int fire);   /* v191 (recap.c) */
+static void rcp_draw(void);
+static void rcp_open(void);
+static void pj_input(u32 down, u32 nav, int fire);   /* v191 (profils.c) */
+static void pj_draw_profils(void);
+static void pj_open(int boot);
 static void so_input(u32 down, u32 nav, int fire);       /* v178 : mode soiree */
 static void draw_soiree(void);
 static void so_open(void);
@@ -860,7 +866,7 @@ static f32 gm_hub_bar(f32 x, f32 y) {                      /* rend la fin (x) ; 
 }
 
 /* =================== derniers jeux lances =================== */
-#define RC_FILE GCD_PARTIES "/jeux_recents.txt"
+#define RC_FILE gp_path("jeux_recents.txt")          /* v191 : du profil actuel */
 #define RC_MAX 12
 static char rc_path[RC_MAX * 2][NAME_LEN];
 static int rc_n = 0, rc_sel = 0, rc_confirm = -1;
@@ -1531,6 +1537,8 @@ static void tools_input(u32 down, u32 nav, int fire) {
     case TL_SUCCES: sc_input(down, nav, fire); break;
     case TL_SOIREE: so_input(down, nav, fire); break;
     case TL_GUIDE: gde_input(down, nav, fire); break;
+    case TL_PROFILS: pj_input(down, nav, fire); break;
+    case TL_RECAP: rcp_input(down, nav, fire); break;
     }
 }
 static void draw_tools(void) {
@@ -1547,6 +1555,8 @@ static void draw_tools(void) {
     case TL_SUCCES: draw_succes(); break;
     case TL_SOIREE: draw_soiree(); break;
     case TL_GUIDE: draw_guide(); break;
+    case TL_PROFILS: pj_draw_profils(); break;
+    case TL_RECAP: rcp_draw(); break;
     }
 }
 
@@ -1554,7 +1564,7 @@ static void draw_tools(void) {
 /* =================== v177 : succes (START > Outils > Succes) ===================
    Calcules d'apres ce que GC Station garde deja : temps de jeu et lancements (jeux_stats.txt, mesures par Pulse),
    favoris, records des mini-jeux. Debloques : gc-mp3/mes-parties/succes.txt ("id|date"). */
-#define SC_FILE GCD_PARTIES "/succes.txt"
+#define SC_FILE gp_path("succes.txt")
 enum { SK_RUNS, SK_GAMES, SK_PLAY, SK_ONEGAME, SK_FAVS, SK_MINIALL, SK_REC };
 typedef struct { const char *id, *title, *desc; u8 kind; u32 target; const char *rec; } sc_def_t;
 static const sc_def_t sc_defs[] = {
@@ -1578,7 +1588,7 @@ static int rg_record_get(const char *path);
 static void sc_values(void) {
     u32 runs = 0, games = 0, play = 0, one = 0;
     long n = 0;
-    char *d = (char *)read_file(GCD_PARTIES "/jeux_stats.txt", 64 * 1024, &n);
+    char *d = (char *)read_file(gp_path("jeux_stats.txt"), 64 * 1024, &n);
     for (long i = 0; d && i < n; ) {
         long st = i;
         while (i < n && d[i] != '\n') i++;
@@ -1590,7 +1600,7 @@ static void sc_values(void) {
     }
     free(d);
     int favs = 0;
-    d = (char *)read_file(GCD_PARTIES "/jeux-favoris.txt", 16 * 1024, &n);
+    d = (char *)read_file(gp_path("jeux-favoris.txt"), 16 * 1024, &n);
     for (long i = 0; d && i < n; i++) if (d[i] == '\n') favs++;
     free(d);
     static const char *const recs[5] = { "jeu:snake", "jeu:snake-sans-murs", "jeu:casse-briques", "jeu:note-volante", "jeu:simon" };
@@ -1634,6 +1644,7 @@ static void sc_check(void) {
     if (nw == 1) { char m[120]; snprintf(m, sizeof(m), "Succ\xC3\xA8s d\xC3\xA9" "bloqu\xC3\xA9 : %s", sc_defs[last].title); lib_note(m); }
     else if (nw > 1) { char m[120]; snprintf(m, sizeof(m), "%d succ\xC3\xA8s d\xC3\xA9" "bloqu\xC3\xA9s (START > Outils > Succ\xC3\xA8s)", nw); lib_note(m); }
 }
+static void sc_reload(void) { sc_loaded = 0; }               /* v191 : (autre profil) */
 static void sc_open(void) { tl_screen = TL_SUCCES; sc_sel = 0; sc_top = 0; sc_loaded = 0; sc_check(); }
 static void sc_input(u32 down, u32 nav, int fire) {
     if (fire && (nav & PAD_BUTTON_DOWN)) sc_sel = (sc_sel + 1) % SC_N;
@@ -1758,12 +1769,14 @@ static void draw_soiree(void) {
     tl_legend(k, lb, 2);
 }
 /* ---------- section "Outils" de la page Reglages ---------- */
-enum { TO_RECENT, TO_SUCCES, TO_SOIREE, TO_GUIDE, TO_GAMES, TO_CATA, TO_CHEATS, TO_VCARD, TO_SAVES, TO_BACKUP, TO_RESTORE, TO_INFO, TO_QUIT, TO_COUNT };
-static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s", "Succ\xC3\xA8s", "Mode soir\xC3\xA9" "e", "Guide de d\xC3\xA9marrage",
+enum { TO_RECENT, TO_PROFILS, TO_RECAP, TO_SUCCES, TO_SOIREE, TO_GUIDE, TO_GAMES, TO_CATA, TO_CHEATS, TO_VCARD, TO_SAVES, TO_BACKUP, TO_RESTORE, TO_INFO, TO_QUIT, TO_COUNT };
+static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s", "Profils de joueurs", "Ton r\xC3\xA9" "cap", "Succ\xC3\xA8s", "Mode soir\xC3\xA9" "e", "Guide de d\xC3\xA9marrage",
     "Mes jeux, applis et cartes m\xC3\xA9moire", "Catalogue d'applis (Internet)", "Cheats (\xC3\xA9" "diteur)", "Cartes m\xC3\xA9moire virtuelles (Pulse)", "Historique des sauvegardes",
     "Sauvegarder tous les r\xC3\xA9glages", "Restaurer les r\xC3\xA9glages", "Infos console", "Quitter GC Station" };
 static const char *const to_help[TO_COUNT] = {
     "Relancer un jeu en un clic.",
+    "Un profil par joueur : sa carte m\xC3\xA9moire, ses favoris, ses succ\xC3\xA8s, son temps de jeu, sa limite par jour.",
+    "Tes morceaux, artistes et jeux pr\xC3\xA9" "f\xC3\xA9r\xC3\xA9s, ton temps de jeu, tes records (et sur le t\xC3\xA9l\xC3\xA9phone : /recap).",
     "Temps de jeu, jeux diff\xC3\xA9rents, favoris, records des mini-jeux.",
     "2 \xC3\xA0 4 joueurs : un jeu et les manettes tir\xC3\xA9s au sort, les victoires compt\xC3\xA9" "es.",
     "Les bases en 4 pages : boutons, o\xC3\xB9 mettre tes fichiers, Pulse, le t\xC3\xA9l\xC3\xA9phone.",
@@ -1800,6 +1813,8 @@ static void tools_menu_input(u32 down, u32 nav, int fire) {
     case TO_SUCCES: sc_open(); break;
     case TO_SOIREE: so_open(); break;
     case TO_GUIDE: gde_open(); break;
+    case TO_PROFILS: pj_open(0); break;
+    case TO_RECAP: rcp_open(); break;
     case TO_INFO: info_open(); break;
     case TO_QUIT: quit_requested = 1; break;
     case TO_GAMES: tab = TAB_GAMES; tab_enter(TAB_GAMES); gm_sel = GM_COUNT; break;

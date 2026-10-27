@@ -499,6 +499,48 @@ static int tp_param(const char *q, const char *key, char *out, int cap);
 static char *x73_gj = NULL;                              /* JSON des jeux (construit par la boucle : extras73.c) */
 static volatile int x73_gj_want = 0, x73_gj_ready = 0;
 static volatile int x73_launch_k = -1, x73_launch_m = 0;
+/* v191 : ton recap (page /recap du telephone ; JSON fait par la boucle : recap.c) */
+static char *x73_rj = NULL;
+static volatile int x73_rj_want = 0, x73_rj_ready = 0;
+/* v191 : ma collection (page /collection du telephone, a imprimer) */
+static const char collection_page[] =
+"<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Ma collection GameCube</title>\n"
+"<style>body{margin:0;font-family:system-ui,sans-serif;background:#120c2c;color:#fff}.w{max-width:980px;margin:auto;padding:18px 14px 40px}\n"
+"h1{margin:4px 0}.s{opacity:.75;margin:4px 0 14px}.bar{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}.bar *{font:inherit;padding:8px 12px;border-radius:10px;border:1px solid #4b3a8a;background:#241a55;color:#fff}\n"
+".g{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:12px}.g div{background:#1d1545;border-radius:10px;overflow:hidden;text-align:center;padding-bottom:8px;break-inside:avoid}\n"
+".g canvas{width:100%;display:block;background:#2a2150;aspect-ratio:3/4}.g b{display:block;font-size:13px;margin:6px 6px 2px}.g small{display:block;font-size:11px;opacity:.75}\n"
+"@media print{body{background:#fff;color:#000}.bar{display:none}.g div{background:#fff;border:1px solid #bbb}.g canvas{background:#eee}}</style></head>\n"
+"<body><div class=\"w\"><h1>Ma collection GameCube</h1><div class=\"s\" id=\"n\">Chargement...</div>\n"
+"<div class=\"bar\"><select id=\"o\" onchange=\"r()\"><option value=\"0\">A à Z</option><option value=\"1\">Temps de jeu</option><option value=\"2\">Favoris d'abord</option></select><button onclick=\"print()\">Imprimer / PDF</button></div>\n"
+"<div class=\"g\" id=\"g\"></div></div>\n"
+"<script>\n"
+"function rgb(v){return[(v>>11&31)*255/31|0,(v>>5&63)*255/63|0,(v&31)*255/31|0]}\n"
+"function mx(a,b,x,y,z){return[(a[0]*x+b[0]*y)/z|0,(a[1]*x+b[1]*y)/z|0,(a[2]*x+b[2]*y)/z|0]}\n"
+"function cmpr(buf,w,h){var d=new DataView(buf),im=new ImageData(w,h),p=im.data,o=0;for(var ty=0;ty<h;ty+=8)for(var tx=0;tx<w;tx+=8)for(var s=0;s<4;s++){var bx=tx+(s&1)*4,by=ty+(s>>1)*4,c0=d.getUint16(o),c1=d.getUint16(o+2),bt=d.getUint32(o+4);o+=8;var a=rgb(c0),b=rgb(c1),cs=c0>c1?[a,b,mx(a,b,2,1,3),mx(a,b,1,2,3)]:[a,b,mx(a,b,1,1,2),[0,0,0,0]];for(var y=0;y<4;y++)for(var x=0;x<4;x++){var c=cs[(bt>>>(30-2*(y*4+x)))&3],q=((by+y)*w+bx+x)*4;p[q]=c[0];p[q+1]=c[1];p[q+2]=c[2];p[q+3]=c.length>3?c[3]:255}}return im}\n"
+"var J=[],Q=[];function d(m){return m>=60?Math.floor(m/60)+\" h \"+String(m%60).padStart(2,\"0\"):m+\" min\"}\n"
+"function nx(){var x=Q.shift();if(!x)return;fetch(\"/api/cover?i=\"+x[0]).then(r=>{if(!r.ok)throw 0;var s=(r.headers.get(\"X-Size\")||\"256x256x192x256\").split(\"x\");return r.arrayBuffer().then(b=>[b,+s[0],+s[1],+s[2]||+s[0],+s[3]||+s[1]])}).then(a=>{var im=cmpr(a[0],a[1],a[2]),c=x[1];c.width=a[3];c.height=a[4];c.getContext(\"2d\").putImageData(im,0,0)}).catch(()=>{}).finally(nx)}\n"
+"function r(){var o=+document.getElementById(\"o\").value,L=J.slice();L.sort(o==1?(a,b)=>b[3]-a[3]:o==2?(a,b)=>(b[4]-a[4])||a[0].localeCompare(b[0]):(a,b)=>a[0].localeCompare(b[0]));var G=document.getElementById(\"g\");G.innerHTML=\"\";Q=[];\n"
+"L.forEach(g=>{var e=document.createElement(\"div\"),c=document.createElement(\"canvas\");c.width=96;c.height=128;e.appendChild(c);var b=document.createElement(\"b\");b.textContent=(g[4]?\"\\u2605 \":\"\")+g[0];e.appendChild(b);var s=document.createElement(\"small\");s.textContent=g[1]+(g[3]?\" \\u00b7 \"+d(g[3]):\"\")+(g[2]?\" \\u00b7 \"+g[2]+\"x\":\"\");e.appendChild(s);G.appendChild(e);Q.push([g[6],c])});nx()}\n"
+"fetch(\"/api/games\").then(r=>r.json()).then(j=>{J=j.map((g,i)=>g.concat([i])).filter(g=>g[1]);var t=J.reduce((a,g)=>a+g[3],0);document.getElementById(\"n\").textContent=J.length+\" jeux \\u00b7 \"+d(t)+\" de jeu (Pulse) \\u00b7 GC Station\";r()})\n"
+"</script></body></html>\n"
+;
+static const char recap_page[] =
+"<!doctype html><html lang=\"fr\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\"><title>Ton récap - GC Station</title>\n"
+"<style>body{margin:0;font-family:system-ui,sans-serif;background:linear-gradient(160deg,#1b0f4a,#3b0d5c 45%,#0d2a5c);color:#fff;min-height:100vh}\n"
+".w{max-width:520px;margin:auto;padding:22px 16px 40px}h1{font-size:30px;margin:6px 0 2px}.s{opacity:.75;margin-bottom:18px}\n"
+".k{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:14px 0}.k div{background:rgba(255,255,255,.09);border-radius:14px;padding:14px 6px;text-align:center}\n"
+".k b{display:block;font-size:24px;color:#ffd27a}.k span{font-size:12px;opacity:.8}.c{background:rgba(255,255,255,.08);border-radius:16px;padding:14px 16px;margin:12px 0}\n"
+".c h2{font-size:17px;margin:0 0 8px;color:#c9b6ff}ol{margin:0;padding-left:22px}li{margin:6px 0}li small{float:right;opacity:.7}.f{text-align:center;opacity:.6;font-size:13px;margin-top:20px}</style></head>\n"
+"<body><div class=\"w\"><h1 id=\"t\">Ton récap</h1><div class=\"s\">GC Station sur ta GameCube</div>\n"
+"<div class=\"k\"><div><b id=\"pl\">-</b><span>écoutes</span></div><div><b id=\"tj\">-</b><span>de jeu</span></div><div><b id=\"sc\">-</b><span>succès</span></div></div>\n"
+"<div class=\"c\"><h2>Tes morceaux préférés</h2><ol id=\"mt\"></ol></div><div class=\"c\"><h2>Tes artistes</h2><ol id=\"ar\"></ol></div>\n"
+"<div class=\"c\"><h2>Tes jeux préférés</h2><ol id=\"je\"></ol></div><div class=\"c\"><h2>Tes records</h2><ol id=\"re\"></ol></div>\n"
+"<div class=\"f\">Fais une capture d'écran pour le partager.</div></div>\n"
+"<script>function d(s){var m=Math.floor(s/60);return m>=60?Math.floor(m/60)+\" h \"+String(m%60).padStart(2,\"0\"):m+\" min\"}\n"
+"function L(id,a,f){var o=document.getElementById(id);o.innerHTML=\"\";if(!a.length){o.innerHTML=\"<li>(rien encore)</li>\";return}a.forEach(x=>{var li=document.createElement(\"li\");li.textContent=x[0];var s=document.createElement(\"small\");s.textContent=f(x);li.appendChild(s);o.appendChild(li)})}\n"
+"fetch(\"/api/recap\").then(r=>r.json()).then(j=>{if(j.profil)document.getElementById(\"t\").textContent=\"Ton récap : \"+j.profil;document.getElementById(\"pl\").textContent=j.plays;document.getElementById(\"tj\").textContent=d(j.play);document.getElementById(\"sc\").textContent=j.sc+\"/\"+j.scn;\n"
+"L(\"mt\",j.top,x=>x[1]+\" fois\");L(\"ar\",j.art,x=>x[1]+\" fois\");L(\"je\",j.jeux,x=>d(x[1]));L(\"re\",j.rec.filter(x=>x[1]>0),x=>x[1])})</script></body></html>\n"
+;
 /* v190 : sauvegardes des cartes memoire virtuelles depuis le telephone (travail fait par la boucle : extras73.c) */
 static char *x73_cj = NULL;                              /* JSON des cartes et de leurs sauvegardes */
 static volatile int x73_cj_want = 0, x73_cj_ready = 0;
@@ -881,6 +923,15 @@ static void tp_handle(s32 c) {
         int ok = is[0] && atoi(is) >= 0;
         if (ok) { x73_launch_m = atoi(ms) == 1; x73_launch_k = atoi(is); }
         tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
+    }
+    else if (!strcmp(target, "/collection")) tp_reply(c, 200, "text/html; charset=utf-8", collection_page, (int)strlen(collection_page));   /* v191 */
+    else if (!strcmp(target, "/recap")) tp_reply(c, 200, "text/html; charset=utf-8", recap_page, (int)strlen(recap_page));   /* v191 */
+    else if (!strcmp(target, "/api/recap")) {
+        x73_rj_ready = 0; x73_rj_want = 1;
+        for (int k = 0; k < 500 && !x73_rj_ready; k++) usleep(20000);
+        char *t = x73_rj_ready && x73_rj ? strdup(x73_rj) : NULL;
+        if (t) { tp_reply(c, 200, "application/json", t, (int)strlen(t)); free(t); }
+        else tp_reply(c, 503, "application/json", "{}", 2);
     }
     else if (!strcmp(target, "/api/cards")) {                /* v190 : cartes memoire virtuelles et leurs sauvegardes */
         x73_cj_ready = 0; x73_cj_want = 1;

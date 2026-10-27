@@ -105,7 +105,7 @@ static void gm_recent_load(void) {
     gm_last_path[0] = gm_last_name[0] = 0; gm_play_total = gm_play_last = 0;
     if (!sd_ok) return;
     long n = 0;
-    char *d = (char *)read_file(GCD_PARTIES "/jeux_recents.txt", 32768, &n);
+    char *d = (char *)read_file(gp_path("jeux_recents.txt"), 32768, &n);
     if (d) {
         long i = 0;
         while (i < n && d[i] != '\n' && d[i] != '\r') i++;
@@ -117,7 +117,7 @@ static void gm_recent_load(void) {
         snprintf(gm_last_name, sizeof(gm_last_name), "%s", b);
         char *e = strrchr(gm_last_name, '.'); if (e) *e = 0;
     }
-    d = (char *)read_file(GCD_PARTIES "/jeux_stats.txt", 64 * 1024, &n);
+    d = (char *)read_file(gp_path("jeux_stats.txt"), 64 * 1024, &n);
     if (!d) return;
     u32 best = 0;
     for (long i = 0; i < n; ) {
