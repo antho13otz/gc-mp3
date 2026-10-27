@@ -17,7 +17,7 @@ for g_path in sorted(glob.glob(os.path.join(src, '*.gcb'))):
     open(os.path.join(d, 'out', 'resident', 'carte-A.raw'), 'wb').truncate(2 << 20)
     gcb.ecrire_iso(g, os.path.join(d, 'jeu.iso'))
     subprocess.run([sys.executable, os.path.join(B, 'mkfat_sparse.py'), g_path, os.path.join(d, 'sd.img'), os.path.join(W, 'selfdol.dol')], check=True, stdout=subprocess.DEVNULL)
-    env = dict(os.environ, NATIF_SELF=os.path.join(W, 'selfdol.dol'), NATIF_DUMP='boot.bin', UNICORN_DIR=os.path.join(W, 'unicorn'))
+    env = dict(os.environ, EMU_GCB=os.path.abspath(g_path), NATIF_SELF=os.path.join(W, 'selfdol.dol'), NATIF_DUMP='boot.bin', UNICORN_DIR=os.path.join(W, 'unicorn'))
     h = subprocess.run([os.path.join(W, 'h2'), 'jeu.iso', 'sd.img', '70000'], cwd=d, env=env, capture_output=True, text=True, errors='replace')
     open(os.path.join(d, 'h2.txt'), 'w').write(h.stdout + h.stderr)
     if not os.path.exists(os.path.join(d, 'boot.bin')):
@@ -27,7 +27,9 @@ for g_path in sorted(glob.glob(os.path.join(src, '*.gcb'))):
     m = re.search(r'fin : (\d+) instructions, (\d+) images', txt); img = int(m.group(2)) if m else 0
     c = re.search(r'carte virtuelle : (\d+) commandes', txt); cartes = int(c.group(1)) if c else 0
     l = re.search(r'vrai lecteur : (\d+) commandes', txt)
-    if 'ARRET DU JEU' in txt: etat = 'ARRET DU JEU (erreur du jeu : souvent un fichier pas exporte)'
+    hx = re.search(r'LECTURES HORS EXPORT : (\d+) secteurs, 1re a ([0-9A-F]+)', txt)
+    if hx and ('ARRET DU JEU' in txt or 'EXCEPTION' in txt or 'ERREUR' in txt or img < 10): etat = 'LIMITE DU BANC : lit des donnees pas exportees (%s)' % gcb.fichier(g, int(hx.group(2), 16))
+    elif 'ARRET DU JEU' in txt: etat = 'ARRET DU JEU (erreur du jeu : souvent un fichier pas exporte)'
     elif 'EXCEPTION' in txt or 'ERREUR emulateur' in txt: etat = 'PLANTAGE (voir emu.txt)'
     elif img < 10: etat = 'PAS D\'IMAGE'
     else: etat = 'tourne'

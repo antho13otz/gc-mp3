@@ -18,6 +18,22 @@ OPTS = sys.argv[5:]
 sys.argv = sys.argv[:4]
 exec(compile(src, 'emu_e2e.py', 'exec'))             # (carte SD, vrai lecteur, EXI, SI, AI : ceux du banc)
 MODE = ''
+# (v174 : banc : les lectures du jeu hors de ce qui a ete exporte sont notees : le jeu y lit des zeros, ce n'est
+#  pas la faute de Pulse)
+hors = []
+if os.environ.get('EMU_GCB') and os.path.exists(SDIMG + '.iso'):
+    sys.path.insert(0, os.path.join(T, '..', 'banc')); import gcb as _gcb
+    _g = _gcb.lire(os.environ['EMU_GCB']); ISO_SEC = int(open(SDIMG + '.iso').read())
+    _ext = sorted(_g['parts'])
+    def _exported(o):
+        for a_, l_ in _ext:
+            if a_ <= o < a_ + l_: return True
+        return False
+    _blk0 = blk
+    def blk(sec):
+        o = (sec - ISO_SEC) * 512
+        if 0 <= o < _g['iso'] and not _exported(o) and len(hors) < 1000: hors.append(o)
+        return _blk0(sec)
 
 RAM = ctypes.create_string_buffer(0x01800000)
 mu = Uc(UC_ARCH_PPC, UC_MODE_PPC32 | UC_MODE_BIG_ENDIAN)
@@ -229,7 +245,7 @@ for i in range(n):
     if dst >= 0x81000000 and sz == 0x2000 and bi2 is None: bi2 = dst
     p += sz
 mu.mem_write(0x80000000, b[p:p + 0x20])
-for a, v in ((0x80000020, 0x0D15EA5E), (0x80000024, 1), (0x80000028, 0x01800000), (0x8000002C, 1), (0x800000CC, 1),
+for a, v in ((0x80000020, 0x0D15EA5E), (0x80000024, 1), (0x80000028, 0x01800000), (0x8000002C, 1),
              (0x800000F0, 0x01800000), (0x800000F8, 162000000), (0x800000FC, 486000000)):
     if rd32(a) == 0: wr32(a, v)
 # (memoire basse comme la laisse GC Station avant le saut : natif.c, nat_run / na_lowmem)
@@ -238,6 +254,9 @@ if bi2: wr32(0x800000F4, bi2)
 wr32(0x800000D0, 0x01000000); wr32(0x800000E8, 0x81800000 - (fst[0] if fst else 0x81800000)); wr32(0x800000EC, fst[0] if fst else 0)
 wr32(0x800030C0, TB0 // 40500 // 100 + 1)              # (carte du slot A vue depuis longtemps : comme na_lowmem)
 mu.mem_write(0x800030E0, bytes([0, 6])); mu.mem_write(0x800030E9, bytes([5]))
+PAL = chr(rd32(0x80000000) & 0xFF) not in 'EJ'        # (v174 : mode video comme natif.c : PAL ou NTSC selon le jeu)
+wr32(0x800000CC, 1 if PAL else 0)
+if PAL: vi[0x02] = (vi[0x02] & ~0x300) | 0x100
 print('FST %s, bi2 %s' % (fst and '%08X (%d)' % fst, bi2 and '%08X' % bi2))
 
 # (v172 : reconnus dans n'importe quel jeu : __OSInitAudioSystem (attend le vrai DSP) sautee ; PPCHalt = arret du jeu)
@@ -484,6 +503,24 @@ def on_intr(uc, intno, data):
     exc_redirect[0] = (intno, fa); uc.emu_stop()
 mu.hook_add(UC_HOOK_INTR, on_intr)
 halted = []
+# (v174 : les fonctions qui appellent l'arret (OSPanic...) : leur message est note a l'entree)
+def cstr(a, n=120):
+    if not (0x80000000 <= a < 0x81800000): return None
+    b = bytes(mu.mem_read(a, n)); b = b.split(b'\0')[0]
+    return b.decode('latin-1') if len(b) >= 3 and all(32 <= c < 127 or c in (9, 10) for c in b) else None
+panic_msg = []
+def on_panic(uc, addr, size, data):
+    m = [x for x in (cstr(uc.reg_read(UC_PPC_REG_3 + i)) for i in range(4)) if x]
+    if m and len(panic_msg) < 4: panic_msg.append(' | '.join(m).replace('\n', ' '))
+for lo, hi in TEXT:
+    code = bytes(mu.mem_read(lo, hi - lo))
+    for o in range(0, len(code), 4):
+        ins = struct.unpack_from('>I', code, o)[0]
+        if ins >> 26 == 18 and ins & 3 == 1:
+            d = ins & 0x03FFFFFC; d = d - 0x04000000 if d & 0x02000000 else d
+            if (lo + o + d) & 0xFFFFFFFF in HALT:
+                f = func_start(lo + o)
+                if f: mu.hook_add(UC_HOOK_CODE, on_panic, begin=f, end=f)
 def on_halt(uc, addr, size, data):
     if not halted: halted.append((icount[0], uc.reg_read(UC_PPC_REG_LR), backtrace(uc.reg_read(UC_PPC_REG_1)))); uc.emu_stop()
 for a in HALT: mu.hook_add(UC_HOOK_CODE, on_halt, begin=a, end=a)
@@ -551,6 +588,7 @@ while icount[0] < end:
     if pc == STOP: print('fin du jeu (retour)'); break
     if halted:
         t_, lr_, bt_ = halted[0]
+        for m in panic_msg: print('MESSAGE DU JEU : %s' % m)
         print('ARRET DU JEU (PPCHalt : erreur du jeu, OSPanic / OSFatal) apres %d instructions, appele depuis %08X ; pile %s' % (t_, lr_, ' '.join('%08X' % x for x in bt_)))
         break
     hist[pc & ~0xFF] += 1
@@ -583,6 +621,7 @@ while icount[0] < end:
                     if pc != last + 4: print('  pas %4d %08X -> %08X msr=%08X' % (k, last, pc, mu.reg_read(UC_PPC_REG_MSR)))
                     last = pc
         elif dec['armed'] and dec_now() & 0x80000000: dec['armed'] = False; pend['dec'] += 1; pc = raise_exc(0x900)
+if hors: print('LECTURES HORS EXPORT : %d secteurs, 1re a %08X' % (len(hors), hors[0]))
 print('fin : %d instructions, %d images, interruptions %s, %d instructions paired single' % (icount[0], frames, dict(pend), nps[0]))
 H0 = 0x817F0000
 u = lambda o: rd32(H0 + o)
