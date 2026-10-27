@@ -28,6 +28,7 @@ static void early_note(u32 a, u32 v, u32 st);           /* v166 */
 #define ext_tab ((natres_ext_t *)natres_hdr.ext)
 static natres_ext_t ret_tab[NATRES_RETMAX];              /* v64 : le .dol de GC Station sur la carte */
 static natres_ext_t card_tab[NATRES_CARDMAX];            /* v65 : le fichier de la carte memoire virtuelle */
+static natres_ext_t mus_tab[NATRES_CARDMAX];             /* v179 : ta musique (fichier ADP) */
 static natres_ext_t card2_tab[NATRES_CARDMAX];           /* v122 : celui du slot B */
 static u32 si_load(u32 a);
 /* v139 : acces du jeu a la page des registres DI / SI / EXI / AI (0xCC006000) pris par exception (option) : le
@@ -68,7 +69,7 @@ natres_hdr_t natres_hdr = {
     0, 0, 0, 0,
     0, 0, { 0, 0, 0, 0 }, 0, 0,
     0, 0, 0, 0,
-    .card2_tab = (u32)card2_tab, .si_load = (u32)si_load, .si_store = (u32)si_store,   /* (v122) */
+    .card2_tab = (u32)card2_tab, .mus_tab = (u32)mus_tab, .si_load = (u32)si_load, .si_store = (u32)si_store,   /* (v122) */
 };
 #define H natres_hdr
 
@@ -1104,11 +1105,40 @@ static int st_dec(int bits, int q, int *h1, int *h2) {
     *h2 = *h1; *h1 = cur;
     return st_clamp(cur >> 6, -0x8000, 0x7fff);
 }
+/* v179 : ta musique : le bloc suivant du fichier ADP (en boucle) a la place de celui du disque */
+static u8 mus_sec[512] __attribute__((aligned(32)));
+static u32 mus_pos = 0, mus_off = 0xFFFFFFFFu;
+static const u8 *mus_block(void) {
+    if (mus_pos + 32 > H.mus_size) { mus_pos = 0; st_hl1 = st_hl2 = st_hr1 = st_hr2 = 0; }
+    u32 ms = mus_pos & ~511u;
+    if (mus_off != ms) {
+        u32 s = ms >> 9, sd = 0, ok = 0;
+        for (u32 k = 0; k < H.mus_n && k < NATRES_CARDMAX; k++)
+            if (s >= mus_tab[k].iso && s - mus_tab[k].iso < mus_tab[k].cnt) { sd = mus_tab[k].sd + (s - mus_tab[k].iso); ok = 1; break; }
+        if (!ok || nr_read_sd(sd, mus_sec)) { mus_off = 0xFFFFFFFFu; H.mus_n = 0; return 0; }   /* (fichier illisible : musique du jeu) */
+        mus_off = ms;
+    }
+    const u8 *a = mus_sec + (mus_pos - ms);
+    mus_pos += 32; H.mus_blocks++;
+    return a;
+}
 static int st_block(void) {                              /* bloc suivant (32 octets -> 28 echantillons stereo) */
     if (st_pos >= st_cur_start + st_cur_len) {
         st_pos = st_next_start; st_cur_start = st_next_start; st_cur_len = st_next_len;
         if (st_stop_end) { st_stop_end = 0; st_on = 0; return -1; }
-        st_hl1 = st_hl2 = st_hr1 = st_hr2 = 0;
+        if (!H.mus_n) st_hl1 = st_hl2 = st_hr1 = st_hr2 = 0;   /* (v179 : ta musique continue) */
+    }
+    if (H.mus_n && H.mus_size >= 64) {                   /* v179 */
+        const u8 *m = mus_block();
+        if (m) {
+            for (int i = 0; i < 28; i++) {
+                st_pcm[i * 2] = (short)st_dec(m[i + 4] & 0xF, m[0], &st_hl1, &st_hl2);
+                st_pcm[i * 2 + 1] = (short)st_dec(m[i + 4] >> 4, m[1], &st_hr1, &st_hr2);
+            }
+            st_pos += 32; st_pcm_i = 0;
+            H.st_blocks++;
+            return 0;
+        }
     }
     u32 so = st_pos & ~511u, sd;
     if (st_sec_off == 0xFFFFFFFFu || so < st_sec_off || so >= st_sec_off + st_sec_n) {
@@ -1175,19 +1205,19 @@ static u32 st_last_addr = 0xFFFFFFFFu, st_last_sum = 0, st_dsp_n = 0;
    la fin du DSP avec les echantillons suivants : la musique avancait deux fois trop vite et sautait un
    morceau sur deux (saccades). Maintenant : l'etat du decodeur est garde avant chaque ajout ; si le DSP a
    reecrit ce meme tampon, on revient a cet etat et on ajoute les memes echantillons. */
-typedef struct { u32 on, stop_end, pos, cs, clen, ns, nl, pcm_i, phase; int hl1, hl2, hr1, hr2, cl, cr, pl, pr; short pcm[56]; } stsnap_t;
+typedef struct { u32 on, stop_end, pos, cs, clen, ns, nl, pcm_i, phase, mpos; int hl1, hl2, hr1, hr2, cl, cr, pl, pr; short pcm[56]; } stsnap_t;
 static stsnap_t st_snap;
 static void st_save(u32 addr) {
     stsnap_t *s = &st_snap;
     s->on = st_on; s->stop_end = st_stop_end; s->pos = st_pos; s->cs = st_cur_start; s->clen = st_cur_len; s->ns = st_next_start; s->nl = st_next_len;
-    s->pcm_i = st_pcm_i; s->phase = st_phase; s->hl1 = st_hl1; s->hl2 = st_hl2; s->hr1 = st_hr1; s->hr2 = st_hr2; s->cl = st_cl; s->cr = st_cr; s->pl = st_pl; s->pr = st_pr;
+    s->mpos = mus_pos; s->pcm_i = st_pcm_i; s->phase = st_phase; s->hl1 = st_hl1; s->hl2 = st_hl2; s->hr1 = st_hr1; s->hr2 = st_hr2; s->cl = st_cl; s->cr = st_cr; s->pl = st_pl; s->pr = st_pr;
     for (int i = 0; i < 56; i++) s->pcm[i] = st_pcm[i];
     st_snap_addr = addr;
 }
 static void st_load(void) {
     const stsnap_t *s = &st_snap;
     st_on = s->on; st_stop_end = s->stop_end; st_pos = s->pos; st_cur_start = s->cs; st_cur_len = s->clen; st_next_start = s->ns; st_next_len = s->nl;
-    st_pcm_i = s->pcm_i; st_phase = s->phase; st_hl1 = s->hl1; st_hl2 = s->hl2; st_hr1 = s->hr1; st_hr2 = s->hr2; st_cl = s->cl; st_cr = s->cr; st_pl = s->pl; st_pr = s->pr;
+    mus_pos = s->mpos; st_pcm_i = s->pcm_i; st_phase = s->phase; st_hl1 = s->hl1; st_hl2 = s->hl2; st_hr1 = s->hr1; st_hr2 = s->hr2; st_cl = s->cl; st_cr = s->cr; st_pl = s->pl; st_pr = s->pr;
     for (int i = 0; i < 56; i++) st_pcm[i] = s->pcm[i];
 }
 static u32 st_sum(const u32 *w, u32 n) { u32 s = 0x9E3779B9u; for (u32 i = 0; i < n; i++) s = (s ^ w[i]) * 0x01000193u; return s; }
