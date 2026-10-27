@@ -113,6 +113,12 @@ typedef struct {
     unsigned int exi_wait;                                /* lectures de la carte SD remises a plus tard : le jeu se servait du bus */
     unsigned int exi_sync;                                /* lectures faites en attendant que le jeu libere le bus (lecture immediate) */
     unsigned int tramp_end;                               /* v159 : (GC Station) fin de la place des aiguillages (0 = sous la table des morceaux) */
+    /* v175 : captures d'ecran en jeu (L + R + Z) : fichier natif/captures.bin d'un seul morceau (au-dela de 0x1F0 : pas
+       dans le journal) */
+    unsigned int shot_sec;                                /* (GC Station) 1er secteur du fichier (0 = pas de captures) */
+    unsigned int shot_max;                                /* (GC Station) nombre de places */
+    unsigned int shot_n;                                  /* captures faites */
+    unsigned int shot_last;                               /* derniere : largeur << 16 | hauteur (0 = image pas trouvee) */
 } natres_hdr_t;
 /* v143 : reglages du reseau (ranges par GC Station dans la place libre du resident) */
 typedef struct {
@@ -174,6 +180,12 @@ enum { NRT_OFF = 0, NRT_ON = 1, NRT_BAT = 2, NRT_BAT2 = 3, NRT_MMU = 4, NRT_VEC 
 #define NATRES_SNAP_MAGIC 0x4743534Du       /* "GCSM" */
 #define NATRES_SNAP_SECS  704               /* taille du fichier : 704 secteurs (352 Ko) */
 
-typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x1F0 ? 1 : -1];   /* v145 : 0x1F0 + 1 x 16 = 0x200 */
+typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x200 ? 1 : -1];   /* v175 : 0x1F0 dans le journal + 1 x 16 = 0x200 ; puis les captures */
+#define NATRES_JHDR 0x1F0u                  /* v175 : partie de l'en-tete ecrite dans le journal */
+/* v175 : captures : par place, 1 secteur d'en-tete {"SHOT", largeur, hauteur, octets par ligne, ID du jeu (8), image (VI),
+   format 0 = YUYV} puis l'image telle que l'ecran la montre (YUV 4:2:2), 640 x 576 au plus */
+#define NATRES_SHOT_MAGIC 0x53484F54u       /* "SHOT" */
+#define NATRES_SHOT_SECS  (1 + 640 * 576 * 2 / 512)
+#define NATRES_SHOT_MAX   8
 
 #endif

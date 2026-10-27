@@ -476,9 +476,9 @@ static void nr_log_flush(void) {
         if (!di_ready) return;
     }
     const u8 *p = (const u8 *)&H;
-    for (u32 i = 0; i < sizeof(natres_hdr_t); i++) logbuf[i] = p[i];
+    for (u32 i = 0; i < NATRES_JHDR; i++) logbuf[i] = p[i];
     for (u32 k = 0; k < NATRES_LOGN; k++) {                     /* le plus ancien d'abord */
-        u32 j = (H.nlog + k) % NATRES_LOGN, *d = (u32 *)(logbuf + sizeof(natres_hdr_t) + k * 16);
+        u32 j = (H.nlog + k) % NATRES_LOGN, *d = (u32 *)(logbuf + NATRES_JHDR + k * 16);
         for (int w = 0; w < 4; w++) d[w] = log_ring[j][w];
     }
     nr_write_sd(H.log_sec, logbuf);
@@ -993,13 +993,42 @@ static void si_hook(u32 irq, u32 ctx) {
     igr_ctx = ctx;
     igr_poll();
 }
+/* v175 : capture d'ecran : L + R + Z tenus (pas A + START : c'est le retour). L'image que l'ecran montre (XFB, adresse
+   dans le registre TFBL de VI ; largeur et pas d'apres PICCONF ; lignes d'apres VTR) est ecrite telle quelle dans la
+   place suivante de natif/captures.bin ; GC Station la convertit en PNG (SD:/photos/captures) au retour. */
+static u8 shot_buf[512] __attribute__((aligned(32)));
+static u8 shot_hold = 0;
+static void shot_take(void) {
+    if (!H.shot_sec || H.shot_n >= H.shot_max || exi_defer()) return;
+    if (!di_ready) { if (H.net) return; di_ready = nr_init() == 0; if (!di_ready) return; }
+    volatile unsigned short *vr = (volatile unsigned short *)0xCC002000u;
+    u32 tfbl = (u32)vr[0x1C / 2] << 16 | vr[0x1E / 2];
+    u32 a = tfbl & 0x10000000u ? (tfbl & 0x00FFFFFFu) << 5 : tfbl & 0x00FFFFFFu;
+    u32 pc = vr[0x48 / 2], wpl = (pc >> 8) & 0x7F, std = pc & 0xFF, acv = (vr[0] >> 4) & 0x3FF;
+    u32 w = wpl * 16, h = std == wpl * 2 ? acv * 2 : acv, line = w * 2;
+    if (!w || !h || w > 640 || a < 0x3100 || a + line * h > 0x01800000u) { H.shot_last = 0; return; }
+    if (h > 576) h = 576;
+    u32 sec = H.shot_sec + H.shot_n * NATRES_SHOT_SECS, n = (line * h + 511) / 512;
+    for (u32 i = 0; i < 512; i++) shot_buf[i] = 0;
+    u32 hd[8] = { NATRES_SHOT_MAGIC, w, h, line, *(volatile u32 *)0x80000000u, *(volatile u32 *)0x80000004u, H.vi_count, 0 };
+    for (int i = 0; i < 8; i++) { shot_buf[i * 4] = (u8)(hd[i] >> 24); shot_buf[i * 4 + 1] = (u8)(hd[i] >> 16); shot_buf[i * 4 + 2] = (u8)(hd[i] >> 8); shot_buf[i * 4 + 3] = (u8)hd[i]; }
+    const volatile u8 *src = (const volatile u8 *)(0xC0000000u | a);   /* (sans le cache : l'image vient du processeur graphique) */
+    for (u32 k = 0; k < n; k++) {
+        for (u32 i = 0; i < 512; i++) shot_buf[i] = (k * 512 + i < line * h) ? src[k * 512 + i] : 0x80;
+        if (nr_write_sd(sec + 1 + k, shot_buf)) return;
+    }
+    for (u32 i = 0; i < 512; i++) shot_buf[i] = 0;
+    for (int i = 0; i < 8; i++) { shot_buf[i * 4] = (u8)(hd[i] >> 24); shot_buf[i * 4 + 1] = (u8)(hd[i] >> 16); shot_buf[i * 4 + 2] = (u8)(hd[i] >> 8); shot_buf[i * 4 + 3] = (u8)hd[i]; }
+    if (nr_write_sd(sec, shot_buf)) return;              /* (en-tete en dernier : une place a moitie ecrite reste vide) */
+    H.shot_n++; H.shot_last = w << 16 | h;
+}
 static void igr_poll(void) { igr_poll2(1); }
 /* count = 0 : ne compte que le temps (interruption du son : trop frequente pour compter les lectures) */
 static void igr_poll2(int count) {
     if (!(H.flags & NRF_IGR)) return;
     volatile u32 *si = HW6(0xCC006400u);
     static u8 igr_ch[4];                                 /* v99 : derniere chose vue sur chaque port (1 = A+Z+START tenus) */
-    int on = 0, seen = 0;
+    int on = 0, seen = 0, shot = 0;
     u32 sr = si[14];                                     /* SISR (lecture sans effet) */
     for (int ch = 0; ch < 4; ch++) {
         /* v58 : lire SICnINBUFH efface le drapeau "donnees neuves" (RDST) : si le jeu ne les a
@@ -1017,6 +1046,7 @@ static void igr_poll2(int count) {
         if ((b & 0x80000000u) || !(b & 0x00800000u)) { igr_ch[ch] = 0; continue; }   /* (pas de manette) */
         seen = 1;
         igr_ch[ch] = (b & 0x11000000u) == 0x11000000u && (b & 0x00100000u);   /* A + START, Z */
+        if ((b & 0x00700000u) == 0x00700000u && !(b & 0x11000000u)) shot = 1;   /* v175 : L + R + Z (capture) */
     }
     for (int ch = 0; ch < 4; ch++) if (igr_ch[ch]) on = 1;   /* (port saute cette fois : son dernier etat) */
     u32 now = tbl();
@@ -1024,6 +1054,8 @@ static void igr_poll2(int count) {
        l'etat. Avant, cela remettait le compte a zero : tres frequent depuis l'interruption du son (v89),
        A+Z+START n'etait jamais tenu 1 s "sans interruption" et ne marchait dans aucun jeu. */
     if (!seen) return;
+    if (shot && !shot_hold) { shot_hold = 1; shot_take(); }   /* v175 : une capture par appui */
+    else if (!shot) shot_hold = 0;
     if (!on) { igr_hold = 0; return; }
     if (!igr_hold) { igr_t0 = now; igr_hold = 1; }
     if (count) igr_hold++;

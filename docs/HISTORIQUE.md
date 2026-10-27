@@ -21,6 +21,18 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v175 — captures d'écran en jeu
+- Résident : L + R + Z tenus (sans A + START) → l'image affichée (XFB : adresse dans TFBL, largeur et pas d'après PICCONF,
+  lignes d'après VTR ; lue sans le cache) est écrite dans la place suivante de `natif/captures.bin` (8 places de
+  1 + 1440 secteurs, d'un seul morceau, préparé par GC Station au lancement), en-tête « SHOT » écrit en dernier.
+  En-tête du résident agrandi à 0x200 (`shot_sec`, `shot_max`, `shot_n`, `shot_last`) ; le journal n'en écrit que les
+  0x1F0 premiers octets (`NATRES_JHDR`), format du journal inchangé.
+- GC Station : au démarrage, chaque place remplie devient `photos/captures/<ID>-<n>.png` (YUV 4:2:2 → RGB, PNG
+  compressé par deflate.c), puis la place est vidée.
+- Banc (tools) : police de la console faite ici (romfont.py, glyphes vides, Yay0) servie sur l'EXI comme la ROM ;
+  lectures hors export notées avec le nom du fichier ; message d'erreur du jeu (OSPanic) ; mode vidéo du jeu ; jeux
+  en parallèle ; cache verrouillé du Gekko.
+
 ## Nouveautés v173 — banc d'essai : rapide pour tous, complet pour un jeu
 - Options > « Banc d'essai rapide (tous) » : en-tête, apploader, main.dol et FST seulement (la taille du disque est
   quand même calculée d'après la FST) ; l'export complet (petits fichiers, début des gros, 16 Mo au plus) est fait

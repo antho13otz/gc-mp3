@@ -14,18 +14,15 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v173)
+## Nouveautés de la version actuelle (v175)
+- **Captures d'écran en jeu** (jeux lancés avec Pulse) : **L + R + Z** enregistre l'image du jeu (8 par partie au
+  plus). Au retour dans GC Station, elles apparaissent dans PHOTOS, dossier `photos/captures` (`<ID>-0001.png`…).
+
+## Version précédente (v173)
 - **Banc d'essai plus rapide** : Jeux > Options (Y) > « Banc d'essai rapide (tous) » n'exporte plus que le programme
   et la table des fichiers de chaque jeu (environ une seconde par jeu, quelques Mo au total).
 - **Banc d'essai d'un seul jeu** : R sur la fiche d'un jeu (l'analyse Pulse) écrit aussi son image complète dans
   `gc-mp3/banc/`, pour tester à fond le jeu qui pose problème.
-
-## Version précédente (v172)
-- **Banc d'essai des jeux** (Jeux > Options (Y) > « Banc d'essai (export) ») : GC Station prépare dans
-  `gc-mp3/banc/` une image réduite de chaque jeu (programme, table des fichiers, petits fichiers, début des
-  gros : quelques Mo) et `index.txt`. Envoie ce dossier : sur PC, chaque jeu démarre avec Pulse dans un
-  émulateur (`tools/banc/banc.py`), et le rapport dit jusqu'où il va (démarrage, lectures, carte mémoire) et où il
-  bloque, avant même de le lancer sur la console.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

@@ -756,6 +756,97 @@ static u32 nat_snap_prep(void) {
     if (!ok || nat_map(NA_SNAP, e, sizeof(e)) || na_next != 1 || na_ext[0].cnt < NATRES_SNAP_SECS) return 0;
     return na_ext[0].sd;
 }
+/* v175 : captures d'ecran en jeu (L + R + Z) : natif/captures.bin, d'un seul morceau, en-tetes des places remis a zero */
+#define NA_SHOTS NA_DIR "/captures.bin"
+static void na_wbe32(u8 *p, u32 v);
+#ifdef SD_ROOT
+#define NA_PHOTOS SD_ROOT "/photos"
+#else
+#define NA_PHOTOS GCD "/photos"                          /* (banc d'essai du PC) */
+#endif
+static u32 nat_shot_prep(void) {
+    if (sd_virtual) return 0;
+    const long want = (long)NATRES_SHOT_MAX * NATRES_SHOT_SECS * 512;
+    struct stat st;
+    static u8 z[4096];
+    memset(z, 0, sizeof(z));
+    FILE *f = NULL;
+    int ok = 1;
+    if (stat(NA_SHOTS, &st) == 0 && st.st_size == want && (f = fopen(NA_SHOTS, "r+b"))) {
+        for (int i = 0; ok && i < NATRES_SHOT_MAX; i++) ok = fseek(f, (long)i * NATRES_SHOT_SECS * 512, SEEK_SET) == 0 && fwrite(z, 1, 512, f) == 512;
+    } else {
+        f = fopen(NA_SHOTS, "wb");
+        if (!f) return 0;
+        for (long o = 0; ok && o < want; o += sizeof(z)) ok = fwrite(z, 1, sizeof(z), f) == sizeof(z);
+    }
+    fclose(f);
+    char e[80];
+    if (!ok || nat_map(NA_SHOTS, e, sizeof(e)) || na_next != 1 || na_ext[0].cnt < (u32)NATRES_SHOT_MAX * NATRES_SHOT_SECS) return 0;
+    return na_ext[0].sd;
+}
+static u32 shot_crc_tab[256];
+static u32 shot_crc(u32 c, const u8 *p, u32 n) {
+    if (!shot_crc_tab[1]) for (u32 i = 0; i < 256; i++) { u32 v = i; for (int k = 0; k < 8; k++) v = v & 1 ? 0xEDB88320u ^ (v >> 1) : v >> 1; shot_crc_tab[i] = v; }
+    c = ~c;
+    while (n--) c = shot_crc_tab[(c ^ *p++) & 0xFF] ^ (c >> 8);
+    return ~c;
+}
+static void shot_chunk(FILE *f, const char *type, const u8 *d, u32 n) {
+    u8 b[8]; na_wbe32(b, n); memcpy(b + 4, type, 4);
+    fwrite(b, 1, 8, f); if (n) fwrite(d, 1, n, f);
+    u32 c = shot_crc(0, b + 4, 4); c = shot_crc(c, d, n);
+    na_wbe32(b, c); fwrite(b, 1, 4, f);
+}
+static u8 shot_clamp(int v) { return v < 0 ? 0 : v > 255 ? 255 : (u8)v; }
+/* au demarrage de GC Station : les captures du dernier jeu -> SD:/photos/captures/<ID>-<n>.png */
+static int nat_shots_convert(void) {
+    FILE *f = fopen(NA_SHOTS, "r+b");
+    if (!f) return 0;
+    static u8 hd[512];
+    int done = 0;
+    for (int slot = 0; slot < NATRES_SHOT_MAX; slot++) {
+        long base = (long)slot * NATRES_SHOT_SECS * 512;
+        if (fseek(f, base, SEEK_SET) || fread(hd, 1, 512, f) != 512 || be32(hd) != NATRES_SHOT_MAGIC) continue;
+        u32 w = be32(hd + 4), h = be32(hd + 8), line = be32(hd + 12);
+        if (!w || !h || w > 640 || h > 576 || line < w * 2 || line * h > (NATRES_SHOT_SECS - 1) * 512u) continue;
+        u8 *yuv = (u8 *)malloc(line * h), *raw = (u8 *)malloc((w * 3 + 1) * h), *z = (u8 *)malloc((w * 3 + 1) * h + 1024);
+        if (yuv && raw && z && fread(yuv, 1, line * h, f) == line * h) {
+            for (u32 y = 0; y < h; y++) {
+                u8 *o = raw + y * (w * 3 + 1); *o++ = 0;
+                const u8 *p = yuv + y * line;
+                for (u32 x = 0; x < w; x += 2, p += 4) {
+                    int u = p[1] - 128, v = p[3] - 128;
+                    for (int k = 0; k < 2; k++) {
+                        int yy = (p[k * 2] - 16) * 298;
+                        *o++ = shot_clamp((yy + 409 * v + 128) >> 8);
+                        *o++ = shot_clamp((yy - 100 * u - 208 * v + 128) >> 8);
+                        *o++ = shot_clamp((yy + 516 * u + 128) >> 8);
+                    }
+                }
+            }
+            u32 nz = df_zlib(raw, (w * 3 + 1) * h, z, (w * 3 + 1) * h + 1024);
+            char id[7] = { 0 }; memcpy(id, hd + 16, 6);
+            for (int i = 0; i < 6; i++) if (!isalnum((unsigned char)id[i])) id[i] = '_';
+            mkdir(NA_PHOTOS, 0777); mkdir(NA_PHOTOS "/captures", 0777);
+            char pth[NAME_LEN]; struct stat st;
+            for (int n = 1; n < 10000; n++) { snprintf(pth, sizeof(pth), NA_PHOTOS "/captures/%s-%04d.png", id, n); if (stat(pth, &st)) break; }
+            FILE *o = nz ? fopen(pth, "wb") : NULL;
+            if (o) {
+                static const u8 sig[8] = { 0x89, 'P', 'N', 'G', 13, 10, 26, 10 };
+                u8 ih[13]; na_wbe32(ih, w); na_wbe32(ih + 4, h); ih[8] = 8; ih[9] = 2; ih[10] = ih[11] = ih[12] = 0;
+                fwrite(sig, 1, 8, o); shot_chunk(o, "IHDR", ih, 13); shot_chunk(o, "IDAT", z, nz); shot_chunk(o, "IEND", NULL, 0);
+                fclose(o); done++;
+            }
+        }
+        free(yuv); free(raw); free(z);
+        memset(hd, 0, 512);
+        if (!fseek(f, base, SEEK_SET)) fwrite(hd, 1, 512, f);   /* (place videe : pas convertie deux fois) */
+    }
+    fclose(f);
+    if (done) crumb("captures : %d image(s) dans photos/captures", done);
+    return done;
+}
+
 /* v84 : mode video de la console (0x800000CC), normalement mis par le menu de la console (BIOS).
    GC Station demarre sans lui : la valeur restait 0 (NTSC) et les jeux PAL s'arretaient expres
    au demarrage (VIConfigure : "Tried to change mode ... which is forbidden" ; Wind Waker PAL).
@@ -2802,6 +2893,7 @@ static const char *nat_boot(int k) {
     int cards = nat_card_prep(in.id);                      /* v65 : carte memoire virtuelle ; v122 : bit 1 = slot B aussi */
     int card_on = cards != 0;
     u32 snap_sec = nat_snap_prep();                        /* v83 : photo de la memoire au plantage */
+    u32 shot_sec = nat_shot_prep();                        /* v175 : captures d'ecran en jeu (L + R + Z) */
     u32 log_sec = nat_journal_prep();                      /* v54 : journal du jeu (un secteur de la carte) */
     na_n2 = 0; na_disc2_msg[0] = 0;                        /* v121 : l'autre disque (jeux a 2 disques) */
     int k2 = na_net_on ? -1 : na_disc2(k);
@@ -2886,6 +2978,7 @@ static const char *nat_boot(int k) {
                 na_wbe32(r + 0x150, snap_sec); na_wbe32(r + 0x154, NATRES_SNAP_SECS); na_wbe32(r + 0x158, in.hi);
                 na_wbe32(r + 0x48, be32(r + 0x48) | NRF_SNAP);
             }
+            if (shot_sec) { na_wbe32(r + offsetof(natres_hdr_t, shot_sec), shot_sec); na_wbe32(r + offsetof(natres_hdr_t, shot_max), NATRES_SHOT_MAX); }   /* v175 */
             u32 ro = be32(r + 0xE4) - NATRES_AT;                            /* (natres_hdr_t.ret_tab) */
             if (na_ret_n && ro + na_ret_n * 12 <= NATRES_SIZE) {             /* v64 : .dol de GC Station */
                 na_wbe32(r + 0xE0, na_ret_n); na_wbe32(r + 0xE8, na_ret_size);

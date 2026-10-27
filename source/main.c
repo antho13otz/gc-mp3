@@ -13340,6 +13340,7 @@ int main(int argc, char **argv) {
     if (sd_ok) { say("   Musique de la carte SD... %s", ""); scan_files(); { char nb[16]; snprintf(nb, sizeof(nb), "%d", nfiles); say("%s\n", nb); } bt_step("liste de la musique"); }
     if (sd_ok) { say("   Bibliotheque... %s", ""); bib_load(); pl_load_all(); stats_load(); rating_load(); say("%s\n", "OK"); bt_step("bibliotheque"); }
     if (sd_ok) nat_journal_convert();       /* v54 : journal du dernier jeu lance par le lanceur maison */
+    if (sd_ok) nat_shots_convert();         /* v175 : captures d'ecran du dernier jeu (photos/captures) */
     bt_step("journal Pulse");
     say("   Radios... %s", "");
     load_stations();
