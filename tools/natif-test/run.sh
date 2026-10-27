@@ -95,3 +95,11 @@ python3 $T/emu_e2e.py boot.bin sd.img game.iso lan | tail -1
 # v167 : BSS mis a zero avant le saut (Crash Bandicoot GCBP7D) : morceaux hors des sections, puis le programme de saut
 awk '/^static u32 na_bss_gaps\(/{f=1} f{print} f&&/^}$/{exit}' $R/source/natif.c > na_bss_gaps.inc && gcc -O1 -Wall -I. -o t167 $T/t167.c && ./t167 | tail -1
 python3 $T/t167stub.py $R/source/natif.c | tail -1
+# v180 : capture d'ecran en jeu (L + R + Z) et ta musique a la place de celle du disque (fichier ADP sur la carte)
+python3 -c "import random; random.seed(3); open('mus.adp','wb').write(bytes([0x23, 0x31, 0x23, 0x31] + [random.randrange(256) for _ in range(28)]) * 64)"
+mkdir -p out/musique-jeux && cp mus.adp out/musique-jeux/GE2E01.adp
+MKFAT_SHOTS=1 MKFAT_MUS=mus.adp python3 $T/mkfat.py 32 game.iso sd-h.img 1 selfdol.dol 2097152 >/dev/null
+NATIF_SELF=selfdol.dol NATIF_DUMP=boot-h.bin ./h2 game.iso sd-h.img 10 > h2-h.txt
+MKFAT_MUS=mus.adp python3 $T/emu_e2e.py boot-h.bin sd-h.img game.iso shot | tail -1
+MKFAT_MUS=mus.adp python3 $T/emu_e2e.py boot-h.bin sd-h.img game.iso mus | tail -1
+rm -f out/musique-jeux/GE2E01.adp

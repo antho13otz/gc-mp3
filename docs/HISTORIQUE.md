@@ -21,6 +21,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v180 — tests des nouveautés, anglais
+- Banc natif (`tools/natif-test/run.sh`, 31 tests) : mode `shot` (registres VI simulés, image 640 × 480 en 0x00700000,
+  L + R + Z sur la manette, place de `natif/captures.bin` relue : en-tête SHOT et image identique) et mode `mus`
+  (`musique-jeux/GE2E01.adp` joué à la place du disque, échantillons recalculés depuis le fichier). `mkfat.py` :
+  `MKFAT_SHOTS`, `MKFAT_MUS` ; émulateur : mémoire aussi en 0xC0000000 (sans cache), comme sur la console.
+- lang_tab.h : succès, mode soirée, accueil JEUX / APPS, banc d'essai, Outils (catalogue, historique, cheats),
+  message de mise à jour ; « 0 wins » au pluriel en anglais. Succès « Arcade » : texte raccourci (coupé avant).
+- Simulateur : accueil JEUX / APPS, Outils, Succès, Mode soirée vérifiés dans les 4 styles et en anglais.
+
 ## Nouveautés v179 — ta musique à la place de la musique du disque
 - natif.c : `gc-mp3/musique-jeux/<ID>.mp3` → `<ID>.adp` (minimp3, rééchantillonné à 48 kHz, ADPCM du disque : pour chaque
   voie et bloc de 28 échantillons, les 4 filtres et le décalage estimé ± 1 essayés en boucle fermée, le meilleur
