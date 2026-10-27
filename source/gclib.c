@@ -1423,7 +1423,7 @@ static void draw_gclib_main(void) {
                 gx_text_c(F_SMALL, x + w / 2, y + 76, buf, RGBA(130, 230, 150, 255));
             } else
             {   /* v109 : avec le logo de Pulse */
-                const char *pm = TR("Pulse : A+Z+START (1 s) = retour     L+R+Z = capture");
+                const char *pm = TR("Pulse : A + Z + START tenus 1 s = retour \xC3\xA0 GC Station");
                 f32 pw2 = (f32)text_width(F_SMALL, pm, 0);
                 pulse_logo(x + w / 2 - pw2 / 2 - 12, y + 72, 7, 0);
                 gx_text_c(F_SMALL, x + w / 2 + 6, y + 76, pm, RGBA(190, 180, 235, 255));

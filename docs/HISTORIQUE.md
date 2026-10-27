@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v185 — captures et musique en jeu enlevées
+- Pas de résultat sur la console : natres.c / natres.h remis tels qu'en v171 (avant v175 : `shot_take`, L + R + Z dans
+  `igr_poll2`, `mus_block` dans `st_block`, `mpos` dans `stsnap_t`, en-tête 0x1F0 de nouveau en entier dans le journal).
+- natif.c : `nat_shot_prep`, `nat_shots_convert` (PNG), `na_mus_*` (conversion ADP) enlevés ; main.c : `pcm_file_decode`,
+  `pf_hook`, `PCSIM_MUSCONV` enlevés (`trk_open` gardé) ; `natif/captures.bin` effacé au démarrage.
+- tools.c : succès photo1 / photo20 enlevés. Banc natif remis comme en v179 : 29 TOUT OK.
+
 ## Nouveautés v184 — supprimer un jeu
 - jeux_cfg.c : ligne `JC_N` (en plus des réglages) quand le jeu est sur la carte SD (`jc_can_del` : pas le lecteur,
   pas le GC Loader, pas la SD en mémoire) ; A deux fois en 6 s (`jc_del_arm`) ; `jc_delete` : fichier effacé, dossier

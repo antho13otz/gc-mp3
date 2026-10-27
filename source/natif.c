@@ -756,97 +756,7 @@ static u32 nat_snap_prep(void) {
     if (!ok || nat_map(NA_SNAP, e, sizeof(e)) || na_next != 1 || na_ext[0].cnt < NATRES_SNAP_SECS) return 0;
     return na_ext[0].sd;
 }
-/* v175 : captures d'ecran en jeu (L + R + Z) : natif/captures.bin, d'un seul morceau, en-tetes des places remis a zero */
-#define NA_SHOTS NA_DIR "/captures.bin"
 static void na_wbe32(u8 *p, u32 v);
-#ifdef SD_ROOT
-#define NA_PHOTOS SD_ROOT "/photos"
-#else
-#define NA_PHOTOS GCD "/photos"                          /* (banc d'essai du PC) */
-#endif
-static u32 nat_shot_prep(void) {
-    if (sd_virtual) return 0;
-    const long want = (long)NATRES_SHOT_MAX * NATRES_SHOT_SECS * 512;
-    struct stat st;
-    static u8 z[4096];
-    memset(z, 0, sizeof(z));
-    FILE *f = NULL;
-    int ok = 1;
-    if (stat(NA_SHOTS, &st) == 0 && st.st_size == want && (f = fopen(NA_SHOTS, "r+b"))) {
-        for (int i = 0; ok && i < NATRES_SHOT_MAX; i++) ok = fseek(f, (long)i * NATRES_SHOT_SECS * 512, SEEK_SET) == 0 && fwrite(z, 1, 512, f) == 512;
-    } else {
-        f = fopen(NA_SHOTS, "wb");
-        if (!f) return 0;
-        for (long o = 0; ok && o < want; o += sizeof(z)) ok = fwrite(z, 1, sizeof(z), f) == sizeof(z);
-    }
-    fclose(f);
-    char e[80];
-    if (!ok || nat_map(NA_SHOTS, e, sizeof(e)) || na_next != 1 || na_ext[0].cnt < (u32)NATRES_SHOT_MAX * NATRES_SHOT_SECS) return 0;
-    return na_ext[0].sd;
-}
-static u32 shot_crc_tab[256];
-static u32 shot_crc(u32 c, const u8 *p, u32 n) {
-    if (!shot_crc_tab[1]) for (u32 i = 0; i < 256; i++) { u32 v = i; for (int k = 0; k < 8; k++) v = v & 1 ? 0xEDB88320u ^ (v >> 1) : v >> 1; shot_crc_tab[i] = v; }
-    c = ~c;
-    while (n--) c = shot_crc_tab[(c ^ *p++) & 0xFF] ^ (c >> 8);
-    return ~c;
-}
-static void shot_chunk(FILE *f, const char *type, const u8 *d, u32 n) {
-    u8 b[8]; na_wbe32(b, n); memcpy(b + 4, type, 4);
-    fwrite(b, 1, 8, f); if (n) fwrite(d, 1, n, f);
-    u32 c = shot_crc(0, b + 4, 4); c = shot_crc(c, d, n);
-    na_wbe32(b, c); fwrite(b, 1, 4, f);
-}
-static u8 shot_clamp(int v) { return v < 0 ? 0 : v > 255 ? 255 : (u8)v; }
-/* au demarrage de GC Station : les captures du dernier jeu -> SD:/photos/captures/<ID>-<n>.png */
-static int nat_shots_convert(void) {
-    FILE *f = fopen(NA_SHOTS, "r+b");
-    if (!f) return 0;
-    static u8 hd[512];
-    int done = 0;
-    for (int slot = 0; slot < NATRES_SHOT_MAX; slot++) {
-        long base = (long)slot * NATRES_SHOT_SECS * 512;
-        if (fseek(f, base, SEEK_SET) || fread(hd, 1, 512, f) != 512 || be32(hd) != NATRES_SHOT_MAGIC) continue;
-        u32 w = be32(hd + 4), h = be32(hd + 8), line = be32(hd + 12);
-        if (!w || !h || w > 640 || h > 576 || line < w * 2 || line * h > (NATRES_SHOT_SECS - 1) * 512u) continue;
-        u8 *yuv = (u8 *)malloc(line * h), *raw = (u8 *)malloc((w * 3 + 1) * h), *z = (u8 *)malloc((w * 3 + 1) * h + 1024);
-        if (yuv && raw && z && fread(yuv, 1, line * h, f) == line * h) {
-            for (u32 y = 0; y < h; y++) {
-                u8 *o = raw + y * (w * 3 + 1); *o++ = 0;
-                const u8 *p = yuv + y * line;
-                for (u32 x = 0; x < w; x += 2, p += 4) {
-                    int u = p[1] - 128, v = p[3] - 128;
-                    for (int k = 0; k < 2; k++) {
-                        int yy = (p[k * 2] - 16) * 298;
-                        *o++ = shot_clamp((yy + 409 * v + 128) >> 8);
-                        *o++ = shot_clamp((yy - 100 * u - 208 * v + 128) >> 8);
-                        *o++ = shot_clamp((yy + 516 * u + 128) >> 8);
-                    }
-                }
-            }
-            u32 nz = df_zlib(raw, (w * 3 + 1) * h, z, (w * 3 + 1) * h + 1024);
-            char id[7] = { 0 }; memcpy(id, hd + 16, 6);
-            for (int i = 0; i < 6; i++) if (!isalnum((unsigned char)id[i])) id[i] = '_';
-            mkdir(NA_PHOTOS, 0777); mkdir(NA_PHOTOS "/captures", 0777);
-            char pth[NAME_LEN]; struct stat st;
-            for (int n = 1; n < 10000; n++) { snprintf(pth, sizeof(pth), NA_PHOTOS "/captures/%s-%04d.png", id, n); if (stat(pth, &st)) break; }
-            FILE *o = nz ? fopen(pth, "wb") : NULL;
-            if (o) {
-                static const u8 sig[8] = { 0x89, 'P', 'N', 'G', 13, 10, 26, 10 };
-                u8 ih[13]; na_wbe32(ih, w); na_wbe32(ih + 4, h); ih[8] = 8; ih[9] = 2; ih[10] = ih[11] = ih[12] = 0;
-                fwrite(sig, 1, 8, o); shot_chunk(o, "IHDR", ih, 13); shot_chunk(o, "IDAT", z, nz); shot_chunk(o, "IEND", NULL, 0);
-                fclose(o); done++;
-            }
-        }
-        free(yuv); free(raw); free(z);
-        memset(hd, 0, 512);
-        if (!fseek(f, base, SEEK_SET)) fwrite(hd, 1, 512, f);   /* (place videe : pas convertie deux fois) */
-    }
-    fclose(f);
-    if (done) crumb("captures : %d image(s) dans photos/captures", done);
-    return done;
-}
-
 /* v84 : mode video de la console (0x800000CC), normalement mis par le menu de la console (BIOS).
    GC Station demarre sans lui : la valeur restait 0 (NTSC) et les jeux PAL s'arretaient expres
    au demarrage (VIConfigure : "Tried to change mode ... which is forbidden" ; Wind Waker PAL).
@@ -2767,141 +2677,6 @@ static int na_card_map(const char *name, natres_ext_t *out, u32 *n, u32 *size, c
     snprintf(msg, cap, "active (gc-mp3/resident/%s, %u blocs)", name, (unsigned)(sz / 8192u - 5u));
     return 1;
 }
-/* ---------- v179 : ta musique a la place de la musique du disque (jeux qui jouent leur musique en streaming) ----------
-   SD:/gc-mp3/musique-jeux/<ID>.mp3 (v181 : ou .flac, .ogg, .wav, .m4a, musiques retro... : tout ce que lit l'onglet
-   MUSIQUE) -> <ID>.adp (meme format que le disque : blocs de 32 octets, 28 echantillons stereo a 48 kHz en ADPCM
-   4 bits, filtre et decalage par voie), converti une fois (refait si le fichier change : <ID>.src le decrit).
-   Le resident joue ce fichier en boucle a la place des blocs lus sur le disque (seulement si le jeu en joue). */
-#define NA_MUS_DIR GCD "/musique-jeux"
-static natres_ext_t na_mus[NATRES_MUSMAX];
-static u32 na_mus_n = 0, na_mus_size = 0;
-static char na_mus_msg[120] = "";
-#ifndef NATIF_BENCH
-static void adp_enc(const int *x, int *h1, int *h2, u8 *hdr, u8 *nib) {   /* 28 echantillons d'une voie */
-    static const int k1[4] = { 0, 0x3c, 0x73, 0x62 }, k2[4] = { 0, 0, 0x34, 0x37 };
-    long long best = -1; int bf = 0, bs = 12, bh1 = *h1, bh2 = *h2; u8 bn[28];
-    for (int f = 0; f < 4; f++) {
-        int e1 = *h1, e2 = *h2, maxr = 0;
-        for (int i = 0; i < 28; i++) {
-            int hist = (e1 * k1[f] - e2 * k2[f] + 0x20) >> 6;
-            hist = hist < -0x200000 ? -0x200000 : hist > 0x1fffff ? 0x1fffff : hist;
-            int r = x[i] * 64 - hist; if (r < 0) r = -r; if (r > maxr) maxr = r;
-            e2 = e1; e1 = x[i] * 64;
-        }
-        int sh0 = 12;
-        while (sh0 > 0 && maxr > 7 * (64 << (12 - sh0))) sh0--;
-        for (int sh = sh0 - 1; sh <= sh0 + 1; sh++) {         /* (le decalage estime et ses voisins : le meilleur) */
-            if (sh < 0 || sh > 12) continue;
-            int a1 = *h1, a2 = *h2; long long err = 0; u8 nb[28];
-            for (int i = 0; i < 28; i++) {
-                int hist = (a1 * k1[f] - a2 * k2[f] + 0x20) >> 6;
-                hist = hist < -0x200000 ? -0x200000 : hist > 0x1fffff ? 0x1fffff : hist;
-                int step = 64 << (12 - sh), r = x[i] * 64 - hist;
-                int n = r >= 0 ? (r + step / 2) / step : -((-r + step / 2) / step);
-                n = n < -8 ? -8 : n > 7 ? 7 : n;
-                int cur = ((int)(short)((n & 0xF) << 12) >> sh << 6) + hist;
-                a2 = a1; a1 = cur;
-                int o = cur >> 6; o = o < -0x8000 ? -0x8000 : o > 0x7fff ? 0x7fff : o;
-                err += (long long)(o - x[i]) * (o - x[i]);
-                nb[i] = (u8)(n & 0xF);
-            }
-            if (best < 0 || err < best) { best = err; bf = f; bs = sh; bh1 = a1; bh2 = a2; memcpy(bn, nb, 28); }
-        }
-    }
-    *hdr = (u8)(bf << 4 | bs); *h1 = bh1; *h2 = bh2; memcpy(nib, bn, 28);
-}
-/* v181 : tous les formats de l'onglet MUSIQUE (pcm_file_decode, main.c) : echantillons -> 48 kHz -> ADPCM du disque */
-#define NA_MUS_MAXS (15u * 60u)                    /* (au plus 15 min : ~50 Mo sur la carte SD) */
-static FILE *mc_out; static int mc_ok, mc_ni, mc_have, mc_pl, mc_pr, mc_lx[28], mc_rx[28], mc_h[4];
-static u32 mc_phase, mc_blocks;
-static void mc_push(const s16 *L, const s16 *R, int n, unsigned sr) {
-    u32 step = (u32)(((unsigned long long)sr << 16) / 48000u);
-    u8 blk[32];
-    for (int i = 0; i < n && mc_ok; i++) {
-        int l = L[i], r = R[i];
-        if (!mc_have) { mc_pl = l; mc_pr = r; mc_have = 1; }
-        /* (vers 48 kHz : entre l'echantillon precedent et celui-ci) */
-        while (mc_phase < 65536u && mc_ok) {
-            int t = (int)(mc_phase >> 4);
-            mc_lx[mc_ni] = mc_pl + (((l - mc_pl) * t) >> 12); mc_rx[mc_ni] = mc_pr + (((r - mc_pr) * t) >> 12);
-            if (++mc_ni == 28) {
-                adp_enc(mc_lx, &mc_h[0], &mc_h[1], &blk[0], blk + 4); u8 nl[28]; memcpy(nl, blk + 4, 28);
-                adp_enc(mc_rx, &mc_h[2], &mc_h[3], &blk[1], blk + 4);
-                for (int k = 0; k < 28; k++) blk[4 + k] = (u8)(nl[k] | blk[4 + k] << 4);
-                blk[2] = blk[0]; blk[3] = blk[1];
-                if (fwrite(blk, 1, 32, mc_out) != 32) mc_ok = 0;
-                mc_ni = 0;
-                if (++mc_blocks >= NA_MUS_MAXS * 48000u / 28u) { pcm_abort = 1; return; }
-            }
-            mc_phase += step;
-        }
-        mc_phase -= 65536u; mc_pl = l; mc_pr = r;
-    }
-    if (!mc_ok) pcm_abort = 1;
-}
-static void mc_tick(void) { nat_ld_tick(); service_audio(); }
-static int na_mus_convert(const char *src, const char *dst) {
-    char part[200]; snprintf(part, sizeof(part), "%s.part", dst);
-    mc_out = fopen(part, "wb");
-    if (!mc_out) return -1;
-    mc_ok = 1; mc_ni = mc_have = 0; mc_phase = mc_blocks = 0; memset(mc_h, 0, sizeof(mc_h));
-    int r = pcm_file_decode(src, mc_push, mc_tick);
-    if (fclose(mc_out) != 0) mc_ok = 0;
-    if (r || !mc_ok || mc_blocks < 2) { remove(part); return -1; }
-    remove(dst);
-    return rename(part, dst) == 0 ? 0 : -1;
-}
-/* fichier <ID>.<format> dans musique-jeux (pas le .adp fait par GC Station) ; rend 1 et son nom */
-static int na_mus_find(const char *id, char *name, int cap) {
-    DIR *d = opendir(NA_MUS_DIR);
-    if (!d) return 0;
-    struct dirent *e; int ok = 0;
-    while (!ok && (e = readdir(d)) != NULL) {
-        const char *n = e->d_name; size_t l = strlen(n);
-        if (l < 8 || n[0] == '.' || strncasecmp(n, id, 6) || n[6] != '.') continue;
-        if (!strcasecmp(n + 6, ".adp") || !strcasecmp(n + 6, ".src") || (l > 5 && !strcasecmp(n + l - 5, ".part"))) continue;
-        if (!audio_ext_len(n)) continue;
-        snprintf(name, cap, "%s", n); ok = 1;
-    }
-    closedir(d);
-    return ok;
-}
-#endif
-static int na_mus_prep(const char *id) {
-    na_mus_n = na_mus_size = 0; na_mus_msg[0] = 0;
-    if (sd_virtual) return 0;
-    char name[128] = "", dst[160]; struct stat sd2;
-    snprintf(dst, sizeof(dst), NA_MUS_DIR "/%.6s.adp", id);
-#ifdef NATIF_BENCH
-    if (stat(dst, &sd2) != 0 || sd2.st_size < 64) return 0;   /* (banc d'essai : fichier ADP deja pret) */
-    snprintf(name, sizeof(name), "%.6s.adp", id);
-#else
-    char src[300], key[200], old[200] = "", kp[170]; struct stat ss;
-    mkdir(NA_MUS_DIR, 0777);
-    if (!na_mus_find(id, name, sizeof(name))) return 0;      /* (fichier enleve : la musique du jeu revient) */
-    snprintf(src, sizeof(src), NA_MUS_DIR "/%s", name);
-    if (stat(src, &ss) != 0) return 0;
-    /* v181 : refait si le fichier a change (nom, taille ou date : une copie Windows garde l'ancienne date) */
-    snprintf(key, sizeof(key), "%s|%lld|%lld", name, (long long)ss.st_size, (long long)ss.st_mtime);
-    snprintf(kp, sizeof(kp), NA_MUS_DIR "/%.6s.src", id);
-    FILE *kf = fopen(kp, "rb");
-    if (kf) { size_t k = fread(old, 1, sizeof(old) - 1, kf); old[k] = 0; fclose(kf); }
-    if (stat(dst, &sd2) != 0 || sd2.st_size < 64 || strcmp(old, key)) {
-        nat_ld("Conversion de ta musique pour le jeu", 13);
-        remove(kp);
-        if (na_mus_convert(src, dst) || stat(dst, &sd2) != 0) { snprintf(na_mus_msg, sizeof(na_mus_msg), "%.60s : fichier illisible", name); return 0; }
-        kf = fopen(kp, "wb");
-        if (kf) { fputs(key, kf); fclose(kf); }
-    }
-#endif
-    char e[80];
-    if (nat_map(dst, e, sizeof(e))) { snprintf(na_mus_msg, sizeof(na_mus_msg), "%s", e); return 0; }
-    if (na_next > NATRES_MUSMAX) { snprintf(na_mus_msg, sizeof(na_mus_msg), "fichier trop morcel\xC3\xA9 sur la carte SD"); return 0; }
-    memcpy(na_mus, na_ext, na_next * sizeof(natres_ext_t));
-    na_mus_n = na_next; na_mus_size = (u32)sd2.st_size & ~31u;
-    snprintf(na_mus_msg, sizeof(na_mus_msg), "gc-mp3/musique-jeux/%.60s (%u s)", name, (unsigned)(na_mus_size / 32u * 28u / 48000u));
-    return 1;
-}
 /* rend bit 0 = slot A pret, bit 1 = slot B pret */
 static int nat_card_prep(const char *id) {
     int r = 0;
@@ -3028,8 +2803,6 @@ static const char *nat_boot(int k) {
     int cards = nat_card_prep(in.id);                      /* v65 : carte memoire virtuelle ; v122 : bit 1 = slot B aussi */
     int card_on = cards != 0;
     u32 snap_sec = nat_snap_prep();                        /* v83 : photo de la memoire au plantage */
-    u32 shot_sec = nat_shot_prep();                        /* v175 : captures d'ecran en jeu (L + R + Z) */
-    na_mus_prep(in.id);                                    /* v179 : ta musique a la place de celle du disque */
     u32 log_sec = nat_journal_prep();                      /* v54 : journal du jeu (un secteur de la carte) */
     na_n2 = 0; na_disc2_msg[0] = 0;                        /* v121 : l'autre disque (jeux a 2 disques) */
     int k2 = na_net_on ? -1 : na_disc2(k);
@@ -3113,14 +2886,6 @@ static const char *nat_boot(int k) {
             if (snap_sec && log_sec && na_jcrash) {                         /* v83 : (natres_hdr_t.snap_sec, snap_cnt, snap_hi) */
                 na_wbe32(r + 0x150, snap_sec); na_wbe32(r + 0x154, NATRES_SNAP_SECS); na_wbe32(r + 0x158, in.hi);
                 na_wbe32(r + 0x48, be32(r + 0x48) | NRF_SNAP);
-            }
-            if (shot_sec) { na_wbe32(r + offsetof(natres_hdr_t, shot_sec), shot_sec); na_wbe32(r + offsetof(natres_hdr_t, shot_max), NATRES_SHOT_MAX); }   /* v175 */
-            {                                                                   /* v179 : ta musique (table dans le resident) */
-                u32 mo = be32(r + offsetof(natres_hdr_t, mus_tab)) - NATRES_AT;
-                if (na_mus_n && mo + na_mus_n * 12 <= NATRES_SIZE) {
-                    for (u32 i = 0; i < na_mus_n; i++) { na_wbe32(r + mo + i * 12, na_mus[i].iso); na_wbe32(r + mo + i * 12 + 4, na_mus[i].sd); na_wbe32(r + mo + i * 12 + 8, na_mus[i].cnt); }
-                    na_wbe32(r + offsetof(natres_hdr_t, mus_n), na_mus_n); na_wbe32(r + offsetof(natres_hdr_t, mus_size), na_mus_size);
-                }
             }
             u32 ro = be32(r + 0xE4) - NATRES_AT;                            /* (natres_hdr_t.ret_tab) */
             if (na_ret_n && ro + na_ret_n * 12 <= NATRES_SIZE) {             /* v64 : .dol de GC Station */
@@ -3320,7 +3085,6 @@ static const char *nat_boot(int k) {
                                (unsigned)(na_netc.srv >> 24), (unsigned)(na_netc.srv >> 16 & 255), (unsigned)(na_netc.srv >> 8 & 255), (unsigned)(na_netc.srv & 255),
                                (unsigned)na_netc.port, (unsigned)na_netc.tok[0], (unsigned)na_netc.size[0],
                                (unsigned)(na_netc.ip >> 24), (unsigned)(na_netc.ip >> 16 & 255), (unsigned)(na_netc.ip >> 8 & 255), (unsigned)(na_netc.ip & 255));
-        fprintf(f, "Ta musique a la place de celle du disque : %s\n", na_mus_n ? na_mus_msg : na_mus_msg[0] ? na_mus_msg : "non (gc-mp3/musique-jeux/<ID>.mp3, .flac, .ogg...)");   /* v179 */
         fprintf(f, "Carte memoire virtuelle (slot B) : %s\n", nat_card >= 2 ? (na_card2_msg[0] ? na_card2_msg : "non") : "non (reglage)");
         fprintf(f, "Mode video donne au jeu (800000CC) : %s (jeu %s)\n", na_vi_bootrom(in.id) == 1 ? "PAL" : na_vi_bootrom(in.id) == 5 ? "EURGB60 (PAL 60 Hz)" : "NTSC",
                 na_game_pal(in.id) ? "PAL" : "NTSC");
