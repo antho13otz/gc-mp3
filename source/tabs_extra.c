@@ -97,6 +97,7 @@ static void ap_open(void);                         /* v41 : applis (tools.c) */
 static void mc_open(void);                         /* v43 : cartes memoire (tools.c) */
 static void gclib_input(u32 down, u32 nav, int fire);
 static void gclib_open_recent(const char *path);       /* v176 (gclib.c) */
+static void sc_check(void);                            /* v177 : succes (tools.c) */
 /* v176 : accueil de JEUX / APPS : dernier jeu lance (jeux_recents.txt) et temps de jeu (jeux_stats.txt, mesure par Pulse) */
 static char gm_last_path[NAME_LEN], gm_last_name[64];
 static u32 gm_play_total = 0, gm_play_last = 0;
@@ -207,6 +208,7 @@ static void draw_tab_games(void) {
         gm_rec_t = now_ms();
         for (int g = 0; g < GM_COUNT; g++) gm_record[g] = gm_rec[g] && sd_ok ? rg_record_get(gm_rec[g]) : 0;
         gm_recent_load();                                       /* v176 */
+        sc_check();                                             /* v177 : nouveaux succes */
     }
     f32 t = (f32)(now_ms() % 100000) / 1000.0f;
     for (int k = 0; k < 3; k++) {   /* v25 : jeux GameCube ; v41 : + applis ; v43 : + cartes memoire */

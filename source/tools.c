@@ -8,7 +8,10 @@
 // Chaque outil s'ouvre en fenetre par-dessus l'ecran (tl_screen).
 
 static void indigo_game_open(const char *id, const char *title);
-enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV, TL_SAVES, TL_CATA };   /* v151 : catalogue d'applis */
+enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV, TL_SAVES, TL_CATA, TL_SUCCES };
+static void sc_input(u32 down, u32 nav, int fire);       /* v177 : succes */
+static void draw_succes(void);
+static void sc_open(void);   /* v151 : catalogue d'applis */
 static void ct_open(void);
 static void ct_input(u32 down, u32 nav, int fire);
 static void draw_cata(void);   /* v141 : historique des sauvegardes */
@@ -1489,6 +1492,7 @@ static void tools_input(u32 down, u32 nav, int fire) {
     case TL_NETSRV: nfs_ui_input(down, nav, fire); break;
     case TL_SAVES: sv_input(down, nav, fire); break;
     case TL_CATA: ct_input(down, nav, fire); break;
+    case TL_SUCCES: sc_input(down, nav, fire); break;
     }
 }
 static void draw_tools(void) {
@@ -1502,16 +1506,147 @@ static void draw_tools(void) {
     case TL_NETSRV: nfs_ui_draw(); break;
     case TL_SAVES: draw_saves(); break;
     case TL_CATA: draw_cata(); break;
+    case TL_SUCCES: draw_succes(); break;
     }
 }
 
+
+/* =================== v177 : succes (START > Outils > Succes) ===================
+   Calcules d'apres ce que GC Station garde deja : temps de jeu et lancements (jeux_stats.txt, mesures par Pulse),
+   favoris, captures d'ecran (photos/captures), records des mini-jeux. Debloques : gc-mp3/succes.txt ("id|date"). */
+#define SC_FILE GCD "/succes.txt"
+enum { SK_RUNS, SK_GAMES, SK_PLAY, SK_ONEGAME, SK_SHOTS, SK_FAVS, SK_MINIALL, SK_REC };
+typedef struct { const char *id, *title, *desc; u8 kind; u32 target; const char *rec; } sc_def_t;
+static const sc_def_t sc_defs[] = {
+    { "lance1",  "Premier lancement",  "Lancer un jeu GameCube depuis GC Station",        SK_RUNS,    1, NULL },
+    { "lance50", "Habitu\xC3\xA9",           "50 lancements de jeux",                                SK_RUNS,    50, NULL },
+    { "jeux5",   "Collectionneur",     "Jouer \xC3\xA0 5 jeux diff\xC3\xA9rents",                    SK_GAMES,   5, NULL },
+    { "jeux15",  "Ludoth\xC3\xA8que",          "Jouer \xC3\xA0 15 jeux diff\xC3\xA9rents",                   SK_GAMES,   15, NULL },
+    { "heure1",  "Une heure de jeu",   "1 h de jeu au total (avec Pulse)",                     SK_PLAY,    3600, NULL },
+    { "heure10", "Dix heures",         "10 h de jeu au total",                                 SK_PLAY,    36000, NULL },
+    { "heure50", "Cinquante heures",   "50 h de jeu au total",                                 SK_PLAY,    180000, NULL },
+    { "mordu",   "Mordu",              "10 h sur un m\xC3\xAAme jeu",                                SK_ONEGAME, 36000, NULL },
+    { "photo1",  "Photographe",        "Une capture d'\xC3\xA9" "cran en jeu (L + R + Z)",              SK_SHOTS,   1, NULL },
+    { "photo20", "Album photo",        "20 captures d'\xC3\xA9" "cran",                                   SK_SHOTS,   20, NULL },
+    { "favoris", "Coups de coeur",   "5 jeux en favoris (L dans la fiche)",                  SK_FAVS,    5, NULL },
+    { "arcade",  "Arcade",             "Un record dans chacun des 5 mini-jeux \xC3\xA0 score",       SK_MINIALL, 5, NULL },
+    { "serpent", "Serpent",            "30 points \xC3\xA0 Snake",                                   SK_REC,     30, "jeu:snake" },
+    { "simon",   "M\xC3\xA9moire d'\xC3\xA9l\xC3\xA9phant", "Une suite de 10 \xC3\xA0 Simon",                   SK_REC,     10, "jeu:simon" },
+};
+#define SC_N ((int)(sizeof(sc_defs) / sizeof(sc_defs[0])))
+static u32 sc_have[SC_N], sc_val[SC_N];
+static int sc_sel = 0, sc_top = 0, sc_loaded = 0;
+static int rg_record_get(const char *path);
+static int sc_count_dir(const char *dir, const char *ext) {
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    int n = 0; struct dirent *e;
+    while ((e = readdir(d))) { const char *x = strrchr(e->d_name, '.'); if (x && !strcasecmp(x, ext)) n++; }
+    closedir(d);
+    return n;
+}
+static void sc_values(void) {
+    u32 runs = 0, games = 0, play = 0, one = 0;
+    long n = 0;
+    char *d = (char *)read_file(GCD "/jeux_stats.txt", 64 * 1024, &n);
+    for (long i = 0; d && i < n; ) {
+        long st = i;
+        while (i < n && d[i] != '\n') i++;
+        char l[96]; long ln = i - st < 95 ? i - st : 95; memcpy(l, d + st, ln); l[ln] = 0; i++;
+        char id[8]; int disc; unsigned r = 0, last = 0, p = 0;
+        if (sscanf(l, "%6[^|]|%d|%u|%u|%u", id, &disc, &r, &last, &p) >= 4) {
+            runs += r; if (r || p) games++; play += p; if (p > one) one = p;
+        }
+    }
+    free(d);
+    int favs = 0;
+    d = (char *)read_file(GCD "/jeux-favoris.txt", 16 * 1024, &n);
+    for (long i = 0; d && i < n; i++) if (d[i] == '\n') favs++;
+    free(d);
+    int shots = sc_count_dir(SD_ROOT "/photos/captures", ".png");
+    static const char *const recs[5] = { "jeu:snake", "jeu:snake-sans-murs", "jeu:casse-briques", "jeu:note-volante", "jeu:simon" };
+    int mini = 0;
+    for (int k = 0; k < 5; k++) if (rg_record_get(recs[k]) > 0) mini++;
+    for (int i = 0; i < SC_N; i++) {
+        const sc_def_t *c = &sc_defs[i];
+        sc_val[i] = c->kind == SK_RUNS ? runs : c->kind == SK_GAMES ? games : c->kind == SK_PLAY ? play : c->kind == SK_ONEGAME ? one :
+                    c->kind == SK_SHOTS ? (u32)shots : c->kind == SK_FAVS ? (u32)favs : c->kind == SK_MINIALL ? (u32)mini :
+                    c->rec ? (u32)(rg_record_get(c->rec) > 0 ? rg_record_get(c->rec) : 0) : 0;
+    }
+}
+static void sc_load(void) {
+    memset(sc_have, 0, sizeof(sc_have));
+    long n = 0;
+    char *d = (char *)read_file(SC_FILE, 16 * 1024, &n);
+    for (long i = 0; d && i < n; ) {
+        long st = i;
+        while (i < n && d[i] != '\n') i++;
+        char l[64]; long ln = i - st < 63 ? i - st : 63; memcpy(l, d + st, ln); l[ln] = 0; i++;
+        char *bar = strchr(l, '|'); if (!bar) continue; *bar = 0;
+        for (int k = 0; k < SC_N; k++) if (!strcmp(l, sc_defs[k].id)) sc_have[k] = (u32)strtoul(bar + 1, NULL, 10) | 1u;
+    }
+    free(d);
+    sc_loaded = 1;
+}
+/* appele en ouvrant JEUX / APPS (et l'ecran des succes) : nouveaux succes notes et annonces */
+static void sc_check(void) {
+    if (!sd_ok) return;
+    if (!sc_loaded) sc_load();
+    sc_values();
+    int nw = 0, last = -1;
+    FILE *f = NULL;
+    for (int i = 0; i < SC_N; i++) {
+        if (sc_have[i] || sc_val[i] < sc_defs[i].target) continue;
+        sc_have[i] = (u32)time(NULL) | 1u; nw++; last = i;
+        if (!f) { mkdir(GCD, 0777); f = fopen(SC_FILE, "ab"); }
+        if (f) fprintf(f, "%s|%u\n", sc_defs[i].id, (unsigned)sc_have[i]);
+    }
+    if (f) fclose(f);
+    if (nw == 1) { char m[120]; snprintf(m, sizeof(m), "Succ\xC3\xA8s d\xC3\xA9" "bloqu\xC3\xA9 : %s", sc_defs[last].title); lib_note(m); }
+    else if (nw > 1) { char m[120]; snprintf(m, sizeof(m), "%d succ\xC3\xA8s d\xC3\xA9" "bloqu\xC3\xA9s (START > Outils > Succ\xC3\xA8s)", nw); lib_note(m); }
+}
+static void sc_open(void) { tl_screen = TL_SUCCES; sc_sel = 0; sc_top = 0; sc_loaded = 0; sc_check(); }
+static void sc_input(u32 down, u32 nav, int fire) {
+    if (fire && (nav & PAD_BUTTON_DOWN)) sc_sel = (sc_sel + 1) % SC_N;
+    if (fire && (nav & PAD_BUTTON_UP)) sc_sel = (sc_sel + SC_N - 1) % SC_N;
+    if (down & (PAD_BUTTON_B | PAD_BUTTON_A)) tl_screen = TL_NONE;
+}
+static void tl_legend(const char *const *K, const char *const *L, int cnt);
+static void tl_frame(const char *title, const char *right);
+static void draw_succes(void) {
+    int got = 0;
+    for (int i = 0; i < SC_N; i++) if (sc_have[i]) got++;
+    char r[48]; snprintf(r, sizeof(r), "%d / %d", got, SC_N);
+    tl_frame("Succ\xC3\xA8s", r);
+    const int vis = 13; const f32 rh = 23.5f;
+    if (sc_sel < sc_top) sc_top = sc_sel;
+    if (sc_sel >= sc_top + vis) sc_top = sc_sel - vis + 1;
+    for (int j = 0; j < vis && sc_top + j < SC_N; j++) {
+        int i = sc_top + j, on = i == sc_sel;
+        f32 y = 88 + j * rh;
+        if (on) gx_rrect_fill(52, y, 536, rh - 2, 6, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
+        int ok = sc_have[i] != 0;
+        gx_circle(68, y + rh / 2 - 1, 7, ok ? RGBA(255, 215, 90, 255) : RGBA(70, 60, 110, 255), ok ? RGBA(220, 150, 40, 255) : RGBA(50, 40, 80, 255));
+        gx_text1(F_SMALL, 84, y + 16, sc_defs[i].title, ok ? RGBA(255, 255, 255, 255) : RGBA(170, 155, 225, 255));
+        char fv[120]; fit_text(F_SMALL, sc_defs[i].desc, 250, fv, sizeof(fv));
+        gx_text1(F_SMALL, 250, y + 16, fv, RGBA(200, 190, 245, 230));
+        char pr[40];
+        if (ok) snprintf(pr, sizeof(pr), "%s", "OK");
+        else if (sc_defs[i].kind == SK_PLAY || sc_defs[i].kind == SK_ONEGAME) snprintf(pr, sizeof(pr), "%u h / %u h", (unsigned)(sc_val[i] / 3600), (unsigned)(sc_defs[i].target / 3600));
+        else snprintf(pr, sizeof(pr), "%u / %u", (unsigned)(sc_val[i] < sc_defs[i].target ? sc_val[i] : sc_defs[i].target), (unsigned)sc_defs[i].target);
+        gx_text_r(F_SMALL, 580, y + 16, pr, ok ? RGBA(255, 215, 90, 255) : RGBA(190, 160, 255, 255));
+    }
+    static const char *const k[] = { "B" }, *const lb[] = { "RETOUR" };
+    tl_legend(k, lb, 1);
+}
 /* ---------- section "Outils" de la page Reglages ---------- */
-enum { TO_RECENT, TO_GAMES, TO_CATA, TO_CHEATS, TO_VCARD, TO_SAVES, TO_BACKUP, TO_RESTORE, TO_INFO, TO_QUIT, TO_COUNT };
-static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s",
+enum { TO_RECENT, TO_SUCCES, TO_GAMES, TO_CATA, TO_CHEATS, TO_VCARD, TO_SAVES, TO_BACKUP, TO_RESTORE, TO_INFO, TO_QUIT, TO_COUNT };
+static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s", "Succ\xC3\xA8s",
     "Mes jeux, applis et cartes m\xC3\xA9moire", "Catalogue d'applis (Internet)", "Cheats (\xC3\xA9" "diteur)", "Cartes m\xC3\xA9moire virtuelles (Pulse)", "Historique des sauvegardes",
     "Sauvegarder tous les r\xC3\xA9glages", "Restaurer les r\xC3\xA9glages", "Infos console", "Quitter GC Station" };
 static const char *const to_help[TO_COUNT] = {
     "Relancer un jeu en un clic.",
+    "Temps de jeu, jeux diff\xC3\xA9rents, captures, favoris, records des mini-jeux.",
     "Onglet JEUX / APPS. Dans la fiche d'un jeu : Y = r\xC3\xA9glages du jeu.",
     "Homebrews \xC3\xA0 t\xC3\xA9l\xC3\xA9" "charger et installer dans SD:/apps (Swiss, CleanRip, GCMM...), avec mises \xC3\xA0 jour.",
     "Modifier et activer les cheats de tes jeux (dossier gc-mp3/cheats).",
@@ -1542,6 +1677,7 @@ static void tools_menu_input(u32 down, u32 nav, int fire) {
     crumb("outils : %d", to_sel);
     switch (to_sel) {
     case TO_RECENT: rc_open(); break;
+    case TO_SUCCES: sc_open(); break;
     case TO_INFO: info_open(); break;
     case TO_QUIT: quit_requested = 1; break;
     case TO_GAMES: tab = TAB_GAMES; tab_enter(TAB_GAMES); gm_sel = GM_COUNT; break;
