@@ -1679,7 +1679,10 @@ static const char *gl_boot_mem(unsigned char *dol, long len, const char *dolpath
     int ret = gl_ret_app && nat_app_ret_prep();         /* v187 : (liste des morceaux de GC Station : avant de demonter la carte) */
     crumb("retour apres l'appli : %s", ret ? "oui" : "non");
     /* (avec le retour : programme de copie et arguments plus haut, 0x80001800 - 0x80002C00 est au programme de retour) */
-    u32 stub_at = ret ? 0x80002C00u : GL_STUB_AT, tab_at = ret ? 0x80002C80u : GL_TAB_AT, argv_at = ret ? 0x80002D80u : GL_ARGV_AT;
+    /* v189 : table en 0x80002D00 (v187 : 0x80002C80, ecrasee par la fin du programme de copie, 132 octets : l'appli ne
+       demarrait pas, la console redemarrait) */
+    typedef char gl_stub_fits[sizeof(gl_stub) <= 0x100 ? 1 : -1]; (void)sizeof(gl_stub_fits);
+    u32 stub_at = ret ? 0x80002C00u : GL_STUB_AT, tab_at = ret ? 0x80002D00u : GL_TAB_AT, argv_at = ret ? 0x80002E00u : GL_ARGV_AT;
 #ifdef GEKKO
     if (settings_dirty) save_settings();
     stop_track(); stop_station();

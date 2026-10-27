@@ -21,6 +21,7 @@ EMU_BAD32=1 python3 $T/emu_natres.py natres.bin 1 0 0 | tail -1     # (v94 : 32 
 clang --target=powerpc-none-eabi -mcpu=750 -Os -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -Wall -Wextra -c $R/source/natres/natret.c -o natret.o
 ld.lld -T $R/tools/natret.ld natret.o -o natret.elf && llvm-objcopy -O binary natret.elf natret.bin
 for a in "1 2" "0 0" "1 1"; do python3 $T/emu_natret.py natret.bin $a | tail -1; done
+python3 $T/emu_appstub.py $R/source/gclib.c natret.bin | tail -1     # (v189 : lancement d'une appli : la copie et le retour se gardent)
 # (natif.c sans la partie QR code / telephone, qui depend du reste de GC Station)
 sed '/^\/\* ---------- v51 : le rapport sur le telephone/,$d' $R/source/natif.c > natif.c
 echo 'static void nat_qr_open(const char *id) { (void)id; }' >> natif.c
