@@ -44,9 +44,13 @@ passe ici passe aussi sur le matériel officiel :
 | Son | interruption DMA en temps réel : si GC Station calcule trop lentement, le son coupe (audible dans `son.wav`) | |
 | Carte SD | SD2SP2 / SD Gecko avec libfat : **1,5 Mo/s** en lecture, **0,6 Mo/s** en écriture, + temps d'accès (ouverture 3 ms, stat 1,5 ms, dossier 2 ms) | `PCSIM_SD_KBS`, `PCSIM_SD_WKBS` |
 | Réseau | Broadband Adapter : **500 Ko/s** en réception | `PCSIM_NET_KBS` |
+| Écran | **60 Hz** (EURGB60) par défaut ; **50 Hz** dès que GC Station choisit un mode PAL (576i, 576p, 528i). Le câble composante (nécessaire au 480p / 576p) est absent par défaut. | `PCSIM_PAL=1` (console PAL), `PCSIM_COMPOSANTE=1` (câble composante) |
 
 À la fin, `log.txt` donne : le temps de calcul « GameCube » utilisé, le pic de mémoire (et les
 réservations refusées), la fluidité (images/s, images ratées et à quel moment du scénario).
+Pour essayer le **576p 50 Hz** : `video = 576p` dans `work/run/sd:/gc-mp3/gc-mp3.txt`, puis
+`PCSIM_PAL=1 PCSIM_COMPOSANTE=1 sh tools/pc-sim/run.sh` (le journal affiche « ecran : 640x576 lignes progressif, 50 Hz »).
+
 `PCSIM_FAST=1` enlève toutes les limites. `PCSIM_MEMLOG=1` signale chaque réservation refusée.
 
 Le facteur processeur est une estimation : pour le recaler, il suffit de comparer

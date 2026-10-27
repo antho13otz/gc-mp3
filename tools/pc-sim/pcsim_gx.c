@@ -441,8 +441,8 @@ static unsigned long long mono_us(void) { struct timespec t; clock_gettime(CLOCK
 void pcsim_fps_report(void) {
     if (fr_n < 2) return;
     double sec = (fr_last - fr_t0) / 1e6;
-    printf("[pcsim] fluidite : %llu images en %.1f s (%.1f images/s), %llu images ratees (> 20 ms), %llu tres lentes (> 34 ms), pire %.0f ms\n",
-           fr_n, sec, (fr_n - 1) / sec, fr_slow, fr_vslow, fr_worst / 1000.0);
+    printf("[pcsim] fluidite : %llu images en %.1f s (%.1f images/s), %llu images ratees (> %u ms), %llu tres lentes (> %u ms), pire %.0f ms (ecran %u Hz)\n",
+           fr_n, sec, (fr_n - 1) / sec, fr_slow, pcsim_frame_us * 6 / 5000, fr_vslow, (pcsim_frame_us * 2 + 666) / 1000, fr_worst / 1000.0, pcsim_frame_us > 18000 ? 50 : 60);
 }
 /* repere du scenario (mark) : fluidite depuis le repere precedent */
 static unsigned long long sg_n = 0, sg_slow = 0, sg_vslow = 0, sg_worst = 0, sg_t0 = 0;
@@ -459,11 +459,13 @@ void GX_CopyDisp(void *dst, u8 clear) {
         unsigned long long n = mono_us();
         if (fr_last && !was_cap && !pcsim_capture) {
             unsigned long long d = n - fr_last;
-            if (d > 20000) fr_slow++;
-            if (d > 34000) fr_vslow++;
-            if (d > (getenv("PCSIM_SLOWMS") ? (unsigned long long)atoi(getenv("PCSIM_SLOWMS")) * 1000ull : 34000ull)) { printf("[pcsim] image lente : %.0f ms a %.1f s (%s)\n", d / 1000.0, (n - fr_t0) / 1e6, pcsim_script_where()); }
+            /* ratee : plus d'une image d'ecran (+20 %) ; tres lente : plus de deux (60 Hz : 20 / 34 ms, 50 Hz : 24 / 40 ms) */
+            unsigned long long slow = pcsim_frame_us * 6ull / 5, vslow = pcsim_frame_us * 2ull + 666;
+            if (d > slow) fr_slow++;
+            if (d > vslow) fr_vslow++;
+            if (d > (getenv("PCSIM_SLOWMS") ? (unsigned long long)atoi(getenv("PCSIM_SLOWMS")) * 1000ull : vslow)) { printf("[pcsim] image lente : %.0f ms a %.1f s (%s)\n", d / 1000.0, (n - fr_t0) / 1e6, pcsim_script_where()); }
             if (d > fr_worst) fr_worst = d;
-            sg_n++; if (d > 20000) sg_slow++; if (d > 34000) sg_vslow++; if (d > sg_worst) sg_worst = d;
+            sg_n++; if (d > slow) sg_slow++; if (d > vslow) sg_vslow++; if (d > sg_worst) sg_worst = d;
         }
         if (!fr_last) fr_t0 = n;
         fr_last = n; fr_n++; was_cap = pcsim_capture != 0;

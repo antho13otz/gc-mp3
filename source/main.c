@@ -339,6 +339,12 @@ static u32 pfx_cur[PH_N], pfx_frame_t0 = 0;
 static u32 pfx_frames[PF_TABS], pfx_slow[PF_TABS], pfx_vslow[PF_TABS], pfx_worst[PF_TABS];
 static u64 pfx_sum[PF_TABS][PH_N];
 static u32 pfx_max[PF_TABS][PH_N], pfx_top[PF_TABS][PH_N];
+/* v192 : duree d'une image de l'ecran : 16667 us (60 Hz) ou 20000 us (PAL 50 Hz : 576i / 576p / 528i) ;
+   reglee au choix du mode video. Image ratee : plus d'une image d'ecran + 20 % ; tres lente : plus de deux. */
+static u32 vid_frame_us = 16667;
+#define VID_HZ ((int)(vid_frame_us > 18000u ? 50 : 60))
+#define VID_SLOW_US (vid_frame_us * 6u / 5u)
+#define VID_VSLOW_US (vid_frame_us * 2u + 666u)
 static u32 pfx_sec_t0 = 0, pfx_sec_n = 0, pfx_sec_worst = 0, pfx_fps = 0, pfx_worst_ms = 0, pfx_last_top = PH_N, pfx_last_top_us = 0;
 static u32 perf_us(void) {
 #ifdef GEKKO
@@ -363,9 +369,9 @@ static void perf_frame(int tb) {                    /* debut d'une image : on co
             if (pfx_cur[i] > pfx_max[tb][i]) pfx_max[tb][i] = pfx_cur[i];
             if (i != PH_WAIT && pfx_cur[i] > tv) { tv = pfx_cur[i]; top = i; }
         }
-        if (tot > 20000u) {                              /* (une image ratee : plus de 1/60 s + marge) */
+        if (tot > VID_SLOW_US) {                         /* (une image ratee : plus d'une image d'ecran + marge ; v192 : 50 Hz compris) */
             pfx_slow[tb]++;
-            if (tot > 34000u) pfx_vslow[tb]++;
+            if (tot > VID_VSLOW_US) pfx_vslow[tb]++;
             if (top < PH_N) pfx_top[tb][top]++;
             pfx_last_top = (u32)top; pfx_last_top_us = tv;
         }
@@ -5479,6 +5485,7 @@ static int init_video(void) {
         u32 tv = VIDEO_GetCurrentTvMode();
         rmode = tv == VI_PAL ? &TVPal528IntDf : tv == VI_EURGB60 ? &TVEurgb60Hz480IntDf : tv == VI_MPAL ? &TVMpal480IntDf : &TVNtsc480IntDf;
     }
+    vid_frame_us = (rmode->viTVMode >> 2) == VI_PAL ? 20000u : 16667u;   /* v192 : 50 Hz en PAL */
     vid_active = rmode->xfbHeight >= 574 ? ((rmode->viTVMode & 3) == VI_PROGRESSIVE ? VID_576P : VID_576I)
                : (rmode->viTVMode & 3) == VI_PROGRESSIVE ? VID_480P : VID_480I;
 
@@ -6532,14 +6539,14 @@ static void perf_overlay(void) {
              pfx_last_top < PH_N ? "  lent : " : "", pfx_last_top < PH_N ? pfx_names[pfx_last_top] : "");
     f32 w = (f32)text_width(F_SMALL, b, 1) + 16;
     gx_rrect_fill(320 - w / 2, 2, w, 18, 6, RGBA(0, 0, 0, 220), RGBA(0, 0, 0, 220));
-    gx_text_c(F_SMALL, 320, 15, b, pfx_fps >= 58 ? RGBA(140, 255, 160, 255) : pfx_fps >= 45 ? RGBA(255, 220, 120, 255) : RGBA(255, 120, 120, 255));
+    gx_text_c(F_SMALL, 320, 15, b, (int)pfx_fps >= VID_HZ - 2 ? RGBA(140, 255, 160, 255) : (int)pfx_fps >= VID_HZ * 3 / 4 ? RGBA(255, 220, 120, 255) : RGBA(255, 120, 120, 255));
 }
 static const char *perf_ver(void);
 static void perf_report(void) {                      /* SD:/gc-mp3/journaux/fluidite.txt */
     if (!sd_ok) return;
     FILE *f = fopen(GCD_LOG "/fluidite.txt", "w");
     if (!f) return;
-    fprintf(f, "GC Station %s - mesure de fluidite (une image ratee = plus de 20 ms ; tres lente = plus de 34 ms)\n\n", perf_ver());
+    fprintf(f, "GC Station %s - mesure de fluidite, ecran %d Hz (une image ratee = plus de %u ms ; tres lente = plus de %u ms)\n\n", perf_ver(), VID_HZ, (unsigned)(VID_SLOW_US / 1000u), (unsigned)(VID_VSLOW_US / 1000u));
     for (int t = 0; t < PF_TABS; t++) {
         if (!pfx_frames[t]) continue;
         fprintf(f, "[%s] %u images, %u ratees (%u%%), %u tres lentes, pire %u ms\n", t < TAB_COUNT ? tab_names[t] : "autre",
@@ -10933,7 +10940,7 @@ static void draw_web_page(void) {
                         gx_rect(bx, iy, it->w, ih, RGBA(232, 234, 237, 255));
                         gx_rect(bx, iy, it->w, 1, RGBA(200, 204, 210, 255)); gx_rect(bx, iy + ih - 1, it->w, 1, RGBA(200, 204, 210, 255));
                         if (im && im->st == IMG_LOADING) {             /* (petite barre qui avance : l'image arrive) */
-                            f32 ph = (f32)(retrace_count % 50) / 50.0f, bw = it->w > 40 ? 24 : it->w / 2;
+                            f32 ph = (f32)(now_ms() % 833) / 833.0f, bw = it->w > 40 ? 24 : it->w / 2;
                             gx_rect(bx + ph * (it->w - bw), iy + ih - 3, bw, 2, RGBA(120, 140, 220, 255));
                         }
                     }
@@ -11071,7 +11078,7 @@ static void draw_web(void) {
     fit_text(F_SMALL, disp, (int)aw - 14, fit, sizeof(fit));
     gx_text1(F_SMALL, ax + 7, 99, fit, ac);
     if (wb_loading) {                                          /* petite barre animee */
-        f32 ph = (f32)(retrace_count % 60) / 60.0f;
+        f32 ph = (f32)(now_ms() % 1000) / 1000.0f;
         gx_rect(ax + 4 + ph * (aw - 40), 102, 32, 2, RGBA(255, 190, 90, 200));
     }
 
@@ -11093,7 +11100,7 @@ static void draw_web(void) {
         } else b[0] = 0;
         if (dl_total > 0) snprintf(st, sizeof(st), "%ld %%  %s  %s  %s", (long)((long long)dl_got * 100 / dl_total), a, b, dl_name);
         else snprintf(st, sizeof(st), "%s  %s  %s", a, b, dl_name);
-        f32 frac = dl_total > 0 ? (f32)dl_got / dl_total : (f32)(retrace_count % 120) / 120.0f;
+        f32 frac = dl_total > 0 ? (f32)dl_got / dl_total : (f32)(now_ms() % 2000) / 2000.0f;
         gx_rrect_fill(26, 398, 80, 8, 4, RGBA(30, 20, 70, 255), RGBA(30, 20, 70, 255));
         gx_rrect_fill(26, 398, 6 + 74 * frac, 8, 4, RGBA(120, 230, 140, 255), RGBA(60, 170, 90, 255));
         fit_text(F_SMALL, st, 300, fit, sizeof(fit));
@@ -11148,7 +11155,7 @@ static void draw_web_full(void) {
     fit_text(F_SMALL, disp, 440, fit, sizeof(fit));
     gx_text1(F_SMALL, WV_X, 17, fit, (wb_busy || wb_loading) ? RGBA(255, 210, 120, 255) : RGBA(200, 190, 240, 255));
     gx_text_r(F_SMALL, 614, 17, TR("R : quitter le plein \xC3\xA9" "cran"), RGBA(140, 130, 180, 255));
-    if (wb_loading) { f32 ph = (f32)(retrace_count % 60) / 60.0f; gx_rect(WV_X + ph * 400, 21, 32, 2, RGBA(255, 190, 90, 200)); }
+    if (wb_loading) { f32 ph = (f32)(now_ms() % 1000) / 1000.0f; gx_rect(WV_X + ph * 400, 21, 32, 2, RGBA(255, 190, 90, 200)); }
     draw_web_page();
     int msg_on = web_msg[0] && now_ms() - web_msg_t < 8000;
     if (msg_on || dl_active) {                                /* message / telechargement : en bas, par-dessus */
@@ -11206,7 +11213,7 @@ static void draw_keyboard(void) {
         snprintf(vis, sizeof(vis), "%s", kb_text + start);
         while (text_width(F_MED, vis, 0) > 536 && vis[0]) { int n = (int)strlen(vis) - 1; while (n > 0 && ((unsigned char)vis[n] & 0xC0) == 0x80) n--; vis[n] = 0; }
         gx_text1(F_MED, 50, 170, vis, RGBA(240, 236, 255, 255));
-        if ((retrace_count / 30) & 1) gx_rect(50 + cw, 156, 2, 17, RGBA(200, 160, 255, 255));
+        if ((now_ms() / 500) & 1) gx_rect(50 + cw, 156, 2, 17, RGBA(200, 160, 255, 255));
     }
     if (!kb_text[0]) {
         const char *hint = kb_mode == KB_URL ? "ex. : fr.m.wikipedia.org  ou  musique libre" : "";

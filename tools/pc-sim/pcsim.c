@@ -2,7 +2,7 @@
    - threads : vrais threads du PC, mais UN SEUL tourne a la fois (verrou global, comme
      le processeur unique de la GameCube) ; un thread cede la main quand il attend
      (usleep, reseau, attente d'image, verrous...) ;
-   - temps : temps reel en millisecondes ; ecran a 60 Hz (rappel de balayage) ;
+   - temps : temps reel en millisecondes ; ecran a 60 Hz, ou 50 Hz en PAL (rappel de balayage) ;
    - manettes : pilotees par un scenario (PCSIM_SCRIPT, voir README) ;
    - son : tampons DMA consommes au rythme reel, enregistres en WAV si PCSIM_WAV ;
    - carte SD : le dossier "sd:" du dossier courant ; carte memoire : absente ;
@@ -352,7 +352,16 @@ GXRModeObj TVPal524IntAa, TVNtsc480IntAa;
 static GXRModeObj *vi_mode = &TVEurgb60Hz480IntDf;
 static void *vi_next_fb = NULL, *vi_cur_fb = NULL;
 void VIDEO_Init(void) {}
-void VIDEO_Configure(GXRModeObj *m) { if (m) vi_mode = m; }
+/* 50 Hz en PAL (576i / 576p / 528i), 60 Hz sinon (NTSC, MPAL, EURGB60) */
+volatile unsigned pcsim_frame_us = 16667;
+static int vi_hz(const GXRModeObj *m) { return (m->viTVMode >> 2) == VI_PAL ? 50 : 60; }
+void VIDEO_Configure(GXRModeObj *m) {
+    if (!m) return;
+    if (m != vi_mode || pcsim_frame_us != (vi_hz(m) == 50 ? 20000u : 16667u))
+        printf("[pcsim] ecran : %ux%u lignes %s, %d Hz\n", m->fbWidth, m->xfbHeight,
+               (m->viTVMode & 3) == VI_PROGRESSIVE ? "progressif" : "entrelace", vi_hz(m));
+    vi_mode = m; pcsim_frame_us = vi_hz(m) == 50 ? 20000 : 16667;
+}
 void VIDEO_Flush(void) { vi_cur_fb = vi_next_fb; }
 void VIDEO_WaitVSync(void) { u32 n = vsync_n; while (vsync_n == n) usleep(500); }
 void VIDEO_SetBlack(bool b) { (void)b; }
@@ -360,7 +369,7 @@ void VIDEO_SetNextFramebuffer(void *fb) { vi_next_fb = fb; }
 void VIDEO_ClearFrameBuffer(GXRModeObj *m, void *fb, u32 color) { (void)m; (void)fb; (void)color; }
 GXRModeObj *VIDEO_GetPreferredMode(GXRModeObj *m) { (void)m; return getenv("PCSIM_PAL") ? &TVPal528IntDf : &TVEurgb60Hz480IntDf; }
 u32 VIDEO_GetCurrentTvMode(void) { return getenv("PCSIM_PAL") ? VI_PAL : VI_EURGB60; }
-u32 VIDEO_HaveComponentCable(void) { return 0; }
+u32 VIDEO_HaveComponentCable(void) { return getenv("PCSIM_COMPOSANTE") ? 1 : 0; }   /* PCSIM_COMPOSANTE=1 : cable composante (480p / 576p) */
 u32 VIDEO_GetNextField(void) { return vsync_n & 1; }
 u32 VIDEO_GetCurrentLine(void) { return 0; }
 VIRetraceCallback VIDEO_SetPostRetraceCallback(VIRetraceCallback cb) { VIRetraceCallback o = post_cb; post_cb = cb; return o; }
@@ -372,12 +381,12 @@ void CON_Init(void *fb, int x, int y, int w, int h, int stride) { (void)fb; (voi
 s32 CON_InitEx(GXRModeObj *m, s32 x, s32 y, s32 w, s32 h) { (void)m; (void)x; (void)y; (void)w; (void)h; return 0; }
 void CON_GetMetrics(int *c, int *r) { if (c) *c = 80; if (r) *r = 25; }
 void CON_GetPosition(int *c, int *r) { if (c) *c = 0; if (r) *r = 0; }
-/* ecran a 60 Hz : rappels de balayage (comme l'interruption de la console) */
+/* ecran a 60 ou 50 Hz (selon le mode, VIDEO_Configure) : rappels de balayage (comme l'interruption de la console) */
 static void *vsync_thread(void *a) {
     (void)a;
     u64 next = real_us();
     for (;;) {
-        next += 16667;
+        next += pcsim_frame_us;
         u64 now = real_us();
         if (next > now) { struct timespec ts = { 0, (long)(next - now) * 1000 }; nanosleep(&ts, NULL); }
         else next = now;
