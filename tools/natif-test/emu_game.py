@@ -170,6 +170,14 @@ def sram_fix():
     sram[0:4] = struct.pack('>HH', a, b)
 sram_fix()
 srm = {'cmd': None, 'pos': 0}
+sys.path.insert(0, T); import romfont                 # (v174 : police de la console, faite ici : ROM en 0x1FCF00)
+ROM = {0x1FCF00: romfont.ansi()}
+def rom_read(a, n):
+    out = bytearray(n)
+    for base, blob in ROM.items():
+        lo, hi = max(a, base), min(a + n, base + len(blob))
+        if lo < hi: out[lo - a:hi - a] = blob[lo - base:hi - base]
+    return bytes(out)
 def sram_xfer(uc, value):
     n = ((value >> 4) & 3) + 1; mode = (value >> 2) & 3
     if value & 2:                                         # DMA
@@ -177,6 +185,8 @@ def sram_xfer(uc, value):
         if mode == 0:
             if srm['cmd'] is not None and srm['cmd'] & 0x7FFFFF00 == 0x20000100:
                 o = srm['pos']; d = bytes(sram[o:o + ln]) + bytes(max(0, ln - (64 - o))); srm['pos'] += ln
+            elif srm['cmd'] is not None and srm['cmd'] < 0x20000000:   # (lecture de la ROM : adresse << 6)
+                d = rom_read((srm['cmd'] >> 6) + srm['pos'], ln); srm['pos'] += ln
             else: d = bytes(ln)
             uc.mem_write(a, d[:ln])
         elif srm['cmd'] is not None and srm['cmd'] & 0xFFFFFF00 == 0xA0000100:
