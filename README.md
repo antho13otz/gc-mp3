@@ -14,14 +14,16 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v184)
+## Nouveautés de la version actuelle (v185)
+- **Captures d'écran en jeu (L + R + Z) et « ta musique dans les jeux » enlevées** : elles ne marchaient pas sur la
+  console. Pulse revient à son code d'avant ces deux fonctions ; les succès « Photographe » et « Album photo » sont
+  enlevés (12 succès). Le fichier `gc-mp3/natif/captures.bin` est effacé au démarrage ; ton dossier `musique-jeux`
+  n'est pas touché (tu peux l'effacer).
+
+## Version précédente (v184)
 - **Supprimer un jeu** : fiche du jeu > Y (Réglages du jeu) > dernière ligne « Supprimer ce jeu de la carte SD »,
   puis A deux fois. Le fichier du jeu est effacé (et son dossier s'il devient vide) ; ses sauvegardes, réglages et
   cheats restent. Seulement pour les jeux de la carte SD (pas le GC Loader, le disque ou le réseau).
-
-## Version précédente (v183)
-- Rangement : l'ancien `gc-mp3/retour.txt` disparaît bien dès que le lanceur de secours est à jour (build 597 ou plus).
-  En v182, GC Station ne savait pas reconnaître le nouveau lanceur, et le fichier restait.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
@@ -61,7 +63,7 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   volumes, cookies, sauvegarde des réglages) ; `bibliotheque/` (bibliothèque, écoutes, titres gardés,
   téléchargements) ; `mes-parties/` (jeux lancés, temps de jeu, favoris, succès, soirée, compatibilité) ;
   `journaux/` (plantage, démarrage, fluidité, réparation, lanceur) ; `lanceur/` (lanceur de secours) ;
-  `musique-jeux/` (ta musique dans les jeux) ; `natif/`, `resident/` (Pulse) ; `cheats/`, `listes/`,
+  `natif/`, `resident/` (Pulse) ; `cheats/`, `listes/`,
   `radio/`, `podcasts/`, `jaquettes/`, `cache/`… Les fichiers d'avant sont rangés tout seuls au démarrage.
 
 ## Pour les développeurs

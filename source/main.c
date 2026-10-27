@@ -1055,9 +1055,7 @@ static mp3d_sample_t pcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
 static double rpos = 0.0;
 static s16 prevL = 0, prevR = 0;
 
-static void (*pf_hook)(const s16 *L, const s16 *R, int n, unsigned sr) = NULL;   /* v181 : echantillons pris ailleurs (ta musique dans les jeux) */
 static void push_frame(const s16 *L, const s16 *R, int n, unsigned sr) {
-    if (pf_hook) { if (n > 0 && sr > 0) pf_hook(L, R, n, sr); return; }
     double step = (double)sr / 48000.0;
     while (rpos < n - 1 && f_count < FIFO_SIZE) {
         int i = (rpos < 0.0) ? -1 : (int)rpos;
@@ -1186,7 +1184,7 @@ static void sd_layout(void) {
         "/gc-mp3", "/gc-mp3/cache", "/gc-mp3/cache/pochettes", "/gc-mp3/cache/vignettes", "/gc-mp3/listes",
         "/gc-mp3/podcasts", "/gc-mp3/radio", "/gc-mp3/radio/enregistrements", "/gc-mp3/cheats", "/gc-mp3/jeux",
         "/gc-mp3/natif", "/gc-mp3/resident", "/gc-mp3/reglages", "/gc-mp3/bibliotheque", "/gc-mp3/mes-parties",
-        "/gc-mp3/journaux", "/gc-mp3/lanceur", "/gc-mp3/musique-jeux", NULL };
+        "/gc-mp3/journaux", "/gc-mp3/lanceur", NULL };
     char p[NAME_LEN];
     struct stat st;
     for (int i = 0; dirs[i]; i++) {
@@ -4307,42 +4305,6 @@ static int start_track_u(int idx) {
     src = SRC_FILE;
     lyrics_load(idx);
     return 1;
-}
-
-/* v181 : decode tout un fichier audio (tous les formats de l'onglet MUSIQUE : MP3, FLAC, OGG, WAV, M4A, musiques
-   retro...) vers 'hook', sans le jouer (ta musique dans les jeux). Le morceau ou la radio en cours s'arretent.
-   'tick' est appele apres chaque bloc ; pcm_abort = 1 (dans hook) arrete. Rend 0, ou -1 (fichier illisible). */
-static volatile int pcm_abort = 0;
-static int pcm_file_decode(const char *path, void (*hook)(const s16 *, const s16 *, int, unsigned), void (*tick)(void)) {
-    stop_track(); stop_station(); nx_drop();
-    FILE *fp = fopen(path, "rb");
-    long size = -1;
-    if (fp && fseek(fp, 0, SEEK_END) == 0) size = ftell(fp);
-    if (!fp || size <= 0) { if (fp) fclose(fp); return -1; }
-    int fmt = audio_fmt(path);
-    tags_t tg; tags_clear(&tg);
-    long audio = 0;
-    DEC_LOCK();
-    mp3_skip = 0; mp3_left = -1;
-    const char *err = trk_open(-1, path, fp, size, fmt, &tg, &audio);
-    if (!err && fmt != FMT_FLAC && fmt < FMT_GME && fseek(fp, audio, SEEK_SET) != 0) err = "Lecture impossible";
-    if (err) { other_close(); fclose(fp); DEC_UNLOCK(); return -1; }
-    file_fmt = fmt; ffp = fp; fsize = size; f_audio = audio;
-    fb_start = fb_end = 0; f_file_eof = 0; ogg_resync = 0; eof = 0;
-    playing = 0; src = SRC_NONE;                          /* (personne d'autre ne decode : rien n'est joue) */
-    pf_hook = hook; pcm_abort = 0;
-    DEC_UNLOCK();
-    while (!eof && !pcm_abort) {
-        DEC_LOCK(); decode_file_one(); DEC_UNLOCK();
-        if (tick) tick();
-    }
-    DEC_LOCK();
-    pf_hook = NULL;
-    if (ffp) { fclose(ffp); ffp = NULL; }
-    other_close();
-    eof = 0;
-    DEC_UNLOCK();
-    return 0;
 }
 
 // ---------- Bibliotheque : vues, file de lecture, aleatoire, repetition ----------
@@ -13434,10 +13396,7 @@ int main(int argc, char **argv) {
     if (sd_ok) { say("   Musique de la carte SD... %s", ""); scan_files(); { char nb[16]; snprintf(nb, sizeof(nb), "%d", nfiles); say("%s\n", nb); } bt_step("liste de la musique"); }
     if (sd_ok) { say("   Bibliotheque... %s", ""); bib_load(); pl_load_all(); stats_load(); rating_load(); say("%s\n", "OK"); bt_step("bibliotheque"); }
     if (sd_ok) nat_journal_convert();       /* v54 : journal du dernier jeu lance par le lanceur maison */
-    if (sd_ok) nat_shots_convert();         /* v175 : captures d'ecran du dernier jeu (photos/captures) */
-#ifndef GEKKO
-    if (getenv("PCSIM_MUSCONV")) { u32 t_ = perf_us(); int r_ = na_mus_prep(getenv("PCSIM_MUSCONV")); printf("[pcsim] ta musique %s : %d, %s (%.1f s)\n", getenv("PCSIM_MUSCONV"), r_, na_mus_msg, (perf_us() - t_) / 1e6); }   /* v181 : essai de la conversion */
-#endif
+    if (sd_ok && !sd_virtual) remove(GCD "/natif/captures.bin");   /* v185 : captures enlevees (fichier de 6 Mo devenu inutile) */
     bt_step("journal Pulse");
     say("   Radios... %s", "");
     load_stations();

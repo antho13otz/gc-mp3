@@ -3,7 +3,7 @@ import struct, sys, random
 kind, iso_path, out, mbr = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4] == '1'
 iso = open(iso_path, 'rb').read()
 part = 2048 if mbr else 0
-if kind == '32': spc, ncl, fatsz_e = 1, 102000, 4     # (v180 : place pour natif/captures.bin au cluster 90000)
+if kind == '32': spc, ncl, fatsz_e = 1, 70000, 4
 else: spc, ncl, fatsz_e = 4, 20000, 2
 rsvd = 32 if kind == '32' else 4
 fatsz = (ncl + 2) * fatsz_e // 512 + 1
@@ -96,26 +96,6 @@ if len(sys.argv) > 8:
         c = 55000 + i
         nxt = c + 1 if i + 1 < n5 else (0x0FFFFFFF if kind == '32' else 0xFFFF)
         w(part + data + (c - 2) * spc, card[i * csize:(i + 1) * csize])
-        for f in range(2):
-            base = part + rsvd + f * fatsz
-            img.seek(base * 512 + c * fatsz_e); img.write(struct.pack('<I' if kind == '32' else '<H', nxt))
-# v180 : natif/captures.bin (8 places de 1441 secteurs) d'un seul morceau au cluster 90000 (MKFAT_SHOTS=1)
-import os
-if os.environ.get('MKFAT_SHOTS') == '1' and kind == '32':
-    nsh = 8 * (1 + 640 * 576 * 2 // 512)
-    for i in range(nsh):
-        c = 90000 + i
-        nxt = c + 1 if i + 1 < nsh else 0x0FFFFFFF
-        for f in range(2):
-            base = part + rsvd + f * fatsz
-            img.seek(base * 512 + c * fatsz_e); img.write(struct.pack('<I', nxt))
-# v180 : ta musique (fichier ADP, MKFAT_MUS=chemin) d'un seul morceau au cluster 25000
-if os.environ.get('MKFAT_MUS'):
-    mus = open(os.environ['MKFAT_MUS'], 'rb').read(); nm = (len(mus) + csize - 1) // csize
-    for i in range(nm):
-        c = 25000 + i
-        nxt = c + 1 if i + 1 < nm else (0x0FFFFFFF if kind == '32' else 0xFFFF)
-        w(part + data + (c - 2) * spc, mus[i * csize:(i + 1) * csize].ljust(csize, b'\0'))
         for f in range(2):
             base = part + rsvd + f * fatsz
             img.seek(base * 512 + c * fatsz_e); img.write(struct.pack('<I' if kind == '32' else '<H', nxt))

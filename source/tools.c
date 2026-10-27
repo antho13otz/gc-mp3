@@ -1518,9 +1518,9 @@ static void draw_tools(void) {
 
 /* =================== v177 : succes (START > Outils > Succes) ===================
    Calcules d'apres ce que GC Station garde deja : temps de jeu et lancements (jeux_stats.txt, mesures par Pulse),
-   favoris, captures d'ecran (photos/captures), records des mini-jeux. Debloques : gc-mp3/mes-parties/succes.txt ("id|date"). */
+   favoris, records des mini-jeux. Debloques : gc-mp3/mes-parties/succes.txt ("id|date"). */
 #define SC_FILE GCD_PARTIES "/succes.txt"
-enum { SK_RUNS, SK_GAMES, SK_PLAY, SK_ONEGAME, SK_SHOTS, SK_FAVS, SK_MINIALL, SK_REC };
+enum { SK_RUNS, SK_GAMES, SK_PLAY, SK_ONEGAME, SK_FAVS, SK_MINIALL, SK_REC };
 typedef struct { const char *id, *title, *desc; u8 kind; u32 target; const char *rec; } sc_def_t;
 static const sc_def_t sc_defs[] = {
     { "lance1",  "Premier lancement",  "Lancer un jeu GameCube depuis GC Station",        SK_RUNS,    1, NULL },
@@ -1531,8 +1531,6 @@ static const sc_def_t sc_defs[] = {
     { "heure10", "Dix heures",         "10 h de jeu au total",                                 SK_PLAY,    36000, NULL },
     { "heure50", "Cinquante heures",   "50 h de jeu au total",                                 SK_PLAY,    180000, NULL },
     { "mordu",   "Mordu",              "10 h sur un m\xC3\xAAme jeu",                                SK_ONEGAME, 36000, NULL },
-    { "photo1",  "Photographe",        "Une capture d'\xC3\xA9" "cran en jeu (L + R + Z)",              SK_SHOTS,   1, NULL },
-    { "photo20", "Album photo",        "20 captures d'\xC3\xA9" "cran",                                   SK_SHOTS,   20, NULL },
     { "favoris", "Coups de coeur",   "5 jeux en favoris (L dans la fiche)",                  SK_FAVS,    5, NULL },
     { "arcade",  "Arcade",             "Un record dans les 5 mini-jeux \xC3\xA0 score",       SK_MINIALL, 5, NULL },
     { "serpent", "Serpent",            "30 points \xC3\xA0 Snake",                                   SK_REC,     30, "jeu:snake" },
@@ -1542,14 +1540,6 @@ static const sc_def_t sc_defs[] = {
 static u32 sc_have[SC_N], sc_val[SC_N];
 static int sc_sel = 0, sc_top = 0, sc_loaded = 0;
 static int rg_record_get(const char *path);
-static int sc_count_dir(const char *dir, const char *ext) {
-    DIR *d = opendir(dir);
-    if (!d) return 0;
-    int n = 0; struct dirent *e;
-    while ((e = readdir(d))) { const char *x = strrchr(e->d_name, '.'); if (x && !strcasecmp(x, ext)) n++; }
-    closedir(d);
-    return n;
-}
 static void sc_values(void) {
     u32 runs = 0, games = 0, play = 0, one = 0;
     long n = 0;
@@ -1568,14 +1558,13 @@ static void sc_values(void) {
     d = (char *)read_file(GCD_PARTIES "/jeux-favoris.txt", 16 * 1024, &n);
     for (long i = 0; d && i < n; i++) if (d[i] == '\n') favs++;
     free(d);
-    int shots = sc_count_dir(SD_ROOT "/photos/captures", ".png");
     static const char *const recs[5] = { "jeu:snake", "jeu:snake-sans-murs", "jeu:casse-briques", "jeu:note-volante", "jeu:simon" };
     int mini = 0;
     for (int k = 0; k < 5; k++) if (rg_record_get(recs[k]) > 0) mini++;
     for (int i = 0; i < SC_N; i++) {
         const sc_def_t *c = &sc_defs[i];
         sc_val[i] = c->kind == SK_RUNS ? runs : c->kind == SK_GAMES ? games : c->kind == SK_PLAY ? play : c->kind == SK_ONEGAME ? one :
-                    c->kind == SK_SHOTS ? (u32)shots : c->kind == SK_FAVS ? (u32)favs : c->kind == SK_MINIALL ? (u32)mini :
+                    c->kind == SK_FAVS ? (u32)favs : c->kind == SK_MINIALL ? (u32)mini :
                     c->rec ? (u32)(rg_record_get(c->rec) > 0 ? rg_record_get(c->rec) : 0) : 0;
     }
 }
@@ -1740,7 +1729,7 @@ static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s", "
     "Sauvegarder tous les r\xC3\xA9glages", "Restaurer les r\xC3\xA9glages", "Infos console", "Quitter GC Station" };
 static const char *const to_help[TO_COUNT] = {
     "Relancer un jeu en un clic.",
-    "Temps de jeu, jeux diff\xC3\xA9rents, captures, favoris, records des mini-jeux.",
+    "Temps de jeu, jeux diff\xC3\xA9rents, favoris, records des mini-jeux.",
     "2 \xC3\xA0 4 joueurs : un jeu et les manettes tir\xC3\xA9s au sort, les victoires compt\xC3\xA9" "es.",
     "Onglet JEUX / APPS. Dans la fiche d'un jeu : Y = r\xC3\xA9glages du jeu.",
     "Homebrews \xC3\xA0 t\xC3\xA9l\xC3\xA9" "charger et installer dans SD:/apps (Swiss, CleanRip, GCMM...), avec mises \xC3\xA0 jour.",

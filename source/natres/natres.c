@@ -28,7 +28,6 @@ static void early_note(u32 a, u32 v, u32 st);           /* v166 */
 #define ext_tab ((natres_ext_t *)natres_hdr.ext)
 static natres_ext_t ret_tab[NATRES_RETMAX];              /* v64 : le .dol de GC Station sur la carte */
 static natres_ext_t card_tab[NATRES_CARDMAX];            /* v65 : le fichier de la carte memoire virtuelle */
-static natres_ext_t mus_tab[NATRES_MUSMAX];              /* v179 : ta musique (fichier ADP, 16 morceaux au plus) */
 static natres_ext_t card2_tab[NATRES_CARDMAX];           /* v122 : celui du slot B */
 static u32 si_load(u32 a);
 /* v139 : acces du jeu a la page des registres DI / SI / EXI / AI (0xCC006000) pris par exception (option) : le
@@ -69,7 +68,7 @@ natres_hdr_t natres_hdr = {
     0, 0, 0, 0,
     0, 0, { 0, 0, 0, 0 }, 0, 0,
     0, 0, 0, 0,
-    .card2_tab = (u32)card2_tab, .mus_tab = (u32)mus_tab, .si_load = (u32)si_load, .si_store = (u32)si_store,   /* (v122) */
+    .card2_tab = (u32)card2_tab, .si_load = (u32)si_load, .si_store = (u32)si_store,   /* (v122) */
 };
 #define H natres_hdr
 
@@ -477,9 +476,9 @@ static void nr_log_flush(void) {
         if (!di_ready) return;
     }
     const u8 *p = (const u8 *)&H;
-    for (u32 i = 0; i < NATRES_JHDR; i++) logbuf[i] = p[i];
+    for (u32 i = 0; i < sizeof(natres_hdr_t); i++) logbuf[i] = p[i];
     for (u32 k = 0; k < NATRES_LOGN; k++) {                     /* le plus ancien d'abord */
-        u32 j = (H.nlog + k) % NATRES_LOGN, *d = (u32 *)(logbuf + NATRES_JHDR + k * 16);
+        u32 j = (H.nlog + k) % NATRES_LOGN, *d = (u32 *)(logbuf + sizeof(natres_hdr_t) + k * 16);
         for (int w = 0; w < 4; w++) d[w] = log_ring[j][w];
     }
     nr_write_sd(H.log_sec, logbuf);
@@ -994,40 +993,13 @@ static void si_hook(u32 irq, u32 ctx) {
     igr_ctx = ctx;
     igr_poll();
 }
-/* v175 : capture d'ecran : L + R + Z tenus (pas A + START : c'est le retour). L'image que l'ecran montre (XFB, adresse
-   dans le registre TFBL de VI ; largeur et pas d'apres PICCONF ; lignes d'apres VTR) est ecrite telle quelle dans la
-   place suivante de natif/captures.bin ; GC Station la convertit en PNG (SD:/photos/captures) au retour. */
-#define shot_buf crashbuf                                 /* (pas de plantage pendant une capture : meme tampon) */
-static u8 shot_hold = 0;
-static void shot_take(void) {
-    if (!H.shot_sec || H.shot_n >= H.shot_max || exi_defer()) return;
-    if (!di_ready) { if (H.net) return; di_ready = nr_init() == 0; if (!di_ready) return; }
-    volatile unsigned short *vr = (volatile unsigned short *)0xCC002000u;
-    u32 tfbl = (u32)vr[0x1C / 2] << 16 | vr[0x1E / 2];
-    u32 a = tfbl & 0x10000000u ? (tfbl & 0x00FFFFFFu) << 5 : tfbl & 0x00FFFFFFu;
-    u32 pc = vr[0x48 / 2], wpl = (pc >> 8) & 0x7F, std = pc & 0xFF, acv = (vr[0] >> 4) & 0x3FF;
-    u32 w = wpl * 16, h = std == wpl * 2 ? acv * 2 : acv, line = w * 2;
-    if (!w || !h || w > 640 || a < 0x3100 || a + line * h > 0x01800000u) { H.shot_last = 0; return; }
-    if (h > 576) h = 576;
-    u32 sec = H.shot_sec + H.shot_n * NATRES_SHOT_SECS, n = (line * h + 511) / 512;
-    u32 hd[8] = { NATRES_SHOT_MAGIC, w, h, line, *(volatile u32 *)0x80000000u, *(volatile u32 *)0x80000004u, H.vi_count, 0 };
-    const volatile u8 *src = (const volatile u8 *)(0xC0000000u | a);   /* (sans le cache : l'image vient du processeur graphique) */
-    for (u32 k = 0; k < n; k++) {
-        for (u32 i = 0; i < 512; i++) shot_buf[i] = (k * 512 + i < line * h) ? src[k * 512 + i] : 0x80;
-        if (nr_write_sd(sec + 1 + k, shot_buf)) return;
-    }
-    for (u32 i = 0; i < 512; i++) shot_buf[i] = 0;
-    for (int i = 0; i < 8; i++) { shot_buf[i * 4] = (u8)(hd[i] >> 24); shot_buf[i * 4 + 1] = (u8)(hd[i] >> 16); shot_buf[i * 4 + 2] = (u8)(hd[i] >> 8); shot_buf[i * 4 + 3] = (u8)hd[i]; }
-    if (nr_write_sd(sec, shot_buf)) return;              /* (en-tete en dernier : une place a moitie ecrite reste vide) */
-    H.shot_n++; H.shot_last = w << 16 | h;
-}
 static void igr_poll(void) { igr_poll2(1); }
 /* count = 0 : ne compte que le temps (interruption du son : trop frequente pour compter les lectures) */
 static void igr_poll2(int count) {
     if (!(H.flags & NRF_IGR)) return;
     volatile u32 *si = HW6(0xCC006400u);
     static u8 igr_ch[4];                                 /* v99 : derniere chose vue sur chaque port (1 = A+Z+START tenus) */
-    int on = 0, seen = 0, shot = 0;
+    int on = 0, seen = 0;
     u32 sr = si[14];                                     /* SISR (lecture sans effet) */
     for (int ch = 0; ch < 4; ch++) {
         /* v58 : lire SICnINBUFH efface le drapeau "donnees neuves" (RDST) : si le jeu ne les a
@@ -1045,7 +1017,6 @@ static void igr_poll2(int count) {
         if ((b & 0x80000000u) || !(b & 0x00800000u)) { igr_ch[ch] = 0; continue; }   /* (pas de manette) */
         seen = 1;
         igr_ch[ch] = (b & 0x11000000u) == 0x11000000u && (b & 0x00100000u);   /* A + START, Z */
-        if ((b & 0x00700000u) == 0x00700000u && !(b & 0x11000000u)) shot = 1;   /* v175 : L + R + Z (capture) */
     }
     for (int ch = 0; ch < 4; ch++) if (igr_ch[ch]) on = 1;   /* (port saute cette fois : son dernier etat) */
     u32 now = tbl();
@@ -1053,8 +1024,6 @@ static void igr_poll2(int count) {
        l'etat. Avant, cela remettait le compte a zero : tres frequent depuis l'interruption du son (v89),
        A+Z+START n'etait jamais tenu 1 s "sans interruption" et ne marchait dans aucun jeu. */
     if (!seen) return;
-    if (shot && !shot_hold) { shot_hold = 1; shot_take(); }   /* v175 : une capture par appui */
-    else if (!shot) shot_hold = 0;
     if (!on) { igr_hold = 0; return; }
     if (!igr_hold) { igr_t0 = now; igr_hold = 1; }
     if (count) igr_hold++;
@@ -1103,30 +1072,12 @@ static int st_dec(int bits, int q, int *h1, int *h2) {
     *h2 = *h1; *h1 = cur;
     return st_clamp(cur >> 6, -0x8000, 0x7fff);
 }
-/* v179 : ta musique : le bloc suivant du fichier ADP (en boucle) a la place de celui du disque (dans st_sec : le
-   disque n'est plus lu pour la musique) */
-static u32 mus_pos = 0;
-static const u8 *mus_block(void) {
-    if (mus_pos + 32 > H.mus_size) { mus_pos = 0; st_hl1 = st_hl2 = st_hr1 = st_hr2 = 0; }
-    u32 ms = mus_pos & ~511u;
-    if (st_sec_off != (ms | 1u)) {                       /* (bit 0 : secteur du fichier, pas du disque) */
-        u32 s = ms >> 9, k;
-        for (k = 0; k < H.mus_n && k < NATRES_MUSMAX; k++) if (s >= mus_tab[k].iso && s - mus_tab[k].iso < mus_tab[k].cnt) break;
-        if (k >= H.mus_n || k >= NATRES_MUSMAX || nr_read_sd(mus_tab[k].sd + (s - mus_tab[k].iso), st_sec)) { st_sec_off = 0xFFFFFFFFu; H.mus_n = 0; return 0; }
-        st_sec_off = ms | 1u; st_sec_n = 0;
-    }
-    const u8 *a = st_sec + (mus_pos - ms);
-    mus_pos += 32; H.mus_blocks++;
-    return a;
-}
 static int st_block(void) {                              /* bloc suivant (32 octets -> 28 echantillons stereo) */
     if (st_pos >= st_cur_start + st_cur_len) {
         st_pos = st_next_start; st_cur_start = st_next_start; st_cur_len = st_next_len;
         if (st_stop_end) { st_stop_end = 0; st_on = 0; return -1; }
-        if (!H.mus_n) st_hl1 = st_hl2 = st_hr1 = st_hr2 = 0;   /* (v179 : ta musique continue) */
+        st_hl1 = st_hl2 = st_hr1 = st_hr2 = 0;
     }
-    const u8 *a = H.mus_n && H.mus_size >= 64 ? mus_block() : 0;   /* v179 */
-    if (a) goto dec;
     u32 so = st_pos & ~511u, sd;
     if (st_sec_off == 0xFFFFFFFFu || so < st_sec_off || so >= st_sec_off + st_sec_n) {
         if (H.net) {                                      /* v143 : (ISO sur le reseau) */
@@ -1142,8 +1093,8 @@ static int st_block(void) {                              /* bloc suivant (32 oct
         st_sec_off = so; st_sec_n = n * 512;
     }
 have:
-    a = st_sec + (st_pos - st_sec_off);
-dec:
+    { }
+    const u8 *a = st_sec + (st_pos - st_sec_off);
     for (int i = 0; i < 28; i++) {
         st_pcm[i * 2] = (short)st_dec(a[i + 4] & 0xF, a[0], &st_hl1, &st_hl2);
         st_pcm[i * 2 + 1] = (short)st_dec(a[i + 4] >> 4, a[1], &st_hr1, &st_hr2);
@@ -1192,19 +1143,19 @@ static u32 st_last_addr = 0xFFFFFFFFu, st_last_sum = 0, st_dsp_n = 0;
    la fin du DSP avec les echantillons suivants : la musique avancait deux fois trop vite et sautait un
    morceau sur deux (saccades). Maintenant : l'etat du decodeur est garde avant chaque ajout ; si le DSP a
    reecrit ce meme tampon, on revient a cet etat et on ajoute les memes echantillons. */
-typedef struct { u32 on, stop_end, pos, cs, clen, ns, nl, pcm_i, phase, mpos; int hl1, hl2, hr1, hr2, cl, cr, pl, pr; short pcm[56]; } stsnap_t;
+typedef struct { u32 on, stop_end, pos, cs, clen, ns, nl, pcm_i, phase; int hl1, hl2, hr1, hr2, cl, cr, pl, pr; short pcm[56]; } stsnap_t;
 static stsnap_t st_snap;
 static void st_save(u32 addr) {
     stsnap_t *s = &st_snap;
     s->on = st_on; s->stop_end = st_stop_end; s->pos = st_pos; s->cs = st_cur_start; s->clen = st_cur_len; s->ns = st_next_start; s->nl = st_next_len;
-    s->mpos = mus_pos; s->pcm_i = st_pcm_i; s->phase = st_phase; s->hl1 = st_hl1; s->hl2 = st_hl2; s->hr1 = st_hr1; s->hr2 = st_hr2; s->cl = st_cl; s->cr = st_cr; s->pl = st_pl; s->pr = st_pr;
+    s->pcm_i = st_pcm_i; s->phase = st_phase; s->hl1 = st_hl1; s->hl2 = st_hl2; s->hr1 = st_hr1; s->hr2 = st_hr2; s->cl = st_cl; s->cr = st_cr; s->pl = st_pl; s->pr = st_pr;
     for (int i = 0; i < 56; i++) s->pcm[i] = st_pcm[i];
     st_snap_addr = addr;
 }
 static void st_load(void) {
     const stsnap_t *s = &st_snap;
     st_on = s->on; st_stop_end = s->stop_end; st_pos = s->pos; st_cur_start = s->cs; st_cur_len = s->clen; st_next_start = s->ns; st_next_len = s->nl;
-    mus_pos = s->mpos; st_pcm_i = s->pcm_i; st_phase = s->phase; st_hl1 = s->hl1; st_hl2 = s->hl2; st_hr1 = s->hr1; st_hr2 = s->hr2; st_cl = s->cl; st_cr = s->cr; st_pl = s->pl; st_pr = s->pr;
+    st_pcm_i = s->pcm_i; st_phase = s->phase; st_hl1 = s->hl1; st_hl2 = s->hl2; st_hr1 = s->hr1; st_hr2 = s->hr2; st_cl = s->cl; st_cr = s->cr; st_pl = s->pl; st_pr = s->pr;
     for (int i = 0; i < 56; i++) st_pcm[i] = s->pcm[i];
 }
 static u32 st_sum(const u32 *w, u32 n) { u32 s = 0x9E3779B9u; for (u32 i = 0; i < n; i++) s = (s ^ w[i]) * 0x01000193u; return s; }

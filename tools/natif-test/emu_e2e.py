@@ -234,11 +234,7 @@ if TRAP:                                              # (memoire aussi en adress
     mu.mem_map_ptr(0x80000000, 0x01800000, UC_PROT_ALL, ctypes.addressof(ram))
     mu.mem_map_ptr(0x00000000, 0x01800000, UC_PROT_ALL, ctypes.addressof(ram))
     mu.mmio_map(0xCC406000, 0x1000, io_read, None, io_write, None)   # (2e adresse de la page : celle du resident)
-else:                                                  # v180 : memoire aussi en 0xC0000000 (sans cache), comme sur la console
-    import ctypes
-    ram = ctypes.create_string_buffer(0x01800000)
-    mu.mem_map_ptr(0x80000000, 0x01800000, UC_PROT_ALL, ctypes.addressof(ram))
-    mu.mem_map_ptr(0xC0000000, 0x01800000, UC_PROT_ALL, ctypes.addressof(ram))
+else: mu.mem_map(0x80000000, 0x01800000)
 mu.mmio_map(0xCC006000, 0x1000, io_read, None, io_write, None)
 mu.mmio_map(0xCC003000, 0x1000, pi_read, None, pi_write, None)
 mu.mmio_map(0xCC000000, 0x1000, pi_read, None, lambda *a: None, None)      # (CP : ecritures ignorees)
@@ -249,9 +245,6 @@ def dsp_read(uc, off, size, data):
     return dspr.get(off, 0) if size == 2 else (dspr.get(off, 0) << 16) | dspr.get(off + 2, 0)
 mu.mmio_map(0xCC005000, 0x1000, dsp_read, None, dsp_write, None)          # (DSP / DMA du son)
 vir = {0x02: 0x0001, 0x6C: 0, 0x6E: 1}                # v99 : ecran (VI) : DCR actif NTSC, 27 MHz, cable numerique
-if MODE == 'shot':                                    # v180 : capture d'ecran : image 640 x 480 en 0x00700000, L + R + Z sur la manette 3
-    vir.update({0x00: 240 << 4, 0x1C: 0x0070, 0x1E: 0x0000, 0x48: (40 << 8) | 80})
-    si_inbuf[2] = 0x00F00000
 mu.mmio_map(0xCC002000, 0x1000, lambda uc, off, size, data: vir.get(off, 0) if size == 2 else (vir.get(off, 0) << 16) | vir.get(off + 2, 0), None, lambda *a: None, None)
 b = open(BOOT, 'rb').read()
 entry, n = struct.unpack_from('>II', b, 0); p = 8
@@ -260,8 +253,6 @@ for i in range(n):
     mu.mem_write(dst, b[p:p + sz]); p += sz
     print('copie %08X %d' % (dst, sz))
 mu.mem_write(0x80000000, b[p:p + 0x20])
-XFB = bytes(((i * 7) ^ (i >> 9)) & 0xFF for i in range(640 * 480 * 2)) if MODE == 'shot' else b''
-if XFB: mu.mem_write(0x80700000, XFB)
 EXC = len(sys.argv) > 4 and sys.argv[4] == 'exc'          # v60 : faux plantage
 if EXC: mu.mem_write(0x80001F40, struct.pack('>I', 1))
 EXEC = len(sys.argv) > 4 and sys.argv[4] in ('exec', 'execa')   # v95 : OSExec (ancien / recent apploader)
@@ -459,9 +450,8 @@ def adp(bits, q, h):
     h[1] = h[0]; h[0] = cur
     return max(-0x8000, min(0x7fff, cur >> 6))
 pcm = []; hl = [0, 0]; hr = [0, 0]
-MUS = open(os.environ['MKFAT_MUS'], 'rb').read() if os.environ.get('MKFAT_MUS') else None   # v180 : ta musique a la place du disque
 for blk in range(12):
-    a = MUS[blk * 32:blk * 32 + 32] if MUS else iso[0x10000 + blk * 32:0x10000 + blk * 32 + 32]
+    a = iso[0x10000 + blk * 32:0x10000 + blk * 32 + 32]
     for i in range(28): pcm.append((adp(a[i + 4] & 0xF, a[0], hl), adp(a[i + 4] >> 4, a[1], hr)))
 want = b''.join(struct.pack('>hh', max(-0x8000, min(0x7fff, (l * 255) >> 8)), max(-0x8000, min(0x7fff, (r * 255) >> 8))) for l, r in pcm[:160])
 got = bytes(mu.mem_read(0x80300000, 0x280))
@@ -493,9 +483,7 @@ print(('OK   ' if mc else 'FAUX ') + 'carte memoire virtuelle : ID %X, CSR %X, r
 ok &= bool(mc)
 csecs = {csd(0x2000 >> 9), csd(0x110000 >> 9)}
 if card.writes:                                    # v54 : journal du jeu ecrit sur la carte
-    shs = set(range(rd(0x1F0), rd(0x1F0) + rd(0x1F4) * (1 + 640 * 576 * 2 // 512))) if MODE == 'shot' else set()   # v180 : places des captures
-    csecs = csecs | shs
-    js = [w for w in card.writes if w not in shs][-1]; jb = disk[js * 512:js * 512 + 512]; open('journal.bin', 'wb').write(jb)
+    js = card.writes[-1]; jb = disk[js * 512:js * 512 + 512]; open('journal.bin', 'wb').write(jb)
     u = lambda o: struct.unpack_from('>I', jb, o)[0]
     SS = None
     if EXC:                                        # v83 : photo de la memoire (secteurs ecrits avant le journal)
@@ -566,13 +554,4 @@ if os.environ.get('EMU_EXIBUSY'):                   # v145 : lectures remises a 
     good = w + y > 0 and EXIBUSY[0] == 0
     print(('OK   ' if good else 'FAUX ') + 'bus EXI partage : %d lectures remises a plus tard, %d passees en fond (reste %d)' % (w, y, EXIBUSY[0]))
     ok &= good
-if MODE == 'shot':                                    # v180 : la capture est sur la carte SD, telle que l'ecran la montrait
-    sec, nsh, last = rd(0x1F0), rd(0x1F8), rd(0x1FC)
-    hd = bytes(disk[sec * 512:sec * 512 + 32]) if sec else b''
-    img = bytes(disk[(sec + 1) * 512:(sec + 1) * 512 + len(XFB)]) if sec else b''
-    good = nsh == 1 and last == (640 << 16 | 480) and hd[:4] == b'SHOT' and struct.unpack('>III', hd[4:16]) == (640, 480, 1280) and img == XFB
-    print(('OK   ' if good else 'FAUX ') + 'capture d\'ecran (L + R + Z) : %d capture(s), %X, en-tete %s, image %s' % (nsh, last, hd[:16].hex(), img == XFB)); ok &= good
-if MODE == 'mus':                                     # v180 : ta musique a la place de celle du disque
-    good = rd(0x200) >= 1 and rd(0x20C) > 0
-    print(('OK   ' if good else 'FAUX ') + 'ta musique : %d morceau(x), %d blocs joues (musique ci-dessus : celle du fichier)' % (rd(0x200), rd(0x20C))); ok &= good
 print('TOUT OK' if ok else 'ECHEC')
