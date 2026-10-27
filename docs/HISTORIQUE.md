@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v188 — réglage de la vérification des jeux
+- main.c : `gl_auto` (`jeux_actualiser`), ligne `MI_GLAUTO` dans Réglages > Jeux ; gclib.c : `gl_quick_changed` seulement
+  si `gl_auto`. Simulateur : réglage changé et gardé dans gc-mp3.txt.
+
 ## Nouveautés v187 — retour à GC Station en quittant une appli
 - source/natres/natret.c (tools/natret.ld, 0x80001800 - 0x80002C00, compilé en -Os) : signature « STUBHAXX » en
   0x80001804, que libogc cherche dans `exit()` / `__reload` avant de redémarrer la console. Arrête le son, le DSP,

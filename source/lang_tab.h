@@ -1340,3 +1340,6 @@
     { "Suppression impossible (carte SD en lecture seule ?)", "Cannot delete (read-only SD card?)" },
     /* v186 */
     { "Liste des jeux mise \xC3\xA0 jour", "Game list updated" },
+    /* v188 */
+    { "Nouveaux jeux vus tout seuls", "Detect new games automatically" },
+    { "Non : la liste s'ouvre tout de suite ; jeux ajout\xC3\xA9s : Y > Actualiser la liste", "No: the list opens right away; added games: Y > Refresh the list" },
