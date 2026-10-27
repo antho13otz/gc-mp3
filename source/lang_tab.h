@@ -1335,3 +1335,10 @@
     { " (erreurs : voir index.txt)", " (errors: see index.txt)" },
     { "ERREUR", "ERROR" },
     { "Nouvelle version de GC Station (build %d) : START > Mise \xC3\xA0 jour", "New GC Station version (build %d): START > Update" },
+    /* v184 : supprimer un jeu */
+    { "Supprimer ce jeu de la carte SD", "Delete this game from the SD card" },
+    { "A encore : supprimer", "A again: delete" },
+    { "Appuie encore sur A pour effacer le fichier du jeu (B : annuler).", "Press A again to erase the game file (B: cancel)." },
+    { "Efface le fichier du jeu (A deux fois). Sauvegardes, r\xC3\xA9glages et cheats du jeu restent.", "Erases the game file (A twice). The game's saves, settings and cheats stay." },
+    { "Jeu supprim\xC3\xA9 :", "Game deleted:" },
+    { "Suppression impossible (carte SD en lecture seule ?)", "Cannot delete (read-only SD card?)" },

@@ -14,19 +14,14 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v183)
+## Nouveautés de la version actuelle (v184)
+- **Supprimer un jeu** : fiche du jeu > Y (Réglages du jeu) > dernière ligne « Supprimer ce jeu de la carte SD »,
+  puis A deux fois. Le fichier du jeu est effacé (et son dossier s'il devient vide) ; ses sauvegardes, réglages et
+  cheats restent. Seulement pour les jeux de la carte SD (pas le GC Loader, le disque ou le réseau).
+
+## Version précédente (v183)
 - Rangement : l'ancien `gc-mp3/retour.txt` disparaît bien dès que le lanceur de secours est à jour (build 597 ou plus).
   En v182, GC Station ne savait pas reconnaître le nouveau lanceur, et le fichier restait.
-
-## Version précédente (v182)
-- **Dossier `gc-mp3` rangé** : il ne reste que `gc-mp3.txt` (tes réglages) et des sous-dossiers : `reglages/`,
-  `bibliotheque/`, `mes-parties/`, `journaux/`, `lanceur/`… (détail plus bas, « Fichiers sur la carte SD »).
-  Tes fichiers actuels sont déplacés tout seuls au premier démarrage, rien n'est perdu.
-- La sauvegarde des réglages (`gc-mp3-sauvegarde.txt`) quitte la racine de la carte SD pour `gc-mp3/reglages/`.
-  Une ancienne sauvegarde se restaure toujours.
-- Le dossier `gc-mp3/musique-jeux` est créé dès le démarrage (avant : seulement au premier jeu lancé avec Pulse).
-- Le lanceur de secours (il se met à jour tout seul, avec le réseau) range aussi ses fichiers dans `gc-mp3/lanceur/`.
-  Tant qu'il n'est pas à jour, `gc-mp3/retour.txt` reste (il en a besoin pour le retour en jeu).
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
