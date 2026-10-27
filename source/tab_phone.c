@@ -745,7 +745,7 @@ static void tp_handle(s32 c) {
     } else if (!strcmp(target, "/api/tracks")) tp_send_tracks(c);
     else if (!strcmp(target, "/api/stations")) tp_send_stations(c);
     else if (!strcmp(target, "/api/titres")) {             /* titres de la radio gardes (v18) */
-        FILE *f = sd_ok ? fopen(GCD "/gc-mp3-titres.txt", "rb") : NULL;
+        FILE *f = sd_ok ? fopen(GCD_BIB "/gc-mp3-titres.txt", "rb") : NULL;
         char *b = (char *)malloc(64 * 1024);
         int n = 0;
         if (f && b) {
@@ -800,8 +800,8 @@ static void tp_handle(s32 c) {
     else if (!strcmp(target, "/crash.txt")) {               /* journal de plantage */
         static char cb[9000];
         int n = 0;
-        FILE *f = sd_ok ? fopen(GCD "/gc-mp3-crash.txt", "rb") : NULL;
-        if (!f && sd_ok) f = fopen(GCD "/gc-mp3-crash-ancien.txt", "rb");
+        FILE *f = sd_ok ? fopen(GCD_LOG "/gc-mp3-crash.txt", "rb") : NULL;
+        if (!f && sd_ok) f = fopen(GCD_LOG "/gc-mp3-crash-ancien.txt", "rb");
         if (f) { n = (int)fread(cb, 1, sizeof(cb), f); fclose(f); }
         if (n <= 0) { n = snprintf(cb, sizeof(cb), "Aucun plantage enregistre.\n"); }
         tp_reply(c, 200, "text/plain; charset=utf-8", cb, n);

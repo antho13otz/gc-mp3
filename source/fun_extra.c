@@ -5,7 +5,7 @@
 //  - v20 : Snake et casse-briques musicaux (plus rapides quand la musique est forte)
 //  - Reveil en douceur : le son monte pendant 3 minutes, l'heure et la meteo en grand
 //  - La manette vibre sur les basses (mode soiree)
-//  - Titres de la radio gardes (X dans l'onglet RADIO) : sd:/gc-mp3/gc-mp3-titres.txt
+//  - Titres de la radio gardes (X dans l'onglet RADIO) : sd:/gc-mp3/bibliotheque/gc-mp3-titres.txt
 //  - Nouveaux episodes des podcasts telecharges tout seuls (sd:/gc-mp3/podcasts)
 //  - Fond d'ecran : une de tes photos (PHOTOS, plein ecran, X)
 
@@ -333,7 +333,7 @@ static double ba_next_strong(double after) {         /* prochain coup fort apres
 }
 static double rg_last_onset = -1e9, rg_last_note = -1e9, rg_last_low = -1e9;
 static const char *const rg_diff_names[3] = { "Facile", "Normal", "Difficile" };
-#define RG_FILE GCD "/gc-mp3-jeux.txt"
+#define RG_FILE GCD_PARTIES "/gc-mp3-jeux.txt"
 
 static int rg_record_get(const char *path) {
     FILE *f = fopen(RG_FILE, "r");
@@ -1026,7 +1026,7 @@ static void wake_prefetch(void) {
 }
 
 /* ======================= Titres de la radio ======================= */
-#define TITLES_FILE GCD "/gc-mp3-titres.txt"
+#define TITLES_FILE GCD_BIB "/gc-mp3-titres.txt"
 static void radio_title_keep(void) {
     if (src != SRC_RADIO || cur_station < 0 || state == ST_IDLE || pod_on) { lib_note("\xC3\x89" "coute une radio d'abord"); return; }
     if (!now_title[0]) { lib_note("Cette radio n'annonce pas ses titres"); return; }

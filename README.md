@@ -14,17 +14,21 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v181)
+## Nouveautés de la version actuelle (v182)
+- **Dossier `gc-mp3` rangé** : il ne reste que `gc-mp3.txt` (tes réglages) et des sous-dossiers : `reglages/`,
+  `bibliotheque/`, `mes-parties/`, `journaux/`, `lanceur/`… (détail plus bas, « Fichiers sur la carte SD »).
+  Tes fichiers actuels sont déplacés tout seuls au premier démarrage, rien n'est perdu.
+- La sauvegarde des réglages (`gc-mp3-sauvegarde.txt`) quitte la racine de la carte SD pour `gc-mp3/reglages/`.
+  Une ancienne sauvegarde se restaure toujours.
+- Le dossier `gc-mp3/musique-jeux` est créé dès le démarrage (avant : seulement au premier jeu lancé avec Pulse).
+- Le lanceur de secours (il se met à jour tout seul, avec le réseau) range aussi ses fichiers dans `gc-mp3/lanceur/`.
+  Tant qu'il n'est pas à jour, `gc-mp3/retour.txt` reste (il en a besoin pour le retour en jeu).
+
+## Version précédente (v181)
 - **Ta musique dans les jeux : tous les formats** de l'onglet MUSIQUE, plus seulement le MP3 : FLAC, OGG, WAV,
   M4A / AAC, et les musiques rétro (SPC, NSF, MOD, XM…). Le fichier s'appelle toujours avec l'ID du jeu
   (ex. `gc-mp3/musique-jeux/GTEP01.flac`). Il est reconverti dès que tu le changes (même avec une date ancienne).
   Au plus 15 minutes par morceau. Enlève le fichier pour retrouver la musique du jeu.
-
-## Version précédente (v180)
-- **Interface en anglais** : les écrans Succès, Mode soirée, la ligne « Dernier jeu » de JEUX / APPS, le banc
-  d'essai et le menu Outils sont maintenant traduits.
-- Vérifié au simulateur dans les 4 styles (Indigo, Aurore, Vitrine, Îlots) : rien ne se chevauche.
-- Banc d'essai du lanceur : 2 tests de plus (capture d'écran L + R + Z, ta musique dans les jeux) : 31 tests.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
@@ -51,7 +55,7 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
 - Réglages vidéo (480i / 480p, 4:3 / 16:9, taille et position de l'image), français / anglais.
 - Clavier GameCube ASCII, curseur au stick dans tous les onglets (en haut : tous les onglets ; la croix le cache).
 - Fonctionne aussi dans Dolphin (carte SD virtuelle, réglages sur la carte mémoire).
-- Journal de plantage (`SD:/gc-mp3/gc-mp3-crash.txt`), temps de démarrage (`SD:/gc-mp3/demarrage.txt`).
+- Journal de plantage (`SD:/gc-mp3/journaux/gc-mp3-crash.txt`), temps de démarrage (`SD:/gc-mp3/journaux/demarrage.txt`).
 
 ## Commandes
 **Z** : onglet suivant · **START** : menu et réglages · **A** : choisir / lire · **B** : retour / arrêter ·
@@ -59,8 +63,13 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
 
 ## Fichiers sur la carte SD
 - Tes fichiers : `SD:/mp3`, `SD:/retro`, `SD:/photos`, `SD:/videos`, `SD:/ecran`, `SD:/downloads`, tes jeux où tu veux.
-- Tout ce que GC Station crée est dans **`SD:/gc-mp3`** : réglages (`gc-mp3.txt`), radios, podcasts,
-  listes, caches, jaquettes, cheats, lanceur de secours (`lanceur/`), Pulse (`natif/`, `resident/`).
+- Tout ce que GC Station crée est dans **`SD:/gc-mp3`**, rangé (v182) :
+  `gc-mp3.txt` (tes réglages, seul fichier à la racine du dossier) ; `reglages/` (radios, favoris, podcasts,
+  volumes, cookies, sauvegarde des réglages) ; `bibliotheque/` (bibliothèque, écoutes, titres gardés,
+  téléchargements) ; `mes-parties/` (jeux lancés, temps de jeu, favoris, succès, soirée, compatibilité) ;
+  `journaux/` (plantage, démarrage, fluidité, réparation, lanceur) ; `lanceur/` (lanceur de secours) ;
+  `musique-jeux/` (ta musique dans les jeux) ; `natif/`, `resident/` (Pulse) ; `cheats/`, `listes/`,
+  `radio/`, `podcasts/`, `jaquettes/`, `cache/`… Les fichiers d'avant sont rangés tout seuls au démarrage.
 
 ## Pour les développeurs
 - Compilation : GitHub Actions (devkitPPC), voir `.github/workflows/build.yml`.

@@ -7,7 +7,7 @@
 //  - au retour : s'il marche (ou marche mieux), le reglage est garde dans les reglages du jeu
 //    (SD:/gc-mp3/jeux/<ID>.txt) ; sinon, essai suivant. Tout est garde dans SD:/gc-mp3/reparation.txt.
 
-#define RP_FILE GCD "/reparation.txt"
+#define RP_FILE GCD_LOG "/reparation.txt"
 #define RP_MAX  64
 enum { RPS_SPEED = 'S', RPS_FAST = 'F', RPS_TRAP = 'T', RPS_NOCARD = 'C', RPS_NOCHEAT = 'H', RPS_NOWS = 'W', RPS_VIDEO = 'V', RPS_BOTH = 'X' };
 typedef struct { char id[7]; char steps[12]; u8 cur, tried, base; } rep_t;   /* base : verdict avant les essais */

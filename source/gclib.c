@@ -393,9 +393,9 @@ static const char *gl_play_path(const char *path) {
     gl_busy[0] = 0;
     return e;
 }
-/* ---------- v45 : lancements (SD:/gc-mp3/jeux_stats.txt : ID|disque|nombre|date) et tri ---------- */
-#define GL_STATS GCD "/jeux_stats.txt"
-#define GL_FAV   GCD "/jeux-favoris.txt"
+/* ---------- v45 : lancements (SD:/gc-mp3/mes-parties/jeux_stats.txt : ID|disque|nombre|date) et tri ---------- */
+#define GL_STATS GCD_PARTIES "/jeux_stats.txt"
+#define GL_FAV   GCD_PARTIES "/jeux-favoris.txt"
 /* v76 : jeux favoris (une ligne "id|disc" par jeu) */
 static void gl_fav_load(void) {
     for (int k = 0; k < gl_n; k++) gl[k].fav = 0;
@@ -1483,7 +1483,7 @@ static void draw_gclib_main(void) {
 }
 
 /* ======================= lancer un jeu avec le lanceur de secours =======================
-   GC Station charge SD:/gc-mp3/lanceur.dol en memoire et le demarre avec l'argument
+   GC Station charge SD:/gc-mp3/lanceur/lanceur.dol en memoire et le demarre avec l'argument
    "Autoload=sdc:/chemin/du/jeu.iso" (v90 : plus de Swiss / Indigo). */
 static int gl_launch_sel = -1;                      /* fenetre "Lancer ?" ouverte (-1 = non) */
 /* petit programme copie a 0x80001800 : recopie les sections du .dol a leur
@@ -1500,8 +1500,8 @@ static const u32 gl_stub[] = {
 #define GL_TAB_AT   0x80002000u
 #define GL_ARGV_AT  0x80002900u
 #define GL_CMD_AT   (0x81700000u - 0x400u)        /* ligne de commande : en haut de la memoire */
-#define LD_DOL  GCD "/lanceur.dol"                 /* v44 : lanceur de jeux GC-MP3 (lanceur.c) */
-#define LD_VER  GCD "/lanceur.txt"
+#define LD_DOL  GCD_LD "/lanceur.dol"                 /* v44 : lanceur de jeux GC-MP3 (lanceur.c) */
+#define LD_VER  GCD_LD "/lanceur.txt"
 static void ld_fetch(int loud);
 static void as_self(char *out, int cap);
 static const char *gl_arg3 = NULL;                 /* v44 : 3e argument (GCMP3=... : retour sur GC-MP3) */

@@ -50,7 +50,7 @@ réservations refusées), la fluidité (images/s, images ratées et à quel mome
 `PCSIM_FAST=1` enlève toutes les limites. `PCSIM_MEMLOG=1` signale chaque réservation refusée.
 
 Le facteur processeur est une estimation : pour le recaler, il suffit de comparer
-`SD:/gc-mp3/fluidite.txt` (START > « Mesure de fluidité ») de la vraie console avec le simulateur.
+`SD:/gc-mp3/journaux/fluidite.txt` (START > « Mesure de fluidité ») de la vraie console avec le simulateur.
 
 ## Scénarios
 Un fichier texte, une commande par ligne (`#` = commentaire) :

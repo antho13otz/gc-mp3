@@ -94,6 +94,9 @@ static int salon_route(s32 c, const char *target, const char *q, char *req) {
     const char *w = target + 3;
     char rel[NAME_LEN], full[NAME_LEN + 8];
     tp_param(q ? q : "", "p", rel, sizeof(rel));
+    if (!strncasecmp(rel, "gc-mp3/", 7) && strcmp(gcd_newrel(rel + 7), rel + 7)) {   /* v182 : ancien chemin (console d'avant le rangement) */
+        char nr[NAME_LEN]; snprintf(nr, sizeof(nr), "gc-mp3/%s", gcd_newrel(rel + 7)); snprintf(rel, sizeof(rel), "%s", nr);
+    }
     if (!strcmp(w, "now")) {
         char t[sizeof(salon_now_txt)];
         snprintf(t, sizeof(t), "%s", salon_now_txt);

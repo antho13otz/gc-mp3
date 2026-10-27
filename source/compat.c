@@ -1,12 +1,12 @@
 // GC Station v137 : base de compatibilite des jeux lances avec Pulse. Inclus dans main.c (apres natif.c).
 //  - apres chaque lancement : plantage note tout seul ; sinon, au retour, GC Station demande comment ca
 //    s'est passe (marche / marche mal / ecran noir) ;
-//  - garde le dernier verdict de chaque jeu dans SD:/gc-mp3/compat.txt (code du jeu, verdict, build, date,
+//  - garde le dernier verdict de chaque jeu dans SD:/gc-mp3/mes-parties/compat.txt (code du jeu, verdict, build, date,
 //    vitesse du lecteur et mode video utilises) ;
 //  - pastille de couleur sur les jaquettes, ligne dans la fenetre de lancement ;
 //  - le journal du jeu s'envoie sur le telephone par QR code (partage, sans copier de fichier).
 
-#define CP_FILE GCD "/compat.txt"
+#define CP_FILE GCD_PARTIES "/compat.txt"
 #define CP_MAX  512
 enum { CP_NONE, CP_OK, CP_MAL, CP_NOIR, CP_PLANTE, CP_N };
 static const char *const cp_keys[CP_N] = { "", "ok", "mal", "noir", "plantage" };
@@ -106,7 +106,7 @@ static void cp_set_fix(const char *id, int c) {
     cp_save();
 }
 /* ---------- v145 : compatibilite partagee : les verdicts des autres GC Station du Salon ----------
-   Toutes les 10 min au plus (onglet JEUX ouvert, Salon actif), un fil a part lit SD:/gc-mp3/compat.txt de chaque
+   Toutes les 10 min au plus (onglet JEUX ouvert, Salon actif), un fil a part lit SD:/gc-mp3/mes-parties/compat.txt de chaque
    console vue (/s/get, comme la copie de fichiers du Salon). Un jeu jamais essaye ici montre le resultat obtenu
    ailleurs (pastille en anneau, ligne dans la fiche) ; s'il marche ailleurs avec un reglage, ce reglage est essaye
    au 1er lancement ici (repair.c), et garde s'il marche. */

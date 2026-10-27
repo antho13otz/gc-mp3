@@ -9,17 +9,30 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 
 ## Où sont les fichiers sur la carte SD
 - Tes fichiers : `SD:/mp3` (musique), `SD:/retro`, `SD:/photos`, `SD:/videos`, `SD:/ecran`, `SD:/downloads`.
-- Tout ce que GC-MP3 crée est rangé dans **`SD:/gc-mp3`** : réglages (`gc-mp3.txt`), radios
-  (`radio.txt`, logos et enregistrements dans `radio/`), podcasts (`podcasts.txt`, épisodes dans
-  `podcasts/`), favoris et cookies du web, listes de lecture (`listes/`), écoutes, records des jeux,
-  titres radio gardés, cache des pochettes et des vignettes, journal de plantage.
-- Si ces fichiers étaient encore à la racine (version 21 et avant), GC-MP3 les y range tout seul au
-  démarrage. Les autres fichiers de la racine (Swiss, `ipl.dol`, `config.ini`…) ne sont pas touchés.
+- Tout ce que GC Station crée est dans **`SD:/gc-mp3`**, rangé (v182) :
+  `gc-mp3.txt` (tes réglages, seul fichier à la racine du dossier) ; `reglages/` (radios, favoris, podcasts,
+  volumes, cookies, sauvegarde des réglages) ; `bibliotheque/` (bibliothèque, écoutes, titres gardés,
+  téléchargements) ; `mes-parties/` (jeux lancés, temps de jeu, favoris, succès, soirée, compatibilité) ;
+  `journaux/` (plantage, démarrage, fluidité, réparation, lanceur) ; `lanceur/` (lanceur de secours) ;
+  `musique-jeux/` (ta musique dans les jeux) ; `natif/`, `resident/` (Pulse) ; `cheats/`, `listes/`,
+  `radio/`, `podcasts/`, `jaquettes/`, `cache/`… Les fichiers d'avant sont rangés tout seuls au démarrage.
+- Version 21 et avant : les fichiers de la racine sont rangés dans `SD:/gc-mp3` ; v182 : puis dans les sous-dossiers
+  (`gcd_moves` dans main.c). Les autres fichiers de la racine (Swiss, `ipl.dol`, `config.ini`…) ne sont pas touchés.
 
 ## Onglets
 **Z** passe à l'onglet suivant : MUSIQUE, RADIO, WEB, RÉTRO, PODCASTS, PHOTOS, FICHIERS, INFOS,
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
+
+## Nouveautés v182 — dossier gc-mp3 rangé
+- main.c : `GCD_REG`, `GCD_BIB`, `GCD_PARTIES`, `GCD_LOG`, `GCD_LD` ; table `gcd_moves` (ancien → nouveau) appliquée au
+  démarrage par `gcd_tidy` (si les deux existent : le plus récent gardé) ; `SD:/gc-mp3-sauvegarde.txt` → `reglages/`.
+- Restauration d'une ancienne sauvegarde : noms d'avant traduits (`gcd_newrel`) ; Salon : `/s/get` d'un ancien chemin
+  (console d'avant) servi depuis le nouveau ; Dolphin (SD en mémoire) : réglages des sous-dossiers gardés sur la carte.
+- Lanceur de secours (mkloader.py) : `gc-mp3/lanceur/retour.txt` (sinon l'ancien) et `gc-mp3/lanceur/lanceur.log`.
+  GC Station regarde si le lanceur installé connaît le nouveau chemin (résultat gardé dans `lanceur/chemins.txt`) ;
+  sinon il écrit aussi `gc-mp3/retour.txt`. Journal du lanceur lu aux deux endroits.
+- Simulateur : carte d'avant rangée au démarrage ; radios, podcasts, succès, dernier jeu, records relus.
 
 ## Nouveautés v181 — ta musique dans les jeux : tous les formats
 - main.c : l'ouverture d'un morceau (`trk_open`) est sortie de `start_track_u` ; `pcm_file_decode(chemin, hook, tick)`

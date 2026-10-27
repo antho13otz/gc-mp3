@@ -1,13 +1,13 @@
 // GC-MP3 : listes de lecture, recherche dans la bibliotheque, morceaux les plus
 // ecoutes, et petit menu d'actions (touche X de l'onglet MUSIQUE). Inclus dans main.c.
 //  - listes : SD:/gc-mp3/listes/<Nom>.m3u (une adresse de fichier par ligne) ;
-//  - ecoutes : SD:/gc-mp3/gc-mp3-ecoutes.txt (nombre|ordre|chemin), un morceau compte
+//  - ecoutes : SD:/gc-mp3/bibliotheque/gc-mp3-ecoutes.txt (nombre|ordre|chemin), un morceau compte
 //    quand on l'a ecoute 30 s (ou la moitie s'il est court).
 
 #define PL_DIR    GCD "/listes"
 #define PL_MAX    40
 #define PL_ITEMS  600
-#define ST_FILE   GCD "/gc-mp3-ecoutes.txt"
+#define ST_FILE   GCD_BIB "/gc-mp3-ecoutes.txt"
 #define AUTO_MAX  50
 
 typedef struct { char name[48]; s16 *it; int n; } plist_t;
@@ -160,7 +160,7 @@ static u32 play_seq = 0;
 
 /* ---------- v76 : notes (etoiles) des morceaux ---------- */
 /* rating[] est declare dans main.c (avant ui_extra.c qui l'affiche) */
-#define RT_FILE GCD "/gc-mp3-notes.txt"
+#define RT_FILE GCD_BIB "/gc-mp3-notes.txt"
 static int rating_dirty = 0;
 static u64 rating_saved_t = 0;
 static void rating_load(void) {

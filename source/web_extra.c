@@ -60,7 +60,7 @@ static void icache_put(const char *url, const unsigned char *d, int len) {
 /* ============================== Cookies ============================== */
 /* Garde les cookies des sites (connexion, preferences) ; ceux qui ont une date
    d'expiration sont enregistres dans sd:/gc-mp3/cookies.txt. */
-#define CK_FILE GCD "/cookies.txt"
+#define CK_FILE GCD_REG "/cookies.txt"
 #define CK_MAX  160
 typedef struct { char domain[80]; char path[64]; char name[64]; char value[400]; u32 expires; u8 host_only, secure, used; } cookie_t;
 static cookie_t cks[CK_MAX];

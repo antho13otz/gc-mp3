@@ -5,8 +5,8 @@
 #    B maintenu au lancement = l'ecran du jeu de Swiss, avec ses reglages et cheats) ;
 #  - "GCMP3=sdX:/chemin/gc-mp3.dol" : en cas d'erreur, ou apres B, retour sur GC-MP3 ;
 #  - sans argument (retour en jeu A + Z + START : ce lanceur est aussi dans apploader.img) :
-#    retour sur GC-MP3 (chemin lu dans SD:/gc-mp3/retour.txt, ecrit par GC-MP3) ;
-#  - journal dans SD:/gc-mp3/lanceur.log (GC-MP3 affiche l'erreur) ;
+#    retour sur GC-MP3 (chemin lu dans SD:/gc-mp3/lanceur/retour.txt, ecrit par GC-MP3) ;
+#  - journal dans SD:/gc-mp3/lanceur/lanceur.log (GC-MP3 affiche l'erreur) ;
 #  - pas de questions au demarrage (reglages video / appareil de config) ;
 #  - fond et barre de titre aux couleurs de GC-MP3 (tools/loader/backdrop.png).
 # v90 : plus rien dans SD:/swiss : reglages, patches, sauvegardes dans SD:/gc-mp3/lanceur,
@@ -52,15 +52,15 @@ static const char *gcmp3_arg(int argc, char *argv[], const char *key)
 			return argv[a] + strlen(key);
 	return NULL;
 }
-/* journal pour GC-MP3 (SD:/gc-mp3/lanceur.log) : ce qui s'est passe, et le message d'erreur */
+/* journal pour GC-MP3 (SD:/gc-mp3/lanceur/lanceur.log) : ce qui s'est passe, et le message d'erreur */
 static void gcmp3_save_log(void)
 {
 	if(config_set_device()) {
-		config_file_write("gc-mp3/lanceur.log", gcmp3_log_text());
+		config_file_write("gc-mp3/lanceur/lanceur.log", gcmp3_log_text());   /* (v182 : range) */
 		config_unset_device();
 	}
 }
-/* retour sur GC-MP3 : chemin donne en argument (GCMP3=...), sinon SD:/gc-mp3/retour.txt
+/* retour sur GC-MP3 : chemin donne en argument (GCMP3=...), sinon SD:/gc-mp3/lanceur/retour.txt
    (ecrit par GC-MP3 ; sert aussi au retour en jeu A + Z + START, qui n'a pas d'arguments) */
 static void gcmp3_return(int argc, char *argv[])
 {
@@ -70,7 +70,8 @@ static void gcmp3_return(int argc, char *argv[])
 	const char *a = gcmp3_arg(argc, argv, "GCMP3=");
 	if(a) strlcpy(path, a, sizeof(path));
 	else if(config_set_device()) {
-		char *t = config_file_read("gc-mp3/retour.txt");
+		char *t = config_file_read("gc-mp3/lanceur/retour.txt");   /* (v182 : range ; avant : gc-mp3/retour.txt) */
+		if(!t) t = config_file_read("gc-mp3/retour.txt");
 		config_unset_device();
 		if(t) {
 			char *e = t + strcspn(t, "\\r\\n");
@@ -176,7 +177,7 @@ patch("source/util.c", [
 void print_debug(const char *fmt, ...)
 {""",
      """#ifdef GCMP3_LOADER
-/* GC-MP3 : journal en memoire (ecrit dans SD:/gc-mp3/lanceur.log avant le retour sur GC-MP3) */
+/* GC-MP3 : journal en memoire (ecrit dans SD:/gc-mp3/lanceur/lanceur.log avant le retour sur GC-MP3) */
 static char gcmp3_log[12288];
 static int gcmp3_log_n = 0;
 static void gcmp3_logv(const char *fmt, va_list ap)

@@ -2,7 +2,7 @@
 // Moteur GPL v2 (swiss-gc) modifie pour GC Station (tools/mkloader.py) : le jeu demarre tout
 // de suite, aux couleurs de GC Station ; en cas d'erreur, retour sur GC Station. Il est compile
 // par GitHub (gc-mp3-loader-bN.bin, release "dernier") : GC Station le telecharge dans
-// SD:/gc-mp3/lanceur.dol et le tient a jour. v90 : ses reglages, sauvegardes et patches sont
+// SD:/gc-mp3/lanceur/lanceur.dol et le tient a jour. v90 : ses reglages, sauvegardes et patches sont
 // dans SD:/gc-mp3/lanceur, ses cheats dans SD:/gc-mp3/cheats. Resident (natif.c) est le
 // lanceur principal (touche A) ; celui-ci sert de secours (touche X, ou cheats actives).
 /* (LD_DOL, LD_VER : dans gclib.c) */
@@ -169,22 +169,49 @@ static const char *ld_hint(void) {
 }
 
 /* v45 : au demarrage de GC-MP3 :
-   - SD:/gc-mp3/retour.txt = chemin de GC-MP3 (le lanceur y revient apres A + Z + START en jeu) ;
-   - SD:/gc-mp3/lanceur.log = journal du lanceur : s'il n'a pas pu lancer le jeu, on affiche pourquoi. */
+   - SD:/gc-mp3/lanceur/retour.txt = chemin de GC-MP3 (le lanceur y revient apres A + Z + START en jeu) ;
+   - SD:/gc-mp3/lanceur/lanceur.log = journal du lanceur : s'il n'a pas pu lancer le jeu, on affiche pourquoi.
+   v182 : ranges dans gc-mp3/lanceur ; un lanceur d'avant (qui lit gc-mp3/retour.txt) garde aussi l'ancien fichier. */
+static int ld_new_paths(void) {                           /* le lanceur installe connait gc-mp3/lanceur/retour.txt ? */
+    struct stat st;
+    if (stat(GCD_LD "/lanceur.dol", &st) != 0) return 1;  /* (pas de lanceur : rien d'ancien a servir) */
+    char key[64], old[64] = "";
+    snprintf(key, sizeof(key), "%lld|%lld|", (long long)st.st_size, (long long)st.st_mtime);
+    long n = 0;
+    u8 *d = read_file(GCD_LD "/chemins.txt", 63, &n);    /* (resultat garde : le lanceur n'est lu qu'apres un changement) */
+    if (d) { memcpy(old, d, n < 63 ? n : 63); old[n < 63 ? n : 63] = 0; free(d); }
+    if (!strncmp(old, key, strlen(key))) return old[strlen(key)] == '1';
+    d = read_file(GCD_LD "/lanceur.dol", 8 * 1024 * 1024, &n);
+    if (!d) return 1;
+    static const char k[] = "gc-mp3/lanceur/retour.txt";
+    int r = 0;
+    for (long i = 0; !r && i + (long)sizeof(k) - 1 <= n; i++) if (d[i] == 'g' && !memcmp(d + i, k, sizeof(k) - 1)) r = 1;
+    free(d);
+    FILE *f = fopen(GCD_LD "/chemins.txt", "w");
+    if (f) { fprintf(f, "%s%d\n", key, r); fclose(f); }
+    return r;
+}
+static void ld_write_ret(const char *path, const char *me) {
+    long n = 0;
+    u8 *d = read_file(path, 1024, &n);
+    int same = d && n >= (long)strlen(me) && !memcmp(d, me, strlen(me)) && (n == (long)strlen(me) || d[strlen(me)] == '\n' || d[strlen(me)] == '\r');
+    free(d);
+    if (same) return;
+    FILE *f = fopen(path, "w");
+    if (f) { fprintf(f, "%s\n", me); fclose(f); }
+}
 static void ld_boot(void) {
     if (!sd_ok || sd_virtual) return;
     char me[NAME_LEN + 8];
     as_self(me, sizeof(me));
     long n = 0;
-    u8 *d = read_file(GCD "/retour.txt", 1024, &n);
-    int same = d && n >= (long)strlen(me) && !memcmp(d, me, strlen(me)) && (n == (long)strlen(me) || d[strlen(me)] == '\n' || d[strlen(me)] == '\r');
-    free(d);
-    if (!same) {
-        mkdir(GCD, 0777);
-        FILE *f = fopen(GCD "/retour.txt", "w");
-        if (f) { fprintf(f, "%s\n", me); fclose(f); }
-    }
-    d = read_file(GCD "/lanceur.log", 64 * 1024, &n);
+    u8 *d;
+    mkdir(GCD, 0777); mkdir(GCD_LD, 0777); mkdir(GCD_LOG, 0777);
+    ld_write_ret(GCD_LD "/retour.txt", me);
+    if (ld_new_paths()) remove(GCD "/retour.txt"); else ld_write_ret(GCD "/retour.txt", me);
+    const char *logp = GCD_LD "/lanceur.log";
+    d = read_file(logp, 64 * 1024, &n);
+    if (!d) { logp = GCD "/lanceur.log"; d = read_file(logp, 64 * 1024, &n); }   /* (lanceur d'avant) */
     if (!d) return;
     char *t = (char *)malloc(n + 1);
     if (t) {
@@ -198,14 +225,15 @@ static void ld_boot(void) {
             for (char *c = m; *c; c++) if ((unsigned char)*c < 32) *c = ' ';
             snprintf(ld_note, sizeof(ld_note), "%s %s", TR("Le lanceur n'a pas pu lancer le jeu :"), m);
         } else if (strstr(t, "jeu non lance") || strstr(t, "retour impossible")) {
-            snprintf(ld_note, sizeof(ld_note), "%s", TR("Le lanceur n'a pas pu lancer le jeu (journal : SD:/gc-mp3/lanceur-dernier.log)"));
+            snprintf(ld_note, sizeof(ld_note), "%s", TR("Le lanceur n'a pas pu lancer le jeu (journal : SD:/gc-mp3/journaux/lanceur-dernier.log)"));
         }
         if (ld_note[0]) { snprintf(ld_msg, sizeof(ld_msg), "%s", ld_note); crumb("lanceur : %s", ld_note); }
         free(t);
     }
     free(d);
-    remove(GCD "/lanceur-dernier.log");
-    rename(GCD "/lanceur.log", GCD "/lanceur-dernier.log");
+    remove(GCD_LOG "/lanceur-dernier.log");
+    rename(logp, GCD_LOG "/lanceur-dernier.log");
+    remove(GCD "/lanceur.log");
 }
 
 /* ======================= v90 : plus rien dans SD:/swiss =======================
