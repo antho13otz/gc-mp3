@@ -448,8 +448,8 @@ void pcsim_fps_report(void) {
 static unsigned long long sg_n = 0, sg_slow = 0, sg_vslow = 0, sg_worst = 0, sg_t0 = 0;
 void pcsim_seg_report(const char *name) {
     unsigned long long n = mono_us();
-    if (sg_t0 && sg_n) printf("[pcsim] portion %-22s %5llu images (%.1f/s), %3llu ratees (> 20 ms), %3llu tres lentes (> 34 ms), pire %3.0f ms\n",
-                              name, sg_n, sg_n / ((n - sg_t0) / 1e6), sg_slow, sg_vslow, sg_worst / 1000.0);
+    if (sg_t0 && sg_n) printf("[pcsim] portion %-22s %5llu images (%.1f/s), %3llu ratees (> %u ms), %3llu tres lentes (> %u ms), pire %3.0f ms\n",
+                              name, sg_n, sg_n / ((n - sg_t0) / 1e6), sg_slow, pcsim_frame_us * 6 / 5000, sg_vslow, (pcsim_frame_us * 2 + 666) / 1000, sg_worst / 1000.0);
     sg_n = sg_slow = sg_vslow = sg_worst = 0; sg_t0 = n;
 }
 void GX_CopyDisp(void *dst, u8 clear) {

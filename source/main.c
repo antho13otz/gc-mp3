@@ -2393,6 +2393,46 @@ static void mp4s_begin(long pos, const char *key);
 static void ms_want_clear(void);
 static char http_final_url[URL_MAX];       /* adresse finale (apres les redirections) */
 static int http_last_code = 0;               /* 200, ou 206 si la plage demandee est respectee */
+/* ---------- v193 : radio : connexion en tache de fond ----------
+   La recherche DNS, la connexion et la poignee de main HTTPS d'une radio (jusqu'a 1 a 2 s pour le
+   Gekko) se faisaient pendant une image : l'ecran se figeait a chaque station lancee et a chaque
+   reconnexion (fluidite.txt : "radio" et "manette", pire 1,7 s). Comme pour les pochettes (v83),
+   le fil des connexions les fait maintenant ; http_open rend -1 ("en attente") et reprend la meme
+   adresse quand la connexion est prete (aussi apres une redirection vers un autre site).
+   Seulement sans position demandee (http_range) : podcasts et M4A gardent la connexion directe. */
+static char conn_msg[160];                  /* (texte affiche pendant la connexion, defini plus bas) */
+static int rc_async = 0;                    /* 1 = http_open peut attendre la connexion (radio) */
+static int rc_job = 0, rc_depth = 0, rc_ready = 0, rc_port = 0, rc_tls = 0;
+static char rc_url[URL_MAX], rc_host[128];
+static conn_t rc_conn = { -1, 0, 0 };
+static u64 rc_t0 = 0;
+static int rc_final_try = 0;                 /* v193 : essai en cours avec l'adresse finale (rad_final) */
+static void rc_reset(void) {                /* (plus de connexion en attente) */
+    if (rc_job) { ac_cancel(rc_job); rc_job = 0; }
+    if (rc_ready) { conn_close(&rc_conn); rc_ready = 0; }
+}
+/* la connexion a host:port est-elle prete ? 1 = oui (dans cn), 0 = pas en attente, -1 = demandee */
+static int rc_take(const char *url, int depth, const char *host, int port, int tls) {
+    if (rc_ready) {
+        rc_ready = 0;
+        if (!strcmp(rc_host, host) && rc_port == port && rc_tls == tls) {
+            cn = rc_conn;                                   /* (la connexion change de place : le TLS suit) */
+            if (cn.tls) { TLS_LOCK(); mbedtls_ssl_set_bio(&cn.ssl, &cn.fd, bio_send, bio_recv, NULL); TLS_UNLOCK(); }
+            rc_conn.fd = -1; rc_conn.ssl_inited = 0; rc_conn.tls = 0;
+            return 1;
+        }
+        conn_close(&rc_conn);
+    }
+    if (!rc_async || http_range > 0) return 0;
+    int id = ac_submit(host, port, tls);
+    if (!id) return 0;                                      /* (fil occupe : connexion directe) */
+    rc_job = id; rc_depth = depth; rc_port = port; rc_tls = tls; rc_t0 = now_ms();
+    snprintf(rc_url, sizeof(rc_url), "%s", url);
+    snprintf(rc_host, sizeof(rc_host), "%s", host);
+    snprintf(conn_msg, sizeof(conn_msg), "%s %s...", tls ? "Connexion s\xC3\xA9" "curis\xC3\xA9" "e \xC3\xA0" : "Connexion \xC3\xA0", host);
+    return -1;
+}
+
 static int http_open(const char *url_in, int depth) {
     /* (statiques : appels en chaine pour les redirections, sans rien relire apres) */
     static char url[URL_MAX], path[URL_MAX], req[URL_MAX + 640];
@@ -2429,7 +2469,9 @@ static int http_open(const char *url_in, int depth) {
     if (port <= 0 || port > 65535) port = tls ? 443 : 80;
 
     const char *cerr = NULL;
-    if (!conn_open(&cn, host, port, tls, &cerr, NULL)) { set_error(cerr); return 0; }
+    int rt = rc_take(url, depth, host, port, tls);         /* v193 : en tache de fond (radio) */
+    if (rt < 0) return -1;
+    if (!rt && !conn_open(&cn, host, port, tls, &cerr, NULL)) { set_error(cerr); return 0; }
 
     char range[48] = "";
     if (http_range > 0) snprintf(range, sizeof(range), "Range: bytes=%ld-\r\n", http_range);
@@ -2574,6 +2616,7 @@ static void stop_station_u(void);
 static void stop_station(void) { DEC_LOCK(); stop_station_u(); DEC_UNLOCK(); }   /* v157 */
 static void stop_station_u(void) {
     rec_stop();
+    rc_reset(); rc_final_try = 0;                          /* v193 : connexion en attente abandonnee */
     stream_close();
     hls_stop();
     ogg_stream_reset();
@@ -2583,6 +2626,7 @@ static void stop_station_u(void) {
     cb_start = cb_end = 0;
 }
 
+static void station_open(const char *url, int depth);
 static char rad_final[URL_MAX];              /* v71 : adresse finale de la station (reconnexions rapides) */
 static int rad_final_idx = -1, rad_played = 0, rt_n = 0;
 static u64 rt_at = 0;                         /* v71 : prochaine reconnexion automatique */
@@ -2617,15 +2661,58 @@ static void start_station(int idx, int is_reconnect) {
     if (net_phase != NET_DONE) { set_error("Réseau en cours de connexion..."); return; }
     if (!net_ok) { set_error("Pas de réseau (Broadband Adapter)"); return; }
     /* v71 : reconnexion : d'abord l'adresse finale deja trouvee (sans redirections ni liste .m3u) */
-    int ok = 0;
-    if (is_reconnect && rad_final_idx == idx && rad_final[0]) { ok = http_open(rad_final, 0); if (!ok) { stream_close(); hls_stop(); state = ST_CONNECT; } }
-    if (!ok) ok = http_open(stations[idx].url, 0);
+    conn_msg[0] = 0;
+    rc_final_try = is_reconnect && rad_final_idx == idx && rad_final[0];
+    station_open(rc_final_try ? rad_final : stations[idx].url, 0);
+}
+/* v193 : un essai de connexion (http_open), qui peut attendre le fil des connexions */
+static void station_open(const char *url, int depth) {
+    rc_async = 1;
+    int ok = http_open(url, depth);
+    rc_async = 0;
+    if (ok < 0) return;                                     /* (en attente : station_pump reprend) */
+    if (!ok && rc_final_try) {                              /* l'adresse finale ne marche plus : l'adresse de la liste */
+        rc_final_try = 0;
+        stream_close(); hls_stop(); state = ST_CONNECT; err_msg[0] = 0;
+        station_open(stations[cur_station].url, 0);
+        return;
+    }
+    rc_final_try = 0;
     if (ok) {
-        if (!hls_on) { snprintf(rad_final, sizeof(rad_final), "%s", http_final_url); rad_final_idx = idx; }
+        if (!hls_on) { snprintf(rad_final, sizeof(rad_final), "%s", http_final_url); rad_final_idx = cur_station; }
         err_msg[0] = 0;
         state = ST_BUFFER;
         last_data_ms = connect_ms = now_ms();
     }
+}
+/* v193 : (boucle principale) la connexion demandee est-elle prete ? */
+static void station_pump(void) {
+    if (!rc_job || state != ST_CONNECT || src != SRC_RADIO) return;
+    ac_sweep();
+    acjob_t *j = &ac_job[rc_job - 1];
+    if (j->st != 3) {
+        if (now_ms() - rc_t0 > 40000) { rc_reset(); rc_final_try = 0; set_error("Le serveur ne r\xC3\xA9pond pas"); }
+        return;
+    }
+    int ok = j->ok;
+    if (ok) { rc_conn = j->c; j->c.fd = -1; j->c.ssl_inited = 0; j->c.tls = 0; }
+    j->st = 0;
+    rc_job = 0;
+    if (!ok) {
+        if (rc_final_try) {                                 /* l'adresse finale ne marche plus : l'adresse de la liste */
+            rc_final_try = 0;
+            stream_close(); hls_stop(); state = ST_CONNECT;
+            station_open(stations[cur_station].url, 0);
+            return;
+        }
+        set_error("Connexion au serveur impossible");
+        return;
+    }
+    if (rc_conn.tls) { TLS_LOCK(); mbedtls_ssl_set_bio(&rc_conn.ssl, &rc_conn.fd, bio_send, bio_recv, NULL); TLS_UNLOCK(); }
+    rc_ready = 1;
+    static char u[URL_MAX];
+    snprintf(u, sizeof(u), "%s", rc_url);
+    station_open(u, rc_depth);
 }
 
 /* Reception sans bloquer. Appelee souvent (y compris pendant l'attente de
@@ -2647,6 +2734,7 @@ static void stream_recv(void) {
 
 /* Appele a chaque tour de boucle : recoit, decode, gere le tampon. */
 static void stream_pump(void) {
+    station_pump();                                        /* v193 : connexion en tache de fond */
     /* v71 : la radio a deja joue puis s'est arretee (reseau, serveur) : on reessaie tout seul,
        de plus en plus espace (1, 2, 4, 8, 15 puis 30 s), au lieu de rester sur une erreur */
     if (state == ST_ERROR && src == SRC_RADIO && !pod_on && rad_played && reconnects != 99 && rt_n < 30) {

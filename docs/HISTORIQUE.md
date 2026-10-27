@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v193 — radio sans saccades
+- La connexion à une radio (recherche DNS, connexion, poignée de main HTTPS, redirections) se fait en tâche de fond,
+  comme les pochettes et les paroles : l'écran ne se fige plus quand on lance une station ni pendant les reconnexions
+  automatiques (fluidite.txt : jusqu'à 1,7 s avant). Les podcasts et les fichiers M4A repris à une position gardent
+  la connexion directe.
+
 ## Nouveautés v192 — écran 50 Hz (576p / 576i)
 - Compteur de fluidité (START > performances) adapté au 50 Hz : une image ratée = plus de 24 ms (au lieu de 20 ms,
   qui comptait presque toutes les images comme ratées en 50 Hz) ; vert à 48 images/s ; `fluidite.txt` indique la fréquence.
