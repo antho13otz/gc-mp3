@@ -28,7 +28,7 @@ static void early_note(u32 a, u32 v, u32 st);           /* v166 */
 #define ext_tab ((natres_ext_t *)natres_hdr.ext)
 static natres_ext_t ret_tab[NATRES_RETMAX];              /* v64 : le .dol de GC Station sur la carte */
 static natres_ext_t card_tab[NATRES_CARDMAX];            /* v65 : le fichier de la carte memoire virtuelle */
-static natres_ext_t mus_tab[NATRES_CARDMAX];             /* v179 : ta musique (fichier ADP) */
+static natres_ext_t mus_tab[NATRES_MUSMAX];              /* v179 : ta musique (fichier ADP, 16 morceaux au plus) */
 static natres_ext_t card2_tab[NATRES_CARDMAX];           /* v122 : celui du slot B */
 static u32 si_load(u32 a);
 /* v139 : acces du jeu a la page des registres DI / SI / EXI / AI (0xCC006000) pris par exception (option) : le
@@ -997,7 +997,7 @@ static void si_hook(u32 irq, u32 ctx) {
 /* v175 : capture d'ecran : L + R + Z tenus (pas A + START : c'est le retour). L'image que l'ecran montre (XFB, adresse
    dans le registre TFBL de VI ; largeur et pas d'apres PICCONF ; lignes d'apres VTR) est ecrite telle quelle dans la
    place suivante de natif/captures.bin ; GC Station la convertit en PNG (SD:/photos/captures) au retour. */
-static u8 shot_buf[512] __attribute__((aligned(32)));
+#define shot_buf crashbuf                                 /* (pas de plantage pendant une capture : meme tampon) */
 static u8 shot_hold = 0;
 static void shot_take(void) {
     if (!H.shot_sec || H.shot_n >= H.shot_max || exi_defer()) return;
@@ -1010,9 +1010,7 @@ static void shot_take(void) {
     if (!w || !h || w > 640 || a < 0x3100 || a + line * h > 0x01800000u) { H.shot_last = 0; return; }
     if (h > 576) h = 576;
     u32 sec = H.shot_sec + H.shot_n * NATRES_SHOT_SECS, n = (line * h + 511) / 512;
-    for (u32 i = 0; i < 512; i++) shot_buf[i] = 0;
     u32 hd[8] = { NATRES_SHOT_MAGIC, w, h, line, *(volatile u32 *)0x80000000u, *(volatile u32 *)0x80000004u, H.vi_count, 0 };
-    for (int i = 0; i < 8; i++) { shot_buf[i * 4] = (u8)(hd[i] >> 24); shot_buf[i * 4 + 1] = (u8)(hd[i] >> 16); shot_buf[i * 4 + 2] = (u8)(hd[i] >> 8); shot_buf[i * 4 + 3] = (u8)hd[i]; }
     const volatile u8 *src = (const volatile u8 *)(0xC0000000u | a);   /* (sans le cache : l'image vient du processeur graphique) */
     for (u32 k = 0; k < n; k++) {
         for (u32 i = 0; i < 512; i++) shot_buf[i] = (k * 512 + i < line * h) ? src[k * 512 + i] : 0x80;
@@ -1105,20 +1103,19 @@ static int st_dec(int bits, int q, int *h1, int *h2) {
     *h2 = *h1; *h1 = cur;
     return st_clamp(cur >> 6, -0x8000, 0x7fff);
 }
-/* v179 : ta musique : le bloc suivant du fichier ADP (en boucle) a la place de celui du disque */
-static u8 mus_sec[512] __attribute__((aligned(32)));
-static u32 mus_pos = 0, mus_off = 0xFFFFFFFFu;
+/* v179 : ta musique : le bloc suivant du fichier ADP (en boucle) a la place de celui du disque (dans st_sec : le
+   disque n'est plus lu pour la musique) */
+static u32 mus_pos = 0;
 static const u8 *mus_block(void) {
     if (mus_pos + 32 > H.mus_size) { mus_pos = 0; st_hl1 = st_hl2 = st_hr1 = st_hr2 = 0; }
     u32 ms = mus_pos & ~511u;
-    if (mus_off != ms) {
-        u32 s = ms >> 9, sd = 0, ok = 0;
-        for (u32 k = 0; k < H.mus_n && k < NATRES_CARDMAX; k++)
-            if (s >= mus_tab[k].iso && s - mus_tab[k].iso < mus_tab[k].cnt) { sd = mus_tab[k].sd + (s - mus_tab[k].iso); ok = 1; break; }
-        if (!ok || nr_read_sd(sd, mus_sec)) { mus_off = 0xFFFFFFFFu; H.mus_n = 0; return 0; }   /* (fichier illisible : musique du jeu) */
-        mus_off = ms;
+    if (st_sec_off != (ms | 1u)) {                       /* (bit 0 : secteur du fichier, pas du disque) */
+        u32 s = ms >> 9, k;
+        for (k = 0; k < H.mus_n && k < NATRES_MUSMAX; k++) if (s >= mus_tab[k].iso && s - mus_tab[k].iso < mus_tab[k].cnt) break;
+        if (k >= H.mus_n || k >= NATRES_MUSMAX || nr_read_sd(mus_tab[k].sd + (s - mus_tab[k].iso), st_sec)) { st_sec_off = 0xFFFFFFFFu; H.mus_n = 0; return 0; }
+        st_sec_off = ms | 1u; st_sec_n = 0;
     }
-    const u8 *a = mus_sec + (mus_pos - ms);
+    const u8 *a = st_sec + (mus_pos - ms);
     mus_pos += 32; H.mus_blocks++;
     return a;
 }
@@ -1128,18 +1125,8 @@ static int st_block(void) {                              /* bloc suivant (32 oct
         if (st_stop_end) { st_stop_end = 0; st_on = 0; return -1; }
         if (!H.mus_n) st_hl1 = st_hl2 = st_hr1 = st_hr2 = 0;   /* (v179 : ta musique continue) */
     }
-    if (H.mus_n && H.mus_size >= 64) {                   /* v179 */
-        const u8 *m = mus_block();
-        if (m) {
-            for (int i = 0; i < 28; i++) {
-                st_pcm[i * 2] = (short)st_dec(m[i + 4] & 0xF, m[0], &st_hl1, &st_hl2);
-                st_pcm[i * 2 + 1] = (short)st_dec(m[i + 4] >> 4, m[1], &st_hr1, &st_hr2);
-            }
-            st_pos += 32; st_pcm_i = 0;
-            H.st_blocks++;
-            return 0;
-        }
-    }
+    const u8 *a = H.mus_n && H.mus_size >= 64 ? mus_block() : 0;   /* v179 */
+    if (a) goto dec;
     u32 so = st_pos & ~511u, sd;
     if (st_sec_off == 0xFFFFFFFFu || so < st_sec_off || so >= st_sec_off + st_sec_n) {
         if (H.net) {                                      /* v143 : (ISO sur le reseau) */
@@ -1155,8 +1142,8 @@ static int st_block(void) {                              /* bloc suivant (32 oct
         st_sec_off = so; st_sec_n = n * 512;
     }
 have:
-    { }
-    const u8 *a = st_sec + (st_pos - st_sec_off);
+    a = st_sec + (st_pos - st_sec_off);
+dec:
     for (int i = 0; i < 28; i++) {
         st_pcm[i * 2] = (short)st_dec(a[i + 4] & 0xF, a[0], &st_hl1, &st_hl2);
         st_pcm[i * 2 + 1] = (short)st_dec(a[i + 4] >> 4, a[1], &st_hr1, &st_hr2);

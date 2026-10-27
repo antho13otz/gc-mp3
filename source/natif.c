@@ -2772,7 +2772,7 @@ static int na_card_map(const char *name, natres_ext_t *out, u32 *n, u32 *size, c
    a 48 kHz en ADPCM 4 bits, filtre et decalage par voie), converti une fois (refait si le .mp3 est plus recent).
    Le resident joue ce fichier en boucle a la place des blocs lus sur le disque (seulement si le jeu en joue). */
 #define NA_MUS_DIR GCD "/musique-jeux"
-static natres_ext_t na_mus[NATRES_CARDMAX];
+static natres_ext_t na_mus[NATRES_MUSMAX];
 static u32 na_mus_n = 0, na_mus_size = 0;
 static char na_mus_msg[120] = "";
 #ifndef NATIF_BENCH
@@ -2875,7 +2875,7 @@ static int na_mus_prep(const char *id) {
     }
     char e[80];
     if (nat_map(dst, e, sizeof(e))) { snprintf(na_mus_msg, sizeof(na_mus_msg), "%s", e); return 0; }
-    if (na_next > NATRES_CARDMAX) { snprintf(na_mus_msg, sizeof(na_mus_msg), "fichier trop morcel\xC3\xA9 sur la carte SD"); return 0; }
+    if (na_next > NATRES_MUSMAX) { snprintf(na_mus_msg, sizeof(na_mus_msg), "fichier trop morcel\xC3\xA9 sur la carte SD"); return 0; }
     memcpy(na_mus, na_ext, na_next * sizeof(natres_ext_t));
     na_mus_n = na_next; na_mus_size = (u32)sd2.st_size & ~31u;
     snprintf(na_mus_msg, sizeof(na_mus_msg), "gc-mp3/musique-jeux/%.6s.mp3 (%u s)", id, (unsigned)(na_mus_size / 32u * 28u / 48000u));

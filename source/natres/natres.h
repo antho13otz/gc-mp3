@@ -148,6 +148,7 @@ enum { NRN_OFF = 0, NRN_ON = 1, NRN_NOBBA = 2, NRN_NOLINK = 3, NRN_NOARP = 4, NR
 enum { NRT_OFF = 0, NRT_ON = 1, NRT_BAT = 2, NRT_BAT2 = 3, NRT_MMU = 4, NRT_VEC = 5, NRT_PTE = 6, NRT_LOST = 7 };
 #define NRF_CARDB  64u                    /* v122 : carte memoire virtuelle du slot B active */
 #define NATRES_ZERO 0xFFFFFFFFu           /* v121 : morceau sans donnees (bloc absent d'un .ciso) : lu comme des zeros */
+#define NATRES_MUSMAX 16                  /* v179 : morceaux du fichier de ta musique */
 #define NATRES_CARDMAX 64                 /* morceaux du fichier de la carte virtuelle */
 #define NRF_CARD      4u                  /* v65 : carte memoire virtuelle active */
 #define NATRES_RETMAX 64                  /* morceaux du .dol de GC Station */
