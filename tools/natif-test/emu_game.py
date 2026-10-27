@@ -10,6 +10,9 @@ os.environ.setdefault('UC_NO_MEM_EXIT', '1')            # (Unicorn corrige par r
 T = os.path.dirname(os.path.abspath(__file__))
 src = open(T + '/emu_e2e.py').read()
 src = src[:src.index("MODE = sys.argv[4]")]
+import mmap                                           # (v172 : grandes images creuses du banc : lues a la demande)
+src = src.replace("disk = bytearray(open(SDIMG, 'rb').read())", "_fsd = open(SDIMG, 'rb'); disk = mmap.mmap(_fsd.fileno(), 0, access=mmap.ACCESS_COPY)")
+src = src.replace("iso = open(ISO, 'rb').read()", "_fiso = open(ISO, 'rb'); iso = mmap.mmap(_fiso.fileno(), 0, access=mmap.ACCESS_READ)")
 SECS = float(sys.argv[4]) if len(sys.argv) > 4 else 20
 OPTS = sys.argv[5:]
 sys.argv = sys.argv[:4]
@@ -141,8 +144,45 @@ def io_read2_(uc, off, size, data):
     return io_read(uc, off, size, data)
 DI_LAT = float(os.environ.get('EMU_DILAT', '0'))       # (vrai lecteur : fin de commande apres ce temps, en s de jeu)
 di_due = [None]
+# (v172 : SRAM de la console, canal 0 peripherique 1 : ID des cartes a 0 avec leur somme de controle, comme une
+#  console qui a deja vu une carte formatee par le SDK ; sommes de la partie principale justes)
+sram = bytearray(64); sram[0x12] = 0; sram[0x13] = 0x2C
+sram[0x3A] = 0xFF; sram[0x3B] = 0xFF
+def sram_fix():
+    a = b = 0
+    for i in range(0x0C, 0x14, 2): v = sram[i] << 8 | sram[i + 1]; a = (a + v) & 0xFFFF; b = (b + (v ^ 0xFFFF)) & 0xFFFF
+    sram[0:4] = struct.pack('>HH', a, b)
+sram_fix()
+srm = {'cmd': None, 'pos': 0}
+def sram_xfer(uc, value):
+    n = ((value >> 4) & 3) + 1; mode = (value >> 2) & 3
+    if value & 2:                                         # DMA
+        ln = exi[0][2]; a = 0x80000000 | exi[0][1]
+        if mode == 0:
+            if srm['cmd'] is not None and srm['cmd'] & 0x7FFFFF00 == 0x20000100:
+                o = srm['pos']; d = bytes(sram[o:o + ln]) + bytes(max(0, ln - (64 - o))); srm['pos'] += ln
+            else: d = bytes(ln)
+            uc.mem_write(a, d[:ln])
+        elif srm['cmd'] is not None and srm['cmd'] & 0xFFFFFF00 == 0xA0000100:
+            d = bytes(uc.mem_read(a, ln)); o = srm['pos']; sram[o:o + len(d)] = d[:64 - o]; srm['pos'] += ln
+        return
+    if mode == 1:
+        if srm['cmd'] is None: srm['cmd'] = exi[0][4]; srm['pos'] = 0; return
+        if srm['cmd'] & 0xFFFFFF00 == 0xA0000100:
+            for k in range(n):
+                if srm['pos'] < 64: sram[srm['pos']] = (exi[0][4] >> (24 - 8 * k)) & 0xFF
+                srm['pos'] += 1
+    elif mode == 0:
+        v = 0
+        for k in range(n):
+            b = sram[srm['pos']] if srm['cmd'] is not None and srm['cmd'] & 0x7FFFFF00 == 0x20000100 and srm['pos'] < 64 else 0
+            v |= b << (24 - 8 * k); srm['pos'] += 1
+        exi[0][4] = v
 def io_write2(uc, off, size, value, data):
     mmio_last[0] = uc.reg_read(UC_PPC_REG_PC)
+    if off == 0x800 and not (value & 0x100): srm['cmd'] = None     # (SRAM deselectionnee)
+    if off == 0x80C and value & 1 and exi[0][0] & 0x100 and not exi[0][0] & 0x280:
+        exi[0][3] = value; sram_xfer(uc, value); exi[0][3] = value & ~1; exi[0][0] |= 0x8; return
     if off == 0x1C and value & 1 and DI_LAT > 0:          # (vrai lecteur : occupe un moment)
         io_write(uc, off, size, value, data)
         di_real[0] &= ~0x14; di_real[7] |= 1; di_due[0] = now() + int(DI_LAT * 486e6); return
@@ -199,6 +239,25 @@ wr32(0x800030C0, TB0 // 40500 // 100 + 1)              # (carte du slot A vue de
 mu.mem_write(0x800030E0, bytes([0, 6])); mu.mem_write(0x800030E9, bytes([5]))
 print('FST %s, bi2 %s' % (fst and '%08X (%d)' % fst, bi2 and '%08X' % bi2))
 
+# (v172 : reconnus dans n'importe quel jeu : __OSInitAudioSystem (attend le vrai DSP) sautee ; PPCHalt = arret du jeu)
+def find_code(words, lo=0x80003100, hi=0x80600000):
+    code = bytes(mu.mem_read(lo, hi - lo)); pat = b''.join(struct.pack('>I', w) for w in words); out = []; i = code.find(pat)
+    while i >= 0:
+        if i % 4 == 0: out.append(lo + i)
+        i = code.find(pat, i + 4)
+    return out
+def func_start(a):
+    for k in range(400):
+        if rd32(a - 4 * k) == 0x7C0802A6: return a - 4 * k
+    return None
+auto_stub = []
+for a in find_code([0x38000043, 0xB0030012]):
+    f = func_start(a)
+    if f: auto_stub.append(f)
+HALT = find_code([0x7C0004AC, 0x60000000, 0x38600000, 0x60000000, 0x4BFFFFF4])
+print('reconnu : initialisation du DSP %s, arret %s' % (' '.join('%08X' % x for x in auto_stub) or '-', ' '.join('%08X' % x for x in HALT) or '-'))
+for f in auto_stub:
+    if '%08X' % f not in os.environ.get('EMU_STUB', '').upper(): wr32(f, 0x38600000); wr32(f + 4, 0x4E800020)
 for a in filter(None, os.environ.get('EMU_STUB', '').split(',')):   # (fonctions du jeu sautees : retour tout de suite, r3 = 0)
     wr32(int(a, 16), 0x38600000); wr32(int(a, 16) + 4, 0x4E800020)
 # ---- time base et decrementeur : les instructions mftb / mfspr / mtspr du jeu et du resident sont prises ici
@@ -405,6 +464,10 @@ def on_intr(uc, intno, data):
         pend['dsi_mmio'] += 1; return
     exc_redirect[0] = (intno, fa); uc.emu_stop()
 mu.hook_add(UC_HOOK_INTR, on_intr)
+halted = []
+def on_halt(uc, addr, size, data):
+    if not halted: halted.append((icount[0], uc.reg_read(UC_PPC_REG_LR), backtrace(uc.reg_read(UC_PPC_REG_1)))); uc.emu_stop()
+for a in HALT: mu.hook_add(UC_HOOK_CODE, on_halt, begin=a, end=a)
 # ---- boucle : morceaux d'instructions, interruptions entre deux
 FRAME = 810000 * 12                                    # (une image PAL : 1/50 s en instructions)
 CH = int(os.environ.get("EMU_CH", "3000"))      # (morceaux de 3 ms)
@@ -467,6 +530,10 @@ while icount[0] < end:
         print('  DBAT ' + ' '.join('%08X/%08X' % (v_[10 + 2 * k], v_[11 + 2 * k]) for k in range(4)))
         break
     if pc == STOP: print('fin du jeu (retour)'); break
+    if halted:
+        t_, lr_, bt_ = halted[0]
+        print('ARRET DU JEU (PPCHalt : erreur du jeu, OSPanic / OSFatal) apres %d instructions, appele depuis %08X ; pile %s' % (t_, lr_, ' '.join('%08X' % x for x in bt_)))
+        break
     hist[pc & ~0xFF] += 1
     if di_due[0] is not None and icount[0] >= di_due[0]:
         di_due[0] = None; di_real[7] &= ~1; di_real[0] |= 0x10 if di_real[2] >> 24 == 0x12 else 0x04

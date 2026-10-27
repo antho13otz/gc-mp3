@@ -21,6 +21,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v172 — banc d'essai automatique des jeux
+- GC Station : Jeux > Options > « Banc d'essai (export) » écrit `gc-mp3/banc/<ID><disque>.gcb` pour chaque jeu
+  (format GCB1, gros-boutiste : en-tête 0x5C — « GCB1 », version, ID sur 8, taille de l'ISO, nombre de morceaux,
+  octets de données, titre sur 64 — puis {position, longueur} par morceau, puis les données) : en-tête et apploader,
+  main.dol, FST, fichiers de 256 Ko au plus en entier, puis 64 Ko du début des autres, 16 Mo au plus ; `index.txt`.
+- PC : `tools/banc/banc.py dossier [secondes]` : ISO creuse (gcb.py), carte SD FAT32 creuse avec une carte mémoire
+  formatée comme le SDK (mkfat_sparse.py, clusters de 32 Ko, ISO au cluster 70000), lancement préparé par h2, puis
+  `emu_game.py` ; rapport.txt (images, commandes de la carte, arrêt du jeu) et le détail par jeu dans `essais/`.
+- emu_game.py : images lues à la demande (mmap), SRAM de la console émulée (canal 0, périphérique 1 : ID des cartes à
+  0 et sommes justes), `__OSInitAudioSystem` et PPCHalt (arrêt du jeu : OSPanic / OSFatal) reconnus dans tout jeu.
+
 ## Nouveautés v171 — Crash : la carte virtuelle dans le journal du jeu figé
 - Nouveau banc `tools/natif-test/emu_game.py` : le VRAI programme d'un jeu (préparé par GC Station, avec Pulse)
   tourne dans l'émulateur PowerPC : système du jeu, interruptions (PI, image, dessin, DSP, son), horloge et

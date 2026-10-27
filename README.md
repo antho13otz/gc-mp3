@@ -14,16 +14,18 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v171)
+## Nouveautés de la version actuelle (v172)
+- **Banc d'essai des jeux** (Jeux > Options (Y) > « Banc d'essai (export) ») : GC Station prépare dans
+  `gc-mp3/banc/` une image réduite de chaque jeu (programme, table des fichiers, petits fichiers, début des
+  gros : quelques Mo) et `index.txt`. Envoie ce dossier : sur PC, chaque jeu démarre avec Pulse dans un
+  émulateur (`tools/banc/banc.py`), et le rapport dit jusqu'où il va (démarrage, lectures, carte mémoire) et où il
+  bloque, avant même de le lancer sur la console.
+
+## Version précédente (v171)
 - **Crash Bandicoot (carte mémoire virtuelle)** : quand un jeu se fige avec Pulse, le journal du jeu donne maintenant
   aussi l'état complet de la carte mémoire virtuelle (transfert en cours, interruptions en attente, lecteur, masques
   du jeu). Rien ne change en jeu : c'est pour trouver la cause du blocage de Crash au logo. Crash marche toujours
   avec sa carte mémoire réglée sur « Aucune ».
-
-## Version précédente (v170)
-- **Analyse Pulse** (fiche d'un jeu, bouton R) : copie aussi le programme du jeu dans `gc-mp3/natif/<ID>-main.dol`,
-  pour l'étudier quand un jeu bloque avec Pulse (Crash Bandicoot : carte mémoire virtuelle). En attendant la
-  correction, Crash marche avec Pulse en mettant sa carte mémoire sur « Aucune » (réglages du jeu, Y).
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
