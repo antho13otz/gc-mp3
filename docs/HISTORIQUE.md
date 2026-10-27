@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v184 — supprimer un jeu
+- jeux_cfg.c : ligne `JC_N` (en plus des réglages) quand le jeu est sur la carte SD (`jc_can_del` : pas le lecteur,
+  pas le GC Loader, pas la SD en mémoire) ; A deux fois en 6 s (`jc_del_arm`) ; `jc_delete` : fichier effacé, dossier
+  parent enlevé s'il est vide (pas un dossier de la racine), liste refaite (`gl_scan`), message.
+- Simulateur : Crash.iso supprimé depuis la fiche, liste 122 → 121.
+
 ## Nouveautés v183 — lanceur rangé reconnu
 - lanceur.c : `ld_new_paths` d'après le numéro du lanceur installé (`lanceur.txt` ≥ 597) ; la v182 cherchait le texte
   « gc-mp3/lanceur/retour.txt » dans lanceur.dol, mais le lanceur est compressé (packer de Swiss) : jamais trouvé.

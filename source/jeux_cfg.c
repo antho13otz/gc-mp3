@@ -265,7 +265,35 @@ static void jeux_cfg_apply(const char *id, int resident) {
     }
     if (changed) save_settings();                             /* (on remettra la console comme avant au retour) */
 }
+/* v184 : supprimer le jeu de la carte SD (derniere ligne des reglages du jeu, A deux fois) */
+static int jc_k = -1, jc_del_arm = 0;                         /* jc_k : le jeu dans gl[] (-1 : pas supprimable ici) */
+static u64 jc_del_t = 0;
+static int jc_can_del(int k) {
+    return k >= 0 && k < gl_n && !gl[k].dvd && !gcl_path(gl[k].path) && !sd_virtual
+        && !strncasecmp(gl[k].path, SD_ROOT "/", strlen(SD_ROOT) + 1);
+}
+static int jc_rows(void) { return JC_N + (jc_k >= 0 ? 1 : 0); }
+static void jc_delete(void) {
+    if (!jc_can_del(jc_k)) { jc_k = -1; return; }
+    char path[NAME_LEN], title[96], m[200];
+    snprintf(path, sizeof(path), "%s", gl[jc_k].path);
+    snprintf(title, sizeof(title), "%s", gl[jc_k].title);
+    crumb("suppression du jeu %s", path);
+    if (remove(path) != 0) { gl_note("Suppression impossible (carte SD en lecture seule ?)"); jc_del_arm = 0; return; }
+    char dir[NAME_LEN];                                       /* dossier du jeu vide (sd:/games/Jeu/) : enleve aussi */
+    snprintf(dir, sizeof(dir), "%s", path);
+    char *sl = strrchr(dir, '/');
+    if (sl) { *sl = 0; int depth = 0; for (const char *c = dir + strlen(SD_ROOT); *c; c++) if (*c == '/') depth++; if (depth >= 2) rmdir(dir); }
+    ic_on = 0; jc_changed = 0; jc_del_arm = 0; jc_k = -1;
+    gl_scanned = 0; gl_scan();                                 /* (liste refaite sans ce jeu) */
+    snprintf(m, sizeof(m), "%s %s", TR("Jeu supprim\xC3\xA9 :"), title);
+    snprintf(gl_msg, sizeof(gl_msg), "%s", m); gl_msg_t = now_ms();
+}
 static void indigo_game_open(const char *id, const char *title) {     /* (nom garde : appele depuis la fiche d'un jeu) */
+    jc_k = -1; jc_del_arm = 0;
+    if (gl_sel >= 0 && gl_sel < gl_n && !strncmp(gl[gl_sel].id, id, 6) && !strcmp(gl[gl_sel].title, title)) jc_k = gl_sel;
+    for (int k = 0; jc_k < 0 && k < gl_n; k++) if (!strncmp(gl[k].id, id, 6) && !strcmp(gl[k].title, title)) jc_k = k;
+    if (!jc_can_del(jc_k)) jc_k = -1;
     snprintf(jc_id, sizeof(jc_id), "%.6s", id);
     snprintf(jc_title, sizeof(jc_title), "%s", title);
     jc_load(jc_id);
@@ -288,8 +316,20 @@ static void jc_card_step(int d) {                             /* "" -> carte-A.r
     if (cur < 0) jc_card[0] = 0; else if (cur == vc_nf) snprintf(jc_card, sizeof(jc_card), "-"); else snprintf(jc_card, sizeof(jc_card), "%s", vc_files[cur]);
 }
 static void indigo_cfg_input(u32 down, u32 nav, int fire) {
-    if (fire && (nav & PAD_BUTTON_DOWN)) jc_sel = (jc_sel + 1) % JC_N;
-    if (fire && (nav & PAD_BUTTON_UP)) jc_sel = (jc_sel + JC_N - 1) % JC_N;
+    int nr = jc_rows(), was = jc_sel;
+    if (fire && (nav & PAD_BUTTON_DOWN)) jc_sel = (jc_sel + 1) % nr;
+    if (fire && (nav & PAD_BUTTON_UP)) jc_sel = (jc_sel + nr - 1) % nr;
+    if (jc_sel >= nr) jc_sel = 0;
+    if (jc_sel != was) jc_del_arm = 0;
+    if (jc_del_arm && now_ms() - jc_del_t > 6000) jc_del_arm = 0;
+    if (jc_sel == JC_N) {                                     /* v184 : supprimer le jeu */
+        if (down & PAD_BUTTON_A) {
+            if (jc_del_arm) { jc_delete(); return; }
+            jc_del_arm = 1; jc_del_t = now_ms();
+        }
+        if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) { jc_del_arm = 0; jc_close(); }
+        return;
+    }
     int d = (fire && (nav & PAD_BUTTON_RIGHT)) || (down & PAD_BUTTON_A) ? 1 : (fire && (nav & PAD_BUTTON_LEFT)) ? -1 : 0;
     if (d) {
         jc_changed = 1;
@@ -333,12 +373,25 @@ static void draw_indigo_cfg(void) {
     static int top = 0;
     if (jc_sel < top) top = jc_sel;
     if (jc_sel >= top + vis) top = jc_sel - vis + 1;
-    for (int r = 0; r < vis && top + r < JC_N; r++) {
+    int nr = jc_rows();
+    if (jc_sel >= nr) jc_sel = 0;
+    if (jc_sel < top) top = jc_sel;
+    if (jc_sel >= top + vis) top = jc_sel - vis + 1;
+    for (int r = 0; r < vis && top + r < nr; r++) {
         int i = top + r;
         f32 ry = 116 + r * rh;
         int on = i == jc_sel;
         gp_zone(52, ry, 536, rh - 2, &jc_sel, i, GPZ_SEL);
-        if (on) gx_rrect_fill(52, ry, 536, rh - 2, 6, TL_SEL1, TL_SEL2);
+        if (on) gx_rrect_fill(52, ry, 536, rh - 2, 6, i == JC_N ? RGBA(200, 60, 70, 255) : TL_SEL1, i == JC_N ? RGBA(150, 40, 60, 255) : TL_SEL2);
+        if (i == JC_N) {                                      /* v184 */
+            gx_text1(F_MED, 66, ry + 16, TR("Supprimer ce jeu de la carte SD"), on ? RGBA(255, 255, 255, 255) : RGBA(255, 150, 150, 255));
+            long sz = jc_k >= 0 && jc_k < gl_n ? gl[jc_k].size : 0;
+            if (jc_del_arm) snprintf(buf, sizeof(buf), "%s", TR("A encore : supprimer"));
+            else if (sz >= 1024L * 1024 * 1024) snprintf(buf, sizeof(buf), "%ld,%ld Go", sz >> 30, ((sz >> 20) % 1024) * 10 / 1024);
+            else snprintf(buf, sizeof(buf), "%ld Mo", sz >> 20);
+            gx_text_r(F_MED, 576, ry + 16, buf, on ? RGBA(255, 255, 255, 255) : RGBA(255, 150, 150, 255));
+            continue;
+        }
         gx_text1(F_MED, 66, ry + 16, TR(lab[i]), on ? RGBA(255, 255, 255, 255) : RGBA(230, 222, 255, 255));
         if (i == JC_LANG) snprintf(buf, sizeof(buf), "%s", jc_lang < 0 ? TR("Comme la console") : gc_lang_names[jc_lang]);
         else if (i == JC_SOUND) snprintf(buf, sizeof(buf), "%s", jc_sound < 0 ? TR("Comme la console") : jc_sound ? TR("St\xC3\xA9r\xC3\xA9o") : "Mono");
@@ -350,8 +403,9 @@ static void draw_indigo_cfg(void) {
         gx_text_r(F_MED, 576, ry + 16, fv, on ? RGBA(255, 255, 255, 255) : jc_sel >= 0 && i >= JC_V0 && jc_v[i - JC_V0] ? RGBA(130, 230, 160, 255) : RGBA(190, 160, 255, 255));
     }
     if (top > 0) gx_tri(316, 112, 324, 112, 320, 107, RGBA(255, 255, 255, 180));
-    if (top + vis < JC_N) gx_tri(316, 116 + vis * rh, 324, 116 + vis * rh, 320, 121 + vis * rh, RGBA(255, 255, 255, 180));
-    fit_text(F_SMALL, TR(help[jc_sel]), 540, fv, sizeof(fv));
+    if (top + vis < nr) gx_tri(316, 116 + vis * rh, 324, 116 + vis * rh, 320, 121 + vis * rh, RGBA(255, 255, 255, 180));
+    fit_text(F_SMALL, jc_sel == JC_N ? (jc_del_arm ? TR("Appuie encore sur A pour effacer le fichier du jeu (B : annuler).")
+        : TR("Efface le fichier du jeu (A deux fois). Sauvegardes, r\xC3\xA9glages et cheats du jeu restent.")) : TR(help[jc_sel]), 540, fv, sizeof(fv));
     gx_text1(F_SMALL, 58, 116 + vis * rh + 18, fv, RGBA(210, 200, 240, 255));
     tl_msgbox();
     static const char *const k[] = { "A", "Y", "B" }, *const l[] = { "CHANGER", "TOUT PAR D\xC3\x89" "FAUT", "FERMER" };
