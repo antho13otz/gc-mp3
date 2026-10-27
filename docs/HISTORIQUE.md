@@ -21,6 +21,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v181 — ta musique dans les jeux : tous les formats
+- main.c : l'ouverture d'un morceau (`trk_open`) est sortie de `start_track_u` ; `pcm_file_decode(chemin, hook, tick)`
+  décode tout un fichier avec les décodeurs du lecteur (minimp3, dr_flac, stb_vorbis, WAV, Helix AAC, GME, libxmp,
+  formats GameCube) et envoie les échantillons à `hook` (`pf_hook` dans `push_frame`) au lieu de les jouer.
+- natif.c : `na_mus_find` prend `musique-jeux/<ID>.<n'importe quel format audio>` (pas le .adp produit) ;
+  rééchantillonnage vers 48 kHz pour toute fréquence (96 / 192 kHz compris) ; au plus 15 min ; `<ID>.src` (nom, taille,
+  date) : reconverti si le fichier change. Mesuré au simulateur (`PCSIM_MUSCONV=<ID>`) : FLAC / WAV 33,6 dB, OGG 32,9,
+  M4A 31,1, MP3 25,3 ; module MOD converti ; lecture normale de l'onglet MUSIQUE inchangée (0 trou sur 162 s).
+
 ## Nouveautés v180 — tests des nouveautés, anglais
 - Banc natif (`tools/natif-test/run.sh`, 31 tests) : mode `shot` (registres VI simulés, image 640 × 480 en 0x00700000,
   L + R + Z sur la manette, place de `natif/captures.bin` relue : en-tête SHOT et image identique) et mode `mus`
