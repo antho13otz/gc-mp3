@@ -14,17 +14,17 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v180)
+## Nouveautés de la version actuelle (v181)
+- **Ta musique dans les jeux : tous les formats** de l'onglet MUSIQUE, plus seulement le MP3 : FLAC, OGG, WAV,
+  M4A / AAC, et les musiques rétro (SPC, NSF, MOD, XM…). Le fichier s'appelle toujours avec l'ID du jeu
+  (ex. `gc-mp3/musique-jeux/GTEP01.flac`). Il est reconverti dès que tu le changes (même avec une date ancienne).
+  Au plus 15 minutes par morceau. Enlève le fichier pour retrouver la musique du jeu.
+
+## Version précédente (v180)
 - **Interface en anglais** : les écrans Succès, Mode soirée, la ligne « Dernier jeu » de JEUX / APPS, le banc
   d'essai et le menu Outils sont maintenant traduits.
 - Vérifié au simulateur dans les 4 styles (Indigo, Aurore, Vitrine, Îlots) : rien ne se chevauche.
 - Banc d'essai du lanceur : 2 tests de plus (capture d'écran L + R + Z, ta musique dans les jeux) : 31 tests.
-
-## Version précédente (v179)
-- **Ta musique dans les jeux** (Pulse) : mets un MP3 dans `gc-mp3/musique-jeux/<ID du jeu>.mp3` (ex. `GTEP01.mp3`
-  pour 1080 PAL : l'ID est sur la fiche du jeu). Au lancement, GC Station le convertit une fois au format du disque,
-  et Pulse le joue en boucle à la place de la musique du jeu. Seulement pour les jeux qui lisent leur musique sur le
-  disque (1080, F-Zero GX, Eternal Darkness…) ; les autres jeux gardent leur musique.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /

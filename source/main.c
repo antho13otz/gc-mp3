@@ -1049,7 +1049,9 @@ static mp3d_sample_t pcm[MINIMP3_MAX_SAMPLES_PER_FRAME];
 static double rpos = 0.0;
 static s16 prevL = 0, prevR = 0;
 
+static void (*pf_hook)(const s16 *L, const s16 *R, int n, unsigned sr) = NULL;   /* v181 : echantillons pris ailleurs (ta musique dans les jeux) */
 static void push_frame(const s16 *L, const s16 *R, int n, unsigned sr) {
+    if (pf_hook) { if (n > 0 && sr > 0) pf_hook(L, R, n, sr); return; }
     double step = (double)sr / 48000.0;
     while (rpos < n - 1 && f_count < FIFO_SIZE) {
         int i = (rpos < 0.0) ? -1 : (int)rpos;
@@ -4091,6 +4093,61 @@ static unsigned char *id3_text_only(FILE *fp, const unsigned char *head, long ta
     *outlen = n;
     return b;
 }
+/* v181 : ouvre le decodeur du format (MUSIQUE, ou ta musique dans les jeux : idx = -1) ; rend NULL, ou l'erreur */
+static const char *trk_open(int idx, const char *path, FILE *fp, long size, int fmt, tags_t *tg, long *audio) {
+    const char *err = NULL;
+    if (fmt == FMT_MP3) {
+        /* etiquettes : en-tete ID3v2 (lu a part) et ID3v1 (128 derniers octets) */
+        unsigned char head[10], v1[128];
+        int has_v1 = 0;
+        if (size >= 128 && fseek(fp, size - 128, SEEK_SET) == 0 && fread(v1, 1, 128, fp) == 128) has_v1 = 1;
+        unsigned char *tag = NULL;
+        long taglen = 0;
+        if (fseek(fp, 0, SEEK_SET) == 0 && fread(head, 1, 10, fp) == 10 && memcmp(head, "ID3", 3) == 0) {
+            *audio = 10 + (long)synchsafe(head + 6) + ((head[5] & 0x10) ? 10 : 0);
+            taglen = *audio < size ? *audio : size;
+            if (taglen > 65536) tag = id3_text_only(fp, head, taglen, &taglen);   /* v85 : gros en-tete : sans la pochette integree */
+            if (!tag) {                                               /* (comme avant : tout l'en-tete) */
+                taglen = *audio < size ? *audio : size;
+                if (taglen > 4 * 1024 * 1024) taglen = 4 * 1024 * 1024;   /* (grosse pochette integree) */
+                tag = (unsigned char *)malloc(taglen);
+                if (tag && (fseek(fp, 0, SEEK_SET) != 0 || fread(tag, 1, taglen, fp) != (size_t)taglen)) { free(tag); tag = NULL; }
+            }
+        }
+        parse_tags(tag, tag ? taglen : 0, has_v1 ? v1 : NULL, tg);
+        free(tag);
+        if (*audio >= size) *audio = 0;
+        mp3_lame_info(fp, audio, size, tg);            /* v72 : sans blanc, gain LAME */
+        if (*audio >= size) *audio = 0;
+        mp3dec_init(&dec);
+    } else if (fmt == FMT_FLAC) {
+        flac_meta(fp, tg, 0);
+        if (fseek(fp, 0, SEEK_SET) != 0) err = "Lecture impossible";
+        else {
+            flac = drflac_open(fl_read, fl_seek, fl_tell, fp, NULL);
+            if (!flac) err = "FLAC illisible";
+            else if (flac->channels < 1 || flac->channels > 8 || flac->sampleRate == 0) err = "FLAC non pris en charge";
+        }
+    } else if (fmt == FMT_OGG) {
+        static unsigned char hb[65536];
+        if (fseek(fp, 0, SEEK_SET) == 0) {
+            size_t n = fread(hb, 1, sizeof(hb), fp);
+            ogg_tags(hb, (long)n, tg);
+            if (n >= 36 && memcmp(hb, "OggS", 4) == 0 && memcmp(hb + 28, "OpusHead", 8) == 0) err = "Opus non pris en charge";
+        }
+        if (!err && !ogg_open(fp, 0)) err = "OGG illisible (Vorbis seulement)";
+        if (!err) *audio = ftell(fp);
+    } else if (fmt == FMT_M4A) {
+        if (!m4a_open(fp, size, tg, &err)) { if (!err) err = "M4A illisible"; }
+    } else if (fmt >= FMT_GME) {
+        if (!retro_open(path, fmt, tg, &err)) { if (!err) err = "Fichier illisible"; }
+        else if (idx >= 0) dur_cache[idx] = retro_len_ms / 1000;
+    } else {
+        if (!wav_parse(fp, size, &wav)) err = "WAV non pris en charge";
+        else { *audio = wav.data; wav_left = wav.len; }
+    }
+    return err;
+}
 static int start_track_u(int idx);
 static int start_track(int idx) {
 #ifndef GEKKO
@@ -4152,56 +4209,7 @@ static int start_track_u(int idx) {
         else if (fmt == FMT_OGG) { vorb = nx.vb; vorb_rate = nx.vrate; nx.vb = NULL; }
         else { flac = nx.fl; nx.fl = NULL; }
         nx.st = 0;                                        /* (tout est repris : la place est libre) */
-    } else if (fmt == FMT_MP3) {
-        /* etiquettes : en-tete ID3v2 (lu a part) et ID3v1 (128 derniers octets) */
-        unsigned char head[10], v1[128];
-        int has_v1 = 0;
-        if (size >= 128 && fseek(fp, size - 128, SEEK_SET) == 0 && fread(v1, 1, 128, fp) == 128) has_v1 = 1;
-        unsigned char *tag = NULL;
-        long taglen = 0;
-        if (fseek(fp, 0, SEEK_SET) == 0 && fread(head, 1, 10, fp) == 10 && memcmp(head, "ID3", 3) == 0) {
-            audio = 10 + (long)synchsafe(head + 6) + ((head[5] & 0x10) ? 10 : 0);
-            taglen = audio < size ? audio : size;
-            if (taglen > 65536) tag = id3_text_only(fp, head, taglen, &taglen);   /* v85 : gros en-tete : sans la pochette integree */
-            if (!tag) {                                               /* (comme avant : tout l'en-tete) */
-                taglen = audio < size ? audio : size;
-                if (taglen > 4 * 1024 * 1024) taglen = 4 * 1024 * 1024;   /* (grosse pochette integree) */
-                tag = (unsigned char *)malloc(taglen);
-                if (tag && (fseek(fp, 0, SEEK_SET) != 0 || fread(tag, 1, taglen, fp) != (size_t)taglen)) { free(tag); tag = NULL; }
-            }
-        }
-        parse_tags(tag, tag ? taglen : 0, has_v1 ? v1 : NULL, &tg);
-        free(tag);
-        if (audio >= size) audio = 0;
-        mp3_lame_info(fp, &audio, size, &tg);            /* v72 : sans blanc, gain LAME */
-        if (audio >= size) audio = 0;
-        mp3dec_init(&dec);
-    } else if (fmt == FMT_FLAC) {
-        flac_meta(fp, &tg, 0);
-        if (fseek(fp, 0, SEEK_SET) != 0) err = "Lecture impossible";
-        else {
-            flac = drflac_open(fl_read, fl_seek, fl_tell, fp, NULL);
-            if (!flac) err = "FLAC illisible";
-            else if (flac->channels < 1 || flac->channels > 8 || flac->sampleRate == 0) err = "FLAC non pris en charge";
-        }
-    } else if (fmt == FMT_OGG) {
-        static unsigned char hb[65536];
-        if (fseek(fp, 0, SEEK_SET) == 0) {
-            size_t n = fread(hb, 1, sizeof(hb), fp);
-            ogg_tags(hb, (long)n, &tg);
-            if (n >= 36 && memcmp(hb, "OggS", 4) == 0 && memcmp(hb + 28, "OpusHead", 8) == 0) err = "Opus non pris en charge";
-        }
-        if (!err && !ogg_open(fp, 0)) err = "OGG illisible (Vorbis seulement)";
-        if (!err) audio = ftell(fp);
-    } else if (fmt == FMT_M4A) {
-        if (!m4a_open(fp, size, &tg, &err)) { if (!err) err = "M4A illisible"; }
-    } else if (fmt >= FMT_GME) {
-        if (!retro_open(names[idx], fmt, &tg, &err)) { if (!err) err = "Fichier illisible"; }
-        else dur_cache[idx] = retro_len_ms / 1000;
-    } else {
-        if (!wav_parse(fp, size, &wav)) err = "WAV non pris en charge";
-        else { audio = wav.data; wav_left = wav.len; }
-    }
+    } else err = trk_open(idx, names[idx], fp, size, fmt, &tg, &audio);
     if (!err && fmt != FMT_FLAC && fmt < FMT_GME && fseek(fp, audio, SEEK_SET) != 0) err = "Lecture impossible";
     if (err) {
         other_close();
@@ -4250,6 +4258,42 @@ static int start_track_u(int idx) {
     src = SRC_FILE;
     lyrics_load(idx);
     return 1;
+}
+
+/* v181 : decode tout un fichier audio (tous les formats de l'onglet MUSIQUE : MP3, FLAC, OGG, WAV, M4A, musiques
+   retro...) vers 'hook', sans le jouer (ta musique dans les jeux). Le morceau ou la radio en cours s'arretent.
+   'tick' est appele apres chaque bloc ; pcm_abort = 1 (dans hook) arrete. Rend 0, ou -1 (fichier illisible). */
+static volatile int pcm_abort = 0;
+static int pcm_file_decode(const char *path, void (*hook)(const s16 *, const s16 *, int, unsigned), void (*tick)(void)) {
+    stop_track(); stop_station(); nx_drop();
+    FILE *fp = fopen(path, "rb");
+    long size = -1;
+    if (fp && fseek(fp, 0, SEEK_END) == 0) size = ftell(fp);
+    if (!fp || size <= 0) { if (fp) fclose(fp); return -1; }
+    int fmt = audio_fmt(path);
+    tags_t tg; tags_clear(&tg);
+    long audio = 0;
+    DEC_LOCK();
+    mp3_skip = 0; mp3_left = -1;
+    const char *err = trk_open(-1, path, fp, size, fmt, &tg, &audio);
+    if (!err && fmt != FMT_FLAC && fmt < FMT_GME && fseek(fp, audio, SEEK_SET) != 0) err = "Lecture impossible";
+    if (err) { other_close(); fclose(fp); DEC_UNLOCK(); return -1; }
+    file_fmt = fmt; ffp = fp; fsize = size; f_audio = audio;
+    fb_start = fb_end = 0; f_file_eof = 0; ogg_resync = 0; eof = 0;
+    playing = 0; src = SRC_NONE;                          /* (personne d'autre ne decode : rien n'est joue) */
+    pf_hook = hook; pcm_abort = 0;
+    DEC_UNLOCK();
+    while (!eof && !pcm_abort) {
+        DEC_LOCK(); decode_file_one(); DEC_UNLOCK();
+        if (tick) tick();
+    }
+    DEC_LOCK();
+    pf_hook = NULL;
+    if (ffp) { fclose(ffp); ffp = NULL; }
+    other_close();
+    eof = 0;
+    DEC_UNLOCK();
+    return 0;
 }
 
 // ---------- Bibliotheque : vues, file de lecture, aleatoire, repetition ----------
@@ -13341,6 +13385,9 @@ int main(int argc, char **argv) {
     if (sd_ok) { say("   Bibliotheque... %s", ""); bib_load(); pl_load_all(); stats_load(); rating_load(); say("%s\n", "OK"); bt_step("bibliotheque"); }
     if (sd_ok) nat_journal_convert();       /* v54 : journal du dernier jeu lance par le lanceur maison */
     if (sd_ok) nat_shots_convert();         /* v175 : captures d'ecran du dernier jeu (photos/captures) */
+#ifndef GEKKO
+    if (getenv("PCSIM_MUSCONV")) { u32 t_ = perf_us(); int r_ = na_mus_prep(getenv("PCSIM_MUSCONV")); printf("[pcsim] ta musique %s : %d, %s (%.1f s)\n", getenv("PCSIM_MUSCONV"), r_, na_mus_msg, (perf_us() - t_) / 1e6); }   /* v181 : essai de la conversion */
+#endif
     bt_step("journal Pulse");
     say("   Radios... %s", "");
     load_stations();

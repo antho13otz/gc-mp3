@@ -2768,8 +2768,9 @@ static int na_card_map(const char *name, natres_ext_t *out, u32 *n, u32 *size, c
     return 1;
 }
 /* ---------- v179 : ta musique a la place de la musique du disque (jeux qui jouent leur musique en streaming) ----------
-   SD:/gc-mp3/musique-jeux/<ID>.mp3 -> <ID>.adp (meme format que le disque : blocs de 32 octets, 28 echantillons stereo
-   a 48 kHz en ADPCM 4 bits, filtre et decalage par voie), converti une fois (refait si le .mp3 est plus recent).
+   SD:/gc-mp3/musique-jeux/<ID>.mp3 (v181 : ou .flac, .ogg, .wav, .m4a, musiques retro... : tout ce que lit l'onglet
+   MUSIQUE) -> <ID>.adp (meme format que le disque : blocs de 32 octets, 28 echantillons stereo a 48 kHz en ADPCM
+   4 bits, filtre et decalage par voie), converti une fois (refait si le fichier change : <ID>.src le decrit).
    Le resident joue ce fichier en boucle a la place des blocs lus sur le disque (seulement si le jeu en joue). */
 #define NA_MUS_DIR GCD "/musique-jeux"
 static natres_ext_t na_mus[NATRES_MUSMAX];
@@ -2809,70 +2810,88 @@ static void adp_enc(const int *x, int *h1, int *h2, u8 *hdr, u8 *nib) {   /* 28 
     }
     *hdr = (u8)(bf << 4 | bs); *h1 = bh1; *h2 = bh2; memcpy(nib, bn, 28);
 }
-static int na_mus_convert(const char *src, const char *dst) {
-    FILE *in = fopen(src, "rb");
-    if (!in) return -1;
-    char part[200]; snprintf(part, sizeof(part), "%s.part", dst);
-    FILE *out = fopen(part, "wb");
-    if (!out) { fclose(in); return -1; }
-    static u8 fb[32768]; static mp3dec_t md; static short pc[MINIMP3_MAX_SAMPLES_PER_FRAME];
-    mp3dec_init(&md);
-    int fs = 0, fe = 0, eofi = 0, ok = 1;
-    int lx[28], rx[28], ni = 0, hl1 = 0, hl2 = 0, hr1 = 0, hr2 = 0;
-    u32 phase = 0, rate = 0; int pl = 0, pr = 0, haveprev = 0;
+/* v181 : tous les formats de l'onglet MUSIQUE (pcm_file_decode, main.c) : echantillons -> 48 kHz -> ADPCM du disque */
+#define NA_MUS_MAXS (15u * 60u)                    /* (au plus 15 min : ~50 Mo sur la carte SD) */
+static FILE *mc_out; static int mc_ok, mc_ni, mc_have, mc_pl, mc_pr, mc_lx[28], mc_rx[28], mc_h[4];
+static u32 mc_phase, mc_blocks;
+static void mc_push(const s16 *L, const s16 *R, int n, unsigned sr) {
+    u32 step = (u32)(((unsigned long long)sr << 16) / 48000u);
     u8 blk[32];
-    while (ok) {
-        if (fe - fs < 16384 && !eofi) { memmove(fb, fb + fs, fe - fs); fe -= fs; fs = 0; size_t r = fread(fb + fe, 1, sizeof(fb) - fe, in); if (r == 0) eofi = 1; fe += (int)r; }
-        if (fe - fs <= 0) break;
-        mp3dec_frame_info_t info;
-        int n = mp3dec_decode_frame(&md, fb + fs, fe - fs, pc, &info);
-        if (info.frame_bytes <= 0) { if (eofi || fe - fs <= 2048) break; fs = fe - 2048; continue; }
-        fs += info.frame_bytes;
-        if (n <= 0 || info.hz <= 0) continue;
-        rate = (u32)info.hz;
-        for (int i = 0; i < n && ok; i++) {
-            int l = pc[info.channels == 2 ? 2 * i : i], r = pc[info.channels == 2 ? 2 * i + 1 : i];
-            if (!haveprev) { pl = l; pr = r; haveprev = 1; }
-            /* (vers 48 kHz : entre l'echantillon precedent et celui-ci) */
-            while (phase < 65536u) {
-                int t = (int)(phase >> 4);
-                lx[ni] = pl + (((l - pl) * t) >> 12); rx[ni] = pr + (((r - pr) * t) >> 12);
-                if (++ni == 28) {
-                    adp_enc(lx, &hl1, &hl2, &blk[0], blk + 4); u8 nl[28]; memcpy(nl, blk + 4, 28);
-                    adp_enc(rx, &hr1, &hr2, &blk[1], blk + 4);
-                    for (int k = 0; k < 28; k++) blk[4 + k] = (u8)(nl[k] | blk[4 + k] << 4);
-                    blk[2] = blk[0]; blk[3] = blk[1];
-                    if (fwrite(blk, 1, 32, out) != 32) ok = 0;
-                    ni = 0;
-                }
-                phase += (u32)((rate << 16) / 48000u);
+    for (int i = 0; i < n && mc_ok; i++) {
+        int l = L[i], r = R[i];
+        if (!mc_have) { mc_pl = l; mc_pr = r; mc_have = 1; }
+        /* (vers 48 kHz : entre l'echantillon precedent et celui-ci) */
+        while (mc_phase < 65536u && mc_ok) {
+            int t = (int)(mc_phase >> 4);
+            mc_lx[mc_ni] = mc_pl + (((l - mc_pl) * t) >> 12); mc_rx[mc_ni] = mc_pr + (((r - mc_pr) * t) >> 12);
+            if (++mc_ni == 28) {
+                adp_enc(mc_lx, &mc_h[0], &mc_h[1], &blk[0], blk + 4); u8 nl[28]; memcpy(nl, blk + 4, 28);
+                adp_enc(mc_rx, &mc_h[2], &mc_h[3], &blk[1], blk + 4);
+                for (int k = 0; k < 28; k++) blk[4 + k] = (u8)(nl[k] | blk[4 + k] << 4);
+                blk[2] = blk[0]; blk[3] = blk[1];
+                if (fwrite(blk, 1, 32, mc_out) != 32) mc_ok = 0;
+                mc_ni = 0;
+                if (++mc_blocks >= NA_MUS_MAXS * 48000u / 28u) { pcm_abort = 1; return; }
             }
-            phase -= 65536u; pl = l; pr = r;
+            mc_phase += step;
         }
-        nat_ld_tick(); service_audio();
+        mc_phase -= 65536u; mc_pl = l; mc_pr = r;
     }
-    fclose(in);
-    if (fclose(out) != 0) ok = 0;
-    if (!ok || !rate) { remove(part); return -1; }
+    if (!mc_ok) pcm_abort = 1;
+}
+static void mc_tick(void) { nat_ld_tick(); service_audio(); }
+static int na_mus_convert(const char *src, const char *dst) {
+    char part[200]; snprintf(part, sizeof(part), "%s.part", dst);
+    mc_out = fopen(part, "wb");
+    if (!mc_out) return -1;
+    mc_ok = 1; mc_ni = mc_have = 0; mc_phase = mc_blocks = 0; memset(mc_h, 0, sizeof(mc_h));
+    int r = pcm_file_decode(src, mc_push, mc_tick);
+    if (fclose(mc_out) != 0) mc_ok = 0;
+    if (r || !mc_ok || mc_blocks < 2) { remove(part); return -1; }
     remove(dst);
     return rename(part, dst) == 0 ? 0 : -1;
+}
+/* fichier <ID>.<format> dans musique-jeux (pas le .adp fait par GC Station) ; rend 1 et son nom */
+static int na_mus_find(const char *id, char *name, int cap) {
+    DIR *d = opendir(NA_MUS_DIR);
+    if (!d) return 0;
+    struct dirent *e; int ok = 0;
+    while (!ok && (e = readdir(d)) != NULL) {
+        const char *n = e->d_name; size_t l = strlen(n);
+        if (l < 8 || n[0] == '.' || strncasecmp(n, id, 6) || n[6] != '.') continue;
+        if (!strcasecmp(n + 6, ".adp") || !strcasecmp(n + 6, ".src") || (l > 5 && !strcasecmp(n + l - 5, ".part"))) continue;
+        if (!audio_ext_len(n)) continue;
+        snprintf(name, cap, "%s", n); ok = 1;
+    }
+    closedir(d);
+    return ok;
 }
 #endif
 static int na_mus_prep(const char *id) {
     na_mus_n = na_mus_size = 0; na_mus_msg[0] = 0;
     if (sd_virtual) return 0;
-    char src[160], dst[160]; struct stat ss, sd2;
-    snprintf(src, sizeof(src), NA_MUS_DIR "/%.6s.mp3", id);
+    char name[128] = "", dst[160]; struct stat sd2;
     snprintf(dst, sizeof(dst), NA_MUS_DIR "/%.6s.adp", id);
 #ifdef NATIF_BENCH
-    (void)ss;
     if (stat(dst, &sd2) != 0 || sd2.st_size < 64) return 0;   /* (banc d'essai : fichier ADP deja pret) */
+    snprintf(name, sizeof(name), "%.6s.adp", id);
 #else
+    char src[300], key[200], old[200] = "", kp[170]; struct stat ss;
     mkdir(NA_MUS_DIR, 0777);
+    if (!na_mus_find(id, name, sizeof(name))) return 0;      /* (fichier enleve : la musique du jeu revient) */
+    snprintf(src, sizeof(src), NA_MUS_DIR "/%s", name);
     if (stat(src, &ss) != 0) return 0;
-    if (stat(dst, &sd2) != 0 || sd2.st_mtime < ss.st_mtime || sd2.st_size < 64) {
+    /* v181 : refait si le fichier a change (nom, taille ou date : une copie Windows garde l'ancienne date) */
+    snprintf(key, sizeof(key), "%s|%lld|%lld", name, (long long)ss.st_size, (long long)ss.st_mtime);
+    snprintf(kp, sizeof(kp), NA_MUS_DIR "/%.6s.src", id);
+    FILE *kf = fopen(kp, "rb");
+    if (kf) { size_t k = fread(old, 1, sizeof(old) - 1, kf); old[k] = 0; fclose(kf); }
+    if (stat(dst, &sd2) != 0 || sd2.st_size < 64 || strcmp(old, key)) {
         nat_ld("Conversion de ta musique pour le jeu", 13);
-        if (na_mus_convert(src, dst) || stat(dst, &sd2) != 0) { snprintf(na_mus_msg, sizeof(na_mus_msg), "conversion de %.6s.mp3 impossible", id); return 0; }
+        remove(kp);
+        if (na_mus_convert(src, dst) || stat(dst, &sd2) != 0) { snprintf(na_mus_msg, sizeof(na_mus_msg), "%.60s : fichier illisible", name); return 0; }
+        kf = fopen(kp, "wb");
+        if (kf) { fputs(key, kf); fclose(kf); }
     }
 #endif
     char e[80];
@@ -2880,7 +2899,7 @@ static int na_mus_prep(const char *id) {
     if (na_next > NATRES_MUSMAX) { snprintf(na_mus_msg, sizeof(na_mus_msg), "fichier trop morcel\xC3\xA9 sur la carte SD"); return 0; }
     memcpy(na_mus, na_ext, na_next * sizeof(natres_ext_t));
     na_mus_n = na_next; na_mus_size = (u32)sd2.st_size & ~31u;
-    snprintf(na_mus_msg, sizeof(na_mus_msg), "gc-mp3/musique-jeux/%.6s.mp3 (%u s)", id, (unsigned)(na_mus_size / 32u * 28u / 48000u));
+    snprintf(na_mus_msg, sizeof(na_mus_msg), "gc-mp3/musique-jeux/%.60s (%u s)", name, (unsigned)(na_mus_size / 32u * 28u / 48000u));
     return 1;
 }
 /* rend bit 0 = slot A pret, bit 1 = slot B pret */
@@ -3301,7 +3320,7 @@ static const char *nat_boot(int k) {
                                (unsigned)(na_netc.srv >> 24), (unsigned)(na_netc.srv >> 16 & 255), (unsigned)(na_netc.srv >> 8 & 255), (unsigned)(na_netc.srv & 255),
                                (unsigned)na_netc.port, (unsigned)na_netc.tok[0], (unsigned)na_netc.size[0],
                                (unsigned)(na_netc.ip >> 24), (unsigned)(na_netc.ip >> 16 & 255), (unsigned)(na_netc.ip >> 8 & 255), (unsigned)(na_netc.ip & 255));
-        fprintf(f, "Ta musique a la place de celle du disque : %s\n", na_mus_n ? na_mus_msg : na_mus_msg[0] ? na_mus_msg : "non (gc-mp3/musique-jeux/<ID>.mp3)");   /* v179 */
+        fprintf(f, "Ta musique a la place de celle du disque : %s\n", na_mus_n ? na_mus_msg : na_mus_msg[0] ? na_mus_msg : "non (gc-mp3/musique-jeux/<ID>.mp3, .flac, .ogg...)");   /* v179 */
         fprintf(f, "Carte memoire virtuelle (slot B) : %s\n", nat_card >= 2 ? (na_card2_msg[0] ? na_card2_msg : "non") : "non (reglage)");
         fprintf(f, "Mode video donne au jeu (800000CC) : %s (jeu %s)\n", na_vi_bootrom(in.id) == 1 ? "PAL" : na_vi_bootrom(in.id) == 5 ? "EURGB60 (PAL 60 Hz)" : "NTSC",
                 na_game_pal(in.id) ? "PAL" : "NTSC");
