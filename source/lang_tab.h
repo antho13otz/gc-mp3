@@ -1226,7 +1226,7 @@
     { "Lanceur de secours pas encore t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9 (R\xC3\xA9glages > Jeux) : A lance avec Pulse", "Backup launcher not downloaded yet (Settings > Games): A starts with Pulse" },
     { "Lanceur de secours ab\xC3\xAEm\xC3\xA9 : nouveau t\xC3\xA9l\xC3\xA9" "chargement (ou A : Pulse)", "Backup launcher damaged: downloading again (or A: Pulse)" },
     { "pas encore t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9", "not downloaded yet" },
-    { "Pulse : A + Z + START tenus 1 s = retour \xC3\xA0 GC Station", "Pulse: hold A + Z + START 1 s = back to GC Station" },
+    { "Pulse : A+Z+START (1 s) = retour     L+R+Z = capture", "Pulse: A+Z+START (1 s) = back     L+R+Z = screenshot" },
     { "A : lancer     X : lanceur de secours     B : annuler", "A: start     X: backup launcher     B: cancel" },
     { "Avec 1 cheat activ\xC3\xA9 (lanceur de secours)", "With 1 cheat enabled (backup launcher)" },
     { "Avec %d cheats activ\xC3\xA9s (lanceur de secours)", "With %d cheats enabled (backup launcher)" },

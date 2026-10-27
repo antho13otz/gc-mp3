@@ -21,6 +21,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v176 — dernier jeu et temps de jeu sur l'accueil de JEUX / APPS
+- tabs_extra.c : `jeux_recents.txt` (1re ligne : dernier jeu lancé) et `jeux_stats.txt` (temps de jeu par jeu) relus à
+  l'ouverture de l'onglet ; ligne sous les cartes ; X → `gclib_open_recent` (gclib.c) : la liste des jeux, la fiche
+  et « Lancer ce jeu ? » du dernier jeu.
+
 ## Nouveautés v175 — captures d'écran en jeu
 - Résident : L + R + Z tenus (sans A + START) → l'image affichée (XFB : adresse dans TFBL, largeur et pas d'après PICCONF,
   lignes d'après VTR ; lue sans le cache) est écrite dans la place suivante de `natif/captures.bin` (8 places de

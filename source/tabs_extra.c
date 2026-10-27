@@ -96,6 +96,45 @@ static void gclib_open(void);
 static void ap_open(void);                         /* v41 : applis (tools.c) */
 static void mc_open(void);                         /* v43 : cartes memoire (tools.c) */
 static void gclib_input(u32 down, u32 nav, int fire);
+static void gclib_open_recent(const char *path);       /* v176 (gclib.c) */
+/* v176 : accueil de JEUX / APPS : dernier jeu lance (jeux_recents.txt) et temps de jeu (jeux_stats.txt, mesure par Pulse) */
+static char gm_last_path[NAME_LEN], gm_last_name[64];
+static u32 gm_play_total = 0, gm_play_last = 0;
+static void gm_recent_load(void) {
+    gm_last_path[0] = gm_last_name[0] = 0; gm_play_total = gm_play_last = 0;
+    if (!sd_ok) return;
+    long n = 0;
+    char *d = (char *)read_file(GCD "/jeux_recents.txt", 32768, &n);
+    if (d) {
+        long i = 0;
+        while (i < n && d[i] != '\n' && d[i] != '\r') i++;
+        if (i > 0 && i < NAME_LEN) { memcpy(gm_last_path, d, i); gm_last_path[i] = 0; }
+        free(d);
+    }
+    if (gm_last_path[0]) {
+        const char *b = strrchr(gm_last_path, '/'); b = b ? b + 1 : gm_last_path;
+        snprintf(gm_last_name, sizeof(gm_last_name), "%s", b);
+        char *e = strrchr(gm_last_name, '.'); if (e) *e = 0;
+    }
+    d = (char *)read_file(GCD "/jeux_stats.txt", 64 * 1024, &n);
+    if (!d) return;
+    u32 best = 0;
+    for (long i = 0; i < n; ) {
+        long st = i;
+        while (i < n && d[i] != '\n') i++;
+        char l[96]; long ln = i - st < 95 ? i - st : 95; memcpy(l, d + st, ln); l[ln] = 0; i++;
+        char id[8]; int disc; unsigned runs, last, play = 0;
+        if (sscanf(l, "%6[^|]|%d|%u|%u|%u", id, &disc, &runs, &last, &play) >= 4) {
+            gm_play_total += play;
+            if (last >= best) { best = last; gm_play_last = play; }
+        }
+    }
+    free(d);
+}
+static void gm_hms(char *o, size_t cap, u32 s) {
+    if (s >= 3600) snprintf(o, cap, "%u h %02u", (unsigned)(s / 3600), (unsigned)(s / 60 % 60));
+    else snprintf(o, cap, "%u min", (unsigned)(s / 60));
+}
 static int gm_hub_input(void);                         /* v84 : stick C : jeux GameCube / applis / cartes memoire (tools.c) */
 static f32 gm_hub_bar(f32 x, f32 y);
 static void draw_gclib(void);
@@ -115,6 +154,7 @@ static void games_tab_input(u32 down, u32 nav, int fire) {
         if (fire && (nav & PAD_BUTTON_UP)) gm_sel = gm_sel < GM_COLS ? GM_COUNT + gm_sel : gm_sel - GM_COLS;
         if (down & PAD_BUTTON_A) games_tab_launch(gm_sel);
     }
+    if ((down & PAD_BUTTON_X) && gm_last_path[0]) gclib_open_recent(gm_last_path);   /* v176 : relancer le dernier jeu */
     if ((down & PAD_BUTTON_Y) && src == SRC_FILE && playing) paused = !paused;
     if (down & PAD_BUTTON_B) { stop_track(); stop_station(); }
 }
@@ -166,6 +206,7 @@ static void draw_tab_games(void) {
     if (!gm_rec_t) {                                            /* records : relus en ouvrant l'onglet et apres une partie (v45 : plus toutes les 5 s) */
         gm_rec_t = now_ms();
         for (int g = 0; g < GM_COUNT; g++) gm_record[g] = gm_rec[g] && sd_ok ? rg_record_get(gm_rec[g]) : 0;
+        gm_recent_load();                                       /* v176 */
     }
     f32 t = (f32)(now_ms() % 100000) / 1000.0f;
     for (int k = 0; k < 3; k++) {   /* v25 : jeux GameCube ; v41 : + applis ; v43 : + cartes memoire */
@@ -212,7 +253,14 @@ static void draw_tab_games(void) {
         if (gm_record[g] > 0) { snprintf(buf, sizeof(buf), "Record %d", gm_record[g]); gx_text1(F_SMALL, x + 82, y + 62, buf, RGBA(255, 210, 120, 255)); }
         gp_zone(x, y, cw, ch, &gm_sel, g, GPZ_SEL);
     }
-    gx_text_c(F_SMALL, 320, 402, "Croix ou curseur : choisir     A : jouer     Y : pause de la musique     B : arr\xC3\xAAter la musique", RGBA(200, 190, 245, 230));
+    if (gm_last_path[0]) {                                      /* v176 : dernier jeu, temps de jeu */
+        char a[24], b[24], l2[160], f2[160];
+        gm_hms(a, sizeof(a), gm_play_last); gm_hms(b, sizeof(b), gm_play_total);
+        snprintf(l2, sizeof(l2), "Dernier jeu : %s (%s)     Temps de jeu total : %s     X : le relancer", gm_last_name, a, b);
+        fit_text(F_SMALL, l2, 590, f2, sizeof(f2));
+        gx_text_c(F_SMALL, 320, 393, f2, RGBA(255, 210, 120, 255));
+    }
+    gx_text_c(F_SMALL, 320, gm_last_path[0] ? 407 : 402, "Croix ou curseur : choisir     A : jouer     Y : pause de la musique     B : arr\xC3\xAAter la musique", RGBA(200, 190, 245, 230));
 }
 
 /* ======================= Onglet TELECHARGEMENTS ======================= */
