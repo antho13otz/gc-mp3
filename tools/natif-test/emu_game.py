@@ -10,6 +10,9 @@ os.environ.setdefault('UC_NO_MEM_EXIT', '1')            # (Unicorn corrige par r
 T = os.path.dirname(os.path.abspath(__file__))
 src = open(T + '/emu_e2e.py').read()
 src = src[:src.index("MODE = sys.argv[4]")]
+import mmap                                           # (v172 : grandes images creuses du banc : lues a la demande)
+src = src.replace("disk = bytearray(open(SDIMG, 'rb').read())", "_fsd = open(SDIMG, 'rb'); disk = mmap.mmap(_fsd.fileno(), 0, access=mmap.ACCESS_COPY)")
+src = src.replace("iso = open(ISO, 'rb').read()", "_fiso = open(ISO, 'rb'); iso = mmap.mmap(_fiso.fileno(), 0, access=mmap.ACCESS_READ)")
 SECS = float(sys.argv[4]) if len(sys.argv) > 4 else 20
 OPTS = sys.argv[5:]
 sys.argv = sys.argv[:4]
@@ -141,8 +144,45 @@ def io_read2_(uc, off, size, data):
     return io_read(uc, off, size, data)
 DI_LAT = float(os.environ.get('EMU_DILAT', '0'))       # (vrai lecteur : fin de commande apres ce temps, en s de jeu)
 di_due = [None]
+# (v172 : SRAM de la console, canal 0 peripherique 1 : ID des cartes a 0 avec leur somme de controle, comme une
+#  console qui a deja vu une carte formatee par le SDK ; sommes de la partie principale justes)
+sram = bytearray(64); sram[0x12] = 0; sram[0x13] = 0x2C
+sram[0x3A] = 0xFF; sram[0x3B] = 0xFF
+def sram_fix():
+    a = b = 0
+    for i in range(0x0C, 0x14, 2): v = sram[i] << 8 | sram[i + 1]; a = (a + v) & 0xFFFF; b = (b + (v ^ 0xFFFF)) & 0xFFFF
+    sram[0:4] = struct.pack('>HH', a, b)
+sram_fix()
+srm = {'cmd': None, 'pos': 0}
+def sram_xfer(uc, value):
+    n = ((value >> 4) & 3) + 1; mode = (value >> 2) & 3
+    if value & 2:                                         # DMA
+        ln = exi[0][2]; a = 0x80000000 | exi[0][1]
+        if mode == 0:
+            if srm['cmd'] is not None and srm['cmd'] & 0x7FFFFF00 == 0x20000100:
+                o = srm['pos']; d = bytes(sram[o:o + ln]) + bytes(max(0, ln - (64 - o))); srm['pos'] += ln
+            else: d = bytes(ln)
+            uc.mem_write(a, d[:ln])
+        elif srm['cmd'] is not None and srm['cmd'] & 0xFFFFFF00 == 0xA0000100:
+            d = bytes(uc.mem_read(a, ln)); o = srm['pos']; sram[o:o + len(d)] = d[:64 - o]; srm['pos'] += ln
+        return
+    if mode == 1:
+        if srm['cmd'] is None: srm['cmd'] = exi[0][4]; srm['pos'] = 0; return
+        if srm['cmd'] & 0xFFFFFF00 == 0xA0000100:
+            for k in range(n):
+                if srm['pos'] < 64: sram[srm['pos']] = (exi[0][4] >> (24 - 8 * k)) & 0xFF
+                srm['pos'] += 1
+    elif mode == 0:
+        v = 0
+        for k in range(n):
+            b = sram[srm['pos']] if srm['cmd'] is not None and srm['cmd'] & 0x7FFFFF00 == 0x20000100 and srm['pos'] < 64 else 0
+            v |= b << (24 - 8 * k); srm['pos'] += 1
+        exi[0][4] = v
 def io_write2(uc, off, size, value, data):
     mmio_last[0] = uc.reg_read(UC_PPC_REG_PC)
+    if off == 0x800 and not (value & 0x100): srm['cmd'] = None     # (SRAM deselectionnee)
+    if off == 0x80C and value & 1 and exi[0][0] & 0x100 and not exi[0][0] & 0x280:
+        exi[0][3] = value; sram_xfer(uc, value); exi[0][3] = value & ~1; exi[0][0] |= 0x8; return
     if off == 0x1C and value & 1 and DI_LAT > 0:          # (vrai lecteur : occupe un moment)
         io_write(uc, off, size, value, data)
         di_real[0] &= ~0x14; di_real[7] |= 1; di_due[0] = now() + int(DI_LAT * 486e6); return
