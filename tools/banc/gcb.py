@@ -26,3 +26,27 @@ def ecrire_iso(g, out):
         o.truncate(g['iso'])
         for off, data in morceaux(g):
             o.seek(off); o.write(data)
+
+def fichier(g, off):
+    """nom du fichier du disque qui contient cette position (d'apres la FST exportee)"""
+    hd = dict(morceaux(g)).get(0)
+    if not hd: return '%08X' % off
+    fst = struct.unpack_from('>I', hd, 0x424)[0]
+    ft = None
+    for o, d in morceaux(g):
+        if o == fst: ft = d
+    if not ft: return '%08X' % off
+    ne = struct.unpack_from('>I', ft, 8)[0]; st = ne * 12
+    names = {}
+    def nom(i): e = ft[i * 12:(i + 1) * 12]; n0 = struct.unpack_from('>I', e, 0)[0] & 0xFFFFFF; return ft[st + n0:ft.index(b'\0', st + n0)].decode('latin-1')
+    def walk(i, end, path):
+        while i < end:
+            e = ft[i * 12:(i + 1) * 12]
+            if e[0]: walk(i + 1, struct.unpack_from('>I', e, 8)[0], path + nom(i) + '/'); i = struct.unpack_from('>I', e, 8)[0]
+            else:
+                o, z = struct.unpack_from('>II', e, 4)
+                if o <= off < o + z: names['r'] = path + nom(i)
+                i += 1
+    try: walk(1, ne, '')
+    except Exception: pass
+    return names.get('r', '%08X' % off)

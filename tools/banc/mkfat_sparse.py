@@ -59,4 +59,5 @@ for f in range(2):
     for c, v in fat.items():
         img.seek(base * 512 + c * 4); img.write(struct.pack('<I', v))
 img.close()
+open(out + '.iso', 'w').write('%d\n' % (base_iso // 512))   # (1er secteur de l'ISO sur la carte : pour emu_game.py)
 print(ISO_CL, g['iso'])
