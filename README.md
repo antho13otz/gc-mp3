@@ -14,14 +14,17 @@ le web, des podcasts, la météo, une télécommande sur téléphone… dans une
   mini-DVD. Au démarrage, la version plus récente de la carte SD est lancée s'il y en a une
   (B maintenu : rester sur celle du disque).
 
-## Nouveautés de la version actuelle (v189)
+## Nouveautés de la version actuelle (v190)
+- **Téléphone, onglet Cartes** : les cartes mémoire virtuelles de Pulse et leurs sauvegardes. Télécharger une carte
+  entière (.raw) ou une sauvegarde (.gci), ajouter une sauvegarde .gci, remplacer une carte (l'ancienne gardée en .bak).
+- **Téléphone, onglet Jeux** : recherche, tri (récents et favoris, A à Z, temps de jeu) ; « Pulse » lance le jeu comme
+  A dans sa fiche (réglages, cheats, réparation).
+- **Guide de démarrage** : 4 pages au premier lancement (carte SD neuve), puis dans START > Outils.
+- Licence (MIT, `LICENSE`) et crédits de tous les projets utilisés (`CREDITS.md`).
+
+## Version précédente (v189)
 - **Correction : les applis se relancent** (Mes applis) : depuis la build 608, lancer une appli faisait redémarrer la
   console. Le petit programme qui copie l'appli en mémoire écrasait la liste de ce qu'il devait copier.
-
-## Version précédente (v188)
-- **Réglage « Nouveaux jeux vus tout seuls »** (START > Réglages > Jeux > Liste des jeux) : Oui (par défaut) = la carte
-  SD est vérifiée à chaque ouverture de la liste ; Non = la liste s'ouvre tout de suite, sans aucune vérification
-  (jeux ajoutés : Y > Actualiser la liste). Dans gc-mp3.txt : `jeux_actualiser = oui / non`.
 
 ## Fonctionnalités principales
 - **Musique** (`SD:/mp3`) : MP3, FLAC, OGG, AAC… pochettes, paroles synchronisées, vues Artistes /
@@ -74,3 +77,4 @@ minimp3, stb_image, stb_vorbis, dr_flac, game-music-emu, libxmp, qrcodegen, libw
 décodeur AAC Helix, MusicBrainz, Cover Art Archive, radio-browser.info, open-meteo.com, LRCLIB,
 certificats Mozilla, police DejaVu Sans, libogc / devkitPro. Lanceur de secours et en-têtes du
 disque de démarrage : swiss-gc (GPL v2).
+Licence de GC Station : MIT (`LICENSE`) ; crédits et licences de chaque projet utilisé : `CREDITS.md`.

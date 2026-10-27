@@ -24,6 +24,18 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v190 — téléphone (cartes, jeux), guide, licence
+- tab_phone.c : `/api/cards`, `/api/cardfile/<carte>`, `/api/gci/<carte>/<n>/<nom>.gci`, `/api/gciimp`, `/api/cardput` ;
+  envoi par `/upload?dir=gci` (rend le nom gardé). Travail fait par la boucle (extras73.c : `x73_cards_build`,
+  `x73_vj_pump`) : vc_load / vc_export / vc_import ; carte vierge formatée avant d'y ajouter ; carte remplacée : taille
+  vérifiée (512 Ko à 16 Mo), l'ancienne en `.bak`. Page : onglet « Cartes ».
+- Onglet Jeux du téléphone : JSON avec favori et dernier lancement ; recherche et tri dans la page ; Pulse =
+  `game_boot_auto` (comme la fiche).
+- tools.c : écran `TL_GUIDE` (4 pages), START > Outils > Guide de démarrage ; main.c : `guide_vu`, montré seulement
+  sans gc-mp3.txt (carte SD neuve).
+- LICENSE (MIT, code de GC Station), CREDITS.md (Swiss GPL-2.0 pour le lanceur de secours, bibliothèques).
+- Simulateur : API testées (ajout, liste, téléchargement .gci / .raw, remplacement), page du téléphone et guide vus.
+
 ## Nouveautés v189 — applis : lancement réparé
 - gclib.c : avec le retour (v187), table des sections en 0x80002D00 et arguments en 0x80002E00 (avant : 0x80002C80,
   sous les 132 octets du programme de copie en 0x80002C00 : sa fin écrasait la 1re ligne de la table → plantage,

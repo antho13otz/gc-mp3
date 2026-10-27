@@ -499,6 +499,19 @@ static int tp_param(const char *q, const char *key, char *out, int cap);
 static char *x73_gj = NULL;                              /* JSON des jeux (construit par la boucle : extras73.c) */
 static volatile int x73_gj_want = 0, x73_gj_ready = 0;
 static volatile int x73_launch_k = -1, x73_launch_m = 0;
+/* v190 : sauvegardes des cartes memoire virtuelles depuis le telephone (travail fait par la boucle : extras73.c) */
+static char *x73_cj = NULL;                              /* JSON des cartes et de leurs sauvegardes */
+static volatile int x73_cj_want = 0, x73_cj_ready = 0;
+static char x73_vj_card[64], x73_vj_name[200], x73_vj_res[NAME_LEN + 96];
+static volatile int x73_vj_op = 0, x73_vj_i = 0, x73_vj_done = 0, x73_vj_ok = 0;   /* op : 1 sauvegarde -> .gci, 2 .gci -> carte, 3 carte remplacee */
+static int x73_vj_run(int op, const char *card, int i, const char *name) {   /* (fil du serveur) attend la boucle, au plus 30 s */
+    if (x73_vj_op) return 0;
+    snprintf(x73_vj_card, sizeof(x73_vj_card), "%s", card); snprintf(x73_vj_name, sizeof(x73_vj_name), "%s", name ? name : "");
+    x73_vj_i = i; x73_vj_done = 0; x73_vj_ok = 0; x73_vj_res[0] = 0; x73_vj_op = op;
+    for (int k = 0; k < 1500 && !x73_vj_done; k++) usleep(20000);
+    if (!x73_vj_done) { x73_vj_op = 0; return 0; }
+    return 1;
+}
 static void tp_hex_enc(const char *s, char *o, int cap) {
     static const char hx[] = "0123456789abcdef";
     int n = 0;
@@ -626,7 +639,7 @@ static int tp_param(const char *q, const char *key, char *out, int cap) {
 
 /* envoi d'un fichier : le corps de la requete est ecrit directement sur la SD */
 static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, int prelen) {
-    static const char *const dirs[] = { "mp3", "downloads", "retro", "photos", "ecran", "videos", "radio", "podcasts" };
+    static const char *const dirs[] = { "mp3", "downloads", "retro", "photos", "ecran", "videos", "radio", "podcasts", "gci" };   /* (v190 : gci = sauvegardes) */
     char dir[32], name[200], path[NAME_LEN + 16];
     tp_param(q, "dir", dir, sizeof(dir));
     tp_param(q, "name", name, sizeof(name));
@@ -705,6 +718,7 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     }
     if (!strcmp(dir, "photos") || !strcmp(dir, "videos")) tp_rescan |= 2;
     tp_update_free();
+    if (!strcmp(dir, "gci")) { const char *bn = base_of(path); tp_reply(c, 200, "text/plain; charset=utf-8", bn, (int)strlen(bn)); return; }   /* (v190 : le nom garde) */
     tp_reply(c, 200, "text/plain", "ok", 2);
 }
 
@@ -867,6 +881,44 @@ static void tp_handle(s32 c) {
         int ok = is[0] && atoi(is) >= 0;
         if (ok) { x73_launch_m = atoi(ms) == 1; x73_launch_k = atoi(is); }
         tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
+    }
+    else if (!strcmp(target, "/api/cards")) {                /* v190 : cartes memoire virtuelles et leurs sauvegardes */
+        x73_cj_ready = 0; x73_cj_want = 1;
+        for (int k = 0; k < 1000 && !x73_cj_ready; k++) usleep(20000);
+        char *t = x73_cj_ready && x73_cj ? strdup(x73_cj) : NULL;
+        if (t) { tp_reply(c, 200, "application/json", t, (int)strlen(t)); free(t); }
+        else tp_reply(c, 503, "application/json", "[]", 2);
+    }
+    else if (!strncmp(target, "/api/cardfile/", 14)) {       /* v190 : la carte entiere (.raw) */
+        const char *n = target + 14;
+        int l = (int)strlen(n);
+        char p[NAME_LEN];
+        if (l < 5 || l > 60 || strchr(n, '/') || strstr(n, "..") || strcasecmp(n + l - 4, ".raw")) { tp_reply(c, 400, "text/plain", "", 0); return; }
+        snprintf(p, sizeof(p), GCD "/resident/%s", n);   /* (NA_CARD_DIR de natif.c) */
+        sh_send_file(c, p, 0, (char *)req);
+    }
+    else if (!strncmp(target, "/api/gci/", 9)) {             /* v190 : une sauvegarde (.gci) : /api/gci/<carte>/<n>/<nom>.gci */
+        char card[64] = "", *sl;
+        snprintf(card, sizeof(card), "%s", target + 9);
+        sl = strchr(card, '/');
+        int i = sl ? atoi(sl + 1) : -1;
+        if (sl) *sl = 0;
+        if (i < 0 || !x73_vj_run(1, card, i, NULL) || !x73_vj_ok) { tp_reply(c, 404, "text/plain; charset=utf-8", x73_vj_res, (int)strlen(x73_vj_res)); return; }
+        sh_send_file(c, x73_vj_res, 0, (char *)req);
+    }
+    else if (!strcmp(target, "/api/gciimp") || !strcmp(target, "/api/cardput")) {   /* v190 : .gci envoye -> carte ; ou carte remplacee */
+        char card[64], n[200];
+        tp_param(q ? q : "", "c", card, sizeof(card));
+        tp_param(q ? q : "", "n", n, sizeof(n));
+        int done = x73_vj_run(target[5] == 'g' ? 2 : 3, card, 0, n);
+        char m[NAME_LEN + 140];
+        sbuf_t sb = { NULL, 0, 0 };
+        sb_add(&sb, done && x73_vj_ok ? "{\"ok\":1,\"m\":" : "{\"ok\":0,\"m\":");
+        x73_json_raw(&sb, done ? x73_vj_res : "GC Station occup\xC3\xA9" "e, r\xC3\xA9" "essaie");
+        sb_add(&sb, "}");
+        snprintf(m, sizeof(m), "%s", sb.b ? sb.b : "{}");
+        free(sb.b);
+        tp_reply(c, 200, "application/json", m, (int)strlen(m));
     }
     else if (!strcmp(target, "/api/key")) {                  /* v142 : manette sur le telephone */
         static const char *const kn[] = { "up", "down", "left", "right", "a", "b", "x", "y", "z", "l", "r", "start", NULL };
