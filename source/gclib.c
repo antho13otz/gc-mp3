@@ -782,7 +782,7 @@ static int gl_quick_changed(void) {
 static void gclib_open(void) {
     gl_on = 1; gl_detail = 0;
     if (!gl_scanned) gl_scan_full(0);                      /* (liste gardee : tout de suite) */
-    if (gl_quick_changed()) {                              /* v186 : jeux ajoutes / enleves sur la carte SD : liste refaite */
+    if (gl_auto && gl_quick_changed()) {                   /* v186 : jeux ajoutes / enleves sur la carte SD : liste refaite (v188 : reglage) */
         int n0 = gl_n;
         gl_scanned = 0; gl_scan();
         char m[96]; snprintf(m, sizeof(m), "%s (%d)", TR("Liste des jeux mise \xC3\xA0 jour"), gl_n - (gl_has_dvd() ? 1 : 0));
