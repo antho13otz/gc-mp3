@@ -239,6 +239,25 @@ wr32(0x800030C0, TB0 // 40500 // 100 + 1)              # (carte du slot A vue de
 mu.mem_write(0x800030E0, bytes([0, 6])); mu.mem_write(0x800030E9, bytes([5]))
 print('FST %s, bi2 %s' % (fst and '%08X (%d)' % fst, bi2 and '%08X' % bi2))
 
+# (v172 : reconnus dans n'importe quel jeu : __OSInitAudioSystem (attend le vrai DSP) sautee ; PPCHalt = arret du jeu)
+def find_code(words, lo=0x80003100, hi=0x80600000):
+    code = bytes(mu.mem_read(lo, hi - lo)); pat = b''.join(struct.pack('>I', w) for w in words); out = []; i = code.find(pat)
+    while i >= 0:
+        if i % 4 == 0: out.append(lo + i)
+        i = code.find(pat, i + 4)
+    return out
+def func_start(a):
+    for k in range(400):
+        if rd32(a - 4 * k) == 0x7C0802A6: return a - 4 * k
+    return None
+auto_stub = []
+for a in find_code([0x38000043, 0xB0030012]):
+    f = func_start(a)
+    if f: auto_stub.append(f)
+HALT = find_code([0x7C0004AC, 0x60000000, 0x38600000, 0x60000000, 0x4BFFFFF4])
+print('reconnu : initialisation du DSP %s, arret %s' % (' '.join('%08X' % x for x in auto_stub) or '-', ' '.join('%08X' % x for x in HALT) or '-'))
+for f in auto_stub:
+    if '%08X' % f not in os.environ.get('EMU_STUB', '').upper(): wr32(f, 0x38600000); wr32(f + 4, 0x4E800020)
 for a in filter(None, os.environ.get('EMU_STUB', '').split(',')):   # (fonctions du jeu sautees : retour tout de suite, r3 = 0)
     wr32(int(a, 16), 0x38600000); wr32(int(a, 16) + 4, 0x4E800020)
 # ---- time base et decrementeur : les instructions mftb / mfspr / mtspr du jeu et du resident sont prises ici
@@ -445,6 +464,10 @@ def on_intr(uc, intno, data):
         pend['dsi_mmio'] += 1; return
     exc_redirect[0] = (intno, fa); uc.emu_stop()
 mu.hook_add(UC_HOOK_INTR, on_intr)
+halted = []
+def on_halt(uc, addr, size, data):
+    if not halted: halted.append((icount[0], uc.reg_read(UC_PPC_REG_LR), backtrace(uc.reg_read(UC_PPC_REG_1)))); uc.emu_stop()
+for a in HALT: mu.hook_add(UC_HOOK_CODE, on_halt, begin=a, end=a)
 # ---- boucle : morceaux d'instructions, interruptions entre deux
 FRAME = 810000 * 12                                    # (une image PAL : 1/50 s en instructions)
 CH = int(os.environ.get("EMU_CH", "3000"))      # (morceaux de 3 ms)
@@ -507,6 +530,10 @@ while icount[0] < end:
         print('  DBAT ' + ' '.join('%08X/%08X' % (v_[10 + 2 * k], v_[11 + 2 * k]) for k in range(4)))
         break
     if pc == STOP: print('fin du jeu (retour)'); break
+    if halted:
+        t_, lr_, bt_ = halted[0]
+        print('ARRET DU JEU (PPCHalt : erreur du jeu, OSPanic / OSFatal) apres %d instructions, appele depuis %08X ; pile %s' % (t_, lr_, ' '.join('%08X' % x for x in bt_)))
+        break
     hist[pc & ~0xFF] += 1
     if di_due[0] is not None and icount[0] >= di_due[0]:
         di_due[0] = None; di_real[7] &= ~1; di_real[0] |= 0x10 if di_real[2] >> 24 == 0x12 else 0x04
