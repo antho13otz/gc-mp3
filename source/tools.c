@@ -858,7 +858,7 @@ static f32 gm_hub_bar(f32 x, f32 y) {                      /* rend la fin (x) ; 
 }
 
 /* =================== derniers jeux lances =================== */
-#define RC_FILE GCD "/jeux_recents.txt"
+#define RC_FILE GCD_PARTIES "/jeux_recents.txt"
 #define RC_MAX 12
 static char rc_path[RC_MAX * 2][NAME_LEN];
 static int rc_n = 0, rc_sel = 0, rc_confirm = -1;
@@ -1518,8 +1518,8 @@ static void draw_tools(void) {
 
 /* =================== v177 : succes (START > Outils > Succes) ===================
    Calcules d'apres ce que GC Station garde deja : temps de jeu et lancements (jeux_stats.txt, mesures par Pulse),
-   favoris, captures d'ecran (photos/captures), records des mini-jeux. Debloques : gc-mp3/succes.txt ("id|date"). */
-#define SC_FILE GCD "/succes.txt"
+   favoris, captures d'ecran (photos/captures), records des mini-jeux. Debloques : gc-mp3/mes-parties/succes.txt ("id|date"). */
+#define SC_FILE GCD_PARTIES "/succes.txt"
 enum { SK_RUNS, SK_GAMES, SK_PLAY, SK_ONEGAME, SK_SHOTS, SK_FAVS, SK_MINIALL, SK_REC };
 typedef struct { const char *id, *title, *desc; u8 kind; u32 target; const char *rec; } sc_def_t;
 static const sc_def_t sc_defs[] = {
@@ -1553,7 +1553,7 @@ static int sc_count_dir(const char *dir, const char *ext) {
 static void sc_values(void) {
     u32 runs = 0, games = 0, play = 0, one = 0;
     long n = 0;
-    char *d = (char *)read_file(GCD "/jeux_stats.txt", 64 * 1024, &n);
+    char *d = (char *)read_file(GCD_PARTIES "/jeux_stats.txt", 64 * 1024, &n);
     for (long i = 0; d && i < n; ) {
         long st = i;
         while (i < n && d[i] != '\n') i++;
@@ -1565,7 +1565,7 @@ static void sc_values(void) {
     }
     free(d);
     int favs = 0;
-    d = (char *)read_file(GCD "/jeux-favoris.txt", 16 * 1024, &n);
+    d = (char *)read_file(GCD_PARTIES "/jeux-favoris.txt", 16 * 1024, &n);
     for (long i = 0; d && i < n; i++) if (d[i] == '\n') favs++;
     free(d);
     int shots = sc_count_dir(SD_ROOT "/photos/captures", ".png");
@@ -1647,8 +1647,8 @@ static void draw_succes(void) {
 
 /* =================== v178 : mode soiree (START > Outils > Mode soiree) ===================
    2 a 4 joueurs : un jeu tire au sort (parmi les favoris s'il y en a, sinon tous les jeux), les manettes tirees au sort,
-   puis les victoires comptees (gc-mp3/soiree.txt : "nombre de joueurs|victoires...") ; A sur "Lancer" : la fiche du jeu. */
-#define SO_FILE GCD "/soiree.txt"
+   puis les victoires comptees (gc-mp3/mes-parties/soiree.txt : "nombre de joueurs|victoires...") ; A sur "Lancer" : la fiche du jeu. */
+#define SO_FILE GCD_PARTIES "/soiree.txt"
 static int so_np = 2, so_sel = 0, so_game = -1, so_pad[4], so_wins[4], so_zero = 0;
 enum { SO_PLAYERS, SO_DRAW, SO_LAUNCH, SO_P1 };
 static void so_save(void) {
@@ -1747,8 +1747,8 @@ static const char *const to_help[TO_COUNT] = {
     "Modifier et activer les cheats de tes jeux (dossier gc-mp3/cheats).",
     "Plusieurs cartes, sauvegardes copi\xC3\xA9" "es depuis / vers la SD et la vraie carte.",
     "Copies faites apr\xC3\xA8s chaque partie (et celles des autres consoles du Salon) : revenir en arri\xC3\xA8re, reprendre ailleurs.",
-    "R\xC3\xA9glages, radios, favoris, listes, podcasts... dans SD:/gc-mp3-sauvegarde.txt",
-    "Remet les r\xC3\xA9glages de SD:/gc-mp3-sauvegarde.txt (A deux fois pour confirmer).",
+    "R\xC3\xA9glages, radios, favoris, listes, podcasts... dans SD:/gc-mp3/reglages/gc-mp3-sauvegarde.txt",
+    "Remet les r\xC3\xA9glages de SD:/gc-mp3/reglages/gc-mp3-sauvegarde.txt (A deux fois pour confirmer).",
     "Version, vid\xC3\xA9o, m\xC3\xA9moire, carte SD, r\xC3\xA9seau.",
     "Ouvre le menu de la GameCube (lecteur de disque). Bouton Reset = relancer GC Station" };
 static int to_sel = 0;

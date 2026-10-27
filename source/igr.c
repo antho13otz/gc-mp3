@@ -6,7 +6,7 @@
 // Resident (touche A) a son propre retour en jeu (natres.c), sans ce fichier.
 #define IGR_IMG     LD_DIR "/patches/apploader.img"
 #define IGR_OLD     SD_ROOT "/swiss/patches/apploader.img"      /* (v89 et avant : repris une fois, mg_pump, lanceur.c) */
-#define IGR_MINE    GCD "/igr.img"
+#define IGR_MINE    GCD_LD "/igr.img"
 
 enum { IGR_IDLE, IGR_CHECK, IGR_DL, IGR_W1, IGR_W2 };   /* v93 : W1 / W2 = ecriture par morceaux (igr.img, puis apploader.img) */
 static int igr_state = IGR_IDLE, igr_cache = -1, igr_auto_done = 0, igr_enable_after = 0;

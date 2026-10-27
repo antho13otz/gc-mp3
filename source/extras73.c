@@ -3,7 +3,7 @@
 //   - radio : historique des titres passes, avec pochette (iTunes), ligne "Titres passes" de RADIO
 //   - radio : enregistrement programme (heure + duree, la radio qui jouait quand on l'a regle)
 //   - economiseur "Horloge + meteo + pochette"
-//   - sauvegarde / restauration de tous les reglages en un fichier (SD:/gc-mp3-sauvegarde.txt)
+//   - sauvegarde / restauration de tous les reglages en un fichier (SD:/gc-mp3/reglages/gc-mp3-sauvegarde.txt)
 //   - cartes memoire virtuelles du Resident : plusieurs cartes, sauvegardes listees, copie
 //     depuis / vers la SD (.gci) et la vraie carte, suppression, formatage
 //   - telephone : liste des jeux et lancement (tab_phone.c appelle x73_games_json / x73_launch)
@@ -516,10 +516,11 @@ static void saver_tableau(float t) {
 }
 
 /* =================== sauvegarde / restauration des reglages =================== */
-#define BK_FILE SD_ROOT "/gc-mp3-sauvegarde.txt"
-static const char *const bk_files[] = { "gc-mp3.txt", "radio.txt", "favoris.txt", "radio-favoris.txt", "podcasts.txt", "podcasts/auto.txt",
-    "podcasts/positions.txt", "gc-mp3-jeux.txt", "jeux_stats.txt", "jeux_recents.txt", "gc-mp3-ecoutes.txt", "gc-mp3-titres.txt",
-    "volumes.txt", "radio/historique.txt", NULL };
+#define BK_FILE GCD_REG "/gc-mp3-sauvegarde.txt"
+static const char *const bk_files[] = { "gc-mp3.txt", "reglages/radio.txt", "reglages/favoris.txt", "reglages/radio-favoris.txt",
+    "reglages/podcasts.txt", "podcasts/auto.txt", "podcasts/positions.txt", "mes-parties/gc-mp3-jeux.txt", "mes-parties/jeux_stats.txt",
+    "mes-parties/jeux_recents.txt", "bibliotheque/gc-mp3-ecoutes.txt", "bibliotheque/gc-mp3-titres.txt", "reglages/volumes.txt",
+    "radio/historique.txt", "mes-parties/jeux-favoris.txt", "mes-parties/succes.txt", "mes-parties/soiree.txt", NULL };   /* (v182 : ranges) */
 static int bk_add(FILE *o, const char *rel) {                    /* "@@@ fichier <nom> <taille>\n" + contenu */
     char p[NAME_LEN];
     snprintf(p, sizeof(p), GCD "/%s", rel);
@@ -563,7 +564,7 @@ static int bk_save(char *msg, int cap) {
     if (bad || !n) { remove(BK_FILE ".part"); snprintf(msg, cap, "\xC3\x89" "chec de la sauvegarde"); return 0; }
     remove(BK_FILE);
     rename(BK_FILE ".part", BK_FILE);
-    snprintf(msg, cap, "%d fichiers sauvegard\xC3\xA9s dans SD:/gc-mp3-sauvegarde.txt", n);
+    snprintf(msg, cap, "%d fichiers sauvegard\xC3\xA9s dans SD:/gc-mp3/reglages/gc-mp3-sauvegarde.txt", n);
     return n;
 }
 /* nom de fichier acceptable : dans gc-mp3, sans "..", lettres simples */
@@ -588,7 +589,7 @@ static int bk_restore_buf(const char *b, long len, int dry, char *msg, int cap) 
             if (!sp) { snprintf(msg, cap, "Sauvegarde ab\xC3\xAEm\xC3\xA9" "e"); return -1; }
             long sz = atol(sp + 1);
             *sp = 0;
-            snprintf(rel, sizeof(rel), "%s", line + 12);
+            snprintf(rel, sizeof(rel), "%s", gcd_newrel(line + 12));   /* (v182 : sauvegarde d'avant le rangement) */
             long start = le + 1;
             if (sz < 0 || sz > len || start + sz > len) { snprintf(msg, cap, "Sauvegarde ab\xC3\xAEm\xC3\xA9" "e (%s)", rel); return -1; }
             if (bk_name_ok(rel) && !dry) {
@@ -621,7 +622,7 @@ static int bk_restore_buf(const char *b, long len, int dry, char *msg, int cap) 
 static int bk_restore(char *msg, int cap) {
     long len = 0;
     char *b = sd_ok ? (char *)read_file(BK_FILE, 32L * 1024 * 1024, &len) : NULL;
-    if (!b) { snprintf(msg, cap, "Pas de sauvegarde : SD:/gc-mp3-sauvegarde.txt"); return 0; }
+    if (!b) { snprintf(msg, cap, "Pas de sauvegarde : SD:/gc-mp3/reglages/gc-mp3-sauvegarde.txt"); return 0; }
     int r = bk_restore_buf(b, len, 1, msg, cap);              /* (tout est verifie avant d'ecrire) */
     if (r > 0) r = bk_restore_buf(b, len, 0, msg, cap);
     free(b);

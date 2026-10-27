@@ -1,8 +1,8 @@
 // GC-MP3 : onglet PODCASTS (inclus dans main.c)
-// Abonnements dans sd:/gc-mp3/podcasts.txt (Nom | adresse du flux RSS). Les episodes
+// Abonnements dans sd:/gc-mp3/reglages/podcasts.txt (Nom | adresse du flux RSS). Les episodes
 // s'ecoutent en direct (comme une radio) ou se telechargent sur la carte SD.
 // La position d'ecoute de chaque episode est retenue (sd:/gc-mp3/podcasts/positions.txt).
-#define POD_FILE   GCD "/podcasts.txt"
+#define POD_FILE   GCD_REG "/podcasts.txt"
 #define POD_POS    GCD "/podcasts/positions.txt"
 #define POD_MAX    64
 #define EP_MAX     120
@@ -85,7 +85,7 @@ static void pods_add(const char *name, const char *url) {
     for (int i = 0; i < npods; i++) if (!strcmp(pods[i].url, url)) { pod_note("D\xC3\xA9j\xC3\xA0 dans tes abonnements"); return; }
     if (npods >= POD_MAX || !sd_ok) return;
     FILE *f = fopen(POD_FILE, "a");
-    if (!f) { pod_note("Impossible d'\xC3\xA9" "crire SD:/gc-mp3/podcasts.txt"); return; }
+    if (!f) { pod_note("Impossible d'\xC3\xA9" "crire SD:/gc-mp3/reglages/podcasts.txt"); return; }
     char nm[96];
     snprintf(nm, sizeof(nm), "%s", name);
     for (char *p = nm; *p; p++) if (*p == '|' || *p == '\n' || *p == '\r') *p = '-';

@@ -53,6 +53,9 @@ static rf_node *rf_find(const char *norm) {
 static int rf_persist(const char *p) {           /* garde sur la carte memoire ? */
     if (!strncasecmp(p, "/gc-mp3/", 8)) p += 7;          /* v127 : depuis la v22, les reglages sont dans /gc-mp3 : ils n'etaient plus gardes (Dolphin) */
     if (!strcasecmp(p, "/podcasts/positions.txt")) return 1;
+    if (!strncasecmp(p, "/reglages/", 10)) p += 9;        /* v182 : sous-dossiers de reglages et de donnees */
+    else if (!strncasecmp(p, "/mes-parties/", 13)) p += 12;
+    else if (!strncasecmp(p, "/bibliotheque/", 14)) p += 13;
     if (strchr(p + 1, '/')) return 0;
     size_t l = strlen(p);
     return l > 4 && !strcasecmp(p + l - 4, ".txt") && strcasecmp(p, "/gc-mp3-bib.txt") != 0 && strncasecmp(p, "/gc-mp3-crash", 13) != 0;

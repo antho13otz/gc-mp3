@@ -5,11 +5,11 @@
 //   Pochettes : <meme nom>.jpg/.png, pochette integree (ID3 / FLAC), ou cover.jpg/folder.jpg du dossier
 //   Paroles : <meme nom>.lrc, sinon cherchees sur lrclib.net. Volume egalise (ReplayGain),
 //   egaliseur graves / aigus et fondu enchaine : menu START.
-// Onglet RADIO : liste sd:/gc-mp3/radio.txt (creee au premier lancement), une station par ligne :
+// Onglet RADIO : liste sd:/gc-mp3/reglages/radio.txt (creee au premier lancement), une station par ligne :
 //   Nom | http://adresse/du/flux       Logo facultatif : sd:/gc-mp3/radio/<Nom>.jpg ou .png
 //   Flux MP3, AAC ou OGG Vorbis en http:// ou https://, listes .m3u/.pls, radios HLS (.m3u8).
 // Onglet WEB : navigateur en mode texte (sans JavaScript ni images). Les liens vers des
-//   fichiers sont telecharges dans sd:/downloads. Favoris : sd:/gc-mp3/favoris.txt (Nom | adresse).
+//   fichiers sont telecharges dans sd:/downloads. Favoris : sd:/gc-mp3/reglages/favoris.txt (Nom | adresse).
 //
 // Commandes : Z = changer d'onglet (la lecture continue), Haut/Bas = choisir,
 //             Gauche/Droite = page, A = lire, B = arreter, Y = pause (musique) / muet (radio),
@@ -90,7 +90,13 @@ static time_t gc_time(time_t *p) { time_t t = (time)(NULL) + (time_t)clk_ofs; if
 #define SD_ROOT        "sd:"
 #endif
 #define GCD            SD_ROOT "/gc-mp3"     // v22 : fichiers de GC-MP3 ranges dans un seul dossier
-#define RADIO_LIST     GCD "/radio.txt"
+/* v182 : dans gc-mp3, seulement gc-mp3.txt (les reglages) ; le reste range dans des sous-dossiers */
+#define GCD_REG        GCD "/reglages"       // radios, favoris, podcasts, volumes, cookies, sauvegarde des reglages
+#define GCD_BIB        GCD "/bibliotheque"   // bibliotheque de musique, ecoutes, titres gardes, notes, telechargements
+#define GCD_PARTIES    GCD "/mes-parties"    // jeux lances, temps de jeu, favoris, succes, soiree, compatibilite, records
+#define GCD_LOG        GCD "/journaux"       // plantages, demarrage, fluidite, reparation, lanceur
+#define GCD_LD         GCD "/lanceur"        // lanceur de secours, retour en jeu, image IGR
+#define RADIO_LIST     GCD_REG "/radio.txt"
 #define LOGO_DIR       GCD "/radio"
 #define MP3_DIR        SD_ROOT "/mp3"
 #define MAX_FILES      2000                 /* v24 : 2000 morceaux (avant 512) */
@@ -308,7 +314,7 @@ static u64 now_ms(void) { return ticks_to_millisecs(gettime()); }
 /* ---------- v69 : mesure de fluidite (START > « Mesure de fluidite ») ----------
    Chaque image : temps de chaque tache de la boucle (reseau, pochettes, decodage, dessin,
    processeur graphique, attente de l'ecran). A l'ecran : images/s, pire image, tache la plus
-   lente. Quand on coupe la mesure : rapport SD:/gc-mp3/fluidite.txt (par onglet). */
+   lente. Quand on coupe la mesure : rapport SD:/gc-mp3/journaux/fluidite.txt (par onglet). */
 enum { PH_INPUT, PH_WEB, PH_COVERS, PH_LYRICS, PH_RETRO, PH_PODCAST, PH_PHOTO, PH_FILES, PH_INFOS, PH_PHONE, PH_DL, PH_UPDATE,
        PH_MISC, PH_LIB, PH_SETTINGS, PH_AUDIO, PH_MUSIC, PH_STREAM, PH_SPECTRUM, PH_DRAW, PH_GPU, PH_WAIT, PH_N };
 static const char *const pfx_names[PH_N] = { "manette", "web", "pochettes", "paroles", "retro", "podcasts", "photos", "fichiers", "infos",
@@ -897,7 +903,7 @@ static inline s16 clamp16(float v) {
 
 /* ---------- v72 : volume egalise sans etiquette ReplayGain : la sonie du morceau est mesuree
    pendant qu'il joue (EBU R128 / ReplayGain 2 : filtre K, blocs de 400 ms, portes -70 LUFS et
-   -10 LU), gardee dans SD:/gc-mp3/volumes.txt, et appliquee aux ecoutes suivantes (cible -18 LUFS) ---------- */
+   -10 LU), gardee dans SD:/gc-mp3/reglages/volumes.txt, et appliquee aux ecoutes suivantes (cible -18 LUFS) ---------- */
 #define RGM_MAXB 3000                                /* (20 min de blocs de 400 ms) */
 static float rgm_blk[RGM_MAXB];
 static int rgm_nb = 0, rgm_on = 0, rgm_n = 0, rgm_track = -1;
@@ -1179,7 +1185,8 @@ static void sd_layout(void) {
         "/mp3", "/retro", "/photos", "/videos", "/ecran", "/downloads", "/games",
         "/gc-mp3", "/gc-mp3/cache", "/gc-mp3/cache/pochettes", "/gc-mp3/cache/vignettes", "/gc-mp3/listes",
         "/gc-mp3/podcasts", "/gc-mp3/radio", "/gc-mp3/radio/enregistrements", "/gc-mp3/cheats", "/gc-mp3/jeux",
-        "/gc-mp3/natif", "/gc-mp3/resident", NULL };
+        "/gc-mp3/natif", "/gc-mp3/resident", "/gc-mp3/reglages", "/gc-mp3/bibliotheque", "/gc-mp3/mes-parties",
+        "/gc-mp3/journaux", "/gc-mp3/lanceur", NULL };
     char p[NAME_LEN];
     struct stat st;
     for (int i = 0; dirs[i]; i++) {
@@ -1211,6 +1218,48 @@ static void gcd_migrate(void) {
             if (gcd_exists(a)) { gcd_move_dir(a, c); snprintf(a, sizeof(a), SD_ROOT "/radio"); remove(a); }
         }
     }
+}
+
+/* v182 : rangement de SD:/gc-mp3 (une seule fois par fichier, au demarrage) : ancien chemin -> nouveau.
+   Sert aussi a la restauration d'une ancienne sauvegarde des reglages (noms d'avant). */
+static const char *const gcd_moves[][2] = {
+    { "radio.txt", "reglages/radio.txt" }, { "favoris.txt", "reglages/favoris.txt" },
+    { "radio-favoris.txt", "reglages/radio-favoris.txt" }, { "podcasts.txt", "reglages/podcasts.txt" },
+    { "volumes.txt", "reglages/volumes.txt" }, { "cookies.txt", "reglages/cookies.txt" },
+    { "gc-mp3-bib.txt", "bibliotheque/gc-mp3-bib.txt" }, { "gc-mp3-ecoutes.txt", "bibliotheque/gc-mp3-ecoutes.txt" },
+    { "gc-mp3-titres.txt", "bibliotheque/gc-mp3-titres.txt" }, { "gc-mp3-notes.txt", "bibliotheque/gc-mp3-notes.txt" },
+    { "telechargements.txt", "bibliotheque/telechargements.txt" },
+    { "jeux_recents.txt", "mes-parties/jeux_recents.txt" }, { "jeux_stats.txt", "mes-parties/jeux_stats.txt" },
+    { "jeux-favoris.txt", "mes-parties/jeux-favoris.txt" }, { "succes.txt", "mes-parties/succes.txt" },
+    { "soiree.txt", "mes-parties/soiree.txt" }, { "compat.txt", "mes-parties/compat.txt" },
+    { "gc-mp3-jeux.txt", "mes-parties/gc-mp3-jeux.txt" },
+    { "gc-mp3-crash.txt", "journaux/gc-mp3-crash.txt" }, { "gc-mp3-crash-ancien.txt", "journaux/gc-mp3-crash-ancien.txt" },
+    { "fluidite.txt", "journaux/fluidite.txt" }, { "demarrage.txt", "journaux/demarrage.txt" },
+    { "reparation.txt", "journaux/reparation.txt" }, { "lanceur-dernier.log", "journaux/lanceur-dernier.log" },
+    { "lanceur.dol", "lanceur/lanceur.dol" }, { "lanceur.txt", "lanceur/lanceur.txt" }, { "igr.img", "lanceur/igr.img" },
+    { NULL, NULL } };
+static const char *gcd_newrel(const char *rel) {
+    for (int i = 0; gcd_moves[i][0]; i++) if (!strcasecmp(rel, gcd_moves[i][0])) return gcd_moves[i][1];
+    return rel;
+}
+static void gcd_tidy(void) {
+    static const char *const dirs[] = { GCD_REG, GCD_BIB, GCD_PARTIES, GCD_LOG, GCD_LD, NULL };
+    char a[NAME_LEN], b[NAME_LEN];
+    for (int i = 0; dirs[i]; i++) mkdir(dirs[i], 0777);
+    for (int i = 0; gcd_moves[i][0]; i++) {
+        snprintf(a, sizeof(a), GCD "/%s", gcd_moves[i][0]);
+        if (!gcd_exists(a)) continue;
+        snprintf(b, sizeof(b), GCD "/%s", gcd_moves[i][1]);
+        if (gcd_exists(b)) {                               /* (deja la : l'ancien est en trop, sauf s'il est plus recent) */
+            struct stat sa, sb;
+            if (stat(a, &sa) == 0 && stat(b, &sb) == 0 && sa.st_mtime > sb.st_mtime) remove(b); else { remove(a); continue; }
+        }
+        if (rename(a, b) == 0) gcd_moved++;
+    }
+    /* la sauvegarde des reglages, qui etait a la racine de la carte SD */
+    if (gcd_exists(SD_ROOT "/gc-mp3-sauvegarde.txt") && !gcd_exists(GCD_REG "/gc-mp3-sauvegarde.txt")
+        && rename(SD_ROOT "/gc-mp3-sauvegarde.txt", GCD_REG "/gc-mp3-sauvegarde.txt") == 0) gcd_moved++;
+    remove(GCD "/.ecriture");                              /* (essai d'ecriture laisse par une coupure) */
 }
 
 static int sd_slot = -1;                               /* v26 : 0 = SD2SP2, 1 = slot A, 2 = slot B (pour le lanceur de secours) */
@@ -1400,7 +1449,7 @@ static int cover_from_file(const char *path) {
     free(buf);
     return ok;
 }
-// ---------- Liste des stations (sd:/gc-mp3/radio.txt) ----------
+// ---------- Liste des stations (sd:/gc-mp3/reglages/radio.txt) ----------
 typedef struct { char name[48]; char url[URL_MAX]; } station_t;
 static station_t stations[MAX_STATIONS];
 static int nstations = 0;
@@ -3969,7 +4018,7 @@ static void nx_work(void) {                               /* (thread de decodage
     }
     nx.st = nx.fp || nx.cvtex ? 2 : 3;
 }
-#define VOL_FILE GCD "/volumes.txt"
+#define VOL_FILE GCD_REG "/volumes.txt"
 static int rg_lookup(const char *path, float *g, float *pk) {     /* gain deja mesure pour ce fichier */
     FILE *f = sd_ok ? fopen(VOL_FILE, "r") : NULL;
     if (!f) return 0;
@@ -4343,11 +4392,11 @@ static void tag_scan_one(int k) {
     snprintf(tg_title[k], sizeof(tg_title[k]), "%s", tg.title);
 }
 
-/* ---------- Bibliotheque en cache (SD:/gc-mp3/gc-mp3-bib.txt) ----------
+/* ---------- Bibliotheque en cache (SD:/gc-mp3/bibliotheque/gc-mp3-bib.txt) ----------
    Durees et etiquettes deja lues : au demarrage suivant, plus besoin de relire
    chaque fichier (la liste defile sans a-coups, les vues Artistes / Albums sont
    pretes tout de suite). Une ligne par fichier : duree|artiste|album|chemin */
-#define BIB_FILE GCD "/gc-mp3-bib.txt"
+#define BIB_FILE GCD_BIB "/gc-mp3-bib.txt"
 static int bib_dirty = 0;                  // (declaree plus haut)
 static int lib_dirty;
 static u64 bib_saved_t = 0;
@@ -6500,9 +6549,9 @@ static void perf_overlay(void) {
     gx_text_c(F_SMALL, 320, 15, b, pfx_fps >= 58 ? RGBA(140, 255, 160, 255) : pfx_fps >= 45 ? RGBA(255, 220, 120, 255) : RGBA(255, 120, 120, 255));
 }
 static const char *perf_ver(void);
-static void perf_report(void) {                      /* SD:/gc-mp3/fluidite.txt */
+static void perf_report(void) {                      /* SD:/gc-mp3/journaux/fluidite.txt */
     if (!sd_ok) return;
-    FILE *f = fopen(GCD "/fluidite.txt", "w");
+    FILE *f = fopen(GCD_LOG "/fluidite.txt", "w");
     if (!f) return;
     fprintf(f, "GC Station %s - mesure de fluidite (une image ratee = plus de 20 ms ; tres lente = plus de 34 ms)\n\n", perf_ver());
     for (int t = 0; t < PF_TABS; t++) {
@@ -7034,7 +7083,7 @@ static int settings_dirty;
 // des fichiers (MP3...) sont telecharges dans sd:/downloads.
 // ====================================================================
 #define WEB_PAGE_MAX   (1536 * 1024)        // taille maxi d'une page HTML
-#define FAV_FILE       GCD "/favoris.txt"
+#define FAV_FILE       GCD_REG "/favoris.txt"
 #define SEARCH_URL     "https://html.duckduckgo.com/html/?q="   /* v74 : Mojeek refuse souvent (403) */
 static const char *const ws_engines[] = { "https://html.duckduckgo.com/html/?q=", "https://www.bing.com/search?q=",
                                           "https://www.mojeek.com/search?q=", "https://search.marginalia.nu/search?query=", NULL };
@@ -7954,7 +8003,7 @@ static char *build_home(void) {
         sb_esc(&s, lp->title[0] ? lp->title : lp->url);
         sb_add(&s, "</a></p>");
     }
-    sb_add(&s, "<p>Les favoris sont dans SD:/gc-mp3/favoris.txt (une ligne par site : Nom | adresse).</p>");
+    sb_add(&s, "<p>Les favoris sont dans SD:/gc-mp3/reglages/favoris.txt (une ligne par site : Nom | adresse).</p>");
     {
         int nck = ck_count();
         sb_add(&s, "<h2>Cookies</h2><p>Les sites peuvent garder des informations (connexion, pr\xC3\xA9" "f\xC3\xA9rences). ");
@@ -10480,7 +10529,7 @@ static void add_favorite(void) {
     const whist_t *lp = last_web_page();
     if (!lp || !sd_ok) return;
     FILE *f = fopen(FAV_FILE, "a");
-    if (!f) { web_note("Impossible d'écrire SD:/gc-mp3/favoris.txt", 1); return; }
+    if (!f) { web_note("Impossible d'écrire SD:/gc-mp3/reglages/favoris.txt", 1); return; }
     char name[96];
     snprintf(name, sizeof(name), "%s", lp->title[0] ? lp->title : lp->url);
     for (char *p = name; *p; p++) if (*p == '|' || *p == '\n' || *p == '\r') *p = '-';
@@ -11335,8 +11384,8 @@ static void rb_add_favorite(int i) {
 
 /* ---------- v72 : radios favorites (en haut de la liste, etoile) ----------
    X maintenu sur une de tes radios : favorite / plus favorite (X court : garder le titre, comme avant).
-   SD:/gc-mp3/radio-favoris.txt : une adresse par ligne. */
-#define RADIO_FAV GCD "/radio-favoris.txt"
+   SD:/gc-mp3/reglages/radio-favoris.txt : une adresse par ligne. */
+#define RADIO_FAV GCD_REG "/radio-favoris.txt"
 static u8 st_fav[MAX_STATIONS];
 static int radio_fav_has(const char *url) {
     FILE *f = sd_ok ? fopen(RADIO_FAV, "r") : NULL;
@@ -12173,7 +12222,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_RECAT) hint = "\xC3\x80 cette heure, la radio choisie est lanc\xC3\xA9" "e et enregistr\xC3\xA9" "e (SD:/gc-mp3/radio/enregistrements)";
     if (menu_sel == MI_RECLEN) hint = "La radio enregistr\xC3\xA9" "e est celle qui joue quand tu r\xC3\xA8gles l'heure";
     if (menu_sel == MI_LOWMID || menu_sel == MI_PRES) hint = "\xC3\x89galiseur 5 bandes : graves, bas-m\xC3\xA9" "diums, m\xC3\xA9" "diums, pr\xC3\xA9sence, aigus";
-    if (menu_sel == MI_PERF) hint = "Images/s en haut de l'\xC3\xA9" "cran ; en coupant : rapport SD:/gc-mp3/fluidite.txt";
+    if (menu_sel == MI_PERF) hint = "Images/s en haut de l'\xC3\xA9" "cran ; en coupant : rapport SD:/gc-mp3/journaux/fluidite.txt";
     if (menu_sel == MI_PULSELD) hint = "Le style de l'\xC3\xA9" "cran qui s'affiche pendant le lancement d'un jeu avec Pulse";
     if (menu_sel == MI_NATCARD) hint = "Jeux lanc\xC3\xA9s avec Pulse : sauvegardes dans SD:/gc-mp3/resident (slot B : carte-B.raw)";
     if (menu_sel == MI_NATCARDREG) hint = "Jeux europ\xC3\xA9" "ens, am\xC3\xA9ricains, japonais : chacun sa carte (carte-A-EUR.raw...)";
@@ -13309,7 +13358,7 @@ static void disc_chain(void) {
     const char *e = gl_boot_dol(up_target, NULL, NULL, "GC Station");   /* (ne revient pas si ca marche) */
     if (e) crumb("demarrage : lancement de %s impossible : %s", up_target, e);
 }
-/* v92 : temps de chaque etape du demarrage (SD:/gc-mp3/demarrage.txt) */
+/* v92 : temps de chaque etape du demarrage (SD:/gc-mp3/journaux/demarrage.txt) */
 static char bt_txt[640];
 static int bt_len = 0;
 static u64 bt_prev = 0;
@@ -13322,7 +13371,7 @@ static void bt_step(const char *what) {
 static void bt_save(void) {
     crumb("demarrage : %s", bt_txt);
     if (!sd_ok || sd_virtual) return;
-    FILE *f = fopen(GCD "/demarrage.txt", "w");
+    FILE *f = fopen(GCD_LOG "/demarrage.txt", "w");
     if (!f) return;
     fprintf(f, "GC Station %s : temps du dernier demarrage (total %u ms)\n%s", GCMP3_VERSION, (unsigned)(ticks_to_millisecs(gettime()) - boot_t0), bt_txt);
     fclose(f);
@@ -13363,6 +13412,7 @@ int main(int argc, char **argv) {
     if (!sd_ok) sd_ok = ramfs_mount();      /* (Dolphin : SD en memoire, reglages sur la carte memoire) */
     bt_step("carte SD");
     if (sd_ok) gcd_migrate();               /* v22 : tout dans SD:/gc-mp3 */
+    if (sd_ok) gcd_tidy();                  /* v182 : SD:/gc-mp3 range en sous-dossiers */
     if (sd_ok) sd_layout();                 /* v127 : dossiers de GC Station (Dolphin PC / Android aussi) */
     crash_init();                           /* journal de plantage */
     ui_lang_apply();                        /* v24 : langue de la console, sauf reglage */
@@ -13380,7 +13430,7 @@ int main(int argc, char **argv) {
     bt_step("gx");
     disc_chain();                            /* v92 : lance depuis un disque : la version plus recente de la carte SD */
 
-    /* v92 : chaque etape du demarrage a l'ecran et dans SD:/gc-mp3/demarrage.txt (temps en ms) */
+    /* v92 : chaque etape du demarrage a l'ecran et dans SD:/gc-mp3/journaux/demarrage.txt (temps en ms) */
     if (sd_ok) { say("   Musique de la carte SD... %s", ""); scan_files(); { char nb[16]; snprintf(nb, sizeof(nb), "%d", nfiles); say("%s\n", nb); } bt_step("liste de la musique"); }
     if (sd_ok) { say("   Bibliotheque... %s", ""); bib_load(); pl_load_all(); stats_load(); rating_load(); say("%s\n", "OK"); bt_step("bibliotheque"); }
     if (sd_ok) nat_journal_convert();       /* v54 : journal du dernier jeu lance par le lanceur maison */
