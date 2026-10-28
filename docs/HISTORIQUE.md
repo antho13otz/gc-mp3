@@ -24,6 +24,20 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v206 — assistant IA
+- **Assistant IA** : onglet WEB > accueil > « Assistant IA » (page `gc:ia`). Tu poses une question (clavier, ou
+  depuis le téléphone : onglet TÉLÉPHONE > page `/ia`), la réponse s'affiche comme une page (titres, listes, gras,
+  code) ; la conversation suit (les questions précédentes sont envoyées avec). La demande part en tâche de fond :
+  la musique et l'écran continuent. Si tu changes d'onglet, une bulle prévient quand la réponse est arrivée.
+- Fournisseurs : **Anthropic** (Claude, modèle par défaut `claude-haiku-5-5`) ou tout service **compatible OpenAI**
+  (OpenAI, Mistral, OpenRouter…), et **Ollama / LM Studio** sur un PC de la maison (pas de clé, juste l'adresse).
+  Il faut une clé API à toi : elle se colle depuis le téléphone (page `/ia`) ou dans
+  SD:/gc-mp3/reglages/assistant.txt (`fournisseur`, `cle`, `modele`, `adresse`).
+- Erreurs expliquées (clé refusée, plus de crédit, service surchargé, serveur muet) avec le message du service.
+- Le client web sait maintenant envoyer des requêtes POST avec un corps JSON et des en-têtes en plus.
+- Essai (simulateur, faux service local) : formats OpenAI et Anthropic, 4 questions à la suite, erreur 401, AddressSanitizer sans erreur.
+  Pas encore essayé contre le vrai service depuis la GameCube.
+
 ## Nouveautés v205 — banque de sons MIDI, page qui ne saute plus
 - **MIDI avec une banque de sons (SoundFont .sf2)**, en option : mets-la dans SD:/gc-mp3/soundfont.sf2 (ou un
   .sf2 dans SD:/retro), 3 Mo au plus. Les instruments sont alors de vrais sons enregistrés (TinySoundFont, MIT,

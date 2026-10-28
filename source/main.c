@@ -8822,7 +8822,8 @@ static char *build_home(void) {
     sb_add(&s, "<h2>Rechercher</h2><ul>"
                "<li><a href=\"gc:recherche\">Rechercher sur le web</a></li>"
                "<li><a href=\"gc:archive\">Chercher de la musique libre sur archive.org</a></li>"
-               "<li><a href=\"gc:adresse\">Taper une adresse</a></li></ul>");
+               "<li><a href=\"gc:adresse\">Taper une adresse</a></li>"
+               "<li><a href=\"gc:ia\">Assistant IA (poser une question)</a></li></ul>");
     sb_add(&s, "<h2>Favoris</h2>");
     add_favorites(&s);
     const whist_t *lp = last_web_page();
@@ -9103,6 +9104,10 @@ static void select_first_visible(void) {
 }
 
 static void web_go(const char *url, int mode);
+static int ia_busy;                         /* v206 : assistant IA (assistant.c) */
+static void ia_clear(void);
+static void ia_render(int mode, int to_bottom);
+static void ia_ask(const char *q);
 
 /* Affiche une page. data (alloue avec malloc) appartient ensuite a la page. */
 static void web_show(unsigned char *data, int len, const char *url, int kind, int latin, int mode) {
@@ -9559,6 +9564,10 @@ typedef struct {
     int gz, gzipped;                        /* v118 : accepter gzip ; reponse compressee (decompressee a la fin) */
     long range;                             /* v133 : reprendre a cet octet (Range ; reponse 206) ; 0 = depuis le debut */
     int keep;                               /* v133 : en cas d'echec, garder ce qui est deja arrive (pour reprendre) */
+    const char *post; int post_len;         /* v206 : envoi POST (corps), type du corps, en-tetes en plus (assistant IA) */
+    const char *post_type, *xhdr;
+    int tmo_ms;                             /* v206 : attente de la reponse (0 : 15 s) */
+    int any_code;                           /* v206 : garder la reponse meme si le code n'est pas 200 (messages d'erreur) */
 } hfetch_t;
 
 /* v77 : en-tetes plus gros que le tampon (GitHub : 11 Ko, dont une tres longue
@@ -9604,12 +9613,15 @@ static int hf_send(hfetch_t *h) {
     if (h->range > 0) snprintf(rng, sizeof(rng), "Range: bytes=%ld-\r\n", h->range);   /* v133 : reprise */
     if (u.port == (u.tls ? 443 : 80)) snprintf(hosthdr, sizeof(hosthdr), "%s", u.host);
     else snprintf(hosthdr, sizeof(hosthdr), "%s:%d", u.host, u.port);
+    char ph[160] = "";
+    if (h->post) snprintf(ph, sizeof(ph), "Content-Type: %s\r\nContent-Length: %d\r\n", h->post_type ? h->post_type : "application/json", h->post_len);
     int rl = snprintf(req, sizeof(req),
-                      "GET %s HTTP/1.1\r\nHost: %s\r\n"
+                      "%s %s HTTP/1.1\r\nHost: %s\r\n"
                       "User-Agent: GC-MP3/1.0 (Nintendo GameCube; https://github.com/antho13otz/gc-mp3)\r\n"
-                      "Accept: %s\r\n%s%s%sConnection: keep-alive\r\n\r\n", u.path, hosthdr,
-                      h->accept ? h->accept : "*/*", h->gz ? "Accept-Encoding: gzip\r\n" : "", ref, rng);
+                      "Accept: %s\r\n%s%s%s%s%sConnection: keep-alive\r\n\r\n", h->post ? "POST" : "GET", u.path, hosthdr,
+                      h->accept ? h->accept : "*/*", h->gz ? "Accept-Encoding: gzip\r\n" : "", ref, rng, ph, h->xhdr ? h->xhdr : "");
     if (rl >= (int)sizeof(req) || !conn_send_all(&h->c, req, rl)) return 0;
+    if (h->post && h->post_len > 0 && !conn_send_all(&h->c, h->post, h->post_len)) return 0;   /* v206 */
     h->hlen = 0;
     h->hskip = 0;
     h->st = HF_HEAD;
@@ -9740,7 +9752,7 @@ static void hf_pump(hfetch_t *h) {
             int before = h->hlen;
             int r = conn_recv(&h->c, h->hdr + h->hlen, (int)sizeof(h->hdr) - 1 - h->hlen);
             if (r == -EAGAIN || r == -EWOULDBLOCK) {
-                if (now_ms() - h->t0 > 15000) { hf_close(h); hf_fail(h); }
+                if (now_ms() - h->t0 > (u64)(h->tmo_ms > 0 ? h->tmo_ms : 15000)) { hf_close(h); hf_fail(h); }
                 return;
             }
             if (r <= 0) {
@@ -9788,7 +9800,7 @@ static void hf_pump(hfetch_t *h) {
             v = header_value(hd, "Content-Encoding");
             h->gzipped = h->gz && v && ci_find((char *)v, "gzip");
             v = header_value(hd, "Content-Type");
-            if ((code != 200 && !(code == 206 && h->range > 0)) || clen > h->maxbytes ||
+            if ((code != 200 && !(code == 206 && h->range > 0) && !(h->any_code && code >= 200 && code < 600)) || clen > h->maxbytes ||
                 (h->image && v && (ci_find((char *)v, "text/") || ci_find((char *)v, "svg")))) {
                 hf_close(h);
                 hf_fail(h);
@@ -9842,7 +9854,7 @@ static void hf_pump(hfetch_t *h) {
             hf_done(h);
             return;
         }
-        if (now_ms() - h->t0 > 20000) { hf_close(h); hf_fail(h); }
+        if (now_ms() - h->t0 > (u64)(h->tmo_ms > 20000 ? h->tmo_ms : 20000)) { hf_close(h); hf_fail(h); }
     }
 }
 
@@ -11290,8 +11302,10 @@ static void css_pump(void) {
     web_relayout();
 }
 
+static void ia_pump(void);
 static void web_pump(void) {
     static unsigned char tmp[16384];
+    ia_pump();                                          /* v206 : assistant IA */
     if (wb_loading) {
         int got = 0;
         while (got < 192 * 1024) {
@@ -11399,6 +11413,8 @@ static void web_go(const char *url, int mode) {
         else if (strcmp(w, "annuler") == 0) { if (dl_active) dl_stop("Téléchargement annulé", 0); web_render_home(NAV_REPLACE); }
         else if (strcmp(w, "cookies") == 0) { ck_clear(); web_note("Cookies effacés", 0); web_render_home(NAV_REPLACE); }
         else if (strcmp(w, "id-oui") == 0 || strcmp(w, "id-non") == 0) { id_answer(w[3] == 'o'); web_relayout(); }
+        else if (strcmp(w, "ia") == 0) ia_render(mode, 1);     /* v206 : assistant IA */
+        else if (strcmp(w, "ia-nouveau") == 0) { if (!ia_busy) ia_clear(); ia_render(NAV_REPLACE, 0); }
         else if (strcmp(w, "identifiants") == 0) { id_clear(); web_note("Identifiants effac\xC3\xA9s", 0); web_render_home(NAV_REPLACE); }
         else if (strcmp(w, "texte") == 0) {                 /* v201 : mode texte de la page en cours (ou retour) */
             if (web_text_url[0] && !strcmp(web_text_url, pg.url)) web_text_url[0] = 0;
@@ -11450,6 +11466,10 @@ static void web_submit(int form, int button) {
         if (n >= (int)sizeof(body) - 1) { web_note("Formulaire trop long", 1); return; }
     }
     snprintf(url, sizeof(url), "%s", pg.pool + pg.forms[form].action);
+    if (!strncmp(url, "gc:ia", 5)) {                    /* v206 : question a l'assistant */
+        for (int i = 0; i < pg.nfields; i++) if (pg.fields[i].form == form && pg.fields[i].type == FD_TEXT) { ia_ask(pg.fields[i].value); break; }
+        return;
+    }
     wb_refreshes = 0;
     id_capture(form);                                   /* v201 : mot de passe -> proposer de l'enregistrer */
     crumb("formulaire %s", pg.forms[form].post ? "POST" : "GET");
@@ -11749,6 +11769,8 @@ static void fmt_size(char *b, int sz, long v) {
 
 static int draw_tabs(const char *count);
 #include "web_extra.c"
+static void tab_enter(int t);
+#include "assistant.c"                 /* v206 : assistant IA (page gc:ia) */
 
 static void draw_web_page(void) {
     char fit[400];
