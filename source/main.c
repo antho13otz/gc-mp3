@@ -5518,6 +5518,7 @@ static f32 scr_x0 = 0, scr_w = 640;         /* bords gauche et largeur du repere
    pochettes et les images gardent leurs vraies proportions.
    X ecran = ux_o + x * ux_k ; une "zone native" (ux_native) garde k = 1. */
 static f32 ux_k = 1, ux_o = 0;
+static f32 scr_sx = 1, scr_sy = 1;                 /* (points de l'ecran par point de l'interface : scr_viewport) */
 static inline f32 UX(f32 x) { return ux_o + x * ux_k; }
 typedef struct { f32 k, o; } uxsave_t;
 static uxsave_t ux_native(f32 anchor) {                /* autour de 'anchor', taille reelle */
@@ -6303,6 +6304,10 @@ static inline void vtx(f32 x, f32 y, col_t c) {
 
 static void gx_quad4(f32 x0, f32 y0, f32 x1, f32 y1,
                      col_t tl, col_t tr, col_t br, col_t bl) {
+    /* v200 : traits fins (1 point) : au moins un point de l'ecran, meme avec l'image reduite (sinon ils disparaissent) */
+    f32 kx = ux_k * scr_sx;
+    if (scr_sy < 1.0f && y1 > y0 && (y1 - y0) * scr_sy < 1.0f) y1 = y0 + 1.0f / scr_sy;
+    if (kx < 1.0f && kx > 0.01f && x1 > x0 && (x1 - x0) * kx < 1.0f) x1 = x0 + 1.0f / kx;
     gx_set_flat();
     GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
     vtx(x0, y0, tl); vtx(x1, y0, tr); vtx(x1, y1, br); vtx(x0, y1, bl);
@@ -6403,8 +6408,15 @@ static void gx_rrect_fill(f32 x, f32 y, f32 w, f32 h, f32 r, col_t top, col_t bo
 static void gx_rrect_stroke(f32 x, f32 y, f32 w, f32 h, f32 r, f32 t, col_t c) {
     if (ui_skin >= 4 && !nv_raw && c.r == 180 && c.g == 104 && c.b == 255) return;   /* (v131 : ni contour de selection) */
     f32 ox[RR_N], oy[RR_N], ix[RR_N], iy[RR_N];
+    /* v200 : au moins un point de l'ecran d'epaisseur (image reduite pour les bords de la tele : un trait de 1 faisait
+       0,9 point et des morceaux disparaissaient) */
+    f32 kx = ux_k * scr_sx, tx = t, ty = t;
+    if (kx > 0.01f && tx * kx < 1.0f) tx = 1.0f / kx;
+    if (scr_sy > 0.01f && ty * scr_sy < 1.0f) ty = 1.0f / scr_sy;
+    if (2 * tx >= w || 2 * ty >= h) { gx_rrect_fill(x, y, w, h, r, c, c); return; }
+    f32 d = ty > tx * ux_k ? ty : tx * ux_k;                 /* (coins : aussi epais dans les deux sens) */
     rr_points(x, y, w, h, r, ox, oy);
-    rr_points(x + t, y + t, w - 2 * t, h - 2 * t, r - t, ix, iy);
+    rr_points(x + tx, y + ty, w - 2 * tx, h - 2 * ty, r - d, ix, iy);
     gx_set_flat();
     GX_Begin(GX_TRIANGLESTRIP, GX_VTXFMT0, 2 * (RR_N + 1));
     for (int i = 0; i <= RR_N; i++) {
@@ -6720,7 +6732,7 @@ static void draw_badge(f32 cx, f32 cy, const char *letter, col_t c1, col_t c2) {
 /* Legende des touches : icones + textes repartis sur toute la largeur du cadre. */
 /* Taille de l'ecran : l'image (repere 640x480) est reduite et centree, pour
    qu'elle rentre en entier sur les televiseurs qui coupent les bords. */
-static f32 scr_sx = 1, scr_sy = 1, scr_ox = 0, scr_oy = 0;
+static f32 scr_ox = 0, scr_oy = 0;
 static void scr_viewport(void) {
     if (scr_pct < 80) scr_pct = 80;
     if (scr_pct > SCR_MAX) scr_pct = SCR_MAX;

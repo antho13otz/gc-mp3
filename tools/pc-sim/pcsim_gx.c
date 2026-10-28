@@ -326,13 +326,13 @@ static void tri(const vtx_t *a, const vtx_t *b, const vtx_t *c) {
     if (x0 < cx0) x0 = cx0; if (y0 < cy0) y0 = cy0; if (x1 > cx1) x1 = cx1; if (y1 > cy1) y1 = cy1;
     float inv = 1.0f / area;
     for (int y = y0; y < y1; y++) {
-        float py = y + 0.5f;
+        float py = y + 0.5f + 1.0f / 8192;          /* (centre du point un rien decale : une arete partagee n'est dessinee qu'une fois, comme sur la console) */
         for (int x = x0; x < x1; x++) {
-            float px = x + 0.5f;
+            float px = x + 0.5f + 1.0f / 4096;
             float w0 = ((p[1].x - px) * (p[2].y - py) - (p[2].x - px) * (p[1].y - py)) * inv;
             float w1 = ((p[2].x - px) * (p[0].y - py) - (p[0].x - px) * (p[2].y - py)) * inv;
             float w2 = 1 - w0 - w1;
-            if (w0 < -1e-5f || w1 < -1e-5f || w2 < -1e-5f) continue;
+            if (w0 < 0 || w1 < 0 || w2 < 0) continue;
             float ras[4] = { w0 * p[0].r + w1 * p[1].r + w2 * p[2].r, w0 * p[0].g + w1 * p[1].g + w2 * p[2].g,
                              w0 * p[0].b + w1 * p[1].b + w2 * p[2].b, w0 * p[0].a + w1 * p[1].a + w2 * p[2].a };
             float s = w0 * p[0].s + w1 * p[1].s + w2 * p[2].s, t = w0 * p[0].t + w1 * p[1].t + w2 * p[2].t, c[4];

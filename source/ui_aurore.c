@@ -152,10 +152,12 @@ static void au_header(void) {
     int i0 = (int)floorf(au_p); if (i0 < 0) i0 = 0; if (i0 > n - 1) i0 = n - 1;
     int i1 = i0 + 1 < n ? i0 + 1 : i0;
     f32 fr = au_p - i0, center = cx[i0] + (cx[i1] - cx[i0]) * fr;
-    scr_scissor(130, 0, 380, 72);
+    /* v200 : la rangee entre le logo et l'heure (avant : centree sur l'ecran, l'onglet de gauche passait sous le logo) */
+    const f32 HC = 397, HW = 150;
+    scr_scissor(HC - HW - 2, 0, 2 * HW + 4, 72);
     for (int i = 0; i < n; i++) {
-        f32 x = 320 + (cx[i] - center);
-        f32 d = fabsf(x - 320) / 190.0f;                   /* (0 au centre, 1 au bord) */
+        f32 x = HC + (cx[i] - center);
+        f32 d = fabsf(x - HC) / HW;                        /* (0 au centre, 1 au bord) */
         if (d > 1.2f) continue;
         f32 near = 1 - fabsf(i - au_p); if (near < 0) near = 0;
         txt_scale = 1.0f + 0.32f * near;
@@ -168,7 +170,7 @@ static void au_header(void) {
     }
     scr_viewport();
     /* points d'avancement : le choisi s'allonge en degrade */
-    f32 dw = 5, dg = 7, sel_w = 22, tot = (n - 1) * (dw + dg) + sel_w, x = 320 - tot / 2;
+    f32 dw = 5, dg = 7, sel_w = 22, tot = (n - 1) * (dw + dg) + sel_w, x = HC - tot / 2;
     for (int i = 0; i < n; i++) {
         f32 near = 1 - fabsf(i - au_p); if (near < 0) near = 0;
         f32 w = dw + (sel_w - dw) * near;

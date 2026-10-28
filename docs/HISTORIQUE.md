@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v200 — finitions de l'interface (retours de r/GamecubeHacks)
+- Traits fins : au moins un point de l'écran d'épaisseur. Avec l'image réduite (Affichage > taille de l'image sous
+  100 %), un trait de 1 faisait moins d'un point et des morceaux des cadres et des séparateurs disparaissaient.
+- Lecteur (Aurore) : l'ombre de la pochette est douce et centrée (avant : un bloc noir décalé à droite) ; le spectre
+  sous la pochette a la largeur de la pochette.
+- Barre des onglets (Aurore) : la rangée est placée entre le logo et l'heure ; l'onglet de gauche ne passe plus
+  sous « GAMECUBE MEDIA CENTER ».
+- Simulateur : une arête partagée par deux triangles n'est dessinée qu'une fois, comme sur la console (il montrait
+  des traits en croix et des lignes verticales qui n'existent pas sur la GameCube).
+
 ## Nouveautés v199 — petits défauts de l'espace jeux
 - Un jeu qui sort du filtre (retiré des favoris depuis la fiche, par exemple) : la vitrine se place sur son voisin
   au lieu de revenir au premier jeu.
