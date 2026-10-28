@@ -20,7 +20,7 @@ static inline bool thr_create_watched(thr_t *t, void *(*fn)(void *), void *arg, 
     return LWP_CreateThread(t, fn, arg, mem, (u32)stack, (u8)prio) >= 0;
 }
 static inline void thr_join(thr_t t) { LWP_JoinThread(t, NULL); }
-static inline void thr_detach(thr_t t) { LWP_DetachThread(t); }
+static inline void thr_detach(thr_t t) { (void)t; }   /* (GC Station : libogc n'a pas LWP_DetachThread ; le fil finit seul) */
 static inline bool thr_mutex_init(thr_mutex *m) { return LWP_MutexInit(m, false) >= 0; }
 static inline void thr_mutex_free(thr_mutex *m) { LWP_MutexDestroy(*m); }
 static inline void thr_lock(thr_mutex *m) { LWP_MutexLock(*m); }
