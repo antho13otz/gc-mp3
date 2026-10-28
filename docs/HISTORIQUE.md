@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v205 — banque de sons MIDI, page qui ne saute plus
+- **MIDI avec une banque de sons (SoundFont .sf2)**, en option : mets-la dans SD:/gc-mp3/soundfont.sf2 (ou un
+  .sf2 dans SD:/retro), 3 Mo au plus. Les instruments sont alors de vrais sons enregistrés (TinySoundFont, MIT,
+  `source/tsf.h`) ; sans banque, le synthétiseur intégré. La banque est libérée dès qu'une autre musique joue.
+  Essai : 15 instruments + batterie avec une banque de piano, aucun trou dans le son.
+- Web : quand la page se remet en page (images qui arrivent, feuilles de style), ce qu'on lit reste à sa place
+  (chaque mot connaît sa place dans le document ; le nouveau moteur l'avait perdue).
+
 ## Nouveautés v204 — téléchargements qui reprennent
 - Un téléchargement coupé (connexion perdue, serveur muet 30 s) **reprend où il s'était arrêté** au lieu de
   repartir de zéro (en-tête `Range`, jusqu'à 5 reprises), si le serveur le permet ; sinon le message d'avant.

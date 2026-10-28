@@ -3,6 +3,16 @@
 // General MIDI (piano, orgue, guitare, basse, cordes, cuivres, flutes, synthes...) a sa forme d'onde et son
 // enveloppe ; la batterie (canal 10) est synthetisee (grosse caisse, caisse claire, charleston, toms, cymbales).
 // 32 voix, 48 kHz, volume / expression / panoramique / pedale / pitch bend par canal.
+// v203 : banque de sons SoundFont (.sf2) en option : SD:/gc-mp3/soundfont.sf2 (ou un .sf2 dans SD:/retro),
+// 3 Mo au plus (TinySoundFont, licence MIT, source/tsf.h : les echantillons passent en flottants en memoire).
+
+#define TSF_IMPLEMENTATION
+#define TSF_NO_STDIO
+#include "tsf.h"
+static tsf *mi_sf = NULL;                       /* banque chargee (gardee d'un morceau MIDI a l'autre) */
+static char mi_sf_name[96];
+static int mi_sf_tried = 0;
+#define MI_SF_MAX (3 * 1024 * 1024)
 
 #define MI_RATE      48000
 #define MI_VOICES    32
@@ -185,6 +195,10 @@ static int mi_parse(const u8 *d, u32 n) {
 }
 
 static void mi_reset(void) {
+    if (mi_sf) {
+        tsf_reset(mi_sf);
+        for (int c = 0; c < 16; c++) { tsf_channel_set_presetnumber(mi_sf, c, 0, c == 9); tsf_channel_set_volume(mi_sf, c, 1.0f); tsf_channel_set_pan(mi_sf, c, 0.5f); tsf_channel_set_pitchwheel(mi_sf, c, 8192); }
+    }
     memset(mi_v, 0, sizeof(mi_v));
     for (int c = 0; c < 16; c++) { mi_ch[c].prog = 0; mi_ch[c].vol = 100; mi_ch[c].expr = 127; mi_ch[c].pan = 64; mi_ch[c].sus = 0; mi_ch[c].bend = 0; }
     mi_pos = 0; mi_now = 0;
@@ -240,6 +254,17 @@ static void mi_note_off(int ch, int note) {
 }
 static void mi_event(const mi_ev_t *e) {
     int ch = e->st & 15, ty = e->st & 0xF0;
+    if (mi_sf) {                                /* banque de sons : TinySoundFont joue */
+        switch (ty) {
+        case 0x90: if (e->d2) { tsf_channel_note_on(mi_sf, ch, e->d1, e->d2 / 127.0f); break; }
+        /* fallthrough */
+        case 0x80: tsf_channel_note_off(mi_sf, ch, e->d1); break;
+        case 0xC0: tsf_channel_set_presetnumber(mi_sf, ch, e->d1, ch == 9); break;
+        case 0xE0: tsf_channel_set_pitchwheel(mi_sf, ch, (e->d2 << 7) | e->d1); break;
+        case 0xB0: tsf_channel_midi_control(mi_sf, ch, e->d1, e->d2); break;
+        }
+        return;
+    }
     switch (ty) {
     case 0x90: if (e->d2) { mi_note_on(ch, e->d1, e->d2); break; }   /* (vitesse 0 : relache) */
     /* fallthrough */
@@ -272,6 +297,22 @@ static int midi_render(s16 *L, s16 *R, int n) {
     if (!mi_on || mi_now >= mi_len) return 0;
     static s32 accl[2048], accr[2048];
     if (n > 2048) n = 2048;
+    if (mi_sf) {
+        static short ib[2048 * 2];
+        int done = 0;
+        while (done < n) {
+            while (mi_pos < mi_nev && mi_ev[mi_pos].t <= mi_now + done) mi_event(&mi_ev[mi_pos++]);
+            u32 next = mi_pos < mi_nev ? mi_ev[mi_pos].t : 0xFFFFFFFFu;
+            int len = n - done;
+            if (next != 0xFFFFFFFFu && next > mi_now + done && next - (mi_now + done) < (u32)len) len = (int)(next - (mi_now + done));
+            if (len <= 0) len = 1;
+            tsf_render_short(mi_sf, ib + done * 2, len, 0);
+            done += len;
+        }
+        for (int i = 0; i < n; i++) { L[i] = ib[2 * i]; R[i] = ib[2 * i + 1]; }
+        mi_now += n;
+        return n;
+    }
     int done = 0;
     while (done < n) {
         /* evenements a l'heure */
@@ -346,11 +387,42 @@ static void midi_seek(int sec) {
         mi_pos++;
     }
     for (int i = 0; i < MI_VOICES; i++) mi_v[i].on = 0;
+    if (mi_sf) for (int c = 0; c < 16; c++) tsf_channel_sounds_off_all(mi_sf, c);
     mi_now = t;
+}
+static void midi_release_sf(void) { if (mi_sf) { tsf_close(mi_sf); mi_sf = NULL; } mi_sf_tried = 0; }
+/* banque de sons : SD:/gc-mp3/soundfont.sf2, sinon le premier .sf2 de SD:/retro */
+static void mi_load_sf(void) {
+    if (mi_sf || mi_sf_tried) return;
+    mi_sf_tried = 1;
+    char p[NAME_LEN] = "";
+    struct stat st;
+    snprintf(p, sizeof(p), "%s/soundfont.sf2", GCD);
+    if (stat(p, &st) != 0) {
+        p[0] = 0;
+        DIR *d = opendir(SD_ROOT "/retro");
+        if (d) {
+            struct dirent *e;
+            while ((e = readdir(d)) != NULL) { const char *dot = strrchr(e->d_name, '.'); if (dot && !strcasecmp(dot, ".sf2")) { snprintf(p, sizeof(p), "%s/retro/%s", SD_ROOT, e->d_name); break; } }
+            closedir(d);
+        }
+        if (!p[0] || stat(p, &st) != 0) return;
+    }
+    if (st.st_size > MI_SF_MAX) { lib_note("SoundFont trop gros (3 Mo au plus) : synth\xC3\xA9tiseur int\xC3\xA9gr\xC3\xA9"); return; }
+    long n = 0;
+    unsigned char *d = read_file(p, MI_SF_MAX, &n);
+    if (!d) return;
+    mi_sf = tsf_load_memory(d, (int)n);
+    free(d);
+    if (!mi_sf) { lib_note("SoundFont illisible : synth\xC3\xA9tiseur int\xC3\xA9gr\xC3\xA9"); return; }
+    tsf_set_output(mi_sf, TSF_STEREO_INTERLEAVED, MI_RATE, -9.0f);
+    tsf_set_max_voices(mi_sf, 48);
+    snprintf(mi_sf_name, sizeof(mi_sf_name), "%s", base_of(p));
 }
 static int midi_open(const char *path, char *title, int tcap, const char **err) {
     midi_close();
     mi_tables();
+    mi_load_sf();
     long n = 0;
     unsigned char *d = read_file(path, 4 * 1024 * 1024, &n);
     if (!d) { *err = "Fichier illisible"; return 0; }

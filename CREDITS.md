@@ -31,9 +31,11 @@ GPL-2.0. Pulse (`source/natres`) is GC Station's own code, not derived from Swis
 | [libwebp](https://chromium.googlesource.com/webm/libwebp) 1.6.0 | images WebP | BSD-3-Clause |
 | [TJpgDec](http://elm-chan.org/fsw/tjpgd/) R0.03 (ChaN) | JPEG des photos | licence libre de ChaN |
 | [QR Code generator](https://github.com/nayuki/QR-Code-generator) (Nayuki) | QR codes | MIT |
+| [TinySoundFont](https://github.com/schellingb/TinySoundFont) v0.9 (Bernhard Schelling), `source/tsf.h` | banques de sons SoundFont pour le MIDI | MIT |
 | [DejaVu fonts](https://dejavu-fonts.github.io) | police de l'interface | licence Bitstream Vera / DejaVu |
 
-Le reste (interface, lecteur, navigateur web, client SMB2, Pulse, compresseur deflate…) est écrit pour GC Station.
+Le reste (interface, lecteur, navigateur web et son moteur de pages, synthétiseur MIDI, client SMB2, Pulse,
+compresseur deflate…) est écrit pour GC Station.
 GC Station a été développé avec l'aide d'une IA (Claude, d'Anthropic).
 
 Les noms GameCube et Nintendo appartiennent à Nintendo ; GC Station n'est ni fait ni approuvé par Nintendo.

@@ -4512,8 +4512,10 @@ static unsigned char *id3_text_only(FILE *fp, const unsigned char *head, long ta
     return b;
 }
 /* v181 : ouvre le decodeur du format (MUSIQUE, ou ta musique dans les jeux : idx = -1) ; rend NULL, ou l'erreur */
+static void midi_release_sf(void);               /* (midi.c) */
 static const char *trk_open(int idx, const char *path, FILE *fp, long size, int fmt, tags_t *tg, long *audio) {
     const char *err = NULL;
+    if (fmt != FMT_MID) midi_release_sf();          /* v203 : la banque de sons MIDI (jusqu'a 6 Mo) n'est plus utile */
     if (fmt == FMT_MP3) {
         /* etiquettes : en-tete ID3v2 (lu a part) et ID3v1 (128 derniers octets) */
         unsigned char head[10], v1[128];

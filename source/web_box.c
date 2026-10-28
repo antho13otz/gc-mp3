@@ -20,7 +20,9 @@ typedef struct {
 } wbx_t;
 
 enum { II_TEXT = 1, II_OPEN, II_CLOSE, II_ATOM, II_BR, II_WBR };
-typedef struct { s32 next; s32 a, n; s16 ts; u8 type; u8 pad; f32 sp; } wii_t;   /* a/n : texte (wd.txt) ou boite (a) ; sp : espace (OPEN/CLOSE) */
+typedef struct { s32 next; s32 a, n; s16 ts; u8 type; u8 pad; f32 sp; s32 nd; } wii_t;   /* nd : noeud HTML (ordre du document) */
+static s32 wb_cur_node = 0;                     /* noeud en cours de construction (-> wii.nd) */
+static u32 wb_cur_src = 0;                      /* noeud des mots en cours de sortie (-> witem.src : place dans le document) */   /* a/n : texte (wd.txt) ou boite (a) ; sp : espace (OPEN/CLOSE) */
 
 typedef struct {
     u32 col, bg;
@@ -103,7 +105,7 @@ static int wb_ii(int box, int type, s32 a, s32 n, int ts, f32 sp) {
     if (box < 0) return -1;
     if (!grow((void **)&wii, &cwii, nwii + 1, sizeof(wii_t), WB_MAX_II)) { wb_fail = 1; return -1; }
     wii_t *x = &wii[nwii];
-    x->next = -1; x->a = a; x->n = n; x->ts = (s16)ts; x->type = (u8)type; x->sp = sp;
+    x->next = -1; x->a = a; x->n = n; x->ts = (s16)ts; x->type = (u8)type; x->sp = sp; x->nd = wb_cur_node;
     wbx_t *b = &wbx[box];
     if (b->i1 >= 0) wii[b->i1].next = nwii; else b->i0 = nwii;
     b->i1 = nwii;
@@ -128,6 +130,7 @@ static int wb_anon(wbctx_t *x) {
 }
 static void wb_text_node(wbctx_t *x, int k) {
     const wnode_t *n = &wd.n[k];
+    wb_cur_node = k;
     if (!n->tn) return;
     const wts_t *t = &wtss[x->ts];
     if (t->ws == WSP_NORMAL || t->ws == WSP_NOWRAP) {     /* que des espaces : seulement s'il y a deja une ligne */
@@ -427,6 +430,7 @@ static int wb_list_num(int k) {                 /* numero d'un <li> : value, ou 
 static int wb_maxdepth = 0;
 static void wb_build(int k, wbctx_t *x, const wcs_t *par, int depth) {
     if (depth > wb_maxdepth) wb_maxdepth = depth;
+    wb_cur_node = k;
     if (depth > 80 || wb_fail) return;          /* (pages imbriquees a l extreme : la suite est ignoree ; les vraies : 40 au plus) */
     const wnode_t *n = &wd.n[k];
     if (n->type != 1) return;
@@ -641,6 +645,7 @@ static int wb_out_item(f32 x, f32 ybase, f32 w, int font, int style, int fx, u32
     it->bg = bg;
     it->link = (s16)link;
     it->img = -1;
+    it->src = wb_cur_src;
     return p->nitems - 1;
 }
 static int wb_out_box(f32 x0, f32 y0, f32 x1, f32 y1, u32 bg, u32 border, int sides) {
@@ -869,6 +874,7 @@ typedef struct {
     s32 box;
     f32 h;                                      /* boite : hauteur */
     s32 it0, it1, bx0, bx1;                     /* boite : ce qu'elle a produit (place a l'origine) */
+    s32 src;                                    /* noeud HTML */
 } wpc_t;
 #define WPC_MAX 600
 #define WLB_MAX 16384
@@ -948,9 +954,11 @@ static void wb_line_end(wline_t *L, int forced) {
     if (wb_marker_box >= 0) wb_emit_marker(L->l, base, L->npc > 0 ? L->pc[0].ts : 0);
     /* sortie : mots de meme style colles en un element */
     int i = 0;
+    u32 save_src = wb_cur_src;
     while (i < L->npc) {
         wpc_t *p = &L->pc[i];
         const wts_t *s = &wtss[p->ts];
+        wb_cur_src = (u32)p->src;
         if (p->kind == 2) {
             const wcs_t *c = WCS(p->box);
             f32 top;
@@ -1000,6 +1008,7 @@ static void wb_line_end(wline_t *L, int forced) {
         }
         i = j;
     }
+    wb_cur_src = save_src;
     L->y += lh;
     L->first = 0;
     L->empty_br = 0;
@@ -1028,6 +1037,7 @@ static wpc_t *wb_piece(wline_t *L, int kind, f32 w, int space, int nobreak) {
     p->kind = (u8)kind;
     p->space = (u8)(space && L->npc > 1);
     p->w = w;
+    p->src = (s32)wb_cur_src;
     return p;
 }
 static void wb_word(wline_t *L, const char *d, int dn, int ts, int space, int nobreak) {
@@ -1092,6 +1102,7 @@ static void wb_inline(int anon, f32 cx, f32 cw, f32 *y) {
     for (int i = wbx[anon].i0; i >= 0 && !wb_fail; i = wii[i].next) {
         const wii_t *t = &wii[i];
         const wts_t *s = &wtss[t->ts];
+        wb_cur_src = (u32)t->nd;
         if (t->type == II_TEXT) {
             const char *tx = wd.txt + t->a;
             int n = t->n, j = 0;
@@ -1320,6 +1331,7 @@ static f32 wb_atom_layout(int b, f32 avail, f32 *w, f32 *h, int *it0, int *it1, 
 /* flottant : place a gauche / a droite a partir de *y ; le texte le contourne */
 static void wb_float(int b, f32 cx, f32 cw, f32 y) {
     const wcs_t *c = WCS(b);
+    if (wbx[b].node >= 0) wb_cur_src = (u32)wbx[b].node;
     f32 bw, h = 0;
     int it0 = wbp->nitems, bx0 = wbp->nboxes;
     f32 ml = wb_mar(c, 3, cw), mr = wb_mar(c, 1, cw), mt = wb_mar(c, 0, cw), mb = wb_mar(c, 2, cw);
@@ -1358,6 +1370,7 @@ static void wb_float(int b, f32 cx, f32 cw, f32 y) {
 /* boite de bloc dans son bloc conteneur */
 static void wb_layout_box(int b, f32 cx, f32 cw, f32 *y) {
     wbx_t *x = &wbx[b];
+    if (x->node >= 0) wb_cur_src = (u32)x->node;
     if (x->kind == WB_ANON) { wb_inline(b, cx, cw, y); return; }
     if (x->flt) { wb_float(b, cx, cw, *y + mp_pos + mp_neg); return; }
     const wcs_t *c = WCS(b);
@@ -1689,6 +1702,7 @@ static int wfi_cmp(const void *a, const void *b) { const wfi_t *x = (const wfi_t
 static f32 wb_item_at(int b, f32 x, f32 bw, f32 y, f32 cb) {
     f32 yy = y;
     wbx_t *bx = &wbx[b];
+    if (bx->node >= 0) wb_cur_src = (u32)bx->node;
     if (bx->kind == WB_ANON) {
         wbfc_t s; wb_bfc_begin(&s);
         wb_inline(b, x, bw, &yy);

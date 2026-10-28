@@ -523,7 +523,7 @@ static int retro_open(const char *path, int fmt, tags_t *tg, const char **err) {
         char t2[96] = "";
         if (!midi_open(path, t2, sizeof(t2), err)) return 0;
         snprintf(tg->title, sizeof(tg->title), "%s", t2[0] ? t2 : display_name(base_of(path)));
-        snprintf(tg->artist, sizeof(tg->artist), "MIDI");
+        snprintf(tg->artist, sizeof(tg->artist), "MIDI%s%s", mi_sf ? " - " : "", mi_sf ? mi_sf_name : "");
         retro_len_ms = midi_len_ms();
         return 1;
     }
