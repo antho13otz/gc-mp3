@@ -420,6 +420,7 @@ static int volume_pct = 100;                /* volume (reglages), 0 a 100 */
 static int night_on = 0, night_lum = 2, night_radio = 1, night_pending_radio = 0;
 static u64 night_hint_until = 0;
 static int upd_auto = 1;
+static int upd_xz = 0;                                 /* v226 : mise a jour = version compressee (demarrage plus rapide) */
 static char upd_repo[96] = "antho13otz/gc-mp3";
 static char upd_file[256] = "";
 static int stream_codec = 0;                /* radio : 0 = MP3, 1 = AAC, 2 = OGG Vorbis */
@@ -5612,6 +5613,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "veilleuse_luminosite")) { night_lum = atoi(v); if (night_lum < 1) night_lum = 1; if (night_lum > 5) night_lum = 5; }
         else if (!strcasecmp(k, "veilleuse_radio")) night_radio = yes(v);
         else if (!strcasecmp(k, "maj_auto")) upd_auto = yes(v);
+        else if (!strcasecmp(k, "maj_compresse")) upd_xz = yes(v);
         else if (!strcasecmp(k, "maj_depot")) { if (strchr(v, '/') && !strchr(v, ' ')) snprintf(upd_repo, sizeof(upd_repo), "%s", v); }
         else if (!strcasecmp(k, "maj_fichier")) snprintf(upd_file, sizeof(upd_file), "%s", v);
         else if (!strcasecmp(k, "disposition")) { for (int i = 0; i < LAYOUT_COUNT; i++) if (!strcasecmp(v, layout_keys[i])) for (int t = 0; t < TAB_COUNT; t++) layout_tab[t] = i; }
@@ -5813,8 +5815,8 @@ static void settings_print(FILE *f) {                   /* v194 : le texte de gc
                "veilleuse_luminosite = %d\nveilleuse_radio = %s\n"
                "# Mise a jour : verification au demarrage (oui / non), depot GitHub,\n"
                "# fichier .dol a remplacer (vide = trouve tout seul)\n"
-               "maj_auto = %s\nmaj_depot = %s\nmaj_fichier = %s\n",
-            night_lum, night_radio ? "oui" : "non", upd_auto ? "oui" : "non", upd_repo, upd_file);
+               "maj_auto = %s\nmaj_compresse = %s\nmaj_depot = %s\nmaj_fichier = %s\n",
+            night_lum, night_radio ? "oui" : "non", upd_auto ? "oui" : "non", upd_xz ? "oui" : "non", upd_repo, upd_file);
     fprintf(f, "# La manette vibre sur les basses (mode soiree) et dans les jeux : oui / non\n"
                "vibrations = %s\n"
                "# Nouveaux episodes des podcasts telecharges tout seuls dans sd:/gc-mp3/podcasts : oui / non\n"
@@ -12119,7 +12121,7 @@ static void draw_list_radio(void) {
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
        MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_RECAT, MI_RECLEN, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PULSELD, MI_PERF, MI_LAUNCHER, MI_UPDATE,
-       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_PLAYLIM, MI_QUIT, MI_COUNT };
+       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_PLAYLIM, MI_UPDXZ, MI_QUIT, MI_COUNT };
 static void pj_limit_text(char *o, int cap);            /* v191 (profils.c) */
 static void pj_limit_next(int d);
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
@@ -12134,7 +12136,7 @@ static const s8 sec_items[6][32] = {
     { -9, MI_UILANG, MI_LANG, -10, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_TABS, -11, MI_LAYOUT, MI_ELEMS, MI_VIZ, MI_SGPAL, MI_LYRSHOW, -12, MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, -13, MI_HIDDEN, MI_UNKNOWN, -14, MI_PERF, -1 },
     { -15, MI_TV, MI_VIDEO, MI_WIDE, -16, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, -1 },
     { -17, MI_GLANG, MI_GSOUND, MI_CLOCK, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, MI_PLAYLIM, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
-    { -21, MI_DHCP, MI_IP, MI_MASK, MI_GW, -22, MI_NETSMB, MI_NETFTP, MI_NETFSP, -23, MI_SALON, MI_PHONEAUTO, -24, MI_UPDAUTO, MI_UPDATE, -1 } };
+    { -21, MI_DHCP, MI_IP, MI_MASK, MI_GW, -22, MI_NETSMB, MI_NETFTP, MI_NETFSP, -23, MI_SALON, MI_PHONEAUTO, -24, MI_UPDAUTO, MI_UPDXZ, MI_UPDATE, -1 } };
 static int sec_n(int sec) { int n = 0; if (sec < 0 || sec >= SEC_TOOLS) return 0; while (n < 32 && sec_items[sec][n] != -1) n++; return n; }
 static int sec_pos(int sec, int mi) { for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] == mi) return i; return -1; }
 static int sec_first(int sec) { for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] >= 0) return sec_items[sec][i]; return 0; }
@@ -12237,6 +12239,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_PHONEAUTO: snprintf(out, cap, "%s", phone_auto ? "Oui" : "Non"); break;
     case MI_SALON: if (!salon_on) snprintf(out, cap, "Non"); else snprintf(out, cap, "Oui (%d console%s)", salon_n, salon_n > 1 ? "s" : ""); break;
     case MI_UPDAUTO: snprintf(out, cap, "%s", upd_auto ? "Oui" : "Non"); break;
+    case MI_UPDXZ:   snprintf(out, cap, "%s", upd_xz ? "Oui" : "Non"); break;
     case MI_NETSMB: case MI_NETFTP: case MI_NETFSP: nfs_menu_value(i - MI_NETSMB, out, cap); break;   /* v86 */
     case MI_TREBLE:  if (eq_treble) snprintf(out, cap, "%+d dB", eq_treble); else snprintf(out, cap, "0"); break;
     case MI_LYRICS:  snprintf(out, cap, "%s", lyrics_auto ? "Oui" : "Non"); break;
@@ -12322,7 +12325,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "A+Z+START (lanceur de secours)", "A+Z+START (Pulse)", "Carte m\xC3\xA9moire virtuelle (Pulse)", "\xC3\x89" "cran de chargement (Pulse)", "Mesure de fluidit\xC3\xA9", "Lanceur de secours", "Mise \xC3\xA0 jour",
     "Fichiers cach\xC3\xA9s (FICHIERS)", "Cacher les fichiers inconnus", "Langue des jeux (console)", "Son (console)",
     "Adresse automatique (DHCP)", "Adresse IP de la console", "Masque", "Passerelle (box)", "T\xC3\xA9l\xC3\xA9" "commande au d\xC3\xA9marrage",
-    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Date et heure (console)", "Nouveaux jeux vus tout seuls", "Limite de jeu par jour", "Quitter GC Station" };
+    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Date et heure (console)", "Nouveaux jeux vus tout seuls", "Limite de jeu par jour", "Version compress\xC3\xA9" "e", "Quitter GC Station" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -12378,6 +12381,7 @@ static void menu_change(int i, int d) {
     case MI_PHONEAUTO: phone_auto = !phone_auto; break;
     case MI_SALON: salon_on = !salon_on; break;
     case MI_UPDAUTO: upd_auto = !upd_auto; break;
+    case MI_UPDXZ:   upd_xz = !upd_xz; break;
     case MI_NETSMB: case MI_NETFTP: case MI_NETFSP: nfs_ui_open(i - MI_NETSMB); return;   /* v86 */
     case MI_BASS:    eq_bass += 2 * d; eq_preset = 0; eq_setup(); break;
     case MI_TREBLE:  eq_treble += 2 * d; eq_preset = 0; eq_setup(); break;
@@ -12687,6 +12691,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_PHONEAUTO) hint = "La page du t\xC3\xA9l\xC3\xA9phone (onglet T\xC3\x89L\xC3\x89PHONE) est pr\xC3\xAAte d\xC3\xA8s le d\xC3\xA9marrage";
     if (menu_sel >= MI_NETSMB && menu_sel <= MI_NETFSP) hint = "A : adresse, utilisateur, mot de passe, test ; puis onglet FICHIERS (B depuis la carte SD)";
     if (menu_sel == MI_SALON) hint = "Les autres GC Station du r\xC3\xA9seau dans FICHIERS (B) : leur carte, et Y : \xC3\xA9" "couter avec";
+    if (menu_sel == MI_UPDXZ) hint = "Mise \xC3\xA0 jour : .dol compress\xC3\xA9 (2 fois plus petit, d\xC3\xA9marrage plus rapide)";
     if (menu_sel == MI_UPDAUTO) hint = "Une nouvelle version est signal\xC3\xA9" "e au d\xC3\xA9marrage (rien n'est install\xC3\xA9 sans toi)";
     if (hint) gx_text1(F_SMALL, x + 20, help_y + 8, hint, RGBA(255, 210, 120, 255));
     draw_menu_legend(0);

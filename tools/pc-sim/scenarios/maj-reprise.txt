@@ -29,6 +29,8 @@ wait 120ms
 press DOWN
 wait 120ms
 press DOWN
+wait 120ms
+press DOWN
 wait 300ms
 shot m1
 press A

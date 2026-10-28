@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v226 — mise à jour en version compressée
+- Nouveau réglage **Réglages > Réseau > Mises à jour > Version compressée** (Non par défaut). Sur **Oui**, la
+  mise à jour télécharge le .dol compressé (2,2 Mo au lieu de 5,5 Mo, démarrage plus rapide) au lieu du
+  normal. Il s'installe exactement pareil : à la place du fichier lancé (`ipl.dol`, `boot.dol`…), l'ancien
+  gardé en `.ancien`, les autres copies de GC Station remplacées aussi. Le message devient « Build N
+  compressé disponible ».
+- La compilation en ligne publie aussi ce fichier dans la release « dernier » (`gc-station-compresse-bN.bin`,
+  ajouté à `release.json`). S'il n'est pas encore prêt (quelques minutes après le .dol normal), la mise à jour
+  prend le .dol normal.
+
 ## Nouveautés v225 — lancer une appli depuis Fichiers
 - Dans l'onglet **FICHIERS**, **A** sur un fichier `.dol` de la carte SD lance l'appli, comme depuis la liste
   Applis (retour à GC Station quand elle se ferme).

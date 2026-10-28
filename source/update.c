@@ -29,6 +29,7 @@ static int up_state = UP_IDLE;
 static int up_build = 0;                       /* build disponible */
 static char up_url[URL_MAX];
 static long up_size = 0;
+static int up_is_xz = 0;                                /* v226 : le fichier choisi est la version compressee */
 static char up_msg[160] = "";
 static char up_target[NAME_LEN] = "";
 static int up_auto_done = 0;
@@ -538,10 +539,23 @@ static void update_pump(void) {
             p += 22;
         }
         if (!up_build && best_b > 0) up_build = best_b;          /* (texte de la release illisible) */
+        up_is_xz = 0;
+        if (upd_xz && up_build && up_url[0]) {                   /* v226 : version compressee du meme build, si elle est deja publiee */
+            char wx[48];
+            snprintf(wx, sizeof(wx), "/gc-station-compresse-b%d.bin", up_build);
+            for (const char *p = js; p && p < end; p += 22) {
+                p = strstr(p, "\"browser_download_url\"");
+                if (!p || p >= end) break;
+                char u[URL_MAX];
+                json_field(p, end, "browser_download_url", u, sizeof(u));
+                int ul = (int)strlen(u), xl = (int)strlen(wx);
+                if (ul > xl && !strcasecmp(u + ul - xl, wx)) { snprintf(up_url, sizeof(up_url), "%s", u); up_is_xz = 1; break; }
+            }
+        }
         free(jsb);
         hf_drop(&up_hf);
         up_hf.st = HF_IDLE;
-        crumb("maj : build=%d dol=%d url=%.60s", up_build, dols, up_url);
+        crumb("maj : build=%d dol=%d xz=%d url=%.60s", up_build, dols, up_is_xz, up_url);
         if (!dols) { up_fail("Pas encore de fichier .dol (compilation en cours ?)"); return; }
         if (!up_build || !up_url[0]) { up_fail("Version publi\xC3\xA9" "e illisible"); return; }
         if (up_build <= GCMP3_BUILD) {
@@ -549,7 +563,8 @@ static void update_pump(void) {
             snprintf(up_msg, sizeof(up_msg), "\xC3\x80 jour (build %d)", GCMP3_BUILD);
         } else {
             up_state = UP_AVAIL;
-            snprintf(up_msg, sizeof(up_msg), "Build %d disponible : A pour installer", up_build);
+            if (up_is_xz) snprintf(up_msg, sizeof(up_msg), TR("Build %d compress\xC3\xA9 disponible : A pour installer"), up_build);
+            else snprintf(up_msg, sizeof(up_msg), "Build %d disponible : A pour installer", up_build);
             up_notice_until = now_ms() + 10000;
             crumb("mise a jour disponible : build %d", up_build);
         }
