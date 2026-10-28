@@ -8364,6 +8364,13 @@ static int tag_attr(const char *tag, int tlen, const char *name, char *out, int 
     return 0;
 }
 
+typedef struct { char host[96], ufield[64], user[96], pfield[64], pass[96]; u8 used; } wlogin_t;   /* v201 (web_extra.c) */
+static wlogin_t id_pend;
+static int id_count(void);
+static void id_clear(void);
+static void id_capture(int form);
+static void id_answer(int yes);
+static void id_fill(wpage_t *p);
 #include "web_layout.c"                                /* v118 : mise en page (CSS, couleurs, tableaux) */
 
 /* texte brut (text/plain) : une ligne par ligne */
@@ -8787,6 +8794,12 @@ static char *build_home(void) {
         sb_add(&s, "<h2>Cookies</h2><p>Les sites peuvent garder des informations (connexion, pr\xC3\xA9" "f\xC3\xA9rences). ");
         if (nck > 0) { snprintf(t, sizeof(t), "<a href=\"gc:cookies\">Effacer les cookies (%d)</a>", nck); sb_add(&s, t); }
         else sb_add(&s, "Aucun cookie pour l'instant.");
+        sb_add(&s, "</p>");
+        int nid = id_count();                           /* v201 */
+        sb_add(&s, "<h2>Identifiants</h2><p>Apr\xC3\xA8s une connexion \xC3\xA0 un site, GC Station propose d'enregistrer l'identifiant ; "
+                   "la fois suivante, le formulaire est d\xC3\xA9j\xC3\xA0 rempli. ");
+        if (nid > 0) { snprintf(t, sizeof(t), "<a href=\"gc:identifiants\">Effacer les identifiants (%d)</a>", nid); sb_add(&s, t); }
+        else sb_add(&s, "Aucun identifiant enregistr\xC3\xA9.");
         sb_add(&s, "</p>");
     }
     sb_add(&s, "<h2>Téléchargements</h2><p>Un lien vers un fichier (MP3, ZIP...) est enregistré dans SD:/downloads. "
@@ -11328,6 +11341,8 @@ static void web_go(const char *url, int mode) {
         else if (strcmp(w, "favori") == 0) { add_favorite(); web_render_home(NAV_REPLACE); }
         else if (strcmp(w, "annuler") == 0) { if (dl_active) dl_stop("Téléchargement annulé", 0); web_render_home(NAV_REPLACE); }
         else if (strcmp(w, "cookies") == 0) { ck_clear(); web_note("Cookies effacés", 0); web_render_home(NAV_REPLACE); }
+        else if (strcmp(w, "id-oui") == 0 || strcmp(w, "id-non") == 0) { id_answer(w[3] == 'o'); web_relayout(); }
+        else if (strcmp(w, "identifiants") == 0) { id_clear(); web_note("Identifiants effac\xC3\xA9s", 0); web_render_home(NAV_REPLACE); }
         else if (strcmp(w, "texte") == 0) {                 /* v201 : mode texte de la page en cours (ou retour) */
             if (web_text_url[0] && !strcmp(web_text_url, pg.url)) web_text_url[0] = 0;
             else snprintf(web_text_url, sizeof(web_text_url), "%s", pg.url);
@@ -11379,6 +11394,7 @@ static void web_submit(int form, int button) {
     }
     snprintf(url, sizeof(url), "%s", pg.pool + pg.forms[form].action);
     wb_refreshes = 0;
+    id_capture(form);                                   /* v201 : mot de passe -> proposer de l'enregistrer */
     crumb("formulaire %s", pg.forms[form].post ? "POST" : "GET");
     if (pg.forms[form].post) {                          /* envoi dans le corps de la requete */
         free(wb_post);

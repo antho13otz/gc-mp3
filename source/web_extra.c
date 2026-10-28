@@ -495,3 +495,109 @@ static void draw_web_overlays(void) {
     draw_select_picker();
     draw_audio_offer();
 }
+
+/* ---------- v201 : identifiants enregistres (formulaires de connexion) ----------
+   Apres l'envoi d'un formulaire avec un mot de passe, la page suivante propose de l'enregistrer ; la fois
+   d'apres, le formulaire de ce site est deja rempli. Fichier SD:/gc-mp3/reglages/identifiants.txt : site, nom
+   des champs, identifiant, mot de passe brouille (pas chiffre : la carte SD reste a proteger). */
+#define ID_FILE GCD_REG "/identifiants.txt"
+#define ID_MAX 32
+static wlogin_t ids[ID_MAX];                    /* (wlogin_t, id_pend : declares dans main.c) */
+static int ids_loaded = 0;
+static void id_xor(char *s, int n) { static const char k[] = "GCStation-201"; for (int i = 0; i < n; i++) s[i] ^= k[i % 13] & 0x1F; }
+static void id_hex(const char *in, char *out, int cap) {        /* brouille -> hexa */
+    char t[96]; int n = (int)strlen(in); if (n > 95) n = 95;
+    memcpy(t, in, n); id_xor(t, n);
+    int o = 0;
+    for (int i = 0; i < n && o < cap - 3; i++) o += snprintf(out + o, cap - o, "%02x", (u8)t[i]);
+    out[o] = 0;
+}
+static void id_unhex(const char *in, char *out, int cap) {
+    int n = 0;
+    for (const char *p = in; p[0] && p[1] && n < cap - 1; p += 2) { int a = hexv(p[0]), b = hexv(p[1]); if (a < 0 || b < 0) break; out[n++] = (char)(a * 16 + b); }
+    id_xor(out, n);
+    out[n] = 0;
+}
+static void id_load(void) {
+    if (ids_loaded) return;
+    ids_loaded = 1;
+    FILE *f = sd_ok ? fopen(ID_FILE, "r") : NULL;
+    if (!f) return;
+    char line[700];
+    int n = 0;
+    while (n < ID_MAX && fgets(line, sizeof(line), f)) {
+        if (line[0] == '#') continue;
+        line[strcspn(line, "\r\n")] = 0;
+        char *fld[5]; int k = 0;
+        for (char *p = line; k < 5; ) { fld[k++] = p; char *t = strchr(p, '\t'); if (!t) break; *t = 0; p = t + 1; }
+        if (k != 5) continue;
+        wlogin_t *e = &ids[n++];
+        snprintf(e->host, sizeof(e->host), "%s", fld[0]); snprintf(e->ufield, sizeof(e->ufield), "%s", fld[1]);
+        snprintf(e->user, sizeof(e->user), "%s", fld[2]); snprintf(e->pfield, sizeof(e->pfield), "%s", fld[3]);
+        id_unhex(fld[4], e->pass, sizeof(e->pass));
+        e->used = 1;
+    }
+    fclose(f);
+}
+static void id_save(void) {
+    if (!sd_ok) return;
+    mkdir(GCD_REG, 0777);
+    FILE *f = fopen(ID_FILE, "w");
+    if (!f) return;
+    fprintf(f, "# GC Station : identifiants des sites (site, champ, identifiant, champ, mot de passe brouille)\n");
+    for (int i = 0; i < ID_MAX; i++) if (ids[i].used) {
+        char hx[200]; id_hex(ids[i].pass, hx, sizeof(hx));
+        fprintf(f, "%s\t%s\t%s\t%s\t%s\n", ids[i].host, ids[i].ufield, ids[i].user, ids[i].pfield, hx);
+    }
+    fclose(f);
+}
+static int id_count(void) { id_load(); int n = 0; for (int i = 0; i < ID_MAX; i++) n += ids[i].used; return n; }
+static void id_clear(void) { memset(ids, 0, sizeof(ids)); ids_loaded = 1; if (sd_ok) remove(ID_FILE); }
+static wlogin_t *id_find(const char *host) { id_load(); for (int i = 0; i < ID_MAX; i++) if (ids[i].used && !strcasecmp(ids[i].host, host)) return &ids[i]; return NULL; }
+/* envoi d'un formulaire : un mot de passe ? -> proposer de l'enregistrer (page suivante) */
+static void id_capture(int form) {
+    urlp_t u;
+    if (!url_parse(pg.url, &u)) return;
+    int pf = -1, uf = -1;
+    for (int i = 0; i < pg.nfields; i++) {
+        wfield_t *f = &pg.fields[i];
+        if (f->form != form || f->type != FD_TEXT) continue;
+        if (f->secret) { if (pf < 0 && f->value[0]) pf = i; }
+        else if (pf < 0 && f->value[0]) uf = i;        /* (le dernier champ rempli avant le mot de passe) */
+    }
+    if (pf < 0) return;
+    wlogin_t *e = id_find(u.host);
+    const char *user = uf >= 0 ? pg.fields[uf].value : "";
+    if (e && !strcmp(e->user, user) && !strcmp(e->pass, pg.fields[pf].value)) return;   /* (deja enregistre) */
+    memset(&id_pend, 0, sizeof(id_pend));
+    snprintf(id_pend.host, sizeof(id_pend.host), "%s", u.host);
+    if (uf >= 0) { snprintf(id_pend.ufield, sizeof(id_pend.ufield), "%s", pg.pool + pg.fields[uf].name); snprintf(id_pend.user, sizeof(id_pend.user), "%s", user); }
+    snprintf(id_pend.pfield, sizeof(id_pend.pfield), "%s", pg.pool + pg.fields[pf].name);
+    snprintf(id_pend.pass, sizeof(id_pend.pass), "%s", pg.fields[pf].value);
+    id_pend.used = 1;
+}
+static void id_answer(int yes) {
+    if (yes && id_pend.used) {
+        wlogin_t *e = id_find(id_pend.host);
+        if (!e) { for (int i = 0; i < ID_MAX && !e; i++) if (!ids[i].used) e = &ids[i]; }
+        if (!e) e = &ids[0];
+        *e = id_pend;
+        id_save();
+        web_note("Identifiant enregistr\xC3\xA9", 0);
+    }
+    memset(&id_pend, 0, sizeof(id_pend));
+}
+/* page mise en page : formulaire de connexion d'un site connu -> rempli */
+static void id_fill(wpage_t *p) {
+    urlp_t u;
+    if (!p->nfields || !url_parse(p->url, &u)) return;
+    wlogin_t *e = id_find(u.host);
+    if (!e) return;
+    for (int i = 0; i < p->nfields; i++) {
+        wfield_t *f = &p->fields[i];
+        if (f->type != FD_TEXT || f->value[0]) continue;
+        const char *nm = p->pool + f->name;
+        if (f->secret && (!strcmp(nm, e->pfield) || !e->pfield[0])) snprintf(f->value, sizeof(f->value), "%s", e->pass);
+        else if (!f->secret && e->ufield[0] && !strcmp(nm, e->ufield)) snprintf(f->value, sizeof(f->value), "%s", e->user);
+    }
+}

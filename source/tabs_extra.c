@@ -336,6 +336,23 @@ static void dl_open(int i) {                                 /* A : ecouter / vo
         return;
     }
     if (audio_ext_len(p)) { music_rescan(); for (int k = 0; k < nfiles; k++) if (!strcmp(names[k], p)) { queue_build(k); start_track(k); return; } }
+    const char *dot = strrchr(p, '.');
+    if (dot && !strcasecmp(dot, ".zip")) {                    /* v201 : archive : decompressee a cote, dans un dossier */
+        char dir[NAME_LEN];
+        int zl = (int)(dot - p);
+        if (zl <= 0 || zl >= (int)sizeof(dir) - 8) return;
+        memcpy(dir, p, zl); dir[zl] = 0;
+        for (int k = 2; k < 50 && stat(dir, &st) == 0; k++) snprintf(dir + zl, sizeof(dir) - zl, " (%d)", k);
+        lib_note("D\xC3\xA9" "compression...");
+        int sk = 0, n = zip_extract(p, dir, 0, &sk);
+        char m[300];
+        if (n < 0) snprintf(m, sizeof(m), "Archive illisible (pas un .zip complet ?)");
+        else if (sk) snprintf(m, sizeof(m), "D\xC3\xA9" "compress\xC3\xA9 : %d fichier(s) dans %s (%d trop gros ou illisibles)", n, base_of(dir), sk);
+        else snprintf(m, sizeof(m), "D\xC3\xA9" "compress\xC3\xA9 : %d fichier(s) dans SD:/downloads/%s", n, base_of(dir));
+        lib_note(m);
+        if (n > 0) music_rescan();
+        return;
+    }
     lib_note("Ouvre ce fichier dans l'onglet FICHIERS");
 }
 static void dltab_input(u32 down, u32 nav, int fire) {
@@ -442,5 +459,5 @@ static void draw_tab_dl(void) {
         }
     }
     gx_text_c(F_SMALL, 320, 402, dl_active ? "A : ouvrir     X X : effacer     B : annuler le t\xC3\xA9l\xC3\xA9" "chargement     Y : onglet WEB"
-                                           : "A : \xC3\xA9" "couter / voir     X X : effacer le fichier     Y : aller dans l'onglet WEB", RGBA(200, 190, 245, 230));
+                                           : "A : \xC3\xA9" "couter / voir / d\xC3\xA9" "compresser (.zip)     X X : effacer     Y : onglet WEB", RGBA(200, 190, 245, 230));
 }

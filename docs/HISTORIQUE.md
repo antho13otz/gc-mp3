@@ -24,6 +24,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v202 — identifiants, .zip, liens dans l'ordre de l'écran
+- **Identifiants enregistrés** : après l'envoi d'un formulaire avec un mot de passe, la page suivante propose
+  « Enregistrer l'identifiant … pour site ? Oui / Non ». La fois suivante, le formulaire de connexion de ce site
+  est déjà rempli. Liste dans SD:/gc-mp3/reglages/identifiants.txt (mot de passe brouillé, pas chiffré : la
+  carte SD reste à protéger) ; « Effacer les identifiants » sur l'accueil du web.
+- **Archives .zip** : dans l'onglet TÉLÉCHARGEMENTS, A sur un .zip le décompresse à côté, dans un dossier du même
+  nom (dossiers de l'archive gardés, « .. » neutralisé ; fichiers jusqu'à 12 Mo).
+- **Croix** : les liens se suivent dans l'ordre où on les voit (haut → bas, gauche → droite), même quand la page
+  les place autrement que dans son HTML (colonnes, flottants).
+- Banc d'essai : le serveur de test répond aux formulaires envoyés (POST).
+
 ## Nouveautés v201 — nouveau moteur de pages web
 Le navigateur (onglet WEB) a un nouveau moteur, écrit pour GC Station (l'affichage, le curseur et les touches ne
 changent pas) :

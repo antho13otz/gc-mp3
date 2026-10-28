@@ -711,29 +711,27 @@ static void draw_list_retro(void) {
 
 static u32 rz_le32(const u8 *p) { return (u32)p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24; }
 static u16 rz_le16(const u8 *p) { return (u16)(p[0] | p[1] << 8); }
-static int retro_unzip(const char *zpath) {
-    char dir[NAME_LEN];
-    int zl = (int)strlen(zpath);
-    if (zl < 5 || zl - 4 >= (int)sizeof(dir)) return 0;
-    memcpy(dir, zpath, zl - 4); dir[zl - 4] = 0;
-    struct stat st;
-    if (stat(dir, &st) == 0) return 0;                  /* deja fait */
+/* v201 : decompresse une archive .zip dans dir (cree) ; music : seulement les musiques, a plat (SD:/retro) ;
+   sinon tous les fichiers avec leurs dossiers (« .. » et noms interdits nettoyes). -> nombre de fichiers ecrits ;
+   *skipped : fichiers sautes (trop gros pour la memoire, methode inconnue) */
+static int zip_extract(const char *zpath, const char *dir, int music, int *skipped) {
+    if (skipped) *skipped = 0;
     FILE *f = fopen(zpath, "rb");
-    if (!f) return 0;
+    if (!f) return -1;
     long fsz = 0;
     if (fseek(f, 0, SEEK_END) == 0) fsz = ftell(f);
     long tail = fsz < 65557 ? fsz : 65557;
     u8 *t = tail > 22 ? (u8 *)malloc(tail) : NULL;
     int out = 0;
-    if (!t || fseek(f, fsz - tail, SEEK_SET) != 0 || fread(t, 1, tail, f) != (size_t)tail) { free(t); fclose(f); return 0; }
+    if (!t || fseek(f, fsz - tail, SEEK_SET) != 0 || fread(t, 1, tail, f) != (size_t)tail) { free(t); fclose(f); return -1; }
     long e = -1;
     for (long i = tail - 22; i >= 0; i--) if (rz_le32(t + i) == 0x06054b50u) { e = i; break; }
-    if (e < 0) { free(t); fclose(f); return 0; }
+    if (e < 0) { free(t); fclose(f); return -1; }
     u32 cnt = rz_le16(t + e + 10), cds = rz_le32(t + e + 12), cdo = rz_le32(t + e + 16);
     free(t);
-    if (!cnt || cds > (8u << 20) || (u64)cdo + cds > (u64)fsz) { fclose(f); return 0; }
+    if (!cnt || cds > (8u << 20) || (u64)cdo + cds > (u64)fsz) { fclose(f); return -1; }
     u8 *cd = (u8 *)malloc(cds);
-    if (!cd || fseek(f, cdo, SEEK_SET) != 0 || fread(cd, 1, cds, f) != cds) { free(cd); fclose(f); return 0; }
+    if (!cd || fseek(f, cdo, SEEK_SET) != 0 || fread(cd, 1, cds, f) != cds) { free(cd); fclose(f); return -1; }
     int made = 0;
     u32 p = 0;
     for (u32 n = 0; n < cnt && p + 46 <= cds; n++) {
@@ -745,32 +743,70 @@ static int retro_unzip(const char *zpath) {
         int k = nl < (int)sizeof(name) - 1 ? nl : (int)sizeof(name) - 1;
         memcpy(name, cd + p + 46, k); name[k] = 0;
         p += 46 + nl + el + cl;
+        for (char *q = name; *q; q++) if (*q == '\\') *q = '/';
         const char *b = strrchr(name, '/');
         b = b ? b + 1 : name;
-        if (!b[0] || b[0] == '.' || (meth != 0 && meth != 8) || usz == 0 || usz > (24u << 20) || csz > (24u << 20)) continue;
-        if (retro_ext_fmt(b) < 0 && !audio_ext_len(b)) continue;     /* seulement de la musique */
+        if (!b[0]) continue;                                    /* (dossier) */
+        if (music && (b[0] == '.' || (retro_ext_fmt(b) < 0 && !audio_ext_len(b)))) continue;     /* seulement de la musique */
+        if (!music && (!strcmp(b, ".DS_Store") || !strncmp(name, "__MACOSX/", 9))) continue;
+        u32 lim = music ? (24u << 20) : (12u << 20);
+        if ((meth != 0 && meth != 8) || usz > lim || csz > lim) { if (skipped) (*skipped)++; continue; }
+        /* chemin de sortie : dossiers de l'archive (sans « .. ») */
+        char op[NAME_LEN];
+        int ol = snprintf(op, sizeof(op), "%s", dir);
+        if (!music) {
+            char comp[NAME_LEN]; const char *s0 = name; int bad = 0;
+            while (*s0 && !bad) {
+                const char *sl = strchr(s0, '/');
+                int cl2 = sl ? (int)(sl - s0) : (int)strlen(s0);
+                if (cl2 > 0 && !(cl2 == 1 && s0[0] == '.') && !(cl2 == 2 && s0[0] == '.' && s0[1] == '.')) {
+                    if (cl2 > (int)sizeof(comp) - 1) cl2 = (int)sizeof(comp) - 1;
+                    memcpy(comp, s0, cl2); comp[cl2] = 0;
+                    sanitize_name(comp);
+                    if (!comp[0]) snprintf(comp, sizeof(comp), "_");
+                    if (!made) { mkdir(dir, 0777); made = 1; }
+                    int r = snprintf(op + ol, sizeof(op) - ol, "/%s", comp);
+                    if (r >= (int)sizeof(op) - ol) { bad = 1; break; }
+                    ol += r;
+                    if (sl) mkdir(op, 0777);
+                }
+                if (!sl) break;
+                s0 = sl + 1;
+            }
+            if (bad) { if (skipped) (*skipped)++; continue; }
+        } else {
+            char safe[200];
+            snprintf(safe, sizeof(safe), "%s", b);
+            sanitize_name(safe);
+            if (!safe[0] || snprintf(op + ol, sizeof(op) - ol, "/%s", safe) >= (int)sizeof(op) - ol) continue;
+        }
         u8 lh[30];
         if (fseek(f, lho, SEEK_SET) != 0 || fread(lh, 1, 30, f) != 30 || rz_le32(lh) != 0x04034b50u) continue;
         if (fseek(f, lho + 30 + rz_le16(lh + 26) + rz_le16(lh + 28), SEEK_SET) != 0) continue;
-        u8 *c = (u8 *)malloc(csz ? csz : 1), *u = meth == 8 ? (u8 *)malloc(usz) : c;
-        if (!c || !u || fread(c, 1, csz, f) != csz) { free(c); if (u != c) free(u); continue; }
-        int ok = meth == 0 ? csz == usz : stbi_zlib_decode_noheader_buffer((char *)u, (int)usz, (const char *)c, (int)csz) == (int)usz;
+        u8 *c = (u8 *)malloc(csz ? csz : 1), *u = meth == 8 ? (u8 *)malloc(usz ? usz : 1) : c;
+        if (!c || !u || fread(c, 1, csz, f) != csz) { free(c); if (u != c) free(u); if (skipped) (*skipped)++; continue; }
+        int ok = meth == 0 ? csz == usz : (usz == 0 || stbi_zlib_decode_noheader_buffer((char *)u, (int)usz, (const char *)c, (int)csz) == (int)usz);
         if (ok) {
             if (!made) { mkdir(dir, 0777); made = 1; }
-            char safe[200], op[NAME_LEN];
-            snprintf(safe, sizeof(safe), "%s", b);
-            sanitize_name(safe);
-            if (safe[0] && snprintf(op, sizeof(op), "%s/%s", dir, safe) < (int)sizeof(op)) {
-                FILE *w = fopen(op, "wb");
-                if (w) { if (fwrite(u, 1, usz, w) == usz) out++; fclose(w); }
-            }
-        }
+            FILE *w = fopen(op, "wb");
+            if (w) { if (usz == 0 || fwrite(u, 1, usz, w) == usz) out++; fclose(w); }
+        } else if (skipped) (*skipped)++;
         free(c); if (u != c) free(u);
         service_audio();
     }
     free(cd);
     fclose(f);
     return out;
+}
+static int retro_unzip(const char *zpath) {
+    char dir[NAME_LEN];
+    int zl = (int)strlen(zpath);
+    if (zl < 5 || zl - 4 >= (int)sizeof(dir)) return 0;
+    memcpy(dir, zpath, zl - 4); dir[zl - 4] = 0;
+    struct stat st;
+    if (stat(dir, &st) == 0) return 0;                  /* deja fait */
+    int r = zip_extract(zpath, dir, 1, NULL);
+    return r > 0 ? r : 0;
 }
 static void retro_unzip_tree(const char *dir, int depth) {
     if (!sd_ok) return;

@@ -1950,6 +1950,38 @@ static void wb_grid_in(int b, f32 cx, f32 cw, f32 *y, wfi_t *it) {
     if (n) *y += lh;
 }
 
+/* liens dans l'ordre de l'ecran (haut -> bas, gauche -> droite) : la croix passe de l'un au suivant comme on les voit */
+typedef struct { s32 y, x; int k; } wlord_t;
+static int wlord_cmp(const void *a, const void *b) {
+    const wlord_t *u = (const wlord_t *)a, *v = (const wlord_t *)b;
+    if (u->y != v->y) return u->y < v->y ? -1 : 1;
+    if (u->x != v->x) return u->x < v->x ? -1 : 1;
+    return u->k - v->k;
+}
+static void wb_links_visual(wpage_t *p) {
+    int n = p->nlinks;
+    if (n < 2) return;
+    wlord_t *o = (wlord_t *)malloc(sizeof(wlord_t) * n);
+    int *map = (int *)malloc(sizeof(int) * n);
+    wlink_t *nl = (wlink_t *)malloc(sizeof(wlink_t) * n);
+    if (!o || !map || !nl) { free(o); free(map); free(nl); return; }
+    for (int i = 0; i < n; i++) { o[i].y = 0x7fffffff; o[i].x = 0x7fffffff; o[i].k = i; }
+    for (int i = 0; i < p->nitems; i++) {
+        const witem_t *it = &p->items[i];
+        if (it->link < 0 || it->link >= n) continue;
+        s32 top = (it->style & WS_IMG) ? it->y - it->h : it->y - font_ascent[it->font];
+        wlord_t *q = &o[it->link];
+        /* (meme ligne a quelques points pres : la plus a gauche) */
+        if (top < q->y - 4 || (top <= q->y + 4 && it->x < q->x)) { if (top < q->y - 4 || top < q->y) q->y = top; q->x = it->x; }
+    }
+    for (int i = 0; i < n; i++) o[i].y = o[i].y == 0x7fffffff ? 0x7fffffff : o[i].y / 6;   /* (rangees de 6 points : meme ligne) */
+    qsort(o, n, sizeof(wlord_t), wlord_cmp);
+    for (int i = 0; i < n; i++) { map[o[i].k] = i; nl[i] = p->links[o[i].k]; }
+    memcpy(p->links, nl, sizeof(wlink_t) * n);
+    for (int i = 0; i < p->nitems; i++) if (p->items[i].link >= 0 && p->items[i].link < n) p->items[i].link = (s16)map[p->items[i].link];
+    free(o); free(map); free(nl);
+}
+
 /* ---------- la page ---------- */
 static u32 wb_prof[5];                         /* (simulateur : duree des etapes, us) */
 static char web_text_url[URL_MAX];              /* v201 : page en « mode texte » (sans le style du site) */
@@ -2016,6 +2048,21 @@ static int web_layout_v2(wpage_t *p, const unsigned char *s, int len, int latin)
         long tl = 0;
         for (int i = 0; i < p->nitems && tl < 2000; i++) if (!(p->items[i].style & (WS_IMG | WS_FIELD))) tl += (long)strlen(p->text + p->items[i].off);
         int need_js = wd.scripts > 0 && tl < 600 && strncmp(p->url, "gc:", 3);
+        if (id_pend.used && !lay_in_bg) {      /* v201 : enregistrer l'identifiant qu'on vient d'envoyer ? */
+            char m1[220];
+            snprintf(m1, sizeof(m1), "Enregistrer l'identifiant%s%s pour %s ?", id_pend.user[0] ? " " : "", id_pend.user, id_pend.host);
+            int l1 = new_link(p, LK_HREF, "gc:id-oui", -1, -1), l2 = new_link(p, LK_HREF, "gc:id-non", -1, -1);
+            f32 h = font_height[F_SMALL] + font_height[F_MED] + 22;
+            wb_shift(0, p->nitems, 0, p->nboxes, 0, h);
+            wb_out_box(0, 0, (f32)wv_lw, h - 6, 0xe3f0ffffu, 0x7aa6e0ff, 15);
+            char m1d[240]; int cn = 0; wb_disp(m1, (int)strlen(m1), m1d, sizeof(m1d), 0, &cn);
+            wb_out_item(8, 6 + font_ascent[F_SMALL], (f32)wb_tw(F_SMALL, m1d), F_SMALL, 0, 0, 0x1d3a66ffu, 0, -1, m1d, (int)strlen(m1d));
+            const char *o1 = "Oui, l'enregistrer", *o2 = "Non";
+            f32 w1 = (f32)wb_tw(F_MED, o1);
+            wb_out_item(8, 10 + font_height[F_SMALL] + font_ascent[F_MED], w1, F_MED, WS_LINK, FX_ULINE, WEB_LINK, 0, l1, o1, (int)strlen(o1));
+            wb_out_item(8 + w1 + 24, 10 + font_height[F_SMALL] + font_ascent[F_MED], (f32)wb_tw(F_MED, o2), F_MED, WS_LINK, FX_ULINE, WEB_LINK, 0, l2, o2, (int)strlen(o2));
+            y += h;
+        }
         if (need_js || textmode) {
             const char *m1 = textmode ? "Mode texte : la page sans la mise en forme du site." : "Cette page a besoin de JavaScript (pas disponible sur la GameCube).";
             const char *m2 = textmode ? "Revenir \xC3\xA0 la page normale" : "Essayer le mode texte";
@@ -2029,6 +2076,7 @@ static int web_layout_v2(wpage_t *p, const unsigned char *s, int len, int latin)
         }
     }
     p->height = (s32)(y + 8);
+    id_fill(p);                                 /* v201 : formulaire de connexion d'un site connu : rempli */
     items_sort(p);
     /* liens : haut / bas d'apres leurs elements ; images : position (ordre de lecture) */
     for (int i = 0; i < p->nlinks; i++) p->links[i].y0 = p->links[i].y1 = -1;
@@ -2051,6 +2099,7 @@ static int web_layout_v2(wpage_t *p, const unsigned char *s, int len, int latin)
     }
     u32 t4 = perf_us();
     wb_prof[0] = t1 - t0; wb_prof[1] = t2 - t1; wb_prof[2] = t3 - t2; wb_prof[3] = t4 - t3; wb_prof[4] = wd.nn; wb_prof[1] = wb_maxdepth; wb_maxdepth = 0;
+    wb_links_visual(p);
     wb_free(); ws_free(); wd_free();
     return 1;
 }
