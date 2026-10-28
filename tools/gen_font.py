@@ -10,23 +10,31 @@ from PIL import Image, ImageDraw, ImageFont
 D = sys.argv[2] if len(sys.argv) > 2 else '/usr/share/fonts/truetype/dejavu/'
 if not D.endswith('/'):
     D += '/'
-FONTS = [  # (fichier, taille, jeu de caracteres)  0=SMALL 1=MED 2=LARGE 3=LOGO
+FONTS = [  # (fichier, taille, jeu de caracteres)  0=SMALL 1=MED 2=LARGE 3=LOGO 4=MONO 5=W18
     (D + 'DejaVuSansCondensed.ttf',      12, 'full'),
     (D + 'DejaVuSansCondensed.ttf',      15, 'full'),
     (D + 'DejaVuSansCondensed-Bold.ttf', 22, 'full'),
     (D + 'DejaVuSans-BoldOblique.ttf',   34, 'GC-MP3 STAION'),   # v47 : logo GC STATION
+    (D + 'DejaVuSansMono.ttf',           13, 'full'),            # v201 : web : <pre>, <code>
+    (D + 'DejaVuSansCondensed.ttf',      18, 'full'),            # v201 : web : texte moyen (sous-titres)
 ]
+# v201 : caracteres en plus (apres les 191 de Latin-1) : latin etendu (polonais, tcheque, maori...),
+# guillemets, tirets, points de suspension, puces, euro, fleches, coches
+EXTRA = list(range(0x100, 0x180)) + [0x192, 0x2C6, 0x2DC] + list(range(0x2010, 0x2016)) + list(range(0x2018, 0x2020)) + [
+    0x2020, 0x2021, 0x2022, 0x2026, 0x2030, 0x2032, 0x2033, 0x2039, 0x203A, 0x20AC, 0x2122, 0x2190, 0x2191, 0x2192, 0x2193,
+    0x2212, 0x2248, 0x2260, 0x2264, 0x2265, 0x25AA, 0x25B6, 0x25C0, 0x25CB, 0x25CF, 0x25E6, 0x2605, 0x2606, 0x2713, 0x2714, 0x2715, 0x2717]
+EXTRA = sorted(set(EXTRA))
 ATLAS_W = 512
 GAP = 2                      # marge entre glyphes (evite les fuites du filtrage bilineaire)
 
 
 def charset(kind):
     if kind == 'full':
-        return list(range(32, 127)) + list(range(160, 256))
+        return list(range(32, 127)) + list(range(160, 256)) + EXTRA
     return [ord(c) for c in kind]
 
 
-ALL = charset('full')        # 191 caracteres : ASCII + Latin-1 (accents francais)
+ALL = charset('full')        # 191 caracteres : ASCII + Latin-1 (accents francais), puis EXTRA
 NG = len(ALL)
 index_of = {cp: i for i, cp in enumerate(ALL)}
 
@@ -71,9 +79,7 @@ for key, (bm, *_rest) in items:
     x += w + GAP
     shelf = max(shelf, h)
 used_h = y + shelf + GAP
-ATLAS_H = 8
-while ATLAS_H < used_h:      # hauteur en puissance de 2 (le plus compatible)
-    ATLAS_H *= 2
+ATLAS_H = (used_h + 7) // 8 * 8   # v201 : multiple de 8 (GX : texture sans repetition, toute taille permise)
 
 atlas = np.zeros((ATLAS_H, ATLAS_W), dtype=np.uint8)
 for key, (bm, *_rest) in items:
@@ -98,6 +104,8 @@ o.append('// Polices : DejaVu Sans (licence libre Bitstream Vera / DejaVu).\n')
 o.append('#ifndef FONT_ATLAS_H\n#define FONT_ATLAS_H\n')
 o.append('#define FONT_TEX_W %d\n#define FONT_TEX_H %d\n#define FONT_NGLYPHS %d\n#define FONT_COUNT %d\n'
          % (ATLAS_W, ATLAS_H, NG, len(FONTS)))
+o.append('#define FONT_NEXTRA %d\n' % len(EXTRA))
+o.append('static const u16 font_extra_cp[FONT_NEXTRA] = {%s};\n' % ','.join('0x%X' % c for c in EXTRA))
 o.append('typedef struct { u16 x, y; u8 w, h; s8 xoff, yoff; u8 adv, pad; } fglyph_t;\n')
 o.append('static const u8 font_ascent[FONT_COUNT] = {%s};\n' % ','.join(str(m[0]) for m in metrics))
 o.append('static const u8 font_height[FONT_COUNT] = {%s};\n' % ','.join(str(m[1]) for m in metrics))
@@ -120,4 +128,4 @@ for i in range(0, len(words), 12):
 o.append('};\n#endif\n')
 with open(sys.argv[1], 'w') as f:
     f.write(''.join(o))
-print('atlas %dx%d (%d octets), %d glyphes' % (ATLAS_W, ATLAS_H, len(data), len(items)))
+print("atlas %dx%d (%d octets), %d glyphes, hauteur utile %d" % (ATLAS_W, ATLAS_H, len(data), len(items), used_h))

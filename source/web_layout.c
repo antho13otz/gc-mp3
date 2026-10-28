@@ -460,7 +460,7 @@ static void items_sort(wpage_t *p) {
     free(tmp);
 }
 
-static void web_layout_html(wpage_t *p, const unsigned char *s, int len, int latin) {
+static void web_layout_html_v1(wpage_t *p, const unsigned char *s, int len, int latin) {
     static const char *const para_tags[] = { "p", "ul", "ol", "dl", "table", "blockquote", "pre", "form",
         "h1", "h2", "h3", "h4", "h5", "h6", "figure", "fieldset", "details", "center", "address", NULL };
     static const char *const line_tags[] = { "div", "section", "article", "header", "footer", "nav", "main",
@@ -1075,4 +1075,24 @@ static void web_layout_html(wpage_t *p, const unsigned char *s, int len, int lat
 #undef TB_END_CELL
 #undef TB_END_ROW
 #undef POP_ONE
+}
+
+/* v201 : nouveau moteur (arbre HTML, CSS complet, boites) ; l'ancien si la memoire manque */
+#include "web_dom.c"
+#include "web_style.c"
+#include "web_box.c"
+static void web_layout_html(wpage_t *p, const unsigned char *s, int len, int latin) {
+#ifndef GEKKO
+    if (getenv("PCSIM_WEBV1")) { web_layout_html_v1(p, s, len, latin); return; }
+#endif
+    if (web_layout_v2(p, s, len, latin)) return;
+    if (lay_in_bg && rl_cancel) return;
+    /* (repart de zero : ce que le nouveau moteur a deja mis) */
+    char url[URL_MAX]; snprintf(url, sizeof(url), "%s", p->url);
+    unsigned char *src = p->src; int srclen = p->srclen, kind = p->kind, lat = p->latin;
+    p->src = NULL;
+    wpage_free(p);
+    snprintf(p->url, sizeof(p->url), "%s", url);
+    p->src = src; p->srclen = srclen; p->kind = kind; p->latin = lat;
+    web_layout_html_v1(p, s, len, latin);
 }

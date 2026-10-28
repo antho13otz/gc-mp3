@@ -6445,7 +6445,7 @@ static void gx_circle_glow(f32 cx, f32 cy, f32 r, col_t c, int layers) {
 }
 
 // ---------- Texte (atlas I4, un quad texture par caractere) ----------
-enum { F_SMALL = 0, F_MED = 1, F_LARGE = 2, F_LOGO = 3 };
+enum { F_SMALL = 0, F_MED = 1, F_LARGE = 2, F_LOGO = 3, F_MONO = 4, F_W18 = 5 };   /* (v201 : chasse fixe 13, texte 18 : le web) */
 
 /* Lit un caractere UTF-8 (les octets isoles sont pris comme du Latin-1). */
 static int next_cp(const char **ps) {
@@ -6456,7 +6456,7 @@ static int next_cp(const char **ps) {
         if ((c & 0xE0) == 0xC0 && (s[0] & 0xC0) == 0x80) {
             cp = ((c & 0x1F) << 6) | (s[0] & 0x3F); s += 1;
         } else if ((c & 0xF0) == 0xE0 && (s[0] & 0xC0) == 0x80 && (s[1] & 0xC0) == 0x80) {
-            cp = '?'; s += 2;
+            cp = ((c & 0x0F) << 12) | ((s[0] & 0x3F) << 6) | (s[1] & 0x3F); s += 2;   /* (v201 : la police a des caracteres au-dela de Latin-1) */
         } else if ((c & 0xF8) == 0xF0 && (s[0] & 0xC0) == 0x80 && (s[1] & 0xC0) == 0x80 &&
                    (s[2] & 0xC0) == 0x80) {
             cp = '?'; s += 3;
@@ -6466,13 +6466,20 @@ static int next_cp(const char **ps) {
     return cp;
 }
 
+static int font_extra_idx(int cp) {            /* v201 : caractere en plus (latin etendu, ponctuation) : rang, ou -1 */
+    int lo = 0, hi = FONT_NEXTRA - 1;
+    while (lo <= hi) { int m = (lo + hi) / 2; if (font_extra_cp[m] == cp) return m; if (font_extra_cp[m] < cp) lo = m + 1; else hi = m - 1; }
+    return -1;
+}
 static int glyph_index(int cp) {
     if (cp >= 32 && cp <= 126) return cp - 32;
     if (cp >= 160 && cp <= 255) return 95 + (cp - 160);
+    if (cp > 255) { int e = font_extra_idx(cp); if (e >= 0) return 191 + e; }
     return '?' - 32;
 }
 
 static f32 txt_scale = 1.0f;                 /* agrandissement du texte (mode soiree) */
+static f32 txt_shear = 0;                    /* v201 : italique (penche les lettres) */
 static int text_width_px(int f, const char *s, int sp) {      /* largeur reelle a l'ecran */
     int w = 0, n = 0;
     s = tr(s);
@@ -6526,10 +6533,11 @@ static int gx_text_raw(int f, f32 x, f32 base, const char *s, col_t top, col_t b
             col_t ct, cb;
             if (same) ct = cb = c1;                       /* (v120 : une seule couleur : pas de melange par lettre) */
             else { ct = th_col(lerp_c(top, bot, (f32)g->yoff / fh)); cb = th_col(lerp_c(top, bot, (f32)(g->yoff + g->h) / fh)); }
-            GX_Position2f32(x0, y0); GX_Color4u8(ct.r, ct.g, ct.b, ct.a); GX_TexCoord2f32(u0, v0);
-            GX_Position2f32(x1, y0); GX_Color4u8(ct.r, ct.g, ct.b, ct.a); GX_TexCoord2f32(u1, v0);
-            GX_Position2f32(x1, y1); GX_Color4u8(cb.r, cb.g, cb.b, cb.a); GX_TexCoord2f32(u1, v1);
-            GX_Position2f32(x0, y1); GX_Color4u8(cb.r, cb.g, cb.b, cb.a); GX_TexCoord2f32(u0, v1);
+            f32 st = txt_shear * (base - y0), sb = txt_shear * (base - y1);   /* (v201 : italique : lettre penchee) */
+            GX_Position2f32(x0 + st, y0); GX_Color4u8(ct.r, ct.g, ct.b, ct.a); GX_TexCoord2f32(u0, v0);
+            GX_Position2f32(x1 + st, y0); GX_Color4u8(ct.r, ct.g, ct.b, ct.a); GX_TexCoord2f32(u1, v0);
+            GX_Position2f32(x1 + sb, y1); GX_Color4u8(cb.r, cb.g, cb.b, cb.a); GX_TexCoord2f32(u1, v1);
+            GX_Position2f32(x0 + sb, y1); GX_Color4u8(cb.r, cb.g, cb.b, cb.a); GX_TexCoord2f32(u0, v1);
         }
         pen += g->adv + sp;
     }
@@ -8155,8 +8163,13 @@ static int url_join(const char *base, const char *href_in, char *out, int outsz)
 // ---------- Caracteres : la police couvre ASCII + Latin-1 ----------
 /* ecrit le caractere cp en UTF-8 (2 octets max), avec un equivalent pour les
    caracteres absents de la police (guillemets, tirets, ...) */
+static int font_extra_idx(int cp);
 static int cp_out(unsigned cp, char *o) {
     const char *alt = NULL;
+    if (cp > 255 && cp < 0x10000 && font_extra_idx((int)cp) >= 0) {        /* v201 : la police l'a */
+        if (cp < 0x800) { o[0] = (char)(0xC0 | (cp >> 6)); o[1] = (char)(0x80 | (cp & 0x3F)); return 2; }
+        o[0] = (char)(0xE0 | (cp >> 12)); o[1] = (char)(0x80 | ((cp >> 6) & 0x3F)); o[2] = (char)(0x80 | (cp & 0x3F)); return 3;
+    }
     if (cp == 0x2018 || cp == 0x2019 || cp == 0x201A || cp == 0x2032) cp = '\'';
     else if (cp == 0x201C || cp == 0x201D || cp == 0x201E || cp == 0x2033) cp = '"';
     else if (cp == 0x2013 || cp == 0x2014 || cp == 0x2015 || cp == 0x2212 || cp == 0x2010 || cp == 0x2011) cp = '-';
@@ -8170,6 +8183,18 @@ static int cp_out(unsigned cp, char *o) {
     else if (cp == 0x0153) alt = "oe";
     else if (cp == 0x2009 || cp == 0x200A || cp == 0x202F || cp == 0x2002 || cp == 0x2003) cp = ' ';
     else if (cp == 0x200B || cp == 0x200C || cp == 0x200D || cp == 0xFEFF || cp == 0xAD) return 0;
+    else if (cp == 0x25E6 || cp == 0x25CB || cp == 0x26AC) cp = 'o';                       /* v201 : puces creuses */
+    else if (cp == 0x25A0 || cp == 0x25AB || cp == 0x25A1 || cp == 0x2023 || cp == 0x2043) cp = 0xB7;
+    else if (cp == 0x2032 || cp == 0x02BC || cp == 0x02B9) cp = '\'';
+    else if (cp == 0x2264) alt = "<="; else if (cp == 0x2265) alt = ">="; else if (cp == 0x2260) alt = "!=";
+    else if (cp == 0x2248) alt = "~"; else if (cp == 0x2191) alt = "^"; else if (cp == 0x2193) alt = "v";
+    else if (cp == 0x2713 || cp == 0x2714) alt = "v"; else if (cp == 0x2715 || cp == 0x2716 || cp == 0x2717 || cp == 0x2718) alt = "x";
+    else if (cp == 0x2605 || cp == 0x2606) alt = "*"; else if (cp == 0x2020) alt = "+"; else if (cp == 0x2021) alt = "++";
+    else if (cp == 0x2030) alt = "o/oo"; else if (cp == 0x00A0) cp = ' ';
+    else if (cp >= 0x100 && cp < 0x250 && cp != 0x152 && cp != 0x153) {               /* v201 : lettres latines accentuees : la lettre de base */
+        static const char lx[] = "AaAaAaCcCcCcCcDdDdEeEeEeEeEeGgGgGgGgHhHhIiIiIiIiIi??JjKkkLlLlLlLlLlNnNnNnnNnOoOoOo??RrRrRrSsSsSsSsTtTtTtUuUuUuUuUuUuWwYyYZzZzZzs??????????????????f?????????????Oo?????????????Uu????????????????????????????AaIiOoUuUuUuUuUu?AaAa????GgKkOoOo??j???Gg??NnAa????AaAaEeEeIiIiOoOoRrRrUuUuSsTt??Hh??????AaEeOoOoOoOoYy????????????????????????????";
+        cp = (u8)lx[cp - 0x100];
+    }
     if (alt) { int n = (int)strlen(alt); memcpy(o, alt, n); return n; }
     if (cp < 0x20) return 0;
     if (cp < 0x7F) { o[0] = (char)cp; return 1; }
@@ -10103,7 +10128,7 @@ static int dj_len = 0, dj_aw = 0, dj_ah = 0, dj_maxw = 0;
 static u16 *dj_tex = NULL;
 static int dj_tw, dj_th, dj_iw, dj_ih, dj_nw, dj_nh, dj_ok;
 static lwp_t dec_thread_h;
-static u8 dec_stack[64 * 1024] ATTRIBUTE_ALIGN(32);
+static u8 dec_stack[128 * 1024] ATTRIBUTE_ALIGN(32);   /* (v201 : 128 Ko : la mise en page des pages web en fond est recursive) */
 static int dec_started = 0;
 static void *dec_thread_fn(void *arg);
 static volatile int gj_state = 0;           /* v92 : lecture pour l'onglet JEUX (gclib.c) : 0 libre, 1 a faire, 2 fini */
@@ -11303,6 +11328,12 @@ static void web_go(const char *url, int mode) {
         else if (strcmp(w, "favori") == 0) { add_favorite(); web_render_home(NAV_REPLACE); }
         else if (strcmp(w, "annuler") == 0) { if (dl_active) dl_stop("Téléchargement annulé", 0); web_render_home(NAV_REPLACE); }
         else if (strcmp(w, "cookies") == 0) { ck_clear(); web_note("Cookies effacés", 0); web_render_home(NAV_REPLACE); }
+        else if (strcmp(w, "texte") == 0) {                 /* v201 : mode texte de la page en cours (ou retour) */
+            if (web_text_url[0] && !strcmp(web_text_url, pg.url)) web_text_url[0] = 0;
+            else snprintf(web_text_url, sizeof(web_text_url), "%s", pg.url);
+            pg_scroll = 0;
+            web_relayout();
+        }
         else web_render_home(mode);
         return;
     }
@@ -11787,9 +11818,12 @@ static void draw_web_page(void) {
                 continue;
             }
             col_t c = sel ? RGBA(255, 255, 255, 255) : (it->style & WS_DIM) ? RGBA(114, 119, 125, 255) : WCOL(it->col ? it->col : 0x202122ffu);
+            if (it->fx & FX_ITAL) txt_shear = 0.21f;
             gx_text1(f, bx, by, t, c);
             if (it->fx & FX_BOLD) gx_text1(f, bx + 0.8f, by, t, c);          /* (gras : le texte une deuxieme fois, decale) */
+            txt_shear = 0;
             if ((it->fx & FX_ULINE) && !sel) gx_rect(bx, by + 2, it->w, 1, RGBA(c.r, c.g, c.b, 170));
+            if (it->fx & FX_STRIKE) gx_rect(bx, by - font_ascent[f] * 0.36f, it->w, 1, c);
         }
     }
     nv_raw = sr_raw;
@@ -14179,7 +14213,59 @@ static void tab_disable(int t) {
     if (t == TAB_PHONE) tp_wanted = 0;
 }
 
+#ifndef GEKKO
+/* v201 : simulateur : PCSIM_WEBDUMP=page.html -> mise en page seule, resultat en JSON (PCSIM_WEBDUMP_OUT), puis fin */
+static void web_dump_json(const char *path, const char *out) {
+    long n = 0;
+    FILE *f = fopen(path, "rb");
+    if (!f) { printf("[webdump] %s illisible\n", path); exit(1); }
+    fseek(f, 0, SEEK_END); n = ftell(f); fseek(f, 0, SEEK_SET);
+    unsigned char *d = (unsigned char *)malloc(n + 1);
+    if (!d || fread(d, 1, n, f) != (size_t)n) exit(1);
+    fclose(f);
+    d[n] = 0;
+    wpage_t np; memset(&np, 0, sizeof(np));
+    snprintf(np.url, sizeof(np.url), "http://127.0.0.1:8765/page.html");
+    const char *u = getenv("PCSIM_WEBDUMP_URL"); if (u) snprintf(np.url, sizeof(np.url), "%s", u);
+    np.src = d; np.srclen = (int)n; np.kind = WK_HTML; np.latin = !utf8_ok(d);
+    const char *lw = getenv("PCSIM_WEBDUMP_W"); if (lw) wv_lw = atoi(lw);
+    if (getenv("PCSIM_WEBDOM")) {               /* arbre HTML (indentation = profondeur) */
+        wd_parse(d, (int)n, np.latin, np.url);
+        int depth[1] = {0}; (void)depth;
+        for (int k = 0; k < wd.nn; k++) {
+            int dd = 0; for (int q = wd.n[k].parent; q >= 0; q = wd.n[q].parent) dd++;
+            if (wd.n[k].type == 1) printf("%*s<%s %d>\n", dd * 2, "", wd.n[k].tid ? wt_names[wd.n[k].tid] : "?", k);
+            else { int l = (int)wd.n[k].tn; if (l > 40) l = 40; char t[48]; memcpy(t, wd.txt + wd.n[k].t0, l); t[l] = 0; for (char *c = t; *c; c++) if (*c == '\n') *c = ' '; printf("%*s\"%s\"\n", dd * 2, "", t); }
+        }
+        wd_free();
+    }
+    u64 t0 = perf_us();
+    web_layout_html(&np, d, (int)n, np.latin);
+    u64 t1 = perf_us();
+    FILE *o = fopen(out ? out : "webdump.json", "wb");
+    if (!o) exit(1);
+    fprintf(o, "{\"w\":%d,\"h\":%d,\"bg\":%u,\"ms\":%.1f,\"title\":\"", wv_lw, (int)np.height, (unsigned)np.pagebg, (t1 - t0) / 1000.0);
+    for (const char *c = np.title; *c; c++) { if (*c == '"' || *c == '\\') fputc('\\', o); if ((u8)*c >= 32) fputc(*c, o); }
+    fprintf(o, "\",\"boxes\":[");
+    for (int i = 0; i < np.nboxes; i++) { const wbox_t *b = &np.boxes[i]; fprintf(o, "%s[%d,%d,%d,%d,%u,%u,%d]", i ? "," : "", b->x0, (int)b->y0, b->x1, (int)b->y1, (unsigned)b->bg, (unsigned)b->border, b->sides); }
+    fprintf(o, "],\"items\":[");
+    for (int i = 0; i < np.nitems; i++) {
+        const witem_t *it = &np.items[i];
+        fprintf(o, "%s[%d,%d,%d,%d,%d,%d,%d,%u,%u,%d,%d,\"", i ? "," : "", it->x, (int)it->y, it->w, it->h, it->font, it->style, it->fx, (unsigned)it->col, (unsigned)it->bg, it->link, it->img);
+        for (const char *c = np.text + it->off; *c; c++) { if (*c == '"' || *c == '\\') fputc('\\', o); if ((u8)*c >= 32) fputc(*c, o); }
+        fputc('"', o); fputc(']', o);
+    }
+    fprintf(o, "],\"links\":%d,\"fields\":%d}\n", np.nlinks, np.nfields);
+    fclose(o);
+    printf("[webdump] %d elements, %d fonds, %d liens, hauteur %d, %.1f ms (html %.1f, profondeur %.0f, styles+boites %.1f, positions %.1f ; %u noeuds, %d regles)\n", np.nitems, np.nboxes, np.nlinks, (int)np.height, (t1 - t0) / 1000.0,
+           wb_prof[0] / 1000.0, wb_prof[1] * 1.0, wb_prof[2] / 1000.0, wb_prof[3] / 1000.0, (unsigned)wb_prof[4], 0);
+    exit(0);
+}
+#endif
 int main(int argc, char **argv) {
+#ifndef GEKKO
+    if (getenv("PCSIM_WEBDUMP")) web_dump_json(getenv("PCSIM_WEBDUMP"), getenv("PCSIM_WEBDUMP_OUT"));
+#endif
     boot_t0 = ticks_to_millisecs(gettime());
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;
     if (!setlocale(LC_CTYPE, "C.UTF-8")) setlocale(LC_CTYPE, "C-UTF-8");   /* v26 : noms de fichiers en UTF-8 (accents, tirets longs...) : sans ca, libfat s'arrete sur certains noms */

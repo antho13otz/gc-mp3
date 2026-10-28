@@ -24,6 +24,32 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v201 — nouveau moteur de pages web
+Le navigateur (onglet WEB) a un nouveau moteur, écrit pour GC Station (l'affichage, le curseur et les touches ne
+changent pas) :
+- **La page est lue en arbre** comme dans un vrai navigateur (`source/web_dom.c`) : fermetures implicites
+  (`<p>`, `<li>`, cases de tableau…), contenu de `<noscript>` affiché (pas de JavaScript ici).
+- **CSS bien plus complet** (`source/web_style.c`) : sélecteurs enfant `>`, frères `+` `~`, attributs `[a^=b]`…,
+  `:first-child`, `:nth-child(2n+1)`, `:not()`, `:is()`, `::before` / `::after` ; marges, padding, bordures,
+  largeurs (px, em, rem, %, vw…), `min-width` / `max-width`, `calc()`, `min()`, `max()`, `clamp()`, variables
+  `var(--x)`, `box-sizing`, `white-space`, italique, chasse fixe, majuscules, exposant / indice.
+- **Mise en page en boîtes** (`source/web_box.c`) : marges qui se fondent comme dans les navigateurs, centrage
+  (`margin: auto`), **tableaux à largeur automatique** (les colonnes prennent la place de leur contenu), tableaux
+  dans les tableaux, cases sur plusieurs colonnes / lignes, **flottants** (le texte contourne les images),
+  **inline-block**, **flex** (lignes, retour à la ligne, grow / shrink, justify / align, gap), **grilles**
+  (colonnes en `fr` / px), puces et numéros de liste (chiffres, lettres, romains), images des cadres à
+  proportions fixes.
+- **Polices** : italique (lettres penchées), barré, police à chasse fixe pour `<pre>` / `<code>`, une taille
+  intermédiaire (18) pour les sous-titres ; caractères en plus partout : lettres latines accentuées (ā, ł, ő,
+  č…), vrais guillemets “ ”, tirets – —, points de suspension …, puces •, €, ™, flèches, coches.
+- **Page faite pour JavaScript** (presque vide ici) : un bandeau le dit et propose le **mode texte** (la page
+  sans la mise en forme du site, ce qui montre souvent le texte caché) ; le même bandeau ramène à la page normale.
+- Si la mémoire manque, l'ancien moteur prend le relais.
+- Pile du fil de mise en page en fond : 128 Ko (la mise en page est récursive).
+- Banc d'essai : `tools/pc-sim/websrv/vraies-pages.sh` (130 vraies pages : Wikipedia, Le Monde, BBC, Guardian,
+  NYTimes…, mises en page sans écran, rendu en PNG) ; `PCSIM_WEBDUMP=page.html` sur le simulateur. Toutes les
+  pages et 170 pages abîmées exprès passent sous AddressSanitizer sans erreur.
+
 ## Nouveautés v200 — finitions de l'interface (retours de r/GamecubeHacks)
 - Traits fins : au moins un point de l'écran d'épaisseur. Avec l'image réduite (Affichage > taille de l'image sous
   100 %), un trait de 1 faisait moins d'un point et des morceaux des cadres et des séparateurs disparaissaient.
