@@ -769,6 +769,7 @@ static void ap_rescan(void);
 static void ap_open(void) {
     ap_confirm = -1;
     tl_screen = TL_APPS;
+    if (tp_apps_new) { tp_apps_new = 0; ap_scanned = 0; }   /* v224 : .dol envoye par le telephone */
     if (!ap_scanned) ap_rescan();
 }
 static void ap_rescan(void) {

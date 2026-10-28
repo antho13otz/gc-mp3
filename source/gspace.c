@@ -43,6 +43,7 @@ static int gs_cmp_played(const void *a, const void *b) {
 /* liste du filtre ; le jeu choisi reste choisi s'il y est */
 static void gs_build(void) {
     if (gs_apps()) {                            /* v196 : les applis homebrew (avant : Mes applis, accueil de JEUX) */
+        if (tp_apps_new) { tp_apps_new = 0; ap_scanned = 0; }   /* v224 : .dol envoye par le telephone */
         if (!ap_scanned) ap_rescan();
         gs_n = ap ? (ap_n < GL_MAX ? ap_n : GL_MAX) : 0;
         for (int i = 0; i < gs_n; i++) gs_idx[i] = (s16)i;

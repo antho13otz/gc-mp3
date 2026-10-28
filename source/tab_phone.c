@@ -47,7 +47,9 @@ static char tp_done_path[4][NAME_LEN];         /* v23 : fichiers recus (onglet T
 static volatile int tp_done_w = 0;
 static char tp_log[5][128];
 static volatile int tp_nlog = 0;
-static volatile int tp_rescan = 0;                 /* 1 = musique, 2 = photos */
+static volatile int tp_rescan = 0;                 /* 1 = musique, 2 = photos, 4 = retro (v224) */
+static volatile u64 tp_up_end = 0;                 /* v224 : fin du dernier envoi (relectures apres la serie de fichiers) */
+static volatile int tp_apps_new = 0;               /* v224 : un .dol est arrive dans SD:/apps (liste Applis a relire) */
 static char tp_add_path[8][NAME_LEN];               /* v27 : morceaux recus a ajouter (sans tout relire) */
 static volatile int tp_add_w = 0;
 static int tp_add_r = 0;
@@ -790,6 +792,8 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     clean[n] = 0;
     while (clean[0] == '.' || clean[0] == ' ') memmove(clean, clean + 1, strlen(clean));
     if (!okdir || !clean[0] || len <= 0 || !sd_ok) { tp_reply(c, 400, "text/plain", "refus", 5); return; }
+    { const char *dt = strrchr(clean, '.');                    /* v224 : un programme va toujours dans SD:/apps (liste Applis) */
+      if (dt && !strcasecmp(dt, ".dol")) snprintf(dir, sizeof(dir), "apps"); }
     const char *gpre = (!strcmp(dir, "radio") || !strcmp(dir, "podcasts")) ? "gc-mp3/" : "";   /* (v22 : rangees dans gc-mp3) */
     mkdir(GCD, 0777);
     snprintf(path, sizeof(path), SD_ROOT "/%s%s", gpre, dir);
@@ -829,6 +833,7 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     }
     fclose(f);
     tp_up_active = 0;
+    tp_up_end = now_ms();
     char m[160];
     if (!ok) {
         remove(path);
@@ -843,13 +848,22 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     tp_done_w++;
     if (!strcmp(dir, "mp3") || !strcmp(dir, "downloads") || !strcmp(dir, "retro")) {
         const char *dot = strrchr(clean, '.');
-        if (audio_ext_len(path) && !(dot && !strcasecmp(dot, ".zip")) && tp_add_w - tp_add_r < 8) {
+        int au = audio_ext_len(path) && !(dot && !strcasecmp(dot, ".zip"));
+        if (au && tp_add_w - tp_add_r < 8) {
             snprintf(tp_add_path[tp_add_w % 8], NAME_LEN, "%s", path);
             tp_add_w++;
-        } else tp_rescan |= 1;                          /* (.zip retro, ou beaucoup de fichiers : tout relire) */
+        } else if (au) tp_rescan |= 1;                  /* (beaucoup de musiques d'un coup : tout relire) */
+        else if (!strcmp(dir, "retro")) tp_rescan |= 4; /* v224 : un jeu retro : la liste RETRO seulement (avant : toute la carte, a chaque fichier) */
     }
     if (!strcmp(dir, "photos") || !strcmp(dir, "videos")) tp_rescan |= 2;
     tp_update_free();
+    if (!strcmp(dir, "apps")) {                                 /* v224 : on dit au telephone ou il est range */
+        tp_apps_new = 1;
+        char r[NAME_LEN + 16];
+        snprintf(r, sizeof(r), "SD:/apps/%s", base_of(path));
+        tp_reply(c, 200, "text/plain; charset=utf-8", r, (int)strlen(r));
+        return;
+    }
     if (!strcmp(dir, "gci")) { const char *bn = base_of(path); tp_reply(c, 200, "text/plain; charset=utf-8", bn, (int)strlen(bn)); return; }   /* (v190 : le nom garde) */
     tp_reply(c, 200, "text/plain", "ok", 2);
 }
@@ -1291,7 +1305,13 @@ static void phone_pump(void) {
         case PC_SALON: { const char *e = salon_listen(cm.i); if (e) lib_note(e); break; }
         }
     }
-    if (tp_rescan & 1) { tp_rescan &= ~1; tp_add_r = tp_add_w; music_rescan(); retro_rescan(); }
+    /* v224 : les relectures de la carte attendent la fin de la serie d'envois (elles figeaient l'ecran pendant les envois) */
+    if ((tp_rescan & 5) && !tp_up_active && now_ms() - tp_up_end > 2000) {
+        int w = tp_rescan & 5;
+        tp_rescan &= ~5;
+        if (w & 1) { tp_add_r = tp_add_w; music_rescan(); }
+        retro_rescan();
+    }
     while (tp_add_r != tp_add_w) { music_add_file(tp_add_path[tp_add_r % 8]); tp_add_r++; }
     if (tp_rescan & 2) { tp_rescan &= ~2; photo_rescan(); }
 }

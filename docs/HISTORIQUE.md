@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v224 — envoi depuis le téléphone
+- **Les .dol envoyés depuis le téléphone vont dans `SD:/apps`**, quel que soit le dossier choisi, et
+  apparaissent tout de suite dans la liste Applis (onglet Jeux). La page du téléphone indique où le fichier
+  a été rangé (« envoyé dans SD:/apps (Applis) »).
+- **Moins de saccades pendant les envois** : un fichier qui n'est pas de la musique (.zip, jeu…) ne fait plus
+  relire toute la carte SD (musique + rétro) à chaque fichier. Un jeu envoyé dans Rétro ne relit que la liste
+  RÉTRO, et les relectures attendent la fin de la série d'envois (2 s sans nouvel envoi).
+
 ## Nouveautés v223 — 1,1 Mo de mémoire libérée
 - **Tampon audio de 6 s** (au lieu de 10 s) : environ 750 Ko de mémoire en plus pour le reste.
 - **Fondu enchaîné limité à 4 s** (réglage : 0, 2 ou 4 s ; une ancienne valeur plus grande passe à 4 s).
