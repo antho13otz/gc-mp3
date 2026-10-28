@@ -24,6 +24,18 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v203 — musiques MIDI, finitions du web
+- **MIDI** (.mid, .midi, .kar, .rmi) dans l'onglet RÉTRO, avec un synthétiseur intégré (`source/midi.c`, pas de
+  banque de sons à fournir) : une forme d'onde et une enveloppe par famille d'instruments General MIDI, batterie
+  synthétisée (canal 10), 32 voix, volume / expression / panoramique / pédale / pitch bend, avance rapide. Les
+  .mid téléchargés depuis le web arrivent aussi dans RÉTRO. Essai : 15 instruments + batterie, 32 voix, aucun trou
+  dans le son, image à 50 / s.
+- Web : les marges d'un bloc qui a son propre contexte (grille, flex, cadre avec `overflow`) ne disparaissent
+  plus ; les boutons `<button>` ont l'aspect d'un bouton ; `<ol type="I">`, `type="a"`... ; les inline-block
+  gardent leur marge de gauche ; les champs de saisie ne dépassent plus de leur colonne ; les cases de tableau
+  en CSS (`display: table-cell`) sont alignées en haut, comme dans les navigateurs.
+- Simulateur : `PCSIM_MIDI=fichier.mid` (lecture complète sans son, pour les essais).
+
 ## Nouveautés v202 — identifiants, .zip, liens dans l'ordre de l'écran
 - **Identifiants enregistrés** : après l'envoi d'un formulaire avec un mot de passe, la page suivante propose
   « Enregistrer l'identifiant … pour site ? Oui / Non ». La fois suivante, le formulaire de connexion de ce site

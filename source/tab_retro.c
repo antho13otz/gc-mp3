@@ -48,6 +48,7 @@ static const char *const retro_xmp_ext[] = { ".mod", ".m15", ".nst", ".wow", ".s
 static int retro_ext_fmt(const char *path) {
     static const char *const g[] = { ".spc", ".nsf", ".nsfe", ".gbs", ".vgm", ".vgz", ".gym", ".hes", ".kss", ".ay", ".sap" };
     static const char *const c[] = { ".dsp", ".hps", ".adp" };
+    static const char *const mid[] = { ".mid", ".midi", ".kar", ".rmi" };      /* v203 */
     const char *dot = strrchr(path, '.');
     const char *base = strrchr(path, '/');
     base = base ? base + 1 : path;
@@ -55,6 +56,7 @@ static int retro_ext_fmt(const char *path) {
         for (unsigned i = 0; i < sizeof(g) / sizeof(g[0]); i++) if (!strcasecmp(dot, g[i])) return FMT_GME;
         for (int i = 0; retro_xmp_ext[i]; i++) if (!strcasecmp(dot, retro_xmp_ext[i])) return FMT_XMP;
         for (unsigned i = 0; i < sizeof(c) / sizeof(c[0]); i++) if (!strcasecmp(dot, c[i])) return FMT_GCN;
+        for (unsigned i = 0; i < sizeof(mid) / sizeof(mid[0]); i++) if (!strcasecmp(dot, mid[i])) return FMT_MID;
     }
     /* noms a l'Amiga : le format AVANT le nom ("mod.ma_musique", "med.titre") */
     static const char *const pre[] = { "mod.", "med.", "mmd0.", "mmd1.", "mmd2.", "mmd3.", "okt.", "okta.", "dbm.", "digi.", "dsym.",
@@ -69,6 +71,7 @@ static int retro_ext_fmt(const char *path) {
 static const char *retro_system(const char *path) {
     const char *dot = strrchr(path, '.');
     if (!dot) return "";
+    if (!strcasecmp(dot, ".mid") || !strcasecmp(dot, ".midi") || !strcasecmp(dot, ".kar") || !strcasecmp(dot, ".rmi")) return "MIDI";
     if (!strcasecmp(dot, ".spc")) return "Super Nintendo";
     if (!strcasecmp(dot, ".nsf") || !strcasecmp(dot, ".nsfe")) return "NES";
     if (!strcasecmp(dot, ".gbs")) return "Game Boy";
@@ -453,6 +456,7 @@ static void retro_close(void) {
         xmp_loaded = 0;
     }
     gc_close();
+    midi_close();
 }
 
 static int gme_start(int track, tags_t *tg) {
@@ -515,6 +519,14 @@ static int retro_open(const char *path, int fmt, tags_t *tg, const char **err) {
         return 1;
     }
     gme_tracks = 1;
+    if (fmt == FMT_MID) {                                     /* v203 : MIDI (synthetiseur integre) */
+        char t2[96] = "";
+        if (!midi_open(path, t2, sizeof(t2), err)) return 0;
+        snprintf(tg->title, sizeof(tg->title), "%s", t2[0] ? t2 : display_name(base_of(path)));
+        snprintf(tg->artist, sizeof(tg->artist), "MIDI");
+        retro_len_ms = midi_len_ms();
+        return 1;
+    }
     if (!gc_open(path, tg, err)) return 0;
     snprintf(tg->artist, sizeof(tg->artist), "GameCube (%s)", gc_kind == GC_DSP ? "DSP" : gc_kind == GC_HPS ? "HPS" : "ADP");
     return 1;
@@ -529,6 +541,10 @@ static void retro_decode(void) {
         if (gme_play(gme, 2048 * 2, buf) != NULL) { eof = 1; return; }
         n = 2048;
         for (int i = 0; i < n; i++) { L[i] = buf[2 * i]; R[i] = buf[2 * i + 1]; }
+        push_frame(L, R, n, 48000);
+    } else if (mi_on) {
+        n = midi_render(L, R, 2048);
+        if (n <= 0) { eof = 1; return; }
         push_frame(L, R, n, 48000);
     } else if (xmpc) {
         int r = xmp_play_buffer(xmpc, buf, 2048 * 4, 1);
@@ -560,6 +576,7 @@ static void retro_decode(void) {
 static int retro_seek(int sec) {
     if (gme) { gme_seek(gme, sec * 1000); return 1; }
     if (xmpc) { xmp_seek_time(xmpc, sec * 1000); return 1; }
+    if (mi_on) { midi_seek(sec); return 1; }
     return 0;                                                 /* (DSP / HPS / ADP : pas de saut) */
 }
 
@@ -692,7 +709,7 @@ static void draw_list_retro(void) {
         gx_text1(F_SMALL, 30, 160, "Copie tes fichiers dans SD:/retro :", RGBA(190, 180, 235, 255));
         gx_text1(F_SMALL, 30, 178, "SPC, NSF, GBS, VGM/VGZ, HES, KSS, AY, SAP,", RGBA(190, 180, 235, 255));
         gx_text1(F_SMALL, 30, 196, "DSP, HPS, ADP (GameCube),", RGBA(190, 180, 235, 255));
-        gx_text1(F_SMALL, 30, 214, "MOD, XM, IT, S3M (modules)", RGBA(190, 180, 235, 255));
+        gx_text1(F_SMALL, 30, 214, "MOD, XM, IT, S3M (modules), MIDI (.mid)", RGBA(190, 180, 235, 255));
     }
     gx_rect(25, 430, 241, 1, RGBA(76, 52, 150, 200));
     if (src == SRC_FILE && playing && gme && gme_tracks > 1) snprintf(buf, sizeof(buf), "Piste %d / %d   (L / R)", gme_track + 1, gme_tracks);

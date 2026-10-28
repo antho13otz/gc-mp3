@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8"><title>Page moderne (test)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+:root{--bleu:#1d4ed8;--fond:#f8fafc;--texte:#0f172a;--gris:#64748b;--rayon:8px;--espace:1rem}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;font-family:system-ui,sans-serif;color:var(--texte);background:var(--fond);line-height:1.5}
+.conteneur{max-width:1100px;margin:0 auto;padding:0 var(--espace)}
+header{background:#fff;border-bottom:1px solid #e2e8f0}
+.barre{display:flex;justify-content:space-between;align-items:center;padding:.75rem 0}
+.logo{font-weight:800;font-size:1.25rem;color:var(--bleu);text-decoration:none}
+nav ul{display:flex;gap:1.25rem;list-style:none;margin:0;padding:0}
+nav a{color:var(--texte);text-decoration:none}
+nav a:hover{text-decoration:underline}
+.burger{display:none}
+@media (max-width:500px){nav ul{display:none}.burger{display:block}}
+.hero{background:linear-gradient(135deg,#1e3a8a,#2563eb);color:#fff;text-align:center;padding:3rem 1rem}
+.hero h1{font-size:clamp(1.75rem,4vw,3rem);margin:0 0 .5rem}
+.hero p{max-width:40ch;margin:0 auto 1.5rem;opacity:.9}
+.bouton{display:inline-block;padding:.6rem 1.2rem;border-radius:var(--rayon);background:#fff;color:var(--bleu);font-weight:600;text-decoration:none}
+.bouton.second{background:transparent;color:#fff;border:2px solid #fff;margin-left:.5rem}
+.cartes{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:1rem;margin:2rem 0}
+.carte{background:#fff;border:1px solid #e2e8f0;border-radius:var(--rayon);padding:1rem}
+.carte h3{margin:.25rem 0;font-size:1.1rem}
+.carte p{color:var(--gris);margin:0}
+.etiquette{display:inline-block;font-size:.75rem;background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:999px}
+.colonnes{display:flex;gap:2rem;margin:2rem 0}
+main{flex:2;min-width:0}
+aside{flex:1;background:#fff;border:1px solid #e2e8f0;padding:1rem;border-radius:var(--rayon)}
+blockquote{border-left:4px solid var(--bleu);margin:1rem 0;padding:.5rem 1rem;background:#eff6ff;font-style:italic}
+pre{background:#0f172a;color:#e2e8f0;padding:1rem;border-radius:var(--rayon);overflow:auto}
+code{font-family:ui-monospace,monospace;background:#e2e8f0;padding:0 4px}
+pre code{background:none;padding:0}
+table{width:100%;border-collapse:collapse;margin:1rem 0}
+th,td{border:1px solid #cbd5e1;padding:.4rem .6rem;text-align:left}
+th{background:#f1f5f9}
+tbody tr:nth-child(even){background:#f8fafc}
+figure{margin:1rem 0}
+figcaption{font-size:.85rem;color:var(--gris)}
+.alerte{border:1px solid #fbbf24;background:#fffbeb;padding:.75rem 1rem;border-radius:var(--rayon)}
+.alerte::before{content:"Attention : ";font-weight:bold}
+footer{background:#0f172a;color:#cbd5e1;padding:2rem 0;margin-top:2rem}
+.pied{display:flex;flex-wrap:wrap;gap:2rem}
+.pied div{flex:1 1 150px}
+.pied a{color:#93c5fd;display:block}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
+.cache{display:none}
+</style></head>
+<body>
+<header><div class="conteneur barre"><a class="logo" href="/">MonSite</a><button class="burger">Menu</button>
+<nav><ul><li><a href="/a">Accueil</a></li><li><a href="/b">Articles</a></li><li><a href="/c">Contact</a></li></ul></nav></div></header>
+<section class="hero"><h1>Bienvenue sur la page de test</h1><p>Une page faite comme les sites d’aujourd’hui : flex, grille, variables CSS et calc().</p>
+<a class="bouton" href="/go">Commencer</a><a class="bouton second" href="/plus">En savoir plus</a></section>
+<div class="conteneur">
+<div class="cartes">
+<div class="carte"><span class="etiquette">Nouveau</span><h3>Première carte</h3><p>Un petit texte qui décrit la carte et passe sur deux lignes.</p></div>
+<div class="carte"><span class="etiquette">Jeux</span><h3>Deuxième carte</h3><p>GameCube, Wii et rétro.</p></div>
+<div class="carte"><span class="etiquette">Musique</span><h3>Troisième carte</h3><p>MP3, radios et podcasts.</p></div>
+</div>
+<div class="colonnes"><main>
+<h2>Un article</h2>
+<p>Voici un paragraphe avec du <strong>gras</strong>, de l’<em>italique</em>, du <code>code</code>, un <a href="/lien">lien</a> et du texte <del>barré</del>. H<sub>2</sub>O et E = mc<sup>2</sup>.</p>
+<p class="alerte">ce texte a un préfixe ajouté par ::before.</p>
+<blockquote>« Une citation mise en valeur, avec une bordure à gauche. »</blockquote>
+<pre><code>int main(void) {
+    printf("Bonjour GameCube\n");
+    return 0;
+}</code></pre>
+<table><thead><tr><th>Console</th><th>Année</th><th>Ventes</th></tr></thead>
+<tbody><tr><td>GameCube</td><td>2001</td><td>21,74 M</td></tr><tr><td>Wii</td><td>2006</td><td>101,63 M</td></tr><tr><td>Wii U</td><td>2012</td><td>13,56 M</td></tr></tbody></table>
+<ol type="I"><li>Premier point</li><li>Deuxième point<ul><li>sous-point</li><li>autre</li></ul></li><li>Troisième</li></ol>
+<dl><dt>Terme</dt><dd>Sa définition, un peu en retrait.</dd></dl>
+<span class="sr-only">Texte pour lecteur d'écran seulement</span><div class="cache">Texte caché</div>
+</main>
+<aside><h3>À côté</h3><p>Une colonne plus étroite, avec quelques liens :</p><ul><li><a href="/x">Premier</a></li><li><a href="/y">Second</a></li></ul>
+<form action="/cherche"><input type="search" name="q" placeholder="Chercher"><button type="submit">OK</button></form></aside>
+</div></div>
+<footer><div class="conteneur pied"><div><b>À propos</b><a href="/1">Qui sommes-nous</a><a href="/2">Presse</a></div><div><b>Aide</b><a href="/3">FAQ</a><a href="/4">Contact</a></div><div><b>Suivre</b><a href="/5">Flux RSS</a></div></div></footer>
+</body></html>

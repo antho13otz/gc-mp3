@@ -525,7 +525,9 @@ static const char ws_ua_css[] =
     "nobr{white-space:nowrap}fieldset{border:1px solid #c0c0c0;padding:.35em .75em .625em;margin-left:2px;margin-right:2px}"
     "legend{padding:0 2px}summary{font-weight:bold}details:not([open])>:not(summary){display:none}"
     "abbr[title]{text-decoration:none}q:before{content:'\\201C'}q:after{content:'\\201D'}"
-    "noscript{display:block}";
+    "noscript{display:block}button{padding:1px 6px;border:1px solid #767676;border-radius:3px;background-color:#efefef;color:#000}"
+    "ol[type=a]{list-style-type:lower-alpha}ol[type=A]{list-style-type:upper-alpha}ol[type=i]{list-style-type:lower-roman}"
+    "ol[type=I]{list-style-type:upper-roman}ol[type='1']{list-style-type:decimal}ul[type=circle]{list-style-type:circle}ul[type=square]{list-style-type:square}";
 
 /* ---------- valeurs ---------- */
 typedef struct { f32 px, pct; int ok; } wnum_t;

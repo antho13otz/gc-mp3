@@ -965,9 +965,9 @@ static void wb_line_end(wline_t *L, int forced) {
                 if (it >= 0) { wbp->items[it].img = bx->img; wbp->items[it].h = (u16)p->h; }
             } else if (bx->kind == WB_FIELD) {
                 const char *lab = bx->marker >= 0 ? wd.txt + bx->marker : "";
-                wb_out_item(p->x + shift + wb_mar(c, 3, 0), top + 3 + font_ascent[F_MED], bx->aw, F_MED, bx->img, 0, 0, 0, bx->link, lab, (int)strlen(lab));
+                wb_out_item(p->x + shift + wb_mar(c, 3, 0), top + 3 + font_ascent[F_MED], p->w - wb_mar(c, 3, 0) - wb_mar(c, 1, 0), F_MED, bx->img, 0, 0, 0, bx->link, lab, (int)strlen(lab));
             } else if (bx->kind != WB_SPACE) {
-                wb_shift(p->it0, p->it1, p->bx0, p->bx1, p->x + shift, top);
+                wb_shift(p->it0, p->it1, p->bx0, p->bx1, p->x + shift + wb_mar(c, 3, 0), top);
             }
             i++;
             continue;
@@ -1211,10 +1211,10 @@ static f32 wb_box_at(int b, f32 x, f32 w, f32 *y, int bfc, f32 cb) {
         if (c->bg) wb_effbg = c->bg;
     }
     wbfc_t s;
-    if (bfc) wb_bfc_begin(&s);
     int has_top = bt > 0 || pt > 0 || bfc;
-    if (has_top) { wb_flush(y); if (bx >= 0) wbp->boxes[bx].y0 = (s32)(*y + 0.5f); }
+    if (has_top) { wb_flush(y); if (bx >= 0) wbp->boxes[bx].y0 = (s32)(*y + 0.5f); }   /* (marges du dehors d'abord : elles ne passent pas dans un contexte a part) */
     else if (bx >= 0 && nwb_wait < WT_WAIT) wb_wait[nwb_wait++] = bx;
+    if (bfc) wb_bfc_begin(&s);
     f32 top = *y;
     *y += bt + pt;
     f32 cy0 = *y;
@@ -1664,7 +1664,9 @@ static void wb_table(int b, f32 cx, f32 cw, f32 *y, f32 *outw) {
         const wcs_t *rc = wbx[rows[c->row]].kind == WB_ROW ? WCS(rows[c->row]) : NULL;
         if (va == VA_BASE && rc && rc->valign) va = rc->valign;
         f32 room = (bot - top) - c->h, dy = 0;
-        if (room > 0.5f) { if (va == VA_MIDDLE || va == VA_BASE) dy = room / 2; else if (va == VA_BOTTOM) dy = room; }
+        int nd = wbx[c->box].node;
+        int real_td = nd >= 0 && (wd.n[nd].tid == WT_TD || wd.n[nd].tid == WT_TH);   /* (td : milieu par defaut ; div en table-cell : en haut) */
+        if (room > 0.5f) { if (va == VA_MIDDLE || (va == VA_BASE && real_td)) dy = room / 2; else if (va == VA_BOTTOM) dy = room; }
         if (va == VA_TOP) dy = 0;
         wb_shift(c->it0, c->it1, c->bx0, c->bx1, 0, (top - c->py) + dy);
         if (c->bg >= 0 && c->bg < wbp->nboxes) { wbp->boxes[c->bg].y0 = (s32)(top + 0.5f); wbp->boxes[c->bg].y1 = (s32)(bot + 0.5f); }

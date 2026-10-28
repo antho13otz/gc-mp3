@@ -2948,7 +2948,7 @@ static const char *base_of(const char *path) {
 }
 
 /* Formats lus dans l'onglet MUSIQUE */
-enum { FMT_MP3, FMT_FLAC, FMT_OGG, FMT_WAV, FMT_M4A, FMT_GME, FMT_XMP, FMT_GCN };
+enum { FMT_MP3, FMT_FLAC, FMT_OGG, FMT_WAV, FMT_M4A, FMT_GME, FMT_XMP, FMT_GCN, FMT_MID };   /* (v203 : MIDI) */
 static int retro_ext_fmt(const char *path);       /* onglet RETRO (tab_retro.c) */
 static u8 is_retro[MAX_FILES];
 static u8 rating[MAX_FILES];            /* v76 : note (etoiles) de chaque morceau, 0 a 5 (lib_extra.c) */
@@ -13903,6 +13903,7 @@ static void cp_pump(void);
 static int rep_line(const char *id, char *out, int cap);   /* v140 : reparation automatique (repair.c) */
 static void sv_after_game(const char *id, const char *launch_log);   /* v141 : copies des sauvegardes (saves.c) */
 #include "lib_extra.c"                         /* listes, recherche, ecoutes */
+#include "midi.c"                              /* v203 : musiques MIDI (synthetiseur integre) */
 #include "tab_retro.c"
 #include "tab_podcast.c"
 #include "tab_photo.c"
@@ -14281,6 +14282,16 @@ static void web_dump_json(const char *path, const char *out) {
 int main(int argc, char **argv) {
 #ifndef GEKKO
     if (getenv("PCSIM_WEBDUMP")) web_dump_json(getenv("PCSIM_WEBDUMP"), getenv("PCSIM_WEBDUMP_OUT"));
+    if (getenv("PCSIM_MIDI")) {                 /* v203 : lit un .mid en entier sans son (essais, AddressSanitizer) */
+        const char *e = NULL; char t[96];
+        if (!midi_open(getenv("PCSIM_MIDI"), t, sizeof(t), &e)) { printf("[midi] %s\n", e ? e : "?"); exit(1); }
+        static s16 L[2048], R[2048];
+        long tot = 0; int mx = 0;
+        while (tot < 48000L * 600) { int n = midi_render(L, R, 2048); if (n <= 0) break; for (int i = 0; i < n; i++) { int a = L[i] < 0 ? -L[i] : L[i]; if (a > mx) mx = a; } tot += n; }
+        printf("[midi] \"%s\" %d evenements, %.1f s, crete %d\n", t, mi_nev, tot / 48000.0, mx);
+        midi_seek(2); midi_render(L, R, 2048); midi_close();
+        exit(0);
+    }
 #endif
     boot_t0 = ticks_to_millisecs(gettime());
     up_argv0 = (argc > 0 && argv && argv[0]) ? argv[0] : NULL;
