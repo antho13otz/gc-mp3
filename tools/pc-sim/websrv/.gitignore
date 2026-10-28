@@ -1,1 +1,7 @@
 site/rc/
+# pages generees par gen.py (pas gardees dans le depot)
+site/long.html
+site/huge.html
+site/mkdocs/
+site/readthedocs/
+site/material/
