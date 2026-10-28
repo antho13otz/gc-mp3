@@ -234,15 +234,23 @@ jobs:
       - name: Taille par élément
         shell: bash
         run: |
-          NMB="$DEVKITPPC/bin/powerpc-eabi-nm"
-          "$NMB" --size-sort -S gc-mp3player.elf | awk '{ printf "%d %s %s\n", strtonum("0x"$2), $3, $4 }' | sort -n | tail -n 70 > tailles.txt || true
           python3 - <<'PY'
-          rows = [l.split() for l in open("tailles.txt") if l.strip()]
+          import os, subprocess, shutil
+          nm = shutil.which("powerpc-eabi-nm") or os.path.join(os.environ.get("DEVKITPPC", "/opt/devkitpro/devkitPPC"), "bin", "powerpc-eabi-nm")
+          out = subprocess.run([nm, "--size-sort", "-S", "gc-mp3player.elf"], capture_output=True, text=True)
+          rows = []
+          for l in out.stdout.splitlines():
+              p = l.split()
+              if len(p) >= 4: rows.append((int(p[1], 16), p[2], p[3]))
+          rows.sort(reverse=True)
           tot = {}
-          for n, t, _ in rows: tot[t.lower()] = tot.get(t.lower(), 0) + int(n)
-          rows.reverse()
-          msg = "%0A".join("%8d %s %s" % (int(n), t, s) for n, t, s in rows[:70])
-          print("::notice title=Plus gros elements (octets, b=reserve au demarrage, d=donnees, t=code)::" + msg)
+          for n, t, _ in rows: tot[t.lower()] = tot.get(t.lower(), 0) + n
+          head = "total : " + ", ".join("%s=%d Ko" % (k, v // 1024) for k, v in sorted(tot.items()) if v > 65536)
+          for part in range(3):
+              chunk = rows[part * 40:(part + 1) * 40]
+              msg = "%0A".join("%8d %s %s" % r for r in chunk)
+              print("::notice title=Plus gros elements %d (octets ; b = reserve au demarrage, d = donnees, t = code)::%s%%0A%s" % (part + 1, head if part == 0 else "", msg))
+          if not rows: print("::notice title=Plus gros elements::nm a echoue : " + (out.stderr or "?")[:300])
           PY
 
       # Swiss lit les DOL par blocs de 128 Kio : on complete le fichier
