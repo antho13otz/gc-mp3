@@ -221,6 +221,7 @@ static void gb_open(void);                               /* v207 : globe.c */
 static void gb_kb_done(const char *t);                   /* v213 : globe.c (recherche) */
 static void gb_prefetch(void);
 static void gb_bg(void);
+static void web_legend(void);                          /* v214 : web_cb.c */
 static void pet_rename(const char *t);                   /* v207 : pet.c */
 static void saver_tableau(float t);
 static char radio_last_url[URL_MAX], radio_last_name[48];
@@ -7403,7 +7404,7 @@ static void draw(void) {
     dp_t0 = perf_us();
 #endif
     DP("begin_frame", begin_frame());
-    const int webcb = tab == TAB_WEB && !(menu_open || tl_screen || ic_on);   /* v209 : Cube Browser, plein ecran */
+    const int webcb = tab == TAB_WEB && !(menu_open || tl_screen || ic_on) && !cb_host_integrated();   /* v209 : Cube Browser, plein ecran (v214 : en Aurore : dans GC Station) */
     if (!gs_active() && !webcb) {                                       /* v196 : (l'espace jeux a sa propre barre) */
         DP("draw_header", draw_header());
         DP("draw_header_clock", draw_header_clock());
@@ -7415,6 +7416,7 @@ static void draw(void) {
            n'est pas redessine (cache par la fenetre) : beaucoup moins de travail par image */
     } else if (tab == TAB_WEB) {
         DP("navigateur", cb_frame(cb_host_input_enabled()));     /* v209 : Cube Browser (source/cb) */
+        if (cb_host_integrated() && !kb_is_open()) web_legend();   /* v214 : la legende de GC Station */
     } else if (IS_PLAYER_TAB(tab) && player_layout == L_COVER) {
         DP("draw_layout_cover", draw_layout_cover());
         if (kb_is_open()) draw_legend_web(); else draw_legend();

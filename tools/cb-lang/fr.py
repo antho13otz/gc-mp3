@@ -284,4 +284,12 @@ TR = {
 "des couleurs, polices et espacements. JavaScript et les mises en page modernes en colonnes ne sont pas pris en charge : "
 "les sites sont affichés plus simplement, comme sur un téléphone. Les sites légers marchent le mieux.</p>"
 "<p><a href=\"about:home\">Retour à l'accueil</a></p>",
+# --- v214 : GC Station, style Aurore
+"Browser settings": "Réglages du navigateur", "FEATURED SITE": "SITE CONSEILLÉ", "BROWSER": "NAVIGATEUR",
+"RECENT BOOKMARKS": "DERNIERS FAVORIS", "No bookmarks yet: press Y on a page to keep it.": "Pas encore de favori : Y sur une page pour la garder.",
+"Type an address (www...) or words to search for.": "Tape une adresse (www...) ou des mots à chercher.",
+"The pages you keep. Y opens them from anywhere.": "Tes pages gardées. Y les ouvre de partout.",
+"Language, text size, pictures, cookies...": "Langue, taille du texte, images, cookies...",
+"Every button of the controller and the keyboard.": "Toutes les commandes de la manette et du clavier.",
+"Home": "Accueil", "Back to the start page": "Retour à l'accueil",
 }

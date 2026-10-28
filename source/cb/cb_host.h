@@ -21,6 +21,8 @@ const char *cb_host_data_dir(void);           /* dossier des reglages du navigat
 const char *cb_host_download_dir(void);
 void cb_host_note(const char *msg);
 void cb_host_exit(void);                      /* porte de la barre : quitter le navigateur (onglet MUSIQUE) */
+int  cb_host_integrated(void);                /* v214 : style Aurore : le navigateur vit entre l'en-tete et la legende de GC Station */
+void cb_host_accents(u8 *a, u8 *b);           /* v214 : les deux couleurs de l'Aurore (rose, bleu : theme de GC Station) */
 
 /* --- fourni par le navigateur (cb_glue.c) --- */
 void cb_init(void);                           /* une fois, apres le demarrage de GC Station */
@@ -31,3 +33,5 @@ int  cb_ready(void);
 const char *cb_current_url(void);
 void cb_reload_internal(const char *url);     /* une page "gc:" a change (reponse de l'assistant...) : la remontrer */
 void cb_toast(const char *msg);
+enum { CBV_HOME, CBV_PAGE, CBV_SETTINGS, CBV_KEYBOARD, CBV_BOOKMARKS, CBV_DIALOG };
+int  cb_view(void);                           /* v214 : ce que montre le navigateur (legende de GC Station) */

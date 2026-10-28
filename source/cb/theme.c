@@ -3,9 +3,9 @@
 
 #define C(r, g, b, a) { r, g, b, a }
 
-const char *const theme_names[THEME_COUNT] = { "Indigo", "Jet Black", "Platinum", "Spice" };
+const char *const theme_names[THEME_COUNT] = { "Indigo", "Jet Black", "Platinum", "Spice", "Aurore" };
 
-static const Theme themes[THEME_COUNT] = {
+static Theme themes[THEME_COUNT] = {
     { /* Indigo */
         .name = "Indigo",
         .bg_top = C(58, 40, 140, 255), .bg_bottom = C(20, 12, 62, 255), .bg_cube = C(120, 100, 230, 255),
@@ -62,7 +62,30 @@ static const Theme themes[THEME_COUNT] = {
         .cursor_fill = C(255, 255, 255, 255), .cursor_edge = C(140, 60, 10, 255),
         .shadow = C(90, 30, 0, 120), .good = C(60, 150, 60, 255), .bad = C(200, 40, 30, 255),
     },
+    { /* Aurore (GC Station) : noir profond, verre tres fin, rose et bleu */
+        .name = "Aurore",
+        .bg_top = C(7, 6, 14, 255), .bg_bottom = C(3, 3, 6, 255), .bg_cube = C(160, 80, 255, 255),
+        .panel_top = C(255, 255, 255, 9), .panel_bottom = C(255, 255, 255, 5), .panel_edge = C(255, 255, 255, 40),
+        .button_top = C(255, 255, 255, 30), .button_bottom = C(255, 255, 255, 14),
+        .accent = C(255, 70, 170, 255), .accent_hi = C(255, 140, 210, 255),
+        .text = C(255, 255, 255, 255), .text_dim = C(169, 167, 194, 255), .text_on_accent = C(255, 255, 255, 255),
+        .field_bg = C(255, 255, 255, 20), .field_text = C(240, 238, 250, 255),
+        .page_bg = C(12, 10, 24, 236), .page_text = C(214, 212, 230, 255), .page_dim = C(130, 128, 156, 255),
+        .page_link = C(255, 122, 196, 255), .page_link_hover = C(60, 210, 255, 255),
+        .page_heading = C(255, 255, 255, 255), .page_rule = C(64, 60, 96, 255),
+        .cursor_fill = C(255, 255, 255, 255), .cursor_edge = C(255, 70, 170, 255),
+        .shadow = C(0, 0, 0, 170), .good = C(70, 230, 160, 255), .bad = C(255, 110, 120, 255),
+    },
 };
+
+void theme_accents(const u8 *a, const u8 *b) {
+    Theme *t = &themes[THEME_AURORE];
+    t->accent = (Color){ a[0], a[1], a[2], 255 };
+    t->accent_hi = (Color){ (u8)((a[0] + 255) / 2), (u8)((a[1] + 255) / 2), (u8)((a[2] + 255) / 2), 255 };
+    t->cursor_edge = t->accent;
+    t->page_link = (Color){ (u8)((a[0] + 255) / 2), (u8)((a[1] + 150) / 2), (u8)((a[2] + 200) / 2), 255 };
+    t->page_link_hover = (Color){ b[0], b[1], b[2], 255 };
+}
 
 static int current = THEME_INDIGO;
 

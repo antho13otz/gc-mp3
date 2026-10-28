@@ -44,3 +44,14 @@ void  ui_spinner(float cx, float cy, float size);
 void  ui_safe_area(float *x, float *y, float *w, float *h);
 void  ui_toast(const char *msg);    /* brief message bubble */
 void  ui_draw_toast(void);
+
+/* GC Station v214 : style Aurore (le navigateur dans GC Station, entre son en-tete et sa legende).
+ * Memes cadres que GC Station : verre tres fin et filet lumineux, selection en degrade rose -> bleu. */
+bool  au_on(void);                                  /* dans GC Station (style Aurore) */
+bool  au_style(void);                               /* dessin Aurore (dans GC Station, ou theme Aurore) */
+float au_kx(void);                                  /* largeur du navigateur / 640 (coordonnees de GC Station) */
+Color au_ca(u8 a);                                  /* rose */
+Color au_cb(u8 a);                                  /* bleu */
+void  au_glass(float x, float y, float w, float h, float r);
+void  au_sel(float x, float y, float w, float h, float r, float a);
+void  au_pill(float x, float y, float w, float h, Color l, Color r);

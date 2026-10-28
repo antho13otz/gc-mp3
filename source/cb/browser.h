@@ -12,3 +12,7 @@ const char *browser_current_url(void);            /* GC Station */
 void browser_clear_history(void);
 void browser_clear_bookmarks(void);
 void browser_open_music(void);   /* shows the music player panel */
+/* GC Station v214 */
+int browser_view(void);                       /* CBV_* (cb_host.h) */
+int browser_bookmark_count(void);
+void browser_bookmark(int i, const char **title, const char **url);

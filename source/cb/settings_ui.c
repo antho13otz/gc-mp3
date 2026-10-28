@@ -102,7 +102,8 @@ static bool def_hidden(const SetDef *d) {
     if (d->type == ST_ACTION) return d->min == SA_FIND_DOL || d->min == SA_MOVE_DATA;
     return d->off == offsetof(Settings, widescreen) || d->off == offsetof(Settings, video_mode) ||
            d->off == offsetof(Settings, full_width) || d->off == offsetof(Settings, exit_action) ||
-           d->off == offsetof(Settings, swiss_dol);
+           d->off == offsetof(Settings, swiss_dol) ||
+           (au_on() && (d->off == offsetof(Settings, theme) || d->off == offsetof(Settings, margin)));   /* (v214 : Aurore de GC Station) */
 }
 
 void settings_ui_open(void) {
@@ -264,7 +265,7 @@ static void draw_toggle(UiId id, float x, float y, bool on) {
     gfx_rrect_outline(x, y, w, h, 14, 1.5f, t->panel_edge);
     float kx = x + 14 + k * (w - 28);
     gfx_circle(kx + 1, y + 16, 11, color_alpha(t->shadow, 0.6f));
-    gfx_circle(kx, y + 14, 11, t->button_top);
+    gfx_circle(kx, y + 14, 11, au_style() ? rgba(255, 255, 255, 235) : t->button_top);
     gfx_circle(kx, y + 11, 6, rgba(255, 255, 255, 80));
 }
 

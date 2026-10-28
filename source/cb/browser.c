@@ -100,6 +100,29 @@ static void veil_begin(void) {
 static void veil_end(void) { if (veil.on) veil.revealing = true; }
 static bool veil_covering(void) { return veil.on && !veil.revealing; }
 
+/* GC Station v214 : le voile de chargement en Aurore (a la place de la scene sous-marine) */
+static void au_veil(float x, float y, float w, float h, float a) {
+    if (a <= 0.01f) return;
+    float tm = ui_time();
+    gfx_rrect(x, y, w, h, 18, rgba(8, 7, 18, (u8)(240 * a)));
+    gfx_set_clip(x, y, w, h);
+    for (int i = 0; i < 3; i++) {                       /* trois voiles de lumiere qui ondulent */
+        float yy = y + h * 0.5f - 46 + i * 26 + sinf(tm * 1.1f + i * 1.7f) * 10, bh = 30 - i * 6;
+        gfx_rect_hgrad(x, yy, w * 0.5f, bh, au_ca(0), au_ca((u8)((34 - i * 8) * a)));
+        gfx_rect_hgrad(x + w * 0.5f, yy, w * 0.5f, bh, au_cb((u8)((34 - i * 8) * a)), au_cb(0));
+    }
+    gfx_clear_clip();
+    const char *l = tr("Loading");
+    float ts = 22, tw = gfx_text_width(FONT_UI, ts, l, -1) + gfx_text_width(FONT_UI, ts, "...", -1);
+    float tx = x + (w - tw) * 0.5f, ty = y + h * 0.5f - 14;
+    float lw = gfx_text(FONT_UI, ts, tx, ty, rgba(255, 255, 255, (u8)(235 * a)), l, -1);
+    int dots = 1 + (int)(tm * 3) % 3;
+    gfx_text(FONT_UI, ts, tx + lw, ty, rgba(255, 255, 255, (u8)(235 * a)), "...", dots);
+    float bw = 160, bx = x + (w - bw) * 0.5f, k = fmodf(tm * 0.7f, 1.0f);
+    gfx_rrect(bx, ty + 34, bw, 3, 1.5f, rgba(255, 255, 255, (u8)(30 * a)));
+    au_pill(bx + (bw - 50) * k, ty + 34, 50, 3, au_ca((u8)(230 * a)), au_cb((u8)(230 * a)));
+}
+
 /* The start page is drawn by home.c; this only gives it a title (and is
  * what shows if something ever asks the page engine to draw it). */
 static const char home_html[] =
@@ -1378,7 +1401,7 @@ static void draw_bookmarks(bool interactive) {
     ui_safe_area(&sx, &sy, &sw, &sh);
     float open = ui_anim(ui_id("bm-open", 0), 1.0f, 0.25f);
     gfx_rect(0, 0, gfx_width(), 480, color_alpha(t->shadow, 0.6f * open));
-    float pw = fminf(560, sw - 20), ph = 380;
+    float pw = fminf(560, sw - 20), ph = au_on() ? sh : 380;
     float px = sx + (sw - pw) * 0.5f, py = sy + (sh - ph) * 0.5f + (1 - open) * 60;
     ui_set_input(interactive);
     ui_panel(px, py, pw, ph, 20);
@@ -1388,10 +1411,19 @@ static void draw_bookmarks(bool interactive) {
         bm_open = false;
         sound_play(SFX_CLOSE);
     }
+    if (au_on()) {                         /* GC Station (Aurore) : pas de barre d'outils : l'accueil et les reglages ici */
+        float bw2 = 116, bx2 = px + pw - 52 - bw2 * 2 - 8;
+        if (ui_button(ui_id("bm-home", 0), bx2, py + 12, bw2, 32, tr("Home"), 15, UIB_NORMAL)) {
+            bm_open = false; navigate(g_set.home, NULL, true); return;
+        }
+        if (ui_button(ui_id("bm-set", 0), bx2 + bw2 + 8, py + 12, bw2, 32, tr("Settings"), 15, UIB_NORMAL)) {
+            bm_open = false; settings_request = true; return;
+        }
+    }
     if (ui_button(ui_id("bm-add", 0), px + 20, py + 56, pw - 40, 40, tr("Bookmark this page"), 18, UIB_ACCENT))
         bookmark_add_current();
 
-    const int visible = 6;
+    const int visible = au_on() ? 4 : 6;
     float row_h = 38, ly = py + 108;
     if (nbookmarks == 0)
         gfx_text_centered(FONT_UI, 17, px + pw * 0.5f, ly + 60, t->text_dim, tr("No bookmarks yet."));
@@ -1618,8 +1650,13 @@ void browser_frame(bool interactive) {
     ui_set_input(interactive && !modal);
     bool input_ok = interactive && !modal;
 
-    /* ---- toolbar */
+    /* GC Station v214 : style Aurore : le navigateur est entre l'en-tete et la legende de GC Station
+     * (pas de barre d'outils : B retour, X adresse, Y favoris ; une ligne d'adresse au-dessus de la page) */
+    const bool au = au_on();
+    const bool home_now = has_page && !strcmp(page.url, "about:home");
     float bar_h = 54;
+    if (au) goto au_bar;
+    /* ---- toolbar */
     ui_panel(sx + 4, sy + 4, sw - 8, bar_h, 24);
     float by = sy + 4 + bar_h * 0.5f, r = 18;
     float bx = sx + 30;
@@ -1667,16 +1704,62 @@ void browser_frame(bool interactive) {
         sound_play(SFX_SELECT);
         open_address_bar();
     }
+au_bar:
+    if (au && !home_now) {                 /* ligne d'adresse (Aurore) : cadenas, adresse ; a droite : titre ou chargement */
+        float k = au_kx(), ax = 11 * k, aw = 618 * k, ay = 73, ah = 26;
+        bool hov = ui_hover(ui_id("au-addr", 0), ax, ay, aw, ah);
+        float hv = ui_anim(ui_id("au-addr", 1), hov ? 1.0f : 0.0f, 0.25f);
+        gfx_rrect(ax, ay, aw, ah, 13, rgba(255, 255, 255, (u8)(15 + 12 * hv)));
+        gfx_rrect_outline(ax, ay, aw, ah, 13, 1.0f, hv > 0.01f ? color_lerp(rgba(255, 255, 255, 34), au_ca(200), hv) : rgba(255, 255, 255, 34));
+        const char *u = loading ? loading_url : (has_page ? page.url : "");
+        float tx = ax + 12;
+        if (!loading && has_page && page.secure) {
+            ui_draw_icon(page.verified ? ICON_LOCK : ICON_UNLOCK, ax + 17, ay + ah * 0.5f, 14, page.verified ? t->good : t->bad);
+            tx += 16;
+        }
+        char right[200];
+        right[0] = 0;
+        if (loading) {
+            int kb = fetch_progress() / 1024;
+            if (kb > 0) snprintf(right, sizeof(right), "%s %d Ko", fetch_stage(), kb);
+            else snprintf(right, sizeof(right), "%s", fetch_stage());
+        } else if (has_page && page.title[0]) snprintf(right, sizeof(right), "%s", page.title);
+        float rw = 0;
+        if (right[0]) {
+            int rn = gfx_text_fit(FONT_UI, 12, right, -1, aw * 0.38f);
+            rw = gfx_text_width(FONT_UI, 12, right, rn);
+            gfx_text(FONT_UI, 12, ax + aw - 14 - rw, ay + (ah - gfx_line_height(FONT_UI, 12)) * 0.5f, loading ? au_ca(255) : t->text_dim, right, rn);
+        }
+        float uw = aw - (tx - ax) - 30 - rw;
+        int un = gfx_text_fit(FONT_BODY, 14, u, -1, uw);
+        gfx_text(FONT_BODY, 14, tx, ay + (ah - gfx_line_height(FONT_BODY, 14)) * 0.5f, rgba(236, 234, 248, 255), u, un);
+        if (loading) {                     /* chargement : un trait rose -> bleu qui file sous l'adresse */
+            float kk = fmodf(ui_time() * 0.8f, 1.0f), lw = aw * 0.3f, lx = ax + 13 + (aw - 26 - lw) * kk;
+            gfx_rect_hgrad(lx, ay + ah - 2, lw, 2, au_ca(0), au_ca(230));
+            gfx_rect_hgrad(lx + lw * 0.5f, ay + ah - 2, lw * 0.5f, 2, au_cb(230), au_cb(0));
+        }
+        if (hov && input_ok && input_pressed(ACT_CLICK)) {
+            input_consume(ACT_CLICK);
+            sound_play(SFX_SELECT);
+            open_address_bar();
+        }
+    }
 
     /* ---- content area (not while the loading screen covers it) */
     bool content_ok = input_ok && !veil_covering();
     float cx = sx + 8, cy = sy + bar_h + 16, cw = sw - 16, ch = sh - bar_h - 16 - 34;
-    gfx_shadow(cx + 2, cy + 4, cw, ch, 14, 6, t->shadow);
+    if (au) {                              /* (Aurore : comme les cadres de GC Station) */
+        float k = au_kx();
+        cx = 11 * k; cw = 618 * k;
+        if (home_now) { cy = 73; ch = 385; } else { cy = 105; ch = 308; }
+    }
+    if (au) { if (!home_now) au_glass(cx, cy, cw, ch, 18); }
+    else gfx_shadow(cx + 2, cy + 4, cw, ch, 14, 6, t->shadow);
     /* the page's rounded panel, which also marks its shape: the page is
      * drawn only inside it (below), so a site's full-width bars and
      * backgrounds keep the rounded corners instead of squaring them off */
     gfx_mask_begin();
-    gfx_rrect(cx, cy, cw, ch, 14, has_page && page.dom ? page.bg : t->page_bg);
+    if (!(au && home_now)) gfx_rrect(cx, cy, cw, ch, au ? 18 : 14, has_page && page.dom ? page.bg : t->page_bg);
     gfx_mask_end();
 
     float scale = g_set.text_size / 100.0f;
@@ -1899,15 +1982,19 @@ void browser_frame(bool interactive) {
             }
         }
     }
-    if (loading) {
+    if (loading && au) {
+        if (!has_page) ui_spinner(cx + cw * 0.5f, cy + ch * 0.5f, 60);
+    } else if (loading) {
         if (!has_page) ui_spinner(cx + cw * 0.5f, cy + ch * 0.5f, 60);
         float k = fmodf(ui_time() * 0.8f, 1.0f);
         gfx_rect(cx + 10, cy + 2, cw - 20, 3, color_alpha(t->page_rule, 0.7f));
         gfx_rect(cx + 10 + (cw - 20) * fmaxf(0, k - 0.25f), cy + 2, (cw - 20) * fminf(0.25f, k), 3, t->accent);
     }
     veil_update(ch);
-    if (veil.on)   /* over the page area only; the status bar below says what's loading */
+    if (veil.on && au) au_veil(cx, cy, cw, ch, veil.a);
+    else if (veil.on)   /* over the page area only; the status bar below says what's loading */
         underwater_draw(cx, cy, cw, ch, veil.a, ui_time());
+    if (au) goto au_nostatus;
 
     /* ---- status bar */
     float sbx = sx + 14, sby = sy + sh - 28;
@@ -1942,6 +2029,7 @@ void browser_frame(bool interactive) {
     Color dot = netio_state() == NET_UP ? t->good : (netio_state() == NET_FAILED ? t->bad : t->accent);
     gfx_circle(sx + sw - 110, sby + 10, 5, dot);
     draw_clock(sx + sw - 14, sby);
+au_nostatus:
 
     /* ---- shortcuts */
     if (input_ok) {
@@ -1993,4 +2081,17 @@ void browser_frame(bool interactive) {
 void browser_open_music(void) {
     music_open = true;
     music_ui_reset();
+}
+
+/* GC Station v214 : pour la legende de GC Station et l'accueil en Aurore */
+int browser_view(void) {
+    if (bm_open) return CBV_BOOKMARKS;
+    if (dl_state != DL_IDLE || sel_field >= 0) return CBV_DIALOG;
+    if (has_page && !strcmp(page.url, "about:home")) return CBV_HOME;
+    return CBV_PAGE;
+}
+int browser_bookmark_count(void) { return nbookmarks; }
+void browser_bookmark(int i, const char **title, const char **url) {
+    *title = i >= 0 && i < nbookmarks ? bookmarks[i].title : "";
+    *url = i >= 0 && i < nbookmarks ? bookmarks[i].url : "";
 }

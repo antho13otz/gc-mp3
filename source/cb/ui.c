@@ -4,6 +4,7 @@
 #include "input.h"
 #include "settings.h"
 #include "sound.h"
+#include "cb_host.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -157,15 +158,88 @@ float ui_anim(UiId id, float target, float rate) {
     return target;
 }
 
+/* ------------------------------------------- GC Station v214 : style Aurore */
+
+bool au_on(void) { return cb_host_integrated() != 0; }
+bool au_style(void) { return au_on() || g_set.theme == THEME_AURORE; }
+float au_kx(void) { return gfx_width() / 640.0f; }
+Color au_ca(u8 a) { Color c = theme()->accent; c.a = a; return c; }
+Color au_cb(u8 a) { Color c = theme()->page_link_hover; c.a = a; return c; }
+
+void au_glass(float x, float y, float w, float h, float r) {     /* = au_panel de GC Station */
+    if (r > 22) r = 22;
+    gfx_rrect_vgrad(x, y, w, h, r, rgba(255, 255, 255, 9), rgba(255, 255, 255, 5));
+    gfx_rrect_outline(x, y, w, h, r, 1.0f, rgba(255, 255, 255, 18));
+    float lw = w * 0.45f;                                         /* filet lumineux en haut */
+    gfx_rect_hgrad(x + w / 2 - lw, y, lw, 1.2f, au_ca(0), au_ca(150));
+    gfx_rect_hgrad(x + w / 2, y, lw, 1.2f, au_cb(150), au_cb(0));
+}
+
+void au_pill(float x, float y, float w, float h, Color l, Color r) {   /* pastille, degrade de gauche a droite */
+    float rad = h * 0.5f;
+    if (w < h) w = h;
+    gfx_circle(x + rad, y + rad, rad, l);
+    gfx_circle(x + w - rad, y + rad, rad, r);
+    if (w > h) gfx_rect_hgrad(x + rad, y, w - h, h, l, r);
+}
+
+void au_sel(float x, float y, float w, float h, float r, float a) {   /* = au_sel_paint de GC Station */
+    if (a <= 0.01f) return;
+    (void)r;
+    gfx_rrect(x - 3, y - 3, w + 6, h + 6, h * 0.5f + 3, au_ca((u8)(46 * a)));   /* lueur */
+    au_pill(x, y, w, h, au_ca((u8)(235 * a)), au_cb((u8)(235 * a)));
+    if (w > 30) gfx_rect_hgrad(x + h * 0.5f, y + 1, w - h, 1, rgba(255, 255, 255, (u8)(80 * a)), rgba(255, 255, 255, (u8)(10 * a)));
+}
+
+/* aurores : rubans de lumiere rose -> violet -> bleu -> cyan qui ondulent (comme le fond de GC Station) */
+static Color au_mix(float t, u8 a) {
+    Color c0 = au_ca(a), c1 = au_cb(a);
+    Color v = rgba((u8)((c0.r + c1.r) / 2 + 20 > 255 ? 255 : (c0.r + c1.r) / 2 + 20), (u8)((c0.g + c1.g) / 2), (u8)(c1.b > c0.b ? c1.b : c0.b), a);
+    Color cy = rgba(40, 210, 255, a);
+    if (t < 0.33f) return color_lerp(c0, v, t / 0.33f);
+    if (t < 0.66f) return color_lerp(v, c1, (t - 0.33f) / 0.33f);
+    return color_lerp(c1, cy, (t - 0.66f) / 0.34f);
+}
+static void au_ribbon(float base, float amp, float th, float t, float sp, float ph, u8 alpha) {
+    enum { N = 24 };
+    float W = gfx_width(), xs[N + 1], ys[N + 1];
+    Color cs[N + 1], zs[N + 1];
+    for (int i = 0; i <= N; i++) {
+        float x = -10 + i * (W + 20) / N, gx = x * 640.0f / W;
+        xs[i] = x;
+        ys[i] = base + amp * sinf(gx * 0.012f + t * sp + ph) + 0.4f * amp * sinf(gx * 0.031f - t * sp * 1.7f);
+        cs[i] = au_mix((float)i / N, alpha);
+        zs[i] = cs[i]; zs[i].a = 0;
+    }
+    for (int i = 0; i < N; i++) {
+        float a[8] = { xs[i], ys[i] - th, xs[i + 1], ys[i + 1] - th, xs[i + 1], ys[i + 1], xs[i], ys[i] };
+        Color ca[4] = { zs[i], zs[i + 1], cs[i + 1], cs[i] };
+        gfx_quad_colors(a, ca);
+        float b[8] = { xs[i], ys[i], xs[i + 1], ys[i + 1], xs[i + 1], ys[i + 1] + th * 0.35f, xs[i], ys[i] + th * 0.35f };
+        Color cb2[4] = { cs[i], cs[i + 1], zs[i + 1], zs[i] };
+        gfx_quad_colors(b, cb2);
+    }
+}
+
 /* --------------------------------------------------------------- drawing */
 
 void ui_safe_area(float *x, float *y, float *w, float *h) {
+    if (au_on()) {   /* GC Station : entre son en-tete et sa legende (comme ses cadres : 11 a 629, 73 a 413) */
+        float k = au_kx();
+        *x = 11 * k; *y = 73; *w = 618 * k; *h = 340;
+        return;
+    }
     float mx = gfx_width() * g_set.margin / 200.0f, my = 480.0f * g_set.margin / 200.0f;
     *x = mx; *y = my; *w = gfx_width() - 2 * mx; *h = 480.0f - 2 * my;
 }
 
 void ui_panel(float x, float y, float w, float h, float r) {
     const Theme *t = theme();
+    if (au_style()) {   /* (Aurore : un voile sombre sous le verre, pour les fenetres posees sur la page) */
+        gfx_rrect(x, y, w, h, fminf(r, 22), rgba(10, 8, 22, 228));
+        au_glass(x, y, w, h, r);
+        return;
+    }
     gfx_shadow(x + 3, y + 5, w, h, r, 8, t->shadow);
     gfx_rrect_vgrad(x, y, w, h, r, t->panel_top, t->panel_bottom);
     gfx_rrect_vgrad(x + 3, y + 2, w - 6, fminf(h * 0.45f, 40), r - 2, rgba(255, 255, 255, 46), rgba(255, 255, 255, 0));
@@ -188,6 +262,22 @@ bool ui_button(UiId id, float x, float y, float w, float h, const char *label, f
     float bx = x - grow, by = y - grow + press * 2.0f, bw = w + grow * 2, bh = h + grow * 2;
     float r = fminf(bh * 0.5f, 14.0f);
 
+    if (au_style()) {                 /* Aurore : verre ; pointe ou principal : pastille rose -> bleu */
+        r = bh * 0.5f;
+        if (style != UIB_FLAT) {
+            gfx_rrect(bx, by, bw, bh, r, rgba(255, 255, 255, style == UIB_ACCENT ? 14 : 16));
+            gfx_rrect_outline(bx, by, bw, bh, r, 1.0f, rgba(255, 255, 255, 34));
+        } else if (hv < 0.99f) gfx_rrect(bx, by, bw, bh, r, rgba(255, 255, 255, 7));
+        float sel = style == UIB_ACCENT ? fmaxf(0.75f, hv) : hv;
+        au_sel(bx, by, bw, bh, r, sel);
+        if (label && *label) {
+            float lh = gfx_line_height(FONT_UI, ts), tw = gfx_text_width(FONT_UI, ts, label, -1);
+            if (tw > bw - 16) { ts *= (bw - 16) / tw; lh = gfx_line_height(FONT_UI, ts); tw = gfx_text_width(FONT_UI, ts, label, -1); }
+            float tx = style == UIB_FLAT && bw > 160 ? bx + 14 : bx + (bw - tw) * 0.5f;   /* (lignes de liste : a gauche) */
+            gfx_text(FONT_UI, ts, tx, by + (bh - lh) * 0.5f + 1, rgba(255, 255, 255, 255), label, -1);
+        }
+        return clicked;
+    }
     if (style != UIB_FLAT) gfx_shadow(bx + 1, by + 3, bw, bh, r, 4 + hv * 3, t->shadow);
     if (hv > 0.01f) gfx_rrect(bx - 4, by - 4, bw + 8, bh + 8, r + 4, color_alpha(t->accent, 0.45f * hv));
     Color top = style == UIB_ACCENT ? t->accent_hi : t->button_top;
@@ -224,6 +314,17 @@ bool ui_icon_button(UiId id, float cx, float cy, float r, int icon, bool enabled
     float press = ui_anim(id ^ 0x27d4eb2du, (over && input_held(ACT_CLICK)) ? 1.0f : 0.0f, 0.5f);
     float rr = r + hv * 2.5f - press * 2.0f;
     float y = cy + press * 1.5f;
+    if (au_style()) {                 /* Aurore : rond de verre ; pointe : rose */
+        gfx_circle(cx, y, rr, rgba(255, 255, 255, enabled ? 18 : 8));
+        gfx_ring(cx, y, rr, 1.0f, 0, 2 * (float)M_PI, rgba(255, 255, 255, enabled ? 46 : 20));
+        if (hv > 0.01f) {
+            gfx_circle(cx, y, rr + 3, au_ca((u8)(50 * hv)));
+            gfx_circle(cx, y, rr, au_ca((u8)(230 * hv)));
+            gfx_circle(cx + rr * 0.25f, y + rr * 0.2f, rr * 0.7f, au_cb((u8)(150 * hv)));
+        }
+        ui_draw_icon(icon, cx, y, r * 1.1f, enabled ? rgba(255, 255, 255, 255) : rgba(255, 255, 255, 80));
+        return clicked;
+    }
     gfx_circle(cx + 1, y + 3, rr + 1, color_alpha(t->shadow, 0.7f));
     if (hv > 0.01f) gfx_circle(cx, y, rr + 4, color_alpha(t->accent, 0.45f * hv));
     Color base = enabled ? t->button_top : color_alpha(t->button_bottom, 0.5f);
@@ -355,6 +456,15 @@ void ui_draw_icon(int icon, float cx, float cy, float s, Color c) {
 
 void ui_draw_background(void) {
     const Theme *t = theme();
+    if (au_on()) return;                                   /* (GC Station a deja dessine son fond) */
+    if (au_style()) {                                       /* Aurore, en plein ecran : noir et aurores */
+        float w = gfx_width(), tm = g_set.animations ? ui_time() : 0;
+        gfx_rect_vgrad(0, 0, w, 480, rgba(7, 6, 14, 255), rgba(3, 3, 6, 255));
+        au_ribbon(118, 16, 70, tm, 0.35f, 0.0f, 40);
+        au_ribbon(430, 22, 110, tm, 0.25f, 2.1f, 34);
+        au_ribbon(460, 12, 60, tm, 0.42f, 4.0f, 22);
+        return;
+    }
     float w = gfx_width();
     gfx_rect_vgrad(0, 0, w, 480, t->bg_top, t->bg_bottom);
     /* soft light pool near the top */
@@ -377,8 +487,11 @@ void ui_spinner(float cx, float cy, float size) {
     gfx_cube(cx, cy + sinf(time * 4.0f) * size * 0.08f, size, time * 1.7f, time * 2.3f, t->accent);
 }
 
+bool ui_cursor_rest = false;                 /* GC Station v214 : pointeur au repos sur une ligne de liste : cache */
 void ui_draw_cursor(void) {
     const Theme *t = theme();
+    if (ui_cursor_rest && input_stick_idle(40)) { ui_cursor_rest = false; return; }
+    ui_cursor_rest = false;
     float x = input_cursor_x(), y = input_cursor_y();
     float press = ui_anim(0xC0450Bu, input_held(ACT_CLICK) ? 1.0f : 0.0f, 0.4f);
     float hover = ui_anim(0xC0450Cu, hover_id ? 1.0f : 0.0f, 0.2f);
@@ -427,7 +540,8 @@ void ui_draw_toast(void) {
     float w = tw + 40, h = 40;
     float x = (gfx_width() - w) * 0.5f, y = 400 - in * 20;
     gfx_shadow(x + 2, y + 4, w, h, 20, 6, color_alpha(t->shadow, a));
-    gfx_rrect_vgrad(x, y, w, h, 20, color_alpha(t->accent_hi, a), color_alpha(t->accent, a));
+    if (au_style()) { gfx_rrect(x, y, w, h, 20, rgba(10, 8, 22, (u8)(230 * a))); au_sel(x, y, w, h, 20, a); }
+    else gfx_rrect_vgrad(x, y, w, h, 20, color_alpha(t->accent_hi, a), color_alpha(t->accent, a));
     gfx_text(FONT_UI, ts, x + 20, y + (h - gfx_line_height(FONT_UI, ts)) * 0.5f, color_alpha(t->text_on_accent, a),
              toast_msg, tn);
     if (frame + 1 >= toast_until) toast_msg[0] = 0;

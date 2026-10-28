@@ -60,6 +60,46 @@ void cb_host_restore_gx(void) {
     scr_viewport();
 }
 void cb_host_open_menu(void) { menu_open = 1; }
+/* v214 : style Aurore : le navigateur entre l'en-tete et la legende de GC Station, avec ses couleurs */
+int cb_host_integrated(void) { return ui_skin == 3; }
+void cb_host_accents(u8 *a, u8 *b) {
+    col_t x = au_a(255), y = au_b(255);
+    a[0] = x.r; a[1] = x.g; a[2] = x.b;
+    b[0] = y.r; b[1] = y.g; b[2] = y.b;
+}
+/* la legende (comme celle des autres onglets) : ce que font les boutons, selon ce que montre le navigateur */
+static void web_legend(void) {
+    int v = cb_view();
+    if (v == CBV_KEYBOARD) return;                           /* (le clavier a la sienne) */
+    static const char *const kh[] = { "A", "X", "Y", "Z" };
+    static const char *const lh[] = { "OUVRIR", "ADRESSE", "FAVORIS", "ONGLET" };
+    static const char *const kp[] = { "A", "B", "X", "Y", "C", "Z" };
+    static const char *const lp[] = { "CLIQUER", "RETOUR", "ADRESSE", "FAVORIS", "D\xC3\x89" "FILER", "ONGLET" };
+    static const char *const ks[] = { "A", "B", "Z", "ST" };
+    static const char *const ls[] = { "CHOISIR", "RETOUR", "ONGLET", "MENU" };
+    static const char *const kb[] = { "A", "B" };
+    static const char *const lb[] = { "OUVRIR", "FERMER" };
+    static const char *const ld[] = { "CHOISIR", "FERMER" };
+    const char *const *K = kp, *const *L = lp;
+    int cnt = 6;
+    f32 lx = 11, lw = 618;
+    if (v == CBV_HOME) { K = kh; L = lh; cnt = 4; lx = 289; lw = 341; }
+    else if (v == CBV_SETTINGS) { K = ks; L = ls; cnt = 4; }
+    else if (v == CBV_BOOKMARKS) { K = kb; L = lb; cnt = 2; }
+    else if (v == CBV_DIALOG) { K = kb; L = ld; cnt = 2; }
+    const f32 cy = 438.5f;
+    legend_box(lx, lw);
+    f32 total = 0;
+    for (int i = 0; i < cnt; i++) total += 22 + text_width(F_SMALL, L[i], 1);
+    f32 pad = lw < 400 ? 12 : 20;
+    f32 space = cnt > 1 ? (lw - 2 * pad - total) / (cnt - 1) : 0, cx = lx + pad;
+    if (cnt == 2) { space = 40; cx = lx + (lw - total - space) / 2; }
+    for (int i = 0; i < cnt; i++) {
+        draw_mini_badge(cx + 9, cy, K[i]);
+        cx += 22;
+        cx += gx_text(F_SMALL, cx, cy + 4.5f, L[i], RGBA(208, 198, 240, 255), RGBA(208, 198, 240, 255), 1) + space;
+    }
+}
 void cb_host_exit(void) { tab = TAB_MUSIC; tab_enter(tab); }
 void cb_host_note(const char *msg) { lib_note(msg); }
 void cb_host_download_done(const char *path) {

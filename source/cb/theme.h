@@ -18,7 +18,8 @@ typedef struct {
     Color good, bad;
 } Theme;
 
-enum { THEME_INDIGO, THEME_JET, THEME_PLATINUM, THEME_SPICE, THEME_COUNT };
+enum { THEME_INDIGO, THEME_JET, THEME_PLATINUM, THEME_SPICE, THEME_AURORE, THEME_COUNT };   /* (GC Station : + Aurore) */
+void theme_accents(const u8 *a, const u8 *b);   /* GC Station : couleurs de l'Aurore */
 
 extern const char *const theme_names[THEME_COUNT];
 const Theme *theme(void);

@@ -72,6 +72,10 @@ int cb_ready(void) { return inited; }
 
 void cb_frame(int interactive) {
     if (!inited) cb_init();
+    int au = cb_host_integrated();                        /* v214 : dans GC Station, style Aurore */
+    if (au || g_set.theme == THEME_AURORE) { u8 a[3], b[3]; cb_host_accents(a, b); theme_accents(a, b); }
+    theme_set(au ? THEME_AURORE : g_set.theme);
+    if (au && trans < 1.0f) { trans = 1.0f; screen = target_screen; }   /* (pas de cube tournant : l'en-tete de GC Station reste) */
     input_update();
     ui_begin_frame();
     gfx_begin_frame();
@@ -95,6 +99,13 @@ void cb_frame(int interactive) {
     ui_end_frame();
     gfx_end_frame();
     cb_host_restore_gx();
+}
+
+int cb_view(void) {
+    if (!inited) return CBV_HOME;
+    if (osk_active()) return CBV_KEYBOARD;
+    if (screen == SCREEN_SETTINGS || target_screen == SCREEN_SETTINGS) return CBV_SETTINGS;
+    return browser_view();
 }
 
 void cb_navigate(const char *url) {

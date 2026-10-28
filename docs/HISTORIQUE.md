@@ -24,6 +24,24 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v214 — Cube Browser dans l'Aurore de GC Station
+- Avec le style **Aurore**, l'onglet WEB n'est plus un écran à part : Cube Browser se place entre l'en-tête de
+  GC Station (« Radio · Web · Rétro ») et sa légende de boutons, avec les mêmes cadres de verre, le même filet
+  lumineux et la même sélection en dégradé rose → bleu (couleurs du thème de GC Station).
+- **Accueil** façon onglet RADIO : à gauche la liste (Adresse ou recherche, Favoris, Réglages du navigateur,
+  Commandes et astuces, puis les sites conseillés), à droite la fiche de la ligne choisie (grande icône,
+  description, adresse) et les derniers favoris. Croix : de ligne en ligne (sans pointeur, comme les autres
+  listes) ; A : ouvrir.
+- **Pages** : une ligne d'adresse sous l'en-tête (cadenas, adresse ; à droite le titre de la page ou l'état du
+  chargement, avec un trait rose → bleu qui file), la page dans un cadre de verre sombre, et la légende
+  A cliquer · B retour · X adresse · Y favoris · C défiler · Z onglet. Plus de barre d'outils : l'accueil et les
+  réglages du navigateur sont dans le panneau des favoris (Y).
+- **Réglages du navigateur, clavier, favoris, menus déroulants, messages, aide** : tous en Aurore (verre,
+  pastilles en dégradé, interrupteurs roses). Le chargement d'une page montre des voiles de lumière au lieu de la
+  scène sous-marine. Dans les réglages, Thème et Marge sont cachés (c'est GC Station qui décide).
+- Les autres styles de GC Station gardent Cube Browser en plein écran ; son thème peut aussi être « Aurore »
+  (réglages du navigateur > Affichage > Thème).
+
 ## Nouveautés v213 — le globe des radios, plus rapide et plus doux
 - **Chargement bien plus rapide** : l'annuaire est lu en une seule passe (avant : chaque champ était recherché depuis
   le début de la station, 10 fois plus lent) ; la page suivante est demandée pendant qu'on lit la précédente ; la

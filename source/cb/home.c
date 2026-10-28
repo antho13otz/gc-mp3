@@ -13,6 +13,7 @@
 #include "version.h"
 #include "update.h"
 #include "fetch.h"
+#include "browser.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -55,7 +56,8 @@ static const char *const tips[] = {
 
 static float intro_start = -100;
 
-void home_reset(void) { intro_start = ui_time(); }
+static bool au_place = true;                       /* (v214 : le pointeur va sur la ligne choisie) */
+void home_reset(void) { intro_start = ui_time(); au_place = true; }
 
 /* 0..1 entrance progress for item i (staggered fade) */
 static float intro(int i) {
@@ -253,7 +255,157 @@ static bool clicked(bool hov, bool input_ok) {
     return false;
 }
 
+/* ================================================ GC Station v214 : Aurore
+ * L'accueil dans GC Station, comme l'onglet RADIO : a gauche la liste (actions, puis les sites), a droite la
+ * fiche de la ligne choisie et les derniers favoris. Croix : de ligne en ligne ; A : ouvrir. */
+static const char *const au_site_names[] = {
+    "DuckDuckGo", "Assistant IA", "Wikip\xE9" "dia", "Nintendo 2001", "Musique libre", "68k.news", "NPR Text", "CNN Lite", "Franceinfo",
+};
+enum { AU_SEARCH, AU_BOOKMARKS, AU_SETTINGS, AU_HELP, AU_NACT };
+static int au_sel_i = AU_NACT;
+extern bool ui_cursor_rest;
+
+static void au_icon(int row, float cx, float cy, float s, Color c, Color dark) {
+    if (row == AU_BOOKMARKS) ui_draw_icon(ICON_STAR, cx, cy, s * 1.15f, c);
+    else if (row == AU_SETTINGS) ui_draw_icon(ICON_GEAR, cx, cy, s * 1.1f, c);
+    else if (row == AU_SEARCH) draw_emblem(IC_SEARCH, cx, cy, s, c, dark);
+    else if (row == AU_HELP) draw_emblem(IC_BOOK, cx, cy, s, c, dark);
+    else draw_emblem(sites[row - AU_NACT].icon, cx, cy, s, c, dark);
+}
+static const char *au_row_name(int row) {
+    switch (row) {
+    case AU_SEARCH: return tr("Address or search");
+    case AU_BOOKMARKS: return tr("Bookmarks");
+    case AU_SETTINGS: return tr("Browser settings");
+    case AU_HELP: return tr("Controls & Tips");
+    default: return au_site_names[row - AU_NACT];
+    }
+}
+static float au_fit_size(FontId f, float size, const char *s, float w) {
+    float tw = gfx_text_width(f, size, s, -1);
+    return tw > w ? fmaxf(size * 0.6f, size * w / tw) : size;
+}
+
+static HomeAction home_draw_au(float x, float y, float w, float h, bool input_ok, const char **url, const char **hover_url) {
+    const Theme *t = theme();
+    HomeAction act = HOME_NONE;
+    float k = au_kx();
+    const int nrows = AU_NACT + NSITES;
+    if (au_sel_i >= nrows) au_sel_i = AU_NACT;
+    (void)w;
+
+    /* ---- liste (a gauche) */
+    float lx = x, lw = 271 * k, ly = y, lh = h;
+    static int last_frame = -100;
+    static bool was_input = false;
+    if (ui_frame() - last_frame > 2 || (input_ok && !was_input)) au_place = true;   /* (revenu sur l'accueil : le pointeur retourne sur la ligne choisie) */
+    last_frame = ui_frame(); was_input = input_ok;
+    if (au_place && input_ok) {
+        float sy = ly + 11 + au_sel_i * 27 + (au_sel_i >= AU_NACT ? 9 : 0);
+        input_set_cursor(lx + 7 + (lw - 14) - 26, sy + 12);
+        au_place = false;
+    }
+    au_glass(lx, ly, lw, lh, 22);
+    float row_h = 27, ry = ly + 11;
+    for (int i = 0; i < nrows; i++) {
+        if (i == AU_NACT) {                                   /* separation actions / sites */
+            gfx_rect(lx + 16, ry + 3, lw - 32, 1, rgba(255, 255, 255, 26));
+            ry += 9;
+        }
+        float rx = lx + 7, rw = lw - 14, rh = 24;
+        UiId id = ui_id("au-row", i);
+        bool hov = ui_hover(id, rx, ry, rw, rh);
+        if (hov) { au_sel_i = i; ui_cursor_rest = true; }   /* (comme les listes de GC Station : sans pointeur) */
+        bool on = i == au_sel_i;
+        float a = ui_anim(id, on ? 1.0f : 0.0f, 0.3f);
+        au_sel(rx, ry, rw, rh, 12, a);
+        Color tc = on ? rgba(255, 255, 255, 255) : (i < AU_NACT ? rgba(240, 238, 250, 255) : rgba(214, 212, 230, 255));
+        au_icon(i, rx + 16, ry + rh * 0.5f, 16, on ? rgba(255, 255, 255, 255) : rgba(255, 255, 255, i < AU_NACT ? 235 : 170),
+                on ? au_ca(255) : rgba(14, 12, 28, 255));
+        const char *nm = au_row_name(i);
+        float ts = au_fit_size(FONT_UI, 14, nm, rw - 46);
+        gfx_text(FONT_UI, ts, rx + 34, ry + (rh - gfx_line_height(FONT_UI, ts)) * 0.5f, tc, nm, -1);
+        if (hov && i >= AU_NACT) *hover_url = sites[i - AU_NACT].url;
+        if (input_ok && hov && input_pressed(ACT_CLICK)) {
+            input_consume(ACT_CLICK);
+            input_rumble(3);
+            if (i == AU_SEARCH) act = HOME_SEARCH;
+            else if (i == AU_BOOKMARKS) act = HOME_BOOKMARKS;
+            else if (i == AU_SETTINGS) act = HOME_SETTINGS;
+            else if (i == AU_HELP) act = HOME_HELP;
+            else { act = HOME_OPEN_URL; *url = sites[i - AU_NACT].url; }
+        }
+        ry += row_h;
+    }
+
+    /* ---- fiche (a droite) */
+    float px = x + 278 * k, pw = 341 * k, py = y, ph = 338;
+    au_glass(px, py, pw, ph, 22);
+    int sel = au_sel_i;
+    const char *cap = sel >= AU_NACT ? tr("FEATURED SITE") : tr("BROWSER");
+    gfx_circle(px + 22, py + 21, 3.5f, au_ca(255));
+    gfx_text(FONT_UI, 11, px + 32, py + 14, t->text_dim, cap, -1);
+    float tx = px + 18, ty = py + 38, ts = 96;
+    gfx_rrect(tx - 4, ty - 4, ts + 8, ts + 8, 26, au_ca(40));                 /* lueur */
+    gfx_rrect_vgrad(tx, ty, ts, ts, 22, au_ca(255), au_cb(255));
+    gfx_rrect_vgrad(tx + 4, ty + 3, ts - 8, ts * 0.42f, 18, rgba(255, 255, 255, 50), rgba(255, 255, 255, 0));
+    au_icon(sel, tx + ts * 0.5f, ty + ts * 0.5f, 58, rgba(255, 255, 255, 255), au_ca(255));
+    float cx = tx + ts + 16, cw = px + pw - 16 - cx;
+    const char *title = au_row_name(sel);
+    float tsz = au_fit_size(FONT_UI, 22, title, cw);
+    gfx_text(FONT_UI, tsz, cx, ty + 4, rgba(255, 255, 255, 255), title, -1);
+    const char *desc = sel == AU_SEARCH ? tr("Type an address (www...) or words to search for.")
+                     : sel == AU_BOOKMARKS ? tr("The pages you keep. Y opens them from anywhere.")
+                     : sel == AU_SETTINGS ? tr("Language, text size, pictures, cookies...")
+                     : sel == AU_HELP ? tr("Every button of the controller and the keyboard.")
+                     : tr(sites[sel - AU_NACT].blurb);
+    float dh = wrap(FONT_BODY, 13, cx, ty + 36, cw, t->text_dim, desc, true);
+    if (sel >= AU_NACT) {                                    /* l'adresse, en petite pastille */
+        char u[64];
+        const char *su = sites[sel - AU_NACT].url;
+        if (!strncmp(su, "https://", 8)) su += 8; else if (!strncmp(su, "http://", 7)) su += 7;
+        snprintf(u, sizeof(u), "%s", su);
+        char *sl = strchr(u, '/');
+        if (sl && strncmp(u, "web.archive", 11)) *sl = 0;
+        if (!strncmp(u, "web.archive", 11)) snprintf(u, sizeof(u), "web.archive.org");
+        float uw = gfx_text_width(FONT_UI, 11, u, -1) + 20, uy = ty + 42 + dh;
+        gfx_rrect(cx, uy, uw, 20, 10, rgba(255, 255, 255, 18));
+        gfx_rrect_outline(cx, uy, uw, 20, 10, 1.0f, rgba(255, 255, 255, 36));
+        gfx_text(FONT_UI, 11, cx + 10, uy + (20 - gfx_line_height(FONT_UI, 11)) * 0.5f, rgba(220, 218, 236, 255), u, -1);
+    }
+
+    /* derniers favoris */
+    float by = ty + ts + 22;
+    gfx_rect(px + 18, by, pw - 36, 1, rgba(255, 255, 255, 26));
+    gfx_text(FONT_UI, 11, px + 18, by + 10, t->text_dim, tr("RECENT BOOKMARKS"), -1);
+    int nb = browser_bookmark_count();
+    float fy = by + 32;
+    if (nb == 0)
+        wrap(FONT_BODY, 13, px + 18, fy + 4, pw - 36, rgba(150, 148, 176, 255), tr("No bookmarks yet: press Y on a page to keep it."), true);
+    for (int i = 0; i < 3 && i < nb; i++) {
+        const char *bt, *bu;
+        browser_bookmark(nb - 1 - i, &bt, &bu);
+        float rh = 34, rw = pw - 36, rx = px + 18;
+        UiId id = ui_id("au-bm", i);
+        bool hov = ui_hover(id, rx, fy, rw, rh);
+        float a = ui_anim(id, hov ? 1.0f : 0.0f, 0.3f);
+        gfx_rrect(rx, fy, rw, rh, 11, rgba(255, 255, 255, 10));
+        gfx_rrect_outline(rx, fy, rw, rh, 11, 1.0f, a > 0.01f ? color_lerp(rgba(255, 255, 255, 20), au_ca(220), a) : rgba(255, 255, 255, 20));
+        int n1 = gfx_text_fit(FONT_UI, 13, bt, -1, rw - 24);
+        gfx_text(FONT_UI, 13, rx + 12, fy + 3, rgba(255, 255, 255, 255), bt, n1);
+        const char *bs = bu;
+        if (!strncmp(bs, "https://", 8)) bs += 8; else if (!strncmp(bs, "http://", 7)) bs += 7;
+        int n2 = gfx_text_fit(FONT_BODY, 10.5f, bs, -1, rw - 24);
+        gfx_text(FONT_BODY, 10.5f, rx + 12, fy + 18, rgba(130, 128, 156, 255), bs, n2);
+        if (hov) *hover_url = bu;
+        if (input_ok && hov && input_pressed(ACT_CLICK)) { input_consume(ACT_CLICK); act = HOME_OPEN_URL; *url = bu; }
+        fy += rh + 6;
+    }
+    return act;
+}
+
 HomeAction home_draw(float x, float y, float w, float h, bool input_ok, const char **url, const char **hover_url) {
+    if (au_on()) { *url = NULL; *hover_url = NULL; return home_draw_au(x, y, w, h, input_ok, url, hover_url); }
     const Theme *t = theme();
     HomeAction act = HOME_NONE;
     *url = NULL;
@@ -465,6 +617,20 @@ static const char *bind_name(int act) {
 
 /* One control: navy badge with the button in gold, then the description. */
 static void help_row(float x, float y, float w, float h, const char *badge, const char *text, float a) {
+    if (au_style()) {                                   /* v214 : Aurore : rangee de verre, bouton en pastille */
+        float bw = fminf(84, w * 0.3f);
+        gfx_rrect(x, y, w, h, h * 0.5f, rgba(255, 255, 255, (u8)(12 * a)));
+        au_pill(x, y, bw, h, au_ca((u8)(210 * a)), au_cb((u8)(210 * a)));
+        float bs = 11.5f;
+        while (bs > 8 && caps_width(bs, 1.0f, badge) > bw - 12) bs -= 0.5f;
+        caps(x + (bw - caps_width(bs, 1.0f, badge)) / 2, y + (h - gfx_line_height(FONT_UI, bs)) / 2, bs, 1.0f,
+             rgba(255, 255, 255, (u8)(255 * a)), rgba(0, 0, 0, 0), badge);
+        float ts = 13.5f, room = w - bw - 16;
+        while (ts > 10 && gfx_text_width(FONT_BODY, ts, text, -1) > room) ts -= 0.5f;
+        gfx_text(FONT_BODY, ts, x + bw + 11, y + (h - gfx_line_height(FONT_BODY, ts)) / 2, rgba(236, 234, 248, (u8)(255 * a)), text,
+                 gfx_text_fit(FONT_BODY, ts, text, -1, room));
+        return;
+    }
     Color navy = rgba(26, 24, 66, 255), gold = opaque(theme()->accent);
     Color pale = opaque(color_lerp(theme()->panel_top, rgba(255, 255, 255, 255), 0.62f));
     float bw = fminf(84, w * 0.3f);
@@ -485,6 +651,12 @@ static void help_row(float x, float y, float w, float h, const char *badge, cons
 /* Section heading with a dotted rule, as on the start page. */
 static void help_heading(float x, float y, float w, const char *text, float a) {
     Color white = rgba(255, 255, 255, 255), shadow = rgba(20, 16, 50, 200);
+    if (au_style()) {
+        caps(x + 2, y, 13, 1.6f, rgba(169, 167, 194, (u8)(255 * a)), rgba(0, 0, 0, 0), text);
+        float dx = x + 2 + caps_width(13, 1.6f, text) + 12;
+        gfx_rect_hgrad(dx, y + 8, (x + w - dx) * 0.5f, 1, au_ca((u8)(140 * a)), au_cb((u8)(50 * a)));
+        return;
+    }
     caps(x + 2, y, 15, 1.0f, color_alpha(white, a), color_alpha(shadow, a), text);
     float dx = x + 2 + caps_width(15, 1.0f, text) + 14;
     dotted_hline(dx, y + 9, x + w - dx, color_alpha(opaque(theme()->panel_top), 0.8f * a));
@@ -552,9 +724,15 @@ static float help_body(float x, float y, float w, bool draw) {
         float a = intro(11);
         Color navy = rgba(26, 24, 66, 255);
         Color pale = opaque(color_lerp(theme()->panel_top, rgba(255, 255, 255, 255), 0.62f));
+        if (au_style()) {
+            navy = rgba(214, 212, 230, 255);
+            gfx_rrect(x, yy, w, ph, 14, rgba(255, 255, 255, (u8)(10 * a)));
+            gfx_rect_hgrad(x + 14, yy, w * 0.4f, 1.2f, au_ca((u8)(150 * a)), au_cb(0));
+        } else {
         cut_rect(x, yy, w, ph, 8, color_alpha(pale, a));
         cut_outline(x, yy, w, ph, 8, 1.5f, color_alpha(navy, a));
         gfx_rect(x + 1, yy + 1, 5, ph - 2 - 8, color_alpha(rgba(240, 132, 24, 255), a));
+        }
         float ty = yy + 7;
         for (int i = 0; i < 3; i++) ty += wrap(FONT_BODY, ts, x + 15, ty, tw, color_alpha(navy, a), tr(tips_text[i]), true) + 6;
     }
@@ -568,12 +746,19 @@ HomeAction home_help_draw(float x, float y, float w, float h, bool input_ok) {
     Color base = opaque(color_lerp(t->panel_bottom, t->bg_top, 0.25f));
     Color panel = opaque(t->panel_top);
     Color navy = rgba(26, 24, 66, 255), gold = opaque(t->accent), white = rgba(255, 255, 255, 255);
-    gfx_rrect(x, y, w, h, 14, base);
+    const bool au = au_style();
+    if (!au) gfx_rrect(x, y, w, h, 14, base);
     gfx_set_clip(x, y, w, h);
     float m = 10, hx = x + m, hw = w - 2 * m, cy = y + m;
 
     /* header bar, as on the start page */
     float a0 = intro(0), bar_h = 34;
+    if (au) {                                            /* v214 : Aurore : titre, et B pour revenir */
+        gfx_text(FONT_UI, 20, hx + 6, cy + 4, white, tr("Controls & Tips"), -1);
+        gfx_rect_hgrad(hx + 6, cy + 32, 46, 3, au_ca(255), au_cb(255));
+        cy += bar_h + 8;
+        goto au_hdr_done;
+    }
     cut_rect(hx, cy, hw, bar_h, 12, color_alpha(navy, a0));
     {
         float ex = hx + 22, ey = cy + bar_h / 2, s = 11;
@@ -600,6 +785,7 @@ HomeAction home_help_draw(float x, float y, float w, float h, bool input_ok) {
              rgba(0, 0, 0, 0), bubble);
     }
     cy += bar_h + 8;
+au_hdr_done:
 
     /* back button pinned at the bottom */
     float row_h = 24, by = y + h - m - row_h;
@@ -607,6 +793,10 @@ HomeAction home_help_draw(float x, float y, float w, float h, bool input_ok) {
     float bw = caps_width(10.5f, 1.2f, blabel) + 40;
     float a3 = intro(12);
     UiId bid = ui_id("help-back", 0);
+    if (au) {
+        if (ui_button(bid, hx, by - 4, bw, row_h + 4, tr("Back to the start page"), 13, UIB_NORMAL)) act = HOME_OPEN_URL;
+        goto au_btn_done;
+    }
     bool bhov = ui_hover(bid, hx, by, bw, row_h);
     cut_rect(hx, by, bw, row_h, 7, color_alpha(bhov ? gold : panel, a3));
     cut_outline(hx, by, bw, row_h, 7, 1.5f, color_alpha(navy, a3));
@@ -617,6 +807,7 @@ HomeAction home_help_draw(float x, float y, float w, float h, bool input_ok) {
     }
     caps(hx + 28, by + (row_h - gfx_line_height(FONT_UI, 10.5f)) / 2, 10.5f, 1.2f, color_alpha(navy, a3), rgba(0, 0, 0, 0), blabel);
     if (clicked(bhov, input_ok)) act = HOME_OPEN_URL;
+au_btn_done:
 
     /* scrolling body between the header and the button */
     float view_y = cy, view_h = by - 8 - cy;
@@ -637,8 +828,8 @@ HomeAction home_help_draw(float x, float y, float w, float h, bool input_ok) {
     gfx_set_clip(x, y, w, h);
     if (max_s > 0) {   /* scroll bar */
         float sh = fmaxf(24, view_h * view_h / content_h), sy = view_y + (view_h - sh) * (help_scroll / max_s);
-        gfx_rect(hx + hw - 4, view_y, 4, view_h, color_alpha(navy, 0.5f));
-        gfx_rect(hx + hw - 4, sy, 4, sh, gold);
+        gfx_rect(hx + hw - 4, view_y, 4, view_h, au ? rgba(255, 255, 255, 20) : color_alpha(navy, 0.5f));
+        gfx_rect(hx + hw - 4, sy, 4, sh, au ? au_ca(255) : gold);
     }
     gfx_clear_clip();
     return act;
