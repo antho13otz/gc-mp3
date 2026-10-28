@@ -88,7 +88,14 @@ build/helix/%.o: $(HELIX)/%.c
 > @mkdir -p build/helix
 > $(CC) $(HELIXFLAGS) -c $< -o $@
 
-LIBOBJ   := $(MBED_OBJ) $(HELIX_OBJ) $(CODEC_OBJ) $(GME_OBJ) $(XMP_OBJ) $(WEBP_OBJ)
+# v210 : Cube Browser (source/cb, licence MIT, Arial-Bold) : le navigateur de l'onglet WEB
+CB_SRC   := $(wildcard source/cb/*.c)
+CB_OBJ   := $(patsubst source/cb/%.c,build/cb/%.o,$(CB_SRC))
+build/cb/%.o: source/cb/%.c $(wildcard source/cb/*.h) source/gc_tls_config.h
+> @mkdir -p build/cb
+> $(CC) $(CFLAGS) -std=gnu11 -Wno-format-truncation -Isource/cb -ffunction-sections -fdata-sections -c $< -o $@
+
+LIBOBJ   := $(MBED_OBJ) $(HELIX_OBJ) $(CODEC_OBJ) $(GME_OBJ) $(XMP_OBJ) $(WEBP_OBJ) $(CB_OBJ)
 MAINDEPS := $(wildcard source/*.c source/*.h source/natres/*.h)
 
 build/natres.elf: source/natres/natres.c source/natres/natres.h tools/natres.ld

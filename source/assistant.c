@@ -290,24 +290,31 @@ static void ia_render(int mode, int to_bottom) {
         snprintf(t, sizeof(t), "<p class=\"info\">%s \xC2\xB7 mod\xC3\xA8le %s \xC2\xB7 <a href=\"gc:ia-nouveau\">Nouvelle conversation</a></p>",
                  !strcmp(ia_prov, "openai") ? "Compatible OpenAI" : "Anthropic (Claude)", ia_model[0] ? ia_model : ia_default_model());
         sb_raw(&s, t, -1);
-        if (!ia_n) sb_raw(&s, "<p>Pose ta question ci-dessous (A sur le champ : clavier ; ou depuis le t\xC3\xA9l\xC3\xA9phone, page /ia).</p>", -1);
-        for (int i = 0; i < ia_n; i++) {
-            if (ia_msg[i].role == 0) {
-                sb_raw(&s, "<div class=\"toi\"><div class=\"qui\">Toi</div>", -1);
-                ia_md_inline(&s, ia_msg[i].text, (int)strlen(ia_msg[i].text));
-                sb_raw(&s, "</div>", 6);
-            } else if (ia_msg[i].role == 1) {
-                sb_raw(&s, "<div class=\"ia\"><div class=\"qui\">Assistant</div>", -1);
-                ia_md(&s, ia_msg[i].text);
-                sb_raw(&s, "</div>", 6);
-            } else {
-                sb_raw(&s, "<div class=\"err\">", -1);
-                ia_md_inline(&s, ia_msg[i].text, (int)strlen(ia_msg[i].text));
-                sb_raw(&s, "</div>", 6);
+        /* v209 : (navigateur Cube Browser) le champ en haut, puis le plus recent d'abord */
+        sb_raw(&s, "<form action=\"gc:ia-envoyer\"><input type=\"text\" name=\"q\" size=\"50\"> <input type=\"submit\" value=\"Envoyer\"></form>", -1);
+        if (!ia_n) sb_raw(&s, "<p>Pose ta question dans le champ ci-dessus (A sur le champ : clavier ; ou depuis le t\xC3\xA9l\xC3\xA9phone, page /ia).</p>", -1);
+        if (ia_busy) sb_raw(&s, "<p class=\"attente\">L'assistant r\xC3\xA9" "fl\xC3\xA9" "chit... (la r\xC3\xA9ponse s'affichera ici)</p>", -1);
+        for (int i = ia_n - 1; i >= 0; i--) {
+            int k = i;
+            if (ia_msg[i].role != 0 && i > 0 && ia_msg[i - 1].role == 0) k = i - 1;   /* (question, puis sa reponse) */
+            for (int m = k; m <= i; m++) {
+                if (ia_msg[m].role == 0) {
+                    sb_raw(&s, "<div class=\"toi\"><div class=\"qui\">Toi</div>", -1);
+                    ia_md_inline(&s, ia_msg[m].text, (int)strlen(ia_msg[m].text));
+                    sb_raw(&s, "</div>", 6);
+                } else if (ia_msg[m].role == 1) {
+                    sb_raw(&s, "<div class=\"ia\"><div class=\"qui\">Assistant</div>", -1);
+                    ia_md(&s, ia_msg[m].text);
+                    sb_raw(&s, "</div>", 6);
+                } else {
+                    sb_raw(&s, "<div class=\"err\">", -1);
+                    ia_md_inline(&s, ia_msg[m].text, (int)strlen(ia_msg[m].text));
+                    sb_raw(&s, "</div>", 6);
+                }
             }
+            if (k < i) sb_raw(&s, "<hr>", 4);
+            i = k;
         }
-        if (ia_busy) sb_raw(&s, "<p class=\"attente\">L'assistant r\xC3\xA9" "fl\xC3\xA9" "chit\xE2\x80\xA6</p>", -1);
-        sb_raw(&s, "<form action=\"gc:ia-envoyer\"><input type=\"text\" name=\"q\" size=\"60\"> <input type=\"submit\" value=\"Envoyer\"></form>", -1);
     }
     sb_raw(&s, "</body></html>", -1);
     if (!s.b) return;
@@ -384,7 +391,7 @@ static void ia_pump(void) {
         ia_save_cfg();
         ia_ph_cfg = 0;
         web_note("Assistant IA : r\xC3\xA9glages enregistr\xC3\xA9s", 0);
-        if (!strcmp(pg.url, "gc:ia")) ia_render(NAV_REPLACE, 0);
+        { const char *cu = cb_current_url(); if (cu && !strncmp(cu, "gc:ia", 5)) ia_render(NAV_REPLACE, 0); }
     }
     if (ia_ph_ask) {                            /* question tapee sur le telephone : a la tele */
         char q[2000];
@@ -443,7 +450,9 @@ static void ia_pump(void) {
     ia_hf.post = NULL;
     ia_add(ok ? 1 : 2, ans);
     free(ans);
-    if (!strcmp(pg.url, "gc:ia")) {
+    const char *cu = cb_current_url();
+    if (cu && !strncmp(cu, "gc:ia", 5)) ia_render(NAV_REPLACE, 0);   /* v209 : page du navigateur (Cube Browser) */
+    else if (!strcmp(pg.url, "gc:ia")) {
         /* la reponse : au debut de la reponse (pas tout en bas) */
         ia_render(NAV_REPLACE, 0);
         int k = -1;

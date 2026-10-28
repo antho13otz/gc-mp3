@@ -371,6 +371,7 @@ GXRModeObj *VIDEO_GetPreferredMode(GXRModeObj *m) { (void)m; return getenv("PCSI
 u32 VIDEO_GetCurrentTvMode(void) { return getenv("PCSIM_PAL") ? VI_PAL : VI_EURGB60; }
 u32 VIDEO_HaveComponentCable(void) { return getenv("PCSIM_COMPOSANTE") ? 1 : 0; }   /* PCSIM_COMPOSANTE=1 : cable composante (480p / 576p) */
 u32 VIDEO_GetNextField(void) { return vsync_n & 1; }
+u32 VIDEO_GetRetraceCount(void) { return (u32)vsync_n; }
 u32 VIDEO_GetCurrentLine(void) { return 0; }
 VIRetraceCallback VIDEO_SetPostRetraceCallback(VIRetraceCallback cb) { VIRetraceCallback o = post_cb; post_cb = cb; return o; }
 VIRetraceCallback VIDEO_SetPreRetraceCallback(VIRetraceCallback cb) { VIRetraceCallback o = pre_cb; pre_cb = cb; return o; }

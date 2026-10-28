@@ -130,6 +130,7 @@ typedef struct { f32 x, y, z; } guVector;
 #define GX_SRC_REG 0
 #define GX_SRC_VTX 1
 #define GX_DF_NONE 0
+#define GX_LIGHTNULL 0
 #define GX_AF_NONE 2
 /* pixels */
 #define GX_BM_NONE 0
@@ -148,6 +149,7 @@ typedef struct { f32 x, y, z; } guVector;
 #define GX_LO_COPY 3
 #define GX_NEVER 0
 #define GX_LESS 1
+#define GX_EQUAL 2
 #define GX_LEQUAL 3
 #define GX_ALWAYS 7
 #define GX_CULL_NONE 0
@@ -179,6 +181,8 @@ void GX_SetAlphaUpdate(u8 e); void GX_SetColorUpdate(u8 e); void GX_SetZMode(u8 
 void GX_LoadProjectionMtx(Mtx44 m, u8 type); void GX_LoadPosMtxImm(Mtx m, u32 idx); void GX_SetCurrentMtx(u32 idx);
 void GX_InvVtxCache(void); void GX_InvalidateTexAll(void);
 void GX_InitTexObj(GXTexObj *o, void *img, u16 w, u16 h, u8 fmt, u8 ws, u8 wt, u8 mip);
+void GX_InitTexObjFilterMode(GXTexObj *o, u8 minf, u8 magf);
+static inline void GX_InitTexObjLOD(GXTexObj *o, u8 a, u8 b, f32 c, f32 d, f32 e, u8 f, u8 g, u8 h) { (void)c; (void)d; (void)e; (void)f; (void)g; (void)h; GX_InitTexObjFilterMode(o, a, b); }
 void GX_InitTexObjFilterMode(GXTexObj *o, u8 minf, u8 magf); void GX_LoadTexObj(GXTexObj *o, u8 map);
 void GX_DrawDone(void); void GX_SetDrawDone(void); GXDrawDoneCallback GX_SetDrawDoneCallback(GXDrawDoneCallback cb);
 void GX_GetGPStatus(u8 *ovh, u8 *undh, u8 *rdy, u8 *ci, u8 *brkpt);

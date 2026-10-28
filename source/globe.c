@@ -6,8 +6,8 @@
 // Les stations sont gardees sur la carte SD (SD:/gc-mp3/reglages/globe.bin), relues tous les 30 jours.
 
 #define GB_FILE  GCD_REG "/globe.bin"
-#define GB_PAGES 4
-#define GB_PAGE  1000
+#define GB_PAGES 12
+#define GB_PAGE  300                            /* (v210 : petites pages : les premieres radios arrivent vite) */
 typedef struct { f32 x, y, z; f32 lat, lon; u32 name, url, place; u16 kbps; char cc[3]; u8 hls; } gbst_t;
 static gbst_t *gb = NULL;
 static int gb_n = 0, gb_cap = 0;
@@ -28,6 +28,8 @@ static char gb_msg[160]; static u64 gb_msg_t = 0;
 static void gb_map_free(void);
 static void gb_net_start(void);
 static volatile int gb_thr_busy = 0, gb_thr_file = 0, gb_thr_file_ok = 0;
+static int gb_screen_on(void);
+static int gb_partial = 0;                     /* liste commencee, chargement interrompu */
 static void gb_note(const char *m) { snprintf(gb_msg, sizeof(gb_msg), "%s", m); gb_msg_t = now_ms(); }
 static u32 gb_str(const char *s) {              /* -> position dans le reservoir de textes */
     int l = (int)strlen(s) + 1;
@@ -190,6 +192,7 @@ static int gb_parse_some(int max) {             /* -> 1 quand la page est finie 
 static void gb_page_done(void) {
     free(gb_js); gb_js = NULL; gb_jp = NULL;
     gb_page++;
+    if (gb_n > 0) gb_loaded = 1;                     /* (v210 : on peut deja viser et ecouter pendant la suite) */
     if (gb_jgot >= GB_PAGE && gb_page < GB_PAGES) { gb_fetch(); return; }
     gb_loaded = gb_n > 0;
     gb_state = gb_loaded ? GBL_DONE : GBL_ERR;
@@ -280,6 +283,7 @@ static void gb_open(void) {
     tl_screen = TL_GLOBE;
     gb_pick = -1; gb_pick_k = 0; gb_travel = 0;
     gb_idle_t = now_ms();
+    if (gb_partial && gb_state == GBL_IDLE && net_phase == NET_DONE && net_ok) { gb_partial = 0; gb_fetch(); }   /* (suite du chargement) */
     if (gb_thr_busy) return;
     if (gb_thr_h != LWP_THREAD_NULL) { LWP_JoinThread(gb_thr_h, NULL); gb_thr_h = LWP_THREAD_NULL; }
     int want_file = !gb_loaded && gb_state != GBL_LOAD;
@@ -299,7 +303,10 @@ static void gb_net_start(void) {
 static void gb_close(void) {
     tl_screen = TL_NONE;
     if (!gb_thr_busy) gb_map_free();             /* (1 Mo rendu ; la carte est redecompressee a la prochaine ouverture) */
-    if (gb_state == GBL_LOAD) { hf_abort(&gb_hf); hf_drop(&gb_hf); free(gb_js); gb_js = NULL; gb_state = gb_n ? GBL_DONE : GBL_IDLE; gb_loaded = gb_n > 0; }
+    if (gb_state == GBL_LOAD) {                   /* (ferme en plein chargement : on reprendra a la meme page) */
+        hf_abort(&gb_hf); hf_drop(&gb_hf); free(gb_js); gb_js = NULL;
+        gb_partial = gb_n > 0; gb_state = GBL_IDLE; gb_loaded = gb_n > 0;
+    }
 }
 
 static void gb_input(u32 down, u32 nav, int fire) {
@@ -592,7 +599,8 @@ static void draw_globe(void) {
     gx_vgrad(0, 0, 640, 76, RGBA(2, 3, 14, 230), RGBA(2, 3, 14, 0));
     gx_text1(F_LARGE, 24, 40, "Globe des radios", RGBA(255, 255, 255, 255));
     char buf[220], fv[220];
-    if (gb_loaded) snprintf(buf, sizeof(buf), "%d radios", gb_n);
+    if (gb_loaded && gb_state == GBL_LOAD) snprintf(buf, sizeof(buf), "%d radios (chargement : page %d / %d, %d Ko)", gb_n, gb_page + 1, GB_PAGES, gb_js ? 0 : gb_hf.len / 1024);
+    else if (gb_loaded) snprintf(buf, sizeof(buf), "%d radios", gb_n);
     else if (gb_state == GBL_LOAD) snprintf(buf, sizeof(buf), "Chargement des radios du monde : %d radios (page %d / %d, %d Ko)", gb_n, gb_page + 1, GB_PAGES, gb_js ? 0 : gb_hf.len / 1024);
     else if (gb_state == GBL_FILE) snprintf(buf, sizeof(buf), "Lecture des radios sur la carte SD...");
     else snprintf(buf, sizeof(buf), "%s", "Annuaire injoignable (A : r\xC3\xA9" "essayer)");
@@ -622,3 +630,5 @@ static void draw_globe(void) {
     static const char *const l[] = { "\xC3\x89" "COUTER", "AU HASARD", "GARDER", "ZOOM", "FERMER" };
     tl_legend(k, l, 5);
 }
+
+static int gb_screen_on(void) { return tl_screen == TL_GLOBE; }   /* (le curseur au stick de GC Station se tait) */

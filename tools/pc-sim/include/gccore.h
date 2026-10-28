@@ -146,7 +146,7 @@ void VIDEO_Init(void); void VIDEO_Configure(GXRModeObj *m); void VIDEO_Flush(voi
 void VIDEO_SetBlack(bool b); void VIDEO_SetNextFramebuffer(void *fb);
 void VIDEO_ClearFrameBuffer(GXRModeObj *m, void *fb, u32 color);
 GXRModeObj *VIDEO_GetPreferredMode(GXRModeObj *m);
-u32 VIDEO_GetCurrentTvMode(void); u32 VIDEO_HaveComponentCable(void); u32 VIDEO_GetNextField(void); u32 VIDEO_GetCurrentLine(void);
+u32 VIDEO_GetCurrentTvMode(void); u32 VIDEO_HaveComponentCable(void); u32 VIDEO_GetNextField(void); u32 VIDEO_GetRetraceCount(void); u32 VIDEO_GetCurrentLine(void);
 VIRetraceCallback VIDEO_SetPostRetraceCallback(VIRetraceCallback cb);
 VIRetraceCallback VIDEO_SetPreRetraceCallback(VIRetraceCallback cb);
 void *VIDEO_GetCurrentFramebuffer(void); void *VIDEO_GetNextFramebuffer(void);

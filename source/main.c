@@ -78,6 +78,7 @@
 
 // Atlas de polices lissees (genere par tools/gen_font.py)
 #include "font_atlas.h"
+#include "cb/cb_host.h"                     /* v209 : Cube Browser dans l'onglet WEB */
 
 /* v150 : l'heure de GC Station = celle de la console + un decalage choisi dans Reglages > Jeux > Date et heure.
    (Avant : clock_settime, qui recule ou avance l'horloge du processeur sur laquelle tournent tous les minuteurs de
@@ -6166,6 +6167,9 @@ static void gx_init(void) {
     say("   Textures... %s", "");
     /* Texture de police (I4 : l'alpha vaut l'intensite). */
     DCFlushRange((void *)font_tex, sizeof(font_tex));
+#ifndef GEKKO
+    { extern const void *pcsim_i4_u32; pcsim_i4_u32 = font_tex; }   /* (simulateur : la police est un tableau de u32) */
+#endif
     GX_InitTexObj(&font_texobj, (void *)font_tex, FONT_TEX_W, FONT_TEX_H,
                   GX_TF_I4, GX_CLAMP, GX_CLAMP, GX_FALSE);
     GX_InitTexObjFilterMode(&font_texobj, GX_LINEAR, GX_LINEAR);
@@ -6752,6 +6756,7 @@ static void draw_badge(f32 cx, f32 cy, const char *letter, col_t c1, col_t c2) {
 /* Taille de l'ecran : l'image (repere 640x480) est reduite et centree, pour
    qu'elle rentre en entier sur les televiseurs qui coupent les bords. */
 static f32 scr_ox = 0, scr_oy = 0;
+static int scr_proj_dirty = 0;                /* v209 : le navigateur (Cube Browser) a mis sa projection */
 static void scr_viewport(void) {
     if (scr_pct < 80) scr_pct = 80;
     if (scr_pct > SCR_MAX) scr_pct = SCR_MAX;
@@ -6770,7 +6775,8 @@ static void scr_viewport(void) {
     scr_w = scr_wide ? 640.0f * 4.0f / 3.0f : 640.0f;
     scr_x0 = (640.0f - scr_w) / 2.0f;
     static int proj_wide = -1;
-    if (proj_wide != scr_wide) {
+    if (proj_wide != scr_wide || scr_proj_dirty) {
+        scr_proj_dirty = 0;
         Mtx44 pm;
         guOrtho(pm, 0.0f, 480.0f, scr_x0, scr_x0 + scr_w, 0.0f, 1.0f);
         GX_LoadProjectionMtx(pm, GX_ORTHOGRAPHIC);
@@ -7394,7 +7400,8 @@ static void draw(void) {
     dp_t0 = perf_us();
 #endif
     DP("begin_frame", begin_frame());
-    if (!gs_active()) {                                                 /* v196 : (l'espace jeux a sa propre barre) */
+    const int webcb = tab == TAB_WEB && !(menu_open || tl_screen || ic_on);   /* v209 : Cube Browser, plein ecran */
+    if (!gs_active() && !webcb) {                                       /* v196 : (l'espace jeux a sa propre barre) */
         DP("draw_header", draw_header());
         DP("draw_header_clock", draw_header_clock());
     }
@@ -7404,8 +7411,7 @@ static void draw(void) {
         /* v42 : une fenetre plein ecran est ouverte (Reglages, outils...) : l'onglet derriere
            n'est pas redessine (cache par la fenetre) : beaucoup moins de travail par image */
     } else if (tab == TAB_WEB) {
-        if (web_full && !kb_is_open()) draw_web_full();          /* v118 : plein ecran */
-        else { DP("web", draw_web()); draw_legend_web(); }
+        DP("navigateur", cb_frame(cb_host_input_enabled()));     /* v209 : Cube Browser (source/cb) */
     } else if (IS_PLAYER_TAB(tab) && player_layout == L_COVER) {
         DP("draw_layout_cover", draw_layout_cover());
         if (kb_is_open()) draw_legend_web(); else draw_legend();
@@ -7442,18 +7448,18 @@ static void draw(void) {
         }
     }
     DP("nv_page_end", nv_page_end());
-    if (!gs_active()) DP("st_after_page", st_after_page());             /* v131 : Ilots : le dock */
+    if (!gs_active() && !webcb) DP("st_after_page", st_after_page());   /* v131 : Ilots : le dock */
     DP("draw_layout_toast", draw_layout_toast());
     DP("draw_crash_notice", draw_crash_notice());
     DP("draw_update_notice", draw_update_notice());
-    if (!gs_active()) DP("draw_tab_strip", draw_tab_strip());
+    if (!gs_active() && !webcb) DP("draw_tab_strip", draw_tab_strip());
     if (tl_screen) DP("outils", draw_tools());     /* v35 : outils */
     if (ic_on) draw_indigo_cfg();                  /* v32 : reglages d'un jeu (par-dessus l'onglet) */
     if (menu_open) { au_menu_begin(); DP("menu", draw_menu()); au_menu_end(); }   /* v103 : Aurore : le menu s'ouvre en douceur */
     else au_menu_closed();
     if (kb_is_open()) draw_keyboard();             /* (v35 : par-dessus la page Reglages) */
     DP("draw_checklist", draw_checklist());
-    if (!menu_open && !kb_is_open() && !(tab == TAB_WEB && web_full)) DP("decor", season_overlay());
+    if (!menu_open && !kb_is_open() && tab != TAB_WEB) DP("decor", season_overlay());
     DP("draw_actions", draw_actions());
     if (tab != TAB_FILES) DP("share_draw", share_draw());   /* v137 : QR code d'un partage, dans tous les onglets (journal du jeu) */
     DP("gp_draw", gp_draw());
@@ -8462,6 +8468,7 @@ static u64 web_msg_t = 0;
 static char arch_query[200];
 
 static void web_note(const char *m, int err) {
+    cb_toast(m);                                       /* v209 : bulle du navigateur */
     snprintf(web_msg, sizeof(web_msg), "%s", m);
     web_msg_err = err;
     web_msg_t = now_ms();
@@ -9076,7 +9083,7 @@ static char *archive_to_html(const char *js, int len) {
         if (json_field(o, e, "identifier", id, sizeof(id)) && id[0]) {
             json_field(o, e, "title", title, sizeof(title));
             json_field(o, e, "creator", creator, sizeof(creator));
-            sb_add(&s, "<li><a href=\"https://archive.org/metadata/");
+            sb_add(&s, "<li><a href=\"gc:https://archive.org/metadata/");   /* (v209 : lu par GC Station) */
             sb_esc(&s, id);
             sb_add(&s, "\">");
             sb_esc(&s, title[0] ? title : id);
@@ -9119,7 +9126,9 @@ static void ia_render(int mode, int to_bottom);
 static void ia_ask(const char *q);
 
 /* Affiche une page. data (alloue avec malloc) appartient ensuite a la page. */
+static void cbh_show(unsigned char *data, int len, const char *url, int kind);
 static void web_show(unsigned char *data, int len, const char *url, int kind, int latin, int mode) {
+    if (1) { (void)latin; (void)mode; cbh_show(data, len, url, kind); return; }   /* v209 : au navigateur (web_cb.c) */
     wpage_t np;
     memset(&np, 0, sizeof(np));
     snprintf(np.url, sizeof(np.url), "%s", url);
@@ -9367,6 +9376,12 @@ static void web_relayout_poll(void) {
    puis le corps arrive en tache de fond (web_pump). typed = adresse tapee sans
    "https://" : si le site n'accepte pas https, on reessaie en http. */
 static void web_fetch(const char *url_in, int mode, int typed) {
+    if (!dl_force && !strstr(url_in, "archive.org/advancedsearch.php") && !strstr(url_in, "archive.org/metadata/")) {
+        (void)mode; (void)typed;                        /* v209 : les pages : Cube Browser ; GC Station lit encore archive.org */
+        if (tab != TAB_WEB && tab_shown(TAB_WEB)) { tab = TAB_WEB; tab_enter(tab); }
+        cb_navigate(url_in);
+        return;
+    }
     static unsigned char hdr[16384];
     static char req[URL_MAX + 4600];
     char url[URL_MAX], hosthdr[160], cookie[4096];
@@ -11585,8 +11600,7 @@ static void web_page(int dir) {
 }
 
 static void web_enter_tab(void) {
-    net_start_async();
-    if (pg.nitems == 0 && !wb_loading) web_render_home(NAV_PUSH);
+    net_start_async();                                 /* (v209 : le navigateur a sa page d'accueil) */
 }
 
 static void web_input(u32 down, u32 nav, int fire) {
@@ -11781,6 +11795,7 @@ static int draw_tabs(const char *count);
 #include "web_extra.c"
 static void tab_enter(int t);
 #include "assistant.c"                 /* v206 : assistant IA (page gc:ia) */
+#include "web_cb.c"                    /* v209 : l'onglet WEB = Cube Browser (source/cb) */
 
 static void draw_web_page(void) {
     char fit[400];
@@ -14533,7 +14548,8 @@ int main(int argc, char **argv) {
             if (cu && !cu_prev) party_start();            /* stick C vers le haut */
             cu_prev = cu;
         }
-        if (down & PAD_BUTTON_START) { menu_open = 1; down = 0; }
+        cbh_wants_start = tab == TAB_WEB && cb_wants_start();   /* v209 : clavier du navigateur : START = valider */
+        if ((down & PAD_BUTTON_START) && !cbh_wants_start) { menu_open = 1; down = 0; }
 
         /* onglets : la lecture en cours continue */
         if (down & PAD_TRIGGER_Z) { if (gs_active() && gl_detail) {} else if (gs_active() && gl_launch_sel < 0) gs_filter_next(1); else tab_next(1); }   /* (v197 : pas dans la fiche) */   /* v196 : espace jeux : filtre suivant */
@@ -14561,7 +14577,7 @@ int main(int argc, char **argv) {
         }
         if (nolist) fire = 0;
         if (tab == TAB_WEB) {
-            if (!menu_open && !kb_open) web_input(down, nav, fire);
+            /* v209 : Cube Browser lit la manette lui-meme (cb_frame) */
         } else if (tab == TAB_RETRO) {
             retro_input(down, nav, fire);
         } else if (tab == TAB_PODCAST) {
@@ -14620,7 +14636,7 @@ int main(int argc, char **argv) {
         }
         {
             u32 tr = down & (PAD_TRIGGER_L | PAD_TRIGGER_R);
-            if (tab == TAB_WEB && !kb_is_open()) tr &= ~PAD_TRIGGER_R;   /* v118 : R = plein ecran dans le navigateur */
+            if (tab == TAB_WEB) tr = 0;                       /* v209 : L / R : pages du navigateur */
             if (tr) transport_step((tr & PAD_TRIGGER_R) ? 1 : -1);
         }
 

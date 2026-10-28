@@ -24,6 +24,25 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v210 — l'onglet WEB devient Cube Browser ; globe : radios plus vite
+- **Le navigateur de l'onglet WEB est maintenant Cube Browser** (d'Arial-Bold, licence MIT, `source/cb`),
+  adapté pour vivre dans GC Station : même écran, même réseau, mêmes certificats, même carte SD
+  (réglages du navigateur : SD:/gc-mp3/web). Pointeur au stick, A : cliquer, B : retour, X : adresse ou
+  recherche, Y : favoris, stick C ou L / R : défiler, la croix saute de lien en lien, la roue dentée : les
+  réglages du navigateur. **Z change d'onglet et START ouvre le menu de GC Station**, comme partout (START
+  valide quand le clavier du navigateur est ouvert). La porte de la barre ramène à l'onglet MUSIQUE.
+- Les pages de GC Station s'ouvrent dans Cube Browser : **Assistant IA** (`gc:ia`, la réponse s'affiche
+  toute seule en haut de la page) et **Musique libre** d'archive.org (`gc:archive`) ; ce sont deux tuiles de
+  la page d'accueil. « Ouvrir sur la télé » depuis le téléphone ouvre la page dans Cube Browser.
+- Les fichiers téléchargés vont dans SD:/downloads (les MIDI dans SD:/retro) et la musique les voit tout
+  de suite.
+- Pas repris de Cube Browser : son lecteur MIDI, le Game Boy Advance, ses mises à jour et celles de Swiss
+  (GC Station a les siens). Le texte de Cube Browser est en anglais et ses polices n'ont pas les accents
+  (« é » s'affiche « e ») : à faire.
+- **Globe des radios** : l'annuaire arrive par petites pages (300 radios) ; on peut viser et écouter dès la
+  première page, la suite continue (et reprend où elle en était si on ferme le globe). Le curseur au stick
+  de GC Station ne s'affiche plus par-dessus le globe (les « cases vides » en haut).
+
 ## Nouveautés v209 — globe : bonne forme en 16:9, il tourne pendant le chargement
 - En 16:9, la carte débordait de la Terre (continents dessinés en dehors du disque) : la Terre, la carte, les
   méridiens et les radios utilisent maintenant la même correction que les autres ronds de GC Station.

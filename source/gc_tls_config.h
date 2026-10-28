@@ -23,3 +23,8 @@
 
 /* Horloge en millisecondes fournie par GC-MP3 (compteur de temps du processeur). */
 #define MBEDTLS_PLATFORM_MS_TIME_ALT
+
+/* v209 : navigateur Cube Browser (source/cb) : son horloge (SNTP) pour verifier les certificats, et les
+   certificats racines cherches au besoin (castore.c) au lieu d'etre tous lus en memoire au demarrage. */
+#define MBEDTLS_PLATFORM_TIME_ALT
+#define MBEDTLS_X509_TRUSTED_CERTIFICATE_CALLBACK

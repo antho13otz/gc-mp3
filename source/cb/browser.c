@@ -1,0 +1,1995 @@
+/* browser.c - toolbar, page view, status bar, history and bookmarks. */
+#include "browser.h"
+#include "page.h"
+#include "fetch.h"
+#include "netio.h"
+#include "ui.h"
+#include "osk.h"
+#include "theme.h"
+#include "input.h"
+#include "settings.h"
+#include "storage.h"
+#include "home.h"
+#include "update.h"
+#include "version.h"
+#include "swissupd.h"
+#include "sound.h"
+#include "url.h"
+#include "image.h"
+#include "diag.h"
+#include "unzip.h"
+#include "dolload.h"
+#include "cookies.h"
+#include "midi.h"
+#include "music_ui.h"
+#include "memstat.h"
+#include <ogc/lwp_watchdog.h>
+#include <sys/stat.h>
+#include <dirent.h>
+#include <ctype.h>
+#include <math.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <time.h>
+#include "underwater.h"
+#include "cb_host.h"
+
+#define HIST_MAX 32
+#define BOOKMARK_MAX 64
+
+/* A history entry remembers how to get the page back: its address, any form
+ * data it was submitted with, and (for recent pages) the page itself. */
+typedef struct {
+    char url[URL_MAX];
+    float scroll;
+    char *post;          /* form data for pages that came from a POST, or NULL */
+    char *src;           /* cached page source, or NULL */
+    size_t len;
+    bool plain, secure, verified;
+    unsigned spill;      /* > 0: the source was moved to the SD card (hist_spill_path) */
+} HistEntry;
+
+#define HIST_CACHE_PAGES 1                      /* in memory; older ones go to the SD card */
+#define HIST_CACHE_BYTES (1u * 1024u * 1024u)
+typedef struct { char title[96]; char url[URL_MAX]; } Bookmark;
+
+static Page page;
+static bool has_page;
+static int page_gen;
+static HistEntry back_stack[HIST_MAX], fwd_stack[HIST_MAX];
+static int nback, nfwd;
+static bool loading;
+static char loading_url[URL_MAX];
+static float restore_scroll = -1;
+static bool settings_request;
+static Bookmark bookmarks[BOOKMARK_MAX];
+static int nbookmarks;
+static bool bm_open;
+static bool music_open;
+static int bm_scroll;
+static int confirm_delete = -1;
+static float last_layout_w, last_layout_scale;
+static bool queued;
+static char queued_url[URL_MAX];
+static char *queued_post;
+
+/* ---- the loading screen (underwater.c): covers the page area from when a
+ * page is asked for until it's ready to look at - its styles applied and the
+ * pictures on the first screen in - or for at most 8 seconds. */
+#define VEIL_MAX_MS 8000
+static struct { bool on, revealing; float a; int gen0; unsigned start; } veil;
+static bool veil_skip_next;   /* going back: no loading screen */
+
+static unsigned now_ms(void) { return (unsigned)ticks_to_millisecs(gettime()); }
+
+static void veil_begin(void) {
+    if (!g_set.load_screen) return;
+    if (!veil.on || veil.revealing) {
+        veil.start = now_ms();
+    }
+    if (!veil.on) veil.a = has_page ? 0 : 1;   /* fades in over the page you were on */
+    veil.on = true;
+    veil.revealing = false;
+    veil.gen0 = page_gen;
+}
+
+static void veil_end(void) { if (veil.on) veil.revealing = true; }
+static bool veil_covering(void) { return veil.on && !veil.revealing; }
+
+/* The start page is drawn by home.c; this only gives it a title (and is
+ * what shows if something ever asks the page engine to draw it). */
+static const char home_html[] =
+    "<title>Start</title><h1>CubeBrowser</h1><p>Press <b>X</b> to type an address or search.</p>";
+
+static const char help_html[] =
+    "<title>Controls</title><h1>Controls</h1><ul>"
+    "<li><b>Control Stick</b> - move the pointer (hold Z for fine control)</li>"
+    "<li><b>A</b> - click</li><li><b>B</b> - back</li>"
+    "<li><b>X</b> - type an address or search</li><li><b>Y</b> - bookmarks</li>"
+    "<li><b>START</b> - settings</li><li><b>C-Stick</b> - scroll</li>"
+    "<li><b>L / R</b> - page up / page down</li>"
+    "<li><b>D-Pad</b> - jump between links and buttons</li>"
+    "<li><b>Hold Z + A</b> on a link - save it to the SD card instead of opening it</li></ul>"
+
+    "<p>All buttons except the D-Pad can be changed in Settings &gt; Controller.</p>"
+    "<h3>On-screen keyboard</h3><ul><li><b>B</b> delete, <b>Y</b> space, <b>X</b> shift</li>"
+    "<li><b>L / R</b> move the text cursor, <b>START</b> accept</li></ul>"
+    "<h3>Downloads</h3><p>Links to files (such as .dol, .iso or .zip) ask to save them to the SD card. "
+    "Zip files can be unzipped automatically. Interrupted downloads continue where they stopped.</p>"
+    "<h3>What works</h3><p>Text, links, pictures, tables, lists, forms such as search boxes, and most "
+    "page colours, fonts and spacing. JavaScript and modern multi-column layouts aren't supported, so "
+    "sites are shown in a simpler, phone-style layout. Lightweight sites work best.</p>"
+    "<p><a href=\"about:home\">Back to the start page</a></p>";
+
+/* ------------------------------------------------------------ bookmarks */
+
+static void bookmarks_load(void) {
+    nbookmarks = 0;
+    size_t len;
+    char file[400];
+    storage_path(file, sizeof(file), "bookmarks.txt");
+    char *data = storage_read(file, &len);
+    if (!data) return;
+    char *save = NULL;
+    for (char *line = strtok_r(data, "\n", &save); line && nbookmarks < BOOKMARK_MAX; line = strtok_r(NULL, "\n", &save)) {
+        char *tab = strchr(line, '\t');
+        char *cr = strchr(line, '\r');
+        if (cr) *cr = 0;
+        if (tab) *tab = 0;
+        if (!line[0]) continue;
+        Bookmark *b = &bookmarks[nbookmarks++];
+        snprintf(b->url, sizeof(b->url), "%s", line);
+        snprintf(b->title, sizeof(b->title), "%s", tab ? tab + 1 : line);
+    }
+    free(data);
+}
+
+static void bookmarks_save(void) {
+    size_t cap = (size_t)nbookmarks * (URL_MAX + 100) + 16, n = 0;
+    char *buf = malloc(cap);
+    if (!buf) return;
+    for (int i = 0; i < nbookmarks; i++)
+        n += snprintf(buf + n, cap - n, "%s\t%s\n", bookmarks[i].url, bookmarks[i].title);
+    char file[400], tmp[400];
+    storage_path(file, sizeof(file), "bookmarks.txt");
+    storage_path(tmp, sizeof(tmp), "bookmarks.tmp");
+    if (!storage_write_atomic(file, tmp, buf, n))
+        ui_toast("Couldn't save bookmarks to the SD card");
+    free(buf);
+}
+
+void browser_clear_bookmarks(void) {
+    nbookmarks = 0;
+    bookmarks_save();
+}
+
+static void bookmark_add_current(void) {
+    if (!has_page) return;
+    for (int i = 0; i < nbookmarks; i++)
+        if (!strcmp(bookmarks[i].url, page.url)) { ui_toast("Already bookmarked"); return; }
+    if (nbookmarks >= BOOKMARK_MAX) { ui_toast("Bookmark list is full"); return; }
+    Bookmark *b = &bookmarks[nbookmarks++];
+    snprintf(b->url, sizeof(b->url), "%s", page.url);
+    snprintf(b->title, sizeof(b->title), "%s", page.title[0] ? page.title : page.url);
+    for (char *c = b->title; *c; c++) if (*c == '\t') *c = ' ';
+    bookmarks_save();
+    ui_toast("Bookmark added");
+}
+
+/* ---------------------------------------------------------- navigation */
+
+static void html_escape(const char *in, char *out, size_t outlen) {
+    size_t n = 0;
+    for (; *in && n + 7 < outlen; in++) {
+        const char *rep = NULL;
+        if (*in == '<') rep = "&lt;";
+        else if (*in == '>') rep = "&gt;";
+        else if (*in == '&') rep = "&amp;";
+        else if (*in == '"') rep = "&quot;";
+        if (rep) { size_t l = strlen(rep); memcpy(out + n, rep, l); n += l; }
+        else out[n++] = *in;
+    }
+    out[n] = 0;
+}
+
+static void show_html(const char *html, const char *url, bool plain) {
+    char *copy = strdup(html);
+    if (!copy) return;
+    page_set_source(&page, copy, strlen(copy), plain, url);
+    page.secure = page.verified = page.truncated = false;
+    has_page = true;
+    page_gen++;
+    last_layout_w = 0;
+}
+
+static void show_error(const char *url, const char *msg) {
+    static char eu[URL_MAX * 6], em[1600], html[16384];
+    html_escape(url, eu, sizeof(eu));  /* worst case: every char escaped */
+    html_escape(msg, em, sizeof(em));
+    snprintf(html, sizeof(html),
+             "<title>Problem loading page</title><h2>This page couldn't be opened</h2><p>%s</p>"
+             "<p>Address: %s</p><p><a href=\"%s\">Try again</a> &nbsp; <a href=\"about:home\">Start page</a></p>",
+             em, eu, eu);
+    show_html(html, url, false);
+    sound_play(SFX_ERROR);
+}
+
+static char *cur_post;       /* form data the current page was loaded with */
+static char *pending_post;   /* form data of the page being loaded */
+
+/* Older pages in Back/Forward are kept on the SD card instead of in memory
+ * (gcbrowser/webcache/hist/<n>.htm), so going back doesn't download them
+ * again but they don't take room from pictures and music. */
+static void hist_spill_path(unsigned id, char *out, size_t cap) {
+    char name[64];
+    snprintf(name, sizeof(name), "webcache/hist/%u.htm", id);
+    storage_path(out, cap, name);
+}
+
+static void hist_drop_spill(HistEntry *e) {
+    if (!e->spill) return;
+    char path[420];
+    hist_spill_path(e->spill, path, sizeof(path));
+    remove(path);
+    e->spill = 0;
+}
+
+/* Moves an entry's page source to the card (or just drops it if that fails). */
+static void hist_spill(HistEntry *e) {
+    static unsigned next_id;
+    if (!e->src) return;
+    if (storage_ok() && e->len < 4u * 1024u * 1024u) {
+        char dir[400], path[420];
+        storage_path(dir, sizeof(dir), "webcache");
+        mkdir(dir, 0777);
+        storage_path(dir, sizeof(dir), "webcache/hist");
+        mkdir(dir, 0777);
+        unsigned id = ++next_id;
+        hist_spill_path(id, path, sizeof(path));
+        FILE *f = fopen(path, "wb");
+        if (f) {
+            bool ok = fwrite(e->src, 1, e->len, f) == e->len;
+            if (fclose(f) != 0) ok = false;
+            if (ok) e->spill = id;
+            else remove(path);
+        }
+    }
+    free(e->src);
+    e->src = NULL;
+}
+
+/* Brings a spilled page back into memory (on going back to it). */
+static void hist_unspill(HistEntry *e) {
+    if (e->src || !e->spill) return;
+    char path[420];
+    hist_spill_path(e->spill, path, sizeof(path));
+    size_t len = 0;
+    char *src = storage_read(path, &len);
+    hist_drop_spill(e);
+    if (src) { e->src = src; e->len = len; }
+}
+
+static void hist_free(HistEntry *e) {
+    free(e->post);
+    free(e->src);
+    e->post = e->src = NULL;
+    hist_drop_spill(e);
+}
+
+/* Keep only the most recent few pages in memory. */
+static void hist_trim_cache(void) {
+    size_t bytes = 0;
+    int count = 0;
+    /* newest first: forward stack top, then back stack top */
+    HistEntry *order[HIST_MAX * 2];
+    int n = 0;
+    for (int i = nback - 1; i >= 0; i--) order[n++] = &back_stack[i];
+    for (int i = nfwd - 1; i >= 0; i--) order[n++] = &fwd_stack[i];
+    for (int i = 0; i < n; i++) {
+        HistEntry *e = order[i];
+        if (!e->src) continue;
+        if (count >= HIST_CACHE_PAGES || bytes + e->len > HIST_CACHE_BYTES) { hist_spill(e); continue; }
+        count++;
+        bytes += e->len;
+    }
+}
+
+/* Saves the current page into an entry. The page's source moves into the
+ * entry (the page on screen no longer needs it once it has been read). */
+static void hist_capture(HistEntry *e) {
+    memset(e, 0, sizeof(*e));
+    snprintf(e->url, URL_MAX, "%s", page.url);
+    e->scroll = page.scroll_target;
+    e->post = cur_post ? strdup(cur_post) : NULL;
+    e->src = page.src;
+    e->len = page.src_len;
+    e->plain = page.plain;
+    e->secure = page.secure;
+    e->verified = page.verified;
+    page.src = NULL;
+}
+
+static void push_history(void) {
+    if (!has_page) return;
+    if (nback == HIST_MAX) {
+        hist_free(&back_stack[0]);
+        memmove(back_stack, back_stack + 1, sizeof(HistEntry) * (HIST_MAX - 1));
+        nback--;
+    }
+    hist_capture(&back_stack[nback++]);
+    hist_trim_cache();
+}
+
+static void clear_forward(void) {
+    for (int i = 0; i < nfwd; i++) hist_free(&fwd_stack[i]);
+    nfwd = 0;
+}
+
+static void start_load(const char *url, const char *post);
+
+/* Shows a history entry: instantly from memory if cached, otherwise by
+ * fetching it again (re-sending its form data if it had any). */
+static void restore_entry(HistEntry *e) {
+    if (loading) { queued = false; fetch_cancel(); loading = false; }
+    free(cur_post);
+    cur_post = e->post;
+    e->post = NULL;
+    hist_unspill(e);
+    if (e->src) {
+        page_set_source(&page, e->src, e->len, e->plain, e->url);
+        e->src = NULL;
+        page.secure = e->secure;
+        page.verified = e->verified;
+        has_page = true;
+        page_gen++;
+        last_layout_w = 0;
+        restore_scroll = e->scroll;
+        veil_end();
+        return;
+    }
+    restore_scroll = e->scroll;
+    char url[URL_MAX];
+    snprintf(url, sizeof(url), "%s", e->url);
+    veil_skip_next = true;
+    start_load(url, cur_post);
+}
+
+static void start_load(const char *url, const char *post) {
+    /* search results' tracking links: go straight to the real page (the
+     * tracking page forwards with script, which this browser doesn't run) */
+    static char unwrapped[URL_MAX];
+    if (!post && url != unwrapped && url_unwrap_redirect(url, unwrapped, sizeof(unwrapped))) url = unwrapped;
+    if (!strncasecmp(url, "gc:", 3)) {                 /* GC Station : ses pages (assistant IA, musique libre...) */
+        veil_skip_next = false;
+        veil_end();
+        if (loading) { queued = false; fetch_cancel(); loading = false; }
+        size_t hl = 0;
+        char *html = cb_host_internal(url, post, &hl);
+        free(cur_post);
+        cur_post = NULL;
+        if (html) { show_html(html, url, false); free(html); }
+        else show_error(url, "Page de GC Station inconnue.");
+        if (restore_scroll >= 0) { page.scroll = page.scroll_target = restore_scroll; restore_scroll = -1; }
+        return;
+    }
+    if (!strncasecmp(url, "about:", 6)) {
+        veil_skip_next = false;
+        veil_end();
+        if (loading) { queued = false; fetch_cancel(); loading = false; }
+        free(cur_post);
+        cur_post = NULL;
+        if (!strcasecmp(url, "about:home") || !strcasecmp(url, "about:blank") || !strcasecmp(url, "about:"))
+        { show_html(home_html, "about:home", false); home_reset(); }
+        else if (!strcasecmp(url, "about:help"))
+        { show_html(help_html, "about:help", false); home_help_reset(); }
+        else if (!strcasecmp(url, "about:update")) {
+            show_html("<title>Software Update</title>", "about:update", false);
+            home_update_reset();
+            if (update_state() == UPD_NONE || update_state() == UPD_CHECK_FAILED) update_request_check(false);
+        }
+        else if (!strcasecmp(url, "about:swiss")) {
+            show_html("<title>Swiss Update</title>", "about:swiss", false);
+            home_update_reset();
+            if (swiss_state() == UPD_NONE || swiss_state() == UPD_CHECK_FAILED || swiss_state() == UPD_LATEST) swiss_request_check();
+        }
+        else
+            show_error(url, "There's no built-in page with that name.");
+        if (restore_scroll >= 0) { page.scroll = page.scroll_target = restore_scroll; restore_scroll = -1; }
+        return;
+    }
+    if (netio_state() == NET_FAILED) fetch_retry_network();
+    loading = true;
+    if (veil_skip_next) veil_skip_next = false;
+    else veil_begin();
+    snprintf(loading_url, sizeof(loading_url), "%s", url);
+    if (post != pending_post) {
+        free(pending_post);
+        pending_post = post ? strdup(post) : NULL;
+    }
+    fetch_set_referer(has_page ? page.url : NULL);
+    if (fetch_state() != FETCH_IDLE) {
+        /* stop the current download; this one starts as soon as it finishes */
+        fetch_cancel();
+        queued = true;
+        snprintf(queued_url, sizeof(queued_url), "%s", url);
+        free(queued_post);
+        queued_post = post ? strdup(post) : NULL;
+        return;
+    }
+    fetch_start(url, post);
+}
+
+/* "This page needs JavaScript" card: shown for page_gen == script_note_gen */
+static int script_note_gen = -1;
+static bool text_mode_load;              /* the page loading now was asked for in text mode */
+static char text_mode_tried[URL_MAX];    /* last page tried in text mode */
+
+static float note_wrap(FontId f, float size, float x, float y, float w, Color c, const char *s, bool draw) {
+    float lh = gfx_line_height(f, size) * 1.05f, yy = y;
+    while (*s) {
+        while (*s == ' ') s++;
+        if (!*s) break;
+        int n = gfx_text_fit(f, size, s, -1, w);
+        if (s[n]) {
+            int b = n;
+            while (b > 0 && s[b] != ' ') b--;
+            if (b > 0) n = b;
+        }
+        if (n <= 0) n = 1;
+        if (draw) gfx_text(f, size, x, yy, c, s, n);
+        yy += lh;
+        s += n;
+    }
+    return yy - y;
+}
+
+static int last_scroll_frame;   /* the page last moved under you (scroll stick, D-pad, glide) */
+
+/* <meta http-equiv="refresh"> forwarding: where to, and when */
+static char refresh_url[URL_MAX];
+static int refresh_at, refresh_gen, refresh_hops;
+
+static void navigate(const char *url, const char *post, bool record) {
+    if (!url[0]) return;
+    refresh_hops = 0;
+    refresh_at = 0;
+    if (record) {
+        push_history();
+        clear_forward();
+    }
+    start_load(url, post);
+}
+
+void browser_navigate(const char *url) { navigate(url, NULL, true); }
+/* GC Station : recharger une de ses pages sans l'ajouter a l'historique ; l'adresse affichee */
+void browser_navigate_replace(const char *url) { float sc = has_page ? page.scroll : 0; navigate(url, NULL, false); if (has_page) page.scroll = page.scroll_target = sc; }
+const char *browser_current_url(void) { return loading ? loading_url : has_page ? page.url : ""; }
+
+/* "Save link": fetch just the headers and go straight to the save prompt. */
+static void save_link(const char *url) {
+    static char unwrapped[URL_MAX];
+    if (url_unwrap_redirect(url, unwrapped, sizeof(unwrapped))) url = unwrapped;
+    if (strncasecmp(url, "http://", 7) && strncasecmp(url, "https://", 8)) {
+        ui_toast("Only web (http/https) links can be saved");
+        return;
+    }
+    if (fetch_state() != FETCH_IDLE) { ui_toast("Busy - try again in a moment"); return; }
+    if (!fetch_start_save(url)) { ui_toast("The network isn't ready yet"); return; }
+    loading = true;
+    snprintf(loading_url, sizeof(loading_url), "%s", url);
+}
+
+static void go_back(void) {
+    if (nback == 0) { sound_play(SFX_ERROR); return; }
+    if (has_page && nfwd < HIST_MAX) hist_capture(&fwd_stack[nfwd++]);
+    HistEntry e = back_stack[--nback];
+    sound_play(SFX_BACK);
+    restore_entry(&e);
+    hist_free(&e);
+    hist_trim_cache();
+}
+
+static void go_forward(void) {
+    if (nfwd == 0) return;
+    if (has_page) {
+        if (nback == HIST_MAX) { hist_free(&back_stack[0]); memmove(back_stack, back_stack + 1, sizeof(HistEntry) * (HIST_MAX - 1)); nback--; }
+        hist_capture(&back_stack[nback++]);
+    }
+    HistEntry e = fwd_stack[--nfwd];
+    restore_entry(&e);
+    hist_free(&e);
+    hist_trim_cache();
+}
+
+void browser_clear_history(void) {
+    for (int i = 0; i < nback; i++) hist_free(&back_stack[i]);
+    nback = 0;
+    clear_forward();
+}
+
+
+/* ------------------------------------------------------------- downloads */
+
+enum { DL_IDLE, DL_OFFER, DL_RUNNING, DL_DONE, DL_FAILED, DL_UNZIPPING, DL_UNZIPPED, DL_UNZIP_FAILED };
+static int dl_state;
+static char dl_url[URL_MAX], dl_name[128], dl_path[600], dl_msg[256], dl_unzip_dir[600];
+static long long dl_size;
+static bool dl_is_zip, dl_unzip_after, dl_confirm_cancel;
+static int dl_files;
+
+static void fmt_size(long long b, char *out, size_t n) {
+    if (b < 0) snprintf(out, n, "unknown size");
+    else if (b >= 1024LL * 1024 * 1024) snprintf(out, n, "%.2f GB", b / (1024.0 * 1024 * 1024));
+    else if (b >= 1024 * 1024) snprintf(out, n, "%.1f MB", b / (1024.0 * 1024));
+    else if (b >= 1024) snprintf(out, n, "%lld KB", b / 1024);
+    else snprintf(out, n, "%lld bytes", b);
+}
+
+static bool file_exists(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0;
+}
+
+static bool ends_with_ci(const char *s, const char *suffix) {
+    size_t a = strlen(s), b = strlen(suffix);
+    return a >= b && !strcasecmp(s + a - b, suffix);
+}
+
+/* A safe file name from the server's suggestion or the address. */
+/* Songs and SoundFonts go straight to the music player's folder. */
+static bool is_music_file(const char *name) {
+    static const char *const exts[] = { ".mid", ".midi", ".kar", ".rmi", ".sf2", NULL };
+    for (int i = 0; exts[i]; i++)
+        if (ends_with_ci(name, exts[i])) return true;
+    return false;
+}
+
+static const char *download_dir(const char *name) { return is_music_file(name) ? "sd:/retro" : g_set.dl_folder; }   /* (GC Station : MIDI dans l'onglet RETRO) */
+
+static void pick_download_name(const char *url, const char *suggested) {
+    char raw[256] = "";
+    if (suggested && suggested[0]) {
+        snprintf(raw, sizeof(raw), "%s", suggested);
+    } else {
+        char path[URL_MAX];
+        snprintf(path, sizeof(path), "%s", url);
+        char *q = strpbrk(path, "?#");
+        if (q) *q = 0;
+        size_t n = strlen(path);
+        while (n && path[n - 1] == '/') path[--n] = 0;
+        const char *slash = strrchr(path, '/');
+        const char *seg = slash ? slash + 1 : path;
+        size_t o = 0;   /* undo %20-style escapes */
+        for (const char *c = seg; *c && o + 1 < sizeof(raw); c++) {
+            if (*c == '%' && isxdigit((unsigned char)c[1]) && isxdigit((unsigned char)c[2])) {
+                char hex[3] = { c[1], c[2], 0 };
+                raw[o++] = (char)strtol(hex, NULL, 16);
+                c += 2;
+            } else {
+                raw[o++] = *c;
+            }
+        }
+        raw[o] = 0;
+    }
+    size_t o = 0;
+    for (const char *c = raw; *c && o + 1 < 100; c++) {
+        unsigned char ch = (unsigned char)*c;
+        if (ch < 32 || ch >= 127 || strchr("\\/:*?\"<>|", ch)) ch = '_';
+        dl_name[o++] = (char)ch;
+    }
+    dl_name[o] = 0;
+    while (o && (dl_name[o - 1] == '.' || dl_name[o - 1] == ' ')) dl_name[--o] = 0;
+    if (!dl_name[0] || dl_name[0] == '.') snprintf(dl_name, sizeof(dl_name), "download.bin");
+
+    /* an unfinished download of the same name is continued; finished ones aren't overwritten */
+    snprintf(dl_path, sizeof(dl_path), "%s/%s", download_dir(dl_name), dl_name);
+    char part[620];
+    snprintf(part, sizeof(part), "%s.part", dl_path);
+    if (file_exists(part) || !file_exists(dl_path)) return;
+    char base[128], ext[32] = "";
+    snprintf(base, sizeof(base), "%s", dl_name);
+    char *dot = strrchr(base, '.');
+    if (dot && strlen(dot) < sizeof(ext)) { snprintf(ext, sizeof(ext), "%s", dot); *dot = 0; }
+    for (int k = 2; k < 100; k++) {
+        snprintf(dl_name, sizeof(dl_name), "%.90s (%d)%s", base, k, ext);
+        snprintf(dl_path, sizeof(dl_path), "%s/%s", download_dir(dl_name), dl_name);
+        if (!file_exists(dl_path)) break;
+    }
+}
+
+static void offer_download(const HttpResult *r) {
+    snprintf(dl_url, sizeof(dl_url), "%s", r->url);
+    pick_download_name(r->url, r->filename);
+    dl_size = r->length;
+    dl_is_zip = ends_with_ci(dl_name, ".zip");
+    dl_unzip_after = false;
+    dl_confirm_cancel = false;
+    dl_state = DL_OFFER;
+    /* the link didn't lead to a new page, so don't add one to Back */
+    if (nback > 0 && has_page && !strcmp(back_stack[nback - 1].url, page.url)) {
+        HistEntry *e = &back_stack[--nback];
+        if (e->src && !page.src) { page.src = e->src; page.src_len = e->len; e->src = NULL; }   /* hand the source back */
+        hist_free(e);
+    }
+    sound_play(SFX_OPEN);
+}
+
+/* Downloads and music don't mix well on the GameCube (every network packet
+ * holds up the sound hardware a little, and the music skips), so playing
+ * music is paused for a download and started again when it's finished
+ * (after unzipping, if that was asked for). */
+static bool dl_paused_music;
+
+static void dl_pause_music(void) {
+    if (midi_state() == MIDI_PLAYING) { midi_toggle_pause(); dl_paused_music = true; }
+}
+
+static void dl_resume_music(void) {
+    if (!dl_paused_music) return;
+    dl_paused_music = false;
+    if (midi_state() == MIDI_PAUSED) midi_toggle_pause();
+}
+
+static void start_download(void) {
+    if (!storage_ok()) { snprintf(dl_msg, sizeof(dl_msg), "No SD card was found."); dl_state = DL_FAILED; return; }
+    make_dirs(download_dir(dl_name));
+    if (!fetch_start_download(dl_url, dl_path)) {
+        snprintf(dl_msg, sizeof(dl_msg), "The network is busy or not connected. Try again in a moment.");
+        dl_state = DL_FAILED;
+        return;
+    }
+    dl_confirm_cancel = false;
+    dl_state = DL_RUNNING;
+    dl_pause_music();
+}
+
+static void start_unzip(void) {
+    char base[128];
+    snprintf(base, sizeof(base), "%s", dl_name);
+    if (ends_with_ci(base, ".zip")) base[strlen(base) - 4] = 0;
+    snprintf(dl_unzip_dir, sizeof(dl_unzip_dir), "%s/%s", g_set.dl_folder, base);
+    if (!fetch_start_unzip(dl_path, dl_unzip_dir)) {
+        snprintf(dl_msg, sizeof(dl_msg), "Couldn't start unzipping. Try again in a moment.");
+        dl_state = DL_UNZIP_FAILED;
+        return;
+    }
+    dl_confirm_cancel = false;
+    dl_state = DL_UNZIPPING;
+}
+
+static void handle_task_result(void) {
+    bool ok;
+    char err[256];
+    if (!fetch_take_task(&ok, err, sizeof(err))) return;
+    if (dl_state == DL_RUNNING) {
+        if (ok) {
+            sound_play(SFX_LOADED);
+            cb_host_download_done(dl_path);                 /* GC Station : la musique le voit tout de suite */
+            if (dl_unzip_after) start_unzip();
+            else dl_state = DL_DONE;
+            if (dl_state != DL_UNZIPPING) dl_resume_music();
+        } else if (!strcmp(err, "Stopped.")) {
+            dl_state = DL_IDLE;
+            ui_toast("Download cancelled");
+            dl_resume_music();
+        } else {
+            snprintf(dl_msg, sizeof(dl_msg), "%s", err);
+            dl_state = DL_FAILED;
+            sound_play(SFX_ERROR);
+            dl_resume_music();
+        }
+    } else if (dl_state == DL_UNZIPPING) {
+        dl_resume_music();
+        if (ok) {
+            dl_files = fetch_unzip_progress()->files_done;
+            if (g_set.dl_delete_zip) remove(dl_path);
+            dl_state = DL_UNZIPPED;
+            sound_play(SFX_LOADED);
+        } else if (!strcmp(err, "Stopped.")) {
+            dl_state = DL_DONE;
+            ui_toast("Unzipping cancelled");
+        } else {
+            snprintf(dl_msg, sizeof(dl_msg), "%s", err);
+            dl_state = DL_UNZIP_FAILED;
+            sound_play(SFX_ERROR);
+        }
+    }
+}
+
+static void wrap_text(FontId f, float size, float x, float y, float w, Color c, const char *text, int max_lines) {
+    const char *p = text;
+    float lh = gfx_line_height(f, size);
+    for (int line = 0; *p && line < max_lines; line++) {
+        int n = gfx_text_fit(f, size, p, -1, w);
+        if (n <= 0) break;
+        if (p[n]) {   /* break at a space if possible */
+            int k = n;
+            while (k > 0 && p[k] != ' ') k--;
+            if (k > n / 2) n = k;
+        }
+        gfx_text(f, size, x, y + line * lh, c, p, n);
+        p += n;
+        while (*p == ' ') p++;
+    }
+}
+
+static void draw_download(bool interactive) {
+    const Theme *t = theme();
+    float sx, sy, sw, sh;
+    ui_safe_area(&sx, &sy, &sw, &sh);
+    float open = ui_anim(ui_id("dl-open", 0), 1.0f, 0.25f);
+    gfx_rect(0, 0, gfx_width(), 480, color_alpha(t->shadow, 0.6f * open));
+    float pw = fminf(560, sw - 20), ph = 290;
+    float px = sx + (sw - pw) * 0.5f, py = sy + (sh - ph) * 0.5f + (1 - open) * 60;
+    ui_set_input(interactive);
+    ui_panel(px, py, pw, ph, 20);
+    char a[48], b[48], line[300];
+    const char *title = "";
+    switch (dl_state) {
+    case DL_OFFER: title = "Save to SD card?"; break;
+    case DL_RUNNING: title = "Downloading"; break;
+    case DL_DONE: title = "Download complete"; break;
+    case DL_FAILED: title = "Download stopped"; break;
+    case DL_UNZIPPING: title = "Unzipping"; break;
+    case DL_UNZIPPED: title = "Unzipped"; break;
+    case DL_UNZIP_FAILED: title = "Couldn't unzip"; break;
+    }
+    gfx_text(FONT_UI, 24, px + 24, py + 16, t->text, title, -1);
+    float tx = px + 24, ty = py + 58, tw = pw - 48;
+    gfx_text(FONT_UI, 18, tx, ty, t->text, dl_name, gfx_text_fit(FONT_UI, 18, dl_name, -1, tw));
+    ty += 32;
+    float by = py + ph - 58, bh = 40;
+    bool close = false;
+
+    if (dl_state == DL_OFFER) {
+        fmt_size(dl_size, a, sizeof(a));
+        snprintf(line, sizeof(line), "Size: %s", a);
+        gfx_text(FONT_BODY, 17, tx, ty, t->text_dim, line, -1);
+        snprintf(line, sizeof(line), "Saves to: %s", download_dir(dl_name));
+        gfx_text(FONT_BODY, 17, tx, ty + 26, t->text_dim, line, gfx_text_fit(FONT_BODY, 17, line, -1, tw));
+        float ny = ty + 58;
+        if (dl_size > 200LL * 1024 * 1024) {
+            wrap_text(FONT_BODY, 16, tx, ny, tw, t->text_dim, "This is a big file, so it may take a while. Keep the GameCube on until it finishes.", 2);
+            ny += 46;
+        }
+        if (midi_state() == MIDI_PLAYING)
+            gfx_text(FONT_BODY, 16, tx, ny, t->text_dim, "The music will pause during the download and resume after.",
+                     gfx_text_fit(FONT_BODY, 16, "The music will pause during the download and resume after.", -1, tw));
+        int nb = dl_is_zip ? 3 : 2;
+        float bw = (tw - 12 * (nb - 1)) / nb, bx = tx;
+        if (ui_button(ui_id("dl-go", 0), bx, by, bw, bh, "Download", 17, UIB_ACCENT)) { dl_unzip_after = false; start_download(); }
+        bx += bw + 12;
+        if (dl_is_zip) {
+            if (ui_button(ui_id("dl-go", 1), bx, by, bw, bh, "Download & unzip", 17, UIB_NORMAL)) { dl_unzip_after = true; start_download(); }
+            bx += bw + 12;
+        }
+        if (ui_button(ui_id("dl-go", 2), bx, by, bw, bh, "Cancel", 17, UIB_NORMAL)) close = true;
+    } else if (dl_state == DL_RUNNING || dl_state == DL_UNZIPPING) {
+        long long done, total;
+        if (dl_state == DL_RUNNING) {
+            const DownloadProgress *pg = fetch_download_progress();
+            done = pg->done; total = pg->total;
+            fmt_size(done, a, sizeof(a));
+            fmt_size(total, b, sizeof(b));
+            char speed[48] = "";
+            if (pg->speed > 0) {
+                fmt_size(pg->speed, speed, sizeof(speed));
+                strcat(speed, "/s");
+            }
+            char conns[24] = "";
+            if (pg->connections > 1) snprintf(conns, sizeof(conns), "   %d connections", pg->connections);
+            if (total > 0) snprintf(line, sizeof(line), "%s of %s   %s%s", a, b, speed, conns);
+            else snprintf(line, sizeof(line), "%s   %s%s", a, speed, conns);
+            gfx_text(FONT_BODY, 17, tx, ty, t->text, line, -1);
+            if (total > 0 && pg->speed > 0) {
+                long long left = (total - done) / pg->speed;
+                if (left >= 3600) snprintf(line, sizeof(line), "About %lld hr %lld min left", left / 3600, (left % 3600) / 60);
+                else if (left >= 60) snprintf(line, sizeof(line), "About %lld min left", left / 60 + 1);
+                else snprintf(line, sizeof(line), "Less than a minute left");
+                gfx_text(FONT_BODY, 17, tx, ty + 26, t->text_dim, line, -1);
+            } else if (pg->resumed) {
+                gfx_text(FONT_BODY, 17, tx, ty + 26, t->text_dim, "Continuing where it stopped before", -1);
+            }
+        } else {
+            const UnzipProgress *up = fetch_unzip_progress();
+            done = (long long)up->done; total = (long long)up->total;
+            snprintf(line, sizeof(line), "File %d of %d: %s", up->files_done + 1 > up->files_total ? up->files_total : up->files_done + 1,
+                     up->files_total, up->current);
+            gfx_text(FONT_BODY, 17, tx, ty, t->text, line, gfx_text_fit(FONT_BODY, 17, line, -1, tw));
+        }
+        /* progress bar (an animated stripe when the size isn't known) */
+        float bar_y = ty + 62;
+        gfx_rrect(tx, bar_y, tw, 18, 9, color_alpha(t->button_bottom, 0.6f));
+        if (total > 0) {
+            float frac = (float)done / (float)total;
+            if (frac > 1) frac = 1;
+            gfx_rrect_vgrad(tx, bar_y, fmaxf(18, tw * frac), 18, 9, t->accent_hi, t->accent);
+            snprintf(line, sizeof(line), "%d%%", (int)(frac * 100));
+            gfx_text_centered(FONT_UI, 14, tx + tw * 0.5f, bar_y + 1, t->text, line);
+        } else {
+            float k = fmodf(ui_time() * 0.6f, 1.0f);
+            gfx_rrect(tx + (tw - 80) * k, bar_y, 80, 18, 9, t->accent);
+        }
+        ui_spinner(px + pw - 40, py + 34, 24);
+        const char *lbl = dl_confirm_cancel ? "Press again to cancel" : "Cancel";
+        if (ui_button(ui_id("dl-cancel", 0), tx + tw * 0.25f, by, tw * 0.5f, bh, lbl, 17, dl_confirm_cancel ? UIB_ACCENT : UIB_NORMAL)) {
+            if (dl_confirm_cancel) fetch_cancel();
+            dl_confirm_cancel = !dl_confirm_cancel;
+        }
+    } else if (dl_state == DL_DONE) {
+        snprintf(line, sizeof(line), "Saved to %s", dl_path);
+        wrap_text(FONT_BODY, 17, tx, ty, tw, t->text_dim, line, 2);
+        bool song = false;                                  /* (GC Station : dans l'onglet RETRO ou MUSIQUE) */
+        wrap_text(FONT_BODY, 16, tx, ty + 56, tw, t->text_dim,
+                  song ? "It's in the music player's song list."
+                       : ends_with_ci(dl_name, ".sf2") ? "Choose it under Settings > Music > Instruments."
+                                                       : "GC Station sees it right away (music, photos, files tabs).", 2);
+        bool two = dl_is_zip || song;
+        float bw = two ? (tw - 12) / 2 : tw * 0.5f, bx = two ? tx : tx + tw * 0.25f;
+        if (song) {
+            if (ui_button(ui_id("dl-done", 2), bx, by, bw, bh, "Play now", 17, UIB_NORMAL)) {
+                int n = midi_scan();
+                for (int i = 0; i < n; i++)
+                    if (!strcmp(midi_file(i), dl_name)) { midi_play(i); break; }
+                close = true;
+            }
+            bx += bw + 12;
+        }
+        if (dl_is_zip) {
+            if (ui_button(ui_id("dl-done", 0), bx, by, bw, bh, "Unzip", 17, UIB_NORMAL)) start_unzip();
+            bx += bw + 12;
+        }
+        if (ui_button(ui_id("dl-done", 1), bx, by, bw, bh, "OK", 17, UIB_ACCENT)) close = true;
+    } else if (dl_state == DL_UNZIPPED) {
+        snprintf(line, sizeof(line), "%d file%s extracted to %s", dl_files, dl_files == 1 ? "" : "s", dl_unzip_dir);
+        wrap_text(FONT_BODY, 17, tx, ty, tw, t->text_dim, line, 3);
+        if (ui_button(ui_id("dl-uz", 0), tx + tw * 0.25f, by, tw * 0.5f, bh, "OK", 17, UIB_ACCENT)) close = true;
+    } else {   /* failed */
+        wrap_text(FONT_BODY, 17, tx, ty, tw, t->text, dl_msg, 3);
+        if (dl_state == DL_FAILED) {
+            float bw = (tw - 12) / 2;
+            if (ui_button(ui_id("dl-fail", 0), tx, by, bw, bh, "Retry", 17, UIB_ACCENT)) start_download();
+            if (ui_button(ui_id("dl-fail", 1), tx + bw + 12, by, bw, bh, "Close", 17, UIB_NORMAL)) close = true;
+        } else if (ui_button(ui_id("dl-fail", 2), tx + tw * 0.25f, by, tw * 0.5f, bh, "OK", 17, UIB_ACCENT)) {
+            dl_state = DL_DONE;   /* back to the downloaded zip */
+        }
+    }
+    if (interactive && dl_state != DL_RUNNING && dl_state != DL_UNZIPPING && input_pressed(ACT_BACK)) {
+        input_consume(ACT_BACK);
+        close = true;
+    }
+    if (close) { dl_state = DL_IDLE; sound_play(SFX_CLOSE); }
+}
+
+/* ---------------------------------------------------------------- images */
+
+#define IMAGE_BUDGET (5u * 1024u * 1024u)   /* picture memory in use at once (far ones are let go) */
+
+/* Picture and style sheet requests carry the page generation and the index
+ * (10 bits: up to 1024, pages may have several hundred pictures). */
+#define TAG_MAKE(idx) ((int)(((page_gen & 0x1FFFFF) << 10) | ((idx) & 0x3FF)))
+#define TAG_IDX(tag) ((tag) & 0x3FF)
+#define TAG_CURRENT(tag) ((((unsigned)(tag)) >> 10) == (page_gen & 0x1FFFFF))
+
+/* Gives every other copy of the same picture on the page the same result,
+ * so a picture used many times (spacers, tabs, icons) is downloaded once. */
+static void share_image_result(int idx) {
+    PageImage *src = &page.images[idx];
+    for (int k = 0; k < page.nimages; k++) {
+        PageImage *im = &page.images[k];
+        if (k == idx || (im->state != IMG_NONE && im->state != IMG_LOADING) || !im->url || strcmp(im->url, src->url)) continue;
+        if (src->state == IMG_READY) {
+            im->img = src->share >= 0 ? page.images[src->share].img : src->img;
+            im->share = (short)(src->share >= 0 ? src->share : idx);
+            im->state = IMG_READY;
+            im->known_w = (short)im->img.w;
+            im->known_h = (short)im->img.h;
+        } else {
+            im->state = src->state;   /* failed or skipped, same as the original */
+        }
+        if (!(im->decl_w && im->decl_h)) page.relayout = true;
+    }
+}
+
+/* Pictures the image helper failed on during this page; after a few, the
+ * rest go straight to the site. Reset when a new page loads. */
+static int helper_failures;
+
+/* Marks every picture not loaded yet as skipped, once per page. */
+static int low_memory_gen = -1;
+static void stop_pictures_low_memory(void) {
+    bool changed = false;
+    for (int i = 0; i < page.nimages; i++)
+        if (page.images[i].state == IMG_NONE) { page.images[i].state = IMG_SKIPPED; page.images[i].lowmem = 1; changed = true; }
+    if (changed) page.relayout = true;
+    if (low_memory_gen != page_gen) {
+        low_memory_gen = page_gen;
+        http_log_note("pic     | low memory: %u KB free, %u KB of pictures loaded, music %s", (unsigned)(cb_mem_free() / 1024),
+                      (unsigned)(page.image_bytes / 1024), midi_state() == MIDI_STOPPED ? "off" : "on");
+        ui_toast(midi_state() == MIDI_PLAYING || midi_state() == MIDI_PAUSED
+                     ? "Low on memory: some pictures were skipped (stopping the music frees some)"
+                     : "Low on memory: some pictures were skipped");
+    }
+}
+
+static void apply_image(ImageResult *ir) {
+    int idx = TAG_IDX(ir->tag);
+    diag_note(DIAG_MAIN, "picture %d arrived: %s %dx%d", idx, ir->ok ? "ok" : ir->error, ir->img.w, ir->img.h);
+    if (!TAG_CURRENT(ir->tag) || idx >= page.nimages) { image_free(&ir->img); return; }
+    PageImage *im = &page.images[idx];
+    bool moved = true;
+    if (!ir->ok && ir->low_memory) {
+        /* the console is out of memory: stop loading this page's pictures
+         * (retrying them, or fetching the full-size originals, only makes it worse) */
+        image_free(&ir->img);
+        im->state = IMG_SKIPPED;
+        im->lowmem = 1;
+        stop_pictures_low_memory();
+        return;
+    }
+    if (!ir->ok && !im->direct && g_set.image_proxy && im->url) {
+        /* the image helper couldn't get it (archive.org often refuses it):
+         * try the site directly before giving up */
+        image_free(&ir->img);
+        im->direct = 1;
+        im->state = IMG_NONE;
+        helper_failures++;
+        return;
+    }
+    if (!ir->ok) {
+        im->state = IMG_FAILED;
+        /* with a declared size its box is already in place: nothing moves */
+        if (im->decl_w && im->decl_h) moved = false;
+    } else if (page.image_bytes + ir->img.bytes > IMAGE_BUDGET) {
+        image_free(&ir->img);
+        im->state = IMG_SKIPPED;
+    } else {
+        gfx_image_init(&im->img, ir->img.tex, ir->img.w, ir->img.h, ir->img.tex_w, ir->img.tex_h);
+        page.image_bytes += ir->img.bytes;
+        im->state = IMG_READY;
+        im->share = -1;
+        /* reloaded after being let go: same size as before, nothing moves */
+        if (im->known_w == ir->img.w && im->known_h == ir->img.h) moved = false;
+        im->known_w = (short)ir->img.w;
+        im->known_h = (short)ir->img.h;
+        /* a picture with a declared size already has its space: just draw it */
+        if (im->decl_w && im->decl_h) moved = false;
+    }
+    if (moved) page.relayout = true;
+    share_image_result(idx);
+}
+
+/* Archived pages: archive.org refuses most requests from the image helper,
+ * and their pictures are small anyway, so fetch them directly. */
+static bool archive_picture(const char *src) {
+    return !strncasecmp(src, "https://web.archive.org/", 24) || !strncasecmp(src, "http://web.archive.org/", 23);
+}
+
+static void image_request_url(const char *src, bool direct, int max_w, int max_h, char *out, size_t n) {
+    if (!g_set.image_proxy || direct || helper_failures >= 3 || archive_picture(src)) {
+        snprintf(out, n, "%s", src);
+        return;
+    }
+    static char enc[URL_MAX];
+    url_encode_component(src, enc, sizeof(enc));
+    const Theme *t = theme();
+    /* GIFs and PNGs (icons, buttons, see-through shapes on old sites) come back
+     * as PNG so their transparency survives; photos as a small JPEG. */
+    char path[URL_MAX];
+    snprintf(path, sizeof(path), "%s", src);
+    char *q = strpbrk(path, "?#");
+    if (q) *q = 0;
+    size_t pl = strlen(path);
+    bool keep_alpha = pl > 4 && (!strcasecmp(path + pl - 4, ".gif") || !strcasecmp(path + pl - 4, ".png"));
+    int w;
+    if (keep_alpha)
+        w = snprintf(out, n, "https://images.weserv.nl/?url=%s&w=%d&h=%d&fit=inside&we&output=png", enc, max_w, max_h);
+    else   /* weserv shrinks the picture and sends a small JPEG; bg fills any transparency */
+        w = snprintf(out, n, "https://images.weserv.nl/?url=%s&w=%d&h=%d&fit=inside&we&output=jpg&q=70"
+                     "&bg=%02x%02x%02x", enc, max_w, max_h, t->page_bg.r, t->page_bg.g, t->page_bg.b);
+    if (w >= (int)n) out[0] = 0;
+}
+
+/* Starts the next image download: ones on screen first, then the rest. */
+static bool sheets_pending(void) {
+    if (!g_set.page_styles) return false;
+    for (int i = 0; i < page.nsheets; i++)
+        if (page.sheets[i].state != SHEET_DONE) return true;
+    return false;
+}
+
+/* Pictures are loaded only near where you're reading (from a screen above
+ * to a few screens below), and ones far away are let go to save memory; they
+ * come back from the SD card cache when you scroll near them again. */
+#define LOAD_ABOVE 1.0f   /* screens */
+#define LOAD_BELOW 3.0f
+#define KEEP_ABOVE 3.0f
+#define KEEP_BELOW 5.0f
+static float last_view_h = 400;
+
+static bool box_within(const Box *b, float view_top, float view_h, float above, float below) {
+    return b->y + b->h >= view_top - above * view_h && b->y <= view_top + view_h + below * view_h;
+}
+
+/* Pictures skipped for lack of memory get another chance once there's room
+ * again (the music stopped, or far-away pictures were let go). */
+static void retry_low_memory_pictures(void) {
+    bool any = false;
+    for (int i = 0; i < page.nimages && !any; i++) any = page.images[i].lowmem;
+    if (!any || cb_mem_free() < 3u * 1024u * 1024u) return;
+    for (int i = 0; i < page.nimages; i++)
+        if (page.images[i].lowmem) {
+            page.images[i].lowmem = 0;
+            if (page.images[i].state == IMG_SKIPPED) page.images[i].state = IMG_NONE;
+        }
+    page.relayout = true;   /* pictures without a set size get their space back */
+    low_memory_gen = -1;    /* and may say so again if memory runs out again */
+}
+
+static void release_far_pictures(float view_top, float view_h) {
+    static int tick;
+    if (++tick % 30) return;   /* twice a second is plenty */
+    if (tick % 120 == 0) retry_low_memory_pictures();   /* every 2 seconds */
+    static unsigned char *near;
+    static int near_cap;
+    if (page.nimages > near_cap) {
+        unsigned char *nn = realloc(near, (size_t)page.nimages);
+        if (!nn) return;
+        near = nn;
+        near_cap = page.nimages;
+    }
+    if (!page.nimages) return;
+    memset(near, 0, (size_t)page.nimages);
+    for (int i = 0; i < page.nboxes; i++) {
+        const Box *b = &page.boxes[i];
+        if (b->type != BOX_IMAGE || b->text < 0 || b->text >= page.nimages) continue;
+        if (!box_within(b, view_top, view_h, KEEP_ABOVE, KEEP_BELOW)) continue;
+        PageImage *im = &page.images[b->text];
+        near[im->share >= 0 ? im->share : b->text] = 1;   /* a shared picture counts for its owner */
+    }
+    for (int i = 0; i < page.nimages; i++) {
+        PageImage *im = &page.images[i];
+        if (im->state != IMG_READY || im->share >= 0 || near[i]) continue;
+        size_t bytes = (size_t)im->img.tex_w * im->img.tex_h * 2;
+        gfx_image_free(&im->img);
+        memset(&im->img, 0, sizeof(im->img));
+        im->state = IMG_NONE;
+        page.image_bytes = page.image_bytes > bytes ? page.image_bytes - bytes : 0;
+        for (int k = 0; k < page.nimages; k++)   /* copies of it go with it */
+            if (page.images[k].share == i) {
+                memset(&page.images[k].img, 0, sizeof(page.images[k].img));
+                page.images[k].share = -1;
+                page.images[k].state = IMG_NONE;
+            }
+    }
+}
+
+/* Downloads the page's stylesheets first, then its pictures. */
+static void schedule_images(float view_top, float view_h, float max_w) {
+    last_view_h = view_h;
+    release_far_pictures(view_top, view_h);
+    if (loading || queued || fetch_state() != FETCH_IDLE || !fetch_net_ready()) return;
+    if (g_set.page_styles) {
+        int si = page_next_sheet(&page);
+        if (si >= 0) {
+            int tag = TAG_MAKE(si);
+            if (!fetch_start_css(page.sheets[si].url, tag)) page.sheets[si].state = SHEET_NONE;
+            return;
+        }
+        if (sheets_pending()) return;
+    }
+    if (!g_set.load_images) return;
+    if (page.image_bytes >= IMAGE_BUDGET) {
+        /* the pictures around here alone fill the budget: skip the rest of
+         * them (pictures further away still load once these are let go) */
+        bool changed = false;
+        const int *vis;
+        int nvis = page_visible(&page, view_top - LOAD_ABOVE * view_h, view_h * (1 + LOAD_ABOVE + LOAD_BELOW), &vis);
+        for (int vi = 0; vi < nvis; vi++) {
+            const Box *b = &page.boxes[vis[vi]];
+            if (b->type != BOX_IMAGE || b->text < 0 || b->text >= page.nimages) continue;
+            if (page.images[b->text].state != IMG_NONE) continue;
+            page.images[b->text].state = IMG_SKIPPED;
+            page.images[b->text].lowmem = 1;
+            changed = true;
+        }
+        if (changed) page.relayout = true;
+        return;
+    }
+    int pick = -1;
+    for (int pass = 0; pass < 2 && pick < 0; pass++) {
+        /* on screen first, then the rest of the loading window */
+        const int *vis;
+        int nvis = pass == 0 ? page_visible(&page, view_top - 100, view_h + 500, &vis)
+                             : page_visible(&page, view_top - LOAD_ABOVE * view_h, view_h * (1 + LOAD_ABOVE + LOAD_BELOW), &vis);
+        for (int vi = 0; vi < nvis; vi++) {
+            Box *b = &page.boxes[vis[vi]];
+            if (b->type != BOX_IMAGE || b->text < 0 || b->text >= page.nimages || page.images[b->text].state != IMG_NONE) continue;
+            pick = b->text;
+            break;
+        }
+    }
+    if (pick < 0) return;
+    /* checking free memory walks the whole heap, so only when about to load one */
+    if (cb_mem_free() < 2u * 1024u * 1024u) { stop_pictures_low_memory(); return; }
+    PageImage *im = &page.images[pick];
+    for (int k = 0; k < page.nimages; k++) {   /* the same picture already loaded or loading? */
+        PageImage *o = &page.images[k];
+        if (k == pick || !o->url || o->state == IMG_NONE || strcmp(o->url, im->url)) continue;
+        if (o->state == IMG_LOADING) return;   /* it'll be shared when that one arrives */
+        share_image_result(k);
+        return;
+    }
+    static char req[URL_MAX];
+    int max_h = (int)settings_max_picture_height();
+    image_request_url(im->url, im->direct, (int)max_w, max_h, req, sizeof(req));
+    int tag = TAG_MAKE(pick);
+    if (req[0] && fetch_start_image(req, (int)max_w, max_h, tag)) im->state = IMG_LOADING;
+    else if (!req[0]) { im->state = IMG_SKIPPED; page.relayout = true; }
+}
+
+/* Pictures still to come: ones downloading, and ones waiting near where
+ * you're reading. Pictures in hidden parts (closed menus and the like) are
+ * never loaded, and ones further down load as you scroll; neither counts. */
+static int images_pending(void) {
+    int n = 0;
+    for (int i = 0; i < page.nimages; i++)
+        if (page.images[i].state == IMG_LOADING) n++;
+    static unsigned char *seen;
+    static int seen_cap;
+    if (page.nimages > seen_cap) {
+        unsigned char *ns = realloc(seen, (size_t)page.nimages);
+        if (!ns) return n;
+        seen = ns;
+        seen_cap = page.nimages;
+    }
+    if (page.nimages > 0) memset(seen, 0, (size_t)page.nimages);
+    const int *vis;   /* only near where you're reading: further ones load when you get near */
+    int nvis = page_visible(&page, page.scroll - LOAD_ABOVE * last_view_h, last_view_h * (1 + LOAD_ABOVE + LOAD_BELOW), &vis);
+    for (int vi = 0; vi < nvis; vi++) {
+        const Box *b = &page.boxes[vis[vi]];
+        if (b->type != BOX_IMAGE || b->text < 0 || b->text >= page.nimages) continue;
+        if (page.images[b->text].state != IMG_NONE || seen[b->text]) continue;
+        seen[b->text] = 1;   /* once, even if it has several boxes */
+        n++;
+    }
+    return n;
+}
+
+/* Pictures on the first screen not in yet (the loading screen waits for them). */
+static int first_screen_pictures(float view_h) {
+    if (!g_set.load_images) return 0;
+    int n = 0;
+    const int *vis;
+    int nvis = page_visible(&page, page.scroll, view_h, &vis);
+    for (int vi = 0; vi < nvis; vi++) {
+        const Box *b = &page.boxes[vis[vi]];
+        if (b->type != BOX_IMAGE || b->text < 0 || b->text >= page.nimages) continue;
+        int st = page.images[b->text].state;
+        if (st == IMG_NONE || st == IMG_LOADING) n++;
+    }
+    return n;
+}
+
+/* Decides when the loading screen lifts, and fades it in and out. */
+static void veil_update(float view_h) {
+    if (!veil.on) return;
+    if (!veil.revealing) {
+        bool done = !g_set.load_screen || now_ms() - veil.start > VEIL_MAX_MS;
+        if (!done && !loading && !queued) {
+            if (!has_page || page_gen == veil.gen0) done = true;   /* stopped, failed, or a download */
+            else if (last_layout_w != 0 && !page.restyle && !page.relayout && !sheets_pending() &&
+                     first_screen_pictures(view_h) == 0)
+                done = true;
+        }
+        if (done) veil.revealing = true;
+    }
+    float target = veil.revealing ? 0.0f : 1.0f;
+    float step = g_set.animations ? (veil.revealing ? 0.05f : 0.12f) : 1.0f;
+    if (veil.a < target) veil.a = fminf(target, veil.a + step);
+    else veil.a = fmaxf(target, veil.a - step);
+    if (veil.revealing && veil.a <= 0) veil.on = false;
+}
+
+static void handle_fetch_result(void) {
+    if (fetch_state() != FETCH_DONE) return;
+    if (fetch_job_is_update()) return;   /* update_poll() / swiss_poll() take these */
+    if (fetch_job_kind() == JOB_DOWNLOAD || fetch_job_kind() == JOB_UNZIP) { handle_task_result(); return; }
+    if (queued) {
+        /* a new page was requested while something was downloading */
+        queued = false;
+        if (fetch_job_kind() == JOB_IMAGE) {
+            ImageResult ir;
+            if (fetch_take_image(&ir)) {
+                int idx = TAG_IDX(ir.tag);
+                if (idx < page.nimages && page.images[idx].state == IMG_LOADING) page.images[idx].state = IMG_NONE;
+                image_free(&ir.img);
+            }
+        } else {
+            fetch_discard();
+        }
+        fetch_start(queued_url, queued_post);
+        free(queued_post);
+        queued_post = NULL;
+        return;
+    }
+    if (fetch_job_kind() == JOB_IMAGE) {
+        ImageResult ir;
+        if (fetch_take_image(&ir)) apply_image(&ir);
+        return;
+    }
+    if (fetch_job_kind() == JOB_CSS) {
+        HttpResult r;
+        int tag;
+        if (!fetch_take_css(&r, &tag)) return;
+        int idx = TAG_IDX(tag);
+        if (TAG_CURRENT(tag) && has_page) {
+            page_sheet_loaded(&page, idx, r.body, r.body_len);   /* takes the text */
+            r.body = NULL;
+        }
+        http_result_free(&r);
+        return;
+    }
+    HttpResult r;
+    if (!fetch_take(&r)) return;
+    bool was_text_mode = text_mode_load;
+    if (text_mode_load) { text_mode_load = false; http_set_user_agent_override(-1); }
+    if (!loading) { http_result_free(&r); return; }   /* user moved on */
+    loading = false;
+    if (r.download) {
+        offer_download(&r);
+        http_result_free(&r);
+        return;
+    }
+    if (!r.body) {
+        if (strcmp(r.error, "Stopped.") != 0) show_error(loading_url, r.error[0] ? r.error : "Unknown error.");
+        restore_scroll = -1;
+        return;
+    }
+    char ct[96];
+    snprintf(ct, sizeof(ct), "%s", r.content_type);
+    for (char *c = ct; *c; c++) *c = (char)tolower((unsigned char)*c);
+    bool html = !ct[0] || strstr(ct, "html") || strstr(ct, "xml");
+    bool plain = strstr(ct, "text/") && !html;
+    if (!html && !plain) {
+        char msg[200];
+        char *semi = strchr(ct, ';');
+        if (semi) *semi = 0;
+        snprintf(msg, sizeof(msg), "This is a \"%s\" file, which this browser can't show.", ct);
+        http_result_free(&r);
+        show_error(r.url, msg);
+        return;
+    }
+    diag_note(DIAG_PAGE, "%.150s", r.url);
+    diag_note(DIAG_MAIN, "reading page (%u bytes)", (unsigned)r.body_len);
+    free(cur_post);
+    cur_post = pending_post;   /* redirects after a POST end up as GET, but re-sending is harmless here */
+    pending_post = NULL;
+    page_set_source(&page, r.body, r.body_len, plain, r.url);
+    page.secure = r.secure;
+    page.verified = r.verified;
+    page.truncated = r.truncated;
+    helper_failures = 0;
+    has_page = true;
+    page_gen++;
+    last_layout_w = 0;
+    if (r.truncated) ui_toast("This page was too big and has been cut short");
+    sound_play(SFX_LOADED);
+    script_note_gen = page_needs_script(&page) ? page_gen : -1;
+    if (was_text_mode) snprintf(text_mode_tried, sizeof(text_mode_tried), "%s", page.url);
+    /* a page that forwards somewhere else (often instead of using script) */
+    int delay;
+    refresh_at = 0;
+    if (refresh_hops < 5 && page_meta_refresh(&page, refresh_url, sizeof(refresh_url), &delay) &&
+        strcmp(refresh_url, page.url) != 0 && delay <= 15) {
+        if (delay <= 1) {
+            refresh_hops++;
+            start_load(refresh_url, NULL);   /* replaces this page in history */
+        } else {
+            refresh_at = ui_frame() + delay * 60;
+            refresh_gen = page_gen;
+            char msg[80];
+            snprintf(msg, sizeof(msg), "This page moves on in %d seconds", delay);
+            ui_toast(msg);
+        }
+    }
+}
+
+/* ------------------------------------------------------------ keyboard */
+
+static void address_done(bool ok, const char *text, void *user) {
+    (void)user;
+    if (!ok) return;
+    char url[URL_MAX];
+    url_from_input(text, url, sizeof(url));
+    if (url[0]) navigate(url, NULL, true);
+}
+
+static void open_address_bar(void) {
+    osk_open("Address or search", loading ? loading_url : (has_page ? page.url : ""), URL_MAX - 1, OSK_URL,
+             address_done, NULL);
+}
+
+static void submit_form(int field, int submit_field) {
+    char url[URL_MAX];
+    char *post = NULL;
+    if (!page_build_submit(&page, field, submit_field, url, sizeof(url), &post)) return;
+    navigate(url, post, true);
+    free(post);
+}
+
+static void field_done(bool ok, const char *text, void *user) {
+    int packed = (int)(intptr_t)user;
+    int gen = packed >> 8, f = packed & 0xFF;
+    if (!ok || gen != (page_gen & 0xFFFFFF) || f >= page.nfields) return;
+    snprintf(page.fields[f].value, sizeof(page.fields[f].value), "%s", text);
+    /* a form with a single text box (e.g. search) submits right away */
+    int texts = 0;
+    for (int i = 0; i < page.nfields; i++)
+        if (page.fields[i].form == page.fields[f].form &&
+            (page.fields[i].type == FIELD_TEXT || page.fields[i].type == FIELD_PASSWORD)) texts++;
+    if (texts == 1 && page.fields[f].form >= 0) submit_form(f, -1);
+}
+
+/* A readable title for the keyboard: the box's own caption, else a guess
+ * from its name ("q" is how most sites name a search box). */
+static void field_title(const Field *fd, char *out, size_t cap) {
+    if (fd->type == FIELD_PASSWORD) { snprintf(out, cap, "Password"); return; }
+    if (fd->label[0]) { snprintf(out, cap, "%s", fd->label); return; }
+    static const char *const search[] = { "q", "query", "search", "s", "search_query", "k", "keywords", "keyword",
+                                          "p", "term", "terms", "find", "searchword", "qt", "text", NULL };
+    for (int i = 0; search[i]; i++)
+        if (!strcasecmp(fd->name, search[i])) { snprintf(out, cap, "Search"); return; }
+    if (!strcasecmp(fd->name, "user") || !strcasecmp(fd->name, "username") || !strcasecmp(fd->name, "login") ||
+        !strcasecmp(fd->name, "uname") || !strcasecmp(fd->name, "nick"))
+    { snprintf(out, cap, "Username"); return; }
+    if (strlen(fd->name) < 3) { snprintf(out, cap, "Text"); return; }
+    /* "first_name" -> "First name" */
+    size_t n = 0;
+    for (const char *c = fd->name; *c && n + 1 < cap; c++) {
+        char ch = (*c == '_' || *c == '-' || *c == '.' || *c == '[' || *c == ']') ? ' ' : *c;
+        if (ch == ' ' && (n == 0 || out[n - 1] == ' ')) continue;
+        out[n++] = ch;
+    }
+    while (n && out[n - 1] == ' ') n--;
+    out[n] = 0;
+    if (!n) { snprintf(out, cap, "Text"); return; }
+    out[0] = (char)toupper((unsigned char)out[0]);
+}
+
+static void edit_field(int f) {
+    Field *fd = &page.fields[f];
+    char title[80];
+    field_title(fd, title, sizeof(title));
+    int packed = ((page_gen & 0xFFFFFF) << 8) | (f & 0xFF);
+    osk_open(title, fd->value, (int)sizeof(fd->value) - 1, fd->type == FIELD_PASSWORD ? OSK_PASSWORD : OSK_TEXT,
+             field_done, (void *)(intptr_t)packed);
+}
+
+/* --------------------------------------------------------------- drawing */
+
+static void draw_bookmarks(bool interactive) {
+    const Theme *t = theme();
+    float sx, sy, sw, sh;
+    ui_safe_area(&sx, &sy, &sw, &sh);
+    float open = ui_anim(ui_id("bm-open", 0), 1.0f, 0.25f);
+    gfx_rect(0, 0, gfx_width(), 480, color_alpha(t->shadow, 0.6f * open));
+    float pw = fminf(560, sw - 20), ph = 380;
+    float px = sx + (sw - pw) * 0.5f, py = sy + (sh - ph) * 0.5f + (1 - open) * 60;
+    ui_set_input(interactive);
+    ui_panel(px, py, pw, ph, 20);
+    ui_draw_icon(ICON_STAR, px + 30, py + 28, 26, t->accent);
+    gfx_text(FONT_UI, 24, px + 50, py + 12, t->text, "Bookmarks", -1);
+    if (ui_icon_button(ui_id("bm-close", 0), px + pw - 30, py + 28, 16, ICON_CLOSE, true)) {
+        bm_open = false;
+        sound_play(SFX_CLOSE);
+    }
+    if (ui_button(ui_id("bm-add", 0), px + 20, py + 56, pw - 40, 40, "Bookmark this page", 18, UIB_ACCENT))
+        bookmark_add_current();
+
+    const int visible = 6;
+    float row_h = 38, ly = py + 108;
+    if (nbookmarks == 0)
+        gfx_text_centered(FONT_UI, 17, px + pw * 0.5f, ly + 60, t->text_dim, "No bookmarks yet.");
+    int dir = ui_dpad_unhandled();
+    static float scroll_acc;
+    bm_scroll += ui_scroll_rows(&scroll_acc, row_h + 6);
+    if (dir == DIR_DOWN) bm_scroll++;
+    if (dir == DIR_UP) bm_scroll--;
+    if (bm_scroll > nbookmarks - visible) bm_scroll = nbookmarks - visible;
+    if (bm_scroll < 0) bm_scroll = 0;
+    for (int i = bm_scroll; i < nbookmarks && i < bm_scroll + visible; i++) {
+        float y = ly + (i - bm_scroll) * (row_h + 6);
+        if (ui_button(ui_id("bm-row", i), px + 20, y, pw - 90, row_h, bookmarks[i].title, 16, UIB_FLAT)) {
+            bm_open = false;
+            navigate(bookmarks[i].url, NULL, true);
+            return;
+        }
+        bool confirm = (confirm_delete == i);
+        if (ui_icon_button(ui_id("bm-del", i), px + pw - 45, y + row_h * 0.5f, 15, ICON_CLOSE, true)) {
+            if (confirm) {
+                memmove(&bookmarks[i], &bookmarks[i + 1], sizeof(Bookmark) * (size_t)(nbookmarks - i - 1));
+                nbookmarks--;
+                confirm_delete = -1;
+                bookmarks_save();
+                ui_toast("Bookmark deleted");
+                return;
+            }
+            confirm_delete = i;
+            ui_toast("Press again (or X) to delete");
+        }
+    }
+    if (nbookmarks > visible) {
+        char more[48];
+        snprintf(more, sizeof(more), "%d-%d of %d", bm_scroll + 1, bm_scroll + visible, nbookmarks);
+        gfx_text_centered(FONT_UI, 14, px + pw * 0.5f, py + ph - 26, t->text_dim, more);
+    }
+}
+
+/* ------------------------------------------------------ drop-down picker */
+
+#define SEL_MAX 200
+static SelectOption *sel_opts;
+static int sel_field = -1, sel_n, sel_cur, sel_scroll, sel_gen;
+
+static void open_select(int f) {
+    if (!sel_opts) sel_opts = malloc(sizeof(SelectOption) * SEL_MAX);
+    if (!sel_opts) return;
+    sel_n = page_select_options(&page, f, sel_opts, SEL_MAX, &sel_cur);
+    if (sel_n <= 0) { ui_toast("This menu has no choices"); return; }
+    sel_field = f;
+    sel_gen = page_gen;
+    sel_scroll = sel_cur - 3;
+    sound_play(SFX_OPEN);
+}
+
+static void choose_select(int i) {
+    int f = sel_field;
+    sel_field = -1;
+    char url[URL_MAX];
+    int r = page_select_choose(&page, f, &sel_opts[i], url, sizeof(url));
+    if (r == SELECT_GO) navigate(url, NULL, true);
+    else if (r == SELECT_SUBMIT) submit_form(f, -1);
+}
+
+static void draw_select(bool interactive) {
+    const Theme *t = theme();
+    float sx, sy, sw, sh;
+    ui_safe_area(&sx, &sy, &sw, &sh);
+    float open = ui_anim(ui_id("sel-open", 0), 1.0f, 0.25f);
+    gfx_rect(0, 0, gfx_width(), 480, color_alpha(t->shadow, 0.6f * open));
+    const int visible = sel_n < 7 ? sel_n : 7;
+    float row_h = 36, gap = 5;
+    float pw = fminf(520, sw - 20), ph = 70 + visible * (row_h + gap) + (sel_n > visible ? 26 : 8);
+    float px = sx + (sw - pw) * 0.5f, py = sy + (sh - ph) * 0.5f + (1 - open) * 60;
+    ui_set_input(interactive);
+    ui_panel(px, py, pw, ph, 20);
+    gfx_text(FONT_UI, 22, px + 22, py + 14, t->text, "Choose one", -1);
+    if (ui_icon_button(ui_id("sel-close", 0), px + pw - 30, py + 28, 16, ICON_CLOSE, true)) {
+        sel_field = -1;
+        sound_play(SFX_CLOSE);
+        return;
+    }
+    int dir = ui_dpad_unhandled();
+    static float scroll_acc;
+    sel_scroll += ui_scroll_rows(&scroll_acc, row_h + gap);
+    if (dir == DIR_DOWN) sel_scroll++;
+    if (dir == DIR_UP) sel_scroll--;
+    if (sel_scroll > sel_n - visible) sel_scroll = sel_n - visible;
+    if (sel_scroll < 0) sel_scroll = 0;
+    float ly = py + 58;
+    for (int i = sel_scroll; i < sel_n && i < sel_scroll + visible; i++) {
+        float y = ly + (i - sel_scroll) * (row_h + gap);
+        if (ui_button(ui_id("sel-row", i), px + 20, y, pw - 40, row_h, sel_opts[i].label, 16,
+                      i == sel_cur ? UIB_ACCENT : UIB_FLAT)) {
+            sound_play(SFX_SELECT);
+            choose_select(i);
+            return;
+        }
+    }
+    if (sel_n > visible) {
+        char more[48];
+        snprintf(more, sizeof(more), "%d-%d of %d", sel_scroll + 1, sel_scroll + visible, sel_n);
+        gfx_text_centered(FONT_UI, 14, px + pw * 0.5f, py + ph - 22, t->text_dim, more);
+    }
+}
+
+static void draw_clock(float right_x, float y) {
+    const Theme *t = theme();
+    time_t now = netio_now() + g_set.tz_minutes * 60 + (g_set.dst ? 3600 : 0);
+    struct tm tmv;
+    gmtime_r(&now, &tmv);
+    char buf[16];
+    int h12 = tmv.tm_hour % 12;
+    snprintf(buf, sizeof(buf), "%d:%02d %s", h12 ? h12 : 12, tmv.tm_min, tmv.tm_hour < 12 ? "AM" : "PM");
+    float w = gfx_text_width(FONT_UI, 15, buf, -1);
+    gfx_text(FONT_UI, 15, right_x - w, y, t->text, buf, -1);
+}
+
+/* Exit button: press twice (within 3 seconds) to leave the browser. */
+static int exit_armed_until;
+
+static bool exit_to_swiss(void);
+
+static void exit_pressed(void) {
+    cb_host_exit();                                     /* GC Station : la porte ramene a l'onglet MUSIQUE */
+    return;
+    if (ui_frame() > exit_armed_until) {
+        exit_armed_until = ui_frame() + 180;
+        ui_toast(g_set.exit_action == 1 ? "Press again to restart the console" : "Press again to exit to Swiss");
+        return;
+    }
+    exit_armed_until = 0;
+    settings_save();
+    cookies_save_if_needed();
+    if (g_set.exit_action == 1) { system_restart(); return; }
+    exit_to_swiss();
+}
+
+/* Starts Swiss (finding it on the card if it moved). False if it couldn't. */
+static bool exit_to_swiss(void) {
+    char err[256];
+    if (!dol_check(g_set.swiss_dol, err, sizeof(err))) {
+        /* not where it was set: look for a Swiss .dol and remember it */
+        static char found[48][256];
+        int n = storage_ok() ? dol_find("sd:/", found, 48) : 0;
+        int pick = -1;
+        for (int i = 0; i < n && pick < 0; i++) {
+            const char *name = strrchr(found[i], '/');
+            name = name ? name + 1 : found[i];
+            if (!strncasecmp(name, "swiss", 5) && dol_check(found[i], err, sizeof(err))) pick = i;
+        }
+        if (pick < 0) {
+            ui_toast("Swiss .dol not found - choose it in Settings > Data");
+            sound_play(SFX_ERROR);
+            return false;
+        }
+        snprintf(g_set.swiss_dol, sizeof(g_set.swiss_dol), "%s", found[pick]);
+        settings_save();
+    }
+    if (!dol_launch(g_set.swiss_dol, err, sizeof(err))) {
+        ui_toast(err);
+        sound_play(SFX_ERROR);
+        return false;
+    }
+    return true;
+}
+
+void browser_init(void) {
+    /* pages left on the card from last time aren't in any history now */
+    if (storage_ok()) {
+        char dir[400];
+        storage_path(dir, sizeof(dir), "webcache/hist");
+        DIR *d = opendir(dir);
+        if (d) {
+            static char names[64][32];
+            int n = 0;
+            struct dirent *de;
+            while ((de = readdir(d)) != NULL && n < 64)
+                if (de->d_name[0] != '.' && strlen(de->d_name) < 32) snprintf(names[n++], 32, "%s", de->d_name);
+            closedir(d);
+            for (int i = 0; i < n; i++) {
+                char path[440];
+                snprintf(path, sizeof(path), "%s/%s", dir, names[i]);
+                remove(path);
+            }
+        }
+    }
+    cookies_init();
+    page_init(&page);
+    bookmarks_load();
+    browser_navigate(g_set.home);
+}
+
+bool browser_take_settings_request(void) {
+    bool r = settings_request;
+    settings_request = false;
+    return r;
+}
+
+void browser_frame(bool interactive) {
+    const Theme *t = theme();
+    if (sel_field >= 0 && sel_gen != page_gen) sel_field = -1;   /* the page changed under it */
+    bool modal = osk_active() || bm_open || dl_state != DL_IDLE || sel_field >= 0 || music_open;
+    /* software update: one quiet check once the network is up (if enabled) */
+    static bool auto_checked;
+    if (!auto_checked && fetch_net_ready()) {
+        auto_checked = true;
+        if (g_set.update_auto) update_request_check(true);
+    }
+    update_poll();
+    swiss_poll();
+    handle_fetch_result();
+    if (refresh_at) {
+        if (loading || refresh_gen != page_gen) refresh_at = 0;   /* moved on already */
+        else if (ui_frame() >= refresh_at) {
+            refresh_at = 0;
+            refresh_hops++;
+            start_load(refresh_url, NULL);
+        }
+    }
+
+    float sx, sy, sw, sh;
+    ui_safe_area(&sx, &sy, &sw, &sh);
+    ui_set_input(interactive && !modal);
+    bool input_ok = interactive && !modal;
+
+    /* ---- toolbar */
+    float bar_h = 54;
+    ui_panel(sx + 4, sy + 4, sw - 8, bar_h, 24);
+    float by = sy + 4 + bar_h * 0.5f, r = 18;
+    float bx = sx + 30;
+    if (ui_icon_button(ui_id("tb", 0), bx, by, r, ICON_BACK, nback > 0)) go_back();
+    if (ui_icon_button(ui_id("tb", 1), bx + 44, by, r, ICON_FORWARD, nfwd > 0)) go_forward();
+    if (ui_icon_button(ui_id("tb", 3), bx + 88, by, r, ICON_HOME, true)) browser_navigate(g_set.home);
+    if (ui_icon_button(ui_id("tb", 6), bx + 132, by, r, ICON_EXIT, true)) exit_pressed();
+    float right = sx + sw - 30;
+    if (ui_icon_button(ui_id("tb", 5), right, by, r, ICON_GEAR, true)) settings_request = true;
+    if (ui_icon_button(ui_id("tb", 4), right - 44, by, r, ICON_STAR, true)) { bm_open = true; bm_scroll = 0; confirm_delete = -1; sound_play(SFX_OPEN); }
+    /* (GC Station : pas de lecteur MIDI du navigateur : GC Station a le sien) */
+    bool music_on = false;
+    float pulse = music_on ? 0.5f + 0.5f * sinf(ui_time() * 4.0f) : 0;
+    if (music_on)   /* soft light spilling out behind the button */
+        for (int k = 3; k >= 1; k--)
+            gfx_circle(right - 88, by, r + 2 + k * 2.5f, color_alpha(t->accent, (0.14f + 0.12f * pulse) / k));
+    if (0 && ui_icon_button(ui_id("tb", 7), right - 88, by, r, ICON_MUSIC, true)) { music_open = true; music_ui_reset(); sound_play(SFX_OPEN); }
+    if (music_on) {   /* the button face itself lights up */
+        gfx_circle(right - 88, by, r - 1, color_alpha(t->accent, 0.65f + 0.3f * pulse));
+        gfx_circle(right - 88, by - r * 0.35f, r * 0.5f, rgba(255, 255, 255, (int)(40 + 30 * pulse)));
+        ui_draw_icon(ICON_MUSIC, right - 88, by, r * 1.1f, rgba(255, 255, 255, 255));
+    }
+
+    /* address field (with a stop button inside it while a page loads) */
+    float ax = bx + 160, aw = (right - 70) - ax, ah = 34, ay = by - ah * 0.5f;
+    float stop_w = loading ? 34 : 0;
+    bool addr_hover = ui_hover(ui_id("addr", 0), ax, ay, aw - stop_w, ah);
+    float ahv = ui_anim(ui_id("addr", 1), addr_hover ? 1.0f : 0.0f, 0.25f);
+    if (ahv > 0.01f) gfx_rrect(ax - 4, ay - 4, aw + 8, ah + 8, 21, color_alpha(t->accent, 0.45f * ahv));
+    gfx_rrect(ax, ay, aw, ah, 17, t->field_bg);
+    gfx_rrect_outline(ax, ay, aw, ah, 17, 1.5f, t->panel_edge);
+    const char *shown = loading ? loading_url : (has_page ? page.url : "");
+    float tx = ax + 14;
+    if (!loading && has_page && page.secure) {
+        ui_draw_icon(page.verified ? ICON_LOCK : ICON_UNLOCK, ax + 18, by, 18, page.verified ? t->good : t->bad);
+        tx += 18;
+    }
+    gfx_set_clip(tx, ay, aw - (tx - ax) - 12 - stop_w, ah);
+    int n = gfx_text_fit(FONT_BODY, 17, shown, -1, aw - (tx - ax) - 16 - stop_w);
+    gfx_text(FONT_BODY, 17, tx, ay + 7, t->field_text, shown, n);
+    gfx_clear_clip();
+    if (loading && ui_icon_button(ui_id("tb", 2), ax + aw - 19, by, 12, ICON_STOP, true)) { queued = false; fetch_cancel(); }
+    if (addr_hover && input_ok && input_pressed(ACT_CLICK)) {
+        input_consume(ACT_CLICK);
+        sound_play(SFX_SELECT);
+        open_address_bar();
+    }
+
+    /* ---- content area (not while the loading screen covers it) */
+    bool content_ok = input_ok && !veil_covering();
+    float cx = sx + 8, cy = sy + bar_h + 16, cw = sw - 16, ch = sh - bar_h - 16 - 34;
+    gfx_shadow(cx + 2, cy + 4, cw, ch, 14, 6, t->shadow);
+    /* the page's rounded panel, which also marks its shape: the page is
+     * drawn only inside it (below), so a site's full-width bars and
+     * backgrounds keep the rounded corners instead of squaring them off */
+    gfx_mask_begin();
+    gfx_rrect(cx, cy, cw, ch, 14, has_page && page.dom ? page.bg : t->page_bg);
+    gfx_mask_end();
+
+    float scale = g_set.text_size / 100.0f;
+    static int last_layout_frame, last_load_images = -1, last_alt = -1, last_img_size = -1;
+    if (last_load_images != g_set.load_images || last_alt != g_set.show_alt || last_img_size != g_set.img_size) {
+        last_load_images = g_set.load_images;
+        last_alt = g_set.show_alt;
+        last_img_size = g_set.img_size;
+        page.relayout = true;
+    }
+    if (page.styled_author != (g_set.page_styles != 0)) page.restyle = true;
+    /* Laying out a big page takes a while, and nothing moves meanwhile, so
+     * the extra layouts while a page fills in are spaced out: the page's
+     * stylesheets are applied together once all have arrived, and pictures
+     * that change the layout wait until the pointer is resting. */
+    int since = ui_frame() - last_layout_frame;
+    bool waiting_sheets = page.restyle && last_layout_w != 0 && page.styled_author == (g_set.page_styles != 0) &&
+                          sheets_pending() && since < 600;
+    /* Laying out a long page again (when pictures arrive) can take a good
+     * fraction of a second, so wait until you've stopped scrolling and moving
+     * the pointer: doing it mid-scroll is what made long pages like Wikipedia
+     * stutter, as pictures kept arriving while you scrolled */
+    bool scrolling = ui_frame() - last_scroll_frame < 45;
+    bool image_relayout = page.relayout &&
+                          (veil_covering() ? since >= 20   /* nobody sees it under the loading screen */
+                                           : since >= 90 && ((input_stick_idle(20) && !scrolling) || since >= 900));
+    if (has_page && (last_layout_w != cw || last_layout_scale != scale || image_relayout || (page.restyle && !waiting_sheets))) {
+        last_layout_frame = ui_frame();
+        diag_note(DIAG_MAIN, "laying out page (%d pictures ready)", page.nimages);
+        u64 t0 = gettime();
+        page_layout(&page, cw, scale);
+        unsigned ms = (unsigned)ticks_to_millisecs(gettime() - t0);
+        if (ms > 100 || last_layout_w != cw)   /* also once per page: its size and the memory left */
+            http_log_note("layout  | %u ms, %d boxes, page %u KB, %u KB free | %.70s", ms, page.nboxes,
+                          (unsigned)(page.src_len / 1024), (unsigned)(cb_mem_free() / 1024), page.url);
+        last_layout_w = cw;
+        last_layout_scale = scale;
+        if (restore_scroll >= 0) { page.scroll = page.scroll_target = restore_scroll; restore_scroll = -1; }
+    }
+
+    int hover_link = -1, hover_field = -1;
+    const char *home_hover = NULL;
+    bool on_home = has_page && !strcmp(page.url, "about:home");
+    bool on_help = has_page && !strcmp(page.url, "about:help");
+    bool on_update = has_page && !strcmp(page.url, "about:update");
+    bool on_swiss = has_page && !strcmp(page.url, "about:swiss");
+    if (on_swiss) {
+        static char have[24], avail[200], done_text[300];
+        snprintf(have, sizeof(have), "%s", swiss_installed());
+        const char *tgt = swiss_target();
+        char dest[300];
+        swiss_destination(dest, sizeof(dest));
+        snprintf(avail, sizeof(avail), "%s%s. It will be saved as %s (a file already there is kept as .old).",
+                 swiss_installed()[0] ? "You have " : "Your Swiss version is unknown", swiss_installed(), dest);
+        snprintf(done_text, sizeof(done_text), "Saved as %s. The old version was kept as a backup (.old).", tgt);
+        UpdView v = { "Swiss Update", "Swiss", have, SWISS_REPO, swiss_latest(), swiss_notes(), swiss_error(),
+                      avail, done_text, "START THE NEW SWISS", swiss_state(), swiss_step() };
+        HomeAction ua = home_update_draw(cx, cy, cw, ch, content_ok, &v);
+        if (ua != HOME_NONE) sound_play(SFX_SELECT);
+        if (ua == HOME_OPEN_URL) navigate("about:home", NULL, true);
+        else if (ua == HOME_UPDATE_INSTALL) { midi_release_memory(); swiss_request_install(); }
+        else if (ua == HOME_UPDATE_CHECK) swiss_request_check();
+        else if (ua == HOME_UPDATE_STOP) fetch_cancel_update();
+        else if (ua == HOME_UPDATE_RESTART) {
+            settings_save();
+            cookies_save_if_needed();
+            char err[256];
+            if (!swiss_launch(err, sizeof(err))) { ui_toast(err); sound_play(SFX_ERROR); }
+        }
+    } else if (on_update) {
+        static char have[24], avail[160];
+        snprintf(have, sizeof(have), "v%s", CB_VERSION);
+        snprintf(avail, sizeof(avail), "You have v%s. Installing keeps your settings, bookmarks and logins.", CB_VERSION);
+        UpdView v = { "Software Update", "CubeBrowser", have, UPDATE_REPO, update_latest_version(), update_notes(),
+                      update_error(), avail,
+                      "Exit to Swiss and start CubeBrowser again to use it. The old version was kept as a backup (.old).",
+                      "EXIT TO SWISS", update_state(), update_step() };
+        HomeAction ua = home_update_draw(cx, cy, cw, ch, content_ok, &v);
+        if (ua != HOME_NONE) sound_play(SFX_SELECT);
+        if (ua == HOME_OPEN_URL) navigate("about:home", NULL, true);
+        else if (ua == HOME_UPDATE_INSTALL) update_request_install();
+        else if (ua == HOME_UPDATE_CHECK) update_request_check(false);
+        else if (ua == HOME_UPDATE_STOP) fetch_cancel_update();
+        else if (ua == HOME_UPDATE_RESTART) {
+            /* back to Swiss, where the new version can be started; if Swiss
+             * can't be found, start the new version directly */
+            settings_save();
+            cookies_save_if_needed();
+            if (!exit_to_swiss()) {
+                char err[256];
+                if (!update_restart(err, sizeof(err))) { ui_toast(err); sound_play(SFX_ERROR); }
+            }
+        }
+    } else if (on_help) {
+        /* Controls & Tips draws itself too (home.c) */
+        if (home_help_draw(cx, cy, cw, ch, content_ok) == HOME_OPEN_URL) {
+            sound_play(SFX_SELECT);
+            navigate("about:home", NULL, true);
+        }
+    } else if (on_home) {
+        /* the start page draws itself (home.c) */
+        const char *go = NULL;
+        HomeAction ha = home_draw(cx, cy, cw, ch, content_ok, &go, &home_hover);
+        if (ha != HOME_NONE) sound_play(ha == HOME_BOOKMARKS ? SFX_OPEN : SFX_SELECT);
+        switch (ha) {
+        case HOME_OPEN_URL: navigate(go, NULL, true); break;
+        case HOME_SEARCH: open_address_bar(); break;
+        case HOME_BOOKMARKS: bm_open = true; bm_scroll = 0; confirm_delete = -1; break;
+        case HOME_HELP: navigate("about:help", NULL, true); break;
+        case HOME_SETTINGS: settings_request = true; break;
+        default: break;
+        }
+    } else if (has_page) {
+        /* scrolling */
+        if (content_ok) {
+            float before = page.scroll_target;
+            page.scroll_target += input_scroll_delta();
+            int d = ui_dpad_unhandled();
+            if (d == DIR_DOWN) page.scroll_target += 120;
+            if (d == DIR_UP) page.scroll_target -= 120;
+            if (page.scroll_target != before) last_scroll_frame = ui_frame();
+        }
+        if (fabsf(page.scroll_target - page.scroll) > 2) last_scroll_frame = ui_frame();   /* still gliding */
+        float max_scroll = page.content_h - ch;
+        if (max_scroll < 0) max_scroll = 0;
+        if (page.scroll_target > max_scroll) page.scroll_target = max_scroll;
+        if (page.scroll_target < 0) page.scroll_target = 0;
+        page.scroll += (page.scroll_target - page.scroll) * (g_set.animations ? 0.3f : 1.0f);
+        schedule_images(page.scroll, ch, fminf(cw - 32, 640));
+
+        /* the "needs JavaScript" card sits over the bottom of the page */
+        bool note = script_note_gen == page_gen && !loading;
+        static const char note_text[] =
+            "This site builds its pages with scripts, which CubeBrowser can't run, so some or all of it "
+            "may be missing. Text mode asks the site for a simpler version, which some sites offer.";
+        float nw = fminf(cw - 40, 600), nx = cx + (cw - nw) * 0.5f;
+        float ntext_h = note ? note_wrap(FONT_BODY, 17, 0, 0, nw - 48, t->text, note_text, false) : 0;
+        float nh = 24 + 30 + ntext_h + 14 + 40 + 20, ny = cy + ch - nh - 14;
+        bool over_note = note && input_cursor_x() >= nx && input_cursor_x() <= nx + nw &&
+                         input_cursor_y() >= ny && input_cursor_y() <= ny + nh;
+
+        /* register visible links/fields as targets and find the hovered one */
+        float px = input_cursor_x(), py = input_cursor_y();
+        const int *vis;
+        int nvis = page_visible(&page, page.scroll, ch, &vis);
+        for (int vi = 0; vi < nvis; vi++) {
+            int i = vis[vi];
+            Box *b = &page.boxes[i];
+            if (b->link < 0 && b->field < 0) continue;
+            float yy = cy + b->y - page.scroll;
+            if (yy + b->h < cy || yy > cy + ch) continue;
+            float y0 = fmaxf(yy, cy), y1 = fminf(yy + b->h, cy + ch);
+            if (ui_hover(ui_id("pg", i), cx + b->x, y0, b->w, y1 - y0)) {
+                hover_link = b->link;
+                hover_field = b->field;
+            }
+            (void)px; (void)py;
+        }
+        if (over_note) hover_link = hover_field = -1;
+        diag_note(DIAG_MAIN, "drawing page at scroll %.0f of %.0f (%d boxes)", page.scroll, page.content_h, page.nboxes);
+        diag_note(DIAG_DRAW, "page at scroll %.0f of %.0f, %d boxes, %d pictures", page.scroll, page.content_h, page.nboxes, page.nimages);
+        gfx_mask_use();
+        page_draw(&page, cx, cy, cw, ch, hover_link, hover_field);
+        gfx_mask_end();
+        diag_note(DIAG_MAIN, "drawing toolbar and status bar");
+
+        /* scroll bar */
+        if (page.content_h > ch) {
+            float bh = fmaxf(30, ch * ch / page.content_h);
+            float byy = cy + (ch - bh) * (page.scroll / (page.content_h - ch));
+            gfx_rrect(cx + cw - 9, cy + 4, 5, ch - 8, 2.5f, color_alpha(t->page_rule, 0.6f));
+            gfx_rrect(cx + cw - 9, byy + 4, 5, bh - 8, 2.5f, t->accent);
+        }
+
+        if (note) {
+            ui_panel(nx, ny, nw, nh, 18);
+            gfx_text(FONT_UI, 22, nx + 24, ny + 20, t->text, "This page needs JavaScript", -1);
+            note_wrap(FONT_BODY, 17, nx + 24, ny + 54, nw - 48, t->text_dim, note_text, true);
+            bool can_text = g_set.user_agent != 1 && strcmp(text_mode_tried, page.url) != 0;
+            int nb = 1 + (can_text ? 1 : 0) + (nback > 0 ? 1 : 0), k = 0;
+            float bw = (nw - 48 - (nb - 1) * 12) / nb, bh = 40, by = ny + nh - bh - 18;
+            if (can_text) {
+                if (ui_button(ui_id("js-note", 0), nx + 24, by, bw, bh, "Try text mode", 17, UIB_ACCENT) && content_ok) {
+                    char u[URL_MAX];
+                    snprintf(u, sizeof(u), "%s", page.url);
+                    http_set_user_agent_override(1);   /* Lynx, for this page only */
+                    text_mode_load = true;
+                    script_note_gen = -1;
+                    start_load(u, NULL);
+                }
+                k++;
+            }
+            if (nback > 0) {
+                if (ui_button(ui_id("js-note", 1), nx + 24 + k * (bw + 12), by, bw, bh, "Go back", 17,
+                              can_text ? UIB_NORMAL : UIB_ACCENT) && content_ok) {
+                    script_note_gen = -1;
+                    go_back();
+                }
+                k++;
+            }
+            if (ui_button(ui_id("js-note", 2), nx + 24 + k * (bw + 12), by, bw, bh, "Hide", 17, UIB_NORMAL) && content_ok) {
+                script_note_gen = -1;
+            }
+        }
+
+        if (content_ok && input_pressed(ACT_CLICK) && (hover_link >= 0 || hover_field >= 0)) {
+            input_consume(ACT_CLICK);
+            input_rumble(3);
+            sound_play(SFX_SELECT);
+            if (hover_field >= 0) {
+                int ft = page.fields[hover_field].type;
+                if (ft == FIELD_SUBMIT) submit_form(hover_field, hover_field);
+                else if (ft == FIELD_CHECK || ft == FIELD_RADIO) page_toggle_field(&page, hover_field);
+                else if (ft == FIELD_SELECT) open_select(hover_field);
+                else edit_field(hover_field);
+            } else if (page_link_is_download(&page, hover_link) || input_held(ACT_SLOW)) {
+                save_link(page_link_url(&page, hover_link));
+            } else {
+                navigate(page_link_url(&page, hover_link), NULL, true);
+            }
+        }
+    }
+    if (loading) {
+        if (!has_page) ui_spinner(cx + cw * 0.5f, cy + ch * 0.5f, 60);
+        float k = fmodf(ui_time() * 0.8f, 1.0f);
+        gfx_rect(cx + 10, cy + 2, cw - 20, 3, color_alpha(t->page_rule, 0.7f));
+        gfx_rect(cx + 10 + (cw - 20) * fmaxf(0, k - 0.25f), cy + 2, (cw - 20) * fminf(0.25f, k), 3, t->accent);
+    }
+    veil_update(ch);
+    if (veil.on)   /* over the page area only; the status bar below says what's loading */
+        underwater_draw(cx, cy, cw, ch, veil.a, ui_time());
+
+    /* ---- status bar */
+    float sbx = sx + 14, sby = sy + sh - 28;
+    char status[300];
+    int pics_left = 0;
+    if (loading) {
+        int kb = fetch_progress() / 1024;
+        if (kb > 0) snprintf(status, sizeof(status), "%s %d KB", fetch_stage(), kb);
+        else snprintf(status, sizeof(status), "%s", fetch_stage());
+        ui_spinner(sbx + 8, sby + 10, 14);
+        sbx += 24;
+    } else if (hover_link >= 0) {
+        snprintf(status, sizeof(status), "%s", page_link_url(&page, hover_link));
+    } else if (home_hover) {
+        snprintf(status, sizeof(status), "%s", home_hover);
+    } else if (has_page && sheets_pending() && netio_state() == NET_UP) {
+        snprintf(status, sizeof(status), "Loading page styles...");
+        ui_spinner(sbx + 8, sby + 10, 14);
+        sbx += 24;
+    } else if (has_page && g_set.load_images && (pics_left = images_pending()) > 0 && netio_state() == NET_UP) {
+        snprintf(status, sizeof(status), "Loading pictures (%d left)", pics_left);
+        ui_spinner(sbx + 8, sby + 10, 14);
+        sbx += 24;
+    } else if (netio_state() != NET_UP) {
+        snprintf(status, sizeof(status), "%s", fetch_stage()[0] ? fetch_stage() : netio_status());
+    } else {
+        snprintf(status, sizeof(status), "%s", has_page && page.title[0] ? page.title : "Ready");
+    }
+    float status_w = sw - 150 - (sbx - sx);
+    int sn = gfx_text_fit(FONT_UI, 15, status, -1, status_w);
+    gfx_text(FONT_UI, 15, sbx, sby, t->text, status, sn);
+    Color dot = netio_state() == NET_UP ? t->good : (netio_state() == NET_FAILED ? t->bad : t->accent);
+    gfx_circle(sx + sw - 110, sby + 10, 5, dot);
+    draw_clock(sx + sw - 14, sby);
+
+    /* ---- shortcuts */
+    if (input_ok) {
+        if (input_pressed(ACT_BACK)) { input_consume(ACT_BACK); go_back(); }
+        if (input_pressed(ACT_ADDRESS)) { input_consume(ACT_ADDRESS); open_address_bar(); }
+        if (input_pressed(ACT_BOOKMARKS)) {
+            input_consume(ACT_BOOKMARKS);
+            bm_open = true; bm_scroll = 0; confirm_delete = -1;
+            sound_play(SFX_OPEN);
+        }
+        if (input_pressed(ACT_MENU)) { input_consume(ACT_MENU); settings_request = true; }
+    }
+
+    /* ---- modal layers */
+    if (dl_state != DL_IDLE) draw_download(interactive && !osk_active());
+    if (music_open) {
+        bool mu_input = interactive && !osk_active() && !bm_open && dl_state == DL_IDLE && sel_field < 0;
+        if (!music_ui_draw(mu_input)) music_open = false;
+    }
+    if (sel_field >= 0) {
+        bool sel_input = interactive && !osk_active() && !bm_open && dl_state == DL_IDLE;
+        draw_select(sel_input);
+        if (sel_field >= 0 && sel_input && input_pressed(ACT_BACK)) {
+            input_consume(ACT_BACK);
+            sel_field = -1;
+            sound_play(SFX_CLOSE);
+        }
+    }
+    if (bm_open) {
+        bool bm_input = interactive && !osk_active();
+        draw_bookmarks(bm_input);
+        if (bm_input && (input_pressed(ACT_BACK) || input_pressed(ACT_BOOKMARKS))) {
+            input_consume(ACT_BACK);
+            input_consume(ACT_BOOKMARKS);
+            bm_open = false;
+            sound_play(SFX_CLOSE);
+        }
+        if (bm_input && (input_raw_pressed() & PAD_BUTTON_X) && confirm_delete >= 0) {
+            int i = confirm_delete;
+            memmove(&bookmarks[i], &bookmarks[i + 1], sizeof(Bookmark) * (size_t)(nbookmarks - i - 1));
+            nbookmarks--;
+            confirm_delete = -1;
+            bookmarks_save();
+            ui_toast("Bookmark deleted");
+        }
+    }
+}
+
+void browser_open_music(void) {
+    music_open = true;
+    music_ui_reset();
+}

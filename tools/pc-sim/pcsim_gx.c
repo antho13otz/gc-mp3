@@ -186,6 +186,7 @@ static inline float c5(u32 v) { return (float)((v << 3) | (v >> 2)) / 255.0f; }
 static inline float c6(u32 v) { return (float)((v << 2) | (v >> 4)) / 255.0f; }
 static inline float c4(u32 v) { return (float)(v * 17) / 255.0f; }
 static inline float c3(u32 v) { return (float)((v << 5) | (v << 2) | (v >> 1)) / 255.0f; }
+const void *pcsim_i4_u32 = NULL;                          /* (police de GC Station, rangee en u32) */
 static void texel(const tex_t *t, int x, int y, float out[4]) {
     const u8 *d = (const u8 *)t->img;
     if (!d) { out[0] = out[1] = out[2] = out[3] = 1; return; }
@@ -201,7 +202,7 @@ static void texel(const tex_t *t, int x, int y, float out[4]) {
         return; }
     case GX_TF_I4: {                                       /* tuiles 8x8, 4 bits */
         int tw = (w + 7) / 8, ti = (y / 8) * tw + x / 8, p = (y & 7) * 8 + (x & 7);
-        u32 b = d[(ti * 32 + p / 2) ^ 3]; u32 v = p & 1 ? b & 15 : b >> 4;   /* (police : tableau de u32, ordre du PC) */
+        u32 b = d[(ti * 32 + p / 2) ^ (t->img == pcsim_i4_u32 ? 3 : 0)]; u32 v = p & 1 ? b & 15 : b >> 4;   /* (police de GC Station : tableau de u32, ordre du PC ; les autres : octets) */
         out[0] = out[1] = out[2] = out[3] = c4(v); return; }
     case GX_TF_I8: case GX_TF_IA4: {                       /* tuiles 8x4, 1 octet */
         int tw = (w + 7) / 8, ti = (y / 4) * tw + x / 8, o = ti * 32 + (y & 3) * 8 + (x & 7);

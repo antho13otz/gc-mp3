@@ -17,6 +17,9 @@ GME_SRC  := $(wildcard $(L)/gme/*.cpp)
 XMP_SRC  := $(wildcard $(L)/xmp/src/*.c) $(wildcard $(L)/xmp/src/loaders/*.c)
 WEBP_SRC := $(wildcard $(L)/webp/src/dec/*.c) $(wildcard $(L)/webp/src/dsp/*.c) $(wildcard $(L)/webp/src/utils/*.c)
 LIBOBJ   := $(patsubst $(L)/%.c,$(O)/%.o,$(MBED_SRC) $(HELIX_SRC) $(XMP_SRC) $(WEBP_SRC)) $(patsubst $(L)/%.cpp,$(O)/%.o,$(GME_SRC)) $(O)/gme/emu2413.o $(O)/codecs.o
+# v209 : Cube Browser (source/cb, MIT, Arial-Bold) : le navigateur de l'onglet WEB
+CB_SRC   := $(wildcard $(R)/source/cb/*.c)
+CB_OBJ   := $(patsubst $(R)/source/cb/%.c,$(O)/cb/%.o,$(CB_SRC))
 SIMOBJ   := $(O)/pcsim.o $(O)/pcsim_gx.o $(O)/pcsim_limits.o $(O)/pcsim_new.o $(O)/main.o
 # limites de la GameCube (pcsim_limits.c) : memoire du tas, carte SD
 WRAP     := -Wl,--wrap=malloc,--wrap=free,--wrap=calloc,--wrap=realloc,--wrap=memalign,--wrap=posix_memalign,--wrap=aligned_alloc,--wrap=mallinfo,--wrap=strdup,--wrap=strndup,--wrap=fopen,--wrap=fileno,--wrap=stat,--wrap=opendir,--wrap=readdir,--wrap=closedir
@@ -77,7 +80,11 @@ $(O)/main.o: $(wildcard $(R)/source/*.c $(R)/source/*.h $(R)/source/natres/*.h) 
 	@mkdir -p $(O)
 	$(CC) $(CFLAGS) -w -c $(R)/source/main.c -o $@
 
-$(BIN): $(SIMOBJ) $(LIBOBJ)
+$(O)/cb/%.o: $(R)/source/cb/%.c $(wildcard $(R)/source/cb/*.h)
+	@mkdir -p $(O)/cb
+	$(CC) $(CFLAGS) -std=gnu11 -Wall -Wno-unused-function -I$(R)/source/cb -c $< -o $@
+
+$(BIN): $(SIMOBJ) $(LIBOBJ) $(CB_OBJ)
 	@$(CXX) -no-pie $(SAN) $(WRAP) $^ -o $@ -lpthread -lm && echo "-> tools/pc-sim/$(BIN)"
 
 clean:

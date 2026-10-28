@@ -10,7 +10,8 @@ static int gp_hit(void) {
         if (gp_x >= gp_zl[i].x && gp_x <= gp_zl[i].x + gp_zl[i].w && gp_y >= gp_zl[i].y && gp_y <= gp_zl[i].y + gp_zl[i].h) return i;
     return -1;
 }
-static int gp_usable(void) { return tab != TAB_WEB && !fun_mode && !party_on && !saver_on && !night_on && !kb_open; }
+static int gb_screen_on(void);                     /* v210 : globe.c */
+static int gp_usable(void) { return !gb_screen_on() && tab != TAB_WEB && !fun_mode && !party_on && !saver_on && !night_on && !kb_open; }
 /* deplace la fleche ; A sur une zone : la choisit. Renvoie les boutons a traiter. */
 static u32 gp_input(u32 down) {
     if (!gp_usable()) { gp_on = 0; return down; }
