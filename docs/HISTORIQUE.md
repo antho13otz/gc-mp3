@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v204 — téléchargements qui reprennent
+- Un téléchargement coupé (connexion perdue, serveur muet 30 s) **reprend où il s'était arrêté** au lieu de
+  repartir de zéro (en-tête `Range`, jusqu'à 5 reprises), si le serveur le permet ; sinon le message d'avant.
+  Essai : fichier de 3 Mo coupé à 40 % par le serveur de test, reçu en entier et identique à l'octet près.
+- Banc d'essai : le serveur de test gère `Range` (réponse 206) et `/coupe/...` (connexion coupée à 40 %).
+
 ## Nouveautés v203 — musiques MIDI, finitions du web
 - **MIDI** (.mid, .midi, .kar, .rmi) dans l'onglet RÉTRO, avec un synthétiseur intégré (`source/midi.c`, pas de
   banque de sons à fournir) : une forme d'onde et une enveloppe par famille d'instruments General MIDI, batterie

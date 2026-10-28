@@ -8477,6 +8477,8 @@ static int crecv_timeout(conn_t *c, unsigned char *buf, int len, u32 ms) {
     return -2;
 }
 
+#define U_DLCUT "T\xC3\xA9l\xC3\xA9" "chargement interrompu (fichier incomplet)"
+#define U_SDFULL "\xC3\x89" "criture impossible sur la carte SD (pleine ?)"
 static int is_latin_charset(const char *cs) {
     return ci_find((char *)cs, "8859") || ci_find((char *)cs, "1252") || ci_find((char *)cs, "latin");
 }
@@ -8492,6 +8494,9 @@ static char dl_name[128], dl_path[NAME_LEN], dl_part[NAME_LEN + 8];
 static char dl_ep_url[URL_MAX], dl_ep_used[URL_MAX];   /* v71 : episode de podcast telecharge (son adresse) */
 static void pod_dl_note(const char *url, const char *path);
 static long dl_total = -1, dl_got = 0;
+static long dl_resume_from = 0;             /* v203 : reprise (Range) d'un telechargement coupe : octets deja la */
+static int dl_resume_tries = 0, dl_ranges = 0;   /* (essais ; le serveur accepte � Range �) */
+static char dl_url[URL_MAX];
 static u64 dl_t0 = 0, dl_last = 0;
 static dechunk_t dl_dc;
 static void music_rescan(void);
@@ -8567,6 +8572,28 @@ static void dl_filename(const char *disp, const char *url, const char *ctype, ch
 /* La reponse en cours (sur PCONN) est un fichier : on le telecharge en tache de fond. */
 static void dl_begin(const unsigned char *body, int n, const char *ctype, const char *disp,
                      const char *url, long clen, int chunked) {
+    if (dl_resume_from > 0) {                               /* v203 : la suite d'un telechargement coupe (206) */
+        long from = dl_resume_from;
+        dl_resume_from = 0;
+        dl_fp = fopen(dl_part, "ab");
+        if (!dl_fp || dl_active) { if (dl_fp) fclose(dl_fp); dl_fp = NULL; conn_close(PCONN); remove(dl_part); web_note(U_DLCUT, 1); return; }
+        static char dl_vbuf2[65536];
+        setvbuf(dl_fp, dl_vbuf2, _IOFBF, sizeof(dl_vbuf2));
+        wpi = 1 - wpi;
+        dl_active = 1;
+        dl_got = from;
+        dl_total = clen > 0 ? from + clen : dl_total;
+        dl_last = now_ms();
+        memset(&dl_dc, 0, sizeof(dl_dc));
+        dl_dc.on = chunked;
+        if (n > 0) { if (fwrite(body, 1, n, dl_fp) != (size_t)n) { dl_stop(U_SDFULL, 1); return; } dl_got += n; }
+        char msg[200];
+        snprintf(msg, sizeof(msg), "Reprise de %s (%ld %%)...", dl_name, dl_total > 0 ? (long)((long long)dl_got * 100 / dl_total) : 0L);
+        web_note(msg, 0);
+        return;
+    }
+    snprintf(dl_url, sizeof(dl_url), "%s", url);
+    dl_resume_tries = 0;
     if (dl_active) { conn_close(PCONN); web_note("Un téléchargement est déjà en cours (X : accueil pour l'annuler)", 1); return; }
     if (!sd_ok) { conn_close(PCONN); web_note("Carte SD absente : téléchargement impossible", 1); return; }
     snprintf(dl_dest_dir_used, sizeof(dl_dest_dir_used), "%s", dl_dest_dir[0] ? dl_dest_dir : DL_DIR);
@@ -8617,12 +8644,23 @@ static void dl_begin(const unsigned char *body, int n, const char *ctype, const 
     web_note(msg, 0);
 }
 
+static void web_fetch(const char *url_in, int mode, int typed);
 static void dl_finish(void) {
     conn_close(DCONN);
     fclose(dl_fp);
     dl_fp = NULL;
     dl_active = 0;
-    if (dl_total > 0 && dl_got < dl_total) { remove(dl_part); web_note("Téléchargement interrompu (fichier incomplet)", 1); return; }
+    if (dl_total > 0 && dl_got < dl_total) {
+        if (dl_ranges && dl_resume_tries < 5 && dl_url[0] && net_ok) {   /* v203 : on reprend ou ca s'est arrete */
+            dl_resume_tries++;
+            dl_resume_from = dl_got;
+            web_fetch(dl_url, NAV_REPLACE, 0);
+            if (dl_active) return;
+            if (dl_resume_from == 0) return;            /* (deja signale) */
+            dl_resume_from = 0;
+        }
+        remove(dl_part); web_note(U_DLCUT, 1); return;
+    }
     if (dl_got == 0) { remove(dl_part); web_note("Le fichier reçu est vide", 1); return; }
     remove(dl_path);
     if (rename(dl_part, dl_path) != 0) { web_note("Fichier reçu mais impossible de le renommer", 1); return; }
@@ -8659,7 +8697,10 @@ static void dl_pump(void) {
         dl_finish();                        /* fin du fichier (ou coupure) */
         return;
     }
-    if (now_ms() - dl_last > 30000) dl_stop("Téléchargement interrompu (le serveur ne répond plus)", 1);
+    if (now_ms() - dl_last > 30000) {
+        if (dl_ranges && dl_total > 0 && dl_resume_tries < 5) { conn_close(DCONN); dl_finish(); return; }   /* v203 : reprise */
+        dl_stop("Téléchargement interrompu (le serveur ne répond plus)", 1);
+    }
 }
 
 // ---------- Pages internes (accueil, favoris) ----------
@@ -9354,6 +9395,7 @@ static void web_fetch(const char *url_in, int mode, int typed) {
         ck_header(u.host, u.path, u.tls, cookie, sizeof(cookie));
         char post_hdr[120] = "";
         if (post) snprintf(post_hdr, sizeof(post_hdr), "Content-Type: application/x-www-form-urlencoded\r\nContent-Length: %d\r\n", post_len);
+        else if (dl_resume_from > 0) snprintf(post_hdr, sizeof(post_hdr), "Range: bytes=%ld-\r\n", dl_resume_from);   /* v203 : reprise */
         int rl = snprintf(req, sizeof(req),
                           "%s %s HTTP/1.1\r\nHost: %s\r\n"
                           "User-Agent: Mozilla/5.0 (compatible; GC-MP3/1.0; Nintendo GameCube)\r\n"
@@ -9422,6 +9464,14 @@ static void web_fetch(const char *url_in, int mode, int typed) {
         else if (!ctype[0] && (pl == 0 || u.path[pl - 1] == '/' || (pl > 4 && strcasecmp(u.path + pl - 4, ".htm") == 0) ||
                                 (pl > 5 && strcasecmp(u.path + pl - 5, ".html") == 0))) kind = WK_HTML;
 
+        if (dl_resume_from > 0 && code != 206) {         /* v203 : la reprise n'a pas marche : on garde le message d'origine */
+            conn_close(c);
+            dl_resume_from = 0;
+            remove(dl_part);
+            web_note(U_DLCUT, 1);
+            return;
+        }
+        if (code == 206 && dl_resume_from > 0) { dl_begin(body, body_len, ctype, disp, url, chunked ? -1 : clen, chunked); return; }
         if (code != 200 && (kind < 0 || code >= 500 || code == 204)) {
             char m[64];
             conn_close(c);
@@ -9433,7 +9483,12 @@ static void web_fetch(const char *url_in, int mode, int typed) {
             au_offer(body, body_len, ctype, disp, url, chunked ? -1 : clen, chunked, header_value(hdrs, "icy-name") != NULL || header_value(hdrs, "icy-metaint") != NULL);
             return;
         }
-        if (kind < 0) { dl_begin(body, body_len, ctype, disp, url, chunked ? -1 : clen, chunked); return; }
+        if (kind < 0) {
+            const char *ar = header_value(hdrs, "Accept-Ranges");
+            dl_ranges = ar && ci_find((char *)ar, "bytes") && !chunked && clen > 0;
+            dl_begin(body, body_len, ctype, disp, url, chunked ? -1 : clen, chunked);
+            return;
+        }
 
         /* page : le reste arrive dans web_pump() */
         wb_cap = 64 * 1024;
