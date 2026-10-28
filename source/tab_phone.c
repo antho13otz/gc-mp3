@@ -1275,7 +1275,7 @@ static void phone_pump(void) {
         case PC_SHOW:                                    /* v142 : photo choisie sur le telephone */
             if (!tab_shown(TAB_PHOTO)) break;
             if (npf < 0) photo_rescan();
-            if (cm.i >= 0 && cm.i < npf) { menu_open = 0; tl_screen = 0; tab = TAB_PHOTO; tab_enter(TAB_PHOTO); pv_open(cm.i); }
+            if (cm.i >= 0 && cm.i < npf) { menu_open = 0; tl_screen = 0; kb_open = 0; tab = TAB_PHOTO; tab_enter(TAB_PHOTO); pv_open(cm.i); }   /* (v222 : clavier ferme) */
             break;
         case PC_TYPE: tp_type_apply(); tp_type_busy = 0; break;
         case PC_SHOWNAME: {

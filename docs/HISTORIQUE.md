@@ -24,6 +24,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v222 — le téléphone sert de clavier
+- **Clavier sur le téléphone** : quand un clavier est ouvert sur la télé (celui de GC Station ou celui de
+  Cube Browser), la page du téléphone affiche une carte « clavier » en haut. Le texte tapé apparaît en
+  direct sur la télé, **OK** valide (commande `/api/type?t=…&go=0|1` ; champs `kb`, `kbh`, `kbt` dans
+  `/api/state`). Le clavier de Cube Browser n'est proposé que dans son onglet, hors menus.
+- **Photo du téléphone sur la télé** : dans l'onglet Photos de la page du téléphone, un bouton réduit la
+  photo à 1280 px, l'envoie dans `SD:/photos` et l'affiche aussitôt en plein écran (`/api/showname`).
+  Afficher une photo ferme le clavier ouvert.
+- L'adresse de la page ouverte dans **Cube Browser** est envoyée au téléphone (champ `web`).
+- Correction : le réseau démarre aussi quand « Télécommande au démarrage » est sur Oui.
+
 ## Nouveautés v221 — démarrage plus rapide
 - Le rangement de la carte SD (anciens fichiers déplacés dans `SD:/gc-mp3`, dossiers créés) ne se fait plus
   qu'une fois : un repère `SD:/gc-mp3/reglages/.range` évite environ 80 recherches sur la carte SD à chaque
