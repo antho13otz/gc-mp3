@@ -11,6 +11,7 @@
  *   - specks drifting in the water, and bubbles rising to the surface;
  *   - "Loading...".
  * Light is drawn additively (it brightens what's under it). */
+#include "lang.h"
 #include "underwater.h"
 #include "gfx.h"
 #include <math.h>
@@ -163,9 +164,9 @@ void underwater_draw(float x, float y, float w, float h, float alpha, float t) {
 
     /* Loading... */
     float ty = y + h * 0.6f;
-    float full = gfx_text_width(FONT_UI, 30, "Loading...", -1);
+    float full = gfx_text_width(FONT_UI, 30, tr("Loading..."), -1);
     float lx = x + (w - full) * 0.5f;
-    float lw = gfx_text(FONT_UI, 30, lx, ty, fade(rgba(255, 255, 255, 235), alpha), "Loading", -1);
+    float lw = gfx_text(FONT_UI, 30, lx, ty, fade(rgba(255, 255, 255, 235), alpha), tr("Loading"), -1);
     int dots = (int)fmodf(t * 2.5f, 4.0f);
     gfx_text(FONT_UI, 30, lx + lw, ty, fade(rgba(255, 255, 255, 235), alpha), "...", dots);
     gfx_clear_clip();

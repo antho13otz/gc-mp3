@@ -18,6 +18,7 @@ typedef struct {
     /* Keyboard */
     int  key_repeat, osk_layout;
     /* Display */
+    int  lang;                 /* GC Station : 0 francais, 1 anglais */
     int  video_mode, widescreen, margin, text_size, theme, animations, sounds, volume, full_width;
     int  load_screen;          /* the underwater scene while a page loads */
     /* Music */

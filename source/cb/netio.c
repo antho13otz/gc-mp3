@@ -48,18 +48,18 @@ static bool parse_ipv4(const char *s, u32 *out_be) {
 /* GC Station : le reseau est demarre par GC Station ; on attend qu'il soit pret (fil du navigateur). */
 bool netio_bringup(void) {
     state = NET_STARTING;
-    snprintf(status, sizeof(status), "Connexion au r\xC3\xA9seau...");
+    snprintf(status, sizeof(status), "Connexion au r\xE9seau...");
     int r;
     while ((r = cb_host_net_ready()) == 0) usleep(100 * 1000);
     if (r < 0) {
         state = NET_FAILED;
-        snprintf(status, sizeof(status), "Pas de r\xC3\xA9seau (c\xC3\xA2" "ble de l'adaptateur r\xC3\xA9seau ?)");
+        snprintf(status, sizeof(status), "Pas de r\xE9seau (c\xE2" "ble de l'adaptateur r\xE9seau ?)");
         return false;
     }
     snprintf(local_ip, sizeof(local_ip), "%s", cb_host_ip());
     snprintf(gateway, sizeof(gateway), "%s", cb_host_gateway());
     state = NET_UP;
-    snprintf(status, sizeof(status), "Connect\xC3\xA9 (%s)", local_ip);
+    snprintf(status, sizeof(status), "Connect\xE9 (%s)", local_ip);
     entropy_add(local_ip, strlen(local_ip));
     return true;
 }

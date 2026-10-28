@@ -50,7 +50,7 @@ UpdateState update_state(void) { return UPD_LATEST; }
 UpdateStep  update_step(void) { return UPD_STEP_DOWNLOAD; }
 const char *update_latest_version(void) { return ""; }
 const char *update_notes(void) { return ""; }
-const char *update_error(void) { return "Mises \xC3\xA0 jour : START > Mise \xC3\xA0 jour de GC Station"; }
+const char *update_error(void) { return "Mises \xE0 jour : START > Mise \xE0 jour de GC Station"; }
 const char *update_target(void) { return ""; }
 void update_request_check(bool quiet) { (void)quiet; }
 void update_request_install(void) {}

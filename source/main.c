@@ -9592,6 +9592,8 @@ typedef struct {
     const char *post_type, *xhdr;
     int tmo_ms;                             /* v206 : attente de la reponse (0 : 15 s) */
     int any_code;                           /* v206 : garder la reponse meme si le code n'est pas 200 (messages d'erreur) */
+    FILE *sink;                             /* v212 : le corps va directement dans ce fichier (pas en memoire) ; len = octets ecrits */
+    int sink_err;                           /* v212 : ecriture refusee (carte pleine...) */
 } hfetch_t;
 
 /* v77 : en-tetes plus gros que le tampon (GitHub : 11 Ko, dont une tres longue
@@ -9830,15 +9832,24 @@ static void hf_pump(hfetch_t *h) {
                 hf_fail(h);
                 return;
             }
-            h->cap = clen > 0 ? (int)clen + 16 : 65536;
-            h->buf = (unsigned char *)malloc(h->cap);
-            if (!h->buf) { hf_close(h); hf_fail(h); return; }
+            if (h->sink) {                                          /* v212 : vers le fichier */
+                if (code == 200 && h->range > 0) fseek(h->sink, 0, SEEK_SET);   /* (le site renvoie tout : on reecrit depuis le debut) */
+                free(h->buf); h->buf = NULL; h->cap = 0;
+            } else {
+                h->cap = clen > 0 ? (int)clen + 16 : 65536;
+                h->buf = (unsigned char *)malloc(h->cap);
+                if (!h->buf) { hf_close(h); hf_fail(h); return; }
+            }
             h->len = 0;
             memset(&h->dc, 0, sizeof(h->dc));
             h->dc.on = chunked;
             h->expect = clen;
             int bl = h->hlen - body_off;
-            if (bl > 0) {
+            if (bl > 0 && h->sink) {
+                int m = chunked ? dechunk(&h->dc, h->hdr + body_off, bl) : bl;
+                if (m > 0 && fwrite(h->hdr + body_off, 1, m, h->sink) != (size_t)m) { h->sink_err = 1; hf_close(h); hf_fail(h); return; }
+                h->len = m;
+            } else if (bl > 0) {
                 memcpy(h->buf, h->hdr + body_off, bl);
                 h->len = chunked ? dechunk(&h->dc, h->buf, bl) : bl;
             }
@@ -9851,11 +9862,17 @@ static void hf_pump(hfetch_t *h) {
     if (h->st == HF_BODY) {
         static unsigned char tmp[16384];
         int got = 0;
-        while (got < 256 * 1024) {
+        while (got < (h->sink ? 96 * 1024 : 256 * 1024)) {        /* (v212 : vers la carte SD : un peu moins par image) */
             int r = conn_recv(&h->c, tmp, sizeof(tmp));
             if (r > 0) {
                 int m = h->dc.on ? dechunk(&h->dc, tmp, r) : r;
                 if (h->len + m > h->maxbytes) { hf_close(h); hf_fail(h); return; }
+                if (h->sink) {
+                    if (m > 0 && fwrite(tmp, 1, m, h->sink) != (size_t)m) { h->sink_err = 1; hf_close(h); hf_fail(h); return; }
+                    h->len += m; got += r; h->t0 = now_ms();
+                    if ((h->expect >= 0 && h->len >= h->expect) || (h->dc.on && h->dc.st == 3)) { hf_done(h); return; }
+                    continue;
+                }
                 if (h->len + m > h->cap) {
                     int nc = h->cap * 2;
                     while (nc < h->len + m) nc *= 2;

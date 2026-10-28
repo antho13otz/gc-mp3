@@ -1,4 +1,5 @@
 /* settings.c - defaults, validation and INI persistence (settings.ini in the data folder). */
+#include "lang.h"
 #include "settings.h"
 #include "storage.h"
 #include "theme.h"
@@ -15,6 +16,7 @@ const char *const category_names[CAT_COUNT] = {
     "Network", "Controls", "Display", "Music", "Browsing", "Security", "Updates", "Data"
 };
 
+static const char *const lang_names[] = { "Fran\xE7" "ais", "English", NULL };
 static const char *const video_mode_names[] = { "Auto", "480i", "480p", NULL };
 static const char *const aspect_names[] = { "4:3", "16:9", NULL };
 static const char *const width_names[] = { "Standard (640)", "Full (704)", NULL };
@@ -85,6 +87,8 @@ const SetDef g_setdefs[] = {
     { CAT_CONTROLS, "osk.repeat", "Key repeat speed", ST_INT, O(key_repeat), 1, 10, 1, NULL, NULL,
       "How fast held Backspace and arrow shortcuts repeat." },
     /* Display */
+    { CAT_DISPLAY, "ui.lang", "Language", ST_CHOICE, O(lang), 0, 1, 1, lang_names, NULL,
+      "Language of the browser's menus and messages." },
     { CAT_DISPLAY, "disp.aspect", "Aspect ratio", ST_CHOICE, O(widescreen), 0, 1, 1, aspect_names, NULL,
       "Choose 16:9 if your TV stretches the picture to widescreen." },
     { CAT_DISPLAY, "disp.video", "Video mode", ST_CHOICE, O(video_mode), 0, 2, 1, video_mode_names, NULL,
@@ -378,10 +382,10 @@ bool settings_save(void) {
 
 void settings_format_value(const SetDef *d, char *out, size_t outlen) {
     switch (d->type) {
-    case ST_BOOL: snprintf(out, outlen, "%s", *setdef_int(d) ? "On" : "Off"); break;
-    case ST_CHOICE: snprintf(out, outlen, "%s", d->choices[*setdef_int(d)]); break;
+    case ST_BOOL: snprintf(out, outlen, "%s", tr(*setdef_int(d) ? "On" : "Off")); break;
+    case ST_CHOICE: snprintf(out, outlen, "%s", tr(d->choices[*setdef_int(d)])); break;
     case ST_BIND: snprintf(out, outlen, "%s", button_names[*setdef_int(d)]); break;
-    case ST_STR: snprintf(out, outlen, "%s", setdef_str(d)[0] ? setdef_str(d) : "(blank)"); break;
+    case ST_STR: snprintf(out, outlen, "%s", setdef_str(d)[0] ? setdef_str(d) : tr("(blank)")); break;
     case ST_ACTION: out[0] = 0; break;
     case ST_INT:
         if (d->off == offsetof(Settings, tz_minutes)) {

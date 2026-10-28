@@ -15,6 +15,7 @@ typedef struct {
 bool url_parse(const char *s, Url *u);
 void url_resolve(const char *base, const char *rel, char *out, size_t outlen);
 void url_encode_component(const char *in, char *out, size_t outlen);
+void url_encode_text(const char *in, char *out, size_t outlen);   /* GC Station : Latin-1 -> UTF-8 */
 void url_from_input(const char *input, char *out, size_t outlen);  /* address or search */
 void url_escape_path(char *path, size_t cap);
 /* Search engines send result links through a tracking page that forwards

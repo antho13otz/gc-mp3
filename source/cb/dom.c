@@ -103,7 +103,15 @@ static const char *ascii_for(unsigned cp, char *one) {
     if (cp == '\t' || cp == '\n' || cp == '\r' || cp == ' ') { one[0] = (char)cp; one[1] = 0; return one; }
     if (cp < 32 || cp == 127) return "";
     if (cp < 127) { one[0] = (char)cp; one[1] = 0; return one; }
-    if (cp >= 0xC0 && cp <= 0xFF) { one[0] = latin1[cp - 0xC0]; one[1] = 0; return one; }
+    /* GC Station : la police a les lettres Latin-1 (accents) : on les garde */
+    if (cp >= 0xA1 && cp <= 0xFF && cp != 0xAD) { one[0] = (char)cp; one[1] = 0; return one; }
+    (void)latin1;
+    if (cp >= 0x80 && cp <= 0x9F) {                   /* (pages en windows-1252 : apostrophes, guillemets...) */
+        static const unsigned short w1252[32] = {
+            0x20AC, 0, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0, 0x017D, 0,
+            0, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0, 0x017E, 0x0178 };
+        if (w1252[cp - 0x80]) return ascii_for(w1252[cp - 0x80], one);
+    }
     switch (cp) {
     case 0xA0: return "\x01";   /* non-breaking space marker, drawn as a space */
     case 0xAD: case 0x200B: case 0x200C: case 0x200D: case 0xFEFF: return "";
@@ -130,6 +138,18 @@ static const char *ascii_for(unsigned cp, char *one) {
     case 0x2010: case 0x2011: case 0x2012: case 0x2013: case 0x2212: return "-";
     case 0x2014: case 0x2015: return "--";
     case 0x2026: return "...";
+    case 0x152: return "OE";
+    case 0x153: return "oe";
+    case 0x178: return "Y";
+    case 0x160: return "S";
+    case 0x161: return "s";
+    case 0x17D: return "Z";
+    case 0x17E: return "z";
+    case 0x192: return "f";
+    case 0x2C6: return "^";
+    case 0x2DC: return "~";
+    case 0x2020: case 0x2021: return "+";
+    case 0x2030: return "o/oo";
     case 0x20AC: return "EUR";
     case 0x2122: return "TM";
     case 0x2190: return "<-";
@@ -171,7 +191,19 @@ static const struct { const char *name; unsigned cp; } entities[] = {
     { "acirc", 0xE2 }, { "ouml", 0xF6 }, { "uuml", 0xFC }, { "auml", 0xE4 }, { "ccedil", 0xE7 },
     { "ntilde", 0xF1 }, { "szlig", 0xDF }, { "oacute", 0xF3 }, { "iacute", 0xED }, { "uacute", 0xFA },
     { "Eacute", 0xC9 }, { "Ouml", 0xD6 }, { "Uuml", 0xDC }, { "Auml", 0xC4 }, { "iexcl", 0xA1 },
-    { "iquest", 0xBF }, { "minus", 0x2212 }, { "prime", 0x2032 }, { "plusmn", 0xB1 }, { "check", 0x2713 },
+    { "iquest", 0xBF },
+    { "curren", 0xA4 }, { "brvbar", 0xA6 }, { "uml", 0xA8 }, { "ordf", 0xAA }, { "not", 0xAC }, { "macr", 0xAF },
+    { "sup2", 0xB2 }, { "sup3", 0xB3 }, { "acute", 0xB4 }, { "micro", 0xB5 }, { "cedil", 0xB8 }, { "sup1", 0xB9 },
+    { "ordm", 0xBA }, { "Agrave", 0xC0 }, { "Aacute", 0xC1 }, { "Acirc", 0xC2 }, { "Atilde", 0xC3 }, { "Aring",
+    0xC5 }, { "AElig", 0xC6 }, { "Ccedil", 0xC7 }, { "Egrave", 0xC8 }, { "Ecirc", 0xCA }, { "Euml", 0xCB }, {
+    "Igrave", 0xCC }, { "Iacute", 0xCD }, { "Icirc", 0xCE }, { "Iuml", 0xCF }, { "ETH", 0xD0 }, { "Ntilde", 0xD1
+    }, { "Ograve", 0xD2 }, { "Oacute", 0xD3 }, { "Ocirc", 0xD4 }, { "Otilde", 0xD5 }, { "Oslash", 0xD8 }, {
+    "Ugrave", 0xD9 }, { "Uacute", 0xDA }, { "Ucirc", 0xDB }, { "Yacute", 0xDD }, { "THORN", 0xDE }, { "atilde",
+    0xE3 }, { "aring", 0xE5 }, { "aelig", 0xE6 }, { "euml", 0xEB }, { "igrave", 0xEC }, { "icirc", 0xEE }, {
+    "iuml", 0xEF }, { "eth", 0xF0 }, { "ograve", 0xF2 }, { "ocirc", 0xF4 }, { "otilde", 0xF5 }, { "divide", 0xF7
+    }, { "oslash", 0xF8 }, { "ugrave", 0xF9 }, { "ucirc", 0xFB }, { "yacute", 0xFD }, { "thorn", 0xFE }, { "yuml",
+    0xFF }, { "OElig", 0x152 }, { "oelig", 0x153 }, { "Yuml", 0x178 }, { "lsaquo", 0x2039 }, { "rsaquo", 0x203A },
+    { "sbquo", 0x201A }, { "bdquo", 0x201E }, { "dagger", 0x2020 }, { "permil", 0x2030 }, { "minus", 0x2212 }, { "prime", 0x2032 }, { "plusmn", 0xB1 }, { "check", 0x2713 },
 };
 
 static size_t parse_entity(const char *s, size_t len, unsigned *cp) {

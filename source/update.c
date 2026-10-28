@@ -351,6 +351,84 @@ static void up_install_finish(const u8 *d, long n) {
     crumb("mise a jour installee : build %d -> %s (+%d copies)", up_build, up_target, nok);
 }
 
+/* v212 : le .dol (6 Mo depuis Cube Browser) ne tient plus d'un bloc dans la memoire libre : il est ecrit
+   sur la carte SD au fur et a mesure (fichier .part), verifie, puis mis a la place de l'ancien. */
+static FILE *up_sink = NULL;
+static char up_part[NAME_LEN + 8];
+static int up_stream_open(void) {
+    if (!sd_ok || sd_virtual) return 0;
+    up_pick_target();
+    snprintf(up_part, sizeof(up_part), "%s.part", up_target);
+    up_sink = fopen(up_part, "wb");
+    if (up_sink) crumb("mise a jour : vers %s", up_part);
+    return up_sink != NULL;
+}
+static void up_sink_abort(void) {
+    if (up_sink) { fclose(up_sink); up_sink = NULL; remove(up_part); }
+    up_hf.sink = NULL; up_hf.range = 0; up_hf.keep = 0; up_acc_len = 0;
+}
+static int up_copy_file(const char *from, const char *to) {
+    char part[NAME_LEN + 8];
+    snprintf(part, sizeof(part), "%s.part", to);
+    FILE *in = fopen(from, "rb");
+    if (!in) return 0;
+    FILE *out = fopen(part, "wb");
+    if (!out) { fclose(in); return 0; }
+    static u8 cb[65536];
+    size_t n; int ok = 1;
+    while ((n = fread(cb, 1, sizeof(cb), in)) > 0) { if (fwrite(cb, 1, n, out) != n) { ok = 0; break; } service_audio(); }
+    fclose(in);
+    if (fclose(out) != 0) ok = 0;
+    if (!ok) { remove(part); return 0; }
+    remove(to);
+    if (rename(part, to) != 0) { remove(part); return 0; }
+    return 1;
+}
+static void up_stream_finish(void) {
+    long got = (up_hf.code == 206 ? up_hf.range : 0) + up_hf.len;
+    hf_drop(&up_hf);
+    up_hf.st = HF_IDLE; up_hf.range = 0; up_hf.keep = 0; up_hf.sink = NULL;
+    int ok = fclose(up_sink) == 0;
+    up_sink = NULL; up_acc_len = 0;
+    struct stat st;
+    if (!ok || stat(up_part, &st) != 0) { remove(up_part); up_fail("Carte SD pleine ou en lecture seule"); return; }
+    if ((up_total > 0 && st.st_size != up_total) || st.st_size != got) {
+        crumb("mise a jour : %ld octets sur la carte, %ld recus, %ld attendus", (long)st.st_size, got, up_total);
+        remove(up_part); up_fail("Fichier re\xC3\xA7u incomplet"); return;
+    }
+    u8 hd[0x100];
+    FILE *f = fopen(up_part, "rb");
+    int hok = f && fread(hd, 1, sizeof(hd), f) == sizeof(hd);
+    if (f) fclose(f);
+    if (!hok || !up_dol_valid(hd, (long)st.st_size)) { remove(up_part); up_fail("Fichier re\xC3\xA7u invalide"); return; }
+    char old[NAME_LEN + 8];
+    snprintf(old, sizeof(old), "%s.ancien", up_target);
+    remove(old);
+    int had = stat(up_target, &st) == 0;
+    if (had && rename(up_target, old) != 0) { remove(up_part); up_fail("Fichier impossible \xC3\xA0 remplacer"); return; }
+    if (rename(up_part, up_target) != 0) {
+        if (had) rename(old, up_target);
+        remove(up_part);
+        up_fail("Fichier impossible \xC3\xA0 remplacer");
+        return;
+    }
+    up_idc_store(up_target, 1);
+    ui_status("Mise \xC3\xA0 jour des autres copies de GC Station...");
+    up_ncopies = 0;
+    up_find_copies(SD_ROOT, 2);
+    int nok = 0;
+    for (int i = 0; i < up_ncopies; i++) {
+        int c = up_copy_file(up_target, up_copies[i]);
+        nok += c;
+        if (c) up_idc_store(up_copies[i], 1);
+        crumb("mise a jour : copie %s %s", up_copies[i], c ? "ok" : "ECHEC");
+    }
+    up_state = UP_DONE;
+    snprintf(up_msg, sizeof(up_msg), "Install\xC3\xA9" "e (build %d) : relance automatique...", up_build);
+    up_auto_at = now_ms() + 3000;
+    crumb("mise a jour installee (carte SD) : build %d -> %s (+%d copies)", up_build, up_target, nok);
+}
+
 static void update_relaunch(void);
 static void update_pump(void) {
     /* verification automatique, une fois, quand le reseau est pret */
@@ -362,6 +440,33 @@ static void update_pump(void) {
     if (up_state == UP_DONE && up_auto_at && now_ms() >= up_auto_at) { up_auto_at = 0; update_relaunch(); return; }   /* v127 */
     if (up_state != UP_CHECK && up_state != UP_DL) return;
     hf_pump(&up_hf);
+    if (up_hf.st == HF_FAIL && up_state == UP_DL && up_sink) {   /* v212 : vers la carte SD : la suite est demandee */
+        if (up_hf.sink_err) { up_sink_abort(); up_fail("Carte SD pleine ou en lecture seule"); return; }
+        if (up_hf.code == 200 || up_hf.code == 206) {
+            if (up_hf.code == 200 && up_hf.expect > 0) up_total = up_hf.expect;
+            if (up_hf.code == 206 && up_total == 0 && up_hf.expect > 0) up_total = up_hf.range + up_hf.expect;
+            up_acc_len = (up_hf.code == 206 ? up_hf.range : 0) + up_hf.len;
+        }
+        long before = up_hf.range;
+        int code = up_hf.code;
+        hf_drop(&up_hf);
+        up_hf.st = HF_IDLE;
+        if (up_acc_len > before) up_tries = 0;
+        if (++up_tries <= 8 && net_ok) {
+            crumb("mise a jour : reprise a %ld octets (essai %d, HTTP %d)", up_acc_len, up_tries, code);
+            fflush(up_sink);
+            fseek(up_sink, up_acc_len, SEEK_SET);
+            up_hf.range = up_acc_len;
+            hf_start(&up_hf, up_url, NULL);
+            return;
+        }
+        up_sink_abort();
+        char m[120];
+        if (code == 0) snprintf(m, sizeof(m), "T\xC3\xA9l\xC3\xA9" "chargement interrompu (r\xC3\xA9seau)");
+        else snprintf(m, sizeof(m), "T\xC3\xA9l\xC3\xA9" "chargement refus\xC3\xA9 (GitHub : code %d)", code);
+        up_fail(m);
+        return;
+    }
     if (up_hf.st == HF_FAIL && up_state == UP_DL) {         /* v133 : on garde ce qui est arrive et on reprend */
         if (up_hf.code == 200 || up_hf.code == 206) {
             if (up_hf.code == 200 && up_hf.range == 0 && up_hf.expect > 0) up_total = up_hf.expect;
@@ -449,6 +554,7 @@ static void update_pump(void) {
         }
         return;
     }
+    if (up_sink) { up_stream_finish(); return; }          /* v212 : deja sur la carte SD */
     /* telechargement fini (v133 : la suite d'une reprise est ajoutee a ce qui etait deja arrive) */
     u8 *b; long bl;
     if (up_hf.range > 0 && up_hf.code == 206) {
@@ -473,6 +579,8 @@ static void update_start_download(void) {
     up_hf.accept = "application/octet-stream";
     free(up_acc); up_acc = NULL; up_acc_len = 0; up_total = 0; up_tries = 0;
     up_hf.range = 0; up_hf.keep = 1;                      /* v133 : reprise possible */
+    up_hf.sink = NULL; up_hf.sink_err = 0;
+    if (up_stream_open()) up_hf.sink = up_sink;           /* v212 : directement sur la carte SD (pas 6 Mo en memoire) */
     hf_start(&up_hf, up_url, NULL);
     up_state = UP_DL;
     crumb("mise a jour : telechargement build %d", up_build);

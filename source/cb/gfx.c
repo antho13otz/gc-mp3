@@ -482,6 +482,7 @@ static float font_line(FontId f) {
 }
 
 static inline const FontGlyph *glyph_for(const FontGlyph *G, unsigned char ch) {
+    if (ch >= 160) return &G[95 + ch - 160];          /* (GC Station : Latin-1, lettres accentuees) */
     if (ch < 32 || ch > 126) ch = '?';
     return &G[ch - 32];
 }

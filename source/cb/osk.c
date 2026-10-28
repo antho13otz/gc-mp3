@@ -1,6 +1,7 @@
 /* osk.c - chunky rounded on-screen keyboard.
  * Pointer or D-pad (snaps key to key) to type; shortcuts:
  * B backspace, Y space, X shift, L/R move caret, START accept. */
+#include "lang.h"
 #include "osk.h"
 #include "ui.h"
 #include "gfx.h"
@@ -31,7 +32,10 @@ static const char *const rows_abc[2][4] = {
     { "1234567890-=", "abcdefghij'/", "klmnopqrst,.", "uvwxyz;:?!" },
     { "!@#$%^&*()_+", "ABCDEFGHIJ\"\\", "KLMNOPQRST<>", "UVWXYZ{}[]" },
 };
-static const char *const rows_sym[4] = { "!@#$%^&*()_+", "`~\\|{}[]<>-=", "\"';:/?.,%&*", "1234567890" };
+static const char *const rows_sym[2][4] = {   /* GC Station : la 4e ligne a les lettres accentuees (X : majuscules) */
+    { "!@#$%^&*()_+", "`~\\|{}[]<>-=", "\"';:/?.,%&*", "\xE9\xE8\xEA\xEB\xE0\xE2\xE7\xF9\xFB\xF4\xEE\xEF" },
+    { "!@#$%^&*()_+", "`~\\|{}[]<>-=", "\"';:/?.,%&*", "\xC9\xC8\xCA\xCB\xC0\xC2\xC7\xD9\xDB\xD4\xCE\xCF" },
+};
 static const char *const rows_ip[4] = { "123", "456", "789", ".0" };
 typedef struct { const char *label; float w; int id; int style; } BottomKey;
 
@@ -125,9 +129,12 @@ void osk_frame(void) {
     float py = sy + sh - ph + (1.0f - open) * (ph + 40);
     ui_panel(px, py, pw, ph, 18);
     gfx_text(FONT_UI, 20, px + 20, py + 12, t->text, title, -1);
-    const char *hint = "B: Delete  Y: Space  X: Shift  L/R: Move  START: OK";
+    const char *hint = tr("B: Delete  Y: Space  X: Shift  L/R: Move  START: OK");
     float hs = 13;
-    gfx_text(FONT_UI, hs, px + pw - 20 - gfx_text_width(FONT_UI, hs, hint, -1), py + 18, t->text_dim, hint, -1);
+    float tw0 = gfx_text_width(FONT_UI, 20, title, -1), hw = gfx_text_width(FONT_UI, hs, hint, -1);
+    float room = pw - 40 - tw0 - 16;                        /* (GC Station : jamais par-dessus le titre) */
+    if (hw > room && room > 0) { hs = fmaxf(10.0f, hs * room / hw); hw = gfx_text_width(FONT_UI, hs, hint, -1); }
+    if (hw <= room) gfx_text(FONT_UI, hs, px + pw - 20 - hw, py + 18 + (13 - hs) * 0.5f, t->text_dim, hint, -1);
 
     draw_field(px + 16, py + 44, pw - 32, 46, 22);
 
@@ -144,7 +151,7 @@ void osk_frame(void) {
     }
     const char *const *rows;
     if (ip) rows = rows_ip;
-    else if (sym) rows = rows_sym;
+    else if (sym) rows = rows_sym[shift ? 1 : 0];
     else rows = (g_set.osk_layout ? rows_abc : rows_qwerty)[shift ? 1 : 0];
     int cols = ip ? 3 : 12;
     float kw = (inner - gap * (cols - 1)) / cols;
@@ -165,13 +172,13 @@ void osk_frame(void) {
     BottomKey bottom[6];
     int nb = 0;
     if (!ip) {
-        bottom[nb++] = (BottomKey){ caps ? "CAPS" : "Shift", 1.3f, 1, (shift || caps) ? UIB_ACCENT : UIB_NORMAL };
-        bottom[nb++] = (BottomKey){ sym ? "ABC" : "#+=", 1.1f, 2, UIB_NORMAL };
-        bottom[nb++] = (BottomKey){ "Space", 2.6f, 3, UIB_NORMAL };
+        bottom[nb++] = (BottomKey){ caps ? tr("CAPS") : tr("Shift"), 1.3f, 1, (shift || caps) ? UIB_ACCENT : UIB_NORMAL };
+        bottom[nb++] = (BottomKey){ sym ? "ABC" : "#+\xE9", 1.1f, 2, UIB_NORMAL };
+        bottom[nb++] = (BottomKey){ tr("Space"), 2.6f, 3, UIB_NORMAL };
     }
-    bottom[nb++] = (BottomKey){ "Delete", 1.4f, 4, UIB_NORMAL };
-    bottom[nb++] = (BottomKey){ "Cancel", 1.4f, 5, UIB_NORMAL };
-    bottom[nb++] = (BottomKey){ "OK", 1.4f, 6, UIB_ACCENT };
+    bottom[nb++] = (BottomKey){ tr("Delete"), 1.4f, 4, UIB_NORMAL };
+    bottom[nb++] = (BottomKey){ tr("Cancel"), 1.4f, 5, UIB_NORMAL };
+    bottom[nb++] = (BottomKey){ tr("OK"), 1.4f, 6, UIB_ACCENT };
     float total = 0;
     for (int i = 0; i < nb; i++) total += bottom[i].w;
     float unit = (inner - gap * (nb - 1)) / total;

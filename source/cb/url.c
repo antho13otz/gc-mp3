@@ -176,6 +176,24 @@ void url_encode_component(const char *in, char *out, size_t outlen) {
     out[n] = 0;
 }
 
+/* GC Station : comme url_encode_component, mais pour du texte du navigateur (Latin-1) : les lettres
+ * accentuees partent en UTF-8 (%C3%A9), ce que les sites attendent. */
+void url_encode_text(const char *in, char *out, size_t outlen) {
+    static const char hex[] = "0123456789ABCDEF";
+    size_t n = 0;
+    for (; *in && n + 7 < outlen; in++) {
+        unsigned char c = (unsigned char)*in;
+        if (isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~') out[n++] = (char)c;
+        else if (c == ' ') out[n++] = '+';
+        else if (c >= 0x80) {
+            unsigned char u0 = (unsigned char)(0xC0 | (c >> 6)), u1 = (unsigned char)(0x80 | (c & 0x3F));
+            out[n++] = '%'; out[n++] = hex[u0 >> 4]; out[n++] = hex[u0 & 15];
+            out[n++] = '%'; out[n++] = hex[u1 >> 4]; out[n++] = hex[u1 & 15];
+        } else { out[n++] = '%'; out[n++] = hex[c >> 4]; out[n++] = hex[c & 15]; }
+    }
+    out[n] = 0;
+}
+
 void url_from_input(const char *input, char *out, size_t outlen) {
     while (isspace((unsigned char)*input)) input++;
     char t[URL_MAX];
@@ -190,7 +208,7 @@ void url_from_input(const char *input, char *out, size_t outlen) {
         return;
     }
     char enc[URL_MAX];
-    url_encode_component(t, enc, sizeof(enc));
+    url_encode_text(t, enc, sizeof(enc));
     snprintf(out, outlen, "%s%s", settings_search_prefix(), enc);
 }
 

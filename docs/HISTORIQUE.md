@@ -24,6 +24,23 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v212 — Cube Browser en français, mise à jour réparée
+- **Mise à jour (Réglages > Réseau)** : depuis Cube Browser, le programme fait près de 6 Mo et le téléchargement
+  le gardait en entier en mémoire avant de l'écrire : il ne restait plus assez de mémoire d'un seul bloc, chaque
+  essai échouait (« Téléchargement interrompu (réseau) »). Le fichier est maintenant écrit sur la carte SD au fur
+  et à mesure (`.part`), repris là où il s'est arrêté si la connexion coupe, vérifié, puis mis à la place de l'ancien
+  (gardé en `.ancien`). Sans carte SD (Dolphin), l'ancienne méthode en mémoire reste.
+- **Cube Browser en français** : menus, réglages, messages, aide, clavier, téléchargements (traduction :
+  `tools/cb-lang/fr.py` → `source/cb/lang_fr.h`). Réglages du navigateur (roue) > Affichage > **Langue** :
+  Français (par défaut) ou English.
+- **Accents** : les polices du navigateur ont maintenant les lettres accentuées (Latin-1 : é, è, à, ç, ô, ü, «, °…),
+  sans mémoire en plus (même texture 512 × 256 ; `tools/cb-font/make_font.py`). Les pages web gardent leurs accents
+  (avant : « e » à la place de « é »), y compris les pages en windows-1252 et les entités HTML (`&ocirc;`…).
+- **Clavier** : la touche « #+é » donne une ligne de lettres accentuées (X : majuscules). Le texte tapé part en
+  UTF-8 aux sites (recherches, formulaires, assistant IA).
+- Réglages du navigateur : les sections qui ne servent pas dans GC Station (réseau, écran, musique MIDI, mises à
+  jour de Cube Browser, Swiss) sont cachées ; l'aide n'affiche plus Z et START (pris par GC Station).
+
 ## Nouveautés v211 — pochette sans bande noire (16:9)
 - Style Aurore, lecteur MUSIQUE, en 16:9 : l'ombre et le liseré de la pochette étaient étirés en largeur (et
   l'ombre décalée vers le bas) alors que la pochette reste carrée : une bande sombre apparaissait autour et

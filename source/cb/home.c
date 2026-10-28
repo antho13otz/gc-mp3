@@ -3,6 +3,7 @@
  * cut corners, dotted dividers and square site tiles with caption bars.
  * Everything is drawn from shapes (no picture files) and fits the content
  * area in 4:3 and 16:9. */
+#include "lang.h"
 #include "home.h"
 #include "ui.h"
 #include "gfx.h"
@@ -296,9 +297,9 @@ HomeAction home_draw(float x, float y, float w, float h, bool input_ok, const ch
     char bubble[48];
     UpdateState us = update_state();
     bool upd = us == UPD_AVAILABLE || us == UPD_INSTALLING || us == UPD_INSTALLED;
-    if (us == UPD_INSTALLED) snprintf(bubble, sizeof(bubble), "EXIT TO SWISS FOR v%s", update_latest_version());
-    else if (upd) snprintf(bubble, sizeof(bubble), "UPDATE AVAILABLE: v%s", update_latest_version());
-    else snprintf(bubble, sizeof(bubble), "WELCOME TO v%s", CB_VERSION);
+    if (us == UPD_INSTALLED) snprintf(bubble, sizeof(bubble), tr("EXIT TO SWISS FOR v%s"), update_latest_version());
+    else if (upd) snprintf(bubble, sizeof(bubble), tr("UPDATE AVAILABLE: v%s"), update_latest_version());
+    else snprintf(bubble, sizeof(bubble), tr("WELCOME TO v%s"), CB_VERSION);
     float bub_w = caps_width(9.5f, 1.1f, bubble) + 20, bub_h = 22;
     float bub_x = hx + hw - 22 - bub_w, bub_y = cy + (bar_h - bub_h) / 2;
     if (bub_x > title_end + 20) {
@@ -319,18 +320,18 @@ HomeAction home_draw(float x, float y, float w, float h, bool input_ok, const ch
     float a1 = intro(1);
     float tsz_body = w < 700 ? 13.0f : 14.5f;
     float text_w = hw - 24;
-    float text_h = wrap(FONT_BODY, tsz_body, 0, 0, text_w - 4, white, about_text, false);   /* same width as drawn */
+    float text_h = wrap(FONT_BODY, tsz_body, 0, 0, text_w - 4, white, tr(about_text), false);   /* same width as drawn */
     float about_h = text_h + 14;
     cut_rect(hx, cy, hw, about_h, 8, color_alpha(color_lerp(panel, white, 0.62f), a1));   /* pale, for easy reading */
     cut_outline(hx, cy, hw, about_h, 8, 1.5f, color_alpha(navy, a1));
     gfx_rect(hx + 1, cy + 1, 5, about_h - 2 - 8, color_alpha(orange, a1));   /* accent edge */
-    wrap(FONT_BODY, tsz_body, hx + 15, cy + 7, text_w - 4, color_alpha(navy, a1), about_text, true);
+    wrap(FONT_BODY, tsz_body, hx + 15, cy + 7, text_w - 4, color_alpha(navy, a1), tr(about_text), true);
     cy += about_h + 7;
 
     /* ---- featured sites */
     float a2 = intro(2);
-    caps(hx + 2, cy, 15, 1.0f, color_alpha(white, a2), color_alpha(shadow, a2), "FEATURED SITES");
-    float dots_x = hx + 2 + caps_width(15, 1.0f, "FEATURED SITES") + 14;
+    caps(hx + 2, cy, 15, 1.0f, color_alpha(white, a2), color_alpha(shadow, a2), tr("FEATURED SITES"));
+    float dots_x = hx + 2 + caps_width(15, 1.0f, tr("FEATURED SITES")) + 14;
     dotted_hline(dots_x, cy + 9, hx + hw - dots_x, color_alpha(panel, 0.8f * a2));
     cy += 21;
 
@@ -398,14 +399,14 @@ HomeAction home_draw(float x, float y, float w, float h, bool input_ok, const ch
             gfx_rect(bx, by, 1.5f, th, color_alpha(navy, ap));
             gfx_rect(bx + tw - 1.5f, by, 1.5f, th, color_alpha(navy, ap));
         }
-        if (hov) { *hover_url = s->url; hover_blurb = s->blurb; }
+        if (hov) { *hover_url = s->url; hover_blurb = tr(s->blurb); }
         if (clicked(hov, input_ok)) { act = HOME_OPEN_URL; *url = s->url; }
     }
 
     /* ---- bottom row: Controls & Tips button, then the tip line */
     float a3 = intro(3 + NSITES);
     float ry = bottom - row_h;
-    const char *blabel = "CONTROLS & TIPS";
+    const char *blabel = tr("CONTROLS & TIPS");
     float bw = caps_width(10.5f, 1.2f, blabel) + 40;
     UiId bid = ui_id("home-help", 0);
     bool bhov = ui_hover(bid, hx, ry, bw, row_h);
@@ -422,7 +423,7 @@ HomeAction home_draw(float x, float y, float w, float h, bool input_ok, const ch
 
     float lx = hx + bw + 10, lw = hw - bw - 10;
     gfx_rect(lx, ry, lw, row_h, color_alpha(navy, 0.85f * a3));
-    const char *tag = hover_blurb ? "SITE" : "TIP";
+    const char *tag = hover_blurb ? tr("SITE") : tr("TIP");
     float tag_w = caps_width(9.5f, 1.2f, tag) + 14;
     gfx_rect(lx + 3, ry + 3, tag_w, row_h - 6, color_alpha(orange, a3));
     caps(lx + 10, ry + (row_h - gfx_line_height(FONT_UI, 9.5f)) / 2, 9.5f, 1.2f, color_alpha(navy, a3), rgba(0, 0, 0, 0), tag);
@@ -432,11 +433,13 @@ HomeAction home_draw(float x, float y, float w, float h, bool input_ok, const ch
         snprintf(line, sizeof(line), "%s", hover_blurb);
     } else {
         float period = 6.0f, ph = fmodf(now, period);
-        snprintf(line, sizeof(line), "%s", tips[(int)(now / period) % NTIPS]);
+        snprintf(line, sizeof(line), "%s", tr(tips[(int)(now / period) % NTIPS]));
         if (g_set.animations) fade = fminf(1, fminf(ph / 0.4f, (period - ph) / 0.4f));
     }
     float txs = 13;
     float tx = lx + 3 + tag_w + 8, tw2 = lw - (tx - lx) - 8;
+    float lw0 = gfx_text_width(FONT_UI, txs, line, -1);       /* (GC Station : astuces plus longues en francais) */
+    if (lw0 > tw2) txs = fmaxf(10.0f, txs * tw2 / lw0);
     gfx_text(FONT_UI, txs, tx, ry + (row_h - gfx_line_height(FONT_UI, txs)) / 2, color_alpha(white, a3 * fade), line,
              gfx_text_fit(FONT_UI, txs, line, -1, tw2));
 
@@ -494,16 +497,16 @@ static float help_body(float x, float y, float w, bool draw) {
     snprintf(lr, sizeof(lr), "%s / %s", bind_name(ACT_PAGE_UP), bind_name(ACT_PAGE_DOWN));
     HelpRow pad[] = {
         { "STICK", "Move the pointer" },
-        { bind_name(ACT_CLICK), "Click a link or button" },
-        { bind_name(ACT_SLOW), "Hold for a slow pointer" },
-        { bind_name(ACT_BACK), "Go back a page" },
-        { bind_name(ACT_ADDRESS), "Type an address or search" },
-        { bind_name(ACT_BOOKMARKS), "Bookmarks" },
-        { bind_name(ACT_MENU), "Settings" },
+        { bind_name(ACT_CLICK), tr("Click a link or button") },
+        { bind_name(ACT_SLOW), tr("Hold for a slow pointer") },
+        { bind_name(ACT_BACK), tr("Go back a page") },
+        { bind_name(ACT_ADDRESS), tr("Type an address or search") },
+        { bind_name(ACT_BOOKMARKS), tr("Bookmarks") },
+        { bind_name(ACT_MENU), tr("Settings") },
         { "C-STICK", "Scroll the page" },
-        { lr, "Page up / page down" },
+        { lr, tr("Page up / page down") },
         { "D-PAD", "Jump between links" },
-        { zbadge, "Save a link to the SD card" },
+        { zbadge, tr("Save a link to the SD card") },
     };
     HelpRow kb[] = {
         { "B", "Delete" }, { "Y", "Space" }, { "X", "Shift" },
@@ -519,26 +522,31 @@ static float help_body(float x, float y, float w, bool draw) {
         "Every button except the D-Pad can be changed in Settings > Controls.",
     };
     float gap = 8, rh = 26, cw = (w - gap) / 2, yy = y;
-    int n = (int)(sizeof(pad) / sizeof(pad[0]));
-    if (draw) help_heading(x, yy, w, "CONTROLLER", intro(1));
+    int n = 0;
+    for (int i = 0; i < (int)(sizeof(pad) / sizeof(pad[0])); i++) {   /* (GC Station garde Z et START : lignes retirees) */
+        int act = i == 2 ? ACT_SLOW : i == 6 ? ACT_MENU : i == 10 ? ACT_SLOW : -1;
+        if (act >= 0 && (g_set.bind[act] == BTN_Z || g_set.bind[act] == BTN_START)) continue;
+        pad[n++] = pad[i];
+    }
+    if (draw) help_heading(x, yy, w, tr("CONTROLLER"), intro(1));
     yy += 22;
     for (int i = 0; i < n; i++) {
         float rx = x + (i % 2) * (cw + gap), ry = yy + (i / 2) * (rh + 6);
-        if (draw) help_row(rx, ry, cw, rh, pad[i].badge, pad[i].text, intro(2 + i / 2));
+        if (draw) help_row(rx, ry, cw, rh, tr(pad[i].badge), tr(pad[i].text), intro(2 + i / 2));
     }
     yy += ((n + 1) / 2) * (rh + 6) + 8;
     n = (int)(sizeof(kb) / sizeof(kb[0]));
-    if (draw) help_heading(x, yy, w, "ON-SCREEN KEYBOARD", intro(8));
+    if (draw) help_heading(x, yy, w, tr("ON-SCREEN KEYBOARD"), intro(8));
     yy += 22;
     for (int i = 0; i < n; i++) {
         float rx = x + (i % 2) * (cw + gap), ry = yy + (i / 2) * (rh + 6);
-        if (draw) help_row(rx, ry, cw, rh, kb[i].badge, kb[i].text, intro(9));
+        if (draw) help_row(rx, ry, cw, rh, tr(kb[i].badge), tr(kb[i].text), intro(9));
     }
     yy += ((n + 1) / 2) * (rh + 6) + 8;
-    if (draw) help_heading(x, yy, w, "TIPS", intro(10));
+    if (draw) help_heading(x, yy, w, tr("TIPS"), intro(10));
     yy += 22;
     float ts = w < 700 ? 13.0f : 14.0f, tw = w - 28, th = 0;
-    for (int i = 0; i < 3; i++) th += wrap(FONT_BODY, ts, 0, 0, tw, rgba(0, 0, 0, 255), tips_text[i], false) + 6;
+    for (int i = 0; i < 3; i++) th += wrap(FONT_BODY, ts, 0, 0, tw, rgba(0, 0, 0, 255), tr(tips_text[i]), false) + 6;
     float ph = th + 10;
     if (draw) {
         float a = intro(11);
@@ -548,7 +556,7 @@ static float help_body(float x, float y, float w, bool draw) {
         cut_outline(x, yy, w, ph, 8, 1.5f, color_alpha(navy, a));
         gfx_rect(x + 1, yy + 1, 5, ph - 2 - 8, color_alpha(rgba(240, 132, 24, 255), a));
         float ty = yy + 7;
-        for (int i = 0; i < 3; i++) ty += wrap(FONT_BODY, ts, x + 15, ty, tw, color_alpha(navy, a), tips_text[i], true) + 6;
+        for (int i = 0; i < 3; i++) ty += wrap(FONT_BODY, ts, x + 15, ty, tw, color_alpha(navy, a), tr(tips_text[i]), true) + 6;
     }
     yy += ph + 10;
     return yy - y;
@@ -578,10 +586,10 @@ HomeAction home_help_draw(float x, float y, float w, float h, bool input_ok) {
     }
     float tsz = w < 700 ? 21 : 23;
     caps(hx + 42, cy + (bar_h - gfx_line_height(FONT_UI, tsz)) / 2, tsz, 0.8f, color_alpha(gold, a0),
-         color_alpha(rgba(0, 0, 0, 255), a0), "Controls & Tips");
-    float title_end = hx + 42 + caps_width(tsz, 0.8f, "Controls & Tips");
+         color_alpha(rgba(0, 0, 0, 255), a0), tr("Controls & Tips"));
+    float title_end = hx + 42 + caps_width(tsz, 0.8f, tr("Controls & Tips"));
     char bubble[48];
-    snprintf(bubble, sizeof(bubble), "PRESS %s TO GO BACK", bind_name(ACT_BACK));
+    snprintf(bubble, sizeof(bubble), tr("PRESS %s TO GO BACK"), bind_name(ACT_BACK));
     float bub_w = caps_width(9.5f, 1.1f, bubble) + 20, bub_h = 22;
     float bub_x = hx + hw - 22 - bub_w, bub_y = cy + (bar_h - bub_h) / 2;
     if (bub_x > title_end + 20) {
@@ -595,7 +603,7 @@ HomeAction home_help_draw(float x, float y, float w, float h, bool input_ok) {
 
     /* back button pinned at the bottom */
     float row_h = 24, by = y + h - m - row_h;
-    const char *blabel = "BACK TO START PAGE";
+    const char *blabel = tr("BACK TO START PAGE");
     float bw = caps_width(10.5f, 1.2f, blabel) + 40;
     float a3 = intro(12);
     UiId bid = ui_id("help-back", 0);
@@ -710,7 +718,7 @@ HomeAction home_update_draw(float x, float y, float w, float h, bool input_ok, c
          color_alpha(rgba(0, 0, 0, 255), a0), v->title);
     float title_end = hx + 42 + caps_width(tsz, 0.8f, v->title);
     char bubble[48];
-    snprintf(bubble, sizeof(bubble), "YOU HAVE %s", v->have[0] ? v->have : "UNKNOWN");
+    snprintf(bubble, sizeof(bubble), tr("YOU HAVE %s"), v->have[0] ? v->have : tr("UNKNOWN"));
     float bub_w = caps_width(9.5f, 1.1f, bubble) + 20, bub_h = 22;
     float bub_x = hx + hw - 22 - bub_w, bub_y = cy + (bar_h - bub_h) / 2;
     if (bub_x > title_end + 20) {
@@ -729,50 +737,50 @@ HomeAction home_update_draw(float x, float y, float w, float h, bool input_ok, c
     switch (us) {
     case UPD_NONE:
     case UPD_CHECKING:
-        snprintf(line1, sizeof(line1), "Checking GitHub for a newer version...");
-        snprintf(line2, sizeof(line2), "Releases come from github.com/%s", v->repo);
+        snprintf(line1, sizeof(line1), tr("Checking GitHub for a newer version..."));
+        snprintf(line2, sizeof(line2), tr("Releases come from github.com/%s"), v->repo);
         break;
     case UPD_LATEST:
-        snprintf(line1, sizeof(line1), "You have the latest version.");
-        snprintf(line2, sizeof(line2), "%s %s is up to date.", v->product, v->have);
+        snprintf(line1, sizeof(line1), tr("You have the latest version."));
+        snprintf(line2, sizeof(line2), tr("%s %s is up to date."), v->product, v->have);
         break;
     case UPD_AVAILABLE:
-        snprintf(line1, sizeof(line1), "Version %s is available!", v->latest);
+        snprintf(line1, sizeof(line1), tr("Version %s is available!"), v->latest);
         snprintf(line2, sizeof(line2), "%s", v->available_text);
         break;
     case UPD_CHECK_FAILED:
-        snprintf(line1, sizeof(line1), "Couldn't check for updates.");
+        snprintf(line1, sizeof(line1), tr("Couldn't check for updates."));
         snprintf(line2, sizeof(line2), "%s", v->error);
         break;
     case UPD_INSTALLING: {
         const DownloadProgress *dp = fetch_download_progress();
         const UnzipProgress *up = fetch_unzip_progress();
         UpdateStep st = v->step;
-        snprintf(line1, sizeof(line1), "Installing version %s...", v->latest);
+        snprintf(line1, sizeof(line1), tr("Installing version %s..."), v->latest);
         if (st == UPD_STEP_DOWNLOAD) {
             if (dp->total > 0) {
                 progress = (float)dp->done / (float)dp->total * 0.8f;
-                snprintf(line2, sizeof(line2), "Downloading: %lld of %lld KB", dp->done / 1024, dp->total / 1024);
+                snprintf(line2, sizeof(line2), tr("Downloading: %lld of %lld KB"), dp->done / 1024, dp->total / 1024);
             } else {
                 progress = 0;
-                snprintf(line2, sizeof(line2), "Connecting to GitHub...");
+                snprintf(line2, sizeof(line2), tr("Connecting to GitHub..."));
             }
         } else if (st == UPD_STEP_UNPACK) {
             progress = 0.8f + (up->total ? 0.15f * (float)up->done / (float)up->total : 0);
-            snprintf(line2, sizeof(line2), "Unpacking and checking the new version...");
+            snprintf(line2, sizeof(line2), tr("Unpacking and checking the new version..."));
         } else {
             progress = 0.97f;
-            snprintf(line2, sizeof(line2), "Putting the new version in place...");
+            snprintf(line2, sizeof(line2), tr("Putting the new version in place..."));
         }
         break;
     }
     case UPD_INSTALLED:
-        snprintf(line1, sizeof(line1), "Version %s is installed.", v->latest);
+        snprintf(line1, sizeof(line1), tr("Version %s is installed."), v->latest);
         snprintf(line2, sizeof(line2), "%s", v->installed_text);
         progress = 1;
         break;
     case UPD_FAILED:
-        snprintf(line1, sizeof(line1), "The update couldn't be installed.");
+        snprintf(line1, sizeof(line1), tr("The update couldn't be installed."));
         snprintf(line2, sizeof(line2), "%s", v->error);
         break;
     }
@@ -800,7 +808,7 @@ HomeAction home_update_draw(float x, float y, float w, float h, bool input_ok, c
     float row_h = 24, by = y + h - m - row_h, bx = hx, bw = 0;
     float a3 = intro(3);
     if (us == UPD_AVAILABLE || us == UPD_FAILED) {
-        if (flat_button("upd-install", bx, by, row_h, us == UPD_FAILED ? "TRY AGAIN" : "DOWNLOAD AND INSTALL", false, input_ok, a3, &bw))
+        if (flat_button("upd-install", bx, by, row_h, us == UPD_FAILED ? tr("TRY AGAIN") : tr("DOWNLOAD AND INSTALL"), false, input_ok, a3, &bw))
             act = HOME_UPDATE_INSTALL;
         bx += bw + 10;
     }
@@ -809,21 +817,21 @@ HomeAction home_update_draw(float x, float y, float w, float h, bool input_ok, c
         bx += bw + 10;
     }
     if (us == UPD_LATEST || us == UPD_CHECK_FAILED) {
-        if (flat_button("upd-check", bx, by, row_h, "CHECK AGAIN", false, input_ok, a3, &bw)) act = HOME_UPDATE_CHECK;
+        if (flat_button("upd-check", bx, by, row_h, tr("CHECK AGAIN"), false, input_ok, a3, &bw)) act = HOME_UPDATE_CHECK;
         bx += bw + 10;
     }
     if (us != UPD_INSTALLING) {
-        if (flat_button("upd-back", bx, by, row_h, "BACK TO START PAGE", true, input_ok, a3, &bw)) act = HOME_OPEN_URL;
+        if (flat_button("upd-back", bx, by, row_h, tr("BACK TO START PAGE"), true, input_ok, a3, &bw)) act = HOME_OPEN_URL;
     } else {
-        if (flat_button("upd-stop", bx, by, row_h, "STOP", true, input_ok, a3, &bw)) act = HOME_UPDATE_STOP;
+        if (flat_button("upd-stop", bx, by, row_h, tr("STOP"), true, input_ok, a3, &bw)) act = HOME_UPDATE_STOP;
     }
 
     /* release notes in the space between */
     const char *notes = v->notes;
     if ((us == UPD_AVAILABLE || us == UPD_INSTALLING || us == UPD_INSTALLED || us == UPD_FAILED) && notes[0]) {
         float a2 = intro(2);
-        caps(hx + 2, cy, 15, 1.0f, color_alpha(white, a2), color_alpha(rgba(20, 16, 50, 200), a2), "WHAT'S NEW");
-        float dx = hx + 2 + caps_width(15, 1.0f, "WHAT'S NEW") + 14;
+        caps(hx + 2, cy, 15, 1.0f, color_alpha(white, a2), color_alpha(rgba(20, 16, 50, 200), a2), tr("WHAT'S NEW"));
+        float dx = hx + 2 + caps_width(15, 1.0f, tr("WHAT'S NEW")) + 14;
         dotted_hline(dx, cy + 9, hx + hw - dx, color_alpha(opaque(t->panel_top), 0.8f * a2));
         cy += 21;
         float nh = by - 8 - cy;

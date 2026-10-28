@@ -1,5 +1,6 @@
 /* conn.c - TCP and TLS streams. TLS uses mbedTLS 3.6 (TLS 1.2 and 1.3) with
  * full certificate-chain and hostname verification against a CA bundle on SD. */
+#include "lang.h"
 #include "conn.h"
 #include "netio.h"
 #include "settings.h"
@@ -147,11 +148,11 @@ static int bio_send(void *ctx, const unsigned char *buf, size_t len) { return ra
 static int bio_recv(void *ctx, unsigned char *buf, size_t len) { return raw_recv((Conn *)ctx, buf, len); }
 
 static void describe_error(int r, char *err, size_t errlen) {
-    if (r == ERR_CANCELLED) { snprintf(err, errlen, "Stopped."); return; }
-    if (r == MBEDTLS_ERR_SSL_TIMEOUT) { snprintf(err, errlen, "The site took too long to respond."); return; }
+    if (r == ERR_CANCELLED) { snprintf(err, errlen, tr("Stopped.")); return; }
+    if (r == MBEDTLS_ERR_SSL_TIMEOUT) { snprintf(err, errlen, tr("The site took too long to respond.")); return; }
     char tmp[120];
     mbedtls_strerror(r, tmp, sizeof(tmp));
-    snprintf(err, errlen, "Secure connection failed: %s", tmp);
+    snprintf(err, errlen, tr("Secure connection failed: %s"), tmp);
 }
 
 static u32 ms_now(void) { return (u32)ticks_to_millisecs(gettime()); }
@@ -161,34 +162,34 @@ bool conn_open(Conn *c, const char *host, unsigned short port, bool tls, volatil
     memset(c, 0, sizeof(*c));
     c->fd = -1;
     c->cancel = cancel;
-    if (stage) stage("Looking up site...");
+    if (stage) stage(tr("Looking up site..."));
     u32 ip, t0 = ms_now();
     int resolved = netio_resolve(host, &ip);
     u32 t1 = ms_now();
     c->ms_dns = (int)(t1 - t0);
     if (resolved != 0) {
-        snprintf(err, errlen, "Couldn't find \"%s\". Check the address or DNS setting.", host);
+        snprintf(err, errlen, tr("Couldn't find \"%s\". Check the address or DNS setting."), host);
         return false;
     }
-    if (cancel && *cancel) { snprintf(err, errlen, "Stopped."); return false; }
-    if (stage) stage("Connecting...");
+    if (cancel && *cancel) { snprintf(err, errlen, tr("Stopped.")); return false; }
+    if (stage) stage(tr("Connecting..."));
     c->fd = netio_connect(ip, port);
     u32 t2 = ms_now();
     c->ms_connect = (int)(t2 - t1);
     if (c->fd < 0) {
-        snprintf(err, errlen, "Couldn't connect to %s.", host);
+        snprintf(err, errlen, tr("Couldn't connect to %s."), host);
         return false;
     }
     if (!tls) return true;
 
     if (!inited && !tls_global_init(err, errlen)) { conn_close(c); return false; }
     if (g_set.verify_certs && !ca_ok) {
-        snprintf(err, errlen, "No trusted certificates loaded from %s, so secure sites can't be checked.",
+        snprintf(err, errlen, tr("No trusted certificates loaded from %s, so secure sites can't be checked."),
                  g_set.ca_path);
         conn_close(c);
         return false;
     }
-    if (stage) stage("Securing connection...");
+    if (stage) stage(tr("Securing connection..."));
     c->tls = true;
     mbedtls_ssl_init(&c->ssl);
     mbedtls_ssl_conf_authmode(&conf, g_set.verify_certs ? MBEDTLS_SSL_VERIFY_REQUIRED : MBEDTLS_SSL_VERIFY_NONE);
@@ -207,8 +208,8 @@ bool conn_open(Conn *c, const char *host, unsigned short port, bool tls, volatil
             while ((nl = strchr(info, '\n'))) *nl = ' ';
             const char *clock_hint = "";
             if ((flags & (MBEDTLS_X509_BADCERT_EXPIRED | MBEDTLS_X509_BADCERT_FUTURE)) && !netio_time_synced())
-                clock_hint = " The console clock wasn't set from the network, which can cause this.";
-            snprintf(err, errlen, "This site's certificate couldn't be verified: %s.%s", info, clock_hint);
+                clock_hint = tr(" The console clock wasn't set from the network, which can cause this.");
+            snprintf(err, errlen, tr("This site's certificate couldn't be verified: %s.%s"), info, clock_hint);
         } else {
             describe_error(r, err, errlen);
         }

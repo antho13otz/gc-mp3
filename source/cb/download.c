@@ -1,4 +1,5 @@
 /* download.c - see download.h */
+#include "lang.h"
 #include "download.h"
 #include "http.h"
 #include "diag.h"
@@ -271,7 +272,7 @@ static void *conn_main(void *arg) {
              * same block shortly; after that let another connection have it */
             fails++;
             thr_lock(&p->m);
-            snprintf(p->err, sizeof(p->err), "%s", err[0] ? err : "The connection kept failing.");
+            snprintf(p->err, sizeof(p->err), "%s", err[0] ? err : tr("The connection kept failing."));
             thr_unlock(&p->m);
             if (fails >= 2) { give_back = true; break; }
             thr_sleep_ms(500);
@@ -329,7 +330,7 @@ static int download_parallel(const char *url, const char *part, long long have, 
     FILE *f = fopen(part, have ? "ab" : "wb");
     if (!f) {
         par_release(p);
-        snprintf(err, errlen, "Couldn't create the file on the SD card.");
+        snprintf(err, errlen, tr("Couldn't create the file on the SD card."));
         return 0;
     }
     int started = 0;
@@ -445,7 +446,7 @@ static int download_parallel(const char *url, const char *part, long long have, 
             /* every connection has been failing for a minute: give up (Retry continues) */
             thr_lock(&p->m);
             p->fatal = true;
-            if (!p->err[0]) snprintf(p->err, sizeof(p->err), "Nothing was received for a minute.");
+            if (!p->err[0]) snprintf(p->err, sizeof(p->err), tr("Nothing was received for a minute."));
             thr_unlock(&p->m);
             break;
         }
@@ -496,10 +497,10 @@ static int download_parallel(const char *url, const char *part, long long have, 
     snprintf(perr, sizeof(perr), "%s", p->err);
     par_release(p);   /* stuck threads keep it alive until they finish */
 
-    if (was_cancelled) { remove(part); snprintf(err, errlen, "Stopped."); return 0; }
-    if (write_failed || !closed) { snprintf(err, errlen, "Couldn't write to the SD card. It may be full."); return 0; }
+    if (was_cancelled) { remove(part); snprintf(err, errlen, tr("Stopped.")); return 0; }
+    if (write_failed || !closed) { snprintf(err, errlen, tr("Couldn't write to the SD card. It may be full.")); return 0; }
     if (commit < total) {
-        snprintf(err, errlen, "%s Choose Retry to continue where it stopped.", perr[0] ? perr : "The download ended early.");
+        snprintf(err, errlen, tr("%s Choose Retry to continue where it stopped."), perr[0] ? perr : tr("The download ended early."));
         return 0;
     }
     return 1;
@@ -526,13 +527,13 @@ bool download_to_file(const char *url, const char *dest, DownloadProgress *pg, v
     pg->resumed = have > 0;
     pg->total = info.total;
     if (info.total > 0xFFFFFFFFLL) {
-        snprintf(err, errlen, "This file is larger than 4 GB, the limit for FAT32 SD cards.");
+        snprintf(err, errlen, tr("This file is larger than 4 GB, the limit for FAT32 SD cards."));
         http_stream_close(hs);
         return false;
     }
     long long space = free_space(dest);
     if (info.total > 0 && space >= 0 && info.total - have > space) {
-        snprintf(err, errlen, "Not enough space on the SD card (needs %lld MB more).", (info.total - have - space) / (1024 * 1024) + 1);
+        snprintf(err, errlen, tr("Not enough space on the SD card (needs %lld MB more)."), (info.total - have - space) / (1024 * 1024) + 1);
         http_stream_close(hs);
         return false;
     }
@@ -547,7 +548,7 @@ bool download_to_file(const char *url, const char *dest, DownloadProgress *pg, v
         int r = download_parallel(final_url, part, have, info.total, conns > MAX_CONNS ? MAX_CONNS : conns, pg, cancel, err, errlen);
         if (r == 1) {
             remove(dest);
-            if (rename(part, dest) != 0) { snprintf(err, errlen, "Couldn't finish saving the file."); return false; }
+            if (rename(part, dest) != 0) { snprintf(err, errlen, tr("Couldn't finish saving the file.")); return false; }
             return true;
         }
         if (r == 0) return false;
@@ -563,7 +564,7 @@ bool download_to_file(const char *url, const char *dest, DownloadProgress *pg, v
     w.buf[0] = malloc(CHUNK);
     w.buf[1] = malloc(CHUNK);
     if (!w.f || !w.buf[0] || !w.buf[1] || !writer_start(&w)) {
-        snprintf(err, errlen, w.f ? "Out of memory." : "Couldn't create the file on the SD card.");
+        snprintf(err, errlen, w.f ? tr("Out of memory.") : tr("Couldn't create the file on the SD card."));
         if (w.f) fclose(w.f);
         free(w.buf[0]);
         free(w.buf[1]);
@@ -596,7 +597,7 @@ bool download_to_file(const char *url, const char *dest, DownloadProgress *pg, v
         if (fill) { writer_submit(&w, cur, fill); cur ^= 1; }
         else writer_release_unused(&w);
         if (stopped) break;
-        if (n < 0) { snprintf(err, errlen, "The connection was lost. Choose Retry to continue where it stopped."); ok = false; break; }
+        if (n < 0) { snprintf(err, errlen, tr("The connection was lost. Choose Retry to continue where it stopped.")); ok = false; break; }
         if (n == 0) break;
         if (w.failed) break;
     }
@@ -606,15 +607,15 @@ bool download_to_file(const char *url, const char *dest, DownloadProgress *pg, v
     free(w.buf[0]);
     free(w.buf[1]);
     (void)t0;
-    if (stopped) { remove(part); snprintf(err, errlen, "Stopped."); return false; }
-    if (w.failed || !closed) { snprintf(err, errlen, "Couldn't write to the SD card. It may be full."); return false; }
+    if (stopped) { remove(part); snprintf(err, errlen, tr("Stopped.")); return false; }
+    if (w.failed || !closed) { snprintf(err, errlen, tr("Couldn't write to the SD card. It may be full.")); return false; }
     if (!ok) return false;
     if (pg->total > 0 && pg->done < pg->total) {
-        snprintf(err, errlen, "The download ended early. Choose Retry to continue where it stopped.");
+        snprintf(err, errlen, tr("The download ended early. Choose Retry to continue where it stopped."));
         return false;
     }
     remove(dest);
-    if (rename(part, dest) != 0) { snprintf(err, errlen, "Couldn't finish saving the file."); return false; }
+    if (rename(part, dest) != 0) { snprintf(err, errlen, tr("Couldn't finish saving the file.")); return false; }
     if (pg->total < 0) pg->total = pg->done;
     return true;
 }

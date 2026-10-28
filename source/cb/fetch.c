@@ -1,4 +1,5 @@
 /* fetch.c - network worker thread (libogc LWP). */
+#include "lang.h"
 #include "stackwatch.h"
 #include "fetch.h"
 #include <time.h>
@@ -82,10 +83,10 @@ static void bring_up(void) {
     net_ready = false;
     if (!netio_bringup()) { set_stage(netio_status()); return; }
     if (time(NULL) < 1700000000) {                  /* (GC Station : l'horloge de la console suffit si elle est a l'heure) */
-        set_stage("Setting the clock...");
+        set_stage(tr("Setting the clock..."));
         netio_sync_time();
     }
-    set_stage("Loading certificates...");
+    set_stage(tr("Loading certificates..."));
     char err[160];
     if (!tls_global_init(err, sizeof(err))) set_stage(err);
     else set_stage(netio_status());
@@ -118,10 +119,10 @@ static void run_image_job(void) {
     if (!http_fetch(job_url, NULL, "image/jpeg,image/png,image/gif;q=0.8,image/bmp;q=0.5", &r, &hooks)) {
         snprintf(ir.error, sizeof(ir.error), "%s", r.error);
     } else if (r.status >= 400) {
-        snprintf(ir.error, sizeof(ir.error), "server error %d", r.status);
+        snprintf(ir.error, sizeof(ir.error), tr("server error %d"), r.status);
     } else if (r.truncated && r.body_len < (size_t)g_set.max_page_kb * 1024) {
         /* cut short without reaching the size limit: no memory to hold it */
-        snprintf(ir.error, sizeof(ir.error), "not enough memory");
+        snprintf(ir.error, sizeof(ir.error), tr("not enough memory"));
         ir.low_memory = true;
         http_log_note("pic     | not enough memory for this picture (free %u KB) | %.70s",
                       (unsigned)(cb_mem_free() / 1024), job_url);
@@ -234,7 +235,7 @@ bool fetch_start(const char *url, const char *post_body) {
     kind = JOB_PAGE;
     cancel_flag = 0;
     progress = 0;
-    set_stage("Starting...");
+    set_stage(tr("Starting..."));
     state = FETCH_BUSY;
     job_pending = 1;
     return true;

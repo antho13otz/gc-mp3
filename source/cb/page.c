@@ -12,6 +12,7 @@
  *  - images, text inputs, buttons, checkboxes, radios, selects, textareas
  * Not supported: flexbox/grid (treated as blocks), positioning, transforms.
  */
+#include "lang.h"
 #include "page.h"
 #include "theme.h"
 #include "settings.h"
@@ -233,7 +234,7 @@ static __attribute__((noinline)) void prepass_elem(Page *p, Node *c, int *form) 
                 Field *f = &p->fields[c->index];
                 f->checked = dom_attr(c, "checked") != NULL;
                 if (t == FIELD_SUBMIT)
-                    snprintf(f->label, sizeof(f->label), "%s", val && *val ? val : (type && !strcasecmp(type, "image") ? "Go" : "Submit"));
+                    snprintf(f->label, sizeof(f->label), "%s", val && *val ? val : (type && !strcasecmp(type, "image") ? "Go" : tr("Submit")));
                 if (t == FIELD_TEXT || t == FIELD_PASSWORD) {
                     /* a caption for the keyboard: the box's hint, else what kind of box it is */
                     const char *cap = dom_attr(c, "placeholder");
@@ -263,7 +264,7 @@ static __attribute__((noinline)) void prepass_elem(Page *p, Node *c, int *form) 
             c->index = field_add(p, *form, FIELD_SUBMIT, dom_attr(c, "name"), dom_attr(c, "value"));
             if (c->index >= 0) {
                 text_of(c, p->fields[c->index].label, sizeof(p->fields[c->index].label));
-                if (!p->fields[c->index].label[0]) snprintf(p->fields[c->index].label, 64, "Submit");
+                if (!p->fields[c->index].label[0]) snprintf(p->fields[c->index].label, 64, tr("Submit"));
             }
             break;
         }
@@ -804,7 +805,7 @@ static __attribute__((noinline)) void emit_image(L *c, Flow *f, Node *n, const S
         const char *alt = dom_attr(n, "alt");
         char shown[200];
         if (alt && *alt && g_set.show_alt) snprintf(shown, sizeof(shown), "[%s]", alt);
-        else if (c->link >= 0) snprintf(shown, sizeof(shown), "[image]");
+        else if (c->link >= 0) snprintf(shown, sizeof(shown), tr("[image]"));
         else return;
         Style alt_s = *s;
         alt_s.italic = 1;
@@ -1445,7 +1446,7 @@ static __attribute__((noinline)) void emit_frame_link(L *c, Flow *f, Node *n, co
     const char *slash = strrchr(file, '/');
     if (slash && slash[1]) file = slash + 1;
     char label[200];
-    snprintf(label, sizeof(label), "Open part %d: %s", n->sub, name && *name ? name : file);
+    snprintf(label, sizeof(label), tr("Open part %d: %s"), n->sub, name && *name ? name : file);
     Style ls = *s;
     ls.underline = 1;
     ls.color = (Color){ DEFAULT_LINK_R, 0, 0, 0 };
@@ -1533,7 +1534,7 @@ static void flow_children(L *c, Flow *f, Node *n, const Style *s) {
             Style hs = *cs;
             hs.bold = 1;
             hs.fsize = cs->fsize * 1.2f;
-            emit_text_str(c, f, "This page is split into frames, which are shown one at a time here.", &hs);
+            emit_text_str(c, f, tr("This page is split into frames, which are shown one at a time here."), &hs);
             finish_line(c, f);
             f->pending_margin = 10;
         }
@@ -2202,8 +2203,8 @@ bool page_build_submit(Page *p, int field_idx, int submit_field, char *url_out, 
         if (f->type == FIELD_SUBMIT && i != submit_field) continue;
         if ((f->type == FIELD_CHECK || f->type == FIELD_RADIO) && !f->checked) continue;
         char en[200], ev[800];
-        url_encode_component(f->name, en, sizeof(en));
-        url_encode_component(f->value, ev, sizeof(ev));
+        url_encode_text(f->name, en, sizeof(en));
+        url_encode_text(f->value, ev, sizeof(ev));
         n += snprintf(q + n, cap - n, "%s%s=%s", n ? "&" : "", en, ev);
         if (n >= cap - 1) break;
     }

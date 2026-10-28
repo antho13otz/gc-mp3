@@ -1,5 +1,6 @@
 /* settings_ui.c - category list on the left, options on the right. Every
  * change applies immediately; the file is saved when you leave the screen. */
+#include "lang.h"
 #include "settings_ui.h"
 #include "settings.h"
 #include "browser.h"
@@ -71,8 +72,8 @@ static void open_sf2_picker(void) {
 
 /* How an Instruments value is shown. */
 static const char *sf2_label(const char *v) {
-    if (!v[0]) return "Automatic (first .sf2 in the midi folder)";
-    if (!strcmp(v, "builtin")) return "Built-in instruments";
+    if (!v[0]) return tr("Automatic (first .sf2 in the midi folder)");
+    if (!strcmp(v, "builtin")) return tr("Built-in instruments");
     const char *b = strrchr(v, '/');
     return b ? b + 1 : v;
 }
@@ -82,7 +83,7 @@ void settings_apply_all(void) {
     gfx_set_widescreen(g_set.widescreen != 0);
     input_clamp_cursor();
     if (!gfx_apply_video_mode(g_set.video_mode, g_set.full_width != 0))
-        ui_toast("480p needs component cables - using the default mode");
+        ui_toast(tr("480p needs component cables - using the default mode"));
 }
 
 static void apply_one(const SetDef *d) {
@@ -90,8 +91,18 @@ static void apply_one(const SetDef *d) {
     if (d->off == offsetof(Settings, theme)) theme_set(g_set.theme);
     else if (d->off == offsetof(Settings, widescreen)) { gfx_set_widescreen(g_set.widescreen != 0); input_clamp_cursor(); }
     else if (d->off == offsetof(Settings, video_mode) || d->off == offsetof(Settings, full_width)) {
-        if (!gfx_apply_video_mode(g_set.video_mode, g_set.full_width != 0)) ui_toast("480p needs component cables");
+        if (!gfx_apply_video_mode(g_set.video_mode, g_set.full_width != 0)) ui_toast(tr("480p needs component cables"));
     }
+}
+
+/* GC Station : reglages qui ne servent pas ici (reseau, ecran, musique, mises a jour et Swiss : c'est GC Station qui s'en occupe) */
+static bool cat_hidden(int c) { return c == CAT_NETWORK || c == CAT_MUSIC || c == CAT_UPDATES; }
+static bool def_hidden(const SetDef *d) {
+    if (cat_hidden(d->cat)) return true;
+    if (d->type == ST_ACTION) return d->min == SA_FIND_DOL || d->min == SA_MOVE_DATA;
+    return d->off == offsetof(Settings, widescreen) || d->off == offsetof(Settings, video_mode) ||
+           d->off == offsetof(Settings, full_width) || d->off == offsetof(Settings, exit_action) ||
+           d->off == offsetof(Settings, swiss_dol);
 }
 
 void settings_ui_open(void) {
@@ -110,7 +121,7 @@ static void str_done(bool ok, const char *text, void *user) {
         snprintf((char *)&tmp + d->off, (size_t)d->max, "%s", text);
         settings_validate(&tmp);
         if (strcmp((char *)&tmp + d->off, text) != 0) {
-            ui_toast("That isn't a valid address (example: 192.168.1.20)");
+            ui_toast(tr("That isn't a valid address (example: 192.168.1.20)"));
             sound_play(SFX_ERROR);
             return;
         }
@@ -125,39 +136,39 @@ static void run_action(int idx) {
                           d->min == SA_MOVE_DATA);
     if (needs_confirm && confirm_action != idx) {
         confirm_action = idx;
-        ui_toast("Press again to confirm");
+        ui_toast(tr("Press again to confirm"));
         return;
     }
     confirm_action = -1;
     switch (d->min) {
-    case SA_CLEAR_HISTORY: browser_clear_history(); ui_toast("History cleared"); break;
-    case SA_CLEAR_BOOKMARKS: browser_clear_bookmarks(); ui_toast("Bookmarks deleted"); break;
+    case SA_CLEAR_HISTORY: browser_clear_history(); ui_toast(tr("History cleared")); break;
+    case SA_CLEAR_BOOKMARKS: browser_clear_bookmarks(); ui_toast(tr("Bookmarks deleted")); break;
     case SA_RESET_ALL:
         settings_defaults(&g_set);
         settings_apply_all();
         dirty = true;
-        ui_toast("All settings reset");
+        ui_toast(tr("All settings reset"));
         break;
-    case SA_CLEAR_COOKIES: cookies_clear(); ui_toast("Signed out of all sites"); break;
+    case SA_CLEAR_COOKIES: cookies_clear(); ui_toast(tr("Signed out of all sites")); break;
     case SA_CLEAR_PIC_CACHE: {
-        if (!storage_ok()) { ui_toast("No SD card found"); break; }
+        if (!storage_ok()) { ui_toast(tr("No SD card found")); break; }
         unsigned long long freed = picache_clear();
         char msg[96];
-        snprintf(msg, sizeof(msg), "Cache cleared (%.1f MB freed)", (double)freed / (1024.0 * 1024.0));
+        snprintf(msg, sizeof(msg), tr("Cache cleared (%.1f MB freed)"), (double)freed / (1024.0 * 1024.0));
         ui_toast(msg);
         break;
     }
     case SA_FIND_DOL:
-        if (!storage_ok()) { ui_toast("No SD card found"); break; }
+        if (!storage_ok()) { ui_toast(tr("No SD card found")); break; }
         if (!pick_list) pick_list = malloc(sizeof(*pick_list) * PICK_MAX);
         if (!pick_list) break;
         pick_count = dol_find("sd:/", pick_list, PICK_MAX);
         pick_scroll = 0;
         pick_sf2 = false;
-        if (!pick_count) { ui_toast("No .dol files found on the SD card"); pick_count = -1; }
+        if (!pick_count) { ui_toast(tr("No .dol files found on the SD card")); pick_count = -1; }
         break;
     case SA_MOVE_DATA: {
-        if (!storage_ok()) { ui_toast("No SD card found"); break; }
+        if (!storage_ok()) { ui_toast(tr("No SD card found")); break; }
         /* save first so the newest settings, bookmarks and cookies go along */
         settings_save();
         cookies_save_if_needed();
@@ -195,8 +206,8 @@ static void run_action(int idx) {
         leave_now = true;
         break;
     case SA_SAVE_NOW:
-        if (settings_save()) { dirty = false; ui_toast("Settings saved"); }
-        else ui_toast("Couldn't save - is the SD card inserted?");
+        if (settings_save()) { dirty = false; ui_toast(tr("Settings saved")); }
+        else ui_toast(tr("Couldn't save - is the SD card inserted?"));
         break;
     }
 }
@@ -261,7 +272,7 @@ static void draw_info_line(float x, float y, float w) {
     const Theme *t = theme();
     char info[160];
     snprintf(info, sizeof(info), "v%s  |  %s  |  SD: %s", CB_VERSION,
-             netio_state() == NET_UP ? netio_ip() : "offline", storage_ok() ? storage_device_name() : "none");
+             netio_state() == NET_UP ? netio_ip() : tr("offline"), storage_ok() ? storage_device_name() : tr("none"));
     float ts = 14;
     float iw = gfx_text_width(FONT_UI, ts, info, -1);
     gfx_text(FONT_UI, ts, x + w - iw, y, t->text_dim, info, -1);
@@ -277,7 +288,7 @@ static void draw_picker(bool interactive) {
     float px = sx + (sw - pw) * 0.5f, py = sy + (sh - ph) * 0.5f;
     ui_set_input(interactive);
     ui_panel(px, py, pw, ph, 20);
-    gfx_text(FONT_UI, 22, px + 24, py + 14, t->text, pick_sf2 ? "Choose the instruments" : "Choose the Swiss program", -1);
+    gfx_text(FONT_UI, 22, px + 24, py + 14, t->text, pick_sf2 ? tr("Choose the instruments") : tr("Choose the Swiss program"), -1);
     const int visible = 6;
     float row_h = 40, ly = py + 56;
     int dir = ui_dpad_unhandled();
@@ -297,8 +308,8 @@ static void draw_picker(bool interactive) {
                     snprintf(g_set.music_sf2, sizeof(g_set.music_sf2), "%s", pick_list[i]);
                     dirty = true;
                     midi_instruments_changed();
-                    ui_toast(midi_state() == MIDI_STOPPED ? "These instruments will be used for the next song"
-                                                          : "Loading the new instruments...");
+                    ui_toast(midi_state() == MIDI_STOPPED ? tr("These instruments will be used for the next song")
+                                                          : tr("Loading the new instruments..."));
                 }
                 pick_count = -1;
                 return;
@@ -308,7 +319,7 @@ static void draw_picker(bool interactive) {
                 snprintf(g_set.swiss_dol, sizeof(g_set.swiss_dol), "%s", pick_list[i]);
                 dirty = true;
                 pick_count = -1;
-                ui_toast("Exit button will start this program");
+                ui_toast(tr("Exit button will start this program"));
                 return;
             }
             ui_toast(err);
@@ -322,7 +333,7 @@ static void draw_picker(bool interactive) {
         gfx_rrect(px + pw - 13, by, 4, bh, 2, t->accent);
     }
     /* Cancel sits well clear of the last row */
-    if (ui_button(ui_id("pick-cancel", 0), px + pw * 0.3f, py + ph - 56, pw * 0.4f, 40, "Cancel", 17, UIB_NORMAL) ||
+    if (ui_button(ui_id("pick-cancel", 0), px + pw * 0.3f, py + ph - 56, pw * 0.4f, 40, tr("Cancel"), 17, UIB_NORMAL) ||
         (interactive && input_pressed(ACT_BACK))) {
         input_consume(ACT_BACK);
         pick_count = -1;
@@ -344,7 +355,7 @@ bool settings_ui_frame(bool interactive) {
     ui_panel(sx + 4, sy + 4, sw - 8, hh, 24);
     if (ui_icon_button(ui_id("set-back", 0), sx + 30, sy + 4 + hh * 0.5f, 18, ICON_BACK, true)) leave = true;
     ui_draw_icon(ICON_GEAR, sx + 72, sy + 4 + hh * 0.5f, 26, t->text);
-    gfx_text(FONT_UI, 24, sx + 92, sy + 16, t->text, "Settings", -1);
+    gfx_text(FONT_UI, 24, sx + 92, sy + 16, t->text, tr("Settings"), -1);
     draw_info_line(sx + 210, sy + 24, sw - 230);
 
     /* categories */
@@ -353,9 +364,11 @@ bool settings_ui_frame(bool interactive) {
     float bh = CAT_COUNT > 7 ? 35 : 38, gap = CAT_COUNT > 7 ? 5 : 6;   /* room for every section */
     float list_h = sh - hh - 16 - 8;
     ui_panel(sx + 4, top, cat_w + 16, list_h, 18);
-    for (int c = 0; c < CAT_COUNT; c++) {
-        float y = top + 10 + c * (bh + gap);
-        if (ui_button(ui_id("cat", c), sx + 12, y, cat_w, bh, category_names[c], 17,
+    if (cat_hidden(category)) category = CAT_DISPLAY;
+    for (int c = 0, k = 0; c < CAT_COUNT; c++) {
+        if (cat_hidden(c)) continue;
+        float y = top + 10 + k++ * (bh + gap);
+        if (ui_button(ui_id("cat", c), sx + 12, y, cat_w, bh, tr(category_names[c]), 17,
                       c == category ? UIB_ACCENT : UIB_FLAT) && c != category) {
             category = c;
             scroll = scroll_target = 0;
@@ -374,7 +387,7 @@ bool settings_ui_frame(bool interactive) {
 
     int idxs[64], n = 0;
     for (int i = 0; i < g_setdef_count && n < 64; i++)
-        if (g_setdefs[i].cat == category && g_setdefs[i].label) idxs[n++] = i;
+        if (g_setdefs[i].cat == category && g_setdefs[i].label && !def_hidden(&g_setdefs[i])) idxs[n++] = i;
     float content_h = n * row_h;
     if (input_ok) {
         scroll_target += input_scroll_delta() * 0.5f;
@@ -406,7 +419,7 @@ bool settings_ui_frame(bool interactive) {
         UiId rid = ui_id("row", i);
         switch (d->type) {
         case ST_BOOL:
-            text_fit(ox + 20, mid, label_w + ctrl_w - 56, 17, false, t->text, d->label);
+            text_fit(ox + 20, mid, label_w + ctrl_w - 56, 17, false, t->text, tr(d->label));
             if (ui_click(rid, ox + 8, y + 2, ow - 16, row_h - 4)) {
                 *setdef_int(d) = !*setdef_int(d);
                 sound_play(SFX_SELECT);
@@ -416,7 +429,7 @@ bool settings_ui_frame(bool interactive) {
             break;
         case ST_INT:
         case ST_CHOICE: {
-            text_fit(ox + 20, mid, label_w, 17, false, t->text, d->label);
+            text_fit(ox + 20, mid, label_w, 17, false, t->text, tr(d->label));
             float cy = y + row_h * 0.5f;
             if (ui_icon_button(ui_id("dec", i), ctrl_x + 14, cy, 13, ICON_LEFT, true)) step_value(d, -1);
             if (ui_icon_button(ui_id("inc", i), ctrl_x + ctrl_w - 14, cy, 13, ICON_RIGHT, true)) step_value(d, +1);
@@ -428,11 +441,11 @@ bool settings_ui_frame(bool interactive) {
                 gfx_rrect(bx, y + row_h - 12, bw, 5, 2.5f, color_alpha(t->button_bottom, 0.6f));
                 gfx_rrect(bx, y + row_h - 12, fmaxf(5, bw * frac), 5, 2.5f, t->accent);
             }
-            if (ui_hover(rid, ox + 8, y + 2, ctrl_x - ox - 16, row_h - 4)) help = d->help;
+            if (ui_hover(rid, ox + 8, y + 2, ctrl_x - ox - 16, row_h - 4)) help = tr(d->help);
             break;
         }
         case ST_STR: {
-            text_fit(ox + 20, mid, label_w, 17, false, t->text, d->label);
+            text_fit(ox + 20, mid, label_w, 17, false, t->text, tr(d->label));
             bool hov = ui_hover(rid, ox + 8, y + 2, ow - 16, row_h - 4);
             gfx_rrect(ctrl_x, y + 8, ctrl_w, row_h - 16, 9, t->field_bg);
             gfx_rrect_outline(ctrl_x, y + 8, ctrl_w, row_h - 16, 9, hov ? 2.0f : 1.0f, hov ? t->accent : t->panel_edge);
@@ -448,26 +461,26 @@ bool settings_ui_frame(bool interactive) {
                 input_consume(ACT_CLICK);
                 sound_play(SFX_SELECT);
                 int mode = d->min == OSK_TEXTMODE_IP ? OSK_IP : (d->min == OSK_TEXTMODE_URL ? OSK_URL : OSK_TEXT);
-                osk_open(d->label, setdef_str(d), d->max - 1, mode, str_done, (void *)(intptr_t)i);
+                osk_open(tr(d->label), setdef_str(d), d->max - 1, mode, str_done, (void *)(intptr_t)i);
             }
-            if (hov) help = d->help;
+            if (hov) help = tr(d->help);
             break;
         }
         case ST_BIND: {
-            text_fit(ox + 20, mid, label_w, 17, false, t->text, d->label);
+            text_fit(ox + 20, mid, label_w, 17, false, t->text, tr(d->label));
             bool waiting = (capture == i);
-            const char *lbl = waiting ? "Press a button..." : value;
+            const char *lbl = waiting ? tr("Press a button...") : value;
             if (ui_button(rid, ctrl_x, y + 6, ctrl_w, row_h - 12, lbl, 17, waiting ? UIB_ACCENT : UIB_NORMAL)) {
                 capture = i;
                 capture_armed = false;
             }
-            if (ui_hover(rid ^ 0x99u, ox + 8, y + 2, ctrl_x - ox - 16, row_h - 4) || waiting) help = d->help ? d->help : "Select a binding, then press the button you want.";
+            if (ui_hover(rid ^ 0x99u, ox + 8, y + 2, ctrl_x - ox - 16, row_h - 4) || waiting) help = d->help ? tr(d->help) : tr("Select a binding, then press the button you want.");
             break;
         }
         case ST_ACTION: {
-            const char *lbl = (confirm_action == i) ? "Press again to confirm" : d->label;
+            const char *lbl = (confirm_action == i) ? tr("Press again to confirm") : tr(d->label);
             if (d->min == SA_MOVE_DATA && confirm_action != i)
-                lbl = storage_dir_is_root() ? "Move data folder next to CubeBrowser" : "Move data folder to SD card root";
+                lbl = storage_dir_is_root() ? tr("Move data folder next to CubeBrowser") : tr("Move data folder to SD card root");
             if (ui_button(rid, ox + 20, y + 6, ow - 40, row_h - 12, lbl, 17,
                           confirm_action == i ? UIB_ACCENT : UIB_NORMAL))
                 run_action(i);
@@ -476,11 +489,11 @@ bool settings_ui_frame(bool interactive) {
         }
         if (!help && ui_input() && input_cursor_y() >= y && input_cursor_y() < y + row_h &&
             input_cursor_x() >= ox && input_cursor_x() < ox + ow) {
-            help = d->help;
+            help = tr(d->help);
             if (d->type == ST_ACTION && d->min == SA_MOVE_DATA) {
                 static char where[360];
-                snprintf(where, sizeof(where), "Settings, bookmarks and cookies are in %s. Press twice to confirm.",
-                         storage_ok() ? storage_dir() : "(no SD card)");
+                snprintf(where, sizeof(where), tr("Settings, bookmarks and cookies are in %s. Press twice to confirm."),
+                         storage_ok() ? storage_dir() : tr("(no SD card)"));
                 help = where;
             }
         }
@@ -551,8 +564,8 @@ bool settings_ui_frame(bool interactive) {
         capture = -1;
         cookies_save_if_needed();
         if (dirty) {
-            if (settings_save()) ui_toast("Settings saved");
-            else ui_toast("Couldn't save settings - is the SD card inserted?");
+            if (settings_save()) ui_toast(tr("Settings saved"));
+            else ui_toast(tr("Couldn't save settings - is the SD card inserted?"));
             dirty = false;
         }
         sound_play(SFX_BACK);

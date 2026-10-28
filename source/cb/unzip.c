@@ -1,4 +1,5 @@
 /* unzip.c - zip archive extraction. */
+#include "lang.h"
 #include "unzip.h"
 #include "inflate.h"
 #include <errno.h>
@@ -81,13 +82,13 @@ static int job_write(void *u, const unsigned char *d, size_t n) {
 static bool find_eocd(FILE *f, long size, uint64_t *cd_off, uint64_t *cd_size, uint64_t *entries, char *err, size_t errlen) {
     long tail = size < 65557 ? size : 65557;
     unsigned char *buf = malloc((size_t)tail);
-    if (!buf) { snprintf(err, errlen, "Out of memory"); return false; }
+    if (!buf) { snprintf(err, errlen, tr("Out of memory")); return false; }
     fseek(f, size - tail, SEEK_SET);
-    if (fread(buf, 1, (size_t)tail, f) != (size_t)tail) { free(buf); snprintf(err, errlen, "Couldn't read the zip file"); return false; }
+    if (fread(buf, 1, (size_t)tail, f) != (size_t)tail) { free(buf); snprintf(err, errlen, tr("Couldn't read the zip file")); return false; }
     long pos = -1;
     for (long i = tail - 22; i >= 0; i--)
         if (rd32(buf + i) == 0x06054b50) { pos = i; break; }
-    if (pos < 0) { free(buf); snprintf(err, errlen, "This isn't a zip file, or it's incomplete"); return false; }
+    if (pos < 0) { free(buf); snprintf(err, errlen, tr("This isn't a zip file, or it's incomplete")); return false; }
     unsigned char *e = buf + pos;
     *entries = rd16(e + 10);
     *cd_size = rd32(e + 12);
@@ -105,7 +106,7 @@ static bool find_eocd(FILE *f, long size, uint64_t *cd_off, uint64_t *cd_size, u
         }
     }
     free(buf);
-    if (*cd_off + *cd_size > (uint64_t)size) { snprintf(err, errlen, "The zip file is damaged"); return false; }
+    if (*cd_off + *cd_size > (uint64_t)size) { snprintf(err, errlen, tr("The zip file is damaged")); return false; }
     return true;
 }
 
@@ -113,18 +114,18 @@ bool unzip_file(const char *zip_path, const char *dest_dir, UnzipProgress *pg, v
                 char *err, size_t errlen) {
     err[0] = 0;
     FILE *f = fopen(zip_path, "rb");
-    if (!f) { snprintf(err, errlen, "Couldn't open the zip file"); return false; }
+    if (!f) { snprintf(err, errlen, tr("Couldn't open the zip file")); return false; }
     fseek(f, 0, SEEK_END);
     long size = ftell(f);
-    if (size <= 22) { fclose(f); snprintf(err, errlen, "This isn't a zip file"); return false; }
+    if (size <= 22) { fclose(f); snprintf(err, errlen, tr("This isn't a zip file")); return false; }
     uint64_t cd_off, cd_size, entries;
     if (!find_eocd(f, size, &cd_off, &cd_size, &entries, err, errlen)) { fclose(f); return false; }
-    if (cd_size > MAX_CD_BYTES) { fclose(f); snprintf(err, errlen, "This zip has too many files"); return false; }
+    if (cd_size > MAX_CD_BYTES) { fclose(f); snprintf(err, errlen, tr("This zip has too many files")); return false; }
     unsigned char *cd = malloc((size_t)cd_size + 1);
-    if (!cd) { fclose(f); snprintf(err, errlen, "Out of memory"); return false; }
+    if (!cd) { fclose(f); snprintf(err, errlen, tr("Out of memory")); return false; }
     fseek(f, (long)cd_off, SEEK_SET);
     if (fread(cd, 1, (size_t)cd_size, f) != (size_t)cd_size) {
-        free(cd); fclose(f); snprintf(err, errlen, "Couldn't read the zip file"); return false;
+        free(cd); fclose(f); snprintf(err, errlen, tr("Couldn't read the zip file")); return false;
     }
 
     /* first pass: totals for the progress bar */
@@ -152,14 +153,14 @@ bool unzip_file(const char *zip_path, const char *dest_dir, UnzipProgress *pg, v
     p = 0;
     char *buf = malloc(64 * 1024);
     for (uint64_t i = 0; i < entries && ok; i++) {
-        if (p + 46 > cd_size) { snprintf(err, errlen, "The zip file is damaged"); ok = false; break; }
+        if (p + 46 > cd_size) { snprintf(err, errlen, tr("The zip file is damaged")); ok = false; break; }
         unsigned char *h = cd + p;
-        if (rd32(h) != 0x02014b50) { snprintf(err, errlen, "The zip file is damaged"); ok = false; break; }
+        if (rd32(h) != 0x02014b50) { snprintf(err, errlen, tr("The zip file is damaged")); ok = false; break; }
         uint32_t flags = rd16(h + 8), method = rd16(h + 10), crc = rd32(h + 16);
         uint64_t csize = rd32(h + 20), usize = rd32(h + 24);
         size_t nl = rd16(h + 28), xl = rd16(h + 30), cl = rd16(h + 32);
         uint64_t lho = rd32(h + 42);
-        if (p + 46 + nl + xl + cl > cd_size) { snprintf(err, errlen, "The zip file is damaged"); ok = false; break; }
+        if (p + 46 + nl + xl + cl > cd_size) { snprintf(err, errlen, tr("The zip file is damaged")); ok = false; break; }
         /* ZIP64 sizes/offset live in an extra field */
         for (size_t x = 0; x + 4 <= xl;) {
             unsigned char *ex = h + 46 + nl + x;
@@ -181,22 +182,22 @@ bool unzip_file(const char *zip_path, const char *dest_dir, UnzipProgress *pg, v
         snprintf(path, sizeof(path), "%s/%s", dest_dir, name);
         if (is_dir) { make_dirs(path); continue; }
         if (pg) snprintf(pg->current, sizeof(pg->current), "%s", name);
-        if (flags & 1) { snprintf(err, errlen, "%s is password-protected", name); ok = false; break; }
-        if (method != 0 && method != 8) { snprintf(err, errlen, "%s uses a compression type that isn't supported", name); ok = false; break; }
+        if (flags & 1) { snprintf(err, errlen, tr("%s is password-protected"), name); ok = false; break; }
+        if (method != 0 && method != 8) { snprintf(err, errlen, tr("%s uses a compression type that isn't supported"), name); ok = false; break; }
         if (lho > 0x7FFFFFFF || csize > 0xFFFFFFFFull || usize > 0xFFFFFFFFull) {
-            snprintf(err, errlen, "%s is too large for this SD card format", name); ok = false; break;
+            snprintf(err, errlen, tr("%s is too large for this SD card format"), name); ok = false; break;
         }
         /* the local header's own name/extra lengths may differ from the central copy */
         unsigned char lh[30];
         if (fseek(f, (long)lho, SEEK_SET) != 0 || fread(lh, 1, 30, f) != 30 || rd32(lh) != 0x04034b50) {
-            snprintf(err, errlen, "The zip file is damaged"); ok = false; break;
+            snprintf(err, errlen, tr("The zip file is damaged")); ok = false; break;
         }
         fseek(f, (long)(lho + 30 + rd16(lh + 26) + rd16(lh + 28)), SEEK_SET);
         /* make the folder for this file */
         char *slash = strrchr(path, '/');
         if (slash) { *slash = 0; make_dirs(path); *slash = '/'; }
         FILE *out = fopen(path, "wb");
-        if (!out) { snprintf(err, errlen, "Couldn't create %s (is the SD card full?)", name); ok = false; break; }
+        if (!out) { snprintf(err, errlen, tr("Couldn't create %s (is the SD card full?)"), name); ok = false; break; }
         if (buf) setvbuf(out, buf, _IOFBF, 64 * 1024);
         Job j = { f, out, csize, pg, cancel };
         uint64_t got = 0;
@@ -214,10 +215,10 @@ bool unzip_file(const char *zip_path, const char *dest_dir, UnzipProgress *pg, v
             }
         }
         bool wrote = fclose(out) == 0;
-        if (cancel && *cancel) { remove(path); snprintf(err, errlen, "Stopped."); ok = false; break; }
-        if (r == -3 || !wrote) { remove(path); snprintf(err, errlen, "Couldn't write %s (is the SD card full?)", name); ok = false; break; }
+        if (cancel && *cancel) { remove(path); snprintf(err, errlen, tr("Stopped.")); ok = false; break; }
+        if (r == -3 || !wrote) { remove(path); snprintf(err, errlen, tr("Couldn't write %s (is the SD card full?)"), name); ok = false; break; }
         if (r < 0 || got != usize || gotcrc != crc) {
-            remove(path); snprintf(err, errlen, "%s is damaged inside the zip", name); ok = false; break;
+            remove(path); snprintf(err, errlen, tr("%s is damaged inside the zip"), name); ok = false; break;
         }
         if (pg) pg->files_done++;
     }
