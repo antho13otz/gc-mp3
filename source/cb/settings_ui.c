@@ -103,7 +103,7 @@ static bool def_hidden(const SetDef *d) {
     return d->off == offsetof(Settings, widescreen) || d->off == offsetof(Settings, video_mode) ||
            d->off == offsetof(Settings, full_width) || d->off == offsetof(Settings, exit_action) ||
            d->off == offsetof(Settings, swiss_dol) ||
-           (au_on() && (d->off == offsetof(Settings, theme) || d->off == offsetof(Settings, margin)));   /* (v214 : Aurore de GC Station) */
+           (au_on() && (d->off == offsetof(Settings, theme) || d->off == offsetof(Settings, margin) || d->off == offsetof(Settings, load_screen)));   /* (v214 : Aurore de GC Station) */
 }
 
 void settings_ui_open(void) {

@@ -87,7 +87,7 @@ static bool veil_skip_next;   /* going back: no loading screen */
 static unsigned now_ms(void) { return (unsigned)ticks_to_millisecs(gettime()); }
 
 static void veil_begin(void) {
-    if (!g_set.load_screen) return;
+    if (!g_set.load_screen || au_on()) return;   /* (GC Station v216 : en Aurore, pas d'ecran de chargement) */
     if (!veil.on || veil.revealing) {
         veil.start = now_ms();
     }
@@ -1204,7 +1204,7 @@ static int first_screen_pictures(float view_h) {
 static void veil_update(float view_h) {
     if (!veil.on) return;
     if (!veil.revealing) {
-        bool done = !g_set.load_screen || now_ms() - veil.start > VEIL_MAX_MS;
+        bool done = !g_set.load_screen || au_on() || now_ms() - veil.start > VEIL_MAX_MS;
         if (!done && !loading && !queued) {
             if (!has_page || page_gen == veil.gen0) done = true;   /* stopped, failed, or a download */
             else if (last_layout_w != 0 && !page.restyle && !page.relayout && !sheets_pending() &&
@@ -1655,7 +1655,8 @@ void browser_frame(bool interactive) {
     /* GC Station v214 : style Aurore : le navigateur est entre l'en-tete et la legende de GC Station
      * (pas de barre d'outils : B retour, X adresse, Y favoris ; une ligne d'adresse au-dessus de la page) */
     const bool au = au_on();
-    const bool home_now = has_page && !strcmp(page.url, "about:home");
+    const bool home_now = has_page && !strcmp(page.url, "about:home") && !loading;   /* (v216 : on quitte l'accueil des qu'un site est choisi) */
+    const bool leaving_home = au && loading && has_page && !strcmp(page.url, "about:home");
     float bar_h = 54;
     if (au) goto au_bar;
     /* ---- toolbar */
@@ -1861,6 +1862,8 @@ au_bar:
             sound_play(SFX_SELECT);
             navigate("about:home", NULL, true);
         }
+    } else if (on_home && leaving_home) {
+        /* (v216 : Aurore : l'accueil laisse deja la place a la page qui arrive) */
     } else if (on_home) {
         /* the start page draws itself (home.c) */
         const char *go = NULL;
@@ -1986,6 +1989,14 @@ au_bar:
     }
     if (loading && au) {
         if (!has_page) ui_spinner(cx + cw * 0.5f, cy + ch * 0.5f, 60);
+        if (leaving_home) {                /* (le site arrive : la page s'affichera ici des que son texte est recu) */
+            const char *u = loading_url;
+            if (!strncmp(u, "https://", 8)) u += 8; else if (!strncmp(u, "http://", 7)) u += 7;
+            ui_spinner(cx + cw * 0.5f, cy + ch * 0.5f - 20, 34);
+            int un = gfx_text_fit(FONT_UI, 15, u, -1, cw - 60);
+            float uw = gfx_text_width(FONT_UI, 15, u, un);
+            gfx_text(FONT_UI, 15, cx + (cw - uw) * 0.5f, cy + ch * 0.5f + 16, t->text_dim, u, un);
+        }
     } else if (loading) {
         if (!has_page) ui_spinner(cx + cw * 0.5f, cy + ch * 0.5f, 60);
         float k = fmodf(ui_time() * 0.8f, 1.0f);
@@ -2089,7 +2100,7 @@ void browser_open_music(void) {
 int browser_view(void) {
     if (bm_open) return CBV_BOOKMARKS;
     if (dl_state != DL_IDLE || sel_field >= 0) return CBV_DIALOG;
-    if (has_page && !strcmp(page.url, "about:home")) return CBV_HOME;
+    if (has_page && !strcmp(page.url, "about:home") && !loading) return CBV_HOME;
     return CBV_PAGE;
 }
 int browser_bookmark_count(void) { return nbookmarks; }

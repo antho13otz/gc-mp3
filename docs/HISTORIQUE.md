@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v216 — Cube Browser : plus d'écran de chargement
+- Style Aurore : l'écran « Chargement… » qui couvrait la page est supprimé. Il attendait les images et les styles
+  de la page avant de la montrer ; maintenant la page s'affiche dès que son texte est reçu (les images arrivent
+  ensuite, à leur place).
+- En choisissant un site sur l'accueil, l'onglet passe tout de suite à la vue page : ligne d'adresse (avec l'état
+  du chargement et le trait rose → bleu qui file) et cadre de la page, où la page apparaît dès qu'elle arrive.
+- Réglages du navigateur : « Écran de chargement » est caché en Aurore (il ne sert plus).
+
 ## Nouveautés v215 — merci à Arial-Bold
 - Onglet WEB (style Aurore) : la première ligne de l'accueil est **Cube Browser**, choisie en arrivant. Sa fiche dit
   que l'onglet est le navigateur créé par **Arial-Bold** (logiciel libre, licence MIT), que GC Station l'intègre et
