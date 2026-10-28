@@ -125,6 +125,7 @@ static void gb_fetch(void) {
     gb_hf.maxbytes = 3 * 1024 * 1024;
     gb_hf.accept = "application/json";
     gb_hf.tmo_ms = 30000;
+    gb_hf.gz = 1;                                    /* (v209 : compresse : 5 a 8 fois moins a recevoir) */
     hf_start(&gb_hf, url, NULL);
     gb_state = GBL_LOAD;
 }
@@ -230,7 +231,7 @@ static void gb_view(void) {
 static inline f32 gb_proj(f32 x, f32 y, f32 z, f32 *sx, f32 *sy) {
     f32 xr = x * gb_co0 + y * gb_so0, yr = -x * gb_so0 + y * gb_co0;
     f32 d = xr * gb_cl0 + z * gb_sl0, v = -xr * gb_sl0 + z * gb_cl0;
-    *sx = 320.0f + yr * gb_r;
+    *sx = 320.0f + yr * gb_r / ux_k;                 /* (16:9 : la Terre reste ronde, comme les cercles) */
     *sy = 228.0f - v * gb_r;
     return d;
 }
@@ -325,7 +326,7 @@ static void gb_input(u32 down, u32 nav, int fire) {
 }
 /* (chaque image, ecran ouvert) */
 static void gb_step(void) {
-    if (gb_loaded && !kb_is_open()) {                   /* stick : tourner ; stick C : zoom */
+    if (!kb_is_open()) {                                /* stick : tourner ; stick C : zoom (meme pendant le chargement) */
         int mx = PAD_StickX(0), my = PAD_StickY(0), cy = PAD_SubStickY(0);
         u32 held = PAD_ButtonsHeld(0);
         f32 vx = 0, vy = 0;
@@ -592,7 +593,8 @@ static void draw_globe(void) {
     gx_text1(F_LARGE, 24, 40, "Globe des radios", RGBA(255, 255, 255, 255));
     char buf[220], fv[220];
     if (gb_loaded) snprintf(buf, sizeof(buf), "%d radios", gb_n);
-    else if (gb_state == GBL_LOAD) snprintf(buf, sizeof(buf), "Chargement des radios du monde... %d", gb_n);
+    else if (gb_state == GBL_LOAD) snprintf(buf, sizeof(buf), "Chargement des radios du monde : %d radios (page %d / %d, %d Ko)", gb_n, gb_page + 1, GB_PAGES, gb_js ? 0 : gb_hf.len / 1024);
+    else if (gb_state == GBL_FILE) snprintf(buf, sizeof(buf), "Lecture des radios sur la carte SD...");
     else snprintf(buf, sizeof(buf), "%s", "Annuaire injoignable (A : r\xC3\xA9" "essayer)");
     gx_text1(F_SMALL, 24, 60, buf, gb_state == GBL_ERR && !gb_loaded ? RGBA(255, 160, 110, 255) : RGBA(170, 190, 240, 255));
     {                                                     /* coordonnees du centre */

@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v209 — globe : bonne forme en 16:9, il tourne pendant le chargement
+- En 16:9, la carte débordait de la Terre (continents dessinés en dehors du disque) : la Terre, la carte, les
+  méridiens et les radios utilisent maintenant la même correction que les autres ronds de GC Station.
+- Le globe tourne et zoome tout de suite, même pendant le chargement de l'annuaire (avant : bloqué tant que les
+  radios n'étaient pas arrivées).
+- Annuaire demandé compressé (gzip : 5 à 8 fois moins à recevoir) ; la ligne de chargement montre la page en
+  cours et les Ko reçus.
+
 ## Nouveautés v208 — carte du monde sur le globe, globe plus fluide
 - **Le globe des radios a une vraie carte du monde** : continents et lacs (Natural Earth 1:50m, domaine public,
   `source/globe_map.h` fait par `tools/carte/globe_map.py`), éclairés de face, avec les radios en points dorés
