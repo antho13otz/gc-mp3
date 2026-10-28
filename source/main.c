@@ -14316,7 +14316,7 @@ int main(int argc, char **argv) {
         if (down & PAD_BUTTON_START) { menu_open = 1; down = 0; }
 
         /* onglets : la lecture en cours continue */
-        if (down & PAD_TRIGGER_Z) { if (gs_active() && gl_launch_sel < 0) gs_filter_next(1); else tab_next(1); }   /* v196 : espace jeux : filtre suivant */
+        if (down & PAD_TRIGGER_Z) { if (gs_active() && gl_detail) {} else if (gs_active() && gl_launch_sel < 0) gs_filter_next(1); else tab_next(1); }   /* (v197 : pas dans la fiche) */   /* v196 : espace jeux : filtre suivant */
 
         /* stick C vers le bas : disposition du lecteur */
         {

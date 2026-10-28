@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v197 — fiche d'un jeu dans l'espace jeux
+- Y dans l'espace Jeux GameCube : la fiche reste dans l'espace (même barre en haut, couleurs d'Aurore). À gauche la
+  grande jaquette (lueur, reflet) ; à droite le nom, des étiquettes (ID, région, taille, disque, CISO, favori), la
+  description, la capture du jeu, les lancements, la dernière partie, le temps de jeu et les cheats.
+- Gauche / droite : jeu suivant ou précédent **du filtre**, la fiche glisse. Touches : A jouer, X cheats,
+  Y réglages, L favori, R analyse, B retour à la vitrine.
+
 ## Nouveautés v196 — espace Jeux GameCube (vitrine 3D)
 - Onglet JEUX / APPS, A sur « Jeux GameCube » : un espace à part, aux couleurs d'Aurore. Les jaquettes sont en
   perspective, avec un reflet au sol et une lueur rose → bleu ; le nom du jeu et ses infos (ID, région, taille,

@@ -51,6 +51,8 @@ static int gs_dirty;                                       /* v196 : espace Jeux
 static int gs_view(void);
 static void gs_input(u32 down, u32 nav, int fire);
 static void gs_draw(void);
+static void gs_draw_fiche(void);                           /* v197 */
+static int gs_step(int d);
 static int ld_ready(void);
 static int ld_build(void);                                 /* (lanceur.c) */
 static gcg_t *gl = NULL;
@@ -899,8 +901,8 @@ static void gclib_input(u32 down, u32 nav, int fire) {
     }
     if (gl_detail) {
         if (nat_qr_input(down)) return;
-        if (fire && (nav & PAD_BUTTON_LEFT) && gl_n) { gl_sel = nav_wrap(gl_sel, gl_n, 1, -1, 0); if (gl_anim) gl_slide = -1.0f; }
-        if (fire && (nav & PAD_BUTTON_RIGHT) && gl_n) { gl_sel = nav_wrap(gl_sel, gl_n, 1, 1, 0); if (gl_anim) gl_slide = 1.0f; }
+        if (fire && (nav & PAD_BUTTON_LEFT) && gl_n) { gl_sel = gs_view() ? gs_step(-1) : nav_wrap(gl_sel, gl_n, 1, -1, 0); if (gl_anim) gl_slide = -1.0f; }   /* v197 : (espace : jeux du filtre) */
+        if (fire && (nav & PAD_BUTTON_RIGHT) && gl_n) { gl_sel = gs_view() ? gs_step(1) : nav_wrap(gl_sel, gl_n, 1, 1, 0); if (gl_anim) gl_slide = 1.0f; }
         if ((down & PAD_BUTTON_A) && gl_n) gl_launch_sel = gl_sel;
         if (gl_n && gl[gl_sel].dvd) { if (down & PAD_BUTTON_B) gl_detail = 0; return; }   /* v97 : (case du vrai lecteur) */
         if (down & PAD_BUTTON_X && gl_n) gl_open_cheats(gl_sel);
@@ -1432,7 +1434,7 @@ static void draw_gclib(void) {
 }
 static void draw_gclib_main(void) {
     gl_loaded_frame = 0;
-    if (gs_view() && !gl_detail) { gs_draw(); return; }  /* v196 : espace Jeux GameCube (gspace.c) */
+    if (gs_view()) { if (gl_detail) gs_draw_fiche(); else gs_draw(); return; }   /* v196 : espace Jeux GameCube (gspace.c) ; v197 : + la fiche */
     char buf[NAME_LEN], d[NAME_LEN];
     draw_panel(11, 73, 618, 338);
     int tx = draw_tabs(NULL);

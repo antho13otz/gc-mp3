@@ -21,7 +21,7 @@ static f32 gs_cpos = -10000.0f;                 /* position de la vitrine (en do
 
 static int gs_view(void) { return ui_skin >= 1 && gl_view != GLV_LIST; }
 /* l'espace est a l'ecran (dessin et touche Z) */
-static int gs_active(void) { return tab == TAB_GAMES && gl_on && !gl_detail && gs_view() && !menu_open && !tl_screen && !ic_on && !kb_is_open(); }
+static int gs_active(void) { return tab == TAB_GAMES && gl_on && gs_view() && !menu_open && !tl_screen && !ic_on && !kb_is_open(); }   /* (v197 : la fiche aussi) */
 
 static int gs_cmp_title(const void *a, const void *b) {
     const gcg_t *x = &gl[*(const s16 *)a], *y = &gl[*(const s16 *)b];
@@ -371,4 +371,124 @@ static void gs_draw(void) {
     gs_key(x, 453, "B", "Retour", RGBA(240, 110, 110, 255));
     nv_raw = 0;
     if (gl_launch_sel >= 0) gl_draw_launch_box();                /* "Lancer ce jeu ?" (gclib.c) */
+}
+
+/* ---------- v197 : la fiche d'un jeu (Y), dans l'espace ----------
+   A gauche la grande jaquette (lueur d'Aurore, reflet) ; a droite le nom, des etiquettes (ID, region, taille,
+   disque, favori), la description, la capture du jeu et ce qu'on sait de lui (lancements, temps de jeu, cheats).
+   Gauche / droite : jeu suivant du filtre, la fiche glisse. Les touches restent celles de gclib.c. */
+static int gs_step(int d) {                     /* (fiche) jeu suivant / precedent du filtre ; rend gl_sel */
+    gs_check();
+    if (gs_apps() || gs_n <= 0) { gl_sel = nav_wrap(gl_sel, gl_n, 1, d, 0); return gl_sel; }
+    gs_pos = (gs_pos + d + gs_n) % gs_n;
+    gl_sel = gs_idx[gs_pos];
+    return gl_sel;
+}
+static f32 gs_chip(f32 x, f32 y, const char *t, col_t c) {   /* etiquette arrondie ; rend la fin */
+    f32 w = (f32)text_width(F_SMALL, t, 0) + 18;
+    gx_rrect_fill(x, y, w, 20, 10, RGBA(255, 255, 255, 22), RGBA(255, 255, 255, 12));
+    gx_rrect_stroke(x, y, w, 20, 10, 1.0f, RGBA(255, 255, 255, 40));
+    gx_text1(F_SMALL, x + 9, y + 15, t, c);
+    return x + w + 6;
+}
+static void gs_draw_fiche(void) {
+    char buf[NAME_LEN], d[NAME_LEN];
+    if (gl_sel < 0 || gl_sel >= gl_n) return;
+    gcg_t *g = &gl[gl_sel];
+    gl_job_done();
+    if (now_ms() - last_input_ms > 100) gl_load_big(gl_sel);     /* (grande jaquette et capture, en fond) */
+    if (g->bstate == 0 && gj_state == 0 && now_ms() - last_input_ms > 150) gl_job_post(GJ_BANNER, gl_sel);   /* (description) */
+    gs_header();
+    gl_slide *= gl_anim ? expf(-ui_dt * 11.0f) : 0.0f;
+    if (fabsf(gl_slide) < 0.004f) gl_slide = 0;
+    const f32 ox = gl_slide * 120.0f;
+    nv_raw = 1;
+    /* jaquette */
+    const f32 cw = 180, chh = 240, cx = 40 + ox * 0.6f, cy = 96;
+    gx_ellipse(cx + cw / 2, cy + chh / 2, 170, 150, au_mix(0.45f, 55), au_mix(0.45f, 0));
+    gx_glow(cx, cy, cw, chh, 10, au_mix(0.5f, 170), 3);
+    GXTexObj *o = NULL; int big = 0;
+    if (g->dvd) gl_card_dvd(cx, cy, cw, chh, 1);
+    else if (g->post >= 0 && gl_big.game == gl_sel && gl_big.tex) { o = &gl_big.obj; big = 1; }
+    else if (g->post >= 0) o = gl_cover(gl_sel, 1);              /* (la petite en attendant la grande) */
+    if (o) {
+        f32 u1 = big ? 192.0f / 256.0f : 96.0f / 128.0f;
+        gs_tex_quad(o, u1, 0.0f, 1.0f, cx, cy, cy + chh, cx + cw, cy, cy + chh, 255, 255);
+        gs_tex_quad(o, u1, 1.0f, 0.72f, cx, cy + chh + 3, cy + chh + 3 + chh * 0.28f, cx + cw, cy + chh + 3, cy + chh + 3 + chh * 0.28f, 80, 0);
+    } else if (!g->dvd) gl_card_banner(gl_sel, cx, cy, cw, chh, 1);
+    gx_rrect_stroke(cx - 3, cy - 3, cw + 6, chh + 6, 6, 2.0f, au_a(255));
+    gx_rrect_stroke(cx - 1.5f, cy - 1.5f, cw + 3, chh + 3, 5, 1.0f, au_b(200));
+    /* a droite */
+    const f32 rx = 250 + ox; const int rw = 366;
+    if (g->dvd) {
+        gx_text1(F_LARGE, rx, 122, TR("Disque de la console"), RGBA(255, 255, 255, 255));
+        gl_wrap(F_SMALL, "Lance le jeu qui est dans le lecteur de la GameCube, comme le BIOS de la console : "
+                         "le vrai lecteur lit le jeu (pas la carte SD). Mets le disque et ferme le couvercle avant.", rx, 154, rw, 18, 5, RGBA(215, 215, 235, 255));
+        gl_wrap(F_SMALL, "Pas de A + Z + START dans ce mode : pour revenir, red\xC3\xA9marre la console.", rx, 254, rw, 18, 2, RGBA(170, 170, 195, 255));
+    } else {
+        int nl = gl_wrap(F_LARGE, g->title, rx, 118, rw, 26, 2, RGBA(255, 255, 255, 255));
+        f32 y = 118 + nl * 26 - 12;
+        const char *reg = g->id[3] == 'E' ? "USA" : g->id[3] == 'P' ? "Europe" : g->id[3] == 'J' ? "Japon" : g->id[3] == 'F' ? "France" : g->id[3] == 'D' ? "Allemagne" : "";
+        f32 x = rx;
+        x = gs_chip(x, y, g->id, RGBA(255, 210, 120, 255));
+        if (reg[0]) x = gs_chip(x, y, TR(reg), RGBA(235, 235, 245, 255));
+        char sz[32]; gl_size_txt(g->size, sz, sizeof(sz));
+        x = gs_chip(x, y, sz, RGBA(235, 235, 245, 255));
+        if (g->disc) { snprintf(buf, sizeof(buf), "%s %d", TR("Disque"), g->disc + 1); x = gs_chip(x, y, buf, RGBA(235, 235, 245, 255)); }
+        if (g->ciso) x = gs_chip(x, y, "CISO", RGBA(235, 235, 245, 255));
+        if (g->fav) { f32 x0 = x; x = gs_chip(x, y, "    Favori", RGBA(255, 210, 90, 255)); draw_star1(x0 + 13, y + 10, 5.0f, RGBA(255, 210, 90, 255)); }
+        y += 40;
+        int has_st = g->still >= 0 && gl_bigst.game == gl_sel && gl_bigst.tex;
+        if (g->desc) gl_wrap(F_SMALL, g->desc, rx, y, rw, 17, has_st ? 4 : 9, RGBA(210, 210, 230, 255));
+        else gx_text1(F_SMALL, rx, y, g->bstate == 0 ? "Lecture de la banni\xC3\xA8re..." : "Pas de description pour ce jeu.", RGBA(160, 160, 185, 255));
+        /* capture du jeu, et a cote : lancements, temps de jeu, cheats */
+        f32 sy = 268, ix = rx;
+        if (has_st) {
+            const f32 sw = 160, sh = 120;
+            gx_rrect_fill(rx - 2, sy - 2, sw + 4, sh + 4, 8, RGBA(255, 255, 255, 30), RGBA(255, 255, 255, 18));
+            draw_tex_fit(&gl_bigst.obj, 320, 240, 320, 240, rx, sy, sw, sh);
+            ix = rx + sw + 16;
+        }
+        f32 ly = sy + 14;
+        if (g->runs) {
+            snprintf(buf, sizeof(buf), g->runs == 1 ? TR("Lanc\xC3\xA9 1 fois") : TR("Lanc\xC3\xA9 %u fois"), (unsigned)g->runs);
+            gx_text1(F_SMALL, ix, ly, buf, RGBA(235, 235, 245, 255)); ly += 20;
+            time_t lt = (time_t)g->last;
+            struct tm *tm = g->last ? localtime(&lt) : NULL;
+            if (tm) { snprintf(buf, sizeof(buf), "%s %02d/%02d/%04d", TR("Derni\xC3\xA8re partie :"), tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900); gx_text1(F_SMALL, ix, ly, buf, RGBA(185, 185, 210, 255)); ly += 20; }
+        } else { gx_text1(F_SMALL, ix, ly, TR("Jamais lanc\xC3\xA9 d'ici"), RGBA(185, 185, 210, 255)); ly += 20; }
+        if (g->play >= 60) {
+            if (g->play >= 3600) snprintf(buf, sizeof(buf), "%s %u h %02u", TR("Temps de jeu :"), (unsigned)(g->play / 3600), (unsigned)(g->play / 60 % 60));
+            else snprintf(buf, sizeof(buf), "%s %u min", TR("Temps de jeu :"), (unsigned)(g->play / 60));
+            gx_text1(F_SMALL, ix, ly, buf, RGBA(185, 185, 210, 255)); ly += 20;
+        }
+        int cn = now_ms() - last_input_ms > 150 || !gl_anim ? gl_cheats_on(gl_sel) : -2;
+        if (cn >= -1) {
+            if (cn > 0) snprintf(buf, sizeof(buf), cn == 1 ? TR("Cheats : 1 activ\xC3\xA9") : TR("Cheats : %d activ\xC3\xA9s"), cn);
+            else snprintf(buf, sizeof(buf), "%s", cn == 0 ? TR("Cheats : aucun activ\xC3\xA9") : TR("Pas de fichier de cheats"));
+            gx_text1(F_SMALL, ix, ly, buf, cn > 0 ? RGBA(130, 230, 150, 255) : RGBA(185, 185, 210, 255)); ly += 20;
+        }
+        cp_badge(g->id, cx + cw - 9, cy + 9, 6.0f);
+        text_display(g->path, d, sizeof(d));
+        fit_text(F_SMALL, d, rw, buf, sizeof(buf));
+        gx_text1(F_SMALL, rx, 404, buf, RGBA(120, 120, 145, 255));
+    }
+    if (gs_n && !gs_apps()) { snprintf(d, sizeof(d), "%d / %d", gs_pos + 1, gs_n); gx_text_r(F_SMALL, 616, 404, d, RGBA(130, 130, 155, 255)); }
+    if (now_ms() - gl_msg_t < 3500) gx_text_c(F_SMALL, 320, 428, gl_msg, RGBA(255, 210, 120, 255));
+    gx_rrect_fill(20, 438, 600, 30, 15, RGBA(255, 255, 255, 16), RGBA(255, 255, 255, 8));
+    gx_rrect_stroke(20, 438, 600, 30, 15, 1.0f, RGBA(255, 255, 255, 34));
+    gx_hgrad(170, 438, 150, 1.2f, au_a(0), au_a(140));
+    gx_hgrad(320, 438, 150, 1.2f, au_b(140), au_b(0));
+    f32 x = 34;
+    x = gs_key(x, 453, "A", "Jouer", RGBA(110, 220, 140, 255));
+    if (!g->dvd) {
+        x = gs_key(x, 453, "X", "Cheats", RGBA(235, 235, 245, 255));
+        x = gs_key(x, 453, "Y", "R\xC3\xA9glages", RGBA(235, 235, 245, 255));
+        x = gs_key(x, 453, "L", "Favori", RGBA(255, 210, 90, 255));
+        x = gs_key(x, 453, "R", "Analyse", RGBA(235, 235, 245, 255));
+    }
+    gs_key(x, 453, "B", "Retour", RGBA(240, 110, 110, 255));
+    nv_raw = 0;
+    if (gl_launch_sel >= 0) gl_draw_launch_box();
+    nat_draw_qr();                                           /* (rapport d'analyse sur le telephone) */
 }
