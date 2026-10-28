@@ -15,6 +15,7 @@
 #include "lang.h"
 #include "page.h"
 #include "theme.h"
+#include "ui.h"
 #include "settings.h"
 #include "bigstack.h"
 #include <ctype.h>
