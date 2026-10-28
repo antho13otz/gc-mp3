@@ -5,6 +5,7 @@
 #include "gfx.h"
 #include "gc_entropy.h"
 #include "cb_host.h"
+#include <ogc/lwp_watchdog.h>
 #include <math.h>
 #include <stdlib.h>
 
@@ -72,10 +73,10 @@ void input_update(void) {
 
     /* how many TV frames since last time: when a frame takes longer (a busy
      * page, music playing), the pointer still moves at the same speed */
-    static u32 last_retrace;
-    u32 retrace = VIDEO_GetRetraceCount();
-    float steps = last_retrace ? (float)(retrace - last_retrace) : 1.0f;
-    last_retrace = retrace;
+    static u64 last_t;                               /* (GC Station / libogc : temps ecoule, en images de 1/60 s) */
+    u64 now_t = gettime();
+    float steps = last_t ? (float)ticks_to_microsecs(now_t - last_t) / 16667.0f : 1.0f;
+    last_t = now_t;
     if (steps < 1) steps = 1;
     if (steps > 4) steps = 4;   /* after a long stall, don't jump across the screen */
 
