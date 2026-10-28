@@ -11,6 +11,10 @@ static u32 mv_tab_min[TAB_COUNT];
 static u8 mv_tab_seen[TAB_COUNT];
 static u32 mv_free = 0, mv_big = 0, mv_used = 0;
 static u64 mv_t = 0;
+/* temps du demarrage (rempli par bt_step / bt_save dans main.c) */
+static const char *mv_bt_n[20];
+static u32 mv_bt_ms[20], mv_bt_total = 0;
+static int mv_bt_k = 0;
 
 static u32 mv_largest(void) {                    /* plus grand bloc : essais de reservation (dichotomie) */
     u32 lo = 0, hi = 24u << 20;
@@ -91,10 +95,18 @@ static void draw_mem(void) {
     /* par onglet : le moins vu */
     gx_text1(F_SMALL, 64, 302, "Par onglet (le moins de m\xC3\xA9moire vu)", RGBA(170, 155, 225, 255));
     gx_text_r(F_SMALL, 576, 302, "libre (minimum)", RGBA(130, 120, 180, 255));
+    /* les 3 onglets qui en ont laisse le moins */
+    int pick[3], np = 0;
+    for (int t = 0; t < TAB_COUNT; t++) {
+        if (!mv_tab_seen[t]) continue;
+        int j = np < 3 ? np++ : 3;
+        if (j == 3) { if (mv_tab_min[t] >= mv_tab_min[pick[2]]) continue; j = 2; }
+        while (j > 0 && mv_tab_min[pick[j - 1]] > mv_tab_min[t]) { pick[j] = pick[j - 1]; j--; }
+        pick[j] = t;
+    }
     int row = 0;
-    for (int t = 0; t < TAB_COUNT && row < 5; t++) {
-        int tt = tab_order[t];
-        if (!mv_tab_seen[tt]) continue;
+    for (int q = 0; q < np; q++) {
+        int tt = pick[q];
         f32 ry = 322 + row * 18;
         mv_mo(a, sizeof(a), mv_tab_min[tt]);
         gx_text1(F_SMALL, 64, ry, TR(nv_tab_names[tt]), RGBA(240, 232, 255, 255));
@@ -105,6 +117,16 @@ static void draw_mem(void) {
         row++;
     }
     if (!row) gx_text1(F_SMALL, 64, 322, "(les onglets visit\xC3\xA9s s'affichent ici)", RGBA(130, 120, 180, 255));
+    /* dernier demarrage */
+    if (mv_bt_total) {
+        int lk = 0;
+        for (int i = 1; i < mv_bt_k; i++) if (mv_bt_ms[i] > mv_bt_ms[lk]) lk = i;
+        char t[160];
+        snprintf(t, sizeof(t), "D\xC3\xA9marrage : %u,%u s   (le plus long : %s, %u ms)", (unsigned)(mv_bt_total / 1000), (unsigned)(mv_bt_total % 1000 / 100),
+                 mv_bt_k ? mv_bt_n[lk] : "?", mv_bt_k ? (unsigned)mv_bt_ms[lk] : 0u);
+        gx_rect(64, 386, 512, 1, RGBA(70, 60, 120, 255));
+        gx_text1(F_SMALL, 64, 404, t, RGBA(170, 155, 225, 255));
+    }
     static const char *const k[] = { "B" }, *const lb[] = { "RETOUR" };
     tl_legend(k, lb, 1);
 }

@@ -1222,7 +1222,7 @@ static void gcd_move_dir(const char *from, const char *to) {
 }
 /* v127 : tous les dossiers dont GC Station se sert, crees au demarrage (carte neuve, Dolphin PC / Android :
    carte SD emulee ou SD en memoire) : rien a preparer a la main, tout marche du premier coup */
-static void sd_layout(void) {
+static void sd_layout(int all) {
     static const char *const dirs[] = {
         "/mp3", "/retro", "/photos", "/videos", "/ecran", "/downloads", "/games",
         "/gc-mp3", "/gc-mp3/cache", "/gc-mp3/cache/pochettes", "/gc-mp3/cache/vignettes", "/gc-mp3/listes",
@@ -1232,6 +1232,7 @@ static void sd_layout(void) {
     char p[NAME_LEN];
     struct stat st;
     for (int i = 0; dirs[i]; i++) {
+        if (!all && !strncmp(dirs[i], "/gc-mp3", 7)) break;      /* v220 : (deja fait : seulement ceux de la racine) */
         snprintf(p, sizeof(p), SD_ROOT "%s", dirs[i]);
         if (stat(p, &st) != 0) mkdir(p, 0777);
     }
@@ -14326,10 +14327,12 @@ static void bt_step(const char *what) {
     u64 n = ticks_to_millisecs(gettime());
     if (!bt_prev) bt_prev = boot_t0;
     if (bt_len < (int)sizeof(bt_txt) - 64) bt_len += snprintf(bt_txt + bt_len, sizeof(bt_txt) - bt_len, "%-24s %6u ms\n", what, (unsigned)(n - bt_prev));
+    if (mv_bt_k < 20) { mv_bt_n[mv_bt_k] = what; mv_bt_ms[mv_bt_k++] = (u32)(n - bt_prev); }   /* v220 : (Outils > Memoire) */
     bt_prev = n;
 }
 static void bt_save(void) {
     crumb("demarrage : %s", bt_txt);
+    mv_bt_total = (u32)(ticks_to_millisecs(gettime()) - boot_t0);
     if (!sd_ok || sd_virtual) return;
     FILE *f = fopen(GCD_LOG "/demarrage.txt", "w");
     if (!f) return;
@@ -14433,9 +14436,15 @@ int main(int argc, char **argv) {
     sd_ok = mount_sd();                     /* d'abord les reglages (mode video, theme...) */
     if (!sd_ok) sd_ok = ramfs_mount();      /* (Dolphin : SD en memoire, reglages sur la carte memoire) */
     bt_step("carte SD");
-    if (sd_ok) gcd_migrate();               /* v22 : tout dans SD:/gc-mp3 */
-    if (sd_ok) gcd_tidy();                  /* v182 : SD:/gc-mp3 range en sous-dossiers */
-    if (sd_ok) sd_layout();                 /* v127 : dossiers de GC Station (Dolphin PC / Android aussi) */
+    /* v220 : le rangement (anciens fichiers deplaces) et les dossiers de SD:/gc-mp3 ne se font qu'une fois :
+       ensuite un repere (SD:/gc-mp3/reglages/.range) evite ~80 recherches sur la carte SD a chaque demarrage */
+    int gcd_done = 0;
+    if (sd_ok) { FILE *rf = fopen(GCD_REG "/.range", "rb"); if (rf) { gcd_done = 1; fclose(rf); } }
+    if (sd_ok && !gcd_done) gcd_migrate();  /* v22 : tout dans SD:/gc-mp3 */
+    if (sd_ok && !gcd_done) gcd_tidy();     /* v182 : SD:/gc-mp3 range en sous-dossiers */
+    if (sd_ok) sd_layout(!gcd_done);        /* v127 : dossiers de GC Station (Dolphin PC / Android aussi) */
+    if (sd_ok && !gcd_done) { FILE *rf = fopen(GCD_REG "/.range", "wb"); if (rf) { fputs("1\n", rf); fclose(rf); } }
+    bt_step("rangement SD");
     crash_init();                           /* journal de plantage */
     ui_lang_apply();                        /* v24 : langue de la console, sauf reglage */
     load_settings();

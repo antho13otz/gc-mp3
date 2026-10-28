@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v221 — démarrage plus rapide
+- Le rangement de la carte SD (anciens fichiers déplacés dans `SD:/gc-mp3`, dossiers créés) ne se fait plus
+  qu'une fois : un repère `SD:/gc-mp3/reglages/.range` évite environ 80 recherches sur la carte SD à chaque
+  démarrage (dans le simulateur : 123 ms → 16 ms, démarrage 2 fois plus court).
+- L'écran **Mémoire en direct** affiche aussi la durée du dernier démarrage et son étape la plus longue,
+  et ne garde que les 3 onglets qui laissent le moins de mémoire.
+
 ## Nouveautés v220 — mémoire en direct
 - **START > Réglages > Outils > Mémoire en direct** : la mémoire libre, le plus grand bloc d'un seul tenant
   et la mémoire utilisée, mis à jour chaque seconde, avec une courbe des 2 dernières minutes.
