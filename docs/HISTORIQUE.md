@@ -30,6 +30,9 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
 - **Ancien moteur web retiré** (`web_layout.c`, `web_css.c`, `web_dom.c`, `web_style.c`, `web_box.c`) :
   toutes les pages passent par Cube Browser depuis longtemps. Environ 360 Ko de code en moins.
   Une page longue s'affiche toujours en partie pendant le chargement, puis en entier à la fin.
+- **Essai : .dol compressé** (`gc-station-compresse.dol`, release « essai-compresse » du dépôt) : le même
+  programme compressé en xz par le « packer » de Swiss, décompressé en mémoire au démarrage. Deux fois
+  moins à lire sur la carte SD. À lancer depuis Swiss pour comparer ; jamais utilisé par la mise à jour.
 
 ## Nouveautés v222 — le téléphone sert de clavier
 - **Clavier sur le téléphone** : quand un clavier est ouvert sur la télé (celui de GC Station ou celui de

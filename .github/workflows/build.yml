@@ -345,6 +345,14 @@ jobs:
             gc-mp3player.dol
             loader/gc-mp3-igr.img
 
+      # v223 : le programme complet (.elf), pour la tache "compresse" (.dol compresse en essai)
+      - name: Publier le .elf (pour le .dol compressé)
+        uses: actions/upload-artifact@v4
+        with:
+          name: gc-mp3player-elf
+          path: gc-mp3player.elf
+          retention-days: 3
+
       # Mise a jour en un clic : le .dol va dans la release "dernier" du depot,
       # que GC-MP3 consulte (START > Mise a jour)
       - name: Publier la mise à jour (release « dernier »)
@@ -399,3 +407,92 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: python3 gcmp3/tools/publish_disc.py disque/*.iso
+
+  # v223 : .dol compresse EN ESSAI (xz, avec le "packer" de Swiss : le programme est decompresse en memoire
+  # au demarrage). Publie dans la release "essai-compresse", que la mise a jour de GC Station ne lit jamais.
+  compresse:
+    needs: build
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    continue-on-error: true
+    container: ghcr.io/extremscorner/libogc2:latest
+    env:
+      SWISS_COMMIT: 99b59e7a042cb5633cd341d86b7b92a65cd39851
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: gcmp3
+
+      - name: Packer de Swiss
+        uses: actions/checkout@v4
+        with:
+          repository: emukidid/swiss-gc
+          ref: ${{ env.SWISS_COMMIT }}
+          path: swiss
+          sparse-checkout: cube/packer
+
+      - name: Récupérer le .elf
+        uses: actions/download-artifact@v4
+        with:
+          name: gc-mp3player-elf
+          path: elf
+
+      - name: Vérifier le .elf (départ en 0x80003100, bloc _arg)
+        run: |
+          python3 - <<'PY'
+          import struct, sys
+          d = open("elf/gc-mp3player.elf", "rb").read()
+          if d[:4] != b"\x7fELF": sys.exit("ERREUR: pas un ELF")
+          e = struct.unpack_from(">I", d, 24)[0]
+          phoff, phn = struct.unpack_from(">I", d, 28)[0], struct.unpack_from(">H", d, 44)[0]
+          ok = False
+          for i in range(phn):
+              typ, off, va, pa, fsz = struct.unpack_from(">5I", d, phoff + i * 32)
+              if typ == 1 and fsz and va <= e < va + fsz and d[off + e - va + 4:off + e - va + 8] == b"_arg": ok = True
+          print("depart : 0x%08X" % e)
+          if e != 0x80003100 or not ok: sys.exit("ERREUR: depart inattendu : le packer de Swiss demarre en 0x80003100")
+          PY
+
+      - name: Compresser
+        shell: bash
+        run: |
+          sudo apt-get update >/dev/null
+          sudo apt-get install -y --no-install-recommends -t bookworm-backports 7zip >/dev/null
+          cd swiss/cube
+          # notre programme (libogc) n'a que le bloc _arg : le bloc _env de Swiss (depart + 40) ecraserait son code
+          grep -q 'memmove(entrypoint + 40, &__envp' packer/source/main.c
+          sed -i '/memmove(entrypoint + 40, &__envp/d' packer/source/main.c
+          mkdir -p swiss
+          cp ../../elf/gc-mp3player.elf swiss/swiss.elf
+          make -C packer
+          ls -la packer/build/executable.bin packer/build/executable.xz packer/swiss.dol
+          [ "$(stat -c%s packer/build/executable.bin)" -lt 12000000 ] || { echo "::error::image trop grande"; exit 1; }
+          cp packer/swiss.dol ../../gc-station-compresse.dol
+
+      - name: Aligner et numéroter
+        run: |
+          python3 - <<'PY'
+          import os
+          p, block = "gc-station-compresse.dol", 131072
+          size = os.path.getsize(p)
+          padded = ((size + 32 + block - 1) // block) * block
+          tag = ("GCSTATION-BUILD=%s" % "${{ github.run_number }}").encode().ljust(32, b"\0")
+          with open(p, "ab") as f:
+              f.write(b"\0" * (padded - size - 32) + tag)
+          print("compresse :", size, "->", padded, "octets")
+          PY
+
+      - name: Publier (artefact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: gc-station-compresse
+          path: gc-station-compresse.dol
+
+      - name: Publier (release « essai-compresse »)
+        if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 gcmp3/tools/publish_essai.py essai-compresse "Essai du build ${{ github.run_number }} : le même programme que gc-mp3player-b${{ github.run_number }}.dol, compressé (xz). À lancer depuis Swiss pour comparer le temps de démarrage. Ce fichier n'est jamais utilisé par la mise à jour." gc-station-compresse.dol
