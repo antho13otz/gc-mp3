@@ -430,6 +430,7 @@ static void up_stream_finish(void) {
 }
 
 static void update_relaunch(void);
+static const char *gl_relaunch_self(const char *path);   /* v219 : gclib.c */
 static void update_pump(void) {
     /* verification automatique, une fois, quand le reseau est pret */
     if (!up_auto_done && upd_auto && net_phase == NET_DONE && net_ok && now_ms() > 15000 && up_state == UP_IDLE) {
@@ -599,10 +600,10 @@ static void update_relaunch(void) {
     if (settings_dirty) save_settings();
     const char *e;
     if (up_mem) { e = gl_boot_mem(up_mem, up_mem_len, up_target, NULL, NULL); up_mem = NULL; }   /* (v117 : sans carte SD) */
-    else e = gl_boot_dol(up_target, NULL, NULL, "GC Station");     /* (ne revient pas si ca marche) */
+    else e = gl_relaunch_self(up_target);                  /* (v219 : d'un bloc, sinon par le lanceur ; ne revient pas si ca marche) */
     if (e) crumb("relance apres mise a jour impossible : %s", e);
     if (e) {                                               /* v217 : on reste dans GC Station (avant : retour au lecteur de disque) */
-        snprintf(up_msg, sizeof(up_msg), "Install\xC3\xA9" "e : relance impossible ici (%s) : quitte et relance GC Station", TR(e));
+        snprintf(up_msg, sizeof(up_msg), "Install\xC3\xA9" "e ! Relance GC Station pour l'utiliser (%s)", TR(e));
     }
 }
 /* v38 : bouton Reset de la console pendant GC-MP3 : relance GC-MP3 (sans passer par
@@ -631,7 +632,7 @@ static void reset_pump(void) {
     if (stats_dirty) stats_save();
     resume_note(1);
     if (settings_dirty) save_settings();
-    const char *e = gl_boot_dol(up_target, NULL, NULL, "GC Station");
+    const char *e = gl_relaunch_self(up_target);           /* (v219 : comme apres une mise a jour) */
     if (e) lib_note(e);
 }
 static void update_activate(void) {

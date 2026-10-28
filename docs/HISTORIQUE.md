@@ -24,6 +24,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v219 — relance après une mise à jour (par le lanceur)
+- Même par morceaux (v217), le nouveau programme (près de 6 Mo) ne tenait pas toujours dans la mémoire libre de
+  GC Station en marche : « Installée : relance impossible ici (Lecture du .dol impossible) ». La relance essaie
+  maintenant, dans l'ordre : d'un seul bloc (si la mémoire le permet) ; puis **par le lanceur de secours**
+  (SD:/gc-mp3/lanceur/lanceur.dol, ~0,9 Mo) : un programme neuf, avec toute la mémoire, qui relance la nouvelle
+  version (comme son retour sur GC Station après un jeu) ; puis par morceaux. Pareil pour le bouton Reset.
+- Si rien ne marche : « Installée ! Relance GC Station pour l'utiliser » (GC Station reste ouvert).
+- Build GitHub : une note « Plus gros éléments » liste ce qui prend de la place dans le programme.
+
 ## Nouveautés v218 — la barre des onglets dans Cube Browser
 - Comme dans les autres onglets, approcher le pointeur du haut de l'écran fait descendre la barre de tous les
   onglets (icône + nom) ; dans Cube Browser, c'est le pointeur du navigateur qui la fait venir. L'onglet visé

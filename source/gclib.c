@@ -1680,6 +1680,7 @@ static const char *gl_boot_loader(const char *path) {
 static const char *gl_boot_mem(unsigned char *dol, long len, const char *dolpath, const char *a1, const char *a2);
 static int gl_ret_app = 0;                             /* v187 : appli lancee : retour a GC Station quand elle quitte (natret) */
 static const char *gl_boot_pieces(const char *dolpath, long len, const char *a1, const char *a2, const char *what);
+static int gl_no_pieces = 0;                          /* v219 : (relance : d'abord d'un bloc, puis par le lanceur) */
 static int nat_app_ret_prep(void);                     /* (natif.c) */
 static void nat_app_ret_install(void);
 static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *a2, const char *what) {
@@ -1710,6 +1711,7 @@ static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *
 #ifndef GEKKO
     if (dol && getenv("PCSIM_PIECES")) { free(dol); dol = NULL; }   /* (simulateur : essayer le chemin par morceaux) */
 #endif
+    if (!dol && len > 0 && gl_no_pieces) return "Lecture du .dol impossible (m\xC3\xA9moire)";
     if (!dol && len > 0) return gl_boot_pieces(dolpath, len, a1, a2, what);   /* v217 : pas un seul bloc libre : par morceaux */
     if (!dol) return "Lecture du .dol impossible (m\xC3\xA9moire ou carte SD)";
     return gl_boot_mem(dol, len, dolpath, a1, a2);
@@ -1912,6 +1914,30 @@ static const char *gl_boot_pieces(const char *dolpath, long len, const char *a1,
     return "(simulateur : lancement simule)";
 #endif
     #undef GLP_FREE
+}
+
+/* v219 : relancer GC Station (apres une mise a jour, bouton Reset). Le nouveau .dol fait ~6 Mo, et la memoire libre
+   de GC Station en marche n'y suffit souvent pas (meme par morceaux : v217). Dans l'ordre :
+   1. d'un seul bloc, si la memoire le permet (le plus rapide) ;
+   2. par le lanceur de secours (~0,9 Mo) : un programme neuf, avec toute la memoire, qui relance GC Station
+      ("GCMP3=<chemin>" sans "Autoload=" : son retour sur GC Station, comme apres un jeu) ;
+   3. par morceaux (v217). Ne revient que si rien n'a marche. */
+static const char *gl_relaunch_self(const char *path) {
+    gl_no_pieces = 1;
+    const char *e = gl_boot_dol(path, NULL, NULL, "GC Station");
+    gl_no_pieces = 0;
+    crumb("relance d'un bloc : %s", e ? e : "?");
+    if (ld_ready()) {
+        static char a1[NAME_LEN + 32];
+        char me[NAME_LEN + 8];
+        as_self(me, sizeof(me));
+        snprintf(a1, sizeof(a1), "GCMP3=%s", me);
+        crumb("relance par le lanceur : %s", a1);
+        const char *e2 = gl_boot_dol(LD_DOL, a1, NULL, "GC Station");
+        crumb("relance par le lanceur : %s", e2 ? e2 : "?");
+        if (e2 && !strncmp(e2, "(simulateur", 11)) return e2;
+    }
+    return gl_boot_dol(path, NULL, NULL, "GC Station");
 }
 
 /* reglages du lanceur de secours (v90 : dans SD:/gc-mp3/lanceur, plus dans SD:/swiss) */
