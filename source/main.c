@@ -123,7 +123,7 @@ static const char *gp_path(const char *file) {
 #define NUM_BUFS       8                    // v22 : 8 tampons, dont 5 remplis d'avance (~210 ms)
 #define AUDIO_AHEAD    5
 #define DMA_BYTES      (DMA_SAMPLES * 4)
-#define FIFO_SIZE      (48000 * 10)         // 10 s de son decode d'avance (48 kHz stereo)
+#define FIFO_SIZE      (48000 * 6)          // 6 s de son decode d'avance (48 kHz stereo) ; v223 : 10 -> 6 s (768 Ko gagnes), fondu 4 s au plus
 #define FIFO_MARGIN    8192                 // place minimale avant de decoder une trame
 #define PREBUFFER      (rebuffers == 0 ? 48000 : rebuffers < 3 ? 48000 * 2 : 48000 * 4)   // v71 : 1 s pour demarrer vite ; plus si le flux a deja coupe
 #define CBUF_SIZE      (192 * 1024)         // donnees MP3 recues, pas encore decodees
@@ -5526,7 +5526,6 @@ static int wv_y = 116, wv_h = 272;          /* v118 : zone de la page (plus gran
 #define WV_Y           wv_y
 #define WV_H           wv_h
 static int web_full = 0;                    /* v118 : navigateur en plein ecran */
-static void draw_web_full(void);
 static void web_set_full(int on);
 static int wv_lw = WV_W;                    // largeur de mise en page (16:9 : plus large)
 static f32 web_kx = 1;                      // v131 : echelle de la page a l'ecran (16:9, Vitrine) : pour la fleche
@@ -5656,7 +5655,7 @@ static void setting_apply(const char *k, char *v) {
         else if (pj_settings_key(k, v)) { }                 /* v191 : profils */
         else if (nfs_setting(k, v)) { }                  /* v86 : serveurs du reseau */                  /* v73 : podcasts, enregistrement programme, cartes virtuelles... */
         else if (!strcasecmp(k, "egaliseur")) { eq_preset = 0; for (int i = 0; i < EQ_PRESETS; i++) if (!strcasecmp(v, eq_keys[i])) eq_preset = i; }
-        else if (!strcasecmp(k, "fondu")) { xf_sec = atoi(v); if (xf_sec < 0) xf_sec = 0; if (xf_sec > 8) xf_sec = 8; }
+        else if (!strcasecmp(k, "fondu")) { xf_sec = atoi(v); if (xf_sec < 0) xf_sec = 0; if (xf_sec > 4) xf_sec = 4; }   /* (v223 : 4 s au plus, tampon de 6 s) */
         else if (!strcasecmp(k, "volume_egalise")) rg_mode = !strncasecmp(v, "album", 5) ? 2 : (!strncasecmp(v, "morceau", 7) || !strncasecmp(v, "oui", 3)) ? 1 : 0;
         else if (!strcasecmp(k, "economiseur")) { saver_min = atoi(v); if (saver_min < 0) saver_min = 0; }
         else if (!strcasecmp(k, "economiseur_style")) { for (int i = 0; i < SV_COUNT; i++) if (!strcasecmp(v, saver_keys[i])) saver_style = i; }
@@ -7258,7 +7257,6 @@ static void draw_list_music(int sel);
 static void draw_player_music(void);
 static int cover_info(char *out, int cap);
 
-static void draw_web(void);
 static void draw_list_radio(void);
 static void draw_legend_web(void);
 static void draw_keyboard(void);
@@ -8395,36 +8393,32 @@ static void id_clear(void);
 static void id_capture(int form);
 static void id_answer(int yes);
 static void id_fill(wpage_t *p);
-#include "web_layout.c"                                /* v118 : mise en page (CSS, couleurs, tableaux) */
-
-/* texte brut (text/plain) : une ligne par ligne */
-static void web_layout_text(wpage_t *p, const unsigned char *s, int len, int latin) {
-    wlay_t L;
-    memset(&L, 0, sizeof(L));
-    L.p = p;
-    L.right = wv_lw; L.col = WEB_FG; L.align = 1;
-    p->pagebg = WEB_PAGEBG;
-    L.font = F_SMALL;
-    L.link = -1;
-    L.run = -1;
-    char word[300];
-    int wn = 0, pos = 0;
-    while (pos < len && !p->truncated) {
-        unsigned cp = read_cp(s, len, &pos, latin);
-        if (cp == '\r') continue;
-        if (cp == ' ' || cp == '\t' || cp == '\n') {
-            if (wn) { lay_word(&L, word, wn); wn = 0; }
-            if (cp == '\n') lay_br(&L);
-            else L.space = 1;
-            continue;
-        }
-        if (wn > (int)sizeof(word) - 8) { lay_word(&L, word, wn); wn = 0; }
-        wn += cp_out(cp, word + wn);
-    }
-    if (wn) lay_word(&L, word, wn);
-    lay_newline(&L);
-    p->height = L.line_top;
+/* v223 : ancien moteur de mise en page retire (web_layout.c, web_css.c, web_dom.c, web_style.c, web_box.c) */
+/* v118 : decompresse une reponse gzip (zlib de stb_image) ; NULL si illisible ou plus grande que maxout */
+static unsigned char *web_gunzip(const unsigned char *d, int len, int *outlen, int maxout) {
+    if (len < 18 || d[0] != 0x1f || d[1] != 0x8b || d[2] != 8) return NULL;
+    int flg = d[3];
+    long p = 10;
+    if (flg & 4) { if (p + 2 > len) return NULL; p += 2 + (d[p] | (d[p + 1] << 8)); }
+    if (flg & 8) { while (p < len && d[p]) p++; p++; }
+    if (flg & 16) { while (p < len && d[p]) p++; p++; }
+    if (flg & 2) p += 2;
+    if (p >= len) return NULL;
+    u32 isz = (u32)d[len - 4] | (u32)d[len - 3] << 8 | (u32)d[len - 2] << 16 | (u32)d[len - 1] << 24;   /* (taille annoncee) */
+    if (isz > (u32)maxout) return NULL;
+    int ol = 0;
+    char *out = stbi_zlib_decode_malloc_guesssize_headerflag((const char *)d + p, (int)(len - p), (int)isz + 16, &ol, 0);
+    if (!out || ol > maxout) { free(out); return NULL; }
+    *outlen = ol;
+    return (unsigned char *)out;
 }
+/* cherche n dans h sans tenir compte des majuscules (en-tetes HTTP, types...) */
+static char *ci_find(char *h, const char *n) {
+    int nl = (int)strlen(n);
+    for (; *h; h++) if (strncasecmp(h, n, nl) == 0) return h;
+    return NULL;
+}
+
 
 // ---------- Navigateur : chargement des pages, telechargements ----------
 static conn_t wconn[2] = { { -1, 0, 0 }, { -1, 0, 0 } };
@@ -9135,60 +9129,8 @@ static void ia_ask(const char *q);
 /* Affiche une page. data (alloue avec malloc) appartient ensuite a la page. */
 static void cbh_show(unsigned char *data, int len, const char *url, int kind);
 static void web_show(unsigned char *data, int len, const char *url, int kind, int latin, int mode) {
-    if (1) { (void)latin; (void)mode; cbh_show(data, len, url, kind); return; }   /* v209 : au navigateur (web_cb.c) */
-    wpage_t np;
-    memset(&np, 0, sizeof(np));
-    snprintf(np.url, sizeof(np.url), "%s", url);
-    img_reset();                            /* nouvelle page : nouvelles images */
-    if (kind == WK_ARCHIVE || kind == WK_ARCHMETA) {
-        char *h = kind == WK_ARCHIVE ? archive_to_html((const char *)data, len)
-                                     : archive_meta_to_html((const char *)data, len, url);
-        free(data);
-        data = (unsigned char *)h;
-        len = h ? (int)strlen(h) : 0;
-        kind = WK_HTML;
-        latin = 0;
-    }
-    np.src = data;
-    np.srclen = len;
-    np.kind = kind;
-    np.latin = latin;
-    if (!data) { /* plus de memoire */ }
-    else if (kind == WK_TEXT) web_layout_text(&np, data, len, latin);
-    else web_layout_html(&np, data, len, latin);
-    if (!np.title[0]) {
-        urlp_t u;
-        if (url_parse(url, &u)) snprintf(np.title, sizeof(np.title), "%s", u.host);
-    }
-
-    /* historique */
-    if (hist_n > 0) { hist[hist_n - 1].scroll = pg_scroll; hist[hist_n - 1].sel = pg_sel; }
-    s32 scroll = 0;
-    int sel = -2;
-    if (mode == NAV_BACK && hist_n > 1) { hist_n--; scroll = hist[hist_n - 1].scroll; sel = hist[hist_n - 1].sel; }
-    else if (mode == NAV_REPLACE && hist_n > 0) { /* meme place */ }
-    else {
-        if (hist_n == HIST_MAX) { memmove(&hist[0], &hist[1], sizeof(whist_t) * (HIST_MAX - 1)); hist_n--; }
-        hist_n++;
-    }
-    if (mode == NAV_REPLACE && hist_n == 0) hist_n = 1;
-    whist_t *h = &hist[hist_n - 1];
-    snprintf(h->url, sizeof(h->url), "%s", url);
-    snprintf(h->title, sizeof(h->title), "%s", np.title);
-
-    wpage_free(&pg);
-    pg = np;
-    pg_scroll = scroll;
-    web_scroll_clamp();
-    if (sel >= -1 && sel < pg.nlinks) pg_sel = sel;
-    else select_first_visible();
-
-    if (!web_no_refresh && pg.refresh[0] && pg.refresh_delay <= 5 && wb_refreshes < 3) {    /* redirection <meta refresh> */
-        char next[URL_MAX];
-        snprintf(next, sizeof(next), "%s", pg.refresh);
-        wb_refreshes++;
-        web_go(next, NAV_REPLACE);
-    }
+    (void)latin; (void)mode;
+    cbh_show(data, len, url, kind);                /* v209 : au navigateur (web_cb.c) ; v223 : plus d'ancienne mise en page */
 }
 
 /* <meta charset=...> au debut de la page */
@@ -9235,12 +9177,7 @@ static void web_partial_show(void) {
         web_no_refresh = 0;
         wb_partial = 1;
         wb_mode = NAV_REPLACE;
-    } else {
-        free(pg.src);
-        pg.src = copy;
-        pg.srclen = wb_len;
-        web_relayout();
-    }
+    } else free(copy);                      /* v223 : la suite n'est plus mise en page ici : Cube Browser recoit la page entiere a la fin */
     wb_shown_len = wb_len;
     wb_partial_t = now_ms();
 }
@@ -9269,115 +9206,19 @@ static void web_finish_load(void) {
     int len = wb_len;
     wb_buf = NULL;
     wb_len = wb_cap = 0;
-    if (wb_partial && pg.src && wb_kind == WK_HTML && !strcmp(pg.url, wb_url)) {
-        /* deja affichee en partie : on complete sans bouger ce qu'on lit */
-        free(pg.src);
-        pg.src = buf;
-        pg.srclen = len;
-        pg.latin = wb_latin;
-        web_relayout();
-        if (hist_n > 0) snprintf(hist[hist_n - 1].title, sizeof(hist[0].title), "%s", pg.title);
-        wb_partial = 0;
-        web_check_refresh();
-    } else web_show(buf, len, wb_url, wb_kind, wb_latin, wb_mode);
+    web_show(buf, len, wb_url, wb_kind, wb_latin, wb_mode);   /* v223 : page entiere a Cube Browser (qui recharge la page partielle) */
     wb_partial = 0;
     if (wb_trunc) web_note("Page trop grande : seul le début est affiché", 1);
 }
 
-/* v118 : met np (nouvelle mise en page de la page affichee) a la place de pg, sans bouger ce qu'on lit */
-static void web_relayout_apply(wpage_t *np) {
-    if (np->truncated && !pg.truncated && pg.nitems > 0) {     /* (memoire pleine : on garde l'ancienne) */
-        if (!pg.src) { pg.src = np->src; np->src = NULL; }
-        wpage_free(np);
-        return;
-    }
-    s32 delta = 0;
-    u32 anchor = 0;
-    int lo = 0, hi = pg.nitems;
-    while (lo < hi) {
-        int mid = (lo + hi) / 2;
-        if (pg.items[mid].y < pg_scroll) lo = mid + 1; else hi = mid;
-    }
-    if (lo < pg.nitems) { anchor = pg.items[lo].src; delta = pg.items[lo].y - pg_scroll; }
-    if (!np->title[0]) snprintf(np->title, sizeof(np->title), "%s", pg.title);
-    for (int i = 0; i < np->nfields && i < pg.nfields; i++) {   /* garder ce qui a ete tape / coche / choisi */
-        if (np->fields[i].type != pg.fields[i].type) continue;
-        memcpy(np->fields[i].value, pg.fields[i].value, sizeof(np->fields[i].value));
-        np->fields[i].checked = pg.fields[i].checked;
-        if (pg.fields[i].osel >= 0 && pg.fields[i].osel < np->fields[i].nopt) np->fields[i].osel = pg.fields[i].osel;
-    }
-    int sel = pg_sel;
-    unsigned char *newer = pg.src;                              /* (suite de la page arrivee pendant la mise en page) */
-    int newer_len = pg.srclen;
-    pg.src = NULL;
-    wpage_free(&pg);
-    pg = *np;
-    memset(np, 0, sizeof(*np));
-    if (newer && newer != pg.src) { free(pg.src); pg.src = newer; pg.srclen = newer_len; rl_pending = 1; }
-    if (anchor) {                                               /* (elements ranges par position : le plus proche dans le HTML) */
-        int a = -1;
-        for (int i = 0; i < pg.nitems; i++)
-            if (pg.items[i].src >= anchor && (a < 0 || pg.items[i].src < pg.items[a].src)) a = i;
-        if (a >= 0) pg_scroll = pg.items[a].y - delta;
-    }
-    web_scroll_clamp();
-    pg_sel = (sel < pg.nlinks) ? sel : -1;
-}
 
-static wpage_t rl_np;
-static u32 rl_gen = 0;
-static void rl_job(void) {
-    lay_in_bg = 1;
-    web_layout_html(&rl_np, rl_np.src, rl_np.srclen, rl_np.latin);
-    lay_in_bg = 0;
-}
-/* attend la fin d'une mise en page en fond (et la jette) */
-static void web_wait_layout(void) {
-    if (rl_state == 0) return;
-    rl_cancel = 1;
-    u64 t0 = now_ms();
-    while ((rl_state == 1 || rl_state == 2) && now_ms() - t0 < 3000) usleep(1000);   /* (le fil la finit vite : rl_cancel) */
-    if (rl_state == 3) { wpage_free(&rl_np); rl_state = 0; }
-    rl_cancel = 0;
-    rl_pending = 0;
-}
+static void rl_job(void) { }   /* v223 : plus rien a faire (Cube Browser affiche les pages) */
+static void web_wait_layout(void) { }   /* v223 : plus rien a faire (Cube Browser affiche les pages) */
 
 /* Remet la page en page (une image a revele sa taille, feuille de style lue...) sans bouger ce qu'on lit.
    v118 : grande page -> en tache de fond ; petite -> tout de suite. */
-static void web_relayout(void) {
-    if (rl_state != 0 && pg.kind == WK_HTML) { rl_pending = 1; return; }   /* (une est deja en cours : une autre apres) */
-    if (!pg.src || pg.kind != WK_HTML) return;
-    if (pg.srclen >= 60000 && dec_ensure()) {
-        memset(&rl_np, 0, sizeof(rl_np));
-        snprintf(rl_np.url, sizeof(rl_np.url), "%s", pg.url);
-        rl_np.src = pg.src;                                     /* (le HTML passe a la mise en page en fond : pas de copie) */
-        pg.src = NULL;
-        {
-            rl_np.srclen = pg.srclen; rl_np.kind = pg.kind; rl_np.latin = pg.latin;
-            rl_gen = img_gen;
-            rl_cancel = 0;
-            rl_state = 1;
-            return;
-        }
-    }
-    web_wait_layout();
-    wpage_t np;
-    memset(&np, 0, sizeof(np));
-    snprintf(np.url, sizeof(np.url), "%s", pg.url);
-    np.src = pg.src; np.srclen = pg.srclen; np.kind = pg.kind; np.latin = pg.latin;
-    pg.src = NULL;
-    web_layout_html(&np, np.src, np.srclen, np.latin);
-    web_relayout_apply(&np);
-}
-/* (appele a chaque image) : une mise en page en fond est prete ? */
-static void web_relayout_poll(void) {
-    if (rl_state != 3) return;
-    if (rl_gen == img_gen && !strcmp(rl_np.url, pg.url) && pg.kind == WK_HTML) web_relayout_apply(&rl_np);
-    else wpage_free(&rl_np);
-    if (rl_pending && !pg.src) rl_pending = 0;
-    rl_state = 0;
-    if (rl_pending) { rl_pending = 0; web_relayout(); }
-}
+static void web_relayout(void) { }   /* v223 : plus rien a faire (Cube Browser affiche les pages) */
+static void web_relayout_poll(void) { }   /* v223 : plus rien a faire (Cube Browser affiche les pages) */
 
 /* Ouvre une adresse http(s) : connexion + en-tetes (quelques secondes au plus),
    puis le corps arrive en tache de fond (web_pump). typed = adresse tapee sans
@@ -10797,7 +10638,7 @@ static void img_pump(void) {
         if (best < 0) break;
         /* memoire : on oublie les images loin de l'ecran */
         int full = 0;
-        long budget = IMG_TEX_BUDGET - (pg.srclen > 300000 || (rl_state && rl_np.srclen > 300000) ? 2048 * 1024 : 0);   /* (tres grande page : moins d'images gardees) */
+        long budget = IMG_TEX_BUDGET - (pg.srclen > 300000 ? 2048 * 1024 : 0);   /* (tres grande page : moins d'images gardees) */
         while (img_bytes > budget) {
             int far = -1, fd = 2 * WV_H;
             for (int i = 0; i < nwimg; i++)
@@ -11319,36 +11160,6 @@ static hfetch_t cshf = { .c = { -1, 0, 0 } };
 static int css_busy = 0;
 static u32 css_gen = 0;
 static char css_cur[URL_MAX];
-static void css_pump(void) {
-    if (rl_state != 0) return;                                     /* (la mise en page en fond lit les feuilles gardees) */
-    if (css_busy) {
-        if (css_gen != img_gen) { hf_abort(&cshf); css_busy = 0; return; }   /* (autre page) */
-        hf_pump(&cshf);
-        if (cshf.st != HF_DONE && cshf.st != HF_FAIL) return;
-        if (cshf.st == HF_DONE && cshf.buf) cssc_put(css_cur, (const char *)cshf.buf, cshf.len);
-        else cssc_put(css_cur, "", 0);                             /* (illisible : on ne la redemande pas) */
-        crumb("web : feuille de style %s (%d octets)", cshf.st == HF_DONE ? "lue" : "illisible", cshf.st == HF_DONE ? cshf.len : 0);
-        hf_drop(&cshf);
-        cshf.st = HF_IDLE;
-        css_busy = 0;
-    }
-    if (wb_loading || pg.css_wait <= 0 || pg.kind != WK_HTML) return;
-    for (int k = 0; k < pg.ncss; k++) {
-        const char *u = pg.pool + pg.css_url[k];
-        if (cssc_get(u)) continue;
-        snprintf(css_cur, sizeof(css_cur), "%s", u);
-        cshf.image = 0;
-        cshf.gz = 1;
-        cshf.maxbytes = 900 * 1024;
-        cshf.accept = "text/css,*/*;q=0.1";
-        hf_start(&cshf, u, pg.url);
-        css_busy = 1;
-        css_gen = img_gen;
-        return;
-    }
-    pg.css_wait = 0;                                               /* toutes lues : la page avec son style */
-    web_relayout();
-}
 
 static void ia_pump(void);
 static void web_pump(void) {
@@ -11395,7 +11206,6 @@ static void web_pump(void) {
     dl_pump();
     img_pump();
     web_relayout_poll();
-    css_pump();
     if (relayout_needed && !wb_loading) {                /* une image a donne sa taille */
         static u64 last = 0;
         u64 wait = pg.srclen > 300000 ? 3000 : 800;
@@ -11464,12 +11274,6 @@ static void web_go(const char *url, int mode) {
         else if (strcmp(w, "ia") == 0) ia_render(mode, 1);     /* v206 : assistant IA */
         else if (strcmp(w, "ia-nouveau") == 0) { if (!ia_busy) ia_clear(); ia_render(NAV_REPLACE, 0); }
         else if (strcmp(w, "identifiants") == 0) { id_clear(); web_note("Identifiants effac\xC3\xA9s", 0); web_render_home(NAV_REPLACE); }
-        else if (strcmp(w, "texte") == 0) {                 /* v201 : mode texte de la page en cours (ou retour) */
-            if (web_text_url[0] && !strcmp(web_text_url, pg.url)) web_text_url[0] = 0;
-            else snprintf(web_text_url, sizeof(web_text_url), "%s", pg.url);
-            pg_scroll = 0;
-            web_relayout();
-        }
         else web_render_home(mode);
         return;
     }
@@ -11628,33 +11432,6 @@ static void web_enter_tab(void) {
     net_start_async();                                 /* (v209 : le navigateur a sa page d'accueil) */
 }
 
-static void web_input(u32 down, u32 nav, int fire) {
-    if (web_overlay_input(down, nav, fire)) return;
-    int pointer = ptr_update();                         /* stick principal : la fleche */
-    if (fire) {
-        if (nav) ptr_on = 0;
-        if (nav & PAD_BUTTON_DOWN) web_nav(1);
-        else if (nav & PAD_BUTTON_UP) web_nav(-1);
-        else if (nav & PAD_BUTTON_RIGHT) web_page(1);
-        else if (nav & PAD_BUTTON_LEFT) web_page(-1);
-    }
-    /* sticks : defilement continu (stick C ; le stick principal quand la fleche est cachee) */
-    int sy = PAD_SubStickY(0), my = pointer ? 0 : PAD_StickY(0);
-    int v = abs(sy) > abs(my) ? sy : my;
-    if (v > 24 || v < -24) {
-        pg_scroll -= (v > 0 ? v - 24 : v + 24) / 5;
-        web_scroll_clamp();
-        if (pg_sel >= 0 && !link_visible(pg_sel)) pg_sel = -1;
-    }
-    if (down & PAD_BUTTON_A) { if (!pointer || pg_sel >= 0) web_activate(); }
-    if (down & PAD_BUTTON_B) {
-        if (wb_loading) { web_cancel_load(); web_note("Chargement annulé", 0); }
-        else if (hist_n > 1) { wb_refreshes = 0; web_go(hist[hist_n - 2].url, NAV_BACK); }
-    }
-    if (down & PAD_BUTTON_X) web_go("gc:accueil", NAV_PUSH);
-    if (down & PAD_BUTTON_Y) kb_start(KB_URL, "", -1, -1);
-    if (down & PAD_TRIGGER_R) web_set_full(!web_full);          /* v118 : plein ecran */
-}
 
 // ---------- Clavier virtuel ----------
 #define KB_COLS 10
@@ -11822,293 +11599,9 @@ static void tab_enter(int t);
 #include "assistant.c"                 /* v206 : assistant IA (page gc:ia) */
 #include "web_cb.c"                    /* v209 : l'onglet WEB = Cube Browser (source/cb) */
 
-static void draw_web_page(void) {
-    char fit[400];
-    /* contenu */
-    if (img_tex_dirty) { GX_InvalidateTexAll(); img_tex_dirty = 0; }
-    scr_scissor(WV_X - 6, WV_Y - 4, WV_W + 12, WV_H + 6);
-    web_kx = ux_k;
-    uxsave_t wz = ux_native(WV_X);                         /* (16:9 : la page en taille reelle, plus large) */
-#define WCOL(c) RGBA((u8)((c) >> 24), (u8)((c) >> 16), (u8)((c) >> 8), (u8)(c))
-    {   /* v118 : fond de la page (blanc par defaut, comme un navigateur), puis fonds et bordures des blocs */
-        int sr = nv_raw;
-        nv_raw = 1;
-        u32 pb = pg.pagebg ? pg.pagebg : 0xffffffffu;
-        gx_rect(WV_X - 6, WV_Y - 4, (wv_lw > WV_W || ui_skin == 4 ? wv_lw : WV_W) + 12, WV_H + 6, WCOL(pb));
-        for (int i = 0; i < pg.nboxes; i++) {
-            const wbox_t *b = &pg.boxes[i];
-            if (b->y1 <= b->y0 || b->y1 < pg_scroll || b->y0 > pg_scroll + WV_H) continue;
-            f32 y0 = (f32)(WV_Y + b->y0 - pg_scroll), h = (f32)(b->y1 - b->y0);
-            if (b->bg) gx_rect(WV_X + b->x0, y0, b->x1 - b->x0, h, WCOL(b->bg));
-            if (b->border) {
-                col_t bc = WCOL(b->border);
-                int sd = b->sides ? b->sides : 15;
-                if (sd & 1) gx_rect(WV_X + b->x0, y0, b->x1 - b->x0, 1, bc);
-                if (sd & 4) gx_rect(WV_X + b->x0, y0 + h - 1, b->x1 - b->x0, 1, bc);
-                if (sd & 8) gx_rect(WV_X + b->x0, y0, 1, h, bc);
-                if (sd & 2) gx_rect(WV_X + b->x1 - 1, y0, 1, h, bc);
-            }
-        }
-        nv_raw = sr;
-    }
-    int lo = 0, hi = pg.nitems;
-    while (lo < hi) {                                          /* premier element visible */
-        int mid = (lo + hi) / 2;
-        if (pg.items[mid].y + 8 < pg_scroll) lo = mid + 1; else hi = mid;
-    }
-    int sr_raw = nv_raw;
-    nv_raw = 1;                                                /* (couleurs de la page telles quelles) */
-    for (int pass = 0; pass < 2; pass++) {
-        for (int i = lo; i < pg.nitems; i++) {
-            witem_t *it = &pg.items[i];
-            int f = it->font;
-            f32 by = (f32)(WV_Y + it->y - pg_scroll);
-            if (by - font_ascent[f] > WV_Y + WV_H + 4 && by - it->h > WV_Y + WV_H + 4 && by - (IMG_MAX_H + 10) > WV_Y + WV_H) break;
-            f32 bx = (f32)(WV_X + it->x);
-            int sel = (it->link >= 0 && it->link == pg_sel);
-            f32 top = by - font_ascent[f];
-            if (it->style & WS_IMG) {                          /* image ou case d'attente */
-                f32 ih = it->h, iy = by - ih;
-                if (iy > WV_Y + WV_H + 4 || by < WV_Y - 4) continue;
-                wimg_t *im = it->img >= 0 ? &wimgs[it->img] : NULL;
-                int ok = im && im->st == IMG_OK && im->tex;
-                if (pass == 0) {
-                    if (sel) gx_rrect_fill(bx - 4, iy - 4, it->w + 8, ih + 8, 5, RGBA(150, 80, 255, 255), RGBA(100, 40, 210, 255));
-                    if (!ok) {
-                        gx_rect(bx, iy, it->w, ih, RGBA(232, 234, 237, 255));
-                        gx_rect(bx, iy, it->w, 1, RGBA(200, 204, 210, 255)); gx_rect(bx, iy + ih - 1, it->w, 1, RGBA(200, 204, 210, 255));
-                        if (im && im->st == IMG_LOADING) {             /* (petite barre qui avance : l'image arrive) */
-                            f32 ph = (f32)(now_ms() % 833) / 833.0f, bw = it->w > 40 ? 24 : it->w / 2;
-                            gx_rect(bx + ph * (it->w - bw), iy + ih - 3, bw, 2, RGBA(120, 140, 220, 255));
-                        }
-                    }
-                    continue;
-                }
-                if (ok) {
-                    /* image centree dans sa case, proportions respectees */
-                    f32 sc = (f32)it->w / im->iw, sc2 = ih / im->ih;
-                    if (sc2 < sc) sc = sc2;
-                    f32 w = im->iw * sc, h = im->ih * sc;
-                    f32 x0 = bx + (it->w - w) / 2, y0 = iy + (ih - h) / 2;
-                    f32 u1 = (f32)im->iw / im->tw, v1 = (f32)im->ih / im->th;
-                    gx_set_image(&im->obj);
-                    GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-                    GX_Position2f32(UX(x0), y0);         GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0, 0);
-                    GX_Position2f32(UX(x0 + w), y0);     GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(u1, 0);
-                    GX_Position2f32(UX(x0 + w), y0 + h); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(u1, v1);
-                    GX_Position2f32(UX(x0), y0 + h);     GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(0, v1);
-                    GX_End();
-                } else if (pg.text[it->off]) {
-                    char lab[64];
-                    fit_text_sel(sel, F_SMALL, pg.text + it->off, it->w - 8, lab, sizeof(lab));
-                    gx_text1(F_SMALL, bx + 5, iy + ih / 2 + 4, lab, RGBA(95, 99, 104, 255));
-                }
-                continue;
-            }
-            if (pass == 0) {                                   /* fonds : selection, boutons, champs, mots surlignes */
-                if (it->style & WS_FIELD) {
-                    gx_rect(bx, top - 3, it->w, font_height[F_MED] + 6, RGBA(255, 255, 255, 255));
-                    col_t bc = sel ? RGBA(124, 54, 240, 255) : RGBA(118, 118, 118, 255);
-                    f32 fh = font_height[F_MED] + 6, bw = sel ? 2 : 1;
-                    gx_rect(bx, top - 3, it->w, bw, bc); gx_rect(bx, top - 3 + fh - bw, it->w, bw, bc);
-                    gx_rect(bx, top - 3, bw, fh, bc); gx_rect(bx + it->w - bw, top - 3, bw, fh, bc);
-                } else if ((it->style & WS_BUTTON) && !(it->style & WS_LINK)) {
-                    gx_rrect_fill(bx, top - 3, it->w, font_height[F_MED] + 6, 4,
-                                  sel ? RGBA(150, 80, 255, 255) : RGBA(239, 239, 239, 255), sel ? RGBA(100, 40, 210, 255) : RGBA(225, 225, 225, 255));
-                    if (!sel) gx_rrect_stroke(bx, top - 3, it->w, font_height[F_MED] + 6, 4, 1.0f, RGBA(118, 118, 118, 255));
-                } else if (sel) {
-                    gx_rrect_fill(bx - 3, top - 2, it->w + 6, font_height[f] + 3, 4, RGBA(124, 54, 240, 255), RGBA(80, 26, 180, 255));
-                } else if (it->bg) {
-                    gx_rect(bx - 1, top - 1, it->w + 2, font_height[f] + 1, WCOL(it->bg));
-                } else if (it->style & WS_BUTTON) {
-                    gx_rrect_fill(bx - 4, top - 2, it->w + 8, font_height[f] + 3, 4, RGBA(239, 239, 239, 255), RGBA(225, 225, 225, 255));
-                }
-                continue;
-            }
-            const char *t = pg.text + it->off;
-            if (it->style & WS_HR) { gx_rect(bx, by - 1, it->w, 1, RGBA(162, 169, 177, 255)); continue; }
-            if (it->style & WS_FIELD) {
-                const char *v = "";
-                wfield_t *fd = (it->link >= 0 && pg.links[it->link].field >= 0) ? &pg.fields[pg.links[it->link].field] : NULL;
-                if (fd && (fd->type == FD_CHECK || fd->type == FD_RADIO)) {      /* case cochee / bouton radio */
-                    if (fd->checked) {
-                        f32 cx = bx + it->w / 2.0f, cy = top - 3 + (font_height[F_MED] + 6) / 2.0f;
-                        if (fd->type == FD_RADIO) gx_rrect_fill(cx - 5, cy - 5, 10, 10, 5, RGBA(26, 79, 191, 255), RGBA(26, 79, 191, 255));
-                        else { gx_tri(cx - 6, cy, cx - 2, cy + 5, cx - 1, cy + 1, RGBA(26, 79, 191, 255)); gx_tri(cx - 2, cy + 5, cx + 7, cy - 6, cx - 1, cy + 1, RGBA(26, 79, 191, 255)); }
-                    }
-                    continue;
-                }
-                char dv[300];
-                if (fd && fd->type == FD_SELECT) {                               /* liste : le choix en cours */
-                    v = (fd->nopt > 0 && fd->osel >= 0) ? pg.pool + pg.opts[(fd->opt0 + fd->osel) * 2 + 1] : "";
-                    f32 ax2 = bx + it->w - 14, ay = top + font_height[F_MED] / 2.0f - 2;
-                    gx_tri(ax2, ay, ax2 + 9, ay, ax2 + 4.5f, ay + 6, RGBA(60, 64, 67, 255));
-                    text_display(v, dv, sizeof(dv));
-                    fit_text_sel(sel, F_MED, dv, it->w - 28, fit, sizeof(fit));
-                } else {
-                    if (fd) v = fd->value;
-                    if (fd && fd->secret) {                                      /* mot de passe : masque */
-                        int n = (int)strlen(v);
-                        if (n > 40) n = 40;
-                        memset(dv, '*', n);
-                        dv[n] = 0;
-                    } else text_display(v, dv, sizeof(dv));
-                    fit_text_sel(sel, F_MED, dv, it->w - 12, fit, sizeof(fit));
-                }
-                gx_text1(F_MED, bx + 6, by, fit, RGBA(32, 33, 34, 255));
-                continue;
-            }
-            if ((it->style & WS_BUTTON) && !(it->style & WS_LINK)) {
-                gx_text1(F_MED, bx + 10, by, t, sel ? RGBA(255, 255, 255, 255) : RGBA(32, 33, 34, 255));
-                continue;
-            }
-            col_t c = sel ? RGBA(255, 255, 255, 255) : (it->style & WS_DIM) ? RGBA(114, 119, 125, 255) : WCOL(it->col ? it->col : 0x202122ffu);
-            if (it->fx & FX_ITAL) txt_shear = 0.21f;
-            gx_text1(f, bx, by, t, c);
-            if (it->fx & FX_BOLD) gx_text1(f, bx + 0.8f, by, t, c);          /* (gras : le texte une deuxieme fois, decale) */
-            txt_shear = 0;
-            if ((it->fx & FX_ULINE) && !sel) gx_rect(bx, by + 2, it->w, 1, RGBA(c.r, c.g, c.b, 170));
-            if (it->fx & FX_STRIKE) gx_rect(bx, by - font_ascent[f] * 0.36f, it->w, 1, c);
-        }
-    }
-    nv_raw = sr_raw;
-#undef WCOL
-    ux_restore(wz);
-    scr_viewport();
-    if (pg.nitems == 0 && !wb_loading && !wb_busy)
-        gx_text1(F_MED, WV_X, WV_Y + 20, "(page sans texte)", RGBA(114, 119, 125, 255));
-
-    /* barre de defilement */
-    if (pg.height > WV_H) {
-        f32 h = (f32)WV_H * WV_H / pg.height;
-        if (h < 16) h = 16;
-        f32 y = WV_Y + (WV_H - h) * pg_scroll / (f32)(pg.height - WV_H + 8);
-        gx_rect(619, WV_Y, 2, WV_H, RGBA(50, 34, 110, 255));
-        gx_rrect_fill(618, y, 4, h, 2, RGBA(170, 110, 255, 255), RGBA(120, 70, 230, 255));
-    }
-
-}
 
 static void web_relayout(void);
-static void draw_web(void) {
-    char buf[URL_MAX], fit[400];
-    {   /* v131 : Vitrine : la page web est mise en page pour la place a cote du rail */
-        int lw = scr_wide ? WV_W * 4 / 3 : WV_W;
-        if (ui_skin == 4) lw = lw * (636 - VI_RAIL - 8) / 640;
-        if (lw != wv_lw) { wv_lw = lw; if (pg.nitems) web_relayout(); }
-    }
-    draw_panel(11, 73, 618, 340);
-    int tx = draw_tabs(NULL);
 
-    /* barre d'adresse */
-    f32 ax = (f32)tx + 8, aw = 616 - ax;
-    gx_rrect_fill(ax, 86, aw, 18, 6, RGBA(8, 5, 26, 255), RGBA(16, 10, 44, 255));
-    gx_rrect_stroke(ax, 86, aw, 18, 6, 1.0f, RGBA(90, 64, 170, 255));
-    col_t ac = RGBA(200, 190, 240, 255);
-    if (wb_busy) { snprintf(buf, sizeof(buf), "%s", conn_msg); ac = RGBA(255, 210, 120, 255); }
-    else if (wb_loading) {
-        char sz[32];
-        fmt_size(sz, sizeof(sz), wb_len);
-        urlp_t u;
-        snprintf(buf, sizeof(buf), "Chargement de %s... %s", url_parse(wb_url, &u) ? u.host : "la page", sz);
-        ac = RGBA(255, 210, 120, 255);
-    } else if (strcmp(pg.url, "gc:accueil") == 0) snprintf(buf, sizeof(buf), "Accueil");
-    else snprintf(buf, sizeof(buf), "%s", pg.url);
-    char disp[URL_MAX];
-    text_display(buf, disp, sizeof(disp));
-    fit_text(F_SMALL, disp, (int)aw - 14, fit, sizeof(fit));
-    gx_text1(F_SMALL, ax + 7, 99, fit, ac);
-    if (wb_loading) {                                          /* petite barre animee */
-        f32 ph = (f32)(now_ms() % 1000) / 1000.0f;
-        gx_rect(ax + 4 + ph * (aw - 40), 102, 32, 2, RGBA(255, 190, 90, 200));
-    }
-
-    draw_web_page();
-
-    /* ligne d'etat : telechargement / message / morceau en cours */
-    gx_rect(25, 392, 590, 1, RGBA(76, 52, 150, 200));
-    int msg_on = web_msg[0] && now_ms() - web_msg_t < 8000;
-    char st[300];
-    col_t sc = RGBA(170, 160, 220, 255);
-    if (dl_active) {
-        char a[32], b[40];
-        fmt_size(a, sizeof(a), dl_got);
-        u64 el = now_ms() - dl_t0;
-        if (el > 1500) {
-            fmt_size(b + 1, sizeof(b) - 1, (long)(dl_got * 1000 / (long long)el));
-            b[0] = '(';
-            strcat(b, "/s)");
-        } else b[0] = 0;
-        if (dl_total > 0) snprintf(st, sizeof(st), "%ld %%  %s  %s  %s", (long)((long long)dl_got * 100 / dl_total), a, b, dl_name);
-        else snprintf(st, sizeof(st), "%s  %s  %s", a, b, dl_name);
-        f32 frac = dl_total > 0 ? (f32)dl_got / dl_total : (f32)(now_ms() % 2000) / 2000.0f;
-        gx_rrect_fill(26, 398, 80, 8, 4, RGBA(30, 20, 70, 255), RGBA(30, 20, 70, 255));
-        gx_rrect_fill(26, 398, 6 + 74 * frac, 8, 4, RGBA(120, 230, 140, 255), RGBA(60, 170, 90, 255));
-        fit_text(F_SMALL, st, 300, fit, sizeof(fit));
-        gx_text1(F_SMALL, 114, 406, fit, RGBA(170, 240, 180, 255));
-    } else if (msg_on) {
-        text_display(web_msg, st, sizeof(st));
-        sc = web_msg_err ? RGBA(255, 160, 110, 255) : RGBA(170, 240, 180, 255);
-        fit_text(F_SMALL, st, 400, fit, sizeof(fit));
-        gx_text1(F_SMALL, 26, 406, fit, sc);
-    }
-    if (dl_active && msg_on && web_msg_err) {                 /* erreur pendant un telechargement */
-        text_display(web_msg, st, sizeof(st));
-        fit_text(F_SMALL, st, 180, fit, sizeof(fit));
-        gx_text_r(F_SMALL, 614, 406, fit, RGBA(255, 160, 110, 255));
-    } else if (src != SRC_NONE) {
-        if (src == SRC_FILE && cur_track >= 0) snprintf(st, sizeof(st), "%s", display_name(base_of(names[cur_track])));
-        else if (src == SRC_RADIO && cur_station >= 0) snprintf(st, sizeof(st), "%s", now_title[0] ? now_title : stations[cur_station].name);
-        else st[0] = 0;
-        int maxw = (dl_active || msg_on) ? 180 : 560;
-        char d2[300];
-        text_display(st, d2, sizeof(d2));
-        fit_text(F_SMALL, d2, maxw, fit, sizeof(fit));
-        int w = text_width(F_SMALL, fit, 0);
-        draw_note((f32)(614 - w - 10), 400, RGBA(150, 120, 235, 255));
-        gx_text_r(F_SMALL, 614, 406, fit, RGBA(150, 135, 210, 255));
-    }
-    if (msg_on && web_msg_err && !dl_active) {                 /* v124 : erreur bien visible (avant : petite ligne en bas, cachee par le decor) */
-        text_display(web_msg, st, sizeof(st));
-        fit_text(F_MED, st, 520, fit, sizeof(fit));
-        u64 left = 8000 - (now_ms() - web_msg_t);
-        f32 a = left < 1000 ? (f32)left / 1000.0f : 1.0f;    /* (fondu la derniere seconde) */
-        u8 al = (u8)(255 * a);
-        gx_rrect_fill(50, 336, 540, 44, 10, RGBA(170, 60, 45, al), RGBA(120, 35, 30, al));
-        gx_rrect_stroke(50, 336, 540, 44, 10, 1.5f, RGBA(255, 170, 120, al));
-        gx_text_c(F_MED, 320, 364, fit, RGBA(255, 235, 220, (u8)(255 * a)));
-    }
-    draw_web_overlays();
-}
-
-/* v118 : plein ecran (R) : la page sur tout l'ecran, une fine barre d'adresse en haut */
-static void draw_web_full(void) {
-    char buf[URL_MAX], disp[URL_MAX], fit[400];
-    int sr = nv_raw;
-    nv_raw = 1;
-    gx_rect(scr_x0, 0, scr_w, 480, RGBA(12, 10, 22, 255));
-    nv_raw = sr;
-    if (wb_busy) snprintf(buf, sizeof(buf), "%s", conn_msg);
-    else if (wb_loading) snprintf(buf, sizeof(buf), "Chargement... %ld Ko", (long)wb_len / 1024);
-    else if (strcmp(pg.url, "gc:accueil") == 0) snprintf(buf, sizeof(buf), "Accueil");
-    else snprintf(buf, sizeof(buf), "%s", pg.url);
-    text_display(buf, disp, sizeof(disp));
-    fit_text(F_SMALL, disp, 440, fit, sizeof(fit));
-    gx_text1(F_SMALL, WV_X, 17, fit, (wb_busy || wb_loading) ? RGBA(255, 210, 120, 255) : RGBA(200, 190, 240, 255));
-    gx_text_r(F_SMALL, 614, 17, TR("R : quitter le plein \xC3\xA9" "cran"), RGBA(140, 130, 180, 255));
-    if (wb_loading) { f32 ph = (f32)(now_ms() % 1000) / 1000.0f; gx_rect(WV_X + ph * 400, 21, 32, 2, RGBA(255, 190, 90, 200)); }
-    draw_web_page();
-    int msg_on = web_msg[0] && now_ms() - web_msg_t < 8000;
-    if (msg_on || dl_active) {                                /* message / telechargement : en bas, par-dessus */
-        char st[300];
-        if (dl_active) snprintf(st, sizeof(st), "%s  %ld Ko", dl_name, (long)dl_got / 1024);
-        else text_display(web_msg, st, sizeof(st));
-        fit_text(F_SMALL, st, 560, fit, sizeof(fit));
-        gx_rrect_fill(20, 452, 600, 22, 8, RGBA(20, 14, 40, 235), RGBA(20, 14, 40, 235));
-        gx_text1(F_SMALL, 30, 467, fit, web_msg_err && !dl_active ? RGBA(255, 160, 110, 255) : RGBA(170, 240, 180, 255));
-    }
-    draw_web_overlays();
-}
 static void web_set_full(int on) {
     web_full = on;
     wv_y = on ? 28 : 116;
@@ -12855,10 +12348,10 @@ static void menu_change(int i, int d) {
     }
     case MI_SAVERSTYLE: saver_style = (saver_style + d + SV_COUNT) % SV_COUNT; break;
     case MI_XFADE: {
-        static const int xs[] = { 0, 2, 4, 6, 8 };
+        static const int xs[] = { 0, 2, 4 };                    /* (v223 : 6 et 8 s retires : tampon de 6 s) */
         int k = 0;
-        for (int j = 0; j < 5; j++) if (xs[j] == xf_sec) k = j;
-        xf_sec = xs[(k + d + 5) % 5];
+        for (int j = 0; j < 3; j++) if (xs[j] == xf_sec) k = j;
+        xf_sec = xs[(k + d + 3) % 3];
         break;
     }
     case MI_RG:      rg_mode = (rg_mode + d + 3) % 3; break;   /* pris en compte au morceau suivant */
@@ -14368,57 +13861,9 @@ static void tab_disable(int t) {
 }
 
 #ifndef GEKKO
-/* v201 : simulateur : PCSIM_WEBDUMP=page.html -> mise en page seule, resultat en JSON (PCSIM_WEBDUMP_OUT), puis fin */
-static void web_dump_json(const char *path, const char *out) {
-    long n = 0;
-    FILE *f = fopen(path, "rb");
-    if (!f) { printf("[webdump] %s illisible\n", path); exit(1); }
-    fseek(f, 0, SEEK_END); n = ftell(f); fseek(f, 0, SEEK_SET);
-    unsigned char *d = (unsigned char *)malloc(n + 1);
-    if (!d || fread(d, 1, n, f) != (size_t)n) exit(1);
-    fclose(f);
-    d[n] = 0;
-    wpage_t np; memset(&np, 0, sizeof(np));
-    snprintf(np.url, sizeof(np.url), "http://127.0.0.1:8765/page.html");
-    const char *u = getenv("PCSIM_WEBDUMP_URL"); if (u) snprintf(np.url, sizeof(np.url), "%s", u);
-    np.src = d; np.srclen = (int)n; np.kind = WK_HTML; np.latin = !utf8_ok(d);
-    const char *lw = getenv("PCSIM_WEBDUMP_W"); if (lw) wv_lw = atoi(lw);
-    if (getenv("PCSIM_WEBDOM")) {               /* arbre HTML (indentation = profondeur) */
-        wd_parse(d, (int)n, np.latin, np.url);
-        int depth[1] = {0}; (void)depth;
-        for (int k = 0; k < wd.nn; k++) {
-            int dd = 0; for (int q = wd.n[k].parent; q >= 0; q = wd.n[q].parent) dd++;
-            if (wd.n[k].type == 1) printf("%*s<%s %d>\n", dd * 2, "", wd.n[k].tid ? wt_names[wd.n[k].tid] : "?", k);
-            else { int l = (int)wd.n[k].tn; if (l > 40) l = 40; char t[48]; memcpy(t, wd.txt + wd.n[k].t0, l); t[l] = 0; for (char *c = t; *c; c++) if (*c == '\n') *c = ' '; printf("%*s\"%s\"\n", dd * 2, "", t); }
-        }
-        wd_free();
-    }
-    u64 t0 = perf_us();
-    web_layout_html(&np, d, (int)n, np.latin);
-    u64 t1 = perf_us();
-    FILE *o = fopen(out ? out : "webdump.json", "wb");
-    if (!o) exit(1);
-    fprintf(o, "{\"w\":%d,\"h\":%d,\"bg\":%u,\"ms\":%.1f,\"title\":\"", wv_lw, (int)np.height, (unsigned)np.pagebg, (t1 - t0) / 1000.0);
-    for (const char *c = np.title; *c; c++) { if (*c == '"' || *c == '\\') fputc('\\', o); if ((u8)*c >= 32) fputc(*c, o); }
-    fprintf(o, "\",\"boxes\":[");
-    for (int i = 0; i < np.nboxes; i++) { const wbox_t *b = &np.boxes[i]; fprintf(o, "%s[%d,%d,%d,%d,%u,%u,%d]", i ? "," : "", b->x0, (int)b->y0, b->x1, (int)b->y1, (unsigned)b->bg, (unsigned)b->border, b->sides); }
-    fprintf(o, "],\"items\":[");
-    for (int i = 0; i < np.nitems; i++) {
-        const witem_t *it = &np.items[i];
-        fprintf(o, "%s[%d,%d,%d,%d,%d,%d,%d,%u,%u,%d,%d,\"", i ? "," : "", it->x, (int)it->y, it->w, it->h, it->font, it->style, it->fx, (unsigned)it->col, (unsigned)it->bg, it->link, it->img);
-        for (const char *c = np.text + it->off; *c; c++) { if (*c == '"' || *c == '\\') fputc('\\', o); if ((u8)*c >= 32) fputc(*c, o); }
-        fputc('"', o); fputc(']', o);
-    }
-    fprintf(o, "],\"links\":%d,\"fields\":%d}\n", np.nlinks, np.nfields);
-    fclose(o);
-    printf("[webdump] %d elements, %d fonds, %d liens, hauteur %d, %.1f ms (html %.1f, profondeur %.0f, styles+boites %.1f, positions %.1f ; %u noeuds, %d regles)\n", np.nitems, np.nboxes, np.nlinks, (int)np.height, (t1 - t0) / 1000.0,
-           wb_prof[0] / 1000.0, wb_prof[1] * 1.0, wb_prof[2] / 1000.0, wb_prof[3] / 1000.0, (unsigned)wb_prof[4], 0);
-    exit(0);
-}
 #endif
 int main(int argc, char **argv) {
 #ifndef GEKKO
-    if (getenv("PCSIM_WEBDUMP")) web_dump_json(getenv("PCSIM_WEBDUMP"), getenv("PCSIM_WEBDUMP_OUT"));
     if (getenv("PCSIM_MIDI")) {                 /* v203 : lit un .mid en entier sans son (essais, AddressSanitizer) */
         const char *e = NULL; char t[96];
         if (!midi_open(getenv("PCSIM_MIDI"), t, sizeof(t), &e)) { printf("[midi] %s\n", e ? e : "?"); exit(1); }

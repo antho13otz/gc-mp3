@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v223 — 1,1 Mo de mémoire libérée
+- **Tampon audio de 6 s** (au lieu de 10 s) : environ 750 Ko de mémoire en plus pour le reste.
+- **Fondu enchaîné limité à 4 s** (réglage : 0, 2 ou 4 s ; une ancienne valeur plus grande passe à 4 s).
+- **Ancien moteur web retiré** (`web_layout.c`, `web_css.c`, `web_dom.c`, `web_style.c`, `web_box.c`) :
+  toutes les pages passent par Cube Browser depuis longtemps. Environ 360 Ko de code en moins.
+  Une page longue s'affiche toujours en partie pendant le chargement, puis en entier à la fin.
+
 ## Nouveautés v222 — le téléphone sert de clavier
 - **Clavier sur le téléphone** : quand un clavier est ouvert sur la télé (celui de GC Station ou celui de
   Cube Browser), la page du téléphone affiche une carte « clavier » en haut. Le texte tapé apparaît en
