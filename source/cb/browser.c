@@ -121,6 +121,8 @@ static void au_veil(float x, float y, float w, float h, float a) {
     float bw = 160, bx = x + (w - bw) * 0.5f, k = fmodf(tm * 0.7f, 1.0f);
     gfx_rrect(bx, ty + 34, bw, 3, 1.5f, rgba(255, 255, 255, (u8)(30 * a)));
     au_pill(bx + (bw - 50) * k, ty + 34, 50, 3, au_ca((u8)(230 * a)), au_cb((u8)(230 * a)));
+    const char *sig = tr("Cube Browser, by Arial-Bold");          /* (le navigateur est le sien : sa signature) */
+    gfx_text(FONT_UI, 12, x + (w - gfx_text_width(FONT_UI, 12, sig, -1)) * 0.5f, ty + 48, rgba(169, 167, 194, (u8)(200 * a)), sig, -1);
 }
 
 /* The start page is drawn by home.c; this only gives it a title (and is

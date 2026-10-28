@@ -261,12 +261,20 @@ static bool clicked(bool hov, bool input_ok) {
 static const char *const au_site_names[] = {
     "DuckDuckGo", "Assistant IA", "Wikip\xE9" "dia", "Nintendo 2001", "Musique libre", "68k.news", "NPR Text", "CNN Lite", "Franceinfo",
 };
-enum { AU_SEARCH, AU_BOOKMARKS, AU_SETTINGS, AU_HELP, AU_NACT };
-static int au_sel_i = AU_NACT;
+enum { AU_ABOUT, AU_SEARCH, AU_BOOKMARKS, AU_SETTINGS, AU_HELP, AU_NACT };   /* (AU_ABOUT : Cube Browser et son auteur, en premier) */
+static int au_sel_i = AU_ABOUT;
 extern bool ui_cursor_rest;
 
 static void au_icon(int row, float cx, float cy, float s, Color c, Color dark) {
-    if (row == AU_BOOKMARKS) ui_draw_icon(ICON_STAR, cx, cy, s * 1.15f, c);
+    if (row == AU_ABOUT) {                                   /* un petit cube (trois faces) */
+        float e = s * 0.42f;
+        float top[8] = { cx, cy - e, cx + e, cy - e * 0.5f, cx, cy, cx - e, cy - e * 0.5f };
+        float left[8] = { cx - e, cy - e * 0.5f, cx, cy, cx, cy + e, cx - e, cy + e * 0.5f };
+        float right[8] = { cx, cy, cx + e, cy - e * 0.5f, cx + e, cy + e * 0.5f, cx, cy + e };
+        gfx_quad(top, c);
+        gfx_quad(left, color_alpha(c, 0.75f));
+        gfx_quad(right, color_alpha(c, 0.5f));
+    } else if (row == AU_BOOKMARKS) ui_draw_icon(ICON_STAR, cx, cy, s * 1.15f, c);
     else if (row == AU_SETTINGS) ui_draw_icon(ICON_GEAR, cx, cy, s * 1.1f, c);
     else if (row == AU_SEARCH) draw_emblem(IC_SEARCH, cx, cy, s, c, dark);
     else if (row == AU_HELP) draw_emblem(IC_BOOK, cx, cy, s, c, dark);
@@ -274,6 +282,7 @@ static void au_icon(int row, float cx, float cy, float s, Color c, Color dark) {
 }
 static const char *au_row_name(int row) {
     switch (row) {
+    case AU_ABOUT: return "Cube Browser";
     case AU_SEARCH: return tr("Address or search");
     case AU_BOOKMARKS: return tr("Bookmarks");
     case AU_SETTINGS: return tr("Browser settings");
@@ -301,12 +310,12 @@ static HomeAction home_draw_au(float x, float y, float w, float h, bool input_ok
     if (ui_frame() - last_frame > 2 || (input_ok && !was_input)) au_place = true;   /* (revenu sur l'accueil : le pointeur retourne sur la ligne choisie) */
     last_frame = ui_frame(); was_input = input_ok;
     if (au_place && input_ok) {
-        float sy = ly + 11 + au_sel_i * 27 + (au_sel_i >= AU_NACT ? 9 : 0);
+        float sy = ly + 11 + au_sel_i * 26 + (au_sel_i >= AU_NACT ? 9 : 0);
         input_set_cursor(lx + 7 + (lw - 14) - 26, sy + 12);
         au_place = false;
     }
     au_glass(lx, ly, lw, lh, 22);
-    float row_h = 27, ry = ly + 11;
+    float row_h = 26, ry = ly + 11;
     for (int i = 0; i < nrows; i++) {
         if (i == AU_NACT) {                                   /* separation actions / sites */
             gfx_rect(lx + 16, ry + 3, lw - 32, 1, rgba(255, 255, 255, 26));
@@ -329,7 +338,8 @@ static HomeAction home_draw_au(float x, float y, float w, float h, bool input_ok
         if (input_ok && hov && input_pressed(ACT_CLICK)) {
             input_consume(ACT_CLICK);
             input_rumble(3);
-            if (i == AU_SEARCH) act = HOME_SEARCH;
+            if (i == AU_ABOUT) { act = HOME_OPEN_URL; *url = "https://github.com/Arial-Bold/Cubebrowser"; }
+            else if (i == AU_SEARCH) act = HOME_SEARCH;
             else if (i == AU_BOOKMARKS) act = HOME_BOOKMARKS;
             else if (i == AU_SETTINGS) act = HOME_SETTINGS;
             else if (i == AU_HELP) act = HOME_HELP;
@@ -342,7 +352,7 @@ static HomeAction home_draw_au(float x, float y, float w, float h, bool input_ok
     float px = x + 278 * k, pw = 341 * k, py = y, ph = 338;
     au_glass(px, py, pw, ph, 22);
     int sel = au_sel_i;
-    const char *cap = sel >= AU_NACT ? tr("FEATURED SITE") : tr("BROWSER");
+    const char *cap = sel == AU_ABOUT ? tr("THE BROWSER OF THIS TAB") : sel >= AU_NACT ? tr("FEATURED SITE") : tr("BROWSER");
     gfx_circle(px + 22, py + 21, 3.5f, au_ca(255));
     gfx_text(FONT_UI, 11, px + 32, py + 14, t->text_dim, cap, -1);
     float tx = px + 18, ty = py + 38, ts = 96;
@@ -351,6 +361,26 @@ static HomeAction home_draw_au(float x, float y, float w, float h, bool input_ok
     gfx_rrect_vgrad(tx + 4, ty + 3, ts - 8, ts * 0.42f, 18, rgba(255, 255, 255, 50), rgba(255, 255, 255, 0));
     au_icon(sel, tx + ts * 0.5f, ty + ts * 0.5f, 58, rgba(255, 255, 255, 255), au_ca(255));
     float cx = tx + ts + 16, cw = px + pw - 16 - cx;
+    if (sel == AU_ABOUT) {                                   /* Cube Browser : son auteur, et merci */
+        gfx_text(FONT_UI, 22, cx, ty + 4, rgba(255, 255, 255, 255), "Cube Browser", -1);
+        gfx_text(FONT_UI, 13, cx, ty + 36, au_ca(255), tr("by Arial-Bold"), -1);
+        float dy = wrap(FONT_BODY, 12, cx, ty + 58, cw, t->text_dim, tr("Free software (MIT licence), made for the GameCube."), true);
+        (void)dy;
+        float my = ty + ts + 16;
+        gfx_rect(px + 18, my, pw - 36, 1, rgba(255, 255, 255, 26));
+        my += 12;
+        float mh = wrap(FONT_BODY, 13.5f, px + 18, my, pw - 36, rgba(232, 230, 246, 255),
+                        tr("This tab is Arial-Bold's web browser, Cube Browser, which GC Station includes and adapts. "
+                           "Pages, pictures, secure sites, forms and downloads: it's all their work. Thank you, Arial-Bold!"), true);
+        my += mh + 10;
+        const char *gh = "github.com/Arial-Bold/Cubebrowser";
+        float uw = gfx_text_width(FONT_UI, 11, gh, -1) + 20;
+        gfx_rrect(px + 18, my, uw, 20, 10, rgba(255, 255, 255, 18));
+        gfx_rrect_outline(px + 18, my, uw, 20, 10, 1.0f, rgba(255, 255, 255, 36));
+        gfx_text(FONT_UI, 11, px + 28, my + (20 - gfx_line_height(FONT_UI, 11)) * 0.5f, rgba(220, 218, 236, 255), gh, -1);
+        gfx_text(FONT_UI, 11, px + 18 + uw + 10, my + (20 - gfx_line_height(FONT_UI, 11)) * 0.5f, t->text_dim, tr("A: open"), -1);
+        return act;
+    }
     const char *title = au_row_name(sel);
     float tsz = au_fit_size(FONT_UI, 22, title, cw);
     gfx_text(FONT_UI, tsz, cx, ty + 4, rgba(255, 255, 255, 255), title, -1);

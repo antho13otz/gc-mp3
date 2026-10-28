@@ -292,4 +292,12 @@ TR = {
 "Language, text size, pictures, cookies...": "Langue, taille du texte, images, cookies...",
 "Every button of the controller and the keyboard.": "Toutes les commandes de la manette et du clavier.",
 "Home": "Accueil", "Back to the start page": "Retour à l'accueil",
+# --- v215 : merci a Arial-Bold
+"THE BROWSER OF THIS TAB": "LE NAVIGATEUR DE CET ONGLET", "by Arial-Bold": "par Arial-Bold",
+"Free software (MIT licence), made for the GameCube.": "Logiciel libre (licence MIT), fait pour la GameCube.",
+"This tab is Arial-Bold's web browser, Cube Browser, which GC Station includes and adapts. "
+"Pages, pictures, secure sites, forms and downloads: it's all their work. Thank you, Arial-Bold!":
+"Cet onglet, c'est Cube Browser, le navigateur web créé par Arial-Bold, que GC Station intègre et adapte. "
+"Pages, images, sites sécurisés, formulaires, téléchargements : tout ça, c'est son travail. Merci, Arial-Bold !",
+"A: open": "A : ouvrir", "Cube Browser, by Arial-Bold": "Cube Browser, par Arial-Bold",
 }
