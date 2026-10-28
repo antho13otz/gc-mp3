@@ -29,7 +29,7 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   que l'onglet est le navigateur créé par **Arial-Bold** (logiciel libre, licence MIT), que GC Station l'intègre et
   l'adapte, et le remercie ; A ouvre la page du projet (github.com/Arial-Bold/Cubebrowser).
 - Pendant le chargement d'une page : la signature « Cube Browser, par Arial-Bold » sous « Chargement… ».
-- L'onglet garde le nom « Web » (comme les autres onglets, il dit ce qu'il fait).
+- L'onglet WEB s'appelle maintenant **Cube Browser** (en-tête, barre des onglets, menus).
 
 ## Nouveautés v214 — Cube Browser dans l'Aurore de GC Station
 - Avec le style **Aurore**, l'onglet WEB n'est plus un écran à part : Cube Browser se place entre l'en-tête de

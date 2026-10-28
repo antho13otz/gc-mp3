@@ -436,7 +436,7 @@ enum { TAB_MUSIC, TAB_RADIO, TAB_WEB, TAB_RETRO, TAB_PODCAST, TAB_PHOTO, TAB_FIL
 static int tab = TAB_MUSIC;             /* onglet affiche */
 static u32 tab_hidden = 0;              /* onglets masques (bits) */
 static const char *const tab_names[TAB_COUNT] = {
-    "MUSIQUE", "RADIO", "WEB", "R\xC3\x89TRO", "PODCASTS", "PHOTOS", "FICHIERS", "INFOS", "T\xC3\x89L\xC3\x89PHONE", "JEUX / APPS", "T\xC3\x89L\xC3\x89" "CHARGEMENTS" };
+    "MUSIQUE", "RADIO", "CUBE BROWSER", "R\xC3\x89TRO", "PODCASTS", "PHOTOS", "FICHIERS", "INFOS", "T\xC3\x89L\xC3\x89PHONE", "JEUX / APPS", "T\xC3\x89L\xC3\x89" "CHARGEMENTS" };
 static const char *const tab_keys[TAB_COUNT] = {
     "musique", "radio", "web", "retro", "podcasts", "photos", "fichiers", "infos", "telephone", "jeux", "telechargements" };
 static int tab_shown(int t) { return t == TAB_MUSIC || !(tab_hidden & (1u << t)); }

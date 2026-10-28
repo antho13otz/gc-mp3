@@ -12,7 +12,7 @@
 
 static u32 nv_frame = 0;                                 /* (images dessinees : selections qui glissent) */
 static const char *const nv_tab_names[TAB_COUNT] = {
-    "Musique", "Radio", "Web", "R\xC3\xA9tro", "Podcasts", "Photos", "Fichiers", "Infos", "T\xC3\xA9l\xC3\xA9phone", "Jeux", "T\xC3\xA9l\xC3\xA9" "chargements" };
+    "Musique", "Radio", "Cube Browser", "R\xC3\xA9tro", "Podcasts", "Photos", "Fichiers", "Infos", "T\xC3\xA9l\xC3\xA9phone", "Jeux", "T\xC3\xA9l\xC3\xA9" "chargements" };
 
 static col_t nv_acc(u8 a) {
     if (theme_id == THEME_INDIGO) return RGBA(118, 112, 255, a);
