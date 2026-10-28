@@ -216,6 +216,8 @@ static void x73_menu_value(int i, char *out, int cap);
 static void x73_menu_change(int i, int d);
 static void x73_pump(void);
 static void rh_open(void);
+static void gb_open(void);                               /* v207 : globe.c */
+static void pet_rename(const char *t);                   /* v207 : pet.c */
 static void saver_tableau(float t);
 static char radio_last_url[URL_MAX], radio_last_name[48];
 static int nat_card = 1;                                /* v65 : carte memoire virtuelle (slot A) pour Resident ; v122 : 2 = slots A et B */
@@ -4569,6 +4571,7 @@ static const char *trk_open(int idx, const char *path, FILE *fp, long size, int 
     return err;
 }
 static int start_track_u(int idx);
+static int jb_iso_path(const char *path);              /* v207 : tab_retro.c */
 static int start_track(int idx) {
 #ifndef GEKKO
     u32 t0_ = perf_us();
@@ -4606,7 +4609,10 @@ static int start_track_u(int idx) {
     long size = -1;
     if (pre) { fp = nx.fp; size = nx.size; nx.fp = NULL; }
     else {
-        fp = fopen(names[idx], "rb");
+        char isop[NAME_LEN];                              /* v207 : musique dans une image de jeu : on ouvre l'image */
+        const char *op = names[idx];
+        if (jb_iso_path(op)) { snprintf(isop, sizeof(isop), "%s", op); *strstr(isop, "#/") = 0; op = isop; }
+        fp = fopen(op, "rb");
         if (fp && fseek(fp, 0, SEEK_END) == 0) size = ftell(fp);
     }
     if (!fp || size <= 0) {
@@ -5236,11 +5242,14 @@ static void queue_shuffle_from(int first) {   /* melange en gardant 'first' en t
     qpos = 0;
 }
 
+static s16 retro_list[MAX_FILES];                          /* (tab_retro.c) */
+static int retro_n;
 /* la file = les morceaux de la liste en cours (tous, ou ceux du groupe ouvert) */
 static void queue_build(int track) {
     qn = 0;
-    if (track >= 0 && track < nfiles && is_retro[track]) {     /* onglet RETRO : sa propre liste */
-        for (int k = 0; k < nfiles; k++) if (is_retro[k]) queue[qn++] = (s16)k;
+    if (track >= 0 && track < nfiles && is_retro[track]) {     /* onglet RETRO : sa propre liste (v207 : celle affichee) */
+        for (int i = 0; i < retro_n; i++) queue[qn++] = retro_list[i];
+        if (qn == 0) for (int k = 0; k < nfiles; k++) if (is_retro[k]) queue[qn++] = (s16)k;
     } else {
         for (int i = 0; i < nents; i++) if (ents[i].type == E_TRACK) queue[qn++] = ents[i].idx;
         if (qn == 0) for (int k = 0; k < nfiles; k++) if (!is_retro[k]) queue[qn++] = (s16)k;
@@ -6812,7 +6821,7 @@ static void begin_frame(void) {
 
 // ---------- Interface GC-Radio ----------
 static int sel_station = 0;
-#define RS_N 3                                     /* v73 : lignes speciales en haut de la liste RADIO (recherche, populaires, historique) */
+#define RS_N 4                                     /* v73 : lignes speciales en haut de la liste RADIO (recherche, populaires, historique ; v207 : globe) */
 static char conn_msg[160];
 
 static void cover_for_station(int idx) {
@@ -11360,7 +11369,7 @@ static void web_pump(void) {
 }
 
 // ---------- Navigateur : actions ----------
-enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR, KB_LIBFIND, KB_PLNAME, KB_CHEATID, KB_CHEATNAME, KB_CHEATCODE, KB_NETTXT, KB_NFS, KB_PROFILE };
+enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR, KB_LIBFIND, KB_PLNAME, KB_CHEATID, KB_CHEATNAME, KB_CHEATCODE, KB_NETTXT, KB_NFS, KB_PROFILE, KB_PETNAME };
 static void cheats_kb_done(int mode, const char *t);
 static void pj_kb_done(const char *t);                 /* v191 (profils.c) */
 static void ic_kb_done(const char *t);
@@ -11503,6 +11512,7 @@ static void kb_validate(void) {
     }
     if (kb_mode == KB_LIBFIND || kb_mode == KB_PLNAME) { lib_kb_done(kb_mode, t); return; }
     if (kb_mode == KB_PROFILE) { if (*t) pj_kb_done(t); return; }   /* v191 */
+    if (kb_mode == KB_PETNAME) { pet_rename(t); return; }      /* v207 : pet.c */
     if (kb_mode == KB_CHEATID || kb_mode == KB_CHEATNAME || kb_mode == KB_CHEATCODE) { if (*t || kb_mode == KB_CHEATNAME) cheats_kb_done(kb_mode, t); return; }
     if (kb_mode == KB_NETTXT) { net_kb_done(t); return; }      /* v75 : adresse IP / passerelle */
     if (kb_mode == KB_NFS) { nfs_kb_done(t); return; }         /* v86 : serveur SMB / FTP / FSP */
@@ -12081,7 +12091,7 @@ static void draw_keyboard(void) {
                         kb_mode == KB_CHEATCODE ? "Ligne de code (XXXXXXXX YYYYYYYY)" :
                         kb_mode == KB_NETTXT ? "Adresse (ex. 192.168.1.32)" :
                         kb_mode == KB_NFS ? "Serveur du r\xC3\xA9seau (SMB / FTP / FSP)" :
-                        kb_mode == KB_PROFILE ? "Nom du nouveau profil" :
+                        kb_mode == KB_PROFILE ? "Nom du nouveau profil" : kb_mode == KB_PETNAME ? "Nom de ton compagnon" :
                         "Adresse ou recherche";
     gx_text1(F_MED, 46, 143, title, RGBA(255, 255, 255, 255));
     if (kb_shift) gx_text_r(F_SMALL, 594, 142, "MAJUSCULES", RGBA(255, 210, 120, 255));
@@ -12445,6 +12455,7 @@ static void radio_activate(void) {
     }
     if (r == 0) { kb_start(KB_RADIO, "", -1, -1); return; }
     if (r == 2) { rh_open(); return; }                       /* v73 : historique des titres */
+    if (r == 3) { gb_open(); return; }                       /* v207 : globe des radios (globe.c) */
     if (r == 1) {
         char q[32], t[96];
         snprintf(q, sizeof(q), "countrycode=%s", lang_country());
@@ -12488,10 +12499,11 @@ static void draw_list_radio(void) {
         if ((rb_mode && r == 0) || (!rb_mode && r < RS_N)) {
             char popl[96];
             snprintf(popl, sizeof(popl), "Les plus \xC3\xA9" "cout\xC3\xA9" "es %s", lang_country_name());
-            const char *lab = rb_mode ? rb_title : (r == 0 ? "Rechercher une radio..." : r == 2 ? "Titres pass\xC3\xA9s (historique)" : popl);
+            const char *lab = rb_mode ? rb_title : (r == 0 ? "Rechercher une radio..." : r == 2 ? "Titres pass\xC3\xA9s (historique)" : r == 3 ? "Globe des radios (le monde)" : popl);
             if (rb_mode) gx_tri(38, cy - 6, 38, cy + 6, 30, cy, ic);
             else if (r == 0) { gx_ring(34, cy - 1.5f, 3.5f, 5.2f, ic); gx_poly4(37, cy + 2, 39, cy + 1, 42, cy + 5, 40, cy + 6, ic, ic, ic, ic); }
             else if (r == 2) { gx_ring(36, cy, 5.0f, 6.6f, ic); gx_rect(35.4f, cy - 4, 1.4f, 4.4f, ic); gx_rect(35.4f, cy - 0.4f, 4, 1.4f, ic); }
+            else if (r == 3) { gx_ring(36, cy, 5.6f, 7.0f, ic); gx_rect(29.5f, cy - 0.5f, 13, 1.2f, ic); gx_rect(35.4f, cy - 6.5f, 1.2f, 13, ic); }
             else { gx_tri(36, cy - 7, 31, cy + 5, 41, cy + 5, ic); }
             fit_text_sel(is_sel, F_MED, lab, 196, nm, sizeof(nm));
             gx_text1(F_MED, 50, cy + 5, nm, is_sel ? txt : RGBA(190, 160, 255, 255));
@@ -14227,7 +14239,10 @@ static void music_pump(void) {
 #include "tabs_extra.c"                        /* v23 : onglets JEUX et TELECHARGEMENTS, curseur partout */
 #include "cheats.c"                            /* v25 : editeur de cheats (SD:/gc-mp3/cheats) */
 #include "gclib.c"                             /* v25 : Mes jeux GameCube (jaquettes : SD:/gc-mp3/jaquettes) */
+#include "jukebox.c"                           /* v207 : musiques des jeux, lues dans les images */
 #include "tools.c"                             /* v35 : cartes memoire, applis, recents, infos */
+#include "globe.c"                             /* v207 : globe des radios */
+#include "pet.c"                               /* v207 : le compagnon */
 #include "gspace.c"                            /* v196 : espace Jeux GameCube (vitrine 3D, filtres, applis) */
 #include "jeux_cfg.c"                          /* v75 : reglages des jeux */
 #include "igr.c"                               /* v39 : A + Z + START en jeu -> GC-MP3 */
@@ -14452,6 +14467,7 @@ int main(int argc, char **argv) {
         down |= kdown;
         down = gp_input(down);                              /* v23 : curseur au stick dans tous les onglets */
 
+        pet_tick();                                         /* v207 : le compagnon se nourrit de ce qui joue (pet.c) */
         /* activite de la manette (economiseur d'ecran) */
         int sx = PAD_SubStickX(0), sy = PAD_SubStickY(0), mx = PAD_StickX(0), my = PAD_StickY(0);
         int moved = abs(sx) > 40 || abs(sy) > 40 || abs(mx) > 40 || abs(my) > 40;
@@ -14511,7 +14527,7 @@ int main(int argc, char **argv) {
             }
             down &= (PAD_TRIGGER_L | PAD_TRIGGER_R);
             fire = 0;
-        } else if (!menu_open && !kb_open && !night_on && !fun_mode && (tab == TAB_MUSIC || tab == TAB_RADIO)) {
+        } else if (!menu_open && !kb_open && !night_on && !fun_mode && !tl_screen && (tab == TAB_MUSIC || tab == TAB_RADIO)) {   /* (v207 : pas sur le globe : stick C = zoom) */
             static int cu_prev = 0;
             int cu = sy > 60;
             if (cu && !cu_prev) party_start();            /* stick C vers le haut */

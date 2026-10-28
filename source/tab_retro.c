@@ -3,7 +3,8 @@
 //  - puces sonores emulees par Game Music Emu : SPC (Super Nintendo), NSF/NSFE (NES),
 //    GBS (Game Boy), VGM/VGZ/GYM (Mega Drive, Master System...), HES, KSS, AY, SAP
 //  - formats des jeux GameCube : DSP (ADPCM Nintendo, mono ou paire _L/_R),
-//    HPS (HAL : Melee, Kirby Air Ride), ADP (flux DTK : Zelda Wind Waker...)
+//    HPS (HAL : Melee, Kirby Air Ride), ADP (flux DTK : Zelda Wind Waker...), AST (Mario Kart DD...) ;
+//    v207 : aussi DANS les images de jeux (jukebox.c : chemin "jeu.iso#/dossier/musique.ast")
 //  - modules tracker : MOD, XM, IT, S3M (libxmp-lite)
 // Les morceaux qui bouclent sont joues deux fois puis s'eteignent en fondu.
 #include "gme.h"
@@ -22,21 +23,6 @@ static long retro_pos = 0;                  /* echantillons de sortie produits *
 static u32 retro_rate = 48000;
 static char retro_sys[40];                  /* console */
 
-/* --- DSP / HPS / ADP (GameCube) --- */
-enum { GC_DSP, GC_HPS, GC_ADP };
-typedef struct { s16 coef[16]; int h1, h2; } dspch_t;
-static int gc_kind = -1, gc_ch = 1;
-static dspch_t gc_d[2];
-static FILE *gc_f[2] = { NULL, NULL };       /* DSP en paire : un fichier par voie */
-static long gc_data = 0, gc_end = 0;        /* zone des donnees (DSP) */
-static long gc_loop = -1;                   /* debut de boucle (octets, DSP / HPS) */
-static int gc_loops_done = 0;
-static long gc_block = 0, gc_first_block = 0, gc_next_block = 0;  /* HPS */
-static u8 gc_buf[2][16384];
-static int gc_len = 0, gc_pos = 0;          /* donnees du bloc courant (par voie) */
-static int adp_h[2][2];                     /* ADP : historique par voie */
-static long gc_samples_total = 0;
-
 static u16 rb16(const u8 *p) { return (u16)((p[0] << 8) | p[1]); }
 static u32 rb32(const u8 *p) { return ((u32)p[0] << 24) | ((u32)p[1] << 16) | ((u32)p[2] << 8) | p[3]; }
 
@@ -47,7 +33,7 @@ static const char *const retro_xmp_ext[] = { ".mod", ".m15", ".nst", ".wow", ".s
     ".sym", ".umx", ".amf", ".abk", ".xmf", ".ice", ".flt", ".hmn", ".mus", NULL };
 static int retro_ext_fmt(const char *path) {
     static const char *const g[] = { ".spc", ".nsf", ".nsfe", ".gbs", ".vgm", ".vgz", ".gym", ".hes", ".kss", ".ay", ".sap" };
-    static const char *const c[] = { ".dsp", ".hps", ".adp" };
+    static const char *const c[] = { ".dsp", ".hps", ".adp", ".ast" };
     static const char *const mid[] = { ".mid", ".midi", ".kar", ".rmi" };      /* v203 */
     const char *dot = strrchr(path, '.');
     const char *base = strrchr(path, '/');
@@ -68,6 +54,101 @@ static int retro_ext_fmt(const char *path) {
     return -1;
 }
 
+/* --- DSP / HPS / ADP / AST (GameCube) --- */
+enum { GC_DSP, GC_HPS, GC_ADP, GC_AST };
+typedef struct { s16 coef[16]; int h1, h2; } dspch_t;
+/* v207 : un fichier de musique, sur la carte SD ou DANS une image de jeu ("jeu.iso#/dossier/musique.hps") */
+#define GCF_BUF 32768
+typedef struct { FILE *fp; void *iso; u32 size, pos, boff, blen; u8 *buf; } gcf_t;
+static void *jb_iso_open(const char *path, u32 *size);          /* jukebox.c */
+static int jb_iso_read(void *h, u32 off, void *out, u32 n);
+static void jb_iso_close(void *h);
+static int jb_iso_path(const char *path) {                      /* chemin dans une image de jeu ? */
+    const char *h = strstr(path, "#/");
+    if (!h || h - path < 5) return 0;
+    return !strncasecmp(h - 4, ".iso", 4) || !strncasecmp(h - 4, ".gcm", 4) || !strncasecmp(h - 5, ".ciso", 5) || !strncasecmp(h - 4, ".cso", 4);
+}
+static int gcf_open(gcf_t *f, const char *path) {
+    memset(f, 0, sizeof(*f));
+    if (jb_iso_path(path)) {
+        f->buf = (u8 *)malloc(GCF_BUF);
+        if (!f->buf) return 0;
+        f->iso = jb_iso_open(path, &f->size);
+        if (!f->iso) { free(f->buf); f->buf = NULL; return 0; }
+        return 1;
+    }
+    f->fp = fopen(path, "rb");
+    return f->fp != NULL;
+}
+static void gcf_close(gcf_t *f) {
+    if (f->fp) fclose(f->fp);
+    if (f->iso) jb_iso_close(f->iso);
+    free(f->buf);
+    memset(f, 0, sizeof(*f));
+}
+static int gcf_seek(gcf_t *f, long off) {
+    if (f->fp) return fseek(f->fp, off, SEEK_SET);
+    if (off < 0 || (u32)off > f->size) return -1;
+    f->pos = (u32)off;
+    return 0;
+}
+static long gcf_tell(gcf_t *f) { return f->fp ? ftell(f->fp) : (long)f->pos; }
+static long gcf_size(gcf_t *f) {
+    if (!f->fp) return (long)f->size;
+    long c = ftell(f->fp);
+    fseek(f->fp, 0, SEEK_END);
+    long s = ftell(f->fp);
+    fseek(f->fp, c, SEEK_SET);
+    return s;
+}
+static size_t gcf_read(gcf_t *f, void *out, size_t n) {
+    if (f->fp) return fread(out, 1, n, f->fp);
+    if (!f->iso) return 0;
+    u8 *o = (u8 *)out;
+    size_t got = 0;
+    if (f->pos + n > f->size) n = f->size - f->pos;
+    if (n >= GCF_BUF) {                                         /* (gros bloc : directement) */
+        if (!jb_iso_read(f->iso, f->pos, o, (u32)n)) return 0;
+        f->pos += (u32)n;
+        return n;
+    }
+    while (n > 0) {
+        if (f->pos < f->boff || f->pos >= f->boff + f->blen) {
+            f->boff = f->pos;
+            f->blen = f->size - f->pos < GCF_BUF ? f->size - f->pos : GCF_BUF;
+            if (!f->blen || !jb_iso_read(f->iso, f->boff, f->buf, f->blen)) { f->blen = 0; break; }
+        }
+        u32 in = f->pos - f->boff, k = f->blen - in;
+        if (k > n) k = (u32)n;
+        memcpy(o, f->buf + in, k);
+        o += k; f->pos += k; got += k; n -= k;
+    }
+    return got;
+}
+static int gcf_exists(const char *path) {
+    if (jb_iso_path(path)) { gcf_t f; int ok = gcf_open(&f, path); gcf_close(&f); return ok; }
+    struct stat st;
+    return stat(path, &st) == 0;
+}
+
+static int gc_kind = -1, gc_ch = 1;
+static dspch_t gc_d[2];
+static gcf_t gc_f[2];                       /* DSP en paire : un fichier par voie */
+static long gc_data = 0, gc_end = 0;        /* zone des donnees (DSP) */
+static long gc_loop = -1;                   /* debut de boucle (octets, DSP / HPS) */
+static int gc_loops_done = 0;
+static long gc_block = 0, gc_first_block = 0, gc_next_block = 0;  /* HPS, AST */
+static u8 gc_buf[2][16384];
+static int gc_len = 0, gc_pos = 0;          /* donnees du bloc courant (par voie) */
+static int adp_h[2][2];                     /* ADP : historique par voie */
+static long gc_samples_total = 0;
+/* v207 : AST (flux des jeux Nintendo : Mario Kart Double Dash, Zelda Twilight Princess...) */
+static int ast_codec = 0, ast_nch = 2;      /* 0 = ADPCM AFC (9 octets = 16 echantillons), 1 = PCM 16 bits */
+static long ast_loop_s = -1, ast_end_s = 0, ast_s = 0;     /* debut de boucle, fin, echantillon courant */
+static long ast_lb = -1, ast_lb_s = 0;      /* bloc qui contient le debut de boucle (et son 1er echantillon) */
+static int ast_lh[2][2];                    /* historique a ce bloc */
+static int ast_h[2][2];
+
 static const char *retro_system(const char *path) {
     const char *dot = strrchr(path, '.');
     if (!dot) return "";
@@ -80,7 +161,7 @@ static const char *retro_system(const char *path) {
     if (!strcasecmp(dot, ".kss")) return "MSX";
     if (!strcasecmp(dot, ".ay")) return "ZX Spectrum";
     if (!strcasecmp(dot, ".sap")) return "Atari";
-    if (!strcasecmp(dot, ".dsp") || !strcasecmp(dot, ".hps") || !strcasecmp(dot, ".adp")) return "GameCube";
+    if (!strcasecmp(dot, ".dsp") || !strcasecmp(dot, ".hps") || !strcasecmp(dot, ".adp") || !strcasecmp(dot, ".ast")) return "GameCube";
     return "Module";
 }
 
@@ -98,6 +179,27 @@ static void dsp_frame(const u8 *f, dspch_t *c, s16 *out) {
         if (s < -32768) s = -32768;
         c->h2 = c->h1;
         c->h1 = s;
+        out[i] = (s16)s;
+    }
+}
+
+/* v207 : AFC (ADPCM des AST) : 9 octets = 16 echantillons, table de coefficients fixe */
+static const s16 afc_coef[16][2] = {
+    { 0, 0 }, { 2048, 0 }, { 0, 2048 }, { 1024, 1024 }, { 4096, -2048 }, { 3584, -1536 }, { 3072, -1024 }, { 4608, -2560 },
+    { 4200, -2248 }, { 4800, -2300 }, { 5120, -3072 }, { 2048, -2048 }, { 1024, -1024 }, { -1024, 1024 }, { -1024, 0 }, { -2048, 0 } };
+static void afc_frame(const u8 *f, int *h, s16 *out) {
+    int scale = 1 << ((f[0] >> 4) & 15), idx = f[0] & 15;
+    int c1 = afc_coef[idx][0], c2 = afc_coef[idx][1];
+    for (int i = 0; i < 16; i++) {
+        int b = f[1 + i / 2];
+        int n = (i & 1) ? (b & 15) : (b >> 4);
+        if (n >= 8) n -= 16;
+        int s = ((n * scale) << 11) + c1 * h[0] + c2 * h[1];
+        s >>= 11;
+        if (s > 32767) s = 32767;
+        if (s < -32768) s = -32768;
+        h[1] = h[0];
+        h[0] = s;
         out[i] = (s16)s;
     }
 }
@@ -123,14 +225,14 @@ static s16 adp_sample(int bits, int q, int *h) {
 }
 
 static void gc_close(void) {
-    for (int i = 0; i < 2; i++) if (gc_f[i]) { fclose(gc_f[i]); gc_f[i] = NULL; }
+    for (int i = 0; i < 2; i++) gcf_close(&gc_f[i]);
     gc_kind = -1;
 }
 
 /* en-tete DSP standard (0x60 octets, gros-boutiste) */
-static int dsp_header(FILE *f, dspch_t *c, u32 *rate, u32 *nib, int *loop, u32 *ls, u32 *le) {
+static int dsp_header(gcf_t *f, dspch_t *c, u32 *rate, u32 *nib, int *loop, u32 *ls, u32 *le) {
     u8 h[0x60];
-    if (fseek(f, 0, SEEK_SET) != 0 || fread(h, 1, 0x60, f) != 0x60) return 0;
+    if (gcf_seek(f, 0) != 0 || gcf_read(f, h, 0x60) != 0x60) return 0;
     u32 ns = rb32(h), nn = rb32(h + 4), sr = rb32(h + 8);
     if (ns == 0 || nn == 0 || sr < 4000 || sr > 96000 || rb16(h + 0x0E) != 0) return 0;
     for (int i = 0; i < 16; i++) c->coef[i] = (s16)rb16(h + 0x1C + i * 2);
@@ -150,11 +252,11 @@ static int dsp_pair(const char *path, char *other, int cap) {
     if (c != 'L' && c != 'l' && c != 'R' && c != 'r') return 0;
     snprintf(other, cap, "%s", path);
     other[n - 5] = (c == 'L') ? 'R' : (c == 'l') ? 'r' : (c == 'R') ? 'L' : 'l';
-    struct stat st;
-    return stat(other, &st) == 0;
+    return gcf_exists(other);
 }
 
 static int hps_block(long off);
+static int ast_block(long off);
 
 static int gc_open(const char *path, tags_t *tg, const char **err) {
     const char *dot = strrchr(path, '.');
@@ -166,37 +268,34 @@ static int gc_open(const char *path, tags_t *tg, const char **err) {
         char other[NAME_LEN];
         u32 rate, nib, ls, le, rate2, nib2, ls2, le2;
         int loop, loop2;
-        gc_f[0] = fopen(path, "rb");
-        if (!gc_f[0] || !dsp_header(gc_f[0], &gc_d[0], &rate, &nib, &loop, &ls, &le)) { gc_close(); *err = "DSP illisible"; return 0; }
+        if (!gcf_open(&gc_f[0], path) || !dsp_header(&gc_f[0], &gc_d[0], &rate, &nib, &loop, &ls, &le)) { gc_close(); *err = "DSP illisible"; return 0; }
         gc_ch = 1;
         if (dsp_pair(path, other, sizeof(other))) {
-            gc_f[1] = fopen(other, "rb");
-            if (gc_f[1] && dsp_header(gc_f[1], &gc_d[1], &rate2, &nib2, &loop2, &ls2, &le2) && rate2 == rate) {
+            if (gcf_open(&gc_f[1], other) && dsp_header(&gc_f[1], &gc_d[1], &rate2, &nib2, &loop2, &ls2, &le2) && rate2 == rate) {
                 gc_ch = 2;
                 char c = path[strlen(path) - 5];
                 if (c == 'R' || c == 'r') {                       /* toujours gauche puis droite */
-                    FILE *t = gc_f[0]; gc_f[0] = gc_f[1]; gc_f[1] = t;
+                    gcf_t t = gc_f[0]; gc_f[0] = gc_f[1]; gc_f[1] = t;
                     dspch_t d = gc_d[0]; gc_d[0] = gc_d[1]; gc_d[1] = d;
                 }
-            } else if (gc_f[1]) { fclose(gc_f[1]); gc_f[1] = NULL; }
+            } else gcf_close(&gc_f[1]);
         }
         retro_rate = rate;
         gc_kind = GC_DSP;
         gc_data = 0x60;
         gc_end = 0x60 + (long)(nib + 1) / 2;
         gc_loop = loop ? 0x60 + (long)(ls / 16) * 8 : -1;
-        for (int i = 0; i < gc_ch; i++) fseek(gc_f[i], 0x60, SEEK_SET);
+        for (int i = 0; i < gc_ch; i++) gcf_seek(&gc_f[i], 0x60);
         double ms = (double)(u32)gc_samples_total * 1000 / rate;
         if (ms > 30 * 60 * 1000) ms = 30 * 60 * 1000;          /* en-tete farfelu : 30 min maxi */
         retro_len_ms = (int)(gc_loop >= 0 ? ms * 2 + RETRO_FADE_MS : ms);
         snprintf(tg->title, sizeof(tg->title), "%s", display_name(base_of(path)));
         return 1;
     }
-    gc_f[0] = fopen(path, "rb");
-    if (!gc_f[0]) { *err = "Ouverture impossible"; return 0; }
+    if (!gcf_open(&gc_f[0], path)) { *err = "Ouverture impossible"; return 0; }
     if (!strcasecmp(dot, ".hps")) {
         u8 h[0x80];
-        if (fread(h, 1, 0x80, gc_f[0]) != 0x80 || memcmp(h, " HALPST", 7) != 0) { gc_close(); *err = "HPS illisible"; return 0; }
+        if (gcf_read(&gc_f[0], h, 0x80) != 0x80 || memcmp(h, " HALPST", 7) != 0) { gc_close(); *err = "HPS illisible"; return 0; }
         retro_rate = rb32(h + 8);
         gc_ch = (int)rb32(h + 12);
         if (gc_ch < 1 || gc_ch > 2 || retro_rate < 4000 || retro_rate > 96000) { gc_close(); *err = "HPS non pris en charge"; return 0; }
@@ -213,7 +312,7 @@ static int gc_open(const char *path, tags_t *tg, const char **err) {
         for (int guard = 0; guard < 100000 && off > last; guard++) {
             u8 b[12];
             last = off;
-            if (fseek(gc_f[0], off, SEEK_SET) != 0 || fread(b, 1, 12, gc_f[0]) != 12) break;
+            if (gcf_seek(&gc_f[0], off) != 0 || gcf_read(&gc_f[0], b, 12) != 12) break;
             off = (long)(s32)rb32(b + 8);
         }
         if (off >= gc_first_block && off < last) gc_loop = off;
@@ -224,10 +323,34 @@ static int gc_open(const char *path, tags_t *tg, const char **err) {
         snprintf(tg->title, sizeof(tg->title), "%s", display_name(base_of(path)));
         return 1;
     }
+    if (!strcasecmp(dot, ".ast")) {                             /* v207 */
+        u8 h[0x40];
+        if (gcf_read(&gc_f[0], h, 0x40) != 0x40 || memcmp(h, "STRM", 4) != 0) { gc_close(); *err = "AST illisible"; return 0; }
+        ast_codec = rb16(h + 8);
+        ast_nch = rb16(h + 0x0C);
+        retro_rate = rb32(h + 0x10);
+        ast_end_s = (long)rb32(h + 0x14);
+        long ls = (long)rb32(h + 0x18), le = (long)rb32(h + 0x1C);
+        if (ast_codec > 1 || ast_nch < 1 || ast_nch > 8 || retro_rate < 4000 || retro_rate > 96000 || ast_end_s <= 0) { gc_close(); *err = "AST non pris en charge"; return 0; }
+        if (le > 0 && le < ast_end_s) ast_end_s = le;
+        ast_loop_s = rb16(h + 0x0E) && ls >= 0 && ls < ast_end_s ? ls : -1;
+        gc_ch = ast_nch > 1 ? 2 : 1;
+        gc_samples_total = ast_end_s;
+        gc_loop = ast_loop_s >= 0 ? 1 : -1;
+        gc_kind = GC_AST;
+        gc_first_block = 0x40;
+        ast_s = 0; ast_lb = -1; ast_lb_s = 0;
+        memset(ast_h, 0, sizeof(ast_h));
+        double ms = (double)ast_end_s * 1000 / retro_rate;
+        if (ms > 30 * 60 * 1000) ms = 30 * 60 * 1000;
+        retro_len_ms = (int)(gc_loop >= 0 ? ms * 2 + RETRO_FADE_MS : ms);
+        if (!ast_block(gc_first_block)) { gc_close(); *err = "AST illisible"; return 0; }
+        snprintf(tg->title, sizeof(tg->title), "%s", display_name(base_of(path)));
+        return 1;
+    }
     /* ADP : blocs de 32 octets, stereo, 48 kHz */
-    fseek(gc_f[0], 0, SEEK_END);
-    long size = ftell(gc_f[0]);
-    fseek(gc_f[0], 0, SEEK_SET);
+    long size = gcf_size(&gc_f[0]);
+    gcf_seek(&gc_f[0], 0);
     if (size < 32) { gc_close(); *err = "ADP illisible"; return 0; }
     gc_kind = GC_ADP;
     gc_ch = 2;
@@ -244,12 +367,12 @@ static int gc_open(const char *path, tags_t *tg, const char **err) {
 /* HPS : charge le bloc a l'adresse off (donnees de chaque voie) */
 static int hps_block(long off) {
     u8 h[0x20];
-    if (off <= 0 || fseek(gc_f[0], off, SEEK_SET) != 0 || fread(h, 1, 0x20, gc_f[0]) != 0x20) return 0;
+    if (off <= 0 || gcf_seek(&gc_f[0], off) != 0 || gcf_read(&gc_f[0], h, 0x20) != 0x20) return 0;
     long size = (long)rb32(h);
     long per = size / gc_ch;
     if (per <= 0 || per > (long)sizeof(gc_buf[0])) return 0;
     for (int c = 0; c < gc_ch; c++)
-        if (fread(gc_buf[c], 1, per, gc_f[0]) != (size_t)per) return 0;
+        if (gcf_read(&gc_f[0], gc_buf[c], per) != (size_t)per) return 0;
     gc_block = off;
     gc_next_block = (long)(s32)rb32(h + 8);
     gc_len = (int)(per / 8 * 8);
@@ -257,14 +380,33 @@ static int hps_block(long off) {
     return 1;
 }
 
+/* v207 : AST : bloc "BLCK" (en-tete 0x20, puis les donnees de chaque voie a la suite) ; 0 = fin */
+static int ast_block(long off) {
+    u8 h[0x20];
+    if (gcf_seek(&gc_f[0], off) != 0 || gcf_read(&gc_f[0], h, 0x20) != 0x20 || memcmp(h, "BLCK", 4) != 0) return 0;
+    long per = (long)rb32(h + 4);
+    if (per <= 0 || per > (long)sizeof(gc_buf[0])) return 0;
+    for (int c = 0; c < gc_ch; c++)
+        if (gcf_read(&gc_f[0], gc_buf[c], per) != (size_t)per) return 0;
+    if (ast_lb < 0 && ast_loop_s >= 0) {                        /* (bloc du debut de boucle : on le retient) */
+        long nsb = ast_codec ? per / 2 : per / 9 * 16;
+        if (ast_loop_s < ast_s + nsb) { ast_lb = off; ast_lb_s = ast_s; memcpy(ast_lh, ast_h, sizeof(ast_lh)); }
+    }
+    gc_block = off;
+    gc_next_block = off + 0x20 + per * ast_nch;
+    gc_len = (int)(ast_codec ? per / 2 * 2 : per / 9 * 9);
+    gc_pos = 0;
+    return 1;
+}
+
 /* produit jusqu'a 'max' echantillons stereo ; 0 = fin */
 static int gc_decode(s16 *L, s16 *R, int max) {
     int n = 0;
-    s16 a[14], b[14];
+    s16 a[16], b[16];
     while (n + 28 <= max) {
         if (gc_kind == GC_ADP) {
             u8 f[32];
-            if (ftell(gc_f[0]) >= gc_end || fread(f, 1, 32, gc_f[0]) != 32) break;
+            if (gcf_tell(&gc_f[0]) >= gc_end || gcf_read(&gc_f[0], f, 32) != 32) break;
             for (int i = 0; i < 28; i++) {
                 L[n + i] = adp_sample(f[4 + i] & 15, f[0], adp_h[0]);
                 R[n + i] = adp_sample(f[4 + i] >> 4, f[1], adp_h[1]);
@@ -274,22 +416,63 @@ static int gc_decode(s16 *L, s16 *R, int max) {
         }
         if (gc_kind == GC_DSP) {
             u8 f[2][8];
-            long pos = ftell(gc_f[0]);
+            long pos = gcf_tell(&gc_f[0]);
             if (pos + 8 > gc_end) {
                 if (gc_loop >= 0 && gc_loops_done < 20) {          /* on reboucle (fondu de fin) */
                     gc_loops_done++;
-                    for (int c = 0; c < gc_ch; c++) fseek(gc_f[c], gc_loop, SEEK_SET);
+                    for (int c = 0; c < gc_ch; c++) gcf_seek(&gc_f[c], gc_loop);
                     continue;
                 }
                 break;
             }
             int ok = 1;
-            for (int c = 0; c < gc_ch; c++) if (fread(f[c], 1, 8, gc_f[c]) != 8) ok = 0;
+            for (int c = 0; c < gc_ch; c++) if (gcf_read(&gc_f[c], f[c], 8) != 8) ok = 0;
             if (!ok) break;
             dsp_frame(f[0], &gc_d[0], a);
             if (gc_ch == 2) dsp_frame(f[1], &gc_d[1], b);
             for (int i = 0; i < 14; i++) { L[n + i] = a[i]; R[n + i] = gc_ch == 2 ? b[i] : a[i]; }
             n += 14;
+            continue;
+        }
+        if (gc_kind == GC_AST) {                                  /* v207 */
+            if (ast_s >= ast_end_s || gc_pos >= gc_len) {
+                if (ast_s < ast_end_s && ast_block(gc_next_block)) continue;
+                if (ast_loop_s >= 0 && ast_lb >= 0 && gc_loops_done < 20) {   /* boucle : bloc retenu, puis on saute au bon echantillon */
+                    gc_loops_done++;
+                    memcpy(ast_h, ast_lh, sizeof(ast_h));
+                    ast_s = ast_lb_s;
+                    if (!ast_block(ast_lb)) break;
+                    s16 tmp[16];
+                    while (ast_s < ast_loop_s && gc_pos < gc_len) {
+                        if (ast_codec) { long d = ast_loop_s - ast_s, room = (gc_len - gc_pos) / 2; if (d > room) d = room; gc_pos += (int)d * 2; ast_s += d; }
+                        else {
+                            if (ast_s + 16 > ast_loop_s) break;
+                            for (int c = 0; c < gc_ch; c++) afc_frame(gc_buf[c] + gc_pos, ast_h[c], tmp);
+                            gc_pos += 9; ast_s += 16;
+                        }
+                    }
+                    continue;
+                }
+                break;
+            }
+            if (ast_codec) {                                      /* PCM 16 bits */
+                int k = 0;
+                while (k < 16 && gc_pos < gc_len && ast_s < ast_end_s) {
+                    s16 l = (s16)rb16(gc_buf[0] + gc_pos), r = gc_ch == 2 ? (s16)rb16(gc_buf[1] + gc_pos) : l;
+                    L[n + k] = l; R[n + k] = r;
+                    gc_pos += 2; ast_s++; k++;
+                }
+                n += k;
+                continue;
+            }
+            afc_frame(gc_buf[0] + gc_pos, ast_h[0], a);
+            if (gc_ch == 2) afc_frame(gc_buf[1] + gc_pos, ast_h[1], b);
+            gc_pos += 9;
+            int k = 16;
+            if (ast_s + k > ast_end_s) k = (int)(ast_end_s - ast_s);
+            for (int i = 0; i < k; i++) { L[n + i] = a[i]; R[n + i] = gc_ch == 2 ? b[i] : a[i]; }
+            ast_s += 16;
+            n += k;
             continue;
         }
         /* HPS */
@@ -482,6 +665,7 @@ static int gme_start(int track, tags_t *tg) {
     return 1;
 }
 
+static void jb_tags(const char *path, tags_t *tg);       /* jukebox.c */
 static int retro_open(const char *path, int fmt, tags_t *tg, const char **err) {
     retro_close();
     retro_pos = 0;
@@ -528,7 +712,8 @@ static int retro_open(const char *path, int fmt, tags_t *tg, const char **err) {
         return 1;
     }
     if (!gc_open(path, tg, err)) return 0;
-    snprintf(tg->artist, sizeof(tg->artist), "GameCube (%s)", gc_kind == GC_DSP ? "DSP" : gc_kind == GC_HPS ? "HPS" : "ADP");
+    snprintf(tg->artist, sizeof(tg->artist), "GameCube (%s)", gc_kind == GC_DSP ? "DSP" : gc_kind == GC_HPS ? "HPS" : gc_kind == GC_AST ? "AST" : "ADP");
+    jb_tags(path, tg);                                        /* v207 : musique d'un jeu : le jeu en album */
     return 1;
 }
 
@@ -586,10 +771,10 @@ static int retro_quick_duration(const char *path) {
     if (!dot) return -1;
     if (!strcasecmp(dot, ".dsp")) {
         u8 h[16];
-        FILE *f = fopen(path, "rb");
-        if (!f) return -1;
-        int ok = fread(h, 1, 16, f) == 16;
-        fclose(f);
+        gcf_t f;
+        if (!gcf_open(&f, path)) return -1;
+        int ok = gcf_read(&f, h, 16) == 16;
+        gcf_close(&f);
         if (!ok) return -1;
         u32 ns = rb32(h), sr = rb32(h + 8);
         if (sr < 4000 || sr > 96000) return -1;
@@ -634,6 +819,8 @@ static int retro_subsong_step_u(int d) {
 /* --- liste de l'onglet --- */
 static s16 retro_list[MAX_FILES];
 static int retro_n = 0, retro_sel = 0;
+static const char *jb_game_name(void);               /* jukebox.c */
+static char jb_filter[NAME_LEN];                      /* v207 : musiques d'un jeu (jukebox.c) ; vide = SD:/retro */
 
 static int rz_n = 0;                                  /* v26 : musiques sorties des .zip au dernier passage */
 static void retro_rescan(void) {
@@ -641,6 +828,10 @@ static void retro_rescan(void) {
     if (rz_n) { char b[96]; snprintf(b, sizeof(b), "%d musiques sorties des archives .zip", rz_n); lib_note(b); rz_n = 0; }
     for (int k = 0; k < nfiles; k++) {
         if (!is_retro[k]) continue;
+        if (jb_iso_path(names[k])) {                      /* v207 : musique dans un jeu : seulement dans la vue de ce jeu */
+            size_t fl = strlen(jb_filter);
+            if (!fl || strncmp(names[k], jb_filter, fl) || names[k][fl] != '#') continue;
+        } else if (jb_filter[0]) continue;
         int n = (int)strlen(names[k]);
         char other[NAME_LEN];
         if (n > 5 && !strcasecmp(names[k] + n - 4, ".dsp") && (names[k][n - 5] == 'R' || names[k][n - 5] == 'r') &&
@@ -663,7 +854,8 @@ static void retro_input(u32 down, u32 nav, int fire) {
     }
     if ((down & PAD_BUTTON_A) && retro_n > 0) { int k = retro_list[retro_sel]; queue_build(k); start_track(k); }
     if (down & PAD_BUTTON_B) { stop_track(); stop_station(); track_err = NULL; err_msg[0] = 0; }
-    if ((down & PAD_BUTTON_X) && sd_ok) { music_rescan(); retro_rescan(); }
+    if ((down & PAD_BUTTON_X) && jb_filter[0]) { jb_filter[0] = 0; retro_sel = 0; retro_rescan(); }   /* v207 : sortir des musiques du jeu */
+    else if ((down & PAD_BUTTON_X) && sd_ok) { music_rescan(); retro_rescan(); }
     if ((down & PAD_BUTTON_Y) && src == SRC_FILE && playing) paused = !paused;
 }
 
@@ -672,7 +864,8 @@ static void retro_pump(void) {}
 static void draw_list_retro(void) {
     char buf[NAME_LEN], t[32];
     draw_panel(11, 73, 271, 385);
-    snprintf(buf, sizeof(buf), "%d", retro_n);
+    if (jb_filter[0]) { char g[64]; snprintf(g, sizeof(g), "%s", jb_game_name()); fit_text(F_SMALL, g, 150, buf, sizeof(buf)); size_t l = strlen(buf); snprintf(buf + l, sizeof(buf) - l, " (%d)", retro_n); }   /* v207 */
+    else snprintf(buf, sizeof(buf), "%d", retro_n);
     draw_tabs(buf);
     int start = retro_sel - MUSIC_ROWS / 2;
     if (start > retro_n - MUSIC_ROWS) start = retro_n - MUSIC_ROWS;
@@ -708,11 +901,12 @@ static void draw_list_retro(void) {
         gx_text1(F_MED, 30, 138, "Aucune musique r\xC3\xA9tro", RGBA(255, 205, 110, 255));
         gx_text1(F_SMALL, 30, 160, "Copie tes fichiers dans SD:/retro :", RGBA(190, 180, 235, 255));
         gx_text1(F_SMALL, 30, 178, "SPC, NSF, GBS, VGM/VGZ, HES, KSS, AY, SAP,", RGBA(190, 180, 235, 255));
-        gx_text1(F_SMALL, 30, 196, "DSP, HPS, ADP (GameCube),", RGBA(190, 180, 235, 255));
+        gx_text1(F_SMALL, 30, 196, "DSP, HPS, ADP, AST (GameCube),", RGBA(190, 180, 235, 255));
         gx_text1(F_SMALL, 30, 214, "MOD, XM, IT, S3M (modules), MIDI (.mid)", RGBA(190, 180, 235, 255));
     }
     gx_rect(25, 430, 241, 1, RGBA(76, 52, 150, 200));
     if (src == SRC_FILE && playing && gme && gme_tracks > 1) snprintf(buf, sizeof(buf), "Piste %d / %d   (L / R)", gme_track + 1, gme_tracks);
+    else if (jb_filter[0]) snprintf(buf, sizeof(buf), "X : toutes les musiques r\xC3\xA9tro");   /* v207 */
     else snprintf(buf, sizeof(buf), "%s", playing && cur_track >= 0 && is_retro[cur_track] ? retro_sys : "Musiques de jeux vid\xC3\xA9o");
     gx_text1(F_SMALL, 26, 447, buf, RGBA(170, 155, 225, 255));
     if (retro_n > MUSIC_ROWS) {
@@ -729,7 +923,7 @@ static void draw_list_retro(void) {
 static u32 rz_le32(const u8 *p) { return (u32)p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24; }
 static u16 rz_le16(const u8 *p) { return (u16)(p[0] | p[1] << 8); }
 /* v201 : decompresse une archive .zip dans dir (cree) ; music : seulement les musiques, a plat (SD:/retro) ;
-   sinon tous les fichiers avec leurs dossiers (« .. » et noms interdits nettoyes). -> nombre de fichiers ecrits ;
+   sinon tous les fichiers avec leurs dossiers (".." et noms interdits nettoyes). -> nombre de fichiers ecrits ;
    *skipped : fichiers sautes (trop gros pour la memoire, methode inconnue) */
 static int zip_extract(const char *zpath, const char *dir, int music, int *skipped) {
     if (skipped) *skipped = 0;
@@ -768,7 +962,7 @@ static int zip_extract(const char *zpath, const char *dir, int music, int *skipp
         if (!music && (!strcmp(b, ".DS_Store") || !strncmp(name, "__MACOSX/", 9))) continue;
         u32 lim = music ? (24u << 20) : (12u << 20);
         if ((meth != 0 && meth != 8) || usz > lim || csz > lim) { if (skipped) (*skipped)++; continue; }
-        /* chemin de sortie : dossiers de l'archive (sans « .. ») */
+        /* chemin de sortie : dossiers de l'archive (sans "..") */
         char op[NAME_LEN];
         int ol = snprintf(op, sizeof(op), "%s", dir);
         if (!music) {

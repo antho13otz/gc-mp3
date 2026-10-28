@@ -492,6 +492,7 @@ static void gs_draw_fiche(void) {
         x = gs_key(x, 453, "Y", "R\xC3\xA9glages", RGBA(235, 235, 245, 255));
         x = gs_key(x, 453, "L", "Favori", RGBA(255, 210, 90, 255));
         x = gs_key(x, 453, "R", "Analyse", RGBA(235, 235, 245, 255));
+        x = gs_key(x, 453, "\xE2\x86\x93", "Musiques", RGBA(150, 200, 255, 255));   /* v207 : jukebox.c */
     }
     gs_key(x, 453, "B", "Retour", RGBA(240, 110, 110, 255));
     nv_raw = 0;

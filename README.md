@@ -17,6 +17,7 @@ météo et télécommande sur téléphone, dans une seule application.
   GC Loader, cartes mémoire virtuelles, cheats, profils de joueurs.
 - **Photos, vidéos, web, podcasts, rétro** (NSF, SPC…), **infos** (météo, actualités, réveil), **fichiers**
   (carte SD et réseau SMB / FTP), **téléphone** (télécommande et envoi de fichiers par QR code).
+- **Jukebox des jeux** (musiques lues dans tes images .iso), **globe des radios** en 3D, **compagnon** qui grandit avec ta musique.
 - **Assistant IA** (onglet WEB) : questions à Claude, à un service compatible OpenAI ou à Ollama sur un PC (clé API à toi).
 - Vidéo : 480i, 480p, 576i et 576p (50 Hz), 4:3 / 16:9. Français / anglais. Fonctionne aussi dans Dolphin.
 

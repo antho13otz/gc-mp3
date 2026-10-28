@@ -56,6 +56,7 @@ static int gs_step(int d);
 static int ld_ready(void);
 static int ld_build(void);                                 /* (lanceur.c) */
 static gcg_t *gl = NULL;
+static void jb_open_game(int g);                  /* v207 : jukebox.c */
 static int gl_n = 0, gl_scanned = 0, gl_on = 0, gl_sel = 0, gl_detail = 0;
 static char gl_msg[160];
 static u64 gl_msg_t = 0;
@@ -908,6 +909,7 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         if (down & PAD_BUTTON_X && gl_n) gl_open_cheats(gl_sel);
         if ((down & PAD_BUTTON_Y) && gl_n) indigo_game_open(gl[gl_sel].id, gl[gl_sel].title);   /* v35 : reglages du jeu */
         if ((down & PAD_TRIGGER_R) && gl_n) nat_run(gl_sel);          /* v50 : analyse native (natif.c) */
+        if ((down & PAD_BUTTON_DOWN) && gl_n) { jb_open_game(gl_sel); return; }   /* v207 : musiques du jeu (jukebox.c) */
         if ((down & PAD_TRIGGER_L) && gl_n) {                         /* v76 : favori */
             gl[gl_sel].fav = !gl[gl_sel].fav;
             gl_note(gl[gl_sel].fav ? "Ajout\xC3\xA9 aux favoris" : "Retir\xC3\xA9 des favoris");
@@ -1546,9 +1548,9 @@ static void draw_gclib_main(void) {
         }
         scr_viewport();
         if (now_ms() - gl_msg_t < 6000) { char m[200]; fit_text(F_SMALL, gl_msg, 586, m, sizeof(m)); gx_text1(F_SMALL, 30, 404, m, RGBA(255, 210, 120, 255)); }
-        static const char *const k[] = { "A", "X", "Y", "R", "B" };
-        static const char *const l[] = { "LANCER", "CHEATS", "R\xC3\x89GLAGES", "ANALYSE", "RETOUR" };
-        draw_legend_keys(k, l, 5);
+        static const char *const k[] = { "A", "X", "Y", "R", "\xE2\x86\x93", "B" };
+        static const char *const l[] = { "LANCER", "CHEATS", "R\xC3\x89GLAGES", "ANALYSE", "MUSIQUES", "RETOUR" };
+        draw_legend_keys(k, l, 6);
         if (gl_launch_sel >= 0) gl_draw_launch_box();          /* confirmation (v196 : une fonction) */
         snprintf(buf, sizeof(buf), "%d / %d   (gauche / droite)", gl_sel + 1, gl_n);
         gx_text_r(F_SMALL, 614, 396, buf, RGBA(150, 135, 210, 255));

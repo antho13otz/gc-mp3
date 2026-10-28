@@ -24,6 +24,28 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v207 — jukebox des jeux, globe des radios, compagnon
+- **Jukebox des musiques de tes jeux GameCube** : dans la fiche d'un jeu (onglet JEUX), **bas** sur la croix.
+  Les musiques rangées dans l'image du jeu (.iso, .gcm, .ciso) s'affichent dans l'onglet RÉTRO, avec le jeu en
+  album, et se jouent directement depuis l'image (rien n'est copié). Formats : **AST** (nouveau : Mario Kart
+  Double Dash, Zelda Twilight Princess…), **HPS** (Smash Melee, Kirby Air Ride), **DSP** (paires _L/_R) et
+  **ADP**. X dans RÉTRO : retour à toutes les musiques rétro. Les jeux dont la musique est jouée note par note
+  (séquences) n'ont rien à lire : un message le dit. Les .ast se lisent aussi depuis SD:/retro.
+- **Globe des radios** : onglet RADIO > « Globe des radios (le monde) ». La Terre en 3D ; chaque point lumineux
+  est une radio (environ 4000 de l'annuaire radio-browser, placées à leur ville), les continents se dessinent
+  avec elles. Stick : tourner ; stick C : zoom ; A : écouter la radio visée ; L / R : les autres radios du même
+  endroit ; X : une radio au hasard (le globe y voyage puis elle joue) ; Y : la garder dans tes radios.
+  Les stations sont gardées sur la carte SD (relues chaque mois) ; lecture de l'annuaire par petits morceaux,
+  sans figer l'écran.
+- **Mon compagnon** (START > Outils) : un petit être qui éclôt puis grandit avec ce que tu écoutes (œuf, bébé,
+  petit, grand, légende), prend la couleur et l'accessoire de ce que tu écoutes le plus (casque : musique,
+  antenne : radio, lunettes pixel : rétro, manette : musiques de jeux, nœud papillon : podcasts), danse sur la
+  musique en cours, dort la nuit et s'ennuie après des jours sans musique. A : caresser ; X : le renommer.
+  Une bulle prévient quand il éclot ou grandit. Gardé dans SD:/gc-mp3/reglages/compagnon.txt.
+- Essais (simulateur) : faux jeu avec AST, HPS, DSP en paire et ADP (`tools/pc-sim/demo-jukebox.py`), son
+  vérifié (bonnes notes à gauche et à droite) ; globe avec un faux annuaire de 3600 radios ; AddressSanitizer
+  sans erreur. Pas encore essayé avec de vraies images de jeux ni le vrai annuaire depuis la GameCube.
+
 ## Nouveautés v206 — assistant IA
 - **Assistant IA** : onglet WEB > accueil > « Assistant IA » (page `gc:ia`). Tu poses une question (clavier, ou
   depuis le téléphone : onglet TÉLÉPHONE > page `/ia`), la réponse s'affiche comme une page (titres, listes, gras,
