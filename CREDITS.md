@@ -40,3 +40,4 @@ GC Station a été développé avec l'aide d'une IA (Claude, d'Anthropic).
 
 Les noms GameCube et Nintendo appartiennent à Nintendo ; GC Station n'est ni fait ni approuvé par Nintendo.
 Aucun jeu n'est fourni : uniquement des copies de tes propres disques.
+- **Natural Earth** (www.naturalearthdata.com) : carte du monde du globe des radios (terres et lacs 1:50m), domaine public.

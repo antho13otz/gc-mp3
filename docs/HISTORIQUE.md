@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v208 — carte du monde sur le globe, globe plus fluide
+- **Le globe des radios a une vraie carte du monde** : continents et lacs (Natural Earth 1:50m, domaine public,
+  `source/globe_map.h` fait par `tools/carte/globe_map.py`), éclairés de face, avec les radios en points dorés
+  par-dessus. La carte pèse 62 Ko dans le programme (1 Mo une fois ouverte, rendu à la fermeture).
+- Plus fluide, mesuré en 576p 50 Hz (simulateur) : la carte et les stations gardées sur la carte SD sont lues
+  par un fil à part (ouverture : 239 ms figés avant, plus rien maintenant) ; grille et méridiens calculés une
+  seule fois ; radios visées trouvées pendant le dessin des points ; étoiles dessinées d'un coup ; l'espace
+  n'est plus dessiné quand la Terre remplit l'écran. Dessin du globe : 5,4 ms par image en moyenne (6,5 avant),
+  99,85 % des images à l'heure en tournant et en zoomant.
+
 ## Nouveautés v207 — jukebox des jeux, globe des radios, compagnon
 - **Jukebox des musiques de tes jeux GameCube** : dans la fiche d'un jeu (onglet JEUX), **bas** sur la croix.
   Les musiques rangées dans l'image du jeu (.iso, .gcm, .ciso) s'affichent dans l'onglet RÉTRO, avec le jeu en

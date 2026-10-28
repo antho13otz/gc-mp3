@@ -7447,7 +7447,7 @@ static void draw(void) {
     DP("draw_crash_notice", draw_crash_notice());
     DP("draw_update_notice", draw_update_notice());
     if (!gs_active()) DP("draw_tab_strip", draw_tab_strip());
-    if (tl_screen) draw_tools();                   /* v35 : outils */
+    if (tl_screen) DP("outils", draw_tools());     /* v35 : outils */
     if (ic_on) draw_indigo_cfg();                  /* v32 : reglages d'un jeu (par-dessus l'onglet) */
     if (menu_open) { au_menu_begin(); DP("menu", draw_menu()); au_menu_end(); }   /* v103 : Aurore : le menu s'ouvre en douceur */
     else au_menu_closed();
