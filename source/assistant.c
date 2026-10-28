@@ -269,6 +269,16 @@ static void ia_md(sbuf_t *s, const char *t) {
 static void ia_render(int mode, int to_bottom) {
     ia_load_cfg();
     sbuf_t s = { 0 };
+    if (cb_host_integrated())                              /* v214 : style Aurore : la page en sombre, comme GC Station */
+        sb_raw(&s, "<html><head><title>Assistant IA</title><style>"
+               "body{background:#0c0a18;color:#d6d4e6;margin:0;padding:8px}h1{font-size:22px;margin:4px 0;color:#ffffff}a{color:#ff7ac4}"
+               ".info{color:#8a88a8;font-size:12px}.toi{background:#2b1742;color:#ffffff;border-radius:10px;padding:6px 10px;margin:10px 0 4px 60px}"
+               ".ia{background:#16132b;border:1px solid #2e2a52;border-radius:10px;padding:2px 12px;margin:4px 40px 10px 0}"
+               ".err{background:#3a1222;border:1px solid #6e2c40;color:#ffb4bf;border-radius:10px;padding:6px 10px;margin:4px 0 10px}"
+               ".qui{font-size:12px;color:#ff7ac4;font-weight:bold}pre{background:#05040c;color:#e7e3ff;padding:8px;border-radius:6px}"
+               "code{background:#1f1b38}pre code{background:none}.attente{color:#a88ae0;font-style:italic;margin:8px 0}"
+               "form{margin:12px 0}</style></head><body>", -1);
+    else
     sb_raw(&s, "<html><head><title>Assistant IA</title><style>"
                "body{background:#f4f2fb;margin:0;padding:8px}h1{font-size:22px;margin:4px 0}"
                ".info{color:#6b6880;font-size:12px}.toi{background:#e3dcff;border-radius:10px;padding:6px 10px;margin:10px 0 4px 60px}"

@@ -1996,14 +1996,20 @@ void page_draw(Page *p, float x, float y, float w, float h, int hover_link, int 
         case BOX_INPUT: {
             Field *f = &p->fields[b->field];
             bool hov = (b->field == hover_field);
+            const bool dk = au_style() && luminance(p->bg) < 0.5f;     /* GC Station v214 : Aurore, page sombre */
+            if (dk) {
+                gfx_rrect(bx, by, b->w, b->h, 8, rgba(255, 255, 255, 16));
+                gfx_rrect_outline(bx, by, b->w, b->h, 8, hov ? 2.0f : 1.0f, hov ? t->accent : rgba(255, 255, 255, 50));
+            } else {
             gfx_rrect(bx, by, b->w, b->h, 6, rgba(255, 255, 255, 255));
             gfx_rrect_outline(bx, by, b->w, b->h, 6, hov ? 2.5f : 1.5f, hov ? t->accent : rgba(150, 150, 160, 255));
+            }
             char shown[256];
             int n = (int)strlen(f->value);
             const char *txt = shown;
-            Color col = rgba(20, 20, 28, 255);
+            Color col = dk ? rgba(240, 238, 250, 255) : rgba(20, 20, 28, 255);
             for (int k = 0; k <= n; k++) shown[k] = (f->type == FIELD_PASSWORD && k < n) ? '*' : f->value[k];
-            if (!n && f->label[0]) { txt = f->label; n = (int)strlen(f->label); col = rgba(140, 140, 150, 255); }
+            if (!n && f->label[0]) { txt = f->label; n = (int)strlen(f->label); col = dk ? rgba(150, 148, 176, 255) : rgba(140, 140, 150, 255); }
             clip_inter(x, y, w, h, bx + 4, by, b->w - 8, b->h);
             gfx_text(FONT_BODY, b->size, bx + 7, by + 5, col, txt, n);
             gfx_set_clip(x, y, w, h);
@@ -2012,21 +2018,29 @@ void page_draw(Page *p, float x, float y, float w, float h, int hover_link, int 
         case BOX_SUBMIT:
         case BOX_SELECT: {
             bool hov = (b->field == hover_field);
+            const bool dk = au_style() && luminance(p->bg) < 0.5f;     /* GC Station v214 : Aurore : verre, pointe en rose -> bleu */
+            Color ink = dk ? rgba(255, 255, 255, 255) : rgba(30, 30, 40, 255);
+            if (dk) {
+                gfx_rrect(bx, by, b->w, b->h, b->h * 0.5f, rgba(255, 255, 255, 18));
+                gfx_rrect_outline(bx, by, b->w, b->h, b->h * 0.5f, 1.0f, rgba(255, 255, 255, 50));
+                if (hov) au_sel(bx, by, b->w, b->h, b->h * 0.5f, 1.0f);
+            } else {
             if (hov) gfx_rrect(bx - 3, by - 3, b->w + 6, b->h + 6, 10, color_alpha(t->accent, 0.5f));
             gfx_rrect_vgrad(bx, by, b->w, b->h, 8, rgba(250, 250, 252, 255), rgba(216, 218, 226, 255));
             gfx_rrect_outline(bx, by, b->w, b->h, 8, 1.2f, rgba(140, 142, 156, 255));
+            }
             if (b->type == BOX_SUBMIT) {
                 /* centred, and never drawn outside the button */
                 float lw = gfx_text_width(FONT_UI, b->size, p->arena + b->text, b->len);
                 float tx = bx + fmaxf(6, (b->w - lw) * 0.5f);
                 float ty = by + (b->h - gfx_line_height(FONT_UI, b->size)) * 0.5f;
                 clip_inter(x, y, w, h, bx + 3, by, b->w - 6, b->h);
-                gfx_text(FONT_UI, b->size, tx, ty, rgba(30, 30, 40, 255), p->arena + b->text, b->len);
+                gfx_text(FONT_UI, b->size, tx, ty, ink, p->arena + b->text, b->len);
                 gfx_set_clip(x, y, w, h);
             } else {
-                gfx_text(FONT_BODY, b->size, bx + 10, by + 5, rgba(30, 30, 40, 255), p->arena + b->text, b->len);
+                gfx_text(FONT_BODY, b->size, bx + 10, by + 5, ink, p->arena + b->text, b->len);
                 float ax = bx + b->w - 18, ay = by + b->h * 0.5f;
-                gfx_tri(ax, ay - 3, ax + 10, ay - 3, ax + 5, ay + 4, rgba(80, 80, 96, 255));
+                gfx_tri(ax, ay - 3, ax + 10, ay - 3, ax + 5, ay + 4, dk ? rgba(220, 218, 236, 255) : rgba(80, 80, 96, 255));
             }
             break;
         }

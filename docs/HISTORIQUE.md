@@ -39,6 +39,8 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
 - **Réglages du navigateur, clavier, favoris, menus déroulants, messages, aide** : tous en Aurore (verre,
   pastilles en dégradé, interrupteurs roses). Le chargement d'une page montre des voiles de lumière au lieu de la
   scène sous-marine. Dans les réglages, Thème et Marge sont cachés (c'est GC Station qui décide).
+- Pages sombres (assistant IA, musique libre…) : la page de l'assistant IA passe en sombre, et sur une page sombre les
+  champs de saisie et les boutons des formulaires sont en verre (bouton pointé : pastille rose → bleu).
 - Les autres styles de GC Station gardent Cube Browser en plein écran ; son thème peut aussi être « Aurore »
   (réglages du navigateur > Affichage > Thème).
 
