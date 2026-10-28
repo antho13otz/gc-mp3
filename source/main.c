@@ -222,6 +222,7 @@ static void gb_kb_done(const char *t);                   /* v213 : globe.c (rech
 static void gb_prefetch(void);
 static void gb_bg(void);
 static void web_legend(void);                          /* v214 : web_cb.c */
+static void mem_tick(void);                            /* v220 : memview.c */
 static void pet_rename(const char *t);                   /* v207 : pet.c */
 static void saver_tableau(float t);
 static char radio_last_url[URL_MAX], radio_last_name[48];
@@ -14281,6 +14282,7 @@ static void music_pump(void) {
 #include "tools.c"                             /* v35 : cartes memoire, applis, recents, infos */
 #include "globe.c"                             /* v207 : globe des radios */
 #include "pet.c"                               /* v207 : le compagnon */
+#include "memview.c"                           /* v220 : Outils > Memoire en direct */
 #include "gspace.c"                            /* v196 : espace Jeux GameCube (vitrine 3D, filtres, applis) */
 #include "jeux_cfg.c"                          /* v75 : reglages des jeux */
 #include "igr.c"                               /* v39 : A + Z + START en jeu -> GC-MP3 */
@@ -14507,6 +14509,7 @@ int main(int argc, char **argv) {
 
         pet_tick();                                         /* v207 : le compagnon se nourrit de ce qui joue (pet.c) */
         gb_bg();                                            /* v213 : radios du globe chargees en fond (globe.c) */
+        mem_tick();                                         /* v220 : memoire (memview.c) */
         /* activite de la manette (economiseur d'ecran) */
         int sx = PAD_SubStickX(0), sy = PAD_SubStickY(0), mx = PAD_StickX(0), my = PAD_StickY(0);
         int moved = abs(sx) > 40 || abs(sy) > 40 || abs(mx) > 40 || abs(my) > 40;

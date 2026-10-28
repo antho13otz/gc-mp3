@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v220 — mémoire en direct
+- **START > Réglages > Outils > Mémoire en direct** : la mémoire libre, le plus grand bloc d'un seul tenant
+  et la mémoire utilisée, mis à jour chaque seconde, avec une courbe des 2 dernières minutes.
+- Dit si la relance directe après une mise à jour est possible (il faut un bloc de 6 Mo) ou si elle passera
+  par le lanceur de secours.
+- Pour chaque onglet visité, le moins de mémoire libre vu : pratique pour trouver ce qui en prend.
+
 ## Nouveautés v219 — relance après une mise à jour (par le lanceur)
 - Même par morceaux (v217), le nouveau programme (près de 6 Mo) ne tenait pas toujours dans la mémoire libre de
   GC Station en marche : « Installée : relance impossible ici (Lecture du .dol impossible) ». La relance essaie

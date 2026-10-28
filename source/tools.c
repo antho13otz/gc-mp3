@@ -8,12 +8,15 @@
 // Chaque outil s'ouvre en fenetre par-dessus l'ecran (tl_screen).
 
 static void indigo_game_open(const char *id, const char *title);
-enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV, TL_SAVES, TL_CATA, TL_SUCCES, TL_SOIREE, TL_GUIDE, TL_PROFILS, TL_RECAP, TL_GLOBE, TL_PET };
+enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV, TL_SAVES, TL_CATA, TL_SUCCES, TL_SOIREE, TL_GUIDE, TL_PROFILS, TL_RECAP, TL_GLOBE, TL_PET, TL_MEM };
 static void pet_input(u32 down, u32 nav, int fire);    /* v207 : pet.c */
 static void draw_pet(void);
 static void pet_open(void);
 static void gb_input(u32 down, u32 nav, int fire);     /* v207 : globe.c */
 static void draw_globe(void);
+static void mem_input(u32 down, u32 nav, int fire);   /* v220 : memview.c */
+static void draw_mem(void);
+static void mem_open(void);
 static void rcp_input(u32 down, u32 nav, int fire);   /* v191 (recap.c) */
 static void rcp_draw(void);
 static void rcp_open(void);
@@ -1547,6 +1550,7 @@ static void tools_input(u32 down, u32 nav, int fire) {
     case TL_RECAP: rcp_input(down, nav, fire); break;
     case TL_GLOBE: gb_input(down, nav, fire); break;     /* v207 : globe.c */
     case TL_PET: pet_input(down, nav, fire); break;
+    case TL_MEM: mem_input(down, nav, fire); break;   /* v220 : memview.c */
     }
 }
 static void draw_tools(void) {
@@ -1567,6 +1571,7 @@ static void draw_tools(void) {
     case TL_RECAP: rcp_draw(); break;
     case TL_GLOBE: draw_globe(); break;
     case TL_PET: draw_pet(); break;
+    case TL_MEM: draw_mem(); break;
     }
 }
 
@@ -1779,10 +1784,10 @@ static void draw_soiree(void) {
     tl_legend(k, lb, 2);
 }
 /* ---------- section "Outils" de la page Reglages ---------- */
-enum { TO_RECENT, TO_PROFILS, TO_RECAP, TO_PET, TO_SUCCES, TO_SOIREE, TO_GUIDE, TO_GAMES, TO_CATA, TO_CHEATS, TO_VCARD, TO_SAVES, TO_BACKUP, TO_RESTORE, TO_INFO, TO_QUIT, TO_COUNT };
+enum { TO_RECENT, TO_PROFILS, TO_RECAP, TO_PET, TO_SUCCES, TO_SOIREE, TO_GUIDE, TO_GAMES, TO_CATA, TO_CHEATS, TO_VCARD, TO_SAVES, TO_BACKUP, TO_RESTORE, TO_INFO, TO_MEM, TO_QUIT, TO_COUNT };
 static const char *const to_names[TO_COUNT] = { "Derniers jeux lanc\xC3\xA9s", "Profils de joueurs", "Ton r\xC3\xA9" "cap", "Mon compagnon", "Succ\xC3\xA8s", "Mode soir\xC3\xA9" "e", "Guide de d\xC3\xA9marrage",
     "Mes jeux, applis et cartes m\xC3\xA9moire", "Catalogue d'applis (Internet)", "Cheats (\xC3\xA9" "diteur)", "Cartes m\xC3\xA9moire virtuelles (Pulse)", "Historique des sauvegardes",
-    "Sauvegarder tous les r\xC3\xA9glages", "Restaurer les r\xC3\xA9glages", "Infos console", "Quitter GC Station" };
+    "Sauvegarder tous les r\xC3\xA9glages", "Restaurer les r\xC3\xA9glages", "Infos console", "M\xC3\xA9moire en direct", "Quitter GC Station" };
 static const char *const to_help[TO_COUNT] = {
     "Relancer un jeu en un clic.",
     "Un profil par joueur : sa carte m\xC3\xA9moire, ses favoris, ses succ\xC3\xA8s, son temps de jeu, sa limite par jour.",
@@ -1799,6 +1804,7 @@ static const char *const to_help[TO_COUNT] = {
     "R\xC3\xA9glages, radios, favoris, listes, podcasts... dans SD:/gc-mp3/reglages/gc-mp3-sauvegarde.txt",
     "Remet les r\xC3\xA9glages de SD:/gc-mp3/reglages/gc-mp3-sauvegarde.txt (A deux fois pour confirmer).",
     "Version, vid\xC3\xA9o, m\xC3\xA9moire, carte SD, r\xC3\xA9seau.",
+    "M\xC3\xA9moire libre, plus grand bloc, courbe, et le minimum vu dans chaque onglet.",
     "Ouvre le menu de la GameCube (lecteur de disque). Bouton Reset = relancer GC Station" };
 static int to_sel = 0;
 static void tools_menu_input(u32 down, u32 nav, int fire) {
@@ -1828,6 +1834,7 @@ static void tools_menu_input(u32 down, u32 nav, int fire) {
     case TO_RECAP: rcp_open(); break;
     case TO_PET: pet_open(); break;
     case TO_INFO: info_open(); break;
+    case TO_MEM: mem_open(); break;
     case TO_QUIT: quit_requested = 1; break;
     case TO_GAMES: tab = TAB_GAMES; tab_enter(TAB_GAMES); gm_sel = GM_COUNT; break;
     case TO_CHEATS: cheats_open(); break;
