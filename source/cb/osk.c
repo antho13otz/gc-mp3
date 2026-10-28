@@ -16,6 +16,7 @@
 #define TEXT_MAX 512
 
 static bool active;
+static void finish(bool accepted);
 static char title[64];
 static char text[TEXT_MAX];
 static int len, caret, maxlen, mode, view_start;
@@ -59,6 +60,25 @@ void osk_open(const char *t, const char *initial, int maxl, int m, OskDone done,
 }
 
 bool osk_active(void) { return active; }
+
+/* GC Station : le telephone sert de clavier. osk_phone_get : 0 = ferme, 1 = texte, 2 = mot de passe (texte non donne) ;
+   osk_phone_set : remplace le texte (Latin-1), et valide si accept */
+int osk_phone_get(char *ttl, int tcap, char *out, int cap) {
+    if (!active) return 0;
+    snprintf(ttl, (size_t)tcap, "%s", title);
+    if (mode == OSK_PASSWORD) { if (cap > 0) out[0] = 0; return 2; }
+    snprintf(out, (size_t)cap, "%s", text);
+    return 1;
+}
+void osk_phone_set(const char *s, int accept) {
+    if (!active) return;
+    snprintf(text, sizeof(text), "%s", s);
+    if ((int)strlen(text) > maxlen) text[maxlen] = 0;
+    len = (int)strlen(text);
+    caret = len;
+    view_start = 0;
+    if (accept) finish(true);
+}
 
 static void insert(const char *s) {
     int n = (int)strlen(s);

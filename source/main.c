@@ -14479,7 +14479,7 @@ int main(int argc, char **argv) {
     boot_selfcheck();                        /* v76 : controle memoire / carte SD / duree */
     bt_save();
     if (boot_check[0]) lib_note(boot_check);
-    if (covers_auto) net_start_async();     /* reseau en fond, pour les pochettes */
+    if (covers_auto || phone_auto) net_start_async();   /* reseau en fond, pour les pochettes (v222 : et la telecommande lancee au demarrage) */
 
     AUDIO_Init(NULL);
     AUDIO_SetDSPSampleRate(AI_SAMPLERATE_48KHZ);

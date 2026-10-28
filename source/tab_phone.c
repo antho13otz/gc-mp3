@@ -29,7 +29,7 @@ static volatile int tp_json_cur = 0;
 static u64 tp_json_t = 0;
 
 /* commandes envoyees par la page */
-enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN, PC_MENU, PC_CHECK, PC_SET, PC_UPDATE, PC_SHOW, PC_SALON };   /* v142 : photo sur la tele, ecouter avec (Salon) */
+enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN, PC_MENU, PC_CHECK, PC_SET, PC_UPDATE, PC_SHOW, PC_SALON, PC_TYPE, PC_SHOWNAME };   /* v142 : photo sur la tele, ecouter avec (Salon) */
 static volatile u32 tp_keys = 0;                /* v142 : boutons de la manette du telephone (pris par la boucle) */
 static u8 *gl_cover_raw(int k, int *w, int *h, int *iw, int *ih, u32 *len);   /* (gclib.c) jaquette telle qu'elle est dans posters.pak */
 static int tl_screen;                                        /* (tools.c : 0 = aucun outil ouvert) */
@@ -56,6 +56,80 @@ static volatile long tp_free_mb = -1;
 static volatile u64 tp_up_t0 = 0;
 /* fourni par la pile reseau recompilee (tools/fast_net.py) ; absent sinon */
 extern const int gcmp3_tcp_wnd __attribute__((weak));
+
+/* v222 : le telephone sert de clavier (clavier de GC Station ou de Cube Browser ouvert sur la tele),
+   et une photo envoyee du telephone s'affiche tout de suite */
+static char tp_type_txt[600];
+static int tp_type_go = 0;
+static volatile int tp_type_busy = 0;
+static char tp_shown_name[NAME_LEN];
+static volatile int tp_shown_busy = 0;
+int osk_phone_get(char *title, int tcap, char *out, int cap);   /* (cb/osk.c) */
+void osk_phone_set(const char *latin1, int accept);
+const char *cb_current_url(void);                              /* (cb/browser.c) */
+static void tp_lat_utf8(const char *in, char *out, int cap) {      /* Latin-1 (Cube Browser) -> UTF-8 */
+    int o = 0;
+    for (const unsigned char *p = (const unsigned char *)in; *p && o < cap - 3; p++) {
+        if (*p < 0x80) out[o++] = (char)*p;
+        else { out[o++] = (char)(0xC0 | (*p >> 6)); out[o++] = (char)(0x80 | (*p & 0x3F)); }
+    }
+    out[o] = 0;
+}
+static void tp_utf8_lat(const char *in, char *out, int cap) {      /* UTF-8 -> Latin-1 (au-dela : ?) */
+    int o = 0;
+    const unsigned char *p = (const unsigned char *)in;
+    while (*p && o < cap - 1) {
+        u32 c = *p++;
+        if (c >= 0xC0) {
+            int n = c >= 0xF0 ? 3 : c >= 0xE0 ? 2 : 1;
+            c &= 0x3F >> n;
+            while (n-- && (*p & 0xC0) == 0x80) c = (c << 6) | (*p++ & 0x3F);
+        } else if (c >= 0x80) continue;
+        if (c == 0x2019 || c == 0x2018) c = '\'';               /* (apostrophe du telephone) */
+        else if (c == 0x201C || c == 0x201D) c = '"';
+        out[o++] = (char)(c < 256 ? c : '?');
+    }
+    out[o] = 0;
+}
+static const char *tp_kb_label(void) {
+    switch (kb_mode) {
+    case KB_URL: return "Adresse ou recherche";
+    case KB_SEARCH: return "Recherche sur le web";
+    case KB_ARCHIVE: return "Recherche sur archive.org";
+    case KB_FIELD: return "Champ de la page";
+    case KB_RADIO: return "Chercher une radio";
+    case KB_PODCAST: return "Chercher un podcast";
+    case KB_CITY: return "Ville de la m\xC3\xA9t\xC3\xA9o";
+    case KB_RENAME: return "Nouveau nom";
+    case KB_MKDIR: return "Nouveau dossier";
+    case KB_LIBFIND: return "Chercher dans la musique";
+    case KB_PLNAME: return "Nom de la liste";
+    case KB_PROFILE: return "Nom du profil";
+    case KB_PETNAME: return "Nom du compagnon";
+    case KB_GLOBE: return "Chercher sur le globe";
+    default: return "Texte";
+    }
+}
+static void tp_type_apply(void) {
+    if (kb_open) {
+        snprintf(kb_text, sizeof(kb_text), "%s", tp_type_txt);
+        int l = (int)strlen(kb_text);
+        if (l == (int)sizeof(kb_text) - 1) while (l > 0 && ((unsigned char)kb_text[l - 1] & 0xC0) == 0x80) kb_text[--l] = 0;   /* (lettre coupee) */
+        if (l > 0 && (unsigned char)kb_text[l - 1] >= 0xC0) kb_text[--l] = 0;
+        kb_cur = l;
+        if (tp_type_go) kb_validate();
+        return;
+    }
+    char t[64], lat[520];
+    if (tab == TAB_WEB && osk_phone_get(t, sizeof(t), lat, sizeof(lat))) {
+        tp_utf8_lat(tp_type_txt, lat, sizeof(lat));
+        osk_phone_set(lat, tp_type_go);
+    }
+}
+static int tp_find_photo(const char *name) {
+    for (int i = 0; pf && i < npf; i++) if (!strcmp(base_of(pf[i].path), name)) return i;
+    return -1;
+}
 
 static void tp_push(int c, int i) {
     int n = (tp_qt + 1) % 16;
@@ -413,7 +487,23 @@ static void tp_json_build(void) {
     sb_add(&s, ",\"info\":"); sb_json_str(&s, n.info);
     sb_add(&s, ",\"lyr\":"); sb_json_str(&s, lyr);
     snprintf(num, sizeof(num), ",\"el\":%d,\"dur\":%d,\"vol\":%d", n.active ? n.elapsed : 0, n.dur, volume_pct); sb_add(&s, num);
-    snprintf(num, sizeof(num), ",\"playing\":%d,\"cov\":%d,\"free\":%ld}", playing_now, cover_ok && n.active, tp_free_mb); sb_add(&s, num);
+    snprintf(num, sizeof(num), ",\"playing\":%d,\"cov\":%d,\"free\":%ld", playing_now, cover_ok && n.active, tp_free_mb); sb_add(&s, num);
+    {   /* v222 : clavier ouvert sur la tele -> le telephone propose de taper */
+        char kt[64] = "", lat[520], u8[1100];
+        int k = 0;
+        if (kb_open) { k = 1; snprintf(u8, sizeof(u8), "%s", kb_text); snprintf(kt, sizeof(kt), "%s", tp_kb_label()); }
+        else if (tab == TAB_WEB && !menu_open && !tl_screen && (k = osk_phone_get(kt, sizeof(kt), lat, sizeof(lat))) != 0) { tp_lat_utf8(lat, u8, sizeof(u8)); char t2[64]; snprintf(t2, sizeof(t2), "%s", kt); tp_lat_utf8(t2, kt, sizeof(kt)); }
+        if (k) {
+            if (strlen(u8) > 700) u8[700] = 0;
+            snprintf(num, sizeof(num), ",\"kb\":%d,\"kbh\":", k); sb_add(&s, num); sb_json_str(&s, kt);
+            sb_add(&s, ",\"kbt\":"); sb_json_str(&s, u8);
+        }
+    }
+    if (tab == TAB_WEB) {                               /* v222 : la page ouverte dans Cube Browser */
+        const char *cu = cb_current_url();
+        if (cu && (!strncmp(cu, "http://", 7) || !strncmp(cu, "https://", 8))) { char u8[1100]; tp_lat_utf8(cu, u8, sizeof(u8)); sb_add(&s, ",\"web\":"); sb_json_str(&s, u8); }
+    }
+    sb_add(&s, "}");
     if (s.b) {
         int w = 1 - tp_json_cur;
         snprintf(tp_json[w], sizeof(tp_json[w]), "%s", s.b);
@@ -972,6 +1062,24 @@ static void tp_handle(s32 c) {
         free(sb.b);
         tp_reply(c, 200, "application/json", m, (int)strlen(m));
     }
+    else if (!strcmp(target, "/api/type")) {                 /* v222 : texte tape sur le telephone (go=1 : valider) */
+        char g[4];
+        int ok = !tp_type_busy;
+        if (ok) {
+            tp_param(q ? q : "", "t", tp_type_txt, sizeof(tp_type_txt));
+            tp_param(q ? q : "", "go", g, sizeof(g));
+            tp_type_go = g[0] == '1';
+            tp_type_busy = 1;
+            tp_push(PC_TYPE, 0);
+        }
+        tp_reply(c, 200, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
+    }
+    else if (!strcmp(target, "/api/showname")) {             /* v222 : photo envoyee par le telephone -> sur la tele */
+        int ok = !tp_shown_busy;
+        if (ok) { tp_param(q ? q : "", "n", tp_shown_name, sizeof(tp_shown_name)); ok = tp_shown_name[0] != 0; }
+        if (ok) { tp_shown_busy = 1; tp_push(PC_SHOWNAME, 0); }
+        tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
+    }
     else if (!strcmp(target, "/api/key")) {                  /* v142 : manette sur le telephone */
         static const char *const kn[] = { "up", "down", "left", "right", "a", "b", "x", "y", "z", "l", "r", "start", NULL };
         static const u32 km[] = { PAD_BUTTON_UP, PAD_BUTTON_DOWN, PAD_BUTTON_LEFT, PAD_BUTTON_RIGHT, PAD_BUTTON_A, PAD_BUTTON_B, PAD_BUTTON_X,
@@ -1169,6 +1277,17 @@ static void phone_pump(void) {
             if (npf < 0) photo_rescan();
             if (cm.i >= 0 && cm.i < npf) { menu_open = 0; tl_screen = 0; tab = TAB_PHOTO; tab_enter(TAB_PHOTO); pv_open(cm.i); }
             break;
+        case PC_TYPE: tp_type_apply(); tp_type_busy = 0; break;
+        case PC_SHOWNAME: {
+            if (tab_shown(TAB_PHOTO)) {
+                tp_rescan &= ~2;
+                photo_rescan();
+                int k = tp_find_photo(tp_shown_name);
+                if (k >= 0) { saver_on = 0; night_on = 0; menu_open = 0; tl_screen = 0; kb_open = 0; tab = TAB_PHOTO; tab_enter(TAB_PHOTO); pv_open(k); }
+            }
+            tp_shown_busy = 0;
+            break;
+        }
         case PC_SALON: { const char *e = salon_listen(cm.i); if (e) lib_note(e); break; }
         }
     }
