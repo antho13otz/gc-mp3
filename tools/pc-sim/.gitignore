@@ -2,3 +2,4 @@ work/
 gcstation
 gcstation-asan
 gcstation-ubsan
+gcstation-*
