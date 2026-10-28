@@ -364,8 +364,10 @@ static void gs_draw(void) {
     }
     x = gs_key(x, 453, "A", "Jouer", RGBA(110, 220, 140, 255));
     x = gs_key(x, 453, "Y", "Fiche", RGBA(235, 235, 245, 255));
-    x = gs_key(x, 453, "X", "Cheats", RGBA(235, 235, 245, 255));
-    x = gs_key(x, 453, "L", "Favori", RGBA(255, 210, 90, 255));
+    if (!(gs_n && gl_sel >= 0 && gl_sel < gl_n && gl[gl_sel].dvd)) {          /* v198 : (pas de cheats ni de favori pour le lecteur) */
+        x = gs_key(x, 453, "X", "Cheats", RGBA(235, 235, 245, 255));
+        x = gs_key(x, 453, "L", "Favori", RGBA(255, 210, 90, 255));
+    }
     x = gs_key(x, 453, "Z", "Filtre", au_a(255));
     x = gs_key(x, 453, "R", "Liste", RGBA(235, 235, 245, 255));
     gs_key(x, 453, "B", "Retour", RGBA(240, 110, 110, 255));
