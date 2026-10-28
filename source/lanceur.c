@@ -80,7 +80,7 @@ static void ld_pump(void) {
     if (ld_state == LD_IDLE) return;
     if (ld_state == LD_WRITE) {                            /* v93 : un morceau par image */
         static fw_t w;
-        int r = w.f ? fw_step(&w) : (fw_open(&w, LD_DOL ".tmp", ld_hf.buf, ld_hf.len) ? 0 : -1);
+        int r = (w.f || w.bg) ? fw_step(&w) : (fw_open(&w, LD_DOL ".tmp", ld_hf.buf, ld_hf.len) ? 0 : -1);   /* v195 : (ou par le fil) */
         if (r == 0) return;
         int ok = r > 0;
         if (ok) { remove(LD_DOL); ok = rename(LD_DOL ".tmp", LD_DOL) == 0; }

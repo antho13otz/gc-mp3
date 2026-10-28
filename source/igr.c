@@ -48,13 +48,19 @@ static int igr_on(void) {
 }
 /* v93 : ecriture d'un fichier par morceaux de 32 Ko, un par image (avant : tout d'un coup, ~1,5 s d'ecran
    fige pour 900 Ko, une fois apres chaque nouvelle version du lanceur ou du retour en jeu) */
-typedef struct { FILE *f; const u8 *d; long n, o; char path[NAME_LEN + 8]; } fw_t;
+/* v195 : ecrit d'un coup par le fil lsc quand il existe (fw_step dit seulement si c'est fini) */
+typedef struct { FILE *f; const u8 *d; long n, o; char path[NAME_LEN + 8]; int bg; volatile int done; } fw_t;
 static int fw_open(fw_t *w, const char *path, const u8 *d, long n) {
     snprintf(w->path, sizeof(w->path), "%s", path);
-    w->f = fopen(path, "wb"); w->d = d; w->n = n; w->o = 0;
+    w->d = d; w->n = n; w->o = 0; w->bg = 0; w->done = 0; w->f = NULL;
+    bgf_done_next = &w->done;
+    if (bgf_put_mode(BGF_RAW, 0, path, d, n)) { w->bg = 1; return 1; }
+    bgf_done_next = NULL;
+    w->f = fopen(path, "wb");
     return w->f != NULL;
 }
 static int fw_step(fw_t *w) {                        /* 1 = fini (ferme), 0 = encore, -1 = erreur (efface) */
+    if (w->bg) { int r = w->done; if (r) w->bg = 0; return r; }
     if (!w->f) return -1;
     long k = w->n - w->o < 32768 ? w->n - w->o : 32768;
     if (k > 0 && fwrite(w->d + w->o, 1, k, w->f) != (size_t)k) { fclose(w->f); w->f = NULL; remove(w->path); return -1; }
@@ -131,7 +137,7 @@ static void igr_pump(void) {
     if (igr_state == IGR_IDLE) return;
     if (igr_state == IGR_W1 || igr_state == IGR_W2) {      /* v93 : un morceau par image */
         static fw_t w;
-        if (!w.f) {
+        if (!w.f && !w.bg) {                               /* v195 : (pas pendant l'ecriture par le fil) */
             mkdir(GCD, 0777); mkdir(LD_DIR, 0777); mkdir(LD_DIR "/patches", 0777);
             if (!fw_open(&w, igr_state == IGR_W1 ? IGR_MINE : IGR_IMG ".tmp", igr_hf.buf, igr_hf.len)) goto werr;
         }

@@ -1,0 +1,50 @@
+wait 3s
+press A
+wait 6s
+mark lancement
+press R
+wait 3s
+press R
+wait 3s
+press R
+wait 3s
+mark pistes-3s
+press R
+wait 300ms
+press R
+wait 300ms
+press R
+wait 300ms
+press R
+wait 300ms
+press L
+wait 5s
+mark pistes-rapides
+press Y
+wait 1s
+press Y
+wait 3s
+mark pause
+stick c 0 127 300ms
+wait 5s
+shot m1-soiree
+mark mode-soiree
+press B
+wait 1s
+stick c 0 -127 300ms
+wait 2s
+stick c 0 -127 300ms
+wait 2s
+stick c 0 -127 300ms
+wait 2s
+stick c 0 -127 300ms
+wait 2s
+mark dispositions
+stick c 127 0 300ms
+wait 2s
+stick c 127 0 300ms
+wait 2s
+stick c 127 0 300ms
+wait 2s
+mark vues
+quit

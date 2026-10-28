@@ -1,0 +1,10 @@
+# Stations de test (faux Internet local)
+Test MP3 redirection | https://radio.test/redir
+Test ICY http | http://icecast.radiofrance.fr/fip-midfi.mp3
+Test liste m3u | https://radio.test/liste.m3u
+Test liste pls | http://radio.test/liste.pls
+Test AAC | https://radio.test/aac
+Test OGG | https://radio.test/ogg
+Test HLS | https://radio.test/hls/live.m3u8
+Test coupure | https://radio.test/coupe
+Test serveur lent | https://radio.test/lent

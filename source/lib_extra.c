@@ -179,15 +179,19 @@ static void rating_load(void) {
     }
     fclose(f);
 }
-static void rating_save(void) {
+static void rating_save_x(int bg) {                         /* v195 : bg = ecrites par le fil */
     rating_dirty = 0;
     rating_saved_t = now_ms();
     if (!sd_ok) return;
-    FILE *f = fopen(RT_FILE, "w");
+    if (!bg) bgf_wait();
+    FILE *f = bg ? bgw_begin() : NULL;
+    int via_bg = f != NULL;
+    if (!f) f = fopen(RT_FILE, "w");
     if (!f) return;
     for (int k = 0; k < nfiles; k++) if (rating[k]) fprintf(f, "%u|%s\n", rating[k], names[k]);
-    fclose(f);
+    if (via_bg) bgw_end(f, RT_FILE); else fclose(f);
 }
+static void rating_save(void) { rating_save_x(0); }
 static void rating_set(int k, int n) {
     if (k < 0 || k >= nfiles) return;
     rating[k] = (u8)(n < 0 ? 0 : n > 5 ? 5 : n);
@@ -218,16 +222,20 @@ static void stats_load(void) {
     fclose(f);
 }
 
-static void stats_save(void) {
+static void stats_save_x(int bg) {                          /* v195 : bg = ecrites par le fil */
     stats_dirty = 0;
     stats_saved_t = now_ms();
     if (!sd_ok) return;
-    FILE *f = fopen(ST_FILE, "w");
+    if (!bg) bgf_wait();
+    FILE *f = bg ? bgw_begin() : NULL;
+    int via_bg = f != NULL;
+    if (!f) f = fopen(ST_FILE, "w");
     if (!f) return;
     for (int k = 0; k < nfiles; k++)
         if (play_cnt[k] || play_last[k]) fprintf(f, "%u|%lu|%s\n", play_cnt[k], (unsigned long)play_last[k], names[k]);
-    fclose(f);
+    if (via_bg) bgw_end(f, ST_FILE); else fclose(f);
 }
+static void stats_save(void) { stats_save_x(0); }
 
 static void add_pump(void);
 /* boucle principale : compte le morceau en cours, enregistre quand rien ne bouge */
@@ -244,8 +252,8 @@ static void stats_pump(void) {
             if (view_mode == VIEW_LISTS) lib_dirty = 1;
         }
     }
-    if (stats_dirty && now_ms() - last_input_ms > 4000 && now_ms() - stats_saved_t > 20000) stats_save();
-    if (rating_dirty && now_ms() - last_input_ms > 2000 && now_ms() - rating_saved_t > 8000) rating_save();
+    if (stats_dirty && now_ms() - last_input_ms > 4000 && now_ms() - stats_saved_t > 20000) stats_save_x(1);   /* v195 : par le fil */
+    if (rating_dirty && now_ms() - last_input_ms > 2000 && now_ms() - rating_saved_t > 8000) rating_save_x(1);
     add_pump();                                                  /* v73 : dates d'ajout (liste "Ajoutes recemment") */
 }
 

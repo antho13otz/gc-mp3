@@ -208,7 +208,7 @@ static void draw_karaoke(void) {
         ka_small_line(li + 2, 404 + off, 110, 1.0f);
     }
     /* avancement */
-    int d = cur_track >= 0 ? file_duration(names[cur_track]) : 0;
+    int d = cur_track >= 0 ? dur_known(cur_track) : 0;       /* v195 : (avant : la carte SD lue a chaque image) */
     if (src == SRC_FILE && d > 0) {
         f32 pf = (f32)(consumed / 48000u) / d;
         if (pf > 1) pf = 1;
@@ -771,7 +771,7 @@ static void qz_round_begin(void) {
         if (++retry < 6) { qz_round_begin(); retry = 0; return; }
         retry = 0;
     }
-    int d = file_duration(names[k]);
+    int d = dur_sync(k);                                  /* v195 */
     if (d > 40) track_seek(d * (25 + (int)(lib_rand() % 20)) / 100);   /* un passage au milieu */
     qz_t = now_ms();
     qz_phase = 1;

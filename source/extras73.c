@@ -172,8 +172,21 @@ static int rh_skip(const char *ti, const char *st) {
     for (const char *p = ti; *p; p++) if (isalpha((unsigned char)*p)) letters++;
     return letters < 2;
 }
+/* v195 : la ligne est preparee dans la boucle, ecrite par le fil (rh_append_do) */
 static void rh_append(const char *st, const char *ti) {
     if (!sd_ok || sd_virtual) return;
+    char name[100], t2[200], line[360];
+    text_display(st, name, sizeof(name));
+    text_display(ti, t2, sizeof(t2));
+    for (char *p = name; *p; p++) if (*p == '|') *p = '/';
+    time_t tt = time(NULL);
+    struct tm *tm = localtime(&tt);
+    if (tm && tm->tm_year >= 100) snprintf(line, sizeof(line), "%04d-%02d-%02d %02d:%02d | %s | %s\n", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min, name, t2);
+    else snprintf(line, sizeof(line), "- | %s | %s\n", name, t2);
+    if (bgf_put_mode(BGF_RH, 0, RH_FILE, line, (long)strlen(line) + 1)) return;
+    rh_append_do(line);
+}
+static void rh_append_do(const char *line) {               /* (fil lsc, ou boucle sans fil) */
     mkdir(GCD "/radio", 0777);
     struct stat sb;
     if (stat(RH_FILE, &sb) == 0 && sb.st_size > 96 * 1024) {    /* trop long : on garde les 300 derniers */
@@ -191,14 +204,7 @@ static void rh_append(const char *st, const char *ti) {
     }
     FILE *f = fopen(RH_FILE, "a");
     if (!f) return;
-    char name[100], t2[200];
-    text_display(st, name, sizeof(name));
-    text_display(ti, t2, sizeof(t2));
-    for (char *p = name; *p; p++) if (*p == '|') *p = '/';
-    time_t tt = time(NULL);
-    struct tm *tm = localtime(&tt);
-    if (tm && tm->tm_year >= 100) fprintf(f, "%04d-%02d-%02d %02d:%02d | %s | %s\n", tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min, name, t2);
-    else fprintf(f, "- | %s | %s\n", name, t2);
+    fputs(line, f);
     fclose(f);
 }
 
@@ -234,6 +240,7 @@ static void rhc_mark(const char *ti, const u16 *tex) {       /* tex NULL : pas d
     mkdir(RH_CV, 0777);
     rh_key(ti, p, sizeof(p) - 8);
     strcat(p, tex ? ".tex" : ".no");
+    if (tex ? bgf_put_mode(BGF_REPL, 1, p, tex, RH_TS * RH_TS * 2) : bgf_put_mode(BGF_REPL, 1, p, "0", 1)) return;   /* v195 : par le fil */
     FILE *f = fopen(p, "wb");
     if (!f) return;
     if (tex) fwrite(tex, 2, RH_TS * RH_TS, f);

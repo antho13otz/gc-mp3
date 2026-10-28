@@ -329,11 +329,15 @@ static u64 now_ms(void) { return ticks_to_millisecs(gettime()); }
    processeur graphique, attente de l'ecran). A l'ecran : images/s, pire image, tache la plus
    lente. Quand on coupe la mesure : rapport SD:/gc-mp3/journaux/fluidite.txt (par onglet). */
 enum { PH_INPUT, PH_WEB, PH_COVERS, PH_LYRICS, PH_RETRO, PH_PODCAST, PH_PHOTO, PH_FILES, PH_INFOS, PH_PHONE, PH_DL, PH_UPDATE,
-       PH_MISC, PH_LIB, PH_SETTINGS, PH_AUDIO, PH_MUSIC, PH_STREAM, PH_SPECTRUM, PH_DRAW, PH_GPU, PH_WAIT, PH_N };
+       PH_MISC, PH_LIB, PH_SETTINGS, PH_AUDIO, PH_MUSIC, PH_STREAM, PH_SPECTRUM, PH_STOLEN, PH_DECWAIT, PH_DRAW, PH_GPU, PH_WAIT, PH_N };
 static const char *const pfx_names[PH_N] = { "manette", "web", "pochettes", "paroles", "retro", "podcasts", "photos", "fichiers", "infos",
     "telephone", "telechargements", "mise a jour", "divers", "bibliotheque", "reglages", "son", "musique", "radio", "spectre",
-    "dessin", "processeur graphique", "attente de l'ecran" };
+    "processeur pris (reseau)", "attente du decodeur", "dessin", "processeur graphique", "attente de l'ecran" };
 static int perf_on = 0;
+/* v195 : temps ou la boucle n'a pas eu le processeur (pile reseau, interruptions : plus prioritaires qu'elle),
+   mesure par un petit fil tres prioritaire qui se reveille toutes les 4 ms et note son retard */
+static volatile u32 pfx_stolen_acc = 0;
+static int pfx_sampler_on = 0;
 static u32 pfx_cur[PH_N], pfx_frame_t0 = 0;
 #define PF_TABS 12
 static u32 pfx_frames[PF_TABS], pfx_slow[PF_TABS], pfx_vslow[PF_TABS], pfx_worst[PF_TABS];
@@ -369,6 +373,13 @@ static void perf_frame(int tb) {                    /* debut d'une image : on co
             if (pfx_cur[i] > pfx_max[tb][i]) pfx_max[tb][i] = pfx_cur[i];
             if (i != PH_WAIT && pfx_cur[i] > tv) { tv = pfx_cur[i]; top = i; }
         }
+#ifndef GEKKO
+        if (tot > VID_VSLOW_US && getenv("PCSIM_PERFLOG")) {   /* (simulateur : detail de chaque image tres lente) */
+            char b_[400]; int o_ = snprintf(b_, sizeof(b_), "[image] %u ms :", tot / 1000u);
+            for (int i = 0; i < PH_N && o_ < (int)sizeof(b_) - 40; i++) if (pfx_cur[i] >= 5000u) o_ += snprintf(b_ + o_, sizeof(b_) - o_, " %s %.0f", pfx_names[i], pfx_cur[i] / 1000.0);
+            printf("%s\n", b_);
+        }
+#endif
         if (tot > VID_SLOW_US) {                         /* (une image ratee : plus d'une image d'ecran + marge ; v192 : 50 Hz compris) */
             pfx_slow[tb]++;
             if (tot > VID_VSLOW_US) pfx_vslow[tb]++;
@@ -380,6 +391,7 @@ static void perf_frame(int tb) {                    /* debut d'une image : on co
     }
     if (n - pfx_sec_t0 >= 1000000u) { pfx_fps = pfx_sec_n; pfx_worst_ms = pfx_sec_worst / 1000u; pfx_sec_n = 0; pfx_sec_worst = 0; pfx_sec_t0 = n; }
     for (int i = 0; i < PH_N; i++) pfx_cur[i] = 0;
+    pfx_cur[PH_STOLEN] = pfx_stolen_acc; pfx_stolen_acc = 0;   /* v195 : (pour l'image qui commence) */
     pfx_frame_t0 = n;
 }
 
@@ -468,10 +480,11 @@ static void stop_track(void);
    change le decodeur (ouvrir / fermer / se placer dans un morceau, radio, video) passe par ce verrou. */
 static mutex_t dec_mx;
 static int dec_mx_ok = 0;
-static volatile int dec_wait = 0;                 /* (la boucle principale attend le verrou : le thread lui laisse la place) */
-#define DEC_LOCK()   do { if (dec_mx_ok) { dec_wait++; LWP_MutexLock(dec_mx); dec_wait--; } } while (0)
-#define DEC_UNLOCK() do { if (dec_mx_ok) LWP_MutexUnlock(dec_mx); } while (0)
 static lwp_t mdec_h = LWP_THREAD_NULL;
+static volatile int dec_wait = 0;                 /* (la boucle principale attend le verrou : le thread lui laisse la place) */
+#define DEC_LOCK()   do { if (dec_mx_ok) { dec_wait++; u32 dw0_ = perf_on && LWP_GetSelf() != mdec_h ? perf_us() : 0; LWP_MutexLock(dec_mx); \
+                         if (dw0_) pfx_cur[PH_DECWAIT] += perf_us() - dw0_; dec_wait--; } } while (0)   /* v195 : (attente mesuree) */
+#define DEC_UNLOCK() do { if (dec_mx_ok) LWP_MutexUnlock(dec_mx); } while (0)
 static volatile int cur_on_sd = 0;                /* v158 : le morceau en cours est sur la carte SD (decode par le thread) */
 static void share_draw(void);                           /* v137 : (tab_phone.c) fenetre du QR code, partout */
 static int share_input(u32 down);
@@ -1294,6 +1307,10 @@ static int mount_sd(void) {
 
 // ---------- Pochettes ----------
 static u16 cover_tex[COVER_SZ * COVER_SZ] ATTRIBUTE_ALIGN(32);
+static u16 cw_tex[COVER_SZ * COVER_SZ] ATTRIBUTE_ALIGN(32);   /* v195 : pochette trouvee par le fil lsc (copiee par la boucle) */
+static char cw_key[NAME_LEN + 32];                  /* (cle du cache de la pochette cherchee par le fil) */
+static int lsc_self(void);
+static int cw_decode(const unsigned char *data, long len);
 static u16 *cvpre_tex = NULL;                             /* v165 : pochette du morceau lance, deja lue (reprise par load_cover) */
 static char cvpre_key[NAME_LEN + 24], cvpre_path[NAME_LEN];
 static int cover_ok = 0;
@@ -1357,9 +1374,11 @@ static int cv_cache_read(const char *key) {
     FILE *f = fopen(path, "rb");
     if (!f) return 0;
     char hd[4];
-    int ok = fread(hd, 1, 4, f) == 4 && !memcmp(hd, "GCV1", 4) && fread(cover_tex, 1, sizeof(cover_tex), f) == sizeof(cover_tex);
+    u16 *dst = lsc_self() ? cw_tex : cover_tex;           /* v195 : (le fil lsc lit dans sa texture) */
+    int ok = fread(hd, 1, 4, f) == 4 && !memcmp(hd, "GCV1", 4) && fread(dst, 1, sizeof(cover_tex), f) == sizeof(cover_tex);
     fclose(f);
     if (!ok) return 0;
+    if (dst == cw_tex) return 1;
     DCFlushRange(cover_tex, sizeof(cover_tex));
     GX_InvalidateTexAll();
     return 1;
@@ -1390,14 +1409,17 @@ static void cover_job(void) {
 }
 
 /* chaque image : resultat du fil, puis image suivante */
+static int cw_cache_later(const char *key, const u16 *tex);
+static void cw_pump(void);
 static void cover_async_pump(void) {
+    cw_pump();                                            /* v195 */
     if (cv_state == 2) {
         if (cv_ok && cv_out && cv_job_gen == cv_gen) {
             memcpy(cover_tex, cv_out, sizeof(cover_tex));
             DCFlushRange(cover_tex, sizeof(cover_tex));
             GX_InvalidateTexAll();
             cover_ok = 1;
-            cv_cache_write(cv_job_key, cv_out);
+            if (!cw_cache_later(cv_job_key, cv_out)) cv_cache_write(cv_job_key, cv_out);   /* v195 : par le fil si possible */
         }
         free(cv_out);
         cv_out = NULL;
@@ -1415,10 +1437,12 @@ static void cover_async_pump(void) {
         cv_state = 1;
     }
 }
-static int cover_busy(void) { return cv_pend != NULL || (cv_state != 0 && cv_job_gen == cv_gen); }
+static int cw_busy(void);
+static int cover_busy(void) { return cv_pend != NULL || (cv_state != 0 && cv_job_gen == cv_gen) || cw_busy(); }   /* v195 : + fil lsc */
 
 /* Decode une image JPEG/PNG en memoire et la met dans la texture de la pochette. */
 static int cover_from_memory(const unsigned char *data, long len) {
+    if (lsc_self()) return cw_decode(data, len);          /* v195 : recherche de pochette par le fil lsc */
     int w, h, n;
     if (len <= 0 || len > 0x7fffffffL) return 0;
     if (!stbi_info_from_memory(data, (int)len, &w, &h, &n)) return 0;
@@ -2414,6 +2438,18 @@ static void mp4s_begin(long pos, const char *key);
 static void ms_want_clear(void);
 static char http_final_url[URL_MAX];       /* adresse finale (apres les redirections) */
 static int http_last_code = 0;               /* 200, ou 206 si la plage demandee est respectee */
+/* v195 : ouverture d'une radio par etapes (connexion, envoi, en-tetes, liste de lecture) : avec rc_async, chaque
+   attente rend -1 et http_ho_pump (station_pump, a chaque image) reprend la ou on en etait. Avant, la boucle
+   principale attendait la reponse du serveur (jusqu'a 8 s, et le verrou TLS si une pochette se connectait) :
+   fluidite.txt "radio" jusqu'a 1,5 s. Sans rc_async (M4A, podcasts a une position), comme avant. */
+enum { HO_NONE, HO_SEND, HO_HDR, HO_PL };
+static struct { int st, port, tls, v11, depth, hlen, body_off, pn, rl, sent; u64 t0; char host[128]; } ho;
+static char ho_url[URL_MAX], ho_path[URL_MAX], ho_req[URL_MAX + 640], ho_pl[32768];
+static unsigned char ho_hdr[8192];
+static int http_after_hdr(void);
+static int http_after_pl(void);
+static int http_ho_pump(void);
+
 /* ---------- v193 : radio : connexion en tache de fond ----------
    La recherche DNS, la connexion et la poignee de main HTTPS d'une radio (jusqu'a 1 a 2 s pour le
    Gekko) se faisaient pendant une image : l'ecran se figeait a chaque station lancee et a chaque
@@ -2429,6 +2465,7 @@ static conn_t rc_conn = { -1, 0, 0 };
 static u64 rc_t0 = 0;
 static int rc_final_try = 0;                 /* v193 : essai en cours avec l'adresse finale (rad_final) */
 static void rc_reset(void) {                /* (plus de connexion en attente) */
+    ho.st = HO_NONE;                                        /* v195 */
     if (rc_job) { ac_cancel(rc_job); rc_job = 0; }
     if (rc_ready) { conn_close(&rc_conn); rc_ready = 0; }
 }
@@ -2455,103 +2492,108 @@ static int rc_take(const char *url, int depth, const char *host, int port, int t
 }
 
 static int http_open(const char *url_in, int depth) {
-    /* (statiques : appels en chaine pour les redirections, sans rien relire apres) */
-    static char url[URL_MAX], path[URL_MAX], req[URL_MAX + 640];
-    char host[128];
-    static unsigned char hdr[8192];
-    int tls = 0, port;
+    /* (contexte ho : appels en chaine pour les redirections, et reprise par http_ho_pump) */
+    ho.st = HO_NONE;
+    ho.tls = 0;
 
     if (depth > 5) { set_error("Trop de redirections"); return 0; }
-    snprintf(url, sizeof(url), "%s", url_in);
+    snprintf(ho_url, sizeof(ho_url), "%s", url_in);
     const char *h;
-    if (strncasecmp(url, "https://", 8) == 0) { tls = 1; h = url + 8; }
-    else if (strncasecmp(url, "http://", 7) == 0) { h = url + 7; }
+    if (strncasecmp(ho_url, "https://", 8) == 0) { ho.tls = 1; h = ho_url + 8; }
+    else if (strncasecmp(ho_url, "http://", 7) == 0) { h = ho_url + 7; }
     else { set_error("Adresse invalide (http:// ou https://)"); return 0; }
-    port = tls ? 443 : 80;
+    ho.port = ho.tls ? 443 : 80;
 
     int hl = (int)strcspn(h, ":/?");
-    if (hl <= 0 || hl >= (int)sizeof(host)) { set_error("Adresse invalide"); return 0; }
-    memcpy(host, h, hl);
-    host[hl] = 0;
+    if (hl <= 0 || hl >= (int)sizeof(ho.host)) { set_error("Adresse invalide"); return 0; }
+    memcpy(ho.host, h, hl);
+    ho.host[hl] = 0;
     const char *rest = h + hl;
-    if (*rest == ':') { port = atoi(rest + 1); rest += strcspn(rest, "/?"); }
-    if (*rest == '/') snprintf(path, sizeof(path), "%s", rest);
-    else snprintf(path, sizeof(path), "/%s", rest);
+    if (*rest == ':') { ho.port = atoi(rest + 1); rest += strcspn(rest, "/?"); }
+    if (*rest == '/') snprintf(ho_path, sizeof(ho_path), "%s", rest);
+    else snprintf(ho_path, sizeof(ho_path), "/%s", rest);
     {                                                    /* v72 : espaces et caracteres speciaux dans l'adresse (radio.txt) */
         static char enc[URL_MAX];
         int o = 0;
-        for (const unsigned char *q = (const unsigned char *)path; *q && o < (int)sizeof(enc) - 4; q++) {
+        for (const unsigned char *q = (const unsigned char *)ho_path; *q && o < (int)sizeof(enc) - 4; q++) {
             if (*q <= ' ' || *q >= 0x7F || *q == '"' || *q == '<' || *q == '>') { static const char hx[] = "0123456789ABCDEF"; enc[o++] = '%'; enc[o++] = hx[*q >> 4]; enc[o++] = hx[*q & 15]; }
             else enc[o++] = (char)*q;
         }
         enc[o] = 0;
-        snprintf(path, sizeof(path), "%s", enc);
+        snprintf(ho_path, sizeof(ho_path), "%s", enc);
     }
-    if (port <= 0 || port > 65535) port = tls ? 443 : 80;
+    if (ho.port <= 0 || ho.port > 65535) ho.port = ho.tls ? 443 : 80;
 
     const char *cerr = NULL;
-    int rt = rc_take(url, depth, host, port, tls);         /* v193 : en tache de fond (radio) */
+    int rt = rc_take(ho_url, depth, ho.host, ho.port, ho.tls);         /* v193 : en tache de fond (radio) */
     if (rt < 0) return -1;
-    if (!rt && !conn_open(&cn, host, port, tls, &cerr, NULL)) { set_error(cerr); return 0; }
+    if (!rt && !conn_open(&cn, ho.host, ho.port, ho.tls, &cerr, NULL)) { set_error(cerr); return 0; }
 
     char range[48] = "";
     if (http_range > 0) snprintf(range, sizeof(range), "Range: bytes=%ld-\r\n", http_range);
     char hosthdr[160];
-    int v11 = !strcmp(host, http11_host);
-    if (port == (tls ? 443 : 80)) snprintf(hosthdr, sizeof(hosthdr), "%s", host);
-    else snprintf(hosthdr, sizeof(hosthdr), "%s:%d", host, port);
-    int rl = snprintf(req, sizeof(req),
+    int v11 = !strcmp(ho.host, http11_host);
+    if (ho.port == (ho.tls ? 443 : 80)) snprintf(hosthdr, sizeof(hosthdr), "%s", ho.host);
+    else snprintf(hosthdr, sizeof(hosthdr), "%s:%d", ho.host, ho.port);
+    int rl = snprintf(ho_req, sizeof(ho_req),
                       "GET %s HTTP/1.%d\r\nHost: %s\r\nUser-Agent: GC-MP3/1.0 (GameCube)\r\n"
-                      "%sIcy-MetaData: 1\r\nAccept: */*\r\nConnection: close\r\n\r\n", path, v11, hosthdr, range);
-    if (!conn_send_all(&cn, req, rl)) { set_error("Erreur d'envoi de la requête"); return 0; }
+                      "%sIcy-MetaData: 1\r\nAccept: */*\r\nConnection: close\r\n\r\n", ho_path, v11, hosthdr, range);
+    ho.rl = rl; ho.sent = 0; ho.depth = depth; ho.v11 = v11; ho.hlen = 0; ho.body_off = -1;
+    if (rc_async) { ho.st = HO_SEND; ho.t0 = now_ms(); return http_ho_pump(); }   /* v195 : sans attendre (radio) */
+    if (!conn_send_all(&cn, ho_req, rl)) { set_error("Erreur d'envoi de la requête"); return 0; }
 
     /* lecture des en-tetes */
     int hlen = 0, body_off = -1;
-    while (hlen < (int)sizeof(hdr) - 1) {
-        int r = recv_timeout(hdr + hlen, (int)sizeof(hdr) - 1 - hlen, 8000);
+    while (hlen < (int)sizeof(ho_hdr) - 1) {
+        int r = recv_timeout(ho_hdr + hlen, (int)sizeof(ho_hdr) - 1 - hlen, 8000);
         if (r <= 0) { set_error(r == -2 ? "Le serveur ne répond pas" : "Connexion coupée"); return 0; }
         hlen += r;
-        hdr[hlen] = 0;
-        char *e = strstr((char *)hdr, "\r\n\r\n");
-        if (e) { body_off = (int)(e - (char *)hdr) + 4; e[2] = 0; break; }
-        char *e2 = strstr((char *)hdr, "\n\n");                /* serveurs approximatifs */
-        if (e2) { body_off = (int)(e2 - (char *)hdr) + 2; e2[1] = 0; break; }
+        ho_hdr[hlen] = 0;
+        char *e = strstr((char *)ho_hdr, "\r\n\r\n");
+        if (e) { body_off = (int)(e - (char *)ho_hdr) + 4; e[2] = 0; break; }
+        char *e2 = strstr((char *)ho_hdr, "\n\n");                /* serveurs approximatifs */
+        if (e2) { body_off = (int)(e2 - (char *)ho_hdr) + 2; e2[1] = 0; break; }
     }
     if (body_off < 0) { set_error("Réponse du serveur invalide"); return 0; }
-
+    ho.hlen = hlen; ho.body_off = body_off;
+    return http_after_hdr();
+}
+/* v195 : la reponse est arrivee (en-tetes dans ho_hdr) : redirection, liste de lecture ou flux */
+static int http_after_hdr(void) {
+    int depth = ho.depth, v11 = ho.v11, hlen = ho.hlen, body_off = ho.body_off;
 #ifdef HTTP_TRACE
-    printf("HTTP> %s%s\n<<<\n%s>>>\n", host, path, (char *)hdr);
+    printf("HTTP> %s%s\n<<<\n%s>>>\n", ho.host, ho_path, (char *)ho_hdr);
 #endif
     int code = 0;
-    if (sscanf((char *)hdr, "HTTP/%*d.%*d %d", &code) != 1 && sscanf((char *)hdr, "ICY %d", &code) != 1) {
+    if (sscanf((char *)ho_hdr, "HTTP/%*d.%*d %d", &code) != 1 && sscanf((char *)ho_hdr, "ICY %d", &code) != 1) {
         set_error("Réponse du serveur invalide");
         return 0;
     }
-    char *hdrs = (char *)hdr;
+    char *hdrs = (char *)ho_hdr;
     int body_len = hlen - body_off;
-    unsigned char *body = hdr + body_off;
+    unsigned char *body = ho_hdr + body_off;
 
     if (code >= 300 && code < 400) {
         const char *loc = header_value(hdrs, "Location");
         if (!loc) { set_error("Redirection sans adresse"); return 0; }
         static char next[URL_MAX];
-        if (loc[0] == '/' && loc[1] == '/') snprintf(next, sizeof(next), "%s:%s", tls ? "https" : "http", loc);   /* (//serveur/chemin) */
-        else if (loc[0] == '/') snprintf(next, sizeof(next), "%s://%s:%d%s", tls ? "https" : "http", host, port, loc);
+        if (loc[0] == '/' && loc[1] == '/') snprintf(next, sizeof(next), "%s:%s", ho.tls ? "https" : "http", loc);   /* (//serveur/chemin) */
+        else if (loc[0] == '/') snprintf(next, sizeof(next), "%s://%s:%d%s", ho.tls ? "https" : "http", ho.host, ho.port, loc);
         else if (strncasecmp(loc, "http://", 7) && strncasecmp(loc, "https://", 8)) {   /* v72 : adresse relative au dossier */
             char dir[URL_MAX];
-            snprintf(dir, sizeof(dir), "%s", path);
+            snprintf(dir, sizeof(dir), "%s", ho_path);
             dir[strcspn(dir, "?")] = 0;
             char *sl = strrchr(dir, '/');
             if (sl) sl[1] = 0; else snprintf(dir, sizeof(dir), "/");
-            snprintf(next, sizeof(next), "%s://%s:%d%s%s", tls ? "https" : "http", host, port, dir, loc);
+            snprintf(next, sizeof(next), "%s://%s:%d%s%s", ho.tls ? "https" : "http", ho.host, ho.port, dir, loc);
         } else snprintf(next, sizeof(next), "%s", loc);
         stream_close();
         return http_open(next, depth + 1);
     }
     if ((code == 426 || code == 505) && !v11) {               /* v74 : le serveur veut HTTP/1.1 */
         static char again[URL_MAX];
-        snprintf(again, sizeof(again), "%s", url);
-        snprintf(http11_host, sizeof(http11_host), "%s", host);
+        snprintf(again, sizeof(again), "%s", ho_url);
+        snprintf(http11_host, sizeof(http11_host), "%s", ho.host);
         stream_close();
         return http_open(again, depth + 1);
     }
@@ -2562,7 +2604,7 @@ static int http_open(const char *url_in, int depth) {
         return 0;
     }
     http_last_code = code;
-    snprintf(http_final_url, sizeof(http_final_url), "%s", url);
+    snprintf(http_final_url, sizeof(http_final_url), "%s", ho_url);
     memset(&st_dc, 0, sizeof(st_dc));
     {                                                    /* v74 : reponse HTTP/1.1 en morceaux */
         const char *te = header_value(hdrs, "Transfer-Encoding");
@@ -2579,35 +2621,28 @@ static int http_open(const char *url_in, int depth) {
     int is_playlist = strstr(ctype, "mpegurl") || strstr(ctype, "scpls") || strstr(ctype, "x-pls") ||
                       (body_len >= 7 && (memcmp(body, "#EXTM3U", 7) == 0 || memcmp(body, "[playli", 7) == 0));
     if (!is_playlist) {
-        const char *lp = path + strlen(path);
-        while (lp > path && *lp != '.') lp--;
+        const char *lp = ho_path + strlen(ho_path);
+        while (lp > ho_path && *lp != '.') lp--;
         if (strncasecmp(lp, ".m3u", 4) == 0 || strncasecmp(lp, ".pls", 4) == 0) is_playlist = 1;
     }
     if (is_playlist) {
         /* petite liste de lecture : on lit tout et on suit la premiere adresse */
-        static char pl[32768];
-        int pn = body_len < (int)sizeof(pl) - 1 ? body_len : (int)sizeof(pl) - 1;
+        char *pl = ho_pl;
+        int pn = body_len < (int)sizeof(ho_pl) - 1 ? body_len : (int)sizeof(ho_pl) - 1;
         memcpy(pl, body, pn);
-        while (pn < (int)sizeof(pl) - 1) {
-            int r = recv_timeout((unsigned char *)pl + pn, (int)sizeof(pl) - 1 - pn, 5000);
+        ho.pn = pn;
+        if (rc_async) { ho.st = HO_PL; ho.t0 = now_ms(); return http_ho_pump(); }   /* v195 : sans attendre (radio) */
+        while (pn < (int)sizeof(ho_pl) - 1) {
+            int r = recv_timeout((unsigned char *)pl + pn, (int)sizeof(ho_pl) - 1 - pn, 5000);
             if (r <= 0) break;
             if (st_dc.on) r = dechunk(&st_dc, (unsigned char *)pl + pn, r);
             pn += r;
         }
-        pl[pn] = 0;
-        if (pn == (int)sizeof(pl) - 1) { char *nl = strrchr(pl, '\n'); if (nl) nl[1] = 0; }   /* derniere ligne coupee */
-        static char next[URL_MAX];
-        stream_close();
-        if (strstr(pl, "#EXT-X-")) {                     /* radio HLS (.m3u8 en segments) */
-            icy_metaint = 0;
-            icy_name[0] = 0;
-            return hls_begin(url, pl);
-        }
-        if (!playlist_first_url(pl, next, sizeof(next))) { set_error("Liste de lecture vide"); return 0; }
-        return http_open(next, depth + 1);
+        ho.pn = pn;
+        return http_after_pl();
     }
     if (strstr(ctype, "text/html") && !ms_reopening) { set_error("Ce n'est pas un flux audio (page web)"); return 0; }
-    if (ms_reopening || mp4_url_looks(path, ctype) || (body_len >= 8 && !memcmp(body + 4, "ftyp", 4))) {
+    if (ms_reopening || mp4_url_looks(ho_path, ctype) || (body_len >= 8 && !memcmp(body + 4, "ftyp", 4))) {
         stream_codec = 3;                                  /* M4A / MP4 (AAC) */
         mp4s_begin(code == 206 ? http_range : 0, stations[cur_station].url);
     } else {
@@ -2629,6 +2664,75 @@ static int http_open(const char *url_in, int depth) {
 
     stream_feed(body, body_len);
     return 1;
+}
+/* v195 : liste de lecture lue (ho_pl) : radio HLS, ou la premiere adresse */
+static int http_after_pl(void) {
+    char *pl = ho_pl;
+    int pn = ho.pn, depth = ho.depth;
+    pl[pn] = 0;
+    if (pn == (int)sizeof(ho_pl) - 1) { char *nl = strrchr(pl, '\n'); if (nl) nl[1] = 0; }   /* derniere ligne coupee */
+    static char next[URL_MAX];
+    stream_close();
+    if (strstr(pl, "#EXT-X-")) {                     /* radio HLS (.m3u8 en segments) */
+        icy_metaint = 0;
+        icy_name[0] = 0;
+        return hls_begin(ho_url, pl);
+    }
+    if (!playlist_first_url(pl, next, sizeof(next))) { set_error("Liste de lecture vide"); return 0; }
+    return http_open(next, depth + 1);
+}
+
+/* v195 : une etape de l'ouverture en cours (sans attendre) : -1 = encore en attente, sinon le resultat de http_open */
+static int http_ho_pump(void) {
+    if (ho.st == HO_SEND) {
+        while (ho.sent < ho.rl) {
+            int r;
+            if (cn.tls) {
+                if (!tls_try()) return -1;                  /* (le fil des connexions calcule : a l'image suivante) */
+                r = mbedtls_ssl_write(&cn.ssl, (const unsigned char *)ho_req + ho.sent, (size_t)(ho.rl - ho.sent));
+                TLS_UNLOCK();
+            } else r = net_send(cn.fd, ho_req + ho.sent, ho.rl - ho.sent, 0);
+            if (r > 0) { ho.sent += r; continue; }
+            if ((r == MBEDTLS_ERR_SSL_WANT_READ || r == MBEDTLS_ERR_SSL_WANT_WRITE || r == -EAGAIN || r == -EWOULDBLOCK) && now_ms() - ho.t0 < 8000) return -1;
+            ho.st = HO_NONE;
+            set_error("Erreur d'envoi de la requ\xC3\xAAte");
+            return 0;
+        }
+        ho.st = HO_HDR; ho.t0 = now_ms();
+        snprintf(conn_msg, sizeof(conn_msg), "R\xC3\xA9ponse de %s...", ho.host);
+    }
+    if (ho.st == HO_HDR) {
+        while (ho.hlen < (int)sizeof(ho_hdr) - 1) {
+            s32 r = conn_recv(&cn, ho_hdr + ho.hlen, (int)sizeof(ho_hdr) - 1 - ho.hlen);
+            if (r == -EAGAIN || r == -EWOULDBLOCK) {
+                if (now_ms() - ho.t0 < 8000) return -1;
+                ho.st = HO_NONE; set_error("Le serveur ne r\xC3\xA9pond pas"); return 0;
+            }
+            if (r <= 0) { ho.st = HO_NONE; set_error("Connexion coup\xC3\xA9" "e"); return 0; }
+            ho.hlen += r;
+            ho_hdr[ho.hlen] = 0;
+            char *e = strstr((char *)ho_hdr, "\r\n\r\n");
+            if (e) { ho.body_off = (int)(e - (char *)ho_hdr) + 4; e[2] = 0; break; }
+            char *e2 = strstr((char *)ho_hdr, "\n\n");         /* serveurs approximatifs */
+            if (e2) { ho.body_off = (int)(e2 - (char *)ho_hdr) + 2; e2[1] = 0; break; }
+        }
+        ho.st = HO_NONE;
+        if (ho.body_off < 0) { set_error("R\xC3\xA9ponse du serveur invalide"); return 0; }
+        return http_after_hdr();
+    }
+    if (ho.st == HO_PL) {
+        while (ho.pn < (int)sizeof(ho_pl) - 1) {
+            s32 r = conn_recv(&cn, (unsigned char *)ho_pl + ho.pn, (int)sizeof(ho_pl) - 1 - ho.pn);
+            if (r == -EAGAIN || r == -EWOULDBLOCK) { if (now_ms() - ho.t0 < 5000) return -1; break; }
+            if (r <= 0) break;                              /* (fin de la liste) */
+            if (st_dc.on) r = dechunk(&st_dc, (unsigned char *)ho_pl + ho.pn, r);
+            ho.pn += r;
+            ho.t0 = now_ms();
+        }
+        ho.st = HO_NONE;
+        return http_after_pl();
+    }
+    return 0;
 }
 
 static void cover_for_station(int idx);
@@ -2687,11 +2791,16 @@ static void start_station(int idx, int is_reconnect) {
     station_open(rc_final_try ? rad_final : stations[idx].url, 0);
 }
 /* v193 : un essai de connexion (http_open), qui peut attendre le fil des connexions */
+static void station_result(int ok);
 static void station_open(const char *url, int depth) {
     rc_async = 1;
     int ok = http_open(url, depth);
     rc_async = 0;
     if (ok < 0) return;                                     /* (en attente : station_pump reprend) */
+    station_result(ok);
+}
+/* v195 : fin de l'ouverture (reussie ou non) */
+static void station_result(int ok) {
     if (!ok && rc_final_try) {                              /* l'adresse finale ne marche plus : l'adresse de la liste */
         rc_final_try = 0;
         stream_close(); hls_stop(); state = ST_CONNECT; err_msg[0] = 0;
@@ -2708,7 +2817,15 @@ static void station_open(const char *url, int depth) {
 }
 /* v193 : (boucle principale) la connexion demandee est-elle prete ? */
 static void station_pump(void) {
-    if (!rc_job || state != ST_CONNECT || src != SRC_RADIO) return;
+    if (state != ST_CONNECT || src != SRC_RADIO) return;
+    if (ho.st != HO_NONE && !rc_job) {                     /* v195 : envoi, en-tetes ou liste de lecture en cours */
+        rc_async = 1;
+        int r = http_ho_pump();
+        rc_async = 0;
+        if (r >= 0) station_result(r);
+        return;
+    }
+    if (!rc_job) return;
     ac_sweep();
     acjob_t *j = &ac_job[rc_job - 1];
     if (j->st != 3) {
@@ -2930,13 +3047,17 @@ static u32 synchsafe(const unsigned char *p) {
            ((u32)(p[2] & 0x7f) << 7)  |  (u32)(p[3] & 0x7f);
 }
 
+static int lsc_self(void);                  /* v195 : fil des durees et etiquettes (plus bas) */
+static int lsc_ready(void);
+static void lsc_want(int k);
 static int mp3_duration(const char *path) {
     static const int br1[16] = {0,32,40,48,56,64,80,96,112,128,160,192,224,256,320,0};
     static const int br2[16] = {0,8,16,24,32,40,48,56,64,80,96,112,128,144,160,0};
     static const int sr1[4]  = {44100, 48000, 32000, 0};
     static const int sr2[4]  = {22050, 24000, 16000, 0};
     static const int sr25[4] = {11025, 12000, 8000, 0};
-    static unsigned char b[4096];
+    static unsigned char b_m[4096], b_t[4096];   /* v195 : un tampon pour la boucle, un pour le fil (lsc) */
+    unsigned char *b = lsc_self() ? b_t : b_m;
 
     FILE *fp = fopen(path, "rb");
     if (!fp) return -1;
@@ -2945,11 +3066,11 @@ static int mp3_duration(const char *path) {
     long off = 0;
     if (size <= 0 || fseek(fp, 0, SEEK_SET) != 0) { fclose(fp); return -1; }
 
-    size_t n = fread(b, 1, sizeof(b), fp);
+    size_t n = fread(b, 1, 4096, fp);
     if (n >= 10 && memcmp(b, "ID3", 3) == 0) {
         off = 10 + (long)synchsafe(b + 6) + ((b[5] & 0x10) ? 10 : 0);
         if (off >= size || fseek(fp, off, SEEK_SET) != 0) { fclose(fp); return -1; }
-        n = fread(b, 1, sizeof(b), fp);
+        n = fread(b, 1, 4096, fp);
     }
     fclose(fp);
     if (n < 8) return -1;
@@ -3008,7 +3129,8 @@ static int flac_duration(const char *path) {
 
 /* OGG Vorbis : frequence dans le premier paquet, position (granule) de la derniere page */
 static int ogg_duration(const char *path) {
-    static unsigned char b[16384];
+    static unsigned char b_m[16384], b_t[16384];   /* v195 : (voir mp3_duration) */
+    unsigned char *b = lsc_self() ? b_t : b_m;
     FILE *fp = fopen(path, "rb");
     if (!fp) return -1;
     size_t n = fread(b, 1, 64, fp);
@@ -3018,9 +3140,9 @@ static int ogg_duration(const char *path) {
     u32 rate = le32(b + hdr + 12);
     if (rate == 0 || fseek(fp, 0, SEEK_END) != 0) { fclose(fp); return -1; }
     long size = ftell(fp);
-    long start = size > (long)sizeof(b) ? size - (long)sizeof(b) : 0;
+    long start = size > 16384L ? size - 16384L : 0;
     if (fseek(fp, start, SEEK_SET) != 0) { fclose(fp); return -1; }
-    n = fread(b, 1, sizeof(b), fp);
+    n = fread(b, 1, 16384, fp);
     fclose(fp);
     for (long i = (long)n - 27; i >= 0; i--) {
         if (b[i] != 'O' || memcmp(b + i, "OggS", 4) != 0 || b[i + 4] != 0) continue;
@@ -3105,6 +3227,7 @@ static int file_duration(const char *path) {
    pour ne pas bloquer la boucle (et donc l'audio) en faisant defiler la liste. */
 static int track_duration(int k) {
     if (k < 0 || k >= nfiles) return -1;
+    if (dur_cache[k] == -2 && !is_retro[k] && lsc_ready()) { lsc_want(k); return -2; }   /* v195 : lue par le fil */
     if (dur_cache[k] == -2 && dur_budget > 0) {
         dur_budget--;
 #ifndef GEKKO
@@ -3116,6 +3239,19 @@ static int track_duration(int k) {
 #endif
         bib_dirty = 1;
     }
+    return dur_cache[k];
+}
+/* v195 : duree connue, sans lire la carte SD dans la boucle (demandee au fil sinon : -1 en attendant) */
+static int dur_known(int k) {
+    if (k < 0 || k >= nfiles) return -1;
+    if (dur_cache[k] != -2) return dur_cache[k];
+    if (!is_retro[k] && lsc_ready()) { lsc_want(k); return -1; }
+    return dur_cache[k] = file_duration(names[k]);
+}
+/* v195 : duree tout de suite (actions ponctuelles : se placer dans un morceau, quiz, paroles) */
+static int dur_sync(int k) {
+    if (k < 0 || k >= nfiles) return -1;
+    if (dur_cache[k] == -2) dur_cache[k] = file_duration(names[k]);
     return dur_cache[k];
 }
 
@@ -3879,6 +4015,74 @@ static int cv_find_have(char (*h)[64], int n, const char *nm) {
     for (int i = 0; i < n; i++) if (!strcasecmp(h[i], nm)) return 1;
     return 0;
 }
+/* v195 : (fil lsc) la recherche de load_cover, sur la carte SD : resultat dans cw_tex (cache ecrit au passage) */
+static int cw_search(const char *trk) {
+    static const char *exts[] = { ".jpg", ".jpeg", ".png" };
+    static const char *common[] = { "cover.jpg", "folder.jpg", "cover.png", "folder.png" };
+    char noext[NAME_LEN], dir[NAME_LEN], path[NAME_LEN + 16];
+    int ok = 0;
+    {
+        struct stat st;
+        long sz = stat(trk, &st) == 0 ? (long)st.st_size : 0;
+        snprintf(cw_key, sizeof(cw_key), "%s|%ld", trk, sz);
+        if (cv_cache_read(cw_key)) return 1;
+    }
+    snprintf(noext, sizeof(noext), "%s", trk);
+    strip_audio_ext(noext);
+    snprintf(dir, sizeof(dir), "%s", trk);
+    char *slash = strrchr(dir, '/');
+    if (slash) *slash = 0;
+
+    /* v158 : un seul passage dans le dossier (avant : jusqu'a 7 fopen ratees, chacune parcourant le dossier de la carte
+       SD : ~45 ms a chaque morceau) ; noms compares sans tenir compte des majuscules (Cover.JPG, Folder.jpg) */
+    static char cw_have[24][64];
+    int cv_nh = 0, cv_listed = 0;
+    {
+        DIR *dp = opendir(dir[0] ? dir : SD_ROOT "/");
+        if (dp) {
+            const char *base = strrchr(noext, '/'); base = base ? base + 1 : noext;
+            size_t bl = strlen(base);
+            struct dirent *e;
+            int guard = 0;
+            while ((e = readdir(dp)) && guard++ < 4096) {
+                const char *n = e->d_name;
+                size_t nl = strlen(n);
+                if (nl < 5 || nl >= sizeof(cw_have[0])) continue;
+                const char *dot = strrchr(n, '.');
+                if (!dot || (strcasecmp(dot, ".jpg") && strcasecmp(dot, ".jpeg") && strcasecmp(dot, ".png"))) continue;
+                int match = (size_t)(dot - n) == bl && !strncasecmp(n, base, bl);
+                for (int c = 0; c < 4 && !match; c++) match = !strcasecmp(n, common[c]);
+                if (match && cv_nh < 24) snprintf(cw_have[cv_nh++], sizeof(cw_have[0]), "%s", n);
+            }
+            closedir(dp);
+            cv_listed = 1;
+        }
+    }
+#define CW_EXISTS(nm_) (!cv_listed || strlen(nm_) >= 63 || cv_find_have(cw_have, cv_nh, (nm_)))
+    for (int i = 0; i < 3 && !ok; i++) {
+        snprintf(path, sizeof(path), "%s%s", noext, exts[i]);
+        const char *b_ = strrchr(path, '/');
+        if (CW_EXISTS(b_ ? b_ + 1 : path)) ok = cover_from_file(path);
+    }
+    if (!ok) {
+        int fm = audio_fmt(trk);
+        if (fm == FMT_MP3) ok = cover_from_id3(trk);
+        else if (fm == FMT_FLAC) ok = cover_from_flac(trk);
+        else if (fm == FMT_M4A) ok = m4a_meta(trk, NULL, 1);
+    }
+    for (int i = 0; i < 4 && !ok; i++) {
+        if (!CW_EXISTS(common[i])) continue;
+        char real_[64];                                   /* (le vrai nom, majuscules comprises) */
+        snprintf(real_, sizeof(real_), "%s", common[i]);
+        for (int h = 0; h < cv_nh; h++) if (!strcasecmp(cw_have[h], common[i])) { snprintf(real_, sizeof(real_), "%s", cw_have[h]); break; }
+        snprintf(path, sizeof(path), "%s/%s", dir, real_);
+        ok = cover_from_file(path);
+    }
+#undef CW_EXISTS
+    return ok == 1;
+}
+static int lsc_ready(void);
+static void cw_post(int kind, const char *what);
 static void load_cover(int idx) {
     static const char *exts[] = { ".jpg", ".jpeg", ".png" };
     static const char *common[] = { "cover.jpg", "folder.jpg", "cover.png", "folder.png" };
@@ -3898,6 +4102,7 @@ static void load_cover(int idx) {
         cover_ok = 1;
         return;
     }
+    if (lsc_ready()) { cw_post(0, names[idx]); return; }  /* v195 : cherchee par le fil (la boucle ne lit plus la carte) */
     {                                                     /* deja prete dans le cache ? */
         struct stat st;
         long sz = stat(names[idx], &st) == 0 ? (long)st.st_size : 0;
@@ -4039,6 +4244,39 @@ static void nx_drop(void) {                               /* (fil principal) */
     if (nx.fp) { fclose(nx.fp); nx.fp = NULL; }
     free(nx.cvtex); nx.cvtex = NULL;
     nx.st = 0;
+}
+/* v195 : changement de morceau a la main (R / L / A) sans figer l'ecran : le fil de decodage prepare le morceau
+   demande (ouverture, etiquettes, decodeur, pochette du cache : nx_work), le morceau en cours continue en attendant,
+   puis start_track le reprend tout pret. Avant : tout dans la boucle (fluidite.txt "manette" jusqu'a 1,6 s). */
+static volatile int nx_urgent = 0;
+static int st_pending = -1;                  /* v195 : morceau demande (R / L / A), lance des que le fil de decodage l'a prepare */
+static u64 st_pending_t0 = 0;
+static int start_track(int idx);
+static void st_soon_pump(void) {                          /* (boucle, chaque image) */
+    if (st_pending < 0) return;
+    int k = st_pending;
+    if (k >= nfiles) { st_pending = -1; return; }
+    int late = now_ms() - st_pending_t0 > 3000;
+    if (nx.st == 1 && !late) return;                      /* (le fil prepare) */
+    if (nx.st == 1 || ((nx.st == 2 || nx.st == 3) && nx.idx == k && !strcmp(nx.path, names[k]))) {
+        st_pending = -1;
+        start_track(k);                                   /* (pret : repris tel quel ; sinon ouvert ici, comme avant) */
+        return;
+    }
+    nx_drop();                                            /* (prepare pour un autre : jete) */
+    nx.idx = k; nx.fmt = audio_fmt(names[k]);
+    snprintf(nx.path, sizeof(nx.path), "%s", names[k]);
+    nx_urgent = 1;
+    nx.st = 1;
+}
+static void start_track_soon(int idx) {
+    if (idx < 0 || idx >= nfiles) return;
+    int fm = audio_fmt(names[idx]);
+    if (mdec_h == LWP_THREAD_NULL || is_retro[idx] || (fm != FMT_MP3 && fm != FMT_FLAC && fm != FMT_OGG) || video_playing ||
+        strncasecmp(names[idx], SD_ROOT, strlen(SD_ROOT))) { st_pending = -1; start_track(idx); return; }
+    st_pending = idx;
+    st_pending_t0 = now_ms();
+    st_soon_pump();
 }
 /* (lectures par morceaux de 4 Ko : la carte SD n'est jamais tenue longtemps par ce thread ; avant chaque morceau, la
    main est rendue si la boucle principale attend : 64 Ko d'un coup = ~45 ms ou elle ne pouvait pas lire la carte) */
@@ -4211,7 +4449,7 @@ static void rg_set(const tags_t *tg) {
 }
 
 static void stop_track_u(void);
-static void stop_track(void) { DEC_LOCK(); stop_track_u(); DEC_UNLOCK(); }   /* v157 */
+static void stop_track(void) { st_pending = -1; DEC_LOCK(); stop_track_u(); DEC_UNLOCK(); }   /* v157 */
 static void stop_track_u(void) {
     if (video_playing) video_stop();
     if (ffp) { fclose(ffp); ffp = NULL; }
@@ -4452,36 +4690,305 @@ static void tags_reset(void) {
     tg_scanned = 0;
 }
 
-static void tag_scan_one(int k) {
-    static unsigned char head[16384];
+static void tag_read_file(const char *path, tags_t *tg) {   /* v195 : (fil lsc, ou boucle sans fil) */
+    static unsigned char head_m[16384], head_t[16384];
+    unsigned char *head = lsc_self() ? head_t : head_m;
     unsigned char v1[128];
-    tags_t tg;
-    tg_done[k] = 1;
-    tg_scanned++;
-    bib_dirty = 1;
-    tg_artist[k][0] = tg_album[k][0] = tg_title[k][0] = 0;
-    FILE *fp = fopen(names[k], "rb");
+    tags_clear(tg);
+    FILE *fp = fopen(path, "rb");
     if (!fp) return;
-    int fm = audio_fmt(names[k]);
-    tags_clear(&tg);
-    if (fm == FMT_FLAC) flac_meta(fp, &tg, 0);
-    else if (fm == FMT_OGG) { size_t n = fread(head, 1, sizeof(head), fp); ogg_tags(head, (long)n, &tg); }
-    else if (fm == FMT_M4A) m4a_meta(names[k], &tg, 0);
+    int fm = audio_fmt(path);
+    if (fm == FMT_FLAC) flac_meta(fp, tg, 0);
+    else if (fm == FMT_OGG) { size_t n = fread(head, 1, 16384, fp); ogg_tags(head, (long)n, tg); }
+    else if (fm == FMT_M4A) m4a_meta(path, tg, 0);
     else if (fm == FMT_MP3) {
-        size_t n = fread(head, 1, sizeof(head), fp);
+        size_t n = fread(head, 1, 16384, fp);
         int has_v1 = 0;
         if (fseek(fp, -128, SEEK_END) == 0 && fread(v1, 1, 128, fp) == 128) has_v1 = 1;
         long tl = 0;
         unsigned char *t2 = NULL;                                 /* v85 : cadres de texte meme apres une grosse pochette */
         if (n >= 10 && !memcmp(head, "ID3", 3) && 10 + (long)synchsafe(head + 6) > (long)n) t2 = id3_text_only(fp, head, 10 + (long)synchsafe(head + 6), &tl);
-        parse_tags(t2 ? t2 : head, t2 ? tl : (long)n, has_v1 ? v1 : NULL, &tg);
+        parse_tags(t2 ? t2 : head, t2 ? tl : (long)n, has_v1 ? v1 : NULL, tg);
         free(t2);
     }
     fclose(fp);
+}
+static void tag_scan_one(int k) {
+    if (lsc_ready()) { lsc_want(k); return; }               /* v195 : lues par le fil (la boucle ne lit plus la carte) */
+    tags_t tg;
+    tg_done[k] = 1;
+    tg_scanned++;
+    bib_dirty = 1;
+    tg_artist[k][0] = tg_album[k][0] = tg_title[k][0] = 0;
+    tag_read_file(names[k], &tg);
     snprintf(tg_artist[k], sizeof(tg_artist[k]), "%s", tg.artist);
     snprintf(tg_album[k], sizeof(tg_album[k]), "%s", tg.album);
     snprintf(tg_title[k], sizeof(tg_title[k]), "%s", tg.title);
 }
+
+/* ---------- v195 : durees et etiquettes lues par un fil de fond (lsc) ----------
+   La liste MUSIQUE lisait une duree et une etiquette par image, sur la carte SD, dans la boucle principale :
+   une seule lecture (grosse pochette dans l'ID3, fin d'un gros fichier) pouvait figer l'ecran plusieurs
+   secondes sur la console (fluidite.txt : "dessin" jusqu'a 3,9 s). Maintenant la boucle demande (lsc_want),
+   un fil de faible priorite (sous le decodage du son) lit, et ecrit le resultat sous le verrou lsc_mx.
+   Les listes (names[]) changent sous ce verrou (generation suivante : les demandes d'avant sont oubliees).
+   Les durees de la musique retro (emulateurs) restent lues par la boucle, comme avant. */
+#define LSC_Q 128
+/* v195 : pochettes et logos cherches par le fil lsc (avant : dans la boucle, fluidite.txt "pochettes")
+   La boucle demande (cw_post), le fil cherche sur la carte SD et decode dans cw_tex, la boucle copie (cw_pump).
+   Une seule recherche a la fois : une autre demandee entre-temps attend (la derniere seulement). */
+static volatile int cw_state = 0;            /* 0 libre, 1 demandee, 2 en cours (fil), 3 finie */
+static volatile int cw_found = 0;
+static int cw_kind = 0;                      /* 0 pochette d'un morceau, 1 logo d'une radio */
+static char cw_arg[NAME_LEN];
+static u32 cw_job_gen = 0;
+static int cw_next = 0, cw_next_kind = 0;
+static u32 cw_next_gen = 0;
+static char cw_next_arg[NAME_LEN];
+static volatile int cw_wstate = 0;           /* pochette a enregistrer dans le cache par le fil */
+static char cw_wkey[NAME_LEN + 32];
+static u16 cw_wtex[COVER_SZ * COVER_SZ] ATTRIBUTE_ALIGN(32);
+static sem_t lsc_sem;
+static int lsc_ready(void);
+static int cw_decode(const unsigned char *data, long len) {   /* (fil lsc) image -> cw_tex, et le cache */
+    int w, h, n;
+    if (len <= 0 || len > 0x7fffffffL || !stbi_info_from_memory(data, (int)len, &w, &h, &n)) return 0;
+    if (w <= 0 || h <= 0 || (long)w * (long)h > COVER_MAX_PX) return 0;
+    unsigned char *px = stbi_load_from_memory(data, (int)len, &w, &h, &n, 3);
+    if (!px) return 0;
+    cover_scale(px, w, h, cw_tex, 0);
+    stbi_image_free(px);
+    if (cw_key[0]) cv_cache_write(cw_key, cw_tex);
+    return 1;
+}
+static int cw_search_logo(const char *name) {  /* (fil lsc) logo d'une radio : SD:/gc-mp3/radio/<nom>.jpg|.jpeg|.png */
+    static const char *exts[] = { ".jpg", ".jpeg", ".png" };
+    char path[160];
+    for (int i = 0; i < 3; i++) {
+        snprintf(path, sizeof(path), "%s/%s%s", LOGO_DIR, name, exts[i]);
+        snprintf(cw_key, sizeof(cw_key), "logo|%s", path);
+        if (cv_cache_read(cw_key)) return 1;
+        if (cover_from_file(path) == 1) return 1;
+    }
+    return 0;
+}
+static void cw_post(int kind, const char *what) {   /* (boucle) */
+    if (cw_state == 0) {
+        cw_kind = kind;
+        snprintf(cw_arg, sizeof(cw_arg), "%s", what);
+        cw_job_gen = cv_gen;
+        cw_found = 0;
+        cw_state = 1;
+        LWP_SemPost(lsc_sem);
+    } else {
+        cw_next_kind = kind;
+        snprintf(cw_next_arg, sizeof(cw_next_arg), "%s", what);
+        cw_next_gen = cv_gen;
+        cw_next = 1;
+    }
+}
+static void cw_pump(void) {                  /* (boucle, chaque image) */
+    if (cw_state == 3) {
+        if (cw_job_gen == cv_gen) {
+            snprintf(cv_key, sizeof(cv_key), "%s", cw_key);
+            if (cw_found) {
+                memcpy(cover_tex, cw_tex, sizeof(cover_tex));
+                DCFlushRange(cover_tex, sizeof(cover_tex));
+                GX_InvalidateTexAll();
+                cover_ok = 1;
+            }
+        }
+        cw_state = 0;
+    }
+    if (cw_state == 0 && cw_next) {
+        cw_next = 0;
+        if (cw_next_gen == cv_gen) {
+            cw_kind = cw_next_kind;
+            snprintf(cw_arg, sizeof(cw_arg), "%s", cw_next_arg);
+            cw_job_gen = cw_next_gen;
+            cw_found = 0;
+            cw_state = 1;
+            LWP_SemPost(lsc_sem);
+        }
+    }
+}
+static int cw_busy(void) { return (cw_state != 0 && cw_job_gen == cv_gen) || (cw_next && cw_next_gen == cv_gen); }
+/* v195 : ecritures sur la carte SD faites par le fil lsc (avant : dans la boucle, chacune pouvait figer l'ecran
+   tant que la carte etait occupee) : nouveaux fichiers telecharges (pochette .jpg, paroles .lrc, jamais d'ecrasement),
+   fichiers remplaces (bibliotheque, statistiques : fichier .part puis renomme), lignes ajoutees (historique des titres).
+   Les enregistrements immediats (en quittant, avant un jeu) attendent d'abord la file (bgf_wait). */
+enum { BGF_NEW, BGF_REPL, BGF_RH, BGF_RAW };          /* (BGF_RAW : ecrit tel quel, resultat dans *done) */
+#define BGF_N 8
+static struct { volatile int st; int mode, mk; u32 seq; char path[NAME_LEN + 8]; unsigned char *d; long n; volatile int *done; } bgf[BGF_N];
+static volatile u32 bgf_seq_in = 0, bgf_seq_out = 0;
+static volatile int *bgf_done_next = NULL;          /* (prochaine demande : ou noter son resultat, 1 ou -1) */
+static void rh_append_do(const char *line);     /* (extras73.c) */
+static int bgf_own(int mode, int mk, const char *path, unsigned char *d, long n) {   /* (boucle) d est garde par la file ; 0 = pas de place */
+    if (!lsc_ready()) return 0;
+    for (int i = 0; i < BGF_N; i++) {
+        if (bgf[i].st) continue;
+        snprintf(bgf[i].path, sizeof(bgf[i].path), "%s", path);
+        bgf[i].mode = mode; bgf[i].mk = mk; bgf[i].d = d; bgf[i].n = n; bgf[i].done = bgf_done_next; bgf_done_next = NULL;
+        bgf[i].seq = bgf_seq_in++;
+        bgf[i].st = 1;
+        LWP_SemPost(lsc_sem);
+        return 1;
+    }
+    return 0;
+}
+static int bgf_put_mode(int mode, int mk, const char *path, const void *d, long n) {   /* (boucle) copie des donnees */
+    if (n < 0 || !lsc_ready()) return 0;
+    unsigned char *c = (unsigned char *)malloc(n > 0 ? n : 1);
+    if (!c) return 0;
+    if (n) memcpy(c, d, n);
+    if (bgf_own(mode, mk, path, c, n)) return 1;
+    free(c);
+    return 0;
+}
+static int bgf_put(const char *path, const void *d, long n) { return n > 0 && bgf_put_mode(BGF_NEW, 0, path, d, n); }
+static void bgf_mkdirs(const char *path) {      /* (fil) dossiers parents */
+    char t[NAME_LEN + 8];
+    snprintf(t, sizeof(t), "%s", path);
+    for (char *c = strchr(t, '/'); c; c = strchr(c + 1, '/')) {
+        if (c == t || c[-1] == ':') continue;
+        *c = 0; mkdir(t, 0777); *c = '/';
+    }
+}
+static int bgf_write(const char *path, const unsigned char *d, long n) {
+    FILE *f = fopen(path, "wb");
+    if (!f) return 0;
+    int ok = n == 0 || fwrite(d, 1, n, f) == (size_t)n;
+    if (fclose(f) != 0) ok = 0;
+    if (!ok) remove(path);
+    return ok;
+}
+static int bgf_run(void) {                   /* (fil lsc) 1 = une ecriture faite, dans l'ordre des demandes */
+    int best = -1;
+    for (int i = 0; i < BGF_N; i++) if (bgf[i].st == 1 && (best < 0 || (s32)(bgf[i].seq - bgf[best].seq) < 0)) best = i;
+    if (best < 0) return 0;
+    int i = best;
+    if (bgf[i].mk) bgf_mkdirs(bgf[i].path);
+    if (bgf[i].mode == BGF_NEW) {
+        struct stat st;
+        if (stat(bgf[i].path, &st) != 0) bgf_write(bgf[i].path, bgf[i].d, bgf[i].n);
+    } else if (bgf[i].mode == BGF_REPL) {
+        char tmp[NAME_LEN + 16];
+        snprintf(tmp, sizeof(tmp), "%s.part", bgf[i].path);
+        if (bgf_write(tmp, bgf[i].d, bgf[i].n)) { remove(bgf[i].path); rename(tmp, bgf[i].path); }
+    } else if (bgf[i].mode == BGF_RH) rh_append_do((const char *)bgf[i].d);
+    else if (bgf[i].mode == BGF_RAW) { int ok = bgf_write(bgf[i].path, bgf[i].d, bgf[i].n); if (bgf[i].done) *bgf[i].done = ok ? 1 : -1; }
+    free(bgf[i].d); bgf[i].d = NULL;
+    bgf_seq_out++;
+    bgf[i].st = 0;
+    return 1;
+}
+static void bgf_wait(void) {                 /* (boucle) attend que la file soit vide (enregistrements immediats) */
+    u64 t0 = now_ms();
+    while (bgf_seq_out != bgf_seq_in && now_ms() - t0 < 5000) usleep(2000);
+}
+/* texte prepare en memoire, ecrit par le fil (remplacement) : bgw_begin / fprintf... / bgw_end */
+static char *bgw_buf = NULL;
+static size_t bgw_len = 0;
+static FILE *bgw_begin(void) { bgw_buf = NULL; bgw_len = 0; return lsc_ready() ? open_memstream(&bgw_buf, &bgw_len) : NULL; }
+static int bgw_end(FILE *f, const char *path) {   /* 1 = confie au fil (sinon : ecrit ici) */
+    if (fclose(f) != 0 || !bgw_buf) { free(bgw_buf); bgw_buf = NULL; return 0; }
+    if (bgf_own(BGF_REPL, 0, path, (unsigned char *)bgw_buf, (long)bgw_len)) { bgw_buf = NULL; return 1; }
+    char tmp[NAME_LEN + 16];
+    snprintf(tmp, sizeof(tmp), "%s.part", path);
+    if (bgf_write(tmp, (unsigned char *)bgw_buf, (long)bgw_len)) { remove(path); rename(tmp, path); }
+    free(bgw_buf); bgw_buf = NULL;
+    return 1;
+}
+static int cw_cache_later(const char *key, const u16 *tex) {   /* (boucle) 1 = le fil l'enregistrera */
+    if (!key[0] || cw_wstate || !lsc_ready()) return 0;
+    snprintf(cw_wkey, sizeof(cw_wkey), "%s", key);
+    memcpy(cw_wtex, tex, sizeof(cw_wtex));
+    cw_wstate = 1;
+    LWP_SemPost(lsc_sem);
+    return 1;
+}
+static int lsc_on = 0;                       /* 1 = fil lance, -1 = impossible */
+static mutex_t lsc_mx;
+static sem_t lsc_sem;
+static lwp_t lsc_h;
+static u8 lsc_stack[64 * 1024] ATTRIBUTE_ALIGN(32);
+static volatile u32 lsc_gen = 1;
+static volatile int lsc_qk[LSC_Q];
+static volatile u32 lsc_qg[LSC_Q];
+static volatile u32 lsc_qh = 0, lsc_qt = 0;  /* (la boucle ajoute en queue, le fil prend en tete) */
+static volatile u8 lsc_asked[MAX_FILES];
+#define LSC_LOCK()   do { if (lsc_on > 0) LWP_MutexLock(lsc_mx); } while (0)
+#define LSC_UNLOCK() do { if (lsc_on > 0) LWP_MutexUnlock(lsc_mx); } while (0)
+static int lsc_self(void) { return lsc_on > 0 && LWP_GetSelf() == lsc_h; }
+static void lsc_new_list(void) {             /* (sous LSC_LOCK) names[] a change : demandes oubliees */
+    lsc_gen++;
+    memset((void *)lsc_asked, 0, sizeof(lsc_asked));
+}
+static void *lsc_thread(void *arg) {
+    (void)arg;
+    static char path[NAME_LEN];
+    for (;;) {
+        if (cw_wstate == 1) { cv_cache_write(cw_wkey, cw_wtex); cw_wstate = 0; continue; }   /* v195 : pochette a garder */
+        if (bgf_run()) continue;                            /* v195 : fichier telecharge a ecrire */
+        if (cw_state == 1) {                                /* v195 : pochette ou logo a chercher */
+            cw_state = 2;
+            cw_found = cw_kind == 1 ? cw_search_logo(cw_arg) : cw_search(cw_arg);
+            cw_state = 3;
+            continue;
+        }
+        if (lsc_qh == lsc_qt) { LWP_SemWait(lsc_sem); continue; }
+        u32 i = lsc_qh % LSC_Q;
+        int k = lsc_qk[i];
+        u32 g = lsc_qg[i];
+        lsc_qh++;
+        LWP_MutexLock(lsc_mx);
+        int ok = g == lsc_gen && k >= 0 && k < nfiles;
+        int need_d = ok && dur_cache[k] == -2 && !is_retro[k];
+        int need_t = ok && !tg_done[k];
+        if (ok) snprintf(path, sizeof(path), "%s", names[k]);
+        if (ok && !need_d && !need_t) lsc_asked[k] = 0;
+        LWP_MutexUnlock(lsc_mx);
+        if (!ok || (!need_d && !need_t)) continue;
+        int d = need_d ? file_duration(path) : -2;
+        tags_t tg;
+        if (need_t) tag_read_file(path, &tg);
+        LWP_MutexLock(lsc_mx);
+        if (g == lsc_gen && k < nfiles && !strcmp(names[k], path)) {
+            if (need_d && dur_cache[k] == -2) { dur_cache[k] = d; bib_dirty = 1; }
+            if (need_t && !tg_done[k]) {
+                snprintf(tg_artist[k], sizeof(tg_artist[k]), "%s", tg.artist);
+                snprintf(tg_album[k], sizeof(tg_album[k]), "%s", tg.album);
+                snprintf(tg_title[k], sizeof(tg_title[k]), "%s", tg.title);
+                tg_done[k] = 1;
+                tg_scanned++;
+                bib_dirty = 1;
+            }
+            lsc_asked[k] = 0;
+        }
+        LWP_MutexUnlock(lsc_mx);
+    }
+    return NULL;
+}
+static int lsc_ready(void) {
+    if (lsc_on) return lsc_on > 0;
+    if (!sd_ok || sd_virtual) return 0;      /* (carte virtuelle en memoire : comme avant) */
+    lsc_on = -1;
+    if (LWP_MutexInit(&lsc_mx, true) < 0 || LWP_SemInit(&lsc_sem, 0, 1024) < 0) return 0;
+    if (LWP_CreateThread(&lsc_h, lsc_thread, NULL, lsc_stack, sizeof(lsc_stack), 18) < 0) return 0;
+    lsc_on = 1;
+    return 1;
+}
+static void lsc_want(int k) {                /* (boucle principale) duree et etiquettes de k a lire */
+    if (k < 0 || k >= nfiles || lsc_asked[k] || lsc_qt - lsc_qh >= LSC_Q) return;
+    if ((dur_cache[k] != -2 || is_retro[k]) && tg_done[k]) return;   /* (retro : duree lue par la boucle) */
+    lsc_asked[k] = 1;
+    u32 i = lsc_qt % LSC_Q;
+    lsc_qk[i] = k;
+    lsc_qg[i] = lsc_gen;
+    lsc_qt++;
+    LWP_SemPost(lsc_sem);
+}
+
 
 /* ---------- Bibliotheque en cache (SD:/gc-mp3/bibliotheque/gc-mp3-bib.txt) ----------
    Durees et etiquettes deja lues : au demarrage suivant, plus besoin de relire
@@ -4533,11 +5040,16 @@ static void bib_load(void) {
     fclose(f);
     lib_dirty = 1;
 }
-static void bib_save(void) {
+static void bib_save_x(int bg);
+static void bib_save(void) { bib_save_x(0); }
+static void bib_save_x(int bg) {                          /* v195 : bg = ecrite par le fil (enregistrement periodique) */
     bib_dirty = 0;
     bib_saved_t = now_ms();
     if (!sd_ok) return;
-    FILE *f = fopen(BIB_FILE ".part", "w");
+    if (!bg) bgf_wait();
+    FILE *f = bg ? bgw_begin() : NULL;
+    int via_bg = f != NULL;
+    if (!f) f = fopen(BIB_FILE ".part", "w");
     if (!f) return;
     int ok = 1;
     for (int k = 0; k < nfiles && ok; k++) {
@@ -4552,6 +5064,7 @@ static void bib_save(void) {
         if (!tg_done[k]) { if (fprintf(f, "%d|||%s\n", dur_cache[k] == -2 ? -3 : dur_cache[k], names[k]) < 0) ok = 0; continue; }
         if (fprintf(f, "2:%d|%s|%s|%s|%s\n", dur_cache[k] == -2 ? -3 : dur_cache[k], a, b, ti, names[k]) < 0) ok = 0;
     }
+    if (via_bg) { if (ok) bgw_end(f, BIB_FILE); else { fclose(f); free(bgw_buf); bgw_buf = NULL; } return; }
     if (fclose(f) != 0) ok = 0;
     if (ok) { remove(BIB_FILE); rename(BIB_FILE ".part", BIB_FILE); }
     else remove(BIB_FILE ".part");
@@ -4561,7 +5074,7 @@ static u64 last_input_ms;
 static void bib_pump(void) {
     if (!bib_dirty) return;
     u64 n = now_ms();
-    if (n - last_input_ms > 4000 && n - bib_saved_t > 20000) bib_save();
+    if (n - last_input_ms > 4000 && n - bib_saved_t > 20000) bib_save_x(1);   /* v195 : par le fil */
 }
 
 /* entrees de la liste affichee */
@@ -4735,18 +5248,20 @@ static void select_track_row(int track) {
     for (int i = 0; i < nents; i++) if (ents[i].type == E_TRACK && ents[i].idx == track) { sel_row = i; return; }
 }
 
-static void play_queue_pos(int p) {
+static void play_queue_pos_x(int p, int soon) {
     if (p < 0 || p >= qn) return;
     qpos = p;
-    start_track(queue[p]);
+    if (soon) start_track_soon(queue[p]); else start_track(queue[p]);   /* v195 : a la main : sans figer l'ecran */
     select_track_row(queue[p]);
 }
+static void play_queue_pos(int p) { play_queue_pos_x(p, 0); }
 
 /* morceau suivant (dir = 1) ou precedent (-1) ; automatic = fin du morceau */
 static void track_next(int dir, int automatic) {
-    if (qn == 0 || qpos < 0 || qpos >= qn || queue[qpos] != cur_track) {
-        if (cur_track < 0) return;
-        queue_build(cur_track);
+    int curk = !automatic && st_pending >= 0 ? st_pending : cur_track;   /* v195 : (appuis rapides : depuis le morceau demande) */
+    if (qn == 0 || qpos < 0 || qpos >= qn || queue[qpos] != curk) {
+        if (curk < 0) return;
+        queue_build(curk);
     }
     if (automatic && sleep_eot) { sleep_eot = 0; sleep_fade = 256; stop_track(); stop_station(); party_on = 0; return; }   /* v76 : arret a la fin du morceau */
     if (automatic && repeat_mode == REP_ONE) { play_queue_pos(qpos); return; }
@@ -4757,7 +5272,7 @@ static void track_next(int dir, int automatic) {
         else { if (shuffle_on) queue_shuffle_from(queue[lib_rand() % (u32)qn]); p = 0; }
     }
     if (p < 0) p = (repeat_mode == REP_OFF) ? 0 : qn - 1;
-    play_queue_pos(p);
+    play_queue_pos_x(p, !automatic);
 }
 
 /* y aura-t-il un morceau apres celui-ci (fin de morceau automatique) ? */
@@ -4797,6 +5312,12 @@ static void lib_pump(void) {
     if (lib_dirty) lib_rebuild();
     if (view_mode != VIEW_ARTISTS && view_mode != VIEW_ALBUMS) return;
     if (tg_scanned >= nfiles) return;
+    if (lsc_ready()) {                                      /* v195 : demandees au fil ; vues refaites quand elles arrivent */
+        static int last_n = -1;
+        for (int k = 0, asked = 0; k < nfiles && asked < 32; k++) if (!tg_done[k]) { lsc_want(k); asked++; }
+        if (tg_scanned != last_n && (tg_scanned >= nfiles || tg_scanned - last_n >= 24 || last_n < 0)) { last_n = tg_scanned; lib_rebuild(); }
+        return;
+    }
     u64 t0 = now_ms();
     int done = 0;
     for (int k = 0; k < nfiles && now_ms() - t0 < 12 && io_safe(); k++)
@@ -4817,7 +5338,7 @@ static void lib_activate(void) {
         return;
     }
     queue_build(e.idx);
-    start_track(e.idx);
+    start_track_soon(e.idx);                              /* v195 */
 }
 
 // ---------- Paroles synchronisees (fichier .lrc a cote du MP3) ----------
@@ -5391,7 +5912,8 @@ static void resume_note(int force) {
     }
     if (force || (resume_on && now_ms() - last > 30000 && now_ms() - last_input_ms > 1500 && src == SRC_FILE && playing)) {   /* (v45 : pas pendant qu'on navigue) */
         last = now_ms();
-        save_settings();
+        if (force) save_settings();
+        else { settings_dirty = 1; save_settings_bg(); }   /* v195 : (toutes les 30 s pendant la lecture : en tache de fond) */
     }
 }
 
@@ -5401,7 +5923,7 @@ static void track_seek(int sec) { DEC_LOCK(); track_seek_u(sec); DEC_UNLOCK(); }
 static void track_seek_u(int sec) {
     if (!ffp || cur_track < 0 || sec <= 0) return;
     mp3_skip = 0; mp3_left = -1; rgm_on = 0;             /* (v72 : mesure de sonie incomplete : abandonnee) */
-    int d = file_duration(names[cur_track]);
+    int d = dur_sync(cur_track);                          /* v195 */
     if (d <= 0 || sec >= d - 2) return;
     if (file_fmt != FMT_MP3) {
         if (!other_seek(sec, d)) return;
@@ -6274,6 +6796,7 @@ static void cover_for_station(int idx) {
     cv_pend = NULL;
     cv_key[0] = 0;
     if (!sd_ok) return;
+    if (lsc_ready()) { cw_post(1, stations[idx].name); return; }   /* v195 : cherche par le fil */
     cv_defer = 1;
     for (int i = 0; i < 3 && !cover_ok; i++) {
         snprintf(path, sizeof(path), "%s/%s%s", LOGO_DIR, stations[idx].name, exts[i]);
@@ -6763,8 +7286,22 @@ static void perf_report(void) {                      /* SD:/gc-mp3/journaux/flui
     }
     fclose(f);
 }
+static u8 pfx_sampler_stack[8 * 1024] ATTRIBUTE_ALIGN(32);
+static void *pfx_sampler(void *a) {                       /* v195 : (voir pfx_stolen_acc) */
+    (void)a;
+    for (;;) {
+        u32 t0 = perf_us();
+        usleep(4000);
+        u32 d = perf_us() - t0;
+        if (perf_on && d > 5000 && d < 10000000) pfx_stolen_acc += d - 4000;
+    }
+    return NULL;
+}
 static void perf_toggle(void) {
     if (perf_on) { perf_on = 0; perf_report(); return; }
+#ifdef GEKKO                                               /* (console seulement : le simulateur a sa propre horloge par fil) */
+    if (!pfx_sampler_on) { lwp_t h; pfx_sampler_on = 1; LWP_CreateThread(&h, pfx_sampler, NULL, pfx_sampler_stack, sizeof(pfx_sampler_stack), 110); }
+#endif
     memset(pfx_frames, 0, sizeof(pfx_frames)); memset(pfx_slow, 0, sizeof(pfx_slow)); memset(pfx_vslow, 0, sizeof(pfx_vslow)); memset(pfx_worst, 0, sizeof(pfx_worst));
     memset(pfx_sum, 0, sizeof(pfx_sum)); memset(pfx_max, 0, sizeof(pfx_max)); memset(pfx_top, 0, sizeof(pfx_top));
     pfx_frame_t0 = 0; pfx_last_top = PH_N; perf_on = 1;
@@ -10345,6 +10882,7 @@ static void cl_save_cover(const unsigned char *d, int n) {
     snprintf(path, sizeof(path), "%s", names[cl_track]);
     strip_audio_ext(path);
     strcat(path, ".jpg");
+    if (bgf_put(path, d, n)) return;       /* v195 : ecrite par le fil */
     struct stat st;
     if (stat(path, &st) == 0) return;      /* ne jamais ecraser un fichier existant */
     FILE *f = fopen(path, "wb");
@@ -10544,6 +11082,7 @@ static void ly_save(const char *txt) {
     snprintf(path, sizeof(path), "%s", names[ly_track]);
     strip_audio_ext(path);
     strcat(path, ".lrc");
+    if (bgf_put(path, txt, (long)strlen(txt))) return;   /* v195 : ecrites par le fil */
     struct stat st;
     if (stat(path, &st) == 0) return;      /* ne jamais ecraser un fichier existant */
     FILE *f = fopen(path, "wb");
@@ -10589,7 +11128,7 @@ static void lyrics_pump(void) {
         if (lhf.st != HF_DONE) return;
         lhf.st = HF_IDLE;
         int dur = (ly_track >= 0 && ly_track < nfiles) ? dur_cache[ly_track] : -1;
-        if (dur == -2) dur = dur_cache[ly_track] = file_duration(names[ly_track]);
+        if (dur == -2) dur = dur_sync(ly_track);              /* v195 */
         char *txt = ly_pick((const char *)lhf.buf, lhf.len, dur);
         hf_drop(&lhf);
         if (!txt) { ly_give_up(); return; }
@@ -13334,12 +13873,14 @@ static void music_add_file(const char *path) {
     if (bib_find(path) >= 0) return;
     if (nfiles >= MAX_FILES) return;
     int k = nfiles;
+    LSC_LOCK();                                            /* v195 */
     snprintf(names[k], NAME_LEN, "%s", path);
     dur_cache[k] = -2;
     is_retro[k] = retro_ext_fmt(path) >= 0;
     tg_done[k] = 0; tg_artist[k][0] = tg_album[k][0] = tg_title[k][0] = 0;
     play_cnt[k] = 0; play_last[k] = 0;
     nfiles++;
+    LSC_UNLOCK();
     lib_rebuild();
     retro_rescan();
 }
@@ -13350,9 +13891,12 @@ static void music_rescan(void) {
     if (bib_dirty) bib_save();                             /* garde ce qui est deja lu */
     if (stats_dirty) stats_save();
     if (rating_dirty) rating_save();
+    LSC_LOCK();                                            /* v195 : (le fil des etiquettes attend) */
     scan_files();
     tags_reset();
+    lsc_new_list();
     bib_load();
+    LSC_UNLOCK();
     pl_load_all();
     stats_load();
     rating_load();
@@ -13458,7 +14002,7 @@ static int mdec_want(void) {
 static void *mdec_fn(void *a) {
     (void)a;
     for (;;) {
-        if (nx.st == 1 && (!mdec_want() || f_count >= 48000)) { nx_work(); continue; }   /* v165 : (avec 1 s de son d'avance) */
+        if (nx.st == 1 && (nx_urgent || !mdec_want() || f_count >= 48000)) { nx_urgent = 0; nx_work(); continue; }   /* v165 : (avec 1 s de son d'avance) ; v195 : tout de suite si demande */
         if (!mdec_want()) { usleep(4000); continue; }
         if (dec_wait) { usleep(500); continue; }
         DEC_LOCK();
@@ -13477,7 +14021,7 @@ static void mdec_start(void) {
 }
 /* v165 : demande au thread de decodage de preparer le morceau suivant (2 s apres le debut de celui-ci) */
 static void nx_request(void) {
-    if (mdec_h == LWP_THREAD_NULL || nx.st == 1) return;
+    if (mdec_h == LWP_THREAD_NULL || nx.st == 1 || st_pending >= 0) return;   /* v195 : (un morceau demande passe avant) */
     if (src != SRC_FILE || !playing || !cur_on_sd || consumed < 48000u * 2 || cur_track < 0) return;
     if (nx_asked == nx_gen && nx.st == 0) return;         /* (rien a preparer pour ce morceau) */
     nx_asked = nx_gen;
@@ -13888,7 +14432,7 @@ int main(int argc, char **argv) {
         PF(PH_AUDIO, service_audio());
 
         /* musique : decodage du fichier en cours */
-        PF(PH_MUSIC, music_pump());
+        PF(PH_MUSIC, st_soon_pump(); music_pump());           /* v195 : morceau demande */
 
         /* radio : reception, decodage, tampon */
         PF(PH_STREAM, stream_pump(); radio_repair_ok(); radio_last_note(); radio_repair_pump(); if (tab_shown(TAB_RADIO)) radio_resume_pump());

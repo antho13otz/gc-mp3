@@ -1,0 +1,1 @@
+radio.test,radio2.test,icecast.radiofrance.fr,musicbrainz.org,coverartarchive.org,lrclib.net,itunes.apple.com,www.francetvinfo.fr,api.radiofrance.fr,all.api.radio-browser.info,de1.api.radio-browser.info,fr1.api.radio-browser.info,nl1.api.radio-browser.info,at1.api.radio-browser.info,archive.org,api.open-meteo.com,geocoding-api.open-meteo.com,images.test

@@ -422,7 +422,7 @@ static int pod_dl_find(const char *url, char *out, int cap) {
 static void pod_local_save(void) {
     if (pod_local_k < 0 || !pod_local_url[0]) return;
     int p = (int)(consumed_heard() / 48000u);
-    int d = pod_local_k < nfiles ? file_duration(names[pod_local_k]) : 0;
+    int d = pod_local_k < nfiles ? dur_known(pod_local_k) : 0;   /* v195 */
     if (d > 0 && p > d - 30) p = 0;                            /* (fini : on repartira du debut) */
     pod_set_pos(pod_local_url, p);
 }

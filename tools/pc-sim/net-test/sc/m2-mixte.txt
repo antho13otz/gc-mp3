@@ -1,0 +1,27 @@
+wait 3s
+press A
+wait 5s
+press Z
+wait 1s
+press DOWN
+press DOWN
+press DOWN
+press A
+wait 6s
+mark musique-vers-radio
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+press Z
+wait 1s
+press A
+wait 6s
+mark radio-vers-musique
+quit

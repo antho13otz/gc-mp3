@@ -24,6 +24,20 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v195 — radio et musique fluides (la boucle ne touche plus la carte SD)
+- Radio : ouverture par étapes sans attendre (connexion, requête, en-têtes, listes .m3u / .pls) : la boucle principale
+  n'attend plus la réponse du serveur (avant : jusqu'à 1,5 s, « radio »).
+- Musique : durées et étiquettes lues par un fil de fond (avant : pendant le dessin de la liste, jusqu'à 3,9 s,
+  « dessin ») ; pochettes et logos cherchés et décodés par ce fil ; changement de morceau à la main (R / L / A)
+  préparé par le fil de décodage pendant que le morceau en cours continue (avant : « manette » jusqu'à 1,6 s).
+- Écritures sur la carte SD par le fil (avant : dans la boucle) : position de reprise (toutes les 30 s),
+  bibliothèque, statistiques, notes, historique des titres de radio, pochettes et paroles téléchargées,
+  cache des pochettes, lanceur de jeux et retour en jeu mis à jour.
+- Mode soirée / karaoké : la durée du morceau n'est plus relue sur la carte SD à chaque image.
+- `fluidite.txt` : nouvelles lignes « processeur pris (réseau) » (temps où la boucle n'a pas eu le processeur)
+  et « attente du décodeur ».
+- Simulateur : banc d'essai radio / musique avec un faux Internet local (`tools/pc-sim/net-test`).
+
 ## Nouveautés v194 — moins de pauses (réglages, connexions HTTPS)
 - Réglages (`gc-mp3.txt`) : le texte est préparé en mémoire et n'est réécrit que s'il a changé ; l'enregistrement
   automatique (2 s après un changement, par exemple la dernière radio écoutée) est écrit par un fil de fond

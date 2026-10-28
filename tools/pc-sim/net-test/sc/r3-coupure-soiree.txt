@@ -1,0 +1,39 @@
+wait 3s
+press Z
+wait 1s
+press DOWN 
+press DOWN
+press DOWN
+press DOWN
+press DOWN
+press DOWN
+press DOWN
+press DOWN
+press DOWN
+press DOWN
+press A
+wait 25s
+mark coupure-reconnexions
+stick c 0 127 300ms
+wait 5s
+shot r3-soiree
+mark mode-soiree
+press B
+wait 1s
+stick c 0 -127 300ms
+wait 2s
+stick c 0 -127 300ms
+wait 2s
+stick c 0 -127 300ms
+wait 2s
+stick c 0 -127 300ms
+wait 2s
+mark dispositions
+press Z
+wait 2s
+press Z
+wait 2s
+press Z
+wait 2s
+mark onglets
+quit
