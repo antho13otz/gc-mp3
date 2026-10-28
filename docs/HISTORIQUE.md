@@ -24,6 +24,26 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v213 — le globe des radios, plus rapide et plus doux
+- **Chargement bien plus rapide** : l'annuaire est lu en une seule passe (avant : chaque champ était recherché depuis
+  le début de la station, 10 fois plus lent) ; la page suivante est demandée pendant qu'on lit la précédente ; la
+  lecture prend au plus 5 ms par image (le globe reste à 50 images/s). Pourcentage et barre de chargement.
+- **Prêt d'avance** : en entrant dans l'onglet RADIO, les radios gardées sur la carte SD sont relues en fond : le globe
+  s'ouvre déjà rempli. Une liste de plus d'une semaine reste affichée pendant sa mise à jour (les radios disparues
+  de l'annuaire sont enlevées à la fin).
+- **Doublons enlevés** : même adresse, ou même nom au même endroit (une radio en plusieurs débits) : un seul point.
+- **Navigation** : inertie (démarrages et arrêts en douceur, réponse progressive du stick), même vitesse à l'écran
+  près des pôles, vol en arc d'un point à l'autre (la Terre recule un peu pendant les longs vols), viseur aimanté
+  (la radio la plus proche se place au centre quand on lâche le stick), noms des radios proches quand on zoome.
+- **Z : chercher** une radio, une ville ou un pays (aussi en français : « Japon », « Allemagne »… sans accents
+  ni majuscules à respecter) ; le globe y vole ; L / R : résultat précédent / suivant.
+- **État de la radio lancée** : connexion, mise en mémoire, en écoute, ou « ne répond pas (R : une autre radio ici) ».
+- **Jour et nuit** : d'après l'heure de la console, la face de nuit est plus sombre et les radios y brillent comme
+  des villes.
+- **Après le globe** (interface qui accrochait en quittant le globe avec une radio lancée) : en le fermant, tout ce
+  qu'il occupait est rendu (carte, points, tables) ; et tant qu'une radio joue, le globe ne charge plus rien en fond
+  (réseau et mémoire pour la radio) : le chargement reprend à la même page à la prochaine ouverture.
+
 ## Nouveautés v212 — Cube Browser en français, mise à jour réparée
 - **Mise à jour (Réglages > Réseau)** : depuis Cube Browser, le programme fait près de 6 Mo et le téléchargement
   le gardait en entier en mémoire avant de l'écrire : il ne restait plus assez de mémoire d'un seul bloc, chaque

@@ -218,6 +218,9 @@ static void x73_menu_change(int i, int d);
 static void x73_pump(void);
 static void rh_open(void);
 static void gb_open(void);                               /* v207 : globe.c */
+static void gb_kb_done(const char *t);                   /* v213 : globe.c (recherche) */
+static void gb_prefetch(void);
+static void gb_bg(void);
 static void pet_rename(const char *t);                   /* v207 : pet.c */
 static void saver_tableau(float t);
 static char radio_last_url[URL_MAX], radio_last_name[48];
@@ -11401,7 +11404,7 @@ static void web_pump(void) {
 }
 
 // ---------- Navigateur : actions ----------
-enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR, KB_LIBFIND, KB_PLNAME, KB_CHEATID, KB_CHEATNAME, KB_CHEATCODE, KB_NETTXT, KB_NFS, KB_PROFILE, KB_PETNAME };
+enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR, KB_LIBFIND, KB_PLNAME, KB_CHEATID, KB_CHEATNAME, KB_CHEATCODE, KB_NETTXT, KB_NFS, KB_PROFILE, KB_PETNAME, KB_GLOBE };
 static void cheats_kb_done(int mode, const char *t);
 static void pj_kb_done(const char *t);                 /* v191 (profils.c) */
 static void ic_kb_done(const char *t);
@@ -11545,6 +11548,7 @@ static void kb_validate(void) {
     if (kb_mode == KB_LIBFIND || kb_mode == KB_PLNAME) { lib_kb_done(kb_mode, t); return; }
     if (kb_mode == KB_PROFILE) { if (*t) pj_kb_done(t); return; }   /* v191 */
     if (kb_mode == KB_PETNAME) { pet_rename(t); return; }      /* v207 : pet.c */
+    if (kb_mode == KB_GLOBE) { gb_kb_done(t); return; }        /* v213 : recherche sur le globe */
     if (kb_mode == KB_CHEATID || kb_mode == KB_CHEATNAME || kb_mode == KB_CHEATCODE) { if (*t || kb_mode == KB_CHEATNAME) cheats_kb_done(kb_mode, t); return; }
     if (kb_mode == KB_NETTXT) { net_kb_done(t); return; }      /* v75 : adresse IP / passerelle */
     if (kb_mode == KB_NFS) { nfs_kb_done(t); return; }         /* v86 : serveur SMB / FTP / FSP */
@@ -12123,7 +12127,7 @@ static void draw_keyboard(void) {
                         kb_mode == KB_CHEATCODE ? "Ligne de code (XXXXXXXX YYYYYYYY)" :
                         kb_mode == KB_NETTXT ? "Adresse (ex. 192.168.1.32)" :
                         kb_mode == KB_NFS ? "Serveur du r\xC3\xA9seau (SMB / FTP / FSP)" :
-                        kb_mode == KB_PROFILE ? "Nom du nouveau profil" : kb_mode == KB_PETNAME ? "Nom de ton compagnon" :
+                        kb_mode == KB_PROFILE ? "Nom du nouveau profil" : kb_mode == KB_PETNAME ? "Nom de ton compagnon" : kb_mode == KB_GLOBE ? "Chercher une radio, une ville, un pays" :
                         "Adresse ou recherche";
     gx_text1(F_MED, 46, 143, title, RGBA(255, 255, 255, 255));
     if (kb_shift) gx_text_r(F_SMALL, 594, 142, "MAJUSCULES", RGBA(255, 210, 120, 255));
@@ -14044,7 +14048,7 @@ static const char *perf_ver(void) { return GCMP3_VERSION; }
 static void tab_enter(int t) {
     if (t >= 0 && t < TAB_COUNT) crumb("onglet %s", tab_names[t]);
     switch (t) {
-    case TAB_RADIO:   net_start_async(); break;
+    case TAB_RADIO:   net_start_async(); gb_prefetch(); break;   /* (v213 : le globe se prepare en fond) */
     case TAB_WEB:     web_enter_tab(); break;
     case TAB_RETRO:   retro_enter(); break;
     case TAB_PODCAST: net_start_async(); podcast_enter(); break;
@@ -14500,6 +14504,7 @@ int main(int argc, char **argv) {
         down = gp_input(down);                              /* v23 : curseur au stick dans tous les onglets */
 
         pet_tick();                                         /* v207 : le compagnon se nourrit de ce qui joue (pet.c) */
+        gb_bg();                                            /* v213 : radios du globe chargees en fond (globe.c) */
         /* activite de la manette (economiseur d'ecran) */
         int sx = PAD_SubStickX(0), sy = PAD_SubStickY(0), mx = PAD_StickX(0), my = PAD_StickY(0);
         int moved = abs(sx) > 40 || abs(sy) > 40 || abs(mx) > 40 || abs(my) > 40;
