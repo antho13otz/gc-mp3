@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v218 — la barre des onglets dans Cube Browser
+- Comme dans les autres onglets, approcher le pointeur du haut de l'écran fait descendre la barre de tous les
+  onglets (icône + nom) ; dans Cube Browser, c'est le pointeur du navigateur qui la fait venir. L'onglet visé
+  s'encadre, A l'ouvre ; le pointeur reste visible par-dessus la barre.
+
 ## Nouveautés v217 — relance après une mise à jour
 - Après une mise à jour, GC Station se relançait en lisant le nouveau programme (près de 6 Mo) d'un seul bloc en
   mémoire. Avec Cube Browser et le globe, la mémoire n'a souvent plus un seul bloc aussi grand : la relance

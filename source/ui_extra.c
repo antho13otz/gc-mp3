@@ -23,9 +23,14 @@ static void tab_next(int dir) {
 /* v104 : le curseur en haut de l'ecran : tous les onglets s'affichent (icone + nom), dans le style choisi ;
    un clic (A) ouvre l'onglet. Le bandeau reste tant que le curseur est dessus, puis remonte. */
 static u64 tm_seen = 0, tm_open_t = 0;
+static int web_switch = -1;
 static int tm_vis = 0;
 static int tab_menu_draw(void) {
     int hot = gp_on && gp_y < (tm_vis ? 70 : 40) && !menu_open && !tl_screen && !ic_on;
+    /* v218 : onglet Cube Browser : c'est le pointeur du navigateur qui fait descendre la barre */
+    f32 wpx = -1, wpy = -1;
+    const int web = tab == TAB_WEB && cb_host_input_enabled() && (cb_view() == CBV_HOME || cb_view() == CBV_PAGE);
+    if (web) { float px, py; cb_pointer(&px, &py); wpx = px; wpy = py; hot = wpy < (tm_vis ? 70 : 40); }
     if (hot) { if (!tm_vis) tm_open_t = now_ms(); tm_seen = now_ms(); tm_vis = 1; }
     else if (tm_vis && now_ms() - tm_seen > 350) tm_vis = 0;
     if (!tm_vis) return 0;
@@ -57,8 +62,14 @@ static int tab_menu_draw(void) {
         txt_scale = 1.0f;
         nv_raw = 0;
         gp_zone(x, 0, iw, 66 + dy, NULL, t, GPZ_TAB);          /* (jusqu'au bord : la fleche s'arrete en haut) */
+        if (web && wpx >= x && wpx < x + iw && wpy < 66) {     /* (v218 : pointeur du navigateur : cadre, et A ouvre l'onglet) */
+            gx_rrect_stroke(x + 2, 8 + dy, iw - 4, 54, 10, 1.5f, RGBA(255, 255, 255, 200));
+            if ((PAD_ButtonsDown(0) & PAD_BUTTON_A) && t != tab) { web_switch = t; }
+        }
         x += iw;
     }
+    if (web) cb_overlay_cursor();                              /* (le pointeur reste visible sur la barre) */
+    if (web_switch >= 0) { int t = web_switch; web_switch = -1; tm_vis = 0; tab = t; tab_strip_until = now_ms() + 1800; tab_enter(t); }
     return 1;
 }
 static void draw_tab_strip(void) {

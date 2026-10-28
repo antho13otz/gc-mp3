@@ -35,3 +35,5 @@ void cb_reload_internal(const char *url);     /* une page "gc:" a change (repons
 void cb_toast(const char *msg);
 enum { CBV_HOME, CBV_PAGE, CBV_SETTINGS, CBV_KEYBOARD, CBV_BOOKMARKS, CBV_DIALOG };
 int  cb_view(void);                           /* v214 : ce que montre le navigateur (legende de GC Station) */
+void cb_pointer(float *x, float *y);          /* v218 : pointeur du navigateur (coordonnees de GC Station, 640 x 480) */
+void cb_overlay_cursor(void);                 /* v218 : redessiner le pointeur par-dessus la barre des onglets */

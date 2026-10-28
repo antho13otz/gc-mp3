@@ -101,6 +101,18 @@ void cb_frame(int interactive) {
     cb_host_restore_gx();
 }
 
+void cb_pointer(float *x, float *y) {
+    if (!inited) { *x = 320; *y = 240; return; }
+    *x = input_cursor_x() * 640.0f / gfx_width();
+    *y = input_cursor_y();
+}
+void cb_overlay_cursor(void) {
+    if (!inited) return;
+    gfx_begin_frame();
+    ui_draw_cursor();
+    cb_host_restore_gx();
+}
+
 int cb_view(void) {
     if (!inited) return CBV_HOME;
     if (osk_active()) return CBV_KEYBOARD;
