@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v217 — relance après une mise à jour
+- Après une mise à jour, GC Station se relançait en lisant le nouveau programme (près de 6 Mo) d'un seul bloc en
+  mémoire. Avec Cube Browser et le globe, la mémoire n'a souvent plus un seul bloc aussi grand : la relance
+  échouait et GC Station quittait, la console revenait au menu du lecteur de disque. Maintenant, si un seul bloc
+  ne suffit pas, le .dol est lu par morceaux de 256 Ko, et le petit programme de copie remet chaque morceau à sa
+  place (tous les morceaux sont au-dessus des sections du nouveau programme : rien n'est écrasé pendant la copie).
+  Même chose pour le bouton Reset et pour lancer n'importe quel gros .dol.
+- Si la relance est quand même impossible, GC Station ne quitte plus : il reste ouvert et dit de le relancer.
+- Simulateur : `PCSIM_PIECES=1` (lancement par morceaux), `PCSIM_RESET_AT=ms` (bouton Reset).
+
 ## Nouveautés v216 — Cube Browser : plus d'écran de chargement
 - Style Aurore : l'écran « Chargement… » qui couvrait la page est supprimé. Il attendait les images et les styles
   de la page avant de la montrer ; maintenant la page s'affiche dès que son texte est reçu (les images arrivent

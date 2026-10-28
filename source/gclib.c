@@ -1679,6 +1679,7 @@ static const char *gl_boot_loader(const char *path) {
 }
 static const char *gl_boot_mem(unsigned char *dol, long len, const char *dolpath, const char *a1, const char *a2);
 static int gl_ret_app = 0;                             /* v187 : appli lancee : retour a GC Station quand elle quitte (natret) */
+static const char *gl_boot_pieces(const char *dolpath, long len, const char *a1, const char *a2, const char *what);
 static int nat_app_ret_prep(void);                     /* (natif.c) */
 static void nat_app_ret_install(void);
 static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *a2, const char *what) {
@@ -1706,6 +1707,10 @@ static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *
         }
         if (f) fclose(f);
     }
+#ifndef GEKKO
+    if (dol && getenv("PCSIM_PIECES")) { free(dol); dol = NULL; }   /* (simulateur : essayer le chemin par morceaux) */
+#endif
+    if (!dol && len > 0) return gl_boot_pieces(dolpath, len, a1, a2, what);   /* v217 : pas un seul bloc libre : par morceaux */
     if (!dol) return "Lecture du .dol impossible (m\xC3\xA9moire ou carte SD)";
     return gl_boot_mem(dol, len, dolpath, a1, a2);
 }
@@ -1790,6 +1795,123 @@ static const char *gl_boot_mem(unsigned char *dol, long len, const char *dolpath
     free(dol);
     return "(simulateur : lancement simule)";
 #endif
+}
+
+/* v217 : lancer un gros .dol (GC Station elle-meme apres une mise a jour : ~6 Mo) quand la memoire n'a plus un
+   seul bloc assez grand : le fichier est lu par morceaux de 256 Ko, la ou il y a de la place, et le petit
+   programme de copie (gl_stub) recopie chaque morceau a sa place. Les morceaux sont tous dans le tas, au-dessus
+   du programme qui tourne : plus haut que les sections du nouveau .dol, ils ne sont pas ecrases pendant la copie. */
+#define GL_PIECE 262144
+#define GL_MAXPIECES 64
+static const char *gl_boot_pieces(const char *dolpath, long len, const char *a1, const char *a2, const char *what) {
+    if (len < 0x100 || len > 12 * 1024 * 1024) return "Fichier .dol invalide";
+    int np = (int)((len + GL_PIECE - 1) / GL_PIECE);
+    if (np > GL_MAXPIECES) return "Fichier .dol invalide";
+    u8 *pc[GL_MAXPIECES]; long pl[GL_MAXPIECES];
+    void *guard[16]; int ng = 0;
+    for (int i = 0; i < np; i++) pc[i] = NULL;
+    FILE *f = fopen(dolpath, "rb");
+    if (!f) return "Lecture du .dol impossible (carte SD)";
+    char stmsg[96], m[96];
+    snprintf(stmsg, sizeof(stmsg), "Lancement de %s...", what);
+    const char *err = NULL;
+    for (int i = 0; i < np && !err; i++) {
+        pl[i] = len - (long)i * GL_PIECE < GL_PIECE ? len - (long)i * GL_PIECE : GL_PIECE;
+        for (;;) {                                       /* (un morceau sur la ligne de commande, en haut : on en prend un autre) */
+            u8 *b = (u8 *)memalign(32, pl[i]);
+            if (!b) { err = "Lecture du .dol impossible (m\xC3\xA9moire)"; break; }
+            u32 a = (u32)(uintptr_t)b;
+            if (a < GL_CMD_AT + 0x400u && a + (u32)pl[i] > GL_CMD_AT - 64) { if (ng < 16) { guard[ng++] = b; continue; } free(b); err = "M\xC3\xA9moire"; break; }
+            pc[i] = b;
+            break;
+        }
+        if (err) break;
+        if ((long)fread(pc[i], 1, pl[i], f) != pl[i]) { err = "Lecture du .dol impossible (carte SD)"; break; }
+        snprintf(m, sizeof(m), "%s %ld %%", TR(stmsg), ((long)i * GL_PIECE + pl[i]) * 100 / len);
+        gl_status(m);
+    }
+    fclose(f);
+    #define GLP_FREE() do { for (int i_ = 0; i_ < np; i_++) free(pc[i_]); for (int g_ = 0; g_ < ng; g_++) free(guard[g_]); } while (0)
+    if (err) { GLP_FREE(); return err; }
+    const u8 *h = pc[0];                                 /* (en-tete : dans le premier morceau) */
+    u32 sec[18][3], ns = 0, lo = 0xFFFFFFFFu, hi = 0;
+    for (int i = 0; i < 18; i++) {
+        u32 off = be32(h + i * 4), addr = be32(h + 0x48 + i * 4), sz = be32(h + 0x90 + i * 4);
+        if (!sz) continue;
+        if (off + (u64)sz > (u64)len || addr < 0x80003000u || addr + (u64)sz > 0x81700000u) { GLP_FREE(); return "Fichier .dol invalide"; }
+        sec[ns][0] = addr; sec[ns][1] = off; sec[ns][2] = sz; ns++;
+        if (addr < lo) lo = addr;
+        if (addr + sz > hi) hi = addr + sz;
+    }
+    u32 entry = be32(h + 0xE0);
+    if (!ns || entry < lo || entry >= hi) { GLP_FREE(); return "Fichier .dol invalide"; }
+    for (int i = 0; i < np; i++) {                       /* (aucun morceau la ou les sections vont etre recopiees) */
+        u32 a = (u32)(uintptr_t)pc[i];
+        if (a < hi && a + (u32)pl[i] > lo) { GLP_FREE(); return "Ce .dol est trop gros pour etre lance d'ici"; }
+    }
+    /* le .dol accepte-t-il des arguments ? ("_arg" juste apres le point d'entree) */
+    int has_arg = 0;
+    for (u32 i = 0; i < ns; i++)
+        if (entry + 8 >= sec[i][0] && entry + 8 < sec[i][0] + sec[i][2]) {
+            long fo = (long)(sec[i][1] + (entry + 4 - sec[i][0]));
+            char t4[4];
+            for (int k = 0; k < 4; k++) { long o = fo + k; t4[k] = o < len ? (char)pc[o / GL_PIECE][o % GL_PIECE] : 0; }
+            has_arg = !memcmp(t4, "_arg", 4);
+        }
+    if (!has_arg && a1) { GLP_FREE(); return "-noarg"; }
+    char cmd[NAME_LEN * 3 + 96];
+    int cl = snprintf(cmd, sizeof(cmd), "%s", dolpath);
+    if (a1) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", a1);
+    if (a2) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", a2);
+    if (cl >= (int)sizeof(cmd)) cl = (int)sizeof(cmd) - 1;
+    cl += 1;
+    /* table de copie : chaque section, coupee aux bords des morceaux */
+    static u32 tb[(GL_ARGV_AT - GL_TAB_AT) / 4];
+    u32 nt = 0, maxt = (GL_ARGV_AT - GL_TAB_AT) / 12 - 1;
+    for (u32 i = 0; i < ns; i++) {
+        u32 addr = sec[i][0], off = sec[i][1], left = sec[i][2];
+        while (left) {
+            u32 k = off / GL_PIECE, in = off % GL_PIECE, n = (u32)pl[k] - in;
+            if (n > left) n = left;
+            if (nt >= maxt) { GLP_FREE(); return "Fichier .dol invalide"; }
+            tb[nt * 3] = addr; tb[nt * 3 + 1] = (u32)(uintptr_t)(pc[k] + in); tb[nt * 3 + 2] = n; nt++;
+            addr += n; off += n; left -= n;
+        }
+    }
+    crumb("lancer (par morceaux : %d, %u copies) : %s", np, nt, dolpath);
+#ifdef GEKKO
+    if (settings_dirty) save_settings();
+    stop_track(); stop_station();
+    AUDIO_StopDMA();
+    bg_quiesce();
+    fatUnmount("sd");
+    VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();
+    if (rmode && rmode->xfbHeight >= 574) {
+        VIDEO_Configure(VIDEO_GetCurrentTvMode() == VI_PAL ? &TVPal576IntDfScale : &TVEurgb60Hz480IntDf);
+        VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();
+    }
+    SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
+    u32 level = IRQ_Disable();
+    (void)level;
+    for (int i = 0; i < np; i++) DCFlushRange(pc[i], (u32)pl[i]);
+    u32 *t = (u32 *)GL_TAB_AT;
+    memcpy(t, tb, nt * 12);
+    memcpy((void *)GL_CMD_AT, cmd, cl);
+    DCFlushRange((void *)GL_CMD_AT, 0x400);
+    u32 *a = (u32 *)GL_ARGV_AT;
+    a[0] = 0x5f617267; a[1] = GL_CMD_AT; a[2] = (u32)cl; a[3] = 0; a[4] = 0; a[5] = 0;
+    if (has_arg) { t[nt * 3] = entry + 8; t[nt * 3 + 1] = GL_ARGV_AT; t[nt * 3 + 2] = 24; nt++; }
+    memcpy((void *)GL_STUB_AT, gl_stub, sizeof(gl_stub));
+    DCFlushRange((void *)0x80001800, 0x1800);
+    ICInvalidateRange((void *)0x80001800, 0x1800);
+    ((void (*)(u32 *, u32, u32))GL_STUB_AT)(t, nt, entry);
+    for (;;) ;
+#else
+    printf("LANCER par morceaux dol=%s morceaux=%d copies=%u entree=%08x args=%d\n", dolpath, np, nt, entry, has_arg);
+    GLP_FREE();
+    return "(simulateur : lancement simule)";
+#endif
+    #undef GLP_FREE
 }
 
 /* reglages du lanceur de secours (v90 : dans SD:/gc-mp3/lanceur, plus dans SD:/swiss) */

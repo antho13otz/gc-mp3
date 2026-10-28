@@ -601,7 +601,9 @@ static void update_relaunch(void) {
     if (up_mem) { e = gl_boot_mem(up_mem, up_mem_len, up_target, NULL, NULL); up_mem = NULL; }   /* (v117 : sans carte SD) */
     else e = gl_boot_dol(up_target, NULL, NULL, "GC Station");     /* (ne revient pas si ca marche) */
     if (e) crumb("relance apres mise a jour impossible : %s", e);
-    if (e) { snprintf(up_msg, sizeof(up_msg), "%s", TR(e)); quit_requested = 1; }
+    if (e) {                                               /* v217 : on reste dans GC Station (avant : retour au lecteur de disque) */
+        snprintf(up_msg, sizeof(up_msg), "Install\xC3\xA9" "e : relance impossible ici (%s) : quitte et relance GC Station", TR(e));
+    }
 }
 /* v38 : bouton Reset de la console pendant GC-MP3 : relance GC-MP3 (sans passer par
    le menu de la GameCube / le lecteur de disque) */
@@ -615,6 +617,10 @@ static void reset_init(void) {
 #endif
 }
 static void reset_pump(void) {
+#ifndef GEKKO
+    { static int fired = 0; const char *e = getenv("PCSIM_RESET_AT");   /* (simulateur : bouton Reset a N ms) */
+      if (e && !fired && now_ms() > (u64)atol(e)) { fired = 1; reset_pressed = 1; } }
+#endif
     if (!reset_pressed) return;
     reset_pressed = 0;
     if (up_state == UP_DL || up_state == UP_WRITE) return;      /* (pas pendant une mise a jour) */
