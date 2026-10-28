@@ -9,7 +9,7 @@
 
 #define CRASH_FILE  GCD_LOG "/gc-mp3-crash.txt"
 #define CRASH_OLD   GCD_LOG "/gc-mp3-crash-ancien.txt"
-#define GCMP3_VERSION "v198"
+#define GCMP3_VERSION "v199"
 
 #if defined(__has_include)
 #if __has_include(<tuxedo/ppc/exception.h>) && __has_include(<tuxedo/thread.h>)

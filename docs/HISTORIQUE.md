@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v199 — petits défauts de l'espace jeux
+- Un jeu qui sort du filtre (retiré des favoris depuis la fiche, par exemple) : la vitrine se place sur son voisin
+  au lieu de revenir au premier jeu.
+- Filtre vide (« Aucun favori ») : la barre d'aide ne montre plus que Z Filtre, R Liste et B Retour.
+
 ## Nouveautés v198 — disque de la console dans l'espace jeux
 - Sur la case « Disque de la console » (filtre Tout), la barre d'aide n'affiche plus X Cheats ni L Favori, qui ne
   servent pas pour le vrai lecteur. Fiche du disque et « Lancer le disque de la console ? » vérifiées.

@@ -16,6 +16,7 @@ static int gs_apps(void) { return gs_filter == GSF_APPS; }
 static s16 gs_idx[GL_MAX];                      /* jeux du filtre (rangs dans gl[]) */
 static int gs_n = 0, gs_pos = 0, gs_dirty = 1, gs_built_n = -1;
 static u64 gs_built_t = 0;
+static int gs_built_f = -1;                    /* v198 : filtre de la derniere liste */
 static f32 gs_fp = -1;                          /* filtre affiche (en douceur, comme les onglets d'Aurore) */
 static f32 gs_cpos = -10000.0f;                 /* position de la vitrine (en douceur) */
 
@@ -46,7 +47,7 @@ static void gs_build(void) {
         gs_n = ap ? (ap_n < GL_MAX ? ap_n : GL_MAX) : 0;
         for (int i = 0; i < gs_n; i++) gs_idx[i] = (s16)i;
         gs_pos = ap_sel >= 0 && ap_sel < gs_n ? ap_sel : 0;
-        gs_dirty = 0; gs_built_n = gl_n; gs_built_t = now_ms();
+        gs_dirty = 0; gs_built_n = gl_n; gs_built_t = now_ms(); gs_built_f = gs_filter;
         return;
     }
     int keep = gl_sel >= 0 && gl_sel < gl_n ? gl_sel : -1;
@@ -63,10 +64,11 @@ static void gs_build(void) {
     if (gs_filter == GSF_RECENT) qsort(gs_idx, gs_n, sizeof(s16), gs_cmp_recent);
     else if (gs_filter == GSF_PLAYED) qsort(gs_idx, gs_n, sizeof(s16), gs_cmp_played);
     else if (gs_filter == GSF_AZ) qsort(gs_idx, gs_n, sizeof(s16), gs_cmp_title);
-    gs_pos = 0;
+    int old = gs_built_f == gs_filter ? gs_pos : 0;   /* v198 : jeu sorti du filtre (retire des favoris) : son voisin */
+    gs_pos = old < gs_n ? old : (gs_n ? gs_n - 1 : 0);
     for (int i = 0; i < gs_n; i++) if (gs_idx[i] == keep) { gs_pos = i; break; }
     if (gs_n) gl_sel = gs_idx[gs_pos];
-    gs_dirty = 0; gs_built_n = gl_n; gs_built_t = now_ms();
+    gs_dirty = 0; gs_built_n = gl_n; gs_built_t = now_ms(); gs_built_f = gs_filter;
 }
 static void gs_check(void) {                    /* (la liste des jeux a pu changer : tri, favori, actualiser) */
     if (gs_dirty || gs_built_n != gl_n || now_ms() - gs_built_t > 3000) gs_build();
@@ -362,9 +364,11 @@ static void gs_draw(void) {
         }
         return;
     }
-    x = gs_key(x, 453, "A", "Jouer", RGBA(110, 220, 140, 255));
-    x = gs_key(x, 453, "Y", "Fiche", RGBA(235, 235, 245, 255));
-    if (!(gs_n && gl_sel >= 0 && gl_sel < gl_n && gl[gl_sel].dvd)) {          /* v198 : (pas de cheats ni de favori pour le lecteur) */
+    if (gs_n) {                                                                /* v198 : (filtre vide : seulement Z, R, B) */
+        x = gs_key(x, 453, "A", "Jouer", RGBA(110, 220, 140, 255));
+        x = gs_key(x, 453, "Y", "Fiche", RGBA(235, 235, 245, 255));
+    }
+    if (gs_n && !(gl_sel >= 0 && gl_sel < gl_n && gl[gl_sel].dvd)) {           /* v198 : (pas de cheats ni de favori pour le lecteur) */
         x = gs_key(x, 453, "X", "Cheats", RGBA(235, 235, 245, 255));
         x = gs_key(x, 453, "L", "Favori", RGBA(255, 210, 90, 255));
     }
