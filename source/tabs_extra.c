@@ -143,16 +143,17 @@ static void games_tab_input(u32 down, u32 nav, int fire) {
     if (gl_on) { gclib_input(down, nav, fire); return; }
     if (gm_sel >= GM_COUNT) {                              /* barres jeux GameCube / applis / cartes memoire (v41, v43) */
         int k = gm_sel - GM_COUNT;
-        if (fire && (nav & PAD_BUTTON_DOWN)) gm_sel = k < GM_COUNT ? k : 0;
-        if (fire && (nav & PAD_BUTTON_UP)) gm_sel = (GM_COUNT - 1) / GM_COLS * GM_COLS + k < GM_COUNT ? (GM_COUNT - 1) / GM_COLS * GM_COLS + k : GM_COUNT - 1;
-        if (fire && (nav & PAD_BUTTON_RIGHT)) gm_sel = GM_COUNT + (k + 1) % 3;
-        if (fire && (nav & PAD_BUTTON_LEFT)) gm_sel = GM_COUNT + (k + 2) % 3;
-        if (down & PAD_BUTTON_A) { if (k == 0) gclib_open(); else if (k == 1) ap_open(); else mc_open(); }
+        /* v196 : deux barres (jeux GameCube, cartes memoire) : les applis sont dans l'espace jeux */
+        int col = k == 0 ? 0 : GM_COLS - 1;
+        if (fire && (nav & PAD_BUTTON_DOWN)) gm_sel = col < GM_COUNT ? col : 0;
+        if (fire && (nav & PAD_BUTTON_UP)) gm_sel = (GM_COUNT - 1) / GM_COLS * GM_COLS + col < GM_COUNT ? (GM_COUNT - 1) / GM_COLS * GM_COLS + col : GM_COUNT - 1;
+        if (fire && (nav & (PAD_BUTTON_RIGHT | PAD_BUTTON_LEFT))) gm_sel = GM_COUNT + (k ? 0 : 1);
+        if (down & PAD_BUTTON_A) { if (k == 0) gclib_open(); else mc_open(); }
     } else {
         if (fire && (nav & PAD_BUTTON_RIGHT)) gm_sel = (gm_sel + 1) % GM_COUNT;
         if (fire && (nav & PAD_BUTTON_LEFT)) gm_sel = (gm_sel + GM_COUNT - 1) % GM_COUNT;
         if (fire && (nav & PAD_BUTTON_DOWN)) gm_sel = gm_sel + GM_COLS >= GM_COUNT ? GM_COUNT + gm_sel % GM_COLS : gm_sel + GM_COLS;
-        if (fire && (nav & PAD_BUTTON_UP)) gm_sel = gm_sel < GM_COLS ? GM_COUNT + gm_sel : gm_sel - GM_COLS;
+        if (fire && (nav & PAD_BUTTON_UP)) gm_sel = gm_sel < GM_COLS ? GM_COUNT + (gm_sel % GM_COLS == GM_COLS - 1 ? 1 : 0) : gm_sel - GM_COLS;   /* v196 : (deux barres) */
         if (down & PAD_BUTTON_A) games_tab_launch(gm_sel);
     }
     if ((down & PAD_BUTTON_X) && gm_last_path[0]) gclib_open_recent(gm_last_path);   /* v176 : relancer le dernier jeu */
@@ -211,10 +212,10 @@ static void draw_tab_games(void) {
         sc_check();                                             /* v177 : nouveaux succes */
     }
     f32 t = (f32)(now_ms() % 100000) / 1000.0f;
-    for (int k = 0; k < 3; k++) {   /* v25 : jeux GameCube ; v41 : + applis ; v43 : + cartes memoire */
+    for (int k = 0; k < 3; k += 2) {   /* v25 : jeux GameCube ; v43 : + cartes memoire ; v196 : les applis sont dans l'espace jeux */
         static const char *const bl[3] = { "Jeux GameCube", "Mes applis", "Cartes m\xC3\xA9moire" };
-        int on = gm_sel == GM_COUNT + k;
-        const f32 bw = 196, bx = 22 + k * (bw + 4), by = 110, bh = 30;
+        int on = gm_sel == GM_COUNT + (k ? 1 : 0);
+        const f32 bw = 298, bx = 22 + (k ? 1 : 0) * (bw + 4), by = 110, bh = 30;
         if (ui_skin >= 3) gm_au_card(bx, by, bw, bh, 15, on);          /* v110 : Aurore : verre */
         else {
         if (on) gx_glow(bx, by, bw, bh, 8, RGBA(150, 80, 255, 140), 3);
@@ -235,7 +236,7 @@ static void draw_tab_games(void) {
         fit_text_sel(on, F_MED, TR(bl[k]), (int)bw - 72, lb, sizeof(lb));
         gx_text1(F_MED, bx + 40, by + 21, lb, RGBA(255, 255, 255, 255));
         gx_text_r(F_SMALL, bx + bw - 10, by + 20, "(A)", on ? RGBA(235, 225, 255, 255) : RGBA(170, 155, 225, 255));
-        gp_zone(bx, by, bw, bh, &gm_sel, GM_COUNT + k, GPZ_SEL);
+        gp_zone(bx, by, bw, bh, &gm_sel, GM_COUNT + (k ? 1 : 0), GPZ_SEL);
     }
     const f32 cw = 192, ch = 72, x0 = 22, y0 = 148;
     for (int g = 0; g < GM_COUNT; g++) {

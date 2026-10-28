@@ -47,6 +47,10 @@ static void gl_stats_load(void);
 static void gl_fav_load(void);
 static void gl_fav_save(void);
 static void gl_apply_sort(void);
+static int gs_dirty;                                       /* v196 : espace Jeux GameCube (gspace.c) */
+static int gs_view(void);
+static void gs_input(u32 down, u32 nav, int fire);
+static void gs_draw(void);
 static int ld_ready(void);
 static int ld_build(void);                                 /* (lanceur.c) */
 static gcg_t *gl = NULL;
@@ -529,6 +533,7 @@ static void gl_apply_sort(void) {
     qsort(gl, gl_n, sizeof(gcg_t), gl_cmp_key);
     gl_slots_reset();
     for (int k = 0; k < gl_n; k++) { gl[k].bslot = -1; if (!strcmp(gl[k].path, keep)) gl_sel = k; }
+    gs_dirty = 1;                                          /* v196 : (l'espace refait sa liste) */
 }
 
 /* ---------- jaquettes et bannieres en memoire ---------- */
@@ -910,6 +915,7 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         if (down & PAD_BUTTON_B) gl_detail = 0;
         return;
     }
+    if (gs_view()) { gs_input(down, nav, fire); return; }  /* v196 : espace Jeux GameCube (vitrine 3D) */
     if (fire && gl_n) {
         int cols = gl_view_cols();
         /* v42 : en boucle (du dernier au premier et inversement) */
@@ -1370,6 +1376,50 @@ static void gl_load_big(int k) {
     if (g->post >= 0 && gl_big.game != k) { gl_job_post(GJ_BIG, k); return; }
     if (g->still >= 0 && gl_bigst.game != k) gl_job_post(GJ_STILL, k);
 }
+/* v196 : "Lancer ce jeu ?" (fiche, et espace Jeux GameCube) */
+static void gl_draw_launch_box(void) {
+    char buf[NAME_LEN];
+    if (gl_sel < 0 || gl_sel >= gl_n) return;
+    gcg_t *g = &gl[gl_sel];
+    if (g->dvd) {
+        const f32 w = 420, h = 100, x = 110, y = 170;
+        gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
+        draw_panel(x, y, w, h);
+        gx_text_c(F_MED, x + w / 2, y + 34, "Lancer le disque de la console ?", RGBA(255, 255, 255, 255));
+        gx_text_c(F_SMALL, x + w / 2, y + 58, TR("Le jeu est lu par le vrai lecteur"), RGBA(190, 180, 235, 255));
+        gx_text_c(F_SMALL, x + w / 2, y + 84, "A : lancer     B : annuler", RGBA(255, 210, 120, 255));
+        return;
+    }                          /* confirmation */
+        char lim[96];                                      /* v191 : temps de jeu restant aujourd'hui (limite du profil) */
+        int hl = pj_left_line(lim, sizeof(lim));
+        const f32 w = 420, h = hl ? 154 : 132, x = 110, y = 160;
+        gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
+        draw_panel(x, y, w, h);
+        gx_text_c(F_MED, x + w / 2, y + 32, "Lancer ce jeu ?", RGBA(255, 255, 255, 255));
+        fit_text(F_SMALL, g->title, (int)w - 30, buf, sizeof(buf));
+        gx_text_c(F_SMALL, x + w / 2, y + 56, buf, RGBA(255, 210, 120, 255));
+        int cn = gl_cheats_on(gl_sel);
+        static int pk = -1, pgen = -1, ppul = 0;             /* v121 : Pulse applique-t-il ces cheats ? (lu une fois) */
+        if (cn > 0 && (pk != gl_sel || pgen != ch_sel_gen)) { pk = gl_sel; pgen = ch_sel_gen; ppul = gcl_path(g->path) ? -1 : nat_cheats_prep(g->id) > 0; }
+        if (cn > 0) {
+            if (ppul > 0) snprintf(buf, sizeof(buf), cn == 1 ? TR("Avec 1 cheat activ\xC3\xA9 (Pulse)") : TR("Avec %d cheats activ\xC3\xA9s (Pulse)"), cn);
+            else snprintf(buf, sizeof(buf), cn == 1 ? TR("Avec 1 cheat activ\xC3\xA9 (lanceur de secours)") : TR("Avec %d cheats activ\xC3\xA9s (lanceur de secours)"), cn);
+            gx_text_c(F_SMALL, x + w / 2, y + 76, buf, RGBA(130, 230, 150, 255));
+        } else
+        {   /* v109 : avec le logo de Pulse */
+            const char *pm = TR("Pulse : A + Z + START tenus 1 s = retour \xC3\xA0 GC Station");
+            f32 pw2 = (f32)text_width(F_SMALL, pm, 0);
+            pulse_logo(x + w / 2 - pw2 / 2 - 12, y + 72, 7, 0);
+            gx_text_c(F_SMALL, x + w / 2 + 6, y + 76, pm, RGBA(190, 180, 235, 255));
+        }
+        {   /* v137 : dernier essai (base de compatibilite) */
+            col_t cc; char cl[120];
+            if (rep_line(g->id, cl, sizeof(cl))) { fit_text(F_SMALL, cl, (int)w - 30, buf, sizeof(buf)); gx_text_c(F_SMALL, x + w / 2, y + 98, buf, RGBA(120, 200, 255, 255)); }   /* v140 */
+            else if (cp_line(g->id, cl, sizeof(cl), &cc)) { fit_text(F_SMALL, cl, (int)w - 30, buf, sizeof(buf)); gx_text_c(F_SMALL, x + w / 2, y + 98, buf, cc); }
+        }
+        if (hl) gx_text_c(F_SMALL, x + w / 2, y + 120, lim, RGBA(255, 170, 120, 255));
+        gx_text_c(F_SMALL, x + w / 2, y + (hl ? 142 : 120), "A : lancer     X : lanceur de secours     B : annuler", RGBA(255, 210, 120, 255));
+    }
 static void draw_gclib_main(void);
 static void draw_gclib(void) {
     draw_gclib_main();
@@ -1382,6 +1432,7 @@ static void draw_gclib(void) {
 }
 static void draw_gclib_main(void) {
     gl_loaded_frame = 0;
+    if (gs_view() && !gl_detail) { gs_draw(); return; }  /* v196 : espace Jeux GameCube (gspace.c) */
     char buf[NAME_LEN], d[NAME_LEN];
     draw_panel(11, 73, 618, 338);
     int tx = draw_tabs(NULL);
@@ -1496,37 +1547,7 @@ static void draw_gclib_main(void) {
         static const char *const k[] = { "A", "X", "Y", "R", "B" };
         static const char *const l[] = { "LANCER", "CHEATS", "R\xC3\x89GLAGES", "ANALYSE", "RETOUR" };
         draw_legend_keys(k, l, 5);
-        if (gl_launch_sel >= 0) {                              /* confirmation */
-            char lim[96];                                      /* v191 : temps de jeu restant aujourd'hui (limite du profil) */
-            int hl = pj_left_line(lim, sizeof(lim));
-            const f32 w = 420, h = hl ? 154 : 132, x = 110, y = 160;
-            gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
-            draw_panel(x, y, w, h);
-            gx_text_c(F_MED, x + w / 2, y + 32, "Lancer ce jeu ?", RGBA(255, 255, 255, 255));
-            fit_text(F_SMALL, g->title, (int)w - 30, buf, sizeof(buf));
-            gx_text_c(F_SMALL, x + w / 2, y + 56, buf, RGBA(255, 210, 120, 255));
-            int cn = gl_cheats_on(gl_sel);
-            static int pk = -1, pgen = -1, ppul = 0;             /* v121 : Pulse applique-t-il ces cheats ? (lu une fois) */
-            if (cn > 0 && (pk != gl_sel || pgen != ch_sel_gen)) { pk = gl_sel; pgen = ch_sel_gen; ppul = gcl_path(g->path) ? -1 : nat_cheats_prep(g->id) > 0; }
-            if (cn > 0) {
-                if (ppul > 0) snprintf(buf, sizeof(buf), cn == 1 ? TR("Avec 1 cheat activ\xC3\xA9 (Pulse)") : TR("Avec %d cheats activ\xC3\xA9s (Pulse)"), cn);
-                else snprintf(buf, sizeof(buf), cn == 1 ? TR("Avec 1 cheat activ\xC3\xA9 (lanceur de secours)") : TR("Avec %d cheats activ\xC3\xA9s (lanceur de secours)"), cn);
-                gx_text_c(F_SMALL, x + w / 2, y + 76, buf, RGBA(130, 230, 150, 255));
-            } else
-            {   /* v109 : avec le logo de Pulse */
-                const char *pm = TR("Pulse : A + Z + START tenus 1 s = retour \xC3\xA0 GC Station");
-                f32 pw2 = (f32)text_width(F_SMALL, pm, 0);
-                pulse_logo(x + w / 2 - pw2 / 2 - 12, y + 72, 7, 0);
-                gx_text_c(F_SMALL, x + w / 2 + 6, y + 76, pm, RGBA(190, 180, 235, 255));
-            }
-            {   /* v137 : dernier essai (base de compatibilite) */
-                col_t cc; char cl[120];
-                if (rep_line(g->id, cl, sizeof(cl))) { fit_text(F_SMALL, cl, (int)w - 30, buf, sizeof(buf)); gx_text_c(F_SMALL, x + w / 2, y + 98, buf, RGBA(120, 200, 255, 255)); }   /* v140 */
-                else if (cp_line(g->id, cl, sizeof(cl), &cc)) { fit_text(F_SMALL, cl, (int)w - 30, buf, sizeof(buf)); gx_text_c(F_SMALL, x + w / 2, y + 98, buf, cc); }
-            }
-            if (hl) gx_text_c(F_SMALL, x + w / 2, y + 120, lim, RGBA(255, 170, 120, 255));
-            gx_text_c(F_SMALL, x + w / 2, y + (hl ? 142 : 120), "A : lancer     X : lanceur de secours     B : annuler", RGBA(255, 210, 120, 255));
-        }
+        if (gl_launch_sel >= 0) gl_draw_launch_box();          /* confirmation (v196 : une fonction) */
         snprintf(buf, sizeof(buf), "%d / %d   (gauche / droite)", gl_sel + 1, gl_n);
         gx_text_r(F_SMALL, 614, 396, buf, RGBA(150, 135, 210, 255));
         nat_draw_qr();                                         /* v51 : rapport d'analyse sur le telephone */

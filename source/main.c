@@ -192,6 +192,10 @@ static void au_panel(float x, float y, float w, float h);
 static void au_legend_box(float x, float w);
 static int au_draw_tabs(const char *count);
 static void au_header(void);
+static int gs_active(void);                              /* v196 : espace Jeux GameCube (gspace.c) */
+static void gs_filter_next(int d);
+static void gs_filter_load(const char *v);
+static const char *gs_filter_key(void);
 static void draw_brand(f32 x, f32 y, f32 k);              /* v159 : la marque du style Classique (dans tous les styles) */
 static void au_player(void);                            /* v103 : Aurore : lecteur de MUSIQUE (ui_aurore2.c) */
 static int gl_view;                                     /* gclib.c : affichage de Mes jeux GameCube */
@@ -5644,6 +5648,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "style")) ui_skin = !strncasecmp(v, "mod", 3) || !strncasecmp(v, "nouv", 4) || !strncasecmp(v, "aur", 3) ? 3 : !strncasecmp(v, "vit", 3) || !strncasecmp(v, "neb", 3) || !strncasecmp(v, "n\xC3\xA9" "b", 4) ? 4 : !strncasecmp(v, "ilot", 4) || !strncasecmp(v, "\xC3\xAElot", 5) || !strncasecmp(v, "halo", 4) ? 5 : 0;   /* v129 : Moderne / Nouvelle -> Aurore ; v131 : Nebula -> Vitrine, Halo -> Ilots */
         else if (!strcasecmp(k, "spectrogramme_couleurs")) { for (int i = 0; i < SGP_COUNT; i++) if (!strcasecmp(v, sgp_keys[i])) sg_pal_id = i; }
         else if (!strcasecmp(k, "spectre")) { for (int i = 0; i < VZ_COUNT; i++) if (!strcasecmp(v, viz_keys[i])) viz_style = i; }
+        else if (!strcasecmp(k, "jeux_filtre")) gs_filter_load(v);   /* v196 */
         else if (!strcasecmp(k, "jeux_affichage")) { for (int i = 0; i < 6; i++) if (!strcasecmp(v, glview_keys[i])) gl_view = i; }
         else if (!strcasecmp(k, "jeux_tri")) { for (int i = 0; i < 5; i++) if (!strcasecmp(v, gl_sort_keys[i])) gl_sort = i; }
         else if (!strcasecmp(k, "jeux_animations")) gl_anim = !has_word(v, "non");
@@ -5778,6 +5783,7 @@ static void settings_print(FILE *f) {                   /* v194 : le texte de gc
                "paroles_affichage = %s\neclair_basses = %s\nrythme_decalage = %d\n", lyr_keys[lyr_show], flash_keys[flash_mode], rg_offset);
     fprintf(f, "# Jeux GameCube : tri (az / recents / taille / region) ; animations de JEUX / APPS (oui / non)\n"
                "jeux_tri = %s\njeux_animations = %s\njeux_actualiser = %s\nguide_vu = %s\n", gl_sort_keys[gl_sort % 5], gl_anim ? "oui" : "non", gl_auto ? "oui" : "non", gde_seen ? "oui" : "non");
+    fprintf(f, "# Espace Jeux GameCube : filtre (recents / tout / favoris / plus_joues / az)\njeux_filtre = %s\n", gs_filter_key());   /* v196 */
     fprintf(f, "# Pulse (X) : A+Z+START = retour a GC Station (oui / non)\nlanceur_maison_retour = %s\n", nat_igr ? "oui" : "non");
     fprintf(f, "# Pulse (X) : cartes memoire virtuelles (gc-mp3/resident/carte-A.raw ; a+b : aussi carte-B.raw au slot B)\nresident_carte_virtuelle = %s\n", nat_card >= 2 ? "a+b" : nat_card ? "oui" : "non");
     fprintf(f, "# Pulse : une carte par region du jeu (carte-A-EUR.raw, -USA, -JAP)\nresident_carte_par_region = %s\n", nat_card_reg ? "oui" : "non");
@@ -7357,8 +7363,10 @@ static void draw(void) {
     dp_t0 = perf_us();
 #endif
     DP("begin_frame", begin_frame());
-    DP("draw_header", draw_header());
-    DP("draw_header_clock", draw_header_clock());
+    if (!gs_active()) {                                                 /* v196 : (l'espace jeux a sa propre barre) */
+        DP("draw_header", draw_header());
+        DP("draw_header_clock", draw_header_clock());
+    }
     st_skip = menu_open || tl_screen || ic_on;
     DP("nv_page_begin", nv_page_begin());                               /* v101 : Nouvelle : la page glisse en changeant d'onglet */
     if (menu_open || tl_screen || ic_on) {
@@ -7403,11 +7411,11 @@ static void draw(void) {
         }
     }
     DP("nv_page_end", nv_page_end());
-    DP("st_after_page", st_after_page());                               /* v131 : Ilots : le dock */
+    if (!gs_active()) DP("st_after_page", st_after_page());             /* v131 : Ilots : le dock */
     DP("draw_layout_toast", draw_layout_toast());
     DP("draw_crash_notice", draw_crash_notice());
     DP("draw_update_notice", draw_update_notice());
-    DP("draw_tab_strip", draw_tab_strip());
+    if (!gs_active()) DP("draw_tab_strip", draw_tab_strip());
     if (tl_screen) draw_tools();                   /* v35 : outils */
     if (ic_on) draw_indigo_cfg();                  /* v32 : reglages d'un jeu (par-dessus l'onglet) */
     if (menu_open) { au_menu_begin(); DP("menu", draw_menu()); au_menu_end(); }   /* v103 : Aurore : le menu s'ouvre en douceur */
@@ -14078,6 +14086,7 @@ static void music_pump(void) {
 #include "cheats.c"                            /* v25 : editeur de cheats (SD:/gc-mp3/cheats) */
 #include "gclib.c"                             /* v25 : Mes jeux GameCube (jaquettes : SD:/gc-mp3/jaquettes) */
 #include "tools.c"                             /* v35 : cartes memoire, applis, recents, infos */
+#include "gspace.c"                            /* v196 : espace Jeux GameCube (vitrine 3D, filtres, applis) */
 #include "jeux_cfg.c"                          /* v75 : reglages des jeux */
 #include "igr.c"                               /* v39 : A + Z + START en jeu -> GC-MP3 */
 #include "lanceur.c"                           /* v44 : lanceur de secours ; v90 : reprise de SD:/swiss */
@@ -14307,7 +14316,7 @@ int main(int argc, char **argv) {
         if (down & PAD_BUTTON_START) { menu_open = 1; down = 0; }
 
         /* onglets : la lecture en cours continue */
-        if (down & PAD_TRIGGER_Z) tab_next(1);
+        if (down & PAD_TRIGGER_Z) { if (gs_active() && gl_launch_sel < 0) gs_filter_next(1); else tab_next(1); }   /* v196 : espace jeux : filtre suivant */
 
         /* stick C vers le bas : disposition du lecteur */
         {

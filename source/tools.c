@@ -831,12 +831,13 @@ static void ap_input(u32 down, u32 nav, int fire) {
    est, et le stick C (gauche / droite) passe a la vue voisine, sans revenir a l'onglet
    (avant : B, croix, A). Les listes sont gardees : le passage est immediat. */
 static int gm_hub_cur(void) { return tl_screen == TL_APPS ? 1 : tl_screen == TL_CARDS || (tl_screen == TL_VCARD && vc_hub) ? 2 : (tl_screen == TL_NONE && gl_on) ? 0 : -1; }
+/* (v196 : barres de l'accueil : 0 jeux, 1 cartes ; les vues : 0 jeux, 2 cartes) */
 static void gm_hub_go(int k) {
     int cur = gm_hub_cur();
     if (cur < 0 || k == cur) return;
     if (cur == 0) { gl_on = 0; if (gl_list_dirty) { gl_list_dirty = 0; gl_list_save(); } }
     tl_screen = TL_NONE; vc_hub = 0;
-    gm_sel = GM_COUNT + k;                                 /* (B : retour sur la bonne barre de l'onglet) */
+    gm_sel = GM_COUNT + (k ? 1 : 0);                       /* (B : retour sur la bonne barre de l'onglet) */
     if (k == 0) gclib_open(); else if (k == 1) ap_open(); else mc_open();
 }
 static int gm_hub_input(void) {                            /* 1 = on a change de vue */
@@ -845,13 +846,13 @@ static int gm_hub_input(void) {                            /* 1 = on a change de
     if (abs(sx) < 30) { armed = 1; return 0; }
     if (!armed || abs(sx) < 55 || tab != TAB_GAMES || gm_hub_cur() < 0) return 0;
     armed = 0;
-    gm_hub_go((gm_hub_cur() + (sx > 0 ? 1 : 2)) % 3);
+    gm_hub_go(gm_hub_cur() == 0 ? 2 : 0);                  /* v196 : jeux <-> cartes (les applis sont dans l'espace jeux) */
     return 1;
 }
 static f32 gm_hub_bar(f32 x, f32 y) {                      /* rend la fin (x) ; y = haut de la barre (20 de haut) */
     static const char *const nm[3] = { "Jeux", "Applis", "Cartes" };   /* (courts : tient a cote de l'affichage / des slots) */
     int cur = gm_hub_cur();
-    for (int k = 0; k < 3; k++) {
+    for (int k = 0; k < 3; k += 2) {                       /* v196 : (sans les applis : dans l'espace jeux) */
         const char *t = TR(nm[k]);
         f32 w = (f32)text_width(F_SMALL, t, 1) + 22;
         int on = k == cur;
