@@ -806,6 +806,15 @@ static int ap_post(int k) {                              /* 1 = demande envoyee 
     ap[k].istate = 2;                                    /* (en cours) */
     return 1;
 }
+/* v225 : appli lancee depuis l'onglet FICHIERS (meme lancement que la liste Applis) */
+static void fe_launch_dol(const char *path) {
+    if (settings_dirty) save_settings();
+    gl_ret_app = 1;                                      /* (retour a GC Station quand l'appli quitte) */
+    const char *e = gl_boot_dol(path, NULL, NULL, base_of(path));   /* (ne revient pas si ca marche) */
+    gl_ret_app = 0;
+    gl_busy[0] = 0;
+    if (e) fe_note(e);
+}
 #define AP_COLS 4
 static void ap_input(u32 down, u32 nav, int fire) {
     if (ap_confirm >= 0) {

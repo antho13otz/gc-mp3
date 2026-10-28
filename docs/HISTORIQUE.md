@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v225 — lancer une appli depuis Fichiers
+- Dans l'onglet **FICHIERS**, **A** sur un fichier `.dol` de la carte SD lance l'appli, comme depuis la liste
+  Applis (retour à GC Station quand elle se ferme).
+
 ## Nouveautés v224 — envoi depuis le téléphone
 - **Les .dol envoyés depuis le téléphone vont dans `SD:/apps`**, quel que soit le dossier choisi, et
   apparaissent tout de suite dans la liste Applis (onglet Jeux). La page du téléphone indique où le fichier

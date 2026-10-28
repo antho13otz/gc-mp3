@@ -255,6 +255,7 @@ static void fe_net_game_copy(int i, const char *path) {
     snprintf(fe_play_after, sizeof(fe_play_after), "%s", dst);
     fe_note("Copie du jeu sur la carte SD, puis lancement...");
 }
+static void fe_launch_dol(const char *path);   /* v225 : (tools.c) lance une appli .dol */
 static void fe_open(int i) {
     char path[NAME_LEN];
     if (fe_devs) {
@@ -270,6 +271,8 @@ static void fe_open(int i) {
         if (fe_is_game(fe[i].name)) { fe_net_game(i, path); return; }   /* v121 */
     }
     if (fe_is_game(fe[i].name)) { const char *e = gl_play_path(path); if (e) fe_note(e); return; }   /* v121 : un jeu de la carte : lance */
+    { const char *dt = strrchr(fe[i].name, '.');                    /* v225 : une appli (.dol) : lancee comme depuis Applis */
+      if (dt && !strcasecmp(dt, ".dol") && !fe_net()) { fe_launch_dol(path); return; } }
     for (int k = 0; k < nfiles; k++)                                 /* un son de la bibliotheque */
         if (!strcmp(names[k], path)) { queue_build(k); start_track(k); fe_note("Lecture lanc\xC3\xA9" "e"); return; }
     const char *dot = strrchr(fe[i].name, '.');
