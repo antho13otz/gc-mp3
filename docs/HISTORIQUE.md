@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v196 — espace Jeux GameCube (vitrine 3D)
+- Onglet JEUX / APPS, A sur « Jeux GameCube » : un espace à part, aux couleurs d'Aurore. Les jaquettes sont en
+  perspective, avec un reflet au sol et une lueur rose → bleu ; le nom du jeu et ses infos (ID, région, taille,
+  temps de jeu, favori) en dessous ; un petit logo en haut à gauche.
+- En haut, la même barre que les onglets, mais avec les filtres : Récents, Tout, Favoris, Plus joués, A à Z,
+  Applis. **Z** : filtre suivant (gardé dans `jeux_filtre`).
+- Touches : A jouer (« Lancer ce jeu ? »), Y fiche, X cheats, L favori, R liste, B retour.
+- Les applis homebrew sont présentées comme les jeux (filtre Applis : A lancer, Y actualiser) ; « Mes applis »
+  n'est plus sur l'accueil de JEUX / APPS (deux barres : Jeux GameCube, Cartes mémoire).
+
 ## Nouveautés v195 — radio et musique fluides (la boucle ne touche plus la carte SD)
 - Radio : ouverture par étapes sans attendre (connexion, requête, en-têtes, listes .m3u / .pls) : la boucle principale
   n'attend plus la réponse du serveur (avant : jusqu'à 1,5 s, « radio »).
