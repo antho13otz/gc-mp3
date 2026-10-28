@@ -61,7 +61,11 @@ static void au_player(void) {
     nv_raw = 1;
     gx_circle(cx, y + sz / 2, 250, au_cc(60), au_cc(0));                               /* lumiere de la pochette */
     gx_circle(cx, y + sz / 2, sz * 0.62f + 26 * es, au_cc((u8)(70 + 90 * es)), au_cc(0));   /* (respire avec la musique) */
-    if (showc || lyr) gx_glow(x, y + 5, sz, sz, have ? 4 : 14, RGBA(0, 0, 0, 150), 10);   /* ombre douce, centree (v200 : avant, un bloc noir decale a droite) */
+    if (showc || lyr) {                                      /* ombre douce, centree (v200 : avant, un bloc noir decale a droite) */
+        uxsave_t ug = ux_native(cx);                         /* (v211 : 16:9 : de la taille de la pochette, plus de bandes noires autour) */
+        gx_glow(x, y + 2, sz, sz, have ? 4 : 14, RGBA(0, 0, 0, 150), 10);
+        ux_restore(ug);
+    }
     nv_raw = 0;
     if (!showc && !lyr) {                                    /* v159 : sans pochette : le spectre en grand a sa place */
         if (EL(EL_VIZ)) draw_viz(cx - 150, y + sz, 300, sz - 20);
@@ -81,10 +85,10 @@ static void au_player(void) {
         GX_Position2f32(UX(x), ry + rh);     GX_Color4u8(255, 255, 255, 0);  GX_TexCoord2f32(0.0f, 1.0f - rh / sz);
         }
         GX_End();
-        ux_restore(uz);
         nv_raw = 1;
-        gx_rrect_stroke(x, y, sz, sz, 2, 1.0f, RGBA(255, 255, 255, 40));
+        gx_rrect_stroke(x, y, sz, sz, 2, 1.0f, RGBA(255, 255, 255, 40));   /* (v211 : dans la zone de la pochette) */
         nv_raw = 0;
+        ux_restore(uz);
     } else {
         nv_raw = 1;
         gx_rrect_fill(x, y, sz, sz, 14, au_mix(0.15f, 255), au_mix(0.75f, 255));

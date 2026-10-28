@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v211 — pochette sans bande noire (16:9)
+- Style Aurore, lecteur MUSIQUE, en 16:9 : l'ombre et le liseré de la pochette étaient étirés en largeur (et
+  l'ombre décalée vers le bas) alors que la pochette reste carrée : une bande sombre apparaissait autour et
+  en haut du cadre. Ils suivent maintenant la pochette.
+
 ## Nouveautés v210 — l'onglet WEB devient Cube Browser ; globe : radios plus vite
 - **Le navigateur de l'onglet WEB est maintenant Cube Browser** (d'Arial-Bold, licence MIT, `source/cb`),
   adapté pour vivre dans GC Station : même écran, même réseau, mêmes certificats, même carte SD
