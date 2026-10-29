@@ -74,8 +74,8 @@ public class PlaybackService extends Service {
     };
 
     /** limite de jeu du jour : un mot 5 min avant, puis a la limite (la console ne coupe pas le jeu) */
-    private final Runnable limitSoon = () -> notify(this, ID_LIMIT, "Plus que 5 minutes de jeu", "Limite de jeu du jour bientôt atteinte" + gameWho() + ".");
-    private final Runnable limitNow = () -> notify(this, ID_LIMIT, "Temps de jeu du jour écoulé", "C'est l'heure d'arrêter" + gameWho() + " : A + Z + START pour revenir à GC Station.");
+    private final Runnable limitSoon = () -> PlaybackService.notify(this, ID_LIMIT, "Plus que 5 minutes de jeu", "Limite de jeu du jour bientôt atteinte" + gameWho() + ".");
+    private final Runnable limitNow = () -> PlaybackService.notify(this, ID_LIMIT, "Temps de jeu du jour écoulé", "C'est l'heure d'arrêter" + gameWho() + " : A + Z + START pour revenir à GC Station.");
     private static String gameWho() { Live.Game g = Live.game; return g == null ? "" : " (" + g.name + (g.profile.isEmpty() ? "" : ", profil " + g.profile) + ")"; }
     private void gameAlarms(Live.Game g) {
         h.removeCallbacks(limitSoon);
@@ -163,7 +163,7 @@ public class PlaybackService extends Service {
                 if (!running) return;
                 if (r != null) {
                     Live.Game g = Live.consoleBack();             // (la console repond : la partie est finie)
-                    if (g != null) notify(PlaybackService.this, ID_GAMEEND, "Partie terminée : " + g.name, "Temps de jeu : " + Live.dur(g.playedSec()) + ".");
+                    if (g != null) PlaybackService.notify(PlaybackService.this, ID_GAMEEND, "Partie terminée : " + g.name, "Temps de jeu : " + Live.dur(g.playedSec()) + ".");
                     try { update(new JSONObject(r)); } catch (Exception e) { }
                 }
                 h.removeCallbacks(poll);
