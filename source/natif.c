@@ -962,6 +962,20 @@ static void na_thr_print(FILE *f, const u8 *b) {
         fprintf(f, "PI : fin de dessin %s / masque %s ; jeton %s / masque %s\n", cause & 0x400 ? "levee" : "non", mask & 0x400 ? "ouvert" : "FERME",
                 cause & 0x200 ? "leve" : "non", mask & 0x200 ? "ouvert" : "ferme");
     }
+    {   /* v257 : l'image telle que le jeu l'a reglee (registres VI) */
+        unsigned short v[48];
+        for (int i = 0; i < 48; i++) v[i] = (unsigned short)(be32(b + 0x190 + (i / 2) * 4) >> (i & 1 ? 0 : 16));
+        if (v[1] || v[0]) {
+            static const char *const fm[4] = { "NTSC", "PAL", "MPAL", "debug" };
+            int prog = (v[1] >> 2) & 1, acv = (v[0] >> 4) & 0x3FF;
+            fprintf(f, "Image reglee par le jeu : %s, %s, %d lignes actives (%d par trame) ; mise a l'echelle horizontale %s (%u) ; largeur lue %u\n",
+                    fm[(v[1] >> 8) & 3], prog ? "progressif" : "entrelace", prog ? acv : acv * 2, acv,
+                    v[37] & 0x1000 ? "OUI" : "non", (unsigned)(v[37] & 0x1FF), (unsigned)((v[36] >> 8) & 0x7F) * 16);
+            fprintf(f, "  registres VI :");
+            for (int i = 0; i < 48; i++) { if (i % 12 == 0) fprintf(f, "\n   %02X :", i * 2); fprintf(f, " %04X", v[i]); }
+            fprintf(f, "\n");
+        }
+    }
     for (u32 i = 0; i < n; i++) {                                   /* fils en attente : le code qui attend (2 appels) */
         const u8 *e = b + 0x10 + i * 32;
         if ((be32(e + 4) >> 16) != 4) continue;

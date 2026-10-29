@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v257 (build 721) — journal de Pulse : l'image réglée par le jeu
+- Soulcalibur II (GRSPAF) : image tassée en haut, bande noire puis bande répétée en bas avec Pulse (normale avec
+  Swiss). « PAL 60 Hz » forcé : le jeu se fige dès sa 1re image (à laisser sur « Comme le jeu »).
+- Le 4e secteur du journal garde les registres de l'image (VI 0xCC002000-0x5F) au retour A+Z+START : format,
+  entrelacé / progressif, lignes actives, mise à l'échelle horizontale, largeur lue (12 fils au plus au lieu de 15).
+
 ## Nouveautés v256 (build 720) — mise à jour : toujours la version compressée quand elle est choisie
 - Avec « Version compressée » à Oui, la recherche de mise à jour proposait la version normale quand la compressée
   du même build n'était pas encore publiée (tâche `compresse` de la compilation, quelques minutes après le .dol).

@@ -176,7 +176,7 @@ enum { NRT_OFF = 0, NRT_ON = 1, NRT_BAT = 2, NRT_BAT2 = 3, NRT_MMU = 4, NRT_VEC 
    0x10 + 32 * i (15 au plus) : adresse du fil, etat << 16 | priorite, srr0 (PC), LR, r1, 3 adresses de retour */
 #define NRF_THREADS   128u
 #define NATRES_THR_MAGIC 0x47435354u        /* "GCST" */
-#define NATRES_THR_MAX   15
+#define NATRES_THR_MAX   12                  /* v257 : 0x190 - 0x1EF : registres de l'image (VI 0xCC002000 - 0xCC00205F, 48 demi-mots) */
 #define NATRES_SNAP_MAGIC 0x4743534Du       /* "GCSM" */
 #define NATRES_SNAP_SECS  704               /* taille du fichier : 704 secteurs (352 Ko) */
 

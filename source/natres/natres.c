@@ -956,6 +956,7 @@ static void thr_dump(void) {
         t = nx;
     }
     cw(0x04, n);
+    for (u32 i = 0; i < 24; i++) cw(0x190 + i * 4, *(volatile u32 *)(0xCC002000u + i * 4));   /* v257 : registres de l'image */
     /* v245 : interruptions et processeur graphique (un fil qui attend la fin de dessin pour toujours : interruption
        arrivee mais masquee, ou jamais levee ?) : cause et masque du PI, controle PE << 16 | etat CP, masques du SDK */
     cw(0x1F0, *(volatile u32 *)0xCC003000u); cw(0x1F4, *(volatile u32 *)0xCC003004u);
