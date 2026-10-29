@@ -134,12 +134,17 @@ class GamesTab extends Tab {
     private EditText search;
     private BaseAdapter adapter;
     private boolean loaded;
+    private LastLaunch last;                                  // (carte "Dernier lancement")
     GamesTab(Activity a) { super(a); }
 
     @Override View build() {
         LinearLayout v = UiKit.column(a);
         search = UiKit.search(a, "Chercher un jeu", this::filter);
         v.addView(search, lp(-1, -2, 0));
+        last = new LastLaunch(a, this::openId);
+        LinearLayout.LayoutParams ll = lp(-1, -2, 0);
+        ll.topMargin = dp(8);
+        v.addView(last.view, ll);
         status = UiKit.hint(a, "Chargement…");
         v.addView(status);
         GridView g = new GridView(a);
@@ -190,6 +195,13 @@ class GamesTab extends Tab {
         info.addView(Neon.text(a, id, 13, Neon.CYAN, true));
         int min = x.optInt(3);
         info.addView(Neon.text(a, min > 0 ? "Joué " + (min >= 60 ? (min / 60) + " h " + (min % 60) + " min" : min + " min") : "Jamais joué avec Pulse", 13, Neon.DIM, false));
+        {   // statistiques : lancements, dernier lancement, dernier resultat avec Pulse (garde par le telephone)
+            int runs = x.optInt(2);
+            long lastT = x.optLong(5);
+            if (runs > 0) info.addView(Neon.text(a, "Lancé " + runs + " fois" + (lastT > 0 ? " · dernière fois " + LastLaunch.ago(lastT) : ""), 12, Neon.DIM, false));
+            int[] pr = LastLaunch.forGame(a, id);
+            if (pr != null) info.addView(Neon.text(a, "Dernier essai Pulse : " + LastLaunch.verdict(pr[0]) + " (" + LastLaunch.ago(pr[1]) + ")", 12, LastLaunch.color(pr[0]), false));
+        }
         LinearLayout ir = new LinearLayout(a);
         ir.setPadding(0, dp(8), 0, 0);
         final TextView fav = Neon.btn(a, x.optInt(4) != 0 ? "★ Favori" : "☆ Favori", 12, x.optInt(4) != 0, null);
@@ -294,6 +306,22 @@ class GamesTab extends Tab {
         gr.addView(open, lp(-2, -2, 0));
         box.addView(gr);
         box.addView(cfg);
+        // sauvegardes de ce jeu sur ses cartes memoire virtuelles (telecharger, effacer)
+        LinearLayout sr = new LinearLayout(a);
+        sr.setGravity(Gravity.CENTER_VERTICAL);
+        sr.setPadding(0, dp(20), 0, dp(4));
+        sr.addView(Neon.glow(a, "SAUVEGARDES (CARTE VIRTUELLE)", 13, Neon.CYAN), lp(0, -2, 1));
+        final LinearLayout saves = new LinearLayout(a);
+        saves.setOrientation(LinearLayout.VERTICAL);
+        final TextView sopen = Neon.btn(a, "Afficher", 12, false, null);
+        sopen.setOnClickListener(v -> {
+            if (saves.getChildCount() > 0) { saves.removeAllViews(); sopen.setText("Afficher"); return; }
+            sopen.setText("Masquer");
+            CardsTab.gameSaves(a, id, saves);
+        });
+        sr.addView(sopen, lp(-2, -2, 0));
+        box.addView(sr);
+        box.addView(saves);
         mask = ""; maskDirty = false; saveId = id;
         Api.get("/api/cheats?id=" + id, r -> fillCheats(r, id, ch, list));
         new NeonDialog(a).title(name).view(box)
@@ -514,8 +542,8 @@ class GamesTab extends Tab {
     /** patchs de secours de Pulse, pour ce lancement seulement (les essais de la reparation automatique, au choix) */
     private static final String[][] FX = {
         { "T", "Pulse universel", "Attrape les accès au lecteur pendant le jeu (jeux qui se décompressent, plusieurs programmes : PSO…)" },
-        { "S", "Vitesse d'un vrai lecteur", "Pour les jeux qui bloquent quand le disque répond trop vite" },
-        { "F", "Lecteur rapide", "Le contraire : pour un jeu réglé sur la vitesse d'un vrai lecteur" },
+        { "S", "Lecteur lent (comme un vrai)", "Pour les jeux qui bloquent quand le disque répond trop vite" },
+        { "F", "Lecteur rapide (normal)", "Vitesse habituelle de Pulse : pour un jeu réglé sur « lecteur lent » qui n'en a pas besoin" },
         { "C", "Sans carte mémoire virtuelle", "Le jeu utilise tes vraies cartes" },
         { "H", "Sans cheats", "Le jeu démarre sans ses cheats (ils restent choisis)" },
         { "W", "Sans 16:9 forcé", "Image d'origine du jeu" },
@@ -630,7 +658,11 @@ class GamesTab extends Tab {
         return c;
     }
 
-    @Override void show() { if (!loaded) load(); }
+    @Override void show() { if (!loaded) load(); last.refresh(); }
+    @Override void state(JSONObject s) {                       // (nouveau lancement termine : carte et liste a jour)
+        if (last != null && s.has("pj") && s.optLong("pj") != last.pj && last.pj >= 0 && root != null && root.isShown()) { last.pj = s.optLong("pj"); last.refresh(); load(); }
+    }
+    private void openId(String id) { for (JSONArray g : all) if (id.equals(g.optString(1))) { sheet(g); return; } }
 
     private void load() {
         Neon.set(status, "Chargement des jeux (la console fait la liste)…");
@@ -1060,7 +1092,7 @@ class CardsTab extends Tab {
             box.removeAllViews();
             try {
                 JSONArray j = new JSONArray(r);
-                Neon.set(status, j.length() == 0 ? "Aucune carte virtuelle (Pulse en crée une au premier jeu)" : "Toucher une sauvegarde pour la récupérer (.gci)");
+                Neon.set(status, j.length() == 0 ? "Aucune carte virtuelle (Pulse en crée une au premier jeu)" : "Toucher une sauvegarde : la récupérer (.gci) ou l'effacer");
                 for (int k = 0; k < j.length(); k++) card(j.getJSONObject(k));
             } catch (Exception e) { Neon.set(status, "Réponse illisible"); }
         });
@@ -1092,7 +1124,7 @@ class CardsTab extends Tab {
                 it.setPadding(dp(12), dp(10), dp(12), dp(10));
                 it.addView(Neon.text(a, s.optString(0), 14, Neon.TEXT, true));
                 it.addView(Neon.text(a, s.optString(2) + " · " + s.optInt(4) + " blocs" + (s.optString(1).isEmpty() ? "" : " · " + s.optString(1)), 12, Neon.DIM, false));
-                it.setOnClickListener(x -> UiKit.download(a, "/api/gci/" + Uri.encode(f) + "/" + idx + "/" + Uri.encode(s.optString(3)) + ".gci", s.optString(3) + ".gci"));
+                it.setOnClickListener(x -> saveMenu(a, f, idx, s, this::load));
                 cd.addView(it);
             }
         }
@@ -1100,6 +1132,53 @@ class CardsTab extends Tab {
     }
 
     private View gap() { View g = new View(a); g.setLayoutParams(new LinearLayout.LayoutParams(dp(6), 1)); return g; }
+
+    /** une sauvegarde : la recuperer (.gci) ou l'effacer de la carte virtuelle (confirmation) */
+    static void saveMenu(final Activity a, final String card, final int idx, final JSONArray s, final Runnable reload) {
+        final String nm = s.optString(3);
+        new NeonDialog(a).title(s.optString(0)).message(s.optString(2) + " · " + s.optInt(4) + " blocs · " + card)
+            .items(new String[] { "Télécharger (.gci)", "Effacer de la carte" }, new int[] { 1 }, w -> {
+                if (w == 0) UiKit.download(a, "/api/gci/" + Uri.encode(card) + "/" + idx + "/" + Uri.encode(nm) + ".gci", nm + ".gci");
+                else NeonDialog.confirm(a, "Effacer « " + s.optString(0) + " » ?", "La sauvegarde est retirée de " + card + ". Récupère-la d'abord (.gci) si tu veux la garder.", "Effacer", () ->
+                    Api.get("/api/gcidel?c=" + Api.enc(card) + "&i=" + idx + "&n=" + Api.enc(nm), r -> {
+                        String m = "Pas de réponse (console à mettre à jour ?)";
+                        try { if (r != null) m = new JSONObject(r).optString("m", m); } catch (Exception e) { }
+                        Toast.makeText(a, m, Toast.LENGTH_LONG).show();
+                        if (reload != null) reload.run();
+                    }));
+            }).cancel("Fermer").show();
+    }
+
+    /** fiche du jeu : ses sauvegardes, sur ses cartes virtuelles (carte-A-<ID>.raw, carte-B-<ID>.raw) */
+    static void gameSaves(final Activity a, final String id, final LinearLayout into) {
+        into.removeAllViews();
+        into.addView(UiKit.hint(a, "Lecture des cartes…"));
+        Api.get("/api/cards", r -> {
+            into.removeAllViews();
+            int n = 0;
+            try {
+                JSONArray j = new JSONArray(r);
+                for (int k = 0; k < j.length(); k++) {
+                    JSONObject c = j.getJSONObject(k);
+                    final String f = c.optString("f");
+                    if (!f.toUpperCase(java.util.Locale.ROOT).contains(id.toUpperCase(java.util.Locale.ROOT))) continue;
+                    JSONArray e = c.optJSONArray("e");
+                    for (int i = 0; e != null && i < e.length(); i++) {
+                        final JSONArray s = e.optJSONArray(i);
+                        if (s == null) continue;
+                        final int idx = i;
+                        TextView t = Neon.text(a, s.optString(0) + "\n" + f + " · " + s.optInt(4) + " blocs" + (s.optString(1).isEmpty() ? "" : " · " + s.optString(1)), 13, Neon.TEXT, false);
+                        t.setBackground(new android.graphics.drawable.InsetDrawable(Neon.button(a, 12, false), 0, Neon.dp(a, 3), 0, Neon.dp(a, 3)));
+                        t.setPadding(Neon.dp(a, 12), Neon.dp(a, 10), Neon.dp(a, 12), Neon.dp(a, 10));
+                        t.setOnClickListener(v -> saveMenu(a, f, idx, s, () -> gameSaves(a, id, into)));
+                        into.addView(t);
+                        n++;
+                    }
+                }
+            } catch (Exception ex) { into.addView(UiKit.hint(a, r == null ? "Pas de réponse de la console" : "Réponse illisible")); return; }
+            if (n == 0) into.addView(UiKit.hint(a, "Aucune sauvegarde de ce jeu sur une carte virtuelle"));
+        });
+    }
 
     private void pick(String card, int req) {
         pendingCard = card;

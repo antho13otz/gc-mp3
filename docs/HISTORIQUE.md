@@ -24,6 +24,19 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v262 (build 727) — appli : dernier lancement, sauvegardes du jeu, notifications
+- **Carte « Dernier lancement »** en haut de l'onglet Jeux de l'appli : le jeu, le résultat (quitté avec A+Z+START,
+  planté, figé repéré par Pulse, aucune nouvelle, pas de retour), il y a combien de temps, le temps joué, l'endroit
+  (PC) ; boutons **Journal** et **Partager le journal** (fichier .txt dans Téléchargements / GC Station).
+  Console : `resume-jeu.txt` écrit à la traduction du journal, `/api/pulse` et `/api/pulse.txt`, `pj` / `pjr` dans l'état.
+- Le journal traduit n'est plus remis à zéro mais marqué « DONE » : avant, un 2e démarrage de GC Station sans jeu
+  remplaçait le bon journal par « aucune nouvelle du jeu ».
+- **Notifications** du téléphone : jeu planté, figé ou sans nouvelles ; téléchargement fini (`dl` / `dln` dans l'état).
+- **Fiche du jeu** : nombre de lancements, dernière fois, dernier essai avec Pulse (gardé par le téléphone) ;
+  section **Sauvegardes (carte virtuelle)** : les sauvegardes du jeu, à télécharger (.gci) ou à effacer.
+- **Onglet Cartes** : toucher une sauvegarde propose de la télécharger ou de l'**effacer** (`/api/gcidel`, nom vérifié).
+- Patchs de secours renommés : « Lecteur lent (comme un vrai) », « Lecteur rapide (normal) ».
+
 ## Nouveautés v260 (build 725) — journal de Pulse : police, horloge et réglages de la console (canal EXI 0)
 - Soulcalibur II (GRSPAF) avec la carte virtuelle du slot A : plus de blocage (build 722), mais textes des menus
   absents, barre de titre abîmée, pas de question 50/60 Hz. Sans la carte virtuelle : tout est normal.

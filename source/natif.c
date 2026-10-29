@@ -1044,10 +1044,74 @@ static int na_iso_name_at(u32 pos, char *out, int cap, u32 *in_file, u32 *flen, 
     gd_close(&g);
     return ok;
 }
+/* v262 : resume du dernier lancement pour le telephone (carte "Dernier lancement", notification) :
+   r = 0 quitte par A+Z+START, 1 plantage, 2 fige (vu par Pulse), 3 aucune nouvelle du jeu, 4 pas de retour (console eteinte ?) */
+#define NA_RESUME NA_DIR "/resume-jeu.txt"
+#define NA_JDONE 0x444F4E45u                              /* "DONE" : journal deja traduit (avant : remis a zero, et le */
+                                                          /* demarrage suivant le prenait pour "aucune nouvelle du jeu") */
+static u32 na_pj_when = 0, na_pj_r = 0, na_pj_read = 0;
+static void na_resume_write(const char *log, int r, u32 pc, u32 sec) {
+    char id[8] = "", title[72] = "";
+    const char *p = log ? strstr(log, "Jeu : ") : NULL;
+    if (p && strlen(p) > 12) { memcpy(id, p + 6, 6); id[6] = 0; snprintf(title, sizeof(title), "%s", p + 14); title[strcspn(title, "\r\n")] = 0; }
+    if (!id[0] || (log && !strstr(log, "Saut vers le jeu"))) return;   /* (aucun jeu lance) */
+    FILE *f = fopen(NA_RESUME, "w");
+    if (!f) return;
+    na_pj_when = (u32)time(NULL); na_pj_r = (u32)r; na_pj_read = 1;
+    fprintf(f, "id=%s\nnom=%s\nr=%d\nquand=%u\npc=%08X\nsec=%u\n", id, title, r, (unsigned)na_pj_when, (unsigned)pc, (unsigned)sec);
+    fclose(f);
+}
+static void na_pj_load(void) {
+    if (na_pj_read) return;
+    na_pj_read = 1;
+    long n = 0;
+    char *t = (char *)read_file(NA_RESUME, 1024, &n);
+    if (!t) return;
+    char *q = (char *)realloc(t, n + 1);
+    if (!q) { free(t); return; }
+    q[n] = 0;
+    char *a = strstr(q, "\nr="), *b = strstr(q, "\nquand=");
+    if (a) na_pj_r = (u32)atoi(a + 3);
+    if (b) na_pj_when = (u32)strtoul(b + 7, NULL, 10);
+    free(q);
+}
+static u32 nat_pj_stamp(int *r) { na_pj_load(); if (r) *r = (int)na_pj_r; return na_pj_when; }
+/* JSON pour /api/pulse : {"id","nom","r","quand","pc","sec"} (vide si aucun jeu lance avec Pulse) */
+static char *nat_pj_json(void) {
+    long n = 0;
+    char *t = (char *)read_file(NA_RESUME, 1024, &n);
+    sbuf_t s = { NULL, 0, 0 };
+    sb_add(&s, "{");
+    if (t) {
+        char *q = (char *)realloc(t, n + 1);
+        if (!q) { free(t); q = NULL; }
+        else {
+            q[n] = 0;
+            int first = 1;
+            for (char *l = q; l && *l; ) {
+                char *e = strchr(l, '\n'), *eq;
+                if (e) *e = 0;
+                if ((eq = strchr(l, '=')) != NULL) {
+                    *eq = 0;
+                    char u8[200];
+                    tp_any_utf8(eq + 1, u8, sizeof(u8));
+                    if (!first) sb_add(&s, ",");
+                    first = 0;
+                    sb_json_str(&s, l); sb_add(&s, ":"); sb_json_str(&s, u8);
+                }
+                l = e ? e + 1 : NULL;
+            }
+            free(q);
+        }
+    }
+    sb_add(&s, "}");
+    return s.b;
+}
 static void nat_journal_convert(void) {
     long len = 0;
     u8 *d = (u8 *)read_file(NA_JBIN, 4096, &len);
     if (!d) return;
+    if (len >= 4 && be32(d) == NA_JDONE) { free(d); return; }   /* v262 : deja traduit (redemarrage sans jeu) */
     if (len < 512 || be32(d) != NATRES_MAGIC) {
         /* v161 : le jeu n'a laisse aucune trace (Crash Bandicoot, ecran noir) : avant, l'ancien journal (d'un
            autre jeu) restait et faisait croire que rien n'avait ete lance */
@@ -1063,8 +1127,10 @@ static void nat_journal_convert(void) {
                    "moins de 3 s apres le lancement.\n");
         long ll = 0;
         char *lt = (char *)read_file(NA_LOG, 16384, &ll);
-        if (lt) { fprintf(f, "\n---------- dernier-lancement.txt ----------\n"); fwrite(lt, 1, ll, f); free(lt); }
+        if (lt) { fprintf(f, "\n---------- dernier-lancement.txt ----------\n"); fwrite(lt, 1, ll, f); na_resume_write(lt, 3, 0, 0); free(lt); }
         fclose(f);
+        FILE *b = fopen(NA_JBIN, "r+b");                  /* v262 : (traduit : pas a refaire) */
+        if (b) { static const u8 dn[4] = { 'D', 'O', 'N', 'E' }; fwrite(dn, 1, 4, b); fclose(b); }
         return;
     }
     FILE *f = fopen(NA_JTXT, "w");
@@ -1290,7 +1356,22 @@ static void nat_journal_convert(void) {
         if (id[0] && id[5]) cp_after_game(id, title, (be32(d + 4) >= 5 && be32(d + 44 * 4) != 0), slow, vm);
     }
 #endif
+    {   /* v262 : resume pour le telephone */
+        long ll = 0;
+        char *lt = (char *)read_file(NA_LOG, 16384, &ll);
+        int r = 4; u32 pc = 0, ver = be32(d + 4);
+        if (ver >= 5 && be32(d + 44 * 4)) r = 1;
+        if (len >= 1024 && be32(d + 512) == NATRES_CRASH_MAGIC) {
+            u32 ex = be32(d + 512 + 8);
+            pc = be32(d + 512 + 0x0C);
+            if (r != 1) r = ex == 0xFE ? 2 : ex == 0xFF ? 0 : 1;
+        } else if (r == 1) pc = be32(d + 45 * 4);
+        u32 sec = 0;
+        if (ver >= 3 && lt) { char *p = strstr(lt, "Jeu : "); sec = be32(d + 36 * 4) / (p && strlen(p) > 9 && p[9] == 'P' ? 50u : 60u); }
+        if (lt) { na_resume_write(lt, r, pc, sec); free(lt); }
+    }
     memset(d, 0, len);                                    /* (traduit : on ne le refait pas au prochain demarrage) */
+    if (len >= 4) { d[0] = 'D'; d[1] = 'O'; d[2] = 'N'; d[3] = 'E'; }   /* v262 : (et pas pris pour "aucune nouvelle") */
     FILE *b = fopen(NA_JBIN, "r+b");
     if (b) { fwrite(d, 1, len, b); fclose(b); }
     free(d);

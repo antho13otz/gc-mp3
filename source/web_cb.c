@@ -103,6 +103,7 @@ static void web_legend(void) {
 void cb_host_exit(void) { tab = TAB_MUSIC; tab_enter(tab); }
 void cb_host_note(const char *msg) { lib_note(msg); }
 void cb_host_download_done(const char *path) {
+    ev_download(path);                                  /* v262 : notification sur le telephone */
     if (audio_ext_len(path)) music_add_file(path);       /* (la musique et l'onglet RETRO le voient tout de suite) */
 }
 

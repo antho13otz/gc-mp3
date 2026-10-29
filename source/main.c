@@ -8666,6 +8666,14 @@ static void music_rescan(void);
 static void music_add_file(const char *path);
 
 static void dlh_add(const char *from, const char *path);
+/* v262 : dernier telechargement fini (le telephone le signale par une notification) */
+static u32 ev_dl_n = 0;
+static char ev_dl_name[96] = "";
+static void ev_download(const char *path) {
+    const char *b = strrchr(path, '/');
+    snprintf(ev_dl_name, sizeof(ev_dl_name), "%s", b ? b + 1 : path);
+    ev_dl_n++;
+}
 static int dlh_loaded;
 static void dl_stop(const char *msg, int err) {
     conn_close(DCONN);
@@ -8833,6 +8841,7 @@ static void dl_finish(void) {
     if (el > 0 && dl_got > 65536) snprintf(spd, sizeof(spd), ", %ld Ko/s", (long)((long long)dl_got * 1000 / 1024 / (long long)el));
     dlh_add(strstr(dl_dest_dir_used, "podcasts") ? "podcast" : "web", dl_path);   /* (onglet TELECHARGEMENTS) */
     if (dl_ep_used[0]) { pod_dl_note(dl_ep_used, dl_path); dl_ep_used[0] = 0; }
+    ev_download(dl_path);
     if (n > 4 && audio_ext_len(dl_path)) {
         music_add_file(dl_path);
         snprintf(msg, sizeof(msg), "Téléchargé : %s (dans l'onglet MUSIQUE%s)", dl_name, spd);

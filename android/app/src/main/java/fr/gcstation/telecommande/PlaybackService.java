@@ -147,6 +147,7 @@ public class PlaybackService extends Service {
 
     private void update(JSONObject s) {
         last = s;
+        LastLaunch.check(this, s);                          // (notifications : jeu plante / fige, telechargement fini)
         int cv = Math.max(0, Math.min(10, (s.optInt("vol", 100) + 5) / 10));
         if (System.currentTimeMillis() - volHold > 1500 && volume.getCurrentVolume() != cv) volume.setCurrentVolume(cv);
         playing = s.optInt("playing", 0) != 0;

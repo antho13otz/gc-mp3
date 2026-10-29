@@ -79,6 +79,17 @@ static void tp_lat_utf8(const char *in, char *out, int cap) {      /* Latin-1 (C
     }
     out[o] = 0;
 }
+static void tp_any_utf8(const char *in, char *out, int cap) {      /* v262 : deja UTF-8 valide : tel quel ; sinon Latin-1 -> UTF-8 */
+    const unsigned char *p = (const unsigned char *)in;
+    int ok = 1;
+    while (*p && ok) {
+        int n = *p < 0x80 ? 0 : (*p & 0xE0) == 0xC0 ? 1 : (*p & 0xF0) == 0xE0 ? 2 : (*p & 0xF8) == 0xF0 ? 3 : -1;
+        if (n < 0) { ok = 0; break; }
+        p++;
+        for (int k = 0; k < n; k++, p++) if ((*p & 0xC0) != 0x80) { ok = 0; break; }
+    }
+    if (ok) snprintf(out, cap, "%s", in); else tp_lat_utf8(in, out, cap);
+}
 static void tp_utf8_lat(const char *in, char *out, int cap) {      /* UTF-8 -> Latin-1 (au-dela : ?) */
     int o = 0;
     const unsigned char *p = (const unsigned char *)in;
@@ -529,6 +540,8 @@ static void tp_cfg_build(void) {
     }
 }
 
+static u32 nat_pj_stamp(int *r);                         /* v262 : (natif.c) dernier lancement avec Pulse */
+static char *nat_pj_json(void);
 static void tp_json_build(void) {
     np_t n;
     np_get(&n);
@@ -545,6 +558,12 @@ static void tp_json_build(void) {
     sb_add(&s, ",\"lyr\":"); sb_json_str(&s, lyr);
     snprintf(num, sizeof(num), ",\"el\":%d,\"dur\":%d,\"vol\":%d", n.active ? n.elapsed : 0, n.dur, volume_pct); sb_add(&s, num);
     snprintf(num, sizeof(num), ",\"playing\":%d,\"cov\":%d,\"free\":%ld", playing_now, cover_ok && n.active, tp_free_mb); sb_add(&s, num);
+    {   /* v262 : dernier lancement avec Pulse et dernier telechargement (notifications du telephone) */
+        int pr = 0;
+        u32 pw = nat_pj_stamp(&pr);
+        snprintf(num, sizeof(num), ",\"pj\":%u,\"pjr\":%d,\"dl\":%u,\"dln\":", (unsigned)pw, pr, (unsigned)ev_dl_n); sb_add(&s, num);
+        char dn[200]; tp_any_utf8(ev_dl_name, dn, sizeof(dn)); sb_json_str(&s, dn);
+    }
     {   /* v222 : clavier ouvert sur la tele -> le telephone propose de taper */
         char kt[64] = "", lat[520], u8[1100];
         int k = 0;
@@ -1307,6 +1326,19 @@ static void tp_handle(s32 c) {
         if (i < 0 || !x73_vj_run(1, card, i, NULL) || !x73_vj_ok) { tp_reply(c, 404, "text/plain; charset=utf-8", x73_vj_res, (int)strlen(x73_vj_res)); return; }
         sh_send_file(c, x73_vj_res, 0, (char *)req);
     }
+    else if (!strcmp(target, "/api/gcidel")) {               /* v262 : effacer une sauvegarde : ?c=<carte>&i=<n>&n=<nom> */
+        char card[64], n[120], is[12];
+        tp_param(q ? q : "", "c", card, sizeof(card));
+        tp_param(q ? q : "", "n", n, sizeof(n));
+        tp_param(q ? q : "", "i", is, sizeof(is));
+        int done = is[0] && x73_vj_run(4, card, atoi(is), n);
+        sbuf_t sb = { NULL, 0, 0 };
+        sb_add(&sb, done && x73_vj_ok ? "{\"ok\":1,\"m\":" : "{\"ok\":0,\"m\":");
+        x73_json_raw(&sb, done ? x73_vj_res : "GC Station occup\xC3\xA9" "e, r\xC3\xA9" "essaie");
+        sb_add(&sb, "}");
+        tp_reply(c, 200, "application/json", sb.b ? sb.b : "{}", sb.b ? (int)strlen(sb.b) : 2);
+        free(sb.b);
+    }
     else if (!strcmp(target, "/api/gciimp") || !strcmp(target, "/api/cardput")) {   /* v190 : .gci envoye -> carte ; ou carte remplacee */
         char card[64], n[200];
         tp_param(q ? q : "", "c", card, sizeof(card));
@@ -1344,6 +1376,18 @@ static void tp_handle(s32 c) {
         u8 *b = sd_ok ? read_file(GCD_LOG "/test-console.txt", 64 * 1024, &sz) : NULL;
         if (b) tp_reply(c, 200, "text/plain; charset=utf-8", b, (int)sz);
         else tp_reply(c, 404, "text/plain; charset=utf-8", "Pas encore de test (START > Outils > Test de la console)", 56);
+        free(b);
+    }
+    else if (!strcmp(target, "/api/pulse")) {                /* v262 : resume du dernier lancement avec Pulse */
+        char *j = nat_pj_json();
+        tp_reply(c, 200, "application/json", j ? j : "{}", j ? (int)strlen(j) : 2);
+        free(j);
+    }
+    else if (!strcmp(target, "/api/pulse.txt")) {            /* v262 : le journal complet de ce lancement */
+        long sz = 0;
+        u8 *b = sd_ok ? read_file(GCD "/natif/journal-jeu.txt", 256 * 1024, &sz) : NULL;
+        if (b) tp_reply(c, 200, "text/plain; charset=utf-8", b, (int)sz);
+        else tp_reply(c, 404, "text/plain; charset=utf-8", "Aucun journal", 13);
         free(b);
     }
     else if (!strcmp(target, "/capture.bmp")) tp_send_capture(c);   /* v234 : ce qu'affiche la tele */

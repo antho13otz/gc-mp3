@@ -1338,6 +1338,16 @@ static void x73_vj_pump(void) {
             if (e) snprintf(x73_vj_res, sizeof(x73_vj_res), "%s", TR(e));
             else { snprintf(x73_vj_res, sizeof(x73_vj_res), "%s %s", TR("Sauvegarde ajout\xC3\xA9" "e sur"), vc_files[c]); x73_vj_ok = 1; remove(p); }
         }
+    } else if (op == 4) {                                     /* v262 : une sauvegarde effacee (son nom est verifie : la liste a pu changer) */
+        vc_cur = c;
+        if (!vc_load()) snprintf(x73_vj_res, sizeof(x73_vj_res), "%s", vc_why[0] ? vc_why : "Carte illisible");
+        else {
+            char nm[80] = "";
+            if (x73_vj_i >= 0 && x73_vj_i < vc_n) mc_safe_name(vc_e[x73_vj_i].de, nm, sizeof(nm));
+            const char *e = x73_vj_i < 0 || x73_vj_i >= vc_n || (x73_vj_name[0] && strcmp(nm, x73_vj_name)) ? "Sauvegarde introuvable (liste a relire)" : vc_delete(x73_vj_i);
+            if (e) snprintf(x73_vj_res, sizeof(x73_vj_res), "%s", TR(e));
+            else { snprintf(x73_vj_res, sizeof(x73_vj_res), "%s", TR("Sauvegarde supprim\xC3\xA9" "e")); x73_vj_ok = 1; }
+        }
     } else {                                                  /* op 3 : la carte remplacee par un .raw envoye (l'ancienne : .bak) */
         char src[NAME_LEN], dst[NAME_LEN], bak[NAME_LEN + 8];
         snprintf(src, sizeof(src), "%s/%s", MC_DIR, x73_vj_name);
