@@ -123,7 +123,7 @@ enum { IP_FMT, IP_SEEK, IP_NET, IP_TOOL, IP_GAME, IP_SKIN, IP_THEME, IP_LAYOUT, 
 static const char *const sx_ip_name[IP_N] = { "Formats audio", "Sauts dans les morceaux", "Réseau en vrai (musique en fond)", "Outils", "Mini-jeux", "Styles sur chaque onglet", "Couleurs", "Dispositions du lecteur",
     "Spectres", "Économiseurs d'écran", "Décors", "Interface en anglais", "Réglages (changés puis remis)", "Photos et vidéos" };
 #define SX_NI 260
-typedef struct { char nm[64]; u8 ph, st; u16 slow; u32 worst_us, frames; s32 dmem; } sxi_t;   /* st : 0 ok, 1 probleme, 2 pas disponible */
+typedef struct { char nm[96]; u8 ph, st; u16 slow; u32 worst_us, frames; s32 dmem; } sxi_t;   /* st : 0 ok, 1 probleme, 2 pas disponible */
 static sxi_t *sx_it = NULL;
 static int sx_nit = 0, sx_ci = -1;
 static u32 sx_ci_mem = 0;
@@ -930,7 +930,7 @@ static void sx_netuse_tick(u64 n) {
             if (k >= 0) start_track(k);
         }
         menu_open = 0; tl_screen = TL_NONE; tab = TAB_MUSIC; tab_enter(tab);
-        sx_item_begin(IP_NET, "Téléchargement de 3,5 Mo sur la carte SD");
+        sx_item_begin(IP_NET, "Téléchargement 3,5 Mo sur SD");
         mkdir(GCD "/cache", 0777);
         sx_dl_f = sd_ok && !sd_virtual ? fopen(SX_DL_FILE, "wb") : NULL;
         if (!sx_dl_f) { sx_nu_note(" : pas de carte SD"); sx_item_end(2); sx_sub = 2; return; }
@@ -947,7 +947,7 @@ static void sx_netuse_tick(u64 n) {
         u32 ms = (u32)(n - sx_t0), b = sx_dl.len > 0 ? (u32)sx_dl.len : 0, gaps = au_gap_ev - sx_mark_gap;
         int ok = sx_dl.st == HF_DONE && !sx_dl.sink_err;
         sx_nu_close();
-        sx_nu_note(" : %u Ko en %u,%u s (%u Ko/s), %u trous du son%s", (unsigned)(b / 1024u), (unsigned)(ms / 1000u), (unsigned)(ms % 1000u / 100u),
+        sx_nu_note(" : %u Ko, %u,%u s, %u Ko/s, %u trous%s", (unsigned)(b / 1024u), (unsigned)(ms / 1000u), (unsigned)(ms % 1000u / 100u),
                    (unsigned)(ms ? (u64)b * 1000ull / 1024ull / ms : 0), (unsigned)gaps, ok ? "" : ms >= 60000 ? ", pas fini en 60 s" : ", échec");
         sx_item_end(ok ? (gaps ? 1 : 0) : 1);
         sx_sub = 2;
@@ -1357,7 +1357,7 @@ static void sx_finish(void) {
             for (int i = 0; i < sx_nit; i++) {
                 const sxi_t *it = &sx_it[i];
                 if (it->ph != ph) continue;
-                char nm[80]; sx_pad(nm, sizeof(nm), it->nm, 44);
+                char nm[128]; sx_pad(nm, sizeof(nm), it->nm, 44);
                 SXP("%s %s pire %4u ms, %3u ratées / %4u", it->st == 1 ? "[! ]" : it->st == 2 ? "[--]" : "[ok]", nm, (unsigned)(it->worst_us / 1000u), (unsigned)it->slow, (unsigned)it->frames);
                 if (it->dmem > 64 * 1024 || it->dmem < -64 * 1024) SXP(", mémoire %+d Ko", (int)(it->dmem / 1024));
                 SXP("\n");
