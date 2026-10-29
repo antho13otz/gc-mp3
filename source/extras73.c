@@ -528,7 +528,8 @@ static void saver_tableau(float t) {
 static const char *const bk_files[] = { "gc-mp3.txt", "reglages/radio.txt", "reglages/favoris.txt", "reglages/radio-favoris.txt",
     "reglages/podcasts.txt", "podcasts/auto.txt", "podcasts/positions.txt", "mes-parties/gc-mp3-jeux.txt", "mes-parties/jeux_stats.txt",
     "mes-parties/jeux_recents.txt", "bibliotheque/gc-mp3-ecoutes.txt", "bibliotheque/gc-mp3-titres.txt", "reglages/volumes.txt",
-    "radio/historique.txt", "mes-parties/jeux-favoris.txt", "mes-parties/succes.txt", "mes-parties/soiree.txt", NULL };   /* (v182 : ranges) */
+    "radio/historique.txt", "mes-parties/jeux-favoris.txt", "mes-parties/succes.txt", "mes-parties/soiree.txt",
+    "reglages/compagnon.txt", "bibliotheque/gc-mp3-notes.txt", "mes-parties/compat.txt", "web/settings.ini", "web/bookmarks.txt", NULL };   /* (v182 : ranges ; v238 : compagnon, notes, compatibilite, Cube Browser. Jamais les cles : assistant.txt, identifiants.txt, cookies) */
 static int bk_add(FILE *o, const char *rel) {                    /* "@@@ fichier <nom> <taille>\n" + contenu */
     char p[NAME_LEN];
     snprintf(p, sizeof(p), GCD "/%s", rel);
@@ -568,6 +569,20 @@ static int bk_save(char *msg, int cap) {
         if (r < 0) bad = 1;
     }
     if (d) closedir(d);
+    d = opendir(GCD_PROF);                                         /* v238 : profils (profils/<nom>/profil.txt) */
+    while (d && (e = readdir(d)) != NULL) {
+        int l = (int)strlen(e->d_name);
+        if (e->d_name[0] == '.' || l > 100 || strchr(e->d_name, '/')) continue;
+        char rel[160], pp[NAME_LEN];
+        snprintf(rel, sizeof(rel), "profils/%s/profil.txt", e->d_name);
+        snprintf(pp, sizeof(pp), GCD "/%s", rel);
+        struct stat st;
+        if (stat(pp, &st) != 0) continue;
+        int r = bk_add(o, rel);
+        if (r > 0) n++;
+        if (r < 0) bad = 1;
+    }
+    if (d) closedir(d);
     fprintf(o, "@@@ fin\n");
     if (fclose(o) != 0) bad = 1;
     if (bad || !n) { remove(BK_FILE ".part"); snprintf(msg, cap, "\xC3\x89" "chec de la sauvegarde"); return 0; }
@@ -581,6 +596,10 @@ static int bk_name_ok(const char *rel) {
     if (!rel[0] || strlen(rel) > 140 || strstr(rel, "..") || rel[0] == '/' || strchr(rel, '\\') || strchr(rel, ':')) return 0;
     for (int i = 0; bk_files[i]; i++) if (!strcmp(rel, bk_files[i])) return 1;
     if (!strncmp(rel, "listes/", 7) && !strchr(rel + 7, '/')) { int l = (int)strlen(rel); return l > 11 && !strcasecmp(rel + l - 4, ".m3u"); }
+    if (!strncmp(rel, "profils/", 8)) {                              /* v238 : profils/<nom>/profil.txt */
+        const char *nm = rel + 8, *sl = strchr(nm, '/');
+        return sl && sl > nm && nm[0] != '.' && !strcmp(sl, "/profil.txt");
+    }
     return 0;
 }
 /* lit la sauvegarde ; dry = 1 : verifie seulement */
@@ -608,7 +627,9 @@ static int bk_restore_buf(const char *b, long len, int dry, char *msg, int cap) 
                     char dir[NAME_LEN];
                     snprintf(dir, sizeof(dir), "%s", path);
                     char *sl = strrchr(dir, '/');
-                    if (sl) { *sl = 0; mkdir(dir, 0777); }
+                    if (sl) *sl = 0;
+                    for (char *q = dir + strlen(GCD) + 1; *q; q++) if (*q == '/') { *q = 0; mkdir(dir, 0777); *q = '/'; }   /* (v238 : profils/<nom>) */
+                    mkdir(dir, 0777);
                 }
                 snprintf(part, sizeof(part), "%s.part", path);
                 FILE *f = fopen(part, "wb");
@@ -635,7 +656,7 @@ static int bk_restore(char *msg, int cap) {
     int r = bk_restore_buf(b, len, 1, msg, cap);              /* (tout est verifie avant d'ecrire) */
     if (r > 0) r = bk_restore_buf(b, len, 0, msg, cap);
     free(b);
-    if (r > 0) { load_settings(); eq_setup(); settings_dirty = 0; }
+    if (r > 0) { load_settings(); eq_setup(); settings_dirty = 0; snprintf(msg, cap, "%d fichiers restaur\xC3\xA9s (Cube Browser : au prochain d\xC3\xA9marrage)", r); }
     return r;
 }
 

@@ -24,6 +24,18 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v238 (build 682) — démarrage plus rapide, sauvegarde complète, ancienne version
+- **Liste de la musique gardée** (`SD:/gc-mp3/cache/musique.txt`) : au démarrage, elle est relue d'un coup au lieu
+  de parcourir tous les dossiers. Quelques secondes après, un fil en fond reparcourt les dossiers sans bloquer
+  l'écran ; si quelque chose a changé (morceau ajouté ou supprimé à la main, nouveau `.zip` rétro), la liste est
+  relue comme avant.
+- **Sauvegarde des réglages** (START > Outils > Sauvegarder / Restaurer les réglages) : en plus, le compagnon, les
+  notes des morceaux, la compatibilité des jeux, les profils, et les réglages et favoris de Cube Browser (pris en
+  compte au démarrage suivant). Jamais les clés (assistant IA, identifiants, cookies).
+- **Réglages > Réseau > Mises à jour > Ancienne version (.ancien)** : taille de la copie de secours gardée par la
+  dernière mise à jour (il n'y en a qu'une) ; A deux fois pour la supprimer. Refusé tant que le garde-fou d'une
+  mise à jour récente peut encore s'en servir.
+
 ## Nouveautés v237 (build 681) — « plus grand bloc » corrigé
 - Outils > Mémoire (et la page `/memoire` du téléphone) : le **plus grand bloc** affichait toujours environ
   24 Mo, plus que la mémoire libre. Le compilateur supprimait la mesure (réserver puis libérer aussitôt) et

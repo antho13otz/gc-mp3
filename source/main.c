@@ -519,6 +519,8 @@ static void crash_beat(void);
 static void draw_crash_notice(void);
 static void update_value(char *out, int cap);   /* update.c */
 static void update_activate(void);
+static void upo_value(char *out, int cap);   /* v238 (update.c) */
+static void upo_activate(void);
 static void night_start(void);                  /* night.c */
 static int cur_station = -1;                 // station en cours
 static char err_msg[96];                 // message d'erreur affiche
@@ -1434,8 +1436,10 @@ static void cover_job(void) {
 /* chaque image : resultat du fil, puis image suivante */
 static int cw_cache_later(const char *key, const u16 *tex);
 static void cw_pump(void);
+static void lv_pump(void);
 static void cover_async_pump(void) {
     cw_pump();                                            /* v195 */
+    lv_pump();                                            /* v238 : verification de la liste gardee */
     if (cv_state == 2) {
         if (cv_ok && cv_out && cv_job_gen == cv_gen) {
             memcpy(cover_tex, cv_out, sizeof(cover_tex));
@@ -3071,6 +3075,17 @@ static void scan_dir(const char *dir, int depth) {
 }
 
 static void retro_unzip_tree(const char *dir, int depth);   /* tab_retro.c (v26 : .zip de musiques retro) */
+#define LIST_CACHE GCD "/cache/musique.txt"
+static void list_cache_save(void) {                       /* v238 : (apres chaque lecture complete des dossiers) */
+    if (!sd_ok || sd_virtual) return;
+    FILE *f = fopen(LIST_CACHE ".tmp", "w");
+    if (!f) return;
+    int ok = fprintf(f, "GCS-LISTE 1 %d\n", nfiles) > 0;
+    for (int k = 0; ok && k < nfiles; k++) if (fputs(names[k], f) < 0 || fputc('\n', f) < 0) ok = 0;
+    if (fclose(f) != 0) ok = 0;
+    if (ok) { remove(LIST_CACHE); ok = rename(LIST_CACHE ".tmp", LIST_CACHE) == 0; }
+    if (!ok) remove(LIST_CACHE ".tmp");
+}
 static int nsorted = 0;                                    /* v27 : names[0..nsorted[ tries, ajouts recents ensuite */
 static void scan_files(void) {
     nfiles = 0;
@@ -3084,6 +3099,35 @@ static void scan_files(void) {
     qsort(names, nfiles, sizeof(names[0]), cmp_names);
     nsorted = nfiles;
     for (int k = 0; k < nfiles; k++) is_retro[k] = retro_ext_fmt(names[k]) >= 0;
+    list_cache_save();
+}
+
+/* v238 : la liste de la musique gardee sur la carte SD (SD:/gc-mp3/cache/musique.txt). Au demarrage, elle est
+   relue d'un coup au lieu de parcourir tous les dossiers ; quelques secondes plus tard, le fil lsc reparcourt les
+   dossiers en fond (lv_walk) et, si quelque chose a change (ajout, suppression, .zip retro), la liste est relue. */
+static int list_cache_load(void) {
+    if (!sd_ok || sd_virtual) return 0;
+    FILE *f = fopen(LIST_CACHE, "r");
+    if (!f) return 0;
+    static char line[NAME_LEN + 8];
+    int n = -1;
+    if (!fgets(line, sizeof(line), f) || sscanf(line, "GCS-LISTE 1 %d", &n) != 1 || n < 0 || n > MAX_FILES) { fclose(f); return 0; }
+    nfiles = 0;
+    nm_reset();
+    for (int i = 0; i < MAX_FILES; i++) dur_cache[i] = -2;
+    while (nfiles < n && fgets(line, sizeof(line), f)) {
+        size_t l = strlen(line);
+        while (l && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = 0;
+        if (!l) continue;
+        char *np = nm_store(line);
+        if (!np) break;
+        names[nfiles++] = np;
+    }
+    fclose(f);
+    if (nfiles != n) { nfiles = 0; nm_reset(); return 0; }
+    nsorted = nfiles;
+    for (int k = 0; k < nfiles; k++) is_retro[k] = retro_ext_fmt(names[k]) >= 0;
+    return 1;
 }
 
 
@@ -4979,10 +5023,54 @@ static void lsc_new_list(void) {             /* (sous LSC_LOCK) names[] a change
     lsc_gen++;
     memset((void *)lsc_asked, 0, sizeof(lsc_asked));
 }
+/* v238 : verification de la liste gardee : le fil lsc reparcourt les dossiers comme scan_files (sans rien changer)
+   et donne le nombre de morceaux et une empreinte des chemins qui ne depend pas de l'ordre ; la boucle compare. */
+static volatile int lv_state = 0;            /* 0 rien, 1 demandee, 2 en cours (fil), 3 finie */
+static volatile u32 lv_h = 0;
+static volatile int lv_n = 0;
+static int lv_pending = 0;                   /* (liste lue depuis le cache au demarrage : a verifier) */
+static u32 lv_hash(const char *s) { u32 h = 2166136261u; for (; *s; s++) { h ^= (u8)*s; h *= 16777619u; } return h; }
+static void lv_walk(const char *dir, int depth, u32 *h, int *n) {
+    DIR *d = opendir(dir);
+    if (!d) return;
+    struct dirent *e;
+    char path[NAME_LEN];
+    while ((e = readdir(d)) != NULL && *n < MAX_FILES) {
+        if (e->d_name[0] == '.') continue;
+        int l = snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
+        if (l <= 0 || l >= (int)sizeof(path)) continue;
+        if (audio_ext_len(e->d_name)) { *h += lv_hash(path); (*n)++; }
+        else if (depth < SCAN_DEPTH && is_dir(path, e)) lv_walk(path, depth + 1, h, n);
+    }
+    closedir(d);
+}
+static int jb_iso_path(const char *p);
+static void music_rescan(void);
+static void lv_pump(void) {                  /* (boucle) */
+    if (lv_pending && lv_state == 0 && now_ms() > 6000 && lsc_ready()) { lv_pending = 0; lv_state = 1; LWP_SemPost(lsc_sem); }
+    if (lv_state != 3) return;
+    lv_state = 0;
+    u32 h = 0; int n = 0;
+    for (int k = 0; k < nfiles; k++) if (!jb_iso_path(names[k])) { h += lv_hash(names[k]); n++; }   /* (sans les musiques des jeux) */
+    if (h == lv_h && n == lv_n) { crumb("musique : liste gardee a jour (%d)", n); return; }
+    crumb("musique : la carte a change (%d -> %d morceaux) : relecture", n, lv_n);
+    music_rescan();
+}
 static void *lsc_thread(void *arg) {
     (void)arg;
     static char path[NAME_LEN];
     for (;;) {
+        if (lv_state == 1) {                                /* v238 : verification de la liste gardee */
+            lv_state = 2;
+            u32 h = 0; int n = 0;
+            lv_walk(MP3_DIR, 0, &h, &n);
+            lv_walk(DL_DIR, 0, &h, &n);
+            lv_walk(SD_ROOT "/retro", 0, &h, &n);
+            lv_walk(GCD "/podcasts", 0, &h, &n);
+            lv_h = h; lv_n = n;
+            lv_state = 3;
+            continue;
+        }
         if (cw_wstate == 1) { cv_cache_write(cw_wkey, cw_wtex); cw_wstate = 0; continue; }   /* v195 : pochette a garder */
         if (bgf_run()) continue;                            /* v195 : fichier telecharge a ecrire */
         if (cw_state == 1) {                                /* v195 : pochette ou logo a chercher */
@@ -12164,7 +12252,7 @@ static void draw_list_radio(void) {
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
        MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_RECAT, MI_RECLEN, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PULSELD, MI_PERF, MI_LAUNCHER, MI_UPDATE,
-       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_PLAYLIM, MI_UPDXZ, MI_APNOIMG, MI_THEMEDL, MI_QUIT, MI_COUNT };
+       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_PLAYLIM, MI_UPDXZ, MI_APNOIMG, MI_THEMEDL, MI_UPDOLD, MI_QUIT, MI_COUNT };
 static void pj_limit_text(char *o, int cap);            /* v191 (profils.c) */
 static void pj_limit_next(int d);
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
@@ -12179,7 +12267,7 @@ static const s8 sec_items[6][32] = {
     { -9, MI_UILANG, MI_LANG, -10, MI_SKIN, MI_THEME, MI_THEMEDL, MI_WALL, MI_SEASON, MI_TABS, -11, MI_LAYOUT, MI_ELEMS, MI_VIZ, MI_SGPAL, MI_LYRSHOW, -12, MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, -13, MI_HIDDEN, MI_UNKNOWN, -14, MI_PERF, -1 },
     { -15, MI_TV, MI_VIDEO, MI_WIDE, -16, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, -1 },
     { -17, MI_GLANG, MI_GSOUND, MI_CLOCK, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, MI_APNOIMG, MI_PLAYLIM, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
-    { -21, MI_DHCP, MI_IP, MI_MASK, MI_GW, -22, MI_NETSMB, MI_NETFTP, MI_NETFSP, -23, MI_SALON, MI_PHONEAUTO, -24, MI_UPDAUTO, MI_UPDXZ, MI_UPDATE, -1 } };
+    { -21, MI_DHCP, MI_IP, MI_MASK, MI_GW, -22, MI_NETSMB, MI_NETFTP, MI_NETFSP, -23, MI_SALON, MI_PHONEAUTO, -24, MI_UPDAUTO, MI_UPDXZ, MI_UPDATE, MI_UPDOLD, -1 } };
 static int sec_n(int sec) { int n = 0; if (sec < 0 || sec >= SEC_TOOLS) return 0; while (n < 32 && sec_items[sec][n] != -1) n++; return n; }
 static int sec_pos(int sec, int mi) { for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] == mi) return i; return -1; }
 static int sec_first(int sec) { for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] >= 0) return sec_items[sec][i]; return 0; }
@@ -12305,6 +12393,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_PARTY:   snprintf(out, cap, "%s", party_names[party_style]); break;
     case MI_NIGHT:   snprintf(out, cap, "Luminosit\xC3\xA9 %d / 5", night_lum); break;
     case MI_UPDATE:  update_value(out, cap); break;
+    case MI_UPDOLD:  upo_value(out, cap); break;
     case MI_AUTOSTART: snprintf(out, cap, "%s", ipl_get() ? "Oui" : "Non"); break;
     case MI_IGR:     igr_value(out, cap); break;
     case MI_LAUNCHER: ld_value(out, cap); break;
@@ -12370,7 +12459,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "A+Z+START (lanceur de secours)", "A+Z+START (Pulse)", "Carte m\xC3\xA9moire virtuelle (Pulse)", "\xC3\x89" "cran de chargement (Pulse)", "Mesure de fluidit\xC3\xA9", "Lanceur de secours", "Mise \xC3\xA0 jour",
     "Fichiers cach\xC3\xA9s (FICHIERS)", "Cacher les fichiers inconnus", "Langue des jeux (console)", "Son (console)",
     "Adresse automatique (DHCP)", "Adresse IP de la console", "Masque", "Passerelle (box)", "T\xC3\xA9l\xC3\xA9" "commande au d\xC3\xA9marrage",
-    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Date et heure (console)", "Nouveaux jeux vus tout seuls", "Limite de jeu par jour", "Version compress\xC3\xA9" "e", "Applis sans image", "Th\xC3\xA8mes en ligne", "Quitter GC Station" };
+    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Date et heure (console)", "Nouveaux jeux vus tout seuls", "Limite de jeu par jour", "Version compress\xC3\xA9" "e", "Applis sans image", "Th\xC3\xA8mes en ligne", "Ancienne version (.ancien)", "Quitter GC Station" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -12459,6 +12548,7 @@ static void menu_change(int i, int d) {
     case MI_PARTY:   party_style = (party_style + d + PARTY_STYLES) % PARTY_STYLES; break;
     case MI_NIGHT:   night_lum += d; if (night_lum < 1) night_lum = 1; if (night_lum > 5) night_lum = 5; break;
     case MI_UPDATE:  return;
+    case MI_UPDOLD:  return;
     case MI_AUTOSTART: { const char *e = ipl_set(!ipl_get()); if (e) lib_note(e); } return;
     case MI_IGR:     igr_toggle(); return;
     case MI_LAUNCHER: ld_change(0); return;
@@ -12564,6 +12654,7 @@ static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
             return;
         }
         else if (menu_sel == MI_UPDATE) { update_activate(); return; }
+        else if (menu_sel == MI_UPDOLD) { upo_activate(); return; }
         else if (menu_sel == MI_CLOCK) { clk_begin(); return; }   /* v149 */
         else if (menu_sel == MI_IP || menu_sel == MI_GW) { menu_change(menu_sel, 1); return; }
         else if (menu_sel == MI_AUTOSTART) { menu_change(MI_AUTOSTART, 1); return; }
@@ -12697,6 +12788,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_SAVERSTYLE) hint = "Gauche / Droite : changer   A : aper\xC3\xA7u (une touche pour revenir)";
     if (menu_sel == MI_PARTY) hint = "A : lancer   (ou stick C vers le haut, dans MUSIQUE et RADIO)";
     if (menu_sel == MI_NIGHT) hint = "A : lancer   Gauche / Droite : luminosit\xC3\xA9   (F2 sur le clavier)";
+    if (menu_sel == MI_UPDOLD) hint = "Copie de la version d'avant la derni\xC3\xA8re mise \xC3\xA0 jour (secours) : A deux fois pour la supprimer";
     if (menu_sel == MI_UPDATE) hint = "Nouvelle version depuis GitHub, l'ancienne est gard\xC3\xA9" "e (.ancien)";
     if (menu_sel == MI_SLEEP) hint = "La musique baisse doucement puis s'arr\xC3\xAAte";
     if (menu_sel == MI_RG) hint = "Selon les \xC3\xA9tiquettes ReplayGain des fichiers (au morceau suivant)";
@@ -13968,7 +14060,7 @@ int main(int argc, char **argv) {
     disc_chain();                            /* v92 : lance depuis un disque : la version plus recente de la carte SD */
 
     /* v92 : chaque etape du demarrage a l'ecran et dans SD:/gc-mp3/journaux/demarrage.txt (temps en ms) */
-    if (sd_ok) { say("   Musique de la carte SD... %s", ""); scan_files(); { char nb[16]; snprintf(nb, sizeof(nb), "%d", nfiles); say("%s\n", nb); } bt_step("liste de la musique"); }
+    if (sd_ok) { say("   Musique de la carte SD... %s", ""); if (list_cache_load()) lv_pending = 1; else scan_files();   /* v238 : liste gardee, verifiee en fond */ { char nb[16]; snprintf(nb, sizeof(nb), "%d", nfiles); say("%s\n", nb); } bt_step("liste de la musique"); }
     if (sd_ok) { say("   Bibliotheque... %s", ""); bib_load(); pl_load_all(); stats_load(); rating_load(); say("%s\n", "OK"); bt_step("bibliotheque"); }
     if (sd_ok) nat_journal_convert();       /* v54 : journal du dernier jeu lance par le lanceur maison */
     if (gde_fresh && !gde_seen) gde_open();    /* v190 : carte SD neuve : le guide de demarrage */

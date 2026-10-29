@@ -666,6 +666,40 @@ static void update_activate(void) {
     else update_check();
 }
 
+/* v238 : Reglages > Mises a jour > Ancienne version (.ancien) : la copie de secours gardee par la derniere mise a jour
+   (une seule : la suivante la remplace). Supprimable a la main, sauf pendant le garde-fou (elle peut encore servir). */
+static char upo_txt[64] = "";
+static u64 upo_t = 0;
+static int upo_confirm = 0;
+static void upo_old(char *old, int cap) { up_pick_target(); snprintf(old, cap, "%s.ancien", up_target); }
+static void upo_refresh(int force) {
+    if (!force && upo_t && now_ms() - upo_t < 2000) return;
+    upo_t = now_ms();
+    if (!sd_ok) { snprintf(upo_txt, sizeof(upo_txt), "Pas de carte SD"); return; }
+    char old[NAME_LEN + 8];
+    struct stat st;
+    upo_old(old, sizeof(old));
+    if (stat(old, &st) != 0) snprintf(upo_txt, sizeof(upo_txt), "Aucune");
+    else snprintf(upo_txt, sizeof(upo_txt), "%ld,%ld Mo", (long)(st.st_size >> 20), (long)((st.st_size % 1048576) * 10 / 1048576));
+}
+static void upo_value(char *out, int cap) {
+    if (menu_sel != MI_UPDOLD) upo_confirm = 0;
+    upo_refresh(0);
+    snprintf(out, cap, "%s", upo_confirm ? "A encore : supprimer" : upo_txt);
+}
+static void upo_activate(void) {
+    char old[NAME_LEN + 8];
+    struct stat st;
+    if (!sd_ok) return;
+    upo_old(old, sizeof(old));
+    if (stat(old, &st) != 0) { upo_confirm = 0; lib_note("Pas d'ancienne version sur la carte SD"); return; }
+    if (stat(GCD_REG "/maj-garde.txt", &st) == 0) { upo_confirm = 0; lib_note("Gard\xC3\xA9" "e pour l'instant : le garde-fou de la derni\xC3\xA8re mise \xC3\xA0 jour peut encore s'en servir"); return; }
+    if (!upo_confirm) { upo_confirm = 1; return; }
+    upo_confirm = 0;
+    if (remove(old) == 0) { crumb("ancienne version supprimee : %s", old); lib_note("Ancienne version supprim\xC3\xA9" "e"); }
+    else lib_note("Suppression impossible");
+    upo_refresh(1);
+}
 static void update_value(char *out, int cap) {
     switch (up_state) {
     case UP_CHECK: snprintf(out, cap, "V\xC3\xA9rification..."); break;
