@@ -39,6 +39,9 @@ final class Neon {
 
     static int alpha(int color, int a) { return (color & 0x00FFFFFF) | (a << 24); }
 
+    /** texte change seulement s'il est different (sinon Android refait la mise en page pour rien) */
+    static void set(TextView t, CharSequence s) { if (!android.text.TextUtils.equals(t.getText(), s)) t.setText(s); }
+
     /** carte en verre : fond blanc tres leger, bord fin */
     static Drawable glass(Context c, float radius) {
         GradientDrawable g = new GradientDrawable();

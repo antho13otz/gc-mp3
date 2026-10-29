@@ -111,7 +111,8 @@ class PlayerTab extends Tab {
         bar.setBackground(track);
         fill = new View(a);
         fill.setBackground(Neon.neonFill(a, 3));
-        bar.addView(fill, new FrameLayout.LayoutParams(0, -1));
+        fill.setScaleX(0f);
+        bar.addView(fill, new FrameLayout.LayoutParams(-1, -1));
         LinearLayout.LayoutParams blp = lp(-1, dp(6), 0);
         blp.topMargin = dp(18);
         v.addView(bar, blp);
@@ -159,19 +160,18 @@ class PlayerTab extends Tab {
 
     @Override void state(JSONObject s) {
         String t = s.optString("title", "");
-        title.setText(t.isEmpty() ? "Rien en lecture" : t);
-        sub.setText(s.optString("sub", ""));
-        info.setText(s.optString("info", ""));
-        lyr.setText(s.optString("lyr", ""));
+        Neon.set(title, t.isEmpty() ? "Rien en lecture" : t);
+        Neon.set(sub, s.optString("sub", ""));
+        Neon.set(info, s.optString("info", ""));
+        Neon.set(lyr, s.optString("lyr", ""));
         int e = s.optInt("el", 0), d = s.optInt("dur", 0);
-        el.setText(clock(e));
-        dur.setText(d > 0 ? clock(d) : "");
-        int w = bar.getWidth();
-        ViewGroup.LayoutParams p = fill.getLayoutParams();
-        p.width = d > 0 && w > 0 ? Math.min(w, (int) ((long) w * e / d)) : 0;
-        fill.setLayoutParams(p);
-        vol.setText("Volume " + s.optInt("vol", 0) + " %");
-        play.setText(s.optInt("playing", 0) != 0 ? "❚❚" : "▶");
+        Neon.set(el, clock(e));
+        Neon.set(dur, d > 0 ? clock(d) : "");
+        float f = d > 0 ? Math.min(1f, e / (float) d) : 0f;    // (barre etiree : pas de nouvelle mise en page)
+        fill.setPivotX(0);
+        fill.animate().scaleX(f).setDuration(f < fill.getScaleX() ? 0 : 950).setInterpolator(new android.view.animation.LinearInterpolator()).start();
+        Neon.set(vol, "Volume " + s.optInt("vol", 0) + " %");
+        Neon.set(play, s.optInt("playing", 0) != 0 ? "❚❚" : "▶");
         String key = s.optInt("cov", 0) != 0 ? t + "|" + s.optString("sub", "") : "";
         if (!key.equals(coverKey)) {
             coverKey = key;
@@ -219,6 +219,7 @@ class ListTab extends Tab {
         lv.setDivider(null);
         lv.setSelector(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
         lv.setClipToPadding(false);
+        lv.setFastScrollEnabled(true);
         lv.setPadding(0, 0, 0, dp(12));
         adapter = new BaseAdapter() {
             public int getCount() { return shown.size(); }
@@ -298,7 +299,7 @@ class ListTab extends Tab {
             String[] it = all.get(i);
             if (q.isEmpty() || it[0].toLowerCase().contains(q) || it[1].toLowerCase().contains(q)) shown.add(i);
         }
-        if (loaded) status.setText(shown.size() + (radio ? " radio" : " morceau") + (shown.size() > 1 ? "s" : "") + (q.isEmpty() ? "" : " trouvé" + (shown.size() > 1 ? "s" : "")));
+        if (loaded) Neon.set(status, shown.size() + (radio ? " radio" : " morceau") + (shown.size() > 1 ? "s" : "") + (q.isEmpty() ? "" : " trouvé" + (shown.size() > 1 ? "s" : "")));
         adapter.notifyDataSetChanged();
     }
 }
@@ -465,10 +466,11 @@ class PadTab extends Tab {
 
     @Override void state(JSONObject s) {
         boolean kb = s.optInt("kb", 0) != 0;
-        kbCard.setVisibility(kb ? View.VISIBLE : View.GONE);
+        int vis = kb ? View.VISIBLE : View.GONE;
+        if (kbCard.getVisibility() != vis) kbCard.setVisibility(vis);
         if (kb) {
             String hn = s.optString("kbh", "");
-            kbHint.setText(hn.isEmpty() ? "Clavier ouvert sur la télé" : hn);
+            Neon.set(kbHint, hn.isEmpty() ? "Clavier ouvert sur la télé" : hn);
             if (!kbField.hasFocus() && !kbTyping) kbField.setText(s.optString("kbt", ""));
         } else kbTyping = false;
     }

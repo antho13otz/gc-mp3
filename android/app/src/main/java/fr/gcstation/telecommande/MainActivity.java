@@ -77,6 +77,7 @@ public class MainActivity extends Activity {
         w.setStatusBarColor(Neon.BG_TOP);
         w.setNavigationBarColor(Neon.BG_BOTTOM);
         w.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        highRefresh(w);
 
         FrameLayout root = new FrameLayout(this);
         aurora = new AuroraView(this);
@@ -183,6 +184,22 @@ public class MainActivity extends Activity {
         start();
     }
 
+    /** le mode d'affichage le plus rapide de l'ecran (120 Hz sur les telephones qui l'ont), meme definition */
+    @SuppressWarnings("deprecation")
+    private void highRefresh(Window w) {
+        try {
+            android.view.Display d = android.os.Build.VERSION.SDK_INT >= 30 ? getDisplay() : getWindowManager().getDefaultDisplay();
+            if (d == null) return;
+            android.view.Display.Mode cur = d.getMode(), best = cur;
+            for (android.view.Display.Mode m : d.getSupportedModes())
+                if (m.getPhysicalWidth() == cur.getPhysicalWidth() && m.getPhysicalHeight() == cur.getPhysicalHeight() && m.getRefreshRate() > best.getRefreshRate()) best = m;
+            WindowManager.LayoutParams lp = w.getAttributes();
+            lp.preferredDisplayModeId = best.getModeId();
+            lp.preferredRefreshRate = best.getRefreshRate();
+            w.setAttributes(lp);
+        } catch (Exception e) { }
+    }
+
     private SharedPreferences prefs() { return getSharedPreferences("gcs", MODE_PRIVATE); }
     private int dp(float v) { return Neon.dp(this, v); }
 
@@ -210,10 +227,10 @@ public class MainActivity extends Activity {
                     fails = 0;
                     try { onState(new JSONObject(r)); } catch (Exception e) { }
                     dot.setTextColor(Neon.CYAN);
-                    status.setText("Connecté · " + Api.host);
+                    Neon.set(status, "Connecté · " + Api.host);
                 } else if (++fails >= 3) {
                     dot.setTextColor(0xFFFF4D6D);
-                    status.setText("Console injoignable…");
+                    Neon.set(status, "Console injoignable…");
                 }
                 if (fails >= 8) { connected = false; showPanel("La console ne répond plus (" + Api.host + "). Elle est allumée, sur le même Wi-Fi ?", false); return; }
                 ui.postDelayed(poll, 1000);
@@ -223,9 +240,9 @@ public class MainActivity extends Activity {
 
     private void onState(JSONObject s) {
         String t = s.optString("title", "");
-        miniTitle.setText(t.isEmpty() ? "Rien en lecture" : t);
-        miniSub.setText(s.optString("sub", ""));
-        miniPlay.setText(s.optInt("playing", 0) != 0 ? "❚❚" : "▶");
+        Neon.set(miniTitle, t.isEmpty() ? "Rien en lecture" : t);
+        Neon.set(miniSub, s.optString("sub", ""));
+        Neon.set(miniPlay, s.optInt("playing", 0) != 0 ? "❚❚" : "▶");
         for (Tab tb : tabs) tb.state(s);
     }
 
