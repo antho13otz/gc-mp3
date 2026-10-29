@@ -9,6 +9,7 @@
 #endif
 #include "phone_page.h"
 #include "memoire_page.h"                       /* v230 : /memoire */
+#include "rapport_page.h"                       /* v234 : /rapport */
 #include "qrcodegen.h"
 #ifndef SOL_SOCKET
 #define SOL_SOCKET 0xfff
@@ -136,6 +137,54 @@ static int tp_find_photo(const char *name) {
 
 static char *mv_json(void);
 void input_phone(float dx, float dy, float wheel, u32 buttons, int acts);   /* (cb/input.c) */
+static int crash_recent(char *out, int cap);                     /* v234 : crashlog.c */
+static volatile int tp_cap = 0;                                  /* v234 : capture de la tele demandee (simulateur : image a dessiner) */
+#ifndef GEKKO
+extern int pcsim_capture;
+extern char pcsim_capture_name[96];
+extern void *pcsim_xfb_last;
+extern int pcsim_xfb_w, pcsim_xfb_h;
+#endif
+/* v234 : ce qu'affiche la tele (tampon video YUYV) -> image BMP, envoyee ligne par ligne (sans grosse reservation) */
+static int tp_send(s32 c, const void *d, int n);
+static void tp_reply(s32 c, int code, const char *ctype, const void *body, int len);
+static void tp_send_capture(s32 c) {
+    const u8 *fb; int w, h;
+#ifndef GEKKO
+    tp_cap = 1;
+    for (int k = 0; k < 400 && tp_cap; k++) usleep(10000);
+    fb = (const u8 *)pcsim_xfb_last; w = pcsim_xfb_w; h = pcsim_xfb_h;
+#else
+    fb = (const u8 *)xfb[displayed_fb]; w = rmode ? rmode->fbWidth : 0; h = rmode ? rmode->xfbHeight : 0;
+#endif
+    if (!fb || w <= 0 || h <= 0 || w > 720 || h > 576) { tp_reply(c, 503, "text/plain", "capture impossible", 18); return; }
+    int stride = (w * 3 + 3) & ~3;
+    u32 size = 54 + (u32)stride * h;
+    char hd[300];
+    int hn = snprintf(hd, sizeof(hd), "HTTP/1.1 200 OK\r\nContent-Type: image/bmp\r\nContent-Length: %u\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", (unsigned)size);
+    tp_send(c, hd, hn);
+    u8 bh[54]; memset(bh, 0, sizeof(bh));
+    #define LE32(p, v) do { (p)[0] = (u8)(v); (p)[1] = (u8)((v) >> 8); (p)[2] = (u8)((v) >> 16); (p)[3] = (u8)((v) >> 24); } while (0)
+    bh[0] = 'B'; bh[1] = 'M'; LE32(bh + 2, size); LE32(bh + 10, 54u); LE32(bh + 14, 40u); LE32(bh + 18, (u32)w); LE32(bh + 22, (u32)h);
+    bh[26] = 1; bh[28] = 24; LE32(bh + 34, (u32)stride * h);
+    #undef LE32
+    if (tp_send(c, bh, 54) < 0) return;
+    static u8 row[720 * 3 + 4];
+    memset(row, 0, sizeof(row));
+    for (int y = h - 1; y >= 0; y--) {                         /* (BMP : de bas en haut, BGR) */
+        const u8 *s = fb + (size_t)y * w * 2;
+        for (int x = 0; x < w; x += 2, s += 4) {
+            int u = s[1] - 128, v = s[3] - 128;
+            for (int q = 0; q < 2; q++) {
+                int yy = (s[q * 2] - 16) * 298;
+                int r = (yy + 409 * v + 128) >> 8, g = (yy - 100 * u - 208 * v + 128) >> 8, b = (yy + 516 * u + 128) >> 8;
+                u8 *o = row + (x + q) * 3;
+                o[0] = (u8)(b < 0 ? 0 : b > 255 ? 255 : b); o[1] = (u8)(g < 0 ? 0 : g > 255 ? 255 : g); o[2] = (u8)(r < 0 ? 0 : r > 255 ? 255 : r);
+            }
+        }
+        if (tp_send(c, row, stride) < 0) return;
+    }
+}
 static volatile int tp_mdx = 0, tp_mdy = 0, tp_mw = 0, tp_mc = 0;          /* v231 : souris tactile (cumul) */                                     /* v230 : memview.c */
 static void tp_push(int c, int i) {
     int n = (tp_qt + 1) % 16;
@@ -1100,6 +1149,20 @@ static void tp_handle(s32 c) {
         if (ok) { tp_shown_busy = 1; tp_push(PC_SHOWNAME, 0); }
         tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
     }
+    else if (!strcmp(target, "/capture.bmp")) tp_send_capture(c);   /* v234 : ce qu'affiche la tele */
+    else if (!strcmp(target, "/rapport")) tp_reply(c, 200, "text/html; charset=utf-8", rapport_page, (int)strlen(rapport_page));   /* v234 */
+    else if (!strcmp(target, "/api/journal")) {              /* v234 : dernieres actions + journal de plantage */
+        static char jb[12000];
+        int n = snprintf(jb, sizeof(jb), "== Derni\xC3\xA8res actions (secondes depuis le d\xC3\xA9marrage) ==\n");
+        n += crash_recent(jb + n, sizeof(jb) - n);
+        FILE *f = sd_ok ? fopen(GCD_LOG "/gc-mp3-crash.txt", "rb") : NULL;
+        const char *which = "en cours";
+        if (!f && sd_ok) { f = fopen(GCD_LOG "/gc-mp3-crash-ancien.txt", "rb"); which = "pr\xC3\xA9" "c\xC3\xA9" "dent"; }
+        if (f) { n += snprintf(jb + n, sizeof(jb) - n, "\n== Journal de plantage (%s) ==\n", which); n += (int)fread(jb + n, 1, sizeof(jb) - n - 1, f); fclose(f); }
+        else n += snprintf(jb + n, sizeof(jb) - n, "\n== Journal de plantage ==\nAucun plantage enregistr\xC3\xA9.\n");
+        if (n > (int)sizeof(jb) - 1) n = sizeof(jb) - 1;
+        tp_reply(c, 200, "text/plain; charset=utf-8", jb, n);
+    }
     else if (!strcmp(target, "/api/mouse")) {                /* v231 : souris tactile -> pointeur de Cube Browser */
         char v[16];
         tp_param(q ? q : "", "dx", v, sizeof(v)); tp_mdx += atoi(v);
@@ -1256,6 +1319,10 @@ static void phone_pump(void) {
     /* v45 : etat pour le telephone : souvent s'il est connecte, sinon toutes les 3 s (moins de travail) */
     if (now - tp_json_t > (tp_last_req && now - tp_last_req < 15000 ? 300u : 3000u)) { tp_json_t = now; tp_json_build(); }
     if (!tp_cfg_reading && (tp_cfg_now || (now - tp_cfg_t > 1000 && now - tp_last_req < 15000))) { tp_cfg_now = 0; tp_cfg_t = now; tp_cfg_build(); }
+#ifndef GEKKO
+    if (tp_cap == 1 && !pcsim_capture) { snprintf(pcsim_capture_name, 96, "capture-telephone"); pcsim_capture = 1; tp_cap = 2; }   /* (v234) */
+    else if (tp_cap == 2 && !pcsim_capture) tp_cap = 0;
+#endif
     if (tp_mdx || tp_mdy || tp_mw || tp_mc) {             /* v231 : souris tactile */
         int dx = tp_mdx, dy = tp_mdy, w = tp_mw, mc = tp_mc;
         tp_mdx -= dx; tp_mdy -= dy; tp_mw -= w; tp_mc &= ~mc;

@@ -453,8 +453,21 @@ void pcsim_seg_report(const char *name) {
                               name, sg_n, sg_n / ((n - sg_t0) / 1e6), sg_slow, pcsim_frame_us * 6 / 5000, sg_vslow, (pcsim_frame_us * 2 + 666) / 1000, sg_worst / 1000.0);
     sg_n = sg_slow = sg_vslow = sg_worst = 0; sg_t0 = n;
 }
+void *pcsim_xfb_last = NULL;                                /* (GC Station : capture de la tele, telephone) */
+int pcsim_xfb_w = 0, pcsim_xfb_h = 0;
+static void xfb_fill(u8 *d) {                               /* image dessinee -> tampon video YUYV (Y0 U Y1 V) */
+    for (int y = 0; y < efb_h; y++) for (int x = 0; x < 640; x += 2) {
+        float r0 = efb[y][x][0] * 255, g0 = efb[y][x][1] * 255, b0 = efb[y][x][2] * 255;
+        float r1 = efb[y][x + 1][0] * 255, g1 = efb[y][x + 1][1] * 255, b1 = efb[y][x + 1][2] * 255;
+        float r = (r0 + r1) / 2, g = (g0 + g1) / 2, b = (b0 + b1) / 2;
+        u8 *p = d + ((size_t)y * 640 + x) * 2;
+        p[0] = (u8)(0.257f * r0 + 0.504f * g0 + 0.098f * b0 + 16.5f);
+        p[1] = (u8)(-0.148f * r - 0.291f * g + 0.439f * b + 128.5f);
+        p[2] = (u8)(0.257f * r1 + 0.504f * g1 + 0.098f * b1 + 16.5f);
+        p[3] = (u8)(0.439f * r - 0.368f * g - 0.071f * b + 128.5f);
+    }
+}
 void GX_CopyDisp(void *dst, u8 clear) {
-    (void)dst;
     {   /* (les images dessinees pour une capture ne comptent pas : le dessin logiciel est lent, pas GC Station) */
         static int was_cap = 0;
         unsigned long long n = mono_us();
@@ -482,6 +495,7 @@ void GX_CopyDisp(void *dst, u8 clear) {
         mkdir(od, 0777);
         char p[512]; snprintf(p, sizeof(p), "%s/%s.png", od, pcsim_capture_name);
         if (png_write(p, 640, efb_h) == 0) printf("[pcsim] capture : %s\n", p);
+        if (dst) { xfb_fill((u8 *)dst); pcsim_xfb_last = dst; pcsim_xfb_w = 640; pcsim_xfb_h = efb_h; }
         pcsim_capture = 0;
     }
     if (clear && pcsim_capture) efb_clear();

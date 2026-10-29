@@ -9,7 +9,7 @@
 
 #define CRASH_FILE  GCD_LOG "/gc-mp3-crash.txt"
 #define CRASH_OLD   GCD_LOG "/gc-mp3-crash-ancien.txt"
-#define GCMP3_VERSION "v233"
+#define GCMP3_VERSION "v234"
 
 #if defined(__has_include)
 #if __has_include(<tuxedo/ppc/exception.h>) && __has_include(<tuxedo/thread.h>)
@@ -26,7 +26,7 @@ extern const unsigned gcmp3_sym_off[] __attribute__((weak));
 extern const char gcmp3_sym_names[] __attribute__((weak));
 
 /* ---- dernieres actions ---- */
-#define NCRUMB 16
+#define NCRUMB 32
 static char crumbs[NCRUMB][100];
 static u32 crumb_t[NCRUMB];
 static volatile u32 crumb_n = 0;
@@ -43,6 +43,18 @@ static void crumb(const char *fmt, ...) {
     va_end(ap);
     crumb_t[i] = (u32)(now_ms() - crash_boot_ms);
     crumb_n++;
+}
+
+/* v234 : les dernieres actions, en texte (rapport de bug du telephone) */
+static int crash_recent(char *out, int cap) {
+    int n = 0;
+    u32 k = crumb_n, start = k > NCRUMB ? k - NCRUMB : 0;
+    out[0] = 0;
+    for (u32 i = start; i < k && n < cap - 120; i++) {
+        u32 j = i % NCRUMB;
+        n += snprintf(out + n, cap - n, "%5u,%u s  %s\n", (unsigned)(crumb_t[j] / 1000), (unsigned)(crumb_t[j] % 1000 / 100), crumbs[j]);
+    }
+    return n;
 }
 
 /* ---- symboles ---- */

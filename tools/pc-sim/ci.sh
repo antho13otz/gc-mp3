@@ -95,6 +95,10 @@ Image.new('RGB', (800, 600), (40, 120, 200)).save('$CI/telephone-ci.jpg', qualit
     fi
     expect "page memoire" "moire de la GameCube" "$H/memoire"
     expect "chiffres de la memoire" '"hist":\[' "$H/api/memoire"
+    expect "page rapport de bug" "Rapport de bug" "$H/rapport"
+    expect "journal des dernieres actions" "Derni" "$H/api/journal"
+    r=$(curl -s -m 20 -o $CI/capture.bmp -w "%{http_code} %{size_download}" "$H/capture.bmp")
+    case "$r" in "200 "*) [ "${r#200 }" -gt 100000 ] && note "telephone : capture de la tele" || fail "telephone : capture trop petite ($r)";; *) fail "telephone : capture de la tele ($r)";; esac
     expect "etat apres tout ca" '"title"' "$H/api/state"
 fi
 wait $SIM
