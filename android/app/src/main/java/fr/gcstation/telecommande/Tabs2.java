@@ -1,0 +1,913 @@
+package fr.gcstation.telecommande;
+
+// Les ecrans de "Plus" : Jeux (jaquettes), Photos, File d'attente, Reglages, Cartes memoire, Salon, Outils.
+
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.DownloadManager;
+import android.content.ContentValues;
+import android.content.Context;
+import android.content.Intent;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Canvas;
+import android.graphics.Color;
+import android.graphics.LinearGradient;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.Shader;
+import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
+import android.os.Environment;
+import android.provider.MediaStore;
+import android.text.Editable;
+import android.text.TextUtils;
+import android.text.TextWatcher;
+import android.util.LruCache;
+import android.view.Gravity;
+import android.view.HapticFeedbackConstants;
+import android.view.View;
+import android.view.ViewGroup;
+import android.widget.BaseAdapter;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.GridView;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ListView;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.OutputStream;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+
+/** petites fabriques partagees par les ecrans */
+final class UiKit {
+    static LinearLayout column(Activity a) {
+        LinearLayout v = new LinearLayout(a);
+        v.setOrientation(LinearLayout.VERTICAL);
+        v.setPadding(Neon.dp(a, 16), Neon.dp(a, 4), Neon.dp(a, 16), 0);
+        return v;
+    }
+    static TextView hint(Activity a, String s) {
+        TextView t = Neon.text(a, s, 12, Neon.DIM, false);
+        t.setPadding(Neon.dp(a, 4), Neon.dp(a, 6), 0, Neon.dp(a, 6));
+        return t;
+    }
+    static EditText search(Activity a, String hint, Runnable onChange) {
+        EditText e = new EditText(a);
+        e.setHint(hint);
+        e.setHintTextColor(Neon.FAINT);
+        e.setTextColor(Neon.TEXT);
+        e.setSingleLine(true);
+        e.setBackground(Neon.glass(a, 18));
+        e.setPadding(Neon.dp(a, 16), Neon.dp(a, 11), Neon.dp(a, 16), Neon.dp(a, 11));
+        e.addTextChangedListener(new TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int st, int c, int af) { }
+            public void onTextChanged(CharSequence s, int st, int b, int c) { onChange.run(); }
+            public void afterTextChanged(Editable x) { }
+        });
+        return e;
+    }
+    static ListView list(Activity a) {
+        ListView lv = new ListView(a);
+        lv.setDivider(null);
+        lv.setSelector(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        lv.setClipToPadding(false);
+        lv.setPadding(0, 0, 0, Neon.dp(a, 12));
+        return lv;
+    }
+    static LinearLayout card(Activity a) {
+        LinearLayout c = new LinearLayout(a);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackground(Neon.glass(a, 18));
+        c.setPadding(Neon.dp(a, 14), Neon.dp(a, 12), Neon.dp(a, 14), Neon.dp(a, 12));
+        return c;
+    }
+    static LinearLayout.LayoutParams gapBelow(Activity a, int dp) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
+        p.bottomMargin = Neon.dp(a, dp);
+        return p;
+    }
+    static void download(Activity a, String path, String name) {
+        try {
+            DownloadManager.Request r = new DownloadManager.Request(Uri.parse("http://" + Api.host + path));
+            r.setTitle(name);
+            r.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+            r.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name);
+            ((DownloadManager) a.getSystemService(Context.DOWNLOAD_SERVICE)).enqueue(r);
+            Toast.makeText(a, "Téléchargement : " + name, Toast.LENGTH_SHORT).show();
+        } catch (Exception e) { Toast.makeText(a, "Téléchargement impossible", Toast.LENGTH_LONG).show(); }
+    }
+    static int cols(Activity a, int minDp) { return Math.max(2, (int) (a.getResources().getDisplayMetrics().widthPixels / a.getResources().getDisplayMetrics().density / minDp)); }
+}
+
+// ---------------------------------------------------------------- Jeux
+class GamesTab extends Tab {
+    private final List<JSONArray> all = new ArrayList<>(), shown = new ArrayList<>();
+    private final LruCache<Integer, Bitmap> covers = new LruCache<Integer, Bitmap>(16 * 1024 * 1024) {
+        @Override protected int sizeOf(Integer k, Bitmap b) { return b.getByteCount(); }
+    };
+    private final java.util.Set<Integer> asked = new java.util.HashSet<>();
+    private TextView status;
+    private EditText search;
+    private BaseAdapter adapter;
+    private boolean loaded;
+    GamesTab(Activity a) { super(a); }
+
+    @Override View build() {
+        LinearLayout v = UiKit.column(a);
+        search = UiKit.search(a, "Chercher un jeu", this::filter);
+        v.addView(search, lp(-1, -2, 0));
+        status = UiKit.hint(a, "Chargement…");
+        v.addView(status);
+        GridView g = new GridView(a);
+        g.setNumColumns(UiKit.cols(a, 120));
+        g.setVerticalSpacing(dp(10));
+        g.setHorizontalSpacing(dp(10));
+        g.setSelector(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        g.setClipToPadding(false);
+        g.setPadding(0, 0, 0, dp(12));
+        adapter = new BaseAdapter() {
+            public int getCount() { return shown.size(); }
+            public Object getItem(int p) { return shown.get(p); }
+            public long getItemId(int p) { return shown.get(p).optInt(6); }
+            public View getView(int p, View cv, ViewGroup parent) { return cell(shown.get(p), cv); }
+        };
+        g.setAdapter(adapter);
+        g.setOnItemClickListener((parent, view, pos, id) -> {
+            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+            final JSONArray x = shown.get(pos);
+            final int i = x.optInt(6);
+            new AlertDialog.Builder(a).setTitle(x.optString(0))
+                .setMessage("Lancer ce jeu sur la GameCube ?")
+                .setPositiveButton("Avec Pulse", (d, w) -> launch(i, 1, x.optString(0)))
+                .setNeutralButton("Lanceur de secours", (d, w) -> launch(i, 0, x.optString(0)))
+                .setNegativeButton("Annuler", null).show();
+        });
+        v.addView(g, lp(-1, 0, 1));
+        root = v;
+        return v;
+    }
+
+    private void launch(int i, int m, String name) {
+        Api.get("/api/launch?i=" + i + "&m=" + m, r -> Toast.makeText(a, r != null ? "Lancement sur la télé : " + name : "Refusé", Toast.LENGTH_SHORT).show());
+    }
+
+    private View cell(JSONArray x, View cv) {
+        LinearLayout c;
+        ImageView im;
+        TextView n, s;
+        if (cv instanceof LinearLayout && cv.getTag() != null) { c = (LinearLayout) cv; Object[] t = (Object[]) cv.getTag(); im = (ImageView) t[0]; n = (TextView) t[1]; s = (TextView) t[2]; }
+        else {
+            c = new LinearLayout(a);
+            c.setOrientation(LinearLayout.VERTICAL);
+            c.setBackground(Neon.button(a, 16, false));
+            c.setPadding(dp(6), dp(6), dp(6), dp(8));
+            im = new ImageView(a);
+            im.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(0xFF1A0E30);
+            bg.setCornerRadius(dp(10));
+            im.setBackground(bg);
+            im.setClipToOutline(true);
+            c.addView(im, new LinearLayout.LayoutParams(-1, dp(140)));
+            n = Neon.text(a, "", 13, Neon.TEXT, true);
+            n.setMaxLines(2);
+            n.setEllipsize(TextUtils.TruncateAt.END);
+            n.setPadding(dp(2), dp(6), dp(2), 0);
+            c.addView(n);
+            s = Neon.text(a, "", 11, Neon.DIM, false);
+            s.setPadding(dp(2), 0, dp(2), 0);
+            c.addView(s);
+            c.setTag(new Object[] { im, n, s });
+        }
+        int i = x.optInt(6);
+        n.setText((x.optInt(4) != 0 ? "★ " : "") + x.optString(0));
+        String id = x.optString(1);
+        s.setText(id + (x.optInt(3) > 0 ? " · " + x.optInt(3) + " min" : ""));
+        Bitmap b = covers.get(i);
+        im.setImageBitmap(b);
+        im.setTag(i);
+        if (b == null && !id.isEmpty() && asked.add(i)) {
+            final ImageView target = im;
+            Api.pool(() -> {
+                Bitmap bm = Cmpr.fetch(i);
+                a.runOnUiThread(() -> { if (bm != null) { covers.put(i, bm); if (Integer.valueOf(i).equals(target.getTag())) target.setImageBitmap(bm); } });
+            });
+        }
+        return c;
+    }
+
+    @Override void show() { if (!loaded) load(); }
+
+    private void load() {
+        Neon.set(status, "Chargement des jeux (la console fait la liste)…");
+        Api.get("/api/games", r -> {
+            if (r == null) { Neon.set(status, "Pas de réponse de la console"); return; }
+            all.clear();
+            try { JSONArray j = new JSONArray(r); for (int k = 0; k < j.length(); k++) { JSONArray g = j.getJSONArray(k); g.put(k); if (!g.optString(1).isEmpty()) all.add(g); } } catch (Exception e) { }
+            loaded = true;
+            filter();
+        });
+    }
+
+    private void filter() {
+        String q = search.getText().toString().trim().toLowerCase();
+        shown.clear();
+        for (JSONArray g : all) if (q.isEmpty() || g.optString(0).toLowerCase().contains(q) || g.optString(1).toLowerCase().contains(q)) shown.add(g);
+        if (loaded) Neon.set(status, all.isEmpty() ? "Aucun jeu (onglet JEUX de la GameCube)" : shown.size() + " jeu" + (shown.size() > 1 ? "x" : "") + " · toucher pour lancer");
+        adapter.notifyDataSetChanged();
+    }
+}
+
+/** jaquettes : la console les envoie en CMPR (format de texture GameCube, blocs de 8x8 en 4 sous-blocs DXT1) */
+final class Cmpr {
+    static Bitmap fetch(int i) {
+        java.net.HttpURLConnection c = null;
+        try {
+            c = (java.net.HttpURLConnection) new java.net.URL("http://" + Api.host + "/api/cover?i=" + i).openConnection();
+            c.setConnectTimeout(3000);
+            c.setReadTimeout(8000);
+            if (c.getResponseCode() != 200) return null;
+            String[] sz = (c.getHeaderField("X-Size") != null ? c.getHeaderField("X-Size") : "256x256x192x256").split("x");
+            int w = Integer.parseInt(sz[0]), h = Integer.parseInt(sz[1]);
+            int dw = sz.length > 2 ? Integer.parseInt(sz[2]) : w, dh = sz.length > 3 ? Integer.parseInt(sz[3]) : h;
+            java.io.InputStream in = c.getInputStream();
+            java.io.ByteArrayOutputStream o = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[16384];
+            int n;
+            while ((n = in.read(buf)) > 0) o.write(buf, 0, n);
+            int[] px = decode(o.toByteArray(), w, h);
+            if (px == null) return null;
+            Bitmap b = Bitmap.createBitmap(px, w, h, Bitmap.Config.ARGB_8888);
+            return dw != w || dh != h ? Bitmap.createBitmap(b, 0, 0, Math.min(dw, w), Math.min(dh, h)) : b;
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+    private static int rgb(int v) { return 0xFF000000 | (((v >> 11) & 31) * 255 / 31) << 16 | (((v >> 5) & 63) * 255 / 63) << 8 | ((v & 31) * 255 / 31); }
+    private static int mix(int a, int b, int x, int y, int z) {
+        int r = (((a >> 16) & 255) * x + ((b >> 16) & 255) * y) / z, g = (((a >> 8) & 255) * x + ((b >> 8) & 255) * y) / z, bl = ((a & 255) * x + (b & 255) * y) / z;
+        return 0xFF000000 | r << 16 | g << 8 | bl;
+    }
+    static int[] decode(byte[] d, int w, int h) {
+        if (d.length < w * h / 2) return null;
+        int[] p = new int[w * h];
+        int o = 0;
+        int[] cs = new int[4];
+        for (int ty = 0; ty < h; ty += 8)
+            for (int tx = 0; tx < w; tx += 8)
+                for (int s = 0; s < 4; s++) {
+                    int bx = tx + (s & 1) * 4, by = ty + (s >> 1) * 4;
+                    int c0 = (d[o] & 255) << 8 | (d[o + 1] & 255), c1 = (d[o + 2] & 255) << 8 | (d[o + 3] & 255);
+                    long bt = ((long) (d[o + 4] & 255) << 24) | ((d[o + 5] & 255) << 16) | ((d[o + 6] & 255) << 8) | (d[o + 7] & 255);
+                    o += 8;
+                    cs[0] = rgb(c0); cs[1] = rgb(c1);
+                    if (c0 > c1) { cs[2] = mix(cs[0], cs[1], 2, 1, 3); cs[3] = mix(cs[0], cs[1], 1, 2, 3); }
+                    else { cs[2] = mix(cs[0], cs[1], 1, 1, 2); cs[3] = 0; }
+                    for (int y = 0; y < 4; y++)
+                        for (int x = 0; x < 4; x++) {
+                            int px = bx + x, py = by + y;
+                            if (px < w && py < h) p[py * w + px] = cs[(int) ((bt >>> (30 - 2 * (y * 4 + x))) & 3)];
+                        }
+                }
+        return p;
+    }
+}
+
+// ---------------------------------------------------------------- Photos
+class PhotosTab extends Tab {
+    private final List<JSONArray> items = new ArrayList<>();
+    private final LruCache<Integer, Bitmap> thumbs = new LruCache<Integer, Bitmap>(24 * 1024 * 1024) {
+        @Override protected int sizeOf(Integer k, Bitmap b) { return b.getByteCount(); }
+    };
+    private final java.util.Set<Integer> asked = new java.util.HashSet<>();
+    private TextView status;
+    private BaseAdapter adapter;
+    private boolean loaded;
+    PhotosTab(Activity a) { super(a); }
+
+    @Override View build() {
+        LinearLayout v = UiKit.column(a);
+        status = UiKit.hint(a, "Chargement…");
+        v.addView(status);
+        GridView g = new GridView(a);
+        g.setNumColumns(UiKit.cols(a, 110));
+        g.setVerticalSpacing(dp(8));
+        g.setHorizontalSpacing(dp(8));
+        g.setSelector(new android.graphics.drawable.ColorDrawable(Color.TRANSPARENT));
+        adapter = new BaseAdapter() {
+            public int getCount() { return items.size(); }
+            public Object getItem(int p) { return items.get(p); }
+            public long getItemId(int p) { return items.get(p).optInt(0); }
+            public View getView(int p, View cv, ViewGroup parent) { return cell(items.get(p), cv); }
+        };
+        g.setAdapter(adapter);
+        g.setOnItemClickListener((parent, view, pos, id) -> {
+            view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+            JSONArray x = items.get(pos);
+            Api.get("/api/show?i=" + x.optInt(0), r -> Neon.set(status, r != null ? "Sur la télé : " + x.optString(1) : "Pas de réponse de la console"));
+        });
+        v.addView(g, lp(-1, 0, 1));
+        root = v;
+        return v;
+    }
+
+    private View cell(JSONArray x, View cv) {
+        FrameLayout f;
+        ImageView im;
+        TextView play;
+        if (cv instanceof FrameLayout && cv.getTag() != null) { f = (FrameLayout) cv; Object[] t = (Object[]) cv.getTag(); im = (ImageView) t[0]; play = (TextView) t[1]; }
+        else {
+            f = new FrameLayout(a);
+            int s = (int) (a.getResources().getDisplayMetrics().widthPixels / (float) UiKit.cols(a, 110)) - dp(12);
+            f.setLayoutParams(new android.widget.AbsListView.LayoutParams(-1, s));
+            im = new ImageView(a);
+            im.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            GradientDrawable bg = new GradientDrawable();
+            bg.setColor(0xFF1A0E30);
+            bg.setCornerRadius(dp(14));
+            bg.setStroke(dp(1), Neon.alpha(Neon.PINK, 0x55));
+            im.setBackground(bg);
+            im.setClipToOutline(true);
+            f.addView(im, new FrameLayout.LayoutParams(-1, -1));
+            play = Neon.glow(a, "▶", 26, Neon.CYAN);
+            play.setGravity(Gravity.CENTER);
+            f.addView(play, new FrameLayout.LayoutParams(-1, -1));
+            f.setTag(new Object[] { im, play });
+        }
+        final int i = x.optInt(0);
+        boolean video = x.optInt(2) != 0;
+        play.setVisibility(video ? View.VISIBLE : View.GONE);
+        Bitmap b = thumbs.get(i);
+        im.setImageBitmap(b);
+        im.setTag(i);
+        if (!video && b == null && asked.add(i)) {
+            final ImageView target = im;
+            Api.pool(() -> {
+                byte[] d = Api.getBytes("/api/photo?i=" + i, 4000);
+                Bitmap bm = null;
+                if (d != null) {
+                    BitmapFactory.Options o = new BitmapFactory.Options();
+                    o.inJustDecodeBounds = true;
+                    BitmapFactory.decodeByteArray(d, 0, d.length, o);
+                    int ss = 1;
+                    while (Math.max(o.outWidth, o.outHeight) / (ss * 2) >= 320) ss *= 2;
+                    o = new BitmapFactory.Options();
+                    o.inSampleSize = ss;
+                    bm = BitmapFactory.decodeByteArray(d, 0, d.length, o);
+                }
+                final Bitmap fb = bm;
+                a.runOnUiThread(() -> { if (fb != null) { thumbs.put(i, fb); if (Integer.valueOf(i).equals(target.getTag())) target.setImageBitmap(fb); } });
+            });
+        }
+        return f;
+    }
+
+    @Override void show() { if (!loaded) load(); }
+
+    void load() {
+        Api.get("/api/photos", r -> {
+            if (r == null) { Neon.set(status, "Pas de réponse de la console"); return; }
+            items.clear();
+            try { JSONArray j = new JSONArray(r); for (int k = 0; k < j.length(); k++) items.add(j.getJSONArray(k)); } catch (Exception e) { }
+            loaded = true;
+            Neon.set(status, items.isEmpty() ? "Aucune photo (SD:/photos)" : items.size() + " photo" + (items.size() > 1 ? "s" : "") + " · toucher pour l'afficher sur la télé");
+            adapter.notifyDataSetChanged();
+        });
+    }
+}
+
+// ---------------------------------------------------------------- File d'attente
+class QueueTab extends Tab {
+    static List<String[]> tracks;                            // (liste des morceaux, partagee)
+    private final List<Integer> q = new ArrayList<>();
+    private String qKey = "";
+    private TextView status;
+    private BaseAdapter adapter;
+    private long lastLoad;
+    QueueTab(Activity a) { super(a); }
+
+    @Override View build() {
+        LinearLayout v = UiKit.column(a);
+        status = UiKit.hint(a, "À suivre sur la console");
+        v.addView(status);
+        ListView lv = UiKit.list(a);
+        adapter = new BaseAdapter() {
+            public int getCount() { return q.size(); }
+            public Object getItem(int p) { return q.get(p); }
+            public long getItemId(int p) { return q.get(p); }
+            public View getView(int p, View cv, ViewGroup parent) {
+                LinearLayout r;
+                TextView num, n, s;
+                if (cv instanceof LinearLayout && cv.getTag() != null) { r = (LinearLayout) cv; TextView[] t = (TextView[]) cv.getTag(); num = t[0]; n = t[1]; s = t[2]; }
+                else {
+                    r = new LinearLayout(a);
+                    r.setGravity(Gravity.CENTER_VERTICAL);
+                    r.setBackground(new android.graphics.drawable.InsetDrawable(Neon.button(a, 16, false), 0, dp(4), 0, dp(4)));
+                    r.setPadding(dp(12), dp(14), dp(12), dp(14));
+                    num = Neon.glow(a, "", 15, Neon.CYAN);
+                    num.setGravity(Gravity.CENTER);
+                    r.addView(num, new LinearLayout.LayoutParams(dp(36), -2));
+                    LinearLayout col = new LinearLayout(a);
+                    col.setOrientation(LinearLayout.VERTICAL);
+                    n = Neon.text(a, "", 15, Neon.TEXT, true); n.setSingleLine(true); n.setEllipsize(TextUtils.TruncateAt.END);
+                    s = Neon.text(a, "", 12, Neon.DIM, false); s.setSingleLine(true);
+                    col.addView(n); col.addView(s);
+                    r.addView(col, new LinearLayout.LayoutParams(0, -2, 1));
+                    r.setTag(new TextView[] { num, n, s });
+                }
+                int k = q.get(p);
+                String[] t = tracks != null && k >= 0 && k < tracks.size() ? tracks.get(k) : new String[] { "Morceau " + k, "" };
+                num.setText(String.valueOf(p + 1));
+                n.setText(t[0]);
+                s.setText(t[1]);
+                s.setVisibility(t[1].isEmpty() ? View.GONE : View.VISIBLE);
+                return r;
+            }
+        };
+        lv.setAdapter(adapter);
+        lv.setOnItemClickListener((parent, view, pos, id) -> { view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); Api.cmd("play", (int) id); });
+        v.addView(lv, lp(-1, 0, 1));
+        root = v;
+        return v;
+    }
+
+    @Override void show() { lastLoad = 0; refresh(); }
+    @Override void state(JSONObject s) { if (root != null && root.isShown() && System.currentTimeMillis() - lastLoad > 3500) refresh(); }
+
+    private void refresh() {
+        lastLoad = System.currentTimeMillis();
+        if (tracks == null) {
+            Api.get("/api/tracks", r -> {
+                if (r == null) return;
+                List<String[]> l = new ArrayList<>();
+                try { JSONArray j = new JSONArray(r); for (int k = 0; k < j.length(); k++) { JSONArray e = j.optJSONArray(k); l.add(new String[] { e != null ? e.optString(0) : "", e != null ? e.optString(1) : "" }); } } catch (Exception e) { }
+                tracks = l;
+                adapter.notifyDataSetChanged();
+            });
+        }
+        Api.get("/api/queue", r -> {
+            if (r == null || r.equals(qKey)) return;
+            qKey = r;
+            q.clear();
+            try { JSONArray j = new JSONArray(r); for (int k = 0; k < j.length(); k++) q.add(j.getInt(k)); } catch (Exception e) { }
+            Neon.set(status, q.isEmpty() ? "Fin de la file (rien à suivre)" : q.size() + " morceau" + (q.size() > 1 ? "x" : "") + " à suivre · toucher pour le jouer");
+            adapter.notifyDataSetChanged();
+        });
+    }
+}
+
+// ---------------------------------------------------------------- Reglages
+class SettingsTab extends Tab {
+    private LinearLayout box;
+    private TextView status;
+    private ScrollView scroll;
+    SettingsTab(Activity a) { super(a); }
+
+    @Override View build() {
+        LinearLayout v = UiKit.column(a);
+        status = UiKit.hint(a, "Les réglages changent tout de suite sur la télé");
+        v.addView(status);
+        scroll = new ScrollView(a);
+        box = new LinearLayout(a);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(0, 0, 0, dp(16));
+        scroll.addView(box);
+        v.addView(scroll, lp(-1, 0, 1));
+        root = v;
+        return v;
+    }
+
+    @Override void show() { load(); }
+
+    private void load() {
+        Api.get("/api/settings", r -> {
+            if (r == null) { Neon.set(status, "Pas de réponse de la console"); return; }
+            try { fill(new JSONObject(r)); } catch (Exception e) { Neon.set(status, "Réponse illisible"); }
+        });
+    }
+
+    private void fill(JSONObject j) {
+        int y = scroll.getScrollY();
+        box.removeAllViews();
+        JSONArray m = j.optJSONArray("m");
+        for (int k = 0; m != null && k < m.length(); k++) {
+            JSONArray it = m.optJSONArray(k);
+            if (it == null) continue;
+            final int i = it.optInt(0);
+            LinearLayout row = new LinearLayout(a);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setBackground(new android.graphics.drawable.InsetDrawable(Neon.glass(a, 14), 0, dp(3), 0, dp(3)));
+            row.setPadding(dp(10), dp(10), dp(10), dp(10));
+            LinearLayout col = new LinearLayout(a);
+            col.setOrientation(LinearLayout.VERTICAL);
+            TextView l = Neon.text(a, it.optString(1), 14, Neon.TEXT, true);
+            TextView val = Neon.text(a, it.optString(2), 13, Neon.CYAN, false);
+            col.addView(l);
+            col.addView(val);
+            if (it.optInt(3) != 0) {
+                row.addView(col, new LinearLayout.LayoutParams(0, -2, 1));
+                row.addView(Neon.btn(a, "Vérifier", 12, false, x -> step(i, 1)), lp(-2, -2, 0));
+            } else {
+                TextView mi = Neon.btn(a, "◀", 13, false, x -> step(i, -1));
+                TextView pl = Neon.btn(a, "▶", 13, false, x -> step(i, 1));
+                row.addView(mi, new LinearLayout.LayoutParams(dp(44), dp(40)));
+                col.setPadding(dp(10), 0, dp(10), 0);
+                row.addView(col, new LinearLayout.LayoutParams(0, -2, 1));
+                row.addView(pl, new LinearLayout.LayoutParams(dp(44), dp(40)));
+            }
+            box.addView(row);
+        }
+        checks(j.optJSONArray("el"), "el", "Éléments du lecteur");
+        checks(j.optJSONArray("tb"), "tb", "Onglets affichés");
+        JSONObject t = j.optJSONObject("t");
+        if (t != null && t.length() > 0) {
+            TextView h = Neon.glow(a, "Textes", 15, Neon.PINK);
+            h.setPadding(dp(4), dp(16), 0, dp(6));
+            box.addView(h);
+            Iterator<String> ks = t.keys();
+            while (ks.hasNext()) {
+                final String key = ks.next();
+                LinearLayout row = new LinearLayout(a);
+                row.setGravity(Gravity.CENTER_VERTICAL);
+                final EditText e = new EditText(a);
+                e.setText(t.optString(key));
+                e.setHint(key);
+                e.setHintTextColor(Neon.FAINT);
+                e.setTextColor(Neon.TEXT);
+                e.setSingleLine(true);
+                row.addView(Neon.text(a, key, 12, Neon.DIM, false), new LinearLayout.LayoutParams(dp(90), -2));
+                row.addView(e, new LinearLayout.LayoutParams(0, -2, 1));
+                row.addView(Neon.btn(a, "OK", 12, true, x -> Api.get("/api/set?k=" + Api.enc(key) + "&v=" + Api.enc(e.getText().toString()), r -> {
+                    Toast.makeText(a, r != null ? "Enregistré" : "Refusé", Toast.LENGTH_SHORT).show(); load(); })), lp(-2, -2, 0));
+                box.addView(row);
+            }
+        }
+        scroll.post(() -> scroll.scrollTo(0, y));
+    }
+
+    private void checks(JSONArray arr, final String w, String title) {
+        if (arr == null || arr.length() == 0) return;
+        TextView h = Neon.glow(a, title, 15, Neon.PINK);
+        h.setPadding(dp(4), dp(16), 0, dp(6));
+        box.addView(h);
+        for (int k = 0; k < arr.length(); k++) {
+            JSONArray x = arr.optJSONArray(k);
+            if (x == null) continue;
+            final int i = k;
+            android.widget.CheckBox cb = new android.widget.CheckBox(a);
+            cb.setText(x.optString(0));
+            cb.setTextColor(Neon.TEXT);
+            cb.setButtonTintList(android.content.res.ColorStateList.valueOf(Neon.CYAN));
+            cb.setChecked(x.optInt(1) != 0);
+            cb.setEnabled(x.optInt(2) == 0);
+            cb.setOnClickListener(vv -> Api.get("/api/check?w=" + w + "&i=" + i, r -> load()));
+            box.addView(cb);
+        }
+    }
+
+    private void step(int i, int d) { Api.get("/api/menu?i=" + i + "&d=" + d, r -> box.postDelayed(this::load, 200)); }
+}
+
+// ---------------------------------------------------------------- Cartes memoire virtuelles
+class CardsTab extends Tab {
+    static final int REQ_GCI = 8, REQ_RAW = 9;
+    static String pendingCard;
+    private LinearLayout box;
+    private TextView status;
+    CardsTab(Activity a) { super(a); }
+
+    @Override View build() {
+        LinearLayout v = UiKit.column(a);
+        status = UiKit.hint(a, "Cartes mémoire virtuelles (Pulse)");
+        v.addView(status);
+        ScrollView sc = new ScrollView(a);
+        box = new LinearLayout(a);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(0, 0, 0, dp(16));
+        sc.addView(box);
+        v.addView(sc, lp(-1, 0, 1));
+        root = v;
+        return v;
+    }
+
+    @Override void show() { load(); }
+
+    void load() {
+        Neon.set(status, "Lecture des cartes…");
+        Api.get("/api/cards", r -> {
+            if (r == null) { Neon.set(status, "Pas de réponse de la console"); return; }
+            box.removeAllViews();
+            try {
+                JSONArray j = new JSONArray(r);
+                Neon.set(status, j.length() == 0 ? "Aucune carte virtuelle (Pulse en crée une au premier jeu)" : "Toucher une sauvegarde pour la récupérer (.gci)");
+                for (int k = 0; k < j.length(); k++) card(j.getJSONObject(k));
+            } catch (Exception e) { Neon.set(status, "Réponse illisible"); }
+        });
+    }
+
+    private void card(final JSONObject c) {
+        final String f = c.optString("f");
+        LinearLayout cd = UiKit.card(a);
+        cd.addView(Neon.glow(a, f + (c.optInt("a") != 0 ? "  · Pulse" : ""), 15, Neon.PINK));
+        LinearLayout row = new LinearLayout(a);
+        row.setPadding(0, dp(8), 0, dp(6));
+        if (c.optInt("x") != 0) row.addView(Neon.btn(a, "Télécharger", 12, false, x -> UiKit.download(a, "/api/cardfile/" + Uri.encode(f), f)), lp(0, -2, 1));
+        if (c.optInt("ok") != 0 || c.optInt("bl") != 0) { row.addView(gap()); row.addView(Neon.btn(a, "+ Sauvegarde", 12, true, x -> pick(f, REQ_GCI)), lp(0, -2, 1)); }
+        row.addView(gap());
+        row.addView(Neon.btn(a, "Remplacer", 12, false, x -> new AlertDialog.Builder(a).setTitle("Remplacer " + f + " ?").setMessage("Choisis une image de carte (.raw). L'ancienne est gardée en .bak sur la console.")
+            .setPositiveButton("Choisir", (d, w) -> pick(f, REQ_RAW)).setNegativeButton("Annuler", null).show()), lp(0, -2, 1));
+        cd.addView(row);
+        if (c.optInt("ok") == 0) {
+            if (!c.optString("w").isEmpty()) cd.addView(UiKit.hint(a, c.optString("w")));
+        } else {
+            JSONArray e = c.optJSONArray("e");
+            cd.addView(UiKit.hint(a, (e != null ? e.length() : 0) + " sauvegarde(s), " + c.optInt("free") + " blocs libres sur " + c.optInt("b")));
+            for (int i = 0; e != null && i < e.length(); i++) {
+                final JSONArray s = e.optJSONArray(i);
+                if (s == null) continue;
+                final int idx = i;
+                LinearLayout it = new LinearLayout(a);
+                it.setOrientation(LinearLayout.VERTICAL);
+                it.setBackground(new android.graphics.drawable.InsetDrawable(Neon.button(a, 12, false), 0, dp(3), 0, dp(3)));
+                it.setPadding(dp(12), dp(10), dp(12), dp(10));
+                it.addView(Neon.text(a, s.optString(0), 14, Neon.TEXT, true));
+                it.addView(Neon.text(a, s.optString(2) + " · " + s.optInt(4) + " blocs" + (s.optString(1).isEmpty() ? "" : " · " + s.optString(1)), 12, Neon.DIM, false));
+                it.setOnClickListener(x -> UiKit.download(a, "/api/gci/" + Uri.encode(f) + "/" + idx + "/" + Uri.encode(s.optString(3)) + ".gci", s.optString(3) + ".gci"));
+                cd.addView(it);
+            }
+        }
+        box.addView(cd, UiKit.gapBelow(a, 12));
+    }
+
+    private View gap() { View g = new View(a); g.setLayoutParams(new LinearLayout.LayoutParams(dp(6), 1)); return g; }
+
+    private void pick(String card, int req) {
+        pendingCard = card;
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("*/*");
+        try { a.startActivityForResult(i, req); } catch (Exception e) { Toast.makeText(a, "Pas de sélecteur de fichiers", Toast.LENGTH_LONG).show(); }
+    }
+}
+
+// ---------------------------------------------------------------- Salon
+class SalonTab extends Tab {
+    private LinearLayout box;
+    private TextView status;
+    private long last;
+    SalonTab(Activity a) { super(a); }
+
+    @Override View build() {
+        LinearLayout v = UiKit.column(a);
+        status = UiKit.hint(a, "Les autres GC Station de la maison");
+        v.addView(status);
+        ScrollView sc = new ScrollView(a);
+        box = new LinearLayout(a);
+        box.setOrientation(LinearLayout.VERTICAL);
+        sc.addView(box);
+        v.addView(sc, lp(-1, 0, 1));
+        root = v;
+        return v;
+    }
+
+    @Override void show() { load(); }
+    @Override void state(JSONObject s) { if (root != null && root.isShown() && System.currentTimeMillis() - last > 4000) load(); }
+
+    private void load() {
+        last = System.currentTimeMillis();
+        Api.get("/api/salon", r -> {
+            if (r == null) { Neon.set(status, "Pas de réponse de la console"); return; }
+            try {
+                JSONObject j = new JSONObject(r);
+                JSONArray c = j.optJSONArray("c");
+                Neon.set(status, j.optInt("on") == 0 ? "Le Salon est coupé (START > Réglages > Réseau > Salon)" : c == null || c.length() == 0 ? "Aucune autre GC Station pour l'instant" : "Toucher « Écouter avec » pour la même musique sur ta télé");
+                box.removeAllViews();
+                for (int i = 0; c != null && i < c.length(); i++) {
+                    JSONArray x = c.getJSONArray(i);
+                    final int idx = i;
+                    final String ip = x.optString(1);
+                    LinearLayout cd = UiKit.card(a);
+                    cd.addView(Neon.glow(a, x.optString(0), 16, Neon.CYAN));
+                    cd.addView(Neon.text(a, "♪ " + (x.optString(2).isEmpty() ? "rien" : x.optString(2)), 13, Neon.TEXT, false));
+                    cd.addView(UiKit.hint(a, ip));
+                    LinearLayout row = new LinearLayout(a);
+                    row.addView(Neon.btn(a, "Écouter avec", 13, true, v -> Api.get("/api/listen?i=" + idx, rr -> Neon.set(status, rr != null ? "Écoute lancée sur la télé" : "Refusé"))), lp(0, -2, 1));
+                    View g = new View(a); row.addView(g, new LinearLayout.LayoutParams(dp(8), 1));
+                    row.addView(Neon.btn(a, "Piloter celle-ci", 13, false, v -> ((MainActivity) a).switchTo(ip)), lp(0, -2, 1));
+                    cd.addView(row);
+                    box.addView(cd, UiKit.gapBelow(a, 12));
+                }
+            } catch (Exception e) { Neon.set(status, "Réponse illisible"); }
+        });
+    }
+}
+
+// ---------------------------------------------------------------- Outils : memoire, capture, rapport
+class ToolsTab extends Tab {
+    private TextView memTxt, bootTxt, journal;
+    private Spark spark;
+    private ImageView shot;
+    private Bitmap shotBm;
+    private long last;
+    ToolsTab(Activity a) { super(a); }
+
+    @Override View build() {
+        ScrollView sc = new ScrollView(a);
+        LinearLayout v = UiKit.column(a);
+        v.setPadding(dp(16), dp(4), dp(16), dp(16));
+        LinearLayout mem = UiKit.card(a);
+        mem.addView(Neon.glow(a, "Mémoire de la console", 15, Neon.PINK));
+        memTxt = Neon.text(a, "…", 13, Neon.TEXT, false);
+        memTxt.setPadding(0, dp(6), 0, dp(6));
+        mem.addView(memTxt);
+        spark = new Spark(a);
+        mem.addView(spark, new LinearLayout.LayoutParams(-1, dp(70)));
+        bootTxt = Neon.text(a, "", 12, Neon.DIM, false);
+        bootTxt.setPadding(0, dp(6), 0, 0);
+        mem.addView(bootTxt);
+        v.addView(mem, UiKit.gapBelow(a, 12));
+
+        LinearLayout cap = UiKit.card(a);
+        cap.addView(Neon.glow(a, "Capture de la télé", 15, Neon.PINK));
+        LinearLayout row = new LinearLayout(a);
+        row.setPadding(0, dp(8), 0, dp(8));
+        row.addView(Neon.btn(a, "Capturer", 13, true, x -> capture()), lp(0, -2, 1));
+        View g = new View(a); row.addView(g, new LinearLayout.LayoutParams(dp(8), 1));
+        row.addView(Neon.btn(a, "Enregistrer", 13, false, x -> saveShot()), lp(0, -2, 1));
+        cap.addView(row);
+        shot = new ImageView(a);
+        shot.setAdjustViewBounds(true);
+        cap.addView(shot, new LinearLayout.LayoutParams(-1, -2));
+        v.addView(cap, UiKit.gapBelow(a, 12));
+
+        LinearLayout rep = UiKit.card(a);
+        rep.addView(Neon.glow(a, "Rapport de bug", 15, Neon.PINK));
+        LinearLayout r2 = new LinearLayout(a);
+        r2.setPadding(0, dp(8), 0, dp(8));
+        r2.addView(Neon.btn(a, "Lire le journal", 13, false, x -> loadJournal()), lp(0, -2, 1));
+        View g2 = new View(a); r2.addView(g2, new LinearLayout.LayoutParams(dp(8), 1));
+        r2.addView(Neon.btn(a, "Envoyer le rapport", 13, true, x -> shareReport()), lp(0, -2, 1));
+        rep.addView(r2);
+        journal = Neon.text(a, "", 11, Neon.DIM, false);
+        journal.setTypeface(android.graphics.Typeface.MONOSPACE);
+        journal.setTextIsSelectable(true);
+        rep.addView(journal);
+        v.addView(rep);
+        sc.addView(v);
+        root = sc;
+        return sc;
+    }
+
+    @Override void show() { mem(); }
+    @Override void state(JSONObject s) { if (root != null && root.isShown() && System.currentTimeMillis() - last > 2500) mem(); }
+
+    private void mem() {
+        last = System.currentTimeMillis();
+        Api.get("/api/memoire", r -> {
+            if (r == null) return;
+            try {
+                JSONObject j = new JSONObject(r);
+                long free = j.optLong("free"), used = j.optLong("used"), big = j.optLong("big");
+                Neon.set(memTxt, String.format(java.util.Locale.FRANCE, "Libre %.1f Mo · utilisée %.1f Mo%s\nBuild %d · allumée depuis %d min",
+                        free / 1048576.0, used / 1048576.0, big > 0 ? String.format(java.util.Locale.FRANCE, " · plus grand bloc %.1f Mo", big / 1048576.0) : "",
+                        j.optInt("build"), j.optInt("up") / 60));
+                JSONArray h = j.optJSONArray("hist");
+                if (h != null) { float[] f = new float[h.length()]; for (int i = 0; i < f.length; i++) f[i] = h.optInt(i); spark.set(f); }
+                JSONArray st = j.optJSONArray("steps");
+                String longest = ""; int lm = -1;
+                for (int i = 0; st != null && i < st.length(); i++) { JSONArray x = st.optJSONArray(i); if (x != null && x.optInt(1) > lm) { lm = x.optInt(1); longest = x.optString(0); } }
+                Neon.set(bootTxt, "Démarrage : " + String.format(java.util.Locale.FRANCE, "%.1f s", j.optInt("boot") / 1000.0) + (lm >= 0 ? "  (le plus long : " + longest + ", " + lm + " ms)" : ""));
+            } catch (Exception e) { }
+        });
+    }
+
+    private void capture() {
+        Toast.makeText(a, "Capture…", Toast.LENGTH_SHORT).show();
+        Api.bytes("/capture.bmp", b -> {
+            Bitmap bm = b == null ? null : BitmapFactory.decodeByteArray(b, 0, b.length);
+            if (bm == null) { Toast.makeText(a, "Capture impossible", Toast.LENGTH_LONG).show(); return; }
+            shotBm = bm;
+            shot.setImageBitmap(bm);
+        });
+    }
+
+    private Uri saveShot() {
+        if (shotBm == null) { Toast.makeText(a, "Capture d'abord", Toast.LENGTH_SHORT).show(); return null; }
+        try {
+            ContentValues cv = new ContentValues();
+            cv.put(MediaStore.Images.Media.DISPLAY_NAME, "gc-station-" + System.currentTimeMillis() + ".png");
+            cv.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
+            if (android.os.Build.VERSION.SDK_INT >= 29) cv.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/GC Station");
+            Uri u = a.getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
+            try (OutputStream o = a.getContentResolver().openOutputStream(u)) { shotBm.compress(Bitmap.CompressFormat.PNG, 100, o); }
+            Toast.makeText(a, "Enregistrée dans Images > GC Station", Toast.LENGTH_SHORT).show();
+            return u;
+        } catch (Exception e) { Toast.makeText(a, "Enregistrement impossible", Toast.LENGTH_LONG).show(); return null; }
+    }
+
+    private void loadJournal() {
+        Api.get("/api/journal", r -> journal.setText(r != null ? r : "Pas de réponse de la console"));
+    }
+
+    private void shareReport() {
+        Api.get("/api/journal", r -> {
+            String txt = "Rapport GC Station\n\n" + (r != null ? r : "(journal illisible)");
+            Intent i = new Intent(shotBm != null ? Intent.ACTION_SEND : Intent.ACTION_SEND);
+            i.setType(shotBm != null ? "image/png" : "text/plain");
+            i.putExtra(Intent.EXTRA_TEXT, txt);
+            i.putExtra(Intent.EXTRA_SUBJECT, "Rapport GC Station");
+            if (shotBm != null) { Uri u = saveShot(); if (u != null) { i.putExtra(Intent.EXTRA_STREAM, u); i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION); } else i.setType("text/plain"); }
+            try { a.startActivity(Intent.createChooser(i, "Envoyer le rapport")); } catch (Exception e) { }
+        });
+    }
+}
+
+/** petite courbe neon (memoire libre des 2 dernieres minutes) */
+class Spark extends View {
+    private float[] v = new float[0];
+    private final Paint line = new Paint(Paint.ANTI_ALIAS_FLAG), fill = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Path p = new Path(), f = new Path();
+    Spark(Context c) {
+        super(c);
+        line.setStyle(Paint.Style.STROKE);
+        line.setStrokeWidth(Neon.dp(c, 2));
+        line.setColor(Neon.CYAN);
+        line.setShadowLayer(Neon.dp(c, 4), 0, 0, Neon.CYAN);
+        setLayerType(LAYER_TYPE_SOFTWARE, null);               // (petite vue : le halo de la courbe)
+    }
+    void set(float[] x) { v = x; invalidate(); }
+    @Override protected void onDraw(Canvas c) {
+        if (v.length < 2) return;
+        float mn = Float.MAX_VALUE, mx = 0;
+        for (float x : v) { mn = Math.min(mn, x); mx = Math.max(mx, x); }
+        if (mx - mn < 1) { mx += 1; mn -= 1; }
+        int w = getWidth(), h = getHeight(), pad = Neon.dp(getContext(), 4);
+        p.reset(); f.reset();
+        for (int i = 0; i < v.length; i++) {
+            float x = i * (w - 1f) / (v.length - 1), y = pad + (h - 2 * pad) * (1 - (v[i] - mn) / (mx - mn));
+            if (i == 0) { p.moveTo(x, y); f.moveTo(x, h); f.lineTo(x, y); } else { p.lineTo(x, y); f.lineTo(x, y); }
+        }
+        f.lineTo(w, h); f.close();
+        fill.setShader(new LinearGradient(0, 0, 0, h, Neon.alpha(Neon.PINK, 0x66), Neon.alpha(Neon.PINK, 0), Shader.TileMode.CLAMP));
+        c.drawPath(f, fill);
+        c.drawPath(p, line);
+    }
+}
+
+// ---------------------------------------------------------------- Plus : les autres ecrans, en tuiles neon
+class PlusTab extends Tab {
+    private static final String[][] TILES = {
+        { "▣", "Fichiers", "La carte SD", "5" }, { "◈", "Jeux", "Jaquettes, lancer", "6" },
+        { "▧", "Photos", "Sur la télé", "7" }, { "☰", "File d'attente", "À suivre", "8" },
+        { "⚙", "Réglages", "De GC Station", "9" }, { "▤", "Cartes mémoire", "Sauvegardes", "10" },
+        { "⌂", "Salon", "Les autres consoles", "11" }, { "⚒", "Outils", "Mémoire, capture, rapport", "12" } };
+    PlusTab(Activity a) { super(a); }
+
+    @Override View build() {
+        ScrollView sc = new ScrollView(a);
+        android.widget.GridLayout g = new android.widget.GridLayout(a);
+        g.setColumnCount(2);
+        g.setPadding(dp(12), dp(4), dp(12), dp(16));
+        int[] col = { Neon.PINK, Neon.CYAN, Neon.VIOLET, Neon.BLUE };
+        for (int i = 0; i < TILES.length; i++) {
+            final String[] t = TILES[i];
+            LinearLayout c = new LinearLayout(a);
+            c.setOrientation(LinearLayout.VERTICAL);
+            c.setGravity(Gravity.CENTER);
+            c.setPadding(dp(10), dp(18), dp(10), dp(16));
+            c.setBackground(Neon.button(a, 22, false));
+            c.setClickable(true);
+            int cc = col[i % 4];
+            TextView ic = Neon.glow(a, t[0], 30, cc);
+            ic.setGravity(Gravity.CENTER);
+            c.addView(ic);
+            TextView n = Neon.text(a, t[1], 15, Neon.TEXT, true);
+            n.setGravity(Gravity.CENTER);
+            n.setPadding(0, dp(8), 0, dp(2));
+            c.addView(n);
+            TextView d = Neon.text(a, t[2], 11, Neon.DIM, false);
+            d.setGravity(Gravity.CENTER);
+            c.addView(d);
+            c.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); ((MainActivity) a).select(Integer.parseInt(t[3])); });
+            android.widget.GridLayout.LayoutParams p = new android.widget.GridLayout.LayoutParams(
+                android.widget.GridLayout.spec(i / 2), android.widget.GridLayout.spec(i % 2, 1f));
+            p.width = 0;
+            p.setMargins(dp(6), dp(6), dp(6), dp(6));
+            g.addView(c, p);
+        }
+        sc.addView(g);
+        root = sc;
+        return sc;
+    }
+}

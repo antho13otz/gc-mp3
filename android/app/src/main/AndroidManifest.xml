@@ -3,6 +3,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <application
         android:label="GC Station"
         android:icon="@mipmap/ic_launcher"
@@ -29,5 +32,17 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+        <!-- lecture hors de l'appli : notification, ecran verrouille, boutons de volume -->
+        <service
+            android:name=".PlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback" />
+        <!-- widget d'ecran d'accueil -->
+        <receiver android:name=".GcWidget" android:exported="false" android:label="GC Station">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/widget_info" />
+        </receiver>
     </application>
 </manifest>

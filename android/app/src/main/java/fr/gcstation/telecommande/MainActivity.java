@@ -52,8 +52,11 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class MainActivity extends Activity {
-    private static final String[] TAB_ICON = { "▶", "♫", "◉", "✚", "▣" };
-    private static final String[] TAB_NAME = { "Lecture", "Musique", "Radio", "Manette", "Fichiers" };
+    private static final String[] TAB_ICON = { "▶", "♫", "◉", "✚", "◈" };
+    private static final String[] TAB_NAME = { "Lecture", "Musique", "Radio", "Manette", "Plus" };
+    // ecrans : 0-3 onglets, 4 Plus (grille), 5 et suivants : ouverts depuis Plus (avec une fleche retour)
+    static final int T_FILES = 5, T_GAMES = 6, T_PHOTOS = 7, T_QUEUE = 8, T_SETTINGS = 9, T_CARDS = 10, T_SALON = 11, T_TOOLS = 12, NT = 13;
+    static final String[] SUB_NAME = { "", "", "", "", "", "Fichiers", "Jeux", "Photos", "File d'attente", "R\u00e9glages", "Cartes m\u00e9moire", "Salon", "Outils" };
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private AuroraView aurora;
@@ -62,8 +65,10 @@ public class MainActivity extends Activity {
     private TextView status, dot, miniTitle, miniSub, miniPlay, panelMsg;
     private ProgressBar panelSpin;
     private EditText panelIp;
-    private final Tab[] tabs = new Tab[5];
-    private final View[] tabViews = new View[5];
+    private final Tab[] tabs = new Tab[NT];
+    private final View[] tabViews = new View[NT];
+    private LinearLayout subBar;
+    private TextView subTitle;
     private final TextView[] navIcon = new TextView[5], navLabel = new TextView[5];
     private int cur = -1;
     private boolean visible, searching, connected;
@@ -135,6 +140,18 @@ public class MainActivity extends Activity {
         ml.setMargins(dp(14), dp(2), dp(14), dp(6));
         col.addView(mini, ml);
 
+        subBar = new LinearLayout(this);                        // ecran ouvert depuis Plus : fleche retour + titre
+        subBar.setGravity(Gravity.CENTER_VERTICAL);
+        subBar.setPadding(dp(14), 0, dp(14), dp(6));
+        TextView back = Neon.btn(this, "\u2190", 16, false, v -> select(4));
+        back.setPadding(0, 0, 0, 0);
+        subBar.addView(back, new LinearLayout.LayoutParams(dp(40), dp(40)));
+        subTitle = Neon.glow(this, "", 19, Neon.CYAN);
+        subTitle.setPadding(dp(12), 0, 0, 0);
+        subBar.addView(subTitle);
+        subBar.setVisibility(View.GONE);
+        col.addView(subBar);
+
         content = new FrameLayout(this);
         col.addView(content, new LinearLayout.LayoutParams(-1, 0, 1));
 
@@ -167,8 +184,16 @@ public class MainActivity extends Activity {
         tabs[1] = new ListTab(this, false);
         tabs[2] = new ListTab(this, true);
         tabs[3] = new PadTab(this);
-        tabs[4] = new FilesTab(this);
-        for (int i = 0; i < 5; i++) {
+        tabs[4] = new PlusTab(this);
+        tabs[T_FILES] = new FilesTab(this);
+        tabs[T_GAMES] = new GamesTab(this);
+        tabs[T_PHOTOS] = new PhotosTab(this);
+        tabs[T_QUEUE] = new QueueTab(this);
+        tabs[T_SETTINGS] = new SettingsTab(this);
+        tabs[T_CARDS] = new CardsTab(this);
+        tabs[T_SALON] = new SalonTab(this);
+        tabs[T_TOOLS] = new ToolsTab(this);
+        for (int i = 0; i < NT; i++) {
             tabViews[i] = tabs[i].build();
             tabViews[i].setVisibility(View.GONE);
             content.addView(tabViews[i], new FrameLayout.LayoutParams(-1, -1));
@@ -179,6 +204,9 @@ public class MainActivity extends Activity {
 
         setContentView(root);
         select(0);
+        PlaybackService.channels(this);
+        if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED)
+            requestPermissions(new String[] { "android.permission.POST_NOTIFICATIONS" }, 1);
         Api.host = prefs().getString("host", null);
         if (isShare(getIntent())) pendingShare = getIntent();
         start();
@@ -203,15 +231,18 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs() { return getSharedPreferences("gcs", MODE_PRIVATE); }
     private int dp(float v) { return Neon.dp(this, v); }
 
-    private void select(int k) {
+    void select(int k) {
         if (k == cur) return;
+        for (int i = 0; i < NT; i++) tabViews[i].setVisibility(i == k ? View.VISIBLE : View.GONE);
+        int nk = k >= 4 ? 4 : k;
         for (int i = 0; i < 5; i++) {
-            boolean on = i == k;
-            tabViews[i].setVisibility(on ? View.VISIBLE : View.GONE);
+            boolean on = i == nk;
             navIcon[i].setTextColor(on ? Neon.CYAN : Neon.FAINT);
             navIcon[i].setShadowLayer(on ? dp(10) : 0, 0, 0, Neon.CYAN);
             navLabel[i].setTextColor(on ? Neon.TEXT : Neon.FAINT);
         }
+        subBar.setVisibility(k >= T_FILES ? View.VISIBLE : View.GONE);
+        if (k >= T_FILES) subTitle.setText(SUB_NAME[k]);
         if (k >= 0) { tabViews[k].setAlpha(0f); tabViews[k].setTranslationY(dp(14)); tabViews[k].animate().alpha(1f).translationY(0).setDuration(220).start(); }
         cur = k;
         mini.setVisibility(k == 0 ? View.GONE : View.VISIBLE);
@@ -269,6 +300,8 @@ public class MainActivity extends Activity {
         dot.setTextColor(Neon.CYAN);
         status.setText("Connecté · " + ip);
         tabs[cur].show();
+        PlaybackService.start(this);                            // (notification, ecran verrouille, widget, volume)
+        BuildCheck.run(this);
         ui.removeCallbacks(poll);
         ui.post(poll);
         if (pendingShare != null) { Intent i = pendingShare; pendingShare = null; share(i); }
@@ -389,7 +422,7 @@ public class MainActivity extends Activity {
         new AlertDialog.Builder(this)
             .setTitle("GC Station" + (Api.host != null ? " (" + Api.host + ")" : ""))
             .setItems(items, (d, w) -> {
-                if (w == 0) { ((ListTab) tabs[1]).load(); ((ListTab) tabs[2]).load(); ((FilesTab) tabs[4]).refresh(); }
+                if (w == 0) { ((ListTab) tabs[1]).load(); ((ListTab) tabs[2]).load(); ((FilesTab) tabs[T_FILES]).refresh(); ((PhotosTab) tabs[T_PHOTOS]).load(); QueueTab.tracks = null; }
                 else if (w == 1) { connected = false; search(); }
                 else { connected = false; showPanel("Tape l'adresse affichée dans l'onglet TÉLÉPHONE de la console.", false); }
             }).show();
@@ -397,7 +430,8 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
-        if (panel.getVisibility() != View.VISIBLE && cur != 0) select(0);
+        if (panel.getVisibility() != View.VISIBLE && cur >= T_FILES) select(4);
+        else if (panel.getVisibility() != View.VISIBLE && cur != 0) select(0);
         else super.onBackPressed();
     }
 
@@ -416,13 +450,24 @@ public class MainActivity extends Activity {
         List<Uri> uris = new ArrayList<>();
         if (Intent.ACTION_SEND.equals(i.getAction())) { Uri u = i.getParcelableExtra(Intent.EXTRA_STREAM); if (u != null) uris.add(u); }
         else { ArrayList<Uri> l = i.getParcelableArrayListExtra(Intent.EXTRA_STREAM); if (l != null) uris.addAll(l); }
+        String txt = i.getStringExtra(Intent.EXTRA_TEXT);
+        if (uris.isEmpty() && txt != null) {                   // un lien partage : ouvert dans Cube Browser sur la tele
+            java.util.regex.Matcher m = java.util.regex.Pattern.compile("https?://\\S+").matcher(txt);
+            if (m.find()) {
+                final String url = m.group();
+                Api.get("/api/open?u=" + Api.enc(url), r -> Toast.makeText(this, r != null ? "Ouvert sur la t\u00e9l\u00e9 (Cube Browser)" : "Pas de r\u00e9ponse de la console", Toast.LENGTH_LONG).show());
+                return;
+            }
+        }
         send(uris);
     }
 
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
-        if (req != FilesTab.REQ_SEND || res != RESULT_OK || data == null) return;
+        if (res != RESULT_OK || data == null) return;
+        if ((req == CardsTab.REQ_GCI || req == CardsTab.REQ_RAW) && data.getData() != null && CardsTab.pendingCard != null) { cardFile(data.getData(), CardsTab.pendingCard, req == CardsTab.REQ_RAW); return; }
+        if (req != FilesTab.REQ_SEND) return;
         List<Uri> uris = new ArrayList<>();
         ClipData cd = data.getClipData();
         if (cd != null) for (int k = 0; k < cd.getItemCount(); k++) uris.add(cd.getItemAt(k).getUri());
@@ -441,13 +486,53 @@ public class MainActivity extends Activity {
             final String w = where.toString();
             ui.post(() -> {
                 Toast.makeText(this, (n == uris.size() ? "Envoyé sur la console (" + n + ")" : "Envoyés : " + n + " sur " + uris.size()) + (w.isEmpty() ? "" : " →" + w), Toast.LENGTH_LONG).show();
-                ((FilesTab) tabs[4]).refresh();
+                ((FilesTab) tabs[T_FILES]).refresh();
+                PlaybackService.notify(this, PlaybackService.ID_SEND, "Envoi termin\u00e9", (n == uris.size() ? n + " fichier(s) sur la console" : n + " sur " + uris.size() + " envoy\u00e9(s)") + (w.isEmpty() ? "" : " :" + w));
                 ((ListTab) tabs[1]).load();
             });
         }).start();
     }
 
-    private String upload(Uri u) {
+    /** une sauvegarde (.gci) ajoutee a une carte, ou la carte remplacee (.raw) : envoi, puis la console l'integre */
+    private void cardFile(final Uri u, final String card, final boolean raw) {
+        Toast.makeText(this, "Envoi vers la carte " + card + "\u2026", Toast.LENGTH_SHORT).show();
+        new Thread(() -> {
+            String name = uploadTo(u, "gci");
+            String r = name == null ? null : Api.get((raw ? "/api/cardput" : "/api/gciimp") + "?c=" + Api.enc(card) + "&n=" + Api.enc(name), 8000);
+            String m = "Envoi impossible";
+            try { if (r != null) m = new JSONObject(r).optString("m", "Fait"); } catch (Exception e) { }
+            final String fm = m;
+            ui.post(() -> { Toast.makeText(this, fm, Toast.LENGTH_LONG).show(); ((CardsTab) tabs[T_CARDS]).load(); });
+        }).start();
+    }
+
+    /** piloter une autre GC Station (Salon) */
+    void switchTo(String ip) {
+        Toast.makeText(this, "Console " + ip, Toast.LENGTH_SHORT).show();
+        QueueTab.tracks = null;
+        connected = false;
+        Api.host = ip;
+        start();
+        select(0);
+    }
+
+    // boutons de volume du telephone -> volume de la console (appli ouverte ; sinon : la notification de lecture)
+    @Override
+    public boolean dispatchKeyEvent(android.view.KeyEvent e) {
+        int k = e.getKeyCode();
+        if (connected && (k == android.view.KeyEvent.KEYCODE_VOLUME_UP || k == android.view.KeyEvent.KEYCODE_VOLUME_DOWN)) {
+            if (e.getAction() == android.view.KeyEvent.ACTION_DOWN) {
+                Api.cmd(k == android.view.KeyEvent.KEYCODE_VOLUME_UP ? "volup" : "voldown", -1);
+                ui.removeCallbacks(poll); ui.postDelayed(poll, 250);
+            }
+            return true;
+        }
+        return super.dispatchKeyEvent(e);
+    }
+
+    private String upload(Uri u) { return uploadTo(u, null); }
+
+    private String uploadTo(Uri u, String forceDir) {
         File tmp = null;
         try {
             String name = "fichier", mime = getContentResolver().getType(u);
@@ -468,7 +553,7 @@ public class MainActivity extends Activity {
                 size = tmp.length();
             }
             String low = name.toLowerCase();
-            String dir = mime != null && mime.startsWith("audio/") ? "mp3"
+            String dir = forceDir != null ? forceDir : mime != null && mime.startsWith("audio/") ? "mp3"
                        : mime != null && mime.startsWith("image/") ? "photos"
                        : mime != null && mime.startsWith("video/") ? "videos"
                        : low.endsWith(".gci") ? "gci" : "downloads";   // (.dol : la console le range dans SD:/apps)

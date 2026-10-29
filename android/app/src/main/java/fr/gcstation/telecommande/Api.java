@@ -65,6 +65,8 @@ final class Api {
         pool.execute(() -> { final byte[] r = getBytes(path, 3000); ui.post(() -> done.on(r)); });
     }
 
+    static void pool(Runnable r) { pool.execute(r); }
+
     static void cmd(String c, int i) { get("/api/cmd?c=" + c + (i >= 0 ? "&i=" + i : ""), (Done<String>) null); }
     static void key(final String k) { keys.execute(() -> get("/api/key?k=" + k, 1500)); }
     static void mouse(final int dx, final int dy, final int w, final int click) {

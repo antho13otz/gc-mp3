@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_desc">Le morceau en cours sur GC Station, avec lecture, pause et suivant</string>
+</resources>

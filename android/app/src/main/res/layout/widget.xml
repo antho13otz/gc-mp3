@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- widget d'ecran d'accueil : pochette, titre, artiste, precedent / lecture / suivant -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/w_root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="horizontal" android:gravity="center_vertical" android:padding="10dp"
+    android:background="@drawable/widget_bg">
+    <ImageView android:id="@+id/w_cover" android:layout_width="56dp" android:layout_height="56dp"
+        android:scaleType="centerCrop" android:src="@mipmap/ic_launcher" />
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+        android:orientation="vertical" android:paddingStart="10dp" android:paddingEnd="6dp">
+        <TextView android:id="@+id/w_title" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="GC Station" android:textColor="#FFF4EEFF" android:textSize="15sp" android:textStyle="bold"
+            android:singleLine="true" android:ellipsize="end" />
+        <TextView android:id="@+id/w_sub" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="Touche pour ouvrir la télécommande" android:textColor="#FFFF2FD0" android:textSize="12sp"
+            android:singleLine="true" android:ellipsize="end" />
+    </LinearLayout>
+    <ImageButton android:id="@+id/w_prev" android:layout_width="38dp" android:layout_height="38dp"
+        android:background="@drawable/widget_btn" android:src="@drawable/ic_prev" android:padding="9dp" android:scaleType="fitCenter"
+        android:contentDescription="Précédent" />
+    <ImageButton android:id="@+id/w_play" android:layout_width="46dp" android:layout_height="46dp" android:layout_marginStart="6dp"
+        android:layout_marginEnd="6dp" android:background="@drawable/widget_play" android:src="@drawable/ic_play" android:padding="11dp"
+        android:scaleType="fitCenter" android:contentDescription="Lecture / pause" />
+    <ImageButton android:id="@+id/w_next" android:layout_width="38dp" android:layout_height="38dp"
+        android:background="@drawable/widget_btn" android:src="@drawable/ic_next" android:padding="9dp" android:scaleType="fitCenter"
+        android:contentDescription="Suivant" />
+</LinearLayout>
