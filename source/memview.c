@@ -130,3 +130,30 @@ static void draw_mem(void) {
     static const char *const k[] = { "B" }, *const lb[] = { "RETOUR" };
     tl_legend(k, lb, 1);
 }
+
+/* v230 : les memes chiffres pour le telephone (page /memoire, tab_phone.c) : JSON, a liberer */
+static char *mv_json(void) {
+    sbuf_t s = { NULL, 0, 0 };
+    char n[96];
+    snprintf(n, sizeof(n), "{\"ver\":\"%s\",\"build\":%d,\"up\":%u,\"free\":%u,\"used\":%u,\"big\":%u,\"step\":%u,\"hist\":[",
+             GCMP3_VERSION, GCMP3_BUILD, (unsigned)(now_ms() / 1000), (unsigned)mv_free, (unsigned)mv_used, (unsigned)mv_big,
+             tl_screen == TL_MEM ? 1u : 3u);
+    sb_add(&s, n);
+    int cnt = mv_n, pos = mv_pos;
+    for (int i = 0; i < cnt; i++) { int k = (pos - cnt + i + MV_HIST) % MV_HIST; snprintf(n, sizeof(n), "%s%u", i ? "," : "", (unsigned)mv_hf[k] * 16u); sb_add(&s, n); }
+    sb_add(&s, "],\"tabs\":[");
+    int first = 1;
+    for (int t = 0; t < TAB_COUNT; t++) {
+        if (!mv_tab_seen[t]) continue;
+        sb_add(&s, first ? "[" : ",["); first = 0;
+        sb_json_str(&s, TR(nv_tab_names[t]));
+        snprintf(n, sizeof(n), ",%u]", (unsigned)(mv_tab_min[t] / 1024)); sb_add(&s, n);
+    }
+    snprintf(n, sizeof(n), "],\"boot\":%u,\"steps\":[", (unsigned)mv_bt_total); sb_add(&s, n);
+    for (int i = 0; i < mv_bt_k; i++) {
+        sb_add(&s, i ? ",[" : "["); sb_json_str(&s, mv_bt_n[i]);
+        snprintf(n, sizeof(n), ",%u]", (unsigned)mv_bt_ms[i]); sb_add(&s, n);
+    }
+    sb_add(&s, "]}");
+    return s.b;
+}

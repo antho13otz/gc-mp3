@@ -8,6 +8,7 @@
 #define PHONE_PORT 80
 #endif
 #include "phone_page.h"
+#include "memoire_page.h"                       /* v230 : /memoire */
 #include "qrcodegen.h"
 #ifndef SOL_SOCKET
 #define SOL_SOCKET 0xfff
@@ -133,6 +134,7 @@ static int tp_find_photo(const char *name) {
     return -1;
 }
 
+static char *mv_json(void);                                     /* v230 : memview.c */
 static void tp_push(int c, int i) {
     int n = (tp_qt + 1) % 16;
     if (n == tp_qh) return;                        /* file pleine : on ignore */
@@ -1030,6 +1032,8 @@ static void tp_handle(s32 c) {
         tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
     }
     else if (!strcmp(target, "/collection")) tp_reply(c, 200, "text/html; charset=utf-8", collection_page, (int)strlen(collection_page));   /* v191 */
+    else if (!strcmp(target, "/memoire")) tp_reply(c, 200, "text/html; charset=utf-8", memoire_page, (int)strlen(memoire_page));   /* v230 */
+    else if (!strcmp(target, "/api/memoire")) { char *j = mv_json(); tp_reply(c, 200, "application/json", j ? j : "{}", j ? (int)strlen(j) : 2); free(j); }
     else if (!strcmp(target, "/recap")) tp_reply(c, 200, "text/html; charset=utf-8", recap_page, (int)strlen(recap_page));   /* v191 */
     else if (!strcmp(target, "/api/recap")) {
         x73_rj_ready = 0; x73_rj_want = 1;
