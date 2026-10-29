@@ -59,8 +59,14 @@ for i in $(seq 1 120); do            # serveur du telephone : port 80 (root) ou 
 done
 expect() {   # expect <description> <motif> <commande curl...>
     local what=$1 pat=$2; shift 2
-    local r; r=$(curl -s -m 15 "$@" 2>&1)
-    if echo "$r" | grep -q -- "$pat"; then note "telephone : $what"; else fail "telephone : $what (reponse : ${r:0:200})"; fi
+    local r="" k
+    for k in 1 2 3; do                     # (reponse vide : serveur occupe ; etat pas encore a jour : on retente)
+        r=$(curl -s -m 15 "$@" 2>&1)
+        echo "$r" | grep -q -- "$pat" && { note "telephone : $what"; return; }
+        [ -n "$r" ] && ! echo "$*" | grep -q "api/state" && break
+        pause 2
+    done
+    fail "telephone : $what (reponse : ${r:0:200})"
 }
 if [ -z "$H" ]; then
     fail "telephone : le serveur ne repond pas"
