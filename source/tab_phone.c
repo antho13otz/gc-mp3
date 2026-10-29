@@ -1339,6 +1339,13 @@ static void tp_handle(s32 c) {
         if (ok) { tp_shown_busy = 1; tp_push(PC_SHOWNAME, 0); }
         tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
     }
+    else if (!strcmp(target, "/test.txt")) {                 /* v259 : dernier test de la console (Outils) */
+        long sz = 0;
+        u8 *b = sd_ok ? read_file(GCD_LOG "/test-console.txt", 64 * 1024, &sz) : NULL;
+        if (b) tp_reply(c, 200, "text/plain; charset=utf-8", b, (int)sz);
+        else tp_reply(c, 404, "text/plain; charset=utf-8", "Pas encore de test (START > Outils > Test de la console)", 56);
+        free(b);
+    }
     else if (!strcmp(target, "/capture.bmp")) tp_send_capture(c);   /* v234 : ce qu'affiche la tele */
     else if (!strcmp(target, "/rapport")) tp_reply(c, 200, "text/html; charset=utf-8", rapport_page, (int)strlen(rapport_page));   /* v234 */
     else if (!strcmp(target, "/api/journal")) {              /* v234 : dernieres actions + journal de plantage */

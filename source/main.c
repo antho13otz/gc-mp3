@@ -386,6 +386,7 @@ static void perf_frame(int tb) {                    /* debut d'une image : on co
         u32 tot = n - pfx_frame_t0;
         pfx_frames[tb]++;
         if (tot > pfx_worst[tb]) pfx_worst[tb] = tot;
+        for (int i = 0; i < PH_N; i++) if (pfx_cur[i] > 60000000u) pfx_cur[i] = 0;   /* (v259 : temps negatif (mesure a cheval) : ignore) */
         int top = PH_N; u32 tv = 0;
         for (int i = 0; i < PH_N; i++) {
             pfx_sum[tb][i] += pfx_cur[i];
@@ -7439,6 +7440,8 @@ static int nat_ld_on = 0;                       /* v64 : ecran de chargement de 
 static void nat_sim_loading(void);                     /* v109 : simulateur : PCSIM_CHARGEMENT=1 montre l'ecran de chargement */
 #endif
 static void nat_draw_loading(void);
+static void sx_overlay(void);                          /* v259 : selftest.c */
+static void sx_tick(void);
 static void perf_overlay(void) {
     char b[160];
     snprintf(b, sizeof(b), "%u img/s  pire %u ms%s%s", (unsigned)pfx_fps, (unsigned)pfx_worst_ms,
@@ -7602,6 +7605,7 @@ static void draw(void) {
     if (tab != TAB_FILES) DP("share_draw", share_draw());   /* v137 : QR code d'un partage, dans tous les onglets (journal du jeu) */
     DP("gp_draw", gp_draw());
     if (perf_on) perf_overlay();
+    sx_overlay();                                        /* v259 : test de la console (selftest.c) */
     service_audio();
 #ifndef GEKKO
     dp_report();
@@ -13935,6 +13939,7 @@ static void music_pump(void) {
 #include "pet.c"                               /* v207 : le compagnon */
 #include "memview.c"                           /* v220 : Outils > Memoire en direct */
 #include "themes.c"                            /* v233 : themes a telecharger */
+#include "selftest.c"                          /* v259 : Outils > Test de la console */
 #include "gspace.c"                            /* v196 : espace Jeux GameCube (vitrine 3D, filtres, applis) */
 #include "jeux_cfg.c"                          /* v75 : reglages des jeux */
 #include "igr.c"                               /* v39 : A + Z + START en jeu -> GC-MP3 */
@@ -14125,13 +14130,14 @@ int main(int argc, char **argv) {
         gb_bg();                                            /* v213 : radios du globe chargees en fond (globe.c) */
         mem_tick();                                         /* v220 : memoire (memview.c) */
         upg_tick();                                         /* v229 : garde-fou apres une mise a jour (update.c) */
+        sx_tick();                                          /* v259 : test de la console (selftest.c) */
         /* activite de la manette (economiseur d'ecran) */
         int sx = PAD_SubStickX(0), sy = PAD_SubStickY(0), mx = PAD_StickX(0), my = PAD_StickY(0);
         int moved = abs(sx) > 40 || abs(sy) > 40 || abs(mx) > 40 || abs(my) > 40;
         if (down || moved || kfire) last_input_ms = now;
         if (saver_on) {
             if (down || moved || kfire) { saver_on = 0; down = 0; held = 0; kfire = 0; }
-        } else if (saver_min > 0 && now - last_input_ms > (u64)saver_min * 60000 && !kb_open && !menu_open && !party_on && !night_on && !fun_mode) {
+        } else if (saver_min > 0 && now > last_input_ms && now - last_input_ms > (u64)saver_min * 60000 && !kb_open && !menu_open && !party_on && !night_on && !fun_mode) {   /* (v259 : derniere action notee apres "now" : pas un temps negatif enorme) */
             saver_on = 1;
         }
 
