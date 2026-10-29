@@ -240,7 +240,7 @@ static void stats_save(void) { stats_save_x(0); }
 static void add_pump(void);
 /* boucle principale : compte le morceau en cours, enregistre quand rien ne bouge */
 static void stats_pump(void) {
-    if (src == SRC_FILE && playing && !stat_counted && cur_track >= 0 && cur_track < nfiles && !is_retro[cur_track]) {
+    if (!sx_quiet && src == SRC_FILE && playing && !stat_counted && cur_track >= 0 && cur_track < nfiles && !is_retro[cur_track]) {
         int d = dur_cache[cur_track];
         u32 need = 30u * 48000u;
         if (d > 0 && d < 60) need = (u32)d * 24000u;               /* morceau court : la moitie */

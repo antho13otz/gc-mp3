@@ -634,7 +634,20 @@ s32 CARD_Mount(s32 chn, void *w, cardcallback cb) { (void)w; (void)cb; return sc
 s32 CARD_Unmount(s32 chn) { (void)chn; return CARD_ERROR_READY; }
 s32 CARD_Probe(s32 chn) { return sc_ok(chn); }
 s32 CARD_ProbeEx(s32 chn, s32 *m, s32 *s) { if (m) *m = sc_ok(chn) ? 16 : 0; if (s) *s = 8192; return sc_ok(chn) ? CARD_ERROR_READY : CARD_ERROR_NOCARD; }
-s32 CARD_Open(s32 chn, const char *n, card_file *f) { (void)chn; (void)n; (void)f; return CARD_ERROR_NOFILE; }
+static int sc_find(s32 chn, const char *n) {          /* (v261 : par nom, pour le code de jeu en cours) */
+    if (!sc_ok(chn)) return -1;
+    for (int i = 0; i < SC_MAXF; i++) {
+        sc_file *x = &sc_f[chn][i];
+        if (x->used && !memcmp(x->e.gamecode, sc_gc, 4) && !memcmp(x->e.company, sc_co, 2) && !strncmp((const char *)x->e.filename, n, CARD_FILENAMELEN)) return i;
+    }
+    return -1;
+}
+s32 CARD_Open(s32 chn, const char *n, card_file *f) {
+    int i = sc_find(chn, n);
+    if (i < 0) return sc_ok(chn) ? CARD_ERROR_NOFILE : CARD_ERROR_NOCARD;
+    f->chn = chn; f->filenum = i; f->len = (s32)sc_f[chn][i].len; f->offset = 0;
+    return CARD_ERROR_READY;
+}
 s32 CARD_OpenEntry(s32 chn, card_dir *e, card_file *f) {
     if (!sc_ok(chn) || e->fileno >= SC_MAXF || !sc_f[chn][e->fileno].used) return CARD_ERROR_NOFILE;
     f->chn = chn; f->filenum = (s32)e->fileno; f->len = (s32)sc_f[chn][e->fileno].len; f->offset = 0;
@@ -671,7 +684,11 @@ s32 CARD_Write(card_file *f, void *b, u32 l, u32 o) {
     if (!sc_on || !x->used || o + l > x->len) return CARD_ERROR_IOERROR;
     memcpy(x->data + o, b, l); return CARD_ERROR_READY;
 }
-s32 CARD_Delete(s32 chn, const char *n) { (void)chn; (void)n; return CARD_ERROR_NOFILE; }
+s32 CARD_Delete(s32 chn, const char *n) {
+    int i = sc_find(chn, n);
+    if (i < 0) return sc_ok(chn) ? CARD_ERROR_NOFILE : CARD_ERROR_NOCARD;
+    free(sc_f[chn][i].data); memset(&sc_f[chn][i], 0, sizeof(sc_file)); return CARD_ERROR_READY;
+}
 s32 CARD_DeleteEntry(s32 chn, card_dir *d) {
     if (!sc_ok(chn) || d->fileno >= SC_MAXF || !sc_f[chn][d->fileno].used) return CARD_ERROR_NOFILE;
     free(sc_f[chn][d->fileno].data); memset(&sc_f[chn][d->fileno], 0, sizeof(sc_file)); return CARD_ERROR_READY;

@@ -61,6 +61,7 @@ static void pet_save(void) {
 
 /* (chaque image) : ce qui joue nourrit le compagnon */
 static void pet_tick(void) {
+    if (sx_quiet) return;                                  /* v261 : (le test de la console ne nourrit pas le compagnon) */
     pet_load();
     int cat = -1;
     if (src == SRC_FILE && playing && !paused && cur_track >= 0 && cur_track < nfiles) {

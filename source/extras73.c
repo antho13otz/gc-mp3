@@ -174,6 +174,7 @@ static int rh_skip(const char *ti, const char *st) {
 }
 /* v195 : la ligne est preparee dans la boucle, ecrite par le fil (rh_append_do) */
 static void rh_append(const char *st, const char *ti) {
+    if (sx_quiet) return;                                  /* v261 : (radio du test de la console : pas dans l'historique) */
     if (!sd_ok || sd_virtual) return;
     char name[100], t2[200], line[360];
     text_display(st, name, sizeof(name));

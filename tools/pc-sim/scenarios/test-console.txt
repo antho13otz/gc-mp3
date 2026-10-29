@@ -49,7 +49,7 @@ wait 120ms
 wait 300ms
 press A
 wait 800ms
-press A
+press X
 wait 60s
 shot tc1-son
 wait 120s

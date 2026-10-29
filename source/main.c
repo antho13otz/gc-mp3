@@ -173,6 +173,8 @@ static void theme_apply(int id) {
    En Moderne, les couleurs violettes deviennent du gris (fonds, textes) ou la
    couleur d'accent (selection) ; le theme choisit la couleur d'accent. */
 static int ui_skin = 0;                                 /* v101 : 2 = Nouvelle interface (ui_nova.c) */
+static int sx_quiet = 0;                                /* v261 : test de la console en cours : rien n'est enregistre
+                                                           (reglages, ecoutes, compagnon, records, historique, reprise) */
 static int nv_raw = 0;                                  /* v101 : 1 = couleurs telles quelles (Nouvelle : en-tete, fond) */
 static float nv_cdx = 0;                                /* v101 : decalage de la page pendant une transition */
 static void nv_background(void);                        /* (ui_nova.c) */
@@ -6027,6 +6029,7 @@ static void cfgw_wait(void) {                  /* attend la fin de l'ecriture en
 static int cfgw_same(const char *b, size_t n) { return cfgw_last && n == cfgw_last_len && !memcmp(b, cfgw_last, n); }
 /* enregistrement immediat (le fichier est a jour au retour) */
 static void save_settings(void) {
+    if (sx_quiet) return;                               /* v261 : (test de la console : les reglages d'avant restent sur la carte) */
     settings_dirty = 0;
     if (!sd_ok) return;
     cfgw_wait();
@@ -6046,6 +6049,7 @@ static void save_settings(void) {
 }
 /* enregistrement automatique de la boucle principale : en tache de fond */
 static void save_settings_bg(void) {
+    if (sx_quiet) return;                               /* v261 */
     if (!sd_ok || sd_virtual) { save_settings(); return; }   /* (carte virtuelle en memoire : tout de suite) */
     if (cfgw_bg) return;                       /* (le fil ecrit encore : on reessaie plus tard, settings_dirty reste) */
     settings_dirty = 0;
@@ -6070,6 +6074,7 @@ static void save_settings_bg(void) {
 /* memorise ou on en est (enregistre au plus toutes les 30 s, et en quittant) */
 static void resume_note(int force) {
     static u64 last = 0;
+    if (sx_quiet) return;                               /* v261 : (le morceau du test ne remplace pas la reprise) */
     if (src == SRC_FILE && playing && cur_track >= 0) {
         snprintf(resume_path, sizeof(resume_path), "%s", names[cur_track]);
         resume_pos = (int)(consumed / 48000u);
