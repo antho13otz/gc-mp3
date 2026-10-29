@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v250 (build 712) — patchs de secours de Pulse choisis sur le téléphone
+- Fiche d'un jeu dans l'appli : « Pulse + patchs de secours… » : Pulse universel, vitesse d'un vrai lecteur, lecteur
+  rapide, sans carte virtuelle, sans cheats, sans 16:9, vidéo d'origine, pour **ce lancement seulement**.
+- Console : `/api/launch?...&fx=TS…` (lettres des essais de repair.c) ; `jeux_cfg_apply` les applique à la place de
+  l'essai de la réparation automatique (`jc_fx`), le journal du lancement le dit (« choisi sur le téléphone : … »).
+
 ## Nouveautés v248 (build 711) — LEGO Star Wars II : essai d'une correction du jeu
 - Journal v245 : interruption « fin de dessin » levée et non masquée, mais le fil principal reste endormi dans
   `GXWaitDrawDone` (drapeau jamais remis). Correction propre à GL7P64 (`na_fixes`) : la boucle d'attente saute

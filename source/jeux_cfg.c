@@ -239,6 +239,10 @@ static void jc_save(void) {
     for (int i = 0; i < JC_N - JC_V0; i++) fprintf(f, "%s = %d\n", jc_vkey[i], jc_v[i]);
     fclose(f);
 }
+/* v250 : "patchs de secours" choisis sur le telephone pour CE lancement (lettres des essais de repair.c :
+   S vitesse d'un vrai lecteur, F lecteur rapide, T Pulse universel, C sans carte virtuelle, H sans cheats,
+   W sans 16:9 force, V video d'origine). Remplacent l'essai de la reparation automatique, puis sont oublies. */
+static char jc_fx[12] = "";
 /* juste avant de lancer un jeu : ses reglages (resident = lance avec Resident) */
 static void jeux_cfg_apply(const char *id, int resident) {
     jc_load(id);
@@ -257,7 +261,25 @@ static void jeux_cfg_apply(const char *id, int resident) {
     nat_nocheat = jc_v[JC_NOCHEAT - JC_V0] == 1;             /* v140 */
     nat_nocard = !strcmp(jc_card, "-");
     nat_owncard = !strcmp(jc_card, "+");                      /* v239 */
-    if (resident) rep_apply(id);                              /* v140 : essai de reparation (pour ce lancement) */
+    if (resident && jc_fx[0]) {                                /* v250 : patchs de secours choisis sur le telephone */
+        char m[100] = "choisi sur le telephone :";
+        for (const char *c = jc_fx; *c; c++) {
+            const char *nm = "";
+            switch (*c) {
+            case 'S': nat_speed = 1; nat_speed_auto = 0; nm = " vrai lecteur"; break;
+            case 'F': nat_speed = 0; nat_speed_auto = 0; nm = " lecteur rapide"; break;
+            case 'T': nat_trap = 1; nm = " Pulse universel"; break;
+            case 'C': nat_nocard = 1; nat_owncard = 0; nm = " sans carte virtuelle"; break;
+            case 'H': nat_nocheat = 1; nm = " sans cheats"; break;
+            case 'W': nat_ws = 0; nm = " sans 16:9"; break;
+            case 'V': nat_vmode = 0; nat_deflick = 0; nat_wide = 0; nm = " video d'origine"; break;
+            }
+            if (strlen(m) + strlen(nm) + 2 < sizeof(m)) { if (c != jc_fx) strcat(m, ","); strcat(m, nm); }
+        }
+        snprintf(rep_msg, sizeof(rep_msg), "%s", m);
+        crumb("patchs de secours (telephone) %s : %s", id, jc_fx);
+        jc_fx[0] = 0;
+    } else if (resident) rep_apply(id);                       /* v140 : essai de reparation (pour ce lancement) */
     int changed = 0;
     if (jc_lang >= 0 && jc_lang != SYS_GetLanguage()) { sram_back_lang = SYS_GetLanguage(); gc_lang_set(jc_lang, !resident); changed = 1; }
     int st = SYS_GetSoundMode() != SYS_SOUND_MONO;

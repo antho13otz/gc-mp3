@@ -1453,9 +1453,12 @@ static void x73_launch_pump(void) {
     tab = TAB_GAMES; tab_enter(TAB_GAMES);
     gl_sel = k;
     const char *e;
+    snprintf(jc_fx, sizeof(jc_fx), "%s", m ? x73_launch_fx : "");   /* v250 : patchs de secours (pour ce lancement) */
+    x73_launch_fx[0] = 0;
     if (m) e = game_boot_auto(k);                       /* (ne revient pas si ca marche ; v190 : comme A dans la fiche) */
     else { gl_status("Lancement du jeu..."); e = game_boot(k, 0); }
     gl_busy[0] = 0;
+    jc_fx[0] = 0;                                         /* (pas lance : les patchs ne restent pas pour la prochaine fois) */
     if (e) gl_note(e);
 }
 

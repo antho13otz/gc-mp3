@@ -645,6 +645,7 @@ static char *x73_gj = NULL;                              /* JSON des jeux (const
 static volatile int x73_gj_want = 0, x73_gj_ready = 0;
 static volatile int x73_launch_k = -1, x73_launch_m = 0;
 static char x73_launch_id[8] = "";
+static char x73_launch_fx[12] = "";                       /* v250 : patchs de secours (lettres SFTCHWV) */
 /* v191 : ton recap (page /recap du telephone ; JSON fait par la boucle : recap.c) */
 static char *x73_rj = NULL;
 static volatile int x73_rj_want = 0, x73_rj_ready = 0;
@@ -1257,7 +1258,13 @@ static void tp_handle(s32 c) {
         tp_param(q ? q : "", "i", is, sizeof(is));
         tp_param(q ? q : "", "m", ms, sizeof(ms));
         int ok = is[0] && atoi(is) >= 0;
-        { char id[16]; tp_param(q ? q : "", "id", id, sizeof(id)); snprintf(x73_launch_id, sizeof(x73_launch_id), "%.6s", id); }   /* v242 : (l'ID suit le jeu si la liste a change d'ordre) */
+        { char id[16]; tp_param(q ? q : "", "id", id, sizeof(id)); snprintf(x73_launch_id, sizeof(x73_launch_id), "%.6s", id); }
+        {   /* v250 : &fx=ST... : patchs de secours pour ce lancement (seulement les lettres connues) */
+            char fx[16]; int n = 0;
+            tp_param(q ? q : "", "fx", fx, sizeof(fx));
+            for (int k = 0; fx[k] && n < (int)sizeof(x73_launch_fx) - 1; k++) if (strchr("SFTCHWV", fx[k])) x73_launch_fx[n++] = fx[k];
+            x73_launch_fx[n] = 0;
+        }   /* v242 : (l'ID suit le jeu si la liste a change d'ordre) */
         if (ok) { x73_launch_m = atoi(ms) == 1; x73_launch_k = atoi(is); }
         tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
     }

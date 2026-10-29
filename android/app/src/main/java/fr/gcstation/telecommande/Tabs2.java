@@ -249,6 +249,7 @@ class GamesTab extends Tab {
         new NeonDialog(a).title(name).view(box)
             .cancel("Annuler")
             .button("Lanceur de secours", false, () -> launchWith(id, i, 0, name))
+            .button("Pulse + patchs de secours…", false, () -> fxDialog(id, i, name))
             .button("Lancer avec Pulse", true, () -> launchWith(id, i, 1, name))
             .onDismiss(() -> flushMask(null))
             .show();
@@ -439,6 +440,55 @@ class GamesTab extends Tab {
         });
     }
     private void launchWith(String id, int i, int m, String name) { flushMask(() -> launch(id, i, m, name)); }
+
+    /** patchs de secours de Pulse, pour ce lancement seulement (les essais de la reparation automatique, au choix) */
+    private static final String[][] FX = {
+        { "T", "Pulse universel", "Attrape les accès au lecteur pendant le jeu (jeux qui se décompressent, plusieurs programmes : PSO…)" },
+        { "S", "Vitesse d'un vrai lecteur", "Pour les jeux qui bloquent quand le disque répond trop vite" },
+        { "F", "Lecteur rapide", "Le contraire : pour un jeu réglé sur la vitesse d'un vrai lecteur" },
+        { "C", "Sans carte mémoire virtuelle", "Le jeu utilise tes vraies cartes" },
+        { "H", "Sans cheats", "Le jeu démarre sans ses cheats (ils restent choisis)" },
+        { "W", "Sans 16:9 forcé", "Image d'origine du jeu" },
+        { "V", "Vidéo d'origine", "Sans 480p / 60 Hz / sans flou / image large" } };
+    private void fxDialog(final String id, final int i, final String name) {
+        final boolean[] on = new boolean[FX.length];
+        LinearLayout box = new LinearLayout(a);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(UiKit.hint(a, "Pour ce lancement seulement : les réglages du jeu ne changent pas. Choisis un ou plusieurs patchs."));
+        for (int k = 0; k < FX.length; k++) {
+            final int fk = k;
+            LinearLayout row = new LinearLayout(a);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setBackground(Neon.button(a, 14, false));
+            row.setPadding(dp(14), dp(10), dp(12), dp(10));
+            LinearLayout tx = new LinearLayout(a);
+            tx.setOrientation(LinearLayout.VERTICAL);
+            tx.addView(Neon.text(a, FX[k][1], 15, Neon.TEXT, true));
+            tx.addView(Neon.text(a, FX[k][2], 12, Neon.FAINT, false));
+            row.addView(tx, lp(0, -2, 1));
+            final View sw = NeonDialog.toggle(a, false);
+            row.addView(sw, lp(dp(48), dp(28), 0));
+            row.setClickable(true);
+            row.setOnClickListener(v -> {
+                v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+                on[fk] = !on[fk];
+                if (on[fk] && (fk == 1 || fk == 2)) { int other = fk == 1 ? 2 : 1; if (on[other]) { on[other] = false; NeonDialog.paintToggle(a, ((LinearLayout) ((LinearLayout) v.getParent()).getChildAt(other + 1)).getChildAt(1), false); } }
+                NeonDialog.paintToggle(a, sw, on[fk]);
+            });
+            LinearLayout.LayoutParams p = lp(-1, -2, 0);
+            p.topMargin = dp(8);
+            box.addView(row, p);
+        }
+        new NeonDialog(a).title("Patchs de secours").view(box).cancel("Annuler")
+            .button("Lancer avec Pulse", true, () -> {
+                StringBuilder fx = new StringBuilder();
+                for (int k = 0; k < FX.length; k++) if (on[k]) fx.append(FX[k][0]);
+                if (fx.length() == 0) { Toast.makeText(a, "Aucun patch choisi : lancement normal avec Pulse", Toast.LENGTH_SHORT).show(); }
+                final String f = fx.toString();
+                flushMask(() -> Api.get("/api/launch?i=" + Math.max(0, i) + "&m=1&id=" + id + (f.isEmpty() ? "" : "&fx=" + f),
+                    r -> Toast.makeText(a, r != null ? "Lancement avec Pulse" + (f.isEmpty() ? "" : " + " + f.length() + " patch" + (f.length() > 1 ? "s" : "")) + " : " + name : "Refusé", Toast.LENGTH_SHORT).show()));
+            }).show();
+    }
 
     static void launch(Activity a, String id, int i, int m, String name) {
         Api.get("/api/launch?i=" + Math.max(0, i) + "&m=" + m + "&id=" + id, r -> Toast.makeText(a, r != null ? "Lancement sur la télé : " + name : "Refusé", Toast.LENGTH_SHORT).show());
