@@ -2083,6 +2083,15 @@ static int nx_dol(u32 dst, u32 off, u32 len) {
     H.exec_last = entry;
     return 1;
 }
+/* une lecture du .dol suivi (xdol) : les morceaux de ses sections de code branches a leur adresse finale */
+static void nx_dol_sections(u32 dst, u32 off, u32 len) {
+    for (int i = 0; i < 7; i++) {
+        u32 so = xdol.off + xdol.so[i], ss = xdol.ss[i];   /* (position dans l'ISO = debut du .dol + position dans le .dol) */
+        if (!ss || off >= so + ss || off + len <= so) continue;
+        u32 a0 = off > so ? off : so, a1 = off + len < so + ss ? off + len : so + ss;
+        nx_patch2(dst + (a0 - off), xdol.sa[i] + (a0 - so), a1 - a0);
+    }
+}
 /* v251 : un .dol entier lu d'un coup par le jeu (chargeur maison : Phantasy Star Online lit son vrai programme puis
    le recopie lui-meme a sa place) : ses sections de code sont branchees dans le tampon, avec leur adresse finale. */
 static int nx_whole_dol(u32 dst, u32 off, u32 len) {
@@ -2109,6 +2118,18 @@ static int nx_whole_dol(u32 dst, u32 off, u32 len) {
 /* une lecture terminee (dst = memoire, off / len = ISO) : le code de redemarrage, puis tout ce qu'il charge */
 static void nx_read_done(u32 dst, u32 off, u32 len) {
     if (!exec_on && !exec_a && nx_whole_dol(dst, off, len)) return;   /* v251 */
+    if (!exec_on && !exec_a && nx_dol(dst, off, len)) {   /* v252 : un .dol relu alors qu'il tourne deja (son propre main.dol) : rien a brancher */
+        u32 so0 = xdol.so[0], sa0 = xdol.sa[0];
+        int same = xdol.ss[0] >= 64 && so0 + 64 <= len;
+        for (u32 k = 0; same && k < 16; k++) if (rbe(dst + so0 + k * 4) != rbe(sa0 + k * 4)) same = 0;
+        if (same) { xdol.ok = 0; return; }
+    }
+    if (!exec_on && !exec_a && xdol.ok) {                 /* v252 : un .dol lu par morceaux par le jeu (PsoV3.dol de PSO) */
+        if (H.exec_last != xdol.off) { H.exec_n++; nr_log_add(0xEB000000u | (H.tramp_n & 0xFFFFFFu), off, len, xdol.off); nr_log_flush(); }
+        H.exec_last = xdol.off;
+        nx_dol_sections(dst, off, len);
+        return;
+    }
     if (!exec_on && !exec_a) {
         if (off == 0x2440 && len == 0x20 && H.vi_count) {   /* OSExec commence : le jeu relit l'en-tete de l'apploader */
             H.exec_n++; H.exec_last = off; xdol.ok = 0;
@@ -2123,16 +2144,8 @@ static void nx_read_done(u32 dst, u32 off, u32 len) {
         nr_log_flush();
         return;
     }
-    if (nx_dol(dst, off, len)) return;                    /* en-tete du programme suivant */
-    if (xdol.ok) {                                        /* une section (ou un morceau) : branchee a son adresse finale */
-        for (int i = 0; i < 7; i++) {
-            u32 so = xdol.off + xdol.so[i], ss = xdol.ss[i];   /* (position dans l'ISO = debut du .dol + position dans le .dol) */
-            if (!ss || off >= so + ss || off + len <= so) continue;
-            u32 a0 = off > so ? off : so, a1 = off + len < so + ss ? off + len : so + ss;
-            nx_patch2(dst + (a0 - off), xdol.sa[i] + (a0 - so), a1 - a0);
-        }
-        return;
-    }
+    nx_dol(dst, off, len);                                /* en-tete du programme suivant (v252 : et la suite de cette lecture) */
+    if (xdol.ok) { nx_dol_sections(dst, off, len); return; }
     if (exec_on) nx_patch(dst & ~3u, len);                /* (ancien apploader : ce qu'il charge arrive a sa place) */
 }
 /* ======================= v121 : jeux a 2 disques =======================

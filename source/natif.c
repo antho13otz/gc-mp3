@@ -1141,6 +1141,11 @@ static void nat_journal_convert(void) {
                         (unsigned)(c & 0x7FFFFFu), (c >> 23) & 1 ? "ecriture" : "lecture", (unsigned)o, (c >> 23) & 1 ? " <- " : "", (c >> 23) & 1 ? (unsigned)l : 0u, (unsigned)in);
                 continue;
             }
+            if ((c >> 24) == 0xEB) {                      /* v252 : un .dol lu par morceaux par le jeu */
+                fprintf(f, "  PROGRAMME LU PAR LE JEU (.dol en morceaux, debut a %08X) : en-tete vu a la lecture pos %08X (%u octets) ; acces branches avant : %u\n",
+                        (unsigned)in, (unsigned)o, (unsigned)l, (unsigned)(c & 0xFFFFFFu));
+                continue;
+            }
             if ((c >> 24) == 0xEC) {                      /* v251 : un .dol entier lu par le jeu (chargeur maison) */
                 fprintf(f, "  PROGRAMME LU PAR LE JEU (.dol entier, pos %08X, %u octets) : %u acces au lecteur branches ; entree %08X\n",
                         (unsigned)o, (unsigned)l, (unsigned)(c & 0xFFFFFFu), (unsigned)in);

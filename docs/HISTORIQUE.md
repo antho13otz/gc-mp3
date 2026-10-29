@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v252 (build 714) — Pulse : un .dol lu en plusieurs morceaux par le jeu (PsoV3.dol)
+- Journal v251 de PSO : le chargeur lit d'abord un petit programme (branché en v251), puis **PsoV3.dol** (5,2 Mo) par
+  morceaux de 512 Ko. Le résident suit maintenant ce .dol hors d'OSExec : en-tête reconnu dans la 1re lecture
+  (`nx_dol`), puis chaque morceau de ses sections de code branché à son adresse finale (`nx_dol_sections`), y compris
+  la suite de la lecture qui contient l'en-tête. Un .dol relu alors qu'il tourne déjà (son propre main.dol) est ignoré.
+
 ## Nouveautés v251 (build 713) — Pulse : programme lu par le jeu lui-même (Phantasy Star Online)
 - PSO (GPOP8P) : le main.dol n'est qu'un chargeur. Il lit son vrai programme (environ 200 Ko, au bout du disque),
   le recopie lui-même à sa place et y saute : ce programme parlait au vrai lecteur (erreur « An error has occurred »).
