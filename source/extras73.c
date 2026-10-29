@@ -665,7 +665,6 @@ static int bk_restore(char *msg, int cap) {
    3 et 4 = table des blocs (2 copies), puis les donnees. La copie a jour = celle dont le compteur
    est le plus grand (et la somme de controle juste). */
 #define VC_B 8192
-#define VC_MAXF 16
 typedef struct { int slot; u8 de[64]; char title[64], sub[64]; int blocks; } vc_ent;
 static char vc_files[VC_MAXF][64];
 static int vc_nf = 0, vc_cur = 0;                     /* fichiers de cartes, carte affichee */
@@ -694,6 +693,39 @@ static const char *vc_path(int i, char *out, int cap) { snprintf(out, cap, NA_CA
 static int vc_nblocks(void) { return (int)(vc_size / VC_B); }
 
 static int vc_fcmp(const void *a, const void *b) { return strcasecmp((const char *)a, (const char *)b); }
+/* v239 : carte d'un seul jeu (carte-A-GALE01.raw) : son titre a la place du nom du fichier */
+static int vc_is_game_card(const char *f) {
+    int l = (int)strlen(f);
+    return l >= 16 && (!strncasecmp(f, "carte-A-", 8) || !strncasecmp(f, "carte-B-", 8)) && !strcasecmp(f + l - 4, ".raw") &&
+           strcasecmp(f + 8, "EUR.raw") && strcasecmp(f + 8, "USA.raw") && strcasecmp(f + 8, "JAP.raw");
+}
+static const char *vc_label(const char *f, char *out, int cap) {
+    snprintf(out, cap, "%s", f);
+    if (!vc_is_game_card(f)) return out;
+    char id[8]; int n = 0;
+    for (const char *q = f + 8; *q && *q != '.' && n < 6; q++) id[n++] = *q;
+    id[n] = 0;
+    static char last_f[64], last_t[96];                 /* (dessine a chaque image : le dernier titre trouve est garde) */
+    if (!strcmp(last_f, f)) { snprintf(out, cap, "%s", last_t[0] ? last_t : f); return out; }
+    char title[80] = "";
+    for (int k = 0; k < gl_n && !title[0]; k++) if (!strncasecmp(gl[k].id, id, n) && gl[k].title[0]) snprintf(title, sizeof(title), "%s", gl[k].title);
+    if (!title[0] && sd_ok) {                           /* (liste des jeux pas encore chargee : celle gardee sur la carte) */
+        FILE *lf = fopen(GL_LIST, "r");
+        static char line[640];
+        while (lf && !title[0] && fgets(line, sizeof(line), lf)) {
+            char *c[6]; int nc = 0;
+            c[nc++] = line;
+            for (char *q = line; *q && nc < 6; q++) if (*q == '\t') { *q = 0; c[nc++] = q + 1; }
+            if (nc >= 6 && !strncasecmp(c[2], id, n)) { char *e = strchr(c[5], '\t'); if (e) *e = 0; e = strchr(c[5], '\n'); if (e) *e = 0; snprintf(title, sizeof(title), "%s", c[5]); }
+        }
+        if (lf) fclose(lf);
+    }
+    snprintf(last_f, sizeof(last_f), "%s", f);
+    last_t[0] = 0;
+    if (title[0]) snprintf(last_t, sizeof(last_t), "%s%s", title, f[6] == 'B' ? " (slot B)" : "");
+    snprintf(out, cap, "%s", last_t[0] ? last_t : f);
+    return out;
+}
 static void vc_scan(void) {
     vc_nf = 0;
     DIR *d = sd_ok ? opendir(NA_CARD_DIR) : NULL;
@@ -1161,7 +1193,7 @@ static void draw_vcard(void) {
         return;
     }
     /* carte affichee */
-    snprintf(buf, sizeof(buf), "%s%s", vc_nf ? vc_files[vc_cur] : "-", vc_nf && !strcasecmp(vc_files[vc_cur], vc_active) ? "   (Pulse)" : "");
+    { char lb[96]; snprintf(buf, sizeof(buf), "%s%s", vc_nf ? vc_label(vc_files[vc_cur], lb, sizeof(lb)) : "-", vc_nf && !strcasecmp(vc_files[vc_cur], vc_active) ? "   (Pulse)" : ""); }
     if (!vc_hub) gx_text_r(F_SMALL, 582, 70, buf, RGBA(190, 160, 255, 255));
     if (vc_ok) snprintf(buf, sizeof(buf), "%d sauvegarde%s, %d blocs libres sur %d", vc_n, vc_n > 1 ? "s" : "", vc_free_blocks(), vc_nblocks() - 5);
     else snprintf(buf, sizeof(buf), "%s%s", vc_why, vc_blank || (vc_size && !vc_ok) ? "  -  X : formater" : "");

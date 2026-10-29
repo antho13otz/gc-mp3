@@ -10,7 +10,8 @@
 
 static char vc_active[64];                                    /* (natif.c / extras73.c) */
 static const char *pj_launch_check(void);                    /* v191 : limite de temps de jeu (profils.c) */
-static char vc_files[16][64];
+#define VC_MAXF 64                                    /* (v239 : 16 -> 64, une carte par jeu ; extras73.c) */
+static char vc_files[VC_MAXF][64];
 static int vc_nf;
 static void vc_scan(void);
 typedef struct { const char *key; } ic_item;
@@ -184,7 +185,7 @@ static int nat_ws;                                           /* (natif.c) */
 static int jc_v[JC_N - JC_VIDEO];
 static const int jc_vmax[JC_N - JC_VIDEO] = { 4, 2, 2, 4, 4, 3, 3, 2, 2 };   /* (v133 : vitesse : auto / vrai lecteur / rapide) */
 static const char *const jc_vkey[JC_N - JC_VIDEO] = { "video", "sans_flou", "image_large", "stick_c", "gachettes", "frequence_manette", "vitesse_lecteur", "acces_exception", "cheats_coupes" };
-static int nat_vmode, nat_deflick, nat_wide, nat_cstick, nat_trig, nat_poll, nat_speed, nat_trap, nat_nocard, nat_nocheat;   /* (natif.c) */
+static int nat_vmode, nat_deflick, nat_wide, nat_cstick, nat_trig, nat_poll, nat_speed, nat_trap, nat_nocard, nat_owncard, nat_nocheat;   /* (natif.c) */
 static void rep_apply(const char *id);                       /* v140 : reparation automatique (repair.c) */
 static void rep_pre(const char *id);
 static void rep_diag_set(const char *id, int crashed, int noimg, int stuck, int skipped, int cheats, int ws, int card, int vmode, int slow, int trap);
@@ -199,7 +200,7 @@ static int jc_slow_known(const char *id) {
     for (unsigned i = 0; i < sizeof(slow) / sizeof(slow[0]); i++) if (!strncmp(id, slow[i], 3)) return 1;
     return 0;
 }
-static char jc_card[64] = "";                                 /* "" = carte du reglage general ; v140 : "-" = aucune (vraie carte) */
+static char jc_card[64] = "";                                 /* "" = carte du reglage general ; v140 : "-" = aucune (vraie carte) ; v239 : "+" = rien qu'a ce jeu */
 static void jc_path(const char *id, char *out, int cap) { snprintf(out, cap, JC_DIR "/%.6s.txt", id); }
 static void jc_load(const char *id) {
     jc_lang = jc_sound = -1; jc_card[0] = 0; jc_ws = 0; memset(jc_v, 0, sizeof(jc_v));
@@ -255,12 +256,13 @@ static void jeux_cfg_apply(const char *id, int resident) {
     if (!nat_trap && (!strncmp(id, "GLR", 3) || !strncmp(id, "GWXJ13", 6))) nat_trap = 1;
     nat_nocheat = jc_v[JC_NOCHEAT - JC_V0] == 1;             /* v140 */
     nat_nocard = !strcmp(jc_card, "-");
+    nat_owncard = !strcmp(jc_card, "+");                      /* v239 */
     if (resident) rep_apply(id);                              /* v140 : essai de reparation (pour ce lancement) */
     int changed = 0;
     if (jc_lang >= 0 && jc_lang != SYS_GetLanguage()) { sram_back_lang = SYS_GetLanguage(); gc_lang_set(jc_lang, !resident); changed = 1; }
     int st = SYS_GetSoundMode() != SYS_SOUND_MONO;
     if (jc_sound >= 0 && jc_sound != st) { sram_back_sound = st; gc_sound_set(jc_sound, !resident); changed = 1; }
-    if (resident && jc_card[0] && strcmp(jc_card, "-") && strcmp(jc_card, vc_active)) {   /* (pour ce lancement seulement : pas enregistre) */
+    if (resident && jc_card[0] && strcmp(jc_card, "-") && strcmp(jc_card, "+") && strcmp(jc_card, vc_active)) {   /* (pour ce lancement seulement : pas enregistre) */
         snprintf(vc_keep, sizeof(vc_keep), "%s", vc_active);
         snprintf(vc_active, sizeof(vc_active), "%s", jc_card);
     }
@@ -306,15 +308,17 @@ static void jc_close(void) {
     if (jc_changed) { jc_save(); gl_note("R\xC3\xA9glages du jeu enregistr\xC3\xA9s"); }
     ic_on = 0;
 }
-static void jc_card_step(int d) {                             /* "" -> carte-A.raw -> carte-2.raw ... -> "-" (aucune) */
+static int vc_is_game_card(const char *f);
+static void jc_card_step(int d) {                             /* "" -> "+" (rien qu'a ce jeu) -> carte-A.raw ... -> "-" (aucune) */
     vc_scan();
-    int cur = -1;                                             /* (-1 = reglage general, vc_nf = aucune) */
-    if (!strcmp(jc_card, "-")) cur = vc_nf;
-    for (int i = 0; i < vc_nf; i++) if (!strcmp(vc_files[i], jc_card)) cur = i;
-    cur += d;
-    if (cur < -1) cur = vc_nf;
-    if (cur > vc_nf) cur = -1;
-    if (cur < 0) jc_card[0] = 0; else if (cur == vc_nf) snprintf(jc_card, sizeof(jc_card), "-"); else snprintf(jc_card, sizeof(jc_card), "%s", vc_files[cur]);
+    static char lst[VC_MAXF + 3][64]; int n = 0, cur = 0;            /* (v239 : les cartes d'autres jeux ne sont pas proposees) */
+    snprintf(lst[n++], 64, "%s", "");
+    snprintf(lst[n++], 64, "%s", "+");
+    for (int i = 0; i < vc_nf; i++) if (!vc_is_game_card(vc_files[i])) snprintf(lst[n++], 64, "%s", vc_files[i]);
+    snprintf(lst[n++], 64, "%s", "-");
+    for (int i = 0; i < n; i++) if (!strcmp(lst[i], jc_card)) cur = i;
+    cur = (cur + d + n) % n;
+    snprintf(jc_card, sizeof(jc_card), "%s", lst[cur]);
 }
 static void indigo_cfg_input(u32 down, u32 nav, int fire) {
     int nr = jc_rows(), was = jc_sel;
@@ -399,7 +403,7 @@ static void draw_indigo_cfg(void) {
         else if (i == JC_WS) snprintf(buf, sizeof(buf), "%s", jc_ws ? TR("Oui") : TR("Non"));
         else if (i == JC_SPEED && !jc_v[i - JC_V0]) snprintf(buf, sizeof(buf), "%s", jc_slow_known(jc_id) ? TR("Auto : vrai lecteur") : TR("Auto : rapide"));   /* v133 */
         else if (i >= JC_V0) snprintf(buf, sizeof(buf), "%s", TR(vv[i - JC_V0][jc_v[i - JC_V0]]));
-        else snprintf(buf, sizeof(buf), "%s", !strcmp(jc_card, "-") ? TR("Aucune (vraie carte)") : jc_card[0] ? jc_card : TR("R\xC3\xA9glage g\xC3\xA9n\xC3\xA9ral"));
+        else snprintf(buf, sizeof(buf), "%s", !strcmp(jc_card, "-") ? TR("Aucune (vraie carte)") : !strcmp(jc_card, "+") ? TR("Rien qu'\xC3\xA0 ce jeu") : jc_card[0] ? jc_card : TR("R\xC3\xA9glage g\xC3\xA9n\xC3\xA9ral"));
         fit_text_sel(on, F_MED, buf, 240, fv, sizeof(fv));
         gx_text_r(F_MED, 576, ry + 16, fv, on ? RGBA(255, 255, 255, 255) : jc_sel >= 0 && i >= JC_V0 && jc_v[i - JC_V0] ? RGBA(130, 230, 160, 255) : RGBA(190, 160, 255, 255));
     }

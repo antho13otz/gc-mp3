@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v239 (build 683) — une carte mémoire virtuelle par jeu
+- **Réglages du jeu** (Y sur un jeu > Carte mémoire) : nouveau choix **« Rien qu'à ce jeu »** : le jeu a sa propre
+  carte virtuelle (`gc-mp3/resident/carte-A-GALE01.raw`), créée à son premier lancement avec Pulse. Les autres
+  choix restent : réglage général, une carte précise, ou « Aucune (vraie carte) ».
+- **Réglages > Jeux > Pulse > Une carte par jeu** (Non par défaut) : la même chose pour tous les jeux d'un coup.
+  Le réglage d'un jeu passe toujours avant.
+- **Cartes mémoire virtuelles** (START > Outils) : une carte d'un jeu affiche le **titre du jeu** au lieu du nom du
+  fichier ; jusqu'à 64 cartes (avant 16).
+- Simulateur : scénario `cartes-virtuelles`.
+
 ## Nouveautés v238 (build 682) — démarrage plus rapide, sauvegarde complète, ancienne version
 - **Liste de la musique gardée** (`SD:/gc-mp3/cache/musique.txt`) : au démarrage, elle est relue d'un coup au lieu
   de parcourir tous les dossiers. Quelques secondes après, un fil en fond reparcourt les dossiers sans bloquer

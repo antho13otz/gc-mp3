@@ -1535,7 +1535,7 @@ static u32 na_ws_patch(const nat_info_t *in, u8 *dol, u8 *res, u32 at, u32 ceil)
 /* ---------- v122 : reglages du jeu pour Pulse (poses par jeux_cfg_apply) ---------- */
 static int nat_vmode = 0;                                  /* 0 = comme le jeu, 1 = 480p, 2 = PAL 60 Hz, 3 = 240p */
 static int nat_deflick = 0, nat_wide = 0;                  /* sans flou ; image plus large (704 points) */
-static int nat_cstick = 0, nat_trig = 0, nat_poll = 0, nat_speed = 0, nat_trap = 0, nat_nocard = 0, nat_nocheat = 0;   /* (v140 : carte virtuelle / cheats coupes pour ce jeu) */   /* stick C, seuil des gachettes, frequence, vitesse du lecteur ; v139 : acces au lecteur par exception */
+static int nat_cstick = 0, nat_trig = 0, nat_poll = 0, nat_speed = 0, nat_trap = 0, nat_nocard = 0, nat_owncard = 0, nat_nocheat = 0;   /* (v239 : nat_owncard = carte rien qu'a ce jeu ; v140 : carte virtuelle / cheats coupes pour ce jeu) */   /* stick C, seuil des gachettes, frequence, vitesse du lecteur ; v139 : acces au lecteur par exception */
 static u32 na_opt(void) {
     static const u8 thr[4] = { 0, 77, 128, 192 };
     u32 o = 0;
@@ -2639,6 +2639,12 @@ static int nat_card_reg = 0;                              /* v122 : une carte pa
 static const char *na_card_name(int slot, const char *id) {
     static char nm[2][96];
     const char *base = slot ? "carte-B.raw" : vc_active;
+    if (id && !(!slot && vc_keep[0]) && (nat_owncard || nat_card_game)) {   /* v239 : une carte par jeu : carte-A-GALE01.raw */
+        char gid[8]; int n = 0;
+        for (int i = 0; id[i] && n < 6; i++) if (isalnum((unsigned char)id[i])) gid[n++] = id[i];
+        gid[n] = 0;
+        if (n >= 4) { snprintf(nm[slot], sizeof(nm[0]), "carte-%c-%s.raw", slot ? 'B' : 'A', gid); return nm[slot]; }
+    }
     if (!nat_card_reg || (!slot && vc_keep[0]) || !id) { snprintf(nm[slot], sizeof(nm[0]), "%s", base); return nm[slot]; }
     const char *reg = id[3] == 'J' ? "JAP" : na_game_pal(id) ? "EUR" : "USA";
     int bl = (int)strlen(base);
