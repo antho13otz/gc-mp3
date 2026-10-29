@@ -378,6 +378,8 @@ static u32 perf_us(void) {
 #endif
 }
 #define PF(ph, call) do { if (perf_on) { u32 pf_t0_ = perf_us(); call; pfx_cur[ph] += perf_us() - pf_t0_; } else { call; } } while (0)
+static void sx_frame_hook(u32 tot, int tb, int top, u32 top_us);   /* v261 : selftest.c */
+static u32 sx_padmask = 0;
 static void perf_frame(int tb) {                    /* debut d'une image : on compte la precedente */
     u32 n = perf_us();
     if (!perf_on) { pfx_frame_t0 = n; return; }
@@ -408,6 +410,7 @@ static void perf_frame(int tb) {                    /* debut d'une image : on co
         }
         pfx_sec_n++;
         if (tot > pfx_sec_worst) pfx_sec_worst = tot;
+        sx_frame_hook(tot, tb, top, tv);                   /* v261 : test de la console (selftest.c) */
     }
     if (n - pfx_sec_t0 >= 1000000u) { pfx_fps = pfx_sec_n; pfx_worst_ms = pfx_sec_worst / 1000u; pfx_sec_n = 0; pfx_sec_worst = 0; pfx_sec_t0 = n; }
     for (int i = 0; i < PH_N; i++) pfx_cur[i] = 0;
@@ -3549,7 +3552,10 @@ static int other_seek(int sec, int d) {
 /* v72 : MP3 sans blanc : l'en-tete LAME (trame Xing/Info) donne le silence ajoute par l'encodeur
    au debut (delai) et a la fin (remplissage) : on les retire, et la trame Xing (muette) est sautee */
 static long mp3_skip = 0, mp3_left = -1;
-static void decode_file_one(void) {
+static volatile u32 dec_cost_us = 0;                 /* v261 : temps passe a decoder la musique (test de la console) */
+static void decode_file_one_x(void);
+static void decode_file_one(void) { u32 t0 = perf_us(); decode_file_one_x(); dec_cost_us += perf_us() - t0; }
+static void decode_file_one_x(void) {
     static s16 L[1152], R[1152];
     if (file_fmt != FMT_MP3) { decode_other_one(); return; }
     if (fb_end - fb_start < 16384) fbuf_fill();
@@ -7495,13 +7501,20 @@ void gcs_audio_report(void) {                              /* v154 : (simulateur
 }
 void gcs_perf_sim(int on) { if (!on != !perf_on) perf_toggle(); }   /* (simulateur sur PC : PCSIM_PERF=1) */
 #endif
-/* v120 : simulateur (PCSIM_DRAWPROF=1) : detail du dessin des images lentes */
-#ifndef GEKKO
+/* v120 : simulateur (PCSIM_DRAWPROF=1) : detail du dessin des images lentes
+   v261 : aussi sur la console (test de la console : la partie du dessin la plus lente de chaque image bloquee) */
+static const char *dp_top_n = NULL;                     /* (partie la plus lente de la derniere image dessinee) */
+static u32 dp_top_us = 0;
 static u32 dp_t[32], dp_t0;
 static const char *dp_n[32];
 static int dp_k = 0;
 #define DP(name, call) do { u32 t0_ = perf_us(); call; if (dp_k < 32) { dp_n[dp_k] = name; dp_t[dp_k++] = perf_us() - t0_; } } while (0)
 static void dp_report(void) {
+    dp_top_n = NULL; dp_top_us = 0;
+    for (int i = 0; i < dp_k; i++) if (dp_t[i] > dp_top_us) { dp_top_us = dp_t[i]; dp_top_n = dp_n[i]; }
+#ifdef GEKKO
+    dp_k = 0;
+#else
     static int on = -1, thr = 25;
     if (on < 0) { const char *e = getenv("PCSIM_DRAWPROF"); on = e != NULL; if (e && atoi(e) > 1) thr = atoi(e); }
     u32 tot = perf_us() - dp_t0;
@@ -7511,10 +7524,8 @@ static void dp_report(void) {
         printf("\n");
     }
     dp_k = 0;
-}
-#else
-#define DP(name, call) call
 #endif
+}
 static void draw(void) {
     {
         static u64 last = 0;
@@ -7536,9 +7547,7 @@ static void draw(void) {
        d'avance : la lecture d'un fichier ne coupe plus la musique - v29) */
     dur_budget = now_ms() - last_input_ms > 250 && io_safe() ? 1 : 0;
     tag_budget = dur_budget;
-#ifndef GEKKO
-    dp_t0 = perf_us();
-#endif
+    dp_t0 = perf_us(); dp_k = 0;
     DP("begin_frame", begin_frame());
     const int webcb = tab == TAB_WEB && !(menu_open || tl_screen || ic_on) && !cb_host_integrated();   /* v209 : Cube Browser, plein ecran (v214 : en Aurore : dans GC Station) */
     if (!gs_active() && !webcb) {                                       /* v196 : (l'espace jeux a sa propre barre) */
@@ -7607,9 +7616,7 @@ static void draw(void) {
     if (perf_on) perf_overlay();
     sx_overlay();                                        /* v259 : test de la console (selftest.c) */
     service_audio();
-#ifndef GEKKO
     dp_report();
-#endif
     present_frame();
 }
 
@@ -14115,6 +14122,7 @@ int main(int argc, char **argv) {
         u32 pf_in0 = perf_on ? perf_us() : 0;
         crash_beat();
         u32 pads = PAD_ScanPads();
+        sx_padmask = pads;                                          /* v261 : manettes branchees (test de la console) */
         u32 down = PAD_ButtonsDown(0);
         u32 held = PAD_ButtonsHeld(0);
         if (tp_keys) { u32 tk = tp_keys; tp_keys &= ~tk; down |= tk; held |= tk; if (tab == TAB_WEB) input_phone(0, 0, 0, tk, 0); }   /* (v231 : aussi pour Cube Browser) */   /* v142 : manette du telephone */

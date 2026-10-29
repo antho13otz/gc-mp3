@@ -3,21 +3,82 @@
 // defilent, menu START), un morceau en fond, avec la mesure de fluidite (v69) et le compte des trous du son (v154).
 // Resultat : a l'ecran (resume), dans SD:/gc-mp3/journaux/test-console.txt (detail ; le precedent est garde en
 // test-console-ancien.txt pour comparer) et sur le telephone (/test.txt, dans le rapport de bug /rapport).
+// v261 : test complet (A ; Y : le test rapide d'avant) :
+//   materiel : memoire principale (chaque mot verifie, debits, temps d'acces), ARAM (16 Mo, contenu remis),
+//              processeur graphique (remplissage, petits dessins), carte SD (au hasard, dossiers, place), manettes
+//              au repos (derive des sticks), DNS, GitHub (connexion chiffree, debit, connexion gardee) ;
+//   son : chaque format present sur la carte SD (charge du decodage, trous), une radio (temps de connexion) ;
+//   parcours en deux passages (memoire perdue entre les deux = fuite), puis stress (onglets tres vite, menu,
+//   outils) ; chaque image bloquee (150 ms et plus) est notee avec ce qui se passait (partie du dessin,
+//   processeur pris, travaux en fond) ; diagnostic en clair et note sur 100.
+// (textes du diagnostic en UTF-8 : ils vont a l'ecran et dans le rapport)
 
 #define SX_FILE GCD_LOG "/test-console.txt"
 #define SX_OLD GCD_LOG "/test-console-ancien.txt"
-enum { SX_IDLE, SX_INTRO, SX_BENCH, SX_NET, SX_TOUR, SX_DONE };
-static int sx_state = SX_IDLE;
+enum { SX_IDLE, SX_INTRO, SX_BENCH, SX_NET, SX_SOUND, SX_RADIO, SX_TOUR, SX_STRESS, SX_DONE };
+static int sx_state = SX_IDLE, sx_full = 1, sx_page = 0;
 static u64 sx_t = 0, sx_t0 = 0;
-static int sx_tabs[TAB_COUNT], sx_ntabs = 0, sx_i = 0, sx_sub = 0, sx_music = 0, sx_aborted = 0, sx_tab0 = 0;
-static u32 sx_cpu_ms = 0, sx_int_ms = 0, sx_cpy_mbs = 0, sx_free0 = 0, sx_big0 = 0, sx_rkbs = 0, sx_wkbs = 0, sx_stat_x10 = 0;
-static u32 sx_net_ms = 0, sx_net_kbs = 0, sx_gap0 = 0, sx_gapev0 = 0, sx_tot0 = 0, sx_gap = 0, sx_gapev = 0, sx_played = 0;
-static int sx_net_state = 0;                    /* 0 pas essaye, 1 ok, 2 echec, 3 pas de reseau */
+static int sx_tabs[TAB_COUNT], sx_ntabs = 0, sx_i = 0, sx_sub = 0, sx_music = 0, sx_aborted = 0, sx_tab0 = 0, sx_pass = 0;
+static u32 sx_cpu_ms = 0, sx_int_ms = 0, sx_dbl_ms = 0, sx_cpy_mbs = 0, sx_free0 = 0, sx_big0 = 0, sx_rkbs = 0, sx_wkbs = 0, sx_stat_x10 = 0;
+static u32 sx_gap0 = 0, sx_gapev0 = 0, sx_tot0 = 0, sx_gap = 0, sx_gapev = 0, sx_played = 0;
 static u32 sx_frames = 0, sx_slow = 0, sx_worst = 0;
 static int sx_worst_tab = -1;
-static char sx_prev[200];                       /* (mesures du test d'avant : "cpu=.. sdr=.. sdw=.. net=.. ok=..") */
+static char sx_prev[300];                       /* (mesures du test d'avant : "cpu=.. sdr=.. sdw=.. net=.. ok=..") */
 static hfetch_t sx_hf = { .c = { -1, 0, 0 } };
 static char *sx_rep = NULL;
+static int sx_bstep = 0, sx_bsub = 0;            /* (etape des mesures : une par image, l'ecran avance) */
+
+/* materiel (test complet) */
+static u32 sx_ram_kb = 0, sx_ram_err = 0, sx_ram_w = 0, sx_ram_r = 0, sx_ram_ns = 0;
+static int sx_aram = 0;                          /* 0 pas teste, 1 fait, 2 simulateur */
+static u32 sx_aram_kb = 0, sx_aram_err = 0, sx_aram_mbs = 0;
+static u32 sx_gpu_mpx = 0, sx_gpu_tri = 0;
+static u32 sx_rnd_x10 = 0, sx_dir_ms = 0, sx_dir_n = 0, sx_sd_free = 0, sx_sd_tot = 0;   /* (Mo) */
+static u32 sx_pad_mask = 0;
+static u8 sx_pad_dev[4][4];                      /* (ecart max au repos : stick X, Y, C X, Y) */
+static u8 sx_pad_trg[4];
+static u32 sx_pad_type[4];
+static int sx_dns_ms = -1;                       /* -1 pas fait, -2 echec */
+
+/* reseau : 0 GitHub (versions), 1 grosse image, 2 petite image (meme connexion) */
+#define SX_NN 3
+static const char *const sx_net_name[SX_NN] = { "GitHub (fichier des versions)", "grosse image (350 Ko)", "petite image, connexion gardée" };
+static int sx_ni = 0, sx_nn = 1;
+static int sx_net_st[SX_NN];                     /* 0 en cours, 1 ok, 2 echec, 3 pas de reseau, 4 trop lent (partiel) */
+static u32 sx_net_ms[SX_NN], sx_net_head[SX_NN], sx_net_bytes[SX_NN], sx_net_kbs[SX_NN];
+
+/* son : un morceau de chaque format */
+#define SX_NF 9
+static const char *const sx_fmt_name[SX_NF] = { "MP3", "FLAC", "OGG", "WAV", "M4A", "retro (SPC, NSF...)", "modules (MOD, XM...)", "GameCube (DSP, HPS...)", "MIDI" };
+static int sx_fmt_k[SX_NF], sx_fmt_n = 0, sx_fmt_i = 0;
+static u32 sx_fmt_cpu[SX_NF], sx_fmt_gap[SX_NF], sx_fmt_slow[SX_NF], sx_fmt_ok[SX_NF];
+static u32 sx_mark_dec = 0, sx_mark_gap = 0;
+static u64 sx_mark_t = 0;
+/* radio */
+static int sx_radio = 0;                         /* 0 pas essaye, 1 ok, 2 pas de son en 20 s, 3 pas de reseau / station, 4 erreur */
+static u32 sx_radio_ms = 0, sx_radio_gap = 0;
+
+/* images par moment du test */
+enum { SB_SOUND, SB_RADIO, SB_TOUR1, SB_TOUR2, SB_STRESS, SB_N };
+static const char *const sx_sb_name[SB_N] = { "formats audio", "radio", "parcours 1", "parcours 2", "stress" };
+static u32 sx_sb_frames[SB_N], sx_sb_slow[SB_N], sx_sb_worst[SB_N];
+static int sx_sb = -1;
+static u32 sx_fb_frames = 0, sx_fb_slow = 0;     /* (format en cours) */
+static u32 sx_mem_p1 = 0, sx_mem_p2 = 0, sx_mem_end = 0;   /* memoire libre apres chaque passage, apres le stress */
+
+/* images bloquees (150 ms et plus) */
+#define SX_NS 24
+typedef struct { u32 ms, top_us, stolen_us, dsec_us; u16 bg; u8 tab, sb, top; const char *dsec; } sxs_t;
+static sxs_t sx_st[SX_NS];
+static int sx_nst = 0;
+static u32 sx_nst_all = 0, sx_st_500 = 0;
+enum { BG_COVER = 1, BG_LIST = 2, BG_PHONE = 4, BG_IMG = 8, BG_CONN = 16, BG_RADIO = 32, BG_WEB = 64 };
+
+/* diagnostic */
+#define SX_ND 14
+static char sx_diag[SX_ND][128];
+static u8 sx_diag_lv[SX_ND];                    /* 0 bien, 1 a surveiller, 2 probleme */
+static int sx_nd = 0, sx_score = -1;
 
 static u32 sx_prev_val(const char *k) {
     const char *p = strstr(sx_prev, k);
@@ -27,16 +88,69 @@ static u32 sx_prev_val(const char *k) {
 static void sx_open(void) {
     menu_open = 0;
     tl_screen = TL_SELFTEST;
-    if (sx_state != SX_TOUR) sx_state = sx_rep ? SX_DONE : SX_INTRO;
-    if (sx_state == SX_DONE && !sx_rep) sx_state = SX_INTRO;
+    if (sx_state == SX_IDLE || (sx_state == SX_DONE && !sx_rep)) sx_state = SX_INTRO;
 }
 
-/* ---------- 1. mesures directes (quelques secondes, ecran fige) ---------- */
-static void sx_bench(void) {
+static u32 sx_free_now(void) {
     struct mallinfo mi = mallinfo();
-    sx_free0 = (u32)((uintptr_t)SYS_GetArena1Hi() - (uintptr_t)SYS_GetArena1Lo() + mi.fordblks);
+    return (u32)((uintptr_t)SYS_GetArena1Hi() - (uintptr_t)SYS_GetArena1Lo() + mi.fordblks);
+}
+/* texte UTF-8 complete a w caracteres (les noms des onglets ont des accents) */
+static void sx_pad(char *o, int cap, const char *s, int w) {
+    int n = snprintf(o, cap, "%s", s), c = 0;
+    if (n >= cap) n = cap - 1;
+    for (const char *p = o; *p; p++) if (((unsigned char)*p & 0xC0) != 0x80) c++;
+    while (c < w && n < cap - 1) { o[n++] = ' '; o[n] = 0; c++; }
+}
+static void sx_mo(char *o, int cap, u32 b) { snprintf(o, cap, "%u,%u Mo", (unsigned)(b >> 20), (unsigned)(((b & 0xFFFFF) * 10) >> 20)); }
+
+/* ---------- images : appele par perf_frame (main.c) a chaque image mesuree ---------- */
+static void sx_frame_hook(u32 tot, int tb, int top, u32 top_us) {
+    if (sx_state < SX_SOUND || sx_state > SX_STRESS) return;
+    int slow = tot > VID_SLOW_US;
+    if (sx_sb >= 0) { sx_sb_frames[sx_sb]++; if (slow) sx_sb_slow[sx_sb]++; if (tot > sx_sb_worst[sx_sb]) sx_sb_worst[sx_sb] = tot; }
+    sx_fb_frames++; if (slow) sx_fb_slow++;
+    if (tot < 150000u) return;
+    sx_nst_all++;
+    if (tot >= 500000u) sx_st_500++;
+    sxs_t *s;
+    if (sx_nst < SX_NS) s = &sx_st[sx_nst++];
+    else {                                       /* (plein : remplace la plus courte si celle-ci est plus longue) */
+        int m = 0;
+        for (int i = 1; i < SX_NS; i++) if (sx_st[i].ms < sx_st[m].ms) m = i;
+        if (sx_st[m].ms >= tot / 1000u) return;
+        s = &sx_st[m];
+    }
+    memset(s, 0, sizeof(*s));
+    s->ms = tot / 1000u; s->tab = (u8)tb; s->sb = (u8)(sx_sb < 0 ? 0 : sx_sb); s->top = (u8)top; s->top_us = top_us;
+    s->stolen_us = pfx_stolen_acc;                   /* (pris pendant cette image : pas encore range dans pfx_cur) */
+    s->dsec = dp_top_n; s->dsec_us = dp_top_us;
+    u16 bg = 0;
+    if (cw_state == 1 || cw_state == 2) bg |= BG_COVER;
+    if (lsc_qh != lsc_qt) bg |= BG_LIST;
+    if (tp_qh != tp_qt || tp_up_active || tp_open_busy) bg |= BG_PHONE;
+    if (dj_state == 1 || cv_state == 1 || gj_state == 1 || tj_state == 1 || rl_state == 1) bg |= BG_IMG;
+    for (int k = 0; k < AC_N; k++) if (ac_job[k].st == 1 || ac_job[k].st == 2) bg |= BG_CONN;
+    if (src == SRC_RADIO && (state == ST_CONNECT || state == ST_BUFFER)) bg |= BG_RADIO;
+    if (tb == TAB_WEB) bg |= BG_WEB;
+    s->bg = bg;
+}
+static void sx_bg_text(char *o, int cap, u16 bg) {
+    o[0] = 0;
+    static const char *const nm[] = { "pochette", "liste (durées)", "téléphone", "image à décoder", "connexion en cours", "radio qui se connecte", "page web" };
+    int n = 0;
+    for (int i = 0; i < 7; i++) if ((bg & (1 << i)) && n < cap) n += snprintf(o + n, cap - n, "%s%s", n ? ", " : "", nm[i]);
+}
+
+static void sx_perf_reset(void) {
+    memset(pfx_frames, 0, sizeof(pfx_frames)); memset(pfx_slow, 0, sizeof(pfx_slow)); memset(pfx_vslow, 0, sizeof(pfx_vslow)); memset(pfx_worst, 0, sizeof(pfx_worst));
+    memset(pfx_sum, 0, sizeof(pfx_sum)); memset(pfx_max, 0, sizeof(pfx_max)); memset(pfx_top, 0, sizeof(pfx_top));
+}
+
+/* ---------- 1. mesures directes (une etape par image) ---------- */
+static void sx_bench_cpu(void) {
+    sx_free0 = sx_free_now();
     sx_big0 = mv_largest();
-    /* processeur : calcul en virgule flottante, puis en entiers */
     volatile float acc = 0;
     u32 t0 = perf_us();
     for (int i = 0; i < 300000; i++) acc += sinf((float)i * 0.001f) * 1.0001f;
@@ -46,7 +160,13 @@ static void sx_bench(void) {
     u32 t2 = perf_us();
     sx_cpu_ms = (t1 - t0) / 1000u; sx_int_ms = (t2 - t1) / 1000u;
     service_audio();
-    /* memoire : copies de 1 Mo */
+    if (sx_full) {
+        volatile double d = 1.0;
+        u32 t3 = perf_us();
+        for (int i = 1; i < 400000; i++) d = d * 1.0000001 + 1.0 / (double)i;
+        sx_dbl_ms = (perf_us() - t3) / 1000u;
+        service_audio();
+    }
     u8 *a = (u8 *)malloc(1 << 20), *b = (u8 *)malloc(1 << 20);
     if (a && b) {
         memset(a, 0x5A, 1 << 20);
@@ -59,125 +179,475 @@ static void sx_bench(void) {
     }
     free(a); free(b);
     service_audio();
-    /* carte SD : ecrire 2 Mo, les relire, puis 40 recherches de fichiers */
-    sx_rkbs = sx_wkbs = sx_stat_x10 = 0;
-    if (sd_ok && !sd_virtual) {
-        static u8 blk[65536];
-        for (int i = 0; i < (int)sizeof(blk); i++) blk[i] = (u8)(i * 7);
-        const char *tf = GCD_LOG "/.test-carte";
-        u32 w0 = perf_us();
-        FILE *f = fopen(tf, "wb");
-        int ok = f != NULL;
-        for (int k = 0; ok && k < 32; k++) { if (fwrite(blk, 1, sizeof(blk), f) != sizeof(blk)) ok = 0; service_audio(); }
-        if (f && fclose(f) != 0) ok = 0;
-        u32 wdt = perf_us() - w0;
-        if (ok && wdt) sx_wkbs = (u32)(2048ull * 1000000ull / wdt);
-        f = ok ? fopen(tf, "rb") : NULL;
-        if (f) {
-            u32 r0 = perf_us();
-            long got = 0; size_t n;
-            while ((n = fread(blk, 1, sizeof(blk), f)) > 0) { got += (long)n; service_audio(); }
-            fclose(f);
-            u32 rdt = perf_us() - r0;
-            if (rdt && got > 0) sx_rkbs = (u32)((u64)got * 1000000ull / 1024ull / rdt);
+}
+
+/* memoire principale : chaque mot ecrit puis verifie (deux motifs), debits, temps d'acces au hasard */
+static void sx_bench_ram(void) {
+    sx_ram_kb = sx_ram_err = sx_ram_w = sx_ram_r = sx_ram_ns = 0;
+    u32 big = mv_largest(), sz = big > (3u << 20) ? big - (3u << 19) : big / 2;
+    if (sz > (6u << 20)) sz = 6u << 20;
+    sz &= ~0xFFFFu;
+    u32 *m = NULL;
+    while (sz >= (1u << 20) && !(m = (u32 *)malloc(sz))) sz -= 1u << 20;
+    if (!m) return;
+    sx_ram_kb = sz >> 10;
+    u32 nw = sz / 4, err = 0, tw = 0, tr = 0;
+    for (int pass = 0; pass < 2; pass++) {
+        u32 x = pass ? 0xFFFFFFFFu : 0;
+        u32 t0 = perf_us();
+        for (u32 i = 0; i < nw; i++) m[i] = (i * 2654435761u) ^ x;
+        DCFlushRange(m, sz);
+        u32 t1 = perf_us();
+        DCInvalidateRange(m, sz);                    /* (relu depuis la memoire, pas depuis le cache) */
+        volatile u32 *vm = m;
+        for (u32 i = 0; i < nw; i++) if (vm[i] != ((i * 2654435761u) ^ x)) err++;
+        u32 t2 = perf_us();
+        tw += t1 - t0; tr += t2 - t1;
+        service_audio();
+    }
+    sx_ram_err = err;
+    sx_ram_w = tw ? (u32)((2ull * sz * 1000000ull / tw) >> 20) : 0;
+    sx_ram_r = tr ? (u32)((2ull * sz * 1000000ull / tr) >> 20) : 0;
+    /* temps d'acces : une chaine au hasard de cases (une ligne de cache chacune), sur tout le bloc */
+    u32 nn = sz / 32;
+    if (nn > 65536) nn = 65536;
+    u32 stride = sz / 4 / nn;                       /* (en mots) */
+    for (u32 i = 0; i < nn; i++) m[i * stride] = i;
+    u32 r = 12345;
+    for (u32 i = nn - 1; i > 0; i--) {              /* (Sattolo : un seul grand cycle) */
+        r = r * 1664525u + 1013904223u;
+        u32 j = (r >> 8) % i;
+        u32 t = m[i * stride]; m[i * stride] = m[j * stride]; m[j * stride] = t;
+    }
+    DCFlushRange(m, sz);
+    service_audio();
+    volatile u32 *vm = m;
+    u32 p = 0, steps = 200000, t0 = perf_us();
+    for (u32 k = 0; k < steps; k++) p = vm[p * stride];
+    u32 dt = perf_us() - t0;
+    volatile u32 sink = p; (void)sink;
+    sx_ram_ns = (u32)((u64)dt * 1000ull / steps);
+    free(m);
+    service_audio();
+}
+
+/* ARAM (16 Mo de memoire du son, que GC Station n'utilise pas) : chaque morceau lu, ecrit, relu, verifie, remis */
+static void sx_bench_aram(void) {
+#ifdef GEKKO
+    sx_aram_kb = sx_aram_err = sx_aram_mbs = 0;
+    const u32 CH = 64 * 1024;
+    u8 *o = (u8 *)memalign(32, CH), *w = (u8 *)memalign(32, CH), *r = (u8 *)memalign(32, CH);
+    if (!o || !w || !r) { free(o); free(w); free(r); return; }
+    AR_Init(NULL, 0);
+    u32 size = AR_GetSize();
+    if (size > 16u << 20 || size < (1u << 20)) size = 16u << 20;
+    u32 tdma = 0, moved = 0;
+    for (u32 a = 0x10000; a + CH <= size; a += CH) {
+        DCInvalidateRange(o, CH);
+        AR_StartDMA(AR_ARAMTOMRAM, (u32)o, a, CH); while (AR_GetDMAStatus());
+        for (u32 i = 0; i < CH / 4; i++) ((u32 *)w)[i] = (a + i * 4) ^ 0xA55AC33Cu;
+        DCFlushRange(w, CH);
+        DCInvalidateRange(r, CH);
+        u32 t0 = perf_us();
+        AR_StartDMA(AR_MRAMTOARAM, (u32)w, a, CH); while (AR_GetDMAStatus());
+        AR_StartDMA(AR_ARAMTOMRAM, (u32)r, a, CH); while (AR_GetDMAStatus());
+        tdma += perf_us() - t0; moved += 2 * CH;
+        for (u32 i = 0; i < CH / 4; i++) if (((u32 *)r)[i] != ((u32 *)w)[i]) sx_aram_err++;
+        DCFlushRange(o, CH);
+        AR_StartDMA(AR_MRAMTOARAM, (u32)o, a, CH); while (AR_GetDMAStatus());   /* (contenu d'avant remis) */
+        sx_aram_kb += CH >> 10;
+        if (((a >> 16) & 15) == 0) service_audio();
+    }
+    sx_aram_mbs = tdma ? (u32)(((u64)moved * 1000000ull / tdma) >> 20) : 0;
+    free(o); free(w); free(r);
+    sx_aram = 1;
+#else
+    sx_aram = 2;
+#endif
+}
+
+/* processeur graphique : appele pendant le dessin, avant le cadre (rectangles presque transparents : invisibles) */
+static void sx_bench_gpu(void) {
+    GX_DrawDone();
+    u32 t0 = perf_us();
+    for (int i = 0; i < 40; i++) gx_rect(0, 0, 640, 480, RGBA(0, 0, 0, 1));
+    GX_DrawDone();
+    u32 t1 = perf_us();
+    for (int i = 0; i < 4000; i++) { f32 x = (f32)(i % 80) * 8, y = (f32)(i / 80) * 9; gx_tri(x, y, x + 6, y, x, y + 6, RGBA(0, 0, 0, 1)); }
+    GX_DrawDone();
+    u32 t2 = perf_us();
+#ifdef GEKKO
+    sx_gpu_mpx = t1 > t0 ? (u32)(40ull * 640 * 480 / (t1 - t0)) : 0;     /* (millions de points par seconde) */
+    sx_gpu_tri = t2 > t1 ? (u32)(4000ull * 1000ull / (t2 - t1)) : 0;      /* (milliers par seconde) */
+#else
+    (void)t0; (void)t1; (void)t2;                    /* (simulateur : le dessin n'attend rien, pas de mesure) */
+    sx_gpu_mpx = sx_gpu_tri = 0;
+#endif
+}
+
+static void sx_bench_sd(void) {
+    sx_rkbs = sx_wkbs = sx_stat_x10 = sx_rnd_x10 = sx_dir_ms = sx_dir_n = 0;
+    if (!sd_ok || sd_virtual) return;
+    static u8 blk[65536];
+    for (int i = 0; i < (int)sizeof(blk); i++) blk[i] = (u8)(i * 7);
+    const char *tf = GCD_LOG "/.test-carte";
+    int nblk = sx_full ? 64 : 32;                    /* (4 Mo ; rapide : 2 Mo) */
+    u32 w0 = perf_us();
+    FILE *f = fopen(tf, "wb");
+    int ok = f != NULL;
+    for (int k = 0; ok && k < nblk; k++) { if (fwrite(blk, 1, sizeof(blk), f) != sizeof(blk)) ok = 0; service_audio(); }
+    if (f && fclose(f) != 0) ok = 0;
+    u32 wdt = perf_us() - w0;
+    if (ok && wdt) sx_wkbs = (u32)((u64)nblk * 64ull * 1000000ull / wdt);
+    f = ok ? fopen(tf, "rb") : NULL;
+    if (f) {
+        u32 r0 = perf_us();
+        long got = 0; size_t n;
+        while ((n = fread(blk, 1, sizeof(blk), f)) > 0) { got += (long)n; service_audio(); }
+        u32 rdt = perf_us() - r0;
+        if (rdt && got > 0) sx_rkbs = (u32)((u64)got * 1000000ull / 1024ull / rdt);
+        if (sx_full) {                               /* 100 lectures de 4 Ko au hasard */
+            u32 r = 777, q0 = perf_us();
+            for (int k = 0; k < 100; k++) {
+                r = r * 1664525u + 1013904223u;
+                fseek(f, (long)((r >> 8) % (u32)(nblk * 16)) * 4096, SEEK_SET);
+                if (fread(blk, 1, 4096, f) != 4096) break;
+                if ((k & 15) == 15) service_audio();
+            }
+            sx_rnd_x10 = (perf_us() - q0) / 1000u;   /* (100 lectures : dixiemes de ms par lecture) */
         }
-        remove(tf);
-        int ns = nfiles < 40 ? nfiles : 40;
-        if (ns > 0) {
-            struct stat st;
-            u32 s0 = perf_us();
-            for (int k = 0; k < ns; k++) stat(names[k], &st);
-            sx_stat_x10 = (perf_us() - s0) / 100u / (u32)ns;     /* (dixiemes de ms) */
-        }
+        fclose(f);
+    }
+    remove(tf);
+    int ns = nfiles < 40 ? nfiles : 40;
+    if (ns > 0) {
+        struct stat st;
+        u32 s0 = perf_us();
+        for (int k = 0; k < ns; k++) stat(names[k], &st);
+        sx_stat_x10 = (perf_us() - s0) / 100u / (u32)ns;
+    }
+    if (sx_full) {
+        char dir[NAME_LEN];                          /* le dossier du premier morceau */
+        snprintf(dir, sizeof(dir), "%s", nfiles > 0 ? names[0] : SD_ROOT "/");
+        char *sl = strrchr(dir, '/');
+        if (sl && sl > dir && nfiles > 0) *sl = 0;
+        u32 d0 = perf_us();
+        DIR *d = opendir(dir);
+        if (d) { while (readdir(d)) { sx_dir_n++; if ((sx_dir_n & 63) == 0) service_audio(); } closedir(d); }
+        sx_dir_ms = (perf_us() - d0) / 1000u;
+        unsigned long long tot = 0, fre = 0;
+        if (sd_space(&tot, &fre)) { sx_sd_tot = (u32)(tot >> 20); sx_sd_free = (u32)(fre >> 20); }
     }
 }
 
-/* ---------- 2. reseau : le fichier des versions de GitHub ---------- */
+static void sx_bench_pads(int first) {           /* (appele sur 40 images : au repos, sans toucher) */
+    if (first) {
+        memset(sx_pad_dev, 0, sizeof(sx_pad_dev)); memset(sx_pad_trg, 0, sizeof(sx_pad_trg));
+        sx_pad_mask = sx_padmask & 15;
+        for (int p = 0; p < 4; p++) sx_pad_type[p] = (sx_pad_mask & (1u << p)) ? SI_DecodeType(SI_GetType(p)) : 0;
+    }
+    for (int p = 0; p < 4; p++) {
+        if (!(sx_pad_mask & (1u << p))) continue;
+        int v[4] = { PAD_StickX(p), PAD_StickY(p), PAD_SubStickX(p), PAD_SubStickY(p) };
+        for (int i = 0; i < 4; i++) { int a = v[i] < 0 ? -v[i] : v[i]; if (a > sx_pad_dev[p][i]) sx_pad_dev[p][i] = (u8)(a > 255 ? 255 : a); }
+        int t = PAD_TriggerL(p) > PAD_TriggerR(p) ? PAD_TriggerL(p) : PAD_TriggerR(p);
+        if (t > sx_pad_trg[p]) sx_pad_trg[p] = (u8)t;
+    }
+}
+
+static void sx_bench_dns(void) {
+    sx_dns_ms = -1;
+    if (net_phase != NET_DONE || !net_ok || !gw_str[0]) return;
+    u32 ip = 0, t0 = perf_us();
+    int ok = dns_query(inet_addr(gw_str), "raw.githubusercontent.com", &ip);
+    sx_dns_ms = ok ? (int)((perf_us() - t0) / 1000u) : -2;
+    service_audio();
+}
+
+/* ---------- 2. reseau ---------- */
 static void sx_net_start(void) {
-    sx_net_state = 0; sx_net_ms = sx_net_kbs = 0;
-    if (net_phase != NET_DONE || !net_ok) { sx_net_state = 3; return; }
+    if (sx_ni >= sx_nn) return;
+    int i = sx_ni;
+    sx_net_st[i] = 0; sx_net_ms[i] = sx_net_head[i] = sx_net_bytes[i] = sx_net_kbs[i] = 0;
+    if (net_phase != NET_DONE || !net_ok) { sx_net_st[i] = 3; return; }
     char url[256];
-    upd_rel_url(url, sizeof(url), 0);
-    sx_hf.maxbytes = 512 * 1024;
+    if (i == 0) upd_rel_url(url, sizeof(url), 0);
+    else if (i == 1) snprintf(url, sizeof(url), "https://raw.githubusercontent.com/%s/main/docs/logo/banniere-1280x640.png", upd_repo);
+    else snprintf(url, sizeof(url), "https://raw.githubusercontent.com/%s/main/themes/nebuleuse.jpg", upd_repo);
+    sx_hf.maxbytes = 1024 * 1024;
     sx_hf.image = 0;
-    sx_hf.accept = "application/json";
+    sx_hf.accept = i ? "*/*" : "application/json";
     hf_start(&sx_hf, url, NULL);
     sx_t0 = now_ms();
 }
-static int sx_net_pump(void) {                              /* 1 = fini */
-    if (sx_net_state) return 1;
-    hf_pump(&sx_hf);
-    u64 n = now_ms();
-    if (sx_hf.st == HF_DONE) {
-        sx_net_ms = (u32)(n - sx_t0);
-        sx_net_kbs = sx_net_ms ? (u32)((u64)sx_hf.len * 1000ull / 1024ull / sx_net_ms) : 0;
-        sx_net_state = 1;
-    } else if (sx_hf.st == HF_FAIL || n - sx_t0 > 20000) {
-        if (sx_hf.st != HF_FAIL) hf_abort(&sx_hf);
-        sx_net_state = 2;
-    } else return 0;
-    hf_drop(&sx_hf);
-    sx_hf.st = HF_IDLE;
-    return 1;
+static int sx_net_pump(void) {                              /* 1 = tout fini */
+    for (;;) {
+        if (sx_ni >= sx_nn) return 1;
+        int i = sx_ni;
+        if (!sx_net_st[i]) {
+            hf_pump(&sx_hf);
+            u64 n = now_ms();
+            if (!sx_net_head[i] && (sx_hf.st == HF_HEAD || sx_hf.st == HF_BODY || sx_hf.st == HF_DONE)) sx_net_head[i] = (u32)(n - sx_t0);
+            if (sx_hf.st == HF_DONE) { sx_net_st[i] = 1; sx_net_bytes[i] = (u32)sx_hf.len; }
+            else if (sx_hf.st == HF_FAIL) sx_net_st[i] = 2;
+            else if (n - sx_t0 > (i == 1 ? 30000u : 20000u)) {
+                sx_net_bytes[i] = sx_hf.st == HF_BODY && sx_hf.len > 0 ? (u32)sx_hf.len : 0;
+                hf_abort(&sx_hf);
+                sx_net_st[i] = sx_net_bytes[i] ? 4 : 2;
+            } else return 0;
+            sx_net_ms[i] = (u32)(n - sx_t0);
+            u32 body = sx_net_ms[i] > sx_net_head[i] ? sx_net_ms[i] - sx_net_head[i] : sx_net_ms[i];
+            u32 base = i == 0 ? sx_net_ms[i] : body;     /* (grosse image : debit apres la reponse) */
+            if (sx_net_bytes[i]) sx_net_kbs[i] = (u32)((u64)sx_net_bytes[i] * 1000ull / 1024ull / (base ? base : 1));
+            if (sx_net_st[i] == 1) hf_drop(&sx_hf);       /* (la connexion reste ouverte : la petite image la reprend) */
+            sx_hf.st = HF_IDLE;
+        }
+        sx_ni++;
+        if (sx_ni < sx_nn) { sx_net_start(); if (!sx_net_st[sx_ni]) return 0; }
+    }
 }
 
-/* ---------- 3. parcours ---------- */
-static void sx_tour_start(void) {
+/* ---------- 3. son : chaque format, une radio ---------- */
+static void sx_radio_start(void);
+static void sx_tour_start(int pass);
+static void sx_sound_start(void) {
+    sx_fmt_n = 0; sx_fmt_i = -1; sx_sub = 0;
+    static const int fm[SX_NF] = { FMT_MP3, FMT_FLAC, FMT_OGG, FMT_WAV, FMT_M4A, FMT_GME, FMT_XMP, FMT_GCN, FMT_MID };
+    for (int f = 0; f < SX_NF; f++) {
+        sx_fmt_k[f] = -1; sx_fmt_cpu[f] = sx_fmt_gap[f] = sx_fmt_slow[f] = sx_fmt_ok[f] = 0;
+        for (int k = 0; k < nfiles; k++)
+            if (!strncasecmp(names[k], SD_ROOT, strlen(SD_ROOT)) && audio_fmt(names[k]) == fm[f]) { sx_fmt_k[f] = k; sx_fmt_n++; break; }
+    }
+    if (src == SRC_RADIO) stop_station();
+    sx_perf_reset();
+    if (!perf_on) perf_toggle();                      /* (images mesurees des maintenant) */
+    menu_open = 0; tl_screen = TL_NONE;
+    tab = TAB_MUSIC; tab_enter(tab);
+    sx_sb = SB_SOUND;
+    sx_state = SX_SOUND;
+    sx_t = now_ms();
+}
+static void sx_sound_tick(u64 n) {
+    if (n < sx_t) return;
+    if (sx_sub == 1) {                               /* mesure de ce format finie */
+        int f = sx_fmt_i;
+        u32 el = (u32)(n - sx_mark_t) * 1000u;
+        sx_fmt_cpu[f] = el ? (u32)((u64)(dec_cost_us - sx_mark_dec) * 1000ull / el) : 0;   /* (pour mille du processeur) */
+        sx_fmt_gap[f] = au_gap_ev - sx_mark_gap;
+        sx_fmt_slow[f] = sx_fb_slow;
+        sx_fmt_ok[f] = src == SRC_FILE && playing ? 1 : 0;
+        sx_sub = 0;
+    }
+    if (sx_sub == 0) {                               /* format suivant */
+        do sx_fmt_i++; while (sx_fmt_i < SX_NF && sx_fmt_k[sx_fmt_i] < 0);
+        if (sx_fmt_i >= SX_NF) { stop_track(); sx_radio_start(); return; }
+        if (!start_track(sx_fmt_k[sx_fmt_i])) { sx_fmt_ok[sx_fmt_i] = 0; sx_t = n + 200; return; }
+        sx_sub = 2; sx_t = n + 1500;                 /* (le morceau demarre) */
+        return;
+    }
+    if (sx_sub == 2) {                               /* debut de la mesure */
+        sx_mark_dec = dec_cost_us; sx_mark_gap = au_gap_ev; sx_mark_t = n;
+        sx_fb_frames = sx_fb_slow = 0;
+        sx_sub = 1; sx_t = n + 6000;
+    }
+}
+static void sx_radio_start(void) {
+    sx_radio = 3; sx_radio_ms = sx_radio_gap = 0;
+    if (net_phase != NET_DONE || !net_ok || nstations <= 0) { sx_tour_start(1); return; }
+    sx_sb = SB_RADIO;
+    int st = cur_station >= 0 && cur_station < nstations ? cur_station : 0;
+    start_station(st, 0);
+    tab = TAB_RADIO; tab_enter(tab);
+    sx_state = SX_RADIO; sx_sub = 0; sx_t0 = now_ms(); sx_t = sx_t0;
+}
+static void sx_radio_tick(u64 n) {
+    if (sx_sub == 0) {                               /* connexion */
+        if (src == SRC_RADIO && state == ST_PLAY) { sx_radio_ms = (u32)(n - sx_t0); sx_mark_gap = au_gap_ev; sx_sub = 1; sx_t = n + 10000; return; }
+        if (n - sx_t0 > 20000 || state == ST_ERROR || src != SRC_RADIO) { sx_radio = n - sx_t0 > 20000 ? 2 : 4; stop_station(); sx_tour_start(1); }
+        return;
+    }
+    if (n < sx_t) return;
+    sx_radio_gap = au_gap_ev - sx_mark_gap;
+    sx_radio = 1;
+    stop_station();
+    sx_tour_start(1);
+}
+
+/* ---------- 4. parcours (deux passages en test complet), puis stress ---------- */
+static void sx_tour_start(int pass) {
+    sx_pass = pass;
     sx_ntabs = 0;
     FOR_TABS(t) if (tab_shown(t)) sx_tabs[sx_ntabs++] = t;
     sx_i = -1; sx_sub = 0;
-    sx_tab0 = tab;
-    sx_aborted = 0;
-    if (perf_on) perf_toggle();                            /* (une mesure deja en cours : son rapport, puis on repart de zero) */
-    perf_toggle();
-    for (int t = 0; t < TAB_COUNT; t++) mv_tab_seen[t] = 0;
-    sx_music = 0;
-    if (!((src == SRC_FILE && playing) || (src == SRC_RADIO && state != ST_IDLE)) && nfiles > 0) {   /* un morceau en fond (comme a l'usage) */
-        int k = -1;
-        for (int i = 0; i < nfiles && k < 0; i++) if (!is_retro[i]) k = i;
-        if (k >= 0 && start_track(k)) sx_music = 1;
+    if (pass == 1) {
+        if (!perf_on) perf_toggle();
+        sx_perf_reset();                             /* (les chiffres par onglet : seulement les parcours) */
+        for (int t = 0; t < TAB_COUNT; t++) mv_tab_seen[t] = 0;
+        sx_music = 0;
+        if (!((src == SRC_FILE && playing) || (src == SRC_RADIO && state != ST_IDLE)) && nfiles > 0) {   /* un morceau en fond (comme a l'usage) */
+            int k = -1;
+            for (int i = 0; i < nfiles && k < 0; i++) if (!is_retro[i]) k = i;
+            if (k >= 0 && start_track(k)) sx_music = 1;
+        }
+        sx_gap0 = au_gap; sx_gapev0 = au_gap_ev; sx_tot0 = au_tot;
     }
-    sx_gap0 = au_gap; sx_gapev0 = au_gap_ev; sx_tot0 = au_tot;
+    sx_sb = pass == 1 ? SB_TOUR1 : SB_TOUR2;
     tl_screen = TL_NONE;
     menu_open = 0;
     sx_state = SX_TOUR;
     sx_t = now_ms();
 }
-
 static void sx_finish(void);
+static void sx_stress_tick(u64 n) {
+    if (n < sx_t) return;
+    if (sx_sub < 70) {                               /* onglets tres vite (8 s) */
+        menu_open = 0; tl_screen = TL_NONE;
+        tab = sx_tabs[(sx_sub * 7 + 3) % (sx_ntabs ? sx_ntabs : 1)]; tab_enter(tab);
+        if (sx_sub & 1) tp_keys |= PAD_BUTTON_DOWN;
+        sx_sub++; sx_t = n + 115; return;
+    }
+    if (sx_sub < 82) {                               /* menu START ouvert, ferme */
+        tp_keys |= (sx_sub & 1) ? PAD_BUTTON_B : PAD_BUTTON_START;
+        sx_sub++; sx_t = n + 350; return;
+    }
+    if (sx_sub == 82) { menu_open = 0; mem_open(); sx_sub++; sx_t = n + 2000; return; }
+    if (sx_sub == 83) { info_open(); sx_sub++; sx_t = n + 2000; return; }
+    if (sx_sub == 84) { tl_screen = TL_NONE; menu_open = 0; tab = sx_ntabs ? sx_tabs[0] : TAB_MUSIC; tab_enter(tab); sx_sub++; sx_t = n + 1500; return; }
+    sx_mem_end = sx_free_now();
+    sx_finish();
+}
+
 static void sx_tick(void) {
-    if (sx_state == SX_NET) { if (sx_net_pump()) sx_tour_start(); return; }
-    if (sx_state != SX_TOUR) return;
+    if (sx_state == SX_NET) {
+        if (!sx_net_pump()) return;
+        if (sx_full) sx_sound_start(); else sx_tour_start(1);
+        return;
+    }
+    if (sx_state < SX_SOUND || sx_state > SX_STRESS) return;
     u64 n = now_ms();
     last_input_ms = n;                                     /* (pas d'economiseur pendant le test) */
-    if (PAD_ButtonsDown(0) & PAD_BUTTON_B && n - sx_t > 300) { sx_aborted = 1; sx_finish(); return; }
+    if (PAD_ButtonsDown(0) & PAD_BUTTON_B) {
+        if (sx_state == SX_SOUND) stop_track();
+        if (sx_state == SX_RADIO) stop_station();
+        sx_aborted = 1; sx_finish(); return;
+    }
+    if (sx_state == SX_SOUND) { sx_sound_tick(n); return; }
+    if (sx_state == SX_RADIO) { sx_radio_tick(n); return; }
+    if (sx_state == SX_STRESS) { sx_stress_tick(n); return; }
     if (n < sx_t) return;
+    int wait = sx_pass == 1 ? 2500 : 1200, downs = sx_pass == 1 ? 6 : 3;
     if (sx_i < sx_ntabs) {
         if (sx_sub == 0) {                                 /* onglet suivant */
             sx_i++;
             if (sx_i >= sx_ntabs) { sx_sub = 0; sx_t = n; return; }
             menu_open = 0; tl_screen = TL_NONE;
             tab = sx_tabs[sx_i]; tab_enter(tab);
-            sx_sub = 1; sx_t = n + 2500;                   /* (l'onglet s'ouvre, se charge) */
-        } else if (sx_sub <= 6) {                          /* la liste defile */
+            sx_sub = 1; sx_t = n + wait;                   /* (l'onglet s'ouvre, se charge) */
+        } else if (sx_sub <= downs) {                      /* la liste defile */
             tp_keys |= PAD_BUTTON_DOWN;
             sx_sub++; sx_t = n + 220;
         } else { sx_sub = 0; sx_t = n + 700; }
         return;
     }
-    /* menu START, puis fin */
+    /* menu START, retour au premier onglet, memoire libre */
     if (sx_sub == 0) { tp_keys |= PAD_BUTTON_START; sx_sub = 1; sx_t = n + 1200; return; }
     if (sx_sub <= 4) { tp_keys |= PAD_BUTTON_DOWN; sx_sub++; sx_t = n + 300; return; }
     if (sx_sub == 5) { tp_keys |= PAD_BUTTON_B; sx_sub = 6; sx_t = n + 800; return; }
-    sx_finish();
+    if (sx_sub == 6) { menu_open = 0; tab = sx_ntabs ? sx_tabs[0] : TAB_MUSIC; tab_enter(tab); sx_sub = 7; sx_t = n + 1500; return; }
+    if (sx_pass == 1) sx_mem_p1 = sx_free_now(); else sx_mem_p2 = sx_free_now();
+    if (!sx_full) { sx_finish(); return; }
+    if (sx_pass == 1) { sx_tour_start(2); return; }
+    sx_state = SX_STRESS; sx_sb = SB_STRESS; sx_sub = 0; sx_t = n;
 }
 
-static void sx_mo(char *o, int cap, u32 b) { snprintf(o, cap, "%u,%u Mo", (unsigned)(b >> 20), (unsigned)(((b & 0xFFFFF) * 10) >> 20)); }
+/* ---------- 5. diagnostic, note ---------- */
+static void sx_d(int lv, const char *fmt, ...) {
+    if (sx_nd >= SX_ND) return;
+    va_list ap; va_start(ap, fmt);
+    vsnprintf(sx_diag[sx_nd], sizeof(sx_diag[0]), fmt, ap);
+    va_end(ap);
+    sx_diag_lv[sx_nd++] = (u8)lv;
+}
+static const char *sx_tabn(int t) { return t >= 0 && t < TAB_COUNT ? tab_names[t] : "menu / outils"; }
+/* cause d'une image bloquee, en clair */
+static void sx_cause(char *o, int cap, const sxs_t *s) {
+    if (s->stolen_us * 2 >= s->ms * 1000u) snprintf(o, cap, "processeur pris (réseau, interruptions)");
+    else if (s->top == PH_DRAW && s->dsec && s->dsec_us * 2 >= s->top_us) snprintf(o, cap, "dessin : %s", s->dsec);
+    else if (s->top == PH_DRAW) snprintf(o, cap, "dessin (réparti)");
+    else snprintf(o, cap, "%s", s->top < PH_N ? pfx_names[s->top] : "?");
+}
+static void sx_diagnose(u32 ok) {
+    sx_nd = 0;
+    /* blocages : regroupes par cause et onglet, les plus longs d'abord */
+    if (sx_nst_all == 0) sx_d(0, "Aucune image bloquée (150 ms et plus) pendant le test.");
+    else {
+        static char gname[SX_NS][80];
+        int cnt[SX_NS], tb[SX_NS], ng = 0; u32 worst[SX_NS]; u16 bg[SX_NS];
+        for (int i = 0; i < sx_nst; i++) {
+            char c[80]; sx_cause(c, sizeof(c), &sx_st[i]);
+            int g = -1;
+            for (int j = 0; j < ng; j++) if (tb[j] == sx_st[i].tab && !strcmp(gname[j], c)) g = j;
+            if (g < 0) { g = ng++; snprintf(gname[g], sizeof(gname[g]), "%s", c); cnt[g] = 0; tb[g] = sx_st[i].tab; worst[g] = 0; bg[g] = 0; }
+            cnt[g]++; bg[g] |= sx_st[i].bg;
+            if (sx_st[i].ms > worst[g]) worst[g] = sx_st[i].ms;
+        }
+        sx_d(sx_st_500 ? 2 : 1, "%u images bloquées (%u de plus d'une demi-seconde). Causes :", (unsigned)sx_nst_all, (unsigned)sx_st_500);
+        for (int k = 0; k < 4; k++) {
+            int b = -1;
+            for (int j = 0; j < ng; j++) if (cnt[j] && (b < 0 || worst[j] > worst[b])) b = j;
+            if (b < 0) break;
+            char bgt[120]; sx_bg_text(bgt, sizeof(bgt), bg[b]);
+            sx_d(worst[b] >= 500 ? 2 : 1, " - %s : %s, %d fois, jusqu'à %u ms%s%s", sx_tabn(tb[b]), gname[b], cnt[b], (unsigned)worst[b], bgt[0] ? " ; en fond : " : "", bgt);
+            cnt[b] = 0;
+        }
+    }
+    if (sx_gapev) sx_d(sx_gapev >= 4 ? 2 : 1, "Son : %u trous pendant le parcours (le décodage n'a pas suivi).", (unsigned)sx_gapev);
+    if (sx_full) {
+        for (int f = 0; f < SX_NF; f++) if (sx_fmt_k[f] >= 0 && sx_fmt_ok[f] && sx_fmt_cpu[f] >= 600)
+            sx_d(sx_fmt_cpu[f] >= 850 ? 2 : 1, "Le %s prend %u %% du processeur à décoder : peu de marge.", sx_fmt_name[f], (unsigned)(sx_fmt_cpu[f] / 10));
+        for (int f = 0; f < SX_NF; f++) if (sx_fmt_k[f] >= 0 && sx_fmt_ok[f] && sx_fmt_gap[f])
+            sx_d(1, "Le %s a eu %u trous dans le son en 6 s.", sx_fmt_name[f], (unsigned)sx_fmt_gap[f]);
+        if (sx_ram_err) sx_d(2, "MÉMOIRE PRINCIPALE : %u erreurs de lecture ! (console à faire vérifier)", (unsigned)sx_ram_err);
+        if (sx_aram == 1 && sx_aram_err) sx_d(2, "ARAM : %u erreurs de lecture ! (mémoire du son)", (unsigned)sx_aram_err);
+        if (sx_mem_p1 && sx_mem_p2 && sx_mem_p1 > sx_mem_p2 + 256 * 1024)
+            sx_d(1, "Mémoire perdue entre les deux parcours : %u Ko (fuite possible).", (unsigned)((sx_mem_p1 - sx_mem_p2) >> 10));
+        else if (sx_mem_p1 && sx_mem_p2) sx_d(0, "Pas de fuite de mémoire entre les deux parcours.");
+        for (int p = 0; p < 4; p++) if (sx_pad_mask & (1u << p)) {
+            int d = sx_pad_dev[p][0] > sx_pad_dev[p][1] ? sx_pad_dev[p][0] : sx_pad_dev[p][1];
+            int c = sx_pad_dev[p][2] > sx_pad_dev[p][3] ? sx_pad_dev[p][2] : sx_pad_dev[p][3];
+            if (d >= 15 || c >= 15) sx_d(1, "Manette %d : stick %s décentré au repos (%d) : dérive possible.", p + 1, d >= c ? "principal" : "C", d >= c ? d : c);
+        }
+        if (sx_radio == 2) sx_d(1, "La radio n'a pas démarré en 20 s.");
+        else if (sx_radio == 4) sx_d(1, "La radio n'a pas pu se connecter (station injoignable ?).");
+        else if (sx_radio == 1 && sx_radio_ms > 8000) sx_d(1, "La radio met %u,%u s à démarrer.", (unsigned)(sx_radio_ms / 1000), (unsigned)(sx_radio_ms % 1000 / 100));
+        if (sx_dns_ms > 800) sx_d(1, "La box répond lentement pour trouver les sites (%d ms).", sx_dns_ms);
+        if (sx_net_st[1] == 1 && sx_net_kbs[1] && sx_net_kbs[1] < 40) sx_d(1, "Débit Internet faible : %u Ko/s.", (unsigned)sx_net_kbs[1]);
+        if (sx_net_st[0] == 1 && sx_net_st[2] == 1 && sx_net_ms[0] > sx_net_ms[2] + 1500)
+            sx_d(0, "Ouvrir une connexion chiffrée coûte environ %u,%u s (normal sur GameCube).", (unsigned)((sx_net_ms[0] - sx_net_ms[2]) / 1000), (unsigned)((sx_net_ms[0] - sx_net_ms[2]) % 1000 / 100));
+    }
+    if (sd_ok && !sd_virtual && sx_rkbs && sx_rkbs < 600) sx_d(1, "Carte SD lente en lecture (%u Ko/s) : pochettes et listes chargent lentement.", (unsigned)sx_rkbs);
+    if (sx_big0 && sx_big0 < (4u << 20)) sx_d(1, "Peu de mémoire libre d'un seul bloc (%u Ko).", (unsigned)(sx_big0 >> 10));
+    /* note sur 100 */
+    int pts = 0, max = 0;
+    max += 35; pts += ok >= 990 ? 35 : ok > 800 ? (int)((ok - 800) * 35 / 190) : 0;
+    if (sx_played) { max += 20; pts += sx_gapev >= 4 ? 0 : 20 - 5 * (int)sx_gapev; }
+    max += 15; { int s = 15 - 3 * (int)sx_st_500 - (int)((sx_nst_all - sx_st_500) / 3); pts += s > 0 ? s : 0; }
+    if (sd_ok && !sd_virtual) { max += 10; pts += sx_rkbs >= 1000 ? 10 : (int)(sx_rkbs / 100); }
+    if (sx_full) {
+        max += 10; pts += sx_ram_err || (sx_aram == 1 && sx_aram_err) ? 0 : (sx_mem_p1 && sx_mem_p1 > sx_mem_p2 + 256 * 1024 ? 5 : 10);
+        if (sx_net_st[0] != 3) { max += 10; pts += sx_net_st[0] == 1 ? (sx_net_ms[0] < 3000 ? 10 : sx_net_ms[0] < 6000 ? 7 : 4) : 0; }
+    }
+    sx_score = max ? pts * 100 / max : 0;
+    if (sx_score >= 90 && sx_nd <= 2) sx_d(0, "Rien d'inquiétant : la console tient bien la charge.");
+}
 
+/* ---------- 6. rapport ---------- */
 static void sx_finish(void) {
     perf_on = 0;
+    sx_sb = -1;
     sx_gap = au_gap - sx_gap0; sx_gapev = au_gap_ev - sx_gapev0; sx_played = (au_tot - sx_tot0) / 48000u;
-    if (sx_music) stop_track();
+    if (sx_music && src == SRC_FILE) stop_track();
+    sx_music = 0;
     menu_open = 0;
     tab = sx_tab0; tab_enter(tab);
     sx_frames = sx_slow = sx_worst = 0; sx_worst_tab = -1;
@@ -185,73 +655,170 @@ static void sx_finish(void) {
         sx_frames += pfx_frames[t]; sx_slow += pfx_slow[t];
         if (pfx_frames[t] && pfx_worst[t] > sx_worst) { sx_worst = pfx_worst[t]; sx_worst_tab = t; }
     }
+    u32 ok = sx_frames ? (sx_frames - sx_slow) * 1000u / sx_frames : 0;
     /* le test d'avant (pour comparer) */
     sx_prev[0] = 0;
     FILE *pf = sd_ok ? fopen(SX_FILE, "r") : NULL;
     if (pf) {
-        char l[256];
-        while (fgets(l, sizeof(l), pf)) if (!strncmp(l, "#mesures ", 9)) { snprintf(sx_prev, sizeof(sx_prev), "%s", l + 9); break; }
+        char l[300];
+        while (fgets(l, sizeof(l), pf)) if (!strncmp(l, "#mesures ", 9)) { snprintf(sx_prev, sizeof(sx_prev), "%s", l + 9); sx_prev[strcspn(sx_prev, "\r\n")] = 0; break; }
         fclose(pf);
         remove(SX_OLD);
         rename(SX_FILE, SX_OLD);
     }
-    /* rapport */
+    sx_diagnose(ok);
     free(sx_rep);
-    int cap = 16000, n = 0;
+    int cap = 40000, n = 0;
     sx_rep = (char *)malloc(cap);
     if (!sx_rep) { sx_state = SX_DONE; tl_screen = TL_SELFTEST; return; }
-    #define SXP(...) do { if (n < cap - 1) n += snprintf(sx_rep + n, cap - n, __VA_ARGS__); } while (0)
+    #define SXP(...) do { if (n < cap - 1) { int w_ = snprintf(sx_rep + n, cap - n, __VA_ARGS__); n += w_ > 0 ? w_ : 0; if (n > cap - 1) n = cap - 1; } } while (0)
     time_t now = time(NULL);
     struct tm *tmv = localtime(&now);
-    char a[24], b[24];
-    u32 ok = sx_frames ? (sx_frames - sx_slow) * 1000u / sx_frames : 0;
-    SXP("#mesures cpu=%u int=%u cpy=%u sdr=%u sdw=%u stat=%u net=%u ok=%u gaps=%u\n", (unsigned)sx_cpu_ms, (unsigned)sx_int_ms, (unsigned)sx_cpy_mbs,
-        (unsigned)sx_rkbs, (unsigned)sx_wkbs, (unsigned)sx_stat_x10, (unsigned)sx_net_kbs, (unsigned)ok, (unsigned)sx_gapev);
-    SXP("GC Station %s (build %d) - test de la console, %02d/%02d/%04d %02d:%02d%s\n", GCMP3_VERSION, GCMP3_BUILD,
+    char a[48], b[48], c[160];
+    SXP("#mesures cpu=%u int=%u cpy=%u sdr=%u sdw=%u stat=%u net=%u ok=%u gaps=%u note=%d bloc=%u ram=%u aram=%u gpu=%u rnd=%u dns=%d radio=%u\n",
+        (unsigned)sx_cpu_ms, (unsigned)sx_int_ms, (unsigned)sx_cpy_mbs, (unsigned)sx_rkbs, (unsigned)sx_wkbs, (unsigned)sx_stat_x10,
+        (unsigned)sx_net_kbs[0], (unsigned)ok, (unsigned)sx_gapev, sx_score, (unsigned)sx_nst_all, (unsigned)sx_ram_r, (unsigned)sx_aram_mbs,
+        (unsigned)sx_gpu_mpx, (unsigned)sx_rnd_x10, sx_dns_ms, (unsigned)sx_radio_ms);
+    SXP("GC Station %s (build %d) - test %s de la console, %02d/%02d/%04d %02d:%02d%s\n", GCMP3_VERSION, GCMP3_BUILD, sx_full ? "complet" : "rapide",
         tmv ? tmv->tm_mday : 0, tmv ? tmv->tm_mon + 1 : 0, tmv ? tmv->tm_year + 1900 : 0, tmv ? tmv->tm_hour : 0, tmv ? tmv->tm_min : 0,
-        sx_aborted ? " (arrete avant la fin)" : "");
-    SXP("Ecran %d Hz ; une image ratee = plus de %u ms\n\n", VID_HZ, (unsigned)(VID_SLOW_US / 1000u));
-    SXP("== Processeur ==\ncalcul (virgule flottante) : %u ms   calcul (entiers) : %u ms   copie memoire : %u Mo/s\n", (unsigned)sx_cpu_ms, (unsigned)sx_int_ms, (unsigned)sx_cpy_mbs);
+        sx_aborted ? " (arrêté avant la fin)" : "");
+    SXP("Écran %d Hz ; une image ratée = plus de %u ms\n", VID_HZ, (unsigned)(VID_SLOW_US / 1000u));
+    SXP("\nNOTE : %d / 100", sx_score);
+    if (sx_prev_val("note=")) SXP("   (test d'avant : %u)", (unsigned)sx_prev_val("note="));
+    SXP("\n\n== Diagnostic ==\n");
+    for (int i = 0; i < sx_nd; i++) SXP("%s %s\n", sx_diag_lv[i] == 2 ? "[!!]" : sx_diag_lv[i] == 1 ? "[! ]" : "[ok]", sx_diag[i]);
+    SXP("\n== Processeur ==\ncalcul (virgule flottante) : %u ms   calcul (entiers) : %u ms", (unsigned)sx_cpu_ms, (unsigned)sx_int_ms);
+    if (sx_full) SXP("   double précision : %u ms", (unsigned)sx_dbl_ms);
+    SXP("   copie mémoire : %u Mo/s\n", (unsigned)sx_cpy_mbs);
     sx_mo(a, sizeof(a), sx_free0); sx_mo(b, sizeof(b), sx_big0);
-    SXP("\n== Memoire ==\nlibre au debut : %s   plus grand bloc : %s\n", a, b);
-    for (int t = 0; t < TAB_COUNT; t++) if (mv_tab_seen[t]) { sx_mo(a, sizeof(a), mv_tab_min[t]); SXP("   %-16s le moins vu : %s\n", tab_names[t], a); }
+    SXP("\n== Mémoire ==\nlibre au début : %s   plus grand bloc : %s\n", a, b);
+    if (sx_full) {
+        if (sx_ram_kb) SXP("mémoire principale : %u Ko vérifiés deux fois, %u erreurs ; écriture %u Mo/s, lecture %u Mo/s, accès au hasard %u ns\n",
+                           (unsigned)sx_ram_kb, (unsigned)sx_ram_err, (unsigned)sx_ram_w, (unsigned)sx_ram_r, (unsigned)sx_ram_ns);
+        if (sx_aram == 1) SXP("ARAM : %u Ko vérifiés, %u erreurs, %u Mo/s (contenu remis)\n", (unsigned)sx_aram_kb, (unsigned)sx_aram_err, (unsigned)sx_aram_mbs);
+        else if (sx_aram == 2) SXP("ARAM : pas sur le simulateur\n");
+        if (sx_mem_p1) {
+            sx_mo(a, sizeof(a), sx_mem_p1); sx_mo(b, sizeof(b), sx_mem_p2);
+            SXP("libre après le parcours 1 : %s, après le parcours 2 : %s", a, sx_mem_p2 ? b : "-");
+            if (sx_mem_end) { sx_mo(c, sizeof(c), sx_mem_end); SXP(", après le stress : %s", c); }
+            SXP("\n");
+        }
+    }
+    for (int t = 0; t < TAB_COUNT; t++) if (mv_tab_seen[t]) { sx_pad(c, sizeof(c), tab_names[t], 16); sx_mo(a, sizeof(a), mv_tab_min[t]); SXP("   %s le moins vu : %s\n", c, a); }
+    if (sx_full && sx_gpu_mpx) SXP("\n== Processeur graphique ==\nremplissage : %u millions de points/s   petits triangles : %u milliers/s\n", (unsigned)sx_gpu_mpx, (unsigned)sx_gpu_tri);
     SXP("\n== Carte SD ==\n");
-    if (sd_ok && !sd_virtual) SXP("lecture : %u Ko/s   ecriture : %u Ko/s   recherche d'un fichier : %u,%u ms\n", (unsigned)sx_rkbs, (unsigned)sx_wkbs, (unsigned)(sx_stat_x10 / 10), (unsigned)(sx_stat_x10 % 10));
-    else SXP("pas de carte SD\n");
-    SXP("\n== Reseau ==\n");
-    if (sx_net_state == 1) SXP("GitHub (fichier des versions) : %u ms, %u Ko/s\n", (unsigned)sx_net_ms, (unsigned)sx_net_kbs);
-    else SXP("%s\n", sx_net_state == 3 ? "pas connecte" : "GitHub injoignable");
-    SXP("\n== Son ==\n%u trous (%u ms) sur %u s joues%s\n", (unsigned)sx_gapev, (unsigned)(sx_gap / 48), (unsigned)sx_played, sx_played ? "" : " (pas de musique sur la carte SD)");
-    SXP("\n== Fluidite (parcours) ==\n%u images, %u ratees (%u,%u %% a l'heure)", (unsigned)sx_frames, (unsigned)sx_slow, (unsigned)(ok / 10), (unsigned)(ok % 10));
+    if (sd_ok && !sd_virtual) {
+        SXP("lecture : %u Ko/s   écriture : %u Ko/s   recherche d'un fichier : %u,%u ms\n", (unsigned)sx_rkbs, (unsigned)sx_wkbs, (unsigned)(sx_stat_x10 / 10), (unsigned)(sx_stat_x10 % 10));
+        if (sx_full) {
+            SXP("lecture de 4 Ko au hasard : %u,%u ms   dossier de la musique : %u fichiers en %u ms\n", (unsigned)(sx_rnd_x10 / 10), (unsigned)(sx_rnd_x10 % 10), (unsigned)sx_dir_n, (unsigned)sx_dir_ms);
+            if (sx_sd_tot) SXP("place : %u Mo libres sur %u Mo\n", (unsigned)sx_sd_free, (unsigned)sx_sd_tot);
+        }
+    } else SXP("pas de carte SD\n");
+    SXP("\n== Réseau ==\n");
+    if (sx_full) { if (sx_dns_ms >= 0) SXP("nom d'un site (DNS, par la box) : %d ms\n", sx_dns_ms); else if (sx_dns_ms == -2) SXP("nom d'un site (DNS) : pas de réponse de la box\n"); }
+    for (int i = 0; i < sx_nn; i++) {
+        if (sx_net_st[i] == 3) { SXP("pas connecté\n"); break; }
+        if (sx_net_st[i] == 1 || sx_net_st[i] == 4)
+            SXP("%s : %u ms (réponse après %u ms), %u Ko, %u Ko/s%s\n", sx_net_name[i], (unsigned)sx_net_ms[i], (unsigned)sx_net_head[i], (unsigned)(sx_net_bytes[i] >> 10), (unsigned)sx_net_kbs[i], sx_net_st[i] == 4 ? " (trop lent : arrêté)" : "");
+        else SXP("%s : échec\n", sx_net_name[i]);
+    }
+    if (sx_full) {
+        SXP("\n== Manettes (au repos) ==\n");
+        int any = 0;
+        for (int p = 0; p < 4; p++) if (sx_pad_mask & (1u << p)) {
+            any = 1;
+            const char *ty = sx_pad_type[p] == SI_GC_WAVEBIRD ? "WaveBird" : sx_pad_type[p] == SI_GC_KEYBOARD ? "clavier" : "manette";
+            SXP("port %d (%s) : écart du stick %u/%u, stick C %u/%u, gâchettes %u\n", p + 1, ty, sx_pad_dev[p][0], sx_pad_dev[p][1], sx_pad_dev[p][2], sx_pad_dev[p][3], sx_pad_trg[p]);
+        }
+        if (!any) SXP("aucune\n");
+        SXP("\n== Formats audio (6 s chacun) ==\n");
+        if (!sx_fmt_n) SXP("aucune musique sur la carte SD\n");
+        for (int f = 0; f < SX_NF; f++) {
+            if (sx_fmt_k[f] < 0) continue;
+            sx_pad(c, sizeof(c), sx_fmt_name[f], 24);
+            if (!sx_fmt_ok[f]) { SXP("%s illisible (%s)\n", c, base_of(names[sx_fmt_k[f]])); continue; }
+            SXP("%s décodage %u,%u %% du processeur, %u trous, %u images ratées  (%s)\n", c, (unsigned)(sx_fmt_cpu[f] / 10), (unsigned)(sx_fmt_cpu[f] % 10),
+                (unsigned)sx_fmt_gap[f], (unsigned)sx_fmt_slow[f], base_of(names[sx_fmt_k[f]]));
+        }
+        SXP("\n== Radio ==\n");
+        if (sx_radio == 1) SXP("connexion en %u ms, %u trous sur 10 s\n", (unsigned)sx_radio_ms, (unsigned)sx_radio_gap);
+        else SXP("%s\n", sx_radio == 2 ? "pas de son au bout de 20 s" : sx_radio == 4 ? "connexion impossible" : "pas testée (pas de réseau ou pas de station)");
+    }
+    SXP("\n== Son (parcours) ==\n%u trous (%u ms) sur %u s joués%s\n", (unsigned)sx_gapev, (unsigned)(sx_gap / 48), (unsigned)sx_played, sx_played ? "" : " (pas de musique sur la carte SD)");
+    if (sx_full) {
+        SXP("\n== Images par étape ==\n");
+        for (int i = 0; i < SB_N; i++) if (sx_sb_frames[i]) {
+            sx_pad(c, sizeof(c), sx_sb_name[i], 14);
+            SXP("%s %5u images, %3u ratées (%u%%), pire %u ms\n", c, (unsigned)sx_sb_frames[i], (unsigned)sx_sb_slow[i], (unsigned)(sx_sb_slow[i] * 100u / sx_sb_frames[i]), (unsigned)(sx_sb_worst[i] / 1000u));
+        }
+    }
+    SXP("\n== Fluidité (parcours%s) ==\n%u images, %u ratées (%u,%u %% à l'heure)", sx_full ? " et stress" : "", (unsigned)sx_frames, (unsigned)sx_slow, (unsigned)(ok / 10), (unsigned)(ok % 10));
     if (sx_worst_tab >= 0) SXP(", pire %u ms (%s)", (unsigned)(sx_worst / 1000u), sx_worst_tab < TAB_COUNT ? tab_names[sx_worst_tab] : "menu");
     SXP("\n");
     for (int t = 0; t < PF_TABS; t++) {
         if (!pfx_frames[t]) continue;
-        SXP("[%s] %u images, %u ratees (%u%%), %u tres lentes, pire %u ms\n", t < TAB_COUNT ? tab_names[t] : "menu / autre",
+        SXP("[%s] %u images, %u ratées (%u%%), %u très lentes, pire %u ms\n", t < TAB_COUNT ? tab_names[t] : "menu / autre",
             (unsigned)pfx_frames[t], (unsigned)pfx_slow[t], (unsigned)(pfx_slow[t] * 100u / pfx_frames[t]), (unsigned)pfx_vslow[t], (unsigned)(pfx_worst[t] / 1000u));
         for (int i = 0; i < PH_N; i++) {
             u32 avg = (u32)(pfx_sum[t][i] / pfx_frames[t]);
             if (avg < 300 && pfx_max[t][i] < 8000 && !pfx_top[t][i]) continue;
-            SXP("   %-22s moyenne %4u,%u ms  pire %5u ms  cause de %u images ratees\n", pfx_names[i], (unsigned)(avg / 1000), (unsigned)(avg % 1000 / 100), (unsigned)(pfx_max[t][i] / 1000u), (unsigned)pfx_top[t][i]);
+            sx_pad(c, sizeof(c), pfx_names[i], 25);
+            SXP("   %s moyenne %4u,%u ms  pire %5u ms  cause de %u images ratées\n", c, (unsigned)(avg / 1000), (unsigned)(avg % 1000 / 100), (unsigned)(pfx_max[t][i] / 1000u), (unsigned)pfx_top[t][i]);
+        }
+    }
+    if (sx_nst) {
+        SXP("\n== Images bloquées (150 ms et plus : %u ; les %d plus longues) ==\n", (unsigned)sx_nst_all, sx_nst);
+        for (int k = 0; k < sx_nst; k++) {                 /* (de la plus longue a la plus courte) */
+            int b2 = k;
+            for (int j = k + 1; j < sx_nst; j++) if (sx_st[j].ms > sx_st[b2].ms) b2 = j;
+            sxs_t t_ = sx_st[k]; sx_st[k] = sx_st[b2]; sx_st[b2] = t_;
+            const sxs_t *s = &sx_st[k];
+            char cs[80], bgt[120], sb[40]; sx_cause(cs, sizeof(cs), s); sx_bg_text(bgt, sizeof(bgt), s->bg);
+            sx_pad(sb, sizeof(sb), sx_sb_name[s->sb < SB_N ? s->sb : 0], 14);
+            SXP("%5u ms  %s %s : %s", (unsigned)s->ms, sb, sx_tabn(s->tab), cs);
+            if (s->stolen_us >= 20000) SXP(" ; processeur pris %u ms", (unsigned)(s->stolen_us / 1000u));
+            if (s->dsec && s->dsec_us >= 20000) SXP(" ; dessin le plus long : %s %u ms", s->dsec, (unsigned)(s->dsec_us / 1000u));
+            if (bgt[0]) SXP(" ; en fond : %s", bgt);
+            SXP("\n");
         }
     }
     if (mv_bt_total) {
-        SXP("\n== Dernier demarrage : %u ms ==\n", (unsigned)mv_bt_total);
+        SXP("\n== Dernier démarrage : %u ms ==\n", (unsigned)mv_bt_total);
         for (int i = 0; i < mv_bt_k; i++) SXP("   %-24s %5u ms\n", mv_bt_n[i], (unsigned)mv_bt_ms[i]);
     }
     if (sx_prev[0]) SXP("\n(test d'avant : %s)", sx_prev);
     #undef SXP
     FILE *f = sd_ok && !sd_virtual ? fopen(SX_FILE, "w") : NULL;
     if (f) { fwrite(sx_rep, 1, n, f); fclose(f); }
-    crumb("test de la console : %u%% a l'heure, SD %u/%u Ko/s, %u trous", (unsigned)(ok / 10), (unsigned)sx_rkbs, (unsigned)sx_wkbs, (unsigned)sx_gapev);
+    crumb("test de la console : note %d, %u%% a l'heure, %u blocages, %u trous", sx_score, (unsigned)(ok / 10), (unsigned)sx_nst_all, (unsigned)sx_gapev);
+    sx_page = 0;
     sx_state = SX_DONE;
     tl_screen = TL_SELFTEST;
+}
+
+static void sx_begin(int full) {
+    sx_full = full;
+    sx_state = SX_BENCH; sx_bstep = 0; sx_bsub = 0; sx_t = now_ms();
+    sx_tab0 = tab; sx_aborted = 0; sx_music = 0; sx_pass = 0; sx_sb = -1;
+    sx_nst = 0; sx_nst_all = sx_st_500 = 0; sx_score = -1; sx_nd = 0;
+    memset(sx_sb_frames, 0, sizeof(sx_sb_frames)); memset(sx_sb_slow, 0, sizeof(sx_sb_slow)); memset(sx_sb_worst, 0, sizeof(sx_sb_worst));
+    sx_mem_p1 = sx_mem_p2 = sx_mem_end = 0;
+    sx_ram_kb = 0; sx_aram = 0; sx_gpu_mpx = sx_gpu_tri = 0; sx_dns_ms = -1; sx_radio = 0; sx_fmt_n = 0; sx_pad_mask = 0;
+    for (int f = 0; f < SX_NF; f++) sx_fmt_k[f] = -1;
+    sx_dbl_ms = 0; sx_sd_tot = sx_sd_free = sx_rnd_x10 = sx_dir_n = sx_dir_ms = 0;
+    sx_ni = 0; sx_nn = full ? SX_NN : 1;
+    memset(sx_net_st, 0, sizeof(sx_net_st));
+    sx_gap0 = au_gap; sx_gapev0 = au_gap_ev; sx_tot0 = au_tot;
 }
 
 static void sx_input(u32 down, u32 nav, int fire) {
     (void)nav; (void)fire;
     if (sx_state == SX_INTRO || sx_state == SX_DONE) {
-        if (down & PAD_BUTTON_A) { sx_state = SX_BENCH; sx_t = now_ms(); return; }
+        int np = sx_full ? 3 : 2;
+        if (down & PAD_BUTTON_A) { sx_begin(1); return; }
+        if (down & PAD_BUTTON_Y) { sx_begin(0); return; }
+        if (sx_state == SX_DONE && (down & (PAD_BUTTON_X | PAD_BUTTON_RIGHT | PAD_TRIGGER_R))) { sx_page = (sx_page + 1) % np; return; }
+        if (sx_state == SX_DONE && (down & (PAD_BUTTON_LEFT | PAD_TRIGGER_L))) { sx_page = (sx_page + np - 1) % np; return; }
         if (down & PAD_BUTTON_B) { tl_screen = TL_NONE; menu_open = 1; }
     }
 }
@@ -259,76 +826,179 @@ static void sx_input(u32 down, u32 nav, int fire) {
 /* une ligne du resume : nom, valeur, comparaison avec le test d'avant */
 static f32 sx_line(f32 y, const char *k, const char *v, const char *cmp, col_t c) {   /* (rend la ligne suivante) */
     gx_text1(F_MED, 64, y, k, RGBA(200, 190, 240, 255));
-    gx_text1(F_MED, 200, y, v, c);
-    if (cmp && cmp[0]) { gx_text1(F_SMALL, 200, y + 15, cmp, RGBA(150, 140, 190, 255)); return y + 37; }
-    return y + 24;
+    char fv[200]; fit_text(F_MED, v, 380, fv, sizeof(fv));
+    gx_text1(F_MED, 200, y, fv, c);
+    if (cmp && cmp[0]) { gx_text1(F_SMALL, 200, y + 15, cmp, RGBA(150, 140, 190, 255)); return y + 35; }
+    return y + 23;
 }
 static void sx_cmp(char *o, int cap, u32 now, u32 before, int lower_better, const char *unit) {
     if (!before) { o[0] = 0; return; }
     int better = lower_better ? now < before * 95 / 100 : now > before * 105 / 100, worse = lower_better ? now > before * 105 / 100 : now < before * 95 / 100;
     snprintf(o, cap, "avant %u%s %s", (unsigned)before, unit, better ? "(mieux)" : worse ? "(moins bien)" : "(pareil)");
 }
+#define SX_OK RGBA(140, 255, 170, 255)
+#define SX_MID RGBA(255, 220, 120, 255)
+#define SX_BAD RGBA(255, 140, 140, 255)
+#define SX_TXT RGBA(220, 212, 250, 255)
 
-static void draw_selftest(void) {
-    tl_frame("Test de la console", sx_state == SX_DONE ? (sx_aborted ? "arr\xC3\xAAt\xC3\xA9" : "termin\xC3\xA9") : "");
-    if (sx_state == SX_INTRO) {
-        static const char *const l[] = {
-            "Mesure ta GameCube en vrai : processeur, m\xC3\xA9moire, carte SD, r\xC3\xA9seau,",
-            "puis GC Station se parcourt toute seule (chaque onglet, les listes, le menu)",
-            "avec un morceau en fond : fluidit\xC3\xA9, ce qui ralentit, trous dans le son.",
-            "", "Dure environ une minute. Ne touche pas la manette (B : arr\xC3\xAAter).",
-            "Rapport : SD:/gc-mp3/journaux/test-console.txt et sur le t\xC3\xA9l\xC3\xA9phone",
-            "(page Rapport de bug). Le test d'avant est gard\xC3\xA9 pour comparer." };
-        for (int i = 0; i < 7; i++) gx_text1(F_SMALL, 64, 112 + i * 22, l[i], RGBA(220, 212, 250, 255));
-        static const char *const k[] = { "A", "B" }, *const lb[] = { "LANCER", "RETOUR" };
-        tl_legend(k, lb, 2);
-        return;
-    }
-    if (sx_state == SX_BENCH) {
-        gx_text_c(F_MED, 320, 220, "Mesures en cours (processeur, m\xC3\xA9moire, carte SD)...", RGBA(255, 230, 150, 255));
-        if (now_ms() - sx_t > 120) { sx_bench(); sx_state = SX_NET; sx_net_start(); }   /* (apres une image affichee) */
-        return;
-    }
-    if (sx_state == SX_NET) { gx_text_c(F_MED, 320, 220, "Mesure du r\xC3\xA9seau (GitHub)...", RGBA(255, 230, 150, 255)); return; }
-    if (sx_state != SX_DONE) return;
-    char v[96], c[96];
+static void sx_page_summary(void) {
+    char v[160], c[96];
     u32 ok = sx_frames ? (sx_frames - sx_slow) * 1000u / sx_frames : 0;
-    f32 y = 100;
-    snprintf(v, sizeof(v), "%u,%u %% des images \xC3\xA0 l'heure", (unsigned)(ok / 10), (unsigned)(ok % 10));
+    f32 y = 98;
+    snprintf(v, sizeof(v), "%d / 100", sx_score);
+    sx_cmp(c, sizeof(c), (u32)(sx_score > 0 ? sx_score : 0), sx_prev_val("note="), 0, "");
+    y = sx_line(y, "Note", v, c, sx_score >= 85 ? SX_OK : sx_score >= 60 ? SX_MID : SX_BAD);
+    snprintf(v, sizeof(v), "%u,%u %% des images à l'heure", (unsigned)(ok / 10), (unsigned)(ok % 10));
     sx_cmp(c, sizeof(c), ok / 10, sx_prev_val("ok=") / 10, 0, " %");
-    y = sx_line(y, "Fluidit\xC3\xA9", v, c, ok >= 950 ? RGBA(140, 255, 170, 255) : ok >= 850 ? RGBA(255, 220, 120, 255) : RGBA(255, 140, 140, 255));
-    if (sx_worst_tab >= 0) {
-        snprintf(v, sizeof(v), "pire image %u ms (%s)", (unsigned)(sx_worst / 1000u), sx_worst_tab < TAB_COUNT ? TR(tab_names[sx_worst_tab]) : "menu");
-        y = sx_line(y, "", v, "", RGBA(220, 212, 250, 255));
-    }
+    y = sx_line(y, "Fluidité", v, c, ok >= 950 ? SX_OK : ok >= 850 ? SX_MID : SX_BAD);
+    snprintf(v, sizeof(v), "%u images bloquées (%u > 0,5 s)", (unsigned)sx_nst_all, (unsigned)sx_st_500);
+    y = sx_line(y, "", v, "", sx_st_500 ? SX_BAD : sx_nst_all ? SX_MID : SX_OK);
     snprintf(v, sizeof(v), "%u trous (%u ms) sur %u s", (unsigned)sx_gapev, (unsigned)(sx_gap / 48), (unsigned)sx_played);
-    y = sx_line(y, "Son", sx_played ? v : "pas de musique test\xC3\xA9" "e", "", sx_gapev == 0 ? RGBA(140, 255, 170, 255) : sx_gapev < 4 ? RGBA(255, 220, 120, 255) : RGBA(255, 140, 140, 255));
-    snprintf(v, sizeof(v), "lecture %u Ko/s, \xC3\xA9" "criture %u Ko/s", (unsigned)sx_rkbs, (unsigned)sx_wkbs);
+    y = sx_line(y, "Son", sx_played ? v : "pas de musique testée", "", sx_gapev == 0 ? SX_OK : sx_gapev < 4 ? SX_MID : SX_BAD);
+    snprintf(v, sizeof(v), "lecture %u Ko/s, écriture %u Ko/s", (unsigned)sx_rkbs, (unsigned)sx_wkbs);
     sx_cmp(c, sizeof(c), sx_rkbs, sx_prev_val("sdr="), 0, " Ko/s");
-    y = sx_line(y, "Carte SD", sd_ok && !sd_virtual ? v : "absente", c, RGBA(220, 212, 250, 255));
-    snprintf(v, sizeof(v), "recherche d'un fichier %u,%u ms", (unsigned)(sx_stat_x10 / 10), (unsigned)(sx_stat_x10 % 10));
-    if (sx_stat_x10) y = sx_line(y, "", v, "", RGBA(220, 212, 250, 255));
+    y = sx_line(y, "Carte SD", sd_ok && !sd_virtual ? v : "absente", c, sx_rkbs >= 800 || !sd_ok ? SX_TXT : SX_MID);
     char m1[24], m2[24];
     sx_mo(m1, sizeof(m1), sx_free0); sx_mo(m2, sizeof(m2), sx_big0);
     snprintf(v, sizeof(v), "%s libres (bloc %s)", m1, m2);
-    y = sx_line(y, "M\xC3\xA9moire", v, "", sx_big0 >= 6u << 20 ? RGBA(140, 255, 170, 255) : RGBA(255, 220, 120, 255));
+    if (sx_full && sx_mem_p1 && sx_mem_p2) {
+        size_t l = strlen(v);
+        if (sx_mem_p1 > sx_mem_p2 + 256 * 1024) snprintf(v + l, sizeof(v) - l, ", fuite %u Ko", (unsigned)((sx_mem_p1 - sx_mem_p2) >> 10));
+        else snprintf(v + l, sizeof(v) - l, ", pas de fuite");
+    }
+    y = sx_line(y, "Mémoire", v, "", sx_ram_err || sx_aram_err ? SX_BAD : sx_big0 >= 6u << 20 ? SX_OK : SX_MID);
     snprintf(v, sizeof(v), "%u ms (calcul), copie %u Mo/s", (unsigned)sx_cpu_ms, (unsigned)sx_cpy_mbs);
     sx_cmp(c, sizeof(c), sx_cpu_ms, sx_prev_val("cpu="), 1, " ms");
-    y = sx_line(y, "Processeur", v, c, RGBA(220, 212, 250, 255));
-    if (sx_net_state == 1) snprintf(v, sizeof(v), "GitHub : %u ms, %u Ko/s", (unsigned)sx_net_ms, (unsigned)sx_net_kbs);
-    else snprintf(v, sizeof(v), "%s", sx_net_state == 3 ? "pas connect\xC3\xA9" : "GitHub injoignable");
-    y = sx_line(y, "R\xC3\xA9seau", v, "", sx_net_state == 1 ? RGBA(220, 212, 250, 255) : RGBA(255, 190, 140, 255));
-    gx_text1(F_SMALL, 64, y + 6, "D\xC3\xA9tail : SD:/gc-mp3/journaux/test-console.txt  -  t\xC3\xA9l\xC3\xA9phone : page Rapport de bug", RGBA(170, 155, 225, 255));
-    static const char *const k[] = { "A", "B" }, *const lb[] = { "REFAIRE", "RETOUR" };
-    tl_legend(k, lb, 2);
+    y = sx_line(y, "Processeur", v, c, SX_TXT);
+    if (sx_net_st[0] == 1) snprintf(v, sizeof(v), "GitHub : %u ms", (unsigned)sx_net_ms[0]);
+    else snprintf(v, sizeof(v), "%s", sx_net_st[0] == 3 ? "pas connecté" : "GitHub injoignable");
+    if (sx_full && sx_net_st[1] == 1) { size_t l = strlen(v); snprintf(v + l, sizeof(v) - l, ", débit %u Ko/s", (unsigned)sx_net_kbs[1]); }
+    y = sx_line(y, "Réseau", v, "", sx_net_st[0] == 1 ? SX_TXT : RGBA(255, 190, 140, 255));
+    (void)y;
+}
+/* texte sur une ou deux lignes (coupe a un espace) ; rend la ligne suivante */
+static f32 sx_wrap(f32 x, f32 y, int w, const char *s, col_t c) {
+    char fv[200];
+    fit_text(F_SMALL, s, w, fv, sizeof(fv));
+    size_t l = strlen(fv), sl = strlen(s);
+    if (l >= sl || l < 4) { gx_text1(F_SMALL, x, y, fv, c); return y + 18; }
+    size_t cut = l > 3 ? l - 3 : l;                   /* (fit_text met "..." a la fin) */
+    while (cut > 0 && s[cut] != ' ') cut--;
+    if (cut == 0) cut = l > 3 ? l - 3 : l;
+    char a[200]; snprintf(a, sizeof(a), "%.*s", (int)cut, s);
+    gx_text1(F_SMALL, x, y, a, c);
+    fit_text(F_SMALL, s + cut + (s[cut] == ' '), w - 16, fv, sizeof(fv));
+    gx_text1(F_SMALL, x + 16, y + 17, fv, c);
+    return y + 36;
+}
+static void sx_page_diag(void) {
+    f32 y = 96;
+    for (int i = 0; i < sx_nd && y < 398; i++) {
+        col_t c = sx_diag_lv[i] == 2 ? SX_BAD : sx_diag_lv[i] == 1 ? SX_MID : SX_OK;
+        int sub = sx_diag[i][0] == ' ';
+        y = sx_wrap(sub ? 72 : 60, y, sub ? 508 : 520, sx_diag[i] + (sub ? 3 : 0), c);
+    }
+}
+static void sx_page_hw(void) {
+    char v[200];
+    f32 y = 96;
+    #define HW(col, ...) do { snprintf(v, sizeof(v), __VA_ARGS__); char f_[200]; fit_text(F_SMALL, v, 520, f_, sizeof(f_)); gx_text1(F_SMALL, 60, y, f_, col); y += 18; } while (0)
+    if (sx_ram_kb) HW(sx_ram_err ? SX_BAD : SX_OK, "Mémoire : %u Mo vérifiés, %u erreurs, lecture %u Mo/s, accès %u ns", (unsigned)(sx_ram_kb >> 10), (unsigned)sx_ram_err, (unsigned)sx_ram_r, (unsigned)sx_ram_ns);
+    if (sx_aram == 1) HW(sx_aram_err ? SX_BAD : SX_OK, "ARAM : %u Mo vérifiés, %u erreurs, %u Mo/s", (unsigned)(sx_aram_kb >> 10), (unsigned)sx_aram_err, (unsigned)sx_aram_mbs);
+    else if (sx_aram == 2) HW(SX_TXT, "ARAM : pas sur le simulateur");
+    if (sx_gpu_mpx) HW(SX_TXT, "Processeur graphique : %u millions de points/s, %u milliers de triangles/s", (unsigned)sx_gpu_mpx, (unsigned)sx_gpu_tri);
+    if (sd_ok && !sd_virtual) HW(SX_TXT, "Carte SD : 4 Ko au hasard %u,%u ms, dossier de %u fichiers en %u ms, %u Mo libres", (unsigned)(sx_rnd_x10 / 10), (unsigned)(sx_rnd_x10 % 10), (unsigned)sx_dir_n, (unsigned)sx_dir_ms, (unsigned)sx_sd_free);
+    if (sx_dns_ms >= 0) HW(sx_dns_ms > 800 ? SX_MID : SX_TXT, "Noms des sites (DNS, box) : %d ms", sx_dns_ms);
+    else if (sx_dns_ms == -2) HW(SX_MID, "Noms des sites (DNS, box) : pas de réponse");
+    if (sx_net_st[2] == 1) HW(SX_TXT, "Connexion gardée : %u ms (première, chiffrement compris : %u ms)", (unsigned)sx_net_ms[2], (unsigned)sx_net_ms[0]);
+    int anyp = 0;
+    for (int p = 0; p < 4; p++) if (sx_pad_mask & (1u << p)) {
+        anyp = 1;
+        int d = sx_pad_dev[p][0] > sx_pad_dev[p][1] ? sx_pad_dev[p][0] : sx_pad_dev[p][1], c = sx_pad_dev[p][2] > sx_pad_dev[p][3] ? sx_pad_dev[p][2] : sx_pad_dev[p][3];
+        HW(d >= 15 || c >= 15 ? SX_MID : SX_OK, "Manette %d%s : stick écart %d, stick C %d, gâchettes %d", p + 1, sx_pad_type[p] == SI_GC_WAVEBIRD ? " (WaveBird)" : "", d, c, sx_pad_trg[p]);
+    }
+    if (!anyp) HW(SX_TXT, "Manettes : aucune vue");
+    for (int f = 0; f < SX_NF && y < 384; f++) {
+        if (sx_fmt_k[f] < 0) continue;
+        if (!sx_fmt_ok[f]) { HW(SX_MID, "%s : illisible", sx_fmt_name[f]); continue; }
+        HW(sx_fmt_gap[f] ? SX_BAD : sx_fmt_cpu[f] >= 600 ? SX_MID : SX_OK, "%s : décodage %u %% du processeur, %u trous", sx_fmt_name[f], (unsigned)(sx_fmt_cpu[f] / 10), (unsigned)sx_fmt_gap[f]);
+    }
+    if (sx_radio == 1) HW(sx_radio_gap ? SX_MID : SX_OK, "Radio : connectée en %u,%u s, %u trous", (unsigned)(sx_radio_ms / 1000), (unsigned)(sx_radio_ms % 1000 / 100), (unsigned)sx_radio_gap);
+    else if (sx_radio == 2) HW(SX_MID, "Radio : pas de son au bout de 20 s");
+    else if (sx_radio == 4) HW(SX_MID, "Radio : connexion impossible");
+    #undef HW
 }
 
-/* bandeau pendant le parcours (par-dessus les onglets) */
+static void draw_selftest(void) {
+    if (sx_state == SX_BENCH && sx_bstep == 3 && sx_full && now_ms() - sx_t >= 120) sx_bench_gpu();   /* (avant le cadre : invisible) */
+    static const char *const pg[] = { "résumé", "diagnostic", "matériel" };
+    char right[80];
+    if (sx_state == SX_DONE) snprintf(right, sizeof(right), "%s%s  -  %s %d/%d", sx_full ? "complet" : "rapide", sx_aborted ? " (arrêté)" : "", pg[sx_page], sx_page + 1, sx_full ? 3 : 2);
+    else right[0] = 0;
+    tl_frame("Test de la console", right);
+    if (sx_state == SX_INTRO) {
+        static const char *const l[] = {
+            "A : TEST COMPLET (environ 4 minutes)",
+            "  mémoire et ARAM vérifiées, processeur graphique, carte SD, manettes,",
+            "  réseau (DNS, connexion chiffrée, débit), chaque format audio, une radio,",
+            "  deux parcours des onglets (fuites de mémoire), puis un stress.",
+            "  Chaque image bloquée est notée avec sa cause : diagnostic et note.",
+            "Y : test rapide (environ 1 minute)",
+            "",
+            "Ne touche pas la manette pendant le test (B : arrêter).",
+            "Rapport : SD:/gc-mp3/journaux/test-console.txt et sur le téléphone",
+            "(page Rapport de bug). Le test d'avant est gardé pour comparer." };
+        for (int i = 0; i < 10; i++) gx_text1(F_SMALL, 64, 108 + i * 24, l[i], i == 0 || i == 5 ? RGBA(255, 230, 150, 255) : SX_TXT);
+        static const char *const k[] = { "A", "Y", "B" }, *const lb[] = { "COMPLET", "RAPIDE", "RETOUR" };
+        tl_legend(k, lb, 3);
+        return;
+    }
+    if (sx_state == SX_BENCH) {
+        static const char *const nm[] = { "processeur", "mémoire principale", "ARAM", "processeur graphique", "carte SD", "manettes (ne touche pas)", "réseau (DNS)" };
+        const int ns = 7;
+        char b[120];
+        snprintf(b, sizeof(b), "Mesures : %s (%d / %d)...", nm[sx_bstep < ns ? sx_bstep : ns - 1], sx_bstep + 1, ns);
+        gx_text_c(F_MED, 320, 220, b, RGBA(255, 230, 150, 255));
+        gx_rrect_fill(170, 240, 300, 8, 4, RGBA(40, 30, 80, 255), RGBA(40, 30, 80, 255));
+        gx_rrect_fill(170, 240, 300.0f * (sx_bstep + 1) / ns, 8, 4, RGBA(150, 100, 255, 255), RGBA(110, 60, 230, 255));
+        if (now_ms() - sx_t < 120) return;               /* (apres une image affichee) */
+        switch (sx_bstep) {
+        case 0: sx_bench_cpu(); break;
+        case 1: if (sx_full) sx_bench_ram(); break;
+        case 2: if (sx_full) sx_bench_aram(); break;
+        case 3: break;                                   /* (fait plus haut, avant le cadre) */
+        case 4: sx_bench_sd(); break;
+        case 5: if (sx_full) { sx_bench_pads(sx_bsub == 0); if (++sx_bsub < 40) return; } break;
+        case 6: if (sx_full) sx_bench_dns(); break;
+        }
+        sx_bstep++; sx_bsub = 0;
+        if (sx_bstep >= ns) { sx_state = SX_NET; sx_t0 = now_ms(); sx_net_start(); }
+        return;
+    }
+    if (sx_state == SX_NET) {
+        char b[120];
+        snprintf(b, sizeof(b), "Réseau : %s...", sx_ni < sx_nn ? sx_net_name[sx_ni] : "");
+        gx_text_c(F_MED, 320, 220, b, RGBA(255, 230, 150, 255));
+        return;
+    }
+    if (sx_state != SX_DONE) return;
+    if (sx_page == 0) sx_page_summary();
+    else if (sx_page == 1) sx_page_diag();
+    else sx_page_hw();
+    gx_text1(F_SMALL, 64, 408, "Détail : SD:/gc-mp3/journaux/test-console.txt  -  téléphone : Rapport de bug", RGBA(170, 155, 225, 255));
+    static const char *const k[] = { "X", "A", "Y", "B" }, *const lb[] = { "PAGE", "COMPLET", "RAPIDE", "RETOUR" };
+    tl_legend(k, lb, 4);
+}
+
+/* bandeau pendant le test (par-dessus les onglets) */
 static void sx_overlay(void) {
-    if (sx_state != SX_TOUR) return;
-    char b[120];
-    if (sx_i >= 0 && sx_i < sx_ntabs) snprintf(b, sizeof(b), "Test de la console : onglet %d / %d  -  B : arr\xC3\xAAter", sx_i + 1, sx_ntabs);
-    else snprintf(b, sizeof(b), "Test de la console : menu START  -  B : arr\xC3\xAAter");
+    if (sx_state < SX_SOUND || sx_state > SX_STRESS) return;
+    char b[160];
+    if (sx_state == SX_SOUND) snprintf(b, sizeof(b), "Test : format audio %s  -  B : arrêter", sx_fmt_i >= 0 && sx_fmt_i < SX_NF ? sx_fmt_name[sx_fmt_i] : "");
+    else if (sx_state == SX_RADIO) snprintf(b, sizeof(b), "Test : radio (%s)  -  B : arrêter", sx_sub ? "écoute" : "connexion");
+    else if (sx_state == SX_STRESS) snprintf(b, sizeof(b), "Test : stress (onglets très vite, menu, outils)  -  B : arrêter");
+    else if (sx_i >= 0 && sx_i < sx_ntabs) snprintf(b, sizeof(b), "Test : parcours %d%s, onglet %d / %d  -  B : arrêter", sx_pass, sx_full ? "/2" : "", sx_i + 1, sx_ntabs);
+    else snprintf(b, sizeof(b), "Test : menu START  -  B : arrêter");
     f32 w = (f32)text_width(F_SMALL, b, 0) + 24;
     gx_rrect_fill(320 - w / 2, 440, w, 24, 8, RGBA(40, 10, 60, 230), RGBA(40, 10, 60, 230));
     gx_text_c(F_SMALL, 320, 457, b, RGBA(255, 230, 150, 255));
