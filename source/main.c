@@ -421,7 +421,9 @@ static int night_on = 0, night_lum = 2, night_radio = 1, night_pending_radio = 0
 static u64 night_hint_until = 0;
 static int upd_auto = 1;
 static int ap_noimg = 1;                               /* v227 : montrer les applis sans image (liste Applis) */
-static int upd_xz = 0;                                 /* v226 : mise a jour = version compressee (demarrage plus rapide) */
+static int upd_xz = 1;                                 /* v226 : mise a jour = version compressee (demarrage plus rapide ; v232 : par defaut) */
+static int upd_xz_set = 0;                             /* v232 : choisi a la main (sinon : Oui, meme si "non" etait enregistre) */
+static int upd_xz_file = 0;
 static char upd_repo[96] = "antho13otz/gc-mp3";
 static char upd_file[256] = "";
 static int stream_codec = 0;                /* radio : 0 = MP3, 1 = AAC, 2 = OGG Vorbis */
@@ -5614,7 +5616,8 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "veilleuse_luminosite")) { night_lum = atoi(v); if (night_lum < 1) night_lum = 1; if (night_lum > 5) night_lum = 5; }
         else if (!strcasecmp(k, "veilleuse_radio")) night_radio = yes(v);
         else if (!strcasecmp(k, "maj_auto")) upd_auto = yes(v);
-        else if (!strcasecmp(k, "maj_compresse")) upd_xz = yes(v);
+        else if (!strcasecmp(k, "maj_compresse")) upd_xz_file = yes(v);
+        else if (!strcasecmp(k, "maj_compresse_choisi")) upd_xz_set = yes(v);
         else if (!strcasecmp(k, "applis_sans_image")) ap_noimg = yes(v);
         else if (!strcasecmp(k, "maj_depot")) { if (strchr(v, '/') && !strchr(v, ' ')) snprintf(upd_repo, sizeof(upd_repo), "%s", v); }
         else if (!strcasecmp(k, "maj_fichier")) snprintf(upd_file, sizeof(upd_file), "%s", v);
@@ -5718,6 +5721,7 @@ static void load_settings(void) {
         setting_apply(trim(t), trim(eq + 1));
     }
     fclose(f);
+    upd_xz = upd_xz_set ? upd_xz_file : 1;              /* v232 : version compressee par defaut, sauf choix fait a la main */
     eq_setup();
 }
 
@@ -5817,8 +5821,8 @@ static void settings_print(FILE *f) {                   /* v194 : le texte de gc
                "veilleuse_luminosite = %d\nveilleuse_radio = %s\n"
                "# Mise a jour : verification au demarrage (oui / non), depot GitHub,\n"
                "# fichier .dol a remplacer (vide = trouve tout seul)\n"
-               "maj_auto = %s\nmaj_compresse = %s\nmaj_depot = %s\nmaj_fichier = %s\napplis_sans_image = %s\n",
-            night_lum, night_radio ? "oui" : "non", upd_auto ? "oui" : "non", upd_xz ? "oui" : "non", upd_repo, upd_file, ap_noimg ? "oui" : "non");
+               "maj_auto = %s\nmaj_compresse = %s\nmaj_compresse_choisi = %s\nmaj_depot = %s\nmaj_fichier = %s\napplis_sans_image = %s\n",
+            night_lum, night_radio ? "oui" : "non", upd_auto ? "oui" : "non", upd_xz ? "oui" : "non", upd_xz_set ? "oui" : "non", upd_repo, upd_file, ap_noimg ? "oui" : "non");
     fprintf(f, "# La manette vibre sur les basses (mode soiree) et dans les jeux : oui / non\n"
                "vibrations = %s\n"
                "# Nouveaux episodes des podcasts telecharges tout seuls dans sd:/gc-mp3/podcasts : oui / non\n"
@@ -12384,7 +12388,7 @@ static void menu_change(int i, int d) {
     case MI_PHONEAUTO: phone_auto = !phone_auto; break;
     case MI_SALON: salon_on = !salon_on; break;
     case MI_UPDAUTO: upd_auto = !upd_auto; break;
-    case MI_UPDXZ:   upd_xz = !upd_xz; break;
+    case MI_UPDXZ:   upd_xz = !upd_xz; upd_xz_set = 1; break;
     case MI_APNOIMG: ap_noimg = !ap_noimg; break;
     case MI_NETSMB: case MI_NETFTP: case MI_NETFSP: nfs_ui_open(i - MI_NETSMB); return;   /* v86 */
     case MI_BASS:    eq_bass += 2 * d; eq_preset = 0; eq_setup(); break;
