@@ -56,6 +56,8 @@ abstract class Tab {
 class PlayerTab extends Tab {
     private ImageView cover;
     private TextView title, sub, info, lyr, lyrPrev, lyrNext, el, dur, vol, play;
+    private FrameLayout coverFrame;
+    private int coverPx;
     // paroles : [ms, texte] ; position = lyrPos + temps passe depuis lyrAt (si la lecture tourne)
     private final List<Object[]> lyrics = new ArrayList<>();
     private long lyrPos, lyrAt, lyrFetched;
@@ -90,6 +92,7 @@ class PlayerTab extends Tab {
         cover.setClipToOutline(true);
         cover.setImageResource(R.mipmap.ic_launcher);
         frame.addView(cover, new FrameLayout.LayoutParams(dp(230), dp(230)));
+        coverFrame = frame;
         LinearLayout.LayoutParams flp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         flp.topMargin = dp(10);
         v.addView(frame, flp);
@@ -154,8 +157,28 @@ class PlayerTab extends Tab {
         vr.addView(vol, new LinearLayout.LayoutParams(dp(110), -2));
         vr.addView(round("+", 46, false, x -> { if (!PlaybackService.adjust(1)) Api.vol(true); }));
         v.addView(vr, lp(-1, -2, 0));
-        root = v;
-        return v;
+        // tout doit tenir a l'ecran (paroles, petits ecrans) : la pochette retrecit si besoin, entre 120 et 230 dp
+        final FrameLayout box = new FrameLayout(a);
+        box.addView(v, new FrameLayout.LayoutParams(-1, -2));
+        box.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> fitCover(box, v));
+        v.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> fitCover(box, v));
+        root = box;
+        return box;
+    }
+
+    private void fitCover(FrameLayout box, LinearLayout v) {
+        int avail = box.getHeight();
+        if (avail <= 0) return;
+        int cur = coverFrame.getChildAt(0).getLayoutParams().height;
+        int others = v.getMeasuredHeight() - cur;
+        int want = Math.max(dp(120), Math.min(dp(230), avail - others));
+        if (Math.abs(want - cur) < dp(4) || want == coverPx) return;
+        coverPx = want;
+        box.post(() -> {
+            FrameLayout.LayoutParams p = (FrameLayout.LayoutParams) coverFrame.getChildAt(0).getLayoutParams();
+            p.width = p.height = want;
+            coverFrame.getChildAt(0).setLayoutParams(p);
+        });
     }
 
     private void fetchLyrics(final String key) {
