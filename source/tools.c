@@ -971,7 +971,7 @@ static void rc_open(void) {
         }
         free(d);
     }
-    if (!gl_scanned) gl_scan();                              /* (titres et ID des jeux) */
+    if (!gl_scanned) gl_scan_full(0);                        /* (titres et ID des jeux ; v264 : la liste gardee : avant, toute la carte SD relue, 10 s) */
     if (rc_sel >= rc_n) rc_sel = rc_n ? rc_n - 1 : 0;
 }
 static int rc_game(int i) { for (int k = 0; k < gl_n; k++) if (!strcasecmp(gl[k].path, rc_path[i])) return k; return -1; }

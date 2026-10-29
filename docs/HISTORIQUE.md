@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v264 (build 732) — « Derniers jeux lancés » s'ouvre tout de suite
+- Test de la console (build 731) : l'outil bloquait l'écran 10,8 s à l'ouverture. Il relisait toute la carte SD pour
+  retrouver les jeux (`gl_scan`, liste refaite) ; il prend maintenant la liste gardée (`gl_scan_full(0)`), comme le téléphone.
+
 ## Nouveautés v262 (build 727) — appli : dernier lancement, sauvegardes du jeu, notifications
 - **Carte « Dernier lancement »** en haut de l'onglet Jeux de l'appli : le jeu, le résultat (quitté avec A+Z+START,
   planté, figé repéré par Pulse, aucune nouvelle, pas de retour), il y a combien de temps, le temps joué, l'endroit
