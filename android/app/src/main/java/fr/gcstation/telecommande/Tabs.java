@@ -4,7 +4,6 @@ package fr.gcstation.telecommande;
 // la console (Api) et se met a jour avec l'etat recu toutes les secondes (/api/state).
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.app.DownloadManager;
 import android.content.Context;
 import android.content.Intent;
@@ -134,11 +133,11 @@ class PlayerTab extends Tab {
         v.addView(ctl, lp(-1, -2, 0));
         LinearLayout vr = new LinearLayout(a);                  // volume
         vr.setGravity(Gravity.CENTER);
-        vr.addView(round("−", 46, false, x -> Api.cmd("voldown", -1)));
+        vr.addView(round("−", 46, false, x -> { if (!PlaybackService.adjust(-1)) Api.vol(false); }));
         vol = Neon.glow(a, "", 16, Neon.CYAN);
         vol.setGravity(Gravity.CENTER);
         vr.addView(vol, new LinearLayout.LayoutParams(dp(110), -2));
-        vr.addView(round("+", 46, false, x -> Api.cmd("volup", -1)));
+        vr.addView(round("+", 46, false, x -> { if (!PlaybackService.adjust(1)) Api.vol(true); }));
         v.addView(vr, lp(-1, -2, 0));
         root = v;
         return v;
@@ -603,14 +602,13 @@ class FilesTab extends Tab {
         final String name = (String) entries.get(pos)[0];
         final boolean dir = (Boolean) entries.get(pos)[1];
         final String q = "&h=" + h + "&i=" + pos + "&x=" + Api.enc(name);
-        new AlertDialog.Builder(a)
-            .setTitle(name)
-            .setItems(new String[] { "Renommer", "Couper (pour déplacer)", "Supprimer" }, (dlg, w) -> {
+        new NeonDialog(a)
+            .title(name)
+            .items(new String[] { "Renommer", "Couper (pour déplacer)", "Supprimer" }, new int[] { 2 }, w -> {
                 if (w == 0) ask("Nouveau nom", name, v -> { if (!v.isEmpty() && !v.equals(name)) fsop("op=ren" + q + "&n=" + Api.enc(v)); });
                 else if (w == 1) { cut = new String[] { h, String.valueOf(pos), name }; paste.setText("Coller : " + name); paste.setVisibility(View.VISIBLE); msg.setText("Ouvre le dossier de destination, puis Coller"); }
-                else new AlertDialog.Builder(a).setTitle("Supprimer " + name + (dir ? " et tout son contenu" : "") + " ?")
-                        .setPositiveButton("Supprimer", (d2, w2) -> fsop("op=del" + q)).setNegativeButton("Annuler", null).show();
-            }).show();
+                else NeonDialog.confirm(a, "Supprimer " + name + (dir ? " et tout son contenu" : "") + " ?", "Ça ne peut pas être annulé.", "Supprimer", () -> fsop("op=del" + q));
+            }).cancel("Fermer").show();
     }
 
     private void doPaste() {
@@ -625,15 +623,7 @@ class FilesTab extends Tab {
 
     interface Text { void on(String v); }
     private void ask(String title, String init, final Text t) {
-        final EditText f = new EditText(a);
-        f.setText(init);
-        f.setSingleLine(true);
-        f.setSelection(f.getText().length());
-        FrameLayout box = new FrameLayout(a);
-        box.setPadding(dp(20), dp(8), dp(20), 0);
-        box.addView(f);
-        new AlertDialog.Builder(a).setTitle(title).setView(box)
-            .setPositiveButton("OK", (d, w) -> t.on(f.getText().toString().trim())).setNegativeButton("Annuler", null).show();
+        NeonDialog.ask(a, title, init, t::on);
     }
 
     private void download(int pos, String name) {

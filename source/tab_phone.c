@@ -686,6 +686,11 @@ static const char recap_page[] =
 "fetch(\"/api/recap\").then(r=>r.json()).then(j=>{if(j.profil)document.getElementById(\"t\").textContent=\"Ton récap : \"+j.profil;document.getElementById(\"pl\").textContent=j.plays;document.getElementById(\"tj\").textContent=d(j.play);document.getElementById(\"sc\").textContent=j.sc+\"/\"+j.scn;\n"
 "L(\"mt\",j.top,x=>x[1]+\" fois\");L(\"ar\",j.art,x=>x[1]+\" fois\");L(\"je\",j.jeux,x=>d(x[1]));L(\"re\",j.rec.filter(x=>x[1]>0),x=>x[1])})</script></body></html>\n"
 ;
+/* v240 : cheats d'un jeu depuis le telephone (avant de le lancer) ; travail fait par la boucle (cheats.c) */
+#define CH_PHONE_MAX 400                                 /* (= CH_MAXC : cheats par fichier) */
+static char *x73_chj = NULL;                             /* reponse : JSON de la liste */
+static char x73_ch_id[8], x73_ch_set[CH_PHONE_MAX + 1];
+static volatile int x73_ch_want = 0, x73_ch_ready = 0;  /* want : 1 lire la liste, 2 ecrire le choix (x73_ch_set) */
 /* v190 : sauvegardes des cartes memoire virtuelles depuis le telephone (travail fait par la boucle : extras73.c) */
 static char *x73_cj = NULL;                              /* JSON des cartes et de leurs sauvegardes */
 static volatile int x73_cj_want = 0, x73_cj_ready = 0;
@@ -1183,6 +1188,25 @@ static void tp_handle(s32 c) {
         char *t = x73_gj_ready && x73_gj ? strdup(x73_gj) : NULL;
         if (t) { tp_reply(c, 200, "application/json", t, (int)strlen(t)); free(t); }
         else tp_reply(c, 503, "application/json", "[]", 2);
+    }
+    else if (!strcmp(target, "/api/cheats") || !strcmp(target, "/api/cheatset")) {   /* v240 : cheats du jeu ?id=GALE01 (&s=0101...) */
+        char id[16], st[CH_PHONE_MAX + 2];
+        tp_param(q ? q : "", "id", id, sizeof(id));
+        st[0] = 0;
+        int set = !strcmp(target, "/api/cheatset");
+        if (set) tp_param(q ? q : "", "s", st, sizeof(st));
+        int ok = strlen(id) == 6 && !x73_ch_want;
+        for (int k = 0; ok && id[k]; k++) if (!isalnum((unsigned char)id[k])) ok = 0;
+        for (int k = 0; ok && st[k]; k++) if (st[k] != '0' && st[k] != '1') ok = 0;
+        if (ok && set && strlen(st) > CH_PHONE_MAX) ok = 0;
+        if (!ok) { tp_reply(c, 400, "application/json", "{}", 2); return; }
+        memcpy(x73_ch_id, id, 7);
+        snprintf(x73_ch_set, sizeof(x73_ch_set), "%s", st);
+        x73_ch_ready = 0; x73_ch_want = set ? 2 : 1;
+        for (int k = 0; k < 400 && !x73_ch_ready; k++) usleep(20000);
+        char *t = x73_ch_ready && x73_chj ? strdup(x73_chj) : NULL;
+        if (t) { tp_reply(c, 200, "application/json", t, (int)strlen(t)); free(t); }
+        else tp_reply(c, 503, "application/json", "{}", 2);
     }
     else if (!strcmp(target, "/api/launch")) {               /* v73 : lancer un jeu (m=1 : Resident) */
         char is[16], ms[8];

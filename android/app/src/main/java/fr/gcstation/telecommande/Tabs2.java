@@ -3,7 +3,6 @@ package fr.gcstation.telecommande;
 // Les ecrans de "Plus" : Jeux (jaquettes), Photos, File d'attente, Reglages, Cartes memoire, Salon, Outils.
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.app.DownloadManager;
 import android.content.ContentValues;
 import android.content.Context;
@@ -144,17 +143,124 @@ class GamesTab extends Tab {
         g.setOnItemClickListener((parent, view, pos, id) -> {
             view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
             final JSONArray x = shown.get(pos);
-            final int i = x.optInt(6);
-            new AlertDialog.Builder(a).setTitle(x.optString(0))
-                .setMessage("Lancer ce jeu sur la GameCube ?")
-                .setPositiveButton("Avec Pulse", (d, w) -> launch(i, 1, x.optString(0)))
-                .setNeutralButton("Lanceur de secours", (d, w) -> launch(i, 0, x.optString(0)))
-                .setNegativeButton("Annuler", null).show();
+            sheet(x);
         });
         v.addView(g, lp(-1, 0, 1));
         root = v;
         return v;
     }
+
+    // fiche du jeu : jaquette, ID, temps de jeu, cheats a activer avant de lancer, puis Pulse ou le lanceur de secours
+    private String mask = "";                                 // (choix des cheats : '0'/'1' par cheat)
+    private boolean maskDirty;
+    private void sheet(final JSONArray x) {
+        final int i = x.optInt(6);
+        final String id = x.optString(1), name = x.optString(0);
+        LinearLayout top = new LinearLayout(a);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        ImageView im = new ImageView(a);
+        im.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        GradientDrawable ib = new GradientDrawable();
+        ib.setCornerRadius(dp(10)); ib.setColor(0x22FFFFFF);
+        im.setBackground(ib);
+        im.setClipToOutline(true);
+        Bitmap b = covers.get(i);
+        if (b != null) im.setImageBitmap(b);
+        top.addView(im, lp(dp(78), dp(108), 0));
+        LinearLayout info = new LinearLayout(a);
+        info.setOrientation(LinearLayout.VERTICAL);
+        info.setPadding(dp(14), 0, 0, 0);
+        info.addView(Neon.text(a, id, 13, Neon.CYAN, true));
+        int min = x.optInt(3);
+        info.addView(Neon.text(a, min > 0 ? "Joué " + (min >= 60 ? (min / 60) + " h " + (min % 60) + " min" : min + " min") : "Jamais joué avec Pulse", 13, Neon.DIM, false));
+        if (x.optInt(4) != 0) info.addView(Neon.text(a, "★ Favori", 13, Neon.PINK, true));
+        top.addView(info, lp(0, -2, 1));
+        LinearLayout box = new LinearLayout(a);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(top);
+        TextView head = Neon.glow(a, "CHEATS", 13, Neon.CYAN);
+        head.setPadding(0, dp(18), 0, dp(4));
+        box.addView(head);
+        final TextView ch = Neon.text(a, "Chargement des cheats…", 13, Neon.FAINT, false);
+        box.addView(ch);
+        final LinearLayout list = new LinearLayout(a);
+        list.setOrientation(LinearLayout.VERTICAL);
+        box.addView(list);
+        mask = ""; maskDirty = false;
+        Api.get("/api/cheats?id=" + id, r -> fillCheats(r, id, ch, list));
+        new NeonDialog(a).title(name).view(box)
+            .cancel("Annuler")
+            .button("Lanceur de secours", false, () -> launchWith(id, i, 0, name))
+            .button("Lancer avec Pulse", true, () -> launchWith(id, i, 1, name))
+            .show();
+    }
+
+    private void fillCheats(String r, final String id, final TextView ch, final LinearLayout list) {
+        JSONObject j = null;
+        try { if (r != null) j = new JSONObject(r); } catch (Exception e) { }
+        JSONArray c = j != null ? j.optJSONArray("c") : null;
+        if (j == null) { ch.setText("Cheats indisponibles (console à mettre à jour ?)"); return; }
+        if (c == null || c.length() == 0) {
+            ch.setText(j.optInt("x") != 0 ? "Aucun cheat utilisable dans SD:/gc-mp3/cheats/" + id + ".txt" : "Pas de cheats pour ce jeu (SD:/gc-mp3/cheats/" + id + ".txt)");
+            return;
+        }
+        StringBuilder m = new StringBuilder();
+        for (int k = 0; k < c.length(); k++) m.append(c.optJSONArray(k).optInt(1) != 0 ? '1' : '0');
+        mask = m.toString();
+        final Runnable count = () -> {
+            int on = 0;
+            for (int k = 0; k < mask.length(); k++) if (mask.charAt(k) == '1') on++;
+            ch.setText(on == 0 ? "Aucun cheat activé" : on + " cheat" + (on > 1 ? "s activés" : " activé") + " · Pulse les applique (sinon : lanceur de secours)");
+            ch.setTextColor(on == 0 ? Neon.FAINT : Neon.DIM);
+        };
+        count.run();
+        for (int k = 0; k < c.length(); k++) {
+            final int idx = k;
+            JSONArray e = c.optJSONArray(k);
+            LinearLayout row = new LinearLayout(a);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setBackground(Neon.button(a, 14, false));
+            row.setPadding(dp(14), dp(10), dp(12), dp(10));
+            LinearLayout tx = new LinearLayout(a);
+            tx.setOrientation(LinearLayout.VERTICAL);
+            TextView n = Neon.text(a, e.optString(0), 15, Neon.TEXT, true);
+            tx.addView(n);
+            int nc = e.optInt(2);
+            tx.addView(Neon.text(a, nc + " ligne" + (nc > 1 ? "s" : "") + " de code", 12, Neon.FAINT, false));
+            row.addView(tx, lp(0, -2, 1));
+            final View sw = NeonDialog.toggle(a, mask.charAt(k) == '1');
+            row.addView(sw, lp(dp(48), dp(28), 0));
+            row.setClickable(true);
+            row.setOnClickListener(v -> {
+                v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+                char[] cs = mask.toCharArray();
+                cs[idx] = cs[idx] == '1' ? '0' : '1';
+                mask = new String(cs);
+                NeonDialog.paintToggle(a, sw, cs[idx] == '1');
+                count.run();
+                maskDirty = true;
+                saveSoon(id);
+            });
+            LinearLayout.LayoutParams p = lp(-1, -2, 0);
+            p.topMargin = dp(8);
+            list.addView(row, p);
+        }
+    }
+
+    private final Runnable saveRun = new Runnable() { public void run() { flushMask(null); } };
+    private String saveId;
+    private void saveSoon(String id) { saveId = id; root.removeCallbacks(saveRun); root.postDelayed(saveRun, 600); }
+    /** envoie le choix des cheats a la console (s'il a change), puis then */
+    private void flushMask(final Runnable then) {
+        root.removeCallbacks(saveRun);
+        if (!maskDirty || saveId == null) { if (then != null) then.run(); return; }
+        maskDirty = false;
+        Api.get("/api/cheatset?id=" + saveId + "&s=" + mask, r -> {
+            if (r == null) Toast.makeText(a, "Cheats pas enregistrés", Toast.LENGTH_SHORT).show();
+            if (then != null) then.run();
+        });
+    }
+    private void launchWith(String id, int i, int m, String name) { flushMask(() -> launch(i, m, name)); }
 
     private void launch(int i, int m, String name) {
         Api.get("/api/launch?i=" + i + "&m=" + m, r -> Toast.makeText(a, r != null ? "Lancement sur la télé : " + name : "Refusé", Toast.LENGTH_SHORT).show());
@@ -625,8 +731,7 @@ class CardsTab extends Tab {
         if (c.optInt("x") != 0) row.addView(Neon.btn(a, "Télécharger", 12, false, x -> UiKit.download(a, "/api/cardfile/" + Uri.encode(f), f)), lp(0, -2, 1));
         if (c.optInt("ok") != 0 || c.optInt("bl") != 0) { row.addView(gap()); row.addView(Neon.btn(a, "+ Sauvegarde", 12, true, x -> pick(f, REQ_GCI)), lp(0, -2, 1)); }
         row.addView(gap());
-        row.addView(Neon.btn(a, "Remplacer", 12, false, x -> new AlertDialog.Builder(a).setTitle("Remplacer " + f + " ?").setMessage("Choisis une image de carte (.raw). L'ancienne est gardée en .bak sur la console.")
-            .setPositiveButton("Choisir", (d, w) -> pick(f, REQ_RAW)).setNegativeButton("Annuler", null).show()), lp(0, -2, 1));
+        row.addView(Neon.btn(a, "Remplacer", 12, false, x -> NeonDialog.confirm(a, "Remplacer " + f + " ?", "Choisis une image de carte (.raw). L'ancienne est gardée en .bak sur la console.", "Choisir", () -> pick(f, REQ_RAW))), lp(0, -2, 1));
         cd.addView(row);
         if (c.optInt("ok") == 0) {
             if (!c.optString("w").isEmpty()) cd.addView(UiKit.hint(a, c.optString("w")));

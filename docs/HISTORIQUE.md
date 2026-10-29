@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v240 (build 698) — cheats choisis depuis le téléphone
+- **Serveur du téléphone** : `/api/cheats?id=GALE01` donne les cheats utilisables de `SD:/gc-mp3/cheats/<ID>.txt`
+  (nom, activé ou non, nombre de lignes de code) ; `/api/cheatset?id=GALE01&s=0101…` enregistre le choix dans
+  `<ID>.chtsel`, au même format que Swiss et l'éditeur de cheats (un octet par cheat + empreinte des codes).
+  Le travail est fait par la boucle principale (`ch_phone_json`, `ch_phone_set` dans cheats.c) ; l'éditeur
+  ouvert sur ce jeu relit le choix, et le nombre de cheats actifs de Mes jeux est remis à jour.
+- **Télécommande Android** : la fiche d'un jeu (jaquette, ID, temps de jeu) montre ses cheats avec des
+  interrupteurs, à activer avant de lancer avec Pulse ou le lanceur de secours. Les fenêtres de l'appli passent
+  au thème Néon rétro. La barre de volume d'Android suit le vrai volume de la console (11 crans, pas de 10 %).
+
 ## Nouveautés v239 (build 683) — une carte mémoire virtuelle par jeu
 - **Réglages du jeu** (Y sur un jeu > Carte mémoire) : nouveau choix **« Rien qu'à ce jeu »** : le jeu a sa propre
   carte virtuelle (`gc-mp3/resident/carte-A-GALE01.raw`), créée à son premier lancement avec Pulse. Les autres

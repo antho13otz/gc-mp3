@@ -36,9 +36,19 @@ public class PlaybackService extends Service {
     private final Handler h = new Handler(Looper.getMainLooper());
     private MediaSession session;
     private VolumeProvider volume;
+    private static volatile PlaybackService me;
+
+    /** bouton de volume appuye dans l'appli : meme chemin que la barre d'Android (garde la barre a jour) */
+    static boolean adjust(int dir) {
+        PlaybackService s = me;
+        if (s == null || s.volume == null) return false;
+        s.h.post(() -> s.volume.onAdjustVolume(dir));
+        return true;
+    }
     private String coverKey = "", shownKey = "";
     private boolean playing, running;
     private long lastBuildCheck;
+    private volatile long volHold;                           // (juste apres un appui : la barre ne recule pas)
 
     static void channels(Context c) {
         if (Build.VERSION.SDK_INT < 26) return;
@@ -68,13 +78,27 @@ public class PlaybackService extends Service {
             @Override public void onSkipToPrevious() { Api.cmd("prev", -1); later(); }
             @Override public void onStop() { Api.cmd("stop", -1); later(); }
         });
-        volume = new VolumeProvider(VolumeProvider.VOLUME_CONTROL_RELATIVE, 20, 10) {   // boutons de volume -> la console
+        // boutons de volume -> la console. La console change le volume par paliers de 10 % (0 a 100 %) : la barre
+        // d'Android a 11 crans (0 a 10), reglee sur le vrai volume de la console (mis a jour avec l'etat).
+        volume = new VolumeProvider(VolumeProvider.VOLUME_CONTROL_ABSOLUTE, 10, 10) {
             @Override public void onAdjustVolume(int dir) {
-                if (dir > 0) Api.cmd("volup", -1); else if (dir < 0) Api.cmd("voldown", -1);
-                if (dir != 0) later();
+                if (dir == 0) return;
+                int v = Math.max(0, Math.min(10, getCurrentVolume() + (dir > 0 ? 1 : -1)));
+                if (v == getCurrentVolume()) return;
+                setCurrentVolume(v);                              // (la barre bouge tout de suite)
+                volHold = System.currentTimeMillis();
+                Api.vol(dir > 0);
+            }
+            @Override public void onSetVolumeTo(int v) {         // (barre glissee : autant de crans que necessaire)
+                v = Math.max(0, Math.min(10, v));
+                int d = v - getCurrentVolume();
+                setCurrentVolume(v);
+                volHold = System.currentTimeMillis();
+                for (int k = 0; k < Math.abs(d); k++) Api.vol(d > 0);
             }
         };
         session.setPlaybackToRemote(volume);
+        me = this;
         session.setSessionActivity(PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE));
         session.setActive(true);
     }
@@ -98,6 +122,7 @@ public class PlaybackService extends Service {
     @Override
     public void onDestroy() {
         running = false;
+        me = null;
         h.removeCallbacksAndMessages(null);
         session.setActive(false);
         session.release();
@@ -122,6 +147,8 @@ public class PlaybackService extends Service {
 
     private void update(JSONObject s) {
         last = s;
+        int cv = Math.max(0, Math.min(10, (s.optInt("vol", 100) + 5) / 10));
+        if (System.currentTimeMillis() - volHold > 1500 && volume.getCurrentVolume() != cv) volume.setCurrentVolume(cv);
         playing = s.optInt("playing", 0) != 0;
         String title = s.optString("title", ""), sub = s.optString("sub", ""), info = s.optString("info", "");
         String key = s.optInt("cov", 0) != 0 ? title + "|" + sub : "";

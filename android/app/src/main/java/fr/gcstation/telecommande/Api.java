@@ -68,6 +68,8 @@ final class Api {
     static void pool(Runnable r) { pool.execute(r); }
 
     static void cmd(String c, int i) { get("/api/cmd?c=" + c + (i >= 0 ? "&i=" + i : ""), (Done<String>) null); }
+    /** un cran de volume (+/- 10 % sur la console) ; envoyes dans l'ordre, l'un apres l'autre */
+    static void vol(final boolean up) { keys.execute(() -> get("/api/cmd?c=" + (up ? "volup" : "voldown"), 1500)); }
     static void key(final String k) { keys.execute(() -> get("/api/key?k=" + k, 1500)); }
     static void mouse(final int dx, final int dy, final int w, final int click) {
         keys.execute(() -> get("/api/mouse?dx=" + dx + "&dy=" + dy + "&w=" + w + "&c=" + click, 1500));

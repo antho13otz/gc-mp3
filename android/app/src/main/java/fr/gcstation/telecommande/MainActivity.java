@@ -6,7 +6,6 @@ package fr.gcstation.telecommande;
 // - "Partager -> GC Station" : fichiers envoyes sur la carte SD (musique, photos, videos, .dol, .gci...).
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.content.ClipData;
 import android.content.Intent;
 import android.content.SharedPreferences;
@@ -419,13 +418,13 @@ public class MainActivity extends Activity {
 
     private void menu() {
         String[] items = { "Actualiser les listes", "Chercher la console à nouveau", "Saisir l'adresse de la console" };
-        new AlertDialog.Builder(this)
-            .setTitle("GC Station" + (Api.host != null ? " (" + Api.host + ")" : ""))
-            .setItems(items, (d, w) -> {
+        new NeonDialog(this)
+            .title("GC Station" + (Api.host != null ? " · " + Api.host : ""))
+            .items(items, w -> {
                 if (w == 0) { ((ListTab) tabs[1]).load(); ((ListTab) tabs[2]).load(); ((FilesTab) tabs[T_FILES]).refresh(); ((PhotosTab) tabs[T_PHOTOS]).load(); QueueTab.tracks = null; }
                 else if (w == 1) { connected = false; search(); }
                 else { connected = false; showPanel("Tape l'adresse affichée dans l'onglet TÉLÉPHONE de la console.", false); }
-            }).show();
+            }).cancel("Fermer").show();
     }
 
     @Override
@@ -522,7 +521,8 @@ public class MainActivity extends Activity {
         int k = e.getKeyCode();
         if (connected && (k == android.view.KeyEvent.KEYCODE_VOLUME_UP || k == android.view.KeyEvent.KEYCODE_VOLUME_DOWN)) {
             if (e.getAction() == android.view.KeyEvent.ACTION_DOWN) {
-                Api.cmd(k == android.view.KeyEvent.KEYCODE_VOLUME_UP ? "volup" : "voldown", -1);
+                int dir = k == android.view.KeyEvent.KEYCODE_VOLUME_UP ? 1 : -1;
+                if (!PlaybackService.adjust(dir)) Api.cmd(dir > 0 ? "volup" : "voldown", -1);
                 ui.removeCallbacks(poll); ui.postDelayed(poll, 250);
             }
             return true;

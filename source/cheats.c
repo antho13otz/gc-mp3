@@ -962,3 +962,115 @@ static void draw_cheats(void) {
         draw_legend_keys(k, l, 4);
     }
 }
+
+/* ---------- v240 : cheats d'un jeu depuis le telephone (extras73.c, demandes de /api/cheats) ----------
+   Meme lecture que ch_collect : les cheats utilisables de SD:/gc-mp3/cheats/<ID>.txt (numerotes comme Swiss),
+   leur nom (la ligne juste avant les codes) et le choix de <ID>.chtsel (valable si l'empreinte est la meme). */
+typedef struct { char (*l)[CH_LW]; int nl, ns, cs[CH_MAXC], ce[CH_MAXC]; u64 h; } ch_raw_t;
+static ch_raw_t *ch_raw_load(const char *id) {
+    char p[NAME_LEN];
+    snprintf(p, sizeof(p), "%s/%.6s.txt", CH_DIR, id);
+    long len = 0;
+    unsigned char *d = read_file(p, 1024 * 1024, &len);
+    if (!d) return NULL;
+    ch_raw_t *r = calloc(1, sizeof(*r));
+    if (r) r->l = malloc(sizeof(*r->l) * CH_MAXL);
+    if (!r || !r->l) { if (r) free(r); free(d); return NULL; }
+    long i = len >= 3 && d[0] == 0xEF && d[1] == 0xBB && d[2] == 0xBF ? 3 : 0;
+    while (i < len && r->nl < CH_MAXL) {
+        long st = i;
+        while (i < len && d[i] != '\n') i++;
+        long n = i - st;
+        if (n > 0 && d[st + n - 1] == '\r') n--;
+        if (n > CH_LW - 1) n = CH_LW - 1;
+        memcpy(r->l[r->nl], d + st, n); r->l[r->nl][n] = 0;
+        r->nl++; i++;
+    }
+    free(d);
+    ch_hbuf hb = { NULL, 0, 0 };
+    char (*l)[CH_LW] = r->l;
+    for (int k = 0; k < r->nl;) {
+        if (!l[k][0] || !ch_sw_iscode_raw(l[k])) { k++; continue; }
+        int s0 = k, bad = !ch_sw_valid_raw(l[k]);
+        k++;
+        while (k < r->nl) { if (!l[k][0]) { k++; continue; } if (!ch_sw_iscode_raw(l[k])) break; if (!ch_sw_valid_raw(l[k])) bad = 1; k++; }
+        if (bad) continue;
+        if (r->ns < CH_MAXC) { r->cs[r->ns] = s0; r->ce[r->ns] = k; }
+        r->ns++;
+        for (int j = s0; j < k; j++) {
+            if (!l[j][0] || !ch_sw_iscode_raw(l[j])) continue;
+            const char *pp = l[j];
+            u32 a = ch_hexval(&pp), b = ch_hexval(&pp);
+            if (hb.cap >= 0 && hb.n + 8 > hb.cap) { int nc = hb.cap ? hb.cap * 2 : 4096; u8 *nb = realloc(hb.b, nc); if (!nb) hb.cap = -1; else { hb.b = nb; hb.cap = nc; } }
+            if (hb.cap < 0) continue;
+            u8 *q = hb.b + hb.n;
+            q[0] = a >> 24; q[1] = a >> 16; q[2] = a >> 8; q[3] = a; q[4] = b >> 24; q[5] = b >> 16; q[6] = b >> 8; q[7] = b;
+            hb.n += 8;
+        }
+    }
+    if (hb.cap < 0) { free(hb.b); free(r->l); free(r); return NULL; }
+    r->h = xxh64(hb.b ? hb.b : (const u8 *)"", (size_t)hb.n);
+    free(hb.b);
+    return r;
+}
+static void ch_raw_free(ch_raw_t *r) { if (r) { free(r->l); free(r); } }
+/* {"x":1 si le fichier existe,"c":[["nom",0|1,nombre de lignes de code],...]} */
+static char *ch_phone_json(const char *id) {
+    sbuf_t s = { NULL, 0, 0 };
+    ch_raw_t *r = ch_raw_load(id);
+    sb_add(&s, r ? "{\"x\":1,\"c\":[" : "{\"x\":0,\"c\":[");
+    if (r) {
+        char p[NAME_LEN], m[48];
+        snprintf(p, sizeof(p), "%s/%.6s.chtsel", CH_DIR, id);
+        long sl = 0;
+        unsigned char *sel = read_file(p, 65536, &sl);
+        int good = 0;
+        if (sel && sl >= 8) { u64 old = 0; for (int k = 0; k < 8; k++) old = (old << 8) | sel[sl - 8 + k]; good = old == r->h; }
+        int n = r->ns < CH_MAXC ? r->ns : CH_MAXC;
+        for (int c = 0; c < n; c++) {
+            int s0 = r->cs[c], nc = 0;
+            for (int j = s0; j < r->ce[c]; j++) if (r->l[j][0] && ch_sw_iscode_raw(r->l[j])) nc++;
+            const char *nm = s0 > 0 && !ch_blank(r->l[s0 - 1]) && !ch_sw_iscode_raw(r->l[s0 - 1]) ? r->l[s0 - 1] : NULL;
+            char def[24];
+            if (!nm) { snprintf(def, sizeof(def), "Cheat %d", c + 1); nm = def; }
+            if (c) sb_add(&s, ",");
+            sb_add(&s, "[");
+            x73_json_raw(&s, nm);
+            snprintf(m, sizeof(m), ",%d,%d]", good && c < sl - 8 && sel[c] ? 1 : 0, nc);
+            sb_add(&s, m);
+        }
+        free(sel);
+        ch_raw_free(r);
+    }
+    sb_add(&s, "]}");
+    return s.b;
+}
+/* ecrit <ID>.chtsel : un octet par cheat utilisable puis l'empreinte (comme Swiss) ; rien d'active = efface */
+static void ch_phone_set(const char *id, const char *bits) {
+    ch_raw_t *r = ch_raw_load(id);
+    if (!r) return;
+    char p[NAME_LEN], tmp[NAME_LEN + 8];
+    snprintf(p, sizeof(p), "%s/%.6s.chtsel", CH_DIR, id);
+    int n = r->ns, any = 0;
+    u8 *sel = calloc(1, (size_t)n + 8);
+    if (sel) {
+        for (int c = 0; c < n && bits[c]; c++) if (bits[c] == '1') { sel[c] = 1; any = 1; }
+        if (!any) remove(p);
+        else {
+            for (int i = 0; i < 8; i++) sel[n + i] = (u8)(r->h >> (56 - 8 * i));
+            snprintf(tmp, sizeof(tmp), "%s.tmp", p);
+            FILE *f = fopen(tmp, "wb");
+            int ok = f && fwrite(sel, 1, (size_t)n + 8, f) == (size_t)n + 8;
+            if (f && fclose(f) != 0) ok = 0;
+            if (ok) { remove(p); ok = rename(tmp, p) == 0; }
+            if (!ok) remove(tmp);
+        }
+        free(sel);
+        crumb("cheats (telephone) : %.6s", id);
+    }
+    ch_raw_free(r);
+    ch_sel_gen++;                                             /* (Mes jeux : nombre de cheats actifs a jour) */
+    char nm[16];
+    snprintf(nm, sizeof(nm), "%.6s.txt", id);
+    if (ch_l && !strcasecmp(ch_name, nm) && !ch_dirty) { ch_sel_dirty = 0; ch_sel_load(); }   /* (editeur ouvert sur ce jeu) */
+}

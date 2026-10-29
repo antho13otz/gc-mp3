@@ -1396,6 +1396,13 @@ static void x73_pump(void) {
     if (fun_mode == FUN_OFF || fun_mode == FUN_KARAOKE || fun_mode == FUN_WAKE) rhc_pump();
     if (x73_gj_want) { x73_gj_want = 0; x73_games_build(); }
     if (x73_cj_want) { x73_cj_want = 0; x73_cards_build(); }   /* v190 */
+    if (x73_ch_want) {                                        /* v240 : cheats depuis le telephone */
+        if (x73_ch_want == 2) ch_phone_set(x73_ch_id, x73_ch_set);
+        char *j = ch_phone_json(x73_ch_id), *old = x73_chj;
+        x73_chj = j ? j : strdup("{}");
+        free(old);
+        x73_ch_want = 0; x73_ch_ready = 1;
+    }
     if (x73_rj_want) { x73_rj_want = 0; rcp_json(); }        /* v191 : recap */
     x73_vj_pump();
     x73_launch_pump();
