@@ -1,3 +1,3 @@
 # Empreinte SHA-256 du certificat qui signe la telecommande (publique, ce n est pas un secret).
 # Chaque APK doit avoir la meme : sinon Android refuse de l installer par-dessus (verifie par android.yml).
-198f24944601caa5f3f704ba972a4fcb47b33990c79370ef9bedb057035804c9
+27cc51ae5ada1493baa2f34faaf08063656891c7bb43ac1fc116532e2382cea7
