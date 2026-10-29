@@ -973,6 +973,44 @@ static void na_thr_print(FILE *f, const u8 *b) {
         }
     }
 }
+/* v251 : quel fichier du disque se trouve a cette position (pour la derniere lecture du journal) : nom, position dans
+   le fichier, taille et ses 32 premiers octets. Le disque : la ligne "Fichier : " de dernier-lancement.txt. */
+static int na_iso_name_at(u32 pos, char *out, int cap, u32 *in_file, u32 *flen, u8 *head) {
+    long ll = 0;
+    char *lt = (char *)read_file(NA_LOG, 16384, &ll);
+    if (!lt) return 0;
+    char path[NAME_LEN] = "";
+    char *p = strstr(lt, "Fichier : ");
+    if (p) { p += 10; int n = 0; while (p[n] && p[n] != '\n' && p[n] != '\r' && n < (int)sizeof(path) - 1) { path[n] = p[n]; n++; } path[n] = 0; }
+    free(lt);
+    if (!path[0]) return 0;
+    gdisc_t g;
+    if (!gd_open(&g, path)) return 0;
+    u8 h[12];
+    int ok = 0;
+    if (gd_read(&g, 0x420, h, 12)) {
+        u32 fo = be32(h + 4), fs = be32(h + 8);
+        u8 *fst = fs >= 12 && fs < (4u << 20) ? (u8 *)malloc(fs) : NULL;
+        if (fst && gd_read(&g, fo, fst, fs)) {
+            u32 n = be32(fst + 8);
+            const char *names = (const char *)fst + n * 12;
+            for (u32 i = 1; n * 12 <= fs && i < n && !ok; i++) {
+                const u8 *e = fst + i * 12;
+                u32 no = be32(e) & 0xFFFFFFu, off = be32(e + 4), len = be32(e + 8);
+                if (e[0] || pos < off || pos - off >= len || (const u8 *)names + no >= fst + fs) continue;
+                snprintf(out, cap, "%s", names + no);
+                *in_file = pos - off; *flen = len;
+                memset(head, 0, 32);
+                gd_read(&g, off, head, len < 32 ? len : 32);
+                ok = 1;
+            }
+            if (!ok && pos < 0x2440 + 0x2000) { snprintf(out, cap, "%s", "(en-tete / apploader du disque)"); *in_file = pos; *flen = 0; memset(head, 0, 32); ok = 1; }
+        }
+        free(fst);
+    }
+    gd_close(&g);
+    return ok;
+}
 static void nat_journal_convert(void) {
     long len = 0;
     u8 *d = (u8 *)read_file(NA_JBIN, 4096, &len);
@@ -1019,6 +1057,14 @@ static void nat_journal_convert(void) {
         fprintf(f, "Carte SD : %s, etape %u, erreur : %s (reponse %02X)\n", H[10] ? "SDHC" : "SD", (unsigned)H[13], H[11] < 7 ? en[H[11]] : "?", (unsigned)H[12]);
         fprintf(f, "Commandes du jeu au faux lecteur : %u   secteurs lus : %u\n", (unsigned)H[19], (unsigned)H[14]);
         fprintf(f, "Derniere commande : %08X (%s)  position %08X  longueur %u\n", (unsigned)H[20], na_cmd_name(H[20]), (unsigned)H[21], (unsigned)H[22]);
+        {   /* v251 : le fichier du disque lu en dernier */
+            char fn[160]; u32 inf = 0, fl = 0; u8 hd[32];
+            if (H[21] && na_iso_name_at(H[21], fn, sizeof(fn), &inf, &fl, hd)) {
+                fprintf(f, "  fichier : %s (a +%u, taille %u)", fn, (unsigned)inf, (unsigned)fl);
+                if (fl) { fprintf(f, " ; debut :"); for (int k = 0; k < 32; k += 4) fprintf(f, " %08X", (unsigned)be32(hd + k)); }
+                fprintf(f, "\n");
+            }
+        }
         fprintf(f, "Erreurs de lecture SD : %u   reprises reussies : %u\n", (unsigned)H[27], (unsigned)H[28]);
         fprintf(f, "Vrai lecteur (reveil du jeu) : %u commandes lancees, %u fois occupe\n", (unsigned)H[25], (unsigned)H[26]);
         fprintf(f, "Le jeu a ecrit DISR (acquittements) : %u fois, dont %u avec une vraie fin de commande   dernier etat reel DISR : %02X\n\n",
@@ -1093,6 +1139,11 @@ static void nat_journal_convert(void) {
             if ((c >> 24) == 0xEE) {                      /* v166 : jeu sans image ni manettes (fige tot) */
                 fprintf(f, "  JEU SANS IMAGE (fige avant ses interruptions) : %u acces au materiel aiguilles ; dernier : %s %08X%s%08X ; commandes au lecteur : %u\n",
                         (unsigned)(c & 0x7FFFFFu), (c >> 23) & 1 ? "ecriture" : "lecture", (unsigned)o, (c >> 23) & 1 ? " <- " : "", (c >> 23) & 1 ? (unsigned)l : 0u, (unsigned)in);
+                continue;
+            }
+            if ((c >> 24) == 0xEC) {                      /* v251 : un .dol entier lu par le jeu (chargeur maison) */
+                fprintf(f, "  PROGRAMME LU PAR LE JEU (.dol entier, pos %08X, %u octets) : %u acces au lecteur branches ; entree %08X\n",
+                        (unsigned)o, (unsigned)l, (unsigned)(c & 0xFFFFFFu), (unsigned)in);
                 continue;
             }
             if ((c >> 24) == 0xAC) {                      /* (le jeu acquitte : il a ete reveille) */

@@ -2083,8 +2083,32 @@ static int nx_dol(u32 dst, u32 off, u32 len) {
     H.exec_last = entry;
     return 1;
 }
+/* v251 : un .dol entier lu d'un coup par le jeu (chargeur maison : Phantasy Star Online lit son vrai programme puis
+   le recopie lui-meme a sa place) : ses sections de code sont branchees dans le tampon, avec leur adresse finale. */
+static int nx_whole_dol(u32 dst, u32 off, u32 len) {
+    if (len < 0x200 || (dst & 3) || dst < 0x80003000u || dst + len > 0x817F0000u) return 0;
+    u32 entry = rbe(dst + 0xE0), nt = 0;
+    int text = 0;
+    for (int i = 0; i < 18; i++) {
+        u32 so = rbe(dst + i * 4), sa = rbe(dst + 0x48 + i * 4), ss = rbe(dst + 0x90 + i * 4);
+        if (!ss) continue;
+        if (so < 0x100 || so + ss > len || ss > 0x01800000u || sa < 0x80003000u || sa + ss > 0x81800000u || (sa & 3) || (so & 3)) return 0;
+        if (i < 7 && entry >= sa && entry < sa + ss) text = 1;
+    }
+    if (!text) return 0;
+    u32 n0 = H.tramp_n;
+    for (int i = 0; i < 7; i++) {
+        u32 so = rbe(dst + i * 4), sa = rbe(dst + 0x48 + i * 4), ss = rbe(dst + 0x90 + i * 4);
+        if (ss) { nx_patch2(dst + so, sa, ss); nt++; }
+    }
+    H.exec_n++; H.exec_last = entry;
+    nr_log_add(0xEC000000u | (H.tramp_n - n0), off, len, entry);
+    nr_log_flush();
+    return (int)nt;
+}
 /* une lecture terminee (dst = memoire, off / len = ISO) : le code de redemarrage, puis tout ce qu'il charge */
 static void nx_read_done(u32 dst, u32 off, u32 len) {
+    if (!exec_on && !exec_a && nx_whole_dol(dst, off, len)) return;   /* v251 */
     if (!exec_on && !exec_a) {
         if (off == 0x2440 && len == 0x20 && H.vi_count) {   /* OSExec commence : le jeu relit l'en-tete de l'apploader */
             H.exec_n++; H.exec_last = off; xdol.ok = 0;

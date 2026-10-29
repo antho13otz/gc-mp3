@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v251 (build 713) — Pulse : programme lu par le jeu lui-même (Phantasy Star Online)
+- PSO (GPOP8P) : le main.dol n'est qu'un chargeur. Il lit son vrai programme (environ 200 Ko, au bout du disque),
+  le recopie lui-même à sa place et y saute : ce programme parlait au vrai lecteur (erreur « An error has occurred »).
+  Pulse universel refusé (2e BAT déjà pris par le jeu).
+- Résident : une lecture qui contient un **.dol entier** (en-tête valable, toutes les sections dans la lecture) voit
+  ses sections de code branchées dans le tampon, avec leur adresse finale (`nx_whole_dol`). Journal : « PROGRAMME LU
+  PAR LE JEU … accès au lecteur branchés ».
+- Journal : le **fichier du disque** lu en dernier (nom, position, taille, 32 premiers octets) sous « Dernière
+  commande » (`na_iso_name_at`, table des fichiers de l'ISO). Si le programme de PSO est compressé, on le verra là.
+
 ## Nouveautés v250 (build 712) — patchs de secours de Pulse choisis sur le téléphone
 - Fiche d'un jeu dans l'appli : « Pulse + patchs de secours… » : Pulse universel, vitesse d'un vrai lecteur, lecteur
   rapide, sans carte virtuelle, sans cheats, sans 16:9, vidéo d'origine, pour **ce lancement seulement**.
