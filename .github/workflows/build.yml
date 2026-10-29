@@ -363,6 +363,39 @@ jobs:
         run: python3 tools/publish_release.py gc-mp3player.dol ${{ github.run_number }} loader/gc-mp3-igr.img loader/gc-mp3-loader.bin
 
   # v92 : disque de demarrage (mini-DVD, consoles avec puce) : en-tetes El Torito de swiss-gc + le .dol
+  # v232 : tests automatiques dans le simulateur (tools/pc-sim/ci.sh) : GC Station compile pour PC avec
+  # AddressSanitizer, scenarios (tour des onglets, Cube Browser), et le telephone (lien, clavier, souris,
+  # photo, page memoire). En parallele de la compilation : ne bloque pas la publication, mais la signale.
+  simulateur:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Outils (clang, ffmpeg, Pillow)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q clang lld llvm ffmpeg python3-pil curl >/dev/null
+
+      - name: Bibliothèques (en cache)
+        uses: actions/cache@v4
+        with:
+          path: |
+            tools/pc-sim/work/src
+            tools/pc-sim/work/libs
+          key: pcsim-libs-${{ hashFiles('tools/pc-sim/fetch.sh') }}
+
+      - name: Tests
+        run: bash tools/pc-sim/ci.sh
+
+      - name: Journaux et captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests-simulateur
+          path: tools/pc-sim/work/run/ci
+          retention-days: 7
+
   disque:
     needs: build
     runs-on: ubuntu-latest

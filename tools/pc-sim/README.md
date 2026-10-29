@@ -81,3 +81,9 @@ Boutons : `A B X Y Z L R START UP DOWN LEFT RIGHT`.
 - Réseau des sessions cloud : chaque connexion passe par un proxy (~200 ms de plus qu'Internet
   depuis chez toi), et beaucoup de sites y sont interdits (refusés tout de suite ici, mais pas
   sur ta console).
+
+## Tests automatiques (v232)
+`bash tools/pc-sim/ci.sh` (depuis la racine du dépôt) : compile le simulateur avec AddressSanitizer, lance les
+scénarios `tour` et `web-accueil`, puis pilote GC Station comme le téléphone (lien, clavier, souris, photo, page
+mémoire). Échoue au moindre plantage, erreur mémoire ou mauvaise réponse. La compilation en ligne le lance à
+chaque publication (travail « simulateur », journaux et captures en artefact `tests-simulateur`).
