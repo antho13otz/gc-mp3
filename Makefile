@@ -102,7 +102,10 @@ MAINDEPS := $(wildcard source/*.c source/*.h source/natres/*.h)
 
 build/natres.elf: source/natres/natres.c source/natres/natres.h tools/natres.ld
 > @mkdir -p build
-> $(CC) $(NATRESFLAGS) -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@ -lgcc
+> $(CC) $(NATRESFLAGS) -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@ -lgcc || { \
+>   $(CC) $(NATRESFLAGS) -Wl,-T,tools/natres.ld -Wl,--no-gc-sections -Wl,--noinhibit-exec $< -o build/natres-gros.elf -lgcc; \
+>   echo "::error::resident Pulse trop gros : fin a $$(powerpc-eabi-nm build/natres-gros.elf | grep __natres_end) (max 817FFF00)"; exit 1; }
+> @echo "::notice::resident Pulse : fin a $$(powerpc-eabi-nm $@ | grep __natres_end) (max 817FFF00)"
 
 build/natres_bin.h: build/natres.elf tools/bin2h.py
 > $(OBJCOPY) -O binary build/natres.elf build/natres.bin

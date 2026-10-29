@@ -965,9 +965,10 @@ static void thr_dump(void) {
     nr_write_sd(H.log_sec + 3, crashbuf);
 }
 static void vc_diag(void);
-static void exi_dump(void);
+static u32 xl_n;
 static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
     if (!(H.flags & NRF_CRASH) || !H.log_sec || !di_ready) return;
+    if ((H.flags & NRF_EXILOG) && xl_n) nr_write_sd(H.log_sec + 4, crashbuf);   /* v260 : (avant tout le reste : crashbuf) */
     for (u32 i = 0; i < 512; i++) crashbuf[i] = 0;
     cw(0x00, NATRES_CRASH_MAGIC); cw(0x04, NATRES_CRASH_VER); cw(0x08, ex);
     cw(0x20, dar); cw(0x24, dsisr); cw(0x28, ctx);
@@ -994,7 +995,6 @@ static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
     nr_write_sd(H.log_sec + 1, crashbuf);
     if (H.flags & NRF_STACK) stack_dump(c[1]);
     if (H.flags & NRF_THREADS) thr_dump();
-    if (H.flags & NRF_EXILOG) exi_dump();
     mem_snap(c);
 }
 void exc_c(u32 ex, u32 ctx) {
@@ -1404,36 +1404,29 @@ static vcard_t *vc_of(u32 a) {
 }
 /* v260 : ce qui passe vers les autres peripheriques du canal 0 (police, horloge / reglages de la console), carte du
    slot A emulee : Soulcalibur II sans textes ni question 50/60 Hz avec la carte virtuelle, normal sans elle */
-static u32 xl[NATRES_EXI_MAX][8], xl_cnt[7], xl_cur = 0xFFFFFFFFu;
+/* (les echanges sont notes directement dans crashbuf, libre pendant le jeu : il ne sert qu'aux comptes rendus de la
+   fin, et le 5e secteur est ecrit en premier) */
+static u32 xl_n = 0, xl_cur = 0xFFFFFFFFu;
+static u32 xl_get(u32 o) { return (u32)crashbuf[o] << 24 | (u32)crashbuf[o + 1] << 16 | (u32)crashbuf[o + 2] << 8 | crashbuf[o + 3]; }
 static u32 xl_rd(u32 a) { return *(volatile u32 *)((a & 0x01FFFFFCu) | 0xC0000000u); }
 static void xl_start(vcard_t *v, u32 cr) {
     if (v != &vc[0]) return;
-    u32 dev = (v->csr >> 7) & 7;
-    xl_cnt[0]++; if (dev & 2) xl_cnt[1]++; if (dev & 4) xl_cnt[2]++; if (cr & 2) xl_cnt[3]++;
-    if (vc_pending()) xl_cnt[5]++;
-    if (xl_cnt[0] > NATRES_EXI_MAX) { xl_cur = 0xFFFFFFFFu; return; }
-    u32 *e = xl[xl_cnt[0] - 1];
-    e[0] = (v->csr & 0xFFFFu) << 16 | (cr & 0xFFFFu); e[1] = v->data; e[2] = v->mar; e[3] = v->len;
-    e[4] = e[5] = e[6] = e[7] = 0;
-    xl_cur = xl_cnt[0] - 1;
+    u32 o;
+    cw(0x00, NATRES_EXI_MAGIC); cw(0x04, ++xl_n);
+    xl_cur = 0xFFFFFFFFu;
+    if (xl_n > NATRES_EXI_MAX) return;
+    o = 0x20 + (xl_n - 1) * 32;
+    cw(o, (v->csr & 0xFFFFu) << 16 | (cr & 0xFFFFu)); cw(o + 4, v->data); cw(o + 8, v->mar); cw(o + 12, v->len);
+    xl_cur = o;
 }
 static void xl_end(void) {                               /* (le jeu deselectionne : les donnees du DMA sont la) */
-    if (xl_cur >= NATRES_EXI_MAX) return;
-    u32 *e = xl[xl_cur];
-    if ((e[0] & 2) && !((e[0] >> 2) & 3)) {              /* (DMA en lecture) */
-        u32 m = e[2], l = e[3] & 0x03FFFFE0u;
-        e[4] = xl_rd(m); e[5] = xl_rd(m + 4);
-        if (l > 0x10) { e[6] = xl_rd(m + 0x10); e[7] = xl_rd(m + 0x14); }
-    }
+    u32 o = xl_cur, c;
+    if (o >= 0x200u) return;
     xl_cur = 0xFFFFFFFFu;
-}
-static void exi_dump(void) {
-    for (u32 i = 0; i < 512; i++) crashbuf[i] = 0;
-    cw(0x00, NATRES_EXI_MAGIC);
-    for (u32 i = 0; i < 6; i++) cw(0x04 + i * 4, xl_cnt[i]);
-    u32 n = xl_cnt[0] < NATRES_EXI_MAX ? xl_cnt[0] : NATRES_EXI_MAX;
-    for (u32 i = 0; i < n; i++) for (u32 k = 0; k < 8; k++) cw(0x20 + i * 32 + k * 4, xl[i][k]);
-    nr_write_sd(H.log_sec + 4, crashbuf);
+    c = xl_get(o);
+    if (!(c & 2) || ((c >> 2) & 3)) return;              /* (seulement un DMA en lecture) */
+    u32 m = xl_get(o + 8);
+    for (u32 k = 0; k < 4; k++) cw(o + 16 + k * 4, xl_rd(m + (k & 1) * 4 + (k & 2) * 8));
 }
 static u32 exi_load(u32 a) {
     trap_guard();
@@ -1452,7 +1445,7 @@ static u32 exi_load(u32 a) {
     case 1: x = (v->csr & 0x80) ? v->mar : real[1]; break;
     case 2: x = (v->csr & 0x80) ? v->len : real[2]; break;
     case 3: x = (v->csr & 0x80) ? v->cr : real[3]; break;
-    case 4: x = (v->csr & 0x80) ? v->data : real[4]; if (!(v->csr & 0x80) && xl_cur < NATRES_EXI_MAX && !(xl[xl_cur][0] & 2)) xl[xl_cur][4] = x; break;
+    case 4: x = (v->csr & 0x80) ? v->data : real[4]; if (!(v->csr & 0x80) && xl_cur < 0x200u && !(xl_get(xl_cur) & 2)) cw(xl_cur + 16, x); break;
     default: x = 0; break;
     }
     irq_restore(m);

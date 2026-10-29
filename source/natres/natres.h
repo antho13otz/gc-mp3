@@ -180,7 +180,7 @@ enum { NRT_OFF = 0, NRT_ON = 1, NRT_BAT = 2, NRT_BAT2 = 3, NRT_MMU = 4, NRT_VEC 
 #define NATRES_SNAP_MAGIC 0x4743534Du       /* "GCSM" */
 /* v260 : 5e secteur du journal : echanges du jeu avec les autres peripheriques du canal EXI 0 (police et horloge /
    reglages de la console : peripherique 1 ; port serie 1 : 2) quand la carte virtuelle du slot A les fait passer.
-   0x00 "GCSX" 0x04 transferts 0x08 du peripherique 1 0x0C du 2 0x10 DMA 0x14 notes 0x18 avec fin de carte en attente
+   0x00 "GCSX" 0x04 transferts
    0x20 + 32 * i (15 premiers) : CSR << 16 | CR, commande (DATA), MAR, LEN, resultat (DATA lu / 1er mot du DMA),
    2e mot, mot +0x10, mot +0x14 (les mots du DMA sont relus a la fin, quand le jeu deselectionne) */
 #define NRF_EXILOG    256u

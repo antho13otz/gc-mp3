@@ -943,8 +943,7 @@ static void na_stack_print(FILE *f, const u8 *b) {
 /* v260 : echanges du jeu avec la police / l'horloge / les reglages de la console (canal EXI 0), carte A emulee */
 static void na_exi_print(FILE *f, const u8 *b) {
     fprintf(f, "\n========== Canal EXI 0 : police, horloge et reglages de la console (carte A virtuelle) ==========\n");
-    fprintf(f, "Transferts : %u (peripherique 1 : %u, peripherique 2 : %u, DMA : %u) ; pendant une fin de carte en attente : %u\n",
-            (unsigned)be32(b + 4), (unsigned)be32(b + 8), (unsigned)be32(b + 12), (unsigned)be32(b + 16), (unsigned)be32(b + 0x18));
+    fprintf(f, "Transferts : %u (les %u premiers ci-dessous)\n", (unsigned)be32(b + 4), (unsigned)NATRES_EXI_MAX);
     u32 n = be32(b + 4);
     if (n > NATRES_EXI_MAX) n = NATRES_EXI_MAX;
     static const char *rw[4] = { "lit", "ecrit", "lit+ecrit", "?" };
