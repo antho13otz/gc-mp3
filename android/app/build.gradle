@@ -12,24 +12,8 @@ android {
         versionCode Integer.parseInt(System.getenv('BUILD_NUM') ?: '1')
         versionName '1.' + (System.getenv('BUILD_NUM') ?: '0')
     }
-    signingConfigs {
-        release {
-            // Cle de signature : jamais dans le depot. Fournie par la compilation (SIGN_STORE, SIGN_PASS) :
-            // secrets du depot, sinon une cle gardee dans le cache de GitHub (voir .github/workflows/android.yml).
-            if (System.getenv('SIGN_STORE')) {
-                storeFile file(System.getenv('SIGN_STORE'))
-                storePassword System.getenv('SIGN_PASS')
-                keyAlias 'telecommande'
-                keyPassword System.getenv('SIGN_PASS')
-            }
-        }
-    }
-    buildTypes {
-        release {
-            minifyEnabled false
-            if (System.getenv('SIGN_STORE')) signingConfig signingConfigs.release
-        }
-    }
+    // (appli gardee pour soi : signee avec la cle de test d'Android, creee par les outils Android et gardee
+    //  dans le cache de GitHub pour qu'une nouvelle version s'installe par-dessus l'ancienne)
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8

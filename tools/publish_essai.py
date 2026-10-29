@@ -20,7 +20,7 @@ def call(method, url, data=None, ctype="application/json"):
         print("  %s -> HTTP %d : %s" % (method, e.code, e.read().decode("utf-8", "replace")[:300]))
         return e.code, None
 st, rel = call("GET", api + "/releases/tags/" + tag)
-info = {"name": os.environ.get("RELEASE_NAME", "Essai : .dol compressé"), "body": body, "prerelease": os.environ.get("RELEASE_PRE", "1") == "1"}
+info = {"name": "Essai : .dol compressé", "body": body, "prerelease": True}
 if st != 200 or not rel:
     st, rel = call("POST", api + "/releases", json.dumps(dict(info, tag_name=tag, target_commitish=os.environ.get("GITHUB_SHA", "main"))).encode())
     if st != 201 or not rel:
