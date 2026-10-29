@@ -2,7 +2,10 @@ package fr.gcstation.telecommande;
 
 // GC Station : telecommande native (theme Neon retro). L'appli parle directement a la console (Api) :
 // - trouve la console sur le Wi-Fi (adresses x.y.z.1 a 254, /api/state) et retient son adresse ;
-// - onglets Lecture, Musique, Radio, Manette, Fichiers ; mini-lecteur en haut ; etat lu toutes les secondes ;
+// - onglets Lecture, Musique, Radio, Manette, Fichiers ; mini-lecteur en haut ; etat lu toutes les secondes, ou
+//   seulement quand la console previent d'un changement (Live : GC Station v266 et plus) ;
+// - console injoignable : bandeau, nouvel essai tout seul (et la console cherchee si son adresse a change) ;
+// - partie en cours (jeu lance sur la console) : jeu, jaquette, temps de jeu, temps restant du jour ;
 // - "Partager -> GC Station" : fichiers envoyes sur la carte SD (musique, photos, videos, .dol, .gci...).
 
 import android.app.Activity;
@@ -77,6 +80,16 @@ public class MainActivity extends Activity {
     private boolean visible, searching, connected;
     private Intent pendingShare;
     private int fails;
+    private JSONObject lastState;
+    private long lastStateAt;
+    private LinearLayout offline, gameView;
+    private TextView offlineMsg, gameTitle, gameSub, gameClock, gameLeft;
+    private android.widget.ImageView gameCover;
+    private boolean gameHidden, wasOffline, rediscovering;
+    private final Live.Listener live = new Live.Listener() {
+        @Override public void changed() { if (connected && visible) { ui.removeCallbacks(poll); ui.post(poll); } }
+        @Override public void game(Live.Game g) { gameHidden = false; showGame(); }
+    };
 
     @Override
     protected void onCreate(Bundle b) {
@@ -144,6 +157,19 @@ public class MainActivity extends Activity {
         ml.setMargins(dp(14), dp(2), dp(14), dp(6));
         col.addView(mini, ml);
 
+        offline = new LinearLayout(this);                       // console injoignable (l'appli reessaie toute seule)
+        offline.setGravity(Gravity.CENTER_VERTICAL);
+        offline.setBackground(Neon.glass(this, 16));
+        offline.setPadding(dp(14), dp(8), dp(8), dp(8));
+        offlineMsg = Neon.text(this, "", 12, Neon.TEXT, false);
+        offline.addView(offlineMsg, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView ob = Neon.btn(this, "Chercher", 12, false, v -> { connected = false; search(); });
+        offline.addView(ob, new LinearLayout.LayoutParams(-2, dp(38)));
+        offline.setVisibility(View.GONE);
+        LinearLayout.LayoutParams ol = new LinearLayout.LayoutParams(-1, -2);
+        ol.setMargins(dp(14), 0, dp(14), dp(6));
+        col.addView(offline, ol);
+
         subBar = new LinearLayout(this);                        // ecran ouvert depuis Plus : fleche retour + titre
         subBar.setGravity(Gravity.CENTER_VERTICAL);
         subBar.setPadding(dp(14), 0, dp(14), dp(6));
@@ -205,6 +231,9 @@ public class MainActivity extends Activity {
             content.addView(tabViews[i], new FrameLayout.LayoutParams(-1, -1));
         }
 
+        gameView = buildGame();                                 // partie en cours (par-dessus les onglets)
+        content.addView(gameView, new FrameLayout.LayoutParams(-1, -1));
+
         panel = buildPanel();                                   // connexion (par-dessus tout)
         root.addView(panel, new FrameLayout.LayoutParams(-1, -1));
 
@@ -261,21 +290,166 @@ public class MainActivity extends Activity {
     private final Runnable poll = new Runnable() {
         @Override public void run() {
             if (!visible || !connected) return;
+            ui.removeCallbacks(poll);
             Api.get("/api/state", r -> {
+                if (!visible || !connected) return;
+                ui.removeCallbacks(poll);
                 if (r != null) {
                     fails = 0;
-                    try { onState(new JSONObject(r)); } catch (Exception e) { }
+                    online();
+                    try { JSONObject j = new JSONObject(r); lastState = j; lastStateAt = android.os.SystemClock.uptimeMillis(); onState(j); } catch (Exception e) { }
                     dot.setTextColor(Neon.CYAN);
-                    Neon.set(status, "Connecté · " + Api.host);
-                } else if (++fails >= 3) {
-                    dot.setTextColor(0xFFFF4D6D);
-                    Neon.set(status, "Console injoignable…");
-                }
-                if (fails >= 8) { connected = false; showPanel("La console ne répond plus (" + Api.host + "). Elle est allumée, sur le même Wi-Fi ?", false); return; }
-                ui.postDelayed(poll, 1000);
+                    Neon.set(status, "Connecté · " + Api.host + (Live.pushing() ? " · en direct" : ""));
+                } else offlineStep(++fails);
+                // en direct : la console previent des changements, l'etat n'est relu que toutes les 5 s (au cas ou)
+                ui.postDelayed(poll, r == null ? 3000 : Live.pushing() ? 5000 : 1000);
             });
         }
     };
+
+    /** entre deux lectures de l'etat (en direct) : la position avance ici, et la partie en cours se met a jour */
+    private final Runnable tick = new Runnable() {
+        @Override public void run() {
+            if (!visible) return;
+            ui.postDelayed(this, 1000);
+            if (Live.game != null) updateGame();
+            JSONObject s = lastState;
+            if (s == null || !connected || fails > 0 || !Live.pushing()) return;
+            long dt = (android.os.SystemClock.uptimeMillis() - lastStateAt) / 1000;
+            if (dt < 1) return;
+            try {
+                JSONObject c = new JSONObject(s.toString());
+                if (c.optInt("playing", 0) != 0) {
+                    int dur = c.optInt("dur", 0);
+                    long el = c.optInt("el", 0) + dt;
+                    c.put("el", dur > 0 ? Math.min(dur, el) : el);
+                }
+                onState(c);
+            } catch (Exception e) { }
+        }
+    };
+
+    // ---------- console injoignable : bandeau, nouvel essai, adresse changee ----------
+    private void offlineStep(int n) {
+        if (Live.game != null) {                                // (jeu en cours : la console ne peut pas repondre, c'est normal)
+            dot.setTextColor(Neon.PINK);
+            Neon.set(status, "En jeu · " + Live.game.name);
+            offline.setVisibility(View.GONE);
+            showGame();
+            return;
+        }
+        if (n < 3) return;
+        wasOffline = true;
+        dot.setTextColor(0xFFFF4D6D);
+        Neon.set(status, "Console injoignable · nouvel essai…");
+        Neon.set(offlineMsg, "La console ne répond pas (" + Api.host + "). Éteinte, en jeu ou hors du Wi-Fi ? L'appli se reconnecte toute seule.");
+        offline.setVisibility(View.VISIBLE);
+        if (n % 6 == 3 && !rediscovering) {                      // (environ toutes les 18 s : la console a peut-etre change d'adresse)
+            rediscovering = true;
+            final String old = Api.host;
+            new Thread(() -> {
+                java.util.List<String[]> f = Live.discover(1500);
+                ui.post(() -> {
+                    rediscovering = false;
+                    if (f.isEmpty() || old == null || !old.equals(Api.host)) return;
+                    String ip = f.get(0)[0];
+                    for (String[] x : f) if (x[0].equals(old)) ip = old;
+                    if (!ip.equals(old)) {
+                        Api.host = ip;
+                        prefs().edit().putString("host", ip).apply();
+                        Live.resubscribe();
+                        Toast.makeText(this, "Console retrouvée : " + ip, Toast.LENGTH_SHORT).show();
+                        ui.removeCallbacks(poll); ui.post(poll);
+                    }
+                });
+            }).start();
+        }
+    }
+
+    private void online() {
+        Live.Game g = Live.consoleBack();
+        if (g != null) Toast.makeText(this, "Partie terminée : " + g.name + " · " + Live.dur(g.playedSec()), Toast.LENGTH_LONG).show();
+        else if (wasOffline) Toast.makeText(this, "Console de retour", Toast.LENGTH_SHORT).show();
+        wasOffline = false;
+        offline.setVisibility(View.GONE);
+        if (Live.game == null || System.currentTimeMillis() - Live.game.start > 45000) showGame();
+    }
+
+    // ---------- partie en cours ----------
+    private LinearLayout buildGame() {
+        LinearLayout p = new LinearLayout(this);
+        p.setOrientation(LinearLayout.VERTICAL);
+        p.setGravity(Gravity.CENTER);
+        p.setPadding(dp(18), dp(10), dp(18), dp(18));
+        p.setClickable(true);
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.VERTICAL);
+        card.setGravity(Gravity.CENTER_HORIZONTAL);
+        card.setBackground(Neon.glass(this, 26));
+        card.setPadding(dp(20), dp(20), dp(20), dp(18));
+        card.addView(Neon.glow(this, "PARTIE EN COURS", 13, Neon.CYAN));
+        gameCover = new android.widget.ImageView(this);
+        gameCover.setScaleType(android.widget.ImageView.ScaleType.FIT_CENTER);
+        LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(dp(150), dp(150));
+        cl.setMargins(0, dp(14), 0, dp(10));
+        card.addView(gameCover, cl);
+        gameTitle = Neon.text(this, "", 19, Neon.TEXT, true);
+        gameTitle.setGravity(Gravity.CENTER);
+        card.addView(gameTitle);
+        gameSub = Neon.text(this, "", 12, Neon.DIM, false);
+        gameSub.setGravity(Gravity.CENTER);
+        card.addView(gameSub);
+        gameClock = Neon.glow(this, "0:00", 38, Neon.PINK);
+        gameClock.setGravity(Gravity.CENTER);
+        gameClock.setPadding(0, dp(12), 0, 0);
+        card.addView(gameClock);
+        TextView cap = Neon.text(this, "temps de jeu", 11, Neon.FAINT, false);
+        cap.setGravity(Gravity.CENTER);
+        card.addView(cap);
+        gameLeft = Neon.text(this, "", 14, Neon.CYAN, true);
+        gameLeft.setGravity(Gravity.CENTER);
+        gameLeft.setPadding(0, dp(10), 0, 0);
+        card.addView(gameLeft);
+        TextView hint = Neon.text(this, "Pour revenir à GC Station : A + Z + START sur la manette. L'appli se reconnecte toute seule au retour.", 12, Neon.DIM, false);
+        hint.setGravity(Gravity.CENTER);
+        hint.setPadding(0, dp(14), 0, dp(12));
+        card.addView(hint);
+        card.addView(Neon.btn(this, "Masquer", 13, false, v -> { gameHidden = true; showGame(); }), new LinearLayout.LayoutParams(-1, -2));
+        p.addView(card, new LinearLayout.LayoutParams(-1, -2));
+        p.setVisibility(View.GONE);
+        return p;
+    }
+
+    private String coverFor = "";
+    private void showGame() {
+        Live.Game g = Live.game;
+        boolean on = g != null && !gameHidden;
+        if (on && gameView.getVisibility() != View.VISIBLE) { gameView.setAlpha(0f); gameView.animate().alpha(1f).setDuration(250).start(); }
+        gameView.setVisibility(on ? View.VISIBLE : View.GONE);
+        if (g == null) { coverFor = ""; return; }
+        if (!g.id.equals(coverFor)) {
+            coverFor = g.id;
+            java.io.File f = new java.io.File(getCacheDir(), "jaquettes/" + g.id + ".png");   // (gardee par l'onglet Jeux)
+            android.graphics.Bitmap b = f.exists() ? android.graphics.BitmapFactory.decodeFile(f.getPath()) : null;
+            if (b != null) gameCover.setImageBitmap(b); else gameCover.setImageResource(R.mipmap.ic_launcher);
+        }
+        Neon.set(gameTitle, g.name.isEmpty() ? g.id : g.name);
+        Neon.set(gameSub, g.id + (g.profile.isEmpty() ? "" : " · profil " + g.profile) + " · lancé à "
+                 + new java.text.SimpleDateFormat("HH:mm", java.util.Locale.FRANCE).format(new java.util.Date(g.start)));
+        updateGame();
+    }
+
+    private void updateGame() {
+        Live.Game g = Live.game;
+        if (g == null || gameView.getVisibility() != View.VISIBLE) return;
+        long t = g.playedSec();
+        Neon.set(gameClock, (t / 3600) + ":" + String.format(java.util.Locale.FRANCE, "%02d:%02d", t % 3600 / 60, t % 60));
+        long left = g.leftSec();
+        if (left == Long.MIN_VALUE) { gameLeft.setVisibility(View.GONE); return; }
+        gameLeft.setVisibility(View.VISIBLE);
+        if (left > 0) { Neon.set(gameLeft, "Il reste " + Live.dur(left) + " de jeu aujourd'hui"); gameLeft.setTextColor(left <= 300 ? 0xFFFFA040 : Neon.CYAN); }
+        else { Neon.set(gameLeft, "Temps de jeu du jour écoulé"); gameLeft.setTextColor(0xFFFF4D6D); }
+    }
 
     private void onState(JSONObject s) {
         String t = s.optString("title", "");
@@ -285,8 +459,14 @@ public class MainActivity extends Activity {
         for (Tab tb : tabs) tb.state(s);
     }
 
-    @Override protected void onResume() { super.onResume(); visible = true; aurora.setRunning(true); ui.removeCallbacks(poll); if (connected) ui.post(poll); }
-    @Override protected void onPause() { super.onPause(); visible = false; aurora.setRunning(false); }
+    @Override protected void onResume() {
+        super.onResume(); visible = true; aurora.setRunning(true);
+        Live.add(this, live);
+        showGame();
+        ui.removeCallbacks(poll); if (connected) ui.post(poll);
+        ui.removeCallbacks(tick); ui.postDelayed(tick, 1000);
+    }
+    @Override protected void onPause() { super.onPause(); visible = false; aurora.setRunning(false); Live.remove(live); ui.removeCallbacks(tick); }
 
     // ---------- connexion ----------
     private void start() {
@@ -295,7 +475,7 @@ public class MainActivity extends Activity {
         final String hh = Api.host;
         new Thread(() -> {
             boolean ok = Api.isConsole(hh, 1500);
-            ui.post(() -> { if (ok) connect(hh); else search(); });
+            ui.post(() -> { if (ok || Live.game != null) connect(hh); else search(); });   // (jeu en cours : la console ne repond pas)
         }).start();
     }
 
@@ -304,6 +484,7 @@ public class MainActivity extends Activity {
         prefs().edit().putString("host", ip).apply();
         connected = true;
         fails = 0;
+        Live.resubscribe();
         panel.animate().alpha(0f).setDuration(250).withEndAction(() -> panel.setVisibility(View.GONE)).start();
         dot.setTextColor(Neon.CYAN);
         status.setText("Connecté · " + ip);
@@ -338,6 +519,12 @@ public class MainActivity extends Activity {
         searching = true;
         showPanel("Recherche de la console sur le Wi-Fi…", true);
         new Thread(() -> {
+            final List<String[]> quick = Live.discover(1500);   // (la console repond elle-meme : GC Station v266 et plus)
+            if (!quick.isEmpty()) {
+                searching = false;
+                ui.post(() -> found(quick));
+                return;
+            }
             final List<String> pre = localPrefixes();
             final AtomicReference<String> found = new AtomicReference<>();
             final AtomicInteger done = new AtomicInteger();
@@ -363,6 +550,16 @@ public class MainActivity extends Activity {
                                              : "Console introuvable. Allume-la et active la télécommande (onglet TÉLÉPHONE), ou tape son adresse.", false);
             });
         }).start();
+    }
+
+    /** consoles trouvees en direct : une seule -> connexion ; plusieurs -> laquelle ? */
+    private void found(List<String[]> f) {
+        if (f.size() == 1) { connect(f.get(0)[0]); return; }
+        showPanel(f.size() + " consoles GC Station sur ce Wi-Fi.", false);
+        String[] items = new String[f.size()];
+        for (int i = 0; i < f.size(); i++) items[i] = f.get(i)[1] + " · " + f.get(i)[0];
+        new NeonDialog(this).title("Quelle console ?").items(items, w -> connect(f.get(w)[0]))
+            .cancel("Fermer").show();
     }
 
     private LinearLayout buildPanel() {

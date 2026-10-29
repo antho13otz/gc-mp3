@@ -480,18 +480,37 @@ static void jeux_cfg_undo(const char *card) {
 }
 static const char *gcl_boot(int k);                           /* v121 : GC Loader (gcl.c) */
 static int gcl_path(const char *p);
-static const char *game_boot_auto(int k) {                   /* v90 : Resident ; le lanceur de secours si des cheats sont actives */
+static void tpl_game(const char *id, const char *name);      /* v266 : l'appli du telephone prevenue (tab_phone.c) */
+static void tpl_game_fail(void);
+static const char *game_boot_auto2(int k);
+static const char *game_boot2(int k, int resident);
+static const char *game_boot_auto(int k) {
+    { const char *lim = pj_launch_check(); if (lim) return lim; }
+    if (k >= 0 && k < gl_n) tpl_game(gl[k].id, gl[k].title);
+    const char *e = game_boot_auto2(k);                      /* (ne revient pas si ca marche) */
+    if (e) tpl_game_fail();
+    return e;
+}
+static const char *game_boot(int k, int resident) {
+    if (k < 0 || k >= gl_n) return "Jeu introuvable";
+    { const char *lim = pj_launch_check(); if (lim) return lim; }
+    tpl_game(gl[k].id, gl[k].title);
+    const char *e = game_boot2(k, resident);
+    if (e) tpl_game_fail();
+    return e;
+}
+static const char *game_boot_auto2(int k) {                  /* v90 : Resident ; le lanceur de secours si des cheats sont actives */
     { const char *lim = pj_launch_check(); if (lim) return lim; }   /* v191 : (avant le GC Loader et le vrai lecteur aussi) */
     if (k >= 0 && k < gl_n && gcl_path(gl[k].path)) { const char *e = gcl_boot(k); nat_ld_on = 0; return e; }   /* v121 : jeu du GC Loader */
     if (k >= 0 && k < gl_n && gl[k].dvd) { const char *e = nat_boot_disc(k); nat_ld_on = 0; return e; }   /* v97 : vrai lecteur */
     if (k >= 0 && k < gl_n) rep_pre(gl[k].id);                /* v140 : cheats coupes pour ce jeu (reglage ou essai de reparation) */
     int sec = k >= 0 && k < gl_n && gl_cheats_on(k) > 0 && nat_cheats_prep(gl[k].id) < 0 && ld_ready();   /* (v121 : Pulse applique les cheats qu'il comprend) */
     if (sec) gl_status("Lancement du jeu...");
-    const char *e = game_boot(k, !sec);
+    const char *e = game_boot2(k, !sec);
     if (!sec) nat_ld_on = 0;                                 /* (fin de l'ecran de chargement de Resident) */
     return e;
 }
-static const char *game_boot(int k, int resident) {
+static const char *game_boot2(int k, int resident) {
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
     { const char *lim = pj_launch_check(); if (lim) return lim; }
     if (gl[k].dvd) { const char *e = nat_boot_disc(k); nat_ld_on = 0; return e; }   /* v97 : vrai lecteur */

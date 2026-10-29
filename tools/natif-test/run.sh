@@ -29,6 +29,7 @@ echo 'static void nat_qr_open(const char *id) { (void)id; }' >> natif.c
 mkdir -p fakeinc/gnu; touch fakeinc/gnu/stubs-32.h
 printf '#pragma once\n#include <stdbool.h>\n#include <sys/types.h>\nbool fatMountSimple(const char*, const void*);\nvoid fatUnmount(const char*);\n' > fakeinc/fat.h
 sed -n '/^\/\* ---------- lecture des disques/,/^static int gl_id_ok/p' $R/source/gclib.c | sed '$d' > gd.inc
+cp $T/v262.inc .                                    # (bouchons v239 / v262 : main.c, tab_phone.c)
 clang --target=powerpc-linux-gnu -DNATIF_BENCH -fsyntax-only -Wall -Wno-unused-function -Wno-unused-variable -DHW_DOL -D__gamecube__ -Ilibogc/gc -Ifakeinc -I. -I$R/source -isystem /usr/include -isystem /usr/include/x86_64-linux-gnu $T/gk.c && echo "console : syntaxe OK"
 # 3) bout en bout : faux jeu -> ISO -> carte SD FAT32 -> lancement natif -> emulateur
 gcc -DNATIF_BENCH -Wall -Wno-unused-function -Wno-unused-variable -I. -I$R/source -o h2 $T/h2.c -lz

@@ -1568,6 +1568,123 @@ static void phone_start(void) {
 
 static void phone_enter(void) { tp_wanted = 1; }
 
+/* ---------- v266 : l'appli du telephone en direct (UDP 51236, pris par la boucle, serveur du telephone actif) ----------
+   - "GCSQ1" (a tout le reseau) -> "GCSA1\t<nom>\t<port http>\t<build>\n" : l'appli trouve la console tout de suite ;
+   - "GCSS1" (toutes les 10 s) : abonnement de cet appareil pour 30 s -> "GCSK1" ;
+   - aux abonnes : "GCSN1\t<numero>" quand l'etat change (titre, pause, volume, paroles, position sautee...) : l'appli
+     relit /api/state tout de suite au lieu de demander chaque seconde ;
+     "GCSG1\t<id>\t<nom>\t<minutes restantes, -1 sans limite>\t<profil>" juste avant de lancer un jeu (la console ne
+     repond plus pendant le jeu : l'appli affiche la partie en cours) ; "GCSE1" si le lancement a echoue. */
+#define TPL_PORT 51236
+#define TPL_MAX 6
+static s32 tpl_fd = -1;
+static const char *salon_myname(void);                   /* (salon.c) */
+static struct { u32 ip; u16 port; u64 seen; } tpl_sub[TPL_MAX];
+static int tpl_n = 0;
+static u32 tpl_seq = 0, tpl_hash = 0;
+static int tpl_el = -1;
+static u64 tpl_el_t = 0, tpl_sent_t = 0;
+static int tpl_pending = 0;
+static void tpl_send_to(u32 ip, u16 port, const char *m, int n) {
+    struct sockaddr_in a;
+    memset(&a, 0, sizeof(a));
+    a.sin_family = AF_INET; a.sin_port = htons(port); a.sin_addr.s_addr = htonl(ip);
+    net_sendto(tpl_fd, m, n, 0, (struct sockaddr *)&a, sizeof(a));
+}
+static void tpl_send_all(const char *m) {
+    if (tpl_fd < 0) return;
+    u64 now = now_ms();
+    for (int i = 0; i < tpl_n; i++) if (now - tpl_sub[i].seen < 30000) tpl_send_to(tpl_sub[i].ip, tpl_sub[i].port, m, (int)strlen(m));
+}
+/* l'etat a-t-il change (sans compter la position qui avance toute seule) ? */
+static void tpl_check_state(void) {
+    const char *j = tp_json[tp_json_cur];
+    u32 h = 2166136261u;
+    int el = -1, pl = 0;
+    for (const char *p = j; *p; p++) {
+        if (*p == ',' && !strncmp(p, ",\"el\":", 6)) { el = atoi(p + 6); p += 6; while (p[1] >= '0' && p[1] <= '9') p++; continue; }
+        if (*p == ',' && !strncmp(p, ",\"free\":", 8)) { p += 8; while (p[1] == '-' || (p[1] >= '0' && p[1] <= '9')) p++; continue; }
+        h = (h ^ (u8)*p) * 16777619u;
+    }
+    const char *q = strstr(j, ",\"playing\":");
+    if (q) pl = atoi(q + 11);
+    u64 now = now_ms();
+    int jump = 0;
+    if (el >= 0 && tpl_el >= 0) {                          /* position sautee (avance ou recul) */
+        int dt = (int)((now - tpl_el_t) / 1000);
+        if (el < tpl_el || el > tpl_el + (pl ? dt + 2 : 1)) jump = 1;
+    }
+    if (h != tpl_hash || jump) tpl_pending = 1;
+    tpl_hash = h; tpl_el = el; tpl_el_t = now;
+    if (tpl_pending && now - tpl_sent_t > 150) {
+        tpl_pending = 0; tpl_sent_t = now;
+        char m[32];
+        snprintf(m, sizeof(m), "GCSN1\t%u\n", (unsigned)++tpl_seq);
+        tpl_send_all(m);
+    }
+}
+static int tpl_live(void) {                               /* un appareil abonne ? */
+    u64 now = now_ms();
+    for (int i = 0; i < tpl_n; i++) if (now - tpl_sub[i].seen < 30000) return 1;
+    return 0;
+}
+static void tpl_pump(void) {
+    if (tpl_fd < 0) {
+        static u64 tried = 0;
+        if (tried && now_ms() - tried < 10000) return;
+        tried = now_ms();
+        tpl_fd = net_socket(AF_INET, SOCK_DGRAM, 0);
+        if (tpl_fd < 0) return;
+        struct sockaddr_in a;
+        memset(&a, 0, sizeof(a));
+        a.sin_family = AF_INET; a.sin_port = htons(TPL_PORT); a.sin_addr.s_addr = INADDR_ANY;
+        if (net_bind(tpl_fd, (struct sockaddr *)&a, sizeof(a)) < 0) { net_close(tpl_fd); tpl_fd = -1; return; }
+        set_nonblock(tpl_fd, 1);
+    }
+    for (int k = 0; k < 8; k++) {
+        char m[64];
+        struct sockaddr_in from;
+        socklen_t fl = sizeof(from);
+        s32 r = net_recvfrom(tpl_fd, m, sizeof(m) - 1, 0, (struct sockaddr *)&from, &fl);
+        if (r <= 0) break;
+        m[r] = 0;
+        u32 ip = ntohl(from.sin_addr.s_addr);
+        u16 port = ntohs(from.sin_port);
+        if (!strncmp(m, "GCSQ1", 5)) {
+            char a[120];
+            int n = snprintf(a, sizeof(a), "GCSA1\t%s\t%d\t%d\n", salon_myname(), PHONE_PORT, (int)GCMP3_BUILD);
+            tpl_send_to(ip, port, a, n);
+        } else if (!strncmp(m, "GCSS1", 5)) {
+            int i = 0;
+            while (i < tpl_n && !(tpl_sub[i].ip == ip && tpl_sub[i].port == port)) i++;
+            if (i == tpl_n) {
+                if (tpl_n < TPL_MAX) tpl_n++;
+                else { u64 o = ~0ull; for (int j = 0; j < TPL_MAX; j++) if (tpl_sub[j].seen < o) { o = tpl_sub[j].seen; i = j; } }
+                crumb("telephone : appareil en direct %u.%u.%u.%u", (unsigned)(ip >> 24), (unsigned)(ip >> 16 & 255), (unsigned)(ip >> 8 & 255), (unsigned)(ip & 255));
+            }
+            tpl_sub[i].ip = ip; tpl_sub[i].port = port; tpl_sub[i].seen = now_ms();
+            char a[32];
+            int n = snprintf(a, sizeof(a), "GCSK1\t%u\n", (unsigned)tpl_seq);
+            tpl_send_to(ip, port, a, n);
+        }
+    }
+}
+/* (jeux_cfg.c) un jeu va se lancer / le lancement a echoue */
+static int pj_left_min(void);
+static void tpl_game(const char *id, const char *name) {
+    if (tpl_fd < 0 || !tpl_live()) return;
+    static char last[8] = "";
+    static u64 last_t = 0;
+    if (!strcmp(last, id ? id : "") && now_ms() - last_t < 5000) return;   /* (deja dit : appels imbriques) */
+    snprintf(last, sizeof(last), "%s", id ? id : ""); last_t = now_ms();
+    char nm[160], m[260];
+    tp_any_utf8(name ? name : "", nm, sizeof(nm));
+    for (char *p = nm; *p; p++) if (*p == '\t' || *p == '\n') *p = ' ';
+    snprintf(m, sizeof(m), "GCSG1\t%s\t%s\t%d\t%s\n", id ? id : "", nm, pj_left_min(), gp_name);
+    for (int k = 0; k < 2; k++) { tpl_send_all(m); usleep(20000); }   /* (deux fois : UDP, et le jeu coupe le reseau juste apres) */
+}
+static void tpl_game_fail(void) { tpl_send_all("GCSE1\n"); }
+
 static void transport_step(int d);
 
 static void phone_pump(void) {
@@ -1582,7 +1699,9 @@ static void phone_pump(void) {
     }
     u64 now = now_ms();
     /* v45 : etat pour le telephone : souvent s'il est connecte, sinon toutes les 3 s (moins de travail) */
-    if (now - tp_json_t > (tp_last_req && now - tp_last_req < 15000 ? 300u : 3000u)) { tp_json_t = now; tp_json_build(); }
+    tpl_pump();                                           /* v266 : l'appli du telephone en direct */
+    int live = tpl_live();
+    if (now - tp_json_t > (live || (tp_last_req && now - tp_last_req < 15000) ? 300u : 3000u)) { tp_json_t = now; tp_json_build(); if (live) tpl_check_state(); }
     if (!tp_cfg_reading && (tp_cfg_now || (now - tp_cfg_t > 1000 && now - tp_last_req < 15000))) { tp_cfg_now = 0; tp_cfg_t = now; tp_cfg_build(); }
 #ifndef GEKKO
     if (tp_cap == 1 && !pcsim_capture) { snprintf(pcsim_capture_name, 96, "capture-telephone"); pcsim_capture = 1; tp_cap = 2; }   /* (v234) */
