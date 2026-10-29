@@ -24,6 +24,24 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v266 (build 738) — L'appli du téléphone en direct
+- **Console trouvée tout de suite** : l'appli demande à tout le Wi-Fi « Y a-t-il une GC Station ? » (UDP, port 51236)
+  et la console répond elle-même (nom, port, build) : moins d'une seconde, au lieu d'essayer les 254 adresses. Plusieurs
+  consoles : l'appli demande laquelle. Le balayage d'avant reste en secours (consoles plus anciennes).
+- **Mises à jour en direct** : l'appli s'abonne (toutes les 10 s, valable 30 s) et la console la prévient dès que l'état
+  change (morceau, pause, volume, paroles, position sautée). L'état n'est plus relu chaque seconde mais sur avis
+  (et toutes les 5 s au cas où ; 15 s quand l'appli est en fond) ; la position avance sur le téléphone. Réaction plus
+  rapide, moins de batterie et moins de travail pour la console.
+- **Console injoignable** : plus d'écran bloquant ; un bandeau, un nouvel essai toutes les 3 s, la console recherchée si
+  son adresse a changé, et « Console de retour » quand elle répond.
+- **Partie en cours** : juste avant de lancer un jeu, la console prévient l'appli (ID, nom, profil, temps de jeu restant
+  du jour). L'appli montre la jaquette, le temps de jeu et le temps restant ; la notification a un chronomètre et
+  prévient 5 min avant la limite du jour, puis à la limite. « Partie terminée » (avec la durée) au retour de la console.
+  Pendant le jeu, la console ne peut pas répondre (le jeu a toute la machine) : pas de bouton « revenir » dans l'appli,
+  c'est toujours A + Z + START.
+- Banc de Pulse (`tools/natif-test`) : il ne compilait plus depuis v239 / v262 (natif.c prend des fonctions à main.c et
+  tab_phone.c) ; bouchons ajoutés (`v262.inc`).
+
 ## Nouveautés v265 (build 734) — Test de la console : cause des blocages, réseau en vrai
 - **Cause de chaque image bloquée** : pendant chaque image, le test compte maintenant les fins de bloc du son
   (interruptions), les Ko lus ou écrits sur la carte SD (interface de la carte montée à travers un compteur) et
