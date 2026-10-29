@@ -113,7 +113,8 @@ class GamesTab extends Tab {
     private final LruCache<Integer, Bitmap> covers = new LruCache<Integer, Bitmap>(16 * 1024 * 1024) {
         @Override protected int sizeOf(Integer k, Bitmap b) { return b.getByteCount(); }
     };
-    private final java.util.Set<Integer> asked = new java.util.HashSet<>();
+    private final java.util.Set<Integer> asked = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+    private static final java.util.concurrent.ExecutorService coverExec = java.util.concurrent.Executors.newSingleThreadExecutor();
     private TextView status;
     private EditText search;
     private BaseAdapter adapter;
@@ -303,9 +304,19 @@ class GamesTab extends Tab {
         im.setTag(i);
         if (b == null && !id.isEmpty() && asked.add(i)) {
             final ImageView target = im;
-            Api.pool(() -> {
-                Bitmap bm = Cmpr.fetch(i);
-                a.runOnUiThread(() -> { if (bm != null) { covers.put(i, bm); if (Integer.valueOf(i).equals(target.getTag())) target.setImageBitmap(bm); } });
+            final java.io.File disk = new java.io.File(a.getCacheDir(), "jaquettes/" + id + ".png");
+            coverExec.execute(() -> {                         // (une a la fois : la console lit sa carte SD pour chacune)
+                Bitmap bm = disk.exists() ? BitmapFactory.decodeFile(disk.getPath()) : null;
+                if (bm == null) {
+                    if (!Integer.valueOf(i).equals(target.getTag()) || root == null || !root.isShown()) { asked.remove(i); return; }   // (plus a l'ecran)
+                    bm = Cmpr.fetch(i);
+                    if (bm != null) {
+                        try { disk.getParentFile().mkdirs(); java.io.FileOutputStream o = new java.io.FileOutputStream(disk); bm.compress(Bitmap.CompressFormat.PNG, 100, o); o.close(); } catch (Exception e) { }
+                        try { Thread.sleep(40); } catch (InterruptedException e) { }
+                    }
+                }
+                final Bitmap fb = bm;
+                a.runOnUiThread(() -> { if (fb != null) { covers.put(i, fb); if (Integer.valueOf(i).equals(target.getTag())) target.setImageBitmap(fb); } });
             });
         }
         return c;

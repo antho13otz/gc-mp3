@@ -1244,7 +1244,7 @@ static void draw_vcard(void) {
 
 /* =================== telephone : jeux (construit par la boucle principale) =================== */
 static void x73_games_build(void) {
-    if (!gl_scanned) gl_scan();
+    if (!gl_scanned) gl_scan_full(0);                         /* v241 : liste gardee (avant : toute la carte SD relue, console figee) */
     sbuf_t s = { NULL, 0, 0 };
     char d[200], m[64];
     sb_add(&s, "[");
@@ -1364,7 +1364,7 @@ static void x73_launch_pump(void) {
     if (x73_launch_k < 0) return;
     int k = x73_launch_k, m = x73_launch_m;
     x73_launch_k = -1;
-    if (!gl_scanned) gl_scan();
+    if (!gl_scanned) gl_scan_full(0);
     if (k < 0 || k >= gl_n) return;
     crumb("telephone : lancement du jeu %d (%s)", k, m ? "Pulse" : "lanceur");
     menu_open = 0; kb_open = 0; tl_screen = TL_NONE;

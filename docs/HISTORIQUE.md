@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v241 (build 699) — l'écran Jeux du téléphone ne fige plus la console
+- `/api/games` et le lancement depuis le téléphone relisaient **toute la carte SD** (et le GC Loader) quand la
+  liste des jeux n'était pas encore chargée : la console restait figée pendant ce temps. Ils prennent maintenant
+  la liste gardée (`gl_scan_full(0)`), comme l'onglet JEUX.
+- **Télécommande Android** : les jaquettes sont demandées une par une (plus 4 à la fois), seulement pour les jeux
+  à l'écran, et gardées sur le téléphone : la console ne les renvoie plus aux ouvertures suivantes.
+
 ## Nouveautés v240 (build 698) — cheats choisis depuis le téléphone
 - **Serveur du téléphone** : `/api/cheats?id=GALE01` donne les cheats utilisables de `SD:/gc-mp3/cheats/<ID>.txt`
   (nom, activé ou non, nombre de lignes de code) ; `/api/cheatset?id=GALE01&s=0101…` enregistre le choix dans
