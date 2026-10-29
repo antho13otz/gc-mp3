@@ -1,0 +1,88 @@
+name: Telecommande Android
+
+# Application Android "GC Station" (telecommande : page du telephone de la console en plein ecran).
+# Compilee quand le dossier android/ change ; l'APK va dans la release "telecommande" du depot.
+on:
+  push:
+    paths:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.11.1'
+
+      # Cle de signature (toujours la meme : une nouvelle version s'installe par-dessus l'ancienne). Jamais dans le
+      # depot : secrets APK_KEYSTORE_B64 + APK_KEY_PASSWORD s'ils existent, sinon une cle creee une fois et gardee
+      # dans le cache de GitHub (renouvelee seulement si aucune compilation pendant 7 jours : reinstaller l'appli).
+      - name: Cle de signature (cache)
+        uses: actions/cache@v4
+        with:
+          path: ~/.apk-key
+          key: apk-keystore-v1
+
+      - name: Cle de signature
+        env:
+          KS_B64: ${{ secrets.APK_KEYSTORE_B64 }}
+          KS_PASS: ${{ secrets.APK_KEY_PASSWORD }}
+        run: |
+          mkdir -p ~/.apk-key
+          if [ -n "$KS_B64" ] && [ -n "$KS_PASS" ]; then
+            echo "$KS_B64" | base64 -d > ~/.apk-key/secret.jks
+            echo "SIGN_STORE=$HOME/.apk-key/secret.jks" >> $GITHUB_ENV
+            echo "::add-mask::$KS_PASS"
+            echo "SIGN_PASS=$KS_PASS" >> $GITHUB_ENV
+            echo "cle : secrets du depot"
+          else
+            if [ ! -f ~/.apk-key/telecommande.jks ]; then
+              openssl rand -hex 16 > ~/.apk-key/pass
+              keytool -genkeypair -keystore ~/.apk-key/telecommande.jks -storepass "$(cat ~/.apk-key/pass)" -keypass "$(cat ~/.apk-key/pass)" \
+                -alias telecommande -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=GC Station, O=antho13otz, C=FR"
+              echo "cle : nouvelle (gardee dans le cache)"
+            else
+              echo "cle : celle du cache"
+            fi
+            echo "::add-mask::$(cat ~/.apk-key/pass)"
+            echo "SIGN_STORE=$HOME/.apk-key/telecommande.jks" >> $GITHUB_ENV
+            echo "SIGN_PASS=$(cat ~/.apk-key/pass)" >> $GITHUB_ENV
+          fi
+
+      - name: Compiler l'APK
+        env:
+          BUILD_NUM: ${{ github.run_number }}
+        run: |
+          gradle -p android --no-daemon assembleRelease
+          cp android/app/build/outputs/apk/release/app-release.apk gc-station-telecommande.apk
+          ls -la gc-station-telecommande.apk
+
+      - name: Publier (artefact)
+        uses: actions/upload-artifact@v4
+        with:
+          name: gc-station-telecommande
+          path: gc-station-telecommande.apk
+
+      - name: Publier (release « telecommande »)
+        if: github.event_name == 'push' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          RELEASE_NAME: "Télécommande Android"
+          RELEASE_PRE: "0"
+        run: |
+          python3 tools/publish_essai.py telecommande "Application Android GC Station (version 1.${{ github.run_number }}) : la télécommande de la console en plein écran, qui trouve la console toute seule sur le Wi-Fi, et « Partager → GC Station » pour envoyer photos, musique et fichiers. Installer gc-station-telecommande.apk (autoriser l'installation d'applications inconnues)." gc-station-telecommande.apk
