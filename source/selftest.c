@@ -298,6 +298,7 @@ typedef struct { u8 k; s16 a, b; u16 ms; } sxk_t;
 static sxk_t *sx_ks = NULL;
 static int sx_nk = 0, sx_k = 0, sx_kph = 0;
 static char sx_v0[96];
+static int sx_set_dir = 1;
 
 static void sx_pj0(void) { pj_open(0); }
 static void sx_nfs0(void) { nfs_ui_open(0); }
@@ -437,9 +438,11 @@ static int sx_k_start(const sxk_t *s) {
         menu_open = 1; menu_sec = sx_menu_sec_of(mi); menu_sel = mi;
         menu_value(mi, sx_v0, sizeof(sx_v0));
         sx_item_begin(IP_SET, "%s", menu_labels[mi]);       /* (avant le changement : si ca plante, on le sait) */
+        sx_set_dir = +1;
         menu_change(mi, +1);
         settings_dirty = 0;
         char v1[96]; menu_value(mi, v1, sizeof(v1));
+        if (!strcmp(sx_v0, v1)) { sx_set_dir = -1; menu_change(mi, -1); settings_dirty = 0; menu_value(mi, v1, sizeof(v1)); }   /* (deja au bout : dans l'autre sens) */
         if (sx_ci >= 0) snprintf(sx_it[sx_ci].nm, sizeof(sx_it[0].nm), "%.28s : %.15s > %.15s", menu_labels[mi], sx_v0, v1);
         return strcmp(sx_v0, v1) != 0;
     }
@@ -459,7 +462,7 @@ static void sx_k_end(const sxk_t *s) {
     switch (s->k) {
     case K_GAME: if (fun_mode) fun_leave(); break;
     case K_SAVER: saver_on = 0; break;
-    case K_SET: menu_change(s->a, -1); settings_dirty = 0; menu_open = 0; break;
+    case K_SET: menu_change(s->a, -sx_set_dir); settings_dirty = 0; menu_open = 0; break;
     case K_PHOTO: pv_mode = 0; pv_slide = 0; break;
     case K_VIDEO: if (pv_mode == 2) video_stop(); pv_mode = 0; break;
     default: break;
@@ -838,7 +841,7 @@ static void sx_sound_tick(u64 n) {
     }
     if (sx_sub == 3) {                               /* apres le saut : ca joue, depuis le milieu ? */
         int f = sx_fmt_i, d = dur_known(sx_fmt_k[f]);
-        int ok = src == SRC_FILE && playing && consumed / 48000u >= (u32)(d / 2) && consumed > sx_mark_c;
+        int ok = src == SRC_FILE && playing && consumed / 48000u + 2u >= (u32)(d / 2) && consumed > sx_mark_c;   /* (saut approche : 2 s pres) */
         if (sx_ci >= 0) { size_t l = strlen(sx_it[sx_ci].nm); snprintf(sx_it[sx_ci].nm + l, sizeof(sx_it[0].nm) - l, " (%u ms)", (unsigned)sx_seek_ms); }
         sx_item_end(ok ? (au_gap_ev != sx_mark_gap ? 1 : 0) : 1);
         sx_sub = 0;
