@@ -1,10 +1,12 @@
 package fr.gcstation.telecommande;
 
-// Globe des radios : rendu OpenGL ES 2.0 (puce graphique du telephone).
-//  - Terre : carte Natural Earth (res/drawable-nodpi/terre.png), oceans et terres aux couleurs neon, cotes
-//    lumineuses (calculees dans le shader), quadrillage, jour / nuit selon l'heure reelle (soleil au bon endroit),
-//    reflet bleu sur le bord ;
-//  - halo d'atmosphere autour de la Terre, etoiles ;
+// Globe des radios : rendu OpenGL ES 2.0 (puce graphique du telephone), net a tous les zooms.
+//  - Terre (res/raw, fait par tools/carte/android_globe.py) : terres et cotes tirees d'un champ de distance
+//    8192 x 4096 (Natural Earth 1:10m) -> bord des terres au pixel pres et cote neon d'un pixel avec son halo, sans
+//    escaliers ni flou meme tres pres ; relief eclaire par le soleil (neige en haut), ocean plus clair pres des cotes,
+//    reflet du soleil sur la mer, lumieres des villes la nuit (NASA Black Marble) en neon, quadrillage fin,
+//    frontieres, jour / nuit selon l'heure reelle, reflet bleu sur le bord ;
+//  - ciel : Voie lactee et etoiles ; halo d'atmosphere ;
 //  - radios : points lumineux (couleur = genre, taille = popularite), colonnes de lumiere pour les plus ecoutees ;
 //  - anneaux : la radio choisie, celle qui joue sur la GameCube ; arc anime entre les deux.
 // Camera : latitude / longitude / distance, avec inertie et vols animes (calcules ici, a chaque image).
@@ -20,7 +22,10 @@ import android.opengl.Matrix;
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
+import java.io.DataInputStream;
+import java.io.InputStream;
 import java.nio.ShortBuffer;
+import java.util.zip.InflaterInputStream;
 import java.util.Calendar;
 import java.util.List;
 import java.util.Random;
@@ -56,8 +61,15 @@ class GlobeRenderer implements GLSurfaceView.Renderer {
     private final Context ctx;
     private final float[] skyMv = new float[16], skyMvp = new float[16];
     private final float[] proj = new float[16], view = new float[16], model = new float[16], tmp = new float[16], vp = new float[16];
-    private int earthProg, ptProg, lineProg, haloProg;
-    private int earthTex;
+    private int earthProg, ptProg, lineProg, haloProg, skyProg;
+    private int sdfTex, nightTex, reliefTex, skyTex;
+    // textures preparees en fond (gardees : le contexte OpenGL peut etre refait)
+    private volatile ByteBuffer sdfPix, nightPix, reliefPix, skyPix;
+    private volatile int sdfW, sdfH, nightW, nightH, reliefW, reliefH, skyW, skyH;
+    private boolean texDone;
+    private int maxTex = 4096;
+    private FloatBuffer borderV;
+    private int borderN;
     private FloatBuffer sphereV;
     private ShortBuffer sphereI;
     private int sphereCount;
@@ -68,7 +80,118 @@ class GlobeRenderer implements GLSurfaceView.Renderer {
     private final FloatBuffer markV = buf(16), arcV = buf(65 * 7), haloV = buf(8);
     private static final float FOV = 34f;
 
-    GlobeRenderer(Context c) { ctx = c; }
+    GlobeRenderer(Context c) {
+        ctx = c;
+        new Thread(this::loadPixels, "globe-textures").start();       // (en fond : le globe s'affiche tout de suite)
+    }
+
+    // ---------------- textures (fichiers de res/raw) ----------------
+    private void loadPixels() {
+        try {
+            nightPix = lum(R.raw.terre_nuit, true); 
+            reliefPix = lum(R.raw.terre_relief, false);
+            skyPix = lum(R.raw.ciel, false) ;
+            InputStream in = ctx.getResources().openRawResource(R.raw.terre_sdf);
+            DataInputStream di = new DataInputStream(in);
+            byte[] h = new byte[12];
+            di.readFully(h);
+            int w = (h[4] & 255) | (h[5] & 255) << 8 | (h[6] & 255) << 16 | (h[7] & 255) << 24;
+            int hh = (h[8] & 255) | (h[9] & 255) << 8 | (h[10] & 255) << 16 | (h[11] & 255) << 24;
+            ByteBuffer b = ByteBuffer.allocateDirect(w * hh);
+            InflaterInputStream z = new InflaterInputStream(di, new java.util.zip.Inflater(), 1 << 16);
+            byte[] chunk = new byte[1 << 16];
+            int n;
+            while (b.hasRemaining() && (n = z.read(chunk, 0, Math.min(chunk.length, b.remaining()))) > 0) b.put(chunk, 0, n);
+            z.close();
+            b.position(0);
+            sdfW = w; sdfH = hh;
+            sdfPix = b;
+        } catch (Throwable e) { }
+    }
+    /** image (JPEG) -> une couche (luminance) */
+    private ByteBuffer lum(int res, boolean night) {
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inScaled = false;
+        Bitmap bm = BitmapFactory.decodeResource(ctx.getResources(), res, o);
+        if (bm == null) return null;
+        int w = bm.getWidth(), h = bm.getHeight();
+        ByteBuffer b = ByteBuffer.allocateDirect(w * h);
+        int[] row = new int[w];
+        for (int y = 0; y < h; y++) {
+            bm.getPixels(row, 0, w, 0, y, w, 1);
+            for (int x = 0; x < w; x++) b.put((byte) ((row[x] >> 8) & 255));
+        }
+        b.position(0);
+        bm.recycle();
+        if (res == R.raw.terre_nuit) { nightW = w; nightH = h; }
+        else if (res == R.raw.terre_relief) { reliefW = w; reliefH = h; }
+        else { skyW = w; skyH = h; }
+        return b;
+    }
+    /** envoie les textures a la puce graphique (des qu'elles sont pretes ; fil OpenGL) */
+    private void uploadTextures() {
+        if (texDone || sdfPix == null || nightPix == null || reliefPix == null || skyPix == null) return;
+        GLES20.glPixelStorei(GLES20.GL_UNPACK_ALIGNMENT, 1);
+        ByteBuffer sd = sdfPix;
+        int w = sdfW, h = sdfH;
+        while (w > maxTex) {                                    // (puce limitee : moitie de la taille, moyenne de 4 points)
+            ByteBuffer half = ByteBuffer.allocateDirect((w / 2) * (h / 2));
+            for (int y = 0; y < h / 2; y++) for (int x = 0; x < w / 2; x++) {
+                int a = sd.get(2 * y * w + 2 * x) & 255, b = sd.get(2 * y * w + 2 * x + 1) & 255, c = sd.get((2 * y + 1) * w + 2 * x) & 255, d = sd.get((2 * y + 1) * w + 2 * x + 1) & 255;
+                half.put((byte) ((a + b + c + d + 2) / 4));
+            }
+            half.position(0);
+            sd = half; w /= 2; h /= 2;
+        }
+        tex(sdfTex, sd, w, h, true);
+        tex(nightTex, nightPix, nightW, nightH, true);
+        tex(reliefTex, reliefPix, reliefW, reliefH, true);
+        tex(skyTex, skyPix, skyW, skyH, false);
+        texDone = true;
+    }
+    private static void tex(int id, ByteBuffer b, int w, int h, boolean repeat) {
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, id);
+        b.position(0);
+        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_LUMINANCE, w, h, 0, GLES20.GL_LUMINANCE, GLES20.GL_UNSIGNED_BYTE, b);
+        GLES20.glGenerateMipmap(GLES20.GL_TEXTURE_2D);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR_MIPMAP_LINEAR);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_REPEAT);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+    }
+
+    /** frontieres (res/raw/traits.bin) : segments, juste au-dessus du sol */
+    private void buildBorders() {
+        try (DataInputStream in = new DataInputStream(new java.io.BufferedInputStream(ctx.getResources().openRawResource(R.raw.traits)))) {
+            byte[] m = new byte[4];
+            in.readFully(m);
+            int nl = Integer.reverseBytes(in.readInt());
+            java.util.ArrayList<float[]> segs = new java.util.ArrayList<>();
+            int total = 0;
+            float[] p = new float[3];
+            for (int k = 0; k < nl; k++) {
+                int type = in.readUnsignedByte();
+                int np = Integer.reverseBytes(in.readInt());
+                float[] l = new float[np * 3];
+                for (int i = 0; i < np; i++) {
+                    float lo = Short.reverseBytes(in.readShort()) * 180f / 32767f, la = Short.reverseBytes(in.readShort()) * 180f / 32767f;
+                    toXYZ(la, lo, 1.0015f, l, i * 3);
+                }
+                if (type == 2 && np >= 2) { segs.add(l); total += (np - 1) * 2; }
+            }
+            float[] v = new float[total * 7];
+            int o = 0;
+            for (float[] l : segs) for (int i = 0; i + 5 < l.length; i += 3) {
+                for (int e = 0; e < 2; e++) {
+                    v[o++] = l[i + e * 3]; v[o++] = l[i + e * 3 + 1]; v[o++] = l[i + e * 3 + 2];
+                    v[o++] = 0.55f; v[o++] = 0.75f; v[o++] = 1.0f; v[o++] = 0.30f;
+                }
+            }
+            borderV = buf(Math.max(7, v.length));
+            borderV.put(v).position(0);
+            borderN = total;
+        } catch (Exception e) { borderN = 0; }
+    }
 
     static FloatBuffer buf(int floats) { return ByteBuffer.allocateDirect(floats * 4).order(ByteOrder.nativeOrder()).asFloatBuffer(); }
 
@@ -78,37 +201,62 @@ class GlobeRenderer implements GLSurfaceView.Renderer {
         "varying vec2 vUv; varying vec3 vN; varying vec3 vNv;" +
         "void main(){ vUv=aUv; vN=aPos; vNv=normalize((uMV*vec4(aPos,0.0)).xyz); gl_Position=uMVP*vec4(aPos,1.0); }";
     private static final String EARTH_F =
-        "precision mediump float; uniform sampler2D uLand; uniform vec3 uSun; uniform float uTex; uniform float uTime;" +
+        "#extension GL_OES_standard_derivatives : enable\n" +
+        "precision highp float; uniform sampler2D uSdf; uniform sampler2D uNight; uniform sampler2D uRelief;" +
+        "uniform vec3 uSun; uniform vec3 uCam; uniform float uReady;" +
         "varying vec2 vUv; varying vec3 vN; varying vec3 vNv;" +
         "void main(){" +
-        " float land=texture2D(uLand,vUv).r;" +
-        " float dx=texture2D(uLand,vUv+vec2(uTex,0.0)).r-texture2D(uLand,vUv-vec2(uTex,0.0)).r;" +
-        " float dy=texture2D(uLand,vUv+vec2(0.0,uTex*2.0)).r-texture2D(uLand,vUv-vec2(0.0,uTex*2.0)).r;" +
-        " float coast=clamp(length(vec2(dx,dy))*1.6,0.0,1.0);" +
         " vec3 n=normalize(vN);" +
-        " vec3 ocean=mix(vec3(0.03,0.02,0.11),vec3(0.01,0.05,0.13),abs(n.y));" +
-        " vec3 landc=mix(vec3(0.24,0.08,0.38),vec3(0.10,0.17,0.40),smoothstep(-0.6,0.8,n.y));" +
+        " float sd=(texture2D(uSdf,vUv).r*255.0-128.0)/8.0;" +                 // distance au rivage (points de la carte)
+        " float fw=max(fwidth(sd),1e-4); float dpx=sd/fw;" +                    // ... en pixels d'ecran
+        " float land=clamp(0.5+dpx,0.0,1.0)*uReady;" +
+        " float core=clamp(1.6-abs(dpx),0.0,1.0)*uReady;" +                    // trait de cote : ~1 pixel, net
+        " float glow=exp(-abs(dpx)/6.0)*uReady;" +
+        " vec2 rt=vec2(1.0/2048.0,1.0/1024.0);" +
+        " float hC=texture2D(uRelief,vUv).r, hE=texture2D(uRelief,vUv+vec2(rt.x,0.0)).r, hN=texture2D(uRelief,vUv-vec2(0.0,rt.y)).r;" +
+        " vec3 east=normalize(cross(vec3(0.0,1.0,0.0),n)+vec3(1e-5,0.0,0.0)); vec3 north=cross(n,east);" +
+        " vec3 nb=normalize(n-(east*(hE-hC)+north*(hN-hC))*5.0*land);" +      // relief
+        " float sg=dot(n,uSun), sl=dot(nb,uSun);" +
+        " float day=smoothstep(-0.12,0.22,sg);" +
+        " vec3 ocean=mix(vec3(0.022,0.03,0.15),vec3(0.05,0.15,0.34),exp(sd*0.15)*0.85*uReady);" +   // indigo profond, plus clair pres des cotes
+        " vec3 landc=mix(vec3(0.20,0.07,0.33),vec3(0.36,0.16,0.52),smoothstep(0.0,0.6,hC));" +
+        " landc=mix(landc,vec3(0.78,0.84,1.0),smoothstep(0.62,0.9,hC)*0.45+smoothstep(0.86,0.97,abs(n.y))*0.55);" +   // neige, glace
         " vec3 c=mix(ocean,landc,land);" +
-        " float la=(0.5-vUv.y)*12.0, lo=vUv.x*24.0;" +                       // quadrillage tous les 15 degres
-        " float g=max(1.0-smoothstep(0.0,0.035,abs(fract(la)-0.5)*2.0-0.93),0.0);" +
-        " g=max(g,(1.0-smoothstep(0.0,0.035,abs(fract(lo)-0.5)*2.0-0.93))*sqrt(max(1.0-n.y*n.y,0.0)));" +
-        " c+=vec3(0.15,0.55,0.85)*g*0.10*(1.0-land*0.5);" +
-        " float s=dot(n,uSun); float day=smoothstep(-0.18,0.22,s);" +
-        " c*=mix(0.42,1.3,day);" +
-        " c+=vec3(1.0,0.18,0.82)*coast*(0.55+0.55*(1.0-day));" +              // cotes neon (plus fortes la nuit)
-        " c+=vec3(1.0,0.45,0.25)*(1.0-smoothstep(0.0,0.10,abs(s)))*0.12;" +  // ligne du soir
-        " float rim=pow(1.0-max(vNv.z,0.0),2.6); c+=vec3(0.13,0.85,1.0)*rim*0.45;" +
+        " float lam=mix(max(sg,0.0),max(sl,0.0),land);" +
+        " c*=0.38+1.10*day*(0.25+0.75*lam);" +
+        " c+=vec3(0.02,0.03,0.07)*(1.0-day)*(0.6+0.4*land);" +                  // nuit : clair de lune bleute
+        " vec3 V=normalize(uCam-n); vec3 Rf=reflect(-uSun,n);" +
+        " c+=vec3(0.65,0.88,1.0)*pow(max(dot(Rf,V),0.0),70.0)*(1.0-land)*day*0.85;" +              // reflet du soleil sur la mer
+        " float li=texture2D(uNight,vUv).r; float night=1.0-smoothstep(-0.22,0.08,sg);" +
+        " float mag=clamp((1.0-fwidth(vUv.x)*4096.0)*1.5,0.0,1.0);" +            // (de pres : l'image des lumieres est agrandie)
+        " float lw=fwidth(li)*0.8+0.002; float crisp=smoothstep(0.22-lw,0.22+lw,li)*(0.45+0.55*li);" +   // ... bords francs, pas de flou
+        " li=mix(pow(li,1.3),crisp*0.85+pow(li,1.3)*0.35,mag);" +
+        " c+=mix(vec3(1.0,0.22,0.78),vec3(1.0,0.82,0.55),li)*li*(night*1.5+0.05)*land;" +   // lumieres des villes
+        " float la=(0.5-vUv.y)*12.0, lo=vUv.x*24.0;" +                         // quadrillage tous les 15 degres (fin)
+        " float gl=abs(fract(la+0.5)-0.5)/max(fwidth(la),1e-4), go=abs(fract(lo+0.5)-0.5)/max(fwidth(lo),1e-4);" +
+        " float grid=max(1.0-smoothstep(0.4,1.2,gl),(1.0-smoothstep(0.4,1.2,go))*smoothstep(0.98,0.9,abs(n.y)));" +
+        " c+=vec3(0.15,0.6,0.9)*grid*0.07*(1.0-land*0.6);" +
+        " c+=vec3(1.0,0.18,0.80)*glow*0.30*(0.6+0.4*night)+vec3(1.0,0.80,0.97)*core*(0.50+0.30*night);" +   // cotes neon
+        " c+=vec3(1.0,0.45,0.25)*(1.0-smoothstep(0.0,0.07,abs(sg)))*0.09;" +   // ligne du soir
+        " float rim=pow(1.0-max(vNv.z,0.0),3.0); c+=mix(vec3(0.13,0.85,1.0),vec3(1.0,0.3,0.8),0.25)*rim*(0.25+0.45*day);" +
         " gl_FragColor=vec4(c,1.0); }";
+    private static final String SKY_V =
+        "attribute vec3 aPos; attribute vec2 aUv; uniform mat4 uMVP; varying vec2 vUv;" +
+        "void main(){ vUv=aUv; gl_Position=uMVP*vec4(aPos*40.0,1.0); }";
+    private static final String SKY_F =
+        "precision mediump float; uniform sampler2D uSky; varying vec2 vUv;" +
+        "void main(){ float v=texture2D(uSky,vUv).r; v=pow(v,1.6)*0.55; gl_FragColor=vec4(v*vec3(0.75,0.62,1.0),1.0); }";
     private static final String PT_V =
         "attribute vec3 aPos; attribute vec4 aCol; attribute float aSize; uniform mat4 uMVP; uniform mat4 uMV; uniform float uScale; uniform float uMode;" +
         "varying vec4 vCol;" +
         "void main(){ gl_Position=uMVP*vec4(aPos,1.0); vec3 p=(uMV*vec4(aPos,1.0)).xyz; vec3 n=normalize((uMV*vec4(aPos,0.0)).xyz);" +
         " float f=uMode>1.5?1.0:dot(n,normalize(-p)); vCol=aCol*smoothstep(0.02,0.2,f); gl_PointSize=aSize*uScale; }";
     private static final String PT_F =
+        "#extension GL_OES_standard_derivatives : enable\n" +
         "precision mediump float; varying vec4 vCol; uniform float uMode; uniform float uTime;" +
         "void main(){ float d=length(gl_PointCoord-vec2(0.5))*2.0; if(d>1.0) discard;" +
         " float a; vec3 c=vCol.rgb;" +
-        " if(uMode<0.5){ a=pow(1.0-d,1.6); c=mix(c,vec3(1.0),pow(max(1.0-d*2.2,0.0),2.0)); }" +   // point : coeur blanc, halo colore
+        " if(uMode<0.5){ float aa=fwidth(d)*1.2; float core=1.0-smoothstep(0.36-aa,0.36+aa,d); a=max(core,pow(1.0-d,3.0)*0.45); c=mix(c,vec3(1.0),core*smoothstep(0.30,0.0,d)*0.8); }" +   // point : coeur net (1 pixel de bord), petit halo
         " else if(uMode<1.5){ float r=0.62+0.12*sin(uTime*4.0); a=smoothstep(0.10,0.0,abs(d-r))+0.25*smoothstep(0.35,0.0,abs(d-r)); }" +   // anneau
         " else { a=pow(1.0-d,3.0)*0.9; }" +                                       // etoile
         " gl_FragColor=vec4(c*a*vCol.a,a*vCol.a); }";
@@ -149,24 +297,19 @@ class GlobeRenderer implements GLSurfaceView.Renderer {
         ptProg = program(PT_V, PT_F);
         lineProg = program(LINE_V, LINE_F);
         haloProg = program(HALO_V, HALO_F);
-        buildSphere(72, 144);
+        buildSphere(128, 256);
         buildStars();
         haloV.position(0);
         haloV.put(new float[] { -1, -1, 1, -1, -1, 1, 1, 1 });
-        // texture de la Terre
-        int[] t = new int[1];
-        GLES20.glGenTextures(1, t, 0);
-        earthTex = t[0];
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, earthTex);
-        BitmapFactory.Options o = new BitmapFactory.Options();
-        o.inScaled = false;
-        Bitmap b = BitmapFactory.decodeResource(ctx.getResources(), R.drawable.terre, o);
-        if (b != null) { GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, b, 0); b.recycle(); }
-        GLES20.glGenerateMipmap(GLES20.GL_TEXTURE_2D);
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR_MIPMAP_LINEAR);
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_REPEAT);
-        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+        skyProg = program(SKY_V, SKY_F);
+        int[] mx = new int[1];
+        GLES20.glGetIntegerv(GLES20.GL_MAX_TEXTURE_SIZE, mx, 0);
+        maxTex = mx[0] > 0 ? mx[0] : 4096;
+        int[] t = new int[4];
+        GLES20.glGenTextures(4, t, 0);
+        sdfTex = t[0]; nightTex = t[1]; reliefTex = t[2]; skyTex = t[3];
+        texDone = false;
+        buildBorders();
         builtVersion = -1;
         lastNs = 0;
     }
@@ -184,6 +327,22 @@ class GlobeRenderer implements GLSurfaceView.Renderer {
         o[k] = (float) (Math.cos(la) * Math.sin(lo)) * r;
         o[k + 1] = (float) Math.sin(la) * r;
         o[k + 2] = (float) (Math.cos(la) * Math.cos(lo)) * r;
+    }
+
+    private final float[] sunV = new float[3];
+    private void drawSphere(int prog) {
+        int ap = GLES20.glGetAttribLocation(prog, "aPos"), au = GLES20.glGetAttribLocation(prog, "aUv");
+        sphereV.position(0);
+        GLES20.glVertexAttribPointer(ap, 3, GLES20.GL_FLOAT, false, 20, sphereV);
+        sphereV.position(3);
+        GLES20.glVertexAttribPointer(au, 2, GLES20.GL_FLOAT, false, 20, sphereV);
+        GLES20.glEnableVertexAttribArray(ap);
+        GLES20.glEnableVertexAttribArray(au);
+        sphereI.position(0);
+        GLES20.glDrawElements(GLES20.GL_TRIANGLES, sphereCount, GLES20.GL_UNSIGNED_SHORT, sphereI);
+        GLES20.glDisableVertexAttribArray(ap);
+        GLES20.glDisableVertexAttribArray(au);
+        sphereV.position(0);
     }
 
     private void buildSphere(int nLat, int nLon) {
@@ -332,13 +491,23 @@ class GlobeRenderer implements GLSurfaceView.Renderer {
         float zoom = (3.2f / dist);
         float dens = ctx.getResources().getDisplayMetrics().density;
 
-        // etoiles (ciel fixe, tourne avec la Terre)
+        uploadTextures();
+        // ciel (Voie lactee) puis etoiles : fixes, tournent avec la Terre
         GLES20.glDisable(GLES20.GL_DEPTH_TEST);
-        GLES20.glEnable(GLES20.GL_BLEND);
-        GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE);
         Matrix.setLookAtM(tmp, 0, 0, 0, 0.001f, 0, 0, 0, 0, 1, 0);
         Matrix.multiplyMM(skyMv, 0, tmp, 0, model, 0);
         Matrix.multiplyMM(skyMvp, 0, proj, 0, skyMv, 0);
+        if (texDone) {
+            GLES20.glDisable(GLES20.GL_BLEND);
+            GLES20.glUseProgram(skyProg);
+            GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(skyProg, "uMVP"), 1, false, skyMvp, 0);
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, skyTex);
+            GLES20.glUniform1i(GLES20.glGetUniformLocation(skyProg, "uSky"), 0);
+            drawSphere(skyProg);
+        }
+        GLES20.glEnable(GLES20.GL_BLEND);
+        GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE);
         drawPoints(starV, starN, skyMvp, skyMv, dens * 0.8f, 2f, true);
 
         // halo d'atmosphere (carre a l'ecran autour de la Terre)
@@ -361,25 +530,31 @@ class GlobeRenderer implements GLSurfaceView.Renderer {
         GLES20.glUseProgram(earthProg);
         GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(earthProg, "uMVP"), 1, false, mvp, 0);
         GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(earthProg, "uMV"), 1, false, mv, 0);
-        float[] s = new float[3];
-        sun(s);
-        GLES20.glUniform3f(GLES20.glGetUniformLocation(earthProg, "uSun"), s[0], s[1], s[2]);
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(earthProg, "uTex"), 1f / 2048f * (dist > 2.2f ? 1.6f : 1f));
-        GLES20.glUniform1f(GLES20.glGetUniformLocation(earthProg, "uTime"), time);
+        sun(sunV);
+        GLES20.glUniform3f(GLES20.glGetUniformLocation(earthProg, "uSun"), sunV[0], sunV[1], sunV[2]);
+        float[] inv = tmp;                                      // (camera dans le repere de la Terre : reflet du soleil)
+        Matrix.invertM(inv, 0, model, 0);
+        float[] cam = { 0, 0, dist, 1 }, cm = new float[4];
+        Matrix.multiplyMV(cm, 0, inv, 0, cam, 0);
+        GLES20.glUniform3f(GLES20.glGetUniformLocation(earthProg, "uCam"), cm[0], cm[1], cm[2]);
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(earthProg, "uReady"), texDone ? 1f : 0f);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, earthTex);
-        GLES20.glUniform1i(GLES20.glGetUniformLocation(earthProg, "uLand"), 0);
-        int ap = GLES20.glGetAttribLocation(earthProg, "aPos"), au = GLES20.glGetAttribLocation(earthProg, "aUv");
-        sphereV.position(0);
-        GLES20.glVertexAttribPointer(ap, 3, GLES20.GL_FLOAT, false, 20, sphereV);
-        sphereV.position(3);
-        GLES20.glVertexAttribPointer(au, 2, GLES20.GL_FLOAT, false, 20, sphereV);
-        GLES20.glEnableVertexAttribArray(ap);
-        GLES20.glEnableVertexAttribArray(au);
-        sphereI.position(0);
-        GLES20.glDrawElements(GLES20.GL_TRIANGLES, sphereCount, GLES20.GL_UNSIGNED_SHORT, sphereI);
-        GLES20.glDisableVertexAttribArray(ap);
-        GLES20.glDisableVertexAttribArray(au);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, sdfTex);
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(earthProg, "uSdf"), 0);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE1);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, nightTex);
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(earthProg, "uNight"), 1);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE2);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, reliefTex);
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(earthProg, "uRelief"), 2);
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+        drawSphere(earthProg);
+
+        // frontieres (fines)
+        GLES20.glEnable(GLES20.GL_BLEND);
+        GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA);
+        GLES20.glDepthMask(false);
+        if (borderN > 0 && dist < 4.2f) drawLines(borderV, borderN, GLES20.GL_LINES, false, Math.max(1f, 1.2f * dens));
 
         // radios : colonnes puis points (lumiere qui s'ajoute)
         GLES20.glEnable(GLES20.GL_BLEND);
@@ -388,7 +563,7 @@ class GlobeRenderer implements GLSurfaceView.Renderer {
         if (pillarN > 0) drawLines(pillarV, pillarN, GLES20.GL_LINES, false, 2f * dens);
         GLES20.glDisable(GLES20.GL_DEPTH_TEST);
         GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE);
-        if (ptN > 0) drawPoints(ptV, ptN, mvp, mv, dens * (0.55f + 0.45f * zoom), 0f, false);
+        if (ptN > 0) drawPoints(ptV, ptN, mvp, mv, dens * (0.62f + 0.14f * Math.min(zoom, 2.6f)), 0f, false);   // (taille presque fixe : nette de pres)
 
         // anneaux et arc
         List<RadioDir.Station> st = stations;
@@ -398,7 +573,7 @@ class GlobeRenderer implements GLSurfaceView.Renderer {
         float[] p = new float[3];
         if (st != null && sel >= 0 && sel < st.size()) { mk += mark(st.get(sel), 0xFFFFFFFF, 46, p); }
         if (st != null && play >= 0 && play < st.size() && play != sel) { mk += mark(st.get(play), Neon.CYAN, 40, p); }
-        if (mk > 0) { markV.position(0); drawPoints(markV, mk, mvp, mv, dens * (0.7f + 0.3f * zoom), 1f, false); }
+        if (mk > 0) { markV.position(0); drawPoints(markV, mk, mvp, mv, dens * 0.9f, 1f, false); }
         if (st != null && sel >= 0 && play >= 0 && sel != play && sel < st.size() && play < st.size()) arc(st.get(play), st.get(sel), dens);
         GLES20.glDepthMask(true);
 

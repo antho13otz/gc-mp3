@@ -75,6 +75,11 @@ public class GlobeActivity extends Activity {
     private String phoneUuid;
     private final List<TextView> chips = new ArrayList<>();
     private boolean resumed;
+    // noms des pays et des villes (res/raw/lieux.txt), montres quand on s'approche
+    private volatile float[] plXyz;
+    private volatile int[] plRank;
+    private volatile boolean[] plCountry;
+    private volatile String[] plName;
 
     private int dp(float v) { return Neon.dp(this, v); }
     private SharedPreferences prefs() { return getSharedPreferences("gcs", MODE_PRIVATE); }
@@ -157,8 +162,8 @@ public class GlobeActivity extends Activity {
         fab.addView(fabBtn("◎", v -> toConsole()));
         rotBtn = fabBtn("⟳", v -> { r.autoTurn = !r.autoTurn; paintRot(); });
         fab.addView(rotBtn);
-        fab.addView(fabBtn("＋", v -> r.flyTo(r.lat, r.lon, Math.max(1.3f, r.dist * 0.6f))));
-        fab.addView(fabBtn("－", v -> r.flyTo(r.lat, r.lon, Math.min(6f, r.dist * 1.6f))));
+        fab.addView(fabBtn("＋", v -> r.flyTo(r.lat, r.lon, Math.max(1.12f, 1f + (r.dist - 1f) * 0.5f))));
+        fab.addView(fabBtn("－", v -> r.flyTo(r.lat, r.lon, Math.min(6f, 1f + (r.dist - 1f) * 2f))));
         FrameLayout.LayoutParams fl = new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.CENTER_VERTICAL);
         fl.rightMargin = dp(10);
         root.addView(fab, fl);
@@ -261,8 +266,29 @@ public class GlobeActivity extends Activity {
     }
 
     // ---------------- donnees ----------------
+    private void loadPlaces() {
+        try (java.io.BufferedReader in = new java.io.BufferedReader(new java.io.InputStreamReader(getResources().openRawResource(R.raw.lieux), "UTF-8"))) {
+            List<String[]> l = new ArrayList<>();
+            String line;
+            while ((line = in.readLine()) != null) { String[] p = line.split("\\|", 5); if (p.length == 5) l.add(p); }
+            float[] xyz = new float[l.size() * 3];
+            int[] rk = new int[l.size()];
+            boolean[] co = new boolean[l.size()];
+            String[] nm = new String[l.size()];
+            for (int i = 0; i < l.size(); i++) {
+                String[] p = l.get(i);
+                co[i] = p[0].equals("P");
+                rk[i] = Integer.parseInt(p[1]);
+                GlobeRenderer.toXYZ(Float.parseFloat(p[2]), Float.parseFloat(p[3]), 1.004f, xyz, i * 3);
+                nm[i] = co[i] ? p[4].toUpperCase(Locale.FRANCE) : p[4];
+            }
+            plRank = rk; plCountry = co; plName = nm; plXyz = xyz;
+        } catch (Exception e) { }
+    }
+
     private void load() {
         loading = true;
+        Api.pool(this::loadPlaces);
         final boolean fresh = RadioDir.cacheFresh(this);
         Api.pool(() -> {
             final List<RadioDir.Station> cached = RadioDir.loadCache(this);
@@ -375,7 +401,7 @@ public class GlobeActivity extends Activity {
     private void gestures() {
         final ScaleGestureDetector scale = new ScaleGestureDetector(this, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
             @Override public boolean onScale(ScaleGestureDetector d) {
-                r.dist = Math.max(1.22f, Math.min(6f, r.dist / d.getScaleFactor()));
+                r.dist = Math.max(1.10f, Math.min(6f, r.dist / d.getScaleFactor()));
                 return true;
             }
         });
@@ -401,7 +427,7 @@ public class GlobeActivity extends Activity {
                 return true;
             }
             @Override public boolean onDoubleTap(MotionEvent e) {
-                r.flyTo(r.lat, r.lon, Math.max(1.3f, r.dist * 0.55f));
+                r.flyTo(r.lat, r.lon, Math.max(1.12f, 1f + (r.dist - 1f) * 0.45f));
                 return true;
             }
         });
@@ -654,7 +680,56 @@ public class GlobeActivity extends Activity {
             ln.setStrokeWidth(dp(1.5f));
             setWillNotDraw(false);
         }
+        private final Paint cTx = new Paint(Paint.ANTI_ALIAS_FLAG), vTx = new Paint(Paint.ANTI_ALIAS_FLAG), vDot = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final List<RectF> used = new ArrayList<>();
+        private final float[] m = new float[16], e = new float[16];
+        { cTx.setTextSize(dp(11)); cTx.setLetterSpacing(0.18f); cTx.setColor(0xC8D2C2FF); cTx.setFakeBoldText(true); cTx.setShadowLayer(dp(6), 0, 0, 0xAA7A3CFF);
+          vTx.setTextSize(dp(11)); vTx.setColor(0xEEF4EEFF); vTx.setShadowLayer(dp(4), 0, 0, 0xFF000000);
+          vDot.setColor(0xFFFFB8EC); vDot.setShadowLayer(dp(5), 0, 0, Neon.PINK); }
+
+        /** noms des pays et des villes : selon le zoom, sans se chevaucher, effaces pres du bord de la Terre */
+        private void places(Canvas c) {
+            float[] xyz = plXyz; int[] rk = plRank; boolean[] co = plCountry; String[] nm = plName;
+            if (xyz == null) return;
+            float d = r.dist;
+            int cMax = d > 3.4f ? 2 : d > 2.6f ? 3 : d > 2.0f ? 5 : 10;
+            int vMax = d < 1.25f ? 3 : d < 1.45f ? 2 : d < 1.8f ? 1 : d < 2.3f ? 0 : -1;
+            System.arraycopy(r.mvp, 0, m, 0, 16);
+            System.arraycopy(r.mv, 0, e, 0, 16);
+            int w = getWidth(), h = getHeight();
+            used.clear();
+            for (int pass = 0; pass < 2; pass++) {                 // (pays d'abord, puis villes)
+                for (int i = 0; i < rk.length && used.size() < 90; i++) {
+                    if (co[i] != (pass == 0)) continue;
+                    if (co[i] ? rk[i] > cMax : rk[i] > vMax) continue;
+                    float px = xyz[i * 3], py = xyz[i * 3 + 1], pz = xyz[i * 3 + 2];
+                    float ex = e[0] * px + e[4] * py + e[8] * pz + e[12], ey = e[1] * px + e[5] * py + e[9] * pz + e[13], ez = e[2] * px + e[6] * py + e[10] * pz + e[14];
+                    float nx = e[0] * px + e[4] * py + e[8] * pz, ny = e[1] * px + e[5] * py + e[9] * pz, nz = e[2] * px + e[6] * py + e[10] * pz;
+                    float el = (float) Math.sqrt(ex * ex + ey * ey + ez * ez);
+                    float face = -(nx * ex + ny * ey + nz * ez) / Math.max(1e-4f, el);
+                    if (face < 0.3f) continue;
+                    float cw = m[3] * px + m[7] * py + m[11] * pz + m[15];
+                    if (cw <= 0) continue;
+                    float sx = ((m[0] * px + m[4] * py + m[8] * pz + m[12]) / cw + 1) / 2 * w, sy = (1 - (m[1] * px + m[5] * py + m[9] * pz + m[13]) / cw) / 2 * h;
+                    Paint p = co[i] ? cTx : vTx;
+                    float tw = p.measureText(nm[i]), th = p.getTextSize();
+                    float lx = co[i] ? sx - tw / 2 : sx + dp(6), ly = sy - th / 2;
+                    RectF rc = new RectF(lx - dp(4), ly - dp(2), lx + tw + dp(4), ly + th + dp(2));
+                    if (rc.right < 0 || rc.left > w || rc.bottom < 0 || rc.top > h) continue;
+                    boolean hit = false;
+                    for (RectF u : used) if (RectF.intersects(u, rc)) { hit = true; break; }
+                    if (hit) continue;
+                    used.add(rc);
+                    int a = (int) (255 * Math.min(1f, (face - 0.3f) / 0.25f));
+                    p.setAlpha(co[i] ? Math.min(a, 200) : a);
+                    if (!co[i]) { vDot.setAlpha(a); c.drawCircle(sx, sy, dp(2.2f), vDot); }
+                    c.drawText(nm[i], lx, ly + th * 0.85f, p);
+                }
+            }
+        }
+
         @Override protected void onDraw(Canvas c) {
+            places(c);
             float x = r.selX, y = r.selY;
             int i = sel;
             if (x < 0 || i < 0 || i >= data.size()) return;
