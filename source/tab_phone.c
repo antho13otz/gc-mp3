@@ -1232,14 +1232,16 @@ static void tp_handle(s32 c) {
         else tp_reply(c, 503, "application/json", "{}", 2);
     }
     else if (!strcmp(target, "/api/cheatedit") || !strcmp(target, "/api/gamecfg") || !strcmp(target, "/api/gamefav") || !strcmp(target, "/api/lyrics")
-             || !strcmp(target, "/api/queueadd") || !strcmp(target, "/api/regpack") || !strcmp(target, "/api/regrestore")) {   /* v242 */
+             || !strcmp(target, "/api/queueadd") || !strcmp(target, "/api/regpack") || !strcmp(target, "/api/regrestore")
+             || !strcmp(target, "/api/compat") || !strcmp(target, "/api/compatset")) {   /* v242 ; v255 : pastilles des jeux */
         char id[16] = "", v[16];
         int op = !strcmp(target, "/api/cheatedit") ? 1 : !strcmp(target, "/api/gamecfg") ? 2 : !strcmp(target, "/api/gamefav") ? 3
-               : !strcmp(target, "/api/lyrics") ? 4 : !strcmp(target, "/api/queueadd") ? 5 : !strcmp(target, "/api/regpack") ? 6 : 7;
+               : !strcmp(target, "/api/lyrics") ? 4 : !strcmp(target, "/api/queueadd") ? 5 : !strcmp(target, "/api/regpack") ? 6
+               : !strcmp(target, "/api/regrestore") ? 7 : !strcmp(target, "/api/compat") ? 8 : 9;
         tp_param(q ? q : "", "id", id, sizeof(id));
         int idok = strlen(id) == 6;
         for (int k = 0; idok && id[k]; k++) if (!isalnum((unsigned char)id[k])) idok = 0;
-        if ((op <= 3 && !idok) || x73_mo_op) { tp_reply(c, 400, "application/json", "{}", 2); return; }
+        if (((op <= 3 || op == 9) && !idok) || x73_mo_op) { tp_reply(c, 400, "application/json", "{}", 2); return; }
         memcpy(x73_mo_id, id, 7);
         v[0] = 0; tp_param(q ? q : "", op == 1 ? "n" : "i", v, sizeof(v)); x73_mo_i = v[0] ? atoi(v) : -1;
         v[0] = 0; tp_param(q ? q : "", "d", v, sizeof(v)); x73_mo_d = v[0] ? atoi(v) : op == 3 ? -1 : 0;   /* (favori sans d : inverse) */

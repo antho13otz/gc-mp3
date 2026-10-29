@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v255 (build 718) — pastilles des jeux posées à la main (appli)
+- Confirmé : Phantasy Star Online Episode I & II (GPOP8P) marche avec Pulse (v252 / v254). Ses sauvegardes vont sur
+  la vraie carte du port A (la carte virtuelle n'est branchée que dans le chargeur, pas dans PsoV3.dol).
+- Fiche d'un jeu dans l'appli : « PASTILLE » : aucune, jouable (vert), marche mal (jaune), écran noir (orange),
+  plantage (rouge). La pastille s'affiche aussi sur la jaquette dans l'appli et sur la console (`compat.txt`).
+- Console : `/api/compat` (toutes les pastilles) et `/api/compatset?id=&d=0..4` (`cp_set_manual` : sans lancer la
+  réparation automatique ; 0 = enlevée).
+
 ## Nouveautés v254 (build 716) — PSO : plus de place pour brancher PsoV3.dol
 - Journal v252 : PsoV3.dol suivi, mais seulement 14 accès au lecteur branchés dedans (97 en tout) : la place des
   aiguillages posés pendant le jeu était sans doute pleine. 32 Ko de plus pour PSO (`GPO`, `GPS`).

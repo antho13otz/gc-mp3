@@ -90,6 +90,31 @@ static void cp_set(const char *id, int v, int slow, int vmode) {
     rep_verdict(id, cp_ask_title, v, old);                 /* v140 : essai suivant, ou reglage garde */
     if (rep_note_txt[0]) rep_show = 1;
 }
+/* v255 : pastille posee a la main (telephone) : sans lancer la reparation automatique ; v = CP_NONE : enlevee */
+static void cp_set_manual(const char *id, int v) {
+    if (!id || strlen(id) < 6 || v < CP_NONE || v >= CP_N) return;
+    cp_t *c = cp_find(id);
+    if (v == CP_NONE) {
+        if (!c) return;
+        *c = cp_tab[--cp_n];
+    } else {
+        if (!c) { if (cp_n >= CP_MAX) return; c = &cp_tab[cp_n++]; memset(c, 0, sizeof(*c)); snprintf(c->id, sizeof(c->id), "%.6s", id); }
+        if (c->v != v) c->fix = 0;
+        c->v = (u8)v; c->build = GCMP3_BUILD; c->day = cp_today();
+    }
+    cp_save();
+    crumb("compat (a la main) : %.6s = %s", id, cp_keys[v]);
+}
+/* v255 : {"GALE01":1,...} (1 marche, 2 marche mal, 3 ecran noir, 4 plantage) */
+static char *cp_json(void) {
+    sbuf_t s = { NULL, 0, 0 };
+    char m[32];
+    if (cp_n < 0) cp_load();
+    sb_add(&s, "{");
+    for (int i = 0; i < cp_n; i++) { snprintf(m, sizeof(m), "%s\"%.6s\":%d", i ? "," : "", cp_tab[i].id, cp_tab[i].v); sb_add(&s, m); }
+    sb_add(&s, "}");
+    return s.b;
+}
 /* (natif.c) apres la conversion du journal : un jeu vient d'etre lance avec Pulse */
 static void cp_after_game(const char *id, const char *title, int crashed, int slow, int vmode) {
     if (!id || strlen(id) < 6) return;

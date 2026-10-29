@@ -228,6 +228,48 @@ class GamesTab extends Tab {
         box.addView(hr);
         box.addView(ch);
         box.addView(list);
+        // pastille (jouable, marche mal, ecran noir, plantage) : posee a la main
+        TextView ph = Neon.glow(a, "PASTILLE", 13, Neon.CYAN);
+        ph.setPadding(0, dp(18), 0, dp(6));
+        box.addView(ph);
+        final LinearLayout dots = new LinearLayout(a);
+        dots.setGravity(Gravity.CENTER_VERTICAL);
+        final TextView dname = Neon.text(a, "", 13, Neon.DIM, true);
+        final Runnable[] paint = new Runnable[1];
+        for (int k = 0; k < CP_COL.length; k++) {
+            final int v = k;
+            View d = new View(a);
+            d.setClickable(true);
+            d.setOnClickListener(vv -> {
+                vv.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+                Api.get("/api/compatset?id=" + id + "&d=" + v, r -> {
+                    if (r == null) { Toast.makeText(a, "Pas possible (console à mettre à jour ?)", Toast.LENGTH_SHORT).show(); return; }
+                    readCompat(r);
+                    paint[0].run();
+                    adapter.notifyDataSetChanged();
+                });
+            });
+            LinearLayout.LayoutParams dp0 = lp(dp(34), dp(34), 0);
+            dp0.rightMargin = dp(10);
+            dots.addView(d, dp0);
+        }
+        dots.addView(dname, lp(0, -2, 1));
+        paint[0] = () -> {
+            Integer cur = compat.get(id);
+            int cv = cur == null ? 0 : cur;
+            for (int k = 0; k < CP_COL.length; k++) {
+                GradientDrawable g = new GradientDrawable();
+                g.setShape(GradientDrawable.OVAL);
+                g.setColor(k == 0 ? 0x22FFFFFF : CP_COL[k]);
+                g.setStroke(dp(k == cv ? 3 : 1), k == cv ? 0xFFFFFFFF : 0x55FFFFFF);
+                dots.getChildAt(k).setBackground(g);
+                dots.getChildAt(k).setScaleX(k == cv ? 1.15f : 1f); dots.getChildAt(k).setScaleY(k == cv ? 1.15f : 1f);
+            }
+            dname.setText(CP_NAME[cv < CP_NAME.length ? cv : 0]);
+            dname.setTextColor(cv == 0 ? Neon.FAINT : CP_COL[cv]);
+        };
+        paint[0].run();
+        box.addView(dots);
         // reglages du jeu (comme Y sur la console)
         LinearLayout gr = new LinearLayout(a);
         gr.setGravity(Gravity.CENTER_VERTICAL);
@@ -499,7 +541,8 @@ class GamesTab extends Tab {
         LinearLayout c;
         ImageView im;
         TextView n, s;
-        if (cv instanceof LinearLayout && cv.getTag() != null) { c = (LinearLayout) cv; Object[] t = (Object[]) cv.getTag(); im = (ImageView) t[0]; n = (TextView) t[1]; s = (TextView) t[2]; }
+        View dot;
+        if (cv instanceof LinearLayout && cv.getTag() != null && ((Object[]) cv.getTag()).length > 3) { c = (LinearLayout) cv; Object[] t = (Object[]) cv.getTag(); im = (ImageView) t[0]; n = (TextView) t[1]; s = (TextView) t[2]; dot = (View) t[3]; }
         else {
             c = new LinearLayout(a);
             c.setOrientation(LinearLayout.VERTICAL);
@@ -512,7 +555,14 @@ class GamesTab extends Tab {
             bg.setCornerRadius(dp(10));
             im.setBackground(bg);
             im.setClipToOutline(true);
-            c.addView(im, new LinearLayout.LayoutParams(-1, dp(140)));
+            FrameLayout fr = new FrameLayout(a);                // jaquette + pastille (jouable, marche mal...) en haut a droite
+            fr.addView(im, new FrameLayout.LayoutParams(-1, -1));
+            dot = new View(a);
+            FrameLayout.LayoutParams dl = new FrameLayout.LayoutParams(dp(18), dp(18), Gravity.TOP | Gravity.END);
+            dl.setMargins(0, dp(6), dp(6), 0);
+            dot.setElevation(dp(4));
+            fr.addView(dot, dl);
+            c.addView(fr, new LinearLayout.LayoutParams(-1, dp(140)));
             n = Neon.text(a, "", 13, Neon.TEXT, true);
             n.setMaxLines(2);
             n.setEllipsize(TextUtils.TruncateAt.END);
@@ -521,10 +571,12 @@ class GamesTab extends Tab {
             s = Neon.text(a, "", 11, Neon.DIM, false);
             s.setPadding(dp(2), 0, dp(2), 0);
             c.addView(s);
-            c.setTag(new Object[] { im, n, s });
+            c.setTag(new Object[] { im, n, s, dot });
         }
         int i = x.optInt(6);
         n.setText((x.optInt(4) != 0 ? "★ " : "") + x.optString(0));
+        Integer cv0 = compat.get(x.optString(1));
+        paintDot(dot, cv0 == null ? 0 : cv0);
         String id = x.optString(1);
         s.setText(id + (x.optInt(3) > 0 ? " · " + x.optInt(3) + " min" : ""));
         Bitmap b = covers.get(i);
@@ -560,7 +612,32 @@ class GamesTab extends Tab {
             try { JSONArray j = new JSONArray(r); for (int k = 0; k < j.length(); k++) { JSONArray g = j.getJSONArray(k); g.put(k); if (!g.optString(1).isEmpty()) all.add(g); } } catch (Exception e) { }
             loaded = true;
             filter();
+            loadCompat();
         });
+    }
+
+    // ---------- pastilles (compatibilite) : posees aussi a la main ----------
+    static final int[] CP_COL = { 0x66FFFFFF, 0xFF46DC78, 0xFFFFBE3C, 0xFFFF783C, 0xFFFF4650 };
+    static final String[] CP_NAME = { "Aucune", "Jouable", "Marche mal", "Écran noir", "Plantage" };
+    private final java.util.Map<String, Integer> compat = new java.util.HashMap<>();
+    private void loadCompat() {
+        Api.get("/api/compat", r -> { if (r != null) { readCompat(r); adapter.notifyDataSetChanged(); } });
+    }
+    private void readCompat(String r) {
+        try {
+            JSONObject j = new JSONObject(r);
+            compat.clear();
+            for (java.util.Iterator<String> it = j.keys(); it.hasNext(); ) { String k = it.next(); compat.put(k, j.optInt(k)); }
+        } catch (Exception e) { }
+    }
+    private void paintDot(View dot, int v) {
+        if (v <= 0 || v >= CP_COL.length) { dot.setVisibility(View.GONE); return; }
+        dot.setVisibility(View.VISIBLE);
+        GradientDrawable g = new GradientDrawable();
+        g.setShape(GradientDrawable.OVAL);
+        g.setColor(CP_COL[v]);
+        g.setStroke(dp(2), 0xFF0C0418);
+        dot.setBackground(g);
     }
 
     private void filter() {

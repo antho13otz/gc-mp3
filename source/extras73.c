@@ -1432,6 +1432,8 @@ static void x73_misc_pump(void) {
         snprintf(m, sizeof(m), "{\"ok\":%d,\"msg\":", n > 0); sb_add(&s, m); x73_json_raw(&s, msg); sb_add(&s, "}");
         r = s.b;
     }
+    else if (op == 8) r = cp_json();                          /* v255 : pastilles des jeux */
+    else if (op == 9) { cp_set_manual(x73_mo_id, x73_mo_d >= 0 && x73_mo_d < CP_N ? x73_mo_d : 0); r = cp_json(); }
     free(x73_mo_res);
     x73_mo_res = r;
     x73_mo_op = 0; x73_mo_ready = 1;
