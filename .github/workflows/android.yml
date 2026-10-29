@@ -8,12 +8,27 @@ on:
       - 'android/**'
       - '.github/workflows/android.yml'
   workflow_dispatch:
+  # (tous les 5 jours : relit la cle de signature pour que GitHub ne l'efface pas de son cache apres 7 jours)
+  schedule:
+    - cron: '23 4 */5 * *'
 
 permissions:
   contents: read
 
 jobs:
+  # la cle reste dans le cache (sinon : nouvelle cle, et l'APK suivant ne s'installerait plus par-dessus)
+  garder-cle:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/cache/restore@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: android-debug-keystore-v1
+          fail-on-cache-miss: false
+
   apk:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -43,6 +58,20 @@ jobs:
           gradle -p android --no-daemon assembleDebug
           cp android/app/build/outputs/apk/debug/app-debug.apk gc-station-telecommande.apk
           ls -la gc-station-telecommande.apk
+
+      # Meme signature que les versions d'avant (android/signature.txt : empreinte publique du certificat) : sinon
+      # Android refuserait la mise a jour par-dessus. Une autre signature = echec, plutot qu'un APK qui ne s'installe pas.
+      - name: Verifier la signature (mise a jour par-dessus)
+        run: |
+          fp=$(keytool -printcert -jarfile gc-station-telecommande.apk | grep -m1 'SHA256:' | sed 's/.*SHA256: *//')
+          echo "::notice title=Empreinte de la signature::$fp"
+          if [ -f android/signature.txt ]; then
+            want=$(grep -v '^#' android/signature.txt | tr -d ' \r\n')
+            if [ "$want" != "$(echo "$fp" | tr -d ' ')" ]; then
+              echo "::error::Signature differente de android/signature.txt : cet APK ne s'installerait pas par-dessus l'appli deja installee"
+              exit 1
+            fi
+          fi
 
       # Appli gardee pour soi : jamais dans une release publique. L'APK est seulement joint a la compilation
       # (onglet Actions > "Telecommande Android" > la derniere compilation > Artifacts), et efface au bout de 7 jours.

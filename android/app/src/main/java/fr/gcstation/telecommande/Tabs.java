@@ -171,8 +171,8 @@ class PlayerTab extends Tab {
         p.width = d > 0 && w > 0 ? Math.min(w, (int) ((long) w * e / d)) : 0;
         fill.setLayoutParams(p);
         vol.setText("Volume " + s.optInt("vol", 0) + " %");
-        play.setText(s.optBoolean("playing", false) ? "❚❚" : "▶");
-        String key = s.optBoolean("cov", false) ? t + "|" + s.optString("sub", "") : "";
+        play.setText(s.optInt("playing", 0) != 0 ? "❚❚" : "▶");
+        String key = s.optInt("cov", 0) != 0 ? t + "|" + s.optString("sub", "") : "";
         if (!key.equals(coverKey)) {
             coverKey = key;
             if (key.isEmpty()) cover.setImageResource(R.mipmap.ic_launcher);

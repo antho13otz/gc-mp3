@@ -225,7 +225,7 @@ public class MainActivity extends Activity {
         String t = s.optString("title", "");
         miniTitle.setText(t.isEmpty() ? "Rien en lecture" : t);
         miniSub.setText(s.optString("sub", ""));
-        miniPlay.setText(s.optBoolean("playing", false) ? "❚❚" : "▶");
+        miniPlay.setText(s.optInt("playing", 0) != 0 ? "❚❚" : "▶");
         for (Tab tb : tabs) tb.state(s);
     }
 
