@@ -1,0 +1,10 @@
+# Themes de GC Station (START > Reglages > Affichage > Themes en ligne). Une ligne par theme :
+# id|Nom|description|accent1|accent2|aurore1,aurore2,aurore3,aurore4|fond_haut|fond_bas|rubans (%)|image (facultatif)|theme de base
+coucher-de-soleil|Coucher de soleil|Orange, corail et violet, comme un ciel du soir.|ff8a3d|c2407a|ffb347,ff6b6b,c2407a,6a3fa0|140a12|050306|120||ambre
+ocean-profond|Océan profond|Des bleus et des turquoises, calmes et frais.|2fd4ff|2a5cff|6ff0ff,2fd4ff,2a8cff,3a3fd0|030a16|01040a|110||ocean
+foret-boreale|Forêt boréale|Le vert d'une aurore boréale sur une nuit de sapins.|4dffa0|1fa3a0|9dff6a,4dffa0,1fd6c0,2a7bd0|03100c|010604|140||emeraude
+neon-retro|Néon rétro|Rose fluo et cyan, ambiance salle d'arcade.|ff2fd0|21e8ff|ff2fd0,b03cff,5a5cff,21e8ff|0c0418|04010a|160||indigo
+givre|Givre|Blanc glacé et bleu pâle, pour l'hiver.|e8f4ff|8fc8ff|ffffff,cfe8ff,8fc8ff,8a9cff|0a0e18|03050a|90||ocean
+braise|Braise|Rouge et or, chaud comme un feu de cheminée.|ff5a2a|ffb020|ffd060,ffb020,ff5a2a,b0142a|140604|060201|130||rubis
+nebuleuse|Nébuleuse|Une galaxie violette et bleue en image de fond.|c06cff|4a8cff|e07cff,c06cff,7a7cff,4ab8ff|06040e|020106|60|nebuleuse.jpg|lavande
+sakura|Sakura|Des cerisiers en fleurs, rose tendre et blanc.|ff9ec8|ffd6e8|ffd6e8,ff9ec8,e070a8,a05090|281420|100810|70|sakura.jpg|doux

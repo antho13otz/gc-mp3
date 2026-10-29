@@ -18,20 +18,27 @@ static void vi_sel_paint(f32 x, f32 y, f32 w, f32 h, f32 r);
 static void il_sel_paint(f32 x, f32 y, f32 w, f32 h, f32 r);
 
 static col_t au_a(u8 a) {                                /* rose (Indigo) ; sinon l'accent du theme */
+    if (thd.on) return RGBA(thd.a[0], thd.a[1], thd.a[2], a);   /* v233 : theme telecharge */
     if (ui_skin >= 4 && theme_id == THEME_INDIGO) return RGBA(255, 79, 176, a);   /* v131 : Vitrine, Ilots : rose */
     if (theme_id == THEME_INDIGO) return RGBA(255, 70, 170, a);
     return RGBA(mod_acc[0], mod_acc[1], mod_acc[2], a);
 }
 static col_t au_b(u8 a) {                                /* bleu (Indigo) ; sinon l'accent plus sombre et plus bleu */
+    if (thd.on) return RGBA(thd.b[0], thd.b[1], thd.b[2], a);
     if (ui_skin >= 4 && theme_id == THEME_INDIGO) return RGBA(47, 211, 255, a);   /* v131 : Vitrine, Ilots : cyan */
     if (theme_id == THEME_INDIGO) return RGBA(70, 110, 255, a);
     return RGBA(mod_acc[0] / 2, mod_acc[1] * 2 / 3, mod_acc[2] / 2 + 110, a);
 }
 static col_t au_mix(f32 t, u8 a) {                       /* rose -> violet -> bleu -> cyan */
     static const u8 p[4][3] = { { 255, 70, 170 }, { 160, 80, 255 }, { 70, 110, 255 }, { 40, 210, 255 } };
-    if (theme_id != THEME_INDIGO) { col_t x = au_a(a), y = au_b(a); return lerp_c(x, y, t); }
     if (t < 0) t = 0;
     if (t > 1) t = 1;
+    if (thd.on) {                                        /* v233 : les 4 couleurs du theme telecharge */
+        f32 s = t * 3; int i = (int)s; if (i > 2) i = 2; f32 f = s - i;
+        const u8 *c0 = thd.mix[i], *c1 = thd.mix[i + 1];
+        return RGBA(c0[0] + (c1[0] - c0[0]) * f, c0[1] + (c1[1] - c0[1]) * f, c0[2] + (c1[2] - c0[2]) * f, a);
+    }
+    if (theme_id != THEME_INDIGO) { col_t x = au_a(a), y = au_b(a); return lerp_c(x, y, t); }
     f32 s = t * 3; int i = (int)s; if (i > 2) i = 2; f32 f = s - i;
     return RGBA(p[i][0] + (p[i + 1][0] - p[i][0]) * f, p[i][1] + (p[i + 1][1] - p[i][1]) * f, p[i][2] + (p[i + 1][2] - p[i][2]) * f, a);
 }
@@ -43,6 +50,8 @@ static void au_pill_h(f32 x, f32 y, f32 w, f32 h, f32 r, col_t l, col_t rr) {
     if (w < 1) return;
     f32 px[RR_N], py[RR_N];
     rr_points(x, y, w, h, r, px, py);
+    int sr = nv_raw;
+    if (thd.on) nv_raw = 1;                              /* v233 : couleurs exactes du theme telecharge */
     gx_set_flat();
     GX_Begin(GX_TRIANGLEFAN, GX_VTXFMT0, RR_N + 2);
     vtx(x + w / 2, y + h / 2, lerp_c(l, rr, 0.5f));
@@ -51,6 +60,7 @@ static void au_pill_h(f32 x, f32 y, f32 w, f32 h, f32 r, col_t l, col_t rr) {
         vtx(px[k], py[k], lerp_c(l, rr, (px[k] - x) / w));
     }
     GX_End();
+    nv_raw = sr;
 }
 
 /* ---------- fond : noir et aurores ---------- */
@@ -80,8 +90,18 @@ static void au_background(void) {
     if (ui_skin == 4) { vi_background(); return; }       /* v131 : Vitrine, Ilots (ui_styles.c) */
     if (ui_skin == 5) { il_background(); return; }
     nv_raw = 1;
-    gx_quad4(0, 0, 640, 480, RGBA(6, 6, 12, 255), RGBA(7, 6, 14, 255), RGBA(3, 3, 6, 255), RGBA(4, 3, 8, 255));
     f32 t = (f32)(now_ms() % 3600000) / 1000.0f;
+    if (thd.on) {                                        /* v233 : fond et aurores du theme telecharge */
+        col_t hi = RGBA(thd.top[0], thd.top[1], thd.top[2], 255), lo = RGBA(thd.bot[0], thd.bot[1], thd.bot[2], 255);
+        gx_quad4(0, 0, 640, 480, hi, hi, lo, lo);
+        f32 k = thd.rib / 100.0f;
+        au_ribbon(118, 16, 70, t, 0.35f, 0.0f, (u8)(40 * k > 255 ? 255 : 40 * k));
+        au_ribbon(430, 22, 110, t, 0.25f, 2.1f, (u8)(34 * k > 255 ? 255 : 34 * k));
+        au_ribbon(460, 12, 60, t, 0.42f, 4.0f, (u8)(22 * k > 255 ? 255 : 22 * k));
+        nv_raw = 0;
+        return;
+    }
+    gx_quad4(0, 0, 640, 480, RGBA(6, 6, 12, 255), RGBA(7, 6, 14, 255), RGBA(3, 3, 6, 255), RGBA(4, 3, 8, 255));
     au_ribbon(118, 16, 70, t, 0.35f, 0.0f, 40);
     au_ribbon(430, 22, 110, t, 0.25f, 2.1f, 34);
     au_ribbon(460, 12, 60, t, 0.42f, 4.0f, 22);

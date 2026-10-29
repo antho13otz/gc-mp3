@@ -8,7 +8,7 @@
 // Chaque outil s'ouvre en fenetre par-dessus l'ecran (tl_screen).
 
 static void indigo_game_open(const char *id, const char *title);
-enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV, TL_SAVES, TL_CATA, TL_SUCCES, TL_SOIREE, TL_GUIDE, TL_PROFILS, TL_RECAP, TL_GLOBE, TL_PET, TL_MEM };
+enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV, TL_SAVES, TL_CATA, TL_SUCCES, TL_SOIREE, TL_GUIDE, TL_PROFILS, TL_RECAP, TL_GLOBE, TL_PET, TL_MEM, TL_THEMES };
 static void pet_input(u32 down, u32 nav, int fire);    /* v207 : pet.c */
 static void draw_pet(void);
 static void pet_open(void);
@@ -16,6 +16,8 @@ static void gb_input(u32 down, u32 nav, int fire);     /* v207 : globe.c */
 static void draw_globe(void);
 static void mem_input(u32 down, u32 nav, int fire);   /* v220 : memview.c */
 static void draw_mem(void);
+static void thm_input(u32 down, u32 nav, int fire);   /* v233 : themes.c */
+static void draw_thm(void);
 static void mem_open(void);
 static void rcp_input(u32 down, u32 nav, int fire);   /* v191 (recap.c) */
 static void rcp_draw(void);
@@ -1567,6 +1569,7 @@ static void tools_input(u32 down, u32 nav, int fire) {
     case TL_GLOBE: gb_input(down, nav, fire); break;     /* v207 : globe.c */
     case TL_PET: pet_input(down, nav, fire); break;
     case TL_MEM: mem_input(down, nav, fire); break;   /* v220 : memview.c */
+    case TL_THEMES: thm_input(down, nav, fire); break;   /* v233 : themes.c */
     }
 }
 static void draw_tools(void) {
@@ -1588,6 +1591,7 @@ static void draw_tools(void) {
     case TL_GLOBE: draw_globe(); break;
     case TL_PET: draw_pet(); break;
     case TL_MEM: draw_mem(); break;
+    case TL_THEMES: draw_thm(); break;
     }
 }
 

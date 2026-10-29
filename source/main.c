@@ -238,6 +238,11 @@ static const char *const gl_sort_names[5] = { "A \xE2\x86\x92 Z", "Derniers lanc
 static const char *const skin_keys[6] = { "indigo", "moderne", "nouvelle", "aurore", "vitrine", "ilots" };   /* v131 : + Vitrine, Ilots (a la place de Nebula, Halo) ; Moderne et Nouvelle retires du choix */
 static const char *const glview_keys[6] = { "grille", "carrousel", "liste", "mur", "vitrine", "etagere" };
 static u8 mod_acc[3] = { 0, 190, 230 };
+/* v233 : theme telecharge (themes.c) : couleurs des styles Aurore, Vitrine, Ilots */
+typedef struct { int on; char id[24]; char name[40]; u8 a[3], b[3], mix[4][3], top[3], bot[3]; int rib; char img[48]; int base; } thd_t;
+static thd_t thd;
+static void thm_open(void);
+static void thm_boot(void);
 static void skin_accent(void) {
     static const u8 acc[THEME_COUNT][3] = { { 0, 190, 230 }, { 40, 120, 255 }, { 0, 200, 120 }, { 235, 60, 70 },
                                             { 255, 150, 30 }, { 240, 110, 180 }, { 225, 225, 230 },
@@ -289,6 +294,7 @@ static inline col_t aur_col(col_t c) {
     if (!purple || sat < 30) return c;
     if (sat > 120 && mx > 140) {
         int ar = theme_id == THEME_INDIGO ? 220 : mod_acc[0], ag = theme_id == THEME_INDIGO ? 90 : mod_acc[1], ab = theme_id == THEME_INDIGO ? 255 : mod_acc[2];
+        if (thd.on) { ar = thd.a[0]; ag = thd.a[1]; ab = thd.a[2]; }   /* v233 : theme telecharge : son accent */
         c.r = (u8)(ar * mx / 255); c.g = (u8)(ag * mx / 255); c.b = (u8)(ab * mx / 255);
         return c;
     }
@@ -12127,7 +12133,7 @@ static void draw_list_radio(void) {
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
        MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_RECAT, MI_RECLEN, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PULSELD, MI_PERF, MI_LAUNCHER, MI_UPDATE,
-       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_PLAYLIM, MI_UPDXZ, MI_APNOIMG, MI_QUIT, MI_COUNT };
+       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_PLAYLIM, MI_UPDXZ, MI_APNOIMG, MI_THEMEDL, MI_QUIT, MI_COUNT };
 static void pj_limit_text(char *o, int cap);            /* v191 (profils.c) */
 static void pj_limit_next(int d);
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
@@ -12139,7 +12145,7 @@ static const char *const sec_heads[] = { "Lecture", "Son", "Biblioth\xC3\xA8que"
 static const s8 sec_items[6][32] = {
     { -2, MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_GAPLESS, MI_RESUME, MI_SLEEP, -3, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, -4, MI_VIEW, MI_COVERS, MI_LYRICS, -5, MI_PARTY, MI_FLASH, MI_GAMES, -1 },
     { -6, MI_RADIORES, MI_TITLES, -7, MI_REC, MI_RECAT, MI_RECLEN, -8, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, -1 },
-    { -9, MI_UILANG, MI_LANG, -10, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_TABS, -11, MI_LAYOUT, MI_ELEMS, MI_VIZ, MI_SGPAL, MI_LYRSHOW, -12, MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, -13, MI_HIDDEN, MI_UNKNOWN, -14, MI_PERF, -1 },
+    { -9, MI_UILANG, MI_LANG, -10, MI_SKIN, MI_THEME, MI_THEMEDL, MI_WALL, MI_SEASON, MI_TABS, -11, MI_LAYOUT, MI_ELEMS, MI_VIZ, MI_SGPAL, MI_LYRSHOW, -12, MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, -13, MI_HIDDEN, MI_UNKNOWN, -14, MI_PERF, -1 },
     { -15, MI_TV, MI_VIDEO, MI_WIDE, -16, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, -1 },
     { -17, MI_GLANG, MI_GSOUND, MI_CLOCK, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, MI_APNOIMG, MI_PLAYLIM, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
     { -21, MI_DHCP, MI_IP, MI_MASK, MI_GW, -22, MI_NETSMB, MI_NETFTP, MI_NETFSP, -23, MI_SALON, MI_PHONEAUTO, -24, MI_UPDAUTO, MI_UPDXZ, MI_UPDATE, -1 } };
@@ -12246,6 +12252,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_SALON: if (!salon_on) snprintf(out, cap, "Non"); else snprintf(out, cap, "Oui (%d console%s)", salon_n, salon_n > 1 ? "s" : ""); break;
     case MI_UPDAUTO: snprintf(out, cap, "%s", upd_auto ? "Oui" : "Non"); break;
     case MI_UPDXZ:   snprintf(out, cap, "%s", upd_xz ? "Oui" : "Non"); break;
+    case MI_THEMEDL: snprintf(out, cap, "%s  (A)", thd.on ? thd.name : "Aucun"); break;
     case MI_APNOIMG: snprintf(out, cap, "%s", ap_noimg ? "Montrer" : "Cacher"); break;
     case MI_NETSMB: case MI_NETFTP: case MI_NETFSP: nfs_menu_value(i - MI_NETSMB, out, cap); break;   /* v86 */
     case MI_TREBLE:  if (eq_treble) snprintf(out, cap, "%+d dB", eq_treble); else snprintf(out, cap, "0"); break;
@@ -12332,7 +12339,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "A+Z+START (lanceur de secours)", "A+Z+START (Pulse)", "Carte m\xC3\xA9moire virtuelle (Pulse)", "\xC3\x89" "cran de chargement (Pulse)", "Mesure de fluidit\xC3\xA9", "Lanceur de secours", "Mise \xC3\xA0 jour",
     "Fichiers cach\xC3\xA9s (FICHIERS)", "Cacher les fichiers inconnus", "Langue des jeux (console)", "Son (console)",
     "Adresse automatique (DHCP)", "Adresse IP de la console", "Masque", "Passerelle (box)", "T\xC3\xA9l\xC3\xA9" "commande au d\xC3\xA9marrage",
-    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Date et heure (console)", "Nouveaux jeux vus tout seuls", "Limite de jeu par jour", "Version compress\xC3\xA9" "e", "Applis sans image", "Quitter GC Station" };
+    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Date et heure (console)", "Nouveaux jeux vus tout seuls", "Limite de jeu par jour", "Version compress\xC3\xA9" "e", "Applis sans image", "Th\xC3\xA8mes en ligne", "Quitter GC Station" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -12389,6 +12396,7 @@ static void menu_change(int i, int d) {
     case MI_SALON: salon_on = !salon_on; break;
     case MI_UPDAUTO: upd_auto = !upd_auto; break;
     case MI_UPDXZ:   upd_xz = !upd_xz; upd_xz_set = 1; break;
+    case MI_THEMEDL: thm_open(); return;                 /* v233 : themes.c */
     case MI_APNOIMG: ap_noimg = !ap_noimg; break;
     case MI_NETSMB: case MI_NETFTP: case MI_NETFSP: nfs_ui_open(i - MI_NETSMB); return;   /* v86 */
     case MI_BASS:    eq_bass += 2 * d; eq_preset = 0; eq_setup(); break;
@@ -12700,6 +12708,7 @@ static void draw_menu(void) {
     if (menu_sel >= MI_NETSMB && menu_sel <= MI_NETFSP) hint = "A : adresse, utilisateur, mot de passe, test ; puis onglet FICHIERS (B depuis la carte SD)";
     if (menu_sel == MI_SALON) hint = "Les autres GC Station du r\xC3\xA9seau dans FICHIERS (B) : leur carte, et Y : \xC3\xA9" "couter avec";
     if (menu_sel == MI_APNOIMG) hint = "Applis de SD:/apps sans image (icon.png) : carte avec leur nom, ou cach\xC3\xA9" "es";
+    if (menu_sel == MI_THEMEDL) hint = "De nouvelles couleurs et fonds, t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9s depuis GitHub (A : voir la liste)";
     if (menu_sel == MI_UPDXZ) hint = "Mise \xC3\xA0 jour : .dol compress\xC3\xA9 (2 fois plus petit, d\xC3\xA9marrage plus rapide)";
     if (menu_sel == MI_UPDAUTO) hint = "Une nouvelle version est signal\xC3\xA9" "e au d\xC3\xA9marrage (rien n'est install\xC3\xA9 sans toi)";
     if (hint) gx_text1(F_SMALL, x + 20, help_y + 8, hint, RGBA(255, 210, 120, 255));
@@ -13791,6 +13800,7 @@ static void music_pump(void) {
 #include "globe.c"                             /* v207 : globe des radios */
 #include "pet.c"                               /* v207 : le compagnon */
 #include "memview.c"                           /* v220 : Outils > Memoire en direct */
+#include "themes.c"                            /* v233 : themes a telecharger */
 #include "gspace.c"                            /* v196 : espace Jeux GameCube (vitrine 3D, filtres, applis) */
 #include "jeux_cfg.c"                          /* v75 : reglages des jeux */
 #include "igr.c"                               /* v39 : A + Z + START en jeu -> GC-MP3 */
@@ -13908,6 +13918,7 @@ int main(int argc, char **argv) {
     ui_lang_apply();                        /* v24 : langue de la console, sauf reglage */
     load_settings();
     pj_apply();                             /* v191 : carte et limite du profil */
+    thm_boot();                             /* v233 : theme telecharge (themes.c) */
     bt_step("reglages");
     nfs_mount();
     jeux_cfg_boot();                        /* v75 : langue / son de la console, reseau */
