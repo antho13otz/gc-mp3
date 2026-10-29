@@ -744,7 +744,11 @@ static void ap_add(const char *path, const char *dir) {
         int img = 0;
         char ip[NAME_LEN];
         for (int i = 0; dir && i < 6 && !img; i++) { snprintf(ip, sizeof(ip), "%s/%s", dir, cn[i]); img = stat(ip, &st) == 0; }
-        if (!img) return;
+        if (img) snprintf(a->icon, sizeof(a->icon), "%s", ip);   /* v227 : l'image trouvee (avant : toujours icon.png, meme s'il n'y avait que cover.png) */
+        /* v227 : tout ce qui est dans SD:/apps est une appli, meme sans image (carte avec le nom) : les .dol
+           envoyes par le telephone y arrivent seuls. A la racine de la carte, il faut toujours une image
+           (ipl.dol, GC Station, Swiss... ne sont pas des applis a montrer). */
+        if (!img && (!ap_noimg || strncasecmp(path, SD_ROOT "/apps/", strlen(SD_ROOT "/apps/")))) return;   /* (reglage Applis sans image) */
     }
     ap_n++;
 }
@@ -764,12 +768,14 @@ static void ap_scan_dir(const char *dir, int depth) {
     service_audio();
 }
 static int ap_cmp(const void *a, const void *b) { return strcasecmp(((const ap_ent *)a)->name, ((const ap_ent *)b)->name); }
+static int ap_noimg_seen = -1;                         /* v227 : (reglage Applis sans image deja applique a la liste) */
 static int ap_scanned = 0;                            /* v84 : liste gardee (Y : relire la carte) */
 static void ap_rescan(void);
 static void ap_open(void) {
     ap_confirm = -1;
     tl_screen = TL_APPS;
     if (tp_apps_new) { tp_apps_new = 0; ap_scanned = 0; }   /* v224 : .dol envoye par le telephone */
+    if (ap_noimg_seen != ap_noimg) { ap_noimg_seen = ap_noimg; ap_scanned = 0; }   /* v227 : reglage change */
     if (!ap_scanned) ap_rescan();
 }
 static void ap_rescan(void) {

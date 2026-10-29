@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v227 — toutes les applis de SD:/apps
+- **Applis** : un .dol posé seul dans `SD:/apps` (par exemple envoyé depuis le téléphone), ou une appli sans
+  image, apparaît maintenant dans la liste (carte avec son nom). Avant, seules les applis avec une image
+  étaient montrées. À la racine de la carte, il faut toujours une image (pour ne pas montrer `ipl.dol`, Swiss…).
+- Nouveau réglage **Réglages > Jeux > Liste des jeux > Applis sans image** : Montrer (par défaut) ou Cacher.
+- Une appli dont l'image s'appelle `cover.png`, `pochette.jpg`… (et pas `icon.png`) affiche bien cette image.
+
 ## Nouveautés v226 — mise à jour en version compressée
 - Nouveau réglage **Réglages > Réseau > Mises à jour > Version compressée** (Non par défaut). Sur **Oui**, la
   mise à jour télécharge le .dol compressé (2,2 Mo au lieu de 5,5 Mo, démarrage plus rapide) au lieu du
