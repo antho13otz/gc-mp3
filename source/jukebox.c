@@ -144,8 +144,10 @@ static void jb_open_game(int g) {
         if (snprintf(p, sizeof(p), "%s#%s", gl[g].path, jb_t[i].p) >= (int)sizeof(p)) continue;
         int k = bib_find(p);
         if (k < 0) {
+            char *np = nm_store(p);                       /* v236 : reserve des noms */
+            if (!np) continue;
             k = nfiles;
-            snprintf(names[k], NAME_LEN, "%s", p);
+            names[k] = np;
             dur_cache[k] = -2;
             is_retro[k] = retro_ext_fmt(p) >= 0;
             tg_done[k] = 0; tg_artist[k][0] = tg_album[k][0] = tg_title[k][0] = 0;

@@ -1,0 +1,43 @@
+# v236 : vues de la bibliotheque (regroupement artistes / albums)
+wait 12s
+stick c 100 0 200ms
+wait 900ms
+press DOWN
+wait 200ms
+stick c 100 0 200ms
+wait 900ms
+press DOWN
+wait 200ms
+stick c 100 0 200ms
+wait 900ms
+press DOWN
+wait 200ms
+stick c 100 0 200ms
+wait 900ms
+press DOWN
+wait 200ms
+stick c 100 0 200ms
+wait 900ms
+press DOWN
+wait 200ms
+stick c 100 0 200ms
+wait 900ms
+press DOWN
+wait 200ms
+stick c 100 0 200ms
+wait 900ms
+press DOWN
+wait 200ms
+stick c 100 0 200ms
+wait 900ms
+press DOWN
+wait 200ms
+stick c 100 0 200ms
+wait 900ms
+press DOWN
+wait 200ms
+stick c 100 0 200ms
+wait 900ms
+press DOWN
+wait 200ms
+quit

@@ -1514,7 +1514,8 @@ static int cover_from_file(const char *path) {
     return ok;
 }
 // ---------- Liste des stations (sd:/gc-mp3/reglages/radio.txt) ----------
-typedef struct { char name[48]; char url[URL_MAX]; } station_t;
+#define ST_URL_MAX 768                          /* v236 : adresse d'une radio (avant URL_MAX = 2048 : 128 x 2 Ko = 262 Ko reserves) */
+typedef struct { char name[48]; char url[ST_URL_MAX]; } station_t;
 static station_t stations[MAX_STATIONS];
 static int nstations = 0;
 static int sd_ok = 0;
@@ -1553,6 +1554,7 @@ static void parse_station_line(char *line) {
     char *url = bar ? trim(bar + 1) : s;
     if (bar) *bar = 0;
     if (strncasecmp(url, "http://", 7) != 0 && strncasecmp(url, "https://", 8) != 0) return;
+    if (strlen(url) >= sizeof(st->url)) return;   /* (v236 : trop longue : ignoree plutot que coupee) */
     snprintf(st->url, sizeof(st->url), "%s", url);
     if (bar && *trim(s)) {
         snprintf(st->name, sizeof(st->name), "%s", trim(s));
@@ -2953,7 +2955,29 @@ static void stream_pump(void) {
 
 // ---------- Liste des fichiers ----------
 /* names[] contient le chemin complet de chaque MP3 : sd:/mp3/... puis sd:/downloads/... */
-static char names[MAX_FILES][NAME_LEN];
+/* v236 : chaque chemin est range dans une reserve qui grandit par blocs de 32 Ko (avant : 2000 x 256 octets
+   fixes = 500 Ko, pour des chemins de 60 a 80 caracteres). La reserve est reutilisee a chaque relecture de la
+   carte (comme l'ancien tableau : un ancien pointeur reste lisible). Jamais NULL : "" au depart. */
+static char *names[MAX_FILES] = { [0 ... MAX_FILES - 1] = "" };
+#define NM_BLOCK (32 * 1024)
+static char *nm_blk[64];
+static int nm_nblk = 0, nm_cur = 0, nm_used = 0;
+static void nm_reset(void) { nm_cur = 0; nm_used = 0; }
+static char *nm_store(const char *s) {
+    size_t l = strlen(s) + 1;
+    if (l > NAME_LEN) l = NAME_LEN;
+    if (nm_cur < nm_nblk && nm_used + l > NM_BLOCK) { nm_cur++; nm_used = 0; }
+    if (nm_cur >= nm_nblk) {
+        if (nm_nblk >= (int)(sizeof(nm_blk) / sizeof(nm_blk[0]))) return NULL;
+        char *b = (char *)malloc(NM_BLOCK);
+        if (!b) return NULL;
+        nm_blk[nm_nblk++] = b; nm_cur = nm_nblk - 1; nm_used = 0;
+    }
+    char *p = nm_blk[nm_cur] + nm_used;
+    memcpy(p, s, l - 1); p[l - 1] = 0;
+    nm_used += (int)l;
+    return p;
+}
 static int  dur_cache[MAX_FILES];          // duree en s ; -2 = pas encore lue, -1 = inconnue
 static int  nfiles = 0;
 static int  dur_budget = 0;                // lectures de duree autorisees pour l'image en cours
@@ -3009,7 +3033,7 @@ static u32 le16(const unsigned char *p) { return (u32)p[0] | ((u32)p[1] << 8); }
 /* Tri : d'abord sd:/mp3, puis sd:/downloads ; dans chaque dossier, ordre alphabetique
    (les morceaux d'un meme album restent donc groupes). */
 static int cmp_names(const void *a, const void *b) {
-    const char *x = (const char *)a, *y = (const char *)b;
+    const char *x = *(const char *const *)a, *y = *(const char *const *)b;   /* (v236 : tableau de pointeurs) */
     int rx = strncasecmp(x, MP3_DIR "/", strlen(MP3_DIR) + 1) == 0 ? 0 : 1;
     int ry = strncasecmp(y, MP3_DIR "/", strlen(MP3_DIR) + 1) == 0 ? 0 : 1;
     if (rx != ry) return rx - ry;
@@ -3037,7 +3061,8 @@ static void scan_dir(const char *dir, int depth) {
         size_t l = strlen(e->d_name);
         (void)l;
         if (audio_ext_len(e->d_name)) {
-            strcpy(names[nfiles++], path);
+            char *np = nm_store(path);
+            if (np) names[nfiles++] = np;
         } else if (depth < SCAN_DEPTH && is_dir(path, e)) {
             scan_dir(path, depth + 1);
         }
@@ -3049,13 +3074,14 @@ static void retro_unzip_tree(const char *dir, int depth);   /* tab_retro.c (v26 
 static int nsorted = 0;                                    /* v27 : names[0..nsorted[ tries, ajouts recents ensuite */
 static void scan_files(void) {
     nfiles = 0;
+    nm_reset();
     retro_unzip_tree(SD_ROOT "/retro", 0);
     for (int i = 0; i < MAX_FILES; i++) dur_cache[i] = -2;
     scan_dir(MP3_DIR, 0);
     scan_dir(DL_DIR, 0);
     scan_dir(SD_ROOT "/retro", 0);
     scan_dir(GCD "/podcasts", 0);                      /* episodes telecharges */
-    qsort(names, nfiles, NAME_LEN, cmp_names);
+    qsort(names, nfiles, sizeof(names[0]), cmp_names);
     nsorted = nfiles;
     for (int k = 0; k < nfiles; k++) is_retro[k] = retro_ext_fmt(names[k]) >= 0;
 }
@@ -5031,7 +5057,7 @@ static int bib_find(const char *path) {
     int lo = 0, hi = (nsorted < nfiles ? nsorted : nfiles) - 1;
     while (lo <= hi) {
         int mid = (lo + hi) / 2;
-        int c = cmp_names(names[mid], path);
+        int c = cmp_names(&names[mid], &path);          /* (v236 : la comparaison recoit des pointeurs vers les chemins) */
         if (c == 0) return mid;
         if (c < 0) lo = mid + 1; else hi = mid - 1;
     }
@@ -5139,7 +5165,8 @@ static int cmp_groups(const void *a, const void *b) {
 }
 
 static void build_groups(void) {
-    static char tmpn[MAX_FILES][64];
+    char (*tmpn)[64] = (char (*)[64])malloc(64 * (size_t)(nfiles > 0 ? nfiles : 1));   /* v236 : le temps du calcul (avant : 125 Ko reserves) */
+    if (!tmpn) return;
     static s16 tmpc[MAX_FILES];
     int n = 0;
     char key[64];
@@ -5162,6 +5189,7 @@ static void build_groups(void) {
     for (int i = 0; i < n; i++) { snprintf(grp_name[i], 64, "%s", tmpn[grp_order[i]]); grp_count[i] = tmpc[grp_order[i]]; }
     for (int k = 0; k < nfiles; k++) if (grp_of[k] >= 0) grp_of[k] = (s16)rank[grp_of[k]];
     ngroups = n;
+    free(tmpn);
 }
 
 static const char *group_label(int g) {
@@ -11841,8 +11869,10 @@ static int radio_fav_has(const char *url) {
     return r;
 }
 static void radio_fav_sort(void) {                       /* favorites d'abord (ordre garde), station en cours suivie */
-    static station_t tmp[MAX_STATIONS];
     static u8 tf[MAX_STATIONS];
+    if (nstations <= 0) return;
+    station_t *tmp = (station_t *)malloc(sizeof(station_t) * nstations);   /* v236 : le temps du tri (avant : 262 Ko reserves) */
+    if (!tmp) return;
     int n = 0, cur = cur_station, ncur = cur, sel = sel_station - RS_N, nsel = sel;
     for (int pass = 0; pass < 2; pass++)
         for (int i = 0; i < nstations; i++) if (st_fav[i] == (pass == 0)) {
@@ -11851,6 +11881,7 @@ static void radio_fav_sort(void) {                       /* favorites d'abord (o
             tmp[n] = stations[i]; tf[n] = st_fav[i]; n++;
         }
     memcpy(stations, tmp, sizeof(station_t) * n); memcpy(st_fav, tf, n);
+    free(tmp);
     if (cur >= 0 && cur < nstations) cur_station = ncur;
     if (sel >= 0 && sel < nstations && !rb_mode) sel_station = nsel + RS_N;
 }
@@ -13591,8 +13622,10 @@ static void music_add_file(const char *path) {
     if (bib_find(path) >= 0) return;
     if (nfiles >= MAX_FILES) return;
     int k = nfiles;
+    char *np = nm_store(path);                             /* v236 */
+    if (!np) return;
     LSC_LOCK();                                            /* v195 */
-    snprintf(names[k], NAME_LEN, "%s", path);
+    names[k] = np;
     dur_cache[k] = -2;
     is_retro[k] = retro_ext_fmt(path) >= 0;
     tg_done[k] = 0; tg_artist[k][0] = tg_album[k][0] = tg_title[k][0] = 0;

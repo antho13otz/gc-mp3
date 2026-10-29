@@ -36,15 +36,17 @@ GMEFLAGS := -O2 $(MACHDEP) $(GMEDEF) -DNDEBUG -I$(GME) -w -fwrapv
 WEBP     := webp
 WEBP_SRC := $(wildcard $(WEBP)/src/dec/*.c) $(wildcard $(WEBP)/src/dsp/*.c) $(wildcard $(WEBP)/src/utils/*.c)
 WEBP_OBJ := $(patsubst $(WEBP)/src/%.c,build/webp/%.o,$(WEBP_SRC))
-WEBPFLAGS:= -O2 $(MACHDEP) -DNDEBUG -fwrapv -I$(WEBP) -w
-XMPFLAGS := -O2 $(MACHDEP) -fwrapv -DLIBXMP_STATIC -DLIBXMP_NO_PROWIZARD -DLIBXMP_NO_DEPACKERS -I$(XMP)/include -I$(XMP)/src -w
+WEBPFLAGS:= -O2 $(MACHDEP) -fno-asynchronous-unwind-tables -fno-unwind-tables -DNDEBUG -fwrapv -I$(WEBP) -w
+XMPFLAGS := -O2 $(MACHDEP) -fno-asynchronous-unwind-tables -fno-unwind-tables -fwrapv -DLIBXMP_STATIC -DLIBXMP_NO_PROWIZARD -DLIBXMP_NO_DEPACKERS -I$(XMP)/include -I$(XMP)/src -w
 
 # numero de compilation (GitHub Actions) : sert a la mise a jour en un clic
 BUILD_NUM ?= 0
-CFLAGS   := -O2 -fwrapv -Wall $(MACHDEP) -DGCMP3_BUILD=$(BUILD_NUM) -D__POWERPC__ -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(HELIX) -Isource/helixstub -I$(GME) -I$(XMP)/include -I$(WEBP) -DLIBXMP_STATIC $(TLSDEF)
-MBEDFLAGS:= -O2 $(MACHDEP) -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(MBEDTLS)/library $(TLSDEF)
+CFLAGS   := -O2 -fwrapv -Wall $(MACHDEP) -fno-asynchronous-unwind-tables -fno-unwind-tables -DGCMP3_BUILD=$(BUILD_NUM) -D__POWERPC__ -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(HELIX) -Isource/helixstub -I$(GME) -I$(XMP)/include -I$(WEBP) -DLIBXMP_STATIC $(TLSDEF)
+MBEDFLAGS:= -O2 $(MACHDEP) -fno-asynchronous-unwind-tables -fno-unwind-tables -I$(LIBOGC_INC) -Isource -I$(MBEDTLS)/include -I$(MBEDTLS)/library $(TLSDEF)
 HELIXFLAGS:= -O2 $(MACHDEP) -D__POWERPC__ -Isource/helixstub -I$(HELIX) -DUSE_DEFAULT_STDLIB -Wno-unknown-pragmas
 LDFLAGS  := $(MACHDEP) -Wl,-Map,$(TARGET).map
+# v236 : -fno-asynchronous-unwind-tables -fno-unwind-tables : pas de tables de deroulement (.eh_frame,
+# ~400 Ko de donnees) pour le C : seul le C++ (gme) les garde
 # libbba = reseau (lwIP + Broadband Adapter) de libogc pour GameCube
 # reseau plus rapide (tools/fast_net.py) : utilisee si le workflow a pu la construire
 NETFAST  := $(wildcard netfast/libbba_fast.a)
@@ -66,7 +68,7 @@ build/mbedtls/%.o: $(MBEDTLS)/library/%.c source/gc_tls_config.h
 
 build/codecs.o: source/codecs.c source/dr_flac.h source/stb_vorbis.c source/qrcodegen.c source/qrcodegen.h
 > @mkdir -p build
-> $(CC) -O2 $(MACHDEP) -Isource -w -c $< -o $@
+> $(CC) -O2 $(MACHDEP) -fno-asynchronous-unwind-tables -fno-unwind-tables -Isource -w -c $< -o $@
 
 build/gme/%.o: $(GME)/%.cpp
 > @mkdir -p build/gme
