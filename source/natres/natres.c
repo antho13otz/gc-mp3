@@ -849,7 +849,7 @@ static void dsp_hook(u32 irq, u32 ctx) {                 /* v98 : le jeu y progr
     di_tick(ctx, 0);
 }
 NR_HOOK(pet, H.cnt_pe)
-NR_HOOK(pef, H.cnt_pe)
+/* (v244 : NR_HOOK(pef) retire : voir hooks_check) */
 
 /* v60 : plantage du jeu (acces memoire interdit, code introuvable, alignement, instruction
    invalide) : on note ou, on ecrit le journal, et la console redemarre (retour a GC Station
@@ -1929,7 +1929,8 @@ static void hooks_check(void) {
     hook1(5, &ai_orig, (u32)ai_hook);                    /* (DSP_AI : DMA du son) */
     hook1(7, &dsp_orig, (u32)dsp_hook);
     hook1(18, &pet_orig, (u32)pet_hook);
-    hook1(19, &pef_orig, (u32)pef_hook);
+    /* v244 : plus de crochet sur la fin de dessin (19) : LEGO Star Wars II restait sur un ecran noir, son fil principal
+       attendant pour toujours cette interruption (GXWaitDrawDone). Le jeton (18) suffit pour les signes de vie. */
     if (H.flags & NRF_IGR) hook1(20, &si_orig, (u32)si_hook);
     volatile u32 *e = OS_EXC_TABLE;
     if (nr_game_fn(e[2])) {                              /* (exceptions : remplacees, pas chainees) */

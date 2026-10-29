@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v244 (build 705) — Pulse ne branche plus la fin de dessin
+- Journal de LEGO Star Wars II (GL7P64, écran noir après le choix de la langue) : le fil principal du jeu attendait
+  pour toujours la **fin de dessin** du processeur graphique (`GXWaitDrawDone`, fil 80315ED0), pendant qu'un autre
+  fil affichait l'écran de chargement. Pulse avait un crochet sur cette interruption (19, signes de vie) : il est
+  retiré ; le jeton de dessin (18) garde le compte « dessin » du journal.
+
 ## Nouveautés v243 (build 703) — journal de Pulse : les fils du jeu
 - Au retour **A+Z+START** (ou à un plantage), Pulse note maintenant **tous les fils (threads) du jeu** dans un
   4e secteur du journal (`thr_dump` dans natres.c, `NRF_THREADS`) : état (prêt, en cours, en attente), priorité,
