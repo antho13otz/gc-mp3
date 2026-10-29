@@ -23,8 +23,8 @@ jobs:
     steps:
       - uses: actions/cache/restore@v4
         with:
-          path: ~/.android/debug.keystore
-          key: android-debug-keystore-v1
+          path: ~/.gcs-android/debug.keystore
+          key: android-debug-keystore-v2
           fail-on-cache-miss: false
 
   apk:
@@ -48,12 +48,13 @@ jobs:
       - name: Cle de test d'Android (cache)
         uses: actions/cache@v4
         with:
-          path: ~/.android/debug.keystore
-          key: android-debug-keystore-v1
+          path: ~/.gcs-android/debug.keystore
+          key: android-debug-keystore-v2
 
       - name: Compiler l'APK
         env:
           BUILD_NUM: ${{ github.run_number }}
+          ANDROID_USER_HOME: /home/runner/.gcs-android     # (ou les outils Android rangent leur cle de test : celle du cache)
         run: |
           gradle -p android --no-daemon assembleDebug
           cp android/app/build/outputs/apk/debug/app-debug.apk gc-station-telecommande.apk
