@@ -952,10 +952,20 @@ static void na_thr_print(FILE *f, const u8 *b) {
                 st == 1 ? "pret" : st == 2 ? "en cours" : st == 4 ? "en attente" : st == 8 ? "fini" : "?", (unsigned)pr,
                 (unsigned)be32(e + 8), (unsigned)be32(e + 12), (unsigned)be32(e + 16), (unsigned)be32(e + 20), (unsigned)be32(e + 24), (unsigned)be32(e + 28));
     }
+    {   /* v245 : interruptions et dessin au retour */
+        u32 cause = be32(b + 0x1F0), mask = be32(b + 0x1F4), pc = be32(b + 0x1F8), om = be32(b + 0x1FC);
+        u32 pe = pc >> 16, cp = pc & 0xFFFF;
+        fprintf(f, "Interruptions : PI cause %08X, masque %08X ; masques du jeu %08X\n", (unsigned)cause, (unsigned)mask, (unsigned)om);
+        fprintf(f, "Dessin : controle PE %04X (fin de dessin : %s, %s) ; jeton : %s ; etat CP %04X (GP %s, commandes %s%s)\n",
+                (unsigned)pe, pe & 2 ? "autorisee" : "INTERDITE", pe & 8 ? "EN ATTENTE" : "rien en attente", pe & 1 ? "autorise" : "interdit",
+                (unsigned)cp, cp & 4 ? "au repos" : "occupe", cp & 8 ? "finies" : "en cours", cp & 1 ? ", FIFO DEBORDE" : "");
+        fprintf(f, "PI : fin de dessin %s / masque %s ; jeton %s / masque %s\n", cause & 0x400 ? "levee" : "non", mask & 0x400 ? "ouvert" : "FERME",
+                cause & 0x200 ? "leve" : "non", mask & 0x200 ? "ouvert" : "ferme");
+    }
     for (u32 i = 0; i < n; i++) {                                   /* fils en attente : le code qui attend (2 appels) */
         const u8 *e = b + 0x10 + i * 32;
         if ((be32(e + 4) >> 16) != 4) continue;
-        for (int k = 0; k < 2; k++) {
+        for (int k = 0; k < 3; k++) {                               /* (v245 : 3 appels) */
             u32 a = be32(e + 20 + k * 4);
             if (!a) continue;
             char lb[48]; snprintf(lb, sizeof(lb), "fil %08X, appel %d", (unsigned)be32(e), k + 1);

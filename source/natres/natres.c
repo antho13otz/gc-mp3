@@ -956,6 +956,11 @@ static void thr_dump(void) {
         t = nx;
     }
     cw(0x04, n);
+    /* v245 : interruptions et processeur graphique (un fil qui attend la fin de dessin pour toujours : interruption
+       arrivee mais masquee, ou jamais levee ?) : cause et masque du PI, controle PE << 16 | etat CP, masques du SDK */
+    cw(0x1F0, *(volatile u32 *)0xCC003000u); cw(0x1F4, *(volatile u32 *)0xCC003004u);
+    cw(0x1F8, (u32)*(volatile unsigned short *)0xCC00100Au << 16 | *(volatile unsigned short *)0xCC000000u);
+    cw(0x1FC, *(volatile u32 *)0x800000C4u | *(volatile u32 *)0x800000C8u);
     nr_write_sd(H.log_sec + 3, crashbuf);
 }
 static void vc_diag(void);
