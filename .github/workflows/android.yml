@@ -63,7 +63,9 @@ jobs:
       # Android refuserait la mise a jour par-dessus. Une autre signature = echec, plutot qu'un APK qui ne s'installe pas.
       - name: Verifier la signature (mise a jour par-dessus)
         run: |
-          fp=$(keytool -printcert -jarfile gc-station-telecommande.apk | grep -m1 'SHA256:' | sed 's/.*SHA256: *//')
+          as=$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          fp=$("$as" verify --print-certs gc-station-telecommande.apk | grep -m1 'SHA-256 digest' | sed 's/.*: *//')
+          [ -n "$fp" ] || { echo "::error::Empreinte de la signature illisible"; exit 1; }
           echo "::notice title=Empreinte de la signature::$fp"
           if [ -f android/signature.txt ]; then
             want=$(grep -v '^#' android/signature.txt | tr -d ' \r\n')
