@@ -568,6 +568,10 @@ static void update_pump(void) {
         if (up_build <= GCMP3_BUILD) {
             up_state = UP_NONE;
             snprintf(up_msg, sizeof(up_msg), "\xC3\x80 jour (build %d)", GCMP3_BUILD);
+        } else if (upd_xz && !up_is_xz) {                 /* v256 : "version compressee" choisie, pas encore publiee pour ce build : on attend */
+            up_state = UP_NONE;                           /* (avant : la version normale etait proposee a la place) */
+            snprintf(up_msg, sizeof(up_msg), "Build %d : version compress\xC3\xA9" "e en pr\xC3\xA9paration, r\xC3\xA9" "essaie dans quelques minutes", up_build);
+            crumb("maj : build %d sans version compressee pour l'instant", up_build);
         } else if (up_build == upg_bad) {                  /* v229 : cette version plantait : pas reproposee */
             up_state = UP_NONE;
             snprintf(up_msg, sizeof(up_msg), "Build %d retir\xC3\xA9" "e (elle plantait) : en attente de la suivante", up_build);

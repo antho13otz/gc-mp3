@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v256 (build 720) — mise à jour : toujours la version compressée quand elle est choisie
+- Avec « Version compressée » à Oui, la recherche de mise à jour proposait la version normale quand la compressée
+  du même build n'était pas encore publiée (tâche `compresse` de la compilation, quelques minutes après le .dol).
+  Maintenant elle attend : « Build N : version compressée en préparation, réessaie dans quelques minutes ».
+
 ## Nouveautés v255 (build 718) — pastilles des jeux posées à la main (appli)
 - Confirmé : Phantasy Star Online Episode I & II (GPOP8P) marche avec Pulse (v252 / v254). Ses sauvegardes vont sur
   la vraie carte du port A (la carte virtuelle n'est branchée que dans le chargeur, pas dans PsoV3.dol).
