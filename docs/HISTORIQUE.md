@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v265 (build 734) — Test de la console : cause des blocages, réseau en vrai
+## Nouveautés v265 (build 735) — Test de la console : cause des blocages, réseau en vrai
 - **Cause de chaque image bloquée** : pendant chaque image, le test compte maintenant les fins de bloc du son
   (interruptions), les Ko lus ou écrits sur la carte SD (interface de la carte montée à travers un compteur) et
   les Ko reçus du réseau. Une image « processeur pris » est classée : interruptions coupées (le son s'est arrêté
@@ -32,7 +32,7 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   image bloquée du rapport donne ces chiffres.
 - **Réseau en vrai** (test total, musique en fond) : téléchargement de 3,5 Mo écrit sur la carte SD (puis effacé),
   une page web dans Cube Browser (15 s), une radio en AAC (FIP) ; pour chacun : débit, trous du son, images bloquées.
-  (build 734 : noms des éléments plus longs, 96 caractères au lieu de 64 : les chiffres étaient coupés.)
+  (build 735 : noms des éléments plus longs, 96 caractères au lieu de 64 : les chiffres étaient coupés.)
 
 ## Nouveautés v264 (build 732) — « Derniers jeux lancés » s'ouvre tout de suite
 - Test de la console (build 731) : l'outil bloquait l'écran 10,8 s à l'ouverture. Il relisait toute la carte SD pour
