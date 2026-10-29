@@ -20,7 +20,8 @@ static u32 mv_largest(void) {                    /* plus grand bloc : essais de 
     u32 lo = 0, hi = 24u << 20;
     while (hi - lo > 16384) {
         u32 mid = (lo + hi) / 2;
-        void *p = malloc(mid);
+        void *volatile p = malloc(mid);          /* v237 : volatile : sinon GCC supprime le couple malloc/free inutilise et suppose
+                                                    que la reservation a reussi (le plus grand bloc affichait toujours ~24 Mo) */
         if (p) { free(p); lo = mid; } else hi = mid;
     }
     return lo;

@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v237 (build 681) — « plus grand bloc » corrigé
+- Outils > Mémoire (et la page `/memoire` du téléphone) : le **plus grand bloc** affichait toujours environ
+  24 Mo, plus que la mémoire libre. Le compilateur supprimait la mesure (réserver puis libérer aussitôt) et
+  la croyait réussie. La mesure est réelle maintenant, et la ligne « Relance directe après une mise à jour »
+  aussi.
+
 ## Nouveautés v236 (build 680) — 1,3 Mo de mémoire en plus, la carte SD depuis le téléphone
 - **Mémoire de la console** : environ 1,3 Mo de moins réservés au démarrage (8 184 → 7 137 Ko de zones
   réservées, 1 868 → 1 570 Ko de données) :
