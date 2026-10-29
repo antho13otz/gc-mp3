@@ -24,8 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-<<<<<<< HEAD
-## Nouveautés v266 (build 740) — L'appli du téléphone en direct
+## Nouveautés v266 (build 741) — L'appli du téléphone en direct
 - **Console trouvée tout de suite** : l'appli demande à tout le Wi-Fi « Y a-t-il une GC Station ? » (UDP, port 51236)
   et la console répond elle-même (nom, port, build) : moins d'une seconde, au lieu d'essayer les 254 adresses. Plusieurs
   consoles : l'appli demande laquelle. Le balayage d'avant reste en secours (consoles plus anciennes).
@@ -43,10 +42,7 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
 - Banc de Pulse (`tools/natif-test`) : il ne compilait plus depuis v239 / v262 (natif.c prend des fonctions à main.c et
   tab_phone.c) ; bouchons ajoutés (`v262.inc`).
 
-## Nouveautés v265 (build 734) — Test de la console : cause des blocages, réseau en vrai
-=======
 ## Nouveautés v265 (build 735) — Test de la console : cause des blocages, réseau en vrai
->>>>>>> origin/main
 - **Cause de chaque image bloquée** : pendant chaque image, le test compte maintenant les fins de bloc du son
   (interruptions), les Ko lus ou écrits sur la carte SD (interface de la carte montée à travers un compteur) et
   les Ko reçus du réseau. Une image « processeur pris » est classée : interruptions coupées (le son s'est arrêté
