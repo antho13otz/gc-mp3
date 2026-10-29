@@ -10650,7 +10650,9 @@ static void *dec_thread_fn(void *arg) {
 /* v96 : avant de demonter la carte SD (lancement d'un jeu, d'une appli, essai de Resident) : la lecture
    en fond en cours doit finir. Sinon le fil de decodage fermait son fichier sur une carte demontee :
    ecran rouge (DSI dans _lseek_r <- fclose <- dec_thread_fn), vu en lancant Wind Waker. */
+static void tp_park(void);                                /* (tab_phone.c) */
 static void bg_quiesce(void) {
+    tp_park();                                            /* v247 : et le serveur du telephone (ecran rouge dans _fstat_r <- fseek <- tp_handle) */
     gj_hold = 1;
     u64 t0 = now_ms();
     while ((gj_state == 1 || tj_state == 1) && now_ms() - t0 < 3000) usleep(2000);

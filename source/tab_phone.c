@@ -1443,6 +1443,16 @@ static void tp_handle(s32 c) {
     } else tp_reply(c, 404, "text/plain", "", 0);
 }
 
+/* v247 : lancement d'un jeu demande depuis le telephone : l'appli continuait a demander des jaquettes, et le fil du
+   serveur lisait la carte SD pendant qu'elle etait demontee (ecran rouge : DSI dans _fstat_r <- fseek <- tp_handle).
+   Avant de demonter la carte (bg_quiesce) : plus de nouvelle demande pendant 20 s, et celle en cours finit d'abord. */
+static volatile int tp_busy = 0;
+static volatile u64 tp_park_t = 0;
+static void tp_park(void) {
+    tp_park_t = now_ms();
+    u64 t0 = now_ms();
+    while (tp_busy && now_ms() - t0 < 3000) usleep(2000);
+}
 static void *phone_thread(void *arg) {
     (void)arg;
     s32 ls = net_socket(AF_INET, SOCK_STREAM, 0);
@@ -1467,7 +1477,10 @@ static void *phone_thread(void *arg) {
         s32 c = net_accept(ls, (struct sockaddr *)&ca, &cl);
         if (c < 0) { usleep(50000); continue; }
         set_nonblock(c, 1);
+        tp_busy = 1;                                     /* (avant le test : tp_park attend la fin) */
+        if (tp_park_t && now_ms() - tp_park_t < 20000) { tp_busy = 0; net_close(c); continue; }   /* v247 : carte SD demontee */
         tp_handle(c);                                    /* (v137 : onglet enleve : seulement les partages, voir tp_handle) */
+        tp_busy = 0;
         net_close(c);
     }
     return NULL;

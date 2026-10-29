@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v247 (build 710) — plus d'écran rouge en lançant un jeu depuis le téléphone
+- Écran rouge (DSI, adresse 0000001C) en lançant un jeu depuis l'appli : le fil du serveur du téléphone lisait encore
+  une jaquette (`fseek` dans `tp_handle`) pendant que la carte SD était démontée pour le jeu. `bg_quiesce` appelle
+  maintenant `tp_park` : la demande en cours finit d'abord (3 s au plus), et les suivantes sont refusées 20 s.
+- Nouveau workflow « Adresses du plantage » (`.github/workflows/adresses.yml`) : retrouve les fonctions d'un écran
+  rouge à partir des adresses (addr2line sur le .elf de la compilation).
+
 ## Nouveautés v246 (build 708) — onglet TÉLÉPHONE caché : la télécommande reste active
 - Réglages > Apparence > Onglets affichés : décocher TÉLÉPHONE cache seulement l'onglet. Le serveur du téléphone
   continue de tourner (avant : coupé, et les demandes refusées en 403). Avec « Télécommande au démarrage » à Oui,
