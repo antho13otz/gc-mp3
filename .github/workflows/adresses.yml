@@ -1,0 +1,39 @@
+# Retrouve les fonctions de GC Station a partir des adresses d'un ecran de plantage (PC, LR, pile).
+# Lancement a la main : run_id = compilation "Compiler GC MP3 Player" du build en cause, adresses separees par des espaces.
+# Le resultat apparait dans le resume de la compilation (annotations).
+name: Adresses du plantage
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: "Numero (id) de la compilation qui a fait le .dol"
+        required: true
+      adresses:
+        description: "Adresses (ex. 8035dc64 8035dc48)"
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  adresses:
+    runs-on: ubuntu-latest
+    container: devkitpro/devkitppc:latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: gc-mp3player-elf
+          run-id: ${{ inputs.run_id }}
+          github-token: ${{ github.token }}
+      - name: Fonctions
+        env:
+          ADR: ${{ inputs.adresses }}
+        run: |
+          A2L=/opt/devkitpro/devkitPPC/bin/powerpc-eabi-addr2line
+          for a in $ADR; do
+            a=$(echo "$a" | sed 's/^0x//')
+            r=$($A2L -f -C -e gc-mp3player.elf 0x$a | tr '\n' ' ')
+            echo "::notice::$a -> $r"
+          done
