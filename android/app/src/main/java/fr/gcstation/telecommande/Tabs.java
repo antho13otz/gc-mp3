@@ -57,7 +57,6 @@ class PlayerTab extends Tab {
     private ImageView cover;
     private TextView title, sub, info, lyr, lyrPrev, lyrNext, el, dur, vol, play;
     private FrameLayout coverFrame;
-    private int coverPx;
     // paroles : [ms, texte] ; position = lyrPos + temps passe depuis lyrAt (si la lecture tourne)
     private final List<Object[]> lyrics = new ArrayList<>();
     private long lyrPos, lyrAt, lyrFetched;
@@ -74,10 +73,23 @@ class PlayerTab extends Tab {
     PlayerTab(Activity a) { super(a); }
 
     @Override View build() {
-        LinearLayout v = new LinearLayout(a);
+        // tout doit tenir a l'ecran : mesure sans limite, et si ca depasse, la pochette retrecit d'autant (110 a 230 dp)
+        LinearLayout v = new LinearLayout(a) {
+            @Override protected void onMeasure(int w, int h) {
+                View c = coverFrame != null ? coverFrame.getChildAt(0) : null;
+                if (c != null && MeasureSpec.getMode(h) != MeasureSpec.UNSPECIFIED) {
+                    ViewGroup.LayoutParams p = c.getLayoutParams();
+                    p.width = p.height = dp(230);
+                    super.onMeasure(w, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+                    int over = getMeasuredHeight() - MeasureSpec.getSize(h);
+                    if (over > 0) p.width = p.height = Math.max(dp(110), dp(230) - over);
+                }
+                super.onMeasure(w, h);
+            }
+        };
         v.setOrientation(LinearLayout.VERTICAL);
         v.setGravity(Gravity.CENTER_HORIZONTAL);
-        v.setPadding(dp(24), dp(8), dp(24), dp(16));
+        v.setPadding(dp(24), dp(8), dp(24), dp(12));
         FrameLayout frame = new FrameLayout(a);                // pochette dans un cadre neon
         GradientDrawable ring = Neon.neonFill(a, 26);
         frame.setBackground(ring);
@@ -117,7 +129,9 @@ class PlayerTab extends Tab {
         lyrPrev = Neon.text(a, "", 13, Neon.FAINT, false);
         lyr = Neon.glow(a, "", 16, Neon.CYAN);
         lyrNext = Neon.text(a, "", 13, Neon.FAINT, false);
-        for (TextView t : new TextView[] { lyrPrev, lyr, lyrNext }) { t.setGravity(Gravity.CENTER); t.setMaxLines(2); t.setEllipsize(TextUtils.TruncateAt.END); lb.addView(t, lp(-1, -2, 0)); }
+        for (TextView t : new TextView[] { lyrPrev, lyr, lyrNext }) { t.setGravity(Gravity.CENTER); t.setMaxLines(t == lyr ? 2 : 1); t.setEllipsize(TextUtils.TruncateAt.END); lb.addView(t, lp(-1, -2, 0)); }
+        lb.setGravity(Gravity.CENTER);
+        lb.setMinimumHeight(dp(26));
         lyrPrev.setVisibility(View.GONE); lyrNext.setVisibility(View.GONE);
         lb.setOnClickListener(x -> { if (!lyrics.isEmpty()) lyricsFull(); });
         v.addView(lb, lp(-1, -2, 0));
@@ -157,28 +171,8 @@ class PlayerTab extends Tab {
         vr.addView(vol, new LinearLayout.LayoutParams(dp(110), -2));
         vr.addView(round("+", 46, false, x -> { if (!PlaybackService.adjust(1)) Api.vol(true); }));
         v.addView(vr, lp(-1, -2, 0));
-        // tout doit tenir a l'ecran (paroles, petits ecrans) : la pochette retrecit si besoin, entre 120 et 230 dp
-        final FrameLayout box = new FrameLayout(a);
-        box.addView(v, new FrameLayout.LayoutParams(-1, -2));
-        box.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> fitCover(box, v));
-        v.addOnLayoutChangeListener((view, l, t, r, b, ol, ot, or, ob) -> fitCover(box, v));
-        root = box;
-        return box;
-    }
-
-    private void fitCover(FrameLayout box, LinearLayout v) {
-        int avail = box.getHeight();
-        if (avail <= 0) return;
-        int cur = coverFrame.getChildAt(0).getLayoutParams().height;
-        int others = v.getMeasuredHeight() - cur;
-        int want = Math.max(dp(120), Math.min(dp(230), avail - others));
-        if (Math.abs(want - cur) < dp(4) || want == coverPx) return;
-        coverPx = want;
-        box.post(() -> {
-            FrameLayout.LayoutParams p = (FrameLayout.LayoutParams) coverFrame.getChildAt(0).getLayoutParams();
-            p.width = p.height = want;
-            coverFrame.getChildAt(0).setLayoutParams(p);
-        });
+        root = v;
+        return v;
     }
 
     private void fetchLyrics(final String key) {
@@ -189,7 +183,7 @@ class PlayerTab extends Tab {
             try { if (r != null) j = new JSONObject(r); } catch (Exception e) { }
             JSONArray l = j != null ? j.optJSONArray("l") : null;
             boolean changed = l == null || l.length() != lyrics.size();
-            if (l == null || l.length() == 0) { if (!lyrics.isEmpty()) { lyrics.clear(); lyrPrev.setVisibility(View.GONE); lyrNext.setVisibility(View.GONE); lyrCur = -2; } return; }
+            if (l == null || l.length() == 0) { if (!lyrics.isEmpty()) { lyrics.clear(); lyrPrev.setVisibility(View.GONE); lyrNext.setVisibility(View.GONE); lyr.setMinLines(0); lyrCur = -2; } return; }
             if (changed) {
                 lyrics.clear();
                 for (int i = 0; i < l.length(); i++) { JSONArray e = l.optJSONArray(i); if (e != null) lyrics.add(new Object[] { e.optLong(0), e.optString(1) }); }
@@ -201,6 +195,7 @@ class PlayerTab extends Tab {
             lyrAt = now;
             lyrPlaying = j.optInt("play") != 0;
             lyrPrev.setVisibility(View.VISIBLE); lyrNext.setVisibility(View.VISIBLE);
+            lyr.setMinLines(2);                                     // (place de 2 lignes : la pochette ne change pas de taille a chaque ligne)
             lh.removeCallbacks(lyrTick);
             lh.post(lyrTick);
         });
