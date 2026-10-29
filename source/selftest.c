@@ -196,7 +196,9 @@ static void sx_bench_cards(void) {
         for (int t = 0; t < 10 && r == CARD_ERROR_BUSY; t++) { r = CARD_Mount(slot, mc_work, NULL); service_audio(); }
         if (r < 0) { c->err = r; c->st = r == CARD_ERROR_NOCARD ? 0 : r == CARD_ERROR_WRONGDEVICE ? 3 : 2; if (r != CARD_ERROR_NOCARD) CARD_Unmount(slot); continue; }
         c->st = 1;
-        CARD_GetMemSize(slot, &c->mbit);
+        { s32 mb = 0, ss = 0;                                      /* (taille en Mbit : libogc n'a pas CARD_GetMemSize) */
+          CARD_ProbeEx(slot, &mb, &ss);
+          c->mbit = (u16)(mb > 0 ? mb : 0); }
         CARD_GetSectorSize(slot, &c->sect);
         if (c->sect < 8192 || c->sect > 65536) c->sect = 8192;
         CARD_GetFreeBlocks(slot, &c->freeb);
