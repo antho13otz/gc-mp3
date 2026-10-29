@@ -1631,6 +1631,10 @@ static const na_fix_t na_fixes[] = {
     { "GWTEA4",  839584, 0x8003758E, 0, NF_CARD, "carte 1019 / 2043" },
     { "GWTJA4",  804544, 0x8003740A, 0, NF_CARD, "carte 1019 / 2043" },
     { "GWTPA4",  834912, 0x800374D6, 0, NF_CARD, "carte 1019 / 2043" },
+    /* v248 : LEGO Star Wars II (PAL) : ecran noir apres le choix de la langue, le fil principal attend pour toujours la
+       fin de dessin (GXWaitDrawDone, interruption PE levee mais jamais rendue au jeu avec Pulse) : on n'attend plus
+       (la boucle "tant que pas fini : dormir" saute). Verifie : beq 0x801EA83C attendu a cet endroit. */
+    { "GL7P64", 0, 0x801EA84C, 0x60000000, NF_WORD, "attente de fin de dessin", 0x4182FFF0 },
     /* initialisation de l'image (ecran noir au demarrage) */
     { "GGIJ13",  205696, 0x8001501C, 0x807E0000, NF_WORD, "image" },
     { "GGIJ13",  266336, 0x807023F0, 0x807E0000, NF_WORD, "image" },

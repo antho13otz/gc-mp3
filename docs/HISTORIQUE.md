@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v248 (build 711) — LEGO Star Wars II : essai d'une correction du jeu
+- Journal v245 : interruption « fin de dessin » levée et non masquée, mais le fil principal reste endormi dans
+  `GXWaitDrawDone` (drapeau jamais remis). Correction propre à GL7P64 (`na_fixes`) : la boucle d'attente saute
+  (0x801EA84C : `beq` → `nop`, instruction vérifiée avant). À confirmer sur la console.
+
 ## Nouveautés v247 (build 710) — plus d'écran rouge en lançant un jeu depuis le téléphone
 - Écran rouge (DSI, adresse 0000001C) en lançant un jeu depuis l'appli : le fil du serveur du téléphone lisait encore
   une jaquette (`fseek` dans `tp_handle`) pendant que la carte SD était démontée pour le jeu. `bg_quiesce` appelle
