@@ -1082,7 +1082,7 @@ static void tp_handle(s32 c) {
     }
     if (sh_route(c, target, (char *)req)) return;          /* v55 : fichiers partages (QR code) */
     if (salon_route(c, target, q, (char *)req)) return;    /* v138 : le Salon (autres GC Station) */
-    if (!tab_shown(TAB_PHONE)) { tp_reply(c, 403, "text/plain", "", 0); return; }   /* v128 / v137 : onglet enleve = telecommande coupee */
+    /* (v246 : onglet TELEPHONE cache : la telecommande reste active ; avant v246 : coupee) */
     if (ia_phone_route(c, target, q)) return;             /* v206 : assistant IA (/ia) */
     if (!strcmp(target, "/") || !strcmp(target, "/index.html"))
         tp_reply(c, 200, "text/html; charset=utf-8", ui_en ? phone_page_en : phone_page, (int)strlen(ui_en ? phone_page_en : phone_page));

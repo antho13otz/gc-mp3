@@ -14013,7 +14013,7 @@ static void tab_disable(int t) {
     if (t == TAB_PODCAST && pod_local_k >= 0 && src == SRC_FILE && cur_track == pod_local_k) stop_track();
     if (t == TAB_RETRO && src == SRC_FILE && playing && cur_track >= 0 && cur_track < nfiles && is_retro[cur_track]) stop_track();
     if (t == TAB_PHOTO && video_playing) video_stop();
-    if (t == TAB_PHONE) tp_wanted = 0;
+    /* (v246 : TAB_PHONE : plus coupe, la telecommande reste active onglet cache) */
 }
 
 #ifndef GEKKO
@@ -14296,7 +14296,7 @@ int main(int argc, char **argv) {
             if (tab_shown(TAB_FILES)) PF(PH_FILES, files_pump());
             if (tab_shown(TAB_INFO)) PF(PH_INFOS, infos_pump());
         }
-        if (tab_shown(TAB_PHONE) || sh_on || salon_on) PF(PH_PHONE, phone_pump());   /* (v137 : un partage demande le serveur) */
+        PF(PH_PHONE, phone_pump());                       /* v246 : toujours (onglet TELEPHONE cache : la telecommande reste active) */
         PF(PH_DL, dltab_pump());
         if (!in_game) PF(PH_UPDATE, update_pump());
         PF(PH_MISC, cheats_tick(); reset_pump());

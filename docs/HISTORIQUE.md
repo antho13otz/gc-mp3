@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v246 (build 708) — onglet TÉLÉPHONE caché : la télécommande reste active
+- Réglages > Apparence > Onglets affichés : décocher TÉLÉPHONE cache seulement l'onglet. Le serveur du téléphone
+  continue de tourner (avant : coupé, et les demandes refusées en 403). Avec « Télécommande au démarrage » à Oui,
+  il démarre même si l'onglet est caché.
+
 ## Nouveautés v245 (build 706) — journal de Pulse : interruptions et dessin au retour
 - Le crochet de la fin de dessin n'était pas la cause (LEGO Star Wars II reste noir en v244). Le 4e secteur du
   journal note aussi, au retour A+Z+START : cause et masque des interruptions (PI), contrôle du dessin (PE : fin de
