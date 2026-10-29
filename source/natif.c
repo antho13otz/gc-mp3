@@ -683,7 +683,7 @@ static int nat_map_check(const char *path, long size, char *err, int cap) {
 #define NA_JTXT NA_DIR "/journal-jeu.txt"
 #define NA_SNAP NA_DIR "/memoire-jeu.bin"             /* v83 : photo de la memoire du jeu au plantage */
 static int na_jcrash = 0;                              /* v79 : 2e secteur du journal (details d'un plantage) disponible */
-static int na_jstack = 0, na_jthr = 0;                              /* v82 : 3e secteur (pile du jeu au plantage) disponible */
+static int na_jstack = 0, na_jthr = 0, na_jexi = 0;                              /* v82 : 3e secteur (pile du jeu au plantage) disponible */
 /* v162 : code du jeu au point d'entree, et au debut des fonctions qu'il appelle (bl) : pour comprendre un
    jeu qui se fige avant la moindre trace de Pulse (il ne passe meme pas par ses interruptions) */
 static int na_dol_at(const u8 *dol, u32 a, u32 *end) {   /* position dans le .dol de l'adresse a (code), -1 = pas trouvee */
@@ -718,20 +718,21 @@ static void na_dump_start(FILE *f, const u8 *dol) {
     for (int k = 0; k < nbl; k++) { fprintf(f, "Fonction appelee %d :\n", k + 1); na_dump_words(f, dol, bl[k], 48, NULL, NULL, 0); }
 }
 static u32 nat_journal_prep(void) {
-    na_jcrash = na_jstack = na_jthr = 0;
+    na_jcrash = na_jstack = na_jthr = na_jexi = 0;
     if (sd_virtual) return 0;
     mkdir(NA_DIR, 0777);
-    static u8 z[2048];
+    static u8 z[2560];
     memset(z, 0, sizeof(z));
     FILE *f = fopen(NA_JBIN, "wb");
     if (!f) return 0;
-    int ok = fwrite(z, 1, 2048, f) == 2048;                /* (v243 : 4e secteur : fils du jeu) */                /* v79 : 2 secteurs (le 2e : details d'un plantage) ; v82 : 3 (le 3e : pile du jeu) */
+    int ok = fwrite(z, 1, 2560, f) == 2560;   /* (v260 : 5e secteur : canal EXI 0) */                /* (v243 : 4e secteur : fils du jeu) */                /* v79 : 2 secteurs (le 2e : details d'un plantage) ; v82 : 3 (le 3e : pile du jeu) */
     fclose(f);
     char e[80];
     if (!ok || nat_map(NA_JBIN, e, sizeof(e)) || !na_next || na_next > 2) return 0;
     na_jcrash = na_next == 1 && na_ext[0].cnt >= 2;       /* (les 2 secteurs a la suite sur la carte) */
     na_jstack = na_next == 1 && na_ext[0].cnt >= 3;
     na_jthr = na_next == 1 && na_ext[0].cnt >= 4;
+    na_jexi = na_next == 1 && na_ext[0].cnt >= 5;
     return na_ext[0].sd;
 }
 /* v83 : fichier de la photo de la memoire (cree une fois, 352 Ko ; 1er secteur remis a zero a
@@ -939,6 +940,25 @@ static void na_stack_print(FILE *f, const u8 *b) {
     for (int k = 0; k < nc && k < 3; k++) { char lb[32]; snprintf(lb, sizeof(lb), "pile %08X", (unsigned)code[k]); na_code_dump(f, code[k], lb); }
 }
 /* v243 : les fils (threads) du jeu : ou chacun en est (ecran noir : le fil principal attend souvent un autre fil) */
+/* v260 : echanges du jeu avec la police / l'horloge / les reglages de la console (canal EXI 0), carte A emulee */
+static void na_exi_print(FILE *f, const u8 *b) {
+    fprintf(f, "\n========== Canal EXI 0 : police, horloge et reglages de la console (carte A virtuelle) ==========\n");
+    fprintf(f, "Transferts : %u (peripherique 1 : %u, peripherique 2 : %u, DMA : %u) ; pendant une fin de carte en attente : %u\n",
+            (unsigned)be32(b + 4), (unsigned)be32(b + 8), (unsigned)be32(b + 12), (unsigned)be32(b + 16), (unsigned)be32(b + 0x18));
+    u32 n = be32(b + 4);
+    if (n > NATRES_EXI_MAX) n = NATRES_EXI_MAX;
+    static const char *rw[4] = { "lit", "ecrit", "lit+ecrit", "?" };
+    for (u32 i = 0; i < n; i++) {
+        const u8 *e = b + 0x20 + i * 32;
+        u32 cc = be32(e), csr = cc >> 16, cr = cc & 0xFFFF, dev = (csr >> 7) & 7;
+        fprintf(f, "  %2u : periph %u, %s %s, %u octets ; CSR %04X CR %04X ; commande %08X",
+                (unsigned)(i + 1), dev & 2 ? 1u : dev & 4 ? 2u : dev & 1 ? 0u : 9u, cr & 2 ? "DMA" : "direct", rw[(cr >> 2) & 3],
+                cr & 2 ? (unsigned)(be32(e + 12) & 0x03FFFFE0u) : (unsigned)(((cr >> 4) & 3) + 1), (unsigned)csr, (unsigned)cr, (unsigned)be32(e + 4));
+        if (cr & 2) fprintf(f, " ; vers %08X ; recu %08X %08X .. +10 : %08X %08X\n", (unsigned)be32(e + 8),
+                            (unsigned)be32(e + 16), (unsigned)be32(e + 20), (unsigned)be32(e + 24), (unsigned)be32(e + 28));
+        else fprintf(f, " ; recu %08X\n", (unsigned)be32(e + 16));
+    }
+}
 static void na_thr_print(FILE *f, const u8 *b) {
     u32 n = be32(b + 4), cur = be32(b + 8);
     if (n > NATRES_THR_MAX) n = NATRES_THR_MAX;
@@ -1176,6 +1196,7 @@ static void nat_journal_convert(void) {
         if (len >= 1024 && be32(d + 512) == NATRES_CRASH_MAGIC) na_crash_print(f, d + 512);   /* v79 */
         if (len >= 1536 && be32(d + 1024) == NATRES_STACK_MAGIC) na_stack_print(f, d + 1024);  /* v82 */
         if (len >= 2048 && be32(d + 1536) == NATRES_THR_MAGIC) na_thr_print(f, d + 1536);     /* v243 */
+        if (len >= 2560 && be32(d + 2048) == NATRES_EXI_MAGIC) na_exi_print(f, d + 2048);     /* v260 */
         if (H[1] >= 12) {                                                     /* v94 */
             u32 xf = be32(d + 0x160);
             fprintf(f, "Lecture de la carte : %s, %s%s ; blocs au CRC faux : %u\n", xf & 1 ? "DMA" : "sans DMA", xf & 2 ? "32 MHz" : "16 MHz",
@@ -3007,7 +3028,7 @@ static const char *nat_boot(int k) {
             u32 co2 = be32(r + offsetof(natres_hdr_t, card2_tab)) - NATRES_AT;   /* v122 : slot B */
             if ((cards & 2) && co2 + na_card2_n * 12 > NATRES_SIZE) cards &= ~2;
             card_on = cards != 0;
-            na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0) | (cards & 1 ? NRF_CARD : 0) | (cards & 2 ? NRF_CARDB : 0) | (na_jcrash ? NRF_CRASH : 0) | (na_jstack ? NRF_STACK : 0) | (na_jthr ? NRF_THREADS : 0));
+            na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0) | (cards & 1 ? NRF_CARD : 0) | (cards & 2 ? NRF_CARDB : 0) | (na_jcrash ? NRF_CRASH : 0) | (na_jstack ? NRF_STACK : 0) | (na_jthr ? NRF_THREADS : 0) | (na_jexi ? NRF_EXILOG : 0));
             if (cards & 2) {
                 na_wbe32(r + offsetof(natres_hdr_t, card2_n), na_card2_n); na_wbe32(r + offsetof(natres_hdr_t, card2_size), na_card2_size);
                 na_wbe32(r + offsetof(natres_hdr_t, card2_id), na_card2_size >> 17);

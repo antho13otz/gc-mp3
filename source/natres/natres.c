@@ -965,6 +965,7 @@ static void thr_dump(void) {
     nr_write_sd(H.log_sec + 3, crashbuf);
 }
 static void vc_diag(void);
+static void exi_dump(void);
 static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
     if (!(H.flags & NRF_CRASH) || !H.log_sec || !di_ready) return;
     for (u32 i = 0; i < 512; i++) crashbuf[i] = 0;
@@ -993,6 +994,7 @@ static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
     nr_write_sd(H.log_sec + 1, crashbuf);
     if (H.flags & NRF_STACK) stack_dump(c[1]);
     if (H.flags & NRF_THREADS) thr_dump();
+    if (H.flags & NRF_EXILOG) exi_dump();
     mem_snap(c);
 }
 void exc_c(u32 ex, u32 ctx) {
@@ -1400,6 +1402,39 @@ static vcard_t *vc_of(u32 a) {
     vcard_t *v = &vc[o / 0x14u];
     return v->on ? v : 0;
 }
+/* v260 : ce qui passe vers les autres peripheriques du canal 0 (police, horloge / reglages de la console), carte du
+   slot A emulee : Soulcalibur II sans textes ni question 50/60 Hz avec la carte virtuelle, normal sans elle */
+static u32 xl[NATRES_EXI_MAX][8], xl_cnt[7], xl_cur = 0xFFFFFFFFu;
+static u32 xl_rd(u32 a) { return *(volatile u32 *)((a & 0x01FFFFFCu) | 0xC0000000u); }
+static void xl_start(vcard_t *v, u32 cr) {
+    if (v != &vc[0]) return;
+    u32 dev = (v->csr >> 7) & 7;
+    xl_cnt[0]++; if (dev & 2) xl_cnt[1]++; if (dev & 4) xl_cnt[2]++; if (cr & 2) xl_cnt[3]++;
+    if (vc_pending()) xl_cnt[5]++;
+    if (xl_cnt[0] > NATRES_EXI_MAX) { xl_cur = 0xFFFFFFFFu; return; }
+    u32 *e = xl[xl_cnt[0] - 1];
+    e[0] = (v->csr & 0xFFFFu) << 16 | (cr & 0xFFFFu); e[1] = v->data; e[2] = v->mar; e[3] = v->len;
+    e[4] = e[5] = e[6] = e[7] = 0;
+    xl_cur = xl_cnt[0] - 1;
+}
+static void xl_end(void) {                               /* (le jeu deselectionne : les donnees du DMA sont la) */
+    if (xl_cur >= NATRES_EXI_MAX) return;
+    u32 *e = xl[xl_cur];
+    if ((e[0] & 2) && !((e[0] >> 2) & 3)) {              /* (DMA en lecture) */
+        u32 m = e[2], l = e[3] & 0x03FFFFE0u;
+        e[4] = xl_rd(m); e[5] = xl_rd(m + 4);
+        if (l > 0x10) { e[6] = xl_rd(m + 0x10); e[7] = xl_rd(m + 0x14); }
+    }
+    xl_cur = 0xFFFFFFFFu;
+}
+static void exi_dump(void) {
+    for (u32 i = 0; i < 512; i++) crashbuf[i] = 0;
+    cw(0x00, NATRES_EXI_MAGIC);
+    for (u32 i = 0; i < 6; i++) cw(0x04 + i * 4, xl_cnt[i]);
+    u32 n = xl_cnt[0] < NATRES_EXI_MAX ? xl_cnt[0] : NATRES_EXI_MAX;
+    for (u32 i = 0; i < n; i++) for (u32 k = 0; k < 8; k++) cw(0x20 + i * 32 + k * 4, xl[i][k]);
+    nr_write_sd(H.log_sec + 4, crashbuf);
+}
 static u32 exi_load(u32 a) {
     trap_guard();
     if (a - 0xCC006000u < 0x40u) return di_load(a);      /* v133 : acces au lecteur branches en secours (adresse calculee) */
@@ -1417,7 +1452,7 @@ static u32 exi_load(u32 a) {
     case 1: x = (v->csr & 0x80) ? v->mar : real[1]; break;
     case 2: x = (v->csr & 0x80) ? v->len : real[2]; break;
     case 3: x = (v->csr & 0x80) ? v->cr : real[3]; break;
-    case 4: x = (v->csr & 0x80) ? v->data : real[4]; break;
+    case 4: x = (v->csr & 0x80) ? v->data : real[4]; if (!(v->csr & 0x80) && xl_cur < NATRES_EXI_MAX && !(xl[xl_cur][0] & 2)) xl[xl_cur][4] = x; break;
     default: x = 0; break;
     }
     irq_restore(m);
@@ -1440,11 +1475,12 @@ static void exi_store(u32 a, u32 val) {
         v->csr = val & 0x27F5u;                          /* (masques, CLK, CS, EXTINTMASK, ROMDIS) */
         if ((old & 0x80) && !(val & 0x80)) card_cs(v, 0);
         if (!(old & 0x80) && (val & 0x80)) card_cs(v, 1);
+        if ((old & 0x300u) && !(val & 0x300u)) xl_end();
         real[0] = val & ~0x0C80u;                        /* (vrai materiel : jamais la vraie carte du slot, pas d'insertion) */
         break; }
     case 1: v->mar = val; real[1] = val; break;
     case 2: v->len = val; real[2] = val; break;
-    case 3: if (v->csr & 0x80) { v->cr = val; if (val & 1) x_xfer(v); } else real[3] = val; break;
+    case 3: if (v->csr & 0x80) { v->cr = val; if (val & 1) x_xfer(v); } else { if ((val & 1) && (v->csr & 0x300u)) xl_start(v, val); real[3] = val; } break;
     case 4: v->data = val; real[4] = val; break;
     }
     irq_restore(m);

@@ -178,6 +178,14 @@ enum { NRT_OFF = 0, NRT_ON = 1, NRT_BAT = 2, NRT_BAT2 = 3, NRT_MMU = 4, NRT_VEC 
 #define NATRES_THR_MAGIC 0x47435354u        /* "GCST" */
 #define NATRES_THR_MAX   12                  /* v257 : 0x190 - 0x1EF : registres de l'image (VI 0xCC002000 - 0xCC00205F, 48 demi-mots) */
 #define NATRES_SNAP_MAGIC 0x4743534Du       /* "GCSM" */
+/* v260 : 5e secteur du journal : echanges du jeu avec les autres peripheriques du canal EXI 0 (police et horloge /
+   reglages de la console : peripherique 1 ; port serie 1 : 2) quand la carte virtuelle du slot A les fait passer.
+   0x00 "GCSX" 0x04 transferts 0x08 du peripherique 1 0x0C du 2 0x10 DMA 0x14 notes 0x18 avec fin de carte en attente
+   0x20 + 32 * i (15 premiers) : CSR << 16 | CR, commande (DATA), MAR, LEN, resultat (DATA lu / 1er mot du DMA),
+   2e mot, mot +0x10, mot +0x14 (les mots du DMA sont relus a la fin, quand le jeu deselectionne) */
+#define NRF_EXILOG    256u
+#define NATRES_EXI_MAGIC 0x47435358u        /* "GCSX" */
+#define NATRES_EXI_MAX   15
 #define NATRES_SNAP_SECS  704               /* taille du fichier : 704 secteurs (352 Ko) */
 
 typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x1F0 ? 1 : -1];   /* v145 : 0x1F0 + 1 x 16 = 0x200 */

@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v260 (build 724) — journal de Pulse : police, horloge et réglages de la console (canal EXI 0)
+- Soulcalibur II (GRSPAF) avec la carte virtuelle du slot A : plus de blocage (build 722), mais textes des menus
+  absents, barre de titre abîmée, pas de question 50/60 Hz. Sans la carte virtuelle : tout est normal.
+- Le slot A partage le canal EXI 0 avec la police, l'horloge et les réglages de la console, que Pulse laisse passer
+  au vrai matériel. Un 5e secteur du journal (« GCSX ») garde les 15 premiers échanges avec ces périphériques
+  (commande, adresse, taille, premiers mots reçus) et des compteurs, au retour A+Z+START ou au plantage.
+
 ## Nouveautés v258 (build 722) — Pulse : la carte virtuelle respecte les masques du jeu
 - Soulcalibur II (GRSPAF) se figeait en relisant sa sauvegarde sur la carte virtuelle (le fichier de la carte était
   intact, sommes de contrôle bonnes). La fin d'un transfert de la carte était donnée au jeu même quand il l'avait
