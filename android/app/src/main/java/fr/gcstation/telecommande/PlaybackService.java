@@ -74,7 +74,7 @@ public class PlaybackService extends Service {
                 if (dir != 0) later();
             }
         };
-        session.setPlaybackToRemoteVolume(volume);
+        session.setPlaybackToRemote(volume);
         session.setSessionActivity(PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE));
         session.setActive(true);
     }
