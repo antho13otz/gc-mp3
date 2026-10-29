@@ -24,6 +24,22 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v236 (build 680) — 1,3 Mo de mémoire en plus, la carte SD depuis le téléphone
+- **Mémoire de la console** : environ 1,3 Mo de moins réservés au démarrage (8 184 → 7 137 Ko de zones
+  réservées, 1 868 → 1 570 Ko de données) :
+  - noms des morceaux rangés dans une réserve qui grandit selon la bibliothèque (avant : 2 000 × 256 octets
+    fixes = 500 Ko) ;
+  - adresse d'une radio limitée à 768 caractères (avant 2 048 : 262 Ko pour 128 radios) ; une radio à
+    l'adresse plus longue est ignorée ;
+  - tri des radios favorites et regroupement par artiste / album dans une mémoire temporaire (avant : 387 Ko
+    réservés en permanence) ;
+  - plus de tables de déroulement du compilateur pour le code C (~300 Ko de données inutiles).
+- **Gérer la carte SD depuis le téléphone** (page du téléphone > Fichiers) : bouton **⋯** sur chaque fichier
+  ou dossier (Renommer, Couper, Supprimer), **Nouveau dossier**, **Coller ici** pour déplacer. Protégés : la
+  racine, le dossier `gc-mp3` et le morceau en cours. Si la liste a changé entre-temps, l'opération est
+  refusée (le nom est vérifié). Les listes (musique, photos, rétro, applis) sont relues après la série.
+- Simulateur : scénario `vues-biblio` (vues dossiers / artistes / albums).
+
 ## Nouveautés v228 — retour à l'accueil de Cube Browser
 - En style Aurore (pas de barre d'outils), **B sans page précédente ramène à l'accueil de Cube Browser**
   (« Réglages du navigateur », favoris, sites…). Avant, si Cube Browser rouvrait directement un site, on

@@ -799,6 +799,115 @@ static void tp_send_files(s32 c, const char *q) {
     free(s.b);
 }
 
+static void tp_update_free(void);
+/* ---- v236 : gerer la carte SD depuis le telephone : supprimer, renommer, nouveau dossier, couper / coller ----
+   Chaque element est designe comme pour la liste : dossier (h, en hexadecimal) + numero dans la liste (i), relu
+   ici. Toujours sur la carte SD, jamais "..", jamais le dossier gc-mp3 lui-meme ni le morceau en cours. */
+static int tp_fs_ok(const char *p) {
+    int sl = (int)strlen(SD_ROOT);
+    return !strncmp(p, SD_ROOT, sl) && (!p[sl] || p[sl] == '/') && !strstr(p, "/..");
+}
+static int tp_fs_protected(const char *p) {             /* la racine, SD:/gc-mp3 (reglages...), le morceau qui joue */
+    int sl = (int)strlen(SD_ROOT);
+    if (!p[sl] || !p[sl + 1]) return 1;
+    if (!strcasecmp(p + sl, "/gc-mp3")) return 1;
+    if (src == SRC_FILE && cur_track >= 0 && cur_track < nfiles) {
+        size_t l = strlen(p);
+        if (!strcasecmp(names[cur_track], p) || (!strncasecmp(names[cur_track], p, l) && names[cur_track][l] == '/')) return 1;
+    }
+    return 0;
+}
+static int tp_fs_name(const char *in, char *out, int cap) {   /* nom seul, sans caracteres interdits sur une carte FAT */
+    int n = 0;
+    for (const char *b = in; *b && n < cap - 1; b++) {
+        unsigned char ch = (unsigned char)*b;
+        if (ch < 32 || strchr("/\\:*?\"<>|", ch)) continue;
+        out[n++] = (char)ch;
+    }
+    out[n] = 0;
+    while (n > 0 && (out[n - 1] == ' ' || out[n - 1] == '.')) out[--n] = 0;
+    while (out[0] == ' ' || out[0] == '.') memmove(out, out + 1, strlen(out));
+    return out[0] != 0;
+}
+static int tp_rm_tree(const char *p, int depth) {        /* (les noms sont lus d'abord : pas de suppression pendant la lecture du dossier) */
+    struct stat st;
+    if (stat(p, &st) != 0) return -1;
+    if (!S_ISDIR(st.st_mode)) return remove(p);
+    if (depth > 12) return -1;
+    tpf_t *v; int n = tp_list_dir(p, &v), r = 0;
+    if (n < 0) return -1;
+    for (int i = 0; i < n; i++) {
+        char c[NAME_LEN];
+        if (snprintf(c, sizeof(c), "%s/%s", p, v[i].name) >= (int)sizeof(c)) { r = -1; continue; }
+        if (tp_rm_tree(c, depth + 1)) r = -1;
+    }
+    tp_free_list(v, n);
+    return r ? r : remove(p);
+}
+static void tp_fs_touched(const char *p) {               /* listes a relire (apres la serie d'operations) */
+    int sl = (int)strlen(SD_ROOT);
+    const char *t = p + sl + (p[sl] == '/');
+    if (!strncasecmp(t, "mp3", 3) || !strncasecmp(t, "downloads", 9) || !strncasecmp(t, "gc-mp3/podcasts", 15)) tp_rescan |= 1;
+    if (!strncasecmp(t, "retro", 5)) tp_rescan |= 1 | 4;
+    if (!strncasecmp(t, "photos", 6) || !strncasecmp(t, "videos", 6) || !strncasecmp(t, "ecran", 5)) tp_rescan |= 2;
+    if (!strncasecmp(t, "apps", 4) || !strchr(t, '/')) tp_apps_new = 1;
+    tp_up_end = now_ms();
+}
+static int tp_fs_check_name(const char *q, const char *path) {   /* x = nom affiche par le telephone : 1 si ce n'est plus lui */
+    char x[200], d[NAME_LEN * 2];
+    tp_param(q, "x", x, sizeof(x));
+    if (!x[0]) return 0;
+    text_display(base_of(path), d, sizeof(d));
+    return strcmp(x, d) != 0;
+}
+static void tp_fsop(s32 c, const char *q) {
+    char op[8], nm[200], clean[200], src[NAME_LEN], dir[NAME_LEN], dst[NAME_LEN], h[2 * NAME_LEN + 4];
+    const char *m = "Op\xC3\xA9ration impossible";
+    int ok = 0, isdir = 1;
+    tp_param(q, "op", op, sizeof(op));
+    tp_param(q, "n", nm, sizeof(nm));
+    tp_param(q, "h", h, sizeof(h));
+    if (!h[0]) snprintf(dir, sizeof(dir), "%s", SD_ROOT); else if (!tp_hex_dec(h, dir, sizeof(dir))) dir[0] = 0;
+    if (!sd_ok || !dir[0] || !tp_fs_ok(dir)) m = "Dossier introuvable";
+    else if (!strcmp(op, "mkdir")) {
+        if (!tp_fs_name(nm, clean, sizeof(clean))) m = "Nom invalide";
+        else if (snprintf(dst, sizeof(dst), "%s/%s", dir, clean) >= (int)sizeof(dst)) m = "Nom trop long";
+        else { struct stat st; if (stat(dst, &st) == 0) m = "Ce nom existe d\xC3\xA9j\xC3\xA0"; else if (mkdir(dst, 0777) == 0) { ok = 1; m = "Dossier cr\xC3\xA9\xC3\xA9"; tp_fs_touched(dst); } }
+    } else if (!tp_fs_path(q, src, sizeof(src), &isdir) || !strcmp(src, dir)) m = "\xC3\x89l\xC3\xA9ment introuvable (liste chang\xC3\xA9" "e ?)";
+    else if (tp_fs_check_name(q, src)) m = "La liste a chang\xC3\xA9 : rouvre le dossier";
+    else if (!tp_fs_ok(src) || tp_fs_protected(src)) m = "Prot\xC3\xA9g\xC3\xA9 : la racine, le dossier gc-mp3 et le morceau en cours ne se touchent pas";
+    else if (!strcmp(op, "del")) {
+        crumb("telephone : suppression %s", src);
+        if (tp_rm_tree(src, 0) == 0) { ok = 1; m = "Supprim\xC3\xA9"; } else m = "Suppression incompl\xC3\xA8te";
+        tp_fs_touched(src);
+    } else if (!strcmp(op, "ren") || !strcmp(op, "mv")) {
+        char to[NAME_LEN];
+        if (!strcmp(op, "ren")) {
+            snprintf(to, sizeof(to), "%s", dir);
+            if (!tp_fs_name(nm, clean, sizeof(clean))) { m = "Nom invalide"; goto out; }
+        } else {
+            char th[2 * NAME_LEN + 4];
+            tp_param(q, "t", th, sizeof(th));
+            if (!th[0]) snprintf(to, sizeof(to), "%s", SD_ROOT); else if (!tp_hex_dec(th, to, sizeof(to))) { m = "Destination introuvable"; goto out; }
+            if (!tp_fs_ok(to)) { m = "Destination introuvable"; goto out; }
+            snprintf(clean, sizeof(clean), "%s", base_of(src));
+            size_t sl = strlen(src);
+            if (!strncmp(to, src, sl) && (to[sl] == 0 || to[sl] == '/')) { m = "Un dossier ne va pas dans lui-m\xC3\xAAme"; goto out; }
+        }
+        struct stat st;
+        if (snprintf(dst, sizeof(dst), "%s/%s", to, clean) >= (int)sizeof(dst)) m = "Nom trop long";
+        else if (!strcmp(dst, src)) { ok = 1; m = "Rien \xC3\xA0 changer"; }
+        else if (stat(dst, &st) == 0 && strcasecmp(dst, src)) m = "Ce nom existe d\xC3\xA9j\xC3\xA0 ici";
+        else if (rename(src, dst) == 0) { ok = 1; m = !strcmp(op, "ren") ? "Renomm\xC3\xA9" : "D\xC3\xA9plac\xC3\xA9"; tp_fs_touched(src); tp_fs_touched(dst); crumb("telephone : %s -> %s", src, dst); }
+    }
+out:;
+    tp_update_free();
+    sbuf_t s = { NULL, 0, 0 };
+    sb_add(&s, ok ? "{\"ok\":1,\"m\":" : "{\"ok\":0,\"m\":"); x73_json_raw(&s, m); sb_add(&s, "}");
+    tp_reply(c, 200, "application/json", s.b ? s.b : "{}", s.b ? (int)strlen(s.b) : 2);
+    free(s.b);
+}
+
 static void tp_update_free(void) {
     unsigned long long st_, sf_;
     if (sd_ok && sd_space(&st_, &sf_)) tp_free_mb = (long)(sf_ >> 20);
@@ -1061,6 +1170,7 @@ static void tp_handle(s32 c) {
         tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
     }
     else if (!strcmp(target, "/api/files")) tp_send_files(c, q ? q : "");      /* v73 : fichiers de la carte SD */
+    else if (!strcmp(target, "/api/fsop")) tp_fsop(c, q ? q : "");             /* v236 : supprimer, renommer, dossier, deplacer */
     else if (!strcmp(target, "/api/get")) {
         char p[NAME_LEN];
         int isdir = 1;
