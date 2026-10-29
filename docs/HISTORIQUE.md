@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v254 (build 716) — PSO : plus de place pour brancher PsoV3.dol
+- Journal v252 : PsoV3.dol suivi, mais seulement 14 accès au lecteur branchés dedans (97 en tout) : la place des
+  aiguillages posés pendant le jeu était sans doute pleine. 32 Ko de plus pour PSO (`GPO`, `GPS`).
+- Journal : « NON BRANCHÉS faute de place : N » (16 bits hauts du compteur des programmes suivants).
+
 ## Nouveautés v252 (build 714) — Pulse : un .dol lu en plusieurs morceaux par le jeu (PsoV3.dol)
 - Journal v251 de PSO : le chargeur lit d'abord un petit programme (branché en v251), puis **PsoV3.dol** (5,2 Mo) par
   morceaux de 512 Ko. Le résident suit maintenant ce .dol hors d'OSExec : en-tête reconnu dans la 1re lecture

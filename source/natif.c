@@ -1168,8 +1168,10 @@ static void nat_journal_convert(void) {
                     xf & 4 ? " (32 MHz abandonne : CRC faux)" : "", (unsigned)(be32(d + 0x164) & 0xFFFFu));
             if (H[67]) fprintf(f, "Musique du disque : %u tampons recalcules par le DSP (musique remise), %u tampons rejoues laisses tels quels\n",
                                (unsigned)(xf >> 16), (unsigned)(be32(d + 0x164) >> 16));
-            if (be32(d + 0x168) || be32(d + 0x16C)) fprintf(f, "Programme suivant du disque (OSExec) : %u demande(s), dernier %08X%s ; acces au lecteur branches pendant le jeu : %u\n",
-                    (unsigned)be32(d + 0x168), (unsigned)be32(d + 0x16C), H[1] >= 13 && !be32(d + 0x174) ? " (apploader recent : pas encore pris en charge)" : "", H[1] >= 13 ? (unsigned)be32(d + 0x17C) : 0);
+            if (be32(d + 0x168) || be32(d + 0x16C)) fprintf(f, "Programme suivant du disque (OSExec) : %u demande(s), dernier %08X%s ; acces au lecteur branches pendant le jeu : %u%s",
+                    (unsigned)(be32(d + 0x168) & 0xFFFF), (unsigned)be32(d + 0x16C), H[1] >= 13 && !be32(d + 0x174) ? " (apploader recent : pas encore pris en charge)" : "", H[1] >= 13 ? (unsigned)be32(d + 0x17C) : 0,
+                    be32(d + 0x168) >> 16 ? "" : "\n");
+            if (be32(d + 0x168) >> 16) fprintf(f, " ; NON BRANCHES faute de place : %u\n", (unsigned)(be32(d + 0x168) >> 16));   /* v253 */
         }
         if (H[1] >= 14) {                                                     /* v99 : l'ecran */
             u32 vn = be32(d + 0x180), vd = be32(d + 0x184), dcr = vn >> 16;
@@ -2945,7 +2947,8 @@ static const char *nat_boot(int k) {
     na_tr_start = 0;
     if (res) {
         ann_e1 = na_net_on ? 0 : ((u32)na_next * 12 + 31) & ~31u;
-        ann_tr = ((u32)in.nhit * 80 + 0x2400u + (gk > 0 ? (u32)na_gk_n * 4 : 0) + 31) & ~31u;
+        u32 xtra = !strncmp(in.id, "GPO", 3) || !strncmp(in.id, "GPS", 3) ? 0x8000u : 0;   /* v253 : PSO : son vrai programme (PsoV3.dol) est branche pendant le jeu */
+        ann_tr = ((u32)in.nhit * 80 + 0x2400u + xtra + (gk > 0 ? (u32)na_gk_n * 4 : 0) + 31) & ~31u;
         ann = ann_tr + ann_e1 + (na_net_on ? 0 : ((u32)na_n2 * 12 + 31) & ~31u);
         bi2_dest = NATRES_AT - ann - NA_BI2;
         fst_dest = (bi2_dest - in.fst_max) & ~31u;

@@ -2029,6 +2029,7 @@ static void nx_patch2(u32 a, u32 fin, u32 len) {        /* a = ou est le code ma
             int store = op >= 36 && op != 40;
             if (ra && (known & (1u << ra))) {
                 u32 ea = val[ra] + (u32)simm;
+                if (ea >= 0xCC006000u && ea < 0xCC006040u && !(H.tramp_at && H.tramp_at + 64 * 4 <= end) && H.exec_n < 0xFFFF0000u) H.exec_n += 0x10000u;   /* v253 : pas de place (16 bits hauts) */
                 if (ea >= 0xCC006000u && ea < 0xCC006040u && H.tramp_at && H.tramp_at + 64 * 4 <= end) {
                     u32 site = fin + o, at = H.tramp_at;
                     int d = (int)(at - site);
