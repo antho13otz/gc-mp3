@@ -9,7 +9,7 @@
 //  - Nouveaux episodes des podcasts telecharges tout seuls (sd:/gc-mp3/podcasts)
 //  - Fond d'ecran : une de tes photos (PHOTOS, plein ecran, X)
 
-enum { FUN_OFF, FUN_KARAOKE, FUN_RHYTHM, FUN_QUIZ, FUN_WAKE, FUN_SNAKE, FUN_BRICKS, FUN_PONG, FUN_FLAPPY, FUN_SIMON };
+enum { FUN_OFF, FUN_KARAOKE, FUN_RHYTHM, FUN_QUIZ, FUN_WAKE, FUN_SNAKE, FUN_BRICKS, FUN_PONG, FUN_FLAPPY, FUN_SIMON, FUN_DUEL, FUN_RACE, FUN_BUBBLES };   /* (v235 : fun_party.c) */
 static int fun_mode = FUN_OFF;
 static u64 fun_t0 = 0;
 static u32 fun_pads = 1;                    /* manettes branchees (PAD_ScanPads) */
@@ -1998,6 +1998,9 @@ static void fun_action(int code, int arg, int track, const char *txt) {
 }
 
 /* ======================= Boucle ======================= */
+static void duel_input(u32 down); static void duel_pump(void); static void draw_duel(void);         /* v235 : fun_party.c */
+static void race_input(u32 down); static void race_pump(void); static void draw_race(void);
+static void bubbles_input(u32 down); static void bubbles_pump(void); static void draw_bubbles(void);
 static void fun_input(u32 down, u32 nav, int fire) {
     switch (fun_mode) {
     case FUN_KARAOKE: karaoke_input(down); break;
@@ -2009,6 +2012,9 @@ static void fun_input(u32 down, u32 nav, int fire) {
     case FUN_PONG:    pong_input(down); break;
     case FUN_FLAPPY:  flappy_input(down); break;
     case FUN_SIMON:   simon_input(down); break;
+    case FUN_DUEL:    duel_input(down); break;
+    case FUN_RACE:    race_input(down); break;
+    case FUN_BUBBLES: bubbles_input(down); break;
     }
 }
 
@@ -2026,6 +2032,9 @@ static void fun_pump(u32 pads) {
     else if (fun_mode == FUN_PONG) { party_update(); pong_pump(); }
     else if (fun_mode == FUN_FLAPPY) { party_update(); flappy_pump(); }
     else if (fun_mode == FUN_SIMON) { party_update(); simon_pump(); }
+    else if (fun_mode == FUN_DUEL) { party_update(); duel_pump(); }
+    else if (fun_mode == FUN_RACE) { party_update(); race_pump(); }
+    else if (fun_mode == FUN_BUBBLES) { party_update(); bubbles_pump(); }
     else { party_update(); last_input_ms = now_ms(); }
 }
 
@@ -2041,6 +2050,9 @@ static void draw_fun(void) {
     case FUN_PONG:    draw_pong(); break;
     case FUN_FLAPPY:  draw_flappy(); break;
     case FUN_SIMON:   draw_simon(); break;
+    case FUN_DUEL:    draw_duel(); break;
+    case FUN_RACE:    draw_race(); break;
+    case FUN_BUBBLES: draw_bubbles(); break;
     default:          draw_wake(); break;
     }
     th_identity = saved;

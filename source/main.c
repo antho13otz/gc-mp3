@@ -13792,6 +13792,7 @@ static void music_pump(void) {
 #include "night.c"
 #include "gckb.c"
 #include "fun_extra.c"                         /* v18 : karaoke, jeux, reveil, titres radio... */
+#include "fun_party.c"                         /* v235 : jeux de soiree (1 a 4 manettes) */
 #include "tabs_extra.c"                        /* v23 : onglets JEUX et TELECHARGEMENTS, curseur partout */
 #include "cheats.c"                            /* v25 : editeur de cheats (SD:/gc-mp3/cheats) */
 #include "gclib.c"                             /* v25 : Mes jeux GameCube (jaquettes : SD:/gc-mp3/jaquettes) */

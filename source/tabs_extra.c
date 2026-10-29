@@ -67,12 +67,13 @@ static void gp_player_zones(void) {
 }
 
 /* ======================= Onglet JEUX ======================= */
-enum { GM_KARAOKE, GM_RHYTHM, GM_QUIZ, GM_SNAKE, GM_SNAKE2, GM_BRICKS, GM_PONG, GM_FLAPPY, GM_SIMON, GM_COUNT };
+enum { GM_KARAOKE, GM_RHYTHM, GM_QUIZ, GM_SNAKE, GM_SNAKE2, GM_BRICKS, GM_PONG, GM_FLAPPY, GM_SIMON, GM_DUEL, GM_RACE, GM_BUBBLES, GM_COUNT };
 static const char *const gm_names[GM_COUNT] = { "Karaok\xC3\xA9", "Jeu de rythme", "Quiz musical", "Snake", "Snake sans murs",
-                                                "Casse-briques", "Pong", "Note volante", "Simon" };
+                                                "Casse-briques", "Pong", "Note volante", "Simon", "D\xC3\xA9gaine !", "Course folle", "Chasse aux bulles" };
 static const char *const gm_desc[GM_COUNT] = { "Les paroles en grand", "Solo ou duel", "1 \xC3\xA0 4 joueurs", "Mange les notes",
-                                               "On traverse les bords", "Briques en rythme", "1 ou 2 joueurs", "Vole entre les murs", "Retiens la suite" };
-static const char *const gm_rec[GM_COUNT] = { NULL, NULL, NULL, "jeu:snake", "jeu:snake-sans-murs", "jeu:casse-briques", NULL, "jeu:note-volante", "jeu:simon" };
+                                               "On traverse les bords", "Briques en rythme", "1 ou 2 joueurs", "Vole entre les murs", "Retiens la suite",
+                                               "R\xC3\xA9" "flexes, 1 \xC3\xA0 4", "Mart\xC3\xA8le A, 1 \xC3\xA0 4", "Au stick, 1 \xC3\xA0 4" };
+static const char *const gm_rec[GM_COUNT] = { NULL, NULL, NULL, "jeu:snake", "jeu:snake-sans-murs", "jeu:casse-briques", NULL, "jeu:note-volante", "jeu:simon", "jeu:degaine", "jeu:course", "jeu:bulles" };
 static int gm_sel = 0;
 static int gm_record[GM_COUNT];
 static u64 gm_rec_t = 0;
@@ -89,6 +90,9 @@ static void games_tab_launch(int g) {
     case GM_PONG:    pong_start(); break;
     case GM_FLAPPY:  flappy_start(); break;
     case GM_SIMON:   simon_start(); break;
+    case GM_DUEL:    duel_start(); break;                 /* v235 : fun_party.c */
+    case GM_RACE:    race_start(); break;
+    case GM_BUBBLES: bubbles_start(); break;
     }
     gm_rec_t = 0;
 }
@@ -187,6 +191,19 @@ static void gm_icon(int g, f32 cx, f32 cy, f32 t) {
         gx_ellipse(cx - 8, cy + 4 * sinf(t * 5), 10, 8, RGBA(255, 245, 170, 255), RGBA(255, 190, 60, 255));
         gx_rect(cx + 1, cy - 20 + 4 * sinf(t * 5), 3, 22, RGBA(255, 220, 120, 255));
         gx_rect(cx + 20, cy - 26, 10, 16, RGBA(120, 200, 140, 255)); gx_rect(cx + 20, cy + 12, 10, 14, RGBA(120, 200, 140, 255)); break;
+    case GM_DUEL: {                                                /* v235 : signal rouge / vert */
+        int go = ((int)(t * 1.2f)) % 3 == 2;
+        gx_circle(cx, cy, 17, go ? RGBA(120, 255, 160, 255) : RGBA(220, 60, 80, 255), go ? RGBA(30, 170, 80, 255) : RGBA(90, 15, 30, 255));
+        if (go) fun_shadow_text(F_SMALL, cx, cy + 5, "!", 1.4f, RGBA(255, 255, 255, 255));
+        break; }
+    case GM_RACE:
+        for (int i = 0; i < 3; i++) { f32 p = fmodf(t * (0.5f + i * 0.13f), 1.0f); gx_circle(cx - 28 + p * 56, cy - 12 + i * 12, 5, qz_pcol[i], qz_pcol[i]); }
+        for (int k = 0; k < 4; k++) gx_rect(cx + 30 + (k & 1) * 3, cy - 18 + k * 9, 3, 9, w);
+        break;
+    case GM_BUBBLES:
+        for (int i = 0; i < 4; i++) { f32 y = cy + 14 - fmodf(t * 18 + i * 11, 36); gx_circle(cx - 20 + i * 13, y, 5 + (i & 1) * 2, RGBA(150, 220, 255, 90), RGBA(150, 220, 255, 220)); }
+        gx_rrect_stroke(cx + 6, cy - 8, 16, 16, 8, 1.5f, RGBA(255, 215, 90, 255));
+        break;
     default:
         for (int i = 0; i < 4; i++) { int on = ((int)(t * 2)) % 4 == i; gx_circle(cx + (i % 2 ? 11 : -11), cy + (i < 2 ? 9 : -9), 9, on ? lane_top[i] : lane_bot[i], lane_bot[i]); }
         break;
@@ -239,7 +256,8 @@ static void draw_tab_games(void) {
         gx_text_r(F_SMALL, bx + bw - 10, by + 20, "(A)", on ? RGBA(235, 225, 255, 255) : RGBA(170, 155, 225, 255));
         gp_zone(bx, by, bw, bh, &gm_sel, GM_COUNT + (k ? 1 : 0), GPZ_SEL);
     }
-    const f32 cw = 192, ch = 72, x0 = 22, y0 = 148;
+    const int rows = (GM_COUNT + GM_COLS - 1) / GM_COLS;
+    const f32 cw = 192, ch = rows > 3 ? 54 : 72, x0 = 22, y0 = 148;      /* (v235 : 4 rangees : cartes plus basses) */
     for (int g = 0; g < GM_COUNT; g++) {
         f32 x = x0 + (g % GM_COLS) * (cw + 8), y = y0 + (g / GM_COLS) * (ch + 5);
         int on = g == gm_sel;
@@ -249,12 +267,24 @@ static void draw_tab_games(void) {
         gx_rrect_fill(x, y, cw, ch, 10, on ? RGBA(116, 46, 236, 255) : RGBA(34, 20, 84, 230), on ? RGBA(74, 22, 172, 255) : RGBA(20, 12, 52, 230));
         gx_rrect_stroke(x, y, cw, ch, 10, 1.2f, on ? RGBA(200, 150, 255, 255) : RGBA(90, 64, 170, 255));
         }
+        int cmp = ch < 60;
         gm_icon(g, x + 42, y + ch / 2, t);
         fit_text_sel(on, F_MED, gm_names[g], (int)cw - 88, buf, sizeof(buf));
-        gx_text1(F_MED, x + 82, y + 26, buf, RGBA(255, 255, 255, 255));
-        fit_text_sel(on, F_SMALL, gm_desc[g], (int)cw - 88, buf, sizeof(buf));
-        gx_text1(F_SMALL, x + 82, y + 44, buf, on ? RGBA(235, 225, 255, 255) : RGBA(170, 155, 225, 255));
-        if (gm_record[g] > 0) { snprintf(buf, sizeof(buf), "Record %d", gm_record[g]); gx_text1(F_SMALL, x + 82, y + 62, buf, RGBA(255, 210, 120, 255)); }
+        gx_text1(F_MED, x + 82, y + (cmp ? 21 : 26), buf, RGBA(255, 255, 255, 255));
+        char rec[32] = "";
+        if (gm_record[g] > 0) {
+            if (g == GM_DUEL) snprintf(rec, sizeof(rec), "%d ms", 2000 - gm_record[g]);         /* (v235 : meilleur reflexe) */
+            else if (g == GM_RACE) { int ms = 60000 - gm_record[g]; snprintf(rec, sizeof(rec), "%d,%d s", ms / 1000, ms % 1000 / 100); }
+            else snprintf(rec, sizeof(rec), "Record %d", gm_record[g]);
+        }
+        if (cmp && rec[0]) {                                    /* (compact : description puis record, sur une ligne) */
+            snprintf(buf, sizeof(buf), "%s", rec);
+            gx_text1(F_SMALL, x + 82, y + 40, buf, RGBA(255, 210, 120, 255));
+        } else {
+            fit_text_sel(on, F_SMALL, gm_desc[g], (int)cw - 88, buf, sizeof(buf));
+            gx_text1(F_SMALL, x + 82, y + (cmp ? 40 : 44), buf, on ? RGBA(235, 225, 255, 255) : RGBA(170, 155, 225, 255));
+            if (rec[0]) gx_text1(F_SMALL, x + 82, y + 62, rec, RGBA(255, 210, 120, 255));
+        }
         gp_zone(x, y, cw, ch, &gm_sel, g, GPZ_SEL);
     }
     if (gm_last_path[0]) {                                      /* v176 : dernier jeu, temps de jeu */
