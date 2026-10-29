@@ -644,6 +644,7 @@ static int tp_param(const char *q, const char *key, char *out, int cap);
 static char *x73_gj = NULL;                              /* JSON des jeux (construit par la boucle : extras73.c) */
 static volatile int x73_gj_want = 0, x73_gj_ready = 0;
 static volatile int x73_launch_k = -1, x73_launch_m = 0;
+static char x73_launch_id[8] = "";
 /* v191 : ton recap (page /recap du telephone ; JSON fait par la boucle : recap.c) */
 static char *x73_rj = NULL;
 static volatile int x73_rj_want = 0, x73_rj_ready = 0;
@@ -688,6 +689,21 @@ static const char recap_page[] =
 ;
 /* v240 : cheats d'un jeu depuis le telephone (avant de le lancer) ; travail fait par la boucle (cheats.c) */
 #define CH_PHONE_MAX 400                                 /* (= CH_MAXC : cheats par fichier) */
+#define CH_PHONE_MAX_NAME 128
+/* v242 : autres demandes du telephone faites par la boucle principale (extras73.c : x73_misc_pump).
+   op : 1 cheats modifies, 2 reglages du jeu, 3 favori, 4 paroles, 5 ajout a la file, 6 copie des reglages, 7 restauration */
+#define TP_REGTEL GCD_REG "/sauvegarde-telephone.txt"
+static volatile int x73_mo_op = 0, x73_mo_ready = 0;
+static int x73_mo_i = 0, x73_mo_d = 0, x73_mo_n = 0;
+static char x73_mo_id[8], x73_mo_name[CH_PHONE_MAX_NAME], x73_mo_codes[2100];
+static char *x73_mo_res = NULL;
+static char *x73_mo_run(int op) {                         /* (fil du serveur) attend la boucle, au plus 10 s ; rend une copie */
+    x73_mo_ready = 0; x73_mo_op = op;
+    for (int k = 0; k < 500 && !x73_mo_ready; k++) usleep(20000);
+    if (!x73_mo_ready) return NULL;
+    char *t = x73_mo_res ? strdup(x73_mo_res) : NULL;
+    return t;
+}
 static char *x73_chj = NULL;                             /* reponse : JSON de la liste */
 static char x73_ch_id[8], x73_ch_set[CH_PHONE_MAX + 1];
 static volatile int x73_ch_want = 0, x73_ch_ready = 0;  /* want : 1 lire la liste, 2 ecrire le choix (x73_ch_set) */
@@ -940,7 +956,7 @@ static int tp_param(const char *q, const char *key, char *out, int cap) {
 
 /* envoi d'un fichier : le corps de la requete est ecrit directement sur la SD */
 static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, int prelen) {
-    static const char *const dirs[] = { "mp3", "downloads", "retro", "photos", "ecran", "videos", "radio", "podcasts", "gci" };   /* (v190 : gci = sauvegardes) */
+    static const char *const dirs[] = { "mp3", "downloads", "retro", "photos", "ecran", "videos", "radio", "podcasts", "gci", "regtel" };   /* (v242 : regtel = copie des reglages du telephone) */   /* (v190 : gci = sauvegardes) */
     char dir[32], name[200], path[NAME_LEN + 16];
     tp_param(q, "dir", dir, sizeof(dir));
     tp_param(q, "name", name, sizeof(name));
@@ -963,11 +979,15 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
       if (dt && !strcasecmp(dt, ".dol")) snprintf(dir, sizeof(dir), "apps"); }
     const char *gpre = (!strcmp(dir, "radio") || !strcmp(dir, "podcasts")) ? "gc-mp3/" : "";   /* (v22 : rangees dans gc-mp3) */
     mkdir(GCD, 0777);
+    int regtel = !strcmp(dir, "regtel");
+    if (regtel) { mkdir(GCD_REG, 0777); snprintf(path, sizeof(path), "%s", TP_REGTEL); remove(path); }   /* (toujours le meme nom, remplace) */
+    else {
     snprintf(path, sizeof(path), SD_ROOT "/%s%s", gpre, dir);
     mkdir(path, 0777);
     snprintf(path, sizeof(path), SD_ROOT "/%s%s/%s", gpre, dir, clean);
+    }
     struct stat st;
-    for (int k = 2; k < 100 && stat(path, &st) == 0; k++) {     /* deja la : "nom (2).mp3" */
+    for (int k = 2; !regtel && k < 100 && stat(path, &st) == 0; k++) {     /* deja la : "nom (2).mp3" */
         char base[200], ext[16] = "";
         snprintf(base, sizeof(base), "%s", clean);
         char *dot = strrchr(base, '.');
@@ -1208,11 +1228,36 @@ static void tp_handle(s32 c) {
         if (t) { tp_reply(c, 200, "application/json", t, (int)strlen(t)); free(t); }
         else tp_reply(c, 503, "application/json", "{}", 2);
     }
+    else if (!strcmp(target, "/api/cheatedit") || !strcmp(target, "/api/gamecfg") || !strcmp(target, "/api/gamefav") || !strcmp(target, "/api/lyrics")
+             || !strcmp(target, "/api/queueadd") || !strcmp(target, "/api/regpack") || !strcmp(target, "/api/regrestore")) {   /* v242 */
+        char id[16] = "", v[16];
+        int op = !strcmp(target, "/api/cheatedit") ? 1 : !strcmp(target, "/api/gamecfg") ? 2 : !strcmp(target, "/api/gamefav") ? 3
+               : !strcmp(target, "/api/lyrics") ? 4 : !strcmp(target, "/api/queueadd") ? 5 : !strcmp(target, "/api/regpack") ? 6 : 7;
+        tp_param(q ? q : "", "id", id, sizeof(id));
+        int idok = strlen(id) == 6;
+        for (int k = 0; idok && id[k]; k++) if (!isalnum((unsigned char)id[k])) idok = 0;
+        if ((op <= 3 && !idok) || x73_mo_op) { tp_reply(c, 400, "application/json", "{}", 2); return; }
+        memcpy(x73_mo_id, id, 7);
+        v[0] = 0; tp_param(q ? q : "", op == 1 ? "n" : "i", v, sizeof(v)); x73_mo_i = v[0] ? atoi(v) : -1;
+        v[0] = 0; tp_param(q ? q : "", "d", v, sizeof(v)); x73_mo_d = v[0] ? atoi(v) : op == 3 ? -1 : 0;   /* (favori sans d : inverse) */
+        v[0] = 0; tp_param(q ? q : "", op == 1 ? "op" : "row", v, sizeof(v)); x73_mo_n = op == 1 ? v[0] : v[0] ? atoi(v) : -1;
+        x73_mo_name[0] = 0; tp_param(q ? q : "", "name", x73_mo_name, sizeof(x73_mo_name));
+        x73_mo_codes[0] = 0; tp_param(q ? q : "", "codes", x73_mo_codes, sizeof(x73_mo_codes));
+        char *t = x73_mo_run(op);
+        if (op == 6 && t && t[0] == '@') {                    /* copie des reglages : le fichier ecrit par la boucle */
+            sh_send_file(c, t + 1, 0, (char *)req);
+            free(t);
+            return;
+        }
+        if (t) { tp_reply(c, 200, "application/json", t, (int)strlen(t)); free(t); }
+        else tp_reply(c, 503, "application/json", "{}", 2);
+    }
     else if (!strcmp(target, "/api/launch")) {               /* v73 : lancer un jeu (m=1 : Resident) */
         char is[16], ms[8];
         tp_param(q ? q : "", "i", is, sizeof(is));
         tp_param(q ? q : "", "m", ms, sizeof(ms));
         int ok = is[0] && atoi(is) >= 0;
+        { char id[16]; tp_param(q ? q : "", "id", id, sizeof(id)); snprintf(x73_launch_id, sizeof(x73_launch_id), "%.6s", id); }   /* v242 : (l'ID suit le jeu si la liste a change d'ordre) */
         if (ok) { x73_launch_m = atoi(ms) == 1; x73_launch_k = atoi(is); }
         tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
     }

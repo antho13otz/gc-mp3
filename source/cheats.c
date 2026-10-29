@@ -1014,11 +1014,14 @@ static ch_raw_t *ch_raw_load(const char *id) {
     return r;
 }
 static void ch_raw_free(ch_raw_t *r) { if (r) { free(r->l); free(r); } }
-/* {"x":1 si le fichier existe,"c":[["nom",0|1,nombre de lignes de code],...]} */
+static char ch_phone_err[96] = "";                             /* v242 : message de la derniere modification (vide = ok) */
+/* {"x":1 si le fichier existe,"c":[["nom",0|1,nombre de lignes de code,"codes"],...]} ; codes : XXXXXXXXYYYYYYYY separes par des virgules */
 static char *ch_phone_json(const char *id) {
     sbuf_t s = { NULL, 0, 0 };
     ch_raw_t *r = ch_raw_load(id);
-    sb_add(&s, r ? "{\"x\":1,\"c\":[" : "{\"x\":0,\"c\":[");
+    if (ch_phone_err[0]) { sb_add(&s, "{\"err\":"); x73_json_raw(&s, ch_phone_err); sb_add(&s, ","); ch_phone_err[0] = 0; }
+    else sb_add(&s, "{");
+    sb_add(&s, r ? "\"x\":1,\"c\":[" : "\"x\":0,\"c\":[");
     if (r) {
         char p[NAME_LEN], m[48];
         snprintf(p, sizeof(p), "%s/%.6s.chtsel", CH_DIR, id);
@@ -1036,8 +1039,18 @@ static char *ch_phone_json(const char *id) {
             if (c) sb_add(&s, ",");
             sb_add(&s, "[");
             x73_json_raw(&s, nm);
-            snprintf(m, sizeof(m), ",%d,%d]", good && c < sl - 8 && sel[c] ? 1 : 0, nc);
+            snprintf(m, sizeof(m), ",%d,%d,\"", good && c < sl - 8 && sel[c] ? 1 : 0, nc);
             sb_add(&s, m);
+            int first = 1;
+            for (int j = s0; j < r->ce[c]; j++) {
+                if (!r->l[j][0] || !ch_sw_iscode_raw(r->l[j])) continue;
+                const char *pp = r->l[j];
+                u32 x = ch_hexval(&pp), y = ch_hexval(&pp);
+                snprintf(m, sizeof(m), "%s%08X%08X", first ? "" : ",", (unsigned)x, (unsigned)y);
+                sb_add(&s, m);
+                first = 0;
+            }
+            sb_add(&s, "\"]");
         }
         free(sel);
         ch_raw_free(r);
@@ -1073,4 +1086,84 @@ static void ch_phone_set(const char *id, const char *bits) {
     char nm[16];
     snprintf(nm, sizeof(nm), "%.6s.txt", id);
     if (ch_l && !strcasecmp(ch_name, nm) && !ch_dirty) { ch_sel_dirty = 0; ch_sel_load(); }   /* (editeur ouvert sur ce jeu) */
+}
+
+/* v242 : modifier les cheats depuis le telephone. op : 'a' ajouter (nom, codes), 'r' renommer le cheat n, 'd' supprimer
+   le cheat n, 'c' remplacer les codes du cheat n. codes = "XXXXXXXXYYYYYYYY,..." (16 chiffres hexa par ligne).
+   Le choix (cheats actives) est garde : il suit chaque cheat, meme si les codes changent. */
+static void ch_phone_edit(const char *id, int op, int n, const char *name, const char *codes) {
+    char p[NAME_LEN], tmp[NAME_LEN + 8], nm[16];
+    snprintf(p, sizeof(p), "%s/%.6s.txt", CH_DIR, id);
+    snprintf(nm, sizeof(nm), "%.6s.txt", id);
+    if (ch_l && !strcasecmp(ch_name, nm) && ch_dirty) { snprintf(ch_phone_err, sizeof(ch_phone_err), "%s", "Ce fichier est en cours de modification sur la console"); return; }
+    /* codes demandes */
+    static char cl[CH_MAXC][20];
+    int ncl = 0;
+    if (op == 'a' || op == 'c') {
+        for (const char *c = codes; *c && ncl < CH_MAXC; ) {
+            int k = 0;
+            while (k < 16 && ch_hex((u8)c[k])) k++;
+            if (k != 16 || (c[16] && c[16] != ',')) { snprintf(ch_phone_err, sizeof(ch_phone_err), "%s", "Code pas au bon format (XXXXXXXX YYYYYYYY)"); return; }
+            snprintf(cl[ncl], sizeof(cl[ncl]), "%.8s %.8s", c, c + 8);
+            for (char *q = cl[ncl]; *q; q++) *q = (char)toupper((u8)*q);
+            ncl++;
+            c += c[16] ? 17 : 16;
+        }
+        if (!ncl) { snprintf(ch_phone_err, sizeof(ch_phone_err), "%s", "Aucune ligne de code"); return; }
+    }
+    char nmc[CH_LW];
+    snprintf(nmc, sizeof(nmc), "%s", name ? name : "");
+    for (char *q = nmc; *q; q++) if (*q == '\r' || *q == '\n' || *q == '\t') *q = ' ';
+    while (nmc[0] == ' ') memmove(nmc, nmc + 1, strlen(nmc));
+    if ((op == 'a' || op == 'r') && (!nmc[0] || ch_sw_iscode_raw(nmc))) { snprintf(ch_phone_err, sizeof(ch_phone_err), "%s", "Donne un nom au cheat"); return; }
+    ch_raw_t *r = ch_raw_load(id);
+    int ns = r ? (r->ns < CH_MAXC ? r->ns : CH_MAXC) : 0;
+    if (op != 'a' && (n < 0 || n >= ns)) { ch_raw_free(r); snprintf(ch_phone_err, sizeof(ch_phone_err), "%s", "Cheat introuvable"); return; }
+    /* choix actuel */
+    static char bits[CH_MAXC + 2];
+    memset(bits, '0', sizeof(bits)); bits[CH_MAXC + 1] = 0;
+    if (r) {
+        snprintf(tmp, sizeof(tmp), "%s/%.6s.chtsel", CH_DIR, id);
+        long sl = 0;
+        unsigned char *sel = read_file(tmp, 65536, &sl);
+        if (sel && sl >= 8) {
+            u64 old = 0;
+            for (int k = 0; k < 8; k++) old = (old << 8) | sel[sl - 8 + k];
+            if (old == r->h) for (int c = 0; c < ns && c < sl - 8; c++) if (sel[c]) bits[c] = '1';
+        }
+        free(sel);
+    }
+    /* nouveau fichier */
+    FILE *f;
+    snprintf(tmp, sizeof(tmp), "%s.tmp", p);
+    mkdir(CH_DIR, 0777);
+    f = fopen(tmp, "wb");
+    if (!f) { ch_raw_free(r); snprintf(ch_phone_err, sizeof(ch_phone_err), "%s", "Impossible d'\xC3\xA9" "crire sur la carte SD"); return; }
+    int nl = r ? r->nl : 0;
+    while (nl > 0 && ch_blank(r->l[nl - 1])) nl--;
+    int s0 = op != 'a' ? r->cs[n] : -1, e0 = op != 'a' ? r->ce[n] : -1;
+    int hasname = s0 > 0 && !ch_blank(r->l[s0 - 1]) && !ch_sw_iscode_raw(r->l[s0 - 1]);
+    int from = hasname ? s0 - 1 : s0;
+    if (!r) fprintf(f, "%.6s\n", id);                         /* (fichier neuf : l'ID du jeu en tete, comme Swiss) */
+    for (int i = 0; i < nl; i++) {
+        if (op == 'd' && i >= from && i < e0) { if (i == e0 - 1 && e0 < nl && ch_blank(r->l[e0])) i++; continue; }   /* (et la ligne vide apres) */
+        if (op == 'r' && i == s0) { if (!hasname) fprintf(f, "%s\n", nmc); }
+        if (op == 'r' && hasname && i == s0 - 1) { fprintf(f, "%s\n", nmc); continue; }
+        if (op == 'c' && i >= s0 && i < e0) {
+            if (i == s0) for (int k = 0; k < ncl; k++) fprintf(f, "%s\n", cl[k]);
+            continue;
+        }
+        fprintf(f, "%s\n", r->l[i]);
+    }
+    if (op == 'a') { fprintf(f, "\n%s\n", nmc); for (int k = 0; k < ncl; k++) fprintf(f, "%s\n", cl[k]); }
+    int ok = fclose(f) == 0;
+    ch_raw_free(r);
+    if (ok) { remove(p); ok = rename(tmp, p) == 0; }
+    if (!ok) { remove(tmp); snprintf(ch_phone_err, sizeof(ch_phone_err), "%s", "Impossible d'\xC3\xA9" "crire sur la carte SD"); return; }
+    if (op == 'd') { memmove(bits + n, bits + n + 1, CH_MAXC - n); bits[CH_MAXC] = '0'; }
+    if (op == 'a' && ns < CH_MAXC) bits[ns] = '0';
+    bits[CH_MAXC] = 0;
+    crumb("cheats (telephone) : %.6s %c %d", id, op, n);
+    ch_phone_set(id, bits);                                   /* (choix reecrit avec l'empreinte des nouveaux codes) */
+    if (ch_l && !strcasecmp(ch_name, nm)) ch_load(p);         /* (editeur ouvert sur ce jeu : relu) */
 }

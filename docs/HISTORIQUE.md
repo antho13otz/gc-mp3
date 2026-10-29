@@ -24,6 +24,23 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v242 (build 700) — la télécommande fait (presque) tout
+- **Serveur du téléphone**, nouvelles adresses (travail fait par la boucle principale, `x73_misc_pump`) :
+  - `/api/cheatedit?id=&op=a|r|c|d&n=&name=&codes=` : ajouter, renommer, changer les codes ou supprimer un cheat de
+    `SD:/gc-mp3/cheats/<ID>.txt` (`ch_phone_edit`) ; le choix des cheats actifs suit chaque cheat. `/api/cheats` donne
+    aussi les codes ;
+  - `/api/gamecfg?id=&i=&row=&d=` : les réglages du jeu (menu Y de la fiche), lus ou changés d'un cran ; row 13 = tout
+    comme la console (`jc_phone`, `jc_step`, `jc_value_text`) ;
+  - `/api/gamefav?id=&i=` : favori (la liste n'est pas retriée, pour garder les numéros) ;
+  - `/api/launch` accepte `id=` : le bon jeu même si la liste a changé d'ordre (raccourcis du téléphone) ;
+  - `/api/lyrics` : toutes les paroles du morceau avec leurs temps, et la position de lecture ;
+  - `/api/queueadd?i=&d=1` : un morceau joué juste après (ou à la fin de la file avec d=0) ;
+  - `/api/regpack` : la sauvegarde de tous les réglages ; `PUT /upload?dir=regtel` puis `/api/regrestore` : la remettre.
+- **Télécommande Android** : fiche du jeu avec favori, raccourci sur l'écran d'accueil, cheats modifiables et réglages
+  du jeu ; paroles synchronisées (et plein écran karaoké) ; recherche partout ; file d'attente par appui long ; tuile
+  des réglages rapides ; raccourcis de l'icône ; dictée vocale ; manette plein écran en paysage ; copie automatique
+  des cartes mémoire et des réglages sur le téléphone (5 gardées), avec restauration.
+
 ## Nouveautés v241 (build 699) — l'écran Jeux du téléphone ne fige plus la console
 - `/api/games` et le lancement depuis le téléphone relisaient **toute la carte SD** (et le GC Loader) quand la
   liste des jeux n'était pas encore chargée : la console restait figée pendant ce temps. Ils prennent maintenant

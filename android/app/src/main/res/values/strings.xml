@@ -1,4 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="widget_desc">Le morceau en cours sur GC Station, avec lecture, pause et suivant</string>
+    <string name="sc_lecture">Lecture</string>
+    <string name="sc_manette">Manette</string>
+    <string name="sc_jeux">Jeux</string>
+    <string name="sc_recherche">Recherche</string>
+    <string name="tile_label">GC Station</string>
 </resources>

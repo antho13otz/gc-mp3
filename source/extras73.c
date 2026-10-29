@@ -1360,11 +1360,93 @@ static void x73_vj_pump(void) {
     if (tl_screen == TL_VCARD) vc_load();
     x73_vj_op = 0; x73_vj_done = 1;
 }
+/* v242 : demandes du telephone (tab_phone.c : x73_mo_run) */
+static int x73_game_of(const char *id, int i) {               /* le jeu : son numero s'il a bien cet ID, sinon le premier avec cet ID */
+    if (!gl_scanned) gl_scan_full(0);
+    if (i >= 0 && i < gl_n && !strncmp(gl[i].id, id, 6)) return i;
+    for (int k = 0; k < gl_n; k++) if (!strncmp(gl[k].id, id, 6)) return k;
+    return -1;
+}
+static void x73_misc_pump(void) {
+    int op = x73_mo_op;
+    if (!op) return;
+    char *r = NULL, m[220];
+    if (op == 1) {                                            /* cheats : ajouter, renommer, supprimer, codes */
+        ch_phone_edit(x73_mo_id, x73_mo_n, x73_mo_i, x73_mo_name, x73_mo_codes);
+        r = ch_phone_json(x73_mo_id);
+    } else if (op == 2) {                                     /* reglages du jeu */
+        int k = x73_game_of(x73_mo_id, x73_mo_i);
+        r = jc_phone(x73_mo_id, k >= 0 ? gl[k].title : "", x73_mo_n, x73_mo_d > 0 ? 1 : x73_mo_d < 0 ? -1 : 0);
+    } else if (op == 3) {                                     /* favori (la liste n'est pas retriee : les numeros restent) */
+        int k = x73_game_of(x73_mo_id, x73_mo_i);
+        if (k >= 0) { gl[k].fav = x73_mo_d >= 0 ? (x73_mo_d ? 1 : 0) : !gl[k].fav; gl_fav_save(); }
+        snprintf(m, sizeof(m), "{\"ok\":%d,\"fav\":%d}", k >= 0, k >= 0 ? gl[k].fav : 0);
+        r = strdup(m);
+    } else if (op == 4) {                                     /* paroles du morceau en cours (toutes, avec leurs temps) */
+        sbuf_t s = { NULL, 0, 0 };
+        int on = lrc_n > 0 && lrc_track == cur_track && src == SRC_FILE && cur_track >= 0;
+        u32 pos = (u32)((u64)consumed_heard() * 1000u / 48000u);
+        snprintf(m, sizeof(m), "{\"t\":%d,\"pos\":%u,\"play\":%d,\"l\":[", on ? cur_track : -1, (unsigned)pos, playing && !paused);
+        sb_add(&s, m);
+        for (int i = 0; on && i < lrc_n; i++) {
+            char d[300];
+            text_display(lyrics_line(i), d, sizeof(d));
+            snprintf(m, sizeof(m), "%s[%u,", i ? "," : "", (unsigned)lrc_lines[i].ms);
+            sb_add(&s, m); x73_json_raw(&s, d); sb_add(&s, "]");
+        }
+        sb_add(&s, "]}");
+        r = s.b;
+    } else if (op == 5) {                                     /* morceau ajoute a la file : a la suite (d = 1) ou a la fin */
+        int t = x73_mo_i, ok = t >= 0 && t < nfiles;
+        if (ok) {
+            if (qn == 0 || qpos < 0 || qpos >= qn || (cur_track >= 0 && queue[qpos] != cur_track)) {
+                if (cur_track >= 0 && src == SRC_FILE) queue_build(cur_track); else { qn = 0; qpos = -1; }
+            }
+            if (qn >= MAX_FILES) ok = 0;
+            else if (qpos < 0) { queue[0] = (s16)t; qn = 1; qpos = 0; play_queue_pos(0); }
+            else {
+                int at = x73_mo_d > 0 ? qpos + 1 : qn;
+                memmove(&queue[at + 1], &queue[at], (size_t)(qn - at) * sizeof(queue[0]));
+                queue[at] = (s16)t; qn++;
+            }
+        }
+        snprintf(m, sizeof(m), "{\"ok\":%d}", ok);
+        r = strdup(m);
+    } else if (op == 6) {                                     /* copie de tous les reglages (le fichier de START > Outils) */
+        char msg[200];
+        r = bk_save(msg, sizeof(msg)) > 0 ? strdup("@" BK_FILE) : strdup("{}");
+    } else if (op == 7) {                                     /* restauration d'une copie envoyee par le telephone */
+        char msg[200];
+        long len = 0;
+        char *b = (char *)read_file(TP_REGTEL, 32L * 1024 * 1024, &len);
+        int n = 0;
+        if (!b) snprintf(msg, sizeof(msg), "Copie introuvable");
+        else {
+            n = bk_restore_buf(b, len, 1, msg, sizeof(msg));
+            if (n > 0) n = bk_restore_buf(b, len, 0, msg, sizeof(msg));
+            free(b);
+            if (n > 0) { load_settings(); eq_setup(); settings_dirty = 0; snprintf(msg, sizeof(msg), "%d fichiers restaur\xC3\xA9s", n); lib_note(msg); }
+        }
+        remove(TP_REGTEL);
+        sbuf_t s = { NULL, 0, 0 };
+        snprintf(m, sizeof(m), "{\"ok\":%d,\"msg\":", n > 0); sb_add(&s, m); x73_json_raw(&s, msg); sb_add(&s, "}");
+        r = s.b;
+    }
+    free(x73_mo_res);
+    x73_mo_res = r;
+    x73_mo_op = 0; x73_mo_ready = 1;
+}
 static void x73_launch_pump(void) {
     if (x73_launch_k < 0) return;
     int k = x73_launch_k, m = x73_launch_m;
     x73_launch_k = -1;
     if (!gl_scanned) gl_scan_full(0);
+    if (x73_launch_id[0] && (k < 0 || k >= gl_n || strncmp(gl[k].id, x73_launch_id, 6))) {   /* v242 : par l'ID (raccourci du telephone) */
+        int f = -1;
+        for (int i = 0; i < gl_n && f < 0; i++) if (!strncmp(gl[i].id, x73_launch_id, 6)) f = i;
+        k = f;
+    }
+    x73_launch_id[0] = 0;
     if (k < 0 || k >= gl_n) return;
     crumb("telephone : lancement du jeu %d (%s)", k, m ? "Pulse" : "lanceur");
     menu_open = 0; kb_open = 0; tl_screen = TL_NONE;
@@ -1405,6 +1487,7 @@ static void x73_pump(void) {
     }
     if (x73_rj_want) { x73_rj_want = 0; rcp_json(); }        /* v191 : recap */
     x73_vj_pump();
+    x73_misc_pump();                                          /* v242 */
     x73_launch_pump();
 }
 

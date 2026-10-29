@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut android:shortcutId="lecture" android:enabled="true" android:icon="@drawable/sc_lecture" android:shortcutShortLabel="@string/sc_lecture">
+        <intent android:action="fr.gcstation.ONGLET_0" android:targetPackage="fr.gcstation.telecommande" android:targetClass="fr.gcstation.telecommande.MainActivity" />
+    </shortcut>
+    <shortcut android:shortcutId="manette" android:enabled="true" android:icon="@drawable/sc_manette" android:shortcutShortLabel="@string/sc_manette">
+        <intent android:action="fr.gcstation.ONGLET_3" android:targetPackage="fr.gcstation.telecommande" android:targetClass="fr.gcstation.telecommande.MainActivity" />
+    </shortcut>
+    <shortcut android:shortcutId="jeux" android:enabled="true" android:icon="@drawable/sc_jeux" android:shortcutShortLabel="@string/sc_jeux">
+        <intent android:action="fr.gcstation.ONGLET_6" android:targetPackage="fr.gcstation.telecommande" android:targetClass="fr.gcstation.telecommande.MainActivity" />
+    </shortcut>
+    <shortcut android:shortcutId="recherche" android:enabled="true" android:icon="@drawable/sc_recherche" android:shortcutShortLabel="@string/sc_recherche">
+        <intent android:action="fr.gcstation.ONGLET_13" android:targetPackage="fr.gcstation.telecommande" android:targetClass="fr.gcstation.telecommande.MainActivity" />
+    </shortcut>
+</shortcuts>

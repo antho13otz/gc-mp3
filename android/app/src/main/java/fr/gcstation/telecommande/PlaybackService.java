@@ -29,7 +29,7 @@ import org.json.JSONObject;
 public class PlaybackService extends Service {
     static final String CH_PLAY = "lecture", CH_INFO = "infos";
     static final String ACT_TOGGLE = "toggle", ACT_NEXT = "next", ACT_PREV = "prev", ACT_STOP = "fermer";
-    static final int ID_PLAY = 1, ID_BUILD = 2, ID_SEND = 3;
+    static final int ID_PLAY = 1, ID_BUILD = 2, ID_SEND = 3, ID_COPY = 4;
     static volatile JSONObject last;                         // (dernier etat : le widget s'en sert)
     static volatile Bitmap lastCover;
 

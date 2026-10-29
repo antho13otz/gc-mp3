@@ -320,6 +320,13 @@ static void jc_card_step(int d) {                             /* "" -> "+" (rien
     cur = (cur + d + n) % n;
     snprintf(jc_card, sizeof(jc_card), "%s", lst[cur]);
 }
+static void jc_step(int sel, int d) {                        /* change la ligne sel d'un cran (d = 1 ou -1) */
+    if (sel == JC_LANG) { jc_lang += d; if (jc_lang > 5) jc_lang = -1; if (jc_lang < -1) jc_lang = 5; }
+    else if (sel == JC_SOUND) { jc_sound += d; if (jc_sound > 1) jc_sound = -1; if (jc_sound < -1) jc_sound = 1; }
+    else if (sel == JC_WS) jc_ws = !jc_ws;
+    else if (sel >= JC_V0) { int i = sel - JC_V0; jc_v[i] = (jc_v[i] + d + jc_vmax[i]) % jc_vmax[i]; }
+    else jc_card_step(d);
+}
 static void indigo_cfg_input(u32 down, u32 nav, int fire) {
     int nr = jc_rows(), was = jc_sel;
     if (fire && (nav & PAD_BUTTON_DOWN)) jc_sel = (jc_sel + 1) % nr;
@@ -338,42 +345,71 @@ static void indigo_cfg_input(u32 down, u32 nav, int fire) {
     int d = (fire && (nav & PAD_BUTTON_RIGHT)) || (down & PAD_BUTTON_A) ? 1 : (fire && (nav & PAD_BUTTON_LEFT)) ? -1 : 0;
     if (d) {
         jc_changed = 1;
-        if (jc_sel == JC_LANG) { jc_lang += d; if (jc_lang > 5) jc_lang = -1; if (jc_lang < -1) jc_lang = 5; }
-        else if (jc_sel == JC_SOUND) { jc_sound += d; if (jc_sound > 1) jc_sound = -1; if (jc_sound < -1) jc_sound = 1; }
-        else if (jc_sel == JC_WS) jc_ws = !jc_ws;
-        else if (jc_sel >= JC_V0) { int i = jc_sel - JC_V0; jc_v[i] = (jc_v[i] + d + jc_vmax[i]) % jc_vmax[i]; }
-        else jc_card_step(d);
+        jc_step(jc_sel, d);
     }
     if (down & PAD_BUTTON_Y) { jc_lang = jc_sound = -1; jc_card[0] = 0; jc_ws = 0; memset(jc_v, 0, sizeof(jc_v)); jc_changed = 1; gl_note("Tout comme la console"); }
     if (down & (PAD_BUTTON_B | PAD_BUTTON_START)) jc_close();
+}
+static const char *const jc_lab[JC_N] = { "Langue du jeu", "Son", "Carte m\xC3\xA9moire (Pulse)", "16:9 forc\xC3\xA9 (Pulse)",
+    "Mode vid\xC3\xA9o (Pulse)", "Sans flou (Pulse)", "Image plus large (Pulse)", "Stick C (Pulse)", "G\xC3\xA2" "chettes L / R (Pulse)",
+    "Lecture des manettes (Pulse)", "Vitesse du lecteur (Pulse)", "Pulse universel (exp\xC3\xA9rimental)", "Cheats (Pulse)" };
+static const char *const jc_help[JC_N] = {
+    "Langue des jeux multilingues (PAL), pour ce jeu seulement. La console revient \xC3\xA0 la sienne apr\xC3\xA8s.",
+    "St\xC3\xA9r\xC3\xA9o ou mono pour ce jeu seulement.",
+    "Carte virtuelle utilis\xC3\xA9" "e par ce jeu avec Pulse (Outils > Cartes m\xC3\xA9moire virtuelles).",
+    "Image 3D \xC3\xA9largie pour une t\xC3\xA9l\xC3\xA9 16:9 (mets la t\xC3\xA9l\xC3\xA9 en 16:9). Les menus 2D restent \xC3\xA9tir\xC3\xA9s.",
+    "480p : c\xC3\xA2" "ble composante. PAL 60 Hz : jeu PAL en 480 lignes. 240p : t\xC3\xA9l\xC3\xA9s cathodiques, \xC3\xA9" "crans r\xC3\xA9tro.",
+    "Enl\xC3\xA8ve le flou anti-scintillement de l'image (plus net, peut scintiller en entrelac\xC3\xA9).",
+    "Image sur 704 points au lieu de 640 : moins de bords noirs sur les c\xC3\xB4t\xC3\xA9s.",
+    "Invers\xC3\xA9 : haut / bas (ou tout) ; \xC3\xA9" "chang\xC3\xA9 : le stick C devient le stick principal et inversement.",
+    "L et R comptent comme enfonc\xC3\xA9s d\xC3\xA8s que la g\xC3\xA2" "chette d\xC3\xA9passe ce seuil.",
+    "Manettes lues plus souvent : moins de d\xC3\xA9lai (jeux de combat, de rythme).",
+    "Auto : vitesse d'un vrai lecteur pour les jeux connus pour bloquer, rapide sinon.",
+    "Jeu qui ne marche pas : les acc\xC3\xA8s au lecteur oubli\xC3\xA9s sont attrap\xC3\xA9s par le processeur.",
+    "Coup\xC3\xA9s : le jeu est lanc\xC3\xA9 sans ses cheats (ils restent choisis)." };
+static const char *const jc_vv[JC_N - JC_V0][4] = {
+    { "Comme le jeu", "480p forc\xC3\xA9", "PAL 60 Hz", "240p" }, { "Non", "Oui" }, { "Non", "Oui (704)" },
+    { "Normal", "Invers\xC3\xA9 haut / bas", "Invers\xC3\xA9 (tout)", "\xC3\x89" "chang\xC3\xA9 avec le stick" },
+    { "Comme le jeu", "Seuil bas (30 %)", "Seuil moyen (50 %)", "Seuil haut (75 %)" }, { "Normale", "2 fois plus", "4 fois plus" },
+    { "Auto", "Comme un vrai lecteur", "Rapide (carte SD)" }, { "Non", "Oui" }, { "Comme choisis", "Coup\xC3\xA9s" } };
+/* texte de la valeur de la ligne i (v242 : aussi pour le telephone) */
+static void jc_value_text(int i, char *buf, int cap) {
+    if (i == JC_LANG) snprintf(buf, cap, "%s", jc_lang < 0 ? TR("Comme la console") : gc_lang_names[jc_lang]);
+    else if (i == JC_SOUND) snprintf(buf, cap, "%s", jc_sound < 0 ? TR("Comme la console") : jc_sound ? TR("St\xC3\xA9r\xC3\xA9o") : "Mono");
+    else if (i == JC_WS) snprintf(buf, cap, "%s", jc_ws ? TR("Oui") : TR("Non"));
+    else if (i == JC_SPEED && !jc_v[i - JC_V0]) snprintf(buf, cap, "%s", jc_slow_known(jc_id) ? TR("Auto : vrai lecteur") : TR("Auto : rapide"));   /* v133 */
+    else if (i >= JC_V0) snprintf(buf, cap, "%s", TR(jc_vv[i - JC_V0][jc_v[i - JC_V0]]));
+    else snprintf(buf, cap, "%s", !strcmp(jc_card, "-") ? TR("Aucune (vraie carte)") : !strcmp(jc_card, "+") ? TR("Rien qu'\xC3\xA0 ce jeu") : jc_card[0] ? jc_card : TR("R\xC3\xA9glage g\xC3\xA9n\xC3\xA9ral"));
+}
+/* v242 : reglages d'un jeu depuis le telephone (boucle principale, extras73.c). row < 0 : lire seulement ;
+   row = JC_N : tout comme la console. {"busy":1} si l'ecran des reglages est ouvert sur la tele. */
+static char *jc_phone(const char *id, const char *title, int row, int d) {
+    if (ic_on) return strdup("{\"busy\":1}");
+    snprintf(jc_id, sizeof(jc_id), "%.6s", id);
+    snprintf(jc_title, sizeof(jc_title), "%s", title ? title : "");
+    jc_load(jc_id);
+    if (row == JC_N) { jc_lang = jc_sound = -1; jc_card[0] = 0; jc_ws = 0; memset(jc_v, 0, sizeof(jc_v)); jc_save(); }
+    else if (row >= 0 && row < JC_N && d) { jc_step(row, d); jc_save(); }
+    sbuf_t s = { NULL, 0, 0 };
+    char buf[200];
+    sb_add(&s, "{\"r\":[");
+    for (int i = 0; i < JC_N; i++) {
+        if (i) sb_add(&s, ",");
+        sb_add(&s, "["); sb_json_str(&s, jc_lab[i]); sb_add(&s, ",");
+        jc_value_text(i, buf, sizeof(buf)); x73_json_raw(&s, buf); sb_add(&s, ",");
+        int dflt = i == JC_LANG ? jc_lang < 0 : i == JC_SOUND ? jc_sound < 0 : i == JC_CARD ? !jc_card[0] : i == JC_WS ? !jc_ws : !jc_v[i - JC_V0];
+        snprintf(buf, sizeof(buf), "%d,", !dflt); sb_add(&s, buf);
+        sb_json_str(&s, jc_help[i]); sb_add(&s, "]");
+    }
+    sb_add(&s, "]}");
+    jc_id[0] = 0;
+    return s.b;
 }
 static void draw_indigo_cfg(void) {
     char buf[160], fv[160];
     tl_frame("R\xC3\xA9glages du jeu", NULL);
     fit_text(F_MED, jc_title, 500, fv, sizeof(fv));
     gx_text1(F_MED, 58, 100, fv, RGBA(255, 210, 120, 255));
-    static const char *const lab[JC_N] = { "Langue du jeu", "Son", "Carte m\xC3\xA9moire (Pulse)", "16:9 forc\xC3\xA9 (Pulse)",
-        "Mode vid\xC3\xA9o (Pulse)", "Sans flou (Pulse)", "Image plus large (Pulse)", "Stick C (Pulse)", "G\xC3\xA2" "chettes L / R (Pulse)",
-        "Lecture des manettes (Pulse)", "Vitesse du lecteur (Pulse)", "Pulse universel (exp\xC3\xA9rimental)", "Cheats (Pulse)" };
-    static const char *const help[JC_N] = {
-        "Langue des jeux multilingues (PAL), pour ce jeu seulement. La console revient \xC3\xA0 la sienne apr\xC3\xA8s.",
-        "St\xC3\xA9r\xC3\xA9o ou mono pour ce jeu seulement.",
-        "Carte virtuelle utilis\xC3\xA9" "e par ce jeu avec Pulse (Outils > Cartes m\xC3\xA9moire virtuelles).",
-        "Image 3D \xC3\xA9largie pour une t\xC3\xA9l\xC3\xA9 16:9 (mets la t\xC3\xA9l\xC3\xA9 en 16:9). Les menus 2D restent \xC3\xA9tir\xC3\xA9s.",
-        "480p : c\xC3\xA2" "ble composante. PAL 60 Hz : jeu PAL en 480 lignes. 240p : t\xC3\xA9l\xC3\xA9s cathodiques, \xC3\xA9" "crans r\xC3\xA9tro.",
-        "Enl\xC3\xA8ve le flou anti-scintillement de l'image (plus net, peut scintiller en entrelac\xC3\xA9).",
-        "Image sur 704 points au lieu de 640 : moins de bords noirs sur les c\xC3\xB4t\xC3\xA9s.",
-        "Invers\xC3\xA9 : haut / bas (ou tout) ; \xC3\xA9" "chang\xC3\xA9 : le stick C devient le stick principal et inversement.",
-        "L et R comptent comme enfonc\xC3\xA9s d\xC3\xA8s que la g\xC3\xA2" "chette d\xC3\xA9passe ce seuil.",
-        "Manettes lues plus souvent : moins de d\xC3\xA9lai (jeux de combat, de rythme).",
-        "Auto : vitesse d'un vrai lecteur pour les jeux connus pour bloquer, rapide sinon.",
-        "Jeu qui ne marche pas : les acc\xC3\xA8s au lecteur oubli\xC3\xA9s sont attrap\xC3\xA9s par le processeur.",
-        "Coup\xC3\xA9s : le jeu est lanc\xC3\xA9 sans ses cheats (ils restent choisis)." };
-    static const char *const vv[JC_N - JC_V0][4] = {
-        { "Comme le jeu", "480p forc\xC3\xA9", "PAL 60 Hz", "240p" }, { "Non", "Oui" }, { "Non", "Oui (704)" },
-        { "Normal", "Invers\xC3\xA9 haut / bas", "Invers\xC3\xA9 (tout)", "\xC3\x89" "chang\xC3\xA9 avec le stick" },
-        { "Comme le jeu", "Seuil bas (30 %)", "Seuil moyen (50 %)", "Seuil haut (75 %)" }, { "Normale", "2 fois plus", "4 fois plus" },
-        { "Auto", "Comme un vrai lecteur", "Rapide (carte SD)" }, { "Non", "Oui" }, { "Comme choisis", "Coup\xC3\xA9s" } };
     const int rh = 24, vis = 11;                          /* (v122 : 11 lignes, la liste defile au-dela) */
     static int top = 0;
     if (jc_sel < top) top = jc_sel;
@@ -397,20 +433,15 @@ static void draw_indigo_cfg(void) {
             gx_text_r(F_MED, 576, ry + 16, buf, on ? RGBA(255, 255, 255, 255) : RGBA(255, 150, 150, 255));
             continue;
         }
-        gx_text1(F_MED, 66, ry + 16, TR(lab[i]), on ? RGBA(255, 255, 255, 255) : RGBA(230, 222, 255, 255));
-        if (i == JC_LANG) snprintf(buf, sizeof(buf), "%s", jc_lang < 0 ? TR("Comme la console") : gc_lang_names[jc_lang]);
-        else if (i == JC_SOUND) snprintf(buf, sizeof(buf), "%s", jc_sound < 0 ? TR("Comme la console") : jc_sound ? TR("St\xC3\xA9r\xC3\xA9o") : "Mono");
-        else if (i == JC_WS) snprintf(buf, sizeof(buf), "%s", jc_ws ? TR("Oui") : TR("Non"));
-        else if (i == JC_SPEED && !jc_v[i - JC_V0]) snprintf(buf, sizeof(buf), "%s", jc_slow_known(jc_id) ? TR("Auto : vrai lecteur") : TR("Auto : rapide"));   /* v133 */
-        else if (i >= JC_V0) snprintf(buf, sizeof(buf), "%s", TR(vv[i - JC_V0][jc_v[i - JC_V0]]));
-        else snprintf(buf, sizeof(buf), "%s", !strcmp(jc_card, "-") ? TR("Aucune (vraie carte)") : !strcmp(jc_card, "+") ? TR("Rien qu'\xC3\xA0 ce jeu") : jc_card[0] ? jc_card : TR("R\xC3\xA9glage g\xC3\xA9n\xC3\xA9ral"));
+        gx_text1(F_MED, 66, ry + 16, TR(jc_lab[i]), on ? RGBA(255, 255, 255, 255) : RGBA(230, 222, 255, 255));
+        jc_value_text(i, buf, sizeof(buf));
         fit_text_sel(on, F_MED, buf, 240, fv, sizeof(fv));
         gx_text_r(F_MED, 576, ry + 16, fv, on ? RGBA(255, 255, 255, 255) : jc_sel >= 0 && i >= JC_V0 && jc_v[i - JC_V0] ? RGBA(130, 230, 160, 255) : RGBA(190, 160, 255, 255));
     }
     if (top > 0) gx_tri(316, 112, 324, 112, 320, 107, RGBA(255, 255, 255, 180));
     if (top + vis < nr) gx_tri(316, 116 + vis * rh, 324, 116 + vis * rh, 320, 121 + vis * rh, RGBA(255, 255, 255, 180));
     fit_text(F_SMALL, jc_sel == JC_N ? (jc_del_arm ? TR("Appuie encore sur A pour effacer le fichier du jeu (B : annuler).")
-        : TR("Efface le fichier du jeu (A deux fois). Sauvegardes, r\xC3\xA9glages et cheats du jeu restent.")) : TR(help[jc_sel]), 540, fv, sizeof(fv));
+        : TR("Efface le fichier du jeu (A deux fois). Sauvegardes, r\xC3\xA9glages et cheats du jeu restent.")) : TR(jc_help[jc_sel]), 540, fv, sizeof(fv));
     gx_text1(F_SMALL, 58, 116 + vis * rh + 18, fv, RGBA(210, 200, 240, 255));
     tl_msgbox();
     static const char *const k[] = { "A", "Y", "B" }, *const l[] = { "CHANGER", "TOUT PAR D\xC3\x89" "FAUT", "FERMER" };

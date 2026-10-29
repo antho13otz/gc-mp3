@@ -74,6 +74,21 @@ final class UiKit {
         });
         return e;
     }
+    /** champ de saisie neon (multiline : plusieurs lignes, ex. des codes) */
+    static EditText field(Activity a, String hint, boolean multiline) {
+        EditText e = new EditText(a);
+        e.setHint(hint);
+        e.setHintTextColor(Neon.FAINT);
+        e.setTextColor(Neon.TEXT);
+        e.setBackground(Neon.glass(a, 14));
+        e.setPadding(Neon.dp(a, 14), Neon.dp(a, 11), Neon.dp(a, 14), Neon.dp(a, 11));
+        if (multiline) {
+            e.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE | android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS | android.text.InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+            e.setMinLines(4);
+            e.setGravity(Gravity.TOP | Gravity.START);
+        } else e.setSingleLine(true);
+        return e;
+    }
     static ListView list(Activity a) {
         ListView lv = new ListView(a);
         lv.setDivider(null);
@@ -151,10 +166,11 @@ class GamesTab extends Tab {
         return v;
     }
 
-    // fiche du jeu : jaquette, ID, temps de jeu, cheats a activer avant de lancer, puis Pulse ou le lanceur de secours
+    // fiche du jeu : jaquette, ID, temps de jeu, favori, cheats (activer, ajouter, modifier), reglages du jeu,
+    // raccourci sur l'ecran d'accueil, puis Pulse ou le lanceur de secours
     private String mask = "";                                 // (choix des cheats : '0'/'1' par cheat)
     private boolean maskDirty;
-    private void sheet(final JSONArray x) {
+    void sheet(final JSONArray x) {
         final int i = x.optInt(6);
         final String id = x.optString(1), name = x.optString(0);
         LinearLayout top = new LinearLayout(a);
@@ -165,7 +181,7 @@ class GamesTab extends Tab {
         ib.setCornerRadius(dp(10)); ib.setColor(0x22FFFFFF);
         im.setBackground(ib);
         im.setClipToOutline(true);
-        Bitmap b = covers.get(i);
+        final Bitmap b = covers.get(i);
         if (b != null) im.setImageBitmap(b);
         top.addView(im, lp(dp(78), dp(108), 0));
         LinearLayout info = new LinearLayout(a);
@@ -174,25 +190,67 @@ class GamesTab extends Tab {
         info.addView(Neon.text(a, id, 13, Neon.CYAN, true));
         int min = x.optInt(3);
         info.addView(Neon.text(a, min > 0 ? "Joué " + (min >= 60 ? (min / 60) + " h " + (min % 60) + " min" : min + " min") : "Jamais joué avec Pulse", 13, Neon.DIM, false));
-        if (x.optInt(4) != 0) info.addView(Neon.text(a, "★ Favori", 13, Neon.PINK, true));
+        LinearLayout ir = new LinearLayout(a);
+        ir.setPadding(0, dp(8), 0, 0);
+        final TextView fav = Neon.btn(a, x.optInt(4) != 0 ? "★ Favori" : "☆ Favori", 12, x.optInt(4) != 0, null);
+        fav.setOnClickListener(v -> {
+            v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+            Api.get("/api/gamefav?id=" + id + "&i=" + i, r -> {
+                JSONObject j = null;
+                try { if (r != null) j = new JSONObject(r); } catch (Exception e) { }
+                if (j == null) { Toast.makeText(a, "Pas possible (console à mettre à jour ?)", Toast.LENGTH_SHORT).show(); return; }
+                boolean on = j.optInt("fav") != 0;
+                try { x.put(4, on ? 1 : 0); } catch (Exception e) { }
+                fav.setText(on ? "★ Favori" : "☆ Favori");
+                fav.setBackground(Neon.button(a, 16, on));
+                adapter.notifyDataSetChanged();
+            });
+        });
+        ir.addView(fav, lp(-2, -2, 0));
+        TextView pin = Neon.btn(a, "⌂ Raccourci", 12, false, v -> pinShortcut(id, name, covers.get(i)));
+        LinearLayout.LayoutParams pl = lp(-2, -2, 0);
+        pl.leftMargin = dp(8);
+        ir.addView(pin, pl);
+        info.addView(ir);
         top.addView(info, lp(0, -2, 1));
         LinearLayout box = new LinearLayout(a);
         box.setOrientation(LinearLayout.VERTICAL);
         box.addView(top);
-        TextView head = Neon.glow(a, "CHEATS", 13, Neon.CYAN);
-        head.setPadding(0, dp(18), 0, dp(4));
-        box.addView(head);
+        // cheats
+        LinearLayout hr = new LinearLayout(a);
+        hr.setGravity(Gravity.CENTER_VERTICAL);
+        hr.setPadding(0, dp(18), 0, dp(4));
+        hr.addView(Neon.glow(a, "CHEATS", 13, Neon.CYAN), lp(0, -2, 1));
         final TextView ch = Neon.text(a, "Chargement des cheats…", 13, Neon.FAINT, false);
-        box.addView(ch);
         final LinearLayout list = new LinearLayout(a);
         list.setOrientation(LinearLayout.VERTICAL);
+        hr.addView(Neon.btn(a, "+ Ajouter", 12, false, v -> editCheat(id, -1, "", "", ch, list)), lp(-2, -2, 0));
+        box.addView(hr);
+        box.addView(ch);
         box.addView(list);
-        mask = ""; maskDirty = false;
+        // reglages du jeu (comme Y sur la console)
+        LinearLayout gr = new LinearLayout(a);
+        gr.setGravity(Gravity.CENTER_VERTICAL);
+        gr.setPadding(0, dp(20), 0, dp(4));
+        gr.addView(Neon.glow(a, "RÉGLAGES DU JEU", 13, Neon.CYAN), lp(0, -2, 1));
+        final LinearLayout cfg = new LinearLayout(a);
+        cfg.setOrientation(LinearLayout.VERTICAL);
+        final TextView open = Neon.btn(a, "Afficher", 12, false, null);
+        open.setOnClickListener(v -> {
+            if (cfg.getChildCount() > 0) { cfg.removeAllViews(); open.setText("Afficher"); return; }
+            open.setText("Masquer");
+            loadCfg(id, i, -1, 0, cfg);
+        });
+        gr.addView(open, lp(-2, -2, 0));
+        box.addView(gr);
+        box.addView(cfg);
+        mask = ""; maskDirty = false; saveId = id;
         Api.get("/api/cheats?id=" + id, r -> fillCheats(r, id, ch, list));
         new NeonDialog(a).title(name).view(box)
             .cancel("Annuler")
             .button("Lanceur de secours", false, () -> launchWith(id, i, 0, name))
             .button("Lancer avec Pulse", true, () -> launchWith(id, i, 1, name))
+            .onDismiss(() -> flushMask(null))
             .show();
     }
 
@@ -200,24 +258,28 @@ class GamesTab extends Tab {
         JSONObject j = null;
         try { if (r != null) j = new JSONObject(r); } catch (Exception e) { }
         JSONArray c = j != null ? j.optJSONArray("c") : null;
+        list.removeAllViews();
         if (j == null) { ch.setText("Cheats indisponibles (console à mettre à jour ?)"); return; }
+        if (!j.optString("err").isEmpty()) Toast.makeText(a, j.optString("err"), Toast.LENGTH_LONG).show();
         if (c == null || c.length() == 0) {
-            ch.setText(j.optInt("x") != 0 ? "Aucun cheat utilisable dans SD:/gc-mp3/cheats/" + id + ".txt" : "Pas de cheats pour ce jeu (SD:/gc-mp3/cheats/" + id + ".txt)");
+            mask = "";
+            ch.setText(j.optInt("x") != 0 ? "Aucun cheat utilisable dans SD:/gc-mp3/cheats/" + id + ".txt" : "Pas encore de cheats pour ce jeu : + Ajouter (ou SD:/gc-mp3/cheats/" + id + ".txt)");
             return;
         }
         StringBuilder m = new StringBuilder();
         for (int k = 0; k < c.length(); k++) m.append(c.optJSONArray(k).optInt(1) != 0 ? '1' : '0');
         mask = m.toString();
+        maskDirty = false;
         final Runnable count = () -> {
             int on = 0;
             for (int k = 0; k < mask.length(); k++) if (mask.charAt(k) == '1') on++;
-            ch.setText(on == 0 ? "Aucun cheat activé" : on + " cheat" + (on > 1 ? "s activés" : " activé") + " · Pulse les applique (sinon : lanceur de secours)");
+            ch.setText(on == 0 ? "Aucun cheat activé · appui long : modifier" : on + " cheat" + (on > 1 ? "s activés" : " activé") + " · Pulse les applique (sinon : lanceur de secours)");
             ch.setTextColor(on == 0 ? Neon.FAINT : Neon.DIM);
         };
         count.run();
         for (int k = 0; k < c.length(); k++) {
             final int idx = k;
-            JSONArray e = c.optJSONArray(k);
+            final JSONArray e = c.optJSONArray(k);
             LinearLayout row = new LinearLayout(a);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setBackground(Neon.button(a, 14, false));
@@ -227,13 +289,14 @@ class GamesTab extends Tab {
             TextView n = Neon.text(a, e.optString(0), 15, Neon.TEXT, true);
             tx.addView(n);
             int nc = e.optInt(2);
-            tx.addView(Neon.text(a, nc + " ligne" + (nc > 1 ? "s" : "") + " de code", 12, Neon.FAINT, false));
+            tx.addView(Neon.text(a, nc + " ligne" + (nc > 1 ? "s" : "") + " de code · appui long : modifier", 12, Neon.FAINT, false));
             row.addView(tx, lp(0, -2, 1));
             final View sw = NeonDialog.toggle(a, mask.charAt(k) == '1');
             row.addView(sw, lp(dp(48), dp(28), 0));
             row.setClickable(true);
             row.setOnClickListener(v -> {
                 v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
+                if (idx >= mask.length()) return;
                 char[] cs = mask.toCharArray();
                 cs[idx] = cs[idx] == '1' ? '0' : '1';
                 mask = new String(cs);
@@ -242,10 +305,124 @@ class GamesTab extends Tab {
                 maskDirty = true;
                 saveSoon(id);
             });
+            row.setOnLongClickListener(v -> {
+                v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                new NeonDialog(a).title(e.optString(0))
+                    .items(new String[] { "Renommer", "Modifier les codes", "Supprimer" }, new int[] { 2 }, w -> {
+                        if (w == 0) NeonDialog.ask(a, "Nouveau nom", e.optString(0), nm -> { if (!nm.isEmpty()) cheatOp(id, "op=r&n=" + idx + "&name=" + Api.enc(nm), ch, list); });
+                        else if (w == 1) editCheat(id, idx, e.optString(0), e.optString(3), ch, list);
+                        else NeonDialog.confirm(a, "Supprimer « " + e.optString(0) + " » ?", "Le cheat est retiré du fichier " + id + ".txt.", "Supprimer", () -> cheatOp(id, "op=d&n=" + idx, ch, list));
+                    }).cancel("Fermer").show();
+                return true;
+            });
             LinearLayout.LayoutParams p = lp(-1, -2, 0);
             p.topMargin = dp(8);
             list.addView(row, p);
         }
+    }
+
+    /** ajout (n = -1) ou nouveaux codes d'un cheat : nom + codes, une ligne XXXXXXXX YYYYYYYY par code */
+    private void editCheat(final String id, final int n, String name, String codes, final TextView ch, final LinearLayout list) {
+        LinearLayout f = new LinearLayout(a);
+        f.setOrientation(LinearLayout.VERTICAL);
+        final EditText nm = UiKit.field(a, "Nom du cheat (ex. Vies infinies)", false);
+        nm.setText(name);
+        if (n >= 0) nm.setEnabled(false);
+        f.addView(nm, lp(-1, -2, 0));
+        final EditText cd = UiKit.field(a, "04001234 00000063\n04005678 00000001", true);
+        cd.setTypeface(android.graphics.Typeface.MONOSPACE);
+        StringBuilder sb = new StringBuilder();
+        for (String c : codes.split(",")) if (c.length() == 16) sb.append(sb.length() > 0 ? "\n" : "").append(c, 0, 8).append(' ').append(c.substring(8));
+        cd.setText(sb);
+        LinearLayout.LayoutParams cl = lp(-1, -2, 0);
+        cl.topMargin = dp(10);
+        f.addView(cd, cl);
+        TextView hint = Neon.text(a, "Codes Action Replay déchiffrés / Gecko : 8 + 8 chiffres hexadécimaux par ligne.", 12, Neon.FAINT, false);
+        hint.setPadding(dp(2), dp(8), 0, 0);
+        f.addView(hint);
+        new NeonDialog(a).title(n < 0 ? "Nouveau cheat" : "Codes : " + name).view(f).cancel("Annuler")
+            .button("Enregistrer", true, () -> {
+                String hex = cd.getText().toString().replaceAll("[^0-9A-Fa-f]", "");
+                if (hex.isEmpty() || hex.length() % 16 != 0) { Toast.makeText(a, "Chaque ligne doit avoir 16 chiffres (XXXXXXXX YYYYYYYY)", Toast.LENGTH_LONG).show(); return; }
+                StringBuilder p = new StringBuilder();
+                for (int k = 0; k < hex.length(); k += 16) p.append(k > 0 ? "," : "").append(hex, k, k + 16);
+                String nn = nm.getText().toString().trim();
+                if (n < 0 && nn.isEmpty()) { Toast.makeText(a, "Donne un nom au cheat", Toast.LENGTH_SHORT).show(); return; }
+                cheatOp(id, n < 0 ? "op=a&name=" + Api.enc(nn) + "&codes=" + p : "op=c&n=" + n + "&codes=" + p, ch, list);
+            }).show();
+    }
+
+    private void cheatOp(final String id, final String q, final TextView ch, final LinearLayout list) {
+        flushMask(() -> Api.get("/api/cheatedit?id=" + id + "&" + q, r -> {
+            if (r == null) { Toast.makeText(a, "Pas de réponse (console à mettre à jour ?)", Toast.LENGTH_LONG).show(); return; }
+            fillCheats(r, id, ch, list);
+        }));
+    }
+
+    /** reglages du jeu : lus (row = -1) ou une ligne changee d'un cran (d = 1 / -1), row 13 = tout comme la console */
+    private void loadCfg(final String id, final int i, int row, int d, final LinearLayout cfg) {
+        Api.get("/api/gamecfg?id=" + id + "&i=" + i + "&row=" + row + "&d=" + d, r -> {
+            JSONObject j = null;
+            try { if (r != null) j = new JSONObject(r); } catch (Exception e) { }
+            cfg.removeAllViews();
+            if (j == null) { cfg.addView(Neon.text(a, "Indisponible (console à mettre à jour ?)", 13, Neon.FAINT, false)); return; }
+            if (j.optInt("busy") != 0) { cfg.addView(Neon.text(a, "Les réglages de ce jeu sont ouverts sur la télé : ferme-les d'abord.", 13, Neon.PINK, false)); return; }
+            JSONArray rows = j.optJSONArray("r");
+            for (int k = 0; rows != null && k < rows.length(); k++) {
+                final int rk = k;
+                JSONArray e = rows.optJSONArray(k);
+                LinearLayout rw = new LinearLayout(a);
+                rw.setGravity(Gravity.CENTER_VERTICAL);
+                rw.setBackground(Neon.glass(a, 14));
+                rw.setPadding(dp(12), dp(8), dp(6), dp(8));
+                LinearLayout tx = new LinearLayout(a);
+                tx.setOrientation(LinearLayout.VERTICAL);
+                tx.addView(Neon.text(a, e.optString(0), 14, Neon.TEXT, true));
+                TextView val = Neon.text(a, e.optString(1), 13, e.optInt(2) != 0 ? 0xFF7DF0A6 : Neon.DIM, true);
+                tx.addView(val);
+                rw.addView(tx, lp(0, -2, 1));
+                final String help = e.optString(3);
+                rw.setOnClickListener(v -> Toast.makeText(a, help, Toast.LENGTH_LONG).show());
+                TextView l = Neon.btn(a, "‹", 18, false, v -> loadCfg(id, i, rk, -1, cfg));
+                l.setPadding(0, 0, 0, 0);
+                TextView rr = Neon.btn(a, "›", 18, false, v -> loadCfg(id, i, rk, 1, cfg));
+                rr.setPadding(0, 0, 0, 0);
+                rw.addView(l, lp(dp(40), dp(40), 0));
+                LinearLayout.LayoutParams rl = lp(dp(40), dp(40), 0);
+                rl.leftMargin = dp(6);
+                rw.addView(rr, rl);
+                LinearLayout.LayoutParams p = lp(-1, -2, 0);
+                p.topMargin = dp(6);
+                cfg.addView(rw, p);
+            }
+            LinearLayout.LayoutParams p = lp(-1, -2, 0);
+            p.topMargin = dp(10);
+            cfg.addView(Neon.btn(a, "Tout comme la console", 13, false, v -> loadCfg(id, i, rows != null ? rows.length() : 13, 0, cfg)), p);
+        });
+    }
+
+    /** icone du jeu sur l'ecran d'accueil : la toucher lance le jeu avec Pulse */
+    private void pinShortcut(String id, String name, Bitmap cover) {
+        android.content.pm.ShortcutManager sm = a.getSystemService(android.content.pm.ShortcutManager.class);
+        if (sm == null || !sm.isRequestPinShortcutSupported()) { Toast.makeText(a, "Ton écran d'accueil n'accepte pas les raccourcis", Toast.LENGTH_LONG).show(); return; }
+        Intent it = new Intent(a, MainActivity.class).setAction(MainActivity.ACT_GAME).putExtra("id", id).putExtra("nom", name)
+            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        android.graphics.drawable.Icon icon;
+        if (cover != null) {                                  // (icone adaptative : jaquette au centre sur fond neon)
+            Bitmap ic = Bitmap.createBitmap(432, 432, Bitmap.Config.ARGB_8888);
+            Canvas cv = new Canvas(ic);
+            Paint bg = new Paint();
+            bg.setShader(new LinearGradient(0, 0, 432, 432, new int[] { Neon.BG_TOP, 0xFF2A0A4A, Neon.BG_BOTTOM }, null, Shader.TileMode.CLAMP));
+            cv.drawRect(0, 0, 432, 432, bg);
+            float h = 260, w = h * cover.getWidth() / cover.getHeight();
+            Paint p = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
+            cv.drawBitmap(cover, null, new android.graphics.RectF(216 - w / 2, 216 - h / 2, 216 + w / 2, 216 + h / 2), p);
+            icon = android.graphics.drawable.Icon.createWithAdaptiveBitmap(ic);
+        } else icon = android.graphics.drawable.Icon.createWithResource(a, R.mipmap.ic_launcher);
+        android.content.pm.ShortcutInfo si = new android.content.pm.ShortcutInfo.Builder(a, "jeu-" + id)
+            .setShortLabel(name.length() > 24 ? name.substring(0, 23) + "…" : name).setLongLabel(name)
+            .setIcon(icon).setIntent(it).build();
+        try { sm.requestPinShortcut(si, null); } catch (Exception e) { Toast.makeText(a, "Raccourci impossible", Toast.LENGTH_SHORT).show(); }
     }
 
     private final Runnable saveRun = new Runnable() { public void run() { flushMask(null); } };
@@ -261,11 +438,12 @@ class GamesTab extends Tab {
             if (then != null) then.run();
         });
     }
-    private void launchWith(String id, int i, int m, String name) { flushMask(() -> launch(i, m, name)); }
+    private void launchWith(String id, int i, int m, String name) { flushMask(() -> launch(id, i, m, name)); }
 
-    private void launch(int i, int m, String name) {
-        Api.get("/api/launch?i=" + i + "&m=" + m, r -> Toast.makeText(a, r != null ? "Lancement sur la télé : " + name : "Refusé", Toast.LENGTH_SHORT).show());
+    static void launch(Activity a, String id, int i, int m, String name) {
+        Api.get("/api/launch?i=" + Math.max(0, i) + "&m=" + m + "&id=" + id, r -> Toast.makeText(a, r != null ? "Lancement sur la télé : " + name : "Refusé", Toast.LENGTH_SHORT).show());
     }
+    private void launch(String id, int i, int m, String name) { launch(a, id, i, m, name); }
 
     private View cell(JSONArray x, View cv) {
         LinearLayout c;
@@ -987,7 +1165,8 @@ class PlusTab extends Tab {
         { "▣", "Fichiers", "La carte SD", "5" }, { "◈", "Jeux", "Jaquettes, lancer", "6" },
         { "▧", "Photos", "Sur la télé", "7" }, { "☰", "File d'attente", "À suivre", "8" },
         { "⚙", "Réglages", "De GC Station", "9" }, { "▤", "Cartes mémoire", "Sauvegardes", "10" },
-        { "⌂", "Salon", "Les autres consoles", "11" }, { "⚒", "Outils", "Mémoire, capture, rapport", "12" } };
+        { "⌂", "Salon", "Les autres consoles", "11" }, { "⚒", "Outils", "Mémoire, capture, rapport", "12" },
+        { "◎", "Recherche", "Musique, radios, jeux", "13" }, { "▦", "Copies", "Cartes et réglages gardés", "14" } };
     PlusTab(Activity a) { super(a); }
 
     @Override View build() {

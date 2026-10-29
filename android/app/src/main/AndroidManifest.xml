@@ -20,6 +20,8 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- appui long sur l'icone : Lecture, Manette, Jeux, Recherche -->
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
             <!-- "Partager -> GC Station" : fichiers envoyes sur la carte SD de la console -->
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
@@ -37,6 +39,18 @@
             android:name=".PlaybackService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
+        <!-- tuile des reglages rapides (volet du haut) : lecture / pause -->
+        <service
+            android:name=".GcTile"
+            android:exported="true"
+            android:icon="@drawable/ic_tile"
+            android:label="@string/tile_label"
+            android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
+            <intent-filter>
+                <action android:name="android.service.quicksettings.action.QS_TILE" />
+            </intent-filter>
+            <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="false" />
+        </service>
         <!-- widget d'ecran d'accueil -->
         <receiver android:name=".GcWidget" android:exported="false" android:label="GC Station">
             <intent-filter>

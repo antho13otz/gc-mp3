@@ -55,7 +55,17 @@ abstract class Tab {
 // ---------------------------------------------------------------- Lecture
 class PlayerTab extends Tab {
     private ImageView cover;
-    private TextView title, sub, info, lyr, el, dur, vol, play;
+    private TextView title, sub, info, lyr, lyrPrev, lyrNext, el, dur, vol, play;
+    // paroles : [ms, texte] ; position = lyrPos + temps passe depuis lyrAt (si la lecture tourne)
+    private final List<Object[]> lyrics = new ArrayList<>();
+    private long lyrPos, lyrAt, lyrFetched;
+    private boolean lyrPlaying;
+    private String lyrKey = "";
+    private int lyrCur = -2;
+    private final Handler lh = new Handler(Looper.getMainLooper());
+    private LinearLayout fullList;
+    private android.widget.ScrollView fullScroll;
+    private final Runnable lyrTick = new Runnable() { public void run() { lyrUpdate(); if (!lyrics.isEmpty() && root != null && root.isShown()) lh.postDelayed(this, 100); } };
     private View fill;
     private FrameLayout bar;
     private String coverKey = "";
@@ -98,11 +108,16 @@ class PlayerTab extends Tab {
         info.setGravity(Gravity.CENTER);
         info.setSingleLine(true);
         v.addView(info, lp(-1, -2, 0));
-        lyr = Neon.text(a, "", 14, Neon.CYAN, false);
-        lyr.setGravity(Gravity.CENTER);
-        lyr.setMaxLines(2);
-        lyr.setPadding(0, dp(8), 0, 0);
-        v.addView(lyr, lp(-1, -2, 0));
+        LinearLayout lb = new LinearLayout(a);                 // paroles synchronisees : ligne d'avant, en cours, d'apres
+        lb.setOrientation(LinearLayout.VERTICAL);
+        lb.setPadding(0, dp(8), 0, 0);
+        lyrPrev = Neon.text(a, "", 13, Neon.FAINT, false);
+        lyr = Neon.glow(a, "", 16, Neon.CYAN);
+        lyrNext = Neon.text(a, "", 13, Neon.FAINT, false);
+        for (TextView t : new TextView[] { lyrPrev, lyr, lyrNext }) { t.setGravity(Gravity.CENTER); t.setMaxLines(2); t.setEllipsize(TextUtils.TruncateAt.END); lb.addView(t, lp(-1, -2, 0)); }
+        lyrPrev.setVisibility(View.GONE); lyrNext.setVisibility(View.GONE);
+        lb.setOnClickListener(x -> { if (!lyrics.isEmpty()) lyricsFull(); });
+        v.addView(lb, lp(-1, -2, 0));
         bar = new FrameLayout(a);                               // progression
         GradientDrawable track = new GradientDrawable();
         track.setColor(0x26FFFFFF);
@@ -143,6 +158,79 @@ class PlayerTab extends Tab {
         return v;
     }
 
+    private void fetchLyrics(final String key) {
+        final long asked = android.os.SystemClock.uptimeMillis();
+        Api.get("/api/lyrics", r -> {
+            if (!key.equals(lyrKey)) return;
+            JSONObject j = null;
+            try { if (r != null) j = new JSONObject(r); } catch (Exception e) { }
+            JSONArray l = j != null ? j.optJSONArray("l") : null;
+            boolean changed = l == null || l.length() != lyrics.size();
+            if (l == null || l.length() == 0) { if (!lyrics.isEmpty()) { lyrics.clear(); lyrPrev.setVisibility(View.GONE); lyrNext.setVisibility(View.GONE); lyrCur = -2; } return; }
+            if (changed) {
+                lyrics.clear();
+                for (int i = 0; i < l.length(); i++) { JSONArray e = l.optJSONArray(i); if (e != null) lyrics.add(new Object[] { e.optLong(0), e.optString(1) }); }
+                lyrCur = -2;
+                fullList = null;
+            }
+            long now = android.os.SystemClock.uptimeMillis();
+            lyrPos = j.optLong("pos") + (now - asked) / 2;           // (moitie du temps de la demande)
+            lyrAt = now;
+            lyrPlaying = j.optInt("play") != 0;
+            lyrPrev.setVisibility(View.VISIBLE); lyrNext.setVisibility(View.VISIBLE);
+            lh.removeCallbacks(lyrTick);
+            lh.post(lyrTick);
+        });
+    }
+
+    private long lyrNow() { return lyrPos + (lyrPlaying ? android.os.SystemClock.uptimeMillis() - lyrAt : 0) + 150; }
+
+    private void lyrUpdate() {
+        if (lyrics.isEmpty()) return;
+        long ms = lyrNow();
+        int c = -1;
+        for (int i = 0; i < lyrics.size(); i++) if ((Long) lyrics.get(i)[0] <= ms) c = i; else break;
+        if (c == lyrCur) return;
+        lyrCur = c;
+        Neon.set(lyrPrev, c > 0 ? (String) lyrics.get(c - 1)[1] : "");
+        Neon.set(lyr, c >= 0 ? (String) lyrics.get(c)[1] : "♪");
+        Neon.set(lyrNext, c + 1 < lyrics.size() ? (String) lyrics.get(c + 1)[1] : "");
+        lyr.setAlpha(0.3f); lyr.animate().alpha(1f).setDuration(220).start();
+        if (fullList != null && fullList.isShown()) {
+            for (int i = 0; i < fullList.getChildCount(); i++) {
+                TextView t = (TextView) fullList.getChildAt(i);
+                boolean on = i == c;
+                t.setTextColor(on ? Neon.CYAN : i < c ? Neon.FAINT : Neon.DIM);
+                t.setShadowLayer(on ? dp(10) : 0, 0, 0, Neon.CYAN);
+            }
+            if (c >= 0 && c < fullList.getChildCount()) {
+                View t = fullList.getChildAt(c);
+                fullScroll.smoothScrollTo(0, Math.max(0, t.getTop() - fullScroll.getHeight() / 2 + t.getHeight() / 2));
+            }
+        }
+    }
+
+    /** toutes les paroles, la ligne en cours suivie (karaoke) */
+    private void lyricsFull() {
+        fullList = new LinearLayout(a);
+        fullList.setOrientation(LinearLayout.VERTICAL);
+        for (Object[] e : lyrics) {
+            TextView t = Neon.text(a, (String) e[1], 18, Neon.DIM, true);
+            t.setGravity(Gravity.CENTER);
+            t.setPadding(0, dp(7), 0, dp(7));
+            fullList.addView(t);
+        }
+        fullScroll = new android.widget.ScrollView(a);
+        fullScroll.setVerticalScrollBarEnabled(false);
+        fullScroll.addView(fullList);
+        fullScroll.setLayoutParams(new LinearLayout.LayoutParams(-1, (int) (a.getResources().getDisplayMetrics().heightPixels * 0.55f)));
+        lyrCur = -2;
+        new NeonDialog(a).title(title.getText().toString()).view(fullScroll).onDismiss(() -> fullList = null).cancel("Fermer").show();
+        lh.post(lyrTick);
+    }
+
+    @Override void show() { if (!lyrics.isEmpty()) { lh.removeCallbacks(lyrTick); lh.post(lyrTick); } }
+
     private TextView round(String s, int size, boolean primary, View.OnClickListener l) {
         TextView b = Neon.btn(a, s, size > 60 ? 26 : 15, primary, l);
         b.setPadding(0, 0, 0, 0);
@@ -162,7 +250,13 @@ class PlayerTab extends Tab {
         Neon.set(title, t.isEmpty() ? "Rien en lecture" : t);
         Neon.set(sub, s.optString("sub", ""));
         Neon.set(info, s.optString("info", ""));
-        Neon.set(lyr, s.optString("lyr", ""));
+        String lk = t + "|" + s.optString("sub", "");
+        long now = android.os.SystemClock.uptimeMillis();
+        boolean pl = s.optInt("playing", 0) != 0;
+        boolean flip = pl != lyrPlaying;
+        if (flip) { lyrPos = lyrNow() - 150; lyrAt = now; lyrPlaying = pl; }
+        if (!lk.equals(lyrKey) || now - lyrFetched > (lyrics.isEmpty() ? 20000 : 10000) || (flip && !lyrics.isEmpty())) { lyrKey = lk; lyrFetched = now; fetchLyrics(lk); }
+        if (lyrics.isEmpty()) Neon.set(lyr, s.optString("lyr", ""));
         int e = s.optInt("el", 0), d = s.optInt("dur", 0);
         Neon.set(el, clock(e));
         Neon.set(dur, d > 0 ? clock(d) : "");
@@ -231,6 +325,18 @@ class ListTab extends Tab {
             view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
             Api.cmd(radio ? "radio" : "play", (int) id);
             Toast.makeText(a, (radio ? "Radio : " : "Lecture : ") + all.get((int) id)[0], Toast.LENGTH_SHORT).show();
+        });
+        if (!radio) lv.setOnItemLongClickListener((parent, view, pos, id) -> {   // appui long : file d'attente
+            view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+            final int k = (int) id;
+            new NeonDialog(a).title(all.get(k)[0]).message(all.get(k)[1])
+                .items(new String[] { "▶  Lire maintenant", "⤵  Lire juste après", "☰  Ajouter à la fin de la file" }, w -> {
+                    if (w == 0) { Api.cmd("play", k); return; }
+                    Api.get("/api/queueadd?i=" + k + "&d=" + (w == 1 ? 1 : 0), r -> {
+                        Toast.makeText(a, r != null && r.contains("\"ok\":1") ? (w == 1 ? "Joué juste après" : "Ajouté à la file") : "Pas possible (console à mettre à jour ?)", Toast.LENGTH_SHORT).show();
+                    });
+                }).cancel("Fermer").show();
+            return true;
         });
         v.addView(lv, lp(-1, 0, 1));
         root = v;
@@ -335,6 +441,11 @@ class PadTab extends Tab {
             public void afterTextChanged(Editable e) { }
         });
         kr.addView(kbField, lp(0, -2, 1));
+        TextView mic = Neon.btn(a, "🎤", 15, false, x -> listen());   // dictee : on parle, le texte part sur la tele
+        LinearLayout.LayoutParams mp = lp(dp(46), dp(42), 0);
+        mp.rightMargin = dp(6);
+        mic.setPadding(0, 0, 0, 0);
+        kr.addView(mic, mp);
         kr.addView(Neon.btn(a, "OK", 14, true, x -> sendText(true)), lp(-2, -2, 0));
         kbCard.addView(kr);
         kbCard.setVisibility(View.GONE);
@@ -377,14 +488,106 @@ class PadTab extends Tab {
         st.setGravity(Gravity.CENTER);
         TextView start = key("START", "start", false);
         st.addView(start, new LinearLayout.LayoutParams(dp(120), dp(40)));
+        TextView full = Neon.btn(a, "⛶  Plein écran", 13, false, x -> ((MainActivity) a).fullPad(true));
+        LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-2, dp(40));
+        fp.leftMargin = dp(12);
+        st.addView(full, fp);
         v.addView(st, lp(-1, -2, 0));
 
         TextView tl = Neon.text(a, "Pavé tactile : pointeur de Cube Browser (toucher = clic, deux doigts = défiler)", 12, Neon.DIM, false);
         tl.setPadding(dp(4), dp(14), 0, dp(6));
         v.addView(tl, lp(-1, -2, 0));
         v.addView(touchpad(), lp(-1, 0, 1));
-        root = v;
-        return v;
+        FrameLayout f = new FrameLayout(a);
+        f.addView(v, new FrameLayout.LayoutParams(-1, -1));
+        portrait = v;
+        root = f;
+        return f;
+    }
+
+    // ---------- manette en paysage, plein ecran : croix a gauche, pave tactile au milieu, boutons a droite ----------
+    static final int REQ_VOICE = 11;
+    private View portrait, land;
+    void setLand(boolean on) {
+        FrameLayout f = (FrameLayout) root;
+        if (on && land == null) { land = buildLand(); f.addView(land, new FrameLayout.LayoutParams(-1, -1)); }
+        portrait.setVisibility(on ? View.GONE : View.VISIBLE);
+        if (land != null) land.setVisibility(on ? View.VISIBLE : View.GONE);
+    }
+    private View buildLand() {
+        LinearLayout h = new LinearLayout(a);
+        h.setGravity(Gravity.CENTER_VERTICAL);
+        h.setPadding(dp(18), dp(10), dp(18), dp(10));
+        LinearLayout left = new LinearLayout(a);              // L + Z, croix
+        left.setOrientation(LinearLayout.VERTICAL);
+        left.setGravity(Gravity.CENTER_HORIZONTAL);
+        LinearLayout lz = new LinearLayout(a);
+        lz.addView(key("L", "l", false), lp(0, dp(46), 1));
+        lz.addView(space(), lp(dp(8), 1, 0));
+        lz.addView(key("Z", "z", false), lp(0, dp(46), 1));
+        left.addView(lz, lp(-1, -2, 0));
+        GridLayout dpad = new GridLayout(a);
+        dpad.setColumnCount(3);
+        String[][] d = { { null, null }, { "▲", "up" }, { null, null }, { "◀", "left" }, { "●", null }, { "▶", "right" }, { null, null }, { "▼", "down" }, { null, null } };
+        for (String[] k : d) {
+            View b = k[0] == null ? space() : k[1] == null ? centerDot() : key(k[0], k[1], false);
+            GridLayout.LayoutParams g = new GridLayout.LayoutParams();
+            g.width = dp(62); g.height = dp(62);
+            g.setMargins(dp(3), dp(3), dp(3), dp(3));
+            dpad.addView(b, g);
+        }
+        LinearLayout.LayoutParams dl = lp(-2, -2, 0);
+        dl.topMargin = dp(14);
+        left.addView(dpad, dl);
+        h.addView(left, lp(0, -2, 1));
+        LinearLayout mid = new LinearLayout(a);               // pave tactile + START + sortie
+        mid.setOrientation(LinearLayout.VERTICAL);
+        mid.setPadding(dp(16), 0, dp(16), 0);
+        mid.addView(touchpad(), lp(-1, 0, 1));
+        LinearLayout sr = new LinearLayout(a);
+        sr.setGravity(Gravity.CENTER);
+        sr.setPadding(0, dp(10), 0, 0);
+        sr.addView(key("START", "start", false), new LinearLayout.LayoutParams(dp(110), dp(42)));
+        TextView out = Neon.btn(a, "✕", 15, false, x -> ((MainActivity) a).fullPad(false));
+        out.setPadding(0, 0, 0, 0);
+        LinearLayout.LayoutParams ol = new LinearLayout.LayoutParams(dp(42), dp(42));
+        ol.leftMargin = dp(12);
+        sr.addView(out, ol);
+        mid.addView(sr, lp(-1, -2, 0));
+        h.addView(mid, lp(0, -1, 1.5f));
+        LinearLayout right = new LinearLayout(a);             // R, A B X Y
+        right.setOrientation(LinearLayout.VERTICAL);
+        right.setGravity(Gravity.CENTER_HORIZONTAL);
+        right.addView(key("R", "r", false), lp(-1, dp(46), 0));
+        FrameLayout abxy = new FrameLayout(a);
+        abxy.addView(face("A", "a", 0xFF2FE08A, 80), at(dp(48), dp(52), dp(80)));
+        abxy.addView(face("B", "b", 0xFFFF4D6D, 52), at(dp(0), dp(110), dp(52)));
+        abxy.addView(face("X", "x", Neon.CYAN, 52), at(dp(132), dp(34), dp(52)));
+        abxy.addView(face("Y", "y", Neon.VIOLET, 52), at(dp(52), dp(0), dp(52)));
+        LinearLayout.LayoutParams al = new LinearLayout.LayoutParams(dp(186), dp(166));
+        al.topMargin = dp(14);
+        right.addView(abxy, al);
+        h.addView(right, lp(0, -2, 1));
+        return h;
+    }
+
+    // ---------- dictee ----------
+    private void listen() {
+        Intent i = new Intent(android.speech.RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE_MODEL, android.speech.RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault().toLanguageTag());
+        i.putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Parle : le texte s'écrit sur la télé");
+        try { a.startActivityForResult(i, REQ_VOICE); }
+        catch (Exception e) { Toast.makeText(a, "Pas de reconnaissance vocale sur ce téléphone", Toast.LENGTH_LONG).show(); }
+    }
+    /** texte dicte : ajoute au champ et envoye (OK pour valider) */
+    void voice(String t) {
+        if (t == null || t.isEmpty()) return;
+        String old = kbField.getText().toString();
+        kbField.setText(old.isEmpty() ? t : old + (old.endsWith(" ") ? "" : " ") + t);
+        kbField.setSelection(kbField.getText().length());
+        kbField.requestFocus();
+        sendText(false);
     }
 
     private View space() { return new View(a); }

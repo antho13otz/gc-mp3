@@ -54,8 +54,12 @@ public class MainActivity extends Activity {
     private static final String[] TAB_ICON = { "▶", "♫", "◉", "✚", "◈" };
     private static final String[] TAB_NAME = { "Lecture", "Musique", "Radio", "Manette", "Plus" };
     // ecrans : 0-3 onglets, 4 Plus (grille), 5 et suivants : ouverts depuis Plus (avec une fleche retour)
-    static final int T_FILES = 5, T_GAMES = 6, T_PHOTOS = 7, T_QUEUE = 8, T_SETTINGS = 9, T_CARDS = 10, T_SALON = 11, T_TOOLS = 12, NT = 13;
-    static final String[] SUB_NAME = { "", "", "", "", "", "Fichiers", "Jeux", "Photos", "File d'attente", "R\u00e9glages", "Cartes m\u00e9moire", "Salon", "Outils" };
+    static final int T_FILES = 5, T_GAMES = 6, T_PHOTOS = 7, T_QUEUE = 8, T_SETTINGS = 9, T_CARDS = 10, T_SALON = 11, T_TOOLS = 12, T_SEARCH = 13, T_COPIES = 14, NT = 15;
+    static final String[] SUB_NAME = { "", "", "", "", "", "Fichiers", "Jeux", "Photos", "File d'attente", "R\u00e9glages", "Cartes m\u00e9moire", "Salon", "Outils", "Recherche", "Copies" };
+    static final String ACT_GAME = "fr.gcstation.JEU", ACT_TAB = "fr.gcstation.ONGLET_";   // (raccourcis : un jeu, un ecran)
+    private Intent pendingGame;
+    private LinearLayout header;
+    private boolean full;
 
     private final Handler ui = new Handler(Looper.getMainLooper());
     private AuroraView aurora;
@@ -110,6 +114,7 @@ public class MainActivity extends Activity {
         gear.setPadding(0, 0, 0, 0);
         top.addView(gear, new LinearLayout.LayoutParams(dp(44), dp(44)));
         col.addView(top);
+        header = top;
 
         mini = new LinearLayout(this);                          // mini-lecteur (sauf sur Lecture)
         mini.setGravity(Gravity.CENTER_VERTICAL);
@@ -192,6 +197,8 @@ public class MainActivity extends Activity {
         tabs[T_CARDS] = new CardsTab(this);
         tabs[T_SALON] = new SalonTab(this);
         tabs[T_TOOLS] = new ToolsTab(this);
+        tabs[T_SEARCH] = new SearchTab(this);
+        tabs[T_COPIES] = new CopiesTab(this);
         for (int i = 0; i < NT; i++) {
             tabViews[i] = tabs[i].build();
             tabViews[i].setVisibility(View.GONE);
@@ -208,6 +215,7 @@ public class MainActivity extends Activity {
             requestPermissions(new String[] { "android.permission.POST_NOTIFICATIONS" }, 1);
         Api.host = prefs().getString("host", null);
         if (isShare(getIntent())) pendingShare = getIntent();
+        else shortcut(getIntent());
         start();
     }
 
@@ -232,6 +240,7 @@ public class MainActivity extends Activity {
 
     void select(int k) {
         if (k == cur) return;
+        if (full && k != 3) fullPad(false);
         for (int i = 0; i < NT; i++) tabViews[i].setVisibility(i == k ? View.VISIBLE : View.GONE);
         int nk = k >= 4 ? 4 : k;
         for (int i = 0; i < 5; i++) {
@@ -304,6 +313,8 @@ public class MainActivity extends Activity {
         ui.removeCallbacks(poll);
         ui.post(poll);
         if (pendingShare != null) { Intent i = pendingShare; pendingShare = null; share(i); }
+        if (pendingGame != null) { Intent i = pendingGame; pendingGame = null; launchGame(i); }
+        Backup.auto(this);                                      // (copie des cartes et reglages, une fois par jour)
     }
 
     private static List<String> localPrefixes() {
@@ -429,6 +440,7 @@ public class MainActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (full) { fullPad(false); return; }
         if (panel.getVisibility() != View.VISIBLE && cur >= T_FILES) select(4);
         else if (panel.getVisibility() != View.VISIBLE && cur != 0) select(0);
         else super.onBackPressed();
@@ -439,6 +451,43 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent i) {
         super.onNewIntent(i);
         if (isShare(i)) { if (connected) share(i); else pendingShare = i; }
+        else shortcut(i);
+    }
+
+    /** raccourcis : un ecran (appui long sur l'icone) ou un jeu a lancer (icone d'un jeu sur l'ecran d'accueil) */
+    private void shortcut(Intent i) {
+        String act = i != null ? i.getAction() : null;
+        if (act == null) return;
+        if (act.startsWith(ACT_TAB)) {
+            try { int k = Integer.parseInt(act.substring(ACT_TAB.length())); if (k >= 0 && k < NT) select(k); } catch (Exception e) { }
+        } else if (ACT_GAME.equals(act)) {
+            if (connected) launchGame(i); else pendingGame = i;
+        }
+    }
+    private void launchGame(Intent i) {
+        select(T_GAMES);
+        GamesTab.launch(this, i.getStringExtra("id"), 0, 1, i.getStringExtra("nom"));
+    }
+    void openGame(org.json.JSONArray x) { select(T_GAMES); ((GamesTab) tabs[T_GAMES]).sheet(x); }
+
+    /** manette en plein ecran (paysage) : sans en-tete, mini-lecteur ni barre d'onglets */
+    void fullPad(boolean on) {
+        full = on;
+        if (on) select(3);
+        setRequestedOrientation(on ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
+        int vis = on ? View.GONE : View.VISIBLE;
+        header.setVisibility(vis);
+        nav.setVisibility(vis);
+        mini.setVisibility(on || cur == 0 ? View.GONE : View.VISIBLE);
+        ((PadTab) tabs[3]).setLand(on);
+        if (android.os.Build.VERSION.SDK_INT >= 30) {
+            android.view.WindowInsetsController c = getWindow().getInsetsController();
+            if (c != null) {
+                if (on) { c.hide(android.view.WindowInsets.Type.systemBars()); c.setSystemBarsBehavior(android.view.WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE); }
+                else c.show(android.view.WindowInsets.Type.systemBars());
+            }
+        }
+        getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
     }
 
     private static boolean isShare(Intent i) {
@@ -465,6 +514,11 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
         if (res != RESULT_OK || data == null) return;
+        if (req == PadTab.REQ_VOICE) {
+            java.util.ArrayList<String> r = data.getStringArrayListExtra(android.speech.RecognizerIntent.EXTRA_RESULTS);
+            if (r != null && !r.isEmpty()) ((PadTab) tabs[3]).voice(r.get(0));
+            return;
+        }
         if ((req == CardsTab.REQ_GCI || req == CardsTab.REQ_RAW) && data.getData() != null && CardsTab.pendingCard != null) { cardFile(data.getData(), CardsTab.pendingCard, req == CardsTab.REQ_RAW); return; }
         if (req != FilesTab.REQ_SEND) return;
         List<Uri> uris = new ArrayList<>();
