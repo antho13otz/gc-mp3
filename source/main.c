@@ -1325,12 +1325,26 @@ static void gcd_tidy(void) {
 }
 
 static int sd_slot = -1;                               /* v26 : 0 = SD2SP2, 1 = slot A, 2 = slot B (pour le lanceur de secours) */
+/* v265 : secteurs lus / ecrits sur la carte SD (test de la console : ce qui se passait pendant un blocage) :
+   la carte est montee a travers une copie de son interface qui compte, puis appelle la vraie */
+static volatile u32 sd_rd_sec = 0, sd_wr_sec = 0;
+static const DISC_INTERFACE *sd_real_if = NULL;
+static DISC_INTERFACE sd_cnt_if;
+static bool sd_cnt_read(sec_t s, sec_t n, void *b) { sd_rd_sec += (u32)n; return sd_real_if->readSectors(s, n, b); }
+static bool sd_cnt_write(sec_t s, sec_t n, const void *b) { sd_wr_sec += (u32)n; return sd_real_if->writeSectors(s, n, b); }
+static int sd_mount_cnt(const DISC_INTERFACE *i) {
+    sd_real_if = i;
+    sd_cnt_if = *i;
+    sd_cnt_if.readSectors = sd_cnt_read;
+    sd_cnt_if.writeSectors = sd_cnt_write;
+    return fatMount("sd", &sd_cnt_if, 0, 8, 64);
+}
 static int mount_sd(void) {
     /* v97 : cache de libfat double (8 pages de 64 secteurs = 256 Ko au lieu de 128) : sur une grosse carte
        (1 To, FAT de 120 Mo), les chaines de clusters et les dossiers sont relus bien moins souvent */
-    if (fatMount("sd", &__io_gcsd2, 0, 8, 64)) { sd_slot = 0; return 1; }   // SD2SP2 (port serie 2)
-    if (fatMount("sd", &__io_gcsda, 0, 8, 64)) { sd_slot = 1; return 1; }   // SD Gecko slot A
-    if (fatMount("sd", &__io_gcsdb, 0, 8, 64)) { sd_slot = 2; return 1; }   // SD Gecko slot B
+    if (sd_mount_cnt(&__io_gcsd2)) { sd_slot = 0; return 1; }   // SD2SP2 (port serie 2)
+    if (sd_mount_cnt(&__io_gcsda)) { sd_slot = 1; return 1; }   // SD Gecko slot A
+    if (sd_mount_cnt(&__io_gcsdb)) { sd_slot = 2; return 1; }   // SD Gecko slot B
     return 0;
 }
 
@@ -1942,8 +1956,10 @@ static int bio_send(void *ctx, const unsigned char *buf, size_t len) {
     return r < 0 ? MBEDTLS_ERR_SSL_INTERNAL_ERROR : (int)r;
 }
 
+static volatile u32 net_rx_bytes = 0;                   /* v265 : octets recus (test de la console : cause des blocages) */
 static int bio_recv(void *ctx, unsigned char *buf, size_t len) {
     s32 r = net_recv(*(s32 *)ctx, buf, (s32)len, 0);
+    if (r > 0) net_rx_bytes += (u32)r;
     if (r == -EAGAIN || r == -EWOULDBLOCK) return MBEDTLS_ERR_SSL_WANT_READ;
     return r < 0 ? MBEDTLS_ERR_SSL_INTERNAL_ERROR : (int)r;     /* 0 = connexion fermee */
 }
@@ -1980,7 +1996,7 @@ static void conn_close(conn_t *c) {
 /* Recoit sans bloquer : > 0 octets lus, 0 fin du flux, -EAGAIN rien pour l'instant, < 0 erreur. */
 static int conn_recv(conn_t *c, unsigned char *buf, int len) {
     if (c->fd < 0) return -EIO;
-    if (!c->tls) return net_recv(c->fd, buf, len, 0);
+    if (!c->tls) { int r = net_recv(c->fd, buf, len, 0); if (r > 0) net_rx_bytes += (u32)r; return r; }
     for (;;) {
         if (!tls_try()) return -EAGAIN;                    /* v83 : (le fil des connexions calcule : a l'image suivante) */
         int r = mbedtls_ssl_read(&c->ssl, buf, (size_t)len);

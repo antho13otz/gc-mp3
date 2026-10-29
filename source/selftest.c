@@ -15,7 +15,7 @@
 
 #define SX_FILE GCD_LOG "/test-console.txt"
 #define SX_OLD GCD_LOG "/test-console-ancien.txt"
-enum { SX_IDLE, SX_INTRO, SX_BENCH, SX_NET, SX_SOUND, SX_RADIO, SX_TOUR, SX_SCRIPT, SX_STRESS, SX_DONE };
+enum { SX_IDLE, SX_INTRO, SX_BENCH, SX_NET, SX_SOUND, SX_RADIO, SX_NETUSE, SX_TOUR, SX_SCRIPT, SX_STRESS, SX_DONE };   /* (v265 : SX_NETUSE) */
 static int sx_state = SX_IDLE, sx_full = 1, sx_page = 0;
 static u64 sx_t = 0, sx_t0 = 0;
 static int sx_tabs[TAB_COUNT], sx_ntabs = 0, sx_i = 0, sx_sub = 0, sx_music = 0, sx_aborted = 0, sx_tab0 = 0, sx_pass = 0;
@@ -59,8 +59,8 @@ static int sx_radio = 0;                         /* 0 pas essaye, 1 ok, 2 pas de
 static u32 sx_radio_ms = 0, sx_radio_gap = 0;
 
 /* images par moment du test */
-enum { SB_SOUND, SB_RADIO, SB_TOUR1, SB_TOUR2, SB_SCRIPT, SB_STRESS, SB_N };
-static const char *const sx_sb_name[SB_N] = { "formats audio", "radio", "parcours 1", "parcours 2", "GC Station", "stress" };
+enum { SB_SOUND, SB_RADIO, SB_NETU, SB_TOUR1, SB_TOUR2, SB_SCRIPT, SB_STRESS, SB_N };
+static const char *const sx_sb_name[SB_N] = { "formats audio", "radio", "réseau en vrai", "parcours 1", "parcours 2", "GC Station", "stress" };
 static u32 sx_sb_frames[SB_N], sx_sb_slow[SB_N], sx_sb_worst[SB_N];
 static int sx_sb = -1;
 static u32 sx_fb_frames = 0, sx_fb_slow = 0;     /* (format en cours) */
@@ -68,7 +68,9 @@ static u32 sx_mem_p1 = 0, sx_mem_p2 = 0, sx_mem_end = 0;   /* memoire libre apre
 
 /* images bloquees (150 ms et plus) */
 #define SX_NS 24
-typedef struct { u32 ms, top_us, stolen_us, dsec_us; u16 bg; u8 tab, sb, top; const char *dsec; } sxs_t;
+typedef struct { u32 ms, top_us, stolen_us, dsec_us; u16 bg; u8 tab, sb, top; const char *dsec;
+                 u16 dma, dexp; u32 sdk, netk; } sxs_t;      /* v265 : pendant l'image : fins de bloc du son (et attendues), Ko lus/ecrits sur la SD, Ko recus du reseau */
+static u32 sx_f_cb = 0, sx_f_sd = 0, sx_f_net = 0;  /* (compteurs a l'image d'avant) */
 static sxs_t sx_st[SX_NS];
 static int sx_nst = 0;
 static u32 sx_nst_all = 0, sx_st_500 = 0;
@@ -117,8 +119,8 @@ static size_t sx_cfg0_n = 0;
 static char sx_cfg_diff[6][72];
 static int sx_cfg_nd = 0;
 
-enum { IP_FMT, IP_SEEK, IP_TOOL, IP_GAME, IP_SKIN, IP_THEME, IP_LAYOUT, IP_VIZ, IP_SAVER, IP_SEASON, IP_LANG, IP_SET, IP_MEDIA, IP_N };
-static const char *const sx_ip_name[IP_N] = { "Formats audio", "Sauts dans les morceaux", "Outils", "Mini-jeux", "Styles sur chaque onglet", "Couleurs", "Dispositions du lecteur",
+enum { IP_FMT, IP_SEEK, IP_NET, IP_TOOL, IP_GAME, IP_SKIN, IP_THEME, IP_LAYOUT, IP_VIZ, IP_SAVER, IP_SEASON, IP_LANG, IP_SET, IP_MEDIA, IP_N };
+static const char *const sx_ip_name[IP_N] = { "Formats audio", "Sauts dans les morceaux", "Réseau en vrai (musique en fond)", "Outils", "Mini-jeux", "Styles sur chaque onglet", "Couleurs", "Dispositions du lecteur",
     "Spectres", "Économiseurs d'écran", "Décors", "Interface en anglais", "Réglages (changés puis remis)", "Photos et vidéos" };
 #define SX_NI 260
 typedef struct { char nm[64]; u8 ph, st; u16 slow; u32 worst_us, frames; s32 dmem; } sxi_t;   /* st : 0 ok, 1 probleme, 2 pas disponible */
@@ -494,6 +496,9 @@ static void sx_script_tick(u64 n) {
 
 /* ---------- images : appele par perf_frame (main.c) a chaque image mesuree ---------- */
 static void sx_frame_hook(u32 tot, int tb, int top, u32 top_us) {
+    u32 cbn = cb_n, sdn = sd_rd_sec + sd_wr_sec, nbn = net_rx_bytes;
+    u32 d_cb = cbn - sx_f_cb, d_sd = sdn - sx_f_sd, d_net = nbn - sx_f_net;   /* (v265 : ce qui s'est passe pendant cette image) */
+    sx_f_cb = cbn; sx_f_sd = sdn; sx_f_net = nbn;
     if (sx_state < SX_SOUND || sx_state > SX_STRESS) return;
     int slow = tot > VID_SLOW_US;
     if (sx_sb >= 0) { sx_sb_frames[sx_sb]++; if (slow) sx_sb_slow[sx_sb]++; if (tot > sx_sb_worst[sx_sb]) sx_sb_worst[sx_sb] = tot; }
@@ -514,6 +519,9 @@ static void sx_frame_hook(u32 tot, int tb, int top, u32 top_us) {
     s->ms = tot / 1000u; s->tab = (u8)tb; s->sb = (u8)(sx_sb < 0 ? 0 : sx_sb); s->top = (u8)top; s->top_us = top_us;
     s->stolen_us = pfx_stolen_acc;                   /* (pris pendant cette image : pas encore range dans pfx_cur) */
     s->dsec = dp_top_n; s->dsec_us = dp_top_us;
+    s->dma = (u16)(d_cb > 65535u ? 65535u : d_cb);
+    { u32 e = (u32)((u64)tot * 48u / 1000u / DMA_SAMPLES); s->dexp = (u16)(e > 65535u ? 65535u : e); }   /* (un bloc = DMA_SAMPLES / 48 ms) */
+    s->sdk = d_sd / 2u; s->netk = d_net / 1024u;
     u16 bg = 0;
     if (cw_state == 1 || cw_state == 2) bg |= BG_COVER;
     if (lsc_qh != lsc_qt) bg |= BG_LIST;
@@ -799,6 +807,7 @@ static int sx_net_pump(void) {                              /* 1 = tout fini */
 /* ---------- 3. son : chaque format, une radio ---------- */
 static void sx_radio_start(void);
 static void sx_tour_start(int pass);
+static void sx_netuse_start(void);
 static void sx_sound_start(void) {
     sx_fmt_n = 0; sx_fmt_i = -1; sx_sub = 0;
     static const int fm[SX_NF] = { FMT_MP3, FMT_FLAC, FMT_OGG, FMT_WAV, FMT_M4A, FMT_GME, FMT_XMP, FMT_GCN, FMT_MID };
@@ -874,14 +883,114 @@ static void sx_radio_start(void) {
 static void sx_radio_tick(u64 n) {
     if (sx_sub == 0) {                               /* connexion */
         if (src == SRC_RADIO && state == ST_PLAY) { sx_radio_ms = (u32)(n - sx_t0); sx_mark_gap = au_gap_ev; sx_sub = 1; sx_t = n + 10000; return; }
-        if (n - sx_t0 > 20000 || state == ST_ERROR || src != SRC_RADIO) { sx_radio = n - sx_t0 > 20000 ? 2 : 4; stop_station(); sx_tour_start(1); }
+        if (n - sx_t0 > 20000 || state == ST_ERROR || src != SRC_RADIO) { sx_radio = n - sx_t0 > 20000 ? 2 : 4; stop_station(); sx_netuse_start(); }
         return;
     }
     if (n < sx_t) return;
     sx_radio_gap = au_gap_ev - sx_mark_gap;
     sx_radio = 1;
     stop_station();
-    sx_tour_start(1);
+    sx_netuse_start();
+}
+
+/* ---------- 3 bis. v265 : reseau en vrai, avec de la musique en fond ----------
+   Un gros telechargement ecrit sur la carte SD, une page web dans Cube Browser, une radio en AAC : pour chacun,
+   les trous du son et les images bloquees (avec leur cause, voir sxs_t). */
+#define SX_DL_URL  "https://raw.githubusercontent.com/%s/main/android/app/src/main/res/raw/terre_sdf.bin"   /* (3,5 Mo) */
+#define SX_DL_FILE GCD "/cache/test-telechargement.bin"
+#define SX_WEB_URL "https://fr.wikipedia.org/wiki/Nintendo_GameCube"
+#define SX_AAC_URL "https://icecast.radiofrance.fr/fip-hifi.aac?id=radiofrance"
+static hfetch_t sx_dl;
+static FILE *sx_dl_f = NULL;
+static u32 sx_nu_ms = 0;
+static void sx_nu_note(const char *fmt, ...) {               /* (ajoute au nom de l'element en cours) */
+    if (sx_ci < 0) return;
+    char *nm = sx_it[sx_ci].nm;
+    size_t l = strlen(nm);
+    va_list ap; va_start(ap, fmt); vsnprintf(nm + l, sizeof(sx_it[0].nm) - l, fmt, ap); va_end(ap);
+}
+static void sx_nu_close(void) {                              /* (arret : telechargement, fichier, radio) */
+    if (sx_dl.st != HF_IDLE) { if (sx_dl.st == HF_DONE || sx_dl.st == HF_FAIL) hf_drop(&sx_dl); else hf_abort(&sx_dl); sx_dl.st = HF_IDLE; }
+    sx_dl.sink = NULL;
+    if (sx_dl_f) { fclose(sx_dl_f); sx_dl_f = NULL; remove(SX_DL_FILE); }
+}
+static void sx_netuse_start(void) {
+    if (!sx_total || net_phase != NET_DONE || !net_ok) { sx_tour_start(1); return; }   /* (test total seulement : resultats dans la liste des elements) */
+    sx_sb = SB_NETU;
+    sx_state = SX_NETUSE; sx_sub = 0; sx_t = now_ms();
+}
+static void sx_netuse_tick(u64 n) {
+    if (n < sx_t) return;
+    switch (sx_sub) {
+    case 0: {                                                /* gros telechargement, ecrit sur la carte SD */
+        if (src == SRC_RADIO) stop_station();
+        if (!(src == SRC_FILE && playing) && nfiles > 0) {
+            int k = -1;
+            for (int i = 0; i < nfiles && k < 0; i++) if (!is_retro[i]) k = i;
+            if (k >= 0) start_track(k);
+        }
+        menu_open = 0; tl_screen = TL_NONE; tab = TAB_MUSIC; tab_enter(tab);
+        sx_item_begin(IP_NET, "Téléchargement de 3,5 Mo sur la carte SD");
+        mkdir(GCD "/cache", 0777);
+        sx_dl_f = sd_ok && !sd_virtual ? fopen(SX_DL_FILE, "wb") : NULL;
+        if (!sx_dl_f) { sx_nu_note(" : pas de carte SD"); sx_item_end(2); sx_sub = 2; return; }
+        memset(&sx_dl, 0, sizeof(sx_dl));
+        sx_dl.maxbytes = 8 * 1024 * 1024; sx_dl.accept = "*/*"; sx_dl.sink = sx_dl_f;
+        char url[256];
+        snprintf(url, sizeof(url), SX_DL_URL, upd_repo);
+        hf_start(&sx_dl, url, NULL);
+        sx_t0 = n; sx_mark_gap = au_gap_ev; sx_sub = 1;
+        return; }
+    case 1: {
+        hf_pump(&sx_dl);
+        if (sx_dl.st != HF_DONE && sx_dl.st != HF_FAIL && n - sx_t0 < 60000) return;
+        u32 ms = (u32)(n - sx_t0), b = sx_dl.len > 0 ? (u32)sx_dl.len : 0, gaps = au_gap_ev - sx_mark_gap;
+        int ok = sx_dl.st == HF_DONE && !sx_dl.sink_err;
+        sx_nu_close();
+        sx_nu_note(" : %u Ko en %u,%u s (%u Ko/s), %u trous du son%s", (unsigned)(b / 1024u), (unsigned)(ms / 1000u), (unsigned)(ms % 1000u / 100u),
+                   (unsigned)(ms ? (u64)b * 1000ull / 1024ull / ms : 0), (unsigned)gaps, ok ? "" : ms >= 60000 ? ", pas fini en 60 s" : ", échec");
+        sx_item_end(ok ? (gaps ? 1 : 0) : 1);
+        sx_sub = 2;
+        return; }
+    case 2:                                                  /* une page web (Cube Browser) */
+        if (!tab_shown(TAB_WEB)) { sx_item_begin(IP_NET, "Page web (onglet caché)"); sx_item_end(2); sx_sub = 4; return; }
+        sx_item_begin(IP_NET, "Page web (Wikipédia, Cube Browser)");
+        menu_open = 0; tl_screen = TL_NONE; tab = TAB_WEB; tab_enter(tab);
+        cb_navigate(SX_WEB_URL);
+        sx_mark_gap = au_gap_ev; sx_t = n + 15000; sx_sub = 3;
+        return;
+    case 3: {
+        u32 gaps = au_gap_ev - sx_mark_gap;
+        sx_nu_note(" : 15 s, %u trous du son", (unsigned)gaps);
+        sx_item_end(gaps ? 1 : 0);
+        tab = TAB_MUSIC; tab_enter(tab);
+        sx_sub = 4; sx_t = n + 800;
+        return; }
+    case 4:                                                  /* une radio en AAC */
+        stop_track();
+        sx_item_begin(IP_NET, "Radio en AAC (FIP)");
+        if (nstations >= MAX_STATIONS) { sx_item_end(2); sx_sub = 7; return; }
+        snprintf(stations[nstations].name, sizeof(stations[0].name), "%s", "FIP (test)");   /* (comme une radio du globe : pas ajoutee a la liste) */
+        snprintf(stations[nstations].url, sizeof(stations[0].url), "%s", SX_AAC_URL);
+        start_station(nstations, 0);
+        tab = TAB_RADIO; tab_enter(tab);
+        sx_t0 = n; sx_sub = 5;
+        return;
+    case 5:
+        if (src == SRC_RADIO && state == ST_PLAY) { sx_nu_ms = (u32)(n - sx_t0); sx_mark_gap = au_gap_ev; sx_sub = 6; sx_t = n + 10000; return; }
+        if (n - sx_t0 > 20000 || state == ST_ERROR || src != SRC_RADIO) { sx_nu_note(" : pas de son"); sx_item_end(1); stop_station(); sx_sub = 7; }
+        return;
+    case 6: {
+        u32 gaps = au_gap_ev - sx_mark_gap;
+        sx_nu_note(" : %s, connectée en %u ms, %u trous sur 10 s", stream_codec == 1 ? "AAC" : stream_codec == 2 ? "OGG" : stream_codec == 3 ? "M4A" : "MP3", (unsigned)sx_nu_ms, (unsigned)gaps);
+        sx_item_end(gaps ? 1 : 0);
+        stop_station();
+        sx_sub = 7;
+        return; }
+    default:
+        tab = TAB_MUSIC; tab_enter(tab);
+        sx_tour_start(1);
+    }
 }
 
 /* ---------- 4. parcours (deux passages en test complet), puis stress ---------- */
@@ -940,11 +1049,13 @@ static void sx_tick(void) {
     if (PAD_ButtonsDown(0) & PAD_BUTTON_B) {
         if (sx_state == SX_SOUND) stop_track();
         if (sx_state == SX_RADIO) stop_station();
+        if (sx_state == SX_NETUSE) { sx_nu_close(); if (src == SRC_RADIO) stop_station(); }
         if (sx_state == SX_SCRIPT) { if (sx_ks && sx_k < sx_nk) sx_k_end(&sx_ks[sx_k]); sx_item_end(0); sx_reset_ui(); }
         sx_aborted = 1; sx_finish(); return;
     }
     if (sx_state == SX_SOUND) { sx_sound_tick(n); return; }
     if (sx_state == SX_RADIO) { sx_radio_tick(n); return; }
+    if (sx_state == SX_NETUSE) { sx_netuse_tick(n); return; }
     if (sx_state == SX_STRESS) { sx_stress_tick(n); return; }
     if (sx_state == SX_SCRIPT) { sx_script_tick(n); return; }
     if (n < sx_t) return;
@@ -985,7 +1096,12 @@ static void sx_d(int lv, const char *fmt, ...) {
 static const char *sx_tabn(int t) { return t >= 0 && t < TAB_COUNT ? tab_names[t] : "menu / outils"; }
 /* cause d'une image bloquee, en clair */
 static void sx_cause(char *o, int cap, const sxs_t *s) {
-    if (s->stolen_us * 2 >= s->ms * 1000u) snprintf(o, cap, "processeur pris (réseau, interruptions)");
+    if (s->stolen_us * 2 >= s->ms * 1000u) {         /* v265 : pris par quoi ? */
+        if (s->dexp >= 4 && s->dma * 2u < s->dexp) snprintf(o, cap, "interruptions coupées (le son lui-même s'est arrêté)");
+        else if (s->netk >= 24) snprintf(o, cap, "réseau : %u Ko reçus pendant l'image", (unsigned)s->netk);
+        else if (s->sdk >= 32) snprintf(o, cap, "carte SD : %u Ko lus ou écrits pendant l'image", (unsigned)s->sdk);
+        else snprintf(o, cap, "un fil plus prioritaire (pile réseau ou autre ; ni SD ni données reçues)");
+    }
     else if (s->top == PH_DRAW && s->dsec && s->dsec_us * 2 >= s->top_us) snprintf(o, cap, "dessin : %s", s->dsec);
     else if (s->top == PH_DRAW) snprintf(o, cap, "dessin (réparti)");
     else snprintf(o, cap, "%s", s->top < PH_N ? pfx_names[s->top] : "?");
@@ -1286,6 +1402,7 @@ static void sx_finish(void) {
             sx_pad(sb, sizeof(sb), sx_sb_name[s->sb < SB_N ? s->sb : 0], 14);
             SXP("%5u ms  %s %s : %s", (unsigned)s->ms, sb, sx_tabn(s->tab), cs);
             if (s->stolen_us >= 20000) SXP(" ; processeur pris %u ms", (unsigned)(s->stolen_us / 1000u));
+            SXP(" ; son %u/%u blocs, SD %u Ko, réseau %u Ko", (unsigned)s->dma, (unsigned)s->dexp, (unsigned)s->sdk, (unsigned)s->netk);   /* v265 */
             if (s->dsec && s->dsec_us >= 20000) SXP(" ; dessin le plus long : %s %u ms", s->dsec, (unsigned)(s->dsec_us / 1000u));
             if (bgt[0]) SXP(" ; en fond : %s", bgt);
             SXP("\n");
@@ -1548,6 +1665,7 @@ static void sx_overlay(void) {
     char b[160];
     if (sx_state == SX_SOUND) snprintf(b, sizeof(b), "Test : format audio %s  -  B : arrêter", sx_fmt_i >= 0 && sx_fmt_i < SX_NF ? sx_fmt_name[sx_fmt_i] : "");
     else if (sx_state == SX_RADIO) snprintf(b, sizeof(b), "Test : radio (%s)  -  B : arrêter", sx_sub ? "écoute" : "connexion");
+    else if (sx_state == SX_NETUSE) snprintf(b, sizeof(b), "Test : réseau en vrai (%s)  -  B : arrêter", sx_sub < 2 ? "téléchargement" : sx_sub < 4 ? "page web" : "radio AAC");
     else if (sx_state == SX_SCRIPT) snprintf(b, sizeof(b), "Test total : %s (%d / %d)  -  B : arrêter", sx_ci >= 0 ? sx_it[sx_ci].nm : "...", sx_k + 1, sx_nk);
     else if (sx_state == SX_STRESS) snprintf(b, sizeof(b), "Test : stress (onglets très vite, menu, outils)  -  B : arrêter");
     else if (sx_i >= 0 && sx_i < sx_ntabs) snprintf(b, sizeof(b), "Test : parcours %d%s, onglet %d / %d  -  B : arrêter", sx_pass, sx_full ? "/2" : "", sx_i + 1, sx_ntabs);
