@@ -37,5 +37,6 @@ static const u32 gl_stub[] = {0};
 #include "gd.inc"
 /* v121 : cheats du banc d'essai : mots hexa dans le fichier NATIF_CHEATS */
 static int ch_collect(const char *id, u32 *out, int cap) { (void)id; const char *p = getenv("NATIF_CHEATS"); FILE *f = p ? fopen(p, "r") : NULL; int n = 0; unsigned v; if (!f) return 0; while (n < cap && fscanf(f, "%x", &v) == 1) out[n++] = v; fclose(f); return n; }
+#include "v262.inc"
 #include "natif.c"
 int main(void){ nat_run(0); return nat_boot(0) != 0; }

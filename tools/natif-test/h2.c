@@ -41,6 +41,7 @@ static int host_stat(const char *p, struct stat *st) { int r = stat(p, st); if (
 #define stat(p, s) host_stat(p, s)
 #include <zlib.h>
 static int stbi_zlib_decode_buffer(char *o, int ol, const char *i, int il) { uLongf d = (uLongf)ol; return uncompress((Bytef *)o, &d, (const Bytef *)i, (uLong)il) == Z_OK ? (int)d : -1; }   /* (v152) */
+#include "v262.inc"
 #include "natif.c"
 #undef stat
 static int na_rawsec(u32 sec, void *buf) { return fseek(img, (long)sec * 512, SEEK_SET) || fread(buf, 1, 512, img) != 512 ? -1 : 0; }

@@ -3,6 +3,8 @@ package fr.gcstation.telecommande;
 // Lecture de la console hors de l'appli : notification avec pochette, titre, precedent / lecture / suivant (aussi sur
 // l'ecran verrouille), boutons de volume du telephone -> volume de la console (lecteur "a distance" pour Android),
 // widget d'ecran d'accueil tenu a jour, et verification des nouveaux builds de GC Station (toutes les 6 heures).
+// En direct (Live) : l'etat n'est relu que quand la console previent (et toutes les 15 s) ; pendant un jeu, la
+// notification montre la partie (chronometre) et previent 5 min avant la limite de jeu du jour, puis a la limite.
 
 import android.app.Notification;
 import android.app.NotificationChannel;
@@ -29,7 +31,7 @@ import org.json.JSONObject;
 public class PlaybackService extends Service {
     static final String CH_PLAY = "lecture", CH_INFO = "infos";
     static final String ACT_TOGGLE = "toggle", ACT_NEXT = "next", ACT_PREV = "prev", ACT_STOP = "fermer";
-    static final int ID_PLAY = 1, ID_BUILD = 2, ID_SEND = 3, ID_COPY = 4;
+    static final int ID_PLAY = 1, ID_BUILD = 2, ID_SEND = 3, ID_COPY = 4, ID_LIMIT = 7, ID_GAMEEND = 8;
     static volatile JSONObject last;                         // (dernier etat : le widget s'en sert)
     static volatile Bitmap lastCover;
 
@@ -66,9 +68,30 @@ public class PlaybackService extends Service {
 
     @Override public IBinder onBind(Intent i) { return null; }
 
+    private final Live.Listener live = new Live.Listener() {
+        @Override public void changed() { later(); }
+        @Override public void game(Live.Game g) { gameAlarms(g); shownKey = ""; getSystemService(NotificationManager.class).notify(ID_PLAY, build(last)); }
+    };
+
+    /** limite de jeu du jour : un mot 5 min avant, puis a la limite (la console ne coupe pas le jeu) */
+    private final Runnable limitSoon = () -> notify(this, ID_LIMIT, "Plus que 5 minutes de jeu", "Limite de jeu du jour bientôt atteinte" + gameWho() + ".");
+    private final Runnable limitNow = () -> notify(this, ID_LIMIT, "Temps de jeu du jour écoulé", "C'est l'heure d'arrêter" + gameWho() + " : A + Z + START pour revenir à GC Station.");
+    private static String gameWho() { Live.Game g = Live.game; return g == null ? "" : " (" + g.name + (g.profile.isEmpty() ? "" : ", profil " + g.profile) + ")"; }
+    private void gameAlarms(Live.Game g) {
+        h.removeCallbacks(limitSoon);
+        h.removeCallbacks(limitNow);
+        if (g == null) return;
+        long left = g.leftSec();
+        if (left == Long.MIN_VALUE) return;
+        if (left > 300) h.postDelayed(limitSoon, (left - 300) * 1000);
+        if (left > 0) h.postDelayed(limitNow, left * 1000);
+    }
+
     @Override
     public void onCreate() {
         super.onCreate();
+        Live.add(this, live);
+        gameAlarms(Live.game);
         channels(this);
         session = new MediaSession(this, "GC Station");
         session.setCallback(new MediaSession.Callback() {
@@ -123,6 +146,7 @@ public class PlaybackService extends Service {
     public void onDestroy() {
         running = false;
         me = null;
+        Live.remove(live);
         h.removeCallbacksAndMessages(null);
         session.setActive(false);
         session.release();
@@ -137,9 +161,13 @@ public class PlaybackService extends Service {
             if (Api.host == null) { h.postDelayed(this, 3000); return; }
             Api.get("/api/state", r -> {
                 if (!running) return;
-                if (r != null) try { update(new JSONObject(r)); } catch (Exception e) { }
+                if (r != null) {
+                    Live.Game g = Live.consoleBack();             // (la console repond : la partie est finie)
+                    if (g != null) notify(PlaybackService.this, ID_GAMEEND, "Partie terminée : " + g.name, "Temps de jeu : " + Live.dur(g.playedSec()) + ".");
+                    try { update(new JSONObject(r)); } catch (Exception e) { }
+                }
                 h.removeCallbacks(poll);
-                h.postDelayed(poll, r != null ? 2000 : 5000);
+                h.postDelayed(poll, r != null ? (Live.pushing() ? 15000 : 2000) : Live.game != null ? 10000 : 5000);
             });
             if (System.currentTimeMillis() - lastBuildCheck > 6 * 3600 * 1000L) { lastBuildCheck = System.currentTimeMillis(); BuildCheck.run(PlaybackService.this); }
         }
@@ -177,6 +205,7 @@ public class PlaybackService extends Service {
                         | PlaybackState.ACTION_SKIP_TO_PREVIOUS | PlaybackState.ACTION_STOP)
             .setState(playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED, el * 1000L, playing ? 1f : 0f);
         session.setPlaybackState(ps.build());
+        if (Live.game != null) k = "jeu";
         if (k.equals(shownKey)) return;                      // (notification et widget : seulement si quelque chose change)
         shownKey = k;
         MediaMetadata.Builder md = new MediaMetadata.Builder()
@@ -196,6 +225,18 @@ public class PlaybackService extends Service {
 
     @SuppressWarnings("deprecation")
     private Notification build(JSONObject s) {
+        Live.Game g = Live.game;
+        if (g != null && System.currentTimeMillis() - g.start < 12 * 3600 * 1000L) {   // (partie en cours : chronometre)
+            Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CH_PLAY) : new Notification.Builder(this);
+            long left = g.leftSec();
+            String txt = (g.profile.isEmpty() ? "" : "Profil " + g.profile + " · ")
+                       + (left == Long.MIN_VALUE ? "A + Z + START pour revenir à GC Station" : left > 0 ? "limite du jour à " + new java.text.SimpleDateFormat("HH:mm", java.util.Locale.FRANCE).format(new java.util.Date(g.start + g.leftMin * 60000L)) : "temps du jour écoulé");
+            b.setSmallIcon(R.drawable.ic_stat).setContentTitle("En jeu : " + g.name).setContentText(txt).setColor(Neon.PINK)
+             .setOngoing(true).setShowWhen(true).setWhen(g.start).setUsesChronometer(true).setVisibility(Notification.VISIBILITY_PUBLIC)
+             .setContentIntent(PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE))
+             .addAction(new Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_close), "Fermer", act(ACT_STOP, 4)).build());
+            return b.build();
+        }
         String title = s != null ? s.optString("title", "") : "", sub = s != null ? s.optString("sub", "") : "";
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CH_PLAY) : new Notification.Builder(this);
         b.setSmallIcon(R.drawable.ic_stat)
