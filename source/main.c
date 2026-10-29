@@ -13963,7 +13963,7 @@ int main(int argc, char **argv) {
         u32 pads = PAD_ScanPads();
         u32 down = PAD_ButtonsDown(0);
         u32 held = PAD_ButtonsHeld(0);
-        if (tp_keys) { u32 tk = tp_keys; tp_keys &= ~tk; down |= tk; held |= tk; }   /* v142 : manette du telephone */
+        if (tp_keys) { u32 tk = tp_keys; tp_keys &= ~tk; down |= tk; held |= tk; if (tab == TAB_WEB) input_phone(0, 0, 0, tk, 0); }   /* (v231 : aussi pour Cube Browser) */   /* v142 : manette du telephone */
         u64 now = now_ms();
         /* clavier GameCube : touches traduites en boutons (ou tapees dans le clavier a l'ecran) */
         u32 kdown = 0, knav = 0;

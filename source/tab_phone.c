@@ -134,7 +134,9 @@ static int tp_find_photo(const char *name) {
     return -1;
 }
 
-static char *mv_json(void);                                     /* v230 : memview.c */
+static char *mv_json(void);
+void input_phone(float dx, float dy, float wheel, u32 buttons, int acts);   /* (cb/input.c) */
+static volatile int tp_mdx = 0, tp_mdy = 0, tp_mw = 0, tp_mc = 0;          /* v231 : souris tactile (cumul) */                                     /* v230 : memview.c */
 static void tp_push(int c, int i) {
     int n = (tp_qt + 1) % 16;
     if (n == tp_qh) return;                        /* file pleine : on ignore */
@@ -1098,6 +1100,14 @@ static void tp_handle(s32 c) {
         if (ok) { tp_shown_busy = 1; tp_push(PC_SHOWNAME, 0); }
         tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
     }
+    else if (!strcmp(target, "/api/mouse")) {                /* v231 : souris tactile -> pointeur de Cube Browser */
+        char v[16];
+        tp_param(q ? q : "", "dx", v, sizeof(v)); tp_mdx += atoi(v);
+        tp_param(q ? q : "", "dy", v, sizeof(v)); tp_mdy += atoi(v);
+        tp_param(q ? q : "", "w", v, sizeof(v)); tp_mw += atoi(v);
+        tp_param(q ? q : "", "c", v, sizeof(v)); tp_mc |= atoi(v) & 3;
+        tp_reply(c, 200, "application/json", "{\"ok\":1}", 8);
+    }
     else if (!strcmp(target, "/api/key")) {                  /* v142 : manette sur le telephone */
         static const char *const kn[] = { "up", "down", "left", "right", "a", "b", "x", "y", "z", "l", "r", "start", NULL };
         static const u32 km[] = { PAD_BUTTON_UP, PAD_BUTTON_DOWN, PAD_BUTTON_LEFT, PAD_BUTTON_RIGHT, PAD_BUTTON_A, PAD_BUTTON_B, PAD_BUTTON_X,
@@ -1246,6 +1256,12 @@ static void phone_pump(void) {
     /* v45 : etat pour le telephone : souvent s'il est connecte, sinon toutes les 3 s (moins de travail) */
     if (now - tp_json_t > (tp_last_req && now - tp_last_req < 15000 ? 300u : 3000u)) { tp_json_t = now; tp_json_build(); }
     if (!tp_cfg_reading && (tp_cfg_now || (now - tp_cfg_t > 1000 && now - tp_last_req < 15000))) { tp_cfg_now = 0; tp_cfg_t = now; tp_cfg_build(); }
+    if (tp_mdx || tp_mdy || tp_mw || tp_mc) {             /* v231 : souris tactile */
+        int dx = tp_mdx, dy = tp_mdy, w = tp_mw, mc = tp_mc;
+        tp_mdx -= dx; tp_mdy -= dy; tp_mw -= w; tp_mc &= ~mc;
+        if (tab != TAB_WEB && tab_shown(TAB_WEB) && !menu_open && !tl_screen && !kb_open) { saver_on = 0; tab = TAB_WEB; tab_enter(TAB_WEB); }
+        if (tab == TAB_WEB) { saver_on = 0; last_input_ms = now_ms(); input_phone(dx * 0.8f, dy * 0.8f, (f32)w, 0, mc); }
+    }
     while (tp_qh != tp_qt) {
         phcmd_t cm = tp_q[tp_qh];
         tp_qh = (tp_qh + 1) % 16;

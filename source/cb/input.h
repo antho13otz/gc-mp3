@@ -39,3 +39,4 @@ bool  input_pointer_moved(void);
 
 void  input_rumble(int frames);
 void  input_stop_rumble(void);
+void  input_phone(float dx, float dy, float wheel, u32 buttons, int acts);   /* GC Station : souris / manette du telephone */

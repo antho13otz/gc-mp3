@@ -37,6 +37,14 @@ void input_init(void) {
 
 static u32 action_mask(Action a) { return button_masks[g_set.bind[a]]; }
 
+/* GC Station : souris tactile et manette du telephone (appele par la boucle principale) */
+static float ph_dx, ph_dy, ph_wheel;
+static u32 ph_btn;
+static int ph_act;
+void input_phone(float dx, float dy, float wheel, u32 buttons, int acts) {
+    ph_dx += dx; ph_dy += dy; ph_wheel += wheel; ph_btn |= buttons; ph_act |= acts;
+}
+
 static float stick_axis(int v) {
     float dz = (float)g_set.deadzone;
     float a = fabsf((float)v);
@@ -66,6 +74,12 @@ void input_update(void) {
     u32 res = cb_host_reserved_buttons();
     held &= ~res; down &= ~res;
     if (!cb_host_input_enabled()) { held = down = 0; sx = sy = 0; }
+    else {                                              /* (GC Station : boutons venus du telephone, une image) */
+        u32 pb = ph_btn | ((ph_act & 1) ? button_masks[g_set.bind[ACT_CLICK]] : 0) | ((ph_act & 2) ? button_masks[g_set.bind[ACT_BACK]] : 0);
+        pb &= ~res;
+        down |= pb; held |= pb;
+    }
+    ph_btn = 0; ph_act = 0;
     consumed = 0;
 
     if (down || sx != last_sx || sy != last_sy) entropy_add_event(((u32)down << 16) ^ ((u8)sx << 8) ^ (u8)sy);
@@ -91,6 +105,10 @@ void input_update(void) {
         cy -= ay * speed * steps;   /* stick up = positive Y */
     } else {
         idle_frames++;
+    }
+    if (ph_dx != 0 || ph_dy != 0) {                     /* (GC Station : souris tactile du telephone) */
+        if (cb_host_input_enabled()) { cx += ph_dx; cy += ph_dy; moved = true; gliding = false; idle_frames = 0; }
+        ph_dx = ph_dy = 0;
     }
     if (gliding) {
         float k = 1.0f - powf(0.65f, steps);
@@ -169,7 +187,8 @@ float input_scroll_delta(void) {
     float k = 1.5f + g_set.scroll_speed * 1.2f;
     s8 cy = 0;
     for (int c = 0; c < 4; c++) { s8 v = PAD_SubStickY(c); if (abs(v) > abs(cy)) cy = v; }
-    float d = -stick_axis(cy) * k * 1.6f;
+    float d = -stick_axis(cy) * k * 1.6f + ph_wheel;
+    ph_wheel = 0;
     if (input_raw_repeat(action_mask(ACT_PAGE_DOWN))) d += 300;
     if (input_raw_repeat(action_mask(ACT_PAGE_UP))) d -= 300;
     return d;
