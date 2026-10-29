@@ -726,6 +726,10 @@ class FilesTab extends Tab {
         tb.addView(paste, lp(0, -2, 1.1f));
         tb.addView(gap());
         tb.addView(Neon.btn(a, "Envoyer", 13, false, x -> pick()), lp(0, -2, 1.1f));
+        tb.addView(gap());
+        TextView rf = Neon.btn(a, "⟳", 17, false, x -> { msg.setText("Actualisation…"); open(h, -1); });   // (relit le dossier)
+        rf.setPadding(0, 0, 0, 0);
+        tb.addView(rf, lp(0, -2, 0.6f));
         v.addView(tb, lp(-1, -2, 0));
         msg = Neon.text(a, "Touche un fichier pour le télécharger, appui long pour le reste", 12, Neon.DIM, false);
         msg.setPadding(dp(4), dp(4), 0, dp(6));
@@ -742,7 +746,9 @@ class FilesTab extends Tab {
         lv.setAdapter(adapter);
         lv.setOnItemClickListener((parent, view, pos, id) -> {
             Object[] e = entries.get(pos);
-            if ((Boolean) e[1]) open(h, pos); else download(pos, (String) e[0]);
+            if ((Boolean) e[1]) open(h, pos);
+            else if (isText((String) e[0])) viewText(pos, (String) e[0], (Long) e[2]);
+            else download(pos, (String) e[0]);
         });
         lv.setOnItemLongClickListener((parent, view, pos, id) -> { view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS); actions(pos); return true; });
         v.addView(lv, lp(-1, 0, 1));
@@ -825,7 +831,10 @@ class FilesTab extends Tab {
         final String q = "&h=" + h + "&i=" + pos + "&x=" + Api.enc(name);
         new NeonDialog(a)
             .title(name)
-            .items(new String[] { "Renommer", "Couper (pour déplacer)", "Supprimer" }, new int[] { 2 }, w -> {
+            .items(dir ? new String[] { "Renommer", "Couper (pour déplacer)", "Supprimer" }
+                       : new String[] { "Renommer", "Couper (pour déplacer)", "Supprimer", "Lire comme texte", "Télécharger" }, new int[] { 2 }, w -> {
+                if (w == 3) { viewText(pos, name, (Long) entries.get(pos)[2]); return; }
+                if (w == 4) { download(pos, name); return; }
                 if (w == 0) ask("Nouveau nom", name, v -> { if (!v.isEmpty() && !v.equals(name)) fsop("op=ren" + q + "&n=" + Api.enc(v)); });
                 else if (w == 1) { cut = new String[] { h, String.valueOf(pos), name }; paste.setText("Coller : " + name); paste.setVisibility(View.VISIBLE); msg.setText("Ouvre le dossier de destination, puis Coller"); }
                 else NeonDialog.confirm(a, "Supprimer " + name + (dir ? " et tout son contenu" : "") + " ?", "Ça ne peut pas être annulé.", "Supprimer", () -> fsop("op=del" + q));
@@ -869,4 +878,58 @@ class FilesTab extends Tab {
     }
 
     void refresh() { if (loaded) open(h, -1); }
+
+    // ---------- fichiers texte : lus directement dans l'appli ----------
+    private static final String[] TXT = { ".txt", ".log", ".ini", ".cfg", ".m3u", ".m3u8", ".lrc", ".json", ".md", ".xml", ".csv", ".nfo", ".srt", ".pls", ".htm", ".html", ".css", ".js", ".c", ".h", ".py", ".sh", ".yml", ".yaml", ".conf" };
+    static boolean isText(String name) {
+        String n = name.toLowerCase(java.util.Locale.ROOT);
+        for (String e : TXT) if (n.endsWith(e)) return true;
+        return false;
+    }
+    private void viewText(final int pos, final String name, long size) {
+        if (size > 4L * 1024 * 1024) { Toast.makeText(a, "Fichier trop gros pour être affiché (" + size / 1024 / 1024 + " Mo) : téléchargé à la place", Toast.LENGTH_LONG).show(); download(pos, name); return; }
+        final TextView t = Neon.text(a, "Chargement…", 12, Neon.TEXT, false);
+        t.setTypeface(android.graphics.Typeface.MONOSPACE);
+        t.setTextIsSelectable(true);
+        t.setLineSpacing(0, 1.1f);
+        final android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(a);
+        hs.addView(t);
+        android.widget.ScrollView sc = new android.widget.ScrollView(a);
+        sc.addView(hs);
+        sc.setLayoutParams(new LinearLayout.LayoutParams(-1, (int) (a.getResources().getDisplayMetrics().heightPixels * 0.55f)));
+        final boolean[] wrap = { true };
+        t.setHorizontallyScrolling(false);
+        t.setMaxWidth(a.getResources().getDisplayMetrics().widthPixels - dp(90));
+        final TextView info = UiKit.hint(a, size < 1024 ? size + " octets" : size / 1024 + " Ko");
+        LinearLayout box = new LinearLayout(a);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.addView(info);
+        box.addView(sc);
+        new NeonDialog(a).title(name).view(box)
+            .button("Retour à la ligne", false, false, () -> {
+                wrap[0] = !wrap[0];
+                t.setMaxWidth(wrap[0] ? a.getResources().getDisplayMetrics().widthPixels - dp(90) : Integer.MAX_VALUE);
+                t.setHorizontallyScrolling(!wrap[0]);
+                t.requestLayout();
+            })
+            .button("Télécharger", false, () -> download(pos, name))
+            .button("Fermer", true, null)
+            .show();
+        Api.bytes("/api/get?h=" + h + "&i=" + pos, b -> {
+            if (b == null) { t.setText("Lecture impossible (pas de réponse de la console)"); return; }
+            String s;
+            try {                                                 // (UTF-8 si c'en est, sinon latin-1 : fichiers de la console)
+                s = java.nio.charset.StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .decode(java.nio.ByteBuffer.wrap(b)).toString();
+            } catch (Exception e) { s = new String(b, java.nio.charset.StandardCharsets.ISO_8859_1); }
+            if (s.startsWith("\uFEFF")) s = s.substring(1);
+            s = s.replace("\r\n", "\n").replace('\r', '\n');
+            int lines = 1;
+            for (int k = 0; k < s.length(); k++) if (s.charAt(k) == '\n') lines++;
+            boolean cut = s.length() > 300000;
+            t.setText(cut ? s.substring(0, 300000) + "\n\n… (la suite : Télécharger)" : s.isEmpty() ? "(fichier vide)" : s);
+            info.setText((b.length < 1024 ? b.length + " octets" : b.length / 1024 + " Ko") + " · " + lines + " ligne" + (lines > 1 ? "s" : "") + " · appui long pour copier");
+        });
+    }
 }
