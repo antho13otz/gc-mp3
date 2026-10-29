@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v228 — retour à l'accueil de Cube Browser
+- En style Aurore (pas de barre d'outils), **B sans page précédente ramène à l'accueil de Cube Browser**
+  (« Réglages du navigateur », favoris, sites…). Avant, si Cube Browser rouvrait directement un site, on
+  ne pouvait plus revenir à l'accueil ni aux réglages, sauf par **Y** (Favoris : boutons Accueil et Réglages).
+
 ## Nouveautés v227 — toutes les applis de SD:/apps
 - **Applis** : un .dol posé seul dans `SD:/apps` (par exemple envoyé depuis le téléphone), ou une appli sans
   image, apparaît maintenant dans la liste (carte avec son nom). Avant, seules les applis avec une image

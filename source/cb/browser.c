@@ -509,7 +509,12 @@ static void save_link(const char *url) {
 }
 
 static void go_back(void) {
-    if (nback == 0) { sound_play(SFX_ERROR); return; }
+    if (nback == 0) {
+        /* GC Station v228 : en Aurore (pas de barre d'outils), B sans page precedente ramene a l'accueil
+         * (avant : on restait coince sur le site rouvert au demarrage, l'accueil n'etait que dans Y) */
+        if (au_on() && has_page && strcmp(page.url, "about:home")) { sound_play(SFX_BACK); navigate("about:home", NULL, true); return; }
+        sound_play(SFX_ERROR); return;
+    }
     if (has_page && nfwd < HIST_MAX) hist_capture(&fwd_stack[nfwd++]);
     HistEntry e = back_stack[--nback];
     sound_play(SFX_BACK);
