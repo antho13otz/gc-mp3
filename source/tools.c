@@ -1830,7 +1830,7 @@ static const char *const to_help[TO_COUNT] = {
     "Remet les r\xC3\xA9glages de SD:/gc-mp3/reglages/gc-mp3-sauvegarde.txt (A deux fois pour confirmer).",
     "Version, vid\xC3\xA9o, m\xC3\xA9moire, carte SD, r\xC3\xA9seau.",
     "M\xC3\xA9moire libre, plus grand bloc, courbe, et le minimum vu dans chaque onglet.",
-    "Mesure ta GameCube et parcourt GC Station tout seul (1 minute) : rapport \xC3\xA0 m'envoyer depuis le t\xC3\xA9l\xC3\xA9phone.",
+    "Teste ta GameCube et tout GC Station tout seul (rapide, complet ou total) : rapport \xC3\xA0 m'envoyer depuis le t\xC3\xA9l\xC3\xA9phone.",
     "Ouvre le menu de la GameCube (lecteur de disque). Bouton Reset = relancer GC Station" };
 static int to_sel = 0;
 static void tools_menu_input(u32 down, u32 nav, int fire) {

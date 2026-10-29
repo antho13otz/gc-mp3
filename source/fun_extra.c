@@ -350,6 +350,7 @@ static int rg_record_get(const char *path) {
     return best;
 }
 static void rg_record_set(const char *path, int score) {
+    if (sx_quiet) return;                                  /* v263 : (pas de record pendant le test de la console) */
     char *buf = (char *)malloc(64 * 1024);
     int len = 0;
     if (!buf) return;

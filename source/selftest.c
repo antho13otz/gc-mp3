@@ -15,7 +15,7 @@
 
 #define SX_FILE GCD_LOG "/test-console.txt"
 #define SX_OLD GCD_LOG "/test-console-ancien.txt"
-enum { SX_IDLE, SX_INTRO, SX_BENCH, SX_NET, SX_SOUND, SX_RADIO, SX_TOUR, SX_STRESS, SX_DONE };
+enum { SX_IDLE, SX_INTRO, SX_BENCH, SX_NET, SX_SOUND, SX_RADIO, SX_TOUR, SX_SCRIPT, SX_STRESS, SX_DONE };
 static int sx_state = SX_IDLE, sx_full = 1, sx_page = 0;
 static u64 sx_t = 0, sx_t0 = 0;
 static int sx_tabs[TAB_COUNT], sx_ntabs = 0, sx_i = 0, sx_sub = 0, sx_music = 0, sx_aborted = 0, sx_tab0 = 0, sx_pass = 0;
@@ -52,15 +52,15 @@ static u32 sx_net_ms[SX_NN], sx_net_head[SX_NN], sx_net_bytes[SX_NN], sx_net_kbs
 static const char *const sx_fmt_name[SX_NF] = { "MP3", "FLAC", "OGG", "WAV", "M4A", "retro (SPC, NSF...)", "modules (MOD, XM...)", "GameCube (DSP, HPS...)", "MIDI" };
 static int sx_fmt_k[SX_NF], sx_fmt_n = 0, sx_fmt_i = 0;
 static u32 sx_fmt_cpu[SX_NF], sx_fmt_gap[SX_NF], sx_fmt_slow[SX_NF], sx_fmt_ok[SX_NF];
-static u32 sx_mark_dec = 0, sx_mark_gap = 0;
+static u32 sx_mark_dec = 0, sx_mark_gap = 0, sx_mark_tot = 0, sx_mark_c = 0, sx_seek_ms = 0;
 static u64 sx_mark_t = 0;
 /* radio */
 static int sx_radio = 0;                         /* 0 pas essaye, 1 ok, 2 pas de son en 20 s, 3 pas de reseau / station, 4 erreur */
 static u32 sx_radio_ms = 0, sx_radio_gap = 0;
 
 /* images par moment du test */
-enum { SB_SOUND, SB_RADIO, SB_TOUR1, SB_TOUR2, SB_STRESS, SB_N };
-static const char *const sx_sb_name[SB_N] = { "formats audio", "radio", "parcours 1", "parcours 2", "stress" };
+enum { SB_SOUND, SB_RADIO, SB_TOUR1, SB_TOUR2, SB_SCRIPT, SB_STRESS, SB_N };
+static const char *const sx_sb_name[SB_N] = { "formats audio", "radio", "parcours 1", "parcours 2", "GC Station", "stress" };
 static u32 sx_sb_frames[SB_N], sx_sb_slow[SB_N], sx_sb_worst[SB_N];
 static int sx_sb = -1;
 static u32 sx_fb_frames = 0, sx_fb_slow = 0;     /* (format en cours) */
@@ -75,7 +75,7 @@ static u32 sx_nst_all = 0, sx_st_500 = 0;
 enum { BG_COVER = 1, BG_LIST = 2, BG_PHONE = 4, BG_IMG = 8, BG_CONN = 16, BG_RADIO = 32, BG_WEB = 64 };
 
 /* diagnostic */
-#define SX_ND 14
+#define SX_ND 22
 static char sx_diag[SX_ND][128];
 static u8 sx_diag_lv[SX_ND];                    /* 0 bien, 1 a surveiller, 2 probleme */
 static int sx_nd = 0, sx_score = -1;
@@ -104,12 +104,399 @@ static void sx_pad(char *o, int cap, const char *s, int w) {
 }
 static void sx_mo(char *o, int cap, u32 b) { snprintf(o, cap, "%u,%u Mo", (unsigned)(b >> 20), (unsigned)(((b & 0xFFFFF) * 10) >> 20)); }
 
+/* ======================= v263 : TEST TOTAL =======================
+   Tout le materiel (carte SD du SD2SP2 avec petits fichiers, cartes memoire A et B : lecture, ecriture puis effacement
+   d'un fichier de test, horloge comparee a Internet, image, horloge du son, couvercle, serveur du telephone) et tout
+   GC Station : chaque outil, chaque mini-jeu, chaque style sur chaque onglet, chaque couleur, disposition, spectre,
+   economiseur, decor, l'anglais, chaque reglage change puis remis, photos et video. Chaque element : sa pire image,
+   ses images ratees, la memoire qu'il garde. Pendant le test rien n'est enregistre (sx_quiet) ; a la fin, les
+   reglages d'avant sont remis (et compares). */
+static int sx_total = 0;
+static char *sx_cfg0 = NULL;                     /* (reglages avant le test, texte de gc-mp3.txt) */
+static size_t sx_cfg0_n = 0;
+static char sx_cfg_diff[6][72];
+static int sx_cfg_nd = 0;
+
+enum { IP_FMT, IP_SEEK, IP_TOOL, IP_GAME, IP_SKIN, IP_THEME, IP_LAYOUT, IP_VIZ, IP_SAVER, IP_SEASON, IP_LANG, IP_SET, IP_MEDIA, IP_N };
+static const char *const sx_ip_name[IP_N] = { "Formats audio", "Sauts dans les morceaux", "Outils", "Mini-jeux", "Styles sur chaque onglet", "Couleurs", "Dispositions du lecteur",
+    "Spectres", "Économiseurs d'écran", "Décors", "Interface en anglais", "Réglages (changés puis remis)", "Photos et vidéos" };
+#define SX_NI 260
+typedef struct { char nm[64]; u8 ph, st; u16 slow; u32 worst_us, frames; s32 dmem; } sxi_t;   /* st : 0 ok, 1 probleme, 2 pas disponible */
+static sxi_t *sx_it = NULL;
+static int sx_nit = 0, sx_ci = -1;
+static u32 sx_ci_mem = 0;
+static void sx_item_begin(int ph, const char *fmt, ...) {
+    sx_ci = -1;
+    if (!sx_it || sx_nit >= SX_NI) return;
+    sxi_t *it = &sx_it[sx_nit];
+    memset(it, 0, sizeof(*it));
+    va_list ap; va_start(ap, fmt); vsnprintf(it->nm, sizeof(it->nm), fmt, ap); va_end(ap);
+    it->ph = (u8)ph;
+    sx_ci = sx_nit++;
+    sx_ci_mem = sx_free_now();
+    crumb("test : %s", it->nm);                  /* (si la console plante : on sait sur quoi) */
+}
+static void sx_item_end(int st) {
+    if (sx_ci < 0) return;
+    sxi_t *it = &sx_it[sx_ci];
+    if (st > it->st) it->st = (u8)st;
+    it->dmem = (s32)sx_ci_mem - (s32)sx_free_now();
+    if (it->st == 0 && it->worst_us >= 500000u) it->st = 1;       /* (une image figee une demi-seconde : a regarder) */
+    sx_ci = -1;
+}
+
+/* ---------- materiel en plus ---------- */
+static u32 sx_sm_cr_x10 = 0, sx_sm_rm_x10 = 0, sx_sm_n = 0;     /* petits fichiers : creation, effacement (dixiemes de ms) */
+typedef struct { int st, err; u16 mbit; u32 sect; u16 freeb; int files; u32 rd_kbs; int wr; u32 wr_ms, rd_ms; u32 verr; } sxc_t;
+static sxc_t sx_card[2];                         /* st : 0 vide, 1 ok, 2 erreur, 3 adaptateur SD ; wr : 0 pas fait, 1 ok, 2 erreur, 3 pas de place */
+static int sx_clk_ok = 0;                        /* heure lue sur Internet */
+static s32 sx_clk_diff = 0, sx_clk_tz = 0;       /* (secondes : console - heure universelle ; fuseau devine) */
+static u32 sx_vi_r0 = 0, sx_vi_x100 = 0;         /* images de l'ecran : mesure de la frequence (centiemes de Hz) */
+static u64 sx_vi_t0 = 0;
+static u32 sx_ac_samples = 0, sx_ac_ms = 0;      /* horloge du son : echantillons joues / temps */
+static int sx_cover = -1;                        /* couvercle du lecteur : 0 ferme, 1 ouvert, -1 inconnu */
+
+static void sx_bench_small(void) {
+    sx_sm_cr_x10 = sx_sm_rm_x10 = sx_sm_n = 0;
+    if (!sd_ok || sd_virtual) return;
+    const char *dir = GCD_LOG "/.test-petits";
+    mkdir(dir, 0777);
+    static u8 b[4096];
+    memset(b, 0x3C, sizeof(b));
+    char p[96];
+    u32 t0 = perf_us();
+    int n = 0;
+    for (int i = 0; i < 30; i++) {
+        snprintf(p, sizeof(p), "%s/f%02d.bin", dir, i);
+        FILE *f = fopen(p, "wb");
+        if (!f) break;
+        fwrite(b, 1, sizeof(b), f); fclose(f); n++;
+        if ((i & 7) == 7) service_audio();
+    }
+    u32 t1 = perf_us();
+    for (int i = 0; i < n; i++) { snprintf(p, sizeof(p), "%s/f%02d.bin", dir, i); remove(p); if ((i & 7) == 7) service_audio(); }
+    u32 t2 = perf_us();
+    rmdir(dir);
+    if (n) { sx_sm_n = (u32)n; sx_sm_cr_x10 = (t1 - t0) / 100u / (u32)n; sx_sm_rm_x10 = (t2 - t1) / 100u / (u32)n; }
+}
+
+#define SX_CARD_TEST "GCSTATION-TEST"
+static void sx_bench_cards(void) {
+    memset(sx_card, 0, sizeof(sx_card));
+    if (!mc_work) mc_work = (u8 *)memalign(32, CARD_WORKAREA_SIZE);
+    if (!mc_work) return;
+    if (!mc_inited) { CARD_Init("GMP3", "GC"); mc_inited = 1; }
+    if (mc_mounted >= 0) mc_unmount();
+    u8 *buf = (u8 *)memalign(32, 65536), *rb = (u8 *)memalign(32, 65536);
+    if (!buf || !rb) { free(buf); free(rb); return; }
+    for (int slot = 0; slot < 2; slot++) {
+        sxc_t *c = &sx_card[slot];
+        if (sd_slot == slot + 1) { c->st = 3; continue; }          /* (adaptateur SD dans ce slot : on n'y touche pas) */
+        int r = CARD_ERROR_BUSY;
+        for (int t = 0; t < 10 && r == CARD_ERROR_BUSY; t++) { r = CARD_Mount(slot, mc_work, NULL); service_audio(); }
+        if (r < 0) { c->err = r; c->st = r == CARD_ERROR_NOCARD ? 0 : r == CARD_ERROR_WRONGDEVICE ? 3 : 2; if (r != CARD_ERROR_NOCARD) CARD_Unmount(slot); continue; }
+        c->st = 1;
+        CARD_GetMemSize(slot, &c->mbit);
+        CARD_GetSectorSize(slot, &c->sect);
+        if (c->sect < 8192 || c->sect > 65536) c->sect = 8192;
+        CARD_GetFreeBlocks(slot, &c->freeb);
+        card_dir d, d0; memset(&d, 0, sizeof(d)); memset(&d0, 0, sizeof(d0));
+        int k = CARD_FindFirst(slot, &d, true);
+        while (k == CARD_ERROR_READY) { if (!c->files) d0 = d; c->files++; k = CARD_FindNext(&d); }
+        if (c->files) {                                            /* lecture : le debut de la premiere sauvegarde */
+            card_file f;
+            if (CARD_OpenEntry(slot, &d0, &f) == CARD_ERROR_READY) {
+                u32 len = d0.filelen < 65536 ? d0.filelen : 65536;
+                len -= len % c->sect;
+                u32 t0 = perf_us(), got = 0;
+                for (u32 o = 0; o < len; o += c->sect) { if (CARD_Read(&f, buf, c->sect, o) != CARD_ERROR_READY) break; got += c->sect; service_audio(); }
+                u32 dt = perf_us() - t0;
+                if (got && dt) c->rd_kbs = (u32)((u64)got * 1000000ull / 1024ull / dt);
+                CARD_Close(&f);
+            }
+        }
+        if (sd_virtual) { CARD_Unmount(slot); continue; }          /* (la carte garde les reglages : pas d'ecriture) */
+        if (c->freeb < 1) { c->wr = 3; CARD_Unmount(slot); continue; }
+        /* ecriture d'un fichier de test d'un bloc, relecture, verification, effacement */
+        CARD_SetGamecode("GMP3"); CARD_SetCompany("GC");
+        CARD_Delete(slot, SX_CARD_TEST);                           /* (reste d'un test interrompu) */
+        card_file f;
+        int ok = CARD_Create(slot, SX_CARD_TEST, c->sect, &f) == CARD_ERROR_READY;
+        if (ok) {
+            for (u32 i = 0; i < c->sect; i++) buf[i] = (u8)(i * 13 + 7);
+            DCFlushRange(buf, c->sect);
+            u32 t0 = perf_us();
+            ok = CARD_Write(&f, buf, c->sect, 0) == CARD_ERROR_READY;
+            c->wr_ms = (perf_us() - t0) / 1000u;
+            CARD_Close(&f);
+            service_audio();
+        }
+        if (ok && CARD_Open(slot, SX_CARD_TEST, &f) == CARD_ERROR_READY) {
+            memset(rb, 0, c->sect);
+            DCFlushRange(rb, c->sect);
+            u32 t0 = perf_us();
+            if (CARD_Read(&f, rb, c->sect, 0) == CARD_ERROR_READY) {
+                c->rd_ms = (perf_us() - t0) / 1000u;
+                DCInvalidateRange(rb, c->sect);
+                for (u32 i = 0; i < c->sect; i++) if (rb[i] != buf[i]) c->verr++;
+            } else ok = 0;
+            CARD_Close(&f);
+        } else ok = 0;
+        int del = CARD_Delete(slot, SX_CARD_TEST) == CARD_ERROR_READY;
+        u16 fr2 = 0; CARD_GetFreeBlocks(slot, &fr2);
+        c->wr = ok && del && !c->verr && fr2 == c->freeb ? 1 : 2;
+        CARD_Unmount(slot);
+        service_audio();
+    }
+    free(buf); free(rb);
+}
+
+/* heure d'Internet (en-tete Date de GitHub) : la console avance ou retarde-t-elle ? */
+static s64 sx_days_civil(int y, int m, int d) {          /* (jours depuis le 1er janvier 1970) */
+    y -= m <= 2;
+    s64 era = (y >= 0 ? y : y - 399) / 400;
+    unsigned yoe = (unsigned)(y - era * 400);
+    unsigned doy = (153 * (m + (m > 2 ? -3 : 9)) + 2) / 5 + (unsigned)d - 1;
+    unsigned doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    return era * 146097 + (s64)doe - 719468;
+}
+static void sx_clock_check(const unsigned char *hdr, int hlen) {
+    sx_clk_ok = 0;
+    static const char *const mo = "JanFebMarAprMayJunJulAugSepOctNovDec";
+    for (int i = 0; i + 6 < hlen; i++) {
+        if ((i && hdr[i - 1] != '\n') || strncasecmp((const char *)hdr + i, "date:", 5)) continue;
+        char line[64]; int n = 0;
+        for (int j = i + 5; j < hlen && hdr[j] != '\r' && hdr[j] != '\n' && n < 63; j++) line[n++] = (char)hdr[j];
+        line[n] = 0;
+        int d, y, H, M, S; char mon[4];
+        const char *c = strchr(line, ',');
+        if (!c || sscanf(c + 1, "%d %3s %d %d:%d:%d", &d, mon, &y, &H, &M, &S) != 6) return;
+        const char *mp = strstr(mo, mon);
+        if (!mp) return;
+        int m = (int)(mp - mo) / 3 + 1;
+        s64 utc = sx_days_civil(y, m, d) * 86400 + H * 3600 + M * 60 + S;
+        s64 diff = (s64)time(NULL) - utc;
+        s64 tz = (diff >= 0 ? diff + 450 : diff - 450) / 900 * 900;   /* (fuseau : au quart d'heure pres) */
+        sx_clk_diff = (s32)diff; sx_clk_tz = (s32)tz; sx_clk_ok = 1;
+        return;
+    }
+}
+
+static void sx_hw_info(void) {
+#ifdef GEKKO
+    sx_cover = (*(volatile u32 *)0xCC006004) & 1;   /* (registre du couvercle du lecteur, juste lu) */
+#else
+    sx_cover = -1;
+#endif
+    sx_vi_r0 = retrace_count; sx_vi_t0 = perf_us();
+}
+
+/* ---------- GC Station : la liste de tout ce qui est essaye ---------- */
+enum { K_TOOL, K_GAME, K_SKINTAB, K_THEME, K_LAYOUT, K_VIZ, K_SAVER, K_SEASON, K_LANGTAB, K_RESTORE, K_SET, K_PHOTOTAB, K_PHOTO, K_VIDEO };
+typedef struct { u8 k; s16 a, b; u16 ms; } sxk_t;
+#define SX_NK 300
+static sxk_t *sx_ks = NULL;
+static int sx_nk = 0, sx_k = 0, sx_kph = 0;
+static char sx_v0[96];
+static int sx_set_dir = 1;
+
+static void sx_pj0(void) { pj_open(0); }
+static void sx_nfs0(void) { nfs_ui_open(0); }
+typedef void (*sx_fn)(void);
+static const struct { const char *nm; sx_fn fn; } sx_tools[] = {
+    { "Derniers jeux lancés", rc_open }, { "Profils de joueurs", sx_pj0 }, { "Ton récap", rcp_open }, { "Mon compagnon", pet_open },
+    { "Succès", sc_open }, { "Mode soirée", so_open }, { "Guide de démarrage", gde_open }, { "Catalogue d'applis", ct_open },
+    { "Cheats", cheats_open }, { "Cartes mémoire virtuelles", vc_open }, { "Historique des sauvegardes", sv_open },
+    { "Infos console", info_open }, { "Mémoire en direct", mem_open }, { "Cartes mémoire", mc_open }, { "Applis", ap_open },
+    { "Historique radio", rh_open }, { "Globe des radios", gb_open }, { "Thèmes en ligne", thm_open }, { "Partages réseau", sx_nfs0 } };
+#define SX_NTOOLS ((int)(sizeof(sx_tools) / sizeof(sx_tools[0])))
+static const s8 sx_set_safe[] = { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE,
+    MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE, MI_COVERS, MI_LYRICS, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS,
+    MI_UILANG, MI_LANG, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_NATCARDGAME, MI_PULSELD, MI_PARTY, MI_NIGHT,
+    MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_HIDDEN, MI_UNKNOWN, MI_MASK, MI_APNOIMG, MI_UPDAUTO, MI_RECAT, MI_RECLEN };
+static const int sx_skins[4] = { 0, 3, 4, 5 };
+static const char *const sx_skin_nm[4] = { "Classique", "Aurore", "Vitrine", "Îlots" };
+
+static void sx_k_add(int k, int a, int b, int ms) { if (sx_ks && sx_nk < SX_NK) { sxk_t *s = &sx_ks[sx_nk++]; s->k = (u8)k; s->a = (s16)a; s->b = (s16)b; s->ms = (u16)ms; } }
+static void sx_script_build(void) {
+    free(sx_ks); sx_ks = (sxk_t *)calloc(SX_NK, sizeof(sxk_t)); sx_nk = 0;
+    for (int i = 0; i < SX_NTOOLS; i++) sx_k_add(K_TOOL, i, 0, 2600);
+    for (int g = 0; g < GM_COUNT; g++) sx_k_add(K_GAME, g, 0, 3500);
+    for (int s = 0; s < 4; s++) for (int i = 0; i < sx_ntabs; i++) sx_k_add(K_SKINTAB, s, sx_tabs[i], 1100);
+    sx_k_add(K_RESTORE, 0, 0, 400);
+    for (int i = 0; i < THEME_COUNT; i++) sx_k_add(K_THEME, i, 0, 1200);
+    for (int i = 0; i < LAYOUT_COUNT; i++) sx_k_add(K_LAYOUT, i, 0, 1700);
+    for (int i = 0; i < VZ_COUNT; i++) sx_k_add(K_VIZ, i, 0, 1700);
+    for (int i = 0; i < SV_COUNT; i++) sx_k_add(K_SAVER, i, 0, 2600);
+    for (int i = 0; i < SEASON_MODES; i++) sx_k_add(K_SEASON, i, 0, 1200);
+    sx_k_add(K_RESTORE, 0, 0, 400);
+    for (int i = 0; i < sx_ntabs; i++) sx_k_add(K_LANGTAB, sx_tabs[i], 0, 1100);
+    sx_k_add(K_RESTORE, 0, 0, 400);
+    for (int i = 0; i < (int)sizeof(sx_set_safe); i++) sx_k_add(K_SET, sx_set_safe[i], 0, 700);
+    sx_k_add(K_RESTORE, 0, 0, 400);
+    sx_k_add(K_PHOTOTAB, 0, 0, 3000);
+    for (int i = 0; i < 3; i++) sx_k_add(K_PHOTO, i, 0, 2500);
+    sx_k_add(K_VIDEO, 0, 0, 6000);
+    sx_k_add(K_RESTORE, 0, 0, 400);
+}
+
+/* reglages d'avant le test : remis (et compares) */
+static void sx_cfg_restore(int final) {
+    if (!sx_cfg0) return;
+    char *b = (char *)malloc(sx_cfg0_n + 1);
+    if (!b) return;
+    memcpy(b, sx_cfg0, sx_cfg0_n); b[sx_cfg0_n] = 0;
+    for (char *l = b; l && *l;) {
+        char *nl = strchr(l, '\n');
+        if (nl) *nl = 0;
+        char *t = trim(l);
+        if (t[0] && t[0] != '#') { char *eq = strchr(t, '='); if (eq) { *eq = 0; setting_apply(trim(t), trim(eq + 1)); } }
+        l = nl ? nl + 1 : NULL;
+    }
+    free(b);
+    eq_setup();
+    upd_xz = upd_xz_set ? upd_xz_file : 1;
+    saver_on = 0;
+    settings_dirty = 0;
+    if (!final) return;
+    /* comparaison : le texte des reglages doit etre exactement celui d'avant */
+    sx_cfg_nd = 0;
+    char *now_ = NULL; size_t nn = 0;
+    if (!cfgw_build(&now_, &nn)) return;
+    if (nn != sx_cfg0_n || memcmp(now_, sx_cfg0, nn)) {
+        const char *a = sx_cfg0, *c = now_;
+        while (*a && *c && sx_cfg_nd < 6) {
+            const char *ae = strchr(a, '\n'), *ce = strchr(c, '\n');
+            size_t al = ae ? (size_t)(ae - a) : strlen(a), cl = ce ? (size_t)(ce - c) : strlen(c);
+            if (al != cl || memcmp(a, c, al)) snprintf(sx_cfg_diff[sx_cfg_nd++], sizeof(sx_cfg_diff[0]), "%.*s", (int)(al > 70 ? 70 : al), a);
+            a = ae ? ae + 1 : a + al; c = ce ? ce + 1 : c + cl;
+        }
+        if (!sx_cfg_nd) snprintf(sx_cfg_diff[sx_cfg_nd++], sizeof(sx_cfg_diff[0]), "(longueur differente)");
+    }
+    free(now_);
+}
+
+static void sx_reset_ui(void) {
+    if (fun_mode) fun_leave();
+    party_on = 0; saver_on = 0;
+    if (mc_mounted >= 0) mc_unmount();                   /* (carte memoire laissee montee par l'outil Cartes) */
+    tl_screen = TL_NONE; menu_open = 0;
+    last_input_ms = now_ms();
+}
+static void sx_music_on(void) {                          /* (un morceau en fond, comme a l'usage) */
+    if ((src == SRC_FILE && playing) || (src == SRC_RADIO && state != ST_IDLE)) return;
+    for (int i = 0; i < nfiles; i++) if (!is_retro[i] && !strncasecmp(names[i], SD_ROOT, strlen(SD_ROOT))) { if (start_track(i)) sx_music = 1; return; }
+}
+static int sx_menu_sec_of(int mi) {
+    for (int s = 0; s < SEC_TOOLS; s++) for (int i = 0; i < sec_n(s); i++) if (sec_items[s][i] == mi) return s;
+    return 0;
+}
+static int sx_photo_idx(int nth, int video) {
+    if (npf <= 0) return -1;
+    for (int i = 0; i < npf; i++) if (!pf[i].bad && (pf[i].video != 0) == (video != 0) && nth-- == 0) return i;
+    return -1;
+}
+
+/* debut d'une etape : 0 = pas disponible */
+static int sx_k_start(const sxk_t *s) {
+    switch (s->k) {
+    case K_TOOL:
+        sx_item_begin(IP_TOOL, "%s", sx_tools[s->a].nm);
+        sx_reset_ui(); sx_tools[s->a].fn(); return 1;
+    case K_GAME:
+        sx_item_begin(IP_GAME, "%s", gm_names[s->a]);
+        sx_reset_ui(); tab = TAB_GAMES; tab_enter(tab);
+        if (s->a == GM_QUIZ && fun_tracks() < 4) return 0;
+        games_tab_launch(s->a);
+        return fun_mode != FUN_OFF;
+    case K_SKINTAB:
+        sx_item_begin(IP_SKIN, "%s : %s", sx_skin_nm[s->a], tab_names[s->b]);
+        sx_reset_ui(); ui_skin = sx_skins[s->a]; tab = s->b; tab_enter(tab); return 1;
+    case K_THEME:
+        sx_item_begin(IP_THEME, "%s", theme_names[s->a]);
+        sx_reset_ui(); theme_apply(s->a); tab = TAB_MUSIC; tab_enter(tab); return 1;
+    case K_LAYOUT:
+        sx_item_begin(IP_LAYOUT, "%s", layout_names[s->a]);
+        sx_reset_ui(); tab = TAB_MUSIC; tab_enter(tab); layout_tab[TAB_MUSIC] = s->a; return 1;
+    case K_VIZ:
+        sx_item_begin(IP_VIZ, "%s", viz_names[s->a]);
+        sx_reset_ui(); tab = TAB_MUSIC; tab_enter(tab); layout_tab[TAB_MUSIC] = L_BIGVIZ; viz_style = s->a; return 1;
+    case K_SAVER:
+        sx_item_begin(IP_SAVER, "%s", saver_names[s->a]);
+        sx_reset_ui(); saver_style = s->a; saver_on = 1; return 1;
+    case K_SEASON:
+        sx_item_begin(IP_SEASON, "décor %d / %d", s->a + 1, SEASON_MODES);
+        sx_reset_ui(); season_on = s->a; tab = TAB_MUSIC; tab_enter(tab); return 1;
+    case K_LANGTAB:
+        sx_item_begin(IP_LANG, "%s", tab_names[s->a]);
+        sx_reset_ui(); ui_lang = 1; ui_lang_apply(); tab = s->a; tab_enter(tab); return 1;
+    case K_RESTORE:
+        sx_reset_ui(); sx_cfg_restore(0); tab = TAB_MUSIC; tab_enter(tab); sx_music_on(); return 1;
+    case K_SET: {
+        int mi = s->a;
+        sx_reset_ui(); tab = TAB_MUSIC;
+        menu_open = 1; menu_sec = sx_menu_sec_of(mi); menu_sel = mi;
+        menu_value(mi, sx_v0, sizeof(sx_v0));
+        sx_item_begin(IP_SET, "%s", menu_labels[mi]);       /* (avant le changement : si ca plante, on le sait) */
+        sx_set_dir = +1;
+        menu_change(mi, +1);
+        settings_dirty = 0;
+        char v1[96]; menu_value(mi, v1, sizeof(v1));
+        if (!strcmp(sx_v0, v1)) { sx_set_dir = -1; menu_change(mi, -1); settings_dirty = 0; menu_value(mi, v1, sizeof(v1)); }   /* (deja au bout : dans l'autre sens) */
+        if (sx_ci >= 0) snprintf(sx_it[sx_ci].nm, sizeof(sx_it[0].nm), "%.28s : %.15s > %.15s", menu_labels[mi], sx_v0, v1);
+        return strcmp(sx_v0, v1) != 0;
+    }
+    case K_PHOTOTAB:
+        sx_reset_ui(); tab = TAB_PHOTO; tab_enter(tab); return 1;
+    case K_PHOTO: case K_VIDEO: {
+        int i = sx_photo_idx(s->a, s->k == K_VIDEO);
+        sx_item_begin(IP_MEDIA, "%s %s", s->k == K_VIDEO ? "vidéo" : "photo", i >= 0 ? base_of(pf[i].path) : "(aucune sur la carte SD)");
+        if (i < 0) return 0;
+        sx_reset_ui(); tab = TAB_PHOTO; pf_sel = i; pv_open(i);
+        return s->k == K_VIDEO ? pv_mode == 2 : pv_mode == 1;
+    }
+    }
+    return 0;
+}
+static void sx_k_end(const sxk_t *s) {
+    switch (s->k) {
+    case K_GAME: if (fun_mode) fun_leave(); break;
+    case K_SAVER: saver_on = 0; break;
+    case K_SET: menu_change(s->a, -sx_set_dir); settings_dirty = 0; menu_open = 0; break;
+    case K_PHOTO: pv_mode = 0; pv_slide = 0; break;
+    case K_VIDEO: if (pv_mode == 2) video_stop(); pv_mode = 0; break;
+    default: break;
+    }
+}
+static void sx_script_tick(u64 n) {
+    if (n < sx_t) return;
+    if (sx_k >= sx_nk) { sx_reset_ui(); sx_cfg_restore(0); sx_state = SX_STRESS; sx_sb = SB_STRESS; sx_sub = 0; sx_t = n; return; }
+    const sxk_t *s = &sx_ks[sx_k];
+    if (sx_kph == 0) {
+        sx_music_on();
+        int ok = sx_k_start(s);
+        if (!ok) { sx_k_end(s); sx_item_end(2); sx_reset_ui(); sx_k++; sx_t = n + 150; return; }
+        sx_kph = 1; sx_t = n + s->ms; return;
+    }
+    if (sx_kph == 1) {
+        if (s->k == K_TOOL) { tp_keys |= PAD_BUTTON_B; sx_kph = 2; sx_t = n + 450; return; }   /* (fermeture normale, par B) */
+        sx_k_end(s);
+        sx_item_end(0);
+        sx_kph = 0; sx_k++; sx_t = n + 250; return;
+    }
+    sx_reset_ui();                                       /* (outil : apres B) */
+    sx_item_end(0);
+    sx_kph = 0; sx_k++; sx_t = n + 250;
+}
+
+
 /* ---------- images : appele par perf_frame (main.c) a chaque image mesuree ---------- */
 static void sx_frame_hook(u32 tot, int tb, int top, u32 top_us) {
     if (sx_state < SX_SOUND || sx_state > SX_STRESS) return;
     int slow = tot > VID_SLOW_US;
     if (sx_sb >= 0) { sx_sb_frames[sx_sb]++; if (slow) sx_sb_slow[sx_sb]++; if (tot > sx_sb_worst[sx_sb]) sx_sb_worst[sx_sb] = tot; }
     sx_fb_frames++; if (slow) sx_fb_slow++;
+    if (sx_ci >= 0) { sxi_t *it = &sx_it[sx_ci]; it->frames++; if (slow && it->slow < 65535) it->slow++; if (tot > it->worst_us) it->worst_us = tot; }
     if (tot < 150000u) return;
     sx_nst_all++;
     if (tot >= 500000u) sx_st_500++;
@@ -388,7 +775,7 @@ static int sx_net_pump(void) {                              /* 1 = tout fini */
             hf_pump(&sx_hf);
             u64 n = now_ms();
             if (!sx_net_head[i] && (sx_hf.st == HF_HEAD || sx_hf.st == HF_BODY || sx_hf.st == HF_DONE)) sx_net_head[i] = (u32)(n - sx_t0);
-            if (sx_hf.st == HF_DONE) { sx_net_st[i] = 1; sx_net_bytes[i] = (u32)sx_hf.len; }
+            if (sx_hf.st == HF_DONE) { sx_net_st[i] = 1; sx_net_bytes[i] = (u32)sx_hf.len; if (i == 0) sx_clock_check(sx_hf.hdr, sx_hf.hlen); }
             else if (sx_hf.st == HF_FAIL) sx_net_st[i] = 2;
             else if (n - sx_t0 > (i == 1 ? 30000u : 20000u)) {
                 sx_net_bytes[i] = sx_hf.st == HF_BODY && sx_hf.len > 0 ? (u32)sx_hf.len : 0;
@@ -436,17 +823,39 @@ static void sx_sound_tick(u64 n) {
         sx_fmt_gap[f] = au_gap_ev - sx_mark_gap;
         sx_fmt_slow[f] = sx_fb_slow;
         sx_fmt_ok[f] = src == SRC_FILE && playing ? 1 : 0;
+        if (sx_fmt_ok[f]) { sx_ac_samples += au_tot - sx_mark_tot; sx_ac_ms += (u32)(n - sx_mark_t); }   /* (horloge du son) */
+        sx_item_end(sx_fmt_ok[f] ? (sx_fmt_gap[f] ? 1 : 0) : 1);
+        if (sx_total && sx_fmt_ok[f]) {              /* saut au milieu du morceau */
+            int d = dur_known(sx_fmt_k[f]);
+            sx_item_begin(IP_SEEK, "%s : saut à %d s", sx_fmt_name[f], d > 4 ? d / 2 : 0);
+            if (d > 6) {
+                u32 t0 = perf_us();
+                track_seek(d / 2);
+                sx_seek_ms = (perf_us() - t0) / 1000u;
+                sx_mark_gap = au_gap_ev; sx_mark_c = consumed;
+                sx_sub = 3; sx_t = n + 2000; return;
+            }
+            sx_item_end(2);
+        }
+        sx_sub = 0;
+    }
+    if (sx_sub == 3) {                               /* apres le saut : ca joue, depuis le milieu ? */
+        int f = sx_fmt_i, d = dur_known(sx_fmt_k[f]);
+        int ok = src == SRC_FILE && playing && consumed / 48000u + 2u >= (u32)(d / 2) && consumed > sx_mark_c;   /* (saut approche : 2 s pres) */
+        if (sx_ci >= 0) { size_t l = strlen(sx_it[sx_ci].nm); snprintf(sx_it[sx_ci].nm + l, sizeof(sx_it[0].nm) - l, " (%u ms)", (unsigned)sx_seek_ms); }
+        sx_item_end(ok ? (au_gap_ev != sx_mark_gap ? 1 : 0) : 1);
         sx_sub = 0;
     }
     if (sx_sub == 0) {                               /* format suivant */
         do sx_fmt_i++; while (sx_fmt_i < SX_NF && sx_fmt_k[sx_fmt_i] < 0);
         if (sx_fmt_i >= SX_NF) { stop_track(); sx_radio_start(); return; }
-        if (!start_track(sx_fmt_k[sx_fmt_i])) { sx_fmt_ok[sx_fmt_i] = 0; sx_t = n + 200; return; }
+        sx_item_begin(IP_FMT, "%s (%s)", sx_fmt_name[sx_fmt_i], base_of(names[sx_fmt_k[sx_fmt_i]]));
+        if (!start_track(sx_fmt_k[sx_fmt_i])) { sx_fmt_ok[sx_fmt_i] = 0; sx_item_end(1); sx_t = n + 200; return; }
         sx_sub = 2; sx_t = n + 1500;                 /* (le morceau demarre) */
         return;
     }
     if (sx_sub == 2) {                               /* debut de la mesure */
-        sx_mark_dec = dec_cost_us; sx_mark_gap = au_gap_ev; sx_mark_t = n;
+        sx_mark_dec = dec_cost_us; sx_mark_gap = au_gap_ev; sx_mark_t = n; sx_mark_tot = au_tot;
         sx_fb_frames = sx_fb_slow = 0;
         sx_sub = 1; sx_t = n + 6000;
     }
@@ -529,11 +938,13 @@ static void sx_tick(void) {
     if (PAD_ButtonsDown(0) & PAD_BUTTON_B) {
         if (sx_state == SX_SOUND) stop_track();
         if (sx_state == SX_RADIO) stop_station();
+        if (sx_state == SX_SCRIPT) { if (sx_ks && sx_k < sx_nk) sx_k_end(&sx_ks[sx_k]); sx_item_end(0); sx_reset_ui(); }
         sx_aborted = 1; sx_finish(); return;
     }
     if (sx_state == SX_SOUND) { sx_sound_tick(n); return; }
     if (sx_state == SX_RADIO) { sx_radio_tick(n); return; }
     if (sx_state == SX_STRESS) { sx_stress_tick(n); return; }
+    if (sx_state == SX_SCRIPT) { sx_script_tick(n); return; }
     if (n < sx_t) return;
     int wait = sx_pass == 1 ? 2500 : 1200, downs = sx_pass == 1 ? 6 : 3;
     if (sx_i < sx_ntabs) {
@@ -557,6 +968,7 @@ static void sx_tick(void) {
     if (sx_pass == 1) sx_mem_p1 = sx_free_now(); else sx_mem_p2 = sx_free_now();
     if (!sx_full) { sx_finish(); return; }
     if (sx_pass == 1) { sx_tour_start(2); return; }
+    if (sx_total) { sx_script_build(); sx_k = 0; sx_kph = 0; sx_state = SX_SCRIPT; sx_sb = SB_SCRIPT; sx_t = n; return; }
     sx_state = SX_STRESS; sx_sb = SB_STRESS; sx_sub = 0; sx_t = n;
 }
 
@@ -625,6 +1037,32 @@ static void sx_diagnose(u32 ok) {
         if (sx_net_st[0] == 1 && sx_net_st[2] == 1 && sx_net_ms[0] > sx_net_ms[2] + 1500)
             sx_d(0, "Ouvrir une connexion chiffrée coûte environ %u,%u s (normal sur GameCube).", (unsigned)((sx_net_ms[0] - sx_net_ms[2]) / 1000), (unsigned)((sx_net_ms[0] - sx_net_ms[2]) % 1000 / 100));
     }
+    if (sx_total) {
+        for (int k = 0; k < 2; k++) {
+            const sxc_t *c = &sx_card[k];
+            if (c->st == 2) sx_d(1, "Carte mémoire %c : illisible (%s).", 'A' + k, mc_errtxt(c->err));
+            else if (c->wr == 2) sx_d(2, "Carte mémoire %c : l'écriture de test a échoué (%u octets faux) : carte à surveiller.", 'A' + k, (unsigned)c->verr);
+            else if (c->wr == 1) sx_d(0, "Carte mémoire %c : écriture, relecture et effacement ok.", 'A' + k);
+        }
+        int np = 0, nmem = 0;
+        for (int i = 0; i < sx_nit; i++) { if (sx_it[i].st == 1) np++; if (sx_it[i].dmem > 300 * 1024) nmem++; }
+        if (!np) sx_d(0, "GC Station : les %d éléments essayés fonctionnent sans blocage.", sx_nit);
+        else {
+            sx_d(np > 5 ? 2 : 1, "GC Station : %d éléments sur %d à regarder :", np, sx_nit);
+            for (int k = 0; k < 4; k++) {                 /* (les pires d'abord) */
+                int b = -1;
+                for (int i = 0; i < sx_nit; i++) if (sx_it[i].st == 1 && (b < 0 || sx_it[i].worst_us > sx_it[b].worst_us)) b = i;
+                if (b < 0) break;
+                sx_d(sx_it[b].worst_us >= 1000000u ? 2 : 1, " - %s : %s, pire image %u ms", sx_ip_name[sx_it[b].ph], sx_it[b].nm, (unsigned)(sx_it[b].worst_us / 1000u));
+                sx_it[b].st = 3;                          /* (deja cite ; remis a 1 juste apres) */
+            }
+            for (int i = 0; i < sx_nit; i++) if (sx_it[i].st == 3) sx_it[i].st = 1;
+        }
+        if (nmem) sx_d(1, "%d éléments gardent plus de 300 Ko de mémoire après leur fermeture (voir le rapport).", nmem);
+    }
+    if (sx_clk_ok && (sx_clk_diff - sx_clk_tz > 120 || sx_clk_diff - sx_clk_tz < -120))
+        sx_d(1, "L'horloge de la console a %d min d'écart avec Internet : à remettre à l'heure.", (int)((sx_clk_diff - sx_clk_tz) / 60));
+    if (sx_cfg0) { if (sx_cfg_nd) sx_d(1, "Réglages : %d lignes ne sont pas revenues toutes seules (remises ; fichier intact).", sx_cfg_nd); else sx_d(0, "Réglages : tous revenus exactement comme avant."); }
     if (sd_ok && !sd_virtual && sx_rkbs && sx_rkbs < 600) sx_d(1, "Carte SD lente en lecture (%u Ko/s) : pochettes et listes chargent lentement.", (unsigned)sx_rkbs);
     if (sx_big0 && sx_big0 < (4u << 20)) sx_d(1, "Peu de mémoire libre d'un seul bloc (%u Ko).", (unsigned)(sx_big0 >> 10));
     /* note sur 100 */
@@ -637,7 +1075,14 @@ static void sx_diagnose(u32 ok) {
         max += 10; pts += sx_ram_err || (sx_aram == 1 && sx_aram_err) ? 0 : (sx_mem_p1 && sx_mem_p1 > sx_mem_p2 + 256 * 1024 ? 5 : 10);
         if (sx_net_st[0] != 3) { max += 10; pts += sx_net_st[0] == 1 ? (sx_net_ms[0] < 3000 ? 10 : sx_net_ms[0] < 6000 ? 7 : 4) : 0; }
     }
+    if (sx_total) {
+        int np = 0; for (int i = 0; i < sx_nit; i++) if (sx_it[i].st == 1) np++;
+        max += 15; pts += np >= 7 ? 0 : 15 - 2 * np;
+        int cbad = 0; for (int k = 0; k < 2; k++) if (sx_card[k].wr == 2) cbad = 1;
+        if (cbad) pts -= 5;
+    }
     sx_score = max ? pts * 100 / max : 0;
+    if (sx_score < 0) sx_score = 0;
     if (sx_score >= 90 && sx_nd <= 2) sx_d(0, "Rien d'inquiétant : la console tient bien la charge.");
 }
 
@@ -645,10 +1090,18 @@ static void sx_diagnose(u32 ok) {
 static void sx_finish(void) {
     perf_on = 0;
     sx_sb = -1;
+    sx_item_end(0);
     sx_gap = au_gap - sx_gap0; sx_gapev = au_gap_ev - sx_gapev0; sx_played = (au_tot - sx_tot0) / 48000u;
+    sx_reset_ui();
+    if (pv_mode == 2) video_stop();
+    pv_mode = 0; pv_slide = 0;
     if (sx_music && src == SRC_FILE) stop_track();
     sx_music = 0;
     menu_open = 0;
+    sx_cfg_restore(1);                                   /* v263 : les reglages d'avant (compares) */
+    sx_quiet = 0;
+    { u32 dt = perf_us() - (u32)sx_vi_t0, nr = retrace_count - sx_vi_r0;   /* frequence de l'ecran, mesuree */
+      sx_vi_x100 = dt > 2000000u ? (u32)((u64)nr * 100000000ull / dt) : 0; }
     tab = sx_tab0; tab_enter(tab);
     sx_frames = sx_slow = sx_worst = 0; sx_worst_tab = -1;
     for (int t = 0; t < PF_TABS; t++) {
@@ -668,7 +1121,7 @@ static void sx_finish(void) {
     }
     sx_diagnose(ok);
     free(sx_rep);
-    int cap = 40000, n = 0;
+    int cap = 96000, n = 0;
     sx_rep = (char *)malloc(cap);
     if (!sx_rep) { sx_state = SX_DONE; tl_screen = TL_SELFTEST; return; }
     #define SXP(...) do { if (n < cap - 1) { int w_ = snprintf(sx_rep + n, cap - n, __VA_ARGS__); n += w_ > 0 ? w_ : 0; if (n > cap - 1) n = cap - 1; } } while (0)
@@ -679,7 +1132,7 @@ static void sx_finish(void) {
         (unsigned)sx_cpu_ms, (unsigned)sx_int_ms, (unsigned)sx_cpy_mbs, (unsigned)sx_rkbs, (unsigned)sx_wkbs, (unsigned)sx_stat_x10,
         (unsigned)sx_net_kbs[0], (unsigned)ok, (unsigned)sx_gapev, sx_score, (unsigned)sx_nst_all, (unsigned)sx_ram_r, (unsigned)sx_aram_mbs,
         (unsigned)sx_gpu_mpx, (unsigned)sx_rnd_x10, sx_dns_ms, (unsigned)sx_radio_ms);
-    SXP("GC Station %s (build %d) - test %s de la console, %02d/%02d/%04d %02d:%02d%s\n", GCMP3_VERSION, GCMP3_BUILD, sx_full ? "complet" : "rapide",
+    SXP("GC Station %s (build %d) - test %s de la console, %02d/%02d/%04d %02d:%02d%s\n", GCMP3_VERSION, GCMP3_BUILD, sx_total ? "total" : sx_full ? "complet" : "rapide",
         tmv ? tmv->tm_mday : 0, tmv ? tmv->tm_mon + 1 : 0, tmv ? tmv->tm_year + 1900 : 0, tmv ? tmv->tm_hour : 0, tmv ? tmv->tm_min : 0,
         sx_aborted ? " (arrêté avant la fin)" : "");
     SXP("Écran %d Hz ; une image ratée = plus de %u ms\n", VID_HZ, (unsigned)(VID_SLOW_US / 1000u));
@@ -744,6 +1197,60 @@ static void sx_finish(void) {
         if (sx_radio == 1) SXP("connexion en %u ms, %u trous sur 10 s\n", (unsigned)sx_radio_ms, (unsigned)sx_radio_gap);
         else SXP("%s\n", sx_radio == 2 ? "pas de son au bout de 20 s" : sx_radio == 4 ? "connexion impossible" : "pas testée (pas de réseau ou pas de station)");
     }
+    SXP("\n== Carte SD : adaptateur ==\n%s\n", sd_virtual ? "aucune (réglages sur la carte mémoire)" : !sd_ok ? "aucune" : sd_slot == 0 ? "SD2SP2 (port série 2)" : sd_slot == 1 ? "SD Gecko, slot A" : sd_slot == 2 ? "SD Gecko, slot B" : "?");
+    if (sx_sm_n) SXP("petits fichiers (4 Ko) : création %u,%u ms, effacement %u,%u ms chacun (%u fichiers)\n", (unsigned)(sx_sm_cr_x10 / 10), (unsigned)(sx_sm_cr_x10 % 10), (unsigned)(sx_sm_rm_x10 / 10), (unsigned)(sx_sm_rm_x10 % 10), (unsigned)sx_sm_n);
+    if (sx_total) {
+        SXP("\n== Cartes mémoire ==\n");
+        for (int k = 0; k < 2; k++) {
+            const sxc_t *c = &sx_card[k];
+            SXP("slot %c : ", 'A' + k);
+            if (c->st == 0) { SXP("vide\n"); continue; }
+            if (c->st == 3) { SXP("adaptateur SD (pas touché)\n"); continue; }
+            if (c->st == 2) { SXP("erreur %d : %s\n", c->err, mc_errtxt(c->err)); continue; }
+            SXP("%u blocs (%u Mbit), %u libres, %d sauvegardes, secteur %u Ko", (unsigned)(c->mbit * 16u - 5u), (unsigned)c->mbit, (unsigned)c->freeb, c->files, (unsigned)(c->sect >> 10));
+            if (c->rd_kbs) SXP(", lecture %u Ko/s", (unsigned)c->rd_kbs);
+            SXP("\n   écriture d'un bloc de test : %s", c->wr == 1 ? "ok" : c->wr == 2 ? "ERREUR" : c->wr == 3 ? "pas de place (pas testé)" : "pas testée");
+            if (c->wr == 1 || c->wr == 2) SXP(" (écrit en %u ms, relu en %u ms, %u octets faux, effacé ensuite)", (unsigned)c->wr_ms, (unsigned)c->rd_ms, (unsigned)c->verr);
+            SXP("\n");
+        }
+    }
+    SXP("\n== Horloge ==\n");
+    { time_t t_ = time(NULL); struct tm *m_ = localtime(&t_);
+      SXP("console : %02d/%02d/%04d %02d:%02d:%02d\n", m_ ? m_->tm_mday : 0, m_ ? m_->tm_mon + 1 : 0, m_ ? m_->tm_year + 1900 : 0, m_ ? m_->tm_hour : 0, m_ ? m_->tm_min : 0, m_ ? m_->tm_sec : 0); }
+    if (sx_clk_ok) {
+        s32 dr = sx_clk_diff - sx_clk_tz;
+        SXP("par rapport à Internet : fuseau %+d h %02d, écart %+d s%s\n", (int)(sx_clk_tz / 3600), (int)((sx_clk_tz < 0 ? -sx_clk_tz : sx_clk_tz) % 3600 / 60), (int)dr, dr > 120 || dr < -120 ? " (l'horloge dérive : à remettre à l'heure)" : "");
+    } else SXP("heure d'Internet : pas lue\n");
+    SXP("\n== Image et son ==\n");
+    { static const char *const vn[VID_COUNT] = { "auto", "480i", "480p", "576i", "576p" };
+      SXP("mode %s, %d Hz, câble %s", vn[vid_active >= 0 && vid_active < VID_COUNT ? vid_active : 0], VID_HZ, VIDEO_HaveComponentCable() ? "composante (YUV)" : "composite / S-Vidéo");
+      if (sx_vi_x100) SXP(", mesuré %u,%02u images/s", (unsigned)(sx_vi_x100 / 100), (unsigned)(sx_vi_x100 % 100));
+      SXP("\n"); }
+    if (sx_ac_ms > 3000) SXP("horloge du son : %u échantillons/s joués (attendu 48000)\n", (unsigned)((u64)sx_ac_samples * 1000ull / sx_ac_ms));
+    if (sx_cover >= 0) SXP("couvercle du lecteur : %s\n", sx_cover ? "ouvert" : "fermé");
+    SXP("serveur du téléphone : %s%s%s\n", tp_state == PS_ON ? "en marche (http://" : tp_state == PS_ERR ? "en erreur" : tp_state == PS_START ? "démarre" : "arrêté", tp_state == PS_ON ? ip_str : "", tp_state == PS_ON ? ")" : "");
+    if (sx_total && sx_it) {
+        SXP("\n== GC Station : tout essayé (%d éléments) ==\n", sx_nit);
+        for (int ph = 0; ph < IP_N; ph++) {
+            int c0 = 0, c1 = 0, c2 = 0;
+            for (int i = 0; i < sx_nit; i++) if (sx_it[i].ph == ph) { if (sx_it[i].st == 1) c1++; else if (sx_it[i].st == 2) c2++; else c0++; }
+            if (!c0 && !c1 && !c2) continue;
+            SXP("-- %s : %d ok, %d à regarder, %d pas disponibles\n", sx_ip_name[ph], c0, c1, c2);
+            for (int i = 0; i < sx_nit; i++) {
+                const sxi_t *it = &sx_it[i];
+                if (it->ph != ph) continue;
+                char nm[80]; sx_pad(nm, sizeof(nm), it->nm, 44);
+                SXP("%s %s pire %4u ms, %3u ratées / %4u", it->st == 1 ? "[! ]" : it->st == 2 ? "[--]" : "[ok]", nm, (unsigned)(it->worst_us / 1000u), (unsigned)it->slow, (unsigned)it->frames);
+                if (it->dmem > 64 * 1024 || it->dmem < -64 * 1024) SXP(", mémoire %+d Ko", (int)(it->dmem / 1024));
+                SXP("\n");
+            }
+        }
+    }
+    if (sx_cfg0) {
+        SXP("\n== Réglages ==\n");
+        if (!sx_cfg_nd) SXP("tous revenus exactement comme avant le test (rien n'a été enregistré pendant le test)\n");
+        else { SXP("remis, mais ces lignes diffèrent encore de gc-mp3.txt (le fichier, lui, n'a pas été touché) :\n"); for (int i = 0; i < sx_cfg_nd; i++) SXP("   %s\n", sx_cfg_diff[i]); }
+    }
     SXP("\n== Son (parcours) ==\n%u trous (%u ms) sur %u s joués%s\n", (unsigned)sx_gapev, (unsigned)(sx_gap / 48), (unsigned)sx_played, sx_played ? "" : " (pas de musique sur la carte SD)");
     if (sx_full) {
         SXP("\n== Images par étape ==\n");
@@ -796,8 +1303,15 @@ static void sx_finish(void) {
     tl_screen = TL_SELFTEST;
 }
 
-static void sx_begin(int full) {
-    sx_full = full;
+static void sx_begin(int lvl) {                      /* 0 rapide, 1 complet, 2 total */
+    int full = lvl >= 1;
+    sx_full = full; sx_total = lvl >= 2;
+    free(sx_cfg0); sx_cfg0 = NULL; sx_cfg0_n = 0; sx_cfg_nd = 0;
+    if (!cfgw_build(&sx_cfg0, &sx_cfg0_n)) { sx_cfg0 = NULL; sx_cfg0_n = 0; }   /* (reglages d'avant : remis a la fin) */
+    sx_quiet = 1;
+    free(sx_it); sx_it = sx_total ? (sxi_t *)calloc(SX_NI, sizeof(sxi_t)) : NULL; sx_nit = 0; sx_ci = -1;
+    memset(sx_card, 0, sizeof(sx_card)); sx_sm_n = 0; sx_clk_ok = 0; sx_ac_samples = sx_ac_ms = 0; sx_vi_x100 = 0;
+    sx_hw_info();
     sx_state = SX_BENCH; sx_bstep = 0; sx_bsub = 0; sx_t = now_ms();
     sx_tab0 = tab; sx_aborted = 0; sx_music = 0; sx_pass = 0; sx_sb = -1;
     sx_nst = 0; sx_nst_all = sx_st_500 = 0; sx_score = -1; sx_nd = 0;
@@ -814,8 +1328,10 @@ static void sx_begin(int full) {
 static void sx_input(u32 down, u32 nav, int fire) {
     (void)nav; (void)fire;
     if (sx_state == SX_INTRO || sx_state == SX_DONE) {
-        int np = sx_full ? 3 : 2;
-        if (down & PAD_BUTTON_A) { sx_begin(1); return; }
+        int np = sx_total ? 4 : sx_full ? 3 : 2;
+        if (sx_state == SX_DONE && (down & PAD_BUTTON_A)) { sx_state = SX_INTRO; return; }   /* (choisir un autre test) */
+        if (down & PAD_BUTTON_A) { sx_begin(2); return; }
+        if (sx_state == SX_INTRO && (down & PAD_BUTTON_X)) { sx_begin(1); return; }
         if (down & PAD_BUTTON_Y) { sx_begin(0); return; }
         if (sx_state == SX_DONE && (down & (PAD_BUTTON_X | PAD_BUTTON_RIGHT | PAD_TRIGGER_R))) { sx_page = (sx_page + 1) % np; return; }
         if (sx_state == SX_DONE && (down & (PAD_BUTTON_LEFT | PAD_TRIGGER_L))) { sx_page = (sx_page + np - 1) % np; return; }
@@ -899,10 +1415,40 @@ static void sx_page_diag(void) {
         y = sx_wrap(sub ? 72 : 60, y, sub ? 508 : 520, sx_diag[i] + (sub ? 3 : 0), c);
     }
 }
+static void sx_page_gcs(void) {
+    f32 y = 96;
+    char v[200], f_[200];
+    for (int ph = 0; ph < IP_N && y < 392; ph++) {
+        int c0 = 0, c1 = 0, c2 = 0, w = -1;
+        for (int i = 0; i < sx_nit; i++) if (sx_it[i].ph == ph) {
+            if (sx_it[i].st == 1) c1++; else if (sx_it[i].st == 2) c2++; else c0++;
+            if (w < 0 || sx_it[i].worst_us > sx_it[w].worst_us) w = i;
+        }
+        if (w < 0) continue;
+        snprintf(v, sizeof(v), "%s : %d ok%s%s", sx_ip_name[ph], c0, c1 ? ", à regarder " : "", "");
+        if (c1) { size_t l = strlen(v); snprintf(v + l, sizeof(v) - l, "%d", c1); }
+        if (c2) { size_t l = strlen(v); snprintf(v + l, sizeof(v) - l, ", %d absents", c2); }
+        { size_t l = strlen(v); snprintf(v + l, sizeof(v) - l, "  -  pire %u ms (%s)", (unsigned)(sx_it[w].worst_us / 1000u), sx_it[w].nm); }
+        fit_text(F_SMALL, v, 520, f_, sizeof(f_));
+        gx_text1(F_SMALL, 60, y, f_, c1 ? SX_MID : SX_OK);
+        y += 21;
+    }
+    if (!sx_nit) gx_text1(F_SMALL, 60, y, "Seulement dans le test total.", SX_TXT);
+}
 static void sx_page_hw(void) {
     char v[200];
     f32 y = 96;
     #define HW(col, ...) do { snprintf(v, sizeof(v), __VA_ARGS__); char f_[200]; fit_text(F_SMALL, v, 520, f_, sizeof(f_)); gx_text1(F_SMALL, 60, y, f_, col); y += 18; } while (0)
+    if (sx_total) for (int k = 0; k < 2; k++) {
+        const sxc_t *c = &sx_card[k];
+        if (c->st == 0) HW(SX_TXT, "Carte mémoire %c : vide", 'A' + k);
+        else if (c->st == 3) HW(SX_TXT, "Slot %c : adaptateur SD", 'A' + k);
+        else if (c->st == 2) HW(SX_MID, "Carte mémoire %c : erreur %d", 'A' + k, c->err);
+        else HW(c->wr == 2 ? SX_BAD : SX_OK, "Carte mémoire %c : %u blocs, %u libres, écriture %s", 'A' + k, (unsigned)(c->mbit * 16u - 5u), (unsigned)c->freeb, c->wr == 1 ? "ok" : c->wr == 2 ? "ERREUR" : "pas testée");
+    }
+    if (sx_clk_ok) { s32 dr = sx_clk_diff - sx_clk_tz; HW(dr > 120 || dr < -120 ? SX_MID : SX_OK, "Horloge : %+d s d'écart avec Internet", (int)dr); }
+    if (sx_vi_x100) HW(SX_TXT, "Écran : %u,%02u images/s mesurées%s", (unsigned)(sx_vi_x100 / 100), (unsigned)(sx_vi_x100 % 100), VIDEO_HaveComponentCable() ? ", câble composante" : "");
+    if (sx_sm_n) HW(SX_TXT, "Carte SD : petit fichier créé en %u,%u ms, effacé en %u,%u ms", (unsigned)(sx_sm_cr_x10 / 10), (unsigned)(sx_sm_cr_x10 % 10), (unsigned)(sx_sm_rm_x10 / 10), (unsigned)(sx_sm_rm_x10 % 10));
     if (sx_ram_kb) HW(sx_ram_err ? SX_BAD : SX_OK, "Mémoire : %u Mo vérifiés, %u erreurs, lecture %u Mo/s, accès %u ns", (unsigned)(sx_ram_kb >> 10), (unsigned)sx_ram_err, (unsigned)sx_ram_r, (unsigned)sx_ram_ns);
     if (sx_aram == 1) HW(sx_aram_err ? SX_BAD : SX_OK, "ARAM : %u Mo vérifiés, %u erreurs, %u Mo/s", (unsigned)(sx_aram_kb >> 10), (unsigned)sx_aram_err, (unsigned)sx_aram_mbs);
     else if (sx_aram == 2) HW(SX_TXT, "ARAM : pas sur le simulateur");
@@ -931,31 +1477,32 @@ static void sx_page_hw(void) {
 
 static void draw_selftest(void) {
     if (sx_state == SX_BENCH && sx_bstep == 3 && sx_full && now_ms() - sx_t >= 120) sx_bench_gpu();   /* (avant le cadre : invisible) */
-    static const char *const pg[] = { "résumé", "diagnostic", "matériel" };
+    static const char *const pg[] = { "résumé", "diagnostic", "matériel", "GC Station" };
     char right[80];
-    if (sx_state == SX_DONE) snprintf(right, sizeof(right), "%s%s  -  %s %d/%d", sx_full ? "complet" : "rapide", sx_aborted ? " (arrêté)" : "", pg[sx_page], sx_page + 1, sx_full ? 3 : 2);
+    if (sx_state == SX_DONE) snprintf(right, sizeof(right), "%s%s  -  %s %d/%d", sx_total ? "total" : sx_full ? "complet" : "rapide", sx_aborted ? " (arrêté)" : "", pg[sx_page], sx_page + 1, sx_total ? 4 : sx_full ? 3 : 2);
     else right[0] = 0;
     tl_frame("Test de la console", right);
     if (sx_state == SX_INTRO) {
         static const char *const l[] = {
-            "A : TEST COMPLET (environ 4 minutes)",
-            "  mémoire et ARAM vérifiées, processeur graphique, carte SD, manettes,",
-            "  réseau (DNS, connexion chiffrée, débit), chaque format audio, une radio,",
-            "  deux parcours des onglets (fuites de mémoire), puis un stress.",
-            "  Chaque image bloquée est notée avec sa cause : diagnostic et note.",
-            "Y : test rapide (environ 1 minute)",
+            "A : TEST TOTAL (environ 15 minutes) : tout le matériel et tout GC Station",
+            "  mémoire, ARAM, graphique, carte SD, cartes mémoire A et B (un fichier de test",
+            "  écrit, relu puis effacé), manettes, horloge, réseau, chaque format audio,",
+            "  chaque outil, mini-jeu, style, couleur, disposition, spectre, économiseur,",
+            "  décor, l'anglais, chaque réglage, photos et vidéo. Tes réglages sont remis.",
+            "X : test complet (environ 5 minutes)       Y : test rapide (1 minute)",
             "",
             "Ne touche pas la manette pendant le test (B : arrêter).",
             "Rapport : SD:/gc-mp3/journaux/test-console.txt et sur le téléphone",
             "(page Rapport de bug). Le test d'avant est gardé pour comparer." };
-        for (int i = 0; i < 10; i++) gx_text1(F_SMALL, 64, 108 + i * 24, l[i], i == 0 || i == 5 ? RGBA(255, 230, 150, 255) : SX_TXT);
-        static const char *const k[] = { "A", "Y", "B" }, *const lb[] = { "COMPLET", "RAPIDE", "RETOUR" };
-        tl_legend(k, lb, 3);
+        for (int i = 0; i < 10; i++) gx_text1(F_SMALL, 60, 104 + i * 23, l[i], i == 0 || i == 5 ? RGBA(255, 230, 150, 255) : SX_TXT);
+        static const char *const k[] = { "A", "X", "Y", "B" }, *const lb[] = { "TOTAL", "COMPLET", "RAPIDE", "RETOUR" };
+        tl_legend(k, lb, 4);
         return;
     }
     if (sx_state == SX_BENCH) {
-        static const char *const nm[] = { "processeur", "mémoire principale", "ARAM", "processeur graphique", "carte SD", "manettes (ne touche pas)", "réseau (DNS)" };
-        const int ns = 7;
+        static const char *const nm[] = { "processeur", "mémoire principale", "ARAM", "processeur graphique", "carte SD", "manettes (ne touche pas)", "réseau (DNS)",
+                                          "carte SD : petits fichiers", "cartes mémoire A et B" };
+        const int ns = sx_total ? 9 : 7;
         char b[120];
         snprintf(b, sizeof(b), "Mesures : %s (%d / %d)...", nm[sx_bstep < ns ? sx_bstep : ns - 1], sx_bstep + 1, ns);
         gx_text_c(F_MED, 320, 220, b, RGBA(255, 230, 150, 255));
@@ -970,6 +1517,8 @@ static void draw_selftest(void) {
         case 4: sx_bench_sd(); break;
         case 5: if (sx_full) { sx_bench_pads(sx_bsub == 0); if (++sx_bsub < 40) return; } break;
         case 6: if (sx_full) sx_bench_dns(); break;
+        case 7: sx_bench_small(); break;
+        case 8: sx_bench_cards(); break;
         }
         sx_bstep++; sx_bsub = 0;
         if (sx_bstep >= ns) { sx_state = SX_NET; sx_t0 = now_ms(); sx_net_start(); }
@@ -984,9 +1533,10 @@ static void draw_selftest(void) {
     if (sx_state != SX_DONE) return;
     if (sx_page == 0) sx_page_summary();
     else if (sx_page == 1) sx_page_diag();
-    else sx_page_hw();
+    else if (sx_page == 2) sx_page_hw();
+    else sx_page_gcs();
     gx_text1(F_SMALL, 64, 408, "Détail : SD:/gc-mp3/journaux/test-console.txt  -  téléphone : Rapport de bug", RGBA(170, 155, 225, 255));
-    static const char *const k[] = { "X", "A", "Y", "B" }, *const lb[] = { "PAGE", "COMPLET", "RAPIDE", "RETOUR" };
+    static const char *const k[] = { "X", "A", "Y", "B" }, *const lb[] = { "PAGE", "AUTRE TEST", "RAPIDE", "RETOUR" };
     tl_legend(k, lb, 4);
 }
 
@@ -996,6 +1546,7 @@ static void sx_overlay(void) {
     char b[160];
     if (sx_state == SX_SOUND) snprintf(b, sizeof(b), "Test : format audio %s  -  B : arrêter", sx_fmt_i >= 0 && sx_fmt_i < SX_NF ? sx_fmt_name[sx_fmt_i] : "");
     else if (sx_state == SX_RADIO) snprintf(b, sizeof(b), "Test : radio (%s)  -  B : arrêter", sx_sub ? "écoute" : "connexion");
+    else if (sx_state == SX_SCRIPT) snprintf(b, sizeof(b), "Test total : %s (%d / %d)  -  B : arrêter", sx_ci >= 0 ? sx_it[sx_ci].nm : "...", sx_k + 1, sx_nk);
     else if (sx_state == SX_STRESS) snprintf(b, sizeof(b), "Test : stress (onglets très vite, menu, outils)  -  B : arrêter");
     else if (sx_i >= 0 && sx_i < sx_ntabs) snprintf(b, sizeof(b), "Test : parcours %d%s, onglet %d / %d  -  B : arrêter", sx_pass, sx_full ? "/2" : "", sx_i + 1, sx_ntabs);
     else snprintf(b, sizeof(b), "Test : menu START  -  B : arrêter");
