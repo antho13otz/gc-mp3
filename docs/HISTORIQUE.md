@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v243 (build 701) — journal de Pulse : les fils du jeu
+## Nouveautés v243 (build 703) — journal de Pulse : les fils du jeu
 - Au retour **A+Z+START** (ou à un plantage), Pulse note maintenant **tous les fils (threads) du jeu** dans un
   4e secteur du journal (`thr_dump` dans natres.c, `NRF_THREADS`) : état (prêt, en cours, en attente), priorité,
   PC, LR et 3 adresses de retour, et le code qui attend pour les fils en attente (`na_thr_print`).
