@@ -13915,6 +13915,7 @@ int main(int argc, char **argv) {
     gx_init();
     init_spectrum();
     bt_step("gx");
+    upg_boot(crash_notice_until != 0);       /* v229 : garde-fou apres une mise a jour (update.c) */
     disc_chain();                            /* v92 : lance depuis un disque : la version plus recente de la carte SD */
 
     /* v92 : chaque etape du demarrage a l'ecran et dans SD:/gc-mp3/journaux/demarrage.txt (temps en ms) */
@@ -13974,6 +13975,7 @@ int main(int argc, char **argv) {
         pet_tick();                                         /* v207 : le compagnon se nourrit de ce qui joue (pet.c) */
         gb_bg();                                            /* v213 : radios du globe chargees en fond (globe.c) */
         mem_tick();                                         /* v220 : memoire (memview.c) */
+        upg_tick();                                         /* v229 : garde-fou apres une mise a jour (update.c) */
         /* activite de la manette (economiseur d'ecran) */
         int sx = PAD_SubStickX(0), sy = PAD_SubStickY(0), mx = PAD_StickX(0), my = PAD_StickY(0);
         int moved = abs(sx) > 40 || abs(sy) > 40 || abs(mx) > 40 || abs(my) > 40;

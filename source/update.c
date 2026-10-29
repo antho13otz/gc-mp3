@@ -11,6 +11,11 @@
 /* v112 : la release est lue d'abord dans le fichier release.json publie avec elle (github.com, sans la limite
    de l'API : 60 demandes par heure et par connexion, vite depassee quand GC Station redemarre souvent),
    puis par l'API si ce fichier manque. */
+/* v229 : garde-fou apres une mise a jour (voir upg_boot, plus bas) */
+static void upg_arm(const char *target, int build);
+static int upg_bad = 0;                                  /* (build retiree : elle plantait) */
+static char upg_note[160];
+static u64 upg_note_until = 0;
 static void upd_rel_url(char *url, int cap, int api) {
 #ifndef GEKKO
     if (getenv("PCSIM_UPD")) { snprintf(url, cap, "%s/release.json", getenv("PCSIM_UPD")); return; }   /* (simulateur : serveur de test) */
@@ -345,6 +350,7 @@ static void up_install_finish(const u8 *d, long n) {
         if (ok) up_idc_store(up_copies[i], 1);
         crumb("mise a jour : copie %s %s", up_copies[i], ok ? "ok" : "ECHEC");
     }
+    if (had) upg_arm(up_target, up_build);               /* v229 : garde-fou (l'ancienne est en .ancien) */
     up_state = UP_DONE;
     snprintf(up_msg, sizeof(up_msg), "Install\xC3\xA9" "e (build %d) : relance automatique...", up_build);   /* v38 ; v127 : toute seule */
     up_auto_at = now_ms() + 3000;
@@ -424,6 +430,7 @@ static void up_stream_finish(void) {
         if (c) up_idc_store(up_copies[i], 1);
         crumb("mise a jour : copie %s %s", up_copies[i], c ? "ok" : "ECHEC");
     }
+    if (had) upg_arm(up_target, up_build);               /* v229 : garde-fou */
     up_state = UP_DONE;
     snprintf(up_msg, sizeof(up_msg), "Install\xC3\xA9" "e (build %d) : relance automatique...", up_build);
     up_auto_at = now_ms() + 3000;
@@ -561,6 +568,9 @@ static void update_pump(void) {
         if (up_build <= GCMP3_BUILD) {
             up_state = UP_NONE;
             snprintf(up_msg, sizeof(up_msg), "\xC3\x80 jour (build %d)", GCMP3_BUILD);
+        } else if (up_build == upg_bad) {                  /* v229 : cette version plantait : pas reproposee */
+            up_state = UP_NONE;
+            snprintf(up_msg, sizeof(up_msg), "Build %d retir\xC3\xA9" "e (elle plantait) : en attente de la suivante", up_build);
         } else {
             up_state = UP_AVAIL;
             if (up_is_xz) snprintf(up_msg, sizeof(up_msg), TR("Build %d compress\xC3\xA9 disponible : A pour installer"), up_build);
@@ -673,7 +683,13 @@ static void update_value(char *out, int cap) {
 }
 
 static void draw_update_notice(void) {
-    char m[120];
+    char m[160];
+    if (upg_note_until && now_ms() < upg_note_until) {   /* v229 : ancienne version remise */
+        int w = text_width(F_SMALL, upg_note, 0) + 30;
+        gx_rrect_fill(320 - w / 2.0f, 92, (f32)w, 26, 9, RGBA(90, 40, 10, 240), RGBA(90, 40, 10, 240));
+        gx_text_c(F_SMALL, 320, 110, upg_note, RGBA(255, 255, 255, 255));
+        return;
+    }
     if (up_state == UP_DONE && up_auto_at) {             /* v127 : relance automatique : visible dans tous les onglets */
         u64 t = now_ms();
         int sec = t < up_auto_at ? (int)((up_auto_at - t + 999) / 1000) : 0;
@@ -685,4 +701,92 @@ static void draw_update_notice(void) {
     int w = text_width(F_SMALL, m, 0) + 30;
     gx_rrect_fill(320 - w / 2.0f, 92, (f32)w, 26, 9, RGBA(20, 70, 40, 240), RGBA(20, 70, 40, 240));
     gx_text_c(F_SMALL, 320, 110, m, RGBA(255, 255, 255, 255));
+}
+
+/* ---- v229 : garde-fou apres une mise a jour ----
+   A l'installation (l'ancienne version gardee en .ancien), un repere SD:/gc-mp3/reglages/maj-garde.txt :
+   la nouvelle version est "en essai". A chacun de ses demarrages, c'est un echec si la fois d'avant elle a
+   plante (journal de plantage) ou s'est arretee dans ses 15 premieres secondes. Au 2e echec, l'ancienne est
+   remise (la nouvelle gardee en .mauvais), les autres copies aussi, et elle est relancee ; ce build n'est
+   plus propose (maj-retour.txt). Apres 2 minutes sans souci, le repere est enleve. */
+#define UPG_FILE GCD_REG "/maj-garde.txt"
+#define UPG_BACK GCD_REG "/maj-retour.txt"
+static char upg_target[NAME_LEN];
+static int upg_build = 0, upg_fail = 0, upg_run = 0, upg_on = 0;
+static u64 upg_t0 = 0;
+static void upg_save(void) {
+    FILE *f = fopen(UPG_FILE, "w");
+    if (!f) return;
+    fprintf(f, "%s\n%d\n%d\n%d\n", upg_target, upg_build, upg_fail, upg_run);
+    fclose(f);
+}
+static void upg_arm(const char *target, int build) {
+    if (!sd_ok || sd_virtual) return;
+    snprintf(upg_target, sizeof(upg_target), "%s", target);
+    upg_build = build; upg_fail = 0; upg_run = 0;
+    upg_save();
+    remove(UPG_BACK);
+    crumb("garde-fou : build %d en essai (%s)", build, target);
+}
+static int upg_load(void) {
+    FILE *f = fopen(UPG_FILE, "r");
+    if (!f) return 0;
+    char l[NAME_LEN + 8];
+    int ok = fgets(l, sizeof(l), f) != NULL;
+    if (ok) { l[strcspn(l, "\r\n")] = 0; snprintf(upg_target, sizeof(upg_target), "%s", l); }
+    ok = ok && fscanf(f, "%d %d %d", &upg_build, &upg_fail, &upg_run) == 3;
+    fclose(f);
+    return ok && upg_target[0];
+}
+/* au demarrage, apres l'ecran (avant disc_chain) ; crashed = la fois d'avant s'est terminee par un plantage */
+static void upg_boot(int crashed) {
+    if (!sd_ok || sd_virtual) return;
+    FILE *b = fopen(UPG_BACK, "r");                       /* version retiree (et annonce, une fois) */
+    if (b) {
+        int bb = 0, seen = 1;
+        if (fscanf(b, "%d %d", &bb, &seen) >= 1) upg_bad = bb;
+        fclose(b);
+        if (!seen && bb > 0) {
+            snprintf(upg_note, sizeof(upg_note), "La mise \xC3\xA0 jour (build %d) plantait : l'ancienne version a \xC3\xA9t\xC3\xA9 remise", bb);
+            upg_note_until = now_ms() + 15000;
+            FILE *w = fopen(UPG_BACK, "w"); if (w) { fprintf(w, "%d 1\n", bb); fclose(w); }
+        }
+    }
+    if (!upg_load()) return;
+    if (upg_build != GCMP3_BUILD) {                      /* (ce n'est pas la version en essai qui tourne) */
+        if (GCMP3_BUILD > upg_build) remove(UPG_FILE);
+        return;
+    }
+    if (crashed || upg_run) upg_fail++;
+    crumb("garde-fou : build %d, echecs %d%s", upg_build, upg_fail, crashed ? " (plantage)" : upg_run ? " (arret au demarrage)" : "");
+    if (upg_fail < 2) { upg_run = 1; upg_save(); upg_on = 1; upg_t0 = now_ms(); return; }
+    /* 2 echecs : l'ancienne version revient */
+    char old[NAME_LEN + 8], bad[NAME_LEN + 12];
+    snprintf(old, sizeof(old), "%s.ancien", upg_target);
+    snprintf(bad, sizeof(bad), "%s.mauvais", upg_target);
+    struct stat st;
+    remove(UPG_FILE);
+    if (stat(old, &st) != 0 || st.st_size <= 0x100) { crumb("garde-fou : pas d'ancienne version (%s)", old); return; }
+    ui_status("La mise \xC3\xA0 jour plante : retour \xC3\xA0 l'ancienne version...");
+    remove(bad);
+    if (rename(upg_target, bad) != 0 || rename(old, upg_target) != 0) { crumb("garde-fou : echange impossible"); rename(bad, upg_target); return; }
+    FILE *w = fopen(UPG_BACK, "w"); if (w) { fprintf(w, "%d 0\n", upg_build); fclose(w); }
+    snprintf(up_target, sizeof(up_target), "%s", upg_target);   /* (copies : toutes sauf celle-ci) */
+    up_ncopies = 0;
+    up_find_copies(SD_ROOT, 2);
+    for (int i = 0; i < up_ncopies; i++) crumb("garde-fou : copie %s %s", up_copies[i], up_copy_file(upg_target, up_copies[i]) ? "ok" : "ECHEC");
+    crumb("garde-fou : ancienne version remise (%s), relance", upg_target);
+    const char *e = gl_relaunch_self(upg_target);
+    if (e) {
+        crumb("garde-fou : relance impossible : %s", e);
+        snprintf(upg_note, sizeof(upg_note), "Mise \xC3\xA0 jour d\xC3\xA9" "faite : relance GC Station pour retrouver l'ancienne version");
+        upg_note_until = now_ms() + 30000;
+    }
+}
+/* dans la boucle : 15 s = plus un arret au demarrage ; 2 min = la nouvelle version est gardee */
+static void upg_tick(void) {
+    if (!upg_on) return;
+    u64 t = now_ms() - upg_t0;
+    if (upg_run && t > 15000) { upg_run = 0; upg_save(); }
+    if (t > 120000) { upg_on = 0; remove(UPG_FILE); crumb("garde-fou : build %d gardee", upg_build); }
 }
