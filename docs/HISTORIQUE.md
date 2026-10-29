@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v258 (build 722) — Pulse : la carte virtuelle respecte les masques du jeu
+- Soulcalibur II (GRSPAF) se figeait en relisant sa sauvegarde sur la carte virtuelle (le fichier de la carte était
+  intact, sommes de contrôle bonnes). La fin d'un transfert de la carte était donnée au jeu même quand il l'avait
+  masquée dans son système (masques du SDK 0x800000C4 / 0x800000C8, journal : F07F8360, EXI0 masqué).
+- Désormais, comme une vraie console, la fin attend que le jeu la démasque (`vc_want` dans natres.c), pour les
+  slots A et B. Peut aussi aider d'autres jeux qui se figeaient pendant une sauvegarde avec Pulse.
+
 ## Nouveautés v257 (build 721) — journal de Pulse : l'image réglée par le jeu
 - Soulcalibur II (GRSPAF) : image tassée en haut, bande noire puis bande répétée en bas avec Pulse (normale avec
   Swiss). « PAL 60 Hz » forcé : le jeu se fige dès sa 1re image (à laisser sur « Comme le jeu »).

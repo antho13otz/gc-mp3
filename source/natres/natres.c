@@ -1376,9 +1376,20 @@ static void x_xfer(vcard_t *v) {                         /* transfert vers la ca
     v->irq |= 0x8;                                       /* TCINT */
     if (v->csr & 0x4) x_kick();                          /* (le jeu attend une interruption) */
 }
+/* v258 : comme une vraie console, la fin d'un transfert de la carte n'est donnee au jeu que s'il ne l'a pas masquee
+   dans son systeme (masques du SDK : 0x800000C4 global, 0x800000C8 local ; EXI0 : 9 et 10, EXI1 : 12 et 13). Sinon
+   elle attend qu'il la demasque (Soulcalibur II GRSPAF : fige en relisant sa sauvegarde, la fin arrivait masquee). */
+#define VC_OSMASK (*(volatile u32 *)0x800000C4u | *(volatile u32 *)0x800000C8u)
+static u32 vc_want(int c) {                              /* interruptions de la carte c que le jeu accepte maintenant */
+    vcard_t *v = &vc[c];
+    u32 w = (v->csr & 1 ? 2u : 0) | (v->csr & 4 ? 8u : 0), m = VC_OSMASK;
+    if (m & (0x80000000u >> (c ? 12 : 9))) w &= ~2u;
+    if (m & (0x80000000u >> (c ? 13 : 10))) w &= ~8u;
+    return w;
+}
 static int vc_pending(void) {                            /* une interruption de carte attend d'etre donnee au jeu */
     int p = 0;
-    for (int c = 0; c < 2; c++) if (vc[c].on && (vc[c].irq & ((vc[c].csr & 1 ? 2u : 0) | (vc[c].csr & 4 ? 8u : 0)))) p = 1;
+    for (int c = 0; c < 2; c++) if (vc[c].on && (vc[c].irq & vc_want(c))) p = 1;
     return p;
 }
 /* a = adresse visee par le jeu (calculee pendant le jeu) : canal 0 (slot A), canal 1 (slot B) si emules */
@@ -1446,9 +1457,10 @@ static void x_dispatch(u32 ctx) {
         vcard_t *v = &vc[c];
         if (!v->on) continue;
         u32 itc = c ? 13 : 10, iex = c ? 12 : 9;
-        for (int g = 0; g < 3 && (v->irq & ((v->csr & 1 ? 2u : 0) | (v->csr & 4 ? 8u : 0))); g++) {
-            if ((v->irq & 0x8) && (v->csr & 0x4) && t[itc] >= 0x80003100u && t[itc] < 0x817F0000u) ((void (*)(u32, u32))t[itc])(itc, ctx);
-            if ((v->irq & 0x2) && (v->csr & 0x1) && t[iex] >= 0x80003100u && t[iex] < 0x817F0000u) ((void (*)(u32, u32))t[iex])(iex, ctx);
+        for (int g = 0; g < 3 && (v->irq & vc_want(c)); g++) {
+            u32 w = vc_want(c);
+            if ((v->irq & w & 0x8) && t[itc] >= 0x80003100u && t[itc] < 0x817F0000u) ((void (*)(u32, u32))t[itc])(itc, ctx);
+            if ((v->irq & vc_want(c) & 0x2) && t[iex] >= 0x80003100u && t[iex] < 0x817F0000u) ((void (*)(u32, u32))t[iex])(iex, ctx);
             x_disp++;
         }
     }
