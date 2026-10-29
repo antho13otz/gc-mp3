@@ -220,10 +220,18 @@ class GamesTab extends Tab {
         LinearLayout hr = new LinearLayout(a);
         hr.setGravity(Gravity.CENTER_VERTICAL);
         hr.setPadding(0, dp(18), 0, dp(4));
-        hr.addView(Neon.glow(a, "CHEATS", 13, Neon.CYAN), lp(0, -2, 1));
+        TextView chTitle = Neon.glow(a, "CHEATS", 13, Neon.CYAN);
+        hr.addView(chTitle, lp(0, -2, 1));
         final TextView ch = Neon.text(a, "Chargement des cheats…", 13, Neon.FAINT, false);
         final LinearLayout list = new LinearLayout(a);
         list.setOrientation(LinearLayout.VERTICAL);
+        cheatList = list;
+        foldBtn = Neon.btn(a, "▾", 14, false, v -> setCheatsOpen(!cheatsOpen()));   // (replier / deplier la liste)
+        foldBtn.setVisibility(View.GONE);
+        LinearLayout.LayoutParams fl = lp(-2, -2, 0);
+        fl.rightMargin = dp(8);
+        hr.addView(foldBtn, fl);
+        chTitle.setOnClickListener(v -> { if (foldBtn.getVisibility() == View.VISIBLE) setCheatsOpen(!cheatsOpen()); });
         hr.addView(Neon.btn(a, "+ Ajouter", 12, false, v -> editCheat(id, -1, "", "", ch, list)), lp(-2, -2, 0));
         box.addView(hr);
         box.addView(ch);
@@ -297,6 +305,24 @@ class GamesTab extends Tab {
             .show();
     }
 
+    // ---------- liste des cheats repliable (choix garde d'un jeu a l'autre) ----------
+    private LinearLayout cheatList;
+    private TextView foldBtn;
+    private boolean cheatsOpen() { return a.getSharedPreferences("gcs", Context.MODE_PRIVATE).getBoolean("cheats_ouverts", false); }
+    private void setCheatsOpen(boolean on) {
+        a.getSharedPreferences("gcs", Context.MODE_PRIVATE).edit().putBoolean("cheats_ouverts", on).apply();
+        applyFold();
+    }
+    private void applyFold() {
+        if (cheatList == null || foldBtn == null) return;
+        int n = cheatList.getChildCount();
+        boolean open = cheatsOpen() || n <= 2;                // (1 ou 2 cheats : toujours affiches)
+        foldBtn.setVisibility(n > 2 ? View.VISIBLE : View.GONE);
+        foldBtn.setText(open ? "▴ Replier" : "▾ Afficher (" + n + ")");
+        foldBtn.setTextSize(12);
+        cheatList.setVisibility(open ? View.VISIBLE : View.GONE);
+    }
+
     private void fillCheats(String r, final String id, final TextView ch, final LinearLayout list) {
         JSONObject j = null;
         try { if (r != null) j = new JSONObject(r); } catch (Exception e) { }
@@ -307,6 +333,7 @@ class GamesTab extends Tab {
         if (c == null || c.length() == 0) {
             mask = "";
             ch.setText(j.optInt("x") != 0 ? "Aucun cheat utilisable dans SD:/gc-mp3/cheats/" + id + ".txt" : "Pas encore de cheats pour ce jeu : + Ajouter (ou SD:/gc-mp3/cheats/" + id + ".txt)");
+            applyFold();
             return;
         }
         StringBuilder m = new StringBuilder();
@@ -362,6 +389,7 @@ class GamesTab extends Tab {
             p.topMargin = dp(8);
             list.addView(row, p);
         }
+        applyFold();
     }
 
     /** ajout (n = -1) ou nouveaux codes d'un cheat : nom + codes, une ligne XXXXXXXX YYYYYYYY par code */
