@@ -171,6 +171,12 @@ enum { NRT_OFF = 0, NRT_ON = 1, NRT_BAT = 2, NRT_BAT2 = 3, NRT_MMU = 4, NRT_VEC 
    Zones : memoire basse (0x80000000, 0x3200), variables du jeu (r13 +/- 32 Ko), pile (r1),
    debut de l'arene (fin du programme, 256 Ko : en-tetes des tas du jeu). */
 #define NRF_SNAP      32u
+/* v243 : 4e secteur du journal : les fils (threads) du jeu au retour A+Z+START ou au plantage, pour un ecran
+   noir ou le fil principal attend un autre fil. 0x00 "GCST" 0x04 nombre 0x08 fil en cours (0x800000E4)
+   0x10 + 32 * i (15 au plus) : adresse du fil, etat << 16 | priorite, srr0 (PC), LR, r1, 3 adresses de retour */
+#define NRF_THREADS   128u
+#define NATRES_THR_MAGIC 0x47435354u        /* "GCST" */
+#define NATRES_THR_MAX   15
 #define NATRES_SNAP_MAGIC 0x4743534Du       /* "GCSM" */
 #define NATRES_SNAP_SECS  704               /* taille du fichier : 704 secteurs (352 Ko) */
 

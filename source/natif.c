@@ -683,7 +683,7 @@ static int nat_map_check(const char *path, long size, char *err, int cap) {
 #define NA_JTXT NA_DIR "/journal-jeu.txt"
 #define NA_SNAP NA_DIR "/memoire-jeu.bin"             /* v83 : photo de la memoire du jeu au plantage */
 static int na_jcrash = 0;                              /* v79 : 2e secteur du journal (details d'un plantage) disponible */
-static int na_jstack = 0;                              /* v82 : 3e secteur (pile du jeu au plantage) disponible */
+static int na_jstack = 0, na_jthr = 0;                              /* v82 : 3e secteur (pile du jeu au plantage) disponible */
 /* v162 : code du jeu au point d'entree, et au debut des fonctions qu'il appelle (bl) : pour comprendre un
    jeu qui se fige avant la moindre trace de Pulse (il ne passe meme pas par ses interruptions) */
 static int na_dol_at(const u8 *dol, u32 a, u32 *end) {   /* position dans le .dol de l'adresse a (code), -1 = pas trouvee */
@@ -718,19 +718,20 @@ static void na_dump_start(FILE *f, const u8 *dol) {
     for (int k = 0; k < nbl; k++) { fprintf(f, "Fonction appelee %d :\n", k + 1); na_dump_words(f, dol, bl[k], 48, NULL, NULL, 0); }
 }
 static u32 nat_journal_prep(void) {
-    na_jcrash = na_jstack = 0;
+    na_jcrash = na_jstack = na_jthr = 0;
     if (sd_virtual) return 0;
     mkdir(NA_DIR, 0777);
-    static u8 z[1536];
+    static u8 z[2048];
     memset(z, 0, sizeof(z));
     FILE *f = fopen(NA_JBIN, "wb");
     if (!f) return 0;
-    int ok = fwrite(z, 1, 1536, f) == 1536;                /* v79 : 2 secteurs (le 2e : details d'un plantage) ; v82 : 3 (le 3e : pile du jeu) */
+    int ok = fwrite(z, 1, 2048, f) == 2048;                /* (v243 : 4e secteur : fils du jeu) */                /* v79 : 2 secteurs (le 2e : details d'un plantage) ; v82 : 3 (le 3e : pile du jeu) */
     fclose(f);
     char e[80];
     if (!ok || nat_map(NA_JBIN, e, sizeof(e)) || !na_next || na_next > 2) return 0;
     na_jcrash = na_next == 1 && na_ext[0].cnt >= 2;       /* (les 2 secteurs a la suite sur la carte) */
     na_jstack = na_next == 1 && na_ext[0].cnt >= 3;
+    na_jthr = na_next == 1 && na_ext[0].cnt >= 4;
     return na_ext[0].sd;
 }
 /* v83 : fichier de la photo de la memoire (cree une fois, 352 Ko ; 1er secteur remis a zero a
@@ -937,6 +938,31 @@ static void na_stack_print(FILE *f, const u8 *b) {
     fprintf(f, "(* = adresse dans le code du jeu : probablement un appel en cours)\n");
     for (int k = 0; k < nc && k < 3; k++) { char lb[32]; snprintf(lb, sizeof(lb), "pile %08X", (unsigned)code[k]); na_code_dump(f, code[k], lb); }
 }
+/* v243 : les fils (threads) du jeu : ou chacun en est (ecran noir : le fil principal attend souvent un autre fil) */
+static void na_thr_print(FILE *f, const u8 *b) {
+    u32 n = be32(b + 4), cur = be32(b + 8);
+    if (n > NATRES_THR_MAX) n = NATRES_THR_MAX;
+    fprintf(f, "\n========== Fils du jeu (%u) ==========\n", (unsigned)n);
+    fprintf(f, "(etat : 1 pret, 2 en cours, 4 en attente, 8 fini ; le plus prioritaire = le plus petit nombre)\n");
+    for (u32 i = 0; i < n; i++) {
+        const u8 *e = b + 0x10 + i * 32;
+        u32 t = be32(e), sp = be32(e + 4), st = sp >> 16, pr = sp & 0xFFFF;
+        fprintf(f, "  fil %08X%s  etat %u (%s)  priorite %u  PC %08X  LR %08X  r1 %08X  appels %08X %08X %08X\n",
+                (unsigned)t, t == cur ? " (en cours)" : "", (unsigned)st,
+                st == 1 ? "pret" : st == 2 ? "en cours" : st == 4 ? "en attente" : st == 8 ? "fini" : "?", (unsigned)pr,
+                (unsigned)be32(e + 8), (unsigned)be32(e + 12), (unsigned)be32(e + 16), (unsigned)be32(e + 20), (unsigned)be32(e + 24), (unsigned)be32(e + 28));
+    }
+    for (u32 i = 0; i < n; i++) {                                   /* fils en attente : le code qui attend (2 appels) */
+        const u8 *e = b + 0x10 + i * 32;
+        if ((be32(e + 4) >> 16) != 4) continue;
+        for (int k = 0; k < 2; k++) {
+            u32 a = be32(e + 20 + k * 4);
+            if (!a) continue;
+            char lb[48]; snprintf(lb, sizeof(lb), "fil %08X, appel %d", (unsigned)be32(e), k + 1);
+            na_code_dump(f, a, lb);
+        }
+    }
+}
 static void nat_journal_convert(void) {
     long len = 0;
     u8 *d = (u8 *)read_file(NA_JBIN, 4096, &len);
@@ -1069,6 +1095,7 @@ static void nat_journal_convert(void) {
         }
         if (len >= 1024 && be32(d + 512) == NATRES_CRASH_MAGIC) na_crash_print(f, d + 512);   /* v79 */
         if (len >= 1536 && be32(d + 1024) == NATRES_STACK_MAGIC) na_stack_print(f, d + 1024);  /* v82 */
+        if (len >= 2048 && be32(d + 1536) == NATRES_THR_MAGIC) na_thr_print(f, d + 1536);     /* v243 */
         if (H[1] >= 12) {                                                     /* v94 */
             u32 xf = be32(d + 0x160);
             fprintf(f, "Lecture de la carte : %s, %s%s ; blocs au CRC faux : %u\n", xf & 1 ? "DMA" : "sans DMA", xf & 2 ? "32 MHz" : "16 MHz",
@@ -2893,7 +2920,7 @@ static const char *nat_boot(int k) {
             u32 co2 = be32(r + offsetof(natres_hdr_t, card2_tab)) - NATRES_AT;   /* v122 : slot B */
             if ((cards & 2) && co2 + na_card2_n * 12 > NATRES_SIZE) cards &= ~2;
             card_on = cards != 0;
-            na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0) | (cards & 1 ? NRF_CARD : 0) | (cards & 2 ? NRF_CARDB : 0) | (na_jcrash ? NRF_CRASH : 0) | (na_jstack ? NRF_STACK : 0));
+            na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0) | (cards & 1 ? NRF_CARD : 0) | (cards & 2 ? NRF_CARDB : 0) | (na_jcrash ? NRF_CRASH : 0) | (na_jstack ? NRF_STACK : 0) | (na_jthr ? NRF_THREADS : 0));
             if (cards & 2) {
                 na_wbe32(r + offsetof(natres_hdr_t, card2_n), na_card2_n); na_wbe32(r + offsetof(natres_hdr_t, card2_size), na_card2_size);
                 na_wbe32(r + offsetof(natres_hdr_t, card2_id), na_card2_size >> 17);

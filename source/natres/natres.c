@@ -933,6 +933,31 @@ static void mem_snap(volatile u32 *c) {
     cw(0x04, nz);
     nr_write_sd(H.snap_sec, crashbuf);
 }
+/* v243 : les fils du jeu (file des fils actifs du SDK : tete en 0x800000DC, suivant en 0x2FC ; OSThread : contexte en 0,
+   etat (u16) 0x2C8, priorite 0x2D0) : ou chacun attend (4e secteur du journal) */
+static void thr_dump(void) {
+    for (u32 i = 0; i < 512; i++) crashbuf[i] = 0;
+    cw(0x00, NATRES_THR_MAGIC); cw(0x08, *(volatile u32 *)0x800000E4u);
+    u32 t = *(volatile u32 *)0x800000DCu, n = 0;
+    while (n < NATRES_THR_MAX && ram_ok(t, 0x300) && !(t & 3)) {
+        volatile u32 *c = (volatile u32 *)t;
+        u32 o = 0x10 + n * 32, sp = c[1];
+        cw(o, t); cw(o + 4, (u32)*(volatile unsigned short *)(t + 0x2C8) << 16 | (c[0x2D0 / 4] & 0xFFFF));
+        cw(o + 8, c[0x198 / 4]); cw(o + 12, c[0x84 / 4]); cw(o + 16, sp);
+        for (u32 k = 0; k < 3 && ram_ok(sp, 8) && !(sp & 3); k++) {
+            u32 up = *(volatile u32 *)sp;
+            if (up <= sp || !ram_ok(up, 8) || (up & 3)) break;
+            cw(o + 20 + k * 4, *(volatile u32 *)(up + 4));
+            sp = up;
+        }
+        n++;
+        u32 nx = c[0x2FC / 4];
+        if (nx == t) break;
+        t = nx;
+    }
+    cw(0x04, n);
+    nr_write_sd(H.log_sec + 3, crashbuf);
+}
 static void vc_diag(void);
 static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
     if (!(H.flags & NRF_CRASH) || !H.log_sec || !di_ready) return;
@@ -961,6 +986,7 @@ static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
     if (ex == 0xFE) vc_diag();                           /* v171 : jeu fige : etat de la carte virtuelle a la place des textes */
     nr_write_sd(H.log_sec + 1, crashbuf);
     if (H.flags & NRF_STACK) stack_dump(c[1]);
+    if (H.flags & NRF_THREADS) thr_dump();
     mem_snap(c);
 }
 void exc_c(u32 ex, u32 ctx) {
