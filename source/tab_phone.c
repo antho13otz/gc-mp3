@@ -31,7 +31,7 @@ static volatile int tp_json_cur = 0;
 static u64 tp_json_t = 0;
 
 /* commandes envoyees par la page */
-enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN, PC_MENU, PC_CHECK, PC_SET, PC_UPDATE, PC_SHOW, PC_SALON, PC_TYPE, PC_SHOWNAME };   /* v142 : photo sur la tele, ecouter avec (Salon) */
+enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN, PC_MENU, PC_CHECK, PC_SET, PC_UPDATE, PC_SHOW, PC_SALON, PC_TYPE, PC_SHOWNAME, PC_PLAYURL, PC_RADIOADD };   /* v142 : photo sur la tele, ecouter avec (Salon) */
 static volatile u32 tp_keys = 0;                /* v142 : boutons de la manette du telephone (pris par la boucle) */
 static u8 *gl_cover_raw(int k, int *w, int *h, int *iw, int *ih, u32 *len);   /* (gclib.c) jaquette telle qu'elle est dans posters.pak */
 static int tl_screen;                                        /* (tools.c : 0 = aucun outil ouvert) */
@@ -138,6 +138,8 @@ static int tp_find_photo(const char *name) {
 static char *mv_json(void);
 void input_phone(float dx, float dy, float wheel, u32 buttons, int acts);   /* (cb/input.c) */
 static int crash_recent(char *out, int cap);                     /* v234 : crashlog.c */
+static char tp_rurl[600], tp_rname[160];                         /* v253 : radio envoyee par le globe du telephone */
+static volatile int tp_rurl_busy = 0;
 static volatile int tp_cap = 0;                                  /* v234 : capture de la tele demandee (simulateur : image a dessiner) */
 #ifndef GEKKO
 extern int pcsim_capture;
@@ -1439,6 +1441,17 @@ static void tp_handle(s32 c) {
         if (ok) tp_push(PC_SALON, atoi(is));
         tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
     }
+    else if (!strcmp(target, "/api/playurl") || !strcmp(target, "/api/radioadd")) {   /* v253 : radio du globe du telephone */
+        int ok = !tp_rurl_busy;
+        if (ok) {
+            tp_param(q ? q : "", "u", tp_rurl, sizeof(tp_rurl));
+            tp_param(q ? q : "", "n", tp_rname, sizeof(tp_rname));
+            for (char *k = tp_rname; *k; k++) if (*k == '|' || *k == '\n' || *k == '\r') *k = ' ';
+            ok = !strncasecmp(tp_rurl, "http", 4) && !strchr(tp_rurl, '|') && !strchr(tp_rurl, '\n');
+            if (ok) { tp_rurl_busy = 1; tp_push(!strcmp(target, "/api/playurl") ? PC_PLAYURL : PC_RADIOADD, 0); }
+        }
+        tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
+    }
     else if (!strcmp(target, "/api/cmd")) {
         static const char *const cmds[] = { "", "toggle", "next", "prev", "stop", "volup", "voldown", "play", "radio", "party", "layout" };
         char cmd[16], is[16];
@@ -1586,6 +1599,30 @@ static void phone_pump(void) {
                 if (k >= 0) { saver_on = 0; night_on = 0; menu_open = 0; tl_screen = 0; kb_open = 0; tab = TAB_PHOTO; tab_enter(TAB_PHOTO); pv_open(k); }
             }
             tp_shown_busy = 0;
+            break;
+        }
+        case PC_PLAYURL:                                 /* v253 : une radio choisie sur le globe du telephone */
+            if (nstations < MAX_STATIONS) {
+                snprintf(stations[nstations].name, sizeof(stations[0].name), "%s", tp_rname[0] ? tp_rname : "Radio");
+                snprintf(stations[nstations].url, sizeof(stations[0].url), "%s", tp_rurl);
+                net_start_async();
+                start_station(nstations, 0);
+            }
+            tp_rurl_busy = 0;
+            break;
+        case PC_RADIOADD: {                              /* v253 : ajoutee a tes radios */
+            int have = 0;
+            for (int k = 0; k < nstations; k++) if (!strcmp(stations[k].url, tp_rurl)) have = 1;
+            if (!have && nstations < MAX_STATIONS - 1) {
+                snprintf(stations[nstations].name, sizeof(stations[0].name), "%s", tp_rname[0] ? tp_rname : "Radio");
+                snprintf(stations[nstations].url, sizeof(stations[0].url), "%s", tp_rurl);
+                nstations++;
+                FILE *f = sd_ok ? fopen(RADIO_LIST, "a") : NULL;
+                if (f) { fprintf(f, "%s | %s\n", tp_rname[0] ? tp_rname : "Radio", tp_rurl); fclose(f); }
+                char m[200]; snprintf(m, sizeof(m), "Ajout\xC3\xA9" "e \xC3\xA0 tes radios : %s", tp_rname);
+                lib_note(m);
+            }
+            tp_rurl_busy = 0;
             break;
         }
         case PC_SALON: { const char *e = salon_listen(cm.i); if (e) lib_note(e); break; }

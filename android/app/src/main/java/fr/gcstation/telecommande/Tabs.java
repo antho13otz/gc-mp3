@@ -323,6 +323,12 @@ class ListTab extends Tab {
             public void afterTextChanged(Editable e) { }
         });
         v.addView(search, lp(-1, -2, 0));
+        if (radio) {                                            // globe des radios (GlobeActivity)
+            TextView gb = Neon.btn(a, "\uD83C\uDF0D  Globe des radios du monde", 15, true, x -> a.startActivity(new Intent(a, GlobeActivity.class)));
+            LinearLayout.LayoutParams gl = lp(-1, Neon.dp(a, 48), 0);
+            gl.topMargin = dp(8);
+            v.addView(gb, gl);
+        }
         status = Neon.text(a, "Chargement…", 12, Neon.DIM, false);
         status.setPadding(dp(6), dp(8), 0, dp(4));
         v.addView(status, lp(-1, -2, 0));
@@ -894,7 +900,14 @@ class FilesTab extends Tab {
         t.setLineSpacing(0, 1.1f);
         final android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(a);
         hs.addView(t);
-        android.widget.ScrollView sc = new android.widget.ScrollView(a);
+        android.widget.ScrollView sc = new android.widget.ScrollView(a) {
+            // (dans la fenetre, qui defile elle aussi : sans ca, elle prenait les glissements et le texte ne defilait pas)
+            @Override public boolean dispatchTouchEvent(MotionEvent e) {
+                if (e.getActionMasked() == MotionEvent.ACTION_DOWN && getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
+                return super.dispatchTouchEvent(e);
+            }
+        };
+        sc.setFillViewport(true);
         sc.addView(hs);
         sc.setLayoutParams(new LinearLayout.LayoutParams(-1, (int) (a.getResources().getDisplayMetrics().heightPixels * 0.55f)));
         final boolean[] wrap = { true };

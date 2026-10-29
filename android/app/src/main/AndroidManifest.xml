@@ -34,6 +34,12 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+        <!-- globe des radios (OpenGL) -->
+        <activity
+            android:name=".GlobeActivity"
+            android:exported="false"
+            android:theme="@android:style/Theme.Material.NoActionBar"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout" />
         <!-- lecture hors de l'appli : notification, ecran verrouille, boutons de volume -->
         <service
             android:name=".PlaybackService"
