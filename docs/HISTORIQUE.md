@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés appli build à venir — La boîte du jeu en 3D sur le téléphone
+## Nouveautés appli build 55 — La boîte du jeu en 3D sur le téléphone
 - Dans la fiche d'un jeu : touche la jaquette (badge **3D**) ou **Voir la boîte en 3D** : la boîte GameCube en vraie
   3D, en plein écran. **Glisser** : la tourner (elle continue sur sa lancée) ; **deux doigts** : zoomer ;
   **double toucher** ou **Ouvrir le boîtier** : le couvercle s'ouvre comme un livre, le disque est dedans ; **Jouer**.
