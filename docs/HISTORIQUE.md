@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v278 (build à venir, appli build 48) — Test des touches : chaque touche dans chaque écran
+## Nouveautés v278 (build 764, appli build 48) — Test des touches : chaque touche dans chaque écran
 - **Outils > Test de la console > Z** (ou l'appli : Outils > Test de la console > Touches) : GC Station se manipule
   tout seul pendant 3 h au plus. Chaque écran (chaque onglet, le menu START et ses sections, chaque outil, la table de
   cartes, les 6 affichages des jeux, chaque filtre de la vitrine, la fiche d'un jeu, ses cheats, ses réglages, ses
