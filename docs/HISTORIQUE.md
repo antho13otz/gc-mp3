@@ -33,12 +33,17 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   « Créer le jeton » : la bonne page de GitHub). Il reste sur le téléphone.
 - L'APK est gardé 90 jours sur GitHub (avant : 7).
 
-## Nouveautés v272 (build 757, appli build 39) — Envois : la barre de l'appli suit la console, envoi plus rapide
-- **Barre de l'appli = barre de la télé** : l'appli affichait ce qu'elle avait mis dans sa mémoire tampon (en avance :
-  57 % sur le téléphone pour ~40 % reçus). Elle demande maintenant à la console ce qu'elle a vraiment reçu
-  (`/api/up` : octets reçus, taille, durée) : même pourcentage et vrai débit des deux côtés.
-- **Envoi plus rapide** : le fil des envois passe au-dessus de la boucle de l'écran (priorité 66 au lieu de 30) ; il dort
-  tant que rien n'arrive et prend les données dès qu'elles sont là (avant : seulement entre deux images).
+## Nouveautés v272 (build 758, appli build 40) — Envois de fichiers refaits : par morceaux, reprise, barre synchronisée
+- **Par morceaux de 256 Ko** : l'appli envoie chaque fichier en petits morceaux (un PUT court chacun). Un morceau qui
+  échoue est renvoyé seul, après avoir demandé à la console ce qu'elle a déjà (`/api/upstat`) ; ce qui était arrivé de
+  ce morceau est enlevé. Le fichier s'écrit dans `<nom>.part` et ne prend son nom qu'une fois complet. Avant : tout le
+  fichier d'un coup, et à la moindre coupure, tout était perdu (« l'envoi n'arrive presque jamais à 100 % »).
+  Simulateur : 4 Mo avec un morceau coupé au milieu → reprise au bon endroit, fichier identique.
+- **Barre de l'appli = barre de la télé** : l'appli comptait ce qu'elle mettait dans sa mémoire tampon (en avance : 57 %
+  sur le téléphone pour ~40 % reçus) ; elle demande maintenant à la console ce qu'elle a vraiment reçu (`/api/up`).
+- **Réception prioritaire** : le fil des envois de la console passe au-dessus de la boucle de l'écran (priorité 66 au lieu
+  de 30) ; il dort tant que rien n'arrive et prend les données dès qu'elles sont là (avant : seulement entre deux images).
+- Consoles plus anciennes : l'appli envoie d'un coup, comme avant.
 
 ## Nouveautés v271 (build 755) — Envois de fichiers : la console répond pendant l'envoi, progression dans l'appli
 - **Console** : l'envoi d'un fichier par le téléphone se fait dans un fil à lui. Avant, le serveur du téléphone ne

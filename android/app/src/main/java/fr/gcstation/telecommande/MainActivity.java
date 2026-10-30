@@ -897,7 +897,9 @@ public class MainActivity extends Activity {
                        : low.endsWith(".gci") ? "gci" : "downloads";   // (.dol : la console le range dans SD:/apps)
             try (InputStream in = tmp != null ? new FileInputStream(tmp) : getContentResolver().openInputStream(u)) {
                 if (prog) { sendName = name; sendSize = size; }
-                return Api.put(dir, name, in, size, prog ? d -> sendDone = d : null);
+                Api.Sent sp = prog ? d -> sendDone = d : null;
+                // (v272 : par morceaux si la console sait le faire, sinon d'un coup comme avant)
+                return Api.canChunk() ? Api.putChunks(dir, name, in, size, sp) : Api.put(dir, name, in, size, sp);
             }
         } catch (Exception e) {
             return null;

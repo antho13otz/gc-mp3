@@ -109,6 +109,77 @@ final class Api {
         }
     }
 
+    // ---------- v272 : envoi par morceaux de 256 Ko (console build 757 et plus) ----------
+    // Chaque morceau est un PUT court ; un morceau qui echoue est renvoye seul, apres avoir demande a la console ce
+    // qu'elle a deja (GET /api/upstat?id=). Avant : tout le fichier d'un coup, et a la moindre coupure, tout etait perdu.
+    static final int CHUNK = 256 * 1024;
+    /** la console sait-elle recevoir par morceaux ? */
+    static boolean canChunk() { return get("/api/upstat?id=0", 3000) != null; }
+
+    private static int readFully(InputStream in, byte[] b, int n) throws java.io.IOException {
+        int got = 0;
+        while (got < n) { int r = in.read(b, got, n - got); if (r <= 0) break; got += r; }
+        return got;
+    }
+
+    private static String putOne(String dir, String name, String id, long off, long total, byte[] b, int n, Sent prog) {
+        HttpURLConnection c = null;
+        try {
+            c = (HttpURLConnection) new URL("http://" + host + "/upload?dir=" + dir + "&name=" + enc(name) + "&id=" + id + "&off=" + off + "&total=" + total).openConnection();
+            c.setRequestMethod("PUT");
+            c.setDoOutput(true);
+            c.setConnectTimeout(5000);
+            c.setReadTimeout(20000);
+            c.setFixedLengthStreamingMode(n);
+            OutputStream o = c.getOutputStream();
+            for (int w = 0; w < n; w += 16384) { int k = Math.min(16384, n - w); o.write(b, w, k); if (prog != null) prog.on(off + w + k); }
+            o.close();
+            lastCode = c.getResponseCode();
+            if (lastCode != 200) return null;
+            InputStream r = c.getInputStream();
+            ByteArrayOutputStream bo = new ByteArrayOutputStream();
+            byte[] buf = new byte[1024]; int k;
+            while ((k = r.read(buf)) > 0) bo.write(buf, 0, k);
+            return bo.toString("UTF-8");
+        } catch (Exception e) {
+            return null;
+        } finally {
+            if (c != null) c.disconnect();
+        }
+    }
+
+    /** envoi par morceaux ; rend la reponse du dernier morceau (comme put), ou null */
+    static String putChunks(String dir, String name, InputStream in, long size, Sent prog) {
+        try {
+            String id = Long.toHexString(System.nanoTime() ^ (long) (Math.random() * Long.MAX_VALUE));
+            byte[] b = new byte[CHUNK];
+            long off = 0;
+            String last = null;
+            while (off < size) {
+                int n = readFully(in, b, (int) Math.min(CHUNK, size - off));
+                if (n <= 0) return null;
+                String r = null;
+                for (int t = 0; t < 6 && r == null; t++) {
+                    if (t > 0) {                                      // (que s'est-il passe ? la console le dit)
+                        try { Thread.sleep(800L * t); } catch (InterruptedException e) { return null; }
+                        String st = get("/api/upstat?id=" + id, 4000);
+                        long have = -2;
+                        try { if (st != null) have = Long.parseLong(st.trim()); } catch (Exception e) { }
+                        if (have == off + n && off + n < size) { r = "suite"; break; }   // (arrive, mais la reponse s'est perdue)
+                        if (have >= 0 && have != off) return null;    // (la console a autre chose : on recommence tout le fichier)
+                    }
+                    r = putOne(dir, name, id, off, size, b, n, prog);
+                }
+                if (r == null) return null;
+                off += n;
+                last = r;
+            }
+            return last;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     /** la console repond-elle a cette adresse ? */
     static boolean isConsole(String ip, int ms) {
         String old = host;
