@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v285 (build à venir) — La télé sur le téléphone (second écran)
+## Nouveautés v285 (build 774) — La télé sur le téléphone (second écran)
 - La console peut maintenant **envoyer ce qu'elle affiche** au téléphone, en direct : `GET /api/ecran?w=320|640&q=10..95`
   rend une image **JPEG** de la télé (320×240 rapide, ou 640×480 net).
 - Encodeur JPEG écrit pour GC Station (`source/ecran_jpeg.c`) : l'image est lue directement dans le tampon vidéo,
