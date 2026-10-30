@@ -1045,7 +1045,10 @@ static u16 *gl_cv_out = NULL;
 static char gl_cv_id[8];
 static void gl_dl_save(const char *id, const u16 *t);
 static u16 *gl_dl_convert(const u8 *img, int n);
+static u8 *gl_fh_convert(u8 *img, int n);
+static void gl_fh_save(const char *id, const u8 *t);
 static void gl_cv_run(void) {                             /* (thread de fond) */
+    if (gl_cv_kind == 3) { gl_cv_out = (u16 *)gl_fh_convert(gl_cv_in, gl_cv_n); free(gl_cv_in); gl_cv_in = NULL; if (gl_cv_out) gl_fh_save(gl_cv_id, (u8 *)gl_cv_out); return; }   /* v287 : HD */
     gl_cv_out = gl_cv_kind == 2 ? gl_fc_convert(gl_cv_in, gl_cv_n) : gl_dl_convert(gl_cv_in, gl_cv_n);
     free(gl_cv_in); gl_cv_in = NULL;
     if (gl_cv_out) { if (gl_cv_kind == 2) gl_fc_save(gl_cv_id, gl_cv_out); else gl_dl_save(gl_cv_id, gl_cv_out); }
@@ -1100,6 +1103,220 @@ static void gl_fc_cv_done(void) {                          /* (boucle principale
     gl_fc_dl = 0;
     if (!strcmp(gl_cv_id, gl_fc.id)) gl_fc_set(t); else free(t);
 }
+/* ---------- v287 : jaquette complete en haute definition, pour lire la boite zoomee ----------
+   GameTDB coverfullHQ (1024 x 680) : chargee seulement quand tu zoomes. Gardee compressee comme le pack (CMPR :
+   340 Ko en memoire au lieu de 1,4 Mo) dans completes/<ID>-hd.tex. Pas de HD chez GameTDB : absentes-hd.txt. */
+#define GL_FHW 1024
+#define GL_FHH 680
+#define GL_FHSZ (GL_FHW * GL_FHH / 2)
+#define GL_FHABS GL_FCDIR "/absentes-hd.txt"
+static struct { char id[8]; u8 *tex; GXTexObj obj; int st; } gl_fh = { "", NULL, {{0}}, 0 };   /* st : 0 a voir, 1 lecture, 2 prete, 3 pas de HD, 4 a telecharger, 5 reseau absent */
+static char gl_fh_rid[8];
+static u8 *gl_fh_rbuf;
+static int gl_fh_rabs, gl_fh_dl = 0, gl_fh_reg = 0;
+static hfetch_t gl_fh_hf = { .c = { -1, 0, 0 } };
+static void gl_fh_path(const char *id, char *o, int cap) { snprintf(o, cap, GL_FCDIR "/%.6s-hd.tex", id); }
+/* un bloc 4x4 en CMPR (DXT1 de la GameCube : couleurs RGB565 grand-boutiennes, indices 2 bits, premier point en haut) */
+static void gl_fh_block(const u8 *strip, int x0, int y0, u8 *o) {   /* (strip : 8 lignes RGB de GL_FHW points) */
+    int c[16][3], mn[3] = { 255, 255, 255 }, mx[3] = { 0, 0, 0 };
+    for (int i = 0; i < 16; i++) {
+        const u8 *p = strip + ((size_t)(y0 + (i >> 2)) * GL_FHW + x0 + (i & 3)) * 3;
+        for (int j = 0; j < 3; j++) { c[i][j] = p[j]; if (p[j] < mn[j]) mn[j] = p[j]; if (p[j] > mx[j]) mx[j] = p[j]; }
+    }
+    u16 a = (u16)(((mx[0] >> 3) << 11) | ((mx[1] >> 2) << 5) | (mx[2] >> 3)), b = (u16)(((mn[0] >> 3) << 11) | ((mn[1] >> 2) << 5) | (mn[2] >> 3));
+    o[0] = a >> 8; o[1] = a & 255; o[2] = b >> 8; o[3] = b & 255;
+    if (a <= b) { o[4] = o[5] = o[6] = o[7] = 0; return; }   /* (bloc uni) */
+    int pal[4][3];
+    for (int j = 0; j < 3; j++) { pal[0][j] = mx[j]; pal[1][j] = mn[j]; pal[2][j] = (2 * mx[j] + mn[j]) / 3; pal[3][j] = (mx[j] + 2 * mn[j]) / 3; }
+    for (int r = 0; r < 4; r++) {
+        u8 v = 0;
+        for (int q = 0; q < 4; q++) {
+            const int *cc = c[r * 4 + q];
+            int best = 0, bd = 1 << 30;
+            for (int k = 0; k < 4; k++) { int d0 = cc[0] - pal[k][0], d1 = cc[1] - pal[k][1], d2 = cc[2] - pal[k][2], d = d0 * d0 + d1 * d1 + d2 * d2; if (d < bd) { bd = d; best = k; } }
+            v |= (u8)(best << (6 - q * 2));
+        }
+        o[4 + r] = v;
+    }
+}
+/* PNG -> CMPR 1024x680 en flux (tinfl.c) : la PNG n'est jamais decompressee en entier (1 Mo de PNG = 2 a 3 Mo
+   d'image : trop pour la console avec le reste). Memoire : la PNG + 32 Ko + deux lignes + 8 lignes + le resultat. */
+typedef struct { int w, h, bpp, ct, stride, pos, sy, ny; u8 filt, *cur, *prev, *strip, *out; const u8 *pal; int npal; } glpng_t;
+static void gl_png_row(glpng_t *z) {
+    u8 *c = z->cur, *p = z->prev;
+    int bpp = z->bpp, n = z->stride;
+    switch (z->filt) {                                   /* (filtres PNG) */
+        case 1: for (int i = bpp; i < n; i++) c[i] += c[i - bpp]; break;
+        case 2: for (int i = 0; i < n; i++) c[i] += p[i]; break;
+        case 3: for (int i = 0; i < n; i++) c[i] += (u8)(((i >= bpp ? c[i - bpp] : 0) + p[i]) >> 1); break;
+        case 4: for (int i = 0; i < n; i++) {
+                    int a = i >= bpp ? c[i - bpp] : 0, b = p[i], cc = i >= bpp ? p[i - bpp] : 0, pp = a + b - cc;
+                    int pa = abs(pp - a), pb = abs(pp - b), pc = abs(pp - cc);
+                    c[i] += (u8)(pa <= pb && pa <= pc ? a : pb <= pc ? b : cc);
+                } break;
+        default: break;
+    }
+    while (z->ny < GL_FHH && z->ny * z->h / GL_FHH == z->sy) {   /* (lignes du resultat qui viennent de cette ligne) */
+        u8 *d = z->strip + (size_t)(z->ny & 7) * GL_FHW * 3;
+        for (int x = 0; x < GL_FHW; x++) {
+            const u8 *s = c + (x * z->w / GL_FHW) * bpp;
+            u8 r, g, b;
+            if (z->ct == 2 || z->ct == 6) { r = s[0]; g = s[1]; b = s[2]; }
+            else if (z->ct == 3) { int k = s[0] < z->npal ? s[0] : 0; r = z->pal[k * 3]; g = z->pal[k * 3 + 1]; b = z->pal[k * 3 + 2]; }
+            else { r = g = b = s[0]; }
+            if (z->ct == 6 && s[3] < 255) { int a = s[3]; r = (u8)((r * a + 255 * (255 - a)) / 255); g = (u8)((g * a + 255 * (255 - a)) / 255); b = (u8)((b * a + 255 * (255 - a)) / 255); }
+            d[x * 3] = r; d[x * 3 + 1] = g; d[x * 3 + 2] = b;
+        }
+        if ((z->ny & 7) == 7) {                          /* (8 lignes : une rangee de tuiles CMPR) */
+            u8 *o = z->out + (size_t)(z->ny >> 3) * (GL_FHW / 8) * 32;
+            for (int tx = 0; tx < GL_FHW; tx += 8)
+                for (int sb = 0; sb < 4; sb++) { gl_fh_block(z->strip, tx + (sb & 1) * 4, (sb >> 1) * 4, o); o += 8; }
+        }
+        z->ny++;
+    }
+    u8 *t = z->prev; z->prev = z->cur; z->cur = t;
+    z->sy++;
+}
+static int gl_png_put(const void *buf, int len, void *user) {
+    glpng_t *z = (glpng_t *)user;
+    const u8 *b = (const u8 *)buf;
+    for (int i = 0; i < len; i++) {
+        if (z->sy >= z->h) return 1;
+        if (z->pos == 0) z->filt = b[i]; else z->cur[z->pos - 1] = b[i];
+        if (++z->pos == z->stride + 1) { gl_png_row(z); z->pos = 0; }
+    }
+    return 1;
+}
+static u8 *gl_fh_convert(u8 *img, int n) {               /* (thread de fond ; img est modifiee) */
+    static const u8 sig[8] = { 137, 'P', 'N', 'G', 13, 10, 26, 10 };
+    if (n < 45 || memcmp(img, sig, 8)) return NULL;
+    glpng_t z; memset(&z, 0, sizeof(z));
+    u8 palcopy[768];
+    int depth = 0, il = 0, idat = 0;
+    for (int p = 8; p + 12 <= n; ) {                     /* chunks ; les IDAT sont mis bout a bout sur place */
+        u32 L = be32(img + p);
+        if ((u32)(n - p - 12) < L) break;
+        const u8 *ty = img + p + 4, *d = img + p + 8;
+        if (!memcmp(ty, "IHDR", 4) && L >= 13) { z.w = (int)be32(d); z.h = (int)be32(d + 4); depth = d[8]; z.ct = d[9]; il = d[12]; }
+        else if (!memcmp(ty, "PLTE", 4)) { int m = (int)(L / 3) > 256 ? 256 : (int)(L / 3); memcpy(palcopy, d, m * 3); z.pal = palcopy; z.npal = m; }   /* (copiee : les IDAT ecrasent le debut du fichier) */
+        else if (!memcmp(ty, "IDAT", 4)) { memmove(img + idat, d, L); idat += (int)L; }   /* (idat <= p : seulement ce qui est deja lu) */
+        else if (!memcmp(ty, "IEND", 4)) break;
+        p += 12 + (int)L;
+    }
+    if (z.w < 256 || z.h < 64 || z.w < z.h || z.w > 4096 || depth != 8 || il) return NULL;
+    z.bpp = z.ct == 2 ? 3 : z.ct == 6 ? 4 : z.ct == 4 ? 2 : (z.ct == 0 || z.ct == 3) ? 1 : 0;
+    if (!z.bpp || (z.ct == 3 && !z.pal)) return NULL;
+    z.stride = z.w * z.bpp;
+    z.cur = (u8 *)calloc(1, z.stride); z.prev = (u8 *)calloc(1, z.stride);
+    z.strip = (u8 *)malloc(GL_FHW * 8 * 3); z.out = (u8 *)memalign(32, GL_FHSZ);
+    int ok = z.cur && z.prev && z.strip && z.out;
+    if (ok) {
+        size_t in = (size_t)idat;
+        ok = tinfl_decompress_mem_to_callback(img, &in, gl_png_put, &z, TINFL_FLAG_PARSE_ZLIB_HEADER) && z.ny >= GL_FHH;
+    }
+    free(z.cur); free(z.prev); free(z.strip);
+    if (!ok) { free(z.out); return NULL; }
+    return z.out;
+}
+static void gl_fh_save(const char *id, const u8 *t) {
+    char p[NAME_LEN];
+    mkdir(GL_UI, 0777); mkdir(GL_FCDIR, 0777);
+    gl_fh_path(id, p, sizeof(p));
+    FILE *f = fopen(p, "wb");
+    if (!f) return;
+    int ok = fwrite(t, 1, GL_FHSZ, f) == GL_FHSZ;
+    if (fclose(f) || !ok) remove(p);
+}
+static void gl_fh_set(u8 *t) {
+    free(gl_fh.tex); gl_fh.tex = t;
+    DCFlushRange(t, GL_FHSZ);
+    GX_InitTexObj(&gl_fh.obj, t, GL_FHW, GL_FHH, GX_TF_CMPR, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InitTexObjFilterMode(&gl_fh.obj, GX_LINEAR, GX_LINEAR);
+    GX_InvalidateTexAll();
+    gl_fh.st = 2;
+}
+static void gl_fh_read(void) {                            /* (thread de fond) */
+    char p[NAME_LEN];
+    gl_fh_rbuf = NULL; gl_fh_rabs = 0;
+    gl_fh_path(gl_fh_rid, p, sizeof(p));
+    FILE *f = fopen(p, "rb");
+    if (f) {
+        u8 *t = (u8 *)memalign(32, GL_FHSZ);
+        int ok = t != NULL;
+        for (u32 o = 0; ok && o < GL_FHSZ; o += 8192) { u32 m = GL_FHSZ - o < 8192 ? GL_FHSZ - o : 8192; ok = fread(t + o, 1, m, f) == m; usleep(300); }
+        fclose(f);
+        if (ok) { gl_fh_rbuf = t; return; }
+        free(t);
+    }
+    snprintf(p, sizeof(p), GL_FCDIR "/%.6s-hd.png", gl_fh_rid);   /* (deposee a la main : convertie une fois) */
+    long n = 0;
+    u8 *img = read_file(p, 6 * 1024 * 1024, &n);
+    if (img) { u8 *t = gl_fh_convert(img, (int)n); free(img); if (t) { gl_fh_save(gl_fh_rid, t); gl_fh_rbuf = t; return; } }
+    n = 0;
+    char *d = (char *)read_file(GL_FHABS, 16384, &n);
+    for (long i = 0; d && i + 6 <= n && !gl_fh_rabs; ) { if (!strncmp(d + i, gl_fh_rid, 6)) gl_fh_rabs = 1; while (i < n && d[i] != '\n') i++; i++; }
+    free(d);
+}
+static void gl_fh_loaded(void) {
+    u8 *t = gl_fh_rbuf; gl_fh_rbuf = NULL;
+    if (strcmp(gl_fh_rid, gl_fh.id)) { free(t); if (gl_fh.st == 1) gl_fh.st = 0; return; }
+    if (t) gl_fh_set(t); else gl_fh.st = gl_fh_rabs ? 3 : 4;
+}
+/* la HD du jeu k (boite zoomee) ; NULL : pas (encore) la */
+static GXTexObj *gl_fh_get(int k) {
+    if (k < 0 || k >= gl_n || gl[k].dvd || !gl[k].id[0] || !sd_ok || sd_virtual) return NULL;
+    if (strncmp(gl_fh.id, gl[k].id, 6)) {
+        if (gl_fh.st == 1 || gl_fh_dl >= 3) return NULL;
+        free(gl_fh.tex); gl_fh.tex = NULL;
+        snprintf(gl_fh.id, sizeof(gl_fh.id), "%.6s", gl[k].id); gl_fh.st = 0;
+    }
+    if (gl_fh.st == 2) return &gl_fh.obj;
+    if (gl_fh.st == 0) { snprintf(gl_fh_rid, sizeof(gl_fh_rid), "%s", gl_fh.id); if (gj_post_fn(gl_fh_read, gl_fh_loaded)) gl_fh.st = 1; }
+    return NULL;
+}
+static int gl_fh_busy(void) { return gl_fh.st == 1 || gl_fh.st == 4 || gl_fh_dl; }
+static void gl_fh_cv_done(void) {
+    u8 *t = (u8 *)gl_cv_out; gl_cv_out = NULL;
+    gl_fh_dl = 0;
+    if (!t) { if (!strcmp(gl_cv_id, gl_fh.id)) gl_fh.st = 3; return; }   /* (illisible ou memoire : pas de HD cette fois) */
+    if (!strcmp(gl_cv_id, gl_fh.id)) gl_fh_set(t); else free(t);
+}
+static int gl_fh_pump(void) {                             /* (1 : en cours) */
+    if (gl_fh_dl == 0) {
+        if (gl_fh.st != 4 || !gl_on || !gl_detail || fun_mode || net_phase != NET_DONE || !net_ok) return 0;
+        gl_fh_reg = 0; gl_fh_dl = 1;
+    }
+    if (gl_fh_dl == 1) {
+        if (gl_fh.st != 4) { gl_fh_dl = 0; return 0; }
+        const char *rg = gl_dl_region(gl_fh.id, gl_fh_reg);
+        if (!rg) {
+            mkdir(GL_UI, 0777); mkdir(GL_FCDIR, 0777);
+            FILE *f = fopen(GL_FHABS, "a");
+            if (f) { fprintf(f, "%.6s\n", gl_fh.id); fclose(f); }
+            gl_fh.st = 3; gl_fh_dl = 0; return 0;
+        }
+        char url[160];
+        snprintf(url, sizeof(url), "http://art.gametdb.com/wii/coverfullHQ/%s/%s.png", rg, gl_fh.id);
+        snprintf(gl_fh_rid, sizeof(gl_fh_rid), "%s", gl_fh.id);
+        gl_fh_hf.maxbytes = 3 * 1024 * 1024; gl_fh_hf.image = 0; gl_fh_hf.accept = "image/png,image/*";
+        hf_start(&gl_fh_hf, url, NULL);
+        gl_fh_dl = 2;
+        return 1;
+    }
+    if (gl_fh_dl == 3) { if (gj_post_fn(gl_cv_run, gl_fh_cv_done)) gl_fh_dl = 4; return 1; }
+    if (gl_fh_dl == 4) return 1;
+    hf_pump(&gl_fh_hf);
+    if (gl_fh_hf.st == HF_FAIL || (gl_fh_hf.st == HF_DONE && (gl_fh_hf.code != 200 || gl_fh_hf.len < 200))) {
+        int net_err = gl_fh_hf.st == HF_FAIL && gl_fh_hf.code == 0;
+        hf_drop(&gl_fh_hf); gl_fh_hf.st = HF_IDLE;
+        if (net_err) { gl_fh_dl = 0; if (!strcmp(gl_fh_rid, gl_fh.id)) gl_fh.st = 5; return 0; }
+        gl_fh_reg++; gl_fh_dl = 1; return 1;
+    }
+    if (gl_fh_hf.st != HF_DONE) return 1;
+    gl_cv_take(&gl_fh_hf, 3, gl_fh_rid);
+    gl_fh_dl = 3;
+    return 1;
+}
 /* telechargement en fond (boucle principale, une jaquette a la fois) */
 #define GL_DLABS GL_DLDIR "/absentes.txt"
 static hfetch_t gl_dl_hf = { .c = { -1, 0, 0 } };
@@ -1136,6 +1353,7 @@ static const char *gl_dl_region(const char *id, int i) {
 static void gl_dl_cv_done(void);
 static void gl_dl_pump(void) {
     if (!sd_ok || sd_virtual || !gl_scanned || !gl || sx_safe) return;
+    if (gl_dl_st == 0 && gl_fh_pump()) return;         /* v287 : la HD de la boite zoomee d'abord */
     if (gl_dl_st == 0 && gl_fc_pump()) return;         /* v283 : la jaquette complete de la fiche ouverte d'abord */
     if (gl_dl_st == 0 && gl_fx_pump()) return;         /* v281 : les fiches d'abord */
     if (gl_dl_st == 0) {

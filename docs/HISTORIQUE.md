@@ -38,7 +38,14 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   Mini-jeux, Manette en jeu, Globe, Mettre à jour. Réglages, Cartes mémoire, Salon, Outils, Recherche et Copies
   gardent pour l'instant l'ancien look.
 
-## Nouveautés v286 (build à venir) — Plus fluide pendant les téléchargements de jaquettes
+## Nouveautés v287 (build à venir) — Lire la boîte zoomée (jaquette en HD)
+- Quand tu **zoomes** sur la boîte 3D, la console prend la **jaquette complète en haute définition** de GameTDB
+  (1024 × 680) : les textes du dos deviennent **lisibles**. « Chargement de la jaquette en HD... » pendant qu'elle arrive.
+- Rangée compressée comme le pack (340 Ko) dans `completes/<ID>-hd.tex` ; tu peux aussi déposer un `<ID>-hd.png`.
+- La PNG est décompressée **en flux** (`source/tinfl.c`, de miniz) : jamais l'image entière en mémoire.
+- Zoomée, la boîte ne se remet plus à tourner toute seule.
+
+## Nouveautés v286 (build 775) — Plus fluide pendant les téléchargements de jaquettes
 - La transformation des images téléchargées (jaquettes, jaquettes complètes) se fait maintenant **en fond** : l'écran
   ne saute plus quand une jaquette arrive. La vérification « jaquette complète déjà sur la carte ? » aussi.
 - Les téléchargements (jaquettes, fiches) **attendent que tu ne touches plus à la manette** depuis 1,5 s : rien ne se

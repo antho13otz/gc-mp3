@@ -497,7 +497,9 @@ static void gs_draw_fiche(void) {
         GXTexObj *o2 = NULL; int big2 = 0;
         if (g->post >= 0 && gl_big.game == gl_sel && gl_big.tex) { o2 = &gl_big.obj; big2 = 1; }
         else if (g->post >= 0) o2 = gl_cover(gl_sel, 1);
-        bx_draw(gl_sel, cx, cy, cw, chh, o2, big2, gl_fc_get(gl_sel));
+        GXTexObj *hd = bx_zoom_to > 1.3f ? gl_fh_get(gl_sel) : NULL;   /* v287 : HD pour lire */
+        bx_draw(gl_sel, cx, cy, cw, chh, o2, big2, hd ? hd : gl_fc_get(gl_sel));
+        if (!hd && gl_fc.st == 2 && gl_fh_busy()) gx_text_c(F_SMALL, 320, 428, "Chargement de la jaquette en HD...", RGBA(255, 210, 120, 230));
         gx_rrect_fill(20, 438, 600, 30, 15, RGBA(255, 255, 255, 16), RGBA(255, 255, 255, 8));
         f32 x = 34;
         x = gs_key(x, 453, "C", "Tourner / zoom", RGBA(255, 210, 90, 255));

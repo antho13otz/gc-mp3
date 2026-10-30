@@ -14056,6 +14056,7 @@ static void music_pump(void) {
 #include "fun_duel2.c"                         /* v279 : jeux en duel (motos, air hockey, puissance 4, sumo) */
 #include "tabs_extra.c"                        /* v23 : onglets JEUX et TELECHARGEMENTS, curseur partout */
 #include "cheats.c"                            /* v25 : editeur de cheats (SD:/gc-mp3/cheats) */
+#include "tinfl.c"                              /* v287 : zlib en flux (PNG HD des jaquettes) */
 #include "gclib.c"                             /* v25 : Mes jeux GameCube (jaquettes : SD:/gc-mp3/jaquettes) */
 #include "jukebox.c"                           /* v207 : musiques des jeux, lues dans les images */
 #include "succes_jeux.c"                      /* v268 : succes dans les jeux (verifies par Pulse) */

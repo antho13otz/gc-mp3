@@ -119,7 +119,7 @@ static void bx_draw(int k, f32 x, f32 y, f32 w, f32 h, GXTexObj *cov, int big, G
     } else { bx_panx *= 1 - (1 - expf(-dt * 8)); bx_pany *= 1 - (1 - expf(-dt * 8)); }
     bx_zoom += (bx_zoom_to - bx_zoom) * (1 - expf(-dt * 8));
     if (bx_pitch > 40) bx_pitch = 40; if (bx_pitch < -30) bx_pitch = -30;
-    if (now - bx_touch > 4000 && bx_open_to < 0.5f) {    /* (seule : un lent balancement autour de 3/4 face) */
+    if (now - bx_touch > 4000 && bx_open_to < 0.5f && bx_zoom_to < 1.03f) {   /* (v287 : pas quand elle est zoomee) */    /* (seule : un lent balancement autour de 3/4 face) */
         bx_spin += ui_dt;
         f32 target = 28 + sinf(bx_spin * 0.55f) * 16;
         while (bx_yaw - target > 180) bx_yaw -= 360;
