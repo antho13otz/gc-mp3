@@ -5,8 +5,10 @@
 #ifndef NATRES_H
 #define NATRES_H
 
-#define NATRES_AT     0x817F0000u        /* adresse fixe (liee par tools/natres.ld) */
-#define NATRES_SIZE   0x0000FF00u        /* place reservee (le haut, 817FFF00+, est laisse a la console) */
+#define NATRES_AT     0x817EE000u        /* adresse fixe (liee par tools/natres.ld) ; (v273 : 8 Ko plus bas que 0x817F0000,
+                                            pour les manettes du telephone : le resident etait plein) */
+#define NATRES_SIZE   0x00011F00u        /* place reservee (le haut, 817FFF00+, est laisse a la console) */
+#define NATRES_HTAB   0x817F0000u        /* (NRO_TRAP) table des pages : alignee sur 64 Ko, quelques groupes en haut du resident */
 #define NATRES_MAGIC  0x4743534Eu        /* "GCSN" */
 #define NATRES_VER    19
 #define NATRES_MAXEXT 1500               /* morceaux de l'ISO sur la carte (fichier fragmente) ; v60 : 2000 (place pour les aiguillages) */
@@ -124,6 +126,33 @@ typedef struct {
     unsigned int mask;
 } natres_net_t;
 #define NATRES_NET_MAGIC 0x504E4554u                    /* "PNET" */
+/* manettes du telephone : section "PPAD" a la suite des cheats (et de "FIXT" / "ACH1") : un telephone envoie
+   ses touches en UDP (port 51237, "GCPD" {version, port de manette 0-3, numero, INBUFH, INBUFL}) ; Pulse lit le
+   Broadband Adapter a chaque image et les donne au jeu comme une manette branchee sur ce port (registres SI). */
+#define NATRES_PAD_MAGIC 0x50504144u                    /* "PPAD" */
+#define NATRES_PAD_PORT  51237
+typedef struct {
+    unsigned int magic;                                   /* "PPAD" */
+    unsigned int len;                                     /* (mots de la section, magic compris) */
+    natres_net_t net;                                     /* (GC Station) adresse de la console (srv = 0), masque, passerelle */
+    unsigned int chmask;                                  /* (GC Station) ports donnes aux telephones (bit n = port n + 1) */
+    unsigned int state;                                   /* (resident) 0 pas demarre, 1 pret, 2 pas de BBA, 3 BBA pris par le jeu */
+    unsigned int rx, bad, arp;                            /* (resident) paquets de manette recus, refuses, demandes ARP repondues */
+    unsigned int seq[4], h[4], l[4], tb[4];               /* (resident) dernier paquet par port : numero, INBUFH, INBUFL, horloge */
+    unsigned int xch, xcmd, types, origins;               /* (resident) dernier transfert SI vers un port telephone ; reponses faites */
+    /* (resident, journal : 7e secteur "GCSP") ce que le jeu demande aux manettes : derniers transferts SI (port << 24 |
+       commande << 16 | octets envoyes << 8 | octets attendus), dernier SIPOLL ecrit, lectures de SISR, de COMCSR et du
+       tampon de reponse sur un port du telephone, lectures de INBUF par port */
+    unsigned int ntr, tr[8], poll, nsr, ncom, nbuf, ninb[4];
+    /* (resident, journal) ce qui touche les ports du telephone, dans l'ordre : les 20 premiers evenements puis les 20 derniers
+       (type << 24 | donnee) : 1 transfert (port << 8 | commande), 2 SIPOLL ecrit (bits 0-23), 3 commande de lecture du
+       port ecrite (SICnOUTBUF, bits 0-23), 4 reponse lue (commande, mot), 5 fin de transfert vue (COMCSR, bits 24-31) */
+    unsigned int nev, ev[40];
+    unsigned int redir;                                   /* (resident, b9000015) transferts envoyes vers une vraie manette a la place */
+} natres_pad_t;
+#define NRF_PADLOG 1024u                                /* 7e secteur du journal : la section "PPAD" au retour */
+#define NATRES_PADLOG_MAGIC 0x47435350u                 /* "GCSP" */
+#define NRO_PHONE  0x04000000u              /* manettes du telephone (registres SI branches, section "PPAD") */
 enum { NRN_OFF = 0, NRN_ON = 1, NRN_NOBBA = 2, NRN_NOLINK = 3, NRN_NOARP = 4, NRN_TIMEOUT = 5 };
 
 #define NATRES_LOGN 1                     /* anneau : {commande, position, longueur, infos} (v145 : 0x1F0 + 1 x 16 = 0x200) */
@@ -131,7 +160,7 @@ enum { NRN_OFF = 0, NRN_ON = 1, NRN_NOBBA = 2, NRN_NOLINK = 3, NRN_NOARP = 4, NR
    gachettes (0 = rien), bits 16-19 manettes lues N fois plus souvent, bit 24 vitesse d'un vrai lecteur */
 #define NRO_SPEED  0x01000000u
 #define NRO_TRAP   0x02000000u              /* v139 : acces au lecteur pris par exception (experimental) */
-#define NATRES_PTEG 0xFC00u                 /* v139 : (NRO_TRAP) groupes de la table des pages : GC Station laisse 0x817FFC00-0x817FFEFF libre */
+#define NATRES_PTEG 0xFC00u                 /* v139 : (NRO_TRAP) groupes de la table des pages (NATRES_HTAB + ...) : GC Station laisse 0x817FFC00-0x817FFEFF libre */
 /* v139 : trap_state : pourquoi l'option n'a pas pu etre activee */
 enum { NRT_OFF = 0, NRT_ON = 1, NRT_BAT = 2, NRT_BAT2 = 3, NRT_MMU = 4, NRT_VEC = 5, NRT_PTE = 6, NRT_LOST = 7 };
 #define NRF_CARDB  64u                    /* v122 : carte memoire virtuelle du slot B active */

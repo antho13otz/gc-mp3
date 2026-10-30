@@ -500,7 +500,8 @@ static void nr_log(u32 off, u32 len, u32 info) {
    envoi par sa file. Par-dessus : ARP (repondre, trouver le serveur), IPv4, UDP. Protocole a nous :
    demande "PNR1" {numero, fichier, position, longueur <= 2048} ; reponses "PNA1" {numero, position,
    longueur <= 1024, donnees}. Une demande perdue est refaite apres 25 ms. */
-#define PN_NET ((const natres_net_t *)H.net)
+static const natres_net_t *pn_cfg = 0;                   /* (H.net, ou les reglages des manettes du telephone) */
+#define PN_NET pn_cfg
 #define BB_NCRA 0x00
 #define BB_NCRB 0x01
 #define BB_IMR  0x08
@@ -606,12 +607,12 @@ static int pn_rx(u32 n, u32 seq) {
     if (pn_be16(u) != PN_NET->port || pn_be32(u + 8) != 0x504E4131u || pn_be32(u + 12) != seq) return 0;   /* "PNA1" */
     return 1;
 }
-static int __attribute__((noinline)) pn_init(void) {
-    if (!H.net || PN_NET->magic != NATRES_NET_MAGIC) return -1;
+/* le BBA pret a recevoir (sans chercher de serveur) : 0, ou -1 = pas de Broadband Adapter */
+static int __attribute__((noinline)) pn_bba_init(void) {
     bx = HW6(0xCC006800u);
     u32 m = irq_off();
     bb_sel(); bb_w(0, 2); u32 id = bb_r(4); bb_desel();      /* (identifiant du peripherique EXI) */
-    if (id != 0x04020200u) { irq_restore(m); H.net_rt = (H.net_rt & 0xFFFFFFu) | (u32)NRN_NOBBA << 24; return -1; }
+    if (id != 0x04020200u) { irq_restore(m); return -1; }
     bb_cout(0x02, 0x00);                                  /* (interruptions du BBA : aucune) */
     bb_out8(BB_NCRA, 1);                                  /* remise a zero */
     for (volatile u32 i = 0; i < 20000u; i++) { }
@@ -630,6 +631,12 @@ static int __attribute__((noinline)) pn_init(void) {
     bb_out8(BB_NCRA, 0x08);                               /* SR : reception */
     bb_ins(BB_PAR, pn_mac, 6);
     irq_restore(m);
+    return 0;
+}
+static int __attribute__((noinline)) pn_init(void) {
+    if (!H.net || ((const natres_net_t *)H.net)->magic != NATRES_NET_MAGIC) return -1;
+    pn_cfg = (const natres_net_t *)H.net;
+    if (pn_bba_init()) { H.net_rt = (H.net_rt & 0xFFFFFFu) | (u32)NRN_NOBBA << 24; return -1; }
     u32 hop = PN_NET->gw && ((PN_NET->srv ^ PN_NET->ip) & PN_NET->mask) ? PN_NET->gw : PN_NET->srv;
     for (int i = 0; i < 6; i++) pn_smac[i] = 0;
     for (int t = 0; t < 40; t++) {                        /* adresse Ethernet du serveur (ou de la passerelle) : ARP */
@@ -689,6 +696,98 @@ static int __attribute__((noinline)) pn_read(void *dst, u32 off, u32 len) {
     return 0;
 }
 
+/* ======================= manettes du telephone =======================
+   L'appli du telephone envoie ses touches en UDP (port 51237) : {"GCPD", version, port 0-3, 0, 0, numero, INBUFH,
+   INBUFL}. A chaque image, Pulse lit le Broadband Adapter (si le jeu ne se sert pas du canal EXI 0), repond aux
+   demandes ARP pour l'adresse de la console, et garde les dernieres touches de chaque port. Le jeu les voit comme une
+   manette branchee (si_load) : INBUF, SISR (donnees neuves, pas d'erreur), et les reponses des commandes "type"
+   (00 / FF : manette standard 0900) et "origine" (41 / 42 : sticks au centre) envoyees par la bibliotheque des
+   manettes du jeu sur ce port. Pas de touches depuis 1 s : manette au repos. */
+static natres_pad_t *pd = 0;
+static u32 pd_seen = 0;
+static natres_pad_t *pd_find(void) {
+    if (pd_seen) return pd;
+    pd_seen = 1;
+    if (!(H.opt & NRO_PHONE) || !H.chts || H.net) return 0;
+    u32 *q = (u32 *)H.chts;
+    q += 1 + q[0];
+    if (q[0] == 0x46495854u) q += 2 + q[1] * 3;          /* ("FIXT") */
+    if (q[0] == 0x41434831u) { u32 n = q[1], *d = q + 2 + 2 * n; while (n--) d += 3 + 4 * d[0]; q = d; }   /* ("ACH1") */
+    if (q[0] == NATRES_PAD_MAGIC) pd = (natres_pad_t *)q;
+    return pd;
+}
+static u32 pd_bba_n = 0, pd_bba_tb = 0;                  /* (derniers acces du jeu au BBA) */
+static int pd_busy(void) { return ((bx[0] & 0x380u) & ~0x200u) || (bx[3] & 1u); }   /* (le jeu se sert du canal 0) */
+void pd_poll(void) __attribute__((used));
+void pd_poll(void) {
+    natres_pad_t *p = pd_find();
+    if (!p || p->state == 2) return;
+    u32 now = tbl();
+    /* le jeu se sert du BBA (Mario Kart Double Dash le cherche au demarrage, pour le jeu en reseau local) : on le laisse,
+       puis, 2 s apres son dernier acces, on le reprend (remis a zero et regle de nouveau) */
+    if (H.bba_n != pd_bba_n) { pd_bba_n = H.bba_n; pd_bba_tb = now; p->state = 3; }
+    if (p->state == 3) { if (now - pd_bba_tb < 2u * TB_SEC) return; p->state = 0; }
+    bx = HW6(0xCC006800u);
+    if (pd_busy()) return;
+    if (!p->state) {
+        pn_cfg = &p->net;
+        if (pn_bba_init()) { p->state = 2; return; }
+        p->state = 1;
+    }
+    for (int k = 0; k < 8; k++) {
+        u32 n = pn_recv();
+        if (!n) break;
+        const u8 *f = pn_fr;
+        if (n < 42) continue;
+        u32 type = pn_be16(f + 12);
+        if (type == 0x0806) {
+            if (pn_be16(f + 20) == 1 && pn_be32(f + 38) == p->net.ip) { u8 m[6]; for (int i = 0; i < 6; i++) m[i] = f[22 + i]; pn_arp(2, m, pn_be32(f + 28)); p->arp++; }
+            continue;
+        }
+        if (type != 0x0800 || f[23] != 17 || pn_be32(f + 30) != p->net.ip) continue;
+        const u8 *u = f + 14 + (f[14] & 15) * 4, *d = u + 8;
+        if (pn_be16(u + 2) != NATRES_PAD_PORT) continue;
+        if (d + 20 > f + n || pn_be32(d) != 0x47435044u) { p->bad++; continue; }   /* "GCPD" */
+        u32 ch = d[5] & 3;
+        if (!(p->chmask >> ch & 1)) { p->bad++; continue; }
+        u32 seq = pn_be32(d + 8);
+        if (seq == p->seq[ch]) continue;                  /* (deja vu) */
+        p->seq[ch] = seq; p->h[ch] = pn_be32(d + 12) | 0x00800000u; p->l[ch] = pn_be32(d + 16); p->tb[ch] = now; p->rx++;
+    }
+    H.net_pk = p->rx; H.net_rt = p->state << 24 | (p->arp & 0xFFF) << 12 | (p->bad & 0xFFF);   /* (journal : pas de H.net ici) */
+    for (u32 ch = 0; ch < 4; ch++)
+        if ((p->chmask >> ch & 1) && now - p->tb[ch] > TB_SEC) { p->h[ch] = 0x00808080u; p->l[ch] = 0x80800000u; }   /* (au repos) */
+}
+static void pd_ev(natres_pad_t *p, u32 t, u32 d) {      /* (journal : 20 premiers, puis les 20 derniers) */
+    u32 i = p->nev < 20 ? p->nev : 20 + (p->nev - 20) % 20;
+    p->ev[i] = t << 24 | (d & 0xFFFFFFu); p->nev++;
+}
+static u32 pd_si_load(natres_pad_t *p, u32 o, u32 v, int *done) {
+    *done = 1;
+    if (o < 0x30u) {
+        u32 ch = o / 12u, r = o % 12u;
+        if (r == 4) p->ninb[ch]++;                        /* (journal : quels ports le jeu lit) */
+        if (p->chmask >> ch & 1) { if (r == 4) { H.si_fixes++; return p->h[ch]; } if (r == 8) return p->l[ch]; }   /* (journal : lectures donnees) */
+        *done = 0; return v;
+    }
+    if (o == 0x38u) {                                     /* SISR : donnees neuves, aucune erreur sur les ports du telephone */
+        p->nsr++;
+        for (u32 ch = 0; ch < 4; ch++) if (p->chmask >> ch & 1) { u32 s = (3 - ch) * 8; v = (v & ~(0x3Fu << s)) | (0x20u << s); }
+        return v;
+    }
+    int mine = p->xch < 4 && (p->chmask >> p->xch & 1);
+    if (o == 0x34u && mine) { p->ncom++; if ((v & 0x80000000u) && p->ncom < 4000u) pd_ev(p, 5, v >> 8); return (v & ~0x20000006u) | p->xch << 1; }   /* COMCSR : pas d'erreur de transfert (et le port demande par le jeu) */
+    if (o >= 0x80u && o < 0x100u && mine) {               /* reponse d'une commande envoyee au port du telephone */
+        u32 w = (o - 0x80u) / 4u;
+        p->nbuf++;
+        if (p->xcmd != 0x00 || p->nbuf < 4) pd_ev(p, 4, (p->xcmd & 0xFF) << 8 | w);
+        if (p->xcmd == 0x00 || p->xcmd == 0xFF) { if (!w) p->types++; return w ? 0 : 0x09000000u; }          /* manette standard */
+        if (p->xcmd == 0x41 || p->xcmd == 0x42) { if (!w) p->origins++; return w == 0 ? 0x00808080u : w == 1 ? 0x80801F1Fu : 0; }   /* origine */
+    }
+    *done = 0;
+    return v;
+}
+
 /* ---------- v57 : crochets dans la table des interruptions du jeu ----------
    Le systeme des jeux (SDK Nintendo) range ses fonctions d'interruption dans une table a
    0x80003040 (une par source : 20 = manettes SI, 21 = lecteur DI, 24 = image VI).
@@ -734,11 +833,11 @@ static void ret_to_gcstation(void) {
     if (!di_ready || nr_read(dh, 0, 256)) hot_reset();
     const u32 *w = (const u32 *)dh;                      /* (en-tete du .dol, big-endian comme la console) */
     u32 entry = w[0xE0 / 4];
-    if (entry < 0x80003000u || entry >= 0x817F0000u) hot_reset();
+    if (entry < 0x80003000u || entry >= NATRES_AT) hot_reset();
     for (int i = 0; i < 18; i++) {
         u32 off = w[i], addr = w[0x48 / 4 + i], sz = w[0x90 / 4 + i];
         if (!sz) continue;
-        if (addr < 0x80003000u || addr + sz > 0x817F0000u || off + sz > H.ret_size) hot_reset();
+        if (addr < 0x80003000u || addr + sz > NATRES_AT || off + sz > H.ret_size) hot_reset();
         if (nr_read((void *)addr, off, sz)) hot_reset();
         cache_flush(addr, sz);
         for (u32 a = addr & ~31u; a < addr + sz; a += 32) __asm__ volatile("icbi 0,%0" :: "r"(a));
@@ -817,6 +916,7 @@ static void freeze_check(u32 ctx) {
 }
 static void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee avant la fonction du jeu */
     trap_guard();
+    if (H.opt & NRO_PHONE) pd_poll();                    /* manettes du telephone : avant que le jeu lise les manettes */
     if (++H.vi_in == 1) nr_log_flush();                  /* (1re image : on sait si le jeu y arrive) */
     if (vi_orig) ((void (*)(u32, u32))vi_orig)(irq, ctx);
     H.vi_count++; vi_snap(); alive_tick();
@@ -976,7 +1076,7 @@ static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
     cw(0x20, dar); cw(0x24, dsisr); cw(0x28, ctx);
     static const u32 low[8] = { 0x28, 0x2C, 0x30, 0x34, 0x38, 0x3C, 0xF0, 0xF4 };
     for (int i = 0; i < 8; i++) cw(0xB0 + i * 4, *(volatile u32 *)(0x80000000u + low[i]));
-    if (ctx < 0x80000000u || ctx >= 0x817F0000u || (ctx & 3)) { nr_write_sd(H.log_sec + 1, crashbuf); return; }
+    if (ctx < 0x80000000u || ctx >= NATRES_AT || (ctx & 3)) { nr_write_sd(H.log_sec + 1, crashbuf); return; }
     volatile u32 *c = (volatile u32 *)ctx;               /* OSContext : r0-r31 0x00, CR 0x80, LR 0x84, CTR 0x88, srr0 0x198, srr1 0x19C */
     cw(0x0C, c[0x198 / 4]); cw(0x10, c[0x19C / 4]); cw(0x14, c[0x84 / 4]); cw(0x18, c[0x80 / 4]); cw(0x1C, c[0x88 / 4]);
     for (int r = 0; r < 32; r++) cw(0x30 + r * 4, c[r]);
@@ -997,6 +1097,13 @@ static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
     nr_write_sd(H.log_sec + 1, crashbuf);
     if (H.flags & NRF_STACK) stack_dump(c[1]);
     if (H.flags & NRF_THREADS) thr_dump();
+    if ((H.flags & NRF_PADLOG) && pd_find()) {           /* manettes du telephone : la section au retour */
+        for (u32 i = 0; i < 512; i++) crashbuf[i] = 0;
+        const u32 *q = (const u32 *)pd;
+        cw(0x00, NATRES_PADLOG_MAGIC);
+        for (u32 i = 0; i < sizeof(natres_pad_t) / 4 && 4 + i * 4 < 512; i++) cw(4 + i * 4, q[i]);
+        nr_write_sd(H.log_sec + 6, crashbuf);
+    }
     mem_snap(c);
 }
 void exc_c(u32 ex, u32 ctx) {
@@ -1007,7 +1114,7 @@ void exc_c(u32 ex, u32 ctx) {
     if (ctx < 0x01800000u) ctx |= 0x80000000u;           /* (adresse physique -> virtuelle) */
     H.exc_num = 0x100u | (ex & 0xFF);
     H.exc_dar = dar; H.exc_dsisr = dsisr;
-    if (ctx >= 0x80000000u && ctx < 0x817F0000u) { H.exc_srr0 = *(volatile u32 *)(ctx + 0x198); H.exc_lr = *(volatile u32 *)(ctx + 0x84); }
+    if (ctx >= 0x80000000u && ctx < NATRES_AT) { H.exc_srr0 = *(volatile u32 *)(ctx + 0x198); H.exc_lr = *(volatile u32 *)(ctx + 0x84); }
     if (!di_ready) di_ready = nr_init() == 0;             /* v79 : (plantage avant la 1re commande au lecteur : carte pas encore demarree) */
     crash_dump(ex, ctx, dar, dsisr);                      /* v79 : details (registres, appels, textes) dans le 2e secteur */
     nr_log_flush();
@@ -1067,7 +1174,7 @@ static void igr_poll2(int count) {
         H.igr = 1;
         /* v133 : ou en etait le jeu (comme un plantage : code, appels, pile, memoire) : un jeu fige
            (ecran noir, il tourne encore) montre ainsi ce qu'il attend */
-        if (igr_ctx >= 0x80000000u && igr_ctx < 0x817F0000u && !(igr_ctx & 3)) {
+        if (igr_ctx >= 0x80000000u && igr_ctx < NATRES_AT && !(igr_ctx & 3)) {
             H.exc_srr0 = *(volatile u32 *)(igr_ctx + 0x198); H.exc_lr = *(volatile u32 *)(igr_ctx + 0x84);
             crash_dump(0xFF, igr_ctx, 0, 0);
         }
@@ -1434,6 +1541,9 @@ static u32 exi_load(u32 a) {
     trap_guard();
     if (a - 0xCC006000u < 0x40u) return di_load(a);      /* v133 : acces au lecteur branches en secours (adresse calculee) */
     early_note(a, 0, 0);
+    /* manettes du telephone : le Broadband Adapter est pour Pulse. Le jeu qui le cherche (Mario Kart Double Dash,
+       jeu en reseau local) lit "aucun peripherique" : sinon il s'en servait sans arret et Pulse ne pouvait jamais le reprendre */
+    if ((H.opt & NRO_PHONE) && a == 0xCC006810u && (*HW6(0xCC006800u) & 0x380u) == 0x200u) { H.bba_n++; return 0; }
     vcard_t *v = vc_of(a);
     if (!v) return *HW6(a);                              /* (autres canaux, cartes reelles : vrai materiel) */
     volatile u32 *real = HW6(a & ~3u) - (((a & ~3u) - 0xCC006800u) % 0x14u) / 4u;   /* (registres du canal) */
@@ -1490,8 +1600,8 @@ static void x_dispatch(u32 ctx) {
         u32 itc = c ? 13 : 10, iex = c ? 12 : 9;
         for (int g = 0; g < 3 && (v->irq & vc_want(c)); g++) {
             u32 w = vc_want(c);
-            if ((v->irq & w & 0x8) && t[itc] >= 0x80003100u && t[itc] < 0x817F0000u) ((void (*)(u32, u32))t[itc])(itc, ctx);
-            if ((v->irq & vc_want(c) & 0x2) && t[iex] >= 0x80003100u && t[iex] < 0x817F0000u) ((void (*)(u32, u32))t[iex])(iex, ctx);
+            if ((v->irq & w & 0x8) && t[itc] >= 0x80003100u && t[itc] < NATRES_AT) ((void (*)(u32, u32))t[itc])(itc, ctx);
+            if ((v->irq & vc_want(c) & 0x2) && t[iex] >= 0x80003100u && t[iex] < NATRES_AT) ((void (*)(u32, u32))t[iex])(iex, ctx);
             x_disp++;
         }
     }
@@ -1520,6 +1630,7 @@ static u32 si_fix(int ch, int lo) {
 static u32 si_load(u32 a) {
     trap_guard();
     u32 o = a - 0xCC006400u, v = *HW6(a);
+    if (H.opt & NRO_PHONE) { natres_pad_t *p = pd_find(); int done; if (p) { v = pd_si_load(p, o, v, &done); if (done) return v; } }   /* */
     if (o < 0x30u && (H.opt & 0xFF07u)) {
         int ch = (int)(o / 12u), r = (int)(o % 12u);
         if ((r == 4 || r == 8) && si_mode(ch) == 3) {
@@ -1531,6 +1642,24 @@ static u32 si_load(u32 a) {
 }
 static void si_store(u32 a, u32 val) {
     trap_guard();
+    if (H.opt & NRO_PHONE) {                              /* transfert vers un port : on retient le port et la commande */
+        natres_pad_t *p = pd_find();
+        if (p && a == 0xCC006480u) p->xcmd = val >> 24;
+        if (p && a == 0xCC006434u && (val & 1)) {
+            p->xch = (val >> 1) & 3; p->tr[p->ntr++ & 7] = p->xch << 24 | (p->xcmd & 0xFF) << 16 | ((val >> 16) & 0x7F) << 8 | ((val >> 8) & 0x7F);
+            if (p->chmask >> p->xch & 1) {
+                pd_ev(p, 1, p->xch << 8 | (p->xcmd & 0xFF));
+                /* b9000015 : rien n'est branche sur ce port : le vrai transfert finissait en erreur (pas de reponse), et une
+                   partie des lectures du jeu (hors aiguillages) le voyait encore : le jeu redemandait le type sans fin. Le
+                   transfert part donc vers une vraie manette lue en ce moment (SIPOLL) : il finit sans erreur, et le jeu lit
+                   nos reponses (tampon, COMCSR) comme venant du port du telephone. */
+                for (u32 c = 0; c < 4; c++)
+                    if (!(p->chmask >> c & 1) && (p->poll >> (7 - c) & 1)) { val = (val & ~6u) | c << 1; p->redir++; break; }
+            }
+        }
+        if (p && a == 0xCC006430u) { if (p->poll != val) pd_ev(p, 2, val); p->poll = val; }
+        if (p && a < 0xCC006430u && (a - 0xCC006400u) % 12u == 0 && (p->chmask >> ((a - 0xCC006400u) / 12u) & 1)) pd_ev(p, 3, val);
+    }
     u32 k = (H.opt >> 16) & 0xF;
     if (a == 0xCC006430u && k > 1) {                     /* SIPOLL : Y lectures par image, X lignes entre deux */
         u32 x = (val >> 16) & 0x3FF, y = (val >> 8) & 0xFF;
@@ -1728,7 +1857,7 @@ static void x_kick(void) {                               /* v65 : vraie fin de c
 }
 /* v67 : echantillon : ou le jeu a ete interrompu (OSContext : srr0 en 0x198, lr en 0x84) */
 static void nr_sample(u32 ctx) {
-    if (ctx < 0x80000000u || ctx >= 0x817F0000u || (ctx & 3)) return;
+    if (ctx < 0x80000000u || ctx >= NATRES_AT || (ctx & 3)) return;
     u32 pc = *(volatile u32 *)(ctx + 0x198);
     H.n_samp++; H.samp_lr = *(volatile u32 *)(ctx + 0x84);
     if (pc != H.samp_pc[0]) { H.samp_pc[3] = H.samp_pc[2]; H.samp_pc[2] = H.samp_pc[1]; H.samp_pc[1] = H.samp_pc[0]; H.samp_pc[0] = pc; }
@@ -1793,7 +1922,7 @@ static void di_hook(u32 irq, u32 ctx) {
         if (!(DI_REAL[7] & 1)) { x_kicked = 1; di_real_kick(); }
     }
 }
-static int nr_game_fn(u32 a) { return a >= 0x80003100u && a < 0x817F0000u; }
+static int nr_game_fn(u32 a) { return a >= 0x80003100u && a < NATRES_AT; }
 /* v133 : fin de commande jamais arrivee au jeu. Avec le vrai lecteur, le reveil passe par une vraie commande :
    si son interruption se perd (fonction du jeu remise, lecteur qui ne repond pas), une lecture en fond
    s'arretait au milieu, ou la fin d'une commande n'etait jamais donnee : le jeu attendait pour toujours
@@ -1850,7 +1979,7 @@ static void di_tick(u32 ctx, int vi) {
      les exceptions demarrent sans traduction). Ce qui n'est pas pour nous repart dans le vecteur du SDK.
    Refuse (trap_state) si le jeu a deja sa propre table des pages ou un autre BAT dans cette zone. */
 static u32 trap_regs[40] __attribute__((aligned(32), used));   /* r0-r31, CR, LR, CTR, XER, SRR0, SRR1, DAR, DSISR */
-#define trap_pteg ((u32 *)(NATRES_AT + NATRES_PTEG))              /* 12 groupes de 8 entrees de la table des pages (place laissee par GC Station) */
+#define trap_pteg ((u32 *)(NATRES_HTAB + NATRES_PTEG))              /* 12 groupes de 8 entrees de la table des pages (place laissee par GC Station) */
 #define TRAP_PTEG_LEN 0x300u
 static u32 trap_vsid = 0;
 extern u32 trap_orig[];
@@ -1930,7 +2059,7 @@ void trap_c(void) {
 }
 static void trap_pte(u32 page, u32 phys) {               /* page = adresse (0xCC0xx000) -> phys, sans cache, garde */
     u32 pi = (page >> 12) & 0xFFFFu, hash = (trap_vsid ^ pi) & 0x3FFu;
-    u32 *g = (u32 *)(NATRES_AT + hash * 64u);
+    u32 *g = (u32 *)(NATRES_HTAB + hash * 64u);
     if ((u32)g < (u32)trap_pteg || (u32)g >= (u32)trap_pteg + TRAP_PTEG_LEN) return;
     for (int i = 0; i < 8; i++) if (!(g[i * 2] & 0x80000000u)) {
         g[i * 2 + 1] = (phys & 0xFFFFF000u) | 0x180u | 0x28u | 2u;   /* R, C, WIMG = I + G, lecture / ecriture */
@@ -1939,7 +2068,7 @@ static void trap_pte(u32 page, u32 phys) {               /* page = adresse (0xCC
     }
 }
 static int trap_pteg_clear(u32 hash) {                   /* groupe secondaire (hors de trap_pteg) : rien qui nous ressemble */
-    const u32 *g = (const u32 *)(NATRES_AT + (hash & 0x3FFu) * 64u);
+    const u32 *g = (const u32 *)(NATRES_HTAB + (hash & 0x3FFu) * 64u);
     for (int i = 0; i < 8; i++) if ((g[i * 2] & 0x80000040u) == 0x80000040u && ((g[i * 2] >> 7) & 0xFFFFFFu) == trap_vsid) return 0;   /* (V, H = 1, notre VSID) */
     return 1;
 }
@@ -2109,9 +2238,9 @@ static void nx_sync(u32 a, u32 len) {                     /* code ecrit : cache 
 /* cherche les acces au lecteur dans [a, a + len) (code deja a sa place) et les branche ; meme suivi
    des registres que GC Station (lis 0xCC00, addi, ori ; oublie aux sauts) */
 static void nx_patch2(u32 a, u32 fin, u32 len) {        /* a = ou est le code maintenant, fin = ou il tournera */
-    if (a < 0x80003000u || a >= 0x817F0000u || (a & 3) || (fin & 3) || len < 8) return;
-    if (fin < 0x80003000u || fin >= 0x817F0000u) return;
-    if (a + len > 0x817F0000u) len = 0x817F0000u - a;
+    if (a < 0x80003000u || a >= NATRES_AT || (a & 3) || (fin & 3) || len < 8) return;
+    if (fin < 0x80003000u || fin >= NATRES_AT) return;
+    if (a + len > NATRES_AT) len = NATRES_AT - a;
     volatile u32 *t = (volatile u32 *)a;
     u32 val[32], known = 0, end = (H.tramp_at ? (H.tramp_end ? H.tramp_end : H.ext2 && H.ext2 < H.ext ? H.ext2 : H.ext) : 0);   /* (v159 : table hors du resident) */   /* (v97 : la table des morceaux est au-dessus ; v121 : les deux disques) */
     for (u32 o = 0; o + 4 <= len; o += 4) {
@@ -2192,7 +2321,7 @@ static void nx_dol_sections(u32 dst, u32 off, u32 len) {
 /* v251 : un .dol entier lu d'un coup par le jeu (chargeur maison : Phantasy Star Online lit son vrai programme puis
    le recopie lui-meme a sa place) : ses sections de code sont branchees dans le tampon, avec leur adresse finale. */
 static int nx_whole_dol(u32 dst, u32 off, u32 len) {
-    if (len < 0x200 || (dst & 3) || dst < 0x80003000u || dst + len > 0x817F0000u) return 0;
+    if (len < 0x200 || (dst & 3) || dst < 0x80003000u || dst + len > NATRES_AT) return 0;
     u32 entry = rbe(dst + 0xE0), nt = 0;
     int text = 0;
     for (int i = 0; i < 18; i++) {

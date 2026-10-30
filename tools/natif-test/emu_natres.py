@@ -11,7 +11,7 @@ BIN = sys.argv[1]
 SDHC = int(sys.argv[2]) if len(sys.argv) > 2 else 1
 CHAN = int(sys.argv[3]) if len(sys.argv) > 3 else 2
 DEV = int(sys.argv[4]) if len(sys.argv) > 4 else 0
-AT = 0x817F0000
+AT = 0x817EE000
 random.seed(1)
 disk = bytearray(random.getrandbits(8) for _ in range(4096 * 512))   # carte de 2 Mo
 

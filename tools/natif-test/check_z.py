@@ -17,7 +17,7 @@ br = [i for i in (1, 2, 4, 5) if w[i] >> 26 == 18]
 tg = [(0x80300000 + i * 4 + ((w[i] & 0x03FFFFFC) - (0x04000000 if w[i] & 0x02000000 else 0))) & 0xFFFFFFFF for i in br]
 good = len(inner) == il and len(br) == 4 and all(0x81700000 <= x < 0x81800000 for x in tg) and w[0] == 0x3D20CC00 and w[7] == 0x4E800020   # (v159 : aiguillages sous le resident, plus dedans)
 print(('OK   ' if good else 'FAUX ') + 'programme compresse : %d -> %d octets (zlib relu), %d acces branches vers %s' % (dl, il, len(br), ['%08X' % x for x in tg])); ok &= good
-res = rd(0x817F0000, 0x200)
+res = rd(0x817EE000, 0x200)
 opt = struct.unpack_from('>I', res, 0x1B8)[0] if res else 0xFFFFFFFF
 good = res is not None and not (opt & 0x02000000)
 print(('OK   ' if good else 'FAUX ') + 'Pulse universel coupe (options du resident %08X)' % opt); ok &= good

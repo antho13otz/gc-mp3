@@ -24,6 +24,25 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v273 (build à venir) — Manettes du téléphone dans les jeux (Pulse), retour A+Z+START plus sûr
+- **⚙ > Manettes du téléphone** : un téléphone devient la manette d'un port (2, 2-3, 2-4 ou 1) dans les jeux lancés
+  avec Pulse. Pulse lit le Broadband Adapter à chaque image (UDP, port 51237, paquets « GCPD ») et donne les touches au
+  jeu comme une vraie manette : touches, sticks, gâchettes, réponses « type » et « origine ».
+- **Le jeu ne voit plus le Broadband Adapter** quand les manettes du téléphone sont actives (Mario Kart Double Dash le
+  prenait sans arrêt pour le jeu en réseau local : aucun paquet n'arrivait).
+- **Port vide** : rien n'est branché sur le port du téléphone, donc la vraie console finissait chaque demande du jeu en
+  erreur, et le jeu redemandait « qu'est-ce qui est branché ? » sans fin. Les demandes à ce port passent maintenant par
+  une vraie manette lue en ce moment (port 1) : elles finissent sans erreur, et le jeu lit les réponses de Pulse.
+  Essai : Mario Kart Double Dash, port 2 reconnu et lu à chaque image, commandes du téléphone dans le jeu.
+  Il faut une vraie manette branchée (port 1).
+- **Journal du jeu** : 7e secteur (« GCSP ») : ce que le jeu demandait aux ports du téléphone (lectures, SIPOLL,
+  commandes, réponses, événements).
+- **Retour A+Z+START** : quand Swiss ne donne pas le chemin du .dol, GC Station cherche sur la carte (racine, apps) le
+  .dol de ce build, au lieu de relancer ipl.dol (une autre version).
+- **Résident Pulse 8 Ko plus bas** (0x817EE000 au lieu de 0x817F0000) : il était plein ; la table des pages reste à
+  0x817F0000 (NATRES_HTAB). Les jeux ont 8 Ko de mémoire en moins.
+- L'écran manette de l'appli reste dans la version d'essai (dépôt privé).
+
 ## Nouveautés v269 (build 751) — L'appli se met à jour toute seule
 - **⚙ > Mettre à jour l'appli** : l'appli cherche sa dernière version (compilation « Telecommande Android » réussie sur
   main), la télécharge et la donne à l'installateur d'Android (confirmation, puis installée par-dessus : réglages gardés).

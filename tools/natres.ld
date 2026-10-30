@@ -2,7 +2,7 @@
 ENTRY(natres_hdr)
 SECTIONS
 {
-    . = 0x817F0000;
+    . = 0x817EE000;                 /* (= NATRES_AT, natres.h) */
     .head   : { KEEP(*(.res_head)) }
     .text   : { *(.text .text.*) }
     .rodata : { *(.rodata .rodata.* .sdata2 .sdata2.*) }

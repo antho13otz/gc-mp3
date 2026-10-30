@@ -633,7 +633,7 @@ while icount[0] < end:
         elif dec['armed'] and dec_now() & 0x80000000: dec['armed'] = False; pend['dec'] += 1; pc = raise_exc(0x900)
 if hors: print('LECTURES HORS EXPORT : %d secteurs, 1re a %08X' % (len(hors), hors[0]))
 print('fin : %d instructions, %d images, interruptions %s, %d instructions paired single' % (icount[0], frames, dict(pend), nps[0]))
-H0 = 0x817F0000
+H0 = 0x817EE000
 u = lambda o: rd32(H0 + o)
 print('carte virtuelle : %d commandes (derniere %02X), %d ecritures, %d interruptions ; vrai lecteur : %d commandes' % (u(0x110), u(0x118), u(0x114), u(0x11C), len(kicks)))
 

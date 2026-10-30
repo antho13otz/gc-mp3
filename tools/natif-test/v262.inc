@@ -13,3 +13,6 @@ static void tp_any_utf8(const char *in, char *out, int cap) { snprintf(out, cap,
 static u32 na_ach[1];
 static int na_ach_w = 0, na_ach_n = 0, na_ach_bad = 0;
 static void sj_prepare(const char *id) { (void)id; }
+/* (prive) manettes du telephone (main.c) */
+static int net_ok = 0, nat_padtel = 0;
+static char ip_str[16] = "", mask_str[16] = "", gw_str[16] = "";

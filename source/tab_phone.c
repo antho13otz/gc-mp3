@@ -1777,6 +1777,7 @@ static void tpl_pump(void) {
 }
 /* (jeux_cfg.c) un jeu va se lancer / le lancement a echoue */
 static int pj_left_min(void);
+static u32 na_padmask(void);                             /* (prive, natif.c) */
 static void tpl_game(const char *id, const char *name) {
     if (tpl_fd < 0 || !tpl_live()) return;
     static char last[8] = "";
@@ -1786,7 +1787,7 @@ static void tpl_game(const char *id, const char *name) {
     char nm[160], m[260];
     tp_any_utf8(name ? name : "", nm, sizeof(nm));
     for (char *p = nm; *p; p++) if (*p == '\t' || *p == '\n') *p = ' ';
-    snprintf(m, sizeof(m), "GCSG1\t%s\t%s\t%d\t%s\n", id ? id : "", nm, pj_left_min(), gp_name);
+    snprintf(m, sizeof(m), "GCSG1\t%s\t%s\t%d\t%s\t%u\n", id ? id : "", nm, pj_left_min(), gp_name, (unsigned)na_padmask());   /* (+ ports des manettes du telephone) */
     for (int k = 0; k < 2; k++) { tpl_send_all(m); usleep(20000); }   /* (deux fois : UDP, et le jeu coupe le reseau juste apres) */
 }
 static void tpl_game_fail(void) { tpl_send_all("GCSE1\n"); }

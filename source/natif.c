@@ -182,7 +182,8 @@ static void na_xscan(nat_info_t *in, const u8 *txt, u32 base, u32 o, u32 *xv, u3
     }
     if (acc && ea >= NA_EXI0 && ea < NA_EXI0 + 0x40) {
         na_hit(in, txt, base, base + o, NA_XREG | (idx ? NA_XIDX : (ea - NA_EXI0) % 0x14), store, ins);
-    } else if (acc == 1 && ea >= NA_SIO && ea < NA_SIO + 0x40) {   /* v122 : manettes (mots seulement) */
+    } else if (acc == 1 && ea >= NA_SIO && ea < NA_SIO + 0x100) {   /* v122 : manettes (mots seulement) ; jusqu'au tampon des
+                                                                       commandes (0x80-0xFF) : la reponse "type" du port du telephone */
         na_hit(in, txt, base, base + o, NA_XREG | NA_SREG | (idx ? NA_XIDX : (ea - NA_SIO)), store, ins);
     }
 }
@@ -683,6 +684,7 @@ static int nat_map_check(const char *path, long size, char *err, int cap) {
 #define NA_JTXT NA_DIR "/journal-jeu.txt"
 #define NA_SNAP NA_DIR "/memoire-jeu.bin"             /* v83 : photo de la memoire du jeu au plantage */
 static int na_jcrash = 0;                              /* v79 : 2e secteur du journal (details d'un plantage) disponible */
+static int na_jpad = 0;                                   /* 7e secteur : manettes du telephone */
 static int na_jstack = 0, na_jthr = 0, na_jexi = 0, na_jach = 0, na_ach_on = 0, na_ach_full = 0, na_ach_fx = 0;                              /* v82 : 3e secteur (pile du jeu au plantage) disponible */
 /* v162 : code du jeu au point d'entree, et au debut des fonctions qu'il appelle (bl) : pour comprendre un
    jeu qui se fige avant la moindre trace de Pulse (il ne passe meme pas par ses interruptions) */
@@ -717,15 +719,52 @@ static void na_dump_start(FILE *f, const u8 *dol) {
     na_dump_words(f, dol, entry, 128, bl, &nbl, 8);
     for (int k = 0; k < nbl; k++) { fprintf(f, "Fonction appelee %d :\n", k + 1); na_dump_words(f, dol, bl[k], 48, NULL, NULL, 0); }
 }
+/* manettes du telephone : ce que le jeu a demande aux ports (section "PPAD" au retour, 7e secteur) */
+static void na_pad_print(FILE *f, const u8 *b) {
+    #define PW(m) be32(b + offsetof(natres_pad_t, m))
+    static const char *const st[] = { "pas demarre", "pret", "PAS DE BROADBAND ADAPTER", "laisse au jeu (il se servait du BBA)" };
+    u32 s = PW(state), cm = PW(chmask);
+    fprintf(f, "\n========== Manettes du telephone : ce que le jeu demandait ==========\n");
+    fprintf(f, "BBA : %s ; paquets recus %u, refuses %u, ARP %u ; ports du telephone :%s%s%s%s\n", s < 4 ? st[s] : "?", (unsigned)PW(rx), (unsigned)PW(bad), (unsigned)PW(arp),
+            cm & 1 ? " 1" : "", cm & 2 ? " 2" : "", cm & 4 ? " 3" : "", cm & 8 ? " 4" : "");
+    fprintf(f, "Le jeu a lu les touches (INBUF) : port 1 %u fois, port 2 %u, port 3 %u, port 4 %u\n",
+            (unsigned)PW(ninb[0]), (unsigned)PW(ninb[1]), (unsigned)PW(ninb[2]), (unsigned)PW(ninb[3]));
+    u32 pl = PW(poll);
+    fprintf(f, "Lecture automatique des ports (SIPOLL %08X) : ports%s%s%s%s\n", (unsigned)pl, pl & 0x80 ? " 1" : "", pl & 0x40 ? " 2" : "", pl & 0x20 ? " 3" : "", pl & 0x10 ? " 4" : "");
+    fprintf(f, "Etat SI (SISR) lu %u fois ; sur un port du telephone : COMCSR lu %u fois, reponses lues %u fois ; reponses \"type\" %u, \"origine\" %u\n",
+            (unsigned)PW(nsr), (unsigned)PW(ncom), (unsigned)PW(nbuf), (unsigned)PW(types), (unsigned)PW(origins));
+    fprintf(f, "Transferts du port du telephone passes par une vraie manette (pour finir sans erreur) : %u\n", (unsigned)PW(redir));
+    u32 n = PW(ntr);
+    fprintf(f, "Commandes envoyees aux ports : %u (les dernieres, la plus ancienne d'abord) :\n", (unsigned)n);
+    for (u32 i = n > 8 ? n - 8 : 0; i < n; i++) {
+        u32 t = PW(tr[i & 7]), c = (t >> 16) & 0xFF;
+        fprintf(f, "  port %u : commande %02X (%s), %u octet(s) envoye(s), %u attendu(s)\n", (unsigned)(t >> 24) + 1, (unsigned)c,
+                c == 0x00 || c == 0xFF ? "type" : c == 0x41 ? "origine" : c == 0x42 ? "recalibrage" : c == 0x40 ? "lecture" : "?", (unsigned)((t >> 8) & 0x7F), (unsigned)(t & 0x7F));
+    }
+    u32 ne = PW(nev);
+    fprintf(f, "Evenements sur les ports du telephone : %u (les 20 premiers, puis les 20 derniers)\n", (unsigned)ne);
+    for (u32 k = 0; k < ne && k < 40; k++) {
+        u32 j = k < 20 || ne <= 40 ? k : ne - 20 + (k - 20), i = j < 20 ? j : 20 + (j - 20) % 20;
+        if (k == 20 && ne > 40) fprintf(f, "  (... %u evenements ...)\n", (unsigned)(ne - 40));
+        u32 e = PW(ev[i]), t = e >> 24, d = e & 0xFFFFFF;
+        if (t == 1) fprintf(f, "  transfert vers le port %u : commande %02X\n", (unsigned)(d >> 8) + 1, (unsigned)(d & 0xFF));
+        else if (t == 2) fprintf(f, "  SIPOLL ecrit : %06X (lecture auto des ports%s%s%s%s)\n", (unsigned)d, d & 0x80 ? " 1" : "", d & 0x40 ? " 2" : "", d & 0x20 ? " 3" : "", d & 0x10 ? " 4" : "");
+        else if (t == 3) fprintf(f, "  commande de lecture du port ecrite : %06X\n", (unsigned)d);
+        else if (t == 4) fprintf(f, "  reponse lue par le jeu : commande %02X, mot %u\n", (unsigned)(d >> 8), (unsigned)(d & 0xFF));
+        else if (t == 5) fprintf(f, "  fin de transfert vue par le jeu (COMCSR %06X..)\n", (unsigned)d);
+        else fprintf(f, "  ? %08X\n", (unsigned)e);
+    }
+    #undef PW
+}
 static u32 nat_journal_prep(void) {
-    na_jcrash = na_jstack = na_jthr = na_jexi = na_jach = 0;
+    na_jcrash = na_jstack = na_jthr = na_jexi = na_jach = na_jpad = 0;
     if (sd_virtual) return 0;
     mkdir(NA_DIR, 0777);
-    static u8 z[3072];
+    static u8 z[3584];
     memset(z, 0, sizeof(z));
     FILE *f = fopen(NA_JBIN, "wb");
     if (!f) return 0;
-    int ok = fwrite(z, 1, 3072, f) == 3072;   /* (v268 : 6e secteur : succes)*/   /* (v260 : 5e secteur : canal EXI 0) */                /* (v243 : 4e secteur : fils du jeu) */                /* v79 : 2 secteurs (le 2e : details d'un plantage) ; v82 : 3 (le 3e : pile du jeu) */
+    int ok = fwrite(z, 1, 3584, f) == 3584;   /* (7e secteur : manettes du telephone) */   /* (v268 : 6e secteur : succes)*/   /* (v260 : 5e secteur : canal EXI 0) */                /* (v243 : 4e secteur : fils du jeu) */                /* v79 : 2 secteurs (le 2e : details d'un plantage) ; v82 : 3 (le 3e : pile du jeu) */
     fclose(f);
     char e[80];
     if (!ok || nat_map(NA_JBIN, e, sizeof(e)) || !na_next || na_next > 2) return 0;
@@ -734,6 +773,7 @@ static u32 nat_journal_prep(void) {
     na_jthr = na_next == 1 && na_ext[0].cnt >= 4;
     na_jexi = na_next == 1 && na_ext[0].cnt >= 5;
     na_jach = na_next == 1 && na_ext[0].cnt >= 6;
+    na_jpad = na_next == 1 && na_ext[0].cnt >= 7;
     return na_ext[0].sd;
 }
 /* v83 : fichier de la photo de la memoire (cree une fois, 352 Ko ; 1er secteur remis a zero a
@@ -1285,6 +1325,12 @@ static void nat_journal_convert(void) {
             if (be32(d + 0x19C)) fprintf(f, "Cheats appliques par Pulse : %u images\n", (unsigned)(dz >> 16));
             if (H[1] >= 16 && be32(d + 0x1B8)) fprintf(f, "Manettes / lecteur (options %08X) : %u lectures des manettes modifiees\n", (unsigned)be32(d + 0x1B8), (unsigned)(be32(d + 0x1BC) & 0xFFFFu));
             if (H[1] >= 16 && (be32(d + 0x1BC) >> 16)) fprintf(f, "Corrections du jeu dans les fichiers lus : %u octets changes au passage\n", (unsigned)(be32(d + 0x1BC) >> 16));   /* v136 */
+            if ((be32(d + 0x1B8) & NRO_PHONE) && !be32(d + 0x1D0)) {   /* manettes du telephone */
+                static const char *const ps[] = { "pas encore demarre", "pret", "PAS DE BROADBAND ADAPTER", "laisse au jeu (il se servait du BBA)" };
+                u32 rt = be32(d + 0x1D8);
+                fprintf(f, "Manettes du telephone : BBA %s ; %u paquets de touches recus, %u refuses, %u demandes ARP repondues ; %u lectures des manettes donnees au jeu\n",
+                        (rt >> 24) < 4 ? ps[rt >> 24] : "?", (unsigned)be32(d + 0x1D4), (unsigned)(rt & 0xFFF), (unsigned)(rt >> 12 & 0xFFF), (unsigned)(be32(d + 0x1BC) & 0xFFFFu));
+            }
             if (H[1] >= 18 && be32(d + 0x1D0)) {               /* v143 : Pulse par le reseau */
                 static const char *const nw[] = { "pas demarre", "pret", "pas de Broadband Adapter", "pas de liaison", "serveur introuvable (ARP)", "le serveur ne repond plus" };
                 u32 rt = be32(d + 0x1D8);
@@ -1340,6 +1386,7 @@ static void nat_journal_convert(void) {
         if (len >= 1536 && be32(d + 1024) == NATRES_STACK_MAGIC) na_stack_print(f, d + 1024);  /* v82 */
         if (len >= 2048 && be32(d + 1536) == NATRES_THR_MAGIC) na_thr_print(f, d + 1536);     /* v243 */
         if (len >= 2560 && be32(d + 2048) == NATRES_EXI_MAGIC) na_exi_print(f, d + 2048);     /* v260 */
+        if (len >= 3584 && be32(d + 3072) == NATRES_PADLOG_MAGIC) na_pad_print(f, d + 3076);  /* */
 #ifndef NATIF_BENCH
         if (len >= 3072 && be32(d + 2560) == NATRES_ACHS_MAGIC) sj_after_game(d + 2560, f);  /* v268 : succes */
 #endif
@@ -1401,7 +1448,7 @@ static void nat_journal_convert(void) {
             for (u32 i = 0; i < nh; i++)
                 fprintf(f, "  +%03X %-16s %08X  %10u%s", (unsigned)(i * 4), na_hdr_names[i], (unsigned)be32(d + i * 4), (unsigned)be32(d + i * 4), i % 2 ? "\n" : "   ");
             if (nh % 2) fputc('\n', f);
-            static const char *const sn[] = { "en-tete et anneau des commandes", "plantage (GCSC)", "pile (GCSS)", "fils du jeu (GCST)", "peripheriques EXI (GCSX)", "succes (ACH1)", "?", "?" };
+            static const char *const sn[] = { "en-tete et anneau des commandes", "plantage (GCSC)", "pile (GCSS)", "fils du jeu (GCST)", "peripheriques EXI (GCSX)", "succes (ACH1)", "manettes du telephone (GCSP)", "?" };
             fprintf(f, "\n========== Journal brut (journal-jeu.bin, %ld octets) ==========\n", len);
             for (long sct = 0; sct * 512 < len && sct < 8; sct++) {
                 const u8 *b = d + sct * 512;
@@ -1725,6 +1772,7 @@ static u32 na_xfo[NA_MAXHIT], na_xold[NA_MAXHIT];
 static char na_xwhy[120] = "";
 static int na_xdone = 0;
 static int na_si_done = 0, na_si_skip = 0;
+static u32 na_opt(void);                                  /* (plus bas) */
 static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *card_on, int *si_on) {
     u32 at = na_tr_start ? na_tr_start : (be32(res + 0x3C) + 31) & ~31u;   /* (h->end, lu en big-endian ; v159 : place a part) */
     u32 dl = be32(res + 0x40), ds = be32(res + 0x44);   /* (h->di_load, h->di_store) */
@@ -1738,7 +1786,7 @@ static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *c
     u32 sl = be32(res + offsetof(natres_hdr_t, si_load)), ss = be32(res + offsetof(natres_hdr_t, si_store));
     na_si_done = na_si_skip = 0;
     for (int pass = 0; pass < 3; pass++) {
-        if (pass == 1 && !*card_on) continue;
+        if (pass == 1 && !*card_on && !(na_opt() & NRO_PHONE)) continue;   /* (manettes du telephone : aussi sans carte virtuelle, pour cacher le BBA au jeu) */
         if (pass == 2 && !*si_on) break;
         u32 at0 = at, cov = 0;
         int nx = 0;
@@ -1844,6 +1892,11 @@ static u32 na_ws_patch(const nat_info_t *in, u8 *dol, u8 *res, u32 at, u32 ceil)
 static int nat_vmode = 0;                                  /* 0 = comme le jeu, 1 = 480p, 2 = PAL 60 Hz, 3 = 240p */
 static int nat_deflick = 0, nat_wide = 0;                  /* sans flou ; image plus large (704 points) */
 static int nat_cstick = 0, nat_trig = 0, nat_poll = 0, nat_speed = 0, nat_trap = 0, nat_nocard = 0, nat_owncard = 0, nat_nocheat = 0;   /* (v239 : nat_owncard = carte rien qu'a ce jeu ; v140 : carte virtuelle / cheats coupes pour ce jeu) */   /* stick C, seuil des gachettes, frequence, vitesse du lecteur ; v139 : acces au lecteur par exception */
+static int na_net_on;
+static u32 na_padmask(void) {                             /* ports donnes aux telephones (bit n = port n + 1) */
+    static const u8 m[5] = { 0, 0x2, 0x6, 0xE, 0x1 };
+    return net_ok && ip_str[0] ? m[nat_padtel % 5] : 0;
+}
 static u32 na_opt(void) {
     static const u8 thr[4] = { 0, 77, 128, 192 };
     u32 o = 0;
@@ -1852,6 +1905,7 @@ static u32 na_opt(void) {
     if (nat_poll == 1) o |= 2u << 16; else if (nat_poll == 2) o |= 4u << 16;
     if (nat_speed) o |= NRO_SPEED;
     if (nat_trap) o |= NRO_TRAP;
+    if (na_padmask() && !na_net_on) o |= NRO_PHONE;       /* manettes du telephone */
     return o;
 }
 /* v122 : modes video du jeu. Les jeux decrivent l'image dans des "GXRenderModeObj" (0x3C octets : mode de la
@@ -2905,7 +2959,34 @@ static int na_read_ticked(gdisc_t *d, u32 off, u8 *out, u32 len, int pct_from, i
 #ifdef NATIF_BENCH
 static const char *nat_self_path(void);               /* (banc d'essai) */
 #else
-static const char *nat_self_path(void) { up_pick_target(); return up_target; }
+/* le .dol qui tourne (argv[0], donne par Swiss) d'abord : sinon le retour A+Z+START relancait ipl.dol (la version
+   publique), qui traduisait le journal sans les chiffres de la version d'essai */
+static int na_self_scan(const char *dir, int depth, char *out, int cap) {   /* un .dol de ce build (racine, apps/...) */
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    struct dirent *e;
+    int found = 0;
+    while (!found && (e = readdir(d)) != NULL) {
+        if (e->d_name[0] == '.') continue;
+        char p[NAME_LEN];
+        if (snprintf(p, sizeof(p), "%s/%s", dir, e->d_name) >= (int)sizeof(p)) continue;
+        size_t l = strlen(e->d_name);
+        if (l > 4 && !strcasecmp(e->d_name + l - 4, ".dol")) { if (up_dol_build(p) == GCMP3_BUILD) { snprintf(out, cap, "%s", p); found = 1; } }
+        else if (depth > 0 && (depth < 2 || !strcasecmp(e->d_name, "apps")) && is_dir(p, e)) found = na_self_scan(p, depth - 1, out, cap);
+    }
+    closedir(d);
+    return found;
+}
+static const char *nat_self_path(void) {
+    static char self[NAME_LEN];
+    struct stat st;
+    size_t l = up_argv0 ? strlen(up_argv0) : 0;
+    if (l > 4 && !strcasecmp(up_argv0 + l - 4, ".dol") && stat(up_argv0, &st) == 0 && st.st_size > 0x100) return up_argv0;
+    up_pick_target();
+    if (up_dol_build(up_target) == GCMP3_BUILD) return up_target;
+    if (!self[0] || up_dol_build(self) != GCMP3_BUILD) { self[0] = 0; na_self_scan(SD_ROOT, 2, self, sizeof(self)); }   /* (Swiss ne donne pas toujours argv) */
+    return self[0] ? self : up_target;
+}
 #endif
 static natres_ext_t na_ret[NATRES_RETMAX];
 static u32 na_ret_n = 0, na_ret_size = 0;
@@ -3112,7 +3193,22 @@ static void na_vi_irqs(u32 vb) {
 #endif
 /* v143 : Pulse par le reseau : l'ISO est lue sur une autre GC Station (ou un PC) par le Broadband Adapter */
 static int na_net_on = 0;
-static natres_net_t na_netc;                               /* (ordre de la machine ; ecrit en gros-boutiste dans le resident) */
+static natres_net_t na_netc;
+static u32 na_pad[sizeof(natres_pad_t) / 4];              /* section "PPAD" (ordre de la machine) */
+static int na_pad_w = 0, na_pad_on = 0;
+static u32 na_ipv4(const char *s) { unsigned a, b, c, d; return sscanf(s, "%u.%u.%u.%u", &a, &b, &c, &d) == 4 ? (u32)a << 24 | (u32)b << 16 | (u32)c << 8 | d : 0; }
+static void na_pad_prep(void) {
+    na_pad_w = na_pad_on = 0;
+    if (!(na_opt() & NRO_PHONE)) return;
+    natres_pad_t *p = (natres_pad_t *)na_pad;
+    memset(p, 0, sizeof(*p));
+    p->magic = NATRES_PAD_MAGIC; p->len = sizeof(natres_pad_t) / 4;
+    p->net.magic = NATRES_NET_MAGIC; p->net.ip = na_ipv4(ip_str); p->net.port = NATRES_PAD_PORT;
+    p->net.mask = na_ipv4(mask_str); p->net.gw = na_ipv4(gw_str);
+    p->chmask = na_padmask(); p->xch = 0xFF;
+    for (int i = 0; i < 4; i++) { p->h[i] = 0x00808080u; p->l[i] = 0x80800000u; }
+    if (p->net.ip) na_pad_w = sizeof(natres_pad_t) / 4;
+}                               /* (ordre de la machine ; ecrit en gros-boutiste dans le resident) */
 static char na_net_msg[120];
 static const char *nat_boot(int k) {
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
@@ -3131,6 +3227,7 @@ static const char *nat_boot(int k) {
     if (in.problems) return in.err;
     if (in.fst_max < in.fst_sz || in.fst_max > (4u << 20)) return "FST : taille maximale invalide";
     sj_prepare(gl[k].id);                                  /* v268 : succes du jeu (section pour Pulse) */
+    na_pad_prep();                                         /* manettes du telephone */
     /* memoire du haut, une fois le jeu lance : [ jeu ... | FST | bi2 | resident ] 0x81800000 */
     u32 fst_dest = in.fst_dest;
     u32 bi2_dest = NATRES_AT - NA_BI2;
@@ -3162,7 +3259,7 @@ static const char *nat_boot(int k) {
     if (res) {
         ann_e1 = na_net_on ? 0 : ((u32)na_next * 12 + 31) & ~31u;
         u32 xtra = !strncmp(in.id, "GPO", 3) || !strncmp(in.id, "GPS", 3) ? 0x8000u : 0;   /* v253 : PSO : son vrai programme (PsoV3.dol) est branche pendant le jeu */
-        ann_tr = ((u32)in.nhit * 80 + 0x2400u + xtra + (gk > 0 ? (u32)na_gk_n * 4 : 0) + (u32)na_ach_w * 4 + 31) & ~31u;   /* (v268 : + succes) */
+        ann_tr = ((u32)in.nhit * 80 + 0x2400u + xtra + (gk > 0 ? (u32)na_gk_n * 4 : 0) + (u32)na_ach_w * 4 + (u32)na_pad_w * 4 + 31) & ~31u;   /* (v268 : + succes ; prive : + manettes) */
         ann = ann_tr + ann_e1 + (na_net_on ? 0 : ((u32)na_n2 * 12 + 31) & ~31u);
         bi2_dest = NATRES_AT - ann - NA_BI2;
         fst_dest = (bi2_dest - in.fst_max) & ~31u;
@@ -3197,7 +3294,7 @@ static const char *nat_boot(int k) {
                 na_wbe32(r + (s32)(e2 - NATRES_AT) + i * 12, na_ext2[i].iso); na_wbe32(r + (s32)(e2 - NATRES_AT) + i * 12 + 4, na_ext2[i].sd); na_wbe32(r + (s32)(e2 - NATRES_AT) + i * 12 + 8, na_ext2[i].cnt);
             }
         }
-        if (be32(r) != NATRES_MAGIC || be32(r + 0x3C) > (nat_trap ? NATRES_AT + NATRES_PTEG : NATRES_AT + NATRES_SIZE)) res = 0;
+        if (be32(r) != NATRES_MAGIC || be32(r + 0x3C) > (nat_trap ? NATRES_HTAB + NATRES_PTEG : NATRES_AT + NATRES_SIZE)) res = 0;
         else {
             na_wbe32(r + 0x14, sd_slot == 0 ? 2 : sd_slot == 1 ? 0 : 1);   /* canal EXI */
             na_wbe32(r + 0x18, 0); na_wbe32(r + 0x1C, 4);                   /* peripherique, 16 MHz */
@@ -3207,7 +3304,7 @@ static const char *nat_boot(int k) {
             u32 co2 = be32(r + offsetof(natres_hdr_t, card2_tab)) - NATRES_AT;   /* v122 : slot B */
             if ((cards & 2) && co2 + na_card2_n * 12 > NATRES_SIZE) cards &= ~2;
             card_on = cards != 0;
-            na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0) | (cards & 1 ? NRF_CARD : 0) | (cards & 2 ? NRF_CARDB : 0) | (na_jcrash ? NRF_CRASH : 0) | (na_jstack ? NRF_STACK : 0) | (na_jthr ? NRF_THREADS : 0) | (na_jexi ? NRF_EXILOG : 0));
+            na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0) | (cards & 1 ? NRF_CARD : 0) | (cards & 2 ? NRF_CARDB : 0) | (na_jcrash ? NRF_CRASH : 0) | (na_jstack ? NRF_STACK : 0) | (na_jthr ? NRF_THREADS : 0) | (na_jexi ? NRF_EXILOG : 0) | (na_jpad && (na_opt() & NRO_PHONE) ? NRF_PADLOG : 0));
             na_ach_on = 0;
             if (cards & 2) {
                 na_wbe32(r + offsetof(natres_hdr_t, card2_n), na_card2_n); na_wbe32(r + offsetof(natres_hdr_t, card2_size), na_card2_size);
@@ -3254,7 +3351,7 @@ static const char *nat_boot(int k) {
     /* etape 3b : le jeu parle au faux lecteur (programme resident) au lieu du vrai */
     int patched = 0, skipped = 0;
     if (res) {
-        int was = card_on, si_on = (na_opt() & 0x000FFF07u) != 0;
+        int was = card_on, si_on = (na_opt() & (0x000FFF07u | NRO_PHONE)) != 0;
         int zdone = 0;
         if (na_zin && in.nsec + na_zi.nsec <= 36) {       /* v152 : main.dol et son programme compresse, branches ensemble */
             nat_ld("Programme compress\xC3\xA9 : correction", 40);
@@ -3307,8 +3404,9 @@ static const char *nat_boot(int k) {
             int ngk = gk > 0 ? na_gk_n : 0;
             int nac = na_jach && na_ach_w > 0 && !na_fx_n ? na_ach_w : 0;  /* v268 : {cheats} {"ACH1"...} (pas avec "FIXT" : Pulse ne la chercherait pas) */
             na_ach_fx = na_ach_w > 0 && na_fx_n > 0;
-            if (ngk > 0 || na_fx_n > 0 || nac > 0) {      /* v136 : {cheats} puis {"FIXT", n, corrections dans les fichiers lus} */
-                u32 need = 4 + (u32)ngk * 4 + (na_fx_n ? 8 + (u32)na_fx_n * 12 : 0) + (u32)nac * 4;
+            int npd = na_pad_w;                           /* {"PPAD"...} a la fin */
+            if (ngk > 0 || na_fx_n > 0 || nac > 0 || npd > 0) {   /* v136 : {cheats} puis {"FIXT", n, corrections dans les fichiers lus} */
+                u32 need = 4 + (u32)ngk * 4 + (na_fx_n ? 8 + (u32)na_fx_n * 12 : 0) + (u32)nac * 4 + (u32)npd * 4;
                 if (at + need + 64 * 4 <= ceil) {
                     u8 *q = r + (s32)(at - NATRES_AT);
                     na_wbe32(q, (u32)ngk);
@@ -3323,6 +3421,11 @@ static const char *nat_boot(int k) {
                         for (int i = 0; i < nac; i++) na_wbe32(q + i * 4, na_ach[i]);
                         na_wbe32(r + 0x48, be32(r + 0x48) | NRF_ACH);
                         na_ach_on = 1;
+                        q += nac * 4;
+                    }
+                    if (npd) {                            /* manettes du telephone */
+                        for (int i = 0; i < npd; i++) na_wbe32(q + i * 4, na_pad[i]);
+                        na_pad_on = 1;
                     }
                     na_wbe32(r + offsetof(natres_hdr_t, chts), at);
                     at = (at + need + 31) & ~31u;
@@ -3424,6 +3527,11 @@ static const char *nat_boot(int k) {
         fprintf(f, "Corrections du jeu : %s\n", na_fix_msg[0] ? na_fix_msg : "aucune pour ce jeu");
         if (na_fx_msg[0]) fprintf(f, "Corrections dans les autres fichiers du disque : %d endroit(s) ; %s\n", na_fx_n, na_fx_msg);   /* v136 */
         fprintf(f, "Cheats : %s\n", na_gk_msg[0] ? na_gk_msg : "aucun");
+        if (na_opt() & NRO_PHONE) {                       /* */
+            const natres_pad_t *pp = (const natres_pad_t *)na_pad;
+            fprintf(f, "Manettes du telephone : %s ; ports%s%s%s%s ; console %s, port UDP %d\n", na_pad_on ? "actives" : "PAS ACTIVES (place)",
+                    pp->chmask & 1 ? " 1" : "", pp->chmask & 2 ? " 2" : "", pp->chmask & 4 ? " 3" : "", pp->chmask & 8 ? " 4" : "", ip_str, NATRES_PAD_PORT);
+        }
         if (na_ach_n) fprintf(f, "Succes : %d surveille%s par Pulse%s%s\n", na_ach_n, na_ach_n > 1 ? "s" : "",   /* v268 */
                               na_ach_on ? "" : na_ach_full ? " (PAS ACTIVES : pas assez de place dans le resident)" : na_ach_fx ? " (PAS ACTIVES : ce jeu a des corrections FIXT)" : " (PAS ACTIVES : journal du jeu pas d'un seul morceau)",
                               na_ach_bad ? " ; des lignes du fichier de succes sont fausses (ignorees)" : "");
@@ -3562,7 +3670,6 @@ static int na_dvd_read(volatile u32 *di, u32 off, u8 *dst, u32 len, int pf, int 
 #endif
 #ifndef NATIF_BENCH
 /* v143 : jouer a un jeu d'une autre GC Station sans le copier : path = "gcs:/chemin" (serveur : nfs_cfg[NFS_GCS]) */
-static u32 na_ipv4(const char *s) { unsigned a, b, c, d; return sscanf(s, "%u.%u.%u.%u", &a, &b, &c, &d) == 4 ? (u32)a << 24 | (u32)b << 16 | (u32)c << 8 | d : 0; }
 static const char *game_boot(int k, int resident);
 /* v145 : jeux qui se servent du Broadband Adapter (mode reseau local / en ligne) */
 static int na_lan_game(const char *id) {

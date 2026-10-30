@@ -267,7 +267,7 @@ mu.reg_write(UC_PPC_REG_31, 0xDEAD); mu.reg_write(UC_PPC_REG_30, 0xBEEF)
 if MODE == 'ws': mu.reg_write(UC_PPC_REG_MSR, mu.reg_read(UC_PPC_REG_MSR) | 0x2000)   # (v121 : virgule flottante permise, comme dans un jeu)
 # v139 : quand le resident active l'option (trap_state = 1), la page 0xCC006000 n'est plus traduite : chaque
 # acces du jeu provoque une exception DSI (SRR0, SRR1, DAR, DSISR, vecteur 0x300 sans traduction), comme sur la console
-TRAP_ST = 0x817F01C0; armed = [False, False, False]; fault = []; ntrap = [0]
+TRAP_ST = 0x817EC1C0; armed = [False, False, False]; fault = []; ntrap = [0]
 if TRAP:
     def on_arm(uc, access, addr, size, value, data):
         if addr == TRAP_ST and value == 1 and not armed[0]: armed[0] = True; armed[1] = True; uc.emu_stop()
@@ -313,7 +313,7 @@ def chk(name, addr, want):
 chk('ID du disque (A8000040)', 0x80100000, iso[0:0x20])
 if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'video', 'tick', 'trap', 'lan'):   # v121, v122, v133, v139, v153
     rd32 = lambda a: struct.unpack('>I', mu.mem_read(a, 4))[0]
-    u = lambda o: struct.unpack('>I', mu.mem_read(0x817F0000 + o, 4))[0]
+    u = lambda o: struct.unpack('>I', mu.mem_read(0x817EE000 + o, 4))[0]
     back = rd32(0x80001F50) == 0x42424242 and pc == STOP
     print(('OK   ' if back else 'FAUX ') + 'retour a GC Station a la fin (%08X)' % rd32(0x80001F50)); ok &= back
     if MODE == 'swap':
@@ -371,7 +371,7 @@ if MODE in ('swap', 'cheat', 'ws', 'cardb', 'pad', 'video', 'tick', 'trap', 'lan
         print(('OK   ' if good else 'FAUX ') + '16:9 force : perspective m00 %08X m02 %08X m11 %08X ; orthographique m00 %08X m03 %08X ; matrice du jeu %08X %08X' % tuple(r)); ok &= good
     print('TOUT OK' if ok else 'ECHEC'); sys.exit(0 if ok else 1)
 if EXEC:                                                 # v95 : OSExec : le code de redemarrage puis le programme suivant
-    H0 = 0x817F0000
+    H0 = 0x817EE000
     u = lambda o: struct.unpack('>I', mu.mem_read(H0 + o, 4))[0]
     rd32 = lambda a: struct.unpack('>I', mu.mem_read(a, 4))[0]
     if not EXECA:
@@ -419,7 +419,7 @@ if EXEC:                                                 # v95 : OSExec : le cod
     print('TOUT OK' if ok else 'ECHEC'); sys.exit(0 if ok else 1)
 chk('lecture non alignee 0x2000 @0x1004', 0x80101000, iso[0x1004:0x3004])
 chk('grosse lecture 0x40000 @0x20000', 0x80200000, iso[0x20000:0x60000])
-H = 0x817F0000
+H = 0x817EE000
 rd = lambda o: struct.unpack('>I', mu.mem_read(H + o, 4))[0]
 print('resident : commandes=%d derniere=%08X err=%d sdhc=%d secteurs lus=%d' % (rd(0x4C), rd(0x50), rd(0x2C), rd(0x28), rd(0x38)))
 print('vrai lecteur : %d commandes inquiry' % len(kicks))
@@ -429,7 +429,7 @@ tbl = [rd32(0x80003040 + i * 4) for i in (20, 21, 24)]
 ret = rd32(0x80001F50) == 0x42424242 and pc == STOP      # v64 : retour a GC Station (.dol recharge, pas de redemarrage)
 print(('OK   ' if ret else 'FAUX ') + 'retour a GC Station : faux .dol recharge depuis la carte et lance (%08X, pc %08X)' % (rd32(0x80001F50), pc))
 ok &= ret
-hk = resets == [] and 0x817F0000 <= tbl[0] < 0x81800000 and 0x817F0000 <= tbl[2] < 0x81800000 and rd32(0x80001F00) == 3 and (EXC or 55 <= rd32(0x80001F04) <= 140)   # (v86 : 60 lectures des manettes, SI ou image ; v93 : 1 sur 3 pas encore prise)
+hk = resets == [] and 0x817EE000 <= tbl[0] < 0x81800000 and 0x817EE000 <= tbl[2] < 0x81800000 and rd32(0x80001F00) == 3 and (EXC or 55 <= rd32(0x80001F04) <= 140)   # (v86 : 60 lectures des manettes, SI ou image ; v93 : 1 sur 3 pas encore prise)
 print(('OK   ' if hk else 'FAUX ') + 'crochets + A+Z+START / plantage : redemarrages %s, table SI %08X VI %08X, images %d, manettes %d' % (resets, tbl[0], tbl[2], rd32(0x80001F00), rd32(0x80001F04)))
 ok &= hk
 nolat = all(not (o == 0x40C and n <= 20) for o, n in si_reads) and (EXC or len(si_reads) > 0)
@@ -541,7 +541,7 @@ if NET:                                                   # v143 : tout l'ISO es
     ok &= good
 if MODE == '':                                        # v159 : aiguillages et tables dans une place a part sous le resident
     te, ta = rd(0x1EC), rd(0x178)
-    good = 0x81700000 < te <= 0x817F0000 and te - ta >= 0x2000
+    good = 0x81700000 < te <= 0x817EE000 and te - ta >= 0x2000
     print(('OK   ' if good else 'FAUX ') + 'place des aiguillages : %d octets libres apres le branchement (%08X - %08X), sous le resident' % (te - ta, ta, te))
     ok &= good
 if MODE == '':                                        # v146 : bi2.bin : norme des manettes (5) ecrite pour le jeu, comme Swiss
