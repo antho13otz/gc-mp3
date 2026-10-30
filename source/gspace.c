@@ -424,7 +424,7 @@ static void gs_draw_fiche(void) {
         if (g->post >= 0 && gl_big.game == gl_sel && gl_big.tex) { o = &gl_big.obj; big = 1; }
         else if (g->post >= 0) o = gl_cover(gl_sel, 1);          /* (la petite en attendant la grande) */
         if (!bx_zoomed()) bx_draw(gl_sel, cx, cy, cw, chh, o, big, gl_fc_get(gl_sel));
-        if (!bx_zoomed() && bx_open_to < 0.5f) gx_text_c(F_SMALL, cx + cw / 2, cy + chh + 34, "Stick C : tourner / zoomer", RGBA(170, 160, 210, 200));   /* v284 */   /* v283 : + la jaquette complete (GameTDB) ; v284 : zoomee : dessinee par-dessus, plus bas */
+        if (!bx_zoomed()) gx_text_c(F_SMALL, cx + cw / 2, cy + chh + 34, "Stick C : tourner / zoomer", RGBA(170, 160, 210, 200));   /* v284 */   /* v283 : + la jaquette complete (GameTDB) ; v284 : zoomee : dessinee par-dessus, plus bas */
     }
     /* a droite */
     const f32 rx = 250 + ox; const int rw = 366;
@@ -507,7 +507,8 @@ static void gs_draw_fiche(void) {
             else snprintf(m, sizeof(m), "Chargement de la jaquette en HD...");
             gx_text_c(F_SMALL, 320, 428, m, RGBA(255, 210, 120, 230));
         }
-        gx_rrect_fill(20, 438, 600, 30, 15, RGBA(255, 255, 255, 16), RGBA(255, 255, 255, 8));
+        gx_rrect_fill(20, 438, 600, 30, 15, RGBA(22, 16, 44, 245), RGBA(14, 10, 30, 245));   /* v289 : opaque (la boite zoomee passait dessus) */
+        gx_rrect_stroke(20, 438, 600, 30, 15, 1.0f, RGBA(255, 255, 255, 40));
         f32 x = 34;
         x = gs_key(x, 453, "C", "Tourner / zoom", RGBA(255, 210, 90, 255));
         x = gs_key(x, 453, "S", "D\xC3\xA9placer", RGBA(235, 235, 245, 255));

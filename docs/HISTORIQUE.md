@@ -42,6 +42,14 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   Mini-jeux, Manette en jeu, Globe, Mettre à jour. Réglages, Cartes mémoire, Salon, Outils, Recherche et Copies
   gardent pour l'instant l'ancien look.
 
+## Nouveautés v289 (build à venir) — Toutes les jaquettes d'un coup
+- **START > réglages > Jeux > « Toutes les jaquettes (boîte 3D, HD) »** : télécharge en fond, jeu par jeu, la jaquette
+  complète et la jaquette HD de **tous tes jeux** (GameTDB), dans `jaquettes/completes/`. Seulement quand tu ne touches
+  pas à la manette depuis 1,5 s ; avancement affiché (« En cours : 12 / 40 ») ; A pour arrêter. Les jeux déjà faits
+  (ou que GameTDB n'a pas) sont sautés. Ensuite, plus aucun chargement en ouvrant une fiche.
+- **Boîte zoomée** : la barre des commandes est maintenant opaque, toujours lisible par-dessus la boîte.
+  « Stick C : tourner / zoomer » reste affiché sous la boîte, même ouverte.
+
 ## Nouveautés v288 (build 778) — Moins de saccades pendant le chargement HD
 - Les téléchargements en fond (jaquettes, jaquettes complètes et HD, fiches) lisent le réseau **en douceur** : au plus
   12 Ko par image (avant : jusqu'à 256 Ko). Le réseau prend beaucoup moins le processeur : la boîte tourne sans à-coups.
