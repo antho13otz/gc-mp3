@@ -2,6 +2,12 @@ name: Compiler GC MP3 Player
 
 on:
   push:
+    # (une modification seulement de l'appli du telephone ou de la documentation : pas de nouvelle version de la console)
+    paths-ignore:
+      - 'android/**'
+      - '.github/workflows/android.yml'
+      - 'docs/**'
+      - '**.md'
   workflow_dispatch:
 
 # publication de la release "dernier" (mise a jour en un clic)
