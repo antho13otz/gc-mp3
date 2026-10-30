@@ -173,10 +173,10 @@ if ACH:
     mu.mem_write(0x80500003, b'\x03'); wr32(0x80500010, 0x80600000); mu.mem_write(0x80600020, b'\x00\x05')
     blk_ = 0x80700000
     words = [0]                                        # (aucun cheat)
-    words += [0x41434831, 2]
-    words += [1, 3, 0, 0, 0, (1 << 16) | (6 << 8), 0x80500003, 0, 10]              # vies >= 10 (masque 6), 3 images
-    words += [2, 1, 0, 0, 0, (1 << 24) | (2 << 16) | (6 << 8), 0x80500010, 0x20, 100,  # pieces (pointeur) >= 100
-                             (4 << 16) | (5 << 8), 0x80500010, 0, 0]                          # et pointeur != 0 (masque 5)
+    words += [0x41434831, 2, 0, 0, 0, 0]               # (etats : 2 x {etat, image})
+    words += [1, 3, 0, (1 << 16) | (6 << 8), 0x80500003, 0, 10]              # vies >= 10 (masque 6), 3 images
+    words += [2, 1, 0, (1 << 24) | (2 << 16) | (6 << 8), 0x80500010, 0x20, 100,  # pieces (pointeur) >= 100
+                       (4 << 16) | (5 << 8), 0x80500010, 0, 0]                          # et pointeur != 0 (masque 5)
     for i, w_ in enumerate(words): wr32(blk_ + i * 4, w_)
     import re                                          # (place de chts dans l'en-tete : lue dans natres.h)
     hs = open(os.environ['NATRES_H'], encoding='latin-1').read()
@@ -195,7 +195,7 @@ if ACH:
     DIR_ = int(os.environ.get('EMU_DIREADY', '0'), 16)  # (carte deja demarree par le jeu : di_ready = 1)
     if DIR_: wr32(DIR_, 1)
     hw(0x90, 0); frame(400)                            # (condition fausse : arme)
-    st = lambda i, k: rd32(blk_ + 4 * (3 + [0, 9][i] + k))
+    st = lambda i, k: rd32(blk_ + 4 * (3 + 2 * i + (k - 3)))   # (k = 3 : etat, 4 : image)
     assert st(0, 3) == 1 and st(1, 3) == 1, ('armes', st(0, 3), st(1, 3))
     mu.mem_write(0x80500003, b'\x0a'); frame(2)
     assert st(0, 3) == 1, 'pas avant 3 images'
@@ -203,8 +203,8 @@ if ACH:
     assert st(0, 3) == 3 and st(0, 4) == 403, ('vies obtenu', st(0, 3), st(0, 4))
     assert LOG + 5 in card.writes, 'secteur GCSA ecrit'
     sec = disk[(LOG + 5) * 512:(LOG + 6) * 512]
-    assert struct.unpack('>4I', sec[:16]) == (0x47435341, 2, 3, 403), struct.unpack('>4I', sec[:16])
+    assert struct.unpack('>4I', sec[:16]) == (0x41434831, 2, 3, 403), struct.unpack('>4I', sec[:16])
     mu.mem_write(0x80600020, b'\x00\x64'); frame(1)
     assert st(1, 3) == 3, 'pieces par pointeur'
-    print('succes : OK (arme, 3 images, pointeur, secteur GCSA)')
+    print('succes : OK (arme, 3 images, pointeur, secteur ACH1)')
 print('TOUT OK')

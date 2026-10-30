@@ -683,7 +683,7 @@ static int nat_map_check(const char *path, long size, char *err, int cap) {
 #define NA_JTXT NA_DIR "/journal-jeu.txt"
 #define NA_SNAP NA_DIR "/memoire-jeu.bin"             /* v83 : photo de la memoire du jeu au plantage */
 static int na_jcrash = 0;                              /* v79 : 2e secteur du journal (details d'un plantage) disponible */
-static int na_jstack = 0, na_jthr = 0, na_jexi = 0, na_jach = 0, na_ach_on = 0, na_ach_full = 0;                              /* v82 : 3e secteur (pile du jeu au plantage) disponible */
+static int na_jstack = 0, na_jthr = 0, na_jexi = 0, na_jach = 0, na_ach_on = 0, na_ach_full = 0, na_ach_fx = 0;                              /* v82 : 3e secteur (pile du jeu au plantage) disponible */
 /* v162 : code du jeu au point d'entree, et au debut des fonctions qu'il appelle (bl) : pour comprendre un
    jeu qui se fige avant la moindre trace de Pulse (il ne passe meme pas par ses interruptions) */
 static int na_dol_at(const u8 *dol, u32 a, u32 *end) {   /* position dans le .dol de l'adresse a (code), -1 = pas trouvee */
@@ -1401,7 +1401,7 @@ static void nat_journal_convert(void) {
             for (u32 i = 0; i < nh; i++)
                 fprintf(f, "  +%03X %-16s %08X  %10u%s", (unsigned)(i * 4), na_hdr_names[i], (unsigned)be32(d + i * 4), (unsigned)be32(d + i * 4), i % 2 ? "\n" : "   ");
             if (nh % 2) fputc('\n', f);
-            static const char *const sn[] = { "en-tete et anneau des commandes", "plantage (GCSC)", "pile (GCSS)", "fils du jeu (GCST)", "peripheriques EXI (GCSX)", "succes (GCSA)", "?", "?" };
+            static const char *const sn[] = { "en-tete et anneau des commandes", "plantage (GCSC)", "pile (GCSS)", "fils du jeu (GCST)", "peripheriques EXI (GCSX)", "succes (ACH1)", "?", "?" };
             fprintf(f, "\n========== Journal brut (journal-jeu.bin, %ld octets) ==========\n", len);
             for (long sct = 0; sct * 512 < len && sct < 8; sct++) {
                 const u8 *b = d + sct * 512;
@@ -3305,7 +3305,8 @@ static const char *nat_boot(int k) {
             na_ws_msg[0] = 0;
             if (nat_ws) at = na_ws_patch(&in, buf + o_dol, r, at, ceil);
             int ngk = gk > 0 ? na_gk_n : 0;
-            int nac = na_jach && na_ach_w > 0 ? na_ach_w : 0;  /* v268 : {cheats} {"FIXT"...} {"ACH1"...} */
+            int nac = na_jach && na_ach_w > 0 && !na_fx_n ? na_ach_w : 0;  /* v268 : {cheats} {"ACH1"...} (pas avec "FIXT" : Pulse ne la chercherait pas) */
+            na_ach_fx = na_ach_w > 0 && na_fx_n > 0;
             if (ngk > 0 || na_fx_n > 0 || nac > 0) {      /* v136 : {cheats} puis {"FIXT", n, corrections dans les fichiers lus} */
                 u32 need = 4 + (u32)ngk * 4 + (na_fx_n ? 8 + (u32)na_fx_n * 12 : 0) + (u32)nac * 4;
                 if (at + need + 64 * 4 <= ceil) {
@@ -3424,7 +3425,7 @@ static const char *nat_boot(int k) {
         if (na_fx_msg[0]) fprintf(f, "Corrections dans les autres fichiers du disque : %d endroit(s) ; %s\n", na_fx_n, na_fx_msg);   /* v136 */
         fprintf(f, "Cheats : %s\n", na_gk_msg[0] ? na_gk_msg : "aucun");
         if (na_ach_n) fprintf(f, "Succes : %d surveille%s par Pulse%s%s\n", na_ach_n, na_ach_n > 1 ? "s" : "",   /* v268 */
-                              na_ach_on ? "" : na_ach_full ? " (PAS ACTIVES : pas assez de place dans le resident)" : " (PAS ACTIVES : journal du jeu pas d'un seul morceau)",
+                              na_ach_on ? "" : na_ach_full ? " (PAS ACTIVES : pas assez de place dans le resident)" : na_ach_fx ? " (PAS ACTIVES : ce jeu a des corrections FIXT)" : " (PAS ACTIVES : journal du jeu pas d'un seul morceau)",
                               na_ach_bad ? " ; des lignes du fichier de succes sont fausses (ignorees)" : "");
         static const char *const vmn[4] = { "comme le jeu", "480p force", "PAL 60 Hz", "240p" };
         fprintf(f, "Video : %s%s%s ; %s\n", vmn[nat_vmode & 3], nat_deflick ? ", sans flou" : "", nat_wide ? ", image large" : "", na_rm_msg[0] ? na_rm_msg : "rien a changer");

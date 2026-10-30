@@ -148,7 +148,7 @@ static int sj_load(const char *id, sj_def_t *out, int cap, int *bad) {
 }
 
 /* ---------- au lancement (natif.c) : section "ACH1" pour Pulse ---------- */
-static u32 na_ach[2 + SJ_MAX * (5 + SJ_TERMS * 4)];
+static u32 na_ach[2 + SJ_MAX * (5 + SJ_TERMS * 4)];   /* (SJ_MAX <= 63 : les etats tiennent dans un secteur) */
 static int na_ach_w = 0, na_ach_n = 0, na_ach_bad = 0;
 static void sj_prepare(const char *id) {
     na_ach_w = na_ach_n = na_ach_bad = 0;
@@ -158,8 +158,9 @@ static void sj_prepare(const char *id) {
     u32 *w = na_ach;
     *w++ = 0x41434831u;                                   /* "ACH1" */
     *w++ = (u32)n;
+    for (int i = 0; i < n; i++) { *w++ = 0; *w++ = 0; }   /* (etats : ecrits tels quels dans le journal par Pulse) */
     for (int i = 0; i < n; i++) {
-        *w++ = (u32)d[i].nt; *w++ = d[i].need; *w++ = 0; *w++ = 0; *w++ = 0;
+        *w++ = (u32)d[i].nt; *w++ = d[i].need; *w++ = 0;
         for (int k = 0; k < d[i].nt; k++) for (int j = 0; j < 4; j++) *w++ = d[i].t[k][j];
     }
     na_ach_w = (int)(w - na_ach);
@@ -192,7 +193,7 @@ static int sj_have(const char *gotf, const char *id, const char *title) {
     free(t);
     return found;
 }
-/* sec = 6e secteur du journal ("GCSA") ; f = journal en texte (section ajoutee) */
+/* sec = 6e secteur du journal (debut de la section "ACH1" : etats) ; f = journal en texte (section ajoutee) */
 static void sj_after_game(const u8 *sec, FILE *f) {
     long n = 0;
     char *t = (char *)read_file(SJ_LANCE, 32 * 1024, &n);

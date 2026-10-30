@@ -186,10 +186,10 @@ enum { NRT_OFF = 0, NRT_ON = 1, NRT_BAT = 2, NRT_BAT2 = 3, NRT_MMU = 4, NRT_VEC 
 #define NRF_EXILOG    256u
 #define NATRES_EXI_MAGIC 0x47435358u        /* "GCSX" */
 #define NATRES_EXI_MAX   15
-/* v268 : succes (section "ACH1" a la suite des cheats, voir natres.c) ; 6e secteur du journal : 0x00 "GCSA" 0x04 n
-   0x08 + 8 * i (63 au plus) : etat (1 arme, 2 obtenu), image (VI) du deblocage */
+/* v268 : succes (section "ACH1" a la suite des cheats, voir natres.c) ; 6e secteur du journal : le debut de la
+   section : 0x00 "ACH1" 0x04 n  0x08 + 8 * i (63 au plus) : etat (1 arme, 2 obtenu), image (VI) du deblocage */
 #define NRF_ACH       512u
-#define NATRES_ACHS_MAGIC 0x47435341u       /* "GCSA" */
+#define NATRES_ACHS_MAGIC 0x41434831u       /* "ACH1" */
 #define NATRES_SNAP_SECS  704               /* taille du fichier : 704 secteurs (352 Ko) */
 
 typedef char natres_hdr_size_ok[sizeof(natres_hdr_t) == 0x1F0 ? 1 : -1];   /* v145 : 0x1F0 + 1 x 16 = 0x200 */

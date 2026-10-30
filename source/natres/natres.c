@@ -1655,50 +1655,59 @@ static void gk_run(void) {
 }
 
 /* ---------- v268 : succes (conditions sur la memoire du jeu, verifiees une fois par image) ----------
-   Section a la suite des cheats (et de "FIXT") : {"ACH1", n, n x {termes, images, compte, etat, image,
-   termes x {type, adresse, decalage, valeur}}}. type = pointeur << 24 | taille (1, 2, 4) << 16 | masque << 8 : le
-   masque dit quels resultats rendent le terme vrai (bit 0 : lu < valeur, bit 1 : egal, bit 2 : plus grand ; ex. >=
-   = 6) ; pointeur : la valeur 32 bits lue a l'adresse, + decalage. Un succes est d'abord "arme" (sa condition a ete
-   fausse au moins une fois : pas d'un coup au demarrage), puis obtenu quand elle reste vraie "images" fois de suite.
-   Etat : 1 arme, 2 obtenu (image dans "image"). Les succes obtenus sont ecrits dans le 6e secteur du journal :
-   "GCSA", n, n x {etat, image}. Pas d'attente au demarrage : l'armement suffit (la condition doit etre vue fausse).
+   Section juste apres les cheats (GC Station ne la met pas s'il y a des corrections "FIXT") : {"ACH1", n,
+   n x {etat, image}, n x {termes, images, compte, termes x {type, adresse, decalage, valeur}}}. type = pointeur << 24 |
+   taille (1, 2, 4) << 16 | masque << 8 : le masque dit quels resultats rendent le terme vrai (bit 0 : lu < valeur,
+   bit 1 : egal, bit 2 : plus grand ; ex. >= = 6) ; pointeur : la valeur 32 bits lue a l'adresse, + decalage. Un succes
+   est d'abord "arme" (sa condition a ete fausse au moins une fois : pas d'un coup au demarrage), puis obtenu quand
+   elle reste vraie "images" fois de suite. Etat : 1 arme, 2 obtenu (image dans "image"). A chaque succes obtenu, les
+   512 premiers octets de la section (en-tete et etats : 63 succes au plus) sont ecrits dans le 6e secteur du journal.
    (Le plus petit possible : le resident n'avait plus que 576 octets de libres.) */
 #define NATRES_ACH 0x41434831u
 static u32 *ach_p = 0, ach_dirty = 0;                     /* (ach_p : 0 = pas encore cherche, 1 = pas de succes) */
-static u32 __attribute__((noinline)) ach_rd(u32 a, u32 sz) {
-    a &= -sz;
-    if (a - 0x80000000u > 0x017FFFFCu) return 0;          /* (memoire du jeu seulement) */
-    return sz == 1 ? *(volatile u8 *)a : sz == 2 ? *(volatile unsigned short *)a : *(volatile u32 *)a;
-}
-void ach_run(void) __attribute__((used, optimize("Os")));
+/* u32 ach_eval(u32 *section, u32 image) : verifie tous les succes ; rend 1 si l'un vient d'etre obtenu. En assembleur :
+   meme taille avec le compilateur de la console et celui du banc d'essai (seulement les registres volatils, pas d'appel).
+   r5 succes restants, r6 etat, r7 definition, r9 terme, r10 resultat, r11 type, r12 adresse, r0 valeur, r8 limite. */
+u32 ach_eval(u32 *a, u32 vi);
+__asm__(".pushsection .text\n.globl ach_eval\nach_eval:\n"
+        "  lwz 5,4(3)\n  addi 6,3,8\n  slwi 7,5,3\n  add 7,6,7\n  li 3,0\n  cmpwi 5,0\n  beqlr\n"
+        ".Lach_a:\n"                                      /* un succes */
+        "  lwz 8,0(7)\n  addi 9,7,12\n  li 10,1\n  cmpwi 8,0\n  beq .Lach_d\n  mtctr 8\n"
+        ".Lach_b:\n"                                      /* un terme */
+        "  lis 8,0x0180\n  addi 8,8,-4\n  lwz 11,0(9)\n  lwz 12,4(9)\n  srwi. 0,11,24\n  beq .Lach_c\n"
+        "  addis 0,12,-0x8000\n  cmplw 0,8\n  li 0,0\n  bgt .Lach_p\n  lwz 0,0(12)\n"
+        ".Lach_p:\n  lwz 12,8(9)\n  add 12,0,12\n"       /* pointeur : valeur lue + decalage */
+        ".Lach_c:\n"
+        "  addis 0,12,-0x8000\n  cmplw 0,8\n  li 0,0\n  bgt .Lach_v\n"   /* (hors de la memoire du jeu : 0) */
+        "  rlwinm 8,11,16,29,31\n  cmpwi 8,1\n  beq .Lach_1\n  cmpwi 8,2\n  beq .Lach_2\n"
+        "  lwz 0,0(12)\n  b .Lach_v\n"
+        ".Lach_1:\n  lbz 0,0(12)\n  b .Lach_v\n"
+        ".Lach_2:\n  lhz 0,0(12)\n"
+        ".Lach_v:\n"                                      /* bit 8 + (v >= c) + (v > c) du type */
+        "  lwz 12,12(9)\n  li 8,8\n  cmplw 0,12\n  blt .Lach_m\n  li 8,9\n  beq .Lach_m\n  li 8,10\n"
+        ".Lach_m:\n  srw 11,11,8\n  and 10,10,11\n  addi 9,9,16\n  bdnz .Lach_b\n"
+        ".Lach_d:\n"                                      /* r10 & 1 : condition vraie */
+        "  lwz 11,0(6)\n  andi. 0,11,2\n  bne .Lach_e\n"  /* (deja obtenu) */
+        "  andi. 0,10,1\n  bne .Lach_t\n"
+        "  li 11,1\n  li 0,0\n  stw 0,8(7)\n  b .Lach_s\n"   /* fausse : armee, compte a 0 */
+        ".Lach_t:\n  cmpwi 11,0\n  beq .Lach_e\n"         /* (vraie mais pas encore armee) */
+        "  lwz 12,8(7)\n  addi 12,12,1\n  stw 12,8(7)\n  lwz 0,4(7)\n  cmplw 12,0\n  blt .Lach_e\n"
+        "  li 11,3\n  stw 4,4(6)\n  li 3,1\n"            /* obtenu : image notee */
+        ".Lach_s:\n  stw 11,0(6)\n"
+        ".Lach_e:\n  addi 6,6,8\n  mr 7,9\n  addic. 5,5,-1\n  bne .Lach_a\n  blr\n.popsection\n");
+#if defined(__GNUC__) && !defined(__clang__)
+#define ACH_OS __attribute__((optimize("Os")))                /* (resident compile en -O2 : ici, le plus petit) */
+#else
+#define ACH_OS
+#endif
+void ach_run(void) __attribute__((used)) ACH_OS;
 void ach_run(void) {
     u32 *a = ach_p;
-    if (!a) {
-        a = (u32 *)H.chts;
-        a += 1 + a[0];
-        if (a[0] == NATRES_FIXT) a += 2 + a[1] * 3;
-        ach_p = a = a[0] == NATRES_ACH ? a : (u32 *)1;
-    }
+    if (!a) { a = (u32 *)H.chts; a += 1 + a[0]; ach_p = a = a[0] == NATRES_ACH ? a : (u32 *)1; }
     if ((u32)a == 1) return;
-    u32 n = a[1], *o = (u32 *)logbuf;                     /* (logbuf : nr_log_flush le remplit en entier avant d'ecrire) */
-    *o++ = 0x47435341u; *o++ = n;                         /* "GCSA" (GC Station : 63 succes au plus) */
-    for (a += 2; n; n--) {
-        u32 ok = 1, *t = a + 5;
-        for (u32 k = a[0]; k; k--, t += 4) {
-            u32 ad = t[0] >> 24 ? ach_rd(t[1], 4) + t[2] : t[1], v = ach_rd(ad, t[0] >> 16 & 7);
-            ok &= t[0] >> (8 + (v < t[3] ? 0 : v == t[3] ? 1 : 2));
-        }
-        u32 st = a[3];
-        if (!(st & 2)) {
-            if (!(ok & 1)) { st = 1; a[2] = 0; }
-            else if (st && ++a[2] >= a[1]) { st = 3; a[4] = H.vi_count; ach_dirty = 1; }
-            a[3] = st;
-        }
-        *o++ = st; *o++ = a[4];
-        a = t;
-    }
+    ach_dirty |= ach_eval(a, H.vi_count);
     /* (bus pris par le jeu, carte pas encore demarree : a l'image suivante) */
-    if (ach_dirty && di_ready && !exi_defer() && !nr_write_sd(H.log_sec + 5, logbuf)) ach_dirty = 0;
+    if (ach_dirty && di_ready && !exi_defer() && !nr_write_sd(H.log_sec + 5, (const u8 *)a)) ach_dirty = 0;
 }
 
 /* ---------- v61 : lectures en fond ----------
