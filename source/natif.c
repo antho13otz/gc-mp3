@@ -683,7 +683,7 @@ static int nat_map_check(const char *path, long size, char *err, int cap) {
 #define NA_JTXT NA_DIR "/journal-jeu.txt"
 #define NA_SNAP NA_DIR "/memoire-jeu.bin"             /* v83 : photo de la memoire du jeu au plantage */
 static int na_jcrash = 0;                              /* v79 : 2e secteur du journal (details d'un plantage) disponible */
-static int na_jstack = 0, na_jthr = 0, na_jexi = 0;                              /* v82 : 3e secteur (pile du jeu au plantage) disponible */
+static int na_jstack = 0, na_jthr = 0, na_jexi = 0, na_jach = 0, na_ach_on = 0, na_ach_full = 0;                              /* v82 : 3e secteur (pile du jeu au plantage) disponible */
 /* v162 : code du jeu au point d'entree, et au debut des fonctions qu'il appelle (bl) : pour comprendre un
    jeu qui se fige avant la moindre trace de Pulse (il ne passe meme pas par ses interruptions) */
 static int na_dol_at(const u8 *dol, u32 a, u32 *end) {   /* position dans le .dol de l'adresse a (code), -1 = pas trouvee */
@@ -718,14 +718,14 @@ static void na_dump_start(FILE *f, const u8 *dol) {
     for (int k = 0; k < nbl; k++) { fprintf(f, "Fonction appelee %d :\n", k + 1); na_dump_words(f, dol, bl[k], 48, NULL, NULL, 0); }
 }
 static u32 nat_journal_prep(void) {
-    na_jcrash = na_jstack = na_jthr = na_jexi = 0;
+    na_jcrash = na_jstack = na_jthr = na_jexi = na_jach = 0;
     if (sd_virtual) return 0;
     mkdir(NA_DIR, 0777);
-    static u8 z[2560];
+    static u8 z[3072];
     memset(z, 0, sizeof(z));
     FILE *f = fopen(NA_JBIN, "wb");
     if (!f) return 0;
-    int ok = fwrite(z, 1, 2560, f) == 2560;   /* (v260 : 5e secteur : canal EXI 0) */                /* (v243 : 4e secteur : fils du jeu) */                /* v79 : 2 secteurs (le 2e : details d'un plantage) ; v82 : 3 (le 3e : pile du jeu) */
+    int ok = fwrite(z, 1, 3072, f) == 3072;   /* (v268 : 6e secteur : succes)*/   /* (v260 : 5e secteur : canal EXI 0) */                /* (v243 : 4e secteur : fils du jeu) */                /* v79 : 2 secteurs (le 2e : details d'un plantage) ; v82 : 3 (le 3e : pile du jeu) */
     fclose(f);
     char e[80];
     if (!ok || nat_map(NA_JBIN, e, sizeof(e)) || !na_next || na_next > 2) return 0;
@@ -733,6 +733,7 @@ static u32 nat_journal_prep(void) {
     na_jstack = na_next == 1 && na_ext[0].cnt >= 3;
     na_jthr = na_next == 1 && na_ext[0].cnt >= 4;
     na_jexi = na_next == 1 && na_ext[0].cnt >= 5;
+    na_jach = na_next == 1 && na_ext[0].cnt >= 6;
     return na_ext[0].sd;
 }
 /* v83 : fichier de la photo de la memoire (cree une fois, 352 Ko ; 1er secteur remis a zero a
@@ -1339,6 +1340,9 @@ static void nat_journal_convert(void) {
         if (len >= 1536 && be32(d + 1024) == NATRES_STACK_MAGIC) na_stack_print(f, d + 1024);  /* v82 */
         if (len >= 2048 && be32(d + 1536) == NATRES_THR_MAGIC) na_thr_print(f, d + 1536);     /* v243 */
         if (len >= 2560 && be32(d + 2048) == NATRES_EXI_MAGIC) na_exi_print(f, d + 2048);     /* v260 */
+#ifndef NATIF_BENCH
+        if (len >= 3072 && be32(d + 2560) == NATRES_ACHS_MAGIC) sj_after_game(d + 2560, f);  /* v268 : succes */
+#endif
         if (H[1] >= 12) {                                                     /* v94 */
             u32 xf = be32(d + 0x160);
             fprintf(f, "Lecture de la carte : %s, %s%s ; blocs au CRC faux : %u\n", xf & 1 ? "DMA" : "sans DMA", xf & 2 ? "32 MHz" : "16 MHz",
@@ -1397,7 +1401,7 @@ static void nat_journal_convert(void) {
             for (u32 i = 0; i < nh; i++)
                 fprintf(f, "  +%03X %-16s %08X  %10u%s", (unsigned)(i * 4), na_hdr_names[i], (unsigned)be32(d + i * 4), (unsigned)be32(d + i * 4), i % 2 ? "\n" : "   ");
             if (nh % 2) fputc('\n', f);
-            static const char *const sn[] = { "en-tete et anneau des commandes", "plantage (GCSC)", "pile (GCSS)", "fils du jeu (GCST)", "peripheriques EXI (GCSX)", "?", "?", "?" };
+            static const char *const sn[] = { "en-tete et anneau des commandes", "plantage (GCSC)", "pile (GCSS)", "fils du jeu (GCST)", "peripheriques EXI (GCSX)", "succes (GCSA)", "?", "?" };
             fprintf(f, "\n========== Journal brut (journal-jeu.bin, %ld octets) ==========\n", len);
             for (long sct = 0; sct * 512 < len && sct < 8; sct++) {
                 const u8 *b = d + sct * 512;
@@ -3126,6 +3130,7 @@ static const char *nat_boot(int k) {
     if (!an) return in.err;
     if (in.problems) return in.err;
     if (in.fst_max < in.fst_sz || in.fst_max > (4u << 20)) return "FST : taille maximale invalide";
+    sj_prepare(gl[k].id);                                  /* v268 : succes du jeu (section pour Pulse) */
     /* memoire du haut, une fois le jeu lance : [ jeu ... | FST | bi2 | resident ] 0x81800000 */
     u32 fst_dest = in.fst_dest;
     u32 bi2_dest = NATRES_AT - NA_BI2;
@@ -3203,6 +3208,7 @@ static const char *nat_boot(int k) {
             if ((cards & 2) && co2 + na_card2_n * 12 > NATRES_SIZE) cards &= ~2;
             card_on = cards != 0;
             na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0) | (cards & 1 ? NRF_CARD : 0) | (cards & 2 ? NRF_CARDB : 0) | (na_jcrash ? NRF_CRASH : 0) | (na_jstack ? NRF_STACK : 0) | (na_jthr ? NRF_THREADS : 0) | (na_jexi ? NRF_EXILOG : 0));
+            na_ach_on = 0;
             if (cards & 2) {
                 na_wbe32(r + offsetof(natres_hdr_t, card2_n), na_card2_n); na_wbe32(r + offsetof(natres_hdr_t, card2_size), na_card2_size);
                 na_wbe32(r + offsetof(natres_hdr_t, card2_id), na_card2_size >> 17);
@@ -3299,8 +3305,9 @@ static const char *nat_boot(int k) {
             na_ws_msg[0] = 0;
             if (nat_ws) at = na_ws_patch(&in, buf + o_dol, r, at, ceil);
             int ngk = gk > 0 ? na_gk_n : 0;
-            if (ngk > 0 || na_fx_n > 0) {                 /* v136 : {cheats} puis {"FIXT", n, corrections dans les fichiers lus} */
-                u32 need = 4 + (u32)ngk * 4 + (na_fx_n ? 8 + (u32)na_fx_n * 12 : 0);
+            int nac = na_jach && na_ach_w > 0 ? na_ach_w : 0;  /* v268 : {cheats} {"FIXT"...} {"ACH1"...} */
+            if (ngk > 0 || na_fx_n > 0 || nac > 0) {      /* v136 : {cheats} puis {"FIXT", n, corrections dans les fichiers lus} */
+                u32 need = 4 + (u32)ngk * 4 + (na_fx_n ? 8 + (u32)na_fx_n * 12 : 0) + (u32)nac * 4;
                 if (at + need + 64 * 4 <= ceil) {
                     u8 *q = r + (s32)(at - NATRES_AT);
                     na_wbe32(q, (u32)ngk);
@@ -3309,11 +3316,18 @@ static const char *nat_boot(int k) {
                     if (na_fx_n) {
                         na_wbe32(q, 0x46495854u); na_wbe32(q + 4, (u32)na_fx_n);
                         for (int i = 0; i < na_fx_n; i++) for (int j = 0; j < 3; j++) na_wbe32(q + 8 + i * 12 + j * 4, na_fx[i][j]);
+                        q += 8 + na_fx_n * 12;
+                    }
+                    if (nac) {                            /* v268 : succes (Pulse les verifie a chaque image) */
+                        for (int i = 0; i < nac; i++) na_wbe32(q + i * 4, na_ach[i]);
+                        na_wbe32(r + 0x48, be32(r + 0x48) | NRF_ACH);
+                        na_ach_on = 1;
                     }
                     na_wbe32(r + offsetof(natres_hdr_t, chts), at);
                     at = (at + need + 31) & ~31u;
                 } else {
                     if (ngk) snprintf(na_gk_msg, sizeof(na_gk_msg), "pas assez de place dans le r\xC3\xA9sident");
+                    if (nac) na_ach_full = 1;
                     if (na_fx_n) { snprintf(na_fx_msg, sizeof(na_fx_msg), "pas assez de place dans le r\xC3\xA9sident"); na_fx_n = 0; }
                 }
             }
@@ -3409,6 +3423,9 @@ static const char *nat_boot(int k) {
         fprintf(f, "Corrections du jeu : %s\n", na_fix_msg[0] ? na_fix_msg : "aucune pour ce jeu");
         if (na_fx_msg[0]) fprintf(f, "Corrections dans les autres fichiers du disque : %d endroit(s) ; %s\n", na_fx_n, na_fx_msg);   /* v136 */
         fprintf(f, "Cheats : %s\n", na_gk_msg[0] ? na_gk_msg : "aucun");
+        if (na_ach_n) fprintf(f, "Succes : %d surveille%s par Pulse%s%s\n", na_ach_n, na_ach_n > 1 ? "s" : "",   /* v268 */
+                              na_ach_on ? "" : na_ach_full ? " (PAS ACTIVES : pas assez de place dans le resident)" : " (PAS ACTIVES : journal du jeu pas d'un seul morceau)",
+                              na_ach_bad ? " ; des lignes du fichier de succes sont fausses (ignorees)" : "");
         static const char *const vmn[4] = { "comme le jeu", "480p force", "PAL 60 Hz", "240p" };
         fprintf(f, "Video : %s%s%s ; %s\n", vmn[nat_vmode & 3], nat_deflick ? ", sans flou" : "", nat_wide ? ", image large" : "", na_rm_msg[0] ? na_rm_msg : "rien a changer");
         fprintf(f, "Manettes : options %08X ; %d acces branches, %d laisses au vrai materiel (sur %d trouves%s)\n", (unsigned)(na_opt() & 0x00FFFFFFu), na_si_done, na_si_skip, in.nsi, in.si_lost ? ", limite atteinte" : "");

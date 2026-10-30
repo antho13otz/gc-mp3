@@ -541,6 +541,9 @@ static void tp_cfg_build(void) {
 }
 
 static u32 nat_pj_stamp(int *r);                         /* v262 : (natif.c) dernier lancement avec Pulse */
+static u32 sj_new_t;                                     /* v268 : (succes_jeux.c) derniers succes obtenus dans un jeu */
+static char sj_new_txt[200];
+static char *sj_json(void);
 static char *nat_pj_json(void);
 static void tp_json_build(void) {
     np_t n;
@@ -563,6 +566,7 @@ static void tp_json_build(void) {
         u32 pw = nat_pj_stamp(&pr);
         snprintf(num, sizeof(num), ",\"pj\":%u,\"pjr\":%d,\"dl\":%u,\"dln\":", (unsigned)pw, pr, (unsigned)ev_dl_n); sb_add(&s, num);
         char dn[200]; tp_any_utf8(ev_dl_name, dn, sizeof(dn)); sb_json_str(&s, dn);
+        if (sj_new_t) { snprintf(num, sizeof(num), ",\"ach\":%u,\"acht\":", (unsigned)sj_new_t); sb_add(&s, num); sb_json_str(&s, sj_new_txt); }   /* v268 */
     }
     {   /* v222 : clavier ouvert sur la tele -> le telephone propose de taper */
         char kt[64] = "", lat[520], u8[1100];
@@ -1381,6 +1385,11 @@ static void tp_handle(s32 c) {
     else if (!strcmp(target, "/api/pulse")) {                /* v262 : resume du dernier lancement avec Pulse */
         char *j = nat_pj_json();
         tp_reply(c, 200, "application/json", j ? j : "{}", j ? (int)strlen(j) : 2);
+        free(j);
+    }
+    else if (!strcmp(target, "/api/succes")) {               /* v268 : succes des jeux (definitions et obtenus) */
+        char *j = sj_json();
+        tp_reply(c, 200, "application/json", j ? j : "[]", j ? (int)strlen(j) : 2);
         free(j);
     }
     else if (!strcmp(target, "/api/pulse.txt")) {            /* v262 : le journal complet de ce lancement */

@@ -1685,26 +1685,42 @@ static void sc_check(void) {
     else if (nw > 1) { char m[120]; snprintf(m, sizeof(m), "%d succ\xC3\xA8s d\xC3\xA9" "bloqu\xC3\xA9s (START > Outils > Succ\xC3\xA8s)", nw); lib_note(m); }
 }
 static void sc_reload(void) { sc_loaded = 0; }               /* v191 : (autre profil) */
-static void sc_open(void) { tl_screen = TL_SUCCES; sc_sel = 0; sc_top = 0; sc_loaded = 0; sc_check(); }
+static void sc_open(void) { tl_screen = TL_SUCCES; sc_sel = 0; sc_top = 0; sc_loaded = 0; sc_check(); sj_list_load(); }   /* v268 : + succes des jeux */
 static void sc_input(u32 down, u32 nav, int fire) {
-    if (fire && (nav & PAD_BUTTON_DOWN)) sc_sel = (sc_sel + 1) % SC_N;
-    if (fire && (nav & PAD_BUTTON_UP)) sc_sel = (sc_sel + SC_N - 1) % SC_N;
+    int tot = SC_N + sj_nrows;
+    if (fire && (nav & PAD_BUTTON_DOWN)) sc_sel = (sc_sel + 1) % tot;
+    if (fire && (nav & PAD_BUTTON_UP)) sc_sel = (sc_sel + tot - 1) % tot;
+    if (fire && (nav & PAD_BUTTON_RIGHT)) sc_sel = sc_sel + 13 < tot ? sc_sel + 13 : tot - 1;
+    if (fire && (nav & PAD_BUTTON_LEFT)) sc_sel = sc_sel > 13 ? sc_sel - 13 : 0;
     if (down & (PAD_BUTTON_B | PAD_BUTTON_A)) tl_screen = TL_NONE;
 }
 static void tl_legend(const char *const *K, const char *const *L, int cnt);
 static void tl_frame(const char *title, const char *right);
 static void draw_succes(void) {
-    int got = 0;
+    int got = 0, tot = SC_N + sj_nrows;
     for (int i = 0; i < SC_N; i++) if (sc_have[i]) got++;
-    char r[48]; snprintf(r, sizeof(r), "%d / %d", got, SC_N);
+    for (int i = 0; i < sj_nrows; i++) if (sj_rows[i].got) got++;
+    char r[48]; snprintf(r, sizeof(r), "%d / %d", got, tot);
     tl_frame("Succ\xC3\xA8s", r);
     const int vis = 13; const f32 rh = 23.5f;
     if (sc_sel < sc_top) sc_top = sc_sel;
     if (sc_sel >= sc_top + vis) sc_top = sc_sel - vis + 1;
-    for (int j = 0; j < vis && sc_top + j < SC_N; j++) {
+    for (int j = 0; j < vis && sc_top + j < tot; j++) {
         int i = sc_top + j, on = i == sc_sel;
         f32 y = 88 + j * rh;
         if (on) gx_rrect_fill(52, y, 536, rh - 2, 6, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
+        if (i >= SC_N) {                                     /* v268 : succes dans un jeu (verifie par Pulse) */
+            const sj_row_t *w = &sj_rows[i - SC_N];
+            int ok = w->got;
+            gx_circle(68, y + rh / 2 - 1, 7, ok ? RGBA(90, 230, 255, 255) : RGBA(60, 70, 110, 255), ok ? RGBA(40, 150, 220, 255) : RGBA(40, 50, 80, 255));
+            char tt[64]; snprintf(tt, sizeof(tt), "%s", w->title);
+            char ft[64]; fit_text(F_SMALL, tt, 160, ft, sizeof(ft));
+            gx_text1(F_SMALL, 84, y + 16, ft, ok ? RGBA(255, 255, 255, 255) : RGBA(170, 155, 225, 255));
+            char fv[120]; fit_text(F_SMALL, w->desc, 250, fv, sizeof(fv));
+            gx_text1(F_SMALL, 250, y + 16, fv, RGBA(200, 190, 245, 230));
+            gx_text_r(F_SMALL, 580, y + 16, ok ? "OK" : w->id, ok ? RGBA(90, 230, 255, 255) : RGBA(150, 140, 200, 255));
+            continue;
+        }
         int ok = sc_have[i] != 0;
         gx_circle(68, y + rh / 2 - 1, 7, ok ? RGBA(255, 215, 90, 255) : RGBA(70, 60, 110, 255), ok ? RGBA(220, 150, 40, 255) : RGBA(50, 40, 80, 255));
         gx_text1(F_SMALL, 84, y + 16, sc_defs[i].title, ok ? RGBA(255, 255, 255, 255) : RGBA(170, 155, 225, 255));

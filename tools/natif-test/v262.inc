@@ -9,3 +9,7 @@ static void sb_add(sbuf_t *s, const char *t) {
 }
 static void sb_json_str(sbuf_t *s, const char *t) { sb_add(s, "\""); sb_add(s, t); sb_add(s, "\""); }
 static void tp_any_utf8(const char *in, char *out, int cap) { snprintf(out, cap, "%s", in); }
+/* v268 : succes (succes_jeux.c) */
+static u32 na_ach[1];
+static int na_ach_w = 0, na_ach_n = 0, na_ach_bad = 0;
+static void sj_prepare(const char *id) { (void)id; }

@@ -24,6 +24,25 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v268 (build 745) — Succès dans les jeux GameCube
+- **Pulse vérifie des succès pendant le jeu** : une fois par image, il lit quelques valeurs dans la mémoire du jeu
+  (vies, rubis, pièces…) et les compare à la condition de chaque succès. Un succès n'est obtenu qu'après avoir vu sa
+  condition fausse au moins une fois (pas d'un coup au démarrage, mémoire pas encore remplie), puis vraie pendant
+  30 images de suite (réglable). Les succès obtenus sont écrits tout de suite dans un 6e secteur du journal du jeu.
+- **Au retour sur GC Station** : « Succès obtenu : … », la liste dans le journal du jeu (obtenu, après combien de
+  temps, nouveau ou pas), et la notification sur le téléphone. **START > Outils > Succès** montre les succès des jeux
+  à la suite des succès généraux ; dans l'appli : onglet Jeux > Dernier lancement > Succès.
+- **Un fichier par jeu**, modifiable : `SD:/gc-mp3/succes/<ID>.txt`, une ligne par succès :
+  `Titre | Description | m16(0x803C4C0C) >= 200` (tailles m8 / m16 / m32, comparaisons == != >= <= > <,
+  plusieurs conditions avec &&, pointeur `m16(p32(0x80xxxxxx)+0x10)`, `| images 60` pour 1 s). Les lignes fausses
+  sont ignorées et signalées dans `dernier-lancement.txt`.
+- **Fournis pour 3 jeux** (USA), d'après les adresses des codes de triche connus, **pas encore vérifiés sur console** :
+  Zelda Wind Waker (rubis, portefeuille, cœurs), Mario Party 4 (pièces et étoiles du joueur 1), Mario Sunshine (vies).
+- Les définitions de RetroAchievements ne sont pas utilisables : leur API publique ne donne pas les conditions, et
+  le canal qui les donne est réservé aux émulateurs agréés.
+- Banc de Pulse : la carte SD émulée accepte les écritures ; test des succès (armement, 3 images, pointeur, secteur
+  écrit). Le journal du jeu passe à 6 secteurs (3 Ko).
+
 ## Nouveautés v267 (build 743) — Journal du jeu complet
 - **`journal-jeu.txt` montre tout ce que Pulse note** :
   - un **résumé en tête** : jeu, résultat (quitté, planté, figé…), temps de jeu, version de Pulse, build de GC Station,
