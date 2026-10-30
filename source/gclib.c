@@ -907,6 +907,7 @@ static int gl_fx_pump(void) {                            /* 1 : en cours (pas de
         if (!gl_fxdl_f) { gl_fxdl_wait = now_ms() + 600000; return 0; }
         char url[200];
         snprintf(url, sizeof(url), "https://github.com/%s/releases/download/fiches/fiches-gc.txt", upd_repo);
+        gl_fxdl.frame_cap = 16 * 1024;   /* v288 */
         gl_fxdl.maxbytes = 8 * 1024 * 1024; gl_fxdl.image = 0; gl_fxdl.accept = "text/plain,*/*"; gl_fxdl.sink = gl_fxdl_f; gl_fxdl.sink_err = 0;
         hf_start(&gl_fxdl, url, NULL);
         gl_fxdl_st = 1;
@@ -1078,6 +1079,7 @@ static int gl_fc_pump(void) {
         char url[160];
         snprintf(url, sizeof(url), "http://art.gametdb.com/wii/coverfull/%s/%s.png"   /* (v285 : http : pas de chiffrement a calculer, plus leger pour la console) */, rg, gl_fc.id);
         snprintf(gl_fc_rid, sizeof(gl_fc_rid), "%s", gl_fc.id);
+        gl_fc_hf.frame_cap = 12 * 1024;   /* v288 : en douceur (le reseau prenait le processeur : saccades) */
         gl_fc_hf.maxbytes = 2 * 1024 * 1024; gl_fc_hf.image = 0; gl_fc_hf.accept = "image/png,image/*";
         hf_start(&gl_fc_hf, url, NULL);
         gl_fc_dl = 2;
@@ -1275,6 +1277,11 @@ static GXTexObj *gl_fh_get(int k) {
     return NULL;
 }
 static int gl_fh_busy(void) { return gl_fh.st == 1 || gl_fh.st == 4 || gl_fh_dl; }
+static int gl_fh_pct(void) {                              /* v288 : avancement du telechargement HD (-1 : inconnu) */
+    if (gl_fh_dl >= 3) return 100;
+    if (gl_fh_dl == 2 && gl_fh_hf.st == HF_BODY && gl_fh_hf.cap > 65536) { int p = (int)((s64)gl_fh_hf.len * 100 / (gl_fh_hf.cap - 16)); return p > 99 ? 99 : p; }
+    return -1;
+}
 static void gl_fh_cv_done(void) {
     u8 *t = (u8 *)gl_cv_out; gl_cv_out = NULL;
     gl_fh_dl = 0;
@@ -1298,6 +1305,7 @@ static int gl_fh_pump(void) {                             /* (1 : en cours) */
         char url[160];
         snprintf(url, sizeof(url), "http://art.gametdb.com/wii/coverfullHQ/%s/%s.png", rg, gl_fh.id);
         snprintf(gl_fh_rid, sizeof(gl_fh_rid), "%s", gl_fh.id);
+        gl_fh_hf.frame_cap = 12 * 1024;   /* v288 : en douceur (le reseau prenait le processeur : saccades) */
         gl_fh_hf.maxbytes = 3 * 1024 * 1024; gl_fh_hf.image = 0; gl_fh_hf.accept = "image/png,image/*";
         hf_start(&gl_fh_hf, url, NULL);
         gl_fh_dl = 2;
@@ -1371,6 +1379,7 @@ static void gl_dl_pump(void) {
         if (!rg) { gl_dl_mark_absent(gl_dl_id); gl_dl_st = 0; gl_dl_wait = now_ms() + 500; return; }
         char url[160];
         snprintf(url, sizeof(url), "http://art.gametdb.com/wii/cover/%s/%s.png"   /* (v285 : http) */, rg, gl_dl_id);
+        gl_dl_hf.frame_cap = 12 * 1024;   /* v288 : en douceur (le reseau prenait le processeur : saccades) */
         gl_dl_hf.maxbytes = 1024 * 1024; gl_dl_hf.image = 0; gl_dl_hf.accept = "image/png,image/*";
         hf_start(&gl_dl_hf, url, NULL);
         gl_dl_st = 2;

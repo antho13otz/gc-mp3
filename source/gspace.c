@@ -499,7 +499,14 @@ static void gs_draw_fiche(void) {
         else if (g->post >= 0) o2 = gl_cover(gl_sel, 1);
         GXTexObj *hd = bx_zoom_to > 1.3f ? gl_fh_get(gl_sel) : NULL;   /* v287 : HD pour lire */
         bx_draw(gl_sel, cx, cy, cw, chh, o2, big2, hd ? hd : gl_fc_get(gl_sel));
-        if (!hd && gl_fc.st == 2 && gl_fh_busy()) gx_text_c(F_SMALL, 320, 428, "Chargement de la jaquette en HD...", RGBA(255, 210, 120, 230));
+        if (!hd && gl_fc.st == 2 && gl_fh_busy()) {
+            int pc = gl_fh_pct();
+            char m[64];
+            if (pc >= 100) snprintf(m, sizeof(m), "Jaquette HD : pr\xC3\xA9paration...");
+            else if (pc >= 0) snprintf(m, sizeof(m), "Chargement de la jaquette en HD : %d %%", pc);
+            else snprintf(m, sizeof(m), "Chargement de la jaquette en HD...");
+            gx_text_c(F_SMALL, 320, 428, m, RGBA(255, 210, 120, 230));
+        }
         gx_rrect_fill(20, 438, 600, 30, 15, RGBA(255, 255, 255, 16), RGBA(255, 255, 255, 8));
         f32 x = 34;
         x = gs_key(x, 453, "C", "Tourner / zoom", RGBA(255, 210, 90, 255));

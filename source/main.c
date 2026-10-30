@@ -9699,6 +9699,7 @@ typedef struct {
     int any_code;                           /* v206 : garder la reponse meme si le code n'est pas 200 (messages d'erreur) */
     FILE *sink;                             /* v212 : le corps va directement dans ce fichier (pas en memoire) ; len = octets ecrits */
     int sink_err;                           /* v212 : ecriture refusee (carte pleine...) */
+    int frame_cap;                          /* v288 : octets lus au plus par image (0 : 256 Ko) ; petit = le reseau prend moins le processeur */
 } hfetch_t;
 
 /* v77 : en-tetes plus gros que le tampon (GitHub : 11 Ko, dont une tres longue
@@ -9967,8 +9968,10 @@ static void hf_pump(hfetch_t *h) {
     if (h->st == HF_BODY) {
         static unsigned char tmp[16384];
         int got = 0;
-        while (got < (h->sink ? 96 * 1024 : 256 * 1024)) {        /* (v212 : vers la carte SD : un peu moins par image) */
-            int r = conn_recv(&h->c, tmp, sizeof(tmp));
+        int lim = h->frame_cap > 0 ? h->frame_cap : h->sink ? 96 * 1024 : 256 * 1024;   /* (v212 : vers la carte SD : un peu moins par image ; v288 : limite choisie) */
+        while (got < lim) {
+            int want = lim - got < (int)sizeof(tmp) ? lim - got : (int)sizeof(tmp);
+            int r = conn_recv(&h->c, tmp, want);
             if (r > 0) {
                 int m = h->dc.on ? dechunk(&h->dc, tmp, r) : r;
                 if (h->len + m > h->maxbytes) { hf_close(h); hf_fail(h); return; }

@@ -38,6 +38,11 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   Mini-jeux, Manette en jeu, Globe, Mettre à jour. Réglages, Cartes mémoire, Salon, Outils, Recherche et Copies
   gardent pour l'instant l'ancien look.
 
+## Nouveautés v288 (build à venir) — Moins de saccades pendant le chargement HD
+- Les téléchargements en fond (jaquettes, jaquettes complètes et HD, fiches) lisent le réseau **en douceur** : au plus
+  12 Ko par image (avant : jusqu'à 256 Ko). Le réseau prend beaucoup moins le processeur : la boîte tourne sans à-coups.
+- Pendant le chargement HD : **pourcentage** affiché, puis « préparation ».
+
 ## Nouveautés v287 (build 776) — Lire la boîte zoomée (jaquette en HD)
 - Quand tu **zoomes** sur la boîte 3D, la console prend la **jaquette complète en haute définition** de GameTDB
   (1024 × 680) : les textes du dos deviennent **lisibles**. « Chargement de la jaquette en HD... » pendant qu'elle arrive.
