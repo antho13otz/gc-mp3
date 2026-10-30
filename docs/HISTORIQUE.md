@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v280 (build à venir) — Jaquettes manquantes téléchargées toutes seules
+## Nouveautés v280 (build 766) — Jaquettes manquantes téléchargées toutes seules
 - Un jeu sans jaquette dans posters.pak (le pack de Swiss) : GC Station la télécharge sur **GameTDB**
   (art.gametdb.com, la base des lanceurs de jeux : `wii/cover/<région>/<ID>.png`), en fond, une à la fois, quand la
   liste des jeux est ouverte et que le réseau est là. Région d'après l'ID (P : FR puis EN, E : US, J : JA, D, S, I…),
