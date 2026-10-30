@@ -1522,7 +1522,7 @@ static void gl_all_cv_done(void) {
 static int gl_all_pump(void) {                            /* (1 : en cours) */
     if (gl_all_st == 0) {
         if (!gl_all_on || !gl || gl_fc_dl || gl_fh_dl || gl_dk_dl || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_all_wait) return 0;
-        if (now_ms() - last_input_ms < 1500) return 0;
+        if (now_ms() - last_input_ms < 1500) return 0;   /* (v291 : 64 Ko par image : 5 fois plus vite ; on ne touche pas a la manette, rien a proteger) */
         for (int tries = 0; tries < 4; tries++) {        /* (4 verifications par image au plus) */
             if (gl_all_k >= gl_n) break;
             gcg_t *g = &gl[gl_all_k];
@@ -1546,7 +1546,7 @@ static int gl_all_pump(void) {                            /* (1 : en cours) */
         if (!rg) { gl_all_absent(gl_all_id, gl_all_ph); gl_all_st = 0; gl_all_ph++; return 1; }
         char url[160];
         snprintf(url, sizeof(url), "http://art.gametdb.com/wii/%s/%s/%s.png", gl_all_ph == 2 ? "disc" : gl_all_ph ? "coverfullHQ" : "coverfull", rg, gl_all_id);
-        gl_all_hf.frame_cap = 12 * 1024; gl_all_hf.maxbytes = 3 * 1024 * 1024; gl_all_hf.image = 0; gl_all_hf.accept = "image/png,image/*";
+        gl_all_hf.frame_cap = 64 * 1024; gl_all_hf.maxbytes = 3 * 1024 * 1024; gl_all_hf.image = 0; gl_all_hf.accept = "image/png,image/*";
         hf_start(&gl_all_hf, url, NULL);
         gl_all_st = 2;
         return 1;

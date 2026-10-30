@@ -50,6 +50,10 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   Mini-jeux, Manette en jeu, Globe, Mettre à jour. Réglages, Cartes mémoire, Salon, Outils, Recherche et Copies
   gardent pour l'instant l'ancien look.
 
+## Nouveautés v291 (build à venir) — « Toutes les jaquettes » plus rapide
+- Le téléchargement de toutes les jaquettes lit le réseau 5 fois plus vite (64 Ko par image au lieu de 12) : il ne tourne
+  que quand tu ne touches pas à la manette, il n'y a donc pas d'animation à protéger.
+
 ## Nouveautés v290 (build 780) — Boîte 3D comme un vrai boîtier, avec le disque du jeu
 - **Aspect d'un vrai boîtier GameCube** : plastique noir dehors ; dedans, les **clips de la notice** dans le couvercle,
   le **support hexagonal** du disque, la **place de la carte mémoire**, les rebords. L'ouverture reste comme avant (↑).
