@@ -30,9 +30,18 @@ def blk(sec):
     return list(d) + [c >> 8, c & 0xFF]
 class Card:
     def __init__(s):
-        s.cmd = []; s.out = []; s.idle = True; s.app = False; s.acmd41 = 0; s.log = []; s.multi = None
+        s.cmd = []; s.out = []; s.wr = None; s.wbuf = None; s.writes = []; s.idle = True; s.app = False; s.acmd41 = 0; s.log = []; s.multi = None
     def deselect(s): s.cmd = []; s.out = []; s.multi = None
     def xfer_in(s, b):
+        if getattr(s, 'wr', None) is not None:         # v268 : CMD24 (ecriture d'un secteur) : jeton FE, 512 octets, CRC
+            if s.wbuf is None:
+                if b == 0xFE: s.wbuf = []
+                return
+            s.wbuf.append(b)
+            if len(s.wbuf) == 514:
+                disk[s.wr * 512:(s.wr + 1) * 512] = bytes(s.wbuf[:512]); s.writes.append(s.wr)
+                s.wr = None; s.wbuf = None; s.out = [0xE5, 0x00, 0x00, 0xFF]
+            return
         if s.out and b == 0xFF: return
         if not s.cmd and (b & 0xC0) != 0x40: return
         s.cmd.append(b)
@@ -61,6 +70,9 @@ class Card:
             if s.idle: s.out = r + [0x01]; return
             if not SDHC and arg % 512: s.out = r + [0x40]; return
             s.multi = arg if SDHC else arg // 512; s.out = r + [0]; return
+        if c == 24:
+            if s.idle: s.out = r + [0x01]; return
+            s.wr = arg if SDHC else arg // 512; s.wbuf = None; s.out = r + [0]; return
         if c == 12: s.multi = None; s.out = [0xFF, 0x00, 0x00, 0x00, 0xFF]; return
         if c == 17:
             if s.idle: s.out = r + [0x01]; return
@@ -150,4 +162,49 @@ print('transfert : DMA %d, 32 MHz %d, abandonne %d, CRC faux %d, DMA faits %d' %
 assert (xf & 1) == (0 if NODMA else 1) and (dma_n[0] > 8 or NODMA), 'DMA'
 assert (xf >> 1 & 1) == (0 if BAD32 else 1), '32 MHz'
 
+ACH = int(os.environ.get('EMU_ACH', '0'), 16)          # v268 : succes (adresse de ach_run)
+if ACH:
+    H = AT
+    def hw(o, v): wr32(H + o, v)
+    LOG = 3000
+    hw(0x60, LOG)                                      # log_sec
+    hw(0x48, rd32(H + 0x48) | 512)                     # flags : NRF_ACH
+    # memoire du jeu : vies (8 bits) en 0x80500003, pieces (16 bits) via un pointeur en 0x80500010 -> 0x80600000 + 0x20
+    mu.mem_write(0x80500003, b'\x03'); wr32(0x80500010, 0x80600000); mu.mem_write(0x80600020, b'\x00\x05')
+    blk_ = 0x80700000
+    words = [0]                                        # (aucun cheat)
+    words += [0x41434831, 2, 0, 0, 0, 0]               # (etats : 2 x {etat, image})
+    words += [1, 3, 0, (1 << 16) | (6 << 8), 0x80500003, 0, 10]              # vies >= 10 (masque 6), 3 images
+    words += [2, 1, 0, (1 << 24) | (2 << 16) | (6 << 8), 0x80500010, 0x20, 100,  # pieces (pointeur) >= 100
+                       (4 << 16) | (5 << 8), 0x80500010, 0, 0]                          # et pointeur != 0 (masque 5)
+    for i, w_ in enumerate(words): wr32(blk_ + i * 4, w_)
+    import re                                          # (place de chts dans l'en-tete : lue dans natres.h)
+    hs = open(os.environ['NATRES_H'], encoding='latin-1').read()
+    hs = hs[hs.index('typedef struct {\n    unsigned int magic, version;'):hs.index('} natres_hdr_t;')]
+    names = []
+    for l_ in hs.split('\n'):
+        l_ = l_.split('/*')[0].strip()
+        if not l_.startswith('unsigned int '): continue
+        for x in l_[13:].rstrip(';').split(','):
+            m = re.match(r'(\w+)\[(\d+)\]', x.strip())
+            names += [m.group(1)] * int(m.group(2)) if m else [x.strip()]
+    off_chts = names.index('chts') * 4
+    hw(off_chts, blk_)
+    def frame(n=1):
+        for _ in range(n): hw(0x90, rd32(H + 0x90) + 1); call(ACH)
+    DIR_ = int(os.environ.get('EMU_DIREADY', '0'), 16)  # (carte deja demarree par le jeu : di_ready = 1)
+    if DIR_: wr32(DIR_, 1)
+    hw(0x90, 0); frame(400)                            # (condition fausse : arme)
+    st = lambda i, k: rd32(blk_ + 4 * (3 + 2 * i + (k - 3)))   # (k = 3 : etat, 4 : image)
+    assert st(0, 3) == 1 and st(1, 3) == 1, ('armes', st(0, 3), st(1, 3))
+    mu.mem_write(0x80500003, b'\x0a'); frame(2)
+    assert st(0, 3) == 1, 'pas avant 3 images'
+    frame(1)
+    assert st(0, 3) == 3 and st(0, 4) == 403, ('vies obtenu', st(0, 3), st(0, 4))
+    assert LOG + 5 in card.writes, 'secteur GCSA ecrit'
+    sec = disk[(LOG + 5) * 512:(LOG + 6) * 512]
+    assert struct.unpack('>4I', sec[:16]) == (0x41434831, 2, 3, 403), struct.unpack('>4I', sec[:16])
+    mu.mem_write(0x80600020, b'\x00\x64'); frame(1)
+    assert st(1, 3) == 3, 'pieces par pointeur'
+    print('succes : OK (arme, 3 images, pointeur, secteur ACH1)')
 print('TOUT OK')

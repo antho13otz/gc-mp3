@@ -32,7 +32,7 @@ final class LastLaunch {
         "Aucune nouvelle du jeu (bloqué très tôt)",
         "Pas de retour (console éteinte ou redémarrée ?)" };
     static final int[] COLOR = { Neon.CYAN, 0xFFFF4D6D, 0xFFFFA040, 0xFFFFA040, Neon.DIM };
-    static final int ID_GAME = 5, ID_DL = 6;
+    static final int ID_GAME = 5, ID_DL = 6, ID_ACH = 9;
 
     static String verdict(int r) { return r >= 0 && r < VERDICT.length ? VERDICT[r] : "?"; }
     static int color(int r) { return r >= 0 && r < COLOR.length ? COLOR[r] : Neon.DIM; }
@@ -80,6 +80,12 @@ final class LastLaunch {
                 } catch (Exception e) { }
             });
         }
+        long ac = s.optLong("ach", 0), aseen = p.getLong("ach_vu", -1);   // (GC Station v268 : succes obtenus dans un jeu)
+        if (ac > 0 && ac != aseen) {
+            p.edit().putLong("ach_vu", ac).apply();
+            if (aseen >= 0 || System.currentTimeMillis() / 1000 - ac < 600)
+                PlaybackService.notify(c, ID_ACH, "\uD83C\uDFC6 " + s.optString("acht", "Succès obtenu"), "Liste : onglet Jeux > Dernier lancement > Succès.");
+        }
         long dl = s.optLong("dl", -1), dseen = p.getLong("dl_vu", -1);
         if (dl >= 0 && dl != dseen) {
             p.edit().putLong("dl_vu", dl).apply();
@@ -114,6 +120,8 @@ final class LastLaunch {
         row.addView(Neon.btn(a, "Journal", 12, false, v -> showJournal(a)), new LinearLayout.LayoutParams(0, -2, 1));
         View g = new View(a); row.addView(g, new LinearLayout.LayoutParams(Neon.dp(a, 6), 1));
         row.addView(Neon.btn(a, "Partager le journal", 12, true, v -> share(a, gameId)), new LinearLayout.LayoutParams(0, -2, 1.4f));
+        View g2 = new View(a); row.addView(g2, new LinearLayout.LayoutParams(Neon.dp(a, 6), 1));
+        row.addView(Neon.btn(a, "Succès", 12, false, v -> showAch(a)), new LinearLayout.LayoutParams(0, -2, 1));
         view.addView(row);
         title.setOnClickListener(v -> { if (!gameId.isEmpty() && open != null) open.open(gameId); });
         view.setVisibility(View.GONE);
@@ -139,6 +147,37 @@ final class LastLaunch {
             if ((v == 1 || v == 2 || v == 0) && !pc.isEmpty() && !pc.equals("00000000")) d += " · endroit : " + pc;
             sub.setText(d);
             view.setVisibility(View.VISIBLE);
+        });
+    }
+
+    /** succes des jeux (GC Station v268 : verifies par Pulse pendant le jeu) */
+    static void showAch(final Activity a) {
+        Api.get("/api/succes", r -> {
+            org.json.JSONArray j = null;
+            try { if (r != null) j = new org.json.JSONArray(r); } catch (Exception e) { }
+            if (j == null) { Toast.makeText(a, "Pas de réponse de la console (GC Station v268 et plus)", Toast.LENGTH_SHORT).show(); return; }
+            LinearLayout box = new LinearLayout(a);
+            box.setOrientation(LinearLayout.VERTICAL);
+            String last = "";
+            int got = 0;
+            for (int i = 0; i < j.length(); i++) {
+                org.json.JSONArray x = j.optJSONArray(i);
+                if (x == null) continue;
+                String id = x.optString(0);
+                if (!id.equals(last)) {
+                    last = id;
+                    TextView h = Neon.glow(a, id, 13, Neon.CYAN);
+                    h.setPadding(0, Neon.dp(a, i == 0 ? 0 : 10), 0, Neon.dp(a, 2));
+                    box.addView(h);
+                }
+                boolean ok = x.optInt(3) != 0;
+                if (ok) got++;
+                TextView t = Neon.text(a, (ok ? "\uD83C\uDFC6  " : "\u25CB  ") + x.optString(1) + "\n      " + x.optString(2), 13, ok ? Neon.TEXT : Neon.DIM, ok);
+                t.setPadding(0, Neon.dp(a, 3), 0, Neon.dp(a, 3));
+                box.addView(t);
+            }
+            if (j.length() == 0) box.addView(Neon.text(a, "Aucun succès : ajoute un fichier SD:/gc-mp3/succes/<ID du jeu>.txt (quelques jeux en ont déjà un).", 13, Neon.DIM, false));
+            new NeonDialog(a).title("Succès · " + got + " / " + j.length()).view(box).cancel("Fermer").show();   // (la boite defile deja)
         });
     }
 

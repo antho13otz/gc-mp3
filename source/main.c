@@ -13971,6 +13971,7 @@ static void music_pump(void) {
 #include "cheats.c"                            /* v25 : editeur de cheats (SD:/gc-mp3/cheats) */
 #include "gclib.c"                             /* v25 : Mes jeux GameCube (jaquettes : SD:/gc-mp3/jaquettes) */
 #include "jukebox.c"                           /* v207 : musiques des jeux, lues dans les images */
+#include "succes_jeux.c"                      /* v268 : succes dans les jeux (verifies par Pulse) */
 #include "tools.c"                             /* v35 : cartes memoire, applis, recents, infos */
 #include "globe.c"                             /* v207 : globe des radios */
 #include "pet.c"                               /* v207 : le compagnon */

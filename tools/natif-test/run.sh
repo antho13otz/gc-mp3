@@ -15,6 +15,7 @@ ld.lld -T $R/tools/natres.ld natres.o -o natres.elf
 llvm-objcopy -O binary natres.elf natres.bin
 python3 $R/tools/bin2h.py natres.bin natres_bin.h natres_bin
 for a in "1 2 0" "0 2 0" "1 0 0" "1 1 0" "1 0 2"; do python3 $T/emu_natres.py natres.bin $a | tail -1; done
+EMU_ACH=$(llvm-nm natres.elf | awk '$3=="ach_run"{print $1}') EMU_DIREADY=$(llvm-nm natres.elf | awk '$3=="di_ready"{print $1}') NATRES_H=$R/source/natres/natres.h python3 $T/emu_natres.py natres.bin 1 2 0 | tail -2   # (v268 : succes)
 EMU_NODMA=1 python3 $T/emu_natres.py natres.bin 1 0 0 | tail -1     # (v94 : adaptateur sans DMA)
 EMU_BAD32=1 python3 $T/emu_natres.py natres.bin 1 0 0 | tail -1     # (v94 : 32 MHz qui abime les donnees)
 # v187 : retour a GC Station en quittant une appli (natret en 0x80001800) : SD2SP2 SDHC, SD Gecko slot A carte SD, slot B
