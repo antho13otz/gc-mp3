@@ -125,14 +125,29 @@ static s32 sx_card_setstatus(s32 ch, s32 fn, card_direntry *e) { if (sx_safe) { 
 /* (test des touches : sticks et touches maintenues simules) */
 static s8 sx_fsx = 0, sx_fsy = 0, sx_fmx = 0, sx_fmy = 0;
 static u32 sx_hold = 0;
-static s8 sx_pad_sx(int c) { return c == 0 && (sx_fsx || sx_fsy) ? sx_fsx : PAD_SubStickX(c); }
-static s8 sx_pad_sy(int c) { return c == 0 && (sx_fsx || sx_fsy) ? sx_fsy : PAD_SubStickY(c); }
-static s8 sx_pad_mx(int c) { return c == 0 && (sx_fmx || sx_fmy) ? sx_fmx : PAD_StickX(c); }
-static s8 sx_pad_my(int c) { return c == 0 && (sx_fmx || sx_fmy) ? sx_fmy : PAD_StickY(c); }
+/* v279 : manettes du telephone pour GC Station lui-meme (mini-jeux, menus) : l'appli envoie ses touches en UDP (port
+   51238, paquets "GCPD" comme pour Pulse) ; le telephone du joueur N s'ajoute a la manette du port N (pp_pump,
+   tab_phone.c). Les touches sont au format des registres des manettes : (INBUFH >> 16) = masque PAD_BUTTON_*. */
+static u32 pp_held[4], pp_prev[4];
+static s8 pp_mx[4], pp_my[4], pp_cx[4], pp_cy[4];
+static u64 pp_seen[4];
+static u32 pp_active(void) { u32 m = 0; u64 n = ticks_to_millisecs(gettime()); for (int c = 0; c < 4; c++) if (pp_seen[c] && n - pp_seen[c] < 1500) m |= 1u << c; return m; }
+static s8 sx_pad_sx(int c) { if (c == 0 && (sx_fsx || sx_fsy)) return sx_fsx; s8 v = PAD_SubStickX(c); return (c >= 0 && c < 4 && v > -20 && v < 20 && pp_cx[c]) ? pp_cx[c] : v; }
+static s8 sx_pad_sy(int c) { if (c == 0 && (sx_fsx || sx_fsy)) return sx_fsy; s8 v = PAD_SubStickY(c); return (c >= 0 && c < 4 && v > -20 && v < 20 && pp_cy[c]) ? pp_cy[c] : v; }
+static s8 sx_pad_mx(int c) { if (c == 0 && (sx_fmx || sx_fmy)) return sx_fmx; s8 v = PAD_StickX(c); return (c >= 0 && c < 4 && v > -20 && v < 20 && pp_mx[c]) ? pp_mx[c] : v; }
+static s8 sx_pad_my(int c) { if (c == 0 && (sx_fmx || sx_fmy)) return sx_fmy; s8 v = PAD_StickY(c); return (c >= 0 && c < 4 && v > -20 && v < 20 && pp_my[c]) ? pp_my[c] : v; }
+static u32 sx_pad_down(int c) { u32 v = PAD_ButtonsDown(c); if (c >= 0 && c < 4) v |= pp_held[c] & ~pp_prev[c]; return v; }
+static u32 sx_pad_held(int c) { u32 v = PAD_ButtonsHeld(c); if (c >= 0 && c < 4) v |= pp_held[c]; return v; }
+static u32 sx_pad_up(int c) { u32 v = PAD_ButtonsUp(c); if (c >= 0 && c < 4) v |= pp_prev[c] & ~pp_held[c]; return v; }
+static u32 sx_pad_scan(void) { return PAD_ScanPads() | pp_active(); }
 #define PAD_SubStickX(c) sx_pad_sx(c)
 #define PAD_SubStickY(c) sx_pad_sy(c)
 #define PAD_StickX(c) sx_pad_mx(c)
 #define PAD_StickY(c) sx_pad_my(c)
+#define PAD_ButtonsDown(c) sx_pad_down(c)
+#define PAD_ButtonsHeld(c) sx_pad_held(c)
+#define PAD_ButtonsUp(c) sx_pad_up(c)
+#define PAD_ScanPads() sx_pad_scan()
 
 #ifndef SD_ROOT
 #define SD_ROOT        "sd:"
@@ -14038,6 +14053,7 @@ static void music_pump(void) {
 #include "gckb.c"
 #include "fun_extra.c"                         /* v18 : karaoke, jeux, reveil, titres radio... */
 #include "fun_party.c"                         /* v235 : jeux de soiree (1 a 4 manettes) */
+#include "fun_duel2.c"                         /* v279 : jeux en duel (motos, air hockey, puissance 4, sumo) */
 #include "tabs_extra.c"                        /* v23 : onglets JEUX et TELECHARGEMENTS, curseur partout */
 #include "cheats.c"                            /* v25 : editeur de cheats (SD:/gc-mp3/cheats) */
 #include "gclib.c"                             /* v25 : Mes jeux GameCube (jaquettes : SD:/gc-mp3/jaquettes) */

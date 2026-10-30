@@ -9,7 +9,7 @@
 //  - Nouveaux episodes des podcasts telecharges tout seuls (sd:/gc-mp3/podcasts)
 //  - Fond d'ecran : une de tes photos (PHOTOS, plein ecran, X)
 
-enum { FUN_OFF, FUN_KARAOKE, FUN_RHYTHM, FUN_QUIZ, FUN_WAKE, FUN_SNAKE, FUN_BRICKS, FUN_PONG, FUN_FLAPPY, FUN_SIMON, FUN_DUEL, FUN_RACE, FUN_BUBBLES };   /* (v235 : fun_party.c) */
+enum { FUN_OFF, FUN_KARAOKE, FUN_RHYTHM, FUN_QUIZ, FUN_WAKE, FUN_SNAKE, FUN_BRICKS, FUN_PONG, FUN_FLAPPY, FUN_SIMON, FUN_DUEL, FUN_RACE, FUN_BUBBLES, FUN_TRON, FUN_HOCKEY, FUN_P4, FUN_SUMO };   /* (v235 : fun_party.c) */
 static int fun_mode = FUN_OFF;
 static u64 fun_t0 = 0;
 static u32 fun_pads = 1;                    /* manettes branchees (PAD_ScanPads) */
@@ -2002,6 +2002,10 @@ static void fun_action(int code, int arg, int track, const char *txt) {
 static void duel_input(u32 down); static void duel_pump(void); static void draw_duel(void);         /* v235 : fun_party.c */
 static void race_input(u32 down); static void race_pump(void); static void draw_race(void);
 static void bubbles_input(u32 down); static void bubbles_pump(void); static void draw_bubbles(void);
+static void tron_input(u32 down); static void tron_pump(void); static void draw_tron(void);           /* v279 : fun_duel2.c */
+static void hockey_input(u32 down); static void hockey_pump(void); static void draw_hockey(void);
+static void p4_input(u32 down); static void p4_pump(void); static void draw_p4(void);
+static void sumo_input(u32 down); static void sumo_pump(void); static void draw_sumo(void);
 static void fun_input(u32 down, u32 nav, int fire) {
     switch (fun_mode) {
     case FUN_KARAOKE: karaoke_input(down); break;
@@ -2016,6 +2020,10 @@ static void fun_input(u32 down, u32 nav, int fire) {
     case FUN_DUEL:    duel_input(down); break;
     case FUN_RACE:    race_input(down); break;
     case FUN_BUBBLES: bubbles_input(down); break;
+    case FUN_TRON:    tron_input(down); break;
+    case FUN_HOCKEY:  hockey_input(down); break;
+    case FUN_P4:      p4_input(down); break;
+    case FUN_SUMO:    sumo_input(down); break;
     }
 }
 
@@ -2036,6 +2044,10 @@ static void fun_pump(u32 pads) {
     else if (fun_mode == FUN_DUEL) { party_update(); duel_pump(); }
     else if (fun_mode == FUN_RACE) { party_update(); race_pump(); }
     else if (fun_mode == FUN_BUBBLES) { party_update(); bubbles_pump(); }
+    else if (fun_mode == FUN_TRON) { party_update(); tron_pump(); }
+    else if (fun_mode == FUN_HOCKEY) { party_update(); hockey_pump(); }
+    else if (fun_mode == FUN_P4) { party_update(); p4_pump(); }
+    else if (fun_mode == FUN_SUMO) { party_update(); sumo_pump(); }
     else { party_update(); last_input_ms = now_ms(); }
 }
 
@@ -2054,6 +2066,10 @@ static void draw_fun(void) {
     case FUN_DUEL:    draw_duel(); break;
     case FUN_RACE:    draw_race(); break;
     case FUN_BUBBLES: draw_bubbles(); break;
+    case FUN_TRON:    draw_tron(); break;
+    case FUN_HOCKEY:  draw_hockey(); break;
+    case FUN_P4:      draw_p4(); break;
+    case FUN_SUMO:    draw_sumo(); break;
     default:          draw_wake(); break;
     }
     th_identity = saved;

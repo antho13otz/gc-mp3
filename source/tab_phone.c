@@ -31,7 +31,7 @@ static volatile int tp_json_cur = 0;
 static u64 tp_json_t = 0;
 
 /* commandes envoyees par la page */
-enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN, PC_MENU, PC_CHECK, PC_SET, PC_UPDATE, PC_SHOW, PC_SALON, PC_TYPE, PC_SHOWNAME, PC_PLAYURL, PC_RADIOADD, PC_TEST };   /* v142 : photo sur la tele, ecouter avec (Salon) */
+enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN, PC_MENU, PC_CHECK, PC_SET, PC_UPDATE, PC_SHOW, PC_SALON, PC_TYPE, PC_SHOWNAME, PC_PLAYURL, PC_RADIOADD, PC_TEST, PC_MINIJEU };   /* v142 : photo sur la tele, ecouter avec (Salon) */
 static volatile u32 tp_keys = 0;                /* v142 : boutons de la manette du telephone (pris par la boucle) */
 static u8 *gl_cover_raw(int k, int *w, int *h, int *iw, int *ih, u32 *len);   /* (gclib.c) jaquette telle qu'elle est dans posters.pak */
 static int tl_screen;                                        /* (tools.c : 0 = aucun outil ouvert) */
@@ -670,6 +670,8 @@ static void c8_api(s32 c, const char *q);              /* v276 : jeu de cartes (
 static void c8_tick(void);
 static void sx_phone_start(int m);                     /* v278 : test de la console lance depuis le telephone (selftest_keys.c) */
 static int sx_phone_state(char *o, int cap);
+static int gm_phone_list(char *o, int cap);              /* v279 : mini-jeux (tabs_extra.c) */
+static void gm_phone_launch(int g);
 static char *x73_gj = NULL;                              /* JSON des jeux (construit par la boucle : extras73.c) */
 static volatile int x73_gj_want = 0, x73_gj_ready = 0;
 static volatile int x73_launch_k = -1, x73_launch_m = 0;
@@ -1510,6 +1512,14 @@ static void tp_handle(s32 c) {
         if (n > (int)sizeof(jb) - 1) n = sizeof(jb) - 1;
         tp_reply(c, 200, "text/plain; charset=utf-8", jb, n);
     }
+    else if (!strcmp(target, "/api/minijeux")) {             /* v279 : liste des mini-jeux ; ?g=N : le lancer sur la tele */
+        char g[8];
+        static char o[2400];
+        tp_param(q ? q : "", "g", g, sizeof(g));
+        if (g[0]) tp_push(PC_MINIJEU, atoi(g));
+        int n = gm_phone_list(o, sizeof(o));
+        tp_reply(c, 200, "application/json; charset=utf-8", o, n);
+    }
     else if (!strcmp(target, "/api/test")) {                 /* v278 : lancer un test (m=0 rapide, 1 complet, 2 total, 3 touches) ; sans m : ou il en est */
         char m[8], o[320];
         tp_param(q ? q : "", "m", m, sizeof(m));
@@ -1806,7 +1816,51 @@ static void tpl_game_fail(void) { tpl_send_all("GCSE1\n"); }
 
 static void transport_step(int d);
 
+/* v279 : manettes du telephone pour GC Station (mini-jeux, menus) : UDP 51238, "GCPD" {1, joueur 0-3, 0, 0} {numero}
+   {INBUFH} {INBUFL} (meme format que pour Pulse) ; une fois par image */
+#define PP_PORT 51238
+static s32 pp_fd = -1;
+static u32 pp_seq[4];
+static void pp_pump(void) {
+    for (int c = 0; c < 4; c++) pp_prev[c] = pp_held[c];
+    if (pp_fd < 0) {
+        static u64 tried = 0;
+        if (net_phase != NET_DONE || !net_ok || (tried && now_ms() - tried < 10000)) return;
+        tried = now_ms();
+        pp_fd = net_socket(AF_INET, SOCK_DGRAM, 0);
+        if (pp_fd < 0) return;
+        struct sockaddr_in a;
+        memset(&a, 0, sizeof(a));
+        a.sin_family = AF_INET; a.sin_port = htons(PP_PORT); a.sin_addr.s_addr = INADDR_ANY;
+        if (net_bind(pp_fd, (struct sockaddr *)&a, sizeof(a)) < 0) { net_close(pp_fd); pp_fd = -1; return; }
+        set_nonblock(pp_fd, 1);
+    }
+    u64 now = now_ms();
+    for (int k = 0; k < 16; k++) {
+        u8 m[32];
+        struct sockaddr_in from;
+        socklen_t fl = sizeof(from);
+        s32 r = net_recvfrom(pp_fd, m, sizeof(m), 0, (struct sockaddr *)&from, &fl);
+        if (r <= 0) break;
+        if (r < 20 || memcmp(m, "GCPD", 4)) continue;
+        int c = m[5] & 3;
+        u32 seq = (u32)m[8] << 24 | (u32)m[9] << 16 | (u32)m[10] << 8 | m[11];
+        u32 h = (u32)m[12] << 24 | (u32)m[13] << 16 | (u32)m[14] << 8 | m[15];
+        u32 l = (u32)m[16] << 24 | (u32)m[17] << 16 | (u32)m[18] << 8 | m[19];
+        if (seq == pp_seq[c] && pp_seen[c]) continue;
+        if (!pp_seen[c] || now - pp_seen[c] > 1500) crumb("telephone : manette du joueur %d", c + 1);
+        pp_seq[c] = seq; pp_seen[c] = now;
+        pp_held[c] = (h >> 16) & 0x1F7Fu;                /* (START Y X B A, L R Z, croix : comme PAD_BUTTON_*) */
+        int mx = (int)((h >> 8) & 0xFF) - 128, my = (int)(h & 0xFF) - 128, cx = (int)(l >> 24) - 128, cy = (int)((l >> 16) & 0xFF) - 128;
+        pp_mx[c] = (s8)(mx < -127 ? -127 : mx > 127 ? 127 : mx); pp_my[c] = (s8)(my < -127 ? -127 : my > 127 ? 127 : my);
+        pp_cx[c] = (s8)(cx < -127 ? -127 : cx > 127 ? 127 : cx); pp_cy[c] = (s8)(cy < -127 ? -127 : cy > 127 ? 127 : cy);
+        if (((l >> 8) & 0xFF) > 0xC0) pp_held[c] |= PAD_TRIGGER_L;
+        if ((l & 0xFF) > 0xC0) pp_held[c] |= PAD_TRIGGER_R;
+    }
+    for (int c = 0; c < 4; c++) if (pp_seen[c] && now - pp_seen[c] > 1500) { pp_held[c] = 0; pp_mx[c] = pp_my[c] = pp_cx[c] = pp_cy[c] = 0; }   /* (telephone parti) */
+}
 static void phone_pump(void) {
+    pp_pump();                                           /* v279 */
     c8_tick();                                           /* v276 : la table du jeu de cartes s'ouvre sur la tele */
     if (tp_state == PS_OFF && (tp_wanted || phone_auto) && net_phase == NET_DONE && net_ok) phone_start();
     if (tp_state != PS_ON) return;
@@ -1884,6 +1938,7 @@ static void phone_pump(void) {
             break;
         case PC_TYPE: tp_type_apply(); tp_type_busy = 0; break;
         case PC_TEST: sx_phone_start(cm.i); break;   /* v278 */
+        case PC_MINIJEU: gm_phone_launch(cm.i); break;   /* v279 */
         case PC_SHOWNAME: {
             if (tab_shown(TAB_PHOTO)) {
                 tp_rescan &= ~2;

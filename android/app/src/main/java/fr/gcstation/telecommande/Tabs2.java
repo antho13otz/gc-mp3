@@ -1436,7 +1436,7 @@ class PlusTab extends Tab {
         { "⚙", "Réglages", "De GC Station", "9" }, { "▤", "Cartes mémoire", "Sauvegardes", "10" },
         { "⌂", "Salon", "Les autres consoles", "11" }, { "⚒", "Outils", "Mémoire, capture, rapport", "12" },
         { "◎", "Recherche", "Musique, radios, jeux", "13" }, { "▦", "Copies", "Cartes et réglages gardés", "14" },
-        { "♠", "Jeu de cartes", "8 américain entre potes", "-1" } };
+        { "♠", "Jeu de cartes", "8 américain entre potes", "-1" }, { "🎮", "Mini-jeux", "Duels, téléphone = manette", "-2" } };
     PlusTab(Activity a) { super(a); }
 
     @Override View build() {
@@ -1464,7 +1464,7 @@ class PlusTab extends Tab {
             TextView d = Neon.text(a, t[2], 11, Neon.DIM, false);
             d.setGravity(Gravity.CENTER);
             c.addView(d);
-            c.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); if (t[3].equals("-1")) CartesActivity.open(a); else ((MainActivity) a).select(Integer.parseInt(t[3])); });
+            c.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); if (t[3].equals("-1")) CartesActivity.open(a); else if (t[3].equals("-2")) MiniJeuxActivity.open(a); else ((MainActivity) a).select(Integer.parseInt(t[3])); });
             android.widget.GridLayout.LayoutParams p = new android.widget.GridLayout.LayoutParams(
                 android.widget.GridLayout.spec(i / 2), android.widget.GridLayout.spec(i % 2, 1f));
             p.width = 0;

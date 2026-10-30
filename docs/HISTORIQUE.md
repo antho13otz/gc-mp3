@@ -24,6 +24,19 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v279 (build à venir, appli build 49) — 4 jeux en duel, et le téléphone comme manette
+- **Motos lumineuses** (2 à 4) : chacun laisse un mur de lumière derrière lui, de plus en plus vite ; le dernier en vie
+  gagne la manche, en 3. **Air hockey** (2) : maillets au stick, palet qui rebondit, le premier à 7 buts.
+  **Puissance 4** (2) : le jeton tombe, les 4 alignés brillent, en 3 parties. **Sumo** (2 à 4) : pousser les autres
+  hors du ring, A = élan, en 3 manches. Seul : contre la console (elle évite les murs, bloque tes alignements, fonce
+  sur toi). Onglet JEUX : 16 jeux, sur 4 colonnes.
+- **Le téléphone devient la manette d'un joueur dans GC Station** (pas seulement dans les jeux Pulse) : l'appli envoie
+  ses touches en UDP (port 51238) ; le téléphone du joueur N s'ajoute à la manette du port N, dans tous les mini-jeux
+  (anciens compris) et, pour le joueur 1, dans les menus.
+- **Appli > Plus > Mini-jeux** : les 16 jeux en cartes ; toucher un jeu le lance sur la télé et ouvre la manette ; on
+  choisit son joueur (1 à 4) ; « Juste la manette ». (`/api/minijeux`, `?g=N` : lancer.)
+- Simulateur : deux téléphones simulés (UDP) jouent aux motos, à l'air hockey (buts marqués), au Puissance 4 et au sumo.
+
 ## Nouveautés v278 (build 764, appli build 48) — Test des touches : chaque touche dans chaque écran
 - **Outils > Test de la console > Z** (ou l'appli : Outils > Test de la console > Touches) : GC Station se manipule
   tout seul pendant 3 h au plus. Chaque écran (chaque onglet, le menu START et ses sections, chaque outil, la table de

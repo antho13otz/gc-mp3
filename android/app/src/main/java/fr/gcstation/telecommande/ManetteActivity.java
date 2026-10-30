@@ -53,12 +53,19 @@ public class ManetteActivity extends Activity implements SensorEventListener {
     static final String EXTRA_MASK = "ports";
 
     static final String EXTRA_SETUP = "reglages";
+    static final String EXTRA_GCS = "gcstation";
+    static final int PORT_GCS = 51238;                         // (console build 765 : mini-jeux et menus de GC Station lui-meme)
 
     static void open(Context c, int mask) {
         c.startActivity(new Intent(c, ManetteActivity.class).putExtra(EXTRA_MASK, mask));
     }
 
     /** reglages et disposition, sans jeu : rien n'est envoye a la console (⚙ de l'appli > Manette : réglages et disposition) */
+    /** manette pour GC Station lui-meme (mini-jeux en duel, menus) : le telephone devient la manette du joueur choisi */
+    static void openGcs(Context c) {
+        c.startActivity(new Intent(c, ManetteActivity.class).putExtra(EXTRA_MASK, 0xF).putExtra(EXTRA_GCS, true));
+    }
+
     static void openSetup(Context c) {
         c.startActivity(new Intent(c, ManetteActivity.class).putExtra(EXTRA_MASK, 0xF).putExtra(EXTRA_SETUP, true));
     }
@@ -78,6 +85,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
     private Thread sender;
     private int mask, port;
     private boolean setup;                                    // (reglages sans jeu : pas d'envoi)
+    private boolean gcs;                                      // (GC Station lui-meme : port 51238, joueurs 1 a 4)
     private SharedPreferences sp;
     private FrameLayout root;
     private FrameLayout panel;                                 // (voile sombre plein ecran + la carte des reglages)
@@ -97,9 +105,10 @@ public class ManetteActivity extends Activity implements SensorEventListener {
         super.onCreate(b);
         mask = getIntent().getIntExtra(EXTRA_MASK, 0x2);
         setup = getIntent().getBooleanExtra(EXTRA_SETUP, false);
+        gcs = getIntent().getBooleanExtra(EXTRA_GCS, false);
         if (mask == 0) mask = 0x2;
         sp = getSharedPreferences("gcs", MODE_PRIVATE);
-        port = sp.getInt("manette_port", -1);
+        port = sp.getInt(gcs ? "manette_joueur" : "manette_port", -1);
         if (port < 0 || (mask >> port & 1) == 0) port = Integer.numberOfTrailingZeros(mask);
         optFloat = sp.getBoolean("pad_float", false);
         optTrig = sp.getBoolean("pad_trig", false);
@@ -160,7 +169,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
                     buf[0] = 'G'; buf[1] = 'C'; buf[2] = 'P'; buf[3] = 'D';
                     buf[4] = 1; buf[5] = (byte) port; buf[6] = 0; buf[7] = 0;
                     put(buf, 8, ++seq); put(buf, 12, st[0]); put(buf, 16, st[1]);
-                    try { s.send(new DatagramPacket(buf, 20, to, PORT)); } catch (Exception e) { }
+                    try { s.send(new DatagramPacket(buf, 20, to, gcs ? PORT_GCS : PORT)); } catch (Exception e) { }
                     next += 16_666_667L;
                     long w = next - System.nanoTime();
                     if (w > 0) Thread.sleep(w / 1_000_000L, (int) (w % 1_000_000L)); else next = System.nanoTime();
@@ -168,7 +177,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
                 rumbleSet(false);
                 for (int k = 0; k < 3; k++) {                    // (au repos en partant)
                     put(buf, 8, ++seq); put(buf, 12, 0x00808080); put(buf, 16, 0x80800000);
-                    try { s.send(new DatagramPacket(buf, 20, to, PORT)); } catch (Exception e) { }
+                    try { s.send(new DatagramPacket(buf, 20, to, gcs ? PORT_GCS : PORT)); } catch (Exception e) { }
                 }
             } catch (Exception e) {
             } finally {
@@ -220,7 +229,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
 
     void nextPort() {
         for (int k = 1; k <= 4; k++) { int p = (port + k) % 4; if ((mask >> p & 1) != 0) { port = p; break; } }
-        sp.edit().putInt("manette_port", port).apply();
+        sp.edit().putInt(gcs ? "manette_joueur" : "manette_port", port).apply();
         pad.invalidate();
     }
 
@@ -882,7 +891,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
                     float rr = (a[3] > 0 ? Math.max(a[2], a[3]) : a[2]) * 1.15f;
                     g.drawCircle(a[0], a[1], rr, dash);
                 }
-                String l = i == 14 ? "PORT " + (port + 1) + "  ↻" : hidden ? "—" : LBL[f];
+                String l = i == 14 ? (gcs ? "JOUEUR " : "PORT ") + (port + 1) + "  ↻" : hidden ? "—" : LBL[f];
                 if (l.isEmpty() || (i <= 1)) continue;
                 int lc = on ? 0xFF0B0B14 : (f == 2 || f == 3 || f == 7) ? mix(col, 0xFFFFFFFF, 0.25f, 255) : 0xFFEDEBFA;
                 if (i >= 14) lc = 0xFFFFFFFF;
@@ -897,7 +906,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
             t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             if (!edit) {
                 t.setTextSize(base[14][3] * 0.5f); t.setColor(mix(Neon.DIM, 0, 0, 170));
-                g.drawText(setup ? "Essai de la manette (pas en jeu : rien n'est envoyé) · ⚙ réglages" : "Manette en jeu · A + Z + START sur la vraie manette pour revenir", getWidth() / 2f, base[14][1] + base[14][3] * 2.2f, t);
+                g.drawText(setup ? "Essai de la manette (pas en jeu : rien n'est envoyé) · ⚙ réglages" : gcs ? "Mini-jeux de GC Station · touche JOUEUR pour changer de joueur · le joueur 1 pilote aussi les menus" : "Manette en jeu · A + Z + START sur la vraie manette pour revenir", getWidth() / 2f, base[14][1] + base[14][3] * 2.2f, t);
             }
         }
     }
