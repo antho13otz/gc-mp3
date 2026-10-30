@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 42 — Manette : réglages sans jouer
+- **⚙ > Manette : réglages et disposition** : la manette s'ouvre sans jeu (rien n'est envoyé à la console) : réglages,
+  disposition des touches, essai des touches et des sticks.
+- **Réglages lisibles** : la fenêtre des réglages et la barre de la disposition sont opaques, sur un voile sombre (la
+  manette se voyait à travers, les textes se mélangeaient).
+
 ## Nouveautés appli build 41 — Le téléphone devient une manette dans les jeux
 - **🎮 Manette dans le jeu** : pendant un jeu lancé avec Pulse (réglage console ⚙ > Manettes du téléphone), l'appli
   devient une manette GameCube plein écran : sticks, A B X Y, Z, L, R, START, croix ; envoyée à la console 60 fois par

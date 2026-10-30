@@ -673,13 +673,14 @@ public class MainActivity extends Activity {
     }
 
     private void menu() {
-        String[] items = { "Actualiser les listes", "Chercher la console à nouveau", "Saisir l'adresse de la console", "Mettre à jour l'appli (1." + AppUpdate.installed(this) + ")" };
+        String[] items = { "Actualiser les listes", "Chercher la console à nouveau", "Saisir l'adresse de la console", "Mettre à jour l'appli (1." + AppUpdate.installed(this) + ")", "\uD83C\uDFAE  Manette : réglages et disposition" };
         new NeonDialog(this)
             .title("GC Station" + (Api.host != null ? " · " + Api.host : ""))
             .items(items, w -> {
                 if (w == 0) { ((ListTab) tabs[1]).load(); ((ListTab) tabs[2]).load(); ((FilesTab) tabs[T_FILES]).refresh(); ((PhotosTab) tabs[T_PHOTOS]).load(); QueueTab.tracks = null; }
                 else if (w == 1) { connected = false; search(); }
                 else if (w == 3) AppUpdate.open(this);
+                else if (w == 4) ManetteActivity.openSetup(this);
                 else { connected = false; showPanel("Tape l'adresse affichée dans l'onglet TÉLÉPHONE de la console.", false); }
             }).cancel("Fermer").show();
     }

@@ -52,8 +52,15 @@ public class ManetteActivity extends Activity implements SensorEventListener {
     static final int PORT = 51237;
     static final String EXTRA_MASK = "ports";
 
+    static final String EXTRA_SETUP = "reglages";
+
     static void open(Context c, int mask) {
         c.startActivity(new Intent(c, ManetteActivity.class).putExtra(EXTRA_MASK, mask));
+    }
+
+    /** reglages et disposition, sans jeu : rien n'est envoye a la console (⚙ de l'appli > Manette : réglages et disposition) */
+    static void openSetup(Context c) {
+        c.startActivity(new Intent(c, ManetteActivity.class).putExtra(EXTRA_MASK, 0xF).putExtra(EXTRA_SETUP, true));
     }
 
     // fonctions de la manette GameCube (index = controle par defaut) : 2 A, 3 B, 4 X, 5 Y, 6 START, 7 Z, 8 L, 9 R,
@@ -70,9 +77,10 @@ public class ManetteActivity extends Activity implements SensorEventListener {
     private volatile boolean running;
     private Thread sender;
     private int mask, port;
+    private boolean setup;                                    // (reglages sans jeu : pas d'envoi)
     private SharedPreferences sp;
     private FrameLayout root;
-    private ScrollView panel;
+    private FrameLayout panel;                                 // (voile sombre plein ecran + la carte des reglages)
     private LinearLayout panelBody, editBar;
     private TextView editFn, editInfo;
     private SensorManager sm;
@@ -88,6 +96,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         mask = getIntent().getIntExtra(EXTRA_MASK, 0x2);
+        setup = getIntent().getBooleanExtra(EXTRA_SETUP, false);
         if (mask == 0) mask = 0x2;
         sp = getSharedPreferences("gcs", MODE_PRIVATE);
         port = sp.getInt("manette_port", -1);
@@ -107,6 +116,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
         buildEditBar();
         buildPanel();
         setContentView(root);
+        if (setup) root.post(this::showPanel);
         sm = (SensorManager) getSystemService(SENSOR_SERVICE);
         if (android.os.Build.VERSION.SDK_INT >= 30) {
             WindowInsetsController ic = getWindow().getInsetsController();
@@ -114,7 +124,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
         }
     }
 
-    @Override protected void onResume() { super.onResume(); startSender(); tiltSensor(); }
+    @Override protected void onResume() { super.onResume(); if (!setup) startSender(); tiltSensor(); }
     @Override protected void onPause() { super.onPause(); running = false; if (sm != null) sm.unregisterListener(this); }
 
     @Override
@@ -283,17 +293,28 @@ public class ManetteActivity extends Activity implements SensorEventListener {
     }
 
     private void buildPanel() {
-        panel = new ScrollView(this);
-        panel.setBackground(Neon.glass(this, 18));
+        panel = new FrameLayout(this);
+        panel.setBackgroundColor(0xE6000000);                 // (voile : la manette ne se voit plus a travers)
+        panel.setClickable(true);
+        panel.setOnClickListener(v -> { if (btCapture < 0) closePanel(); });
+        ScrollView sv = new ScrollView(this);
+        sv.setBackground(NeonDialog.frame(this, 18));          // (opaque)
         panelBody = new LinearLayout(this);
         panelBody.setOrientation(LinearLayout.VERTICAL);
         int p = Neon.dp(this, 14);
         panelBody.setPadding(p, p, p, p);
-        panel.addView(panelBody);
-        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(Neon.dp(this, 420), -1, Gravity.CENTER_HORIZONTAL);
+        sv.addView(panelBody);
+        sv.setClickable(true);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(Neon.dp(this, 440), -1, Gravity.CENTER_HORIZONTAL);
         lp.topMargin = lp.bottomMargin = Neon.dp(this, 10);
+        panel.addView(sv, lp);
         panel.setVisibility(View.GONE);
-        root.addView(panel, lp);
+        root.addView(panel, new FrameLayout.LayoutParams(-1, -1));
+    }
+
+    private void closePanel() {
+        btCapture = -1;
+        panel.setVisibility(View.GONE);
     }
 
     void showPanel() { fillPanel(); panel.setVisibility(View.VISIBLE); }
@@ -328,7 +349,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
         }
         b.addView(row("Touches de la manette d'origine", v -> {
             java.util.Arrays.fill(btMap, 0); sp.edit().remove("pad_bt").apply(); loadBt(); fillPanel(); }));
-        b.addView(row("Fermer", v -> { btCapture = -1; panel.setVisibility(View.GONE); }));
+        b.addView(row(setup ? "Fermer (la manette s'affiche pour essayer)" : "Fermer", v -> closePanel()));
     }
 
     private static String keyName(int k) {
@@ -344,7 +365,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
         editBar = new LinearLayout(this);
         editBar.setOrientation(LinearLayout.VERTICAL);
         editBar.setGravity(Gravity.CENTER_HORIZONTAL);
-        editBar.setBackground(Neon.glass(this, 16));
+        editBar.setBackground(NeonDialog.frame(this, 16));
         int p = Neon.dp(this, 8);
         editBar.setPadding(p, p, p, p);
         editInfo = Neon.text(this, "", 12, Neon.DIM, false);
@@ -719,7 +740,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
             t.setAlpha(255);
             if (!edit) {
                 t.setTextSize(base[14][3] * 0.55f); t.setColor(Neon.DIM);
-                g.drawText("Manette en jeu · A + Z + START sur la vraie manette pour revenir", getWidth() / 2f, base[14][1] + base[14][3] * 2.2f, t);
+                g.drawText(setup ? "Essai de la manette (pas en jeu : rien n'est envoyé) · ⚙ réglages" : "Manette en jeu · A + Z + START sur la vraie manette pour revenir", getWidth() / 2f, base[14][1] + base[14][3] * 2.2f, t);
             }
         }
     }
