@@ -24,6 +24,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 47 — 8 américain : plus fluide, plus moderne
+- **Fluide** : l'écran n'est plus reconstruit toutes les 0,6 s (saccades, la main revenait au début) ; il ne change
+  que si la partie change, et l'état est demandé toutes les 0,35 s.
+- **Main en éventail** dessinée et animée à chaque image : les cartes glissent à leur place, celle que tu poses
+  s'envole vers la table, celle que tu pioches arrive d'en haut ; les cartes jouables sont levées avec un liseré rose ;
+  le doigt posé soulève la carte ; un coup refusé secoue la main.
+- **Table sur un tapis vert** : la pioche (la toucher = piocher, elle s'allume quand c'est à toi), le tas avec les
+  dernières cartes un peu tournées et la nouvelle qui tombe dessus, la couleur demandée par un 8, les +2, le sens.
+- **Plus de transparence** : cartes, ombres, panneaux et joueurs pleins ; les cartes pas jouables sont grises mais
+  pleines. Le 8 : quatre grosses touches de couleur. « À toi de jouer ! » rebondit et le téléphone vibre.
+
 ## Nouveautés v277 (build 763) — Jaquettes qui manquaient dans la vitrine
 - **Un seul accès à la fois à la carte SD** : depuis la v270, les jaquettes étaient lues directement par leurs secteurs,
   par la boucle de l'écran et par le fil de fond en même temps, sans le verrou de libfat : les lectures se croisaient
