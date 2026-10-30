@@ -1670,19 +1670,15 @@ static u32 *ach_p = 0, ach_dirty = 0;                     /* (ach_p : 0 = pas en
    r5 succes restants, r6 etat, r7 definition, r9 terme, r10 resultat, r11 type, r12 adresse, r0 valeur, r8 limite. */
 u32 ach_eval(u32 *a, u32 vi);
 __asm__(".pushsection .text\n.globl ach_eval\nach_eval:\n"
-        "  lwz 5,4(3)\n  addi 6,3,8\n  slwi 7,5,3\n  add 7,6,7\n  li 3,0\n  cmpwi 5,0\n  beqlr\n"
+        "  lwz 5,4(3)\n  addi 6,3,8\n  slwi 7,5,3\n  add 7,6,7\n  li 3,0\n"   /* (GC Station : au moins 1 succes, 1 terme chacun) */
         ".Lach_a:\n"                                      /* un succes */
-        "  lwz 8,0(7)\n  addi 9,7,12\n  li 10,1\n  cmpwi 8,0\n  beq .Lach_d\n  mtctr 8\n"
+        "  lwz 8,0(7)\n  addi 9,7,12\n  li 10,1\n  mtctr 8\n"
         ".Lach_b:\n"                                      /* un terme */
         "  lis 8,0x0180\n  addi 8,8,-4\n  lwz 11,0(9)\n  lwz 12,4(9)\n  srwi. 0,11,24\n  beq .Lach_c\n"
-        "  addis 0,12,-0x8000\n  cmplw 0,8\n  li 0,0\n  bgt .Lach_p\n  lwz 0,0(12)\n"
-        ".Lach_p:\n  lwz 12,8(9)\n  add 12,0,12\n"       /* pointeur : valeur lue + decalage */
+        "  lwz 0,0(12)\n  lwz 12,8(9)\n  add 12,0,12\n"   /* pointeur (adresse verifiee par GC Station) : valeur lue + decalage */
         ".Lach_c:\n"
         "  addis 0,12,-0x8000\n  cmplw 0,8\n  li 0,0\n  bgt .Lach_v\n"   /* (hors de la memoire du jeu : 0) */
-        "  rlwinm 8,11,16,29,31\n  cmpwi 8,1\n  beq .Lach_1\n  cmpwi 8,2\n  beq .Lach_2\n"
-        "  lwz 0,0(12)\n  b .Lach_v\n"
-        ".Lach_1:\n  lbz 0,0(12)\n  b .Lach_v\n"
-        ".Lach_2:\n  lhz 0,0(12)\n"
+        "  rlwinm 8,11,16,29,31\n  cmpwi 8,2\n  lhz 0,0(12)\n  beq .Lach_v\n  lbz 0,0(12)\n  blt .Lach_v\n  lwz 0,0(12)\n"   /* taille 2, 1, 4 */
         ".Lach_v:\n"                                      /* bit 8 + (v >= c) + (v > c) du type */
         "  lwz 12,12(9)\n  li 8,8\n  cmplw 0,12\n  blt .Lach_m\n  li 8,9\n  beq .Lach_m\n  li 8,10\n"
         ".Lach_m:\n  srw 11,11,8\n  and 10,10,11\n  addi 9,9,16\n  bdnz .Lach_b\n"
