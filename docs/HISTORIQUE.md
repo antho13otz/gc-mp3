@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — La boîte du jeu en 3D sur le téléphone
+- Dans la fiche d'un jeu : touche la jaquette (badge **3D**) ou **Voir la boîte en 3D** : la boîte GameCube en vraie
+  3D, en plein écran. **Glisser** : la tourner (elle continue sur sa lancée) ; **deux doigts** : zoomer ;
+  **double toucher** ou **Ouvrir le boîtier** : le couvercle s'ouvre comme un livre, le disque est dedans ; **Jouer**.
+- Qualité maximale : jaquette complète **HQ** de GameTDB (dos, tranche, avant) téléchargée par le téléphone et
+  gardée dans l'appli, lissage 4x, filtrage anisotrope, lumière et reflets du plastique, ombre, à la fréquence de
+  l'écran (120 Hz). Sans jaquette complète : la jaquette avant HQ (ou celle de la console).
+
 ## Nouveautés appli build 53 — Télé : l'image seulement quand tu la demandes
 - L'onglet **Télé** s'ouvre **sans image** : la console n'envoie rien tant que tu n'as pas touché **Afficher la télé**.
   Le bouton du dessous l'arrête à nouveau ; changer d'onglet ou quitter l'appli l'arrête aussi.
