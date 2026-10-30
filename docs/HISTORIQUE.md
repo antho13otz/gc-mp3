@@ -38,7 +38,7 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   Mini-jeux, Manette en jeu, Globe, Mettre à jour. Réglages, Cartes mémoire, Salon, Outils, Recherche et Copies
   gardent pour l'instant l'ancien look.
 
-## Nouveautés v287 (build à venir) — Lire la boîte zoomée (jaquette en HD)
+## Nouveautés v287 (build 776) — Lire la boîte zoomée (jaquette en HD)
 - Quand tu **zoomes** sur la boîte 3D, la console prend la **jaquette complète en haute définition** de GameTDB
   (1024 × 680) : les textes du dos deviennent **lisibles**. « Chargement de la jaquette en HD... » pendant qu'elle arrive.
 - Rangée compressée comme le pack (340 Ko) dans `completes/<ID>-hd.tex` ; tu peux aussi déposer un `<ID>-hd.png`.
