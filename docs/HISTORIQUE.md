@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v282 (build à venir) — La boîte du jeu en 3D
+- **Dans la fiche d'un jeu** (vitrine), la jaquette devient une **vraie boîte GameCube en 3D**, aux proportions des
+  jaquettes (3 × 4) : la jaquette devant, la tranche, le dessus. Elle se balance doucement toute seule.
+- **Stick C** : tourner la boîte dans tous les sens. **Le dos** affiche le titre, la capture du jeu et le résumé.
+- **↑** : la boîte **s'ouvre** (le couvercle pivote sur la tranche) et le **disque** apparaît dedans ; **A** : jouer ;
+  **↓** ou **↑** : refermer. Sans jaquette : une boîte violette avec la bannière, l'ID et le nom.
+- Code : `source/box3d.c` (projection faite par le processeur, comme le globe).
+
 ## Nouveautés v281 (build 768) — Fiches des jeux complètes (GameTDB)
 - **La fiche d'un jeu** (vitrine, détail, liste) affiche maintenant : genre, nombre de joueurs, année, classification
   (PEGI…), développeur / éditeur, et le **résumé** (en français quand GameTDB l'a, sinon en anglais) à la place de la

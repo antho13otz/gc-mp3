@@ -69,6 +69,7 @@ static void gl_dl_apply(void);                            /* v280 : jaquettes aj
 static void gl_fx_reset(void);                            /* v281 : fiches des jeux */
 static f32 gl_fx_draw(const char *id, f32 x, f32 y, int w);
 static const char *gl_fx_syn(const char *id);
+static int bx_input(u32 down);                            /* v282 : boite 3D (box3d.c) */
 static void gl_note(const char *m);
 static int gs_dirty;
 #define GL_POST_DL 30000                                 /* (gl[k].post : jaquette ajoutee, pas dans posters.pak) */
@@ -1366,6 +1367,7 @@ static void gclib_input(u32 down, u32 nav, int fire) {
     }
     if (gl_detail) {
         if (nat_qr_input(down)) return;
+        if (gs_view() && gl_n && !gl[gl_sel].dvd && gl_launch_sel < 0 && bx_input(down)) return;   /* v282 : â ouvre la boite */
         if (fire && (nav & PAD_BUTTON_LEFT) && gl_n) { gl_sel = gs_view() ? gs_step(-1) : nav_wrap(gl_sel, gl_n, 1, -1, 0); if (gl_anim) gl_slide = -1.0f; }   /* v197 : (espace : jeux du filtre) */
         if (fire && (nav & PAD_BUTTON_RIGHT) && gl_n) { gl_sel = gs_view() ? gs_step(1) : nav_wrap(gl_sel, gl_n, 1, 1, 0); if (gl_anim) gl_slide = 1.0f; }
         if ((down & PAD_BUTTON_A) && gl_n) gl_launch_sel = gl_sel;

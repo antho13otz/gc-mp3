@@ -414,18 +414,17 @@ static void gs_draw_fiche(void) {
     /* jaquette */
     const f32 cw = 180, chh = 240, cx = 40 + ox * 0.6f, cy = 96;
     gx_ellipse(cx + cw / 2, cy + chh / 2, 170, 150, au_mix(0.45f, 55), au_mix(0.45f, 0));
-    gx_glow(cx, cy, cw, chh, 10, au_mix(0.5f, 170), 3);
     GXTexObj *o = NULL; int big = 0;
-    if (g->dvd) gl_card_dvd(cx, cy, cw, chh, 1);
-    else if (g->post >= 0 && gl_big.game == gl_sel && gl_big.tex) { o = &gl_big.obj; big = 1; }
-    else if (g->post >= 0) o = gl_cover(gl_sel, 1);              /* (la petite en attendant la grande) */
-    if (o) {
-        f32 u1 = big ? 192.0f / 256.0f : 96.0f / 128.0f;
-        gs_tex_quad(o, u1, 0.0f, 1.0f, cx, cy, cy + chh, cx + cw, cy, cy + chh, 255, 255);
-        gs_tex_quad(o, u1, 1.0f, 0.72f, cx, cy + chh + 3, cy + chh + 3 + chh * 0.28f, cx + cw, cy + chh + 3, cy + chh + 3 + chh * 0.28f, 80, 0);
-    } else if (!g->dvd) gl_card_banner(gl_sel, cx, cy, cw, chh, 1);
-    gx_rrect_stroke(cx - 3, cy - 3, cw + 6, chh + 6, 6, 2.0f, au_a(255));
-    gx_rrect_stroke(cx - 1.5f, cy - 1.5f, cw + 3, chh + 3, 5, 1.0f, au_b(200));
+    if (g->dvd) {
+        gx_glow(cx, cy, cw, chh, 10, au_mix(0.5f, 170), 3);
+        gl_card_dvd(cx, cy, cw, chh, 1);
+        gx_rrect_stroke(cx - 3, cy - 3, cw + 6, chh + 6, 6, 2.0f, au_a(255));
+        gx_rrect_stroke(cx - 1.5f, cy - 1.5f, cw + 3, chh + 3, 5, 1.0f, au_b(200));
+    } else {                                                     /* v282 : la boite du jeu en 3D (box3d.c) */
+        if (g->post >= 0 && gl_big.game == gl_sel && gl_big.tex) { o = &gl_big.obj; big = 1; }
+        else if (g->post >= 0) o = gl_cover(gl_sel, 1);          /* (la petite en attendant la grande) */
+        bx_draw(gl_sel, cx, cy, cw, chh, o, big);
+    }
     /* a droite */
     const f32 rx = 250 + ox; const int rw = 366;
     if (g->dvd) {
@@ -501,7 +500,11 @@ static void gs_draw_fiche(void) {
         x = gs_key(x, 453, "Y", "R\xC3\xA9glages", RGBA(235, 235, 245, 255));
         x = gs_key(x, 453, "L", "Favori", RGBA(255, 210, 90, 255));
         x = gs_key(x, 453, "R", "Analyse", RGBA(235, 235, 245, 255));
-        x = gs_key(x, 453, "\xE2\x86\x93", "Musiques", RGBA(150, 200, 255, 255));   /* v207 : jukebox.c */
+        if (bx_open_to > 0.5f) x = gs_key(x, 453, "\xE2\x86\x93", "Fermer", RGBA(150, 200, 255, 255));
+        else {
+            x = gs_key(x, 453, "\xE2\x86\x91", "Bo\xC3\xAEte", RGBA(150, 200, 255, 255));   /* v282 : box3d.c */
+            x = gs_key(x, 453, "\xE2\x86\x93", "Musiques", RGBA(150, 200, 255, 255));   /* v207 : jukebox.c */
+        }
     }
     gs_key(x, 453, "B", "Retour", RGBA(240, 110, 110, 255));
     nv_raw = 0;

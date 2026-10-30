@@ -14066,6 +14066,7 @@ static void music_pump(void) {
 #include "themes.c"                            /* v233 : themes a telecharger */
 #include "selftest.c"                          /* v259 : Outils > Test de la console */
 #include "cartes.c"                            /* v276 : jeu de cartes entre potes (8 americain) */
+#include "box3d.c"                             /* v282 : boite du jeu en 3D (fiche) */
 #include "gspace.c"                            /* v196 : espace Jeux GameCube (vitrine 3D, filtres, applis) */
 #include "selftest_keys.c"                     /* v278 : test des touches (chaque touche dans chaque ecran) */
 #include "jeux_cfg.c"                          /* v75 : reglages des jeux */
