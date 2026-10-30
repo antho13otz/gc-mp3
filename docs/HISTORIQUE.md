@@ -32,7 +32,7 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
 - **Une lecture ratée n'est plus définitive** : la jaquette est redemandée (jusqu'à 4 fois, toutes les 1,5 s) au lieu
   de disparaître jusqu'au prochain parcours de la liste.
 
-## Nouveautés v276 (build à venir, appli build 46) — Jeu de cartes entre potes : le 8 américain
+## Nouveautés v276 (build 762, appli build 46) — Jeu de cartes entre potes : le 8 américain
 - **Chacun sa main sur son téléphone, la table sur la télé** : appli > Plus > « Jeu de cartes ». Chaque joueur tape son
   nom ; la table s'ouvre toute seule sur la télé (tas, pioche, joueurs et leurs cartes, à qui le tour, sens, couleur
   demandée, +2, scores). Un joueur appuie sur « Commencer » (2 à 6 joueurs).
