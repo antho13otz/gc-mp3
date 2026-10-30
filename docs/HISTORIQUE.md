@@ -24,6 +24,18 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v281 (build à venir) — Fiches des jeux complètes (GameTDB)
+- **La fiche d'un jeu** (vitrine, détail, liste) affiche maintenant : genre, nombre de joueurs, année, classification
+  (PEGI…), développeur / éditeur, et le **résumé** (en français quand GameTDB l'a, sinon en anglais) à la place de la
+  courte description du pack.
+- **D'où ça vient** : un nouveau travail du dépôt (`fiches.yml`, le 1er de chaque mois) lit la base de GameTDB
+  (wiitdb, français puis anglais), garde les 1 709 jeux GameCube et publie `fiches-gc.txt` (1,1 Mo) dans la release
+  « fiches ». GC Station le télécharge en fond quand la liste des jeux est ouverte (refait après 30 jours), puis ne
+  garde que les lignes de tes jeux dans `jaquettes/fiches-mes-jeux.txt` (lu vite, refait si la liste change). Un jeu
+  d'une autre région prend la fiche du même jeu.
+- Les travaux du catalogue et des fiches ne relancent plus la compilation de la console.
+- Simulateur : fiche du faux jeu de test avec genre, joueurs, année, PEGI, éditeur et résumé.
+
 ## Nouveautés v280 (build 766) — Jaquettes manquantes téléchargées toutes seules
 - Un jeu sans jaquette dans posters.pak (le pack de Swiss) : GC Station la télécharge sur **GameTDB**
   (art.gametdb.com, la base des lanceurs de jeux : `wii/cover/<région>/<ID>.png`), en fond, une à la fois, quand la

@@ -66,6 +66,9 @@ static char gl_busy[96] = "";                            /* v27 : message "en co
 static void gl_status(const char *m) { snprintf(gl_busy, sizeof(gl_busy), "%s", TR(m)); ui_status(m); }                            /* v27 : noms / descriptions lus dans les bannieres */
 static const char *gl_launch(int k);
 static void gl_dl_apply(void);                            /* v280 : jaquettes ajoutees */
+static void gl_fx_reset(void);                            /* v281 : fiches des jeux */
+static f32 gl_fx_draw(const char *id, f32 x, f32 y, int w);
+static const char *gl_fx_syn(const char *id);
 static void gl_note(const char *m);
 static int gs_dirty;
 #define GL_POST_DL 30000                                 /* (gl[k].post : jaquette ajoutee, pas dans posters.pak) */
@@ -498,6 +501,7 @@ static void gl_scan_full(int force) {
     swpk_open(&gl_still, GL_UI "/stills.pak", 320, 240);
     for (int k = 0; k < gl_n; k++) { gl[k].post = (s16)swpk_find(&gl_post, gl[k].id); gl[k].still = (s16)swpk_find(&gl_still, gl[k].id); }
     gl_dl_apply();                                       /* v280 : jaquettes ajoutees */
+    gl_fx_reset();                                       /* v281 : fiches relues pour la nouvelle liste */
     if (!cached) gl_list_save();
     gl_dvd_add();                                          /* v97 : case du vrai lecteur */
     gl_stats_load();                                     /* v45 : lancements, puis tri choisi */
@@ -786,6 +790,135 @@ static u16 *gl_dl_tex(const char *id) {
     return NULL;
 }
 
+
+/* ---------- v281 : fiches des jeux (GameTDB) ----------
+   La release « fiches » du depot (workflow fiches.yml, chaque mois) : fiches-gc.txt, une ligne par jeu GameCube
+   (ID, titre, genre, joueurs, developpeur, editeur, annee, classification, resume ; tabulations). Telechargee dans
+   SD:/gc-mp3/jaquettes/ (refaite apres 30 jours), puis seulement les lignes de tes jeux gardees dans
+   fiches-mes-jeux.txt (lu vite ; refait quand la liste des jeux change). La fiche d'un jeu les affiche. */
+#define GL_FX_BIG GL_UI "/fiches-gc.txt"
+#define GL_FX_MINE GL_UI "/fiches-mes-jeux.txt"
+enum { FX_ID, FX_TITLE, FX_GENRE, FX_PLAYERS, FX_DEV, FX_PUB, FX_YEAR, FX_RATING, FX_SYN, FX_N };
+typedef struct { char *line; const char *f[FX_N]; } glfx_t;
+static glfx_t *gl_fx = NULL;
+static int gl_fx_n = -1;
+static void gl_fx_reset(void) { for (int i = 0; i < gl_fx_n; i++) free(gl_fx[i].line); free(gl_fx); gl_fx = NULL; gl_fx_n = -1; }
+static u32 gl_fx_hash(void) {                            /* (les ID des jeux de la liste, dans n'importe quel ordre) */
+    u32 h = 0;
+    for (int k = 0; k < gl_n; k++) if (!gl[k].dvd) { u32 x = 2166136261u; for (int i = 0; i < 6; i++) x = (x ^ (u8)gl[k].id[i]) * 16777619u; h += x; }
+    return h ^ (u32)gl_n;
+}
+static int gl_fx_mine(const char *id) {                  /* 1 : un de mes jeux (meme ID, ou le meme jeu d'une autre region) */
+    for (int k = 0; k < gl_n; k++) if (!gl[k].dvd && !strncmp(gl[k].id, id, 6)) return 1;
+    for (int k = 0; k < gl_n; k++) if (!gl[k].dvd && !strncmp(gl[k].id, id, 3)) return 1;
+    return 0;
+}
+static void gl_fx_add(const char *l, int len) {
+    glfx_t *n = (glfx_t *)realloc(gl_fx, sizeof(glfx_t) * (gl_fx_n + 1));
+    if (!n) return;
+    gl_fx = n;
+    char *c = (char *)malloc(len + 1);
+    if (!c) return;
+    memcpy(c, l, len); c[len] = 0;
+    glfx_t *e = &gl_fx[gl_fx_n++];
+    e->line = c;
+    int f = 0;
+    e->f[f++] = c;
+    for (char *p = c; *p && f < FX_N; p++) if (*p == '\t') { *p = 0; e->f[f++] = p + 1; }
+    while (f < FX_N) e->f[f++] = "";
+}
+static void gl_fx_load(void) {
+    gl_fx_reset();
+    gl_fx_n = 0;
+    if (!sd_ok || !gl) return;
+    u32 want = gl_fx_hash();
+    long n = 0;
+    char *d = (char *)read_file(GL_FX_MINE, 1024 * 1024, &n);
+    int ok = d && n > 10 && d[0] == '#' && (u32)strtoul(d + 1, NULL, 16) == want;
+    if (!ok) {                                           /* (refaite d'apres la grande liste) */
+        free(d);
+        d = (char *)read_file(GL_FX_BIG, 6 * 1024 * 1024, &n);
+        if (!d) return;
+        FILE *f = fopen(GL_FX_MINE, "w");
+        if (f) fprintf(f, "#%08x\n", (unsigned)want);
+        for (long i = 0; i < n; ) {
+            long st = i;
+            while (i < n && d[i] != '\n') i++;
+            if (i - st > 8 && d[st] != '#' && d[st + 6] == '\t' && gl_fx_mine(d + st)) {
+                gl_fx_add(d + st, (int)(i - st));
+                if (f) { fwrite(d + st, 1, i - st, f); fputc('\n', f); }
+            }
+            i++;
+        }
+        if (f) fclose(f);
+        free(d);
+        return;
+    }
+    for (long i = 0; i < n; ) {
+        long st = i;
+        while (i < n && d[i] != '\n') i++;
+        if (i - st > 8 && d[st] != '#') gl_fx_add(d + st, (int)(i - st));
+        i++;
+    }
+    free(d);
+}
+static const glfx_t *gl_fx_get(const char *id) {
+    if (gl_fx_n < 0) gl_fx_load();
+    for (int i = 0; i < gl_fx_n; i++) if (!strncmp(gl_fx[i].f[FX_ID], id, 6)) return &gl_fx[i];
+    for (int i = 0; i < gl_fx_n; i++) if (!strncmp(gl_fx[i].f[FX_ID], id, 3)) return &gl_fx[i];   /* (meme jeu, autre region) */
+    return NULL;
+}
+/* lignes de la fiche (genre, joueurs, annee, classification ; developpeur / editeur) ; rend la ligne suivante */
+static f32 gl_fx_draw(const char *id, f32 x, f32 y, int w) {
+    const glfx_t *e = gl_fx_get(id);
+    if (!e) return y;
+    char a[200], b[220];
+    int n = 0;
+    a[0] = 0;
+    if (e->f[FX_GENRE][0]) n += snprintf(a + n, sizeof(a) - n, "%s", e->f[FX_GENRE]);
+    if (e->f[FX_PLAYERS][0]) { int p = atoi(e->f[FX_PLAYERS]); n += snprintf(a + n, sizeof(a) - n, "%s%s", n ? "  \xC2\xB7  " : "", p > 1 ? "" : "1 joueur"); if (p > 1) n += snprintf(a + n, sizeof(a) - n, "1 \xC3\xA0 %d joueurs", p); }
+    if (e->f[FX_YEAR][0]) n += snprintf(a + n, sizeof(a) - n, "%s%s", n ? "  \xC2\xB7  " : "", e->f[FX_YEAR]);
+    if (e->f[FX_RATING][0]) n += snprintf(a + n, sizeof(a) - n, "%s%s", n ? "  \xC2\xB7  " : "", e->f[FX_RATING]);
+    if (a[0]) { fit_text(F_SMALL, a, w, b, sizeof(b)); gx_text1(F_SMALL, x, y, b, RGBA(150, 220, 255, 255)); y += 18; }
+    if (e->f[FX_DEV][0] || e->f[FX_PUB][0]) {
+        if (e->f[FX_DEV][0] && e->f[FX_PUB][0] && strcmp(e->f[FX_DEV], e->f[FX_PUB])) snprintf(a, sizeof(a), "%s  /  %s", e->f[FX_DEV], e->f[FX_PUB]);
+        else snprintf(a, sizeof(a), "%s", e->f[FX_PUB][0] ? e->f[FX_PUB] : e->f[FX_DEV]);
+        fit_text(F_SMALL, a, w, b, sizeof(b)); gx_text1(F_SMALL, x, y, b, RGBA(190, 180, 225, 255)); y += 20;
+    }
+    return y;
+}
+static const char *gl_fx_syn(const char *id) { const glfx_t *e = gl_fx_get(id); return e && e->f[FX_SYN][0] ? e->f[FX_SYN] : NULL; }
+
+/* telechargement de fiches-gc.txt (vers un fichier, en fond) */
+static hfetch_t gl_fxdl = { .c = { -1, 0, 0 } };
+static int gl_fxdl_st = 0;
+static FILE *gl_fxdl_f = NULL;
+static u64 gl_fxdl_wait = 0;
+static int gl_fx_pump(void) {                            /* 1 : en cours (pas de jaquette en meme temps) */
+    if (gl_fxdl_st == 0) {
+        if (!gl_on || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_fxdl_wait) return 0;
+        struct stat st;
+        time_t now = gc_time(NULL);
+        if (stat(GL_FX_BIG, &st) == 0 && st.st_size > 1000 && (now < 1600000000 || now - st.st_mtime < 30L * 86400)) { gl_fxdl_wait = now_ms() + 3600000; return 0; }
+        mkdir(GL_UI, 0777);
+        gl_fxdl_f = fopen(GL_FX_BIG ".part", "wb");
+        if (!gl_fxdl_f) { gl_fxdl_wait = now_ms() + 600000; return 0; }
+        char url[200];
+        snprintf(url, sizeof(url), "https://github.com/%s/releases/download/fiches/fiches-gc.txt", upd_repo);
+        gl_fxdl.maxbytes = 8 * 1024 * 1024; gl_fxdl.image = 0; gl_fxdl.accept = "text/plain,*/*"; gl_fxdl.sink = gl_fxdl_f; gl_fxdl.sink_err = 0;
+        hf_start(&gl_fxdl, url, NULL);
+        gl_fxdl_st = 1;
+        return 1;
+    }
+    hf_pump(&gl_fxdl);
+    if (gl_fxdl.st != HF_DONE && gl_fxdl.st != HF_FAIL) return 1;
+    int ok = gl_fxdl.st == HF_DONE && gl_fxdl.code == 200 && !gl_fxdl.sink_err && gl_fxdl.len > 1000;
+    fclose(gl_fxdl_f); gl_fxdl_f = NULL; gl_fxdl.sink = NULL;
+    hf_drop(&gl_fxdl); gl_fxdl.st = HF_IDLE; gl_fxdl_st = 0;
+    if (ok) { remove(GL_FX_BIG); rename(GL_FX_BIG ".part", GL_FX_BIG); remove(GL_FX_MINE); gl_fx_reset(); gl_note("Fiches des jeux mises \xC3\xA0 jour"); gl_fxdl_wait = now_ms() + 3600000; }
+    else { remove(GL_FX_BIG ".part"); gl_fxdl_wait = now_ms() + 600000; }
+    return 0;
+}
 /* telechargement en fond (boucle principale, une jaquette a la fois) */
 #define GL_DLABS GL_DLDIR "/absentes.txt"
 static hfetch_t gl_dl_hf = { .c = { -1, 0, 0 } };
@@ -821,6 +954,7 @@ static const char *gl_dl_region(const char *id, int i) {
 }
 static void gl_dl_pump(void) {
     if (!sd_ok || sd_virtual || !gl_scanned || !gl || sx_safe) return;
+    if (gl_dl_st == 0 && gl_fx_pump()) return;         /* v281 : les fiches d'abord */
     if (gl_dl_st == 0) {
         if (!gl_on || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_dl_wait) return;
         if (gl_dl_nabs < 0) gl_dl_abs_load();
@@ -1640,7 +1774,13 @@ static void gl_draw_showcase(void) {
     char sz[32]; gl_size_txt(g->size, sz, sizeof(sz));
     snprintf(buf, sizeof(buf), "%s   %s", g->id, sz);
     gx_text1(F_SMALL, 318, 136 + nl * 24, buf, RGBA(255, 210, 120, 255));
-    if (g->desc) gl_wrap(F_SMALL, g->desc, 318, 158 + nl * 24, 296, 16, nl > 1 ? 7 : 8, RGBA(215, 205, 245, 255));
+    {   /* v281 : fiche (GameTDB) */
+        f32 f0 = 158 + nl * 24, fy = gl_fx_draw(g->id, 318, f0 + 14, 296);
+        fy = fy > f0 + 14 ? fy - 4 : f0;
+        int ml = (int)((300 - fy) / 16); if (ml > 8) ml = 8;
+        const char *syn = gl_fx_syn(g->id);
+        if (syn || g->desc) gl_wrap(F_SMALL, syn ? syn : g->desc, 318, fy, 296, 16, ml < 2 ? 2 : ml, RGBA(215, 205, 245, 255));
+    }
     /* bande des jaquettes en bas */
     const int n = 9; const f32 cw = 50, ch = 66, sp = 64;
     int start = gl_sel - n / 2;
@@ -1850,9 +1990,14 @@ static void draw_gclib_main(void) {
         fit_text(F_SMALL, d, rw, buf, sizeof(buf));
         gx_text1(F_SMALL, rx, y + 22, buf, RGBA(150, 135, 210, 255));
         int has_st = g->still >= 0 && gl_bigst.game == gl_sel && gl_bigst.tex;
-        f32 dy = y + 46;
-        int maxl = has_st ? 3 : 11;
-        if (g->desc) gl_wrap(F_SMALL, g->desc, rx, dy, rw, 17, maxl, RGBA(215, 205, 245, 255));
+        f32 dy = y + 46, dy0 = dy;
+        f32 di = gl_fx_draw(g->id, rx, dy + 10, rw);    /* v281 : genre, joueurs, annee, editeur */
+        if (di > dy0 + 10) dy = di - 4;
+        int maxl = has_st ? (int)((396 - 132 - 14 - dy) / 17) : (int)((372 - dy) / 17);
+        if (maxl < 2) maxl = 2; if (maxl > 11) maxl = 11;
+        const char *syn = gl_fx_syn(g->id);
+        if (syn) gl_wrap(F_SMALL, syn, rx, dy, rw, 17, maxl, RGBA(215, 205, 245, 255));
+        else if (g->desc) gl_wrap(F_SMALL, g->desc, rx, dy, rw, 17, maxl, RGBA(215, 205, 245, 255));
         else gx_text1(F_SMALL, rx, dy, g->bstate == 0 ? "Lecture de la banni\xC3\xA8re..." : "Pas de description pour ce jeu.", RGBA(170, 155, 225, 255));
         if (has_st) { f32 sw = 176, sh = 132; draw_tex_fit(&gl_bigst.obj, 320, 240, 320, 240, rx, 396 - sh - 6, sw, sh); }
         {                                                      /* v46 : cheats du jeu, actives d'ici (X) */

@@ -447,7 +447,14 @@ static void gs_draw_fiche(void) {
         if (g->fav) { f32 x0 = x; x = gs_chip(x, y, "    Favori", RGBA(255, 210, 90, 255)); draw_star1(x0 + 13, y + 10, 5.0f, RGBA(255, 210, 90, 255)); }
         y += 40;
         int has_st = g->still >= 0 && gl_bigst.game == gl_sel && gl_bigst.tex;
-        if (g->desc) gl_wrap(F_SMALL, g->desc, rx, y, rw, 17, has_st ? 4 : 9, RGBA(210, 210, 230, 255));
+        f32 y0 = y;
+        f32 yi = gl_fx_draw(g->id, rx, y + 10, rw);      /* v281 : genre, joueurs, annee, editeur (GameTDB) */
+        if (yi > y0 + 10) y = yi - 4;
+        int ml = (int)((272 - y) / 17);   /* (au-dessus des lancements / de la capture) */
+        if (ml < 2) ml = 2; if (ml > 9) ml = 9;
+        const char *syn = gl_fx_syn(g->id);
+        if (syn) gl_wrap(F_SMALL, syn, rx, y, rw, 17, ml, RGBA(210, 210, 230, 255));
+        else if (g->desc) gl_wrap(F_SMALL, g->desc, rx, y, rw, 17, ml, RGBA(210, 210, 230, 255));
         else gx_text1(F_SMALL, rx, y, g->bstate == 0 ? "Lecture de la banni\xC3\xA8re..." : "Pas de description pour ce jeu.", RGBA(160, 160, 185, 255));
         /* capture du jeu, et a cote : lancements, temps de jeu, cheats */
         f32 sy = 268, ix = rx;

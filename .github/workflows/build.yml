@@ -8,6 +8,10 @@ on:
       - '.github/workflows/android.yml'
       - 'docs/**'
       - '**.md'
+      - '.github/workflows/fiches.yml'
+      - '.github/workflows/catalogue.yml'
+      - 'tools/fiches_gametdb.py'
+      - 'tools/catalogue.py'
   workflow_dispatch:
 
 # publication de la release "dernier" (mise a jour en un clic)
