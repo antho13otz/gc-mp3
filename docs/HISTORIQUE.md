@@ -33,6 +33,16 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   « Créer le jeton » : la bonne page de GitHub). Il reste sur le téléphone.
 - L'APK est gardé 90 jours sur GitHub (avant : 7).
 
+## Nouveautés v270 (build 752) — jaquettes lues directement sur la carte SD
+- Test de la console (build 749) : la plupart des images bloquées (200 à 620 ms, « manette » ou « dessin : jeux »)
+  lisaient 200 à 770 Ko sur la carte SD pendant l'image. C'est libfat qui, pour aller à un endroit d'un gros fichier,
+  suit toute la chaîne des clusters depuis le début (4 Ko au hasard : 540 ms sur la carte de 64 Go).
+- posters.pak et stills.pak : leurs morceaux sur la carte sont trouvés une fois à l'ouverture (comme pour Pulse),
+  puis chaque jaquette est lue directement par ses secteurs (`fm_build`, `fm_read`, `fm_runs` dans gclib.c), aussi
+  dans le fil de fond et pour le téléphone. Le fichier est revu toutes les 3 s (taille, 1er cluster) : s'il a
+  changé, retour à la lecture normale. Vérifié sur une image FAT32 fragmentée (5000 lectures au hasard, 0 erreur).
+- Démarrage : « journal Pulse » mesuré à part de « guide / qui joue » (le test comptait l'attente de « Qui joue ? »).
+
 ## Nouveautés v268 (build 749) — Succès dans les jeux GameCube
 - **Pulse vérifie des succès pendant le jeu** : une fois par image, il lit quelques valeurs dans la mémoire du jeu
   (vies, rubis, pièces…) et les compare à la condition de chaque succès. Un succès n'est obtenu qu'après avoir vu sa

@@ -14114,10 +14114,11 @@ int main(int argc, char **argv) {
     if (sd_ok) { say("   Musique de la carte SD... %s", ""); if (list_cache_load()) lv_pending = 1; else scan_files();   /* v238 : liste gardee, verifiee en fond */ { char nb[16]; snprintf(nb, sizeof(nb), "%d", nfiles); say("%s\n", nb); } bt_step("liste de la musique"); }
     if (sd_ok) { say("   Bibliotheque... %s", ""); bib_load(); pl_load_all(); stats_load(); rating_load(); say("%s\n", "OK"); bt_step("bibliotheque"); }
     if (sd_ok) nat_journal_convert();       /* v54 : journal du dernier jeu lance par le lanceur maison */
+    bt_step("journal Pulse");                /* v266 : (a part : "qui joue ?" attend le joueur) */
     if (gde_fresh && !gde_seen) gde_open();    /* v190 : carte SD neuve : le guide de demarrage */
     else if (sd_ok) pj_boot_ask();         /* v191 : "Qui joue ?" (s'il y a des profils) */
     if (sd_ok && !sd_virtual) remove(GCD "/natif/captures.bin");   /* v185 : captures enlevees (fichier de 6 Mo devenu inutile) */
-    bt_step("journal Pulse");
+    bt_step("guide / qui joue");
     say("   Radios... %s", "");
     load_stations();
     say("%s\n", "OK");

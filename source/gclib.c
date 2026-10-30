@@ -75,15 +75,142 @@ static int gl_has_dvd(void);
 static int nat_qr_input(u32 down);                         /* v51 : QR code du rapport */
 static void nat_draw_qr(void);
 
+/* ---------- v266 : lecture rapide d'un gros fichier de la carte SD ----------
+   libfat retrouve une position dans un fichier en suivant la chaine des clusters depuis le debut : sur la carte
+   de 64 Go (test de la console : 4 Ko au hasard = 540 ms, 200 a 700 Ko lus pour une image bloquee), chaque jaquette
+   de posters.pak coutait 180 ms. Ici, les morceaux du fichier sur la carte sont trouves une fois (comme pour Pulse),
+   puis on lit directement les secteurs. Seulement pour des fichiers qui ne changent pas pendant qu'on les lit (packs) ;
+   le fichier est revu (taille, 1er cluster) toutes les 3 s : s'il a change, on revient a la lecture normale. */
+typedef struct { u32 fsec, sd, cnt; } fm_ext_t;           /* (secteur dans le fichier, secteur sur la carte, nombre) */
+typedef struct { fm_ext_t *e; int n; u32 size, ino; char path[NAME_LEN]; u64 chk; } fmap_t;
+static int fm_geo_st = 0;                                 /* 0 pas encore, 1 ok, -1 impossible (pas de FAT lisible) */
+static u32 fm_spc, fm_fat_lba, fm_data_lba, fm_ncl; static int fm_fat32;
+static int fm_rs(u32 sec, void *b) { if (!sd_real_if || !sd_real_if->readSectors(sec, 1, b)) return -1; sd_rd_sec++; return 0; }
+static u32 fm_le16(const u8 *p) { return (u32)p[0] | (u32)p[1] << 8; }
+static u32 fm_le32(const u8 *p) { return (u32)p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24; }
+static int fm_is_fat(const u8 *b) { return b[510] == 0x55 && b[511] == 0xAA && fm_le16(b + 0x0B) == 512 && b[0x0D] && (!memcmp(b + 0x36, "FAT", 3) || !memcmp(b + 0x52, "FAT", 3)); }
+static int fm_geo(void) {
+    if (fm_geo_st) return fm_geo_st > 0;
+    static u8 b[512] ATTRIBUTE_ALIGN(32);
+    fm_geo_st = -1;
+    if (sd_virtual || fm_rs(0, b)) return 0;
+    u32 part = 0;
+    if (!fm_is_fat(b)) {
+        u8 mbr[64]; memcpy(mbr, b + 0x1BE, 64);
+        int found = 0;
+        for (int i = 0; i < 4 && !found; i++) { u32 lba = fm_le32(mbr + i * 16 + 8); if (lba && !fm_rs(lba, b) && fm_is_fat(b)) { part = lba; found = 1; } }
+        if (!found) return 0;
+    }
+    u32 spc = b[0x0D], rsvd = fm_le16(b + 0x0E), nfats = b[0x10], rootent = fm_le16(b + 0x11);
+    u32 tot = fm_le16(b + 0x13) ? fm_le16(b + 0x13) : fm_le32(b + 0x20);
+    u32 fatsz = fm_le16(b + 0x16) ? fm_le16(b + 0x16) : fm_le32(b + 0x24);
+    u32 data = rsvd + nfats * fatsz + (rootent * 32 + 511) / 512;
+    if (!spc || !fatsz || tot <= data) return 0;
+    fm_ncl = (tot - data) / spc;
+    if (fm_ncl < 4085) return 0;
+    fm_fat32 = fm_ncl >= 65525; fm_spc = spc; fm_fat_lba = part + rsvd; fm_data_lba = part + data;
+    fm_geo_st = 1;
+    return 1;
+}
+static void fm_free(fmap_t *m) { free(m->e); m->e = NULL; m->n = 0; m->size = 0; }
+static int fm_build(fmap_t *m, const char *path) {         /* 1 = morceaux trouves */
+    static u8 fb[512] ATTRIBUTE_ALIGN(32);
+    fm_free(m);
+    struct stat st;
+    if (!fm_geo() || stat(path, &st) != 0 || st.st_size <= 0 || st.st_size > 0x7FFFFFFFL) return 0;
+    u32 clus = (u32)st.st_ino, need = (u32)(((u64)st.st_size + 511) >> 9), isec = 0, guard = 0, cached = 0xFFFFFFFFu;
+    int cap = 0;
+    while (isec < need) {
+        if (clus < 2 || clus >= fm_ncl + 2 || ++guard > fm_ncl) { fm_free(m); return 0; }
+        u32 sd = fm_data_lba + (clus - 2) * fm_spc, cnt = fm_spc;
+        if (isec + cnt > need) cnt = need - isec;
+        if (m->n && m->e[m->n - 1].sd + m->e[m->n - 1].cnt == sd) m->e[m->n - 1].cnt += cnt;
+        else {
+            if (m->n >= cap) {
+                int nc = cap ? cap * 2 : 64;
+                if (nc > 65536) { fm_free(m); return 0; }      /* (trop fragmente : lecture normale) */
+                fm_ext_t *x = (fm_ext_t *)realloc(m->e, sizeof(fm_ext_t) * nc);
+                if (!x) { fm_free(m); return 0; }
+                m->e = x; cap = nc;
+            }
+            m->e[m->n].fsec = isec; m->e[m->n].sd = sd; m->e[m->n].cnt = cnt; m->n++;
+        }
+        isec += cnt;
+        if (isec >= need) break;
+        u32 off = fm_fat32 ? clus * 4 : clus * 2, fs = fm_fat_lba + off / 512;
+        if (fs != cached) { if (fm_rs(fs, fb)) { fm_free(m); return 0; } cached = fs; }
+        clus = fm_fat32 ? fm_le32(fb + off % 512) & 0x0FFFFFFFu : fm_le16(fb + off % 512);
+        if ((fm_fat32 && clus >= 0x0FFFFFF8u) || (!fm_fat32 && clus >= 0xFFF8u)) break;
+    }
+    if (isec < need) { fm_free(m); return 0; }
+    m->size = (u32)st.st_size; m->ino = (u32)st.st_ino; m->chk = now_ms();
+    snprintf(m->path, sizeof(m->path), "%s", path);
+    return 1;
+}
+static int fm_fresh(fmap_t *m) {                           /* le fichier n'a pas change (revu toutes les 3 s) */
+    if (!m->e) return 0;
+    u64 n = now_ms();
+    if (n - m->chk < 3000) return 1;
+    struct stat st;
+    if (stat(m->path, &st) != 0 || (u32)st.st_size != m->size || (u32)st.st_ino != m->ino) { fm_free(m); return 0; }
+    m->chk = n;
+    return 1;
+}
+/* les secteurs de la carte pour [off, off + len) (pour un autre fil, qui n'a plus besoin de la carte des morceaux) :
+   rend le nombre de suites (0 = pas possible) ; *head = decalage dans le 1er secteur */
+#define FM_RUNS 16
+static int fm_runs(const fmap_t *m, u32 off, u32 len, u32 *rsd, u32 *rcnt, u32 *head) {
+    if (!m->e || !len || off + len > m->size || off + len < off) return 0;
+    u32 s0 = off >> 9, ns = ((off + len - 1) >> 9) - s0 + 1, done = 0;
+    int lo = 0, hi = m->n - 1, k = 0, nr = 0;
+    while (lo <= hi) { int md = (lo + hi) / 2; if (m->e[md].fsec <= s0) { k = md; lo = md + 1; } else hi = md - 1; }
+    while (done < ns && k < m->n && nr < FM_RUNS) {
+        const fm_ext_t *e = &m->e[k];
+        u32 fs = s0 + done;
+        if (fs < e->fsec || fs >= e->fsec + e->cnt) { k++; continue; }
+        u32 c = e->fsec + e->cnt - fs;
+        if (c > ns - done) c = ns - done;
+        rsd[nr] = e->sd + (fs - e->fsec); rcnt[nr++] = c;
+        done += c; k++;
+    }
+    *head = off & 511;
+    return done == ns ? nr : 0;
+}
+static int fm_read(const fmap_t *m, u32 off, void *dst, u32 len) {   /* 0 = lu */
+    if (!m->e || !len || off + len > m->size || off + len < off) return -1;
+    u32 s0 = off >> 9, s1 = (off + len - 1) >> 9, ns = s1 - s0 + 1;
+    u8 *b = (u8 *)memalign(32, ns * 512);
+    if (!b) return -1;
+    int lo = 0, hi = m->n - 1, k = 0;
+    while (lo <= hi) { int md = (lo + hi) / 2; if (m->e[md].fsec <= s0) { k = md; lo = md + 1; } else hi = md - 1; }
+    u32 done = 0;
+    while (done < ns && k < m->n) {
+        const fm_ext_t *e = &m->e[k];
+        u32 fs = s0 + done;
+        if (fs < e->fsec || fs >= e->fsec + e->cnt) { k++; continue; }
+        u32 c = e->fsec + e->cnt - fs;
+        if (c > ns - done) c = ns - done;
+        DCInvalidateRange(b + done * 512, c * 512);
+        if (!sd_real_if->readSectors(e->sd + (fs - e->fsec), c, b + done * 512)) { free(b); return -1; }
+        sd_rd_sec += c;
+        done += c; k++;
+    }
+    if (done < ns) { free(b); return -1; }
+    memcpy(dst, b + (off & 511), len);
+    free(b);
+    return 0;
+}
+
 /* ---------- packs SWPK ---------- */
 typedef struct {
     FILE *fp; int n; u8 *idx;                 /* index : n x 32 octets */
     u32 rsize; int cw, ch, iw, ih, levels;
+    fmap_t fm;                                /* v266 : lecture rapide (morceaux sur la carte SD) */
 } swpk_t;
 static swpk_t gl_post, gl_still;
 
 
-static void swpk_close(swpk_t *k) { if (k->fp) fclose(k->fp); free(k->idx); memset(k, 0, sizeof(*k)); }
+static void swpk_close(swpk_t *k) { if (k->fp) fclose(k->fp); free(k->idx); fm_free(&k->fm); memset(k, 0, sizeof(*k)); }
 static int swpk_open(swpk_t *k, const char *path, int cw, int ch) {
     swpk_close(k);
     FILE *f = fopen(path, "rb");
@@ -99,6 +226,7 @@ static int swpk_open(swpk_t *k, const char *path, int cw, int ch) {
     k->cw = cw; k->ch = ch; k->iw = be16(h + 0x28); k->ih = be16(h + 0x2A); k->levels = h[0x2C];
     if (k->iw <= 0 || k->iw > cw) k->iw = cw;
     if (k->ih <= 0 || k->ih > ch) k->ih = ch;
+    fm_build(&k->fm, path);                                 /* v266 : (sinon : fseek de libfat, comme avant) */
     return 1;
 }
 /* l'ID complet, sinon un enregistrement "universel" des 4 premiers caracteres */
@@ -120,15 +248,16 @@ static u8 *gl_cover_raw(int k, int *w, int *h, int *iw, int *ih, u32 *len) {
     u32 n = (u32)gl_post.cw * gl_post.ch / 2;
     if (r < 0 || r >= gl_post.n || !n || n > 65536) return NULL;
     u32 off = be32(gl_post.idx + r * 32 + 8);
-    FILE *f = fopen(GL_UI "/posters.pak", "rb");
     u8 *b = (u8 *)malloc(n);
+    if (b && gl_post.fm.e && fm_read(&gl_post.fm, off, b, n) == 0) { *w = gl_post.cw; *h = gl_post.ch; *iw = gl_post.iw; *ih = gl_post.ih; *len = n; return b; }   /* v266 */
+    FILE *f = fopen(GL_UI "/posters.pak", "rb");
     if (!f || !b || fseek(f, (long)off, SEEK_SET) != 0 || fread(b, 1, n, f) != n) { free(b); b = NULL; }
     if (f) fclose(f);
     if (b) { *w = gl_post.cw; *h = gl_post.ch; *iw = gl_post.iw; *ih = gl_post.ih; *len = n; }
     return b;
 }
 /* lit le niveau "level" (0 = taille reelle) d'une texture CMPR ; v92 : alignee, prete pour GX (GX_TF_CMPR) */
-static u8 *swpk_read(const swpk_t *k, int r, int level, int *w, int *h) {
+static u8 *swpk_read(swpk_t *k, int r, int level, int *w, int *h) {
     if (!k->fp || r < 0 || r >= k->n || level >= (k->levels ? k->levels : 1)) return NULL;
     u32 off = be32(k->idx + r * 32 + 8);
     int lw = k->cw, lh = k->ch;
@@ -136,7 +265,8 @@ static u8 *swpk_read(const swpk_t *k, int r, int level, int *w, int *h) {
     u32 len = (u32)lw * lh / 2;
     u8 *b = (u8 *)memalign(32, len);
     if (!b) return NULL;
-    if (fseek(k->fp, (long)off, SEEK_SET) != 0 || fread(b, 1, len, k->fp) != len) { free(b); return NULL; }
+    if (!(fm_fresh(&k->fm) && fm_read(&k->fm, off, b, len) == 0)        /* v266 : lecture rapide, sinon comme avant */
+        && (fseek(k->fp, (long)off, SEEK_SET) != 0 || fread(b, 1, len, k->fp) != len)) { free(b); return NULL; }
     DCFlushRange(b, len);
     *w = lw; *h = lh;
     return b;
@@ -709,11 +839,25 @@ static void gl_banner_apply(int k, u8 *b) {
    Bannieres des jeux et grandes images (jaquette 256x256, capture 320x240) : l'ecran ne s'arrete plus
    pendant ces lectures. Un travail a la fois ; le resultat est verifie (chemin du jeu) avant usage. */
 enum { GJ_BANNER = 1, GJ_BIG, GJ_STILL, GJ_FN };
-static struct { int kind, k; char path[NAME_LEN], cp[NAME_LEN], pak[NAME_LEN]; u32 off, len; u8 *res; void (*fn)(void); void (*done)(void); } gj;
+static struct { int kind, k; char path[NAME_LEN], cp[NAME_LEN], pak[NAME_LEN]; u32 off, len; u8 *res; void (*fn)(void); void (*done)(void);
+                u32 rsd[FM_RUNS], rcnt[FM_RUNS], rhead; int nr; } gj;   /* v266 : secteurs de la carte (lecture rapide), nr = 0 : fichier */
 static void gl_job_run(void) {                               /* (thread de fond) */
     if (gj.kind == GJ_FN) { if (gj.fn) gj.fn(); return; }   /* v110 : travail d'un autre ecran (pochettes des applis) */
     gj.res = NULL;
     if (gj.kind == GJ_BANNER) { gj.res = gl_banner_fetch(gj.path, gj.cp); return; }
+    if (gj.nr > 0 && sd_real_if) {                            /* v266 : secteurs lus directement (pas de chaine FAT a suivre) */
+        u32 ns = 0;
+        for (int i = 0; i < gj.nr; i++) ns += gj.rcnt[i];
+        u8 *sb = (u8 *)memalign(32, ns * 512), *b = (u8 *)memalign(32, gj.len);
+        int ok = sb && b;
+        for (int i = 0, at = 0; ok && i < gj.nr; at += (int)gj.rcnt[i], i++) {
+            DCInvalidateRange(sb + at * 512, gj.rcnt[i] * 512);
+            ok = sd_real_if->readSectors(gj.rsd[i], gj.rcnt[i], sb + at * 512);
+            sd_rd_sec += gj.rcnt[i];
+        }
+        if (ok) { memcpy(b, sb + gj.rhead, gj.len); DCFlushRange(b, gj.len); gj.res = b; free(sb); return; }
+        free(sb); free(b);                                    /* (echec : lecture normale) */
+    }
     FILE *f = fopen(gj.pak, "rb");
     if (!f) return;
     u8 *b = (u8 *)memalign(32, gj.len);
@@ -730,7 +874,7 @@ static void gl_job_run(void) {                               /* (thread de fond)
 static int gl_job_post(int kind, int k) {
     if (gj_state != 0 || gj_hold || k < 0 || k >= gl_n || !dec_ensure()) return 0;
     gcg_t *g = &gl[k];
-    gj.kind = kind; gj.k = k; gj.res = NULL;
+    gj.kind = kind; gj.k = k; gj.res = NULL; gj.nr = 0;
     snprintf(gj.path, sizeof(gj.path), "%s", g->path);
     if (kind == GJ_BANNER) snprintf(gj.cp, sizeof(gj.cp), GL_CACHE "/%s%u.bnr", g->id, g->disc);
     else {
@@ -739,6 +883,8 @@ static int gl_job_post(int kind, int k) {
         if (!pk->idx || r < 0 || r >= pk->n) return 0;
         snprintf(gj.pak, sizeof(gj.pak), "%s", kind == GJ_BIG ? GL_UI "/posters.pak" : GL_UI "/stills.pak");
         gj.off = be32(pk->idx + r * 32 + 8); gj.len = (u32)pk->cw * pk->ch / 2;
+        swpk_t *pw = kind == GJ_BIG ? &gl_post : &gl_still;
+        gj.nr = fm_fresh(&pw->fm) ? fm_runs(&pw->fm, gj.off, gj.len, gj.rsd, gj.rcnt, &gj.rhead) : 0;   /* v266 */
     }
     gj_state = 1;
     return 1;
