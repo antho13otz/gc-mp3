@@ -1426,6 +1426,14 @@ static void tp_handle(s32 c) {
         tp_reply(c, 200, "application/json", j ? j : "[]", j ? (int)strlen(j) : 2);
         free(j);
     }
+    else if (!strcmp(target, "/api/up")) {                   /* v272 : l'envoi en cours vu par la console (barre de l'appli) */
+        char t[300], nm[200];
+        tp_any_utf8(tp_up_name, nm, sizeof(nm));
+        for (char *p = nm; *p; p++) if (*p == '"' || *p == '\\') *p = '_';
+        int n = snprintf(t, sizeof(t), "{\"a\":%d,\"d\":%ld,\"t\":%ld,\"ms\":%u,\"n\":\"%s\"}", tp_up_active, tp_up_done, tp_up_total,
+                         (unsigned)(tp_up_active ? now_ms() - tp_up_t0 : tp_up_end - tp_up_t0), nm);
+        tp_reply(c, 200, "application/json", t, n);
+    }
     else if (!strcmp(target, "/api/pulse.txt")) {            /* v262 : le journal complet de ce lancement */
         long sz = 0;
         u8 *b = sd_ok ? read_file(GCD "/natif/journal-jeu.txt", 256 * 1024, &sz) : NULL;
@@ -1587,7 +1595,9 @@ static void *phone_thread(void *arg) {
     }
     tp_state = PS_ON;
     tp_update_free();
-    if (LWP_CreateThread(&tpu_h, tpu_thread, NULL, tpu_stack, sizeof(tpu_stack), 30) < 0) tpu_c = -2;   /* v271 (sans fil : 503) */
+    /* v272 : priorite 66, au-dessus de la boucle (64) : il dort tant que rien n'arrive, mais des que des donnees sont la,
+       il les prend (avant, 30 : il ne passait qu'entre deux images et l'envoi se trainait) */
+    if (LWP_CreateThread(&tpu_h, tpu_thread, NULL, tpu_stack, sizeof(tpu_stack), 66) < 0) tpu_c = -2;   /* v271 (sans fil : 503) */
     for (;;) {
         struct sockaddr_in ca;
         socklen_t cl = sizeof(ca);

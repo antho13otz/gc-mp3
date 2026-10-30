@@ -33,6 +33,13 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   « Créer le jeton » : la bonne page de GitHub). Il reste sur le téléphone.
 - L'APK est gardé 90 jours sur GitHub (avant : 7).
 
+## Nouveautés v272 (build 757, appli build 39) — Envois : la barre de l'appli suit la console, envoi plus rapide
+- **Barre de l'appli = barre de la télé** : l'appli affichait ce qu'elle avait mis dans sa mémoire tampon (en avance :
+  57 % sur le téléphone pour ~40 % reçus). Elle demande maintenant à la console ce qu'elle a vraiment reçu
+  (`/api/up` : octets reçus, taille, durée) : même pourcentage et vrai débit des deux côtés.
+- **Envoi plus rapide** : le fil des envois passe au-dessus de la boucle de l'écran (priorité 66 au lieu de 30) ; il dort
+  tant que rien n'arrive et prend les données dès qu'elles sont là (avant : seulement entre deux images).
+
 ## Nouveautés v271 (build 755) — Envois de fichiers : la console répond pendant l'envoi, progression dans l'appli
 - **Console** : l'envoi d'un fichier par le téléphone se fait dans un fil à lui. Avant, le serveur du téléphone ne
   répondait plus à rien pendant tout l'envoi (63 s pour 30 Mo dans le simulateur) : l'appli affichait « Console
