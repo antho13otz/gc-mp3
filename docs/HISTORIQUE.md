@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v275 (build à venir, appli build 45) — La vibration du jeu arrive sur le téléphone
+## Nouveautés v275 (build 761, appli build 45) — La vibration du jeu arrive sur le téléphone
 - **Console** : quand le jeu allume le moteur de vibration de la manette d'un port du téléphone (commande de lecture
   0x4003xx, bit 0), Pulse l'envoie à l'appli : UDP « GCRB » {port, marche / arrêt} vers l'adresse d'où viennent ses
   touches, au changement puis toutes les 8 images tant que ça dure. Journal : nombre de vibrations demandées.
