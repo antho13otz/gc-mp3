@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v286 (build à venir) — Plus fluide pendant les téléchargements de jaquettes
+- La transformation des images téléchargées (jaquettes, jaquettes complètes) se fait maintenant **en fond** : l'écran
+  ne saute plus quand une jaquette arrive. La vérification « jaquette complète déjà sur la carte ? » aussi.
+- Les téléchargements (jaquettes, fiches) **attendent que tu ne touches plus à la manette** depuis 1,5 s : rien ne se
+  télécharge pendant que tu passes de jeu en jeu.
+- La jaquette complète n'est téléchargée que si tu **restes au moins 1 s** sur la fiche du jeu.
+- Les images de GameTDB passent par http (plus de chiffrement à calculer pour la console : connexion plus légère).
+
 ## Nouveautés v285 (build 774) — La télé sur le téléphone (second écran)
 - La console peut maintenant **envoyer ce qu'elle affiche** au téléphone, en direct : `GET /api/ecran?w=320|640&q=10..95`
   rend une image **JPEG** de la télé (320×240 rapide, ou 640×480 net).

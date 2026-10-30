@@ -898,6 +898,7 @@ static u64 gl_fxdl_wait = 0;
 static int gl_fx_pump(void) {                            /* 1 : en cours (pas de jaquette en meme temps) */
     if (gl_fxdl_st == 0) {
         if (!gl_on || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_fxdl_wait) return 0;
+        if (now_ms() - last_input_ms < 1500) return 0;   /* v285 */
         struct stat st;
         time_t now = gc_time(NULL);
         if (stat(GL_FX_BIG, &st) == 0 && st.st_size > 1000 && (now < 1600000000 || now - st.st_mtime < 30L * 86400)) { gl_fxdl_wait = now_ms() + 3600000; return 0; }
@@ -935,7 +936,8 @@ static struct { char id[8]; u16 *tex; GXTexObj obj; int st; } gl_fc = { "", NULL
 static char gl_fc_rid[8];
 static u16 *gl_fc_rbuf;
 static hfetch_t gl_fc_hf = { .c = { -1, 0, 0 } };
-static int gl_fc_dl = 0, gl_fc_reg = 0;
+static int gl_fc_dl = 0;                                 /* 0 rien, 1 demande, 2 telechargement, 3-4 conversion en fond */
+static int gl_fc_reg = 0;
 static void gl_fc_path(const char *id, const char *ext, char *o, int cap) { snprintf(o, cap, GL_FCDIR "/%.6s.%s", id, ext); }
 static int gl_fc_absent(const char *id) {
     long n = 0;
@@ -985,9 +987,11 @@ static void gl_fc_set(u16 *t) {
     GX_InvalidateTexAll();
     gl_fc.st = 2;
 }
-static void gl_fc_read(void) {                            /* (thread de fond) */
+static int gl_fc_rabs;
+static void gl_fc_read(void) {                            /* (thread de fond ; v285 : aussi "y a-t-il un fichier ?", plus en dessinant) */
     char p[NAME_LEN];
     gl_fc_rbuf = NULL;
+    gl_fc_rabs = 0;
     gl_fc_path(gl_fc_rid, "tex", p, sizeof(p));
     FILE *f = fopen(p, "rb");
     if (f) {
@@ -1011,11 +1015,12 @@ static void gl_fc_read(void) {                            /* (thread de fond) */
         gl_fc_rbuf = t;
         return;
     }
+    gl_fc_rabs = gl_fc_absent(gl_fc_rid);
 }
 static void gl_fc_loaded(void) {                          /* (boucle principale) */
     u16 *t = gl_fc_rbuf; gl_fc_rbuf = NULL;
     if (strcmp(gl_fc_rid, gl_fc.id)) { free(t); if (gl_fc.st == 1) gl_fc.st = 0; return; }   /* (on a change de jeu) */
-    if (t) gl_fc_set(t); else gl_fc.st = 4;
+    if (t) gl_fc_set(t); else gl_fc.st = gl_fc_rabs ? 3 : 4;
 }
 /* la jaquette complete du jeu k (fiche) ; NULL : pas (encore) la */
 static GXTexObj *gl_fc_get(int k) {
@@ -1026,20 +1031,36 @@ static GXTexObj *gl_fc_get(int k) {
         snprintf(gl_fc.id, sizeof(gl_fc.id), "%.6s", gl[k].id); gl_fc.st = 0;
     }
     if (gl_fc.st == 2) return &gl_fc.obj;
-    if (gl_fc.st == 0 && now_ms() - last_input_ms > 250) {
-        static const char *const ex[3] = { "tex", "png", "jpg" };
-        char p[NAME_LEN]; struct stat st; int have = 0;
-        for (int i = 0; i < 3 && !have; i++) { gl_fc_path(gl_fc.id, ex[i], p, sizeof(p)); have = stat(p, &st) == 0 && st.st_size > 0; }
-        if (have) { snprintf(gl_fc_rid, sizeof(gl_fc_rid), "%s", gl_fc.id); if (gj_post_fn(gl_fc_read, gl_fc_loaded)) gl_fc.st = 1; }
-        else gl_fc.st = gl_fc_absent(gl_fc.id) ? 3 : 4;
+    if (gl_fc.st == 0 && now_ms() - last_input_ms > 250) {   /* (v285 : tout dans le thread de fond) */
+        snprintf(gl_fc_rid, sizeof(gl_fc_rid), "%s", gl_fc.id);
+        if (gj_post_fn(gl_fc_read, gl_fc_loaded)) gl_fc.st = 1;
     }
     return NULL;
 }
 static const char *gl_dl_region(const char *id, int i);
+/* v285 : image telechargee -> texture, dans le thread de fond (avant : dans la boucle principale, l'ecran sautait) */
+static u8 *gl_cv_in = NULL;
+static int gl_cv_n = 0, gl_cv_kind = 0;                  /* kind : 1 jaquette, 2 jaquette complete */
+static u16 *gl_cv_out = NULL;
+static char gl_cv_id[8];
+static void gl_dl_save(const char *id, const u16 *t);
+static u16 *gl_dl_convert(const u8 *img, int n);
+static void gl_cv_run(void) {                             /* (thread de fond) */
+    gl_cv_out = gl_cv_kind == 2 ? gl_fc_convert(gl_cv_in, gl_cv_n) : gl_dl_convert(gl_cv_in, gl_cv_n);
+    free(gl_cv_in); gl_cv_in = NULL;
+    if (gl_cv_out) { if (gl_cv_kind == 2) gl_fc_save(gl_cv_id, gl_cv_out); else gl_dl_save(gl_cv_id, gl_cv_out); }
+}
+static void gl_cv_take(hfetch_t *h, int kind, const char *id) {   /* (garde l'image telechargee pour la conversion) */
+    gl_cv_in = h->buf; gl_cv_n = h->len; h->buf = NULL;
+    hf_drop(h); h->st = HF_IDLE;
+    gl_cv_kind = kind; snprintf(gl_cv_id, sizeof(gl_cv_id), "%.6s", id); gl_cv_out = NULL;
+}
+static void gl_fc_cv_done(void);
 /* telechargement de la jaquette complete demandee (1 : en cours) */
 static int gl_fc_pump(void) {
     if (gl_fc_dl == 0) {
-        if (gl_fc.st != 4 || !gl_on || fun_mode || net_phase != NET_DONE || !net_ok) return 0;
+        if (gl_fc.st != 4 || !gl_on || !gl_detail || fun_mode || net_phase != NET_DONE || !net_ok) return 0;
+        if (now_ms() - last_input_ms < 1000) return 0;   /* v285 : seulement quand tu restes sur la fiche (pas en passant de jeu en jeu) */
         gl_fc_reg = 0; gl_fc_dl = 1;
     }
     if (gl_fc_dl == 1) {
@@ -1052,13 +1073,15 @@ static int gl_fc_pump(void) {
             gl_fc.st = 3; gl_fc_dl = 0; return 0;
         }
         char url[160];
-        snprintf(url, sizeof(url), "https://art.gametdb.com/wii/coverfull/%s/%s.png", rg, gl_fc.id);
+        snprintf(url, sizeof(url), "http://art.gametdb.com/wii/coverfull/%s/%s.png"   /* (v285 : http : pas de chiffrement a calculer, plus leger pour la console) */, rg, gl_fc.id);
         snprintf(gl_fc_rid, sizeof(gl_fc_rid), "%s", gl_fc.id);
         gl_fc_hf.maxbytes = 2 * 1024 * 1024; gl_fc_hf.image = 0; gl_fc_hf.accept = "image/png,image/*";
         hf_start(&gl_fc_hf, url, NULL);
         gl_fc_dl = 2;
         return 1;
     }
+    if (gl_fc_dl == 3) { if (gj_post_fn(gl_cv_run, gl_fc_cv_done)) gl_fc_dl = 4; return 1; }
+    if (gl_fc_dl == 4) return 1;                         /* (conversion en fond) */
     hf_pump(&gl_fc_hf);
     if (gl_fc_hf.st == HF_FAIL || (gl_fc_hf.st == HF_DONE && (gl_fc_hf.code != 200 || gl_fc_hf.len < 200))) {
         int net_err = gl_fc_hf.st == HF_FAIL && gl_fc_hf.code == 0;
@@ -1067,13 +1090,15 @@ static int gl_fc_pump(void) {
         gl_fc_reg++; gl_fc_dl = 1; return 1;
     }
     if (gl_fc_hf.st != HF_DONE) return 1;
-    u16 *t = gl_fc_convert(gl_fc_hf.buf, gl_fc_hf.len);
-    hf_drop(&gl_fc_hf); gl_fc_hf.st = HF_IDLE;
+    gl_cv_take(&gl_fc_hf, 2, gl_fc_rid);
+    gl_fc_dl = 3;
+    return 1;
+}
+static void gl_fc_cv_done(void) {                          /* (boucle principale) */
+    u16 *t = gl_cv_out; gl_cv_out = NULL;
+    if (!t) { gl_fc_reg++; gl_fc_dl = 1; return; }       /* (image illisible : la region suivante) */
     gl_fc_dl = 0;
-    if (!t) { gl_fc_reg++; gl_fc_dl = 1; return 1; }
-    gl_fc_save(gl_fc_rid, t);
-    if (!strcmp(gl_fc_rid, gl_fc.id)) gl_fc_set(t); else free(t);
-    return 0;
+    if (!strcmp(gl_cv_id, gl_fc.id)) gl_fc_set(t); else free(t);
 }
 /* telechargement en fond (boucle principale, une jaquette a la fois) */
 #define GL_DLABS GL_DLDIR "/absentes.txt"
@@ -1108,12 +1133,14 @@ static const char *gl_dl_region(const char *id, int i) {
     switch (id[3]) { case 'E': r = us; break; case 'J': r = jp; break; case 'D': r = de; break; case 'S': r = es; break; case 'I': r = it; break; default: break; }
     return i < 3 ? r[i] : NULL;
 }
+static void gl_dl_cv_done(void);
 static void gl_dl_pump(void) {
     if (!sd_ok || sd_virtual || !gl_scanned || !gl || sx_safe) return;
     if (gl_dl_st == 0 && gl_fc_pump()) return;         /* v283 : la jaquette complete de la fiche ouverte d'abord */
     if (gl_dl_st == 0 && gl_fx_pump()) return;         /* v281 : les fiches d'abord */
     if (gl_dl_st == 0) {
         if (!gl_on || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_dl_wait) return;
+        if (now_ms() - last_input_ms < 1500) return;      /* v285 : pas pendant que tu navigues */
         if (gl_dl_nabs < 0) gl_dl_abs_load();
         int k = -1;
         for (int i = 0; i < gl_n && k < 0; i++) if (!gl[i].dvd && gl[i].post < 0 && gl[i].id[0] && !gl_dl_absent(gl[i].id) && !gl_dl_exists(gl[i].id)) k = i;
@@ -1125,12 +1152,14 @@ static void gl_dl_pump(void) {
         const char *rg = gl_dl_region(gl_dl_id, gl_dl_reg);
         if (!rg) { gl_dl_mark_absent(gl_dl_id); gl_dl_st = 0; gl_dl_wait = now_ms() + 500; return; }
         char url[160];
-        snprintf(url, sizeof(url), "https://art.gametdb.com/wii/cover/%s/%s.png", rg, gl_dl_id);
+        snprintf(url, sizeof(url), "http://art.gametdb.com/wii/cover/%s/%s.png"   /* (v285 : http) */, rg, gl_dl_id);
         gl_dl_hf.maxbytes = 1024 * 1024; gl_dl_hf.image = 0; gl_dl_hf.accept = "image/png,image/*";
         hf_start(&gl_dl_hf, url, NULL);
         gl_dl_st = 2;
         return;
     }
+    if (gl_dl_st == 3) { if (gj_post_fn(gl_cv_run, gl_dl_cv_done)) gl_dl_st = 4; return; }
+    if (gl_dl_st == 4) return;                           /* (v285 : conversion en fond) */
     hf_pump(&gl_dl_hf);
     if (gl_dl_hf.st == HF_FAIL || (gl_dl_hf.st == HF_DONE && (gl_dl_hf.code != 200 || gl_dl_hf.len < 200))) {
         int net_err = gl_dl_hf.st == HF_FAIL && gl_dl_hf.code == 0;   /* (pas de reponse : on reessaiera plus tard) */
@@ -1139,12 +1168,14 @@ static void gl_dl_pump(void) {
         gl_dl_reg++; gl_dl_st = 1; return;            /* (404 : la region suivante) */
     }
     if (gl_dl_hf.st != HF_DONE) return;
-    u16 *t = gl_dl_convert(gl_dl_hf.buf, gl_dl_hf.len);
-    hf_drop(&gl_dl_hf); gl_dl_hf.st = HF_IDLE;
+    gl_cv_take(&gl_dl_hf, 1, gl_dl_id);
+    gl_dl_st = 3;
+}
+static void gl_dl_cv_done(void) {                          /* (boucle principale, apres la conversion en fond) */
+    u16 *t = gl_cv_out; gl_cv_out = NULL;
     gl_dl_st = 0; gl_dl_wait = now_ms() + 300;
     if (!t) { gl_dl_mark_absent(gl_dl_id); return; }
-    gl_dl_save(gl_dl_id, t);
-    free(t);
+    free(t);                                             /* (deja rangee sur la carte par le thread) */
     gl_dl_got++;
     for (int k = 0; k < gl_n; k++) if (!strncmp(gl[k].id, gl_dl_id, 6) && gl[k].post < 0) {
         gl[k].post = GL_POST_DL;
