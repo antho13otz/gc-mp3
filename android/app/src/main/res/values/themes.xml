@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Station" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/station_fond</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+    <color name="station_fond">#FF07020F</color>
+    <string name="station_nom">GC Station</string>
+</resources>

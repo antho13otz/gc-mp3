@@ -44,7 +44,7 @@ public class GcWidget extends AppWidgetProvider {
         v.setOnClickPendingIntent(R.id.w_prev, act(c, PlaybackService.ACT_PREV, 1));
         v.setOnClickPendingIntent(R.id.w_play, act(c, PlaybackService.ACT_TOGGLE, 2));
         v.setOnClickPendingIntent(R.id.w_next, act(c, PlaybackService.ACT_NEXT, 3));
-        PendingIntent open = PendingIntent.getActivity(c, 0, new Intent(c, MainActivity.class), PendingIntent.FLAG_IMMUTABLE);
+        PendingIntent open = PendingIntent.getActivity(c, 0, Host.home(c), PendingIntent.FLAG_IMMUTABLE);
         v.setOnClickPendingIntent(R.id.w_cover, open);
         v.setOnClickPendingIntent(R.id.w_title, open);
         v.setOnClickPendingIntent(R.id.w_sub, open);

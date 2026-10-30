@@ -17,16 +17,24 @@
         android:icon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true"
         android:theme="@android:style/Theme.Material.NoActionBar">
+        <!-- ecran principal (Jetpack Compose, StationActivity) ; l'ancien ecran (MainActivity) n'est plus utilise -->
         <activity
-            android:name=".MainActivity"
-            android:exported="true"
+            android:name=".StationActivity"
+            android:exported="false"
             android:launchMode="singleTask"
-            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout">
+            android:theme="@style/Theme.Station"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize|uiMode" />
+        <!-- (meme nom qu'avant : l'icone, les raccourcis d'ecrans et de jeux deja poses ouvrent le nouvel ecran) -->
+        <activity-alias
+            android:name=".MainActivity"
+            android:targetActivity=".StationActivity"
+            android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <!-- appui long sur l'icone : Lecture, Manette, Jeux, Recherche -->
+            <!-- appui long sur l'icone : Lecture, Tele, Jeux, Recherche -->
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
             <!-- "Partager -> GC Station" : fichiers envoyes sur la carte SD de la console -->
             <intent-filter>
@@ -39,7 +47,7 @@
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="*/*" />
             </intent-filter>
-        </activity>
+        </activity-alias>
         <!-- resultat de l'installation d'une nouvelle version (AppUpdate) -->
         <receiver android:name=".AppUpdate$Done" android:exported="false" />
         <!-- manette GameCube en jeu (Pulse) -->

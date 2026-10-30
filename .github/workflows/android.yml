@@ -57,7 +57,7 @@ jobs:
           ANDROID_USER_HOME: /home/runner/.gcs-android     # (ou les outils Android rangent leur cle de test : celle du cache)
         run: |
           set -o pipefail
-          gradle -p android --no-daemon assembleDebug 2>&1 | tee build.log || { grep -E 'error:|What went wrong|AAPT|ERROR' -A3 build.log | head -60 | sed 's/^/::error::/'; exit 1; }
+          gradle -p android --no-daemon assembleDebug 2>&1 | tee build.log || { grep -E '^e: |error:|What went wrong|AAPT|ERROR' -A3 build.log | head -80 | sed 's/^/::error::/'; exit 1; }
           cp android/app/build/outputs/apk/debug/app-debug.apk gc-station-telecommande.apk
           ls -la gc-station-telecommande.apk
 

@@ -53,7 +53,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements Host {
     private static final String[] TAB_ICON = { "▶", "♫", "◉", "✚", "◈" };
     private static final String[] TAB_NAME = { "Lecture", "Musique", "Radio", "Manette", "Plus" };
     // ecrans : 0-3 onglets, 4 Plus (grille), 5 et suivants : ouverts depuis Plus (avec une fleche retour)
@@ -292,7 +292,7 @@ public class MainActivity extends Activity {
     private SharedPreferences prefs() { return getSharedPreferences("gcs", MODE_PRIVATE); }
     private int dp(float v) { return Neon.dp(this, v); }
 
-    void select(int k) {
+    public void select(int k) {
         if (k == cur) return;
         if (full && k != 3) fullPad(false);
         for (int i = 0; i < NT; i++) tabViews[i].setVisibility(i == k ? View.VISIBLE : View.GONE);
@@ -715,10 +715,10 @@ public class MainActivity extends Activity {
         select(T_GAMES);
         GamesTab.launch(this, i.getStringExtra("id"), 0, 1, i.getStringExtra("nom"));
     }
-    void openGame(org.json.JSONArray x) { select(T_GAMES); ((GamesTab) tabs[T_GAMES]).sheet(x); }
+    public void openGame(org.json.JSONArray x) { select(T_GAMES); ((GamesTab) tabs[T_GAMES]).sheet(x); }
 
     /** manette en plein ecran (paysage) : sans en-tete, mini-lecteur ni barre d'onglets */
-    void fullPad(boolean on) {
+    public void fullPad(boolean on) {
         full = on;
         if (on) select(3);
         setRequestedOrientation(on ? android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE : android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED);
@@ -804,7 +804,7 @@ public class MainActivity extends Activity {
             PlaybackService.channels(this);
             android.app.Notification.Builder b = android.os.Build.VERSION.SDK_INT >= 26 ? new android.app.Notification.Builder(this, PlaybackService.CH_INFO) : new android.app.Notification.Builder(this);
             b.setSmallIcon(R.drawable.ic_stat).setContentTitle(title).setContentText(text).setColor(Neon.PINK).setOnlyAlertOnce(true).setShowWhen(false)
-             .setContentIntent(android.app.PendingIntent.getActivity(this, PlaybackService.ID_SEND, new Intent(this, MainActivity.class), android.app.PendingIntent.FLAG_IMMUTABLE));
+             .setContentIntent(android.app.PendingIntent.getActivity(this, PlaybackService.ID_SEND, Host.home(this), android.app.PendingIntent.FLAG_IMMUTABLE));
             if (!end) b.setOngoing(true).setProgress(100, pct, false); else b.setAutoCancel(true);
             getSystemService(android.app.NotificationManager.class).notify(PlaybackService.ID_SEND, b.build());
         } catch (Exception e) { }
@@ -870,7 +870,7 @@ public class MainActivity extends Activity {
     }
 
     /** piloter une autre GC Station (Salon) */
-    void switchTo(String ip) {
+    public void switchTo(String ip) {
         Toast.makeText(this, "Console " + ip, Toast.LENGTH_SHORT).show();
         QueueTab.tracks = null;
         connected = false;

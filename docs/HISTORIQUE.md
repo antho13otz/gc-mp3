@@ -24,6 +24,20 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Nouvelle appli : tout refait, et la télé sur le téléphone
+- **L'appli est refaite** (Kotlin + Jetpack Compose) : nouveau look, animations, onglets **Lecture, Musique, Jeux,
+  Télé, Plus**. Elle s'installe par-dessus l'ancienne : réglages, adresse de la console et jeton GitHub gardés.
+- **Lecture** : grande pochette sur fond flou, paroles synchronisées (toucher : toutes les paroles), commandes, volume.
+- **Musique** : morceaux, radios (et le globe) et file « À suivre » au même endroit ; appui long : lire juste après.
+- **Jeux** : grille de jaquettes, filtres **Favoris** et **Déjà joués**, fiche complète (lancer avec Pulse, patchs de
+  secours, cheats, pastille, réglages du jeu, sauvegardes, raccourci sur l'écran d'accueil).
+- **Télé (nouveau)** : ce qu'affiche la télé, en direct sur le téléphone (console build 774 ou plus) ; toucher = A,
+  appui long = B, glisser = la croix, pointeur sur l'onglet WEB ; manette complète et clavier dessous.
+  **Plein écran** en paysage : l'image sur toute la hauteur, les touches de chaque côté.
+- **Plus** : Fichiers, Photos, Réglages, Cartes mémoire, Recherche, Salon, Outils, Copies, Succès, Jeu de cartes,
+  Mini-jeux, Manette en jeu, Globe, Mettre à jour. Réglages, Cartes mémoire, Salon, Outils, Recherche et Copies
+  gardent pour l'instant l'ancien look.
+
 ## Nouveautés v287 (build 776) — Lire la boîte zoomée (jaquette en HD)
 - Quand tu **zoomes** sur la boîte 3D, la console prend la **jaquette complète en haute définition** de GameTDB
   (1024 × 680) : les textes du dos deviennent **lisibles**. « Chargement de la jaquette en HD... » pendant qu'elle arrive.

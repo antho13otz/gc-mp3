@@ -1,21 +1,50 @@
-// Telecommande GC Station : application Android (WebView sur la page du telephone de la console).
+// Telecommande GC Station : application Android. Ecrans en Jetpack Compose (Kotlin : StationActivity, App, Ecran*) ;
+// reseau, en direct, lecture en fond, manette en jeu, globe, jeu de cartes, mini-jeux, widget : en Java.
 // Compilee par GitHub (.github/workflows/android.yml) ; numero de version = numero de la compilation.
-plugins { id 'com.android.application' }
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
 
 android {
     namespace 'fr.gcstation.telecommande'
-    compileSdk 34
+    compileSdk 35
     defaultConfig {
         applicationId 'fr.gcstation.telecommande'
         minSdk 24
         targetSdk 34
         versionCode Integer.parseInt(System.getenv('BUILD_NUM') ?: '1')
         versionName '1.' + (System.getenv('BUILD_NUM') ?: '0')
+        // mise a jour depuis l'appli (AppUpdate) : compilation, branche et artefact de cette appli
+        buildConfigField 'String', 'MAJ_WORKFLOW', '"android.yml"'
+        buildConfigField 'String', 'MAJ_BRANCHE', '"main"'
+        buildConfigField 'String', 'MAJ_PREFIXE', '""'
+        buildConfigField 'String', 'MAJ_ARTEFACT', '"gc-station-telecommande"'
+    }
+    buildFeatures {
+        compose true
+        buildConfig true
     }
     // (appli gardee pour soi : signee avec la cle de test d'Android, creee par les outils Android et gardee
     //  dans le cache de GitHub pour qu'une nouvelle version s'installe par-dessus l'ancienne)
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
     }
+    kotlinOptions { jvmTarget = '17' }
+    lint {
+        abortOnError = false
+        checkReleaseBuilds = false
+    }
+}
+
+dependencies {
+    implementation platform('androidx.compose:compose-bom:2024.12.01')
+    implementation 'androidx.activity:activity-compose:1.9.3'
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.foundation:foundation'
+    implementation 'androidx.compose.material3:material3'
+    implementation 'androidx.compose.animation:animation'
+    implementation 'androidx.core:core:1.13.1'
 }
