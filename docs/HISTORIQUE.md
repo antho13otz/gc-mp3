@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 43 — Manette : nouveau look
+- Touches en verre : reflet en haut, anneau de couleur ; appuyées : pleines, lumineuses (halo), un peu plus petites.
+- Sticks : socle creusé avec le cran octogonal de la GameCube, tête bombée avec ombre ; stick C jaune marqué « C ».
+- Fond en dégradé sombre avec une lueur violette ; L, R, Z et la croix dans le même style ; gâchettes progressives :
+  barre d'enfoncement dans la touche.
+
 ## Nouveautés appli build 42 — Manette : réglages sans jouer
 - **⚙ > Manette : réglages et disposition** : la manette s'ouvre sans jeu (rien n'est envoyé à la console) : réglages,
   disposition des touches, essai des touches et des sticks.

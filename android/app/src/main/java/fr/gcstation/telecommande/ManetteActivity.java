@@ -405,7 +405,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
         private final int[] owner = new int[N];               // (pointeur qui tient le controle, -1)
         private final float[] trig = new float[14];           // (gachettes progressives : 0-1 sous chaque touche)
         private float sx, sy, cx, cy;                          // sticks : -1..1
-        private float fx, fy; private boolean floating;        // (stick flottant : ou il s'est pose)
+        private float fx_, fy; private boolean floating;        // (stick flottant : ou il s'est pose)
         volatile float tiltX;
         // manette Bluetooth / USB
         private final boolean[] btOn = new boolean[14];
@@ -549,14 +549,14 @@ public class ManetteActivity extends Activity implements SensorEventListener {
                     float x = e.getX(idx), y = e.getY(idx);
                     int c = hit(x, y);
                     if (c < 0 && optFloat && owner[0] < 0 && x < getWidth() * 0.45f && y > getHeight() * 0.2f) {   // stick flottant
-                        c = 0; floating = true; fx = x; fy = y;
+                        c = 0; floating = true; fx_ = x; fy = y;
                     }
                     if (c < 0 || owner[c] >= 0) break;
                     if (c == 14) { nextPort(); break; }
                     if (c == 15) { finish(); break; }
                     if (c == 16) { showPanel(); break; }
                     owner[c] = id;
-                    if (c == 0 && optFloat && !floating) { floating = true; fx = x; fy = y; }
+                    if (c == 0 && optFloat && !floating) { floating = true; fx_ = x; fy = y; }
                     if (c <= 1) stick(c, x, y);
                     else { trig[c] = trigAt(c, y); buzz(); }
                     break;
@@ -602,7 +602,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
 
         private void stick(int c, float x, float y) {
             float[] a = at[c];
-            float ox = c == 0 && floating ? fx : a[0], oy = c == 0 && floating ? fy : a[1];
+            float ox = c == 0 && floating ? fx_ : a[0], oy = c == 0 && floating ? fy : a[1];
             float dx = (x - ox) / a[2], dy = (y - oy) / a[2], m = (float) Math.hypot(dx, dy);
             if (m > 1) { dx /= m; dy /= m; }
             if (c == 0) { sx = dx; sy = dy; } else { cx = dx; cy = dy; }
@@ -686,11 +686,123 @@ public class ManetteActivity extends Activity implements SensorEventListener {
         }
 
         private int dark(int c) { return 0xFF000000 | ((c >> 16 & 255) * 9 / 20) << 16 | ((c >> 8 & 255) * 9 / 20) << 8 | (c & 255) * 9 / 20; }
+        /** c melangee avec m (0-1 : part de m), alpha a */
+        private int mix(int c, int m, float k, int a) {
+            int r = Math.round((c >> 16 & 255) * (1 - k) + (m >> 16 & 255) * k), gg = Math.round((c >> 8 & 255) * (1 - k) + (m >> 8 & 255) * k), bb = Math.round((c & 255) * (1 - k) + (m & 255) * k);
+            return a << 24 | r << 16 | gg << 8 | bb;
+        }
+        private final Paint fx = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private android.graphics.Shader bgShader; private int bgW, bgH;
+
+        /** fond : degrade sombre, une lueur violette au centre */
+        private void drawBg(Canvas g) {
+            int w = getWidth(), h = getHeight();
+            if (bgShader == null || bgW != w || bgH != h) {
+                bgW = w; bgH = h;
+                bgShader = new android.graphics.RadialGradient(w / 2f, h * 0.55f, Math.max(w, h) * 0.65f,
+                    new int[] { 0xFF1A1036, 0xFF0C0820, 0xFF05030E }, new float[] { 0f, 0.55f, 1f }, android.graphics.Shader.TileMode.CLAMP);
+            }
+            fx.setShader(bgShader); fx.setStyle(Paint.Style.FILL);
+            g.drawRect(0, 0, w, h, fx);
+            fx.setShader(null);
+        }
+
+        /** lueur douce autour d'une touche appuyee */
+        private void glow(Canvas g, float x, float y, float r, int col, int alpha) {
+            fx.setShader(new android.graphics.RadialGradient(x, y, r, new int[] { mix(col, col, 0, alpha * 110 / 255), mix(col, col, 0, 0) }, new float[] { 0.45f, 1f }, android.graphics.Shader.TileMode.CLAMP));
+            g.drawCircle(x, y, r, fx);
+            fx.setShader(null);
+        }
+
+        /** touche ronde en verre : reflet en haut, anneau de couleur ; appuyee : pleine, plus petite, lumineuse */
+        private void roundBtn(Canvas g, float x, float y, float r, int col, boolean on, int alpha) {
+            if (on) { glow(g, x, y, r * 1.55f, col, alpha); r *= 0.93f; }
+            fx.setStyle(Paint.Style.FILL);
+            fx.setShader(new android.graphics.LinearGradient(x, y - r, x, y + r,
+                on ? new int[] { mix(col, 0xFFFFFFFF, 0.35f, alpha), mix(col, 0xFF000000, 0.15f, alpha) }
+                   : new int[] { mix(col, 0xFF140C26, 0.70f, alpha), mix(col, 0xFF07040F, 0.88f, alpha) },
+                null, android.graphics.Shader.TileMode.CLAMP));
+            g.drawCircle(x, y, r, fx);
+            fx.setShader(new android.graphics.LinearGradient(x, y - r, x, y, mix(0xFFFFFFFF, 0, 0, on ? alpha * 70 / 255 : alpha * 40 / 255), 0x00FFFFFF, android.graphics.Shader.TileMode.CLAMP));
+            g.drawOval(x - r * 0.78f, y - r * 0.92f, x + r * 0.78f, y + r * 0.05f, fx);   // (reflet)
+            fx.setShader(null);
+            fx.setStyle(Paint.Style.STROKE); fx.setStrokeWidth(Math.max(2f, r * 0.07f));
+            fx.setColor(mix(col, 0xFFFFFFFF, on ? 0.5f : 0.1f, alpha * (on ? 255 : 200) / 255));
+            g.drawCircle(x, y, r - fx.getStrokeWidth() / 2, fx);
+            fx.setStyle(Paint.Style.FILL);
+        }
+
+        /** touche rectangulaire arrondie, meme style */
+        private void rectBtn(Canvas g, RectF rf, float rad, int col, boolean on, int alpha) {
+            if (on) {
+                RectF gr = new RectF(rf); gr.inset(-rf.height() * 0.25f, -rf.height() * 0.25f);
+                fx.setColor(mix(col, col, 0, alpha * 70 / 255));
+                fx.setMaskFilter(new android.graphics.BlurMaskFilter(rf.height() * 0.3f, android.graphics.BlurMaskFilter.Blur.NORMAL));
+                g.drawRoundRect(gr, rad * 1.4f, rad * 1.4f, fx);
+                fx.setMaskFilter(null);
+                rf = new RectF(rf); rf.inset(rf.width() * 0.03f, rf.height() * 0.06f);
+            }
+            fx.setStyle(Paint.Style.FILL);
+            fx.setShader(new android.graphics.LinearGradient(0, rf.top, 0, rf.bottom,
+                on ? new int[] { mix(col, 0xFFFFFFFF, 0.35f, alpha), mix(col, 0xFF000000, 0.15f, alpha) }
+                   : new int[] { mix(col, 0xFF140C26, 0.70f, alpha), mix(col, 0xFF07040F, 0.88f, alpha) },
+                null, android.graphics.Shader.TileMode.CLAMP));
+            g.drawRoundRect(rf, rad, rad, fx);
+            fx.setShader(new android.graphics.LinearGradient(0, rf.top, 0, rf.centerY(), mix(0xFFFFFFFF, 0, 0, on ? alpha * 70 / 255 : alpha * 36 / 255), 0x00FFFFFF, android.graphics.Shader.TileMode.CLAMP));
+            g.drawRoundRect(new RectF(rf.left + rad * 0.3f, rf.top + 2, rf.right - rad * 0.3f, rf.centerY()), rad * 0.8f, rad * 0.8f, fx);
+            fx.setShader(null);
+            fx.setStyle(Paint.Style.STROKE); fx.setStrokeWidth(Math.max(2f, rf.height() * 0.05f));
+            fx.setColor(mix(col, 0xFFFFFFFF, on ? 0.5f : 0.1f, alpha * (on ? 255 : 200) / 255));
+            float h2 = fx.getStrokeWidth() / 2;
+            g.drawRoundRect(new RectF(rf.left + h2, rf.top + h2, rf.right - h2, rf.bottom - h2), rad, rad, fx);
+            fx.setStyle(Paint.Style.FILL);
+        }
+
+        /** stick : socle creuse avec le cran octogonal de la GameCube, tete bombee */
+        private void stickDraw(Canvas g, float ox, float oy, float r, float kx, float ky, int col, boolean on, int alpha, boolean c) {
+            fx.setStyle(Paint.Style.FILL);
+            fx.setShader(new android.graphics.RadialGradient(ox, oy, r, new int[] { mix(0xFF05030C, 0, 0, alpha), mix(0xFF1B1430, 0, 0, alpha) }, new float[] { 0.55f, 1f }, android.graphics.Shader.TileMode.CLAMP));
+            g.drawCircle(ox, oy, r, fx);
+            fx.setShader(null);
+            android.graphics.Path oct = new android.graphics.Path();
+            for (int k = 0; k < 8; k++) {
+                double an = Math.PI / 8 + k * Math.PI / 4;
+                float px = ox + (float) Math.cos(an) * r * 0.82f, py = oy + (float) Math.sin(an) * r * 0.82f;
+                if (k == 0) oct.moveTo(px, py); else oct.lineTo(px, py);
+            }
+            oct.close();
+            fx.setStyle(Paint.Style.STROKE); fx.setStrokeWidth(Math.max(1.5f, r * 0.025f));
+            fx.setColor(mix(col, 0xFF000000, 0.3f, alpha * 110 / 255));
+            g.drawPath(oct, fx);
+            fx.setStrokeWidth(Math.max(2f, r * 0.04f));
+            fx.setColor(mix(col, 0xFFFFFFFF, on ? 0.4f : 0f, alpha * (on ? 230 : 150) / 255));
+            g.drawCircle(ox, oy, r - fx.getStrokeWidth() / 2, fx);
+            float hx = ox + kx * r * 0.62f, hy = oy + ky * r * 0.62f, hr = r * (c ? 0.36f : 0.42f);
+            if (on) glow(g, hx, hy, hr * 1.7f, col, alpha);
+            fx.setStyle(Paint.Style.FILL);
+            fx.setColor(mix(0xFF000000, 0, 0, alpha * 90 / 255));
+            g.drawCircle(hx, hy + hr * 0.12f, hr * 1.04f, fx);    // (ombre)
+            fx.setShader(new android.graphics.RadialGradient(hx - hr * 0.3f, hy - hr * 0.35f, hr * 1.4f,
+                new int[] { mix(col, 0xFFFFFFFF, 0.55f, alpha), mix(col, 0xFF000000, 0.05f, alpha), mix(col, 0xFF000000, 0.45f, alpha) }, new float[] { 0f, 0.55f, 1f }, android.graphics.Shader.TileMode.CLAMP));
+            g.drawCircle(hx, hy, hr, fx);
+            fx.setShader(null);
+            if (!c) {                                         // (tete du stick : stries comme la vraie)
+                fx.setStyle(Paint.Style.STROKE); fx.setStrokeWidth(Math.max(1f, hr * 0.05f));
+                fx.setColor(mix(0xFF000000, 0, 0, alpha * 50 / 255));
+                g.drawCircle(hx, hy, hr * 0.62f, fx);
+                g.drawCircle(hx, hy, hr * 0.34f, fx);
+                fx.setStyle(Paint.Style.FILL);
+            } else {
+                t.setColor(mix(0xFF000000, 0, 0, alpha * 150 / 255)); t.setTextSize(hr * 0.9f);
+                g.drawText("C", hx, hy + hr * 0.32f, t);
+            }
+        }
 
         @Override
         protected synchronized void onDraw(Canvas g) {
-            edge.setStyle(Paint.Style.STROKE); edge.setStrokeWidth(getHeight() * 0.006f); edge.setColor(0x66FFFFFF);
+            drawBg(g);
             int al = Math.round(optAlpha * 2.55f);
+            t.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.BOLD));
             for (int i = 0; i < N; i++) {
                 float[] a = at[i];
                 if (edit && i >= 14) continue;
@@ -699,47 +811,46 @@ public class ManetteActivity extends Activity implements SensorEventListener {
                 if (hidden && !edit) continue;
                 boolean on = owner[i] >= 0 || (i >= 2 && i < 14 && f >= 2 && btOn[f]);
                 int col = hidden ? 0xFF555566 : COL[f < 0 ? i : f];
+                if (f == 4 || f == 5 || f == 6) col = 0xFFB9B4D6;            // (X, Y, START : gris lavande)
+                if (f >= 8 && f <= 13) col = 0xFF9AA3C7;                       // (L, R, croix)
                 int alpha = i >= 14 ? 255 : al;
-                p.setStyle(Paint.Style.FILL);
-                p.setColor(on ? col : dark(col));                // (pleines, pas transparentes : plus foncees au repos)
-                p.setAlpha(alpha);
-                if (i <= 1) {                                    // sticks : socle, puis la tete a sa position
-                    float ox = i == 0 && floating ? fx : a[0], oy = i == 0 && floating ? fy : a[1];
-                    p.setColor(0xFF1A1A24); p.setAlpha(alpha);
-                    g.drawCircle(ox, oy, a[2], p);
-                    p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(a[2] * 0.05f); p.setColor(dark(col)); p.setAlpha(alpha);
-                    g.drawCircle(ox, oy, a[2], p);
-                    p.setStyle(Paint.Style.FILL); p.setColor(on ? 0xFFFFFFFF : col); p.setAlpha(alpha);
+                if (hidden) alpha = 110;
+                if (i <= 1) {
+                    float ox = i == 0 && floating ? fx_ : a[0], oy = i == 0 && floating ? fy : a[1];
                     float kx = i == 0 ? sx : cx, ky = i == 0 ? sy : cy;
                     if (i == 0 && owner[0] < 0) { if (bsx != 0 || bsy != 0) { kx = bsx; ky = bsy; } else kx = tiltX; }
                     if (i == 1 && owner[1] < 0 && (bcx != 0 || bcy != 0)) { kx = bcx; ky = bcy; }
-                    g.drawCircle(ox + kx * a[2] * 0.7f, oy + ky * a[2] * 0.7f, a[2] * (i == 0 ? 0.42f : 0.38f), p);
+                    stickDraw(g, ox, oy, a[2], kx, ky, i == 0 ? 0xFFC9CEE8 : 0xFFFFD43B, on, alpha, i == 1);
                 } else if (a[3] > 0) {
-                    float r = Math.min(a[2], a[3]) * 0.5f;
+                    float r = Math.min(a[2], a[3]) * 0.9f;
                     RectF rf = new RectF(a[0] - a[2], a[1] - a[3], a[0] + a[2], a[1] + a[3]);
-                    g.drawRoundRect(rf, r, r, p); g.drawRoundRect(rf, r, r, edge);
+                    rectBtn(g, rf, r, col, on, alpha);
                     if (optTrig && on && i < 14 && (f == 8 || f == 9) && owner[i] >= 0) {   // (enfoncement de la gachette)
-                        p.setColor(0x88FFFFFF);
-                        g.drawRect(rf.left, rf.top, rf.left + rf.width() * trig[i], rf.top + rf.height() * 0.15f, p);
+                        fx.setColor(mix(0xFFFFFFFF, 0, 0, 170));
+                        float bh = rf.height() * 0.12f;
+                        g.drawRoundRect(new RectF(rf.left + r * 0.5f, rf.bottom - bh * 2, rf.left + r * 0.5f + (rf.width() - r) * trig[i], rf.bottom - bh), bh / 2, bh / 2, fx);
                     }
-                } else { g.drawCircle(a[0], a[1], a[2], p); g.drawCircle(a[0], a[1], a[2], edge); }
+                } else roundBtn(g, a[0], a[1], a[2], col, on, alpha);
                 if (edit && i == sel) {
                     dash.setStrokeWidth(getHeight() * 0.006f); dash.setColor(Neon.CYAN);
                     float rr = (a[3] > 0 ? Math.max(a[2], a[3]) : a[2]) * 1.15f;
                     g.drawCircle(a[0], a[1], rr, dash);
                 }
                 String l = i == 14 ? "PORT " + (port + 1) + "  ↻" : hidden ? "—" : LBL[f];
-                if (l.isEmpty() || (i == 1)) continue;
-                t.setColor(f == 2 || f == 3 ? 0xFF0B0B12 : on ? 0xFF0B0B12 : 0xFFFFFFFF);
-                if (i >= 14) t.setColor(0xFFFFFFFF);
+                if (l.isEmpty() || (i <= 1)) continue;
+                int lc = on ? 0xFF0B0B14 : (f == 2 || f == 3 || f == 7) ? mix(col, 0xFFFFFFFF, 0.25f, 255) : 0xFFEDEBFA;
+                if (i >= 14) lc = 0xFFFFFFFF;
+                t.setColor(lc);
                 t.setAlpha(alpha);
-                float sz = (a[3] > 0 ? a[3] : a[2]) * (f == 6 ? 0.55f : i == 14 ? 0.8f : 0.9f);
+                float sz = (a[3] > 0 ? a[3] : a[2]) * (f == 6 ? 0.5f : i == 14 ? 0.75f : f >= 10 && f <= 13 ? 0.75f : 0.85f);
+                if (on && a[3] <= 0) sz *= 0.93f;
                 t.setTextSize(sz);
-                g.drawText(l, a[0], a[1] + sz * 0.35f, t);
+                g.drawText(l, a[0], a[1] + sz * 0.36f, t);
             }
             t.setAlpha(255);
+            t.setTypeface(android.graphics.Typeface.DEFAULT_BOLD);
             if (!edit) {
-                t.setTextSize(base[14][3] * 0.55f); t.setColor(Neon.DIM);
+                t.setTextSize(base[14][3] * 0.5f); t.setColor(mix(Neon.DIM, 0, 0, 170));
                 g.drawText(setup ? "Essai de la manette (pas en jeu : rien n'est envoyé) · ⚙ réglages" : "Manette en jeu · A + Z + START sur la vraie manette pour revenir", getWidth() / 2f, base[14][1] + base[14][3] * 2.2f, t);
             }
         }
