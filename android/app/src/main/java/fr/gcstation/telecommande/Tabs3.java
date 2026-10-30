@@ -124,7 +124,7 @@ class SearchTab extends Tab {
             head("JEUX", Neon.VIOLET);
             for (final JSONArray x : g) {
                 View r = row("◈", Neon.VIOLET, (x.optInt(4) != 0 ? "★ " : "") + x.optString(0), x.optString(1));
-                r.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); ((MainActivity) a).openGame(x); });
+                r.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); ((Host) a).openGame(x); });
                 n++;
             }
         }

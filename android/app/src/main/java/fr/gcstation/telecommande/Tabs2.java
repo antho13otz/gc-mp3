@@ -504,7 +504,7 @@ class GamesTab extends Tab {
     private void pinShortcut(String id, String name, Bitmap cover) {
         android.content.pm.ShortcutManager sm = a.getSystemService(android.content.pm.ShortcutManager.class);
         if (sm == null || !sm.isRequestPinShortcutSupported()) { Toast.makeText(a, "Ton écran d'accueil n'accepte pas les raccourcis", Toast.LENGTH_LONG).show(); return; }
-        Intent it = new Intent(a, MainActivity.class).setAction(MainActivity.ACT_GAME).putExtra("id", id).putExtra("nom", name)
+        Intent it = Host.home(a).setAction(MainActivity.ACT_GAME).putExtra("id", id).putExtra("nom", name)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         android.graphics.drawable.Icon icon;
         if (cover != null) {                                  // (icone adaptative : jaquette au centre sur fond neon)
@@ -1232,7 +1232,7 @@ class SalonTab extends Tab {
                     LinearLayout row = new LinearLayout(a);
                     row.addView(Neon.btn(a, "Écouter avec", 13, true, v -> Api.get("/api/listen?i=" + idx, rr -> Neon.set(status, rr != null ? "Écoute lancée sur la télé" : "Refusé"))), lp(0, -2, 1));
                     View g = new View(a); row.addView(g, new LinearLayout.LayoutParams(dp(8), 1));
-                    row.addView(Neon.btn(a, "Piloter celle-ci", 13, false, v -> ((MainActivity) a).switchTo(ip)), lp(0, -2, 1));
+                    row.addView(Neon.btn(a, "Piloter celle-ci", 13, false, v -> ((Host) a).switchTo(ip)), lp(0, -2, 1));
                     cd.addView(row);
                     box.addView(cd, UiKit.gapBelow(a, 12));
                 }
@@ -1464,7 +1464,7 @@ class PlusTab extends Tab {
             TextView d = Neon.text(a, t[2], 11, Neon.DIM, false);
             d.setGravity(Gravity.CENTER);
             c.addView(d);
-            c.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); if (t[3].equals("-1")) CartesActivity.open(a); else if (t[3].equals("-2")) MiniJeuxActivity.open(a); else ((MainActivity) a).select(Integer.parseInt(t[3])); });
+            c.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); if (t[3].equals("-1")) CartesActivity.open(a); else if (t[3].equals("-2")) MiniJeuxActivity.open(a); else ((Host) a).select(Integer.parseInt(t[3])); });
             android.widget.GridLayout.LayoutParams p = new android.widget.GridLayout.LayoutParams(
                 android.widget.GridLayout.spec(i / 2), android.widget.GridLayout.spec(i % 2, 1f));
             p.width = 0;

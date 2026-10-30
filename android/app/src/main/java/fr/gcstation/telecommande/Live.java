@@ -25,15 +25,15 @@ import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
-final class Live {
+public final class Live {
     static final int PORT = 51236;
 
-    interface Listener {
+    public interface Listener {
         void changed();                                      // (etat a relire)
         void game(Game g);                                   // (un jeu se lance ; null : partie finie ou lancement rate)
     }
 
-    static final class Game {
+    public static final class Game {
         String id = "", name = "", profile = "";
         int leftMin = -1;
         int padMask;                                         // ports donnes aux telephones pendant ce jeu (bit n = port n + 1)                                    // (minutes de jeu restantes aujourd'hui au lancement, -1 : pas de limite)

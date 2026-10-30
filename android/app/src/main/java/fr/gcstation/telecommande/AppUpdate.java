@@ -39,7 +39,7 @@ import java.util.zip.ZipInputStream;
 
 public final class AppUpdate {
     static final String REPO = "antho13otz/gc-mp3";
-    static final String ARTIFACT = "gc-station-telecommande";
+    static final String ARTIFACT = BuildConfig.MAJ_ARTEFACT;   // (chaque appli : sa compilation et son artefact, build.gradle)
     static final String ACT_DONE = "fr.gcstation.MAJ_APPLI";
     private static final Handler ui = new Handler(Looper.getMainLooper());
 
@@ -77,13 +77,13 @@ public final class AppUpdate {
 
     /** derniere version publiee : {numero, id de l'artefact} ; null si aucune */
     static long[] latest(String tok) throws Exception {
-        JSONArray runs = new JSONObject(api("/actions/workflows/android.yml/runs?branch=main&status=success&event=push&per_page=5", tok)).getJSONArray("workflow_runs");
+        JSONArray runs = new JSONObject(api("/actions/workflows/" + BuildConfig.MAJ_WORKFLOW + "/runs?branch=" + BuildConfig.MAJ_BRANCHE + "&status=success&event=push&per_page=5", tok)).getJSONArray("workflow_runs");
         for (int i = 0; i < runs.length(); i++) {
             JSONObject r = runs.getJSONObject(i);
             JSONArray arts = new JSONObject(api("/actions/runs/" + r.getLong("id") + "/artifacts", tok)).getJSONArray("artifacts");
             for (int k = 0; k < arts.length(); k++) {
                 JSONObject a = arts.getJSONObject(k);
-                if (ARTIFACT.equals(a.optString("name")) && !a.optBoolean("expired")) return new long[] { r.getLong("run_number"), a.getLong("id") };
+                if (ARTIFACT.equals(a.optString("name")) && !a.optBoolean("expired")) return new long[] { Long.parseLong(BuildConfig.MAJ_PREFIXE + r.getLong("run_number")), a.getLong("id") };   // (versionCode : prefixe + numero de la compilation, comme le .yml)
             }
         }
         return null;

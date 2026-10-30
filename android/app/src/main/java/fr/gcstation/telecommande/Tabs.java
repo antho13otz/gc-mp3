@@ -512,7 +512,7 @@ class PadTab extends Tab {
         st.setGravity(Gravity.CENTER);
         TextView start = key("START", "start", false);
         st.addView(start, new LinearLayout.LayoutParams(dp(120), dp(40)));
-        TextView full = Neon.btn(a, "⛶  Plein écran", 13, false, x -> ((MainActivity) a).fullPad(true));
+        TextView full = Neon.btn(a, "⛶  Plein écran", 13, false, x -> ((Host) a).fullPad(true));
         LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-2, dp(40));
         fp.leftMargin = dp(12);
         st.addView(full, fp);
@@ -572,7 +572,7 @@ class PadTab extends Tab {
         sr.setGravity(Gravity.CENTER);
         sr.setPadding(0, dp(10), 0, 0);
         sr.addView(key("START", "start", false), new LinearLayout.LayoutParams(dp(110), dp(42)));
-        TextView out = Neon.btn(a, "✕", 15, false, x -> ((MainActivity) a).fullPad(false));
+        TextView out = Neon.btn(a, "✕", 15, false, x -> ((Host) a).fullPad(false));
         out.setPadding(0, 0, 0, 0);
         LinearLayout.LayoutParams ol = new LinearLayout.LayoutParams(dp(42), dp(42));
         ol.leftMargin = dp(12);

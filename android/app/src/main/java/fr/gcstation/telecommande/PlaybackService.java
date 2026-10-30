@@ -122,7 +122,7 @@ public class PlaybackService extends Service {
         };
         session.setPlaybackToRemote(volume);
         me = this;
-        session.setSessionActivity(PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE));
+        session.setSessionActivity(PendingIntent.getActivity(this, 0, Host.home(this), PendingIntent.FLAG_IMMUTABLE));
         session.setActive(true);
     }
 
@@ -233,7 +233,7 @@ public class PlaybackService extends Service {
                        + (left == Long.MIN_VALUE ? "A + Z + START pour revenir à GC Station" : left > 0 ? "limite du jour à " + new java.text.SimpleDateFormat("HH:mm", java.util.Locale.FRANCE).format(new java.util.Date(g.start + g.leftMin * 60000L)) : "temps du jour écoulé");
             b.setSmallIcon(R.drawable.ic_stat).setContentTitle("En jeu : " + g.name).setContentText(txt).setColor(Neon.PINK)
              .setOngoing(true).setShowWhen(true).setWhen(g.start).setUsesChronometer(true).setVisibility(Notification.VISIBILITY_PUBLIC)
-             .setContentIntent(PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE))
+             .setContentIntent(PendingIntent.getActivity(this, 0, Host.home(this), PendingIntent.FLAG_IMMUTABLE))
              .addAction(new Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_close), "Fermer", act(ACT_STOP, 4)).build());
             return b.build();
         }
@@ -247,7 +247,7 @@ public class PlaybackService extends Service {
          .setOngoing(playing)
          .setShowWhen(false)
          .setVisibility(Notification.VISIBILITY_PUBLIC)
-         .setContentIntent(PendingIntent.getActivity(this, 0, new Intent(this, MainActivity.class), PendingIntent.FLAG_IMMUTABLE))
+         .setContentIntent(PendingIntent.getActivity(this, 0, Host.home(this), PendingIntent.FLAG_IMMUTABLE))
          .addAction(new Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_prev), "Précédent", act(ACT_PREV, 1)).build())
          .addAction(new Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(this, playing ? R.drawable.ic_pause : R.drawable.ic_play), playing ? "Pause" : "Lecture", act(ACT_TOGGLE, 2)).build())
          .addAction(new Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_next), "Suivant", act(ACT_NEXT, 3)).build())
@@ -262,7 +262,7 @@ public class PlaybackService extends Service {
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(c, CH_INFO) : new Notification.Builder(c);
         b.setSmallIcon(R.drawable.ic_stat).setContentTitle(title).setContentText(text).setColor(Neon.PINK).setAutoCancel(true)
          .setStyle(new Notification.BigTextStyle().bigText(text))
-         .setContentIntent(PendingIntent.getActivity(c, id, new Intent(c, MainActivity.class), PendingIntent.FLAG_IMMUTABLE));
+         .setContentIntent(PendingIntent.getActivity(c, id, Host.home(c), PendingIntent.FLAG_IMMUTABLE));
         try { c.getSystemService(NotificationManager.class).notify(id, b.build()); } catch (Exception e) { }
     }
 }
