@@ -75,8 +75,12 @@ final class Api {
         keys.execute(() -> get("/api/mouse?dx=" + dx + "&dy=" + dy + "&w=" + w + "&c=" + click, 1500));
     }
 
+    interface Sent { void on(long done); }                    // (progression d'un envoi, sur le fil de l'envoi)
+    static volatile int lastCode;                              // (code HTTP du dernier envoi : 503 = un autre envoi en cours)
+
     /** envoi d'un flux vers la carte SD de la console (PUT /upload) ; rend la reponse ou null */
-    static String put(String dir, String name, InputStream in, long size) {
+    static String put(String dir, String name, InputStream in, long size) { return put(dir, name, in, size, null); }
+    static String put(String dir, String name, InputStream in, long size, Sent prog) {
         HttpURLConnection c = null;
         try {
             c = (HttpURLConnection) new URL("http://" + host + "/upload?dir=" + dir + "&name=" + enc(name)).openConnection();
@@ -85,12 +89,15 @@ final class Api {
             c.setConnectTimeout(5000);
             c.setReadTimeout(60000);
             c.setFixedLengthStreamingMode(size);
+            lastCode = 0;
             OutputStream o = c.getOutputStream();
             byte[] buf = new byte[32768];
             int n;
-            while ((n = in.read(buf)) > 0) o.write(buf, 0, n);
+            long done = 0;
+            while ((n = in.read(buf)) > 0) { o.write(buf, 0, n); done += n; if (prog != null) prog.on(done); }
             o.close();
-            if (c.getResponseCode() != 200) return null;
+            lastCode = c.getResponseCode();
+            if (lastCode != 200) return null;
             InputStream r = c.getInputStream();
             ByteArrayOutputStream bo = new ByteArrayOutputStream();
             while ((n = r.read(buf)) > 0) bo.write(buf, 0, n);
