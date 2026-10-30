@@ -3162,7 +3162,7 @@ static const char *nat_boot(int k) {
     if (res) {
         ann_e1 = na_net_on ? 0 : ((u32)na_next * 12 + 31) & ~31u;
         u32 xtra = !strncmp(in.id, "GPO", 3) || !strncmp(in.id, "GPS", 3) ? 0x8000u : 0;   /* v253 : PSO : son vrai programme (PsoV3.dol) est branche pendant le jeu */
-        ann_tr = ((u32)in.nhit * 80 + 0x2400u + xtra + (gk > 0 ? (u32)na_gk_n * 4 : 0) + 31) & ~31u;
+        ann_tr = ((u32)in.nhit * 80 + 0x2400u + xtra + (gk > 0 ? (u32)na_gk_n * 4 : 0) + (u32)na_ach_w * 4 + 31) & ~31u;   /* (v268 : + succes) */
         ann = ann_tr + ann_e1 + (na_net_on ? 0 : ((u32)na_n2 * 12 + 31) & ~31u);
         bi2_dest = NATRES_AT - ann - NA_BI2;
         fst_dest = (bi2_dest - in.fst_max) & ~31u;

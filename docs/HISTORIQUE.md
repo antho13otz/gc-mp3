@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v268 (build 745) — Succès dans les jeux GameCube
+## Nouveautés v268 (build 749) — Succès dans les jeux GameCube
 - **Pulse vérifie des succès pendant le jeu** : une fois par image, il lit quelques valeurs dans la mémoire du jeu
   (vies, rubis, pièces…) et les compare à la condition de chaque succès. Un succès n'est obtenu qu'après avoir vu sa
   condition fausse au moins une fois (pas d'un coup au démarrage, mémoire pas encore remplie), puis vraie pendant
@@ -40,8 +40,13 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   Zelda Wind Waker (rubis, portefeuille, cœurs), Mario Party 4 (pièces et étoiles du joueur 1), Mario Sunshine (vies).
 - Les définitions de RetroAchievements ne sont pas utilisables : leur API publique ne donne pas les conditions, et
   le canal qui les donne est réservé aux émulateurs agréés.
-- Banc de Pulse : la carte SD émulée accepte les écritures ; test des succès (armement, 3 images, pointeur, secteur
-  écrit). Le journal du jeu passe à 6 secteurs (3 Ko).
+- Côté Pulse : la vérification est écrite en assembleur PowerPC (même taille avec le compilateur de la console et
+  celui du banc d'essai) : le résident n'avait plus que 576 octets libres, **il est maintenant plein**
+  (fin à 0x817FFF00, la limite) ; toute nouvelle fonction de Pulse devra d'abord libérer de la place. Pas de succès
+  pour un jeu qui a des corrections « FIXT » (Pulse ne chercherait pas la section) : c'est écrit dans
+  `dernier-lancement.txt`.
+- Banc de Pulse : la carte SD émulée accepte les écritures ; test des succès (armement, 3 images, tailles 1 / 2 / 4,
+  pointeur, secteur écrit). Le journal du jeu passe à 6 secteurs (3 Ko).
 
 ## Nouveautés v267 (build 743) — Journal du jeu complet
 - **`journal-jeu.txt` montre tout ce que Pulse note** :
