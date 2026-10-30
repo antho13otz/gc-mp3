@@ -5,7 +5,9 @@ package fr.gcstation.telecommande
 // lumiere, reflet du plastique, ombre, rendu a la frequence de l'ecran.
 // La jaquette complete (dos | tranche | avant) vient de GameTDB en HQ, telechargee par le telephone (Internet), gardee
 // dans le cache de l'appli ; sinon la jaquette avant (HQ de GameTDB, ou celle de la console).
-// Doigt : tourner ; deux doigts : zoom ; double toucher : ouvrir / fermer le boitier (le disque est dedans).
+// Boitier comme le vrai : plastique noir a coins arrondis, jaquette sous film transparent, support hexagonal et ergot
+// du disque, attaches de la notice ; le disque du jeu (image de GameTDB) sur l'ergot, qu'on peut sortir.
+// Doigt : tourner (elle revient sur la face la plus proche) ; boutons Avant / Tranche / Dos ; double toucher : ouvrir.
 
 import android.content.Context
 import android.graphics.Bitmap
@@ -73,6 +75,17 @@ import javax.microedition.khronos.egl.EGLDisplay
 import javax.microedition.khronos.opengles.GL10
 import kotlin.math.max
 import kotlin.math.min
+import fr.gcstation.telecommande.Geo.X
+import fr.gcstation.telecommande.Geo.Z
+import fr.gcstation.telecommande.Geo.P_BAC
+import fr.gcstation.telecommande.Geo.P_COUV
+import fr.gcstation.telecommande.Geo.P_DISQUE
+import fr.gcstation.telecommande.Geo.P_SOL
+import fr.gcstation.telecommande.Geo.M_FULL
+import fr.gcstation.telecommande.Geo.M_AVANT
+import fr.gcstation.telecommande.Geo.M_DISQUE
+import fr.gcstation.telecommande.Geo.M_DESSOUS
+import fr.gcstation.telecommande.Geo.M_OMBRE
 
 // ------------------------------------------------------------------ jaquettes de GameTDB (HQ)
 object JaquettesHQ {
@@ -119,32 +132,35 @@ object JaquettesHQ {
     }
 
     /** {jaquette complete (dos|tranche|avant) ou null, jaquette avant ou null} */
-    suspend fun charger(dir: File, id: String): Pair<Bitmap?, Bitmap?> = withContext(Dispatchers.IO) {
+    /** jaquette complete (dos|tranche|avant), jaquette avant (sans complete), image du disque : null si pas trouvee */
+    class Images(val full: Bitmap?, val avant: Bitmap?, val disque: Bitmap?)
+    suspend fun charger(dir: File, id: String): Images = withContext(Dispatchers.IO) {
         val full = image(dir, "coverfullHQ", id) ?: image(dir, "coverfull", id)
         val avant = if (full != null) null else image(dir, "coverHQ", id) ?: Jaquettes.bitmap(dir, id)
-        full to avant
+        Images(full, avant, image(dir, "disc", id))
     }
 }
 
 // ------------------------------------------------------------------ ecran : la boite en plein ecran
 @Composable
 fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> Unit)?, fermer: () -> Unit) {
-    var etat by remember { mutableStateOf("Recherche de la jaquette complète…") }
+    var etat by remember { mutableStateOf("Recherche de la jaquette complète et du disque…") }
     var vue by remember { mutableStateOf<BoiteVue?>(null) }
     var ouvert by remember { mutableStateOf(false) }
+    var sorti by remember { mutableStateOf(false) }
     LaunchedEffect(id, vue) {
         val v = vue ?: return@LaunchedEffect
-        val (full, avant) = JaquettesHQ.charger(act.cacheDir, id)
-        etat = when {
-            full != null -> "Jaquette complète " + full.width + "×" + full.height + " (GameTDB)"
-            avant != null -> "Jaquette avant seulement (pas de jaquette complète pour ce jeu)"
-            else -> "Pas de jaquette pour ce jeu"
-        }
-        v.textures(full, avant, nom, id)
+        val im = JaquettesHQ.charger(act.cacheDir, id)
+        etat = (when {
+            im.full != null -> "Jaquette complète " + im.full.width + "×" + im.full.height
+            im.avant != null -> "Jaquette avant seulement"
+            else -> "Pas de jaquette"
+        }) + " · " + (if (im.disque != null) "disque du jeu" else "pas d'image du disque") + " (GameTDB)"
+        v.textures(im, nom, id)
     }
     Dialog(onDismissRequest = fermer, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(C.Fond)) {
-            AndroidView({ c -> BoiteVue(c).also { b -> b.surOuvert = { o -> ouvert = o }; vue = b } }, Modifier.fillMaxSize())
+            AndroidView({ c -> BoiteVue(c).also { b -> b.surOuvert = { o, s -> ouvert = o; sorti = s }; vue = b } }, Modifier.fillMaxSize())
             Column(Modifier.fillMaxWidth().statusBarsPadding().padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -155,10 +171,18 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
                 }
             }
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Doux("Glisse pour tourner · deux doigts pour zoomer · double toucher pour ouvrir", taille = 11, couleur = C.Pale, centre = true)
+                Doux(if (sorti) "Glisse pour faire tourner le disque" else "Glisse pour tourner (elle s'arrête sur la face la plus proche) · double toucher : ouvrir",
+                    taille = 11, couleur = C.Pale, centre = true)
+                Spacer(Modifier.height(10.dp))
+                if (!ouvert) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
+                    Puce("Avant", false) { vue?.face(0) }
+                    Puce("Tranche", false) { vue?.face(1) }
+                    Puce("Dos", false) { vue?.face(2) }
+                }
                 Spacer(Modifier.height(10.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Bouton(if (ouvert) "Fermer le boîtier" else "Ouvrir le boîtier", Modifier.weight(1f)) { vue?.basculer() }
+                    Bouton(if (ouvert) "Fermer" else "Ouvrir le boîtier", Modifier.weight(1f)) { vue?.basculer() }
+                    if (ouvert) Bouton(if (sorti) "Ranger le disque" else "Sortir le disque", Modifier.weight(1f)) { vue?.disque() }
                     if (lancer != null) Bouton("Jouer", Modifier.weight(1f), plein = true, icone = Ic.Lecture) { lancer() }
                 }
             }
@@ -169,20 +193,20 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
 // ------------------------------------------------------------------ la vue OpenGL
 class BoiteVue(ctx: Context) : GLSurfaceView(ctx) {
     private val r = Rendu()
-    var surOuvert: ((Boolean) -> Unit)? = null
+    var surOuvert: ((Boolean, Boolean) -> Unit)? = null
     private val pinch = ScaleGestureDetector(ctx, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(d: ScaleGestureDetector): Boolean { r.zoom = (r.zoom * d.scaleFactor).coerceIn(0.6f, 3f); r.touche(); return true }
     })
     private val gestes = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
-        override fun onDown(e: MotionEvent): Boolean { r.vYaw = 0f; r.vPitch = 0f; r.touche(); return true }
+        override fun onDown(e: MotionEvent): Boolean { r.tient = true; r.vYaw = 0f; r.touche(); return true }
         override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float): Boolean {
             if (e2.pointerCount > 1) return true
             val k = 160f / resources.displayMetrics.densityDpi
-            r.yaw -= dx * 0.45f * k * 2; r.pitch = (r.pitch - dy * 0.35f * k * 2).coerceIn(-70f, 70f); r.touche(); return true
+            if (r.sortirVers > 0.5f) { r.tourne -= dx * 0.9f * k; return true }           // (disque sorti : on le fait tourner)
+            r.yaw -= dx * 0.8f * k; r.pitch = (r.pitch - dy * 0.35f * k).coerceIn(-28f, 28f); r.touche(); return true
         }
         override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
-            val k = 160f / resources.displayMetrics.densityDpi
-            r.vYaw = vx * 0.45f * k * 2; r.vPitch = vy * 0.2f * k * 2; return true
+            r.vYaw = vx * 0.8f * 160f / resources.displayMetrics.densityDpi; return true
         }
         override fun onDoubleTap(e: MotionEvent): Boolean { basculer(); return true }
     })
@@ -194,18 +218,28 @@ class BoiteVue(ctx: Context) : GLSurfaceView(ctx) {
         renderMode = RENDERMODE_CONTINUOUSLY
     }
 
-    fun basculer() { r.ouvrirVers = if (r.ouvrirVers > 0.5f) 0f else 1f; r.touche(); val o = r.ouvrirVers > 0.5f; post { surOuvert?.invoke(o) } }
+    private fun dire() { val o = r.ouvrirVers > 0.5f; val s = r.sortirVers > 0.5f; post { surOuvert?.invoke(o, s) } }
+    fun basculer() {
+        if (r.ouvrirVers > 0.5f) { r.ouvrirVers = 0f; r.sortirVers = 0f } else { r.ouvrirVers = 1f; r.vers(0f) }
+        r.touche(); dire()
+    }
+    fun disque() { if (r.ouvrirVers > 0.5f) { r.sortirVers = if (r.sortirVers > 0.5f) 0f else 1f; r.touche(); dire() } }
 
-    fun textures(full: Bitmap?, avant: Bitmap?, nom: String, id: String) {
-        val disque = Rendu.disque(nom, id)
-        queueEvent { r.charger(full, avant, disque) }
+    fun textures(im: JaquettesHQ.Images, nom: String, id: String) {
+        val face = Rendu.disque(nom, id, im.disque)
+        val dessous = Rendu.dessousDisque()
+        queueEvent { r.charger(im.full, im.avant, face, dessous) }
     }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         pinch.onTouchEvent(e)
         gestes.onTouchEvent(e)
+        if (e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL) r.lacher()
         return true
     }
+
+    /** montrer une face : 0 avant, 1 tranche, 2 dos */
+    fun face(k: Int) { r.vers(Rendu.VUES[k]); }
 }
 
 /** antialiasing 4x si possible, sinon 2x, sinon sans */
@@ -229,7 +263,22 @@ private class Rendu : GLSurfaceView.Renderer {
     @Volatile var vYaw = 0f
     @Volatile var vPitch = 0f
     @Volatile var ouvrirVers = 0f
+    @Volatile var sortirVers = 0f
+    @Volatile var tient = false                                   // (un doigt sur l'ecran)
+    @Volatile private var cible = 14f                             // (angle ou la boite va d'elle-meme ; NaN : nulle part)
     private var ouvert = 0f
+    private var sorti = 0f
+    @Volatile var tourne = 0f
+    /** le doigt se leve : la boite va sur la face la plus proche (en tenant compte de l'elan) */
+    fun lacher() {
+        tient = false
+        val p = yaw + vYaw * 0.3f
+        vYaw = 0f
+        var best = p; var d = 1e9f
+        for (a in VUES) { val base = a + 360f * Math.round((p - a) / 360f); val e = kotlin.math.abs(p - base); if (e < d) { d = e; best = base } }
+        cible = best
+    }
+    fun vers(a: Float) { cible = a + 360f * Math.round((yaw - a) / 360f); touche() }
     @Volatile private var toucheA = 0L
     fun touche() { toucheA = SystemClock.uptimeMillis() }
 
@@ -240,6 +289,7 @@ private class Rendu : GLSurfaceView.Renderer {
     private var texFull = 0
     private var texAvant = 0
     private var texDisque = 0
+    private var texDessous = 0
     private var texOmbre = 0
     private var aniso = 1f
     private var maxTex = 2048
@@ -249,94 +299,74 @@ private class Rendu : GLSurfaceView.Renderer {
     private val vueM = FloatArray(16)
     private val mod = FloatArray(16)
     private val lid = FloatArray(16)
+    private val dsq = FloatArray(16)
+    private val sol = FloatArray(16)
     private val tmp = FloatArray(16)
     private val mvp = FloatArray(16)
 
-    // ---- geometrie : [x y z nx ny nz u v] par sommet, 4 sommets par face ----
-    private class Face(val premier: Int, val mat: Int, val r: Float, val g: Float, val b: Float, val couvercle: Boolean)
-    private val faces = ArrayList<Face>()
+    private var maillage = Maillage()
     private var buf: FloatBuffer? = null
-    private var aFull = false
 
     companion object {
-        const val X = 0.75f
-        const val Y = 1.0f
-        const val Z = 0.073f
-        const val T = 0.022f                                      // (epaisseur du couvercle)
-        const val SP = 0.05f                                      // (jaquette complete : la tranche = 5 % au milieu)
-        const val M_FULL = 1; const val M_AVANT = 2; const val M_DISQUE = 3; const val M_OMBRE = 4; const val M_COULEUR = 0
+        val VUES = floatArrayOf(14f, 90f, 194f, 270f)              // (avant de trois quarts, tranche, dos, cote)
 
-        /** le mini-disque GameCube (8 cm) : argent iris, etiquette au nom du jeu */
-        fun disque(nom: String, id: String): Bitmap {
+        /** la face du disque : l'image du disque de GameTDB, sinon une etiquette au nom du jeu */
+        fun disque(nom: String, id: String, art: Bitmap?): Bitmap {
             val s = 1024
+            val b = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
+            val c = Canvas(b)
+            val p = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+            val m = s / 2f
+            p.shader = SweepGradient(m, m, intArrayOf(0xFFDADAE2.toInt(), 0xFFC8D8F0.toInt(), 0xFFE8D0EC.toInt(), 0xFFD0ECD8.toInt(), 0xFFF0E6C8.toInt(), 0xFFDADAE2.toInt()), null)
+            c.drawCircle(m, m, m, p)
+            p.shader = null
+            if (art != null) {
+                c.drawBitmap(art, null, android.graphics.RectF(0f, 0f, s.toFloat(), s.toFloat()), p)
+            } else {
+                p.shader = RadialGradient(m, m * 0.7f, m * 0.95f, intArrayOf(0xFF6A3CC8.toInt(), 0xFF2A1450.toInt()), null, Shader.TileMode.CLAMP)
+                c.drawCircle(m, m, m * 0.96f, p)
+                p.shader = null
+                p.color = 0xFFF4EEFF.toInt(); p.textAlign = Paint.Align.CENTER; p.typeface = Typeface.DEFAULT_BOLD
+                var ts = 70f
+                p.textSize = ts
+                while (p.measureText(nom) > s * 0.7f && ts > 26) { ts -= 2; p.textSize = ts }
+                c.drawText(nom, m, m - m * 0.42f, p)
+                p.textSize = 44f; p.color = 0xFFFF2FD0.toInt()
+                c.drawText(id, m, m + m * 0.55f, p)
+            }
+            p.color = 0xFFBFC2CC.toInt(); p.style = Paint.Style.FILL               // (anneau transparent du centre, comme un vrai disque)
+            c.drawCircle(m, m, m * 0.30f, p)
+            p.color = 0xFF9EA2AE.toInt()
+            c.drawCircle(m, m, m * 0.24f, p)
+            return b
+        }
+
+        /** le dessous du disque : la face gravee, irisee */
+        fun dessousDisque(): Bitmap {
+            val s = 512
             val b = Bitmap.createBitmap(s, s, Bitmap.Config.ARGB_8888)
             val c = Canvas(b)
             val p = Paint(Paint.ANTI_ALIAS_FLAG)
             val m = s / 2f
-            p.shader = SweepGradient(m, m, intArrayOf(0xFFE8E8F0.toInt(), 0xFFB8D8FF.toInt(), 0xFFF0C8F8.toInt(), 0xFFD8F8E0.toInt(), 0xFFFFF0C0.toInt(), 0xFFE8E8F0.toInt()), null)
-            c.drawCircle(m, m, m - 2, p)
-            p.shader = RadialGradient(m, m, m, intArrayOf(0x00FFFFFF, 0x30FFFFFF, 0x00000000), floatArrayOf(0.3f, 0.7f, 1f), Shader.TileMode.CLAMP)
-            c.drawCircle(m, m, m - 2, p)
-            p.shader = null
-            p.color = 0xFF2A1450.toInt()                                       // (etiquette)
-            c.drawCircle(m, m, m * 0.62f, p)
-            p.shader = RadialGradient(m, m * 0.7f, m * 0.62f, intArrayOf(0xFF6A3CC8.toInt(), 0xFF2A1450.toInt()), null, Shader.TileMode.CLAMP)
-            c.drawCircle(m, m, m * 0.6f, p)
-            p.shader = null
-            p.color = 0xFFF4EEFF.toInt(); p.textAlign = Paint.Align.CENTER; p.typeface = Typeface.DEFAULT_BOLD
-            var ts = 64f
-            p.textSize = ts
-            while (p.measureText(nom) > s * 0.62f && ts > 26) { ts -= 2; p.textSize = ts }
-            c.drawText(nom, m, m - m * 0.33f, p)
-            p.textSize = 40f; p.color = 0xFFFF2FD0.toInt()
-            c.drawText(id, m, m + m * 0.42f, p)
-            p.color = 0xFFC8C8D8.toInt()                                       // (centre transparent, anneau)
-            c.drawCircle(m, m, m * 0.2f, p)
-            p.xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.CLEAR)
-            c.drawCircle(m, m, m * 0.12f, p)
+            p.shader = SweepGradient(m, m, intArrayOf(0xFFB8C0D8.toInt(), 0xFF98E0F0.toInt(), 0xFFE0A8F0.toInt(), 0xFFF0E098.toInt(), 0xFFA8F0B8.toInt(), 0xFFB8C0D8.toInt()), null)
+            c.drawCircle(m, m, m, p)
+            p.shader = RadialGradient(m, m, m, intArrayOf(0x40FFFFFF, 0x00FFFFFF, 0x30000000), floatArrayOf(0.3f, 0.6f, 1f), Shader.TileMode.CLAMP)
+            c.drawCircle(m, m, m, p)
             return b
         }
+
     }
 
     private fun construire(full: Boolean) {
-        aFull = full
-        faces.clear()
-        val v = ArrayList<Float>()
-        fun quad(p: Array<FloatArray>, n: FloatArray, uv: Array<FloatArray>, mat: Int, col: Int, couv: Boolean) {
-            faces.add(Face(v.size / 8, mat, ((col shr 16) and 255) / 255f, ((col shr 8) and 255) / 255f, (col and 255) / 255f, couv))
-            for (k in 0..3) { v.add(p[k][0]); v.add(p[k][1]); v.add(p[k][2]); v.add(n[0]); v.add(n[1]); v.add(n[2]); v.add(uv[k][0]); v.add(uv[k][1]) }
-        }
-        fun f(x: Float, y: Float, z: Float) = floatArrayOf(x, y, z)
-        fun t(u: Float, w: Float) = floatArrayOf(u, w)
-        val ub = (1 - SP) / 2; val uf = (1 + SP) / 2
-        val plast = 0x1C1626; val bord = 0x2A2238
-        val zi = Z - T                                                          // (fond du bac = interieur du couvercle)
-        // bac
-        if (full) quad(arrayOf(f(X, Y, -Z), f(-X, Y, -Z), f(-X, -Y, -Z), f(X, -Y, -Z)), f(0f, 0f, -1f), arrayOf(t(0f, 0f), t(ub, 0f), t(ub, 1f), t(0f, 1f)), M_FULL, 0, false)
-        else quad(arrayOf(f(X, Y, -Z), f(-X, Y, -Z), f(-X, -Y, -Z), f(X, -Y, -Z)), f(0f, 0f, -1f), arrayOf(t(0f, 0f), t(1f, 0f), t(1f, 1f), t(0f, 1f)), M_COULEUR, 0x24183E, false)
-        if (full) quad(arrayOf(f(-X, Y, -Z), f(-X, Y, Z), f(-X, -Y, Z), f(-X, -Y, -Z)), f(-1f, 0f, 0f), arrayOf(t(ub, 0f), t(uf, 0f), t(uf, 1f), t(ub, 1f)), M_FULL, 0, false)
-        else quad(arrayOf(f(-X, Y, -Z), f(-X, Y, Z), f(-X, -Y, Z), f(-X, -Y, -Z)), f(-1f, 0f, 0f), arrayOf(t(0f, 0f), t(1f, 0f), t(1f, 1f), t(0f, 1f)), M_COULEUR, 0x6A2FA0, false)
-        quad(arrayOf(f(X, Y, zi), f(X, Y, -Z), f(X, -Y, -Z), f(X, -Y, zi)), f(1f, 0f, 0f), arrayOf(t(0f, 0f), t(1f, 0f), t(1f, 1f), t(0f, 1f)), M_COULEUR, bord, false)
-        quad(arrayOf(f(-X, Y, -Z), f(X, Y, -Z), f(X, Y, zi), f(-X, Y, zi)), f(0f, 1f, 0f), arrayOf(t(0f, 0f), t(1f, 0f), t(1f, 1f), t(0f, 1f)), M_COULEUR, bord, false)
-        quad(arrayOf(f(-X, -Y, zi), f(X, -Y, zi), f(X, -Y, -Z), f(-X, -Y, -Z)), f(0f, -1f, 0f), arrayOf(t(0f, 0f), t(1f, 0f), t(1f, 1f), t(0f, 1f)), M_COULEUR, plast, false)
-        quad(arrayOf(f(-X, Y, zi), f(X, Y, zi), f(X, -Y, zi), f(-X, -Y, zi)), f(0f, 0f, 1f), arrayOf(t(0f, 0f), t(1f, 0f), t(1f, 1f), t(0f, 1f)), M_COULEUR, 0x120E1A, false)
-        // couvercle (pivote sur la tranche : x = -X, z = Z)
-        if (full) quad(arrayOf(f(-X, Y, Z), f(X, Y, Z), f(X, -Y, Z), f(-X, -Y, Z)), f(0f, 0f, 1f), arrayOf(t(uf, 0f), t(1f, 0f), t(1f, 1f), t(uf, 1f)), M_FULL, 0, true)
-        else quad(arrayOf(f(-X, Y, Z), f(X, Y, Z), f(X, -Y, Z), f(-X, -Y, Z)), f(0f, 0f, 1f), arrayOf(t(0f, 0f), t(1f, 0f), t(1f, 1f), t(0f, 1f)), M_AVANT, 0x46288C, true)
-        quad(arrayOf(f(X, Y, zi), f(-X, Y, zi), f(-X, -Y, zi), f(X, -Y, zi)), f(0f, 0f, -1f), arrayOf(t(0f, 0f), t(1f, 0f), t(1f, 1f), t(0f, 1f)), M_COULEUR, 0x5C469C, true)
-        quad(arrayOf(f(X, Y, Z), f(X, Y, zi), f(X, -Y, zi), f(X, -Y, Z)), f(1f, 0f, 0f), arrayOf(t(0f, 0f), t(1f, 0f), t(1f, 1f), t(0f, 1f)), M_COULEUR, bord, true)
-        quad(arrayOf(f(-X, Y, zi), f(X, Y, zi), f(X, Y, Z), f(-X, Y, Z)), f(0f, 1f, 0f), arrayOf(t(0f, 0f), t(1f, 0f), t(1f, 1f), t(0f, 1f)), M_COULEUR, bord, true)
-        quad(arrayOf(f(-X, -Y, Z), f(X, -Y, Z), f(X, -Y, zi), f(-X, -Y, zi)), f(0f, -1f, 0f), arrayOf(t(0f, 0f), t(1f, 0f), t(1f, 1f), t(0f, 1f)), M_COULEUR, plast, true)
-        // disque (pose dans le bac) puis ombre au sol (dessines a part, avec transparence)
-        val dr = 0.445f; val dz = zi + 0.004f; val dx = 0.06f
-        quad(arrayOf(f(dx - dr, dr, dz), f(dx + dr, dr, dz), f(dx + dr, -dr, dz), f(dx - dr, -dr, dz)), f(0f, 0f, 1f), arrayOf(t(0f, 0f), t(1f, 0f), t(1f, 1f), t(0f, 1f)), M_DISQUE, 0, false)
-        val sy = -Y - 0.02f
-        quad(arrayOf(f(-1.5f, sy, -0.9f), f(1.5f, sy, -0.9f), f(1.5f, sy, 0.9f), f(-1.5f, sy, 0.9f)), f(0f, 1f, 0f), arrayOf(t(0f, 0f), t(1f, 0f), t(1f, 1f), t(0f, 1f)), M_OMBRE, 0, false)
-        val fb = ByteBuffer.allocateDirect(v.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
-        for (x in v) fb.put(x)
+        val m = boitier(full, texAvant != 0)
+        val fb = ByteBuffer.allocateDirect(m.v.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+        for (x in m.v) fb.put(x)
         fb.position(0)
+        maillage = m
         buf = fb
     }
+    /** hauteur du disque pose sur l'ergot, dans le bac */
+    private val zDisque get() = -Z + 0.016f + 0.008f + 0.012f
 
     // ---- textures ----
     private fun pot(n: Int): Int { var p = 1; while (p < n) p = p shl 1; return min(p, maxTex) }
@@ -360,12 +390,13 @@ private class Rendu : GLSurfaceView.Renderer {
         return id[0]
     }
 
-    private var garde: Triple<Bitmap?, Bitmap?, Bitmap>? = null             // (pour recharger si la surface est recreee)
-    fun charger(full: Bitmap?, avant: Bitmap?, disque: Bitmap) {
-        garde = Triple(full, avant, disque)
+    private var garde: Array<Bitmap?>? = null                     // (pour recharger si la surface est recreee)
+    fun charger(full: Bitmap?, avant: Bitmap?, disque: Bitmap, dessous: Bitmap) {
+        garde = arrayOf(full, avant, disque, dessous)
         texFull = texture(full, texFull)
         texAvant = texture(avant, texAvant)
         texDisque = texture(disque, texDisque)
+        texDessous = texture(dessous, texDessous)
         construire(full != null)
     }
 
@@ -394,10 +425,11 @@ private class Rendu : GLSurfaceView.Renderer {
             vec3 n = normalize(vN);
             vec3 V = normalize(uEye - vW);
             if (dot(n, V) < 0.0) n = -n;
-            vec3 L1 = normalize(vec3(-0.45, 0.65, 1.0)), L2 = normalize(vec3(0.9, -0.15, 0.5));
-            float d = max(dot(n, L1), 0.0) * 0.8 + max(dot(n, L2), 0.0) * 0.3;
-            float s = pow(max(dot(n, normalize(L1 + V)), 0.0), 70.0) * 0.55 * uGloss + pow(max(dot(n, normalize(L2 + V)), 0.0), 40.0) * 0.15 * uGloss;
-            float rim = pow(1.0 - max(dot(n, V), 0.0), 3.0) * 0.28;
+            vec3 L1 = normalize(vec3(-0.45, 0.65, 1.0)), L2 = normalize(vec3(0.9, -0.15, 0.5)), L3 = normalize(vec3(0.0, 1.0, -0.6));
+            float d = max(dot(n, L1), 0.0) * 0.8 + max(dot(n, L2), 0.0) * 0.3 + max(dot(n, L3), 0.0) * 0.2;
+            float sh = 30.0 + 40.0 * uGloss;
+            float s = (pow(max(dot(n, normalize(L1 + V)), 0.0), sh) * 0.45 + pow(max(dot(n, normalize(L2 + V)), 0.0), sh * 0.6) * 0.12) * uGloss;
+            float rim = pow(1.0 - max(dot(n, V), 0.0), 3.0) * 0.22;
             vec3 c = base.rgb * (0.30 + 0.85 * d) + vec3(s) + vec3(0.75, 0.45, 1.0) * rim;
             gl_FragColor = vec4(c, base.a);
         }
@@ -420,18 +452,18 @@ private class Rendu : GLSurfaceView.Renderer {
         GLES20.glLinkProgram(p)
         return p
     }
-    private val fond: FloatBuffer = ByteBuffer.allocateDirect(8 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)); position(0) }
+    private val fondBuf: FloatBuffer = ByteBuffer.allocateDirect(8 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().apply { put(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)); position(0) }
 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         prog = programme(VS, FS)
         progFond = programme(VS_FOND, FS_FOND)
         val ext = GLES20.glGetString(GLES20.GL_EXTENSIONS) ?: ""
         if (ext.contains("GL_EXT_texture_filter_anisotropic")) { val a = FloatArray(1); GLES20.glGetFloatv(0x84FF, a, 0); aniso = max(1f, a[0]) }
-        val m = IntArray(1); GLES20.glGetIntegerv(GLES20.GL_MAX_TEXTURE_SIZE, m, 0); maxTex = min(8192, max(2048, m[0]))
-        texFull = 0; texAvant = 0; texDisque = 0
+        val mx = IntArray(1); GLES20.glGetIntegerv(GLES20.GL_MAX_TEXTURE_SIZE, mx, 0); maxTex = min(8192, max(2048, mx[0]))
+        texFull = 0; texAvant = 0; texDisque = 0; texDessous = 0
         texOmbre = texture(ombre(), 0)
         construire(false)
-        garde?.let { (a, b, c) -> charger(a, b, c) }
+        garde?.let { g -> g[2]?.let { d -> g[3]?.let { u -> charger(g[0], g[1], d, u) } } }
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
     }
 
@@ -444,19 +476,23 @@ private class Rendu : GLSurfaceView.Renderer {
         val now = SystemClock.uptimeMillis()
         val dt = if (dernier == 0L) 0.016f else min(0.05f, (now - dernier) / 1000f)
         dernier = now
-        // inertie, rotation toute seule apres 3 s sans toucher, couvercle
-        yaw += vYaw * dt; pitch = (pitch + vPitch * dt).coerceIn(-70f, 70f)
-        vYaw *= (1 - min(1f, dt * 3.5f)); vPitch *= (1 - min(1f, dt * 3.5f))
-        if (now - toucheA > 3000) { yaw += 14f * dt; pitch += (8f - pitch) * min(1f, dt * 0.8f) }
-        ouvert += (ouvrirVers - ouvert) * min(1f, dt * 5f)
+        // inertie, rotation toute seule apres 3 s sans toucher, couvercle, disque
+        // (lachee : elle va doucement sur la face choisie, et se remet droite ; ouverte : bien de face)
+        if (!tient) {
+            val c = cible
+            if (!c.isNaN()) yaw += (c - yaw) * min(1f, dt * 6f)
+            pitch += ((if (ouvrirVers > 0.5f) 4f else 8f) - pitch) * min(1f, dt * 4f)
+        }
+        ouvert += (ouvrirVers - ouvert) * min(1f, dt * 4f)
+        sorti += (sortirVers - sorti) * min(1f, dt * 3.5f)
+        tourne += dt * 40f * sorti
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
-        // fond
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
         GLES20.glUseProgram(progFond)
         val ap = GLES20.glGetAttribLocation(progFond, "aP")
         GLES20.glEnableVertexAttribArray(ap)
-        GLES20.glVertexAttribPointer(ap, 2, GLES20.GL_FLOAT, false, 8, fond)
+        GLES20.glVertexAttribPointer(ap, 2, GLES20.GL_FLOAT, false, 8, fondBuf)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         GLES20.glDisableVertexAttribArray(ap)
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
@@ -464,18 +500,27 @@ private class Rendu : GLSurfaceView.Renderer {
         val b = buf ?: return
         val aspect = w.toFloat() / h
         Matrix.perspectiveM(proj, 0, if (aspect < 1) 34f else 26f, aspect, 0.1f, 60f)
-        val dist = (if (aspect < 1) 6.2f else 5.0f) * (1 + 0.4f * ouvert) / zoom      // (ouverte : plus large, on recule)
+        val dist = (if (aspect < 1) 6.6f else 5.2f) * (1 + 0.62f * ouvert * (1 - sorti * 0.6f)) / zoom
         val eye = floatArrayOf(0f, 0.35f, dist)
         Matrix.setLookAtM(vueM, 0, eye[0], eye[1], eye[2], 0f, -0.05f, 0f, 0f, 1f, 0f)
+        // boitier : ouvert a plat (175 degres, comme un livre), recentre
         Matrix.setIdentityM(mod, 0)
-        Matrix.translateM(mod, 0, ouvert * 0.65f, 0f, 0f)                 // (ouverte : recentree)
+        Matrix.translateM(mod, 0, ouvert * 0.74f, 0f, 0f)
         Matrix.rotateM(mod, 0, pitch, 1f, 0f, 0f)
         Matrix.rotateM(mod, 0, yaw, 0f, 1f, 0f)
-        // couvercle : pivote autour de la charniere (x = -X, z = Z), jusqu'a 150 degres, comme un livre
         System.arraycopy(mod, 0, lid, 0, 16)
         Matrix.translateM(lid, 0, -X, 0f, Z)
-        Matrix.rotateM(lid, 0, -150f * ouvert, 0f, 1f, 0f)
+        Matrix.rotateM(lid, 0, -175f * ouvert, 0f, 1f, 0f)
         Matrix.translateM(lid, 0, X, 0f, -Z)
+        // disque : pose sur l'ergot, ou sorti devant nous (il tourne doucement)
+        val pos = FloatArray(4)
+        Matrix.multiplyMV(pos, 0, mod, 0, floatArrayOf(0f, 0f, zDisque, 1f), 0)
+        val fx = 0f; val fy = 0.1f; val fz = dist * 0.42f
+        Matrix.setIdentityM(dsq, 0)
+        Matrix.translateM(dsq, 0, pos[0] + (fx - pos[0]) * sorti, pos[1] + (fy - pos[1]) * sorti, pos[2] + (fz - pos[2]) * sorti)
+        Matrix.rotateM(dsq, 0, pitch * (1 - sorti) + 12f * sorti, 1f, 0f, 0f)
+        Matrix.rotateM(dsq, 0, yaw * (1 - sorti) + (tourne % 360f) * sorti, 0f, 1f, 0f)
+        Matrix.setIdentityM(sol, 0); Matrix.translateM(sol, 0, ouvert * 0.74f, 0f, 0f)
 
         GLES20.glUseProgram(prog)
         val aP = GLES20.glGetAttribLocation(prog, "aP"); val aN = GLES20.glGetAttribLocation(prog, "aN"); val aT = GLES20.glGetAttribLocation(prog, "aT")
@@ -490,47 +535,31 @@ private class Rendu : GLSurfaceView.Renderer {
         GLES20.glUniform1i(GLES20.glGetUniformLocation(prog, "uTex"), 0)
         GLES20.glUniform3f(uEye, eye[0], eye[1], eye[2])
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
-
         fun matrices(m: FloatArray) {
             Matrix.multiplyMM(tmp, 0, vueM, 0, m, 0)
             Matrix.multiplyMM(mvp, 0, proj, 0, tmp, 0)
             GLES20.glUniformMatrix4fv(uMVP, 1, false, mvp, 0)
             GLES20.glUniformMatrix4fv(uM, 1, false, m, 0)
         }
-        fun dessiner(f: Face) {
-            val tex = when (f.mat) { M_FULL -> texFull; M_AVANT -> texAvant; M_DISQUE -> texDisque; M_OMBRE -> texOmbre; else -> 0 }
-            if (tex != 0) { GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex); GLES20.glUniform1f(uUse, 1f) } else GLES20.glUniform1f(uUse, 0f)
-            GLES20.glUniform4f(uCol, f.r, f.g, f.b, 1f)
-            GLES20.glUniform1f(uGloss, if (f.mat == M_DISQUE) 1.6f else 1f)
-            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_FAN, f.premier, 4)
+        fun dessiner(piece: Int) {
+            for (g in maillage.groupes) {
+                if (g.piece != piece) continue
+                val tex = when (g.mat) { M_FULL -> texFull; M_AVANT -> texAvant; M_DISQUE -> texDisque; M_DESSOUS -> texDessous; M_OMBRE -> texOmbre; else -> 0 }
+                if (tex != 0) { GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex); GLES20.glUniform1f(uUse, 1f) } else GLES20.glUniform1f(uUse, 0f)
+                GLES20.glUniform4f(uCol, g.r, g.g, g.b, 1f)
+                GLES20.glUniform1f(uGloss, g.brillant)
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLES, g.premier, g.nombre)
+            }
         }
-        // ombre au sol (sans rotation : elle reste sous la boite)
-        val sol = FloatArray(16); Matrix.setIdentityM(sol, 0); Matrix.translateM(sol, 0, ouvert * 0.65f, 0f, 0f)
+        // ombre au sol (elle reste sous la boite)
         GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
         GLES20.glDepthMask(false)
-        matrices(sol); GLES20.glUniform1f(uFlat, 1f)
-        for (f in faces) if (f.mat == M_OMBRE) dessiner(f)
+        matrices(sol); GLES20.glUniform1f(uFlat, 1f); dessiner(P_SOL)
         GLES20.glDepthMask(true); GLES20.glDisable(GLES20.GL_BLEND)
         GLES20.glUniform1f(uFlat, 0f)
-        // la boite
-        matrices(mod)
-        for (f in faces) if (!f.couvercle && f.mat != M_DISQUE && f.mat != M_OMBRE) dessiner(f)
-        matrices(lid)
-        for (f in faces) if (f.couvercle) dessiner(f)
-        // le disque, quand le boitier s'ouvre
-        if (ouvert > 0.02f && texDisque != 0) {
-            GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
-            matrices(mod)
-            for (f in faces) if (f.mat == M_DISQUE) dessiner(f)
-            GLES20.glDisable(GLES20.GL_BLEND)
-        }
+        matrices(mod); dessiner(P_BAC)
+        matrices(lid); dessiner(P_COUV)
+        if (ouvert > 0.02f) { matrices(dsq); dessiner(P_DISQUE) }
         GLES20.glDisableVertexAttribArray(aP); GLES20.glDisableVertexAttribArray(aN); GLES20.glDisableVertexAttribArray(aT)
     }
 }
-
-@Suppress("unused")
-private val degradeFond = Brush.verticalGradient(listOf(Color(0xFF120624), Color(0xFF07020F)))
-@Suppress("unused")
-private fun centre() = TextAlign.Center
-@Suppress("unused")
-private fun espace() = Modifier.width(1.dp)
