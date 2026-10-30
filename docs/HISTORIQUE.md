@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v283 (build à venir) — Boîte 3D : les vraies jaquettes devant, derrière et sur la tranche
+## Nouveautés v283 (build 770) — Boîte 3D : les vraies jaquettes devant, derrière et sur la tranche
 - La boîte 3D de la fiche prend maintenant la **jaquette complète** du jeu sur GameTDB (dos | tranche | avant) :
   le **dos** et la **tranche** sont les vrais, comme le boîtier du commerce.
 - Téléchargée **seulement pour le jeu dont tu ouvres la fiche** (avec le réseau), une seule fois, rangée toute prête
