@@ -72,8 +72,9 @@ static int sj_term(const char *s, u32 *t) {
         if (sj_lit(&s, "+") && !sj_num(&s, &off)) return 0;
     } else if (!sj_num(&s, &ad)) return 0;
     if (!sj_lit(&s, ")")) return 0;
-    if (sj_lit(&s, "==")) cmp = 0; else if (sj_lit(&s, "!=")) cmp = 1; else if (sj_lit(&s, ">=")) cmp = 2;
-    else if (sj_lit(&s, "<=")) cmp = 3; else if (sj_lit(&s, ">")) cmp = 4; else if (sj_lit(&s, "<")) cmp = 5; else return 0;
+    /* (pour Pulse : masque des resultats qui rendent le terme vrai : bit 0 plus petit, bit 1 egal, bit 2 plus grand) */
+    if (sj_lit(&s, "==")) cmp = 2; else if (sj_lit(&s, "!=")) cmp = 5; else if (sj_lit(&s, ">=")) cmp = 6;
+    else if (sj_lit(&s, "<=")) cmp = 3; else if (sj_lit(&s, ">")) cmp = 4; else if (sj_lit(&s, "<")) cmp = 1; else return 0;
     if (!sj_num(&s, &val)) return 0;
     while (*s == ' ') s++;
     if (*s) return 0;

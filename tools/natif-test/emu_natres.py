@@ -174,9 +174,9 @@ if ACH:
     blk_ = 0x80700000
     words = [0]                                        # (aucun cheat)
     words += [0x41434831, 2]
-    words += [1, 3, 0, 0, 0, (1 << 16) | (2 << 8), 0x80500003, 0, 10]              # vies >= 10, 3 images
-    words += [2, 1, 0, 0, 0, (1 << 24) | (2 << 16) | (2 << 8), 0x80500010, 0x20, 100,  # pieces (pointeur) >= 100
-                             (4 << 16) | (1 << 8), 0x80500010, 0, 0]                          # et pointeur != 0
+    words += [1, 3, 0, 0, 0, (1 << 16) | (6 << 8), 0x80500003, 0, 10]              # vies >= 10 (masque 6), 3 images
+    words += [2, 1, 0, 0, 0, (1 << 24) | (2 << 16) | (6 << 8), 0x80500010, 0x20, 100,  # pieces (pointeur) >= 100
+                             (4 << 16) | (5 << 8), 0x80500010, 0, 0]                          # et pointeur != 0 (masque 5)
     for i, w_ in enumerate(words): wr32(blk_ + i * 4, w_)
     import re                                          # (place de chts dans l'en-tete : lue dans natres.h)
     hs = open(os.environ['NATRES_H'], encoding='latin-1').read()
@@ -192,7 +192,9 @@ if ACH:
     hw(off_chts, blk_)
     def frame(n=1):
         for _ in range(n): hw(0x90, rd32(H + 0x90) + 1); call(ACH)
-    hw(0x90, 0); frame(400)                            # (avant 300 images : rien ; puis condition fausse : arme)
+    DIR_ = int(os.environ.get('EMU_DIREADY', '0'), 16)  # (carte deja demarree par le jeu : di_ready = 1)
+    if DIR_: wr32(DIR_, 1)
+    hw(0x90, 0); frame(400)                            # (condition fausse : arme)
     st = lambda i, k: rd32(blk_ + 4 * (3 + [0, 9][i] + k))
     assert st(0, 3) == 1 and st(1, 3) == 1, ('armes', st(0, 3), st(1, 3))
     mu.mem_write(0x80500003, b'\x0a'); frame(2)

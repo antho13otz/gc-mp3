@@ -1656,59 +1656,49 @@ static void gk_run(void) {
 
 /* ---------- v268 : succes (conditions sur la memoire du jeu, verifiees une fois par image) ----------
    Section a la suite des cheats (et de "FIXT") : {"ACH1", n, n x {termes, images, compte, etat, image,
-   termes x {type, adresse, decalage, valeur}}}. type = pointeur << 24 | taille (1, 2, 4) << 16 | comparaison << 8
-   (0 ==, 1 !=, 2 >=, 3 <=, 4 >, 5 <) ; pointeur : la valeur 32 bits lue a l'adresse + decalage. Un succes est
-   d'abord "arme" (sa condition a ete fausse au moins une fois : pas d'un coup au demarrage, memoire pas encore
-   remplie), puis obtenu quand elle reste vraie "images" fois de suite. Etat : 1 arme, 2 obtenu (image dans "image").
-   Les succes obtenus sont ecrits dans le 6e secteur du journal : "GCSA", n, n x {etat, image}. */
+   termes x {type, adresse, decalage, valeur}}}. type = pointeur << 24 | taille (1, 2, 4) << 16 | masque << 8 : le
+   masque dit quels resultats rendent le terme vrai (bit 0 : lu < valeur, bit 1 : egal, bit 2 : plus grand ; ex. >=
+   = 6) ; pointeur : la valeur 32 bits lue a l'adresse, + decalage. Un succes est d'abord "arme" (sa condition a ete
+   fausse au moins une fois : pas d'un coup au demarrage), puis obtenu quand elle reste vraie "images" fois de suite.
+   Etat : 1 arme, 2 obtenu (image dans "image"). Les succes obtenus sont ecrits dans le 6e secteur du journal :
+   "GCSA", n, n x {etat, image}. Pas d'attente au demarrage : l'armement suffit (la condition doit etre vue fausse).
+   (Le plus petit possible : le resident n'avait plus que 576 octets de libres.) */
 #define NATRES_ACH 0x41434831u
-static u32 *ach_p = 0, ach_seen = 0, ach_dirty = 0;
-static u8 achbuf[512] __attribute__((aligned(32)));
-static u32 ach_rd(u32 a, u32 sz) {
-    a &= ~(sz - 1);
-    if (!ram_ok(a, sz)) return 0;
+static u32 *ach_p = 0, ach_dirty = 0;                     /* (ach_p : 0 = pas encore cherche, 1 = pas de succes) */
+static u32 __attribute__((noinline)) ach_rd(u32 a, u32 sz) {
+    a &= -sz;
+    if (a - 0x80000000u > 0x017FFFFCu) return 0;          /* (memoire du jeu seulement) */
     return sz == 1 ? *(volatile u8 *)a : sz == 2 ? *(volatile unsigned short *)a : *(volatile u32 *)a;
 }
-static void ach_flush(void) {
-    if (!H.log_sec || exi_defer()) return;               /* (bus pris par le jeu : a l'image suivante) */
-    if (!di_ready) { if (H.net) return; di_ready = nr_init() == 0; if (!di_ready) return; }   /* (comme nr_log_flush) */
-    u32 n = ach_p[1], *a = ach_p + 2;
-    for (int i = 0; i < 512; i++) achbuf[i] = 0;
-    u32 *o = (u32 *)achbuf;
-    o[0] = 0x47435341u; o[1] = n;                         /* "GCSA" */
-    for (u32 i = 0; i < n && i < 63; i++) { o[2 + i * 2] = a[3]; o[3 + i * 2] = a[4]; a += 5 + a[0] * 4; }
-    if (nr_write_sd(H.log_sec + 5, achbuf) == 0) ach_dirty = 0;
-}
-void ach_run(void) __attribute__((used));
+void ach_run(void) __attribute__((used, optimize("Os")));
 void ach_run(void) {
-    if (!(H.flags & NRF_ACH) || !H.chts) return;
-    if (!ach_seen) {
-        ach_seen = 1;
-        u32 *q = (u32 *)H.chts;
-        q += 1 + q[0];
-        if (q[0] == NATRES_FIXT) q += 2 + q[1] * 3;
-        if (q[0] == NATRES_ACH && q[1] && q[1] <= 200) ach_p = q;
+    u32 *a = ach_p;
+    if (!a) {
+        a = (u32 *)H.chts;
+        a += 1 + a[0];
+        if (a[0] == NATRES_FIXT) a += 2 + a[1] * 3;
+        ach_p = a = a[0] == NATRES_ACH ? a : (u32 *)1;
     }
-    if (!ach_p || H.vi_count < 300) return;              /* (5 s : le jeu a eu le temps de remplir sa memoire) */
-    u32 n = ach_p[1], *a = ach_p + 2;
-    for (u32 i = 0; i < n; i++) {
-        u32 nt = a[0] > 8 ? 8 : a[0];
-        if (!(a[3] & 2)) {
-            int ok = 1;
-            for (u32 k = 0; k < nt && ok; k++) {
-                const u32 *t = a + 5 + k * 4;
-                u32 ty = t[0], sz = ty >> 16 & 7, cmp = ty >> 8 & 7, ad = t[1], c = t[3];
-                if (sz != 1 && sz != 2 && sz != 4) { ok = 0; break; }
-                if (ty >> 24) ad = ach_rd(ad, 4) + t[2];
-                u32 v = ach_rd(ad, sz);
-                ok = cmp == 0 ? v == c : cmp == 1 ? v != c : cmp == 2 ? v >= c : cmp == 3 ? v <= c : cmp == 4 ? v > c : v < c;
-            }
-            if (!ok) { a[3] |= 1; a[2] = 0; }
-            else if (a[3] & 1 && ++a[2] >= (a[1] ? a[1] : 1)) { a[3] |= 2; a[4] = H.vi_count; ach_dirty = 1; }
+    if ((u32)a == 1) return;
+    u32 n = a[1], *o = (u32 *)logbuf;                     /* (logbuf : nr_log_flush le remplit en entier avant d'ecrire) */
+    *o++ = 0x47435341u; *o++ = n;                         /* "GCSA" (GC Station : 63 succes au plus) */
+    for (a += 2; n; n--) {
+        u32 ok = 1, *t = a + 5;
+        for (u32 k = a[0]; k; k--, t += 4) {
+            u32 ad = t[0] >> 24 ? ach_rd(t[1], 4) + t[2] : t[1], v = ach_rd(ad, t[0] >> 16 & 7);
+            ok &= t[0] >> (8 + (v < t[3] ? 0 : v == t[3] ? 1 : 2));
         }
-        a += 5 + a[0] * 4;
+        u32 st = a[3];
+        if (!(st & 2)) {
+            if (!(ok & 1)) { st = 1; a[2] = 0; }
+            else if (st && ++a[2] >= a[1]) { st = 3; a[4] = H.vi_count; ach_dirty = 1; }
+            a[3] = st;
+        }
+        *o++ = st; *o++ = a[4];
+        a = t;
     }
-    if (ach_dirty) ach_flush();
+    /* (bus pris par le jeu, carte pas encore demarree : a l'image suivante) */
+    if (ach_dirty && di_ready && !exi_defer() && !nr_write_sd(H.log_sec + 5, logbuf)) ach_dirty = 0;
 }
 
 /* ---------- v61 : lectures en fond ----------
