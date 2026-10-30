@@ -65,6 +65,10 @@ static int gl_list_dirty = 0;
 static char gl_busy[96] = "";                            /* v27 : message "en cours" affiche par-dessus */
 static void gl_status(const char *m) { snprintf(gl_busy, sizeof(gl_busy), "%s", TR(m)); ui_status(m); }                            /* v27 : noms / descriptions lus dans les bannieres */
 static const char *gl_launch(int k);
+static void gl_dl_apply(void);                            /* v280 : jaquettes ajoutees */
+static void gl_note(const char *m);
+static int gs_dirty;
+#define GL_POST_DL 30000                                 /* (gl[k].post : jaquette ajoutee, pas dans posters.pak) */
 static const char *game_boot(int k, int resident);         /* v75 : lancement avec les reglages du jeu (jeux_cfg.c) */
 static const char *game_boot_auto(int k);                  /* v90 : Resident, ou le lanceur de secours si des cheats sont actives */
 static void nat_run(int k);                                /* v50 : lanceur natif, analyse (natif.c) */
@@ -493,6 +497,7 @@ static void gl_scan_full(int force) {
     swpk_open(&gl_post, GL_UI "/posters.pak", 256, 256);
     swpk_open(&gl_still, GL_UI "/stills.pak", 320, 240);
     for (int k = 0; k < gl_n; k++) { gl[k].post = (s16)swpk_find(&gl_post, gl[k].id); gl[k].still = (s16)swpk_find(&gl_still, gl[k].id); }
+    gl_dl_apply();                                       /* v280 : jaquettes ajoutees */
     if (!cached) gl_list_save();
     gl_dvd_add();                                          /* v97 : case du vrai lecteur */
     gl_stats_load();                                     /* v45 : lancements, puis tri choisi */
@@ -697,11 +702,182 @@ static glslot_t *gl_new_slot(glslot_t *s, int n) {
     free(s[best].tex); s[best].tex = NULL; s[best].game = -1;
     return &s[best];
 }
+
+/* ---------- v280 : jaquettes manquantes ----------
+   Un jeu sans jaquette dans posters.pak (le pack de Swiss) : GC Station la telecharge sur GameTDB (art.gametdb.com,
+   la base utilisee par les lanceurs de jeux : cover/<region>/<ID>.png), en fond, une a la fois, quand la liste des
+   jeux est ouverte et que le reseau est la. Elle est rangee toute prete (texture 128x128, image 96x128 a gauche,
+   comme le niveau 1 du pack) dans SD:/gc-mp3/jaquettes/ajoutees/<ID>.tex. On peut aussi y deposer soi-meme un
+   <ID>.png (ou .jpg) : il est converti a la premiere vue. Les jeux que GameTDB n'a pas : absentes.txt (plus redemandes). */
+#define GL_DLDIR GL_UI "/ajoutees"
+#define GL_DLW 128
+static void gl_dl_path(const char *id, const char *ext, char *o, int cap) { snprintf(o, cap, GL_DLDIR "/%.6s.%s", id, ext); }
+static int gl_dl_exists(const char *id) {
+    static const char *const ex[3] = { "tex", "png", "jpg" };
+    char p[NAME_LEN]; struct stat st;
+    for (int i = 0; i < 3; i++) { gl_dl_path(id, ex[i], p, sizeof(p)); if (stat(p, &st) == 0 && st.st_size > 0) return 1; }
+    return 0;
+}
+static void gl_dl_apply(void) {                          /* (apres posters.pak : les jaquettes ajoutees) */
+    if (!sd_ok) return;
+    for (int k = 0; k < gl_n; k++) if (!gl[k].dvd && gl[k].post < 0 && gl_dl_exists(gl[k].id)) gl[k].post = GL_POST_DL;
+}
+/* image (png, jpg) -> texture RGB5A3 128x128, l'image remplit 96x128 a gauche (comme une jaquette du pack) */
+static u16 *gl_dl_convert(const u8 *img, int n) {
+    int w = 0, h = 0, c = 0;
+    unsigned char *px = stbi_load_from_memory(img, n, &w, &h, &c, 4);
+    if (!px || w < 8 || h < 8) { if (px) stbi_image_free(px); return NULL; }
+    u16 *t = (u16 *)memalign(32, GL_DLW * GL_DLW * 2);
+    if (!t) { stbi_image_free(px); return NULL; }
+    const int dw = 96, dh = 128;
+    for (int y = 0; y < GL_DLW; y++)
+        for (int x = 0; x < GL_DLW; x++) {
+            int R = 12, G = 8, B = 30;
+            if (x < dw) {                                /* (moyenne des points de la source sous ce point) */
+                int x0 = x * w / dw, x1 = (x + 1) * w / dw, y0 = y * h / dh, y1 = (y + 1) * h / dh;
+                if (x1 <= x0) x1 = x0 + 1; if (y1 <= y0) y1 = y0 + 1;
+                u32 r = 0, g = 0, b = 0, a = 0, m = 0;
+                for (int yy = y0; yy < y1 && yy < h; yy++) for (int xx = x0; xx < x1 && xx < w; xx++) {
+                    const unsigned char *p = px + ((size_t)yy * w + xx) * 4;
+                    r += p[0] * p[3]; g += p[1] * p[3]; b += p[2] * p[3]; a += p[3]; m++;
+                }
+                if (a) { R = (int)(r / a); G = (int)(g / a); B = (int)(b / a); }
+                (void)m;
+            }
+            t[((y >> 2) * (GL_DLW >> 2) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)] = (u16)(0x8000 | ((R >> 3) << 10) | ((G >> 3) << 5) | (B >> 3));
+        }
+    stbi_image_free(px);
+    return t;
+}
+static void gl_dl_save(const char *id, const u16 *t) {
+    char p[NAME_LEN];
+    mkdir(GL_UI, 0777); mkdir(GL_DLDIR, 0777);
+    gl_dl_path(id, "tex", p, sizeof(p));
+    FILE *f = fopen(p, "wb");
+    if (!f) return;
+    int ok = fwrite(t, 1, GL_DLW * GL_DLW * 2, f) == GL_DLW * GL_DLW * 2;
+    if (fclose(f) || !ok) remove(p);
+}
+/* la texture d'une jaquette ajoutee (prete pour GX) ; NULL : pas lisible */
+static u16 *gl_dl_tex(const char *id) {
+    char p[NAME_LEN];
+    gl_dl_path(id, "tex", p, sizeof(p));
+    FILE *f = fopen(p, "rb");
+    if (f) {
+        u16 *t = (u16 *)memalign(32, GL_DLW * GL_DLW * 2);
+        int ok = t && fread(t, 1, GL_DLW * GL_DLW * 2, f) == GL_DLW * GL_DLW * 2;
+        fclose(f);
+        if (ok) { DCFlushRange(t, GL_DLW * GL_DLW * 2); return t; }
+        free(t);
+    }
+    static const char *const ex[2] = { "png", "jpg" };
+    for (int i = 0; i < 2; i++) {                        /* (deposee a la main : convertie une fois) */
+        gl_dl_path(id, ex[i], p, sizeof(p));
+        long n = 0;
+        u8 *d = read_file(p, 4 * 1024 * 1024, &n);
+        if (!d) continue;
+        u16 *t = gl_dl_convert(d, (int)n);
+        free(d);
+        if (!t) continue;
+        gl_dl_save(id, t);
+        DCFlushRange(t, GL_DLW * GL_DLW * 2);
+        return t;
+    }
+    return NULL;
+}
+
+/* telechargement en fond (boucle principale, une jaquette a la fois) */
+#define GL_DLABS GL_DLDIR "/absentes.txt"
+static hfetch_t gl_dl_hf = { .c = { -1, 0, 0 } };
+static int gl_dl_st = 0, gl_dl_reg = 0, gl_dl_nabs = -1, gl_dl_got = 0;
+static char gl_dl_id[8] = "", gl_dl_abs[GL_MAX][7];
+static u64 gl_dl_wait = 0;
+static void gl_dl_abs_load(void) {
+    gl_dl_nabs = 0;
+    long n = 0;
+    char *d = (char *)read_file(GL_DLABS, 16384, &n);
+    if (!d) return;
+    for (long i = 0; i + 6 <= n && gl_dl_nabs < GL_MAX; ) {
+        memcpy(gl_dl_abs[gl_dl_nabs], d + i, 6); gl_dl_abs[gl_dl_nabs][6] = 0; gl_dl_nabs++;
+        while (i < n && d[i] != '\n') i++;
+        i++;
+    }
+    free(d);
+}
+static int gl_dl_absent(const char *id) { for (int i = 0; i < gl_dl_nabs; i++) if (!strncmp(gl_dl_abs[i], id, 6)) return 1; return 0; }
+static void gl_dl_mark_absent(const char *id) {
+    if (gl_dl_nabs >= 0 && gl_dl_nabs < GL_MAX) { snprintf(gl_dl_abs[gl_dl_nabs], 7, "%.6s", id); gl_dl_nabs++; }
+    mkdir(GL_UI, 0777); mkdir(GL_DLDIR, 0777);
+    FILE *f = fopen(GL_DLABS, "a");
+    if (f) { fprintf(f, "%.6s\n", id); fclose(f); }
+}
+/* regions de GameTDB a essayer, d'apres la lettre de region de l'ID */
+static const char *gl_dl_region(const char *id, int i) {
+    static const char *const eu[] = { "FR", "EN", "US" }, *const us[] = { "US", "EN", "FR" }, *const jp[] = { "JA", "US", "EN" }, *const de[] = { "DE", "EN", "US" },
+                      *const es[] = { "ES", "EN", "US" }, *const it[] = { "IT", "EN", "US" };
+    const char *const *r = eu;
+    switch (id[3]) { case 'E': r = us; break; case 'J': r = jp; break; case 'D': r = de; break; case 'S': r = es; break; case 'I': r = it; break; default: break; }
+    return i < 3 ? r[i] : NULL;
+}
+static void gl_dl_pump(void) {
+    if (!sd_ok || sd_virtual || !gl_scanned || !gl || sx_safe) return;
+    if (gl_dl_st == 0) {
+        if (!gl_on || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_dl_wait) return;
+        if (gl_dl_nabs < 0) gl_dl_abs_load();
+        int k = -1;
+        for (int i = 0; i < gl_n && k < 0; i++) if (!gl[i].dvd && gl[i].post < 0 && gl[i].id[0] && !gl_dl_absent(gl[i].id) && !gl_dl_exists(gl[i].id)) k = i;
+        if (k < 0) { gl_dl_wait = now_ms() + 60000; return; }   /* (rien a chercher : on revoit dans une minute) */
+        snprintf(gl_dl_id, sizeof(gl_dl_id), "%.6s", gl[k].id);
+        gl_dl_reg = 0; gl_dl_st = 1;
+    }
+    if (gl_dl_st == 1) {                                  /* demande */
+        const char *rg = gl_dl_region(gl_dl_id, gl_dl_reg);
+        if (!rg) { gl_dl_mark_absent(gl_dl_id); gl_dl_st = 0; gl_dl_wait = now_ms() + 500; return; }
+        char url[160];
+        snprintf(url, sizeof(url), "https://art.gametdb.com/wii/cover/%s/%s.png", rg, gl_dl_id);
+        gl_dl_hf.maxbytes = 1024 * 1024; gl_dl_hf.image = 0; gl_dl_hf.accept = "image/png,image/*";
+        hf_start(&gl_dl_hf, url, NULL);
+        gl_dl_st = 2;
+        return;
+    }
+    hf_pump(&gl_dl_hf);
+    if (gl_dl_hf.st == HF_FAIL || (gl_dl_hf.st == HF_DONE && (gl_dl_hf.code != 200 || gl_dl_hf.len < 200))) {
+        int net_err = gl_dl_hf.st == HF_FAIL && gl_dl_hf.code == 0;   /* (pas de reponse : on reessaiera plus tard) */
+        hf_drop(&gl_dl_hf); gl_dl_hf.st = HF_IDLE;
+        if (net_err) { gl_dl_st = 0; gl_dl_wait = now_ms() + 120000; return; }
+        gl_dl_reg++; gl_dl_st = 1; return;            /* (404 : la region suivante) */
+    }
+    if (gl_dl_hf.st != HF_DONE) return;
+    u16 *t = gl_dl_convert(gl_dl_hf.buf, gl_dl_hf.len);
+    hf_drop(&gl_dl_hf); gl_dl_hf.st = HF_IDLE;
+    gl_dl_st = 0; gl_dl_wait = now_ms() + 300;
+    if (!t) { gl_dl_mark_absent(gl_dl_id); return; }
+    gl_dl_save(gl_dl_id, t);
+    free(t);
+    gl_dl_got++;
+    for (int k = 0; k < gl_n; k++) if (!strncmp(gl[k].id, gl_dl_id, 6) && gl[k].post < 0) {
+        gl[k].post = GL_POST_DL;
+        if (k < GL_MAX) { gl_cov_fail[k] = 0; gl_cov_retry[k] = 0; }
+        char m[96]; snprintf(m, sizeof(m), "Jaquette ajout\xC3\xA9" "e : %.60s", gl[k].title);
+        gl_note(m);
+        gs_dirty = 1;
+    }
+}
 static GXTexObj *gl_cover(int k, int load) {                 /* jaquette 128x256 (niveau 1 du pack) */
     glslot_t *s = gl_find_slot(gl_cov, GL_SLOTS, k);
     if (s) return &s->obj;
     if (!load || gl[k].post < 0) return NULL;
     if (k < GL_MAX && gl_cov_retry[k] && now_ms() < gl_cov_retry[k]) return NULL;
+    if (gl[k].post == GL_POST_DL) {                       /* v280 : jaquette ajoutee (telechargee ou deposee) */
+        u16 *t = gl_dl_tex(gl[k].id);
+        if (!t) { gl[k].post = -1; return NULL; }
+        s = gl_new_slot(gl_cov, GL_SLOTS);
+        s->tex = t; s->game = k; s->used = now_ms();
+        GX_InitTexObj(&s->obj, t, GL_DLW, GL_DLW, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+        GX_InvalidateTexAll();
+        GX_InitTexObjFilterMode(&s->obj, GX_LINEAR, GX_LINEAR);
+        return &s->obj;
+    }
     int w, h;
     u8 *c = swpk_read(&gl_post, gl[k].post, 1, &w, &h);    /* v92 : texture CMPR telle quelle (plus de conversion) */
     if (!c) {                                              /* v277 : (avant : une seule lecture ratee, et plus jamais de jaquette) */
@@ -1531,7 +1707,7 @@ static void gl_draw_shelf(void) {
    thread de fond (gl_job_post), affichees des qu'elles sont lues */
 static void gl_load_big(int k) {
     gcg_t *g = &gl[k];
-    if (g->post >= 0 && gl_big.game != k) { gl_job_post(GJ_BIG, k); return; }
+    if (g->post >= 0 && g->post != GL_POST_DL && gl_big.game != k) { gl_job_post(GJ_BIG, k); return; }   /* (v280 : ajoutee : pas de grande) */
     if (g->still >= 0 && gl_bigst.game != k) gl_job_post(GJ_STILL, k);
 }
 /* v196 : "Lancer ce jeu ?" (fiche, et espace Jeux GameCube) */

@@ -24,6 +24,18 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v280 (build à venir) — Jaquettes manquantes téléchargées toutes seules
+- Un jeu sans jaquette dans posters.pak (le pack de Swiss) : GC Station la télécharge sur **GameTDB**
+  (art.gametdb.com, la base des lanceurs de jeux : `wii/cover/<région>/<ID>.png`), en fond, une à la fois, quand la
+  liste des jeux est ouverte et que le réseau est là. Région d'après l'ID (P : FR puis EN, E : US, J : JA, D, S, I…),
+  puis les autres. « Jaquette ajoutée : … » s'affiche, et elle apparaît dans la vitrine, la grille, la liste, l'économiseur.
+- Rangée toute prête dans `SD:/gc-mp3/jaquettes/ajoutees/<ID>.tex` (texture 128 × 128, comme les petites jaquettes du
+  pack). On peut aussi y **déposer soi-même** un `<ID>.png` ou `.jpg` (n'importe quelle taille) : converti à la
+  première vue. Les jeux que GameTDB n'a pas : `absentes.txt` (plus redemandés ; effacer le fichier pour réessayer).
+- Pas de grande jaquette pour ces jeux (la petite est agrandie) ; pas de téléchargement pendant le test des touches.
+- Simulateur : un `.png` déposé pour le faux jeu de test → converti et affiché dans la vitrine. (Le téléchargement
+  lui-même n'a pas pu être essayé ici : GameTDB n'est pas joignable depuis la machine de compilation.)
+
 ## Nouveautés v279 (build 765, appli build 49) — 4 jeux en duel, et le téléphone comme manette
 - **Motos lumineuses** (2 à 4) : chacun laisse un mur de lumière derrière lui, de plus en plus vite ; le dernier en vie
   gagne la manche, en 3. **Air hockey** (2) : maillets au stick, palet qui rebondit, le premier à 7 buts.

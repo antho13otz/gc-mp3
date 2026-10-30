@@ -14434,6 +14434,7 @@ int main(int argc, char **argv) {
             if (tab_shown(TAB_FILES)) PF(PH_FILES, files_pump());
             if (tab_shown(TAB_INFO)) PF(PH_INFOS, infos_pump());
         }
+        gl_dl_pump();                                      /* v280 : jaquettes manquantes (gclib.c) */
         PF(PH_PHONE, phone_pump());                       /* v246 : toujours (onglet TELEPHONE cache : la telecommande reste active) */
         PF(PH_DL, dltab_pump());
         if (!in_game) PF(PH_UPDATE, update_pump());
