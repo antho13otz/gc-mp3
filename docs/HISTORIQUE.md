@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v277 (build à venir) — Jaquettes qui manquaient dans la vitrine
+## Nouveautés v277 (build 763) — Jaquettes qui manquaient dans la vitrine
 - **Un seul accès à la fois à la carte SD** : depuis la v270, les jaquettes étaient lues directement par leurs secteurs,
   par la boucle de l'écran et par le fil de fond en même temps, sans le verrou de libfat : les lectures se croisaient
   sur la carte et ratées, le jeu restait sans jaquette (un disque avec son ID, « GM4P01 », à la place de l'image).
