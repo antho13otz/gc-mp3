@@ -99,6 +99,14 @@ Image.new('RGB', (800, 600), (40, 120, 200)).save('$CI/telephone-ci.jpg', qualit
     expect "journal des dernieres actions" "Derni" "$H/api/journal"
     r=$(curl -s -m 20 -o $CI/capture.bmp -w "%{http_code} %{size_download}" "$H/capture.bmp")
     case "$r" in "200 "*) [ "${r#200 }" -gt 100000 ] && note "telephone : capture de la tele" || fail "telephone : capture trop petite ($r)";; *) fail "telephone : capture de la tele ($r)";; esac
+    # v285 : second ecran : la tele en JPEG, petite et nette, lisible par Python (Pillow) si present
+    for w in 320 640; do
+        r=$(curl -s -m 20 -o $CI/ecran$w.jpg -w "%{http_code} %{size_download}" "$H/api/ecran?w=$w&q=60")
+        case "$r" in "200 "*) if [ "$(head -c 2 $CI/ecran$w.jpg | od -An -tx1 | tr -d ' ')" = ffd8 ] && \
+                                ! python3 -c "from PIL import Image; i=Image.open('$CI/ecran$w.jpg'); i.load(); assert i.size[0]==$w, i.size" 2>&1 | grep -q Error; then
+                                note "telephone : second ecran $w ($r octets)"; else fail "telephone : second ecran $w : image illisible"; fi;;
+                         *) fail "telephone : second ecran $w ($r)";; esac
+    done
     expect "etat apres tout ca" '"title"' "$H/api/state"
 fi
 wait $SIM

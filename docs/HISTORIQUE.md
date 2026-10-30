@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v285 (build à venir) — La télé sur le téléphone (second écran)
+- La console peut maintenant **envoyer ce qu'elle affiche** au téléphone, en direct : `GET /api/ecran?w=320|640&q=10..95`
+  rend une image **JPEG** de la télé (320×240 rapide, ou 640×480 net).
+- Encodeur JPEG écrit pour GC Station (`source/ecran_jpeg.c`) : l'image est lue directement dans le tampon vidéo,
+  sans conversion ni grosse réservation de mémoire ; le travail se fait sur le fil du serveur du téléphone, en
+  dessous de l'interface (pas de saccade sur la télé).
+- Pour l'appli **GC Station 2** (dépôt privé, onglet Télé) : la télé sur le téléphone, toucher = A, appui long = B,
+  glisser = la croix, pointeur sur l'onglet WEB. Seulement dans les menus de GC Station (pas pendant un jeu).
+- Simulateur : les tests automatiques demandent aussi l'image de la télé (petite et nette) et vérifient qu'elle se lit.
+
 ## Nouveautés v284 (build 771) — Zoom sur la boîte 3D
 - **Stick C haut / bas : zoom** sur la boîte (jusqu'à 3 fois) : elle passe au milieu de l'écran, par-dessus la fiche,
   pour lire le dos. **Stick C gauche / droite** : tourner. **Stick** : déplacer la boîte zoomée. **↑** : ouvrir / fermer.

@@ -494,7 +494,7 @@ void GX_CopyDisp(void *dst, u8 clear) {
         const char *od = getenv("PCSIM_OUT"); if (!od) od = "shots";
         mkdir(od, 0777);
         char p[512]; snprintf(p, sizeof(p), "%s/%s.png", od, pcsim_capture_name);
-        if (png_write(p, 640, efb_h) == 0) printf("[pcsim] capture : %s\n", p);
+        if (pcsim_capture_name[0] != '#' && png_write(p, 640, efb_h) == 0) printf("[pcsim] capture : %s\n", p);   /* (# : image pour le telephone, sans fichier) */
         if (dst) { xfb_fill((u8 *)dst); pcsim_xfb_last = dst; pcsim_xfb_w = 640; pcsim_xfb_h = efb_h; }
         pcsim_capture = 0;
     }
