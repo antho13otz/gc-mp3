@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v275 (build à venir, appli build 45) — La vibration du jeu arrive sur le téléphone
+- **Console** : quand le jeu allume le moteur de vibration de la manette d'un port du téléphone (commande de lecture
+  0x4003xx, bit 0), Pulse l'envoie à l'appli : UDP « GCRB » {port, marche / arrêt} vers l'adresse d'où viennent ses
+  touches, au changement puis toutes les 8 images tant que ça dure. Journal : nombre de vibrations demandées.
+- **Appli** : le téléphone vibre tant que la console dit « marche » (arrêt tout seul après 350 ms sans nouvelles : un
+  paquet perdu ne le laisse pas vibrer). Réglage dans la manette : « Vibration du jeu ».
+
 ## Nouveautés appli build 44 — Croix de l'onglet Manette centrée
 - Onglet Manette (et plein écran) : le carré du milieu de la croix descendait (cases alignées sur la ligne du texte des
   flèches) ; les 9 cases sont maintenant centrées.

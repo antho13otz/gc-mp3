@@ -104,6 +104,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
         optFloat = sp.getBoolean("pad_float", false);
         optTrig = sp.getBoolean("pad_trig", false);
         optVib = sp.getBoolean("pad_vib", true);
+        optRumble = sp.getBoolean("pad_rumble", true);
         optTilt = sp.getInt("pad_tilt", 0);
         optAlpha = sp.getInt("pad_alpha", 100);
         loadBt();
@@ -125,7 +126,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
     }
 
     @Override protected void onResume() { super.onResume(); if (!setup) startSender(); tiltSensor(); }
-    @Override protected void onPause() { super.onPause(); running = false; if (sm != null) sm.unregisterListener(this); }
+    @Override protected void onPause() { super.onPause(); running = false; if (sm != null) sm.unregisterListener(this); rumbleSet(false); }
 
     @Override
     public void onBackPressed() {
@@ -150,7 +151,11 @@ public class ManetteActivity extends Activity implements SensorEventListener {
                 byte[] buf = new byte[20];
                 int seq = (int) (System.nanoTime() & 0x7FFFFFFF);
                 long next = System.nanoTime();
+                final DatagramSocket rs = s;
+                Thread rx = new Thread(() -> rumbleRx(rs), "gcs-vibration");   // (vibration du jeu : la console repond a cette adresse)
+                rx.start();
                 while (running) {
+                    rumbleTick();
                     int[] st = pad.state();
                     buf[0] = 'G'; buf[1] = 'C'; buf[2] = 'P'; buf[3] = 'D';
                     buf[4] = 1; buf[5] = (byte) port; buf[6] = 0; buf[7] = 0;
@@ -160,6 +165,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
                     long w = next - System.nanoTime();
                     if (w > 0) Thread.sleep(w / 1_000_000L, (int) (w % 1_000_000L)); else next = System.nanoTime();
                 }
+                rumbleSet(false);
                 for (int k = 0; k < 3; k++) {                    // (au repos en partant)
                     put(buf, 8, ++seq); put(buf, 12, 0x00808080); put(buf, 16, 0x80800000);
                     try { s.send(new DatagramPacket(buf, 20, to, PORT)); } catch (Exception e) { }
@@ -170,6 +176,44 @@ public class ManetteActivity extends Activity implements SensorEventListener {
             }
         }, "gcs-manette");
         sender.start();
+    }
+
+    // ------------------------------------------------------------------ vibration du jeu (rumble)
+    // Pulse voit le jeu allumer le moteur de la manette du port du telephone et renvoie "GCRB" {port, 1 / 0, 0, 0} a
+    // l'adresse d'ou viennent les touches (toutes les 8 images tant que ca dure) ; sans nouvelles depuis 350 ms : arret.
+    private volatile long rumbleAt;
+    private boolean rumbling;
+    boolean optRumble = true;
+
+    private void rumbleRx(DatagramSocket s) {
+        byte[] b = new byte[64];
+        DatagramPacket pk = new DatagramPacket(b, b.length);
+        try { s.setSoTimeout(250); } catch (Exception e) { }
+        while (running && !s.isClosed()) {
+            try {
+                s.receive(pk);
+                if (pk.getLength() >= 8 && b[0] == 'G' && b[1] == 'C' && b[2] == 'R' && b[3] == 'B' && (b[4] & 3) == port)
+                    rumbleAt = b[5] != 0 ? System.nanoTime() : 0;
+            } catch (java.net.SocketTimeoutException e) {
+            } catch (Exception e) { if (!running) break; }
+        }
+    }
+
+    private void rumbleTick() {
+        boolean want = optRumble && rumbleAt != 0 && System.nanoTime() - rumbleAt < 350_000_000L;
+        if (want != rumbling) rumbleSet(want);
+    }
+
+    @SuppressWarnings("deprecation")
+    private void rumbleSet(boolean on) {
+        rumbling = on;
+        android.os.Vibrator v = (android.os.Vibrator) getSystemService(VIBRATOR_SERVICE);
+        if (v == null || !v.hasVibrator()) return;
+        try {
+            if (!on) { v.cancel(); return; }
+            if (android.os.Build.VERSION.SDK_INT >= 26) v.vibrate(android.os.VibrationEffect.createWaveform(new long[] { 0, 1000 }, 0));
+            else v.vibrate(new long[] { 0, 1000 }, 0);
+        } catch (Exception e) { }
     }
 
     private static void put(byte[] b, int o, int v) { b[o] = (byte) (v >>> 24); b[o + 1] = (byte) (v >>> 16); b[o + 2] = (byte) (v >>> 8); b[o + 3] = (byte) v; }
@@ -331,6 +375,8 @@ public class ManetteActivity extends Activity implements SensorEventListener {
             optTilt = (optTilt + 1) % 4; sp.edit().putInt("pad_tilt", optTilt).apply(); tiltSensor(); fillPanel(); }));
         b.addView(row("Gâchettes progressives (glisser vers le bas) : " + (optTrig ? "oui" : "non"), v -> {
             optTrig = !optTrig; sp.edit().putBoolean("pad_trig", optTrig).apply(); fillPanel(); }));
+        b.addView(row("Vibration du jeu (le téléphone vibre comme la manette) : " + (optRumble ? "oui" : "non"), v -> {
+            optRumble = !optRumble; sp.edit().putBoolean("pad_rumble", optRumble).apply(); fillPanel(); }));
         b.addView(row("Vibration des touches : " + (optVib ? "oui" : "non"), v -> {
             optVib = !optVib; sp.edit().putBoolean("pad_vib", optVib).apply(); fillPanel(); }));
         b.addView(row("Opacité des touches : " + optAlpha + " %", v -> {

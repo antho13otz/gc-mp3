@@ -149,6 +149,10 @@ typedef struct {
        port ecrite (SICnOUTBUF, bits 0-23), 4 reponse lue (commande, mot), 5 fin de transfert vue (COMCSR, bits 24-31) */
     unsigned int nev, ev[40];
     unsigned int redir;                                   /* (resident, b9000015) transferts envoyes vers une vraie manette a la place */
+    /* (resident, v275) vibration : ce que le jeu demande au moteur de chaque port du telephone (commande de lecture, bit 0),
+       renvoye a l'appli (UDP "GCRB" vers l'adresse d'ou viennent ses touches) ; nrmb : vibrations demandees (journal) */
+    unsigned int rmb[4], rsent[4], pip[4], pport[4], nrmb;
+    unsigned char pmac[4][8];
 } natres_pad_t;
 #define NRF_PADLOG 1024u                                /* 7e secteur du journal : la section "PPAD" au retour */
 #define NATRES_PADLOG_MAGIC 0x47435350u                 /* "GCSP" */

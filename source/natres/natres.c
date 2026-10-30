@@ -753,6 +753,27 @@ void pd_poll(void) {
         u32 seq = pn_be32(d + 8);
         if (seq == p->seq[ch]) continue;                  /* (deja vu) */
         p->seq[ch] = seq; p->h[ch] = pn_be32(d + 12) | 0x00800000u; p->l[ch] = pn_be32(d + 16); p->tb[ch] = now; p->rx++;
+        p->pip[ch] = pn_be32(f + 26); p->pport[ch] = pn_be16(u); for (int i = 0; i < 6; i++) p->pmac[ch][i] = f[6 + i];   /* (v275 : pour la vibration) */
+    }
+    {   /* v275 : vibration demandee par le jeu : envoyee au telephone quand elle change, puis toutes les 8 images tant
+           qu'elle dure (l'appli s'arrete seule sans nouvelles : un paquet perdu ne la laisse pas vibrer) */
+        static u32 vi_n = 0;
+        vi_n++;
+        for (u32 ch = 0; ch < 4; ch++) {
+            if (!(p->chmask >> ch & 1) || !p->pip[ch]) continue;
+            u32 on = p->rmb[ch];
+            if (on == p->rsent[ch] && !(on && (vi_n & 7) == 0)) continue;
+            if (on && !p->rsent[ch]) p->nrmb++;
+            p->rsent[ch] = on;
+            u8 *fr = pn_fr;
+            pn_eth(fr, p->pmac[ch], 0x0800);
+            u8 *ip = fr + 14, *uu = ip + 20;
+            ip[0] = 0x45; ip[1] = 0; pn_p16(ip + 2, 20 + 8 + 8); pn_p16(ip + 4, vi_n & 0xFFFF); pn_p16(ip + 6, 0x4000); ip[8] = 64; ip[9] = 17;
+            pn_p16(ip + 10, 0); pn_p32(ip + 12, p->net.ip); pn_p32(ip + 16, p->pip[ch]); pn_p16(ip + 10, pn_ipsum(ip));
+            pn_p16(uu, NATRES_PAD_PORT); pn_p16(uu + 2, p->pport[ch]); pn_p16(uu + 4, 8 + 8); pn_p16(uu + 6, 0);
+            pn_p32(uu + 8, 0x47435242u); uu[12] = (u8)ch; uu[13] = (u8)on; uu[14] = uu[15] = 0;   /* "GCRB" */
+            pn_send(fr, 14 + 20 + 8 + 8);
+        }
     }
     H.net_pk = p->rx; H.net_rt = p->state << 24 | (p->arp & 0xFFF) << 12 | (p->bad & 0xFFF);   /* (journal : pas de H.net ici) */
     for (u32 ch = 0; ch < 4; ch++)
@@ -1658,7 +1679,10 @@ static void si_store(u32 a, u32 val) {
             }
         }
         if (p && a == 0xCC006430u) { if (p->poll != val) pd_ev(p, 2, val); p->poll = val; }
-        if (p && a < 0xCC006430u && (a - 0xCC006400u) % 12u == 0 && (p->chmask >> ((a - 0xCC006400u) / 12u) & 1)) pd_ev(p, 3, val);
+        if (p && a < 0xCC006430u && (a - 0xCC006400u) % 12u == 0 && (p->chmask >> ((a - 0xCC006400u) / 12u) & 1)) {
+            pd_ev(p, 3, val);
+            if ((val >> 16) == 0x40u) p->rmb[(a - 0xCC006400u) / 12u] = (val & 3u) == 1u;   /* v275 : moteur (0 arret, 1 marche, 2 arret net) */
+        }
     }
     u32 k = (H.opt >> 16) & 0xF;
     if (a == 0xCC006430u && k > 1) {                     /* SIPOLL : Y lectures par image, X lignes entre deux */

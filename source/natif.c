@@ -734,6 +734,7 @@ static void na_pad_print(FILE *f, const u8 *b) {
     fprintf(f, "Etat SI (SISR) lu %u fois ; sur un port du telephone : COMCSR lu %u fois, reponses lues %u fois ; reponses \"type\" %u, \"origine\" %u\n",
             (unsigned)PW(nsr), (unsigned)PW(ncom), (unsigned)PW(nbuf), (unsigned)PW(types), (unsigned)PW(origins));
     fprintf(f, "Transferts du port du telephone passes par une vraie manette (pour finir sans erreur) : %u\n", (unsigned)PW(redir));
+    fprintf(f, "Vibrations demandees par le jeu (renvoyees au telephone) : %u\n", (unsigned)PW(nrmb));
     u32 n = PW(ntr);
     fprintf(f, "Commandes envoyees aux ports : %u (les dernieres, la plus ancienne d'abord) :\n", (unsigned)n);
     for (u32 i = n > 8 ? n - 8 : 0; i < n; i++) {
