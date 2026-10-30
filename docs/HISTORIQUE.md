@@ -24,6 +24,21 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v276 (build à venir, appli build 46) — Jeu de cartes entre potes : le 8 américain
+- **Chacun sa main sur son téléphone, la table sur la télé** : appli > Plus > « Jeu de cartes ». Chaque joueur tape son
+  nom ; la table s'ouvre toute seule sur la télé (tas, pioche, joueurs et leurs cartes, à qui le tour, sens, couleur
+  demandée, +2, scores). Un joueur appuie sur « Commencer » (2 à 6 joueurs).
+- **Règles** : même couleur ou même valeur ; le 8 se pose sur tout et fait choisir la couleur ; le 2 fait piocher 2
+  (les 2 s'ajoutent) ; le valet fait passer le suivant ; l'as change le sens. Pas de carte : on pioche 1, puis on la pose
+  ou on passe. Fin de manche : les autres marquent leurs cartes (8 : 50, figures : 10, as : 1) ; le moins de points mène.
+- **Sur le téléphone** : la main rangée par couleur, les cartes jouables levées, le reste grisé ; vibration quand c'est
+  ton tour ; « Piocher », « Passer », « Manche suivante » ; « Sur la télé » rouvre la table.
+- La console décide de tout (`/api/cartes`) : un coup interdit est refusé avec la raison. Joueur muet depuis 90 s :
+  retiré de la table, ses cartes sous la pioche. Télé : B ferme (la partie continue), X arrête la partie.
+- Simulateur : 3 joueurs, partie jouée jusqu'au bout par l'API (coups refusés compris), captures du salon, de la partie
+  et de la fin de manche.
+- Tes potes installent l'appli avec l'APK que tu leur envoies (elle n'est pas publique).
+
 ## Nouveautés v275 (build 761, appli build 45) — La vibration du jeu arrive sur le téléphone
 - **Console** : quand le jeu allume le moteur de vibration de la manette d'un port du téléphone (commande de lecture
   0x4003xx, bit 0), Pulse l'envoie à l'appli : UDP « GCRB » {port, marche / arrêt} vers l'adresse d'où viennent ses

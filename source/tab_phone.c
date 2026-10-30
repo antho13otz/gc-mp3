@@ -666,6 +666,8 @@ static void x73_json_raw(sbuf_t *s, const char *t) {          /* (texte deja en 
     sb_add(s, "\"");
 }
 static int tp_param(const char *q, const char *key, char *out, int cap);
+static void c8_api(s32 c, const char *q);              /* v276 : jeu de cartes (cartes.c) */
+static void c8_tick(void);
 static char *x73_gj = NULL;                              /* JSON des jeux (construit par la boucle : extras73.c) */
 static volatile int x73_gj_want = 0, x73_gj_ready = 0;
 static volatile int x73_launch_k = -1, x73_launch_m = 0;
@@ -1506,6 +1508,7 @@ static void tp_handle(s32 c) {
         if (n > (int)sizeof(jb) - 1) n = sizeof(jb) - 1;
         tp_reply(c, 200, "text/plain; charset=utf-8", jb, n);
     }
+    else if (!strcmp(target, "/api/cartes")) c8_api(c, q ? q : "");   /* v276 : jeu de cartes (8 americain) */
     else if (!strcmp(target, "/api/mouse")) {                /* v231 : souris tactile -> pointeur de Cube Browser */
         char v[16];
         tp_param(q ? q : "", "dx", v, sizeof(v)); tp_mdx += atoi(v);
@@ -1795,6 +1798,7 @@ static void tpl_game_fail(void) { tpl_send_all("GCSE1\n"); }
 static void transport_step(int d);
 
 static void phone_pump(void) {
+    c8_tick();                                           /* v276 : la table du jeu de cartes s'ouvre sur la tele */
     if (tp_state == PS_OFF && (tp_wanted || phone_auto) && net_phase == NET_DONE && net_ok) phone_start();
     if (tp_state != PS_ON) return;
     if (!tp_qr_ok && ip_str[0]) {

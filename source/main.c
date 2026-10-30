@@ -13984,6 +13984,7 @@ static void music_pump(void) {
 #include "memview.c"                           /* v220 : Outils > Memoire en direct */
 #include "themes.c"                            /* v233 : themes a telecharger */
 #include "selftest.c"                          /* v259 : Outils > Test de la console */
+#include "cartes.c"                            /* v276 : jeu de cartes entre potes (8 americain) */
 #include "gspace.c"                            /* v196 : espace Jeux GameCube (vitrine 3D, filtres, applis) */
 #include "jeux_cfg.c"                          /* v75 : reglages des jeux */
 #include "igr.c"                               /* v39 : A + Z + START en jeu -> GC-MP3 */

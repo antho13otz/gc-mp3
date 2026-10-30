@@ -8,7 +8,7 @@
 // Chaque outil s'ouvre en fenetre par-dessus l'ecran (tl_screen).
 
 static void indigo_game_open(const char *id, const char *title);
-enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV, TL_SAVES, TL_CATA, TL_SUCCES, TL_SOIREE, TL_GUIDE, TL_PROFILS, TL_RECAP, TL_GLOBE, TL_PET, TL_MEM, TL_THEMES, TL_SELFTEST };
+enum { TL_NONE, TL_CARDS, TL_APPS, TL_RECENT, TL_INFO, TL_VCARD, TL_RHIST, TL_NETSRV, TL_SAVES, TL_CATA, TL_SUCCES, TL_SOIREE, TL_GUIDE, TL_PROFILS, TL_RECAP, TL_GLOBE, TL_PET, TL_MEM, TL_THEMES, TL_SELFTEST, TL_CARTES };
 static void pet_input(u32 down, u32 nav, int fire);    /* v207 : pet.c */
 static void draw_pet(void);
 static void pet_open(void);
@@ -1596,6 +1596,8 @@ static void draw_guide(void) {
     const char *l[] = { gde_page < GDE_N - 1 ? "SUIVANT" : "C'EST PARTI", "FERMER" };
     tl_legend(k, l, 2);
 }
+static void c8_input(u32 down, u32 nav, int fire);       /* v276 : cartes.c */
+static void c8_draw(void);
 static void tools_input(u32 down, u32 nav, int fire) {
     switch (tl_screen) {
     case TL_CARDS: mc_input(down, nav, fire); break;
@@ -1617,6 +1619,7 @@ static void tools_input(u32 down, u32 nav, int fire) {
     case TL_MEM: mem_input(down, nav, fire); break;   /* v220 : memview.c */
     case TL_THEMES: thm_input(down, nav, fire); break;   /* v233 : themes.c */
     case TL_SELFTEST: sx_input(down, nav, fire); break;   /* v259 : selftest.c */
+    case TL_CARTES: c8_input(down, nav, fire); break;   /* v276 : cartes.c */
     }
 }
 static void draw_tools(void) {
@@ -1640,6 +1643,7 @@ static void draw_tools(void) {
     case TL_MEM: draw_mem(); break;
     case TL_THEMES: draw_thm(); break;
     case TL_SELFTEST: draw_selftest(); break;
+    case TL_CARTES: c8_draw(); break;
     }
 }
 

@@ -49,6 +49,12 @@
             android:screenOrientation="sensorLandscape"
             android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout" />
+        <!-- jeu de cartes entre potes (8 americain) -->
+        <activity
+            android:name=".CartesActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:theme="@android:style/Theme.Material.NoActionBar" />
         <!-- globe des radios (OpenGL) -->
         <activity
             android:name=".GlobeActivity"
