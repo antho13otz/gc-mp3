@@ -1331,9 +1331,27 @@ static int sd_slot = -1;                               /* v26 : 0 = SD2SP2, 1 = 
 static volatile u32 sd_rd_sec = 0, sd_wr_sec = 0;
 static const DISC_INTERFACE *sd_real_if = NULL;
 static DISC_INTERFACE sd_cnt_if;
-static bool sd_cnt_read(sec_t s, sec_t n, void *b) { sd_rd_sec += (u32)n; return sd_real_if->readSectors(s, n, b); }
-static bool sd_cnt_write(sec_t s, sec_t n, const void *b) { sd_wr_sec += (u32)n; return sd_real_if->writeSectors(s, n, b); }
+/* v277 : un seul acces a la fois a la carte SD : libfat (tous les fils) et les lectures directes des jaquettes (v270 :
+   boucle de l'ecran ET fil de fond, sans le verrou de libfat) se croisaient sur le bus de la carte : lectures ratees,
+   et le jeu touche restait sans jaquette (« GM4P01 » sur un disque a la place de l'image) */
+static mutex_t sd_mx;
+static int sd_mx_ok = 0;
+static bool sd_io_read(sec_t s, sec_t n, void *b) {
+    if (sd_mx_ok) LWP_MutexLock(sd_mx);
+    bool r = sd_real_if->readSectors(s, n, b);
+    if (sd_mx_ok) LWP_MutexUnlock(sd_mx);
+    return r;
+}
+static bool sd_cnt_read(sec_t s, sec_t n, void *b) { sd_rd_sec += (u32)n; return sd_io_read(s, n, b); }
+static bool sd_cnt_write(sec_t s, sec_t n, const void *b) {
+    sd_wr_sec += (u32)n;
+    if (sd_mx_ok) LWP_MutexLock(sd_mx);
+    bool r = sd_real_if->writeSectors(s, n, b);
+    if (sd_mx_ok) LWP_MutexUnlock(sd_mx);
+    return r;
+}
 static int sd_mount_cnt(const DISC_INTERFACE *i) {
+    if (!sd_mx_ok && LWP_MutexInit(&sd_mx, true) >= 0) sd_mx_ok = 1;
     sd_real_if = i;
     sd_cnt_if = *i;
     sd_cnt_if.readSectors = sd_cnt_read;

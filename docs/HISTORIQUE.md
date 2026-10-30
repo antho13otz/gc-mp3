@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v277 (build à venir) — Jaquettes qui manquaient dans la vitrine
+- **Un seul accès à la fois à la carte SD** : depuis la v270, les jaquettes étaient lues directement par leurs secteurs,
+  par la boucle de l'écran et par le fil de fond en même temps, sans le verrou de libfat : les lectures se croisaient
+  sur la carte et ratées, le jeu restait sans jaquette (un disque avec son ID, « GM4P01 », à la place de l'image).
+  Toutes les lectures et écritures de la carte passent maintenant par un même verrou.
+- **Une lecture ratée n'est plus définitive** : la jaquette est redemandée (jusqu'à 4 fois, toutes les 1,5 s) au lieu
+  de disparaître jusqu'au prochain parcours de la liste.
+
 ## Nouveautés v276 (build à venir, appli build 46) — Jeu de cartes entre potes : le 8 américain
 - **Chacun sa main sur son téléphone, la table sur la télé** : appli > Plus > « Jeu de cartes ». Chaque joueur tape son
   nom ; la table s'ouvre toute seule sur la télé (tas, pioche, joueurs et leurs cartes, à qui le tour, sens, couleur

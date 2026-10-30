@@ -85,7 +85,7 @@ typedef struct { u32 fsec, sd, cnt; } fm_ext_t;           /* (secteur dans le fi
 typedef struct { fm_ext_t *e; int n; u32 size, ino; char path[NAME_LEN]; u64 chk; } fmap_t;
 static int fm_geo_st = 0;                                 /* 0 pas encore, 1 ok, -1 impossible (pas de FAT lisible) */
 static u32 fm_spc, fm_fat_lba, fm_data_lba, fm_ncl; static int fm_fat32;
-static int fm_rs(u32 sec, void *b) { if (!sd_real_if || !sd_real_if->readSectors(sec, 1, b)) return -1; sd_rd_sec++; return 0; }
+static int fm_rs(u32 sec, void *b) { if (!sd_real_if || !sd_io_read(sec, 1, b)) return -1; sd_rd_sec++; return 0; }
 static u32 fm_le16(const u8 *p) { return (u32)p[0] | (u32)p[1] << 8; }
 static u32 fm_le32(const u8 *p) { return (u32)p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24; }
 static int fm_is_fat(const u8 *b) { return b[510] == 0x55 && b[511] == 0xAA && fm_le16(b + 0x0B) == 512 && b[0x0D] && (!memcmp(b + 0x36, "FAT", 3) || !memcmp(b + 0x52, "FAT", 3)); }
@@ -191,7 +191,7 @@ static int fm_read(const fmap_t *m, u32 off, void *dst, u32 len) {   /* 0 = lu *
         u32 c = e->fsec + e->cnt - fs;
         if (c > ns - done) c = ns - done;
         DCInvalidateRange(b + done * 512, c * 512);
-        if (!sd_real_if->readSectors(e->sd + (fs - e->fsec), c, b + done * 512)) { free(b); return -1; }
+        if (!sd_io_read(e->sd + (fs - e->fsec), c, b + done * 512)) { free(b); return -1; }
         sd_rd_sec += c;
         done += c; k++;
     }
@@ -673,7 +673,10 @@ static void gl_apply_sort(void) {
 typedef struct { int game; u16 *tex; GXTexObj obj; u64 used; } glslot_t;
 static glslot_t gl_cov[GL_SLOTS], gl_ban[GL_BSLOTS];
 static struct { int game; u16 *tex; GXTexObj obj; int kind; } gl_big = { -1, NULL, {{0}}, 0 }, gl_bigst = { -1, NULL, {{0}}, 0 };
+static u8 gl_cov_fail[GL_MAX];                              /* v277 : lectures de jaquette ratees (on reessaie avant d'abandonner) */
+static u64 gl_cov_retry[GL_MAX];
 static void gl_slots_reset(void) {
+    memset(gl_cov_fail, 0, sizeof(gl_cov_fail)); memset(gl_cov_retry, 0, sizeof(gl_cov_retry));
     for (int i = 0; i < GL_SLOTS; i++) { free(gl_cov[i].tex); gl_cov[i].tex = NULL; gl_cov[i].game = -1; }
     for (int i = 0; i < GL_BSLOTS; i++) { free(gl_ban[i].tex); gl_ban[i].tex = NULL; gl_ban[i].game = -1; }
     free(gl_big.tex); gl_big.tex = NULL; gl_big.game = -1;
@@ -698,9 +701,14 @@ static GXTexObj *gl_cover(int k, int load) {                 /* jaquette 128x256
     glslot_t *s = gl_find_slot(gl_cov, GL_SLOTS, k);
     if (s) return &s->obj;
     if (!load || gl[k].post < 0) return NULL;
+    if (k < GL_MAX && gl_cov_retry[k] && now_ms() < gl_cov_retry[k]) return NULL;
     int w, h;
     u8 *c = swpk_read(&gl_post, gl[k].post, 1, &w, &h);    /* v92 : texture CMPR telle quelle (plus de conversion) */
-    if (!c) { gl[k].post = -1; return NULL; }
+    if (!c) {                                              /* v277 : (avant : une seule lecture ratee, et plus jamais de jaquette) */
+        if (k < GL_MAX && ++gl_cov_fail[k] < 4) gl_cov_retry[k] = now_ms() + 1500; else gl[k].post = -1;
+        return NULL;
+    }
+    if (k < GL_MAX) { gl_cov_fail[k] = 0; gl_cov_retry[k] = 0; }
     s = gl_new_slot(gl_cov, GL_SLOTS);
     s->tex = (u16 *)c; s->game = k; s->used = now_ms();
     GX_InitTexObj(&s->obj, c, w, h, GX_TF_CMPR, GX_CLAMP, GX_CLAMP, GX_FALSE);
@@ -852,7 +860,7 @@ static void gl_job_run(void) {                               /* (thread de fond)
         int ok = sb && b;
         for (int i = 0, at = 0; ok && i < gj.nr; at += (int)gj.rcnt[i], i++) {
             DCInvalidateRange(sb + at * 512, gj.rcnt[i] * 512);
-            ok = sd_real_if->readSectors(gj.rsd[i], gj.rcnt[i], sb + at * 512);
+            ok = sd_io_read(gj.rsd[i], gj.rcnt[i], sb + at * 512);
             sd_rd_sec += gj.rcnt[i];
         }
         if (ok) { memcpy(b, sb + gj.rhead, gj.len); DCFlushRange(b, gj.len); gj.res = b; free(sb); return; }
