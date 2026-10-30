@@ -232,6 +232,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
     var menuCheat by remember { mutableIntStateOf(-1) }
     var renomme by remember { mutableIntStateOf(-1) }
     var sauvegardes by remember { mutableStateOf(false) }
+    var boite by remember { mutableStateOf(false) }                     // (la boite en 3D, en plein ecran)
 
     fun remplir(r: String?) {
         val j = try { if (r != null) JSONObject(r) else null } catch (e: Exception) { null }
@@ -270,8 +271,11 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
             Row(verticalAlignment = Alignment.CenterVertically) {
                 var img by remember { mutableStateOf<ImageBitmap?>(Jaquettes.mem.get(g.id)) }
                 LaunchedEffect(g.id) { if (img == null) img = Jaquettes.charger(act.cacheDir, g.id, g.i) }
-                Box(Modifier.size(width = 96.dp, height = 134.dp).clip(RoundedCornerShape(14.dp)).background(Color(0x22FFFFFF))) {
+                Box(Modifier.size(width = 96.dp, height = 134.dp).clip(RoundedCornerShape(14.dp)).background(Color(0x22FFFFFF)).appui { boite = true }) {
                     img?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+                    Box(Modifier.align(Alignment.BottomEnd).padding(5.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xAA000000)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                        Text("3D", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
                 }
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
@@ -297,6 +301,8 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
             }
             Spacer(Modifier.height(18.dp))
             Bouton("Lancer avec Pulse", Modifier.fillMaxWidth(), plein = true, icone = Ic.Lecture, hauteur = 52.dp) { lancer(1) }
+            Spacer(Modifier.height(8.dp))
+            Bouton("Voir la boîte en 3D", Modifier.fillMaxWidth(), icone = Ic.Jeux) { boite = true }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Bouton("Patchs de secours…", Modifier.weight(1f)) { patchs = true }
@@ -384,6 +390,8 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
             if (sauvegardes) AndroidView({ c -> LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; CardsTab.gameSaves(act, g.id, this) } }, Modifier.fillMaxWidth().padding(top = 6.dp))
         }
     }
+
+    if (boite) Boite3DEcran(act, g.id, g.nom, { boite = false; lancer(1) }) { boite = false }
 
     if (patchs) {
         val choix = remember { mutableStateMapOf<Int, Boolean>() }
