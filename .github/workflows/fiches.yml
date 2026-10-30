@@ -1,0 +1,34 @@
+name: Fiches des jeux
+
+# v281 : fiches des jeux GameCube (resume, genre, joueurs, editeur, annee, classification) d'apres GameTDB,
+# publiees dans la release « fiches » du depot : GC Station les telecharge pour la fiche d'un jeu.
+# Le 1er de chaque mois, et a la demande.
+on:
+  schedule:
+    - cron: '41 3 1 * *'
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['tools/fiches_gametdb.py', '.github/workflows/fiches.yml']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gc-station-fiches
+
+jobs:
+  fiches:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Construire
+        run: mkdir -p out && python3 tools/fiches_gametdb.py --sortie out/fiches-gc.txt && wc -c out/fiches-gc.txt && head -5 out/fiches-gc.txt
+      - name: Publier (release « fiches »)
+        run: |
+          gh release view fiches >/dev/null 2>&1 || gh release create fiches --title "Fiches des jeux GameCube" --latest=false \
+            --notes "Fiches des jeux GameCube pour GC Station (résumé, genre, joueurs, éditeur, année, classification), d'après GameTDB (www.gametdb.com)."
+          gh release upload fiches out/fiches-gc.txt --clobber
