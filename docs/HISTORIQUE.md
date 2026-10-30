@@ -24,6 +24,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v269 (build 751) — L'appli se met à jour toute seule
+- **⚙ > Mettre à jour l'appli** : l'appli cherche sa dernière version (compilation « Telecommande Android » réussie sur
+  main), la télécharge et la donne à l'installateur d'Android (confirmation, puis installée par-dessus : réglages gardés).
+  Toutes les 6 h, une notification si une nouvelle version existe.
+- L'APK reste privé : GitHub demande un jeton pour le télécharger. À faire une fois : un « fine-grained token » en lecture
+  seule (Repository access : antho13otz/gc-mp3 ; Permissions > Actions : Read-only), collé dans l'appli (bouton
+  « Créer le jeton » : la bonne page de GitHub). Il reste sur le téléphone.
+- L'APK est gardé 90 jours sur GitHub (avant : 7).
+
 ## Nouveautés v268 (build 749) — Succès dans les jeux GameCube
 - **Pulse vérifie des succès pendant le jeu** : une fois par image, il lit quelques valeurs dans la mémoire du jeu
   (vies, rubis, pièces…) et les compare à la condition de chaque succès. Un succès n'est obtenu qu'après avoir vu sa

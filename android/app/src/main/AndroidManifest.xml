@@ -6,6 +6,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <!-- mise a jour de l'appli depuis l'appli (AppUpdate : APK de la compilation GitHub) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <application
         android:label="GC Station"
         android:icon="@mipmap/ic_launcher"
@@ -34,6 +36,8 @@
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
+        <!-- resultat de l'installation d'une nouvelle version (AppUpdate) -->
+        <receiver android:name=".AppUpdate$Done" android:exported="false" />
         <!-- globe des radios (OpenGL) -->
         <activity
             android:name=".GlobeActivity"

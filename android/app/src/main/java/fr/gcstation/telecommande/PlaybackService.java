@@ -169,7 +169,7 @@ public class PlaybackService extends Service {
                 h.removeCallbacks(poll);
                 h.postDelayed(poll, r != null ? (Live.pushing() ? 15000 : 2000) : Live.game != null ? 10000 : 5000);
             });
-            if (System.currentTimeMillis() - lastBuildCheck > 6 * 3600 * 1000L) { lastBuildCheck = System.currentTimeMillis(); BuildCheck.run(PlaybackService.this); }
+            if (System.currentTimeMillis() - lastBuildCheck > 6 * 3600 * 1000L) { lastBuildCheck = System.currentTimeMillis(); BuildCheck.run(PlaybackService.this); AppUpdate.check(PlaybackService.this); }
         }
     };
 
