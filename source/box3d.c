@@ -6,6 +6,7 @@
 // Tout est projeté par le processeur (comme le globe) puis dessiné en 2D, de la face la plus loin à la plus proche.
 
 static f32 bx_yaw = 28, bx_pitch = 7, bx_open = 0, bx_open_to = 0, bx_spin = 0;
+static f32 bx_zoom = 1, bx_zoom_to = 1, bx_panx = 0, bx_pany = 0;   /* v284 : zoom (stick C haut / bas), deplacement (stick) */
 static u64 bx_touch = 0;                                  /* (dernier coup de stick : la boîte arrête de tourner seule) */
 static int bx_game = -1;
 typedef struct { f32 x, y, z; } bv3;
@@ -105,10 +106,18 @@ static void bx_disc(f32 r, f32 z, f32 glow) {
 
 /* la boîte du jeu k dans le rectangle (x, y, w, h) de la fiche */
 static void bx_draw(int k, f32 x, f32 y, f32 w, f32 h, GXTexObj *cov, int big, GXTexObj *full) {   /* full : jaquette complete (dos | tranche | avant), v283 */
-    if (k != bx_game) { bx_game = k; bx_open = bx_open_to = 0; }
+    if (k != bx_game) { bx_game = k; bx_open = bx_open_to = 0; bx_zoom_to = 1; bx_panx = bx_pany = 0; }
     u64 now = now_ms();
     int sx = PAD_SubStickX(0), sy = PAD_SubStickY(0);
-    if (abs(sx) > 30 || abs(sy) > 30) { bx_yaw += sx / 100.0f * 220 * ui_dt; bx_pitch -= sy / 100.0f * 120 * ui_dt; bx_touch = now; }
+    f32 dt = ui_dt > 0.1f ? 0.1f : ui_dt;
+    if (abs(sx) > 30) { bx_yaw += sx / 100.0f * 220 * dt; bx_touch = now; }
+    if (abs(sy) > 40) { bx_zoom_to += sy / 100.0f * 1.6f * dt; if (bx_zoom_to < 1) bx_zoom_to = 1; if (bx_zoom_to > 3) bx_zoom_to = 3; bx_touch = now; }   /* v284 : zoom */
+    if (bx_zoom_to > 1.03f) {                            /* (zoome : le stick deplace la boite) */
+        int mx = PAD_StickX(0), my = PAD_StickY(0);
+        if (abs(mx) > 20) bx_panx -= mx / 100.0f * 420 * dt;
+        if (abs(my) > 20) bx_pany += my / 100.0f * 420 * dt;
+    } else { bx_panx *= 1 - (1 - expf(-dt * 8)); bx_pany *= 1 - (1 - expf(-dt * 8)); }
+    bx_zoom += (bx_zoom_to - bx_zoom) * (1 - expf(-dt * 8));
     if (bx_pitch > 40) bx_pitch = 40; if (bx_pitch < -30) bx_pitch = -30;
     if (now - bx_touch > 4000 && bx_open_to < 0.5f) {    /* (seule : un lent balancement autour de 3/4 face) */
         bx_spin += ui_dt;
@@ -127,8 +136,17 @@ static void bx_draw(int k, f32 x, f32 y, f32 w, f32 h, GXTexObj *cov, int big, G
     if (W > w) { W = w; H = W / 0.75f; }
     f32 sc = 1 - 0.28f * bx_open;                        /* (ouverte : plus petite et a droite, le couvercle reste a l'ecran) */
     H *= sc; W *= sc;
-    f32 D = W * 0.105f;                                  /* (boitier GameCube : 14 mm pour 135) */
+    f32 D = W * 0.105f;
+    bx_F = 760 * (bx_zoom > 1 ? bx_zoom : 1);            /* (meme perspective en grand) */                                  /* (boitier GameCube : 14 mm pour 135) */
     bx_cx = x + w / 2 + bx_open * w * 0.2f; bx_cy = y + h / 2;
+    if (bx_zoom > 1.001f) {                              /* v284 : zoom : plus grande, au milieu de l'ecran */
+        f32 t = (bx_zoom - 1) / 0.35f; if (t > 1) t = 1;
+        H *= bx_zoom; W *= bx_zoom;
+        f32 lx = W * 0.5f - 250 > 0 ? W * 0.5f - 250 : 0, ly = H * 0.5f - 190 > 0 ? H * 0.5f - 190 : 0;   /* (deplacement : jusqu'aux bords) */
+        if (bx_panx > lx) bx_panx = lx; if (bx_panx < -lx) bx_panx = -lx;
+        if (bx_pany > ly) bx_pany = ly; if (bx_pany < -ly) bx_pany = -ly;
+        bx_cx += (320 + bx_panx - bx_cx) * t; bx_cy += (236 + bx_pany - bx_cy) * t;
+    }
     f32 X = W / 2, Y = H / 2, Z = D / 2;
     bv3 A = { -X, -Y, -Z }, B = { X, -Y, -Z }, C = { X, Y, -Z }, Dd = { -X, Y, -Z };    /* (devant : z = -Z, vers nous) */
     bv3 A2 = { -X, -Y, Z }, B2 = { X, -Y, Z }, C2 = { X, Y, Z }, D2 = { -X, Y, Z };
@@ -196,7 +214,15 @@ static void bx_draw(int k, f32 x, f32 y, f32 w, f32 h, GXTexObj *cov, int big, G
     }
 }
 /* (fiche, vitrine) ↑ : ouvrir / fermer ; rend 1 si la touche est prise */
+static int bx_zoomed(void) { return bx_zoom > 1.03f || bx_zoom_to > 1.03f; }
 static int bx_input(u32 down) {
+    if (bx_zoomed()) {                                   /* v284 : zoome : B revient, A joue, le reste ne change pas de jeu */
+        if (down & PAD_BUTTON_B) { bx_zoom_to = 1; return 1; }
+        if (down & PAD_BUTTON_A) return 0;
+        if (down & PAD_BUTTON_UP) { bx_open_to = bx_open_to > 0.5f ? 0 : 1; bx_touch = now_ms(); }
+        if ((down & PAD_BUTTON_DOWN) && bx_open_to > 0.5f) bx_open_to = 0;
+        return 1;
+    }
     if (down & PAD_BUTTON_UP) { bx_open_to = bx_open_to > 0.5f ? 0 : 1; bx_touch = now_ms(); return 1; }
     if ((down & PAD_BUTTON_DOWN) && bx_open_to > 0.5f) { bx_open_to = 0; return 1; }
     return 0;

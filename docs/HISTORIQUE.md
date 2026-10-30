@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v284 (build à venir) — Zoom sur la boîte 3D
+- **Stick C haut / bas : zoom** sur la boîte (jusqu'à 3 fois) : elle passe au milieu de l'écran, par-dessus la fiche,
+  pour lire le dos. **Stick C gauche / droite** : tourner. **Stick** : déplacer la boîte zoomée. **↑** : ouvrir / fermer.
+  **A** : jouer. **B** : revenir à la fiche.
+- Le stick C ne penche plus la boîte (il zoome à la place).
+
 ## Nouveautés v283 (build 770) — Boîte 3D : les vraies jaquettes devant, derrière et sur la tranche
 - La boîte 3D de la fiche prend maintenant la **jaquette complète** du jeu sur GameTDB (dos | tranche | avant) :
   le **dos** et la **tranche** sont les vrais, comme le boîtier du commerce.
