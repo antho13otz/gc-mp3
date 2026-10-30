@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v279 (build à venir, appli build 49) — 4 jeux en duel, et le téléphone comme manette
+## Nouveautés v279 (build 765, appli build 49) — 4 jeux en duel, et le téléphone comme manette
 - **Motos lumineuses** (2 à 4) : chacun laisse un mur de lumière derrière lui, de plus en plus vite ; le dernier en vie
   gagne la manche, en 3. **Air hockey** (2) : maillets au stick, palet qui rebondit, le premier à 7 buts.
   **Puissance 4** (2) : le jeton tombe, les 4 alignés brillent, en 3 parties. **Sumo** (2 à 4) : pousser les autres
