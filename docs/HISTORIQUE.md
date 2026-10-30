@@ -68,7 +68,7 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   Mini-jeux, Manette en jeu, Globe, Mettre à jour. Réglages, Cartes mémoire, Salon, Outils, Recherche et Copies
   gardent pour l'instant l'ancien look.
 
-## Nouveautés v292 (build à venir) — Jaquettes : tour des bugs
+## Nouveautés v292 (build 782) — Jaquettes : tour des bugs
 - **Un seul téléchargement d'images à la fois** (jaquettes, complètes, HD, disques, fiches, « toutes les jaquettes ») :
   avant, deux pouvaient partir en même temps, se ralentir, et l'un pouvait écraser l'image que l'autre convertissait
   (jaquette fausse ou perdue).
