@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v274 (build à venir) — Images d'applis en .bnr
+## Nouveautés v274 (build 760) — Images d'applis en .bnr
 - **Bannière GameCube (.bnr) comme image d'appli** : une appli sans icon.png ni pochette prend sa bannière :
   `<nom du .dol>.bnr` à côté du .dol (aussi à la racine de la carte), sinon le premier `.bnr` de son dossier
   (`opening.bnr`, `banner.bnr`…). L'image 96 × 32 (RGB5A3, « BNR1 » ou « BNR2 ») est mise devant, sur fond flou,
