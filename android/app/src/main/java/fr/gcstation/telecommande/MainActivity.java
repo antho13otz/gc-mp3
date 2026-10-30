@@ -82,7 +82,9 @@ public class MainActivity extends Activity {
     private int fails;
     private JSONObject lastState;
     private long lastStateAt;
-    private LinearLayout offline, gameView;
+    private LinearLayout offline, gameView, sendBar;
+    private TextView sendText;
+    private ProgressBar sendBarP;
     private TextView offlineMsg, gameTitle, gameSub, gameClock, gameLeft;
     private android.widget.ImageView gameCover;
     private boolean gameHidden, wasOffline, rediscovering;
@@ -169,6 +171,25 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams ol = new LinearLayout.LayoutParams(-1, -2);
         ol.setMargins(dp(14), 0, dp(14), dp(6));
         col.addView(offline, ol);
+
+        sendBar = new LinearLayout(this);                       // envoi de fichiers en cours : nom, %, debit
+        sendBar.setOrientation(LinearLayout.VERTICAL);
+        sendBar.setBackground(Neon.glass(this, 16));
+        sendBar.setPadding(dp(14), dp(8), dp(14), dp(10));
+        sendText = Neon.text(this, "", 12, Neon.TEXT, true);
+        sendText.setSingleLine(true);
+        sendText.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        sendBar.addView(sendText);
+        sendBarP = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+        sendBarP.setMax(100);
+        sendBarP.setProgressTintList(android.content.res.ColorStateList.valueOf(Neon.PINK));
+        LinearLayout.LayoutParams spl = new LinearLayout.LayoutParams(-1, dp(8));
+        spl.topMargin = dp(6);
+        sendBar.addView(sendBarP, spl);
+        sendBar.setVisibility(View.GONE);
+        LinearLayout.LayoutParams sbl = new LinearLayout.LayoutParams(-1, -2);
+        sbl.setMargins(dp(14), 0, dp(14), dp(6));
+        col.addView(sendBar, sbl);
 
         subBar = new LinearLayout(this);                        // ecran ouvert depuis Plus : fleche retour + titre
         subBar.setGravity(Gravity.CENTER_VERTICAL);
@@ -726,19 +747,76 @@ public class MainActivity extends Activity {
         send(uris);
     }
 
+    // ---------- progression des envois (barre dans l'appli + notification), envoi qui tient ecran eteint, nouvel essai ----------
+    private volatile String sendName = "";
+    private volatile long sendDone, sendSize, sendT0;
+    private volatile int sendIdx, sendCount;
+    private final Runnable sendTick = new Runnable() {
+        @Override public void run() {
+            if (sendCount == 0) return;
+            long sz = sendSize, d = sendDone;
+            int pct = sz > 0 ? (int) Math.min(100, d * 100 / sz) : 0;
+            long el = System.currentTimeMillis() - sendT0;
+            String sp = el > 800 && d > 0 ? String.format(java.util.Locale.FRANCE, " · %.1f Mo/s", d / 1048576.0 / (el / 1000.0)) : "";
+            String t = (sendCount > 1 ? "Envoi " + (sendIdx + 1) + "/" + sendCount + " : " : "Envoi : ") + sendName;
+            Neon.set(sendText, t + "  " + pct + " %" + sp);
+            sendBarP.setProgress(pct);
+            sendNotify(t, pct + " %" + sp, pct, false);
+            ui.postDelayed(this, 400);
+        }
+    };
+    private void sendNotify(String title, String text, int pct, boolean end) {
+        try {
+            PlaybackService.channels(this);
+            android.app.Notification.Builder b = android.os.Build.VERSION.SDK_INT >= 26 ? new android.app.Notification.Builder(this, PlaybackService.CH_INFO) : new android.app.Notification.Builder(this);
+            b.setSmallIcon(R.drawable.ic_stat).setContentTitle(title).setContentText(text).setColor(Neon.PINK).setOnlyAlertOnce(true).setShowWhen(false)
+             .setContentIntent(android.app.PendingIntent.getActivity(this, PlaybackService.ID_SEND, new Intent(this, MainActivity.class), android.app.PendingIntent.FLAG_IMMUTABLE));
+            if (!end) b.setOngoing(true).setProgress(100, pct, false); else b.setAutoCancel(true);
+            getSystemService(android.app.NotificationManager.class).notify(PlaybackService.ID_SEND, b.build());
+        } catch (Exception e) { }
+    }
+
     private void send(final List<Uri> uris) {
         if (uris.isEmpty()) { Toast.makeText(this, "Rien à envoyer (seulement des fichiers)", Toast.LENGTH_LONG).show(); return; }
-        Toast.makeText(this, "Envoi vers GC Station : " + uris.size() + " fichier" + (uris.size() > 1 ? "s" : "") + "…", Toast.LENGTH_SHORT).show();
+        if (sendCount > 0) { Toast.makeText(this, "Un envoi est déjà en cours", Toast.LENGTH_SHORT).show(); return; }
+        sendCount = uris.size(); sendIdx = 0; sendDone = 0; sendSize = 0; sendName = ""; sendT0 = System.currentTimeMillis();
+        sendBar.setVisibility(View.VISIBLE);
+        sendBarP.setProgress(0);
+        ui.removeCallbacks(sendTick); ui.post(sendTick);
         new Thread(() -> {
+            // (ecran eteint ou appli en fond : le telephone garde le Wi-Fi et le processeur pour finir l'envoi)
+            android.os.PowerManager.WakeLock wl = null;
+            android.net.wifi.WifiManager.WifiLock wf = null;
+            try {
+                wl = ((android.os.PowerManager) getSystemService(POWER_SERVICE)).newWakeLock(android.os.PowerManager.PARTIAL_WAKE_LOCK, "gcs:envoi");
+                wl.acquire(3 * 3600 * 1000L);
+                wf = ((android.net.wifi.WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE)).createWifiLock(android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF, "gcs:envoi");
+                wf.acquire();
+            } catch (Exception e) { }
             int ok = 0;
             StringBuilder where = new StringBuilder();
-            for (Uri u : uris) { String r = upload(u); if (r != null) { ok++; if (r.startsWith("SD:")) where.append(" ").append(r); } }
+            for (int i = 0; i < uris.size(); i++) {
+                sendIdx = i;
+                String r = null;
+                for (int t = 0; t < 3 && r == null; t++) {            // (3 essais : coupure du Wi-Fi, console occupee par un autre envoi)
+                    if (t > 0) try { Thread.sleep(Api.lastCode == 503 ? 4000 : 2000); } catch (InterruptedException e) { }
+                    sendDone = 0; sendT0 = System.currentTimeMillis();
+                    r = upload(uris.get(i));
+                }
+                if (r != null) { ok++; if (r.startsWith("SD:")) where.append(" ").append(r); }
+            }
+            try { if (wl != null && wl.isHeld()) wl.release(); if (wf != null && wf.isHeld()) wf.release(); } catch (Exception e) { }
             final int n = ok;
             final String w = where.toString();
             ui.post(() -> {
+                sendCount = 0;
+                ui.removeCallbacks(sendTick);
+                Neon.set(sendText, n == uris.size() ? "Envoyé : " + n + " fichier" + (n > 1 ? "s" : "") + " ✓" : "Envoyés : " + n + " sur " + uris.size() + " (les autres ont échoué après 3 essais)");
+                if (n == uris.size()) sendBarP.setProgress(100);
+                ui.postDelayed(() -> { if (sendCount == 0) sendBar.setVisibility(View.GONE); }, 5000);
                 Toast.makeText(this, (n == uris.size() ? "Envoyé sur la console (" + n + ")" : "Envoyés : " + n + " sur " + uris.size()) + (w.isEmpty() ? "" : " →" + w), Toast.LENGTH_LONG).show();
                 ((FilesTab) tabs[T_FILES]).refresh();
-                PlaybackService.notify(this, PlaybackService.ID_SEND, "Envoi termin\u00e9", (n == uris.size() ? n + " fichier(s) sur la console" : n + " sur " + uris.size() + " envoy\u00e9(s)") + (w.isEmpty() ? "" : " :" + w));
+                sendNotify(n == uris.size() ? "Envoi termin\u00e9" : "Envoi incomplet", (n == uris.size() ? n + " fichier(s) sur la console" : n + " sur " + uris.size() + " envoy\u00e9(s)") + (w.isEmpty() ? "" : " :" + w), 100, true);
                 ((ListTab) tabs[1]).load();
             });
         }).start();
@@ -782,9 +860,10 @@ public class MainActivity extends Activity {
         return super.dispatchKeyEvent(e);
     }
 
-    private String upload(Uri u) { return uploadTo(u, null); }
+    private String upload(Uri u) { return uploadTo(u, null, true); }
+    private String uploadTo(Uri u, String forceDir) { return uploadTo(u, forceDir, false); }
 
-    private String uploadTo(Uri u, String forceDir) {
+    private String uploadTo(Uri u, String forceDir, boolean prog) {
         File tmp = null;
         try {
             String name = "fichier", mime = getContentResolver().getType(u);
@@ -810,7 +889,8 @@ public class MainActivity extends Activity {
                        : mime != null && mime.startsWith("video/") ? "videos"
                        : low.endsWith(".gci") ? "gci" : "downloads";   // (.dol : la console le range dans SD:/apps)
             try (InputStream in = tmp != null ? new FileInputStream(tmp) : getContentResolver().openInputStream(u)) {
-                return Api.put(dir, name, in, size);
+                if (prog) { sendName = name; sendSize = size; }
+                return Api.put(dir, name, in, size, prog ? d -> sendDone = d : null);
             }
         } catch (Exception e) {
             return null;

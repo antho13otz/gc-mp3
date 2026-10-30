@@ -981,6 +981,8 @@ static int tp_param(const char *q, const char *key, char *out, int cap) {
 }
 
 /* envoi d'un fichier : le corps de la requete est ecrit directement sur la SD */
+static volatile int tp_busy = 0;
+static volatile u64 tp_park_t = 0;
 static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, int prelen) {
     static const char *const dirs[] = { "mp3", "downloads", "retro", "photos", "ecran", "videos", "radio", "podcasts", "gci", "regtel" };   /* (v242 : regtel = copie des reglages du telephone) */   /* (v190 : gci = sauvegardes) */
     char dir[32], name[200], path[NAME_LEN + 16];
@@ -1039,6 +1041,7 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     }
     while (ok && tp_up_done < len) {
         long want = len - tp_up_done;
+        if (tp_park_t > tp_up_t0) { ok = 0; break; }        /* v271 : la carte va etre demontee (demande pendant l'envoi) */
         int r = tp_recv(c, buf, want > (long)sizeof(buf) ? (int)sizeof(buf) : (int)want, 20000);
         if (r <= 0) { ok = 0; break; }
         if (fwrite(buf, 1, r, f) != (size_t)r) { ok = 0; break; }
@@ -1081,6 +1084,26 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     tp_reply(c, 200, "text/plain", "ok", 2);
 }
 
+/* v271 : fil des envois (PUT /upload) */
+static volatile s32 tpu_c = -1;
+static volatile int tp_taken = 0;                         /* (la connexion est passee au fil des envois : ne pas la fermer) */
+static char tpu_q[600];
+static long tpu_len;
+static unsigned char tpu_pre[8192];
+static int tpu_prelen;
+static lwp_t tpu_h;
+static u8 tpu_stack[24 * 1024] ATTRIBUTE_ALIGN(32);
+static void *tpu_thread(void *a) {
+    (void)a;
+    for (;;) {
+        s32 c = tpu_c;
+        if (c < 0) { usleep(5000); continue; }
+        tp_upload(c, tpu_q, tpu_len, tpu_pre, tpu_prelen);
+        net_close(c);
+        tpu_c = -1;
+    }
+    return NULL;
+}
 static void tp_handle(s32 c) {
     static unsigned char req[8192];
     int len = 0, hend = -1;
@@ -1102,7 +1125,18 @@ static void tp_handle(s32 c) {
         long cl = -1;
         const char *h = ci_find((char *)req, "\ncontent-length:");
         if (h) cl = atol(h + 16);
-        if (!strcmp(target, "/upload") && cl > 0) tp_upload(c, q ? q : "", cl, req + hend, len - hend);
+        if (!strcmp(target, "/upload") && cl > 0) {
+            /* v271 : l'envoi dans son propre fil : le serveur continue de repondre (etat, commandes) pendant l'envoi.
+               Avant : plus aucune reponse pendant tout l'envoi (63 s pour 30 Mo) : "console injoignable" sur le telephone */
+            if (tpu_c == -2) { tp_upload(c, q ? q : "", cl, req + hend, len - hend); return; }   /* (fil pas cree : comme avant) */
+            if (tpu_c >= 0) { tp_reply(c, 503, "text/plain", "envoi en cours", 14); return; }   /* (un envoi a la fois) */
+            snprintf(tpu_q, sizeof(tpu_q), "%s", q ? q : "");
+            tpu_len = cl;
+            tpu_prelen = len - hend > (int)sizeof(tpu_pre) ? (int)sizeof(tpu_pre) : len - hend;
+            memcpy(tpu_pre, req + hend, tpu_prelen);
+            tp_taken = 1;
+            tpu_c = c;
+        }
         else tp_reply(c, 400, "text/plain", "", 0);
         return;
     }
@@ -1527,13 +1561,13 @@ static void tp_handle(s32 c) {
 
 /* v247 : lancement d'un jeu demande depuis le telephone : l'appli continuait a demander des jaquettes, et le fil du
    serveur lisait la carte SD pendant qu'elle etait demontee (ecran rouge : DSI dans _fstat_r <- fseek <- tp_handle).
-   Avant de demonter la carte (bg_quiesce) : plus de nouvelle demande pendant 20 s, et celle en cours finit d'abord. */
-static volatile int tp_busy = 0;
-static volatile u64 tp_park_t = 0;
+   Avant de demonter la carte (bg_quiesce) : plus de nouvelle demande pendant 20 s, et celle en cours finit d'abord
+   (v271 : l'envoi en cours aussi : il s'arrete, fichier efface). */
+static volatile s32 tpu_c;
 static void tp_park(void) {
     tp_park_t = now_ms();
     u64 t0 = now_ms();
-    while (tp_busy && now_ms() - t0 < 3000) usleep(2000);
+    while ((tp_busy || tpu_c >= 0) && now_ms() - t0 < 3000) usleep(2000);
 }
 static void *phone_thread(void *arg) {
     (void)arg;
@@ -1553,6 +1587,7 @@ static void *phone_thread(void *arg) {
     }
     tp_state = PS_ON;
     tp_update_free();
+    if (LWP_CreateThread(&tpu_h, tpu_thread, NULL, tpu_stack, sizeof(tpu_stack), 30) < 0) tpu_c = -2;   /* v271 (sans fil : 503) */
     for (;;) {
         struct sockaddr_in ca;
         socklen_t cl = sizeof(ca);
@@ -1561,9 +1596,10 @@ static void *phone_thread(void *arg) {
         set_nonblock(c, 1);
         tp_busy = 1;                                     /* (avant le test : tp_park attend la fin) */
         if (tp_park_t && now_ms() - tp_park_t < 20000) { tp_busy = 0; net_close(c); continue; }   /* v247 : carte SD demontee */
+        tp_taken = 0;
         tp_handle(c);                                    /* (v137 : onglet enleve : seulement les partages, voir tp_handle) */
         tp_busy = 0;
-        net_close(c);
+        if (!tp_taken) net_close(c);
     }
     return NULL;
 }

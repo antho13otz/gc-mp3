@@ -33,6 +33,16 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   « Créer le jeton » : la bonne page de GitHub). Il reste sur le téléphone.
 - L'APK est gardé 90 jours sur GitHub (avant : 7).
 
+## Nouveautés v271 (build 755) — Envois de fichiers : la console répond pendant l'envoi, progression dans l'appli
+- **Console** : l'envoi d'un fichier par le téléphone se fait dans un fil à lui. Avant, le serveur du téléphone ne
+  répondait plus à rien pendant tout l'envoi (63 s pour 30 Mo dans le simulateur) : l'appli affichait « Console
+  injoignable », cherchait la console… Maintenant l'état, les commandes et le reste continuent de répondre. Un
+  2e envoi en même temps est refusé (503) : l'appli réessaie. L'envoi s'arrête proprement (fichier effacé) si la
+  carte SD doit être démontée pendant l'envoi (lancement d'un jeu).
+- **Appli** : barre de progression des envois (fichier, %, débit) sous le mini-lecteur, et dans une notification
+  (aussi appli fermée) ; 3 essais par fichier ; pendant un envoi, le téléphone garde le Wi-Fi et le processeur (écran
+  éteint : l'envoi continue).
+
 ## Nouveautés v270 (build 752) — jaquettes lues directement sur la carte SD
 - Test de la console (build 749) : la plupart des images bloquées (200 à 620 ms, « manette » ou « dessin : jeux »)
   lisaient 200 à 770 Ko sur la carte SD pendant l'image. C'est libfat qui, pour aller à un endroit d'un gros fichier,

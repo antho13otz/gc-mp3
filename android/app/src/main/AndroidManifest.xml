@@ -8,6 +8,9 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <!-- mise a jour de l'appli depuis l'appli (AppUpdate : APK de la compilation GitHub) -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- envoi de fichiers : le telephone garde le Wi-Fi et le processeur, ecran eteint -->
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <application
         android:label="GC Station"
         android:icon="@mipmap/ic_launcher"
