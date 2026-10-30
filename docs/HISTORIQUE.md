@@ -34,7 +34,7 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   glisser = la croix, pointeur sur l'onglet WEB. Seulement dans les menus de GC Station (pas pendant un jeu).
 - Simulateur : les tests automatiques demandent aussi l'image de la télé (petite et nette) et vérifient qu'elle se lit.
 
-## Nouveautés v284 (build à venir) — Zoom sur la boîte 3D
+## Nouveautés v284 (build 771) — Zoom sur la boîte 3D
 - **Stick C haut / bas : zoom** sur la boîte (jusqu'à 3 fois) : elle passe au milieu de l'écran, par-dessus la fiche,
   pour lire le dos. **Stick C gauche / droite** : tourner. **Stick** : déplacer la boîte zoomée. **↑** : ouvrir / fermer.
   **A** : jouer. **B** : revenir à la fiche.
