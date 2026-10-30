@@ -1,4 +1,5 @@
 // GC Station v282 : la boîte du jeu en 3D (fiche d'un jeu dans la vitrine). Inclus dans main.c, avant gspace.c.
+// v283 : avec la jaquette complète de GameTDB (dos | tranche | avant) quand elle existe : les 3 faces sont les vraies.
 // Une boîte GameCube aux proportions des jaquettes (3 x 4, comme le pack : 192 x 256), la jaquette devant, la tranche,
 // le dos (résumé, genre, joueurs, PEGI, capture). Elle tourne doucement ; le stick C la fait tourner. ↑ : elle s'ouvre
 // (le couvercle pivote sur la tranche), le disque s'allume dedans ; A : prendre le disque et jouer ; ↓ ou ↑ : fermer.
@@ -103,7 +104,7 @@ static void bx_disc(f32 r, f32 z, f32 glow) {
 }
 
 /* la boîte du jeu k dans le rectangle (x, y, w, h) de la fiche */
-static void bx_draw(int k, f32 x, f32 y, f32 w, f32 h, GXTexObj *cov, int big) {
+static void bx_draw(int k, f32 x, f32 y, f32 w, f32 h, GXTexObj *cov, int big, GXTexObj *full) {   /* full : jaquette complete (dos | tranche | avant), v283 */
     if (k != bx_game) { bx_game = k; bx_open = bx_open_to = 0; }
     u64 now = now_ms();
     int sx = PAD_SubStickX(0), sy = PAD_SubStickY(0);
@@ -126,20 +127,23 @@ static void bx_draw(int k, f32 x, f32 y, f32 w, f32 h, GXTexObj *cov, int big) {
     if (W > w) { W = w; H = W / 0.75f; }
     f32 sc = 1 - 0.28f * bx_open;                        /* (ouverte : plus petite et a droite, le couvercle reste a l'ecran) */
     H *= sc; W *= sc;
-    f32 D = W * 0.12f;
+    f32 D = W * 0.105f;                                  /* (boitier GameCube : 14 mm pour 135) */
     bx_cx = x + w / 2 + bx_open * w * 0.2f; bx_cy = y + h / 2;
     f32 X = W / 2, Y = H / 2, Z = D / 2;
     bv3 A = { -X, -Y, -Z }, B = { X, -Y, -Z }, C = { X, Y, -Z }, Dd = { -X, Y, -Z };    /* (devant : z = -Z, vers nous) */
     bv3 A2 = { -X, -Y, Z }, B2 = { X, -Y, Z }, C2 = { X, Y, Z }, D2 = { -X, Y, Z };
     col_t plast = RGBA(30, 24, 40, 255), side = RGBA(44, 36, 60, 255), spine = au_mix(0.3f, 255);
-    f32 u1 = big ? 192.0f / 256.0f : 96.0f / 128.0f;
+    f32 u1 = big ? 192.0f / 256.0f : 96.0f / 128.0f, fu0 = 0;
+    const f32 SP = 0.05f, ub = (1 - SP) / 2, uf = (1 + SP) / 2;   /* (jaquette complete : dos 0..ub, tranche ub..uf, avant uf..1) */
+    if (full) { cov = full; fu0 = uf; u1 = 1; }
+    u8 kb = full ? 1 : 2, ks = full ? 1 : 0;
     bx_nf = 0;
     /* ombre au sol */
     gx_ellipse(bx_cx + 6, bx_cy + H * 0.52f, W * 0.75f, H * 0.07f, RGBA(0, 0, 0, 110), RGBA(0, 0, 0, 0));
     if (bx_open < 0.02f) {                                /* fermée : 6 faces */
-        bx_add(A, B, C, Dd, 0, 0, 0, cov ? 1 : 4, cov, 0, 0, u1, 1, plast);          /* devant : la jaquette */
-        bx_add(B2, A2, D2, C2, 0, 0, 0, 2, NULL, 0, 0, 0, 0, RGBA(36, 28, 62, 255)); /* dos */
-        bx_add(A2, A, Dd, D2, 0, 0, 0, 0, NULL, 0, 0, 0, 0, spine);                   /* tranche (a gauche) */
+        bx_add(A, B, C, Dd, 0, 0, 0, cov ? 1 : 4, cov, fu0, 0, u1, 1, plast);          /* devant : la jaquette */
+        bx_add(B2, A2, D2, C2, 0, 0, 0, kb, full, 0, 0, ub, 1, RGBA(36, 28, 62, 255)); /* dos */
+        bx_add(A2, A, Dd, D2, 0, 0, 0, ks, full, ub, 0, uf, 1, spine);                   /* tranche (a gauche) */
         bx_add(B, B2, C2, C, 0, 0, 0, 0, NULL, 0, 0, 0, 0, side);
         bx_add(A2, B2, B, A, 0, 0, 0, 0, NULL, 0, 0, 0, 0, side);                     /* dessus */
         bx_add(Dd, C, C2, D2, 0, 0, 0, 0, NULL, 0, 0, 0, 0, plast);                   /* dessous */
@@ -147,14 +151,14 @@ static void bx_draw(int k, f32 x, f32 y, f32 w, f32 h, GXTexObj *cov, int big) {
         f32 t = D * 0.18f;
         bv3 I0 = { -X, -Y, -Z + t }, I1 = { X, -Y, -Z + t }, I2 = { X, Y, -Z + t }, I3 = { -X, Y, -Z + t };
         bx_add(I0, I1, I2, I3, 0, 0, 0, 0, NULL, 0, 0, 0, 0, RGBA(18, 14, 26, 255));  /* fond du bac (le disque dessus) */
-        bx_add(B2, A2, D2, C2, 0, 0, 0, 2, NULL, 0, 0, 0, 0, RGBA(36, 28, 62, 255));
-        bx_add(A2, I0, I3, D2, 0, 0, 0, 0, NULL, 0, 0, 0, 0, spine);
+        bx_add(B2, A2, D2, C2, 0, 0, 0, kb, full, 0, 0, ub, 1, RGBA(36, 28, 62, 255));
+        bx_add(A2, I0, I3, D2, 0, 0, 0, ks, full, ub, 0, ub + (uf - ub) * 0.82f, 1, spine);
         bx_add(I1, B2, C2, I2, 0, 0, 0, 0, NULL, 0, 0, 0, 0, side);
         bx_add(A2, B2, I1, I0, 0, 0, 0, 0, NULL, 0, 0, 0, 0, side);
         bx_add(I3, I2, C2, D2, 0, 0, 0, 0, NULL, 0, 0, 0, 0, plast);
         bv3 L0 = { -X, -Y, -Z }, L1 = { X, -Y, -Z }, L2 = { X, Y, -Z }, L3 = { -X, Y, -Z };   /* couvercle (exterieur : la jaquette) */
         bv3 M0 = { -X, -Y, -Z + t }, M1 = { X, -Y, -Z + t }, M2 = { X, Y, -Z + t }, M3 = { -X, Y, -Z + t };
-        bx_add(L0, L1, L2, L3, 1, -X, -Z, cov ? 1 : 4, cov, 0, 0, u1, 1, plast);
+        bx_add(L0, L1, L2, L3, 1, -X, -Z, cov ? 1 : 4, cov, fu0, 0, u1, 1, plast);
         bx_add(M1, M0, M3, M2, 1, -X, -Z, 0, NULL, 0, 0, 0, 0, RGBA(92, 70, 156, 255)); /* interieur du couvercle */
     }
     /* de la plus loin a la plus proche */

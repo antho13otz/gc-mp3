@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v283 (build à venir) — Boîte 3D : les vraies jaquettes devant, derrière et sur la tranche
+- La boîte 3D de la fiche prend maintenant la **jaquette complète** du jeu sur GameTDB (dos | tranche | avant) :
+  le **dos** et la **tranche** sont les vrais, comme le boîtier du commerce.
+- Téléchargée **seulement pour le jeu dont tu ouvres la fiche** (avec le réseau), une seule fois, rangée toute prête
+  dans `SD:/gc-mp3/jaquettes/completes/<ID>.tex`. Tu peux aussi y déposer toi-même un `<ID>.png` (ou `.jpg`) : une image
+  à plat, dos à gauche, tranche au milieu, avant à droite. Les jeux que GameTDB n'a pas sont notés dans `absentes.txt`.
+- Sans jaquette complète : la boîte reste comme avant (jaquette devant, résumé au dos).
+
 ## Nouveautés v282 (build 769) — La boîte du jeu en 3D
 - **Dans la fiche d'un jeu** (vitrine), la jaquette devient une **vraie boîte GameCube en 3D**, aux proportions des
   jaquettes (3 × 4) : la jaquette devant, la tranche, le dessus. Elle se balance doucement toute seule.

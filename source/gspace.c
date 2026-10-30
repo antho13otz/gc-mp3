@@ -423,7 +423,7 @@ static void gs_draw_fiche(void) {
     } else {                                                     /* v282 : la boite du jeu en 3D (box3d.c) */
         if (g->post >= 0 && gl_big.game == gl_sel && gl_big.tex) { o = &gl_big.obj; big = 1; }
         else if (g->post >= 0) o = gl_cover(gl_sel, 1);          /* (la petite en attendant la grande) */
-        bx_draw(gl_sel, cx, cy, cw, chh, o, big);
+        bx_draw(gl_sel, cx, cy, cw, chh, o, big, gl_fc_get(gl_sel));   /* v283 : + la jaquette complete (GameTDB) */
     }
     /* a droite */
     const f32 rx = 250 + ox; const int rw = 366;
