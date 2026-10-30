@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v273 (build à venir) — Manettes du téléphone dans les jeux (Pulse), retour A+Z+START plus sûr
+## Nouveautés v273 (build 759) — Manettes du téléphone dans les jeux (Pulse), retour A+Z+START plus sûr
 - **⚙ > Manettes du téléphone** : un téléphone devient la manette d'un port (2, 2-3, 2-4 ou 1) dans les jeux lancés
   avec Pulse. Pulse lit le Broadband Adapter à chaque image (UDP, port 51237, paquets « GCPD ») et donne les touches au
   jeu comme une vraie manette : touches, sticks, gâchettes, réponses « type » et « origine ».
