@@ -50,7 +50,7 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   Mini-jeux, Manette en jeu, Globe, Mettre à jour. Réglages, Cartes mémoire, Salon, Outils, Recherche et Copies
   gardent pour l'instant l'ancien look.
 
-## Nouveautés v290 (build à venir) — Boîte 3D comme un vrai boîtier, avec le disque du jeu
+## Nouveautés v290 (build 780) — Boîte 3D comme un vrai boîtier, avec le disque du jeu
 - **Aspect d'un vrai boîtier GameCube** : plastique noir dehors ; dedans, les **clips de la notice** dans le couvercle,
   le **support hexagonal** du disque, la **place de la carte mémoire**, les rebords. L'ouverture reste comme avant (↑).
 - **Le vrai disque du jeu** dans la boîte ouverte : image du disque de GameTDB (`jaquettes/disques/<ID>.tex`, ou un
