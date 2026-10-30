@@ -114,7 +114,7 @@ fun EcranTele() {
     val paysage = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val prefs = remember { act.getSharedPreferences("gcs", 0) }
     var net by remember { mutableStateOf(prefs.getBoolean("tele_nette", false)) }
-    var enDirect by remember { mutableStateOf(true) }
+    var enDirect by remember { mutableStateOf(false) }      // (l'image ne part que si on la demande : bouton Afficher la tele)
     var img by remember { mutableStateOf<Image1?>(null) }
     var ips by remember { mutableFloatStateOf(0f) }
     var rate by remember { mutableStateOf(false) }
@@ -155,10 +155,11 @@ fun EcranTele() {
     val ecran: @Composable (Modifier) -> Unit = { m ->
         Box(m.aspectRatio(if (i != null) i.w.toFloat() / i.h else 4f / 3f).clip(RoundedCornerShape(if (paysage) 10.dp else 18.dp))
             .background(Color.Black).border(1.dp, Brush.linearGradient(listOf(C.Rose, C.Cyan)), RoundedCornerShape(if (paysage) 10.dp else 18.dp))
-            .gestesTele(i?.web == true)) {
+            .then(if (enDirect) Modifier.gestesTele(i?.web == true) else Modifier)) {
             if (i != null) Image(i.bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.Medium)
             else Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                 if (!St.connecte) Doux("Pas connecté à la console", centre = true)
+                else if (!enDirect) { }
                 else if (rate) Doux("La console n'envoie pas son image : mets-la à jour (build 774 ou plus)", Modifier.padding(20.dp), centre = true)
                 else CircularProgressIndicator(color = C.Rose)
             }
@@ -167,12 +168,15 @@ fun EcranTele() {
                 Spacer(Modifier.width(5.dp))
                 Text(String.format(java.util.Locale.FRANCE, "%.0f img/s", ips) + if (i.web) " · pointeur" else "", color = Color.White, fontSize = 10.sp)
             }
+            if (!enDirect && St.connecte) Box(Modifier.fillMaxSize().background(Color(0x99000000)), contentAlignment = Alignment.Center) {
+                Bouton("Afficher la télé", plein = true, icone = Ic.Lecture) { enDirect = true }
+            }
         }
     }
     val barre: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Puce(if (net) "Net" else "Rapide", net) { net = !net; prefs.edit().putBoolean("tele_nette", net).apply() }
-            Puce(if (enDirect) "En direct" else "En pause", enDirect) { enDirect = !enDirect }
+            Puce(if (enDirect) "En direct" else "Image arrêtée", enDirect) { enDirect = !enDirect }
             Puce(if (paysage) "Portrait" else "Plein écran", false) {
                 pleinEcran = !paysage
                 act.requestedOrientation = if (paysage) ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
