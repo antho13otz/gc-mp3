@@ -1107,6 +1107,61 @@ static char *nat_pj_json(void) {
     sb_add(&s, "}");
     return s.b;
 }
+/* v267 : journal du jeu complet : toutes les valeurs de l'en-tete de Pulse (natres_hdr_t, dans l'ordre), la memoire
+   basse du jeu expliquee (photo du plantage), toutes les zones de la photo, et les secteurs bruts du journal. */
+#ifdef GCMP3_VERSION
+#define NA_GCS_VER GCMP3_VERSION
+#else
+#define NA_GCS_VER "?"                                    /* (banc d'essai) */
+#endif
+#ifndef GCMP3_BUILD
+#define GCMP3_BUILD 0
+#endif
+static const char *const na_hdr_names[] = {
+    "magic", "version", "init", "read", "read_sd", "chan", "dev", "freq", "n_ext", "ext", "sdhc", "err", "r1",
+    "stage", "nread", "end", "di_load", "di_store", "flags", "ncmd", "last_cmd", "last_off", "last_len", "pad",
+    "log_sec", "nkick", "nskip", "nrderr", "nretry", "nack_tc", "last_real_disr", "nlog", "n_e1", "n_e2", "n_ab",
+    "n_misc", "vi_count", "si_count", "igr", "flush_tb", "si_reads", "si_skip", "si_last", "si_changes", "exc_num",
+    "exc_srr0", "exc_lr", "exc_dar", "exc_dsisr", "cnt_ai", "cnt_dsp", "cnt_pe", "n_async", "n_chunks", "kick_us",
+    "kick_max_us", "ret_n", "ret_tab", "ret_size", "ret_state", "exi_load", "exi_store", "card_n", "card_tab",
+    "card_size", "card_id", "st_blocks", "st_mix", "card_cmds", "card_writes", "card_last", "card_irqs", "n_inq",
+    "hook_mask", "vi_in", "si_in", "n_samp", "samp_lr", "samp_pc[0]", "samp_pc[1]", "samp_pc[2]", "samp_pc[3]",
+    "dsp_csr", "dsp_mbox", "snap_sec", "snap_cnt", "snap_hi", "snap_done", "xfer", "crc_err", "exec_n", "exec_last",
+    "reboot_off", "reboot_len", "tramp_at", "tramp_n", "vi_now", "vi_dtv", "vi_chg", "vi_chg_at", "ext2", "n_ext2",
+    "disc", "chts", "card2_n", "card2_tab", "card2_size", "card2_id", "si_load", "si_store", "opt", "si_fixes",
+    "trap_state", "trap_n", "trap_pc", "trap_bad", "net", "net_pk", "net_rt", "n_rescue", "bba_n", "exi_wait",
+    "exi_sync", "tramp_end",
+};
+typedef char na_hdr_names_ok[sizeof(na_hdr_names) / sizeof(na_hdr_names[0]) * 4 == sizeof(natres_hdr_t) ? 1 : -1];
+static void na_hex(FILE *f, const u8 *p, u32 base, u32 n) {
+    for (u32 o = 0; o < n; o += 32) {
+        u32 z = 0;                                         /* (lignes de zeros a la suite : une seule ligne) */
+        while (o + z + 32 <= n) { int nz = 0; for (u32 i = 0; i < 32; i++) if (p[o + z + i]) { nz = 1; break; } if (nz) break; z += 32; }
+        if (z >= 64) { fprintf(f, "    %08X : (%u octets a zero)\n", (unsigned)(base + o), (unsigned)z); o += z - 32; continue; }
+        fprintf(f, "    %08X :", (unsigned)(base + o));
+        for (u32 i = 0; i < 32 && o + i < n; i += 4) fprintf(f, " %08X", (unsigned)be32(p + o + i));
+        fprintf(f, "  ");
+        for (u32 i = 0; i < 32 && o + i < n; i++) fputc(p[o + i] >= 32 && p[o + i] < 127 ? p[o + i] : '.', f);
+        fputc('\n', f);
+    }
+}
+static void na_lowmem_print(FILE *f, const u8 *m, u32 n) {   /* 0x80000000... (d'apres la documentation de la console) */
+    if (n < 0x100) return;
+    static const char *const tv[] = { "NTSC", "PAL", "MPAL", "?" };
+    fprintf(f, "  Memoire basse du jeu (expliquee) :\n");
+    fprintf(f, "    ID du disque           %.6s, disque %u, version %u\n", (const char *)m, (unsigned)m[6] + 1, (unsigned)m[7]);
+    fprintf(f, "    signature du disque    %08X%s\n", (unsigned)be32(m + 0x1C), be32(m + 0x1C) == 0xC2339F3Du ? " (GameCube : bonne)" : "");
+    fprintf(f, "    demarrage              %08X%s, version %08X\n", (unsigned)be32(m + 0x20), be32(m + 0x20) == 0x0D15EA5Eu ? " (normal)" : "", (unsigned)be32(m + 0x24));
+    fprintf(f, "    memoire                %u Mo (simulee %u Mo), type de console %08X\n", (unsigned)(be32(m + 0x28) >> 20), (unsigned)(be32(m + 0xF0) >> 20), (unsigned)be32(m + 0x2C));
+    fprintf(f, "    arene (tas du jeu)     %08X - %08X (%u Ko libres au demarrage)\n", (unsigned)be32(m + 0x30), (unsigned)be32(m + 0x34),
+            be32(m + 0x34) > be32(m + 0x30) ? (unsigned)((be32(m + 0x34) - be32(m + 0x30)) >> 10) : 0u);
+    fprintf(f, "    table des fichiers     %08X (%u octets au plus)\n", (unsigned)be32(m + 0x38), (unsigned)be32(m + 0x3C));
+    fprintf(f, "    mode TV                %s\n", tv[be32(m + 0xCC) & 3]);
+    fprintf(f, "    contexte en cours      %08X ; fil en cours %08X\n", (unsigned)be32(m + 0xD4), (unsigned)be32(m + 0xE4));
+    fprintf(f, "    horloges               bus %u MHz, processeur %u MHz\n", (unsigned)(be32(m + 0xF8) / 1000000), (unsigned)(be32(m + 0xFC) / 1000000));
+    fprintf(f, "  Memoire basse (brute, 0x100 premiers octets) :\n");
+    na_hex(f, m, 0x80000000u, 0x100);
+}
 static void nat_journal_convert(void) {
     long len = 0;
     u8 *d = (u8 *)read_file(NA_JBIN, 4096, &len);
@@ -1148,6 +1203,28 @@ static void nat_journal_convert(void) {
         if (!v10) for (int i = 76; i < 84; i++) H[i] = 0;
         static const char *const en[] = { "OK", "pas de carte", "la carte ne demarre pas", "commande refusee", "pas de donnees", "hors de l'ISO", "delai depasse" };
         fprintf(f, "GC Station - journal du dernier jeu lance avec Pulse\n\n");
+        {   /* v267 : resume en tete */
+            long sl0 = 0;
+            char *lt0 = (char *)read_file(NA_LOG, 16384, &sl0), gid[8] = "", gname[72] = "";
+            if (lt0) {
+                char *q = (char *)realloc(lt0, sl0 + 1);
+                if (q) { lt0 = q; lt0[sl0] = 0; char *pj = strstr(lt0, "Jeu : "); if (pj && strlen(pj) > 12) { memcpy(gid, pj + 6, 6); gid[6] = 0; snprintf(gname, sizeof(gname), "%s", pj + 14); gname[strcspn(gname, "\r\n")] = 0; } }
+            }
+            int rr = 4;
+            if (v5 && H[44]) rr = 1;
+            if (len >= 1024 && be32(d + 512) == NATRES_CRASH_MAGIC) { u32 ex = be32(d + 512 + 8); if (rr != 1) rr = ex == 0xFE ? 2 : ex == 0xFF ? 0 : 1; }
+            static const char *const vd[] = { "quitte avec A+Z+START", "PLANTAGE", "jeu FIGE (repere par Pulse)", "aucune nouvelle du jeu", "pas de retour (console eteinte ou redemarree ?)" };
+            u32 fr = v3 ? H[36] : 0, hz = gid[3] == 'P' ? 50u : 60u;
+            fprintf(f, "========== Resume ==========\n");
+            fprintf(f, "Jeu : %s%s%s\n", gid[0] ? gid : "?", gname[0] ? " - " : "", gname);
+            fprintf(f, "Resultat : %s\n", vd[rr]);
+            if (fr) fprintf(f, "Temps de jeu : %u min %02u s (%u images a %u Hz)\n", (unsigned)(fr / hz / 60), (unsigned)(fr / hz % 60), (unsigned)fr, (unsigned)hz);
+            fprintf(f, "Version de Pulse (en-tete) : %u ; journal traduit par GC Station %s (build %d)\n", (unsigned)H[1], NA_GCS_VER, (int)GCMP3_BUILD);
+            {   time_t now = time(NULL); struct tm *tm = localtime(&now);
+                if (tm) fprintf(f, "Traduit le %02d/%02d/%04d a %02d:%02d\n", tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900, tm->tm_hour, tm->tm_min); }
+            fprintf(f, "(le detail suit ; tout en bas : toutes les valeurs de Pulse et les donnees brutes)\n\n");
+            free(lt0);
+        }
         if (v5 && H[44]) {
             static const char *const xn[16] = { "?", "machine check (acces materiel ou memoire invalide)", "acces memoire interdit (DSI)", "code introuvable (ISI)", "?", "alignement", "instruction invalide", "?", "?", "?", "?", "?", "?", "?", "?", "?" };
             fprintf(f, "*** PLANTAGE DU JEU : %s ***\n    a l'adresse %08X (LR %08X), adresse visee %08X (DSISR %08X)\n    -> la console a redemarre toute seule\n\n",
@@ -1284,7 +1361,11 @@ static void nat_journal_convert(void) {
         if (H[1] >= 11 && be32(d + 0x15C)) {                                  /* v83 : photo de la memoire */
             fprintf(f, "\n========== Photo de la memoire du jeu au plantage ==========\n");
             long sl = 0;
-            u8 *sd = (u8 *)read_file(NA_SNAP, 512, &sl);
+            u8 *sd = (u8 *)malloc(512);                    /* v267 : 1er secteur seulement (read_file refusait le fichier de 352 Ko : */
+            {   FILE *s0 = sd ? fopen(NA_SNAP, "rb") : NULL;  /* "photo incomplete" a chaque fois depuis v83) */
+                sl = s0 ? (long)fread(sd, 1, 512, s0) : 0;
+                if (s0) fclose(s0);
+                if (sl != 512) { free(sd); sd = NULL; } }
             if (sd && sl == 512 && be32(sd) == NATRES_SNAP_MAGIC) {
                 u32 nz = be32(sd + 4);
                 static const char *const zn[7] = { "memoire basse", "variables du jeu (r13)", "pile (r1)", "autour de r3", "autour de r4", "autour de r30",
@@ -1296,22 +1377,35 @@ static void nat_journal_convert(void) {
                 FILE *sf = fopen(NA_SNAP, "rb");                  /* v135 : les zones r3 / r4 / r30 en clair dans le journal */
                 for (u32 z = 0; sf && z < nz && z < 7; z++) {
                     u32 k = be32(sd + 20 + z * 16);
-                    if (k < 3 || k > 5) continue;
-                    u32 zb = be32(sd + 8 + z * 16), zl = be32(sd + 12 + z * 16), zs = be32(sd + 16 + z * 16);
+                    if (k > 6) k = 6;                     /* v267 : toutes les zones (0x800 octets au plus chacune) */
+                    u32 zb = be32(sd + 8 + z * 16), zl = be32(sd + 12 + z * 16), zs = be32(sd + 16 + z * 16), zfull = zl;
                     static u8 zd[0x800];
                     if (zl > sizeof(zd)) zl = sizeof(zd);
                     if (fseek(sf, (long)zs * 512, SEEK_SET) != 0 || fread(zd, 1, zl, sf) != zl) continue;
-                    fprintf(f, "\n  %s (%08X) :\n", zn[k], (unsigned)zb);
-                    for (u32 o = 0; o < zl; o += 32) {
-                        fprintf(f, "    %08X :", (unsigned)(zb + o));
-                        for (u32 i = 0; i < 32; i += 4) fprintf(f, " %08X", (unsigned)be32(zd + o + i));
-                        fputc('\n', f);
-                    }
+                    fprintf(f, "\n  %s (%08X, %u octets%s) :\n", zn[k], (unsigned)zb, (unsigned)zfull, zfull > zl ? " ; les 2 premiers Ko ici, le reste dans memoire-jeu.bin" : "");
+                    if (k == 0) { na_lowmem_print(f, zd, zl); continue; }
+                    na_hex(f, zd, zb, zl);
                 }
                 if (sf) fclose(sf);
                 fprintf(f, "%u secteurs ecrits : envoie aussi le fichier gc-mp3/natif/memoire-jeu.bin\n(il est remplace au prochain plantage)\n", (unsigned)be32(d + 0x15C));
             } else fprintf(f, "  (photo incomplete : %u secteurs ecrits)\n", (unsigned)be32(d + 0x15C));
             free(sd);
+        }
+        {   /* v267 : toutes les valeurs de Pulse, puis les secteurs bruts du journal */
+            u32 nh = len >= 0x1F0 ? 0x1F0 / 4 : (u32)len / 4;
+            fprintf(f, "\n========== Toutes les valeurs de Pulse (en-tete, %u mots) ==========\n", (unsigned)nh);
+            for (u32 i = 0; i < nh; i++)
+                fprintf(f, "  +%03X %-16s %08X  %10u%s", (unsigned)(i * 4), na_hdr_names[i], (unsigned)be32(d + i * 4), (unsigned)be32(d + i * 4), i % 2 ? "\n" : "   ");
+            if (nh % 2) fputc('\n', f);
+            static const char *const sn[] = { "en-tete et anneau des commandes", "plantage (GCSC)", "pile (GCSS)", "fils du jeu (GCST)", "peripheriques EXI (GCSX)", "?", "?", "?" };
+            fprintf(f, "\n========== Journal brut (journal-jeu.bin, %ld octets) ==========\n", len);
+            for (long sct = 0; sct * 512 < len && sct < 8; sct++) {
+                const u8 *b = d + sct * 512;
+                int empty = 1;
+                for (int i = 0; i < 512 && empty; i++) if (b[i]) empty = 0;
+                fprintf(f, "  secteur %ld : %s%s\n", sct, sn[sct], empty ? " (vide)" : "");
+                if (!empty) na_hex(f, b, (u32)(sct * 512), len - sct * 512 < 512 ? (u32)(len - sct * 512) : 512u);
+            }
         }
         long ll = 0;                                      /* (et le journal du lancement, ecrit avant le saut) */
         char *lt = (char *)read_file(NA_LOG, 16384, &ll);

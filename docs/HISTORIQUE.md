@@ -24,6 +24,22 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v267 (build 743) — Journal du jeu complet
+- **`journal-jeu.txt` montre tout ce que Pulse note** :
+  - un **résumé en tête** : jeu, résultat (quitté, planté, figé…), temps de jeu, version de Pulse, build de GC Station,
+    date de la traduction ;
+  - **toutes les valeurs de Pulse** : les 124 compteurs et adresses de l'en-tête, avec leur nom ;
+  - le **journal brut** : les 5 secteurs (en-tête, plantage, pile, fils du jeu, périphériques EXI) en hexadécimal et en
+    texte, les suites de zéros résumées en une ligne.
+- **Photo de la mémoire au plantage** :
+  - la **mémoire basse du jeu expliquée** : ID du disque, signatures, mémoire, arène du jeu, mode TV, fil en cours,
+    horloges ;
+  - **toutes les zones** de la photo (pile, variables r13, début de l'arène… : 2 Ko de chacune) ; avant, seulement
+    r3, r4 et r30.
+- **Correction** : la photo de la mémoire n'apparaissait jamais (« photo incomplète » à chaque fois depuis v83). GC Station
+  lisait son 1er secteur avec `read_file` limité à 512 octets, qui refuse le fichier entier de 352 Ko.
+- Rien n'a changé dans Pulse : tout se passe dans la traduction faite par GC Station au démarrage suivant (`natif.c`).
+
 ## Nouveautés v266 (build 741) — L'appli du téléphone en direct
 - **Console trouvée tout de suite** : l'appli demande à tout le Wi-Fi « Y a-t-il une GC Station ? » (UDP, port 51236)
   et la console répond elle-même (nom, port, build) : moins d'une seconde, au lieu d'essayer les 254 adresses. Plusieurs
