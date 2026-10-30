@@ -307,7 +307,7 @@ static void gs_draw(void) {
         static const char *const e[GSF_N] = {
             "Aucun jeu lanc\xC3\xA9 pour l'instant", "Aucun jeu GameCube sur la carte SD",
             "Aucun favori : L sur un jeu pour l'ajouter", "Aucun jeu jou\xC3\xA9 pour l'instant", "Aucun jeu GameCube sur la carte SD",
-            "Aucune appli : SD:/apps/<nom>/boot.dol (avec icon.png)" };
+            "Aucune appli : SD:/apps/<nom>/boot.dol (avec icon.png ou un .bnr)" };
         gx_text_c(F_LARGE, 320, 230, TR(e[gs_filter]), RGBA(255, 255, 255, 255));
         gx_text_c(F_SMALL, 320, 258, TR("Z : autre filtre"), RGBA(170, 170, 195, 255));
     } else if (gs_apps()) {

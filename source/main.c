@@ -12885,7 +12885,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_PHONEAUTO) hint = "La page du t\xC3\xA9l\xC3\xA9phone (onglet T\xC3\x89L\xC3\x89PHONE) est pr\xC3\xAAte d\xC3\xA8s le d\xC3\xA9marrage";
     if (menu_sel >= MI_NETSMB && menu_sel <= MI_NETFSP) hint = "A : adresse, utilisateur, mot de passe, test ; puis onglet FICHIERS (B depuis la carte SD)";
     if (menu_sel == MI_SALON) hint = "Les autres GC Station du r\xC3\xA9seau dans FICHIERS (B) : leur carte, et Y : \xC3\xA9" "couter avec";
-    if (menu_sel == MI_APNOIMG) hint = "Applis de SD:/apps sans image (icon.png) : carte avec leur nom, ou cach\xC3\xA9" "es";
+    if (menu_sel == MI_APNOIMG) hint = "Applis de SD:/apps sans image (icon.png, .bnr) : carte avec leur nom, ou cach\xC3\xA9" "es";
     if (menu_sel == MI_THEMEDL) hint = "De nouvelles couleurs et fonds, t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9s depuis GitHub (A : voir la liste)";
     if (menu_sel == MI_UPDXZ) hint = "Mise \xC3\xA0 jour : .dol compress\xC3\xA9 (2 fois plus petit, d\xC3\xA9marrage plus rapide)";
     if (menu_sel == MI_UPDAUTO) hint = "Une nouvelle version est signal\xC3\xA9" "e au d\xC3\xA9marrage (rien n'est install\xC3\xA9 sans toi)";

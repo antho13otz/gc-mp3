@@ -559,10 +559,29 @@ static void ap_avg(const unsigned char *px, int w, int h, f32 x0, f32 y0, f32 x1
     if (al) { r /= al; g /= al; b /= al; }
     o[0] = r; o[1] = g; o[2] = b; o[3] = c ? al / c : 0;
 }
+/* v274 : banniere GameCube (.bnr, "BNR1" / "BNR2") : image 96 x 32 en RGB5A3 (blocs de 4 x 4) a +0x20 */
+#define AP_BNR_LEN (0x1820 + 0x140)
+static unsigned char *ap_bnr_px(const unsigned char *d, long len, int *w, int *h) {
+    if (len < AP_BNR_LEN || memcmp(d, "BNR", 3)) return NULL;
+    unsigned char *px = (unsigned char *)malloc(96 * 32 * 4);
+    if (!px) return NULL;
+    for (int y = 0; y < 32; y++)
+        for (int x = 0; x < 96; x++) {
+            int o = 0x20 + (((y >> 2) * 24 + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)) * 2;
+            unsigned v = (unsigned)d[o] << 8 | d[o + 1];
+            unsigned char *q = px + (y * 96 + x) * 4;
+            if (v & 0x8000) { q[0] = (v >> 10 & 31) * 255 / 31; q[1] = (v >> 5 & 31) * 255 / 31; q[2] = (v & 31) * 255 / 31; q[3] = 255; }
+            else { q[0] = (v >> 8 & 15) * 17; q[1] = (v >> 4 & 15) * 17; q[2] = (v & 15) * 17; q[3] = (v >> 12 & 7) * 255 / 7; }
+        }
+    *w = 96; *h = 32;
+    return px;
+}
+static int ap_is_bnr(const char *p) { size_t l = strlen(p); return l > 4 && !strcasecmp(p + l - 4, ".bnr"); }
 static unsigned char *ap_png(const char *path, int *w, int *h) {
     long len = 0;
     unsigned char *d = read_file(path, 3 * 1024 * 1024, &len);
     if (!d) return NULL;
+    if (ap_is_bnr(path)) { unsigned char *b = ap_bnr_px(d, len, w, h); free(d); return b; }
     int n = 0;
     unsigned char *px = stbi_load_from_memory(d, (int)len, w, h, &n, 4);
     free(d);
@@ -639,10 +658,11 @@ static u16 *ap_build(const char *icon) {
         struct stat st;
         if (stat(p, &st) == 0 && (px = ap_png(p, &w, &h)) != NULL) cover = 1;
     }
-    if (!px) px = ap_png(a->icon, &w, &h);
+    int bnr = 0;
+    if (!px) { px = ap_png(a->icon, &w, &h); bnr = ap_is_bnr(a->icon); }
     if (!px) return NULL;
     u16 *t = (u16 *)memalign(32, AP_IW * AP_IH * 2);
-    if (!t) { stbi_image_free(px); return NULL; }
+    if (!t) { if (bnr) free(px); else stbi_image_free(px); return NULL; }
     /* le fond : l'image en "remplissage" (recadree), en 15 x 20 blocs, agrandie en douceur */
     enum { BW = 15, BH = 20 };
     static u32 bg[BH][BW][4];
@@ -696,7 +716,7 @@ static u16 *ap_build(const char *icon) {
         }
         if ((y & 31) == 31) usleep(200);                         /* (thread de fond : laisse la main) */
     }
-    stbi_image_free(px);
+    if (bnr) free(px); else stbi_image_free(px);
     if (sd_ok && !sd_virtual) {                                         /* v68 : gardee pour la prochaine fois */
         mkdir(GCD, 0777); mkdir(GCD "/cache", 0777); mkdir(AP_CACHE, 0777);
         FILE *cf = fopen(cachep, "wb");
@@ -731,6 +751,25 @@ static void ap_meta(const char *dir, ap_ent *a) {
     }
     free(d);
 }
+/* v274 : banniere .bnr de l'appli : <nom du .dol>.bnr a cote du .dol, sinon un .bnr dans son dossier (opening.bnr...) */
+static int ap_bnr_find(const char *path, const char *dir, char *out, int cap) {
+    struct stat st;
+    snprintf(out, cap, "%s", path);
+    char *dot = strrchr(out, '.');
+    if (dot && (int)(dot - out) + 5 < cap) { strcpy(dot, ".bnr"); if (stat(out, &st) == 0) return 1; }
+    if (!dir) return 0;
+    DIR *d = opendir(dir);
+    if (!d) return 0;
+    struct dirent *e;
+    int found = 0;
+    while (!found && (e = readdir(d)) != NULL) {
+        if (e->d_name[0] == '.' || !ap_is_bnr(e->d_name)) continue;
+        snprintf(out, cap, "%s/%s", dir, e->d_name);
+        found = 1;
+    }
+    closedir(d);
+    return found;
+}
 static void ap_add(const char *path, const char *dir) {
     if (!ap || ap_n >= AP_MAX) return;
     for (int i = 0; i < ap_n; i++) if (!strcasecmp(ap[i].path, path)) return;
@@ -750,6 +789,10 @@ static void ap_add(const char *path, const char *dir) {
         char ip[NAME_LEN];
         for (int i = 0; dir && i < 6 && !img; i++) { snprintf(ip, sizeof(ip), "%s/%s", dir, cn[i]); img = stat(ip, &st) == 0; }
         if (img) snprintf(a->icon, sizeof(a->icon), "%s", ip);   /* v227 : l'image trouvee (avant : toujours icon.png, meme s'il n'y avait que cover.png) */
+        {   /* v274 : banniere .bnr : l'image, si l'appli n'en a pas d'autre (pas ses textes : souvent ceux du modele, "Game Title") */
+            char bp[NAME_LEN];
+            if (!img && ap_bnr_find(path, dir, bp, sizeof(bp))) { snprintf(a->icon, sizeof(a->icon), "%s", bp); img = 1; }
+        }
         /* v227 : tout ce qui est dans SD:/apps est une appli, meme sans image (carte avec le nom) : les .dol
            envoyes par le telephone y arrivent seuls. A la racine de la carte, il faut toujours une image
            (ipl.dol, GC Station, Swiss... ne sont pas des applis a montrer). */
