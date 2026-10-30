@@ -198,6 +198,45 @@ static void tp_send_capture(s32 c) {
         if (tp_send(c, row, stride) < 0) return;
     }
 }
+#include "ecran_jpeg.c"                                         /* v284 : second ecran */
+static u8 *tp_ej_buf = NULL;
+static int tp_param(const char *q, const char *key, char *out, int cap);
+static u32 tp_ej_n = 0;                                          /* (images envoyees : le journal le dit) */
+/* v284 : second ecran : GET /api/ecran?w=320|640&q=10..95 -> ce qu'affiche la tele en JPEG */
+static void tp_send_ecran(s32 c, const char *q) {
+    const u8 *fb; int w, h;
+#ifndef GEKKO
+    tp_cap = 3;                                                  /* (simulateur : une image dessinee, sans fichier PNG) */
+    for (int k = 0; k < 400 && tp_cap; k++) usleep(5000);
+    fb = (const u8 *)pcsim_xfb_last; w = pcsim_xfb_w; h = pcsim_xfb_h;
+#else
+    fb = (const u8 *)xfb[displayed_fb]; w = rmode ? rmode->fbWidth : 0; h = rmode ? rmode->xfbHeight : 0;
+#endif
+    if (!fb || w <= 0 || h <= 0 || w > 720 || h > 576) { tp_reply(c, 503, "text/plain", "ecran indisponible", 18); return; }
+    char v[12];
+    tp_param(q ? q : "", "w", v, sizeof(v));
+    int s = atoi(v) >= 600 ? 1 : 2;
+    tp_param(q ? q : "", "q", v, sizeof(v));
+    int qual = v[0] ? atoi(v) : 60;
+    int cap = s == 1 ? 256 * 1024 : 96 * 1024;
+    if (!tp_ej_buf) tp_ej_buf = (u8 *)malloc(256 * 1024);
+    if (!tp_ej_buf) { tp_reply(c, 503, "text/plain", "memoire", 7); return; }
+#ifdef GEKKO
+    /* (le tampon video est lu par son adresse en cache, apres invalidation : bien plus rapide que sans cache) */
+    const u8 *cfb = (const u8 *)MEM_K1_TO_K0(fb);
+    DCInvalidateRange((void *)cfb, (u32)w * h * 2);
+    fb = cfb;
+#endif
+    u64 t0 = now_ms();
+    int n = ej_encode(fb, w, h, s, qual, tp_ej_buf, cap);
+    if (!n) n = ej_encode(fb, w, h, s, qual / 2, tp_ej_buf, cap);   /* (image trop chargee : moins de qualite) */
+    if (!n) { tp_reply(c, 503, "text/plain", "image trop grosse", 17); return; }
+    tp_ej_n++;
+    char hd[300];
+    int hn = snprintf(hd, sizeof(hd), "HTTP/1.1 200 OK\r\nContent-Type: image/jpeg\r\nContent-Length: %d\r\nX-Ecran: %dx%d\r\nX-Ms: %u\r\nX-Web: %d\r\n"
+                      "Cache-Control: no-store\r\nConnection: close\r\n\r\n", n, w / s, h / s, (unsigned)(now_ms() - t0), tab == TAB_WEB ? 1 : 0);
+    if (tp_send(c, hd, hn)) tp_send(c, tp_ej_buf, n);
+}
 static volatile int tp_mdx = 0, tp_mdy = 0, tp_mw = 0, tp_mc = 0;          /* v231 : souris tactile (cumul) */                                     /* v230 : memview.c */
 static void tp_push(int c, int i) {
     int n = (tp_qt + 1) % 16;
@@ -1498,7 +1537,8 @@ static void tp_handle(s32 c) {
         else tp_reply(c, 404, "text/plain; charset=utf-8", "Aucun journal", 13);
         free(b);
     }
-    else if (!strcmp(target, "/capture.bmp")) tp_send_capture(c);   /* v234 : ce qu'affiche la tele */
+    else if (!strcmp(target, "/capture.bmp")) tp_send_capture(c);
+    else if (!strcmp(target, "/api/ecran")) tp_send_ecran(c, q);    /* v284 : second ecran (JPEG) */   /* v234 : ce qu'affiche la tele */
     else if (!strcmp(target, "/rapport")) tp_reply(c, 200, "text/html; charset=utf-8", rapport_page, (int)strlen(rapport_page));   /* v234 */
     else if (!strcmp(target, "/api/journal")) {              /* v234 : dernieres actions + journal de plantage */
         static char jb[12000];
@@ -1878,7 +1918,7 @@ static void phone_pump(void) {
     if (now - tp_json_t > (live || (tp_last_req && now - tp_last_req < 15000) ? 300u : 3000u)) { tp_json_t = now; tp_json_build(); if (live) tpl_check_state(); }
     if (!tp_cfg_reading && (tp_cfg_now || (now - tp_cfg_t > 1000 && now - tp_last_req < 15000))) { tp_cfg_now = 0; tp_cfg_t = now; tp_cfg_build(); }
 #ifndef GEKKO
-    if (tp_cap == 1 && !pcsim_capture) { snprintf(pcsim_capture_name, 96, "capture-telephone"); pcsim_capture = 1; tp_cap = 2; }   /* (v234) */
+    if ((tp_cap == 1 || tp_cap == 3) && !pcsim_capture) { snprintf(pcsim_capture_name, 96, tp_cap == 3 ? "#ecran" : "capture-telephone"); pcsim_capture = 1; tp_cap = 2; }   /* (v234 ; # : sans fichier) */
     else if (tp_cap == 2 && !pcsim_capture) tp_cap = 0;
 #endif
     if (tp_mdx || tp_mdy || tp_mw || tp_mc) {             /* v231 : souris tactile */
