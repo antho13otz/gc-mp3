@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v281 (build à venir) — Fiches des jeux complètes (GameTDB)
+## Nouveautés v281 (build 768) — Fiches des jeux complètes (GameTDB)
 - **La fiche d'un jeu** (vitrine, détail, liste) affiche maintenant : genre, nombre de joueurs, année, classification
   (PEGI…), développeur / éditeur, et le **résumé** (en français quand GameTDB l'a, sinon en anglais) à la place de la
   courte description du pack.
