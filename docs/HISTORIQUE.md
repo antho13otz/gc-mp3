@@ -33,7 +33,7 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   « Créer le jeton » : la bonne page de GitHub). Il reste sur le téléphone.
 - L'APK est gardé 90 jours sur GitHub (avant : 7).
 
-## Nouveautés v271 (build 756) — Envois de fichiers : la console répond pendant l'envoi, progression dans l'appli
+## Nouveautés v271 (build 755) — Envois de fichiers : la console répond pendant l'envoi, progression dans l'appli
 - **Console** : l'envoi d'un fichier par le téléphone se fait dans un fil à lui. Avant, le serveur du téléphone ne
   répondait plus à rien pendant tout l'envoi (63 s pour 30 Mo dans le simulateur) : l'appli affichait « Console
   injoignable », cherchait la console… Maintenant l'état, les commandes et le reste continuent de répondre. Un
