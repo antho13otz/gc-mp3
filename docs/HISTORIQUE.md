@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés appli build à venir — Disque réaliste et boîte encore plus vraie
+## Nouveautés appli build 59 — Disque réaliste et boîte encore plus vraie
 - **Le disque** : la face gravée est un **miroir argenté** avec les **reflets arc-en-ciel** des sillons, qui changent
   quand il tourne (calculés comme la vraie diffraction d'un DVD) ; le **centre en plastique transparent** (on voit
   l'ergot à travers), l'anneau d'empilage, la bande miroir avec son texte gravé, le bord transparent. L'autre face :
