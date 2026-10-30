@@ -87,6 +87,53 @@ static s64 clk_ofs = 0;
 static time_t gc_time(time_t *p) { time_t t = (time)(NULL) + (time_t)clk_ofs; if (p) *p = t; return t; }
 #define time(p) gc_time(p)
 
+/* v278 : test des touches (selftest_keys.c) : pendant le test, GC Station est essaye touche par touche, partout. Rien
+   de ce qui abime ou quitte ne doit partir : ecrire / effacer / renommer sur la carte SD (sauf les journaux du test),
+   ecrire sur une carte memoire, lancer un jeu ou une appli, mettre a jour, redemarrer. Tout passe par ces gardes. */
+static int sx_safe = 0;
+static u32 sx_blocked = 0;
+static char sx_blk_last[72] = "";
+static void sx_block(const char *what) { sx_blocked++; snprintf(sx_blk_last, sizeof(sx_blk_last), "%s", what); }
+static int sx_log_path(const char *p) { return p && (strstr(p, "/journaux/") || strstr(p, "journal")); }
+static FILE *sx_fopen(const char *p, const char *m) {
+    if (sx_safe && m && (strchr(m, 'w') || strchr(m, 'a') || strchr(m, '+')) && !sx_log_path(p)) { sx_block("\xC3\xA9" "crire un fichier"); errno = EACCES; return NULL; }
+    return fopen(p, m);
+}
+static int sx_remove(const char *p) { if (sx_safe && !sx_log_path(p)) { sx_block("effacer un fichier"); errno = EACCES; return -1; } return remove(p); }
+static int sx_rename(const char *a, const char *b) { if (sx_safe && !sx_log_path(b)) { sx_block("renommer un fichier"); errno = EACCES; return -1; } return rename(a, b); }
+static int sx_unlink(const char *p) { if (sx_safe) { sx_block("effacer un fichier"); errno = EACCES; return -1; } return unlink(p); }
+static int sx_rmdir(const char *p) { if (sx_safe) { sx_block("effacer un dossier"); errno = EACCES; return -1; } return rmdir(p); }
+static void sx_reset_sys(u32 r, u32 c, s32 f) { if (sx_safe) { sx_block("red\xC3\xA9" "marrer la console"); return; } SYS_ResetSystem(r, c, f); }
+static void sx_exit(int c) { if (sx_safe) { sx_block("quitter GC Station"); return; } exit(c); }
+#define fopen(p, m) sx_fopen(p, m)
+#define remove(p) sx_remove(p)
+#define rename(a, b) sx_rename(a, b)
+#define unlink(p) sx_unlink(p)
+#define rmdir(p) sx_rmdir(p)
+#define SYS_ResetSystem(r, c, f) sx_reset_sys(r, c, f)
+#define exit(c) sx_exit(c)
+static s32 sx_card_create(s32 ch, const char *n, u32 sz, card_file *f) { if (sx_safe) { sx_block("carte m\xC3\xA9moire : cr\xC3\xA9" "er"); return CARD_ERROR_NOPERM; } return CARD_Create(ch, n, sz, f); }
+static s32 sx_card_write(card_file *f, void *b, u32 l, u32 o) { if (sx_safe) { sx_block("carte m\xC3\xA9moire : \xC3\xA9" "crire"); return CARD_ERROR_NOPERM; } return CARD_Write(f, b, l, o); }
+static s32 sx_card_delete(s32 ch, const char *n) { if (sx_safe) { sx_block("carte m\xC3\xA9moire : effacer"); return CARD_ERROR_NOPERM; } return CARD_Delete(ch, n); }
+static s32 sx_card_delentry(s32 ch, card_dir *d) { if (sx_safe) { sx_block("carte m\xC3\xA9moire : effacer"); return CARD_ERROR_NOPERM; } return CARD_DeleteEntry(ch, d); }
+static s32 sx_card_setstatus(s32 ch, s32 fn, card_direntry *e) { if (sx_safe) { sx_block("carte m\xC3\xA9moire : modifier"); return CARD_ERROR_NOPERM; } return CARD_SetStatusEx(ch, fn, e); }
+#define CARD_Create(a, b, c, d) sx_card_create(a, b, c, d)
+#define CARD_Write(a, b, c, d) sx_card_write(a, b, c, d)
+#define CARD_Delete(a, b) sx_card_delete(a, b)
+#define CARD_DeleteEntry(a, b) sx_card_delentry(a, b)
+#define CARD_SetStatusEx(a, b, c) sx_card_setstatus(a, b, c)
+/* (test des touches : sticks et touches maintenues simules) */
+static s8 sx_fsx = 0, sx_fsy = 0, sx_fmx = 0, sx_fmy = 0;
+static u32 sx_hold = 0;
+static s8 sx_pad_sx(int c) { return c == 0 && (sx_fsx || sx_fsy) ? sx_fsx : PAD_SubStickX(c); }
+static s8 sx_pad_sy(int c) { return c == 0 && (sx_fsx || sx_fsy) ? sx_fsy : PAD_SubStickY(c); }
+static s8 sx_pad_mx(int c) { return c == 0 && (sx_fmx || sx_fmy) ? sx_fmx : PAD_StickX(c); }
+static s8 sx_pad_my(int c) { return c == 0 && (sx_fmx || sx_fmy) ? sx_fmy : PAD_StickY(c); }
+#define PAD_SubStickX(c) sx_pad_sx(c)
+#define PAD_SubStickY(c) sx_pad_sy(c)
+#define PAD_StickX(c) sx_pad_mx(c)
+#define PAD_StickY(c) sx_pad_my(c)
+
 #ifndef SD_ROOT
 #define SD_ROOT        "sd:"
 #endif
@@ -14004,6 +14051,7 @@ static void music_pump(void) {
 #include "selftest.c"                          /* v259 : Outils > Test de la console */
 #include "cartes.c"                            /* v276 : jeu de cartes entre potes (8 americain) */
 #include "gspace.c"                            /* v196 : espace Jeux GameCube (vitrine 3D, filtres, applis) */
+#include "selftest_keys.c"                     /* v278 : test des touches (chaque touche dans chaque ecran) */
 #include "jeux_cfg.c"                          /* v75 : reglages des jeux */
 #include "igr.c"                               /* v39 : A + Z + START en jeu -> GC-MP3 */
 #include "lanceur.c"                           /* v44 : lanceur de secours ; v90 : reprise de SD:/swiss */
@@ -14182,6 +14230,7 @@ int main(int argc, char **argv) {
         sx_padmask = pads;                                          /* v261 : manettes branchees (test de la console) */
         u32 down = PAD_ButtonsDown(0);
         u32 held = PAD_ButtonsHeld(0);
+        if (sx_hold) held |= sx_hold;                               /* v278 : (test des touches : touche maintenue) */
         if (tp_keys) { u32 tk = tp_keys; tp_keys &= ~tk; down |= tk; held |= tk; if (tab == TAB_WEB) input_phone(0, 0, 0, tk, 0); }   /* (v231 : aussi pour Cube Browser) */   /* v142 : manette du telephone */
         u64 now = now_ms();
         /* clavier GameCube : touches traduites en boutons (ou tapees dans le clavier a l'ecran) */

@@ -2526,6 +2526,7 @@ static void nat_bench_all(void) {
 
 /* fiche d'un jeu : R */
 static void nat_run(int k) {
+    if (sx_safe) { sx_block("analyser un jeu"); return; }   /* v278 : (test des touches) */
     if (k < 0 || k >= gl_n) return;
     gl_status("Analyse native du jeu...");
     static nat_info_t in;
@@ -3212,6 +3213,7 @@ static void na_pad_prep(void) {
 }                               /* (ordre de la machine ; ecrit en gros-boutiste dans le resident) */
 static char na_net_msg[120];
 static const char *nat_boot(int k) {
+    if (sx_safe) { sx_block("lancer un jeu ou une appli"); return "Bloqu\xC3\xA9 pendant le test"; }   /* v278 : (test des touches) */
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
     static nat_info_t in;
     snprintf(nat_ld_title, sizeof(nat_ld_title), "%s", gl[k].title);
@@ -3679,6 +3681,7 @@ static int na_lan_game(const char *id) {
     return 0;
 }
 static const char *nat_boot_net(const char *path) {
+    if (sx_safe) { sx_block("lancer un jeu ou une appli"); return "Bloqu\xC3\xA9 pendant le test"; }   /* v278 : (test des touches) */
     if (strncmp(path, "gcs:/", 5)) return "Pas un jeu d'une autre GC Station";
     if (!gl) gl_scan();
     if (!gl || gl_n >= GL_MAX - 1) return "Liste des jeux pleine";
@@ -3719,6 +3722,7 @@ static const char *nat_boot_drive(int k, int reset);
 static const char *nat_boot_disc(int k) { return nat_boot_drive(k, 1); }
 /* v121 : reset = 0 : le lecteur repond deja (GC Loader : le jeu vient d'y etre choisi, un reset l'oublierait) */
 static const char *nat_boot_drive(int k, int reset) {
+    if (sx_safe) { sx_block("lancer un jeu ou une appli"); return "Bloqu\xC3\xA9 pendant le test"; }   /* v278 : (test des touches) */
     if (reset) snprintf(nat_ld_title, sizeof(nat_ld_title), "%s", TR("Disque de la console"));
     nat_ld_k = k;
     nat_ld("Pr\xC3\xA9paration du lecteur", 4);

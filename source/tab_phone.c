@@ -31,7 +31,7 @@ static volatile int tp_json_cur = 0;
 static u64 tp_json_t = 0;
 
 /* commandes envoyees par la page */
-enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN, PC_MENU, PC_CHECK, PC_SET, PC_UPDATE, PC_SHOW, PC_SALON, PC_TYPE, PC_SHOWNAME, PC_PLAYURL, PC_RADIOADD };   /* v142 : photo sur la tele, ecouter avec (Salon) */
+enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN, PC_MENU, PC_CHECK, PC_SET, PC_UPDATE, PC_SHOW, PC_SALON, PC_TYPE, PC_SHOWNAME, PC_PLAYURL, PC_RADIOADD, PC_TEST };   /* v142 : photo sur la tele, ecouter avec (Salon) */
 static volatile u32 tp_keys = 0;                /* v142 : boutons de la manette du telephone (pris par la boucle) */
 static u8 *gl_cover_raw(int k, int *w, int *h, int *iw, int *ih, u32 *len);   /* (gclib.c) jaquette telle qu'elle est dans posters.pak */
 static int tl_screen;                                        /* (tools.c : 0 = aucun outil ouvert) */
@@ -668,6 +668,8 @@ static void x73_json_raw(sbuf_t *s, const char *t) {          /* (texte deja en 
 static int tp_param(const char *q, const char *key, char *out, int cap);
 static void c8_api(s32 c, const char *q);              /* v276 : jeu de cartes (cartes.c) */
 static void c8_tick(void);
+static void sx_phone_start(int m);                     /* v278 : test de la console lance depuis le telephone (selftest_keys.c) */
+static int sx_phone_state(char *o, int cap);
 static char *x73_gj = NULL;                              /* JSON des jeux (construit par la boucle : extras73.c) */
 static volatile int x73_gj_want = 0, x73_gj_ready = 0;
 static volatile int x73_launch_k = -1, x73_launch_m = 0;
@@ -1508,6 +1510,13 @@ static void tp_handle(s32 c) {
         if (n > (int)sizeof(jb) - 1) n = sizeof(jb) - 1;
         tp_reply(c, 200, "text/plain; charset=utf-8", jb, n);
     }
+    else if (!strcmp(target, "/api/test")) {                 /* v278 : lancer un test (m=0 rapide, 1 complet, 2 total, 3 touches) ; sans m : ou il en est */
+        char m[8], o[320];
+        tp_param(q ? q : "", "m", m, sizeof(m));
+        if (m[0]) tp_push(PC_TEST, atoi(m));
+        int n = sx_phone_state(o, sizeof(o));
+        tp_reply(c, 200, "application/json; charset=utf-8", o, n);
+    }
     else if (!strcmp(target, "/api/cartes")) c8_api(c, q ? q : "");   /* v276 : jeu de cartes (8 americain) */
     else if (!strcmp(target, "/api/mouse")) {                /* v231 : souris tactile -> pointeur de Cube Browser */
         char v[16];
@@ -1874,6 +1883,7 @@ static void phone_pump(void) {
             if (cm.i >= 0 && cm.i < npf) { menu_open = 0; tl_screen = 0; kb_open = 0; tab = TAB_PHOTO; tab_enter(TAB_PHOTO); pv_open(cm.i); }   /* (v222 : clavier ferme) */
             break;
         case PC_TYPE: tp_type_apply(); tp_type_busy = 0; break;
+        case PC_TEST: sx_phone_start(cm.i); break;   /* v278 */
         case PC_SHOWNAME: {
             if (tab_shown(TAB_PHOTO)) {
                 tp_rescan &= ~2;

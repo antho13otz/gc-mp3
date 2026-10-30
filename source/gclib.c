@@ -1782,7 +1782,8 @@ static const char *gl_boot_title = NULL;           /* v46 : nom du jeu lance */
 /* lanceur de secours avec "Autoload=<jeu>" (path = chemin sd:/...) */
 static const char *gl_boot_loader(const char *path);
 static int gl_boot_cheats = 0;                         /* v31 : ajoute "AutoCheats=Yes" (cheats actives pour ce jeu) */
-static const char *gl_launch(int k) {                  /* retourne un message d'erreur, ou ne revient pas */
+static const char *gl_launch(int k) {
+    if (sx_safe) { sx_block("lancer un jeu ou une appli"); return "Bloqu\xC3\xA9 pendant le test"; }   /* v278 : (test des touches) */                  /* retourne un message d'erreur, ou ne revient pas */
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
     if (access(gl[k].path, R_OK) != 0) return "Jeu introuvable : Y pour actualiser la liste";
     char p[NAME_LEN]; struct stat st;
@@ -1838,6 +1839,7 @@ static int gl_no_pieces = 0;                          /* v219 : (relance : d'abo
 static int nat_app_ret_prep(void);                     /* (natif.c) */
 static void nat_app_ret_install(void);
 static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *a2, const char *what) {
+    if (sx_safe) { sx_block("lancer un jeu ou une appli"); return "Bloqu\xC3\xA9 pendant le test"; }   /* v278 : (test des touches) */
     char stmsg[96];
     snprintf(stmsg, sizeof(stmsg), "Lancement de %s...", what);
     /* lecture du .dol par morceaux, avec l'avancement a l'ecran */

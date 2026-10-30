@@ -1243,7 +1243,8 @@ class SalonTab extends Tab {
 
 // ---------------------------------------------------------------- Outils : memoire, capture, rapport
 class ToolsTab extends Tab {
-    private TextView memTxt, bootTxt, journal;
+    private TextView memTxt, bootTxt, journal, testTxt;
+    private long lastTest;
     private Spark spark;
     private ImageView shot;
     private Bitmap shotBm;
@@ -1279,6 +1280,25 @@ class ToolsTab extends Tab {
         cap.addView(shot, new LinearLayout.LayoutParams(-1, -2));
         v.addView(cap, UiKit.gapBelow(a, 12));
 
+        LinearLayout tst = UiKit.card(a);                   // (console build 764 : lancer un test de la console depuis ici)
+        tst.addView(Neon.glow(a, "Test de la console", 15, Neon.PINK));
+        testTxt = Neon.text(a, "…", 13, Neon.TEXT, false);
+        testTxt.setPadding(0, dp(6), 0, dp(4));
+        tst.addView(testTxt);
+        String[][] tests = { { "Rapide", "0", "1 minute" }, { "Complet", "1", "environ 5 minutes" }, { "Total", "2", "environ 15 minutes : tout le matériel et tout GC Station" },
+                             { "Touches", "3", "3 heures au plus : chaque touche dans chaque écran" } };
+        LinearLayout tr = null;
+        for (int i = 0; i < tests.length; i++) {
+            if (i % 2 == 0) { tr = new LinearLayout(a); tr.setPadding(0, dp(4), 0, dp(4)); tst.addView(tr); }
+            final String[] t = tests[i];
+            if (i % 2 == 1) { View gg = new View(a); tr.addView(gg, new LinearLayout.LayoutParams(dp(8), 1)); }
+            tr.addView(Neon.btn(a, t[0], 13, i == 3, x -> NeonDialog.confirm(a, "Test " + t[0].toLowerCase(java.util.Locale.FRANCE) + " ?",
+                "Durée : " + t[2] + ". GC Station se manipule tout seul sur la télé ; ne touche pas la manette (B : arrêter). Rien n'est effacé et tes réglages sont remis à la fin.",
+                "Lancer", () -> Api.get("/api/test?m=" + t[1], r -> testState(r)))), lp(0, -2, 1));
+        }
+        tst.addView(Neon.btn(a, "Voir le dernier rapport", 13, false, x -> Api.get("/test.txt", r -> journal.setText(r != null ? r : "Pas encore de rapport"))), lp(-1, -2, 0));
+        v.addView(tst, UiKit.gapBelow(a, 12));
+
         LinearLayout rep = UiKit.card(a);
         rep.addView(Neon.glow(a, "Rapport de bug", 15, Neon.PINK));
         LinearLayout r2 = new LinearLayout(a);
@@ -1297,8 +1317,23 @@ class ToolsTab extends Tab {
         return sc;
     }
 
-    @Override void show() { mem(); }
-    @Override void state(JSONObject s) { if (root != null && root.isShown() && System.currentTimeMillis() - last > 2500) mem(); }
+    @Override void show() { mem(); test(); }
+    @Override void state(JSONObject s) {
+        if (root == null || !root.isShown()) return;
+        if (System.currentTimeMillis() - last > 2500) mem();
+        if (System.currentTimeMillis() - lastTest > 3000) test();
+    }
+
+    private void test() { lastTest = System.currentTimeMillis(); Api.get("/api/test", this::testState); }
+    private void testState(String r) {
+        if (testTxt == null) return;
+        if (r == null) { Neon.set(testTxt, "La console ne répond pas (ou elle n'a pas encore le build 764)"); return; }
+        try {
+            JSONObject j = new JSONObject(r);
+            String t = j.optString("txt");
+            Neon.set(testTxt, j.optInt("run") != 0 ? "En cours : " + t : t.isEmpty() ? "Aucun test lancé depuis l'allumage" : t);
+        } catch (Exception e) { }
+    }
 
     private void mem() {
         last = System.currentTimeMillis();

@@ -495,10 +495,17 @@ static void sx_script_tick(u64 n) {
 
 
 /* ---------- images : appele par perf_frame (main.c) a chaque image mesuree ---------- */
+static int kt_on, kt_done;                        /* v278 : test des touches (selftest_keys.c) */
+static void kt_frame(u32 tot);
+static void kt_tick(void);
+static void kt_begin(void);
+static void kt_overlay(void);
+static void kt_draw_result(void);
 static void sx_frame_hook(u32 tot, int tb, int top, u32 top_us) {
     u32 cbn = cb_n, sdn = sd_rd_sec + sd_wr_sec, nbn = net_rx_bytes;
     u32 d_cb = cbn - sx_f_cb, d_sd = sdn - sx_f_sd, d_net = nbn - sx_f_net;   /* (v265 : ce qui s'est passe pendant cette image) */
     sx_f_cb = cbn; sx_f_sd = sdn; sx_f_net = nbn;
+    if (kt_on) { kt_frame(tot); return; }
     if (sx_state < SX_SOUND || sx_state > SX_STRESS) return;
     int slow = tot > VID_SLOW_US;
     if (sx_sb >= 0) { sx_sb_frames[sx_sb]++; if (slow) sx_sb_slow[sx_sb]++; if (tot > sx_sb_worst[sx_sb]) sx_sb_worst[sx_sb] = tot; }
@@ -1038,6 +1045,7 @@ static void sx_stress_tick(u64 n) {
 }
 
 static void sx_tick(void) {
+    if (kt_on) { kt_tick(); return; }                     /* v278 */
     if (sx_state == SX_NET) {
         if (!sx_net_pump()) return;
         if (sx_full) sx_sound_start(); else sx_tour_start(1);
@@ -1446,6 +1454,13 @@ static void sx_begin(int lvl) {                      /* 0 rapide, 1 complet, 2 t
 
 static void sx_input(u32 down, u32 nav, int fire) {
     (void)nav; (void)fire;
+    if (kt_on) { if (down & PAD_BUTTON_B) tl_screen = TL_NONE; return; }   /* v278 : (test des touches en cours : ses touches ne lancent pas un autre test) */
+    if (kt_done && sx_state != SX_INTRO) {               /* v278 : resultat du test des touches */
+        if (down & PAD_BUTTON_A) { kt_done = 0; sx_state = SX_INTRO; return; }
+        if (down & PAD_BUTTON_B) { tl_screen = TL_NONE; menu_open = 1; }
+        return;
+    }
+    if (sx_state == SX_INTRO && (down & PAD_TRIGGER_Z)) { kt_begin(); return; }   /* v278 : test des touches */
     if (sx_state == SX_INTRO || sx_state == SX_DONE) {
         int np = sx_total ? 4 : sx_full ? 3 : 2;
         if (sx_state == SX_DONE && (down & PAD_BUTTON_A)) { sx_state = SX_INTRO; return; }   /* (choisir un autre test) */
@@ -1595,6 +1610,7 @@ static void sx_page_hw(void) {
 }
 
 static void draw_selftest(void) {
+    if (kt_done && sx_state != SX_INTRO) { kt_draw_result(); return; }   /* v278 */
     if (sx_state == SX_BENCH && sx_bstep == 3 && sx_full && now_ms() - sx_t >= 120) sx_bench_gpu();   /* (avant le cadre : invisible) */
     static const char *const pg[] = { "résumé", "diagnostic", "matériel", "GC Station" };
     char right[80];
@@ -1609,13 +1625,13 @@ static void draw_selftest(void) {
             "  chaque outil, mini-jeu, style, couleur, disposition, spectre, économiseur,",
             "  décor, l'anglais, chaque réglage, photos et vidéo. Tes réglages sont remis.",
             "X : test complet (environ 5 minutes)       Y : test rapide (1 minute)",
-            "",
+            "Z : TEST DES TOUCHES (3 h au plus) : chaque touche dans chaque écran",
             "Ne touche pas la manette pendant le test (B : arrêter).",
             "Rapport : SD:/gc-mp3/journaux/test-console.txt et sur le téléphone",
             "(page Rapport de bug). Le test d'avant est gardé pour comparer." };
-        for (int i = 0; i < 10; i++) gx_text1(F_SMALL, 60, 104 + i * 23, l[i], i == 0 || i == 5 ? RGBA(255, 230, 150, 255) : SX_TXT);
-        static const char *const k[] = { "A", "X", "Y", "B" }, *const lb[] = { "TOTAL", "COMPLET", "RAPIDE", "RETOUR" };
-        tl_legend(k, lb, 4);
+        for (int i = 0; i < 10; i++) gx_text1(F_SMALL, 60, 104 + i * 23, l[i], i == 0 || i == 5 || i == 6 ? RGBA(255, 230, 150, 255) : SX_TXT);
+        static const char *const k[] = { "A", "X", "Y", "Z", "B" }, *const lb[] = { "TOTAL", "COMPLET", "RAPIDE", "TOUCHES", "RETOUR" };
+        tl_legend(k, lb, 5);
         return;
     }
     if (sx_state == SX_BENCH) {
@@ -1661,6 +1677,7 @@ static void draw_selftest(void) {
 
 /* bandeau pendant le test (par-dessus les onglets) */
 static void sx_overlay(void) {
+    if (kt_on) { kt_overlay(); return; }                  /* v278 */
     if (sx_state < SX_SOUND || sx_state > SX_STRESS) return;
     char b[160];
     if (sx_state == SX_SOUND) snprintf(b, sizeof(b), "Test : format audio %s  -  B : arrêter", sx_fmt_i >= 0 && sx_fmt_i < SX_NF ? sx_fmt_name[sx_fmt_i] : "");

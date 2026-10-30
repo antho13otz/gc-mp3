@@ -665,6 +665,7 @@ static void reset_pump(void) {
     if (e) lib_note(e);
 }
 static void update_activate(void) {
+    if (sx_safe) { sx_block("mettre \xC3\xA0 jour"); return; }   /* v278 : (test des touches) */
     if (up_state == UP_AVAIL) update_start_download();
     else if (up_state == UP_DONE) update_relaunch();
     else update_check();
