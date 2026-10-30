@@ -517,6 +517,7 @@ public class MainActivity extends Activity {
         if (pendingShare != null) { Intent i = pendingShare; pendingShare = null; share(i); }
         if (pendingGame != null) { Intent i = pendingGame; pendingGame = null; launchGame(i); }
         Backup.auto(this);                                      // (copie des cartes et reglages, une fois par jour)
+        AppUpdate.check(this);                                  // (nouvelle version de l'appli ? notification)
     }
 
     private static List<String> localPrefixes() {

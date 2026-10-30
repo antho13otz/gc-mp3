@@ -221,10 +221,12 @@ public final class AppUpdate {
             }).cancel("Annuler").show();
     }
 
-    /** (toutes les 6 h, service de lecture) nouvelle version de l'appli : une notification */
+    /** nouvelle version de l'appli : une notification (a l'ouverture de l'appli, et toutes les 6 h ; au plus toutes les 15 min) */
+    private static volatile long lastCheck;
     static void check(final Context c) {
         final String tok = token(c);
-        if (tok.isEmpty()) return;
+        if (tok.isEmpty() || System.currentTimeMillis() - lastCheck < 15 * 60 * 1000L) return;
+        lastCheck = System.currentTimeMillis();
         new Thread(() -> {
             try {
                 long[] l = latest(tok);
