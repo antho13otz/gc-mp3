@@ -24,6 +24,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 41 — Le téléphone devient une manette dans les jeux
+- **🎮 Manette dans le jeu** : pendant un jeu lancé avec Pulse (réglage console ⚙ > Manettes du téléphone), l'appli
+  devient une manette GameCube plein écran : sticks, A B X Y, Z, L, R, START, croix ; envoyée à la console 60 fois par
+  seconde (UDP 51237). Port choisi en haut ; ouvrable aussi quand la console ne répond plus (elle est en jeu).
+- **Commandes modernes** (⚙ dans la manette) : stick flottant (il se place sous le pouce) ; diriger en inclinant le
+  téléphone comme un volant (doux / normal / fort) ; gâchettes progressives (glisser vers le bas, clic au fond avec
+  vibration) ; manette Bluetooth ou USB branchée au téléphone (sticks, gâchettes, croix ; touches modifiables) ;
+  opacité des touches, vibration.
+- **Disposition modifiable** : déplacer, agrandir, changer la fonction (A ↔ B…) ou masquer chaque touche ; la croix
+  bouge en entier ; gardée dans l'appli, « Remettre la disposition d'origine ».
+
 ## Nouveautés v274 (build 760) — Images d'applis en .bnr
 - **Bannière GameCube (.bnr) comme image d'appli** : une appli sans icon.png ni pochette prend sa bannière :
   `<nom du .dol>.bnr` à côté du .dol (aussi à la racine de la carte), sinon le premier `.bnr` de son dossier
@@ -48,7 +59,7 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   .dol de ce build, au lieu de relancer ipl.dol (une autre version).
 - **Résident Pulse 8 Ko plus bas** (0x817EE000 au lieu de 0x817F0000) : il était plein ; la table des pages reste à
   0x817F0000 (NATRES_HTAB). Les jeux ont 8 Ko de mémoire en moins.
-- L'écran manette de l'appli reste dans la version d'essai (dépôt privé).
+- L'écran manette de l'appli : appli build 41 (ci-dessus).
 
 ## Nouveautés v269 (build 751) — L'appli se met à jour toute seule
 - **⚙ > Mettre à jour l'appli** : l'appli cherche sa dernière version (compilation « Telecommande Android » réussie sur

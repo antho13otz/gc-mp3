@@ -85,7 +85,7 @@ public class MainActivity extends Activity {
     private LinearLayout offline, gameView, sendBar;
     private TextView sendText;
     private ProgressBar sendBarP;
-    private TextView offlineMsg, gameTitle, gameSub, gameClock, gameLeft;
+    private TextView offlineMsg, gameTitle, gameSub, gameClock, gameLeft, gamePad;
     private android.widget.ImageView gameCover;
     private boolean gameHidden, wasOffline, rediscovering;
     private final Live.Listener live = new Live.Listener() {
@@ -167,6 +167,10 @@ public class MainActivity extends Activity {
         offline.addView(offlineMsg, new LinearLayout.LayoutParams(0, -2, 1));
         TextView ob = Neon.btn(this, "Chercher", 12, false, v -> { connected = false; search(); });
         offline.addView(ob, new LinearLayout.LayoutParams(-2, dp(38)));
+        TextView op = Neon.btn(this, "\uD83C\uDFAE", 14, true, v -> padNow());   // (manette en jeu)
+        LinearLayout.LayoutParams opl = new LinearLayout.LayoutParams(dp(44), dp(38));
+        opl.leftMargin = dp(6);
+        offline.addView(op, opl);
         offline.setVisibility(View.GONE);
         LinearLayout.LayoutParams ol = new LinearLayout.LayoutParams(-1, -2);
         ol.setMargins(dp(14), 0, dp(14), dp(6));
@@ -403,10 +407,13 @@ public class MainActivity extends Activity {
         p.setGravity(Gravity.CENTER);
         p.setPadding(dp(18), dp(10), dp(18), dp(18));
         p.setClickable(true);
+        p.setBackgroundColor(Neon.BG_BOTTOM);                   // (opaque : l'onglet en dessous ne se voit pas a travers)
         LinearLayout card = new LinearLayout(this);
         card.setOrientation(LinearLayout.VERTICAL);
         card.setGravity(Gravity.CENTER_HORIZONTAL);
-        card.setBackground(Neon.glass(this, 26));
+        android.graphics.drawable.GradientDrawable cb = new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TOP_BOTTOM, new int[] { 0xFF1C1030, 0xFF0E0818 });
+        cb.setCornerRadius(dp(26)); cb.setStroke(dp(1), Neon.alpha(Neon.PINK, 0x88));
+        card.setBackground(cb);
         card.setPadding(dp(20), dp(20), dp(20), dp(18));
         card.addView(Neon.glow(this, "PARTIE EN COURS", 13, Neon.CYAN));
         gameCover = new android.widget.ImageView(this);
@@ -435,6 +442,10 @@ public class MainActivity extends Activity {
         hint.setGravity(Gravity.CENTER);
         hint.setPadding(0, dp(14), 0, dp(12));
         card.addView(hint);
+        gamePad = Neon.btn(this, "\uD83C\uDFAE  Manette dans le jeu", 14, true, v -> { Live.Game g = Live.game; if (g != null) ManetteActivity.open(this, g.padMask); });
+        LinearLayout.LayoutParams gpl = new LinearLayout.LayoutParams(-1, -2);
+        gpl.bottomMargin = dp(8);
+        card.addView(gamePad, gpl);
         card.addView(Neon.btn(this, "Masquer", 13, false, v -> { gameHidden = true; showGame(); }), new LinearLayout.LayoutParams(-1, -2));
         p.addView(card, new LinearLayout.LayoutParams(-1, -2));
         p.setVisibility(View.GONE);
@@ -455,6 +466,7 @@ public class MainActivity extends Activity {
             if (b != null) gameCover.setImageBitmap(b); else gameCover.setImageResource(R.mipmap.ic_launcher);
         }
         Neon.set(gameTitle, g.name.isEmpty() ? g.id : g.name);
+        gamePad.setVisibility(g.padMask != 0 ? View.VISIBLE : View.GONE);   // (reglage "Manettes du telephone" de la console)
         Neon.set(gameSub, g.id + (g.profile.isEmpty() ? "" : " · profil " + g.profile) + " · lancé à "
                  + new java.text.SimpleDateFormat("HH:mm", java.util.Locale.FRANCE).format(new java.util.Date(g.start)));
         updateGame();
@@ -574,6 +586,15 @@ public class MainActivity extends Activity {
         }).start();
     }
 
+    /** la manette en jeu, meme si l'appli n'a pas vu le lancement : adresse tapee ou gardee, tous les ports */
+    private void padNow() {
+        String ip = panelIp.getText().toString().trim().replaceFirst("^https?://", "").replaceAll("/.*$", "");
+        if (!ip.isEmpty()) { Api.host = ip; prefs().edit().putString("host", ip).apply(); }
+        if (Api.host == null) { Toast.makeText(this, "Tape d'abord l'adresse de la console", Toast.LENGTH_SHORT).show(); return; }
+        Live.Game g = Live.game;
+        ManetteActivity.open(this, g != null && g.padMask != 0 ? g.padMask : 0xF);
+    }
+
     /** consoles trouvees en direct : une seule -> connexion ; plusieurs -> laquelle ? */
     private void found(List<String[]> f) {
         if (f.size() == 1) { connect(f.get(0)[0]); return; }
@@ -631,6 +652,11 @@ public class MainActivity extends Activity {
         row.addView(g, new LinearLayout.LayoutParams(dp(10), 1));
         row.addView(Neon.btn(this, "Chercher", 14, false, v -> search()), new LinearLayout.LayoutParams(0, -2, 1));
         card.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        // la console est en jeu : elle ne repond pas, mais Pulse attend les touches de la manette
+        TextView pad = Neon.btn(this, "\uD83C\uDFAE  Manette dans le jeu", 14, false, v -> padNow());
+        LinearLayout.LayoutParams pl = new LinearLayout.LayoutParams(-1, -2);
+        pl.topMargin = dp(10);
+        card.addView(pad, pl);
         p.addView(card, new LinearLayout.LayoutParams(-1, -2));
         return p;
     }

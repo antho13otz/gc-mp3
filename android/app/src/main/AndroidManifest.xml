@@ -41,6 +41,13 @@
         </activity>
         <!-- resultat de l'installation d'une nouvelle version (AppUpdate) -->
         <receiver android:name=".AppUpdate$Done" android:exported="false" />
+        <!-- manette GameCube en jeu (Pulse) -->
+        <activity
+            android:name=".ManetteActivity"
+            android:exported="false"
+            android:screenOrientation="sensorLandscape"
+            android:theme="@android:style/Theme.Material.NoActionBar.Fullscreen"
+            android:configChanges="orientation|screenSize|keyboardHidden|screenLayout" />
         <!-- globe des radios (OpenGL) -->
         <activity
             android:name=".GlobeActivity"
