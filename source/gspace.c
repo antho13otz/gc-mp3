@@ -423,7 +423,8 @@ static void gs_draw_fiche(void) {
     } else {                                                     /* v282 : la boite du jeu en 3D (box3d.c) */
         if (g->post >= 0 && gl_big.game == gl_sel && gl_big.tex) { o = &gl_big.obj; big = 1; }
         else if (g->post >= 0) o = gl_cover(gl_sel, 1);          /* (la petite en attendant la grande) */
-        bx_draw(gl_sel, cx, cy, cw, chh, o, big, gl_fc_get(gl_sel));   /* v283 : + la jaquette complete (GameTDB) */
+        if (!bx_zoomed()) bx_draw(gl_sel, cx, cy, cw, chh, o, big, gl_fc_get(gl_sel));
+        if (!bx_zoomed() && bx_open_to < 0.5f) gx_text_c(F_SMALL, cx + cw / 2, cy + chh + 34, "Stick C : tourner / zoomer", RGBA(170, 160, 210, 200));   /* v284 */   /* v283 : + la jaquette complete (GameTDB) ; v284 : zoomee : dessinee par-dessus, plus bas */
     }
     /* a droite */
     const f32 rx = 250 + ox; const int rw = 366;
@@ -489,6 +490,25 @@ static void gs_draw_fiche(void) {
     }
     if (gs_n && !gs_apps()) { snprintf(d, sizeof(d), "%d / %d", gs_pos + 1, gs_n); gx_text_r(F_SMALL, 616, 404, d, RGBA(130, 130, 155, 255)); }
     if (now_ms() - gl_msg_t < 3500) gx_text_c(F_SMALL, 320, 428, gl_msg, RGBA(255, 210, 120, 255));
+    if (!g->dvd && bx_zoomed()) {                            /* v284 : boite zoomee, par-dessus la fiche */
+        f32 t = (bx_zoom - 1) / 0.35f; if (t > 1) t = 1;
+        u8 a = (u8)(225 * t);
+        gx_poly4(0, 0, 640, 0, 640, 480, 0, 480, RGBA(6, 4, 14, a), RGBA(6, 4, 14, a), RGBA(6, 4, 14, a), RGBA(6, 4, 14, a));
+        GXTexObj *o2 = NULL; int big2 = 0;
+        if (g->post >= 0 && gl_big.game == gl_sel && gl_big.tex) { o2 = &gl_big.obj; big2 = 1; }
+        else if (g->post >= 0) o2 = gl_cover(gl_sel, 1);
+        bx_draw(gl_sel, cx, cy, cw, chh, o2, big2, gl_fc_get(gl_sel));
+        gx_rrect_fill(20, 438, 600, 30, 15, RGBA(255, 255, 255, 16), RGBA(255, 255, 255, 8));
+        f32 x = 34;
+        x = gs_key(x, 453, "C", "Tourner / zoom", RGBA(255, 210, 90, 255));
+        x = gs_key(x, 453, "S", "D\xC3\xA9placer", RGBA(235, 235, 245, 255));
+        x = gs_key(x, 453, "\xE2\x86\x91", bx_open_to > 0.5f ? "Fermer" : "Ouvrir", RGBA(150, 200, 255, 255));
+        x = gs_key(x, 453, "A", "Jouer", RGBA(110, 220, 140, 255));
+        gs_key(x, 453, "B", "Retour", RGBA(240, 110, 110, 255));
+        nv_raw = 0;
+        if (gl_launch_sel >= 0) gl_draw_launch_box();
+        return;
+    }
     gx_rrect_fill(20, 438, 600, 30, 15, RGBA(255, 255, 255, 16), RGBA(255, 255, 255, 8));
     gx_rrect_stroke(20, 438, 600, 30, 15, 1.0f, RGBA(255, 255, 255, 34));
     gx_hgrad(170, 438, 150, 1.2f, au_a(0), au_a(140));

@@ -198,11 +198,11 @@ static void tp_send_capture(s32 c) {
         if (tp_send(c, row, stride) < 0) return;
     }
 }
-#include "ecran_jpeg.c"                                         /* v284 : second ecran */
+#include "ecran_jpeg.c"                                         /* v285 : second ecran */
 static u8 *tp_ej_buf = NULL;
 static int tp_param(const char *q, const char *key, char *out, int cap);
 static u32 tp_ej_n = 0;                                          /* (images envoyees : le journal le dit) */
-/* v284 : second ecran : GET /api/ecran?w=320|640&q=10..95 -> ce qu'affiche la tele en JPEG */
+/* v285 : second ecran : GET /api/ecran?w=320|640&q=10..95 -> ce qu'affiche la tele en JPEG */
 static void tp_send_ecran(s32 c, const char *q) {
     const u8 *fb; int w, h;
 #ifndef GEKKO
@@ -1538,7 +1538,7 @@ static void tp_handle(s32 c) {
         free(b);
     }
     else if (!strcmp(target, "/capture.bmp")) tp_send_capture(c);
-    else if (!strcmp(target, "/api/ecran")) tp_send_ecran(c, q);    /* v284 : second ecran (JPEG) */   /* v234 : ce qu'affiche la tele */
+    else if (!strcmp(target, "/api/ecran")) tp_send_ecran(c, q);    /* v285 : second ecran (JPEG) */   /* v234 : ce qu'affiche la tele */
     else if (!strcmp(target, "/rapport")) tp_reply(c, 200, "text/html; charset=utf-8", rapport_page, (int)strlen(rapport_page));   /* v234 */
     else if (!strcmp(target, "/api/journal")) {              /* v234 : dernieres actions + journal de plantage */
         static char jb[12000];

@@ -99,7 +99,7 @@ Image.new('RGB', (800, 600), (40, 120, 200)).save('$CI/telephone-ci.jpg', qualit
     expect "journal des dernieres actions" "Derni" "$H/api/journal"
     r=$(curl -s -m 20 -o $CI/capture.bmp -w "%{http_code} %{size_download}" "$H/capture.bmp")
     case "$r" in "200 "*) [ "${r#200 }" -gt 100000 ] && note "telephone : capture de la tele" || fail "telephone : capture trop petite ($r)";; *) fail "telephone : capture de la tele ($r)";; esac
-    # v284 : second ecran : la tele en JPEG, petite et nette, lisible par Python (Pillow) si present
+    # v285 : second ecran : la tele en JPEG, petite et nette, lisible par Python (Pillow) si present
     for w in 320 640; do
         r=$(curl -s -m 20 -o $CI/ecran$w.jpg -w "%{http_code} %{size_download}" "$H/api/ecran?w=$w&q=60")
         case "$r" in "200 "*) if [ "$(head -c 2 $CI/ecran$w.jpg | od -An -tx1 | tr -d ' ')" = ffd8 ] && \

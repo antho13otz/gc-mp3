@@ -1,4 +1,4 @@
-/* ---------- v284 : second ecran : ce qu'affiche la tele, en JPEG, pour l'appli du telephone ----------
+/* ---------- v285 : second ecran : ce qu'affiche la tele, en JPEG, pour l'appli du telephone ----------
    GET /api/ecran?w=320|640&q=10..95 : une image JPEG (baseline, couleurs 4:2:0) faite directement depuis le tampon
    video (YUYV) : pas de conversion en RGB, pas de grosse reservation (on lit le tampon bloc par bloc).
    En-tetes : X-Ecran: <largeur>x<hauteur>, X-Ms: <temps d'encodage en ms>, X-Web: 1 si l'onglet WEB est affiche
