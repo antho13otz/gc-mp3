@@ -74,6 +74,7 @@ static int gl_abs_in(const char *path, const char *id);  /* v290 : disque de la 
 static u16 *gl_dk_convert(const u8 *img, int n);
 static void gl_dk_save(const char *id, const u16 *t);
 static void gl_scan(void);
+static int gl_net_busy(int ex);                           /* v292 : un seul telechargement d'images a la fois */
 static void gl_note(const char *m);
 static int gs_dirty;
 #define GL_POST_DL 30000                                 /* (gl[k].post : jaquette ajoutee, pas dans posters.pak) */
@@ -901,7 +902,7 @@ static FILE *gl_fxdl_f = NULL;
 static u64 gl_fxdl_wait = 0;
 static int gl_fx_pump(void) {                            /* 1 : en cours (pas de jaquette en meme temps) */
     if (gl_fxdl_st == 0) {
-        if (!gl_on || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_fxdl_wait) return 0;
+        if (!gl_on || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_fxdl_wait || gl_net_busy(5)) return 0;
         if (now_ms() - last_input_ms < 1500) return 0;   /* v285 */
         struct stat st;
         time_t now = gc_time(NULL);
@@ -1069,7 +1070,7 @@ static int gl_all_busy(void);
 /* telechargement de la jaquette complete demandee (1 : en cours) */
 static int gl_fc_pump(void) {
     if (gl_fc_dl == 0) {
-        if (gl_fc.st != 4 || !gl_on || !gl_detail || gl_all_busy() || fun_mode || net_phase != NET_DONE || !net_ok) return 0;
+        if (gl_fc.st != 4 || !gl_on || !gl_detail || gl_net_busy(3) || fun_mode || net_phase != NET_DONE || !net_ok) return 0;
         if (now_ms() - last_input_ms < 1000) return 0;   /* v285 : seulement quand tu restes sur la fiche (pas en passant de jeu en jeu) */
         gl_fc_reg = 0; gl_fc_dl = 1;
     }
@@ -1107,8 +1108,8 @@ static int gl_fc_pump(void) {
 }
 static void gl_fc_cv_done(void) {                          /* (boucle principale) */
     u16 *t = gl_cv_out; gl_cv_out = NULL;
-    if (!t) { gl_fc_reg++; gl_fc_dl = 1; return; }       /* (image illisible : la region suivante) */
     gl_fc_dl = 0;
+    if (!t) { if (!strcmp(gl_cv_id, gl_fc.id)) gl_fc.st = 5; return; }   /* (v292 : conversion ratee : reessayee en revenant sur le jeu, pas "absente") */
     if (!strcmp(gl_cv_id, gl_fc.id)) gl_fc_set(t); else free(t);
 }
 /* ---------- v287 : jaquette complete en haute definition, pour lire la boite zoomee ----------
@@ -1296,7 +1297,7 @@ static void gl_fh_cv_done(void) {
 }
 static int gl_fh_pump(void) {                             /* (1 : en cours) */
     if (gl_fh_dl == 0) {
-        if (gl_fh.st != 4 || !gl_on || !gl_detail || gl_all_busy() || fun_mode || net_phase != NET_DONE || !net_ok) return 0;
+        if (gl_fh.st != 4 || !gl_on || !gl_detail || gl_net_busy(1) || fun_mode || net_phase != NET_DONE || !net_ok) return 0;
         gl_fh_reg = 0; gl_fh_dl = 1;
     }
     if (gl_fh_dl == 1) {
@@ -1420,13 +1421,13 @@ static GXTexObj *gl_dk_get(int k) {
 }
 static void gl_dk_cv_done(void) {
     u16 *t = gl_cv_out; gl_cv_out = NULL;
-    if (!t) { gl_dk_reg++; gl_dk_dl = 1; return; }
     gl_dk_dl = 0;
+    if (!t) { if (!strcmp(gl_cv_id, gl_dk.id)) gl_dk.st = 5; return; }   /* (v292) */
     if (!strcmp(gl_cv_id, gl_dk.id)) gl_dk_set(t); else free(t);
 }
 static int gl_dk_pump(void) {
     if (gl_dk_dl == 0) {
-        if (gl_dk.st != 4 || !gl_on || !gl_detail || gl_all_busy() || fun_mode || net_phase != NET_DONE || !net_ok) return 0;
+        if (gl_dk.st != 4 || !gl_on || !gl_detail || gl_net_busy(2) || fun_mode || net_phase != NET_DONE || !net_ok) return 0;
         gl_dk_reg = 0; gl_dk_dl = 1;
     }
     if (gl_dk_dl == 1) {
@@ -1513,7 +1514,7 @@ static void gl_all_toggle(void) {
 }
 static void gl_all_cv_done(void) {
     u16 *t = gl_cv_out; gl_cv_out = NULL;
-    if (t) { free(t); gl_all_got++; } else gl_all_absent(gl_all_id, gl_all_ph);   /* (illisible : pas redemandee) */
+    if (t) { free(t); gl_all_got++; }                    /* (v292 : ratee : pas notee absente, refaite la prochaine fois) */
     gl_all_st = 0; gl_all_ph++;
     if (!strcmp(gl_all_id, gl_fc.id) && gl_fc.st >= 3) gl_fc.st = 0;   /* (la fiche ouverte : la relire) */
     if (!strcmp(gl_all_id, gl_fh.id) && gl_fh.st >= 3) gl_fh.st = 0;
@@ -1521,9 +1522,9 @@ static void gl_all_cv_done(void) {
 }
 static int gl_all_pump(void) {                            /* (1 : en cours) */
     if (gl_all_st == 0) {
-        if (!gl_all_on || !gl || gl_fc_dl || gl_fh_dl || gl_dk_dl || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_all_wait) return 0;
+        if (!gl_all_on || !gl || gl_net_busy(4) || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_all_wait) return 0;
         if (now_ms() - last_input_ms < 1500) return 0;   /* (v291 : 64 Ko par image : 5 fois plus vite ; on ne touche pas a la manette, rien a proteger) */
-        for (int tries = 0; tries < 4; tries++) {        /* (4 verifications par image au plus) */
+        for (int tries = 0; tries < 2; tries++) {        /* (v292 : 2 verifications par image au plus : chacune lit la carte) */
             if (gl_all_k >= gl_n) break;
             gcg_t *g = &gl[gl_all_k];
             if (g->dvd || !g->id[0] || gl_all_ph > 2) { gl_all_k++; gl_all_ph = 0; continue; }
@@ -1599,6 +1600,10 @@ static const char *gl_dl_region(const char *id, int i) {
     return i < 3 ? r[i] : NULL;
 }
 static void gl_dl_cv_done(void);
+static int gl_net_busy(int ex) {                          /* v292 : 1 : un autre telechargement d'images est en cours (ex : soi-meme)
+                                                             (avant : deux pouvaient se croiser et s'ecraser l'image a convertir) */
+    return (ex != 1 && gl_fh_dl) || (ex != 2 && gl_dk_dl) || (ex != 3 && gl_fc_dl) || (ex != 4 && gl_all_st) || (ex != 5 && gl_fxdl_st) || (ex != 6 && gl_dl_st);
+}
 static void gl_dl_pump(void) {
     if (!sd_ok || sd_virtual || !gl_scanned || !gl || sx_safe) return;
     if (gl_dl_st == 0 && gl_fh_pump()) return;         /* v287 : la HD de la boite zoomee d'abord */
@@ -1607,7 +1612,7 @@ static void gl_dl_pump(void) {
     if (gl_dl_st == 0 && gl_all_pump()) return;         /* v289 : toutes les jaquettes (si demande) */         /* v283 : la jaquette complete de la fiche ouverte d'abord */
     if (gl_dl_st == 0 && gl_fx_pump()) return;         /* v281 : les fiches d'abord */
     if (gl_dl_st == 0) {
-        if (!gl_on || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_dl_wait) return;
+        if (!gl_on || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_dl_wait || gl_net_busy(6)) return;
         if (now_ms() - last_input_ms < 1500) return;      /* v285 : pas pendant que tu navigues */
         if (gl_dl_nabs < 0) gl_dl_abs_load();
         int k = -1;
@@ -1643,7 +1648,7 @@ static void gl_dl_pump(void) {
 static void gl_dl_cv_done(void) {                          /* (boucle principale, apres la conversion en fond) */
     u16 *t = gl_cv_out; gl_cv_out = NULL;
     gl_dl_st = 0; gl_dl_wait = now_ms() + 300;
-    if (!t) { gl_dl_mark_absent(gl_dl_id); return; }
+    if (!t) { gl_dl_wait = now_ms() + 600000; return; }   /* v292 : (conversion ratee, souvent la memoire : on reessaiera, pas "absente" pour toujours) */
     free(t);                                             /* (deja rangee sur la carte par le thread) */
     gl_dl_got++;
     for (int k = 0; k < gl_n; k++) if (!strncmp(gl[k].id, gl_dl_id, 6) && gl[k].post < 0) {
@@ -1661,7 +1666,11 @@ static GXTexObj *gl_cover(int k, int load) {                 /* jaquette 128x256
     if (k < GL_MAX && gl_cov_retry[k] && now_ms() < gl_cov_retry[k]) return NULL;
     if (gl[k].post == GL_POST_DL) {                       /* v280 : jaquette ajoutee (telechargee ou deposee) */
         u16 *t = gl_dl_tex(gl[k].id);
-        if (!t) { gl[k].post = -1; return NULL; }
+        if (!t) {                                        /* v292 : (avant : une lecture ratee = plus de jaquette jusqu'au prochain demarrage) */
+            if (k < GL_MAX && ++gl_cov_fail[k] < 4) gl_cov_retry[k] = now_ms() + 1500; else gl[k].post = -1;
+            return NULL;
+        }
+        if (k < GL_MAX) { gl_cov_fail[k] = 0; gl_cov_retry[k] = 0; }
         s = gl_new_slot(gl_cov, GL_SLOTS);
         s->tex = t; s->game = k; s->used = now_ms();
         GX_InitTexObj(&s->obj, t, GL_DLW, GL_DLW, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);

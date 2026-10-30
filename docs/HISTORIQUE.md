@@ -68,6 +68,16 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   Mini-jeux, Manette en jeu, Globe, Mettre à jour. Réglages, Cartes mémoire, Salon, Outils, Recherche et Copies
   gardent pour l'instant l'ancien look.
 
+## Nouveautés v292 (build à venir) — Jaquettes : tour des bugs
+- **Un seul téléchargement d'images à la fois** (jaquettes, complètes, HD, disques, fiches, « toutes les jaquettes ») :
+  avant, deux pouvaient partir en même temps, se ralentir, et l'un pouvait écraser l'image que l'autre convertissait
+  (jaquette fausse ou perdue).
+- **Plus de jaquettes perdues pour rien** : une image qui n'a pas pu être convertie (souvent faute de mémoire sur le
+  moment) n'est plus notée « absente » pour toujours : elle est refaite plus tard.
+- Une jaquette téléchargée qui n'a pas pu être lue une fois sur la carte ne disparaît plus jusqu'au redémarrage :
+  3 nouveaux essais, comme pour celles du pack.
+- « Toutes les jaquettes » vérifie moins de fichiers par image (moins d'à-coups dans les menus).
+
 ## Nouveautés v291 (build 781) — « Toutes les jaquettes » plus rapide
 - Le téléchargement de toutes les jaquettes lit le réseau 5 fois plus vite (64 Ko par image au lieu de 12) : il ne tourne
   que quand tu ne touches pas à la manette, il n'y a donc pas d'animation à protéger.
