@@ -50,6 +50,14 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   Mini-jeux, Manette en jeu, Globe, Mettre à jour. Réglages, Cartes mémoire, Salon, Outils, Recherche et Copies
   gardent pour l'instant l'ancien look.
 
+## Nouveautés v290 (build à venir) — Boîte 3D comme un vrai boîtier, avec le disque du jeu
+- **Aspect d'un vrai boîtier GameCube** : plastique noir dehors ; dedans, les **clips de la notice** dans le couvercle,
+  le **support hexagonal** du disque, la **place de la carte mémoire**, les rebords. L'ouverture reste comme avant (↑).
+- **Le vrai disque du jeu** dans la boîte ouverte : image du disque de GameTDB (`jaquettes/disques/<ID>.tex`, ou un
+  `<ID>.png` déposé à la main). Sans image : un disque dessiné avec le nom du jeu.
+- « Toutes les jaquettes » prend aussi les disques. Correction : le réglage affichait « En cours : 0 / 0 » quand la
+  liste des jeux n'avait pas encore été lue (onglet JEUX pas encore ouvert) : elle est lue tout de suite.
+
 ## Nouveautés v289 (build 779) — Toutes les jaquettes d'un coup
 - **START > réglages > Jeux > « Toutes les jaquettes (boîte 3D, HD) »** : télécharge en fond, jeu par jeu, la jaquette
   complète et la jaquette HD de **tous tes jeux** (GameTDB), dans `jaquettes/completes/`. Seulement quand tu ne touches

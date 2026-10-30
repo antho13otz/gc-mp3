@@ -423,7 +423,7 @@ static void gs_draw_fiche(void) {
     } else {                                                     /* v282 : la boite du jeu en 3D (box3d.c) */
         if (g->post >= 0 && gl_big.game == gl_sel && gl_big.tex) { o = &gl_big.obj; big = 1; }
         else if (g->post >= 0) o = gl_cover(gl_sel, 1);          /* (la petite en attendant la grande) */
-        if (!bx_zoomed()) bx_draw(gl_sel, cx, cy, cw, chh, o, big, gl_fc_get(gl_sel));
+        if (!bx_zoomed()) bx_draw(gl_sel, cx, cy, cw, chh, o, big, gl_fc_get(gl_sel), bx_open_to > 0.5f || bx_open > 0.3f ? gl_dk_get(gl_sel) : NULL);   /* v290 : + le disque */
         if (!bx_zoomed()) gx_text_c(F_SMALL, cx + cw / 2, cy + chh + 34, "Stick C : tourner / zoomer", RGBA(170, 160, 210, 200));   /* v284 */   /* v283 : + la jaquette complete (GameTDB) ; v284 : zoomee : dessinee par-dessus, plus bas */
     }
     /* a droite */
@@ -498,7 +498,7 @@ static void gs_draw_fiche(void) {
         if (g->post >= 0 && gl_big.game == gl_sel && gl_big.tex) { o2 = &gl_big.obj; big2 = 1; }
         else if (g->post >= 0) o2 = gl_cover(gl_sel, 1);
         GXTexObj *hd = bx_zoom_to > 1.3f ? gl_fh_get(gl_sel) : NULL;   /* v287 : HD pour lire */
-        bx_draw(gl_sel, cx, cy, cw, chh, o2, big2, hd ? hd : gl_fc_get(gl_sel));
+        bx_draw(gl_sel, cx, cy, cw, chh, o2, big2, hd ? hd : gl_fc_get(gl_sel), bx_open_to > 0.5f || bx_open > 0.3f ? gl_dk_get(gl_sel) : NULL);   /* v290 : + le disque */
         if (!hd && gl_fc.st == 2 && gl_fh_busy()) {
             int pc = gl_fh_pct();
             char m[64];

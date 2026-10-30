@@ -70,6 +70,10 @@ static void gl_fx_reset(void);                            /* v281 : fiches des j
 static f32 gl_fx_draw(const char *id, f32 x, f32 y, int w);
 static const char *gl_fx_syn(const char *id);
 static int bx_input(u32 down);                            /* v282 : boite 3D (box3d.c) */
+static int gl_abs_in(const char *path, const char *id);  /* v290 : disque de la boite */
+static u16 *gl_dk_convert(const u8 *img, int n);
+static void gl_dk_save(const char *id, const u16 *t);
+static void gl_scan(void);
 static void gl_note(const char *m);
 static int gs_dirty;
 #define GL_POST_DL 30000                                 /* (gl[k].post : jaquette ajoutee, pas dans posters.pak) */
@@ -1049,6 +1053,7 @@ static u16 *gl_dl_convert(const u8 *img, int n);
 static u8 *gl_fh_convert(u8 *img, int n);
 static void gl_fh_save(const char *id, const u8 *t);
 static void gl_cv_run(void) {                             /* (thread de fond) */
+    if (gl_cv_kind == 4) { gl_cv_out = gl_dk_convert(gl_cv_in, gl_cv_n); free(gl_cv_in); gl_cv_in = NULL; if (gl_cv_out) gl_dk_save(gl_cv_id, gl_cv_out); return; }   /* v290 : disque */
     if (gl_cv_kind == 3) { gl_cv_out = (u16 *)gl_fh_convert(gl_cv_in, gl_cv_n); free(gl_cv_in); gl_cv_in = NULL; if (gl_cv_out) gl_fh_save(gl_cv_id, (u8 *)gl_cv_out); return; }   /* v287 : HD */
     gl_cv_out = gl_cv_kind == 2 ? gl_fc_convert(gl_cv_in, gl_cv_n) : gl_dl_convert(gl_cv_in, gl_cv_n);
     free(gl_cv_in); gl_cv_in = NULL;
@@ -1326,6 +1331,135 @@ static int gl_fh_pump(void) {                             /* (1 : en cours) */
     gl_fh_dl = 3;
     return 1;
 }
+/* ---------- v290 : l'image du disque (GameTDB disc/<region>/<ID>.png), posee dans la boite ouverte ----------
+   Texture RGB5A3 128x128 avec transparence (le disque est rond), rangee dans jaquettes/disques/<ID>.tex ;
+   un <ID>.png depose a la main y est converti. Pas d'image chez GameTDB : disques/absentes.txt. */
+#define GL_DKDIR GL_UI "/disques"
+#define GL_DKABS GL_DKDIR "/absentes.txt"
+#define GL_DKW 128
+#define GL_DKSZ (GL_DKW * GL_DKW * 2)
+static struct { char id[8]; u16 *tex; GXTexObj obj; int st; } gl_dk = { "", NULL, {{0}}, 0 };   /* st comme gl_fc */
+static char gl_dk_rid[8];
+static u16 *gl_dk_rbuf;
+static int gl_dk_rabs, gl_dk_dl = 0, gl_dk_reg = 0;
+static hfetch_t gl_dk_hf = { .c = { -1, 0, 0 } };
+static u16 *gl_dk_convert(const u8 *img, int n) {
+    int w = 0, h = 0, c = 0;
+    unsigned char *px = stbi_load_from_memory(img, n, &w, &h, &c, 4);
+    if (!px || w < 32 || h < 32) { if (px) stbi_image_free(px); return NULL; }
+    u16 *t = (u16 *)memalign(32, GL_DKSZ);
+    if (!t) { stbi_image_free(px); return NULL; }
+    for (int y = 0; y < GL_DKW; y++)
+        for (int x = 0; x < GL_DKW; x++) {
+            int x0 = x * w / GL_DKW, x1 = (x + 1) * w / GL_DKW, y0 = y * h / GL_DKW, y1 = (y + 1) * h / GL_DKW;
+            if (x1 <= x0) x1 = x0 + 1; if (y1 <= y0) y1 = y0 + 1;
+            u32 r = 0, g = 0, b = 0, a = 0, m = 0;
+            for (int yy = y0; yy < y1 && yy < h; yy++) for (int xx = x0; xx < x1 && xx < w; xx++) {
+                const unsigned char *p = px + ((size_t)yy * w + xx) * 4;
+                r += p[0] * p[3]; g += p[1] * p[3]; b += p[2] * p[3]; a += p[3]; m++;
+            }
+            int R = 0, G = 0, B = 0, A = m ? (int)(a / m) : 0;
+            if (a) { R = (int)(r / a); G = (int)(g / a); B = (int)(b / a); }
+            u16 v = A >= 0xE0 ? (u16)(0x8000 | ((R >> 3) << 10) | ((G >> 3) << 5) | (B >> 3)) : (u16)(((A >> 5) << 12) | ((R >> 4) << 8) | ((G >> 4) << 4) | (B >> 4));
+            t[((y >> 2) * (GL_DKW >> 2) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)] = v;
+        }
+    stbi_image_free(px);
+    return t;
+}
+static void gl_dk_save(const char *id, const u16 *t) {
+    char p[NAME_LEN];
+    mkdir(GL_UI, 0777); mkdir(GL_DKDIR, 0777);
+    snprintf(p, sizeof(p), GL_DKDIR "/%.6s.tex", id);
+    FILE *f = fopen(p, "wb");
+    if (!f) return;
+    int ok = fwrite(t, 1, GL_DKSZ, f) == GL_DKSZ;
+    if (fclose(f) || !ok) remove(p);
+}
+static void gl_dk_set(u16 *t) {
+    free(gl_dk.tex); gl_dk.tex = t;
+    DCFlushRange(t, GL_DKSZ);
+    GX_InitTexObj(&gl_dk.obj, t, GL_DKW, GL_DKW, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InitTexObjFilterMode(&gl_dk.obj, GX_LINEAR, GX_LINEAR);
+    GX_InvalidateTexAll();
+    gl_dk.st = 2;
+}
+static void gl_dk_read(void) {                            /* (thread de fond) */
+    char p[NAME_LEN];
+    gl_dk_rbuf = NULL; gl_dk_rabs = 0;
+    snprintf(p, sizeof(p), GL_DKDIR "/%.6s.tex", gl_dk_rid);
+    FILE *f = fopen(p, "rb");
+    if (f) {
+        u16 *t = (u16 *)memalign(32, GL_DKSZ);
+        int ok = t && fread(t, 1, GL_DKSZ, f) == GL_DKSZ;
+        fclose(f);
+        if (ok) { gl_dk_rbuf = t; return; }
+        free(t);
+    }
+    snprintf(p, sizeof(p), GL_DKDIR "/%.6s.png", gl_dk_rid);
+    long n = 0;
+    u8 *d = read_file(p, 4 * 1024 * 1024, &n);
+    if (d) { u16 *t = gl_dk_convert(d, (int)n); free(d); if (t) { gl_dk_save(gl_dk_rid, t); gl_dk_rbuf = t; return; } }
+    gl_dk_rabs = gl_abs_in(GL_DKABS, gl_dk_rid);
+}
+static void gl_dk_loaded(void) {
+    u16 *t = gl_dk_rbuf; gl_dk_rbuf = NULL;
+    if (strcmp(gl_dk_rid, gl_dk.id)) { free(t); if (gl_dk.st == 1) gl_dk.st = 0; return; }
+    if (t) gl_dk_set(t); else gl_dk.st = gl_dk_rabs ? 3 : 4;
+}
+/* l'image du disque du jeu k (boite ouverte) ; NULL : pas (encore) la */
+static GXTexObj *gl_dk_get(int k) {
+    if (k < 0 || k >= gl_n || gl[k].dvd || !gl[k].id[0] || !sd_ok || sd_virtual) return NULL;
+    if (strncmp(gl_dk.id, gl[k].id, 6)) {
+        if (gl_dk.st == 1 || gl_dk_dl >= 3) return NULL;
+        free(gl_dk.tex); gl_dk.tex = NULL;
+        snprintf(gl_dk.id, sizeof(gl_dk.id), "%.6s", gl[k].id); gl_dk.st = 0;
+    }
+    if (gl_dk.st == 2) return &gl_dk.obj;
+    if (gl_dk.st == 0) { snprintf(gl_dk_rid, sizeof(gl_dk_rid), "%s", gl_dk.id); if (gj_post_fn(gl_dk_read, gl_dk_loaded)) gl_dk.st = 1; }
+    return NULL;
+}
+static void gl_dk_cv_done(void) {
+    u16 *t = gl_cv_out; gl_cv_out = NULL;
+    if (!t) { gl_dk_reg++; gl_dk_dl = 1; return; }
+    gl_dk_dl = 0;
+    if (!strcmp(gl_cv_id, gl_dk.id)) gl_dk_set(t); else free(t);
+}
+static int gl_dk_pump(void) {
+    if (gl_dk_dl == 0) {
+        if (gl_dk.st != 4 || !gl_on || !gl_detail || gl_all_busy() || fun_mode || net_phase != NET_DONE || !net_ok) return 0;
+        gl_dk_reg = 0; gl_dk_dl = 1;
+    }
+    if (gl_dk_dl == 1) {
+        if (gl_dk.st != 4) { gl_dk_dl = 0; return 0; }
+        const char *rg = gl_dl_region(gl_dk.id, gl_dk_reg);
+        if (!rg) {
+            mkdir(GL_UI, 0777); mkdir(GL_DKDIR, 0777);
+            FILE *f = fopen(GL_DKABS, "a");
+            if (f) { fprintf(f, "%.6s\n", gl_dk.id); fclose(f); }
+            gl_dk.st = 3; gl_dk_dl = 0; return 0;
+        }
+        char url[160];
+        snprintf(url, sizeof(url), "http://art.gametdb.com/wii/disc/%s/%s.png", rg, gl_dk.id);
+        snprintf(gl_dk_rid, sizeof(gl_dk_rid), "%s", gl_dk.id);
+        gl_dk_hf.frame_cap = 12 * 1024; gl_dk_hf.maxbytes = 2 * 1024 * 1024; gl_dk_hf.image = 0; gl_dk_hf.accept = "image/png,image/*";
+        hf_start(&gl_dk_hf, url, NULL);
+        gl_dk_dl = 2;
+        return 1;
+    }
+    if (gl_dk_dl == 3) { if (gj_post_fn(gl_cv_run, gl_dk_cv_done)) gl_dk_dl = 4; return 1; }
+    if (gl_dk_dl == 4) return 1;
+    hf_pump(&gl_dk_hf);
+    if (gl_dk_hf.st == HF_FAIL || (gl_dk_hf.st == HF_DONE && (gl_dk_hf.code != 200 || gl_dk_hf.len < 200))) {
+        int net_err = gl_dk_hf.st == HF_FAIL && gl_dk_hf.code == 0;
+        hf_drop(&gl_dk_hf); gl_dk_hf.st = HF_IDLE;
+        if (net_err) { gl_dk_dl = 0; if (!strcmp(gl_dk_rid, gl_dk.id)) gl_dk.st = 5; return 0; }
+        gl_dk_reg++; gl_dk_dl = 1; return 1;
+    }
+    if (gl_dk_hf.st != HF_DONE) return 1;
+    gl_cv_take(&gl_dk_hf, 4, gl_dk_rid);
+    gl_dk_dl = 3;
+    return 1;
+}
 /* ---------- v289 : toutes les jaquettes d'un coup (START > reglages, Liste des jeux) ----------
    Jeu par jeu : la jaquette complete (boite 3D) puis la HD (zoom), vers jaquettes/completes/, sans rien afficher.
    En fond, seulement quand on ne touche pas a la manette depuis 1,5 s ; une a la fois ; on peut couper. */
@@ -1341,8 +1475,12 @@ static int gl_abs_in(const char *path, const char *id) {
     free(d);
     return r;
 }
-static int gl_all_have(const char *id, int hd) {          /* 1 : deja la (ou GameTDB ne l'a pas) */
+static int gl_all_have(const char *id, int hd) {          /* 1 : deja la (ou GameTDB ne l'a pas) ; hd : 0 complete, 1 HD, 2 disque (v290) */
     char p[NAME_LEN]; struct stat st;
+    if (hd == 2) {
+        for (int i = 0; i < 2; i++) { snprintf(p, sizeof(p), GL_DKDIR "/%.6s.%s", id, i ? "png" : "tex"); if (stat(p, &st) == 0 && st.st_size > 0) return 1; }
+        return gl_abs_in(GL_DKABS, id);
+    }
     static const char *const ex[2] = { "tex", "png" };
     for (int i = 0; i < 2; i++) {
         snprintf(p, sizeof(p), GL_FCDIR "/%.6s%s.%s", id, hd ? "-hd" : "", ex[i]);
@@ -1352,7 +1490,8 @@ static int gl_all_have(const char *id, int hd) {          /* 1 : deja la (ou Gam
 }
 static void gl_all_absent(const char *id, int hd) {
     mkdir(GL_UI, 0777); mkdir(GL_FCDIR, 0777);
-    FILE *f = fopen(hd ? GL_FHABS : GL_FCABS, "a");
+    if (hd == 2) mkdir(GL_DKDIR, 0777);
+    FILE *f = fopen(hd == 2 ? GL_DKABS : hd ? GL_FHABS : GL_FCABS, "a");
     if (f) { fprintf(f, "%.6s\n", id); fclose(f); }
 }
 static int gl_all_busy(void) { return gl_all_st != 0; }
@@ -1360,12 +1499,15 @@ static int gl_all_total(void) { int n = 0; for (int k = 0; k < gl_n; k++) if (!g
 static void gl_all_text(char *o, int cap) {
     if (!gl_all_on) { snprintf(o, cap, "%s", gl_all_fin ? "Fini" : "(A)"); return; }
     int done = 0;
-    for (int k = 0; k < gl_all_k && k < gl_n; k++) if (!gl[k].dvd && gl[k].id[0]) done++;
-    snprintf(o, cap, "En cours : %d / %d", done, gl_all_total());
+    for (int k = 0; gl && k < gl_all_k && k < gl_n; k++) if (!gl[k].dvd && gl[k].id[0]) done++;
+    int tot = gl ? gl_all_total() : 0;
+    if (!tot) { snprintf(o, cap, "Lecture de la liste..."); return; }
+    snprintf(o, cap, "En cours : %d / %d", done, tot);
 }
 static void gl_all_toggle(void) {
     if (gl_all_on) { gl_all_on = 0; gl_note("Jaquettes : t\xC3\xA9l\xC3\xA9" "chargement arr\xC3\xAAt\xC3\xA9"); ui_status("Jaquettes : arr\xC3\xAAt\xC3\xA9"); return; }
     if (!net_ok) { ui_status("Pas de r\xC3\xA9seau"); return; }
+    if (!gl_scanned || !gl) gl_scan();                  /* (v290 : la liste des jeux n'etait pas encore lue : 0 / 0) */
     gl_all_on = 1; gl_all_k = 0; gl_all_ph = 0; gl_all_got = 0; gl_all_fin = 0; gl_all_wait = 0;
     ui_status("Jaquettes : t\xC3\xA9l\xC3\xA9" "chargement en fond (quand tu ne touches pas \xC3\xA0 la manette)");
 }
@@ -1375,15 +1517,16 @@ static void gl_all_cv_done(void) {
     gl_all_st = 0; gl_all_ph++;
     if (!strcmp(gl_all_id, gl_fc.id) && gl_fc.st >= 3) gl_fc.st = 0;   /* (la fiche ouverte : la relire) */
     if (!strcmp(gl_all_id, gl_fh.id) && gl_fh.st >= 3) gl_fh.st = 0;
+    if (!strcmp(gl_all_id, gl_dk.id) && gl_dk.st >= 3) gl_dk.st = 0;
 }
 static int gl_all_pump(void) {                            /* (1 : en cours) */
     if (gl_all_st == 0) {
-        if (!gl_all_on || !gl || gl_fc_dl || gl_fh_dl || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_all_wait) return 0;
+        if (!gl_all_on || !gl || gl_fc_dl || gl_fh_dl || gl_dk_dl || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_all_wait) return 0;
         if (now_ms() - last_input_ms < 1500) return 0;
         for (int tries = 0; tries < 4; tries++) {        /* (4 verifications par image au plus) */
             if (gl_all_k >= gl_n) break;
             gcg_t *g = &gl[gl_all_k];
-            if (g->dvd || !g->id[0] || gl_all_ph > 1) { gl_all_k++; gl_all_ph = 0; continue; }
+            if (g->dvd || !g->id[0] || gl_all_ph > 2) { gl_all_k++; gl_all_ph = 0; continue; }
             if (gl_all_have(g->id, gl_all_ph)) { gl_all_ph++; continue; }
             snprintf(gl_all_id, sizeof(gl_all_id), "%.6s", g->id);
             gl_all_reg = 0; gl_all_st = 1;
@@ -1402,7 +1545,7 @@ static int gl_all_pump(void) {                            /* (1 : en cours) */
         const char *rg = gl_dl_region(gl_all_id, gl_all_reg);
         if (!rg) { gl_all_absent(gl_all_id, gl_all_ph); gl_all_st = 0; gl_all_ph++; return 1; }
         char url[160];
-        snprintf(url, sizeof(url), "http://art.gametdb.com/wii/%s/%s/%s.png", gl_all_ph ? "coverfullHQ" : "coverfull", rg, gl_all_id);
+        snprintf(url, sizeof(url), "http://art.gametdb.com/wii/%s/%s/%s.png", gl_all_ph == 2 ? "disc" : gl_all_ph ? "coverfullHQ" : "coverfull", rg, gl_all_id);
         gl_all_hf.frame_cap = 12 * 1024; gl_all_hf.maxbytes = 3 * 1024 * 1024; gl_all_hf.image = 0; gl_all_hf.accept = "image/png,image/*";
         hf_start(&gl_all_hf, url, NULL);
         gl_all_st = 2;
@@ -1418,7 +1561,7 @@ static int gl_all_pump(void) {                            /* (1 : en cours) */
         gl_all_reg++; gl_all_st = 1; return 1;
     }
     if (gl_all_hf.st != HF_DONE) return 1;
-    gl_cv_take(&gl_all_hf, gl_all_ph ? 3 : 2, gl_all_id);
+    gl_cv_take(&gl_all_hf, gl_all_ph == 2 ? 4 : gl_all_ph ? 3 : 2, gl_all_id);
     gl_all_st = 3;
     return 1;
 }
@@ -1459,6 +1602,7 @@ static void gl_dl_cv_done(void);
 static void gl_dl_pump(void) {
     if (!sd_ok || sd_virtual || !gl_scanned || !gl || sx_safe) return;
     if (gl_dl_st == 0 && gl_fh_pump()) return;         /* v287 : la HD de la boite zoomee d'abord */
+    if (gl_dl_st == 0 && gl_dk_pump()) return;         /* v290 : le disque de la boite ouverte */
     if (gl_dl_st == 0 && gl_fc_pump()) return;
     if (gl_dl_st == 0 && gl_all_pump()) return;         /* v289 : toutes les jaquettes (si demande) */         /* v283 : la jaquette complete de la fiche ouverte d'abord */
     if (gl_dl_st == 0 && gl_fx_pump()) return;         /* v281 : les fiches d'abord */
