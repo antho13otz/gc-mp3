@@ -28,15 +28,16 @@ object Geo {
 
 /** maillage : triangles [x y z nx ny nz u v], regroupes par piece (boitier, couvercle, disque, ombre) et matiere */
 class Maillage {
-    class Groupe(val premier: Int, val nombre: Int, val piece: Int, val mat: Int, val r: Float, val g: Float, val b: Float, val brillant: Float)
+    class Groupe(val premier: Int, val nombre: Int, val piece: Int, val mat: Int, val r: Float, val g: Float, val b: Float, val brillant: Float, val mode: Int)
     val v = ArrayList<Float>()
     val groupes = ArrayList<Groupe>()
     private var debut = 0
-    private var piece = 0; private var mat = 0; private var col = 0; private var br = 1f
-    fun commencer(piece: Int, mat: Int, col: Int = 0, brillant: Float = 1f) { finir(); debut = v.size / 8; this.piece = piece; this.mat = mat; this.col = col; br = brillant }
+    private var piece = 0; private var mat = 0; private var col = 0; private var br = 1f; private var mode = 0
+    /** mode (rendu) : 0 plastique brillant, 1 disque face gravee, 2 disque face imprimee, 3 film sur la jaquette, 4 plastique mat */
+    fun commencer(piece: Int, mat: Int, col: Int = 0, brillant: Float = 1f, mode: Int = 0) { finir(); debut = v.size / 8; this.piece = piece; this.mat = mat; this.col = col; br = brillant; this.mode = mode }
     fun finir() {
         val n = v.size / 8 - debut
-        if (n > 0) groupes.add(Groupe(debut, n, piece, mat, ((col shr 16) and 255) / 255f, ((col shr 8) and 255) / 255f, (col and 255) / 255f, br))
+        if (n > 0) groupes.add(Groupe(debut, n, piece, mat, ((col shr 16) and 255) / 255f, ((col shr 8) and 255) / 255f, (col and 255) / 255f, br, mode))
         debut = v.size / 8
     }
     fun s(x: Float, y: Float, z: Float, nx: Float, ny: Float, nz: Float, u: Float, w: Float) { v.add(x); v.add(y); v.add(z); v.add(nx); v.add(ny); v.add(nz); v.add(u); v.add(w) }
@@ -50,11 +51,11 @@ fun boitier(full: Boolean, avant: Boolean): Maillage {
     val X = Geo.X; val Y = Geo.Y; val Z = Geo.Z; val T = Geo.T; val R = Geo.R; val SP = Geo.SP; val DR = Geo.DR
     val P_BAC = Geo.P_BAC; val P_COUV = Geo.P_COUV; val P_DISQUE = Geo.P_DISQUE; val P_SOL = Geo.P_SOL
     val M_COULEUR = Geo.M_COULEUR; val M_FULL = Geo.M_FULL; val M_AVANT = Geo.M_AVANT; val M_DISQUE = Geo.M_DISQUE; val M_DESSOUS = Geo.M_DESSOUS; val M_OMBRE = Geo.M_OMBRE
-    fun contour(x: Float, y: Float, r: Float, n: Int = 10) = Geo.contour(x, y, r, n)
+    fun contour(x: Float, y: Float, r: Float, n: Int = 16) = Geo.contour(x, y, r, n)
 
     val m = Maillage()
     val ub = (1 - SP) / 2; val uf = (1 + SP) / 2
-    val noir = 0x141418; val gris = 0x2A2A2F; val fond = 0x232327; val bord = 0x1C1C20
+    val noir = 0x141418; val gris = 0x303036; val fond = 0x2B2B30; val bord = 0x202024
     val zi = Z - T                                            // (plan d'ouverture)
     val zf = -Z + 0.016f                                      // (fond du bac)
     val zl = zi + 0.009f                                      // (fond du couvercle)
@@ -104,44 +105,49 @@ fun boitier(full: Boolean, avant: Boolean): Maillage {
     }
 
     // ---- le bac (le dos, la tranche, l'interieur) ----
-    if (full) { m.commencer(P_BAC, M_FULL, 0, 1.8f); plaque(ext, -Z, -1f) { x, y -> floatArrayOf(uDos(x), v(y)) } }
+    if (full) { m.commencer(P_BAC, M_FULL, 0, 1.8f, 3); plaque(ext, -Z, -1f) { x, y -> floatArrayOf(uDos(x), v(y)) } }
     else { m.commencer(P_BAC, M_COULEUR, noir, 1.4f); plaque(ext, -Z, -1f, null) }
-    if (full) { m.commencer(P_BAC, M_FULL, 0, 1.6f); paroi(ext, -Z, zi, true, true) }
+    if (full) { m.commencer(P_BAC, M_FULL, 0, 1.6f, 3); paroi(ext, -Z, zi, true, true) }
     else { m.commencer(P_BAC, M_COULEUR, noir, 1.4f); paroi(ext, -Z, zi, true, true) }
     m.commencer(P_BAC, M_COULEUR, noir, 1.4f); paroi(ext, -Z, zi, true, false)
-    m.commencer(P_BAC, M_COULEUR, bord, 0.8f); anneau(ext, inn, zi, 1f)
-    m.commencer(P_BAC, M_COULEUR, gris, 0.6f); paroi(inn, zf, zi, false, false); paroi(inn, zf, zi, false, true)
-    m.commencer(P_BAC, M_COULEUR, fond, 0.5f); plaque(inn, zf, 1f, null)
+    m.commencer(P_BAC, M_COULEUR, bord, 0.8f, 4); anneau(ext, inn, zi, 1f)
+    m.commencer(P_BAC, M_COULEUR, gris, 0.6f, 4); paroi(inn, zf, zi, false, false); paroi(inn, zf, zi, false, true)
+    m.commencer(P_BAC, M_COULEUR, fond, 0.5f, 4); plaque(inn, zf, 1f, null)
     // support du disque : plateau hexagonal, anneau, ergot central a dents
-    m.commencer(P_BAC, M_COULEUR, 0x2E2E33, 0.7f)
+    m.commencer(P_BAC, M_COULEUR, 0x2E2E33, 0.7f, 4)
     val hx = ArrayList<FloatArray>()
     for (i in 0 until 6) { val a = Math.toRadians(30.0 + 60.0 * i); hx.add(floatArrayOf((0.52 * kotlin.math.cos(a)).toFloat(), (0.52 * kotlin.math.sin(a)).toFloat(), kotlin.math.cos(a).toFloat(), kotlin.math.sin(a).toFloat())) }
     val zh = zf + 0.008f
     plaque(hx, zh, 1f, null); paroi(hx, zf, zh, true, false)
-    m.commencer(P_BAC, M_COULEUR, 0x3A3A40, 0.9f)
-    val rc = ArrayList<FloatArray>()
-    for (i in 0 until 48) { val a = 2 * Math.PI * i / 48; rc.add(floatArrayOf((0.085 * kotlin.math.cos(a)).toFloat(), (0.085 * kotlin.math.sin(a)).toFloat(), kotlin.math.cos(a).toFloat(), kotlin.math.sin(a).toFloat())) }
+    fun cercle(r: Float, n: Int = 96) = (0 until n).map { i -> val a = 2 * Math.PI * i / n; floatArrayOf((r * kotlin.math.cos(a)).toFloat(), (r * kotlin.math.sin(a)).toFloat(), kotlin.math.cos(a).toFloat(), kotlin.math.sin(a).toFloat()) }
+    // berceau : un rebord circulaire ou le disque se pose (comme le vrai, sous le bord du disque)
+    m.commencer(P_BAC, M_COULEUR, 0x34343A, 0.8f, 4)
+    val b0 = cercle(DR + 0.012f); val b1 = cercle(DR + 0.034f)
+    paroi(b0, zh, zh + 0.008f, false, false); paroi(b1, zh, zh + 0.008f, true, false); anneau(b1, b0, zh + 0.008f, 1f)
+    // ergot central : un anneau creux qui tient le disque par son trou
+    m.commencer(P_BAC, M_COULEUR, 0x3A3A40, 1.0f)
+    val ro = cercle(0.082f, 64); val rin = cercle(0.058f, 64)
     val zc = zh + 0.034f
-    paroi(rc, zh, zc, true, false); plaque(rc, zc, 1f, null)
+    paroi(ro, zh, zc, true, false); paroi(rin, zh, zc, false, false); anneau(ro, rin, zc, 1f)
     m.commencer(P_BAC, M_COULEUR, 0x55555C, 1.2f)
     for (i in 0 until 6) {                                   // (les dents de l'ergot)
         val a = Math.PI * i / 3; val cx = (0.06 * kotlin.math.cos(a)).toFloat(); val cy = (0.06 * kotlin.math.sin(a)).toFloat()
         pave(cx - 0.012f, cy - 0.012f, cx + 0.012f, cy + 0.012f, zc, zc + 0.006f)
     }
-    m.commencer(P_BAC, M_COULEUR, 0x2A2A2F, 0.6f)            // (petite encoche en bas, comme le vrai)
+    m.commencer(P_BAC, M_COULEUR, 0x2A2A2F, 0.6f, 4)            // (petite encoche en bas, comme le vrai)
     pave(-0.16f, -Y + 0.12f, 0.02f, -Y + 0.2f, zf, zf + 0.012f)
 
     // ---- le couvercle (la jaquette sous le film transparent, l'interieur, les attaches de la notice) ----
-    if (full) { m.commencer(P_COUV, M_FULL, 0, 2.2f); plaque(ext, Z, 1f) { x, y -> floatArrayOf(uAvant(x), v(y)) } }
-    else if (avant) { m.commencer(P_COUV, M_AVANT, 0, 2.2f); plaque(ext, Z, 1f) { x, y -> floatArrayOf(uAvant(x), v(y)) } }
-    else { m.commencer(P_COUV, M_COULEUR, 0x46288C, 1.8f); plaque(ext, Z, 1f, null) }
-    if (full) { m.commencer(P_COUV, M_FULL, 0, 1.6f); paroi(ext, zi, Z, true, true) }
+    if (full) { m.commencer(P_COUV, M_FULL, 0, 2.2f, 3); plaque(ext, Z, 1f) { x, y -> floatArrayOf(uAvant(x), v(y)) } }
+    else if (avant) { m.commencer(P_COUV, M_AVANT, 0, 2.2f, 3); plaque(ext, Z, 1f) { x, y -> floatArrayOf(uAvant(x), v(y)) } }
+    else { m.commencer(P_COUV, M_COULEUR, 0x46288C, 1.8f, 3); plaque(ext, Z, 1f, null) }
+    if (full) { m.commencer(P_COUV, M_FULL, 0, 1.6f, 3); paroi(ext, zi, Z, true, true) }
     else { m.commencer(P_COUV, M_COULEUR, noir, 1.4f); paroi(ext, zi, Z, true, true) }
     m.commencer(P_COUV, M_COULEUR, noir, 1.4f); paroi(ext, zi, Z, true, false)
-    m.commencer(P_COUV, M_COULEUR, bord, 0.8f); anneau(ext, inn, zi, -1f)
-    m.commencer(P_COUV, M_COULEUR, gris, 0.6f); paroi(inn, zi, zl, false, false); paroi(inn, zi, zl, false, true)
-    m.commencer(P_COUV, M_COULEUR, fond, 0.5f); plaque(inn, zl, -1f, null)
-    m.commencer(P_COUV, M_COULEUR, 0x3A3A40, 0.9f)
+    m.commencer(P_COUV, M_COULEUR, bord, 0.8f, 4); anneau(ext, inn, zi, -1f)
+    m.commencer(P_COUV, M_COULEUR, gris, 0.6f, 4); paroi(inn, zi, zl, false, false); paroi(inn, zi, zl, false, true)
+    m.commencer(P_COUV, M_COULEUR, fond, 0.5f, 4); plaque(inn, zl, -1f, null)
+    m.commencer(P_COUV, M_COULEUR, 0x3A3A40, 0.9f, 4)
     for (sy in floatArrayOf(1f, -1f)) {                      // (attaches de la notice, du cote qui s'ouvre)
         val yc = sy * (Y - 0.16f)
         pave(X - 0.2f, yc - 0.035f, X - 0.06f, yc + 0.035f, zl - 0.012f, zl)
@@ -150,8 +156,8 @@ fun boitier(full: Boolean, avant: Boolean): Maillage {
 
     // ---- le disque (dessus : l'image du jeu ; dessous : irise ; tranche argent) ; trou de 15 mm ----
     val ri = DR * 15f / 80f; val e = 0.006f
-    m.commencer(P_DISQUE, M_DISQUE, 0, 2.4f)
-    val seg = 128
+    m.commencer(P_DISQUE, M_DISQUE, 0, 2.4f, 2)
+    val seg = 256
     for (i in 0 until seg) {
         val a0 = 2 * Math.PI * i / seg; val a1 = 2 * Math.PI * (i + 1) / seg
         val c0 = kotlin.math.cos(a0).toFloat(); val s0 = kotlin.math.sin(a0).toFloat(); val c1 = kotlin.math.cos(a1).toFloat(); val s1 = kotlin.math.sin(a1).toFloat()
@@ -160,7 +166,7 @@ fun boitier(full: Boolean, avant: Boolean): Maillage {
         m.quad(p(ri * c0, ri * s0, e, 0f, 0f, 1f, i0[0], i0[1]), p(DR * c0, DR * s0, e, 0f, 0f, 1f, o0[0], o0[1]),
                p(DR * c1, DR * s1, e, 0f, 0f, 1f, o1[0], o1[1]), p(ri * c1, ri * s1, e, 0f, 0f, 1f, i1[0], i1[1]))
     }
-    m.commencer(P_DISQUE, M_DESSOUS, 0, 3f)
+    m.commencer(P_DISQUE, M_COULEUR, 0xC0C4CC, 3f, 1)
     for (i in 0 until seg) {
         val a0 = 2 * Math.PI * i / seg; val a1 = 2 * Math.PI * (i + 1) / seg
         val c0 = kotlin.math.cos(a0).toFloat(); val s0 = kotlin.math.sin(a0).toFloat(); val c1 = kotlin.math.cos(a1).toFloat(); val s1 = kotlin.math.sin(a1).toFloat()
@@ -169,7 +175,7 @@ fun boitier(full: Boolean, avant: Boolean): Maillage {
         m.quad(p(ri * c1, ri * s1, -e, 0f, 0f, -1f, i1[0], i1[1]), p(DR * c1, DR * s1, -e, 0f, 0f, -1f, o1[0], o1[1]),
                p(DR * c0, DR * s0, -e, 0f, 0f, -1f, o0[0], o0[1]), p(ri * c0, ri * s0, -e, 0f, 0f, -1f, i0[0], i0[1]))
     }
-    m.commencer(P_DISQUE, M_COULEUR, 0xC8CAD4, 2f)
+    m.commencer(P_DISQUE, M_COULEUR, 0xB8BCC8, 2f)
     for (i in 0 until seg) {
         val a0 = 2 * Math.PI * i / seg; val a1 = 2 * Math.PI * (i + 1) / seg
         val c0 = kotlin.math.cos(a0).toFloat(); val s0 = kotlin.math.sin(a0).toFloat(); val c1 = kotlin.math.cos(a1).toFloat(); val s1 = kotlin.math.sin(a1).toFloat()
