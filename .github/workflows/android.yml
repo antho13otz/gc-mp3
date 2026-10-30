@@ -84,4 +84,4 @@ jobs:
         with:
           name: gc-station-telecommande
           path: gc-station-telecommande.apk
-          retention-days: 7
+          retention-days: 90                 # (l'appli se met a jour depuis l'appli : AppUpdate.java)
