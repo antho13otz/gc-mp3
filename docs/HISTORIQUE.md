@@ -42,7 +42,7 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   Mini-jeux, Manette en jeu, Globe, Mettre à jour. Réglages, Cartes mémoire, Salon, Outils, Recherche et Copies
   gardent pour l'instant l'ancien look.
 
-## Nouveautés v289 (build à venir) — Toutes les jaquettes d'un coup
+## Nouveautés v289 (build 779) — Toutes les jaquettes d'un coup
 - **START > réglages > Jeux > « Toutes les jaquettes (boîte 3D, HD) »** : télécharge en fond, jeu par jeu, la jaquette
   complète et la jaquette HD de **tous tes jeux** (GameTDB), dans `jaquettes/completes/`. Seulement quand tu ne touches
   pas à la manette depuis 1,5 s ; avancement affiché (« En cours : 12 / 40 ») ; A pour arrêter. Les jeux déjà faits
