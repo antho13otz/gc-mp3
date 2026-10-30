@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v282 (build à venir) — La boîte du jeu en 3D
+## Nouveautés v282 (build 769) — La boîte du jeu en 3D
 - **Dans la fiche d'un jeu** (vitrine), la jaquette devient une **vraie boîte GameCube en 3D**, aux proportions des
   jaquettes (3 × 4) : la jaquette devant, la tranche, le dessus. Elle se balance doucement toute seule.
 - **Stick C** : tourner la boîte dans tous les sens. **Le dos** affiche le titre, la capture du jeu et le résumé.
