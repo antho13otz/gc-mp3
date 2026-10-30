@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 44 — Croix de l'onglet Manette centrée
+- Onglet Manette (et plein écran) : le carré du milieu de la croix descendait (cases alignées sur la ligne du texte des
+  flèches) ; les 9 cases sont maintenant centrées.
+
 ## Nouveautés appli build 43 — Manette : nouveau look
 - Touches en verre : reflet en haut, anneau de couleur ; appuyées : pleines, lumineuses (halo), un peu plus petites.
 - Sticks : socle creusé avec le cran octogonal de la GameCube, tête bombée avec ombre ; stick C jaune marqué « C ».

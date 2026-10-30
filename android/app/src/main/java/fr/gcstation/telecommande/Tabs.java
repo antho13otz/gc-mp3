@@ -493,8 +493,8 @@ class PadTab extends Tab {
         String[][] d = { { null, null }, { "▲", "up" }, { null, null }, { "◀", "left" }, { "●", null }, { "▶", "right" }, { null, null }, { "▼", "down" }, { null, null } };
         for (String[] k : d) {
             View b = k[0] == null ? space() : k[1] == null ? centerDot() : key(k[0], k[1], false);
-            GridLayout.LayoutParams g = new GridLayout.LayoutParams();
-            g.width = dp(50); g.height = dp(50);
+            GridLayout.LayoutParams g = new GridLayout.LayoutParams(GridLayout.spec(GridLayout.UNDEFINED, GridLayout.CENTER), GridLayout.spec(GridLayout.UNDEFINED, GridLayout.CENTER));
+            g.width = dp(50); g.height = dp(50);   // (centrees : sinon alignees sur la ligne du texte, le rond du milieu descendait)
             g.setMargins(dp(2), dp(2), dp(2), dp(2));
             dpad.addView(b, g);
         }
@@ -555,8 +555,8 @@ class PadTab extends Tab {
         String[][] d = { { null, null }, { "▲", "up" }, { null, null }, { "◀", "left" }, { "●", null }, { "▶", "right" }, { null, null }, { "▼", "down" }, { null, null } };
         for (String[] k : d) {
             View b = k[0] == null ? space() : k[1] == null ? centerDot() : key(k[0], k[1], false);
-            GridLayout.LayoutParams g = new GridLayout.LayoutParams();
-            g.width = dp(62); g.height = dp(62);
+            GridLayout.LayoutParams g = new GridLayout.LayoutParams(GridLayout.spec(GridLayout.UNDEFINED, GridLayout.CENTER), GridLayout.spec(GridLayout.UNDEFINED, GridLayout.CENTER));
+            g.width = dp(62); g.height = dp(62);   // (centrees : sinon alignees sur la ligne du texte, le rond du milieu descendait)
             g.setMargins(dp(3), dp(3), dp(3), dp(3));
             dpad.addView(b, g);
         }
