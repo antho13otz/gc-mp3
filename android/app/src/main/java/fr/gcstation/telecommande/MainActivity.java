@@ -749,6 +749,9 @@ public class MainActivity extends Activity {
     }
 
     // ---------- progression des envois (barre dans l'appli + notification), envoi qui tient ecran eteint, nouvel essai ----------
+    private volatile long upD, upT, upMs, upAt;              // (GET /api/up : progression vue par la console)
+    private volatile boolean upAsk;
+    private boolean upFresh() { return System.currentTimeMillis() - upAt < 3000 && upT > 0; }
     private volatile String sendName = "";
     private volatile long sendDone, sendSize, sendT0;
     private volatile int sendIdx, sendCount;
@@ -756,8 +759,11 @@ public class MainActivity extends Activity {
         @Override public void run() {
             if (sendCount == 0) return;
             long sz = sendSize, d = sendDone;
-            int pct = sz > 0 ? (int) Math.min(100, d * 100 / sz) : 0;
             long el = System.currentTimeMillis() - sendT0;
+            // (ce que la console a vraiment recu : le telephone, lui, compte ce qui part dans sa memoire tampon, en avance)
+            if (upFresh()) { sz = upT; d = upD; el = upMs; }
+            int pct = sz > 0 ? (int) Math.min(100, d * 100 / sz) : 0;
+            if (!upAsk) { upAsk = true; Api.get("/api/up", r -> { upAsk = false; try { JSONObject j = new JSONObject(r); if (j.optLong("t") == sendSize) { upD = j.optLong("d"); upT = j.optLong("t"); upMs = j.optLong("ms"); upAt = System.currentTimeMillis(); } } catch (Exception e) { } }); }
             String sp = el > 800 && d > 0 ? String.format(java.util.Locale.FRANCE, " · %.1f Mo/s", d / 1048576.0 / (el / 1000.0)) : "";
             String t = (sendCount > 1 ? "Envoi " + (sendIdx + 1) + "/" + sendCount + " : " : "Envoi : ") + sendName;
             Neon.set(sendText, t + "  " + pct + " %" + sp);
@@ -891,7 +897,9 @@ public class MainActivity extends Activity {
                        : low.endsWith(".gci") ? "gci" : "downloads";   // (.dol : la console le range dans SD:/apps)
             try (InputStream in = tmp != null ? new FileInputStream(tmp) : getContentResolver().openInputStream(u)) {
                 if (prog) { sendName = name; sendSize = size; }
-                return Api.put(dir, name, in, size, prog ? d -> sendDone = d : null);
+                Api.Sent sp = prog ? d -> sendDone = d : null;
+                // (v272 : par morceaux si la console sait le faire, sinon d'un coup comme avant)
+                return Api.canChunk() ? Api.putChunks(dir, name, in, size, sp) : Api.put(dir, name, in, size, sp);
             }
         } catch (Exception e) {
             return null;

@@ -983,11 +983,29 @@ static int tp_param(const char *q, const char *key, char *out, int cap) {
 /* envoi d'un fichier : le corps de la requete est ecrit directement sur la SD */
 static volatile int tp_busy = 0;
 static volatile u64 tp_park_t = 0;
+/* v272 : envoi par morceaux (appli build 39 et plus) : PUT /upload?dir=&name=&id=&off=&total= (256 Ko chacun). Le fichier
+   s'ecrit dans "<nom>.part" ; un morceau perdu est renvoye seul (GET /api/upstat?id= : taille deja recue) ; au dernier,
+   "<nom>.part" devient le fichier. (Avant : tout le fichier d'un seul coup, et a la moindre coupure, tout etait perdu.) */
+static struct { char id[40], path[NAME_LEN + 16], part[NAME_LEN + 24], dir[32], clean[200]; long total; } tpk;
 static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, int prelen) {
     static const char *const dirs[] = { "mp3", "downloads", "retro", "photos", "ecran", "videos", "radio", "podcasts", "gci", "regtel" };   /* (v242 : regtel = copie des reglages du telephone) */   /* (v190 : gci = sauvegardes) */
     char dir[32], name[200], path[NAME_LEN + 16];
     tp_param(q, "dir", dir, sizeof(dir));
     tp_param(q, "name", name, sizeof(name));
+    char kid[40] = "", koff[24] = "", ktot[24] = "";
+    tp_param(q, "id", kid, sizeof(kid)); tp_param(q, "off", koff, sizeof(koff)); tp_param(q, "total", ktot, sizeof(ktot));
+    long off = atol(koff), total = atol(ktot);
+    int chunk = kid[0] && total > 0;
+    if (chunk && (off < 0 || off + len > total)) { tp_reply(c, 400, "text/plain", "morceau", 7); return; }
+    if (chunk && off > 0) {                                     /* (morceau suivant : meme fichier) */
+        char sz[24];
+        if (strcmp(kid, tpk.id) || total != tpk.total) { tp_reply(c, 409, "text/plain", "-1", 2); return; }
+        struct stat ps;
+        long have = stat(tpk.part, &ps) == 0 ? (long)ps.st_size : -1;
+        if (have != off) { int n = snprintf(sz, sizeof(sz), "%ld", have); tp_reply(c, 409, "text/plain", sz, n); return; }   /* (l'appli reprend la) */
+        snprintf(dir, sizeof(dir), "%s", tpk.dir);
+        snprintf(name, sizeof(name), "%s", tpk.clean);
+    }
     int okdir = 0;
     for (unsigned i = 0; i < sizeof(dirs) / sizeof(dirs[0]); i++) if (!strcmp(dir, dirs[i])) okdir = 1;
     /* nom de fichier seul, sans caracteres interdits sur une carte FAT */
@@ -1002,6 +1020,7 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     }
     clean[n] = 0;
     while (clean[0] == '.' || clean[0] == ' ') memmove(clean, clean + 1, strlen(clean));
+    if (!strcmp(dir, "apps")) okdir = 1;                    /* (v272 : morceaux suivants d'un .dol) */
     if (!okdir || !clean[0] || len <= 0 || !sd_ok) { tp_reply(c, 400, "text/plain", "refus", 5); return; }
     { const char *dt = strrchr(clean, '.');                    /* v224 : un programme va toujours dans SD:/apps (liste Applis) */
       if (dt && !strcasecmp(dt, ".dol")) snprintf(dir, sizeof(dir), "apps"); }
@@ -1015,42 +1034,66 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     snprintf(path, sizeof(path), SD_ROOT "/%s%s/%s", gpre, dir, clean);
     }
     struct stat st;
-    for (int k = 2; !regtel && k < 100 && stat(path, &st) == 0; k++) {     /* deja la : "nom (2).mp3" */
+    if (chunk && off > 0) snprintf(path, sizeof(path), "%s", tpk.path);   /* (nom choisi au 1er morceau) */
+    else for (int k = 2; !regtel && k < 100 && stat(path, &st) == 0; k++) {     /* deja la : "nom (2).mp3" */
         char base[200], ext[16] = "";
         snprintf(base, sizeof(base), "%s", clean);
         char *dot = strrchr(base, '.');
         if (dot && strlen(dot) < sizeof(ext)) { snprintf(ext, sizeof(ext), "%s", dot); *dot = 0; }
         snprintf(path, sizeof(path), SD_ROOT "/%s%s/%s (%d)%s", gpre, dir, base, k, ext);
     }
-    FILE *f = fopen(path, "wb");
+    const char *wpath = path;
+    if (chunk) {
+        if (off == 0) {
+            snprintf(tpk.id, sizeof(tpk.id), "%s", kid); tpk.total = total;
+            snprintf(tpk.path, sizeof(tpk.path), "%s", path); snprintf(tpk.part, sizeof(tpk.part), "%s.part", path);
+            snprintf(tpk.dir, sizeof(tpk.dir), "%s", dir); snprintf(tpk.clean, sizeof(tpk.clean), "%s", clean);
+            remove(tpk.part);
+        }
+        wpath = tpk.part;
+    }
+    FILE *f = fopen(wpath, chunk && off > 0 ? "r+b" : "wb");
+    if (f && chunk && off > 0 && fseek(f, off, SEEK_SET) != 0) { fclose(f); f = NULL; }
     if (!f) { tp_reply(c, 500, "text/plain", "ecriture impossible", 19); return; }
     static char vbuf[65536];                    /* ecritures SD par gros blocs */
     setvbuf(f, vbuf, _IOFBF, sizeof(vbuf));
-    tp_up_t0 = now_ms();
+    if (!chunk || off == 0) tp_up_t0 = now_ms();
     snprintf(tp_up_name, sizeof(tp_up_name), "%s", clean);
-    crumb("telephone : envoi %s/%s (%ld Ko)", dir, clean, len / 1024);
-    tp_up_total = len;
-    tp_up_done = 0;
+    if (!chunk || off == 0) crumb("telephone : envoi %s/%s (%ld Ko)", dir, clean, (chunk ? total : len) / 1024);
+    long base = chunk ? off : 0;                            /* (progression : tout le fichier, pas seulement ce morceau) */
+    tp_up_total = chunk ? total : len;
+    tp_up_done = base;
     tp_up_active = 1;
     static unsigned char buf[32768];
     int ok = 1;
     if (prelen > 0) {
         int m = prelen > len ? (int)len : prelen;
         if (fwrite(pre, 1, m, f) != (size_t)m) ok = 0;
-        tp_up_done = m;
+        tp_up_done = base + m;
     }
-    while (ok && tp_up_done < len) {
-        long want = len - tp_up_done;
+    while (ok && tp_up_done - base < len) {
+        long want = len - (tp_up_done - base);
         if (tp_park_t > tp_up_t0) { ok = 0; break; }        /* v271 : la carte va etre demontee (demande pendant l'envoi) */
         int r = tp_recv(c, buf, want > (long)sizeof(buf) ? (int)sizeof(buf) : (int)want, 20000);
         if (r <= 0) { ok = 0; break; }
         if (fwrite(buf, 1, r, f) != (size_t)r) { ok = 0; break; }
         tp_up_done += r;
     }
-    fclose(f);
+    if (fclose(f) != 0) ok = 0;
     tp_up_active = 0;
     tp_up_end = now_ms();
     char m[160];
+    if (!ok && chunk) {                                         /* (morceau : le debut reste, l'appli reprend) */
+        FILE *tf = tpk.id[0] ? fopen(tpk.part, "r+b") : NULL;   /* (ce qui est arrive de ce morceau est enleve) */
+        if (tf) { if (ftruncate(fileno(tf), base) != 0) { } fclose(tf); }
+        tp_reply(c, 500, "text/plain", "morceau interrompu", 18);
+        return;
+    }
+    if (chunk && off + len < total) { tp_reply(c, 200, "text/plain", "suite", 5); return; }   /* (d'autres morceaux viennent) */
+    if (chunk) {                                                 /* dernier morceau : le fichier est complet */
+        tpk.id[0] = 0;
+        if (rename(tpk.part, path) != 0) { remove(tpk.part); tp_reply(c, 500, "text/plain", "renommage impossible", 20); return; }
+    }
     if (!ok) {
         remove(path);
         snprintf(m, sizeof(m), "\xC3\x89" "chec : %s", clean);
@@ -1426,6 +1469,22 @@ static void tp_handle(s32 c) {
         tp_reply(c, 200, "application/json", j ? j : "[]", j ? (int)strlen(j) : 2);
         free(j);
     }
+    else if (!strcmp(target, "/api/upstat")) {               /* v272 : envoi par morceaux : octets deja recus (-1 : inconnu) */
+        char id[40], t[24];
+        tp_param(q ? q : "", "id", id, sizeof(id));
+        struct stat ps;
+        long have = id[0] && !strcmp(id, tpk.id) && stat(tpk.part, &ps) == 0 ? (long)ps.st_size : -1;
+        int n = snprintf(t, sizeof(t), "%ld", have);
+        tp_reply(c, 200, "text/plain", t, n);
+    }
+    else if (!strcmp(target, "/api/up")) {                   /* v272 : l'envoi en cours vu par la console (barre de l'appli) */
+        char t[300], nm[200];
+        tp_any_utf8(tp_up_name, nm, sizeof(nm));
+        for (char *p = nm; *p; p++) if (*p == '"' || *p == '\\') *p = '_';
+        int n = snprintf(t, sizeof(t), "{\"a\":%d,\"d\":%ld,\"t\":%ld,\"ms\":%u,\"n\":\"%s\"}", tp_up_active, tp_up_done, tp_up_total,
+                         (unsigned)(tp_up_active ? now_ms() - tp_up_t0 : tp_up_end - tp_up_t0), nm);
+        tp_reply(c, 200, "application/json", t, n);
+    }
     else if (!strcmp(target, "/api/pulse.txt")) {            /* v262 : le journal complet de ce lancement */
         long sz = 0;
         u8 *b = sd_ok ? read_file(GCD "/natif/journal-jeu.txt", 256 * 1024, &sz) : NULL;
@@ -1587,7 +1646,9 @@ static void *phone_thread(void *arg) {
     }
     tp_state = PS_ON;
     tp_update_free();
-    if (LWP_CreateThread(&tpu_h, tpu_thread, NULL, tpu_stack, sizeof(tpu_stack), 30) < 0) tpu_c = -2;   /* v271 (sans fil : 503) */
+    /* v272 : priorite 66, au-dessus de la boucle (64) : il dort tant que rien n'arrive, mais des que des donnees sont la,
+       il les prend (avant, 30 : il ne passait qu'entre deux images et l'envoi se trainait) */
+    if (LWP_CreateThread(&tpu_h, tpu_thread, NULL, tpu_stack, sizeof(tpu_stack), 66) < 0) tpu_c = -2;   /* v271 (sans fil : 503) */
     for (;;) {
         struct sockaddr_in ca;
         socklen_t cl = sizeof(ca);
