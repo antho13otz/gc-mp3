@@ -24,6 +24,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Disque réaliste et boîte encore plus vraie
+- **Le disque** : la face gravée est un **miroir argenté** avec les **reflets arc-en-ciel** des sillons, qui changent
+  quand il tourne (calculés comme la vraie diffraction d'un DVD) ; le **centre en plastique transparent** (on voit
+  l'ergot à travers), l'anneau d'empilage, la bande miroir avec son texte gravé, le bord transparent. L'autre face :
+  l'image du jeu, imprimée et brillante.
+- **La boîte** : reflets de l'environnement (lumières de studio) sur le plastique noir brillant et sur le film de la
+  jaquette ; intérieur en plastique mat et grenu ; berceau circulaire autour du disque ; ergot en anneau ; coins plus
+  ronds ; disque plus fin (256 segments).
+
 ## Nouveautés appli build 57 — Boîte 3D comme la vraie, avec le disque du jeu
 - La boîte 3D du téléphone ressemble au **vrai boîtier GameCube** : plastique noir à coins arrondis, jaquette sous
   le film transparent (reflets), tranche, dos ; dedans, le **support hexagonal** et son **ergot**, les attaches de la
