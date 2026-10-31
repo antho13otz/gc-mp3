@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v298 (build à venir, appli build à venir) — Ajouter une notice depuis l'appli
+## Nouveautés v298 (build 790, appli build 76) — Ajouter une notice depuis l'appli
 - **Appli** : dans la fiche d'un jeu, **« Ajouter une notice… »** (ou « Remplacer la notice… ») : choisis un **PDF** ou les
   **images des pages** (rangées dans l'ordre de leurs noms). Option **« Planches d'impression »** : des images avec
   2 doubles pages et des traits de coupe sont découpées et remises dans l'ordre du livret (couverture en premier,
