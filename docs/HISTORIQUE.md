@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés appli build à venir — Copies des cartes mémoire à la main
+## Nouveautés appli build 86 — Copies des cartes mémoire à la main
 - La **copie automatique** (une fois par jour à la connexion : cartes mémoire virtuelles et réglages copiés sur le
   téléphone) est maintenant **désactivée par défaut**, y compris si elle l'était avant sans avoir été choisie. Les copies
   se font à la main : Plus > Copies > « Faire une copie maintenant ». L'interrupteur « Copie automatique » la remet.
