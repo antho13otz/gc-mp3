@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v300 (build à venir, appli build à venir) — La notice s'ouvre et ses pages tournent
+## Nouveautés v300 (build 792, appli build 78) — La notice s'ouvre et ses pages tournent
 - **Console** : X (boîte ouverte) : la notice **sort du couvercle**, de biais, et vient se poser à plat au milieu ; B : elle
   y retourne. Gauche / droite : la page **tourne comme dans un vrai livret** (elle se soulève par la droite en pivotant
   sur la reliure, avec un reflet et l'ombre sur la page de dessous) ; la page suivante est lue d'avance.
