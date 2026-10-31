@@ -12384,10 +12384,8 @@ static void draw_list_radio(void) {
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
        MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_RECAT, MI_RECLEN, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PULSELD, MI_PERF, MI_LAUNCHER, MI_UPDATE,
-       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_PLAYLIM, MI_UPDXZ, MI_APNOIMG, MI_THEMEDL, MI_UPDOLD, MI_NATCARDGAME, MI_PADTEL, MI_QUIT, MI_GLCOVALL, MI_COUNT };
+       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_PLAYLIM, MI_UPDXZ, MI_APNOIMG, MI_THEMEDL, MI_UPDOLD, MI_NATCARDGAME, MI_PADTEL, MI_QUIT, MI_GLCOVALL, MI_COUNT };   /* (MI_GLCOVALL : v289, retire en v293 ; garde pour la table des noms) */
 static void pj_limit_text(char *o, int cap);            /* v191 (profils.c) */
-static void gl_all_toggle(void);                        /* v289 : toutes les jaquettes (gclib.c) */
-static void gl_all_text(char *o, int cap);
 static void pj_limit_next(int d);
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
 static const char *ipl_set(int on);
@@ -12400,7 +12398,7 @@ static const s8 sec_items[6][32] = {
     { -6, MI_RADIORES, MI_TITLES, -7, MI_REC, MI_RECAT, MI_RECLEN, -8, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, -1 },
     { -9, MI_UILANG, MI_LANG, -10, MI_SKIN, MI_THEME, MI_THEMEDL, MI_WALL, MI_SEASON, MI_TABS, -11, MI_LAYOUT, MI_ELEMS, MI_VIZ, MI_SGPAL, MI_LYRSHOW, -12, MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, -13, MI_HIDDEN, MI_UNKNOWN, -14, MI_PERF, -1 },
     { -15, MI_TV, MI_VIDEO, MI_WIDE, -16, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, -1 },
-    { -17, MI_GLANG, MI_GSOUND, MI_CLOCK, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, MI_APNOIMG, MI_GLCOVALL, MI_PLAYLIM, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_NATCARDGAME, MI_PADTEL, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
+    { -17, MI_GLANG, MI_GSOUND, MI_CLOCK, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, MI_APNOIMG, MI_PLAYLIM, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_NATCARDGAME, MI_PADTEL, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
     { -21, MI_DHCP, MI_IP, MI_MASK, MI_GW, -22, MI_NETSMB, MI_NETFTP, MI_NETFSP, -23, MI_SALON, MI_PHONEAUTO, -24, MI_UPDAUTO, MI_UPDXZ, MI_UPDATE, MI_UPDOLD, -1 } };
 static int sec_n(int sec) { int n = 0; if (sec < 0 || sec >= SEC_TOOLS) return 0; while (n < 32 && sec_items[sec][n] != -1) n++; return n; }
 static int sec_pos(int sec, int mi) { for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] == mi) return i; return -1; }
@@ -12507,7 +12505,6 @@ static void menu_value(int i, char *out, int cap) {
     case MI_UPDXZ:   snprintf(out, cap, "%s", upd_xz ? "Oui" : "Non"); break;
     case MI_THEMEDL: snprintf(out, cap, "%s  (A)", thd.on ? thd.name : "Aucun"); break;
     case MI_APNOIMG: snprintf(out, cap, "%s", ap_noimg ? "Montrer" : "Cacher"); break;
-    case MI_GLCOVALL: gl_all_text(out, cap); break;
     case MI_NETSMB: case MI_NETFTP: case MI_NETFSP: nfs_menu_value(i - MI_NETSMB, out, cap); break;   /* v86 */
     case MI_TREBLE:  if (eq_treble) snprintf(out, cap, "%+d dB", eq_treble); else snprintf(out, cap, "0"); break;
     case MI_LYRICS:  snprintf(out, cap, "%s", lyrics_auto ? "Oui" : "Non"); break;
@@ -12655,7 +12652,6 @@ static void menu_change(int i, int d) {
     case MI_UPDXZ:   upd_xz = !upd_xz; upd_xz_set = 1; break;
     case MI_THEMEDL: thm_open(); return;                 /* v233 : themes.c */
     case MI_APNOIMG: ap_noimg = !ap_noimg; break;
-    case MI_GLCOVALL: gl_all_toggle(); return;
     case MI_NETSMB: case MI_NETFTP: case MI_NETFSP: nfs_ui_open(i - MI_NETSMB); return;   /* v86 */
     case MI_BASS:    eq_bass += 2 * d; eq_preset = 0; eq_setup(); break;
     case MI_TREBLE:  eq_treble += 2 * d; eq_preset = 0; eq_setup(); break;
@@ -12972,7 +12968,6 @@ static void draw_menu(void) {
     if (menu_sel == MI_PHONEAUTO) hint = "La page du t\xC3\xA9l\xC3\xA9phone (onglet T\xC3\x89L\xC3\x89PHONE) est pr\xC3\xAAte d\xC3\xA8s le d\xC3\xA9marrage";
     if (menu_sel >= MI_NETSMB && menu_sel <= MI_NETFSP) hint = "A : adresse, utilisateur, mot de passe, test ; puis onglet FICHIERS (B depuis la carte SD)";
     if (menu_sel == MI_SALON) hint = "Les autres GC Station du r\xC3\xA9seau dans FICHIERS (B) : leur carte, et Y : \xC3\xA9" "couter avec";
-    if (menu_sel == MI_GLCOVALL) hint = "T\xC3\xA9l\xC3\xA9" "charge en fond les jaquettes compl\xC3\xA8tes et HD de tous tes jeux (GameTDB), quand tu ne touches pas \xC3\xA0 la manette";
     if (menu_sel == MI_APNOIMG) hint = "Applis de SD:/apps sans image (icon.png, .bnr) : carte avec leur nom, ou cach\xC3\xA9" "es";
     if (menu_sel == MI_THEMEDL) hint = "De nouvelles couleurs et fonds, t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9s depuis GitHub (A : voir la liste)";
     if (menu_sel == MI_UPDXZ) hint = "Mise \xC3\xA0 jour : .dol compress\xC3\xA9 (2 fois plus petit, d\xC3\xA9marrage plus rapide)";

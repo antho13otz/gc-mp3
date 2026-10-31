@@ -1066,7 +1066,6 @@ static void gl_cv_take(hfetch_t *h, int kind, const char *id) {   /* (garde l'im
     gl_cv_kind = kind; snprintf(gl_cv_id, sizeof(gl_cv_id), "%.6s", id); gl_cv_out = NULL;
 }
 static void gl_fc_cv_done(void);
-static int gl_all_busy(void);
 /* telechargement de la jaquette complete demandee (1 : en cours) */
 static int gl_fc_pump(void) {
     if (gl_fc_dl == 0) {
@@ -1461,13 +1460,7 @@ static int gl_dk_pump(void) {
     gl_dk_dl = 3;
     return 1;
 }
-/* ---------- v289 : toutes les jaquettes d'un coup (START > reglages, Liste des jeux) ----------
-   Jeu par jeu : la jaquette complete (boite 3D) puis la HD (zoom), vers jaquettes/completes/, sans rien afficher.
-   En fond, seulement quand on ne touche pas a la manette depuis 1,5 s ; une a la fois ; on peut couper. */
-static int gl_all_on = 0, gl_all_k = 0, gl_all_ph = 0, gl_all_st = 0, gl_all_reg = 0, gl_all_got = 0, gl_all_fin = 0;
-static char gl_all_id[8];
-static u64 gl_all_wait = 0;
-static hfetch_t gl_all_hf = { .c = { -1, 0, 0 } };
+/* v290 : un ID dans une liste absentes.txt */
 static int gl_abs_in(const char *path, const char *id) {
     long n = 0;
     char *d = (char *)read_file(path, 16384, &n);
@@ -1475,96 +1468,6 @@ static int gl_abs_in(const char *path, const char *id) {
     for (long i = 0; d && i + 6 <= n && !r; ) { if (!strncmp(d + i, id, 6)) r = 1; while (i < n && d[i] != '\n') i++; i++; }
     free(d);
     return r;
-}
-static int gl_all_have(const char *id, int hd) {          /* 1 : deja la (ou GameTDB ne l'a pas) ; hd : 0 complete, 1 HD, 2 disque (v290) */
-    char p[NAME_LEN]; struct stat st;
-    if (hd == 2) {
-        for (int i = 0; i < 2; i++) { snprintf(p, sizeof(p), GL_DKDIR "/%.6s.%s", id, i ? "png" : "tex"); if (stat(p, &st) == 0 && st.st_size > 0) return 1; }
-        return gl_abs_in(GL_DKABS, id);
-    }
-    static const char *const ex[2] = { "tex", "png" };
-    for (int i = 0; i < 2; i++) {
-        snprintf(p, sizeof(p), GL_FCDIR "/%.6s%s.%s", id, hd ? "-hd" : "", ex[i]);
-        if (stat(p, &st) == 0 && st.st_size > 0) return 1;
-    }
-    return gl_abs_in(hd ? GL_FHABS : GL_FCABS, id);
-}
-static void gl_all_absent(const char *id, int hd) {
-    mkdir(GL_UI, 0777); mkdir(GL_FCDIR, 0777);
-    if (hd == 2) mkdir(GL_DKDIR, 0777);
-    FILE *f = fopen(hd == 2 ? GL_DKABS : hd ? GL_FHABS : GL_FCABS, "a");
-    if (f) { fprintf(f, "%.6s\n", id); fclose(f); }
-}
-static int gl_all_busy(void) { return gl_all_st != 0; }
-static int gl_all_total(void) { int n = 0; for (int k = 0; k < gl_n; k++) if (!gl[k].dvd && gl[k].id[0]) n++; return n; }
-static void gl_all_text(char *o, int cap) {
-    if (!gl_all_on) { snprintf(o, cap, "%s", gl_all_fin ? "Fini" : "(A)"); return; }
-    int done = 0;
-    for (int k = 0; gl && k < gl_all_k && k < gl_n; k++) if (!gl[k].dvd && gl[k].id[0]) done++;
-    int tot = gl ? gl_all_total() : 0;
-    if (!tot) { snprintf(o, cap, "Lecture de la liste..."); return; }
-    snprintf(o, cap, "En cours : %d / %d", done, tot);
-}
-static void gl_all_toggle(void) {
-    if (gl_all_on) { gl_all_on = 0; gl_note("Jaquettes : t\xC3\xA9l\xC3\xA9" "chargement arr\xC3\xAAt\xC3\xA9"); ui_status("Jaquettes : arr\xC3\xAAt\xC3\xA9"); return; }
-    if (!net_ok) { ui_status("Pas de r\xC3\xA9seau"); return; }
-    if (!gl_scanned || !gl) gl_scan();                  /* (v290 : la liste des jeux n'etait pas encore lue : 0 / 0) */
-    gl_all_on = 1; gl_all_k = 0; gl_all_ph = 0; gl_all_got = 0; gl_all_fin = 0; gl_all_wait = 0;
-    ui_status("Jaquettes : t\xC3\xA9l\xC3\xA9" "chargement en fond (quand tu ne touches pas \xC3\xA0 la manette)");
-}
-static void gl_all_cv_done(void) {
-    u16 *t = gl_cv_out; gl_cv_out = NULL;
-    if (t) { free(t); gl_all_got++; }                    /* (v292 : ratee : pas notee absente, refaite la prochaine fois) */
-    gl_all_st = 0; gl_all_ph++;
-    if (!strcmp(gl_all_id, gl_fc.id) && gl_fc.st >= 3) gl_fc.st = 0;   /* (la fiche ouverte : la relire) */
-    if (!strcmp(gl_all_id, gl_fh.id) && gl_fh.st >= 3) gl_fh.st = 0;
-    if (!strcmp(gl_all_id, gl_dk.id) && gl_dk.st >= 3) gl_dk.st = 0;
-}
-static int gl_all_pump(void) {                            /* (1 : en cours) */
-    if (gl_all_st == 0) {
-        if (!gl_all_on || !gl || gl_net_busy(4) || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_all_wait) return 0;
-        if (now_ms() - last_input_ms < 1500) return 0;   /* (v291 : 64 Ko par image : 5 fois plus vite ; on ne touche pas a la manette, rien a proteger) */
-        for (int tries = 0; tries < 2; tries++) {        /* (v292 : 2 verifications par image au plus : chacune lit la carte) */
-            if (gl_all_k >= gl_n) break;
-            gcg_t *g = &gl[gl_all_k];
-            if (g->dvd || !g->id[0] || gl_all_ph > 2) { gl_all_k++; gl_all_ph = 0; continue; }
-            if (gl_all_have(g->id, gl_all_ph)) { gl_all_ph++; continue; }
-            snprintf(gl_all_id, sizeof(gl_all_id), "%.6s", g->id);
-            gl_all_reg = 0; gl_all_st = 1;
-            break;
-        }
-        if (gl_all_st == 0) {
-            if (gl_all_k >= gl_n) {
-                gl_all_on = 0; gl_all_fin = 1;
-                char m[96]; snprintf(m, sizeof(m), "Jaquettes : fini (%d t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9" "es)", gl_all_got);
-                gl_note(m); ui_status(m);
-            }
-            return 0;
-        }
-    }
-    if (gl_all_st == 1) {
-        const char *rg = gl_dl_region(gl_all_id, gl_all_reg);
-        if (!rg) { gl_all_absent(gl_all_id, gl_all_ph); gl_all_st = 0; gl_all_ph++; return 1; }
-        char url[160];
-        snprintf(url, sizeof(url), "http://art.gametdb.com/wii/%s/%s/%s.png", gl_all_ph == 2 ? "disc" : gl_all_ph ? "coverfullHQ" : "coverfull", rg, gl_all_id);
-        gl_all_hf.frame_cap = 64 * 1024; gl_all_hf.maxbytes = 3 * 1024 * 1024; gl_all_hf.image = 0; gl_all_hf.accept = "image/png,image/*";
-        hf_start(&gl_all_hf, url, NULL);
-        gl_all_st = 2;
-        return 1;
-    }
-    if (gl_all_st == 3) { if (gj_post_fn(gl_cv_run, gl_all_cv_done)) gl_all_st = 4; return 1; }
-    if (gl_all_st == 4) return 1;
-    hf_pump(&gl_all_hf);
-    if (gl_all_hf.st == HF_FAIL || (gl_all_hf.st == HF_DONE && (gl_all_hf.code != 200 || gl_all_hf.len < 200))) {
-        int net_err = gl_all_hf.st == HF_FAIL && gl_all_hf.code == 0;
-        hf_drop(&gl_all_hf); gl_all_hf.st = HF_IDLE;
-        if (net_err) { gl_all_st = 0; gl_all_wait = now_ms() + 60000; return 0; }   /* (pas de reseau : on reessaie dans une minute) */
-        gl_all_reg++; gl_all_st = 1; return 1;
-    }
-    if (gl_all_hf.st != HF_DONE) return 1;
-    gl_cv_take(&gl_all_hf, gl_all_ph == 2 ? 4 : gl_all_ph ? 3 : 2, gl_all_id);
-    gl_all_st = 3;
-    return 1;
 }
 /* telechargement en fond (boucle principale, une jaquette a la fois) */
 #define GL_DLABS GL_DLDIR "/absentes.txt"
@@ -1602,14 +1505,14 @@ static const char *gl_dl_region(const char *id, int i) {
 static void gl_dl_cv_done(void);
 static int gl_net_busy(int ex) {                          /* v292 : 1 : un autre telechargement d'images est en cours (ex : soi-meme)
                                                              (avant : deux pouvaient se croiser et s'ecraser l'image a convertir) */
-    return (ex != 1 && gl_fh_dl) || (ex != 2 && gl_dk_dl) || (ex != 3 && gl_fc_dl) || (ex != 4 && gl_all_st) || (ex != 5 && gl_fxdl_st) || (ex != 6 && gl_dl_st);
+    return (ex != 1 && gl_fh_dl) || (ex != 2 && gl_dk_dl) || (ex != 3 && gl_fc_dl) || (ex != 5 && gl_fxdl_st) || (ex != 6 && gl_dl_st);
 }
 static void gl_dl_pump(void) {
     if (!sd_ok || sd_virtual || !gl_scanned || !gl || sx_safe) return;
     if (gl_dl_st == 0 && gl_fh_pump()) return;         /* v287 : la HD de la boite zoomee d'abord */
     if (gl_dl_st == 0 && gl_dk_pump()) return;         /* v290 : le disque de la boite ouverte */
     if (gl_dl_st == 0 && gl_fc_pump()) return;
-    if (gl_dl_st == 0 && gl_all_pump()) return;         /* v289 : toutes les jaquettes (si demande) */         /* v283 : la jaquette complete de la fiche ouverte d'abord */
+         /* v283 : la jaquette complete de la fiche ouverte d'abord */
     if (gl_dl_st == 0 && gl_fx_pump()) return;         /* v281 : les fiches d'abord */
     if (gl_dl_st == 0) {
         if (!gl_on || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_dl_wait || gl_net_busy(6)) return;

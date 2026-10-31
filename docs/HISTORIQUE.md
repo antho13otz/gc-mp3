@@ -75,6 +75,11 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
   Mini-jeux, Manette en jeu, Globe, Mettre à jour. Réglages, Cartes mémoire, Salon, Outils, Recherche et Copies
   gardent pour l'instant l'ancien look.
 
+## Nouveautés v293 (build à venir) — « Toutes les jaquettes » retiré de la console
+- Le réglage « Toutes les jaquettes (boîte 3D, HD) » est **retiré** (trop lent sur la console) : pour tout avoir d'un coup,
+  télécharger les images sur un téléphone ou un PC (script Termux) et les copier dans `jaquettes/completes/` et
+  `jaquettes/disques/`. La console continue de télécharger **jeu par jeu**, quand tu ouvres une fiche.
+
 ## Nouveautés v292 (build 782) — Jaquettes : tour des bugs
 - **Un seul téléchargement d'images à la fois** (jaquettes, complètes, HD, disques, fiches, « toutes les jaquettes ») :
   avant, deux pouvaient partir en même temps, se ralentir, et l'un pouvait écraser l'image que l'autre convertissait
