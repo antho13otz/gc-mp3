@@ -35,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,41 +63,94 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
+/** une place de l'etagere : un jeu (indice dans la liste) ou un intercalaire (jeu = -1, son nom) */
+class Place(val jeu: Int, val nom: String)
+
+private val TRIS = listOf("Nom", "Éditeur", "Année", "Temps de jeu")
+private fun lettre(s: String): String {
+    val c = java.text.Normalizer.normalize(s.trim(), java.text.Normalizer.Form.NFD).firstOrNull { it.isLetterOrDigit() }?.uppercaseChar() ?: '#'
+    return if (c in 'A'..'Z') c.toString() else "#"
+}
+private fun tranche(m: Int) = when { m >= 1200 -> "20 h et plus"; m >= 300 -> "5 à 20 h"; m >= 60 -> "1 à 5 h"; m > 0 -> "Moins d'1 h"; else -> "Jamais joué" }
+/** les places dans l'ordre du tri, avec un intercalaire a chaque nouveau rayon */
+fun places(jeux: List<Jeu>, tri: Int, fiches: Map<String, Fiches.Fiche>): List<Place> {
+    val nom = compareBy<Int> { jeux[it].nom.lowercase() }
+    val ordre = jeux.indices.sortedWith(when (tri) {
+        1 -> compareBy<Int> { val e = fiches[jeux[it].id]?.editeur.orEmpty(); if (e.isEmpty()) "\uFFFF" else e.lowercase() }.then(nom)
+        2 -> compareBy<Int> { fiches[jeux[it].id]?.annee?.takeIf { a -> a > 0 } ?: 9999 }.then(nom)
+        3 -> compareByDescending<Int> { jeux[it].minutes }.then(nom)
+        else -> nom
+    })
+    val l = ArrayList<Place>()
+    var dernier: String? = null
+    for (k in ordre) {
+        val g = jeux[k]
+        val r = when (tri) {
+            1 -> fiches[g.id]?.editeur?.takeIf { it.isNotEmpty() } ?: "Éditeur inconnu"
+            2 -> fiches[g.id]?.annee?.takeIf { it > 0 }?.toString() ?: "Année inconnue"
+            3 -> tranche(g.minutes)
+            else -> lettre(g.nom)
+        }
+        if (r != dernier) { l.add(Place(-1, r)); dernier = r }
+        l.add(Place(k, g.nom))
+    }
+    return l
+}
+
 @Composable
 fun EtagereEcran(act: StationActivity, jeux: List<Jeu>, fiche: (Jeu) -> Unit, fermer: () -> Unit) {
     var vue by remember { mutableStateOf<EtagereVue?>(null) }
     var centre by remember { mutableIntStateOf(0) }
     var sortie by remember { mutableIntStateOf(-1) }
     var boite by remember { mutableStateOf<Jeu?>(null) }
+    var tri by remember { mutableIntStateOf(try { act.getSharedPreferences("gcs", 0).getInt("etagere_tri", 0) } catch (e: Exception) { 0 }) }
+    var fiches by remember { mutableStateOf<Map<String, Fiches.Fiche>>(emptyMap()) }
+    LaunchedEffect(tri) { if (tri == 1 || tri == 2) fiches = Fiches.charger(Hors.dir(act)) }
+    val pl = remember(jeux, tri, fiches) { places(jeux, tri, fiches) }
     // jaquettes des boites autour du milieu (les plus proches d'abord)
     LaunchedEffect(vue, centre) {
         val v = vue ?: return@LaunchedEffect
-        val voulues = (centre - 14..centre + 14).filter { it in jeux.indices }.sortedBy { abs(it - centre) }   // (tout ce qui se voit, et de la marge)
+        val voulues = (centre - 14..centre + 14).filter { it in pl.indices && pl[it].jeu >= 0 }.sortedBy { abs(it - centre) }   // (tout ce qui se voit, et de la marge)
         v.garder(voulues.toSet())
         for (k in voulues) {
             if (v.aDeja(k)) continue
-            val im = JaquettesHQ.chargerEtagere(Hors.dir(act), jeux[k].id)
+            val im = JaquettesHQ.chargerEtagere(Hors.dir(act), jeux[pl[k].jeu].id)
             // (reduites pour l'etagere : jaquette complete 1024 x 512, la tranche reste nette ; avant seule 512 x 1024)
             val f = im.full?.let { if (it.width > 1024 || it.height > 512) Bitmap.createScaledBitmap(it, 1024, 512, true) else it }
             val a = im.avant?.let { if (it.width > 512 || it.height > 1024) Bitmap.createScaledBitmap(it, 512, 1024, true) else it }
             v.images(k, f, a)
         }
     }
+    val jeuDe = { k: Int -> pl.getOrNull(k)?.jeu?.takeIf { it >= 0 }?.let { jeux[it] } }
     Dialog(onDismissRequest = fermer, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(C.Fond)) {
-            AndroidView({ c -> EtagereVue(c, jeux.size).also { b ->
-                b.surCentre = { k -> centre = k }; b.surSortie = { k -> sortie = k }; b.surOuvrir = { k -> if (k in jeux.indices) boite = jeux[k] }
-                vue = b } }, Modifier.fillMaxSize())
-            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("Étagère", color = C.Texte, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                    Doux(jeux.size.toString() + " jeu" + (if (jeux.size > 1) "x" else "") + " · " + (centre + 1) + " / " + jeux.size, taille = 12)
+            key(pl) {                                            // (nouveau tri : nouvelle etagere)
+                AndroidView({ c -> EtagereVue(c, pl.map { if (it.jeu < 0) it.nom else null }).also { b ->
+                    b.surCentre = { k -> centre = k }; b.surSortie = { k -> sortie = k }; b.surOuvrir = { k -> jeuDe(k)?.let { boite = it } }
+                    vue = b; centre = 0; sortie = -1
+                    // (au debut : la 1re boite au milieu, pas l'intercalaire)
+                    if (pl.size > 1) b.aller(1) } }, Modifier.fillMaxSize())
+            }
+            Column(Modifier.fillMaxWidth().statusBarsPadding().padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Étagère", color = C.Texte, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                        val rayon = (centre downTo 0).firstOrNull { pl.getOrNull(it)?.jeu == -1 }?.let { pl[it].nom }
+                        Doux(jeux.size.toString() + " jeu" + (if (jeux.size > 1) "x" else "") + (if (rayon != null) " · rayon « $rayon »" else ""), taille = 12, lignes = 1)
+                    }
+                    Box(Modifier.size(44.dp).verre(CircleShape).appui(fermer), contentAlignment = Alignment.Center) { Icon(Ic.Fermer, null, tint = C.Texte) }
                 }
-                Box(Modifier.size(44.dp).verre(CircleShape).appui(fermer), contentAlignment = Alignment.Center) { Icon(Ic.Fermer, null, tint = C.Texte) }
+                Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    TRIS.forEachIndexed { i, t -> Puce(t, tri == i) { tri = i; try { act.getSharedPreferences("gcs", 0).edit().putInt("etagere_tri", i).apply() } catch (e: Exception) { } } }
+                }
+                if ((tri == 1 || tri == 2) && fiches.isEmpty()) Doux("Fiches des jeux (GameTDB) : chargement…", Modifier.padding(top = 6.dp), 11, C.Pale)
             }
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                val g = jeux.getOrNull(if (sortie >= 0) sortie else centre)
-                if (g != null) Text(g.nom, color = C.Texte, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                val p = pl.getOrNull(if (sortie >= 0) sortie else centre)
+                if (p != null) Text(if (p.jeu < 0) "Rayon « " + p.nom + " »" else p.nom, color = C.Texte, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                val fi = p?.takeIf { it.jeu >= 0 }?.let { fiches[jeux[it.jeu].id] }
+                if (fi != null) Doux(listOf(fi.editeur, fi.annee.takeIf { it > 0 }?.toString().orEmpty(), fi.genre).filter { it.isNotEmpty() }.joinToString(" · "), taille = 12, lignes = 1)
                 Spacer(Modifier.height(4.dp))
                 Doux(if (sortie >= 0) "Toucher la boîte : l'ouvrir · toucher ailleurs : la ranger" else "Glisser : parcourir · toucher une boîte : la sortir · deux doigts : zoomer",
                     taille = 11, couleur = C.Pale, centre = true)
@@ -104,12 +158,12 @@ fun EtagereEcran(act: StationActivity, jeux: List<Jeu>, fiche: (Jeu) -> Unit, fe
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     if (sortie < 0) {
                         Bouton("◀", Modifier.weight(1f)) { vue?.aller(centre - 1) }
-                        Bouton("Sortir la boîte", Modifier.weight(2f), plein = true) { vue?.sortir(centre) }
+                        Bouton("Sortir la boîte", Modifier.weight(2f), plein = true, actif = p != null && p.jeu >= 0) { vue?.sortir(centre) }
                         Bouton("▶", Modifier.weight(1f)) { vue?.aller(centre + 1) }
                     } else {
                         Bouton("Ranger", Modifier.weight(1f)) { vue?.ranger() }
-                        Bouton("Ouvrir", Modifier.weight(1f), plein = true) { jeux.getOrNull(sortie)?.let { boite = it } }
-                        Bouton("Fiche du jeu", Modifier.weight(1f)) { jeux.getOrNull(sortie)?.let { fiche(it) } }
+                        Bouton("Ouvrir", Modifier.weight(1f), plein = true) { jeuDe(sortie)?.let { boite = it } }
+                        Bouton("Fiche du jeu", Modifier.weight(1f)) { jeuDe(sortie)?.let { fiche(it) } }
                     }
                 }
             }
@@ -118,8 +172,8 @@ fun EtagereEcran(act: StationActivity, jeux: List<Jeu>, fiche: (Jeu) -> Unit, fe
     boite?.let { g -> Boite3DEcran(act, g.id, g.nom, null) { boite = null } }
 }
 
-class EtagereVue(ctx: Context, n: Int) : GLSurfaceView(ctx) {
-    private val r = RenduEtagere(n)
+class EtagereVue(ctx: Context, intercalaires: List<String?>) : GLSurfaceView(ctx) {
+    private val r = RenduEtagere(intercalaires)
     var surCentre: ((Int) -> Unit)? = null
     var surSortie: ((Int) -> Unit)? = null
     var surOuvrir: ((Int) -> Unit)? = null
@@ -143,6 +197,7 @@ class EtagereVue(ctx: Context, n: Int) : GLSurfaceView(ctx) {
             when {
                 r.sortieVers >= 0 && k == r.sortieVers -> post { surOuvrir?.invoke(k) }
                 r.sortieVers >= 0 -> ranger()
+                k >= 0 && r.noms[k] != null -> aller(k)
                 k >= 0 -> sortir(k)
             }
             return true
@@ -160,7 +215,7 @@ class EtagereVue(ctx: Context, n: Int) : GLSurfaceView(ctx) {
 
     private fun dire() { val k = r.sortieVers; post { surSortie?.invoke(k) } }
     fun aller(k: Int) { ranger(); r.cible = k.coerceIn(0, r.n - 1) }
-    fun sortir(k: Int) { if (k !in 0 until r.n) return; r.cible = k; r.sortieVers = k; dire() }
+    fun sortir(k: Int) { if (k !in 0 until r.n || r.noms[k] != null) return; r.cible = k; r.sortieVers = k; dire() }
     fun ranger() { if (r.sortieVers >= 0) { r.sortieVers = -1; dire() } }
     fun aDeja(k: Int) = charges.contains(k)
     fun images(k: Int, full: Bitmap?, avant: Bitmap?) { charges.add(k); queueEvent { r.images(k, full, avant) } }
@@ -174,7 +229,10 @@ class EtagereVue(ctx: Context, n: Int) : GLSurfaceView(ctx) {
     }
 }
 
-private class RenduEtagere(val n: Int) : GLSurfaceView.Renderer {
+private class RenduEtagere(val noms: List<String?>) : GLSurfaceView.Renderer {
+    val n = noms.size
+    private val texNom = HashMap<Int, Int>()                      // (l'etiquette de chaque intercalaire)
+    private lateinit var mInter: Maillage
     companion object { const val PAS = 2 * Geo.Z + 0.014f }       // (une boite tous les 17 mm, comme sur une vraie etagere)
     @Volatile var scroll = 0f
     @Volatile var vScroll = 0f
@@ -241,6 +299,40 @@ private class RenduEtagere(val n: Int) : GLSurfaceView.Renderer {
         return id[0]
     }
 
+    /** un intercalaire de rayon : une carte fine qui depasse des boites, l'etiquette sur la tranche vers nous */
+    private fun intercalaire(): Maillage {
+        val m = Maillage()
+        fun p(x: Float, y: Float, z: Float, nx: Float, ny: Float, nz: Float, u: Float = 0f, v: Float = 0f) = floatArrayOf(x, y, z, nx, ny, nz, u, v)
+        val x0 = -PAS * 0.42f; val x1 = PAS * 0.42f; val y0 = -Geo.Y; val y1 = Geo.Y + 0.30f; val zA = Geo.X + 0.03f; val zB = -Geo.X
+        m.commencer(P_BAC, M_AVANT, 0, 0.6f, 4)
+        m.quad(p(x0, y0, zA, 0f, 0f, 1f, 0f, 1f), p(x1, y0, zA, 0f, 0f, 1f, 1f, 1f), p(x1, y1, zA, 0f, 0f, 1f, 1f, 0f), p(x0, y1, zA, 0f, 0f, 1f, 0f, 0f))
+        m.commencer(P_BAC, Geo.M_COULEUR, 0xB04CD8, 0.7f, 4)
+        m.quad(p(x0, y1, zA, 0f, 1f, 0f), p(x1, y1, zA, 0f, 1f, 0f), p(x1, y1, zB, 0f, 1f, 0f), p(x0, y1, zB, 0f, 1f, 0f))
+        m.quad(p(x0, y0, zB, -1f, 0f, 0f), p(x0, y0, zA, -1f, 0f, 0f), p(x0, y1, zA, -1f, 0f, 0f), p(x0, y1, zB, -1f, 0f, 0f))
+        m.quad(p(x1, y0, zA, 1f, 0f, 0f), p(x1, y0, zB, 1f, 0f, 0f), p(x1, y1, zB, 1f, 0f, 0f), p(x1, y1, zA, 1f, 0f, 0f))
+        m.finir()
+        return m
+    }
+    private fun etiquette(t: String): Bitmap {
+        val w = 128; val h = 1024
+        val b = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val c = android.graphics.Canvas(b)
+        val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        p.shader = android.graphics.LinearGradient(0f, 0f, 0f, h.toFloat(), 0xFFFF4FD8.toInt(), 0xFF7A3CFF.toInt(), android.graphics.Shader.TileMode.CLAMP)
+        c.drawRect(0f, 0f, w.toFloat(), h.toFloat(), p)
+        p.shader = null; p.color = 0x33FFFFFF; c.drawRect(0f, 0f, w.toFloat(), 120f, p)
+        p.color = 0xFFFFFFFF.toInt(); p.typeface = android.graphics.Typeface.DEFAULT_BOLD; p.textAlign = android.graphics.Paint.Align.CENTER
+        if (t.length <= 2) { p.textSize = 96f; c.drawText(t, w / 2f, 100f, p) }
+        else {                                                     // (le nom ecrit le long, de haut en bas, comme sur une tranche)
+            c.save(); c.rotate(90f, w / 2f, w / 2f)
+            var ts = 64f; p.textSize = ts; p.textAlign = android.graphics.Paint.Align.LEFT
+            while (p.measureText(t) > h - 170 && ts > 26f) { ts -= 2f; p.textSize = ts }
+            c.drawText(t, 150f, w / 2f + ts * 0.35f, p)
+            c.restore()
+        }
+        return b
+    }
+
     /** la planche (bois sombre) et le mur du fond, larges : ils ne defilent pas (uniformes, ca ne se voit pas) */
     private fun planche(): Maillage {
         val m = Maillage()
@@ -276,7 +368,8 @@ private class RenduEtagere(val n: Int) : GLSurfaceView.Renderer {
         val ext = GLES20.glGetString(GLES20.GL_EXTENSIONS) ?: ""
         if (ext.contains("GL_EXT_texture_filter_anisotropic")) { val a = FloatArray(1); GLES20.glGetFloatv(0x84FF, a, 0); aniso = max(1f, a[0]) }
         val mx = IntArray(1); GLES20.glGetIntegerv(GLES20.GL_MAX_TEXTURE_SIZE, mx, 0); maxTex = max(2048, mx[0])
-        if (!::mFull.isInitialized) { mFull = boitier(true, false); mAvant = boitier(false, true); mRien = boitier(false, false); mPlanche = planche() }
+        if (!::mFull.isInitialized) { mFull = boitier(true, false); mAvant = boitier(false, true); mRien = boitier(false, false); mPlanche = planche(); mInter = intercalaire() }
+        texNom.clear()
         bufs.clear()
         texFull.clear(); texAvant.clear()
         for ((k, im) in garde) { if (im.first != null) texFull[k] = texture(im.first!!) else if (im.second != null) texAvant[k] = texture(im.second!!) }
@@ -381,6 +474,14 @@ private class RenduEtagere(val n: Int) : GLSurfaceView.Renderer {
         val vis = ((dist + 2f) * tv * aspect / PAS).toInt() + 3
         var lie: Maillage? = null
         for (k in max(0, c - vis)..min(n - 1, c + vis)) {
+            val nom = noms[k]
+            if (nom != null) {                                   // (intercalaire de rayon)
+                val t = texNom.getOrPut(k) { val b = etiquette(nom); val id = texture(b); b.recycle(); id }
+                if (lie !== mInter) { lier(mInter); lie = mInter }
+                Matrix.setIdentityM(mod, 0); Matrix.translateM(mod, 0, k * PAS - scroll, 0f, 0f)
+                matrices(mod); dessiner(mInter, 0, t)
+                continue
+            }
             val tf = texFull[k] ?: 0; val ta = texAvant[k] ?: 0
             val m = if (tf != 0) mFull else if (ta != 0) mAvant else mRien
             if (m !== lie) { lier(m); lie = m }

@@ -15,6 +15,9 @@ object Livret {
     class Maille(val v: FloatArray, val n: Int, val groupes: List<Groupe>)
 
     fun feuilles(n: Int) = maxOf(1, (n + 1) / 2)
+    /** pages d'une feuille (0 : papier blanc) ; nombre impair de pages : la derniere est le dos (verso de la derniere feuille) */
+    fun recto(n: Int, i: Int) = if (n % 2 == 1 && n > 1 && i == feuilles(n) - 1) 0 else 2 * i + 1
+    fun verso(n: Int, i: Int) = if (n % 2 == 1 && n > 1 && i == feuilles(n) - 1) n else 2 * i + 2
 
     /** angle (radians) le long d'une feuille qui tourne : u de 0 (reliure) a 1 (bord libre), f : avancement (0 a 1) */
     fun angle(f: Float, u: Float, souple: Float): Float {
@@ -61,9 +64,9 @@ object Livret {
             }
             // recto (page 2i+1) puis verso (page 2i+2, image retournee : la reliure est a sa droite quand on la voit)
             for (cote in 0..1) {
-                val pg = 2 * i + 1 + cote
+                val pg = if (cote == 0) recto(n, i) else verso(n, i)
                 val sg = if (cote == 0) 1f else -1f
-                t.commencer(if (pg <= n) pg else PAPIER, 0xF4F1EA)
+                t.commencer(if (pg in 1..n) pg else PAPIER, 0xF4F1EA)
                 for (j in 0 until S) {
                     val u0 = j.toFloat() / S; val u1 = (j + 1f) / S
                     val tu0 = if (cote == 0) u0 else 1f - u0; val tu1 = if (cote == 0) u1 else 1f - u1

@@ -84,7 +84,7 @@ fun Notice3DEcran(act: StationActivity, id: String, nom: String, n: Int, fermer:
                     Doux(when {
                         feuille == 0 -> "Couverture · $n pages"
                         feuille >= L -> "Dos · $n pages"
-                        else -> "Pages " + (2 * feuille) + (if (2 * feuille + 1 <= n) "–" + (2 * feuille + 1) else "") + " / " + n
+                        else -> Livret.recto(n, feuille).let { r -> if (r > 0) "Pages " + Livret.verso(n, feuille - 1) + "–" + r + " / " + n else "Page " + Livret.verso(n, feuille - 1) + " / " + n }
                     }, taille = 12)
                 }
                 Box(Modifier.size(44.dp).verre(CircleShape).appui(fermer), contentAlignment = Alignment.Center) { Icon(Ic.Fermer, null, tint = C.Texte) }

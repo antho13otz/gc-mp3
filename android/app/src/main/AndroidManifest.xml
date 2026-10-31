@@ -92,6 +92,17 @@
             </intent-filter>
             <meta-data android:name="android.service.quicksettings.ACTIVE_TILE" android:value="false" />
         </service>
+        <!-- fond d'ecran anime : la collection qui defile en 3D (FondAnime.kt) -->
+        <service
+            android:name=".FondAnime"
+            android:exported="true"
+            android:label="GC Station : ma collection"
+            android:permission="android.permission.BIND_WALLPAPER">
+            <intent-filter>
+                <action android:name="android.service.wallpaper.WallpaperService" />
+            </intent-filter>
+            <meta-data android:name="android.service.wallpaper" android:resource="@xml/fond_anime" />
+        </service>
         <!-- widget d'ecran d'accueil -->
         <receiver android:name=".GcWidget" android:exported="false" android:label="GC Station">
             <intent-filter>
