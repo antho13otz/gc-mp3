@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v306 (build à venir, appli build à venir) — Chercheur de codes : tes propres cheats et succès
+## Nouveautés v306 (build 806, appli build 111) — Chercheur de codes : tes propres cheats et succès
 - **Réglage de la console** : START > Réglages > *Chercheur de codes (appli)* = **Oui** (Broadband Adapter branché).
   Pendant une partie lancée avec Pulse, l'appli peut alors **lire et écrire la mémoire du jeu** par le réseau.
 - **Appli : Plus > Chercheur de codes** (ou le bouton de l'écran « Partie en cours ») :
