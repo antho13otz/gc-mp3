@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v305 (build à venir) — Le disque en main sur la console
+## Nouveautés v305 (build 804) — Le disque en main sur la console
 - Boîte ouverte, **↓** sort le disque : il vient **au milieu de l'écran, en grand**, sur un voile sombre (par-dessus
   les textes de la fiche, même boîte zoomée), et on le **manipule** : **stick** : le tourner dans tous les sens (de
   côté on voit sa tranche ; retourné : la **face gravée**, argentée avec l'arc-en-ciel qui change selon l'angle) ;
