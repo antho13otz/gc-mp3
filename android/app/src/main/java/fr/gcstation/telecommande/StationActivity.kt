@@ -80,6 +80,7 @@ class StationActivity : ComponentActivity(), Host {
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
+        Lang.init(this)
         enableEdgeToEdge()
         St.activite = this
         hauteFrequence()
@@ -169,7 +170,7 @@ class StationActivity : ComponentActivity(), Host {
                         Api.host = ip
                         prefs.edit().putString("host", ip).apply()
                         Live.resubscribe()
-                        Toast.makeText(this, "Console retrouvée : $ip", Toast.LENGTH_SHORT).show()
+                        Lang.toast(this, "Console retrouvée : $ip", Toast.LENGTH_SHORT).show()
                         ui.removeCallbacks(poll); ui.post(poll)
                     }
                 }
@@ -179,8 +180,8 @@ class StationActivity : ComponentActivity(), Host {
 
     private fun online() {
         val g = Live.consoleBack()
-        if (g != null) Toast.makeText(this, "Partie terminée : " + g.name + " · " + Live.dur(g.playedSec()), Toast.LENGTH_LONG).show()
-        else if (wasOffline) Toast.makeText(this, "Console de retour", Toast.LENGTH_SHORT).show()
+        if (g != null) Lang.toast(this, "Partie terminée : " + g.name + " · " + Live.dur(g.playedSec()), Toast.LENGTH_LONG).show()
+        else if (wasOffline) Lang.toast(this, "Console de retour", Toast.LENGTH_SHORT).show()
         wasOffline = false
         St.horsLigne = false
         St.jeu = Live.game
@@ -301,7 +302,7 @@ class StationActivity : ComponentActivity(), Host {
 
     /** la manette en jeu, meme si l'appli n'a pas vu le lancement */
     fun manetteEnJeu() {
-        if (Api.host == null) { Toast.makeText(this, "Tape d'abord l'adresse de la console", Toast.LENGTH_SHORT).show(); return }
+        if (Api.host == null) { Lang.toast(this, "Tape d'abord l'adresse de la console", Toast.LENGTH_SHORT).show(); return }
         val g = Live.game
         ManetteActivity.open(this, if (g != null && g.padMask != 0) g.padMask else 0xF)
     }
@@ -329,7 +330,7 @@ class StationActivity : ComponentActivity(), Host {
     }
 
     override fun switchTo(ip: String) {
-        Toast.makeText(this, "Console $ip", Toast.LENGTH_SHORT).show()
+        Lang.toast(this, "Console $ip", Toast.LENGTH_SHORT).show()
         QueueTab.tracks = null
         St.connecte = false
         Api.host = ip
@@ -386,7 +387,7 @@ class StationActivity : ComponentActivity(), Host {
         if (uris.isEmpty() && txt != null) {
             val m = Regex("https?://\\S+").find(txt)
             if (m != null) {
-                Api.get("/api/open?u=" + Api.enc(m.value)) { r -> Toast.makeText(this, if (r != null) "Ouvert sur la télé (Cube Browser)" else "Pas de réponse de la console", Toast.LENGTH_LONG).show() }
+                Api.get("/api/open?u=" + Api.enc(m.value)) { r -> Lang.toast(this, if (r != null) "Ouvert sur la télé (Cube Browser)" else "Pas de réponse de la console", Toast.LENGTH_LONG).show() }
                 return
             }
         }
@@ -459,7 +460,7 @@ class StationActivity : ComponentActivity(), Host {
             PlaybackService.channels(this)
             @Suppress("DEPRECATION")
             val b = if (android.os.Build.VERSION.SDK_INT >= 26) android.app.Notification.Builder(this, PlaybackService.CH_INFO) else android.app.Notification.Builder(this)
-            b.setSmallIcon(R.drawable.ic_stat).setContentTitle(title).setContentText(text).setColor(Neon.PINK).setOnlyAlertOnce(true).setShowWhen(false)
+            b.setSmallIcon(R.drawable.ic_stat).setContentTitle(Lang.t(title)).setContentText(Lang.t(text)).setColor(Neon.PINK).setOnlyAlertOnce(true).setShowWhen(false)
                 .setContentIntent(android.app.PendingIntent.getActivity(this, PlaybackService.ID_SEND, Host.home(this), android.app.PendingIntent.FLAG_IMMUTABLE))
             if (!end) b.setOngoing(true).setProgress(100, pct, false) else b.setAutoCancel(true)
             getSystemService(android.app.NotificationManager::class.java).notify(PlaybackService.ID_SEND, b.build())
@@ -467,8 +468,8 @@ class StationActivity : ComponentActivity(), Host {
     }
 
     fun envoyer(uris: List<Uri>) {
-        if (uris.isEmpty()) { Toast.makeText(this, "Rien à envoyer (seulement des fichiers)", Toast.LENGTH_LONG).show(); return }
-        if (sCount > 0) { Toast.makeText(this, "Un envoi est déjà en cours", Toast.LENGTH_SHORT).show(); return }
+        if (uris.isEmpty()) { Lang.toast(this, "Rien à envoyer (seulement des fichiers)", Toast.LENGTH_LONG).show(); return }
+        if (sCount > 0) { Lang.toast(this, "Un envoi est déjà en cours", Toast.LENGTH_SHORT).show(); return }
         sCount = uris.size; sIdx = 0; sDone = 0; sSize = 0; sName = ""; sT0 = System.currentTimeMillis()
         St.envoi = Envoi("", 0, uris.size, 0, "")
         ui.removeCallbacks(sendTick); ui.post(sendTick)
@@ -506,7 +507,7 @@ class StationActivity : ComponentActivity(), Host {
                 St.envoi = Envoi("", 0, uris.size, if (tout) 100 else St.envoi?.pct ?: 0, "", true,
                     if (tout) "Envoyé : $n fichier" + (if (n > 1) "s" else "") + " ✓" else "Envoyés : $n sur " + uris.size + " (les autres ont échoué après 3 essais)")
                 ui.postDelayed({ if (sCount == 0) St.envoi = null }, 5000)
-                Toast.makeText(this, (if (tout) "Envoyé sur la console ($n)" else "Envoyés : $n sur " + uris.size) + if (w.isEmpty()) "" else " →$w", Toast.LENGTH_LONG).show()
+                Lang.toast(this, (if (tout) "Envoyé sur la console ($n)" else "Envoyés : $n sur " + uris.size) + if (w.isEmpty()) "" else " →$w", Toast.LENGTH_LONG).show()
                 notifEnvoi(if (tout) "Envoi terminé" else "Envoi incomplet", (if (tout) "$n fichier(s) sur la console" else "$n sur " + uris.size + " envoyé(s)") + if (w.isEmpty()) "" else " :$w", 100, true)
                 St.listes++
             }
@@ -515,13 +516,13 @@ class StationActivity : ComponentActivity(), Host {
 
     /** une sauvegarde (.gci) ajoutee a une carte, ou la carte remplacee (.raw) */
     private fun carte(u: Uri, card: String, raw: Boolean) {
-        Toast.makeText(this, "Envoi vers la carte $card…", Toast.LENGTH_SHORT).show()
+        Lang.toast(this, "Envoi vers la carte $card…", Toast.LENGTH_SHORT).show()
         Thread {
             val name = upload(u, "gci", false)
             val r = if (name == null) null else Api.get((if (raw) "/api/cardput" else "/api/gciimp") + "?c=" + Api.enc(card) + "&n=" + Api.enc(name), 8000)
             var m = "Envoi impossible"
             try { if (r != null) m = JSONObject(r).optString("m", "Fait") } catch (e: Exception) { }
-            ui.post { Toast.makeText(this, m, Toast.LENGTH_LONG).show(); St.listes++ }
+            ui.post { Lang.toast(this, m, Toast.LENGTH_LONG).show(); St.listes++ }
         }.start()
     }
 

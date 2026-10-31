@@ -24,6 +24,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — L'appli en anglais
+- **Plus > Apparence > Langue** : *Langue du téléphone* (par défaut : anglais si le téléphone n'est pas en français),
+  *Français* ou *English*. Tout change tout de suite (l'appli se recharge pour les anciens écrans).
+- Toute l'appli : onglets, fiches de jeux, étagère, notice, télé, manette, jeu de cartes, globe des radios, fichiers,
+  cartes mémoire, copies, outils, notifications, messages. Les noms de jeux, morceaux et fichiers ne changent pas.
+- Fonctionnement (`Lang.kt`) : les textes restent écrits en français dans le code ; en anglais, chaque texte affiché
+  passe par `Lang.t`, qui cherche dans `assets/en.tsv` (≈ 780 textes traduits à la main) : le texte entier, puis un
+  modèle avec des valeurs (« Lire la notice (12 pages) »), puis les morceaux connus (textes composés à l'exécution).
+  Le `Text` de Compose est remplacé par celui du paquet (même signature), les toasts passent par `Lang.toast`, les
+  vues Java par `Lang.t` (setText, setHint, notifications). Les textes venus de la console restent en français.
+
 ## Nouveautés appli build 105 — Traduction en français dans l'appli
 - Fiche du jeu, « À propos » : un **résumé dans une autre langue** (GameTDB n'a pas toujours le français) est **traduit en
   français** sur le téléphone (Google ML Kit, hors ligne : le texte ne part pas sur Internet). « Traduit de l'anglais ·

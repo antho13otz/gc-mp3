@@ -46,7 +46,7 @@ public class GcTile extends TileService {
         t.setLabel("GC Station");
         if (Build.VERSION.SDK_INT >= 29) {
             String title = s != null ? s.optString("title", "") : "";
-            t.setSubtitle(title.isEmpty() ? (Api.host == null ? "Ouvre l'appli une fois" : "Rien en lecture") : title);
+            t.setSubtitle(Lang.t(title.isEmpty() ? (Api.host == null ? "Ouvre l'appli une fois" : "Rien en lecture") : title));
         }
         t.updateTile();
     }

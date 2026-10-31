@@ -67,6 +67,7 @@ public class CartesActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        Lang.init(this);
         sp = getSharedPreferences("gcs", MODE_PRIVATE);
         tok = sp.getLong("c8_tok", 0);
         getWindow().setStatusBarColor(0xFF0A0616);
@@ -149,8 +150,8 @@ public class CartesActivity extends Activity {
             final String nom = v;
             Api.get("/api/cartes?op=join&nom=" + Api.enc(nom), r -> {
                 JSONObject j = parse(r);
-                if (j == null) { msg.setText("La console ne répond pas (es-tu sur le même Wi-Fi ?)"); return; }
-                if (j.optInt("ok") == 0) { show(j, r); err.setText(j.optString("err")); return; }
+                if (j == null) { msg.setText(Lang.t("La console ne répond pas (es-tu sur le même Wi-Fi ?)")); return; }
+                if (j.optInt("ok") == 0) { show(j, r); err.setText(Lang.t(j.optString("err"))); return; }
                 tok = j.optLong("tok");
                 sp.edit().putLong("c8_tok", tok).apply();
                 show(j, r);
@@ -163,14 +164,14 @@ public class CartesActivity extends Activity {
         busy = true;
         Api.get("/api/cartes?op=etat&tok=" + tok, r -> {
             busy = false;
-            if (r == null) { msg.setText("La console ne répond pas…"); return; }
+            if (r == null) { msg.setText(Lang.t("La console ne répond pas…")); return; }
             if (r.equals(lastRaw)) return;                                 // (rien n'a change : rien a refaire)
             JSONObject j = parse(r);
             if (j == null) return;
             if (j.optInt("moi", -1) < 0 && tok != 0) {                     // (plus a la table : partie finie, parti trop longtemps)
                 tok = 0; sp.edit().putLong("c8_tok", 0).apply();
                 show(j, r);
-                big.setText("Tu n'es plus à la table");
+                big.setText(Lang.t("Tu n'es plus à la table"));
                 lastActions = "";
                 actions.removeAllViews();
                 actions.addView(btn("Rejoindre la table", true, v -> askName()));
@@ -187,7 +188,7 @@ public class CartesActivity extends Activity {
             if (j == null) return;
             show(j, r);
             if (j.optInt("ok") == 0) {
-                err.setText(j.optString("err"));
+                err.setText(Lang.t(j.optString("err")));
                 hand.shake();
                 getWindow().getDecorView().performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
             }
@@ -294,7 +295,7 @@ public class CartesActivity extends Activity {
         for (int s = 0; s < 4; s++) {
             final int su = s;
             TextView t = new TextView(this);
-            t.setText(SUIT[s]);
+            t.setText(Lang.t(SUIT[s]));
             t.setTextSize(34);
             t.setGravity(Gravity.CENTER);
             t.setTextColor(s == 1 || s == 2 ? 0xFFD8243C : 0xFF1A1826);
@@ -428,8 +429,8 @@ public class CartesActivity extends Activity {
             p.setStyle(Paint.Style.FILL);
             if (ph < 2) {
                 t.setColor(0xFFCFEDE4); t.setTextSize(dp(15));
-                g.drawText("Tes potes ouvrent l'appli", w / 2, h / 2 - dp(8), t);
-                g.drawText("Plus > Jeu de cartes", w / 2, h / 2 + dp(16), t);
+                g.drawText(Lang.t("Tes potes ouvrent l'appli"), w / 2, h / 2 - dp(8), t);
+                g.drawText(Lang.t("Plus > Jeu de cartes"), w / 2, h / 2 + dp(16), t);
                 return;
             }
             float ch = Math.min(h * 0.72f, w * 0.42f), cw = ch * 0.69f, cy = h / 2 + dp(2);
@@ -441,7 +442,7 @@ public class CartesActivity extends Activity {
             }
             pioche.set(px - cw / 2 - dp(8), cy - ch / 2 - dp(8), px + cw / 2 + dp(4), cy + ch / 2 + dp(4));
             t.setColor(0xFFCFEDE4); t.setTextSize(dp(12));
-            g.drawText(np + " dans la pioche", px, cy + ch / 2 + dp(15), t);
+            g.drawText(Lang.t(np + " dans la pioche"), px, cy + ch / 2 + dp(15), t);
             // tas (au milieu) : les dernieres cartes un peu tournees, la nouvelle arrive
             float tx = w * 0.53f;
             for (int i = 0; i < pile.size(); i++) {
@@ -464,9 +465,9 @@ public class CartesActivity extends Activity {
                 g.drawCircle(rx, yy, dp(26), p);
                 p.setStyle(Paint.Style.STROKE); p.setStrokeWidth(dp(3)); p.setColor(0xFFFFC94D); g.drawCircle(rx, yy, dp(26), p); p.setStyle(Paint.Style.FILL);
                 t.setColor(coul == 1 || coul == 2 ? 0xFFD8243C : 0xFF1A1826); t.setTextSize(dp(30));
-                g.drawText(SUIT[coul], rx, yy + dp(10), t);
+                g.drawText(Lang.t(SUIT[coul]), rx, yy + dp(10), t);
                 t.setColor(0xFFFFE2A0); t.setTextSize(dp(11));
-                g.drawText("demandé", rx, yy + dp(42), t);
+                g.drawText(Lang.t("demandé"), rx, yy + dp(42), t);
             }
             if (p2 > 0) {
                 float y2 = coul >= 0 ? cy + ch * 0.3f : yy;

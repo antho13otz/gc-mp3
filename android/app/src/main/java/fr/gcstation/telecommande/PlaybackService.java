@@ -90,6 +90,7 @@ public class PlaybackService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
+        Lang.init(this);
         Live.add(this, live);
         gameAlarms(Live.game);
         channels(this);
@@ -231,7 +232,7 @@ public class PlaybackService extends Service {
             long left = g.leftSec();
             String txt = (g.profile.isEmpty() ? "" : "Profil " + g.profile + " · ")
                        + (left == Long.MIN_VALUE ? "A + Z + START pour revenir à GC Station" : left > 0 ? "limite du jour à " + new java.text.SimpleDateFormat("HH:mm", java.util.Locale.FRANCE).format(new java.util.Date(g.start + g.leftMin * 60000L)) : "temps du jour écoulé");
-            b.setSmallIcon(R.drawable.ic_stat).setContentTitle("En jeu : " + g.name).setContentText(txt).setColor(Neon.PINK)
+            b.setSmallIcon(R.drawable.ic_stat).setContentTitle(Lang.t("En jeu : " + g.name)).setContentText(Lang.t(txt)).setColor(Neon.PINK)
              .setOngoing(true).setShowWhen(true).setWhen(g.start).setUsesChronometer(true).setVisibility(Notification.VISIBILITY_PUBLIC)
              .setContentIntent(PendingIntent.getActivity(this, 0, Host.home(this), PendingIntent.FLAG_IMMUTABLE))
              .addAction(new Notification.Action.Builder(android.graphics.drawable.Icon.createWithResource(this, R.drawable.ic_close), "Fermer", act(ACT_STOP, 4)).build());
@@ -240,8 +241,8 @@ public class PlaybackService extends Service {
         String title = s != null ? s.optString("title", "") : "", sub = s != null ? s.optString("sub", "") : "";
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CH_PLAY) : new Notification.Builder(this);
         b.setSmallIcon(R.drawable.ic_stat)
-         .setContentTitle(title.isEmpty() ? "GC Station" : title)
-         .setContentText(sub.isEmpty() ? (Api.host != null ? "Console " + Api.host : "Télécommande") : sub)
+         .setContentTitle(title.isEmpty() ? "GC Station" : title) // NOLANG
+         .setContentText(sub.isEmpty() ? Lang.t(Api.host != null ? "Console " + Api.host : "Télécommande") : sub) // NOLANG
          .setLargeIcon(lastCover)
          .setColor(Neon.PINK)
          .setOngoing(playing)
@@ -260,8 +261,8 @@ public class PlaybackService extends Service {
     static void notify(Context c, int id, String title, String text) {
         channels(c);
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(c, CH_INFO) : new Notification.Builder(c);
-        b.setSmallIcon(R.drawable.ic_stat).setContentTitle(title).setContentText(text).setColor(Neon.PINK).setAutoCancel(true)
-         .setStyle(new Notification.BigTextStyle().bigText(text))
+        b.setSmallIcon(R.drawable.ic_stat).setContentTitle(Lang.t(title)).setContentText(Lang.t(text)).setColor(Neon.PINK).setAutoCancel(true)
+         .setStyle(new Notification.BigTextStyle().bigText(Lang.t(text)))
          .setContentIntent(PendingIntent.getActivity(c, id, Host.home(c), PendingIntent.FLAG_IMMUTABLE));
         try { c.getSystemService(NotificationManager.class).notify(id, b.build()); } catch (Exception e) { }
     }

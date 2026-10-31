@@ -144,7 +144,7 @@ public final class AppUpdate {
                 if (confirm != null) { confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); try { c.startActivity(confirm); } catch (Exception e) { } }
             } else if (st != PackageInstaller.STATUS_SUCCESS) {
                 String m = i.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE);
-                Toast.makeText(c, "Mise à jour pas installée" + (m != null ? " : " + m : ""), Toast.LENGTH_LONG).show();
+                Lang.toast(c, "Mise à jour pas installée" + (m != null ? " : " + m : ""), Toast.LENGTH_LONG).show();
             }
         }
     }
@@ -161,32 +161,32 @@ public final class AppUpdate {
         new Thread(() -> {
             try {
                 long[] l = latest(tok);
-                if (l == null) { ui.post(() -> msg.setText("Aucune version de l'appli disponible sur GitHub (les fichiers sont gardés 90 jours).")); return; }
-                if (l[0] <= have) { ui.post(() -> msg.setText("L'appli est à jour (version 1." + have + ").")); return; }
+                if (l == null) { ui.post(() -> msg.setText(Lang.t("Aucune version de l'appli disponible sur GitHub (les fichiers sont gardés 90 jours)."))); return; }
+                if (l[0] <= have) { ui.post(() -> msg.setText(Lang.t("L'appli est à jour (version 1." + have + ")."))); return; }
                 ui.post(() -> {
-                    msg.setText("Nouvelle version : 1." + l[0] + " (installée : 1." + have + ").");
+                    msg.setText(Lang.t("Nouvelle version : 1." + l[0] + " (installée : 1." + have + ")."));
                     new NeonDialog(a).title("Version 1." + l[0])
                         .message("Télécharger et installer ? Android demande ensuite de confirmer. Tes réglages sont gardés.")
                         .button("Installer", true, () -> get(a, tok, l[1])).cancel("Plus tard").show();
                 });
             } catch (Exception e) {
-                ui.post(() -> msg.setText(e.getMessage() != null ? e.getMessage() : "Pas de réponse de GitHub"));
+                ui.post(() -> msg.setText(Lang.t(e.getMessage() != null ? e.getMessage() : "Pas de réponse de GitHub")));
             }
         }).start();
     }
 
     private static void get(final Activity a, final String tok, final long artifact) {
         if (Build.VERSION.SDK_INT >= 26 && !a.getPackageManager().canRequestPackageInstalls()) {
-            Toast.makeText(a, "Autorise GC Station à installer des applis, puis reviens et réessaie.", Toast.LENGTH_LONG).show();
+            Lang.toast(a, "Autorise GC Station à installer des applis, puis reviens et réessaie.", Toast.LENGTH_LONG).show();
             try { a.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + a.getPackageName()))); } catch (Exception e) { }
             return;
         }
-        Toast.makeText(a, "Téléchargement de la nouvelle version…", Toast.LENGTH_SHORT).show();
+        Lang.toast(a, "Téléchargement de la nouvelle version…", Toast.LENGTH_SHORT).show();
         new Thread(() -> {
             try (InputStream in = download(artifact, tok)) {
                 install(a.getApplicationContext(), in);
             } catch (Exception e) {
-                ui.post(() -> Toast.makeText(a, e.getMessage() != null ? e.getMessage() : "Échec du téléchargement", Toast.LENGTH_LONG).show());
+                ui.post(() -> Lang.toast(a, e.getMessage() != null ? e.getMessage() : "Échec du téléchargement", Toast.LENGTH_LONG).show());
             }
         }).start();
     }

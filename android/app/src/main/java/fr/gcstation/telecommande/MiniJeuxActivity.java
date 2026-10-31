@@ -33,6 +33,7 @@ public class MiniJeuxActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        Lang.init(this);
         sp = getSharedPreferences("gcs", MODE_PRIVATE);
         getWindow().setStatusBarColor(0xFF120A26);
         getWindow().setNavigationBarColor(0xFF0A0616);
@@ -88,7 +89,7 @@ public class MiniJeuxActivity extends Activity {
             JSONArray j = null;
             try { j = r == null ? null : new JSONObject(r).optJSONArray("j"); } catch (Exception e) { }
             grid.removeAllViews();
-            if (j == null) { sub.setText("La console ne répond pas, ou elle n'a pas encore le build 765."); return; }
+            if (j == null) { sub.setText(Lang.t("La console ne répond pas, ou elle n'a pas encore le build 765.")); return; }
             for (int i = 0; i < j.length(); i++) {
                 JSONObject o = j.optJSONObject(i);
                 card(i, o.optString("n"), o.optString("d"));
@@ -119,7 +120,7 @@ public class MiniJeuxActivity extends Activity {
         LinearLayout top = new LinearLayout(this);
         top.setGravity(Gravity.CENTER_VERTICAL);
         TextView ic = new TextView(this);
-        ic.setText(icon(name));
+        ic.setText(Lang.t(icon(name)));
         ic.setTextSize(30);
         top.addView(ic, new LinearLayout.LayoutParams(0, -2, 1));
         if (duel) {

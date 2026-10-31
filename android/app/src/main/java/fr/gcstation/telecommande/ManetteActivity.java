@@ -103,6 +103,7 @@ public class ManetteActivity extends Activity implements SensorEventListener {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        Lang.init(this);
         mask = getIntent().getIntExtra(EXTRA_MASK, 0x2);
         setup = getIntent().getBooleanExtra(EXTRA_SETUP, false);
         gcs = getIntent().getBooleanExtra(EXTRA_GCS, false);
@@ -679,9 +680,9 @@ public class ManetteActivity extends Activity implements SensorEventListener {
             invalidate();
         }
         private void editInfo() {
-            if (sel < 0) { editInfo.setText("Touche une touche pour la choisir, glisse-la pour la déplacer"); editFn.setText("Fonction"); return; }
-            editInfo.setText("Choisie : " + NAME[sel] + (sel >= 10 ? " (la croix bouge en entier)" : ""));
-            editFn.setText(sel < 2 ? "Fonction : " + NAME[sel] : "Fonction : " + (fn[sel] < 0 ? "masquée" : NAME[fn[sel]]));
+            if (sel < 0) { editInfo.setText(Lang.t("Touche une touche pour la choisir, glisse-la pour la déplacer")); editFn.setText(Lang.t("Fonction")); return; }
+            editInfo.setText(Lang.t("Choisie : " + NAME[sel] + (sel >= 10 ? " (la croix bouge en entier)" : "")));
+            editFn.setText(Lang.t(sel < 2 ? "Fonction : " + NAME[sel] : "Fonction : " + (fn[sel] < 0 ? "masquée" : NAME[fn[sel]])));
         }
         private boolean dpad(int i) { return i >= 10 && i <= 13; }
 

@@ -120,7 +120,7 @@ class FondAnime : WallpaperService() {
             val l = images
             if (l.isEmpty()) {
                 texte.textSize = W * 0.04f
-                c.drawText("Ouvre GC Station (onglet Jeux) pour garder des jaquettes", W / 2, H / 2, texte)
+                Lang.init(this@FondAnime); c.drawText(Lang.t("Ouvre GC Station (onglet Jeux) pour garder des jaquettes"), W / 2, H / 2, texte)
                 return
             }
             val t = (SystemClock.uptimeMillis() - t0) / 1000f

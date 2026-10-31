@@ -38,7 +38,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -258,7 +257,7 @@ private fun Liste(radio: Boolean) {
             Ligne(it[0], it[1], Modifier.combinedClickable(
                 onClick = {
                     Api.cmd(if (radio) "radio" else "play", k)
-                    Toast.makeText(ctx, (if (radio) "Radio : " else "Lecture : ") + it[0], Toast.LENGTH_SHORT).show()
+                    Lang.toast(ctx, (if (radio) "Radio : " else "Lecture : ") + it[0], Toast.LENGTH_SHORT).show()
                 },
                 onLongClick = { if (!radio) menu = k }),
                 gauche = { Pastille(if (radio) Ic.Radio else Ic.Musique, if (radio) C.Cyan else C.Rose, 36.dp) })
@@ -280,7 +279,7 @@ private fun Liste(radio: Boolean) {
 
 private fun fileAjout(ctx: android.content.Context, k: Int, ensuite: Boolean) {
     Api.get("/api/queueadd?i=$k&d=" + (if (ensuite) 1 else 0)) { r ->
-        Toast.makeText(ctx, if (r != null && r.contains("\"ok\":1")) (if (ensuite) "Joué juste après" else "Ajouté à la file") else "Pas possible (console à mettre à jour ?)", Toast.LENGTH_SHORT).show()
+        Lang.toast(ctx, if (r != null && r.contains("\"ok\":1")) (if (ensuite) "Joué juste après" else "Ajouté à la file") else "Pas possible (console à mettre à jour ?)", Toast.LENGTH_SHORT).show()
     }
 }
 

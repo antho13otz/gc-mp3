@@ -2,7 +2,7 @@ package fr.gcstation.telecommande
 
 // Appli : Plus > Apparence. L'ambiance (couleurs de tous les ecrans : Neon, Sombre sobre, GameCube indigo, ou les
 // couleurs du jeu en cours / de la derniere fiche ouverte, tirees de sa jaquette), la taille du texte, les vibrations
-// et le 120 Hz. Garde dans les preferences ; tout change tout de suite.
+// le 120 Hz et la langue (Lang.kt). Garde dans les preferences ; tout change tout de suite.
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -20,7 +20,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -70,6 +69,19 @@ fun EcranApparence() {
             }
         }
         Spacer(Modifier.height(10.dp))
+        Titre("Langue")
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for ((t, k) in listOf("Langue du téléphone" to "auto", "Français" to "fr", "English" to "en"))
+                Puce(t, Lang.choix == k) {
+                    if (Lang.choix != k) {
+                        val avant = Lang.anglais
+                        Lang.choisir(act, k)
+                        if (avant != Lang.anglais) act.recreate()      // (les ecrans Java aussi)
+                    }
+                }
+        }
+        Spacer(Modifier.height(18.dp))
         Titre("Taille du texte")
         Spacer(Modifier.height(8.dp))
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
