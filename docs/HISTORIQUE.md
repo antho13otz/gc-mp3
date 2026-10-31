@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés appli build à venir — La notice en 3D, disques nets et script de notice
+## Nouveautés appli build 84 — La notice en 3D, disques nets et script de notice
 - **La notice en 3D** (« Lire la notice », dans la boîte ou la fiche du jeu) : un vrai livret, feuille par feuille, qu'on
   manipule **fermé comme ouvert** : un doigt le fait tourner dans tous les sens (avec élan), deux doigts zooment où l'on
   veut et déplacent. Toucher à droite / à gauche (ou ◀ ▶) tourne une page : la feuille pivote sur la reliure en se
