@@ -11,7 +11,8 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 object Fiches {
-    class Fiche(val genre: String, val developpeur: String, val editeur: String, val annee: Int)
+    class Fiche(val genre: String, val developpeur: String, val editeur: String, val annee: Int,
+                val joueurs: String = "", val classification: String = "", val resume: String = "")
     @Volatile private var memo: Map<String, Fiche>? = null
     private const val URL_FICHES = "https://github.com/antho13otz/gc-mp3/releases/download/fiches/fiches-gc.txt"
 
@@ -26,7 +27,8 @@ object Fiches {
                 val c = l.split('\t')
                 if (c.size >= 7 && c[0].length == 6) {
                     val an = Regex("\\d{4}").find(c[6])?.value?.toIntOrNull() ?: 0
-                    m[c[0]] = Fiche(c[2].trim(), c[4].trim(), c[5].trim(), an)
+                    m[c[0]] = Fiche(c[2].trim(), c[4].trim(), c[5].trim(), an, c[3].trim(), c.getOrNull(7)?.trim() ?: "",
+                        (c.getOrNull(8) ?: "").replace("\\n", "\n").trim())
                 }
             }
         } catch (e: Exception) { }

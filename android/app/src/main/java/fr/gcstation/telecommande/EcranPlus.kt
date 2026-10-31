@@ -77,10 +77,11 @@ import org.json.JSONObject
 
 private class Tuile(val nom: String, val desc: String, val ic: ImageVector, val couleur: Color, val faire: (StationActivity) -> Unit)
 
-private val TUILES = listOf(
+private val TUILES get() = listOf(
     Tuile("Fichiers", "La carte SD", Ic.Dossier, C.Rose) { St.sous = "Fichiers" },
     Tuile("Photos", "Sur la télé", Ic.Photo, C.Cyan) { St.sous = "Photos" },
     Tuile("Réglages", "De GC Station", Ic.Reglages, C.Violet) { St.sous = "Réglages" },
+    Tuile("Apparence", "Ambiance, texte, 120 Hz", Ic.Photo, C.Rose) { St.sous = "Apparence" },
     Tuile("Cartes mémoire", "Sauvegardes", Ic.Carte, C.Bleu) { St.sous = "Cartes mémoire" },
     Tuile("Recherche", "Musique, radios, jeux", Ic.Chercher, C.Rose) { St.sous = "Recherche" },
     Tuile("Salon", "Les autres consoles", Ic.Salon, C.Cyan) { St.sous = "Salon" },
@@ -120,6 +121,7 @@ fun EcranPlus() {
         Box(Modifier.weight(1f).fillMaxWidth()) {
             when (sous) {
                 "Fichiers" -> EcranFichiers()
+                "Apparence" -> EcranApparence()
                 "Photos" -> EcranPhotos()
                 "Réglages" -> Ancien(sous) { SettingsTab(it) }
                 "Cartes mémoire" -> Ancien(sous) { CardsTab(it) }
