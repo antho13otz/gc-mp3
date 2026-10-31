@@ -171,7 +171,7 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
                 }
             }
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Doux(if (sorti) "Glisse pour faire tourner le disque" else "Glisse pour tourner (elle s'arrête sur la face la plus proche) · double toucher : ouvrir",
+                Doux(if (sorti) "Un doigt : faire tourner le disque · deux doigts : zoomer où tu veux et déplacer" else "Un doigt : tourner · deux doigts : zoomer où tu veux et déplacer · double toucher : ouvrir (zoomée : recadrer)",
                     taille = 11, couleur = C.Pale, centre = true)
                 Spacer(Modifier.height(10.dp))
                 if (!ouvert) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally)) {
@@ -194,13 +194,21 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
 class BoiteVue(ctx: Context) : GLSurfaceView(ctx) {
     private val r = Rendu()
     var surOuvert: ((Boolean, Boolean) -> Unit)? = null
+    // deux doigts : zoom a l'endroit pince, et la vue suit les doigts (dans tous les sens)
+    private var fx0 = 0f
+    private var fy0 = 0f
     private val pinch = ScaleGestureDetector(ctx, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-        override fun onScale(d: ScaleGestureDetector): Boolean { r.zoom = (r.zoom * d.scaleFactor).coerceIn(0.6f, 3f); r.touche(); return true }
+        override fun onScaleBegin(d: ScaleGestureDetector): Boolean { fx0 = d.focusX; fy0 = d.focusY; r.tient = true; return true }
+        override fun onScale(d: ScaleGestureDetector): Boolean {
+            r.deplacer(d.focusX - fx0, d.focusY - fy0); fx0 = d.focusX; fy0 = d.focusY
+            r.zoomer(d.scaleFactor, d.focusX - width / 2f, d.focusY - height / 2f)
+            r.touche(); return true
+        }
     })
     private val gestes = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent): Boolean { r.tient = true; r.vYaw = 0f; r.touche(); return true }
         override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float): Boolean {
-            if (e2.pointerCount > 1) return true
+            if (e2.pointerCount > 1 || pinch.isInProgress) return true
             val k = 160f / resources.displayMetrics.densityDpi
             if (r.sortirVers > 0.5f) { r.tourne -= dx * 0.9f * k; return true }           // (disque sorti : on le fait tourner)
             r.yaw -= dx * 0.8f * k; r.pitch = (r.pitch - dy * 0.35f * k).coerceIn(-28f, 28f); r.touche(); return true
@@ -208,7 +216,7 @@ class BoiteVue(ctx: Context) : GLSurfaceView(ctx) {
         override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
             r.vYaw = vx * 0.8f * 160f / resources.displayMetrics.densityDpi; return true
         }
-        override fun onDoubleTap(e: MotionEvent): Boolean { basculer(); return true }
+        override fun onDoubleTap(e: MotionEvent): Boolean { if (r.zoom > 1.05f || r.decale()) r.recadrer() else basculer(); return true }
     })
 
     init {
@@ -260,6 +268,18 @@ private class Rendu : GLSurfaceView.Renderer {
     @Volatile var yaw = 24f
     @Volatile var pitch = 8f
     @Volatile var zoom = 1f
+    @Volatile private var panX = 0f
+    @Volatile private var panY = 0f
+    @Volatile private var unite = 0.005f                         // (unites 3D par pixel, a zoom 1 : calculee a chaque image)
+    /** zoom autour d'un point de l'ecran (dx, dy : pixels depuis le centre) : ce point reste sous les doigts */
+    fun zoomer(f: Float, dx: Float, dy: Float) {
+        val z0 = zoom; val z1 = (zoom * f).coerceIn(0.6f, 6f)
+        panX += dx * unite * (1 / z0 - 1 / z1); panY -= dy * unite * (1 / z0 - 1 / z1)
+        zoom = z1
+    }
+    fun deplacer(dx: Float, dy: Float) { panX -= dx * unite / zoom; panY += dy * unite / zoom }
+    fun decale() = kotlin.math.abs(panX) + kotlin.math.abs(panY) > 0.02f
+    fun recadrer() { zoom = 1f; panX = 0f; panY = 0f }
     @Volatile var vYaw = 0f
     @Volatile var vPitch = 0f
     @Volatile var ouvrirVers = 0f
@@ -560,8 +580,10 @@ private class Rendu : GLSurfaceView.Renderer {
         val aspect = w.toFloat() / h
         Matrix.perspectiveM(proj, 0, if (aspect < 1) 34f else 26f, aspect, 0.1f, 60f)
         val dist = (if (aspect < 1) 6.6f else 5.2f) * (1 + 0.62f * ouvert * (1 - sorti * 0.6f)) / zoom
-        val eye = floatArrayOf(0f, 0.35f, dist)
-        Matrix.setLookAtM(vueM, 0, eye[0], eye[1], eye[2], 0f, -0.05f, 0f, 0f, 1f, 0f)
+        val fov = if (aspect < 1) 34f else 26f
+        unite = 2f * dist * zoom * kotlin.math.tan(Math.toRadians(fov / 2.0)).toFloat() / h
+        val eye = floatArrayOf(panX, 0.35f + panY, dist)
+        Matrix.setLookAtM(vueM, 0, eye[0], eye[1], eye[2], panX, -0.05f + panY, 0f, 0f, 1f, 0f)
         // boitier : ouvert a plat (175 degres, comme un livre), recentre
         Matrix.setIdentityM(mod, 0)
         Matrix.translateM(mod, 0, ouvert * 0.74f, 0f, 0f)
