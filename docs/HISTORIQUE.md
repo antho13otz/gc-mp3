@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés appli build à venir — La notice dans la boîte 3D de l'appli
+## Nouveautés appli build 75 — La notice dans la boîte 3D de l'appli
 - Dans la **boîte 3D de l'appli**, la notice du jeu (si la console en a une, `SD:/gc-mp3/notices/<ID>/`) est posée au fond
   du couvercle, sous les attaches, comme dans le vrai boîtier : on voit sa couverture en ouvrant la boîte.
 - Boîte ouverte : bouton **« Lire la notice »** (pages, zoom à deux doigts).
