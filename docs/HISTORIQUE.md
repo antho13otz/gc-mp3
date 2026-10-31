@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v297 (build à venir) — Installer une notice depuis le téléphone
+- Un **.zip de notice** (dossier `notices/<ID>/` dedans, comme `notice-GYQE01.zip`) envoyé depuis le téléphone : dans
+  **TÉLÉCHARGEMENTS**, **A** l'installe directement dans `SD:/gc-mp3/notices/` (avant : décompressé dans `SD:/downloads`,
+  et la console ne trouvait pas la notice). La fiche ouverte la voit tout de suite.
+
 ## Nouveautés appli build 75 — La notice dans la boîte 3D de l'appli
 - Dans la **boîte 3D de l'appli**, la notice du jeu (si la console en a une, `SD:/gc-mp3/notices/<ID>/`) est posée au fond
   du couvercle, sous les attaches, comme dans le vrai boîtier : on voit sa couverture en ouvrant la boîte.
