@@ -102,6 +102,7 @@ fun App() {
             if (!plein) BarreOnglets()
         }
         PartieEnCours(act)
+        ClavierPartout()                                         // (champ de texte ouvert sur la tele : le clavier du telephone, partout)
         if (St.panneau) Connexion(act)
     }
 }

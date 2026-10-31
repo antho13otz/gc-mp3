@@ -46,7 +46,7 @@ done
 # --- telephone ---
 note "telephone"
 mkdir -p $CI/tel
-printf 'wait 90s\nshot fin\n' > $CI/tel.txt
+printf 'wait 150s\nshot fin\n' > $CI/tel.txt
 rm -f "$RUN/sd:/photos/telephone-ci.jpg"
 (cd $RUN && PCSIM_SCRIPT=$CI/tel.txt PCSIM_OUT=$CI/tel timeout 300 $BIN > $CI/telephone.log 2>&1; echo $? > $CI/tel.code) &
 SIM=$!
@@ -106,6 +106,9 @@ Image.new('RGBA', (160, 160), (200, 40, 40, 255)).save('$CI/disque-ci.png')" 2>/
         expect "type d'image refuse" "refus" -T $CI/disque-ci.png "$H/upload?dir=jaquette&nid=$jid&kind=z&name=d.png"
         rm -f "$RUN/sd:/gc-mp3/jaquettes/disques/$jid.png" "$RUN/sd:/gc-mp3/jaquettes/disques/$jid.tex"
     else fail "telephone : liste des jaquettes vide ($jl)"; fi
+    # v303 : tele tactile (toucher un endroit de l'image) : refus si hors de l'image, puis un onglet touche
+    expect "tele tactile : hors de l'image refuse" '"ok":0' "$H/api/toucher?u=2&v=0.5&c=1"
+    expect "tele tactile : fleche deplacee" '"ok":1' "$H/api/toucher?u=0.5&v=0.5&c=0"
     expect "page memoire" "moire de la GameCube" "$H/memoire"
     expect "chiffres de la memoire" '"hist":\[' "$H/api/memoire"
     expect "page rapport de bug" "Rapport de bug" "$H/rapport"

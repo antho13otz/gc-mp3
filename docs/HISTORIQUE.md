@@ -24,6 +24,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v303 (build à venir, appli build à venir) — Télé tactile et clavier du téléphone partout
+- **Télé tactile** (appli, onglet Télé, puce « Tactile », activée) : toucher l'image de la télé **clique à cet endroit**
+  sur la console : la flèche de GC Station y va et choisit ce qui est dessous (onglet, ligne, bouton) ; dans Cube
+  Browser, le pointeur y saute et clique. Appui long : retour (B) ; glisser : la flèche suit le doigt. Toucher là où
+  rien n'est cliquable ne fait rien (la barre des onglets qui apparaît en haut est prise dès qu'elle est là).
+  Console : `/api/toucher?u=&v=&c=` (u, v : 0 à 1 sur l'image ; c : 0 déplacer, 1 cliquer, 2 retour), 16:9 compris.
+- **Clavier du téléphone partout** (appli) : dès qu'un champ de texte s'ouvre sur la télé, un panneau monte en bas de
+  l'appli, quel que soit l'onglet, et le clavier du téléphone s'ouvre tout seul ; le texte part en direct, OK (ou
+  Entrée) valide, le micro dicte. « Ouvrir tout seul » se coupe dans le panneau ; × le cache jusqu'au champ suivant.
+  L'appli regarde la console plus souvent pendant qu'un clavier est ouvert.
+
 ## Nouveautés v302 (build 797, appli build 94) — Notice en 3D sur la console, étagère triée, mur de jaquettes, fond d'écran animé
 - **Console : la notice est un vrai livret en 3D** (fiche du jeu, boîte ouverte, X), qu'on manipule fermée comme
   ouverte : **stick** : la tourner dans tous les sens ; **C** : zoom (zoomée, le stick la déplace) ; **gauche / droite** :
