@@ -212,7 +212,7 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
             }
         }
     }
-    if (noticeOuverte) NoticeEcran(act, id, nom, pagesNotice) { noticeOuverte = false }
+    if (noticeOuverte) Notice3DEcran(act, id, nom, pagesNotice) { noticeOuverte = false }
 }
 
 // ------------------------------------------------------------------ la vue OpenGL
@@ -279,7 +279,7 @@ class BoiteVue(ctx: Context) : GLSurfaceView(ctx) {
 }
 
 /** antialiasing 4x si possible, sinon 2x, sinon sans */
-private class ChoixConfig : GLSurfaceView.EGLConfigChooser {
+internal class ChoixConfig : GLSurfaceView.EGLConfigChooser {
     override fun chooseConfig(egl: EGL10, d: EGLDisplay): EGLConfig {
         val base = intArrayOf(EGL10.EGL_RED_SIZE, 8, EGL10.EGL_GREEN_SIZE, 8, EGL10.EGL_BLUE_SIZE, 8, EGL10.EGL_DEPTH_SIZE, 24, 0x3040, 4)
         for ((dep, s) in listOf(24 to 4, 16 to 4, 24 to 2, 24 to 0, 16 to 0)) {
