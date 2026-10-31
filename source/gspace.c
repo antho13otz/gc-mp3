@@ -508,9 +508,21 @@ static void gs_draw_fiche(void) {
             else snprintf(m, sizeof(m), "Chargement de la jaquette en HD...");
             gx_text_c(F_SMALL, 320, 428, m, RGBA(255, 210, 120, 230));
         }
+        bx_disc_top();                                       /* v305 : le disque sorti, par-dessus */
         gx_rrect_fill(20, 438, 600, 30, 15, RGBA(22, 16, 44, 245), RGBA(14, 10, 30, 245));   /* v289 : opaque (la boite zoomee passait dessus) */
         gx_rrect_stroke(20, 438, 600, 30, 15, 1.0f, RGBA(255, 255, 255, 40));
         f32 x = 34;
+        if (bx_out_to > 0.5f) {                              /* v305 : le disque en main */
+            x = gs_key(x, 453, "S", "Tourner le disque", RGBA(235, 235, 245, 255));
+            x = gs_key(x, 453, "C", "Zoom / lancer", RGBA(255, 210, 90, 255));
+            x = gs_key(x, 453, "Y", "De face", RGBA(200, 180, 255, 255));
+            x = gs_key(x, 453, "A", "Jouer", RGBA(110, 220, 140, 255));
+            gs_key(x, 453, "B", "Ranger le disque", RGBA(240, 110, 110, 255));
+            nv_raw = 0;
+            if (gl_launch_sel >= 0) gl_draw_launch_box();
+            nt_draw(gl_sel);
+            return;
+        }
         x = gs_key(x, 453, "C", "Tourner / zoom", RGBA(255, 210, 90, 255));
         x = gs_key(x, 453, "S", "D\xC3\xA9placer", RGBA(235, 235, 245, 255));
         x = gs_key(x, 453, "\xE2\x86\x91", bx_open_to > 0.5f ? "Fermer" : "Ouvrir", RGBA(150, 200, 255, 255));
@@ -523,11 +535,19 @@ static void gs_draw_fiche(void) {
         nt_draw(gl_sel);                                     /* v300 : la notice qui s'ouvre / se referme */
         return;
     }
+    if (!g->dvd) bx_disc_top();                              /* v305 : le disque sorti, par-dessus les textes */
     gx_rrect_fill(20, 438, 600, 30, 15, RGBA(255, 255, 255, 16), RGBA(255, 255, 255, 8));
     gx_rrect_stroke(20, 438, 600, 30, 15, 1.0f, RGBA(255, 255, 255, 34));
     gx_hgrad(170, 438, 150, 1.2f, au_a(0), au_a(140));
     gx_hgrad(320, 438, 150, 1.2f, au_b(140), au_b(0));
     f32 x = 34;
+    if (!g->dvd && bx_out_to > 0.5f) {                       /* v305 : le disque en main */
+        x = gs_key(x, 453, "S", "Tourner le disque", RGBA(235, 235, 245, 255));
+        x = gs_key(x, 453, "C", "Zoom / lancer", RGBA(255, 210, 90, 255));
+        x = gs_key(x, 453, "Y", "De face", RGBA(200, 180, 255, 255));
+        x = gs_key(x, 453, "A", "Jouer", RGBA(110, 220, 140, 255));
+        x = gs_key(x, 453, "B", "Ranger le disque", RGBA(240, 110, 110, 255));
+    } else {
     x = gs_key(x, 453, "A", "Jouer", RGBA(110, 220, 140, 255));
     if (!g->dvd) {
         x = gs_key(x, 453, "X", bx_open_to > 0.5f && nt_pages(gl_sel) > 0 ? "Notice" : "Cheats", RGBA(235, 235, 245, 255));   /* v296 */
@@ -541,6 +561,7 @@ static void gs_draw_fiche(void) {
         }
     }
     gs_key(x, 453, "B", "Retour", RGBA(240, 110, 110, 255));
+    }
     nv_raw = 0;
     if (gl_launch_sel >= 0) gl_draw_launch_box();
     nat_draw_qr();                                           /* (rapport d'analyse sur le telephone) */

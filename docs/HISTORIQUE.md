@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v305 (build à venir) — Le disque en main sur la console
+- Boîte ouverte, **↓** sort le disque : il vient **au milieu de l'écran, en grand**, sur un voile sombre (par-dessus
+  les textes de la fiche, même boîte zoomée), et on le **manipule** : **stick** : le tourner dans tous les sens (de
+  côté on voit sa tranche ; retourné : la **face gravée**, argentée avec l'arc-en-ciel qui change selon l'angle) ;
+  **C haut / bas** : zoom ; **C gauche / droite** : le lancer en rotation (il ralentit tout seul) ; **Y** : de face ;
+  **B** ou **↓** : le ranger ; **A** : jouer. Pendant ce temps le stick ne bouge plus la flèche ni la boîte.
+
 ## Nouveautés appli build 100 — Disque agrandi par IA, jaquettes depuis GameTDB
 - **Image du disque bien plus nette** : GameTDB ne la donne qu'en ~160 px ; elle est maintenant agrandie **par IA** sur
   le téléphone (Real-ESRGAN « realesr-general-x4v3 », réseau compact, licence BSD-3, exécuté par ONNX Runtime) : 4 fois

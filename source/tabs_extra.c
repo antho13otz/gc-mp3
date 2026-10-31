@@ -11,7 +11,8 @@ static int gp_hit(void) {
     return -1;
 }
 static int gb_screen_on(void);                     /* v210 : globe.c */
-static int gp_usable(void) { return !gb_screen_on() && tab != TAB_WEB && !fun_mode && !party_on && !saver_on && !night_on && !kb_open; }
+static int bx_disc_held(void);                     /* v305 : box3d.c (le disque en main : le stick est a lui) */
+static int gp_usable(void) { return !gb_screen_on() && tab != TAB_WEB && !fun_mode && !party_on && !saver_on && !night_on && !kb_open && !bx_disc_held(); }
 /* deplace la fleche ; A sur une zone : la choisit. Renvoie les boutons a traiter. */
 static u32 gp_input(u32 down) {
     if (!gp_usable()) { gp_on = 0; return down; }

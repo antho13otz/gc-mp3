@@ -6,12 +6,16 @@
 // le dos (résumé, genre, joueurs, PEGI, capture). Elle tourne doucement ; le stick C la fait tourner. ↑ : elle s'ouvre
 // (le couvercle pivote sur la tranche), le disque s'allume dedans ; A : prendre le disque et jouer ; ↑ : fermer.
 // v304 : ouverte, ↓ : sortir le disque (il se souleve, vient devant nous et tourne) ; ↓ encore : le ranger.
+// v305 : sorti, on le manipule : stick : le tourner dans tous les sens (retourne : la face gravee) ; C haut / bas : zoom ;
+//        C gauche / droite : le lancer en rotation ; Y : de face ; B ou ↓ : le ranger.
 // Tout est projeté par le processeur (comme le globe) puis dessiné en 2D, de la face la plus loin à la plus proche.
 
 static f32 bx_yaw = 28, bx_pitch = 7, bx_open = 0, bx_open_to = 0, bx_spin = 0;
 static f32 bx_zoom = 1, bx_zoom_to = 1, bx_panx = 0, bx_pany = 0;   /* v284 : zoom (stick C haut / bas), deplacement (stick) */
 static f32 bx_out = 0, bx_out_to = 0, bx_dspin = 0;      /* v304 : le disque sorti de la boite (0 range, 1 devant nous), sa rotation */
 static f32 bx_dcx, bx_dcy, bx_dr;                         /* (le disque dans le bac, a l'ecran : centre, rayon) */
+static f32 bx_dyaw = 0, bx_dpitch = 0, bx_dzoom = 1, bx_dvspin = 0;   /* v305 : le disque en main : orientation, zoom, elan */
+static int bx_disc_held(void) { return bx_out_to > 0.5f; }   /* (stick : au disque, pas a la fleche) */
 static u64 bx_touch = 0;                                  /* (dernier coup de stick : la boîte arrête de tourner seule) */
 static int bx_game = -1;
 typedef struct { f32 x, y, z; } bv3;
@@ -174,15 +178,103 @@ static void bx_tray(f32 W, f32 H, f32 X, f32 Y, f32 zf, GXTexObj *disc, int k) {
     bx_q(-0.012f * W, hy - 0.035f * W, 0.012f * W, hy + 0.035f * W, zd - 0.4f, 0, 0, 0, RGBA(40, 40, 46, 255), RGBA(30, 30, 36, 255));
 }
 
+/* ---------- v305 : le disque sorti, en 3D ----------
+   Un disque plat de rayon R (ecran), tourne sur lui-meme (bx_dspin), puis penche (tangage) et pivote (lacet) ; projete
+   en perspective. Face imprimee : l'image du disque (GameTDB) ; retourne : la face gravee (argent et arc-en-ciel qui
+   change avec l'angle), le trou du centre et l'anneau transparent. */
+static f32 bx_q_cx, bx_q_cy, bx_q_R, bx_q_cs, bx_q_ss, bx_q_cp, bx_q_sp, bx_q_cy2, bx_q_sy2;
+static void bx_dproj(f32 u, f32 v, f32 *sx, f32 *sy) {    /* (u, v : -1 a 1 sur le disque) */
+    f32 x = (u * bx_q_cs - v * bx_q_ss) * bx_q_R, y = (u * bx_q_ss + v * bx_q_cs) * bx_q_R;
+    f32 y2 = y * bx_q_cp, z = y * bx_q_sp;
+    f32 x2 = x * bx_q_cy2 + z * bx_q_sy2, z2 = -x * bx_q_sy2 + z * bx_q_cy2;
+    f32 k = 900.0f / (900.0f + z2);
+    *sx = bx_q_cx + x2 * k; *sy = bx_q_cy + y2 * k;
+}
+static void bx_dring(f32 r0, f32 r1, col_t c0, col_t c1, int arc) {   /* anneau r0 -> r1 ; arc : couleurs arc-en-ciel */
+    enum { N = 48 };
+    gx_set_flat();
+    GX_Begin(GX_TRIANGLESTRIP, GX_VTXFMT0, (N + 1) * 2);
+    for (int i = 0; i <= N; i++) {
+        f32 a = (f32)i / N * 6.2832f, ca = cosf(a), sa = sinf(a), xa, ya, xb, yb;
+        bx_dproj(ca * r0, sa * r0, &xa, &ya); bx_dproj(ca * r1, sa * r1, &xb, &yb);
+        col_t k0 = c0, k1 = c1;
+        if (arc) {                                       /* (diffraction : la teinte depend de l'angle et de l'orientation) */
+            f32 h = a * 2 + bx_dyaw * 0.05f + bx_dpitch * 0.04f;
+            u8 R = (u8)(150 + 90 * sinf(h)), G = (u8)(150 + 90 * sinf(h + 2.09f)), B = (u8)(160 + 90 * sinf(h + 4.19f));
+            k1 = RGBA(R, G, B, 255); k0 = RGBA((R + 200) / 2, (G + 202) / 2, (B + 214) / 2, 255);
+        }
+        vtx(xa, ya, k0); vtx(xb, yb, k1);
+    }
+    GX_End();
+}
+static GXTexObj *bx_disc_tex = NULL;
+static void bx_disc_out(GXTexObj *disc) {
+    f32 e = bx_out * bx_out * (3 - 2 * bx_out);
+    f32 tx = 320, ty = 220, tr = 150 * bx_dzoom;          /* (au milieu de l'ecran, en grand) */
+    bx_q_cx = bx_dcx + (tx - bx_dcx) * e; bx_q_cy = bx_dcy + (ty - bx_dcy) * e - sinf(e * (f32)M_PI) * 40;
+    bx_q_R = bx_dr + (tr - bx_dr) * e;
+    f32 sp = bx_dspin * (f32)M_PI / 180, pt = (bx_dpitch + 50 * sinf(e * (f32)M_PI)) * (f32)M_PI / 180, yw = bx_dyaw * (f32)M_PI / 180;
+    bx_q_cs = cosf(sp); bx_q_ss = sinf(sp); bx_q_cp = cosf(pt); bx_q_sp = sinf(pt); bx_q_cy2 = cosf(yw); bx_q_sy2 = sinf(yw);
+    int face = bx_q_cp * bx_q_cy2 > 0;                   /* (face imprimee vers nous ?) */
+    f32 vu = fabsf(bx_q_cp * bx_q_cy2);                  /* (de face : 1 ; sur la tranche : 0) */
+    gx_circle(bx_q_cx + 8, bx_q_cy + 14, bx_q_R * (0.4f + 0.55f * vu), RGBA(0, 0, 0, (u8)(80 * e)), RGBA(0, 0, 0, 0));   /* (ombre) */
+    if (face) {
+        if (disc) {
+            enum { S = 8 };
+            gx_set_image(disc);
+            GX_Begin(GX_QUADS, GX_VTXFMT0, S * S * 4);
+            u8 l = (u8)(150 + 105 * vu);
+            for (int j = 0; j < S; j++) for (int i = 0; i < S; i++) {
+                f32 uu[4] = { (f32)i / S, (f32)(i + 1) / S, (f32)(i + 1) / S, (f32)i / S }, vv[4] = { (f32)j / S, (f32)j / S, (f32)(j + 1) / S, (f32)(j + 1) / S };
+                for (int q = 0; q < 4; q++) {
+                    f32 px, py; bx_dproj(uu[q] * 2 - 1, vv[q] * 2 - 1, &px, &py);
+                    GX_Position2f32(UX(px), py); GX_Color4u8(l, l, l, 255); GX_TexCoord2f32(uu[q], vv[q]);
+                }
+            }
+            GX_End();
+        } else {
+            bx_dring(0.22f, 1.0f, au_mix(0.25f, 255), au_mix(0.6f, 255), 0);
+            bx_dring(0.97f, 1.0f, RGBA(220, 222, 236, 255), RGBA(170, 170, 190, 255), 0);
+        }
+        bx_dring(0.19f, 0.34f, RGBA(196, 200, 212, 255), RGBA(170, 174, 188, 255), 0);   /* (anneau transparent du centre) */
+    } else {                                             /* la face gravee */
+        bx_dring(0.40f, 1.0f, RGBA(200, 204, 216, 255), RGBA(200, 204, 216, 255), 1);
+        bx_dring(0.34f, 0.40f, RGBA(226, 228, 236, 255), RGBA(200, 204, 214, 255), 0);
+        bx_dring(0.19f, 0.34f, RGBA(176, 182, 196, 255), RGBA(150, 156, 172, 255), 0);
+    }
+    bx_dring(0.0f, 0.19f, RGBA(12, 9, 20, 255), RGBA(12, 9, 20, 255), 0);           /* (le trou) */
+    bx_dring(0.995f, 1.02f, RGBA(255, 255, 255, (u8)(90 * vu)), RGBA(255, 255, 255, 0), 0);   /* (bord lumineux) */
+}
+
+/* (gspace.c, apres les textes de la fiche) : voile et disque sorti par-dessus */
+static void bx_disc_top(void) {
+    if (bx_out <= 0.02f) return;
+    f32 e = bx_out * bx_out * (3 - 2 * bx_out);
+    u8 a = (u8)(170 * e);
+    gx_poly4(0, 0, 640, 0, 640, 480, 0, 480, RGBA(6, 4, 14, a), RGBA(6, 4, 14, a), RGBA(4, 2, 10, a), RGBA(4, 2, 10, a));
+    bx_disc_out(bx_disc_tex);
+}
+
 /* la boîte du jeu k dans le rectangle (x, y, w, h) de la fiche */
 static void bx_draw(int k, f32 x, f32 y, f32 w, f32 h, GXTexObj *cov, int big, GXTexObj *full, GXTexObj *disc) {   /* v290 : disc : image du disque   /* full : jaquette complete (dos | tranche | avant), v283 */
     if (k != bx_game) { bx_game = k; bx_open = bx_open_to = 0; bx_zoom_to = 1; bx_panx = bx_pany = 0; bx_out = bx_out_to = 0; }
     u64 now = now_ms();
     int sx = PAD_SubStickX(0), sy = PAD_SubStickY(0);
     f32 dt = ui_dt > 0.1f ? 0.1f : ui_dt;
+    if (bx_out_to > 0.5f) {                              /* v305 : le disque en main : les sticks le manipulent, la boite ne bouge pas */
+        int mx = PAD_StickX(0), my = PAD_StickY(0);
+        if (bx_out > 0.6f) {
+            if (abs(mx) > 18) bx_dyaw += mx / 100.0f * 200 * dt;
+            if (abs(my) > 18) bx_dpitch -= my / 100.0f * 200 * dt;
+            if (abs(sx) > 30) bx_dvspin += sx / 100.0f * 900 * dt;            /* (C gauche / droite : le lancer en rotation) */
+            if (abs(sy) > 40) { bx_dzoom += sy / 100.0f * 1.3f * dt; if (bx_dzoom < 0.6f) bx_dzoom = 0.6f; if (bx_dzoom > 2.2f) bx_dzoom = 2.2f; }
+        }
+        sx = sy = 0;
+    } else { bx_dyaw *= expf(-dt * 6); bx_dpitch *= expf(-dt * 6); bx_dzoom += (1 - bx_dzoom) * (1 - expf(-dt * 6)); }
+    bx_dvspin *= expf(-dt * 0.5f);
     if (abs(sx) > 30) { bx_yaw += sx / 100.0f * 220 * dt; bx_touch = now; }
     if (abs(sy) > 40) { bx_zoom_to += sy / 100.0f * 1.6f * dt; if (bx_zoom_to < 1) bx_zoom_to = 1; if (bx_zoom_to > 3) bx_zoom_to = 3; bx_touch = now; }   /* v284 : zoom */
-    if (bx_zoom_to > 1.03f) {                            /* (zoome : le stick deplace la boite) */
+    if (bx_zoom_to > 1.03f && bx_out_to < 0.5f) {        /* (zoome : le stick deplace la boite) */
         int mx = PAD_StickX(0), my = PAD_StickY(0);
         if (abs(mx) > 20) bx_panx -= mx / 100.0f * 420 * dt;
         if (abs(my) > 20) bx_pany += my / 100.0f * 420 * dt;
@@ -206,7 +298,7 @@ static void bx_draw(int k, f32 x, f32 y, f32 w, f32 h, GXTexObj *cov, int big, G
     if (bx_open_to < 0.5f) bx_out_to = 0;                 /* v304 : fermee : le disque rentre */
     bx_out += (bx_out_to - bx_out) * (1 - expf(-ui_dt * 5));
     if (bx_out < 0.001f) bx_out = 0;
-    bx_dspin += ui_dt * 120 * bx_out;
+    bx_dspin += ui_dt * (40 * bx_out + bx_dvspin);
     /* taille : la jaquette du pack (192 x 256 : 3 x 4) remplit la face avant */
     f32 H = h, W = H * 0.75f;
     if (W > w) { W = w; H = W / 0.75f; }
@@ -304,39 +396,14 @@ static void bx_draw(int k, f32 x, f32 y, f32 w, f32 h, GXTexObj *cov, int big, G
             if (syn || gl[k].desc) gl_wrap(F_SMALL, syn ? syn : gl[k].desc, x0 + 10, y0 + 54 + (gl_bigst.game == k && gl_bigst.tex ? (x1 - x0 - 20) * 0.6f : 0), (int)(x1 - x0 - 20), 13, 6, RGBA(220, 212, 245, a));
         }
     }
-    if (bx_out > 0.02f) {                                /* v304 : le disque sorti : il se souleve, vient devant et tourne */
-        f32 e = bx_out * bx_out * (3 - 2 * bx_out);
-        f32 tx = x + w / 2, ty = y + h / 2 - 6, tr = (w < h ? w : h) * 0.40f;
-        f32 cx = bx_dcx + (tx - bx_dcx) * e, cy = bx_dcy + (ty - bx_dcy) * e - sinf(e * (f32)M_PI) * 50;
-        f32 R = bx_dr + (tr - bx_dr) * e, sq = 1 - 0.45f * sinf(e * (f32)M_PI);   /* (il bascule en sortant) */
-        f32 a = bx_dspin * (f32)M_PI / 180, ca = cosf(a), sa = sinf(a);
-        gx_circle(cx + 6, cy + 10 + R * sq * 0.1f, R * 0.98f, RGBA(0, 0, 0, (u8)(90 * e)), RGBA(0, 0, 0, 0));   /* (ombre) */
-        if (disc) {
-            static const f32 uu[4] = { 0, 1, 1, 0 }, vv[4] = { 0, 0, 1, 1 };
-            gx_set_image(disc);
-            GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-            for (int q = 0; q < 4; q++) {
-                f32 lx = (uu[q] - 0.5f) * 2 * R, ly = (vv[q] - 0.5f) * 2 * R;
-                f32 px = lx * ca - ly * sa, py = (lx * sa + ly * ca) * sq;
-                GX_Position2f32(UX(cx + px), cy + py); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(uu[q], vv[q]);
-            }
-            GX_End();
-        } else {
-            gx_circle(cx, cy, R, RGBA(220, 222, 236, 255), RGBA(160, 160, 182, 255));
-            gx_circle(cx, cy, R * 0.86f, au_mix(0.2f, 255), au_mix(0.35f, 255));
-            gx_circle(cx, cy, R * 0.22f, RGBA(230, 230, 240, 255), RGBA(190, 190, 205, 255));
-        }
-        gx_circle(cx, cy, R * 0.19f, RGBA(16, 12, 24, 255), RGBA(16, 12, 24, 255));   /* (le trou du centre) */
-        /* (reflet qui tourne avec lui) */
-        gx_poly4(cx + (-R * 0.7f) * ca, cy + (-R * 0.7f) * sa * sq, cx + (R * 0.7f) * ca, cy + (R * 0.7f) * sa * sq,
-                 cx + (R * 0.7f) * ca - 6 * sa, cy + ((R * 0.7f) * sa + 6 * ca) * sq, cx + (-R * 0.7f) * ca - 6 * sa, cy + ((-R * 0.7f) * sa + 6 * ca) * sq,
-                 RGBA(255, 255, 255, 0), RGBA(255, 255, 255, (u8)(70 * e)), RGBA(255, 255, 255, (u8)(70 * e)), RGBA(255, 255, 255, 0));
-    }
+    bx_disc_tex = disc;                                  /* v305 : le disque sorti est dessine par-dessus la fiche (bx_disc_top) */
 
 }
 /* (fiche, vitrine) ↑ : ouvrir / fermer ; rend 1 si la touche est prise */
 static int bx_zoomed(void) { return bx_zoom > 1.03f || bx_zoom_to > 1.03f; }
 static int bx_input(u32 down) {
+    if (bx_out_to > 0.5f && (down & PAD_BUTTON_B)) { bx_out_to = 0; return 1; }   /* v305 : B : ranger le disque */
+    if (bx_out_to > 0.5f && (down & PAD_BUTTON_Y)) { bx_dyaw = bx_dpitch = 0; bx_dvspin = 0; bx_dzoom = 1; return 1; }   /* (Y : de face) */
     if (bx_zoomed()) {                                   /* v284 : zoome : B revient, A joue, le reste ne change pas de jeu */
         if (down & PAD_BUTTON_B) { bx_zoom_to = 1; return 1; }
         if (down & PAD_BUTTON_A) return 0;
