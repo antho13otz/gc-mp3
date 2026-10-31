@@ -214,7 +214,9 @@ class BoiteVue(ctx: Context) : GLSurfaceView(ctx) {
             r.yaw -= dx * 0.8f * k; r.pitch = (r.pitch - dy * 0.35f * k).coerceIn(-28f, 28f); r.touche(); return true
         }
         override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
-            r.vYaw = vx * 0.8f * 160f / resources.displayMetrics.densityDpi; return true
+            val k = 160f / resources.displayMetrics.densityDpi
+            if (r.sortirVers > 0.5f) r.vTourne = -vx * 0.9f * k * 0.6f else r.vYaw = vx * 0.8f * k   // (disque sorti : c'est lui qui part, pas la boite)
+            return true
         }
         override fun onDoubleTap(e: MotionEvent): Boolean { if (r.zoom > 1.05f || r.decale()) r.recadrer() else basculer(); return true }
     })
@@ -289,9 +291,11 @@ private class Rendu : GLSurfaceView.Renderer {
     private var ouvert = 0f
     private var sorti = 0f
     @Volatile var tourne = 0f
+    @Volatile var vTourne = 0f                                // (elan du disque lance du doigt)
     /** le doigt se leve : la boite va sur la face la plus proche (en tenant compte de l'elan) */
     fun lacher() {
         tient = false
+        if (sortirVers > 0.5f) { vYaw = 0f; return }          // (disque sorti : la boite ne bouge pas)
         val p = yaw + vYaw * 0.3f
         vYaw = 0f
         var best = p; var d = 1e9f
@@ -564,7 +568,8 @@ private class Rendu : GLSurfaceView.Renderer {
         }
         ouvert += (ouvrirVers - ouvert) * min(1f, dt * 4f)
         sorti += (sortirVers - sorti) * min(1f, dt * 3.5f)
-        tourne += dt * 40f * sorti
+        tourne += dt * (40f * sorti + vTourne)
+        vTourne *= (1 - min(1f, dt * 1.5f))
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
