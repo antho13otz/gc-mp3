@@ -12,6 +12,7 @@ package fr.gcstation.telecommande
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapShader
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.RadialGradient
@@ -140,7 +141,22 @@ object JaquettesHQ {
     suspend fun charger(dir: File, id: String): Images = withContext(Dispatchers.IO) {
         val full = image(dir, "coverfullHQ", id) ?: image(dir, "coverfull", id)
         val avant = if (full != null) null else image(dir, "coverHQ", id) ?: Jaquettes.bitmap(dir, id)
-        Images(full, avant, image(dir, "disc", id))
+        Images(full, avant, disqueNet(dir, id))
+    }
+
+    /** l'image du disque agrandie proprement a 1024 px (Agrandir.kt), gardee sur le telephone (calculee une fois) */
+    private fun disqueNet(dir: File, id: String): Bitmap? {
+        val f = File(dir, "jaquettes/disc1024/$id.png")
+        if (f.exists()) BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 })?.let { return it }
+        val b = image(dir, "disc", id) ?: return null
+        if (b.width >= 1024) return b
+        return try {
+            val px = IntArray(b.width * b.height); b.getPixels(px, 0, b.width, 0, 0, b.width, b.height)
+            val o = Agrandir.agrandir(px, b.width, b.height, 1024, 1024)
+            val r = Bitmap.createBitmap(o, 1024, 1024, Bitmap.Config.ARGB_8888)
+            try { f.parentFile?.mkdirs(); f.outputStream().use { r.compress(Bitmap.CompressFormat.PNG, 100, it) } } catch (e: Exception) { }
+            r
+        } catch (e: Throwable) { b }                           // (pas assez de memoire : l'image d'origine)
     }
 }
 
@@ -358,8 +374,12 @@ private class Rendu : GLSurfaceView.Renderer {
             p.shader = SweepGradient(m, m, intArrayOf(0xFFDADAE2.toInt(), 0xFFC8D8F0.toInt(), 0xFFE8D0EC.toInt(), 0xFFD0ECD8.toInt(), 0xFFF0E6C8.toInt(), 0xFFDADAE2.toInt()), null)
             c.drawCircle(m, m, m, p)
             p.shader = null
-            if (art != null) {
-                c.drawBitmap(art, null, android.graphics.RectF(0f, 0f, s.toFloat(), s.toFloat()), p)
+            if (art != null) {                                     // (bord du disque net : l'image en motif d'un cercle lisse)
+                val bs = BitmapShader(art, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+                bs.setLocalMatrix(android.graphics.Matrix().apply { setScale(s.toFloat() / art.width, s.toFloat() / art.height) })
+                p.shader = bs
+                c.drawCircle(m, m, m - 1f, p)
+                p.shader = null
             } else {
                 p.shader = RadialGradient(m, m * 0.7f, m * 0.95f, intArrayOf(0xFF6A3CC8.toInt(), 0xFF2A1450.toInt()), null, Shader.TileMode.CLAMP)
                 c.drawCircle(m, m, m * 0.96f, p)
@@ -376,6 +396,11 @@ private class Rendu : GLSurfaceView.Renderer {
             c.drawCircle(m, m, m * 0.30f, p)
             p.color = 0xFF9EA2AE.toInt()
             c.drawCircle(m, m, m * 0.24f, p)
+            p.style = Paint.Style.STROKE                                         // (aretes nettes de l'anneau et du trou)
+            p.strokeWidth = 3f; p.color = 0xFF7E828E.toInt(); c.drawCircle(m, m, m * 0.30f - 1.5f, p)
+            p.strokeWidth = 2f; p.color = 0xFFD8DBE4.toInt(); c.drawCircle(m, m, m * 0.24f - 1f, p)
+            p.color = 0xFF6E727E.toInt(); c.drawCircle(m, m, m * 0.1875f + 1f, p)
+            p.style = Paint.Style.FILL
             return b
         }
 

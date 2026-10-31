@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Disques nets et script de notice
+- **Disques plus nets** : l'image du disque de GameTDB (environ 160 px) est agrandie proprement à 1024 px sur le
+  téléphone (bicubique puis passes de netteté bornées : contours raides, texte lisible, sans halo), une seule fois par
+  jeu (gardée dans `jaquettes/disc1024/`). Le bord du disque, l'anneau transparent et le trou du centre sont redessinés nets.
+- **Script de notice** (`android/outils/notice.py`) : à partir d'un PDF, de pages scannées ou de **captures d'écran** du
+  site de modes d'emploi, il retrouve la page dans chaque capture (barres du téléphone et du navigateur, fond du site
+  enlevés), retire les captures en double, coupe les doubles pages, découpe les planches d'impression, et range tout dans
+  `notice-<ID>.zip` (`notices/<ID>/01.jpg`…, au format de l'appli) à installer depuis TÉLÉCHARGEMENTS. `--apercu` :
+  planche-contact pour vérifier ; `--garder 1,3-9` : choisir les pages ; `--haut`/`--bas` : rogner des barres collées.
+
 ## Nouveautés appli build 80 — Bandeau « hors-ligne » sur une ligne
 - Quand la console ne répond pas, le bandeau du haut tient sur **une seule ligne** (« Hors-ligne · tes jeux gardés restent
   là ») avec trois petits boutons : chercher la console, manette, masquer. Il revient à la prochaine coupure.
