@@ -83,6 +83,8 @@ class StationActivity : ComponentActivity(), Host {
         enableEdgeToEdge()
         St.activite = this
         hauteFrequence()
+        C.lire(this)                                             // (ambiance, taille du texte, vibrations)
+        frequence()
         setContent { StationTheme { App() } }
         PlaybackService.channels(this)
         if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED)
@@ -362,6 +364,20 @@ class StationActivity : ComponentActivity(), Host {
     private fun isShare(i: Intent?) = i != null && (Intent.ACTION_SEND == i.action || Intent.ACTION_SEND_MULTIPLE == i.action)
 
     @Suppress("DEPRECATION")
+    /** 120 Hz (ou la frequence la plus haute de l'ecran), si choisi dans Apparence ; sinon celle d'Android */
+    fun frequence() {
+        try {
+            val haut = getSharedPreferences("gcs", 0).getBoolean("hz_max", true)
+            @Suppress("DEPRECATION") val d = if (android.os.Build.VERSION.SDK_INT >= 30) display else windowManager.defaultDisplay
+            if (d == null) return
+            val cur = d.mode
+            val best = d.supportedModes.filter { it.physicalWidth == cur.physicalWidth && it.physicalHeight == cur.physicalHeight }.maxByOrNull { it.refreshRate }
+            val a = window.attributes
+            a.preferredDisplayModeId = if (haut && best != null) best.modeId else 0
+            window.attributes = a
+        } catch (e: Exception) { }
+    }
+
     private fun share(i: Intent) {
         val uris = ArrayList<Uri>()
         if (Intent.ACTION_SEND == i.action) { val u = i.getParcelableExtra<Uri>(Intent.EXTRA_STREAM); if (u != null) uris.add(u) }

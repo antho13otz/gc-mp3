@@ -61,40 +61,107 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
+/** une ambiance de l'appli (les couleurs de tous les ecrans) */
+class Palette(val rose: Color, val violet: Color, val bleu: Color, val cyan: Color, val fond: Color, val fond2: Color,
+              val texte: Color, val doux: Color, val pale: Color, val surface: Color)
+
+object Ambiances {
+    val NOMS = listOf("Néon", "Sombre sobre", "GameCube indigo", "Couleurs du jeu")
+    val NEON = Palette(Color(0xFFFF2FD0), Color(0xFFB03CFF), Color(0xFF5A5CFF), Color(0xFF21E8FF), Color(0xFF07020F), Color(0xFF120624),
+        Color(0xFFF4EEFF), Color(0xFFB7A8D8), Color(0xFF6E6290), Color(0xFF140A26))
+    val SOBRE = Palette(Color(0xFF7FA7FF), Color(0xFF9294B0), Color(0xFF6C8CFF), Color(0xFFA6CCFF), Color(0xFF0A0A0C), Color(0xFF17171B),
+        Color(0xFFEDEDF0), Color(0xFFA9A9B4), Color(0xFF6B6B77), Color(0xFF161619))
+    val INDIGO = Palette(Color(0xFF9A8CFF), Color(0xFF6656D0), Color(0xFF4B3F99), Color(0xFFC3BCFF), Color(0xFF090720), Color(0xFF1A1550),
+        Color(0xFFF1EFFF), Color(0xFFB4AEDF), Color(0xFF6B64A2), Color(0xFF151140))
+    /** les couleurs d'une jaquette : la plus vive, une deuxieme d'une autre teinte, et un fond sombre de la teinte dominante */
+    fun duJeu(b: android.graphics.Bitmap): Palette? {
+        val p = android.graphics.Bitmap.createScaledBitmap(b, 32, 44, true)
+        val hsv = FloatArray(3)
+        var best = -1f; var c1 = 0; var h1 = 0f
+        val teintes = FloatArray(12)
+        for (y in 0 until p.height) for (x in 0 until p.width) {
+            val c = p.getPixel(x, y)
+            android.graphics.Color.colorToHSV(c, hsv)
+            val w = hsv[1] * hsv[2]
+            teintes[((hsv[0] / 30f).toInt()).coerceIn(0, 11)] += w
+            if (w > best) { best = w; c1 = c; h1 = hsv[0] }
+        }
+        if (best < 0.25f) return null                       // (jaquette grise : on garde le neon)
+        var best2 = -1f; var c2 = 0
+        for (y in 0 until p.height) for (x in 0 until p.width) {
+            val c = p.getPixel(x, y)
+            android.graphics.Color.colorToHSV(c, hsv)
+            var d = kotlin.math.abs(hsv[0] - h1); if (d > 180) d = 360 - d
+            val w = hsv[1] * hsv[2]
+            if (d > 60 && w > best2) { best2 = w; c2 = c }
+        }
+        if (best2 < 0.2f) c2 = c1
+        val dom = teintes.indices.maxByOrNull { teintes[it] } ?: 0
+        fun vif(c: Int): Color { android.graphics.Color.colorToHSV(c, hsv); hsv[1] = hsv[1].coerceAtLeast(0.55f); hsv[2] = hsv[2].coerceAtLeast(0.9f); return Color(android.graphics.Color.HSVToColor(hsv)) }
+        fun ton(s: Float, v: Float): Color = Color(android.graphics.Color.HSVToColor(floatArrayOf(dom * 30f + 15f, s, v)))
+        val a = vif(c1); val b2 = vif(c2)
+        return Palette(a, androidx.compose.ui.graphics.lerp(a, b2, 0.5f), b2, b2, ton(0.55f, 0.05f), ton(0.6f, 0.13f),
+            Color(0xFFF6F2FF), ton(0.18f, 0.82f), ton(0.25f, 0.55f), ton(0.55f, 0.10f))
+    }
+}
+
 object C {
-    val Rose = Color(0xFFFF2FD0)
-    val Violet = Color(0xFFB03CFF)
-    val Bleu = Color(0xFF5A5CFF)
-    val Cyan = Color(0xFF21E8FF)
+    var ambiance by androidx.compose.runtime.mutableIntStateOf(0)         // (0 neon, 1 sobre, 2 indigo, 3 couleurs du jeu)
+    var duJeu by androidx.compose.runtime.mutableStateOf<Palette?>(null)  // (couleurs du jeu en cours / du dernier ouvert)
+    var texte by androidx.compose.runtime.mutableFloatStateOf(1f)         // (taille du texte : 0,9 / 1 / 1,15 / 1,3)
+    var vibrations = true                                                 // (petite vibration des boutons)
+    val p: Palette get() = when (ambiance) { 1 -> Ambiances.SOBRE; 2 -> Ambiances.INDIGO; 3 -> duJeu ?: Ambiances.NEON; else -> Ambiances.NEON }
+    val Rose: Color get() = p.rose
+    val Violet: Color get() = p.violet
+    val Bleu: Color get() = p.bleu
+    val Cyan: Color get() = p.cyan
     val Vert = Color(0xFF2FE08A)
     val Rouge = Color(0xFFFF4D6D)
     val Orange = Color(0xFFFFA040)
-    val Fond = Color(0xFF07020F)
-    val Fond2 = Color(0xFF120624)
-    val Texte = Color(0xFFF4EEFF)
-    val Doux = Color(0xFFB7A8D8)
-    val Pale = Color(0xFF6E6290)
+    val Fond: Color get() = p.fond
+    val Fond2: Color get() = p.fond2
+    val Texte: Color get() = p.texte
+    val Doux: Color get() = p.doux
+    val Pale: Color get() = p.pale
     val Verre = Color(0x14FFFFFF)
     val Bord = Color(0x26FFFFFF)
-    val Neon = Brush.linearGradient(listOf(Rose, Violet, Cyan))
+    val Neon: Brush get() = Brush.linearGradient(listOf(Rose, Violet, Cyan))
+    /** le jeu dont prendre les couleurs (fiche ouverte, ou jeu lance) : ses couleurs sont calculees en fond */
+    var idJeu by androidx.compose.runtime.mutableStateOf("")
+    fun dernierJeu(c: android.content.Context, id: String) {
+        if (id.length != 6 || id == idJeu) return
+        idJeu = id
+        try { c.getSharedPreferences("gcs", 0).edit().putString("ambiance_jeu", id).apply() } catch (e: Exception) { }
+    }
+    /** les choix gardes (appele au demarrage) */
+    fun lire(c: android.content.Context) {
+        val pr = c.getSharedPreferences("gcs", 0)
+        ambiance = pr.getInt("ambiance", 0).coerceIn(0, 3); texte = pr.getFloat("taille_texte", 1f).coerceIn(0.8f, 1.4f)
+        idJeu = pr.getString("ambiance_jeu", "") ?: ""; vibrations = pr.getBoolean("vibrations", true)
+    }
 }
 
-private val Couleurs: ColorScheme = darkColorScheme(
+private fun couleurs(): ColorScheme = darkColorScheme(
     primary = C.Rose, onPrimary = Color.White, secondary = C.Cyan, onSecondary = Color(0xFF001F24),
-    tertiary = C.Violet, background = C.Fond, onBackground = C.Texte, surface = Color(0xFF140A26), onSurface = C.Texte,
-    surfaceVariant = Color(0xFF1E1236), onSurfaceVariant = C.Doux, outline = C.Bord, error = C.Rouge,
-    surfaceContainer = Color(0xFF160B2A), surfaceContainerHigh = Color(0xFF1C0F33), surfaceContainerHighest = Color(0xFF24153F),
-    surfaceContainerLow = Color(0xFF110721), surfaceContainerLowest = Color(0xFF0B0416))
+    tertiary = C.Violet, background = C.Fond, onBackground = C.Texte, surface = C.p.surface, onSurface = C.Texte,
+    surfaceVariant = androidx.compose.ui.graphics.lerp(C.p.surface, Color.White, 0.05f), onSurfaceVariant = C.Doux, outline = C.Bord, error = C.Rouge,
+    surfaceContainer = C.p.surface, surfaceContainerHigh = androidx.compose.ui.graphics.lerp(C.p.surface, Color.White, 0.04f),
+    surfaceContainerHighest = androidx.compose.ui.graphics.lerp(C.p.surface, Color.White, 0.08f),
+    surfaceContainerLow = androidx.compose.ui.graphics.lerp(C.p.surface, Color.Black, 0.2f), surfaceContainerLowest = C.Fond)
 
 @Composable
 fun StationTheme(content: @Composable () -> Unit) {
     val t = Typography()
-    MaterialTheme(
-        colorScheme = Couleurs,
-        typography = t.copy(
-            titleLarge = t.titleLarge.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.2.sp),
-            titleMedium = t.titleMedium.copy(fontWeight = FontWeight.SemiBold)),
-        content = content)
+    val d = androidx.compose.ui.platform.LocalDensity.current
+    // (taille du texte choisie : en plus de celle d'Android ; les couleurs suivent l'ambiance, en douceur)
+    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(d.density, d.fontScale * C.texte)) {
+        MaterialTheme(
+            colorScheme = couleurs(),
+            typography = t.copy(
+                titleLarge = t.titleLarge.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.2.sp),
+                titleMedium = t.titleMedium.copy(fontWeight = FontWeight.SemiBold)),
+            content = content)
+    }
 }
 
 /** fond : degrade sombre et deux halos qui bougent doucement */
@@ -119,7 +186,7 @@ fun Modifier.verre(shape: Shape = RoundedCornerShape(22.dp), bord: Color = C.Bor
 @Composable
 fun vibre(): () -> Unit {
     val v = LocalView.current
-    return { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY) }
+    return { if (C.vibrations) v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY) }
 }
 
 /** zone touchable qui retrecit un peu a l'appui */

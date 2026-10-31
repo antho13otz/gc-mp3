@@ -17,6 +17,9 @@ import android.graphics.Shader
 import android.util.LruCache
 import android.widget.LinearLayout
 import android.widget.Toast
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.animation.animateContentSize
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -380,7 +383,11 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
             Row(verticalAlignment = Alignment.CenterVertically) {
                 var img by remember { mutableStateOf<ImageBitmap?>(Jaquettes.mem.get(g.id)) }
                 LaunchedEffect(g.id) { if (img == null) img = Jaquettes.charger(Hors.dir(act), g.id, g.i) }
-                Box(Modifier.size(width = 96.dp, height = 134.dp).clip(RoundedCornerShape(14.dp)).background(Color(0x22FFFFFF)).appui { boite = true }) {
+                // (la jaquette arrive en s'agrandissant, avec un petit rebond)
+                val entree = remember { androidx.compose.animation.core.Animatable(0.55f) }
+                LaunchedEffect(g.id) { C.dernierJeu(act, g.id); entree.animateTo(1f, androidx.compose.animation.core.spring(dampingRatio = 0.55f, stiffness = 260f)) }
+                Box(Modifier.size(width = 96.dp, height = 134.dp).graphicsLayer { scaleX = entree.value; scaleY = entree.value; alpha = ((entree.value - 0.55f) / 0.45f).coerceIn(0f, 1f); rotationY = (1f - entree.value) * 40f; cameraDistance = 12f * density }
+                    .clip(RoundedCornerShape(14.dp)).background(Color(0x22FFFFFF)).appui { boite = true }) {
                     img?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
                     Box(Modifier.align(Alignment.BottomEnd).padding(5.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xAA000000)).padding(horizontal = 6.dp, vertical = 2.dp)) {
                         Text("3D", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
@@ -409,6 +416,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                     }
                 }
             }
+            APropos(act, g)
             Spacer(Modifier.height(18.dp))
             Bouton("Lancer avec Pulse", Modifier.fillMaxWidth(), plein = true, icone = Ic.Lecture, hauteur = 52.dp) { lancer(1) }
             Spacer(Modifier.height(8.dp))
@@ -620,4 +628,42 @@ private fun raccourci(a: Activity, g: Jeu) {
         .setShortLabel(if (g.nom.length > 24) g.nom.substring(0, 23) + "…" else g.nom).setLongLabel(g.nom)
         .setIcon(icon).setIntent(it).build()
     try { sm.requestPinShortcut(si, null) } catch (e: Exception) { Toast.makeText(a, "Raccourci impossible", Toast.LENGTH_SHORT).show() }
+}
+
+
+/** fiche du jeu : ce que dit GameTDB (genre, joueurs, classification, editeur, developpeur, annee, resume) */
+@Composable
+private fun APropos(act: StationActivity, g: Jeu) {
+    var fi by remember(g.id) { mutableStateOf<Fiches.Fiche?>(null) }
+    var cherche by remember(g.id) { mutableStateOf(true) }
+    var tout by remember(g.id) { mutableStateOf(false) }
+    LaunchedEffect(g.id) { fi = Fiches.charger(Hors.dir(act))[g.id]; cherche = false }
+    val f = fi
+    androidx.compose.animation.AnimatedVisibility(f != null, enter = androidx.compose.animation.fadeIn() + androidx.compose.animation.expandVertically()) {
+        if (f == null) return@AnimatedVisibility
+        Column(Modifier.padding(top = 16.dp).fillMaxWidth().verre(RoundedCornerShape(18.dp)).padding(14.dp)) {
+            Titre("À propos")
+            Spacer(Modifier.height(8.dp))
+            val puces = listOf(f.genre, f.joueurs.takeIf { it.isNotEmpty() }?.let { if (it.all { c -> c.isDigit() }) it + " joueur" + (if (it != "1") "s" else "") else it }.orEmpty(), f.classification).filter { it.isNotEmpty() }
+            if (puces.isNotEmpty()) {
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (p in puces) Box(Modifier.clip(RoundedCornerShape(50)).background(C.Violet.copy(alpha = 0.25f)).padding(horizontal = 10.dp, vertical = 4.dp)) {
+                        Text(p, color = C.Texte, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+            }
+            for ((k, v) in listOf("Éditeur" to f.editeur, "Développeur" to f.developpeur, "Sortie" to (if (f.annee > 0) f.annee.toString() else ""))) {
+                if (v.isEmpty()) continue
+                Row { Text(k, color = C.Doux, fontSize = 13.sp, modifier = Modifier.width(96.dp)); Text(v, color = C.Texte, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
+            }
+            if (f.resume.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                Text(f.resume, color = C.Doux, fontSize = 13.sp, maxLines = if (tout) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.animateContentSize().appui { tout = !tout })
+                if (!tout && f.resume.length > 180) Text("Lire la suite", color = C.Cyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp).appui { tout = true })
+            }
+        }
+    }
+    if (cherche) Doux("Fiche GameTDB : chargement…", Modifier.padding(top = 12.dp), 11, C.Pale)
 }

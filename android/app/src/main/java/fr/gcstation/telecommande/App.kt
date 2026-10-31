@@ -78,6 +78,16 @@ fun App() {
     BackHandler(enabled = St.sous.isNotEmpty() || St.onglet != 0) {
         if (St.sous.isNotEmpty()) St.sous = "" else St.onglet = 0
     }
+    // (ambiance « Couleurs du jeu » : celles du jeu lance, sinon de la derniere fiche ouverte, tirees de sa jaquette)
+    val idCouleurs = St.jeu?.id?.takeIf { it.length == 6 } ?: C.idJeu
+    LaunchedEffect(idCouleurs, C.ambiance) {
+        if (C.ambiance != 3 || idCouleurs.isEmpty()) return@LaunchedEffect
+        val b = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            (JaquettesHQ.fichier(Hors.dir(act), "coverHQ", idCouleurs) ?: JaquettesHQ.fichier(Hors.dir(act), "cover", idCouleurs))
+                ?.let { android.graphics.BitmapFactory.decodeFile(it.path, android.graphics.BitmapFactory.Options().apply { inSampleSize = 4 }) } ?: Jaquettes.bitmap(Hors.dir(act), idCouleurs)
+        }
+        if (b != null) Ambiances.duJeu(b)?.let { C.duJeu = it }
+    }
     Box(Modifier.fillMaxSize()) {
         FondAurore(actif = St.visible)
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
@@ -87,7 +97,11 @@ fun App() {
             if (!plein) Bandeaux(act)
             Box(Modifier.weight(1f).fillMaxWidth()) {
                 AnimatedContent(St.onglet, transitionSpec = {
-                    (fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 24 }) togetherWith fadeOut(tween(120))
+                    // (dans le sens de l'onglet choisi, avec un leger ressort ; l'ancien glisse un peu et s'efface)
+                    val d = if (targetState > initialState) 1 else -1
+                    val r = androidx.compose.animation.core.spring<androidx.compose.ui.unit.IntOffset>(dampingRatio = 0.82f, stiffness = 420f)
+                    (fadeIn(tween(180)) + androidx.compose.animation.slideInHorizontally(r) { it / 6 * d } + androidx.compose.animation.scaleIn(androidx.compose.animation.core.spring(0.8f, 420f), initialScale = 0.97f)) togetherWith
+                        (fadeOut(tween(140)) + androidx.compose.animation.slideOutHorizontally(r) { -it / 10 * d })
                 }, label = "onglet") { o ->
                     when (o) {
                         0 -> EcranLecture()

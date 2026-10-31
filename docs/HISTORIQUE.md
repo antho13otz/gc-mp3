@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Thèmes, animations, fiche enrichie
+- **Plus > Apparence** : l'**ambiance** de toute l'appli (Néon d'origine, Sombre sobre, GameCube indigo, ou **Couleurs du
+  jeu** : tirées de la jaquette du jeu en cours, sinon de la dernière fiche ouverte), la **taille du texte** (Petit à Très
+  grand), les **vibrations** des boutons et le **120 Hz**. Tout change tout de suite et est gardé.
+- **Animations** : l'appli demande au téléphone sa fréquence la plus haute (**120 Hz**) ; les onglets glissent dans le
+  sens choisi avec un léger ressort ; dans la fiche, la jaquette arrive en s'agrandissant avec un rebond ; le résumé
+  se déplie en douceur.
+- **Fiche du jeu enrichie** : « À propos » d'après GameTDB : genre, nombre de joueurs, classification (PEGI), éditeur,
+  développeur, année de sortie et résumé (« Lire la suite »).
+
 ## Nouveautés v305 (build 804) — Le disque en main sur la console
 - Boîte ouverte, **↓** sort le disque : il vient **au milieu de l'écran, en grand**, sur un voile sombre (par-dessus
   les textes de la fiche, même boîte zoomée), et on le **manipule** : **stick** : le tourner dans tous les sens (de
