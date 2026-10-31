@@ -237,17 +237,32 @@ static void tp_send_ecran(s32 c, const char *q) {
                       "Cache-Control: no-store\r\nConnection: close\r\n\r\n", n, w / s, h / s, (unsigned)(now_ms() - t0), tab == TAB_WEB ? 1 : 0);
     if (tp_send(c, hd, hn)) tp_send(c, tp_ej_buf, n);
 }
-/* v294 : images partielles : GET /api/ecranz?w=320|640&q=&s=<derniere image recue> (voir ecran_jpeg.c, ej_partiel) */
-static void tp_send_ecranz(s32 c, const char *q) {
-    const u8 *fb; int w, h;
+/* v294 : images partielles : GET /api/ecranz?w=320|640&q=&s=<derniere image recue> (voir ecran_jpeg.c, ej_partiel)
+   v295 : image suivante preparee d'avance : des qu'une image est envoyee, la console prepare la suivante (le temps que
+   le telephone la recoive et redemande) ; a la demande suivante, elle part tout de suite. Le telephone n'attend plus
+   que la console capture et compresse : plus d'images par seconde. (Preparee il y a plus de 40 ms et vide : refaite.) */
+static u8 *tp_pf_buf = NULL;
+static int tp_pf_len = -1, tp_pf_plein = 0, tp_pf_nb = 0, tp_pf_s = 0, tp_pf_q = 0, tp_pf_ms = 0;
+static u32 tp_pf_base = 0;
+static u64 tp_pf_t = 0;
+static const u8 *tp_ecran_fb(int *w, int *h) {
+    const u8 *fb;
 #ifndef GEKKO
     tp_cap = 3;
     for (int k = 0; k < 400 && tp_cap; k++) usleep(5000);
-    fb = (const u8 *)pcsim_xfb_last; w = pcsim_xfb_w; h = pcsim_xfb_h;
+    fb = (const u8 *)pcsim_xfb_last; *w = pcsim_xfb_w; *h = pcsim_xfb_h;
 #else
-    fb = (const u8 *)xfb[displayed_fb]; w = rmode ? rmode->fbWidth : 0; h = rmode ? rmode->xfbHeight : 0;
+    fb = (const u8 *)xfb[displayed_fb]; *w = rmode ? rmode->fbWidth : 0; *h = rmode ? rmode->xfbHeight : 0;
 #endif
-    if (!fb || w <= 0 || h <= 0 || w > 720 || h > 576) { tp_reply(c, 503, "text/plain", "ecran indisponible", 18); return; }
+    if (!fb || *w <= 0 || *h <= 0 || *w > 720 || *h > 576) return NULL;
+#ifdef GEKKO
+    const u8 *cfb = (const u8 *)MEM_K1_TO_K0(fb);
+    DCInvalidateRange((void *)cfb, (u32)*w * *h * 2);
+    fb = cfb;
+#endif
+    return fb;
+}
+static void tp_send_ecranz(s32 c, const char *q) {
     char v[16];
     tp_param(q ? q : "", "w", v, sizeof(v));
     int s = atoi(v) >= 600 ? 1 : 2;
@@ -256,22 +271,37 @@ static void tp_send_ecranz(s32 c, const char *q) {
     tp_param(q ? q : "", "s", v, sizeof(v));
     u32 sc = (u32)strtoul(v, NULL, 10);
     if (!tp_ej_buf) tp_ej_buf = (u8 *)malloc(256 * 1024);
-    if (!tp_ej_buf) { tp_reply(c, 503, "text/plain", "memoire", 7); return; }
-#ifdef GEKKO
-    const u8 *cfb = (const u8 *)MEM_K1_TO_K0(fb);
-    DCInvalidateRange((void *)cfb, (u32)w * h * 2);
-    fb = cfb;
-#endif
-    u64 t0 = now_ms();
-    int plein = 0, nb = 0;
-    int n = ej_partiel(fb, w, h, s, qual, sc, tp_ej_buf, 256 * 1024, &plein, &nb);
-    if (n < 0) { tp_reply(c, 503, "text/plain", "image trop grosse", 17); return; }
+    if (!tp_pf_buf) tp_pf_buf = (u8 *)malloc(256 * 1024);
+    if (!tp_ej_buf || !tp_pf_buf) { tp_reply(c, 503, "text/plain", "memoire", 7); return; }
+    int w = 0, h = 0, plein = 0, nb = 0, n, ms;
+    u8 *buf;
+    if (tp_pf_len >= 0 && tp_pf_s == s && tp_pf_q == qual && sc == tp_pf_base && !(tp_pf_len == 0 && now_ms() - tp_pf_t > 40)) {
+        buf = tp_pf_buf; n = tp_pf_len; plein = tp_pf_plein; nb = tp_pf_nb; ms = tp_pf_ms;   /* (preparee d'avance) */
+        w = ej_rw * s; h = ej_rh * s;
+    } else {
+        const u8 *fb = tp_ecran_fb(&w, &h);
+        if (!fb) { tp_reply(c, 503, "text/plain", "ecran indisponible", 18); return; }
+        u64 t0 = now_ms();
+        buf = tp_ej_buf;
+        n = ej_partiel(fb, w, h, s, qual, sc, buf, 256 * 1024, &plein, &nb);
+        ms = (int)(now_ms() - t0);
+        if (n < 0) { tp_reply(c, 503, "text/plain", "image trop grosse", 17); return; }
+    }
+    tp_pf_len = -1;
     char hd[360];
     int hn = snprintf(hd, sizeof(hd), "HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nX-Ecran: %dx%d\r\nX-Seq: %u\r\nX-Plein: %d\r\nX-N: %d\r\n"
-                      "X-Ms: %u\r\nX-Web: %d\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", n ? "200 OK" : "204 No Content",
-                      plein ? "image/jpeg" : "application/octet-stream", n, w / s, h / s, (unsigned)ej_seq, plein, nb, (unsigned)(now_ms() - t0), tab == TAB_WEB ? 1 : 0);
+                      "X-Ms: %d\r\nX-Web: %d\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", n ? "200 OK" : "204 No Content",
+                      plein ? "image/jpeg" : "application/octet-stream", n, w / s, h / s, (unsigned)ej_seq, plein, nb, ms, tab == TAB_WEB ? 1 : 0);
     tp_ej_n++;
-    if (tp_send(c, hd, hn) && n > 0) tp_send(c, tp_ej_buf, n);
+    if (!tp_send(c, hd, hn) || (n > 0 && !tp_send(c, buf, n))) return;
+    /* la suivante, d'avance (dans l'autre tampon) */
+    const u8 *fb = tp_ecran_fb(&w, &h);
+    if (!fb) return;
+    u64 t0 = now_ms();
+    tp_pf_base = ej_seq;
+    tp_pf_len = ej_partiel(fb, w, h, s, qual, ej_seq, tp_pf_buf, 256 * 1024, &tp_pf_plein, &tp_pf_nb);
+    tp_pf_ms = (int)(now_ms() - t0);
+    tp_pf_t = now_ms(); tp_pf_s = s; tp_pf_q = qual;
 }
 static volatile int tp_mdx = 0, tp_mdy = 0, tp_mw = 0, tp_mc = 0;          /* v231 : souris tactile (cumul) */                                     /* v230 : memview.c */
 static void tp_push(int c, int i) {

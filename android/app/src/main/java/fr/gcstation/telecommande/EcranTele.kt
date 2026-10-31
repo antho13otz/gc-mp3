@@ -93,7 +93,7 @@ import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 
 /** une image de la tele et l'instant ou elle est arrivee */
-private class Trame(val bmp: Bitmap, val t: Long)
+private class Trame(val bmp: Bitmap, val t: Long) { @Volatile var champ: Bitmap? = null }   // (champ : mouvement depuis la trame d'avant)
 
 /** reglages de l'image : Rapide (320x240), Net (640x480), Max (640x480, compression tres legere) */
 private val QUALITES = arrayOf(Triple("Rapide", 320, 62), Triple("Net", 640, 80), Triple("Max", 640, 92))
@@ -105,6 +105,8 @@ private class Flux {
     var seq = 0L
     var partiel = true
     var web = false
+    var msConsole = 0                                     // (temps de preparation de l'image par la console)
+    var ko = 0                                            // (taille recue)
     /** 1 : nouvelle image (dans img), 0 : rien de change, -1 : pas de reponse */
     var img: Bitmap? = null
     fun suivante(w: Int, q: Int): Int {
@@ -119,6 +121,7 @@ private class Flux {
             if (code == 204) { seq = c.getHeaderField("X-Seq")?.toLongOrNull() ?: 0L; return 0 }
             if (code != 200) return -1
             val b = c.inputStream.use { it.readBytes() }
+            msConsole = c.getHeaderField("X-Ms")?.toIntOrNull() ?: 0; ko = (b.size + 512) / 1024
             if (!partiel || c.getHeaderField("X-Plein") == "1") {
                 val bm = BitmapFactory.decodeByteArray(b, 0, b.size) ?: return -1
                 if (partiel) { toile = bm.copy(Bitmap.Config.ARGB_8888, true); seq = c.getHeaderField("X-Seq")?.toLongOrNull() ?: 0L }
@@ -157,9 +160,12 @@ fun EcranTele() {
     var upscaling by remember { mutableStateOf(prefs.getBoolean("tele_upscaling", Upscale.possible)) }   // (agrandie par le telephone)
     var fluide by remember { mutableStateOf(prefs.getBoolean("tele_fluide", true)) }                    // (images intermediaires 120 Hz)
     var enDirect by remember { mutableStateOf(false) }      // (l'image ne part que si on la demande : bouton Afficher la tele)
-    var a by remember { mutableStateOf<Trame?>(null) }      // (avant-derniere image)
+    // (les dernieres images recues ; affichees avec un leger retard regulier, pour lisser les arrivees irregulieres)
+    val trames = remember { java.util.ArrayDeque<Trame>() }
+    var version by remember { mutableIntStateOf(0) }
     var b by remember { mutableStateOf<Trame?>(null) }      // (derniere image)
-    var champ by remember { mutableStateOf<Pair<Trame, Bitmap>?>(null) }   // (mouvement de a vers b)
+    var intervalle by remember { mutableFloatStateOf(80f) } // (moyenne glissante entre deux images, ms)
+    var diag by remember { mutableStateOf("") }
     var web by remember { mutableStateOf(false) }
     var ips by remember { mutableFloatStateOf(0f) }
     var rate by remember { mutableStateOf(false) }
@@ -173,6 +179,7 @@ fun EcranTele() {
     LaunchedEffect(qualite, enDirect, St.connecte, interpole) {
         if (!enDirect || !St.connecte) return@LaunchedEffect
         val flux = Flux()
+        trames.clear()
         val (_, w, q) = QUALITES[qualite]
         var n = 0
         var t0 = SystemClock.uptimeMillis()
@@ -185,15 +192,19 @@ fun EcranTele() {
             if (r == 0) { delay(12); continue }                 // (rien n'a change sur la tele)
             val nb = Trame(flux.img ?: continue, SystemClock.uptimeMillis())
             val na = b
-            a = na; b = nb
+            b = nb
+            if (na != null) intervalle = intervalle * 0.85f + (nb.t - na.t).coerceIn(10L, 400L) * 0.15f
+            diag = "console " + flux.msConsole + " ms · " + flux.ko + " Ko"
+            trames.addLast(nb)
+            while (trames.size > 5) trames.removeFirst()
+            version++
             if (interpole && na != null && na.bmp.width == nb.bmp.width && na.bmp.height == nb.bmp.height) {
-                launch(Dispatchers.Default) {                    // (mouvement de a vers b, a cote)
+                launch(Dispatchers.Default) {                    // (mouvement de l'image d'avant vers celle-ci, a cote)
                     val w2 = nb.bmp.width; val h2 = nb.bmp.height
                     val pa = IntArray(w2 * h2); val pb = IntArray(w2 * h2)
                     na.bmp.getPixels(pa, 0, w2, 0, 0, w2, h2); nb.bmp.getPixels(pb, 0, w2, 0, 0, w2, h2)
                     val m = Mouvement.estimer(pa, pb, w2, h2)
-                    val cb = Bitmap.createBitmap(Mouvement.pixels(m), m.bw, m.bh, Bitmap.Config.ARGB_8888)
-                    withContext(Dispatchers.Main) { if (b === nb) champ = nb to cb }
+                    nb.champ = Bitmap.createBitmap(Mouvement.pixels(m), m.bw, m.bh, Bitmap.Config.ARGB_8888)
                 }
             }
             n++
@@ -213,10 +224,18 @@ fun EcranTele() {
             .background(Color.Black).border(1.dp, Brush.linearGradient(listOf(C.Rose, C.Cyan)), RoundedCornerShape(if (paysage) 10.dp else 18.dp))
             .then(if (enDirect) Modifier.gestesTele(web) else Modifier)) {
             if (bb != null) {
-                val aa = a; val ch = champ
-                val vue = if (interpole && aa != null && ch != null && ch.first === bb) {
-                    val duree = (bb.t - aa.t).coerceIn(30L, 250L)
-                    Vue(aa.bmp, bb.bmp, ch.second, ((maintenant - bb.t).toFloat() / duree).coerceIn(0f, 1f))
+                @Suppress("UNUSED_VARIABLE") val vv = version
+                // (on montre l'instant "maintenant - retard" : entre les deux images qui l'encadrent, avec leur mouvement)
+                val vue = if (interpole && trames.size >= 2) {
+                    val ici = maintenant - (intervalle * 1.3f).toLong().coerceIn(40L, 300L)
+                    var av: Trame? = null; var ap: Trame? = null
+                    for (tr in trames) { if (tr.t <= ici) av = tr else { ap = tr; break } }
+                    when {
+                        av == null -> Vue(null, trames.first.bmp, null, 1f)
+                        ap == null -> Vue(null, av.bmp, null, 1f)
+                        ap.champ == null -> Vue(null, if (ici - av.t > (ap.t - av.t) / 2) ap.bmp else av.bmp, null, 1f)
+                        else -> Vue(av.bmp, ap.bmp, ap.champ, ((ici - av.t).toFloat() / (ap.t - av.t)).coerceIn(0f, 1f))
+                    }
                 } else Vue(null, bb.bmp, null, 1f)
                 ImageTele(vue, upscaling, Modifier.fillMaxSize())
             }
@@ -229,7 +248,7 @@ fun EcranTele() {
             if (bb != null) Row(Modifier.align(Alignment.TopStart).padding(8.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x99000000)).padding(horizontal = 7.dp, vertical = 3.dp)) {
                 Box(Modifier.align(Alignment.CenterVertically).size(7.dp).clip(CircleShape).background(if (rate) C.Rouge else C.Vert))
                 Spacer(Modifier.width(5.dp))
-                Text(String.format(java.util.Locale.FRANCE, "%.0f img/s", ips) + (if (interpole) " → 120 Hz" else "") + (if (upscaling && Upscale.possible) " · upscaling" else "") + if (web) " · pointeur" else "", color = Color.White, fontSize = 10.sp)
+                Text(String.format(java.util.Locale.FRANCE, "%.0f img/s", ips) + (if (interpole) " → 120 Hz" else "") + (if (diag.isNotEmpty()) " · $diag" else "") + (if (upscaling && Upscale.possible) " · upscaling" else "") + if (web) " · pointeur" else "", color = Color.White, fontSize = 10.sp)
             }
             if (!enDirect && St.connecte) Box(Modifier.fillMaxSize().background(Color(0x99000000)), contentAlignment = Alignment.Center) {
                 Bouton("Afficher la télé", plein = true, icone = Ic.Lecture) { enDirect = true }

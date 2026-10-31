@@ -24,6 +24,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v295 (build à venir, appli build à venir) — Télé sur le téléphone : moins de saccades
+- **Console : l'image suivante préparée d'avance** : dès qu'une image part vers le téléphone, la console prépare la
+  suivante (capture et compression) pendant que le téléphone la reçoit ; à la demande suivante, elle part tout de
+  suite. Le téléphone n'attend plus la console entre deux images : plus d'images par seconde.
+- **Appli : arrivées lissées** : les images de la console arrivent à intervalles irréguliers ; l'appli les affiche
+  avec un léger retard régulier (environ 1,3 intervalle) et calcule les images intermédiaires entre les deux qui
+  encadrent l'instant affiché : plus de sauts quand une image arrive en avance ou en retard (mode **Fluide 120 Hz**).
+- Le badge de l'image indique aussi le temps de préparation par la console et la taille reçue (diagnostic).
+
 ## Nouveautés appli build 65 — Télé en plein écran : bonnes proportions
 - En plein écran (paysage), l'image de la télé était écrasée en largeur (étirée sur toute la hauteur) : elle est
   maintenant toujours en 4/3, et l'image agrandie garde ses proportions quoi qu'il arrive.
