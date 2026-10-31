@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés appli build à venir — Thèmes, animations, fiche enrichie
+## Nouveautés appli build 103 — Thèmes, animations, fiche enrichie
 - **Plus > Apparence** : l'**ambiance** de toute l'appli (Néon d'origine, Sombre sobre, GameCube indigo, ou **Couleurs du
   jeu** : tirées de la jaquette du jeu en cours, sinon de la dernière fiche ouverte), la **taille du texte** (Petit à Très
   grand), les **vibrations** des boutons et le **120 Hz**. Tout change tout de suite et est gardé.
