@@ -113,38 +113,53 @@ fun boitier(full: Boolean, avant: Boolean): Maillage {
     m.commencer(P_BAC, M_COULEUR, bord, 0.8f, 4); anneau(ext, inn, zi, 1f)
     m.commencer(P_BAC, M_COULEUR, gris, 0.6f, 4); paroi(inn, zf, zi, false, false); paroi(inn, zf, zi, false, true)
     m.commencer(P_BAC, M_COULEUR, fond, 0.5f, 4); plaque(inn, zf, 1f, null)
-    // support du disque (comme le vrai) : grand plateau hexagonal en relief, pointes a gauche et a droite
-    m.commencer(P_BAC, M_COULEUR, 0x6C6C72, 0.8f, 4)
-    val hx = ArrayList<FloatArray>()
-    for (i in 0 until 6) { val a = Math.toRadians(60.0 * i); hx.add(floatArrayOf((0.62 * kotlin.math.cos(a)).toFloat(), (0.62 * kotlin.math.sin(a)).toFloat(), kotlin.math.cos(a).toFloat(), kotlin.math.sin(a).toFloat())) }
-    val zh = zf + 0.014f
-    plaque(hx, zh, 1f, null)
-    m.commencer(P_BAC, M_COULEUR, 0x9A9AA0, 1.0f, 4); paroi(hx, zf, zh, true, false)
-    // encoches pour les doigts (en haut a droite et en bas a gauche du plateau)
-    m.commencer(P_BAC, M_COULEUR, 0x66666C, 0.6f, 4)
-    pave(0.20f, 0.46f, 0.38f, 0.50f, zf, zh - 0.006f); pave(-0.38f, -0.50f, -0.20f, -0.46f, zf, zh - 0.006f)
     fun cercle(r: Float, n: Int = 96) = (0 until n).map { i -> val a = 2 * Math.PI * i / n; floatArrayOf((r * kotlin.math.cos(a)).toFloat(), (r * kotlin.math.sin(a)).toFloat(), kotlin.math.cos(a).toFloat(), kotlin.math.sin(a).toFloat()) }
-    // berceau : le rebord circulaire ou le bord du disque se pose
-    m.commencer(P_BAC, M_COULEUR, 0x86868C, 0.9f, 4)
-    val b0 = cercle(DR + 0.010f); val b1 = cercle(DR + 0.030f)
-    paroi(b0, zh, zh + 0.008f, false, false); paroi(b1, zh, zh + 0.008f, true, false); anneau(b1, b0, zh + 0.008f, 1f)
-    // ergot central, plastique clair : socle rond, deux montants et la barre (le "H" du vrai), dents autour
-    m.commencer(P_BAC, M_COULEUR, 0xBFC0C6, 1.1f)
-    val ro = cercle(0.085f, 64); val rin = cercle(0.066f, 64)
-    val zc = zh + 0.022f
-    paroi(ro, zh, zc, true, false); paroi(rin, zh, zc, false, false); anneau(ro, rin, zc, 1f)
-    m.commencer(P_BAC, M_COULEUR, 0xD8D9DE, 1.3f)
-    pave(-0.042f, -0.075f, -0.028f, 0.075f, zh, zc + 0.016f); pave(0.028f, -0.075f, 0.042f, 0.075f, zh, zc + 0.016f)
-    pave(-0.028f, -0.008f, 0.028f, 0.008f, zh, zc + 0.010f)
-    for (i in 0 until 8) {                                   // (les dents qui tiennent le disque)
-        val a = Math.PI * i / 4 + Math.PI / 8; val cx = (0.076 * kotlin.math.cos(a)).toFloat(); val cy = (0.076 * kotlin.math.sin(a)).toFloat()
-        pave(cx - 0.008f, cy - 0.008f, cx + 0.008f, cy + 0.008f, zc, zc + 0.008f)
+    fun hexa(r: Float) = (0 until 6).map { i -> val a = Math.toRadians(60.0 * i); floatArrayOf((r * kotlin.math.cos(a)).toFloat(), (r * kotlin.math.sin(a)).toFloat(), kotlin.math.cos(a).toFloat(), kotlin.math.sin(a).toFloat()) }
+    // pave tourne (cx, cy : centre ; a : angle ; l x e : taille)
+    fun bloc(cx: Float, cy: Float, a: Double, l: Float, e: Float, z0: Float, z1: Float) {
+        val ca = kotlin.math.cos(a).toFloat(); val sa = kotlin.math.sin(a).toFloat()
+        val c = listOf(-l / 2 to -e / 2, l / 2 to -e / 2, l / 2 to e / 2, -l / 2 to e / 2).map { (u, w) -> floatArrayOf(cx + u * ca - w * sa, cy + u * sa + w * ca, 0f, 0f) }
+        for (k in 0 until 4) { val j = (k + 1) % 4; val nx = (c[k][0] + c[j][0]) / 2 - cx; val ny = (c[k][1] + c[j][1]) / 2 - cy; val nl = kotlin.math.sqrt(nx * nx + ny * ny); c[k][2] = nx / nl; c[k][3] = ny / nl }
+        for (k in 0 until 4) { val j = (k + 1) % 4; val nx = c[k][2]; val ny = c[k][3]
+            m.quad(p(c[k][0], c[k][1], z0, nx, ny, 0f), p(c[j][0], c[j][1], z0, nx, ny, 0f), p(c[j][0], c[j][1], z1, nx, ny, 0f), p(c[k][0], c[k][1], z1, nx, ny, 0f)) }
+        m.quad(p(c[0][0], c[0][1], z1, 0f, 0f, 1f), p(c[1][0], c[1][1], z1, 0f, 0f, 1f), p(c[2][0], c[2][1], z1, 0f, 0f, 1f), p(c[3][0], c[3][1], z1, 0f, 0f, 1f))
     }
-    // petite attache rectangulaire en bas, pres de la charniere, et la fente en haut a droite (comme le vrai)
-    m.commencer(P_BAC, M_COULEUR, 0x8A8A90, 0.9f, 4)
-    pave(-X + 0.10f, -Y + 0.24f, -X + 0.30f, -Y + 0.36f, zf, zf + 0.012f)
-    m.commencer(P_BAC, M_COULEUR, 0x26262A, 0.5f, 4)
-    pave(-X + 0.13f, -Y + 0.27f, -X + 0.27f, -Y + 0.33f, zf + 0.012f, zf + 0.013f)
+    // bande en arc de cercle en relief (centre, rayons, angles en degres, hauteurs)
+    fun arc(cx: Float, cy: Float, r0: Float, r1: Float, a0: Double, a1: Double, z0: Float, z1: Float, n: Int = 24) {
+        for (i in 0 until n) {
+            val t0 = Math.toRadians(a0 + (a1 - a0) * i / n); val t1 = Math.toRadians(a0 + (a1 - a0) * (i + 1) / n)
+            val c0 = kotlin.math.cos(t0).toFloat(); val s0 = kotlin.math.sin(t0).toFloat(); val c1 = kotlin.math.cos(t1).toFloat(); val s1 = kotlin.math.sin(t1).toFloat()
+            m.quad(p(cx + r0 * c0, cy + r0 * s0, z1, 0f, 0f, 1f), p(cx + r1 * c0, cy + r1 * s0, z1, 0f, 0f, 1f), p(cx + r1 * c1, cy + r1 * s1, z1, 0f, 0f, 1f), p(cx + r0 * c1, cy + r0 * s1, z1, 0f, 0f, 1f))
+            m.quad(p(cx + r1 * c0, cy + r1 * s0, z0, c0, s0, 0f), p(cx + r1 * c1, cy + r1 * s1, z0, c1, s1, 0f), p(cx + r1 * c1, cy + r1 * s1, z1, c1, s1, 0f), p(cx + r1 * c0, cy + r1 * s0, z1, c0, s0, 0f))
+            m.quad(p(cx + r0 * c1, cy + r0 * s1, z0, -c1, -s1, 0f), p(cx + r0 * c0, cy + r0 * s0, z0, -c0, -s0, 0f), p(cx + r0 * c0, cy + r0 * s0, z1, -c0, -s0, 0f), p(cx + r0 * c1, cy + r0 * s1, z1, -c1, -s1, 0f))
+        }
+    }
+    // support du disque, comme le vrai : plateau hexagonal a peine en relief (pointes a gauche et a droite) borde d'un
+    // fin rebord ; anneau fin ou le bord du disque se pose ; nervures sombres autour ; au centre, deux barres et un "S"
+    val zh = zf + 0.006f
+    m.commencer(P_BAC, M_COULEUR, 0x5A5A60, 0.7f, 4)
+    plaque(hexa(0.62f), zh, 1f, null)
+    m.commencer(P_BAC, M_COULEUR, 0x76767C, 0.9f, 4)
+    paroi(hexa(0.62f), zf, zh + 0.004f, true, false); anneau(hexa(0.62f), hexa(0.60f), zh + 0.004f, 1f); paroi(hexa(0.60f), zh, zh + 0.004f, false, false)
+    m.commencer(P_BAC, M_COULEUR, 0x404045, 0.7f, 4)                      // (anneau du disque : deux traits fins)
+    arc(0f, 0f, DR + 0.012f, DR + 0.020f, 0.0, 360.0, zh, zh + 0.008f, 96); arc(0f, 0f, DR + 0.030f, DR + 0.036f, 0.0, 360.0, zh, zh + 0.005f, 96)
+    m.commencer(P_BAC, M_COULEUR, 0x36363B, 0.6f, 4)                      // (nervures en coin autour de l'anneau)
+    for (k in 0 until 8) { val a = Math.toRadians(22.5 + 45.0 * k); val r = DR + 0.06f
+        bloc((r * kotlin.math.cos(a)).toFloat(), (r * kotlin.math.sin(a)).toFloat(), a, 0.09f, 0.05f, zh, zh + 0.016f) }
+    m.commencer(P_BAC, M_COULEUR, 0xE4E5EA, 1.4f)                         // (le motif central, plastique blanc)
+    pave(-0.052f, -0.13f, -0.042f, 0.13f, zh, zh + 0.03f); pave(0.042f, -0.13f, 0.052f, 0.13f, zh, zh + 0.03f)
+    arc(0f, 0.036f, 0.028f, 0.037f, 90.0, 270.0, zh, zh + 0.026f); arc(0f, -0.036f, 0.028f, 0.037f, -90.0, 90.0, zh, zh + 0.026f)
+    pave(-0.004f, -0.002f, 0.004f, 0.002f, zh, zh + 0.026f)
+    m.commencer(P_BAC, M_COULEUR, 0x4A4A50, 0.6f, 4)                      // (fond du motif : cadre sombre a peine marque)
+    pave(-0.06f, -0.14f, 0.06f, 0.14f, zh, zh + 0.001f)
+    // petite attache en bas, pres de la charniere : un cadre fin et deux languettes claires
+    m.commencer(P_BAC, M_COULEUR, 0x2E2E33, 0.6f, 4)
+    val ax0 = -X + 0.09f; val ax1 = -X + 0.42f; val ay0 = -Y + 0.20f; val ay1 = -Y + 0.36f
+    pave(ax0, ay1 - 0.012f, ax1, ay1, zf, zf + 0.012f); pave(ax0, ay0, ax0 + 0.012f, ay1, zf, zf + 0.012f); pave(ax1 - 0.012f, ay0, ax1, ay1, zf, zf + 0.012f)
+    m.commencer(P_BAC, M_COULEUR, 0xD8D9DE, 1.2f)
+    pave(ax0 + 0.012f, ay0 + 0.03f, ax0 + 0.05f, ay0 + 0.10f, zf, zf + 0.02f); pave(ax1 - 0.05f, ay0 + 0.02f, ax1 - 0.012f, ay0 + 0.09f, zf, zf + 0.02f)
+    // fentes : une en haut a droite
+    m.commencer(P_BAC, M_COULEUR, 0x202024, 0.5f, 4)
     pave(X - 0.075f, Y - 0.48f, X - 0.06f, Y - 0.26f, zf, zf + 0.002f)
 
     // ---- le couvercle (la jaquette sous le film transparent, l'interieur, les attaches de la notice) ----
@@ -157,16 +172,29 @@ fun boitier(full: Boolean, avant: Boolean): Maillage {
     m.commencer(P_COUV, M_COULEUR, bord, 0.8f, 4); anneau(ext, inn, zi, -1f)
     m.commencer(P_COUV, M_COULEUR, gris, 0.6f, 4); paroi(inn, zi, zl, false, false); paroi(inn, zi, zl, false, true)
     m.commencer(P_COUV, M_COULEUR, fond, 0.5f, 4); plaque(inn, zl, -1f, null)
-    // attaches de la notice : deux crochets en plastique clair, en haut et en bas du cote qui s'ouvre ; une fente
-    m.commencer(P_COUV, M_COULEUR, 0xC4C5CA, 1.1f, 4)
+    // attaches de la notice, comme le vrai : un crochet courbe en "C" qui part du bord (en haut et en bas, du cote qui
+    // s'ouvre) : une bande plate puis un demi-cercle qui redescend sur le fond
+    m.commencer(P_COUV, M_COULEUR, 0xB4B5BB, 1.2f)
     for (sy in floatArrayOf(1f, -1f)) {
-        val y0 = sy * (Y - 0.30f); val y1 = sy * (Y - 0.10f)
-        pave(X - 0.13f, minOf(y0, y1), X - 0.05f, maxOf(y0, y1), zl - 0.035f, zl)               // (montant, contre le bord)
-        val yb = sy * (Y - 0.18f)
-        pave(X - 0.34f, yb - 0.035f, X - 0.05f, yb + 0.035f, zl - 0.045f, zl - 0.028f)           // (le crochet qui retient)
+        val ya = sy * (Y - 0.26f); val yb = sy * (Y - 0.13f); val y0 = minOf(ya, yb); val y1 = maxOf(ya, yb)
+        val xw = X - 0.035f; val cx = X - 0.22f; val r = 0.036f; val zt = zl - 2 * r; val cz = zl - r
+        m.quad(p(xw, y0, zt, 0f, 0f, -1f), p(cx, y0, zt, 0f, 0f, -1f), p(cx, y1, zt, 0f, 0f, -1f), p(xw, y1, zt, 0f, 0f, -1f))
+        val n = 16
+        for (i in 0 until n) {
+            val t0 = Math.toRadians(-90.0 + 180.0 * i / n); val t1 = Math.toRadians(-90.0 + 180.0 * (i + 1) / n)
+            val x0 = cx - r * kotlin.math.cos(t0).toFloat(); val z0 = cz + r * kotlin.math.sin(t0).toFloat()
+            val x1 = cx - r * kotlin.math.cos(t1).toFloat(); val z1 = cz + r * kotlin.math.sin(t1).toFloat()
+            val nx0 = -kotlin.math.cos(t0).toFloat(); val nz0 = kotlin.math.sin(t0).toFloat(); val nx1 = -kotlin.math.cos(t1).toFloat(); val nz1 = kotlin.math.sin(t1).toFloat()
+            m.quad(p(x0, y0, z0, nx0, 0f, nz0), p(x1, y0, z1, nx1, 0f, nz1), p(x1, y1, z1, nx1, 0f, nz1), p(x0, y1, z0, nx0, 0f, nz0))
+        }
+        pave(cx - 0.004f, y0, cx + 0.03f, y1, zl - 0.004f, zl)          // (le pied du crochet, sur le fond)
     }
-    m.commencer(P_COUV, M_COULEUR, 0x26262A, 0.5f, 4)
-    pave(-X + 0.12f, Y - 0.50f, -X + 0.135f, Y - 0.30f, zl - 0.002f, zl)
+    // encoches noires dans le rebord, du cote qui s'ouvre ; fentes pres de la charniere (en haut et en bas)
+    m.commencer(P_COUV, M_COULEUR, 0x141417, 0.5f, 4)
+    for ((ya, yb) in listOf(Y - 0.42f to Y - 0.30f, Y - 0.58f to Y - 0.46f, -Y + 0.30f to -Y + 0.42f, -Y + 0.12f to -Y + 0.24f))
+        pave(X - 0.05f, ya, X - 0.035f, yb, zl - 0.03f, zl)
+    pave(-X + 0.12f, Y - 0.40f, -X + 0.135f, Y - 0.22f, zl - 0.002f, zl)
+    pave(-X + 0.12f, -Y + 0.22f, -X + 0.135f, -Y + 0.40f, zl - 0.002f, zl)
 
     // ---- le disque (dessus : l'image du jeu ; dessous : irise ; tranche argent) ; trou de 15 mm ----
     val ri = DR * 15f / 80f; val e = 0.006f

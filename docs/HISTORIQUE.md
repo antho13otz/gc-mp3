@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — L'intérieur de la boîte 3D à l'identique
+
+- **Bac** : plateau hexagonal à peine en relief, bordé d'un fin rebord ; anneau fin où se pose le disque ; 8 nervures sombres autour ; au centre, le vrai motif blanc (deux barres et un « S ») ; en bas, le cadre fin de l'attache avec ses deux languettes claires.
+- **Couvercle** : les attaches de la notice sont de vrais crochets courbes qui partent du bord ; encoches noires dans le rebord et fentes près de la charnière.
+
 ## Nouveautés appli build 71 — L'intérieur de la boîte 3D comme le vrai
 - Intérieur **gris moyen** (plus noir), plastique mat ; **grand plateau hexagonal** en relief (pointes à gauche et à
   droite) avec son **berceau** rond et ses encoches ; **ergot central clair** en « H » avec ses dents ;
