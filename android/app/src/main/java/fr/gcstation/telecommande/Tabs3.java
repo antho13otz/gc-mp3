@@ -63,7 +63,7 @@ class SearchTab extends Tab {
     }
 
     void load() {
-        status.setText("Chargement des listes…");
+        status.setText(Lang.t("Chargement des listes…"));
         if (QueueTab.tracks == null) Api.get("/api/tracks", r -> {
             if (r == null) return;
             List<String[]> l = new ArrayList<>();
@@ -90,7 +90,7 @@ class SearchTab extends Tab {
     private void run() {
         String q = field.getText().toString().trim().toLowerCase(Locale.ROOT);
         res.removeAllViews();
-        if (q.length() < 2) { status.setText(QueueTab.tracks == null ? "Chargement des listes…" : "Tape au moins 2 lettres"); return; }
+        if (q.length() < 2) { status.setText(Lang.t(QueueTab.tracks == null ? "Chargement des listes…" : "Tape au moins 2 lettres")); return; }
         int n = 0;
         List<String[]> tr = QueueTab.tracks;
         List<Integer> t = new ArrayList<>();
@@ -99,10 +99,10 @@ class SearchTab extends Tab {
             head("MUSIQUE", Neon.PINK);
             for (final int k : t) {
                 View r = row("♫", Neon.PINK, tr.get(k)[0], tr.get(k)[1]);
-                r.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); Api.cmd("play", k); Toast.makeText(a, "Lecture : " + tr.get(k)[0], Toast.LENGTH_SHORT).show(); });
+                r.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); Api.cmd("play", k); Lang.toast(a, "Lecture : " + tr.get(k)[0], Toast.LENGTH_SHORT).show(); });
                 r.setOnLongClickListener(v -> {
                     new NeonDialog(a).title(tr.get(k)[0]).items(new String[] { "⤵  Lire juste après", "☰  Ajouter à la fin de la file" }, w ->
-                        Api.get("/api/queueadd?i=" + k + "&d=" + (w == 0 ? 1 : 0), x -> Toast.makeText(a, x != null ? "Ajouté à la file" : "Pas possible", Toast.LENGTH_SHORT).show())).cancel("Fermer").show();
+                        Api.get("/api/queueadd?i=" + k + "&d=" + (w == 0 ? 1 : 0), x -> Lang.toast(a, x != null ? "Ajouté à la file" : "Pas possible", Toast.LENGTH_SHORT).show())).cancel("Fermer").show();
                     return true;
                 });
                 n++;
@@ -114,7 +114,7 @@ class SearchTab extends Tab {
             head("RADIO", Neon.CYAN);
             for (final int k : s) {
                 View r = row("◉", Neon.CYAN, stations.get(k)[0], "");
-                r.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); Api.cmd("radio", k); Toast.makeText(a, "Radio : " + stations.get(k)[0], Toast.LENGTH_SHORT).show(); });
+                r.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); Api.cmd("radio", k); Lang.toast(a, "Radio : " + stations.get(k)[0], Toast.LENGTH_SHORT).show(); });
                 n++;
             }
         }
@@ -128,7 +128,7 @@ class SearchTab extends Tab {
                 n++;
             }
         }
-        status.setText(n == 0 ? "Rien trouvé" : n + " résultat" + (n > 1 ? "s" : "") + " · appui long sur un morceau : file d'attente");
+        status.setText(Lang.t(n == 0 ? "Rien trouvé" : n + " résultat" + (n > 1 ? "s" : "") + " · appui long sur un morceau : file d'attente"));
     }
 
     private void head(String s, int c) {
@@ -307,8 +307,8 @@ class CopiesTab extends Tab {
         LinearLayout.LayoutParams bp = lp(-1, -2, 0);
         bp.topMargin = dp(12);
         c.addView(Neon.btn(a, "Faire une copie maintenant", 14, true, x -> {
-            status.setText("Copie en cours (les cartes peuvent prendre un moment)…");
-            Backup.run(a, false, m -> { status.setText(m); load(); });
+            status.setText(Lang.t("Copie en cours (les cartes peuvent prendre un moment)…"));
+            Backup.run(a, false, m -> { status.setText(Lang.t(m)); load(); });
         }), bp);
         v.addView(c, lp(-1, -2, 0));
         status = UiKit.hint(a, "");
@@ -330,7 +330,7 @@ class CopiesTab extends Tab {
         File[] l = Backup.list(a);
         long t = Backup.prefs(a).getLong("copie_t", 0);
         if (status.getText().length() == 0 || !status.getText().toString().startsWith("Copie"))
-            status.setText(l.length == 0 ? "Aucune copie sur ce téléphone pour l'instant" : "Dernière copie : " + (t > 0 ? new SimpleDateFormat("d MMM 'à' HH'h'mm", Locale.FRANCE).format(new Date(t)) : l[0].getName()));
+            status.setText(Lang.t(l.length == 0 ? "Aucune copie sur ce téléphone pour l'instant" : "Dernière copie : " + (t > 0 ? new SimpleDateFormat("d MMM 'à' HH'h'mm", Locale.FRANCE).format(new Date(t)) : l[0].getName())));
         for (final File d : l) {
             LinearLayout c = UiKit.card(a);
             c.addView(Neon.glow(a, d.getName().replace('_', ' ').replace("h", " h "), 15, Neon.PINK));
@@ -368,7 +368,7 @@ class CopiesTab extends Tab {
 
     interface Job { String run(); }
     private void restore(final Job j) {
-        status.setText("Envoi vers la console…");
-        new Thread(() -> { final String m = j.run(); a.runOnUiThread(() -> { status.setText(m); Toast.makeText(a, m, Toast.LENGTH_LONG).show(); }); }).start();
+        status.setText(Lang.t("Envoi vers la console…"));
+        new Thread(() -> { final String m = j.run(); a.runOnUiThread(() -> { status.setText(Lang.t(m)); Lang.toast(a, m, Toast.LENGTH_LONG).show(); }); }).start();
     }
 }

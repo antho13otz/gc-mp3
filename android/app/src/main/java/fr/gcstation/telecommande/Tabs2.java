@@ -61,7 +61,7 @@ final class UiKit {
     }
     static EditText search(Activity a, String hint, Runnable onChange) {
         EditText e = new EditText(a);
-        e.setHint(hint);
+        e.setHint(Lang.t(hint));
         e.setHintTextColor(Neon.FAINT);
         e.setTextColor(Neon.TEXT);
         e.setSingleLine(true);
@@ -77,7 +77,7 @@ final class UiKit {
     /** champ de saisie neon (multiline : plusieurs lignes, ex. des codes) */
     static EditText field(Activity a, String hint, boolean multiline) {
         EditText e = new EditText(a);
-        e.setHint(hint);
+        e.setHint(Lang.t(hint));
         e.setHintTextColor(Neon.FAINT);
         e.setTextColor(Neon.TEXT);
         e.setBackground(Neon.glass(a, 14));
@@ -116,8 +116,8 @@ final class UiKit {
             r.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             r.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name);
             ((DownloadManager) a.getSystemService(Context.DOWNLOAD_SERVICE)).enqueue(r);
-            Toast.makeText(a, "Téléchargement : " + name, Toast.LENGTH_SHORT).show();
-        } catch (Exception e) { Toast.makeText(a, "Téléchargement impossible", Toast.LENGTH_LONG).show(); }
+            Lang.toast(a, "Téléchargement : " + name, Toast.LENGTH_SHORT).show();
+        } catch (Exception e) { Lang.toast(a, "Téléchargement impossible", Toast.LENGTH_LONG).show(); }
     }
     static int cols(Activity a, int minDp) { return Math.max(2, (int) (a.getResources().getDisplayMetrics().widthPixels / a.getResources().getDisplayMetrics().density / minDp)); }
 }
@@ -210,10 +210,10 @@ class GamesTab extends Tab {
             Api.get("/api/gamefav?id=" + id + "&i=" + i, r -> {
                 JSONObject j = null;
                 try { if (r != null) j = new JSONObject(r); } catch (Exception e) { }
-                if (j == null) { Toast.makeText(a, "Pas possible (console à mettre à jour ?)", Toast.LENGTH_SHORT).show(); return; }
+                if (j == null) { Lang.toast(a, "Pas possible (console à mettre à jour ?)", Toast.LENGTH_SHORT).show(); return; }
                 boolean on = j.optInt("fav") != 0;
                 try { x.put(4, on ? 1 : 0); } catch (Exception e) { }
-                fav.setText(on ? "★ Favori" : "☆ Favori");
+                fav.setText(Lang.t(on ? "★ Favori" : "☆ Favori"));
                 fav.setBackground(Neon.button(a, 16, on));
                 adapter.notifyDataSetChanged();
             });
@@ -263,7 +263,7 @@ class GamesTab extends Tab {
             d.setOnClickListener(vv -> {
                 vv.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
                 Api.get("/api/compatset?id=" + id + "&d=" + v, r -> {
-                    if (r == null) { Toast.makeText(a, "Pas possible (console à mettre à jour ?)", Toast.LENGTH_SHORT).show(); return; }
+                    if (r == null) { Lang.toast(a, "Pas possible (console à mettre à jour ?)", Toast.LENGTH_SHORT).show(); return; }
                     readCompat(r);
                     paint[0].run();
                     adapter.notifyDataSetChanged();
@@ -285,7 +285,7 @@ class GamesTab extends Tab {
                 dots.getChildAt(k).setBackground(g);
                 dots.getChildAt(k).setScaleX(k == cv ? 1.15f : 1f); dots.getChildAt(k).setScaleY(k == cv ? 1.15f : 1f);
             }
-            dname.setText(CP_NAME[cv < CP_NAME.length ? cv : 0]);
+            dname.setText(Lang.t(CP_NAME[cv < CP_NAME.length ? cv : 0]));
             dname.setTextColor(cv == 0 ? Neon.FAINT : CP_COL[cv]);
         };
         paint[0].run();
@@ -299,8 +299,8 @@ class GamesTab extends Tab {
         cfg.setOrientation(LinearLayout.VERTICAL);
         final TextView open = Neon.btn(a, "Afficher", 12, false, null);
         open.setOnClickListener(v -> {
-            if (cfg.getChildCount() > 0) { cfg.removeAllViews(); open.setText("Afficher"); return; }
-            open.setText("Masquer");
+            if (cfg.getChildCount() > 0) { cfg.removeAllViews(); open.setText(Lang.t("Afficher")); return; }
+            open.setText(Lang.t("Masquer"));
             loadCfg(id, i, -1, 0, cfg);
         });
         gr.addView(open, lp(-2, -2, 0));
@@ -315,8 +315,8 @@ class GamesTab extends Tab {
         saves.setOrientation(LinearLayout.VERTICAL);
         final TextView sopen = Neon.btn(a, "Afficher", 12, false, null);
         sopen.setOnClickListener(v -> {
-            if (saves.getChildCount() > 0) { saves.removeAllViews(); sopen.setText("Afficher"); return; }
-            sopen.setText("Masquer");
+            if (saves.getChildCount() > 0) { saves.removeAllViews(); sopen.setText(Lang.t("Afficher")); return; }
+            sopen.setText(Lang.t("Masquer"));
             CardsTab.gameSaves(a, id, saves);
         });
         sr.addView(sopen, lp(-2, -2, 0));
@@ -346,7 +346,7 @@ class GamesTab extends Tab {
         int n = cheatList.getChildCount();
         boolean open = cheatsOpen() || n <= 2;                // (1 ou 2 cheats : toujours affiches)
         foldBtn.setVisibility(n > 2 ? View.VISIBLE : View.GONE);
-        foldBtn.setText(open ? "▴ Replier" : "▾ Afficher (" + n + ")");
+        foldBtn.setText(Lang.t(open ? "▴ Replier" : "▾ Afficher (" + n + ")"));
         foldBtn.setTextSize(12);
         cheatList.setVisibility(open ? View.VISIBLE : View.GONE);
     }
@@ -356,11 +356,11 @@ class GamesTab extends Tab {
         try { if (r != null) j = new JSONObject(r); } catch (Exception e) { }
         JSONArray c = j != null ? j.optJSONArray("c") : null;
         list.removeAllViews();
-        if (j == null) { ch.setText("Cheats indisponibles (console à mettre à jour ?)"); return; }
-        if (!j.optString("err").isEmpty()) Toast.makeText(a, j.optString("err"), Toast.LENGTH_LONG).show();
+        if (j == null) { ch.setText(Lang.t("Cheats indisponibles (console à mettre à jour ?)")); return; }
+        if (!j.optString("err").isEmpty()) Lang.toast(a, j.optString("err"), Toast.LENGTH_LONG).show();
         if (c == null || c.length() == 0) {
             mask = "";
-            ch.setText(j.optInt("x") != 0 ? "Aucun cheat utilisable dans SD:/gc-mp3/cheats/" + id + ".txt" : "Pas encore de cheats pour ce jeu : + Ajouter (ou SD:/gc-mp3/cheats/" + id + ".txt)");
+            ch.setText(Lang.t(j.optInt("x") != 0 ? "Aucun cheat utilisable dans SD:/gc-mp3/cheats/" + id + ".txt" : "Pas encore de cheats pour ce jeu : + Ajouter (ou SD:/gc-mp3/cheats/" + id + ".txt)"));
             applyFold();
             return;
         }
@@ -371,7 +371,7 @@ class GamesTab extends Tab {
         final Runnable count = () -> {
             int on = 0;
             for (int k = 0; k < mask.length(); k++) if (mask.charAt(k) == '1') on++;
-            ch.setText(on == 0 ? "Aucun cheat activé · appui long : modifier" : on + " cheat" + (on > 1 ? "s activés" : " activé") + " · Pulse les applique (sinon : lanceur de secours)");
+            ch.setText(Lang.t(on == 0 ? "Aucun cheat activé · appui long : modifier" : on + " cheat" + (on > 1 ? "s activés" : " activé") + " · Pulse les applique (sinon : lanceur de secours)"));
             ch.setTextColor(on == 0 ? Neon.FAINT : Neon.DIM);
         };
         count.run();
@@ -425,14 +425,14 @@ class GamesTab extends Tab {
         LinearLayout f = new LinearLayout(a);
         f.setOrientation(LinearLayout.VERTICAL);
         final EditText nm = UiKit.field(a, "Nom du cheat (ex. Vies infinies)", false);
-        nm.setText(name);
+        nm.setText(Lang.t(name));
         if (n >= 0) nm.setEnabled(false);
         f.addView(nm, lp(-1, -2, 0));
         final EditText cd = UiKit.field(a, "04001234 00000063\n04005678 00000001", true);
         cd.setTypeface(android.graphics.Typeface.MONOSPACE);
         StringBuilder sb = new StringBuilder();
         for (String c : codes.split(",")) if (c.length() == 16) sb.append(sb.length() > 0 ? "\n" : "").append(c, 0, 8).append(' ').append(c.substring(8));
-        cd.setText(sb);
+        cd.setText(Lang.t(sb));
         LinearLayout.LayoutParams cl = lp(-1, -2, 0);
         cl.topMargin = dp(10);
         f.addView(cd, cl);
@@ -442,18 +442,18 @@ class GamesTab extends Tab {
         new NeonDialog(a).title(n < 0 ? "Nouveau cheat" : "Codes : " + name).view(f).cancel("Annuler")
             .button("Enregistrer", true, () -> {
                 String hex = cd.getText().toString().replaceAll("[^0-9A-Fa-f]", "");
-                if (hex.isEmpty() || hex.length() % 16 != 0) { Toast.makeText(a, "Chaque ligne doit avoir 16 chiffres (XXXXXXXX YYYYYYYY)", Toast.LENGTH_LONG).show(); return; }
+                if (hex.isEmpty() || hex.length() % 16 != 0) { Lang.toast(a, "Chaque ligne doit avoir 16 chiffres (XXXXXXXX YYYYYYYY)", Toast.LENGTH_LONG).show(); return; }
                 StringBuilder p = new StringBuilder();
                 for (int k = 0; k < hex.length(); k += 16) p.append(k > 0 ? "," : "").append(hex, k, k + 16);
                 String nn = nm.getText().toString().trim();
-                if (n < 0 && nn.isEmpty()) { Toast.makeText(a, "Donne un nom au cheat", Toast.LENGTH_SHORT).show(); return; }
+                if (n < 0 && nn.isEmpty()) { Lang.toast(a, "Donne un nom au cheat", Toast.LENGTH_SHORT).show(); return; }
                 cheatOp(id, n < 0 ? "op=a&name=" + Api.enc(nn) + "&codes=" + p : "op=c&n=" + n + "&codes=" + p, ch, list);
             }).show();
     }
 
     private void cheatOp(final String id, final String q, final TextView ch, final LinearLayout list) {
         flushMask(() -> Api.get("/api/cheatedit?id=" + id + "&" + q, r -> {
-            if (r == null) { Toast.makeText(a, "Pas de réponse (console à mettre à jour ?)", Toast.LENGTH_LONG).show(); return; }
+            if (r == null) { Lang.toast(a, "Pas de réponse (console à mettre à jour ?)", Toast.LENGTH_LONG).show(); return; }
             fillCheats(r, id, ch, list);
         }));
     }
@@ -481,7 +481,7 @@ class GamesTab extends Tab {
                 tx.addView(val);
                 rw.addView(tx, lp(0, -2, 1));
                 final String help = e.optString(3);
-                rw.setOnClickListener(v -> Toast.makeText(a, help, Toast.LENGTH_LONG).show());
+                rw.setOnClickListener(v -> Lang.toast(a, help, Toast.LENGTH_LONG).show());
                 TextView l = Neon.btn(a, "‹", 18, false, v -> loadCfg(id, i, rk, -1, cfg));
                 l.setPadding(0, 0, 0, 0);
                 TextView rr = Neon.btn(a, "›", 18, false, v -> loadCfg(id, i, rk, 1, cfg));
@@ -503,7 +503,7 @@ class GamesTab extends Tab {
     /** icone du jeu sur l'ecran d'accueil : la toucher lance le jeu avec Pulse */
     private void pinShortcut(String id, String name, Bitmap cover) {
         android.content.pm.ShortcutManager sm = a.getSystemService(android.content.pm.ShortcutManager.class);
-        if (sm == null || !sm.isRequestPinShortcutSupported()) { Toast.makeText(a, "Ton écran d'accueil n'accepte pas les raccourcis", Toast.LENGTH_LONG).show(); return; }
+        if (sm == null || !sm.isRequestPinShortcutSupported()) { Lang.toast(a, "Ton écran d'accueil n'accepte pas les raccourcis", Toast.LENGTH_LONG).show(); return; }
         Intent it = Host.home(a).setAction(MainActivity.ACT_GAME).putExtra("id", id).putExtra("nom", name)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         android.graphics.drawable.Icon icon;
@@ -521,7 +521,7 @@ class GamesTab extends Tab {
         android.content.pm.ShortcutInfo si = new android.content.pm.ShortcutInfo.Builder(a, "jeu-" + id)
             .setShortLabel(name.length() > 24 ? name.substring(0, 23) + "…" : name).setLongLabel(name)
             .setIcon(icon).setIntent(it).build();
-        try { sm.requestPinShortcut(si, null); } catch (Exception e) { Toast.makeText(a, "Raccourci impossible", Toast.LENGTH_SHORT).show(); }
+        try { sm.requestPinShortcut(si, null); } catch (Exception e) { Lang.toast(a, "Raccourci impossible", Toast.LENGTH_SHORT).show(); }
     }
 
     private final Runnable saveRun = new Runnable() { public void run() { flushMask(null); } };
@@ -533,7 +533,7 @@ class GamesTab extends Tab {
         if (!maskDirty || saveId == null) { if (then != null) then.run(); return; }
         maskDirty = false;
         Api.get("/api/cheatset?id=" + saveId + "&s=" + mask, r -> {
-            if (r == null) Toast.makeText(a, "Cheats pas enregistrés", Toast.LENGTH_SHORT).show();
+            if (r == null) Lang.toast(a, "Cheats pas enregistrés", Toast.LENGTH_SHORT).show();
             if (then != null) then.run();
         });
     }
@@ -581,15 +581,15 @@ class GamesTab extends Tab {
             .button("Lancer avec Pulse", true, () -> {
                 StringBuilder fx = new StringBuilder();
                 for (int k = 0; k < FX.length; k++) if (on[k]) fx.append(FX[k][0]);
-                if (fx.length() == 0) { Toast.makeText(a, "Aucun patch choisi : lancement normal avec Pulse", Toast.LENGTH_SHORT).show(); }
+                if (fx.length() == 0) { Lang.toast(a, "Aucun patch choisi : lancement normal avec Pulse", Toast.LENGTH_SHORT).show(); }
                 final String f = fx.toString();
                 flushMask(() -> Api.get("/api/launch?i=" + Math.max(0, i) + "&m=1&id=" + id + (f.isEmpty() ? "" : "&fx=" + f),
-                    r -> Toast.makeText(a, r != null ? "Lancement avec Pulse" + (f.isEmpty() ? "" : " + " + f.length() + " patch" + (f.length() > 1 ? "s" : "")) + " : " + name : "Refusé", Toast.LENGTH_SHORT).show()));
+                    r -> Lang.toast(a, r != null ? "Lancement avec Pulse" + (f.isEmpty() ? "" : " + " + f.length() + " patch" + (f.length() > 1 ? "s" : "")) + " : " + name : "Refusé", Toast.LENGTH_SHORT).show()));
             }).show();
     }
 
     static void launch(Activity a, String id, int i, int m, String name) {
-        Api.get("/api/launch?i=" + Math.max(0, i) + "&m=" + m + "&id=" + id, r -> Toast.makeText(a, r != null ? "Lancement sur la télé : " + name : "Refusé", Toast.LENGTH_SHORT).show());
+        Api.get("/api/launch?i=" + Math.max(0, i) + "&m=" + m + "&id=" + id, r -> Lang.toast(a, r != null ? "Lancement sur la télé : " + name : "Refusé", Toast.LENGTH_SHORT).show());
     }
     private void launch(String id, int i, int m, String name) { launch(a, id, i, m, name); }
 
@@ -630,11 +630,11 @@ class GamesTab extends Tab {
             c.setTag(new Object[] { im, n, s, dot });
         }
         int i = x.optInt(6);
-        n.setText((x.optInt(4) != 0 ? "★ " : "") + x.optString(0));
+        n.setText(Lang.t((x.optInt(4) != 0 ? "★ " : "") + x.optString(0)));
         Integer cv0 = compat.get(x.optString(1));
         paintDot(dot, cv0 == null ? 0 : cv0);
         String id = x.optString(1);
-        s.setText(id + (x.optInt(3) > 0 ? " · " + x.optInt(3) + " min" : ""));
+        s.setText(Lang.t(id + (x.optInt(3) > 0 ? " · " + x.optInt(3) + " min" : "")));
         Bitmap b = covers.get(i);
         im.setImageBitmap(b);
         im.setTag(i);
@@ -910,9 +910,9 @@ class QueueTab extends Tab {
                 }
                 int k = q.get(p);
                 String[] t = tracks != null && k >= 0 && k < tracks.size() ? tracks.get(k) : new String[] { "Morceau " + k, "" };
-                num.setText(String.valueOf(p + 1));
-                n.setText(t[0]);
-                s.setText(t[1]);
+                num.setText(Lang.t(String.valueOf(p + 1)));
+                n.setText(Lang.t(t[0]));
+                s.setText(Lang.t(t[1]));
                 s.setVisibility(t[1].isEmpty() ? View.GONE : View.VISIBLE);
                 return r;
             }
@@ -1024,14 +1024,14 @@ class SettingsTab extends Tab {
                 row.setGravity(Gravity.CENTER_VERTICAL);
                 final EditText e = new EditText(a);
                 e.setText(t.optString(key));
-                e.setHint(key);
+                e.setHint(Lang.t(key));
                 e.setHintTextColor(Neon.FAINT);
                 e.setTextColor(Neon.TEXT);
                 e.setSingleLine(true);
                 row.addView(Neon.text(a, key, 12, Neon.DIM, false), new LinearLayout.LayoutParams(dp(90), -2));
                 row.addView(e, new LinearLayout.LayoutParams(0, -2, 1));
                 row.addView(Neon.btn(a, "OK", 12, true, x -> Api.get("/api/set?k=" + Api.enc(key) + "&v=" + Api.enc(e.getText().toString()), r -> {
-                    Toast.makeText(a, r != null ? "Enregistré" : "Refusé", Toast.LENGTH_SHORT).show(); load(); })), lp(-2, -2, 0));
+                    Lang.toast(a, r != null ? "Enregistré" : "Refusé", Toast.LENGTH_SHORT).show(); load(); })), lp(-2, -2, 0));
                 box.addView(row);
             }
         }
@@ -1048,7 +1048,7 @@ class SettingsTab extends Tab {
             if (x == null) continue;
             final int i = k;
             android.widget.CheckBox cb = new android.widget.CheckBox(a);
-            cb.setText(x.optString(0));
+            cb.setText(Lang.t(x.optString(0)));
             cb.setTextColor(Neon.TEXT);
             cb.setButtonTintList(android.content.res.ColorStateList.valueOf(Neon.CYAN));
             cb.setChecked(x.optInt(1) != 0);
@@ -1143,7 +1143,7 @@ class CardsTab extends Tab {
                     Api.get("/api/gcidel?c=" + Api.enc(card) + "&i=" + idx + "&n=" + Api.enc(nm), r -> {
                         String m = "Pas de réponse (console à mettre à jour ?)";
                         try { if (r != null) m = new JSONObject(r).optString("m", m); } catch (Exception e) { }
-                        Toast.makeText(a, m, Toast.LENGTH_LONG).show();
+                        Lang.toast(a, m, Toast.LENGTH_LONG).show();
                         if (reload != null) reload.run();
                     }));
             }).cancel("Fermer").show();
@@ -1185,7 +1185,7 @@ class CardsTab extends Tab {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
         i.setType("*/*");
-        try { a.startActivityForResult(i, req); } catch (Exception e) { Toast.makeText(a, "Pas de sélecteur de fichiers", Toast.LENGTH_LONG).show(); }
+        try { a.startActivityForResult(i, req); } catch (Exception e) { Lang.toast(a, "Pas de sélecteur de fichiers", Toast.LENGTH_LONG).show(); }
     }
 }
 
@@ -1296,7 +1296,7 @@ class ToolsTab extends Tab {
                 "Durée : " + t[2] + ". GC Station se manipule tout seul sur la télé ; ne touche pas la manette (B : arrêter). Rien n'est effacé et tes réglages sont remis à la fin.",
                 "Lancer", () -> Api.get("/api/test?m=" + t[1], r -> testState(r)))), lp(0, -2, 1));
         }
-        tst.addView(Neon.btn(a, "Voir le dernier rapport", 13, false, x -> Api.get("/test.txt", r -> journal.setText(r != null ? r : "Pas encore de rapport"))), lp(-1, -2, 0));
+        tst.addView(Neon.btn(a, "Voir le dernier rapport", 13, false, x -> Api.get("/test.txt", r -> journal.setText(Lang.t(r != null ? r : "Pas encore de rapport")))), lp(-1, -2, 0));
         v.addView(tst, UiKit.gapBelow(a, 12));
 
         LinearLayout rep = UiKit.card(a);
@@ -1356,17 +1356,17 @@ class ToolsTab extends Tab {
     }
 
     private void capture() {
-        Toast.makeText(a, "Capture…", Toast.LENGTH_SHORT).show();
+        Lang.toast(a, "Capture…", Toast.LENGTH_SHORT).show();
         Api.bytes("/capture.bmp", b -> {
             Bitmap bm = b == null ? null : BitmapFactory.decodeByteArray(b, 0, b.length);
-            if (bm == null) { Toast.makeText(a, "Capture impossible", Toast.LENGTH_LONG).show(); return; }
+            if (bm == null) { Lang.toast(a, "Capture impossible", Toast.LENGTH_LONG).show(); return; }
             shotBm = bm;
             shot.setImageBitmap(bm);
         });
     }
 
     private Uri saveShot() {
-        if (shotBm == null) { Toast.makeText(a, "Capture d'abord", Toast.LENGTH_SHORT).show(); return null; }
+        if (shotBm == null) { Lang.toast(a, "Capture d'abord", Toast.LENGTH_SHORT).show(); return null; }
         try {
             ContentValues cv = new ContentValues();
             cv.put(MediaStore.Images.Media.DISPLAY_NAME, "gc-station-" + System.currentTimeMillis() + ".png");
@@ -1374,13 +1374,13 @@ class ToolsTab extends Tab {
             if (android.os.Build.VERSION.SDK_INT >= 29) cv.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/GC Station");
             Uri u = a.getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
             try (OutputStream o = a.getContentResolver().openOutputStream(u)) { shotBm.compress(Bitmap.CompressFormat.PNG, 100, o); }
-            Toast.makeText(a, "Enregistrée dans Images > GC Station", Toast.LENGTH_SHORT).show();
+            Lang.toast(a, "Enregistrée dans Images > GC Station", Toast.LENGTH_SHORT).show();
             return u;
-        } catch (Exception e) { Toast.makeText(a, "Enregistrement impossible", Toast.LENGTH_LONG).show(); return null; }
+        } catch (Exception e) { Lang.toast(a, "Enregistrement impossible", Toast.LENGTH_LONG).show(); return null; }
     }
 
     private void loadJournal() {
-        Api.get("/api/journal", r -> journal.setText(r != null ? r : "Pas de réponse de la console"));
+        Api.get("/api/journal", r -> journal.setText(Lang.t(r != null ? r : "Pas de réponse de la console")));
     }
 
     private void shareReport() {

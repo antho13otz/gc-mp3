@@ -311,7 +311,7 @@ class ListTab extends Tab {
         v.setOrientation(LinearLayout.VERTICAL);
         v.setPadding(dp(16), dp(4), dp(16), 0);
         search = new EditText(a);
-        search.setHint(radio ? "Chercher une radio" : "Chercher un morceau, un artiste");
+        search.setHint(Lang.t(radio ? "Chercher une radio" : "Chercher un morceau, un artiste"));
         search.setHintTextColor(Neon.FAINT);
         search.setTextColor(Neon.TEXT);
         search.setSingleLine(true);
@@ -348,7 +348,7 @@ class ListTab extends Tab {
         lv.setOnItemClickListener((parent, view, pos, id) -> {
             view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY);
             Api.cmd(radio ? "radio" : "play", (int) id);
-            Toast.makeText(a, (radio ? "Radio : " : "Lecture : ") + all.get((int) id)[0], Toast.LENGTH_SHORT).show();
+            Lang.toast(a, (radio ? "Radio : " : "Lecture : ") + all.get((int) id)[0], Toast.LENGTH_SHORT).show();
         });
         if (!radio) lv.setOnItemLongClickListener((parent, view, pos, id) -> {   // appui long : file d'attente
             view.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
@@ -357,7 +357,7 @@ class ListTab extends Tab {
                 .items(new String[] { "▶  Lire maintenant", "⤵  Lire juste après", "☰  Ajouter à la fin de la file" }, w -> {
                     if (w == 0) { Api.cmd("play", k); return; }
                     Api.get("/api/queueadd?i=" + k + "&d=" + (w == 1 ? 1 : 0), r -> {
-                        Toast.makeText(a, r != null && r.contains("\"ok\":1") ? (w == 1 ? "Joué juste après" : "Ajouté à la file") : "Pas possible (console à mettre à jour ?)", Toast.LENGTH_SHORT).show();
+                        Lang.toast(a, r != null && r.contains("\"ok\":1") ? (w == 1 ? "Joué juste après" : "Ajouté à la file") : "Pas possible (console à mettre à jour ?)", Toast.LENGTH_SHORT).show();
                     });
                 }).cancel("Fermer").show();
             return true;
@@ -396,8 +396,8 @@ class ListTab extends Tab {
             r.addView(col, new LinearLayout.LayoutParams(0, -2, 1));
             r.setTag(new TextView[] { ic, n, s });
         }
-        n.setText(it[0]);
-        s.setText(it[1]);
+        n.setText(Lang.t(it[0]));
+        s.setText(Lang.t(it[1]));
         s.setVisibility(it[1].isEmpty() ? View.GONE : View.VISIBLE);
         return r;
     }
@@ -405,9 +405,9 @@ class ListTab extends Tab {
     @Override void show() { if (!loaded) load(); }
 
     void load() {
-        status.setText("Chargement…");
+        status.setText(Lang.t("Chargement…"));
         Api.get(radio ? "/api/stations" : "/api/tracks", r -> {
-            if (r == null) { status.setText("Pas de réponse de la console"); return; }
+            if (r == null) { status.setText(Lang.t("Pas de réponse de la console")); return; }
             all.clear();
             try {
                 JSONArray j = new JSONArray(r);
@@ -602,7 +602,7 @@ class PadTab extends Tab {
         i.putExtra(android.speech.RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault().toLanguageTag());
         i.putExtra(android.speech.RecognizerIntent.EXTRA_PROMPT, "Parle : le texte s'écrit sur la télé");
         try { a.startActivityForResult(i, REQ_VOICE); }
-        catch (Exception e) { Toast.makeText(a, "Pas de reconnaissance vocale sur ce téléphone", Toast.LENGTH_LONG).show(); }
+        catch (Exception e) { Lang.toast(a, "Pas de reconnaissance vocale sur ce téléphone", Toast.LENGTH_LONG).show(); }
     }
     /** texte dicte : ajoute au champ et envoye (OK pour valider) */
     void voice(String t) {
@@ -733,7 +733,7 @@ class FilesTab extends Tab {
         tb.addView(gap());
         tb.addView(Neon.btn(a, "Envoyer", 13, false, x -> pick()), lp(0, -2, 1.1f));
         tb.addView(gap());
-        TextView rf = Neon.btn(a, "⟳", 17, false, x -> { msg.setText("Actualisation…"); open(h, -1); });   // (relit le dossier)
+        TextView rf = Neon.btn(a, "⟳", 17, false, x -> { msg.setText(Lang.t("Actualisation…")); open(h, -1); });   // (relit le dossier)
         rf.setPadding(0, 0, 0, 0);
         tb.addView(rf, lp(0, -2, 0.6f));
         v.addView(tb, lp(-1, -2, 0));
@@ -789,25 +789,25 @@ class FilesTab extends Tab {
             r.setTag(new TextView[] { ic, n, s });
         }
         boolean dir = (Boolean) e[1];
-        ic.setText(dir ? "▣" : "▫");
+        ic.setText(Lang.t(dir ? "▣" : "▫"));
         ic.setTextColor(dir ? Neon.CYAN : Neon.PINK);
-        n.setText((String) e[0]);
+        n.setText(Lang.t((String) e[0]));
         long sz = (Long) e[2];
-        s.setText(dir ? "" : sz >= 1048576 ? String.format(java.util.Locale.FRANCE, "%.1f Mo", sz / 1048576.0) : Math.max(1, (sz + 1023) / 1024) + " Ko");
+        s.setText(Lang.t(dir ? "" : sz >= 1048576 ? String.format(java.util.Locale.FRANCE, "%.1f Mo", sz / 1048576.0) : Math.max(1, (sz + 1023) / 1024) + " Ko"));
         return r;
     }
 
     @Override void show() { if (!loaded) open("", -1); }
 
     void open(String dirH, int i) {
-        msg.setText("Lecture du dossier…");
+        msg.setText(Lang.t("Lecture du dossier…"));
         Api.get("/api/files?h=" + dirH + (i >= 0 ? "&i=" + i : ""), r -> {
-            if (r == null) { msg.setText("Pas de réponse de la console"); return; }
+            if (r == null) { msg.setText(Lang.t("Pas de réponse de la console")); return; }
             try {
                 JSONObject j = new JSONObject(r);
                 h = j.optString("h", "");
                 uh = j.isNull("uh") ? null : j.optString("uh", null);
-                path.setText(j.optString("d", "sd:"));
+                path.setText(Lang.t(j.optString("d", "sd:")));
                 entries.clear();
                 JSONArray e = j.optJSONArray("e");
                 for (int k = 0; e != null && k < e.length(); k++) {
@@ -815,18 +815,18 @@ class FilesTab extends Tab {
                     entries.add(new Object[] { x.optString(0, ""), x.optInt(1, 0) != 0, x.optLong(2, 0) });
                 }
                 loaded = true;
-                msg.setText(entries.isEmpty() ? "(dossier vide)" : entries.size() + " élément" + (entries.size() > 1 ? "s" : "") + " · appui long : renommer, couper, supprimer");
+                msg.setText(Lang.t(entries.isEmpty() ? "(dossier vide)" : entries.size() + " élément" + (entries.size() > 1 ? "s" : "") + " · appui long : renommer, couper, supprimer"));
                 adapter.notifyDataSetChanged();
-            } catch (Exception ex) { msg.setText("Réponse illisible"); }
+            } catch (Exception ex) { msg.setText(Lang.t("Réponse illisible")); }
         });
     }
 
     private void fsop(String q) {
-        msg.setText("…");
+        msg.setText(Lang.t("…"));
         Api.get("/api/fsop?" + q, r -> {
             String m = "Pas de réponse de la console";
             try { if (r != null) m = new JSONObject(r).optString("m", m); } catch (Exception e) { }
-            msg.setText(m);
+            msg.setText(Lang.t(m));
             open(h, -1);
         });
     }
@@ -842,7 +842,7 @@ class FilesTab extends Tab {
                 if (w == 3) { viewText(pos, name, (Long) entries.get(pos)[2]); return; }
                 if (w == 4) { download(pos, name); return; }
                 if (w == 0) ask("Nouveau nom", name, v -> { if (!v.isEmpty() && !v.equals(name)) fsop("op=ren" + q + "&n=" + Api.enc(v)); });
-                else if (w == 1) { cut = new String[] { h, String.valueOf(pos), name }; paste.setText("Coller : " + name); paste.setVisibility(View.VISIBLE); msg.setText("Ouvre le dossier de destination, puis Coller"); }
+                else if (w == 1) { cut = new String[] { h, String.valueOf(pos), name }; paste.setText(Lang.t("Coller : " + name)); paste.setVisibility(View.VISIBLE); msg.setText(Lang.t("Ouvre le dossier de destination, puis Coller")); }
                 else NeonDialog.confirm(a, "Supprimer " + name + (dir ? " et tout son contenu" : "") + " ?", "Ça ne peut pas être annulé.", "Supprimer", () -> fsop("op=del" + q));
             }).cancel("Fermer").show();
     }
@@ -869,9 +869,9 @@ class FilesTab extends Tab {
             r.setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
             r.setDestinationInExternalPublicDir(Environment.DIRECTORY_DOWNLOADS, name);
             ((DownloadManager) a.getSystemService(Context.DOWNLOAD_SERVICE)).enqueue(r);
-            Toast.makeText(a, "Téléchargement : " + name, Toast.LENGTH_SHORT).show();
+            Lang.toast(a, "Téléchargement : " + name, Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
-            Toast.makeText(a, "Téléchargement impossible", Toast.LENGTH_LONG).show();
+            Lang.toast(a, "Téléchargement impossible", Toast.LENGTH_LONG).show();
         }
     }
 
@@ -880,7 +880,7 @@ class FilesTab extends Tab {
         i.addCategory(Intent.CATEGORY_OPENABLE);
         i.setType("*/*");
         i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        try { a.startActivityForResult(i, REQ_SEND); } catch (Exception e) { Toast.makeText(a, "Pas de sélecteur de fichiers", Toast.LENGTH_LONG).show(); }
+        try { a.startActivityForResult(i, REQ_SEND); } catch (Exception e) { Lang.toast(a, "Pas de sélecteur de fichiers", Toast.LENGTH_LONG).show(); }
     }
 
     void refresh() { if (loaded) open(h, -1); }
@@ -893,7 +893,7 @@ class FilesTab extends Tab {
         return false;
     }
     private void viewText(final int pos, final String name, long size) {
-        if (size > 4L * 1024 * 1024) { Toast.makeText(a, "Fichier trop gros pour être affiché (" + size / 1024 / 1024 + " Mo) : téléchargé à la place", Toast.LENGTH_LONG).show(); download(pos, name); return; }
+        if (size > 4L * 1024 * 1024) { Lang.toast(a, "Fichier trop gros pour être affiché (" + size / 1024 / 1024 + " Mo) : téléchargé à la place", Toast.LENGTH_LONG).show(); download(pos, name); return; }
         final TextView t = Neon.text(a, "Chargement…", 12, Neon.TEXT, false);
         t.setTypeface(android.graphics.Typeface.MONOSPACE);
         t.setTextIsSelectable(true);
@@ -929,7 +929,7 @@ class FilesTab extends Tab {
             .button("Fermer", true, null)
             .show();
         Api.bytes("/api/get?h=" + h + "&i=" + pos, b -> {
-            if (b == null) { t.setText("Lecture impossible (pas de réponse de la console)"); return; }
+            if (b == null) { t.setText(Lang.t("Lecture impossible (pas de réponse de la console)")); return; }
             String s;
             try {                                                 // (UTF-8 si c'en est, sinon latin-1 : fichiers de la console)
                 s = java.nio.charset.StandardCharsets.UTF_8.newDecoder()
@@ -941,8 +941,8 @@ class FilesTab extends Tab {
             int lines = 1;
             for (int k = 0; k < s.length(); k++) if (s.charAt(k) == '\n') lines++;
             boolean cut = s.length() > 300000;
-            t.setText(cut ? s.substring(0, 300000) + "\n\n… (la suite : Télécharger)" : s.isEmpty() ? "(fichier vide)" : s);
-            info.setText((b.length < 1024 ? b.length + " octets" : b.length / 1024 + " Ko") + " · " + lines + " ligne" + (lines > 1 ? "s" : "") + " · appui long pour copier");
+            t.setText(cut ? s.substring(0, 300000) + Lang.t("\n\n… (la suite : Télécharger)") : s.isEmpty() ? Lang.t("(fichier vide)") : s);
+            info.setText(Lang.t((b.length < 1024 ? b.length + " octets" : b.length / 1024 + " Ko") + " · " + lines + " ligne" + (lines > 1 ? "s" : "") + " · appui long pour copier"));
         });
     }
 }

@@ -87,6 +87,7 @@ public class GlobeActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        Lang.init(this);
         getWindow().setStatusBarColor(0xFF040108);
         getWindow().setNavigationBarColor(0xFF040108);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING);
@@ -127,7 +128,7 @@ public class GlobeActivity extends Activity {
         bar.addView(tt, new LinearLayout.LayoutParams(0, -2, 1));
         top.addView(bar);
         search = new EditText(this);
-        search.setHint("Radio, pays, ville, style…");
+        search.setHint(Lang.t("Radio, pays, ville, style…"));
         search.setHintTextColor(Neon.FAINT);
         search.setTextColor(Neon.TEXT);
         search.setSingleLine(true);
@@ -530,10 +531,10 @@ public class GlobeActivity extends Activity {
         int c = RadioDir.GENRE_COL[st.genre];
         dot.setTextColor(c);
         dot.setShadowLayer(dp(6), 0, 0, c);
-        n.setText((favs.contains(st.uuid) ? "★ " : "") + st.name);
+        n.setText(Lang.t((favs.contains(st.uuid) ? "★ " : "") + st.name));
         n.setTextColor(idx == sel ? Neon.CYAN : Neon.TEXT);
         String tags = st.tags.length() > 40 ? st.tags.substring(0, 40) + "…" : st.tags;
-        s.setText(RadioDir.flag(st.cc) + " " + (st.state.isEmpty() ? st.country : st.state) + (tags.isEmpty() ? "" : " · " + tags.replace(",", ", ")));
+        s.setText(Lang.t(RadioDir.flag(st.cc) + " " + (st.state.isEmpty() ? st.country : st.state) + (tags.isEmpty() ? "" : " · " + tags.replace(",", ", "))));
         return rr;
     }
 
@@ -571,7 +572,7 @@ public class GlobeActivity extends Activity {
     private void toConsole() {
         int p = r.playing;
         if (p >= 0 && p < data.size()) select(p, true, true);
-        else Toast.makeText(this, "La console ne joue pas une radio du globe", Toast.LENGTH_SHORT).show();
+        else Lang.toast(this, "La console ne joue pas une radio du globe", Toast.LENGTH_SHORT).show();
     }
 
     // ---------------- ecouter ----------------
@@ -580,12 +581,12 @@ public class GlobeActivity extends Activity {
     private void playConsole() {
         final RadioDir.Station s = cur();
         if (s == null) return;
-        if (!s.gcOk()) { Toast.makeText(this, "Format pas lisible par la GameCube (" + s.codec + ") : écoute-la sur le téléphone", Toast.LENGTH_LONG).show(); return; }
-        if (Api.host == null) { Toast.makeText(this, "Console pas connectée", Toast.LENGTH_SHORT).show(); return; }
+        if (!s.gcOk()) { Lang.toast(this, "Format pas lisible par la GameCube (" + s.codec + ") : écoute-la sur le téléphone", Toast.LENGTH_LONG).show(); return; }
+        if (Api.host == null) { Lang.toast(this, "Console pas connectée", Toast.LENGTH_SHORT).show(); return; }
         final int idx = sel;
         Api.get("/api/playurl?u=" + Api.enc(s.url) + "&n=" + Api.enc(s.name), res -> {
-            if (res != null && res.contains("\"ok\":1")) { r.playing = idx; Toast.makeText(this, "Sur la GameCube : " + s.name, Toast.LENGTH_SHORT).show(); }
-            else Toast.makeText(this, res == null ? "Console injoignable" : "La console doit être mise à jour (v253)", Toast.LENGTH_LONG).show();
+            if (res != null && res.contains("\"ok\":1")) { r.playing = idx; Lang.toast(this, "Sur la GameCube : " + s.name, Toast.LENGTH_SHORT).show(); }
+            else Lang.toast(this, res == null ? "Console injoignable" : "La console doit être mise à jour (v253)", Toast.LENGTH_LONG).show();
         });
         Api.pool(() -> RadioDir.click(s.uuid));
     }
@@ -600,14 +601,14 @@ public class GlobeActivity extends Activity {
             mp.setDataSource(s.url);
             final MediaPlayer m = mp;
             m.setOnPreparedListener(x -> { if (m == mp) { m.start(); Neon.set(phoneName, "📱 " + s.name); } });
-            m.setOnErrorListener((x, w, e) -> { if (m == mp) { Toast.makeText(this, "Radio illisible sur le téléphone", Toast.LENGTH_SHORT).show(); stopPhone(); } return true; });
+            m.setOnErrorListener((x, w, e) -> { if (m == mp) { Lang.toast(this, "Radio illisible sur le téléphone", Toast.LENGTH_SHORT).show(); stopPhone(); } return true; });
             m.prepareAsync();
             phoneUuid = s.uuid;
             Neon.set(phoneName, "📱 Connexion… " + s.name);
             phoneBar.setVisibility(View.VISIBLE);
             Api.pool(() -> RadioDir.click(s.uuid));
         } catch (Exception e) {
-            Toast.makeText(this, "Radio illisible sur le téléphone", Toast.LENGTH_SHORT).show();
+            Lang.toast(this, "Radio illisible sur le téléphone", Toast.LENGTH_SHORT).show();
             stopPhone();
         }
     }
@@ -629,9 +630,9 @@ public class GlobeActivity extends Activity {
                     prefs().edit().putStringSet("globe_favs", new HashSet<>(favs)).apply();
                     adapter.notifyDataSetChanged();
                     if (favOnly) applyFilter();
-                    Toast.makeText(this, fav ? "Retirée des favoris" : "Ajoutée aux favoris du globe", Toast.LENGTH_SHORT).show();
+                    Lang.toast(this, fav ? "Retirée des favoris" : "Ajoutée aux favoris du globe", Toast.LENGTH_SHORT).show();
                 } else if (w == 1) {
-                    Api.get("/api/radioadd?u=" + Api.enc(s.url) + "&n=" + Api.enc(s.name), res -> Toast.makeText(this,
+                    Api.get("/api/radioadd?u=" + Api.enc(s.url) + "&n=" + Api.enc(s.name), res -> Lang.toast(this,
                         res != null && res.contains("\"ok\":1") ? "Ajoutée à tes radios de la console" : res == null ? "Console injoignable" : "La console doit être mise à jour (v253)", Toast.LENGTH_SHORT).show());
                 } else {
                     try { startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse("https://www.radio-browser.info/history/" + s.uuid))); } catch (Exception e) { }

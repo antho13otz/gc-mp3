@@ -50,7 +50,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -218,7 +217,7 @@ fun EcranJeux() {
                     scope.launch {
                         val n = Hors.toutGarder(act, l, { toutAnnule }) { k, t, nom -> tout = if (nom.isEmpty()) null else "Jeu " + (k + 1) + " / " + t + " : " + nom }
                         tout = null
-                        Toast.makeText(act, if (toutAnnule) "Arrêté : ce qui est déjà gardé reste" else "Tout est gardé pour hors-ligne (" + l.size + " jeux, " + n + " pages de notices)", Toast.LENGTH_LONG).show()
+                        Lang.toast(act, if (toutAnnule) "Arrêté : ce qui est déjà gardé reste" else "Tout est gardé pour hors-ligne (" + l.size + " jeux, " + n + " pages de notices)", Toast.LENGTH_LONG).show()
                     }
                 }
                 if (St.connecte && l != null && l.isNotEmpty()) Bouton("Envoyer jaquettes et disques à la console", Modifier.fillMaxWidth().padding(top = 8.dp), hauteur = 40.dp) { choixEnvoi = true }
@@ -240,7 +239,7 @@ fun EcranJeux() {
             scope.launch {
                 val b = JaquettesConsole.envoyer(Hors.dir(act), avecHd, { envoiAnnule }) { k, t, txt -> envoi = if (txt.isEmpty()) null else "Jeu " + (k + 1) + " / " + t + " : " + txt }
                 envoi = null
-                Toast.makeText(act, (if (envoiAnnule) "Arrêté. " else "") + JaquettesConsole.resume(b), Toast.LENGTH_LONG).show()
+                Lang.toast(act, (if (envoiAnnule) "Arrêté. " else "") + JaquettesConsole.resume(b), Toast.LENGTH_LONG).show()
             }
         }) { Text("Envoyer", color = C.Rose) } },
         dismissButton = { TextButton({ avecHd = !avecHd }) { Text(if (avecHd) "☑ Avec la HD" else "☐ Avec la HD", color = C.Texte) } })
@@ -340,7 +339,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                 if (pages.isNullOrEmpty()) "Aucune page lisible dans ces fichiers" else Notices.envoyer(Hors.dir(act), g.id, pages) { m -> noticeEnvoi = m }
             }
             noticeEnvoi = null
-            Toast.makeText(act, err ?: "Notice installée sur la console", Toast.LENGTH_LONG).show()
+            Lang.toast(act, err ?: "Notice installée sur la console", Toast.LENGTH_LONG).show()
             notice = Notices.pages(g.id)
         }
     }
@@ -348,7 +347,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
     fun remplir(r: String?) {
         val j = try { if (r != null) JSONObject(r) else null } catch (e: Exception) { null }
         if (j == null) { cheats = emptyList(); cheatsMsg = "Cheats indisponibles (console à mettre à jour ?)"; return }
-        if (j.optString("err").isNotEmpty()) Toast.makeText(act, j.optString("err"), Toast.LENGTH_LONG).show()
+        if (j.optString("err").isNotEmpty()) Lang.toast(act, j.optString("err"), Toast.LENGTH_LONG).show()
         val c = j.optJSONArray("c")
         val l = ArrayList<Cheat>()
         for (k in 0 until (c?.length() ?: 0)) { val e = c!!.optJSONArray(k) ?: continue; l.add(Cheat(e.optString(0), e.optInt(1) != 0, e.optInt(2), e.optString(3))) }
@@ -361,14 +360,14 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
     suspend fun envoyerMasque() {
         if (!masqueSale) return
         masqueSale = false
-        if (lire("/api/cheatset?id=" + g.id + "&s=" + masque) == null) Toast.makeText(act, "Cheats pas enregistrés", Toast.LENGTH_SHORT).show()
+        if (lire("/api/cheatset?id=" + g.id + "&s=" + masque) == null) Lang.toast(act, "Cheats pas enregistrés", Toast.LENGTH_SHORT).show()
     }
-    fun cheatOp(q: String) { scope.launch { envoyerMasque(); val r = lire("/api/cheatedit?id=" + g.id + "&" + q); if (r == null) Toast.makeText(act, "Pas de réponse (console à mettre à jour ?)", Toast.LENGTH_LONG).show() else remplir(r) } }
+    fun cheatOp(q: String) { scope.launch { envoyerMasque(); val r = lire("/api/cheatedit?id=" + g.id + "&" + q); if (r == null) Lang.toast(act, "Pas de réponse (console à mettre à jour ?)", Toast.LENGTH_LONG).show() else remplir(r) } }
     fun lancer(m: Int, fx: String = "") {
         scope.launch {
             envoyerMasque()
             val r = lire("/api/launch?i=" + maxOf(0, g.i) + "&m=" + m + "&id=" + g.id + if (fx.isEmpty()) "" else "&fx=$fx")
-            Toast.makeText(act, if (r != null) (if (m == 1) "Lancement avec Pulse" + (if (fx.isEmpty()) "" else " + " + fx.length + " patch" + (if (fx.length > 1) "s" else "")) else "Lanceur de secours") + " : " + g.nom else "Refusé", Toast.LENGTH_SHORT).show()
+            Lang.toast(act, if (r != null) (if (m == 1) "Lancement avec Pulse" + (if (fx.isEmpty()) "" else " + " + fx.length + " patch" + (if (fx.length > 1) "s" else "")) else "Lanceur de secours") + " : " + g.nom else "Refusé", Toast.LENGTH_SHORT).show()
             fermer()
         }
     }
@@ -408,7 +407,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                             scope.launch {
                                 val r = lire("/api/gamefav?id=" + g.id + "&i=" + g.i)
                                 val j = try { if (r != null) JSONObject(r) else null } catch (e: Exception) { null }
-                                if (j == null) Toast.makeText(act, "Pas possible (console à mettre à jour ?)", Toast.LENGTH_SHORT).show()
+                                if (j == null) Lang.toast(act, "Pas possible (console à mettre à jour ?)", Toast.LENGTH_SHORT).show()
                                 else { fav = j.optInt("fav") != 0; try { g.x.put(4, if (fav) 1 else 0) } catch (e: Exception) { }; change() }
                             }
                         }
@@ -466,7 +465,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                 for (k in CP_COL.indices) {
                     Box(Modifier.size(32.dp).scale(if (k == cv) 1.15f else 1f).clip(CircleShape).background(if (k == 0) Color(0x22FFFFFF) else CP_COL[k])
                         .border(if (k == cv) 3.dp else 1.dp, if (k == cv) Color.White else Color(0x55FFFFFF), CircleShape)
-                        .appui { scope.launch { val r = lire("/api/compatset?id=" + g.id + "&d=" + k); if (r == null) Toast.makeText(act, "Pas possible (console à mettre à jour ?)", Toast.LENGTH_SHORT).show() else { lireCompat(r, compat); change() } } })
+                        .appui { scope.launch { val r = lire("/api/compatset?id=" + g.id + "&d=" + k); if (r == null) Lang.toast(act, "Pas possible (console à mettre à jour ?)", Toast.LENGTH_SHORT).show() else { lireCompat(r, compat); change() } } })
                 }
                 Text(CP_NOM[if (cv < CP_NOM.size) cv else 0], color = if (cv == 0) C.Pale else CP_COL[cv], fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
             }
@@ -486,7 +485,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                     for (k in 0 until rows.length()) {
                         val e = rows.optJSONArray(k) ?: continue
                         Spacer(Modifier.height(6.dp))
-                        Row(Modifier.fillMaxWidth().verre(RoundedCornerShape(14.dp)).appui { Toast.makeText(act, e.optString(3), Toast.LENGTH_LONG).show() }
+                        Row(Modifier.fillMaxWidth().verre(RoundedCornerShape(14.dp)).appui { Lang.toast(act, e.optString(3), Toast.LENGTH_LONG).show() }
                             .padding(start = 12.dp, end = 6.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
                                 Text(e.optString(0), color = C.Texte, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
@@ -596,8 +595,8 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
             },
             confirmButton = { TextButton({
                 val hex = codes.replace(Regex("[^0-9A-Fa-f]"), "")
-                if (hex.isEmpty() || hex.length % 16 != 0) { Toast.makeText(act, "Chaque ligne doit avoir 16 chiffres (XXXXXXXX YYYYYYYY)", Toast.LENGTH_LONG).show(); return@TextButton }
-                if (n < 0 && nom.isBlank()) { Toast.makeText(act, "Donne un nom au cheat", Toast.LENGTH_SHORT).show(); return@TextButton }
+                if (hex.isEmpty() || hex.length % 16 != 0) { Lang.toast(act, "Chaque ligne doit avoir 16 chiffres (XXXXXXXX YYYYYYYY)", Toast.LENGTH_LONG).show(); return@TextButton }
+                if (n < 0 && nom.isBlank()) { Lang.toast(act, "Donne un nom au cheat", Toast.LENGTH_SHORT).show(); return@TextButton }
                 val p = hex.chunked(16).joinToString(",")
                 edite = null
                 cheatOp(if (n < 0) "op=a&name=" + Api.enc(nom.trim()) + "&codes=" + p else "op=c&n=$n&codes=$p")
@@ -609,7 +608,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
 /** icone du jeu sur l'ecran d'accueil : la toucher lance le jeu avec Pulse */
 private fun raccourci(a: Activity, g: Jeu) {
     val sm = a.getSystemService(android.content.pm.ShortcutManager::class.java)
-    if (sm == null || !sm.isRequestPinShortcutSupported) { Toast.makeText(a, "Ton écran d'accueil n'accepte pas les raccourcis", Toast.LENGTH_LONG).show(); return }
+    if (sm == null || !sm.isRequestPinShortcutSupported) { Lang.toast(a, "Ton écran d'accueil n'accepte pas les raccourcis", Toast.LENGTH_LONG).show(); return }
     val it = Host.home(a).setAction(MainActivity.ACT_GAME).putExtra("id", g.id).putExtra("nom", g.nom)
         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
     val cover = Jaquettes.bitmap(Hors.dir(a), g.id)
@@ -627,7 +626,7 @@ private fun raccourci(a: Activity, g: Jeu) {
     val si = android.content.pm.ShortcutInfo.Builder(a, "jeu-" + g.id)
         .setShortLabel(if (g.nom.length > 24) g.nom.substring(0, 23) + "…" else g.nom).setLongLabel(g.nom)
         .setIcon(icon).setIntent(it).build()
-    try { sm.requestPinShortcut(si, null) } catch (e: Exception) { Toast.makeText(a, "Raccourci impossible", Toast.LENGTH_SHORT).show() }
+    try { sm.requestPinShortcut(si, null) } catch (e: Exception) { Lang.toast(a, "Raccourci impossible", Toast.LENGTH_SHORT).show() }
 }
 
 

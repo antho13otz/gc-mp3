@@ -33,7 +33,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -105,7 +104,7 @@ fun ClavierPartout() {
                             .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                             .putExtra(RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault().toLanguageTag())
                             .putExtra(RecognizerIntent.EXTRA_PROMPT, "Parle : le texte s'écrit sur la télé")
-                        try { dictee.launch(it) } catch (e: Exception) { Toast.makeText(ctx, "Pas de reconnaissance vocale sur ce téléphone", Toast.LENGTH_LONG).show() }
+                        try { dictee.launch(it) } catch (e: Exception) { Lang.toast(ctx, "Pas de reconnaissance vocale sur ce téléphone", Toast.LENGTH_LONG).show() }
                     }, contentAlignment = Alignment.Center) { Icon(Ic.Micro, null, tint = C.Texte) }
                     Spacer(Modifier.width(8.dp))
                     Bouton("OK", plein = true) { valider() }

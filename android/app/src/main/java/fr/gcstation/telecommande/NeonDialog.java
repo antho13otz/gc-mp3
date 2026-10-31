@@ -92,7 +92,7 @@ final class NeonDialog {
 
     NeonDialog message(CharSequence m) {
         TextView t = Neon.text(a, "", 15, Neon.DIM, false);
-        t.setText(m);
+        t.setText(Lang.t(m));
         t.setLineSpacing(0, 1.15f);
         body.addView(t);
         return this;
@@ -188,7 +188,7 @@ final class NeonDialog {
 
     static void ask(Activity a, String title, String init, Text t) {
         final EditText f = new EditText(a);
-        f.setText(init);
+        f.setText(init); // NOLANG
         f.setSingleLine(true);
         f.setTextColor(Neon.TEXT);
         f.setHintTextColor(Neon.FAINT);

@@ -96,6 +96,7 @@ public class MainActivity extends Activity implements Host {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        Lang.init(this);
         Window w = getWindow();
         w.setStatusBarColor(Neon.BG_TOP);
         w.setNavigationBarColor(Neon.BG_BOTTOM);
@@ -304,7 +305,7 @@ public class MainActivity extends Activity implements Host {
             navLabel[i].setTextColor(on ? Neon.TEXT : Neon.FAINT);
         }
         subBar.setVisibility(k >= T_FILES ? View.VISIBLE : View.GONE);
-        if (k >= T_FILES) subTitle.setText(SUB_NAME[k]);
+        if (k >= T_FILES) subTitle.setText(Lang.t(SUB_NAME[k]));
         if (k >= 0) { tabViews[k].setAlpha(0f); tabViews[k].setTranslationY(dp(14)); tabViews[k].animate().alpha(1f).translationY(0).setDuration(220).start(); }
         cur = k;
         mini.setVisibility(k == 0 ? View.GONE : View.VISIBLE);
@@ -383,7 +384,7 @@ public class MainActivity extends Activity implements Host {
                         Api.host = ip;
                         prefs().edit().putString("host", ip).apply();
                         Live.resubscribe();
-                        Toast.makeText(this, "Console retrouvée : " + ip, Toast.LENGTH_SHORT).show();
+                        Lang.toast(this, "Console retrouvée : " + ip, Toast.LENGTH_SHORT).show();
                         ui.removeCallbacks(poll); ui.post(poll);
                     }
                 });
@@ -393,8 +394,8 @@ public class MainActivity extends Activity implements Host {
 
     private void online() {
         Live.Game g = Live.consoleBack();
-        if (g != null) Toast.makeText(this, "Partie terminée : " + g.name + " · " + Live.dur(g.playedSec()), Toast.LENGTH_LONG).show();
-        else if (wasOffline) Toast.makeText(this, "Console de retour", Toast.LENGTH_SHORT).show();
+        if (g != null) Lang.toast(this, "Partie terminée : " + g.name + " · " + Live.dur(g.playedSec()), Toast.LENGTH_LONG).show();
+        else if (wasOffline) Lang.toast(this, "Console de retour", Toast.LENGTH_SHORT).show();
         wasOffline = false;
         offline.setVisibility(View.GONE);
         if (Live.game == null || System.currentTimeMillis() - Live.game.start > 45000) showGame();
@@ -520,7 +521,7 @@ public class MainActivity extends Activity implements Host {
         Live.resubscribe();
         panel.animate().alpha(0f).setDuration(250).withEndAction(() -> panel.setVisibility(View.GONE)).start();
         dot.setTextColor(Neon.CYAN);
-        status.setText("Connecté · " + ip);
+        status.setText(Lang.t("Connecté · " + ip));
         tabs[cur].show();
         PlaybackService.start(this);                            // (notification, ecran verrouille, widget, volume)
         BuildCheck.run(this);
@@ -570,7 +571,7 @@ public class MainActivity extends Activity implements Host {
                     ex.execute(() -> {
                         if (found.get() == null && Api.isConsole(ip, 600)) found.compareAndSet(null, ip);
                         int d = done.incrementAndGet();
-                        if (d % 32 == 0) ui.post(() -> panelMsg.setText("Recherche de la console sur le Wi-Fi… " + Math.min(100, d * 100 / (254 * Math.max(1, pre.size()))) + " %"));
+                        if (d % 32 == 0) ui.post(() -> panelMsg.setText(Lang.t("Recherche de la console sur le Wi-Fi… " + Math.min(100, d * 100 / (254 * Math.max(1, pre.size()))) + " %")));
                     });
                 }
                 ex.shutdown();
@@ -590,7 +591,7 @@ public class MainActivity extends Activity implements Host {
     private void padNow() {
         String ip = panelIp.getText().toString().trim().replaceFirst("^https?://", "").replaceAll("/.*$", "");
         if (!ip.isEmpty()) { Api.host = ip; prefs().edit().putString("host", ip).apply(); }
-        if (Api.host == null) { Toast.makeText(this, "Tape d'abord l'adresse de la console", Toast.LENGTH_SHORT).show(); return; }
+        if (Api.host == null) { Lang.toast(this, "Tape d'abord l'adresse de la console", Toast.LENGTH_SHORT).show(); return; }
         Live.Game g = Live.game;
         ManetteActivity.open(this, g != null && g.padMask != 0 ? g.padMask : 0xF);
     }
@@ -632,7 +633,7 @@ public class MainActivity extends Activity implements Host {
         panelMsg.setPadding(0, dp(14), 0, dp(18));
         card.addView(panelMsg);
         panelIp = new EditText(this);
-        panelIp.setHint("Adresse de la console (ex. 192.168.1.20)");
+        panelIp.setHint(Lang.t("Adresse de la console (ex. 192.168.1.20)"));
         panelIp.setHintTextColor(Neon.FAINT);
         panelIp.setTextColor(Neon.TEXT);
         panelIp.setSingleLine(true);
@@ -665,11 +666,11 @@ public class MainActivity extends Activity implements Host {
         panel.animate().cancel();
         panel.setAlpha(1f);
         panel.setVisibility(View.VISIBLE);
-        panelMsg.setText(msg);
+        panelMsg.setText(Lang.t(msg));
         panelSpin.setVisibility(busy ? View.VISIBLE : View.INVISIBLE);
         if (Api.host != null && panelIp.getText().length() == 0) panelIp.setText(Api.host);
         dot.setTextColor(Neon.FAINT);
-        status.setText(busy ? "Connexion…" : "Pas connecté");
+        status.setText(Lang.t(busy ? "Connexion…" : "Pas connecté"));
     }
 
     private void menu() {
@@ -750,7 +751,7 @@ public class MainActivity extends Activity implements Host {
             java.util.regex.Matcher m = java.util.regex.Pattern.compile("https?://\\S+").matcher(txt);
             if (m.find()) {
                 final String url = m.group();
-                Api.get("/api/open?u=" + Api.enc(url), r -> Toast.makeText(this, r != null ? "Ouvert sur la t\u00e9l\u00e9 (Cube Browser)" : "Pas de r\u00e9ponse de la console", Toast.LENGTH_LONG).show());
+                Api.get("/api/open?u=" + Api.enc(url), r -> Lang.toast(this, r != null ? "Ouvert sur la t\u00e9l\u00e9 (Cube Browser)" : "Pas de r\u00e9ponse de la console", Toast.LENGTH_LONG).show());
                 return;
             }
         }
@@ -803,7 +804,7 @@ public class MainActivity extends Activity implements Host {
         try {
             PlaybackService.channels(this);
             android.app.Notification.Builder b = android.os.Build.VERSION.SDK_INT >= 26 ? new android.app.Notification.Builder(this, PlaybackService.CH_INFO) : new android.app.Notification.Builder(this);
-            b.setSmallIcon(R.drawable.ic_stat).setContentTitle(title).setContentText(text).setColor(Neon.PINK).setOnlyAlertOnce(true).setShowWhen(false)
+            b.setSmallIcon(R.drawable.ic_stat).setContentTitle(Lang.t(title)).setContentText(Lang.t(text)).setColor(Neon.PINK).setOnlyAlertOnce(true).setShowWhen(false)
              .setContentIntent(android.app.PendingIntent.getActivity(this, PlaybackService.ID_SEND, Host.home(this), android.app.PendingIntent.FLAG_IMMUTABLE));
             if (!end) b.setOngoing(true).setProgress(100, pct, false); else b.setAutoCancel(true);
             getSystemService(android.app.NotificationManager.class).notify(PlaybackService.ID_SEND, b.build());
@@ -811,8 +812,8 @@ public class MainActivity extends Activity implements Host {
     }
 
     private void send(final List<Uri> uris) {
-        if (uris.isEmpty()) { Toast.makeText(this, "Rien à envoyer (seulement des fichiers)", Toast.LENGTH_LONG).show(); return; }
-        if (sendCount > 0) { Toast.makeText(this, "Un envoi est déjà en cours", Toast.LENGTH_SHORT).show(); return; }
+        if (uris.isEmpty()) { Lang.toast(this, "Rien à envoyer (seulement des fichiers)", Toast.LENGTH_LONG).show(); return; }
+        if (sendCount > 0) { Lang.toast(this, "Un envoi est déjà en cours", Toast.LENGTH_SHORT).show(); return; }
         sendCount = uris.size(); sendIdx = 0; sendDone = 0; sendSize = 0; sendName = ""; sendT0 = System.currentTimeMillis();
         sendBar.setVisibility(View.VISIBLE);
         sendBarP.setProgress(0);
@@ -848,7 +849,7 @@ public class MainActivity extends Activity implements Host {
                 Neon.set(sendText, n == uris.size() ? "Envoyé : " + n + " fichier" + (n > 1 ? "s" : "") + " ✓" : "Envoyés : " + n + " sur " + uris.size() + " (les autres ont échoué après 3 essais)");
                 if (n == uris.size()) sendBarP.setProgress(100);
                 ui.postDelayed(() -> { if (sendCount == 0) sendBar.setVisibility(View.GONE); }, 5000);
-                Toast.makeText(this, (n == uris.size() ? "Envoyé sur la console (" + n + ")" : "Envoyés : " + n + " sur " + uris.size()) + (w.isEmpty() ? "" : " →" + w), Toast.LENGTH_LONG).show();
+                Lang.toast(this, (n == uris.size() ? "Envoyé sur la console (" + n + ")" : "Envoyés : " + n + " sur " + uris.size()) + (w.isEmpty() ? "" : " →" + w), Toast.LENGTH_LONG).show();
                 ((FilesTab) tabs[T_FILES]).refresh();
                 sendNotify(n == uris.size() ? "Envoi termin\u00e9" : "Envoi incomplet", (n == uris.size() ? n + " fichier(s) sur la console" : n + " sur " + uris.size() + " envoy\u00e9(s)") + (w.isEmpty() ? "" : " :" + w), 100, true);
                 ((ListTab) tabs[1]).load();
@@ -858,20 +859,20 @@ public class MainActivity extends Activity implements Host {
 
     /** une sauvegarde (.gci) ajoutee a une carte, ou la carte remplacee (.raw) : envoi, puis la console l'integre */
     private void cardFile(final Uri u, final String card, final boolean raw) {
-        Toast.makeText(this, "Envoi vers la carte " + card + "\u2026", Toast.LENGTH_SHORT).show();
+        Lang.toast(this, "Envoi vers la carte " + card + "\u2026", Toast.LENGTH_SHORT).show();
         new Thread(() -> {
             String name = uploadTo(u, "gci");
             String r = name == null ? null : Api.get((raw ? "/api/cardput" : "/api/gciimp") + "?c=" + Api.enc(card) + "&n=" + Api.enc(name), 8000);
             String m = "Envoi impossible";
             try { if (r != null) m = new JSONObject(r).optString("m", "Fait"); } catch (Exception e) { }
             final String fm = m;
-            ui.post(() -> { Toast.makeText(this, fm, Toast.LENGTH_LONG).show(); ((CardsTab) tabs[T_CARDS]).load(); });
+            ui.post(() -> { Lang.toast(this, fm, Toast.LENGTH_LONG).show(); ((CardsTab) tabs[T_CARDS]).load(); });
         }).start();
     }
 
     /** piloter une autre GC Station (Salon) */
     public void switchTo(String ip) {
-        Toast.makeText(this, "Console " + ip, Toast.LENGTH_SHORT).show();
+        Lang.toast(this, "Console " + ip, Toast.LENGTH_SHORT).show();
         QueueTab.tracks = null;
         connected = false;
         Api.host = ip;

@@ -137,15 +137,15 @@ final class LastLaunch {
             int v = j.optInt("r");
             final JSONObject jj = j;
             Api.pool(() -> remember(a, jj));
-            title.setText(j.optString("nom", gameId).trim() + "  ·  " + gameId);
-            line.setText(verdict(v));
+            title.setText(Lang.t(j.optString("nom", gameId).trim() + "  ·  " + gameId));
+            line.setText(Lang.t(verdict(v)));
             line.setTextColor(color(v));
             String pc = j.optString("pc");
             int sec = j.optInt("sec");
             String d = ago(pj);
             if (sec > 0) d += " · joué " + (sec >= 3600 ? (sec / 3600) + " h " + (sec % 3600 / 60) + " min" : sec >= 60 ? (sec / 60) + " min" : sec + " s");
             if ((v == 1 || v == 2 || v == 0) && !pc.isEmpty() && !pc.equals("00000000")) d += " · endroit : " + pc;
-            sub.setText(d);
+            sub.setText(Lang.t(d));
             view.setVisibility(View.VISIBLE);
         });
     }
@@ -155,7 +155,7 @@ final class LastLaunch {
         Api.get("/api/succes", r -> {
             org.json.JSONArray j = null;
             try { if (r != null) j = new org.json.JSONArray(r); } catch (Exception e) { }
-            if (j == null) { Toast.makeText(a, "Pas de réponse de la console (GC Station v268 et plus)", Toast.LENGTH_SHORT).show(); return; }
+            if (j == null) { Lang.toast(a, "Pas de réponse de la console (GC Station v268 et plus)", Toast.LENGTH_SHORT).show(); return; }
             LinearLayout box = new LinearLayout(a);
             box.setOrientation(LinearLayout.VERTICAL);
             String last = "";
@@ -183,20 +183,20 @@ final class LastLaunch {
 
     static void showJournal(final Activity a) {
         Api.get("/api/pulse.txt", r -> {
-            if (r == null) { Toast.makeText(a, "Pas de journal sur la console", Toast.LENGTH_SHORT).show(); return; }
+            if (r == null) { Lang.toast(a, "Pas de journal sur la console", Toast.LENGTH_SHORT).show(); return; }
             TextView t = Neon.text(a, "", 10, Neon.TEXT, false);
             t.setTypeface(Typeface.MONOSPACE);
             t.setTextIsSelectable(true);
-            t.setText(r);
+            t.setText(Lang.t(r));
             new NeonDialog(a).title("Journal du dernier lancement").view(t).cancel("Fermer").button("Partager", true, () -> share(a, "")).show();
         });
     }
 
     /** le journal en fichier .txt (Telechargements / GC Station), envoye avec le partage d'Android */
     static void share(final Activity a, final String id) {
-        Toast.makeText(a, "Lecture du journal…", Toast.LENGTH_SHORT).show();
+        Lang.toast(a, "Lecture du journal…", Toast.LENGTH_SHORT).show();
         Api.get("/api/pulse.txt", r -> {
-            if (r == null) { Toast.makeText(a, "Pas de journal sur la console", Toast.LENGTH_SHORT).show(); return; }
+            if (r == null) { Lang.toast(a, "Pas de journal sur la console", Toast.LENGTH_SHORT).show(); return; }
             Intent i = new Intent(Intent.ACTION_SEND);
             i.setType("text/plain");
             i.putExtra(Intent.EXTRA_SUBJECT, "Journal GC Station" + (id.isEmpty() ? "" : " · " + id));

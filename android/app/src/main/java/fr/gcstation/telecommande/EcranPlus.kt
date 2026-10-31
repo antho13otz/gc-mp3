@@ -43,7 +43,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -81,7 +80,7 @@ private val TUILES get() = listOf(
     Tuile("Fichiers", "La carte SD", Ic.Dossier, C.Rose) { St.sous = "Fichiers" },
     Tuile("Photos", "Sur la télé", Ic.Photo, C.Cyan) { St.sous = "Photos" },
     Tuile("Réglages", "De GC Station", Ic.Reglages, C.Violet) { St.sous = "Réglages" },
-    Tuile("Apparence", "Ambiance, texte, 120 Hz", Ic.Photo, C.Rose) { St.sous = "Apparence" },
+    Tuile("Apparence", "Ambiance, langue, texte, 120 Hz", Ic.Photo, C.Rose) { St.sous = "Apparence" },
     Tuile("Cartes mémoire", "Sauvegardes", Ic.Carte, C.Bleu) { St.sous = "Cartes mémoire" },
     Tuile("Recherche", "Musique, radios, jeux", Ic.Chercher, C.Rose) { St.sous = "Recherche" },
     Tuile("Salon", "Les autres consoles", Ic.Salon, C.Cyan) { St.sous = "Salon" },
@@ -199,7 +198,7 @@ fun EcranFichiers() {
     }
     fun telecharger(i: Int, nom: String) = UiKit.download(act, "/api/get?h=$h&i=$i", nom)
     fun lireTexte(i: Int, e: Entree) {
-        if (e.taille > 4L * 1024 * 1024) { Toast.makeText(act, "Fichier trop gros pour être affiché : téléchargé à la place", Toast.LENGTH_LONG).show(); telecharger(i, e.nom); return }
+        if (e.taille > 4L * 1024 * 1024) { Lang.toast(act, "Fichier trop gros pour être affiché : téléchargé à la place", Toast.LENGTH_LONG).show(); telecharger(i, e.nom); return }
         texte = e.nom to "Chargement…"
         scope.launch {
             val b = lireOctets("/api/get?h=$h&i=$i", 8000)

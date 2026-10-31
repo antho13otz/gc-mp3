@@ -1,0 +1,778 @@
+# GC Station (appli) : textes en anglais. Une ligne : francais <TAB> anglais. \n = retour a la ligne.
+# $nom ou ${...} ou %d / %s / %.1f : une valeur (meme ordre ou memes noms dans l'anglais).
+# Un morceau qui commence ou finit par une espace / « · » / « : » / « ( » sert aussi a l'interieur d'un texte compose.
+Lecture	Now playing
+Musique	Music
+Jeux	Games
+Télé	TV
+Plus	More
+En jeu · 	In game ·
+Console injoignable · nouvel essai…	Console unreachable · retrying…
+Connecté · 	Connected ·
+ · en direct	 · live
+Pas connecté	Not connected
+Actualiser les listes	Refresh lists
+Chercher la console à nouveau	Search for the console again
+Saisir l'adresse de la console	Enter the console address
+Tape l'adresse affichée dans l'onglet TÉLÉPHONE de la console.	Type the address shown in the console's PHONE tab.
+Mettre à jour l'appli (	Update the app (
+Manette en jeu : réglages et disposition	In-game controller: settings and layout
+Hors-ligne · tes jeux gardés restent là	Offline · your saved games are still here
+Chercher la console	Find the console
+Manette dans le jeu	Controller in the game
+Masquer	Hide
+Envoi 	Sending
+Envoi : 	Sending:
+Rien en lecture	Nothing playing
+Télécommande	Remote
+Adresse de la console (ex. 192.168.1.20)	Console address (e.g. 192.168.1.20)
+Se connecter	Connect
+Chercher	Search
+Utiliser hors-ligne	Use offline
+Tes jeux, jaquettes, boîtes 3D et notices gardés sur le téléphone, sans la console.	Your games, covers, 3D boxes and manuals saved on the phone, without the console.
+Partie en cours	Game in progress
+ · profil 	 · profile
+ · lancé à 	 · started at
+temps de jeu	play time
+Il reste
+ de jeu aujourd'hui	 of play left today
+Temps de jeu du jour écoulé	Today's play time is used up
+Pour revenir à GC Station : A + Z + START sur la manette. L'appli se reconnecte toute seule au retour.	To get back to GC Station: A + Z + START on the controller. The app reconnects by itself.
+Jeton refusé par GitHub (expiré ou mal copié ?)	Token refused by GitHub (expired or badly copied?)
+GitHub refuse (	GitHub refuses (
+) : le jeton a-t-il « Actions : Read-only » sur 	): does the token have "Actions: Read-only" on
+GitHub : erreur 	GitHub: error
+Jeton refusé pour le téléchargement (Actions : Read-only ?)	Token refused for the download (Actions: Read-only?)
+Téléchargement refusé (	Download refused (
+Téléchargement : erreur 	Download: error
+Pas d'APK dans le fichier de GitHub	No APK in the GitHub file
+Mise à jour pas installée	Update not installed
+Recherche d'une nouvelle version…	Looking for a new version…
+Mettre à jour l'appli	Update the app
+Changer le jeton	Change the token
+Fermer	Close
+Aucune version de l'appli disponible sur GitHub (les fichiers sont gardés 90 jours).	No app version available on GitHub (files are kept for 90 days).
+L'appli est à jour (version 1.	The app is up to date (version 1.
+Nouvelle version : 1.	New version: 1.
+ (installée : 1.	 (installed: 1.
+Télécharger et installer ? Android demande ensuite de confirmer. Tes réglages sont gardés.	Download and install? Android will then ask you to confirm. Your settings are kept.
+Installer	Install
+Plus tard	Later
+Pas de réponse de GitHub	No answer from GitHub
+Autorise GC Station à installer des applis, puis reviens et réessaie.	Allow GC Station to install apps, then come back and try again.
+Téléchargement de la nouvelle version…	Downloading the new version…
+Échec du téléchargement	Download failed
+L'appli n'est pas publique : GitHub demande un jeton pour la télécharger. À faire une fois :\n	The app is not public: GitHub needs a token to download it. To do once:\n
+1. « Créer le jeton » ouvre GitHub (connecte-toi).\n	1. "Create the token" opens GitHub (sign in).\n
+2. Nom : GC Station ; Repository access : Only select repositories > 	2. Name: GC Station; Repository access: Only select repositories >
+3. Permissions > Repository > Actions : Read-only. Generate token, puis copie-le.\n	3. Permissions > Repository > Actions: Read-only. Generate token, then copy it.\n
+4. Colle-le ici. Il reste sur ce téléphone.	4. Paste it here. It stays on this phone.
+Jeton GitHub	GitHub token
+Créer le jeton	Create the token
+Enregistrer	Save
+Annuler	Cancel
+Nouvelle version de l'appli : 1.	New app version: 1.
+Dans l'appli : ⚙ > Mettre à jour l'appli.	In the app: ⚙ > Update the app.
+Ambiance	Look
+Le néon rose, violet et cyan d'origine	The original pink, purple and cyan neon
+Gris profond et bleu doux, discret	Deep grey and soft blue, understated
+L'indigo de la GameCube	The GameCube's indigo
+Celles de la jaquette du jeu en cours (ou de la dernière fiche ouverte)	Those of the current game's cover (or the last game page opened)
+Ouvre la fiche d'un jeu : ses couleurs viennent de sa jaquette	Open a game's page: its colours come from its cover
+Taille du texte	Text size
+Petit	Small
+Normal	Normal
+Grand	Large
+Très grand	Very large
+Animations	Animations
+Vibrations	Vibrations
+120 Hz : l'appli demande au téléphone sa fréquence la plus haute (défilements et animations plus fluides ; un peu plus de batterie).	120 Hz: the app asks the phone for its highest refresh rate (smoother scrolling and animations; a bit more battery).
+Langue	Language
+Français	Français
+English	English
+Langue du téléphone	Phone language
+Néon	Neon
+Sombre sobre	Dark and plain
+GameCube indigo	GameCube indigo
+Couleurs du jeu	Game colours
+Recherche de la jaquette complète et du disque…	Looking for the full cover and the disc…
+Jaquette complète 	Full cover
+Jaquette avant seulement	Front cover only
+Pas de jaquette	No cover
+disque du jeu	game disc
+pas d'image du disque	no disc image
+Un doigt : faire tourner le disque · deux doigts : zoomer où tu veux et déplacer	One finger: spin the disc · two fingers: zoom anywhere and move
+Un doigt : tourner · deux doigts : zoomer où tu veux et déplacer · double toucher : ouvrir (zoomée : recadrer)	One finger: turn · two fingers: zoom anywhere and move · double tap: open (zoomed: reset)
+Avant	Front
+Tranche	Spine
+Dos	Back
+Lire la notice ($pagesNotice pages)	Read the manual ($pagesNotice pages)
+Ouvrir le boîtier	Open the case
+Ranger le disque	Put the disc away
+Sortir le disque	Take the disc out
+Jouer	Play
+Pique	Spades
+Cœur	Hearts
+Carreau	Diamonds
+Trèfle	Clubs
+8 américain	Crazy Eights
+Connexion à la table…	Joining the table…
+📺 Sur la télé	📺 On the TV
+Quitter la table	Leave the table
+Quitter la table ?	Leave the table?
+Tes cartes retournent sous la pioche.	Your cards go back under the draw pile.
+Quitter	Leave
+Tout arrêter	Stop everything
+Arrêter la partie pour tout le monde ?	Stop the game for everyone?
+Arrêter	Stop
+Ton nom à la table	Your name at the table
+Joueur	Player
+La console ne répond pas (es-tu sur le même Wi-Fi ?)	The console doesn't answer (are you on the same Wi-Fi?)
+La console ne répond pas…	The console doesn't answer…
+Tu n'es plus à la table	You're no longer at the table
+Rejoindre la table	Join the table
+8 américain · manche 	Crazy Eights · round
+8 américain · salon	Crazy Eights · lobby
+ (toi)	 (you)
+ carte	 card
+ pts	 pts
+On attend au moins un autre joueur…	Waiting for at least one other player…
+ joueurs à la table	 players at the table
+Tu gagnes la manche ! 🎉	You win the round! 🎉
+ gagne la manche	 wins the round
+À toi de jouer !	Your turn!
+ de jouer	's turn
+Commencer la partie	Start the game
+Manche suivante	Next round
+Piocher 	Draw
+ cartes	 cards
+Piocher	Draw
+Passer	Pass
+Le 8 : quelle couleur ?	The 8: which suit?
+Tes potes ouvrent l'appli	Your friends open the app
+Plus > Jeu de cartes	More > Card game
+ dans la pioche	 in the draw pile
+demandé	asked
+Champ de texte ouvert sur la télé	Text field open on the TV
+Ouvrir tout seul	Open by itself
+Écris ici : le texte part sur la télé	Type here: the text goes to the TV
+Parle : le texte s'écrit sur la télé	Speak: the text is written on the TV
+Pas de reconnaissance vocale sur ce téléphone	No speech recognition on this phone
+Aucune	None
+Jouable	Playable
+Marche mal	Works badly
+Écran noir	Black screen
+Plantage	Crash
+Chargement des jeux (la console fait la liste)…	Loading games (the console is making the list)…
+Pas de réponse de la console	No answer from the console
+Hors-ligne : aucune liste gardée (connecte-toi une fois à la console)	Offline: no saved list (connect to the console once)
+Chercher un jeu	Search for a game
+Tous	All
+★ Favoris	★ Favourites
+Déjà joués	Already played
+Hors-ligne · liste gardée le 	Offline · list saved on
+ · jaquettes, boîtes et notices gardées	 · covers, boxes and manuals saved
+Étagère 3D	3D shelf
+Mur de jaquettes	Cover wall
+Tout garder pour hors-ligne	Save everything for offline
+Préparation…	Preparing…
+Jeu 	Game
+Arrêté : ce qui est déjà gardé reste	Stopped: what is already saved stays
+Tout est gardé pour hors-ligne (	Everything is saved for offline (
+ jeux, 	 games,
+ pages de notices)	 manual pages)
+Envoyer jaquettes et disques à la console	Send covers and discs to the console
+Aucun jeu (onglet JEUX de la GameCube)	No games (GAMES tab on the GameCube)
+ jeu	 game
+ jeux	 games
+ · toucher pour la fiche	 · tap for the game page
+Envoyer à la console	Send to the console
+Le téléphone télécharge sur GameTDB ce qui manque à la GameCube (jaquettes, jaquettes complètes de la boîte, disques) et le lui envoie. La HD (zoom de la boîte sur la console) pèse 1 à 2 Mo par jeu : plus long.	The phone downloads from GameTDB what the GameCube is missing (covers, full box covers, discs) and sends it over. HD (box zoom on the console) weighs 1 to 2 MB per game: slower.
+Arrêté. 	Stopped.
+Envoyer	Send
+☑ Avec la HD	☑ With HD
+☐ Avec la HD	☐ With HD
+Envoi à la console	Sending to the console
+\n\nTéléchargées sur GameTDB par le téléphone, puis envoyées à la GameCube.	\n\nDownloaded from GameTDB by the phone, then sent to the GameCube.
+\n\nJaquettes (console), boîtes 3D et disques (GameTDB, par Internet), notices (console).	\n\nCovers (console), 3D boxes and discs (GameTDB, over the Internet), manuals (console).
+États-Unis	United States
+Japon	Japan
+Europe	Europe
+France	France
+Allemagne	Germany
+Espagne	Spain
+Italie	Italy
+Pays-Bas	Netherlands
+Australie	Australia
+Corée	Korea
+Taïwan	Taiwan
+Russie	Russia
+Pulse universel	Universal Pulse
+Attrape les accès au lecteur pendant le jeu (jeux qui se décompressent, plusieurs programmes : PSO…)	Catches drive accesses during the game (games that unpack themselves, several programs: PSO…)
+Lecteur lent (comme un vrai)	Slow drive (like a real one)
+Pour les jeux qui bloquent quand le disque répond trop vite	For games that freeze when the disc answers too fast
+Lecteur rapide (normal)	Fast drive (normal)
+Vitesse habituelle de Pulse : pour un jeu réglé sur « lecteur lent » qui n'en a pas besoin	Pulse's usual speed: for a game set to "slow drive" that doesn't need it
+Sans carte mémoire virtuelle	Without virtual memory card
+Le jeu utilise tes vraies cartes	The game uses your real cards
+Sans cheats	Without cheats
+Le jeu démarre sans ses cheats (ils restent choisis)	The game starts without its cheats (they stay selected)
+Sans 16:9 forcé	Without forced 16:9
+Image d'origine du jeu	The game's original picture
+Vidéo d'origine	Original video
+Sans 480p / 60 Hz / sans flou / image large	Without 480p / 60 Hz / no blur / wide picture
+Chargement des cheats…	Loading cheats…
+Préparation des pages…	Preparing pages…
+Aucune page lisible dans ces fichiers	No readable page in these files
+Notice installée sur la console	Manual installed on the console
+Cheats indisponibles (console à mettre à jour ?)	Cheats unavailable (console needs an update?)
+Aucun cheat utilisable dans SD:/gc-mp3/cheats/	No usable cheat in SD:/gc-mp3/cheats/
+Pas encore de cheats pour ce jeu : + Ajouter (ou SD:/gc-mp3/cheats/	No cheats for this game yet: + Add (or SD:/gc-mp3/cheats/
+Cheats pas enregistrés	Cheats not saved
+Pas de réponse (console à mettre à jour ?)	No answer (console needs an update?)
+Lancement avec Pulse	Launching with Pulse
+Lanceur de secours	Backup launcher
+Refusé	Refused
+Joué 	Played
+Jamais joué avec Pulse	Never played with Pulse
+Lancé 	Launched
+ fois	 times
+ · dernière fois 	 · last time
+Dernier essai Pulse : 	Last Pulse try:
+Favori	Favourite
+Pas possible (console à mettre à jour ?)	Not possible (console needs an update?)
+Raccourci	Shortcut
+Lancer avec Pulse	Launch with Pulse
+Voir la boîte en 3D	See the box in 3D
+Lire la notice ($notice pages)	Read the manual ($notice pages)
+Remplacer la notice…	Replace the manual…
+Ajouter une notice…	Add a manual…
+Patchs de secours…	Backup patches…
+Cheats	Cheats
+Replier	Fold
+Afficher (	Show (
+Ajouter	Add
+Aucun cheat activé · appui long : modifier	No cheat enabled · long press: edit
+ activé	 enabled
+s activés	s enabled
+ · Pulse les applique (sinon : lanceur de secours)	 · Pulse applies them (otherwise: backup launcher)
+ ligne	 line
+ de code · appui long : modifier	 of code · long press: edit
+Pastille	Badge
+Réglages du jeu	Game settings
+Afficher	Show
+Les réglages de ce jeu sont ouverts sur la télé : ferme-les d'abord.	This game's settings are open on the TV: close them first.
+Indisponible (console à mettre à jour ?)	Unavailable (console needs an update?)
+Tout comme la console	Same as the console
+Sauvegardes (carte virtuelle)	Saves (virtual card)
+Remplacer la notice	Replace the manual
+Ajouter une notice	Add a manual
+Choisis un PDF, ou les images des pages (rangées dans l'ordre de leurs noms). L'appli les met au bon format et les envoie à la console : la notice apparaît dans la boîte du jeu, sur la télé et ici.	Choose a PDF, or the page images (in the order of their names). The app formats them and sends them to the console: the manual appears in the game's box, on the TV and here.
+Pages seules ou planches d'impression (2 doubles pages par image, traits de coupe) : l'appli reconnaît et découpe les planches toute seule.	Single pages or print sheets (2 spreads per image, crop marks): the app recognises and cuts the sheets by itself.
+Choisir les fichiers	Choose files
+Notice	Manual
+Patchs de secours	Backup patches
+Pour ce lancement seulement : les réglages du jeu ne changent pas.	For this launch only: the game's settings don't change.
+Renommer	Rename
+Modifier les codes	Edit the codes
+Supprimer	Delete
+Nouveau nom	New name
+Nom du cheat	Cheat name
+Nouveau cheat	New cheat
+Codes : 	Codes:
+Nom du cheat (ex. Vies infinies)	Cheat name (e.g. Infinite lives)
+Codes Action Replay déchiffrés / Gecko : 8 + 8 chiffres hexadécimaux par ligne.	Decrypted Action Replay / Gecko codes: 8 + 8 hex digits per line.
+Chaque ligne doit avoir 16 chiffres (XXXXXXXX YYYYYYYY)	Each line must have 16 digits (XXXXXXXX YYYYYYYY)
+Donne un nom au cheat	Give the cheat a name
+Ton écran d'accueil n'accepte pas les raccourcis	Your home screen doesn't accept shortcuts
+Raccourci impossible	Shortcut not possible
+À propos	About
+ joueur	 player
+ joueurs	 players
+Éditeur	Publisher
+Développeur	Developer
+Sortie	Released
+Traduit de 	Translated from
+ · voir l'original	 · see the original
+Texte original · voir la traduction	Original text · see the translation
+Traduction en français…	Translating…
+Lire la suite	Read more
+Fiche GameTDB : chargement…	GameTDB page: loading…
+Morceaux	Tracks
+Radios	Radios
+À suivre	Up next
+Chargement…	Loading…
+Chercher une radio	Search for a radio
+Chercher un morceau, un artiste	Search for a track, an artist
+Globe des radios du monde	Globe of world radios
+ radio	 radio
+ morceau	 track
+ · appui long : file d'attente	 · long press: queue
+Radio : 	Radio:
+Lecture : 	Playing:
+Lire maintenant	Play now
+Lire juste après	Play next
+Ajouter à la fin de la file	Add to the end of the queue
+Joué juste après	Plays next
+Ajouté à la file	Added to the queue
+Fin de la file (rien à suivre)	End of the queue (nothing next)
+ à suivre · toucher pour le jouer	 up next · tap to play it
+Morceau $k	Track $k
+Fichiers	Files
+La carte SD	The SD card
+Photos	Photos
+Sur la télé	On the TV
+Réglages	Settings
+De GC Station	Of GC Station
+Apparence	Appearance
+Ambiance, texte, 120 Hz	Look, text, 120 Hz
+Ambiance, langue, texte, 120 Hz	Look, language, text, 120 Hz
+Cartes mémoire	Memory cards
+Sauvegardes	Saves
+Recherche	Search
+Musique, radios, jeux	Music, radios, games
+Salon	Lounge
+Les autres consoles	The other consoles
+Outils	Tools
+Mémoire, capture, rapport	Memory, capture, report
+Copies	Backups
+Cartes et réglages gardés	Saved cards and settings
+Succès	Achievements
+Débloqués dans les jeux	Unlocked in games
+Jeu de cartes	Card game
+8 américain entre potes	Crazy Eights with friends
+Mini-jeux	Mini-games
+Duels, téléphone = manette	Duels, phone = controller
+Manette en jeu	In-game controller
+Pulse : ports 2 à 4	Pulse: ports 2 to 4
+Globe des radios	Radio globe
+Les radios du monde	The world's radios
+Mettre à jour	Update
+Nouvelle version de l'appli	New app version
+Lecture du dossier…	Reading the folder…
+(dossier vide)	(empty folder)
+ élément	 item
+ éléments	 items
+ · appui long : renommer, couper, supprimer	 · long press: rename, cut, delete
+Réponse illisible	Unreadable answer
+Fait	Done
+Fichier trop gros pour être affiché : téléchargé à la place	File too big to display: downloaded instead
+Lecture impossible (pas de réponse de la console)	Can't read (no answer from the console)
+\n\n… (la suite : Télécharger)	\n\n… (the rest: Download)
+(fichier vide)	(empty file)
+Dossier	Folder
+Nom du nouveau dossier	New folder name
+Coller : 	Paste:
+Actualisation…	Refreshing…
+Couper (pour déplacer)	Cut (to move)
+Ouvre le dossier de destination, puis Coller	Open the destination folder, then Paste
+Lire comme texte	Read as text
+Télécharger	Download
+Supprimer 	Delete
+ et tout son contenu	 and everything in it
+Ça ne peut pas être annulé.	This can't be undone.
+Retour à la ligne	Wrap lines
+Sans retour	No wrap
+Aucune photo (SD:/photos)	No photos (SD:/photos)
+ photo	 photo
+ · toucher pour l'afficher sur la télé	 · tap to show it on the TV
+Sur la télé : 	On the TV:
+Rapide	Fast
+Net	Sharp
+Max	Max
+Pas connecté à la console	Not connected to the console
+La console n'envoie pas son image : mets-la à jour (build 774 ou plus)	The console doesn't send its picture: update it (build 774 or later)
+Afficher la télé	Show the TV
+Upscaling	Upscaling
+Fluide 120 Hz	Smooth 120 Hz
+En direct	Live
+Image arrêtée	Picture stopped
+Tactile	Touch
+Portrait	Portrait
+Plein écran	Full screen
+Sur l'image : toucher = cliquer à cet endroit, appui long = retour, glisser = déplacer la flèche.	On the picture: tap = click there, long press = back, drag = move the arrow.
+Onglet WEB : glisse pour bouger le pointeur, touche pour cliquer.	WEB tab: drag to move the pointer, tap to click.
+Sur l'image : toucher = A, appui long = B, glisser = la croix.	On the picture: tap = A, long press = B, drag = D-pad.
+Nom	Name
+Année	Year
+Temps de jeu	Play time
+20 h et plus	20 h or more
+5 à 20 h	5 to 20 h
+1 à 5 h	1 to 5 h
+Moins d'1 h	Under 1 h
+Jamais joué	Never played
+Éditeur inconnu	Unknown publisher
+Année inconnue	Unknown year
+Étagère	Shelf
+ · rayon « $rayon »	 · section "$rayon"
+Fiches des jeux (GameTDB) : chargement…	Game pages (GameTDB): loading…
+Rayon « 	Section "
+Toucher la boîte : l'ouvrir · toucher ailleurs : la ranger	Tap the box: open it · tap elsewhere: put it back
+Glisser : parcourir · toucher une boîte : la sortir · deux doigts : zoomer	Drag: browse · tap a box: take it out · two fingers: zoom
+Sortir la boîte	Take the box out
+Ranger	Put back
+Ouvrir	Open
+Fiche du jeu	Game page
+Ouvre GC Station (onglet Jeux) pour garder des jaquettes	Open GC Station (Games tab) to save covers
+Ouvre l'appli une fois	Open the app once
+GLOBE DES RADIOS	RADIO GLOBE
+Chargement de l'annuaire mondial…	Loading the world directory…
+Radio, pays, ville, style…	Radio, country, city, style…
+Toutes	All
+▶ GameCube	▶ GameCube
+📱 Téléphone	📱 Phone
+Annuaire injoignable (Internet sur le téléphone ?)	Directory unreachable (Internet on the phone?)
+%,d radios · %d pays	%,d radios · %d countries
+ · mise à jour…	 · updating…
+ · pas lisible par la GameCube	 · not playable by the GameCube
+Autour de 	Around
+Aucune radio trouvée	No radio found
+ résultat	 result
+ résultats	 results
+ · touche pour y aller	 · tap to go there
+La console ne joue pas une radio du globe	The console isn't playing a globe radio
+Format pas lisible par la GameCube (	Format not playable by the GameCube (
+) : écoute-la sur le téléphone	): listen on the phone
+Console pas connectée	Console not connected
+Sur la GameCube : 	On the GameCube:
+Console injoignable	Console unreachable
+La console doit être mise à jour (v253)	The console needs an update (v253)
+Radio illisible sur le téléphone	Radio not playable on the phone
+📱 Connexion… 	📱 Connecting…
+☆  Retirer des favoris du globe	☆  Remove from globe favourites
+★  Favori du globe	★  Globe favourite
+＋  Ajouter à mes radios (console)	＋  Add to my radios (console)
+↗  Ouvrir le site de l'annuaire	↗  Open the directory website
+Retirée des favoris	Removed from favourites
+Ajoutée aux favoris du globe	Added to globe favourites
+Ajoutée à tes radios de la console	Added to your console radios
+ · notice 	 · manual
+La console ne répond pas, ou n'est pas à jour (il faut la v301 ou plus récente)	The console doesn't answer, or isn't up to date (v301 or later needed)
+Réponse de la console illisible	Unreadable answer from the console
+jaquette	cover
+jaquette complète	full cover
+jaquette HD	HD cover
+disque	disc
+complète	full
+Rien à envoyer : la console a déjà tout	Nothing to send: the console already has everything
+ (sauf ce que GameTDB n'a pas)	 (except what GameTDB doesn't have)
+ envoyée	 sent
+ envoyées	 sent
+ absente	 missing
+ absentes	 missing
+ de GameTDB	 from GameTDB
+ envoi	 upload
+ raté	 failed
+Quitté avec A+Z+START	Quit with A+Z+START
+Le jeu a planté	The game crashed
+Le jeu s'est figé (repéré par Pulse)	The game froze (detected by Pulse)
+Aucune nouvelle du jeu (bloqué très tôt)	No news from the game (stuck very early)
+Pas de retour (console éteinte ou redémarrée ?)	No return (console off or restarted?)
+à l'instant	just now
+il y a
+ h	 h
+ min	 min
+le 	on
+le jeu 	the game
+Ouvre l'onglet Jeux de l'appli : « Dernier lancement » > Partager le journal.	Open the app's Games tab: "Last launch" > Share the log.
+Succès obtenu	Achievement unlocked
+Liste : onglet Jeux > Dernier lancement > Succès.	List: Games tab > Last launch > Achievements.
+Téléchargement fini	Download finished
+ est sur la carte SD de la console.	 is on the console's SD card.
+DERNIER LANCEMENT	LAST LAUNCH
+Journal	Log
+Partager le journal	Share the log
+ · joué 	 · played
+ · endroit : 	 · place:
+Pas de réponse de la console (GC Station v268 et plus)	No answer from the console (GC Station v268 or later)
+Aucun succès : ajoute un fichier SD:/gc-mp3/succes/<ID du jeu>.txt (quelques jeux en ont déjà un).	No achievements: add a file SD:/gc-mp3/succes/<game ID>.txt (a few games already have one).
+Succès · 	Achievements ·
+Pas de journal sur la console	No log on the console
+Journal du dernier lancement	Last launch log
+Partager	Share
+Lecture du journal…	Reading the log…
+Journal GC Station	GC Station log
+Radio	Radio
+Manette	Controller
+File d'attente	Queue
+La console ne répond pas (	The console doesn't answer (
+). Éteinte, en jeu ou hors du Wi-Fi ? L'appli se reconnecte toute seule.	). Off, in a game or off the Wi-Fi? The app reconnects by itself.
+Console retrouvée : 	Console found again:
+Partie terminée : 	Game over:
+Console de retour	Console is back
+PARTIE EN COURS	GAME IN PROGRESS
+🎮  Manette dans le jeu	🎮  Controller in the game
+Connexion à la console (	Connecting to the console (
+Recherche de la console sur le Wi-Fi…	Looking for the console on the Wi-Fi…
+Recherche de la console sur le Wi-Fi… 	Looking for the console on the Wi-Fi…
+Pas de Wi-Fi : connecte le téléphone au même réseau que la console.	No Wi-Fi: connect the phone to the same network as the console.
+Console introuvable. Allume-la et active la télécommande (onglet TÉLÉPHONE), ou tape son adresse.	Console not found. Turn it on and enable the remote (PHONE tab), or type its address.
+Tape d'abord l'adresse de la console	Type the console's address first
+ consoles GC Station sur ce Wi-Fi.	 GC Station consoles on this Wi-Fi.
+Quelle console ?	Which console?
+Connexion…	Connecting…
+Mettre à jour l'appli (1.	Update the app (1.
+Ouvert sur la télé (Cube Browser)	Opened on the TV (Cube Browser)
+Rien à envoyer (seulement des fichiers)	Nothing to send (files only)
+Un envoi est déjà en cours	An upload is already running
+Envoyé : 	Sent:
+ fichier	 file
+ fichiers	 files
+Envoyés : 	Sent:
+ sur 	 of
+ (les autres ont échoué après 3 essais)	 (the others failed after 3 tries)
+Envoyé sur la console (	Sent to the console (
+Envoi terminé	Upload finished
+Envoi incomplet	Upload incomplete
+ fichier(s) sur la console	 file(s) on the console
+ envoyé(s)	 sent
+Envoi vers la carte 	Sending to card
+Envoi impossible	Can't send
+Console 	Console
+Stick	Stick
+Stick C	C-stick
+Haut	Up
+Bas	Down
+Gauche	Left
+Droite	Right
+Réglages de la manette	Controller settings
+Stick flottant (il se place sous le pouce) : 	Floating stick (it goes under your thumb):
+Diriger en inclinant le téléphone : 	Steer by tilting the phone:
+Gâchettes progressives (glisser vers le bas) : 	Analog triggers (slide down):
+Vibration du jeu (le téléphone vibre comme la manette) : 	Game rumble (the phone vibrates like the controller):
+Vibration des touches : 	Button vibration:
+Opacité des touches : 	Button opacity:
+✎  Modifier la disposition des touches	✎  Edit the button layout
+Remettre la disposition d'origine	Restore the original layout
+Manette Bluetooth ou USB branchée au téléphone : sticks, gâchettes et croix vont au jeu. Touches :	Bluetooth or USB controller on the phone: sticks, triggers and D-pad go to the game. Buttons:
+ : appuie sur un bouton de la manette…	: press a controller button…
+   (changer)	   (change)
+Touches de la manette d'origine	Original controller buttons
+Fermer (la manette s'affiche pour essayer)	Close (the controller shows up to try)
+croix 	D-pad
+− Taille	− Size
+Taille +	Size +
+Fonction	Function
+Origine	Original
+Terminé	Done
+Touche une touche pour la choisir, glisse-la pour la déplacer	Tap a button to pick it, drag it to move it
+Choisie : 	Selected:
+ (la croix bouge en entier)	 (the whole D-pad moves)
+Fonction : 	Function:
+masquée	hidden
+JOUEUR 	PLAYER
+Essai de la manette (pas en jeu : rien n'est envoyé) · ⚙ réglages	Controller test (not in a game: nothing is sent) · ⚙ settings
+Mini-jeux de GC Station · touche JOUEUR pour changer de joueur · le joueur 1 pilote aussi les menus	GC Station mini-games · tap PLAYER to change player · player 1 also drives the menus
+Manette en jeu · A + Z + START sur la vraie manette pour revenir	In-game controller · A + Z + START on the real controller to come back
+Choisis un jeu : il démarre sur la télé, et ton téléphone devient ta manette. Tes potes font pareil avec le leur.	Choose a game: it starts on the TV, and your phone becomes your controller. Your friends do the same with theirs.
+TU ES LE	YOU ARE
+🎮  Juste la manette (menus et jeux)	🎮  Just the controller (menus and games)
+Joueur 	Player
+La console ne répond pas, ou elle n'a pas encore le build 765.	The console doesn't answer, or doesn't have build 765 yet.
+à 4	to 4
+2 joueurs	2 players
+À PLUSIEURS	MULTIPLAYER
+ · incline le téléphone · toucher : la fiche	 · tilt the phone · tap: the game page
+En fond d'écran	As wallpaper
+Lecture du PDF : page 	Reading the PDF: page
+Lecture de 	Reading
+La console ne répond pas (build 790 ou plus récent ?)	The console doesn't answer (build 790 or later?)
+Envoi à la console : page 	Sending to the console: page
+Envoi interrompu à la page 	Upload interrupted at page
+Notice · $nom	Manual · $nom
+Couverture · 	Cover ·
+ pages	 pages
+Page 	Page
+Glisser : pages · deux doigts : zoomer · double toucher : zoomer / revenir	Swipe: pages · two fingers: zoom · double tap: zoom / back
+Page introuvable	Page not found
+Chargement de la page…	Loading the page…
+Couverture · $n pages	Cover · $n pages
+Dos · $n pages	Back · $n pages
+Pages 	Pages
+Un doigt : tourner la notice · deux doigts : zoomer et déplacer · toucher à droite / à gauche : tourner une page · double toucher : recadrer	One finger: turn the manual · two fingers: zoom and move · tap right / left: turn a page · double tap: reset
+De face	Face on
+À plat	Flat
+Refermer	Close
+Lecture sur la console	Playing on the console
+Nouveautés et envois	News and uploads
+Plus que 5 minutes de jeu	Only 5 minutes of play left
+Limite de jeu du jour bientôt atteinte	Today's play limit almost reached
+C'est l'heure d'arrêter	Time to stop
+ : A + Z + START pour revenir à GC Station.	: A + Z + START to come back to GC Station.
+, profil 	, profile
+Temps de jeu : 	Play time:
+Profil 	Profile
+A + Z + START pour revenir à GC Station	A + Z + START to come back to GC Station
+limite du jour à 	today's limit at
+temps du jour écoulé	today's time used up
+En jeu : 	In game:
+Précédent	Previous
+Pause	Pause
+Suivant	Next
+Nouveau GC Station : build 	New GC Station: build
+Ta console a le build 	Your console has build
+Classique	Classical
+Électro	Electro
+Rétro	Retro
+Monde	World
+Autres	Others
+Volume 	Volume
+🌍  Globe des radios du monde	🌍  Globe of world radios
+▶  Lire maintenant	▶  Play now
+⤵  Lire juste après	⤵  Play next
+☰  Ajouter à la fin de la file	☰  Add to the end of the queue
+ trouvé	 found
+ trouvés	 found
+Clavier ouvert sur la télé	Keyboard open on the TV
+⛶  Plein écran	⛶  Full screen
+Pavé tactile : pointeur de Cube Browser (toucher = clic, deux doigts = défiler)	Touchpad: Cube Browser pointer (tap = click, two fingers = scroll)
++ Dossier	+ Folder
+Coller	Paste
+Touche un fichier pour le télécharger, appui long pour le reste	Tap a file to download it, long press for the rest
+Téléchargement : 	Download:
+Téléchargement impossible	Can't download
+Pas de sélecteur de fichiers	No file picker
+Fichier trop gros pour être affiché (	File too big to display (
+ Mo) : téléchargé à la place	 MB): downloaded instead
+ octets	 bytes
+ · appui long pour copier	 · long press to copy
+Dernier lancement	Last launch
+★ Favori	★ Favourite
+☆ Favori	☆ Favourite
+⌂ Raccourci	⌂ Shortcut
+CHEATS	CHEATS
++ Ajouter	+ Add
+PASTILLE	BADGE
+RÉGLAGES DU JEU	GAME SETTINGS
+SAUVEGARDES (CARTE VIRTUELLE)	SAVES (VIRTUAL CARD)
+Pulse + patchs de secours…	Pulse + backup patches…
+▴ Replier	▴ Fold
+▾ Afficher (	▾ Show (
+ cheat	 cheat
+Supprimer « 	Delete "
+Le cheat est retiré du fichier 	The cheat is removed from the file
+Pour ce lancement seulement : les réglages du jeu ne changent pas. Choisis un ou plusieurs patchs.	For this launch only: the game's settings don't change. Choose one or more patches.
+Aucun patch choisi : lancement normal avec Pulse	No patch chosen: normal launch with Pulse
+Lancement sur la télé : 	Launching on the TV:
+ · toucher pour lancer	 · tap to launch
+À suivre sur la console	Up next on the console
+Morceau 	Track
+Les réglages changent tout de suite sur la télé	Settings change right away on the TV
+Vérifier	Check
+Éléments du lecteur	Player items
+Onglets affichés	Shown tabs
+Textes	Texts
+Enregistré	Saved
+Cartes mémoire virtuelles (Pulse)	Virtual memory cards (Pulse)
+Lecture des cartes…	Reading the cards…
+Aucune carte virtuelle (Pulse en crée une au premier jeu)	No virtual card (Pulse creates one on the first game)
+Toucher une sauvegarde : la récupérer (.gci) ou l'effacer	Tap a save: download it (.gci) or erase it
++ Sauvegarde	+ Save
+Remplacer	Replace
+Remplacer 	Replace
+Choisis une image de carte (.raw). L'ancienne est gardée en .bak sur la console.	Choose a card image (.raw). The old one is kept as .bak on the console.
+Choisir	Choose
+ sauvegarde(s), 	 save(s),
+ blocs libres sur 	 free blocks of
+ blocs	 blocks
+ blocs · 	 blocks ·
+Télécharger (.gci)	Download (.gci)
+Effacer de la carte	Erase from the card
+Effacer « 	Erase "
+La sauvegarde est retirée de 	The save is removed from
+Effacer	Erase
+Aucune sauvegarde de ce jeu sur une carte virtuelle	No save of this game on a virtual card
+Les autres GC Station de la maison	The other GC Stations in the house
+Le Salon est coupé (START > Réglages > Réseau > Salon)	The Lounge is off (START > Settings > Network > Lounge)
+Aucune autre GC Station pour l'instant	No other GC Station for now
+Toucher « Écouter avec » pour la même musique sur ta télé	Tap "Listen with" for the same music on your TV
+Écouter avec	Listen with
+Écoute lancée sur la télé	Listening started on the TV
+Piloter celle-ci	Control this one
+Mémoire de la console	Console memory
+Capture de la télé	TV capture
+Capturer	Capture
+Test de la console	Console test
+1 minute	1 minute
+Complet	Full
+environ 5 minutes	about 5 minutes
+Total	Total
+environ 15 minutes : tout le matériel et tout GC Station	about 15 minutes: all the hardware and all of GC Station
+Touches	Buttons
+3 heures au plus : chaque touche dans chaque écran	3 hours at most: every button on every screen
+Test 	Test
+Durée : 	Duration:
+Lancer	Start
+Voir le dernier rapport	See the last report
+Pas encore de rapport	No report yet
+Rapport de bug	Bug report
+Lire le journal	Read the log
+Envoyer le rapport	Send the report
+La console ne répond pas (ou elle n'a pas encore le build 764)	The console doesn't answer (or doesn't have build 764 yet)
+En cours : 	Running:
+Aucun test lancé depuis l'allumage	No test run since power-on
+Libre %.1f Mo · utilisée %.1f Mo%s\nBuild %d · allumée depuis %d min	Free %.1f MB · used %.1f MB%s\nBuild %d · on for %d min
+ · plus grand bloc %.1f Mo	 · largest block %.1f MB
+Démarrage : 	Startup:
+  (le plus long : 	  (longest:
+Capture…	Capturing…
+Capture impossible	Can't capture
+Capture d'abord	Capture first
+Enregistrée dans Images > GC Station	Saved in Pictures > GC Station
+Enregistrement impossible	Can't save
+Rapport GC Station	GC Station report
+(journal illisible)	(unreadable log)
+Jaquettes, lancer	Covers, launch
+Morceau, artiste, radio, jeu…	Track, artist, radio, game…
+Tape au moins 2 lettres	Type at least 2 letters
+Chargement des listes…	Loading the lists…
+MUSIQUE	MUSIC
+Pas possible	Not possible
+RADIO	RADIO
+JEUX	GAMES
+Rien trouvé	Nothing found
+ · appui long sur un morceau : file d'attente	 · long press a track: queue
+Copie déjà en cours…	Backup already running…
+Copie impossible : la console ne répond pas	Can't back up: the console doesn't answer
+Copie faite : 	Backup done:
+ mémoire	 memory
+ et les réglages	 and the settings
+ ratée	 failed
+Copie de GC Station	GC Station backup
+Copie impossible	Can't back up
+Pas de réponse	No answer
+Copie automatique	Automatic backup
+Désactivée : tu fais tes copies à la main avec le bouton ci-dessous. Activée : une fois par jour, à la connexion (cartes mémoire virtuelles et réglages). Les 	Off: you make your backups by hand with the button below. On: once a day, when connecting (virtual memory cards and settings). The last
+ dernières sont gardées.	 are kept.
+Faire une copie maintenant	Back up now
+Copie en cours (les cartes peuvent prendre un moment)…	Backing up (cards can take a while)…
+Copie	Backup
+Aucune copie sur ce téléphone pour l'instant	No backup on this phone yet
+Dernière copie : 	Last backup:
+ + réglages	 + settings
+Remettre ces réglages ?	Restore these settings?
+Les réglages de la console sont remplacés par ceux de cette copie.	The console's settings are replaced by this backup's.
+Remettre	Restore
+Une carte…	A card…
+Remettre quelle carte ?	Restore which card?
+L'ancienne est gardée en .bak sur la console.	The old one is kept as .bak on the console.
+Supprimer cette copie ?	Delete this backup?
+Dossier : Android/data/fr.gcstation.telecommande/files/copies (supprimé si tu désinstalles l'appli).	Folder: Android/data/fr.gcstation.telecommande/files/copies (deleted if you uninstall the app).
+Envoi vers la console…	Sending to the console…
+l'anglais	English
+l'allemand	German
+l'espagnol	Spanish
+l'italien	Italian
+le japonais	Japanese
+le néerlandais	Dutch
+le portugais	Portuguese
+Traduit de l'anglais	Translated from English
+il y a $x	$x ago
+Il reste $x de jeu aujourd'hui	$x of play left today
+ cheats activés	 cheats enabled
+ cheat activé	 cheat enabled
+« 	"
+ »	"
+ ?	?
+\uD83C\uDFAE  Manette : réglages et disposition	\uD83C\uDFAE  Controller: settings and layout
+Manettes du telephone	Phone controllers

@@ -40,7 +40,7 @@ final class Neon {
     static int alpha(int color, int a) { return (color & 0x00FFFFFF) | (a << 24); }
 
     /** texte change seulement s'il est different (sinon Android refait la mise en page pour rien) */
-    static void set(TextView t, CharSequence s) { if (!android.text.TextUtils.equals(t.getText(), s)) t.setText(s); }
+    static void set(TextView t, CharSequence s) { s = Lang.t(s); if (!android.text.TextUtils.equals(t.getText(), s)) t.setText(s); }
 
     /** carte en verre : fond blanc tres leger, bord fin */
     static Drawable glass(Context c, float radius) {
@@ -83,7 +83,7 @@ final class Neon {
 
     static TextView text(Context c, String s, float sp, int color, boolean bold) {
         TextView t = new TextView(c);
-        t.setText(s);
+        t.setText(Lang.t(s));
         t.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp);
         t.setTextColor(color);
         if (bold) t.setTypeface(Typeface.create("sans-serif-medium", Typeface.BOLD));
