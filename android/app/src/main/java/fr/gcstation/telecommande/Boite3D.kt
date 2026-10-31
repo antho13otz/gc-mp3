@@ -505,8 +505,8 @@ private class Rendu : GLSurfaceView.Renderer {
                 float sp = pow(max(dot(n, normalize(L1 + V)), 0.0), 20.0 + 70.0 * uGloss) * 0.4 * uGloss;
                 float refl = F * min(uGloss, 1.6);
                 vec3 e = env(R);
-                if (uMode > 3.5) {                                 // (plastique mat grene)
-                    diff *= 0.9 + 0.2 * grain(vO);
+                if (uMode > 3.5) {                                 // (plastique mat grene, eclaire un peu plus : l'interieur se voit bien)
+                    diff = base.rgb * (0.30 + 0.85 * d) * (0.96 + 0.08 * grain(vO));
                     e = mix(vec3(dot(e, vec3(0.333))), e, 0.25) * 0.5; refl *= 0.6; sp *= 0.3;
                 } else if (uMode > 2.5) {                          // (film transparent : reflet net des lumieres par-dessus la jaquette)
                     refl = 0.02 + 0.6 * pow(1.0 - cv, 5.0); sp *= 1.3; e = max(e - vec3(0.3, 0.22, 0.45), 0.0) * 1.3;
