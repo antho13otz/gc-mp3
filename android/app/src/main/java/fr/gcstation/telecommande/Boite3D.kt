@@ -149,6 +149,13 @@ object JaquettesHQ {
         Images(full, avant, disqueNet(dir, id))
     }
 
+    /** pour l'etagere : jaquette complete (HD si gardee, sinon normale), sinon jaquette avant ; pas de disque */
+    suspend fun chargerEtagere(dir: File, id: String): Images = withContext(Dispatchers.IO) {
+        val full = image(dir, "coverfullHQ", id) ?: image(dir, "coverfull", id)
+        val avant = if (full != null) null else image(dir, "coverHQ", id) ?: Jaquettes.bitmap(dir, id)
+        Images(full, avant, null)
+    }
+
     /** l'image du disque agrandie proprement a 1024 px (Agrandir.kt), gardee sur le telephone (calculee une fois) */
     private fun disqueNet(dir: File, id: String): Bitmap? {
         val f = File(dir, "jaquettes/disc1024/$id.png")
@@ -485,101 +492,10 @@ private class Rendu : GLSurfaceView.Renderer {
     }
 
     // ---- shaders ----
-    private val VS = """
-        uniform mat4 uMVP; uniform mat4 uM;
-        attribute vec3 aP; attribute vec3 aN; attribute vec2 aT;
-        varying vec3 vN; varying vec2 vT; varying vec3 vW; varying vec3 vO;
-        void main() { vec4 w = uM * vec4(aP, 1.0); vW = w.xyz; vO = aP; vN = (uM * vec4(aN, 0.0)).xyz; vT = aT; gl_Position = uMVP * vec4(aP, 1.0); }
-    """
-    // (rendu : lumiere de studio, reflets de l'environnement (deux boites a lumiere, sol, ciel violet) avec Fresnel ;
-    //  modes : 0 plastique noir brillant, 1 disque face gravee (miroir + diffraction arc-en-ciel selon l'angle,
-    //  centre en plastique transparent, anneau d'empilage, bande miroir gravee), 2 disque face imprimee,
-    //  3 film transparent sur la jaquette, 4 plastique mat grene)
-    private val FS = """
-        precision highp float;
-        uniform sampler2D uTex; uniform float uUseTex; uniform vec4 uCol; uniform vec3 uEye; uniform float uFlat; uniform float uGloss; uniform float uMode;
-        uniform mat4 uM;
-        varying vec3 vN; varying vec2 vT; varying vec3 vW; varying vec3 vO;
-        vec3 teinte(float x) { return clamp(abs(fract(x + vec3(0.0, 0.6667, 0.3333)) * 6.0 - 3.0) - 1.0, 0.0, 1.0); }
-        float boite(vec3 r, vec3 d, float a, float b) { return smoothstep(a, b, dot(r, normalize(d))); }
-        vec3 env(vec3 r) {
-            vec3 c = mix(vec3(0.05, 0.03, 0.09), vec3(0.34, 0.24, 0.52), smoothstep(-0.1, 0.9, r.y));
-            c += vec3(1.0, 0.98, 1.0) * boite(r, vec3(-0.45, 0.75, 0.55), 0.90, 0.965) * 2.2;
-            c += vec3(0.85, 0.85, 1.0) * boite(r, vec3(0.75, 0.25, 0.65), 0.93, 0.975) * 1.3;
-            c += vec3(1.0, 0.55, 0.95) * boite(r, vec3(0.0, -0.1, 1.0), 0.97, 0.99) * 0.5;
-            return mix(c, vec3(0.015, 0.01, 0.02), smoothstep(-0.05, -0.35, r.y));
-        }
-        float grain(vec3 p) { return fract(sin(dot(floor(p * 900.0), vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
-        void main() {
-            vec4 base = uUseTex > 0.5 ? texture2D(uTex, vT) : uCol;
-            if (uFlat > 0.5) { gl_FragColor = base; return; }
-            vec3 n = normalize(vN);
-            vec3 V = normalize(uEye - vW);
-            if (dot(n, V) < 0.0) n = -n;
-            vec3 R = reflect(-V, n);
-            float cv = max(dot(n, V), 0.0);
-            float F = 0.04 + 0.96 * pow(1.0 - cv, 5.0);
-            vec3 L1 = normalize(vec3(-0.45, 0.75, 0.55)), L2 = normalize(vec3(0.75, 0.25, 0.65));
-            float d = max(dot(n, L1), 0.0) * 0.72 + max(dot(n, L2), 0.0) * 0.32 + 0.14;
-            vec3 c; float a = 1.0;
-            if (uMode > 0.5 && uMode < 2.5) {
-                vec2 q = vT - 0.5; float r = length(q) * 2.0;
-                if (r < 0.1875) discard;
-                vec3 t = normalize((uM * vec4(q.y, q.x, 0.0, 0.0)).xyz + vec3(1e-6));
-                vec3 mir = env(R);
-                if (r < 0.335) {                                   // (plastique transparent, anneau d'empilage)
-                    float anneau = smoothstep(0.262, 0.268, r) * (1.0 - smoothstep(0.292, 0.298, r));
-                    c = vec3(0.70, 0.74, 0.82) * 0.18 + mir * (0.35 + F) + vec3(0.25) * anneau;
-                    a = 0.30 + 0.35 * anneau + 0.3 * F;
-                } else if (r > 0.988) {                            // (bord transparent)
-                    c = mir * 0.7 + vec3(0.15); a = 0.55;
-                } else if (uMode < 1.5) {                          // (face gravee : miroir et arc-en-ciel)
-                    // (diffraction des sillons, pas de 0,74 um : couleur seulement quand |sin a - sin b| = lambda / pas,
-                    //  soit de 0,54 (violet) a 0,95 (rouge) ; ailleurs : le miroir argente)
-                    float g1 = abs(dot(t, L1) + dot(t, V)), g2 = abs(dot(t, L2) + dot(t, V));
-                    float k1 = (g1 - 0.54) / 0.41, k2 = (g2 - 0.54) / 0.41;
-                    float f1 = smoothstep(0.0, 0.08, k1) * (1.0 - smoothstep(0.92, 1.0, k1));
-                    float f2 = smoothstep(0.0, 0.08, k2) * (1.0 - smoothstep(0.92, 1.0, k2));
-                    float w1 = pow(max(dot(n, normalize(L1 + V)), 0.0), 1.5), w2 = pow(max(dot(n, normalize(L2 + V)), 0.0), 1.5);
-                    vec3 irid = teinte(0.78 - clamp(k1, 0.0, 1.0) * 0.78) * f1 * w1 * 1.3 + teinte(0.78 - clamp(k2, 0.0, 1.0) * 0.78) * f2 * w2 * 0.8;
-                    vec3 argent = vec3(0.66, 0.68, 0.74);
-                    if (r < 0.40) {                                // (bande miroir, texte grave)
-                        c = mix(argent, mir, 0.75) * 1.05;
-                        float ang = atan(q.y, q.x);
-                        if (abs(r - 0.372) < 0.007 && fract(ang * 46.0) > 0.45) c *= 0.55;
-                        if (abs(r - 0.40) < 0.004) c *= 0.6;
-                    } else c = mix(argent * 0.95, mir, 0.45) + vec3(0.06) + irid * smoothstep(0.40, 0.44, r);
-                } else {                                           // (face imprimee : l'image du jeu, encre brillante)
-                    c = base.rgb * d + env(R) * F * 0.9 + vec3(pow(max(dot(n, normalize(L1 + V)), 0.0), 80.0) * 0.35);
-                }
-            } else {
-                vec3 diff = base.rgb * d;
-                float sp = pow(max(dot(n, normalize(L1 + V)), 0.0), 20.0 + 70.0 * uGloss) * 0.4 * uGloss;
-                float refl = F * min(uGloss, 1.6);
-                vec3 e = env(R);
-                if (uMode > 3.5) {                                 // (plastique mat grene, eclaire un peu plus : l'interieur se voit bien)
-                    diff = base.rgb * (0.30 + 0.85 * d) * (0.96 + 0.08 * grain(vO));
-                    e = mix(vec3(dot(e, vec3(0.333))), e, 0.25) * 0.5; refl *= 0.6; sp *= 0.3;
-                } else if (uMode > 2.5) {                          // (film transparent : reflet net des lumieres par-dessus la jaquette)
-                    refl = 0.02 + 0.6 * pow(1.0 - cv, 5.0); sp *= 1.3; e = max(e - vec3(0.3, 0.22, 0.45), 0.0) * 1.3;
-                    diff = base.rgb * (0.5 + 0.6 * d);                   // (la jaquette garde ses vraies couleurs)
-                } else refl = max(refl, 0.06);
-                c = diff + e * refl * 1.3 + vec3(sp);
-            }
-            gl_FragColor = vec4(c, a);
-        }
-    """
-    private val VS_FOND = "attribute vec2 aP; varying vec2 vP; void main() { vP = aP; gl_Position = vec4(aP, 0.999, 1.0); }"
-    private val FS_FOND = """
-        precision mediump float; varying vec2 vP;
-        void main() {
-            vec3 haut = vec3(0.071, 0.024, 0.141), bas = vec3(0.027, 0.008, 0.059);
-            vec3 c = mix(bas, haut, vP.y * 0.5 + 0.5);
-            float g = 1.0 - smoothstep(0.0, 1.1, length(vP - vec2(0.0, 0.15)));
-            c += vec3(0.42, 0.14, 0.62) * g * 0.35;
-            gl_FragColor = vec4(c, 1.0);
-        }
-    """
+    private val VS = Ombrage.VS
+    private val FS = Ombrage.FS
+    private val VS_FOND = Ombrage.VS_FOND
+    private val FS_FOND = Ombrage.FS_FOND
     private fun shader(t: Int, src: String): Int { val s = GLES20.glCreateShader(t); GLES20.glShaderSource(s, src); GLES20.glCompileShader(s); return s }
     private fun programme(vs: String, fs: String): Int {
         val p = GLES20.glCreateProgram()
@@ -707,4 +623,103 @@ private class Rendu : GLSurfaceView.Renderer {
         }
         GLES20.glDisableVertexAttribArray(aP); GLES20.glDisableVertexAttribArray(aN); GLES20.glDisableVertexAttribArray(aT)
     }
+}
+
+/** les shaders de la boite 3D (plastique, disque, film, fond), partages avec l'etagere (Etagere.kt) */
+internal object Ombrage {
+    val VS = """
+        uniform mat4 uMVP; uniform mat4 uM;
+        attribute vec3 aP; attribute vec3 aN; attribute vec2 aT;
+        varying vec3 vN; varying vec2 vT; varying vec3 vW; varying vec3 vO;
+        void main() { vec4 w = uM * vec4(aP, 1.0); vW = w.xyz; vO = aP; vN = (uM * vec4(aN, 0.0)).xyz; vT = aT; gl_Position = uMVP * vec4(aP, 1.0); }
+    """
+    // (rendu : lumiere de studio, reflets de l'environnement (deux boites a lumiere, sol, ciel violet) avec Fresnel ;
+    //  modes : 0 plastique noir brillant, 1 disque face gravee (miroir + diffraction arc-en-ciel selon l'angle,
+    //  centre en plastique transparent, anneau d'empilage, bande miroir gravee), 2 disque face imprimee,
+    //  3 film transparent sur la jaquette, 4 plastique mat grene)
+    val FS = """
+        precision highp float;
+        uniform sampler2D uTex; uniform float uUseTex; uniform vec4 uCol; uniform vec3 uEye; uniform float uFlat; uniform float uGloss; uniform float uMode;
+        uniform mat4 uM;
+        varying vec3 vN; varying vec2 vT; varying vec3 vW; varying vec3 vO;
+        vec3 teinte(float x) { return clamp(abs(fract(x + vec3(0.0, 0.6667, 0.3333)) * 6.0 - 3.0) - 1.0, 0.0, 1.0); }
+        float boite(vec3 r, vec3 d, float a, float b) { return smoothstep(a, b, dot(r, normalize(d))); }
+        vec3 env(vec3 r) {
+            vec3 c = mix(vec3(0.05, 0.03, 0.09), vec3(0.34, 0.24, 0.52), smoothstep(-0.1, 0.9, r.y));
+            c += vec3(1.0, 0.98, 1.0) * boite(r, vec3(-0.45, 0.75, 0.55), 0.90, 0.965) * 2.2;
+            c += vec3(0.85, 0.85, 1.0) * boite(r, vec3(0.75, 0.25, 0.65), 0.93, 0.975) * 1.3;
+            c += vec3(1.0, 0.55, 0.95) * boite(r, vec3(0.0, -0.1, 1.0), 0.97, 0.99) * 0.5;
+            return mix(c, vec3(0.015, 0.01, 0.02), smoothstep(-0.05, -0.35, r.y));
+        }
+        float grain(vec3 p) { return fract(sin(dot(floor(p * 900.0), vec3(12.9898, 78.233, 37.719))) * 43758.5453); }
+        void main() {
+            vec4 base = uUseTex > 0.5 ? texture2D(uTex, vT) : uCol;
+            if (uFlat > 0.5) { gl_FragColor = base; return; }
+            vec3 n = normalize(vN);
+            vec3 V = normalize(uEye - vW);
+            if (dot(n, V) < 0.0) n = -n;
+            vec3 R = reflect(-V, n);
+            float cv = max(dot(n, V), 0.0);
+            float F = 0.04 + 0.96 * pow(1.0 - cv, 5.0);
+            vec3 L1 = normalize(vec3(-0.45, 0.75, 0.55)), L2 = normalize(vec3(0.75, 0.25, 0.65));
+            float d = max(dot(n, L1), 0.0) * 0.72 + max(dot(n, L2), 0.0) * 0.32 + 0.14;
+            vec3 c; float a = 1.0;
+            if (uMode > 0.5 && uMode < 2.5) {
+                vec2 q = vT - 0.5; float r = length(q) * 2.0;
+                if (r < 0.1875) discard;
+                vec3 t = normalize((uM * vec4(q.y, q.x, 0.0, 0.0)).xyz + vec3(1e-6));
+                vec3 mir = env(R);
+                if (r < 0.335) {                                   // (plastique transparent, anneau d'empilage)
+                    float anneau = smoothstep(0.262, 0.268, r) * (1.0 - smoothstep(0.292, 0.298, r));
+                    c = vec3(0.70, 0.74, 0.82) * 0.18 + mir * (0.35 + F) + vec3(0.25) * anneau;
+                    a = 0.30 + 0.35 * anneau + 0.3 * F;
+                } else if (r > 0.988) {                            // (bord transparent)
+                    c = mir * 0.7 + vec3(0.15); a = 0.55;
+                } else if (uMode < 1.5) {                          // (face gravee : miroir et arc-en-ciel)
+                    // (diffraction des sillons, pas de 0,74 um : couleur seulement quand |sin a - sin b| = lambda / pas,
+                    //  soit de 0,54 (violet) a 0,95 (rouge) ; ailleurs : le miroir argente)
+                    float g1 = abs(dot(t, L1) + dot(t, V)), g2 = abs(dot(t, L2) + dot(t, V));
+                    float k1 = (g1 - 0.54) / 0.41, k2 = (g2 - 0.54) / 0.41;
+                    float f1 = smoothstep(0.0, 0.08, k1) * (1.0 - smoothstep(0.92, 1.0, k1));
+                    float f2 = smoothstep(0.0, 0.08, k2) * (1.0 - smoothstep(0.92, 1.0, k2));
+                    float w1 = pow(max(dot(n, normalize(L1 + V)), 0.0), 1.5), w2 = pow(max(dot(n, normalize(L2 + V)), 0.0), 1.5);
+                    vec3 irid = teinte(0.78 - clamp(k1, 0.0, 1.0) * 0.78) * f1 * w1 * 1.3 + teinte(0.78 - clamp(k2, 0.0, 1.0) * 0.78) * f2 * w2 * 0.8;
+                    vec3 argent = vec3(0.66, 0.68, 0.74);
+                    if (r < 0.40) {                                // (bande miroir, texte grave)
+                        c = mix(argent, mir, 0.75) * 1.05;
+                        float ang = atan(q.y, q.x);
+                        if (abs(r - 0.372) < 0.007 && fract(ang * 46.0) > 0.45) c *= 0.55;
+                        if (abs(r - 0.40) < 0.004) c *= 0.6;
+                    } else c = mix(argent * 0.95, mir, 0.45) + vec3(0.06) + irid * smoothstep(0.40, 0.44, r);
+                } else {                                           // (face imprimee : l'image du jeu, encre brillante)
+                    c = base.rgb * d + env(R) * F * 0.9 + vec3(pow(max(dot(n, normalize(L1 + V)), 0.0), 80.0) * 0.35);
+                }
+            } else {
+                vec3 diff = base.rgb * d;
+                float sp = pow(max(dot(n, normalize(L1 + V)), 0.0), 20.0 + 70.0 * uGloss) * 0.4 * uGloss;
+                float refl = F * min(uGloss, 1.6);
+                vec3 e = env(R);
+                if (uMode > 3.5) {                                 // (plastique mat grene, eclaire un peu plus : l'interieur se voit bien)
+                    diff = base.rgb * (0.30 + 0.85 * d) * (0.96 + 0.08 * grain(vO));
+                    e = mix(vec3(dot(e, vec3(0.333))), e, 0.25) * 0.5; refl *= 0.6; sp *= 0.3;
+                } else if (uMode > 2.5) {                          // (film transparent : reflet net des lumieres par-dessus la jaquette)
+                    refl = 0.02 + 0.6 * pow(1.0 - cv, 5.0); sp *= 1.3; e = max(e - vec3(0.3, 0.22, 0.45), 0.0) * 1.3;
+                    diff = base.rgb * (0.5 + 0.6 * d);                   // (la jaquette garde ses vraies couleurs)
+                } else refl = max(refl, 0.06);
+                c = diff + e * refl * 1.3 + vec3(sp);
+            }
+            gl_FragColor = vec4(c, a);
+        }
+    """
+    val VS_FOND = "attribute vec2 aP; varying vec2 vP; void main() { vP = aP; gl_Position = vec4(aP, 0.999, 1.0); }"
+    val FS_FOND = """
+        precision mediump float; varying vec2 vP;
+        void main() {
+            vec3 haut = vec3(0.071, 0.024, 0.141), bas = vec3(0.027, 0.008, 0.059);
+            vec3 c = mix(bas, haut, vP.y * 0.5 + 0.5);
+            float g = 1.0 - smoothstep(0.0, 1.1, length(vP - vec2(0.0, 0.15)));
+            c += vec3(0.42, 0.14, 0.62) * g * 0.35;
+            gl_FragColor = vec4(c, 1.0);
+        }
+    """
 }

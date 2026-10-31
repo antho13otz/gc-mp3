@@ -138,6 +138,7 @@ fun EcranJeux() {
     var garde by remember { mutableLongStateOf(0L) }           // (hors-ligne : date de la liste gardee ; 0 : liste de la console)
     var tout by remember { mutableStateOf<String?>(null) }    // (« Tout garder pour hors-ligne » en cours : ce qu'il fait)
     var toutAnnule by remember { mutableStateOf(false) }
+    var etagere by remember { mutableStateOf(false) }       // (l'etagere de collection : Etagere.kt)
     var choixEnvoi by remember { mutableStateOf(false) }     // (v301 : jaquettes et disques envoyes a la console)
     var avecHd by remember { mutableStateOf(true) }
     var envoi by remember { mutableStateOf<String?>(null) }
@@ -181,6 +182,7 @@ fun EcranJeux() {
                 AndroidView({ dernier.view.also { v -> (v.parent as? android.view.ViewGroup)?.removeView(v) } }, Modifier.fillMaxWidth())
                 if (garde > 0L) Doux("Hors-ligne · liste gardée le " + java.text.SimpleDateFormat("d/M à HH:mm", java.util.Locale.FRANCE).format(java.util.Date(garde)) + " · jaquettes, boîtes et notices gardées",
                     Modifier.padding(start = 4.dp, top = 8.dp), 12, C.Cyan)
+                if (vus.isNotEmpty()) Bouton("Étagère 3D (" + vus.size + " boîte" + (if (vus.size > 1) "s" else "") + ")", Modifier.fillMaxWidth().padding(top = 8.dp), plein = true, hauteur = 40.dp) { etagere = true }
                 if (St.connecte && l != null && l.isNotEmpty()) Bouton("Tout garder pour hors-ligne", Modifier.fillMaxWidth().padding(top = 8.dp), hauteur = 40.dp) {
                     toutAnnule = false; tout = "Préparation…"
                     scope.launch {
@@ -196,6 +198,7 @@ fun EcranJeux() {
         }
         items(vus, key = { it.id + "#" + it.i }) { g -> CelluleJeu(act, g, compat[g.id] ?: 0) { fiche = g } }
     }
+    if (etagere) EtagereEcran(act, vus, { g -> etagere = false; fiche = g }) { etagere = false }
     fiche?.let { g -> FicheJeu(act, g, compat, { fiche = null }) { recharge++ } }
     // (jaquettes et disques telecharges par le telephone sur GameTDB, envoyes a la console : seulement ce qui lui manque)
     if (choixEnvoi) AlertDialog(onDismissRequest = { choixEnvoi = false }, containerColor = Color(0xFF1A0E30),
