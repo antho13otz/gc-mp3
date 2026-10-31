@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Disque agrandi par IA, jaquettes depuis GameTDB
+- **Image du disque bien plus nette** : GameTDB ne la donne qu'en ~160 px ; elle est maintenant agrandie **par IA** sur
+  le téléphone (Real-ESRGAN « realesr-general-x4v3 », réseau compact, licence BSD-3, exécuté par ONNX Runtime) : 4 fois
+  plus grande, contours, logos et textes redessinés nets, puis 1024 px ; une seule fois par jeu (gardée). Si l'IA ne
+  marche pas, l'agrandissement d'avant prend le relais. (Modèle converti au format ONNX sans changer ses poids ; l'appli
+  ne garde que les versions pour téléphones ARM.)
+- **Jaquettes de l'appli depuis GameTDB** : les vignettes (onglet Jeux, mur, fiche) sont téléchargées par le téléphone
+  sur GameTDB, en HD (sinon normales), quatre à la fois, et gardées ; celle de la console ne sert plus que si GameTDB
+  n'a pas le jeu ou sans Internet.
+
 ## Nouveautés v304 (build 802, appli build 98) — Sortir le disque sur la console, fond d'écran à 120 Hz, étagère sans intercalaires
 - **Console : sortir le disque** : fiche du jeu, boîte ouverte, **↓** : le disque se soulève du bac, bascule, vient devant
   en grand et tourne (avec un reflet) ; **↓** encore : il retourne dans le bac ; fermer la boîte (↑) le range aussi.
