@@ -24,6 +24,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v304 (build à venir, appli build à venir) — Sortir le disque sur la console, fond d'écran à 120 Hz, étagère sans intercalaires
+- **Console : sortir le disque** : fiche du jeu, boîte ouverte, **↓** : le disque se soulève du bac, bascule, vient devant
+  en grand et tourne (avec un reflet) ; **↓** encore : il retourne dans le bac ; fermer la boîte (↑) le range aussi.
+  La barre d'aide dit « Sortir le disque » / « Ranger le disque ».
+- **Appli : fond d'écran animé fluide** : dessiné par la puce graphique (Canvas matériel, jaquettes en mémoire
+  graphique), à chaque rafraîchissement de l'écran au lieu de 30 fois par seconde, en demandant **120 Hz** ; plus rien
+  n'est recréé à chaque image.
+- **Appli : étagère** : plus d'intercalaires violets ; le rayon de la boîte du milieu reste écrit en haut.
+
 ## Nouveautés v303 (build 800, appli build 96) — Télé tactile et clavier du téléphone partout
 - **Télé tactile** (appli, onglet Télé, puce « Tactile », activée) : toucher l'image de la télé **clique à cet endroit**
   sur la console : la flèche de GC Station y va et choisit ce qui est dessous (onglet, ligne, bouton) ; dans Cube

@@ -516,6 +516,7 @@ static void gs_draw_fiche(void) {
         x = gs_key(x, 453, "\xE2\x86\x91", bx_open_to > 0.5f ? "Fermer" : "Ouvrir", RGBA(150, 200, 255, 255));
         x = gs_key(x, 453, "A", "Jouer", RGBA(110, 220, 140, 255));
         if (bx_open_to > 0.5f && nt_pages(gl_sel) > 0) x = gs_key(x, 453, "X", "Notice", RGBA(235, 235, 245, 255));   /* v296 */
+        if (bx_open_to > 0.5f) x = gs_key(x, 453, "\xE2\x86\x93", "Disque", RGBA(150, 200, 255, 255));   /* v304 */
         gs_key(x, 453, "B", "Retour", RGBA(240, 110, 110, 255));
         nv_raw = 0;
         if (gl_launch_sel >= 0) gl_draw_launch_box();
@@ -533,7 +534,7 @@ static void gs_draw_fiche(void) {
         x = gs_key(x, 453, "Y", "R\xC3\xA9glages", RGBA(235, 235, 245, 255));
         x = gs_key(x, 453, "L", "Favori", RGBA(255, 210, 90, 255));
         x = gs_key(x, 453, "R", "Analyse", RGBA(235, 235, 245, 255));
-        if (bx_open_to > 0.5f) x = gs_key(x, 453, "\xE2\x86\x93", "Fermer", RGBA(150, 200, 255, 255));
+        if (bx_open_to > 0.5f) x = gs_key(x, 453, "\xE2\x86\x93", bx_out_to > 0.5f ? "Ranger le disque" : "Sortir le disque", RGBA(150, 200, 255, 255));   /* v304 */
         else {
             x = gs_key(x, 453, "\xE2\x86\x91", "Bo\xC3\xAEte", RGBA(150, 200, 255, 255));   /* v282 : box3d.c */
             x = gs_key(x, 453, "\xE2\x86\x93", "Musiques", RGBA(150, 200, 255, 255));   /* v207 : jukebox.c */
