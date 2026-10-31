@@ -779,6 +779,13 @@ static int sx_phone_state(char *o, int cap);
 static int gm_phone_list(char *o, int cap);              /* v279 : mini-jeux (tabs_extra.c) */
 static void gm_phone_launch(int g);
 static char *x73_gj = NULL;                              /* JSON des jeux (construit par la boucle : extras73.c) */
+/* v301 : jaquettes et disques envoyes par le telephone (l'appli les telecharge sur GameTDB) :
+   x73_jq : "<ID><0|1>\n" par jeu (1 : jaquette de la liste deja la), construit par la boucle (extras73.c) ;
+   /api/jaqliste regarde le reste (complete, HD, disque) dans le fil du serveur ; PUT /upload?dir=jaquette&nid=<ID>&kind=c|f|h|d */
+static char *x73_jq = NULL;
+static volatile int x73_jq_want = 0, x73_jq_ready = 0;
+static volatile int tp_jaq_new = 0;                       /* (une image est arrivee : la boucle relit les jaquettes) */
+static void gl_art_recu(void);                            /* (gclib.c) */
 static volatile int x73_gj_want = 0, x73_gj_ready = 0;
 static volatile int x73_launch_k = -1, x73_launch_m = 0;
 static char x73_launch_id[8] = "";
@@ -1135,9 +1142,16 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     if (!strcmp(dir, "apps")) okdir = 1;                    /* (v272 : morceaux suivants d'un .dol) */
     char nid[8] = "";                                       /* v297 : page de notice : dir=notice&nid=<ID> -> SD:/gc-mp3/notices/<ID>/<nom> */
     tp_param(q, "nid", nid, sizeof(nid));
-    int notice = !strcmp(dir, "notice") && strlen(nid) == 6;
-    for (int i = 0; notice && i < 6; i++) if (!isalnum((unsigned char)nid[i])) notice = 0;
+    int idok = strlen(nid) == 6;
+    for (int i = 0; idok && i < 6; i++) if (!isalnum((unsigned char)nid[i])) idok = 0;
+    int notice = !strcmp(dir, "notice") && idok;
     if (notice) okdir = 1;
+    char jk[4] = "";                                        /* v301 : jaquette d'un jeu : dir=jaquette&nid=<ID>&kind= */
+    tp_param(q, "kind", jk, sizeof(jk));                    /*  c : liste (ajoutees), f : complete, h : complete HD, d : disque */
+    static const char *const jsub[4] = { "ajoutees", "completes", "completes", "disques" };
+    int jkk = jk[0] && !jk[1] && strchr("cfhd", jk[0]) ? (int)(strchr("cfhd", jk[0]) - "cfhd") : -1;
+    int jaq = !strcmp(dir, "jaquette") && idok && jkk >= 0;
+    if (jaq) okdir = 1;
     if (!okdir || !clean[0] || len <= 0 || !sd_ok) { tp_reply(c, 400, "text/plain", "refus", 5); return; }
     { const char *dt = strrchr(clean, '.');                    /* v224 : un programme va toujours dans SD:/apps (liste Applis) */
       if (dt && !strcasecmp(dt, ".dol")) snprintf(dir, sizeof(dir), "apps"); }
@@ -1145,6 +1159,12 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     mkdir(GCD, 0777);
     int regtel = !strcmp(dir, "regtel");
     if (regtel) { mkdir(GCD_REG, 0777); snprintf(path, sizeof(path), "%s", TP_REGTEL); remove(path); }   /* (toujours le meme nom, remplace) */
+    else if (jaq) {                                         /* (v301 : remplace l'image d'avant ; convertie par la console a la 1re vue) */
+        mkdir(GCD "/jaquettes", 0777);
+        snprintf(path, sizeof(path), GCD "/jaquettes/%s", jsub[jkk]); mkdir(path, 0777);
+        snprintf(path, sizeof(path), GCD "/jaquettes/%s/%s%s.png", jsub[jkk], nid, jkk == 2 ? "-hd" : "");
+        if (!(chunk && off > 0)) remove(path);
+    }
     else if (notice) {                                      /* (v297 : la page remplace l'ancienne) */
         mkdir(GCD "/notices", 0777);
         snprintf(path, sizeof(path), GCD "/notices/%s", nid); mkdir(path, 0777);
@@ -1157,7 +1177,7 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     }
     struct stat st;
     if (chunk && off > 0) snprintf(path, sizeof(path), "%s", tpk.path);   /* (nom choisi au 1er morceau) */
-    else for (int k = 2; !regtel && !notice && k < 100 && stat(path, &st) == 0; k++) {     /* deja la : "nom (2).mp3" */
+    else for (int k = 2; !regtel && !notice && !jaq && k < 100 && stat(path, &st) == 0; k++) {     /* deja la : "nom (2).mp3" */
         char base[200], ext[16] = "";
         snprintf(base, sizeof(base), "%s", clean);
         char *dot = strrchr(base, '.');
@@ -1221,6 +1241,14 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
         snprintf(m, sizeof(m), "\xC3\x89" "chec : %s", clean);
         tp_logf(m);
         tp_reply(c, 500, "text/plain", "envoi interrompu", 16);
+        return;
+    }
+    if (jaq) {                                              /* (v301 : l'ancienne image deja convertie est enlevee : la nouvelle sert) */
+        char tp[NAME_LEN];
+        snprintf(tp, sizeof(tp), GCD "/jaquettes/%s/%s%s.tex", jsub[jkk], nid, jkk == 2 ? "-hd" : ""); remove(tp);
+        if (jkk == 0) { snprintf(tp, sizeof(tp), GCD "/jaquettes/ajoutees/%s.jpg", nid); remove(tp); }
+        tp_jaq_new = 1;
+        tp_reply(c, 200, "text/plain", "ok", 2);
         return;
     }
     snprintf(m, sizeof(m), "Re\xC3\xA7u : %s/%s", dir, clean);
@@ -1693,6 +1721,33 @@ static void tp_handle(s32 c) {
         tp_reply(c, 200, "application/json", sb.b, sb.b ? sb.n : 0);
         free(sb.b);
     }
+    else if (!strcmp(target, "/api/jaqliste")) {            /* v301 : [["GALE01",c,f,h,d],...] : 1 = image deja sur la console */
+        x73_jq_ready = 0; x73_jq_want = 1;
+        for (int k = 0; k < 400 && !x73_jq_ready; k++) usleep(20000);
+        char *t = x73_jq_ready && x73_jq ? strdup(x73_jq) : NULL;
+        if (!t) { tp_reply(c, 503, "application/json", "[]", 2); return; }
+        sbuf_t sb = { NULL, 0, 0 };
+        sb_add(&sb, "[");
+        int first = 1;
+        for (char *l = t; *l; ) {
+            char *e = strchr(l, '\n'); if (!e) break;
+            if (e - l == 7) {
+                char id[8], p[NAME_LEN], it[48]; struct stat st;
+                memcpy(id, l, 6); id[6] = 0;
+                int has[3] = { 0, 0, 0 };
+                static const char *const fmt[3][2] = { { GCD "/jaquettes/completes/%s.tex", GCD "/jaquettes/completes/%s.png" },
+                    { GCD "/jaquettes/completes/%s-hd.tex", GCD "/jaquettes/completes/%s-hd.png" }, { GCD "/jaquettes/disques/%s.tex", GCD "/jaquettes/disques/%s.png" } };
+                for (int a = 0; a < 3; a++) for (int b = 0; b < 2 && !has[a]; b++) { snprintf(p, sizeof(p), fmt[a][b], id); if (stat(p, &st) == 0 && st.st_size > 0) has[a] = 1; }
+                snprintf(it, sizeof(it), "%s[\"%s\",%c,%d,%d,%d]", first ? "" : ",", id, l[6], has[0], has[1], has[2]);
+                sb_add(&sb, it); first = 0;
+            }
+            l = e + 1;
+        }
+        sb_add(&sb, "]");
+        free(t);
+        tp_reply(c, 200, "application/json", sb.b ? sb.b : "[]", sb.b ? (int)sb.n : 2);
+        free(sb.b);
+    }
     else if (!strcmp(target, "/api/notice")) {              /* v296 : notice d'un jeu : ?id=GALE01 -> {"n":pages} ; &p=N -> la page (JPEG) */
         char id[8], ps[8], p[NAME_LEN];
         tp_param(q ? q : "", "id", id, sizeof(id));
@@ -2132,6 +2187,7 @@ static void phone_pump(void) {
     }
     while (tp_add_r != tp_add_w) { music_add_file(tp_add_path[tp_add_r % 8]); tp_add_r++; }
     if (tp_rescan & 2) { tp_rescan &= ~2; photo_rescan(); }
+    if (tp_jaq_new && !tp_up_active) { tp_jaq_new = 0; gl_art_recu(); }   /* v301 */
 }
 
 /* v51 : n'importe quel QR code (aussi celui du rapport d'analyse d'un jeu) */

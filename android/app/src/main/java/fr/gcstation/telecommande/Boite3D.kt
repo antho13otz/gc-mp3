@@ -115,6 +115,11 @@ object JaquettesHQ {
 
     /** une image de GameTDB (genre : coverfullHQ, coverfull, coverHQ), gardee sur le telephone ; null : pas trouvee */
     private fun image(dir: File, genre: String, id: String): Bitmap? {
+        val f = fichier(dir, genre, id) ?: return null
+        return BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 })
+    }
+    /** le fichier PNG d'origine de GameTDB, telecharge une fois et garde sur le telephone ; null : pas trouve */
+    fun fichier(dir: File, genre: String, id: String): File? {
         val d = File(dir, "jaquettes/$genre"); d.mkdirs()
         val f = File(d, "$id.png")
         val absent = File(d, "$id.absent")
@@ -132,7 +137,7 @@ object JaquettesHQ {
             }
             if (!ok) { try { absent.writeText("") } catch (e: Exception) { }; return null }
         }
-        return BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 })
+        return f
     }
 
     /** {jaquette complete (dos|tranche|avant) ou null, jaquette avant ou null} */

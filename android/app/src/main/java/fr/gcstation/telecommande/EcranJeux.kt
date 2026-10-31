@@ -138,6 +138,10 @@ fun EcranJeux() {
     var garde by remember { mutableLongStateOf(0L) }           // (hors-ligne : date de la liste gardee ; 0 : liste de la console)
     var tout by remember { mutableStateOf<String?>(null) }    // (« Tout garder pour hors-ligne » en cours : ce qu'il fait)
     var toutAnnule by remember { mutableStateOf(false) }
+    var choixEnvoi by remember { mutableStateOf(false) }     // (v301 : jaquettes et disques envoyes a la console)
+    var avecHd by remember { mutableStateOf(true) }
+    var envoi by remember { mutableStateOf<String?>(null) }
+    var envoiAnnule by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
     LaunchedEffect(St.listes, recharge, St.connecte) {
         val r = if (St.connecte) lire("/api/games", 15000) else null
@@ -185,6 +189,7 @@ fun EcranJeux() {
                         Toast.makeText(act, if (toutAnnule) "Arrêté : ce qui est déjà gardé reste" else "Tout est gardé pour hors-ligne (" + l.size + " jeux, " + n + " pages de notices)", Toast.LENGTH_LONG).show()
                     }
                 }
+                if (St.connecte && l != null && l.isNotEmpty()) Bouton("Envoyer jaquettes et disques à la console", Modifier.fillMaxWidth().padding(top = 8.dp), hauteur = 40.dp) { choixEnvoi = true }
                 Doux(if (l == null) msg else if (l.isEmpty()) "Aucun jeu (onglet JEUX de la GameCube)" else vus.size.toString() + " jeu" + (if (vus.size > 1) "x" else "") + " · toucher pour la fiche",
                     Modifier.padding(start = 4.dp, top = 8.dp), 12)
             }
@@ -192,6 +197,25 @@ fun EcranJeux() {
         items(vus, key = { it.id + "#" + it.i }) { g -> CelluleJeu(act, g, compat[g.id] ?: 0) { fiche = g } }
     }
     fiche?.let { g -> FicheJeu(act, g, compat, { fiche = null }) { recharge++ } }
+    // (jaquettes et disques telecharges par le telephone sur GameTDB, envoyes a la console : seulement ce qui lui manque)
+    if (choixEnvoi) AlertDialog(onDismissRequest = { choixEnvoi = false }, containerColor = Color(0xFF1A0E30),
+        title = { Text("Envoyer à la console", color = C.Texte) },
+        text = { Doux("Le téléphone télécharge sur GameTDB ce qui manque à la GameCube (jaquettes, jaquettes complètes de la boîte, disques) et le lui envoie. La HD (zoom de la boîte sur la console) pèse 1 à 2 Mo par jeu : plus long.", taille = 13) },
+        confirmButton = { TextButton({
+            choixEnvoi = false; envoiAnnule = false; envoi = "Préparation…"
+            scope.launch {
+                val b = JaquettesConsole.envoyer(Hors.dir(act), avecHd, { envoiAnnule }) { k, t, txt -> envoi = if (txt.isEmpty()) null else "Jeu " + (k + 1) + " / " + t + " : " + txt }
+                envoi = null
+                Toast.makeText(act, (if (envoiAnnule) "Arrêté. " else "") + JaquettesConsole.resume(b), Toast.LENGTH_LONG).show()
+            }
+        }) { Text("Envoyer", color = C.Rose) } },
+        dismissButton = { TextButton({ avecHd = !avecHd }) { Text(if (avecHd) "☑ Avec la HD" else "☐ Avec la HD", color = C.Texte) } })
+    envoi?.let { m ->
+        AlertDialog(onDismissRequest = { }, containerColor = Color(0xFF1A0E30),
+            title = { Text("Envoi à la console", color = C.Texte) },
+            text = { Doux(m + "\n\nTéléchargées sur GameTDB par le téléphone, puis envoyées à la GameCube.", taille = 13) },
+            confirmButton = { TextButton({ envoiAnnule = true }) { Text("Arrêter", color = C.Rose) } })
+    }
     tout?.let { m ->
         AlertDialog(onDismissRequest = { }, containerColor = Color(0xFF1A0E30),
             title = { Text("Tout garder pour hors-ligne", color = C.Texte) },
