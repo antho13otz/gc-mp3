@@ -94,7 +94,7 @@ public class PlaybackService extends Service {
         Live.add(this, live);
         gameAlarms(Live.game);
         channels(this);
-        session = new MediaSession(this, "GC Station");
+        session = new MediaSession(this, "GC Remote");
         session.setCallback(new MediaSession.Callback() {
             @Override public void onPlay() { Api.cmd("toggle", -1); later(); }
             @Override public void onPause() { Api.cmd("toggle", -1); later(); }
@@ -210,7 +210,7 @@ public class PlaybackService extends Service {
         if (k.equals(shownKey)) return;                      // (notification et widget : seulement si quelque chose change)
         shownKey = k;
         MediaMetadata.Builder md = new MediaMetadata.Builder()
-            .putString(MediaMetadata.METADATA_KEY_TITLE, title.isEmpty() ? "GC Station" : title)
+            .putString(MediaMetadata.METADATA_KEY_TITLE, title.isEmpty() ? "GC Remote" : title)
             .putString(MediaMetadata.METADATA_KEY_ARTIST, sub)
             .putString(MediaMetadata.METADATA_KEY_ALBUM, info);
         if (dur > 0) md.putLong(MediaMetadata.METADATA_KEY_DURATION, dur * 1000L);
@@ -241,7 +241,7 @@ public class PlaybackService extends Service {
         String title = s != null ? s.optString("title", "") : "", sub = s != null ? s.optString("sub", "") : "";
         Notification.Builder b = Build.VERSION.SDK_INT >= 26 ? new Notification.Builder(this, CH_PLAY) : new Notification.Builder(this);
         b.setSmallIcon(R.drawable.ic_stat)
-         .setContentTitle(title.isEmpty() ? "GC Station" : title) // NOLANG
+         .setContentTitle(title.isEmpty() ? "GC Remote" : title) // NOLANG
          .setContentText(sub.isEmpty() ? Lang.t(Api.host != null ? "Console " + Api.host : "Télécommande") : sub) // NOLANG
          .setLargeIcon(lastCover)
          .setColor(Neon.PINK)

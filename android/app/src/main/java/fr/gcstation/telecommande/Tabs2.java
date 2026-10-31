@@ -1371,10 +1371,10 @@ class ToolsTab extends Tab {
             ContentValues cv = new ContentValues();
             cv.put(MediaStore.Images.Media.DISPLAY_NAME, "gc-station-" + System.currentTimeMillis() + ".png");
             cv.put(MediaStore.Images.Media.MIME_TYPE, "image/png");
-            if (android.os.Build.VERSION.SDK_INT >= 29) cv.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/GC Station");
+            if (android.os.Build.VERSION.SDK_INT >= 29) cv.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/GC Remote");
             Uri u = a.getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv);
             try (OutputStream o = a.getContentResolver().openOutputStream(u)) { shotBm.compress(Bitmap.CompressFormat.PNG, 100, o); }
-            Lang.toast(a, "Enregistrée dans Images > GC Station", Toast.LENGTH_SHORT).show();
+            Lang.toast(a, "Enregistrée dans Images > GC Remote", Toast.LENGTH_SHORT).show();
             return u;
         } catch (Exception e) { Lang.toast(a, "Enregistrement impossible", Toast.LENGTH_LONG).show(); return null; }
     }

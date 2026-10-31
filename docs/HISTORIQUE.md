@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — GC Remote partout dans l'appli
+- Le nom **GC Remote** remplace GC Station partout où il s'agit de l'appli : titre du widget, lecture en cours
+  (notification et commandes multimédia d'Android quand rien ne joue), dossiers du téléphone (**Images > GC Remote**
+  pour les captures de la télé, **Téléchargements > GC Remote** pour les journaux), fichier de mise à jour.
+  « GC Station » reste là où il s'agit de la console (réglages, retour avec A + Z + START, journaux, rapports).
+- Le nom interne de l'appli (fr.gcstation.telecommande) ne change pas : sinon Android la prendrait pour une autre appli
+  (réglages perdus, plus de mise à jour par-dessus).
+
 ## Nouveautés appli build 113 — L'appli s'appelle GC Remote
 - **Nouveau nom : GC Remote** (sous l'icône, dans la liste des applis, le widget, la tuile des réglages rapides, le
   fond d'écran animé). La console garde son nom, GC Station : GC Station sur la télé, GC Remote dans la main.
