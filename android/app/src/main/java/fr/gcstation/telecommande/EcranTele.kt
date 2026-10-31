@@ -262,7 +262,8 @@ fun EcranTele() {
         }
         BoxWithConstraints(Modifier.fillMaxSize().displayCutoutPadding().padding(horizontal = 6.dp, vertical = 6.dp)) {
             val h = maxHeight
-            val lImg = minOf(h * (if (bb != null) bb.bmp.width.toFloat() / bb.bmp.height else 4f / 3f), maxWidth * 0.58f)
+            val ratio = if (bb != null) bb.bmp.width.toFloat() / bb.bmp.height else 4f / 3f
+            val lImg = minOf(h * ratio, maxWidth * 0.58f)
             val cote = (maxWidth - lImg) / 2 - 8.dp
             val sCroix = minOf(64.dp, (h - 62.dp) / 3, cote / 3).coerceAtLeast(30.dp)
             val k = minOf(1.2f, (h - 112.dp) / 150.dp, cote / 172.dp).coerceAtLeast(0.45f)
@@ -275,7 +276,7 @@ fun EcranTele() {
                     Spacer(Modifier.height(14.dp))
                     Croix(sCroix)
                 }
-                ecran(Modifier.width(lImg))
+                ecran(Modifier.size(width = lImg, height = lImg / ratio))   // (largeur et hauteur : la rangee ne l'etire plus)
                 Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                         Touche("R", "r", Modifier.size(width = g, height = 40.dp), C.Violet)

@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ShaderBrush
 import androidx.compose.ui.graphics.asImageBitmap
@@ -122,11 +123,14 @@ private fun ImageAgrandie(v: Vue, modifier: Modifier) {
         rs.setInputShader("imgA", if (interp) bs(v.a!!, false) else sb)
         rs.setInputShader("champ", if (interp) bs(v.champ!!, true) else sb)
         rs.setFloatUniform("src", v.b.width.toFloat(), v.b.height.toFloat())
-        rs.setFloatUniform("dst", size.width, size.height)
+        // (toujours aux proportions de l'image : bandes noires si la place n'a pas la meme forme)
+        val k = minOf(size.width / v.b.width, size.height / v.b.height)
+        val dw = v.b.width * k; val dh = v.b.height * k
+        rs.setFloatUniform("dst", dw, dh)
         rs.setFloatUniform("tch", if (interp) v.champ!!.width.toFloat() else 1f, if (interp) v.champ!!.height.toFloat() else 1f)
         rs.setFloatUniform("t", if (interp) v.t else 1f)
         rs.setFloatUniform("interp", if (interp) 1f else 0f)
         rs.setFloatUniform("force", 0.6f)
-        drawRect(ShaderBrush(rs))
+        translate((size.width - dw) / 2, (size.height - dh) / 2) { drawRect(ShaderBrush(rs), size = androidx.compose.ui.geometry.Size(dw, dh)) }
     })
 }
