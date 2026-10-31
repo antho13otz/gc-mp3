@@ -658,8 +658,17 @@ private fun APropos(act: StationActivity, g: Jeu) {
                 Row { Text(k, color = C.Doux, fontSize = 13.sp, modifier = Modifier.width(96.dp)); Text(v, color = C.Texte, fontSize = 13.sp, fontWeight = FontWeight.SemiBold) }
             }
             if (f.resume.isNotEmpty()) {
+                // (resume dans une autre langue : traduit en francais sur le telephone, l'original a un toucher)
+                var trad by remember(g.id) { mutableStateOf<Traduction.Resultat?>(null) }
+                var traduit by remember(g.id) { mutableStateOf(true) }
+                var enCours by remember(g.id) { mutableStateOf(true) }
+                LaunchedEffect(g.id) { trad = try { Traduction.versFrancais(Hors.dir(act), "resume-" + g.id, f.resume) } catch (e: Throwable) { null }; enCours = false }
+                val t = trad
                 Spacer(Modifier.height(8.dp))
-                Text(f.resume, color = C.Doux, fontSize = 13.sp, maxLines = if (tout) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
+                if (t != null) Text((if (traduit) "Traduit de " + Traduction.nomLangue(t.langue) + " · voir l'original" else "Texte original · voir la traduction"),
+                    color = C.Cyan, fontSize = 11.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(bottom = 4.dp).appui { traduit = !traduit })
+                else if (enCours) Doux("Traduction en français…", taille = 11, couleur = C.Pale)
+                Text(if (t != null && traduit) t.texte else f.resume, color = C.Doux, fontSize = 13.sp, maxLines = if (tout) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.animateContentSize().appui { tout = !tout })
                 if (!tout && f.resume.length > 180) Text("Lire la suite", color = C.Cyan, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 4.dp).appui { tout = true })
             }

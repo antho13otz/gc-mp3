@@ -51,4 +51,6 @@ dependencies {
     implementation 'androidx.compose.animation:animation'
     implementation 'androidx.core:core:1.13.1'
     implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.20.0'   // (Real-ESRGAN : AgrandirIA.kt)
+    implementation 'com.google.mlkit:translate:17.0.3'                      // (traduction hors ligne : Traduction.kt)
+    implementation 'com.google.mlkit:language-id:17.0.6'
 }
