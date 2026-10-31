@@ -40,6 +40,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -65,7 +69,8 @@ object MemoireJeu {
     const val FIN = 0x017EE000                       // (au-dessus : Pulse lui-meme, pas cherche)
     const val TAILLE = 0x01800000
 
-    class Etat(val pause: Boolean, val jeu: String, val image: Long, val nSucces: Int, val obtenus: Long)
+    class Etat(val pause: Boolean, val jeu: String, val image: Long, val nSucces: Int, val obtenus: Long,
+               val vtrDcr: Long = 0, val tfbl: Long = 0, val bfbl: Long = 0, val picconf: Long = 0, val bloquees: Int = -1)   // (v307 : video, valeurs bloquees)
 
     private var sock: DatagramSocket? = null
     private var seq = 1
@@ -110,7 +115,9 @@ object MemoireJeu {
                     val n = recevoir(reste)
                     if (n >= 36 && magie(buf, "GCMA") && g32(buf, 4).toInt() == sq) {
                         val jeu = String(buf, 12, 6, Charsets.ISO_8859_1).trim { it <= ' ' }
-                        return Etat(g32(buf, 8) != 0L, jeu, g32(buf, 20), g32(buf, 24).toInt(), g32(buf, 28) or (g32(buf, 32) shl 32))
+                        return if (n >= 56) Etat(g32(buf, 8) != 0L, jeu, g32(buf, 20), g32(buf, 24).toInt(), g32(buf, 28) or (g32(buf, 32) shl 32),
+                                                 g32(buf, 36), g32(buf, 40), g32(buf, 44), g32(buf, 48), g32(buf, 52).toInt())
+                               else Etat(g32(buf, 8) != 0L, jeu, g32(buf, 20), g32(buf, 24).toInt(), g32(buf, 28) or (g32(buf, 32) shl 32))
                     }
                 }
             }
@@ -169,6 +176,65 @@ object MemoireJeu {
         } catch (e: Exception) { fermer(); return false }
         return true
     }
+
+    // ---------- v307 : capture de l'image du jeu (la memoire video : XFB, en YUV 4:2:2) ----------
+    private val image by lazy { ByteArray(TAILLE) }
+    /** jeu en pause, image affichee lue et convertie ; null + message d'erreur */
+    fun capture(progres: (Float) -> Unit): Pair<android.graphics.Bitmap?, String> {
+        val e = demande('P', 1) ?: return null to "Pulse ne répond pas"
+        try {
+            if (e.bloquees < 0) return null to "La console doit être mise à jour (GC Station v307)"
+            fun adr(v: Long) = if (v and 0x10000000L != 0L) (v and 0xFFFFFF) shl 5 else v and 0xFFFFFF
+            val vtr = (e.vtrDcr shr 16).toInt(); val dcr = (e.vtrDcr and 0xFFFF).toInt()
+            val acv = (vtr shr 4) and 0x3FF
+            val std = (e.picconf and 0xFF).toInt(); val wpl = ((e.picconf shr 8) and 0x7F).toInt()
+            val haut = adr(e.tfbl).toInt(); val bas = adr(e.bfbl).toInt()
+            val w = wpl * 16; val ligne = std * 32
+            val unChamp = (dcr and 4) != 0 || haut == bas          // (progressif, ou un seul champ montre deux fois)
+            val lignes = if (unChamp) acv else 2 * acv
+            val debut = minOf(haut, bas); val fin = maxOf(haut, bas) + acv * ligne
+            if (acv == 0 || w == 0 || std == 0 || debut < 0x3100 || fin > FIN) return null to "Image du jeu introuvable"
+            val blocs = IntArray((fin - 1) / BLK - debut / BLK + 1) { debut / BLK + it }
+            if (!lire(blocs, image, true, progres, { false })) return null to "La console a cessé de répondre pendant la capture"
+            demande('P', 0)
+            val px = IntArray(w * lignes)
+            fun c8(v: Int) = if (v < 0) 0 else if (v > 255) 255 else v
+            for (r in 0 until lignes) {
+                val b = (if (unChamp || r % 2 == 0) haut else bas) + (if (unChamp) r else r / 2) * ligne
+                var x = 0
+                while (x < w) {
+                    val o = b + x * 2
+                    val y0 = (image[o].toInt() and 255) - 16; val cb = (image[o + 1].toInt() and 255) - 128
+                    val y1 = (image[o + 2].toInt() and 255) - 16; val cr = (image[o + 3].toInt() and 255) - 128
+                    for ((k, yy) in intArrayOf(y0, y1).withIndex()) {
+                        val l = 298 * yy                            // (BT.601, plage video 16-235)
+                        px[r * w + x + k] = (0xFF shl 24) or (c8((l + 409 * cr + 128) shr 8) shl 16) or
+                                (c8((l - 100 * cb - 208 * cr + 128) shr 8) shl 8) or c8((l + 516 * cb + 128) shr 8)
+                    }
+                    x += 2
+                }
+            }
+            val brut = android.graphics.Bitmap.createBitmap(px, w, lignes, android.graphics.Bitmap.Config.ARGB_8888)
+            return android.graphics.Bitmap.createScaledBitmap(brut, w, w * 3 / 4, true) to ""   // (image 4:3 de la tele)
+        } finally { demande('P', 0) }
+    }
+    /** dans Images > GC Remote ; rend l'adresse du fichier (ou null) */
+    fun enregistrer(c: Context, bmp: android.graphics.Bitmap, jeu: String): android.net.Uri? = try {
+        val nom = jeu.ifEmpty { "jeu" } + "-" + java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.FRANCE).format(java.util.Date()) + ".png"
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            val cv = android.content.ContentValues()
+            cv.put(android.provider.MediaStore.Images.Media.DISPLAY_NAME, nom)
+            cv.put(android.provider.MediaStore.Images.Media.MIME_TYPE, "image/png")
+            cv.put(android.provider.MediaStore.Images.Media.RELATIVE_PATH, android.os.Environment.DIRECTORY_PICTURES + "/GC Remote")
+            val u = c.contentResolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, cv)
+            if (u != null) c.contentResolver.openOutputStream(u)?.use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            u
+        } else {
+            val f = java.io.File(c.getExternalFilesDir(android.os.Environment.DIRECTORY_PICTURES), nom)
+            f.outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
+            android.net.Uri.fromFile(f)
+        }
+    } catch (e: Exception) { null }
 
     // ---------- succes en direct : demandes toutes les 3 s pendant une partie (et annonces de Pulse) ----------
     @Volatile private var veille: Thread? = null
@@ -252,7 +318,10 @@ private object Recherche {
     var erreur by mutableStateOf("")
     var etapes by mutableStateOf(0)
     val res = mutableStateListOf<LongArray>()                // {adresse, valeur de la photo, valeur actuelle}
-    val direct by lazy { ByteArray(MemoireJeu.TAILLE) }       // (valeurs en direct : lues ici, une seule fois alloue)
+    val direct by lazy { ByteArray(MemoireJeu.TAILLE) }
+    val bloquees = mutableStateListOf<LongArray>()           // v307 : {adresse, taille, valeur} bloquees en direct par Pulse
+    var capture by mutableStateOf<android.graphics.Bitmap?>(null)
+    var captureUri: android.net.Uri? = null       // (valeurs en direct : lues ici, une seule fois alloue)
 
     fun v(m: ByteArray, o: Int, t: Int): Long = when (t) {
         1 -> m[o].toLong() and 255
@@ -260,6 +329,40 @@ private object Recherche {
         else -> (m[o].toLong() and 255 shl 24) or (m[o + 1].toLong() and 255 shl 16) or (m[o + 2].toLong() and 255 shl 8) or (m[o + 3].toLong() and 255)
     }
     fun masque(t: Int) = if (t == 4) 0xFFFFFFFFL else (1L shl (8 * t)) - 1
+}
+
+fun tacheChercheur(): String = Recherche.tache
+
+/** v307 : capture de l'ecran du jeu (Partie en cours, chercheur de codes) : gardee dans Images > GC Remote */
+fun capturerJeu(act: StationActivity, scope: kotlinx.coroutines.CoroutineScope) {
+    val R = Recherche
+    if (R.tache.isNotEmpty()) return
+    R.tache = "Capture de l'écran (jeu en pause)…"; R.progres = 0f; R.erreur = ""
+    scope.launch {
+        val jeu = St.jeu?.id ?: ""
+        val (bmp, err) = withContext(Dispatchers.IO) { MemoireJeu.capture { R.progres = it } }
+        R.tache = ""
+        if (bmp == null) { Lang.toast(act, err, Toast.LENGTH_LONG).show(); return@launch }
+        R.captureUri = withContext(Dispatchers.IO) { MemoireJeu.enregistrer(act, bmp, jeu) }
+        R.capture = bmp
+        Lang.toast(act, if (R.captureUri != null) "Capture enregistrée dans Images > GC Remote" else "Capture faite (pas enregistrée)", Toast.LENGTH_SHORT).show()
+    }
+}
+
+@Composable
+fun ApercuCapture(act: StationActivity) {
+    val bmp = Recherche.capture ?: return
+    AlertDialog(onDismissRequest = { Recherche.capture = null }, containerColor = C.Fond2,
+        title = { Text("Capture de l'écran du jeu", color = C.Texte) },
+        text = { androidx.compose.foundation.Image(bmp.asImageBitmap(), null, Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)), contentScale = ContentScale.FillWidth) },
+        confirmButton = { TextButton({
+            val u = Recherche.captureUri
+            if (u != null) try {
+                act.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("image/png")
+                    .putExtra(android.content.Intent.EXTRA_STREAM, u).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION), Lang.t("Partager")))
+            } catch (e: Exception) { }
+        }) { Text("Partager", color = C.Rose) } },
+        dismissButton = { TextButton({ Recherche.capture = null }) { Text("Fermer", color = C.Doux) } })
 }
 
 private val MODES = listOf("=" to "Égal à", ">" to "Plus grand", "<" to "Plus petit", "!" to "A changé", "~" to "Pas changé", "+" to "Augmenté de", "-" to "Diminué de")
@@ -356,7 +459,10 @@ fun EcranChercheur() {
             }
         }
     }
-    LaunchedEffect(Unit) { R.etat = withContext(Dispatchers.IO) { MemoireJeu.demande('I') } }
+    LaunchedEffect(Unit) {
+        R.etat = withContext(Dispatchers.IO) { MemoireJeu.demande('I') }
+        if (R.etat?.bloquees == 0) R.bloquees.clear()            // (nouvelle partie : plus rien de bloque)
+    }
 
     LazyColumn(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
@@ -367,6 +473,22 @@ fun EcranChercheur() {
                 e == null -> "Pulse ne répond pas (Broadband Adapter branché ? même Wi-Fi ?)"
                 else -> "En jeu : " + (g.name.ifEmpty { e.jeu }) + " (" + e.jeu + ")" + if (e.nSucces > 0) " · succès : " + java.lang.Long.bitCount(e.obtenus) + "/" + e.nSucces else ""
             }, taille = 12, couleur = if (e == null) C.Orange else C.Doux)
+        }
+        if (g?.mem == true || R.etat != null) item {
+            Bouton("Capture de l'écran du jeu", Modifier.fillMaxWidth(), icone = Ic.Photo, actif = R.tache.isEmpty()) { capturerJeu(act, scope) }
+        }
+        if (R.bloquees.isNotEmpty()) item {
+            Column(Modifier.fillMaxWidth().verre().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Titre("Bloquées en direct")
+                for (b in R.bloquees.toList()) Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(String.format("%08X", b[0]), color = C.Cyan, fontSize = 14.sp, fontFamily = FontFamily.Monospace, modifier = Modifier.weight(1f))
+                    Text("= " + b[2], color = C.Texte, fontSize = 14.sp, fontFamily = FontFamily.Monospace)
+                    Text("✕", color = C.Pale, fontSize = 18.sp, modifier = Modifier.appui {
+                        scope.launch { if (withContext(Dispatchers.IO) { MemoireJeu.demande('F', b[0], 0, 0) } != null) R.bloquees.removeAll { it[0] == b[0] } }
+                    }.padding(start = 14.dp, end = 4.dp))
+                }
+                Doux("Pulse réécrit ces valeurs à chaque image jusqu'à ce que tu les libères (ou la fin de la partie).", taille = 11, couleur = C.Pale)
+            }
         }
         item {
             Titre("Taille de la valeur")
@@ -447,6 +569,7 @@ fun EcranChercheur() {
         item { Spacer(Modifier.height(20.dp)) }
     }
 
+    ApercuCapture(act)
     choisi?.let { r -> DialogueAdresse(act, r, g?.id?.ifEmpty { null } ?: R.etat?.jeu ?: "", R.taille, { choisi = null }) { attente = Attente.liste(act).length() } }
 }
 
@@ -462,15 +585,20 @@ private fun DialogueAdresse(act: StationActivity, r: LongArray, jeu: String, t: 
     val m = Recherche.masque(t)
     fun nombre(s: String): Long? = s.trim().let { if (it.startsWith("0x", true)) it.substring(2).toLongOrNull(16) else it.toLongOrNull() }
     AlertDialog(onDismissRequest = fermer, containerColor = C.Fond2,
-        title = { Text(when (quoi) { 1 -> "Changer la valeur"; 2 -> "Créer un cheat"; 3 -> "Créer un succès"; else -> "Adresse $adr" }, color = C.Texte) },
+        title = { Text(when (quoi) { 1 -> "Changer la valeur"; 2 -> "Créer un cheat"; 3 -> "Créer un succès"; 4 -> "Bloquer en direct"; else -> "Adresse $adr" }, color = C.Texte) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 when (quoi) {
                     0 -> {
                         Doux("Valeur : " + r[2] + " (" + (8 * t) + " bits)", taille = 13)
                         Bouton("Changer la valeur maintenant", Modifier.fillMaxWidth()) { quoi = 1 }
+                        Bouton("Bloquer en direct", Modifier.fillMaxWidth()) { quoi = 4 }
                         Bouton("Créer un cheat (valeur bloquée)", Modifier.fillMaxWidth()) { quoi = 2 }
                         Bouton("Créer un succès", Modifier.fillMaxWidth()) { quoi = 3 }
+                    }
+                    4 -> {
+                        Champ(v, { v = it }, "Valeur bloquée", clavier = KeyboardType.Number)
+                        Doux("Pulse réécrit cette valeur à chaque image, tout de suite, jusqu'à ce que tu la libères (8 au plus).", taille = 11, couleur = C.Pale)
                     }
                     1 -> {
                         Champ(v, { v = it }, "Nouvelle valeur", clavier = KeyboardType.Number)
@@ -496,6 +624,14 @@ private fun DialogueAdresse(act: StationActivity, r: LongArray, jeu: String, t: 
                 val x = nombre(v)
                 if (x == null) { Lang.toast(act, "Valeur ?", Toast.LENGTH_SHORT).show(); return@TextButton }
                 when (quoi) {
+                    4 -> scope.launch {
+                        val e = withContext(Dispatchers.IO) { MemoireJeu.demande('F', r[0], t.toLong(), x and m) }
+                        val ok = e != null && e.bloquees >= 0 && Recherche.bloquees.count { it[0] != r[0] } < e.bloquees
+                        if (ok) { Recherche.bloquees.removeAll { it[0] == r[0] }; Recherche.bloquees.add(longArrayOf(r[0], t.toLong(), x and m)) }
+                        Lang.toast(act, when { e == null -> "Pulse ne répond pas"; e.bloquees < 0 -> "La console doit être mise à jour (GC Station v307)"
+                                               ok -> "Valeur bloquée dans le jeu"; else -> "8 valeurs bloquées au plus" }, Toast.LENGTH_SHORT).show()
+                        fermer()
+                    }
                     1 -> scope.launch {
                         val e = withContext(Dispatchers.IO) { MemoireJeu.demande('W', r[0], t.toLong(), x and m) }
                         Lang.toast(act, if (e != null) "Valeur écrite dans le jeu" else "Pulse ne répond pas", Toast.LENGTH_SHORT).show()

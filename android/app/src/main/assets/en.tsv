@@ -844,3 +844,16 @@ Garder	Keep
 En direct, pendant la partie (chercheur de codes)	Live, during the game (code finder)
 $n création(s) du chercheur de codes envoyée(s) à GC Station	$n code finder creation(s) sent to GC Station
 Chercheur de codes (appli)	Code finder (app)
+Capture de l'écran du jeu	Game screenshot
+Capture de l'écran (jeu en pause)…	Taking a screenshot (game paused)…
+Capture enregistrée dans Images > GC Remote	Screenshot saved in Pictures > GC Remote
+Capture faite (pas enregistrée)	Screenshot taken (not saved)
+La console doit être mise à jour (GC Station v307)	The console needs an update (GC Station v307)
+Image du jeu introuvable	Game picture not found
+La console a cessé de répondre pendant la capture	The console stopped answering during the screenshot
+Bloquées en direct	Locked live
+Bloquer en direct	Lock live
+Pulse réécrit ces valeurs à chaque image jusqu'à ce que tu les libères (ou la fin de la partie).	Pulse rewrites these values every frame until you release them (or the game ends).
+Pulse réécrit cette valeur à chaque image, tout de suite, jusqu'à ce que tu la libères (8 au plus).	Pulse rewrites this value every frame, right away, until you release it (8 at most).
+Valeur bloquée dans le jeu	Value locked in the game
+8 valeurs bloquées au plus	8 locked values at most

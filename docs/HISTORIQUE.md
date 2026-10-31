@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v307 (build à venir, appli build à venir) — Capture d'écran en plein jeu, valeurs bloquées en direct
+- **Capture de l'écran du jeu** (avec le chercheur de codes activé) : un bouton dans « Partie en cours » et dans le
+  chercheur de codes. Le jeu se met en pause une seconde, GC Remote lit l'image affichée dans la mémoire vidéo de la
+  console (YUV 4:2:2, un ou deux champs selon le mode), la convertit et l'enregistre dans **Images > GC Remote** ;
+  aperçu avec « Partager ». Aucun boîtier de capture.
+- **Bloquer une valeur en direct** : sur une adresse trouvée, « Bloquer en direct » ; Pulse la réécrit à chaque image,
+  tout de suite (sans revenir à GC Station), jusqu'à ce que tu la libères (✕) ou la fin de la partie. 8 au plus.
+- Pulse : la réponse « GCMA » donne aussi les registres de la vidéo (où est l'image affichée, sa taille) et le nombre
+  de valeurs bloquées ; nouvelle demande « GCMF » (bloquer, libérer, tout libérer). Banc d'essai `emu_mem.py` complété.
+
 ## Nouveautés appli build 115 — GC Remote partout dans l'appli
 - Le nom **GC Remote** remplace GC Station partout où il s'agit de l'appli : titre du widget, lecture en cours
   (notification et commandes multimédia d'Android quand rien ne joue), dossiers du téléphone (**Images > GC Remote**

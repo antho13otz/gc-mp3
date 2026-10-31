@@ -47,6 +47,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -260,7 +261,7 @@ private fun PartieEnCours(act: StationActivity) {
         Box(Modifier.fillMaxSize().background(C.Fond).clickable(remember { MutableInteractionSource() }, null) { }.statusBarsPadding().navigationBarsPadding(),
             contentAlignment = Alignment.Center) {
             FondAurore()
-            Column(Modifier.padding(20.dp).fillMaxWidth().verre(RoundedCornerShape(30.dp), C.Rose.copy(alpha = 0.55f), Color(0xFF1C1030)).padding(22.dp),
+            Column(Modifier.padding(20.dp).fillMaxWidth().verre(RoundedCornerShape(30.dp), C.Rose.copy(alpha = 0.55f), Color(0xFF1C1030)).verticalScroll(rememberScrollState()).padding(22.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 Titre("Partie en cours")
                 Spacer(Modifier.height(14.dp))
@@ -288,8 +289,12 @@ private fun PartieEnCours(act: StationActivity) {
                 Doux("Pour revenir à GC Station : A + Z + START sur la manette. L'appli se reconnecte toute seule au retour.", taille = 12, centre = true)
                 Spacer(Modifier.height(16.dp))
                 if (g.mem) {
+                    val sc = rememberCoroutineScope()
+                    Bouton(if (tacheChercheur().isEmpty()) "Capture de l'écran du jeu" else tacheChercheur(), Modifier.fillMaxWidth(), plein = true, icone = Ic.Photo) { capturerJeu(act, sc) }
+                    Spacer(Modifier.height(8.dp))
                     Bouton("Chercheur de codes", Modifier.fillMaxWidth(), icone = Ic.Chercher) { St.jeuMasque = true; St.onglet = 4; St.sous = "Chercheur de codes" }
                     Spacer(Modifier.height(8.dp))
+                    ApercuCapture(act)
                 }
                 if (g.padMask != 0) {
                     Bouton("Manette dans le jeu", Modifier.fillMaxWidth(), plein = true, icone = Ic.Manette) { ManetteActivity.open(act, g.padMask) }
