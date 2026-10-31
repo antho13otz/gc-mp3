@@ -708,7 +708,7 @@ static u32 pd_seen = 0;
 static natres_pad_t *pd_find(void) {
     if (pd_seen) return pd;
     pd_seen = 1;
-    if (!(H.opt & NRO_PHONE) || !H.chts || H.net) return 0;
+    if (!(H.opt & (NRO_PHONE | NRO_MEM)) || !H.chts || H.net) return 0;
     u32 *q = (u32 *)H.chts;
     q += 1 + q[0];
     if (q[0] == 0x46495854u) q += 2 + q[1] * 3;          /* ("FIXT") */
@@ -716,8 +716,115 @@ static natres_pad_t *pd_find(void) {
     if (q[0] == NATRES_PAD_MAGIC) pd = (natres_pad_t *)q;
     return pd;
 }
+#if defined(__GNUC__) && !defined(__clang__)
+#define MEM_OS __attribute__((optimize("Os")))                /* (resident compile en -O2 : ici, le plus petit) */
+#else
+#define MEM_OS
+#endif
+/* trame UDP vers (mac, ip, port) : donnees deja en pn_fr + 42 */
+static MEM_OS void pn_udp(natres_pad_t *p, const u8 *mac, u32 ip, u32 port, u32 dlen) {
+    u8 *fr = pn_fr, *iph = fr + 14, *uu = iph + 20;
+    static u32 ipid = 0;
+    pn_eth(fr, mac, 0x0800);
+    iph[0] = 0x45; iph[1] = 0; pn_p16(iph + 2, 28 + dlen); pn_p16(iph + 4, ++ipid & 0xFFFF); pn_p16(iph + 6, 0x4000); iph[8] = 64; iph[9] = 17;
+    pn_p16(iph + 10, 0); pn_p32(iph + 12, p->net.ip); pn_p32(iph + 16, ip); pn_p16(iph + 10, pn_ipsum(iph));
+    pn_p16(uu, NATRES_PAD_PORT); pn_p16(uu + 2, port); pn_p16(uu + 4, 8 + dlen); pn_p16(uu + 6, 0);
+    pn_send(fr, 42 + dlen);
+}
+/* ======================= v306 : chercheur de codes de l'appli =======================
+   Le telephone lit la memoire du jeu par blocs de 1 Ko (les mots nuls ne passent pas : une carte de 256 bits dit
+   lesquels sont la), y ecrit une valeur, et met le jeu en pause le temps de tout lire (sinon 2 blocs par image). */
+static u32 ach_bits(u32 *b);
+static u32 mem_ok(u32 a, u32 n) { return a >= 0x80000000u && a + n <= 0x81800000u && a + n > a; }
+static MEM_OS void mem_ack(natres_pad_t *p, u32 seq) {
+    u8 *d = pn_fr + 42;
+    u32 b[2];
+    pn_p32(d, 0x47434D41u); pn_p32(d + 4, seq); pn_p32(d + 8, p->mpause);   /* "GCMA" */
+    for (int i = 0; i < 8; i++) d[12 + i] = ((volatile u8 *)0x80000000u)[i];   /* (jeu : ID, editeur, disque, version) */
+    pn_p32(d + 20, H.vi_count); pn_p32(d + 24, ach_bits(b)); pn_p32(d + 28, b[0]); pn_p32(d + 32, b[1]);
+    pn_udp(p, p->mmac, p->mip, p->mport, 36);
+}
+static MEM_OS void mem_ach(natres_pad_t *p) {
+    u8 *d = pn_fr + 42;
+    u32 b[2];
+    pn_p32(d, 0x47434143u); pn_p32(d + 4, ach_bits(b)); pn_p32(d + 8, b[0]); pn_p32(d + 12, b[1]);   /* "GCAC" */
+    pn_udp(p, p->mmac, p->mip, p->mport, 16);
+}
+static MEM_OS void mem_blocks(natres_pad_t *p, u32 seq, u32 a, u32 n) {
+    a &= ~3u;
+    if (n > (p->mpause ? 64u : 2u)) n = p->mpause ? 64u : 2u;
+    for (; n && mem_ok(a, NATRES_MEM_BLK); n--, a += NATRES_MEM_BLK) {
+        u8 *d = pn_fr + 42, *map = d + 16, *o = d + 48;
+        const u32 *m = (const u32 *)a;
+        pn_p32(d, 0x47434D44u); pn_p32(d + 4, seq); pn_p32(d + 8, a); pn_p32(d + 12, 0);   /* "GCMD" */
+        for (u32 i = 0; i < 32; i++) map[i] = 0;
+        for (u32 i = 0; i < NATRES_MEM_BLK / 4; i++) {
+            u32 w = m[i];
+            if (!w) continue;
+            map[i >> 3] |= (u8)(0x80u >> (i & 7));
+            pn_p32(o, w); o += 4;
+        }
+        pn_udp(p, p->mmac, p->mip, p->mport, (u32)(o - d));
+        p->mblk++;
+    }
+}
+static MEM_OS void mem_req(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d) {
+    if (!(H.opt & NRO_MEM)) return;
+    u32 t = d[3], seq = pn_be32(d + 4), a = pn_be32(d + 8), b = pn_be32(d + 12), c = pn_be32(d + 16);
+    p->mrx++;
+    p->mip = pn_be32(f + 26); p->mport = pn_be16(u);
+    for (int i = 0; i < 6; i++) p->mmac[i] = f[6 + i];
+    if (t == 'R') { mem_blocks(p, seq, a, b); return; }
+    if (t == 'P') p->mpause = a & 1;
+    else if (t == 'W') {                                  /* (hors de la memoire du jeu, ou dans Pulse : rien, mais une reponse) */
+        if ((b == 1 || b == 2 || b == 4) && mem_ok(a, b) && !(a & (b - 1)) && (a < NATRES_AT || a >= NATRES_AT + NATRES_SIZE)) {
+            if (b == 1) *(volatile u8 *)a = (u8)c; else if (b == 2) *(volatile unsigned short *)a = (unsigned short)c; else *(volatile u32 *)a = c;
+            __asm__ volatile("dcbf 0,%0\n sync" :: "r"(a) : "memory");
+        }
+    }
+    else if (t != 'I') return;
+    mem_ack(p, seq);
+}
+static void pd_frame(natres_pad_t *p, u32 n, u32 now);
+/* pause : on reste dans l'interruption de l'image (le jeu attend), son coupe (DMA audio du DSP), jusqu'a la reprise ou
+   20 s sans paquet ; puis les gardiens du jeu fige repartent de maintenant */
+static u32 mem_resumed = 0;
+static MEM_OS void mem_pause(natres_pad_t *p) {
+    volatile unsigned short *adma = (volatile unsigned short *)0xCC005036u;
+    unsigned short a0 = *adma;
+    *adma = a0 & 0x7FFFu;
+    u32 last = tbl();
+    while (p->mpause) {
+        u32 n = pn_recv(), now = tbl();
+        if (n) { last = now; pd_frame(p, n, now); }
+        else if (now - last > 20u * TB_SEC) p->mpause = 0;
+    }
+    *adma = a0;
+    mem_resumed = 1;
+}
 static u32 pd_bba_n = 0, pd_bba_tb = 0;                  /* (derniers acces du jeu au BBA) */
 static int pd_busy(void) { return ((bx[0] & 0x380u) & ~0x200u) || (bx[3] & 1u); }   /* (le jeu se sert du canal 0) */
+static void pd_frame(natres_pad_t *p, u32 n, u32 now) {
+    const u8 *f = pn_fr;
+    if (n < 42) return;
+    u32 type = pn_be16(f + 12);
+    if (type == 0x0806) {
+        if (pn_be16(f + 20) == 1 && pn_be32(f + 38) == p->net.ip) { u8 m[6]; for (int i = 0; i < 6; i++) m[i] = f[22 + i]; pn_arp(2, m, pn_be32(f + 28)); p->arp++; }
+        return;
+    }
+    if (type != 0x0800 || f[23] != 17 || pn_be32(f + 30) != p->net.ip) return;
+    const u8 *u = f + 14 + (f[14] & 15) * 4, *d = u + 8;
+    if (pn_be16(u + 2) != NATRES_PAD_PORT) return;
+    if (d + 20 > f + n) { p->bad++; return; }
+    if ((pn_be32(d) & 0xFFFFFF00u) == 0x47434D00u) { mem_req(p, f, u, d); return; }   /* v306 : "GCM?" */
+    if (pn_be32(d) != 0x47435044u) { p->bad++; return; }   /* "GCPD" */
+    u32 ch = d[5] & 3;
+    if (!(p->chmask >> ch & 1)) { p->bad++; return; }
+    u32 seq = pn_be32(d + 8);
+    if (seq == p->seq[ch]) return;                        /* (deja vu) */
+    p->seq[ch] = seq; p->h[ch] = pn_be32(d + 12) | 0x00800000u; p->l[ch] = pn_be32(d + 16); p->tb[ch] = now; p->rx++;
+    p->pip[ch] = pn_be32(f + 26); p->pport[ch] = pn_be16(u); for (int i = 0; i < 6; i++) p->pmac[ch][i] = f[6 + i];   /* (v275 : pour la vibration) */
+}
 void pd_poll(void) __attribute__((used));
 void pd_poll(void) {
     natres_pad_t *p = pd_find();
@@ -737,24 +844,10 @@ void pd_poll(void) {
     for (int k = 0; k < 8; k++) {
         u32 n = pn_recv();
         if (!n) break;
-        const u8 *f = pn_fr;
-        if (n < 42) continue;
-        u32 type = pn_be16(f + 12);
-        if (type == 0x0806) {
-            if (pn_be16(f + 20) == 1 && pn_be32(f + 38) == p->net.ip) { u8 m[6]; for (int i = 0; i < 6; i++) m[i] = f[22 + i]; pn_arp(2, m, pn_be32(f + 28)); p->arp++; }
-            continue;
-        }
-        if (type != 0x0800 || f[23] != 17 || pn_be32(f + 30) != p->net.ip) continue;
-        const u8 *u = f + 14 + (f[14] & 15) * 4, *d = u + 8;
-        if (pn_be16(u + 2) != NATRES_PAD_PORT) continue;
-        if (d + 20 > f + n || pn_be32(d) != 0x47435044u) { p->bad++; continue; }   /* "GCPD" */
-        u32 ch = d[5] & 3;
-        if (!(p->chmask >> ch & 1)) { p->bad++; continue; }
-        u32 seq = pn_be32(d + 8);
-        if (seq == p->seq[ch]) continue;                  /* (deja vu) */
-        p->seq[ch] = seq; p->h[ch] = pn_be32(d + 12) | 0x00800000u; p->l[ch] = pn_be32(d + 16); p->tb[ch] = now; p->rx++;
-        p->pip[ch] = pn_be32(f + 26); p->pport[ch] = pn_be16(u); for (int i = 0; i < 6; i++) p->pmac[ch][i] = f[6 + i];   /* (v275 : pour la vibration) */
+        pd_frame(p, n, now);
     }
+    if (p->mpause) mem_pause(p);                          /* v306 : jeu en pause pour le chercheur de codes */
+    if (p->mach && p->mip) { p->mach--; mem_ach(p); }     /* v306 : succes obtenu : annonce au telephone */
     {   /* v275 : vibration demandee par le jeu : envoyee au telephone quand elle change, puis toutes les 8 images tant
            qu'elle dure (l'appli s'arrete seule sans nouvelles : un paquet perdu ne la laisse pas vibrer) */
         static u32 vi_n = 0;
@@ -765,14 +858,9 @@ void pd_poll(void) {
             if (on == p->rsent[ch] && !(on && (vi_n & 7) == 0)) continue;
             if (on && !p->rsent[ch]) p->nrmb++;
             p->rsent[ch] = on;
-            u8 *fr = pn_fr;
-            pn_eth(fr, p->pmac[ch], 0x0800);
-            u8 *ip = fr + 14, *uu = ip + 20;
-            ip[0] = 0x45; ip[1] = 0; pn_p16(ip + 2, 20 + 8 + 8); pn_p16(ip + 4, vi_n & 0xFFFF); pn_p16(ip + 6, 0x4000); ip[8] = 64; ip[9] = 17;
-            pn_p16(ip + 10, 0); pn_p32(ip + 12, p->net.ip); pn_p32(ip + 16, p->pip[ch]); pn_p16(ip + 10, pn_ipsum(ip));
-            pn_p16(uu, NATRES_PAD_PORT); pn_p16(uu + 2, p->pport[ch]); pn_p16(uu + 4, 8 + 8); pn_p16(uu + 6, 0);
-            pn_p32(uu + 8, 0x47435242u); uu[12] = (u8)ch; uu[13] = (u8)on; uu[14] = uu[15] = 0;   /* "GCRB" */
-            pn_send(fr, 14 + 20 + 8 + 8);
+            u8 *uu = pn_fr + 42;
+            pn_p32(uu, 0x47435242u); uu[4] = (u8)ch; uu[5] = (u8)on; uu[6] = uu[7] = 0;   /* "GCRB" */
+            pn_udp(p, p->pmac[ch], p->pip[ch], p->pport[ch], 8);
         }
     }
     H.net_pk = p->rx; H.net_rt = p->state << 24 | (p->arp & 0xFFF) << 12 | (p->bad & 0xFFF);   /* (journal : pas de H.net ici) */
@@ -937,7 +1025,8 @@ static void freeze_check(u32 ctx) {
 }
 static void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee avant la fonction du jeu */
     trap_guard();
-    if (H.opt & NRO_PHONE) pd_poll();                    /* manettes du telephone : avant que le jeu lise les manettes */
+    if (H.opt & (NRO_PHONE | NRO_MEM)) pd_poll();        /* manettes du telephone, chercheur de codes : avant que le jeu lise les manettes */
+    if (mem_resumed) { mem_resumed = 0; frz_tb = tbl(); }   /* (v306 : apres une pause : pas un jeu fige) */
     if (++H.vi_in == 1) nr_log_flush();                  /* (1re image : on sait si le jeu y arrive) */
     if (vi_orig) ((void (*)(u32, u32))vi_orig)(irq, ctx);
     H.vi_count++; vi_snap(); alive_tick();
@@ -1854,9 +1943,21 @@ void ach_run(void) {
     u32 *a = ach_p;
     if (!a) { a = (u32 *)H.chts; a += 1 + a[0]; ach_p = a = a[0] == NATRES_ACH ? a : (u32 *)1; }
     if ((u32)a == 1) return;
-    ach_dirty |= ach_eval(a, H.vi_count);
+    u32 got = ach_eval(a, H.vi_count);
+    ach_dirty |= got;
+    if (got && pd) pd->mach = 3;                          /* v306 : annonce au telephone (pd_poll) */
     /* (bus pris par le jeu, carte pas encore demarree : a l'image suivante) */
     if (ach_dirty && di_ready && !exi_defer() && !nr_write_sd(H.log_sec + 5, (const u8 *)a)) ach_dirty = 0;
+}
+
+/* v306 : succes obtenus (bits 0-63) pour le telephone ; rend leur nombre (0 : pas de succes) */
+static u32 ach_bits(u32 *b) {
+    u32 *a = ach_p;
+    b[0] = b[1] = 0;
+    if (!a || (u32)a == 1) return 0;
+    u32 n = a[1];
+    for (u32 i = 0; i < n && i < 64; i++) if (a[2 + 2 * i] & 2) b[i >> 5] |= 1u << (i & 31);
+    return n;
 }
 
 /* ---------- v61 : lectures en fond ----------

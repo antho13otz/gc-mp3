@@ -1462,6 +1462,7 @@ static void x73_misc_pump(void) {
         r = s.b;
     }
     else if (op == 8) r = cp_json();                          /* v255 : pastilles des jeux */
+    else if (op == 10) r = sj_add(x73_mo_id, x73_mo_codes);   /* v306 : succes cree par le chercheur de codes (codes = la ligne) */
     else if (op == 9) { cp_set_manual(x73_mo_id, x73_mo_d >= 0 && x73_mo_d < CP_N ? x73_mo_d : 0); r = cp_json(); }
     free(x73_mo_res);
     x73_mo_res = r;

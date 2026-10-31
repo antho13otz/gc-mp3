@@ -36,7 +36,8 @@ public final class Live {
     public static final class Game {
         String id = "", name = "", profile = "";
         int leftMin = -1;
-        int padMask;                                         // ports donnes aux telephones pendant ce jeu (bit n = port n + 1)                                    // (minutes de jeu restantes aujourd'hui au lancement, -1 : pas de limite)
+        int padMask;                                         // ports donnes aux telephones pendant ce jeu (bit n = port n + 1)
+        boolean mem;                                         // (GC Station v306) chercheur de codes : Pulse ouvre la memoire du jeu a l'appli
         long start;                                          // (ms, horloge du telephone)
         long playedSec() { return Math.max(0, (System.currentTimeMillis() - start) / 1000); }
         /** secondes restantes avant la limite du jour, ou Long.MIN_VALUE sans limite */
@@ -111,6 +112,7 @@ public final class Live {
                         try { g.leftMin = f.length > 3 ? Integer.parseInt(f[3]) : -1; } catch (Exception e) { g.leftMin = -1; }
                         g.profile = f.length > 4 ? f[4] : "";
                         try { g.padMask = f.length > 5 ? Integer.parseInt(f[5].trim()) : 0; } catch (Exception e) { g.padMask = 0; }
+                        g.mem = f.length > 6 && f[6].trim().equals("1");
                         g.start = System.currentTimeMillis();
                         setGame(g);
                         break;
@@ -132,7 +134,7 @@ public final class Live {
         if (prefs != null) {
             if (g == null) prefs.edit().remove("jeu_id").apply();
             else prefs.edit().putString("jeu_id", g.id).putString("jeu_nom", g.name).putString("jeu_prof", g.profile)
-                          .putInt("jeu_lim", g.leftMin).putLong("jeu_t", g.start).putInt("jeu_pad", g.padMask).apply();
+                          .putInt("jeu_lim", g.leftMin).putLong("jeu_t", g.start).putInt("jeu_pad", g.padMask).putBoolean("jeu_mem", g.mem).apply();
         }
         ui.post(() -> { for (Listener l : listeners) l.game(g); });
     }
@@ -147,6 +149,7 @@ public final class Live {
         g.leftMin = prefs.getInt("jeu_lim", -1);
         g.start = prefs.getLong("jeu_t", 0);
         g.padMask = prefs.getInt("jeu_pad", 0);
+        g.mem = prefs.getBoolean("jeu_mem", false);
         if (System.currentTimeMillis() - g.start > 12 * 3600 * 1000L) { prefs.edit().remove("jeu_id").apply(); return; }   // (trop vieux)
         game = g;
     }

@@ -1490,15 +1490,15 @@ static void tp_handle(s32 c) {
     }
     else if (!strcmp(target, "/api/cheatedit") || !strcmp(target, "/api/gamecfg") || !strcmp(target, "/api/gamefav") || !strcmp(target, "/api/lyrics")
              || !strcmp(target, "/api/queueadd") || !strcmp(target, "/api/regpack") || !strcmp(target, "/api/regrestore")
-             || !strcmp(target, "/api/compat") || !strcmp(target, "/api/compatset")) {   /* v242 ; v255 : pastilles des jeux */
+             || !strcmp(target, "/api/compat") || !strcmp(target, "/api/compatset") || !strcmp(target, "/api/succesadd")) {   /* v242 ; v255 : pastilles des jeux ; v306 : succes */
         char id[16] = "", v[16];
         int op = !strcmp(target, "/api/cheatedit") ? 1 : !strcmp(target, "/api/gamecfg") ? 2 : !strcmp(target, "/api/gamefav") ? 3
                : !strcmp(target, "/api/lyrics") ? 4 : !strcmp(target, "/api/queueadd") ? 5 : !strcmp(target, "/api/regpack") ? 6
-               : !strcmp(target, "/api/regrestore") ? 7 : !strcmp(target, "/api/compat") ? 8 : 9;
+               : !strcmp(target, "/api/regrestore") ? 7 : !strcmp(target, "/api/compat") ? 8 : !strcmp(target, "/api/compatset") ? 9 : 10;
         tp_param(q ? q : "", "id", id, sizeof(id));
         int idok = strlen(id) == 6;
         for (int k = 0; idok && id[k]; k++) if (!isalnum((unsigned char)id[k])) idok = 0;
-        if (((op <= 3 || op == 9) && !idok) || x73_mo_op) { tp_reply(c, 400, "application/json", "{}", 2); return; }
+        if (((op <= 3 || op >= 9) && !idok) || x73_mo_op) { tp_reply(c, 400, "application/json", "{}", 2); return; }
         memcpy(x73_mo_id, id, 7);
         v[0] = 0; tp_param(q ? q : "", op == 1 ? "n" : "i", v, sizeof(v)); x73_mo_i = v[0] ? atoi(v) : -1;
         v[0] = 0; tp_param(q ? q : "", "d", v, sizeof(v)); x73_mo_d = v[0] ? atoi(v) : op == 3 ? -1 : 0;   /* (favori sans d : inverse) */
@@ -2018,6 +2018,7 @@ static void tpl_pump(void) {
 /* (jeux_cfg.c) un jeu va se lancer / le lancement a echoue */
 static int pj_left_min(void);
 static u32 na_padmask(void);                             /* (prive, natif.c) */
+static int na_mem_on(void);                              /* (v306, natif.c) */
 static void tpl_game(const char *id, const char *name) {
     if (tpl_fd < 0 || !tpl_live()) return;
     static char last[8] = "";
@@ -2027,7 +2028,7 @@ static void tpl_game(const char *id, const char *name) {
     char nm[160], m[260];
     tp_any_utf8(name ? name : "", nm, sizeof(nm));
     for (char *p = nm; *p; p++) if (*p == '\t' || *p == '\n') *p = ' ';
-    snprintf(m, sizeof(m), "GCSG1\t%s\t%s\t%d\t%s\t%u\n", id ? id : "", nm, pj_left_min(), gp_name, (unsigned)na_padmask());   /* (+ ports des manettes du telephone) */
+    snprintf(m, sizeof(m), "GCSG1\t%s\t%s\t%d\t%s\t%u\t%d\n", id ? id : "", nm, pj_left_min(), gp_name, (unsigned)na_padmask(), na_mem_on());   /* (+ ports des manettes du telephone ; v306 : chercheur de codes) */
     for (int k = 0; k < 2; k++) { tpl_send_all(m); usleep(20000); }   /* (deux fois : UDP, et le jeu coupe le reseau juste apres) */
 }
 static void tpl_game_fail(void) { tpl_send_all("GCSE1\n"); }

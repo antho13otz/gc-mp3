@@ -278,6 +278,33 @@ static void sj_list_load(void) {
 }
 
 /* (fil du serveur du telephone) [["ID","titre","description",obtenu (0/1)],...] : fichiers seulement, rien de partage */
+/* v306 : succes cree par le chercheur de codes de l'appli : une ligne ajoutee au fichier du jeu (verifiee d'abord) */
+static char *sj_add(const char *id, const char *line) {
+    char l[400], t[400], path[96];
+    snprintf(l, sizeof(l), "%s", line);
+    for (char *p = l; *p; p++) if (*p == '\r' || *p == '\n') *p = ' ';
+    sj_def_t d, *all = (sj_def_t *)malloc(SJ_MAX * sizeof(sj_def_t));
+    snprintf(t, sizeof(t), "%s", l);
+    const char *err = NULL;
+    int b = 0, n = all ? sj_load(id, all, SJ_MAX, &b) : 0;   /* (cree aussi le fichier d'un jeu fourni) */
+    free(all);
+    if (!sd_ok) err = "Pas de carte SD";
+    else if (sj_line(t, &d) <= 0) err = "Ligne refus\xC3\xA9" "e (Titre | Description | condition)";
+    else if (n >= SJ_MAX) err = "Trop de succ\xC3\xA8s pour ce jeu (48 au plus)";
+    if (!err) {
+        snprintf(path, sizeof(path), SJ_DIR "/%.6s.txt", id);
+        mkdir(SJ_DIR, 0777);
+        struct stat st;
+        int had = stat(path, &st) == 0 && st.st_size > 0, nl = 1;
+        if (had) { FILE *r = fopen(path, "rb"); if (r) { fseek(r, -1, SEEK_END); nl = fgetc(r) == '\n'; fclose(r); } }
+        FILE *f = fopen(path, "ab");
+        if (!f) err = "\xC3\x89" "criture sur la carte SD impossible";
+        else { if (!had) fputs(sj_head, f); else if (!nl) fputc('\n', f); fprintf(f, "%s\n", sj_trim(l)); fclose(f); }
+    }
+    char m[200];
+    if (err) snprintf(m, sizeof(m), "{\"ok\":0,\"err\":\"%s\"}", err); else snprintf(m, sizeof(m), "{\"ok\":1,\"n\":%d}", n + 1);
+    return strdup(m);
+}
 static char *sj_json(void) {
     sbuf_t s = { NULL, 0, 0 };
     sb_add(&s, "[");
