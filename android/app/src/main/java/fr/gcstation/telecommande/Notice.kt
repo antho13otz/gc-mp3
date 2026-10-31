@@ -4,7 +4,13 @@ package fr.gcstation.telecommande
 // Les pages sont rangees sur la carte SD de la console (SD:/gc-mp3/notices/<ID>/01.jpg...) ; l'appli les garde
 // ensuite sur le telephone. Glisser : pages ; deux doigts : zoom ; double toucher : zoomer / revenir.
 
+import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.pdf.PdfRenderer
+import android.net.Uri
+import android.provider.OpenableColumns
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -69,6 +75,115 @@ object Notices {
             if (b != null && b.size > 100) try { f.parentFile?.mkdirs(); f.writeBytes(b) } catch (e: Exception) { }
         }
         if (b == null) null else BitmapFactory.decodeByteArray(b, 0, b.size)?.asImageBitmap()
+    }
+
+    // ---------- v297 : ajouter une notice depuis le telephone (images ou PDF) ----------
+    private const val PW = 480; private const val PH = 816              // (taille des pages, comme la console les lit)
+
+    private fun nom(ctx: Context, u: Uri): String {
+        try { ctx.contentResolver.query(u, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c -> if (c.moveToFirst()) return c.getString(0) ?: "" } } catch (e: Exception) { }
+        return u.lastPathSegment ?: ""
+    }
+    /** ordre naturel des noms : "page 2" avant "page 10" */
+    private fun cle(s: String): String = Regex("\\d+").replace(s.lowercase()) { it.value.padStart(6, '0') }
+
+    private fun jpeg(b: Bitmap): ByteArray {
+        val k = minOf(PW.toFloat() / b.width, PH.toFloat() / b.height, 1f)
+        val w = maxOf(8, (b.width * k).toInt()); val h = maxOf(8, (b.height * k).toInt())
+        val s = if (w != b.width || h != b.height) Bitmap.createScaledBitmap(b, w, h, true) else b
+        val o = ByteArrayOutputStream(); s.compress(Bitmap.CompressFormat.JPEG, 88, o)
+        if (s !== b) s.recycle()
+        return o.toByteArray()
+    }
+    private fun lireImage(ctx: Context, u: Uri): Bitmap? {
+        val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        ctx.contentResolver.openInputStream(u)?.use { BitmapFactory.decodeStream(it, null, o) }
+        var ech = 1
+        while (o.outWidth / (ech * 2) >= 1600 && o.outHeight / (ech * 2) >= 1600) ech *= 2   // (pas plus que necessaire : memoire)
+        return ctx.contentResolver.openInputStream(u)?.use { BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = ech }) }
+    }
+    /** contenu (non blanc) d'une bande de l'image : [x0, y0, x1, y1] ou null ; part : fraction de points non blancs */
+    private fun cadre(b: Bitmap, y0: Int, y1: Int): Pair<IntArray?, Float> {
+        val w = b.width; val h = y1 - y0
+        val col = IntArray(w); val lig = IntArray(h); var tout = 0
+        val px = IntArray(w)
+        for (y in 0 until h) {
+            b.getPixels(px, 0, w, 0, y0 + y, w, 1)
+            for (x in 0 until w) { val c = px[x]; if (((c shr 16) and 255) + ((c shr 8) and 255) + (c and 255) < 720) { col[x]++; lig[y]++; tout++ } }
+        }
+        val part = tout.toFloat() / (w * h)
+        val xs = (0 until w).filter { col[it] > h / 2 }; val ys = (0 until h).filter { lig[it] > w / 2 }
+        if (xs.size < w / 8 || ys.size < h / 8) return null to part
+        return intArrayOf(xs.first(), y0 + ys.first(), xs.last() + 1, y0 + ys.last() + 1) to part
+    }
+    /** planches d'impression (2 doubles pages l'une sur l'autre, traits de coupe) -> pages dans l'ordre du livret :
+     *  la 1re double page est le dos + la couverture (couverture en 1er, dos en dernier) */
+    private class Decoupe { val pages = ArrayList<ByteArray>(); var dos: ByteArray? = null; var premiere = true }
+    /** une planche (traitee tout de suite : pas toutes les grandes images en memoire) */
+    private fun decouper(b: Bitmap, z: Decoupe) {
+        run {
+            val h2 = b.height / 2
+            val (ch, ph) = cadre(b, 0, h2); val (cb, pb) = cadre(b, h2, b.height)
+            // (moitie sans cadre net, page presque blanche : meme place que l'autre moitie, decalee d'une demi-image)
+            val haut = ch ?: cb?.let { intArrayOf(it[0], it[1] - h2, it[2], it[3] - h2) }
+            val bas = cb ?: ch?.let { intArrayOf(it[0], it[1] + h2, it[2], it[3] + h2) }
+            for ((c, part, ok) in listOf(Triple(haut, ph, ch != null), Triple(bas, pb, cb != null))) {
+                if (c == null || (!ok && part < 0.005f)) continue           // (moitie vide)
+                val x0 = c[0].coerceIn(0, b.width - 2); val x1 = c[2].coerceIn(x0 + 2, b.width)
+                val y0 = c[1].coerceIn(0, b.height - 2); val y1 = c[3].coerceIn(y0 + 2, b.height)
+                val mid = (x0 + x1) / 2
+                val g = Bitmap.createBitmap(b, x0, y0, mid - x0, y1 - y0); val d = Bitmap.createBitmap(b, mid, y0, x1 - mid, y1 - y0)
+                if (z.premiere) { z.pages.add(jpeg(d)); z.dos = jpeg(g); z.premiere = false } else { z.pages.add(jpeg(g)); z.pages.add(jpeg(d)) }
+                g.recycle(); d.recycle()
+            }
+        }
+    }
+    /** pages a envoyer : un PDF (chaque page) ou des images (ordre des noms) ; planches : decouper les planches d'impression */
+    fun preparer(ctx: Context, uris: List<Uri>, planches: Boolean, etat: (String) -> Unit): List<ByteArray> {
+        val l = uris.map { it to nom(ctx, it) }.sortedBy { cle(it.second) }
+        val out = ArrayList<ByteArray>()
+        val z = Decoupe()
+        for ((u, n) in l) {
+            val pdf = n.lowercase().endsWith(".pdf") || ctx.contentResolver.getType(u) == "application/pdf"
+            if (pdf) {
+                ctx.contentResolver.openFileDescriptor(u, "r")?.use { fd ->
+                    PdfRenderer(fd).use { r ->
+                        for (i in 0 until r.pageCount) {
+                            etat("Lecture du PDF : page " + (i + 1) + " / " + r.pageCount)
+                            r.openPage(i).use { pg ->
+                                val k = 2f * PH / pg.height                             // (rendu net, puis reduit)
+                                val b = Bitmap.createBitmap(maxOf(8, (pg.width * k).toInt()), maxOf(8, (pg.height * k).toInt()), Bitmap.Config.ARGB_8888)
+                                b.eraseColor(android.graphics.Color.WHITE)
+                                pg.render(b, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                if (planches) decouper(b, z) else out.add(jpeg(b))
+                                b.recycle()
+                            }
+                        }
+                    }
+                }
+            } else {
+                etat("Lecture de " + n)
+                val b = lireImage(ctx, u) ?: continue
+                if (planches) decouper(b, z) else out.add(jpeg(b))
+                b.recycle()
+            }
+        }
+        if (planches) { out.addAll(z.pages); z.dos?.let { out.add(it) } }   // (le dos de la notice a la fin)
+        return out
+    }
+    /** envoie les pages a la console (remplace l'ancienne notice) ; null : tout est parti, sinon le message d'erreur */
+    fun envoyer(dir: File, id: String, pages: List<ByteArray>, etat: (String) -> Unit): String? {
+        if (Api.get("/api/notice?id=$id&del=1", 8000) == null) return "La console ne répond pas (build 790 ou plus récent ?)"
+        File(dir, "notices/$id").deleteRecursively()                       // (les anciennes pages gardees sur le telephone)
+        val ch = Api.canChunk()
+        for ((i, b) in pages.withIndex()) {
+            etat("Envoi à la console : page " + (i + 1) + " / " + pages.size)
+            val n = String.format("%02d.jpg", i + 1)
+            val r = if (ch) Api.putChunks("notice&nid=$id", n, ByteArrayInputStream(b), b.size.toLong(), null) else Api.put("notice&nid=$id", n, ByteArrayInputStream(b), b.size.toLong())
+            if (r == null) return "Envoi interrompu à la page " + (i + 1)
+        }
+        Api.get("/api/notice?id=$id&fin=1", 5000)
+        return null
     }
 }
 

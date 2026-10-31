@@ -24,7 +24,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v297 (build à venir) — Installer une notice depuis le téléphone
+## Nouveautés v298 (build à venir, appli build à venir) — Ajouter une notice depuis l'appli
+- **Appli** : dans la fiche d'un jeu, **« Ajouter une notice… »** (ou « Remplacer la notice… ») : choisis un **PDF** ou les
+  **images des pages** (rangées dans l'ordre de leurs noms). Option **« Planches d'impression »** : des images avec
+  2 doubles pages et des traits de coupe sont découpées et remises dans l'ordre du livret (couverture en premier,
+  dos en dernier). Les pages sont mises au bon format (JPEG 480 × 816) et envoyées à la console, avec l'avancement.
+- **Console** : reçoit les pages directement dans `SD:/gc-mp3/notices/<ID>/` (envoi `dir=notice&nid=<ID>`) ;
+  `/api/notice?id=<ID>&del=1` efface l'ancienne notice, `&fin=1` la fait relire.
+
+## Nouveautés v297 (build 789) — Installer une notice depuis le téléphone
 - Un **.zip de notice** (dossier `notices/<ID>/` dedans, comme `notice-GYQE01.zip`) envoyé depuis le téléphone : dans
   **TÉLÉCHARGEMENTS**, **A** l'installe directement dans `SD:/gc-mp3/notices/` (avant : décompressé dans `SD:/downloads`,
   et la console ne trouvait pas la notice). La fiche ouverte la voit tout de suite.

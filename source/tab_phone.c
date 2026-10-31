@@ -161,6 +161,7 @@ extern int pcsim_xfb_w, pcsim_xfb_h;
 /* v234 : ce qu'affiche la tele (tampon video YUYV) -> image BMP, envoyee ligne par ligne (sans grosse reservation) */
 static int tp_send(s32 c, const void *d, int n);
 static void tp_reply(s32 c, int code, const char *ctype, const void *body, int len);
+static char nt_id[8];                                      /* v297 : (notice.c) */
 static void tp_send_capture(s32 c) {
     const u8 *fb; int w, h;
 #ifndef GEKKO
@@ -1132,6 +1133,11 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     clean[n] = 0;
     while (clean[0] == '.' || clean[0] == ' ') memmove(clean, clean + 1, strlen(clean));
     if (!strcmp(dir, "apps")) okdir = 1;                    /* (v272 : morceaux suivants d'un .dol) */
+    char nid[8] = "";                                       /* v297 : page de notice : dir=notice&nid=<ID> -> SD:/gc-mp3/notices/<ID>/<nom> */
+    tp_param(q, "nid", nid, sizeof(nid));
+    int notice = !strcmp(dir, "notice") && strlen(nid) == 6;
+    for (int i = 0; notice && i < 6; i++) if (!isalnum((unsigned char)nid[i])) notice = 0;
+    if (notice) okdir = 1;
     if (!okdir || !clean[0] || len <= 0 || !sd_ok) { tp_reply(c, 400, "text/plain", "refus", 5); return; }
     { const char *dt = strrchr(clean, '.');                    /* v224 : un programme va toujours dans SD:/apps (liste Applis) */
       if (dt && !strcasecmp(dt, ".dol")) snprintf(dir, sizeof(dir), "apps"); }
@@ -1139,14 +1145,19 @@ static void tp_upload(s32 c, const char *q, long len, const unsigned char *pre, 
     mkdir(GCD, 0777);
     int regtel = !strcmp(dir, "regtel");
     if (regtel) { mkdir(GCD_REG, 0777); snprintf(path, sizeof(path), "%s", TP_REGTEL); remove(path); }   /* (toujours le meme nom, remplace) */
-    else {
+    else if (notice) {                                      /* (v297 : la page remplace l'ancienne) */
+        mkdir(GCD "/notices", 0777);
+        snprintf(path, sizeof(path), GCD "/notices/%s", nid); mkdir(path, 0777);
+        snprintf(path, sizeof(path), GCD "/notices/%s/%s", nid, clean);
+        if (!(chunk && off > 0)) remove(path);
+    } else {
     snprintf(path, sizeof(path), SD_ROOT "/%s%s", gpre, dir);
     mkdir(path, 0777);
     snprintf(path, sizeof(path), SD_ROOT "/%s%s/%s", gpre, dir, clean);
     }
     struct stat st;
     if (chunk && off > 0) snprintf(path, sizeof(path), "%s", tpk.path);   /* (nom choisi au 1er morceau) */
-    else for (int k = 2; !regtel && k < 100 && stat(path, &st) == 0; k++) {     /* deja la : "nom (2).mp3" */
+    else for (int k = 2; !regtel && !notice && k < 100 && stat(path, &st) == 0; k++) {     /* deja la : "nom (2).mp3" */
         char base[200], ext[16] = "";
         snprintf(base, sizeof(base), "%s", clean);
         char *dot = strrchr(base, '.');
@@ -1688,7 +1699,15 @@ static void tp_handle(s32 c) {
         tp_param(q ? q : "", "p", ps, sizeof(ps));
         int ok = strlen(id) == 6;
         for (int i = 0; ok && i < 6; i++) ok = isalnum((unsigned char)id[i]);
+        char ds[4], fs[4];
+        tp_param(q ? q : "", "del", ds, sizeof(ds));
+        tp_param(q ? q : "", "fin", fs, sizeof(fs));
         if (!ok) tp_reply(c, 400, "text/plain", "", 0);
+        else if (ds[0] || fs[0]) {                           /* v297 : del=1 : effacer les pages (avant d'en envoyer d'autres) ; fin=1 : relire */
+            if (ds[0]) for (int k = 1; k <= 99; k++) { snprintf(p, sizeof(p), GCD "/notices/%s/%02d.jpg", id, k); remove(p); }
+            nt_id[0] = 0;                                      /* (la fiche ouverte sur la tele : recompter) */
+            tp_reply(c, 200, "application/json", "{\"ok\":1}", 8);
+        }
         else if (ps[0]) {
             int n = atoi(ps);
             struct stat st;

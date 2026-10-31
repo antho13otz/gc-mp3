@@ -74,7 +74,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -247,6 +250,21 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
     var boite by remember { mutableStateOf(false) }                     // (la boite en 3D, en plein ecran)
     var notice by remember { mutableIntStateOf(0) }                     // (pages de la notice sur la console ; 0 : pas de notice)
     var noticeOuverte by remember { mutableStateOf(false) }
+    var noticeAjout by remember { mutableStateOf(false) }              // (v297 : ajouter une notice depuis le telephone)
+    var planches by remember { mutableStateOf(false) }
+    var noticeEnvoi by remember { mutableStateOf<String?>(null) }
+    val choisirNotice = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
+        if (uris.isNotEmpty()) scope.launch {
+            noticeEnvoi = "Préparation des pages…"
+            val err = withContext(Dispatchers.IO) {
+                val pages = try { Notices.preparer(act, uris, planches) { m -> noticeEnvoi = m } } catch (e: Throwable) { null }
+                if (pages.isNullOrEmpty()) "Aucune page lisible dans ces fichiers" else Notices.envoyer(act.cacheDir, g.id, pages) { m -> noticeEnvoi = m }
+            }
+            noticeEnvoi = null
+            Toast.makeText(act, err ?: "Notice installée sur la console", Toast.LENGTH_LONG).show()
+            notice = Notices.pages(g.id)
+        }
+    }
 
     fun remplir(r: String?) {
         val j = try { if (r != null) JSONObject(r) else null } catch (e: Exception) { null }
@@ -320,6 +338,8 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
             Spacer(Modifier.height(8.dp))
             Bouton("Voir la boîte en 3D", Modifier.fillMaxWidth(), icone = Ic.Jeux) { boite = true }
             if (notice > 0) { Spacer(Modifier.height(8.dp)); Bouton("Lire la notice ($notice pages)", Modifier.fillMaxWidth()) { noticeOuverte = true } }
+            Spacer(Modifier.height(8.dp))
+            Bouton(if (notice > 0) "Remplacer la notice…" else "Ajouter une notice…", Modifier.fillMaxWidth()) { noticeAjout = true }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Bouton("Patchs de secours…", Modifier.weight(1f)) { patchs = true }
@@ -410,6 +430,27 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
 
     if (boite) Boite3DEcran(act, g.id, g.nom, { boite = false; lancer(1) }) { boite = false }
     if (noticeOuverte) NoticeEcran(act, g.id, g.nom, notice) { noticeOuverte = false }
+    if (noticeAjout) AlertDialog(onDismissRequest = { noticeAjout = false }, containerColor = Color(0xFF1A0E30),
+        title = { Text(if (notice > 0) "Remplacer la notice" else "Ajouter une notice", color = C.Texte) },
+        text = {
+            Column {
+                Doux("Choisis un PDF, ou les images des pages (rangées dans l'ordre de leurs noms). L'appli les met au bon format et les envoie à la console : la notice apparaît dans la boîte du jeu, sur la télé et ici.", taille = 13)
+                Spacer(Modifier.height(12.dp))
+                Row(Modifier.fillMaxWidth().verre(RoundedCornerShape(14.dp)).appui { planches = !planches }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text("Planches d'impression", color = C.Texte, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                        Doux("2 doubles pages par image, avec traits de coupe : découpées et remises dans l'ordre du livret", taille = 11, couleur = C.Pale)
+                    }
+                    Switch(planches, null, colors = SwitchDefaults.colors(checkedTrackColor = C.Rose))
+                }
+            }
+        },
+        confirmButton = { TextButton({ noticeAjout = false; choisirNotice.launch(arrayOf("image/*", "application/pdf")) }) { Text("Choisir les fichiers", color = C.Rose) } },
+        dismissButton = { TextButton({ noticeAjout = false }) { Text("Annuler", color = C.Doux) } })
+    noticeEnvoi?.let { m ->
+        AlertDialog(onDismissRequest = { }, containerColor = Color(0xFF1A0E30),
+            title = { Text("Notice", color = C.Texte) }, text = { Doux(m, taille = 14) }, confirmButton = { })
+    }
 
     if (patchs) {
         val choix = remember { mutableStateMapOf<Int, Boolean>() }
