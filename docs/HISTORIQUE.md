@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Zoom libre sur la boîte 3D, upscaling de l'image de la télé
+- **Boîte 3D** : deux doigts pour **zoomer à l'endroit pincé** (jusqu'à 6 fois) et **déplacer la vue dans tous les
+  sens** ; un doigt la tourne toujours ; double toucher quand elle est zoomée : retour au cadrage normal.
+- **Télé : upscaling** (Android 13 et plus) : l'image reçue de la console est agrandie par la puce graphique du
+  téléphone (interpolation bicubique Catmull-Rom sur 16 points, netteté sans halo, blocs du JPEG adoucis dans les
+  aplats) au lieu du simple lissage. Bouton **Upscaling** sous l'image (allumé par défaut).
+
 ## Nouveautés appli build 59 — Disque réaliste et boîte encore plus vraie
 - **Le disque** : la face gravée est un **miroir argenté** avec les **reflets arc-en-ciel** des sillons, qui changent
   quand il tourne (calculés comme la vraie diffraction d'un DVD) ; le **centre en plastique transparent** (on voit

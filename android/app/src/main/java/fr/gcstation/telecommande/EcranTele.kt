@@ -20,6 +20,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -114,6 +115,7 @@ fun EcranTele() {
     val paysage = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val prefs = remember { act.getSharedPreferences("gcs", 0) }
     var net by remember { mutableStateOf(prefs.getBoolean("tele_nette", false)) }
+    var upscaling by remember { mutableStateOf(prefs.getBoolean("tele_upscaling", Upscale.possible)) }   // (agrandie par le telephone)
     var enDirect by remember { mutableStateOf(false) }      // (l'image ne part que si on la demande : bouton Afficher la tele)
     var img by remember { mutableStateOf<Image1?>(null) }
     var ips by remember { mutableFloatStateOf(0f) }
@@ -156,7 +158,7 @@ fun EcranTele() {
         Box(m.aspectRatio(if (i != null) i.w.toFloat() / i.h else 4f / 3f).clip(RoundedCornerShape(if (paysage) 10.dp else 18.dp))
             .background(Color.Black).border(1.dp, Brush.linearGradient(listOf(C.Rose, C.Cyan)), RoundedCornerShape(if (paysage) 10.dp else 18.dp))
             .then(if (enDirect) Modifier.gestesTele(i?.web == true) else Modifier)) {
-            if (i != null) Image(i.bmp, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit, filterQuality = FilterQuality.Medium)
+            if (i != null) ImageTele(i.bmp, upscaling, Modifier.fillMaxSize())
             else Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                 if (!St.connecte) Doux("Pas connecté à la console", centre = true)
                 else if (!enDirect) { }
@@ -166,7 +168,7 @@ fun EcranTele() {
             if (i != null) Row(Modifier.align(Alignment.TopStart).padding(8.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x99000000)).padding(horizontal = 7.dp, vertical = 3.dp)) {
                 Box(Modifier.align(Alignment.CenterVertically).size(7.dp).clip(CircleShape).background(if (rate) C.Rouge else C.Vert))
                 Spacer(Modifier.width(5.dp))
-                Text(String.format(java.util.Locale.FRANCE, "%.0f img/s", ips) + if (i.web) " · pointeur" else "", color = Color.White, fontSize = 10.sp)
+                Text(String.format(java.util.Locale.FRANCE, "%.0f img/s", ips) + (if (upscaling && Upscale.possible) " · upscaling" else "") + if (i.web) " · pointeur" else "", color = Color.White, fontSize = 10.sp)
             }
             if (!enDirect && St.connecte) Box(Modifier.fillMaxSize().background(Color(0x99000000)), contentAlignment = Alignment.Center) {
                 Bouton("Afficher la télé", plein = true, icone = Ic.Lecture) { enDirect = true }
@@ -174,8 +176,9 @@ fun EcranTele() {
         }
     }
     val barre: @Composable () -> Unit = {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Puce(if (net) "Net" else "Rapide", net) { net = !net; prefs.edit().putBoolean("tele_nette", net).apply() }
+            if (Upscale.possible) Puce("Upscaling", upscaling) { upscaling = !upscaling; prefs.edit().putBoolean("tele_upscaling", upscaling).apply() }
             Puce(if (enDirect) "En direct" else "Image arrêtée", enDirect) { enDirect = !enDirect }
             Puce(if (paysage) "Portrait" else "Plein écran", false) {
                 pleinEcran = !paysage
