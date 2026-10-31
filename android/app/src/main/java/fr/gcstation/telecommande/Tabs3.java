@@ -171,7 +171,10 @@ final class Backup {
 
     static SharedPreferences prefs(Context c) { return c.getSharedPreferences("gcs", Context.MODE_PRIVATE); }
     static File dir(Context c) { File d = new File(c.getExternalFilesDir(null), "copies"); d.mkdirs(); return d; }
-    static boolean autoOn(Context c) { return prefs(c).getBoolean("copie_auto", true); }
+    // (build 82 : plus de copie toute seule par defaut, on la fait a la main ; nouvelle cle pour que l'ancien
+    //  reglage "active par defaut" ne compte plus ; la reactiver dans Plus > Copies reste possible)
+    static final String AUTO = "copie_auto_manuel";
+    static boolean autoOn(Context c) { return prefs(c).getBoolean(AUTO, false); }
 
     static File[] list(Context c) {
         File[] l = dir(c).listFiles(File::isDirectory);
@@ -291,13 +294,13 @@ class CopiesTab extends Tab {
         LinearLayout tx = new LinearLayout(a);
         tx.setOrientation(LinearLayout.VERTICAL);
         tx.addView(Neon.text(a, "Copie automatique", 15, Neon.TEXT, true));
-        tx.addView(Neon.text(a, "Une fois par jour, à la connexion : cartes mémoire virtuelles et réglages. Les " + Backup.KEEP + " dernières sont gardées.", 12, Neon.DIM, false));
+        tx.addView(Neon.text(a, "Désactivée : tu fais tes copies à la main avec le bouton ci-dessous. Activée : une fois par jour, à la connexion (cartes mémoire virtuelles et réglages). Les " + Backup.KEEP + " dernières sont gardées.", 12, Neon.DIM, false));
         ar.addView(tx, lp(0, -2, 1));
         sw = NeonDialog.toggle(a, Backup.autoOn(a));
         ar.addView(sw, lp(dp(48), dp(28), 0));
         ar.setOnClickListener(x -> {
             boolean on = !Backup.autoOn(a);
-            Backup.prefs(a).edit().putBoolean("copie_auto", on).apply();
+            Backup.prefs(a).edit().putBoolean(Backup.AUTO, on).apply();
             NeonDialog.paintToggle(a, sw, on);
         });
         c.addView(ar);
