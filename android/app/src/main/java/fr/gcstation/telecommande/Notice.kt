@@ -69,6 +69,7 @@ import java.io.File
 object Notices {
     /** nombre de pages de la notice du jeu (0 : pas de notice, ou console trop ancienne) */
     suspend fun pages(id: String): Int {
+        if (!St.connecte) return 0                                      // (hors-ligne : Hors.pagesNotice)
         val r = lire("/api/notice?id=$id") ?: return 0
         return try { JSONObject(r).optInt("n") } catch (e: Exception) { 0 }
     }
@@ -252,7 +253,7 @@ private fun PageNotice(act: StationActivity, id: String, p: Int, surZoom: (Boole
     var rate by remember(id, p) { mutableStateOf(false) }
     var sc by remember { mutableFloatStateOf(1f) }
     var off by remember { mutableStateOf(Offset.Zero) }
-    LaunchedEffect(id, p) { img = Notices.page(act.cacheDir, id, p); if (img == null) rate = true }
+    LaunchedEffect(id, p) { img = Notices.page(Hors.dir(act), id, p); if (img == null) rate = true }
     Box(Modifier.fillMaxSize().padding(top = 80.dp, bottom = 40.dp)
         .pointerInput(p) {
             detectTapGestures(onDoubleTap = { t ->

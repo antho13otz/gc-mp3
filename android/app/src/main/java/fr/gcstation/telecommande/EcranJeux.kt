@@ -54,6 +54,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -134,14 +135,19 @@ fun EcranJeux() {
     var fiche by remember { mutableStateOf<Jeu?>(null) }
     var recharge by remember { mutableIntStateOf(0) }
     val dernier = remember { LastLaunch(act) { id -> jeux?.firstOrNull { it.id == id }?.let { fiche = it } } }
-    LaunchedEffect(St.listes, recharge) {
-        val r = lire("/api/games", 15000)
-        if (r == null) { msg = "Pas de réponse de la console"; return@LaunchedEffect }
+    var garde by remember { mutableLongStateOf(0L) }           // (hors-ligne : date de la liste gardee ; 0 : liste de la console)
+    var tout by remember { mutableStateOf<String?>(null) }    // (« Tout garder pour hors-ligne » en cours : ce qu'il fait)
+    var toutAnnule by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(St.listes, recharge, St.connecte) {
+        val r = if (St.connecte) lire("/api/games", 15000) else null
+        val c = if (r != null) lire("/api/compat") else null
+        val (rr, cc) = if (r != null) { Hors.garderJeux(act, r, c); garde = 0L; r to c }
+                       else Hors.jeux(act)?.let { garde = it.third; it.first to it.second } ?: run { msg = if (St.connecte) "Pas de réponse de la console" else "Hors-ligne : aucune liste gardée (connecte-toi une fois à la console)"; return@LaunchedEffect }
         val l = ArrayList<Jeu>()
-        try { val j = JSONArray(r); for (k in 0 until j.length()) { val g = j.getJSONArray(k); if (g.optString(1).isNotEmpty()) l.add(Jeu(g, k)) } } catch (e: Exception) { }
+        try { val j = JSONArray(rr); for (k in 0 until j.length()) { val g = j.getJSONArray(k); if (g.optString(1).isNotEmpty()) l.add(Jeu(g, k)) } } catch (e: Exception) { }
         jeux = l
-        val c = lire("/api/compat")
-        if (c != null) lireCompat(c, compat)
+        if (cc != null) lireCompat(cc, compat)
     }
     val pj = St.etat?.optLong("pj") ?: -1L
     LaunchedEffect(pj) { dernier.refresh(); if (dernier.pj >= 0 && pj > 0 && pj != dernier.pj) recharge++ }
@@ -169,6 +175,16 @@ fun EcranJeux() {
                 }
                 Spacer(Modifier.height(8.dp))
                 AndroidView({ dernier.view.also { v -> (v.parent as? android.view.ViewGroup)?.removeView(v) } }, Modifier.fillMaxWidth())
+                if (garde > 0L) Doux("Hors-ligne · liste gardée le " + java.text.SimpleDateFormat("d/M à HH:mm", java.util.Locale.FRANCE).format(java.util.Date(garde)) + " · jaquettes, boîtes et notices gardées",
+                    Modifier.padding(start = 4.dp, top = 8.dp), 12, C.Cyan)
+                if (St.connecte && l != null && l.isNotEmpty()) Bouton("Tout garder pour hors-ligne", Modifier.fillMaxWidth().padding(top = 8.dp), hauteur = 40.dp) {
+                    toutAnnule = false; tout = "Préparation…"
+                    scope.launch {
+                        val n = Hors.toutGarder(act, l, { toutAnnule }) { k, t, nom -> tout = if (nom.isEmpty()) null else "Jeu " + (k + 1) + " / " + t + " : " + nom }
+                        tout = null
+                        Toast.makeText(act, if (toutAnnule) "Arrêté : ce qui est déjà gardé reste" else "Tout est gardé pour hors-ligne (" + l.size + " jeux, " + n + " pages de notices)", Toast.LENGTH_LONG).show()
+                    }
+                }
                 Doux(if (l == null) msg else if (l.isEmpty()) "Aucun jeu (onglet JEUX de la GameCube)" else vus.size.toString() + " jeu" + (if (vus.size > 1) "x" else "") + " · toucher pour la fiche",
                     Modifier.padding(start = 4.dp, top = 8.dp), 12)
             }
@@ -176,6 +192,12 @@ fun EcranJeux() {
         items(vus, key = { it.id + "#" + it.i }) { g -> CelluleJeu(act, g, compat[g.id] ?: 0) { fiche = g } }
     }
     fiche?.let { g -> FicheJeu(act, g, compat, { fiche = null }) { recharge++ } }
+    tout?.let { m ->
+        AlertDialog(onDismissRequest = { }, containerColor = Color(0xFF1A0E30),
+            title = { Text("Tout garder pour hors-ligne", color = C.Texte) },
+            text = { Doux(m + "\n\nJaquettes (console), boîtes 3D et disques (GameTDB, par Internet), notices (console).", taille = 13) },
+            confirmButton = { TextButton({ toutAnnule = true }) { Text("Arrêter", color = C.Rose) } })
+    }
 }
 
 private fun lireCompat(r: String, into: MutableMap<String, Int>) {
@@ -185,7 +207,7 @@ private fun lireCompat(r: String, into: MutableMap<String, Int>) {
 @Composable
 private fun CelluleJeu(act: Activity, g: Jeu, cp: Int, onClick: () -> Unit) {
     var img by remember(g.id) { mutableStateOf<ImageBitmap?>(Jaquettes.mem.get(g.id)) }
-    LaunchedEffect(g.id) { if (img == null) img = Jaquettes.charger(act.cacheDir, g.id, g.i) }
+    LaunchedEffect(g.id) { if (img == null) img = Jaquettes.charger(Hors.dir(act), g.id, g.i) }
     Column(Modifier.appui(onClick)) {
         Box(Modifier.fillMaxWidth().aspectRatio(0.72f).clip(RoundedCornerShape(16.dp)).background(Brush.verticalGradient(listOf(Color(0xFF2A1450), Color(0xFF140A26))))
             .border(1.dp, if (g.favori) C.Rose.copy(alpha = 0.7f) else C.Bord, RoundedCornerShape(16.dp))) {
@@ -257,7 +279,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
             noticeEnvoi = "Préparation des pages…"
             val err = withContext(Dispatchers.IO) {
                 val pages = try { Notices.preparer(act, uris) { m -> noticeEnvoi = m } } catch (e: Throwable) { null }
-                if (pages.isNullOrEmpty()) "Aucune page lisible dans ces fichiers" else Notices.envoyer(act.cacheDir, g.id, pages) { m -> noticeEnvoi = m }
+                if (pages.isNullOrEmpty()) "Aucune page lisible dans ces fichiers" else Notices.envoyer(Hors.dir(act), g.id, pages) { m -> noticeEnvoi = m }
             }
             noticeEnvoi = null
             Toast.makeText(act, err ?: "Notice installée sur la console", Toast.LENGTH_LONG).show()
@@ -295,14 +317,14 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
     fun chargerCfg(row: Int, d: Int) { scope.launch { val r = lire("/api/gamecfg?id=" + g.id + "&i=" + g.i + "&row=" + row + "&d=" + d); cfg = try { if (r != null) JSONObject(r) else JSONObject() } catch (e: Exception) { JSONObject() } } }
 
     LaunchedEffect(g.id) { remplir(lire("/api/cheats?id=" + g.id)) }
-    LaunchedEffect(g.id) { notice = Notices.pages(g.id) }
+    LaunchedEffect(g.id) { notice = Notices.pages(g.id).let { if (it > 0) it else Hors.pagesNotice(act, g.id) } }   // (hors-ligne : les pages gardees)
     LaunchedEffect(masque, masqueSale) { if (masqueSale) { delay(600); envoyerMasque() } }
 
     ModalBottomSheet(onDismissRequest = { scope.launch { envoyerMasque() }; fermer() }, sheetState = etat, containerColor = Color(0xFF120824)) {
         Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp).padding(bottom = 30.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 var img by remember { mutableStateOf<ImageBitmap?>(Jaquettes.mem.get(g.id)) }
-                LaunchedEffect(g.id) { if (img == null) img = Jaquettes.charger(act.cacheDir, g.id, g.i) }
+                LaunchedEffect(g.id) { if (img == null) img = Jaquettes.charger(Hors.dir(act), g.id, g.i) }
                 Box(Modifier.size(width = 96.dp, height = 134.dp).clip(RoundedCornerShape(14.dp)).background(Color(0x22FFFFFF)).appui { boite = true }) {
                     img?.let { Image(it, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
                     Box(Modifier.align(Alignment.BottomEnd).padding(5.dp).clip(RoundedCornerShape(8.dp)).background(Color(0xAA000000)).padding(horizontal = 6.dp, vertical = 2.dp)) {
@@ -527,7 +549,7 @@ private fun raccourci(a: Activity, g: Jeu) {
     if (sm == null || !sm.isRequestPinShortcutSupported) { Toast.makeText(a, "Ton écran d'accueil n'accepte pas les raccourcis", Toast.LENGTH_LONG).show(); return }
     val it = Host.home(a).setAction(MainActivity.ACT_GAME).putExtra("id", g.id).putExtra("nom", g.nom)
         .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
-    val cover = Jaquettes.bitmap(a.cacheDir, g.id)
+    val cover = Jaquettes.bitmap(Hors.dir(a), g.id)
     val icon = if (cover != null) {
         val ic = Bitmap.createBitmap(432, 432, Bitmap.Config.ARGB_8888)
         val cv = Canvas(ic)

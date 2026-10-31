@@ -24,6 +24,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — L'appli hors-ligne (sans la console)
+- **« Utiliser hors-ligne »** sur l'écran de connexion : l'appli s'ouvre sur **Jeux** sans la console. Tes jeux (temps de
+  jeu, favoris, pastilles), jaquettes, boîtes 3D, disques et notices gardés sur le téléphone restent disponibles.
+- La liste des jeux est gardée à chaque connexion ; hors-ligne, l'écran Jeux dit de quand elle date.
+- **« Tout garder pour hors-ligne »** (Jeux, avec la console) : télécharge d'un coup, pour tous tes jeux, la jaquette, la
+  boîte 3D et le disque (GameTDB) et toutes les pages des notices ; avancement et bouton Arrêter.
+- Tout est rangé dans la mémoire de l'appli (plus dans le cache, qu'Android peut vider) ; ce qui était déjà gardé y est
+  déplacé tout seul.
+
 ## Nouveautés v300 (build 792, appli build 78) — La notice s'ouvre et ses pages tournent
 - **Console** : X (boîte ouverte) : la notice **sort du couvercle**, de biais, et vient se poser à plat au milieu ; B : elle
   y retourne. Gauche / droite : la page **tourne comme dans un vrai livret** (elle se soulève par la droite en pivotant

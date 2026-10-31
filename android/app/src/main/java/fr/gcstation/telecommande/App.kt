@@ -143,7 +143,7 @@ private fun Bandeaux(act: StationActivity) {
     AnimatedVisibility(St.horsLigne && St.jeu == null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp).verre(RoundedCornerShape(18.dp), C.Rouge.copy(alpha = 0.5f)).padding(12.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Doux("La console ne répond pas (" + (Api.host ?: "") + "). Éteinte, en jeu ou hors du Wi-Fi ? L'appli se reconnecte toute seule.", Modifier.weight(1f), 12, C.Texte)
+            Doux("La console ne répond pas (" + (Api.host ?: "") + "). Éteinte, en jeu ou hors du Wi-Fi ? L'appli se reconnecte toute seule. Jeux : ce qui est gardé reste disponible.", Modifier.weight(1f), 12, C.Texte)
             Spacer(Modifier.width(8.dp))
             Bouton("Chercher", hauteur = 38.dp) { act.search() }
             Spacer(Modifier.width(6.dp))
@@ -226,6 +226,9 @@ private fun Connexion(act: StationActivity) {
             }
             Spacer(Modifier.height(10.dp))
             Bouton("Manette dans le jeu", Modifier.fillMaxWidth(), icone = Ic.Manette) { if (ip.isNotBlank()) { Api.host = ip.trim() }; act.manetteEnJeu() }
+            Spacer(Modifier.height(10.dp))
+            Bouton("Utiliser hors-ligne", Modifier.fillMaxWidth(), icone = Ic.Jeux) { St.horsLigneMode = true; St.panneau = false; St.onglet = 2 }   // (sans la console : ce qui est garde)
+            Doux("Tes jeux, jaquettes, boîtes 3D et notices gardés sur le téléphone, sans la console.", Modifier.padding(top = 6.dp), 11, C.Pale, centre = true)
         }
     }
 }
@@ -245,7 +248,7 @@ private fun PartieEnCours(act: StationActivity) {
                 Titre("Partie en cours")
                 Spacer(Modifier.height(14.dp))
                 val bmp = remember(g.id) {
-                    val f = File(act.cacheDir, "jaquettes/" + g.id + ".png")
+                    val f = File(Hors.dir(act), "jaquettes/" + g.id + ".png")
                     if (f.exists()) BitmapFactory.decodeFile(f.path) else null
                 }
                 if (bmp != null) Image(bmp.asImageBitmap(), null, Modifier.size(width = 120.dp, height = 168.dp).clip(RoundedCornerShape(14.dp)), contentScale = ContentScale.Crop)

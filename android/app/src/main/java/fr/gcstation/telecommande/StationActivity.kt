@@ -48,6 +48,7 @@ object St {
     var cherche by mutableStateOf(false)
     var etat by mutableStateOf<JSONObject?>(null)
     var horsLigne by mutableStateOf(false)
+    var horsLigneMode by mutableStateOf(false)             // (« Utiliser hors-ligne » : sans la console, ce qui est garde sur le telephone)
     var jeu by mutableStateOf<Live.Game?>(null)
     var jeuMasque by mutableStateOf(false)
     var envoi by mutableStateOf<Envoi?>(null)
@@ -210,6 +211,7 @@ class StationActivity : ComponentActivity(), Host {
         prefs.edit().putString("host", ip).apply()
         St.connecte = true
         St.panneau = false
+        St.horsLigneMode = false
         St.choixConsoles = emptyList()
         fails = 0
         Live.resubscribe()

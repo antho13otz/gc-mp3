@@ -155,15 +155,15 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
     var noticeOuverte by remember { mutableStateOf(false) }
     LaunchedEffect(id, vue) {
         val v = vue ?: return@LaunchedEffect
-        val im = JaquettesHQ.charger(act.cacheDir, id)
+        val im = JaquettesHQ.charger(Hors.dir(act), id)
         etat = (when {
             im.full != null -> "Jaquette complète " + im.full.width + "×" + im.full.height
             im.avant != null -> "Jaquette avant seulement"
             else -> "Pas de jaquette"
         }) + " · " + (if (im.disque != null) "disque du jeu" else "pas d'image du disque") + " (GameTDB)"
         v.textures(im, nom, id)
-        val n = Notices.pages(id)                          // (la notice du jeu, si la console en a une : dans le couvercle)
-        if (n > 0) { Notices.page(act.cacheDir, id, 1)?.let { v.notice(it.asAndroidBitmap()) }; pagesNotice = n }
+        val n = Notices.pages(id).let { if (it > 0) it else Hors.pagesNotice(act, id) }   // (la notice du jeu, si la console en a une, ou gardee : dans le couvercle)
+        if (n > 0) { Notices.page(Hors.dir(act), id, 1)?.let { v.notice(it.asAndroidBitmap()) }; pagesNotice = n }
     }
     Dialog(onDismissRequest = fermer, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(C.Fond)) {
