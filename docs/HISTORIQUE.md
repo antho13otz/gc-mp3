@@ -24,6 +24,18 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v294 (build à venir, appli build à venir) — La télé sur le téléphone : plus fluide, plus nette, 120 Hz
+- **Console : seulement ce qui change** (`/api/ecranz`) : la console garde ce que le téléphone a déjà et n'envoie que
+  les blocs de 16 × 16 qui ont changé (souvent 2 à 5 fois moins lourd) ; rien de changé : rien d'envoyé. Plus
+  d'images par seconde, surtout en **Net** (640 × 480).
+- **Appli : trois qualités** sous l'image : **Rapide** (320 × 240), **Net** (640 × 480), **Max** (640 × 480,
+  compression très légère).
+- **Upscaling qui suit les contours** : l'agrandissement regarde la direction des bords (noyau de Lanczos étiré le
+  long des contours, resserré en travers) : textes et lignes nets sans escaliers, aplats doux, pas de halo.
+- **Fluide 120 Hz** : le téléphone calcule les images intermédiaires entre deux images de la console, en suivant ce
+  qui bouge (mouvement estimé par blocs) : les défilements sont fluides à 120 images par seconde. L'image a une
+  image de retard (environ 50 ms) ; bouton **Fluide 120 Hz** pour l'enlever.
+
 ## Nouveautés appli build 61 — Zoom libre sur la boîte 3D, upscaling de l'image de la télé
 - **Boîte 3D** : deux doigts pour **zoomer à l'endroit pincé** (jusqu'à 6 fois) et **déplacer la vue dans tous les
   sens** ; un doigt la tourne toujours ; double toucher quand elle est zoomée : retour au cadrage normal.

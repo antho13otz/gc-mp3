@@ -203,3 +203,124 @@ static int ej_encode(const u8 *fb, int sw, int sh, int s, int quality, u8 *out, 
     ej_byte(&w, 0xFF); ej_byte(&w, 0xD9);
     return w.ovf ? 0 : w.n;
 }
+
+/* ---------- v294 : images partielles (GET /api/ecranz) : seuls les blocs de 16x16 qui ont change ----------
+   La console garde ce que le telephone a deja (la reference, bloc par bloc, apres le passage en couleurs JPEG).
+   Le telephone donne le numero de la derniere image recue (s=) : si c'est la bonne, la console compare chaque bloc
+   et n'envoie que ceux qui ont change, ranges a la suite dans une bande JPEG (40 blocs par ligne) precedee de leur
+   place ; sinon (ou si plus de 60 % ont change) l'image entiere. Rien de change : reponse vide (204).
+   Un bloc = 384 octets : 256 de luminance (16x16), 64 de bleu, 64 de rouge (8x8). */
+#define EJ_MCU 384
+static u8 *ej_ref = NULL, *ej_cur = NULL;
+static int ej_rw = 0, ej_rh = 0, ej_rok = 0;
+static u32 ej_seq = 1;
+
+/* un bloc de 16x16 de l'image (W x H, lue tous les s pixels dans le tampon YUYV sw x sh) */
+static void ej_mcu_sample(const u8 *fb, int sw, int s, int W, int H, int mx, int my, u8 *o) {
+    int cu[64], cv[64];
+    for (int y = 0; y < 16; y++) {
+        int oy = my + y; if (oy >= H) oy = H - 1;
+        for (int x = 0; x < 16; x += 2) {
+            int ox = mx + x; if (ox >= W) ox = (W - 2) & ~1;
+            int ya, yb2, u, v;
+            if (s == 1) {
+                const u8 *p = fb + ((size_t)oy * sw + ox) * 2;
+                ya = ej_ylut[p[0]]; yb2 = ej_ylut[p[2]]; u = p[1]; v = p[3];
+            } else {
+                const u8 *p = fb + ((size_t)(oy * 2) * sw + ox * 2) * 2, *q = p + (size_t)sw * 2;
+                ya = ej_ylut[(p[0] + p[2] + q[0] + q[2] + 2) >> 2]; yb2 = ej_ylut[(p[4] + p[6] + q[4] + q[6] + 2) >> 2];
+                u = (p[1] + p[5] + q[1] + q[5] + 2) >> 2; v = (p[3] + p[7] + q[3] + q[7] + 2) >> 2;
+            }
+            o[y * 16 + x] = (u8)ya; o[y * 16 + x + 1] = (u8)yb2;
+            int ci = (y >> 1) * 8 + (x >> 1);
+            if (!(y & 1)) { cu[ci] = u; cv[ci] = v; }
+            else { o[256 + ci] = ej_clut[(cu[ci] + u + 1) >> 1]; o[320 + ci] = ej_clut[(cv[ci] + v + 1) >> 1]; }
+        }
+    }
+}
+
+/* JPEG de n blocs (idx : leur numero dans base, NULL : dans l'ordre), cols blocs par ligne, image W x H */
+static int ej_encode_mcus(const u8 *base, const u16 *idx, int n, int cols, int W, int H, int quality, u8 *out, int cap) {
+    ej_init();
+    ej_quality(quality < 10 ? 10 : quality > 95 ? 95 : quality);
+    ej_out w = { out, 0, cap, 0, 0, 0 };
+    ej_byte(&w, 0xFF); ej_byte(&w, 0xD8);
+    ej_marker(&w, 0xE0, 16);
+    { static const u8 jf[] = { 'J', 'F', 'I', 'F', 0, 1, 1, 0, 0, 1, 0, 1, 0, 0 }; for (unsigned i = 0; i < sizeof(jf); i++) ej_byte(&w, jf[i]); }
+    ej_marker(&w, 0xDB, 132);
+    ej_byte(&w, 0); for (int k = 0; k < 64; k++) ej_byte(&w, ej_ql[k]);
+    ej_byte(&w, 1); for (int k = 0; k < 64; k++) ej_byte(&w, ej_qc[k]);
+    ej_marker(&w, 0xC0, 17);
+    ej_byte(&w, 8); ej_byte(&w, H >> 8); ej_byte(&w, H & 255); ej_byte(&w, W >> 8); ej_byte(&w, W & 255); ej_byte(&w, 3);
+    ej_byte(&w, 1); ej_byte(&w, 0x22); ej_byte(&w, 0);
+    ej_byte(&w, 2); ej_byte(&w, 0x11); ej_byte(&w, 1);
+    ej_byte(&w, 3); ej_byte(&w, 0x11); ej_byte(&w, 1);
+    ej_marker(&w, 0xC4, 2 + 4 * 17 + 12 + 12 + 162 + 162);
+    ej_dht(&w, 0x00, ej_dcl_n, ej_dcl_v, 12); ej_dht(&w, 0x10, ej_acl_n, ej_acl_v, 162);
+    ej_dht(&w, 0x01, ej_dcc_n, ej_dcc_v, 12); ej_dht(&w, 0x11, ej_acc_n, ej_acc_v, 162);
+    ej_marker(&w, 0xDA, 12);
+    ej_byte(&w, 3); ej_byte(&w, 1); ej_byte(&w, 0x00); ej_byte(&w, 2); ej_byte(&w, 0x11); ej_byte(&w, 3); ej_byte(&w, 0x11);
+    ej_byte(&w, 0); ej_byte(&w, 63); ej_byte(&w, 0);
+    int dy = 0, du = 0, dv = 0;
+    float yb[4][64], ub[64], vb[64];
+    int total = cols * ((H + 15) / 16);
+    for (int k = 0; k < total; k++) {
+        int kk = k < n ? k : n - 1;                              /* (fin de la derniere ligne : le dernier bloc, repete) */
+        const u8 *m = base + (size_t)(idx ? idx[kk] : kk) * EJ_MCU;
+        for (int y = 0; y < 16; y++) for (int x = 0; x < 16; x++) yb[(y >> 3) * 2 + (x >> 3)][(y & 7) * 8 + (x & 7)] = m[y * 16 + x] - 128.0f;
+        for (int i = 0; i < 64; i++) { ub[i] = m[256 + i] - 128.0f; vb[i] = m[320 + i] - 128.0f; }
+        for (int b = 0; b < 4; b++) dy = ej_block(&w, yb[b], ej_fl, dy, &ej_hdl, &ej_hal);
+        du = ej_block(&w, ub, ej_fc, du, &ej_hdc, &ej_hac);
+        dv = ej_block(&w, vb, ej_fc, dv, &ej_hdc, &ej_hac);
+        if (w.ovf) return 0;
+    }
+    ej_flush(&w);
+    ej_byte(&w, 0xFF); ej_byte(&w, 0xD9);
+    return w.ovf ? 0 : w.n;
+}
+
+/* l'image (ou ses blocs changes) dans out : rend la taille, *plein (1 : image entiere), *nb (blocs), 0 : rien de change ;
+   -1 : impossible (memoire, trop gros). Les places des blocs (2 octets : colonne, ligne) sont au debut de out. */
+static int ej_partiel(const u8 *fb, int sw, int sh, int s, int quality, u32 seq_client, u8 *out, int cap, int *plein, int *nb) {
+    ej_init();
+    int W = sw / s, H = sh / s, cols = (W + 15) / 16, rows = (H + 15) / 16, total = cols * rows;
+    if (!ej_ref || ej_rw != W || ej_rh != H) {
+        free(ej_ref); free(ej_cur);
+        ej_ref = (u8 *)malloc((size_t)total * EJ_MCU); ej_cur = (u8 *)malloc((size_t)total * EJ_MCU);
+        if (!ej_ref || !ej_cur) { free(ej_ref); free(ej_cur); ej_ref = ej_cur = NULL; ej_rw = ej_rh = 0; return -1; }
+        ej_rw = W; ej_rh = H; ej_rok = 0;
+    }
+    static u16 idx[40 * 36];
+    int n = 0;
+    for (int by = 0; by < rows; by++) for (int bx = 0; bx < cols; bx++) {
+        int k = by * cols + bx;
+        u8 *c = ej_cur + (size_t)k * EJ_MCU, *r = ej_ref + (size_t)k * EJ_MCU;
+        ej_mcu_sample(fb, sw, s, W, H, bx * 16, by * 16, c);
+        if (ej_rok && seq_client == ej_seq) {
+            int d = 0;
+            for (int i = 0; i < EJ_MCU; i++) { int e = c[i] - r[i]; d += e < 0 ? -e : e; }
+            if (d > 300 && n < (int)(sizeof(idx) / sizeof(idx[0]))) idx[n++] = (u16)k;
+        }
+    }
+    int full = !ej_rok || seq_client != ej_seq || n * 10 > total * 6;
+    if (!full && n == 0) { *plein = 0; *nb = 0; return 0; }
+    int len;
+    if (full) {
+        len = ej_encode_mcus(ej_cur, NULL, total, cols, W, H, quality, out, cap);
+        if (!len) len = ej_encode_mcus(ej_cur, NULL, total, cols, W, H, quality / 2, out, cap);
+        if (!len) return -1;
+        memcpy(ej_ref, ej_cur, (size_t)total * EJ_MCU);
+        n = total;
+    } else {
+        int sc = n < 40 ? n : 40, sr = (n + sc - 1) / sc, hd = n * 2;
+        for (int i = 0; i < n; i++) { out[i * 2] = (u8)(idx[i] % cols); out[i * 2 + 1] = (u8)(idx[i] / cols); }
+        len = ej_encode_mcus(ej_cur, idx, n, sc, sc * 16, sr * 16, quality, out + hd, cap - hd);
+        if (!len) return -1;
+        len += hd;
+        for (int i = 0; i < n; i++) memcpy(ej_ref + (size_t)idx[i] * EJ_MCU, ej_cur + (size_t)idx[i] * EJ_MCU, EJ_MCU);   /* (le telephone a ces blocs) */
+    }
+    ej_rok = 1;
+    ej_seq++;
+    *plein = full; *nb = n;
+    return len;
+}

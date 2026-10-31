@@ -107,6 +107,14 @@ Image.new('RGB', (800, 600), (40, 120, 200)).save('$CI/telephone-ci.jpg', qualit
                                 note "telephone : second ecran $w ($r octets)"; else fail "telephone : second ecran $w : image illisible"; fi;;
                          *) fail "telephone : second ecran $w ($r)";; esac
     done
+    # v294 : images partielles : une image entiere (s=0), puis seulement ce qui a change (ou rien : 204)
+    r=$(curl -s -m 20 -D $CI/ecranz.h -o $CI/ecranz.jpg -w "%{http_code}" "$H/api/ecranz?w=320&q=60&s=0")
+    sq=$(grep -i '^X-Seq' $CI/ecranz.h | tr -d '\r' | awk '{print $2}')
+    if [ "$r" = 200 ] && grep -qi '^X-Plein: 1' $CI/ecranz.h && [ -n "$sq" ]; then
+        r2=$(curl -s -m 20 -D $CI/ecranz2.h -o $CI/ecranz2.bin -w "%{http_code}" "$H/api/ecranz?w=320&q=60&s=$sq")
+        case "$r2" in 200|204) grep -qi '^X-Plein: 0' $CI/ecranz2.h && note "telephone : images partielles (image entiere puis $r2)" || fail "telephone : images partielles : 2e image entiere";;
+                      *) fail "telephone : images partielles ($r2)";; esac
+    else fail "telephone : images partielles : 1re image ($r)"; fi
     expect "etat apres tout ca" '"title"' "$H/api/state"
 fi
 wait $SIM

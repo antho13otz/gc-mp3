@@ -237,6 +237,42 @@ static void tp_send_ecran(s32 c, const char *q) {
                       "Cache-Control: no-store\r\nConnection: close\r\n\r\n", n, w / s, h / s, (unsigned)(now_ms() - t0), tab == TAB_WEB ? 1 : 0);
     if (tp_send(c, hd, hn)) tp_send(c, tp_ej_buf, n);
 }
+/* v294 : images partielles : GET /api/ecranz?w=320|640&q=&s=<derniere image recue> (voir ecran_jpeg.c, ej_partiel) */
+static void tp_send_ecranz(s32 c, const char *q) {
+    const u8 *fb; int w, h;
+#ifndef GEKKO
+    tp_cap = 3;
+    for (int k = 0; k < 400 && tp_cap; k++) usleep(5000);
+    fb = (const u8 *)pcsim_xfb_last; w = pcsim_xfb_w; h = pcsim_xfb_h;
+#else
+    fb = (const u8 *)xfb[displayed_fb]; w = rmode ? rmode->fbWidth : 0; h = rmode ? rmode->xfbHeight : 0;
+#endif
+    if (!fb || w <= 0 || h <= 0 || w > 720 || h > 576) { tp_reply(c, 503, "text/plain", "ecran indisponible", 18); return; }
+    char v[16];
+    tp_param(q ? q : "", "w", v, sizeof(v));
+    int s = atoi(v) >= 600 ? 1 : 2;
+    tp_param(q ? q : "", "q", v, sizeof(v));
+    int qual = v[0] ? atoi(v) : 60;
+    tp_param(q ? q : "", "s", v, sizeof(v));
+    u32 sc = (u32)strtoul(v, NULL, 10);
+    if (!tp_ej_buf) tp_ej_buf = (u8 *)malloc(256 * 1024);
+    if (!tp_ej_buf) { tp_reply(c, 503, "text/plain", "memoire", 7); return; }
+#ifdef GEKKO
+    const u8 *cfb = (const u8 *)MEM_K1_TO_K0(fb);
+    DCInvalidateRange((void *)cfb, (u32)w * h * 2);
+    fb = cfb;
+#endif
+    u64 t0 = now_ms();
+    int plein = 0, nb = 0;
+    int n = ej_partiel(fb, w, h, s, qual, sc, tp_ej_buf, 256 * 1024, &plein, &nb);
+    if (n < 0) { tp_reply(c, 503, "text/plain", "image trop grosse", 17); return; }
+    char hd[360];
+    int hn = snprintf(hd, sizeof(hd), "HTTP/1.1 %s\r\nContent-Type: %s\r\nContent-Length: %d\r\nX-Ecran: %dx%d\r\nX-Seq: %u\r\nX-Plein: %d\r\nX-N: %d\r\n"
+                      "X-Ms: %u\r\nX-Web: %d\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", n ? "200 OK" : "204 No Content",
+                      plein ? "image/jpeg" : "application/octet-stream", n, w / s, h / s, (unsigned)ej_seq, plein, nb, (unsigned)(now_ms() - t0), tab == TAB_WEB ? 1 : 0);
+    tp_ej_n++;
+    if (tp_send(c, hd, hn) && n > 0) tp_send(c, tp_ej_buf, n);
+}
 static volatile int tp_mdx = 0, tp_mdy = 0, tp_mw = 0, tp_mc = 0;          /* v231 : souris tactile (cumul) */                                     /* v230 : memview.c */
 static void tp_push(int c, int i) {
     int n = (tp_qt + 1) % 16;
@@ -1538,6 +1574,7 @@ static void tp_handle(s32 c) {
         free(b);
     }
     else if (!strcmp(target, "/capture.bmp")) tp_send_capture(c);
+    else if (!strcmp(target, "/api/ecranz")) tp_send_ecranz(c, q);  /* v294 : seulement les blocs qui ont change */
     else if (!strcmp(target, "/api/ecran")) tp_send_ecran(c, q);    /* v285 : second ecran (JPEG) */   /* v234 : ce qu'affiche la tele */
     else if (!strcmp(target, "/rapport")) tp_reply(c, 200, "text/html; charset=utf-8", rapport_page, (int)strlen(rapport_page));   /* v234 */
     else if (!strcmp(target, "/api/journal")) {              /* v234 : dernieres actions + journal de plantage */

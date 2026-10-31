@@ -11,6 +11,12 @@ import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.BitmapFactory
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import android.graphics.Rect
+import android.graphics.Canvas
+import android.graphics.Bitmap
 import android.os.SystemClock
 import android.speech.RecognizerIntent
 import android.widget.Toast
@@ -86,26 +92,59 @@ import java.net.URL
 import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.abs
 
-private class Image1(val bmp: ImageBitmap, val w: Int, val h: Int, val web: Boolean, val ms: Int)
+/** une image de la tele et l'instant ou elle est arrivee */
+private class Trame(val bmp: Bitmap, val t: Long)
 
-/** une image de la tele (sur le fil reseau) ; null = pas de reponse */
-private fun imageTele(net: Boolean): Image1? {
-    var c: HttpURLConnection? = null
-    try {
-        c = URL("http://" + Api.host + "/api/ecran?w=" + (if (net) 640 else 320) + "&q=" + (if (net) 72 else 58)).openConnection() as HttpURLConnection
-        c.connectTimeout = 2500
-        c.readTimeout = 4000
-        c.useCaches = false
-        if (c.responseCode != 200) return null
-        val b = c.inputStream.use { it.readBytes() }
-        val bm = BitmapFactory.decodeByteArray(b, 0, b.size) ?: return null
-        val web = c.getHeaderField("X-Web") == "1"
-        val ms = c.getHeaderField("X-Ms")?.toIntOrNull() ?: 0
-        return Image1(bm.asImageBitmap(), bm.width, bm.height, web, ms)
-    } catch (e: Exception) {
-        return null
-    } finally {
-        c?.disconnect()
+/** reglages de l'image : Rapide (320x240), Net (640x480), Max (640x480, compression tres legere) */
+private val QUALITES = arrayOf(Triple("Rapide", 320, 62), Triple("Net", 640, 80), Triple("Max", 640, 92))
+
+/** le flux de la tele : la console n'envoie que les blocs qui ont change (console v294 et plus : /api/ecranz),
+ *  recolles ici sur la "toile" ; consoles plus anciennes : image entiere a chaque fois (/api/ecran) */
+private class Flux {
+    var toile: Bitmap? = null
+    var seq = 0L
+    var partiel = true
+    var web = false
+    /** 1 : nouvelle image (dans img), 0 : rien de change, -1 : pas de reponse */
+    var img: Bitmap? = null
+    fun suivante(w: Int, q: Int): Int {
+        var c: HttpURLConnection? = null
+        try {
+            val chemin = if (partiel) "/api/ecranz?w=$w&q=$q&s=$seq" else "/api/ecran?w=$w&q=$q"
+            c = URL("http://" + Api.host + chemin).openConnection() as HttpURLConnection
+            c.connectTimeout = 2500; c.readTimeout = 4000; c.useCaches = false
+            val code = c.responseCode
+            if (partiel && code == 404) { partiel = false; return 0 }
+            web = c.getHeaderField("X-Web") == "1"
+            if (code == 204) { seq = c.getHeaderField("X-Seq")?.toLongOrNull() ?: 0L; return 0 }
+            if (code != 200) return -1
+            val b = c.inputStream.use { it.readBytes() }
+            if (!partiel || c.getHeaderField("X-Plein") == "1") {
+                val bm = BitmapFactory.decodeByteArray(b, 0, b.size) ?: return -1
+                if (partiel) { toile = bm.copy(Bitmap.Config.ARGB_8888, true); seq = c.getHeaderField("X-Seq")?.toLongOrNull() ?: 0L }
+                img = bm
+                return 1
+            }
+            val n = c.getHeaderField("X-N")?.toIntOrNull() ?: return -1
+            val t = toile
+            val bande = BitmapFactory.decodeByteArray(b, 2 * n, b.size - 2 * n)
+            if (t == null || bande == null) { seq = 0; return 0 }              // (rien a recoller : image entiere la prochaine fois)
+            val cv = Canvas(t)
+            val de = Rect(); val vers = Rect()
+            for (k in 0 until n) {
+                val sx = (k % 40) * 16; val sy = (k / 40) * 16
+                val tx = (b[2 * k].toInt() and 255) * 16; val ty = (b[2 * k + 1].toInt() and 255) * 16
+                de.set(sx, sy, sx + 16, sy + 16); vers.set(tx, ty, tx + 16, ty + 16)
+                cv.drawBitmap(bande, de, vers, null)
+            }
+            seq = c.getHeaderField("X-Seq")?.toLongOrNull() ?: 0L
+            img = t.copy(Bitmap.Config.ARGB_8888, false)
+            return 1
+        } catch (e: Exception) {
+            return -1
+        } finally {
+            c?.disconnect()
+        }
     }
 }
 
@@ -114,61 +153,83 @@ fun EcranTele() {
     val act = LocalContext.current as Activity
     val paysage = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     val prefs = remember { act.getSharedPreferences("gcs", 0) }
-    var net by remember { mutableStateOf(prefs.getBoolean("tele_nette", false)) }
+    var qualite by remember { mutableIntStateOf(prefs.getInt("tele_qualite", 1).coerceIn(0, 2)) }
     var upscaling by remember { mutableStateOf(prefs.getBoolean("tele_upscaling", Upscale.possible)) }   // (agrandie par le telephone)
+    var fluide by remember { mutableStateOf(prefs.getBoolean("tele_fluide", true)) }                    // (images intermediaires 120 Hz)
     var enDirect by remember { mutableStateOf(false) }      // (l'image ne part que si on la demande : bouton Afficher la tele)
-    var img by remember { mutableStateOf<Image1?>(null) }
+    var a by remember { mutableStateOf<Trame?>(null) }      // (avant-derniere image)
+    var b by remember { mutableStateOf<Trame?>(null) }      // (derniere image)
+    var champ by remember { mutableStateOf<Pair<Trame, Bitmap>?>(null) }   // (mouvement de a vers b)
+    var web by remember { mutableStateOf(false) }
     var ips by remember { mutableFloatStateOf(0f) }
     var rate by remember { mutableStateOf(false) }
     var pleinEcran by remember { mutableStateOf(false) }
+    var maintenant by remember { mutableLongStateOf(0L) }
+    val interpole = fluide && upscaling && Upscale.possible
 
     // (on quitte l'onglet : l'orientation redevient libre)
     DisposableEffect(Unit) { onDispose { if (pleinEcran) act.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED } }
 
-    LaunchedEffect(net, enDirect, St.connecte) {
+    LaunchedEffect(qualite, enDirect, St.connecte, interpole) {
         if (!enDirect || !St.connecte) return@LaunchedEffect
-        val seq = AtomicLong(0)
-        val vue = AtomicLong(0)
+        val flux = Flux()
+        val (_, w, q) = QUALITES[qualite]
         var n = 0
         var t0 = SystemClock.uptimeMillis()
-        coroutineScope {
-            repeat(2) {
-                launch {
-                    while (isActive) {
-                        if (!St.visible || St.jeu != null && St.horsLigne) { delay(500); continue }
-                        val moi = seq.incrementAndGet()
-                        val r = withContext(Dispatchers.IO) { imageTele(net) }
-                        if (r == null) { rate = true; delay(800); continue }
-                        rate = false
-                        if (moi > vue.get()) {                    // (une image plus ancienne que celle affichee : jetee)
-                            vue.set(moi)
-                            img = r
-                            n++
-                            val now = SystemClock.uptimeMillis()
-                            if (now - t0 >= 1000) { ips = n * 1000f / (now - t0); n = 0; t0 = now }
-                        }
-                    }
+        while (isActive) {
+            if (!St.visible || St.jeu != null && St.horsLigne) { delay(500); continue }
+            val r = withContext(Dispatchers.IO) { flux.suivante(w, q) }
+            web = flux.web
+            if (r < 0) { rate = true; delay(800); continue }
+            rate = false
+            if (r == 0) { delay(12); continue }                 // (rien n'a change sur la tele)
+            val nb = Trame(flux.img ?: continue, SystemClock.uptimeMillis())
+            val na = b
+            a = na; b = nb
+            if (interpole && na != null && na.bmp.width == nb.bmp.width && na.bmp.height == nb.bmp.height) {
+                launch(Dispatchers.Default) {                    // (mouvement de a vers b, a cote)
+                    val w2 = nb.bmp.width; val h2 = nb.bmp.height
+                    val pa = IntArray(w2 * h2); val pb = IntArray(w2 * h2)
+                    na.bmp.getPixels(pa, 0, w2, 0, 0, w2, h2); nb.bmp.getPixels(pb, 0, w2, 0, 0, w2, h2)
+                    val m = Mouvement.estimer(pa, pb, w2, h2)
+                    val cb = Bitmap.createBitmap(Mouvement.pixels(m), m.bw, m.bh, Bitmap.Config.ARGB_8888)
+                    withContext(Dispatchers.Main) { if (b === nb) champ = nb to cb }
                 }
             }
+            n++
+            val now = SystemClock.uptimeMillis()
+            if (now - t0 >= 1000) { ips = n * 1000f / (now - t0); n = 0; t0 = now }
         }
     }
+    // (images intermediaires : on redessine a chaque rafraichissement de l'ecran, 120 Hz sur ton telephone)
+    LaunchedEffect(interpole, enDirect) {
+        if (!interpole || !enDirect) return@LaunchedEffect
+        while (isActive) { withFrameNanos { }; maintenant = SystemClock.uptimeMillis() }
+    }
 
-    val i = img
+    val bb = b
     val ecran: @Composable (Modifier) -> Unit = { m ->
-        Box(m.aspectRatio(if (i != null) i.w.toFloat() / i.h else 4f / 3f).clip(RoundedCornerShape(if (paysage) 10.dp else 18.dp))
+        Box(m.aspectRatio(if (bb != null) bb.bmp.width.toFloat() / bb.bmp.height else 4f / 3f).clip(RoundedCornerShape(if (paysage) 10.dp else 18.dp))
             .background(Color.Black).border(1.dp, Brush.linearGradient(listOf(C.Rose, C.Cyan)), RoundedCornerShape(if (paysage) 10.dp else 18.dp))
-            .then(if (enDirect) Modifier.gestesTele(i?.web == true) else Modifier)) {
-            if (i != null) ImageTele(i.bmp, upscaling, Modifier.fillMaxSize())
+            .then(if (enDirect) Modifier.gestesTele(web) else Modifier)) {
+            if (bb != null) {
+                val aa = a; val ch = champ
+                val vue = if (interpole && aa != null && ch != null && ch.first === bb) {
+                    val duree = (bb.t - aa.t).coerceIn(30L, 250L)
+                    Vue(aa.bmp, bb.bmp, ch.second, ((maintenant - bb.t).toFloat() / duree).coerceIn(0f, 1f))
+                } else Vue(null, bb.bmp, null, 1f)
+                ImageTele(vue, upscaling, Modifier.fillMaxSize())
+            }
             else Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                 if (!St.connecte) Doux("Pas connecté à la console", centre = true)
                 else if (!enDirect) { }
                 else if (rate) Doux("La console n'envoie pas son image : mets-la à jour (build 774 ou plus)", Modifier.padding(20.dp), centre = true)
                 else CircularProgressIndicator(color = C.Rose)
             }
-            if (i != null) Row(Modifier.align(Alignment.TopStart).padding(8.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x99000000)).padding(horizontal = 7.dp, vertical = 3.dp)) {
+            if (bb != null) Row(Modifier.align(Alignment.TopStart).padding(8.dp).clip(RoundedCornerShape(8.dp)).background(Color(0x99000000)).padding(horizontal = 7.dp, vertical = 3.dp)) {
                 Box(Modifier.align(Alignment.CenterVertically).size(7.dp).clip(CircleShape).background(if (rate) C.Rouge else C.Vert))
                 Spacer(Modifier.width(5.dp))
-                Text(String.format(java.util.Locale.FRANCE, "%.0f img/s", ips) + (if (upscaling && Upscale.possible) " · upscaling" else "") + if (i.web) " · pointeur" else "", color = Color.White, fontSize = 10.sp)
+                Text(String.format(java.util.Locale.FRANCE, "%.0f img/s", ips) + (if (interpole) " → 120 Hz" else "") + (if (upscaling && Upscale.possible) " · upscaling" else "") + if (web) " · pointeur" else "", color = Color.White, fontSize = 10.sp)
             }
             if (!enDirect && St.connecte) Box(Modifier.fillMaxSize().background(Color(0x99000000)), contentAlignment = Alignment.Center) {
                 Bouton("Afficher la télé", plein = true, icone = Ic.Lecture) { enDirect = true }
@@ -177,8 +238,9 @@ fun EcranTele() {
     }
     val barre: @Composable () -> Unit = {
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Puce(if (net) "Net" else "Rapide", net) { net = !net; prefs.edit().putBoolean("tele_nette", net).apply() }
+            Puce(QUALITES[qualite].first, qualite > 0) { qualite = (qualite + 1) % 3; prefs.edit().putInt("tele_qualite", qualite).apply() }
             if (Upscale.possible) Puce("Upscaling", upscaling) { upscaling = !upscaling; prefs.edit().putBoolean("tele_upscaling", upscaling).apply() }
+            if (Upscale.possible && upscaling) Puce("Fluide 120 Hz", fluide) { fluide = !fluide; prefs.edit().putBoolean("tele_fluide", fluide).apply() }
             Puce(if (enDirect) "En direct" else "Image arrêtée", enDirect) { enDirect = !enDirect }
             Puce(if (paysage) "Portrait" else "Plein écran", false) {
                 pleinEcran = !paysage
@@ -200,7 +262,7 @@ fun EcranTele() {
         }
         BoxWithConstraints(Modifier.fillMaxSize().displayCutoutPadding().padding(horizontal = 6.dp, vertical = 6.dp)) {
             val h = maxHeight
-            val lImg = minOf(h * (if (i != null) i.w.toFloat() / i.h else 4f / 3f), maxWidth * 0.58f)
+            val lImg = minOf(h * (if (bb != null) bb.bmp.width.toFloat() / bb.bmp.height else 4f / 3f), maxWidth * 0.58f)
             val cote = (maxWidth - lImg) / 2 - 8.dp
             val sCroix = minOf(64.dp, (h - 62.dp) / 3, cote / 3).coerceAtLeast(30.dp)
             val k = minOf(1.2f, (h - 112.dp) / 150.dp, cote / 172.dp).coerceAtLeast(0.45f)
@@ -234,7 +296,7 @@ fun EcranTele() {
             Spacer(Modifier.height(10.dp))
             barre()
             Spacer(Modifier.height(6.dp))
-            Doux(if (i?.web == true) "Onglet WEB : glisse pour bouger le pointeur, touche pour cliquer."
+            Doux(if (web) "Onglet WEB : glisse pour bouger le pointeur, touche pour cliquer."
                  else "Sur l'image : toucher = A, appui long = B, glisser = la croix.", taille = 11, couleur = C.Pale)
             Clavier()
             Spacer(Modifier.height(12.dp))
