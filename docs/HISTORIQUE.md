@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v304 (build à venir, appli build à venir) — Sortir le disque sur la console, fond d'écran à 120 Hz, étagère sans intercalaires
+## Nouveautés v304 (build 802, appli build 98) — Sortir le disque sur la console, fond d'écran à 120 Hz, étagère sans intercalaires
 - **Console : sortir le disque** : fiche du jeu, boîte ouverte, **↓** : le disque se soulève du bac, bascule, vient devant
   en grand et tourne (avec un reflet) ; **↓** encore : il retourne dans le bac ; fermer la boîte (↑) le range aussi.
   La barre d'aide dit « Sortir le disque » / « Ranger le disque ».
