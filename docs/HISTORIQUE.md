@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v294 (build à venir, appli build à venir) — La télé sur le téléphone : plus fluide, plus nette, 120 Hz
+## Nouveautés v294 (build 785, appli build 63) — La télé sur le téléphone : plus fluide, plus nette, 120 Hz
 - **Console : seulement ce qui change** (`/api/ecranz`) : la console garde ce que le téléphone a déjà et n'envoie que
   les blocs de 16 × 16 qui ont changé (souvent 2 à 5 fois moins lourd) ; rien de changé : rien d'envoyé. Plus
   d'images par seconde, surtout en **Net** (640 × 480).
