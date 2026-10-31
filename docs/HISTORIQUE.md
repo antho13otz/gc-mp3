@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v295 (build à venir, appli build à venir) — Télé sur le téléphone : moins de saccades
+## Nouveautés v295 (build 787, appli build 67) — Télé sur le téléphone : moins de saccades
 - **Console : l'image suivante préparée d'avance** : dès qu'une image part vers le téléphone, la console prépare la
   suivante (capture et compression) pendant que le téléphone la reçoit ; à la demande suivante, elle part tout de
   suite. Le téléphone n'attend plus la console entre deux images : plus d'images par seconde.
