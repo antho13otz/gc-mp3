@@ -1682,6 +1682,27 @@ static void tp_handle(s32 c) {
         tp_reply(c, 200, "application/json", sb.b, sb.b ? sb.n : 0);
         free(sb.b);
     }
+    else if (!strcmp(target, "/api/notice")) {              /* v296 : notice d'un jeu : ?id=GALE01 -> {"n":pages} ; &p=N -> la page (JPEG) */
+        char id[8], ps[8], p[NAME_LEN];
+        tp_param(q ? q : "", "id", id, sizeof(id));
+        tp_param(q ? q : "", "p", ps, sizeof(ps));
+        int ok = strlen(id) == 6;
+        for (int i = 0; ok && i < 6; i++) ok = isalnum((unsigned char)id[i]);
+        if (!ok) tp_reply(c, 400, "text/plain", "", 0);
+        else if (ps[0]) {
+            int n = atoi(ps);
+            struct stat st;
+            snprintf(p, sizeof(p), GCD "/notices/%s/%02d.jpg", id, n);
+            if (n >= 1 && n <= 99 && stat(p, &st) == 0) sh_send_file(c, p, 0, (char *)req);
+            else tp_reply(c, 404, "text/plain", "", 0);
+        } else {
+            struct stat st;
+            int n = 0;
+            while (n < 99) { snprintf(p, sizeof(p), GCD "/notices/%s/%02d.jpg", id, n + 1); if (stat(p, &st) != 0) break; n++; }
+            char j[24]; int l = snprintf(j, sizeof(j), "{\"n\":%d}", n);
+            tp_reply(c, 200, "application/json", j, l);
+        }
+    }
     else if (!strcmp(target, "/api/photo")) {
         char is[12];
         tp_param(q ? q : "", "i", is, sizeof(is));

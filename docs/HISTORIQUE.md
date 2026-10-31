@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v296 (build à venir, appli build à venir) — La notice du jeu dans la boîte
+- **Console** : la notice se range dans le **couvercle de la boîte 3D** (tenue par les clips). Boîte ouverte, **X** :
+  la notice en grand ; gauche / droite : pages ; stick C : zoom ; stick : se déplacer ; B : refermer. Pages en JPEG sur la
+  carte : `SD:/gc-mp3/notices/<ID>/01.jpg` (01 = couverture), `02.jpg`… Lues et décodées en fond (`source/notice.c`).
+- **Appli** : dans la fiche d'un jeu, **« Lire la notice »** quand la console en a une : glisser pour tourner les pages,
+  deux doigts pour zoomer, double toucher. Les pages sont gardées sur le téléphone ensuite.
+- Pour l'appli : `/api/notice?id=<ID>` (nombre de pages) et `&p=<n>` (la page).
+
 ## Nouveautés appli build 73 — L'intérieur de la boîte 3D à l'identique
 
 - **Bac** : plateau hexagonal à peine en relief, bordé d'un fin rebord ; anneau fin où se pose le disque ; 8 nervures sombres autour ; au centre, le vrai motif blanc (deux barres et un « S ») ; en bas, le cadre fin de l'attache avec ses deux languettes claires.

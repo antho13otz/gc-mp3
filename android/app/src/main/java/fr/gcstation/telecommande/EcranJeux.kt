@@ -245,6 +245,8 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
     var renomme by remember { mutableIntStateOf(-1) }
     var sauvegardes by remember { mutableStateOf(false) }
     var boite by remember { mutableStateOf(false) }                     // (la boite en 3D, en plein ecran)
+    var notice by remember { mutableIntStateOf(0) }                     // (pages de la notice sur la console ; 0 : pas de notice)
+    var noticeOuverte by remember { mutableStateOf(false) }
 
     fun remplir(r: String?) {
         val j = try { if (r != null) JSONObject(r) else null } catch (e: Exception) { null }
@@ -276,6 +278,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
     fun chargerCfg(row: Int, d: Int) { scope.launch { val r = lire("/api/gamecfg?id=" + g.id + "&i=" + g.i + "&row=" + row + "&d=" + d); cfg = try { if (r != null) JSONObject(r) else JSONObject() } catch (e: Exception) { JSONObject() } } }
 
     LaunchedEffect(g.id) { remplir(lire("/api/cheats?id=" + g.id)) }
+    LaunchedEffect(g.id) { notice = Notices.pages(g.id) }
     LaunchedEffect(masque, masqueSale) { if (masqueSale) { delay(600); envoyerMasque() } }
 
     ModalBottomSheet(onDismissRequest = { scope.launch { envoyerMasque() }; fermer() }, sheetState = etat, containerColor = Color(0xFF120824)) {
@@ -316,6 +319,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
             Bouton("Lancer avec Pulse", Modifier.fillMaxWidth(), plein = true, icone = Ic.Lecture, hauteur = 52.dp) { lancer(1) }
             Spacer(Modifier.height(8.dp))
             Bouton("Voir la boîte en 3D", Modifier.fillMaxWidth(), icone = Ic.Jeux) { boite = true }
+            if (notice > 0) { Spacer(Modifier.height(8.dp)); Bouton("Lire la notice ($notice pages)", Modifier.fillMaxWidth()) { noticeOuverte = true } }
             Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Bouton("Patchs de secours…", Modifier.weight(1f)) { patchs = true }
@@ -405,6 +409,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
     }
 
     if (boite) Boite3DEcran(act, g.id, g.nom, { boite = false; lancer(1) }) { boite = false }
+    if (noticeOuverte) NoticeEcran(act, g.id, g.nom, notice) { noticeOuverte = false }
 
     if (patchs) {
         val choix = remember { mutableStateMapOf<Int, Boolean>() }

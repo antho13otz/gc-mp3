@@ -70,6 +70,7 @@ static void gl_fx_reset(void);                            /* v281 : fiches des j
 static f32 gl_fx_draw(const char *id, f32 x, f32 y, int w);
 static const char *gl_fx_syn(const char *id);
 static int bx_input(u32 down);                            /* v282 : boite 3D (box3d.c) */
+static int nt_input(u32 down, u32 nav, int fire);       /* v296 : notice (notice.c) */
 static int gl_abs_in(const char *path, const char *id);  /* v290 : disque de la boite */
 static u16 *gl_dk_convert(const u8 *img, int n);
 static void gl_dk_save(const char *id, const u16 *t);
@@ -1935,6 +1936,7 @@ static void gclib_input(u32 down, u32 nav, int fire) {
     }
     if (gl_detail) {
         if (nat_qr_input(down)) return;
+        if (gs_view() && gl_n && !gl[gl_sel].dvd && gl_launch_sel < 0 && nt_input(down, nav, fire)) return;   /* v296 : notice */
         if (gs_view() && gl_n && !gl[gl_sel].dvd && gl_launch_sel < 0 && bx_input(down)) return;   /* v282 : â ouvre la boite */
         if (fire && (nav & PAD_BUTTON_LEFT) && gl_n) { gl_sel = gs_view() ? gs_step(-1) : nav_wrap(gl_sel, gl_n, 1, -1, 0); if (gl_anim) gl_slide = -1.0f; }   /* v197 : (espace : jeux du filtre) */
         if (fire && (nav & PAD_BUTTON_RIGHT) && gl_n) { gl_sel = gs_view() ? gs_step(1) : nav_wrap(gl_sel, gl_n, 1, 1, 0); if (gl_anim) gl_slide = 1.0f; }

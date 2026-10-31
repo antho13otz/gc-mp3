@@ -404,6 +404,7 @@ static void gs_draw_fiche(void) {
     if (gl_sel < 0 || gl_sel >= gl_n) return;
     gcg_t *g = &gl[gl_sel];
     gl_job_done();
+    if (!g->dvd && nt_draw(gl_sel)) { nv_raw = 0; return; }   /* v296 : la notice en grand */
     if (now_ms() - last_input_ms > 100) gl_load_big(gl_sel);     /* (grande jaquette et capture, en fond) */
     if (g->bstate == 0 && gj_state == 0 && now_ms() - last_input_ms > 150) gl_job_post(GJ_BANNER, gl_sel);   /* (description) */
     gs_header();
@@ -514,6 +515,7 @@ static void gs_draw_fiche(void) {
         x = gs_key(x, 453, "S", "D\xC3\xA9placer", RGBA(235, 235, 245, 255));
         x = gs_key(x, 453, "\xE2\x86\x91", bx_open_to > 0.5f ? "Fermer" : "Ouvrir", RGBA(150, 200, 255, 255));
         x = gs_key(x, 453, "A", "Jouer", RGBA(110, 220, 140, 255));
+        if (bx_open_to > 0.5f && nt_pages(gl_sel) > 0) x = gs_key(x, 453, "X", "Notice", RGBA(235, 235, 245, 255));   /* v296 */
         gs_key(x, 453, "B", "Retour", RGBA(240, 110, 110, 255));
         nv_raw = 0;
         if (gl_launch_sel >= 0) gl_draw_launch_box();
@@ -526,7 +528,7 @@ static void gs_draw_fiche(void) {
     f32 x = 34;
     x = gs_key(x, 453, "A", "Jouer", RGBA(110, 220, 140, 255));
     if (!g->dvd) {
-        x = gs_key(x, 453, "X", "Cheats", RGBA(235, 235, 245, 255));
+        x = gs_key(x, 453, "X", bx_open_to > 0.5f && nt_pages(gl_sel) > 0 ? "Notice" : "Cheats", RGBA(235, 235, 245, 255));   /* v296 */
         x = gs_key(x, 453, "Y", "R\xC3\xA9glages", RGBA(235, 235, 245, 255));
         x = gs_key(x, 453, "L", "Favori", RGBA(255, 210, 90, 255));
         x = gs_key(x, 453, "R", "Analyse", RGBA(235, 235, 245, 255));

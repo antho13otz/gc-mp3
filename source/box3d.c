@@ -12,6 +12,7 @@ static f32 bx_zoom = 1, bx_zoom_to = 1, bx_panx = 0, bx_pany = 0;   /* v284 : zo
 static u64 bx_touch = 0;                                  /* (dernier coup de stick : la boîte arrête de tourner seule) */
 static int bx_game = -1;
 typedef struct { f32 x, y, z; } bv3;
+static GXTexObj *nt_cover(int k, int *tw, int *th);       /* v296 : la notice (notice.c) */
 static f32 bx_cx, bx_cy, bx_F = 760, bx_gap = 0;
 #define BV(x, y, z) ((bv3){ (x), (y), (z) })
 
@@ -112,6 +113,22 @@ static void bx_q(f32 x0, f32 y0, f32 x1, f32 y1, f32 z, int lid, f32 hx, f32 hz,
     f32 sx[4], sy[4];
     for (int i = 0; i < 4; i++) { if (lid) q[i] = bx_lid(q[i], hx, hz); bx_proj(bx_rot(q[i]), &sx[i], &sy[i]); }
     gx_poly4(sx[0], sy[0], sx[1], sy[1], sx[2], sy[2], sx[3], sy[3], c, c, c2, c2);
+}
+/* v296 : image sur un plan de la boite (la notice dans le couvercle) ; u0 du cote x0 */
+static void bx_tq(GXTexObj *t, f32 x0, f32 y0, f32 x1, f32 y1, f32 z, int lid, f32 hx, f32 hz) {
+    enum { S = 4 };
+    gx_set_image(t);
+    GX_Begin(GX_QUADS, GX_VTXFMT0, S * S * 4);
+    for (int j = 0; j < S; j++) for (int i = 0; i < S; i++) {
+        f32 uu[4] = { (f32)i / S, (f32)(i + 1) / S, (f32)(i + 1) / S, (f32)i / S }, vv[4] = { (f32)j / S, (f32)j / S, (f32)(j + 1) / S, (f32)(j + 1) / S };
+        for (int q = 0; q < 4; q++) {
+            bv3 p = BV(x0 + (x1 - x0) * uu[q], y0 + (y1 - y0) * vv[q], z);
+            if (lid) p = bx_lid(p, hx, hz);
+            f32 sx, sy; bx_proj(bx_rot(p), &sx, &sy);
+            GX_Position2f32(UX(sx), sy); GX_Color4u8(235, 235, 235, 255); GX_TexCoord2f32(uu[q], vv[q]);
+        }
+    }
+    GX_End();
 }
 /* v290 : le support du disque (hexagone), la carte memoire, et le disque (image GameTDB, ou dessine) */
 static void bx_tray(f32 W, f32 H, f32 X, f32 Y, f32 zf, GXTexObj *disc, int k) {
@@ -241,6 +258,13 @@ static void bx_draw(int k, f32 x, f32 y, f32 w, f32 h, GXTexObj *cov, int big, G
         if (bx_f[i].kind == 5 && vis > 0 && !disc_done) { bx_tray(W, H, X, Y, Z - D * 0.12f, disc, k); disc_done = 1; }   /* v290 : support, carte, disque */
         if (bx_f[i].kind == 6 && vis > 0) {               /* v290 : couvercle dedans : les deux clips de la notice */
             f32 zc = -Z + D * 0.12f + 0.4f;
+            int ntw, nth;
+            GXTexObj *nc = nt_cover(k, &ntw, &nth);       /* v296 : la notice, tenue par les clips */
+            if (nc) {
+                f32 nh = H * 0.90f, nw = nh * ntw / nth;
+                if (nw > W * 0.86f) { nw = W * 0.86f; nh = nw * nth / ntw; }
+                bx_tq(nc, nw / 2, -nh / 2, -nw / 2, nh / 2, zc - 0.2f, 1, -X, -Z);   /* (ouverte : le cote x > 0 passe a gauche) */
+            }
             bx_q(X - 0.20f * W, -Y + 0.05f * H, X - 0.05f * W, -Y + 0.11f * H, zc, 1, -X, -Z, RGBA(84, 84, 92, 255), RGBA(64, 64, 72, 255));
             bx_q(X - 0.20f * W, Y - 0.11f * H, X - 0.05f * W, Y - 0.05f * H, zc, 1, -X, -Z, RGBA(84, 84, 92, 255), RGBA(64, 64, 72, 255));
         }
