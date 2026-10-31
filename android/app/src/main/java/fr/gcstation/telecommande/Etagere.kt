@@ -63,8 +63,8 @@ import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
-/** une place de l'etagere : un jeu (indice dans la liste) ou un intercalaire (jeu = -1, son nom) */
-class Place(val jeu: Int, val nom: String)
+/** une place de l'etagere : un jeu (indice dans la liste), son nom et son rayon (lettre, editeur, annee, temps de jeu) */
+class Place(val jeu: Int, val nom: String, val rayon: String = "")
 
 private val TRIS = listOf("Nom", "Éditeur", "Année", "Temps de jeu")
 private fun lettre(s: String): String {
@@ -72,7 +72,7 @@ private fun lettre(s: String): String {
     return if (c in 'A'..'Z') c.toString() else "#"
 }
 private fun tranche(m: Int) = when { m >= 1200 -> "20 h et plus"; m >= 300 -> "5 à 20 h"; m >= 60 -> "1 à 5 h"; m > 0 -> "Moins d'1 h"; else -> "Jamais joué" }
-/** les places dans l'ordre du tri, avec un intercalaire a chaque nouveau rayon */
+/** les places dans l'ordre du tri (le rayon de chaque jeu s'affiche en haut ; plus d'intercalaire dans l'etagere) */
 fun places(jeux: List<Jeu>, tri: Int, fiches: Map<String, Fiches.Fiche>): List<Place> {
     val nom = compareBy<Int> { jeux[it].nom.lowercase() }
     val ordre = jeux.indices.sortedWith(when (tri) {
@@ -82,7 +82,6 @@ fun places(jeux: List<Jeu>, tri: Int, fiches: Map<String, Fiches.Fiche>): List<P
         else -> nom
     })
     val l = ArrayList<Place>()
-    var dernier: String? = null
     for (k in ordre) {
         val g = jeux[k]
         val r = when (tri) {
@@ -91,8 +90,7 @@ fun places(jeux: List<Jeu>, tri: Int, fiches: Map<String, Fiches.Fiche>): List<P
             3 -> tranche(g.minutes)
             else -> lettre(g.nom)
         }
-        if (r != dernier) { l.add(Place(-1, r)); dernier = r }
-        l.add(Place(k, g.nom))
+        l.add(Place(k, g.nom, r))
     }
     return l
 }
@@ -128,14 +126,13 @@ fun EtagereEcran(act: StationActivity, jeux: List<Jeu>, fiche: (Jeu) -> Unit, fe
                 AndroidView({ c -> EtagereVue(c, pl.map { if (it.jeu < 0) it.nom else null }).also { b ->
                     b.surCentre = { k -> centre = k }; b.surSortie = { k -> sortie = k }; b.surOuvrir = { k -> jeuDe(k)?.let { boite = it } }
                     vue = b; centre = 0; sortie = -1
-                    // (au debut : la 1re boite au milieu, pas l'intercalaire)
-                    if (pl.size > 1) b.aller(1) } }, Modifier.fillMaxSize())
+                    } }, Modifier.fillMaxSize())
             }
             Column(Modifier.fillMaxWidth().statusBarsPadding().padding(16.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Étagère", color = C.Texte, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        val rayon = (centre downTo 0).firstOrNull { pl.getOrNull(it)?.jeu == -1 }?.let { pl[it].nom }
+                        val rayon = pl.getOrNull(centre)?.rayon?.takeIf { it.isNotEmpty() }
                         Doux(jeux.size.toString() + " jeu" + (if (jeux.size > 1) "x" else "") + (if (rayon != null) " · rayon « $rayon »" else ""), taille = 12, lignes = 1)
                     }
                     Box(Modifier.size(44.dp).verre(CircleShape).appui(fermer), contentAlignment = Alignment.Center) { Icon(Ic.Fermer, null, tint = C.Texte) }

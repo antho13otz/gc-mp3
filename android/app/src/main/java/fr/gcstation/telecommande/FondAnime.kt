@@ -3,7 +3,8 @@ package fr.gcstation.telecommande
 // Appli : fond d'ecran anime du telephone. Les jaquettes gardees sur le telephone (onglet Jeux, etagere, mur,
 // « Tout garder pour hors-ligne ») defilent en 3D : quatre rangees a des vitesses differentes, celles du fond plus
 // petites et plus sombres ; chaque jaquette pivote un peu selon sa place (comme un carrousel), avec un reflet. Glisser
-// entre les ecrans d'accueil decale le tout (parallaxe). Dessin au Canvas, 30 images/s, rien quand il n'est pas visible.
+// entre les ecrans d'accueil decale le tout (parallaxe). Dessin par la puce graphique (Canvas materiel, jaquettes en
+// memoire graphique), a chaque rafraichissement de l'ecran (Choreographer) et en demandant 120 Hz ; rien quand il est cache.
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -14,9 +15,12 @@ import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.RadialGradient
 import android.graphics.Shader
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.view.Choreographer
+import android.view.Surface
 import android.service.wallpaper.WallpaperService
 import android.view.SurfaceHolder
 import java.io.File
@@ -45,7 +49,11 @@ class FondAnime : WallpaperService() {
                 BitmapFactory.decodeFile(f.path, o)
                 var e = 1
                 while (o.outWidth / (e * 2) >= 260) e *= 2
-                BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inSampleSize = e })?.let { l.add(it) }
+                BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inSampleSize = e })?.let { b ->
+                    // (en memoire graphique : dessinee sans recopie a chaque image)
+                    val hw = if (Build.VERSION.SDK_INT >= 26) try { b.copy(Bitmap.Config.HARDWARE, false) } catch (e2: Throwable) { null } else null
+                    if (hw != null) { b.recycle(); l.add(hw) } else l.add(b)
+                }
             } catch (e: Throwable) { }
         }
         return l
@@ -65,7 +73,14 @@ class FondAnime : WallpaperService() {
         private val ombre = Paint(Paint.ANTI_ALIAS_FLAG)
         private val reflet = Paint(Paint.ANTI_ALIAS_FLAG)
         private val texte = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xCCFFFFFF.toInt(); textAlign = Paint.Align.CENTER }
-        private val dessin = object : Runnable { override fun run() { dessiner(); if (visible) h.postDelayed(this, 33) } }
+        private val rect = android.graphics.RectF()
+        private val fondH = Paint()
+        private val voile = Paint()
+        private var fondPour = 0                                   // (degrades refaits seulement si la taille change)
+        // (a chaque rafraichissement de l'ecran, 120 Hz sur ton telephone)
+        private val image = Choreographer.FrameCallback { if (visible) { dessiner(); suivante() } }
+        private fun suivante() { if (visible) Choreographer.getInstance().postFrameCallback(image) }
+        private val dessin = Runnable { Choreographer.getInstance().removeFrameCallback(image); suivante() }
 
         override fun onVisibilityChanged(v: Boolean) {
             visible = v
@@ -75,23 +90,33 @@ class FondAnime : WallpaperService() {
                 h.post(dessin)
             }
         }
-        override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) { w = width; hh = height; super.onSurfaceChanged(holder, format, width, height) }
-        override fun onSurfaceDestroyed(holder: SurfaceHolder) { visible = false; h.removeCallbacks(dessin); super.onSurfaceDestroyed(holder) }
+        override fun onSurfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+            w = width; hh = height
+            if (Build.VERSION.SDK_INT >= 30) try { holder.surface.setFrameRate(120f, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT) } catch (e: Exception) { }
+            super.onSurfaceChanged(holder, format, width, height)
+        }
+        override fun onSurfaceDestroyed(holder: SurfaceHolder) { visible = false; h.removeCallbacks(dessin); Choreographer.getInstance().removeFrameCallback(image); super.onSurfaceDestroyed(holder) }
         override fun onOffsetsChanged(xo: Float, yo: Float, xs: Float, ys: Float, xp: Int, yp: Int) { decal = xo }
-        override fun onDestroy() { h.removeCallbacks(dessin); super.onDestroy() }
+        override fun onDestroy() { h.removeCallbacks(dessin); Choreographer.getInstance().removeFrameCallback(image); super.onDestroy() }
 
         private fun dessiner() {
             val holder = surfaceHolder
-            val c: Canvas = try { holder.lockCanvas() ?: return } catch (e: Exception) { return }
+            val c: Canvas = try { (if (Build.VERSION.SDK_INT >= 26) holder.lockHardwareCanvas() else holder.lockCanvas()) ?: return } catch (e: Exception) { return }
             try { scene(c) } finally { try { holder.unlockCanvasAndPost(c) } catch (e: Exception) { } }
         }
 
         private fun scene(c: Canvas) {
             val W = w.toFloat(); val H = hh.toFloat()
-            p.shader = LinearGradient(0f, 0f, 0f, H, intArrayOf(0xFF140628.toInt(), 0xFF07020F.toInt()), null, Shader.TileMode.CLAMP)
-            c.drawRect(0f, 0f, W, H, p); p.shader = null
-            p.shader = RadialGradient(W / 2, H * 0.42f, W * 0.9f, intArrayOf(0x556A2CB0, 0x00000000), null, Shader.TileMode.CLAMP)
-            c.drawRect(0f, 0f, W, H, p); p.shader = null
+            if (fondPour != w * 7919 + hh) {
+                fondPour = w * 7919 + hh
+                fondH.shader = android.graphics.ComposeShader(
+                    LinearGradient(0f, 0f, 0f, H, intArrayOf(0xFF140628.toInt(), 0xFF07020F.toInt()), null, Shader.TileMode.CLAMP),
+                    RadialGradient(W / 2, H * 0.42f, W * 0.9f, intArrayOf(0x556A2CB0, 0x00000000), null, Shader.TileMode.CLAMP), android.graphics.PorterDuff.Mode.SRC_OVER)
+                voile.shader = LinearGradient(0f, H * 0.7f, 0f, H, intArrayOf(0x00000000, 0xAA05010C.toInt()), null, Shader.TileMode.CLAMP)
+                // (reflet : un seul degrade, sur une jaquette de 1 x 1, etire a chaque dessin)
+                reflet.shader = LinearGradient(0f, 0f, 1f, 1f, intArrayOf(0x00FFFFFF, 0x30FFFFFF, 0x00FFFFFF), floatArrayOf(0.2f, 0.45f, 0.7f), Shader.TileMode.CLAMP)
+            }
+            c.drawRect(0f, 0f, W, H, fondH)
             val l = images
             if (l.isEmpty()) {
                 texte.textSize = W * 0.04f
@@ -122,16 +147,16 @@ class FondAnime : WallpaperService() {
                     c.concat(mat)
                     ombre.color = 0x66000000; c.drawRect(cw * 0.04f, ch * 0.05f, cw * 1.04f, ch * 1.05f, ombre)
                     p.alpha = (110 + 145 * prof).toInt()
-                    c.drawBitmap(img, null, android.graphics.RectF(0f, 0f, cw, ch), p)
+                    rect.set(0f, 0f, cw, ch)
+                    c.drawBitmap(img, null, rect, p)
                     p.alpha = 255
-                    reflet.shader = LinearGradient(0f, 0f, cw, ch, intArrayOf(0x00FFFFFF, (0x30 * (1 - abs(rel).coerceAtMost(1f))).toInt() shl 24 or 0xFFFFFF, 0x00FFFFFF), floatArrayOf(0.2f, 0.45f, 0.7f), Shader.TileMode.CLAMP)
-                    c.drawRect(0f, 0f, cw, ch, reflet)
+                    reflet.alpha = (255 * (1 - abs(rel).coerceAtMost(1f))).toInt()
+                    c.save(); c.scale(cw, ch); c.drawRect(0f, 0f, 1f, 1f, reflet); c.restore()
                     c.restore()
                 }
             }
             // voile en bas (les icones restent lisibles)
-            p.shader = LinearGradient(0f, H * 0.7f, 0f, H, intArrayOf(0x00000000, 0xAA05010C.toInt()), null, Shader.TileMode.CLAMP)
-            c.drawRect(0f, H * 0.7f, W, H, p); p.shader = null
+            c.drawRect(0f, H * 0.7f, W, H, voile)
             if (min(W, H) <= 0f) return
         }
     }

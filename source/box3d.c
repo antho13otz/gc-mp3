@@ -4,11 +4,14 @@
 // v283 : avec la jaquette complète de GameTDB (dos | tranche | avant) quand elle existe : les 3 faces sont les vraies.
 // Une boîte GameCube aux proportions des jaquettes (3 x 4, comme le pack : 192 x 256), la jaquette devant, la tranche,
 // le dos (résumé, genre, joueurs, PEGI, capture). Elle tourne doucement ; le stick C la fait tourner. ↑ : elle s'ouvre
-// (le couvercle pivote sur la tranche), le disque s'allume dedans ; A : prendre le disque et jouer ; ↓ ou ↑ : fermer.
+// (le couvercle pivote sur la tranche), le disque s'allume dedans ; A : prendre le disque et jouer ; ↑ : fermer.
+// v304 : ouverte, ↓ : sortir le disque (il se souleve, vient devant nous et tourne) ; ↓ encore : le ranger.
 // Tout est projeté par le processeur (comme le globe) puis dessiné en 2D, de la face la plus loin à la plus proche.
 
 static f32 bx_yaw = 28, bx_pitch = 7, bx_open = 0, bx_open_to = 0, bx_spin = 0;
 static f32 bx_zoom = 1, bx_zoom_to = 1, bx_panx = 0, bx_pany = 0;   /* v284 : zoom (stick C haut / bas), deplacement (stick) */
+static f32 bx_out = 0, bx_out_to = 0, bx_dspin = 0;      /* v304 : le disque sorti de la boite (0 range, 1 devant nous), sa rotation */
+static f32 bx_dcx, bx_dcy, bx_dr;                         /* (le disque dans le bac, a l'ecran : centre, rayon) */
 static u64 bx_touch = 0;                                  /* (dernier coup de stick : la boîte arrête de tourner seule) */
 static int bx_game = -1;
 typedef struct { f32 x, y, z; } bv3;
@@ -146,7 +149,9 @@ static void bx_tray(f32 W, f32 H, f32 X, f32 Y, f32 zf, GXTexObj *disc, int k) {
     bx_q(-X + 0.10f * W, 0.20f * H, -X + 0.26f * W, 0.26f * H, z - 0.1f, 0, 0, 0, RGBA(18, 18, 22, 255), RGBA(26, 26, 30, 255));
     /* le disque (mini-DVD de 8 cm : 0,6 de la largeur) */
     const f32 r = 0.30f * W, zd = z - 0.6f;
-    if (disc) {
+    { f32 ex, ey; bx_proj(bx_rot(BV(0, hy, zd)), &bx_dcx, &bx_dcy); bx_proj(bx_rot(BV(r, hy, zd)), &ex, &ey); bx_dr = sqrtf((ex - bx_dcx) * (ex - bx_dcx) + (ey - bx_dcy) * (ey - bx_dcy)); }
+    if (bx_out > 0.02f) { }                              /* v304 : sorti : dessine par-dessus la boite (bx_disc_out) */
+    else if (disc) {
         enum { S = 4 };
         gx_set_image(disc);
         GX_Begin(GX_QUADS, GX_VTXFMT0, S * S * 4);
@@ -171,7 +176,7 @@ static void bx_tray(f32 W, f32 H, f32 X, f32 Y, f32 zf, GXTexObj *disc, int k) {
 
 /* la boîte du jeu k dans le rectangle (x, y, w, h) de la fiche */
 static void bx_draw(int k, f32 x, f32 y, f32 w, f32 h, GXTexObj *cov, int big, GXTexObj *full, GXTexObj *disc) {   /* v290 : disc : image du disque   /* full : jaquette complete (dos | tranche | avant), v283 */
-    if (k != bx_game) { bx_game = k; bx_open = bx_open_to = 0; bx_zoom_to = 1; bx_panx = bx_pany = 0; }
+    if (k != bx_game) { bx_game = k; bx_open = bx_open_to = 0; bx_zoom_to = 1; bx_panx = bx_pany = 0; bx_out = bx_out_to = 0; }
     u64 now = now_ms();
     int sx = PAD_SubStickX(0), sy = PAD_SubStickY(0);
     f32 dt = ui_dt > 0.1f ? 0.1f : ui_dt;
@@ -198,6 +203,10 @@ static void bx_draw(int k, f32 x, f32 y, f32 w, f32 h, GXTexObj *cov, int big, G
         bx_yaw += (-6 - bx_yaw) * (1 - expf(-ui_dt * 4)); bx_pitch += (6 - bx_pitch) * (1 - expf(-ui_dt * 4));
     }
     bx_open += (bx_open_to - bx_open) * (1 - expf(-ui_dt * 6));
+    if (bx_open_to < 0.5f) bx_out_to = 0;                 /* v304 : fermee : le disque rentre */
+    bx_out += (bx_out_to - bx_out) * (1 - expf(-ui_dt * 5));
+    if (bx_out < 0.001f) bx_out = 0;
+    bx_dspin += ui_dt * 120 * bx_out;
     /* taille : la jaquette du pack (192 x 256 : 3 x 4) remplit la face avant */
     f32 H = h, W = H * 0.75f;
     if (W > w) { W = w; H = W / 0.75f; }
@@ -295,6 +304,35 @@ static void bx_draw(int k, f32 x, f32 y, f32 w, f32 h, GXTexObj *cov, int big, G
             if (syn || gl[k].desc) gl_wrap(F_SMALL, syn ? syn : gl[k].desc, x0 + 10, y0 + 54 + (gl_bigst.game == k && gl_bigst.tex ? (x1 - x0 - 20) * 0.6f : 0), (int)(x1 - x0 - 20), 13, 6, RGBA(220, 212, 245, a));
         }
     }
+    if (bx_out > 0.02f) {                                /* v304 : le disque sorti : il se souleve, vient devant et tourne */
+        f32 e = bx_out * bx_out * (3 - 2 * bx_out);
+        f32 tx = x + w / 2, ty = y + h / 2 - 6, tr = (w < h ? w : h) * 0.40f;
+        f32 cx = bx_dcx + (tx - bx_dcx) * e, cy = bx_dcy + (ty - bx_dcy) * e - sinf(e * (f32)M_PI) * 50;
+        f32 R = bx_dr + (tr - bx_dr) * e, sq = 1 - 0.45f * sinf(e * (f32)M_PI);   /* (il bascule en sortant) */
+        f32 a = bx_dspin * (f32)M_PI / 180, ca = cosf(a), sa = sinf(a);
+        gx_circle(cx + 6, cy + 10 + R * sq * 0.1f, R * 0.98f, RGBA(0, 0, 0, (u8)(90 * e)), RGBA(0, 0, 0, 0));   /* (ombre) */
+        if (disc) {
+            static const f32 uu[4] = { 0, 1, 1, 0 }, vv[4] = { 0, 0, 1, 1 };
+            gx_set_image(disc);
+            GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+            for (int q = 0; q < 4; q++) {
+                f32 lx = (uu[q] - 0.5f) * 2 * R, ly = (vv[q] - 0.5f) * 2 * R;
+                f32 px = lx * ca - ly * sa, py = (lx * sa + ly * ca) * sq;
+                GX_Position2f32(UX(cx + px), cy + py); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(uu[q], vv[q]);
+            }
+            GX_End();
+        } else {
+            gx_circle(cx, cy, R, RGBA(220, 222, 236, 255), RGBA(160, 160, 182, 255));
+            gx_circle(cx, cy, R * 0.86f, au_mix(0.2f, 255), au_mix(0.35f, 255));
+            gx_circle(cx, cy, R * 0.22f, RGBA(230, 230, 240, 255), RGBA(190, 190, 205, 255));
+        }
+        gx_circle(cx, cy, R * 0.19f, RGBA(16, 12, 24, 255), RGBA(16, 12, 24, 255));   /* (le trou du centre) */
+        /* (reflet qui tourne avec lui) */
+        gx_poly4(cx + (-R * 0.7f) * ca, cy + (-R * 0.7f) * sa * sq, cx + (R * 0.7f) * ca, cy + (R * 0.7f) * sa * sq,
+                 cx + (R * 0.7f) * ca - 6 * sa, cy + ((R * 0.7f) * sa + 6 * ca) * sq, cx + (-R * 0.7f) * ca - 6 * sa, cy + ((-R * 0.7f) * sa + 6 * ca) * sq,
+                 RGBA(255, 255, 255, 0), RGBA(255, 255, 255, (u8)(70 * e)), RGBA(255, 255, 255, (u8)(70 * e)), RGBA(255, 255, 255, 0));
+    }
+
 }
 /* (fiche, vitrine) ↑ : ouvrir / fermer ; rend 1 si la touche est prise */
 static int bx_zoomed(void) { return bx_zoom > 1.03f || bx_zoom_to > 1.03f; }
@@ -303,10 +341,10 @@ static int bx_input(u32 down) {
         if (down & PAD_BUTTON_B) { bx_zoom_to = 1; return 1; }
         if (down & PAD_BUTTON_A) return 0;
         if (down & PAD_BUTTON_UP) { bx_open_to = bx_open_to > 0.5f ? 0 : 1; bx_touch = now_ms(); }
-        if ((down & PAD_BUTTON_DOWN) && bx_open_to > 0.5f) bx_open_to = 0;
+        if ((down & PAD_BUTTON_DOWN) && bx_open_to > 0.5f) bx_out_to = bx_out_to > 0.5f ? 0 : 1;   /* v304 : sortir / ranger le disque */
         return 1;
     }
     if (down & PAD_BUTTON_UP) { bx_open_to = bx_open_to > 0.5f ? 0 : 1; bx_touch = now_ms(); return 1; }
-    if ((down & PAD_BUTTON_DOWN) && bx_open_to > 0.5f) { bx_open_to = 0; return 1; }
+    if ((down & PAD_BUTTON_DOWN) && bx_open_to > 0.5f) { bx_out_to = bx_out_to > 0.5f ? 0 : 1; return 1; }   /* v304 : sortir / ranger le disque */
     return 0;
 }
