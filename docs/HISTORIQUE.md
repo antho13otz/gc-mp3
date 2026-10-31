@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Traduction en français dans l'appli
+- Fiche du jeu, « À propos » : un **résumé dans une autre langue** (GameTDB n'a pas toujours le français) est **traduit en
+  français** sur le téléphone (Google ML Kit, hors ligne : le texte ne part pas sur Internet). « Traduit de l'anglais ·
+  voir l'original » passe de l'un à l'autre. La première fois, le téléphone télécharge la langue (environ 30 Mo) ;
+  ensuite tout est instantané et les traductions sont gardées.
+
 ## Nouveautés appli build 103 — Thèmes, animations, fiche enrichie
 - **Plus > Apparence** : l'**ambiance** de toute l'appli (Néon d'origine, Sombre sobre, GameCube indigo, ou **Couleurs du
   jeu** : tirées de la jaquette du jeu en cours, sinon de la dernière fiche ouverte), la **taille du texte** (Petit à Très
