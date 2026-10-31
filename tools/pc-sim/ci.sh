@@ -93,6 +93,19 @@ Image.new('RGB', (800, 600), (40, 120, 200)).save('$CI/telephone-ci.jpg', qualit
         expect "photo sur la tele" '"ok":1' "$H/api/showname?n=telephone-ci.jpg"
         pause 2
     fi
+    # v301 : jaquettes et disques envoyes par le telephone
+    jl=$(curl -s -m 20 "$H/api/jaqliste")
+    jid=$(echo "$jl" | python3 -c "import json,sys; l=json.load(sys.stdin); print(l[0][0] if l else '')" 2>/dev/null)
+    if [ -n "$jid" ]; then
+        note "telephone : liste des jaquettes ($jl)"
+        python3 -c "
+from PIL import Image
+Image.new('RGBA', (160, 160), (200, 40, 40, 255)).save('$CI/disque-ci.png')" 2>/dev/null
+        expect "envoi de l'image d'un disque" "ok" -T $CI/disque-ci.png "$H/upload?dir=jaquette&nid=$jid&kind=d&name=d.png"
+        expect "image du disque vue par la console" "\"$jid\",[01],[01],[01],1" "$H/api/jaqliste"
+        expect "type d'image refuse" "refus" -T $CI/disque-ci.png "$H/upload?dir=jaquette&nid=$jid&kind=z&name=d.png"
+        rm -f "$RUN/sd:/gc-mp3/jaquettes/disques/$jid.png" "$RUN/sd:/gc-mp3/jaquettes/disques/$jid.tex"
+    else fail "telephone : liste des jaquettes vide ($jl)"; fi
     expect "page memoire" "moire de la GameCube" "$H/memoire"
     expect "chiffres de la memoire" '"hist":\[' "$H/api/memoire"
     expect "page rapport de bug" "Rapport de bug" "$H/rapport"

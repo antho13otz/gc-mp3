@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v301 (build à venir, appli build à venir) — Jaquettes et disques envoyés par le téléphone
+- **Appli** : onglet Jeux, **« Envoyer jaquettes et disques à la console »** : le téléphone télécharge sur GameTDB ce
+  qui manque à la GameCube (jaquette de la liste, jaquette complète de la boîte, en option la HD pour le zoom, image du
+  disque) et le lui envoie, jeu par jeu, avec l'avancement et un bouton Arrêter. Ce que la console a déjà n'est pas
+  renvoyé. Les images téléchargées restent aussi sur le téléphone (boîte 3D, hors-ligne).
+- **Console** : `/api/jaqliste` (pour chaque jeu : jaquette, complète, HD, disque déjà là ou non) ; réception
+  `PUT /upload?dir=jaquette&nid=<ID>&kind=c|f|h|d` rangée en PNG dans `SD:/gc-mp3/jaquettes/{ajoutees,completes,disques}/`
+  (l'ancienne image convertie est enlevée), convertie à la première vue comme une image déposée à la main ; la liste des
+  jeux et la boîte ouverte la prennent tout de suite.
+
 ## Nouveautés appli build 86 — Copies des cartes mémoire à la main
 - La **copie automatique** (une fois par jour à la connexion : cartes mémoire virtuelles et réglages copiés sur le
   téléphone) est maintenant **désactivée par défaut**, y compris si elle l'était avant sans avoir été choisie. Les copies

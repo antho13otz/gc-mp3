@@ -1407,6 +1407,14 @@ static void gl_dk_loaded(void) {
     if (strcmp(gl_dk_rid, gl_dk.id)) { free(t); if (gl_dk.st == 1) gl_dk.st = 0; return; }
     if (t) gl_dk_set(t); else gl_dk.st = gl_dk_rabs ? 3 : 4;
 }
+/* v301 : une image envoyee par le telephone vient d'arriver (tab_phone.c) : jaquettes de la liste, et
+   complete / HD / disque du jeu affiche relues (sauf lecture en cours : elle sera reprise en revenant sur le jeu) */
+static void gl_art_recu(void) {
+    gl_dl_apply();
+    if (gl_fc.st != 1 && gl_fc_dl < 3) { gl_fc.id[0] = 0; gl_fc.st = 0; }
+    if (gl_fh.st != 1 && gl_fh_dl < 3) { gl_fh.id[0] = 0; gl_fh.st = 0; }
+    if (gl_dk.st != 1 && gl_dk_dl < 3) { gl_dk.id[0] = 0; gl_dk.st = 0; }
+}
 /* l'image du disque du jeu k (boite ouverte) ; NULL : pas (encore) la */
 static GXTexObj *gl_dk_get(int k) {
     if (k < 0 || k >= gl_n || gl[k].dvd || !gl[k].id[0] || !sd_ok || sd_virtual) return NULL;

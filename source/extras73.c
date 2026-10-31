@@ -1244,6 +1244,24 @@ static void draw_vcard(void) {
 }
 
 /* =================== telephone : jeux (construit par la boucle principale) =================== */
+/* v301 : les jeux et "jaquette de la liste deja la ?" (pack de Swiss ou ajoutee), pour /api/jaqliste */
+static void x73_jaq_build(void) {
+    if (!gl_scanned) gl_scan_full(0);
+    sbuf_t s = { NULL, 0, 0 };
+    char m[16];
+    for (int k = 0; k < gl_n; k++) {
+        if (gl[k].dvd || strlen(gl[k].id) < 6) continue;
+        int dup = 0;
+        for (int j = 0; j < k && !dup; j++) if (!gl[j].dvd && !strncmp(gl[j].id, gl[k].id, 6)) dup = 1;
+        if (dup) continue;
+        snprintf(m, sizeof(m), "%.6s%d\n", gl[k].id, gl[k].post >= 0 ? 1 : 0);
+        sb_add(&s, m);
+    }
+    char *old = x73_jq;
+    x73_jq = s.b ? s.b : strdup("");
+    x73_jq_ready = 1;
+    free(old);
+}
 static void x73_games_build(void) {
     if (!gl_scanned) gl_scan_full(0);                         /* v241 : liste gardee (avant : toute la carte SD relue, console figee) */
     sbuf_t s = { NULL, 0, 0 };
@@ -1493,6 +1511,7 @@ static void x73_pump(void) {
     rh_capture();
     if (fun_mode == FUN_OFF || fun_mode == FUN_KARAOKE || fun_mode == FUN_WAKE) rhc_pump();
     if (x73_gj_want) { x73_gj_want = 0; x73_games_build(); }
+    if (x73_jq_want) { x73_jq_want = 0; x73_jaq_build(); }   /* v301 */
     if (x73_cj_want) { x73_cj_want = 0; x73_cards_build(); }   /* v190 */
     if (x73_ch_want) {                                        /* v240 : cheats depuis le telephone */
         if (x73_ch_want == 2) ch_phone_set(x73_ch_id, x73_ch_set);
