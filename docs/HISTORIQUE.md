@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v300 (build à venir, appli build à venir) — La notice s'ouvre et ses pages tournent
+- **Console** : X (boîte ouverte) : la notice **sort du couvercle**, de biais, et vient se poser à plat au milieu ; B : elle
+  y retourne. Gauche / droite : la page **tourne comme dans un vrai livret** (elle se soulève par la droite en pivotant
+  sur la reliure, avec un reflet et l'ombre sur la page de dessous) ; la page suivante est lue d'avance.
+- **Appli** : même chose dans « Lire la notice » : arrivée de biais qui se pose à plat, et pages qui tournent sur la
+  reliure en suivant le doigt (la page de dessous s'assombrit).
+
 ## Nouveautés v299 (build 791) — Un .zip de notice remplace l'ancienne
 - Installer un .zip de notice (TÉLÉCHARGEMENTS, A) efface d'abord l'ancienne notice du même jeu : plus de pages en trop
   quand la nouvelle en a moins.

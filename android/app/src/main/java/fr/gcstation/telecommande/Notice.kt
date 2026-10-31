@@ -33,7 +33,13 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.graphics.TransformOrigin
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -197,17 +203,43 @@ object Notices {
 fun NoticeEcran(act: StationActivity, id: String, nom: String, n: Int, fermer: () -> Unit) {
     val pager = rememberPagerState { n }
     var zoome by remember { mutableStateOf(false) }
-    Dialog(onDismissRequest = fermer, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        Box(Modifier.fillMaxSize().background(C.Fond)) {
-            HorizontalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = !zoome, beyondViewportPageCount = 1) { p ->
-                PageNotice(act, id, p + 1) { z -> if (p == pager.currentPage) zoome = z }
+    // (ouverture : la notice arrive de biais, comme sortie de la boite, et se pose a plat ; fermeture : l'inverse)
+    val ouv = remember { Animatable(0f) }
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(Unit) { ouv.animateTo(1f, tween(520, easing = FastOutSlowInEasing)) }
+    val quitter: () -> Unit = { scope.launch { ouv.animateTo(0f, tween(380, easing = FastOutSlowInEasing)); fermer() } }
+    Dialog(onDismissRequest = quitter, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        Box(Modifier.fillMaxSize().background(C.Fond.copy(alpha = ouv.value))) {
+            HorizontalPager(pager, Modifier.fillMaxSize().graphicsLayer {
+                    val a = ouv.value
+                    alpha = a; scaleX = 0.5f + 0.5f * a; scaleY = 0.5f + 0.5f * a
+                    rotationY = (1 - a) * 55f; cameraDistance = 14f * density
+                    transformOrigin = TransformOrigin(0f, 0.5f); translationX = -(1 - a) * size.width * 0.25f
+                }, userScrollEnabled = !zoome, beyondViewportPageCount = 1) { p ->
+                // (une vraie page qui tourne : celle de droite se pose par-dessus en pivotant sur la reliure, a gauche ;
+                //  celle de dessous ne bouge pas et s'assombrit)
+                Box(Modifier.fillMaxSize().graphicsLayer {
+                    val off = (p - pager.currentPage) - pager.currentPageOffsetFraction
+                    translationX = -off * size.width
+                    cameraDistance = 14f * density
+                    if (off > 0f) {
+                        transformOrigin = TransformOrigin(0f, 0.5f)
+                        rotationY = -88f * off.coerceIn(0f, 1f)
+                        alpha = if (off >= 0.99f) 0f else 1f
+                    } else {
+                        val sh = (-off).coerceIn(0f, 1f)
+                        scaleX = 1f - 0.05f * sh; scaleY = 1f - 0.05f * sh; alpha = 1f - 0.6f * sh
+                    }
+                }) {
+                    PageNotice(act, id, p + 1) { z -> if (p == pager.currentPage) zoome = z }
+                }
             }
             Row(Modifier.fillMaxWidth().statusBarsPadding().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Notice · $nom", color = C.Texte, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Doux(if (pager.currentPage == 0) "Couverture · " + n + " pages" else "Page " + (pager.currentPage + 1) + " / " + n, taille = 12)
                 }
-                Box(Modifier.size(44.dp).verre(CircleShape).appui(fermer), contentAlignment = Alignment.Center) { Icon(Ic.Fermer, null, tint = C.Texte) }
+                Box(Modifier.size(44.dp).verre(CircleShape).appui(quitter), contentAlignment = Alignment.Center) { Icon(Ic.Fermer, null, tint = C.Texte) }
             }
             Doux("Glisser : pages · deux doigts : zoomer · double toucher : zoomer / revenir", Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(16.dp), 11, C.Pale)
         }

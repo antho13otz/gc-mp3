@@ -404,7 +404,7 @@ static void gs_draw_fiche(void) {
     if (gl_sel < 0 || gl_sel >= gl_n) return;
     gcg_t *g = &gl[gl_sel];
     gl_job_done();
-    if (!g->dvd && nt_draw(gl_sel)) { nv_raw = 0; return; }   /* v296 : la notice en grand */
+    if (!g->dvd && nt_on && nt_open >= 1 && !nt_closing && nt_draw(gl_sel)) { nv_raw = 0; return; }   /* v296 : la notice en grand (v300 : en s'ouvrant, par-dessus la fiche, plus bas) */
     if (now_ms() - last_input_ms > 100) gl_load_big(gl_sel);     /* (grande jaquette et capture, en fond) */
     if (g->bstate == 0 && gj_state == 0 && now_ms() - last_input_ms > 150) gl_job_post(GJ_BANNER, gl_sel);   /* (description) */
     gs_header();
@@ -519,6 +519,7 @@ static void gs_draw_fiche(void) {
         gs_key(x, 453, "B", "Retour", RGBA(240, 110, 110, 255));
         nv_raw = 0;
         if (gl_launch_sel >= 0) gl_draw_launch_box();
+        nt_draw(gl_sel);                                     /* v300 : la notice qui s'ouvre / se referme */
         return;
     }
     gx_rrect_fill(20, 438, 600, 30, 15, RGBA(255, 255, 255, 16), RGBA(255, 255, 255, 8));
@@ -542,4 +543,5 @@ static void gs_draw_fiche(void) {
     nv_raw = 0;
     if (gl_launch_sel >= 0) gl_draw_launch_box();
     nat_draw_qr();                                           /* (rapport d'analyse sur le telephone) */
+    if (!g->dvd) nt_draw(gl_sel);                            /* v300 : la notice qui s'ouvre / se referme */
 }
