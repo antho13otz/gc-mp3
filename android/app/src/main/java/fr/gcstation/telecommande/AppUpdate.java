@@ -119,7 +119,7 @@ public final class AppUpdate {
             ZipEntry e;
             while ((e = z.getNextEntry()) != null) {
                 if (!e.getName().endsWith(".apk")) continue;
-                try (OutputStream o = s.openWrite("gc-station.apk", 0, -1)) {
+                try (OutputStream o = s.openWrite("gc-remote.apk", 0, -1)) {
                     byte[] b = new byte[65536]; int n;
                     while ((n = z.read(b)) > 0) o.write(b, 0, n);
                     s.fsync(o);

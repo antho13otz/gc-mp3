@@ -6,5 +6,5 @@
         <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
     <color name="station_fond">#FF07020F</color>
-    <string name="station_nom">GC Station</string>
+    <string name="station_nom">GC Remote</string>
 </resources>

@@ -205,7 +205,7 @@ final class LastLaunch {
                 ContentValues cv = new ContentValues();
                 cv.put(MediaStore.Downloads.DISPLAY_NAME, "journal-" + (id.isEmpty() ? "jeu" : id) + "-" + (System.currentTimeMillis() / 1000) + ".txt");
                 cv.put(MediaStore.Downloads.MIME_TYPE, "text/plain");
-                cv.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/GC Station");
+                cv.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/GC Remote");
                 u = a.getContentResolver().insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
                 if (u != null) try (OutputStream o = a.getContentResolver().openOutputStream(u)) { o.write(r.getBytes(StandardCharsets.UTF_8)); }
             } catch (Exception e) { u = null; }
