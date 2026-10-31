@@ -118,6 +118,12 @@ object Notices {
     }
     /** planches d'impression (2 doubles pages l'une sur l'autre, traits de coupe) -> pages dans l'ordre du livret :
      *  la 1re double page est le dos + la couverture (couverture en 1er, dos en dernier) */
+    /** une planche d'impression ? (grandes marges blanches autour du contenu, traits de coupe) ; une page seule : non */
+    private fun estPlanche(b: Bitmap): Boolean {
+        val h2 = b.height / 2
+        val ref = cadre(b, 0, h2).first ?: cadre(b, h2, b.height).first ?: return false
+        return ref[0] > b.width * 0.06f && ref[2] < b.width * 0.94f && (ref[2] - ref[0]) > (ref[3] - ref[1])
+    }
     private class Decoupe { val pages = ArrayList<ByteArray>(); var dos: ByteArray? = null; var premiere = true }
     /** une planche (traitee tout de suite : pas toutes les grandes images en memoire) */
     private fun decouper(b: Bitmap, z: Decoupe) {
@@ -138,8 +144,8 @@ object Notices {
             }
         }
     }
-    /** pages a envoyer : un PDF (chaque page) ou des images (ordre des noms) ; planches : decouper les planches d'impression */
-    fun preparer(ctx: Context, uris: List<Uri>, planches: Boolean, etat: (String) -> Unit): List<ByteArray> {
+    /** pages a envoyer : un PDF (chaque page) ou des images (ordre des noms) ; les planches d'impression sont decoupees */
+    fun preparer(ctx: Context, uris: List<Uri>, etat: (String) -> Unit): List<ByteArray> {   // (v299 : planches reconnues toutes seules)
         val l = uris.map { it to nom(ctx, it) }.sortedBy { cle(it.second) }
         val out = ArrayList<ByteArray>()
         val z = Decoupe()
@@ -155,7 +161,7 @@ object Notices {
                                 val b = Bitmap.createBitmap(maxOf(8, (pg.width * k).toInt()), maxOf(8, (pg.height * k).toInt()), Bitmap.Config.ARGB_8888)
                                 b.eraseColor(android.graphics.Color.WHITE)
                                 pg.render(b, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                                if (planches) decouper(b, z) else out.add(jpeg(b))
+                                if (estPlanche(b)) decouper(b, z) else out.add(jpeg(b))
                                 b.recycle()
                             }
                         }
@@ -164,11 +170,11 @@ object Notices {
             } else {
                 etat("Lecture de " + n)
                 val b = lireImage(ctx, u) ?: continue
-                if (planches) decouper(b, z) else out.add(jpeg(b))
+                if (estPlanche(b)) decouper(b, z) else out.add(jpeg(b))
                 b.recycle()
             }
         }
-        if (planches) { out.addAll(z.pages); z.dos?.let { out.add(it) } }   // (le dos de la notice a la fin)
+        if (z.pages.isNotEmpty()) { out.addAll(z.pages); z.dos?.let { out.add(it) } }   // (le dos de la notice a la fin)
         return out
     }
     /** envoie les pages a la console (remplace l'ancienne notice) ; null : tout est parti, sinon le message d'erreur */

@@ -251,13 +251,12 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
     var notice by remember { mutableIntStateOf(0) }                     // (pages de la notice sur la console ; 0 : pas de notice)
     var noticeOuverte by remember { mutableStateOf(false) }
     var noticeAjout by remember { mutableStateOf(false) }              // (v297 : ajouter une notice depuis le telephone)
-    var planches by remember { mutableStateOf(false) }
     var noticeEnvoi by remember { mutableStateOf<String?>(null) }
     val choisirNotice = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         if (uris.isNotEmpty()) scope.launch {
             noticeEnvoi = "Préparation des pages…"
             val err = withContext(Dispatchers.IO) {
-                val pages = try { Notices.preparer(act, uris, planches) { m -> noticeEnvoi = m } } catch (e: Throwable) { null }
+                val pages = try { Notices.preparer(act, uris) { m -> noticeEnvoi = m } } catch (e: Throwable) { null }
                 if (pages.isNullOrEmpty()) "Aucune page lisible dans ces fichiers" else Notices.envoyer(act.cacheDir, g.id, pages) { m -> noticeEnvoi = m }
             }
             noticeEnvoi = null
@@ -435,14 +434,8 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
         text = {
             Column {
                 Doux("Choisis un PDF, ou les images des pages (rangées dans l'ordre de leurs noms). L'appli les met au bon format et les envoie à la console : la notice apparaît dans la boîte du jeu, sur la télé et ici.", taille = 13)
-                Spacer(Modifier.height(12.dp))
-                Row(Modifier.fillMaxWidth().verre(RoundedCornerShape(14.dp)).appui { planches = !planches }.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Column(Modifier.weight(1f)) {
-                        Text("Planches d'impression", color = C.Texte, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                        Doux("2 doubles pages par image, avec traits de coupe : découpées et remises dans l'ordre du livret", taille = 11, couleur = C.Pale)
-                    }
-                    Switch(planches, null, colors = SwitchDefaults.colors(checkedTrackColor = C.Rose))
-                }
+                Spacer(Modifier.height(8.dp))
+                Doux("Pages seules ou planches d'impression (2 doubles pages par image, traits de coupe) : l'appli reconnaît et découpe les planches toute seule.", taille = 11, couleur = C.Pale)
             }
         },
         confirmButton = { TextButton({ noticeAjout = false; choisirNotice.launch(arrayOf("image/*", "application/pdf")) }) { Text("Choisir les fichiers", color = C.Rose) } },
