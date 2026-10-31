@@ -120,7 +120,7 @@ class StationActivity : ComponentActivity(), Host {
                     online()
                     try { val j = JSONObject(r); lastStateAt = SystemClock.uptimeMillis(); St.etat = j } catch (e: Exception) { }
                 } else offlineStep(++fails)
-                ui.postDelayed(this, if (r == null) 3000L else if (Live.pushing()) 5000L else 1000L)
+                ui.postDelayed(this, if (r == null) 3000L else if (St.etat?.optInt("kb", 0) == 1) 600L else if (Live.pushing()) 5000L else 1000L)   // (clavier ouvert : plus souvent)
             }
         }
     }

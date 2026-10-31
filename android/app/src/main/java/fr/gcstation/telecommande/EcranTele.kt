@@ -160,6 +160,7 @@ fun EcranTele() {
     var upscaling by remember { mutableStateOf(prefs.getBoolean("tele_upscaling", Upscale.possible)) }   // (agrandie par le telephone)
     var fluide by remember { mutableStateOf(prefs.getBoolean("tele_fluide", true)) }                    // (images intermediaires 120 Hz)
     var enDirect by remember { mutableStateOf(false) }      // (l'image ne part que si on la demande : bouton Afficher la tele)
+    var tactile by remember { mutableStateOf(prefs.getBoolean("tele_tactile", true)) }   // (v303 : toucher l'image = cliquer a cet endroit)
     // (les dernieres images recues ; affichees avec un leger retard regulier, pour lisser les arrivees irregulieres)
     val trames = remember { java.util.ArrayDeque<Trame>() }
     var version by remember { mutableIntStateOf(0) }
@@ -222,7 +223,7 @@ fun EcranTele() {
     val ecran: @Composable (Modifier) -> Unit = { m ->
         Box(m.aspectRatio(if (bb != null) bb.bmp.width.toFloat() / bb.bmp.height else 4f / 3f).clip(RoundedCornerShape(if (paysage) 10.dp else 18.dp))
             .background(Color.Black).border(1.dp, Brush.linearGradient(listOf(C.Rose, C.Cyan)), RoundedCornerShape(if (paysage) 10.dp else 18.dp))
-            .then(if (enDirect) Modifier.gestesTele(web) else Modifier)) {
+            .then(if (enDirect) Modifier.gestesTele(web, tactile) else Modifier)) {
             if (bb != null) {
                 @Suppress("UNUSED_VARIABLE") val vv = version
                 // (on montre l'instant "maintenant - retard" : entre les deux images qui l'encadrent, avec leur mouvement)
@@ -261,6 +262,7 @@ fun EcranTele() {
             if (Upscale.possible) Puce("Upscaling", upscaling) { upscaling = !upscaling; prefs.edit().putBoolean("tele_upscaling", upscaling).apply() }
             if (Upscale.possible && upscaling) Puce("Fluide 120 Hz", fluide) { fluide = !fluide; prefs.edit().putBoolean("tele_fluide", fluide).apply() }
             Puce(if (enDirect) "En direct" else "Image arrêtée", enDirect) { enDirect = !enDirect }
+            Puce("Tactile", tactile) { tactile = !tactile; prefs.edit().putBoolean("tele_tactile", tactile).apply() }
             Puce(if (paysage) "Portrait" else "Plein écran", false) {
                 pleinEcran = !paysage
                 act.requestedOrientation = if (paysage) ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
@@ -316,9 +318,9 @@ fun EcranTele() {
             Spacer(Modifier.height(10.dp))
             barre()
             Spacer(Modifier.height(6.dp))
-            Doux(if (web) "Onglet WEB : glisse pour bouger le pointeur, touche pour cliquer."
+            Doux(if (tactile) "Sur l'image : toucher = cliquer à cet endroit, appui long = retour, glisser = déplacer la flèche."
+                 else if (web) "Onglet WEB : glisse pour bouger le pointeur, touche pour cliquer."
                  else "Sur l'image : toucher = A, appui long = B, glisser = la croix.", taille = 11, couleur = C.Pale)
-            Clavier()
             Spacer(Modifier.height(12.dp))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 Gachette("L", "l", Modifier.weight(1f)); Gachette("Z", "z", Modifier.weight(1f)); Gachette("R", "r", Modifier.weight(1f))
@@ -335,8 +337,25 @@ fun EcranTele() {
     }
 }
 
-/** le doigt sur l'image : manette (A, B, croix) ou pointeur (onglet WEB) */
-private fun Modifier.gestesTele(pointeur: Boolean): Modifier = this
+/** le doigt sur l'image : tactile (console v303 : on clique la ou on touche), sinon manette (A, B, croix) ou pointeur (WEB) */
+private fun toucher(u: Float, v: Float, c: Int) = Api.pool {
+    Api.get("/api/toucher?u=" + String.format(java.util.Locale.ROOT, "%.4f", u.coerceIn(0f, 1f)) + "&v=" + String.format(java.util.Locale.ROOT, "%.4f", v.coerceIn(0f, 1f)) + "&c=" + c, 1500)
+}
+private fun Modifier.gestesTele(pointeur: Boolean, tactile: Boolean): Modifier = if (tactile) this
+    .pointerInput(true) {
+        detectTapGestures(
+            onTap = { p -> toucher(p.x / size.width, p.y / size.height, 1) },
+            onLongPress = { p -> toucher(p.x / size.width, p.y / size.height, 2) })
+    }
+    .pointerInput(true) {
+        var t = 0L
+        detectDragGestures { ch, _ ->                            // (la fleche suit le doigt, sans cliquer)
+            ch.consume()
+            val n = android.os.SystemClock.uptimeMillis()
+            if (n - t >= 40) { t = n; toucher(ch.position.x / size.width, ch.position.y / size.height, 0) }
+        }
+    }
+else this
     .pointerInput(pointeur) {
         detectTapGestures(
             onTap = { if (pointeur) Api.mouse(0, 0, 0, 1) else Api.key("a") },
@@ -413,45 +432,7 @@ private fun Boutons(k: Float) {
     }
 }
 
-/** clavier ouvert sur la tele : le texte part en direct (et la dictee) */
-@Composable
-private fun Clavier() {
-    val ctx = LocalContext.current
-    val s = St.etat
-    val kb = (s?.optInt("kb", 0) ?: 0) != 0
-    var txt by remember { mutableStateOf("") }
-    var tape by remember { mutableStateOf(false) }
-    val dictee = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { r ->
-        val l = r.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
-        if (!l.isNullOrEmpty()) { txt = if (txt.isEmpty()) l[0] else txt + (if (txt.endsWith(" ")) "" else " ") + l[0]; tape = true }
-    }
-    LaunchedEffect(kb, s?.optString("kbt", "")) { if (kb && !tape) txt = s?.optString("kbt", "") ?: "" ; if (!kb) tape = false }
-    LaunchedEffect(txt, tape) { if (tape) { delay(250); lire("/api/type?go=0&t=" + Api.enc(txt), 3000) } }
-    if (!kb) return
-    Spacer(Modifier.height(10.dp))
-    Column(Modifier.fillMaxWidth().verre(RoundedCornerShape(20.dp), C.Cyan.copy(alpha = 0.6f)).padding(14.dp)) {
-        val h = s?.optString("kbh", "") ?: ""
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Ic.Clavier, null, tint = C.Cyan, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(h.ifEmpty { "Clavier ouvert sur la télé" }, color = C.Cyan, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
-        }
-        Spacer(Modifier.height(8.dp))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.weight(1f)) { Champ(txt, { txt = it; tape = true }, "Écris ici : le texte part sur la télé") }
-            Spacer(Modifier.width(8.dp))
-            Box(Modifier.size(46.dp).verre(CircleShape).appui {
-                val it = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-                    .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-                    .putExtra(RecognizerIntent.EXTRA_LANGUAGE, java.util.Locale.getDefault().toLanguageTag())
-                    .putExtra(RecognizerIntent.EXTRA_PROMPT, "Parle : le texte s'écrit sur la télé")
-                try { dictee.launch(it) } catch (e: Exception) { Toast.makeText(ctx, "Pas de reconnaissance vocale sur ce téléphone", Toast.LENGTH_LONG).show() }
-            }, contentAlignment = Alignment.Center) { Icon(Ic.Micro, null, tint = C.Texte) }
-            Spacer(Modifier.width(8.dp))
-            Bouton("OK", plein = true) { tape = false; val t = txt; Api.pool { Api.get("/api/type?go=1&t=" + Api.enc(t), 3000) } }
-        }
-    }
-}
+// (le clavier ouvert sur la tele : ClavierTele.kt, sur tous les onglets)
 
 @Suppress("unused")
 private fun centreTexte() = TextAlign.Center

@@ -148,6 +148,10 @@ static int tp_find_photo(const char *name) {
 
 static char *mv_json(void);
 void input_phone(float dx, float dy, float wheel, u32 buttons, int acts);   /* (cb/input.c) */
+void input_set_cursor(float x, float y);                  /* v303 : (cb/input.c) */
+float gfx_width(void);                                    /* (cb/gfx.c : 640 ou 854) */
+static int gp_hit(void);                                  /* (tabs_extra.c) */
+static int gp_usable(void);
 static int crash_recent(char *out, int cap);                     /* v234 : crashlog.c */
 static char tp_rurl[600], tp_rname[160];                         /* v253 : radio envoyee par le globe du telephone */
 static volatile int tp_rurl_busy = 0;
@@ -304,6 +308,9 @@ static void tp_send_ecranz(s32 c, const char *q) {
     tp_pf_ms = (int)(now_ms() - t0);
     tp_pf_t = now_ms(); tp_pf_s = s; tp_pf_q = qual;
 }
+static volatile int tp_touch = 0, tp_tc = 0;             /* v303 : tele tactile : toucher a un endroit de l'image */
+static int tp_tap_retry = 0;                              /* (zone pas encore la, ex. barre des onglets qui apparait : reessaye) */
+static volatile f32 tp_tu = 0, tp_tv = 0;
 static volatile int tp_mdx = 0, tp_mdy = 0, tp_mw = 0, tp_mc = 0;          /* v231 : souris tactile (cumul) */                                     /* v230 : memview.c */
 static void tp_push(int c, int i) {
     int n = (tp_qt + 1) % 16;
@@ -1682,6 +1689,15 @@ static void tp_handle(s32 c) {
         tp_param(q ? q : "", "c", v, sizeof(v)); tp_mc |= atoi(v) & 3;
         tp_reply(c, 200, "application/json", "{\"ok\":1}", 8);
     }
+    else if (!strcmp(target, "/api/toucher")) {             /* v303 : tele tactile : ?u=&v= (0 a 1 sur l'image de la tele) &c=0 deplacer, 1 cliquer, 2 retour */
+        char v[16];
+        tp_param(q ? q : "", "u", v, sizeof(v)); f32 u = (f32)atof(v);
+        tp_param(q ? q : "", "v", v, sizeof(v)); f32 w = (f32)atof(v);
+        tp_param(q ? q : "", "c", v, sizeof(v)); int cc = atoi(v);
+        int ok = v[0] && u >= 0 && u <= 1 && w >= 0 && w <= 1 && cc >= 0 && cc <= 2;
+        if (ok) { tp_tu = u; tp_tv = w; tp_tc = cc; tp_touch = 1; }
+        tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
+    }
     else if (!strcmp(target, "/api/key")) {                  /* v142 : manette sur le telephone */
         static const char *const kn[] = { "up", "down", "left", "right", "a", "b", "x", "y", "z", "l", "r", "start", NULL };
         static const u32 km[] = { PAD_BUTTON_UP, PAD_BUTTON_DOWN, PAD_BUTTON_LEFT, PAD_BUTTON_RIGHT, PAD_BUTTON_A, PAD_BUTTON_B, PAD_BUTTON_X,
@@ -2083,6 +2099,29 @@ static void phone_pump(void) {
     if ((tp_cap == 1 || tp_cap == 3) && !pcsim_capture) { snprintf(pcsim_capture_name, 96, tp_cap == 3 ? "#ecran" : "capture-telephone"); pcsim_capture = 1; tp_cap = 2; }   /* (v234 ; # : sans fichier) */
     else if (tp_cap == 2 && !pcsim_capture) tp_cap = 0;
 #endif
+    if (tp_tap_retry > 0 && !tp_touch) {                  /* v303 : la zone touchee est apparue ? */
+        if (gp_on && gp_usable() && gp_hit() >= 0) { tp_keys |= PAD_BUTTON_A; tp_tap_retry = 0; } else tp_tap_retry--;
+    }
+    if (tp_touch) {                                       /* v303 : tele tactile : la fleche (ou le pointeur du web) va la ou le doigt touche */
+        tp_touch = 0;
+        f32 u = tp_tu, v = tp_tv;
+        int cc = tp_tc;
+        saver_on = 0; last_input_ms = now_ms();
+        if (tab == TAB_WEB) {
+            input_set_cursor(u * gfx_width(), v * 480);
+            if (cc) input_phone(0, 0, 0, 0, cc == 1 ? 1 : 2);
+        } else if (gp_usable()) {
+            f32 sx = scr_x0 + u * scr_w;                      /* (image de la tele -> repere de l'interface ; 16:9 compris) */
+            gp_x = (sx - ux_o) / ux_k; gp_y = v * 480;
+            if (gp_x < 2) gp_x = 2; if (gp_x > 636) gp_x = 636;
+            if (gp_y < 2) gp_y = 2; if (gp_y > 476) gp_y = 476;
+            gp_on = 1; gp_t = now_ms();
+            tp_tap_retry = 0;
+            if (cc == 1 && gp_hit() >= 0) tp_keys |= PAD_BUTTON_A;   /* (seulement sur quelque chose de cliquable) */
+            else if (cc == 1) tp_tap_retry = 8;                       /* (rien encore : quelques images de plus) */
+            else if (cc == 2) tp_keys |= PAD_BUTTON_B;
+        } else if (cc) tp_keys |= cc == 1 ? PAD_BUTTON_A : PAD_BUTTON_B;   /* (pas de fleche ici : comme avant) */
+    }
     if (tp_mdx || tp_mdy || tp_mw || tp_mc) {             /* v231 : souris tactile */
         int dx = tp_mdx, dy = tp_mdy, w = tp_mw, mc = tp_mc;
         tp_mdx -= dx; tp_mdy -= dy; tp_mw -= w; tp_mc &= ~mc;
