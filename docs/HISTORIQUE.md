@@ -24,6 +24,21 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v302 (build à venir, appli build à venir) — Notice en 3D sur la console, étagère triée, mur de jaquettes, fond d'écran animé
+- **Console : la notice est un vrai livret en 3D** (fiche du jeu, boîte ouverte, X), qu'on manipule fermée comme
+  ouverte : **stick** : la tourner dans tous les sens ; **C** : zoom (zoomée, le stick la déplace) ; **gauche / droite** :
+  tourner une feuille (elle se courbe autour de la reliure) ; **A** : ouvrir / refermer ; **Y** : de face ; **B** : la
+  ranger. Ouverte : deux pages face à face ; vue de derrière : la couverture et le dos. Nombre impair de pages : la
+  dernière est le dos de la notice (aussi dans l'appli). Pages un peu moins grandes en mémoire (4 lues à la fois).
+- **Appli : étagère triée** par Nom, Éditeur, Année ou Temps de jeu (le choix est gardé), avec un **intercalaire** à
+  chaque rayon (lettre, éditeur, année, temps de jeu) qui dépasse des boîtes, son nom sur la tranche. Éditeur et année :
+  la base GameTDB de la console (`fiches-gc.txt`), téléchargée par le téléphone et gardée 30 jours. Sous la boîte du
+  milieu : éditeur, année, genre.
+- **Appli : mur de jaquettes** (onglet Jeux) : les jaquettes en grand, 3 par ligne, qui s'inclinent quand on bouge le
+  téléphone, avec un reflet qui glisse ; toucher : la fiche.
+- **Appli : fond d'écran animé** « GC Station : ma collection » (bouton « En fond d'écran » du mur) : les jaquettes
+  gardées sur le téléphone défilent en 3D sur quatre rangées, parallaxe entre les écrans d'accueil.
+
 ## Nouveautés appli build 92 — Étagère : plus de boîtes noires, plus grande
 - Les boîtes loin du milieu restaient noires (jaquettes chargées seulement 9 de chaque côté, alors qu'on en voyait une
   vingtaine) : maintenant tout ce qui se voit est chargé, avec de la marge (jaquettes réduites pour l'étagère).
