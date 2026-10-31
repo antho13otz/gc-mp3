@@ -45,6 +45,7 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -140,14 +141,16 @@ private fun EnTete(act: StationActivity) {
 
 @Composable
 private fun Bandeaux(act: StationActivity) {
-    AnimatedVisibility(St.horsLigne && St.jeu == null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp).verre(RoundedCornerShape(18.dp), C.Rouge.copy(alpha = 0.5f)).padding(12.dp),
+    var cache by remember { mutableStateOf(false) }                     // (bandeau ferme : il revient a la prochaine coupure)
+    LaunchedEffect(St.horsLigne) { if (!St.horsLigne) cache = false }
+    AnimatedVisibility(St.horsLigne && St.jeu == null && !cache, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+        // (une seule ligne : la console ne repond pas, ce qui est garde reste la ; chercher, manette, fermer)
+        Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp).verre(RoundedCornerShape(14.dp), C.Rouge.copy(alpha = 0.45f)).padding(start = 12.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Doux("La console ne répond pas (" + (Api.host ?: "") + "). Éteinte, en jeu ou hors du Wi-Fi ? L'appli se reconnecte toute seule. Jeux : ce qui est gardé reste disponible.", Modifier.weight(1f), 12, C.Texte)
-            Spacer(Modifier.width(8.dp))
-            Bouton("Chercher", hauteur = 38.dp) { act.search() }
-            Spacer(Modifier.width(6.dp))
-            Bouton("", icone = Ic.Manette, plein = true, hauteur = 38.dp) { act.manetteEnJeu() }
+            Text("Hors-ligne · tes jeux gardés restent là", color = C.Texte, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Box(Modifier.size(34.dp).clip(CircleShape).appui { act.search() }, contentAlignment = Alignment.Center) { Icon(Ic.Chercher, "Chercher la console", tint = C.Texte, modifier = Modifier.size(18.dp)) }
+            Box(Modifier.size(34.dp).clip(CircleShape).appui { act.manetteEnJeu() }, contentAlignment = Alignment.Center) { Icon(Ic.Manette, "Manette dans le jeu", tint = C.Texte, modifier = Modifier.size(18.dp)) }
+            Box(Modifier.size(34.dp).clip(CircleShape).appui { cache = true }, contentAlignment = Alignment.Center) { Icon(Ic.Fermer, "Masquer", tint = C.Pale, modifier = Modifier.size(16.dp)) }
         }
     }
     val e = St.envoi
