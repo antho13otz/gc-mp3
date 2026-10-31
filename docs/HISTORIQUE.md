@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés appli build à venir — Télé en plein écran : bonnes proportions
+## Nouveautés appli build 65 — Télé en plein écran : bonnes proportions
 - En plein écran (paysage), l'image de la télé était écrasée en largeur (étirée sur toute la hauteur) : elle est
   maintenant toujours en 4/3, et l'image agrandie garde ses proportions quoi qu'il arrive.
 
