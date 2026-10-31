@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés appli build à venir — L'appli en anglais
+## Nouveautés appli build 107 — L'appli en anglais
 - **Plus > Apparence > Langue** : *Langue du téléphone* (par défaut : anglais si le téléphone n'est pas en français),
   *Français* ou *English*. Tout change tout de suite (l'appli se recharge pour les anciens écrans).
 - Toute l'appli : onglets, fiches de jeux, étagère, notice, télé, manette, jeu de cartes, globe des radios, fichiers,
