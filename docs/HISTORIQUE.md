@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Étagère : plus de boîtes noires, plus grande
+- Les boîtes loin du milieu restaient noires (jaquettes chargées seulement 9 de chaque côté, alors qu'on en voyait une
+  vingtaine) : maintenant tout ce qui se voit est chargé, avec de la marge (jaquettes réduites pour l'étagère).
+- L'étagère est plus grande : une dizaine de tranches en largeur au lieu d'une vingtaine de petites. La boîte sortie
+  avance assez pour ne plus rester coincée entre ses voisines.
+
 ## Nouveautés appli build 90 — Étagère de collection et intérieur du bac refait
 - **Étagère 3D** (onglet Jeux, « Étagère 3D ») : toutes les boîtes des jeux affichés (recherche et filtre compris),
   rangées côte à côte la tranche vers toi sur une planche. Glisser : parcourir (avec élan, la boîte la plus proche se
