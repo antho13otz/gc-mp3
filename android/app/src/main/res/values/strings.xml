@@ -5,6 +5,6 @@
     <string name="sc_manette">Manette</string>
     <string name="sc_jeux">Jeux</string>
     <string name="sc_recherche">Recherche</string>
-    <string name="tile_label">GC Station</string>
+    <string name="tile_label">GC Remote</string>
     <string name="fond_desc">Les jaquettes de tes jeux GameCube qui défilent en 3D</string>
 </resources>

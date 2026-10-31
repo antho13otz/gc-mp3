@@ -59,12 +59,12 @@ Télécharger et installer ? Android demande ensuite de confirmer. Tes réglages
 Installer	Install
 Plus tard	Later
 Pas de réponse de GitHub	No answer from GitHub
-Autorise GC Station à installer des applis, puis reviens et réessaie.	Allow GC Station to install apps, then come back and try again.
+Autorise GC Remote à installer des applis, puis reviens et réessaie.	Allow GC Remote to install apps, then come back and try again.
 Téléchargement de la nouvelle version…	Downloading the new version…
 Échec du téléchargement	Download failed
 L'appli n'est pas publique : GitHub demande un jeton pour la télécharger. À faire une fois :\n	The app is not public: GitHub needs a token to download it. To do once:\n
 1. « Créer le jeton » ouvre GitHub (connecte-toi).\n	1. "Create the token" opens GitHub (sign in).\n
-2. Nom : GC Station ; Repository access : Only select repositories > 	2. Name: GC Station; Repository access: Only select repositories >
+2. Nom : GC Remote ; Repository access : Only select repositories > 	2. Name: GC Remote; Repository access: Only select repositories >
 3. Permissions > Repository > Actions : Read-only. Generate token, puis copie-le.\n	3. Permissions > Repository > Actions: Read-only. Generate token, then copy it.\n
 4. Colle-le ici. Il reste sur ce téléphone.	4. Paste it here. It stays on this phone.
 Jeton GitHub	GitHub token
@@ -413,7 +413,7 @@ Sortir la boîte	Take the box out
 Ranger	Put back
 Ouvrir	Open
 Fiche du jeu	Game page
-Ouvre GC Station (onglet Jeux) pour garder des jaquettes	Open GC Station (Games tab) to save covers
+Ouvre GC Remote (onglet Jeux) pour garder des jaquettes	Open GC Remote (Games tab) to save covers
 Ouvre l'appli une fois	Open the app once
 GLOBE DES RADIOS	RADIO GLOBE
 Chargement de l'annuaire mondial…	Loading the world directory…
