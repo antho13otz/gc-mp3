@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés appli build à venir — L'appli hors-ligne (sans la console)
+## Nouveautés appli build 79 — L'appli hors-ligne (sans la console)
 - **« Utiliser hors-ligne »** sur l'écran de connexion : l'appli s'ouvre sur **Jeux** sans la console. Tes jeux (temps de
   jeu, favoris, pastilles), jaquettes, boîtes 3D, disques et notices gardés sur le téléphone restent disponibles.
 - La liste des jeux est gardée à chaque connexion ; hors-ligne, l'écran Jeux dit de quand elle date.
