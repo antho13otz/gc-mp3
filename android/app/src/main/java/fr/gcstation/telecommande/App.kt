@@ -287,6 +287,10 @@ private fun PartieEnCours(act: StationActivity) {
                 Spacer(Modifier.height(14.dp))
                 Doux("Pour revenir à GC Station : A + Z + START sur la manette. L'appli se reconnecte toute seule au retour.", taille = 12, centre = true)
                 Spacer(Modifier.height(16.dp))
+                if (g.mem) {
+                    Bouton("Chercheur de codes", Modifier.fillMaxWidth(), icone = Ic.Chercher) { St.jeuMasque = true; St.onglet = 4; St.sous = "Chercheur de codes" }
+                    Spacer(Modifier.height(8.dp))
+                }
                 if (g.padMask != 0) {
                     Bouton("Manette dans le jeu", Modifier.fillMaxWidth(), plein = true, icone = Ic.Manette) { ManetteActivity.open(act, g.padMask) }
                     Spacer(Modifier.height(8.dp))

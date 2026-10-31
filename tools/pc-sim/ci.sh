@@ -106,6 +106,14 @@ Image.new('RGBA', (160, 160), (200, 40, 40, 255)).save('$CI/disque-ci.png')" 2>/
         expect "type d'image refuse" "refus" -T $CI/disque-ci.png "$H/upload?dir=jaquette&nid=$jid&kind=z&name=d.png"
         rm -f "$RUN/sd:/gc-mp3/jaquettes/disques/$jid.png" "$RUN/sd:/gc-mp3/jaquettes/disques/$jid.tex"
     else fail "telephone : liste des jaquettes vide ($jl)"; fi
+    # v306 : succes cree par le chercheur de codes de l'appli : ligne verifiee puis ajoutee au fichier du jeu
+    if [ -n "$jid" ]; then
+        rm -f "$RUN/sd:/gc-mp3/succes/$jid.txt"
+        expect "succes : ligne fausse refusee" '"ok":0' "$H/api/succesadd?id=$jid&codes=Titre%20seul"
+        expect "succes : ajoute" '"ok":1' "$H/api/succesadd?id=$jid&codes=Vies%20CI%20%7C%20Avoir%2099%20vies%20%7C%20m8(0x80400010)%20%3E%3D%2099"
+        expect "succes : vu par le telephone" '"Vies CI","Avoir 99 vies",0' "$H/api/succes"
+        rm -f "$RUN/sd:/gc-mp3/succes/$jid.txt"
+    fi
     # v303 : tele tactile (toucher un endroit de l'image) : refus si hors de l'image, puis un onglet touche
     expect "tele tactile : hors de l'image refuse" '"ok":0' "$H/api/toucher?u=2&v=0.5&c=1"
     expect "tele tactile : fleche deplacee" '"ok":1' "$H/api/toucher?u=0.5&v=0.5&c=0"

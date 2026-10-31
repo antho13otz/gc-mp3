@@ -1439,3 +1439,5 @@
     { "Aussi sur le t\xC3\xA9l\xC3\xA9phone : page /recap (onglet T\xC3\x89L\xC3\x89PHONE)", "Also on the phone: /recap page (PHONE tab)" },
     { "PAGE SUIVANTE", "NEXT PAGE" },
     { "Jaquettes des jeux", "Game covers" },
+    { "Chercheur de codes (appli)", "Code finder (app)" },
+    { "L'appli lit la m\xC3\xA9moire du jeu pendant la partie (Pulse, Broadband Adapter) : trouver ses propres cheats et succ\xC3\xA8s", "The app reads the game's memory during play (Pulse, Broadband Adapter): find your own cheats and achievements" },

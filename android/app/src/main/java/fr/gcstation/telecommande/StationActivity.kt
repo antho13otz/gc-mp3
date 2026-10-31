@@ -75,7 +75,7 @@ class StationActivity : ComponentActivity(), Host {
 
     private val live = object : Live.Listener {
         override fun changed() { if (St.connecte && St.visible) { ui.removeCallbacks(poll); ui.post(poll) } }
-        override fun game(g: Live.Game?) { St.jeuMasque = false; St.jeu = g }
+        override fun game(g: Live.Game?) { St.jeuMasque = false; St.jeu = g; if (g != null) MemoireJeu.veiller(this@StationActivity) }
     }
 
     override fun onCreate(b: Bundle?) {
@@ -178,10 +178,17 @@ class StationActivity : ComponentActivity(), Host {
         }
     }
 
+    private var attenteVue = false
     private fun online() {
         val g = Live.consoleBack()
         if (g != null) Lang.toast(this, "Partie terminée : " + g.name + " · " + Live.dur(g.playedSec()), Toast.LENGTH_LONG).show()
         else if (wasOffline) Lang.toast(this, "Console de retour", Toast.LENGTH_SHORT).show()
+        if (g != null || wasOffline || !attenteVue) Thread {      // (v306 : chercheur de codes : ce qui attendait le retour ; titres des succes)
+            val n = Attente.envoyer(this)
+            Api.get("/api/succes", 6000)?.let { Attente.garderSucces(this, it) }
+            if (n > 0) ui.post { Lang.toast(this, "$n création(s) du chercheur de codes envoyée(s) à GC Station", Toast.LENGTH_LONG).show() }
+        }.start()
+        attenteVue = true
         wasOffline = false
         St.horsLigne = false
         St.jeu = Live.game
@@ -192,6 +199,7 @@ class StationActivity : ComponentActivity(), Host {
         St.visible = true
         Live.add(this, live)
         St.jeu = Live.game
+        MemoireJeu.veiller(this)
         ui.removeCallbacks(poll); if (St.connecte) ui.post(poll)
         ui.removeCallbacks(tick); ui.postDelayed(tick, 1000)
     }

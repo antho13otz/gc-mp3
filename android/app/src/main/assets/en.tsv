@@ -776,3 +776,71 @@ Il reste $x de jeu aujourd'hui	$x of play left today
  ?	?
 \uD83C\uDFAE  Manette : réglages et disposition	\uD83C\uDFAE  Controller: settings and layout
 Manettes du telephone	Phone controllers
+Chercheur de codes	Code finder
+Tes cheats et succès, en jeu	Your cheats and achievements, in game
+Lance un jeu avec Pulse : l'appli lit sa mémoire pendant la partie.	Start a game with Pulse: the app reads its memory during play.
+Ce jeu a été lancé sans le chercheur de codes. Sur la console : START > Réglages > Chercheur de codes (appli) = Oui, puis relance le jeu.	This game was started without the code finder. On the console: START > Settings > Code finder (app) = Yes, then restart the game.
+Pulse ne répond pas (Broadband Adapter branché ? même Wi-Fi ?)	Pulse doesn't answer (Broadband Adapter plugged in? same Wi-Fi?)
+ · succès : 	 · achievements: 
+Taille de la valeur	Value size
+Octet (0-255)	Byte (0-255)
+16 bits	16 bits
+32 bits	32 bits
+Pause du jeu…	Pausing the game…
+Photo de la mémoire (jeu en pause)…	Memory snapshot (game paused)…
+Comparaison…	Comparing…
+Le jeu est figé pendant la photo, puis repart tout seul.	The game is frozen during the snapshot, then resumes by itself.
+Pulse ne répond pas. Sur la console : START > Réglages > Chercheur de codes (appli) = Oui, puis relance le jeu (Broadband Adapter branché).	Pulse doesn't answer. On the console: START > Settings > Code finder (app) = Yes, then restart the game (Broadband Adapter plugged in).
+La console a cessé de répondre pendant la photo	The console stopped answering during the snapshot
+Nouvelle recherche	New search
+Valeur à l'écran (ex. 3 vies)	Value on screen (e.g. 3 lives)
+Valeur connue	Known value
+Valeur inconnue	Unknown value
+Exemple : tu as 3 vies. Cherche 3, perds une vie dans le jeu, puis compare « Égal à 2 ». Recommence jusqu'à quelques adresses. Barre d'énergie sans chiffre : valeur inconnue, puis « Plus petit » après un coup.	Example: you have 3 lives. Search 3, lose a life in the game, then compare "Equal to 2". Repeat until a few addresses are left. Energy bar without a number: unknown value, then "Smaller" after a hit.
+ adresses possibles	 possible addresses
+ adresse possible	 possible address
+Étape 	Step 
+ · joue un peu, puis compare avec la photo d'avant	 · play a bit, then compare with the previous snapshot
+Égal à	Equal to
+Plus grand	Larger
+Plus petit	Smaller
+A changé	Changed
+Pas changé	Unchanged
+Augmenté de	Increased by
+Diminué de	Decreased by
+Valeur	Value
+Comparer	Compare
+Recommencer	Start over
+Adresses (valeurs en direct)	Addresses (live values)
+Adresses	Addresses
+Trop d'adresses pour les afficher : compare encore.	Too many addresses to show: compare again.
+En attente du retour à GC Station	Waiting for the return to GC Station
+Cheat · 	Cheat · 
+Succès · 	Achievement · 
+Envoyés tout seuls quand la console revient (A + Z + START).	Sent by themselves when the console is back (A + Z + START).
+Changer la valeur	Change the value
+Créer un cheat	Create a cheat
+Créer un succès	Create an achievement
+Adresse 	Address 
+Valeur : 	Value: 
+ bits)	 bits)
+Changer la valeur maintenant	Change the value now
+Créer un cheat (valeur bloquée)	Create a cheat (locked value)
+Créer un succès	Create an achievement
+Nouvelle valeur	New value
+Écrite tout de suite dans le jeu (une fois : le jeu peut la changer ensuite).	Written right away in the game (once: the game can change it afterwards).
+Valeur bloquée	Locked value
+Pulse réécrit cette valeur à chaque image. Le cheat est ajouté au jeu au retour à GC Station.	Pulse rewrites this value every frame. The cheat is added to the game when you return to GC Station.
+Titre (ex. Collectionneur)	Title (e.g. Collector)
+Description (ex. Avoir 99 vies)	Description (e.g. Have 99 lives)
+Obtenu quand la valeur reste vraie une demi-seconde. Ajouté au jeu au retour à GC Station (pour la prochaine partie).	Unlocked when the value stays true for half a second. Added to the game when you return to GC Station (for the next game).
+Valeur ?	Value?
+Valeur écrite dans le jeu	Value written in the game
+Pulse ne répond pas	Pulse doesn't answer
+Donne un titre au succès	Give the achievement a title
+Gardé : envoyé à GC Station au retour du jeu	Kept: sent to GC Station when the game ends
+Écrire	Write
+Garder	Keep
+En direct, pendant la partie (chercheur de codes)	Live, during the game (code finder)
+$n création(s) du chercheur de codes envoyée(s) à GC Station	$n code finder creation(s) sent to GC Station
+Chercheur de codes (appli)	Code finder (app)

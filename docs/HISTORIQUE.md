@@ -24,6 +24,27 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v306 (build à venir, appli build à venir) — Chercheur de codes : tes propres cheats et succès
+- **Réglage de la console** : START > Réglages > *Chercheur de codes (appli)* = **Oui** (Broadband Adapter branché).
+  Pendant une partie lancée avec Pulse, l'appli peut alors **lire et écrire la mémoire du jeu** par le réseau.
+- **Appli : Plus > Chercheur de codes** (ou le bouton de l'écran « Partie en cours ») :
+  - **recherche** sur 8, 16 ou 32 bits : valeur connue (ex. 3 vies) ou inconnue (barre d'énergie), puis comparaisons
+    entre deux « photos » de la mémoire : *égal à*, *plus grand*, *plus petit*, *a changé*, *pas changé*,
+    *augmenté de*, *diminué de*, jusqu'à quelques adresses (valeurs en direct sous 40 adresses) ;
+  - pendant une photo (24 Mo), **le jeu est mis en pause** (image figée, son coupé), puis repart tout seul (au plus
+    tard 20 s sans nouvelles du téléphone) ;
+  - une adresse trouvée : **changer sa valeur** tout de suite, **créer un cheat** (valeur bloquée, code Action Replay
+    / Gecko 00/02/04) ou **créer un succès** (Titre | Description | m8/m16/m32(adresse) >= valeur) ; gardés sur le
+    téléphone et **envoyés à GC Station au retour du jeu** (A + Z + START) ;
+  - **succès obtenus en direct** : notification sur le téléphone pendant la partie (avec son titre).
+- Pulse (résident) : paquets UDP « GCM? » sur le port des manettes du téléphone (51237) : état (`I`), pause (`P`),
+  écriture (`W`), lecture par blocs de 1 Ko (`R` : mots nuls pas envoyés, 64 blocs par demande en pause, 2 sinon),
+  annonce des succès (« GCAC ») ; section « PPAD » et BBA aussi sans manette du téléphone (`NRO_MEM`). Banc d'essai :
+  `tools/natif-test/emu_mem.py` (émulateur PowerPC, faux Broadband Adapter).
+- GC Station : `/api/succesadd` (ligne vérifiée puis ajoutée à `SD:/gc-mp3/succes/<ID>.txt`) ; le lancement d'un jeu
+  dit au téléphone si le chercheur est actif. Appli : les titres des sections (en majuscules) se traduisent aussi en
+  anglais.
+
 ## Nouveautés appli build 107 — L'appli en anglais
 - **Plus > Apparence > Langue** : *Langue du téléphone* (par défaut : anglais si le téléphone n'est pas en français),
   *Français* ou *English*. Tout change tout de suite (l'appli se recharge pour les anciens écrans).

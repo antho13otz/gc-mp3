@@ -206,7 +206,7 @@ fun Carte(modifier: Modifier = Modifier, padding: PaddingValues = PaddingValues(
 
 @Composable
 fun Titre(t: String, modifier: Modifier = Modifier, couleur: Color = C.Cyan) {
-    Text(t.uppercase(), modifier, color = couleur, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)
+    Text((if (Lang.anglais) Lang.t(t) else t).uppercase(), modifier, color = couleur, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.6.sp)   // (traduit avant les majuscules)
 }
 
 @Composable

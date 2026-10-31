@@ -1787,7 +1787,7 @@ static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *c
     u32 sl = be32(res + offsetof(natres_hdr_t, si_load)), ss = be32(res + offsetof(natres_hdr_t, si_store));
     na_si_done = na_si_skip = 0;
     for (int pass = 0; pass < 3; pass++) {
-        if (pass == 1 && !*card_on && !(na_opt() & NRO_PHONE)) continue;   /* (manettes du telephone : aussi sans carte virtuelle, pour cacher le BBA au jeu) */
+        if (pass == 1 && !*card_on && !(na_opt() & (NRO_PHONE | NRO_MEM))) continue;   /* (manettes du telephone : aussi sans carte virtuelle, pour cacher le BBA au jeu) */
         if (pass == 2 && !*si_on) break;
         u32 at0 = at, cov = 0;
         int nx = 0;
@@ -1898,6 +1898,7 @@ static u32 na_padmask(void) {                             /* ports donnes aux te
     static const u8 m[5] = { 0, 0x2, 0x6, 0xE, 0x1 };
     return net_ok && ip_str[0] ? m[nat_padtel % 5] : 0;
 }
+static int na_mem_on(void) { return nat_memtel && net_ok && ip_str[0] && !na_net_on; }   /* v306 : chercheur de codes */
 static u32 na_opt(void) {
     static const u8 thr[4] = { 0, 77, 128, 192 };
     u32 o = 0;
@@ -1907,6 +1908,7 @@ static u32 na_opt(void) {
     if (nat_speed) o |= NRO_SPEED;
     if (nat_trap) o |= NRO_TRAP;
     if (na_padmask() && !na_net_on) o |= NRO_PHONE;       /* manettes du telephone */
+    if (na_mem_on()) o |= NRO_MEM;                        /* v306 : chercheur de codes de l'appli */
     return o;
 }
 /* v122 : modes video du jeu. Les jeux decrivent l'image dans des "GXRenderModeObj" (0x3C octets : mode de la
@@ -3201,7 +3203,7 @@ static int na_pad_w = 0, na_pad_on = 0;
 static u32 na_ipv4(const char *s) { unsigned a, b, c, d; return sscanf(s, "%u.%u.%u.%u", &a, &b, &c, &d) == 4 ? (u32)a << 24 | (u32)b << 16 | (u32)c << 8 | d : 0; }
 static void na_pad_prep(void) {
     na_pad_w = na_pad_on = 0;
-    if (!(na_opt() & NRO_PHONE)) return;
+    if (!(na_opt() & (NRO_PHONE | NRO_MEM))) return;
     natres_pad_t *p = (natres_pad_t *)na_pad;
     memset(p, 0, sizeof(*p));
     p->magic = NATRES_PAD_MAGIC; p->len = sizeof(natres_pad_t) / 4;

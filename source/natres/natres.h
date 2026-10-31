@@ -152,11 +152,25 @@ typedef struct {
     /* (resident, v275) vibration : ce que le jeu demande au moteur de chaque port du telephone (commande de lecture, bit 0),
        renvoye a l'appli (UDP "GCRB" vers l'adresse d'ou viennent ses touches) ; nrmb : vibrations demandees (journal) */
     unsigned int rmb[4], rsent[4], pip[4], pport[4], nrmb;
+    /* (resident, v306) chercheur de codes de l'appli (NRO_MEM) : adresse du telephone qui le demande (le dernier paquet
+       "GCM?"), jeu en pause (1), paquets "GCM?" recus, blocs de memoire envoyes, succes a annoncer (paquets "GCAC" restants) */
+    unsigned int mip, mport, mpause, mrx, mblk, mach;
+    unsigned char mmac[8];
     unsigned char pmac[4][8];
 } natres_pad_t;
 #define NRF_PADLOG 1024u                                /* 7e secteur du journal : la section "PPAD" au retour */
 #define NATRES_PADLOG_MAGIC 0x47435350u                 /* "GCSP" */
 #define NRO_PHONE  0x04000000u              /* manettes du telephone (registres SI branches, section "PPAD") */
+/* v306 : chercheur de codes de l'appli : la section "PPAD" et le BBA aussi sans manette du telephone. Paquets UDP sur le
+   meme port : {"GCM?", numero, a, b, c} (20 octets), ? =
+     I : etat ; P : pause (a = 1) ou reprise (a = 0 : aussi seule, 20 s sans paquet) ; W : ecrire la valeur c (b = 1, 2, 4
+     octets) en a ; reponse "GCMA" {numero, en pause, jeu (8 octets en 0x80000000), image (VI), etat des succes (a 0 :
+     pas de succes), n, obtenus (64 bits)}
+     R : lire b blocs de 1 Ko depuis a (b <= 64 en pause, sinon 2) : un paquet "GCMD" par bloc {numero, adresse, 0,
+     carte des mots non nuls (32 octets), mots non nuls}
+   Succes obtenu : "GCAC" {n, obtenus (64 bits)} envoye 3 fois au dernier telephone. */
+#define NRO_MEM    0x08000000u
+#define NATRES_MEM_BLK 1024u
 enum { NRN_OFF = 0, NRN_ON = 1, NRN_NOBBA = 2, NRN_NOLINK = 3, NRN_NOARP = 4, NRN_TIMEOUT = 5 };
 
 #define NATRES_LOGN 1                     /* anneau : {commande, position, longueur, infos} (v145 : 0x1F0 + 1 x 16 = 0x200) */
