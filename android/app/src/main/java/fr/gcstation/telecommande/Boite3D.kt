@@ -46,6 +46,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -53,6 +54,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -86,6 +88,7 @@ import fr.gcstation.telecommande.Geo.M_AVANT
 import fr.gcstation.telecommande.Geo.M_DISQUE
 import fr.gcstation.telecommande.Geo.M_DESSOUS
 import fr.gcstation.telecommande.Geo.M_OMBRE
+import fr.gcstation.telecommande.Geo.M_NOTICE
 
 // ------------------------------------------------------------------ jaquettes de GameTDB (HQ)
 object JaquettesHQ {
@@ -148,6 +151,8 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
     var vue by remember { mutableStateOf<BoiteVue?>(null) }
     var ouvert by remember { mutableStateOf(false) }
     var sorti by remember { mutableStateOf(false) }
+    var pagesNotice by remember { mutableIntStateOf(0) }
+    var noticeOuverte by remember { mutableStateOf(false) }
     LaunchedEffect(id, vue) {
         val v = vue ?: return@LaunchedEffect
         val im = JaquettesHQ.charger(act.cacheDir, id)
@@ -157,6 +162,8 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
             else -> "Pas de jaquette"
         }) + " · " + (if (im.disque != null) "disque du jeu" else "pas d'image du disque") + " (GameTDB)"
         v.textures(im, nom, id)
+        val n = Notices.pages(id)                          // (la notice du jeu, si la console en a une : dans le couvercle)
+        if (n > 0) { Notices.page(act.cacheDir, id, 1)?.let { v.notice(it.asAndroidBitmap()) }; pagesNotice = n }
     }
     Dialog(onDismissRequest = fermer, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(C.Fond)) {
@@ -179,6 +186,7 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
                     Puce("Tranche", false) { vue?.face(1) }
                     Puce("Dos", false) { vue?.face(2) }
                 }
+                if (ouvert && pagesNotice > 0) { Spacer(Modifier.height(10.dp)); Bouton("Lire la notice ($pagesNotice pages)", Modifier.fillMaxWidth()) { noticeOuverte = true } }
                 Spacer(Modifier.height(10.dp))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     Bouton(if (ouvert) "Fermer" else "Ouvrir le boîtier", Modifier.weight(1f)) { vue?.basculer() }
@@ -188,6 +196,7 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
             }
         }
     }
+    if (noticeOuverte) NoticeEcran(act, id, nom, pagesNotice) { noticeOuverte = false }
 }
 
 // ------------------------------------------------------------------ la vue OpenGL
@@ -240,6 +249,7 @@ class BoiteVue(ctx: Context) : GLSurfaceView(ctx) {
         val dessous = Rendu.dessousDisque()
         queueEvent { r.charger(im.full, im.avant, face, dessous) }
     }
+    fun notice(b: Bitmap?) { queueEvent { r.notice(b) } }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         pinch.onTouchEvent(e)
@@ -314,6 +324,10 @@ private class Rendu : GLSurfaceView.Renderer {
     private var texAvant = 0
     private var texDisque = 0
     private var texDessous = 0
+    private var texNotice = 0
+    private var ratioNotice = 0f
+    private var fullDernier = false
+    private var gardeNotice: Bitmap? = null
     private var texOmbre = 0
     private var aniso = 1f
     private var maxTex = 2048
@@ -382,7 +396,8 @@ private class Rendu : GLSurfaceView.Renderer {
     }
 
     private fun construire(full: Boolean) {
-        val m = boitier(full, texAvant != 0)
+        fullDernier = full
+        val m = boitier(full, texAvant != 0, if (texNotice != 0) ratioNotice else 0f)
         val fb = ByteBuffer.allocateDirect(m.v.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
         for (x in m.v) fb.put(x)
         fb.position(0)
@@ -422,6 +437,13 @@ private class Rendu : GLSurfaceView.Renderer {
         texDisque = texture(disque, texDisque)
         texDessous = texture(dessous, texDessous)
         construire(full != null)
+    }
+    /** la notice (sa couverture) dans le couvercle ; null : pas de notice */
+    fun notice(b: Bitmap?) {
+        gardeNotice = b
+        texNotice = texture(b, texNotice)
+        ratioNotice = if (b != null && b.height > 0) b.width.toFloat() / b.height else 0f
+        construire(fullDernier)
     }
 
     private fun ombre(): Bitmap {
@@ -543,10 +565,11 @@ private class Rendu : GLSurfaceView.Renderer {
         val ext = GLES20.glGetString(GLES20.GL_EXTENSIONS) ?: ""
         if (ext.contains("GL_EXT_texture_filter_anisotropic")) { val a = FloatArray(1); GLES20.glGetFloatv(0x84FF, a, 0); aniso = max(1f, a[0]) }
         val mx = IntArray(1); GLES20.glGetIntegerv(GLES20.GL_MAX_TEXTURE_SIZE, mx, 0); maxTex = min(8192, max(2048, mx[0]))
-        texFull = 0; texAvant = 0; texDisque = 0; texDessous = 0
+        texFull = 0; texAvant = 0; texDisque = 0; texDessous = 0; texNotice = 0
         texOmbre = texture(ombre(), 0)
         construire(false)
         garde?.let { g -> g[2]?.let { d -> g[3]?.let { u -> charger(g[0], g[1], d, u) } } }
+        gardeNotice?.let { notice(it) }
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
     }
 
@@ -631,7 +654,7 @@ private class Rendu : GLSurfaceView.Renderer {
         fun dessiner(piece: Int) {
             for (g in maillage.groupes) {
                 if (g.piece != piece) continue
-                val tex = when (g.mat) { M_FULL -> texFull; M_AVANT -> texAvant; M_DISQUE -> texDisque; M_DESSOUS -> texDessous; M_OMBRE -> texOmbre; else -> 0 }
+                val tex = when (g.mat) { M_FULL -> texFull; M_AVANT -> texAvant; M_DISQUE -> texDisque; M_DESSOUS -> texDessous; M_OMBRE -> texOmbre; M_NOTICE -> texNotice; else -> 0 }
                 if (tex != 0) { GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex); GLES20.glUniform1f(uUse, 1f) } else GLES20.glUniform1f(uUse, 0f)
                 GLES20.glUniform4f(uCol, g.r, g.g, g.b, 1f)
                 GLES20.glUniform1f(uGloss, g.brillant)

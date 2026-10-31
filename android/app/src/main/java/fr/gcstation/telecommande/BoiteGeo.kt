@@ -13,6 +13,7 @@ object Geo {
         const val DR = 0.445f                                     // (disque de 8 cm)
         const val P_BAC = 0; const val P_COUV = 1; const val P_DISQUE = 2; const val P_SOL = 3
         const val M_COULEUR = 0; const val M_FULL = 1; const val M_AVANT = 2; const val M_DISQUE = 3; const val M_DESSOUS = 4; const val M_OMBRE = 5
+        const val M_NOTICE = 6                                    // (la notice dans le couvercle, console v296)
     /** contour arrondi (sens trigo) : points {x, y, nx, ny} */
     fun contour(x: Float, y: Float, r: Float, n: Int = 10): List<FloatArray> {
             val l = ArrayList<FloatArray>()
@@ -47,7 +48,7 @@ class Maillage {
 
 
 /** le boitier (bac, couvercle), le disque et l'ombre ; full : jaquette complete ; avant : jaquette avant seule */
-fun boitier(full: Boolean, avant: Boolean): Maillage {
+fun boitier(full: Boolean, avant: Boolean, notice: Float = 0f): Maillage {   // notice : largeur / hauteur de la notice (0 : pas de notice)
     val X = Geo.X; val Y = Geo.Y; val Z = Geo.Z; val T = Geo.T; val R = Geo.R; val SP = Geo.SP; val DR = Geo.DR
     val P_BAC = Geo.P_BAC; val P_COUV = Geo.P_COUV; val P_DISQUE = Geo.P_DISQUE; val P_SOL = Geo.P_SOL
     val M_COULEUR = Geo.M_COULEUR; val M_FULL = Geo.M_FULL; val M_AVANT = Geo.M_AVANT; val M_DISQUE = Geo.M_DISQUE; val M_DESSOUS = Geo.M_DESSOUS; val M_OMBRE = Geo.M_OMBRE
@@ -172,6 +173,16 @@ fun boitier(full: Boolean, avant: Boolean): Maillage {
     m.commencer(P_COUV, M_COULEUR, bord, 0.8f, 4); anneau(ext, inn, zi, -1f)
     m.commencer(P_COUV, M_COULEUR, gris, 0.6f, 4); paroi(inn, zi, zl, false, false); paroi(inn, zi, zl, false, true)
     m.commencer(P_COUV, M_COULEUR, fond, 0.5f, 4); plaque(inn, zl, -1f, null)
+    // la notice, posee au fond du couvercle sous les attaches (cote qui s'ouvre) ; ouvert, le couvercle est retourne :
+    // le cote x > 0 passe a gauche, la couverture se lit a l'endroit
+    if (notice > 0f) {
+        m.commencer(P_COUV, Geo.M_NOTICE, 0xFFFFFF, 0.3f, 4)
+        var hh = 2 * (Y - 0.035f) * 0.94f; var w = hh * notice
+        val wMax = 2 * (X - 0.035f) * 0.93f
+        if (w > wMax) { w = wMax; hh = w / notice }
+        val x1 = X - 0.055f; val x0 = x1 - w; val zn = zl - 0.003f
+        m.quad(p(x0, -hh / 2, zn, 0f, 0f, -1f, 1f, 1f), p(x1, -hh / 2, zn, 0f, 0f, -1f, 0f, 1f), p(x1, hh / 2, zn, 0f, 0f, -1f, 0f, 0f), p(x0, hh / 2, zn, 0f, 0f, -1f, 1f, 0f))
+    }
     // attaches de la notice, comme le vrai : un crochet courbe en "C" qui part du bord (en haut et en bas, du cote qui
     // s'ouvre) : une bande plate puis un demi-cercle qui redescend sur le fond
     m.commencer(P_COUV, M_COULEUR, 0xB4B5BB, 1.2f)
