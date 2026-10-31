@@ -71,12 +71,15 @@ fun EtagereEcran(act: StationActivity, jeux: List<Jeu>, fiche: (Jeu) -> Unit, fe
     // jaquettes des boites autour du milieu (les plus proches d'abord)
     LaunchedEffect(vue, centre) {
         val v = vue ?: return@LaunchedEffect
-        val voulues = (centre - 9..centre + 9).filter { it in jeux.indices }.sortedBy { abs(it - centre) }
+        val voulues = (centre - 14..centre + 14).filter { it in jeux.indices }.sortedBy { abs(it - centre) }   // (tout ce qui se voit, et de la marge)
         v.garder(voulues.toSet())
         for (k in voulues) {
             if (v.aDeja(k)) continue
             val im = JaquettesHQ.chargerEtagere(Hors.dir(act), jeux[k].id)
-            v.images(k, im.full, im.avant)
+            // (reduites pour l'etagere : jaquette complete 1024 x 512, la tranche reste nette ; avant seule 512 x 1024)
+            val f = im.full?.let { if (it.width > 1024 || it.height > 512) Bitmap.createScaledBitmap(it, 1024, 512, true) else it }
+            val a = im.avant?.let { if (it.width > 512 || it.height > 1024) Bitmap.createScaledBitmap(it, 512, 1024, true) else it }
+            v.images(k, f, a)
         }
     }
     Dialog(onDismissRequest = fermer, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
@@ -122,7 +125,7 @@ class EtagereVue(ctx: Context, n: Int) : GLSurfaceView(ctx) {
     var surOuvrir: ((Int) -> Unit)? = null
     private val charges = ConcurrentHashMap.newKeySet<Int>()
     private val pinch = ScaleGestureDetector(ctx, object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
-        override fun onScale(d: ScaleGestureDetector): Boolean { r.zoom = (r.zoom * d.scaleFactor).coerceIn(0.6f, 3.5f); return true }
+        override fun onScale(d: ScaleGestureDetector): Boolean { r.zoom = (r.zoom * d.scaleFactor).coerceIn(0.8f, 3.5f); return true }
     })
     private val gestes = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
         override fun onDown(e: MotionEvent): Boolean { r.vScroll = 0f; r.tient = true; return true }
@@ -336,7 +339,7 @@ private class RenduEtagere(val n: Int) : GLSurfaceView.Renderer {
         val fov = if (aspect < 1) 40f else 30f
         Matrix.perspectiveM(proj, 0, fov, aspect, 0.1f, 80f)
         val tv = kotlin.math.tan(Math.toRadians(fov / 2.0)).toFloat()
-        val dist = (if (aspect < 1) 1.9f / (tv * aspect) else 1.6f / tv) / zoom    // (portrait : une dizaine de tranches en largeur)
+        val dist = (if (aspect < 1) 0.85f / (tv * aspect) else 1.3f / tv) / zoom   // (portrait : une dizaine de tranches en largeur)
         unite = 2f * dist * tv / h
         val eye = floatArrayOf(0f, 0.55f, dist + Geo.X)
         Matrix.setLookAtM(vueM, 0, eye[0], eye[1], eye[2], 0f, -0.1f, 0f, 0f, 1f, 0f)
@@ -375,7 +378,7 @@ private class RenduEtagere(val n: Int) : GLSurfaceView.Renderer {
         // la planche et le mur
         lier(mPlanche); Matrix.setIdentityM(mod, 0); matrices(mod); dessiner(mPlanche, 0, 0)
         // les boites visibles (tranche vers nous ; la boite sortie avance et se tourne, jaquette avant vers nous)
-        val vis = (dist * tv * max(aspect, 1f) / PAS).toInt() + 3
+        val vis = ((dist + 2f) * tv * aspect / PAS).toInt() + 3
         var lie: Maillage? = null
         for (k in max(0, c - vis)..min(n - 1, c + vis)) {
             val tf = texFull[k] ?: 0; val ta = texAvant[k] ?: 0
@@ -384,7 +387,7 @@ private class RenduEtagere(val n: Int) : GLSurfaceView.Renderer {
             val s = sortie[k]
             val e = s * s * (3 - 2 * s)
             Matrix.setIdentityM(mod, 0)
-            Matrix.translateM(mod, 0, k * PAS - scroll, 0.06f * e, 1.1f * e)
+            Matrix.translateM(mod, 0, k * PAS - scroll, 0.10f * e, 1.0f * e)
             Matrix.rotateM(mod, 0, 90f - 76f * e, 0f, 1f, 0f)
             Matrix.rotateM(mod, 0, -6f * e, 0f, 0f, 1f)
             matrices(mod)
