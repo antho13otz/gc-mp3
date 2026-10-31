@@ -24,6 +24,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Étagère de collection et intérieur du bac refait
+- **Étagère 3D** (onglet Jeux, « Étagère 3D ») : toutes les boîtes des jeux affichés (recherche et filtre compris),
+  rangées côte à côte la tranche vers toi sur une planche. Glisser : parcourir (avec élan, la boîte la plus proche se
+  cale au milieu) ; toucher une boîte (ou « Sortir la boîte ») : elle sort de l'étagère et se tourne, jaquette avant
+  vers toi ; la retoucher (ou « Ouvrir ») : la boîte 3D s'ouvre ; « Fiche du jeu » ; toucher ailleurs : elle se range.
+  Deux doigts : zoomer. Jaquettes chargées au fur et à mesure (téléphone, sinon GameTDB).
+- **Intérieur du bac**, d'après la photo : hexagone pointes en haut et en bas avec ses quatre pans clairs inclinés,
+  anneau en relief où se pose le disque, fin cercle intérieur, fente du centre avec ses deux barres et le bouton en
+  « S » (PUSH HERE) sur sa base claire, cadre « MEMORY CARD STORAGE » ouvert en bas avec ses deux languettes, et les deux
+  dessins en creux ✓ / ✗ en bas à droite.
+
 ## Nouveautés v301 (build 795, appli build 88) — Jaquettes et disques envoyés par le téléphone
 - **Appli** : onglet Jeux, **« Envoyer jaquettes et disques à la console »** : le téléphone télécharge sur GameTDB ce
   qui manque à la GameCube (jaquette de la liste, jaquette complète de la boîte, en option la HD pour le zoom, image du

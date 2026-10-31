@@ -135,30 +135,80 @@ fun boitier(full: Boolean, avant: Boolean, notice: Float = 0f): Maillage {   // 
             m.quad(p(cx + r0 * c1, cy + r0 * s1, z0, -c1, -s1, 0f), p(cx + r0 * c0, cy + r0 * s0, z0, -c0, -s0, 0f), p(cx + r0 * c0, cy + r0 * s0, z1, -c0, -s0, 0f), p(cx + r0 * c1, cy + r0 * s1, z1, -c1, -s1, 0f))
         }
     }
-    // support du disque, comme le vrai : plateau hexagonal a peine en relief (pointes a gauche et a droite) borde d'un
-    // fin rebord ; anneau fin ou le bord du disque se pose ; nervures sombres autour ; au centre, deux barres et un "S"
-    val zh = zf + 0.006f
-    m.commencer(P_BAC, M_COULEUR, 0x5A5A60, 0.7f, 4)
-    plaque(hexa(0.62f), zh, 1f, null)
-    m.commencer(P_BAC, M_COULEUR, 0x76767C, 0.9f, 4)
-    paroi(hexa(0.62f), zf, zh + 0.004f, true, false); anneau(hexa(0.62f), hexa(0.60f), zh + 0.004f, 1f); paroi(hexa(0.60f), zh, zh + 0.004f, false, false)
-    m.commencer(P_BAC, M_COULEUR, 0x404045, 0.7f, 4)                      // (anneau du disque : deux traits fins)
-    arc(0f, 0f, DR + 0.012f, DR + 0.020f, 0.0, 360.0, zh, zh + 0.008f, 96); arc(0f, 0f, DR + 0.030f, DR + 0.036f, 0.0, 360.0, zh, zh + 0.005f, 96)
-    m.commencer(P_BAC, M_COULEUR, 0x36363B, 0.6f, 4)                      // (nervures en coin autour de l'anneau)
-    for (k in 0 until 8) { val a = Math.toRadians(22.5 + 45.0 * k); val r = DR + 0.06f
-        bloc((r * kotlin.math.cos(a)).toFloat(), (r * kotlin.math.sin(a)).toFloat(), a, 0.09f, 0.05f, zh, zh + 0.016f) }
-    m.commencer(P_BAC, M_COULEUR, 0xE4E5EA, 1.4f)                         // (le motif central, plastique blanc)
-    pave(-0.052f, -0.13f, -0.042f, 0.13f, zh, zh + 0.03f); pave(0.042f, -0.13f, 0.052f, 0.13f, zh, zh + 0.03f)
-    arc(0f, 0.036f, 0.028f, 0.037f, 90.0, 270.0, zh, zh + 0.026f); arc(0f, -0.036f, 0.028f, 0.037f, -90.0, 90.0, zh, zh + 0.026f)
-    pave(-0.004f, -0.002f, 0.004f, 0.002f, zh, zh + 0.026f)
-    m.commencer(P_BAC, M_COULEUR, 0x4A4A50, 0.6f, 4)                      // (fond du motif : cadre sombre a peine marque)
-    pave(-0.06f, -0.14f, 0.06f, 0.14f, zh, zh + 0.001f)
-    // petite attache en bas, pres de la charniere : un cadre fin et deux languettes claires
-    m.commencer(P_BAC, M_COULEUR, 0x2E2E33, 0.6f, 4)
-    val ax0 = -X + 0.09f; val ax1 = -X + 0.42f; val ay0 = -Y + 0.20f; val ay1 = -Y + 0.36f
-    pave(ax0, ay1 - 0.012f, ax1, ay1, zf, zf + 0.012f); pave(ax0, ay0, ax0 + 0.012f, ay1, zf, zf + 0.012f); pave(ax1 - 0.012f, ay0, ax1, ay1, zf, zf + 0.012f)
-    m.commencer(P_BAC, M_COULEUR, 0xD8D9DE, 1.2f)
-    pave(ax0 + 0.012f, ay0 + 0.03f, ax0 + 0.05f, ay0 + 0.10f, zf, zf + 0.02f); pave(ax1 - 0.05f, ay0 + 0.02f, ax1 - 0.012f, ay0 + 0.09f, zf, zf + 0.02f)
+    // demi-disque (ou disque) en relief : centre, rayon, angles en degres, hauteurs (bouton du centre)
+    fun lobe(cx: Float, cy: Float, r: Float, a0: Double, a1: Double, z0: Float, z1: Float, n: Int = 24) {
+        val pts = (0..n).map { i -> val a = Math.toRadians(a0 + (a1 - a0) * i / n); floatArrayOf(cx + r * kotlin.math.cos(a).toFloat(), cy + r * kotlin.math.sin(a).toFloat(), kotlin.math.cos(a).toFloat(), kotlin.math.sin(a).toFloat()) }
+        val c = p(cx, cy, z1, 0f, 0f, 1f)
+        for (i in 0 until n) { val a = pts[i]; val b = pts[i + 1]
+            m.tri(c, p(a[0], a[1], z1, 0f, 0f, 1f), p(b[0], b[1], z1, 0f, 0f, 1f))
+            m.quad(p(a[0], a[1], z0, a[2], a[3], 0f), p(b[0], b[1], z0, b[2], b[3], 0f), p(b[0], b[1], z1, b[2], b[3], 0f), p(a[0], a[1], z1, a[2], a[3], 0f)) }
+        if (a1 - a0 < 359.0) { val a = pts[n]; val b = pts[0]; val nx = -(b[1] - a[1]); val ny = b[0] - a[0]; val l = kotlin.math.sqrt(nx * nx + ny * ny)
+            m.quad(p(a[0], a[1], z0, nx / l, ny / l, 0f), p(b[0], b[1], z0, nx / l, ny / l, 0f), p(b[0], b[1], z1, nx / l, ny / l, 0f), p(a[0], a[1], z1, nx / l, ny / l, 0f)) }
+    }
+    // support du disque, comme le vrai : grand hexagone a peine en relief, pointes en haut et en bas ; quatre pans clairs
+    // inclines en diagonale (pour prendre le disque) ; anneau en relief ou le disque se pose ; un fin cercle a l'interieur ;
+    // au centre, la fente sombre avec ses deux barres, le bouton en "S" (PUSH HERE) et sa base claire
+    val RH = 0.64f; val apo = RH * 0.8660254f
+    fun hexP(r: Float) = (0 until 6).map { i -> val a = Math.toRadians(90.0 + 60.0 * i); floatArrayOf((r * kotlin.math.cos(a)).toFloat(), (r * kotlin.math.sin(a)).toFloat(), kotlin.math.cos(a + Math.PI / 6).toFloat(), kotlin.math.sin(a + Math.PI / 6).toFloat()) }
+    fun hexDist(t: Double): Float { val d = Math.toDegrees(t); val phi = Math.round((d - 0.0) / 60.0) * 60.0; return (apo / kotlin.math.cos(Math.toRadians(d - phi))).toFloat() }
+    val zh = zf + 0.009f
+    m.commencer(P_BAC, M_COULEUR, 0x66666E, 0.7f, 4)
+    plaque(hexP(RH), zh, 1f, null)
+    m.commencer(P_BAC, M_COULEUR, 0x82828A, 0.9f, 4)
+    paroi(hexP(RH), zf, zh, true, false)
+    m.commencer(P_BAC, M_COULEUR, 0x8E8E96, 0.9f, 4)                      // (pans clairs inclines)
+    val rIn = DR + 0.032f
+    for (c in doubleArrayOf(52.0, 128.0, 232.0, 308.0)) {
+        val n = 8
+        for (i in 0 until n) {
+            val t0 = Math.toRadians(c - 15 + 30.0 * i / n); val t1 = Math.toRadians(c - 15 + 30.0 * (i + 1) / n)
+            val o0 = hexDist(t0); val o1 = hexDist(t1)
+            val c0 = kotlin.math.cos(t0).toFloat(); val s0 = kotlin.math.sin(t0).toFloat(); val c1 = kotlin.math.cos(t1).toFloat(); val s1 = kotlin.math.sin(t1).toFloat()
+            val nz = 0.85f; val nr = -0.53f                             // (pente qui descend vers le disque)
+            val tm = (t0 + t1) / 2; val cm = kotlin.math.cos(tm).toFloat(); val sm = kotlin.math.sin(tm).toFloat()
+            m.quad(p(rIn * c0, rIn * s0, zh + 0.001f, -cm * nr, -sm * nr, nz), p(o0 * c0, o0 * s0, zh + 0.012f, -cm * nr, -sm * nr, nz),
+                   p(o1 * c1, o1 * s1, zh + 0.012f, -cm * nr, -sm * nr, nz), p(rIn * c1, rIn * s1, zh + 0.001f, -cm * nr, -sm * nr, nz))
+            m.quad(p(o0 * c0, o0 * s0, zh, cm, sm, 0f), p(o1 * c1, o1 * s1, zh, cm, sm, 0f), p(o1 * c1, o1 * s1, zh + 0.012f, cm, sm, 0f), p(o0 * c0, o0 * s0, zh + 0.012f, cm, sm, 0f))
+        }
+        for (e in doubleArrayOf(c - 15, c + 15)) {                      // (cotes du pan)
+            val t = Math.toRadians(e); val o = hexDist(t); val cc = kotlin.math.cos(t).toFloat(); val ss = kotlin.math.sin(t).toFloat(); val sg = if (e < c) -1f else 1f
+            m.tri(p(rIn * cc, rIn * ss, zh, -ss * sg, cc * sg, 0f), p(o * cc, o * ss, zh, -ss * sg, cc * sg, 0f), p(o * cc, o * ss, zh + 0.012f, -ss * sg, cc * sg, 0f))
+        }
+    }
+    m.commencer(P_BAC, M_COULEUR, 0x86868E, 1.0f, 4)                      // (anneau en relief : le disque s'y pose)
+    arc(0f, 0f, DR + 0.012f, DR + 0.032f, 0.0, 360.0, zh, zh + 0.008f, 120)
+    m.commencer(P_BAC, M_COULEUR, 0x3E3E44, 0.6f, 4)                      // (son ombre a l'interieur, et le fin cercle)
+    arc(0f, 0f, DR + 0.002f, DR + 0.012f, 0.0, 360.0, zh, zh + 0.0008f, 120)
+    arc(0f, 0f, 0.168f, 0.174f, 0.0, 360.0, zh, zh + 0.0006f, 72)
+    m.commencer(P_BAC, M_COULEUR, 0x2C2C31, 0.5f, 4)                      // (la fente du centre)
+    pave(-0.075f, -0.15f, 0.075f, 0.15f, zh, zh + 0.0008f)
+    m.commencer(P_BAC, M_COULEUR, 0x7C7268, 0.8f, 4)                      // (les deux barres, un peu usees)
+    pave(-0.072f, -0.15f, -0.060f, 0.15f, zh, zh + 0.006f); pave(0.060f, -0.15f, 0.072f, 0.15f, zh, zh + 0.006f)
+    m.commencer(P_BAC, M_COULEUR, 0x9497A0, 1.0f, 4)                      // (base claire du bouton)
+    pave(-0.042f, -0.115f, 0.042f, -0.05f, zh, zh + 0.004f)
+    m.commencer(P_BAC, M_COULEUR, 0x5E5E66, 1.1f)                         // (le bouton en "S" : deux demi-disques decales)
+    lobe(-0.006f, 0.022f, 0.052f, 30.0, 210.0, zh, zh + 0.0085f); lobe(0.006f, -0.022f, 0.052f, 210.0, 390.0, zh, zh + 0.0085f)
+    // rangement de carte memoire (en bas, cote charniere) : cadre fin ouvert en bas, deux languettes beiges, le texte en relief
+    m.commencer(P_BAC, M_COULEUR, 0x45454B, 0.7f, 4)
+    val ax0 = -X + 0.06f; val ax1 = -X + 0.50f; val ay0 = -Y + 0.20f; val ay1 = -Y + 0.50f
+    pave(ax0, ay1 - 0.010f, ax1, ay1, zf, zf + 0.010f); pave(ax0, ay0, ax0 + 0.010f, ay1, zf, zf + 0.010f); pave(ax1 - 0.010f, ay0, ax1, ay1, zf, zf + 0.010f)
+    m.commencer(P_BAC, M_COULEUR, 0x50505A, 0.6f, 4)
+    for (k in 0 until 18) { val x = ax0 + 0.06f + k * 0.019f; pave(x, ay1 - 0.055f, x + 0.012f, ay1 - 0.035f, zf, zf + 0.0015f) }
+    m.commencer(P_BAC, M_COULEUR, 0xC9C1B2, 1.0f, 4)
+    pave(ax0 + 0.010f, ay0 + 0.03f, ax0 + 0.055f, ay0 + 0.18f, zf, zf + 0.012f); pave(ax1 - 0.055f, ay0 + 0.03f, ax1 - 0.010f, ay0 + 0.18f, zf, zf + 0.012f)
+    // les deux dessins en creux (en bas a droite) : comment prendre le disque (bon : appuyer au centre / mauvais : tirer)
+    m.commencer(P_BAC, M_COULEUR, 0x38383E, 0.6f, 4)
+    for ((x0, x1) in listOf(-0.24f to 0.10f, 0.13f to 0.47f)) {
+        val y0 = -Y + 0.07f; val y1 = -Y + 0.40f; val e = 0.008f
+        pave(x0, y0, x1, y0 + e, zf, zf + 0.002f); pave(x0, y1 - e, x1, y1, zf, zf + 0.002f); pave(x0, y0, x0 + e, y1, zf, zf + 0.002f); pave(x1 - e, y0, x1, y1, zf, zf + 0.002f)
+        val cx = (x0 + x1) / 2; val cy = y0 + 0.13f
+        arc(cx, cy, 0.075f, 0.082f, 0.0, 360.0, zf, zf + 0.002f, 40); arc(cx, cy, 0.022f, 0.028f, 0.0, 360.0, zf, zf + 0.002f, 20)
+    }
+    bloc(-0.07f + 0.02f, -Y + 0.30f, Math.toRadians(70.0), 0.13f, 0.03f, zf, zf + 0.002f)                     // (bon : un doigt au centre)
+    bloc(0.30f + 0.06f, -Y + 0.24f, Math.toRadians(-20.0), 0.14f, 0.03f, zf, zf + 0.002f)                     // (mauvais : la main qui tire)
+    m.commencer(P_BAC, M_COULEUR, 0x2A2A2F, 0.6f, 4)                      // (le ✓ et le ✗ au-dessus)
+    bloc(-0.085f, -Y + 0.435f, Math.toRadians(-45.0), 0.035f, 0.012f, zf, zf + 0.006f); bloc(-0.058f, -Y + 0.445f, Math.toRadians(58.0), 0.07f, 0.012f, zf, zf + 0.006f)
+    bloc(0.30f, -Y + 0.44f, Math.toRadians(45.0), 0.06f, 0.012f, zf, zf + 0.006f); bloc(0.30f, -Y + 0.44f, Math.toRadians(-45.0), 0.06f, 0.012f, zf, zf + 0.006f)
     // fentes : une en haut a droite
     m.commencer(P_BAC, M_COULEUR, 0x202024, 0.5f, 4)
     pave(X - 0.075f, Y - 0.48f, X - 0.06f, Y - 0.26f, zf, zf + 0.002f)
