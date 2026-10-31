@@ -193,13 +193,25 @@ private fun CelluleJeu(act: Activity, g: Jeu, cp: Int, onClick: () -> Unit) {
                 Spacer(Modifier.height(6.dp))
                 Doux(g.nom, taille = 11, lignes = 3, centre = true)
             }
+            val dr = pays(g.id).first                      // (drapeau du pays du jeu, en bas a gauche de la jaquette)
+            if (dr.isNotEmpty()) Box(Modifier.align(Alignment.BottomStart).padding(6.dp).clip(RoundedCornerShape(6.dp)).background(Color(0x99000000)).padding(horizontal = 4.dp, vertical = 1.dp)) {
+                Text(dr, fontSize = 14.sp)
+            }
             if (cp in 1..4) Box(Modifier.align(Alignment.TopEnd).padding(7.dp).size(16.dp).clip(CircleShape).background(CP_COL[cp]).border(2.dp, Color(0xFF0C0418), CircleShape))
             if (g.favori) Icon(Ic.Etoile, null, tint = C.Rose, modifier = Modifier.align(Alignment.TopStart).padding(6.dp).size(18.dp))
         }
         Spacer(Modifier.height(6.dp))
         Text(g.nom, color = C.Texte, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Doux(g.id + if (g.minutes > 0) " · " + duree(g.minutes) else "", taille = 11, lignes = 1)
+        Doux(pays(g.id).first.let { if (it.isEmpty()) "" else "$it " } + g.id + if (g.minutes > 0) " · " + duree(g.minutes) else "", taille = 11, lignes = 1)
     }
+}
+
+/** pays du jeu, d'apres la 4e lettre de son code (GTEP01 : P = Europe) : drapeau et nom */
+fun pays(id: String): Pair<String, String> = when (id.getOrNull(3)) {
+    'E' -> "🇺🇸" to "États-Unis"; 'J' -> "🇯🇵" to "Japon"; 'P', 'X', 'Y', 'Z' -> "🇪🇺" to "Europe"; 'F' -> "🇫🇷" to "France"
+    'D' -> "🇩🇪" to "Allemagne"; 'S' -> "🇪🇸" to "Espagne"; 'I' -> "🇮🇹" to "Italie"; 'H' -> "🇳🇱" to "Pays-Bas"
+    'U' -> "🇦🇺" to "Australie"; 'K' -> "🇰🇷" to "Corée"; 'W' -> "🇹🇼" to "Taïwan"; 'R' -> "🇷🇺" to "Russie"
+    else -> "" to ""
 }
 
 private fun duree(min: Int) = if (min >= 60) (min / 60).toString() + " h " + (min % 60) + " min" else "$min min"
@@ -280,7 +292,8 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                 Spacer(Modifier.width(16.dp))
                 Column(Modifier.weight(1f)) {
                     Text(g.nom, color = C.Texte, fontSize = 19.sp, fontWeight = FontWeight.Bold, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                    Text(g.id, color = C.Cyan, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    val (dr, pn) = pays(g.id)
+                    Text((if (dr.isEmpty()) "" else "$dr ") + g.id + (if (pn.isEmpty()) "" else " · $pn"), color = C.Cyan, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                     Doux(if (g.minutes > 0) "Joué " + duree(g.minutes) else "Jamais joué avec Pulse", taille = 12)
                     if (g.lancements > 0) Doux("Lancé " + g.lancements + " fois" + (if (g.dernier > 0) " · dernière fois " + LastLaunch.ago(g.dernier) else ""), taille = 12)
                     val pr = LastLaunch.forGame(act, g.id)

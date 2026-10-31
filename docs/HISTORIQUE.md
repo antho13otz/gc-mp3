@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Drapeau du pays des jeux ; le disque sorti tourne seul
+- **Jeux** : le **drapeau du pays** du jeu (d'après la 4e lettre de son code : P Europe, E États-Unis, J Japon,
+  F France, D Allemagne…) en bas à gauche de la jaquette, à côté du code, et dans la fiche avec le nom du pays.
+- **Boîte 3D** : quand le disque est sorti, le lancer du doigt ne fait plus tourner la boîte derrière (le disque
+  garde son élan, la boîte reste en place).
+
 ## Nouveautés v295 (build 787, appli build 67) — Télé sur le téléphone : moins de saccades
 - **Console : l'image suivante préparée d'avance** : dès qu'une image part vers le téléphone, la console prépare la
   suivante (capture et compression) pendant que le téléphone la reçoit ; à la demande suivante, elle part tout de
