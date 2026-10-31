@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v299 (build à venir) — Un .zip de notice remplace l'ancienne
+## Nouveautés v299 (build 791) — Un .zip de notice remplace l'ancienne
 - Installer un .zip de notice (TÉLÉCHARGEMENTS, A) efface d'abord l'ancienne notice du même jeu : plus de pages en trop
   quand la nouvelle en a moins.
 
