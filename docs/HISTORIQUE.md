@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v302 (build à venir, appli build à venir) — Notice en 3D sur la console, étagère triée, mur de jaquettes, fond d'écran animé
+## Nouveautés v302 (build 797, appli build 94) — Notice en 3D sur la console, étagère triée, mur de jaquettes, fond d'écran animé
 - **Console : la notice est un vrai livret en 3D** (fiche du jeu, boîte ouverte, X), qu'on manipule fermée comme
   ouverte : **stick** : la tourner dans tous les sens ; **C** : zoom (zoomée, le stick la déplace) ; **gauche / droite** :
   tourner une feuille (elle se courbe autour de la reliure) ; **A** : ouvrir / refermer ; **Y** : de face ; **B** : la
