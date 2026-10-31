@@ -450,7 +450,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
     }
 
     if (boite) Boite3DEcran(act, g.id, g.nom, { boite = false; lancer(1) }) { boite = false }
-    if (noticeOuverte) NoticeEcran(act, g.id, g.nom, notice) { noticeOuverte = false }
+    if (noticeOuverte) Notice3DEcran(act, g.id, g.nom, notice) { noticeOuverte = false }
     if (noticeAjout) AlertDialog(onDismissRequest = { noticeAjout = false }, containerColor = Color(0xFF1A0E30),
         title = { Text(if (notice > 0) "Remplacer la notice" else "Ajouter une notice", color = C.Texte) },
         text = {
