@@ -391,7 +391,7 @@ static void dltab_pump(void) {
 static int dl_rows(void) { return dlh_n; }
 static char nt_id[8];                                      /* (notice.c) */
 /* v297 : l'archive .zip contient-elle des fichiers sous ce dossier (ex. "notices/") ? */
-static int zip_has_dir(const char *zpath, const char *pre) {
+static int zip_has_dir(const char *zpath, const char *pre, char ids[][8], int *nid) {   /* (v299 : ids : les <ID> de notices/<ID>/) */
     FILE *f = fopen(zpath, "rb");
     if (!f) return 0;
     long fsz = 0;
@@ -407,10 +407,18 @@ static int zip_has_dir(const char *zpath, const char *pre) {
             u8 *cd = cds && cds <= (1u << 20) && (u64)cdo + cds <= (u64)fsz ? (u8 *)malloc(cds) : NULL;
             if (cd && fseek(f, cdo, SEEK_SET) == 0 && fread(cd, 1, cds, f) == cds) {
                 size_t pl = strlen(pre);
-                for (u32 n = 0, q = 0; n < cnt && q + 46 <= cds && !r; n++) {
+                for (u32 n = 0, q = 0; n < cnt && q + 46 <= cds && (!r || ids); n++) {
                     if (rz_le32(cd + q) != 0x02014b50u) break;
                     u16 nl = rz_le16(cd + q + 28), el = rz_le16(cd + q + 30), cl = rz_le16(cd + q + 32);
-                    if (q + 46 + nl <= cds && nl > pl && !strncasecmp((const char *)cd + q + 46, pre, pl)) r = 1;
+                    const char *nm = (const char *)cd + q + 46;
+                    if (q + 46 + nl <= cds && nl > pl && !strncasecmp(nm, pre, pl)) {
+                        r = 1;
+                        if (ids && nid && nl >= pl + 7 && nm[pl + 6] == '/' && *nid < 8) {
+                            int dej = 0;
+                            for (int k = 0; k < *nid; k++) if (!strncmp(ids[k], nm + pl, 6)) dej = 1;
+                            if (!dej) { memcpy(ids[*nid], nm + pl, 6); ids[*nid][6] = 0; (*nid)++; }
+                        }
+                    }
                     q += 46 + nl + el + cl;
                 }
             }
@@ -438,8 +446,12 @@ static void dl_open(int i) {                                 /* A : ecouter / vo
     }
     if (audio_ext_len(p)) { music_rescan(); for (int k = 0; k < nfiles; k++) if (!strcmp(names[k], p)) { queue_build(k); start_track(k); return; } }
     const char *dot = strrchr(p, '.');
-    if (dot && !strcasecmp(dot, ".zip") && zip_has_dir(p, "notices/")) {   /* v297 : notices de jeux : dans SD:/gc-mp3/notices/ */
+    char nids[8][8]; int nn = 0;
+    if (dot && !strcasecmp(dot, ".zip") && zip_has_dir(p, "notices/", nids, &nn)) {   /* v297 : notices de jeux : dans SD:/gc-mp3/notices/ */
         lib_note("D\xC3\xA9" "compression de la notice...");
+        for (int i = 0; i < nn; i++) for (int k = 1; k <= 99; k++) {   /* v299 : l'ancienne notice de ce jeu est remplacee (pas de pages en trop) */
+            char op[NAME_LEN]; snprintf(op, sizeof(op), GCD "/notices/%s/%02d.jpg", nids[i], k); remove(op);
+        }
         int sk = 0, n = zip_extract(p, GCD, 0, &sk);
         char m[200];
         if (n < 0) snprintf(m, sizeof(m), "Archive illisible (pas un .zip complet ?)");
