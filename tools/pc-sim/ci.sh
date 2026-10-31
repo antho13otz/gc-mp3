@@ -97,7 +97,7 @@ Image.new('RGB', (800, 600), (40, 120, 200)).save('$CI/telephone-ci.jpg', qualit
     jl=$(curl -s -m 20 "$H/api/jaqliste")
     jid=$(echo "$jl" | python3 -c "import json,sys; l=json.load(sys.stdin); print(l[0][0] if l else '')" 2>/dev/null)
     if [ -n "$jid" ]; then
-        note "telephone : liste des jaquettes ($jl)"
+        note "telephone : liste des jaquettes ($(echo "$jl" | grep -o "\[\"" | wc -l) jeux)"
         python3 -c "
 from PIL import Image
 Image.new('RGBA', (160, 160), (200, 40, 40, 255)).save('$CI/disque-ci.png')" 2>/dev/null
