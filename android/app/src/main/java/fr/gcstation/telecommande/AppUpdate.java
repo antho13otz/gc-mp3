@@ -177,7 +177,7 @@ public final class AppUpdate {
 
     private static void get(final Activity a, final String tok, final long artifact) {
         if (Build.VERSION.SDK_INT >= 26 && !a.getPackageManager().canRequestPackageInstalls()) {
-            Lang.toast(a, "Autorise GC Station à installer des applis, puis reviens et réessaie.", Toast.LENGTH_LONG).show();
+            Lang.toast(a, "Autorise GC Remote à installer des applis, puis reviens et réessaie.", Toast.LENGTH_LONG).show();
             try { a.startActivity(new Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:" + a.getPackageName()))); } catch (Exception e) { }
             return;
         }
@@ -196,7 +196,7 @@ public final class AppUpdate {
         box.setOrientation(LinearLayout.VERTICAL);
         box.addView(Neon.text(a, "L'appli n'est pas publique : GitHub demande un jeton pour la télécharger. À faire une fois :\n"
             + "1. « Créer le jeton » ouvre GitHub (connecte-toi).\n"
-            + "2. Nom : GC Station ; Repository access : Only select repositories > " + REPO + ".\n"
+            + "2. Nom : GC Remote ; Repository access : Only select repositories > " + REPO + ".\n"
             + "3. Permissions > Repository > Actions : Read-only. Generate token, puis copie-le.\n"
             + "4. Colle-le ici. Il reste sur ce téléphone.", 13, Neon.DIM, false));
         final EditText f = new EditText(a);

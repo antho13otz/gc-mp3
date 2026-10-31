@@ -43,7 +43,7 @@ public class GcTile extends TileService {
         boolean playing = s != null && s.optInt("playing", 0) != 0;
         t.setState(Api.host == null ? Tile.STATE_UNAVAILABLE : playing ? Tile.STATE_ACTIVE : Tile.STATE_INACTIVE);
         t.setIcon(Icon.createWithResource(this, playing ? R.drawable.ic_pause : R.drawable.ic_tile));
-        t.setLabel("GC Station");
+        t.setLabel("GC Remote");
         if (Build.VERSION.SDK_INT >= 29) {
             String title = s != null ? s.optString("title", "") : "";
             t.setSubtitle(Lang.t(title.isEmpty() ? (Api.host == null ? "Ouvre l'appli une fois" : "Rien en lecture") : title));
