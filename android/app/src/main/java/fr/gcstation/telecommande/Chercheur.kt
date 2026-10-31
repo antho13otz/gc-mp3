@@ -252,6 +252,7 @@ private object Recherche {
     var erreur by mutableStateOf("")
     var etapes by mutableStateOf(0)
     val res = mutableStateListOf<LongArray>()                // {adresse, valeur de la photo, valeur actuelle}
+    val direct by lazy { ByteArray(MemoireJeu.TAILLE) }       // (valeurs en direct : lues ici, une seule fois alloue)
 
     fun v(m: ByteArray, o: Int, t: Int): Long = when (t) {
         1 -> m[o].toLong() and 255
@@ -345,7 +346,7 @@ fun EcranChercheur() {
             if (R.tache.isNotEmpty()) continue
             val t = R.taille
             val lst = R.res.toList()
-            val tmp = ByteArray(MemoireJeu.TAILLE)
+            val tmp = Recherche.direct
             val blocs = lst.map { ((it[0] - MemoireJeu.BASE) / MemoireJeu.BLK).toInt() }.distinct().sorted().toIntArray()
             val ok = withContext(Dispatchers.IO) { MemoireJeu.lire(blocs, tmp, false, { }, { false }) }
             if (!ok) continue
