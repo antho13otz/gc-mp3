@@ -46,7 +46,7 @@ done
 # --- telephone ---
 note "telephone"
 mkdir -p $CI/tel
-printf 'wait 90s\nshot fin\n' > $CI/tel.txt
+printf 'wait 150s\nshot fin\n' > $CI/tel.txt
 rm -f "$RUN/sd:/photos/telephone-ci.jpg"
 (cd $RUN && PCSIM_SCRIPT=$CI/tel.txt PCSIM_OUT=$CI/tel timeout 300 $BIN > $CI/telephone.log 2>&1; echo $? > $CI/tel.code) &
 SIM=$!
