@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v303 (build à venir, appli build à venir) — Télé tactile et clavier du téléphone partout
+## Nouveautés v303 (build 800, appli build 96) — Télé tactile et clavier du téléphone partout
 - **Télé tactile** (appli, onglet Télé, puce « Tactile », activée) : toucher l'image de la télé **clique à cet endroit**
   sur la console : la flèche de GC Station y va et choisit ce qui est dessous (onglet, ligne, bouton) ; dans Cube
   Browser, le pointeur y saute et clique. Appui long : retour (B) ; glisser : la flèche suit le doigt. Toucher là où
