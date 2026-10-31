@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v307 (build à venir, appli build à venir) — Capture d'écran en plein jeu, valeurs bloquées en direct
+## Nouveautés v307 (build 808, appli build 117) — Capture d'écran en plein jeu, valeurs bloquées en direct
 - **Capture de l'écran du jeu** (avec le chercheur de codes activé) : un bouton dans « Partie en cours » et dans le
   chercheur de codes. Le jeu se met en pause une seconde, GC Remote lit l'image affichée dans la mémoire vidéo de la
   console (YUV 4:2:2, un ou deux champs selon le mode), la convertit et l'enregistre dans **Images > GC Remote** ;
