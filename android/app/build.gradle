@@ -21,7 +21,10 @@ android {
         buildConfigField 'String', 'MAJ_BRANCHE', '"main"'
         buildConfigField 'String', 'MAJ_PREFIXE', '""'
         buildConfigField 'String', 'MAJ_ARTEFACT', '"gc-station-telecommande"'
+        // (agrandissement par IA de l'image du disque, ONNX Runtime : telephones ARM seulement, l'appli reste legere)
+        ndk { abiFilters 'arm64-v8a', 'armeabi-v7a' }
     }
+    androidResources { noCompress 'onnx' }
     buildFeatures {
         compose true
         buildConfig true
@@ -47,4 +50,5 @@ dependencies {
     implementation 'androidx.compose.material3:material3'
     implementation 'androidx.compose.animation:animation'
     implementation 'androidx.core:core:1.13.1'
+    implementation 'com.microsoft.onnxruntime:onnxruntime-android:1.20.0'   // (Real-ESRGAN : AgrandirIA.kt)
 }

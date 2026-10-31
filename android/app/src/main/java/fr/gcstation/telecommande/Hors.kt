@@ -49,7 +49,7 @@ object Hors {
             if (annule()) break
             etat(k, jeux.size, g.nom)
             Jaquettes.charger(d, g.id, g.i)                       // (la jaquette : depuis la console)
-            JaquettesHQ.charger(d, g.id)                          // (boite 3D et disque : GameTDB, par Internet)
+            JaquettesHQ.charger(d, g.id, act)                     // (boite 3D et disque : GameTDB, par Internet ; disque agrandi par IA)
             val n = Notices.pages(g.id)
             for (p in 1..n) { if (annule()) break; etat(k, jeux.size, g.nom + " · notice " + p + " / " + n); if (Notices.page(d, g.id, p) != null) pages++ }
         }

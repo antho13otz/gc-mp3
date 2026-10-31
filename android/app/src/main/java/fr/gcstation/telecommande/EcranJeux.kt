@@ -101,9 +101,27 @@ class Jeu(val x: JSONArray, val i: Int) {
 object Jaquettes {
     val mem = object : LruCache<String, ImageBitmap>(160) { }
     private val fil = Executors.newSingleThreadExecutor().asCoroutineDispatcher()   // (une a la fois : la console lit sa carte SD)
-    /** jaquette d'un jeu : memoire, puis le telephone, puis la console */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
+    private val web = Dispatchers.IO.limitedParallelism(4)                         // (GameTDB : quatre a la fois)
+    /** une image gardee sur le telephone, reduite a ~420 px de large (assez pour les vignettes, peu de memoire) */
+    private fun lire(f: File): Bitmap? {
+        val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(f.path, o)
+        if (o.outWidth <= 0) return null
+        var e = 1
+        while (o.outWidth / (e * 2) >= 420) e *= 2
+        return BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inSampleSize = e })
+    }
+    /** jaquette d'un jeu : memoire, puis GameTDB (HD, sinon normale ; telechargee par le telephone et gardee),
+     *  et seulement si GameTDB ne l'a pas (ou pas d'Internet) : celle de la console */
     suspend fun charger(dir: File, id: String, i: Int): ImageBitmap? {
         mem.get(id)?.let { return it }
+        val w = withContext(web) {
+            mem.get(id)?.let { return@withContext it }
+            val f = JaquettesHQ.fichier(dir, "coverHQ", id) ?: JaquettesHQ.fichier(dir, "cover", id)
+            f?.let { lire(it) }?.asImageBitmap()?.also { mem.put(id, it) }
+        }
+        if (w != null) return w
         return withContext(fil) {
             mem.get(id)?.let { return@withContext it }
             val disk = File(dir, "jaquettes/$id.png")
@@ -118,7 +136,12 @@ object Jaquettes {
             ib
         }
     }
-    fun bitmap(dir: File, id: String): Bitmap? { val f = File(dir, "jaquettes/$id.png"); return if (f.exists()) BitmapFactory.decodeFile(f.path) else null }
+    /** la jaquette gardee sur le telephone (GameTDB d'abord) ; null : pas encore la */
+    fun bitmap(dir: File, id: String): Bitmap? {
+        for (f in listOf(File(dir, "jaquettes/coverHQ/$id.png"), File(dir, "jaquettes/cover/$id.png"), File(dir, "jaquettes/$id.png")))
+            if (f.exists() && f.length() > 0) BitmapFactory.decodeFile(f.path)?.let { return it }
+        return null
+    }
 }
 
 private val CP_COL = listOf(Color(0x66FFFFFF), Color(0xFF46DC78), Color(0xFFFFBE3C), Color(0xFFFF783C), Color(0xFFFF4650))

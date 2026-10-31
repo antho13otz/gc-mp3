@@ -143,10 +143,10 @@ object JaquettesHQ {
     /** {jaquette complete (dos|tranche|avant) ou null, jaquette avant ou null} */
     /** jaquette complete (dos|tranche|avant), jaquette avant (sans complete), image du disque : null si pas trouvee */
     class Images(val full: Bitmap?, val avant: Bitmap?, val disque: Bitmap?)
-    suspend fun charger(dir: File, id: String): Images = withContext(Dispatchers.IO) {
+    suspend fun charger(dir: File, id: String, ctx: Context? = null): Images = withContext(Dispatchers.IO) {
         val full = image(dir, "coverfullHQ", id) ?: image(dir, "coverfull", id)
         val avant = if (full != null) null else image(dir, "coverHQ", id) ?: Jaquettes.bitmap(dir, id)
-        Images(full, avant, disqueNet(dir, id))
+        Images(full, avant, disqueNet(dir, id, ctx))
     }
 
     /** pour l'etagere : jaquette complete (HD si gardee, sinon normale), sinon jaquette avant ; pas de disque */
@@ -156,16 +156,19 @@ object JaquettesHQ {
         Images(full, avant, null)
     }
 
-    /** l'image du disque agrandie proprement a 1024 px (Agrandir.kt), gardee sur le telephone (calculee une fois) */
-    private fun disqueNet(dir: File, id: String): Bitmap? {
-        val f = File(dir, "jaquettes/disc1024/$id.png")
+    /** l'image du disque agrandie a 1024 px, gardee sur le telephone (calculee une fois) : par IA (AgrandirIA.kt,
+     *  x4 puis 1024), sinon proprement (Agrandir.kt) */
+    private fun disqueNet(dir: File, id: String, ctx: Context?): Bitmap? {
+        val f = File(dir, "jaquettes/" + (if (ctx != null) "disc1024ia" else "disc1024") + "/$id.png")
         if (f.exists()) BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 })?.let { return it }
         val b = image(dir, "disc", id) ?: return null
         if (b.width >= 1024) return b
         return try {
             val px = IntArray(b.width * b.height); b.getPixels(px, 0, b.width, 0, 0, b.width, b.height)
-            val o = Agrandir.agrandir(px, b.width, b.height, 1024, 1024)
-            val r = Bitmap.createBitmap(o, 1024, 1024, Bitmap.Config.ARGB_8888)
+            val ia = if (ctx != null && b.width <= 400 && b.height <= 400) AgrandirIA.x4(ctx, px, b.width, b.height) else null
+            val r = if (ia != null) {
+                if (ia.width == 1024 && ia.height == 1024) ia else Bitmap.createScaledBitmap(ia, 1024, 1024, true).also { if (it !== ia) ia.recycle() }
+            } else Bitmap.createBitmap(Agrandir.agrandir(px, b.width, b.height, 1024, 1024), 1024, 1024, Bitmap.Config.ARGB_8888)
             try { f.parentFile?.mkdirs(); f.outputStream().use { r.compress(Bitmap.CompressFormat.PNG, 100, it) } } catch (e: Exception) { }
             r
         } catch (e: Throwable) { b }                           // (pas assez de memoire : l'image d'origine)
@@ -183,7 +186,7 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
     var noticeOuverte by remember { mutableStateOf(false) }
     LaunchedEffect(id, vue) {
         val v = vue ?: return@LaunchedEffect
-        val im = JaquettesHQ.charger(Hors.dir(act), id)
+        val im = JaquettesHQ.charger(Hors.dir(act), id, act)
         etat = (when {
             im.full != null -> "Jaquette complète " + im.full.width + "×" + im.full.height
             im.avant != null -> "Jaquette avant seulement"
