@@ -164,8 +164,10 @@ typedef struct {
 /* v306 : chercheur de codes de l'appli : la section "PPAD" et le BBA aussi sans manette du telephone. Paquets UDP sur le
    meme port : {"GCM?", numero, a, b, c} (20 octets), ? =
      I : etat ; P : pause (a = 1) ou reprise (a = 0 : aussi seule, 20 s sans paquet) ; W : ecrire la valeur c (b = 1, 2, 4
-     octets) en a ; reponse "GCMA" {numero, en pause, jeu (8 octets en 0x80000000), image (VI), etat des succes (a 0 :
-     pas de succes), n, obtenus (64 bits)}
+     octets) en a ; F (v307) : bloquer la valeur c (b = 1, 2, 4 octets ; b = 0 : liberer ; a = b = 0 : tout) en a,
+     8 au plus, reecrites a chaque image ; reponse "GCMA" {numero, en pause, jeu (8 octets en 0x80000000), image (VI),
+     etat des succes (a 0 : pas de succes), n, obtenus (64 bits), (v307) video : VTR << 16 | DCR, TFBL, BFBL, PICCONF,
+     nombre de valeurs bloquees} (56 octets)
      R : lire b blocs de 1 Ko depuis a (b <= 64 en pause, sinon 2) : un paquet "GCMD" par bloc {numero, adresse, 0,
      carte des mots non nuls (32 octets), mots non nuls}
    Succes obtenu : "GCAC" {n, obtenus (64 bits)} envoye 3 fois au dernier telephone. */

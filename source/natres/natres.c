@@ -735,6 +735,16 @@ static MEM_OS void pn_udp(natres_pad_t *p, const u8 *mac, u32 ip, u32 port, u32 
    Le telephone lit la memoire du jeu par blocs de 1 Ko (les mots nuls ne passent pas : une carte de 256 bits dit
    lesquels sont la), y ecrit une valeur, et met le jeu en pause le temps de tout lire (sinon 2 blocs par image). */
 static u32 ach_bits(u32 *b);
+/* v307 : valeurs bloquees en direct par le telephone ("GCMF" : a = adresse, b = taille 1/2/4, 0 = liberer, c = valeur ;
+   a = 0, b = 0 : tout liberer) : reecrites a chaque image, apres le jeu (comme les cheats) */
+#define MFZ_MAX 8
+static u32 mfz[MFZ_MAX * 3], mfz_n = 0;
+static MEM_OS __attribute__((noinline, used)) void mfz_run(void) {
+    for (u32 i = 0; i < mfz_n; i++) {
+        u32 a = mfz[i * 3], t = mfz[i * 3 + 1], v = mfz[i * 3 + 2];
+        if (t == 1) *(volatile u8 *)a = (u8)v; else if (t == 2) *(volatile unsigned short *)a = (unsigned short)v; else *(volatile u32 *)a = v;
+    }
+}
 static u32 mem_ok(u32 a, u32 n) { return a >= 0x80000000u && a + n <= 0x81800000u && a + n > a; }
 static MEM_OS void mem_ack(natres_pad_t *p, u32 seq) {
     u8 *d = pn_fr + 42;
@@ -742,7 +752,12 @@ static MEM_OS void mem_ack(natres_pad_t *p, u32 seq) {
     pn_p32(d, 0x47434D41u); pn_p32(d + 4, seq); pn_p32(d + 8, p->mpause);   /* "GCMA" */
     for (int i = 0; i < 8; i++) d[12 + i] = ((volatile u8 *)0x80000000u)[i];   /* (jeu : ID, editeur, disque, version) */
     pn_p32(d + 20, H.vi_count); pn_p32(d + 24, ach_bits(b)); pn_p32(d + 28, b[0]); pn_p32(d + 32, b[1]);
-    pn_udp(p, p->mmac, p->mip, p->mport, 36);
+    /* v307 : l'image affichee (capture du telephone) : registres de la video (VTR << 16 | DCR, TFBL, BFBL, PICCONF),
+       puis les valeurs bloquees */
+    volatile unsigned short *vi = (volatile unsigned short *)0xCC002000u;
+    pn_p32(d + 36, (u32)vi[0] << 16 | vi[1]); pn_p32(d + 40, *(volatile u32 *)0xCC00201Cu); pn_p32(d + 44, *(volatile u32 *)0xCC002024u);
+    pn_p32(d + 48, vi[0x24]); pn_p32(d + 52, mfz_n);
+    pn_udp(p, p->mmac, p->mip, p->mport, 56);
 }
 static MEM_OS void mem_ach(natres_pad_t *p) {
     u8 *d = pn_fr + 42;
@@ -780,6 +795,16 @@ static MEM_OS void mem_req(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *
         if ((b == 1 || b == 2 || b == 4) && mem_ok(a, b) && !(a & (b - 1)) && (a < NATRES_AT || a >= NATRES_AT + NATRES_SIZE)) {
             if (b == 1) *(volatile u8 *)a = (u8)c; else if (b == 2) *(volatile unsigned short *)a = (unsigned short)c; else *(volatile u32 *)a = c;
             __asm__ volatile("dcbf 0,%0\n sync" :: "r"(a) : "memory");
+        }
+    }
+    else if (t == 'F') {                                  /* v307 : bloquer / liberer */
+        u32 k = 0;
+        while (k < mfz_n && mfz[k * 3] != a) k++;
+        if (!a && !b) mfz_n = 0;
+        else if (!b) { if (k < mfz_n) { mfz_n--; for (u32 j = k * 3; j < mfz_n * 3; j++) mfz[j] = mfz[j + 3]; } }
+        else if ((b == 1 || b == 2 || b == 4) && mem_ok(a, b) && !(a & (b - 1)) && (a < NATRES_AT || a >= NATRES_AT + NATRES_SIZE) && (k < mfz_n || mfz_n < MFZ_MAX)) {
+            mfz[k * 3] = a; mfz[k * 3 + 1] = b; mfz[k * 3 + 2] = c;
+            if (k == mfz_n) mfz_n++;
         }
     }
     else if (t != 'I') return;
@@ -1035,6 +1060,7 @@ static void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee
     di_tick(ctx, 1);                                     /* v133 : fins de commande (sans le lecteur, ou secours) */
     if (H.chts) gk_run();                                /* v121 : cheats, une fois par image (apres le jeu) */
     if (H.flags & NRF_ACH) ach_run();                    /* v268 : succes */
+    if (mfz_n) mfz_run();                                /* v307 : valeurs bloquees par le telephone */
     igr_poll();                                          /* v86 : (apres le jeu : il a lu les manettes) */
 }
 static u32 ai_orig;
