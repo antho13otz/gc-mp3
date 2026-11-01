@@ -430,6 +430,10 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
             }
             Spacer(Modifier.height(8.dp))
             var extraire by remember { mutableStateOf(false) }
+            var cheminChoisi by remember { mutableStateOf("/main.dol") }
+            val ouEnregistrer = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/octet-stream")) { u ->
+                if (u != null) ExtraireFichier.versUri(act, g.id, cheminChoisi, u)                   // (build 199 : dans tes fichiers)
+            }
             Bouton("Extraire un fichier du jeu (main.dol…)", Modifier.fillMaxWidth()) { extraire = true }
             if (extraire) {
                 var chemin by remember { mutableStateOf("/main.dol") }
@@ -438,10 +442,14 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                     text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Champ(chemin, { chemin = it }, "Chemin dans le disque")
                         Doux("/main.dol : le programme du jeu. Autre fichier : son chemin dans le disque (ex. /rel/aaa.rel). " +
-                             "Enregistré dans Téléchargements/GC Remote, puis tu peux l'envoyer. Hors partie, GC Station v314.", taille = 11, couleur = C.Pale)
+                             "Extraire : dans Téléchargements/GC Remote, puis tu peux l'envoyer. Choisir où : dans le dossier de ton choix (tes fichiers, Drive…). Hors partie.", taille = 11, couleur = C.Pale)
                     } },
                     confirmButton = { androidx.compose.material3.TextButton({ extraire = false; ExtraireFichier.lancer(act, g.id, chemin) }) { Text("Extraire", color = C.Rose) } },
-                    dismissButton = { androidx.compose.material3.TextButton({ extraire = false }) { Text("Annuler", color = C.Doux) } })
+                    dismissButton = { Row {
+                        androidx.compose.material3.TextButton({ extraire = false }) { Text("Annuler", color = C.Doux) }
+                        androidx.compose.material3.TextButton({ extraire = false; cheminChoisi = "/" + chemin.trim().trimStart('/')
+                            try { ouEnregistrer.launch(g.id + "-" + cheminChoisi.substringAfterLast('/')) } catch (e: Exception) { } }) { Text("Choisir où", color = C.Cyan) }
+                    } })
             }
 
             // ---- cheats ----

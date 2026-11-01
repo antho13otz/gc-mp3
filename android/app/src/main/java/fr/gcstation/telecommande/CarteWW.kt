@@ -269,6 +269,24 @@ object PlanWW {
  *  (GC Station v314 : /api/discfile ; le jeu doit etre sur la carte SD, et GC Station a l'ecran, hors partie) */
 object ExtraireFichier {
     @Volatile var enCours = false
+    /** build 199 : le fichier extrait enregistre la ou tu l'as choisi (dossier de tes fichiers, Drive...) */
+    fun versUri(a: android.app.Activity, id: String, chemin0: String, u: android.net.Uri) {
+        if (enCours) return
+        val chemin = "/" + chemin0.trim().trimStart('/')
+        if (St.jeu != null) { Lang.toast(a, "Hors partie seulement : reviens à GC Station (A + Z + START)", android.widget.Toast.LENGTH_LONG).show(); return }
+        enCours = true
+        Lang.toast(a, "Extraction de $chemin…", android.widget.Toast.LENGTH_SHORT).show()
+        Thread {
+            val b = Api.getBytes("/api/discfile?id=$id&f=" + Api.enc(chemin), 30000)
+            var ok = false
+            if (b != null && b.isNotEmpty()) try { a.contentResolver.openOutputStream(u, "w")?.use { it.write(b) }; ok = true } catch (e: Exception) { }
+            a.runOnUiThread {
+                enCours = false
+                Lang.toast(a, when { b == null -> "Pas reçu : GC Station à l'écran, le jeu sur la carte SD, et le bon chemin ?"
+                    !ok -> "Impossible d'écrire le fichier à cet endroit"; else -> "Enregistré (" + (b.size / 1024) + " Ko)" }, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }.start()
+    }
     fun lancer(a: android.app.Activity, id: String, chemin0: String) {
         if (enCours) return
         val chemin = "/" + chemin0.trim().trimStart('/')
