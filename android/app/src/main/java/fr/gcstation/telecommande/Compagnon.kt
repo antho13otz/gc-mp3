@@ -150,7 +150,8 @@ object JeuWW {
                val cles: Int = -1, val donjon: Int = 0,             // salle en cours : petites cles, objets du donjon (bits)
                val cap: Double = 0.0, val vitesse: Float = 0f, val y: Float = 0f, val salle: Int = -1,
                val ventX: Float = 0f, val ventZ: Float = 0f, val ventOk: Boolean = false,
-               val variante: Int = 0)                               // (v313 : mRandomSalvagePoint : images de la carte)
+               val variante: Int = 0,                               // (v313 : mRandomSalvagePoint : images de la carte)
+               val cartesMer: IntArray = IntArray(0))               // (build 173 : cartes obtenues, dechiffrees, tresors repeches, cartes de la Triforce)
 
     /** null : rien de lisible (pas ce jeu, ou Pulse muet) */
     fun lire(l: Lecteur): Etat? {
@@ -196,7 +197,22 @@ object JeuWW {
             cartes = l.plage(G + 0xC4 + 0x40, 49) ?: IntArray(0),
             cles = l.u8(G + 0x778 + 0x20) ?: -1, donjon = dj,
             cap = cap, vitesse = vit, y = y, salle = salle, ventX = vx, ventZ = vz, ventOk = vok,
-            variante = l.u8(G + 0x148 + 0x59) ?: 0)
+            variante = l.u8(G + 0x148 + 0x59) ?: 0,
+            cartesMer = cartesMer(l))
+    }
+
+    /** build 173 : dSv_player_map_c (zeldaret/tww : mMap en 0xC4) : field_0x0[1] cartes obtenues, [2] dechiffrees, [3] tresors
+     *  repeches (128 bits chacun), field_0x81 cartes de la Triforce ; comptees comme getCollectMapNum (1 a 51, sauf 35 et 36) */
+    private fun cartesMer(l: Lecteur): IntArray {
+        val m = G + 0xC4
+        fun bits(k: Int): LongArray? { val r = LongArray(4); for (i in 0 until 4) r[i] = l.u32(m + 0x10L * k + 4L * i) ?: return null; return r }
+        val get = bits(1) ?: return IntArray(0); val ouv = bits(2) ?: return IntArray(0); val rep = bits(3) ?: return IntArray(0)
+        fun a(b: LongArray, i: Int) = (b[i shr 5] shr (i and 31)) and 1L != 0L
+        var n = 0; var o = 0; var t = 0
+        for (i in 1..51) if (i != 35 && i != 36) { if (a(get, i - 1)) n++; if (a(ouv, i - 1)) o++; if (a(rep, i - 1)) t++ }
+        val tri = Integer.bitCount(l.u8(m + 0x81) ?: 0)
+        if (n > 49 || o > 49 || t > 49) return IntArray(0)
+        return intArrayOf(n, o, t, tri)
     }
 
     /** cases de la carte marine : salle n de la mer = case ((n - 1) % 7, (n - 1) / 7) ; A1 en haut a gauche */
@@ -368,6 +384,7 @@ object JeuMKDD {
     const val ID = "GM4P01"
     private const val RACE = 0x803D5628L                           // RaceMgr::sRaceManager
     private const val OBJETS = 0x803D5D80L                         // ItemObjMgr::gItemMgr
+    private const val CTRL = 0x803D63C8L                           // build 173 : KartCtrl::mCtrl (mKartBodies[8] en 0xA0)
     const val PAS_DE_TEMPS = 5999999
 
     class Kart(val n: Int, val x: Float, val z: Float, val place: Int,
@@ -378,7 +395,9 @@ object JeuMKDD {
     class Etat(val enCourse: Boolean, val fini: Boolean, val place: Int, val tour: Int, val tours: Int, val progres: Float,
                val tempsTours: List<Int>, val total: Int, val karts: List<Kart> = emptyList(), val circuit: Int = 0,
                val mode: Int = 0, val niveau: Int = -1, val coupe: Int = -1, val miroir: Boolean = false, val nbKarts: Int = 0, val meilleurTour: Int = -1,
-               val manche: Int = 0, val recordTour: Int = PAS_DE_TEMPS, val recordTotal: Int = PAS_DE_TEMPS, val ecarts: Map<Int, Float> = emptyMap())
+               val manche: Int = 0, val recordTour: Int = PAS_DE_TEMPS, val recordTotal: Int = PAS_DE_TEMPS, val ecarts: Map<Int, Float> = emptyMap(),
+               // build 173 : mon kart (KartBody, doldecomp/mkdd kartBody.h) : mSpeed 0x444, mBoostTimer 0x596, mMTBoost 0x59E, mMTBoostMax 0x5A0, mMTState 0x5C7
+               val vitesse: Float = -1f, val miniTurbo: Float = -1f, val turbo: Int = 0, val etatMT: Int = 0)
 
     val HORS_COURSE = Etat(false, false, 0, 0, 0, 0f, emptyList(), PAS_DE_TEMPS)
 
@@ -532,9 +551,18 @@ object JeuMKDD {
         val ecarts = HashMap<Int, Float>()
         if (moi != null && avance > 0f && e2(mode)) for (k in karts) if (k.n != 0 && !k.fini && k.progres >= 0f) ecarts[k.n] = (k.progres - moi.progres) / avance
         fun temps(v: Int?) = if (v != null && v in 1 until PAS_DE_TEMPS) v else PAS_DE_TEMPS
+        var vit = -1f; var mt = -1f; var turbo = 0; var etatMT = 0
+        l.ptr(CTRL)?.let { c -> l.ptr(c + 0xA0)?.let { b ->
+            vit = l.fini(l.f32(b + 0x444), 1000f)?.let { Math.abs(it) }?.takeIf { it < 400f } ?: -1f
+            val m = l.u16(b + 0x59E); val mm = l.u16(b + 0x5A0)
+            if (m != null && mm != null && mm in 1..2000 && m <= mm) mt = m.toFloat() / mm
+            turbo = (l.u16(b + 0x596) ?: 0).takeIf { it in 0..1000 } ?: 0
+            etatMT = (l.u8(b + 0x5C7) ?: 0).takeIf { it in 0..8 } ?: 0
+        } }
         return Etat(enCourse || fini, fini, place, tour, tours, prog, lt, total, karts, crs, mode, niveau, coupe, miroir, nb, best,
             ri?.let { l.s16(it + 0x26) }?.takeIf { it in 0..15 } ?: 0,                // (mGpStageNo : course de la coupe)
-            temps(l.s32(rm + 0x94)), temps(l.s32(rm + 0x98)), ecarts)                   // (mBestLapTime, mBestTotalTimes[0])
+            temps(l.s32(rm + 0x94)), temps(l.s32(rm + 0x98)), ecarts,                   // (mBestLapTime, mBestTotalTimes[0])
+            vit, mt, turbo, etatMT)
     }
     private fun e2(mode: Int) = mode in 1..3                       // (courses : pas les batailles)
 }
@@ -971,6 +999,10 @@ private fun CompagnonWW(e: JeuWW.Etat) {
                     Doux("chants " + e.chants + " / 6", taille = 11)
                 }
             }
+            if (e.cartesMer.size == 4) {                                        // build 173
+                val c = e.cartesMer
+                Doux("Cartes : " + c[0] + " obtenues / 49 · " + c[1] + " déchiffrées · " + c[2] + " trésors repêchés · Triforce : " + c[3] + " / 8", taille = 12)
+            }
         }
     }
     // le donjon en cours
@@ -1250,6 +1282,16 @@ private fun CompagnonMKDD(e: JeuMKDD.Etat) {
                 }
             }
             if (!e.fini) Barre(e.progres, Color(0xFFFFD54A))
+            if (!e.fini && e.vitesse >= 0f) Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(top = 8.dp)) {   // build 173
+                Text(e.vitesse.toInt().toString(), color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.Black)
+                Doux(" vitesse", taille = 11, couleur = Color(0xCCFFFFFF))
+                Spacer(Modifier.width(14.dp))
+                if (e.turbo > 0) Text("TURBO", color = Color(0xFFFF8A3D), fontSize = 16.sp, fontWeight = FontWeight.Black)
+                else if (e.miniTurbo > 0f) Column(Modifier.weight(1f)) {
+                    Doux("dérapage : mini-turbo " + (e.miniTurbo * 100).toInt() + " %", taille = 11, couleur = Color(0xCCFFFFFF))
+                    Barre(e.miniTurbo, if (e.miniTurbo >= 1f) Color(0xFFFF8A3D) else Color(0xFF4FA3FF), hauteur = 4)
+                }
+            }
         }
     }
     if (!e.enCourse) return
