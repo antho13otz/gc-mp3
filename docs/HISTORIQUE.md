@@ -24,6 +24,24 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 160 — Ma jaquette
+- **« Ma jaquette »** : la jaquette de TA boîte (ta région, ta langue, en haute définition) à la place de celle de
+  GameTDB. Pour l'avant, le dos et la tranche : une photo (galerie, appareil photo, capture d'une annonce…), les 4 coins
+  posés sur ceux de la jaquette ; l'appli redresse la photo (perspective) et assemble la jaquette complète aux
+  proportions de GameTDB. Une face pas donnée : celle de GameTDB. La boîte 3D et l'étagère s'en servent.
+
+## Nouveautés appli build 158 — Compagnon de jeu bien plus riche
+- **The Wind Waker** : inventaire (21 emplacements, flacons), épée, bouclier, bracelets, bourse, maximum de flèches et
+  de bombes, sacs (butin, appâts, courrier), heure et jour, K.O., îles déjà sur la carte, clés et objets du donjon, cap
+  et vitesse de Link, vent en cours ; carte marine illustrée.
+- **Super Mario Sunshine** : chaque soleil de chaque zone, pièces bleues et record de pièces par zone, pièces rouges,
+  buse en cours et buses débloquées, Yoshi, position, vitesse et altitude de Mario.
+- **Mario Kart Double Dash!!** : mode, cylindrée, coupe, manche, miroir, pilotes et kart de chacun, objets tenus,
+  classement et progression de chaque kart (écarts en secondes), ballons et points des batailles, records du circuit.
+- **Sans gêner le jeu** : au plus 24 blocs de 1 Ko par lecture, demandés un par un (environ un par image du jeu) ; le
+  tracé d'un circuit est lu lentement.
+- Jaquettes : plus d'IA sur les jaquettes (seulement sur le disque) ; les jaquettes déjà agrandies sont effacées.
+
 ## Nouveautés appli build 154 — Mario Kart : le circuit vu du dessus, avec les karts
 - Écran compagnon de **Mario Kart Double Dash!!** : le **nom du circuit** et le **circuit dessiné vu du dessus** (la piste,
   ses bords et la ligne d'arrivée), avec **les 8 karts en direct** et la place de chacun ; le kart 1 (toi) en rose.
