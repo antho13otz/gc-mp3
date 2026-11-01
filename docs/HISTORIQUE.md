@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 209 — Kirby Air Ride dans le compagnon de jeu
+- Compagnon de jeu > **Kirby Air Ride** (version européenne) : les 3 listes de défis (Air Ride, Top Ride, City Trial,
+  120 cases chacune), le nombre de cases cochées par mode et sur 360, et chaque case (cochée en couleur, manquante en gris).
+  Adresse trouvée dans le main.dol européen.
+
 ## Nouveautés appli build 207 — Extraire main.dol d'un .iso rangé sur le téléphone
 - Plus > **Extraire d'un .iso** : choisis l'image d'un jeu GameCube (.iso ou .gcm) rangée sur le téléphone. L'appli liste
   ses fichiers (main.dol en premier, avec un filtre) et enregistre celui que tu touches où tu veux, sans passer par la console.
