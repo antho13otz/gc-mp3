@@ -203,6 +203,18 @@ wr32(blk + 4 + PN.index('mach') * 4, 3)
 call(POLL); call(POLL); call(POLL); call(POLL)
 o = udp_out()
 check('succes : GCAC envoye 3 fois', [x[1][:4] for x in o] == [b'GCAC'] * 3, str([x[1][:4] for x in o]))
+# v312 : chercheur de codes seul : le BBA est cache au jeu (Mario Kart Double Dash le cherche, puis le garderait)
+def jeu_lit_bba():
+    exi[0][0] = 0x200; exi[0][4] = 0x04020200
+    n0 = rd32(H('bba_n')); r = call(sym['exi_load'], 0xCC006810)
+    exi[0][0] = 0
+    return r, rd32(H('bba_n')) - n0
+r, dn = jeu_lit_bba()
+check('NRO_MEM seul : le jeu lit "aucun peripherique" au lieu du BBA', r == 0 and dn == 1, '%08X %d' % (r, dn))
+wr32(H('opt'), 0)
+r, dn = jeu_lit_bba()
+check('sans option : le jeu voit le vrai BBA', r == 0x04020200 and dn == 0, '%08X %d' % (r, dn))
+wr32(H('opt'), NRO_MEM)
 # sans l'option : rien
 wr32(H('opt'), NRO_PHONE)
 bba.deliver(gcm('I', 14)); call(POLL)

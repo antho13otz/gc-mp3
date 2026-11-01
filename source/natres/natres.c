@@ -1677,9 +1677,10 @@ static u32 exi_load(u32 a) {
     trap_guard();
     if (a - 0xCC006000u < 0x40u) return di_load(a);      /* v133 : acces au lecteur branches en secours (adresse calculee) */
     early_note(a, 0, 0);
-    /* manettes du telephone : le Broadband Adapter est pour Pulse. Le jeu qui le cherche (Mario Kart Double Dash,
-       jeu en reseau local) lit "aucun peripherique" : sinon il s'en servait sans arret et Pulse ne pouvait jamais le reprendre */
-    if ((H.opt & NRO_PHONE) && a == 0xCC006810u && (*HW6(0xCC006800u) & 0x380u) == 0x200u) { H.bba_n++; return 0; }
+    /* manettes du telephone, chercheur de codes de l'appli (v312) : le Broadband Adapter est pour Pulse. Le jeu qui le
+       cherche (Mario Kart Double Dash, jeu en reseau local) lit "aucun peripherique" : sinon il s'en servait sans arret et
+       Pulse ne pouvait jamais le reprendre (avant v312, avec le seul chercheur de codes : appli sans reponse dans ce jeu) */
+    if ((H.opt & (NRO_PHONE | NRO_MEM)) && a == 0xCC006810u && (*HW6(0xCC006800u) & 0x380u) == 0x200u) { H.bba_n++; return 0; }
     vcard_t *v = vc_of(a);
     if (!v) return *HW6(a);                              /* (autres canaux, cartes reelles : vrai materiel) */
     volatile u32 *real = HW6(a & ~3u) - (((a & ~3u) - 0xCC006800u) % 0x14u) / 4u;   /* (registres du canal) */
