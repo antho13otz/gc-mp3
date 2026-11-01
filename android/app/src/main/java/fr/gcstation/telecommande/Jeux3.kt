@@ -4,7 +4,8 @@ package fr.gcstation.telecommande
 // de structures, chaque valeur bornee ; une version inconnue n'affiche rien.
 
 // ---------------------------------------------------------------- Mario Party 5
-// mariopartyrd/marioparty5 (GP5E01) : GwPlayer (4 x 0x108 : personnage, cases, pieces, etoiles, statistiques),
+// mariopartyrd/marioparty5 (GP5E01) : GwPlayer (4 x 0x108 : personnage, cases, pieces, etoiles, statistiques ; build 178 : les champs
+// verifies dans le main.dol europeen : GWPlayerCoinGet lit 0x20, la fonction des etoiles 0x34 -> case 0xC, compteurs 0x14, rang en 0x8),
 // GwSystem (0x2BC : tour, nombre de tours, plateau, mini-jeu, banque) juste apres. Europeen (GP5P01) : le main.dol
 // construit 8024 8DB0 744 fois, 8024 91D0 (+0x420) 545 fois et 8024 9490 (+0x6E0) 107 fois : les memes trois blocs.
 object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
@@ -59,18 +60,18 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
             val perso = (w0 shr 9) and 15
             val ordi = (w0 shr 13) and 1 == 1
             val niveau = (w0 shr 14) and 3
-            val pieces = l.s16(b + 0x22) ?: return null; val etoiles = l.s16(b + 0x34) ?: return null
+            val pieces = l.s16(b + 0x20) ?: return null; val etoiles = l.s16(b + 0x34) ?: return null
             if (perso >= PERSOS.size || pieces !in 0..999 || etoiles !in 0..99) return if (partie) null else
                 Fiche(id, "Mario Party 5", "Menus", 0xFFB82E2E, 0xFF2A0A0A, message = "Pas de partie en cours.")
-            val rang = ((l.u16(b + 0xA) ?: 0) shr 5) and 3
-            val max = (l.s16(b + 0x28) ?: 0).coerceIn(0, 999); val maxEt = (l.s16(b + 0x36) ?: 0).coerceIn(0, 99)
-            val totalMg = (l.s16(b + 0x24) ?: 0).coerceIn(0, 9999); val total = (l.s16(b + 0x26) ?: 0).coerceIn(0, 9999)
-            val combat = (l.s16(b + 0x2A) ?: 0).coerceIn(0, 9999)
-            val capsules = (l.plage(b + 6, 3) ?: IntArray(3)).count { it != 0xFF && it != 0 }
-            val cases = l.plage(b + 0x16, 11) ?: IntArray(11)
+            val rang = ((l.u16(b + 8) ?: 0) shr 5) and 3
+            val max = (l.s16(b + 0x26) ?: 0).coerceIn(0, 999); val maxEt = (l.s16(b + 0x36) ?: 0).coerceIn(0, 99)
+            val totalMg = (l.s16(b + 0x22) ?: 0).coerceIn(0, 9999); val total = (l.s16(b + 0x24) ?: 0).coerceIn(0, 9999)
+            val combat = (l.s16(b + 0x28) ?: 0).coerceIn(0, 9999)
+            val capsules = (l.plage(b + 5, 3) ?: IntArray(3)).count { it != 0xFF && it != 0 }
+            val cases = l.plage(b + 0x14, 11) ?: IntArray(11)
             fun c(i: Int) = cases[i].toByte().toInt().coerceIn(0, 127)
             val nom = PERSOS[perso]
-            js.add(J(k, nom, pieces, etoiles, rang, perso, l.s16(b + 0xE) ?: -1))
+            js.add(J(k, nom, pieces, etoiles, rang, perso, l.s16(b + 0xC) ?: -1))
             blocs.add(Bloc("J" + (k + 1) + " · " + nom + if (ordi) " (ordi " + arrayOf("facile", "normal", "difficile", "très difficile")[niveau] + ")" else "", listOf(
                 Ligne("Étoiles", etoiles.toString(), (etoiles / 10f).coerceIn(0f, 1f), 0xFFFFD23F),
                 Ligne("Pièces", pieces.toString(), (pieces / 200f).coerceIn(0f, 1f), COUL[k]),
