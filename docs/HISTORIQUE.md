@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Jaquettes en basse définition agrandies par IA
+- Boîte 3D : quand GameTDB n'a pas la jaquette en HD (seulement la jaquette complète normale, ~512 px, ou seulement la
+  petite jaquette avant), elle est **agrandie par IA** comme les disques (Real-ESRGAN x4, puis 1024 px au plus),
+  une seule fois par jeu (gardée : `jaquettes/coverfullia`, `jaquettes/coveria`). Les jaquettes déjà en HD ne
+  changent pas. L'étagère 3D utilise la version agrandie dès qu'une boîte l'a faite (elle ne la calcule pas elle-même :
+  trop long pour toute une étagère).
+
 ## Nouveautés appli build 122 — Le disque sorti ne tourne plus tout seul
 - Boîte 3D de l'appli : le disque sorti de la boîte reste immobile, de face ; il ne tourne que si on le lance du doigt
   (et ralentit tout seul).
