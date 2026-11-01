@@ -1,4 +1,4 @@
-# audit : chaque onglet (Z), puis la liste, deux tours
+# tour de chaque onglet (Z), puis la liste, deux tours (v314 : audit)
 wait 4s
 press Z
 wait 1500ms

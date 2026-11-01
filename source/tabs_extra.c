@@ -474,7 +474,7 @@ static void dl_open(int i) {                                 /* A : ecouter / vo
         else if (sk) snprintf(m, sizeof(m), "D\xC3\xA9" "compress\xC3\xA9 : %d fichier(s) dans %s (%d trop gros ou illisibles)", n, base_of(dir), sk);
         else snprintf(m, sizeof(m), "D\xC3\xA9" "compress\xC3\xA9 : %d fichier(s) dans SD:/downloads/%s", n, base_of(dir));
         lib_note(m);
-        if (n > 0) music_rescan();
+        if (n > 0) music_rescan_bg();
         return;
     }
     lib_note("Ouvre ce fichier dans l'onglet FICHIERS");
@@ -497,7 +497,7 @@ static void dltab_input(u32 down, u32 nav, int fire) {
         if (dl_confirm != dl_sel) { dl_confirm = dl_sel; lib_note("X encore une fois pour effacer ce fichier"); }
         else {
             int r = dlh_n - 1 - dl_sel;
-            if (remove(dlh[r].path) == 0) { lib_note("Fichier effac\xC3\xA9"); music_rescan(); } else lib_note("Impossible d'effacer ce fichier");
+            if (remove(dlh[r].path) == 0) { lib_note("Fichier effac\xC3\xA9"); music_rescan_bg(); } else lib_note("Impossible d'effacer ce fichier");
             dl_confirm = -1;
         }
     }

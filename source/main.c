@@ -5163,6 +5163,7 @@ static int lv_pending = 0;                   /* (liste lue depuis le cache au de
 static u32 lv_hash(const char *s) { u32 h = 2166136261u; for (; *s; s++) { h ^= (u8)*s; h *= 16777619u; } return h; }
 static char *lv_buf = NULL;                  /* v314 : les chemins trouves par le fil (un par ligne), pour relire sans parcourir */
 static size_t lv_buf_len = 0;
+static volatile int lv_zipnew = 0;           /* v316 : (le fil a vu un .zip retro a decompresser : relecture complete) */
 static void lv_walk(const char *dir, int depth, u32 *h, int *n, FILE *out) {
     DIR *d = opendir(dir);
     if (!d) return;
@@ -5177,8 +5178,24 @@ static void lv_walk(const char *dir, int depth, u32 *h, int *n, FILE *out) {
     }
     closedir(d);
 }
+/* v316 : (fil) un .zip retro pas encore decompresse ? (comme retro_unzip_tree : 2 niveaux de dossiers) */
+static void lv_zipscan(const char *dir, int depth) {
+    DIR *d = opendir(dir);
+    if (!d) return;
+    struct dirent *e;
+    char path[NAME_LEN];
+    while (!lv_zipnew && (e = readdir(d)) != NULL) {
+        if (e->d_name[0] == '.') continue;
+        int l = snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
+        if (l <= 4 || l >= (int)sizeof(path)) continue;
+        if (!strcasecmp(path + l - 4, ".zip")) { struct stat st; path[l - 4] = 0; if (stat(path, &st) != 0) lv_zipnew = 1; }
+        else if (depth < 2 && is_dir(path, e)) lv_zipscan(path, depth + 1);
+    }
+    closedir(d);
+}
 static int jb_iso_path(const char *p);
 static void music_rescan(void);
+static void retro_rescan(void);
 static void lv_pump(void) {                  /* (boucle) */
     if (lv_pending && lv_state == 0 && now_ms() > 6000 && lsc_ready()) { lv_pending = 0; lv_state = 1; LWP_SemPost(lsc_sem); }
     if (lv_state != 3) return;
@@ -5186,12 +5203,34 @@ static void lv_pump(void) {                  /* (boucle) */
     u32 h = 0; int n = 0;
     for (int k = 0; k < nfiles; k++) if (!jb_iso_path(names[k])) { h += lv_hash(names[k]); n++; }   /* (sans les musiques des jeux) */
     char *buf = lv_buf; lv_buf = NULL;
+    int zipnew = lv_zipnew; lv_zipnew = 0;
+#ifndef GEKKO
+    if (getenv("PCSIM_DRAWPROF")) printf("[relecture] verification : %d -> %d morceaux%s\n", n, lv_n, zipnew ? ", .zip retro nouveau" : "");
+#endif
+    static int zip_tries = 0;
+    if (zipnew && zip_tries < 2) {                        /* v316 : decompresse ici, puis le fil reparcourt la carte (avant : tout dans la boucle) */
+        zip_tries++; free(buf);
+        crumb("musique : .zip retro a decompresser");
+        retro_unzip_tree(SD_ROOT "/retro", 0);
+        lv_state = 1; LWP_SemPost(lsc_sem);
+        return;
+    }
+    zip_tries = 0;
     if (h == lv_h && n == lv_n) { free(buf); crumb("musique : liste gardee a jour (%d)", n); return; }
     crumb("musique : la carte a change (%d -> %d morceaux) : relecture", n, lv_n);
     scan_src = buf;                                       /* v314 : sans reparcourir la carte dans la boucle (1 s et plus figees) */
     music_rescan();
     scan_src = NULL;
     free(buf);
+    retro_rescan();                                       /* v316 : (la liste RETRO suit) */
+}
+/* v316 : relecture demandee (envoi du telephone, FICHIERS, X dans RETRO, effacement...) : la carte est parcourue
+   par le fil lsc et la liste remplacee a la fin (avant : tout dans la boucle, 1 s et plus figees avec 2000 morceaux) */
+static void music_rescan_bg(void) {
+    if (!sd_ok) return;
+    if (sd_virtual || !lsc_ready()) { music_rescan(); retro_rescan(); return; }
+    if (lv_state == 0) { lv_pending = 0; lv_state = 1; LWP_SemPost(lsc_sem); }
+    else lv_pending = 1;                                  /* (parcours deja en cours : peut-etre d'avant le changement : un autre apres) */
 }
 static void *lsc_thread(void *arg) {
     (void)arg;
@@ -5202,6 +5241,7 @@ static void *lsc_thread(void *arg) {
             u32 h = 0; int n = 0;
             char *b = NULL; size_t bl = 0;
             FILE *out = open_memstream(&b, &bl);
+            lv_zipnew = 0; lv_zipscan(SD_ROOT "/retro", 0);
             lv_walk(MP3_DIR, 0, &h, &n, out);
             lv_walk(DL_DIR, 0, &h, &n, out);
             lv_walk(SD_ROOT "/retro", 0, &h, &n, out);
@@ -14274,6 +14314,8 @@ int main(int argc, char **argv) {
     load_stations();
     say("%s\n", "OK");
     bt_step("radios");
+    if (sd_ok) { ipl_get(); igr_on(); ld_build(); }   /* v316 : (calcules au premier affichage des reglages Jeux : jusqu'a 220 ms figees) */
+    bt_step("lanceur / ipl.dol");
     lib_rebuild();
     bt_step("tri de la musique");
     boot_selfcheck();                        /* v76 : controle memoire / carte SD / duree */

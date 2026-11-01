@@ -855,7 +855,7 @@ static void retro_input(u32 down, u32 nav, int fire) {
     if ((down & PAD_BUTTON_A) && retro_n > 0) { int k = retro_list[retro_sel]; queue_build(k); start_track(k); }
     if (down & PAD_BUTTON_B) { stop_track(); stop_station(); track_err = NULL; err_msg[0] = 0; }
     if ((down & PAD_BUTTON_X) && jb_filter[0]) { jb_filter[0] = 0; retro_sel = 0; retro_rescan(); }   /* v207 : sortir des musiques du jeu */
-    else if ((down & PAD_BUTTON_X) && sd_ok) { music_rescan(); retro_rescan(); }
+    else if ((down & PAD_BUTTON_X) && sd_ok) { music_rescan_bg(); lib_note("Actualisation de la liste..."); }
     if ((down & PAD_BUTTON_Y) && src == SRC_FILE && playing) paused = !paused;
 }
 

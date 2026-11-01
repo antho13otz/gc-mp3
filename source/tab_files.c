@@ -143,7 +143,7 @@ static void fe_path(int i, char *out, int cap) { snprintf(out, cap, "%s/%s", fe_
 /* apres une modification : les listes de musique / photos suivent */
 static void fe_changed(void) {
     fe_load();
-    if (strstr(fe_cwd, "/mp3") || strstr(fe_cwd, "/downloads") || strstr(fe_cwd, "/retro") || !strcmp(fe_cwd, SD_ROOT)) { music_rescan(); retro_rescan(); }
+    if (strstr(fe_cwd, "/mp3") || strstr(fe_cwd, "/downloads") || strstr(fe_cwd, "/retro") || !strcmp(fe_cwd, SD_ROOT)) { music_rescan_bg(); }
     if (strstr(fe_cwd, "/photos") || strstr(fe_cwd, "/videos") || strstr(fe_cwd, "/ecran")) npf = -1;
 }
 

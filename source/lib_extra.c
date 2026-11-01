@@ -547,7 +547,7 @@ static void actions_do(int i) {
     case AC_DELLIST: pl_delete(am_list); lib_rebuild(); break;
     case AC_FIND: kb_start(KB_LIBFIND, lib_find, -1, -1); break;
     case AC_CLEARFIND: lib_find_set(""); break;
-    case AC_RESCAN: music_rescan(); lib_note("Biblioth\xC3\xA8que actualis\xC3\xA9" "e"); break;
+    case AC_RESCAN: music_rescan_bg(); lib_note("Actualisation de la biblioth\xC3\xA8que..."); break;
     case AC_RATE:                                         /* A : une etoile de plus (5 -> 0) */
         if (am_track >= 0) { rating_set(am_track, (rating[am_track] + 1) % 6); rating_label(am_track, am_txt[i], sizeof(am_txt[0])); am_open = 1; }
         break;

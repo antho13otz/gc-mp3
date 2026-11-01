@@ -2273,8 +2273,8 @@ static void phone_pump(void) {
     if ((tp_rescan & 5) && !tp_up_active && now_ms() - tp_up_end > 2000) {
         int w = tp_rescan & 5;
         tp_rescan &= ~5;
-        if (w & 1) { tp_add_r = tp_add_w; music_rescan(); }
-        retro_rescan();
+        if (w & 1) { tp_add_r = tp_add_w; music_rescan_bg(); }   /* v316 : en fond */
+        else retro_rescan();
     }
     while (tp_add_r != tp_add_w) { music_add_file(tp_add_path[tp_add_r % 8]); tp_add_r++; }
     if (tp_rescan & 2) { tp_rescan &= ~2; photo_rescan(); }

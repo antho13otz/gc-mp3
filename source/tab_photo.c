@@ -89,20 +89,58 @@ static void thumbs_clear(void) {
 
 /* v165 : a l'entree de l'onglet, un dossier par image (avant : les 4 d'un coup, ~15 ms : une image ratee) */
 static int ph_scan = 0, ph_scan_n = 0;                    /* 1..5 : prochaine etape ; npf reste a -1 pendant ce temps */
+/* v316 : chaque dossier est lu par petits bouts (4 ms par image au plus) : 250 photos dans un dossier figeaient
+   l'entree de l'onglet (60 a 180 ms d'un coup). Pile des dossiers ouverts (profondeur 2 au plus, comme pf_scan_dir). */
+static DIR *pss_d[3];
+static int pss_dep = -1, pss_video = 0;
+static void pss_open(const char *dir, int video) { pss_video = video; pss_dep = -1; DIR *d = opendir(dir); if (d) { pss_d[0] = d; pss_dep = 0; } }
+static char pss_dir[3][NAME_LEN];
+static void pss_stop(void) { while (pss_dep >= 0) closedir(pss_d[pss_dep--]); }
+static int pss_slice(void) {                              /* 1 = dossier fini */
+    u32 t0 = perf_us();
+    char path[NAME_LEN];
+    while (pss_dep >= 0) {
+        struct dirent *e = npf < PH_MAXF ? readdir(pss_d[pss_dep]) : NULL;
+        if (!e) { closedir(pss_d[pss_dep--]); continue; }
+        if (e->d_name[0] == '.') continue;
+        int n = snprintf(path, sizeof(path), "%s/%s", pss_dir[pss_dep], e->d_name);
+        if (n <= 0 || n >= (int)sizeof(path)) continue;
+        const char *dot = strrchr(e->d_name, '.');
+        int add = 0;
+        if (!pss_video && img_ext(e->d_name)) { pf[npf].video = 0; add = 1; }
+        else if (pss_video && dot && !strcasecmp(dot, ".avi")) { pf[npf].video = 1; add = 1; }
+        if (add) {
+            snprintf(pf[npf].path, NAME_LEN, "%s", path);
+            pf[npf].bad = 0;
+            pf[npf].date = 0; pf[npf].size = -1;
+            if (pf_sort == 1) {
+                struct stat sb;
+                if (stat(path, &sb) == 0) { pf[npf].date = sb.st_mtime > 1 ? (u32)sb.st_mtime : 0; pf[npf].size = (long)sb.st_size; }
+            }
+            npf++;
+        } else if (pss_dep < 2 && is_dir(path, e)) {
+            DIR *d = opendir(path);
+            if (d) { pss_dep++; pss_d[pss_dep] = d; snprintf(pss_dir[pss_dep], NAME_LEN, "%s", path); }
+        }
+        if (perf_us() - t0 > 4000) return 0;
+    }
+    return 1;
+}
 static void photo_rescan_end(void);
 static void photo_scan_step(void) {
+    static const char *const dirs[5] = { NULL, SD_ROOT "/videos", SD_ROOT "/photos", SD_ROOT "/ecran", DL_DIR };
     int st = ph_scan;
     npf = ph_scan_n;
-    if (st == 1) { if (!pf) pf = (pfile_t *)malloc(sizeof(pfile_t) * PH_MAXF); if (!pf || !sd_ok) st = 5; else mkdir(SD_ROOT "/photos", 0777); }
-    if (st == 1) pf_scan_dir(SD_ROOT "/videos", 0, 1);
-    else if (st == 2) pf_scan_dir(SD_ROOT "/photos", 0, 0);
-    else if (st == 3) pf_scan_dir(SD_ROOT "/ecran", 0, 0);
-    else if (st == 4) pf_scan_dir(DL_DIR, 0, 0);
+    if (st == 1 && pss_dep < 0) { if (!pf) pf = (pfile_t *)malloc(sizeof(pfile_t) * PH_MAXF); if (!pf || !sd_ok) st = 5; else mkdir(SD_ROOT "/photos", 0777); }
+    if (st >= 1 && st <= 4) {
+        if (pss_dep < 0) { pss_open(dirs[st], st == 1); snprintf(pss_dir[0], NAME_LEN, "%s", dirs[st]); }
+        if (!pss_slice()) { ph_scan_n = npf; npf = -1; return; }   /* (meme dossier a l'image suivante) */
+    }
     if (st >= 4 || !pf) { ph_scan = 0; if (!pf) npf = 0; photo_rescan_end(); return; }
     ph_scan_n = npf; npf = -1; ph_scan = st + 1;
 }
 static void photo_rescan(void) {
-    ph_scan = 0;
+    ph_scan = 0; pss_stop();
     if (!pf) pf = (pfile_t *)malloc(sizeof(pfile_t) * PH_MAXF);
     if (!pf) { npf = 0; return; }
     npf = 0;
@@ -636,7 +674,7 @@ static void photo_input(u32 down, u32 nav, int fire) {
 
 static void photo_pump_tab(void) {
     video_pump();
-    if (ph_scan) { if (tab == TAB_PHOTO) photo_scan_step(); else { ph_scan = 0; npf = -1; } return; }   /* v165 */
+    if (ph_scan) { if (tab == TAB_PHOTO) photo_scan_step(); else { ph_scan = 0; npf = -1; pss_stop(); } return; }   /* v165 */
     if (tab != TAB_PHOTO || npf <= 0) { if (pj_state != PJ_IDLE) pj_pump(); return; }
     if (pv_mode == 1) {
         if (pv_slide && now_ms() - pv_slide_t > SLIDE_MS) {     /* diaporama : photo suivante (pas les videos) */
@@ -709,7 +747,9 @@ static void draw_tab_photo(void) {
     }
     if (npf > 0) {
         snprintf(buf, sizeof(buf), "L / R : tri %s", pf_sort ? TR("par date") : TR("par nom"));
-        gx_text_r(F_SMALL, 614, 99, buf, RGBA(150, 135, 210, 255));
+        char nb[16]; snprintf(nb, sizeof(nb), "%d", npf);       /* v316 : (styles 1 a 3 : le nombre est deja a droite) */
+        f32 xr = (ui_skin >= 1 && ui_skin <= 3) ? 614 - text_width(F_SMALL, nb, 0) - 14 : 614;
+        gx_text_r(F_SMALL, xr, 99, buf, RGBA(150, 135, 210, 255));
     }
     static const char *const k[] = { "A", "Y", "X" };
     static const char *const l[] = { "OUVRIR", "DIAPORAMA", "ACTUALISER" };
