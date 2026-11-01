@@ -299,7 +299,7 @@ object JeuSMS {
                val eau: Float, val scene: Int, val zone: Int, val episode: Int, val secret: Boolean,
                val zones: List<ZoneSoleils> = emptyList(), val delfino: ZoneSoleils? = null, val achats: ZoneSoleils? = null, val corona: ZoneSoleils? = null,
                val buse: Int = -1, val buse2: Int = -1, val yoshi: Int = -1, val yoshiDebloque: Boolean = false,
-               val fusee: Boolean = false, val turbo: Boolean = false,
+               val fusee: Boolean = false, val turbo: Boolean = false, val rouges: Int = -1,
                val x: Float = 0f, val y: Float = 0f, val z: Float = 0f, val cap: Double = 0.0, val vitesse: Float = 0f, val aPos: Boolean = false)
 
     private fun bit(d: IntArray, n: Int): Boolean = n >= 0 && n / 8 < d.size && (d[n / 8] shr (n and 7)) and 1 != 0
@@ -350,7 +350,8 @@ object JeuSMS {
         }
         val zone = if (scene < ZONE_DE.size) ZONE_DE[scene] else 1
         return Etat(etat == 5, soleils, bleues, pieces, vies, sante, eau, scene, zone, ep, scene in 0x15..0x34,
-            zones, delf, ach, cor, buse, buse2, yo, yd, fusee, turbo, x, y, z, cap, vit, aPos)
+            zones, delf, ach, cor, buse, buse2, yo, yd, fusee, turbo, (l.s32(f + 0xF4) ?: -1).takeIf { it in 0..8 } ?: -1,   // (MSF_RED_COIN_COUNT : mStageInts[0])
+            x, y, z, cap, vit, aPos)
     }
 }
 
@@ -368,7 +369,8 @@ object JeuMKDD {
                val ballons: Int = -1, val points: Int = -1)
     class Etat(val enCourse: Boolean, val fini: Boolean, val place: Int, val tour: Int, val tours: Int, val progres: Float,
                val tempsTours: List<Int>, val total: Int, val karts: List<Kart> = emptyList(), val circuit: Int = 0,
-               val mode: Int = 0, val niveau: Int = -1, val coupe: Int = -1, val miroir: Boolean = false, val nbKarts: Int = 0, val meilleurTour: Int = -1)
+               val mode: Int = 0, val niveau: Int = -1, val coupe: Int = -1, val miroir: Boolean = false, val nbKarts: Int = 0, val meilleurTour: Int = -1,
+               val manche: Int = 0, val recordTour: Int = PAS_DE_TEMPS, val recordTotal: Int = PAS_DE_TEMPS, val ecarts: Map<Int, Float> = emptyMap())
 
     val HORS_COURSE = Etat(false, false, 0, 0, 0, 0f, emptyList(), PAS_DE_TEMPS)
 
@@ -406,6 +408,10 @@ object JeuMKDD {
     @Volatile var depart = -1                                       // (troncon de la ligne d'arrivee dans trace)
     @Volatile private var dernierCircuit = -1
     @Volatile private var essai = 0L
+    // ecart en secondes avec les autres : difference d'avancee / avancee du kart 1 par seconde (lissee)
+    private var progresAvant = -1f
+    private var progresT = 0L
+    private var avance = 0f
     // pilotes et karts : lus une fois par course (ils ne changent pas pendant la course)
     @Volatile private var equipes: List<IntArray> = emptyList()      // (pilote, passager, kart, joueur)
     @Volatile private var equipesCle = -1L
@@ -507,8 +513,22 @@ object JeuMKDD {
             dernierCircuit = crs; essai = maintenant; trace = emptyList(); lireTrace(Lecteur(700, 15), s0)   // (une fois par course, au rythme d'un bloc par image)
         }
         val best = l.s32(kc + 0x10)?.takeIf { it in 0 until lt.size } ?: -1
-        return Etat(enCourse || fini, fini, place, tour, tours, prog, lt, total, karts, crs, mode, niveau, coupe, miroir, nb, best)
+        val moi = karts.firstOrNull { it.n == 0 }
+        if (moi != null && moi.progres >= 0f && enCourse && !fini) {
+            if (progresAvant >= 0f && maintenant > progresT) {
+                val v = (moi.progres - progresAvant) / ((maintenant - progresT) / 1000f)
+                if (v > 0f && v < 1f) avance = if (avance <= 0f) v else avance * 0.8f + v * 0.2f
+            }
+            progresAvant = moi.progres; progresT = maintenant
+        } else progresAvant = -1f
+        val ecarts = HashMap<Int, Float>()
+        if (moi != null && avance > 0f && e2(mode)) for (k in karts) if (k.n != 0 && !k.fini && k.progres >= 0f) ecarts[k.n] = (k.progres - moi.progres) / avance
+        fun temps(v: Int?) = if (v != null && v in 1 until PAS_DE_TEMPS) v else PAS_DE_TEMPS
+        return Etat(enCourse || fini, fini, place, tour, tours, prog, lt, total, karts, crs, mode, niveau, coupe, miroir, nb, best,
+            ri?.let { l.s16(it + 0x26) }?.takeIf { it in 0..15 } ?: 0,                // (mGpStageNo : course de la coupe)
+            temps(l.s32(rm + 0x94)), temps(l.s32(rm + 0x98)), ecarts)                   // (mBestLapTime, mBestTotalTimes[0])
     }
+    private fun e2(mode: Int) = mode in 1..3                       // (courses : pas les batailles)
 }
 
 // ---------------------------------------------------------------- la lecture en direct
@@ -1040,6 +1060,10 @@ private fun CompagnonSMS(e: JeuSMS.Etat) {
                 Jauge("pièces bleues / 240", e.bleues.toString(), Color(0xFF7FD4FF), Modifier.weight(1f))
                 Jauge("pièces", e.pieces.toString(), Color(0xFFFFD54A), Modifier.weight(1f))
                 Jauge("vies", e.vies.toString(), Color(0xFFFF8A8A), Modifier.weight(1f))
+            }
+            if (e.enJeu && e.rouges > 0) Row(verticalAlignment = Alignment.CenterVertically) {
+                for (k in 0 until 8) Box(Modifier.padding(end = 4.dp).size(14.dp).clip(RoundedCornerShape(7.dp)).background(if (k < e.rouges) Color(0xFFFF3B3B) else Color(0x33FFFFFF)))
+                Doux(" pièces rouges " + e.rouges + " / 8", taille = 11, couleur = Color(0xCCFFFFFF))
             }
             if (!e.enJeu) Doux("Menu ou cinématique.", taille = 11, couleur = Color(0xCCFFFFFF))
         }

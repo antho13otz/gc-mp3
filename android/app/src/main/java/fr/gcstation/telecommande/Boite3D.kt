@@ -143,7 +143,7 @@ object JaquettesHQ {
     /** jaquette complete (dos|tranche|avant), jaquette avant (sans complete), image du disque : null si pas trouvee */
     class Images(val full: Bitmap?, val avant: Bitmap?, val disque: Bitmap?, val ia: Boolean = false)
     /** v308 : jaquettes agrandies par IA, HD comprise (progres : texte d'avancement, la 1re fois) */
-    suspend fun charger(dir: File, id: String, ctx: Context? = null, progres: ((Float) -> Unit)? = null, iaJaquettes: Boolean = true): Images = withContext(Dispatchers.IO) {
+    suspend fun charger(dir: File, id: String, ctx: Context? = null, progres: ((Float) -> Unit)? = null, iaJaquettes: Boolean = false): Images = withContext(Dispatchers.IO) {
         var ia = false
         fun net(g: String, b: Bitmap?): Bitmap? = b?.let { val r = netIA(dir, g, id, it, if (iaJaquettes) ctx else null, progres); if (r !== it) ia = true; r }
         val full = net("coverfullHQ", image(dir, "coverfullHQ", id)) ?: net("coverfull", image(dir, "coverfull", id))
@@ -164,8 +164,10 @@ object JaquettesHQ {
      *  maxi px au plus) ; sinon (ou echec) : celle d'origine */
     private fun netIA(dir: File, genre: String, id: String, b: Bitmap, ctx: Context?, progres: ((Float) -> Unit)? = null, maxi: Int = 4096): Bitmap {
         val f = File(dir, "jaquettes/${genre}ia/$id.jpg")
-        // (jaquette deja en HD : telle quelle ; l'IA y redessinait les petits textes en gribouillis illisibles)
-        if (maxOf(b.width, b.height) > 600) { if (f.exists()) f.delete(); return b }
+        // (l'IA redessinait les textes des jaquettes en gribouillis illisibles : plus jamais sur les jaquettes, seulement
+        // sur le disque ; les jaquettes deja agrandies gardees sur le telephone sont effacees)
+        if (f.exists()) f.delete()
+        if (true) return b
         if (f.exists()) {
             val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(f.path, o)
@@ -213,7 +215,7 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
     var noticeOuverte by remember { mutableStateOf(false) }
     LaunchedEffect(id, vue) {
         val v = vue ?: return@LaunchedEffect
-        val im = JaquettesHQ.charger(Hors.dir(act), id, act, progres = { p: Float -> etat = Lang.t("Agrandissement de la jaquette par IA (une seule fois)…") + " " + (p * 100).toInt() + " %" })
+        val im = JaquettesHQ.charger(Hors.dir(act), id, act)                     // (v313 : IA seulement sur le disque)
         etat = (when {
             im.full != null -> "Jaquette complète " + im.full.width + "×" + im.full.height
             im.avant != null -> "Jaquette avant seulement"
