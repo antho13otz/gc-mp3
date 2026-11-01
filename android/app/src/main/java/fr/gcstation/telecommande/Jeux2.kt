@@ -41,7 +41,10 @@ import androidx.compose.ui.unit.sp
 class Ligne(val nom: String, val valeur: String, val part: Float = -1f, val couleur: Long = 0)
 /** une section : lignes, et/ou pastilles (texte, obtenu) */
 class Bloc(val titre: String, val lignes: List<Ligne> = emptyList(), val pastilles: List<Pair<String, Boolean>> = emptyList(), val texte: String = "",
-           val plan: Plan? = null)                                         // (build 175 : un plan vu de dessus)
+           val plan: Plan? = null,                                         // (build 175 : un plan vu de dessus)
+           val courbes: List<Courbe> = emptyList())                        // (build 185 : un graphique, une courbe par joueur)
+/** build 185 : une courbe (valeurs dans l'ordre : un point par tour), avec son nom et sa couleur */
+class Courbe(val nom: String, val couleur: Long, val v: List<Int>)
 /** build 175 : un plan vu de dessus (x, z du jeu) : des cases reliees, et des pions (texte court) */
 class Plan(val cases: List<FloatArray>, val couleurs: List<Long>, val liens: List<IntArray>, val pions: List<Pion>, val etoiles: List<Int> = emptyList(),
            val petits: Set<Int> = emptySet(), val marques: Set<Int> = emptySet())   // (build 180 : passages en petit, capsules posees)
@@ -580,6 +583,7 @@ fun CompagnonFiche(f: Fiche) {
             }
             if (b.texte.isNotEmpty()) Doux(b.texte, taille = 12)
             b.plan?.let { DessinPlan(it) }
+            if (b.courbes.isNotEmpty()) DessinCourbes(b.courbes)
         }
     }
     Spacer(Modifier.width(1.dp))
@@ -643,4 +647,32 @@ fun DessinPlan(p: Plan) {
             drawIntoCanvas { cv -> cv.nativeCanvas.drawText(pi.texte, c.x, c.y + 3.dp.toPx(), paint) }
         }
     }
+}
+
+/** build 185 : les courbes d'un bloc (pieces tour par tour...) */
+@Composable
+fun DessinCourbes(cs: List<Courbe>) {
+    val n = cs.maxOf { it.v.size }
+    if (n < 2) return
+    val max = cs.maxOf { c -> c.v.maxOrNull() ?: 0 }.coerceAtLeast(1)
+    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(150.dp)) {
+        val m = 6.dp.toPx()
+        for (k in 0..4) { val y = m + (size.height - 2 * m) * k / 4f; drawLine(Color(0x22FFFFFF), androidx.compose.ui.geometry.Offset(0f, y), androidx.compose.ui.geometry.Offset(size.width, y), 1f) }
+        for (c in cs) {
+            var av: androidx.compose.ui.geometry.Offset? = null
+            for ((i, v) in c.v.withIndex()) {
+                val p = androidx.compose.ui.geometry.Offset(m + (size.width - 2 * m) * i / (n - 1), size.height - m - (size.height - 2 * m) * v / max)
+                av?.let { drawLine(Color(c.couleur), it, p, 2.5f.dp.toPx()) }
+                drawCircle(Color(c.couleur), 2.5f.dp.toPx(), p)
+                av = p
+            }
+        }
+    }
+    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        for (c in cs) Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.width(10.dp).height(10.dp).clip(RoundedCornerShape(5.dp)).background(Color(c.couleur)))
+            Spacer(Modifier.width(4.dp)); Doux(c.nom, taille = 11)
+        }
+    }
+    Doux("max " + max + " · " + n + " tours", taille = 10)
 }
