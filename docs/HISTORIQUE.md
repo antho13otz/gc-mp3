@@ -24,6 +24,18 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 187 — Fin de partie Mario Party 5, statistiques de jeu, jeu en cours sur le widget
+- **Mario Party 5, fin de partie** : quand les résultats commencent (tour = nombre de tours + 1), un récapitulatif en haut
+  de la fiche : classement final, étoiles bonus de chacun (étoiles gagnées pendant les résultats), meilleur aux mini-jeux
+  (pièces gagnées aux mini-jeux) ; et pendant toute la partie, **les pièces tour par tour en courbes**. Chaque partie
+  finie est gardée sur le téléphone (30 dernières) : hors partie, la fiche montre la dernière en détail, la liste des
+  parties et les victoires de chacun.
+- **Statistiques de jeu** (Plus > Statistiques de jeu) : temps total, jeux lancés, lancements ; temps de jeu par semaine
+  (8 dernières semaines) et cette semaine par jeu ; les plus joués et les plus lancés ; joués dernièrement ; dernières
+  parties. Les totaux viennent de la console (temps mesuré par Pulse), le temps par semaine des parties notées par le
+  téléphone (du lancement au retour à GC Station) à partir de cette version.
+- **Widget** : sous le morceau en cours, le jeu en cours et le temps de la partie.
+
 ## Nouveautés appli build 184 — Mario Party 5 : mini-jeux, historique, alertes ; Paper Mario : noms français, plan de la zone
 - **Mario Party 5** : le nom du mini-jeu (noms anglais officiels, avec le type : 4 joueurs, 1 contre 3, 2 contre 2,
   bataille, duel, Bowser, DK) ; rangés dans l'ordre de la table du jeu (m501 = Coney Island, vérifié), les autres à
