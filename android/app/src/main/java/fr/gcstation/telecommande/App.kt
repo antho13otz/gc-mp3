@@ -316,7 +316,7 @@ private fun PartieEnCours(act: StationActivity) {
                     val sc = rememberCoroutineScope()
                     Bouton(if (tacheChercheur().isEmpty()) "Capture de l'écran du jeu" else tacheChercheur(), Modifier.fillMaxWidth(), plein = true, icone = Ic.Photo) { capturerJeu(act, sc) }
                     Spacer(Modifier.height(8.dp))
-                    if (Compagnon.pris(g.id)) {
+                    if (true) {                                       // (v314 : tous les jeux : valeurs épinglées)
                         Bouton("Compagnon de jeu et chrono", Modifier.fillMaxWidth(), plein = true, icone = Ic.Jeux) { St.jeuMasque = true; St.onglet = 4; St.sous = "Compagnon de jeu" }
                         Spacer(Modifier.height(8.dp))
                     }

@@ -544,6 +544,7 @@ object Compagnon {
     var etat by mutableStateOf<Any?>(null)
     var statut by mutableStateOf("Connexion à Pulse…")
     var ecranOuvert = false
+    @Volatile var pauseLecture = false                              // (v314 : recherche unique en cours : pas de lecture)
     var ctx: Context? = null
     private var job: Job? = null
     private val scope = MainScope()
@@ -570,12 +571,15 @@ object Compagnon {
                     muet = 0
                     if (e.jeu != jeu) { jeu = e.jeu; etat = null; traceWW.clear() }
                 }
+                if (pauseLecture) { if (etat is Fiche) etat = ModulesJeux.pour(jeu)?.let { m -> withContext(Dispatchers.IO) { m.lire(Lecteur(0), jeu) } } ?: etat; delay(500); continue }
                 val id = jeu
-                if (!pris(id)) { statut = "Ce jeu ($id) n'a pas encore d'écran compagnon. Pris en charge : " + PRIS.values.distinct().joinToString(", ") + "."; etat = null; delay(2000); continue }
+                val epingles = Epingles.liste(ctx, id).isNotEmpty()
+                if (!pris(id) && !epingles) { statut = "Ce jeu ($id) n'a pas encore d'écran dédié. Avec le chercheur de codes, trouve une valeur (vies, pièces…) puis « Épingler au compagnon de jeu » : elle s'affichera ici en direct, à chaque partie."; etat = null; delay(2000); continue }
                 val t0 = SystemClock.elapsedRealtime()
                 val r = withContext(Dispatchers.IO) {
                     val l = Lecteur(28)
-                    when (id) { JeuWW.ID -> JeuWW.lire(l); JeuSMS.ID -> JeuSMS.lire(l); JeuMKDD.ID -> JeuMKDD.lire(l); else -> ModulesJeux.pour(id)?.lire(l, id) }
+                    when (id) { JeuWW.ID -> JeuWW.lire(l); JeuSMS.ID -> JeuSMS.lire(l); JeuMKDD.ID -> JeuMKDD.lire(l)
+                        else -> { val m = ModulesJeux.pour(id); if (m != null) m.lire(l, id)?.let { f -> Epingles.avec(f, l, ctx) } else Epingles.fiche(l, ctx, id, St.jeu?.name ?: "") } }
                 }
                 if (r == null) statut = "Valeurs illisibles pour $id : autre version du jeu, ou partie pas encore commencée."
                 else {
@@ -779,6 +783,7 @@ fun EcranCompagnon() {
             is Fiche -> CompagnonFiche(e)
             else -> {}
         } else EcranChrono()
+        if (vue == 0 && id.isNotEmpty()) GererEpingles(id)              // (v314 : valeurs epinglees : les retirer)
         Spacer(Modifier.height(20.dp))
     }
 }

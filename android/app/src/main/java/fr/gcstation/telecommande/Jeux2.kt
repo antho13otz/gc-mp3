@@ -40,14 +40,17 @@ class Ligne(val nom: String, val valeur: String, val part: Float = -1f, val coul
 class Bloc(val titre: String, val lignes: List<Ligne> = emptyList(), val pastilles: List<Pair<String, Boolean>> = emptyList(), val texte: String = "")
 /** l'ecran d'un jeu : grands chiffres en haut, puis les sections */
 class Fiche(val jeu: String, val titre: String, val sous: String, val haut: Long, val bas: Long,
-            val grands: List<Pair<String, String>> = emptyList(), val blocs: List<Bloc> = emptyList(), val message: String = "")
+            val grands: List<Pair<String, String>> = emptyList(), val blocs: List<Bloc> = emptyList(), val message: String = "",
+            val bouton: String = "")                                       // (v314 : un bouton d'action du jeu, ModuleJeu.agir)
 
 abstract class ModuleJeu(val nom: String, vararg val ids: String) {
     abstract fun lire(l: Lecteur, id: String): Fiche?
+    /** le bouton de la fiche (Fiche.bouton) : par ex. la recherche unique du jeu dans la memoire */
+    open fun agir(c: android.content.Context, id: String) { }
 }
 
 object ModulesJeux {
-    val tous: List<ModuleJeu> = listOf(JeuTP, JeuPikmin1, JeuPikmin2, JeuMelee, JeuMSB)
+    val tous: List<ModuleJeu> = listOf(JeuTP, JeuPikmin1, JeuPikmin2, JeuMelee, JeuMSB, JeuTTYD, JeuOoT)
     fun pour(id: String): ModuleJeu? = tous.firstOrNull { id in it.ids }
     fun noms(): Map<String, String> = tous.flatMap { m -> m.ids.map { it to m.nom } }.toMap()
 }
@@ -350,6 +353,292 @@ object JeuMSB : ModuleJeu("Mario Superstar Baseball", "GYQE01") {
     }
 }
 
+// ---------------------------------------------------------------- Paper Mario : La Porte Millenaire
+// La structure PouchData (doldecomp/ttyd, mario_pouch.h) est la meme dans toutes les versions ; son adresse est dans un
+// pointeur que pouchGetPtr lit (« lwz r3, d(r13) ; blr »). Japonais (decompilation) et americain (ttyd-tools) : adresse
+// de pouchGetPtr connue ; europeen : cherchee une fois dans le code (autour de l'adresse americaine), puis gardee.
+// r13 (la base des petites donnees) : lue dans __init_registers (« lis r13 / ori r13 ») au debut du programme.
+// Chaque candidat n'est garde que si la structure trouvee est vraisemblable (PV, PF, pieces, niveau...).
+object JeuTTYD : ModuleJeu("Paper Mario : La Porte Millénaire", "G8MP01", "G8ME01", "G8MJ01") {
+    private val PARTENAIRES = arrayOf("", "Goombella", "Koops", "Bombart", "Yoshi", "Cumulia", "Vivian", "Mme Gonzales")
+    @Volatile private var emplacement = 0L                           // (adresse du pointeur vers PouchData, trouvee)
+    @Volatile private var pour = ""
+    @Volatile private var essai = 0L
+
+    private fun r13(l: Lecteur): Long? {
+        var a = 0x80003100L
+        while (a < 0x80005000L) {
+            val w = l.u32(a) ?: return null
+            if (w ushr 16 == 0x3DA0L) {                              // lis r13, hi
+                for (k in 1..4) {
+                    val w2 = l.u32(a + 4L * k) ?: break
+                    val hi = (w and 0xFFFF) shl 16
+                    if (w2 ushr 16 == 0x61ADL) return hi or (w2 and 0xFFFF)                       // ori r13, r13, lo
+                    if (w2 ushr 16 == 0x39ADL) return (hi + (w2 and 0xFFFF).toShort().toLong()) and 0xFFFFFFFFL   // addi
+                }
+            }
+            a += 4
+        }
+        return null
+    }
+    private fun vraisemblable(l: Lecteur, p: Long): Boolean {
+        val pv = l.s16(p + 0x70) ?: return false; val pvMax = l.s16(p + 0x72) ?: return false
+        val pf = l.s16(p + 0x74) ?: return false; val pfMax = l.s16(p + 0x76) ?: return false
+        val pieces = l.s16(p + 0x78) ?: return false; val niveau = l.s16(p + 0x8A) ?: return false
+        return pvMax in 1..999 && pv in 0..pvMax && pfMax in 0..999 && pf in 0..pfMax && pieces in 0..999 && niveau in 1..99
+    }
+    private fun trouver(l: Lecteur, id: String): Long {
+        val base = l.u8(0x80000007) ?: 0
+        val r = r13(l) ?: return 0L
+        val zones = when (id) { "G8MJ01" -> listOf(0x800D1C74L to 0x800D1C74L); "G8ME01" -> listOf(0x800D5EB0L to 0x800D5EB0L)
+                                else -> listOf(0x800D6800L to 0x800D8400L) }      // (europeen : le code est un peu plus loin)
+        for ((de, a) in zones) {
+            var x = de
+            while (x <= a) {
+                val w = l.u32(x)
+                if (w != null && w ushr 16 == 0x806DL && l.u32(x + 4) == 0x4E800020L) {           // lwz r3, d(r13) ; blr
+                    val slot = (r + (w and 0xFFFF).toShort().toLong()) and 0xFFFFFFFFL
+                    val p = l.ptr(slot)
+                    if (p != null && vraisemblable(l, p)) return slot
+                }
+                x += 4
+            }
+        }
+        @Suppress("UNUSED_VARIABLE") val b = base
+        return 0L
+    }
+
+    override fun lire(l: Lecteur, id: String): Fiche? {
+        if (pour != id) { pour = id; emplacement = 0L }
+        if (emplacement == 0L) {
+            val t = System.currentTimeMillis()
+            if (t - essai < 4000) return Fiche(id, "Paper Mario", "Recherche de l'inventaire…", 0xFF8F1E5E, 0xFF22071A, message = "Une partie doit être chargée (pas l'écran titre).")
+            essai = t
+            emplacement = trouver(Lecteur(80), id)
+            if (emplacement == 0L) return Fiche(id, "Paper Mario", "Inventaire pas encore trouvé", 0xFF8F1E5E, 0xFF22071A,
+                message = "Charge une partie : l'appli cherche toute seule où le jeu range l'inventaire (rien n'est affiché tant que ce n'est pas sûr).")
+        }
+        val p = l.ptr(emplacement) ?: return null
+        if (!vraisemblable(l, p)) return Fiche(id, "Paper Mario", "Pas de partie chargée", 0xFF8F1E5E, 0xFF22071A, message = "Écran titre ou chargement.")
+        fun s(o: Int) = l.s16(p + o) ?: 0
+        val pv = s(0x70); val pvMax = s(0x72); val pf = s(0x74); val pfMax = s(0x76); val pieces = s(0x78)
+        val ps = s(0x7A); val psMax = s(0x7C); val rang = s(0x88); val niveau = s(0x8A); val pouvoirs = s(0x8C)
+        val pb = s(0x92); val pbMax = s(0x94); val points = s(0x96)
+        val saut = l.u8(p + 0x98) ?: 0; val marteau = l.u8(p + 0x99) ?: 0
+        val eclats = s(0x9A); val soleils = s(0x9C); val record = s(0x9E)
+        val public = l.fini(l.f32(p + 0x84), 1e6f)?.toInt() ?: 0
+        fun compte(o: Int, n: Int): Int { var c = 0; for (k in 0 until n) if ((l.s16(p + o + 2L * k) ?: 0) != 0) c++; return c }
+        val objets = compte(0x192, 20); val reserve = compte(0x1BA, 32); val badges = compte(0x1FA, 200); val equipes = compte(0x38A, 200)
+        val cles = compte(0xA0, 121)
+        val yoshi = (l.texte(p + 0x5C0, 16) ?: "").filter { it.code in 32..255 }
+        val equipe = ArrayList<Ligne>()
+        for (k in 1 until 8) {
+            val o = p + 0xEL * k
+            val fl = l.u16(o) ?: 0
+            if (fl and 1 == 0) continue
+            val hp = l.s16(o + 6) ?: 0; val hpMax = l.s16(o + 2) ?: 0
+            equipe.add(Ligne(if (k == 4 && yoshi.isNotEmpty()) "$yoshi (Yoshi)" else PARTENAIRES[k], "$hp / $hpMax PV · niv. " + ((l.s16(o + 8) ?: 0) + 1), pct(hp, hpMax), 0xFF3DDC84))
+        }
+        val rangs = arrayOf("Débutant", "Étoile montante", "Étoile", "Superstar")
+        val blocs = listOf(
+            Bloc("Mario", listOf(
+                Ligne("Points de vie", "$pv / $pvMax", pct(pv, pvMax), 0xFFFF3B5C),
+                Ligne("Points de fleur", "$pf / $pfMax", pct(pf, pfMax), 0xFF4F8DFF),
+                Ligne("Pouvoir étoile", (ps / 100).toString() + " / " + (psMax / 100), pct(ps, psMax), 0xFFFFD23F),
+                Ligne("Points de badge libres", "$pb / $pbMax", pct(pb, pbMax), 0xFF9C6CFF),
+                Ligne("Points étoile", "$points / 100", pct(points, 100), 0xFFFFB300),
+                Ligne("Niveau", niveau.toString()), Ligne("Rang", rangs.getOrNull(rang) ?: rang.toString()),
+                Ligne("Bottes / marteau", "niv. " + (saut + 1) + " / niv. " + (marteau + 1)),
+                Ligne("Pouvoirs étoile", Integer.bitCount(pouvoirs and 0xFF).toString()),
+                Ligne("Public", public.toString()))),
+            Bloc("Équipe", equipe),
+            Bloc("Collection", listOf(
+                Ligne("Pièces", "$pieces / 999", pct(pieces, 999), 0xFFFFD23F),
+                Ligne("Éclats d'étoile", eclats.toString()), Ligne("Soleils", soleils.toString()),
+                Ligne("Objets", "$objets / 20 (réserve : $reserve)"), Ligne("Badges", "$badges (équipés : $equipes)"),
+                Ligne("Objets importants", cles.toString()), Ligne("Record du Puits des 100 épreuves", if (record > 0) record.toString() else "–"))))
+        return Fiche(id, "Paper Mario", "Niveau $niveau · " + (rangs.getOrNull(rang) ?: ""), 0xFFB8327A, 0xFF2A0A1C,
+            grands = listOf("PV" to "$pv/$pvMax", "PF" to "$pf/$pfMax", "pièces" to pieces.toString()), blocs = blocs)
+    }
+}
+
+// ---------------------------------------------------------------- Ocarina of Time (Collector's Edition, Multi Pack)
+// Le jeu N64 tourne dans l'emulateur du disque : sa memoire est quelque part dans celle de la GameCube. Une recherche
+// unique (jeu en pause, toute la memoire lue comme la photo du chercheur de codes) trouve la sauvegarde en cours
+// (SaveContext : "ZELDAZ" en 0x1C, zeldaret/oot save.h) ; les endroits vraisemblables sont gardes sur le telephone.
+object JeuOoT : ModuleJeu("Ocarina of Time (émulé)", "PZLP01", "D43P01", "PZLE01", "D43E01", "PZLJ01", "D43J01") {
+    @Volatile var progres = -1f
+    @Volatile private var candidats: LongArray? = null
+    @Volatile private var choisi = -1
+    private var dernierTemps = IntArray(0)
+
+    private fun cle(id: String) = "oot_$id"
+    private fun charger(c: android.content.Context?, id: String) {
+        if (candidats != null || c == null) return
+        val s = c.getSharedPreferences("gcs", 0).getString(cle(id), "") ?: ""
+        candidats = s.split(',').mapNotNull { it.trim().toLongOrNull() }.toLongArray()
+    }
+    private fun vraisemblable(l: Lecteur, a: Long): Boolean {
+        if (l.texte(a + 0x1C, 6) != "ZELDAZ") return false
+        val cap = l.s16(a + 0x2E) ?: return false; val vie = l.s16(a + 0x30) ?: return false
+        val age = l.s32(a + 4) ?: return false; val rubis = l.s16(a + 0x34) ?: return false
+        return cap in 0x30..0x140 && vie in 0..cap && age in 0..1 && rubis in 0..999
+    }
+    private fun vraisemblableMem(m: ByteArray, o: Int): Boolean {
+        fun s16(k: Int) = ((m[o + k].toInt() shl 8) or (m[o + k + 1].toInt() and 255)).toShort().toInt()
+        fun s32(k: Int) = ((m[o + k].toInt() and 255) shl 24) or ((m[o + k + 1].toInt() and 255) shl 16) or ((m[o + k + 2].toInt() and 255) shl 8) or (m[o + k + 3].toInt() and 255)
+        val cap = s16(0x2E); val vie = s16(0x30)
+        return cap in 0x30..0x140 && vie in 0..cap && s32(4) in 0..1 && s16(0x34) in 0..999
+    }
+
+    override fun agir(c: android.content.Context, id: String) {
+        if (progres >= 0f) return
+        progres = 0f
+        Thread {
+            Compagnon.pauseLecture = true
+            try {
+                Thread.sleep(400)
+                val e = MemoireJeu.demande('P', 1)
+                if (e != null) {
+                    val mem = ByteArray(MemoireJeu.TAILLE)
+                    val ok = MemoireJeu.lire(IntArray(MemoireJeu.FIN / MemoireJeu.BLK) { it }, mem, true, { progres = it * 0.95f }, { false })
+                    MemoireJeu.demande('P', 0)
+                    if (ok) {
+                        val z = "ZELDAZ".toByteArray(Charsets.ISO_8859_1)
+                        val r = ArrayList<Long>()
+                        var i = 0x1C
+                        val fin = MemoireJeu.FIN - 0x40
+                        while (i < fin && r.size < 8) {
+                            if (mem[i] == z[0] && mem[i + 1] == z[1] && mem[i + 2] == z[2] && mem[i + 3] == z[3] && mem[i + 4] == z[4] && mem[i + 5] == z[5]
+                                && vraisemblableMem(mem, i - 0x1C)) r.add(MemoireJeu.BASE + i - 0x1C)
+                            i += 2
+                        }
+                        candidats = r.toLongArray(); choisi = -1
+                        c.getSharedPreferences("gcs", 0).edit().putString(cle(id), r.joinToString(",")).apply()
+                    }
+                }
+            } catch (x: Exception) { }
+            progres = -1f
+            Compagnon.pauseLecture = false
+        }.start()
+    }
+
+    private val OBJETS = mapOf(0x00 to "Bâton Mojo", 0x01 to "Noix Mojo", 0x02 to "Bombes", 0x03 to "Arc des fées", 0x04 to "Flèche de feu",
+        0x05 to "Feu de Din", 0x06 to "Lance-pierre", 0x07 to "Ocarina des fées", 0x08 to "Ocarina du Temps", 0x09 to "Missiles Teigneux",
+        0x0A to "Grappin", 0x0B to "Super Grappin", 0x0C to "Flèche de glace", 0x0D to "Vent de Farore", 0x0E to "Boomerang",
+        0x0F to "Monocle de Vérité", 0x10 to "Haricots magiques", 0x11 to "Masse des Titans", 0x12 to "Flèche de lumière", 0x13 to "Amour de Nayru",
+        0x14 to "Flacon", 0x15 to "Potion rouge", 0x16 to "Potion verte", 0x17 to "Potion bleue", 0x18 to "Fée", 0x19 to "Poisson",
+        0x1A to "Lait", 0x1B to "Lettre de Ruto", 0x1C to "Flamme bleue", 0x1D to "Insectes", 0x1E to "Âme errante", 0x1F to "Lait (moitié)",
+        0x20 to "Esprit", 0x21 to "Œuf", 0x22 to "Poulet", 0x23 to "Lettre de Zelda")
+    private val MEDAILLONS = listOf("Forêt", "Feu", "Eau", "Esprit", "Ombre", "Lumière")
+    private val CHANTS = listOf("Menuet des bois", "Boléro du feu", "Sérénade de l'eau", "Requiem de l'esprit", "Nocturne de l'ombre", "Prélude de la lumière",
+        "Berceuse de Zelda", "Chant d'Epona", "Chant de Saria", "Chant du soleil", "Chant du temps", "Chant des tempêtes")
+    private val PIERRES = listOf("Émeraude Kokiri", "Rubis Goron", "Saphir Zora")
+
+    override fun lire(l: Lecteur, id: String): Fiche? {
+        charger(Compagnon.ctx, id)
+        val pr = progres
+        if (pr >= 0f) return Fiche(id, "Ocarina of Time", "Recherche dans l'émulateur…", 0xFF2E5A1E, 0xFF0B1A07,
+            grands = listOf("lu" to ((pr * 100).toInt().toString() + " %")), message = "Le jeu est en pause pendant la recherche (une seule fois).")
+        val c = candidats ?: LongArray(0)
+        val ok = c.filter { vraisemblable(l, it) }
+        if (ok.isEmpty()) return Fiche(id, "Ocarina of Time", if (c.isEmpty()) "Pas encore trouvé" else "Plus trouvé (nouvelle partie ?)", 0xFF2E5A1E, 0xFF0B1A07,
+            message = "Lance Ocarina of Time et charge une partie, puis touche le bouton : l'appli cherche le jeu dans la mémoire de l'émulateur " +
+                "(jeu en pause quelques dizaines de secondes, une seule fois). Majora's Mask et Zelda NES ne sont pas pris en charge.",
+            bouton = "Trouver Ocarina of Time dans l'émulateur")
+        // la vraie sauvegarde en cours : celle dont l'heure du jeu avance
+        val temps = ok.map { l.u16(it + 0x0C) ?: 0 }.toIntArray()
+        if (dernierTemps.size == temps.size) { for (k in temps.indices) if (temps[k] != dernierTemps[k]) { choisi = k; break } }
+        dernierTemps = temps
+        val a = ok[if (choisi in ok.indices) choisi else 0]
+        fun s16(o: Int) = l.s16(a + o) ?: 0
+        val cap = s16(0x2E); val vie = s16(0x30); val rubis = s16(0x34)
+        val magieNiv = l.u8(a + 0x32)?.toByte()?.toInt() ?: 0; val magie = l.u8(a + 0x33) ?: 0
+        val adulte = (l.s32(a + 4) ?: 1) == 0
+        val heure = (l.u16(a + 0x0C) ?: 0) * 24f / 65536f
+        val jours = l.s32(a + 0x14)?.coerceIn(0, 99999) ?: 0
+        val morts = l.u16(a + 0x22) ?: 0
+        val inv = a + 0x74
+        val objets = l.plage(inv, 24) ?: IntArray(0)
+        val munitions = l.plage(inv + 0x18, 16) ?: IntArray(16)
+        val equip = l.u16(inv + 0x28) ?: 0
+        val ameliorations = l.u32(inv + 0x2C) ?: 0L
+        val quete = l.u32(inv + 0x30) ?: 0L
+        val tokens = l.s16(inv + 0x5C) ?: 0
+        val doubleDef = (l.u8(a + 0x3D) ?: 0) != 0
+        fun bit(n: Int) = (quete shr n) and 1L != 0L
+        val quarts = ((quete shr 28) and 0xF).toInt()
+        val bourse = when ((ameliorations shr 12) and 3) { 1L -> 200; 2L -> 500; else -> 99 }
+        val blocs = ArrayList<Bloc>()
+        blocs.add(Bloc("Link", listOf(
+            Ligne("Cœurs", String.format(java.util.Locale.FRANCE, "%.1f / %d", vie / 16f, cap / 16), pct(vie, cap), 0xFFFF3B5C),
+            Ligne("Magie", if (magieNiv > 0) "$magie / " + (48 * magieNiv) else "–", if (magieNiv > 0) pct(magie, 48 * magieNiv) else -1f, 0xFF3DDC84),
+            Ligne("Rubis", "$rubis / $bourse", pct(rubis, bourse), 0xFF3DDC84),
+            Ligne("Âge", if (adulte) "Adulte" else "Enfant"), Ligne("Quarts de cœur", "$quarts / 4"),
+            Ligne("Double défense", if (doubleDef) "Oui" else "Non"),
+            Ligne("Skulltulas d'or", "$tokens / 100", pct(tokens, 100), 0xFFFFD23F))))
+        blocs.add(Bloc("Médaillons et pierres", pastilles = MEDAILLONS.mapIndexed { k, n -> n to bit(k) } + PIERRES.mapIndexed { k, n -> n to bit(18 + k) } +
+            listOf("Carte Gerudo" to bit(22), "Pierre de Souffrance" to bit(21))))
+        blocs.add(Bloc("Chants", pastilles = CHANTS.mapIndexed { k, n -> n to bit(6 + k) }))
+        val inventaire = objets.filter { it != 0xFF }.map { OBJETS[it] ?: ("Objet " + Integer.toHexString(it)) }
+        if (inventaire.isNotEmpty()) blocs.add(Bloc("Inventaire", pastilles = inventaire.map { it to true }))
+        val noms = mapOf(0 to "Bâtons Mojo", 1 to "Noix Mojo", 2 to "Bombes", 3 to "Flèches", 6 to "Graines", 8 to "Missiles", 14 to "Haricots")
+        blocs.add(Bloc("Munitions", noms.filter { objets.getOrNull(it.key)?.let { o -> o != 0xFF } == true }.map { (k, n) -> Ligne(n, munitions[k].toString()) }))
+        val epees = listOf("Épée Kokiri", "Épée de légende", "Épée de Biggoron").filterIndexed { k, _ -> equip and (1 shl k) != 0 }
+        val boucliers = listOf("Bouclier Mojo", "Bouclier hylien", "Bouclier miroir").filterIndexed { k, _ -> equip and (1 shl (4 + k)) != 0 }
+        val tuniques = listOf("Tunique Kokiri", "Tunique Goron", "Tunique Zora").filterIndexed { k, _ -> equip and (1 shl (8 + k)) != 0 }
+        val bottes = listOf("Bottes Kokiri", "Bottes de plomb", "Bottes des airs").filterIndexed { k, _ -> equip and (1 shl (12 + k)) != 0 }
+        blocs.add(Bloc("Équipement", pastilles = (epees + boucliers + tuniques + bottes).map { it to true }))
+        blocs.add(Bloc("Partie", listOf(Ligne("Heure", heureJeu(heure)), Ligne("Jours", jours.toString()), Ligne("Morts", morts.toString()))))
+        return Fiche(id, "Ocarina of Time", (if (adulte) "Link adulte" else "Link enfant") + " · " + heureJeu(heure), 0xFF3E7A26, 0xFF0B1E06,
+            grands = listOf("cœurs" to (vie / 16).toString(), "rubis" to rubis.toString(), "skulltulas" to tokens.toString()), blocs = blocs)
+    }
+}
+
+// ---------------------------------------------------------------- v314 : valeurs epinglees (tous les jeux)
+/** les valeurs trouvees avec le chercheur de codes et epinglees au compagnon : par jeu, gardees sur le telephone */
+object Epingles {
+    class E(val adr: Long, val taille: Int, val nom: String, val max: Long)
+    @Volatile var version = 0
+    private fun cle(jeu: String) = "epingles_$jeu"
+    fun liste(c: android.content.Context?, jeu: String): List<E> {
+        if (c == null) return emptyList()
+        return try {
+            val a = org.json.JSONArray(c.getSharedPreferences("gcs", 0).getString(cle(jeu), "[]"))
+            (0 until a.length()).map { val o = a.getJSONObject(it); E(o.getLong("a"), o.getInt("t"), o.getString("n"), o.optLong("m")) }
+        } catch (x: Exception) { emptyList() }
+    }
+    private fun garder(c: android.content.Context, jeu: String, l: List<E>) {
+        val a = org.json.JSONArray()
+        for (e in l) a.put(org.json.JSONObject().put("a", e.adr).put("t", e.taille).put("n", e.nom).put("m", e.max))
+        c.getSharedPreferences("gcs", 0).edit().putString(cle(jeu), a.toString()).apply()
+        version++
+    }
+    fun ajouter(c: android.content.Context, jeu: String, e: E) = garder(c, jeu, liste(c, jeu).filter { it.adr != e.adr } + e)
+    fun retirer(c: android.content.Context, jeu: String, adr: Long) = garder(c, jeu, liste(c, jeu).filter { it.adr != adr })
+
+    /** les valeurs en direct (une section) ; null : rien d'epingle */
+    fun bloc(l: Lecteur, c: android.content.Context?, jeu: String): Bloc? {
+        val ep = liste(c, jeu)
+        if (ep.isEmpty()) return null
+        return Bloc("Mes valeurs (épinglées)", ep.map { e ->
+            val v: Long? = when (e.taille) { 1 -> l.u8(e.adr)?.toLong(); 2 -> l.u16(e.adr)?.toLong(); else -> l.u32(e.adr) }
+            Ligne(e.nom, v?.toString() ?: "–", if (e.max > 0 && v != null) (v.toFloat() / e.max).coerceIn(0f, 1f) else -1f, 0xFFFF8FE6)
+        })
+    }
+    /** un jeu sans ecran dedie : la fiche de ses valeurs epinglees */
+    fun fiche(l: Lecteur, c: android.content.Context?, jeu: String, nom: String): Fiche? {
+        val b = bloc(l, c, jeu) ?: return null
+        return Fiche(jeu, nom.ifEmpty { jeu }, "Tes valeurs, en direct", 0xFF5B2A86, 0xFF1A0B2A, blocs = listOf(b),
+            message = "Ajoute d'autres valeurs avec le chercheur de codes : une adresse trouvée > Épingler au compagnon de jeu.")
+    }
+    /** une fiche existante + les valeurs epinglees */
+    fun avec(f: Fiche, l: Lecteur, c: android.content.Context?): Fiche {
+        val b = bloc(l, c, f.jeu) ?: return f
+        return Fiche(f.jeu, f.titre, f.sous, f.haut, f.bas, f.grands, f.blocs + b, f.message)
+    }
+}
+
 // ---------------------------------------------------------------- l'ecran commun
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -365,6 +654,10 @@ fun CompagnonFiche(f: Fiche) {
             }
         }
         if (f.message.isNotEmpty()) Doux(f.message, taille = 12, couleur = Color.White)
+        if (f.bouton.isNotEmpty()) {
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            Bouton(f.bouton, Modifier.fillMaxWidth().padding(top = 6.dp), plein = true) { ModulesJeux.pour(f.jeu)?.agir(ctx.applicationContext, f.jeu) }
+        }
     }
     for (b in f.blocs) Carte(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(7.dp)) {
@@ -391,3 +684,26 @@ fun CompagnonFiche(f: Fiche) {
     }
     Spacer(Modifier.width(1.dp))
 }
+
+/** v314 : la liste des valeurs epinglees d'un jeu, pour en retirer */
+@Composable
+fun GererEpingles(jeu: String) {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val v = androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    @Suppress("UNUSED_VARIABLE") val vv = v.intValue
+    val ep = Epingles.liste(ctx, jeu)
+    if (ep.isEmpty()) return
+    Carte(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Titre("Mes valeurs épinglées")
+            for (e in ep) Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(e.nom, color = C.Texte, fontSize = 14.sp)
+                    Doux(java.lang.Long.toHexString(e.adr).uppercase().padStart(8, '0') + " · " + (8 * e.taille) + " bits" + (if (e.max > 0) " · max " + e.max else ""), taille = 11)
+                }
+                Bouton("Retirer", hauteur = 34.dp) { Epingles.retirer(ctx, jeu, e.adr); v.intValue = v.intValue + 1 }
+            }
+        }
+    }
+}
+
