@@ -274,7 +274,7 @@ class BoiteVue(ctx: Context) : GLSurfaceView(ctx) {
         }
     })
     private val gestes = GestureDetector(ctx, object : GestureDetector.SimpleOnGestureListener() {
-        override fun onDown(e: MotionEvent): Boolean { r.tient = true; r.vYaw = 0f; r.touche(); return true }
+        override fun onDown(e: MotionEvent): Boolean { r.tient = true; r.vYaw = 0f; r.vTourne = 0f; r.touche(); return true }   // (le doigt arrete le disque lance)
         override fun onScroll(e1: MotionEvent?, e2: MotionEvent, dx: Float, dy: Float): Boolean {
             if (e2.pointerCount > 1 || pinch.isInProgress) return true
             val k = 160f / resources.displayMetrics.densityDpi
@@ -283,7 +283,7 @@ class BoiteVue(ctx: Context) : GLSurfaceView(ctx) {
         }
         override fun onFling(e1: MotionEvent?, e2: MotionEvent, vx: Float, vy: Float): Boolean {
             val k = 160f / resources.displayMetrics.densityDpi
-            if (r.sortirVers > 0.5f) r.vTourne = -vx * 0.9f * k * 0.6f else r.vYaw = vx * 0.8f * k   // (disque sorti : c'est lui qui part, pas la boite)
+            if (r.sortirVers > 0.5f) r.vTourne = (vx * 0.9f * k * 0.6f).coerceIn(-540f, 540f) else r.vYaw = vx * 0.8f * k   // (disque sorti : c'est lui qui part, dans le sens du doigt, pas trop vite)
             return true
         }
         override fun onDoubleTap(e: MotionEvent): Boolean { if (r.zoom > 1.05f || r.decale()) r.recadrer() else basculer(); return true }
@@ -301,7 +301,7 @@ class BoiteVue(ctx: Context) : GLSurfaceView(ctx) {
         if (r.ouvrirVers > 0.5f) { r.ouvrirVers = 0f; r.sortirVers = 0f } else { r.ouvrirVers = 1f; r.vers(0f) }
         r.touche(); dire()
     }
-    fun disque() { if (r.ouvrirVers > 0.5f) { r.sortirVers = if (r.sortirVers > 0.5f) 0f else 1f; r.touche(); dire() } }
+    fun disque() { if (r.ouvrirVers > 0.5f) { r.sortirVers = if (r.sortirVers > 0.5f) 0f else 1f; r.vTourne = 0f; r.tourne = 0f; r.touche(); dire() } }   // (sorti : de face, l'etiquette vers nous ; range : sans saut)
 
     fun textures(im: JaquettesHQ.Images, nom: String, id: String) {
         val face = Rendu.disque(nom, id, im.disque)
@@ -569,6 +569,7 @@ private class Rendu : GLSurfaceView.Renderer {
         ouvert += (ouvrirVers - ouvert) * min(1f, dt * 4f)
         sorti += (sortirVers - sorti) * min(1f, dt * 3.5f)
         tourne += dt * vTourne                                 // (sorti : il reste immobile ; seulement lance du doigt)
+        if (sorti > 0.999f) { if (tourne > 180f) tourne -= 360f else if (tourne < -180f) tourne += 360f }   // (un tour de plus : invisible)
         vTourne *= (1 - min(1f, dt * 1.5f))
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
@@ -605,7 +606,7 @@ private class Rendu : GLSurfaceView.Renderer {
         Matrix.setIdentityM(dsq, 0)
         Matrix.translateM(dsq, 0, pos[0] + (fx - pos[0]) * sorti, pos[1] + (fy - pos[1]) * sorti, pos[2] + (fz - pos[2]) * sorti)
         Matrix.rotateM(dsq, 0, pitch * (1 - sorti) + 12f * sorti, 1f, 0f, 0f)
-        Matrix.rotateM(dsq, 0, yaw * (1 - sorti) + (tourne % 360f) * sorti, 0f, 1f, 0f)
+        Matrix.rotateM(dsq, 0, yaw * (1 - sorti) + tourne * sorti, 0f, 1f, 0f)
         Matrix.setIdentityM(sol, 0); Matrix.translateM(sol, 0, ouvert * 0.74f, 0f, 0f)
 
         GLES20.glUseProgram(prog)

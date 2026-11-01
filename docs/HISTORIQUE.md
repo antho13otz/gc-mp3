@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Disque sorti : manipulation corrigée
+- Boîte 3D de l'appli, disque sorti : lancé du doigt, il partait **dans l'autre sens** que le doigt (et trop vite :
+  il semblait se retourner au hasard). Il tourne maintenant dans le sens du doigt, 540°/s au plus, et s'arrête dès
+  qu'on le touche. Sorti, il se présente toujours de face, l'étiquette vers nous ; rangé, il revient sur l'ergot sans
+  à-coup.
+
 ## Nouveautés appli build 133 — Titre et boutons au-dessus de la boîte zoomée
 - Boîte 3D, notice 3D, étagère : le titre (en haut) et les consignes et boutons (en bas) sont posés sur un fond qui
   se fond dans l'écran ; la boîte zoomée passe dessous au lieu de les recouvrir, les textes restent lisibles.
