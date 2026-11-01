@@ -12893,6 +12893,7 @@ static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
 static void draw_mini_badge(f32 cx, f32 cy, const char *k);
 /* v318 : l'aide en bas du menu, sur deux lignes si elle est trop longue (avant : coupee au bord du panneau) */
 static void menu_hint(f32 x, f32 y, f32 w, const char *t, col_t col) {
+    t = TR(t);                                             /* v319 : (traduit avant d'etre coupe : sinon les deux morceaux ne sont pas dans la table) */
     if (text_width(F_SMALL, t, 0) <= w) { gx_text1(F_SMALL, x, y + 8, t, col); return; }
     char a[256], b[256];
     int n = (int)strlen(t), cut = 0;
