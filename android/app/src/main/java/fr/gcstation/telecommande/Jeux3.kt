@@ -15,7 +15,7 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
     private val COUL_CASE = longArrayOf(0xFF5A5A6E, 0xFF4F8DFF, 0xFFFF4D4D, 0xFF8B1E2E, 0xFF3DDC84, 0xFFFFD23F, 0xFF9AA8C8, 0xFFFF8A3D, 0xFFB5793F)
     private val COUL_PERSO = longArrayOf(0xFFFF4040, 0xFF2FD16B, 0xFFFF8FC8, 0xFF5BE05B, 0xFFFFD84A, 0xFFFFC94A, 0xFF9B6BFF, 0xFF4F8BFF, 0xFFE8E8F0, 0xFFF5A623, 0xFFFF5A5A, 0xFF4CD964, 0xFF4F8DFF)
     private class Plateau(val cle: String, val pos: List<FloatArray>, val types: IntArray, val liens: List<IntArray>)
-    @Volatile private var plateau: Plateau? = null
+    @Volatile private var memo: Plateau? = null
     @Volatile private var essaiPlateau = 0L
 
     /** lu une fois par plateau (une trentaine de blocs, au rythme d'un par image) */
@@ -93,8 +93,8 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
         // le plateau : relu quand il change (et toutes les 30 s s'il n'a pas pu etre lu)
         val cle = "$id/$plateau"
         val t = System.currentTimeMillis()
-        if (plateau?.cle != cle && t - essaiPlateau > 30000) { essaiPlateau = t; lirePlateau(id, cle)?.let { plateau = it } }
-        val pl = plateau?.takeIf { it.cle == cle }
+        if (memo?.cle != cle && t - essaiPlateau > 30000) { essaiPlateau = t; lirePlateau(id, cle)?.let { memo = it } }
+        val pl = memo?.takeIf { it.cle == cle }
         val blocPlan = if (pl != null) {
             val pions = js.mapNotNull { j -> pl.pos.getOrNull(j.caseNo - 1)?.let { Pion(it[0], it[1], COUL_PERSO.getOrElse(j.perso) { 0xFFFFFFFF }, "J" + (j.n + 1)) } }
             Bloc("Plateau", plan = Plan(pl.pos, pl.types.map { COUL_CASE[it] }, pl.liens, pions, (0 until pl.pos.size).filter { pl.types[it] == 5 }),
