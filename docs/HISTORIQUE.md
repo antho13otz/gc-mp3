@@ -24,6 +24,22 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Compagnon de jeu et chrono de speedrun
+- **Compagnon de jeu** (onglet Plus, ou bouton « Compagnon de jeu et chrono » de la partie en cours) : pendant une partie
+  lancée avec Pulse (réglage « Chercheur de codes (appli) » = Oui), l'appli lit le jeu en direct, 5 fois par seconde,
+  sans le mettre en pause. Versions européennes :
+  - **The Wind Waker** (GZLP01) : cœurs (par quarts), magie, rubis, flèches, bombes, perles, Triforce, chants, le lieu ;
+    sur la Grande Mer, la **carte marine** 7 x 7 avec la position de Link, son sillage et le nom de l'île de la case ;
+  - **Super Mario Sunshine** (GMSP01) : soleils, pièces bleues, pièces, vies, santé, eau de JET, zone et épisode ;
+  - **Mario Kart Double Dash!!** (GM4P01) : place, tour, avancée dans le tour, temps de chaque tour (au millième).
+- **Chrono de speedrun** : part tout seul (nouveau fichier de Wind Waker, arrivée sur l'aéroport de Sunshine, départ de
+  la première course de Mario Kart), avec des étapes automatiques (lieux, perles et Triforce ; chaque soleil ; chaque
+  course) et la fin (soleil du Mont Corona ; dernière course d'une coupe ou des 16 courses ; bouton Fin pour Zelda).
+  Record et meilleurs segments gardés sur le téléphone : écart vert / rouge, or pour un meilleur segment. Mario Kart :
+  temps du jeu (somme des courses). Mode « à la main » aussi.
+- Adresses tirées des tables de symboles publiques des projets de décompilation (zeldaret/tww, doldecomp/sms,
+  doldecomp/mkdd) ; aucun code repris. Chaque valeur est vérifiée : une autre version du jeu n'affiche rien de faux.
+
 ## Nouveautés v311 (build 817, appli build 150) — File « à suivre », vagues nettes, notice sans clignotement
 - **Console : les pages de la notice ne clignotent plus.** En tournant une page, la console préchargeait la feuille
   suivante en retirant de la mémoire une page encore affichée : elle était rechargée, retirée, rechargée… (éclairs
