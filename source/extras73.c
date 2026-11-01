@@ -1279,6 +1279,17 @@ static int x73_disc_send(s32 c, const char *path, const char *f) {
     int sent = 0;
     u32 off = 0, sz = 0;
     if (!gd_read(&d, 0, h, sizeof(h)) || be32(h + 0x1C) != 0xC2339F3Du) goto fin;
+    if (!strcasecmp(f, "/main.dol") || !strcasecmp(f, "/sys/main.dol")) {   /* v314 : le programme du jeu (en-tete 0x420), pas dans la FST */
+        u8 dh[0x100];
+        off = be32(h + 0x420);
+        if (!off || !gd_read(&d, off, dh, sizeof(dh))) goto fin;
+        for (int k = 0; k < 18; k++) {                         /* 7 sections de code, 11 de donnees : la fin la plus loin */
+            u32 so = be32(dh + 4 * k), sl = be32(dh + 0x90 + 4 * k);
+            if (so && sl && so + sl > sz) sz = so + sl;
+        }
+        if (sz < 0x100 || sz > (16u << 20)) { sz = 0; goto fin; }
+        goto envoi;
+    }
     u32 fo = be32(h + 0x424), fs = be32(h + 0x428);
     if (fs < 12 || fs > (4u << 20) || !(fst = (u8 *)malloc(fs)) || !gd_read(&d, fo, fst, fs)) goto fin;
     u32 ne = be32(fst + 8);
@@ -1311,6 +1322,7 @@ static int x73_disc_send(s32 c, const char *path, const char *f) {
     }
     if (!sz || sz > (32u << 20)) goto fin;
     free(fst); fst = NULL;
+envoi:
     {
         char hd[200];
         int hn = snprintf(hd, sizeof(hd), "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %u\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", (unsigned)sz);

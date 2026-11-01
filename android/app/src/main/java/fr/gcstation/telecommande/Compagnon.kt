@@ -131,10 +131,11 @@ fun angleJeu(v: Int): Double = v / 65536.0 * 2 * Math.PI
 // ---------------------------------------------------------------- The Wind Waker (GZLP01)
 object JeuWW {
     const val ID = "GZLP01"
-    private const val G = 0x803CC530L                              // g_dComIfG_gameInfo (dSv_info_c en tete)
-    private const val SCENE = G + 0x12A0 + 0x3E94                  // play.mCurStage : nom (8), point, salle
-    private const val LINK = G + 0x12A0 + 0x48AC                   // play.mpPlayerPtr[0]
-    private const val VENT = 0x803EC3FCL + 0x97C                   // g_env_light.mWind : mWindVec (x, y, z), puissance (0x1C)
+    @Volatile var version = ID                                     // (v314 : GZLE01 aussi, americain : memes structures)
+    private val G get() = if (version == "GZLE01") 0x803C4C08L else 0x803CC530L   // g_dComIfG_gameInfo (dSv_info_c en tete)
+    private val SCENE get() = G + 0x12A0 + 0x3E94                 // play.mCurStage : nom (8), point, salle
+    private val LINK get() = G + 0x12A0 + 0x48AC                  // play.mpPlayerPtr[0]
+    private val VENT get() = (if (version == "GZLE01") 0x803E4AB4L else 0x803EC3FCL) + 0x97C   // g_env_light.mWind : mWindVec, puissance
 
     class Etat(val partie: Boolean, val vie: Int, val vieMax: Int, val rubis: Int, val magie: Int, val magieMax: Int,
                val chants: Int, val triforce: Int, val perles: Int, val fleches: Int, val bombes: Int, val nom: String,
@@ -274,9 +275,10 @@ object JeuWW {
 // ---------------------------------------------------------------- Super Mario Sunshine (GMSP01)
 object JeuSMS {
     const val ID = "GMSP01"
-    private const val FLAGS = 0x80405828L                          // TFlagManager::smInstance
-    private const val APP = 0x803E10C0L                            // gpApplication (TApplication)
-    private const val MARIO = 0x804057B0L                          // gpMarioOriginal
+    @Volatile var version = ID                                     // (v314 : GMSE01 aussi, americain)
+    private val FLAGS get() = if (version == "GMSE01") 0x8040E160L else 0x80405828L   // TFlagManager::smInstance
+    private val APP get() = if (version == "GMSE01") 0x803E9700L else 0x803E10C0L     // gpApplication (TApplication)
+    private val MARIO get() = if (version == "GMSE01") 0x8040E0E8L else 0x804057B0L   // gpMarioOriginal
     private val ZONE_DE = intArrayOf(                              // (StageUtil : numero de scene -> zone a soleils)
         0, 1, 2, 3, 4, 5, 6, 6, 7, 8, 9, 1, 1, 5, 6, 1, 8, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 1, 3, 8,
         4, 4, 5, 5, 5, 5, 5, 5, 6, 5, 7, 7, 8, 8, 2, 2, 3, 3, 5, 6, 9, 1, 1, 2, 6, 8, 5, 3, 9)
@@ -550,7 +552,16 @@ object Compagnon {
     private val scope = MainScope()
     val traceWW = mutableStateListOf<Offset>()                        // (le sillage de Link sur la mer)
 
-    fun pris(id: String?) = id != null && PRIS.containsKey(id)
+    fun pris(id: String?) = id != null && PRIS.containsKey(canonique(id))
+    @Volatile var jeuReel = ""                                       // (le vrai code du jeu, ex. GZLE01 ; jeu : la famille, GZLP01)
+    /** une autre version d'un jeu deja pris en charge -> le code de reference (et ses adresses choisies) */
+    fun canonique(id: String): String = when (id) {
+        "GZLE01" -> { JeuWW.version = id; JeuWW.ID }
+        "GZLP01" -> { JeuWW.version = id; id }
+        "GMSE01" -> { JeuSMS.version = id; JeuSMS.ID }
+        "GMSP01" -> { JeuSMS.version = id; id }
+        else -> id
+    }
 
     fun demarrer() {
         if (job?.isActive == true) return
@@ -569,7 +580,9 @@ object Compagnon {
                         delay(1500); continue
                     }
                     muet = 0
-                    if (e.jeu != jeu) { jeu = e.jeu; etat = null; traceWW.clear() }
+                    jeuReel = e.jeu
+                    val c = canonique(e.jeu)                                  // (v314 : versions americaines de WW et Sunshine)
+                    if (c != jeu) { jeu = c; etat = null; traceWW.clear() }
                 }
                 if (pauseLecture) { if (etat is Fiche) etat = ModulesJeux.pour(jeu)?.let { m -> withContext(Dispatchers.IO) { m.lire(Lecteur(0), jeu) } } ?: etat; delay(500); continue }
                 val id = jeu
@@ -770,7 +783,7 @@ fun EcranCompagnon() {
     DisposableEffect(Unit) { onDispose { Compagnon.ecranOuvert = false; PlanWW.enregistrer(Compagnon.ctx) } }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         val id = Compagnon.jeu
-        Doux(if (id.isNotEmpty() && Compagnon.pris(id)) Compagnon.PRIS[id] + " (" + id + ")" else "Pendant une partie lancée avec Pulse, l'appli lit le jeu en direct : jauges, carte, chrono.", taille = 12)
+        Doux(if (id.isNotEmpty() && Compagnon.pris(id)) Compagnon.PRIS[id] + " (" + Compagnon.jeuReel.ifEmpty { id } + ")" else "Pendant une partie lancée avec Pulse, l'appli lit le jeu en direct : jauges, carte, chrono.", taille = 12)
         if (Compagnon.statut.isNotEmpty()) Doux(Compagnon.statut, taille = 12, couleur = C.Orange)
         RangeeDePuces {
             Puce("En jeu", vue == 0) { vue = 0 }
