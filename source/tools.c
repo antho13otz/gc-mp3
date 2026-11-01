@@ -1933,12 +1933,23 @@ static void tools_menu_input(u32 down, u32 nav, int fire) {
     case TO_CATA: ct_open(); break;
     }
 }
+static void menu_hint(f32 x, f32 y, f32 w, const char *t, col_t col);
 static void tools_menu_draw(f32 x, f32 y, f32 w, int vis, f32 rh, f32 help_y) {
+    /* v318 : la liste defile (avant : 20 lignes serrees dans la place de 10, illisibles) */
     (void)vis;
     f32 pitch = rh + 4;
-    if (y + TO_COUNT * pitch > help_y - 10) { pitch = (help_y - 10 - y) / TO_COUNT; rh = pitch - 3; }   /* v151 : (10 lignes : plus serrees) */
-    for (int i = 0; i < TO_COUNT; i++) {
-        f32 ry = y + i * pitch;
+    int nv = (int)((help_y - 16 - y) / pitch);
+    if (nv < 3) nv = 3;
+    if (nv > TO_COUNT) nv = TO_COUNT;
+    static int top = 0;
+    if (to_sel < top) top = to_sel;
+    if (to_sel >= top + nv) top = to_sel - nv + 1;
+    if (top > TO_COUNT - nv) top = TO_COUNT - nv;
+    if (top < 0) top = 0;
+    if (top > 0) gx_tri(x + w / 2 - 7, y - 2, x + w / 2 + 7, y - 2, x + w / 2, y - 8, RGBA(190, 160, 255, 220));
+    if (top + nv < TO_COUNT) gx_tri(x + w / 2 - 7, y + nv * pitch - 2, x + w / 2 + 7, y + nv * pitch - 2, x + w / 2, y + nv * pitch + 4, RGBA(190, 160, 255, 220));
+    for (int i = top; i < TO_COUNT && i < top + nv; i++) {
+        f32 ry = y + (i - top) * pitch;
         int on = i == to_sel;
         gp_zone(x, ry, w, rh, &to_sel, i, GPZ_SEL);
         if (on) gx_rrect_fill(x, ry, w, rh, 6, TL_SEL1, TL_SEL2);
@@ -1946,7 +1957,5 @@ static void tools_menu_draw(f32 x, f32 y, f32 w, int vis, f32 rh, f32 help_y) {
         gx_text1(F_MED, x + 14, ty, to_names[i], on ? RGBA(255, 255, 255, 255) : i == TO_QUIT ? RGBA(255, 170, 170, 255) : RGBA(230, 222, 255, 255));
         gx_text_r(F_MED, x + w - 14, ty, "(A)", on ? RGBA(255, 255, 255, 255) : RGBA(190, 160, 255, 255));
     }
-    char fv[200];
-    fit_text(F_SMALL, to_help[to_sel], (int)w - 16, fv, sizeof(fv));
-    gx_text1(F_SMALL, x + 8, help_y + 8, fv, RGBA(210, 200, 240, 255));
+    menu_hint(x + 8, help_y, w - 16, to_help[to_sel], RGBA(210, 200, 240, 255));
 }
