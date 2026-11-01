@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés appli build à venir — Jaquettes en basse définition agrandies par IA
+## Nouveautés appli build 124 — Jaquettes en basse définition agrandies par IA
 - Boîte 3D : quand GameTDB n'a pas la jaquette en HD (seulement la jaquette complète normale, ~512 px, ou seulement la
   petite jaquette avant), elle est **agrandie par IA** comme les disques (Real-ESRGAN x4, puis 1024 px au plus),
   une seule fois par jeu (gardée : `jaquettes/coverfullia`, `jaquettes/coveria`). Les jaquettes déjà en HD ne
