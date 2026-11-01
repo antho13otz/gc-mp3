@@ -106,7 +106,7 @@ fun ImageTele(v: Vue, upscaling: Boolean, modifier: Modifier = Modifier) {
         val ok = remember { try { RuntimeShader(Upscale.AGSL); true } catch (e: Exception) { false } }   // (shader refuse : lissage normal)
         if (ok) { ImageAgrandie(v, modifier); return }
     }
-    Image(v.b.asImageBitmap(), null, modifier, contentScale = ContentScale.Fit, filterQuality = FilterQuality.High)
+    Image(v.b.asImageBitmap(), null, modifier, contentScale = ContentScale.FillBounds, filterQuality = FilterQuality.High)
 }
 
 @RequiresApi(33)
@@ -123,9 +123,9 @@ private fun ImageAgrandie(v: Vue, modifier: Modifier) {
         rs.setInputShader("imgA", if (interp) bs(v.a!!, false) else sb)
         rs.setInputShader("champ", if (interp) bs(v.champ!!, true) else sb)
         rs.setFloatUniform("src", v.b.width.toFloat(), v.b.height.toFloat())
-        // (toujours aux proportions de l'image : bandes noires si la place n'a pas la meme forme)
-        val k = minOf(size.width / v.b.width, size.height / v.b.height)
-        val dw = v.b.width * k; val dh = v.b.height * k
+        // (la place a deja la forme de la tele (4:3 ou 16:9, reglage de la console) : l'image la remplit, comme sur la
+        //  tele ; l'image de la console n'a pas forcement ces proportions, ex. 640 x 574 en PAL)
+        val dw = size.width; val dh = size.height
         rs.setFloatUniform("dst", dw, dh)
         rs.setFloatUniform("tch", if (interp) v.champ!!.width.toFloat() else 1f, if (interp) v.champ!!.height.toFloat() else 1f)
         rs.setFloatUniform("t", if (interp) v.t else 1f)
