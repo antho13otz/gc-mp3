@@ -211,7 +211,7 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
     var noticeOuverte by remember { mutableStateOf(false) }
     LaunchedEffect(id, vue) {
         val v = vue ?: return@LaunchedEffect
-        val im = JaquettesHQ.charger(Hors.dir(act), id, act) { p -> etat = Lang.t("Agrandissement de la jaquette par IA (une seule fois)…") + " " + (p * 100).toInt() + " %" }
+        val im = JaquettesHQ.charger(Hors.dir(act), id, act, progres = { p: Float -> etat = Lang.t("Agrandissement de la jaquette par IA (une seule fois)…") + " " + (p * 100).toInt() + " %" })
         etat = (when {
             im.full != null -> "Jaquette complète " + im.full.width + "×" + im.full.height
             im.avant != null -> "Jaquette avant seulement"
