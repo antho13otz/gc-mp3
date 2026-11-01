@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v309 (build à venir, appli build à venir) — Pochette et spectre de la console dans l'appli
+## Nouveautés v309 (build 812, appli build 145) — Pochette et spectre de la console dans l'appli
 - Onglet Lecture de l'appli : la pochette s'affiche **comme sur la télé** (carrée, fin liseré clair, ombre portée, au
   lieu du cadre néon arrondi) et, juste dessous, **le spectre de la console** : style LED, cases empilées, crête et
   reflet, rose → violet → bleu, les vraies barres de la musique qui joue.
