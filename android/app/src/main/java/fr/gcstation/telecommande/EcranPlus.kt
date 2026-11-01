@@ -321,6 +321,7 @@ private fun Vignette(x: JSONArray, dire: (String) -> Unit) {
     val i = x.optInt(0)
     val video = x.optInt(2) != 0
     var img by remember(i) { mutableStateOf<ImageBitmap?>(Vignettes.mem.get(i)) }
+    val scope = rememberCoroutineScope()
     LaunchedEffect(i) {
         if (img != null || video) return@LaunchedEffect
         val d = lireOctets("/api/photo?i=$i", 4000) ?: return@LaunchedEffect
@@ -337,7 +338,15 @@ private fun Vignette(x: JSONArray, dire: (String) -> Unit) {
         img?.let { Vignettes.mem.put(i, it) }
     }
     Box(Modifier.aspectRatio(1f).clip(RoundedCornerShape(16.dp)).background(Color(0xFF1A0E30)).border(1.dp, C.Rose.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
-        .appui { Api.get("/api/show?i=$i") { r -> dire(if (r != null) "Sur la télé : " + x.optString(1) else "Pas de réponse de la console") } },
+        .appui { scope.launch {                                   // (v308 : la reponse dit si c'est fait)
+            val r = lire("/api/show?i=$i", 4000)
+            dire(when {
+                r == null -> "Pas de réponse de la console (ou photo introuvable : actualise la liste)"
+                r.contains("\"ok\":1") -> "Sur la télé : " + x.optString(1)
+                r.contains("onglet") -> "Photo pas affichée : l'onglet PHOTOS est caché sur la console (START > Onglets affichés)"
+                else -> "Photo pas affichée"
+            })
+        } },
         contentAlignment = Alignment.Center) {
         val b = img
         if (b != null) Image(b, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)

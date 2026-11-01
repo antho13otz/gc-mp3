@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v308 (build à venir, appli build à venir) — Photo du téléphone sur la télé : corrigé
+- Photos (appli) : toucher une photo pour l'afficher sur la télé ne marchait pas quand l'**économiseur d'écran** (ou la
+  veilleuse) de la console était lancé : la photo s'ouvrait derrière. Il est maintenant coupé, comme pour une photo
+  envoyée. Si l'onglet PHOTOS est caché sur la console, l'appli le dit (avant : « Sur la télé » sans rien à l'écran).
+
 ## Nouveautés appli build 135 — Disque sorti : manipulation corrigée
 - Boîte 3D de l'appli, disque sorti : lancé du doigt, il partait **dans l'autre sens** que le doigt (et trop vite :
   il semblait se retourner au hasard). Il tourne maintenant dans le sens du doigt, 540°/s au plus, et s'arrête dès

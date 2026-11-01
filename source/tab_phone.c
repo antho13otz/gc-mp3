@@ -1803,9 +1803,10 @@ static void tp_handle(s32 c) {
     else if (!strcmp(target, "/api/show")) {                 /* v142 : la photo (ou video) sur la tele */
         char is[12];
         tp_param(q ? q : "", "i", is, sizeof(is));
-        int ok = is[0] && atoi(is) >= 0 && atoi(is) < npf;
-        if (ok) tp_push(PC_SHOW, atoi(is));
-        tp_reply(c, ok ? 200 : 400, "application/json", ok ? "{\"ok\":1}" : "{\"ok\":0}", 8);
+        int ok = is[0] && atoi(is) >= 0 && atoi(is) < npf, cache = !tab_shown(TAB_PHOTO);   /* v308 : onglet PHOTOS cache : dit au telephone */
+        if (ok && !cache) tp_push(PC_SHOW, atoi(is));
+        const char *rp = cache ? "{\"ok\":0,\"err\":\"onglet\"}" : ok ? "{\"ok\":1}" : "{\"ok\":0}";
+        tp_reply(c, ok || cache ? 200 : 400, "application/json", rp, (int)strlen(rp));
     }
     else if (!strcmp(target, "/api/queue")) {                /* v142 : la file de lecture (a suivre) */
         sbuf_t sb = { NULL, 0, 0 };
@@ -2176,7 +2177,8 @@ static void phone_pump(void) {
         case PC_SHOW:                                    /* v142 : photo choisie sur le telephone */
             if (!tab_shown(TAB_PHOTO)) break;
             if (npf < 0) photo_rescan();
-            if (cm.i >= 0 && cm.i < npf) { menu_open = 0; tl_screen = 0; kb_open = 0; tab = TAB_PHOTO; tab_enter(TAB_PHOTO); pv_open(cm.i); }   /* (v222 : clavier ferme) */
+            /* (v222 : clavier ferme ; v308 : economiseur d'ecran et veilleuse coupes : la photo s'ouvrait derriere) */
+            if (cm.i >= 0 && cm.i < npf) { saver_on = 0; night_on = 0; last_input_ms = now_ms(); menu_open = 0; tl_screen = 0; kb_open = 0; tab = TAB_PHOTO; tab_enter(TAB_PHOTO); pv_open(cm.i); }
             break;
         case PC_TYPE: tp_type_apply(); tp_type_busy = 0; break;
         case PC_TEST: sx_phone_start(cm.i); break;   /* v278 */
@@ -2186,7 +2188,7 @@ static void phone_pump(void) {
                 tp_rescan &= ~2;
                 photo_rescan();
                 int k = tp_find_photo(tp_shown_name);
-                if (k >= 0) { saver_on = 0; night_on = 0; menu_open = 0; tl_screen = 0; kb_open = 0; tab = TAB_PHOTO; tab_enter(TAB_PHOTO); pv_open(k); }
+                if (k >= 0) { saver_on = 0; night_on = 0; last_input_ms = now_ms(); menu_open = 0; tl_screen = 0; kb_open = 0; tab = TAB_PHOTO; tab_enter(TAB_PHOTO); pv_open(k); }
             }
             tp_shown_busy = 0;
             break;
