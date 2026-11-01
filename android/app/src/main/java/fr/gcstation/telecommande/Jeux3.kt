@@ -297,6 +297,9 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
 // chacun : vie en quarts de coeur 0, vie max 1, magie 4, magie max 6, scarabs 8, BafomDads 9 / 0xA), energie de Tricky 0x18,
 // max 0x19, nom 0x1C, personnage 0x20, avancement 0x55D (/ 187), temps de jeu 0x560 (images). Pas de liste de symboles pour
 // la version europeenne : l'adresse est cherchee une fois dans la memoire (jeu en pause, comme Ocarina of Time), puis gardee.
+// Build 197 : adresse fixe tiree du main.dol europeen (GSAP01) : 803A 4C08, que le code construit 51 fois avant de lire
+// ses champs 0x0, 0x1, 0x4, 0x6, 0xC, 0xD, 0x19, 0x1C, 0x20, 0x55D, 0x560 ; americain v1.1 : 803A 3F08 (codes publics de
+// RenaKunisaki). La recherche reste pour les autres versions.
 object JeuSFA : ModuleJeu("Star Fox Adventures", "GSAP01", "GSAE01", "GSAJ01") {
     @Volatile var progres = -1f
     @Volatile private var candidats: LongArray? = null
@@ -373,7 +376,8 @@ object JeuSFA : ModuleJeu("Star Fox Adventures", "GSAP01", "GSAE01", "GSAJ01") {
         val pr = progres
         if (pr >= 0f) return Fiche(id, "Star Fox Adventures", "Recherche dans la mémoire…", 0xFF1E4E8F, 0xFF07162E,
             grands = listOf("lu" to ((pr * 100).toInt().toString() + " %")), message = "Le jeu est en pause pendant la recherche (une seule fois).")
-        val ok = (candidats ?: LongArray(0)).filter { vraisemblable(l, it) }
+        val fixes = when { id == "GSAP01" -> longArrayOf(0x803A4C08L); id == "GSAE01" && (l.u8(0x80000007) ?: 0) == 1 -> longArrayOf(0x803A3F08L); else -> LongArray(0) }
+        val ok = (fixes + (candidats ?: LongArray(0))).distinct().filter { vraisemblable(l, it) }
         if (ok.isEmpty()) return Fiche(id, "Star Fox Adventures", if ((candidats?.size ?: 0) == 0) "Pas encore trouvé" else "Plus trouvé (autre partie ?)", 0xFF1E4E8F, 0xFF07162E,
             message = "Charge ta partie et joue quelques secondes, puis touche le bouton : l'appli cherche la partie en cours dans la mémoire " +
                 "(jeu en pause une trentaine de secondes, une seule fois). Recommence si tu changes de fichier de sauvegarde.",
