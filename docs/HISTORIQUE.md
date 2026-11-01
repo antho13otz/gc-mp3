@@ -24,6 +24,22 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Compagnon de jeu : bien plus d'infos, nouveau look
+- **The Wind Waker** : jour et heure du jeu, épée et bouclier, bourse (rubis / 200, 1000 ou 5000), flèches et bombes sur
+  leur maximum, les 3 perles et les 8 fragments de Triforce dessinés, les 6 chants, l'inventaire (objets et flacons), en
+  donjon les petites clés, carte, boussole, grande clé et boss vaincu ; sur la **carte marine** : les cases jamais
+  atteintes assombries, Link en flèche dans le sens où il va, une rose des vents avec le sens du vent.
+- **Super Mario Sunshine** : la jauge de vie en 8 parts comme dans le jeu, l'eau de JET, la buse en place, Yoshi
+  débloqué, les pièces rouges du niveau, et **chaque zone** : soleils obtenus sur le total, les 8 épisodes (pastilles),
+  les pièces bleues trouvées ; les soleils des pièces bleues.
+- **Mario Kart Double Dash!!** : mode, coupe, cylindrée et numéro de course, ton duo de pilotes, records du circuit en
+  contre-la-montre, et un **classement en direct** des 8 karts (pilotes, couleur, écart estimé en secondes devant /
+  derrière toi, temps d'arrivée, ballons en bataille) ; sur le circuit, chaque kart à la couleur de son pilote, ligne
+  d'arrivée en damier.
+- **Sans gêner le jeu** : les valeurs qui bougent peu (inventaire, zones, pilotes) ne sont relues que toutes les 2 s ;
+  au plus 5 lectures par seconde, et environ 30 blocs de 1 Ko par seconde au plus en tout (le rythme ralentit tout seul
+  si un écran demande plus), comme le chercheur de codes en direct.
+
 ## Nouveautés appli build 154 — Mario Kart : le circuit vu du dessus, avec les karts
 - Écran compagnon de **Mario Kart Double Dash!!** : le **nom du circuit** et le **circuit dessiné vu du dessus** (la piste,
   ses bords et la ligne d'arrivée), avec **les 8 karts en direct** et la place de chacun ; le kart 1 (toi) en rose.
