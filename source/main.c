@@ -12636,7 +12636,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_GAPLESS: snprintf(out, cap, "%s", gapless_on ? "Oui" : "Non"); break;
     case MI_VIDEO: {
         int want = video_pref == VID_AUTO ? -1 : video_pref;
-        snprintf(out, cap, "%s%s", vid[video_pref], want >= 0 && want != vid_active ? "  (au red\xC3\xA9marrage)" : "");
+        snprintf(out, cap, "%s%s", TR(vid[video_pref]), want >= 0 && want != vid_active ? TR("  (au red\xC3\xA9marrage)") : "");   /* v319 : (traduits) */
         break;
     }
     case MI_TV:      snprintf(out, cap, "%s", tv_crt ? "Cathodique (480i, 4:3)" : "\xC3\x89" "cran plat"); break;
@@ -12649,7 +12649,7 @@ static void menu_value(int i, char *out, int cap) {
         else snprintf(out, cap, "%s", ui_lang ? "English" : "Fran\xC3\xA7" "ais");
         break;
     case MI_LANG:
-        if (lang_pref < 0) snprintf(out, cap, "Auto (%s)", lang_names[lang_console()]);
+        if (lang_pref < 0) snprintf(out, cap, "Auto (%s)", TR(lang_names[lang_console()]));   /* v319 */
         else snprintf(out, cap, "%s", lang_names[lang_pref]);
         break;
     case MI_REC:

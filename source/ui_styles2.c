@@ -515,7 +515,7 @@ static void il_infos(void) {
         int on = i == inf_sel;
         gp_zone(rx - 8, ry, rw + 16, 22, &inf_sel, i, GPZ_SEL);
         if (on) nv_sel_draw(rx - 8, ry, rw + 16, 22, 8);
-        if (i == 0) snprintf(buf, sizeof(buf), "Ville : %s", city[0] ? city : "(choisir)");
+        if (i == 0) snprintf(buf, sizeof(buf), "Ville : %s", city[0] ? city : TR("(choisir)"));
         else if (i == 1) { if (alarm_on) snprintf(buf, sizeof(buf), "R\xC3\xA9veil : %02d:%02d", alarm_min / 60, alarm_min % 60); else snprintf(buf, sizeof(buf), "R\xC3\xA9veil : non"); }
         else if (i == 2) snprintf(buf, sizeof(buf), "Jours : %s", TR(alarm_days_names[alarm_days % 3]));
         else snprintf(buf, sizeof(buf), "Le r\xC3\xA9veil joue : %s", alarm_src > 0 && alarm_src <= nstations ? stations[alarm_src - 1].name : TR("ma musique (al\xC3\xA9" "atoire)"));
