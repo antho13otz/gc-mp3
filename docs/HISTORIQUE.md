@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v312 (build à venir) — Chercheur de codes et compagnon dans Mario Kart Double Dash
+- **Pulse cache le Broadband Adapter au jeu aussi quand « Chercheur de codes (appli) » est sur Oui** (avant : seulement
+  avec les manettes du téléphone). Mario Kart Double Dash cherche l'adaptateur au démarrage pour son mode réseau local ;
+  quand on le lui laissait, il s'en servait sans arrêt et Pulse ne pouvait plus le reprendre : le chercheur de codes et
+  l'écran compagnon de l'appli restaient sans réponse dans ce jeu. Contrepartie : tant que ce réglage est sur Oui, le mode
+  réseau local de Mario Kart (et des autres jeux qui se servent de l'adaptateur) n'est pas proposé ; le remettre sur Non
+  pour une partie en réseau entre consoles.
+- Banc d'essai de Pulse (`emu_mem.py`) : le jeu lit « aucun périphérique » avec le seul chercheur de codes, et le vrai
+  adaptateur sans option (la version d'avant échoue à ce test).
+
 ## Nouveautés appli build 152 — Compagnon de jeu et chrono de speedrun
 - **Compagnon de jeu** (onglet Plus, ou bouton « Compagnon de jeu et chrono » de la partie en cours) : pendant une partie
   lancée avec Pulse (réglage « Chercheur de codes (appli) » = Oui), l'appli lit le jeu en direct, 5 fois par seconde,
