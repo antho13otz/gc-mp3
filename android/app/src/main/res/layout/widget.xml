@@ -14,6 +14,9 @@
         <TextView android:id="@+id/w_sub" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="Touche pour ouvrir la télécommande" android:textColor="#FFFF2FD0" android:textSize="12sp"
             android:singleLine="true" android:ellipsize="end" />
+        <TextView android:id="@+id/w_game" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="" android:textColor="#FF7CE8FF" android:textSize="12sp" android:visibility="gone"
+            android:singleLine="true" android:ellipsize="end" />
     </LinearLayout>
     <ImageButton android:id="@+id/w_prev" android:layout_width="38dp" android:layout_height="38dp"
         android:background="@drawable/widget_btn" android:src="@drawable/ic_prev" android:padding="9dp" android:scaleType="fitCenter"

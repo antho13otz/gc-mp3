@@ -39,6 +39,13 @@ public class GcWidget extends AppWidgetProvider {
             v.setTextViewText(R.id.w_sub, s.optString("sub", ""));
             v.setImageViewResource(R.id.w_play, s.optInt("playing", 0) != 0 ? R.drawable.ic_pause : R.drawable.ic_play);
         }
+        // build 185 : le jeu en cours (Pulse), avec le temps de la partie
+        Live.Game g = Live.game;
+        if (g != null && !g.name.isEmpty()) {
+            long mn = g.playedSec() / 60;
+            v.setTextViewText(R.id.w_game, "\uD83C\uDFAE " + g.name + " \u00B7 " + (mn >= 60 ? (mn / 60) + " h " + String.format(java.util.Locale.FRANCE, "%02d", mn % 60) : mn + " min"));
+            v.setViewVisibility(R.id.w_game, android.view.View.VISIBLE);
+        } else v.setViewVisibility(R.id.w_game, android.view.View.GONE);
         if (PlaybackService.lastCover != null) v.setImageViewBitmap(R.id.w_cover, PlaybackService.lastCover);
         else v.setImageViewResource(R.id.w_cover, R.mipmap.ic_launcher);
         v.setOnClickPendingIntent(R.id.w_prev, act(c, PlaybackService.ACT_PREV, 1));
@@ -48,6 +55,7 @@ public class GcWidget extends AppWidgetProvider {
         v.setOnClickPendingIntent(R.id.w_cover, open);
         v.setOnClickPendingIntent(R.id.w_title, open);
         v.setOnClickPendingIntent(R.id.w_sub, open);
+        v.setOnClickPendingIntent(R.id.w_game, open);
         m.updateAppWidget(ids, v);
     }
 }

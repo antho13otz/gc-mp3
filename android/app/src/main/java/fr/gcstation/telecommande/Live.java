@@ -50,6 +50,7 @@ public final class Live {
     private static Thread th;
     private static volatile long lastAck;
     static volatile Game game;
+    private static Context appCtx;
     private static SharedPreferences prefs;
 
     private Live() { }
@@ -58,6 +59,7 @@ public final class Live {
     static boolean pushing() { return System.currentTimeMillis() - lastAck < 25000; }
 
     static synchronized void add(Context c, Listener l) {
+        if (appCtx == null) appCtx = c.getApplicationContext();
         if (prefs == null) { prefs = c.getApplicationContext().getSharedPreferences("gcs", Context.MODE_PRIVATE); loadGame(); }
         if (!listeners.contains(l)) listeners.add(l);
         if (th == null) {
@@ -117,7 +119,7 @@ public final class Live {
                         setGame(g);
                         break;
                     }
-                    case "GCSE1": if (game != null) setGame(null); break;
+                    case "GCSE1": if (game != null) { session(game); setGame(null); } break;   // (build 185 : la partie notee pour les statistiques)
                     default: break;
                 }
             }
@@ -129,8 +131,23 @@ public final class Live {
 
     private static String hostOnly(String h) { int i = h.indexOf(':'); return i >= 0 ? h.substring(0, i) : h; }
 
+    /** build 185 : une partie finie (du lancement au retour) : gardee sur le telephone pour les statistiques par semaine */
+    private static void session(Game g) {
+        if (prefs == null || g == null || g.id.isEmpty()) return;
+        long fin = System.currentTimeMillis(), d = fin - g.start;
+        if (d < 30000L || d > 14L * 3600000L) return;
+        try {
+            org.json.JSONArray a = new org.json.JSONArray(prefs.getString("sessions_jeu", "[]")), b = new org.json.JSONArray();
+            int deb = Math.max(0, a.length() - 999);
+            for (int i = deb; i < a.length(); i++) b.put(a.get(i));
+            b.put(new org.json.JSONObject().put("id", g.id).put("nom", g.name).put("t", g.start).put("s", d / 1000));
+            prefs.edit().putString("sessions_jeu", b.toString()).apply();
+        } catch (Exception e) { }
+    }
+
     private static void setGame(final Game g) {
         game = g;
+        if (appCtx != null) ui.post(() -> GcWidget.refresh(appCtx));   // (build 185 : le jeu en cours sur le widget)
         if (prefs != null) {
             if (g == null) prefs.edit().remove("jeu_id").apply();
             else prefs.edit().putString("jeu_id", g.id).putString("jeu_nom", g.name).putString("jeu_prof", g.profile)

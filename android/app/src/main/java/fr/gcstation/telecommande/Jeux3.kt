@@ -112,6 +112,39 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
     private var hPieces = IntArray(4); private var hEtoiles = IntArray(4); private var hMg = -1
     private var alerte = ""; private var alerteT = 0L
     private var rangAvant = IntArray(4) { -1 }; private var procheAvant = BooleanArray(4)
+    // build 185 : pieces au debut de chaque tour (graphique), etoiles au debut des resultats (bonus), parties gardees
+    private var serie: Array<ArrayList<Int>> = Array(4) { ArrayList<Int>() }
+    private var finEtoiles: IntArray? = null; private var finT = 0L; private var debut = 1
+    private fun parties(): org.json.JSONArray = try { org.json.JSONArray(Compagnon.ctx?.getSharedPreferences("gcs", 0)?.getString("mp5_parties", "[]") ?: "[]") } catch (e: Exception) { org.json.JSONArray() }
+    private fun garderPartie(p: org.json.JSONObject) {
+        val c = Compagnon.ctx ?: return
+        val a = parties(); val b = org.json.JSONArray()
+        b.put(p)
+        for (i in 0 until a.length()) { val o = a.optJSONObject(i) ?: continue; if (o.optLong("t") != p.optLong("t") && b.length() < 30) b.put(o) }
+        c.getSharedPreferences("gcs", 0).edit().putString("mp5_parties", b.toString()).apply()
+    }
+    /** les parties gardees : la derniere en detail (classement, courbes), puis la liste */
+    private fun mesParties(): List<Bloc> {
+        val a = parties()
+        if (a.length() == 0) return listOf(Bloc("Mes parties", texte = "Les parties finies avec le compagnon ouvert apparaîtront ici (classement, étoiles bonus, pièces tour par tour)."))
+        val r = ArrayList<Bloc>()
+        val df = java.text.SimpleDateFormat("d MMM HH:mm", java.util.Locale.FRANCE)
+        fun joueurs(o: org.json.JSONObject) = (0 until (o.optJSONArray("joueurs")?.length() ?: 0)).mapNotNull { o.optJSONArray("joueurs")?.optJSONObject(it) }
+        val d = a.getJSONObject(0)
+        val jd = joueurs(d).sortedWith(compareBy({ -it.optInt("et") }, { -it.optInt("pi") }))
+        r.add(Bloc("Dernière partie · " + d.optString("plateau") + " · " + df.format(java.util.Date(d.optLong("t"))),
+            jd.mapIndexed { i, j -> Ligne((i + 1).toString() + ". " + j.optString("nom"), j.optInt("et").toString() + " ★ · " + j.optInt("pi") + " pièces" +
+                (if (j.optInt("bonus") > 0) " (" + j.optInt("bonus") + " ★ bonus)" else "") + " · mini-jeux " + j.optInt("mg"), -1f, COUL_PERSO.getOrElse(j.optInt("perso")) { 0xFFFFFFFF }) },
+            courbes = joueurs(d).map { j -> val s = j.optJSONArray("serie"); Courbe(j.optString("nom"), COUL_PERSO.getOrElse(j.optInt("perso")) { 0xFFFFFFFF },
+                (0 until (s?.length() ?: 0)).map { s!!.optInt(it) }) }))
+        val victoires = HashMap<String, Int>()
+        for (i in 0 until a.length()) { val o = a.optJSONObject(i) ?: continue; joueurs(o).maxWithOrNull(compareBy({ it.optInt("et") }, { it.optInt("pi") }))?.let { victoires[it.optString("nom")] = (victoires[it.optString("nom")] ?: 0) + 1 } }
+        r.add(Bloc("Mes parties (" + a.length() + ")", (0 until a.length()).mapNotNull { a.optJSONObject(it) }.map { o ->
+            val g = joueurs(o).maxWithOrNull(compareBy({ it.optInt("et") }, { it.optInt("pi") }))
+            Ligne(df.format(java.util.Date(o.optLong("t"))) + " · " + o.optString("plateau"), "gagnant : " + (g?.optString("nom") ?: "–") + " (" + (g?.optInt("et") ?: 0) + " ★)")
+        }, texte = "Victoires : " + victoires.entries.sortedByDescending { it.value }.joinToString(" · ") { it.key + " " + it.value }))
+        return r
+    }
 
     override fun lire(l: Lecteur, id: String): Fiche? {
         val gp = joueurs(id); val sys = gp + 0x420
@@ -122,7 +155,7 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
         val mg = l.u16(sys + 0x34) ?: 0xFFFF
         val banque = (l.u16(sys + 0x38) ?: 0).coerceAtMost(9999)
         val equipes = ((l.u8(sys) ?: 0) and 0x40) != 0
-        class J(val n: Int, val nom: String, val pieces: Int, val etoiles: Int, val rang: Int, val perso: Int, val caseNo: Int, val ordi: Boolean,
+        class J(val n: Int, val nom: String, val pieces: Int, val etoiles: Int, val rang: Int, val perso: Int, val caseNo: Int, val ordi: Boolean, val mgTotal: Int,
                 val niveau: Int, val caps: List<Int>, val reste: Int, val equipe: Int, val lignes: List<Ligne>)
         val js = ArrayList<J>()
         for (k in 0 until 4) {
@@ -133,7 +166,7 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
             val niveau = (w0 shr 14) and 3
             val pieces = l.s16(b + 0x20) ?: return null; val etoiles = l.s16(b + 0x34) ?: return null
             if (perso >= PERSOS.size || pieces !in 0..999 || etoiles !in 0..99) return if (partie) null else
-                Fiche(id, "Mario Party 5", "Menus", 0xFFB82E2E, 0xFF2A0A0A, message = "Pas de partie en cours.")
+                Fiche(id, "Mario Party 5", "Menus", 0xFFB82E2E, 0xFF2A0A0A, message = "Pas de partie en cours.", blocs = mesParties())
             val w8 = l.u16(b + 8) ?: 0
             val rang = (w8 shr 5) and 3
             val equipe = (l.u8(b + 2) ?: 0) shr 7
@@ -157,9 +190,10 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
                 Ligne("Cases bleues / rouges", "${c(0)} / ${c(1)}"), Ligne("Cases ? / capsule", "${c(3)} / ${c(2)}"),
                 Ligne("Cases Bowser / DK / VS", "${c(4)} / ${c(10)} / ${c(6)}"), Ligne("Cases étoile", c(9).toString()))
             if (mgPieces != 0) li.add(2, Ligne("Dernier mini-jeu", (if (mgPieces > 0) "+" else "") + mgPieces + " pièces"))
-            js.add(J(k, nom, pieces, etoiles, rang, perso, l.s16(b + 0xC) ?: -1, ordi, niveau, caps, reste, equipe, li))
+            js.add(J(k, nom, pieces, etoiles, rang, perso, l.s16(b + 0xC) ?: -1, ordi, totalMg, niveau, caps, reste, equipe, li))
         }
-        if (!partie) return Fiche(id, "Mario Party 5", "Menus ou mini-jeux libres", 0xFFB82E2E, 0xFF2A0A0A, message = "Pas de partie sur un plateau en ce moment.")
+        if (!partie) return Fiche(id, "Mario Party 5", "Menus ou mini-jeux libres", 0xFFB82E2E, 0xFF2A0A0A, message = "Pas de partie sur un plateau en ce moment.",
+            blocs = mesParties())
         // le plateau : relu quand il change (et toutes les 30 s s'il n'a pas pu etre lu) ; l'etoile toutes les 8 s
         val cle = "$id/$plateau"
         val t = System.currentTimeMillis()
@@ -180,13 +214,36 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
         if (posees.isNotEmpty()) lignes.add(Ligne("Capsules posées sur le plateau", posees.size.toString()))
         // l'historique : a chaque nouveau tour, ce qui a change pendant le tour d'avant (pieces, etoiles, mini-jeu)
         val hc = "$id/$plateau/$tours"
-        if (hc != hCle || tour < hTour) { hCle = hc; histo.clear(); hTour = tour; hPieces = IntArray(4) { js[it].pieces }; hEtoiles = IntArray(4) { js[it].etoiles }; hMg = -1; rangAvant = IntArray(4) { -1 } }
+        if (hc != hCle || tour < hTour) { hCle = hc; histo.clear(); hTour = tour; hPieces = IntArray(4) { js[it].pieces }; hEtoiles = IntArray(4) { js[it].etoiles }; hMg = -1; rangAvant = IntArray(4) { -1 }
+            serie = Array(4) { k -> arrayListOf(js[k].pieces) }; finEtoiles = null; finT = 0L; debut = tour }
         if (mg in 501..580) hMg = mg
         if (tour > hTour) {
             histo.add(0, Tour(hTour, hMg, IntArray(4) { js[it].pieces - hPieces[it] }, IntArray(4) { js[it].etoiles - hEtoiles[it] }))
             if (histo.size > 50) histo.removeAt(histo.size - 1)
             hTour = tour; hPieces = IntArray(4) { js[it].pieces }; hEtoiles = IntArray(4) { js[it].etoiles }; hMg = -1
+            if (tour <= tours) for (k in 0 until 4) serie[k].add(js[k].pieces)
         }
+        // build 185 : la fin de partie (tour = nombre de tours + 1 : resultats et etoiles bonus) : gardee sur le telephone
+        var finBloc: List<Bloc> = emptyList()
+        if (tour == tours + 1) {
+            if (finEtoiles == null) { finEtoiles = IntArray(4) { js[it].etoiles }; finT = System.currentTimeMillis() }
+            val fe = finEtoiles!!
+            val ordreFin = js.sortedWith(compareBy({ -it.etoiles }, { -it.pieces }))
+            val meilleurMg = js.maxByOrNull { it.mgTotal }
+            val p = org.json.JSONObject().put("t", finT).put("plateau", PLATEAUX[plateau]).put("tours", tours).put("debut", debut)
+            val ja = org.json.JSONArray()
+            for (j in js) ja.put(org.json.JSONObject().put("nom", j.nom).put("perso", j.perso).put("et", j.etoiles).put("pi", j.pieces)
+                .put("bonus", j.etoiles - fe[j.n]).put("mg", j.mgTotal).put("ordi", j.ordi).put("serie", org.json.JSONArray(serie[j.n])))
+            p.put("joueurs", ja)
+            garderPartie(p)
+            finBloc = listOf(Bloc("Fin de partie", ordreFin.mapIndexed { i, j ->
+                Ligne((i + 1).toString() + ". " + j.nom, "${j.etoiles} ★ · ${j.pieces} pièces" + if (j.etoiles - fe[j.n] > 0) " (dont " + (j.etoiles - fe[j.n]) + " ★ bonus)" else "",
+                    -1f, COUL_PERSO.getOrElse(j.perso) { 0xFFFFFFFF })
+            } + listOfNotNull(meilleurMg?.let { Ligne("Meilleur aux mini-jeux", it.nom + " (" + it.mgTotal + " pièces gagnées)") }),
+                texte = "Les étoiles bonus sont comptées à partir du moment où la fin de partie commence (elles arrivent pendant les résultats)."))
+        }
+        val courbes = Bloc("Pièces tour par tour", courbes = js.map { j -> Courbe(j.nom, COUL_PERSO.getOrElse(j.perso) { 0xFFFFFFFF }, serie[j.n] + j.pieces) },
+            texte = if (debut > 1) "Depuis le tour $debut (l'écran a été ouvert en cours de partie)." else "")
         // les alertes : toi = le premier joueur humain (sinon J1)
         val moi = js.firstOrNull { !it.ordi } ?: js[0]
         val tms = System.currentTimeMillis()
@@ -219,6 +276,8 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
                 texte = "Cases : bleue, rouge, verte (?), jaune (étoile, entourée là où elle est), orange (VS), brune (DK), rouge foncé (Bowser) ; " +
                     "petit carré blanc : une capsule posée ; petits points gris : passages."))
         } else blocs.add(Bloc("Plateau", texte = "Lecture des cases du plateau…"))
+        if (finBloc.isNotEmpty()) blocs.addAll(0, finBloc)
+        blocs.add(courbes)
         if (histo.isNotEmpty()) blocs.add(Bloc("Historique des tours", histo.take(20).map { h ->
             val gagnant = (0 until 4).maxByOrNull { h.pieces[it] }
             Ligne("Tour " + h.tour + if (h.mg in 501..580) " · " + nomMg(h.mg).substringBefore(" (") else "",
