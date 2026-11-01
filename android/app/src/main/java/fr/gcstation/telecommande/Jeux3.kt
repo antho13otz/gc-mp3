@@ -290,3 +290,127 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
             message = if (alerte.isNotEmpty() && tms - alerteT < 30000) alerte else "")
     }
 }
+
+// ---------------------------------------------------------------- Star Fox Adventures (build 194)
+// Structure de la partie en cours (SaveGame), d'apres les notes publiques de RenaKunisaki/StarFoxAdventures (notes/savedata.txt,
+// et ses codes : la vie, la magie et les scarabs du jeu sont lus dans cette structure) : charState[2] (Krystal, Fox : 0xC
+// chacun : vie en quarts de coeur 0, vie max 1, magie 4, magie max 6, scarabs 8, BafomDads 9 / 0xA), energie de Tricky 0x18,
+// max 0x19, nom 0x1C, personnage 0x20, avancement 0x55D (/ 187), temps de jeu 0x560 (images). Pas de liste de symboles pour
+// la version europeenne : l'adresse est cherchee une fois dans la memoire (jeu en pause, comme Ocarina of Time), puis gardee.
+object JeuSFA : ModuleJeu("Star Fox Adventures", "GSAP01", "GSAE01", "GSAJ01") {
+    @Volatile var progres = -1f
+    @Volatile private var candidats: LongArray? = null
+    @Volatile private var choisi = -1
+    private var avant = IntArray(0)
+    private fun cle(id: String) = "sfa_$id"
+
+    private fun charger(c: android.content.Context?, id: String) {
+        if (candidats != null || c == null) return
+        val s = c.getSharedPreferences("gcs", 0).getString(cle(id), "") ?: ""
+        candidats = s.split(',').mapNotNull { it.trim().toLongOrNull() }.toLongArray()
+    }
+    /** la signature d'une SaveGame vraisemblable (o : debut dans la photo de la memoire) */
+    private fun vraisemblableMem(m: ByteArray, o: Int): Boolean {
+        fun u8(k: Int) = m[o + k].toInt() and 255
+        fun u16(k: Int) = ((m[o + k].toInt() and 255) shl 8) or (m[o + k + 1].toInt() and 255)
+        for (c in 0 until 2) {
+            val b = c * 0xC
+            val vie = m[o + b].toInt(); val max = m[o + b + 1].toInt()
+            if (max !in 4..100 || max % 4 != 0 || vie !in 0..max) return false
+            val mg = u16(b + 4); val mgMax = u16(b + 6)
+            if (mgMax > 400 || mg > mgMax) return false
+            if (u8(b + 0xA) > 20 || u8(b + 9) > u8(b + 0xA)) return false
+        }
+        if (u8(0x19) > 100 || u8(0x18) > u8(0x19)) return false
+        if (u8(0x20) > 1 || u8(0x55D) > 187) return false
+        // le nom : 1 a 3 lettres puis 0
+        var n = 0
+        while (n < 4 && u8(0x1C + n) != 0) { val ch = u8(0x1C + n); if (ch !in 0x20..0x7E) return false; n++ }
+        if (n == 0 || n == 4) return false
+        val t = java.lang.Float.intBitsToFloat((u16(0x560) shl 16) or u16(0x562))
+        return t.isFinite() && t > 60f && t < 60f * 3600f * 999f
+    }
+    private fun vraisemblable(l: Lecteur, a: Long): Boolean {
+        for (c in 0 until 2) {
+            val b = a + c * 0xCL
+            val vie = l.u8(b)?.toByte()?.toInt() ?: return false; val max = l.u8(b + 1)?.toByte()?.toInt() ?: return false
+            if (max !in 4..100 || max % 4 != 0 || vie !in 0..max) return false
+            val mg = l.u16(b + 4) ?: return false; val mgMax = l.u16(b + 6) ?: return false
+            if (mgMax > 400 || mg > mgMax) return false
+        }
+        val t = l.fini(l.f32(a + 0x560), 1e9f) ?: return false
+        return (l.u8(a + 0x20) ?: 9) <= 1 && t > 60f
+    }
+
+    override fun agir(c: android.content.Context, id: String) {
+        if (progres >= 0f) return
+        progres = 0f
+        Thread {
+            Compagnon.pauseLecture = true
+            try {
+                Thread.sleep(400)
+                if (MemoireJeu.demande('P', 1) != null) {
+                    val mem = ByteArray(MemoireJeu.TAILLE)
+                    val ok = MemoireJeu.lire(IntArray(MemoireJeu.FIN / MemoireJeu.BLK) { it }, mem, true, { progres = it * 0.95f }, { false })
+                    MemoireJeu.demande('P', 0)
+                    if (ok) {
+                        val r = ArrayList<Long>()
+                        var i = 0
+                        val fin = MemoireJeu.FIN - 0x600
+                        while (i < fin && r.size < 12) { if (vraisemblableMem(mem, i)) r.add(MemoireJeu.BASE + i); i += 4 }
+                        candidats = r.toLongArray(); choisi = -1
+                        c.getSharedPreferences("gcs", 0).edit().putString(cle(id), r.joinToString(",")).apply()
+                    }
+                }
+            } catch (x: Exception) { }
+            progres = -1f
+            Compagnon.pauseLecture = false
+        }.start()
+    }
+
+    override fun lire(l: Lecteur, id: String): Fiche? {
+        charger(Compagnon.ctx, id)
+        val pr = progres
+        if (pr >= 0f) return Fiche(id, "Star Fox Adventures", "Recherche dans la mémoire…", 0xFF1E4E8F, 0xFF07162E,
+            grands = listOf("lu" to ((pr * 100).toInt().toString() + " %")), message = "Le jeu est en pause pendant la recherche (une seule fois).")
+        val ok = (candidats ?: LongArray(0)).filter { vraisemblable(l, it) }
+        if (ok.isEmpty()) return Fiche(id, "Star Fox Adventures", if (candidats.isNullOrEmpty()) "Pas encore trouvé" else "Plus trouvé (autre partie ?)", 0xFF1E4E8F, 0xFF07162E,
+            message = "Charge ta partie et joue quelques secondes, puis touche le bouton : l'appli cherche la partie en cours dans la mémoire " +
+                "(jeu en pause une trentaine de secondes, une seule fois). Recommence si tu changes de fichier de sauvegarde.",
+            bouton = "Trouver ma partie dans la mémoire")
+        // la partie en cours : celle dont le temps de jeu avance (les copies des fichiers de la carte ne bougent pas)
+        val temps = ok.map { (l.fini(l.f32(it + 0x560), 1e9f) ?: 0f).toInt() }.toIntArray()
+        if (avant.size == temps.size) for (k in temps.indices) if (temps[k] != avant[k]) { choisi = k; break }
+        avant = temps
+        val a = ok[if (choisi in ok.indices) choisi else 0]
+        val noms = arrayOf("Krystal", "Fox")
+        val perso = (l.u8(a + 0x20) ?: 1).coerceIn(0, 1)
+        val blocs = ArrayList<Bloc>()
+        var vieP = 0; var maxP = 0; var sc = 0
+        for (c in intArrayOf(perso, 1 - perso)) {
+            val b = a + c * 0xCL
+            val vie = (l.u8(b)?.toByte()?.toInt() ?: 0).coerceAtLeast(0); val max = (l.u8(b + 1)?.toByte()?.toInt() ?: 0).coerceIn(0, 100)
+            val mg = l.u16(b + 4) ?: 0; val mgMax = l.u16(b + 6) ?: 0
+            val scar = l.u8(b + 8) ?: 0; val bd = l.u8(b + 9) ?: 0; val bdMax = l.u8(b + 0xA) ?: 0
+            if (c == perso) { vieP = vie; maxP = max; sc = scar }
+            if (max == 0) continue
+            blocs.add(Bloc(noms[c] + if (c == perso) " (en jeu)" else "", listOf(
+                Ligne("Cœurs", String.format(java.util.Locale.FRANCE, "%.2f / %d", vie / 4f, max / 4), pct(vie, max), 0xFFFF3B5C),
+                Ligne("Magie", if (mgMax > 0) "$mg / $mgMax" else "–", if (mgMax > 0) pct(mg, mgMax) else -1f, 0xFF4FA3FF),
+                Ligne("Scarabs", scar.toString(), -1f, 0xFF3DDC84),
+                Ligne("BafomDads", if (bdMax > 0) "$bd / $bdMax" else "–", if (bdMax > 0) pct(bd, bdMax) else -1f, 0xFFFFB300))))
+        }
+        val tr = l.u8(a + 0x18) ?: 0; val trMax = l.u8(a + 0x19) ?: 0
+        val av = l.u8(a + 0x55D) ?: 0
+        val t = l.fini(l.f32(a + 0x560), 1e9f) ?: 0f
+        val nom = (l.texte(a + 0x1C, 4) ?: "").filter { it.code in 32..126 }
+        blocs.add(Bloc("Partie", listOf(
+            Ligne("Énergie de Tricky", if (trMax > 0) "$tr / $trMax" else "–", if (trMax > 0) pct(tr, trMax) else -1f, 0xFFFF8A3D),
+            Ligne("Avancement", (av * 100 / 187).toString() + " %", pct(av, 187), 0xFF9C6CFF),
+            Ligne("Temps de jeu", dureeS((t / 60f).toLong())),
+            Ligne("Fichier", nom.ifEmpty { "–" }))))
+        return Fiche(id, "Star Fox Adventures", noms[perso] + (if (nom.isNotEmpty()) " · fichier $nom" else ""), 0xFF1E4E8F, 0xFF07162E,
+            grands = listOf("cœurs" to String.format(java.util.Locale.FRANCE, "%.1f", vieP / 4f), "scarabs" to sc.toString(), "avancement" to (av * 100 / 187).toString() + " %"),
+            blocs = blocs, message = if (ok.size > 1 && choisi < 0) "Plusieurs endroits possibles : joue quelques secondes, l'appli garde celui dont le temps avance." else "")
+    }
+}
