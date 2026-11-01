@@ -12748,9 +12748,9 @@ static void menu_change(int i, int d) {
     case MI_GLVIEW:  gl_view = (gl_view + d + 6) % 6; break;
     case MI_GLANIM:  gl_anim = !gl_anim; break;
     case MI_GLAUTO:  gl_auto = !gl_auto; break;
-    case MI_PLAYLIM: pj_limit_next(1); break;
+    case MI_PLAYLIM: pj_limit_next(d < 0 ? -1 : 1); break;   /* v318 : (gauche : en arriere) */
     case MI_NATIGR:  nat_igr = !nat_igr; break;
-    case MI_NATCARD: nat_card = (nat_card + 1) % 3; break;
+    case MI_NATCARD: nat_card = (nat_card + (d < 0 ? 2 : 1)) % 3; break;   /* v318 : (gauche : en arriere) */
     case MI_NATCARDREG: nat_card_reg = !nat_card_reg; break;
     case MI_NATCARDGAME: nat_card_game = !nat_card_game; break;
     case MI_PADTEL: nat_padtel = (nat_padtel + (d < 0 ? 4 : 1)) % 5; break;
@@ -12891,6 +12891,21 @@ static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
 
 /* v35 : legende de la page Reglages (remplace celle de l'onglet) */
 static void draw_mini_badge(f32 cx, f32 cy, const char *k);
+/* v318 : l'aide en bas du menu, sur deux lignes si elle est trop longue (avant : coupee au bord du panneau) */
+static void menu_hint(f32 x, f32 y, f32 w, const char *t, col_t col) {
+    if (text_width(F_SMALL, t, 0) <= w) { gx_text1(F_SMALL, x, y + 8, t, col); return; }
+    char a[256], b[256];
+    int n = (int)strlen(t), cut = 0;
+    for (int k = 0; k < n && k < (int)sizeof(a) - 1; k++) if (t[k] == ' ') {
+        memcpy(a, t, k); a[k] = 0;
+        if (text_width(F_SMALL, a, 0) <= w) cut = k; else break;
+    }
+    if (cut <= 0) { fit_text(F_SMALL, t, (int)w, a, sizeof(a)); gx_text1(F_SMALL, x, y + 8, a, col); return; }
+    memcpy(a, t, cut); a[cut] = 0;
+    fit_text(F_SMALL, t + cut + 1, (int)w, b, sizeof(b));
+    gx_text1(F_SMALL, x, y, a, col);
+    gx_text1(F_SMALL, x, y + 15, b, col);
+}
 static void draw_menu_legend(int kind) {
     const char *K[7], *L[7];
     int cnt = 0;
@@ -13050,7 +13065,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_THEMEDL) hint = "De nouvelles couleurs et fonds, t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9s depuis GitHub (A : voir la liste)";
     if (menu_sel == MI_UPDXZ) hint = "Mise \xC3\xA0 jour : .dol compress\xC3\xA9 (2 fois plus petit, d\xC3\xA9marrage plus rapide)";
     if (menu_sel == MI_UPDAUTO) hint = "Une nouvelle version est signal\xC3\xA9" "e au d\xC3\xA9marrage (rien n'est install\xC3\xA9 sans toi)";
-    if (hint) gx_text1(F_SMALL, x + 20, help_y + 8, hint, RGBA(255, 210, 120, 255));
+    if (hint) menu_hint(x + 20, help_y, w - 40, hint, RGBA(255, 210, 120, 255));
     draw_menu_legend(0);
 }
 /* ---------- Economiseur d'ecran ---------- */
@@ -13904,6 +13919,70 @@ static int sd_space(unsigned long long *tot, unsigned long long *fre);   /* v97 
 static const char *perf_ver(void) { return GCMP3_VERSION; }
 #include "update.c"
 
+#ifndef GEKKO
+/* v318 : (simulateur, PCSIM_REGLAGES=1) chaque reglage du menu START : change, enregistre, change encore, relu depuis
+   gc-mp3.txt (doit revenir a la valeur enregistree), puis remis comme avant. Resultat sur la sortie. */
+static void reg_test(void) {
+    static const int sauf[] = { MI_UPDATE, MI_UPDOLD, MI_THEMEDL, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_ELEMS, MI_TABS, MI_IP, MI_GW,
+                                MI_AUTOSTART, MI_IGR, MI_LAUNCHER, MI_GAMES, MI_TITLES, MI_CLOCK, MI_PERF };
+    int n = 0, ko = 0;
+    for (int sec = 0; sec < SEC_TOOLS; sec++) for (int k = 0; k < sec_n(sec); k++) {
+        int mi = sec_items[sec][k];
+        if (mi < 0) continue;
+        int skip = 0; for (unsigned j = 0; j < sizeof(sauf) / sizeof(sauf[0]); j++) if (sauf[j] == mi) skip = 1;
+        if (skip) continue;
+        char v0[96], v1[96], v2[96], v3[96], vr[96];
+        menu_value(mi, v0, sizeof(v0));
+        int dd = 1;
+        menu_change(mi, 1); menu_value(mi, v1, sizeof(v1));
+        if (!strcmp(v0, v1)) { dd = -1; menu_change(mi, -1); menu_value(mi, v1, sizeof(v1)); }
+        save_settings();
+        menu_change(mi, dd); menu_value(mi, v2, sizeof(v2));
+        load_settings(); pj_apply(); menu_value(mi, v3, sizeof(v3));
+        int t = 0; menu_value(mi, vr, sizeof(vr));
+        while (strcmp(vr, v0) && t++ < 60) { menu_change(mi, -dd); menu_value(mi, vr, sizeof(vr)); }
+        int console = mi == MI_GLANG || mi == MI_GSOUND || mi == MI_SCREENX;      /* (dans la memoire de la console, pas dans gc-mp3.txt) */
+        int garde = mi != MI_SLEEP && mi != MI_VIEW;                              /* (minuterie, vue de MUSIQUE : pas gardees, voulu) */
+        const char *pb = !strcmp(v0, v1) ? "NE CHANGE PAS" : (garde && !console && strcmp(v3, v1)) ? "PAS GARDE (relu different)" : strcmp(vr, v0) ? "NE REVIENT PAS" : "ok";
+        if (strcmp(pb, "ok")) ko++;
+        printf("[reglage] %-34.34s %-20.20s -> %-20.20s (relu %-20.20s) %s\n", menu_labels[mi], v0, v1, v3, pb);
+        n++;
+    }
+    save_settings();
+    printf("[reglage] %d reglages essayes, %d a regarder\n", n, ko);
+}
+/* v318 : (PCSIM_REGLAGES=2) chaque valeur des reglages visibles, en image : PCSIM_OUT/r-<reglage>-<n>.png */
+extern int pcsim_capture;
+extern char pcsim_capture_name[96];
+static void reg_visu_tick(void) {
+    static const int L[][2] = { { MI_THEME, TAB_MUSIC }, { MI_SKIN, TAB_MUSIC }, { MI_SKIN, TAB_GAMES }, { MI_LAYOUT, TAB_MUSIC }, { MI_VIZ, TAB_MUSIC },
+        { MI_SGPAL, TAB_MUSIC }, { MI_LYRSHOW, TAB_MUSIC }, { MI_SEASON, TAB_MUSIC }, { MI_WIDE, TAB_MUSIC }, { MI_SCREEN, TAB_MUSIC },
+        { MI_SCREENH, TAB_MUSIC }, { MI_SCREENY, TAB_MUSIC }, { MI_SAVERSTYLE, -1 }, { MI_UILANG, TAB_INFO }, { MI_GLVIEW, TAB_GAMES },
+        { MI_HIDDEN, TAB_FILES }, { MI_NIGHT, TAB_MUSIC }, { MI_PARTY, TAB_MUSIC }, { MI_TV, TAB_MUSIC } };
+    static int i = 0, k = 0, att = 0, init = 0; static char v0[96];
+    const int N = (int)(sizeof(L) / sizeof(L[0]));
+    if (i >= N) return;
+    if (pcsim_capture) return;
+    if (++att < 25) return;
+    att = 0;
+    int mi = L[i][0];
+    char v[96];
+    if (!init) { init = 1; k = 0; menu_value(mi, v0, sizeof(v0)); saver_on = L[i][1] < 0; menu_open = 0;
+                 if (L[i][1] >= 0) { tab = L[i][1]; tab_enter(tab); } att = 0; return; }
+    static int pris = 0;
+    if (!pris) {                                          /* (l'image d'abord, puis le changement au tour suivant) */
+        menu_value(mi, v, sizeof(v));
+        snprintf(pcsim_capture_name, sizeof(pcsim_capture_name), "r-%02d-%02d", i, k); pcsim_capture = 1;
+        printf("[visu] r-%02d-%02d %s = %s\n", i, k, menu_labels[mi], v);
+        pris = 1; att = 20; return;
+    }
+    pris = 0;
+    menu_change(mi, 1); k++;
+    char w[96]; menu_value(mi, w, sizeof(w));
+    if (!strcmp(w, v0) || k >= 24) { int t = 0; while (strcmp(w, v0) && t++ < 60) { menu_change(mi, -1); menu_value(mi, w, sizeof(w)); }
+        saver_on = 0; i++; init = 0; if (i >= N) { save_settings(); printf("[visu] fini\n"); } }
+}
+#endif
 static void tab_enter_u(int t);
 static void tab_enter(int t) {
 #ifndef GEKKO
@@ -14365,6 +14444,11 @@ int main(int argc, char **argv) {
         mem_tick();                                         /* v220 : memoire (memview.c) */
         upg_tick();                                         /* v229 : garde-fou apres une mise a jour (update.c) */
         sx_tick();                                          /* v259 : test de la console (selftest.c) */
+#ifndef GEKKO
+        { static int rt = 0; const char *e_ = getenv("PCSIM_REGLAGES");
+          if (!rt && e_ && *e_ == '1' && now_ms() > 6000) { rt = 1; reg_test(); }
+          if (e_ && *e_ == '2' && now_ms() > 6000) reg_visu_tick(); }
+#endif
         /* activite de la manette (economiseur d'ecran) */
         int sx = PAD_SubStickX(0), sy = PAD_SubStickY(0), mx = PAD_StickX(0), my = PAD_StickY(0);
         int moved = abs(sx) > 40 || abs(sy) > 40 || abs(mx) > 40 || abs(my) > 40;
