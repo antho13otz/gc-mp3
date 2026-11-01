@@ -125,6 +125,33 @@ object MemoireJeu {
         return null
     }
 
+    /** v312 (ecran compagnon) : un bloc de 1 Ko (adresse alignee), jeu pas en pause, sans la photo de 24 Mo ; null : rien recu */
+    @Synchronized fun bloc(adr: Long): ByteArray? {
+        val h = hote() ?: return null
+        try {
+            repeat(3) {
+                val sq = ++seq
+                envoyer(h, 'R', sq, adr, 1, 0)
+                val fin = System.currentTimeMillis() + 300
+                while (true) {
+                    val reste = (fin - System.currentTimeMillis()).toInt()
+                    if (reste <= 0) break
+                    val r = recevoir(reste)
+                    if (r < 48 || !magie(buf, "GCMD") || g32(buf, 4).toInt() != sq || g32(buf, 8) != adr) continue
+                    val out = ByteArray(BLK)
+                    var o = 48
+                    for (w in 0 until BLK / 4) {
+                        if (buf[16 + (w shr 3)].toInt() and (0x80 shr (w and 7)) != 0 && o + 4 <= r) {
+                            System.arraycopy(buf, o, out, w * 4, 4); o += 4
+                        }
+                    }
+                    return out
+                }
+            }
+        } catch (e: Exception) { fermer() }
+        return null
+    }
+
     /** lit les blocs (numeros, dans l'ordre) dans mem (decalage = adresse - BASE) ; false : abandon ou console muette */
     @Synchronized fun lire(blocs: IntArray, mem: ByteArray, enPause: Boolean, progres: (Float) -> Unit, annule: () -> Boolean): Boolean {
         val h = hote() ?: return false
