@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 211 — Assistant « 3 photos de la mémoire »
+- Plus > Chercheur de codes (jeu lancé) > **Trouver les adresses d'un jeu (3 photos)** : trois étapes guidées (avant,
+  juste après, encore après une action), avec ce que tu vois à l'écran (cages, score…) noté dans le nom du fichier, puis
+  **Partager les photos** envoie les trois d'un coup. Pour trouver où un nouveau jeu range sa progression (Rayman 3…).
+
 ## Nouveautés appli build 209 — Kirby Air Ride dans le compagnon de jeu
 - Compagnon de jeu > **Kirby Air Ride** (version européenne) : les 3 listes de défis (Air Ride, Top Ride, City Trial,
   120 cases chacune), le nombre de cases cochées par mode et sur 360, et chaque case (cochée en couleur, manquante en gris).
