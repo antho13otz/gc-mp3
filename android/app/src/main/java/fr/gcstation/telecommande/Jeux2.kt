@@ -176,7 +176,7 @@ object JeuTP : ModuleJeu("Twilight Princess", "GZ2P01", "GZ2E01") {
                 blocs.add(Bloc("Pour finir à 100 %", m, pastilles = (manque + if (toutGot) emptyList() else manqueEq).map { it to false },
                     texte = (if (manque.isNotEmpty() || manqueEq.isNotEmpty()) "En gris : les objets et l'équipement pas encore trouvés. " else "") +
                         "Pas encore lus : techniques secrètes, poissons à attraper."))
-                if (!toutGot && nIns < 24) blocs.add(Bloc("Insectes dorés (pour Machaon)", pastilles = insectes))
+                if (!toutGot && nIns < 24) blocs.add(Bloc("Insectes dorés", pastilles = insectes))
             }
         }
         if (scene.startsWith("D_MN")) blocs.add(Bloc("Donjon", listOf(Ligne("Petites clés", cles.toString())),
