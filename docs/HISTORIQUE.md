@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 200 — Extraire un fichier du jeu dans le dossier de son choix
+- Fiche d'un jeu > « Extraire un fichier du jeu (main.dol…) » : nouveau bouton **Choisir où** : le fichier est enregistré
+  dans le dossier choisi (tes fichiers, Drive…) au lieu de Téléchargements/GC Remote. « Extraire » garde l'ancien chemin.
+
 ## Nouveautés appli build 198 — Star Fox Adventures : adresse fixe (européen)
 - Européen (GSAP01) : la partie en cours est à une adresse fixe, tirée du main.dol (803A4C08 : le code la construit
   51 fois avant de lire les champs de la partie : vie, magie, Tricky, nom, personnage, avancement, temps de jeu). Plus
