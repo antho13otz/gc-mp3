@@ -24,6 +24,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 191 — Pour finir à 100 % (Wind Waker, Sunshine) ; photo de la mémoire à partager
+- **Wind Waker** : une carte « Pour finir à 100 % » d'après la sauvegarde en cours : cœurs (quarts de cœur manquants),
+  emplacements d'objets vides, bourse, carquois, sac de bombes, magie, chants, perles, Triforce, cartes obtenues et
+  trésors pas encore repêchés, îles jamais visitées (nom et case de la carte marine). (Build 189.)
+- **Sunshine** : la même carte, zone par zone : les épisodes, soleils cachés et soleil des 100 pièces qui manquent (avec
+  le record de pièces), les pièces bleues qui restent, Delfino, le Mont Corona, les soleils à obtenir contre des pièces
+  bleues. (Build 189.)
+- **Chercheur de codes** : « Photo de la mémoire (fichier à partager) » : toute la mémoire du jeu (jeu en pause, une
+  trentaine de secondes), compressée en .bin.gz dans Téléchargements/GC Remote, puis le menu de partage. Pour trouver les
+  adresses de nouveaux jeux (F-Zero GX, Star Fox Adventures, Pokémon XD, 1080°…), avec des valeurs notées à l'écran.
+
 ## Nouveautés appli build 187 — Fin de partie Mario Party 5, statistiques de jeu, jeu en cours sur le widget
 - **Mario Party 5, fin de partie** : quand les résultats commencent (tour = nombre de tours + 1), un récapitulatif en haut
   de la fiche : classement final, étoiles bonus de chacun (étoiles gagnées pendant les résultats), meilleur aux mini-jeux
