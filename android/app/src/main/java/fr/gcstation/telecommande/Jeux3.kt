@@ -195,6 +195,8 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
                 alerte = "⚠ ${j.nom} passe devant toi (${j.rang + 1}e)"; alerteT = tms }
         }
         for (j in js) rangAvant[j.n] = j.rang
+        val blocs = ArrayList<Bloc>()
+        blocs.add(Bloc("Partie", lignes))
         // le classement en un coup d'oeil
         val ordre = js.sortedWith(compareBy({ it.rang }, { -it.etoiles }, { -it.pieces }))
         blocs.add(Bloc("Classement", ordre.map { j -> Ligne((j.rang + 1).toString() + ". " + j.nom, "${j.etoiles} ★ · ${j.pieces} pièces",
