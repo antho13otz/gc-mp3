@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés appli build à venir — Compagnon de jeu et chrono de speedrun
+## Nouveautés appli build 152 — Compagnon de jeu et chrono de speedrun
 - **Compagnon de jeu** (onglet Plus, ou bouton « Compagnon de jeu et chrono » de la partie en cours) : pendant une partie
   lancée avec Pulse (réglage « Chercheur de codes (appli) » = Oui), l'appli lit le jeu en direct, 5 fois par seconde,
   sans le mettre en pause. Versions européennes :
