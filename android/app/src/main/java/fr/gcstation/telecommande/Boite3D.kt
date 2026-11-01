@@ -143,16 +143,34 @@ object JaquettesHQ {
     /** jaquette complete (dos|tranche|avant), jaquette avant (sans complete), image du disque : null si pas trouvee */
     class Images(val full: Bitmap?, val avant: Bitmap?, val disque: Bitmap?)
     suspend fun charger(dir: File, id: String, ctx: Context? = null): Images = withContext(Dispatchers.IO) {
-        val full = image(dir, "coverfullHQ", id) ?: image(dir, "coverfull", id)
-        val avant = if (full != null) null else image(dir, "coverHQ", id) ?: Jaquettes.bitmap(dir, id)
+        val full = image(dir, "coverfullHQ", id) ?: image(dir, "coverfull", id)?.let { netIA(dir, "coverfull", id, it, ctx) }
+        val avant = if (full != null) null else image(dir, "coverHQ", id) ?: Jaquettes.bitmap(dir, id)?.let { netIA(dir, "cover", id, it, ctx) }
         Images(full, avant, disqueNet(dir, id, ctx))
     }
 
-    /** pour l'etagere : jaquette complete (HD si gardee, sinon normale), sinon jaquette avant ; pas de disque */
+    /** pour l'etagere : jaquette complete (HD si gardee, sinon normale, ou deja agrandie par IA), sinon jaquette avant ;
+     *  pas de disque ; (l'IA n'y est pas lancee : trop long pour toute une etagere, seulement ce qu'une boite a deja fait) */
     suspend fun chargerEtagere(dir: File, id: String): Images = withContext(Dispatchers.IO) {
-        val full = image(dir, "coverfullHQ", id) ?: image(dir, "coverfull", id)
-        val avant = if (full != null) null else image(dir, "coverHQ", id) ?: Jaquettes.bitmap(dir, id)
+        val full = image(dir, "coverfullHQ", id) ?: image(dir, "coverfull", id)?.let { netIA(dir, "coverfull", id, it, null) }
+        val avant = if (full != null) null else image(dir, "coverHQ", id) ?: Jaquettes.bitmap(dir, id)?.let { netIA(dir, "cover", id, it, null) }
         Images(full, avant, null)
+    }
+
+    /** v308 : jaquette en basse definition (pas de HD chez GameTDB) agrandie par IA (x4, puis 1024 px au plus), gardee
+     *  sur le telephone (jaquettes/<genre>ia) ; ctx null : seulement si deja faite ; sinon (ou echec) : celle d'origine */
+    private fun netIA(dir: File, genre: String, id: String, b: Bitmap, ctx: Context?): Bitmap {
+        if (maxOf(b.width, b.height) > 600) return b                  // (deja assez grande)
+        val f = File(dir, "jaquettes/${genre}ia/$id.png")
+        if (f.exists()) BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 })?.let { return it }
+        if (ctx == null) return b
+        return try {
+            val px = IntArray(b.width * b.height); b.getPixels(px, 0, b.width, 0, 0, b.width, b.height)
+            val ia = AgrandirIA.x4(ctx, px, b.width, b.height) ?: return b
+            val k = minOf(1f, 1024f / maxOf(ia.width, ia.height))
+            val r = if (k < 1f) Bitmap.createScaledBitmap(ia, (ia.width * k).toInt(), (ia.height * k).toInt(), true).also { if (it !== ia) ia.recycle() } else ia
+            try { f.parentFile?.mkdirs(); f.outputStream().use { r.compress(Bitmap.CompressFormat.PNG, 100, it) } } catch (e: Exception) { }
+            r
+        } catch (e: Throwable) { b }                                  // (pas assez de memoire : celle d'origine)
     }
 
     /** l'image du disque agrandie a 1024 px, gardee sur le telephone (calculee une fois) : par IA (AgrandirIA.kt,
