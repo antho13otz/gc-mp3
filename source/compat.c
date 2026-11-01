@@ -121,7 +121,8 @@ static void cp_after_game(const char *id, const char *title, int crashed, int sl
     if (crashed) { snprintf(cp_ask_id, sizeof(cp_ask_id), "%.6s", id); snprintf(cp_ask_title, sizeof(cp_ask_title), "%s", title && title[0] ? title : id); cp_set(id, CP_PLANTE, slow, vmode); return; }
     snprintf(cp_ask_id, sizeof(cp_ask_id), "%.6s", id);
     snprintf(cp_ask_title, sizeof(cp_ask_title), "%s", title && title[0] ? title : id);
-    cp_ask = 1; cp_ask_slow = slow; cp_ask_vmode = vmode; cp_ask_t = 0;
+    cp_ask_slow = slow; cp_ask_vmode = vmode; cp_ask_t = 0;   /* v317 : plus de question au retour du jeu (le lancement est deja
+                                                                 dans le journal de gc-mp3/natif ; la pastille se pose depuis le telephone) */
 }
 /* v145 : la reparation a garde un reglage pour ce jeu (repair.c) : note avec le verdict (partage avec le Salon) */
 static void cp_set_fix(const char *id, int c) {
