@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Jaquettes HD sans IA (textes lisibles)
+- Retour en arrière sur la build 129 : les jaquettes déjà en HD (plus de 600 px) restent **telles quelles**. Agrandies
+  par IA, leurs petits textes (dos de la boîte, mentions légales) devenaient des gribouillis illisibles : le modèle
+  redessine les lettres. L'IA reste pour les disques et les jaquettes en basse définition. Les versions HD agrandies
+  déjà gardées sur le téléphone sont effacées à la prochaine ouverture de la boîte.
+
 ## Nouveautés appli build 129 — Jaquettes HD agrandies par IA aussi
 - Boîte 3D : **toutes** les jaquettes passent maintenant par l'IA, HD comprise : la jaquette complète 1024 x 680 est
   agrandie par morceaux de 256 px (raccords invisibles) jusqu'à **4096 x 2720** ; les autres x4, 4096 px au plus.

@@ -164,6 +164,8 @@ object JaquettesHQ {
      *  maxi px au plus) ; sinon (ou echec) : celle d'origine */
     private fun netIA(dir: File, genre: String, id: String, b: Bitmap, ctx: Context?, progres: ((Float) -> Unit)? = null, maxi: Int = 4096): Bitmap {
         val f = File(dir, "jaquettes/${genre}ia/$id.jpg")
+        // (jaquette deja en HD : telle quelle ; l'IA y redessinait les petits textes en gribouillis illisibles)
+        if (maxOf(b.width, b.height) > 600) { if (f.exists()) f.delete(); return b }
         if (f.exists()) {
             val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeFile(f.path, o)
