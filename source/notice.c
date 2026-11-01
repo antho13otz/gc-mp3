@@ -147,7 +147,7 @@ static f32 nt_ease(f32 t) { if (t < 0) t = 0; if (t > 1) t = 1; return t * t * (
    Unites : une page fait 2 de haut (y de -1 a 1) et 2 x r de large ; reliure en x = 0 ; on regarde vers +z (les pages
    lisibles regardent vers -z). Feuille i : recto page 2i+1, verso page 2i+2. Les feuilles tournees sont a gauche. */
 typedef struct { f32 x, y, z; } nt3;
-typedef struct { f32 x[4], y[4], u[4], v[4], z; GXTexObj *t; col_t c; u8 sh; } ntq;
+typedef struct { f32 x[4], y[4], u[4], v[4], z; GXTexObj *t; col_t c; u8 sh; nt3 r[4]; } ntq;   /* (v310 : r = coins tournes, pour la perspective) */
 #define NT_QMAX 160
 static ntq nt_q[NT_QMAX];
 static int nt_nq;
@@ -171,12 +171,13 @@ static void nt_face4(const nt3 *p, nt3 n, GXTexObj *t, const f32 *u, const f32 *
         nt3 r = nt_rot(a);
         f32 k = F / (F + r.z * nt_sc);
         q->x[i] = nt_ox + r.x * nt_sc * k; q->y[i] = nt_oy - r.y * nt_sc * k;
-        q->u[i] = u[i]; q->v[i] = v[i]; zs += r.z;
+        q->u[i] = u[i]; q->v[i] = v[i]; q->r[i] = r; zs += r.z;
     }
     f32 ar = 0;                                          /* (sens des coins a l'ecran : toujours le meme) */
     for (int i = 0; i < 4; i++) { int j = (i + 1) & 3; ar += q->x[i] * q->y[j] - q->x[j] * q->y[i]; }
     if (ar < 0) { f32 t2; t2 = q->x[1]; q->x[1] = q->x[3]; q->x[3] = t2; t2 = q->y[1]; q->y[1] = q->y[3]; q->y[3] = t2;
-                  t2 = q->u[1]; q->u[1] = q->u[3]; q->u[3] = t2; t2 = q->v[1]; q->v[1] = q->v[3]; q->v[3] = t2; }
+                  t2 = q->u[1]; q->u[1] = q->u[3]; q->u[3] = t2; t2 = q->v[1]; q->v[1] = q->v[3]; q->v[3] = t2;
+                  nt3 t3 = q->r[1]; q->r[1] = q->r[3]; q->r[3] = t3; }
     q->z = zs / 4; q->t = t; q->c = c;
     f32 l = -rn.z; l = 0.55f + 0.45f * l;                /* (plus sombre de biais) */
     q->sh = (u8)(255 * l);
@@ -265,9 +266,27 @@ static void nt_draw_q(void) {
     for (int k = 0; k < nt_nq; k++) {
         ntq *q = &nt_q[k];
         if (q->t) {
+            /* v310 : page decoupee en 8 x 8 carreaux, chacun projete : l'image suit la perspective (avant : un seul
+               quadrilatere, la texture se pliait le long de sa diagonale quand la notice tournait) */
+            enum { S = 8 };
+            const f32 F = 900;
             gx_set_image(q->t);
-            GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
-            for (int i = 0; i < 4; i++) { GX_Position2f32(UX(q->x[i]), q->y[i]); GX_Color4u8(255, 255, 255, 255); GX_TexCoord2f32(q->u[i], q->v[i]); }
+            GX_Begin(GX_QUADS, GX_VTXFMT0, S * S * 4);
+            for (int j = 0; j < S; j++) for (int i = 0; i < S; i++) {
+                static const u8 di[4] = { 0, 1, 1, 0 }, dj[4] = { 0, 0, 1, 1 };
+                for (int c = 0; c < 4; c++) {
+                    f32 a = (f32)(i + di[c]) / S, b = (f32)(j + dj[c]) / S;
+                    /* (coins : 0-1 en haut, 3-2 en bas) */
+                    f32 tx = q->r[0].x + (q->r[1].x - q->r[0].x) * a, ty = q->r[0].y + (q->r[1].y - q->r[0].y) * a, tz = q->r[0].z + (q->r[1].z - q->r[0].z) * a;
+                    f32 bx = q->r[3].x + (q->r[2].x - q->r[3].x) * a, by = q->r[3].y + (q->r[2].y - q->r[3].y) * a, bz = q->r[3].z + (q->r[2].z - q->r[3].z) * a;
+                    f32 px = tx + (bx - tx) * b, py = ty + (by - ty) * b, pz = tz + (bz - tz) * b;
+                    f32 k = F / (F + pz * nt_sc);
+                    f32 tu = q->u[0] + (q->u[1] - q->u[0]) * a, bu = q->u[3] + (q->u[2] - q->u[3]) * a;
+                    f32 tv = q->v[0] + (q->v[1] - q->v[0]) * a, bv = q->v[3] + (q->v[2] - q->v[3]) * a;
+                    GX_Position2f32(UX(nt_ox + px * nt_sc * k), nt_oy - py * nt_sc * k); GX_Color4u8(255, 255, 255, 255);
+                    GX_TexCoord2f32(tu + (bu - tu) * b, tv + (bv - tv) * b);
+                }
+            }
             GX_End();
             u8 o = (u8)(255 - q->sh);
             if (o > 3) gx_poly4(q->x[0], q->y[0], q->x[1], q->y[1], q->x[2], q->y[2], q->x[3], q->y[3], RGBA(0, 0, 0, o), RGBA(0, 0, 0, o), RGBA(0, 0, 0, o), RGBA(0, 0, 0, o));

@@ -170,12 +170,48 @@ fun FondAurore(modifier: Modifier = Modifier, actif: Boolean = true) {
     val tr = rememberInfiniteTransition(label = "aurore")
     val p by tr.animateFloat(0f, 1f, infiniteRepeatable(tween(14000), RepeatMode.Reverse), label = "p")
     val k = if (actif) p else 0.5f
+    // (rubans de lumiere qui ondulent, comme le fond de la console : memes hauteurs, ondulations et vitesses que
+    //  au_ribbon de ui_aurore.c, ramenes a la taille de l'ecran du telephone)
+    val temps by androidx.compose.runtime.produceState(0f, actif) {
+        if (!actif) return@produceState
+        val t0 = System.nanoTime() - (value * 1e9f).toLong()
+        while (true) androidx.compose.runtime.withFrameNanos { value = (System.nanoTime() - t0) / 1e9f }
+    }
     Canvas(modifier.fillMaxSize()) {
         drawRect(Brush.verticalGradient(listOf(C.Fond2, C.Fond)))
         drawRect(Brush.radialGradient(listOf(C.Violet.copy(alpha = 0.28f), Color.Transparent),
             center = Offset(size.width * (0.15f + 0.5f * k), size.height * 0.12f), radius = size.width * 0.9f))
         drawRect(Brush.radialGradient(listOf(C.Rose.copy(alpha = 0.16f), Color.Transparent),
             center = Offset(size.width * (0.95f - 0.5f * k), size.height * 0.75f), radius = size.width * 0.8f))
+        ruban(118f, 16f, 70f, temps, 0.35f, 0.0f, 0.30f)
+        ruban(430f, 22f, 110f, temps, 0.25f, 2.1f, 0.26f)
+        ruban(460f, 12f, 60f, temps, 0.42f, 4.0f, 0.18f)
+    }
+}
+
+/** un ruban de lumiere (repere de la console : 640 x 480), fondu vers le haut et un peu vers le bas */
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.ruban(base: Float, amp: Float, ep: Float, t: Float, vit: Float, ph: Float, alpha: Float) {
+    val N = 24
+    val sx = size.width / 640f; val sy = size.height / 480f
+    val xs = FloatArray(N + 1); val ys = FloatArray(N + 1)
+    for (i in 0..N) {
+        val x = -10f + i * 660f / N
+        xs[i] = x * sx
+        ys[i] = (base + amp * kotlin.math.sin(x * 0.012f + t * vit + ph) + 0.4f * amp * kotlin.math.sin(x * 0.031f - t * vit * 1.7f)) * sy
+    }
+    val haut = ep * sy; val bas = ep * 0.35f * sy
+    for (i in 0 until N) {
+        val f = i / N.toFloat()
+        val c = (if (f < 0.5f) androidx.compose.ui.graphics.lerp(C.Rose, C.Violet, f * 2f) else androidx.compose.ui.graphics.lerp(C.Violet, C.Cyan, (f - 0.5f) * 2f)).copy(alpha = alpha)
+        val y = (ys[i] + ys[i + 1]) / 2
+        val p1 = androidx.compose.ui.graphics.Path().apply {
+            moveTo(xs[i], ys[i] - haut); lineTo(xs[i + 1], ys[i + 1] - haut); lineTo(xs[i + 1], ys[i + 1]); lineTo(xs[i], ys[i]); close()
+        }
+        drawPath(p1, Brush.verticalGradient(listOf(Color.Transparent, c), startY = y - haut, endY = y))
+        val p2 = androidx.compose.ui.graphics.Path().apply {
+            moveTo(xs[i], ys[i]); lineTo(xs[i + 1], ys[i + 1]); lineTo(xs[i + 1], ys[i + 1] + bas); lineTo(xs[i], ys[i] + bas); close()
+        }
+        drawPath(p2, Brush.verticalGradient(listOf(c, Color.Transparent), startY = y, endY = y + bas))
     }
 }
 
