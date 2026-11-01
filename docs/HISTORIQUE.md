@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v310 (build à venir, appli build à venir) — Notice sans déformation, vagues de la console dans l'appli
+## Nouveautés v310 (build 814, appli build 147) — Notice sans déformation, vagues de la console dans l'appli
 - **Console : la notice ne se déforme plus quand on la fait tourner.** Chaque page était un seul quadrilatère projeté :
   l'image se pliait le long de sa diagonale. Elle est maintenant découpée en 8 x 8 carreaux projetés un par un
   (comme les faces de la boîte 3D) : la page suit la perspective.
