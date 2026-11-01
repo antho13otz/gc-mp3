@@ -43,7 +43,8 @@ class Ligne(val nom: String, val valeur: String, val part: Float = -1f, val coul
 class Bloc(val titre: String, val lignes: List<Ligne> = emptyList(), val pastilles: List<Pair<String, Boolean>> = emptyList(), val texte: String = "",
            val plan: Plan? = null)                                         // (build 175 : un plan vu de dessus)
 /** build 175 : un plan vu de dessus (x, z du jeu) : des cases reliees, et des pions (texte court) */
-class Plan(val cases: List<FloatArray>, val couleurs: List<Long>, val liens: List<IntArray>, val pions: List<Pion>, val etoiles: List<Int> = emptyList())
+class Plan(val cases: List<FloatArray>, val couleurs: List<Long>, val liens: List<IntArray>, val pions: List<Pion>, val etoiles: List<Int> = emptyList(),
+           val petits: Set<Int> = emptySet(), val marques: Set<Int> = emptySet())   // (build 180 : passages en petit, capsules posees)
 class Pion(val x: Float, val z: Float, val couleur: Long, val texte: String)
 /** l'ecran d'un jeu : grands chiffres en haut, puis les sections */
 class Fiche(val jeu: String, val titre: String, val sous: String, val haut: Long, val bas: Long,
@@ -626,7 +627,8 @@ fun DessinPlan(p: Plan) {
         }
         val r = (4.5f).dp.toPx()
         for ((i, c) in p.cases.withIndex()) {
-            drawCircle(Color(p.couleurs.getOrElse(i) { 0xFF9AA8C8 }), r, pt(c[0], c[1]))
+            drawCircle(Color(p.couleurs.getOrElse(i) { 0xFF9AA8C8 }), if (i in p.petits) r * 0.4f else r, pt(c[0], c[1]))
+            if (i in p.marques) { val q = pt(c[0], c[1]); drawRect(Color.White, q + androidx.compose.ui.geometry.Offset(r * 0.6f, -r * 1.8f), androidx.compose.ui.geometry.Size(r * 1.2f, r * 1.2f)) }
             if (i in p.etoiles) drawCircle(Color(0xFFFFD23F), r * 2.2f, pt(c[0], c[1]), style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
         }
         // les pions : decales s'ils sont sur la meme case
