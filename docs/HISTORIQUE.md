@@ -24,6 +24,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v318 (build 825) — Tour de tous les réglages
+- Chaque réglage du menu START (69, toutes les sections sauf les actions) essayé au simulateur : changé, enregistré dans
+  gc-mp3.txt, relu, remis comme avant ; et une image de chaque valeur des réglages qui se voient (thèmes, styles,
+  dispositions, spectres, décors de saison, économiseurs, langue, format et taille de l'écran…). Tout est gardé et se
+  voit comme prévu, sauf ce qui est voulu (minuterie et liste MUSIQUE ne sont pas gardées ; langue des jeux, son et
+  position horizontale sont dans la mémoire de la console).
+- **Outils** : la liste défile (avant : 20 lignes serrées dans la place de 10, les unes sur les autres).
+- L'aide en bas des réglages et des outils passe sur deux lignes au lieu d'être coupée au bord du panneau.
+- **Limite de jeu par jour** et **Carte mémoire virtuelle (Pulse)** : gauche revient en arrière (avant : toujours en avant).
+- Simulateur : `PCSIM_REGLAGES=1` (essai de chaque réglage) et `PCSIM_REGLAGES=2` (une image par valeur).
+
 ## Nouveautés v317 (build 824, appli build 181) — Plus de question après chaque jeu ; Mario Party 5 plus détaillé
 - Console : la question « comment ça s'est passé ? » au retour d'un jeu ne s'affiche plus. Le lancement reste dans le
   journal (gc-mp3/natif), un plantage est toujours noté tout seul, et la pastille se pose depuis le téléphone.
