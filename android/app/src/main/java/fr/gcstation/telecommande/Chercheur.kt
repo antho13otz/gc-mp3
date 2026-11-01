@@ -180,7 +180,7 @@ object MemoireJeu {
     // ---------- v307 : capture de l'image du jeu (la memoire video : XFB, en YUV 4:2:2) ----------
     private val image by lazy { ByteArray(TAILLE) }
     /** jeu en pause, image affichee lue et convertie ; null + message d'erreur */
-    fun capture(progres: (Float) -> Unit): Pair<android.graphics.Bitmap?, String> {
+    fun capture(large: Boolean, progres: (Float) -> Unit): Pair<android.graphics.Bitmap?, String> {
         val e = demande('P', 1) ?: return null to "Pulse ne répond pas"
         try {
             if (e.bloquees < 0) return null to "La console doit être mise à jour (GC Station v307)"
@@ -215,7 +215,7 @@ object MemoireJeu {
                 }
             }
             val brut = android.graphics.Bitmap.createBitmap(px, w, lignes, android.graphics.Bitmap.Config.ARGB_8888)
-            return android.graphics.Bitmap.createScaledBitmap(brut, w, w * 3 / 4, true) to ""   // (image 4:3 de la tele)
+            return android.graphics.Bitmap.createScaledBitmap(brut, w, if (large) w * 9 / 16 else w * 3 / 4, true) to ""   // (forme de la tele : reglage de la console)
         } finally { demande('P', 0) }
     }
     /** dans Images > GC Remote ; rend l'adresse du fichier (ou null) */
@@ -340,7 +340,7 @@ fun capturerJeu(act: StationActivity, scope: kotlinx.coroutines.CoroutineScope) 
     R.tache = "Capture de l'écran (jeu en pause)…"; R.progres = 0f; R.erreur = ""
     scope.launch {
         val jeu = St.jeu?.id ?: ""
-        val (bmp, err) = withContext(Dispatchers.IO) { MemoireJeu.capture { R.progres = it } }
+        val (bmp, err) = withContext(Dispatchers.IO) { MemoireJeu.capture(act.getSharedPreferences("gcs", 0).getBoolean("tele_169", false)) { R.progres = it } }
         R.tache = ""
         if (bmp == null) { Lang.toast(act, err, Toast.LENGTH_LONG).show(); return@launch }
         R.captureUri = withContext(Dispatchers.IO) { MemoireJeu.enregistrer(act, bmp, jeu) }

@@ -171,6 +171,25 @@ fun EcranTele() {
     var rate by remember { mutableStateOf(false) }
     var pleinEcran by remember { mutableStateOf(false) }
     var maintenant by remember { mutableLongStateOf(0L) }
+    // (forme de l'image : celle de la tele d'apres le reglage de la console « Format de l'ecran », 4:3 ou 16:9 ;
+    //  pas celle des pixels envoyes, ex. 640 x 574 en PAL, qui etirait l'image en hauteur)
+    var format by remember { mutableFloatStateOf(if (prefs.getBoolean("tele_169", false)) 16f / 9f else 4f / 3f) }
+    LaunchedEffect(St.connecte) {
+        while (isActive && St.connecte) {
+            val r = lire("/api/settings", 5000)
+            val m = try { org.json.JSONObject(r ?: "").optJSONArray("m") } catch (e: Exception) { null }
+            if (m != null) for (i in 0 until m.length()) {
+                val e = m.optJSONArray(i) ?: continue
+                if (e.optString(1).startsWith("Format de l") || (e.optInt(0) == 32 && e.optString(2).contains(":"))) {
+                    val l = e.optString(2).startsWith("16")
+                    format = if (l) 16f / 9f else 4f / 3f
+                    prefs.edit().putBoolean("tele_169", l).apply()
+                    break
+                }
+            }
+            delay(15000)
+        }
+    }
     val interpole = fluide && upscaling && Upscale.possible
 
     // (on quitte l'onglet : l'orientation redevient libre)
@@ -220,7 +239,7 @@ fun EcranTele() {
 
     val bb = b
     val ecran: @Composable (Modifier) -> Unit = { m ->
-        Box(m.aspectRatio(if (bb != null) bb.bmp.width.toFloat() / bb.bmp.height else 4f / 3f).clip(RoundedCornerShape(if (paysage) 10.dp else 18.dp))
+        Box(m.aspectRatio(format).clip(RoundedCornerShape(if (paysage) 10.dp else 18.dp))
             .background(Color.Black).border(1.dp, Brush.linearGradient(listOf(C.Rose, C.Cyan)), RoundedCornerShape(if (paysage) 10.dp else 18.dp))
             .then(if (enDirect) Modifier.gestesTele(web, tactile) else Modifier)) {
             if (bb != null) {
@@ -282,7 +301,7 @@ fun EcranTele() {
         }
         BoxWithConstraints(Modifier.fillMaxSize().displayCutoutPadding().padding(horizontal = 6.dp, vertical = 6.dp)) {
             val h = maxHeight
-            val ratio = if (bb != null) bb.bmp.width.toFloat() / bb.bmp.height else 4f / 3f
+            val ratio = format
             val lImg = minOf(h * ratio, maxWidth * 0.58f)
             val cote = (maxWidth - lImg) / 2 - 8.dp
             val sCroix = minOf(64.dp, (h - 62.dp) / 3, cote / 3).coerceAtLeast(30.dp)
