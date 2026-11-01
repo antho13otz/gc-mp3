@@ -6,6 +6,8 @@ package fr.gcstation.telecommande
 // toucher ailleurs : elle se range. Deux doigts : zoomer. Meme boite et meme rendu que la boite 3D (BoiteGeo.kt,
 // Ombrage) ; les jaquettes des boites autour du milieu sont chargees au fur et a mesure (telephone, sinon GameTDB).
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import android.content.Context
 import android.graphics.Bitmap
 import android.opengl.GLES20
@@ -127,7 +129,7 @@ fun EtagereEcran(act: StationActivity, jeux: List<Jeu>, fiche: (Jeu) -> Unit, fe
                     vue = b; centre = 0; sortie = -1
                     } }, Modifier.fillMaxSize())
             }
-            Column(Modifier.fillMaxWidth().statusBarsPadding().padding(16.dp)) {
+            Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(0f to C.Fond, 0.75f to C.Fond, 1f to Color.Transparent)).statusBarsPadding().padding(16.dp).padding(bottom = 12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text("Étagère", color = C.Texte, fontSize = 18.sp, fontWeight = FontWeight.Bold)
@@ -142,7 +144,7 @@ fun EtagereEcran(act: StationActivity, jeux: List<Jeu>, fiche: (Jeu) -> Unit, fe
                 }
                 if ((tri == 1 || tri == 2) && fiches.isEmpty()) Doux("Fiches des jeux (GameTDB) : chargement…", Modifier.padding(top = 6.dp), 11, C.Pale)
             }
-            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Brush.verticalGradient(0f to Color.Transparent, 0.15f to C.Fond, 1f to C.Fond)).navigationBarsPadding().padding(16.dp).padding(top = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 val p = pl.getOrNull(if (sortie >= 0) sortie else centre)
                 if (p != null) Text(if (p.jeu < 0) "Rayon « " + p.nom + " »" else p.nom, color = C.Texte, fontSize = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 val fi = p?.takeIf { it.jeu >= 0 }?.let { fiches[jeux[it.jeu].id] }
