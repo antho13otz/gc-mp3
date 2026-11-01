@@ -362,7 +362,7 @@ fun tacheChercheur(): String = Recherche.tache
 
 /** build 190 : toute la memoire du jeu (jeu en pause, comme une recherche), compressee (.bin.gz) dans
  *  Telechargements/GC Remote, puis partagee : pour trouver les adresses d'un nouveau jeu (avec les valeurs notees) */
-fun photoMemoire(act: StationActivity, scope: kotlinx.coroutines.CoroutineScope) {
+fun photoMemoire(act: StationActivity, scope: kotlinx.coroutines.CoroutineScope, suffixe: String = "", fini: ((android.net.Uri) -> Unit)? = null) {
     val R = Recherche
     if (R.tache.isNotEmpty()) return
     if (android.os.Build.VERSION.SDK_INT < 29) { Lang.toast(act, "Android 10 ou plus est nécessaire", Toast.LENGTH_LONG).show(); return }
@@ -376,7 +376,7 @@ fun photoMemoire(act: StationActivity, scope: kotlinx.coroutines.CoroutineScope)
                 val ok = MemoireJeu.lire(IntArray(MemoireJeu.FIN / MemoireJeu.BLK) { it }, mem, true, { R.progres = it * 0.9f }, { false })
                 MemoireJeu.demande('P', 0)
                 if (!ok) return@withContext null to "Lecture interrompue (Wi-Fi ?)"
-                val nom = jeu + "-memoire-" + java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.FRANCE).format(java.util.Date()) + ".bin.gz"
+                val nom = jeu + "-memoire" + suffixe + "-" + java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.FRANCE).format(java.util.Date()) + ".bin.gz"
                 val cv = android.content.ContentValues()
                 cv.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, nom)
                 cv.put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/gzip")
@@ -388,6 +388,7 @@ fun photoMemoire(act: StationActivity, scope: kotlinx.coroutines.CoroutineScope)
         }
         R.tache = ""
         Lang.toast(act, msg, Toast.LENGTH_LONG).show()
+        if (u != null && fini != null) { fini(u); return@launch }
         if (u != null) try {
             act.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/gzip")
                 .putExtra(android.content.Intent.EXTRA_STREAM, u).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION), Lang.t("Partager")))
@@ -540,6 +541,7 @@ fun EcranChercheur() {
             Bouton("Capture de l'écran du jeu", Modifier.fillMaxWidth(), icone = Ic.Photo, actif = R.tache.isEmpty()) { capturerJeu(act, scope) }
             Bouton("Photo de la mémoire (fichier à partager)", Modifier.fillMaxWidth().padding(top = 6.dp), actif = R.tache.isEmpty()) { photoMemoire(act, scope) }
         }
+        if (g?.mem == true || R.etat != null) item { TroisPhotos(act, scope) }
         if (R.bloquees.isNotEmpty()) item {
             Column(Modifier.fillMaxWidth().verre().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Titre("Bloquées en direct")
@@ -732,4 +734,42 @@ private fun DialogueAdresse(act: StationActivity, r: LongArray, jeu: String, t: 
             }) { Text(if (quoi == 1) "Écrire" else "Garder", color = C.Rose) }
         },
         dismissButton = { TextButton(fermer) { Text("Annuler", color = C.Doux) } })
+}
+
+
+/** build 211 : assistant « 3 photos » pour trouver les adresses d'un nouveau jeu : avant / apres une action / apres
+ *  une autre, chacune avec ce qu'on voit a l'ecran (dans le nom du fichier), puis les 3 partagees d'un coup */
+private object Photos3 { val uris = arrayOfNulls<android.net.Uri>(3); val notes = Array(3) { mutableStateOf("") } }
+
+@Composable
+private fun TroisPhotos(act: StationActivity, scope: kotlinx.coroutines.CoroutineScope) {
+    var ouvert by remember { mutableStateOf(false) }
+    var fait by remember { mutableStateOf(Photos3.uris.count { it != null }) }
+    Column(Modifier.fillMaxWidth().padding(top = 10.dp).verre().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth().appui { ouvert = !ouvert }, verticalAlignment = Alignment.CenterVertically) {
+            Titre("Trouver les adresses d'un jeu (3 photos)", Modifier.weight(1f))
+            Text(if (ouvert) "▲" else "▼", color = C.Doux)
+        }
+        if (ouvert) {
+            Doux("Reste dans le même niveau du début à la fin. À chaque étape : joue, puis touche le bouton (le jeu se met en pause quelques secondes).", taille = 12)
+            val etapes = listOf("Avant : par ex. avant de libérer une cage", "Juste après : par ex. la cage libérée", "Encore après : par ex. quelques lums ramassés (score changé)")
+            for (k in 0 until 3) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text((k + 1).toString() + ". " + etapes[k] + if (Photos3.uris[k] != null) "  ✓" else "", color = if (Photos3.uris[k] != null) C.Vert else C.Texte, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                androidx.compose.material3.OutlinedTextField(Photos3.notes[k].value, { Photos3.notes[k].value = it }, Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("Ce que tu vois (ex. cages 4, score 1200)") })
+                Bouton("Photo " + (k + 1), Modifier.fillMaxWidth(), plein = Photos3.uris[k] == null && (k == 0 || Photos3.uris[k - 1] != null), actif = Recherche.tache.isEmpty()) {
+                    val note = Photos3.notes[k].value.trim().replace(Regex("[^A-Za-z0-9]+"), "_").trim('_').take(40)
+                    photoMemoire(act, scope, "-photo" + (k + 1) + if (note.isNotEmpty()) "-$note" else "") { u -> Photos3.uris[k] = u; fait = Photos3.uris.count { it != null } }
+                }
+            }
+            if (fait > 0) Bouton("Partager les photos (" + fait + ")", Modifier.fillMaxWidth(), plein = fait == 3) {
+                val l = ArrayList(Photos3.uris.filterNotNull())
+                try {
+                    act.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND_MULTIPLE).setType("application/gzip")
+                        .putParcelableArrayListExtra(android.content.Intent.EXTRA_STREAM, l).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION), Lang.t("Partager")))
+                } catch (e: Exception) { }
+            }
+            if (fait > 0) Doux("Recommencer", taille = 12, couleur = C.Rose, modifier = Modifier.appui { for (k in 0 until 3) { Photos3.uris[k] = null; Photos3.notes[k].value = "" }; fait = 0 })
+        }
+    }
 }
