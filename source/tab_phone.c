@@ -1800,6 +1800,11 @@ static void tp_handle(s32 c) {
         if (is[0] && pf && i >= 0 && i < npf && !pf[i].video) { char p[NAME_LEN]; snprintf(p, sizeof(p), "%s", pf[i].path); sh_send_file(c, p, 0, (char *)req); }
         else tp_reply(c, 404, "text/plain", "", 0);
     }
+    else if (!strcmp(target, "/api/viz")) {                  /* v309 : le spectre (barres 0..255, de gauche a droite) pour l'appli */
+        u8 vb[NBARS];
+        for (int i = 0; i < NBARS; i++) { float v = bar_val[i]; vb[i] = v <= 0.0f ? 0 : v >= 1.0f ? 255 : (u8)(v * 255.0f); }
+        tp_reply(c, 200, "application/octet-stream", (const char *)vb, NBARS);
+    }
     else if (!strcmp(target, "/api/show")) {                 /* v142 : la photo (ou video) sur la tele */
         char is[12];
         tp_param(q ? q : "", "i", is, sizeof(is));
