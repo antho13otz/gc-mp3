@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v315 (build à venir, appli build à venir) — Les vraies cartes mémoire depuis le téléphone
+## Nouveautés v315 (build 822, appli build 172) — Les vraies cartes mémoire depuis le téléphone
 - Appli : **Plus > Vraies cartes** : les cartes mémoire branchées sur la console (**slots A et B**) : la liste des
   sauvegardes (jeu, titre, commentaire, blocs, blocs libres), et pour chacune : **la télécharger** sur le téléphone en
   .gci (Téléchargements/GC Remote, puis l'envoyer où on veut), **la copier sur la carte virtuelle de Pulse** du jeu, ou
