@@ -50,14 +50,14 @@ abstract class ModuleJeu(val nom: String, vararg val ids: String) {
 }
 
 object ModulesJeux {
-    val tous: List<ModuleJeu> = listOf(JeuTP, JeuPikmin1, JeuPikmin2, JeuMelee, JeuMSB, JeuTTYD, JeuOoT)
+    val tous: List<ModuleJeu> = listOf(JeuTP, JeuPikmin1, JeuPikmin2, JeuMelee, JeuMSB, JeuTTYD, JeuOoT, JeuMP5)
     fun pour(id: String): ModuleJeu? = tous.firstOrNull { id in it.ids }
     fun noms(): Map<String, String> = tous.flatMap { m -> m.ids.map { it to m.nom } }.toMap()
 }
 
-private fun pct(a: Int, b: Int) = if (b > 0) (a.toFloat() / b).coerceIn(0f, 1f) else -1f
-private fun heureJeu(h: Float) = String.format(java.util.Locale.FRANCE, "%d h %02d", h.toInt() % 24, ((h - h.toInt()) * 60).toInt().coerceIn(0, 59))
-private fun dureeS(s: Long) = if (s >= 3600) String.format(java.util.Locale.FRANCE, "%d h %02d", s / 3600, s / 60 % 60) else String.format(java.util.Locale.FRANCE, "%d min %02d", s / 60, s % 60)
+internal fun pct(a: Int, b: Int) = if (b > 0) (a.toFloat() / b).coerceIn(0f, 1f) else -1f
+internal fun heureJeu(h: Float) = String.format(java.util.Locale.FRANCE, "%d h %02d", h.toInt() % 24, ((h - h.toInt()) * 60).toInt().coerceIn(0, 59))
+internal fun dureeS(s: Long) = if (s >= 3600) String.format(java.util.Locale.FRANCE, "%d h %02d", s / 3600, s / 60 % 60) else String.format(java.util.Locale.FRANCE, "%d min %02d", s / 60, s % 60)
 
 // ---------------------------------------------------------------- Twilight Princess
 object JeuTP : ModuleJeu("Twilight Princess", "GZ2P01", "GZ2E01") {
@@ -350,115 +350,6 @@ object JeuMSB : ModuleJeu("Mario Superstar Baseball", "GYQE01") {
         return Fiche(id, if (enJeu) "Extérieur $ext – $dom Domicile" else "Mario Superstar Baseball", stade, 0xFF1E6FB8, 0xFF07203A,
             grands = listOf("extérieur" to ext.toString(), "domicile" to dom.toString(), "manche" to "$manche"),
             blocs = if (enJeu) blocs else emptyList(), message = if (enJeu) "CS : coups sûrs/passages · CC : coups de circuit · PP : points produits · RAP : retraits sur prises" else "Pas de match en ce moment.")
-    }
-}
-
-// ---------------------------------------------------------------- Paper Mario : La Porte Millenaire
-// La structure PouchData (doldecomp/ttyd, mario_pouch.h) est la meme dans toutes les versions ; son adresse est dans un
-// pointeur que pouchGetPtr lit (« lwz r3, d(r13) ; blr »). Japonais (decompilation) et americain (ttyd-tools) : adresse
-// de pouchGetPtr connue ; europeen : cherchee une fois dans le code (autour de l'adresse americaine), puis gardee.
-// r13 (la base des petites donnees) : lue dans __init_registers (« lis r13 / ori r13 ») au debut du programme.
-// Chaque candidat n'est garde que si la structure trouvee est vraisemblable (PV, PF, pieces, niveau...).
-object JeuTTYD : ModuleJeu("Paper Mario : La Porte Millénaire", "G8MP01", "G8ME01", "G8MJ01") {
-    private val PARTENAIRES = arrayOf("", "Goombella", "Koops", "Bombart", "Yoshi", "Cumulia", "Vivian", "Mme Gonzales")
-    @Volatile private var emplacement = 0L                           // (adresse du pointeur vers PouchData, trouvee)
-    @Volatile private var pour = ""
-    @Volatile private var essai = 0L
-
-    private fun r13(l: Lecteur): Long? {
-        var a = 0x80003100L
-        while (a < 0x80005000L) {
-            val w = l.u32(a) ?: return null
-            if (w ushr 16 == 0x3DA0L) {                              // lis r13, hi
-                for (k in 1..4) {
-                    val w2 = l.u32(a + 4L * k) ?: break
-                    val hi = (w and 0xFFFF) shl 16
-                    if (w2 ushr 16 == 0x61ADL) return hi or (w2 and 0xFFFF)                       // ori r13, r13, lo
-                    if (w2 ushr 16 == 0x39ADL) return (hi + (w2 and 0xFFFF).toShort().toLong()) and 0xFFFFFFFFL   // addi
-                }
-            }
-            a += 4
-        }
-        return null
-    }
-    private fun vraisemblable(l: Lecteur, p: Long): Boolean {
-        val pv = l.s16(p + 0x70) ?: return false; val pvMax = l.s16(p + 0x72) ?: return false
-        val pf = l.s16(p + 0x74) ?: return false; val pfMax = l.s16(p + 0x76) ?: return false
-        val pieces = l.s16(p + 0x78) ?: return false; val niveau = l.s16(p + 0x8A) ?: return false
-        return pvMax in 1..999 && pv in 0..pvMax && pfMax in 0..999 && pf in 0..pfMax && pieces in 0..999 && niveau in 1..99
-    }
-    private fun trouver(l: Lecteur, id: String): Long {
-        val base = l.u8(0x80000007) ?: 0
-        val r = r13(l) ?: return 0L
-        val zones = when (id) { "G8MJ01" -> listOf(0x800D1C74L to 0x800D1C74L); "G8ME01" -> listOf(0x800D5EB0L to 0x800D5EB0L)
-                                else -> listOf(0x800D6800L to 0x800D8400L) }      // (europeen : le code est un peu plus loin)
-        for ((de, a) in zones) {
-            var x = de
-            while (x <= a) {
-                val w = l.u32(x)
-                if (w != null && w ushr 16 == 0x806DL && l.u32(x + 4) == 0x4E800020L) {           // lwz r3, d(r13) ; blr
-                    val slot = (r + (w and 0xFFFF).toShort().toLong()) and 0xFFFFFFFFL
-                    val p = l.ptr(slot)
-                    if (p != null && vraisemblable(l, p)) return slot
-                }
-                x += 4
-            }
-        }
-        @Suppress("UNUSED_VARIABLE") val b = base
-        return 0L
-    }
-
-    override fun lire(l: Lecteur, id: String): Fiche? {
-        if (pour != id) { pour = id; emplacement = 0L }
-        if (emplacement == 0L) {
-            val t = System.currentTimeMillis()
-            if (t - essai < 4000) return Fiche(id, "Paper Mario", "Recherche de l'inventaire…", 0xFF8F1E5E, 0xFF22071A, message = "Une partie doit être chargée (pas l'écran titre).")
-            essai = t
-            emplacement = trouver(Lecteur(80), id)
-            if (emplacement == 0L) return Fiche(id, "Paper Mario", "Inventaire pas encore trouvé", 0xFF8F1E5E, 0xFF22071A,
-                message = "Charge une partie : l'appli cherche toute seule où le jeu range l'inventaire (rien n'est affiché tant que ce n'est pas sûr).")
-        }
-        val p = l.ptr(emplacement) ?: return null
-        if (!vraisemblable(l, p)) return Fiche(id, "Paper Mario", "Pas de partie chargée", 0xFF8F1E5E, 0xFF22071A, message = "Écran titre ou chargement.")
-        fun s(o: Int) = l.s16(p + o) ?: 0
-        val pv = s(0x70); val pvMax = s(0x72); val pf = s(0x74); val pfMax = s(0x76); val pieces = s(0x78)
-        val ps = s(0x7A); val psMax = s(0x7C); val rang = s(0x88); val niveau = s(0x8A); val pouvoirs = s(0x8C)
-        val pb = s(0x92); val pbMax = s(0x94); val points = s(0x96)
-        val saut = l.u8(p + 0x98) ?: 0; val marteau = l.u8(p + 0x99) ?: 0
-        val eclats = s(0x9A); val soleils = s(0x9C); val record = s(0x9E)
-        val public = l.fini(l.f32(p + 0x84), 1e6f)?.toInt() ?: 0
-        fun compte(o: Int, n: Int): Int { var c = 0; for (k in 0 until n) if ((l.s16(p + o + 2L * k) ?: 0) != 0) c++; return c }
-        val objets = compte(0x192, 20); val reserve = compte(0x1BA, 32); val badges = compte(0x1FA, 200); val equipes = compte(0x38A, 200)
-        val cles = compte(0xA0, 121)
-        val yoshi = (l.texte(p + 0x5C0, 16) ?: "").filter { it.code in 32..255 }
-        val equipe = ArrayList<Ligne>()
-        for (k in 1 until 8) {
-            val o = p + 0xEL * k
-            val fl = l.u16(o) ?: 0
-            if (fl and 1 == 0) continue
-            val hp = l.s16(o + 6) ?: 0; val hpMax = l.s16(o + 2) ?: 0
-            equipe.add(Ligne(if (k == 4 && yoshi.isNotEmpty()) "$yoshi (Yoshi)" else PARTENAIRES[k], "$hp / $hpMax PV · niv. " + ((l.s16(o + 8) ?: 0) + 1), pct(hp, hpMax), 0xFF3DDC84))
-        }
-        val rangs = arrayOf("Débutant", "Étoile montante", "Étoile", "Superstar")
-        val blocs = listOf(
-            Bloc("Mario", listOf(
-                Ligne("Points de vie", "$pv / $pvMax", pct(pv, pvMax), 0xFFFF3B5C),
-                Ligne("Points de fleur", "$pf / $pfMax", pct(pf, pfMax), 0xFF4F8DFF),
-                Ligne("Pouvoir étoile", (ps / 100).toString() + " / " + (psMax / 100), pct(ps, psMax), 0xFFFFD23F),
-                Ligne("Points de badge libres", "$pb / $pbMax", pct(pb, pbMax), 0xFF9C6CFF),
-                Ligne("Points étoile", "$points / 100", pct(points, 100), 0xFFFFB300),
-                Ligne("Niveau", niveau.toString()), Ligne("Rang", rangs.getOrNull(rang) ?: rang.toString()),
-                Ligne("Bottes / marteau", "niv. " + (saut + 1) + " / niv. " + (marteau + 1)),
-                Ligne("Pouvoirs étoile", Integer.bitCount(pouvoirs and 0xFF).toString()),
-                Ligne("Public", public.toString()))),
-            Bloc("Équipe", equipe),
-            Bloc("Collection", listOf(
-                Ligne("Pièces", "$pieces / 999", pct(pieces, 999), 0xFFFFD23F),
-                Ligne("Éclats d'étoile", eclats.toString()), Ligne("Soleils", soleils.toString()),
-                Ligne("Objets", "$objets / 20 (réserve : $reserve)"), Ligne("Badges", "$badges (équipés : $equipes)"),
-                Ligne("Objets importants", cles.toString()), Ligne("Record du Puits des 100 épreuves", if (record > 0) record.toString() else "–"))))
-        return Fiche(id, "Paper Mario", "Niveau $niveau · " + (rangs.getOrNull(rang) ?: ""), 0xFFB8327A, 0xFF2A0A1C,
-            grands = listOf("PV" to "$pv/$pvMax", "PF" to "$pf/$pfMax", "pièces" to pieces.toString()), blocs = blocs)
     }
 }
 
