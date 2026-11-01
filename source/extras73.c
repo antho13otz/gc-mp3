@@ -1407,9 +1407,80 @@ static void x73_cards_build(void) {
     x73_cj_ready = 1;
     free(old);
 }
+/* v315 : les vraies cartes memoire (slots A et B) pour le telephone (/api/vraiecarte) : x73_vj_card = "A" ou "B" ;
+   op 10 liste (JSON dans x73_mcj), 11 une sauvegarde -> SD:/gci/telephone/<nom>.gci, 12 un .gci envoye (SD:/gci) -> la
+   carte, 13 effacer (nom verifie : la liste a pu changer), 14 copier sur la carte virtuelle de Pulse du jeu */
+static char *x73_mcj = NULL;
+static void x73_mc_pump(int op) {
+    int slot = x73_vj_card[0] == 'B' ? 1 : 0;
+    x73_vj_ok = 0;
+    if (!mc_mount(slot)) {
+        snprintf(x73_vj_res, sizeof(x73_vj_res), "%s", mc_err ? TR(mc_errtxt(mc_err)) : TR("Carte illisible"));
+        if (op == 10) { sbuf_t s = { NULL, 0, 0 }; sb_add(&s, "{\"ok\":0,\"m\":"); x73_json_raw(&s, x73_vj_res); sb_add(&s, "}");
+                        free(x73_mcj); x73_mcj = s.b ? s.b : strdup("{\"ok\":0}"); }
+        return;
+    }
+    int i = x73_vj_i;
+    char nm[80] = "";
+    if (i >= 0 && i < mc_n) mc_safe_name(mc[i].de, nm, sizeof(nm));
+    if (op == 10) {
+        sbuf_t s = { NULL, 0, 0 };
+        char m[160];
+        snprintf(m, sizeof(m), "{\"ok\":1,\"libre\":%u,\"bloc\":%u,\"l\":[", (unsigned)mc_free, (unsigned)mc_sector);
+        sb_add(&s, m);
+        for (int k = 0; k < mc_n; k++) {
+            if (!mc[k].loaded) mc_load_meta(k);
+            char id[8], f[34], sn[80];
+            memcpy(id, mc[k].de, 6); id[6] = 0;
+            for (int j = 0; j < 6; j++) if (!isalnum((u8)id[j])) id[j] = '_';
+            memcpy(f, mc[k].de + 8, 32); f[32] = 0;
+            for (int j = 0; f[j]; j++) if ((u8)f[j] < 32 || (u8)f[j] > 126) f[j] = '?';
+            mc_safe_name(mc[k].de, sn, sizeof(sn));
+            snprintf(m, sizeof(m), "%s{\"i\":%d,\"b\":%d,\"jeu\":", k ? "," : "", k, mc[k].blocks);
+            sb_add(&s, m);
+            x73_json_raw(&s, id); sb_add(&s, ",\"f\":"); x73_json_raw(&s, f);
+            sb_add(&s, ",\"n\":"); x73_json_raw(&s, sn);
+            sb_add(&s, ",\"t\":"); x73_json_raw(&s, mc[k].title); sb_add(&s, ",\"s\":"); x73_json_raw(&s, mc[k].sub); sb_add(&s, "}");
+        }
+        sb_add(&s, "]}");
+        free(x73_mcj); x73_mcj = s.b ? s.b : strdup("{\"ok\":0}");
+        x73_vj_ok = 1;
+    } else if (op == 12) {
+        char p[NAME_LEN];
+        snprintf(p, sizeof(p), "%s/%s", MC_DIR, x73_vj_name);
+        long n = 0;
+        u8 *g = (!strchr(x73_vj_name, '/') && !strstr(x73_vj_name, "..")) ? read_file(p, 16L * 1024 * 1024, &n) : NULL;
+        int r = g ? mc_import(slot, g, n) : CARD_ERROR_NOFILE;
+        free(g);
+        if (r < 0) snprintf(x73_vj_res, sizeof(x73_vj_res), "%s", g ? TR(mc_errtxt(r)) : TR("Fichier .gci introuvable"));
+        else { snprintf(x73_vj_res, sizeof(x73_vj_res), "%s %c", TR("Sauvegarde ajout\xC3\xA9" "e sur la vraie carte du slot"), 'A' + slot); x73_vj_ok = 1; remove(p); mc_mount(slot); }
+    } else if (i < 0 || i >= mc_n || (x73_vj_name[0] && strcmp(nm, x73_vj_name))) {
+        snprintf(x73_vj_res, sizeof(x73_vj_res), "%s", TR("Sauvegarde introuvable (liste a relire)"));
+    } else if (op == 11) {
+        long n = 0; u8 *g = mc_export(i, &n);
+        char dir[NAME_LEN], out[96], p[NAME_LEN];
+        snprintf(dir, sizeof(dir), "%s/telephone", MC_DIR);
+        mkdir(MC_DIR, 0777);
+        snprintf(p, sizeof(p), "%s/%s.gci", dir, nm); remove(p);
+        if (g && mc_gci_write_in(dir, g, n, out, sizeof(out))) { snprintf(x73_vj_res, sizeof(x73_vj_res), "%s/%s", dir, out); x73_vj_ok = 1; }
+        else snprintf(x73_vj_res, sizeof(x73_vj_res), "%s", TR("Lecture de la sauvegarde impossible"));
+        free(g);
+    } else if (op == 13) {
+        int r = CARD_DeleteEntry(slot, &mc[i].dir);
+        if (r < 0) snprintf(x73_vj_res, sizeof(x73_vj_res), "%s", TR(mc_errtxt(r)));
+        else { snprintf(x73_vj_res, sizeof(x73_vj_res), "%s", TR("Sauvegarde supprim\xC3\xA9" "e")); x73_vj_ok = 1; mc_mount(slot); }
+    } else if (op == 14) {
+        const char *e = vc_load_active();
+        if (!e) { long n = 0; u8 *g = mc_export(i, &n); e = g ? vc_import(g, n) : "Lecture de la sauvegarde impossible"; free(g); }
+        if (e) snprintf(x73_vj_res, sizeof(x73_vj_res), "%s", TR(e));
+        else { snprintf(x73_vj_res, sizeof(x73_vj_res), "%s", TR("Copi\xC3\xA9" "e sur la carte virtuelle de Pulse")); x73_vj_ok = 1; }
+    }
+    gl_busy[0] = 0;
+}
 static void x73_vj_pump(void) {
     int op = x73_vj_op;
     if (!op || x73_vj_done) return;
+    if (op >= 10) { x73_mc_pump(op); x73_vj_op = 0; x73_vj_done = 1; return; }   /* v315 : vraies cartes */
     int keep = vc_cur, c = x73_vc_find(x73_vj_card);
     x73_vj_ok = 0;
     if (c < 0) snprintf(x73_vj_res, sizeof(x73_vj_res), "Carte introuvable");
@@ -1732,3 +1803,5 @@ static void net_cfg_apply(void) {
     snprintf(mask_str, sizeof(mask_str), "%u.%u.%u.%u", m >> 24, (m >> 16) & 255, (m >> 8) & 255, m & 255);
     snprintf(gw_str, sizeof(gw_str), "%.15s", net_cfg_gw);
 }
+/* v315 : la liste des vraies cartes pour le serveur (copie : le fil du serveur la libere) */
+char *x73_mcj_get(void) { return x73_mcj ? strdup(x73_mcj) : NULL; }

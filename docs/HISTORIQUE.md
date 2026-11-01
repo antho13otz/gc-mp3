@@ -24,6 +24,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v315 (build à venir, appli build à venir) — Les vraies cartes mémoire depuis le téléphone
+- Appli : **Plus > Vraies cartes** : les cartes mémoire branchées sur la console (**slots A et B**) : la liste des
+  sauvegardes (jeu, titre, commentaire, blocs, blocs libres), et pour chacune : **la télécharger** sur le téléphone en
+  .gci (Téléchargements/GC Remote, puis l'envoyer où on veut), **la copier sur la carte virtuelle de Pulse** du jeu, ou
+  **l'effacer** (confirmation). Et **« Ajouter un .gci du téléphone sur cette carte »**.
+- GC Station : nouvelle demande `/api/vraiecarte?s=A|B&op=liste|gci|imp|del|vc` : la boucle de GC Station fait le
+  travail avec les fonctions de START > Outils > Cartes mémoire ; une sauvegarde n'est effacée ou envoyée que si son
+  nom correspond encore (la liste a pu changer). Hors partie seulement (pendant un jeu, la carte est au jeu).
+- Essai au simulateur (cartes simulées) : liste des deux slots, .gci téléchargé (en-tête du jeu), .gci envoyé sur le
+  slot B, effacement, refus si le nom ne correspond plus.
+
 ## Nouveautés v314 (build 821, appli build 170) — Extraire un fichier d'un jeu ; Wind Waker et Sunshine américains
 - **Extraire un fichier du jeu** (fiche d'un jeu dans l'appli) : `/main.dol` (le programme du jeu) ou n'importe quel
   fichier du disque par son chemin (ex. `/rel/aaa.rel`), enregistré dans Téléchargements/GC Remote, puis partagé.
