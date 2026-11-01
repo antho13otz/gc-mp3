@@ -24,6 +24,24 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Compagnon : Twilight Princess, Pikmin 1 et 2, Melee, Mario Superstar Baseball
+- L'écran compagnon (onglet Plus > Compagnon de jeu, ou bouton de la partie en cours) reconnaît 5 jeux de plus, avec
+  une **fiche commune** (grands chiffres, jauges, compteurs, pastilles), en plus de Wind Waker, Sunshine et Mario Kart :
+  - **Twilight Princess** (européen et américain) : cœurs, huile, rubis et bourse, forme (Hylien / loup), flèches,
+    bombes, graines, âmes d'Esprits, ombres fusionnées, éclats du miroir, larmes de lumière, poissons, inventaire,
+    donjon (petites clés, carte, boussole, clé du boss, boss vaincu), heure, temps de jeu, K.O., lieu, vitesse ;
+  - **Pikmin** (européen, américain 1.0 et 1.1) : jour et heure, Pikmin de chaque couleur sur la carte, avec Olimar,
+    au travail, dans les Oignons, pièces du vaisseau, Pikmin nés et perdus ;
+  - **Pikmin 2** (européen et américain) : santé d'Olimar et de Louie, escouades, Pikmin de chaque couleur en vie et
+    dans les Oignons, pokos, trésors, sprays et baies, jour et heure, grotte ;
+  - **Super Smash Bros. Melee** (américain 1.02, et les mods qui en partent comme Akaneia) : pour chaque joueur, le
+    personnage, les dégâts, les vies, les éjections, les chutes, les autodestructions, les pièces, l'équipe, l'ordinateur ;
+  - **Mario Superstar Baseball** (américain, adresses de Project Rio) : score et score par manche, balles, prises,
+    retraits, frappeur, lanceur et son endurance, vitesse et type de lancer, étoiles, coureurs sur les bases, et pour
+    chaque joueur des deux équipes : coups sûrs, passages au bâton, coups de circuit, points produits, retraits.
+- Adresses tirées des tables de symboles publiques (zeldaret/tp, projectPiki/pikmin et pikmin2, doldecomp/melee) et de
+  Project Rio ; seulement des adresses, aucun code repris. Lectures limitées comme avant (le jeu ne le sent pas).
+
 ## Nouveautés v313 (build 819, appli build 162) — Wind Waker : la vraie carte marine, le plan des intérieurs
 - **La vraie carte marine du jeu** dans le compagnon de l'appli : chaque case connue est dessinée avec l'image que
   le jeu utilise pour sa propre carte (`/res/Fmap/Fmap.arc`, une image par case et par variante du fichier de

@@ -539,7 +539,7 @@ object JeuMKDD {
 
 // ---------------------------------------------------------------- la lecture en direct
 object Compagnon {
-    val PRIS = mapOf(JeuWW.ID to "The Wind Waker", JeuSMS.ID to "Super Mario Sunshine", JeuMKDD.ID to "Mario Kart Double Dash!!")
+    val PRIS = mapOf(JeuWW.ID to "The Wind Waker", JeuSMS.ID to "Super Mario Sunshine", JeuMKDD.ID to "Mario Kart Double Dash!!") + ModulesJeux.noms()   // (v314 : + Jeux2.kt)
     var jeu by mutableStateOf("")                                     // (code du jeu lu par Pulse)
     var etat by mutableStateOf<Any?>(null)
     var statut by mutableStateOf("Connexion à Pulse…")
@@ -571,13 +571,13 @@ object Compagnon {
                     if (e.jeu != jeu) { jeu = e.jeu; etat = null; traceWW.clear() }
                 }
                 val id = jeu
-                if (!pris(id)) { statut = "Ce jeu ($id) n'a pas encore d'écran compagnon. Pris en charge : " + PRIS.values.joinToString(", ") + " (versions européennes)."; etat = null; delay(2000); continue }
+                if (!pris(id)) { statut = "Ce jeu ($id) n'a pas encore d'écran compagnon. Pris en charge : " + PRIS.values.distinct().joinToString(", ") + "."; etat = null; delay(2000); continue }
                 val t0 = SystemClock.elapsedRealtime()
                 val r = withContext(Dispatchers.IO) {
                     val l = Lecteur(28)
-                    when (id) { JeuWW.ID -> JeuWW.lire(l); JeuSMS.ID -> JeuSMS.lire(l); else -> JeuMKDD.lire(l) }
+                    when (id) { JeuWW.ID -> JeuWW.lire(l); JeuSMS.ID -> JeuSMS.lire(l); JeuMKDD.ID -> JeuMKDD.lire(l); else -> ModulesJeux.pour(id)?.lire(l, id) }
                 }
-                if (r == null) statut = "Valeurs illisibles : est-ce bien la version européenne du jeu ($id) ?"
+                if (r == null) statut = "Valeurs illisibles pour $id : autre version du jeu, ou partie pas encore commencée."
                 else {
                     statut = ""
                     if (r is JeuWW.Etat && r.aPos && r.scene == "sea") {
@@ -776,6 +776,7 @@ fun EcranCompagnon() {
             is JeuWW.Etat -> CompagnonWW(e)
             is JeuSMS.Etat -> CompagnonSMS(e)
             is JeuMKDD.Etat -> CompagnonMKDD(e)
+            is Fiche -> CompagnonFiche(e)
             else -> {}
         } else EcranChrono()
         Spacer(Modifier.height(20.dp))
