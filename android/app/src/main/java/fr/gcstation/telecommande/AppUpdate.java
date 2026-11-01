@@ -77,9 +77,12 @@ public final class AppUpdate {
 
     /** derniere version publiee : {numero, id de l'artefact} ; null si aucune */
     static long[] latest(String tok) throws Exception {
-        JSONArray runs = new JSONObject(api("/actions/workflows/" + BuildConfig.MAJ_WORKFLOW + "/runs?branch=" + BuildConfig.MAJ_BRANCHE + "&status=success&event=push&per_page=5", tok)).getJSONArray("workflow_runs");
-        for (int i = 0; i < runs.length(); i++) {
-            JSONObject r = runs.getJSONObject(i);
+        JSONArray runs = new JSONObject(api("/actions/workflows/" + BuildConfig.MAJ_WORKFLOW + "/runs?branch=" + BuildConfig.MAJ_BRANCHE + "&status=success&event=push&per_page=10", tok)).getJSONArray("workflow_runs");
+        // (le plus grand numero de compilation, pas le premier de la liste : GitHub ne les range pas toujours dans l'ordre)
+        java.util.List<JSONObject> l = new java.util.ArrayList<>();
+        for (int i = 0; i < runs.length(); i++) l.add(runs.getJSONObject(i));
+        java.util.Collections.sort(l, (x, y) -> Long.compare(y.optLong("run_number"), x.optLong("run_number")));
+        for (JSONObject r : l) {
             JSONArray arts = new JSONObject(api("/actions/runs/" + r.getLong("id") + "/artifacts", tok)).getJSONArray("artifacts");
             for (int k = 0; k < arts.length(); k++) {
                 JSONObject a = arts.getJSONObject(k);

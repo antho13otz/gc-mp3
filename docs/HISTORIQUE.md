@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Mise à jour de l'appli : toujours la plus récente
+- « Mettre à jour l'appli » prend la compilation au plus grand numéro, et non plus la première de la liste de GitHub
+  (qui ne les range pas toujours dans l'ordre : l'appli 1.122 se croyait à jour alors que la 1.124 existait).
+
 ## Nouveautés appli build 124 — Jaquettes en basse définition agrandies par IA
 - Boîte 3D : quand GameTDB n'a pas la jaquette en HD (seulement la jaquette complète normale, ~512 px, ou seulement la
   petite jaquette avant), elle est **agrandie par IA** comme les disques (Real-ESRGAN x4, puis 1024 px au plus),
