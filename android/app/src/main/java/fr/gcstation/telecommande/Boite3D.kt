@@ -141,9 +141,15 @@ object JaquettesHQ {
 
     /** {jaquette complete (dos|tranche|avant) ou null, jaquette avant ou null} */
     /** jaquette complete (dos|tranche|avant), jaquette avant (sans complete), image du disque : null si pas trouvee */
-    class Images(val full: Bitmap?, val avant: Bitmap?, val disque: Bitmap?, val ia: Boolean = false)
+    class Images(val full: Bitmap?, val avant: Bitmap?, val disque: Bitmap?, val ia: Boolean = false, val perso: Boolean = false)
+    /** v313 : la jaquette de GameTDB, pour completer « Ma jaquette » : (image, complete ?) */
+    fun reference(dir: File, id: String): Pair<Bitmap?, Boolean> {
+        (image(dir, "coverfullHQ", id) ?: image(dir, "coverfull", id))?.let { return it to true }
+        return (image(dir, "coverHQ", id) ?: Jaquettes.bitmap(dir, id)) to false
+    }
     /** v308 : jaquettes agrandies par IA, HD comprise (progres : texte d'avancement, la 1re fois) */
     suspend fun charger(dir: File, id: String, ctx: Context? = null, progres: ((Float) -> Unit)? = null, iaJaquettes: Boolean = false): Images = withContext(Dispatchers.IO) {
+        MaJaquette.charger(dir, id)?.let { return@withContext Images(it, null, disqueNet(dir, id, ctx), false, true) }   // (v313 : ta jaquette d'abord)
         var ia = false
         fun net(g: String, b: Bitmap?): Bitmap? = b?.let { val r = netIA(dir, g, id, it, if (iaJaquettes) ctx else null, progres); if (r !== it) ia = true; r }
         val full = net("coverfullHQ", image(dir, "coverfullHQ", id)) ?: net("coverfull", image(dir, "coverfull", id))
@@ -154,6 +160,10 @@ object JaquettesHQ {
     /** pour l'etagere : jaquette complete (HD si gardee, sinon normale, ou deja agrandie par IA), sinon jaquette avant ;
      *  pas de disque ; (l'IA n'y est pas lancee : trop long pour toute une etagere, seulement ce qu'une boite a deja fait) */
     suspend fun chargerEtagere(dir: File, id: String): Images = withContext(Dispatchers.IO) {
+        MaJaquette.charger(dir, id)?.let { b ->                       // (v313 : ta jaquette, reduite pour l'etagere)
+            val k = minOf(1f, 1024f / b.width)
+            return@withContext Images(if (k < 1f) Bitmap.createScaledBitmap(b, (b.width * k).toInt(), (b.height * k).toInt(), true) else b, null, null)
+        }
         val full = image(dir, "coverfullHQ", id) ?: image(dir, "coverfull", id)?.let { netIA(dir, "coverfull", id, it, null, null, 1024) }
         val avant = if (full != null) null else image(dir, "coverHQ", id) ?: Jaquettes.bitmap(dir, id)?.let { netIA(dir, "cover", id, it, null, null, 1024) }
         Images(full, avant, null)
@@ -213,14 +223,17 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
     var sorti by remember { mutableStateOf(false) }
     var pagesNotice by remember { mutableIntStateOf(0) }
     var noticeOuverte by remember { mutableStateOf(false) }
-    LaunchedEffect(id, vue) {
+    var maJaquette by remember { mutableStateOf(false) }
+    var version by remember { mutableIntStateOf(0) }
+    LaunchedEffect(id, vue, version) {
         val v = vue ?: return@LaunchedEffect
         val im = JaquettesHQ.charger(Hors.dir(act), id, act)                     // (v313 : IA seulement sur le disque)
         etat = (when {
+            im.perso -> "Ta jaquette (tes photos)"
             im.full != null -> "Jaquette complète " + im.full.width + "×" + im.full.height
             im.avant != null -> "Jaquette avant seulement"
             else -> "Pas de jaquette"
-        }) + (if (im.ia) " · agrandie par IA" else "") + " · " + (if (im.disque != null) "disque du jeu" else "pas d'image du disque") + " (GameTDB)"
+        }) + (if (im.ia) " · agrandie par IA" else "") + " · " + (if (im.disque != null) "disque du jeu" else "pas d'image du disque") + (if (im.perso) "" else " (GameTDB)")
         v.textures(im, nom, id)
         val n = Notices.pages(id).let { if (it > 0) it else Hors.pagesNotice(act, id) }   // (la notice du jeu, si la console en a une, ou gardee : dans le couvercle)
         if (n > 0) { Notices.page(Hors.dir(act), id, 1)?.let { v.notice(it.asAndroidBitmap()) }; pagesNotice = n }
@@ -246,6 +259,7 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
                     Puce("Avant", false) { vue?.face(0) }
                     Puce("Tranche", false) { vue?.face(1) }
                     Puce("Dos", false) { vue?.face(2) }
+                    Puce("Ma jaquette", false) { maJaquette = true }
                 }
                 if (ouvert && pagesNotice > 0) { Spacer(Modifier.height(10.dp)); Bouton("Lire la notice ($pagesNotice pages)", Modifier.fillMaxWidth()) { noticeOuverte = true } }
                 Spacer(Modifier.height(10.dp))
@@ -258,6 +272,7 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
         }
     }
     if (noticeOuverte) Notice3DEcran(act, id, nom, pagesNotice) { noticeOuverte = false }
+    if (maJaquette) MaJaquetteEcran(act, id, nom) { change -> maJaquette = false; if (change) version++ }
 }
 
 // ------------------------------------------------------------------ la vue OpenGL
