@@ -24,13 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés appli build à venir — Un seul fond, du haut en bas de l'écran
+## Nouveautés appli build 142 — Un seul fond, du haut en bas de l'écran
 - Le fond de l'appli est maintenant **un seul fond pour tout l'écran**, derrière l'en-tête, la barre d'onglets et les
   barres d'Android : l'aurore qui bouge et, sur l'onglet Lecture, la pochette du morceau floue qui dérive doucement
   (zoom et glissement lents, 22 s), avec un léger voile en haut et en bas. Avant, la pochette floue ne couvrait que le
   milieu : une bande plus sombre restait en bas, derrière les onglets.
 
-## Nouveautés appli build à venir — Titre GC REMOTE
+## Nouveautés appli build 139 — Titre GC REMOTE
 - Le titre en haut de l'appli (et sur l'écran de connexion) dit maintenant **GC REMOTE** ; oublié au changement de nom.
 
 ## Nouveautés v308 (build 810, appli build 137) — Photo du téléphone sur la télé : corrigé
