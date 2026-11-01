@@ -303,7 +303,72 @@ object JeuSMS {
 
     /** v313 : les soleils de chaque zone (numeros des drapeaux MSF_SHINE_*, FlagManagerFlags.hpp) : 8 episodes, puis
      *  les soleils en plus (pieces rouges, secrets, 100 pieces) */
-    class ZoneSoleils(val nom: String, val couleur: Long, val soleils: IntArray, val bleues: Int, val bleuesMax: Int, val record: Int)
+    class ZoneSoleils(val nom: String, val couleur: Long, val soleils: IntArray, val bleues: Int, val bleuesMax: Int, val record: Int,
+                      val nomsSoleils: Array<String> = emptyArray(), val bleuesManquantes: List<String> = emptyList())
+    /** build 205 : le nom de chaque soleil et de chaque piece bleue (ordre des drapeaux MSF_SHINE_* et MSF_BLUE_COIN_*,
+     *  FlagManagerFlags.hpp de doldecomp/sms ; traductions maison, pas les titres officiels du jeu) */
+    val NOMS_EP = arrayOf(
+        arrayOf("Vers le grand moulin", "Le Piranha géant", "Le secret de la grotte", "Pièces rouges du village", "Le retour du Piranha géant",
+            "Le secret du lac pollué", "Mario Ombre en fuite", "Pièces rouges du lac", "grotte : pièces rouges (niveau secret)", "lac pollué : pièces rouges (niveau secret)"),
+        arrayOf("Le Bloups géant s'échappe", "Course de Bloups", "Le soleil en cage", "Le secret de la tour Ricco", "Le retour du Bloups géant",
+            "Pièces rouges sur l'eau", "Mario Ombre revient", "Les fruits de Yoshi", "tour Ricco : pièces rouges (niveau secret)", "course de Bloups : 2e soleil"),
+        arrayOf("Le château de sable", "Les miroirs", "Le Wiggler", "L'oiseau de sable", "La course d'Il Piantissimo",
+            "Pièces rouges du récif", "Mario Ombre ! Rattrape-le !", "La fête de la pastèque", "château de sable : pièces rouges (niveau secret)", "soleil caché"),
+        arrayOf("Mecha-Bowser", "Le secret du canon", "Pièces rouges des bateaux pirates", "Les tournesols fanés", "La grande roue folle",
+            "Le secret du manège de Yoshi", "Mario Ombre dans le parc", "Les ballons des montagnes russes", "canon : pièces rouges (niveau secret)", "manège de Yoshi : pièces rouges (niveau secret)"),
+        arrayOf("La raie géante", "Le secret du hall de l'hôtel", "Le mystérieux hôtel Delfino", "Le secret du casino", "Le Roi Boo",
+            "Nettoyage de la plage", "Mario Ombre à l'hôtel", "Pièces rouges de l'hôtel", "hall de l'hôtel : pièces rouges (niveau secret)", "casino : pièces rouges (niveau secret)"),
+        arrayOf("Les petits Chomps", "L'escalade d'Il Piantissimo", "L'enfer gluant", "Le bain du Chomp", "Le secret sous le village",
+            "Les Piantas en détresse", "Mario Ombre se déchaîne", "Pièces rouges de la fête", "sous le village : pièces rouges (niveau secret)", "soleil caché"),
+        arrayOf("Déboucher la cascade", "Le boss des ruines", "Pièces rouges dans une bouteille", "Le dentiste de l'anguille", "La nage d'Il Piantissimo",
+            "Le secret du coquillage", "Arrête-toi, Mario Ombre !", "Le poisson aux pièces rouges", "coquillage : pièces rouges (niveau secret)", "soleil caché"))
+    val NOMS_DELFINO = arrayOf("aéroport : le premier soleil", "prison", "aéroport : pièces rouges (niveau secret)", "pachinko (niveau secret)",
+        "tuyau de la plage (niveau secret)", "balade en nénuphar (niveau secret)", "tuyau dans l'herbe (niveau secret)", "phare",
+        "jeu des caisses 1", "jeu des caisses 2", "cloche gauche du clocher", "cloche droite du clocher", "Pianta lanceur",
+        "statue du soleil", "sous le clocher", "plage (sable)", "oiseau doré", "100 pièces")
+    val NOMS_BLEUES = arrayOf(
+        arrayOf("M sur le moulin", "pilier du moulin", "tour", "balcon", "haut d'un arbre", "touriste", "ruche", "Pianta de la tour du rempart",
+            "Pokey de la colline", "pilier (combat du Piranha)", "sous l'eau, à droite", "sous l'eau, à gauche", "oiseau", "sous le pont",
+            "Pokey du moulin", "croix sur les plateformes", "M sur le côté du rempart", "M en haut du rempart", "M sur la maison des tours",
+            "petit moulin à vent", "X derrière le rempart", "bout de la rivière", "falaise", "Pianta lanceur", "O sur la maison des tours",
+            "O sur la maison au balcon", "papillon", "X entre les remparts", "plateforme à voile", "plus haute plateforme"),
+        arrayOf("papillons", "soleil peint sur la tour", "M sur la coque du bateau", "M en haut du bâtiment de départ", "X sur la machine à fruits",
+            "ennemi du mur", "M sur un toit", "M au pied de la tour", "corniche du fond", "poutre courte", "plateforme de la tour", "poutre longue",
+            "à côté de la passerelle", "tour (buse fusée)", "grue", "en pleine mer", "entrée souterraine", "fontaine", "sous l'eau", "X sur la tour",
+            "M sur la fontaine", "M sur le côté du bâtiment de départ", "M sur la plateforme haute", "ennemi du grillage (mur)",
+            "ennemi du grillage (plafond)", "panier à poissons", "M dans le bateau", "Bloups en cage", "caisse de la tour", "sous-marin jaune"),
+        arrayOf("canard rouge", "soleil de sable près de la cabane", "soleil de sable près de la cabane de surf", "canard bleu", "soleil de sable du milieu",
+            "bar à jus", "M (buse fusée)", "triangle du départ", "triangle des arbres", "bourgeon des dunes (bloc jaune)", "oiseau de gauche",
+            "oiseau de droite", "corde la plus haute", "mât", "sous l'eau, près", "sous l'eau, loin", "poisson bleu", "poisson rouge", "terrasse",
+            "balançoire", "grand arbre", "crevasse", "grand soleil de sable", "toit de la cabane", "cabane", "ruche", "oiseau de sable 4",
+            "oiseau de sable 3", "oiseau de sable 2", "oiseau de sable 1"),
+        arrayOf("M sur le mur orange", "M dans le sable", "coquillage vert", "O de gauche", "oiseau de l'entrée", "oiseau de l'ananas",
+            "haut des bateaux pirates", "plateforme de la cage", "O de droite", "X sur le mur blanc", "X sur l'arbre", "M sur la grande roue",
+            "triangle de la banane", "triangle de la grande roue", "escaliers", "papillon du parc", "poutrelle", "corniche des montagnes russes",
+            "cage", "ennemis empilés", "panier du départ", "panier des fleurs", "panier de l'entrée", "papillon de la plage", "2e papillon de la plage",
+            "panier du rocher", "panier du milieu", "panier des tournesols", "soleil de sable de l'arbre", "soleil de sable du canon"),
+        arrayOf("panneau", "toit de la cabane", "torche dehors", "Noki homme de gauche", "Noki femme de gauche", "corniche de l'hôtel",
+            "grand projecteur", "caisse", "chambre au trou (caisse)", "chambre au trou (vitre)", "tableau blanc", "chambre Delfino",
+            "bibliothèque", "grenier", "Noki homme de droite", "Boo du grenier", "fleurs", "en mer", "M dehors", "M du 2e étage",
+            "Noki femme de droite", "M du casino", "lampe du 2e étage", "triangle du rez-de-chaussée", "triangle du 1er étage", "M du grenier",
+            "X du 2e étage", "X du 1er étage", "torche du casino", "machine à sous"),
+        arrayOf("lune", "Pianta en détresse n°10", "Pianta en détresse n°3", "Pianta en détresse n°5", "Pianta en détresse n°4",
+            "Pianta en détresse n°6", "Pianta en détresse n°7", "Pianta en détresse n°9", "Pianta en détresse n°8", "nez de la statue",
+            "M géant", "panneau", "bout de la rivière", "herbe", "arbre du fond", "pont de la rivière", "ruche du fond", "ruche de devant",
+            "arbre de gauche", "cascade", "papillons", "oiseau", "Pianta en feu", "triangle du mur", "triangle du bain chaud", "M de gauche",
+            "M de droite", "M du départ", "M sous le village", "M de JET"),
+        arrayOf("alcôve (buse fusée)", "passage secret, en bas", "passage secret, en haut", "buse fusée", "alcôve de la poulie, en bas",
+            "alcôve de la poulie, en haut", "grande alcôve", "alcôve (buse turbo)", "alcôve du coquillage", "panneau en haut à droite",
+            "panneau en bas à gauche", "tunnel en haut à droite", "tunnel en bas à droite", "alcôve en bas à droite", "tunnel de gauche",
+            "alcôve en bas à gauche", "panneau de la falaise de l'oiseau", "alcôve de la falaise de l'oiseau", "urne de droite", "urne de gauche",
+            "départ", "côte", "sous l'eau", "M du passage secret", "O du départ", "fond de la mer : pilier de devant", "fond de la mer : pilier de droite",
+            "fond de la mer : pilier proche à gauche", "O de la maison du bateau", "fond de la mer : pilier loin à gauche"))
+    val NOMS_BLEUES_DELFINO = arrayOf("aéroport : glaçon", "pilier (buse turbo)", "X sur la statue", "X sur le clocher", "Pianta en feu",
+        "M sur la statue du soleil", "M sur la tour (bloc jaune)", "M dans la salle du lanceur", "marchande d'ananas", "marchande de durian",
+        "marchande de bananes", "marchande de noix de coco", "égout près de la mer", "bloc jaune près du clocher", "cellule de la prison",
+        "bloc jaune près du policier", "égout de la statue du soleil", "égout du canal", "oiseau (vers Plage Sirena)", "oiseau du jeu des caisses")
+    val NOMS_BLEUES_CORONA = arrayOf("plateforme", "lave derrière à droite", "lave à gauche", "lave devant", "lave devant à gauche",
+        "lave devant à droite", "lave derrière à gauche", "lave tout au fond à gauche", "lave tout au fond à droite", "lave à droite")
     private val SOL_ZONE = arrayOf(
         intArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 0x64), intArrayOf(10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 0x65),
         intArrayOf(20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 0x66), intArrayOf(30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 0x67),
@@ -363,11 +428,15 @@ object JeuSMS {
         if (d != null) {
             fun nb(de: Int, max: Int): Int { var n = 0; for (k in 0 until max) if (bit(d, 120 + de + k)) n++; return n }
             fun sols(t: IntArray) = t.map { if (bit(d, it)) 1 else 0 }.toIntArray()
+            fun manq(de: Int, noms: Array<String>) = noms.indices.filter { !bit(d, 120 + de + it) }.map { noms[it] }
             zones = (0 until 7).map { k ->
-                ZoneSoleils(ZONE_NOMS[k], ZONE_COUL[k], sols(SOL_ZONE[k]), nb(BLEUE_ZONE[k], 30), 30, (l.s32(f + RECORD_ZONE[k]) ?: 0).coerceIn(0, 999))
+                ZoneSoleils(ZONE_NOMS[k], ZONE_COUL[k], sols(SOL_ZONE[k]), nb(BLEUE_ZONE[k], 30), 30, (l.s32(f + RECORD_ZONE[k]) ?: 0).coerceIn(0, 999),
+                    NOMS_EP[k], manq(BLEUE_ZONE[k], NOMS_BLEUES[k]))
             }
-            delf = ZoneSoleils("Place Delfino", 0xFFFFD54A, sols(SOL_DELFINO), nb(0, 20), 20, (l.s32(f + 0x8C + 4) ?: 0).coerceIn(0, 999))
-            cor = ZoneSoleils("Mont Corona", 0xFFFF5A3C, sols(intArrayOf(SOL_CORONA)), nb(420, 10), 10, (l.s32(f + 0x8C + 36) ?: 0).coerceIn(0, 999))
+            delf = ZoneSoleils("Place Delfino", 0xFFFFD54A, sols(SOL_DELFINO), nb(0, 20), 20, (l.s32(f + 0x8C + 4) ?: 0).coerceIn(0, 999),
+                NOMS_DELFINO, manq(0, NOMS_BLEUES_DELFINO))
+            cor = ZoneSoleils("Mont Corona", 0xFFFF5A3C, sols(intArrayOf(SOL_CORONA)), nb(420, 10), 10, (l.s32(f + 0x8C + 36) ?: 0).coerceIn(0, 999),
+                arrayOf("le soleil final (Bowser)"), manq(420, NOMS_BLEUES_CORONA))
             ach = ZoneSoleils("Pièces bleues échangées", 0xFF4FA3FF, sols(SOL_BLEUES), 0, 0, 0)
             for (k in 0 until 9) { if (bit(d, 0x366 + 2 * k)) fusee = true; if (bit(d, 0x367 + 2 * k)) turbo = true }   // (MSF_NOZZLE_ROCKET/TURBO_*)
             yd = bit(d, 0x38F)                                          // MSF_YOSHI_UNLOCKED
@@ -1294,29 +1363,22 @@ private fun CompagnonSMS(e: JeuSMS.Etat) {
             Titre("Pour finir à 100 %", couleur = Color(0xFF3DDC84))
             Doux("Soleils " + e.soleils + " / 120 · pièces bleues " + e.bleues + " / 240", taille = 12, couleur = C.Texte)
             var rien = true
-            for (z in e.zones) {
-                val m = ArrayList<String>()
-                for ((k, v) in z.soleils.withIndex()) if (v == 0) m.add(when { k < 8 -> "épisode " + (k + 1); k < 10 -> "soleil caché"; else -> "100 pièces" + if (z.record > 0) " (record " + z.record + ")" else "" })
-                if (z.bleues < z.bleuesMax) m.add("🔵 " + (z.bleuesMax - z.bleues) + " pièce(s) bleue(s)")
-                if (m.isEmpty()) continue
+            for (z in e.zones + listOfNotNull(e.delfino, e.corona)) {
+                val sm = ArrayList<String>()
+                for ((k, v) in z.soleils.withIndex()) if (v == 0) sm.add(when {
+                    k < z.nomsSoleils.size -> (if (z.bleuesMax == 30 && k < 8) "ép. " + (k + 1) + " · " else "") + z.nomsSoleils[k]
+                    else -> "100 pièces" + if (z.record > 0) " (record " + z.record + ")" else "" })
+                if (sm.isEmpty() && z.bleuesManquantes.isEmpty()) continue
                 rien = false
-                Row {
-                    Text(z.nom, color = Color(z.couleur), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(0.36f))
-                    Doux(m.joinToString(" · "), taille = 12, modifier = Modifier.weight(0.64f))
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(z.nom, color = Color(z.couleur), fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    for (t in sm) Doux("☀ " + t, taille = 12)
+                    if (z.bleuesManquantes.isNotEmpty()) Doux("🔵 " + z.bleuesManquantes.size + " : " + z.bleuesManquantes.joinToString(" · "), taille = 11)
                 }
             }
-            for (z in listOfNotNull(e.delfino, e.corona)) {
-                val ms = z.soleils.count { it == 0 }; val mb = (z.bleuesMax - z.bleues).coerceAtLeast(0)
-                if (ms == 0 && mb == 0) continue
-                rien = false
-                Row {
-                    Text(z.nom, color = Color(z.couleur), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(0.36f))
-                    Doux(listOfNotNull(if (ms > 0) "$ms soleil(s)" else null, if (mb > 0) "🔵 $mb pièce(s) bleue(s)" else null).joinToString(" · "), taille = 12, modifier = Modifier.weight(0.64f))
-                }
-            }
-            e.achats?.let { a -> val ms = a.soleils.count { it == 0 }; if (ms > 0) { rien = false; Doux("Soleils à obtenir contre des pièces bleues : $ms", taille = 12) } }
+            e.achats?.let { a -> val ms = a.soleils.count { it == 0 }; if (ms > 0) { rien = false; Doux("☀ $ms soleil(s) à échanger contre 10 pièces bleues chacun (cabane du bateau, Place Delfino)", taille = 12) } }
             if (rien) Doux("Tout est trouvé !", taille = 12, couleur = C.Vert)
-            Doux("Épisodes 1 à 8 de chaque zone, puis ses soleils cachés et celui des 100 pièces.", taille = 10)
+            Doux("Noms des soleils et des pièces bleues traduits d'après la décompilation du jeu (pas les titres officiels).", taille = 10)
         }
     }
 }
