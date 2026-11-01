@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 198 — Star Fox Adventures : adresse fixe (européen)
+- Européen (GSAP01) : la partie en cours est à une adresse fixe, tirée du main.dol (803A4C08 : le code la construit
+  51 fois avant de lire les champs de la partie : vie, magie, Tricky, nom, personnage, avancement, temps de jeu). Plus
+  besoin de la recherche dans la mémoire : la fiche s'affiche dès que la partie est chargée. Américain v1.1 : 803A3F08
+  (codes publics). La recherche reste pour les autres versions.
+
 ## Nouveautés appli build 196 — Star Fox Adventures dans le compagnon de jeu
 - **Star Fox Adventures** (GSAP01, GSAE01, GSAJ01) : pas de liste de symboles pour la version européenne, donc la partie
   en cours est **cherchée une fois dans la mémoire** (bouton « Trouver ma partie dans la mémoire », jeu en pause une
