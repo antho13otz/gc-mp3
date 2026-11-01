@@ -13832,7 +13832,17 @@ static int sd_space(unsigned long long *tot, unsigned long long *fre);   /* v97 
 static const char *perf_ver(void) { return GCMP3_VERSION; }
 #include "update.c"
 
+static void tab_enter_u(int t);
 static void tab_enter(int t) {
+#ifndef GEKKO
+    u32 t0_ = perf_us();
+#endif
+    tab_enter_u(t);
+#ifndef GEKKO
+    if (getenv("PCSIM_DRAWPROF") && perf_us() - t0_ > 3000) printf("[onglet] entree dans %d : %.1f ms\n", t, (perf_us() - t0_) / 1000.0);
+#endif
+}
+static void tab_enter_u(int t) {
     if (t >= 0 && t < TAB_COUNT) crumb("onglet %s", tab_names[t]);
     switch (t) {
     case TAB_RADIO:   net_start_async(); gb_prefetch(); break;   /* (v213 : le globe se prepare en fond) */
