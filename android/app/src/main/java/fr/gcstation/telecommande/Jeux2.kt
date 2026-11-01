@@ -160,9 +160,24 @@ object JeuTP : ModuleJeu("Twilight Princess", "GZ2P01", "GZ2E01") {
             val manque = cles.filter { it.first !in ont }.map { it.second }
             val flacons = objets.count { it in 0x60..0x76 }
             if (flacons < 4) m.add(Ligne("Flacons", "$flacons / 4"))
-            if (objets.isNotEmpty() && (manque.isNotEmpty() || m.isNotEmpty()))
-                blocs.add(Bloc("Pour finir à 100 %", m, pastilles = manque.map { it to false },
-                    texte = (if (manque.isNotEmpty()) "En gris : les objets pas encore trouvés. " else "") + "Pas encore lus : insectes dorés, techniques secrètes, poissons à attraper."))
+            // build 201 : les objets deja obtenus (dSv_player_get_item_c : mItemFlags[8] en 0xCC, un bit par numero d'objet,
+            // zeldaret/tp d_save.h et d_item_data.h) : insectes dores 0xC0 a 0xD7 (male, femelle), equipement
+            val got = LongArray(8) { k -> l.u32(g + 0xCC + 4L * k) ?: 0L }
+            fun eu(n: Int) = (got[n / 32] shr (n % 32)) and 1L != 0L
+            val INSECTES = listOf("Scarabée", "Papillon", "Lucane", "Sauterelle", "Phasme", "Cloporte", "Mante", "Coccinelle", "Escargot", "Libellule", "Fourmi", "Éphémère")
+            val insectes = INSECTES.flatMapIndexed { k, n -> listOf("$n ♂" to eu(0xC0 + 2 * k), "$n ♀" to eu(0xC1 + 2 * k)) }
+            val nIns = insectes.count { it.second }
+            if (nIns < 24) m.add(Ligne("Insectes dorés", "$nIns / 24", pct(nIns, 24), 0xFFFFD23F))
+            val EQUIP = listOf(0x28 to "Épée d'Ordon", 0x29 to "Épée de légende", 0x2B to "Bouclier d'Ordon", 0x2C to "Bouclier hylien",
+                0x30 to "Armure magique", 0x31 to "Tunique Zora", 0x35 to "Grande bourse", 0x36 to "Bourse géante")
+            val manqueEq = EQUIP.filter { !eu(it.first) }.map { it.second }
+            val toutGot = got.all { it == 0L }
+            if (objets.isNotEmpty() && (manque.isNotEmpty() || m.isNotEmpty() || manqueEq.isNotEmpty())) {
+                blocs.add(Bloc("Pour finir à 100 %", m, pastilles = (manque + if (toutGot) emptyList() else manqueEq).map { it to false },
+                    texte = (if (manque.isNotEmpty() || manqueEq.isNotEmpty()) "En gris : les objets et l'équipement pas encore trouvés. " else "") +
+                        "Pas encore lus : techniques secrètes, poissons à attraper."))
+                if (!toutGot && nIns < 24) blocs.add(Bloc("Insectes dorés (pour Machaon)", pastilles = insectes))
+            }
         }
         if (scene.startsWith("D_MN")) blocs.add(Bloc("Donjon", listOf(Ligne("Petites clés", cles.toString())),
             pastilles = listOf("Carte" to (dj and 1 != 0), "Boussole" to (dj and 2 != 0), "Clé du boss" to (dj and 4 != 0), "Boss vaincu" to (dj and 8 != 0))))
