@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 203 — Twilight Princess : insectes dorés et équipement dans le 100 %
+- Compagnon de jeu > Twilight Princess > « Pour finir à 100 % » : nouveau bloc **Insectes dorés** (les 24, mâle et femelle
+  de chaque espèce, ceux qui manquent en gris), et l'équipement pas encore obtenu (épées, boucliers, Armure magique,
+  Tunique Zora, bourses), lus dans les objets déjà obtenus de la sauvegarde.
+
 ## Nouveautés appli build 200 — Extraire un fichier du jeu dans le dossier de son choix
 - Fiche d'un jeu > « Extraire un fichier du jeu (main.dol…) » : nouveau bouton **Choisir où** : le fichier est enregistré
   dans le dossier choisi (tes fichiers, Drive…) au lieu de Téléchargements/GC Remote. « Extraire » garde l'ancien chemin.
