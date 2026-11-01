@@ -360,6 +360,41 @@ private object Recherche {
 
 fun tacheChercheur(): String = Recherche.tache
 
+/** build 190 : toute la memoire du jeu (jeu en pause, comme une recherche), compressee (.bin.gz) dans
+ *  Telechargements/GC Remote, puis partagee : pour trouver les adresses d'un nouveau jeu (avec les valeurs notees) */
+fun photoMemoire(act: StationActivity, scope: kotlinx.coroutines.CoroutineScope) {
+    val R = Recherche
+    if (R.tache.isNotEmpty()) return
+    if (android.os.Build.VERSION.SDK_INT < 29) { Lang.toast(act, "Android 10 ou plus est nécessaire", Toast.LENGTH_LONG).show(); return }
+    R.tache = "Photo de la mémoire (jeu en pause)…"; R.progres = 0f; R.erreur = ""
+    scope.launch {
+        val jeu = St.jeu?.id ?: "jeu"
+        val (u, msg) = withContext(Dispatchers.IO) {
+            try {
+                if (MemoireJeu.demande('P', 1) == null) return@withContext null to "Pulse ne répond pas"
+                val mem = ByteArray(MemoireJeu.TAILLE)
+                val ok = MemoireJeu.lire(IntArray(MemoireJeu.FIN / MemoireJeu.BLK) { it }, mem, true, { R.progres = it * 0.9f }, { false })
+                MemoireJeu.demande('P', 0)
+                if (!ok) return@withContext null to "Lecture interrompue (Wi-Fi ?)"
+                val nom = jeu + "-memoire-" + java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.FRANCE).format(java.util.Date()) + ".bin.gz"
+                val cv = android.content.ContentValues()
+                cv.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, nom)
+                cv.put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/gzip")
+                cv.put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS + "/GC Remote")
+                val uri = act.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv) ?: return@withContext null to "Impossible d'enregistrer"
+                act.contentResolver.openOutputStream(uri)?.use { o -> java.util.zip.GZIPOutputStream(o, 65536).use { it.write(mem, 0, MemoireJeu.FIN) } }
+                uri to "Enregistré : Téléchargements/GC Remote/$nom"
+            } catch (e: Exception) { try { MemoireJeu.demande('P', 0) } catch (x: Exception) { }; null to "Erreur : " + e.message }
+        }
+        R.tache = ""
+        Lang.toast(act, msg, Toast.LENGTH_LONG).show()
+        if (u != null) try {
+            act.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/gzip")
+                .putExtra(android.content.Intent.EXTRA_STREAM, u).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION), Lang.t("Partager")))
+        } catch (e: Exception) { }
+    }
+}
+
 /** v307 : capture de l'ecran du jeu (Partie en cours, chercheur de codes) : gardee dans Images > GC Remote */
 fun capturerJeu(act: StationActivity, scope: kotlinx.coroutines.CoroutineScope) {
     val R = Recherche
@@ -503,6 +538,7 @@ fun EcranChercheur() {
         }
         if (g?.mem == true || R.etat != null) item {
             Bouton("Capture de l'écran du jeu", Modifier.fillMaxWidth(), icone = Ic.Photo, actif = R.tache.isEmpty()) { capturerJeu(act, scope) }
+            Bouton("Photo de la mémoire (fichier à partager)", Modifier.fillMaxWidth().padding(top = 6.dp), actif = R.tache.isEmpty()) { photoMemoire(act, scope) }
         }
         if (R.bloquees.isNotEmpty()) item {
             Column(Modifier.fillMaxWidth().verre().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
