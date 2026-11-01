@@ -24,6 +24,18 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 184 — Mario Party 5 : mini-jeux, historique, alertes ; Paper Mario : noms français, plan de la zone
+- **Mario Party 5** : le nom du mini-jeu (noms anglais officiels, avec le type : 4 joueurs, 1 contre 3, 2 contre 2,
+  bataille, duel, Bowser, DK) ; rangés dans l'ordre de la table du jeu (m501 = Coney Island, vérifié), les autres à
+  confirmer en jeu. **Historique des tours** : à chaque nouveau tour, les pièces et étoiles gagnées ou perdues par chaque
+  joueur, le mini-jeu joué et le meilleur du tour (gardé tant que l'écran est ouvert). **Alertes** en haut de la fiche :
+  quand quelqu'un passe devant toi (toi = le premier joueur qui n'est pas un ordi) et quand quelqu'un arrive à 10 cases
+  de l'étoile.
+- **Paper Mario** : les ennemis des combats en français (noms habituels de la série : Maskass, Frère Marto, Skelerex,
+  Hériss, Bloups, Plante Piranha…, sinon le nom anglais). **Plan de la zone** : le chemin de Mario sur la carte en cours
+  (il se dessine en avançant), Mario et les personnages de la carte, avec leurs noms (liste des personnages : vérifiée
+  dans le main.dol européen).
+
 ## Nouveautés v318 (build 825) — Tour de tous les réglages
 - Chaque réglage du menu START (69, toutes les sections sauf les actions) essayé au simulateur : changé, enregistré dans
   gc-mp3.txt, relu, remis comme avant ; et une image de chaque valeur des réglages qui se voient (thèmes, styles,
