@@ -8,7 +8,8 @@ package fr.gcstation.telecommande
 //    dComIfG_play_c en 0xF38 : mStartStage 0x3EC8, mPlayerPtr 0x4E7C) ; fopAc_ac_c : current.pos 0x4D0, speedF 0x52C ;
 //  - projectPiki/pikmin (GPIP01, GPIE01 rev 0 et 1) : gameflow (WorldClock en 0x2D8), playerState, GameStat, pikiInfMgr ;
 //  - projectPiki/pikmin2 (GPVP01, GPVE01) : playData (PlayData), gameSystem (TimeMgr), GameStat, naviMgr (Navi.mHealth) ;
-//  - doldecomp/melee (GALE01, 1.02, et ses mods comme Akaneia) : player_slots (StaticPlayer, 0xE90 par port).
+//  - doldecomp/melee (GALE01, 1.02, et ses mods comme Akaneia) : player_slots (StaticPlayer, 0xE90 par port) ;
+//  - Mario Superstar Baseball (GYQE01) : adresses de Project Rio (ProjectRio/ProjectRio, MSB_StatTracker.h).
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -46,7 +47,7 @@ abstract class ModuleJeu(val nom: String, vararg val ids: String) {
 }
 
 object ModulesJeux {
-    val tous: List<ModuleJeu> = listOf(JeuTP, JeuPikmin1, JeuPikmin2, JeuMelee)
+    val tous: List<ModuleJeu> = listOf(JeuTP, JeuPikmin1, JeuPikmin2, JeuMelee, JeuMSB)
     fun pour(id: String): ModuleJeu? = tous.firstOrNull { id in it.ids }
     fun noms(): Map<String, String> = tous.flatMap { m -> m.ids.map { it to m.nom } }.toMap()
 }
@@ -282,6 +283,70 @@ object JeuMelee : ModuleJeu("Super Smash Bros. Melee", "GALE01") {
         }
         if (blocs.isEmpty()) return Fiche(id, "Super Smash Bros. Melee", "Menus", 0xFF5A1E1E, 0xFF170707, message = "Pas de combat en ce moment.")
         return Fiche(id, "Super Smash Bros. Melee", if (enJeu > 0) "Combat en cours" else "Menus ou résultats", 0xFF8F1E2B, 0xFF1E070B, grands = grands, blocs = blocs)
+    }
+}
+
+// ---------------------------------------------------------------- Mario Superstar Baseball (Project Rio)
+object JeuMSB : ModuleJeu("Mario Superstar Baseball", "GYQE01") {
+    val PERSOS = arrayOf("Mario", "Luigi", "Donkey Kong", "Diddy Kong", "Peach", "Daisy", "Yoshi", "Bébé Mario", "Bébé Luigi", "Bowser",
+        "Wario", "Waluigi", "Koopa vert", "Toad rouge", "Boo", "Toadette", "Maskass rouge", "Birdo", "Monty", "Bowser Jr", "Paratroopa rouge",
+        "Pianta bleu", "Pianta rouge", "Pianta jaune", "Noki bleu", "Noki rouge", "Noki vert", "Frère Marto", "Papy Champi", "Toad bleu",
+        "Toad jaune", "Toad vert", "Toad violet", "Magikoopa bleu", "Magikoopa rouge", "Magikoopa vert", "Magikoopa jaune", "Roi Boo",
+        "Flora Piranha", "Dixie Kong", "Goomba", "Paragoomba", "Koopa rouge", "Paratroopa vert", "Maskass bleu", "Maskass jaune",
+        "Maskass vert", "Maskass noir", "Skelerex gris", "Skelerex vert", "Skelerex rouge", "Skelerex bleu", "Frère Pyro", "Frère Boomerang")
+    private val STADES = arrayOf("Stade Mario", "Château de Bowser", "Palais de Wario", "Parc Yoshi", "Jardin de Peach", "Jungle DK", "Terrain jouet")
+    private fun perso(i: Int?) = if (i == null) "–" else PERSOS.getOrNull(i) ?: ("Joueur " + i)
+
+    override fun lire(l: Lecteur, id: String): Fiche? {
+        val ext = l.u16(0x808928A4) ?: return null
+        val dom = l.u16(0x808928CA) ?: return null
+        val manche = l.u8(0x808928A3) ?: return null
+        if (ext > 999 || dom > 999 || manche > 30) return null
+        val enJeu = (l.u8(0x8036F3A9) ?: 0) != 0 || manche > 0
+        val demi = l.u8(0x8089294D) ?: 0
+        val manches = l.u8(0x8089294A) ?: 9
+        val balles = l.u8(0x8089296F) ?: 0; val prises = l.u8(0x8089296B) ?: 0; val retraits = l.u8(0x80892973) ?: 0
+        val etoiles1 = l.u8(0x80892AD6) ?: 0; val etoiles2 = l.u8(0x80892AD7) ?: 0
+        val stade = STADES.getOrNull(l.u8(0x800E8705) ?: -1) ?: ""
+        val cap = listOf(l.u8(0x80353083), l.u8(0x80353087))
+        val attaque = if (demi == 0) 0 else 1; val defense = 1 - attaque
+        fun idPerso(team: Int, r: Int) = l.u8(0x80353C05 + (team * 9L + r) * 0xA0)
+        val frappeur = l.u8(0x80890971)?.takeIf { it < 9 }
+        val lanceur = l.u8(0x80890AD9)?.takeIf { it < 9 }
+        val blocs = ArrayList<Bloc>()
+        blocs.add(Bloc("Au marbre", listOf(
+            Ligne("Manche", (if (demi == 0) "Haut de la " else "Bas de la ") + manche + "e / " + manches),
+            Ligne("Balles", "$balles", pct(balles, 4), 0xFF3DDC84), Ligne("Prises", "$prises", pct(prises, 3), 0xFFFFB300),
+            Ligne("Retraits", "$retraits", pct(retraits, 3), 0xFFFF3B3B),
+            Ligne("Frappeur", if (frappeur != null) perso(idPerso(attaque, frappeur)) else "–"),
+            Ligne("Lanceur", if (lanceur != null) perso(idPerso(defense, lanceur)) else "–"),
+            Ligne("Endurance du lanceur", if (lanceur != null) (l.u16(0x803535D8 + (defense * 9L + lanceur) * 0x1E) ?: 0).toString() else "–"),
+            Ligne("Vitesse du lancer", (l.u8(0x80890B0A) ?: 0).toString()),
+            Ligne("Type de lancer", when (l.u8(0x80890B21)) { 0 -> "Courbe"; 1 -> "Chargé"; 2 -> "Changement de vitesse"; else -> "–" }),
+            Ligne("Étoiles", "J1 : $etoiles1 · J2 : $etoiles2"))))
+        // les bases (coureur : numero dans l'equipe, 0xFF = personne)
+        val bases = (1..3).map { b -> (l.u8(0x8088EEF9 + b * 0x154L) ?: 0xFF) != 0xFF }
+        val qui = (1..3).map { b -> l.u8(0x8088EEFB + b * 0x154L) }
+        blocs.add(Bloc("Bases", pastilles = (0 until 3).map { k -> ((k + 1).toString() + "re base" + if (bases[k]) " : " + perso(qui[k]) else "") to bases[k] }))
+        // score manche par manche
+        val ms = (0 until minOf(manche, 18)).map { i -> (l.u16(0x808928A4 + 2L * (i + 1)) ?: 0) to (l.u16(0x808928CA + 2L * (i + 1)) ?: 0) }
+        if (ms.isNotEmpty()) blocs.add(Bloc("Score par manche", listOf(
+            Ligne("Extérieur", ms.joinToString(" ") { it.first.toString() } + "  =  $ext"),
+            Ligne("Domicile", ms.joinToString(" ") { it.second.toString() } + "  =  $dom"))))
+        // les frappeurs de l'equipe a la batte : coups surs, coups de circuit, points produits
+        for (team in 0..1) {
+            val lignes = (0 until 9).mapNotNull { r ->
+                val o = (team * 9L + r) * 0x26
+                val nom = perso(idPerso(team, r))
+                val ab = l.u8(0x803537E8 + o) ?: return@mapNotNull null
+                val h = l.u8(0x803537E9 + o) ?: 0; val hr = l.u8(0x803537ED + o) ?: 0; val rbi = l.u8(0x803537F4 + o) ?: 0; val so = l.u8(0x803537F1 + o) ?: 0
+                Ligne(nom + if (team == attaque && r == frappeur) "  ⚾" else "", "$h/$ab · $hr CC · $rbi PP · $so RAP")
+            }
+            blocs.add(Bloc((if (team == 0) "Extérieur" else "Domicile") + " · capitaine " + perso(cap[team]), lignes))
+        }
+        return Fiche(id, if (enJeu) "Extérieur $ext – $dom Domicile" else "Mario Superstar Baseball", stade, 0xFF1E6FB8, 0xFF07203A,
+            grands = listOf("extérieur" to ext.toString(), "domicile" to dom.toString(), "manche" to "$manche"),
+            blocs = if (enJeu) blocs else emptyList(), message = if (enJeu) "CS : coups sûrs/passages · CC : coups de circuit · PP : points produits · RAP : retraits sur prises" else "Pas de match en ce moment.")
     }
 }
 
