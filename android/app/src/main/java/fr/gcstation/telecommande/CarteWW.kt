@@ -156,7 +156,7 @@ object CarteMarineWW {
     @Volatile private var essai = 0L
     @Volatile private var charge = false
 
-    private fun fichier(c: Context) = File(c.filesDir, "jeux/" + JeuWW.ID + "/Fmap.arc")
+    private fun fichier(c: Context) = File(c.filesDir, "jeux/" + JeuWW.ID + "/Fmap.arc")   // (meme carte pour les versions P et E)
 
     /** hors partie (GC Station a l'ecran) : l'archive demandee une fois a la console, puis gardee */
     fun telecharger(c: Context) {
@@ -167,6 +167,7 @@ object CarteMarineWW {
         essai = t
         Thread {
             val b = Api.getBytes("/api/discfile?id=" + JeuWW.ID + "&f=" + CHEMIN, 20000)
+                ?: Api.getBytes("/api/discfile?id=GZLE01&f=" + CHEMIN, 20000)          // (v314 : ou la version americaine)
             if (b != null && b.size > 64) {
                 try { f.parentFile?.mkdirs(); val tmp = File(f.path + ".tmp"); tmp.writeBytes(b); tmp.renameTo(f) } catch (e: Exception) { }
                 charge = false; charger(c)                                   // (l'ecran se met a jour tout seul)
@@ -261,5 +262,41 @@ object PlanWW {
         plans[scene] = ArrayList(); modifies.remove(scene)
         File(dossier(c), nomFichier(scene)).delete()
         version++
+    }
+}
+
+/** v314 : un fichier du disque d'un jeu (main.dol, un .rel...) enregistre dans Telechargements/GC Remote, puis partage
+ *  (GC Station v314 : /api/discfile ; le jeu doit etre sur la carte SD, et GC Station a l'ecran, hors partie) */
+object ExtraireFichier {
+    @Volatile var enCours = false
+    fun lancer(a: android.app.Activity, id: String, chemin0: String) {
+        if (enCours) return
+        val chemin = "/" + chemin0.trim().trimStart('/')
+        if (St.jeu != null) { Lang.toast(a, "Hors partie seulement : reviens à GC Station (A + Z + START)", android.widget.Toast.LENGTH_LONG).show(); return }
+        if (android.os.Build.VERSION.SDK_INT < 29) { Lang.toast(a, "Android 10 ou plus est nécessaire", android.widget.Toast.LENGTH_LONG).show(); return }
+        enCours = true
+        Lang.toast(a, "Extraction de $chemin…", android.widget.Toast.LENGTH_SHORT).show()
+        Thread {
+            val b = Api.getBytes("/api/discfile?id=$id&f=" + Api.enc(chemin), 30000)
+            var u: android.net.Uri? = null
+            val nom = id + "-" + chemin.substringAfterLast('/')
+            if (b != null && b.isNotEmpty()) try {
+                val cv = android.content.ContentValues()
+                cv.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, nom)
+                cv.put(android.provider.MediaStore.Downloads.MIME_TYPE, "application/octet-stream")
+                cv.put(android.provider.MediaStore.Downloads.RELATIVE_PATH, android.os.Environment.DIRECTORY_DOWNLOADS + "/GC Remote")
+                u = a.contentResolver.insert(android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv)
+                if (u != null) a.contentResolver.openOutputStream(u)?.use { it.write(b) }
+            } catch (e: Exception) { u = null }
+            a.runOnUiThread {
+                enCours = false
+                if (b == null) { Lang.toast(a, "Pas reçu : GC Station v314 à l'écran, le jeu sur la carte SD, et le bon chemin ?", android.widget.Toast.LENGTH_LONG).show(); return@runOnUiThread }
+                if (u == null) { Lang.toast(a, "Impossible d'enregistrer le fichier", android.widget.Toast.LENGTH_LONG).show(); return@runOnUiThread }
+                Lang.toast(a, "Enregistré : Téléchargements/GC Remote/$nom (" + (b.size / 1024) + " Ko)", android.widget.Toast.LENGTH_LONG).show()
+                val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/octet-stream")
+                    .putExtra(android.content.Intent.EXTRA_STREAM, u).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                try { a.startActivity(android.content.Intent.createChooser(i, "Envoyer $nom")) } catch (e: Exception) { }
+            }
+        }.start()
     }
 }

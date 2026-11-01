@@ -428,6 +428,21 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                 Bouton("Patchs de secours…", Modifier.weight(1f)) { patchs = true }
                 Bouton("Lanceur de secours", Modifier.weight(1f)) { lancer(0) }
             }
+            Spacer(Modifier.height(8.dp))
+            var extraire by remember { mutableStateOf(false) }
+            Bouton("Extraire un fichier du jeu (main.dol…)", Modifier.fillMaxWidth()) { extraire = true }
+            if (extraire) {
+                var chemin by remember { mutableStateOf("/main.dol") }
+                androidx.compose.material3.AlertDialog(onDismissRequest = { extraire = false }, containerColor = C.Fond2,
+                    title = { Text("Extraire un fichier du disque", color = C.Texte) },
+                    text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Champ(chemin, { chemin = it }, "Chemin dans le disque")
+                        Doux("/main.dol : le programme du jeu. Autre fichier : son chemin dans le disque (ex. /rel/aaa.rel). " +
+                             "Enregistré dans Téléchargements/GC Remote, puis tu peux l'envoyer. Hors partie, GC Station v314.", taille = 11, couleur = C.Pale)
+                    } },
+                    confirmButton = { androidx.compose.material3.TextButton({ extraire = false; ExtraireFichier.lancer(act, g.id, chemin) }) { Text("Extraire", color = C.Rose) } },
+                    dismissButton = { androidx.compose.material3.TextButton({ extraire = false }) { Text("Annuler", color = C.Doux) } })
+            }
 
             // ---- cheats ----
             Spacer(Modifier.height(22.dp))

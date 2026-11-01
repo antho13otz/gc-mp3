@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v314 (build à venir, appli build à venir) — Extraire un fichier d'un jeu ; Wind Waker et Sunshine américains
+- **Extraire un fichier du jeu** (fiche d'un jeu dans l'appli) : `/main.dol` (le programme du jeu) ou n'importe quel
+  fichier du disque par son chemin (ex. `/rel/aaa.rel`), enregistré dans Téléchargements/GC Remote, puis partagé.
+  GC Station v314 : `/api/discfile` sait aussi sortir `main.dol` (pas dans la table des fichiers : son adresse est
+  dans l'en-tête du disque, sa taille d'après ses sections). Hors partie, jeu sur la carte SD. Essai au simulateur :
+  identique à l'octet.
+- Compagnon : **Wind Waker américain (GZLE01)** et **Sunshine américain (GMSE01)**, mêmes écrans que les européens
+  (adresses : zeldaret/tww et doldecomp/sms). Mario Kart Double Dash américain : pas encore (le projet public ne
+  couvre que la version européenne et une version de démonstration américaine).
+
 ## Nouveautés appli build 168 — Compagnon : tous les jeux (valeurs épinglées), Paper Mario, Ocarina of Time
 - **Tous les jeux** : dans le chercheur de codes, une adresse trouvée > **« Épingler au compagnon de jeu »** (nom, et
   un maximum pour avoir une jauge) : la valeur s'affiche en direct dans le compagnon de ce jeu, à chaque partie
