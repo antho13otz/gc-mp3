@@ -2,6 +2,8 @@ name: Compiler GC MP3 Player
 
 on:
   push:
+    # (seulement main : une seule compilation par publication, pas une de plus pour la branche)
+    branches: [main]
     # (une modification seulement de l'appli du telephone ou de la documentation : pas de nouvelle version de la console)
     paths-ignore:
       - 'android/**'

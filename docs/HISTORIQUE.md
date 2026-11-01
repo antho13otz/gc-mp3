@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v311 (build à venir, appli build à venir) — File « à suivre », vagues nettes, notice sans clignotement
+## Nouveautés v311 (build 817, appli build 150) — File « à suivre », vagues nettes, notice sans clignotement
 - **Console : les pages de la notice ne clignotent plus.** En tournant une page, la console préchargeait la feuille
   suivante en retirant de la mémoire une page encore affichée : elle était rechargée, retirée, rechargée… (éclairs
   blancs). Une page à l'écran n'est plus jamais retirée, et le dos d'une page caché n'est plus chargé pour rien.

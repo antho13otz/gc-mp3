@@ -4,6 +4,8 @@ name: Telecommande Android
 # Compilee quand le dossier android/ change ; l'APK est seulement joint a la compilation (pas de release publique).
 on:
   push:
+    # (seulement main : une seule compilation par publication, pas une de plus pour la branche)
+    branches: [main]
     paths:
       - 'android/**'
       - '.github/workflows/android.yml'
