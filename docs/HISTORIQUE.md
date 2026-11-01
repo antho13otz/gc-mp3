@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Mario Kart : le circuit vu du dessus, avec les karts
+- Écran compagnon de **Mario Kart Double Dash!!** : le **nom du circuit** et le **circuit dessiné vu du dessus** (la piste,
+  ses bords et la ligne d'arrivée), avec **les 8 karts en direct** et la place de chacun ; le kart 1 (toi) en rose.
+- Le tracé est lu une fois par circuit dans la mémoire du jeu : les tronçons de la course (bords gauche et droit de
+  chaque point de passage), suivis d'un tronçon au suivant jusqu'à refaire le tour. Rien à changer sur la console.
+
 ## Nouveautés v312 (build 818) — Chercheur de codes et compagnon dans Mario Kart Double Dash
 - **Pulse cache le Broadband Adapter au jeu aussi quand « Chercheur de codes (appli) » est sur Oui** (avant : seulement
   avec les manettes du téléphone). Mario Kart Double Dash cherche l'adaptateur au démarrage pour son mode réseau local ;
