@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés appli build à venir — Le disque sorti ne tourne plus tout seul
+## Nouveautés appli build 122 — Le disque sorti ne tourne plus tout seul
 - Boîte 3D de l'appli : le disque sorti de la boîte reste immobile, de face ; il ne tourne que si on le lance du doigt
   (et ralentit tout seul).
 
