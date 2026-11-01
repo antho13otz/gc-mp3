@@ -24,6 +24,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v319 (build 826, appli build 193) — GC Station en anglais complétée ; 100 % Paper Mario et Twilight Princess
+- Console : **GC Station en anglais** (Réglages > Langue / Language = English, ou console en anglais). Tous les textes
+  affichés relevés au simulateur en anglais (tour des onglets, menus, réglages, outils, jeux, test total) : 117 textes
+  traduits en plus. L'aide en bas des réglages est traduite avant d'être coupée en deux lignes (sinon elle restait en
+  français) ; la vidéo, la langue automatique et la ville de la météo aussi. Restent en français : les noms (radios,
+  podcasts, fichiers) et le rapport du test de la console.
+- Appli : « **Pour finir à 100 %** » pour **Paper Mario** (étoiles de cristal, partenaires à recruter, bottes et marteau,
+  pouvoirs étoile, rang, Puits des 100 épreuves, sortes de badges et badges manquants en gris) et **Twilight Princess**
+  (fragments de cœur, âmes, bourse, ombres, éclats du miroir, flacons, objets pas encore trouvés).
+- (L'appli elle-même a déjà l'anglais dans Plus > Apparence ; les écrans du compagnon de jeu ne sont pas encore traduits.)
+
 ## Nouveautés appli build 191 — Pour finir à 100 % (Wind Waker, Sunshine) ; photo de la mémoire à partager
 - **Wind Waker** : une carte « Pour finir à 100 % » d'après la sauvegarde en cours : cœurs (quarts de cœur manquants),
   emplacements d'objets vides, bourse, carquois, sac de bombes, magie, chants, perles, Triforce, cartes obtenues et
