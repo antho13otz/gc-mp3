@@ -57,8 +57,10 @@ final class Api {
         try { return b == null ? null : new String(b, "UTF-8"); } catch (Exception e) { return null; }
     }
 
-    static void get(final String path, final Done<String> done) {
-        pool.execute(() -> { final String r = get(path, 2500); if (done != null) ui.post(() -> done.on(r)); });
+    static void get(final String path, final Done<String> done) { get(path, 2500, done); }
+    /** (v311 : delai choisi ; ex. ajout a la file : la console repond quand sa boucle a fait le travail) */
+    static void get(final String path, final int ms, final Done<String> done) {
+        pool.execute(() -> { final String r = get(path, ms); if (done != null) ui.post(() -> done.on(r)); });
     }
 
     static void bytes(final String path, final Done<byte[]> done) {

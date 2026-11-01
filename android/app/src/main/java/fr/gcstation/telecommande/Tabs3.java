@@ -102,7 +102,7 @@ class SearchTab extends Tab {
                 r.setOnClickListener(v -> { v.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY); Api.cmd("play", k); Lang.toast(a, "Lecture : " + tr.get(k)[0], Toast.LENGTH_SHORT).show(); });
                 r.setOnLongClickListener(v -> {
                     new NeonDialog(a).title(tr.get(k)[0]).items(new String[] { "⤵  Lire juste après", "☰  Ajouter à la fin de la file" }, w ->
-                        Api.get("/api/queueadd?i=" + k + "&d=" + (w == 0 ? 1 : 0), x -> Lang.toast(a, x != null ? "Ajouté à la file" : "Pas possible", Toast.LENGTH_SHORT).show())).cancel("Fermer").show();
+                        Api.get("/api/queueadd?i=" + k + "&d=" + (w == 0 ? 1 : 0), 10000, x -> Lang.toast(a, x != null ? "Ajouté à la file" : "Pas possible", Toast.LENGTH_SHORT).show())).cancel("Fermer").show();
                     return true;
                 });
                 n++;

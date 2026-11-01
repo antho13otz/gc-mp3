@@ -356,7 +356,7 @@ class ListTab extends Tab {
             new NeonDialog(a).title(all.get(k)[0]).message(all.get(k)[1])
                 .items(new String[] { "▶  Lire maintenant", "⤵  Lire juste après", "☰  Ajouter à la fin de la file" }, w -> {
                     if (w == 0) { Api.cmd("play", k); return; }
-                    Api.get("/api/queueadd?i=" + k + "&d=" + (w == 1 ? 1 : 0), r -> {
+                    Api.get("/api/queueadd?i=" + k + "&d=" + (w == 1 ? 1 : 0), 10000, r -> {
                         Lang.toast(a, r != null && r.contains("\"ok\":1") ? (w == 1 ? "Joué juste après" : "Ajouté à la file") : "Pas possible (console à mettre à jour ?)", Toast.LENGTH_SHORT).show();
                     });
                 }).cancel("Fermer").show();

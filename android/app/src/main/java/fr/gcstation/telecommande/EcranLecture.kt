@@ -284,7 +284,7 @@ private fun Liste(radio: Boolean) {
 }
 
 private fun fileAjout(ctx: android.content.Context, k: Int, ensuite: Boolean) {
-    Api.get("/api/queueadd?i=$k&d=" + (if (ensuite) 1 else 0)) { r ->
+    Api.get("/api/queueadd?i=$k&d=" + (if (ensuite) 1 else 0), 10000) { r ->
         Lang.toast(ctx, if (r != null && r.contains("\"ok\":1")) (if (ensuite) "Joué juste après" else "Ajouté à la file") else "Pas possible (console à mettre à jour ?)", Toast.LENGTH_SHORT).show()
     }
 }
@@ -315,7 +315,8 @@ private fun FileAttente() {
         itemsIndexed(f ?: emptyList()) { i, k ->
             val n = noms
             val t = if (n != null && k >= 0 && k < n.size) n[k] else arrayOf("Morceau $k", "")
-            Ligne(t[0], t[1], Modifier.appui { Api.cmd("play", k) }, gauche = {
+            // (v311 : on saute a cette place de la file, sans la refaire ; console plus ancienne : le morceau seul)
+            Ligne(t[0], t[1], Modifier.appui { Api.get("/api/cmd?c=qplay&i=$i") { r -> if (r == null) Api.cmd("play", k) } }, gauche = {
                 Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) { Text((i + 1).toString(), color = C.Cyan, fontSize = 16.sp, fontWeight = FontWeight.Bold) }
             })
         }
