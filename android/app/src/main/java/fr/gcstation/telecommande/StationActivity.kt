@@ -53,6 +53,7 @@ object St {
     var jeuMasque by mutableStateOf(false)
     var envoi by mutableStateOf<Envoi?>(null)
     var onglet by mutableIntStateOf(0)                       // 0 Lecture, 1 Musique, 2 Jeux, 3 Tele, 4 Plus
+    var pochette by mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null)   // (pochette du morceau : fond flou de tout l'ecran, onglet Lecture)
     var sous by mutableStateOf("")                            // (ecran ouvert depuis Plus : son nom, "" = la grille)
     var seconde by mutableLongStateOf(0L)                     // (avance chaque seconde : horloges a l'ecran)
     var choixConsoles by mutableStateOf<List<Array<String>>>(emptyList())
