@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v317 (build 824, appli build 181) — Plus de question après chaque jeu ; Mario Party 5 plus détaillé
+- Console : la question « comment ça s'est passé ? » au retour d'un jeu ne s'affiche plus. Le lancement reste dans le
+  journal (gc-mp3/natif), un plantage est toujours noté tout seul, et la pastille se pose depuis le téléphone.
+- Appli, Mario Party 5 : la case exacte de chaque joueur (type et numéro), l'étoile entourée là où elle est (et sa case
+  dans le titre), la distance de chaque joueur à l'étoile (en cases, en suivant les chemins), les capsules tenues (noms)
+  et celles posées sur le plateau (petit carré blanc), le classement, les cases qui restent au joueur qui avance, les
+  pièces du dernier mini-jeu, les équipes ; les passages (cases grises) en petit sur le plan.
+
 ## Nouveautés appli build 179 — Mario Party 5 : le plateau et la case de chaque joueur
 - **Plateau vu de dessus** : les vraies positions des cases, lues dans la mémoire du jeu (tableau des cases de masu.c,
   européen en 8026C518, retrouvé dans le main.dol), avec les chemins entre les cases, la couleur de chaque case (bleue,
