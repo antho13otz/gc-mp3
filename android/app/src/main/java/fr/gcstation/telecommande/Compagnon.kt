@@ -1103,6 +1103,45 @@ private fun CompagnonWW(e: JeuWW.Etat) {
             if (!mer) Doux("La position s'affiche quand Link est sur la Grande Mer.", taille = 11)
         }
     }
+    CentWW(e)
+}
+
+/** build 188 : ce qui manque pour finir a 100 % (d'apres la sauvegarde en cours) */
+@Composable
+private fun CentWW(e: JeuWW.Etat) {
+    val manque = ArrayList<Pair<String, String>>()
+    val quarts = (80 - e.vieMax).coerceAtLeast(0)
+    if (quarts > 0) manque.add("Cœurs" to ((e.vieMax / 4).toString() + " / 20 : encore " + quarts + " quarts de cœur (4 par réceptacle)"))
+    val vides = e.objets.withIndex().filter { it.value == 255 || it.value == 0 }.map { JeuWW.CASES_NOM.getOrElse(it.index) { "?" } }
+    if (e.objets.isNotEmpty() && vides.isNotEmpty()) manque.add("Objets" to (vides.size.toString() + " emplacement(s) vide(s) : " + vides.distinct().joinToString(", ")))
+    if (e.bourse < 2) manque.add("Bourse" to (JeuWW.rubisMax(e.bourse).toString() + " rubis : agrandir jusqu'à 5000"))
+    if (e.flechesMax in 1..98) manque.add("Carquois" to ("${e.flechesMax} flèches : jusqu'à 99"))
+    if (e.bombesMax in 1..98) manque.add("Sac de bombes" to ("${e.bombesMax} bombes : jusqu'à 99"))
+    if (e.magieMax in 1..16) manque.add("Magie" to "jauge simple : la doubler")
+    if (e.chants < 6) manque.add("Chants de la Baguette du Vent" to ("${e.chants} / 6"))
+    if (Integer.bitCount(e.perles) < 3) manque.add("Perles" to (Integer.bitCount(e.perles).toString() + " / 3"))
+    if (Integer.bitCount(e.triforce) < 8) manque.add("Fragments de la Triforce" to (Integer.bitCount(e.triforce).toString() + " / 8"))
+    if (e.cartesMer.size == 4) {
+        val c = e.cartesMer
+        if (c[0] < 49) manque.add("Cartes" to ("${c[0]} / 49 obtenues"))
+        if (c[2] < c[0]) manque.add("Trésors à repêcher" to ((c[0] - c[2]).toString() + " carte(s) obtenue(s) dont le trésor n'est pas encore remonté"))
+    }
+    val iles = if (e.cartes.size >= 49) (0 until 49).filter { e.cartes[it] and 1 == 0 }.map { JeuWW.ile(it) + " (" + JeuWW.nomCase(it) + ")" } else emptyList()
+    Carte(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Titre("Pour finir à 100 %", couleur = Color(0xFF3DDC84))
+            if (manque.isEmpty() && iles.isEmpty()) Doux("Tout ce que l'appli sait lire est complet !", taille = 12, couleur = C.Vert)
+            for ((n, v) in manque) Row {
+                Text(n, color = C.Texte, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(0.42f))
+                Doux(v, taille = 12, modifier = Modifier.weight(0.58f))
+            }
+            if (iles.isNotEmpty()) {
+                Text("Îles jamais visitées (" + iles.size + ")", color = C.Texte, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Doux(iles.joinToString(" · "), taille = 11)
+            }
+            Doux("Pas encore lus : figurines, quêtes annexes, quarts de cœur île par île.", taille = 10)
+        }
+    }
 }
 
 /** v313 : le plan d'un interieur (donjon, maison, ile) : le chemin de Link garde par scene, vu du dessus */
@@ -1247,6 +1286,37 @@ private fun CompagnonSMS(e: JeuSMS.Etat) {
             }
             e.achats?.let { a -> Doux(a.nom + " : " + a.soleils.sum() + " / " + a.soleils.size, taille = 11) }
             Doux("🔵 pièces bleues trouvées · 🪙 record de pièces (100 pièces = 1 soleil)", taille = 10)
+        }
+    }
+    // build 188 : ce qui manque pour finir a 100 %, zone par zone
+    if (e.zones.isNotEmpty()) Carte(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Titre("Pour finir à 100 %", couleur = Color(0xFF3DDC84))
+            Doux("Soleils " + e.soleils + " / 120 · pièces bleues " + e.bleues + " / 240", taille = 12, couleur = C.Texte)
+            var rien = true
+            for (z in e.zones) {
+                val m = ArrayList<String>()
+                for ((k, v) in z.soleils.withIndex()) if (v == 0) m.add(when { k < 8 -> "épisode " + (k + 1); k < 10 -> "soleil caché"; else -> "100 pièces" + if (z.record > 0) " (record " + z.record + ")" else "" })
+                if (z.bleues < z.bleuesMax) m.add("🔵 " + (z.bleuesMax - z.bleues) + " pièce(s) bleue(s)")
+                if (m.isEmpty()) continue
+                rien = false
+                Row {
+                    Text(z.nom, color = Color(z.couleur), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(0.36f))
+                    Doux(m.joinToString(" · "), taille = 12, modifier = Modifier.weight(0.64f))
+                }
+            }
+            for (z in listOfNotNull(e.delfino, e.corona)) {
+                val ms = z.soleils.count { it == 0 }; val mb = (z.bleuesMax - z.bleues).coerceAtLeast(0)
+                if (ms == 0 && mb == 0) continue
+                rien = false
+                Row {
+                    Text(z.nom, color = Color(z.couleur), fontSize = 13.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(0.36f))
+                    Doux(listOfNotNull(if (ms > 0) "$ms soleil(s)" else null, if (mb > 0) "🔵 $mb pièce(s) bleue(s)" else null).joinToString(" · "), taille = 12, modifier = Modifier.weight(0.64f))
+                }
+            }
+            e.achats?.let { a -> val ms = a.soleils.count { it == 0 }; if (ms > 0) { rien = false; Doux("Soleils à obtenir contre des pièces bleues : $ms", taille = 12) } }
+            if (rien) Doux("Tout est trouvé !", taille = 12, couleur = C.Vert)
+            Doux("Épisodes 1 à 8 de chaque zone, puis ses soleils cachés et celui des 100 pièces.", taille = 10)
         }
     }
 }
