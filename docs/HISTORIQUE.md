@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés appli build à venir — Compagnon : Twilight Princess, Pikmin 1 et 2, Melee, Mario Superstar Baseball
+## Nouveautés appli build 165 — Compagnon : Twilight Princess, Pikmin 1 et 2, Melee, Mario Superstar Baseball
 - L'écran compagnon (onglet Plus > Compagnon de jeu, ou bouton de la partie en cours) reconnaît 5 jeux de plus, avec
   une **fiche commune** (grands chiffres, jauges, compteurs, pastilles), en plus de Wind Waker, Sunshine et Mario Kart :
   - **Twilight Princess** (européen et américain) : cœurs, huile, rubis et bourse, forme (Hylien / loup), flèches,
