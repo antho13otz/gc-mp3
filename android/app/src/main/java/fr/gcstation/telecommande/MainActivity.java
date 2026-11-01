@@ -116,7 +116,7 @@ public class MainActivity extends Activity implements Host {
         top.setPadding(dp(20), dp(14), dp(12), dp(6));
         LinearLayout brand = new LinearLayout(this);
         brand.setOrientation(LinearLayout.VERTICAL);
-        TextView logo = Neon.glow(this, "GC STATION", 22, Neon.PINK);
+        TextView logo = Neon.glow(this, "GC REMOTE", 22, Neon.PINK);
         brand.addView(logo);
         LinearLayout st = new LinearLayout(this);
         st.setGravity(Gravity.CENTER_VERTICAL);
@@ -618,7 +618,7 @@ public class MainActivity extends Activity implements Host {
         card.setGravity(Gravity.CENTER_HORIZONTAL);
         card.setBackground(Neon.glass(this, 26));
         card.setPadding(dp(22), dp(26), dp(22), dp(22));
-        TextView t = Neon.glow(this, "GC STATION", 30, Neon.PINK);
+        TextView t = Neon.glow(this, "GC REMOTE", 30, Neon.PINK);
         t.setGravity(Gravity.CENTER);
         card.addView(t);
         TextView sub = Neon.glow(this, "Télécommande", 15, Neon.CYAN);

@@ -24,6 +24,9 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Titre GC REMOTE
+- Le titre en haut de l'appli (et sur l'écran de connexion) dit maintenant **GC REMOTE** ; oublié au changement de nom.
+
 ## Nouveautés v308 (build 810, appli build 137) — Photo du téléphone sur la télé : corrigé
 - Photos (appli) : toucher une photo pour l'afficher sur la télé ne marchait pas quand l'**économiseur d'écran** (ou la
   veilleuse) de la console était lancé : la photo s'ouvrait derrière. Il est maintenant coupé, comme pour une photo

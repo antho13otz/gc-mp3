@@ -126,7 +126,7 @@ private fun EnTete(act: StationActivity) {
     var menu by remember { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f)) {
-            Text("GC STATION", style = androidx.compose.ui.text.TextStyle(brush = C.Neon), fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
+            Text("GC REMOTE", style = androidx.compose.ui.text.TextStyle(brush = C.Neon), fontSize = 22.sp, fontWeight = FontWeight.Black, letterSpacing = 2.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 val (couleur, txt) = when {
                     St.jeu != null -> C.Rose to "En jeu · " + (St.jeu?.name ?: "")
@@ -225,7 +225,7 @@ private fun Connexion(act: StationActivity) {
     Box(Modifier.fillMaxSize().background(C.Fond.copy(alpha = 0.92f)).clickable(remember { MutableInteractionSource() }, null) { }, contentAlignment = Alignment.Center) {
         Column(Modifier.padding(24.dp).fillMaxWidth().verre(RoundedCornerShape(28.dp)).padding(24.dp).verticalScroll(rememberScrollState()),
             horizontalAlignment = Alignment.CenterHorizontally) {
-            Text("GC STATION", style = androidx.compose.ui.text.TextStyle(brush = C.Neon), fontSize = 32.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
+            Text("GC REMOTE", style = androidx.compose.ui.text.TextStyle(brush = C.Neon), fontSize = 32.sp, fontWeight = FontWeight.Black, letterSpacing = 3.sp)
             Text("Télécommande", color = C.Cyan, fontSize = 14.sp)
             Spacer(Modifier.height(22.dp))
             if (St.cherche) CircularProgressIndicator(color = C.Rose) else Icon(Ic.Wifi, null, tint = C.Rose, modifier = Modifier.size(40.dp))
