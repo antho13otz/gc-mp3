@@ -857,3 +857,5 @@ Pulse réécrit ces valeurs à chaque image jusqu'à ce que tu les libères (ou 
 Pulse réécrit cette valeur à chaque image, tout de suite, jusqu'à ce que tu la libères (8 au plus).	Pulse rewrites this value every frame, right away, until you release it (8 at most).
 Valeur bloquée dans le jeu	Value locked in the game
 8 valeurs bloquées au plus	8 locked values at most
+Agrandissement de la jaquette par IA (une seule fois)…	Upscaling the cover with AI (only once)…
+ · agrandie par IA	 · upscaled by AI

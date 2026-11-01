@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Jaquettes HD agrandies par IA aussi
+- Boîte 3D : **toutes** les jaquettes passent maintenant par l'IA, HD comprise : la jaquette complète 1024 x 680 est
+  agrandie par morceaux de 256 px (raccords invisibles) jusqu'à **4096 x 2720** ; les autres x4, 4096 px au plus.
+  Une seule fois par jeu (la 1re ouverture de la boîte montre l'avancement, quelques dizaines de secondes), gardée en
+  JPEG. La ligne du haut dit « agrandie par IA ». « Tout garder pour hors-ligne » ne lance pas l'IA des jaquettes
+  (trop long pour toute la collection) ; l'étagère lit les versions agrandies déjà faites, réduites à 1024 px.
+
 ## Nouveautés appli build 126 — Mise à jour de l'appli : toujours la plus récente
 - « Mettre à jour l'appli » prend la compilation au plus grand numéro, et non plus la première de la liste de GitHub
   (qui ne les range pas toujours dans l'ordre : l'appli 1.122 se croyait à jour alors que la 1.124 existait).

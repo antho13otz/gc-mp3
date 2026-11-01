@@ -141,34 +141,42 @@ object JaquettesHQ {
 
     /** {jaquette complete (dos|tranche|avant) ou null, jaquette avant ou null} */
     /** jaquette complete (dos|tranche|avant), jaquette avant (sans complete), image du disque : null si pas trouvee */
-    class Images(val full: Bitmap?, val avant: Bitmap?, val disque: Bitmap?)
-    suspend fun charger(dir: File, id: String, ctx: Context? = null): Images = withContext(Dispatchers.IO) {
-        val full = image(dir, "coverfullHQ", id) ?: image(dir, "coverfull", id)?.let { netIA(dir, "coverfull", id, it, ctx) }
-        val avant = if (full != null) null else image(dir, "coverHQ", id) ?: Jaquettes.bitmap(dir, id)?.let { netIA(dir, "cover", id, it, ctx) }
-        Images(full, avant, disqueNet(dir, id, ctx))
+    class Images(val full: Bitmap?, val avant: Bitmap?, val disque: Bitmap?, val ia: Boolean = false)
+    /** v308 : jaquettes agrandies par IA, HD comprise (progres : texte d'avancement, la 1re fois) */
+    suspend fun charger(dir: File, id: String, ctx: Context? = null, progres: ((Float) -> Unit)? = null, iaJaquettes: Boolean = true): Images = withContext(Dispatchers.IO) {
+        var ia = false
+        fun net(g: String, b: Bitmap?): Bitmap? = b?.let { val r = netIA(dir, g, id, it, if (iaJaquettes) ctx else null, progres); if (r !== it) ia = true; r }
+        val full = net("coverfullHQ", image(dir, "coverfullHQ", id)) ?: net("coverfull", image(dir, "coverfull", id))
+        val avant = if (full != null) null else net("coverHQ", image(dir, "coverHQ", id)) ?: net("cover", Jaquettes.bitmap(dir, id))
+        Images(full, avant, disqueNet(dir, id, ctx), ia)
     }
 
     /** pour l'etagere : jaquette complete (HD si gardee, sinon normale, ou deja agrandie par IA), sinon jaquette avant ;
      *  pas de disque ; (l'IA n'y est pas lancee : trop long pour toute une etagere, seulement ce qu'une boite a deja fait) */
     suspend fun chargerEtagere(dir: File, id: String): Images = withContext(Dispatchers.IO) {
-        val full = image(dir, "coverfullHQ", id) ?: image(dir, "coverfull", id)?.let { netIA(dir, "coverfull", id, it, null) }
-        val avant = if (full != null) null else image(dir, "coverHQ", id) ?: Jaquettes.bitmap(dir, id)?.let { netIA(dir, "cover", id, it, null) }
+        val full = image(dir, "coverfullHQ", id) ?: image(dir, "coverfull", id)?.let { netIA(dir, "coverfull", id, it, null, null, 1024) }
+        val avant = if (full != null) null else image(dir, "coverHQ", id) ?: Jaquettes.bitmap(dir, id)?.let { netIA(dir, "cover", id, it, null, null, 1024) }
         Images(full, avant, null)
     }
 
-    /** v308 : jaquette en basse definition (pas de HD chez GameTDB) agrandie par IA (x4, puis 1024 px au plus), gardee
-     *  sur le telephone (jaquettes/<genre>ia) ; ctx null : seulement si deja faite ; sinon (ou echec) : celle d'origine */
-    private fun netIA(dir: File, genre: String, id: String, b: Bitmap, ctx: Context?): Bitmap {
-        if (maxOf(b.width, b.height) > 600) return b                  // (deja assez grande)
-        val f = File(dir, "jaquettes/${genre}ia/$id.png")
-        if (f.exists()) BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888 })?.let { return it }
+    /** v308 : jaquette agrandie par IA (x4 ; la HD 1024 x 680 par morceaux : 4096 x 2720), 4096 px au plus, gardee sur
+     *  le telephone (jaquettes/<genre>ia/<id>.jpg, une seule fois par jeu) ; ctx null : seulement si deja faite (lue a
+     *  maxi px au plus) ; sinon (ou echec) : celle d'origine */
+    private fun netIA(dir: File, genre: String, id: String, b: Bitmap, ctx: Context?, progres: ((Float) -> Unit)? = null, maxi: Int = 4096): Bitmap {
+        val f = File(dir, "jaquettes/${genre}ia/$id.jpg")
+        if (f.exists()) {
+            val o = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(f.path, o)
+            var s = 1; while (maxOf(o.outWidth, o.outHeight) / s > maxi) s *= 2
+            BitmapFactory.decodeFile(f.path, BitmapFactory.Options().apply { inPreferredConfig = Bitmap.Config.ARGB_8888; inSampleSize = s })?.let { return it }
+        }
         if (ctx == null) return b
         return try {
-            val px = IntArray(b.width * b.height); b.getPixels(px, 0, b.width, 0, 0, b.width, b.height)
-            val ia = AgrandirIA.x4(ctx, px, b.width, b.height) ?: return b
-            val k = minOf(1f, 1024f / maxOf(ia.width, ia.height))
+            val ia = (if (maxOf(b.width, b.height) > 400) AgrandirIA.x4Grand(ctx, b) { progres?.invoke(it) }
+                      else { val px = IntArray(b.width * b.height); b.getPixels(px, 0, b.width, 0, 0, b.width, b.height); AgrandirIA.x4(ctx, px, b.width, b.height) }) ?: return b
+            val k = minOf(1f, 4096f / maxOf(ia.width, ia.height))
             val r = if (k < 1f) Bitmap.createScaledBitmap(ia, (ia.width * k).toInt(), (ia.height * k).toInt(), true).also { if (it !== ia) ia.recycle() } else ia
-            try { f.parentFile?.mkdirs(); f.outputStream().use { r.compress(Bitmap.CompressFormat.PNG, 100, it) } } catch (e: Exception) { }
+            try { f.parentFile?.mkdirs(); f.outputStream().use { r.compress(Bitmap.CompressFormat.JPEG, 95, it) } } catch (e: Exception) { }
             r
         } catch (e: Throwable) { b }                                  // (pas assez de memoire : celle d'origine)
     }
@@ -203,12 +211,12 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
     var noticeOuverte by remember { mutableStateOf(false) }
     LaunchedEffect(id, vue) {
         val v = vue ?: return@LaunchedEffect
-        val im = JaquettesHQ.charger(Hors.dir(act), id, act)
+        val im = JaquettesHQ.charger(Hors.dir(act), id, act, progres = { p: Float -> etat = Lang.t("Agrandissement de la jaquette par IA (une seule fois)…") + " " + (p * 100).toInt() + " %" })
         etat = (when {
             im.full != null -> "Jaquette complète " + im.full.width + "×" + im.full.height
             im.avant != null -> "Jaquette avant seulement"
             else -> "Pas de jaquette"
-        }) + " · " + (if (im.disque != null) "disque du jeu" else "pas d'image du disque") + " (GameTDB)"
+        }) + (if (im.ia) " · agrandie par IA" else "") + " · " + (if (im.disque != null) "disque du jeu" else "pas d'image du disque") + " (GameTDB)"
         v.textures(im, nom, id)
         val n = Notices.pages(id).let { if (it > 0) it else Hors.pagesNotice(act, id) }   // (la notice du jeu, si la console en a une, ou gardee : dans le couvercle)
         if (n > 0) { Notices.page(Hors.dir(act), id, 1)?.let { v.notice(it.asAndroidBitmap()) }; pagesNotice = n }
