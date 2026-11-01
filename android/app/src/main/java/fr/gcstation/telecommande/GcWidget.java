@@ -42,8 +42,8 @@ public class GcWidget extends AppWidgetProvider {
         // build 185 : le jeu en cours (Pulse), avec le temps de la partie
         Live.Game g = Live.game;
         if (g != null && !g.name.isEmpty()) {
-            long m = g.playedSec() / 60;
-            v.setTextViewText(R.id.w_game, "\uD83C\uDFAE " + g.name + " \u00B7 " + (m >= 60 ? (m / 60) + " h " + String.format(java.util.Locale.FRANCE, "%02d", m % 60) : m + " min"));
+            long mn = g.playedSec() / 60;
+            v.setTextViewText(R.id.w_game, "\uD83C\uDFAE " + g.name + " \u00B7 " + (mn >= 60 ? (mn / 60) + " h " + String.format(java.util.Locale.FRANCE, "%02d", mn % 60) : mn + " min"));
             v.setViewVisibility(R.id.w_game, android.view.View.VISIBLE);
         } else v.setViewVisibility(R.id.w_game, android.view.View.GONE);
         if (PlaybackService.lastCover != null) v.setImageViewBitmap(R.id.w_cover, PlaybackService.lastCover);
