@@ -418,3 +418,33 @@ object JeuSFA : ModuleJeu("Star Fox Adventures", "GSAP01", "GSAE01", "GSAJ01") {
             blocs = blocs, message = if (ok.size > 1 && choisi < 0) "Plusieurs endroits possibles : joue quelques secondes, l'appli garde celui dont le temps avance." else "")
     }
 }
+
+// ---------------------------------------------------------------- Kirby Air Ride (GKYP01)
+/** build 209 : les 3 listes de défis (120 cases chacune). D'apres le main.dol europeen : la fonction des cases
+ *  (gmclearchecker.c) prend la zone du mode (0x80529080, + 0x118 par mode) et lit l'octet 0x7C + numero de la case ;
+ *  bit 0 = case cochee. Version europeenne seulement (adresse fixe). */
+object JeuKAR : ModuleJeu("Kirby Air Ride", "GKYP01") {
+    private const val BASE = 0x80529080L
+    private val MODES = arrayOf("Air Ride", "Top Ride", "City Trial")
+    private val COUL = longArrayOf(0xFFFF8AC8, 0xFFFFD54A, 0xFF5FD3FF)
+
+    override fun lire(l: Lecteur, id: String): Fiche? {
+        val listes = (0 until 3).map { m -> l.plage(BASE + 0x118L * m + 0x7C, 120) ?: return null }
+        if (listes.any { d -> d.any { it !in 0..0xFF } }) return null
+        val coches = listes.map { d -> d.count { it and 1 != 0 } }
+        val total = coches.sum()
+        val blocs = ArrayList<Bloc>()
+        blocs.add(Bloc("Pour finir à 100 %", lignes = (0 until 3).map { m ->
+            Ligne(MODES[m], coches[m].toString() + " / 120", pct(coches[m], 120), COUL[m]) } +
+            Ligne("Total", "$total / 360", pct(total, 360), 0xFF3DDC84)))
+        for (m in 0 until 3) {
+            val manq = (0 until 120).filter { listes[m][it] and 1 == 0 }
+            blocs.add(Bloc(MODES[m] + " · " + coches[m] + " / 120",
+                pastilles = (0 until 120).map { (it + 1).toString() to (listes[m][it] and 1 != 0) },
+                texte = if (manq.isEmpty()) "Liste complète !" else "Cases à cocher : " + manq.size +
+                    " (numérotées dans l'ordre de la sauvegarde, ligne par ligne)"))
+        }
+        return Fiche(nom, "Liste de défis", if (total == 360) "Tout est coché !" else "$total cases cochées sur 360", 0xFFFF8AC8, 0xFF3A1E5A,
+            grands = (0 until 3).map { coches[it].toString() to MODES[it] }, blocs = blocs)
+    }
+}
