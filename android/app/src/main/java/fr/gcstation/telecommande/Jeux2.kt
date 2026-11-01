@@ -145,6 +145,25 @@ object JeuTP : ModuleJeu("Twilight Princess", "GZ2P01", "GZ2E01") {
             Ligne("Poissons pêchés", poissons.toString()))))
         val inv = objets.filter { it != 0xFF && it != 0 }.map { OBJETS[it] ?: ("Objet " + Integer.toHexString(it)) }.distinct()
         if (inv.isNotEmpty()) blocs.add(Bloc("Inventaire", pastilles = inv.map { it to true }))
+        // build 192 : ce qui manque pour finir a 100 % (d'apres la sauvegarde en cours)
+        run {
+            val m = ArrayList<Ligne>()
+            val fragments = (100 - vieMax).coerceAtLeast(0)
+            if (fragments > 0) m.add(Ligne("Cœurs", (vieMax / 5).toString() + " / 20 : encore " + fragments + " fragments de cœur (5 par cœur)"))
+            if (ames < 60) m.add(Ligne("Âmes d'Esprits", "$ames / 60 : encore " + (60 - ames)))
+            if (bourse < 1000) m.add(Ligne("Bourse", "$bourse rubis : agrandir jusqu'à 1000"))
+            if (Integer.bitCount(ombres and 7) < 3) m.add(Ligne("Ombres fusionnées", Integer.bitCount(ombres and 7).toString() + " / 3"))
+            if (Integer.bitCount(miroir and 15) < 4) m.add(Ligne("Éclats du Miroir", Integer.bitCount(miroir and 15).toString() + " / 4"))
+            val cles = listOf(0x48 to "Lanterne", 0x4A to "Canne à pêche", 0x4B to "Lance-pierre", 0x40 to "Aérouage", 0x43 to "Arc", 0x45 to "Bottes de fer",
+                0x42 to "Boulet", 0x44 to "Grappin", 0x47 to "Double grappin", 0x41 to "Toupie", 0x46 to "Bâton Anima", 0x3E to "Œil de faucon", 0x84 to "Herbe-sifflet")
+            val ont = objets.toSet()
+            val manque = cles.filter { it.first !in ont }.map { it.second }
+            val flacons = objets.count { it in 0x60..0x76 }
+            if (flacons < 4) m.add(Ligne("Flacons", "$flacons / 4"))
+            if (objets.isNotEmpty() && (manque.isNotEmpty() || m.isNotEmpty()))
+                blocs.add(Bloc("Pour finir à 100 %", m, pastilles = manque.map { it to false },
+                    texte = (if (manque.isNotEmpty()) "En gris : les objets pas encore trouvés. " else "") + "Pas encore lus : insectes dorés, techniques secrètes, poissons à attraper."))
+        }
         if (scene.startsWith("D_MN")) blocs.add(Bloc("Donjon", listOf(Ligne("Petites clés", cles.toString())),
             pastilles = listOf("Carte" to (dj and 1 != 0), "Boussole" to (dj and 2 != 0), "Clé du boss" to (dj and 4 != 0), "Boss vaincu" to (dj and 8 != 0))))
         blocs.add(Bloc("Partie", listOf(
