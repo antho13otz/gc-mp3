@@ -208,10 +208,46 @@ object JeuMKDD {
     private const val RACE = 0x803D5628L                           // RaceMgr::sRaceManager
     const val PAS_DE_TEMPS = 5999999
 
+    class Kart(val n: Int, val x: Float, val z: Float, val place: Int)
     class Etat(val enCourse: Boolean, val fini: Boolean, val place: Int, val tour: Int, val tours: Int, val progres: Float,
-               val tempsTours: List<Int>, val total: Int)
+               val tempsTours: List<Int>, val total: Int, val karts: List<Kart> = emptyList(), val circuit: Int = 0)
 
     val HORS_COURSE = Etat(false, false, 0, 0, 0, 0f, emptyList(), PAS_DE_TEMPS)
+
+    /** noms des circuits (ECourseID) */
+    fun nomCircuit(id: Int): String = when (id) {
+        0x21 -> "Baby Park"; 0x22 -> "Plage Peach"; 0x23 -> "Croisière Daisy"; 0x24 -> "Circuit Luigi"; 0x25 -> "Circuit Mario"
+        0x26 -> "Circuit Yoshi"; 0x28 -> "Pont Champignon"; 0x29 -> "Ville Champignon"; 0x2A -> "Stade Waluigi"; 0x2B -> "Colisée Wario"
+        0x2C -> "Jungle Dino Dino"; 0x2D -> "Montagne DK"; 0x2F -> "Château de Bowser"; 0x31 -> "Route Arc-en-ciel"; 0x32 -> "Désert Sec Sec"
+        0x33 -> "Royaume Sorbet"; else -> ""
+    }
+
+    /** le trace du circuit : bords gauche et droit de chaque troncon (x1, z1, x2, z2), lu une fois par course */
+    @Volatile var trace: List<FloatArray> = emptyList()
+    @Volatile var depart = -1                                       // (troncon de la ligne d'arrivee dans trace)
+    @Volatile private var dernierCircuit = -1
+    @Volatile private var essai = 0L
+
+    /** Course::Sector (0xB0 octets) : mID (0), mBPoint (8, SCheckPoint : cpStart, cpEnd), mNextSectors[0] (0x98) */
+    private fun lireTrace(l: Lecteur, s0: Long) {
+        val pts = ArrayList<FloatArray>()
+        val ids = ArrayList<Int>()
+        val ordre = ArrayList<Long>()
+        var s: Long? = s0
+        while (s != null && s !in ordre && ordre.size < 600) {
+            ordre.add(s)
+            val cp = l.ptr(s + 8) ?: return
+            val v = floatArrayOf(l.f32(cp) ?: Float.NaN, l.f32(cp + 8) ?: Float.NaN, l.f32(cp + 12) ?: Float.NaN, l.f32(cp + 20) ?: Float.NaN)
+            if (!v.all { it.isFinite() && Math.abs(it) < 1e6f }) return
+            pts.add(v); ids.add(l.s16(s) ?: -1)
+            s = l.ptr(s + 0x98)
+        }
+        if (s == null) return
+        val boucle = ordre.indexOf(s)                                  // (la boucle se ferme : on garde le tour seulement)
+        if (boucle < 0 || pts.size - boucle < 8) return
+        val tour = pts.subList(boucle, pts.size).toList()
+        trace = tour; depart = ids.subList(boucle, ids.size).indexOf(0)
+    }
 
     fun lire(l: Lecteur): Etat? {
         val rm = l.ptr(RACE) ?: return HORS_COURSE
@@ -228,7 +264,22 @@ object JeuMKDD {
         val tp = l.ptr(kc + 0x14)                                     // mLapTimes (ms)
         if (tp != null) for (i in 0 until faits) { val t = l.s32(tp + 4L * i) ?: break; if (t in 1 until PAS_DE_TEMPS) lt.add(t) else break }
         val total = if (fini) (l.s32(kc + 0x84) ?: PAS_DE_TEMPS) else PAS_DE_TEMPS
-        return Etat(enCourse || fini, fini, place, tour, tours, prog, lt, total)
+        // les karts (KartChecker : mPos en 0x5C, mRank en 0x88), le circuit (RaceMgr.mCourse : mCrsID en 0)
+        val karts = ArrayList<Kart>()
+        for (i in 0 until 8) {
+            val k = l.ptr(rm + 0x48 + 4L * i) ?: continue
+            val x = l.f32(k + 0x5C) ?: continue
+            val z = l.f32(k + 0x64) ?: continue
+            if (!x.isFinite() || !z.isFinite() || Math.abs(x) > 1e6f || Math.abs(z) > 1e6f || (x == 0f && z == 0f)) continue
+            karts.add(Kart(i, x, z, (l.s32(k + 0x88) ?: 0).takeIf { it in 1..8 } ?: 0))
+        }
+        val crs = l.ptr(rm + 0x44)?.let { l.s32(it) } ?: 0
+        val s0 = l.ptr(kc + 0x44) ?: l.ptr(kc + 0x40)               // (troncon ou se trouve le kart 1)
+        val maintenant = SystemClock.elapsedRealtime()
+        if (s0 != null && (crs != dernierCircuit || (trace.isEmpty() && maintenant - essai > 3000))) {
+            dernierCircuit = crs; essai = maintenant; trace = emptyList(); lireTrace(l, s0)
+        }
+        return Etat(enCourse || fini, fini, place, tour, tours, prog, lt, total, karts, crs)
     }
 }
 
@@ -638,6 +689,7 @@ private fun CompagnonMKDD(e: JeuMKDD.Etat) {
                 }
             }
             if (!e.fini) Barre(e.progres, C.Rose)
+            CarteCircuit(e)
             val meilleur = e.tempsTours.minOrNull()
             for ((i, t) in e.tempsTours.withIndex()) Row {
                 Doux("Tour " + (i + 1), taille = 13)
@@ -646,6 +698,51 @@ private fun CompagnonMKDD(e: JeuMKDD.Etat) {
             }
         }
     }
+}
+
+@Composable
+private fun CarteCircuit(e: JeuMKDD.Etat) {
+    val t = JeuMKDD.trace
+    val nom = JeuMKDD.nomCircuit(e.circuit)
+    if (nom.isNotEmpty()) Titre(nom)
+    if (t.isEmpty()) { if (e.karts.isNotEmpty()) Doux("Lecture du circuit…", taille = 11); return }
+    Canvas(Modifier.fillMaxWidth().aspectRatio(1f)) {
+        var x0 = Float.MAX_VALUE; var x1 = -Float.MAX_VALUE; var z0 = Float.MAX_VALUE; var z1 = -Float.MAX_VALUE
+        for (p in t) { x0 = minOf(x0, p[0], p[2]); x1 = maxOf(x1, p[0], p[2]); z0 = minOf(z0, p[1], p[3]); z1 = maxOf(z1, p[1], p[3]) }
+        val marge = 14.dp.toPx()
+        val k = minOf((size.width - 2 * marge) / (x1 - x0).coerceAtLeast(1f), (size.height - 2 * marge) / (z1 - z0).coerceAtLeast(1f))
+        val ox = (size.width - (x1 - x0) * k) / 2; val oz = (size.height - (z1 - z0) * k) / 2
+        fun pt(x: Float, z: Float) = Offset(ox + (x - x0) * k, oz + (z - z0) * k)
+        val route = Path(); val bordG = Path(); val bordD = Path()
+        for (i in t.indices) {
+            val a = t[i]; val b = t[(i + 1) % t.size]
+            val q = Path().apply {
+                val p1 = pt(a[0], a[1]); val p2 = pt(a[2], a[3]); val p3 = pt(b[2], b[3]); val p4 = pt(b[0], b[1])
+                moveTo(p1.x, p1.y); lineTo(p2.x, p2.y); lineTo(p3.x, p3.y); lineTo(p4.x, p4.y); close()
+            }
+            route.addPath(q)
+            val g = pt(a[0], a[1]); val d = pt(a[2], a[3])
+            if (i == 0) { bordG.moveTo(g.x, g.y); bordD.moveTo(d.x, d.y) } else { bordG.lineTo(g.x, g.y); bordD.lineTo(d.x, d.y) }
+        }
+        bordG.close(); bordD.close()
+        drawPath(route, Color(0xFF3A3F52))
+        drawPath(bordG, Color(0xAAFFFFFF), style = Stroke(1.5.dp.toPx()))
+        drawPath(bordD, Color(0xAAFFFFFF), style = Stroke(1.5.dp.toPx()))
+        val dep = JeuMKDD.depart
+        if (dep in t.indices) { val a = t[dep]; drawLine(Color.White, pt(a[0], a[1]), pt(a[2], a[3]), 4.dp.toPx()) }
+        val paint = android.graphics.Paint().apply { isAntiAlias = true; textSize = 10.dp.toPx(); color = android.graphics.Color.BLACK
+            textAlign = android.graphics.Paint.Align.CENTER; typeface = android.graphics.Typeface.DEFAULT_BOLD }
+        for (kt in e.karts.sortedByDescending { it.n }) {         // (le kart 1, le joueur, dessine en dernier : au-dessus)
+            val p = pt(kt.x, kt.z)
+            val joueur = kt.n == 0
+            val r = if (joueur) 9.dp.toPx() else 7.dp.toPx()
+            if (joueur) drawCircle(Color(0x66FF4FD8), r * 1.8f, p)
+            drawCircle(if (joueur) Color(0xFFFF4FD8) else Color(0xFFB8C7FF), r, p)
+            drawCircle(Color.White, r, p, style = Stroke(1.2.dp.toPx()))
+            if (kt.place > 0) drawIntoCanvas { it.nativeCanvas.drawText(kt.place.toString(), p.x, p.y + 3.5.dp.toPx(), paint) }
+        }
+    }
+    Doux("Vu du dessus · rose : toi (kart 1) · chiffre : place · trait blanc : ligne d'arrivée", taille = 10)
 }
 
 /** temps de Mario Kart : 1:23.456 */
