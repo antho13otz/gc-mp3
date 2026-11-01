@@ -4,11 +4,14 @@ package fr.gcstation.telecommande
 
 // Appli : la charpente de l'appli (en-tete, bandeaux, onglets, mini-lecteur, connexion, partie en cours).
 
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.draw.blur
 import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -89,7 +92,10 @@ fun App() {
         if (b != null) Ambiances.duJeu(b)?.let { C.duJeu = it }
     }
     Box(Modifier.fillMaxSize()) {
+        // un seul fond, du haut de l'ecran jusqu'en bas (derriere l'en-tete et la barre d'onglets aussi) : l'aurore qui
+        // bouge, et sur l'onglet Lecture la pochette du morceau, floue, qui derive doucement
         FondAurore(actif = St.visible)
+        FondPochette()
         Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().imePadding()) {
             // (Tele en paysage : plein ecran, sans en-tete ni barre d'onglets)
             val plein = St.onglet == 3 && LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
@@ -119,6 +125,24 @@ fun App() {
         ClavierPartout()                                         // (champ de texte ouvert sur la tele : le clavier du telephone, partout)
         if (St.panneau) Connexion(act)
     }
+}
+
+@Composable
+private fun FondPochette() {
+    val p = St.pochette
+    val montre = St.onglet == 0 && p != null
+    val a by androidx.compose.animation.core.animateFloatAsState(if (montre) 1f else 0f, tween(600), label = "fondPochette")
+    if (a <= 0.01f || p == null) return
+    val tr = androidx.compose.animation.core.rememberInfiniteTransition(label = "derive")
+    val t by tr.animateFloat(0f, 1f, androidx.compose.animation.core.infiniteRepeatable(tween(22000), androidx.compose.animation.core.RepeatMode.Reverse), label = "t")
+    Image(p, null, Modifier.fillMaxSize().graphicsLayer {
+            val k = if (St.visible) t else 0.5f
+            scaleX = 1.25f + 0.12f * k; scaleY = scaleX
+            translationX = size.width * 0.06f * (k - 0.5f); translationY = size.height * 0.04f * (0.5f - k)
+            alpha = 0.38f * a
+        }.blur(60.dp), contentScale = ContentScale.Crop)
+    // (un voile en degrade : les textes restent lisibles en haut et en bas)
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(C.Fond.copy(alpha = 0.35f * a), Color.Transparent, C.Fond.copy(alpha = 0.45f * a)))))
 }
 
 @Composable

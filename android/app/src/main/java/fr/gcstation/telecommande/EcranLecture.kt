@@ -91,6 +91,7 @@ fun EcranLecture() {
         val b = lireOctets("/cover.bmp?k=" + Api.enc(cle))
         val bm: Bitmap? = if (b == null) null else withContext(Dispatchers.Default) { BitmapFactory.decodeByteArray(b, 0, b.size) }
         pochette = bm?.asImageBitmap()
+        St.pochette = pochette                                   // (le fond flou est dessine derriere tout l'ecran : App.kt)
     }
     // paroles : [ms, texte], position = pos + temps passe (si la lecture tourne)
     var paroles by remember { mutableStateOf<List<Pair<Long, String>>>(emptyList()) }
@@ -125,7 +126,7 @@ fun EcranLecture() {
         val largeur = maxWidth
         val hauteur = maxHeight
         val p = pochette
-        if (p != null) Image(p, null, Modifier.fillMaxSize().blur(60.dp).alpha(0.35f), contentScale = ContentScale.Crop)
+        @Suppress("UNUSED_VARIABLE") val pp = p                   // (fond flou : App.kt, sur tout l'ecran)
         Column(Modifier.fillMaxSize().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             val taille = minOf(largeur - 48.dp, hauteur * 0.42f)
             Spacer(Modifier.height(8.dp))
