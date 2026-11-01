@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés appli build à venir — Télé du téléphone au bon format
+## Nouveautés appli build 120 — Télé du téléphone au bon format
 - **Onglet Télé : l'image a la forme de la vraie télé.** Avant, elle prenait les proportions des pixels envoyés par la
   console (640 x 574 en PAL : image étirée en hauteur, presque carrée). Maintenant GC Remote lit le réglage de la
   console « Format de l'écran » (4:3 ou 16:9, START > Réglages) par le réseau, toutes les 15 s, et l'image remplit
