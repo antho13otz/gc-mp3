@@ -6,6 +6,8 @@ package fr.gcstation.telecommande
 // Appli : Lecture (pochette, paroles synchronisees, progression, commandes, volume) et
 // Musique (morceaux, radios, file d'attente).
 
+import androidx.compose.foundation.border
+import androidx.compose.ui.draw.shadow
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -128,15 +130,18 @@ fun EcranLecture() {
         val p = pochette
         @Suppress("UNUSED_VARIABLE") val pp = p                   // (fond flou : App.kt, sur tout l'ecran)
         Column(Modifier.fillMaxSize().padding(horizontal = 24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            val taille = minOf(largeur - 48.dp, hauteur * 0.42f)
-            Spacer(Modifier.height(8.dp))
-            Box(Modifier.size(taille).clip(RoundedCornerShape(28.dp)).background(C.Neon).padding(3.dp)) {
-                Box(Modifier.fillMaxSize().clip(RoundedCornerShape(25.dp)).background(Color(0xFF140A26)), contentAlignment = Alignment.Center) {
-                    if (p != null) Image(p, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-                    else Icon(Ic.Musique, null, tint = C.Rose.copy(alpha = 0.6f), modifier = Modifier.size(taille * 0.4f))
-                }
+            val taille = minOf(largeur - 72.dp, hauteur * 0.36f)
+            Spacer(Modifier.height(10.dp))
+            // (v309 : la pochette comme sur la tele : carree, fin liseré clair, ombre portee ; dessous, le spectre)
+            Box(Modifier.size(taille).shadow(26.dp, RoundedCornerShape(4.dp), ambientColor = Color.Black, spotColor = Color.Black)
+                .clip(RoundedCornerShape(4.dp)).background(Color(0xFF140A26)).border(1.dp, Color(0x29FFFFFF), RoundedCornerShape(4.dp)),
+                contentAlignment = Alignment.Center) {
+                if (p != null) Image(p, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                else Icon(Ic.Musique, null, tint = C.Rose.copy(alpha = 0.6f), modifier = Modifier.size(taille * 0.4f))
             }
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(6.dp))
+            SpectreConsole(joue && St.visible, Modifier.width(taille + 40.dp).height(46.dp))
+            Spacer(Modifier.height(4.dp))
             Text(titre.ifEmpty { "Rien en lecture" }, color = C.Texte, fontSize = 22.sp, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis)
             if (sub.isNotEmpty()) Text(sub, color = C.Rose, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
             val info = s?.optString("info", "") ?: ""
