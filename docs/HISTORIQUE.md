@@ -24,6 +24,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 196 — Star Fox Adventures dans le compagnon de jeu
+- **Star Fox Adventures** (GSAP01, GSAE01, GSAJ01) : pas de liste de symboles pour la version européenne, donc la partie
+  en cours est **cherchée une fois dans la mémoire** (bouton « Trouver ma partie dans la mémoire », jeu en pause une
+  trentaine de secondes, comme Ocarina of Time), d'après la structure publiée par RenaKunisaki/StarFoxAdventures
+  (notes/savedata.txt : seulement des décalages). Ensuite, en direct : cœurs, magie, scarabs et BafomDads de Krystal et
+  de Fox (celui en jeu en premier), énergie de Tricky, avancement (/ 187), temps de jeu, nom du fichier. Si plusieurs
+  endroits ressemblent à une partie, l'appli garde celui dont le temps de jeu avance.
+- Pas encore essayé sur le vrai jeu.
+
 ## Nouveautés v319 (build 826, appli build 193) — GC Station en anglais complétée ; 100 % Paper Mario et Twilight Princess
 - Console : **GC Station en anglais** (Réglages > Langue / Language = English, ou console en anglais). Tous les textes
   affichés relevés au simulateur en anglais (tour des onglets, menus, réglages, outils, jeux, test total) : 117 textes
