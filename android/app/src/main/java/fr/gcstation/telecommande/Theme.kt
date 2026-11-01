@@ -183,15 +183,57 @@ fun FondAurore(modifier: Modifier = Modifier, actif: Boolean = true) {
             center = Offset(size.width * (0.15f + 0.5f * k), size.height * 0.12f), radius = size.width * 0.9f))
         drawRect(Brush.radialGradient(listOf(C.Rose.copy(alpha = 0.16f), Color.Transparent),
             center = Offset(size.width * (0.95f - 0.5f * k), size.height * 0.75f), radius = size.width * 0.8f))
-        ruban(118f, 16f, 70f, temps, 0.35f, 0.0f, 0.30f)
-        ruban(430f, 22f, 110f, temps, 0.25f, 2.1f, 0.26f)
-        ruban(460f, 12f, 60f, temps, 0.42f, 4.0f, 0.18f)
+        val sh = rubansGpu
+        if (sh != null && android.os.Build.VERSION.SDK_INT >= 33) {
+            // (calcules point par point par la puce graphique, a la definition de l'ecran : aucun escalier)
+            sh.setFloatUniform("taille", size.width, size.height)
+            sh.setFloatUniform("t", temps)
+            sh.setColorUniform("c1", android.graphics.Color.valueOf(C.Rose.red, C.Rose.green, C.Rose.blue, 1f).toArgb())
+            sh.setColorUniform("c2", android.graphics.Color.valueOf(C.Violet.red, C.Violet.green, C.Violet.blue, 1f).toArgb())
+            sh.setColorUniform("c3", android.graphics.Color.valueOf(C.Cyan.red, C.Cyan.green, C.Cyan.blue, 1f).toArgb())
+            drawRect(androidx.compose.ui.graphics.ShaderBrush(sh))
+        } else {
+            ruban(118f, 16f, 70f, temps, 0.35f, 0.0f, 0.30f)
+            ruban(430f, 22f, 110f, temps, 0.25f, 2.1f, 0.26f)
+            ruban(460f, 12f, 60f, temps, 0.42f, 4.0f, 0.18f)
+        }
     }
+}
+
+/** v311 : les trois rubans en AGSL (Android 13 et plus) : chaque point de l'ecran calcule sa distance a la courbe
+ *  (fondu lineaire vers le haut sur ep, vers le bas sur 0,35 ep, comme au_ribbon de la console) */
+private const val AGSL_RUBANS = """
+uniform float2 taille;
+uniform float t;
+layout(color) uniform half4 c1;
+layout(color) uniform half4 c2;
+layout(color) uniform half4 c3;
+half4 ruban(float x, float y, float base, float amp, float ep, float vit, float ph, float a) {
+    float yc = base + amp * sin(x * 0.012 + t * vit + ph) + 0.4 * amp * sin(x * 0.031 - t * vit * 1.7);
+    float d = y - yc;
+    float k = d < 0.0 ? clamp(1.0 + d / ep, 0.0, 1.0) : clamp(1.0 - d / (ep * 0.35), 0.0, 1.0);
+    float f = clamp((x + 10.0) / 660.0, 0.0, 1.0);
+    half4 c = f < 0.5 ? mix(c1, c2, half(f * 2.0)) : mix(c2, c3, half((f - 0.5) * 2.0));
+    half al = half(a * k * k * (3.0 - 2.0 * k));
+    return half4(c.rgb * al, al);
+}
+half4 main(float2 p) {
+    float x = p.x / taille.x * 640.0;
+    float y = p.y / taille.y * 480.0;
+    half4 o = ruban(x, y, 118.0, 16.0, 70.0, 0.35, 0.0, 0.30);
+    half4 b = ruban(x, y, 430.0, 22.0, 110.0, 0.25, 2.1, 0.26);
+    o = b + o * (1.0 - b.a);
+    half4 c = ruban(x, y, 460.0, 12.0, 60.0, 0.42, 4.0, 0.18);
+    return c + o * (1.0 - c.a);
+}
+"""
+private val rubansGpu: android.graphics.RuntimeShader? by lazy {
+    if (android.os.Build.VERSION.SDK_INT >= 33) try { android.graphics.RuntimeShader(AGSL_RUBANS) } catch (e: Exception) { null } else null
 }
 
 /** un ruban de lumiere (repere de la console : 640 x 480), fondu vers le haut et un peu vers le bas */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.ruban(base: Float, amp: Float, ep: Float, t: Float, vit: Float, ph: Float, alpha: Float) {
-    val N = 24
+    val N = 96
     val sx = size.width / 640f; val sy = size.height / 480f
     val xs = FloatArray(N + 1); val ys = FloatArray(N + 1)
     for (i in 0..N) {

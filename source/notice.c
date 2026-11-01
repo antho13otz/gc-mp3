@@ -28,6 +28,7 @@ static f32 nt_zoom = 1, nt_zoom_to = 1, nt_px = 0, nt_py = 0, nt_open = 0;   /* 
 static f32 nt_pos = 0, nt_yaw = 0, nt_pitch = 0;          /* v302 : feuilles tournees (continu), orientation du livret */
 static int nt_pos_to = 0, nt_face = 0;                    /* (feuilles a tourner ; 1 : revient de face) */
 static int nt_need[6], nt_nneed = 0;                      /* (pages a l'ecran : leurs places ne sont pas reprises) */
+static int nt_vis[16], nt_nvis = 0;                       /* v311 : pages vraiment montrees a cette image (lues ou pas) : jamais reprises */
 
 static void nt_path(const char *id, int p, char *o, int cap) { snprintf(o, cap, NT_DIR "/%.6s/%02d.jpg", id, p); }
 static void nt_count_job(void) {                          /* (thread de fond) */
@@ -107,6 +108,8 @@ static void nt_want(int page) {                           /* demander une page (
     for (int i = 0; i < NT_SLOTS && sl < 0; i++) {
         int vu = 0;
         for (int j = 0; j < nt_nneed; j++) if (nt_need[j] == nt_s[i].page) vu = 1;
+        for (int j = 0; j < nt_nvis; j++) if (nt_vis[j] == nt_s[i].page) vu = 1;   /* (v311 : avant, une page a l'ecran pouvait etre reprise pour lire
+                                                                                 la feuille suivante d'avance : relue, reprise... la page clignotait) */
         if (!vu) sl = i;
     }
     if (sl < 0) return;
@@ -159,10 +162,13 @@ static nt3 nt_rot(nt3 p) {                               /* (lacet autour de y, 
 }
 static int nt_qcmp(const void *a, const void *b) { f32 d = ((const ntq *)b)->z - ((const ntq *)a)->z; return d > 0 ? 1 : d < 0 ? -1 : 0; }
 /* une face (4 coins, sa normale) : gardee seulement si elle est tournee vers nous */
-static void nt_face4(const nt3 *p, nt3 n, GXTexObj *t, const f32 *u, const f32 *v, col_t c) {
+static GXTexObj *nt_pg(int page);
+static void nt_face4(const nt3 *p, nt3 n, int page, const f32 *u, const f32 *v, col_t c) {   /* (v311 : page 0 = sans image) */
     if (nt_nq >= NT_QMAX) return;
     nt3 rn = nt_rot(n);
     if (rn.z > -0.02f) return;
+    GXTexObj *t = NULL;                                  /* (v311 : la page n'est demandee que si sa face est vue) */
+    if (page > 0) { t = nt_pg(page); int dj = 0; for (int j = 0; j < nt_nvis; j++) if (nt_vis[j] == page) dj = 1; if (!dj && nt_nvis < 16) nt_vis[nt_nvis++] = page; }
     ntq *q = &nt_q[nt_nq];
     f32 zs = 0;
     const f32 F = 900;
@@ -200,18 +206,18 @@ static void nt_rect(f32 x0, f32 x1, f32 z, int vers_nous, int page, int u_inv) {
     f32 a = u_inv ? 1 : 0, b = u_inv ? 0 : 1;
     u[0] = a; u[1] = b; u[2] = b; u[3] = a;
     nt3 n = { 0, 0, vers_nous ? -1.f : 1.f };
-    nt_face4(p, n, nt_pg(page), u, v, RGBA(244, 240, 230, 255));
+    nt_face4(p, n, page, u, v, RGBA(244, 240, 230, 255));
 }
 static void nt_tranche(f32 x0, f32 x1, f32 z0, f32 z1, int dehors) {   /* epaisseur d'une pile (bord libre et haut / bas) */
     col_t c = RGBA(222, 216, 204, 255);
     f32 u[4] = { 0, 0, 0, 0 }, v[4] = { 0, 0, 0, 0 };
     f32 xe = dehors > 0 ? x1 : x0;
     nt3 a[4] = { { xe, 1, z0 }, { xe, 1, z1 }, { xe, -1, z1 }, { xe, -1, z0 } }; nt3 na = { (f32)dehors, 0, 0 };
-    nt_face4(a, na, NULL, u, v, c);
+    nt_face4(a, na, 0, u, v, c);
     nt3 b[4] = { { x0, 1, z0 }, { x1, 1, z0 }, { x1, 1, z1 }, { x0, 1, z1 } }; nt3 nb = { 0, 1, 0 };
-    nt_face4(b, nb, NULL, u, v, c);
+    nt_face4(b, nb, 0, u, v, c);
     nt3 d[4] = { { x0, -1, z0 }, { x1, -1, z0 }, { x1, -1, z1 }, { x0, -1, z1 } }; nt3 nd = { 0, -1, 0 };
-    nt_face4(d, nd, NULL, u, v, c);
+    nt_face4(d, nd, 0, u, v, c);
 }
 static void nt_book(f32 r) {
     int L = nt_leaves();
@@ -247,7 +253,7 @@ static void nt_book(f32 r) {
                 px[j + 1] = px[j] + cosf(am) * W / S; pz[j + 1] = pz[j] - sinf(am) * W / S;
             }
         }
-        GXTexObj *tf = nt_pg(nt_recto(i)), *tb = nt_pg(nt_verso(i));
+        int tf = nt_recto(i), tb = nt_verso(i);
         for (int j = 0; j < S; j++) {
             for (int cote = 0; cote < 2; cote++) {
                 f32 sg = cote ? -1.f : 1.f, d = e * 0.5f * sg;
@@ -344,7 +350,7 @@ static int nt_draw(int k) {
     f32 yw = (nt_yaw + (1 - e) * 55) * (f32)M_PI / 180, pt = nt_pitch * (f32)M_PI / 180;
     nt_cyw = cosf(yw); nt_syw = sinf(yw); nt_cpt = cosf(pt); nt_spt = sinf(pt);
     nt_sc = sc; nt_ox = ox; nt_oy = oy;
-    nt_nq = 0; nt_nneed = 0;
+    nt_nq = 0; nt_nneed = 0; nt_nvis = 0;
     nt_book(r);
     nt_draw_q();
     for (int i = 0; i < nt_nneed; i++) nt_want(nt_need[i]);   /* (les pages a l'ecran d'abord, une lecture a la fois) */
