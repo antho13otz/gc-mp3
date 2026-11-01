@@ -140,7 +140,11 @@ object JeuTTYD : ModuleJeu("Paper Mario : La Porte Millénaire", "G8MP01", "G8ME
     private val NOMS = "|Goomba|Paragoomba|Goomba à pointes|Spinia|Spania|Lord Crump (prologue)|Gus|Bloups|Bloups (tentacule gauche)|Bloups (tentacule droit)|Koopatrol|Magikoopa|Magikoopa (clone)|Koopa|Paratroopa|Fuzzy|Skelerex terne|Cleft chauve|Bristle|Fuzzy doré|Horde de Fuzzy|Skelerex rouge|Hooktail|Puff sombre|Plante Piranha pâle|Cleft|Pider|X-Naut|Yux|Mini Yux|Beldam (chap. 2)|Marilyn (chap. 2)|Vivian (chap. 2)|Magnus|X Fist|Goomba (Glitzville)|Koopa (KP)|Paratroopa (KP)|Pokey|Lakitu|Hériss|Hyper Cleft chauve|Bob-omb|Bandit|Gros Bandit|Buzzy à pointes rouge|Koopa louche|Paratroopa louche|Magikoopa rouge|Magikoopa rouge (clone)|Magikoopa blanc|Magikoopa blanc (clone)|Magikoopa vert|Magikoopa vert (clone)|Craw sombre|Frère Marto|Frère Boomerang|Frère Pyro|Chomp rouge|Koopatrol sombre|Cleft de fer rouge|Cleft de fer vert|Bowser (chap. 3)|Rawk Hawk|Macho Grubba|Hyper Goomba|Hyper Paragoomba|Hyper Goomba à pointes|Dayzee folle|Dayzee géniale|Hyper Cleft|Buzzy|Spike Top|Swooper|Boo|Boo atomique|Doopliss (chap. 4) combat 1|Doopliss (chap. 4) invincible|Doopliss (chap. 4) combat 2|Goombella (chap. 4)|Koops (chap. 4)|Yoshi (chap. 4)|Cumulia (chap. 4)|Ember|Bulle de lave|Fuzzy vert|Fuzzy fleur|Plante Piranha putride|Parabuzzy|Lance-Bill|Bill Ball|Gros Bob-omb|Cortez|Cortez (tas d'os)|Cortez (épée)|Cortez (crochet)|Cortez (rapière)|Cortez (sabre)|Lord Crump (chap. 5)|X-Nauts (formation 1)|X-Nauts (formation 2)|X-Nauts (formation 3)|Puff rugueux|Pokey empoisonné|Parabuzzy à pointes|Boo sombre|Smorg|Smorg (tentacule A)|Smorg (tentacule B)|Smorg (tentacule C)|Smorg (pince)|Puff de glace|Plante Piranha de givre|Cleft lunaire|Z-Yux|Mini Z-Yux|X-Yux|Mini X-Yux|X-Naut docteur|X-Naut d'élite|Magnus 2.0|X Punch|Swoopula|Ember fantôme|Lance-Bill Bombe|Bill Bombe|Chomp|Wizzerd sombre|Wizzerd sombre (clone)|Skelerex|Skelerex sombre|Gloomtail|Beldam (chap. 8)|Marilyn (chap. 8)|Doopliss (chap. 8)|Doopliss (chap. 8, Mario)|Doopliss (chap. 8, Goombella)|Doopliss (chap. 8, Koops)|Doopliss (chap. 8, Yoshi)|Doopliss (chap. 8, Cumulia)|Doopliss (chap. 8, Vivian)|Doopliss (chap. 8, Bombart)|Doopliss (chap. 8, Mme Gonzales)|Bowser (chap. 8)|Kammy Koopa|Grodus|Grodus X|Reine des Ombres (Peach)|Reine des Ombres (invincible)|Reine des Ombres|Reine des Ombres (main)|Reine des Ombres (mains mortes)|Gloomba|Paragloomba|Gloomba à pointes|Koopa sombre|Paratroopa sombre|Bandit à badges|Lakitu sombre|Hériss bleu ciel|Wizzerd|Plante Piranha|Spunia|Arantula|Bristle sombre|Puff empoisonné|Swampire|Bulky Bob-omb|Wizzerd d'élite|Wizzerd d'élite (clone)|Bonetail|Buzzy rouge|Parabuzzy rouge|Parabuzzy à pointes rouge|Hyper Bob-omb|Ultra Bob-omb|Goombella|Frankly 2|Frankly 3|Frankly 4|Doopliss (Mario)|Cumulia|Boo|Boo atomique|Toad|Toadette||Lord Crump|Beldam|Marilyn|Vivian|Beldam|Marilyn|Méca-Goomba|Méca-Koopa|Okorl|Yowarl|Tuyonarl|Wanawana|Minarai Kamec|Maskass|Maskass groove|Maskass pyro|Maskass espion|Anti-Maskass|Bzzap|Mini Bzzap|Ufo|Pennington|Fighter|Zess T|Master|Reporter|Hotdog Master|Flavio|Tree|Switch|npc|Bombe de l'escouade||Goombella (prologue)|Mario|Carapace bouclier|Goombella|Koops|Yoshi|Cumulia|Vivian|Bombart|Mme Gonzales".split('|')   // (build 182 : en francais : noms habituels de la serie, sinon le nom anglais)
 
     private fun nomObjet(i: Int) = OBJETS[i] ?: BADGES[i] ?: ("Objet " + i)
-    private fun nomBadge(i: Int) = BADGES[i] ?: BADGES[i - 1]?.let { "$it (P)" } ?: ("Badge " + i)
+    private val BADGES_PLUS = mapOf(0x13B to "Effet d'attaque R", 0x13C to "Effet d'attaque B", 0x13D to "Effet d'attaque V", 0x13E to "Effet d'attaque J",
+        0x13F to "Effet d'attaque P", 0x14A to "Départ chanceux (P)")
+    private fun nomBadge(i: Int) = BADGES_PLUS[i] ?: BADGES[i] ?: BADGES[i - 1]?.let { "$it (P)" } ?: ("Badge " + i)
+    /** build 192 : les badges qu'on peut avoir (0xF0 a 0x14E, sans le badge de test 0x14B) */
+    private val TOUS_BADGES = (0xF0..0x14E).filter { it != 0x14B }
 
     override fun lire(l: Lecteur, id: String): Fiche? {
         if (pour != id) { pour = id; emplacement = 0L; ptrMario = 0L; ptrGp = 0L }
@@ -218,6 +222,26 @@ object JeuTTYD : ModuleJeu("Paper Mario : La Porte Millénaire", "G8MP01", "G8ME
             Ligne("Objets", "${tenus.size} / 20 (réserve : ${reserve.size} / 32)"), Ligne("Badges", "${badges.size} (équipés : ${equipes.size})"),
             Ligne("Objets importants", cles.size.toString()), Ligne("Record du Puits des 100 épreuves", if (record > 0) "étage $record" else "–"))))
         if (tenus.isNotEmpty()) blocs.add(Bloc("Objets sur Mario", pastilles = tenus.map { nomObjet(it) to true }))
+        // build 192 : ce qui manque pour finir a 100 % (d'apres l'inventaire)
+        run {
+            val m = ArrayList<Ligne>()
+            val nEt = etoiles.count { it.second }
+            if (nEt < 7) m.add(Ligne("Étoiles de cristal", "$nEt / 7 : " + etoiles.filter { !it.second }.joinToString(", ") { it.first }))
+            if (equipe.size < 7) m.add(Ligne("Partenaires", equipe.size.toString() + " / 7"))
+            if (saut < 2) m.add(Ligne("Bottes", "encore " + (2 - saut) + " amélioration(s) (Ultra bottes)"))
+            if (marteau < 2) m.add(Ligne("Marteau", "encore " + (2 - marteau) + " amélioration(s) (Ultra marteau)"))
+            if (Integer.bitCount(pouvoirs and 0xFF) < 8) m.add(Ligne("Pouvoirs étoile", Integer.bitCount(pouvoirs and 0xFF).toString() + " / 8"))
+            if (rang < 3) m.add(Ligne("Rang", (rangs.getOrNull(rang) ?: "") + " : Superstar à atteindre"))
+            if (record < 100) m.add(Ligne("Puits des 100 épreuves", if (record > 0) "étage $record / 100" else "pas encore descendu"))
+            val ont = badges.toSet()
+            val manquants = TOUS_BADGES.filter { it !in ont }
+            if (manquants.isNotEmpty()) m.add(Ligne("Badges", (TOUS_BADGES.size - manquants.size).toString() + " / " + TOUS_BADGES.size + " sortes"))
+            val partenairesManquants = (1 until 8).filter { k -> ((l.u16(p + 0xEL * k) ?: 0) and 1) == 0 }.map { PARTENAIRES[it] }
+            blocs.add(Bloc("Pour finir à 100 %", m, pastilles = if (manquants.isNotEmpty()) manquants.take(60).map { nomBadge(it) to false } else emptyList(),
+                texte = (if (partenairesManquants.isNotEmpty()) "Partenaires à recruter : " + partenairesManquants.joinToString(", ") + ". " else "") +
+                    (if (manquants.isNotEmpty()) "En gris : les badges que tu n'as pas encore. " else "") +
+                    "Éclats d'étoile et soleils : seulement ceux en poche (les dépensés ne se voient pas)."))
+        }
         if (equipes.isNotEmpty()) blocs.add(Bloc("Badges équipés", pastilles = equipes.map { nomBadge(it) to true }))
         val lignesPartie = ArrayList<Ligne>()
         if (z != null) lignesPartie.add(Ligne("Chapitre", when (z.first) { 0 -> "Port / prologue"; -1 -> "–"; else -> z.first.toString() + " / 8" }))
