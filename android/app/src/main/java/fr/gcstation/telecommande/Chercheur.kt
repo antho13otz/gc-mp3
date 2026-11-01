@@ -612,7 +612,7 @@ private fun DialogueAdresse(act: StationActivity, r: LongArray, jeu: String, t: 
     val m = Recherche.masque(t)
     fun nombre(s: String): Long? = s.trim().let { if (it.startsWith("0x", true)) it.substring(2).toLongOrNull(16) else it.toLongOrNull() }
     AlertDialog(onDismissRequest = fermer, containerColor = C.Fond2,
-        title = { Text(when (quoi) { 1 -> "Changer la valeur"; 2 -> "Créer un cheat"; 3 -> "Créer un succès"; 4 -> "Bloquer en direct"; else -> "Adresse $adr" }, color = C.Texte) },
+        title = { Text(when (quoi) { 1 -> "Changer la valeur"; 2 -> "Créer un cheat"; 3 -> "Créer un succès"; 4 -> "Bloquer en direct"; 5 -> "Épingler au compagnon"; else -> "Adresse $adr" }, color = C.Texte) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 when (quoi) {
@@ -622,6 +622,12 @@ private fun DialogueAdresse(act: StationActivity, r: LongArray, jeu: String, t: 
                         Bouton("Bloquer en direct", Modifier.fillMaxWidth()) { quoi = 4 }
                         Bouton("Créer un cheat (valeur bloquée)", Modifier.fillMaxWidth()) { quoi = 2 }
                         Bouton("Créer un succès", Modifier.fillMaxWidth()) { quoi = 3 }
+                        Bouton("Épingler au compagnon de jeu", Modifier.fillMaxWidth()) { quoi = 5; v = "" }
+                    }
+                    5 -> {
+                        Champ(nom, { nom = it }, "Nom (ex. Vies, Pièces, Munitions)")
+                        Champ(v, { v = it }, "Maximum (facultatif, pour une jauge)", clavier = KeyboardType.Number)
+                        Doux("La valeur s'affichera en direct dans le compagnon de ce jeu, à chaque partie (gardé sur le téléphone).", taille = 11, couleur = C.Pale)
                     }
                     4 -> {
                         Champ(v, { v = it }, "Valeur bloquée", clavier = KeyboardType.Number)
@@ -648,6 +654,12 @@ private fun DialogueAdresse(act: StationActivity, r: LongArray, jeu: String, t: 
         },
         confirmButton = {
             if (quoi != 0) TextButton({
+                if (quoi == 5) {                                       // (v314 : valeur epinglee au compagnon)
+                    if (nom.isBlank()) { Lang.toast(act, "Donne un nom à la valeur", Toast.LENGTH_SHORT).show(); return@TextButton }
+                    Epingles.ajouter(act, jeu, Epingles.E(r[0], t, nom.trim(), nombre(v) ?: 0L))
+                    Lang.toast(act, "Épinglé : visible dans le compagnon de jeu", Toast.LENGTH_SHORT).show()
+                    fermer(); return@TextButton
+                }
                 val x = nombre(v)
                 if (x == null) { Lang.toast(act, "Valeur ?", Toast.LENGTH_SHORT).show(); return@TextButton }
                 when (quoi) {

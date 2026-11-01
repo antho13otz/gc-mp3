@@ -24,6 +24,22 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build à venir — Compagnon : tous les jeux (valeurs épinglées), Paper Mario, Ocarina of Time
+- **Tous les jeux** : dans le chercheur de codes, une adresse trouvée > **« Épingler au compagnon de jeu »** (nom, et
+  un maximum pour avoir une jauge) : la valeur s'affiche en direct dans le compagnon de ce jeu, à chaque partie
+  (gardé sur le téléphone ; liste « Mes valeurs épinglées » pour en retirer). Le bouton « Compagnon de jeu et chrono »
+  de la partie en cours est là pour tous les jeux. Les jeux qui ont un écran dédié montrent aussi leurs valeurs épinglées.
+- **Paper Mario : La Porte Millénaire** (européen, américain, japonais) : PV, PF, pouvoir étoile, points de badge,
+  points étoile, niveau, rang, bottes et marteau, public, partenaires (PV, niveau), pièces, éclats d'étoile, soleils,
+  objets, badges, record du Puits des 100 épreuves. La structure de l'inventaire vient de doldecomp/ttyd ; pour la
+  version européenne, son adresse est retrouvée dans le code du jeu au chargement d'une partie (getter `pouchGetPtr`,
+  base r13 lue dans `__init_registers`), et rien n'est affiché tant que les valeurs ne sont pas vraisemblables.
+- **Ocarina of Time** dans *Collector's Edition* et *Ocarina Multi Pack* : le jeu N64 tourne dans un émulateur ; un
+  bouton lance **une recherche unique** de la sauvegarde en cours dans la mémoire (jeu en pause, comme la photo du
+  chercheur de codes), gardée sur le téléphone. Ensuite : cœurs, magie, rubis et bourse, âge, quarts de cœur, double
+  défense, Skulltulas d'or, médaillons, pierres, carte Gerudo, chants, inventaire, munitions, épées, boucliers,
+  tuniques, bottes, heure, jours, morts (structure : zeldaret/oot, save.h). Majora's Mask et les Zelda NES : non.
+
 ## Nouveautés appli build 165 — Compagnon : Twilight Princess, Pikmin 1 et 2, Melee, Mario Superstar Baseball
 - L'écran compagnon (onglet Plus > Compagnon de jeu, ou bouton de la partie en cours) reconnaît 5 jeux de plus, avec
   une **fiche commune** (grands chiffres, jauges, compteurs, pastilles), en plus de Wind Waker, Sunshine et Mario Kart :
