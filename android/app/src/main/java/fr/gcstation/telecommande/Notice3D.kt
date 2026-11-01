@@ -6,6 +6,8 @@ package fr.gcstation.telecommande
 // recadrer (ou ouvrir / refermer si deja cadree). Les images des pages autour de celle ouverte sont chargees au fur et
 // a mesure (telephone, sinon console) ; les autres restent du papier blanc (cachees sous les pages visibles).
 
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import android.content.Context
 import android.graphics.Bitmap
 import android.opengl.GLES20
@@ -77,7 +79,7 @@ fun Notice3DEcran(act: StationActivity, id: String, nom: String, n: Int, fermer:
     Dialog(onDismissRequest = fermer, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(C.Fond)) {
             AndroidView({ c -> NoticeVue(c, n).also { b -> b.surFeuille = { f -> feuille = f }; vue = b } }, Modifier.fillMaxSize())
-            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().background(Brush.verticalGradient(0f to C.Fond, 0.75f to C.Fond, 1f to Color.Transparent)).statusBarsPadding().padding(16.dp).padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("Notice · $nom", color = C.Texte, fontSize = 17.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Doux(when {
@@ -88,7 +90,7 @@ fun Notice3DEcran(act: StationActivity, id: String, nom: String, n: Int, fermer:
                 }
                 Box(Modifier.size(44.dp).verre(CircleShape).appui(fermer), contentAlignment = Alignment.Center) { Icon(Ic.Fermer, null, tint = C.Texte) }
             }
-            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Brush.verticalGradient(0f to Color.Transparent, 0.15f to C.Fond, 1f to C.Fond)).navigationBarsPadding().padding(16.dp).padding(top = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Doux("Un doigt : tourner la notice · deux doigts : zoomer et déplacer · toucher à droite / à gauche : tourner une page · double toucher : recadrer",
                     taille = 11, couleur = C.Pale, centre = true)
                 Spacer(Modifier.height(10.dp))

@@ -226,7 +226,8 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
     Dialog(onDismissRequest = fermer, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(C.Fond)) {
             AndroidView({ c -> BoiteVue(c).also { b -> b.surOuvert = { o, s -> ouvert = o; sorti = s }; vue = b } }, Modifier.fillMaxSize())
-            Column(Modifier.fillMaxWidth().statusBarsPadding().padding(16.dp)) {
+            // (titre et boutons sur un fond qui cache la boite zoomee : elle passe dessous, les textes restent lisibles)
+            Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(0f to C.Fond, 0.75f to C.Fond, 1f to Color.Transparent)).statusBarsPadding().padding(16.dp).padding(bottom = 12.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
                         Text(nom, color = C.Texte, fontSize = 18.sp, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -235,7 +236,7 @@ fun Boite3DEcran(act: StationActivity, id: String, nom: String, lancer: (() -> U
                     Box(Modifier.size(44.dp).verre(CircleShape).appui(fermer), contentAlignment = Alignment.Center) { Icon(Ic.Fermer, null, tint = C.Texte) }
                 }
             }
-            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().navigationBarsPadding().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Brush.verticalGradient(0f to Color.Transparent, 0.15f to C.Fond, 1f to C.Fond)).navigationBarsPadding().padding(16.dp).padding(top = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Doux(if (sorti) "Un doigt : faire tourner le disque · deux doigts : zoomer où tu veux et déplacer" else "Un doigt : tourner · deux doigts : zoomer où tu veux et déplacer · double toucher : ouvrir (zoomée : recadrer)",
                     taille = 11, couleur = C.Pale, centre = true)
                 Spacer(Modifier.height(10.dp))
