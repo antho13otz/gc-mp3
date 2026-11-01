@@ -9,6 +9,32 @@ package fr.gcstation.telecommande
 // construit 8024 8DB0 744 fois, 8024 91D0 (+0x420) 545 fois et 8024 9490 (+0x6E0) 107 fois : les memes trois blocs.
 object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
     private fun joueurs(id: String) = if (id == "GP5P01") 0x80248DB0L else 0x8022A070L
+    // build 175 : les cases du plateau (masu.c : masuData[256], 0x70 octets : pos 0x4, type 0x2C, linkNum 0x62, linkTbl 0x64 ;
+    // numeros de case a partir de 1). Europeen : 8026 C518 (suivi, comme en americain, de masuLight +0x7000 et masuStarTbl +0x8200)
+    private fun cases(id: String) = if (id == "GP5P01") 0x8026C518L else 0x8024D5F8L
+    private val COUL_CASE = longArrayOf(0xFF5A5A6E, 0xFF4F8DFF, 0xFFFF4D4D, 0xFF8B1E2E, 0xFF3DDC84, 0xFFFFD23F, 0xFF9AA8C8, 0xFFFF8A3D, 0xFFB5793F)
+    private val COUL_PERSO = longArrayOf(0xFFFF4040, 0xFF2FD16B, 0xFFFF8FC8, 0xFF5BE05B, 0xFFFFD84A, 0xFFFFC94A, 0xFF9B6BFF, 0xFF4F8BFF, 0xFFE8E8F0, 0xFFF5A623, 0xFFFF5A5A, 0xFF4CD964, 0xFF4F8DFF)
+    private class Plateau(val cle: String, val pos: List<FloatArray>, val types: IntArray, val liens: List<IntArray>)
+    @Volatile private var memo: Plateau? = null
+    @Volatile private var essaiPlateau = 0L
+
+    /** lu une fois par plateau (une trentaine de blocs, au rythme d'un par image) */
+    private fun lirePlateau(id: String, cle: String): Plateau? {
+        val l = Lecteur(40, 12)
+        val base = cases(id)
+        val pos = ArrayList<FloatArray>(); val types = ArrayList<Int>(); val liens = ArrayList<IntArray>()
+        for (i in 0 until 256) {
+            val m = base + 0x70L * i
+            val x = l.fini(l.f32(m + 4), 1e6f) ?: return null; val z = l.fini(l.f32(m + 12), 1e6f) ?: return null
+            val t = l.u16(m + 0x2C) ?: return null; val n = l.u16(m + 0x62) ?: return null
+            if (x == 0f && z == 0f && t == 0 && n == 0) break                       // (fin des cases lues : memset a 0)
+            if (t > 8 || n > 5) return null
+            pos.add(floatArrayOf(x, z)); types.add(t)
+            for (k in 0 until n) { val v = l.u16(m + 0x64 + 2L * k) ?: 0; if (v in 1..256) liens.add(intArrayOf(i, v - 1)) }
+        }
+        if (pos.size < 10) return null
+        return Plateau(cle, pos, types.toIntArray(), liens.filter { it[1] < pos.size })
+    }
     private val PERSOS = arrayOf("Mario", "Luigi", "Peach", "Yoshi", "Wario", "Daisy", "Waluigi", "Toad", "Boo", "Mini Bowser",
         "Mini Bowser rouge", "Mini Bowser vert", "Mini Bowser bleu")
     private val PLATEAUX = arrayOf("Rêve des jouets", "Rêve arc-en-ciel", "Rêve des pirates", "Rêve sous-marin", "Rêve du futur",
@@ -25,7 +51,7 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
         val banque = (l.u16(sys + 0x38) ?: 0).coerceAtMost(9999)
         val equipes = ((l.u8(sys) ?: 0) and 0x40) != 0
         val blocs = ArrayList<Bloc>(); val grands = ArrayList<Pair<String, String>>()
-        class J(val n: Int, val nom: String, val pieces: Int, val etoiles: Int, val rang: Int)
+        class J(val n: Int, val nom: String, val pieces: Int, val etoiles: Int, val rang: Int, val perso: Int, val caseNo: Int)
         val js = ArrayList<J>()
         for (k in 0 until 4) {
             val b = gp + 0x108L * k
@@ -44,7 +70,7 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
             val cases = l.plage(b + 0x16, 11) ?: IntArray(11)
             fun c(i: Int) = cases[i].toByte().toInt().coerceIn(0, 127)
             val nom = PERSOS[perso]
-            js.add(J(k, nom, pieces, etoiles, rang))
+            js.add(J(k, nom, pieces, etoiles, rang, perso, l.s16(b + 0xE) ?: -1))
             blocs.add(Bloc("J" + (k + 1) + " · " + nom + if (ordi) " (ordi " + arrayOf("facile", "normal", "difficile", "très difficile")[niveau] + ")" else "", listOf(
                 Ligne("Étoiles", etoiles.toString(), (etoiles / 10f).coerceIn(0f, 1f), 0xFFFFD23F),
                 Ligne("Pièces", pieces.toString(), (pieces / 200f).coerceIn(0f, 1f), COUL[k]),
@@ -64,7 +90,17 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
         lignes.add(Ligne("Banque", "$banque pièces"))
         if (equipes) lignes.add(Ligne("Mode", "Par équipes"))
         if (tours - tour in 0..4 && tour <= tours) lignes.add(Ligne("Derniers tours", "Oui (les 5 derniers)"))
+        // le plateau : relu quand il change (et toutes les 30 s s'il n'a pas pu etre lu)
+        val cle = "$id/$plateau"
+        val t = System.currentTimeMillis()
+        if (memo?.cle != cle && t - essaiPlateau > 30000) { essaiPlateau = t; lirePlateau(id, cle)?.let { memo = it } }
+        val pl = memo?.takeIf { it.cle == cle }
+        val blocPlan = if (pl != null) {
+            val pions = js.mapNotNull { j -> pl.pos.getOrNull(j.caseNo - 1)?.let { Pion(it[0], it[1], COUL_PERSO.getOrElse(j.perso) { 0xFFFFFFFF }, "J" + (j.n + 1)) } }
+            Bloc("Plateau", plan = Plan(pl.pos, pl.types.map { COUL_CASE[it] }, pl.liens, pions, (0 until pl.pos.size).filter { pl.types[it] == 5 }),
+                texte = js.joinToString(" · ") { "J" + (it.n + 1) + " " + it.nom } + "  —  bleu, rouge, vert (?), jaune (étoile), orange (VS), brun (DK), rouge foncé (Bowser)")
+        } else Bloc("Plateau", texte = "Lecture des cases du plateau…")
         return Fiche(id, PLATEAUX[plateau], "Tour $tour sur $tours", 0xFFB82E2E, 0xFF2A0A0A,
-            grands = grands.take(4), blocs = listOf(Bloc("Partie", lignes)) + blocs)
+            grands = grands.take(4), blocs = listOf(Bloc("Partie", lignes), blocPlan) + blocs)
     }
 }

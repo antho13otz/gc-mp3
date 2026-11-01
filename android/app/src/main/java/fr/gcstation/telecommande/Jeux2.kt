@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -30,6 +31,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -37,7 +40,11 @@ import androidx.compose.ui.unit.sp
 /** une ligne : nom, valeur ; part (0..1) : une jauge ; couleur de la valeur */
 class Ligne(val nom: String, val valeur: String, val part: Float = -1f, val couleur: Long = 0)
 /** une section : lignes, et/ou pastilles (texte, obtenu) */
-class Bloc(val titre: String, val lignes: List<Ligne> = emptyList(), val pastilles: List<Pair<String, Boolean>> = emptyList(), val texte: String = "")
+class Bloc(val titre: String, val lignes: List<Ligne> = emptyList(), val pastilles: List<Pair<String, Boolean>> = emptyList(), val texte: String = "",
+           val plan: Plan? = null)                                         // (build 175 : un plan vu de dessus)
+/** build 175 : un plan vu de dessus (x, z du jeu) : des cases reliees, et des pions (texte court) */
+class Plan(val cases: List<FloatArray>, val couleurs: List<Long>, val liens: List<IntArray>, val pions: List<Pion>, val etoiles: List<Int> = emptyList())
+class Pion(val x: Float, val z: Float, val couleur: Long, val texte: String)
 /** l'ecran d'un jeu : grands chiffres en haut, puis les sections */
 class Fiche(val jeu: String, val titre: String, val sous: String, val haut: Long, val bas: Long,
             val grands: List<Pair<String, String>> = emptyList(), val blocs: List<Bloc> = emptyList(), val message: String = "",
@@ -571,6 +578,7 @@ fun CompagnonFiche(f: Fiche) {
                 }
             }
             if (b.texte.isNotEmpty()) Doux(b.texte, taille = 12)
+            b.plan?.let { DessinPlan(it) }
         }
     }
     Spacer(Modifier.width(1.dp))
@@ -598,3 +606,39 @@ fun GererEpingles(jeu: String) {
     }
 }
 
+
+/** build 175 : le plan d'un plateau (Mario Party) : cases colorees, chemins, etoile, pions des joueurs */
+@Composable
+fun DessinPlan(p: Plan) {
+    if (p.cases.isEmpty()) return
+    var x0 = Float.MAX_VALUE; var x1 = -Float.MAX_VALUE; var z0 = Float.MAX_VALUE; var z1 = -Float.MAX_VALUE
+    for (c in p.cases) { x0 = minOf(x0, c[0]); x1 = maxOf(x1, c[0]); z0 = minOf(z0, c[1]); z1 = maxOf(z1, c[1]) }
+    val lx = (x1 - x0).coerceAtLeast(1f); val lz = (z1 - z0).coerceAtLeast(1f)
+    val ratio = (lx / lz).coerceIn(0.6f, 1.8f)
+    androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().aspectRatio(ratio)) {
+        val m = 14.dp.toPx()
+        val k = minOf((size.width - 2 * m) / lx, (size.height - 2 * m) / lz)
+        val ox = (size.width - lx * k) / 2; val oz = (size.height - lz * k) / 2
+        fun pt(x: Float, z: Float) = androidx.compose.ui.geometry.Offset(ox + (x - x0) * k, oz + (z - z0) * k)
+        for (l in p.liens) {
+            val a = p.cases.getOrNull(l[0]) ?: continue; val b = p.cases.getOrNull(l[1]) ?: continue
+            drawLine(Color(0x55FFFFFF), pt(a[0], a[1]), pt(b[0], b[1]), strokeWidth = 2.dp.toPx())
+        }
+        val r = (4.5f).dp.toPx()
+        for ((i, c) in p.cases.withIndex()) {
+            drawCircle(Color(p.couleurs.getOrElse(i) { 0xFF9AA8C8 }), r, pt(c[0], c[1]))
+            if (i in p.etoiles) drawCircle(Color(0xFFFFD23F), r * 2.2f, pt(c[0], c[1]), style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx()))
+        }
+        // les pions : decales s'ils sont sur la meme case
+        val vus = HashMap<Long, Int>()
+        for (pi in p.pions) {
+            val cle = (pi.x.toLong() shl 32) xor pi.z.toLong()
+            val n = vus.getOrDefault(cle, 0); vus[cle] = n + 1
+            val c = pt(pi.x, pi.z) + androidx.compose.ui.geometry.Offset(n * 9.dp.toPx(), -n * 9.dp.toPx())
+            drawCircle(Color(pi.couleur), 9.dp.toPx(), c)
+            drawCircle(Color.White, 9.dp.toPx(), c, style = androidx.compose.ui.graphics.drawscope.Stroke(1.5f.dp.toPx()))
+            val paint = android.graphics.Paint().apply { color = 0xFF14101E.toInt(); textSize = 9.sp.toPx(); isFakeBoldText = true; textAlign = android.graphics.Paint.Align.CENTER; isAntiAlias = true }
+            drawIntoCanvas { cv -> cv.nativeCanvas.drawText(pi.texte, c.x, c.y + 3.dp.toPx(), paint) }
+        }
+    }
+}
