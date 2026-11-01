@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 179 — Mario Party 5 : le plateau et la case de chaque joueur
+- **Plateau vu de dessus** : les vraies positions des cases, lues dans la mémoire du jeu (tableau des cases de masu.c,
+  européen en 8026C518, retrouvé dans le main.dol), avec les chemins entre les cases, la couleur de chaque case (bleue,
+  rouge, ?, étoile, VS, DK, Bowser) et **le pion de chaque joueur sur sa case**. Lu une fois par plateau.
+- **Corrigé** (build 174) : pièces, classement, capsules, compteurs de cases et records étaient lus 2 octets trop loin.
+  Champs vérifiés dans le main.dol européen (la fonction du jeu qui rend les pièces lit 0x20, celle des étoiles 0x34).
+- (Build 177 : le plateau, avec les anciens champs ; remplacée par la 179.)
+
 ## Nouveautés appli build 174 — Compagnon de jeu : adresses tirées des main.dol (Paper Mario PAL, Mario Party 5), Wind Waker, Mario Kart
 - **Paper Mario : La Porte Millénaire européen (G8MP01)** : l'inventaire n'est plus cherché au chargement, l'adresse est
   fixe (tirée du main.dol : le pointeur en 8042B420, lu 240 fois par le code de l'inventaire). En plus : objets portés et
