@@ -581,6 +581,12 @@ static void actions_input(u32 down, u32 nav, int fire) {
 }
 
 static void draw_actions(void) {
+    static u8 full_said;                                   /* v314 : bibliotheque coupee a MAX_FILES : on le dit une fois */
+    if (!full_said && nfiles >= MAX_FILES && tab == TAB_MUSIC && !am_open && now_ms() > 6000) {
+        full_said = 1;
+        lib_note("Musique : 2000 morceaux au maximum, les suivants ne sont pas lus");
+        lib_note_until = now_ms() + 8000;
+    }
     if (lib_note_txt[0] && now_ms() < lib_note_until && !am_open) {
         char nt[200];
         fit_text(F_MED, lib_note_txt, 580, nt, sizeof(nt));

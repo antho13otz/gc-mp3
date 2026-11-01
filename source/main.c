@@ -3181,8 +3181,19 @@ static void scan_dir(const char *dir, int depth) {
 
 static void retro_unzip_tree(const char *dir, int depth);   /* tab_retro.c (v26 : .zip de musiques retro) */
 #define LIST_CACHE GCD "/cache/musique.txt"
+static FILE *bgw_begin(void);
+static int bgw_end(FILE *f, const char *path);
+static char *bgw_buf;                                      /* (definis plus bas) */
+static size_t bgw_len;
 static void list_cache_save(void) {                       /* v238 : (apres chaque lecture complete des dossiers) */
     if (!sd_ok || sd_virtual) return;
+    FILE *b = bgw_begin();                                 /* v314 : ecrite par le fil lsc (300 Ko : la boucle ne se fige plus) */
+    if (b) {
+        int ok = fprintf(b, "GCS-LISTE 1 %d\n", nfiles) > 0;
+        for (int k = 0; ok && k < nfiles; k++) if (fputs(names[k], b) < 0 || fputc('\n', b) < 0) ok = 0;
+        if (ok) { bgw_end(b, LIST_CACHE); return; }
+        fclose(b); free(bgw_buf); bgw_buf = NULL;
+    }
     FILE *f = fopen(LIST_CACHE ".tmp", "w");
     if (!f) return;
     int ok = fprintf(f, "GCS-LISTE 1 %d\n", nfiles) > 0;
@@ -3192,15 +3203,27 @@ static void list_cache_save(void) {                       /* v238 : (apres chaqu
     if (!ok) remove(LIST_CACHE ".tmp");
 }
 static int nsorted = 0;                                    /* v27 : names[0..nsorted[ tries, ajouts recents ensuite */
+static const char *scan_src = NULL;                        /* v314 : chemins deja lus par le fil lsc (un par ligne) */
 static void scan_files(void) {
     nfiles = 0;
     nm_reset();
-    retro_unzip_tree(SD_ROOT "/retro", 0);
     for (int i = 0; i < MAX_FILES; i++) dur_cache[i] = -2;
-    scan_dir(MP3_DIR, 0);
-    scan_dir(DL_DIR, 0);
-    scan_dir(SD_ROOT "/retro", 0);
-    scan_dir(GCD "/podcasts", 0);                      /* episodes telecharges */
+    if (scan_src) {                                        /* v314 : la liste vient du fil (la boucle ne parcourt plus la carte) */
+        const char *p = scan_src;
+        static char line[NAME_LEN];
+        while (*p && nfiles < MAX_FILES) {
+            const char *e = strchr(p, '\n');
+            size_t l = e ? (size_t)(e - p) : strlen(p);
+            if (l > 0 && l < sizeof(line)) { memcpy(line, p, l); line[l] = 0; char *np = nm_store(line); if (!np) break; names[nfiles++] = np; }
+            p = e ? e + 1 : p + l;
+        }
+    } else {
+        retro_unzip_tree(SD_ROOT "/retro", 0);
+        scan_dir(MP3_DIR, 0);
+        scan_dir(DL_DIR, 0);
+        scan_dir(SD_ROOT "/retro", 0);
+        scan_dir(GCD "/podcasts", 0);                  /* episodes telecharges */
+    }
     qsort(names, nfiles, sizeof(names[0]), cmp_names);
     nsorted = nfiles;
     for (int k = 0; k < nfiles; k++) is_retro[k] = retro_ext_fmt(names[k]) >= 0;
@@ -5138,7 +5161,9 @@ static volatile u32 lv_h = 0;
 static volatile int lv_n = 0;
 static int lv_pending = 0;                   /* (liste lue depuis le cache au demarrage : a verifier) */
 static u32 lv_hash(const char *s) { u32 h = 2166136261u; for (; *s; s++) { h ^= (u8)*s; h *= 16777619u; } return h; }
-static void lv_walk(const char *dir, int depth, u32 *h, int *n) {
+static char *lv_buf = NULL;                  /* v314 : les chemins trouves par le fil (un par ligne), pour relire sans parcourir */
+static size_t lv_buf_len = 0;
+static void lv_walk(const char *dir, int depth, u32 *h, int *n, FILE *out) {
     DIR *d = opendir(dir);
     if (!d) return;
     struct dirent *e;
@@ -5147,8 +5172,8 @@ static void lv_walk(const char *dir, int depth, u32 *h, int *n) {
         if (e->d_name[0] == '.') continue;
         int l = snprintf(path, sizeof(path), "%s/%s", dir, e->d_name);
         if (l <= 0 || l >= (int)sizeof(path)) continue;
-        if (audio_ext_len(e->d_name)) { *h += lv_hash(path); (*n)++; }
-        else if (depth < SCAN_DEPTH && is_dir(path, e)) lv_walk(path, depth + 1, h, n);
+        if (audio_ext_len(e->d_name)) { *h += lv_hash(path); (*n)++; if (out) { fputs(path, out); fputc('\n', out); } }
+        else if (depth < SCAN_DEPTH && is_dir(path, e)) lv_walk(path, depth + 1, h, n, out);
     }
     closedir(d);
 }
@@ -5160,9 +5185,13 @@ static void lv_pump(void) {                  /* (boucle) */
     lv_state = 0;
     u32 h = 0; int n = 0;
     for (int k = 0; k < nfiles; k++) if (!jb_iso_path(names[k])) { h += lv_hash(names[k]); n++; }   /* (sans les musiques des jeux) */
-    if (h == lv_h && n == lv_n) { crumb("musique : liste gardee a jour (%d)", n); return; }
+    char *buf = lv_buf; lv_buf = NULL;
+    if (h == lv_h && n == lv_n) { free(buf); crumb("musique : liste gardee a jour (%d)", n); return; }
     crumb("musique : la carte a change (%d -> %d morceaux) : relecture", n, lv_n);
+    scan_src = buf;                                       /* v314 : sans reparcourir la carte dans la boucle (1 s et plus figees) */
     music_rescan();
+    scan_src = NULL;
+    free(buf);
 }
 static void *lsc_thread(void *arg) {
     (void)arg;
@@ -5171,10 +5200,13 @@ static void *lsc_thread(void *arg) {
         if (lv_state == 1) {                                /* v238 : verification de la liste gardee */
             lv_state = 2;
             u32 h = 0; int n = 0;
-            lv_walk(MP3_DIR, 0, &h, &n);
-            lv_walk(DL_DIR, 0, &h, &n);
-            lv_walk(SD_ROOT "/retro", 0, &h, &n);
-            lv_walk(GCD "/podcasts", 0, &h, &n);
+            char *b = NULL; size_t bl = 0;
+            FILE *out = open_memstream(&b, &bl);
+            lv_walk(MP3_DIR, 0, &h, &n, out);
+            lv_walk(DL_DIR, 0, &h, &n, out);
+            lv_walk(SD_ROOT "/retro", 0, &h, &n, out);
+            lv_walk(GCD "/podcasts", 0, &h, &n, out);
+            if (out && fclose(out) == 0) { lv_buf = b; lv_buf_len = bl; } else { if (out == NULL) b = NULL; free(b); lv_buf = NULL; }
             lv_h = h; lv_n = n;
             lv_state = 3;
             continue;
@@ -13832,7 +13864,17 @@ static int sd_space(unsigned long long *tot, unsigned long long *fre);   /* v97 
 static const char *perf_ver(void) { return GCMP3_VERSION; }
 #include "update.c"
 
+static void tab_enter_u(int t);
 static void tab_enter(int t) {
+#ifndef GEKKO
+    u32 t0_ = perf_us();
+#endif
+    tab_enter_u(t);
+#ifndef GEKKO
+    if (getenv("PCSIM_DRAWPROF") && perf_us() - t0_ > 3000) printf("[onglet] entree dans %d : %.1f ms\n", t, (perf_us() - t0_) / 1000.0);
+#endif
+}
+static void tab_enter_u(int t) {
     if (t >= 0 && t < TAB_COUNT) crumb("onglet %s", tab_names[t]);
     switch (t) {
     case TAB_RADIO:   net_start_async(); gb_prefetch(); break;   /* (v213 : le globe se prepare en fond) */
@@ -13878,15 +13920,23 @@ static void music_rescan(void) {
     if (bib_dirty) bib_save();                             /* garde ce qui est deja lu */
     if (stats_dirty) stats_save();
     if (rating_dirty) rating_save();
+    u32 tq0 = perf_us();
     LSC_LOCK();                                            /* v195 : (le fil des etiquettes attend) */
     scan_files();
+    u32 tq1 = perf_us();
     tags_reset();
     lsc_new_list();
     bib_load();
     LSC_UNLOCK();
+    u32 tq2 = perf_us();
     pl_load_all();
     stats_load();
     rating_load();
+    u32 tq3 = perf_us();
+#ifndef GEKKO
+    if (getenv("PCSIM_DRAWPROF")) printf("[relecture] scan %.0f ms, bib %.0f ms, listes %.0f ms\n", (tq1 - tq0) / 1000.0, (tq2 - tq1) / 1000.0, (tq3 - tq2) / 1000.0);
+#endif
+    (void)tq0; (void)tq1; (void)tq2; (void)tq3;
     cur_track = -1;
     for (int i = 0; i < nfiles && playing_path[0]; i++)
         if (strcmp(names[i], playing_path) == 0) { cur_track = i; break; }
