@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés v313 (build à venir, appli build à venir) — Wind Waker : la vraie carte marine, le plan des intérieurs
+## Nouveautés v313 (build 819, appli build 162) — Wind Waker : la vraie carte marine, le plan des intérieurs
 - **La vraie carte marine du jeu** dans le compagnon de l'appli : chaque case connue est dessinée avec l'image que
   le jeu utilise pour sa propre carte (`/res/Fmap/Fmap.arc`, une image par case et par variante du fichier de
   sauvegarde). Pendant la partie, ces images ne sont pas dans la mémoire que Pulse lit (le jeu les met dans l'ARAM) :
