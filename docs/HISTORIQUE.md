@@ -24,6 +24,22 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 174 — Compagnon de jeu : adresses tirées des main.dol (Paper Mario PAL, Mario Party 5), Wind Waker, Mario Kart
+- **Paper Mario : La Porte Millénaire européen (G8MP01)** : l'inventaire n'est plus cherché au chargement, l'adresse est
+  fixe (tirée du main.dol : le pointeur en 8042B420, lu 240 fois par le code de l'inventaire). En plus : objets portés et
+  badges équipés (noms français), étoiles de cristal, bottes et marteau, chapitre et nom du lieu, carte, avancée de
+  l'histoire (GSW0 / 405), personnage joué (Mario, Peach, Bowser), position, temps de jeu, nombre de sauvegardes, et
+  **le combat en cours** (tour, PV de Mario, des partenaires et de chaque ennemi). Américain et japonais : les pointeurs
+  sont lus dans le code du jeu (mêmes fonctions, adresses de ttyd-tools), l'inventaire toujours cherché une fois.
+- **Mario Party 5 (GP5P01, GP5E01)** : nouvelle fiche : plateau, tour / nombre de tours, à qui de jouer, mini-jeu, banque ;
+  pour chaque joueur : personnage (ordi et niveau), étoiles, pièces, classement, capsules, pièces gagnées, records, cases
+  visitées. Européen : adresses tirées du main.dol (les trois blocs GwPlayer, GwSystem, GwCommon de la décompilation).
+- **Wind Waker** : cartes obtenues / déchiffrées / trésors repêchés, cartes de la Triforce.
+- **Mario Kart Double Dash!! (européen)** : vitesse de ton kart, charge du mini-turbo en dérapage, turbo.
+- Pas encore : F-Zero GX, Star Fox Adventures, Pokémon XD, 1080° (pas de liste de symboles pour ces versions) et Mario
+  Kart américain (main.dol pas reçu) : il faut des photos de la mémoire en pleine partie avec des valeurs notées.
+- Rien d'essayé sur un vrai jeu : chaque valeur est bornée, une version inconnue n'affiche rien.
+
 ## Nouveautés v315 (build 822, appli build 172) — Les vraies cartes mémoire depuis le téléphone
 - Appli : **Plus > Vraies cartes** : les cartes mémoire branchées sur la console (**slots A et B**) : la liste des
   sauvegardes (jeu, titre, commentaire, blocs, blocs libres), et pour chacune : **la télécharger** sur le téléphone en
