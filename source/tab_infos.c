@@ -348,7 +348,7 @@ static void draw_tab_infos(void) {
         gp_zone(rx - 6, ry + 1, rw + 6, 21, &inf_sel, i, GPZ_SEL);
         if (on) gx_rrect_fill(rx - 6, ry + 1, rw + 6, 21, 5, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
         col_t c = on ? RGBA(255, 255, 255, 255) : RGBA(210, 200, 240, 255);
-        if (i == 0) snprintf(buf, sizeof(buf), "Ville : %s", city[0] ? city : "(choisir)");
+        if (i == 0) snprintf(buf, sizeof(buf), "Ville : %s", city[0] ? city : TR("(choisir)"));
         else if (i == 1) { if (alarm_on) snprintf(buf, sizeof(buf), "R\xC3\xA9veil : %02d:%02d", alarm_min / 60, alarm_min % 60); else snprintf(buf, sizeof(buf), "R\xC3\xA9veil : non"); }
         else if (i == 2) snprintf(buf, sizeof(buf), "Jours : %s", TR(alarm_days_names[alarm_days % 3]));
         else if (i == 3) snprintf(buf, sizeof(buf), "Le r\xC3\xA9veil joue : %s", alarm_src > 0 && alarm_src <= nstations ? stations[alarm_src - 1].name : TR("ma musique (al\xC3\xA9" "atoire)"));
