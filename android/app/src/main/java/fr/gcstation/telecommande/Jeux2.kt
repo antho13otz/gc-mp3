@@ -500,7 +500,7 @@ object JeuOoT : ModuleJeu("Ocarina of Time (émulé)", "PZLP01", "D43P01", "PZLE
                 Thread.sleep(400)
                 val e = MemoireJeu.demande('P', 1)
                 if (e != null) {
-                    val mem = Recherche.direct
+                    val mem = ByteArray(MemoireJeu.TAILLE)
                     val ok = MemoireJeu.lire(IntArray(MemoireJeu.FIN / MemoireJeu.BLK) { it }, mem, true, { progres = it * 0.95f }, { false })
                     MemoireJeu.demande('P', 0)
                     if (ok) {
@@ -689,8 +689,8 @@ fun CompagnonFiche(f: Fiche) {
 @Composable
 fun GererEpingles(jeu: String) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    var v by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
-    @Suppress("UNUSED_VARIABLE") val vv = v
+    val v = androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    @Suppress("UNUSED_VARIABLE") val vv = v.intValue
     val ep = Epingles.liste(ctx, jeu)
     if (ep.isEmpty()) return
     Carte(Modifier.fillMaxWidth()) {
@@ -699,9 +699,9 @@ fun GererEpingles(jeu: String) {
             for (e in ep) Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(e.nom, color = C.Texte, fontSize = 14.sp)
-                    Doux(String.format("%08X · %d bits", e.adr, 8 * e.taille) + if (e.max > 0) " · max " + e.max else "", taille = 11)
+                    Doux(java.lang.Long.toHexString(e.adr).uppercase().padStart(8, '0') + " · " + (8 * e.taille) + " bits" + (if (e.max > 0) " · max " + e.max else ""), taille = 11)
                 }
-                Bouton("Retirer", hauteur = 34.dp) { Epingles.retirer(ctx, jeu, e.adr); v++ }
+                Bouton("Retirer", hauteur = 34.dp) { Epingles.retirer(ctx, jeu, e.adr); v.intValue = v.intValue + 1 }
             }
         }
     }
