@@ -374,7 +374,7 @@ object JeuSFA : ModuleJeu("Star Fox Adventures", "GSAP01", "GSAE01", "GSAJ01") {
         if (pr >= 0f) return Fiche(id, "Star Fox Adventures", "Recherche dans la mémoire…", 0xFF1E4E8F, 0xFF07162E,
             grands = listOf("lu" to ((pr * 100).toInt().toString() + " %")), message = "Le jeu est en pause pendant la recherche (une seule fois).")
         val ok = (candidats ?: LongArray(0)).filter { vraisemblable(l, it) }
-        if (ok.isEmpty()) return Fiche(id, "Star Fox Adventures", if (candidats.isNullOrEmpty()) "Pas encore trouvé" else "Plus trouvé (autre partie ?)", 0xFF1E4E8F, 0xFF07162E,
+        if (ok.isEmpty()) return Fiche(id, "Star Fox Adventures", if ((candidats?.size ?: 0) == 0) "Pas encore trouvé" else "Plus trouvé (autre partie ?)", 0xFF1E4E8F, 0xFF07162E,
             message = "Charge ta partie et joue quelques secondes, puis touche le bouton : l'appli cherche la partie en cours dans la mémoire " +
                 "(jeu en pause une trentaine de secondes, une seule fois). Recommence si tu changes de fichier de sauvegarde.",
             bouton = "Trouver ma partie dans la mémoire")
