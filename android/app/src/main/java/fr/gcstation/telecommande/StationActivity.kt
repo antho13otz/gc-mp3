@@ -229,6 +229,7 @@ class StationActivity : ComponentActivity(), Host {
         Live.resubscribe()
         PlaybackService.start(this)
         BuildCheck.run(this)
+        ui.postDelayed({ CarteMarineWW.telecharger(this) }, 5000)   // (v313 : la vraie carte marine de Wind Waker, hors partie)
         ui.removeCallbacks(poll)
         ui.post(poll)
         pendingShare?.let { pendingShare = null; share(it) }
