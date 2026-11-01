@@ -1597,6 +1597,25 @@ static void tp_handle(s32 c) {
         tp_reply(c, 200, "application/json", sb.b ? sb.b : "{}", sb.b ? (int)strlen(sb.b) : 2);
         free(sb.b);
     }
+    else if (!strcmp(target, "/api/vraiecarte")) {           /* v315 : vraies cartes memoire : ?s=A|B&op=liste|gci|imp|del|vc&i=&n= */
+        char sl[4], op[8], is[8], n[200];
+        tp_param(q ? q : "", "s", sl, sizeof(sl)); tp_param(q ? q : "", "op", op, sizeof(op));
+        tp_param(q ? q : "", "i", is, sizeof(is)); tp_param(q ? q : "", "n", n, sizeof(n));
+        int o = !strcmp(op, "liste") ? 10 : !strcmp(op, "gci") ? 11 : !strcmp(op, "imp") ? 12 : !strcmp(op, "del") ? 13 : !strcmp(op, "vc") ? 14 : 0;
+        int done = o && (sl[0] == 'A' || sl[0] == 'B') ? x73_vj_run(o, sl[0] == 'B' ? "B" : "A", is[0] ? atoi(is) : -1, n) : -1;
+        extern char *x73_mcj_get(void);
+        if (done < 0) tp_reply(c, 400, "application/json", "{}", 2);
+        else if (o == 10 && done) { char *t = x73_mcj_get(); if (t) { tp_reply(c, 200, "application/json", t, (int)strlen(t)); free(t); } else tp_reply(c, 503, "application/json", "{}", 2); }
+        else if (o == 11 && done && x73_vj_ok) { char p[NAME_LEN]; snprintf(p, sizeof(p), "%s", x73_vj_res); sh_send_file(c, p, 0, (char *)req); remove(p); }
+        else {
+            sbuf_t sb = { NULL, 0, 0 };
+            sb_add(&sb, done && x73_vj_ok ? "{\"ok\":1,\"m\":" : "{\"ok\":0,\"m\":");
+            x73_json_raw(&sb, done ? x73_vj_res : "GC Station occup\xC3\xA9" "e, r\xC3\xA9" "essaie (hors partie seulement)");
+            sb_add(&sb, "}");
+            tp_reply(c, 200, "application/json", sb.b ? sb.b : "{}", sb.b ? (int)strlen(sb.b) : 2);
+            free(sb.b);
+        }
+    }
     else if (!strcmp(target, "/api/gciimp") || !strcmp(target, "/api/cardput")) {   /* v190 : .gci envoye -> carte ; ou carte remplacee */
         char card[64], n[200];
         tp_param(q ? q : "", "c", card, sizeof(card));

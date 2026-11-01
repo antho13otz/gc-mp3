@@ -82,6 +82,7 @@ private val TUILES get() = listOf(
     Tuile("Réglages", "De GC Station", Ic.Reglages, C.Violet) { St.sous = "Réglages" },
     Tuile("Apparence", "Ambiance, langue, texte, 120 Hz", Ic.Photo, C.Rose) { St.sous = "Apparence" },
     Tuile("Cartes mémoire", "Sauvegardes", Ic.Carte, C.Bleu) { St.sous = "Cartes mémoire" },
+    Tuile("Vraies cartes", "Slots A et B de la console", Ic.Carte, C.Cyan) { St.sous = "Vraies cartes mémoire" },
     Tuile("Recherche", "Musique, radios, jeux", Ic.Chercher, C.Rose) { St.sous = "Recherche" },
     Tuile("Salon", "Les autres consoles", Ic.Salon, C.Cyan) { St.sous = "Salon" },
     Tuile("Outils", "Mémoire, capture, rapport", Ic.Outils, C.Violet) { St.sous = "Outils" },
@@ -125,6 +126,7 @@ fun EcranPlus() {
                 "Apparence" -> EcranApparence()
                 "Chercheur de codes" -> EcranChercheur()
                 "Compagnon de jeu" -> EcranCompagnon()
+                "Vraies cartes mémoire" -> EcranVraiesCartes()
                 "Photos" -> EcranPhotos()
                 "Réglages" -> Ancien(sous) { SettingsTab(it) }
                 "Cartes mémoire" -> Ancien(sous) { CardsTab(it) }
