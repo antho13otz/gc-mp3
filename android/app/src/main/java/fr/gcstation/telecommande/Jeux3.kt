@@ -79,6 +79,39 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
         "Rêve sucré", "Cauchemar de Bowser", "Tutoriel", "Circuit")
     private val COUL = longArrayOf(0xFF4F8DFF, 0xFFFF4D4D, 0xFFFFD23F, 0xFF3DDC84)
     private val NIVEAUX = arrayOf("facile", "normal", "difficile", "très difficile")
+    // build 182 : les mini-jeux. mgNo = 501 + rang dans mgDataTbl (mgdata.inc : le type de chaque mini-jeu) ; les noms (anglais
+    // officiels) suivent la liste de chaque type dans l'ordre de la table (m501 = Coney Island, verifie) : a confirmer en jeu.
+    private val MG = arrayOfNulls<String>(80).also { t ->
+        val p4 = intArrayOf(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 23, 62, 63, 64, 65, 75, 77)
+        val n4 = listOf("Coney Island", "Ground Pound Down", "Chimp Chase", "Chomp Romp", "Pushy Penguins", "Leaf Leap", "Night Light Fright",
+            "Pop-Star Piranhas", "Mazed & Confused", "Dinger Derby", "Hydrostars", "Later Skater", "Will Flower", "Triple Jump", "Hotel Goomba",
+            "Coin Cache", "Vicious Vending", "Flower Shower", "Dodge Bomb", "Fish Upon a Star", "Rumble Fumble", "Frozen Frenzy", "Fish Sticks")
+        val p13 = intArrayOf(16, 17, 18, 19, 21, 22, 24, 66, 67, 68, 69, 76)
+        val n13 = listOf("Flatiator", "Squared Away", "Mario Mechs", "Revolving Fire", "Heat Stroke", "Beam Team", "Big Top Drop", "Quilt for Speed",
+            "Tube It or Lose It", "Mathletes", "Fight Cards", "Curvy Curbs")
+        val p22 = intArrayOf(20, 25, 26, 27, 28, 29, 30, 31, 32, 33, 73, 74)
+        val n22 = listOf("Clock Stoppers", "Defuse or Lose", "ID UFO", "Mario Can-Can", "Handy Hoppers", "Berry Basket", "Bus Buffer", "Rumble Ready",
+            "Submarathon", "Manic Mallets", "Panic Pinball", "Banking Coins")
+        val nb = listOf("Astro-Logical", "Bill Blasters", "Tug-o-Dorrie", "Twist 'n' Out", "Lucky Lineup", "Random Ride")
+        val nd = listOf("Shock Absorbers", "Countdown Pound", "Whomp Maze", "Shy Guy Showdown", "Button Mashers", "Get a Rope", "Pump 'n' Jump",
+            "Head Waiter", "Blown Away", "Merry Poppings", "Pound Peril", "Piece Out", "Bound of Music", "Wind Wavers", "Sky Survivor")
+        for (k in p4.indices) t[p4[k]] = n4[k] + " (4 joueurs)"
+        for (k in p13.indices) t[p13[k]] = n13[k] + " (1 contre 3)"
+        for (k in p22.indices) t[p22[k]] = n22[k] + " (2 contre 2)"
+        for (k in nb.indices) t[34 + k] = nb[k] + " (bataille)"
+        for (k in nd.indices) t[40 + k] = nd[k] + " (duel)"
+        for ((k, n) in listOf("Rain of Fire", "Cage-in Cookin'", "Scaldin' Cauldron").withIndex()) t[58 + k] = "$n (Bowser)"
+        for ((k, n) in listOf("Banana Punch", "Da Vine Climb", "Mass A-peel").withIndex()) t[70 + k] = "$n (DK)"
+        t[61] = "Frightmare (dernier tour)"; t[78] = "Mini-jeu bonus"; t[79] = "Mini-jeu bonus (2 contre 2)"
+    }
+    private fun nomMg(mg: Int) = MG.getOrNull(mg - 501) ?: ("n° " + (mg - 500))
+    // build 182 : l'historique des tours (garde sur le telephone pendant la partie) et les alertes
+    private class Tour(val tour: Int, val mg: Int, val pieces: IntArray, val etoiles: IntArray)
+    private val histo = ArrayList<Tour>()
+    @Volatile private var hCle = ""; @Volatile private var hTour = -1
+    private var hPieces = IntArray(4); private var hEtoiles = IntArray(4); private var hMg = -1
+    private var alerte = ""; private var alerteT = 0L
+    private var rangAvant = IntArray(4) { -1 }; private var procheAvant = BooleanArray(4)
 
     override fun lire(l: Lecteur, id: String): Fiche? {
         val gp = joueurs(id); val sys = gp + 0x420
@@ -140,11 +173,28 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
         val lignes = ArrayList<Ligne>()
         lignes.add(Ligne("Tour", "$tour / $tours", pct(tour, tours), 0xFFFF8A3D))
         if (joueur in 0..3) lignes.add(Ligne("À qui de jouer", js.getOrNull(joueur)?.let { it.nom + if (it.reste > 0) " (encore ${it.reste} cases)" else "" } ?: "–"))
-        if (mg in 501..600) lignes.add(Ligne("Mini-jeu", "n° " + (mg - 500)))
+        if (mg in 501..580) lignes.add(Ligne("Mini-jeu", nomMg(mg)))
         lignes.add(Ligne("Banque Koopa", "$banque pièces"))
         if (equipes) lignes.add(Ligne("Mode", "Par équipes"))
         if (tours - tour in 0..4 && tour <= tours) lignes.add(Ligne("Derniers tours", "Oui (les 5 derniers)"))
         if (posees.isNotEmpty()) lignes.add(Ligne("Capsules posées sur le plateau", posees.size.toString()))
+        // l'historique : a chaque nouveau tour, ce qui a change pendant le tour d'avant (pieces, etoiles, mini-jeu)
+        val hc = "$id/$plateau/$tours"
+        if (hc != hCle || tour < hTour) { hCle = hc; histo.clear(); hTour = tour; hPieces = IntArray(4) { js[it].pieces }; hEtoiles = IntArray(4) { js[it].etoiles }; hMg = -1; rangAvant = IntArray(4) { -1 } }
+        if (mg in 501..580) hMg = mg
+        if (tour > hTour) {
+            histo.add(0, Tour(hTour, hMg, IntArray(4) { js[it].pieces - hPieces[it] }, IntArray(4) { js[it].etoiles - hEtoiles[it] }))
+            if (histo.size > 50) histo.removeAt(histo.size - 1)
+            hTour = tour; hPieces = IntArray(4) { js[it].pieces }; hEtoiles = IntArray(4) { js[it].etoiles }; hMg = -1
+        }
+        // les alertes : toi = le premier joueur humain (sinon J1)
+        val moi = js.firstOrNull { !it.ordi } ?: js[0]
+        val tms = System.currentTimeMillis()
+        for (j in js) {
+            if (j.n != moi.n && rangAvant[j.n] >= 0 && rangAvant[moi.n] >= 0 && rangAvant[j.n] >= rangAvant[moi.n] && j.rang < moi.rang) {
+                alerte = "⚠ ${j.nom} passe devant toi (${j.rang + 1}e)"; alerteT = tms }
+        }
+        for (j in js) rangAvant[j.n] = j.rang
         val blocs = ArrayList<Bloc>()
         blocs.add(Bloc("Partie", lignes))
         // le classement en un coup d'oeil
@@ -157,6 +207,9 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
                 val i = j.caseNo - 1
                 val ty = pl.types.getOrNull(i) ?: -1
                 val d = if (etoile >= 0) distance(pl, i, etoile) else -1
+                val proche = d in 0..10
+                if (proche && !procheAvant[j.n] && j.n != moi.n) { alerte = "⭐ ${j.nom} est à $d cases de l'étoile"; alerteT = tms }
+                procheAvant[j.n] = proche
                 Ligne("J" + (j.n + 1) + " " + j.nom, (if (ty >= 0) "case " + NOM_CASE[ty] + " n° " + j.caseNo else "–") +
                     (posees[i]?.let { " · capsule " + capsule(it) } ?: "") + (if (d >= 0) " · étoile à $d cases" else ""),
                     -1f, COUL_PERSO.getOrElse(j.perso) { 0xFFFFFFFF })
@@ -166,8 +219,15 @@ object JeuMP5 : ModuleJeu("Mario Party 5", "GP5P01", "GP5E01") {
                 texte = "Cases : bleue, rouge, verte (?), jaune (étoile, entourée là où elle est), orange (VS), brune (DK), rouge foncé (Bowser) ; " +
                     "petit carré blanc : une capsule posée ; petits points gris : passages."))
         } else blocs.add(Bloc("Plateau", texte = "Lecture des cases du plateau…"))
+        if (histo.isNotEmpty()) blocs.add(Bloc("Historique des tours", histo.take(20).map { h ->
+            val gagnant = (0 until 4).maxByOrNull { h.pieces[it] }
+            Ligne("Tour " + h.tour + if (h.mg in 501..580) " · " + nomMg(h.mg).substringBefore(" (") else "",
+                (0 until 4).joinToString("  ") { k -> js[k].nom.take(5) + " " + (if (h.pieces[k] >= 0) "+" else "") + h.pieces[k] + (if (h.etoiles[k] != 0) " " + (if (h.etoiles[k] > 0) "+" else "") + h.etoiles[k] + "★" else "") } +
+                    (if (gagnant != null && h.pieces[gagnant] > 0) "  · meilleur : " + js[gagnant].nom else ""))
+        }, texte = "Pièces et étoiles gagnées ou perdues à chaque tour (depuis que l'écran est ouvert)."))
         for (j in js) blocs.add(Bloc("J" + (j.n + 1) + " · " + j.nom + (if (j.ordi) " (ordi " + NIVEAUX[j.niveau] + ")" else "") + if (equipes) " · équipe " + (j.equipe + 1) else "", j.lignes))
         return Fiche(id, PLATEAUX[plateau], "Tour $tour sur $tours" + if (etoile >= 0) " · étoile en case n° " + (etoile + 1) else "", 0xFFB82E2E, 0xFF2A0A0A,
-            grands = ordre.take(4).map { it.nom to "${it.etoiles}★ ${it.pieces}" }, blocs = blocs)
+            grands = ordre.take(4).map { it.nom to "${it.etoiles}★ ${it.pieces}" }, blocs = blocs,
+            message = if (alerte.isNotEmpty() && tms - alerteT < 30000) alerte else "")
     }
 }

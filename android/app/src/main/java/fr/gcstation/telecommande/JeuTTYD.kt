@@ -18,6 +18,11 @@ object JeuTTYD : ModuleJeu("Paper Mario : La Porte Millénaire", "G8MP01", "G8ME
     @Volatile private var emplacement = 0L                           // pointeur vers PouchData
     @Volatile private var ptrMario = 0L
     @Volatile private var ptrGp = 0L
+    // build 182 : le plan de la zone : le chemin de Mario (garde par carte, sur le telephone tant que l'appli tourne) et les
+    // personnages de la carte (NpcWork du terrain : r13 + 0x1A74 en europeen, lu dans npcGetWorkPtr ; entrees de 0x340
+    // octets, verifie dans le main.dol : 30 « addi 0x340 » dans npcdrv ; utilisee si flags & 1, position 0x8C, nom 0x8)
+    private val chemins = HashMap<String, ArrayList<FloatArray>>()
+    @Volatile private var ptrNpc = 0L
     @Volatile private var pour = ""
     @Volatile private var essai = 0L
 
@@ -58,7 +63,8 @@ object JeuTTYD : ModuleJeu("Paper Mario : La Porte Millénaire", "G8MP01", "G8ME
     }
     private fun trouver(l: Lecteur, id: String) {
         if (id == "G8MP01") {                                        // europeen : connu (main.dol)
-            if (l.u32(0x800D6CAC) == 0x806D1CC0L && l.u32(0x800D6CB0) == 0x4E800020L) { emplacement = 0x8042B420L; ptrMario = 0x8042B220L; ptrGp = 0x80422810L }
+            if (l.u32(0x800D6CAC) == 0x806D1CC0L && l.u32(0x800D6CB0) == 0x4E800020L) { emplacement = 0x8042B420L; ptrMario = 0x8042B220L; ptrGp = 0x80422810L
+                if (l.u32(0x8004D058) == 0x386D1A74L) ptrNpc = 0x8042B1D4L }
             return
         }
         val r = r13(l) ?: return
@@ -67,6 +73,14 @@ object JeuTTYD : ModuleJeu("Paper Mario : La Porte Millénaire", "G8MP01", "G8ME
         if (s != 0L && l.u32(f.pouch + 4) == 0x4E800020L) l.ptr(s)?.let { if (vraisemblable(l, it)) emplacement = s }
         ptrMario = slot(l, r, f.mario)
         ptrGp = slot(l, r, f.sw)
+        ptrNpc = npc(l, r, id)
+    }
+    /** npcGetWorkPtr : « lwz r4, gp(r13) ; addi r3, r13, d » : le NpcWork du terrain */
+    private fun npc(l: Lecteur, r: Long, id: String): Long {
+        val a = when (id) { "G8MJ01" -> 0x8004C558L; "G8ME01" -> 0x8004CF6CL; else -> 0x8004D054L }
+        val w = l.u32(a + 4) ?: return 0L
+        if (w ushr 26 != 14L || (w ushr 16) and 31 != 13L || (w ushr 21) and 31 != 3L) return 0L
+        return (r + (w and 0xFFFF).toShort().toLong()) and 0xFFFFFFFFL
     }
 
     // zones (les 3 lettres du nom de la carte) : chapitre et nom
@@ -122,8 +136,8 @@ object JeuTTYD : ModuleJeu("Paper Mario : La Porte Millénaire", "G8MP01", "G8ME
         0x147 to "Emblème L", 0x148 to "Emblème W", 0x149 to "Triple dose", 0x14C to "Méga saut", 0x14D to "Méga coup", 0x14E to "Méga séisme")
     private val ETOILES = listOf(0x72 to "Diamant", 0x73 to "Émeraude", 0x74 to "Or", 0x75 to "Rubis", 0x76 to "Saphir", 0x77 to "Grenat", 0x78 to "Cristal")
     private val FR = mapOf(0xDE to "Mario", 0xE0 to "Goombella", 0xE1 to "Koops", 0xE2 to "Yoshi", 0xE3 to "Cumulia", 0xE4 to "Vivian", 0xE5 to "Bombart", 0xE6 to "Mme Gonzales")
-    // (noms des combattants : liste publique de la decompilation, en anglais)
-    private val NOMS = "Null|Goomba|Paragoomba|Spiky Goomba|Spinia|Spania|Lord Crump (prologue)|Gus|Blooper|Blooper Left Tentacle|Blooper Right Tentacle|Koopatrol|Magikoopa|Magikoopa Clone|Koopa Troopa|Paratroopa|Fuzzy|Dull Bones|Bald Cleft|Bristle|Gold Fuzzy|Fuzzy Horde|Red Bones|Hooktail|Dark Puff|Pale Piranha|Cleft|Pider|X Naut|Yux|Mini Yux|Beldam Chapter2|Marilyn Chapter2|Vivian Chapter2|Magnus|X Fist|Goomba Glitzville|Kp Koopa|Kp Paratroopa|Pokey|Lakitu|Spiny|Hyper Bald Cleft|Bob Omb|Bandit|Big Bandit|Red Spiky Buzzy|Shady Koopa|Shady Paratroopa|Red Magikoopa|Red Magikoopa Clone|White Magikoopa|White Magikoopa Clone|Green Magikoopa|Green Magikoopa Clone|Dark Craw|Hammer Bro|Boomerang Bro|Fire Bro|Red Chomp|Dark Koopatrol|Iron Cleft Red|Iron Cleft Green|Bowser Chapter3|Rawk Hawk|Macho Grubba|Hyper Goomba|Hyper Paragoomba|Hyper Spiky Goomba|Crazee Dayzee|Amazy Dayzee|Hyper Cleft|Buzzy Beetle|Spike Top|Swooper|Boo|Atomic Boo|Doopliss Chapter4 Fight1|Doopliss Chapter4 Invincible|Doopliss Chapter4 Fight2|Goombella Chapter4|Koops Chapter4|Yoshi Chapter4|Flurrie Chapter4|Ember|Lava Bubble|Green Fuzzy|Flower Fuzzy|Putrid Piranha|Parabuzzy|Bill Blaster|Bullet Bill|Bulky Bob Omb|Cortez|Cortez Bone Pile|Cortez Sword|Cortez Hook|Cortez Rapier|Cortez Saber|Lord Crump Chapter5|X Nauts Crump Formation1|X Nauts Crump Formation2|X Nauts Crump Formation3|Ruff Puff|Poison Pokey|Spiky Parabuzzy|Dark Boo|Smorg|Smorg Miasma Tentacle A|Smorg Miasma Tentacle B|Smorg Miasma Tentacle C|Smorg Miasma Claw|Ice Puff|Frost Piranha|Moon Cleft|Z Yux|Mini Z Yux|X Yux|Mini X Yux|X Naut Phd|Elite X Naut|Magnus2 0|X Punch|Swoopula|Phantom Ember|Bombshell Bill Blaster|Bombshell Bill|Chain Chomp|Dark Wizzerd|Dark Wizzerd Clone|Dry Bones|Dark Bones|Gloomtail|Beldam Chapter8|Marilyn Chapter8|Doopliss Chapter8|Doopliss Chapter8 Mario|Doopliss Chapter8 Goombella|Doopliss Chapter8 Koops|Doopliss Chapter8 Yoshi|Doopliss Chapter8 Flurrie|Doopliss Chapter8 Vivian|Doopliss Chapter8 Bobbery|Doopliss Chapter8 Ms Mowz|Bowser Chapter8|Kammy Koopa|Grodus|Grodus X|Shadow Queen Peach|Shadow Queen Invincible|Shadow Queen Demon|Shadow Queen Left Right Hand|Shadow Queen Dead Hands|Gloomba|Paragloomba|Spiky Gloomba|Dark Koopa|Dark Paratroopa|Badge Bandit|Dark Lakitu|Sky Blue Spiny|Wizzerd|Piranha Plant|Spunia|Arantula|Dark Bristle|Poison Puff|Swampire|Bob Ulk|Elite Wizzerd|Elite Wizzerd Clone|Bonetail|Red Buzzy|Red Parabuzzy|Red Spiky Parabuzzy|Hyper Bob Omb|Ultra Bob Omb|Tutorial Goombella|Tutorial Frankly B2|Tutorial Frankly B3|Tutorial Frankly B4|Epilogue Doopliss Mario|Epilogue Flurrie|Epilogue Boo|Epilogue Atomic Boo|Epilogue Male Toad|Epilogue Female Toad|Test|Crump2|Beldam2|Marilyn2|Vivian2|Beldam3|Marilyn3|Mecha Kuri|Mecha Kame|Okorl|Yowarl|Tuyonarl|Wanawana|Minarai Kamec|Shy Guy|Groove Guy|Pyro Guy|Spy Guy|Anti Guy|Bzzap|Mini Bzzap|Ufo|Pennington|Fighter|Zess T|Master|Reporter|Hotdog Master|Flavio|Tree|Switch|Testnpc|Bomb Squad Bomb|System|Prologue Goombella|Mario|Shell Shield|Goombella|Koops|Yoshi|Flurrie|Vivian|Bobbery|Ms. Mowz".split('|')
+    // (noms des combattants : liste publique de la decompilation, traduits)
+    private val NOMS = "|Goomba|Paragoomba|Goomba à pointes|Spinia|Spania|Lord Crump (prologue)|Gus|Bloups|Bloups (tentacule gauche)|Bloups (tentacule droit)|Koopatrol|Magikoopa|Magikoopa (clone)|Koopa|Paratroopa|Fuzzy|Skelerex terne|Cleft chauve|Bristle|Fuzzy doré|Horde de Fuzzy|Skelerex rouge|Hooktail|Puff sombre|Plante Piranha pâle|Cleft|Pider|X-Naut|Yux|Mini Yux|Beldam (chap. 2)|Marilyn (chap. 2)|Vivian (chap. 2)|Magnus|X Fist|Goomba (Glitzville)|Koopa (KP)|Paratroopa (KP)|Pokey|Lakitu|Hériss|Hyper Cleft chauve|Bob-omb|Bandit|Gros Bandit|Buzzy à pointes rouge|Koopa louche|Paratroopa louche|Magikoopa rouge|Magikoopa rouge (clone)|Magikoopa blanc|Magikoopa blanc (clone)|Magikoopa vert|Magikoopa vert (clone)|Craw sombre|Frère Marto|Frère Boomerang|Frère Pyro|Chomp rouge|Koopatrol sombre|Cleft de fer rouge|Cleft de fer vert|Bowser (chap. 3)|Rawk Hawk|Macho Grubba|Hyper Goomba|Hyper Paragoomba|Hyper Goomba à pointes|Dayzee folle|Dayzee géniale|Hyper Cleft|Buzzy|Spike Top|Swooper|Boo|Boo atomique|Doopliss (chap. 4) combat 1|Doopliss (chap. 4) invincible|Doopliss (chap. 4) combat 2|Goombella (chap. 4)|Koops (chap. 4)|Yoshi (chap. 4)|Cumulia (chap. 4)|Ember|Bulle de lave|Fuzzy vert|Fuzzy fleur|Plante Piranha putride|Parabuzzy|Lance-Bill|Bill Ball|Gros Bob-omb|Cortez|Cortez (tas d'os)|Cortez (épée)|Cortez (crochet)|Cortez (rapière)|Cortez (sabre)|Lord Crump (chap. 5)|X-Nauts (formation 1)|X-Nauts (formation 2)|X-Nauts (formation 3)|Puff rugueux|Pokey empoisonné|Parabuzzy à pointes|Boo sombre|Smorg|Smorg (tentacule A)|Smorg (tentacule B)|Smorg (tentacule C)|Smorg (pince)|Puff de glace|Plante Piranha de givre|Cleft lunaire|Z-Yux|Mini Z-Yux|X-Yux|Mini X-Yux|X-Naut docteur|X-Naut d'élite|Magnus 2.0|X Punch|Swoopula|Ember fantôme|Lance-Bill Bombe|Bill Bombe|Chomp|Wizzerd sombre|Wizzerd sombre (clone)|Skelerex|Skelerex sombre|Gloomtail|Beldam (chap. 8)|Marilyn (chap. 8)|Doopliss (chap. 8)|Doopliss (chap. 8, Mario)|Doopliss (chap. 8, Goombella)|Doopliss (chap. 8, Koops)|Doopliss (chap. 8, Yoshi)|Doopliss (chap. 8, Cumulia)|Doopliss (chap. 8, Vivian)|Doopliss (chap. 8, Bombart)|Doopliss (chap. 8, Mme Gonzales)|Bowser (chap. 8)|Kammy Koopa|Grodus|Grodus X|Reine des Ombres (Peach)|Reine des Ombres (invincible)|Reine des Ombres|Reine des Ombres (main)|Reine des Ombres (mains mortes)|Gloomba|Paragloomba|Gloomba à pointes|Koopa sombre|Paratroopa sombre|Bandit à badges|Lakitu sombre|Hériss bleu ciel|Wizzerd|Plante Piranha|Spunia|Arantula|Bristle sombre|Puff empoisonné|Swampire|Bulky Bob-omb|Wizzerd d'élite|Wizzerd d'élite (clone)|Bonetail|Buzzy rouge|Parabuzzy rouge|Parabuzzy à pointes rouge|Hyper Bob-omb|Ultra Bob-omb|Goombella|Frankly 2|Frankly 3|Frankly 4|Doopliss (Mario)|Cumulia|Boo|Boo atomique|Toad|Toadette||Lord Crump|Beldam|Marilyn|Vivian|Beldam|Marilyn|Méca-Goomba|Méca-Koopa|Okorl|Yowarl|Tuyonarl|Wanawana|Minarai Kamec|Maskass|Maskass groove|Maskass pyro|Maskass espion|Anti-Maskass|Bzzap|Mini Bzzap|Ufo|Pennington|Fighter|Zess T|Master|Reporter|Hotdog Master|Flavio|Tree|Switch|npc|Bombe de l'escouade||Goombella (prologue)|Mario|Carapace bouclier|Goombella|Koops|Yoshi|Cumulia|Vivian|Bombart|Mme Gonzales".split('|')   // (build 182 : en francais : noms habituels de la serie, sinon le nom anglais)
 
     private fun nomObjet(i: Int) = OBJETS[i] ?: BADGES[i] ?: ("Objet " + i)
     private fun nomBadge(i: Int) = BADGES[i] ?: BADGES[i - 1]?.let { "$it (P)" } ?: ("Badge " + i)
@@ -214,9 +228,45 @@ object JeuTTYD : ModuleJeu("Paper Mario : La Porte Millénaire", "G8MP01", "G8ME
         if (temps > 0) lignesPartie.add(Ligne("Temps de jeu (depuis l'allumage, hors menus)", dureeS(temps / 40_500_000L)))
         if (sauvegardes >= 0) lignesPartie.add(Ligne("Sauvegardes", sauvegardes.toString()))
         if (lignesPartie.isNotEmpty()) blocs.add(Bloc("Partie", lignesPartie))
+        planZone(l, carte, pos, combat)?.let { blocs.add(it) }
         val titre = z?.second ?: "Paper Mario"
         return Fiche(id, titre, (if (combat) "En combat · " else "") + "Niveau $niveau · " + (rangs.getOrNull(rang) ?: ""), 0xFFB8327A, 0xFF2A0A1C,
             grands = listOf("PV" to "$pv/$pvMax", "PF" to "$pf/$pfMax", "pièces" to pieces.toString()), blocs = blocs)
+    }
+
+    /** le plan de la zone : le chemin de Mario sur cette carte, Mario (M) et les personnages (point) */
+    private fun planZone(l: Lecteur, carte: String, pos: FloatArray?, combat: Boolean): Bloc? {
+        if (carte.isEmpty()) return null
+        val ch = chemins.getOrPut(carte) { ArrayList() }
+        if (pos != null && !combat) {
+            val d = ch.lastOrNull()
+            if (d == null || (d[0] - pos[0]) * (d[0] - pos[0]) + (d[1] - pos[2]) * (d[1] - pos[2]) > 400f) { ch.add(floatArrayOf(pos[0], pos[2])); if (ch.size > 600) ch.removeAt(0) }
+        }
+        val pions = ArrayList<Pion>()
+        val noms = ArrayList<String>()
+        if (!combat) l.ptr(ptrNpc)?.let { w ->
+            val n = l.s32(w)?.takeIf { it in 0..64 } ?: 0
+            val e = l.ptr(w + 0xC)
+            if (e != null) for (k in 0 until minOf(n, 64)) {
+                val b = e + 0x340L * k
+                val f = l.s32(b) ?: break
+                if (f and 1 == 0) continue
+                val x = l.fini(l.f32(b + 0x8C), 1e5f) ?: continue; val z = l.fini(l.f32(b + 0x94), 1e5f) ?: continue
+                val nm = (l.texte(b + 8, 32) ?: "").filter { it.code in 32..126 }
+                pions.add(Pion(x, z, 0xFFFFB300, "•")); if (nm.isNotEmpty()) noms.add(nm)
+                if (pions.size >= 24) break
+            }
+        }
+        if (pos != null) pions.add(Pion(pos[0], pos[2], 0xFFFF3B3B, "M"))
+        val pts = ArrayList<FloatArray>(ch)
+        for (p in pions) pts.add(floatArrayOf(p.x, p.z))
+        if (pts.size < 2) return null
+        val n = ch.size
+        val liens = (1 until n).map { intArrayOf(it - 1, it) }
+        return Bloc("Plan de la zone (" + carte + ")", plan = Plan(pts, List(pts.size) { if (it < n) 0xFF7A6CA8 else 0x00000000 }, liens, pions,
+            petits = (0 until pts.size).toSet()),
+            texte = "Ton chemin sur cette carte (il se dessine en avançant), M : Mario, points jaunes : les personnages" +
+                (if (noms.isNotEmpty()) " (" + noms.distinct().take(8).joinToString(", ") + ")" else "") + ".")
     }
 
     private fun combatBloc(l: Lecteur, bw: Long): Bloc? {
