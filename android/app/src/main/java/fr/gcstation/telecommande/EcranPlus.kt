@@ -91,6 +91,7 @@ private val TUILES get() = listOf(
     Tuile("Chercheur de codes", "Tes cheats et succès, en jeu", Ic.Chercher, C.Cyan) { St.sous = "Chercheur de codes" },
     Tuile("Compagnon de jeu", "Jauges, carte, chrono en direct", Ic.Jeux, C.Vert) { St.sous = "Compagnon de jeu" },
     Tuile("Statistiques de jeu", "Temps par jeu et par semaine", Ic.Trophee, C.Orange) { St.sous = "Statistiques de jeu" },
+    Tuile("Extraire d'un .iso", "main.dol d'un jeu du téléphone", Ic.Copies, C.Cyan) { St.sous = "Extraire d'un jeu du téléphone" },
     Tuile("Jeu de cartes", "8 américain entre potes", Ic.Cartes, C.Rose) { a -> CartesActivity.open(a) },
     Tuile("Mini-jeux", "Duels, téléphone = manette", Ic.Jeux, C.Cyan) { a -> MiniJeuxActivity.open(a) },
     Tuile("Manette en jeu", "Pulse : ports 2 à 4", Ic.Manette, C.Violet) { a -> a.manetteEnJeu() },
@@ -128,6 +129,7 @@ fun EcranPlus() {
                 "Chercheur de codes" -> EcranChercheur()
                 "Compagnon de jeu" -> EcranCompagnon()
                 "Statistiques de jeu" -> EcranStatsJeux()
+                "Extraire d'un jeu du téléphone" -> EcranIsoTel()
                 "Vraies cartes mémoire" -> EcranVraiesCartes()
                 "Photos" -> EcranPhotos()
                 "Réglages" -> Ancien(sous) { SettingsTab(it) }
