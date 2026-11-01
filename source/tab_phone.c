@@ -31,7 +31,7 @@ static volatile int tp_json_cur = 0;
 static u64 tp_json_t = 0;
 
 /* commandes envoyees par la page */
-enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN, PC_MENU, PC_CHECK, PC_SET, PC_UPDATE, PC_SHOW, PC_SALON, PC_TYPE, PC_SHOWNAME, PC_PLAYURL, PC_RADIOADD, PC_TEST, PC_MINIJEU };   /* v142 : photo sur la tele, ecouter avec (Salon) */
+enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN, PC_MENU, PC_CHECK, PC_SET, PC_UPDATE, PC_SHOW, PC_SALON, PC_TYPE, PC_SHOWNAME, PC_PLAYURL, PC_RADIOADD, PC_TEST, PC_MINIJEU, PC_QPLAY };   /* v142 : photo sur la tele, ecouter avec (Salon) */
 static volatile u32 tp_keys = 0;                /* v142 : boutons de la manette du telephone (pris par la boucle) */
 static u8 *gl_cover_raw(int k, int *w, int *h, int *iw, int *ih, u32 *len);   /* (gclib.c) jaquette telle qu'elle est dans posters.pak */
 static int tl_screen;                                        /* (tools.c : 0 = aucun outil ouvert) */
@@ -1860,6 +1860,7 @@ static void tp_handle(s32 c) {
         tp_param(q ? q : "", "i", is, sizeof(is));
         int found = 0;
         for (int k = 1; k <= PC_LAYOUT; k++) if (!strcmp(cmd, cmds[k])) { tp_push(k, is[0] ? atoi(is) : -1); found = 1; }
+        if (!strcmp(cmd, "qplay") && is[0]) { tp_push(PC_QPLAY, atoi(is)); found = 1; }   /* v311 : un morceau de la file "a suivre" (sa place), sans la refaire */
         tp_reply(c, found ? 200 : 400, "application/json", found ? "{\"ok\":1}" : "{\"ok\":0}", found ? 8 : 8);
     } else tp_reply(c, 404, "text/plain", "", 0);
 }
@@ -2151,6 +2152,10 @@ static void phone_pump(void) {
         case PC_VOLUP: volume_pct = volume_pct + 10 > 100 ? 100 : volume_pct + 10; settings_dirty = 1; break;
         case PC_VOLDOWN: volume_pct = volume_pct - 10 < 0 ? 0 : volume_pct - 10; settings_dirty = 1; break;
         case PC_PLAY: if (cm.i >= 0 && cm.i < nfiles) { queue_build(cm.i); start_track(cm.i); select_track_row(cm.i); } break;
+        case PC_QPLAY: {                                 /* v311 : i = place dans "a suivre" (0 = le suivant) : la file reste */
+            int p = qpos + 1 + cm.i;
+            if (cm.i >= 0 && qn > 0 && qpos >= 0 && qpos < qn && cur_track >= 0 && queue[qpos] == cur_track && p < qn) { play_queue_pos(p); select_track_row(queue[p]); }
+            break; }
         case PC_RADIO: if (cm.i >= 0 && cm.i < nstations) { net_start_async(); start_station(cm.i, 0); } break;
         case PC_PARTY: if (party_on) party_on = 0; else party_start(); break;
         case PC_LAYOUT: layout_next(); break;

@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v311 (build à venir, appli build à venir) — File « à suivre » depuis l'appli : corrigée
+- Appli, onglet Lecture > À suivre : toucher un morceau de la file y **saute sans effacer la file** (avant : le morceau
+  était lancé seul et la console refaisait sa liste : les morceaux ajoutés disparaissaient). GC Station :
+  `/api/cmd?c=qplay&i=<place>`.
+- « Lire juste après » / « Ajouter à la fin de la file » : l'appli attend la réponse de la console jusqu'à 10 s (avant
+  2,5 s : « Pas possible » s'affichait alors que c'était fait, quand la console était occupée).
+
 ## Nouveautés v310 (build 814, appli build 147) — Notice sans déformation, vagues de la console dans l'appli
 - **Console : la notice ne se déforme plus quand on la fait tourner.** Chaque page était un seul quadrilatère projeté :
   l'image se pliait le long de sa diagonale. Elle est maintenant découpée en 8 x 8 carreaux projetés un par un
