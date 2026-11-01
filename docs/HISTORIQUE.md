@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 205 — Super Mario Sunshine : chaque soleil et chaque pièce bleue manquants par leur nom
+- Compagnon de jeu > Sunshine > « Pour finir à 100 % » : zone par zone (Place Delfino et Mont Corona compris), le nom de
+  chaque soleil manquant (épisode, niveau secret, 100 pièces, les 18 soleils de la place) et l'emplacement de chaque pièce
+  bleue manquante (les 240). Noms traduits d'après la décompilation, pas les titres officiels du jeu.
+
 ## Nouveautés appli build 203 — Twilight Princess : insectes dorés et équipement dans le 100 %
 - Compagnon de jeu > Twilight Princess > « Pour finir à 100 % » : nouveau bloc **Insectes dorés** (les 24, mâle et femelle
   de chaque espèce, ceux qui manquent en gris), et l'équipement pas encore obtenu (épées, boucliers, Armure magique,
