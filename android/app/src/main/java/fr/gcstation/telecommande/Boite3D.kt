@@ -539,7 +539,7 @@ private class Rendu : GLSurfaceView.Renderer {
         }
         ouvert += (ouvrirVers - ouvert) * min(1f, dt * 4f)
         sorti += (sortirVers - sorti) * min(1f, dt * 3.5f)
-        tourne += dt * (40f * sorti + vTourne)
+        tourne += dt * vTourne                                 // (sorti : il reste immobile ; seulement lance du doigt)
         vTourne *= (1 - min(1f, dt * 1.5f))
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
@@ -569,7 +569,7 @@ private class Rendu : GLSurfaceView.Renderer {
         Matrix.translateM(lid, 0, -X, 0f, Z)
         Matrix.rotateM(lid, 0, -175f * ouvert, 0f, 1f, 0f)
         Matrix.translateM(lid, 0, X, 0f, -Z)
-        // disque : pose sur l'ergot, ou sorti devant nous (il tourne doucement)
+        // disque : pose sur l'ergot, ou sorti devant nous (immobile, sauf si on le lance du doigt)
         val pos = FloatArray(4)
         Matrix.multiplyMV(pos, 0, mod, 0, floatArrayOf(0f, 0f, zDisque, 1f), 0)
         val fx = 0f; val fy = 0.1f; val fz = dist * 0.42f
