@@ -1262,6 +1262,74 @@ static void x73_jaq_build(void) {
     x73_jq_ready = 1;
     free(old);
 }
+/* v313 : le jeu demande par l'appli (/api/discfile) : son fichier sur la carte SD (1er disque) */
+static void x73_df_find(void) {
+    if (!gl_scanned) gl_scan_full(0);
+    x73_df_path[0] = 0;
+    for (int k = 0; k < gl_n; k++)
+        if (!gl[k].dvd && !strncmp(gl[k].id, x73_df_id, 6) && (!x73_df_path[0] || gl[k].disc == 0)) snprintf(x73_df_path, sizeof(x73_df_path), "%s", gl[k].path);
+    x73_df_ready = 1;
+}
+/* v313 : un fichier du disque (chemin "/res/Fmap/Fmap.arc") : trouve dans la table des fichiers (FST), envoye par
+   morceaux de 32 Ko (pas tout en memoire) ; 0 : jeu illisible ou fichier absent (rien envoye) */
+static int x73_disc_send(s32 c, const char *path, const char *f) {
+    gdisc_t d;
+    if (!gd_open(&d, path)) return 0;
+    u8 h[0x440], *fst = NULL;
+    int sent = 0;
+    u32 off = 0, sz = 0;
+    if (!gd_read(&d, 0, h, sizeof(h)) || be32(h + 0x1C) != 0xC2339F3Du) goto fin;
+    u32 fo = be32(h + 0x424), fs = be32(h + 0x428);
+    if (fs < 12 || fs > (4u << 20) || !(fst = (u8 *)malloc(fs)) || !gd_read(&d, fo, fst, fs)) goto fin;
+    u32 ne = be32(fst + 8);
+    if (!ne || ne > fs / 12) goto fin;
+    const char *names = (const char *)fst + ne * 12;
+    u32 nlen = fs - ne * 12, dir = 0;
+    const char *p = f;
+    while (*p == '/') p++;
+    while (*p) {
+        char comp[64];
+        size_t n = strcspn(p, "/");
+        if (!n || n >= sizeof(comp)) goto fin;
+        memcpy(comp, p, n); comp[n] = 0;
+        p += n;
+        while (*p == '/') p++;
+        u32 end = be32(fst + dir * 12 + 8), found = 0;
+        if (end > ne) end = ne;
+        for (u32 i = dir + 1; i < end; ) {
+            const u8 *e = fst + i * 12;
+            u32 no = be32(e) & 0xFFFFFFu;
+            if (no < nlen && memchr(names + no, 0, nlen - no) && !strcasecmp(names + no, comp)) { found = i; break; }
+            u32 nx = e[0] ? be32(e + 8) : i + 1;
+            if (nx <= i) break;
+            i = nx;
+        }
+        if (!found) goto fin;
+        const u8 *e = fst + found * 12;
+        if (*p) { if (!e[0]) goto fin; dir = found; }
+        else { if (e[0]) goto fin; off = be32(e + 4); sz = be32(e + 8); }
+    }
+    if (!sz || sz > (32u << 20)) goto fin;
+    free(fst); fst = NULL;
+    {
+        char hd[200];
+        int hn = snprintf(hd, sizeof(hd), "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: %u\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n", (unsigned)sz);
+        sent = 1;
+        if (tp_send(c, hd, hn)) {
+            static u8 fb[32768];
+            while (sz > 0) {
+                u32 n = sz > sizeof(fb) ? (u32)sizeof(fb) : sz;
+                if (!gd_read(&d, off, fb, n) || !tp_send(c, fb, (int)n)) break;
+                off += n; sz -= n;
+                tp_last_req = now_ms();
+            }
+        }
+    }
+fin:
+    free(fst);
+    gd_close(&d);
+    return sent;
+}
 static void x73_games_build(void) {
     if (!gl_scanned) gl_scan_full(0);                         /* v241 : liste gardee (avant : toute la carte SD relue, console figee) */
     sbuf_t s = { NULL, 0, 0 };
@@ -1512,6 +1580,7 @@ static void x73_pump(void) {
     rh_capture();
     if (fun_mode == FUN_OFF || fun_mode == FUN_KARAOKE || fun_mode == FUN_WAKE) rhc_pump();
     if (x73_gj_want) { x73_gj_want = 0; x73_games_build(); }
+    if (x73_df_want) { x73_df_want = 0; x73_df_find(); }   /* v313 */
     if (x73_jq_want) { x73_jq_want = 0; x73_jaq_build(); }   /* v301 */
     if (x73_cj_want) { x73_cj_want = 0; x73_cards_build(); }   /* v190 */
     if (x73_ch_want) {                                        /* v240 : cheats depuis le telephone */

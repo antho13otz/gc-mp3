@@ -794,6 +794,11 @@ static volatile int x73_jq_want = 0, x73_jq_ready = 0;
 static volatile int tp_jaq_new = 0;                       /* (une image est arrivee : la boucle relit les jaquettes) */
 static void gl_art_recu(void);                            /* (gclib.c) */
 static volatile int x73_gj_want = 0, x73_gj_ready = 0;
+/* v313 : un fichier du disque d'un jeu pour l'appli (compagnon : la vraie carte marine de Wind Waker) : la boucle
+   trouve le jeu (?id=), le fil du serveur lit le fichier dans le jeu (extras73.c) et l'envoie par morceaux */
+static volatile int x73_df_want = 0, x73_df_ready = 0;
+static char x73_df_id[8], x73_df_path[NAME_LEN];
+static int x73_disc_send(s32 c, const char *path, const char *f);
 static volatile int x73_launch_k = -1, x73_launch_m = 0;
 static char x73_launch_id[8] = "";
 static char x73_launch_fx[12] = "";                       /* v250 : patchs de secours (lettres SFTCHWV) */
@@ -1461,6 +1466,21 @@ static void tp_handle(s32 c) {
         int isdir = 1;
         if (tp_fs_path(q ? q : "", p, sizeof(p), &isdir) && !isdir) sh_send_file(c, p, 0, (char *)req);
         else tp_reply(c, 404, "text/plain", "", 0);
+    }
+    else if (!strcmp(target, "/api/discfile")) {             /* v313 : ?id=GZLP01&f=/res/Fmap/Fmap.arc : un fichier du disque du jeu */
+        char id[8], f[200];
+        tp_param(q ? q : "", "id", id, sizeof(id));
+        tp_param(q ? q : "", "f", f, sizeof(f));
+        int ok = strlen(id) == 6 && f[0] == '/' && !strstr(f, "..");
+        for (int k = 0; ok && k < 6; k++) if (!isalnum((unsigned char)id[k])) ok = 0;
+        if (!ok) tp_reply(c, 400, "text/plain", "", 0);
+        else {
+            memcpy(x73_df_id, id, 7);
+            x73_df_ready = 0; x73_df_want = 1;
+            for (int k = 0; k < 400 && !x73_df_ready; k++) usleep(20000);
+            if (!x73_df_ready || !x73_df_path[0]) tp_reply(c, 404, "text/plain", "jeu", 3);
+            else if (!x73_disc_send(c, x73_df_path, f)) tp_reply(c, 404, "text/plain", "fichier", 7);
+        }
     }
     else if (!strcmp(target, "/api/games")) {                /* v73 : jeux GameCube (liste faite par la boucle) */
         x73_gj_ready = 0; x73_gj_want = 1;

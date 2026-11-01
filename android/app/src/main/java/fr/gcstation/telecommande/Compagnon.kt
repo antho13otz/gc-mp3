@@ -71,6 +71,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -144,7 +148,8 @@ object JeuWW {
                val cartes: IntArray = IntArray(0),                  // 49 iles : bits de la carte marine
                val cles: Int = -1, val donjon: Int = 0,             // salle en cours : petites cles, objets du donjon (bits)
                val cap: Double = 0.0, val vitesse: Float = 0f, val y: Float = 0f, val salle: Int = -1,
-               val ventX: Float = 0f, val ventZ: Float = 0f, val ventOk: Boolean = false)
+               val ventX: Float = 0f, val ventZ: Float = 0f, val ventOk: Boolean = false,
+               val variante: Int = 0)                               // (v313 : mRandomSalvagePoint : images de la carte)
 
     /** null : rien de lisible (pas ce jeu, ou Pulse muet) */
     fun lire(l: Lecteur): Etat? {
@@ -189,7 +194,8 @@ object JeuWW {
             heure = heure, jour = l.u16(G + 0x28) ?: 0, morts = l.u16(G + 0x148 + 0x12) ?: 0,
             cartes = l.plage(G + 0xC4 + 0x40, 49) ?: IntArray(0),
             cles = l.u8(G + 0x778 + 0x20) ?: -1, donjon = dj,
-            cap = cap, vitesse = vit, y = y, salle = salle, ventX = vx, ventZ = vz, ventOk = vok)
+            cap = cap, vitesse = vit, y = y, salle = salle, ventX = vx, ventZ = vz, ventOk = vok,
+            variante = l.u8(G + 0x148 + 0x59) ?: 0)
     }
 
     /** cases de la carte marine : salle n de la mer = case ((n - 1) % 7, (n - 1) / 7) ; A1 en haut a gauche */
@@ -538,6 +544,7 @@ object Compagnon {
     var etat by mutableStateOf<Any?>(null)
     var statut by mutableStateOf("Connexion à Pulse…")
     var ecranOuvert = false
+    var ctx: Context? = null
     private var job: Job? = null
     private val scope = MainScope()
     val traceWW = mutableStateListOf<Offset>()                        // (le sillage de Link sur la mer)
@@ -578,6 +585,7 @@ object Compagnon {
                         val d = traceWW.lastOrNull()
                         if (d == null || (d - o).getDistance() > 1500f) { traceWW.add(o); if (traceWW.size > 400) traceWW.removeAt(0) }
                     }
+                    if (r is JeuWW.Etat && r.partie && r.aPos && r.scene != "sea") PlanWW.ajouter(ctx, r.scene, r.x, r.y, r.z, r.salle)   // (v313 : plan des interieurs)
                     Chrono.observer(etat, r)
                     etat = r
                 }
@@ -750,8 +758,12 @@ fun dureeChrono(ms: Long, signe: Boolean = false): String {
 fun EcranCompagnon() {
     val act = LocalContext.current
     var vue by remember { mutableStateOf(0) }
-    LaunchedEffect(Unit) { Chrono.init(act); Compagnon.ecranOuvert = true; Compagnon.demarrer() }
-    DisposableEffect(Unit) { onDispose { Compagnon.ecranOuvert = false } }
+    LaunchedEffect(Unit) {
+        Chrono.init(act); Compagnon.ctx = act.applicationContext; Compagnon.ecranOuvert = true; Compagnon.demarrer()
+        CarteMarineWW.telecharger(act)                                   // (v313 : hors partie seulement)
+        withContext(Dispatchers.Default) { CarteMarineWW.charger(act) }
+    }
+    DisposableEffect(Unit) { onDispose { Compagnon.ecranOuvert = false; PlanWW.enregistrer(Compagnon.ctx) } }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         val id = Compagnon.jeu
         Doux(if (id.isNotEmpty() && Compagnon.pris(id)) Compagnon.PRIS[id] + " (" + id + ")" else "Pendant une partie lancée avec Pulse, l'appli lit le jeu en direct : jauges, carte, chrono.", taille = 12)
@@ -955,12 +967,15 @@ private fun CompagnonWW(e: JeuWW.Etat) {
             }
         }
     }
-    // la carte marine
+    // v313 : a l'interieur (donjon, maison, ile) : le plan qui se dessine au fil des pas de Link
+    if (e.scene != "sea" && e.scene != "sea_T" && e.aPos) PlanInterieurWW(e)
+    // la carte marine (v313 : les images du vrai jeu quand l'appli les a ; toucher une case : son nom)
     Carte(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             val l = JeuWW.lieu(e.scene)
             val mer = e.scene == "sea"
             val ici = if (mer && e.aPos) JeuWW.case(e.x, e.z) else -1
+            var touchee by remember { mutableStateOf(-1) }
             Titre("Carte marine", couleur = Color(0xFF7FD4FF))
             Text(when {
                 ici >= 0 -> JeuWW.nomCase(ici) + " · " + JeuWW.ile(ici)
@@ -970,25 +985,39 @@ private fun CompagnonWW(e: JeuWW.Etat) {
             val connues = e.cartes.count { it != 0 }
             if (e.cartes.size == 49) Doux("$connues îles sur 49 sur la carte" + if (mer && e.vitesse > 1f) " · vitesse " + e.vitesse.toInt() else "", taille = 11)
             val trace = Compagnon.traceWW
-            Canvas(Modifier.fillMaxWidth().aspectRatio(1f)) {
+            val vraie = CarteMarineWW.tuiles.isNotEmpty()
+            Canvas(Modifier.fillMaxWidth().aspectRatio(1f).pointerInput(Unit) {
+                detectTapGestures { o ->
+                    val marge = 18.dp.toPx()
+                    val c = (size.width - marge) / 7f
+                    val cx = ((o.x - marge) / c).toInt(); val cy = ((o.y - marge) / c).toInt()
+                    touchee = if (o.x >= marge && o.y >= marge && cx in 0..6 && cy in 0..6) { val k = cy * 7 + cx; if (touchee == k) -1 else k } else -1
+                }
+            }) {
                 val marge = 18.dp.toPx()
                 val c = (size.width - marge) / 7f
                 val paint = android.graphics.Paint().apply { isAntiAlias = true; textSize = 11.dp.toPx(); color = android.graphics.Color.argb(200, 90, 60, 30); textAlign = android.graphics.Paint.Align.CENTER; typeface = android.graphics.Typeface.SERIF }
                 // parchemin et mer
                 drawRoundRect(Brush.radialGradient(listOf(Color(0xFFF3E2B8), Color(0xFFD9BE86)), Offset(size.width / 2, size.height / 2), size.width * 0.75f), Offset.Zero, size, CornerRadius(12.dp.toPx()))
                 drawRoundRect(Brush.radialGradient(listOf(Color(0xFF3D9BD1), Color(0xFF1D5E8E)), Offset(marge + 3.5f * c, marge + 3.5f * c), c * 5.5f), Offset(marge, marge), Size(c * 7, c * 7), CornerRadius(6.dp.toPx()))
+                // les iles : l'image du jeu (case connue), sinon dessinees ; pas encore sur la carte : contour
+                for (i in 0 until 49) {
+                    val coin = Offset(marge + (i % 7) * c, marge + (i / 7) * c)
+                    val o = coin + Offset(c / 2, c / 2)
+                    val connue = e.cartes.size == 49 && e.cartes[i] != 0
+                    val img = if (connue) CarteMarineWW.tuile(i, e.variante) else null
+                    if (img != null) drawImage(img, IntOffset.Zero, IntSize(img.width, img.height), IntOffset(coin.x.toInt(), coin.y.toInt()), IntSize(c.toInt() + 1, c.toInt() + 1))
+                    else {
+                        val p = ile(o, c * 0.26f, i)
+                        if (connue) { drawPath(p, Brush.radialGradient(listOf(Color(0xFF9BE07A), Color(0xFF4F9A3E)), o, c * 0.3f)); drawPath(p, Color(0xFFEFD9A0), style = Stroke(1.5.dp.toPx())) }
+                        else drawPath(p, Color(0x33FFFFFF), style = Stroke(1.dp.toPx()))
+                    }
+                    if (i == ici) drawRect(Color(0x40FFE08A), coin, Size(c, c))
+                    if (i == touchee) drawRect(Color(0xFFFF4FD8), coin, Size(c, c), style = Stroke(2.5.dp.toPx()))
+                }
                 for (k in 0..7) {
                     drawLine(Color(0x33FFFFFF), Offset(marge + k * c, marge), Offset(marge + k * c, marge + 7 * c), 1f)
                     drawLine(Color(0x33FFFFFF), Offset(marge, marge + k * c), Offset(marge + 7 * c, marge + k * c), 1f)
-                }
-                // les iles : sur la carte (dessinees), pas encore (contour)
-                for (i in 0 until 49) {
-                    val o = Offset(marge + (i % 7) * c + c / 2, marge + (i / 7) * c + c / 2)
-                    val connue = e.cartes.size == 49 && e.cartes[i] != 0
-                    val p = ile(o, c * 0.26f, i)
-                    if (i == ici) drawCircle(Color(0x55FFE08A), c * 0.48f, o)
-                    if (connue) { drawPath(p, Brush.radialGradient(listOf(Color(0xFF9BE07A), Color(0xFF4F9A3E)), o, c * 0.3f)); drawPath(p, Color(0xFFEFD9A0), style = Stroke(1.5.dp.toPx())) }
-                    else drawPath(p, Color(0x33FFFFFF), style = Stroke(1.dp.toPx()))
                 }
                 drawIntoCanvas { cv ->
                     for (k in 0 until 7) {
@@ -1004,17 +1033,57 @@ private fun CompagnonWW(e: JeuWW.Etat) {
                     drawCircle(Color(0x55FF4FD8), 13.dp.toPx(), p)
                     fleche(p, e.cap, 11.dp.toPx(), Color(0xFF3DDC84))
                 }
-                // rose des vents : le vent en cours
-                if (e.ventOk) {
-                    val rc = Offset(size.width - 34.dp.toPx(), size.height - 34.dp.toPx())
-                    drawCircle(Color(0xCCF3E2B8), 24.dp.toPx(), rc)
-                    drawCircle(Color(0xFF8B5A2B), 24.dp.toPx(), rc, style = Stroke(1.5.dp.toPx()))
-                    val a = Math.atan2(e.ventX.toDouble(), e.ventZ.toDouble())
-                    fleche(rc, a, 17.dp.toPx(), Color(0xFF2F8FD8))
-                }
             }
-            if (e.ventOk) Doux("Le vent souffle vers le " + JeuWW.direction(e.ventX.toDouble(), e.ventZ.toDouble()) + ".", taille = 11)
+            if (touchee in 0..48) Text(JeuWW.nomCase(touchee) + " · " + JeuWW.ile(touchee) +
+                (if (e.cartes.size == 49 && e.cartes[touchee] == 0) " (pas encore sur ta carte)" else ""), color = Color(0xFFFF8FE6), fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+            else Doux("Touche une case pour voir le nom de l'île.", taille = 11)
+            // la rose des vents, sous la carte (v313 : ne cache plus de case)
+            if (e.ventOk) Row(verticalAlignment = Alignment.CenterVertically) {
+                Canvas(Modifier.size(34.dp)) {
+                    val rc = Offset(size.width / 2, size.height / 2)
+                    drawCircle(Color(0xCCF3E2B8), size.width / 2, rc)
+                    drawCircle(Color(0xFF8B5A2B), size.width / 2, rc, style = Stroke(1.5.dp.toPx()))
+                    fleche(rc, Math.atan2(e.ventX.toDouble(), e.ventZ.toDouble()), size.width * 0.36f, Color(0xFF2F8FD8))
+                }
+                Spacer(Modifier.width(10.dp))
+                Doux("Le vent souffle vers le " + JeuWW.direction(e.ventX.toDouble(), e.ventZ.toDouble()) + ".", taille = 12)
+            }
+            if (!vraie && CarteMarineWW.etat.isNotEmpty()) Doux(CarteMarineWW.etat, taille = 10)
             if (!mer) Doux("La position s'affiche quand Link est sur la Grande Mer.", taille = 11)
+        }
+    }
+}
+
+/** v313 : le plan d'un interieur (donjon, maison, ile) : le chemin de Link garde par scene, vu du dessus */
+@Composable
+private fun PlanInterieurWW(e: JeuWW.Etat) {
+    val ctx = LocalContext.current
+    @Suppress("UNUSED_VARIABLE") val v = PlanWW.version
+    val pts = PlanWW.points(ctx.applicationContext, e.scene)
+    Carte(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Titre("Plan", couleur = Color(0xFFFFD27A))
+            Text(JeuWW.lieu(e.scene).ifEmpty { "Intérieur" } + if (e.salle >= 0) " · salle " + e.salle else "", color = C.Texte, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            Canvas(Modifier.fillMaxWidth().aspectRatio(1f)) {
+                drawRoundRect(Color(0xFF14102A), Offset.Zero, size, CornerRadius(12.dp.toPx()))
+                var x0 = e.x; var x1 = e.x; var z0 = e.z; var z1 = e.z
+                for (p in pts) { x0 = minOf(x0, p[0]); x1 = maxOf(x1, p[0]); z0 = minOf(z0, p[2]); z1 = maxOf(z1, p[2]) }
+                val marge = 22.dp.toPx()
+                val etendue = maxOf(x1 - x0, z1 - z0, 1500f)
+                val k = (size.width - 2 * marge) / etendue
+                val ox = size.width / 2 - (x0 + x1) / 2 * k; val oz = size.height / 2 - (z0 + z1) / 2 * k
+                fun pt(x: Float, z: Float) = Offset(ox + x * k, oz + z * k)
+                val r = maxOf(60f * k, 3.dp.toPx())
+                // les autres etages (hauteur eloignee) en pale, puis l'etage en cours, la salle en cours en rose
+                for (p in pts) if (Math.abs(p[1] - e.y) > 350f) drawCircle(Color(0x223A8BFF), r, pt(p[0], p[2]))
+                for (p in pts) if (Math.abs(p[1] - e.y) <= 350f) drawCircle(if (p[3].toInt() == e.salle) Color(0x99FF4FD8) else Color(0x8857B6FF), r, pt(p[0], p[2]))
+                val ici = pt(e.x, e.z)
+                drawCircle(Color(0x55FFFFFF), 13.dp.toPx(), ici)
+                fleche(ici, e.cap, 11.dp.toPx(), Color(0xFF3DDC84))
+            }
+            Doux(if (pts.size < 5) "Le plan se dessine au fil de tes pas : explore, il se remplit (gardé sur le téléphone)."
+                 else "Ton chemin, gardé sur le téléphone · rose : la salle où tu es · pâle : les autres étages.", taille = 10)
+            if (pts.size >= 5) Bouton("Effacer ce plan", Modifier.fillMaxWidth(), hauteur = 36.dp) { PlanWW.effacer(ctx.applicationContext, e.scene) }
         }
     }
 }

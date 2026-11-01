@@ -24,6 +24,21 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v313 (build à venir, appli build à venir) — Wind Waker : la vraie carte marine, le plan des intérieurs
+- **La vraie carte marine du jeu** dans le compagnon de l'appli : chaque case connue est dessinée avec l'image que
+  le jeu utilise pour sa propre carte (`/res/Fmap/Fmap.arc`, une image par case et par variante du fichier de
+  sauvegarde). Pendant la partie, ces images ne sont pas dans la mémoire que Pulse lit (le jeu les met dans l'ARAM) :
+  l'appli les demande donc à GC Station **hors partie**, une seule fois, et les garde. Les images viennent du jeu de la
+  carte SD de l'utilisateur : rien de Nintendo n'est dans l'appli ni dans le dépôt. Sans elles : la carte dessinée
+  d'avant.
+- GC Station : nouvelle demande du téléphone `/api/discfile?id=<jeu>&f=<chemin>` : un fichier du disque d'un jeu de la
+  liste (table des fichiers du disque, .iso et .ciso), envoyé par morceaux de 32 Ko (rien de gros en mémoire). Essai
+  au simulateur : fichier identique à l'octet, fichier, dossier ou jeu absent refusés, chemins avec « .. » refusés.
+- **Plan des intérieurs** (donjons, maisons, îles) : le chemin de Link se dessine au fil des pas, salle par salle, gardé
+  sur le téléphone ; l'étage en cours net, les autres pâles, la salle en cours en rose ; bouton pour l'effacer.
+- Carte marine : **toucher une case** affiche le nom de l'île ; la **rose des vents** est sous la carte (elle cachait
+  F7 et G7).
+
 ## Nouveautés appli build 160 — Ma jaquette
 - **« Ma jaquette »** : la jaquette de TA boîte (ta région, ta langue, en haute définition) à la place de celle de
   GameTDB. Pour l'avant, le dos et la tranche : une photo (galerie, appareil photo, capture d'une annonce…), les 4 coins
