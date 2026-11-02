@@ -175,6 +175,8 @@ class Etat3D {
     @Volatile var pions = FloatArray(0)
     /** build 269 : position lue en direct ~30 fois par seconde ; le moteur la lisse a chaque image (plus de sauts) */
     @Volatile var direct = false                          // build 245 : types d'objets affiches
+    /** build 272 : la derniere pose de Rayman lue dans la memoire (squelette, objets, textures) */
+    @Volatile var pose: PoseRayman? = null
     // build 247 : derniere projection dessinee (pour savoir quel objet est sous le doigt) et vol anime de la camera
     @Volatile var mvpVue: FloatArray? = null; @Volatile var vueW = 1; @Volatile var vueH = 1
     var vol: kotlinx.coroutines.Job? = null
@@ -256,6 +258,12 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     private class Modele(val mod: FloatBuffer, val n: Int)
     private val boites = HashMap<String, Modele>(); private var texBoite = 0
     private var raymanMod: Modele? = null; private var texRayman = 0
+    // build 272 : Rayman anime (pack : r3_rayman_anim.txt) ; deux poses gardees pour glisser de l'une a l'autre
+    private var animMod: ModeleAnime? = null; private val texAnim = HashMap<String, Int>()
+    private var poseA: PoseRayman? = null; private var poseB: PoseRayman? = null
+    private var peauA = HashMap<Int, FloatArray>(); private var peauB = HashMap<Int, FloatArray>()
+    private var tB = 0L; private var dtAB = 1L
+    private val bufEl = HashMap<String, FloatBuffer>()
     private val boitesPos = HashMap<String, ArrayList<FloatArray>>()
     private fun lireModele(nom: String): Modele? = try {
         val f = java.io.File(scene.dossier, nom)
@@ -460,6 +468,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         raymanMod = if (scene.dossier.name == "cartes-r3") lireModele("r3_rayman_3d.txt") else null
         texRayman = if (raymanMod != null) chargerTex("r3_rayman.png", repete = true) else 0
         if (texRayman == 0) raymanMod = null
+        animMod = if (scene.dossier.name == "cartes-r3") ModeleAnime.pour(scene.dossier) else null
+        texAnim.clear(); bufEl.clear(); poseA = null; poseB = null
         boites.clear(); texBoite = chargerTex("r3_boite.png", repete = true)
         if (texBoite != 0) for (k in listOf("grappin", "helico", "poing", "roulade", "snipe")) lireModele("r3_boite_$k.txt")?.let { boites[k] = it }
         texPouvoir.clear()
@@ -711,6 +721,55 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
     }
 
+    /** build 272 : Rayman tel qu'il est dans le jeu (squelette, objets et textures lus en memoire) ; false : pas de pose recente */
+    private fun dessinerRaymanAnime(mvp: FloatArray, c0: FloatArray): Boolean {
+        val mod = animMod ?: return false
+        val p = etat.pose ?: return false
+        if (System.nanoTime() - p.t > 1_500_000_000L) return false
+        if (p !== poseB) {
+            val h = HashMap<Int, FloatArray>()
+            for ((g, s) in mod.morceaux(p)) { val geo = mod.geos[g] ?: continue; val o = FloatArray(geo.nv * 6); mod.peau(geo, p, s, o); h[g * 32 + s] = o }
+            val avant = poseB
+            poseA = avant; peauA = peauB; poseB = p; peauB = h
+            dtAB = if (avant != null) (p.t - avant.t).coerceIn(10_000_000L, 300_000_000L) else 1L; tB = System.nanoTime()
+        }
+        if (peauB.isEmpty()) return false
+        val al = if (poseA == null) 1f else ((System.nanoTime() - tB).toFloat() / dtAB).coerceIn(0f, 1f)
+        GLES20.glUseProgram(progM)
+        GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progM, "uMvp"), 1, false, mvp, 0)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glUniform1i(GLES20.glGetUniformLocation(progM, "uTex"), 0)
+        GLES20.glUniform3f(GLES20.glGetUniformLocation(progM, "uPos"), c0[0], c0[1], c0[2])
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(progM, "uAng"), 0f)
+        val mp = GLES20.glGetAttribLocation(progM, "aPos"); val mu = GLES20.glGetAttribLocation(progM, "aUv"); val mn = GLES20.glGetAttribLocation(progM, "aN")
+        GLES20.glEnableVertexAttribArray(mp); GLES20.glEnableVertexAttribArray(mu); GLES20.glEnableVertexAttribArray(mn)
+        for ((cle, o) in peauB) {
+            val geo = mod.geos[cle / 32] ?: continue
+            val a = peauA[cle]?.takeIf { it.size == o.size }
+            for (e in geo.el) {
+                val nom = poseB?.textures?.get(e.eo) ?: e.png
+                val tex = texAnim.getOrPut(nom) { chargerTex(nom, repete = true) }.takeIf { it != 0 }
+                    ?: texAnim.getOrPut(e.png) { chargerTex(e.png, repete = true) }.takeIf { it != 0 } ?: continue
+                val n = e.coins.size
+                val fb = bufEl.getOrPut("$cle/${e.eo}") { ByteBuffer.allocateDirect(n * 32).order(ByteOrder.nativeOrder()).asFloatBuffer() }
+                fb.clear()
+                for (k in 0 until n) {
+                    val i = e.coins[k] * 6
+                    if (a != null) { for (q in 0..2) fb.put(a[i + q] + (o[i + q] - a[i + q]) * al) } else { fb.put(o[i]); fb.put(o[i + 1]); fb.put(o[i + 2]) }
+                    fb.put(e.uv[2 * k]); fb.put(e.uv[2 * k + 1])
+                    fb.put(o[i + 3]); fb.put(o[i + 4]); fb.put(o[i + 5])
+                }
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex)
+                fb.position(0); GLES20.glVertexAttribPointer(mp, 3, GLES20.GL_FLOAT, false, 32, fb)
+                fb.position(3); GLES20.glVertexAttribPointer(mu, 2, GLES20.GL_FLOAT, false, 32, fb)
+                fb.position(5); GLES20.glVertexAttribPointer(mn, 3, GLES20.GL_FLOAT, false, 32, fb); fb.position(0)
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, n)
+            }
+        }
+        GLES20.glDisableVertexAttribArray(mp); GLES20.glDisableVertexAttribArray(mu); GLES20.glDisableVertexAttribArray(mn)
+        GLES20.glUseProgram(progL)
+        return true
+    }
+
     // build 269 : position affichee = position lue, lissee a chaque image ; cap de Rayman d'apres son deplacement
     private var lisse: FloatArray? = null; private var tLisse = 0L; private var cap = 0f; private var capVise = 0f
     private fun cibleLissee(): FloatArray {
@@ -840,7 +899,9 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         }
         val rm = raymanMod
-        if (etat.montrerRayman && rm != null) {          // build 269 : Rayman en 3D, tourne vers ou il va
+        if (etat.montrerRayman && dessinerRaymanAnime(mvp, c0)) {
+            // (build 272 : Rayman anime d'apres sa pose en memoire)
+        } else if (etat.montrerRayman && rm != null) {          // build 269 : Rayman en 3D, tourne vers ou il va
             GLES20.glUseProgram(progM)
             GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progM, "uMvp"), 1, false, mvp, 0)
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texRayman)
@@ -870,7 +931,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
 /** la vue 3D texturee ; cible / camera / chemin : la position en direct (ou le centre du niveau, sans jouer) */
 @Composable
 fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin: List<FloatArray>, montrerRayman: Boolean = true,
-                  pions: FloatArray? = null, distance: Float? = null, direct: (() -> FloatArray?)? = null) {
+                  pions: FloatArray? = null, distance: Float? = null, direct: (() -> FloatArray?)? = null,
+                  pose: (() -> PoseRayman?)? = null) {
     // build 242 : un etat neuf par niveau ; sans jeu en cours, la vue de depart cadre tout le niveau
     val etat = remember(scene) { Etat3D().also { e -> if (!montrerRayman) { e.distBase = scene.rayon * 1.7f; e.dist = e.distBase; e.tangage = 0.75f } } }
     // build 269 : en direct, la position vient de la lecture rapide (la valeur passee ici, plus lente, ne sert qu'au depart)
@@ -886,6 +948,16 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
                 kotlinx.coroutines.delay(30)
             }
         } finally { etat.direct = false }
+    }
+    // build 272 : la pose de Rayman (squelette), lue a part : ~10 blocs par pose, le moteur glisse d'une pose a l'autre
+    if (pose != null) androidx.compose.runtime.LaunchedEffect(scene) {
+        try {
+            while (true) {
+                val p = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { try { pose() } catch (e: Exception) { null } }
+                if (p != null) etat.pose = p
+                kotlinx.coroutines.delay(if (p != null) 5 else 1000)
+            }
+        } finally { etat.pose = null }
     }
     if (distance != null) remember(scene) { etat.distBase = distance; etat.dist = distance; 0 }
     etat.chemin = FloatArray(chemin.size * 3).also { a -> for ((k, p) in chemin.withIndex()) { a[k * 3] = p[0]; a[k * 3 + 1] = p[1]; a[k * 3 + 2] = p[2] } }
