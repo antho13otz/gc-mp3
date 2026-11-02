@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 293 — Suivre : la vraie direction de Rayman
+- Le mode « Suivre » se place derrière Rayman d'après son orientation lue dans le jeu (vérifiée sur 4 photos de la
+  mémoire), même quand il tourne sur place ; sinon, d'après son déplacement comme avant.
+
 ## Nouveautés appli build 289 — Mario Kart : vraies boîtes à objets
 - Les boîtes à objets des circuits sont le vrai modèle du jeu (le « ? », la boîte arc-en-ciel translucide qui défile,
   le reflet), et tournent sur elles-mêmes. Pack « mkdd-objets.zip » (aussi dans le pack complet), fait depuis MRAM.arc.
