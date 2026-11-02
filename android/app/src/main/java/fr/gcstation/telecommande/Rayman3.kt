@@ -76,13 +76,13 @@ object Rayman3 {
 
 @Composable
 fun EcranRayman3() {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)) { SectionRayman3(); Spacer(Modifier.height(14.dp)) }
+    val act = LocalContext.current as StationActivity
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)) { SectionRayman3(act); Spacer(Modifier.height(14.dp)) }
 }
 
 /** build 227 : la progression et les cartes de Rayman 3, dans la fiche du jeu (aussi hors ligne : .gci et cartes du telephone) */
 @Composable
-fun SectionRayman3() {
-    val act = LocalContext.current as StationActivity
+fun SectionRayman3(act: StationActivity) {   // (build 230 : l'activite en parametre : dans la fiche (feuille du bas), LocalContext n'est pas l'activite)
     val portee = rememberCoroutineScope()
     var parties by remember { mutableStateOf<List<Rayman3.Partie>?>(null) }
     var message by remember { mutableStateOf("") }
