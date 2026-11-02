@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 301 — Rayman : pouvoir hélico et charge du poing
+- Vérifié sur 3 photos de la mémoire avec le pouvoir hélico (Sea_10) : le corps du pouvoir (casque, tenue jaune) et
+  l'animation de l'hélice des cheveux sont bien pris en charge.
+- Pendant la charge du poing, l'anneau lumineux du jeu est maintenant affiché (pack Rayman à jour).
+
 ## Nouveautés appli build 299 — Mario Kart : les vrais karts en 3D
 - Les 8 karts de la course sont dessinés avec leur vrai modèle (carrosserie et roues), leur pilote et leur passager assis
   dans leur pose de conduite, et tournés comme dans le jeu (lu en mémoire). Le tien suit ta position et ta direction en direct.
