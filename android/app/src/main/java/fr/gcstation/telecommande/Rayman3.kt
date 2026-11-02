@@ -310,7 +310,7 @@ object CartesR3 {
                     val nom = e.name.substringAfterLast('/').lowercase()
                     if (e.isDirectory || !(nom.endsWith(".png") || nom.endsWith(".txt") || nom.endsWith(".3d") || nom.endsWith(".r3v")) || nom.contains("..")) continue
                     java.io.File(d, nom).outputStream().use { z.copyTo(it) }
-                    if (nom.endsWith(".png") && !Regex("_t\\d{3}\\.png$").containsMatchIn(nom)) n++
+                    if (nom.endsWith(".png") && !nom.startsWith("r3_") && !Regex("_t\\d{3}\\.png$").containsMatchIn(nom)) n++
                 }
             }
         }
@@ -327,7 +327,7 @@ object CartesR3 {
 @Composable
 private fun CartesInstallees(act: StationActivity, recharge: Int) {
     val niveaux = remember(recharge) {
-        (CartesR3.dossier?.listFiles()?.filter { it.name.endsWith(".png") && !Regex("_t\\d{3}\\.png$").containsMatchIn(it.name) }?.map { it.name.removeSuffix(".png") } ?: emptyList()).sorted()
+        (CartesR3.dossier?.listFiles()?.filter { it.name.endsWith(".png") && !it.name.startsWith("r3_") && !Regex("_t\\d{3}\\.png$").containsMatchIn(it.name) }?.map { it.name.removeSuffix(".png") } ?: emptyList()).sorted()
     }
     remember { QualiteR3.charger(act); 0 }
     val prefs = remember { act.getSharedPreferences("cartes-r3", 0) }
