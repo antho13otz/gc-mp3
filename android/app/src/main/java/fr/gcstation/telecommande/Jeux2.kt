@@ -44,7 +44,8 @@ class Ligne(val nom: String, val valeur: String, val part: Float = -1f, val coul
 /** une section : lignes, et/ou pastilles (texte, obtenu) */
 class Bloc(val titre: String, val lignes: List<Ligne> = emptyList(), val pastilles: List<Pair<String, Boolean>> = emptyList(), val texte: String = "",
            val plan: Plan? = null,                                         // (build 175 : un plan vu de dessus)
-           val courbes: List<Courbe> = emptyList())                        // (build 185 : un graphique, une courbe par joueur)
+           val courbes: List<Courbe> = emptyList(),                        // (build 185 : un graphique, une courbe par joueur)
+           val vue3d: Vue3D? = null)                                       // (build 224 : le niveau en 3D, Vue3D.kt)
 /** build 185 : une courbe (valeurs dans l'ordre : un point par tour), avec son nom et sa couleur */
 class Courbe(val nom: String, val couleur: Long, val v: List<Int>)
 /** build 175 : un plan vu de dessus (x, z du jeu) : des cases reliees, et des pions (texte court) */
@@ -620,6 +621,7 @@ fun CompagnonFiche(f: Fiche) {
             }
             if (b.texte.isNotEmpty()) Doux(b.texte, taille = 12)
             b.plan?.let { DessinPlan(it) }
+            b.vue3d?.let { DessinVue3D(it) }
             if (b.courbes.isNotEmpty()) DessinCourbes(b.courbes)
         }
     }
