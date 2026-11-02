@@ -291,6 +291,25 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     private val matJoue = FloatArray(PoseRayman.N * 15); private val peauJoue = HashMap<Int, FloatArray>()
     private val bufEl = HashMap<String, FloatBuffer>()
     private val boitesPos = HashMap<String, ArrayList<FloatArray>>()
+    // build 288 : Mario Kart : la vraie boite a objets du jeu (pack : mk_boite.txt et ses textures) ; plusieurs materiaux
+    private class Morceau(val tex: Int, val mode: Int, val mod: FloatBuffer, val n: Int)
+    private var mkBoite: List<Morceau>? = null; private var progMB = 0
+    private val mkBoitesPos = ArrayList<FloatArray>()
+    private fun lireMulti(nom: String): List<Morceau>? = try {
+        val f = java.io.File(scene.dossier, nom)
+        if (!f.exists()) null else {
+            val r = ArrayList<Morceau>(); var tex = 0; var mode = 0; var v = ArrayList<FloatArray>()
+            fun fin() { if (v.isNotEmpty() && tex != 0) { val fb = ByteBuffer.allocateDirect(v.size * 32).order(ByteOrder.nativeOrder()).asFloatBuffer()
+                for (q in v) fb.put(q); fb.position(0); r.add(Morceau(tex, mode, fb, v.size)) }; v = ArrayList() }
+            for (l in f.readLines()) {
+                val p = l.trim().split(' ')
+                if (p[0] == "t") { fin(); tex = if (p.size > 1 && p[1] != "-") chargerTex(p[1], repete = true) else 0; mode = p.getOrNull(2)?.toIntOrNull() ?: 0 }
+                else p.mapNotNull { it.toFloatOrNull() }.takeIf { it.size == 8 }?.let { v.add(it.toFloatArray()) }
+            }
+            fin(); r.sortBy { if (it.mode == 2) 0 else if (it.mode == 0) 1 else 2 }      // (le « ? » d'abord, puis la boite translucide, puis le reflet)
+            r.ifEmpty { null }
+        }
+    } catch (e: Throwable) { null }
     private fun lireModele(nom: String): Modele? = try {
         val f = java.io.File(scene.dossier, nom)
         if (!f.exists()) null else {
@@ -500,6 +519,17 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         animMod = if (scene.dossier.name == "cartes-r3") ModeleAnime.pour(scene.dossier) else null
         texAnim.clear(); bufEl.clear(); poseA = null; poseB = null
         boites.clear(); texBoite = chargerTex("r3_boite.png", repete = true)
+        mkBoite = if (scene.dossier.name == "cartes-mk") lireMulti("mk_boite.txt") else null
+        progMB = programme("""
+            uniform mat4 uMvp; uniform vec3 uPos; uniform float uAng; uniform vec2 uDefil;
+            attribute vec3 aPos; attribute vec2 aUv; attribute vec3 aN; varying vec2 vUv; varying float vL;
+            void main() { float c = cos(uAng); float s = sin(uAng);
+                vec3 p = vec3(aPos.x * c - aPos.y * s, aPos.x * s + aPos.y * c, aPos.z);
+                vec3 n = normalize(vec3(aN.x * c - aN.y * s, aN.x * s + aN.y * c, aN.z));
+                vL = 0.6 + 0.4 * max(0.0, dot(n, normalize(vec3(0.4, -0.5, 0.75))));
+                vUv = aUv + uDefil; gl_Position = uMvp * vec4(p + uPos, 1.0); }""", """
+            precision mediump float; uniform sampler2D uTex; uniform float uAlpha; uniform float uSeuil; varying vec2 vUv; varying float vL;
+            void main() { vec4 t = texture2D(uTex, vUv); if (t.a < uSeuil) discard; gl_FragColor = vec4(t.rgb * vL * 1.15, t.a * uAlpha); }""")
         if (texBoite != 0) for (k in listOf("grappin", "helico", "poing", "roulade", "snipe")) lireModele("r3_boite_$k.txt")?.let { boites[k] = it }
         texPouvoir.clear()
         for (k in listOf("grappin", "helico", "poing", "roulade", "snipe")) chargerTex("r3_pouvoir_$k.png").let { if (it != 0) texPouvoir[k] = it }
@@ -564,6 +594,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             for (o in l) fb.put(o.x).put(o.y).put(o.z + 0.8f)
             fb.position(0); pouvoirBuf[k] = fb
         }
+        mkBoitesPos.clear()
+        for (o in la) if (o.type == 'i') mkBoitesPos.add(floatArrayOf(o.x, o.y, o.z + 0.9f, (o.x * 0.23f + o.y * 0.41f) % 6.28f))
         boitesPos.clear()
         for (o in la) if (o.type == 'p') boitesPos.getOrPut(genrePouvoir(o.nom).ifEmpty { "grappin" }) { ArrayList() }.add(floatArrayOf(o.x, o.y, o.z, (o.x * 0.31f + o.y * 0.13f) % 6.28f))
         cagesPos.clear()
@@ -705,6 +737,36 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 }
                 GLES20.glDisableVertexAttribArray(mp); GLES20.glDisableVertexAttribArray(mu); GLES20.glDisableVertexAttribArray(mn)
                 GLES20.glEnable(GLES20.GL_BLEND); GLES20.glDepthMask(false)
+            }
+            val mb = mkBoite
+            if (passe == 1 && 'i' in voir && mb != null && mkBoitesPos.isNotEmpty()) {     // build 288 : boites a objets de Mario Kart
+                GLES20.glUseProgram(progMB)
+                GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progMB, "uMvp"), 1, false, mvp, 0)
+                GLES20.glUniform1i(GLES20.glGetUniformLocation(progMB, "uTex"), 0)
+                val mp = GLES20.glGetAttribLocation(progMB, "aPos"); val mu = GLES20.glGetAttribLocation(progMB, "aUv"); val mn = GLES20.glGetAttribLocation(progMB, "aN")
+                val uP = GLES20.glGetUniformLocation(progMB, "uPos"); val uA = GLES20.glGetUniformLocation(progMB, "uAng")
+                val uD = GLES20.glGetUniformLocation(progMB, "uDefil"); val uAl = GLES20.glGetUniformLocation(progMB, "uAlpha"); val uS = GLES20.glGetUniformLocation(progMB, "uSeuil")
+                GLES20.glEnableVertexAttribArray(mp); GLES20.glEnableVertexAttribArray(mu); GLES20.glEnableVertexAttribArray(mn)
+                for (m in mb) {
+                    when (m.mode) {
+                        2 -> { GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glUniform1f(uAl, 1f); GLES20.glUniform1f(uS, 0.5f); GLES20.glUniform2f(uD, 0f, 0f) }
+                        0 -> { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA); GLES20.glDepthMask(false)
+                               GLES20.glUniform1f(uAl, 0.55f); GLES20.glUniform1f(uS, 0f); GLES20.glUniform2f(uD, 0f, t * 0.35f) }      // (arc-en-ciel qui defile, comme dans le jeu)
+                        else -> { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE); GLES20.glDepthMask(false)
+                               GLES20.glUniform1f(uAl, 0.8f); GLES20.glUniform1f(uS, 0f); GLES20.glUniform2f(uD, 0f, 0f) }
+                    }
+                    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, m.tex)
+                    val b = m.mod
+                    b.position(0); GLES20.glVertexAttribPointer(mp, 3, GLES20.GL_FLOAT, false, 32, b)
+                    b.position(3); GLES20.glVertexAttribPointer(mu, 2, GLES20.GL_FLOAT, false, 32, b)
+                    b.position(5); GLES20.glVertexAttribPointer(mn, 3, GLES20.GL_FLOAT, false, 32, b); b.position(0)
+                    for (q in mkBoitesPos) {
+                        GLES20.glUniform3f(uP, q[0], q[1], q[2]); GLES20.glUniform1f(uA, if (m.mode == 2) 0f else t * 1.2f + q[3])
+                        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, m.n)
+                    }
+                }
+                GLES20.glDisableVertexAttribArray(mp); GLES20.glDisableVertexAttribArray(mu); GLES20.glDisableVertexAttribArray(mn)
+                GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA); GLES20.glDepthMask(false)
             }
             if (passe == 1 && 'p' in voir && boites.isNotEmpty() && boitesPos.isNotEmpty()) {
                 GLES20.glDepthMask(true); GLES20.glDisable(GLES20.GL_BLEND)
@@ -932,6 +994,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                     if (t == 'c' && passe == 1 && cageMod != null) continue        // (build 261 : la cage est dessinee en 3D)
                     if (t == 'r' && texRouge != 0) continue
                     if (t == 'p' && texPouvoir.isNotEmpty()) continue
+                    if (t == 'i' && passe == 1 && mkBoite != null) continue          // (build 288 : la vraie boite, dessinee en 3D)
                     val (taille, coul) = when (t) {
                         'c' -> 30f to floatArrayOf(1f, 0.74f, 0.25f); 'f' -> 26f to floatArrayOf(0.62f, 0.95f, 1f)
                         'p' -> 18f to floatArrayOf(0.62f, 0.55f, 1f); 'r' -> 11f to floatArrayOf(1f, 0.25f, 0.22f)
