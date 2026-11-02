@@ -76,11 +76,19 @@ object Rayman3 {
 
 @Composable
 fun EcranRayman3() {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp)) { SectionRayman3(); Spacer(Modifier.height(14.dp)) }
+}
+
+/** build 227 : la progression et les cartes de Rayman 3, dans la fiche du jeu (aussi hors ligne : .gci et cartes du telephone) */
+@Composable
+fun SectionRayman3() {
     val act = LocalContext.current as StationActivity
     val portee = rememberCoroutineScope()
     var parties by remember { mutableStateOf<List<Rayman3.Partie>?>(null) }
     var message by remember { mutableStateOf("") }
     var occupe by remember { mutableStateOf(false) }
+    var installees by remember { mutableStateOf(0) }
+    if (CartesR3.dossier == null) CartesR3.dossier = java.io.File(act.filesDir, "cartes-r3")
     fun montrer(b: ByteArray?, d: String) {
         val p = if (b == null) null else Rayman3.lire(b)
         parties = p
@@ -97,6 +105,7 @@ fun EcranRayman3() {
         if (u != null) portee.launch {
             val n = withContext(Dispatchers.IO) { try { CartesR3.installer(act, u) } catch (e: Exception) { -1 } }
             message = if (n > 0) "Cartes installées : $n niveau(x). Elles s'affichent dans le compagnon de jeu." else "Pas de carte dans ce fichier"
+            installees++
         }
     }
         fun carte(slot: String) {
@@ -115,7 +124,7 @@ fun EcranRayman3() {
             if (b != null && b.isEmpty()) { parties = null; message = "Pas de sauvegarde Rayman 3 sur la carte du slot $slot" } else montrer(b, "Lu sur la carte du slot $slot")
         }
     }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Doux("Ta progression lue dans la sauvegarde de Rayman 3 : sur la carte mémoire de la console (hors partie) ou un .gci du téléphone (Dolphin…).", taille = 12)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Bouton("Carte slot A", Modifier.weight(1f), plein = true, actif = !occupe) { carte("A") }
@@ -125,7 +134,7 @@ fun EcranRayman3() {
         Bouton("Installer un pack de cartes des niveaux (.zip)", Modifier.fillMaxWidth(), actif = !occupe) { pack.launch(arrayOf("*/*")) }
         if (message.isNotEmpty()) Doux(message, taille = 12, couleur = C.Texte)
         for (p in parties.orEmpty()) PartieR3(p)
-        Spacer(Modifier.height(14.dp))
+        CartesInstallees(act, installees)
     }
 }
 
@@ -261,5 +270,43 @@ object CartesR3 {
         }
         dossier = d; vider()
         return n
+    }
+}
+
+
+/** build 227 : les cartes installees (hors ligne) : la carte vue de dessus et le niveau en 3D, sans jouer */
+@Composable
+private fun CartesInstallees(act: StationActivity, recharge: Int) {
+    val niveaux = remember(recharge) {
+        (CartesR3.dossier?.listFiles()?.filter { it.name.endsWith(".png") }?.map { it.name.removeSuffix(".png") } ?: emptyList()).sorted()
+    }
+    var vu by remember { mutableStateOf<String?>(null) }
+    Titre("Cartes installées (" + niveaux.size + ")", couleur = Color(0xFFFFC94A))
+    if (niveaux.isEmpty()) Doux("Aucune : installe un pack de cartes (.zip) avec le bouton plus haut.", taille = 12)
+    else androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        for (n in niveaux) Bouton(n, plein = n == vu, hauteur = 38.dp) { vu = if (vu == n) null else n }
+    }
+    val n = vu ?: return
+    val carte = remember(n) { CartesR3.carte(n) }
+    val mail = remember(n) { CartesR3.maillage(n) }
+    if (carte != null) Carte(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Titre("$n · vu de dessus")
+            val b = carte.second
+            DessinPlan(Plan(listOf(floatArrayOf(b[0], b[1]), floatArrayOf(b[2], b[3])), listOf(0x00000000, 0x00000000), emptyList(), emptyList(),
+                petits = setOf(0, 1), fond = carte.first, fondBornes = b))
+        }
+    }
+    if (mail != null) Carte(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Titre("$n · en 3D")
+            val c = remember(n) {
+                val t = mail.t; var x = 0f; var y = 0f; var z = 0f; val k = t.size / 3
+                for (i in 0 until k) { x += t[i * 3]; y += t[i * 3 + 1]; z += t[i * 3 + 2] }
+                floatArrayOf(x / k, y / k, z / k)
+            }
+            DessinVue3D(Vue3D(mail, c, null))
+            Doux("Un doigt : tourner · deux doigts : zoom · double toucher : revenir.", taille = 11)
+        }
     }
 }

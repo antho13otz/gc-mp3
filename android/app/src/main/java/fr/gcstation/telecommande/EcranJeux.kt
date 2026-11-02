@@ -524,6 +524,13 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                 }
             }
 
+            // ---- build 227 : Rayman 3 : progression (sauvegarde) et cartes des niveaux, aussi hors ligne ----
+            if (g.id.startsWith("GRH")) {
+                Spacer(Modifier.height(22.dp))
+                Titre("Rayman 3 : progression et cartes")
+                Spacer(Modifier.height(8.dp))
+                SectionRayman3()
+            }
             // ---- sauvegardes (carte virtuelle) : l'ecran des cartes memoire, partage ----
             Spacer(Modifier.height(22.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
