@@ -914,7 +914,10 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         val nt = System.nanoTime(); val dtS = ((nt - tSuivre) / 1e9f).coerceIn(0f, 0.1f); tSuivre = nt
         if (etat.mode == 1) {
             val l0 = etat.lacetActuel()
-            var dl = cap - l0; while (dl > Math.PI) dl -= (2 * Math.PI).toFloat(); while (dl < -Math.PI) dl += (2 * Math.PI).toFloat()
+            // (build 290 : la vraie direction de Rayman, lue avec sa pose : son modele regarde vers -y ; sinon d'apres son deplacement)
+            val ro = etat.pose?.takeIf { System.nanoTime() - it.t < 1_000_000_000L }?.rot
+            val vise = if (ro != null && ro[4] * ro[4] + ro[5] * ro[5] > 0.05f) Math.atan2(-ro[5].toDouble(), -ro[4].toDouble()).toFloat() else cap
+            var dl = vise - l0; while (dl > Math.PI) dl -= (2 * Math.PI).toFloat(); while (dl < -Math.PI) dl += (2 * Math.PI).toFloat()
             etat.lacet = l0 + dl * (1f - Math.exp(-3.0 * dtS).toFloat())
         }
         val a = etat.lacetActuel()
