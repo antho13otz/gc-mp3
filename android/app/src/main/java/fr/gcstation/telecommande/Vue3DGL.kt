@@ -289,6 +289,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     private var peauPrec = HashMap<Int, FloatArray>(); private var tPrec = 0L; private var dtPrec = 1L
     private var ouDebut: FloatArray? = null; private var ouFin: FloatArray? = null
     private val matJoue = FloatArray(PoseRayman.N * 15); private val peauJoue = HashMap<Int, FloatArray>()
+    private var animAffichee: AnimA3D? = null; private var locAffichee: FloatArray? = null; private var locDepart: FloatArray? = null; private var tChange = 0L
     private val bufEl = HashMap<String, FloatBuffer>()
     private val boitesPos = HashMap<String, ArrayList<FloatArray>>()
     // build 288 : Mario Kart : la vraie boite a objets du jeu (pack : mk_boite.txt et ses textures) ; plusieurs materiaux
@@ -841,6 +842,16 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         if (an != null && pb != null && par != null && ro != null) {
             val ecoule = ((System.nanoTime() - p.t) / 1e9f).coerceIn(0f, 0.25f)
             val loc = pb.copyOf(); an.locales(p.image + an.vitesse * ecoule, loc)
+            // build 294 : quand Rayman change d'action, on passe d'une animation a l'autre en douceur (~0,15 s), comme le jeu
+            val maintenant = System.nanoTime()
+            if (an !== animAffichee) { locAffichee?.let { locDepart = it.copyOf(); tChange = maintenant }; animAffichee = an }
+            val ld = locDepart
+            if (ld != null && ld.size == loc.size) {
+                val k = ((maintenant - tChange) / 150_000_000f).coerceIn(0f, 1f)
+                val e = k * k * (3 - 2 * k)
+                if (k >= 1f) locDepart = null else for (i in loc.indices) loc[i] = ld[i] + (loc[i] - ld[i]) * e
+            }
+            locAffichee = loc
             val q = PoseRayman(PoseRayman.composer(loc, par, ro, matJoue), p.types, p.data, p.fix4, p.pos, p.textures)
             val h = HashMap<Int, FloatArray>()
             for ((g, s) in mod.morceaux(q)) { val geo = mod.geos[g] ?: continue
