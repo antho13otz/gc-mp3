@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 307 — Mario Kart : les objets de la course, les karts touchés
+- Les objets en jeu sont lus en direct (~10 fois par seconde) et glissés d'une lecture à l'autre : carapaces, bananes,
+  champignons, fausses boîtes, boules de feu… tenus derrière les karts ou sur la piste. ItemObjMgr : une liste par sorte
+  d'objet en +0x3E8 + 12 x sorte (tête, queue, nombre ; maillon : objet, liste, précédent, suivant) ; objet : position en
+  +0x04, sorte en +0x7C (vérifié sur 5 photos de la mémoire, Circuit Mario et Croisière Daisy). Sans modèle dans le pack,
+  un point de la couleur de l'objet ; avec `mk_objet_<sorte>.txt`, le vrai modèle (pack à venir).
+- Les karts sont dessinés avec la matrice de leur carrosserie (KartBody +0x1A0) : quand un kart est touché, il tourne,
+  se penche et saute comme dans le jeu (14,6° d'écart mesuré sur une photo).
+- Console : pas touchée. Pas encore vu sur la console en course.
+
 ## Nouveautés appli build 305 — Mario Kart : tous les karts en direct, vue à la 3e personne
 - Les 7 autres karts sont maintenant lus en direct, comme le tien : une lecture de leur matrice (KartBody +0x110 : rotation et
   position, un bloc de 1 Ko par kart) toutes les 30 ms, et l'appli les fait glisser d'une lecture à l'autre. Ils ne sautent
