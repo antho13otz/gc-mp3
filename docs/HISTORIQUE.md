@@ -206,6 +206,12 @@ haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « On
 - Fiche d'un jeu > **Envoyer une sauvegarde (.gci)…** : choisis un .gci sur le téléphone, puis la carte : une carte
   virtuelle (celle du jeu en premier) ou une vraie carte mémoire (slot A ou B, hors partie).
 
+## Nouveautés v321 (build 830) — Plus de plantage au menu START pendant le test des touches
+- Corrige l'écran rouge vu après 3 h de **test des touches** : en ouvrant une section du menu START, le test choisissait
+  un sous-titre au lieu d'un réglage, et le premier A lisait un nom de réglage hors du tableau. Reproduit au simulateur,
+  corrigé : le test choisit le premier vrai réglage, et le menu remet tout numéro hors limites au premier réglage.
+- Rapport du test plus juste : changer d'onglet (Z, L, R) ou refermer le menu START n'est plus compté comme « fermé de force ».
+
 ## Nouveautés v320 (build 827) — Fenêtre de chargement de la jaquette HD, téléchargement à pleine vitesse
 - Boîte zoomée : pendant le chargement de la jaquette HD, une **fenêtre au milieu de l'écran** (fond assombri, barre de
   progression, « Préparation… » pendant la conversion) remplace la petite ligne du bas.
