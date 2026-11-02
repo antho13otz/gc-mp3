@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 215 — Envoyer une sauvegarde depuis la fiche du jeu
+- Fiche d'un jeu > **Envoyer une sauvegarde (.gci)…** : choisis un .gci sur le téléphone, puis la carte : une carte
+  virtuelle (celle du jeu en premier) ou une vraie carte mémoire (slot A ou B, hors partie).
+
 ## Nouveautés v320 (build 827) — Fenêtre de chargement de la jaquette HD, téléchargement à pleine vitesse
 - Boîte zoomée : pendant le chargement de la jaquette HD, une **fenêtre au milieu de l'écran** (fond assombri, barre de
   progression, « Préparation… » pendant la conversion) remplace la petite ligne du bas.
