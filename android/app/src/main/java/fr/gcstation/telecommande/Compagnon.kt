@@ -489,6 +489,42 @@ object JeuMKDD {
     /** build (appli) : les autres karts en direct, comme le tien. KartBody de chaque kart (index = numero du kart), releve
      *  avec l'etat de la course ; la matrice +0x110 (rotation et position, 48 octets) suffit : un bloc par kart. */
     @Volatile var kbs = LongArray(0)
+    /** squelettes des personnages (matrices du monde des articulations, 3 x 4 flottants chacune) : par kart, [0] le personnage
+     *  « passager » de l'equipe (KartBody +0x18 -> +8 -> +0x14 -> +0xE8), [1] le « pilote » (KartBody +0x1C -> ...) ; ils
+     *  suivent chaque personnage, meme quand ils echangent leur place. Verifie sur 11 photos de la memoire. */
+    @Volatile var squels = LongArray(0)
+    class PoseT(val a: FloatArray?, val ta: Long, val b: FloatArray, val tb: Long)
+    private val posesDirect = java.util.concurrent.ConcurrentHashMap<Int, PoseT>()
+    const val MAX_ART = 26
+    private var tourPoses = 0
+    /** les articulations d'un personnage, relatives a la matrice a dessiner du kart (d) : n x 12 flottants */
+    private fun lirePose(l: Lecteur, adr: Long, d: FloatArray): FloatArray? {
+        // inverse de d (rotation orthogonale, eventuellement reduite : on divise par l'echelle au carre)
+        val s2 = d[0] * d[0] + d[4] * d[4] + d[8] * d[8]; if (s2 < 1e-6f) return null
+        val r = FloatArray(MAX_ART * 12)
+        for (j in 0 until MAX_ART) {
+            val m = FloatArray(12)
+            // (lecture ratee : pas de pose ; valeur folle : fin du tableau, les articulations deja lues suffisent)
+            for (q in 0 until 12) { val v = l.f32(adr + 48L * j + 4L * q) ?: return null; if (!v.isFinite() || Math.abs(v) > 1e6f) return if (j > 0) r.copyOf(j * 12) else null; m[q] = v }
+            for (i in 0..2) for (c in 0..3) {
+                // (d^-1 m) : ligne i = colonne i de d, divisee par s2
+                var acc = 0f
+                for (q in 0..2) acc += d[4 * q + i] * (if (c < 3) m[4 * q + c] else m[4 * q + 3] - d[4 * q + 3])
+                r[j * 12 + i * 4 + c] = acc / s2
+            }
+        }
+        return r
+    }
+    /** pose d'un personnage (kart n, rang 0 passager de l'equipe, 1 pilote), glissee entre deux lectures ; null : pas lue */
+    fun pose(n: Int, rang: Int): FloatArray? {
+        val e = posesDirect[n * 2 + rang] ?: return null
+        val now = System.nanoTime()
+        if (now - e.tb > 1_500_000_000L) return null
+        val a = e.a ?: return e.b
+        if (a.size != e.b.size) return e.b
+        val al = ((now - e.tb).toFloat() / (e.tb - e.ta).coerceAtLeast(1L)).coerceIn(0f, 1f)
+        return FloatArray(a.size) { a[it] + (e.b[it] - a[it]) * al }
+    }
     class MatT(val a: FloatArray?, val ta: Long, val b: FloatArray, val tb: Long)
     private val matsDirect = java.util.concurrent.ConcurrentHashMap<Int, MatT>()
     fun lireAutresKarts() {
@@ -504,6 +540,18 @@ object JeuMKDD {
             matsDirect[n] = MatT(av?.b, av?.tb ?: t, m, t)
         }
         if (++tourObjets % 3 == 0) lireObjets(l)
+        val sq = squels; val tous = (++tourPoses % 6) == 0
+        val lp = Lecteur(8 + (if (tous) 7 * ks.size else 0), 0)
+        for (n in 0 until minOf(ks.size, sq.size / 2)) {
+            if (n != 0 && !tous) continue
+            val d = (if (n == 0) matJoueurAff ?: matJoueur else matsDirect[n]?.b) ?: continue
+            for (rg in 0..1) {
+                val adr = sq[n * 2 + rg]; if (adr == 0L) continue
+                val p = lirePose(lp, adr, d) ?: continue
+                val t = System.nanoTime(); val av = posesDirect[n * 2 + rg]
+                posesDirect[n * 2 + rg] = PoseT(av?.b, av?.tb ?: t, p, t)
+            }
+        }
     }
     /** les objets de la course (carapaces, bananes, bombes, fausses boites…), tenus ou sur la piste. ItemObjMgr : une liste
      *  des objets en jeu par sorte, en +0x3E8 + 12 x sorte (JSUPtrList : tete, queue, nombre ; maillon : objet, liste,
@@ -689,7 +737,7 @@ object JeuMKDD {
         // les karts (KartChecker : mLap 0x2C, mRaceEnd 0x29, mRaceProgression 0x54, mPos 0x5C, mRank 0x88, mBalloonNum 0x90,
         // mBombPoint 0xA6) ; leurs objets (ItemObjMgr : mStockItem[8][2] 0x24C, mEquipItem[8][2] 0x2CC -> mItemKind 0x7C)
         val karts = ArrayList<Kart>()
-        val kbsN = LongArray(nb)
+        val kbsN = LongArray(nb); val sqN = LongArray(nb * 2)
         for (i in 0 until nb) {
             val k = l.ptr(rm + 0x48 + 4L * i) ?: continue
             val x = l.fini(l.f32(k + 0x5C)) ?: continue
@@ -705,7 +753,8 @@ object JeuMKDD {
             // build 296 : matrice du kart (KartBody +0x110 ; verifiee sur 3 photos de la memoire : sa position = celle du KartChecker)
             val kb = ctrl?.let { l.ptr(it + 0xA0 + 4L * i) }
             if (i == 0 && kb != null) kbJoueur = kb
-            if (kb != null) kbsN[i] = kb
+            if (kb != null) { kbsN[i] = kb
+                for (rg in 0..1) l.ptr(kb + 0x18 + 4L * rg)?.let { l.ptr(it + 8) }?.let { l.ptr(it + 0x14) }?.let { l.ptr(it + 0xE8) }?.let { sqN[i * 2 + rg] = it } }
             var mt: FloatArray? = null
             if (kb != null) { val m = FloatArray(12); var ok = true
                 for (q in 0 until 12) { val v = l.f32(kb + 0x110 + 4L * q); if (v == null || !v.isFinite()) { ok = false; break }; m[q] = v }
@@ -718,7 +767,7 @@ object JeuMKDD {
                 points = if (mode == 6) (l.s16(k + 0xA6) ?: -1).takeIf { it in 0..99 } ?: -1 else -1, mat = mt,
                 echange = kb != null && (l.u8(kb + 0x5B2) ?: 0) != 0))
         }
-        kbs = kbsN
+        kbs = kbsN; squels = sqN
         val s0 = l.ptr(kc + 0x44) ?: l.ptr(kc + 0x40)               // (troncon ou se trouve le kart 1)
         if (s0 != null && (crs != dernierCircuit || (trace.isEmpty() && maintenant - essai > 3000))) {
             dernierCircuit = crs; essai = maintenant; trace = emptyList(); lireTrace(Lecteur(700, 15), s0)   // (une fois par course, au rythme d'un bloc par image)

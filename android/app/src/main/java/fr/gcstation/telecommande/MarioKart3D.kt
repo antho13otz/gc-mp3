@@ -106,7 +106,7 @@ fun CircuitMK3D(e: JeuMKDD.Etat) {
         val m = (if (k.n == 0) JeuMKDD.matJoueur else null) ?: k.mat ?: return@mapNotNull null
         // (Z : les deux personnages echangent leur place ; celui qui conduit prend la pose de conduite)
         if (k.modele < 0 || k.pilote <= 0) null
-        else if (k.echange && k.passager > 0) KartVue(k.modele, k.passager, k.pilote, m, k.n == 0, k.n)
+        else if (k.echange && k.passager > 0) KartVue(k.modele, k.passager, k.pilote, m, k.n == 0, k.n, echange = true)
         else KartVue(k.modele, k.pilote, k.passager, m, k.n == 0, k.n)
     }
     // les autres karts lus en direct, au meme rythme que le tien (un bloc de 1 Ko par kart : sa matrice)
