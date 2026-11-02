@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 305 — Mario Kart : tous les karts en direct, vue à la 3e personne
+- Les 7 autres karts sont maintenant lus en direct, comme le tien : une lecture de leur matrice (KartBody +0x110 : rotation et
+  position, un bloc de 1 Ko par kart) toutes les 30 ms, et l'appli les fait glisser d'une lecture à l'autre. Ils ne sautent
+  plus d'une position à la suivante.
+- Nouveau bouton « 🏎 3e personne » dans la vue 3D : la caméra se place juste derrière ton kart, à sa hauteur, et tourne
+  avec lui (direction lue dans sa matrice).
+- Console : pas touchée. Pas encore vérifié en course sur la console (le jeu doit rester fluide avec ces lectures en plus).
+
 ## Nouveautés appli build 301 — Rayman : pouvoir hélico et charge du poing
 - Vérifié sur 3 photos de la mémoire avec le pouvoir hélico (Sea_10) : le corps du pouvoir (casque, tenue jaune) et
   l'animation de l'hélice des cheveux sont bien pris en charge.
