@@ -175,6 +175,7 @@ object JeuRayman3 : ModuleJeu("Rayman 3", "GRHP41") {
     private const val CAM = 0x80496A10L
     private const val NIVEAU = 0x803E712DL
     private val chemins = HashMap<String, ArrayList<FloatArray>>()
+    private val chemins3 = HashMap<String, ArrayList<FloatArray>>()
     private val MONDES = listOf("intro" to "Le Concile des Fées", "wood" to "La Forêt de Claire-Feuille", "knaar" to "Le Désert des Knaarens",
         "mount" to "Le Sommet d'Outre-Nuées", "lept" to "La Tour du Leptys", "tower" to "La Tour du Leptys", "menu" to "Menu")
 
@@ -193,6 +194,12 @@ object JeuRayman3 : ModuleJeu("Rayman 3", "GRHP41") {
             if (cx != null && cy != null) pions.add(Pion(cx, -cy, 0xFF5FD3FF, "c"))
             pions.add(Pion(x, -y, 0xFFFF3B3B, "R"))
             val carte = CartesR3.carte(niv)
+            val ch3 = chemins3.getOrPut(niv) { ArrayList() }
+            if (z != null) { val e = ch3.lastOrNull(); if (e == null || (e[0] - x) * (e[0] - x) + (e[1] - y) * (e[1] - y) > 4f) { ch3.add(floatArrayOf(x, y, z + 0.5f)); if (ch3.size > 800) ch3.removeAt(0) } }
+            val mail = CartesR3.maillage(niv)
+            if (mail != null && z != null) blocs.add(Bloc("Le niveau en 3D", vue3d = Vue3D(mail, floatArrayOf(x, y, z),
+                if (cx != null && cy != null) floatArrayOf(cx, cy) else null, ArrayList(ch3)),
+                texte = "Un doigt : tourner autour de Rayman · deux doigts : zoom · double toucher : revenir derrière la caméra du jeu."))
             val pts = ArrayList<FloatArray>(ch); for (p in pions) pts.add(floatArrayOf(p.x, p.z))
             val n = ch.size
             if (pts.size >= 2) blocs.add(Bloc("Plan du niveau ($niv)", plan = Plan(pts, List(pts.size) { if (it < n) 0xFFFFC94A else 0x00000000 },
@@ -226,7 +233,17 @@ object CartesR3 {
         synchronized(cache) { cache[k] = r }
         return r
     }
-    fun vider() { synchronized(cache) { cache.clear() } }
+    private val maillages = HashMap<String, Maillage?>()
+    /** build 224 : le maillage 3D du niveau (rayman3/<niveau>.3d du pack) */
+    fun maillage(niveau: String): Maillage? {
+        val k = niveau.lowercase()
+        synchronized(maillages) { if (maillages.containsKey(k)) return maillages[k] }
+        val d = dossier ?: return null
+        val m = java.io.File(d, "$k.3d").takeIf { it.exists() }?.let { Maillage.lire(it) }
+        synchronized(maillages) { maillages[k] = m }
+        return m
+    }
+    fun vider() { synchronized(cache) { cache.clear() }; synchronized(maillages) { maillages.clear() } }
     /** installe un pack .zip (rayman3/NIVEAU.png et .txt) ; rend le nombre de cartes */
     fun installer(ctx: android.content.Context, u: android.net.Uri): Int {
         val d = java.io.File(ctx.filesDir, "cartes-r3"); d.mkdirs()
@@ -236,7 +253,7 @@ object CartesR3 {
                 while (true) {
                     val e = z.nextEntry ?: break
                     val nom = e.name.substringAfterLast('/').lowercase()
-                    if (e.isDirectory || !(nom.endsWith(".png") || nom.endsWith(".txt")) || nom.contains("..")) continue
+                    if (e.isDirectory || !(nom.endsWith(".png") || nom.endsWith(".txt") || nom.endsWith(".3d")) || nom.contains("..")) continue
                     java.io.File(d, nom).outputStream().use { z.copyTo(it) }
                     if (nom.endsWith(".png")) n++
                 }
