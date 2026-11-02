@@ -63,7 +63,7 @@ class Etat3D {
     @Volatile var chemin: FloatArray = FloatArray(0); @Volatile var montrerRayman = true
 }
 
-private class Rendu(val scene: SceneR3, val etat: Etat3D) : GLSurfaceView.Renderer {
+private class RenduR3(val scene: SceneR3, val etat: Etat3D) : GLSurfaceView.Renderer {
     private var prog = 0; private var progL = 0
     private var aPos = 0; private var aUv = 0; private var aCol = 0; private var uMvp = 0; private var uTex = 0; private var uAvecTex = 0; private var uCam = 0
     private var lPos = 0; private var lMvp = 0; private var lCoul = 0; private var lTaille = 0
@@ -199,7 +199,7 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
             GLSurfaceView(ctx).apply {
                 setEGLContextClientVersion(2)
                 setEGLConfigChooser(8, 8, 8, 8, 16, 0)
-                setRenderer(Rendu(scene, etat))
+                setRenderer(RenduR3(scene, etat))
                 renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
                 vueRef[0] = this
             }
