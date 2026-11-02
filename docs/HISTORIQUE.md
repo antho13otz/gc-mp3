@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 219 — Extraire plusieurs fichiers d'un .iso d'un coup
+- Plus > **Extraire d'un .iso** : toucher un fichier le coche, **Tout cocher** prend tous ceux du filtre, puis
+  **Extraire la sélection** demande un dossier et y enregistre tous les fichiers cochés. « Extraire » d'un seul fichier reste.
+
 ## Nouveautés appli build 217 — Rayman 3 en direct : plan du niveau avec ta position
 - Compagnon de jeu > **Rayman 3** (version européenne) : ta position, ton altitude et le nom du niveau en direct, et le
   **plan du niveau** vu de dessus : ton chemin se dessine en avançant (R : Rayman, c : la caméra), un plan par niveau.
