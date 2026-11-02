@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 299 — Mario Kart : les vrais karts en 3D
+- Les 8 karts de la course sont dessinés avec leur vrai modèle (carrosserie et roues), leur pilote et leur passager assis
+  dans leur pose de conduite, et tournés comme dans le jeu (lu en mémoire). Le tien suit ta position et ta direction en direct.
+- Place des roues, de la carrosserie et du siège mesurée sur 3 photos de la mémoire (Pont Champignon) pour 8 karts ; les
+  13 autres d'après la table des roues du jeu (main.dol), hauteurs estimées.
+- Pack « mkdd-karts-hd.zip » (textures x4 par l'IA). Sans lui, les points de couleur restent.
+
 ## Nouveautés appli build 295 — Rayman : fondus et textures HD
 - Quand Rayman change d'action, l'appli passe d'une animation à l'autre en douceur (environ 0,15 s), comme le jeu.
 - Pack Rayman à jour : ses textures (corps, mains, pouvoirs, hélice) agrandies x4 par l'IA (512 x 512 au lieu de 128 x 128).
