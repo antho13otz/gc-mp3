@@ -12476,7 +12476,7 @@ static const s8 sec_items[6][32] = {
     { -17, MI_GLANG, MI_GSOUND, MI_CLOCK, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, MI_APNOIMG, MI_PLAYLIM, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_NATCARDGAME, MI_PADTEL, MI_MEMTEL, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
     { -21, MI_DHCP, MI_IP, MI_MASK, MI_GW, -22, MI_NETSMB, MI_NETFTP, MI_NETFSP, -23, MI_SALON, MI_PHONEAUTO, -24, MI_UPDAUTO, MI_UPDXZ, MI_UPDATE, MI_UPDOLD, -1 } };
 static int sec_n(int sec) { int n = 0; if (sec < 0 || sec >= SEC_TOOLS) return 0; while (n < 32 && sec_items[sec][n] != -1) n++; return n; }
-static int sec_pos(int sec, int mi) { for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] == mi) return i; return -1; }
+static int sec_pos(int sec, int mi) { if (mi < 0) return -1; for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] == mi) return i; return -1; }   /* (v321 : jamais un sous-titre) */
 static int sec_first(int sec) { for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] >= 0) return sec_items[sec][i]; return 0; }
 static int sec_step(int sec, int p, int d) {             /* reglage suivant / precedent (les sous-titres sont sautes) */
     int n = sec_n(sec);
@@ -12844,6 +12844,9 @@ static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
         }
         return;
     }
+    /* v321 : un numero de reglage hors du tableau (vu apres 3 h de test des touches : plantage en lisant son nom pour le
+       journal) : on revient au premier reglage de la section au lieu de lire n'importe ou */
+    if (menu_sel < 0 || menu_sel >= MI_COUNT) { crumb("menu : reglage %d hors limites, remis au debut", menu_sel); menu_sel = sec_first(menu_sec); }
     int p = sec_pos(menu_sec, menu_sel);
     if (p < 0) { menu_sel = sec_first(menu_sec); p = sec_pos(menu_sec, menu_sel); }
     if (fire && (nav & PAD_BUTTON_DOWN)) menu_sel = sec_step(menu_sec, p, 1);
@@ -12851,7 +12854,7 @@ static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
     if (fire && (nav & (PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT)) && menu_sel != MI_QUIT)
         menu_change(menu_sel, (nav & PAD_BUTTON_RIGHT) ? 1 : -1);
     if (down & PAD_BUTTON_A) {
-        crumb("menu : %s", menu_labels[menu_sel]);
+        crumb("menu : %s", (menu_sel >= 0 && menu_sel < MI_COUNT && menu_labels[menu_sel]) ? menu_labels[menu_sel] : "?");
         if (menu_sel == MI_QUIT) quit_requested = 1;
         else if (menu_sel >= MI_NETSMB && menu_sel <= MI_NETFSP) { nfs_ui_open(menu_sel - MI_NETSMB); return; }   /* v86 */
         else if (menu_sel == MI_PARTY) {                      /* A = lancer le mode soiree */
