@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 309 — Mario Kart : les vrais modèles des objets
+- Pack « mkdd-objets-course-hd.zip » (à installer dans la fiche du jeu, jamais dans l'appli ni sur GitHub) : 15 objets de
+  MRAM.arc `item/` exportés en `mk_objet_<sorte>.txt` (carapaces verte, rouge, à épines, de Bowser, banane, banane géante,
+  champignon, champignon doré, étoile, Chomp, Bob-omb, éclair, œuf, cœurs, fausse boîte), textures x4 par l'IA. Avec lui,
+  les points de couleur de la build 307 deviennent les vrais objets. Boules de feu : pas de modèle (ce sont des effets).
+- Seules les carapaces tournent sur elles-mêmes ; les bananes posées restent immobiles.
+
 ## Nouveautés appli build 307 — Mario Kart : les objets de la course, les karts touchés
 - Les objets en jeu sont lus en direct (~10 fois par seconde) et glissés d'une lecture à l'autre : carapaces, bananes,
   champignons, fausses boîtes, boules de feu… tenus derrière les karts ou sur la piste. ItemObjMgr : une liste par sorte
