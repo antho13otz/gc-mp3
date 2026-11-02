@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 286 — l'appli rejoue les animations de Rayman
+- Le format des animations de Rayman 3 (A3D, GameCube) est décodé : vérifié sur 4 photos de la mémoire (attente,
+  course, saut : l'animation rejouée par l'appli redonne la pose du jeu).
+- Chaque animation est lue une seule fois dans la mémoire du jeu, puis gardée sur le téléphone ; ensuite la console
+  n'envoie plus que le nom de l'animation, son image en cours et la place de Rayman (2 blocs au lieu de 5 à 6).
+  L'appli fait avancer l'animation elle-même à chaque image de l'écran : mouvements continus.
+- Tant qu'une animation n'est pas encore lue (la première fois), l'appli reprend l'ancienne lecture du squelette.
+
 ## Nouveautés appli build 283 — vue 3D : Suivre et Libre
 - **🎯 Suivre** : la caméra se place doucement derrière Rayman et tourne quand il change de direction (d'après son
   déplacement). On garde le zoom et l'inclinaison à la main.
