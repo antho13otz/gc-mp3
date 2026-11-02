@@ -203,7 +203,8 @@ class Etat3D {
     @Volatile var pose: PoseRayman? = null
     /** build 296 : Mario Kart, les karts a dessiner en 3D (le premier est le tien) */
     @Volatile var karts: List<KartVue> = emptyList()
-    /** build 282 : 0 normal (la vue suit la position), 1 suivre (derriere Rayman, tournee comme lui), 2 libre (la vue ne bouge plus seule) */
+    /** build 282 : 0 normal (la vue suit la position), 1 suivre (derriere Rayman, tournee comme lui), 2 libre (la vue ne bouge plus seule),
+     *  3 (Mario Kart) 3e personne : juste derriere ton kart, a sa hauteur, tournee comme lui */
     @Volatile var mode = 0
     @Volatile var libre: FloatArray? = null
     // build 247 : derniere projection dessinee (pour savoir quel objet est sous le doigt) et vol anime de la camera
@@ -1001,10 +1002,17 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         val c0 = cibleLissee(); val dc = etat.decal
         // build 282 : mode libre : le centre reste ou il etait (seuls les doigts le deplacent)
         val base = if (etat.mode == 2) (etat.libre ?: c0.copyOf().also { etat.libre = it }) else c0
-        val c = floatArrayOf(base[0] + dc[0], base[1] + dc[1], base[2] + dc[2])
+        val c = floatArrayOf(base[0] + dc[0], base[1] + dc[1], base[2] + dc[2] + if (etat.mode == 3) 0.7f else 0f)   // (3e personne : on vise un peu au-dessus du kart)
         // build 282 : mode suivre : la camera se place doucement derriere Rayman, dans sa direction
         val nt = System.nanoTime(); val dtS = ((nt - tSuivre) / 1e9f).coerceIn(0f, 0.1f); tSuivre = nt
-        if (etat.mode == 1) {
+        // 3e personne (Mario Kart) : la direction de ton kart (sa matrice lue en direct : l'avant du kart, z du jeu)
+        val mj = if (etat.mode == 3) JeuMKDD.matJoueur else null
+        if (etat.mode == 3 && mj != null && mj.size >= 12 && mj[2] * mj[2] + mj[10] * mj[10] > 0.05f) {
+            val l0 = etat.lacetActuel()
+            val vise = Math.atan2(-mj[10].toDouble(), mj[2].toDouble()).toFloat()        // (repere de l'appli : x, -z, y)
+            var dl = vise - l0; while (dl > Math.PI) dl -= (2 * Math.PI).toFloat(); while (dl < -Math.PI) dl += (2 * Math.PI).toFloat()
+            etat.lacet = l0 + dl * (1f - Math.exp(-7.0 * dtS).toFloat())
+        } else if (etat.mode == 1 || etat.mode == 3) {
             val l0 = etat.lacetActuel()
             // (build 290 : la vraie direction de Rayman, lue avec sa pose : son modele regarde vers -y ; sinon d'apres son deplacement)
             val ro = etat.pose?.takeIf { System.nanoTime() - it.t < 1_000_000_000L }?.rot
@@ -1260,6 +1268,11 @@ private fun BoutonsVue(scope: kotlinx.coroutines.CoroutineScope, etat: Etat3D, m
         if (etat.montrerRayman) PetitBouton("🎯 Suivre", actif = mode == 1) {
             mode = if (mode == 1) 0 else 1; etat.mode = mode; etat.libre = null
             if (mode == 1) { etat.vol?.cancel(); etat.decal = floatArrayOf(0f, 0f, 0f); etat.voler(scope, d = minOf(etat.dist, etat.distBase), tg = 0.35f) }
+        }
+        // 3e personne : comme dans le jeu, juste derriere ton kart (Mario Kart)
+        if (etat.karts.isNotEmpty() || mode == 3) PetitBouton("🏎 3e personne", actif = mode == 3) {
+            mode = if (mode == 3) 0 else 3; etat.mode = mode; etat.libre = null
+            if (mode == 3) { etat.vol?.cancel(); etat.decal = floatArrayOf(0f, 0f, 0f); etat.voler(scope, d = 7f, tg = 0.16f) }
         }
         PetitBouton("✋ Libre", actif = mode == 2) {
             if (mode == 2) { mode = 0; etat.mode = 0; etat.libre = null; etat.decal = floatArrayOf(0f, 0f, 0f) }
