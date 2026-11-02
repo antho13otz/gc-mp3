@@ -45,10 +45,13 @@ import javax.microedition.khronos.opengles.GL10
 
 /** une scene du pack : groupes de triangles (texture, transparence, sommets entrelaces) */
 /** build 245 : un objet du niveau (pack : <niveau>_obj.txt) ; type : c cage, f p'tit etre fantome, j lum jaune, r lum rouge, p pouvoir */
-class Objet3D(val type: Char, val x: Float, val y: Float, val z: Float, val nom: String)
+class Objet3D(val type: Char, val x: Float, val y: Float, val z: Float, val nom: String, val etat: Long = -1L) {
+    @Volatile var pris = false          // build 256 : ramasse pendant la partie (lu en direct dans la memoire du jeu)
+}
 
 class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<Groupe>, val centre: FloatArray, val rayon: Float = 60f,
               val objets: List<Objet3D> = emptyList()) {
+    @Volatile var versionPris = 0       // build 256 : change quand un objet est ramasse (ou reapparait) ; la vue se refait
     class Groupe(val texture: Int, val alpha: Boolean, val sommets: ByteBuffer, val n: Int,
                  val mode: Int = if (alpha) 2 else 0, val enveloppe: Int = 0) {  // (build 236 : 0 opaque, 1 decoupe, 2 transparent, 3 lumiere ; miroir U/V)
         var eau = 0          // build 245 : 1 eau, 2 lave (d'apres le nom de la texture : <niveau>_tex.txt) ; animees par le moteur
@@ -100,7 +103,8 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
                         val p = li.trim().split(' ')
                         if (p.size < 4 || p[0].length != 1) null else {
                             val x = p[1].toFloatOrNull(); val y = p[2].toFloatOrNull(); val z = p[3].toFloatOrNull()
-                            if (x == null || y == null || z == null) null else Objet3D(p[0][0], x, y, z, p.getOrElse(4) { "" })
+                            if (x == null || y == null || z == null) null
+                            else Objet3D(p[0][0], x, y, z, p.getOrElse(4) { "" }, p.getOrNull(5)?.toLongOrNull(16)?.takeIf { it > 0 } ?: -1L)
                         }
                     }
                     SceneR3(d, nv, l, ctr, ray, obj)
@@ -188,7 +192,7 @@ class Etat3D {
     fun objetSous(objets: List<Objet3D>, x: Float, y: Float): Objet3D? {
         val m = mvpVue ?: return null; var best: Objet3D? = null; var bd = 48f * 48f
         for (o in objets) {
-            if (o.type !in voir) continue
+            if (o.type !in voir || o.pris) continue
             val z = o.z + (if (o.type == 'c' || o.type == 'f') 1.2f else 0.6f)
             val cx = m[0] * o.x + m[4] * o.y + m[8] * z + m[12]; val cy = m[1] * o.x + m[5] * o.y + m[9] * z + m[13]
             val cw = m[3] * o.x + m[7] * o.y + m[11] * z + m[15]
@@ -400,12 +404,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             for (o in l) fb.put(o.x).put(o.y).put(o.z + 0.8f)
             fb.position(0); pouvoirBuf[k] = fb
         }
-        objBuf.clear()
-        for ((t, l) in scene.objets.groupBy { it.type }) {
-            val fb = ByteBuffer.allocateDirect(l.size * 12).order(ByteOrder.nativeOrder()).asFloatBuffer()
-            for (o in l) fb.put(o.x).put(o.y).put(o.z + (if (t == 'c' || t == 'f') 1.2f else 0.6f))
-            fb.position(0); objBuf[t] = fb
-        }
+        reconstruireObjets()
         // build 242 : post-traitement (image calculee plus grande que l'ecran, puis reduite, nettete, halo lumineux)
         val vPost = """
             attribute vec2 aP; varying vec2 v;
@@ -441,6 +440,32 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         profond24 = ext.contains("GL_OES_depth24")
         GLES20.glGetIntegerv(GLES20.GL_MAX_TEXTURE_SIZE, maxTex, 0)
         cibles.clear()
+    }
+
+    /** build 256 : listes des objets a dessiner, sans ceux deja ramasses (refaites quand scene.versionPris change) */
+    private var versionVue = -1
+    private fun reconstruireObjets() {
+        versionVue = scene.versionPris
+        val la = scene.objets.filter { !it.pris }
+        objBuf.clear()
+        for ((t, l) in la.groupBy { it.type }) {
+            val fb = ByteBuffer.allocateDirect(l.size * 12).order(ByteOrder.nativeOrder()).asFloatBuffer()
+            for (o in l) fb.put(o.x).put(o.y).put(o.z + (if (t == 'c' || t == 'f') 1.2f else 0.6f))
+            fb.position(0); objBuf[t] = fb
+        }
+        pouvoirBuf.clear()
+        for ((k, l) in la.filter { it.type == 'p' }.groupBy { genrePouvoir(it.nom) }) {
+            val fb = ByteBuffer.allocateDirect(l.size * 12).order(ByteOrder.nativeOrder()).asFloatBuffer()
+            for (o in l) fb.put(o.x).put(o.y).put(o.z + 0.8f)
+            fb.position(0); pouvoirBuf[k] = fb
+        }
+        for ((t, gm) in gemmesC) {
+            gm.pos.clear()
+            for (o in la) if (o.type == t) {
+                val gros = Regex("big|super|gros", RegexOption.IGNORE_CASE).containsMatchIn(o.nom) && t != 'v'
+                gm.pos.add(floatArrayOf(o.x, o.y, o.z + 1.0f, (o.x * 0.37f + o.y * 0.11f) % 6.28f, if (gros) 2f else 1f))
+            }
+        }
     }
 
     // --- build 242 : cibles de rendu (image agrandie A, halo B et C a 1/4) ---
@@ -636,6 +661,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             GLES20.glVertexAttribPointer(lPos, 3, GLES20.GL_FLOAT, false, 12, fb); GLES20.glEnableVertexAttribArray(lPos)
             GLES20.glLineWidth(4f * echelle); GLES20.glDrawArrays(GLES20.GL_LINE_STRIP, 0, ch.size / 3)
         }
+        if (scene.versionPris != versionVue) reconstruireObjets()
         // build 245 : objets. D'abord en transparence a travers le decor (on les voit derriere les murs), puis nets la ou ils sont visibles
         if (objBuf.isNotEmpty()) {
             GLES20.glUseProgram(progO)
@@ -767,6 +793,10 @@ private fun ChoixObjets(scene: SceneR3, etat: Etat3D, modifier: Modifier, aller:
     val cages = remember(scene) { scene.objets.filter { it.type == 'c' }.ifEmpty { scene.objets.filter { it.type == 'f' } } }
     var ic by remember(scene) { androidx.compose.runtime.mutableStateOf(-1) }
     val n = remember(scene) { scene.objets.groupingBy { it.type }.eachCount() }
+    // build 256 : combien il en reste (les objets ramasses en jouant disparaissent)
+    var version by remember(scene) { androidx.compose.runtime.mutableStateOf(scene.versionPris) }
+    androidx.compose.runtime.LaunchedEffect(scene) { while (true) { kotlinx.coroutines.delay(500); version = scene.versionPris } }
+    val reste = remember(scene, version) { scene.objets.filter { !it.pris }.groupingBy { it.type }.eachCount() }
     var voir by remember(scene) { androidx.compose.runtime.mutableStateOf(etat.voir) }
     androidx.compose.foundation.layout.Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (cages.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
@@ -781,7 +811,8 @@ private fun ChoixObjets(scene: SceneR3, etat: Etat3D, modifier: Modifier, aller:
                     Triple('r', "Lums rouges", 0xFFFF4038), Triple('p', "Pouvoirs", 0xFF9E8CFF))) {
                 val k = n[t] ?: continue
                 val actif = t in voir
-                Text("● $nom $k", color = if (actif) Color(coul) else Color(0x99FFFFFF), fontSize = 12.sp,
+                val r = reste[t] ?: 0
+                Text(if (r == k) "● $nom $k" else "● $nom $r / $k", color = if (actif) Color(coul) else Color(0x99FFFFFF), fontSize = 12.sp,
                     modifier = Modifier.background(if (actif) Color(0xCC1A1530) else Color(0x66000000), RoundedCornerShape(12.dp))
                         .pointerInput(t) { detectTapGestures {
                             voir = if (t in voir) voir.replace(t.toString(), "") else voir + t

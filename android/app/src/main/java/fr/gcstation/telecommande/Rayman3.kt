@@ -196,6 +196,29 @@ object JeuRayman3 : ModuleJeu("Rayman 3", "GRHP41") {
     private const val POS = 0x804AAC94L
     private const val CAM = 0x80496A10L
     private const val NIVEAU = 0x803E712DL
+    /** build 256 : debut du niveau charge en memoire (les objets sont a [NIV_MEM] + decalage du fichier du niveau) ;
+     *  trouve en comparant deux photos de la memoire dans deux niveaux differents */
+    private const val NIV_MEM = 0x804329F0L
+    private var tour = 0
+
+    /** build 256 : objets ramasses. L'octet +0x29 de l'etat de l'objet a son bit 0x01 allume une fois ramasse
+     *  (vu sur trois gemmes ramassees, jamais sur les autres objets). On regarde a chaque fois les objets les plus
+     *  proches de Rayman (on ne ramasse que pres de soi) et quelques autres a tour de role. */
+    private fun ramasses(sc: SceneR3, x: Float, y: Float, z: Float) {
+        val l = Lecteur(20, 4)
+        val base = l.u32(NIV_MEM)?.takeIf { it in 0x80003100L..0x817FFFFFL } ?: return
+        val avec = sc.objets.filter { it.etat > 0 }
+        if (avec.isEmpty()) return
+        val proches = avec.sortedBy { (it.x - x) * (it.x - x) + (it.y - y) * (it.y - y) + (it.z - z) * (it.z - z) }.take(14)
+        val autres = (0 until 4).map { avec[(tour + it) % avec.size] }; tour = (tour + 4) % avec.size
+        var change = false
+        for (o in (proches + autres).distinct()) {
+            val b = l.u8(base + o.etat + 0x29) ?: continue
+            val p = (b and 1) != 0
+            if (p != o.pris) { o.pris = p; change = true }
+        }
+        if (change) sc.versionPris++
+    }
     private val chemins = HashMap<String, ArrayList<FloatArray>>()
     private val chemins3 = HashMap<String, ArrayList<FloatArray>>()
     private val MONDES = listOf("intro" to "Le Concile des Fées", "wood" to "La Forêt de Claire-Feuille", "knaar" to "Le Désert des Knaarens",
@@ -219,6 +242,7 @@ object JeuRayman3 : ModuleJeu("Rayman 3", "GRHP41") {
             val ch3 = chemins3.getOrPut(niv) { ArrayList() }
             if (z != null) { val e = ch3.lastOrNull(); if (e == null || (e[0] - x) * (e[0] - x) + (e[1] - y) * (e[1] - y) > 4f) { ch3.add(floatArrayOf(x, y, z + 0.5f)); if (ch3.size > 800) ch3.removeAt(0) } }
             val mail = CartesR3.maillage(niv); val sc = CartesR3.scene(niv)
+            if (sc != null && z != null) try { ramasses(sc, x, y, z) } catch (e: Exception) { }
             if ((mail != null || sc != null) && z != null) blocs.add(Bloc("Le niveau en 3D", vue3d = Vue3D(mail, floatArrayOf(x, y, z),
                 if (cx != null && cy != null) floatArrayOf(cx, cy) else null, ArrayList(ch3), sc),
                 texte = "Un doigt : tourner autour de Rayman · deux doigts : zoom · double toucher : revenir derrière la caméra du jeu."))
