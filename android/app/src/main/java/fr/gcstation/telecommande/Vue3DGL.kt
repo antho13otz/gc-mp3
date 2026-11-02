@@ -260,18 +260,22 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier) {
         }, Modifier.fillMaxSize(), update = { it.requestRender() })
         Box(Modifier.fillMaxSize()
             .pointerInput(scene) {
+                var dernierTap = 0L
                 awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
+                    val bas = awaitFirstDown(requireUnconsumed = false)
+                    val t0 = System.currentTimeMillis(); var bouge = 0f; var doigts = 1
                     var avant: List<Offset>? = null
                     while (true) {
                         val ev = awaitPointerEvent()
                         val pts = ev.changes.filter { it.pressed }.map { it.position }
                         if (pts.isEmpty()) break
+                        doigts = maxOf(doigts, pts.size)
                         val av = avant
                         if (av != null && av.size == pts.size) {
                             if (etat.lacet.isNaN()) etat.lacet = etat.lacetActuel()
                             if (pts.size == 1) {
                                 val dx = pts[0].x - av[0].x; val dy = pts[0].y - av[0].y
+                                bouge += Math.abs(dx) + Math.abs(dy)
                                 etat.lacet -= dx * 0.006f
                                 etat.tangage = (etat.tangage + dy * 0.005f).coerceIn(-0.3f, 1.55f)
                             } else {
@@ -290,8 +294,12 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier) {
                         avant = pts
                         ev.changes.forEach { it.consume() }
                     }
+                    // double toucher (deux touchers brefs sans bouger) : recentrer
+                    val fin = System.currentTimeMillis()
+                    if (doigts == 1 && bouge < 24f && fin - t0 < 300) {
+                        if (fin - dernierTap < 350) { etat.recentrer(); vueRef[0]?.requestRender(); dernierTap = 0L } else dernierTap = fin
+                    }
                 }
-            }
-            .pointerInput(scene) { detectTapGestures(onDoubleTap = { etat.recentrer(); vueRef[0]?.requestRender() }) })
+            })
     }
 }
