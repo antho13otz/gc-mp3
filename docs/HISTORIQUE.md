@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 295 — Rayman : fondus et textures HD
+- Quand Rayman change d'action, l'appli passe d'une animation à l'autre en douceur (environ 0,15 s), comme le jeu.
+- Pack Rayman à jour : ses textures (corps, mains, pouvoirs, hélice) agrandies x4 par l'IA (512 x 512 au lieu de 128 x 128).
+
 ## Nouveautés appli build 293 — Suivre : la vraie direction de Rayman
 - Le mode « Suivre » se place derrière Rayman d'après son orientation lue dans le jeu (vérifiée sur 4 photos de la
   mémoire), même quand il tourne sur place ; sinon, d'après son déplacement comme avant.
