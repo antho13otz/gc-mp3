@@ -55,6 +55,8 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
     class Groupe(val texture: Int, val alpha: Boolean, val sommets: ByteBuffer, val n: Int,
                  val mode: Int = if (alpha) 2 else 0, val enveloppe: Int = 0) {  // (build 236 : 0 opaque, 1 decoupe, 2 transparent, 3 lumiere ; miroir U/V)
         var eau = 0          // build 245 : 1 eau, 2 lave (d'apres le nom de la texture : <niveau>_tex.txt) ; animees par le moteur
+                             // build 276 : 3 lave peinte (texture claire que le jeu colore en rouge : la mer de lave de knaar_10)
+        var chaud = false    // build 276 : sous la lumiere rouge-orange du jeu (zone du crane de knaar_10)
     }
     companion object {
         /** fichier .r3v : "R3V1", nombre de groupes ; par groupe : texture (s32), alpha (u32), nombre de sommets (u32),
@@ -91,11 +93,15 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
                     val ft = java.io.File(d, nv + "_tex.txt")
                     if (ft.exists()) {
                         val eau = Regex("water|_eau|eau\\d|waterfx"); val lave = Regex("magma|fusion")
-                        val type = HashMap<Int, Int>()
+                        // build 276 : dans knaar_10, la « kna_waterfx » est verte dans le fichier mais le jeu l'eclaire en
+                        // rouge : c'est la mer de lave (vu sur la console) ; la zone du crane (textures dead_*) est sous la meme lumiere
+                        val lavePeinte = Regex("^kna_waterfx"); val chaud = if (nv.startsWith("knaar_10")) Regex("^dead_|^kna_waterfx") else null
+                        val type = HashMap<Int, Int>(); val chauds = HashSet<Int>()
                         for (li in ft.readLines()) { val p = li.trim().split(' ', limit = 2); if (p.size < 2) continue
                             val k = p[0].toIntOrNull() ?: continue
-                            type[k] = if (lave.containsMatchIn(p[1])) 2 else if (eau.containsMatchIn(p[1])) 1 else 0 }
-                        for (g in l) g.eau = type[g.texture] ?: 0
+                            type[k] = if (lavePeinte.containsMatchIn(p[1])) 3 else if (lave.containsMatchIn(p[1])) 2 else if (eau.containsMatchIn(p[1])) 1 else 0
+                            if (chaud?.containsMatchIn(p[1]) == true) chauds.add(k) }
+                        for (g in l) { g.eau = type[g.texture] ?: 0; g.chaud = g.texture in chauds }
                     }
                     // build 245 : objets (cages, lums, pouvoirs)
                     val fo = java.io.File(d, nv + "_obj.txt")
@@ -242,7 +248,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     private var uSeuil = 0; private var progCiel = 0; private var cPos = 0
     // build 245 : ambiance, eau animee, objets
     private val amb = Ambiance.pour(scene.niveau); private val t0 = System.nanoTime()
-    private var uEauL = 0; private var uTL = 0; private var uBrumeL = 0; private var uBrumePL = 0; private var uTeinteL = 0
+    private var uChaudL = 0; private var uEauL = 0; private var uTL = 0; private var uBrumeL = 0; private var uBrumePL = 0; private var uTeinteL = 0
     private var progO = 0
     private val objBuf = HashMap<Char, FloatBuffer>()
     // build 249 : les vrais visuels du jeu (pack : fichiers communs r3_*) : gemme 3D au reflet dore, lum rouge, icones des pouvoirs
@@ -263,6 +269,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     private var poseA: PoseRayman? = null; private var poseB: PoseRayman? = null
     private var peauA = HashMap<Int, FloatArray>(); private var peauB = HashMap<Int, FloatArray>()
     private var tB = 0L; private var dtAB = 1L
+    private var peauPrec = HashMap<Int, FloatArray>(); private var tPrec = 0L; private var dtPrec = 1L
     private val bufEl = HashMap<String, FloatBuffer>()
     private val boitesPos = HashMap<String, ArrayList<FloatArray>>()
     private fun lireModele(nom: String): Modele? = try {
@@ -318,13 +325,16 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             precision mediump float;
             #endif
             uniform sampler2D uTex; uniform float uAvecTex; uniform float uSeuil; uniform float uEau;
-            uniform vec3 uBrume; uniform vec3 uTeinteEau;
+            uniform vec3 uBrume; uniform vec3 uTeinteEau; uniform float uChaud;
             varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying float vBrume;
             void main() { vec4 t = uAvecTex > 0.5 ? texture2D(uTex, vUv) : vec4(1.0);
                 if (uEau > 0.5 && uAvecTex > 0.5) t = mix(t, texture2D(uTex, vUv2), 0.5);
                 vec4 c = t * vec4(vCol.rgb * 2.0, vCol.a);
                 if (uEau > 0.5 && uEau < 1.5) { c.rgb *= uTeinteEau; c.a = min(1.0, c.a * 1.15 + 0.1); }
-                if (uEau > 1.5) c.rgb *= 1.3;
+                if (uEau > 1.5 && uEau < 2.5) c.rgb *= 1.3;
+                if (uEau > 2.5) { float l = dot(t.rgb, vec3(0.3, 0.59, 0.11));
+                    c = vec4(vec3(1.0, 0.32, 0.07) * (0.25 + 1.9 * l) + vec3(0.35, 0.18, 0.0) * l * l, 1.0); }
+                if (uChaud > 0.5 && uEau < 2.5) c.rgb *= vec3(1.45, 0.95, 0.62);
                 if (c.a < uSeuil) discard;
                 gl_FragColor = vec4(mix(c.rgb, uBrume, vBrume), c.a); }""")
         aPos = GLES20.glGetAttribLocation(prog, "aPos"); aUv = GLES20.glGetAttribLocation(prog, "aUv"); aCol = GLES20.glGetAttribLocation(prog, "aCol")
@@ -332,7 +342,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         uAvecTex = GLES20.glGetUniformLocation(prog, "uAvecTex"); uCam = GLES20.glGetUniformLocation(prog, "uCam")
         uSeuil = GLES20.glGetUniformLocation(prog, "uSeuil")
         uEauL = GLES20.glGetUniformLocation(prog, "uEau"); uTL = GLES20.glGetUniformLocation(prog, "uT")
-        uBrumeL = GLES20.glGetUniformLocation(prog, "uBrume"); uBrumePL = GLES20.glGetUniformLocation(prog, "uBrumeP"); uTeinteL = GLES20.glGetUniformLocation(prog, "uTeinteEau")
+        uBrumeL = GLES20.glGetUniformLocation(prog, "uBrume"); uBrumePL = GLES20.glGetUniformLocation(prog, "uBrumeP"); uTeinteL = GLES20.glGetUniformLocation(prog, "uTeinteEau"); uChaudL = GLES20.glGetUniformLocation(prog, "uChaud")
         // ciel : un degrade plein ecran dessine avant le niveau
         progCiel = programme("""
             attribute vec2 aP; varying float vY;
@@ -731,7 +741,14 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             for ((g, s) in mod.morceaux(p)) { val geo = mod.geos[g] ?: continue; val o = FloatArray(geo.nv * 6); mod.peau(geo, p, s, o); h[g * 32 + s] = o }
             val avant = poseB
             poseA = avant; peauA = peauB; poseB = p; peauB = h
-            dtAB = if (avant != null) (p.t - avant.t).coerceIn(10_000_000L, 300_000_000L) else 1L; tB = System.nanoTime()
+            // build 276 : duree du glissement = ecart moyen entre deux poses (lisse : un ecart irregulier ne fait plus d'a-coups)
+            val ecart = if (avant != null) (p.t - avant.t).coerceIn(10_000_000L, 300_000_000L) else 0L
+            dtAB = if (ecart == 0L) 1L else if (dtAB <= 1L) ecart else (dtAB * 0.75 + ecart * 0.25).toLong(); tB = System.nanoTime()
+            // (on part de la pose affichee a cet instant, pas de l'ancienne : pas de saut si la nouvelle arrive en avance)
+            val al0 = if (avant == null) 1f else ((tB - tPrec) / dtPrec.toFloat()).coerceIn(0f, 1f)
+            if (al0 < 1f && peauPrec.isNotEmpty()) for ((cle, o) in peauA) { val q = peauPrec[cle] ?: continue
+                if (q.size == o.size) for (i in o.indices) o[i] = q[i] + (o[i] - q[i]) * al0 }
+            peauPrec = peauA; tPrec = tB; dtPrec = dtAB
         }
         if (peauB.isEmpty()) return false
         val al = if (poseA == null) 1f else ((System.nanoTime() - tB).toFloat() / dtAB).coerceIn(0f, 1f)
@@ -824,7 +841,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             }
             for ((i, g) in scene.groupes.withIndex()) {
                 if (i >= vbo.size || g.mode != passe) continue
-                GLES20.glUniform1f(uEauL, g.eau.toFloat())
+                GLES20.glUniform1f(uEauL, g.eau.toFloat()); GLES20.glUniform1f(uChaudL, if (g.chaud) 1f else 0f)
                 val t = textures[g.texture]
                 GLES20.glUniform1f(uAvecTex, if (t != null) 1f else 0f)
                 if (t != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }

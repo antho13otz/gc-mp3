@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build NUM — Rayman plus fluide, lave de knaar_10
+- Rayman animé : plus de morceaux décalés quand il va vite. Les matrices du jeu étaient lues bloc par bloc, à des
+  images différentes ; le squelette est maintenant recomposé dans l'appli à partir des matrices locales.
+- Glissement entre deux poses lissé (durée moyenne, départ de la pose affichée) : mouvements plus fluides.
+- knaar_10 : la mer sous le crâne est affichée en lave rouge (dans le jeu, sa texture verte est éclairée en rouge) et la
+  zone du crâne reçoit la même lumière orangée.
+
 ## Nouveautés appli build 274 — Rayman animé en direct
 - **Rayman bouge comme dans le jeu** dans la vue 3D du compagnon : son vrai squelette (25 nœuds) est relu en mémoire et
   son modèle est déformé à chaque pose (cheveux, foulard, mains, pieds), avec un glissement entre deux poses.
