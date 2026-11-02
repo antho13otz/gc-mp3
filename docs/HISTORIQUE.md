@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 231 — La fiche de Rayman 3 ne ferme plus l'appli ; rapport de plantage
+- Correction : ouvrir la fiche de Rayman 3 (build 228) fermait l'appli.
+- Si l'appli se ferme toute seule, la cause est gardée et montrée au lancement suivant, avec un bouton **Envoyer**.
+
 ## Nouveautés appli build 228 — Rayman 3 dans sa fiche de jeu, cartes consultables hors ligne
 - La tuile « Rayman 3 » quitte Plus : la progression (sauvegarde) et les cartes sont dans la **fiche du jeu** (Jeux > Rayman 3).
 - **Cartes installées** : chaque niveau du pack se consulte sans jouer, aussi hors ligne : la carte vue de dessus et le
