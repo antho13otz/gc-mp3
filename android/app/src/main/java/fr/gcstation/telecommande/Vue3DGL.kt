@@ -197,6 +197,9 @@ class Etat3D {
     @Volatile var direct = false                          // build 245 : types d'objets affiches
     /** build 272 : la derniere pose de Rayman lue dans la memoire (squelette, objets, textures) */
     @Volatile var pose: PoseRayman? = null
+    /** build 282 : 0 normal (la vue suit la position), 1 suivre (derriere Rayman, tournee comme lui), 2 libre (la vue ne bouge plus seule) */
+    @Volatile var mode = 0
+    @Volatile var libre: FloatArray? = null
     // build 247 : derniere projection dessinee (pour savoir quel objet est sous le doigt) et vol anime de la camera
     @Volatile var mvpVue: FloatArray? = null; @Volatile var vueW = 1; @Volatile var vueH = 1
     var vol: kotlinx.coroutines.Job? = null
@@ -204,7 +207,7 @@ class Etat3D {
     fun voler(scope: kotlinx.coroutines.CoroutineScope, vers: FloatArray? = null, d: Float? = null, tg: Float? = null, l: Float? = null) {
         vol?.cancel()
         if (lacet.isNaN()) lacet = lacetActuel()
-        val c = cible; val dc0 = decal.copyOf(); val dist0 = dist; val tg0 = tangage; val l0 = lacet
+        val c = if (mode == 2) (libre ?: cible) else cible; val dc0 = decal.copyOf(); val dist0 = dist; val tg0 = tangage; val l0 = lacet   // (build 282 : en mode libre, par rapport au point fixe)
         val dc1 = if (vers != null) floatArrayOf(vers[0] - c[0], vers[1] - c[1], vers[2] - c[2]) else dc0
         var dl = (l ?: l0) - l0
         while (dl > Math.PI) dl -= (2 * Math.PI).toFloat(); while (dl < -Math.PI) dl += (2 * Math.PI).toFloat()
@@ -810,6 +813,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     }
 
     // build 269 : position affichee = position lue, lissee a chaque image ; cap de Rayman d'apres son deplacement
+    private var tSuivre = 0L
     private var lisse: FloatArray? = null; private var tLisse = 0L; private var cap = 0f; private var capVise = 0f
     private fun cibleLissee(): FloatArray {
         val v = etat.cible; val l = lisse; val n = System.nanoTime()
@@ -828,7 +832,16 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
 
     private fun dessinerScene() {
         val c0 = cibleLissee(); val dc = etat.decal
-        val c = floatArrayOf(c0[0] + dc[0], c0[1] + dc[1], c0[2] + dc[2])
+        // build 282 : mode libre : le centre reste ou il etait (seuls les doigts le deplacent)
+        val base = if (etat.mode == 2) (etat.libre ?: c0.copyOf().also { etat.libre = it }) else c0
+        val c = floatArrayOf(base[0] + dc[0], base[1] + dc[1], base[2] + dc[2])
+        // build 282 : mode suivre : la camera se place doucement derriere Rayman, dans sa direction
+        val nt = System.nanoTime(); val dtS = ((nt - tSuivre) / 1e9f).coerceIn(0f, 0.1f); tSuivre = nt
+        if (etat.mode == 1) {
+            val l0 = etat.lacetActuel()
+            var dl = cap - l0; while (dl > Math.PI) dl -= (2 * Math.PI).toFloat(); while (dl < -Math.PI) dl += (2 * Math.PI).toFloat()
+            etat.lacet = l0 + dl * (1f - Math.exp(-3.0 * dtS).toFloat())
+        }
         val a = etat.lacetActuel()
         val tg = etat.tangage; val d = etat.dist
         val ex = c[0] - (Math.cos(a.toDouble()) * Math.cos(tg.toDouble()) * d).toFloat()
@@ -1069,6 +1082,20 @@ private fun BoutonsVue(scope: kotlinx.coroutines.CoroutineScope, etat: Etat3D, m
         PetitBouton("🚶 Au sol") { etat.voler(scope, d = 12f, tg = 0.12f) }
         PetitBouton("↗ Biais") { etat.voler(scope, d = maxOf(etat.dist, 40f), tg = 0.6f) }
         PetitBouton("⬇ Dessus") { etat.voler(scope, d = maxOf(etat.dist, etat.distBase * 1.6f), tg = 1.5f) }
+        // build 282 : suivre Rayman (position et direction) ; mode libre (la vue ne suit plus rien)
+        var mode by remember(etat) { androidx.compose.runtime.mutableStateOf(etat.mode) }
+        if (etat.montrerRayman) PetitBouton("🎯 Suivre", actif = mode == 1) {
+            mode = if (mode == 1) 0 else 1; etat.mode = mode; etat.libre = null
+            if (mode == 1) { etat.vol?.cancel(); etat.decal = floatArrayOf(0f, 0f, 0f); etat.voler(scope, d = minOf(etat.dist, etat.distBase), tg = 0.35f) }
+        }
+        PetitBouton("✋ Libre", actif = mode == 2) {
+            if (mode == 2) { mode = 0; etat.mode = 0; etat.libre = null; etat.decal = floatArrayOf(0f, 0f, 0f) }
+            else {
+                val c = etat.cible; val d = etat.decal
+                etat.vol?.cancel(); etat.libre = floatArrayOf(c[0] + d[0], c[1] + d[1], c[2] + d[2]); etat.decal = floatArrayOf(0f, 0f, 0f)
+                mode = 2; etat.mode = 2
+            }
+        }
     }
 }
 
@@ -1133,8 +1160,8 @@ private fun BoutonsZoom(etat: Etat3D, modifier: Modifier) {
 }
 
 @Composable
-private fun PetitBouton(t: String, faire: () -> Unit) {
-    Text(t, color = Color.White, fontSize = 13.sp, modifier = Modifier.background(Color(0x99000000), RoundedCornerShape(12.dp))
+private fun PetitBouton(t: String, actif: Boolean = false, faire: () -> Unit) {
+    Text(t, color = if (actif) Color.Black else Color.White, fontSize = 13.sp, modifier = Modifier.background(if (actif) Color(0xFFFFBD40) else Color(0x99000000), RoundedCornerShape(12.dp))
         .pointerInput(t) { detectTapGestures { faire() } }.padding(horizontal = 12.dp, vertical = 7.dp))
 }
 
