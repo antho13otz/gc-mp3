@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 274 — Rayman animé en direct
+- **Rayman bouge comme dans le jeu** dans la vue 3D du compagnon : son vrai squelette (25 nœuds) est relu en mémoire et
+  son modèle est déformé à chaque pose (cheveux, foulard, mains, pieds), avec un glissement entre deux poses.
+- Les mains et le corps suivent les **pouvoirs** (objet affiché par chaque nœud et texture de chaque morceau relus en
+  mémoire) ; l'hélice des cheveux est prise en charge si le jeu l'accroche au squelette. Pas encore vu en vrai : aucune
+  photo de la mémoire avec un pouvoir ou en hélico.
+- Pack Rayman à jour (`r3_rayman_anim.txt` et textures `r3_tex_*`). Sans ce pack, l'ancien Rayman fixe reste affiché.
+
 ## Nouveautés appli build 270 — position fluide, Rayman en 3D
 - Vue 3D en direct (Rayman 3, Mario Kart) : la position est lue à part ~30 fois par seconde et lissée à chaque image :
   plus de sauts, bien moins de retard.
