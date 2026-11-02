@@ -288,6 +288,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     private var tB = 0L; private var dtAB = 1L
     private var peauPrec = HashMap<Int, FloatArray>(); private var tPrec = 0L; private var dtPrec = 1L
     private var ouDebut: FloatArray? = null; private var ouFin: FloatArray? = null
+    private val matJoue = FloatArray(PoseRayman.N * 15); private val peauJoue = HashMap<Int, FloatArray>()
     private val bufEl = HashMap<String, FloatBuffer>()
     private val boitesPos = HashMap<String, ArrayList<FloatArray>>()
     private fun lireModele(nom: String): Modele? = try {
@@ -772,6 +773,18 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             ouDebut = if (d0 != null && f0 != null) FloatArray(3) { d0[it] + (f0[it] - d0[it]) * al0 } else ouB?.copyOf()
             ouFin = ouB?.copyOf()
             if (ouB != null && d0 != null && (ouB[0] - d0[0]).let { it * it } + (ouB[1] - d0[1]).let { it * it } > 400f) ouDebut = ouB.copyOf()   // (teleporte)
+        }
+        // build 284 : animation connue : l'appli la rejoue a chaque image de l'ecran (image du jeu + vitesse x temps ecoule)
+        val an = p.anim; val pb = p.base; val par = p.parents; val ro = p.rot
+        if (an != null && pb != null && par != null && ro != null) {
+            val ecoule = ((System.nanoTime() - p.t) / 1e9f).coerceIn(0f, 0.25f)
+            val loc = pb.copyOf(); an.locales(p.image + an.vitesse * ecoule, loc)
+            val q = PoseRayman(PoseRayman.composer(loc, par, ro, matJoue), p.types, p.data, p.fix4, p.pos, p.textures)
+            val h = HashMap<Int, FloatArray>()
+            for ((g, s) in mod.morceaux(q)) { val geo = mod.geos[g] ?: continue
+                val cle = g * 32 + s; val o = peauJoue[cle]?.takeIf { it.size == geo.nv * 6 } ?: FloatArray(geo.nv * 6).also { peauJoue[cle] = it }
+                mod.peau(geo, q, s, o); h[cle] = o }
+            peauB = h; peauA = HashMap()
         }
         if (peauB.isEmpty()) return false
         val al = if (poseA == null) 1f else ((System.nanoTime() - tB).toFloat() / dtAB).coerceIn(0f, 1f)
