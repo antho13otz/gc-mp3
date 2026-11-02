@@ -102,11 +102,21 @@ fun SectionRayman3(act: StationActivity) {   // (build 230 : l'activite en param
             montrer(b, "Lu depuis le téléphone")
         }
     }
-    val pack = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u: Uri? ->
-        if (u != null) portee.launch {
-            val n = withContext(Dispatchers.IO) { try { CartesR3.installer(act, u) } catch (e: Exception) { -1 } }
-            message = if (n > 0) "Pack installé : $n niveau(x), dans la liste ci-dessus et dans le compagnon de jeu." else "Pas de carte dans ce fichier"
-            installees++
+    // build 258 : plusieurs packs d'un coup (et un zip qui contient d'autres zips)
+    val pack = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { us: List<Uri> ->
+        if (us.isNotEmpty()) portee.launch {
+            occupe = true
+            var total = 0; var rates = 0
+            for ((i, u) in us.withIndex()) {
+                message = "Installation du pack ${i + 1} sur ${us.size}…"
+                val n = withContext(Dispatchers.IO) { try { CartesR3.installer(act, u) } catch (e: Exception) { -1 } }
+                if (n > 0) total += n else rates++
+                installees++
+            }
+            occupe = false
+            message = (if (total > 0) "Installé : $total niveau(x)" + (if (us.size > 1) " depuis ${us.size - rates} pack(s)" else "") +
+                ", dans la liste ci-dessus et dans le compagnon de jeu." else "Pas de carte dans ce(s) fichier(s).") +
+                (if (rates > 0 && total > 0) " $rates fichier(s) sans carte ignoré(s)." else "")
         }
     }
         fun carte(slot: String) {
@@ -135,7 +145,7 @@ fun SectionRayman3(act: StationActivity) {   // (build 230 : l'activite en param
         }
         if (onglet == 0) {
             CartesInstallees(act, installees)
-            Bouton("Installer / mettre à jour un pack de cartes (.zip)", Modifier.fillMaxWidth(), actif = !occupe) { pack.launch(arrayOf("*/*")) }
+            Bouton("Installer / mettre à jour des packs de cartes (.zip, plusieurs possibles)", Modifier.fillMaxWidth(), actif = !occupe) { pack.launch(arrayOf("*/*")) }
             if (message.isNotEmpty()) Doux(message, taille = 12, couleur = C.Texte)
         }
         if (onglet == 1) {
@@ -327,17 +337,19 @@ object CartesR3 {
     fun installer(ctx: android.content.Context, u: android.net.Uri): Int {
         val d = java.io.File(ctx.filesDir, "cartes-r3"); d.mkdirs()
         var n = 0
-        ctx.contentResolver.openInputStream(u)?.use { ins ->
-            java.util.zip.ZipInputStream(ins).use { z ->
-                while (true) {
-                    val e = z.nextEntry ?: break
-                    val nom = e.name.substringAfterLast('/').lowercase()
-                    if (e.isDirectory || !(nom.endsWith(".png") || nom.endsWith(".txt") || nom.endsWith(".3d") || nom.endsWith(".r3v")) || nom.contains("..")) continue
-                    java.io.File(d, nom).outputStream().use { z.copyTo(it) }
-                    if (nom.endsWith(".png") && !nom.startsWith("r3_") && !Regex("_t\\d{3}\\.png$").containsMatchIn(nom)) n++
-                }
+        // build 258 : un zip peut contenir d'autres zips (les packs de tous les mondes regroupes) : on les ouvre aussi
+        fun lire(z: java.util.zip.ZipInputStream, prof: Int) {
+            while (true) {
+                val e = z.nextEntry ?: break
+                val nom = e.name.substringAfterLast('/').lowercase()
+                if (e.isDirectory || nom.contains("..")) continue
+                if (nom.endsWith(".zip")) { if (prof < 2) lire(java.util.zip.ZipInputStream(z), prof + 1); continue }   // (sans fermer le zip parent)
+                if (!(nom.endsWith(".png") || nom.endsWith(".txt") || nom.endsWith(".3d") || nom.endsWith(".r3v"))) continue
+                java.io.File(d, nom).outputStream().use { z.copyTo(it) }
+                if (nom.endsWith(".png") && !nom.startsWith("r3_") && !Regex("_t\\d{3}\\.png$").containsMatchIn(nom)) n++
             }
         }
+        ctx.contentResolver.openInputStream(u)?.use { ins -> java.util.zip.ZipInputStream(ins).use { z -> lire(z, 0) } }
         dossier = d; vider()
         return n
     }
