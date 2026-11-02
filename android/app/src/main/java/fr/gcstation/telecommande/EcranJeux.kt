@@ -529,7 +529,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                 Spacer(Modifier.height(22.dp))
                 Titre("Rayman 3 : progression et cartes")
                 Spacer(Modifier.height(8.dp))
-                SectionRayman3()
+                SectionRayman3(act)
             }
             // ---- sauvegardes (carte virtuelle) : l'ecran des cartes memoire, partage ----
             Spacer(Modifier.height(22.dp))

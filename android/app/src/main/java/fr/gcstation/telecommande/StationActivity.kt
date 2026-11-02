@@ -81,6 +81,7 @@ class StationActivity : ComponentActivity(), Host {
 
     override fun onCreate(b: Bundle?) {
         super.onCreate(b)
+        Plantage.installer(this)                                 // (build 230 : garde la cause d'un plantage, montree au demarrage suivant)
         Lang.init(this)
         enableEdgeToEdge()
         St.activite = this
@@ -576,5 +577,40 @@ class StationActivity : ComponentActivity(), Host {
         } finally {
             tmp?.delete()
         }
+    }
+}
+
+
+/** build 230 : quand l'appli plante, la cause est gardee (dernier-plantage.txt) et montree au lancement suivant, avec un
+ *  bouton pour l'envoyer : pour corriger sans avoir a brancher le telephone */
+object Plantage {
+    private var fait = false
+    fun installer(a: android.app.Activity) {
+        val f = java.io.File(a.filesDir, "dernier-plantage.txt")
+        if (!fait) {
+            fait = true
+            val avant = Thread.getDefaultUncaughtExceptionHandler()
+            Thread.setDefaultUncaughtExceptionHandler { t, e ->
+                try {
+                    val sw = java.io.StringWriter(); e.printStackTrace(java.io.PrintWriter(sw))
+                    f.writeText("GC Remote " + BuildConfig.VERSION_NAME + " · " + java.text.SimpleDateFormat("dd/MM HH:mm:ss", java.util.Locale.FRANCE).format(java.util.Date()) +
+                        " · Android " + android.os.Build.VERSION.RELEASE + " · " + android.os.Build.MODEL + "\n" + sw.toString().take(12000))
+                } catch (x: Throwable) { }
+                avant?.uncaughtException(t, e)
+            }
+        }
+        if (!f.exists()) return
+        val txt = try { f.readText() } catch (e: Exception) { "" }
+        f.delete()
+        if (txt.isEmpty()) return
+        try {
+            android.app.AlertDialog.Builder(a).setTitle("L'appli s'est fermée la dernière fois")
+                .setMessage("Envoie ce rapport pour que le problème soit corrigé :\n\n" + txt.take(1500))
+                .setPositiveButton("Envoyer") { _, _ ->
+                    try { a.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+                        .putExtra(android.content.Intent.EXTRA_TEXT, txt), "Envoyer le rapport")) } catch (e: Exception) { }
+                }
+                .setNegativeButton("Fermer", null).show()
+        } catch (e: Exception) { }
     }
 }
