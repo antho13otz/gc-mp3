@@ -241,6 +241,21 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     // build 261 : la cage du jeu (modele 3D sous son ballon) : x y z u v nx ny nz par sommet, coordonnees du jeu (origine = l'objet)
     private var progM = 0; private var cageMod: FloatBuffer? = null; private var nCage = 0; private var texCage = 0
     private val cagesPos = ArrayList<FloatArray>()
+    // build 261 : les boites de pouvoir du jeu (une par pouvoir : grappin, helico, poing, roulade, snipe), meme format que la cage
+    private class Modele(val mod: FloatBuffer, val n: Int)
+    private val boites = HashMap<String, Modele>(); private var texBoite = 0
+    private val boitesPos = HashMap<String, ArrayList<FloatArray>>()
+    private fun lireModele(nom: String): Modele? = try {
+        val f = java.io.File(scene.dossier, nom)
+        if (!f.exists()) null else {
+            val v = f.readLines().filter { !it.startsWith("t ") }.mapNotNull { l -> l.trim().split(' ').mapNotNull { it.toFloatOrNull() }.takeIf { it.size == 8 } }
+            if (v.isEmpty()) null else {
+                val fb = ByteBuffer.allocateDirect(v.size * 32).order(ByteOrder.nativeOrder()).asFloatBuffer()
+                for (q in v) for (x in q) fb.put(x)
+                fb.position(0); Modele(fb, v.size)
+            }
+        }
+    } catch (e: Throwable) { null }
     private val texPouvoir = HashMap<String, Int>()
     private val pouvoirBuf = HashMap<String, FloatBuffer>()
     private fun chargerTex(nom: String, repete: Boolean = false): Int {
@@ -423,6 +438,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 }
             }
         } catch (e: Throwable) { cageMod = null }
+        boites.clear(); texBoite = chargerTex("r3_boite.png", repete = true)
+        if (texBoite != 0) for (k in listOf("grappin", "helico", "poing", "roulade", "snipe")) lireModele("r3_boite_$k.txt")?.let { boites[k] = it }
         texPouvoir.clear()
         for (k in listOf("grappin", "helico", "poing", "roulade", "snipe")) chargerTex("r3_pouvoir_$k.png").let { if (it != 0) texPouvoir[k] = it }
         pouvoirBuf.clear()
@@ -486,6 +503,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             for (o in l) fb.put(o.x).put(o.y).put(o.z + 0.8f)
             fb.position(0); pouvoirBuf[k] = fb
         }
+        boitesPos.clear()
+        for (o in la) if (o.type == 'p') boitesPos.getOrPut(genrePouvoir(o.nom).ifEmpty { "grappin" }) { ArrayList() }.add(floatArrayOf(o.x, o.y, o.z, (o.x * 0.31f + o.y * 0.13f) % 6.28f))
         cagesPos.clear()
         for (o in la) if (o.type == 'c') cagesPos.add(floatArrayOf(o.x, o.y, o.z, (o.x * 0.29f + o.y * 0.17f) % 6.28f))
         for ((t, gm) in gemmesC) {
@@ -626,6 +645,27 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 GLES20.glDisableVertexAttribArray(mp); GLES20.glDisableVertexAttribArray(mu); GLES20.glDisableVertexAttribArray(mn)
                 GLES20.glEnable(GLES20.GL_BLEND); GLES20.glDepthMask(false)
             }
+            if (passe == 1 && 'p' in voir && boites.isNotEmpty() && boitesPos.isNotEmpty()) {
+                GLES20.glDepthMask(true); GLES20.glDisable(GLES20.GL_BLEND)
+                GLES20.glUseProgram(progM)
+                GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progM, "uMvp"), 1, false, mvp, 0)
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texBoite); GLES20.glUniform1i(GLES20.glGetUniformLocation(progM, "uTex"), 0)
+                val mp = GLES20.glGetAttribLocation(progM, "aPos"); val mu = GLES20.glGetAttribLocation(progM, "aUv"); val mn = GLES20.glGetAttribLocation(progM, "aN")
+                val uP = GLES20.glGetUniformLocation(progM, "uPos"); val uA = GLES20.glGetUniformLocation(progM, "uAng")
+                GLES20.glEnableVertexAttribArray(mp); GLES20.glEnableVertexAttribArray(mu); GLES20.glEnableVertexAttribArray(mn)
+                for ((k, l) in boitesPos) {
+                    val md = boites[k] ?: boites.values.first(); val b = md.mod
+                    b.position(0); GLES20.glVertexAttribPointer(mp, 3, GLES20.GL_FLOAT, false, 32, b)
+                    b.position(3); GLES20.glVertexAttribPointer(mu, 2, GLES20.GL_FLOAT, false, 32, b)
+                    b.position(5); GLES20.glVertexAttribPointer(mn, 3, GLES20.GL_FLOAT, false, 32, b); b.position(0)
+                    for (q in l) {        // (la boite tourne lentement sur elle-meme)
+                        GLES20.glUniform3f(uP, q[0], q[1], q[2]); GLES20.glUniform1f(uA, t * 0.9f + q[3])
+                        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, md.n)
+                    }
+                }
+                GLES20.glDisableVertexAttribArray(mp); GLES20.glDisableVertexAttribArray(mu); GLES20.glDisableVertexAttribArray(mn)
+                GLES20.glEnable(GLES20.GL_BLEND); GLES20.glDepthMask(false)
+            }
             GLES20.glUseProgram(progS)
             GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progS, "uMvp"), 1, false, mvp, 0)
             GLES20.glUniform1i(GLES20.glGetUniformLocation(progS, "uTex"), 0)
@@ -639,7 +679,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 GLES20.glVertexAttribPointer(sp, 3, GLES20.GL_FLOAT, false, 12, rb); GLES20.glDrawArrays(GLES20.GL_POINTS, 0, rb.capacity() / 3)
                 GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA)
             }
-            if ('p' in voir) for ((k, fb) in pouvoirBuf) {
+            if ('p' in voir && !(passe == 1 && boites.isNotEmpty())) for ((k, fb) in pouvoirBuf) {
                 val tx = texPouvoir[k] ?: texPouvoir.values.firstOrNull() ?: continue
                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tx); GLES20.glUniform1f(uT, 30f * echelle)
                 GLES20.glVertexAttribPointer(sp, 3, GLES20.GL_FLOAT, false, 12, fb); GLES20.glDrawArrays(GLES20.GL_POINTS, 0, fb.capacity() / 3)
@@ -911,7 +951,7 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier, toucher: (Fl
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     vueRef[0]?.requestRender()
     // build 245 : l'eau et la lave bougent : on redessine environ 30 fois par seconde tant que la vue est affichee
-    if (scene.groupes.any { it.eau > 0 } || scene.objets.any { it.type in "jkv" }) androidx.compose.runtime.LaunchedEffect(Unit) {
+    if (scene.groupes.any { it.eau > 0 } || scene.objets.any { it.type in "jkvpc" }) androidx.compose.runtime.LaunchedEffect(Unit) {
         while (true) { kotlinx.coroutines.delay(33); vueRef[0]?.requestRender() }
     }
     DisposableEffect(Unit) {
