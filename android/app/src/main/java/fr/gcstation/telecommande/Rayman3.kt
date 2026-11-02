@@ -159,3 +159,41 @@ private fun PartieR3(p: Rayman3.Partie) {
         }
     }
 }
+
+/** build 217 : Rayman 3 en direct dans le compagnon de jeu (version europeenne GRHP41). Adresses trouvees en comparant
+ *  3 photos de la memoire (Moor_00) : copie fixe de la position de Rayman (0x804AAC94, x y z, Z vers le haut), position
+ *  de la camera (0x80496A10), nom du niveau en cours (0x803E712D). A verifier dans les autres mondes. */
+object JeuRayman3 : ModuleJeu("Rayman 3", "GRHP41") {
+    private const val POS = 0x804AAC94L
+    private const val CAM = 0x80496A10L
+    private const val NIVEAU = 0x803E712DL
+    private val chemins = HashMap<String, ArrayList<FloatArray>>()
+    private val MONDES = listOf("intro" to "Le Concile des Fées", "wood" to "La Forêt de Claire-Feuille", "knaar" to "Le Désert des Knaarens",
+        "mount" to "Le Sommet d'Outre-Nuées", "lept" to "La Tour du Leptys", "tower" to "La Tour du Leptys", "menu" to "Menu")
+
+    override fun lire(l: Lecteur, id: String): Fiche? {
+        val niv = (l.texte(NIVEAU, 16) ?: "").substringBefore('\u0000').filter { it.code in 33..126 }
+        if (niv.isEmpty() || niv.length > 15) return null
+        val x = l.fini(l.f32(POS), 1e5f); val y = l.fini(l.f32(POS + 4), 1e5f); val z = l.fini(l.f32(POS + 8), 1e5f)
+        val cx = l.fini(l.f32(CAM), 1e5f); val cy = l.fini(l.f32(CAM + 4), 1e5f)
+        val monde = MONDES.firstOrNull { niv.lowercase().startsWith(it.first) }?.second
+        val blocs = ArrayList<Bloc>()
+        if (x != null && y != null) {
+            val ch = chemins.getOrPut(niv) { ArrayList() }
+            val d = ch.lastOrNull()
+            if (d == null || (d[0] - x) * (d[0] - x) + (d[1] - y) * (d[1] - y) > 4f) { ch.add(floatArrayOf(x, y)); if (ch.size > 800) ch.removeAt(0) }
+            val pions = ArrayList<Pion>()
+            if (cx != null && cy != null) pions.add(Pion(cx, cy, 0xFF5FD3FF, "c"))
+            pions.add(Pion(x, y, 0xFFFF3B3B, "R"))
+            val pts = ArrayList<FloatArray>(ch); for (p in pions) pts.add(floatArrayOf(p.x, p.z))
+            val n = ch.size
+            if (pts.size >= 2) blocs.add(Bloc("Plan du niveau ($niv)", plan = Plan(pts, List(pts.size) { if (it < n) 0xFFFFC94A else 0x00000000 },
+                (1 until n).map { intArrayOf(it - 1, it) }, pions, petits = (0 until pts.size).toSet()),
+                texte = "Ton chemin dans ce niveau (il se dessine en avançant), R : Rayman, c : la caméra. Vu de dessus."))
+        }
+        blocs.add(Bloc("Pour finir à 100 %", texte = "Cages, tampons et scores monde par monde : Plus > Rayman 3 (lus dans ta sauvegarde)."))
+        return Fiche(id, monde ?: "Rayman 3", "Niveau $niv", 0xFFE0A030, 0xFF2A1A08,
+            grands = listOfNotNull(if (x != null && y != null) "position" to (x.toInt().toString() + " ; " + y.toInt()) else null,
+                if (z != null) "altitude" to z.toInt().toString() else null, "niveau" to niv), blocs = blocs)
+    }
+}
