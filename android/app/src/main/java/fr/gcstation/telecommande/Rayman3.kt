@@ -275,6 +275,7 @@ object CartesR3 {
 
 
 /** build 227 : les cartes installees (hors ligne) : la carte vue de dessus et le niveau en 3D, sans jouer */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun CartesInstallees(act: StationActivity, recharge: Int) {
     val niveaux = remember(recharge) {
