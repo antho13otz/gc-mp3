@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 280 — herbes de la Lande, Rayman sans glissade
+- Rayman animé : le modèle avance avec sa pose (position lue en même temps que le squelette) : ses pieds ne patinent
+  plus sur le sol.
+- La Lande (moor_00, moor_19) et fact_50 : les herbes et fumées créées par le moteur ne sont plus teintées en bleu nuit
+  (leurs couleurs de sommets ne sont pas remplies dans le jeu : elles prennent la lumière moyenne du niveau).
+
 ## Nouveautés appli build 277 — Rayman plus fluide, lave de knaar_10
 - Rayman animé : plus de morceaux décalés quand il va vite. Les matrices du jeu étaient lues bloc par bloc, à des
   images différentes ; le squelette est maintenant recomposé dans l'appli à partir des matrices locales.

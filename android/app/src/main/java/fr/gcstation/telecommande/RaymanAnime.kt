@@ -113,7 +113,8 @@ class ModeleAnime(val geos: Map<Int, Geo>, val po: Map<Long, Int>, val tex: Map<
 
 /** une pose lue dans la memoire : 25 noeuds (matrice brute : 12 flottants par lignes + translation), l'objet de chaque noeud */
 class PoseRayman(val mat: FloatArray, val types: IntArray, val data: LongArray, val fix4: Long, val pos: FloatArray,
-                 val textures: Map<Long, String>, val t: Long = System.nanoTime()) {
+                 val textures: Map<Long, String>, val t: Long = System.nanoTime(),
+                 val ou: FloatArray? = null) {     // (build 278 : position de Rayman lue avec sa rotation, a la meme image que la pose)
     companion object { const val N = 25 }
 }
 
@@ -177,6 +178,9 @@ object LecturePose {
         }
         for (k in 0 until PoseRayman.N) calc(k, 0)
         val pos = FloatArray(3)
+        val ou = FloatArray(3)
+        for (j in 0..2) ou[j] = l.f32(mr + 0x34 + 4 * j) ?: return null
+        if (ou.any { !it.isFinite() || Math.abs(it) > 1e5f }) return null
         if (now - tTex > 1000) {                                   // (la texture de chaque morceau affiche : change avec les pouvoirs)
             val r = HashMap<Long, String>()
             for ((g, _) in mod.morceaux(PoseRayman(mat, ty, da, fix4, pos, emptyMap()))) for (e in mod.geos[g]?.el ?: emptyList()) {
@@ -186,6 +190,6 @@ object LecturePose {
             }
             textures = r; tTex = now
         }
-        return PoseRayman(mat, ty, da, fix4, pos, textures)
+        return PoseRayman(mat, ty, da, fix4, pos, textures, ou = ou)
     }
 }
