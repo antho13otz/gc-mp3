@@ -531,6 +531,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                 Bouton(if (sauvegardes) "Masquer" else "Afficher", hauteur = 34.dp) { sauvegardes = !sauvegardes }
             }
             if (sauvegardes) AndroidView({ c -> LinearLayout(c).apply { orientation = LinearLayout.VERTICAL; CardsTab.gameSaves(act, g.id, this) } }, Modifier.fillMaxWidth().padding(top = 6.dp))
+            EnvoiSauvegarde(act, g.id) { }   // (la liste se relit en la rouvrant)
         }
     }
 
@@ -697,4 +698,67 @@ private fun APropos(act: StationActivity, g: Jeu) {
         }
     }
     if (cherche) Doux("Fiche GameTDB : chargement…", Modifier.padding(top = 12.dp), 11, C.Pale)
+}
+
+
+/** build 215 : envoyer une sauvegarde (.gci du telephone) depuis la fiche du jeu : sur une carte virtuelle (celle du jeu
+ *  en premier) ou une vraie carte (slot A / B, hors partie) */
+@Composable
+private fun EnvoiSauvegarde(act: StationActivity, id: String, fini: () -> Unit) {
+    var fichier by remember { mutableStateOf<android.net.Uri?>(null) }
+    var cartes by remember { mutableStateOf<List<String>?>(null) }
+    var occupe by remember { mutableStateOf(false) }
+    val choisir = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { u ->
+        if (u == null) return@rememberLauncherForActivityResult
+        fichier = u; cartes = null
+        Thread {
+            val l = ArrayList<String>()
+            try {
+                val j = org.json.JSONArray(Api.get("/api/cards", 15000) ?: "[]")
+                for (k in 0 until j.length()) { val c = j.getJSONObject(k); if (c.optInt("ok") != 0 || c.optInt("bl") != 0) l.add(c.optString("f")) }
+            } catch (e: Exception) { }
+            l.sortBy { if (it.uppercase().contains(id.uppercase())) 0 else 1 }
+            act.runOnUiThread { cartes = l }
+        }.start()
+    }
+    Spacer(Modifier.height(8.dp))
+    Bouton(if (occupe) "Envoi de la sauvegarde…" else "Envoyer une sauvegarde (.gci)…", Modifier.fillMaxWidth(), actif = !occupe) { choisir.launch(arrayOf("*/*")) }
+    val u = fichier
+    val l = cartes
+    fun envoyer(vers: String) {
+        fichier = null; occupe = true
+        Lang.toast(act, "Envoi de la sauvegarde…", Toast.LENGTH_SHORT).show()
+        Thread {
+            var m = "Envoi impossible"
+            try {
+                val nom = "sauv-" + System.currentTimeMillis() + ".gci"
+                val taille = act.contentResolver.openAssetFileDescriptor(u!!, "r")?.use { it.length } ?: -1L
+                val rep = act.contentResolver.openInputStream(u)?.use { Api.put("gci", nom, it, taille) }
+                if (rep != null) {
+                    val n = rep.trim().ifEmpty { nom }
+                    val r = if (vers.startsWith("slot ")) Api.get("/api/vraiecarte?s=" + vers.substring(5) + "&op=imp&n=" + Api.enc(n), 35000)
+                        else Api.get("/api/gciimp?c=" + Api.enc(vers) + "&n=" + Api.enc(n), 15000)
+                    m = try { org.json.JSONObject(r ?: "").optString("m", "Fait") } catch (e: Exception) { m }
+                }
+            } catch (e: Exception) { }
+            act.runOnUiThread { occupe = false; Lang.toast(act, m, Toast.LENGTH_LONG).show(); St.listes++; fini() }
+        }.start()
+    }
+    if (u != null) AlertDialog(onDismissRequest = { fichier = null }, containerColor = Color(0xFF1A0E30),
+        title = { Text("Envoyer la sauvegarde sur…", color = C.Texte) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (l == null) Doux("Lecture des cartes de la console…", taille = 13)
+                else {
+                    if (l.isEmpty()) Doux("Aucune carte virtuelle (Pulse en crée une au premier lancement du jeu).", taille = 12)
+                    for (c in l) Bouton(c + if (c.uppercase().contains(id.uppercase())) "  · ce jeu" else "", Modifier.fillMaxWidth(), plein = c == l.first() && c.uppercase().contains(id.uppercase())) { envoyer(c) }
+                    Doux("Vraie carte mémoire (hors partie) :", taille = 12)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Bouton("Slot A", Modifier.weight(1f)) { envoyer("slot A") }
+                        Bouton("Slot B", Modifier.weight(1f)) { envoyer("slot B") }
+                    }
+                }
+            }
+        },
+        confirmButton = { }, dismissButton = { TextButton({ fichier = null }) { Text("Annuler", color = C.Doux) } })
 }
