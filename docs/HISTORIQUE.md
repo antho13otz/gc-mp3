@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 283 — vue 3D : Suivre et Libre
+- **🎯 Suivre** : la caméra se place doucement derrière Rayman et tourne quand il change de direction (d'après son
+  déplacement). On garde le zoom et l'inclinaison à la main.
+- **✋ Libre** : la vue ne suit plus Rayman ; les doigts la déplacent où l'on veut, « Recentrer » y ramène.
+  Un second appui sur le bouton allumé revient à la vue normale.
+
 ## Nouveautés appli build 281 — herbes de la Lande, Rayman sans glissade
 - Rayman animé : le modèle avance avec sa pose (position lue en même temps que le squelette) : ses pieds ne patinent
   plus sur le sol.
