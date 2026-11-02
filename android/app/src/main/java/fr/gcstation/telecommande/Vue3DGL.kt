@@ -962,6 +962,10 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                     fb.put(o[i + 3]); fb.put(o[i + 4]); fb.put(o[i + 5])
                 }
                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex)
+                // build 300 : l'anneau de charge du poing est une lumiere (additive), le reste est opaque
+                val lumiere = e.png.contains("ringofpower")
+                if (lumiere) { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE); GLES20.glDepthMask(false) }
+                else { GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true) }
                 fb.position(0); GLES20.glVertexAttribPointer(mp, 3, GLES20.GL_FLOAT, false, 32, fb)
                 fb.position(3); GLES20.glVertexAttribPointer(mu, 2, GLES20.GL_FLOAT, false, 32, fb)
                 fb.position(5); GLES20.glVertexAttribPointer(mn, 3, GLES20.GL_FLOAT, false, 32, fb); fb.position(0)
@@ -969,6 +973,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             }
         }
         GLES20.glDisableVertexAttribArray(mp); GLES20.glDisableVertexAttribArray(mu); GLES20.glDisableVertexAttribArray(mn)
+        GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true)
         GLES20.glUseProgram(progL)
         return true
     }
