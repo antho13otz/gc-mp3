@@ -104,7 +104,14 @@ fun CircuitMK3D(e: JeuMKDD.Etat) {
     // rotation lue en direct
     val vues = e.karts.mapNotNull { k ->
         val m = (if (k.n == 0) JeuMKDD.matJoueur else null) ?: k.mat ?: return@mapNotNull null
-        if (k.modele < 0 || k.pilote <= 0) null else KartVue(k.modele, k.pilote, k.passager, m, k.n == 0)
+        if (k.modele < 0 || k.pilote <= 0) null else KartVue(k.modele, k.pilote, k.passager, m, k.n == 0, k.n)
+    }
+    // les autres karts lus en direct, au meme rythme que le tien (un bloc de 1 Ko par kart : sa matrice)
+    androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { try { JeuMKDD.lireAutresKarts() } catch (e: Exception) { } }
+            kotlinx.coroutines.delay(30)
+        }
     }
     Titre("En 3D")
     DessinVue3DGL(sc, p, cam, emptyList(), montrerRayman = true, pions = pions, distance = 28f, direct = { JeuMKDD.positionDirecte() }, karts = vues)
