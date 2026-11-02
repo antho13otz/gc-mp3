@@ -284,6 +284,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     private var peauA = HashMap<Int, FloatArray>(); private var peauB = HashMap<Int, FloatArray>()
     private var tB = 0L; private var dtAB = 1L
     private var peauPrec = HashMap<Int, FloatArray>(); private var tPrec = 0L; private var dtPrec = 1L
+    private var ouDebut: FloatArray? = null; private var ouFin: FloatArray? = null
     private val bufEl = HashMap<String, FloatBuffer>()
     private val boitesPos = HashMap<String, ArrayList<FloatArray>>()
     private fun lireModele(nom: String): Modele? = try {
@@ -763,13 +764,20 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             if (al0 < 1f && peauPrec.isNotEmpty()) for ((cle, o) in peauA) { val q = peauPrec[cle] ?: continue
                 if (q.size == o.size) for (i in o.indices) o[i] = q[i] + (o[i] - q[i]) * al0 }
             peauPrec = peauA; tPrec = tB; dtPrec = dtAB
+            // build 278 : la position du modele glisse avec la pose (meme lecture) : les pieds ne patinent plus
+            val ouB = p.ou; val d0 = ouDebut; val f0 = ouFin
+            ouDebut = if (d0 != null && f0 != null) FloatArray(3) { d0[it] + (f0[it] - d0[it]) * al0 } else ouB?.copyOf()
+            ouFin = ouB?.copyOf()
+            if (ouB != null && d0 != null && (ouB[0] - d0[0]).let { it * it } + (ouB[1] - d0[1]).let { it * it } > 400f) ouDebut = ouB.copyOf()   // (teleporte)
         }
         if (peauB.isEmpty()) return false
         val al = if (poseA == null) 1f else ((System.nanoTime() - tB).toFloat() / dtAB).coerceIn(0f, 1f)
         GLES20.glUseProgram(progM)
         GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progM, "uMvp"), 1, false, mvp, 0)
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glUniform1i(GLES20.glGetUniformLocation(progM, "uTex"), 0)
-        GLES20.glUniform3f(GLES20.glGetUniformLocation(progM, "uPos"), c0[0], c0[1], c0[2])
+        val od = ouDebut; val of = ouFin
+        val ici = if (od != null && of != null && etat.direct) FloatArray(3) { od[it] + (of[it] - od[it]) * al } else c0
+        GLES20.glUniform3f(GLES20.glGetUniformLocation(progM, "uPos"), ici[0], ici[1], ici[2])
         GLES20.glUniform1f(GLES20.glGetUniformLocation(progM, "uAng"), 0f)
         val mp = GLES20.glGetAttribLocation(progM, "aPos"); val mu = GLES20.glGetAttribLocation(progM, "aUv"); val mn = GLES20.glGetAttribLocation(progM, "aN")
         GLES20.glEnableVertexAttribArray(mp); GLES20.glEnableVertexAttribArray(mu); GLES20.glEnableVertexAttribArray(mn)
