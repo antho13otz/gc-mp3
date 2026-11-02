@@ -193,7 +193,7 @@ object JeuRayman3 : ModuleJeu("Rayman 3", "GRHP41") {
         if (niv.isEmpty() || niv.length > 15) return null
         val x = l.fini(l.f32(POS), 1e5f); val y = l.fini(l.f32(POS + 4), 1e5f); val z = l.fini(l.f32(POS + 8), 1e5f)
         val cx = l.fini(l.f32(CAM), 1e5f); val cy = l.fini(l.f32(CAM + 4), 1e5f)
-        val monde = MONDES.firstOrNull { niv.lowercase().startsWith(it.first) }?.second
+        val monde = CartesR3.MONDES_NIV.firstOrNull { niv.lowercase() in it.second }?.first ?: MONDES.firstOrNull { niv.lowercase().startsWith(it.first) }?.second
         val blocs = ArrayList<Bloc>()
         if (x != null && y != null) {
             val ch = chemins.getOrPut(niv) { ArrayList() }
@@ -218,7 +218,7 @@ object JeuRayman3 : ModuleJeu("Rayman 3", "GRHP41") {
                     if (carte == null) " Carte du niveau : installe le pack de cartes (Plus > Rayman 3)." else ""))
         }
         blocs.add(Bloc("Pour finir à 100 %", texte = "Cages, tampons et scores monde par monde : Plus > Rayman 3 (lus dans ta sauvegarde)."))
-        return Fiche(id, monde ?: "Rayman 3", "Niveau $niv", 0xFFE0A030, 0xFF2A1A08,
+        return Fiche(id, monde ?: "Rayman 3", CartesR3.nomCourt(niv).let { if (it.startsWith("Partie")) "$it ($niv)" else "Niveau $niv" }, 0xFFE0A030, 0xFF2A1A08,
             grands = listOfNotNull(if (x != null && y != null) "position" to (x.toInt().toString() + " ; " + y.toInt()) else null,
                 if (z != null) "altitude" to z.toInt().toString() else null, "niveau" to niv), blocs = blocs)
     }
@@ -228,6 +228,29 @@ object JeuRayman3 : ModuleJeu("Rayman 3", "GRHP41") {
 /** build 221 : les cartes des niveaux (pack .zip fabrique a part depuis les fichiers du jeu, installe sur le telephone :
  *  jamais dans l'appli) : rayman3/<niveau>.png et rayman3/<niveau>.txt (« x0 y0 x1 y1 » : bornes du monde de l'image) */
 object CartesR3 {
+    /** build 240 : les niveaux de chaque monde, dans l'ordre du jeu (table des niveaux du jeu) */
+    val MONDES_NIV = listOf(
+        "Le Concile des Fées" to listOf("intro_10", "intro_15", "intro_17", "intro_20"),
+        "La Forêt de Claire-Feuille" to listOf("wood_11", "wood_10", "wood_19", "wood_50"),
+        "Les Marais Crapoteux" to listOf("swamp_60", "swamp_82", "swamp_81", "swamp_83", "swamp_50", "swamp_51"),
+        "La Lande aux Esprits Frappés" to listOf("moor_00", "moor_30", "moor_60", "moor_19"),
+        "Le Désert des Knaarens" to listOf("knaar_10", "knaar_20", "knaar_30", "knaar_45", "knaar_60", "knaar_69", "knaar_70"),
+        "Le Grand Raccourci" to listOf("flash_20", "flash_30", "flash_10", "sea_10"),
+        "Le Sommet d'Outre-Nuées" to listOf("mount_50", "mount_4x"),
+        "Le Quartier Général Hoodlums" to listOf("fact_40", "fact_50", "fact_55", "fact_34", "fact_22"),
+        "La Tour du Leptys" to listOf("tower_10", "tower_20", "tower_30", "tower_40", "lept_15"),
+        "Niveaux de glisse" to listOf("sk8_00", "sk8_10", "sk8_20"),
+        "Bonus" to listOf("toudi_00", "toudi_10", "snipe_00", "ballmap"))
+    fun nomCourt(n: String): String {
+        val k = n.lowercase()
+        for ((_, l) in MONDES_NIV) { val i = l.indexOf(k); if (i >= 0) return "Partie " + (i + 1) }
+        return k
+    }
+    fun nomLong(n: String): String {
+        val k = n.lowercase()
+        for ((m, l) in MONDES_NIV) { val i = l.indexOf(k); if (i >= 0) return m + " — partie " + (i + 1) }
+        return k
+    }
     @Volatile var dossier: java.io.File? = null
     private val cache = HashMap<String, Pair<android.graphics.Bitmap, FloatArray>?>()
     fun carte(niveau: String): Pair<android.graphics.Bitmap, FloatArray>? {
@@ -294,8 +317,15 @@ private fun CartesInstallees(act: StationActivity, recharge: Int) {
     var vu by remember { mutableStateOf<String?>(null) }
     Titre("Cartes installées (" + niveaux.size + ")", couleur = Color(0xFFFFC94A))
     if (niveaux.isEmpty()) Doux("Aucune : installe un pack de cartes (.zip) avec le bouton plus haut.", taille = 12)
-    else androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        for (n in niveaux) Bouton(n, plein = n == vu, hauteur = 38.dp) { vu = if (vu == n) null else n }
+    // build 240 : rangees par monde, dans l'ordre du jeu, avec le nom du monde en francais
+    val autres = niveaux.filter { n -> CartesR3.MONDES_NIV.none { n in it.second } }
+    for ((monde, liste) in CartesR3.MONDES_NIV + listOf("Autres" to autres)) {
+        val ici = liste.filter { it in niveaux }
+        if (ici.isEmpty()) continue
+        Text(monde, color = C.Texte, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (n in ici) Bouton(CartesR3.nomCourt(n), plein = n == vu, hauteur = 38.dp) { vu = if (vu == n) null else n }
+        }
     }
     val n = vu ?: return
     val carte = remember(n) { CartesR3.carte(n) }
@@ -303,7 +333,7 @@ private fun CartesInstallees(act: StationActivity, recharge: Int) {
     val sc = remember(n) { CartesR3.scene(n) }
     if (carte != null) Carte(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Titre("$n · vu de dessus")
+            Titre(CartesR3.nomLong(n) + " · vu de dessus")
             val b = carte.second
             DessinPlan(Plan(listOf(floatArrayOf(b[0], b[1]), floatArrayOf(b[2], b[3])), listOf(0x00000000, 0x00000000), emptyList(), emptyList(),
                 petits = setOf(0, 1), fond = carte.first, fondBornes = b))
@@ -311,13 +341,13 @@ private fun CartesInstallees(act: StationActivity, recharge: Int) {
     }
     if (sc != null) Carte(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Titre("$n · en 3D avec les textures")
+            Titre(CartesR3.nomLong(n) + " · en 3D")
             DessinVue3DGL(sc, sc.centre, null, emptyList(), montrerRayman = false)
             Doux("Un doigt : tourner · deux doigts : zoom · double toucher : revenir.", taille = 11)
         }
     } else if (mail != null) Carte(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Titre("$n · en 3D")
+            Titre(CartesR3.nomLong(n) + " · en 3D")
             val c = remember(n) {
                 val t = mail.t; var x = 0f; var y = 0f; var z = 0f; val k = t.size / 3
                 for (i in 0 until k) { x += t[i * 3]; y += t[i * 3 + 1]; z += t[i * 3 + 2] }
