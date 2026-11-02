@@ -185,7 +185,7 @@ class Ambiance(val cielHaut: FloatArray, val cielBas: FloatArray, val brume: Flo
 
 /** build 296 : un kart de Mario Kart a dessiner : modele de kart, pilote, passager (numeros du jeu), matrice du kart dans le
  *  jeu (3 lignes de 4 flottants : rotation, puis la position ; repere du jeu, y vers le haut) */
-class KartVue(val kart: Int, val pilote: Int, val passager: Int, val mat: FloatArray, val joueur: Boolean)
+class KartVue(val kart: Int, val pilote: Int, val passager: Int, val mat: FloatArray, val joueur: Boolean, val n: Int = -1)
 
 /** ce que la vue regarde (modifie par les doigts et par le jeu, lu par le fil OpenGL) */
 class Etat3D {
@@ -850,7 +850,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         GLES20.glEnableVertexAttribArray(mp); GLES20.glEnableVertexAttribArray(mu); GLES20.glEnableVertexAttribArray(mn)
         var fait = false
         for (k in ks) {
-            val g = (if (k.joueur) JeuMKDD.matJoueur else null) ?: k.mat; if (g.size < 12) continue      // (le tien : rotation lue en direct)
+            // (le tien : rotation lue en direct ; les autres aussi, lus a part et glisses entre deux lectures)
+            val g = (if (k.joueur) JeuMKDD.matJoueur else if (k.n > 0) JeuMKDD.matKart(k.n) else null) ?: k.mat; if (g.size < 12) continue
             val siege = mkSieges[k.kart] ?: continue
             // rotation du jeu (lignes) -> repere de l'appli (x, -z, y) : lignes 0, -2, 1
             val ra = floatArrayOf(g[0], g[1], g[2], -g[8], -g[9], -g[10], g[4], g[5], g[6])
