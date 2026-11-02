@@ -42,7 +42,8 @@ import javax.microedition.khronos.opengles.GL10
 
 /** une scene du pack : groupes de triangles (texture, transparence, sommets entrelaces) */
 class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<Groupe>, val centre: FloatArray) {
-    class Groupe(val texture: Int, val alpha: Boolean, val sommets: ByteBuffer, val n: Int)
+    class Groupe(val texture: Int, val alpha: Boolean, val sommets: ByteBuffer, val n: Int,
+                 val mode: Int = if (alpha) 2 else 0, val enveloppe: Int = 0)   // (build 236 : 0 opaque, 1 decoupe, 2 transparent, 3 lumiere ; miroir U/V)
     companion object {
         /** fichier .r3v : "R3V1", nombre de groupes ; par groupe : texture (s32), alpha (u32), nombre de sommets (u32),
          *  puis les sommets (24 octets : 5 flottants + 4 octets de couleur), petit-boutiste */
@@ -50,18 +51,21 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
             val f = java.io.File(d, niveau.lowercase() + ".r3v")
             if (!f.exists()) null else {
                 val b = ByteBuffer.wrap(f.readBytes()).order(ByteOrder.LITTLE_ENDIAN)
-                if (b.int != 0x31563352) null else {          // "R3V1"
+                val magie = b.int
+                if (magie != 0x31563352 && magie != 0x32563352) null else {          // "R3V1" ou "R3V2"
+                    val v2 = magie == 0x32563352
                     val ng = b.int
                     val l = ArrayList<Groupe>()
                     var sx = 0.0; var sy = 0.0; var sz = 0.0; var nn = 0L
                     for (g in 0 until ng) {
-                        val tex = b.int; val al = b.int != 0; val n = b.int
+                        val tex = b.int; val md = b.int; val env = if (v2) b.int else 0; val n = b.int
+                        val al = md != 0
                         val bb = ByteBuffer.allocateDirect(n * 24).order(ByteOrder.nativeOrder())
                         val src = ByteArray(n * 24); b.get(src)
                         // (les flottants du fichier sont petit-boutistes : comme le processeur du telephone)
                         bb.put(src); bb.position(0)
                         for (k in 0 until n step 17) { sx += bb.getFloat(k * 24); sy += bb.getFloat(k * 24 + 4); sz += bb.getFloat(k * 24 + 8); nn++ }
-                        l.add(Groupe(tex, al, bb, n))
+                        l.add(Groupe(tex, al, bb, n, if (v2) md else if (al) 2 else 0, env))
                     }
                     SceneR3(d, niveau.lowercase(), l, if (nn > 0) floatArrayOf((sx / nn).toFloat(), (sy / nn).toFloat(), (sz / nn).toFloat()) else floatArrayOf(0f, 0f, 0f))
                 }
@@ -87,6 +91,8 @@ class Etat3D {
 
 private class RenduR3(val scene: SceneR3, val etat: Etat3D) : GLSurfaceView.Renderer {
     private var prog = 0; private var progL = 0
+    private var uSeuil = 0; private var progCiel = 0; private var cPos = 0
+    private val quad: FloatBuffer = ByteBuffer.allocateDirect(32).order(ByteOrder.nativeOrder()).asFloatBuffer().put(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)).also { it.position(0) }
     private var aPos = 0; private var aUv = 0; private var aCol = 0; private var uMvp = 0; private var uTex = 0; private var uAvecTex = 0; private var uCam = 0
     private var lPos = 0; private var lMvp = 0; private var lCoul = 0; private var lTaille = 0
     private val textures = HashMap<Int, Int>()
@@ -106,14 +112,22 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D) : GLSurfaceView.Rend
             void main() { gl_Position = uMvp * vec4(aPos, 1.0); vUv = aUv; vCol = aCol;
                 vBrume = clamp((distance(aPos, uCam) - 250.0) / 900.0, 0.0, 0.55); }""", """
             precision mediump float;
-            uniform sampler2D uTex; uniform float uAvecTex;
+            uniform sampler2D uTex; uniform float uAvecTex; uniform float uSeuil;
             varying vec2 vUv; varying vec4 vCol; varying float vBrume;
             void main() { vec4 t = uAvecTex > 0.5 ? texture2D(uTex, vUv) : vec4(1.0);
-                vec4 c = t * vec4(vCol.rgb * 2.0, vCol.a); if (c.a < 0.1) discard;
+                vec4 c = t * vec4(vCol.rgb * 2.0, vCol.a); if (c.a < uSeuil) discard;
                 gl_FragColor = vec4(mix(c.rgb, vec3(0.42, 0.5, 0.68), vBrume), c.a); }""")
         aPos = GLES20.glGetAttribLocation(prog, "aPos"); aUv = GLES20.glGetAttribLocation(prog, "aUv"); aCol = GLES20.glGetAttribLocation(prog, "aCol")
         uMvp = GLES20.glGetUniformLocation(prog, "uMvp"); uTex = GLES20.glGetUniformLocation(prog, "uTex")
         uAvecTex = GLES20.glGetUniformLocation(prog, "uAvecTex"); uCam = GLES20.glGetUniformLocation(prog, "uCam")
+        uSeuil = GLES20.glGetUniformLocation(prog, "uSeuil")
+        // ciel : un degrade plein ecran dessine avant le niveau
+        progCiel = programme("""
+            attribute vec2 aP; varying float vY;
+            void main() { gl_Position = vec4(aP, 0.999, 1.0); vY = aP.y * 0.5 + 0.5; }""", """
+            precision mediump float; varying float vY;
+            void main() { gl_FragColor = vec4(mix(vec3(0.62, 0.72, 0.86), vec3(0.16, 0.30, 0.62), smoothstep(0.35, 1.0, vY)), 1.0); }""")
+        cPos = GLES20.glGetAttribLocation(progCiel, "aP")
         progL = programme("""
             uniform mat4 uMvp; uniform float uTaille; attribute vec3 aPos;
             void main() { gl_Position = uMvp * vec4(aPos, 1.0); gl_PointSize = uTaille; }""", """
@@ -130,6 +144,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D) : GLSurfaceView.Rend
             GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, g.n * 24, g.sommets, GLES20.GL_STATIC_DRAW)
         }
         // textures
+        val aniso = (GLES20.glGetString(GLES20.GL_EXTENSIONS) ?: "").contains("texture_filter_anisotropic")
         textures.clear()
         for (g in scene.groupes) {
             if (g.texture < 0 || textures.containsKey(g.texture)) continue
@@ -142,8 +157,9 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D) : GLSurfaceView.Rend
             GLES20.glGenerateMipmap(GLES20.GL_TEXTURE_2D)
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR_MIPMAP_LINEAR)
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_REPEAT)
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_REPEAT)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, if (g.enveloppe and 1 != 0) GLES20.GL_MIRRORED_REPEAT else GLES20.GL_REPEAT)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, if (g.enveloppe and 2 != 0) GLES20.GL_MIRRORED_REPEAT else GLES20.GL_REPEAT)
+            if (aniso) GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, 0x84FE, 16f)   // (GL_TEXTURE_MAX_ANISOTROPY_EXT : nettete de biais)
             textures[g.texture] = t[0]
         }
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
@@ -164,15 +180,26 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D) : GLSurfaceView.Rend
         android.opengl.Matrix.setLookAtM(vue, 0, ex, ey, ez, c[0], c[1], c[2], 0f, 0f, 1f)
         android.opengl.Matrix.multiplyMM(mvp, 0, proj, 0, vue, 0)
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
+        GLES20.glDisable(GLES20.GL_DEPTH_TEST)
+        GLES20.glUseProgram(progCiel)
+        GLES20.glVertexAttribPointer(cPos, 2, GLES20.GL_FLOAT, false, 8, quad); GLES20.glEnableVertexAttribArray(cPos)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
+        GLES20.glDisableVertexAttribArray(cPos)
+        GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         GLES20.glUseProgram(prog)
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         GLES20.glUniform3f(uCam, ex, ey, ez)
         GLES20.glUniform1i(uTex, 0)
         GLES20.glEnableVertexAttribArray(aPos); GLES20.glEnableVertexAttribArray(aUv); GLES20.glEnableVertexAttribArray(aCol)
-        for (passe in 0..1) {                             // d'abord l'opaque, puis le transparent
-            if (passe == 1) { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA); GLES20.glDepthMask(false) }
+        for (passe in 0..3) {                             // opaque, decoupe, transparent, lumiere (additive)
+            when (passe) {
+                0 -> { GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glUniform1f(uSeuil, 0.02f) }
+                1 -> { GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glUniform1f(uSeuil, 0.5f) }
+                2 -> { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA); GLES20.glDepthMask(false); GLES20.glUniform1f(uSeuil, 0.02f) }
+                3 -> { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE); GLES20.glDepthMask(false); GLES20.glUniform1f(uSeuil, 0.02f) }
+            }
             for ((i, g) in scene.groupes.withIndex()) {
-                if (i >= vbo.size || g.alpha != (passe == 1)) continue
+                if (i >= vbo.size || g.mode != passe) continue
                 val t = textures[g.texture]
                 GLES20.glUniform1f(uAvecTex, if (t != null) 1f else 0f)
                 if (t != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }
@@ -252,7 +279,7 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier) {
         AndroidView({ ctx ->
             GLSurfaceView(ctx).apply {
                 setEGLContextClientVersion(2)
-                setEGLConfigChooser(8, 8, 8, 8, 16, 0)
+                setEGLConfigChooser(ChoixMsaa())
                 setRenderer(RenduR3(scene, etat))
                 renderMode = GLSurfaceView.RENDERMODE_WHEN_DIRTY
                 vueRef[0] = this
@@ -301,5 +328,22 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier) {
                     }
                 }
             })
+    }
+}
+
+
+/** build 236 : anticrenelage 4x (bords nets), sinon la configuration simple */
+private class ChoixMsaa : GLSurfaceView.EGLConfigChooser {
+    override fun chooseConfig(egl: javax.microedition.khronos.egl.EGL10, d: javax.microedition.khronos.egl.EGLDisplay): EGLConfig {
+        fun essai(msaa: Boolean): EGLConfig? {
+            val a = intArrayOf(0x3024, 8, 0x3023, 8, 0x3022, 8, 0x3021, 8, 0x3025, 24, 0x3040, 4) +   // (R G B A, profondeur 24, ES2)
+                (if (msaa) intArrayOf(0x3032, 1, 0x3031, 4) else intArrayOf()) + intArrayOf(0x3038)
+            val n = IntArray(1); val c = arrayOfNulls<EGLConfig>(1)
+            return if (egl.eglChooseConfig(d, a, c, 1, n) && n[0] > 0) c[0] else null
+        }
+        return essai(true) ?: essai(false) ?: run {
+            val n = IntArray(1); val c = arrayOfNulls<EGLConfig>(1)
+            egl.eglChooseConfig(d, intArrayOf(0x3024, 8, 0x3023, 8, 0x3022, 8, 0x3025, 16, 0x3040, 4, 0x3038), c, 1, n); c[0]!!
+        }
     }
 }
