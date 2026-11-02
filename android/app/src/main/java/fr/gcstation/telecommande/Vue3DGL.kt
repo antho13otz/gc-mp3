@@ -185,7 +185,7 @@ class Ambiance(val cielHaut: FloatArray, val cielBas: FloatArray, val brume: Flo
 
 /** build 296 : un kart de Mario Kart a dessiner : modele de kart, pilote, passager (numeros du jeu), matrice du kart dans le
  *  jeu (3 lignes de 4 flottants : rotation, puis la position ; repere du jeu, y vers le haut) */
-class KartVue(val kart: Int, val pilote: Int, val passager: Int, val mat: FloatArray, val joueur: Boolean, val n: Int = -1)
+class KartVue(val kart: Int, val pilote: Int, val passager: Int, val mat: FloatArray, val joueur: Boolean, val n: Int = -1, val echange: Boolean = false)
 
 /** ce que la vue regarde (modifie par les doigts et par le jeu, lu par le fil OpenGL) */
 class Etat3D {
@@ -301,6 +301,60 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     private val boitesPos = HashMap<String, ArrayList<FloatArray>>()
     // build 288 : Mario Kart : la vraie boite a objets du jeu (pack : mk_boite.txt et ses textures) ; plusieurs materiaux
     private class Morceau(val tex: Int, val mode: Int, val mod: FloatBuffer, val n: Int)
+    /** personnage avec sa peau (pack : mk_peau_<n>.txt) : pour chaque sommet, ses articulations, poids et positions locales */
+    private class PeauMorceau(val tex: Int, val mode: Int, val n: Int, val uv: FloatArray, val nb: IntArray, val deb: IntArray,
+                              val js: IntArray, val ws: FloatArray, val ps: FloatArray, val buf: FloatBuffer)
+    private val mkPeaux = HashMap<Int, List<PeauMorceau>?>()
+    private fun lirePeau(cid: Int): List<PeauMorceau>? = mkPeaux.getOrPut(cid) { try {
+        val f = java.io.File(scene.dossier, "mk_peau_$cid.txt")
+        if (!f.exists()) null else {
+            val r = ArrayList<PeauMorceau>(); var tex = 0; var mode = 0
+            val uv = ArrayList<Float>(); val nb = ArrayList<Int>(); val js = ArrayList<Int>(); val ws = ArrayList<Float>(); val ps = ArrayList<Float>()
+            fun fin() { val n = nb.size; if (n >= 3 && tex != 0) {
+                val deb = IntArray(n); var a = 0; for (i in 0 until n) { deb[i] = a; a += nb[i] }
+                r.add(PeauMorceau(tex, mode, n - n % 3, uv.toFloatArray(), nb.toIntArray(), deb, js.toIntArray(), ws.toFloatArray(), ps.toFloatArray(),
+                    ByteBuffer.allocateDirect(n * 32).order(ByteOrder.nativeOrder()).asFloatBuffer())) }
+                uv.clear(); nb.clear(); js.clear(); ws.clear(); ps.clear() }
+            for (l in f.readLines()) {
+                val p = l.trim().split(' ').filter { it.isNotEmpty() }
+                if (p.isEmpty() || p[0] == "j") continue
+                if (p[0] == "t") { fin(); tex = if (p.size > 1 && p[1] != "-") texNom.getOrPut(p[1]) { chargerTex(p[1], repete = true) } else 0; mode = p.getOrNull(2)?.toIntOrNull() ?: 0; continue }
+                val k = p.getOrNull(2)?.toIntOrNull() ?: continue
+                if (p.size < 3 + 5 * k) continue
+                uv.add(p[0].toFloat()); uv.add(p[1].toFloat()); nb.add(k)
+                for (q in 0 until k) { js.add(p[3 + 5 * q].toInt()); ws.add(p[4 + 5 * q].toFloat()); ps.add(p[5 + 5 * q].toFloat()); ps.add(p[6 + 5 * q].toFloat()); ps.add(p[7 + 5 * q].toFloat()) }
+            }
+            fin(); r.sortBy { if (it.mode == 2) 1 else 0 }
+            r.ifEmpty { null }
+        }
+    } catch (e: Throwable) { null } }
+    /** la peau posee avec les articulations lues (relatives au kart, unites du jeu) -> sommets dans le repere du kart (x 0,01) */
+    private fun poser(m: PeauMorceau, r: FloatArray) {
+        val b = m.buf; b.clear(); val nj = r.size / 12
+        val pos = FloatArray(9)
+        var v = 0
+        while (v + 2 < m.n) {
+            for (c in 0..2) {
+                val i = v + c; var x = 0f; var y = 0f; var z = 0f
+                for (q in 0 until m.nb[i]) {
+                    val a = m.deb[i] + q; val j = m.js[a].coerceIn(0, nj - 1) * 12; val w = m.ws[a]
+                    val lx = m.ps[3 * a]; val ly = m.ps[3 * a + 1]; val lz = m.ps[3 * a + 2]
+                    x += w * (r[j] * lx + r[j + 1] * ly + r[j + 2] * lz + r[j + 3])
+                    y += w * (r[j + 4] * lx + r[j + 5] * ly + r[j + 6] * lz + r[j + 7])
+                    z += w * (r[j + 8] * lx + r[j + 9] * ly + r[j + 10] * lz + r[j + 11])
+                }
+                pos[c * 3] = x * 0.01f; pos[c * 3 + 1] = y * 0.01f; pos[c * 3 + 2] = z * 0.01f
+            }
+            val ux = pos[3] - pos[0]; val uy = pos[4] - pos[1]; val uz = pos[5] - pos[2]
+            val wx = pos[6] - pos[0]; val wy = pos[7] - pos[1]; val wz = pos[8] - pos[2]
+            var nx = uy * wz - uz * wy; var ny = uz * wx - ux * wz; var nz = ux * wy - uy * wx
+            val ln = Math.sqrt((nx * nx + ny * ny + nz * nz).toDouble()).toFloat().takeIf { it > 1e-9f } ?: 1f
+            nx /= ln; ny /= ln; nz /= ln
+            for (c in 0..2) { b.put(pos[c * 3]).put(pos[c * 3 + 1]).put(pos[c * 3 + 2]).put(m.uv[2 * (v + c)]).put(m.uv[2 * (v + c) + 1]).put(nx).put(ny).put(nz) }
+            v += 3
+        }
+        b.position(0)
+    }
     private var mkBoite: List<Morceau>? = null; private var progMB = 0
     // build 296 : karts, pilotes et passagers (pack : mk_kart_N.txt, mk_pilote_N.txt, mk_passager_N.txt, mk_karts.txt : sieges)
     private val mkSieges = HashMap<Int, FloatArray>(); private val mkModeles = HashMap<String, List<Morceau>?>(); private var progK = 0
@@ -532,7 +586,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         texAnim.clear(); bufEl.clear(); poseA = null; poseB = null; texNom.clear()
         boites.clear(); texBoite = chargerTex("r3_boite.png", repete = true)
         mkBoite = if (scene.dossier.name == "cartes-mk") lireMulti("mk_boite.txt") else null
-        mkSieges.clear(); mkModeles.clear()
+        mkSieges.clear(); mkModeles.clear(); mkPeaux.clear()
         if (scene.dossier.name == "cartes-mk") try {
             java.io.File(scene.dossier, "mk_karts.txt").takeIf { it.exists() }?.forEachLine { l -> val p = l.trim().split(' ')
                 if (p.size >= 4 && p[0] == "kart") p[1].toIntOrNull()?.let { mkSieges[it] = floatArrayOf(p[2].toFloat(), p[3].toFloat()) } }
@@ -864,7 +918,32 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             if (k.joueur && etat.direct && gj != null) { tx = c0[0] + (g[3] - gj[3]) * 0.01f; ty = c0[1] - (g[11] - gj[11]) * 0.01f; tz = c0[2] + (g[7] - gj[7]) * 0.01f }
             else if (k.joueur && etat.direct) { tx = c0[0]; ty = c0[1]; tz = c0[2] } else { tx = g[3] * 0.01f; ty = -g[11] * 0.01f; tz = g[7] * 0.01f }
             val parts = listOf("mk_kart_${k.kart}.txt" to 0f, "mk_pilote_${k.pilote}.txt" to 1f, "mk_passager_${k.passager}.txt" to 1f)
-            for ((nom, s) in parts) {
+            for ((rangPart, ps) in parts.withIndex()) { val (nom, s) = ps
+                // personnage anime (peau + articulations lues en direct) : positions deja relatives au kart, sans le siege
+                if (rangPart > 0 && k.n >= 0) {
+                    val cid = if (rangPart == 1) k.pilote else k.passager
+                    // rang du squelette : 1 = personnage « pilote » de l'equipe, 0 = « passager » (echanges : l'inverse)
+                    val rg = if ((rangPart == 1) != k.echange) 1 else 0
+                    val pz = JeuMKDD.pose(k.n, rg); val pe = if (pz != null && cid > 0) lirePeau(cid) else null
+                    if (pz != null && pe != null) {
+                        for (c in 0..2) { mModele[c * 4] = ra[c]; mModele[c * 4 + 1] = ra[3 + c]; mModele[c * 4 + 2] = ra[6 + c]; mModele[c * 4 + 3] = 0f }
+                        mModele[12] = tx; mModele[13] = ty; mModele[14] = tz; mModele[15] = 1f
+                        GLES20.glUniformMatrix4fv(uM, 1, false, mModele, 0)
+                        for (m in pe) {
+                            poser(m, pz)
+                            if (m.mode >= 2) { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, if (m.mode == 2) GLES20.GL_ONE_MINUS_SRC_ALPHA else GLES20.GL_ONE); GLES20.glDepthMask(false) }
+                            else { GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true) }
+                            GLES20.glUniform1f(uAl, 1f); GLES20.glUniform1f(uS, if (m.mode == 1) 0.5f else 0.02f)
+                            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, m.tex)
+                            val b = m.buf
+                            b.position(0); GLES20.glVertexAttribPointer(mp, 3, GLES20.GL_FLOAT, false, 32, b)
+                            b.position(3); GLES20.glVertexAttribPointer(mu, 2, GLES20.GL_FLOAT, false, 32, b)
+                            b.position(5); GLES20.glVertexAttribPointer(mn, 3, GLES20.GL_FLOAT, false, 32, b); b.position(0)
+                            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, m.n)
+                        }
+                        fait = true; continue
+                    }
+                }
                 val mod = modeleMK(nom) ?: continue
                 // decalage du siege (repere du kart : y vers le haut, z vers l'avant)
                 val sy = siege[0] * s; val sz = siege[1] * s
