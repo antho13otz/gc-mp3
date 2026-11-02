@@ -316,6 +316,7 @@ private fun CartesInstallees(act: StationActivity, recharge: Int) {
     }
     var vu by remember { mutableStateOf<String?>(null) }
     Titre("Cartes installées (" + niveaux.size + ")", couleur = Color(0xFFFFC94A))
+    remember { QualiteR3.charger(act); 0 }
     if (niveaux.isEmpty()) Doux("Aucune : installe un pack de cartes (.zip) avec le bouton plus haut.", taille = 12)
     // build 240 : rangees par monde, dans l'ordre du jeu, avec le nom du monde en francais
     val autres = niveaux.filter { n -> CartesR3.MONDES_NIV.none { n in it.second } }
@@ -343,7 +344,15 @@ private fun CartesInstallees(act: StationActivity, recharge: Int) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Titre(CartesR3.nomLong(n) + " · en 3D")
             DessinVue3DGL(sc, sc.centre, null, emptyList(), montrerRayman = false)
-            Doux("Un doigt : tourner · deux doigts : zoom · double toucher : revenir.", taille = 11)
+            Doux("Un doigt : tourner · deux doigts : déplacer, zoomer, pivoter · double toucher : revenir.", taille = 11)
+            // build 242 : taille des textures du pack HD (x4 par defaut ; plus petit si la vue rame)
+            if (java.io.File(sc.dossier, sc.niveau + "_hd4.txt").exists()) {
+                Doux("Textures améliorées (pack HD) :", taille = 12)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for ((f, t) in listOf(4 to "×4", 3 to "×3", 2 to "×2", 1 to "Origine"))
+                        Bouton(t, plein = QualiteR3.facteur == f, hauteur = 34.dp) { QualiteR3.changer(act, f) }
+                }
+            }
         }
     } else if (mail != null) Carte(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
