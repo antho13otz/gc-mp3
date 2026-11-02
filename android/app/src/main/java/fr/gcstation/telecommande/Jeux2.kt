@@ -11,6 +11,8 @@ package fr.gcstation.telecommande
 //  - doldecomp/melee (GALE01, 1.02, et ses mods comme Akaneia) : player_slots (StaticPlayer, 0xE90 par port) ;
 //  - Mario Superstar Baseball (GYQE01) : adresses de Project Rio (ProjectRio/ProjectRio, MSB_StatTracker.h).
 
+import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -47,7 +49,8 @@ class Bloc(val titre: String, val lignes: List<Ligne> = emptyList(), val pastill
 class Courbe(val nom: String, val couleur: Long, val v: List<Int>)
 /** build 175 : un plan vu de dessus (x, z du jeu) : des cases reliees, et des pions (texte court) */
 class Plan(val cases: List<FloatArray>, val couleurs: List<Long>, val liens: List<IntArray>, val pions: List<Pion>, val etoiles: List<Int> = emptyList(),
-           val petits: Set<Int> = emptySet(), val marques: Set<Int> = emptySet())   // (build 180 : passages en petit, capsules posees)
+           val petits: Set<Int> = emptySet(), val marques: Set<Int> = emptySet(),   // (build 180 : passages en petit, capsules posees)
+           val fond: android.graphics.Bitmap? = null, val fondBornes: FloatArray? = null)   // (build 221 : une vraie carte en fond : x0, z0, x1, z1)
 class Pion(val x: Float, val z: Float, val couleur: Long, val texte: String)
 /** l'ecran d'un jeu : grands chiffres en haut, puis les sections */
 class Fiche(val jeu: String, val titre: String, val sous: String, val haut: Long, val bas: Long,
@@ -652,13 +655,21 @@ fun DessinPlan(p: Plan) {
     if (p.cases.isEmpty()) return
     var x0 = Float.MAX_VALUE; var x1 = -Float.MAX_VALUE; var z0 = Float.MAX_VALUE; var z1 = -Float.MAX_VALUE
     for (c in p.cases) { x0 = minOf(x0, c[0]); x1 = maxOf(x1, c[0]); z0 = minOf(z0, c[1]); z1 = maxOf(z1, c[1]) }
+    val fb = p.fondBornes
+    if (p.fond != null && fb != null) { x0 = minOf(x0, fb[0]); z0 = minOf(z0, fb[1]); x1 = maxOf(x1, fb[2]); z1 = maxOf(z1, fb[3]) }
     val lx = (x1 - x0).coerceAtLeast(1f); val lz = (z1 - z0).coerceAtLeast(1f)
-    val ratio = (lx / lz).coerceIn(0.6f, 1.8f)
+    val ratio = (lx / lz).coerceIn(if (p.fond != null) 0.4f else 0.6f, 1.8f)
+    val img = remember(p.fond) { p.fond?.asImageBitmap() }
     androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().aspectRatio(ratio)) {
         val m = 14.dp.toPx()
         val k = minOf((size.width - 2 * m) / lx, (size.height - 2 * m) / lz)
         val ox = (size.width - lx * k) / 2; val oz = (size.height - lz * k) / 2
         fun pt(x: Float, z: Float) = androidx.compose.ui.geometry.Offset(ox + (x - x0) * k, oz + (z - z0) * k)
+        if (img != null && fb != null) {
+            val a = pt(fb[0], fb[1]); val b = pt(fb[2], fb[3])
+            drawImage(img, dstOffset = androidx.compose.ui.unit.IntOffset(a.x.toInt(), a.y.toInt()),
+                dstSize = androidx.compose.ui.unit.IntSize((b.x - a.x).toInt().coerceAtLeast(1), (b.y - a.y).toInt().coerceAtLeast(1)))
+        }
         for (l in p.liens) {
             val a = p.cases.getOrNull(l[0]) ?: continue; val b = p.cases.getOrNull(l[1]) ?: continue
             drawLine(Color(0x55FFFFFF), pt(a[0], a[1]), pt(b[0], b[1]), strokeWidth = 2.dp.toPx())

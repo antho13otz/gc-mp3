@@ -93,7 +93,13 @@ fun EcranRayman3() {
             montrer(b, "Lu depuis le téléphone")
         }
     }
-    fun carte(slot: String) {
+    val pack = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u: Uri? ->
+        if (u != null) portee.launch {
+            val n = withContext(Dispatchers.IO) { try { CartesR3.installer(act, u) } catch (e: Exception) { -1 } }
+            message = if (n > 0) "Cartes installées : $n niveau(x). Elles s'affichent dans le compagnon de jeu." else "Pas de carte dans ce fichier"
+        }
+    }
+        fun carte(slot: String) {
         occupe = true; message = "Lecture de la carte du slot $slot…"
         portee.launch {
             val b = withContext(Dispatchers.IO) {
@@ -116,6 +122,7 @@ fun EcranRayman3() {
             Bouton("Carte slot B", Modifier.weight(1f), actif = !occupe) { carte("B") }
         }
         Bouton("Choisir un .gci du téléphone", Modifier.fillMaxWidth(), actif = !occupe) { choisir.launch(arrayOf("*/*")) }
+        Bouton("Installer un pack de cartes des niveaux (.zip)", Modifier.fillMaxWidth(), actif = !occupe) { pack.launch(arrayOf("*/*")) }
         if (message.isNotEmpty()) Doux(message, taille = 12, couleur = C.Texte)
         for (p in parties.orEmpty()) PartieR3(p)
         Spacer(Modifier.height(14.dp))
@@ -181,19 +188,61 @@ object JeuRayman3 : ModuleJeu("Rayman 3", "GRHP41") {
         if (x != null && y != null) {
             val ch = chemins.getOrPut(niv) { ArrayList() }
             val d = ch.lastOrNull()
-            if (d == null || (d[0] - x) * (d[0] - x) + (d[1] - y) * (d[1] - y) > 4f) { ch.add(floatArrayOf(x, y)); if (ch.size > 800) ch.removeAt(0) }
+            if (d == null || (d[0] - x) * (d[0] - x) + (d[1] + y) * (d[1] + y) > 4f) { ch.add(floatArrayOf(x, -y)); if (ch.size > 800) ch.removeAt(0) }
             val pions = ArrayList<Pion>()
-            if (cx != null && cy != null) pions.add(Pion(cx, cy, 0xFF5FD3FF, "c"))
-            pions.add(Pion(x, y, 0xFFFF3B3B, "R"))
+            if (cx != null && cy != null) pions.add(Pion(cx, -cy, 0xFF5FD3FF, "c"))
+            pions.add(Pion(x, -y, 0xFFFF3B3B, "R"))
+            val carte = CartesR3.carte(niv)
             val pts = ArrayList<FloatArray>(ch); for (p in pions) pts.add(floatArrayOf(p.x, p.z))
             val n = ch.size
             if (pts.size >= 2) blocs.add(Bloc("Plan du niveau ($niv)", plan = Plan(pts, List(pts.size) { if (it < n) 0xFFFFC94A else 0x00000000 },
-                (1 until n).map { intArrayOf(it - 1, it) }, pions, petits = (0 until pts.size).toSet()),
-                texte = "Ton chemin dans ce niveau (il se dessine en avançant), R : Rayman, c : la caméra. Vu de dessus."))
+                (1 until n).map { intArrayOf(it - 1, it) }, pions, petits = (0 until pts.size).toSet(),
+                fond = carte?.first, fondBornes = carte?.second),
+                texte = "Ton chemin dans ce niveau (il se dessine en avançant), R : Rayman, c : la caméra. Vu de dessus." +
+                    if (carte == null) " Carte du niveau : installe le pack de cartes (Plus > Rayman 3)." else ""))
         }
         blocs.add(Bloc("Pour finir à 100 %", texte = "Cages, tampons et scores monde par monde : Plus > Rayman 3 (lus dans ta sauvegarde)."))
         return Fiche(id, monde ?: "Rayman 3", "Niveau $niv", 0xFFE0A030, 0xFF2A1A08,
             grands = listOfNotNull(if (x != null && y != null) "position" to (x.toInt().toString() + " ; " + y.toInt()) else null,
                 if (z != null) "altitude" to z.toInt().toString() else null, "niveau" to niv), blocs = blocs)
+    }
+}
+
+
+/** build 221 : les cartes des niveaux (pack .zip fabrique a part depuis les fichiers du jeu, installe sur le telephone :
+ *  jamais dans l'appli) : rayman3/<niveau>.png et rayman3/<niveau>.txt (« x0 y0 x1 y1 » : bornes du monde de l'image) */
+object CartesR3 {
+    @Volatile var dossier: java.io.File? = null
+    private val cache = HashMap<String, Pair<android.graphics.Bitmap, FloatArray>?>()
+    fun carte(niveau: String): Pair<android.graphics.Bitmap, FloatArray>? {
+        val k = niveau.lowercase()
+        synchronized(cache) { if (cache.containsKey(k)) return cache[k] }
+        val d = dossier ?: return null
+        val r = try {
+            val b = java.io.File(d, "$k.txt").readText().trim().split(Regex("\\s+")).map { it.toFloat() }
+            val img = android.graphics.BitmapFactory.decodeFile(java.io.File(d, "$k.png").path)
+            if (img == null || b.size < 4) null else img to floatArrayOf(b[0], -b[3], b[2], -b[1])   // (y vers le haut -> z du plan)
+        } catch (e: Exception) { null }
+        synchronized(cache) { cache[k] = r }
+        return r
+    }
+    fun vider() { synchronized(cache) { cache.clear() } }
+    /** installe un pack .zip (rayman3/NIVEAU.png et .txt) ; rend le nombre de cartes */
+    fun installer(ctx: android.content.Context, u: android.net.Uri): Int {
+        val d = java.io.File(ctx.filesDir, "cartes-r3"); d.mkdirs()
+        var n = 0
+        ctx.contentResolver.openInputStream(u)?.use { ins ->
+            java.util.zip.ZipInputStream(ins).use { z ->
+                while (true) {
+                    val e = z.nextEntry ?: break
+                    val nom = e.name.substringAfterLast('/').lowercase()
+                    if (e.isDirectory || !(nom.endsWith(".png") || nom.endsWith(".txt")) || nom.contains("..")) continue
+                    java.io.File(d, nom).outputStream().use { z.copyTo(it) }
+                    if (nom.endsWith(".png")) n++
+                }
+            }
+        }
+        dossier = d; vider()
+        return n
     }
 }
