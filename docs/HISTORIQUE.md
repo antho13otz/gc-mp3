@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 313 — Mario Kart : pilotes et passagers animés en direct
+- L'appli lit le squelette de chaque personnage dans la mémoire : KartBody +0x18 (le « passager » de l'équipe) et +0x1C
+  (le « pilote »), puis +8, +0x14, +0xE8 : les matrices du monde de ses articulations (vérifié sur 11 photos, 16
+  personnages par photo). Ton kart à chaque lecture, les autres une lecture sur 6 ; positions relatives à la carrosserie,
+  glissées entre deux lectures. Les personnages font comme dans le jeu : virages, dérapages, échange de place (Z), chocs.
+- Pack « mkdd-persos-animes-hd.zip » : la peau des 20 personnages (`mk_peau_<n>.txt` : pour chaque sommet, son
+  articulation et sa position locale ; textures x4). Sans lui, les poses fixes d'avant.
+- Trouvé en route : dans les modèles des personnages, une matrice 0xFFFF reprend celle du paquet précédent ; l'ancien
+  lecteur prenait la matrice identité (une partie du bassin restait à l'avant du kart).
+
 ## Nouveautés appli build 311 — Mario Kart : pilote et passager échangent leur place
 - Quand les deux personnages échangent leur place (bouton Z), l'appli les échange aussi : celui qui conduit prend la pose
   de conduite, l'autre se met à l'arrière. KartBody +0x5B2 différent de 0 : le personnage « passager » de l'équipe conduit.
