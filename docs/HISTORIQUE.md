@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 265 — Rayman 3 : cages et boîtes de pouvoir en 3D
+- Vue 3D : les **cages des p'tits êtres** sont le vrai modèle du jeu (la cage en bois sous son ballon, qui se balance), et
+  les **boîtes de pouvoir** sont les canettes du jeu, une couleur par pouvoir, qui tournent. Il faut les packs à jour.
+
 ## Nouveautés appli build 260 — Rayman 3 : plusieurs packs d'un coup
 - Fiche Rayman 3 > Cartes : le bouton d'installation accepte **plusieurs packs à la fois**, et un zip qui contient d'autres
   zips (tous les mondes regroupés) s'installe aussi en une fois.
