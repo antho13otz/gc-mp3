@@ -205,9 +205,9 @@ object JeuRayman3 : ModuleJeu("Rayman 3", "GRHP41") {
             val carte = CartesR3.carte(niv)
             val ch3 = chemins3.getOrPut(niv) { ArrayList() }
             if (z != null) { val e = ch3.lastOrNull(); if (e == null || (e[0] - x) * (e[0] - x) + (e[1] - y) * (e[1] - y) > 4f) { ch3.add(floatArrayOf(x, y, z + 0.5f)); if (ch3.size > 800) ch3.removeAt(0) } }
-            val mail = CartesR3.maillage(niv)
-            if (mail != null && z != null) blocs.add(Bloc("Le niveau en 3D", vue3d = Vue3D(mail, floatArrayOf(x, y, z),
-                if (cx != null && cy != null) floatArrayOf(cx, cy) else null, ArrayList(ch3)),
+            val mail = CartesR3.maillage(niv); val sc = CartesR3.scene(niv)
+            if ((mail != null || sc != null) && z != null) blocs.add(Bloc("Le niveau en 3D", vue3d = Vue3D(mail, floatArrayOf(x, y, z),
+                if (cx != null && cy != null) floatArrayOf(cx, cy) else null, ArrayList(ch3), sc),
                 texte = "Un doigt : tourner autour de Rayman · deux doigts : zoom · double toucher : revenir derrière la caméra du jeu."))
             val pts = ArrayList<FloatArray>(ch); for (p in pions) pts.add(floatArrayOf(p.x, p.z))
             val n = ch.size
@@ -252,7 +252,17 @@ object CartesR3 {
         synchronized(maillages) { maillages[k] = m }
         return m
     }
-    fun vider() { synchronized(cache) { cache.clear() }; synchronized(maillages) { maillages.clear() } }
+    private val scenes = HashMap<String, SceneR3?>()
+    /** build 233 : le niveau avec ses textures (rayman3/<niveau>.r3v et <niveau>_tNNN.png du pack) */
+    fun scene(niveau: String): SceneR3? {
+        val k = niveau.lowercase()
+        synchronized(scenes) { if (scenes.containsKey(k)) return scenes[k] }
+        val d = dossier ?: return null
+        val sc = SceneR3.lire(d, k)
+        synchronized(scenes) { scenes[k] = sc }
+        return sc
+    }
+    fun vider() { synchronized(cache) { cache.clear() }; synchronized(maillages) { maillages.clear() }; synchronized(scenes) { scenes.clear() } }
     /** installe un pack .zip (rayman3/NIVEAU.png et .txt) ; rend le nombre de cartes */
     fun installer(ctx: android.content.Context, u: android.net.Uri): Int {
         val d = java.io.File(ctx.filesDir, "cartes-r3"); d.mkdirs()
@@ -262,9 +272,9 @@ object CartesR3 {
                 while (true) {
                     val e = z.nextEntry ?: break
                     val nom = e.name.substringAfterLast('/').lowercase()
-                    if (e.isDirectory || !(nom.endsWith(".png") || nom.endsWith(".txt") || nom.endsWith(".3d")) || nom.contains("..")) continue
+                    if (e.isDirectory || !(nom.endsWith(".png") || nom.endsWith(".txt") || nom.endsWith(".3d") || nom.endsWith(".r3v")) || nom.contains("..")) continue
                     java.io.File(d, nom).outputStream().use { z.copyTo(it) }
-                    if (nom.endsWith(".png")) n++
+                    if (nom.endsWith(".png") && !Regex("_t\\d{3}\\.png$").containsMatchIn(nom)) n++
                 }
             }
         }
@@ -279,7 +289,7 @@ object CartesR3 {
 @Composable
 private fun CartesInstallees(act: StationActivity, recharge: Int) {
     val niveaux = remember(recharge) {
-        (CartesR3.dossier?.listFiles()?.filter { it.name.endsWith(".png") }?.map { it.name.removeSuffix(".png") } ?: emptyList()).sorted()
+        (CartesR3.dossier?.listFiles()?.filter { it.name.endsWith(".png") && !Regex("_t\\d{3}\\.png$").containsMatchIn(it.name) }?.map { it.name.removeSuffix(".png") } ?: emptyList()).sorted()
     }
     var vu by remember { mutableStateOf<String?>(null) }
     Titre("Cartes installées (" + niveaux.size + ")", couleur = Color(0xFFFFC94A))
@@ -290,6 +300,7 @@ private fun CartesInstallees(act: StationActivity, recharge: Int) {
     val n = vu ?: return
     val carte = remember(n) { CartesR3.carte(n) }
     val mail = remember(n) { CartesR3.maillage(n) }
+    val sc = remember(n) { CartesR3.scene(n) }
     if (carte != null) Carte(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Titre("$n · vu de dessus")
@@ -298,7 +309,13 @@ private fun CartesInstallees(act: StationActivity, recharge: Int) {
                 petits = setOf(0, 1), fond = carte.first, fondBornes = b))
         }
     }
-    if (mail != null) Carte(Modifier.fillMaxWidth()) {
+    if (sc != null) Carte(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Titre("$n · en 3D avec les textures")
+            DessinVue3DGL(sc, sc.centre, null, emptyList(), montrerRayman = false)
+            Doux("Un doigt : tourner · deux doigts : zoom · double toucher : revenir.", taille = 11)
+        }
+    } else if (mail != null) Carte(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Titre("$n · en 3D")
             val c = remember(n) {
