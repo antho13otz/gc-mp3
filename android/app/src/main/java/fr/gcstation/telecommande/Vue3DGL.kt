@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.horizontalScroll
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -43,9 +44,15 @@ import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 /** une scene du pack : groupes de triangles (texture, transparence, sommets entrelaces) */
-class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<Groupe>, val centre: FloatArray, val rayon: Float = 60f) {
+/** build 245 : un objet du niveau (pack : <niveau>_obj.txt) ; type : c cage, f p'tit etre fantome, j lum jaune, r lum rouge, p pouvoir */
+class Objet3D(val type: Char, val x: Float, val y: Float, val z: Float, val nom: String)
+
+class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<Groupe>, val centre: FloatArray, val rayon: Float = 60f,
+              val objets: List<Objet3D> = emptyList()) {
     class Groupe(val texture: Int, val alpha: Boolean, val sommets: ByteBuffer, val n: Int,
-                 val mode: Int = if (alpha) 2 else 0, val enveloppe: Int = 0)   // (build 236 : 0 opaque, 1 decoupe, 2 transparent, 3 lumiere ; miroir U/V)
+                 val mode: Int = if (alpha) 2 else 0, val enveloppe: Int = 0) {  // (build 236 : 0 opaque, 1 decoupe, 2 transparent, 3 lumiere ; miroir U/V)
+        var eau = 0          // build 245 : 1 eau, 2 lave (d'apres le nom de la texture : <niveau>_tex.txt) ; animees par le moteur
+    }
     companion object {
         /** fichier .r3v : "R3V1", nombre de groupes ; par groupe : texture (s32), alpha (u32), nombre de sommets (u32),
          *  puis les sommets (24 octets : 5 flottants + 4 octets de couleur), petit-boutiste */
@@ -76,7 +83,27 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
                     // rayon : 85 % des points du decor sont a moins de cette distance (au sol) du centre ; les objets tres lointains ne comptent pas
                     val ds = (0 until ech.size / 2).map { Math.hypot((ech[it * 2] - ctr[0]).toDouble(), (ech[it * 2 + 1] - ctr[1]).toDouble()).toFloat() }.sorted()
                     val ray = if (ds.isEmpty()) 60f else ds[(ds.size * 0.85).toInt().coerceAtMost(ds.size - 1)].coerceIn(15f, 900f)
-                    SceneR3(d, niveau.lowercase(), l, ctr, ray)
+                    val nv = niveau.lowercase()
+                    // build 245 : noms des textures -> eau / lave
+                    val ft = java.io.File(d, nv + "_tex.txt")
+                    if (ft.exists()) {
+                        val eau = Regex("water|_eau|eau\\d|waterfx"); val lave = Regex("magma|fusion")
+                        val type = HashMap<Int, Int>()
+                        for (li in ft.readLines()) { val p = li.trim().split(' ', limit = 2); if (p.size < 2) continue
+                            val k = p[0].toIntOrNull() ?: continue
+                            type[k] = if (lave.containsMatchIn(p[1])) 2 else if (eau.containsMatchIn(p[1])) 1 else 0 }
+                        for (g in l) g.eau = type[g.texture] ?: 0
+                    }
+                    // build 245 : objets (cages, lums, pouvoirs)
+                    val fo = java.io.File(d, nv + "_obj.txt")
+                    val obj = if (!fo.exists()) emptyList() else fo.readLines().mapNotNull { li ->
+                        val p = li.trim().split(' ')
+                        if (p.size < 4 || p[0].length != 1) null else {
+                            val x = p[1].toFloatOrNull(); val y = p[2].toFloatOrNull(); val z = p[3].toFloatOrNull()
+                            if (x == null || y == null || z == null) null else Objet3D(p[0][0], x, y, z, p.getOrElse(4) { "" })
+                        }
+                    }
+                    SceneR3(d, nv, l, ctr, ray, obj)
                 }
             }
         } catch (e: Throwable) { null }
@@ -104,6 +131,27 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
     }
 }
 
+/** build 245 : l'ambiance de chaque monde (ciel, brouillard, teinte de l'eau, halo). Reglee a l'oeil d'apres le jeu :
+ *  les couleurs du decor et de la lumiere viennent toujours des fichiers du jeu, seuls le fond et la brume sont choisis ici. */
+class Ambiance(val cielHaut: FloatArray, val cielBas: FloatArray, val brume: FloatArray, val brumeDebut: Float, val brumeLong: Float,
+               val brumeMax: Float, val eau: FloatArray, val bloom: Float) {
+    companion object {
+        private fun c(r: Int, g: Int, b: Int) = floatArrayOf(r / 255f, g / 255f, b / 255f)
+        fun pour(niveau: String): Ambiance { val n = niveau.lowercase(); return when {
+            n.startsWith("intro") -> Ambiance(c(24, 36, 92), c(70, 92, 150), c(52, 66, 110), 160f, 700f, 0.55f, c(150, 190, 230), 0.45f)     // nuit des fees
+            n.startsWith("wood") -> Ambiance(c(70, 130, 210), c(175, 205, 225), c(150, 175, 165), 200f, 800f, 0.5f, c(150, 200, 190), 0.35f)  // foret de jour
+            n.startsWith("swamp") -> Ambiance(c(10, 10, 30), c(38, 34, 64), c(30, 32, 48), 60f, 420f, 0.78f, c(105, 110, 95), 0.22f)       // marais de nuit
+            n.startsWith("moor") -> Ambiance(c(34, 24, 62), c(96, 78, 120), c(70, 60, 92), 110f, 600f, 0.65f, c(120, 140, 170), 0.3f)        // lande crepusculaire
+            n.startsWith("knaar") -> Ambiance(c(26, 10, 6), c(92, 44, 24), c(64, 32, 20), 120f, 650f, 0.6f, c(130, 150, 110), 0.5f)            // grottes, lave
+            n.startsWith("flash") || n.startsWith("sea") -> Ambiance(c(60, 120, 220), c(170, 210, 240), c(150, 190, 225), 220f, 900f, 0.5f, c(120, 190, 230), 0.35f)
+            n.startsWith("mount") -> Ambiance(c(80, 120, 200), c(210, 225, 240), c(200, 210, 228), 160f, 700f, 0.6f, c(170, 200, 230), 0.4f)  // neige
+            n.startsWith("fact") || n.startsWith("snipe") -> Ambiance(c(26, 22, 20), c(80, 70, 60), c(62, 56, 50), 120f, 600f, 0.55f, c(110, 140, 120), 0.45f)
+            n.startsWith("tower") || n.startsWith("lept") -> Ambiance(c(36, 18, 60), c(120, 80, 140), c(84, 62, 110), 140f, 700f, 0.55f, c(130, 140, 190), 0.4f)
+            else -> Ambiance(c(41, 77, 158), c(158, 184, 219), c(107, 128, 174), 250f, 900f, 0.55f, c(170, 190, 220), 0.4f)
+        } }
+    }
+}
+
 /** ce que la vue regarde (modifie par les doigts et par le jeu, lu par le fil OpenGL) */
 class Etat3D {
     @Volatile var lacet = Float.NaN; @Volatile var tangage = 0.5f; @Volatile var dist = 70f
@@ -111,6 +159,7 @@ class Etat3D {
     @Volatile var chemin: FloatArray = FloatArray(0); @Volatile var montrerRayman = true
     @Volatile var decal = floatArrayOf(0f, 0f, 0f)       // (build 236 : deplacement a deux doigts, ajoute a la cible)
     @Volatile var redessiner: () -> Unit = {}
+    @Volatile var voir = "cfjrp"                          // build 245 : types d'objets affiches
     @Volatile var distBase = 70f                           // (build 242 : distance de depart, adaptee a la taille du niveau)
     fun recentrer() { lacet = Float.NaN; tangage = 0.5f; dist = distBase; decal = floatArrayOf(0f, 0f, 0f) }
     /** build 242 : une vue du dessus cadrant tout le niveau */
@@ -135,6 +184,11 @@ object QualiteR3 {
 private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : GLSurfaceView.Renderer {
     private var prog = 0; private var progL = 0
     private var uSeuil = 0; private var progCiel = 0; private var cPos = 0
+    // build 245 : ambiance, eau animee, objets
+    private val amb = Ambiance.pour(scene.niveau); private val t0 = System.nanoTime()
+    private var uEauL = 0; private var uTL = 0; private var uBrumeL = 0; private var uBrumePL = 0; private var uTeinteL = 0
+    private var progO = 0
+    private val objBuf = HashMap<Char, FloatBuffer>()
     private val quad: FloatBuffer = ByteBuffer.allocateDirect(32).order(ByteOrder.nativeOrder()).asFloatBuffer().put(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)).also { it.position(0) }
     private var aPos = 0; private var aUv = 0; private var aCol = 0; private var uMvp = 0; private var uTex = 0; private var uAvecTex = 0; private var uCam = 0
     private var lPos = 0; private var lMvp = 0; private var lCoul = 0; private var lTaille = 0
@@ -149,31 +203,41 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     }
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         prog = programme("""
-            uniform mat4 uMvp; uniform vec3 uCam;
+            uniform mat4 uMvp; uniform vec3 uCam; uniform vec3 uBrumeP; uniform float uT; uniform float uEau;
             attribute vec3 aPos; attribute vec2 aUv; attribute vec4 aCol;
-            varying vec2 vUv; varying vec4 vCol; varying float vBrume;
-            void main() { gl_Position = uMvp * vec4(aPos, 1.0); vUv = aUv; vCol = aCol;
-                vBrume = clamp((distance(aPos, uCam) - 250.0) / 900.0, 0.0, 0.55); }""", """
+            varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying float vBrume;
+            void main() { gl_Position = uMvp * vec4(aPos, 1.0); vCol = aCol;
+                // eau / lave : deux couches de la texture qui glissent en sens differents (ondulation)
+                vec2 v = uEau > 0.5 ? vec2(uT * 0.035, uT * 0.021) : vec2(0.0);
+                vUv = aUv + v; vUv2 = aUv * 1.37 + vec2(-uT * 0.027, uT * 0.031);
+                vBrume = clamp((distance(aPos, uCam) - uBrumeP.x) / uBrumeP.y, 0.0, uBrumeP.z); }""", """
             #ifdef GL_FRAGMENT_PRECISION_HIGH
             precision highp float;
             #else
             precision mediump float;
             #endif
-            uniform sampler2D uTex; uniform float uAvecTex; uniform float uSeuil;
-            varying vec2 vUv; varying vec4 vCol; varying float vBrume;
+            uniform sampler2D uTex; uniform float uAvecTex; uniform float uSeuil; uniform float uEau;
+            uniform vec3 uBrume; uniform vec3 uTeinteEau;
+            varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying float vBrume;
             void main() { vec4 t = uAvecTex > 0.5 ? texture2D(uTex, vUv) : vec4(1.0);
-                vec4 c = t * vec4(vCol.rgb * 2.0, vCol.a); if (c.a < uSeuil) discard;
-                gl_FragColor = vec4(mix(c.rgb, vec3(0.42, 0.5, 0.68), vBrume), c.a); }""")
+                if (uEau > 0.5 && uAvecTex > 0.5) t = mix(t, texture2D(uTex, vUv2), 0.5);
+                vec4 c = t * vec4(vCol.rgb * 2.0, vCol.a);
+                if (uEau > 0.5 && uEau < 1.5) { c.rgb *= uTeinteEau; c.a = min(1.0, c.a * 1.15 + 0.1); }
+                if (uEau > 1.5) c.rgb *= 1.3;
+                if (c.a < uSeuil) discard;
+                gl_FragColor = vec4(mix(c.rgb, uBrume, vBrume), c.a); }""")
         aPos = GLES20.glGetAttribLocation(prog, "aPos"); aUv = GLES20.glGetAttribLocation(prog, "aUv"); aCol = GLES20.glGetAttribLocation(prog, "aCol")
         uMvp = GLES20.glGetUniformLocation(prog, "uMvp"); uTex = GLES20.glGetUniformLocation(prog, "uTex")
         uAvecTex = GLES20.glGetUniformLocation(prog, "uAvecTex"); uCam = GLES20.glGetUniformLocation(prog, "uCam")
         uSeuil = GLES20.glGetUniformLocation(prog, "uSeuil")
+        uEauL = GLES20.glGetUniformLocation(prog, "uEau"); uTL = GLES20.glGetUniformLocation(prog, "uT")
+        uBrumeL = GLES20.glGetUniformLocation(prog, "uBrume"); uBrumePL = GLES20.glGetUniformLocation(prog, "uBrumeP"); uTeinteL = GLES20.glGetUniformLocation(prog, "uTeinteEau")
         // ciel : un degrade plein ecran dessine avant le niveau
         progCiel = programme("""
             attribute vec2 aP; varying float vY;
             void main() { gl_Position = vec4(aP, 0.999, 1.0); vY = aP.y * 0.5 + 0.5; }""", """
-            precision mediump float; varying float vY;
-            void main() { gl_FragColor = vec4(mix(vec3(0.62, 0.72, 0.86), vec3(0.16, 0.30, 0.62), smoothstep(0.35, 1.0, vY)), 1.0); }""")
+            precision mediump float; varying float vY; uniform vec3 uHaut; uniform vec3 uBas;
+            void main() { gl_FragColor = vec4(mix(uBas, uHaut, smoothstep(0.35, 1.0, vY)), 1.0); }""")
         cPos = GLES20.glGetAttribLocation(progCiel, "aP")
         progL = programme("""
             uniform mat4 uMvp; uniform float uTaille; attribute vec3 aPos;
@@ -219,7 +283,24 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             textures[g.texture] = t[0]
         }
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
-        GLES20.glClearColor(0.42f, 0.5f, 0.68f, 1f)
+        GLES20.glClearColor(amb.brume[0], amb.brume[1], amb.brume[2], 1f)
+        // objets : des pastilles (rondes ; cages : carre a barreaux) dessinees par-dessus le decor
+        progO = programme("""
+            uniform mat4 uMvp; uniform float uTaille; attribute vec3 aPos;
+            void main() { gl_Position = uMvp * vec4(aPos, 1.0); gl_PointSize = uTaille; }""", """
+            precision mediump float; uniform vec4 uCoul; uniform float uForme;
+            void main() { vec2 q = gl_PointCoord * 2.0 - 1.0;
+                if (uForme < 0.5) { float r = length(q); if (r > 1.0) discard;
+                    gl_FragColor = vec4(r > 0.7 ? vec3(0.06) : uCoul.rgb * (1.2 - 0.4 * r), uCoul.a); }
+                else { vec2 a = abs(q); if (max(a.x, a.y) > 1.0) discard;
+                    bool bord = max(a.x, a.y) > 0.78; bool barreau = fract((q.x + 1.0) * 2.5) < 0.3;
+                    gl_FragColor = vec4(bord ? vec3(0.06) : (barreau ? uCoul.rgb * 0.5 : uCoul.rgb), uCoul.a); } }""")
+        objBuf.clear()
+        for ((t, l) in scene.objets.groupBy { it.type }) {
+            val fb = ByteBuffer.allocateDirect(l.size * 12).order(ByteOrder.nativeOrder()).asFloatBuffer()
+            for (o in l) fb.put(o.x).put(o.y).put(o.z + (if (t == 'c' || t == 'f') 1.2f else 0.6f))
+            fb.position(0); objBuf[t] = fb
+        }
         // build 242 : post-traitement (image calculee plus grande que l'ecran, puis reduite, nettete, halo lumineux)
         val vPost = """
             attribute vec2 aP; varying vec2 v;
@@ -332,7 +413,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             GLES20.glUseProgram(progFin)
             GLES20.glActiveTexture(GLES20.GL_TEXTURE1); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, b.tex)
             GLES20.glUniform1i(GLES20.glGetUniformLocation(progFin, "uB"), 1)
-            GLES20.glUniform1f(GLES20.glGetUniformLocation(progFin, "uBloom"), 0.4f)
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(progFin, "uBloom"), amb.bloom)
             passePost(progFin, a, 1f / a.w, 1f / a.h)
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
             GLES20.glEnable(GLES20.GL_DEPTH_TEST)
@@ -351,6 +432,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
         GLES20.glUseProgram(progCiel)
+        GLES20.glUniform3fv(GLES20.glGetUniformLocation(progCiel, "uHaut"), 1, amb.cielHaut, 0)
+        GLES20.glUniform3fv(GLES20.glGetUniformLocation(progCiel, "uBas"), 1, amb.cielBas, 0)
         GLES20.glVertexAttribPointer(cPos, 2, GLES20.GL_FLOAT, false, 8, quad); GLES20.glEnableVertexAttribArray(cPos)
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4)
         GLES20.glDisableVertexAttribArray(cPos)
@@ -359,6 +442,9 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         GLES20.glUniform3f(uCam, ex, ey, ez)
         GLES20.glUniform1i(uTex, 0)
+        GLES20.glUniform1f(uTL, ((System.nanoTime() - t0) / 1e9 % 2000.0).toFloat())
+        GLES20.glUniform3fv(uBrumeL, 1, amb.brume, 0); GLES20.glUniform3f(uBrumePL, amb.brumeDebut, amb.brumeLong, amb.brumeMax)
+        GLES20.glUniform3fv(uTeinteL, 1, amb.eau, 0)
         GLES20.glEnableVertexAttribArray(aPos); GLES20.glEnableVertexAttribArray(aUv); GLES20.glEnableVertexAttribArray(aCol)
         for (passe in 0..3) {                             // opaque, decoupe, transparent, lumiere (additive)
             when (passe) {
@@ -369,6 +455,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             }
             for ((i, g) in scene.groupes.withIndex()) {
                 if (i >= vbo.size || g.mode != passe) continue
+                GLES20.glUniform1f(uEauL, g.eau.toFloat())
                 val t = textures[g.texture]
                 GLES20.glUniform1f(uAvecTex, if (t != null) 1f else 0f)
                 if (t != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }
@@ -391,6 +478,34 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             GLES20.glUniform4f(lCoul, 1f, 0.79f, 0.29f, 1f); GLES20.glUniform1f(lTaille, 1f)
             GLES20.glVertexAttribPointer(lPos, 3, GLES20.GL_FLOAT, false, 12, fb); GLES20.glEnableVertexAttribArray(lPos)
             GLES20.glLineWidth(4f * echelle); GLES20.glDrawArrays(GLES20.GL_LINE_STRIP, 0, ch.size / 3)
+        }
+        // build 245 : objets. D'abord en transparence a travers le decor (on les voit derriere les murs), puis nets la ou ils sont visibles
+        if (objBuf.isNotEmpty()) {
+            GLES20.glUseProgram(progO)
+            GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progO, "uMvp"), 1, false, mvp, 0)
+            val oPos = GLES20.glGetAttribLocation(progO, "aPos"); val oT = GLES20.glGetUniformLocation(progO, "uTaille")
+            val oC = GLES20.glGetUniformLocation(progO, "uCoul"); val oF = GLES20.glGetUniformLocation(progO, "uForme")
+            GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA); GLES20.glDepthMask(false)
+            GLES20.glEnableVertexAttribArray(oPos)
+            val voir = etat.voir
+            for (passe in 0..1) {
+                if (passe == 0) GLES20.glDisable(GLES20.GL_DEPTH_TEST) else GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+                for (t in "jrpfc") {                              // les cages en dernier (par-dessus)
+                    val fb = objBuf[t] ?: continue
+                    if (t !in voir) continue
+                    val (taille, coul) = when (t) {
+                        'c' -> 30f to floatArrayOf(1f, 0.74f, 0.25f); 'f' -> 26f to floatArrayOf(0.62f, 0.95f, 1f)
+                        'p' -> 18f to floatArrayOf(0.62f, 0.55f, 1f); 'r' -> 11f to floatArrayOf(1f, 0.25f, 0.22f)
+                        else -> 11f to floatArrayOf(1f, 0.92f, 0.28f) }
+                    GLES20.glUniform1f(oT, taille * echelle); GLES20.glUniform1f(oF, if (t == 'c' || t == 'f') 1f else 0f)
+                    GLES20.glUniform4f(oC, coul[0], coul[1], coul[2], if (passe == 0) 0.35f else 1f)
+                    GLES20.glVertexAttribPointer(oPos, 3, GLES20.GL_FLOAT, false, 12, fb)
+                    GLES20.glDrawArrays(GLES20.GL_POINTS, 0, fb.capacity() / 3)
+                }
+            }
+            GLES20.glDisableVertexAttribArray(oPos)
+            GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+            GLES20.glUseProgram(progL)
         }
         if (etat.montrerRayman) {
             GLES20.glDisable(GLES20.GL_DEPTH_TEST)
@@ -419,6 +534,7 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
         }
         BoutonsZoom(etat, Modifier.align(androidx.compose.ui.Alignment.BottomEnd).padding(8.dp))
     }
+    ChoixObjets(scene, etat, Modifier.padding(top = 6.dp))
     if (plein) androidx.compose.ui.window.Dialog({ plein = false }, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(Color(0xFF6B80AE))) {
             VueGL(scene, etat, Modifier.fillMaxSize())
@@ -428,9 +544,35 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
                 PetitBouton("✕") { plein = false }
             }
             BoutonsZoom(etat, Modifier.align(androidx.compose.ui.Alignment.CenterEnd).padding(end = 12.dp))
+            ChoixObjets(scene, etat, Modifier.align(androidx.compose.ui.Alignment.TopStart).padding(top = 90.dp, start = 12.dp))
             Text("1 doigt : tourner · 2 doigts : déplacer, zoomer, pivoter · double toucher : recentrer", color = Color.White, fontSize = 12.sp,
                 modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(bottom = 28.dp).background(Color(0x88000000), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 6.dp))
         }
+    }
+}
+
+/** build 245 : afficher / cacher chaque sorte d'objet (avec le nombre dans ce niveau) */
+@Composable
+private fun ChoixObjets(scene: SceneR3, etat: Etat3D, modifier: Modifier) {
+    if (scene.objets.isEmpty()) return
+    val n = remember(scene) { scene.objets.groupingBy { it.type }.eachCount() }
+    var voir by remember(scene) { androidx.compose.runtime.mutableStateOf(etat.voir) }
+    androidx.compose.foundation.layout.Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            for ((t, nom, coul) in listOf(Triple('c', "Cages", 0xFFFFBD40), Triple('f', "P'tits êtres", 0xFF9EF2FF), Triple('j', "Lums jaunes", 0xFFFFEB47),
+                    Triple('r', "Lums rouges", 0xFFFF4038), Triple('p', "Pouvoirs", 0xFF9E8CFF))) {
+                val k = n[t] ?: continue
+                val actif = t in voir
+                Text("● $nom $k", color = if (actif) Color(coul) else Color(0x99FFFFFF), fontSize = 12.sp,
+                    modifier = Modifier.background(if (actif) Color(0xCC1A1530) else Color(0x66000000), RoundedCornerShape(12.dp))
+                        .pointerInput(t) { detectTapGestures {
+                            voir = if (t in voir) voir.replace(t.toString(), "") else voir + t
+                            etat.voir = voir; etat.redessiner() } }
+                        .padding(horizontal = 10.dp, vertical = 6.dp))
+            }
+        }
+        if ((n['f'] ?: 0) > 0) Text("Lande : le jeu range ses p'tits êtres en cage comme les autres fantômes ; ils sont tous montrés.",
+            color = Color(0x99FFFFFF), fontSize = 10.sp)
     }
 }
 
@@ -468,6 +610,10 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier) {
     val vueRef = remember { arrayOfNulls<GLSurfaceView>(1) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     vueRef[0]?.requestRender()
+    // build 245 : l'eau et la lave bougent : on redessine environ 30 fois par seconde tant que la vue est affichee
+    if (scene.groupes.any { it.eau > 0 }) androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) { kotlinx.coroutines.delay(33); vueRef[0]?.requestRender() }
+    }
     DisposableEffect(Unit) {
         val rd = { vueRef[0]?.requestRender(); Unit }
         etat.redessiner = rd
