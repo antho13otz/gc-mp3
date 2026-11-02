@@ -531,6 +531,13 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                 Spacer(Modifier.height(8.dp))
                 SectionRayman3(act)
             }
+            // ---- build 266 : Mario Kart Double Dash : les circuits en 3D, aussi hors ligne ----
+            if (g.id.startsWith("GM4")) {
+                Spacer(Modifier.height(22.dp))
+                Titre("Mario Kart : circuits en 3D")
+                Spacer(Modifier.height(8.dp))
+                SectionMKDD(act)
+            }
             // ---- sauvegardes (carte virtuelle) : l'ecran des cartes memoire, partage ----
             Spacer(Modifier.height(22.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {

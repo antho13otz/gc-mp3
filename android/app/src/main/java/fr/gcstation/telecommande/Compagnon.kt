@@ -456,7 +456,7 @@ object JeuMKDD {
     private const val CTRL = 0x803D63C8L                           // build 173 : KartCtrl::mCtrl (mKartBodies[8] en 0xA0)
     const val PAS_DE_TEMPS = 5999999
 
-    class Kart(val n: Int, val x: Float, val z: Float, val place: Int,
+    class Kart(val n: Int, val x: Float, val z: Float, val place: Int, val y: Float = 0f,
                // v313 : pilotes, kart, objets, progression, bataille
                val pilote: Int = 0, val passager: Int = 0, val modele: Int = -1, val joueur: Boolean = false,
                val objet1: Int = 16, val objet2: Int = 16, val progres: Float = -1f, val tour: Int = 0, val fini: Boolean = false,
@@ -597,7 +597,7 @@ object JeuMKDD {
                 return (l.s32(im + 0x24C + 16L * i + 8L * d) ?: 16).takeIf { it in 0..21 } ?: 16
             }
             val e = eqs.getOrNull(i)
-            karts.add(Kart(i, x, z, (l.s32(k + 0x88) ?: 0).takeIf { it in 1..8 } ?: 0,
+            karts.add(Kart(i, x, z, (l.s32(k + 0x88) ?: 0).takeIf { it in 1..8 } ?: 0, l.fini(l.f32(k + 0x60)) ?: 0f,      // (build 266 : hauteur, mPos.y)
                 pilote = e?.get(0) ?: 0, passager = e?.get(1) ?: 0, modele = e?.get(2) ?: -1, joueur = (e?.get(3) ?: 0) == 1 || i == 0,
                 objet1 = objetDe(0), objet2 = objetDe(1),
                 progres = l.fini(l.f32(k + 0x54), 1000f) ?: -1f, tour = l.s32(k + 0x2C) ?: 0, fini = (l.u8(k + 0x29) ?: 0) != 0,
@@ -873,7 +873,7 @@ fun EcranCompagnon() {
     val act = LocalContext.current
     var vue by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
-        Chrono.init(act); Compagnon.ctx = act.applicationContext; CartesR3.dossier = java.io.File(act.filesDir, "cartes-r3"); Compagnon.ecranOuvert = true; Compagnon.demarrer()
+        Chrono.init(act); Compagnon.ctx = act.applicationContext; CartesR3.dossier = java.io.File(act.filesDir, "cartes-r3"); CartesMK.dossier = java.io.File(act.filesDir, "cartes-mk"); Compagnon.ecranOuvert = true; Compagnon.demarrer()
         CarteMarineWW.telecharger(act)                                   // (v313 : hors partie seulement)
         withContext(Dispatchers.Default) { CarteMarineWW.charger(act) }
     }
@@ -1453,6 +1453,7 @@ private fun CompagnonMKDD(e: JeuMKDD.Etat) {
     Carte(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             CarteCircuit(e)
+            CircuitMK3D(e)            // build 266 : le circuit en 3D, avec les karts
             val meilleur = e.tempsTours.minOrNull()
             if (e.tempsTours.isNotEmpty()) Titre("Tours")
             for ((i, t) in e.tempsTours.withIndex()) Row(verticalAlignment = Alignment.CenterVertically) {
