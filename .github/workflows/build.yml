@@ -254,6 +254,28 @@ jobs:
           done
           $OD -d --start-address=0x80379b70 --stop-address=0x80379bc0 gc-mp3player.elf | tail -20
           $OD -d --start-address=0x80012f80 --stop-address=0x80012fd0 gc-mp3player.elf | tail -20
+          $OD -d --start-address=0x80194680 --stop-address=0x80194720 gc-mp3player.elf | tail -45
+          $NM -n gc-mp3player.elf | awk '$1 >= "80194000" && $1 <= "80194800"'
+          python3 - <<'PY'
+          import subprocess, re
+          od = subprocess.run(["/opt/devkitpro/devkitPPC/bin/powerpc-eabi-objdump", "-s", "-j", ".rodata", "gc-mp3player.elf"], capture_output=True, text=True).stdout
+          mem = {}
+          for l in od.splitlines():
+              m = re.match(r" ([0-9a-f]{8}) ((?:[0-9a-f]{2,8} ?){1,4})", l)
+              if m:
+                  a = int(m.group(1), 16); h = m.group(2).replace(" ", "")
+                  for i in range(len(h) // 2): mem[a + i] = int(h[2 * i:2 * i + 2], 16)
+          dis = subprocess.run(["/opt/devkitpro/devkitPPC/bin/powerpc-eabi-objdump", "-d", "--start-address=0x80194600", "--stop-address=0x80194720", "gc-mp3player.elf"], capture_output=True, text=True).stdout
+          hi = {}
+          for l in dis.splitlines():
+              m = re.search(r"lis\s+r(\d+),(-?\d+)", l)
+              if m: hi[m.group(1)] = int(m.group(2)) & 0xffff
+              m = re.search(r"addi\s+r(\d+),r(\d+),(-?\d+)", l)
+              if m and m.group(2) in hi:
+                  a = ((hi[m.group(2)] << 16) + int(m.group(3))) & 0xffffffff
+                  s = bytes(mem.get(a + k, 0) for k in range(60)).split(b"\0")[0]
+                  print(hex(a), s)
+          PY
           echo "fin du diagnostic"; exit 1
 
       # v219 : ce qui prend de la place (code, donnees, zones reservees) : une note lisible dans le resume du build
