@@ -227,7 +227,7 @@ object CartesR3 {
         return r
     }
     fun vider() { synchronized(cache) { cache.clear() } }
-    /** installe un pack .zip (rayman3/*.png, *.txt) ; rend le nombre de cartes */
+    /** installe un pack .zip (rayman3/NIVEAU.png et .txt) ; rend le nombre de cartes */
     fun installer(ctx: android.content.Context, u: android.net.Uri): Int {
         val d = java.io.File(ctx.filesDir, "cartes-r3"); d.mkdirs()
         var n = 0
