@@ -61,7 +61,7 @@ abstract class ModuleJeu(val nom: String, vararg val ids: String) {
 }
 
 object ModulesJeux {
-    val tous: List<ModuleJeu> = listOf(JeuTP, JeuPikmin1, JeuPikmin2, JeuMelee, JeuMSB, JeuTTYD, JeuOoT, JeuMP5, JeuSFA, JeuKAR)
+    val tous: List<ModuleJeu> = listOf(JeuTP, JeuPikmin1, JeuPikmin2, JeuMelee, JeuMSB, JeuTTYD, JeuOoT, JeuMP5, JeuSFA, JeuKAR, JeuRayman3)
     fun pour(id: String): ModuleJeu? = tous.firstOrNull { id in it.ids }
     fun noms(): Map<String, String> = tous.flatMap { m -> m.ids.map { it to m.nom } }.toMap()
 }
