@@ -159,7 +159,7 @@ class Etat3D {
     @Volatile var chemin: FloatArray = FloatArray(0); @Volatile var montrerRayman = true
     @Volatile var decal = floatArrayOf(0f, 0f, 0f)       // (build 236 : deplacement a deux doigts, ajoute a la cible)
     @Volatile var redessiner: () -> Unit = {}
-    @Volatile var voir = "cfjrp"                          // build 245 : types d'objets affiches
+    @Volatile var voir = "cfjkvrp"                          // build 245 : types d'objets affiches
     // build 247 : derniere projection dessinee (pour savoir quel objet est sous le doigt) et vol anime de la camera
     @Volatile var mvpVue: FloatArray? = null; @Volatile var vueW = 1; @Volatile var vueH = 1
     var vol: kotlinx.coroutines.Job? = null
@@ -230,11 +230,12 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     private val objBuf = HashMap<Char, FloatBuffer>()
     // build 249 : les vrais visuels du jeu (pack : fichiers communs r3_*) : gemme 3D au reflet dore, lum rouge, icones des pouvoirs
     private var progG = 0; private var progS = 0
-    private var gemme: FloatBuffer? = null; private var nGemme = 0
-    private var texOr = 0; private var texRouge = 0
+    // build 253 : les trois gemmes du jeu (j jaune, k rouge, v verte) : modele + texture de reflet + positions
+    private class Gemme(val mod: FloatBuffer, val n: Int, val tex: Int, val pos: ArrayList<FloatArray>)
+    private val gemmesC = HashMap<Char, Gemme>()
+    private var texRouge = 0
     private val texPouvoir = HashMap<String, Int>()
     private val pouvoirBuf = HashMap<String, FloatBuffer>()
-    private val gemmes = ArrayList<FloatArray>()
     private fun chargerTex(nom: String): Int {
         val f = java.io.File(scene.dossier, nom); if (!f.exists()) return 0
         val bmp = android.graphics.BitmapFactory.decodeFile(f.path) ?: return 0
@@ -354,13 +355,13 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                     gl_FragColor = vec4(bord ? vec3(0.06) : (barreau ? uCoul.rgb * 0.5 : uCoul.rgb), uCoul.a); } }""")
         // gemme : modele 3D (x y z nx ny nz par sommet), reflet : la normale vue de la camera choisit le point de la texture
         progG = programme("""
-            uniform mat4 uMvp; uniform mat4 uVue; uniform vec3 uPos; uniform float uAng;
+            uniform mat4 uMvp; uniform mat4 uVue; uniform vec3 uPos; uniform float uAng; uniform float uEch;
             attribute vec3 aPos; attribute vec3 aN; varying vec2 vUv;
             void main() { float c = cos(uAng); float s = sin(uAng);
                 vec3 p = vec3(aPos.x * c - aPos.y * s, aPos.x * s + aPos.y * c, aPos.z);
                 vec3 n = vec3(aN.x * c - aN.y * s, aN.x * s + aN.y * c, aN.z);
                 vec3 nv = normalize((uVue * vec4(n, 0.0)).xyz); vUv = nv.xy * 0.5 + 0.5;
-                gl_Position = uMvp * vec4(p + uPos, 1.0); }""", """
+                gl_Position = uMvp * vec4(p * uEch + uPos, 1.0); }""", """
             precision mediump float; uniform sampler2D uTex; uniform float uA; varying vec2 vUv;
             void main() { gl_FragColor = vec4(texture2D(uTex, vUv).rgb * 1.15, uA); }""")
         // images plates du jeu (lum rouge, icones des pouvoirs), toujours face a la camera
@@ -369,22 +370,30 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             void main() { gl_Position = uMvp * vec4(aPos, 1.0); gl_PointSize = uTaille; }""", """
             precision mediump float; uniform sampler2D uTex; uniform float uA;
             void main() { vec4 t = texture2D(uTex, gl_PointCoord); gl_FragColor = vec4(t.rgb, t.a * uA); }""")
-        gemme = null; nGemme = 0
-        try {
-            val f = java.io.File(scene.dossier, "r3_gemme.txt")
-            if (f.exists()) {
+        gemmesC.clear()
+        for ((t, mod, tx) in listOf(Triple('j', "r3_gemme.txt", "r3_reflet_or.png"), Triple('k', "r3_gemme_rouge.txt", "r3_reflet_rouge.png"),
+                Triple('v', "r3_gemme_verte.txt", "r3_reflet_vert.png"))) {
+            try {
+                val f = java.io.File(scene.dossier, mod)
+                if (!f.exists()) continue
                 val v = f.readLines().mapNotNull { l -> l.trim().split(' ').mapNotNull { it.toFloatOrNull() }.takeIf { it.size == 6 } }
-                if (v.isNotEmpty()) {
-                    val fb = ByteBuffer.allocateDirect(v.size * 24).order(ByteOrder.nativeOrder()).asFloatBuffer()
-                    for (q in v) for (x in q) fb.put(x)
-                    fb.position(0); gemme = fb; nGemme = v.size
+                if (v.isEmpty()) continue
+                val te = chargerTex(tx); if (te == 0) continue
+                val fb = ByteBuffer.allocateDirect(v.size * 24).order(ByteOrder.nativeOrder()).asFloatBuffer()
+                for (q in v) for (x in q) fb.put(x)
+                fb.position(0)
+                // les grosses (bigpick, superpick…) deux fois plus grandes ; chaque gemme a sa phase (elles ne tournent pas ensemble)
+                val pos = ArrayList<FloatArray>()
+                for (o in scene.objets) if (o.type == t) {
+                    val gros = Regex("big|super|gros", RegexOption.IGNORE_CASE).containsMatchIn(o.nom) && t != 'v'
+                    pos.add(floatArrayOf(o.x, o.y, o.z + 1.0f, (o.x * 0.37f + o.y * 0.11f) % 6.28f, if (gros) 2f else 1f))
                 }
-            }
-        } catch (e: Throwable) { gemme = null }
-        texOr = chargerTex("r3_reflet_or.png"); texRouge = chargerTex("r3_lum_rouge.png")
+                gemmesC[t] = Gemme(fb, v.size, te, pos)
+            } catch (e: Throwable) { }
+        }
+        texRouge = chargerTex("r3_lum_rouge.png")
         texPouvoir.clear()
         for (k in listOf("grappin", "helico", "poing", "roulade", "snipe")) chargerTex("r3_pouvoir_$k.png").let { if (it != 0) texPouvoir[k] = it }
-        gemmes.clear(); for (o in scene.objets) if (o.type == 'j') gemmes.add(floatArrayOf(o.x, o.y, o.z + 1.0f, (o.x * 0.37f + o.y * 0.11f) % 6.28f))
         pouvoirBuf.clear()
         for ((k, l) in scene.objets.filter { it.type == 'p' }.groupBy { genrePouvoir(it.nom) }) {
             val fb = ByteBuffer.allocateDirect(l.size * 12).order(ByteOrder.nativeOrder()).asFloatBuffer()
@@ -523,21 +532,23 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         for (passe in 0..1) {
             if (passe == 0) { GLES20.glDisable(GLES20.GL_DEPTH_TEST); GLES20.glDepthMask(false) } else { GLES20.glEnable(GLES20.GL_DEPTH_TEST) }
             val a = if (passe == 0) 0.3f else 1f
-            val g = gemme
-            if ('j' in voir && g != null && texOr != 0 && gemmes.isNotEmpty()) {
+            for ((gt, gm) in gemmesC) {
+                if (gt !in voir || gm.pos.isEmpty()) continue
+                val g = gm.mod
                 if (passe == 1) GLES20.glDepthMask(true)
                 GLES20.glUseProgram(progG)
                 GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progG, "uMvp"), 1, false, mvp, 0)
                 GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progG, "uVue"), 1, false, vue, 0)
                 GLES20.glUniform1f(GLES20.glGetUniformLocation(progG, "uA"), a)
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texOr); GLES20.glUniform1i(GLES20.glGetUniformLocation(progG, "uTex"), 0)
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, gm.tex); GLES20.glUniform1i(GLES20.glGetUniformLocation(progG, "uTex"), 0)
                 val gp = GLES20.glGetAttribLocation(progG, "aPos"); val gn = GLES20.glGetAttribLocation(progG, "aN")
                 g.position(0); GLES20.glVertexAttribPointer(gp, 3, GLES20.GL_FLOAT, false, 24, g)
                 g.position(3); GLES20.glVertexAttribPointer(gn, 3, GLES20.GL_FLOAT, false, 24, g); g.position(0)
                 GLES20.glEnableVertexAttribArray(gp); GLES20.glEnableVertexAttribArray(gn)
                 val uP = GLES20.glGetUniformLocation(progG, "uPos"); val uA = GLES20.glGetUniformLocation(progG, "uAng")
-                for (q in gemmes) { GLES20.glUniform3f(uP, q[0], q[1], q[2] + 0.15f * Math.sin((t * 2f + q[3]).toDouble()).toFloat())
-                    GLES20.glUniform1f(uA, t * 1.6f + q[3]); GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, nGemme) }
+                val uE = GLES20.glGetUniformLocation(progG, "uEch")
+                for (q in gm.pos) { GLES20.glUniform3f(uP, q[0], q[1], q[2] + 0.15f * Math.sin((t * 2f + q[3]).toDouble()).toFloat())
+                    GLES20.glUniform1f(uA, t * 1.6f + q[3]); GLES20.glUniform1f(uE, q[4]); GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, gm.n) }
                 GLES20.glDisableVertexAttribArray(gp); GLES20.glDisableVertexAttribArray(gn)
                 GLES20.glDepthMask(false)
             }
@@ -636,15 +647,16 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             val voir = etat.voir
             for (passe in 0..1) {
                 if (passe == 0) GLES20.glDisable(GLES20.GL_DEPTH_TEST) else GLES20.glEnable(GLES20.GL_DEPTH_TEST)
-                for (t in "jrpfc") {                              // les cages en dernier (par-dessus)
+                for (t in "jkvrpfc") {                            // les cages en dernier (par-dessus)
                     val fb = objBuf[t] ?: continue
                     if (t !in voir) continue
-                    if (t == 'j' && gemme != null && texOr != 0) continue          // (build 249 : vraies gemmes, plus bas)
+                    if (gemmesC.containsKey(t)) continue                         // (build 249 : vraies gemmes, plus bas)
                     if (t == 'r' && texRouge != 0) continue
                     if (t == 'p' && texPouvoir.isNotEmpty()) continue
                     val (taille, coul) = when (t) {
                         'c' -> 30f to floatArrayOf(1f, 0.74f, 0.25f); 'f' -> 26f to floatArrayOf(0.62f, 0.95f, 1f)
                         'p' -> 18f to floatArrayOf(0.62f, 0.55f, 1f); 'r' -> 11f to floatArrayOf(1f, 0.25f, 0.22f)
+                        'k' -> 12f to floatArrayOf(0.95f, 0.1f, 0.3f); 'v' -> 15f to floatArrayOf(0.2f, 0.9f, 0.35f)
                         else -> 11f to floatArrayOf(1f, 0.92f, 0.28f) }
                     GLES20.glUniform1f(oT, taille * echelle); GLES20.glUniform1f(oF, if (t == 'c' || t == 'f') 1f else 0f)
                     GLES20.glUniform4f(oC, coul[0], coul[1], coul[2], if (passe == 0) 0.35f else 1f)
@@ -726,7 +738,8 @@ internal fun genrePouvoir(nom: String): String { val n = nom.lowercase(); return
 private fun nomObjet(scene: SceneR3, o: Objet3D): String {
     val meme = scene.objets.filter { it.type == o.type }
     val n = meme.indexOf(o) + 1
-    return when (o.type) { 'c' -> "Cage $n sur ${meme.size}"; 'f' -> "P'tit être $n sur ${meme.size}"; 'j' -> "Gemme"; 'r' -> "Lum rouge"
+    return when (o.type) { 'c' -> "Cage $n sur ${meme.size}"; 'f' -> "P'tit être $n sur ${meme.size}"; 'j' -> "Gemme jaune"
+        'k' -> "Gemme rouge"; 'v' -> "Gemme verte"; 'r' -> "Lum rouge"
         'p' -> "Pouvoir" + when { "rouade" in o.nom.lowercase() -> " : poing-roulade"; "grappin" in o.nom.lowercase() -> " : grappin"
             "force" in o.nom.lowercase() -> " : poing d'acier"; "snipe" in o.nom.lowercase() -> " : lockjaw"; "helico" in o.nom.lowercase() -> " : hélico"; else -> "" }
         else -> "" }
@@ -764,7 +777,7 @@ private fun ChoixObjets(scene: SceneR3, etat: Etat3D, modifier: Modifier, aller:
             PetitBouton("▶") { ic = (ic + 1) % cages.size; aller(cages[ic]) }
         }
         Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for ((t, nom, coul) in listOf(Triple('c', "Cages", 0xFFFFBD40), Triple('f', "P'tits êtres", 0xFF9EF2FF), Triple('j', "Gemmes", 0xFFFFEB47),
+            for ((t, nom, coul) in listOf(Triple('c', "Cages", 0xFFFFBD40), Triple('f', "P'tits êtres", 0xFF9EF2FF), Triple('j', "Gemmes jaunes", 0xFFFFEB47), Triple('k', "Gemmes rouges", 0xFFFF3B6B), Triple('v', "Gemmes vertes", 0xFF3DDC84),
                     Triple('r', "Lums rouges", 0xFFFF4038), Triple('p', "Pouvoirs", 0xFF9E8CFF))) {
                 val k = n[t] ?: continue
                 val actif = t in voir
@@ -817,7 +830,7 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier, toucher: (Fl
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     vueRef[0]?.requestRender()
     // build 245 : l'eau et la lave bougent : on redessine environ 30 fois par seconde tant que la vue est affichee
-    if (scene.groupes.any { it.eau > 0 } || scene.objets.any { it.type == 'j' }) androidx.compose.runtime.LaunchedEffect(Unit) {
+    if (scene.groupes.any { it.eau > 0 } || scene.objets.any { it.type in "jkv" }) androidx.compose.runtime.LaunchedEffect(Unit) {
         while (true) { kotlinx.coroutines.delay(33); vueRef[0]?.requestRender() }
     }
     DisposableEffect(Unit) {
