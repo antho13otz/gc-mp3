@@ -472,6 +472,36 @@ object JeuMKDD {
         return CartesMK.pos(x, y, z)
     }
 
+    /** build (appli) : les autres karts en direct, comme le tien. KartBody de chaque kart (index = numero du kart), releve
+     *  avec l'etat de la course ; la matrice +0x110 (rotation et position, 48 octets) suffit : un bloc par kart. */
+    @Volatile var kbs = LongArray(0)
+    class MatT(val a: FloatArray?, val ta: Long, val b: FloatArray, val tb: Long)
+    private val matsDirect = java.util.concurrent.ConcurrentHashMap<Int, MatT>()
+    fun lireAutresKarts() {
+        val ks = kbs
+        if (ks.size < 2) { matsDirect.clear(); return }
+        val l = Lecteur(2 * ks.size, 0)
+        for (n in 1 until ks.size) {
+            val kb = ks[n]; if (kb == 0L) continue
+            val m = FloatArray(12); var ok = true
+            for (q in 0 until 12) { val v = l.f32(kb + 0x110 + 4L * q); if (v == null || !v.isFinite()) { ok = false; break }; m[q] = v }
+            if (!ok) continue
+            val t = System.nanoTime()
+            val av = matsDirect[n]
+            matsDirect[n] = MatT(av?.b, av?.tb ?: t, m, t)
+        }
+    }
+    /** matrice d'un autre kart, glissee entre les deux dernieres lectures (pas de saut) ; null : pas de lecture recente */
+    fun matKart(n: Int): FloatArray? {
+        val e = matsDirect[n] ?: return null
+        val now = System.nanoTime()
+        if (now - e.tb > 1_000_000_000L) return null
+        val a = e.a ?: return e.b
+        val d = (e.tb - e.ta).coerceAtLeast(1L)
+        val al = ((now - e.tb).toFloat() / d).coerceIn(0f, 1f)
+        return FloatArray(12) { a[it] + (e.b[it] - a[it]) * al }
+    }
+
     class Kart(val n: Int, val x: Float, val z: Float, val place: Int, val y: Float = 0f,
                // v313 : pilotes, kart, objets, progression, bataille
                val pilote: Int = 0, val passager: Int = 0, val modele: Int = -1, val joueur: Boolean = false,
@@ -604,6 +634,7 @@ object JeuMKDD {
         // les karts (KartChecker : mLap 0x2C, mRaceEnd 0x29, mRaceProgression 0x54, mPos 0x5C, mRank 0x88, mBalloonNum 0x90,
         // mBombPoint 0xA6) ; leurs objets (ItemObjMgr : mStockItem[8][2] 0x24C, mEquipItem[8][2] 0x2CC -> mItemKind 0x7C)
         val karts = ArrayList<Kart>()
+        val kbsN = LongArray(nb)
         for (i in 0 until nb) {
             val k = l.ptr(rm + 0x48 + 4L * i) ?: continue
             val x = l.fini(l.f32(k + 0x5C)) ?: continue
@@ -619,6 +650,7 @@ object JeuMKDD {
             // build 296 : matrice du kart (KartBody +0x110 ; verifiee sur 3 photos de la memoire : sa position = celle du KartChecker)
             val kb = ctrl?.let { l.ptr(it + 0xA0 + 4L * i) }
             if (i == 0 && kb != null) kbJoueur = kb
+            if (kb != null) kbsN[i] = kb
             var mt: FloatArray? = null
             if (kb != null) { val m = FloatArray(12); var ok = true
                 for (q in 0 until 12) { val v = l.f32(kb + 0x110 + 4L * q); if (v == null || !v.isFinite()) { ok = false; break }; m[q] = v }
@@ -630,6 +662,7 @@ object JeuMKDD {
                 ballons = if (mode == 4) (l.s16(k + 0x90) ?: -1).takeIf { it in 0..9 } ?: -1 else -1,
                 points = if (mode == 6) (l.s16(k + 0xA6) ?: -1).takeIf { it in 0..99 } ?: -1 else -1, mat = mt))
         }
+        kbs = kbsN
         val s0 = l.ptr(kc + 0x44) ?: l.ptr(kc + 0x40)               // (troncon ou se trouve le kart 1)
         if (s0 != null && (crs != dernierCircuit || (trace.isEmpty() && maintenant - essai > 3000))) {
             dernierCircuit = crs; essai = maintenant; trace = emptyList(); lireTrace(Lecteur(700, 15), s0)   // (une fois par course, au rythme d'un bloc par image)
