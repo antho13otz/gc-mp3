@@ -457,11 +457,18 @@ object JeuMKDD {
     const val PAS_DE_TEMPS = 5999999
     @Volatile var kcJoueur = 0L
     /** build 269 : position de ton kart seule (un bloc), pour la vue 3D en direct ; repere de la vue */
+    /** build 296 : la matrice de ton kart (rotation du kart en 3D), lue avec sa position */
+    @Volatile var kbJoueur = 0L
+    @Volatile var matJoueur: FloatArray? = null
     fun positionDirecte(): FloatArray? {
         val kc = kcJoueur.takeIf { it != 0L } ?: return null
-        val l = Lecteur(2, 0)
+        val l = Lecteur(3, 0)
         val x = l.f32(kc + 0x5C) ?: return null; val y = l.f32(kc + 0x60) ?: return null; val z = l.f32(kc + 0x64) ?: return null
         if (!(x.isFinite() && y.isFinite() && z.isFinite()) || (x == 0f && z == 0f)) return null
+        val kb = kbJoueur
+        if (kb != 0L) { val m = FloatArray(12); var ok = true
+            for (q in 0 until 12) { val v = l.f32(kb + 0x110 + 4 * q); if (v == null || !v.isFinite()) { ok = false; break }; m[q] = v }
+            if (ok) matJoueur = m }
         return CartesMK.pos(x, y, z)
     }
 
@@ -469,7 +476,8 @@ object JeuMKDD {
                // v313 : pilotes, kart, objets, progression, bataille
                val pilote: Int = 0, val passager: Int = 0, val modele: Int = -1, val joueur: Boolean = false,
                val objet1: Int = 16, val objet2: Int = 16, val progres: Float = -1f, val tour: Int = 0, val fini: Boolean = false,
-               val ballons: Int = -1, val points: Int = -1)
+               val ballons: Int = -1, val points: Int = -1,
+               val mat: FloatArray? = null)          // build 296 : matrice du kart (KartBody +0x110 : rotation et position, 3 x 4)
     class Etat(val enCourse: Boolean, val fini: Boolean, val place: Int, val tour: Int, val tours: Int, val progres: Float,
                val tempsTours: List<Int>, val total: Int, val karts: List<Kart> = emptyList(), val circuit: Int = 0,
                val mode: Int = 0, val niveau: Int = -1, val coupe: Int = -1, val miroir: Boolean = false, val nbKarts: Int = 0, val meilleurTour: Int = -1,
@@ -592,6 +600,7 @@ object JeuMKDD {
         }
         val eqs = equipes
         val im = l.ptr(OBJETS)
+        val ctrl = l.ptr(CTRL)                                         // build 296 : KartCtrl (mKartBodies[8] en 0xA0)
         // les karts (KartChecker : mLap 0x2C, mRaceEnd 0x29, mRaceProgression 0x54, mPos 0x5C, mRank 0x88, mBalloonNum 0x90,
         // mBombPoint 0xA6) ; leurs objets (ItemObjMgr : mStockItem[8][2] 0x24C, mEquipItem[8][2] 0x2CC -> mItemKind 0x7C)
         val karts = ArrayList<Kart>()
@@ -607,12 +616,19 @@ object JeuMKDD {
                 return (l.s32(im + 0x24C + 16L * i + 8L * d) ?: 16).takeIf { it in 0..21 } ?: 16
             }
             val e = eqs.getOrNull(i)
+            // build 296 : matrice du kart (KartBody +0x110 ; verifiee sur 3 photos de la memoire : sa position = celle du KartChecker)
+            val kb = ctrl?.let { l.ptr(it + 0xA0 + 4L * i) }
+            if (i == 0 && kb != null) kbJoueur = kb
+            var mt: FloatArray? = null
+            if (kb != null) { val m = FloatArray(12); var ok = true
+                for (q in 0 until 12) { val v = l.f32(kb + 0x110 + 4L * q); if (v == null || !v.isFinite()) { ok = false; break }; m[q] = v }
+                if (ok) mt = m }
             karts.add(Kart(i, x, z, (l.s32(k + 0x88) ?: 0).takeIf { it in 1..8 } ?: 0, l.fini(l.f32(k + 0x60)) ?: 0f,      // (build 266 : hauteur, mPos.y)
                 pilote = e?.get(0) ?: 0, passager = e?.get(1) ?: 0, modele = e?.get(2) ?: -1, joueur = (e?.get(3) ?: 0) == 1 || i == 0,
                 objet1 = objetDe(0), objet2 = objetDe(1),
                 progres = l.fini(l.f32(k + 0x54), 1000f) ?: -1f, tour = l.s32(k + 0x2C) ?: 0, fini = (l.u8(k + 0x29) ?: 0) != 0,
                 ballons = if (mode == 4) (l.s16(k + 0x90) ?: -1).takeIf { it in 0..9 } ?: -1 else -1,
-                points = if (mode == 6) (l.s16(k + 0xA6) ?: -1).takeIf { it in 0..99 } ?: -1 else -1))
+                points = if (mode == 6) (l.s16(k + 0xA6) ?: -1).takeIf { it in 0..99 } ?: -1 else -1, mat = mt))
         }
         val s0 = l.ptr(kc + 0x44) ?: l.ptr(kc + 0x40)               // (troncon ou se trouve le kart 1)
         if (s0 != null && (crs != dernierCircuit || (trace.isEmpty() && maintenant - essai > 3000))) {
