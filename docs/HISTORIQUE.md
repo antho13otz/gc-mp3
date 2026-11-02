@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 217 — Rayman 3 en direct : plan du niveau avec ta position
+- Compagnon de jeu > **Rayman 3** (version européenne) : ta position, ton altitude et le nom du niveau en direct, et le
+  **plan du niveau** vu de dessus : ton chemin se dessine en avançant (R : Rayman, c : la caméra), un plan par niveau.
+  Adresses trouvées en comparant des photos de la mémoire, vérifiées dans deux mondes. Cages et tampons : Plus > Rayman 3.
+
 ## Nouveautés appli build 215 — Envoyer une sauvegarde depuis la fiche du jeu
 - Fiche d'un jeu > **Envoyer une sauvegarde (.gci)…** : choisis un .gci sur le téléphone, puis la carte : une carte
   virtuelle (celle du jeu en premier) ou une vraie carte mémoire (slot A ou B, hors partie).
