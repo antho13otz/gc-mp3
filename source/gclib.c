@@ -1312,7 +1312,7 @@ static int gl_fh_pump(void) {                             /* (1 : en cours) */
         char url[160];
         snprintf(url, sizeof(url), "http://art.gametdb.com/wii/coverfullHQ/%s/%s.png", rg, gl_fh.id);
         snprintf(gl_fh_rid, sizeof(gl_fh_rid), "%s", gl_fh.id);
-        gl_fh_hf.frame_cap = 12 * 1024;   /* v288 : en douceur (le reseau prenait le processeur : saccades) */
+        gl_fh_hf.frame_cap = 256 * 1024;  /* v320 : a pleine vitesse (fenetre de chargement par-dessus ; v288 : 12 Ko, la boite saccadait quand meme) */
         gl_fh_hf.maxbytes = 3 * 1024 * 1024; gl_fh_hf.image = 0; gl_fh_hf.accept = "image/png,image/*";
         hf_start(&gl_fh_hf, url, NULL);
         gl_fh_dl = 2;
