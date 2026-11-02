@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 270 — position fluide, Rayman en 3D
+- Vue 3D en direct (Rayman 3, Mario Kart) : la position est lue à part ~30 fois par seconde et lissée à chaque image :
+  plus de sauts, bien moins de retard.
+- **Rayman en 3D** dans la vue du compagnon (son modèle du jeu, avec ses mains), tourné vers où il va.
+- Portée de la vue agrandie pour les grands circuits de Mario Kart. Packs à jour : Rayman (modèle de Rayman), Mario Kart
+  (textures fusionnées des immeubles et du tunnel, plus de sommets effacés au Château de Bowser).
+
 ## Nouveautés appli build 268 — Mario Kart Double Dash en 3D
 - **Les 16 circuits et 6 arènes en 3D** avec leurs textures, l'eau et la lave animées, les **boîtes à objets** et la
   ligne de départ (pack à installer, fabriqué à part depuis les fichiers du jeu).
