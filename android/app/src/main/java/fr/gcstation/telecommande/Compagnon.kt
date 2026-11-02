@@ -561,7 +561,8 @@ object JeuMKDD {
                val pilote: Int = 0, val passager: Int = 0, val modele: Int = -1, val joueur: Boolean = false,
                val objet1: Int = 16, val objet2: Int = 16, val progres: Float = -1f, val tour: Int = 0, val fini: Boolean = false,
                val ballons: Int = -1, val points: Int = -1,
-               val mat: FloatArray? = null)          // build 296 : matrice du kart (KartBody +0x110 : rotation et position, 3 x 4)
+               val mat: FloatArray? = null,          // build 296 : matrice du kart (KartBody +0x110 : rotation et position, 3 x 4)
+               val echange: Boolean = false)         // (Z : le passager conduit ; KartBody +0x5B2 != 0, verifie sur 9 photos de la memoire)
     class Etat(val enCourse: Boolean, val fini: Boolean, val place: Int, val tour: Int, val tours: Int, val progres: Float,
                val tempsTours: List<Int>, val total: Int, val karts: List<Kart> = emptyList(), val circuit: Int = 0,
                val mode: Int = 0, val niveau: Int = -1, val coupe: Int = -1, val miroir: Boolean = false, val nbKarts: Int = 0, val meilleurTour: Int = -1,
@@ -714,7 +715,8 @@ object JeuMKDD {
                 objet1 = objetDe(0), objet2 = objetDe(1),
                 progres = l.fini(l.f32(k + 0x54), 1000f) ?: -1f, tour = l.s32(k + 0x2C) ?: 0, fini = (l.u8(k + 0x29) ?: 0) != 0,
                 ballons = if (mode == 4) (l.s16(k + 0x90) ?: -1).takeIf { it in 0..9 } ?: -1 else -1,
-                points = if (mode == 6) (l.s16(k + 0xA6) ?: -1).takeIf { it in 0..99 } ?: -1 else -1, mat = mt))
+                points = if (mode == 6) (l.s16(k + 0xA6) ?: -1).takeIf { it in 0..99 } ?: -1 else -1, mat = mt,
+                echange = kb != null && (l.u8(kb + 0x5B2) ?: 0) != 0))
         }
         kbs = kbsN
         val s0 = l.ptr(kc + 0x44) ?: l.ptr(kc + 0x40)               // (troncon ou se trouve le kart 1)
