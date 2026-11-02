@@ -23,10 +23,10 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 
 /** un maillage : 9 flottants par triangle (x y z, Z vers le haut) et une couleur par triangle */
-class Maillage(val t: FloatArray, val couleurs: IntArray) {
+class MaillageNiveau(val t: FloatArray, val couleurs: IntArray) {
     companion object {
         /** fichier du pack : nombre de triangles (u32 gros-boutiste) puis 9 flottants par triangle */
-        fun lire(f: java.io.File): Maillage? = try {
+        fun lire(f: java.io.File): MaillageNiveau? = try {
             val b = java.nio.ByteBuffer.wrap(f.readBytes())
             val n = b.int
             if (n <= 0 || n > 200000) null else {
@@ -46,14 +46,14 @@ class Maillage(val t: FloatArray, val couleurs: IntArray) {
                     val bl = ((150 + 90 * (1 - h)) * lum).toInt().coerceIn(0, 255)
                     (0xFF shl 24) or (r shl 16) or (g shl 8) or bl
                 }
-                Maillage(t, c)
+                MaillageNiveau(t, c)
             }
         } catch (e: Exception) { null }
     }
 }
 
 /** ce que montre la vue : le maillage, la cible (Rayman), la camera du jeu (pour le point de vue par defaut), des reperes */
-class Vue3D(val m: Maillage, val cible: FloatArray, val camera: FloatArray?, val chemin: List<FloatArray> = emptyList())
+class Vue3D(val m: MaillageNiveau, val cible: FloatArray, val camera: FloatArray?, val chemin: List<FloatArray> = emptyList())
 
 @Composable
 fun DessinVue3D(v: Vue3D) {

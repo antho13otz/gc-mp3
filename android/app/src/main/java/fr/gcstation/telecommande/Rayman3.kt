@@ -233,13 +233,13 @@ object CartesR3 {
         synchronized(cache) { cache[k] = r }
         return r
     }
-    private val maillages = HashMap<String, Maillage?>()
+    private val maillages = HashMap<String, MaillageNiveau?>()
     /** build 224 : le maillage 3D du niveau (rayman3/<niveau>.3d du pack) */
-    fun maillage(niveau: String): Maillage? {
+    fun maillage(niveau: String): MaillageNiveau? {
         val k = niveau.lowercase()
         synchronized(maillages) { if (maillages.containsKey(k)) return maillages[k] }
         val d = dossier ?: return null
-        val m = java.io.File(d, "$k.3d").takeIf { it.exists() }?.let { Maillage.lire(it) }
+        val m = java.io.File(d, "$k.3d").takeIf { it.exists() }?.let { MaillageNiveau.lire(it) }
         synchronized(maillages) { maillages[k] = m }
         return m
     }
