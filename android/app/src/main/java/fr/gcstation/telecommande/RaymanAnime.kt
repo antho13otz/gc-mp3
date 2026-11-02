@@ -111,22 +111,125 @@ class ModeleAnime(val geos: Map<Int, Geo>, val po: Map<Long, Int>, val tex: Map<
     }
 }
 
-/** une pose lue dans la memoire : 25 noeuds (matrice brute : 12 flottants par lignes + translation), l'objet de chaque noeud */
+/** une pose lue dans la memoire : 25 noeuds (matrice brute : 12 flottants par lignes + translation), l'objet de chaque noeud.
+ *  Build 284 : avec [anim], l'appli rejoue elle-meme l'animation du jeu a partir de [image] (et de sa vitesse). */
 class PoseRayman(val mat: FloatArray, val types: IntArray, val data: LongArray, val fix4: Long, val pos: FloatArray,
                  val textures: Map<Long, String>, val t: Long = System.nanoTime(),
-                 val ou: FloatArray? = null) {     // (build 278 : position de Rayman lue avec sa rotation, a la meme image que la pose)
-    companion object { const val N = 25 }
+                 val ou: FloatArray? = null,       // (build 278 : position de Rayman lue avec sa rotation, a la meme image que la pose)
+                 val anim: AnimA3D? = null, val image: Float = 0f, val parents: IntArray? = null, val rot: FloatArray? = null,
+                 val base: FloatArray? = null) {
+    companion object {
+        const val N = 25
+        /** recomposition : G = P L (rangement du jeu : element [4j + i] = ligne i, colonne j de la rotation ; translation a 12..14) */
+        fun composer(loc: FloatArray, pa: IntArray, rr: FloatArray, mat: FloatArray = FloatArray(N * 15)): FloatArray {
+            val fait = BooleanArray(N)
+            fun calc(k: Int, prof: Int) {
+                if (fait[k]) return
+                val p = pa[k]
+                if (p >= 0 && prof < 30) calc(p, prof + 1)
+                val P = if (p >= 0 && fait[p]) mat else rr; val po = if (p >= 0 && fait[p]) p * 15 else 0
+                val px = if (p >= 0 && fait[p]) mat[po + 12] else 0f; val py = if (p >= 0 && fait[p]) mat[po + 13] else 0f; val pz = if (p >= 0 && fait[p]) mat[po + 14] else 0f
+                val o = k * 15
+                for (i in 0..2) {
+                    for (j in 0..2) { var s = 0f; for (q in 0..2) s += P[po + 4 * q + i] * loc[o + 4 * j + q]; mat[o + 4 * j + i] = s }
+                    var s = 0f; for (q in 0..2) s += P[po + 4 * q + i] * loc[o + 12 + q]; mat[o + 12 + i] = s + (if (i == 0) px else if (i == 1) py else pz)
+                }
+                fait[k] = true
+            }
+            for (k in 0 until N) calc(k, 0)
+            return mat
+        }
+    }
+}
+
+/** build 284 : une animation du jeu (format A3D de Rayman 3 GameCube), lue une fois dans la memoire puis rejouee par l'appli.
+ *  Format trouve sur quatre photos de la memoire (attente, course, saut, poing) : en-tete de 30 u16 (vitesse, vecteurs,
+ *  quaternions, hierarchie, NTTO, numNTTO, ?, canaux, images, 0, 0, cles...), puis vecteurs (3 flottants), quaternions
+ *  (4 s16 / 32767 : x y z w), hierarchie (2 u16), NTTO (6 octets), une fiche de 14 octets par image, (alignement 4),
+ *  canaux (16 octets : nombre de cles, numero, NTTO, debut dans la table image->cle, premiere cle), numNTTO (u16),
+ *  (alignement 4), table image -> cle (u32 par canal et par image), cles (14 octets : image, drapeaux, quaternion, 0,
+ *  echelle, translation, ?). Rotation locale du noeud = transposee de celle du quaternion, colonnes multipliees par
+ *  l'echelle. Image affichee : +0xD4 des donnees 3D du perso (verifie : ecart < 0,002 sur la pose d'attente). */
+class AnimA3D(b: ByteArray, h: Int) {
+    val vitesse: Int; val nf: Int
+    private val vec: FloatArray; private val quat: FloatArray
+    private val chNkf: IntArray; private val chId: IntArray; private val chFs: IntArray; private val chKs: IntArray
+    private val fkf: IntArray
+    private val kImg: IntArray; private val kQ: IntArray; private val kE: IntArray; private val kT: IntArray
+    val octets: Int
+    init {
+        fun u16(o: Int) = ((b[o].toInt() and 255) shl 8) or (b[o + 1].toInt() and 255)
+        fun s16(o: Int) = u16(o).toShort().toInt()
+        fun u32(o: Int) = ((b[o].toInt() and 255) shl 24) or ((b[o + 1].toInt() and 255) shl 16) or ((b[o + 2].toInt() and 255) shl 8) or (b[o + 3].toInt() and 255)
+        fun f32(o: Int) = java.lang.Float.intBitsToFloat(u32(o))
+        val c = IntArray(17) { u16(h + 2 * it) }
+        vitesse = c[0]; nf = c[8]
+        val nv = c[1]; val nq = c[2]; val nh = c[3]; val nn = c[4]; val nnn = c[5]; val nch = c[7]; val nkf = c[11]
+        require(nf in 1..5000 && nch in 1..64 && nkf in 1..20000)
+        var o = h + 0x3c
+        vec = FloatArray(3 * nv) { f32(o + 4 * it) }; o += 12 * nv
+        quat = FloatArray(4 * nq) { s16(o + 2 * it) / 32767f }; o += 8 * nq
+        o += 4 * nh + 6 * nn + 14 * nf; o = (o + 3) and 3.inv()
+        chNkf = IntArray(nch) { u16(o + 16 * it) }; chId = IntArray(nch) { u16(o + 16 * it + 2) }
+        chFs = IntArray(nch) { u32(o + 16 * it + 8) }; chKs = IntArray(nch) { u32(o + 16 * it + 12) }
+        o += 16 * nch; o += 2 * nch * nnn; o = (o + 3) and 3.inv()
+        fkf = IntArray(nch * nf) { u32(o + 4 * it) }; o += 4 * nch * nf
+        kImg = IntArray(nkf) { u16(o + 14 * it) }; kQ = IntArray(nkf) { u16(o + 14 * it + 4) }
+        kE = IntArray(nkf) { u16(o + 14 * it + 8) }; kT = IntArray(nkf) { u16(o + 14 * it + 10) }
+        o += 14 * nkf
+        octets = o - h
+        for (k in 0 until nkf) require(kQ[k] < nq && kE[k] < nv && kT[k] < nv)
+        for (k in 0 until nch) require(chKs[k] + chNkf[k] <= nkf && chFs[k] + nf <= fkf.size)
+        for (v in fkf) require(v in 0 until nkf)
+    }
+    /** matrices locales des noeuds a l'image t (seuls les noeuds animes sont ecrits) */
+    fun locales(t: Float, loc: FloatArray) {
+        val f = (Math.floor(t.toDouble()).toInt() % nf + nf) % nf
+        for (k in chId.indices) {
+            val n = CANAL_NOEUD[chId[k]] ?: continue
+            val i = fkf[chFs[k] + f]
+            val j = if (i + 1 < chKs[k] + chNkf[k]) i + 1 else chKs[k]
+            val fa = kImg[i].toFloat(); var fb = kImg[j].toFloat(); if (fb <= fa) fb = nf.toFloat()
+            val tt = t - Math.floor(t.toDouble() / nf).toFloat() * nf
+            val u = if (fb == fa) 0f else ((tt - fa) / (fb - fa)).coerceIn(0f, 1f)
+            val qa = kQ[i] * 4; val qb = kQ[j] * 4
+            val sg = if (quat[qa] * quat[qb] + quat[qa + 1] * quat[qb + 1] + quat[qa + 2] * quat[qb + 2] + quat[qa + 3] * quat[qb + 3] < 0f) -1f else 1f
+            var x = quat[qa] * (1 - u) + sg * quat[qb] * u; var y = quat[qa + 1] * (1 - u) + sg * quat[qb + 1] * u
+            var z = quat[qa + 2] * (1 - u) + sg * quat[qb + 2] * u; var w = quat[qa + 3] * (1 - u) + sg * quat[qb + 3] * u
+            val ln = Math.sqrt((x * x + y * y + z * z + w * w).toDouble()).toFloat().coerceAtLeast(1e-6f); x /= ln; y /= ln; z /= ln; w /= ln
+            val ea = kE[i] * 3; val eb = kE[j] * 3; val ta = kT[i] * 3; val tb = kT[j] * 3
+            // rotation du quaternion (R), le noeud prend sa transposee ; colonne j multipliee par l'echelle j
+            val R = floatArrayOf(1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w),
+                                 2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w),
+                                 2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y))
+            val o = n * 15
+            for (jj in 0..2) { val e = vec[ea + jj] * (1 - u) + vec[eb + jj] * u
+                for (ii in 0..2) loc[o + 4 * jj + ii] = R[3 * jj + ii] * e }      // (Gr[i][j] = R[j][i] * e[j], range en [4j + i])
+            for (jj in 0..2) loc[o + 12 + jj] = vec[ta + jj] * (1 - u) + vec[tb + jj] * u
+        }
+    }
+    companion object {
+        /** numero de canal des animations de Rayman -> noeud de son squelette (ordre de ses fiches de canaux en memoire) */
+        val CANAL_NOEUD: Map<Int, Int> = mapOf(0 to 0, 1 to 1, 3 to 2, 4 to 3, 5 to 5, 6 to 7, 7 to 8, 8 to 9, 9 to 11, 10 to 4, 11 to 6,
+            12 to 10, 13 to 12, 14 to 13, 15 to 14, 16 to 15, 17 to 16, 18 to 17, 19 to 18, 20 to 19, 21 to 20, 22 to 21, 25 to 22, 26 to 23, 111 to 24)
+    }
 }
 
 object LecturePose {
-    private var so0 = 0L; private var l0 = 0L; private var mr = 0L; private var fix4 = 0L; private var verifie = 0L
+    private var so0 = 0L; private var l0 = 0L; private var mr = 0L; private var fix4 = 0L; private var d3 = 0L; private var verifie = 0L
     private var objets: Triple<IntArray, LongArray, IntArray>? = null; private var tObjets = 0L
     private var textures: Map<Long, String> = emptyMap(); private var tTex = 0L
+    // build 284 : animations deja lues (par nom), et celles qu'on n'a pas su lire (on reessaie plus tard)
+    private val anims = java.util.concurrent.ConcurrentHashMap<String, AnimA3D>(); private val rates = java.util.concurrent.ConcurrentHashMap<String, Long>()
+    private var refNom = 0L; private var nom = ""
+    @Volatile private var chargement: Thread? = null
     /** build 276 : les matrices globales du jeu sont lues bloc par bloc, donc a des images differentes : quand Rayman va
      *  vite, les morceaux se decalaient. On lit donc les matrices LOCALES (chaque noeud par rapport a son parent, tableau
      *  contigu pointe par +0x20 des noeuds) et la rotation de Rayman, et on recompose le squelette ici, autour de Rayman
-     *  (verifie sur les quatre photos : la recomposition redonne les matrices globales du jeu). */
-    fun lire(mod: ModeleAnime?): PoseRayman? {
+     *  (verifie sur les quatre photos : la recomposition redonne les matrices globales du jeu).
+     *  Build 284 : si l'animation en cours est connue (nom lu dans le jeu), on ne lit plus que son image et la place de
+     *  Rayman (2 blocs) ; l'appli rejoue l'animation a chaque image de l'ecran. */
+    fun lire(mod: ModeleAnime?, dossier: File? = null): PoseRayman? {
         mod ?: return null
         val now = System.currentTimeMillis()
         val l = Lecteur(24, 0)
@@ -138,9 +241,10 @@ object LecturePose {
             if (l.u32(s) != 8L) return null
             l0 = l.ptr(s + 0x20) ?: return null
             mr = l.ptr(mod.ray + 0x24) ?: return null
-            so0 = s; fix4 = perso - mod.perso; verifie = now; tObjets = 0L
+            d3 = l.ptr(perso) ?: 0L
+            so0 = s; fix4 = perso - mod.perso; verifie = now
         }
-        if (now - tObjets > 400 || objets == null) {              // (l'objet de chaque noeud : corps, mains, pouvoirs ; et son parent)
+        if (now - tObjets > 1000 || objets == null) {             // (l'objet de chaque noeud : corps, mains, pouvoirs ; et son parent)
             val ty = IntArray(PoseRayman.N); val da = LongArray(PoseRayman.N); val pa = IntArray(PoseRayman.N)
             for (k in 0 until PoseRayman.N) {
                 val so = so0 + 0x80L * k
@@ -151,36 +255,43 @@ object LecturePose {
             objets = Triple(ty, da, pa); tObjets = now
         }
         val (ty, da, pa) = objets ?: return null
-        // rotation de Rayman (sa position, elle, vient de la lecture rapide : le squelette est dessine autour)
+        // rotation et position de Rayman (un bloc)
         val rr = FloatArray(12)
         for (j in 0 until 12) rr[j] = l.f32(mr + 4 + 4 * j) ?: return null
-        val loc = FloatArray(PoseRayman.N * 15)
-        for (k in 0 until PoseRayman.N) {
-            val a = l0 + 0x54L * k
-            for (j in 0 until 12) loc[k * 15 + j] = l.f32(a + 4 + 4 * j) ?: return null
-            for (j in 0..2) loc[k * 15 + 12 + j] = l.f32(a + 0x34 + 4 * j) ?: return null
-        }
-        if (loc.any { !it.isFinite() || Math.abs(it) > 1e5f } || rr.any { !it.isFinite() || Math.abs(it) > 1e3f }) { so0 = 0L; return null }
-        // recomposition : G = P L (rangement du jeu : element [4j + i] = ligne i, colonne j de la rotation ; translation a 12..14)
-        val mat = FloatArray(PoseRayman.N * 15); val fait = BooleanArray(PoseRayman.N)
-        fun calc(k: Int, prof: Int) {
-            if (fait[k]) return
-            val p = pa[k]
-            if (p >= 0 && prof < 30) calc(p, prof + 1)
-            val P = if (p >= 0 && fait[p]) mat else rr; val po = if (p >= 0 && fait[p]) p * 15 else 0
-            val pt = if (p >= 0 && fait[p]) floatArrayOf(mat[po + 12], mat[po + 13], mat[po + 14]) else floatArrayOf(0f, 0f, 0f)
-            val o = k * 15
-            for (i in 0..2) {
-                for (j in 0..2) { var s = 0f; for (q in 0..2) s += P[po + 4 * q + i] * loc[o + 4 * j + q]; mat[o + 4 * j + i] = s }
-                var s = 0f; for (q in 0..2) s += P[po + 4 * q + i] * loc[o + 12 + q]; mat[o + 12 + i] = s + pt[i]
-            }
-            fait[k] = true
-        }
-        for (k in 0 until PoseRayman.N) calc(k, 0)
-        val pos = FloatArray(3)
         val ou = FloatArray(3)
         for (j in 0..2) ou[j] = l.f32(mr + 0x34 + 4 * j) ?: return null
-        if (ou.any { !it.isFinite() || Math.abs(it) > 1e5f }) return null
+        if (ou.any { !it.isFinite() || Math.abs(it) > 1e5f } || rr.any { !it.isFinite() || Math.abs(it) > 1e3f }) { so0 = 0L; return null }
+        val pos = FloatArray(3)
+        // build 284 : l'animation en cours (nom et image : un bloc)
+        var anim: AnimA3D? = null; var image = 0f
+        if (d3 != 0L) {
+            val ref = l.ptr(d3 + 0xBC); val img = l.f32(d3 + 0xD4); val hier = l.ptr(d3 + 0x7C)
+            if (ref != null && img != null && img.isFinite() && hier != null) {
+                if (ref != refNom) {          // (nom du fichier de l'animation, lu octet par octet : il peut passer d'un bloc a l'autre)
+                    val sb = StringBuilder()
+                    for (k in 0 until 0x50) { val c = l.u8(ref + k) ?: break; if (c == 0) break; sb.append(c.toChar()) }
+                    nom = sb.toString().substringAfterLast('\\').lowercase(); refNom = ref
+                }
+                anim = anims[nom]
+                if (anim == null && nom.isNotEmpty()) charger(nom, hier, dossier)
+                if (anim != null) image = img
+            }
+        }
+        val loc = FloatArray(PoseRayman.N * 15)
+        if (anim == null) {
+            // (pas d'animation connue : on lit les 25 matrices locales, 3 a 4 blocs)
+            for (k in 0 until PoseRayman.N) {
+                val a = l0 + 0x54L * k
+                for (j in 0 until 12) loc[k * 15 + j] = l.f32(a + 4 + 4 * j) ?: return null
+                for (j in 0..2) loc[k * 15 + 12 + j] = l.f32(a + 0x34 + 4 * j) ?: return null
+            }
+            if (loc.any { !it.isFinite() || Math.abs(it) > 1e5f }) { so0 = 0L; return null }
+            dernieresLocales = loc
+        } else {
+            System.arraycopy(dernieresLocales ?: identites(), 0, loc, 0, loc.size)
+            anim.locales(image, loc)
+        }
+        val mat = PoseRayman.composer(loc, pa, rr)
         if (now - tTex > 1000) {                                   // (la texture de chaque morceau affiche : change avec les pouvoirs)
             val r = HashMap<Long, String>()
             for ((g, _) in mod.morceaux(PoseRayman(mat, ty, da, fix4, pos, emptyMap()))) for (e in mod.geos[g]?.el ?: emptyList()) {
@@ -190,6 +301,50 @@ object LecturePose {
             }
             textures = r; tTex = now
         }
-        return PoseRayman(mat, ty, da, fix4, pos, textures, ou = ou)
+        return PoseRayman(mat, ty, da, fix4, pos, textures, ou = ou, anim = anim, image = image, parents = pa, rot = rr,
+            base = if (anim != null) (dernieresLocales ?: identites()) else null)
+    }
+    @Volatile private var dernieresLocales: FloatArray? = null
+    private fun identites() = FloatArray(PoseRayman.N * 15) { val j = it % 15; if (j == 0 || j == 5 || j == 10) 1f else 0f }
+
+    /** lire une animation dans la memoire (une fois) : la fenetre autour de sa hierarchie, en tache de fond */
+    private fun charger(nom: String, hier: Long, dossier: File?) {
+        if ((rates[nom] ?: 0L) > System.currentTimeMillis()) return
+        if (chargement?.isAlive == true) return
+        val f = dossier?.let { File(File(it, "anims-r3"), nom.replace(Regex("[^a-z0-9_.]"), "_") + ".bin") }
+        if (f != null && f.exists()) try { anims[nom] = AnimA3D(f.readBytes(), 0); return } catch (e: Throwable) { f.delete() }
+        chargement = Thread {
+            try {
+                var ok = false
+                for (avant in intArrayOf(0x3000, 0x8000)) {
+                    val debut = (hier - avant) and 0x3FFL.inv(); val fin = hier + avant * 2
+                    val w = ByteArray((fin - debut).toInt())
+                    var b = debut; var trou = false
+                    while (b < fin) { val d = MemoireJeu.bloc(b); if (d == null) { trou = true; break }; System.arraycopy(d, 0, w, (b - debut).toInt(), MemoireJeu.BLK); b += MemoireJeu.BLK; Thread.sleep(2) }
+                    if (trou) break
+                    val H = (hier - debut).toInt()
+                    var h = H - 0x3c
+                    while (h >= 0 && !ok) {
+                        val nv = ((w[h + 2].toInt() and 255) shl 8) or (w[h + 3].toInt() and 255)
+                        val nq = ((w[h + 4].toInt() and 255) shl 8) or (w[h + 5].toInt() and 255)
+                        if (h + 0x3c + nv * 12 + nq * 8 == H && nv > 0 && nq > 0) {
+                            try {
+                                val a = AnimA3D(w, h)
+                                if (h + a.octets <= w.size) {
+                                    val brut = w.copyOfRange(h, h + a.octets)
+                                    val a2 = AnimA3D(brut, 0)
+                                    anims[nom] = a2
+                                    f?.let { it.parentFile?.mkdirs(); it.writeBytes(brut) }
+                                    ok = true
+                                }
+                            } catch (e: Throwable) { }
+                        }
+                        h -= 2
+                    }
+                    if (ok) break
+                }
+                if (!ok) rates[nom] = System.currentTimeMillis() + 10_000
+            } catch (e: Throwable) { rates[nom] = System.currentTimeMillis() + 10_000 }
+        }.also { it.isDaemon = true; it.start() }
     }
 }

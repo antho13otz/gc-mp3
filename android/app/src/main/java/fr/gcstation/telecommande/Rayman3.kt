@@ -261,7 +261,7 @@ object JeuRayman3 : ModuleJeu("Rayman 3", "GRHP41") {
             if (sc != null && z != null) try { ramasses(sc, x, y, z) } catch (e: Exception) { }
             if ((mail != null || sc != null) && z != null) blocs.add(Bloc("Le niveau en 3D", vue3d = Vue3D(mail, floatArrayOf(x, y, z),
                 if (cx != null && cy != null) floatArrayOf(cx, cy) else null, ArrayList(ch3), sc, direct = { positionDirecte() },
-                pose = if (sc != null) ({ LecturePose.lire(ModeleAnime.pour(sc.dossier)) }) else null),
+                pose = if (sc != null) ({ LecturePose.lire(ModeleAnime.pour(sc.dossier), sc.dossier) }) else null),
                 texte = "Rayman bouge comme dans le jeu (pack des cartes à jour). Un doigt : tourner autour de Rayman · deux doigts : zoom · double toucher : revenir derrière la caméra du jeu."))
             val pts = ArrayList<FloatArray>(ch); for (p in pions) pts.add(floatArrayOf(p.x, p.z))
             val n = ch.size
