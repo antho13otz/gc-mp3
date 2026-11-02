@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 225 — Rayman 3 : le niveau en 3D pendant que tu joues
+- Compagnon de jeu > Rayman 3 > **Le niveau en 3D** : un petit moteur 3D dans l'appli affiche le niveau (sols et murs du
+  pack de cartes), Rayman en rouge et ton chemin. Vu par défaut depuis derrière la caméra du jeu ; un doigt : tourner,
+  deux doigts : zoom, double toucher : revenir. Il faut le nouveau pack de cartes (avec les fichiers .3d).
+
 ## Nouveautés appli build 222 — Rayman 3 : la vraie carte du niveau sous ta position
 - Compagnon de jeu > Rayman 3 : le plan affiche la **vraie carte du niveau** (sols et murs vus de dessus, plus clairs en
   hauteur), avec ta position et ton chemin par-dessus. Les cartes ne sont pas dans l'appli : un pack .zip fabriqué à part
