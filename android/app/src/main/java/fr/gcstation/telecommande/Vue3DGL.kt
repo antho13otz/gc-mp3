@@ -160,8 +160,47 @@ class Etat3D {
     @Volatile var decal = floatArrayOf(0f, 0f, 0f)       // (build 236 : deplacement a deux doigts, ajoute a la cible)
     @Volatile var redessiner: () -> Unit = {}
     @Volatile var voir = "cfjrp"                          // build 245 : types d'objets affiches
+    // build 247 : derniere projection dessinee (pour savoir quel objet est sous le doigt) et vol anime de la camera
+    @Volatile var mvpVue: FloatArray? = null; @Volatile var vueW = 1; @Volatile var vueH = 1
+    var vol: kotlinx.coroutines.Job? = null
+    /** voler en douceur vers un point (coordonnees du monde), une distance, une inclinaison, un cap */
+    fun voler(scope: kotlinx.coroutines.CoroutineScope, vers: FloatArray? = null, d: Float? = null, tg: Float? = null, l: Float? = null) {
+        vol?.cancel()
+        if (lacet.isNaN()) lacet = lacetActuel()
+        val c = cible; val dc0 = decal.copyOf(); val dist0 = dist; val tg0 = tangage; val l0 = lacet
+        val dc1 = if (vers != null) floatArrayOf(vers[0] - c[0], vers[1] - c[1], vers[2] - c[2]) else dc0
+        var dl = (l ?: l0) - l0
+        while (dl > Math.PI) dl -= (2 * Math.PI).toFloat(); while (dl < -Math.PI) dl += (2 * Math.PI).toFloat()
+        vol = scope.launch {
+            val t0 = System.nanoTime()
+            while (true) {
+                androidx.compose.runtime.withFrameNanos { }
+                val k = ((System.nanoTime() - t0) / 450e6).toFloat().coerceAtMost(1f)
+                val e = 1f - (1f - k) * (1f - k) * (1f - k)          // depart vif, arrivee douce
+                decal = FloatArray(3) { dc0[it] + (dc1[it] - dc0[it]) * e }
+                dist = dist0 + ((d ?: dist0) - dist0) * e; tangage = tg0 + ((tg ?: tg0) - tg0) * e; lacet = l0 + dl * e
+                redessiner()
+                if (k >= 1f) break
+            }
+        }
+    }
+    /** l'objet le plus proche du doigt (en pixels de la vue), parmi les sortes affichees ; null si rien a moins de 48 px */
+    fun objetSous(objets: List<Objet3D>, x: Float, y: Float): Objet3D? {
+        val m = mvpVue ?: return null; var best: Objet3D? = null; var bd = 48f * 48f
+        for (o in objets) {
+            if (o.type !in voir) continue
+            val z = o.z + (if (o.type == 'c' || o.type == 'f') 1.2f else 0.6f)
+            val cx = m[0] * o.x + m[4] * o.y + m[8] * z + m[12]; val cy = m[1] * o.x + m[5] * o.y + m[9] * z + m[13]
+            val cw = m[3] * o.x + m[7] * o.y + m[11] * z + m[15]
+            if (cw <= 0.1f) continue
+            val sx = (cx / cw * 0.5f + 0.5f) * vueW; val sy = (1f - (cy / cw * 0.5f + 0.5f)) * vueH
+            val dd = (sx - x) * (sx - x) + (sy - y) * (sy - y) - (if (o.type == 'c') 300f else 0f)   // (les cages gagnent a egalite)
+            if (dd < bd) { bd = dd; best = o }
+        }
+        return best
+    }
     @Volatile var distBase = 70f                           // (build 242 : distance de depart, adaptee a la taille du niveau)
-    fun recentrer() { lacet = Float.NaN; tangage = 0.5f; dist = distBase; decal = floatArrayOf(0f, 0f, 0f) }
+    fun recentrer() { lacet = Float.NaN; tangage = if (montrerRayman) 0.5f else 0.75f; dist = distBase; decal = floatArrayOf(0f, 0f, 0f) }
     /** build 242 : une vue du dessus cadrant tout le niveau */
     fun dessus() { if (lacet.isNaN()) lacet = lacetActuel(); tangage = 1.5f; dist = maxOf(dist, distBase * 1.6f) }
     /** build 242 : zoom par boutons (facteur < 1 : rapprocher) */
@@ -429,6 +468,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         val ez = c[2] + (Math.sin(tg.toDouble()) * d).toFloat()
         android.opengl.Matrix.setLookAtM(vue, 0, ex, ey, ez, c[0], c[1], c[2], 0f, 0f, 1f)
         android.opengl.Matrix.multiplyMM(mvp, 0, proj, 0, vue, 0)
+        etat.mvpVue = mvp.copyOf(); etat.vueW = ecranW; etat.vueH = ecranH
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
         GLES20.glUseProgram(progCiel)
@@ -526,38 +566,88 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
     etat.cible = cible; etat.camera = camera; etat.montrerRayman = montrerRayman
     etat.chemin = FloatArray(chemin.size * 3).also { a -> for ((k, p) in chemin.withIndex()) { a[k * 3] = p[0]; a[k * 3 + 1] = p[1]; a[k * 3 + 2] = p[2] } }
     var plein by remember(scene) { androidx.compose.runtime.mutableStateOf(false) }
+    // build 247 : toucher un objet -> la camera y vole et son nom s'affiche ; double toucher ailleurs -> zoom
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    var etiquette by remember(scene) { androidx.compose.runtime.mutableStateOf<String?>(null) }
+    val toucher: (Float, Float, Boolean) -> Unit = { x, y, double ->
+        val o = etat.objetSous(scene.objets, x, y)
+        if (o != null) { etiquette = nomObjet(scene, o); allerA(scope, etat, o) }
+        else if (double) etat.voler(scope, d = (etat.dist * 0.5f).coerceAtLeast(4f))
+    }
+    androidx.compose.runtime.LaunchedEffect(etiquette) { if (etiquette != null) { kotlinx.coroutines.delay(3500); etiquette = null } }
+    @Composable fun Etiquette(m: Modifier) { val e = etiquette ?: return
+        Text(e, color = Color.White, fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Bold,
+            modifier = m.background(Color(0xCC1A1530), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) }
     Box(Modifier.fillMaxWidth().aspectRatio(1.1f)) {
-        if (!plein) VueGL(scene, etat, Modifier.fillMaxSize())
+        if (!plein) VueGL(scene, etat, Modifier.fillMaxSize(), toucher)
         Row(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            PetitBouton("⟲") { etat.recentrer(); etat.redessiner() }
+            PetitBouton("⟲") { etat.voler(scope, vers = etat.cible, d = etat.distBase, tg = if (etat.montrerRayman) 0.5f else 0.75f) }
             PetitBouton("⛶ Plein écran") { plein = true }
         }
+        Etiquette(Modifier.align(androidx.compose.ui.Alignment.TopStart).padding(8.dp))
         BoutonsZoom(etat, Modifier.align(androidx.compose.ui.Alignment.BottomEnd).padding(8.dp))
+        BoutonsVue(scope, etat, Modifier.align(androidx.compose.ui.Alignment.BottomStart).padding(8.dp))
     }
-    ChoixObjets(scene, etat, Modifier.padding(top = 6.dp))
+    ChoixObjets(scene, etat, Modifier.padding(top = 6.dp)) { o -> etiquette = nomObjet(scene, o); allerA(scope, etat, o) }
     if (plein) androidx.compose.ui.window.Dialog({ plein = false }, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(Color(0xFF6B80AE))) {
-            VueGL(scene, etat, Modifier.fillMaxSize())
+            VueGL(scene, etat, Modifier.fillMaxSize(), toucher)
             Row(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top = 40.dp, end = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PetitBouton("⟲ Recentrer") { etat.recentrer(); etat.redessiner() }
-                PetitBouton("⬇ De dessus") { etat.dessus(); etat.redessiner() }
+                PetitBouton("⟲ Recentrer") { etat.voler(scope, vers = etat.cible, d = etat.distBase, tg = if (etat.montrerRayman) 0.5f else 0.75f) }
                 PetitBouton("✕") { plein = false }
             }
+            Etiquette(Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 90.dp))
             BoutonsZoom(etat, Modifier.align(androidx.compose.ui.Alignment.CenterEnd).padding(end = 12.dp))
-            ChoixObjets(scene, etat, Modifier.align(androidx.compose.ui.Alignment.TopStart).padding(top = 90.dp, start = 12.dp))
-            Text("1 doigt : tourner · 2 doigts : déplacer, zoomer, pivoter · double toucher : recentrer", color = Color.White, fontSize = 12.sp,
-                modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(bottom = 28.dp).background(Color(0x88000000), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 6.dp))
+            BoutonsVue(scope, etat, Modifier.align(androidx.compose.ui.Alignment.CenterStart).padding(start = 12.dp))
+            ChoixObjets(scene, etat, Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(bottom = 70.dp, start = 12.dp, end = 12.dp)) { o ->
+                etiquette = nomObjet(scene, o); allerA(scope, etat, o) }
+            Text("1 doigt : tourner · 2 doigts : déplacer, zoomer, pivoter · toucher un objet : y aller · double toucher : zoom", color = Color.White, fontSize = 11.sp,
+                modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(bottom = 28.dp, start = 12.dp, end = 12.dp).background(Color(0x88000000), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 6.dp))
         }
+    }
+}
+
+/** build 247 : nom lisible d'un objet ("Cage 2 sur 4") */
+private fun nomObjet(scene: SceneR3, o: Objet3D): String {
+    val meme = scene.objets.filter { it.type == o.type }
+    val n = meme.indexOf(o) + 1
+    return when (o.type) { 'c' -> "Cage $n sur ${meme.size}"; 'f' -> "P'tit être $n sur ${meme.size}"; 'j' -> "Lum jaune"; 'r' -> "Lum rouge"
+        'p' -> "Pouvoir" + when { "rouade" in o.nom.lowercase() -> " : poing-roulade"; "grappin" in o.nom.lowercase() -> " : grappin"
+            "force" in o.nom.lowercase() -> " : poing d'acier"; "snipe" in o.nom.lowercase() -> " : lockjaw"; "helico" in o.nom.lowercase() -> " : hélico"; else -> "" }
+        else -> "" }
+}
+
+/** build 247 : la camera vole jusqu'a l'objet et le regarde d'un peu au-dessus */
+private fun allerA(scope: kotlinx.coroutines.CoroutineScope, etat: Etat3D, o: Objet3D) =
+    etat.voler(scope, vers = floatArrayOf(o.x, o.y, o.z), d = if (o.type == 'c' || o.type == 'f') 22f else 16f, tg = 0.6f)
+
+/** build 247 : points de vue tout faits (au sol comme Rayman, de biais, du dessus) */
+@Composable
+private fun BoutonsVue(scope: kotlinx.coroutines.CoroutineScope, etat: Etat3D, modifier: Modifier) {
+    androidx.compose.foundation.layout.Column(modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        PetitBouton("🚶 Au sol") { etat.voler(scope, d = 12f, tg = 0.12f) }
+        PetitBouton("↗ Biais") { etat.voler(scope, d = maxOf(etat.dist, 40f), tg = 0.6f) }
+        PetitBouton("⬇ Dessus") { etat.voler(scope, d = maxOf(etat.dist, etat.distBase * 1.6f), tg = 1.5f) }
     }
 }
 
 /** build 245 : afficher / cacher chaque sorte d'objet (avec le nombre dans ce niveau) */
 @Composable
-private fun ChoixObjets(scene: SceneR3, etat: Etat3D, modifier: Modifier) {
+private fun ChoixObjets(scene: SceneR3, etat: Etat3D, modifier: Modifier, aller: (Objet3D) -> Unit = {}) {
     if (scene.objets.isEmpty()) return
+    // build 247 : passer d'une cage a l'autre
+    val cages = remember(scene) { scene.objets.filter { it.type == 'c' }.ifEmpty { scene.objets.filter { it.type == 'f' } } }
+    var ic by remember(scene) { androidx.compose.runtime.mutableStateOf(-1) }
     val n = remember(scene) { scene.objets.groupingBy { it.type }.eachCount() }
     var voir by remember(scene) { androidx.compose.runtime.mutableStateOf(etat.voir) }
     androidx.compose.foundation.layout.Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        if (cages.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            val nomC = if (cages[0].type == 'c') "Cage" else "P'tit être"
+            PetitBouton("◀") { ic = if (ic <= 0) cages.size - 1 else ic - 1; aller(cages[ic]) }
+            Text(if (ic < 0) "$nomC : ${cages.size}" else "$nomC ${ic + 1} / ${cages.size}", color = Color(0xFFFFBD40), fontSize = 13.sp,
+                fontWeight = androidx.compose.ui.text.font.FontWeight.Bold)
+            PetitBouton("▶") { ic = (ic + 1) % cages.size; aller(cages[ic]) }
+        }
         Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             for ((t, nom, coul) in listOf(Triple('c', "Cages", 0xFFFFBD40), Triple('f', "P'tits êtres", 0xFF9EF2FF), Triple('j', "Lums jaunes", 0xFFFFEB47),
                     Triple('r', "Lums rouges", 0xFFFF4038), Triple('p', "Pouvoirs", 0xFF9E8CFF))) {
@@ -586,6 +676,7 @@ private fun BoutonsZoom(etat: Etat3D, modifier: Modifier) {
                 modifier = Modifier.size(42.dp).background(Color(0x99000000), RoundedCornerShape(21.dp))
                     .pointerInput(t) {
                         detectTapGestures(onPress = {
+                            etat.vol?.cancel()
                             val job = scope.launch { while (true) { androidx.compose.runtime.withFrameNanos { }; etat.zoom(f); etat.redessiner() } }
                             tryAwaitRelease(); job.cancel()
                         })
@@ -605,7 +696,7 @@ private fun PetitBouton(t: String, faire: () -> Unit) {
  *  qu'on manipule la vue). Build 242 : la surface est recreee quand on change de niveau (avant, l'ancien restait),
  *  vitesse proportionnelle a la taille de la vue, et elan quand on lache le doigt. */
 @Composable
-private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier) {
+private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier, toucher: (Float, Float, Boolean) -> Unit = { _, _, _ -> }) {
     androidx.compose.runtime.key(scene, QualiteR3.facteur) {
     val vueRef = remember { arrayOfNulls<GLSurfaceView>(1) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
@@ -634,8 +725,8 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier) {
                 var dernierTap = 0L
                 var elan: kotlinx.coroutines.Job? = null
                 awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    elan?.cancel()
+                    val bas = awaitFirstDown(requireUnconsumed = false)
+                    elan?.cancel(); etat.vol?.cancel()
                     val t0 = System.currentTimeMillis(); var bouge = 0f; var doigts = 1
                     var avant: List<Offset>? = null
                     val hauteur = size.height.coerceAtLeast(1).toFloat(); val largeur = size.width.coerceAtLeast(1).toFloat()
@@ -697,7 +788,9 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier) {
                     // double toucher (deux touchers brefs sans bouger) : recentrer
                     val fin = System.currentTimeMillis()
                     if (doigts == 1 && bouge < 24f && fin - t0 < 300) {
-                        if (fin - dernierTap < 350) { etat.recentrer(); vueRef[0]?.requestRender(); dernierTap = 0L } else dernierTap = fin
+                        val dbl = fin - dernierTap < 350
+                        toucher(bas.position.x, bas.position.y, dbl)
+                        dernierTap = if (dbl) 0L else fin
                     }
                 }
             })

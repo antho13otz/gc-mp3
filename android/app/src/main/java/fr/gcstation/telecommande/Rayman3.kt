@@ -31,6 +31,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -104,7 +105,7 @@ fun SectionRayman3(act: StationActivity) {   // (build 230 : l'activite en param
     val pack = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { u: Uri? ->
         if (u != null) portee.launch {
             val n = withContext(Dispatchers.IO) { try { CartesR3.installer(act, u) } catch (e: Exception) { -1 } }
-            message = if (n > 0) "Cartes installées : $n niveau(x). Elles s'affichent dans le compagnon de jeu." else "Pas de carte dans ce fichier"
+            message = if (n > 0) "Pack installé : $n niveau(x), dans la liste ci-dessus et dans le compagnon de jeu." else "Pas de carte dans ce fichier"
             installees++
         }
     }
@@ -124,17 +125,29 @@ fun SectionRayman3(act: StationActivity) {   // (build 230 : l'activite en param
             if (b != null && b.isEmpty()) { parties = null; message = "Pas de sauvegarde Rayman 3 sur la carte du slot $slot" } else montrer(b, "Lu sur la carte du slot $slot")
         }
     }
+    // build 247 : deux onglets ; les cartes d'abord quand il y en a
+    val aCartes = remember(installees) { CartesR3.dossier?.listFiles()?.any { it.name.endsWith(".r3v") } == true }
+    var onglet by remember { mutableStateOf(if (aCartes) 0 else 1) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Bouton("🗺 Cartes", Modifier.weight(1f), plein = onglet == 0) { onglet = 0 }
+            Bouton("🏆 Progression", Modifier.weight(1f), plein = onglet == 1) { onglet = 1 }
+        }
+        if (onglet == 0) {
+            CartesInstallees(act, installees)
+            Bouton("Installer / mettre à jour un pack de cartes (.zip)", Modifier.fillMaxWidth(), actif = !occupe) { pack.launch(arrayOf("*/*")) }
+            if (message.isNotEmpty()) Doux(message, taille = 12, couleur = C.Texte)
+        }
+        if (onglet == 1) {
         Doux("Ta progression lue dans la sauvegarde de Rayman 3 : sur la carte mémoire de la console (hors partie) ou un .gci du téléphone (Dolphin…).", taille = 12)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Bouton("Carte slot A", Modifier.weight(1f), plein = true, actif = !occupe) { carte("A") }
             Bouton("Carte slot B", Modifier.weight(1f), actif = !occupe) { carte("B") }
         }
         Bouton("Choisir un .gci du téléphone", Modifier.fillMaxWidth(), actif = !occupe) { choisir.launch(arrayOf("*/*")) }
-        Bouton("Installer un pack de cartes des niveaux (.zip)", Modifier.fillMaxWidth(), actif = !occupe) { pack.launch(arrayOf("*/*")) }
         if (message.isNotEmpty()) Doux(message, taille = 12, couleur = C.Texte)
         for (p in parties.orEmpty()) PartieR3(p)
-        CartesInstallees(act, installees)
+        }
     }
 }
 
@@ -307,63 +320,81 @@ object CartesR3 {
 }
 
 
-/** build 227 : les cartes installees (hors ligne) : la carte vue de dessus et le niveau en 3D, sans jouer */
-@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+/** build 227 : les cartes installees (hors ligne) : la carte vue de dessus et le niveau en 3D, sans jouer.
+ *  Build 247 : le niveau choisi s'affiche EN HAUT (la page y remonte toute seule), fleches niveau precedent / suivant
+ *  dans l'ordre du jeu, bascule 3D / Plan, et le dernier niveau vu est retenu. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun CartesInstallees(act: StationActivity, recharge: Int) {
     val niveaux = remember(recharge) {
         (CartesR3.dossier?.listFiles()?.filter { it.name.endsWith(".png") && !Regex("_t\\d{3}\\.png$").containsMatchIn(it.name) }?.map { it.name.removeSuffix(".png") } ?: emptyList()).sorted()
     }
-    var vu by remember { mutableStateOf<String?>(null) }
-    Titre("Cartes installées (" + niveaux.size + ")", couleur = Color(0xFFFFC94A))
     remember { QualiteR3.charger(act); 0 }
-    if (niveaux.isEmpty()) Doux("Aucune : installe un pack de cartes (.zip) avec le bouton plus haut.", taille = 12)
-    // build 240 : rangees par monde, dans l'ordre du jeu, avec le nom du monde en francais
-    val autres = niveaux.filter { n -> CartesR3.MONDES_NIV.none { n in it.second } }
+    val prefs = remember { act.getSharedPreferences("cartes-r3", 0) }
+    // ordre du jeu (monde par monde), puis les niveaux inconnus
+    val ordre = remember(niveaux) { CartesR3.MONDES_NIV.flatMap { it.second }.filter { it in niveaux } + niveaux.filter { n -> CartesR3.MONDES_NIV.none { n in it.second } } }
+    var vu by remember(niveaux) { mutableStateOf(prefs.getString("dernier", null)?.takeIf { it in niveaux }) }
+    var en3d by remember { mutableStateOf(prefs.getBoolean("en3d", true)) }
+    val haut = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
+    val portee = rememberCoroutineScope()
+    fun choisir(n: String?) {
+        vu = n; prefs.edit().putString("dernier", n).apply()
+        if (n != null) portee.launch { kotlinx.coroutines.delay(80); haut.bringIntoView() }
+    }
+    Titre("Cartes installées (" + niveaux.size + ")", couleur = Color(0xFFFFC94A))
+    if (niveaux.isEmpty()) { Doux("Aucune : installe un pack de cartes (.zip) avec le bouton plus bas.", taille = 12); return }
+    val n = vu
+    if (n != null) Carte(Modifier.fillMaxWidth().bringIntoViewRequester(haut)) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // titre + niveau precedent / suivant
+            val k = ordre.indexOf(n)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Bouton("◀", hauteur = 36.dp, actif = k > 0) { if (k > 0) choisir(ordre[k - 1]) }
+                Column(Modifier.weight(1f)) {
+                    Text(CartesR3.nomLong(n), color = Color(0xFFFFC94A), fontSize = 15.sp, fontWeight = FontWeight.Bold, maxLines = 2)
+                    Doux("niveau ${k + 1} sur ${ordre.size} · $n", taille = 11)
+                }
+                Bouton("▶", hauteur = 36.dp, actif = k < ordre.size - 1) { if (k < ordre.size - 1) choisir(ordre[k + 1]) }
+            }
+            val carte = remember(n) { CartesR3.carte(n) }
+            val mail = remember(n) { CartesR3.maillage(n) }
+            val sc = remember(n) { CartesR3.scene(n) }
+            val a3d = sc != null || mail != null
+            val montre3d = a3d && (en3d || carte == null)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                if (a3d) Bouton("3D", Modifier.weight(1f), plein = montre3d, hauteur = 34.dp) { en3d = true; prefs.edit().putBoolean("en3d", true).apply() }
+                if (carte != null) Bouton("Plan", Modifier.weight(1f), plein = !montre3d, hauteur = 34.dp) { en3d = false; prefs.edit().putBoolean("en3d", false).apply() }
+                Bouton("✕", hauteur = 34.dp) { choisir(null) }
+            }
+            if (montre3d && sc != null) {
+                DessinVue3DGL(sc, sc.centre, null, emptyList(), montrerRayman = false)
+                if (java.io.File(sc.dossier, sc.niveau + "_hd4.txt").exists()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Doux("Textures :", taille = 12)
+                    for ((f, t) in listOf(4 to "×4", 3 to "×3", 2 to "×2", 1 to "Origine"))
+                        Bouton(t, plein = QualiteR3.facteur == f, hauteur = 32.dp) { QualiteR3.changer(act, f) }
+                }
+            } else if (montre3d && mail != null) {
+                val c = remember(n) {
+                    val t = mail.t; var x = 0f; var y = 0f; var z = 0f; val q = t.size / 3
+                    for (i in 0 until q) { x += t[i * 3]; y += t[i * 3 + 1]; z += t[i * 3 + 2] }
+                    floatArrayOf(x / q, y / q, z / q)
+                }
+                DessinVue3D(Vue3D(mail, c, null))
+            } else if (carte != null) {
+                val b = carte.second
+                DessinPlan(Plan(listOf(floatArrayOf(b[0], b[1]), floatArrayOf(b[2], b[3])), listOf(0x00000000, 0x00000000), emptyList(), emptyList(),
+                    petits = setOf(0, 1), fond = carte.first, fondBornes = b))
+            }
+        }
+    }
+    // rangees par monde, dans l'ordre du jeu, avec le nom du monde en francais (build 240)
+    val autres = niveaux.filter { x -> CartesR3.MONDES_NIV.none { x in it.second } }
     for ((monde, liste) in CartesR3.MONDES_NIV + listOf("Autres" to autres)) {
         val ici = liste.filter { it in niveaux }
         if (ici.isEmpty()) continue
         Text(monde, color = C.Texte, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            for (n in ici) Bouton(CartesR3.nomCourt(n), plein = n == vu, hauteur = 38.dp) { vu = if (vu == n) null else n }
-        }
-    }
-    val n = vu ?: return
-    val carte = remember(n) { CartesR3.carte(n) }
-    val mail = remember(n) { CartesR3.maillage(n) }
-    val sc = remember(n) { CartesR3.scene(n) }
-    if (carte != null) Carte(Modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Titre(CartesR3.nomLong(n) + " · vu de dessus")
-            val b = carte.second
-            DessinPlan(Plan(listOf(floatArrayOf(b[0], b[1]), floatArrayOf(b[2], b[3])), listOf(0x00000000, 0x00000000), emptyList(), emptyList(),
-                petits = setOf(0, 1), fond = carte.first, fondBornes = b))
-        }
-    }
-    if (sc != null) Carte(Modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Titre(CartesR3.nomLong(n) + " · en 3D")
-            DessinVue3DGL(sc, sc.centre, null, emptyList(), montrerRayman = false)
-            Doux("Un doigt : tourner · deux doigts : déplacer, zoomer, pivoter · double toucher : revenir.", taille = 11)
-            // build 242 : taille des textures du pack HD (x4 par defaut ; plus petit si la vue rame)
-            if (java.io.File(sc.dossier, sc.niveau + "_hd4.txt").exists()) {
-                Doux("Textures améliorées (pack HD) :", taille = 12)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for ((f, t) in listOf(4 to "×4", 3 to "×3", 2 to "×2", 1 to "Origine"))
-                        Bouton(t, plein = QualiteR3.facteur == f, hauteur = 34.dp) { QualiteR3.changer(act, f) }
-                }
-            }
-        }
-    } else if (mail != null) Carte(Modifier.fillMaxWidth()) {
-        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Titre(CartesR3.nomLong(n) + " · en 3D")
-            val c = remember(n) {
-                val t = mail.t; var x = 0f; var y = 0f; var z = 0f; val k = t.size / 3
-                for (i in 0 until k) { x += t[i * 3]; y += t[i * 3 + 1]; z += t[i * 3 + 2] }
-                floatArrayOf(x / k, y / k, z / k)
-            }
-            DessinVue3D(Vue3D(mail, c, null))
-            Doux("Un doigt : tourner · deux doigts : zoom · double toucher : revenir.", taille = 11)
+            for (x in ici) Bouton(CartesR3.nomCourt(x), plein = x == vu, hauteur = 38.dp) { choisir(if (vu == x) null else x) }
         }
     }
 }
