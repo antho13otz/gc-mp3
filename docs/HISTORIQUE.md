@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 311 — Mario Kart : pilote et passager échangent leur place
+- Quand les deux personnages échangent leur place (bouton Z), l'appli les échange aussi : celui qui conduit prend la pose
+  de conduite, l'autre se met à l'arrière. KartBody +0x5B2 différent de 0 : le personnage « passager » de l'équipe conduit.
+  Vérifié sur 9 photos de la mémoire (dont 2 avant et après un échange) : 66 cas sur 72, les 6 autres pendant un dérapage
+  (personnages penchés). Le Koopa King des ordinateurs avait Bowser Jr au volant : il est maintenant bien placé.
+- Comparaison des poses de l'appli (a_drive_a, b_sit_a, image 0) avec les vrais squelettes en mémoire : 2 à 6 unités
+  d'écart pour tous les pilotes et passagers ; pas de correction de position nécessaire.
+
 ## Nouveautés appli build 309 — Mario Kart : les vrais modèles des objets
 - Pack « mkdd-objets-course-hd.zip » (à installer dans la fiche du jeu, jamais dans l'appli ni sur GitHub) : 15 objets de
   MRAM.arc `item/` exportés en `mk_objet_<sorte>.txt` (carapaces verte, rouge, à épines, de Bowser, banane, banane géante,
