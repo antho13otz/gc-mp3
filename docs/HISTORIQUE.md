@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 246 — Rayman 3 : cages, lums, ambiance et eau
+- Vue 3D : **cages des p'tits êtres**, lums jaunes, lums rouges et pouvoirs, placés d'après les fichiers du jeu ; un bouton par
+  sorte (avec le nombre dans le niveau), visibles en transparence derrière les murs. Lande : ses p'tits êtres en cage ne se
+  distinguent pas des autres fantômes dans le jeu, ils sont tous montrés.
+- **Ambiance par monde** (ciel, brouillard, halo) : marais de nuit, désert en grottes, sommet enneigé…
+- **Eau et lave animées**, l'eau teintée selon le monde.
+- Avec les nouveaux packs : cartes 2D aux couleurs du décor, eau dessinée comme de l'eau, plaques invisibles retirées.
+
 ## Nouveautés appli build 243 — Rayman 3 : vue 3D plus nette, textures HD, navigation
 - Rendu : image calculée jusqu'à 2× la résolution de l'écran puis réduite, netteté, halo autour des lumières,
   ombres du jeu adoucies aux raccords.
