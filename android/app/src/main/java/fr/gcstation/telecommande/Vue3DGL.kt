@@ -895,8 +895,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             val mod = if (mkObjetAbsent.contains(genre)) null else modeleMK("mk_objet_$genre.txt").also { if (it == null) mkObjetAbsent.add(genre) }
             val ax = p[0] * 0.01f; val ay = -p[2] * 0.01f; val az = p[1] * 0.01f
             if (mod == null) { objetsPoints.add(floatArrayOf(ax, ay, az, genre.toFloat())); continue }
-            // (debout ; les carapaces et les bananes tournent sur elles-memes, comme dans le jeu)
-            val ang = if (genre in 0..4 || genre == 13) ((System.nanoTime() / 1e9 * 6.0) % (2 * Math.PI)).toFloat() else 0f
+            // (debout ; les carapaces tournent sur elles-memes, comme dans le jeu)
+            val ang = if (genre in 0..2 || genre == 13) ((System.nanoTime() / 1e9 * 6.0) % (2 * Math.PI)).toFloat() else 0f
             val co = Math.cos(ang.toDouble()).toFloat(); val si = Math.sin(ang.toDouble()).toFloat()
             mModele.fill(0f); mModele[0] = co; mModele[1] = si; mModele[4] = -si; mModele[5] = co; mModele[10] = 1f
             mModele[12] = ax; mModele[13] = ay; mModele[14] = az; mModele[15] = 1f
