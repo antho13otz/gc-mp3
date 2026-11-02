@@ -83,6 +83,7 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
                             ech.add(bb.getFloat(k * 24)); ech.add(bb.getFloat(k * 24 + 4)) }
                         l.add(Groupe(tex, al, bb, n, if (v2) md else if (al) 2 else 0, env))
                     }
+                    sansBleuSprites(l)
                     adoucirEclairage(l)
                     val ctr = if (nn > 0) floatArrayOf((sx / nn).toFloat(), (sy / nn).toFloat(), (sz / nn).toFloat()) else floatArrayOf(0f, 0f, 0f)
                     // rayon : 85 % des points du decor sont a moins de cette distance (au sol) du centre ; les objets tres lointains ne comptent pas
@@ -121,6 +122,19 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
         /** build 242 : les ombres du jeu sont une couleur par sommet ; un meme point du decor est souvent repete dans
          *  plusieurs groupes avec des couleurs un peu differentes, ce qui dessine des raccords. On rapproche chaque
          *  sommet (a moitie) de la moyenne des sommets au meme endroit. Les lumieres (additives) ne sont pas touchees. */
+        /** build 278 : les sprites generes par le moteur (herbes de la Lande : lan_spritegrass*, fumees) ont des couleurs de
+         *  sommets non remplies (bleu pur) : le jeu ne s'en sert pas, l'appli les teintait en bleu nuit. On leur donne la
+         *  lumiere moyenne du niveau (repere : rouge et vert presque nuls, bleu au milieu ; vu sur 4 groupes de 3 niveaux). */
+        private fun sansBleuSprites(l: List<Groupe>) {
+            val moy = IntArray(4)
+            fun m(g: Groupe): IntArray { val r = IntArray(3); for (k in 0 until g.n) for (c in 0..2) r[c] += g.sommets.get(k * 24 + 20 + c).toInt() and 255
+                return IntArray(3) { r[it] / maxOf(1, g.n) } }
+            val bleus = l.filter { g -> g.n > 0 && m(g).let { it[0] < 45 && it[1] < 45 && it[2] > 100 } }
+            if (bleus.isEmpty()) return
+            for (g in l) if (g !in bleus && g.mode != 3) for (k in 0 until g.n) { for (c in 0..2) moy[c] += g.sommets.get(k * 24 + 20 + c).toInt() and 255; moy[3]++ }
+            val r = IntArray(3) { if (moy[3] > 0) moy[it] / moy[3] else 110 }
+            for (g in bleus) { for (k in 0 until g.n) for (c in 0..2) g.sommets.put(k * 24 + 20 + c, r[c].toByte()); g.sommets.position(0) }
+        }
         private fun adoucirEclairage(l: List<Groupe>) {
             fun cle(b: ByteBuffer, o: Int): Long {
                 val x = Math.round(b.getFloat(o) * 20f).toLong(); val y = Math.round(b.getFloat(o + 4) * 20f).toLong(); val z = Math.round(b.getFloat(o + 8) * 20f).toLong()
