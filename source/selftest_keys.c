@@ -253,6 +253,8 @@ static void kt_tick(void) {
         u32 sg = kt_sig();
         /* v321 : Z, L, R changent d'onglet : c'est voulu (B n'y revient pas), on remet l'onglet sans compter « ferme de force » */
         if (sg != kt_sig0 && s->kind == KS_TAB && tab != s->a && kt_rb == 0) { tab = s->a; tab_enter(tab); sg = kt_sig(); }
+        /* (de meme dans le menu START : B / START le referment, L / R changent de section : on le rouvre comme au depart) */
+        if (sg != kt_sig0 && s->kind == KS_MENU && kt_rb == 0 && (!menu_open || (s->a >= 0 && menu_sec != s->a))) { kt_enter(s); sg = kt_sig(); }
         if (sg != kt_sig0 && kt_rb < 3 && !(s->kind == KS_SAVER || s->kind == KS_PARTY)) { tp_keys |= PAD_BUTTON_B; kt_rb++; kt_t = n + 260; return; }
         int forced = sg != kt_sig0 && !(s->kind == KS_SAVER || s->kind == KS_PARTY || s->kind == KS_GAME);
         kt_action_done(forced);
