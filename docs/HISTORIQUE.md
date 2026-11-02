@@ -24,7 +24,7 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Nouveautés appli build NUM — Rayman plus fluide, lave de knaar_10
+## Nouveautés appli build 277 — Rayman plus fluide, lave de knaar_10
 - Rayman animé : plus de morceaux décalés quand il va vite. Les matrices du jeu étaient lues bloc par bloc, à des
   images différentes ; le squelette est maintenant recomposé dans l'appli à partir des matrices locales.
 - Glissement entre deux poses lissé (durée moyenne, départ de la pose affichée) : mouvements plus fluides.
