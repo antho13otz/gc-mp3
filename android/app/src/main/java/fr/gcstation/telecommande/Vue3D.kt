@@ -55,11 +55,12 @@ class MaillageNiveau(val t: FloatArray, val couleurs: IntArray) {
 /** ce que montre la vue : le maillage, la cible (Rayman), la camera du jeu (pour le point de vue par defaut), des reperes */
 class Vue3D(val m: MaillageNiveau?, val cible: FloatArray, val camera: FloatArray?, val chemin: List<FloatArray> = emptyList(),
             val scene: SceneR3? = null,   // (build 233 : avec les vraies textures, Vue3DGL.kt)
-            val direct: (() -> FloatArray?)? = null)   // (build 269 : position lue en direct, ~30 fois par seconde)
+            val direct: (() -> FloatArray?)? = null,   // (build 269 : position lue en direct, ~30 fois par seconde)
+            val pose: (() -> PoseRayman?)? = null)     // (build 272 : Rayman anime)
 
 @Composable
 fun DessinVue3D(v: Vue3D) {
-    if (v.scene != null) { DessinVue3DGL(v.scene, v.cible, v.camera, v.chemin, direct = v.direct); return }
+    if (v.scene != null) { DessinVue3DGL(v.scene, v.cible, v.camera, v.chemin, direct = v.direct, pose = v.pose); return }
     val mm = v.m ?: return
     var lacet by remember { mutableFloatStateOf(Float.NaN) }   // (NaN : derriere la camera du jeu)
     var tangage by remember { mutableFloatStateOf(0.55f) }
