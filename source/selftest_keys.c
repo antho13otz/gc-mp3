@@ -107,7 +107,7 @@ static int kt_enter(const kt_sc_t *s) {
     kt_force_home();
     switch (s->kind) {
     case KS_TAB: tab = s->a; tab_enter(tab); return 1;
-    case KS_MENU: menu_open = 1; if (s->a >= 0) { menu_sec = s->a; menu_sel = sec_items[s->a][0]; } return 1;
+    case KS_MENU: menu_open = 1; if (s->a >= 0) { menu_sec = s->a; menu_sel = sec_first(s->a); } return 1;   /* v321 : (la 1re case d'une section est un sous-titre, numero negatif : plantage au premier A) */
     case KS_TOOL: sx_tools[s->a].fn(); return tl_screen != TL_NONE;
     case KS_CARTES: tl_screen = TL_CARTES; return 1;
     case KS_GLVIEW: tab = TAB_GAMES; tab_enter(tab); gl_view = s->a; gclib_open(); gs_dirty = 1; return gl_on;
@@ -251,6 +251,10 @@ static void kt_tick(void) {
         kt_rb = 0; kt_ph = 4; kt_t = n; return;
     case 4: {                                         /* refermer : B jusqu'a 3 fois, sinon de force */
         u32 sg = kt_sig();
+        /* v321 : Z, L, R changent d'onglet : c'est voulu (B n'y revient pas), on remet l'onglet sans compter « ferme de force » */
+        if (sg != kt_sig0 && s->kind == KS_TAB && tab != s->a && kt_rb == 0) { tab = s->a; tab_enter(tab); sg = kt_sig(); }
+        /* (de meme dans le menu START : B / START le referment, L / R changent de section : on le rouvre comme au depart) */
+        if (sg != kt_sig0 && s->kind == KS_MENU && kt_rb == 0 && (!menu_open || (s->a >= 0 && menu_sec != s->a))) { kt_enter(s); sg = kt_sig(); }
         if (sg != kt_sig0 && kt_rb < 3 && !(s->kind == KS_SAVER || s->kind == KS_PARTY)) { tp_keys |= PAD_BUTTON_B; kt_rb++; kt_t = n + 260; return; }
         int forced = sg != kt_sig0 && !(s->kind == KS_SAVER || s->kind == KS_PARTY || s->kind == KS_GAME);
         kt_action_done(forced);
