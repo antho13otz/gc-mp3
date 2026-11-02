@@ -183,6 +183,10 @@ class Ambiance(val cielHaut: FloatArray, val cielBas: FloatArray, val brume: Flo
     }
 }
 
+/** build 296 : un kart de Mario Kart a dessiner : modele de kart, pilote, passager (numeros du jeu), matrice du kart dans le
+ *  jeu (3 lignes de 4 flottants : rotation, puis la position ; repere du jeu, y vers le haut) */
+class KartVue(val kart: Int, val pilote: Int, val passager: Int, val mat: FloatArray, val joueur: Boolean)
+
 /** ce que la vue regarde (modifie par les doigts et par le jeu, lu par le fil OpenGL) */
 class Etat3D {
     @Volatile var lacet = Float.NaN; @Volatile var tangage = 0.5f; @Volatile var dist = 70f
@@ -197,6 +201,8 @@ class Etat3D {
     @Volatile var direct = false                          // build 245 : types d'objets affiches
     /** build 272 : la derniere pose de Rayman lue dans la memoire (squelette, objets, textures) */
     @Volatile var pose: PoseRayman? = null
+    /** build 296 : Mario Kart, les karts a dessiner en 3D (le premier est le tien) */
+    @Volatile var karts: List<KartVue> = emptyList()
     /** build 282 : 0 normal (la vue suit la position), 1 suivre (derriere Rayman, tournee comme lui), 2 libre (la vue ne bouge plus seule) */
     @Volatile var mode = 0
     @Volatile var libre: FloatArray? = null
@@ -295,6 +301,10 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     // build 288 : Mario Kart : la vraie boite a objets du jeu (pack : mk_boite.txt et ses textures) ; plusieurs materiaux
     private class Morceau(val tex: Int, val mode: Int, val mod: FloatBuffer, val n: Int)
     private var mkBoite: List<Morceau>? = null; private var progMB = 0
+    // build 296 : karts, pilotes et passagers (pack : mk_kart_N.txt, mk_pilote_N.txt, mk_passager_N.txt, mk_karts.txt : sieges)
+    private val mkSieges = HashMap<Int, FloatArray>(); private val mkModeles = HashMap<String, List<Morceau>?>(); private var progK = 0
+    private val texNom = HashMap<String, Int>()
+    private fun modeleMK(nom: String): List<Morceau>? = mkModeles.getOrPut(nom) { lireMulti(nom) }
     private val mkBoitesPos = ArrayList<FloatArray>()
     private fun lireMulti(nom: String): List<Morceau>? = try {
         val f = java.io.File(scene.dossier, nom)
@@ -304,7 +314,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 for (q in v) fb.put(q); fb.position(0); r.add(Morceau(tex, mode, fb, v.size)) }; v = ArrayList() }
             for (l in f.readLines()) {
                 val p = l.trim().split(' ')
-                if (p[0] == "t") { fin(); tex = if (p.size > 1 && p[1] != "-") chargerTex(p[1], repete = true) else 0; mode = p.getOrNull(2)?.toIntOrNull() ?: 0 }
+                if (p[0] == "t") { fin(); tex = if (p.size > 1 && p[1] != "-") texNom.getOrPut(p[1]) { chargerTex(p[1], repete = true) } else 0; mode = p.getOrNull(2)?.toIntOrNull() ?: 0 }
                 else p.mapNotNull { it.toFloatOrNull() }.takeIf { it.size == 8 }?.let { v.add(it.toFloatArray()) }
             }
             fin(); r.sortBy { if (it.mode == 2) 0 else if (it.mode == 0) 1 else 2 }      // (le « ? » d'abord, puis la boite translucide, puis le reflet)
@@ -518,9 +528,22 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         texRayman = if (raymanMod != null) chargerTex("r3_rayman.png", repete = true) else 0
         if (texRayman == 0) raymanMod = null
         animMod = if (scene.dossier.name == "cartes-r3") ModeleAnime.pour(scene.dossier) else null
-        texAnim.clear(); bufEl.clear(); poseA = null; poseB = null
+        texAnim.clear(); bufEl.clear(); poseA = null; poseB = null; texNom.clear()
         boites.clear(); texBoite = chargerTex("r3_boite.png", repete = true)
         mkBoite = if (scene.dossier.name == "cartes-mk") lireMulti("mk_boite.txt") else null
+        mkSieges.clear(); mkModeles.clear()
+        if (scene.dossier.name == "cartes-mk") try {
+            java.io.File(scene.dossier, "mk_karts.txt").takeIf { it.exists() }?.forEachLine { l -> val p = l.trim().split(' ')
+                if (p.size >= 4 && p[0] == "kart") p[1].toIntOrNull()?.let { mkSieges[it] = floatArrayOf(p[2].toFloat(), p[3].toFloat()) } }
+        } catch (e: Throwable) { }
+        progK = programme("""
+            uniform mat4 uMvp; uniform mat4 uModele;
+            attribute vec3 aPos; attribute vec2 aUv; attribute vec3 aN; varying vec2 vUv; varying float vL;
+            void main() { vec3 n = normalize(mat3(uModele) * aN);
+                vL = 0.6 + 0.4 * abs(dot(n, normalize(vec3(0.4, -0.5, 0.75))));
+                vUv = aUv; gl_Position = uMvp * (uModele * vec4(aPos, 1.0)); }""", """
+            precision mediump float; uniform sampler2D uTex; uniform float uAlpha; uniform float uSeuil; varying vec2 vUv; varying float vL;
+            void main() { vec4 t = texture2D(uTex, vUv); if (t.a < uSeuil) discard; gl_FragColor = vec4(t.rgb * vL * 1.1, t.a * uAlpha); }""")
         progMB = programme("""
             uniform mat4 uMvp; uniform vec3 uPos; uniform float uAng; uniform vec2 uDefil;
             attribute vec3 aPos; attribute vec2 aUv; attribute vec3 aN; varying vec2 vUv; varying float vL;
@@ -813,6 +836,58 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
     }
 
+    /** build 296 : les karts de Mario Kart en 3D, chacun avec son pilote et son passager, tournes comme dans le jeu.
+     *  Le tien est place a la position lissee (fluide), les autres a leur derniere position lue. */
+    private val mModele = FloatArray(16)
+    private fun dessinerKarts(mvp: FloatArray, c0: FloatArray): Boolean {
+        val ks = etat.karts
+        if (ks.isEmpty() || mkSieges.isEmpty() || progK == 0) return false
+        GLES20.glUseProgram(progK)
+        GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progK, "uMvp"), 1, false, mvp, 0)
+        GLES20.glUniform1i(GLES20.glGetUniformLocation(progK, "uTex"), 0); GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
+        val uM = GLES20.glGetUniformLocation(progK, "uModele"); val uAl = GLES20.glGetUniformLocation(progK, "uAlpha"); val uS = GLES20.glGetUniformLocation(progK, "uSeuil")
+        val mp = GLES20.glGetAttribLocation(progK, "aPos"); val mu = GLES20.glGetAttribLocation(progK, "aUv"); val mn = GLES20.glGetAttribLocation(progK, "aN")
+        GLES20.glEnableVertexAttribArray(mp); GLES20.glEnableVertexAttribArray(mu); GLES20.glEnableVertexAttribArray(mn)
+        var fait = false
+        for (k in ks) {
+            val g = (if (k.joueur) JeuMKDD.matJoueur else null) ?: k.mat; if (g.size < 12) continue      // (le tien : rotation lue en direct)
+            val siege = mkSieges[k.kart] ?: continue
+            // rotation du jeu (lignes) -> repere de l'appli (x, -z, y) : lignes 0, -2, 1
+            val ra = floatArrayOf(g[0], g[1], g[2], -g[8], -g[9], -g[10], g[4], g[5], g[6])
+            val tx: Float; val ty: Float; val tz: Float
+            if (k.joueur && etat.direct) { tx = c0[0]; ty = c0[1]; tz = c0[2] } else { tx = g[3] * 0.01f; ty = -g[11] * 0.01f; tz = g[7] * 0.01f }
+            val parts = listOf("mk_kart_${k.kart}.txt" to 0f, "mk_pilote_${k.pilote}.txt" to 1f, "mk_passager_${k.passager}.txt" to 1f)
+            for ((nom, s) in parts) {
+                val mod = modeleMK(nom) ?: continue
+                // decalage du siege (repere du kart : y vers le haut, z vers l'avant)
+                val sy = siege[0] * s; val sz = siege[1] * s
+                val ox = ra[1] * sy + ra[2] * sz; val oy = ra[4] * sy + ra[5] * sz; val oz = ra[7] * sy + ra[8] * sz
+                for (c in 0..2) { mModele[c * 4] = ra[c]; mModele[c * 4 + 1] = ra[3 + c]; mModele[c * 4 + 2] = ra[6 + c]; mModele[c * 4 + 3] = 0f }
+                mModele[12] = tx + ox; mModele[13] = ty + oy; mModele[14] = tz + oz; mModele[15] = 1f
+                GLES20.glUniformMatrix4fv(uM, 1, false, mModele, 0)
+                for (m in mod) {
+                    when (m.mode) {
+                        0 -> { GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glUniform1f(uAl, 1f); GLES20.glUniform1f(uS, 0.02f) }
+                        1 -> { GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glUniform1f(uAl, 1f); GLES20.glUniform1f(uS, 0.5f) }
+                        2 -> { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA); GLES20.glDepthMask(false); GLES20.glUniform1f(uAl, 1f); GLES20.glUniform1f(uS, 0.02f) }
+                        else -> { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE); GLES20.glDepthMask(false); GLES20.glUniform1f(uAl, 1f); GLES20.glUniform1f(uS, 0.02f) }
+                    }
+                    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, m.tex)
+                    val b = m.mod
+                    b.position(0); GLES20.glVertexAttribPointer(mp, 3, GLES20.GL_FLOAT, false, 32, b)
+                    b.position(3); GLES20.glVertexAttribPointer(mu, 2, GLES20.GL_FLOAT, false, 32, b)
+                    b.position(5); GLES20.glVertexAttribPointer(mn, 3, GLES20.GL_FLOAT, false, 32, b); b.position(0)
+                    GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, m.n)
+                }
+                fait = true
+            }
+        }
+        GLES20.glDisableVertexAttribArray(mp); GLES20.glDisableVertexAttribArray(mu); GLES20.glDisableVertexAttribArray(mn)
+        GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true)
+        GLES20.glUseProgram(progL)
+        return fait
+    }
+
     /** build 272 : Rayman tel qu'il est dans le jeu (squelette, objets et textures lus en memoire) ; false : pas de pose recente */
     private fun dessinerRaymanAnime(mvp: FloatArray, c0: FloatArray): Boolean {
         val mod = animMod ?: return false
@@ -1026,7 +1101,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glEnable(GLES20.GL_DEPTH_TEST)
             GLES20.glUseProgram(progL)
         }
-        val pi = etat.pions
+        val kartsDessines = dessinerKarts(mvp, c0)
+        val pi = if (kartsDessines) FloatArray(0) else etat.pions
         if (pi.size >= 4) {
             GLES20.glDisable(GLES20.GL_DEPTH_TEST)
             val fb: FloatBuffer = ByteBuffer.allocateDirect(12).order(ByteOrder.nativeOrder()).asFloatBuffer()
@@ -1059,7 +1135,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, rm.n)
             GLES20.glDisableVertexAttribArray(mp); GLES20.glDisableVertexAttribArray(mu); GLES20.glDisableVertexAttribArray(mn)
             GLES20.glUseProgram(progL)
-        } else if (etat.montrerRayman) {
+        } else if (etat.montrerRayman && !kartsDessines) {
             GLES20.glDisable(GLES20.GL_DEPTH_TEST)
             val p: FloatBuffer = ByteBuffer.allocateDirect(12).order(ByteOrder.nativeOrder()).asFloatBuffer().put(floatArrayOf(c0[0], c0[1], c0[2] + 1.5f)); p.position(0)
             GLES20.glVertexAttribPointer(lPos, 3, GLES20.GL_FLOAT, false, 12, p); GLES20.glEnableVertexAttribArray(lPos)
@@ -1074,13 +1150,14 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
 @Composable
 fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin: List<FloatArray>, montrerRayman: Boolean = true,
                   pions: FloatArray? = null, distance: Float? = null, direct: (() -> FloatArray?)? = null,
-                  pose: (() -> PoseRayman?)? = null) {
+                  pose: (() -> PoseRayman?)? = null, karts: List<KartVue>? = null) {
     // build 242 : un etat neuf par niveau ; sans jeu en cours, la vue de depart cadre tout le niveau
     val etat = remember(scene) { Etat3D().also { e -> if (!montrerRayman) { e.distBase = scene.rayon * 1.7f; e.dist = e.distBase; e.tangage = 0.75f } } }
     // build 269 : en direct, la position vient de la lecture rapide (la valeur passee ici, plus lente, ne sert qu'au depart)
     if (direct == null || !etat.direct) etat.cible = cible
     etat.camera = camera; etat.montrerRayman = montrerRayman
     if (pions != null) etat.pions = pions
+    if (karts != null) etat.karts = karts
     if (direct != null) androidx.compose.runtime.LaunchedEffect(scene) {
         etat.direct = true
         try {

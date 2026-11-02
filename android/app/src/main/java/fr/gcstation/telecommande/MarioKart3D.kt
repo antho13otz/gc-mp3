@@ -100,8 +100,14 @@ fun CircuitMK3D(e: JeuMKDD.Etat) {
         pions[i * 4] = q[0]; pions[i * 4 + 1] = q[1]; pions[i * 4 + 2] = q[2]
         pions[i * 4 + 3] = java.lang.Float.intBitsToFloat((if (k.pilote > 0) JeuMKDD.PERSO_COUL[k.pilote] else 0xFFB8C7FFL).toInt())
     }
+    // build 296 : les vrais karts (pack mkdd-karts) : modele, pilote, passager, tournes comme dans le jeu ; le tien avec sa
+    // rotation lue en direct
+    val vues = e.karts.mapNotNull { k ->
+        val m = (if (k.n == 0) JeuMKDD.matJoueur else null) ?: k.mat ?: return@mapNotNull null
+        if (k.modele < 0 || k.pilote <= 0) null else KartVue(k.modele, k.pilote, k.passager, m, k.n == 0)
+    }
     Titre("En 3D")
-    DessinVue3DGL(sc, p, cam, emptyList(), montrerRayman = true, pions = pions, distance = 28f, direct = { JeuMKDD.positionDirecte() })
+    DessinVue3DGL(sc, p, cam, emptyList(), montrerRayman = true, pions = pions, distance = 28f, direct = { JeuMKDD.positionDirecte() }, karts = vues)
     Doux("Point rouge : toi · les autres karts aux couleurs de leur pilote · boîtes arc-en-ciel : boîtes à objets.", taille = 10)
 }
 
