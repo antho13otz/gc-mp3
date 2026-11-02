@@ -128,6 +128,26 @@ fun EcranIsoTel() {
     var message by remember { mutableStateOf("") }
     var filtre by remember { mutableStateOf("") }
     var choisi by remember { mutableStateOf<IsoTel.Fichier?>(null) }
+    val coches = remember { androidx.compose.runtime.mutableStateListOf<String>() }      // (build 219 : plusieurs fichiers)
+    var aEnvoyer by remember { mutableStateOf<List<IsoTel.Fichier>>(emptyList()) }
+    val dossier = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { t ->
+        val i = iso; val l = aEnvoyer
+        if (t != null && i != null && l.isNotEmpty()) {
+            portee.launch {
+                var ok = 0
+                withContext(Dispatchers.IO) {
+                    val parent = android.provider.DocumentsContract.buildDocumentUriUsingTree(t, android.provider.DocumentsContract.getTreeDocumentId(t))
+                    for ((k, f) in l.withIndex()) {
+                        message = "Extraction " + (k + 1) + " / " + l.size + " : " + f.chemin.substringAfterLast('/')
+                        val u = try { android.provider.DocumentsContract.createDocument(ctx.contentResolver, parent, "application/octet-stream", (disque?.id ?: "jeu") + "-" + f.chemin.substringAfterLast('/')) } catch (e: Exception) { null }
+                        if (u != null && IsoTel.extraire(ctx, i, f, u)) ok++
+                    }
+                }
+                message = "Enregistrés : $ok fichier(s) sur " + l.size
+                coches.clear()
+            }
+        }
+    }
     val enregistrer = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { u ->
         val f = choisi; val i = iso
         if (u != null && f != null && i != null) {
@@ -149,7 +169,7 @@ fun EcranIsoTel() {
         }
     }
     Column(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Doux("Choisis l'image d'un jeu GameCube (.iso ou .gcm) rangée sur le téléphone, puis le fichier à en sortir : main.dol est en premier.", taille = 12)
+        Doux("Choisis l'image d'un jeu GameCube (.iso ou .gcm) rangée sur le téléphone, puis le fichier à en sortir (main.dol est en premier), ou coche-en plusieurs : ils vont tous dans le dossier que tu choisis.", taille = 12)
         Bouton(if (disque == null) "Choisir le jeu (.iso)" else "Choisir un autre jeu", Modifier.fillMaxWidth(), plein = disque == null) { ouvrir.launch(arrayOf("*/*")) }
         if (message.isNotEmpty()) Doux(message, taille = 12, couleur = C.Texte)
         val d = disque
@@ -157,10 +177,22 @@ fun EcranIsoTel() {
             Text(d.titre.ifEmpty { d.id } + "  ·  " + d.id, color = C.Texte, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             OutlinedTextField(filtre, { filtre = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Filtrer (" + d.fichiers.size + " fichiers)") })
             val l = if (filtre.isBlank()) d.fichiers else d.fichiers.filter { it.chemin.contains(filtre.trim(), ignoreCase = true) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Bouton(if (coches.isEmpty()) "Cocher les fichiers à extraire" else "Extraire la sélection (" + coches.size + ")", Modifier.weight(1f),
+                    plein = coches.isNotEmpty(), actif = coches.isNotEmpty()) {
+                    aEnvoyer = d.fichiers.filter { (it.chemin + it.pos) in coches }; dossier.launch(null) }
+                Bouton("Tout cocher", actif = l.isNotEmpty()) {
+                    val toutes = l.all { (it.chemin + it.pos) in coches }
+                    if (toutes) l.forEach { coches.remove(it.chemin + it.pos) } else l.forEach { if ((it.chemin + it.pos) !in coches) coches.add(it.chemin + it.pos) } }
+            }
             LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 items(l, key = { it.chemin + it.pos }) { f ->
-                    Carte(Modifier.fillMaxWidth(), padding = androidx.compose.foundation.layout.PaddingValues(12.dp)) {
+                    val cle = f.chemin + f.pos
+                    val coche = cle in coches
+                    Carte(Modifier.fillMaxWidth().appui { if (coche) coches.remove(cle) else coches.add(cle) }, padding = androidx.compose.foundation.layout.PaddingValues(12.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (coche) "☑" else "☐", color = if (coche) C.Rose else C.Doux, fontSize = 20.sp)
+                            Spacer(Modifier.width(10.dp))
                             Column(Modifier.weight(1f)) {
                                 Text(f.chemin.substringAfterLast('/'), color = C.Texte, fontSize = 14.sp, fontWeight = if (f.chemin == "/main.dol") FontWeight.Bold else FontWeight.Normal, maxLines = 1)
                                 Doux(f.chemin.substringBeforeLast('/').ifEmpty { "/" } + " · " + taille(f.taille), taille = 11, lignes = 1)
