@@ -142,6 +142,13 @@ class Ambiance(val cielHaut: FloatArray, val cielBas: FloatArray, val brume: Flo
     companion object {
         private fun c(r: Int, g: Int, b: Int) = floatArrayOf(r / 255f, g / 255f, b / 255f)
         fun pour(niveau: String): Ambiance { val n = niveau.lowercase(); return when {
+            // build 266 : Mario Kart Double Dash (circuits nommes comme leurs archives)
+            n == "rainbow" -> Ambiance(c(4, 4, 22), c(30, 20, 70), c(18, 14, 46), 300f, 1200f, 0.5f, c(150, 160, 230), 0.5f)
+            n == "koopa" -> Ambiance(c(20, 6, 6), c(90, 30, 18), c(60, 22, 14), 200f, 900f, 0.55f, c(150, 120, 110), 0.5f)
+            n == "patapata" || n == "wario" || n == "waluigi" -> Ambiance(c(10, 14, 50), c(70, 60, 120), c(40, 40, 80), 300f, 1100f, 0.45f, c(130, 160, 210), 0.45f)
+            n == "snow" -> Ambiance(c(80, 130, 210), c(220, 232, 245), c(205, 215, 230), 250f, 1000f, 0.5f, c(170, 210, 240), 0.35f)
+            n == "desert" -> Ambiance(c(90, 150, 220), c(240, 215, 160), c(225, 200, 160), 250f, 1100f, 0.45f, c(120, 180, 200), 0.35f)
+            n == "diddy" -> Ambiance(c(60, 110, 160), c(170, 200, 170), c(130, 160, 130), 200f, 900f, 0.55f, c(110, 160, 140), 0.35f)
             n.startsWith("intro") -> Ambiance(c(24, 36, 92), c(70, 92, 150), c(52, 66, 110), 160f, 700f, 0.55f, c(150, 190, 230), 0.45f)     // nuit des fees
             n.startsWith("wood") -> Ambiance(c(70, 130, 210), c(175, 205, 225), c(150, 175, 165), 200f, 800f, 0.5f, c(150, 200, 190), 0.35f)  // foret de jour
             n.startsWith("swamp") -> Ambiance(c(10, 10, 30), c(38, 34, 64), c(30, 32, 48), 60f, 420f, 0.78f, c(105, 110, 95), 0.22f)       // marais de nuit
@@ -163,7 +170,9 @@ class Etat3D {
     @Volatile var chemin: FloatArray = FloatArray(0); @Volatile var montrerRayman = true
     @Volatile var decal = floatArrayOf(0f, 0f, 0f)       // (build 236 : deplacement a deux doigts, ajoute a la cible)
     @Volatile var redessiner: () -> Unit = {}
-    @Volatile var voir = "cfjkvrp"                          // build 245 : types d'objets affiches
+    @Volatile var voir = "cfjkvrpid"
+    /** build 266 : autres pions a montrer (Mario Kart : les autres karts) : x, y, z, couleur (ARGB en Float.fromBits) par pion */
+    @Volatile var pions = FloatArray(0)                          // build 245 : types d'objets affiches
     // build 247 : derniere projection dessinee (pour savoir quel objet est sous le doigt) et vol anime de la camera
     @Volatile var mvpVue: FloatArray? = null; @Volatile var vueW = 1; @Volatile var vueH = 1
     var vol: kotlinx.coroutines.Job? = null
@@ -373,9 +382,16 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             void main() { vec2 q = gl_PointCoord * 2.0 - 1.0;
                 if (uForme < 0.5) { float r = length(q); if (r > 1.0) discard;
                     gl_FragColor = vec4(r > 0.7 ? vec3(0.06) : uCoul.rgb * (1.2 - 0.4 * r), uCoul.a); }
-                else { vec2 a = abs(q); if (max(a.x, a.y) > 1.0) discard;
+                else if (uForme < 1.5) { vec2 a = abs(q); if (max(a.x, a.y) > 1.0) discard;
                     bool bord = max(a.x, a.y) > 0.78; bool barreau = fract((q.x + 1.0) * 2.5) < 0.3;
-                    gl_FragColor = vec4(bord ? vec3(0.06) : (barreau ? uCoul.rgb * 0.5 : uCoul.rgb), uCoul.a); } }""")
+                    gl_FragColor = vec4(bord ? vec3(0.06) : (barreau ? uCoul.rgb * 0.5 : uCoul.rgb), uCoul.a); }
+                else if (uForme < 2.5) { vec2 a = abs(q); if (max(a.x, a.y) > 1.0) discard;    // (boite a objets : arc-en-ciel, bord blanc)
+                    float h = (q.x + q.y) * 0.25 + 0.5;
+                    vec3 arc = clamp(abs(fract(h + vec3(0.0, 0.66, 0.33)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+                    gl_FragColor = vec4(max(a.x, a.y) > 0.8 ? vec3(1.0) : arc * 0.9 + 0.1, uCoul.a * 0.9); }
+                else { vec2 a = abs(q); if (max(a.x, a.y) > 1.0) discard;                       // (depart : damier)
+                    bool d = mod(floor((q.x + 1.0) * 3.0) + floor((q.y + 1.0) * 3.0), 2.0) < 0.5;
+                    gl_FragColor = vec4(max(a.x, a.y) > 0.85 ? vec3(0.06) : (d ? vec3(1.0) : vec3(0.06)), uCoul.a); } }""")
         // gemme : modele 3D (x y z nx ny nz par sommet), reflet : la normale vue de la camera choisit le point de la texture
         progG = programme("""
             uniform mat4 uMvp; uniform mat4 uVue; uniform vec3 uPos; uniform float uAng; uniform float uEch;
@@ -762,7 +778,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             val voir = etat.voir
             for (passe in 0..1) {
                 if (passe == 0) GLES20.glDisable(GLES20.GL_DEPTH_TEST) else GLES20.glEnable(GLES20.GL_DEPTH_TEST)
-                for (t in "jkvrpfc") {                            // les cages en dernier (par-dessus)
+                for (t in "idjkvrpfc") {                          // les cages en dernier (par-dessus)
                     val fb = objBuf[t] ?: continue
                     if (t !in voir) continue
                     if (gemmesC.containsKey(t)) continue                         // (build 249 : vraies gemmes, plus bas)
@@ -773,8 +789,9 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                         'c' -> 30f to floatArrayOf(1f, 0.74f, 0.25f); 'f' -> 26f to floatArrayOf(0.62f, 0.95f, 1f)
                         'p' -> 18f to floatArrayOf(0.62f, 0.55f, 1f); 'r' -> 11f to floatArrayOf(1f, 0.25f, 0.22f)
                         'k' -> 12f to floatArrayOf(0.95f, 0.1f, 0.3f); 'v' -> 15f to floatArrayOf(0.2f, 0.9f, 0.35f)
+                        'i' -> 20f to floatArrayOf(1f, 1f, 1f); 'd' -> 26f to floatArrayOf(1f, 1f, 1f)
                         else -> 11f to floatArrayOf(1f, 0.92f, 0.28f) }
-                    GLES20.glUniform1f(oT, taille * echelle); GLES20.glUniform1f(oF, if (t == 'c' || t == 'f') 1f else 0f)
+                    GLES20.glUniform1f(oT, taille * echelle); GLES20.glUniform1f(oF, if (t == 'c' || t == 'f') 1f else if (t == 'i') 2f else if (t == 'd') 3f else 0f)
                     GLES20.glUniform4f(oC, coul[0], coul[1], coul[2], if (passe == 0) 0.35f else 1f)
                     GLES20.glVertexAttribPointer(oPos, 3, GLES20.GL_FLOAT, false, 12, fb)
                     GLES20.glDrawArrays(GLES20.GL_POINTS, 0, fb.capacity() / 3)
@@ -784,6 +801,20 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             dessinerVraisObjets(voir)
             GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glEnable(GLES20.GL_DEPTH_TEST)
             GLES20.glUseProgram(progL)
+        }
+        val pi = etat.pions
+        if (pi.size >= 4) {
+            GLES20.glDisable(GLES20.GL_DEPTH_TEST)
+            val fb: FloatBuffer = ByteBuffer.allocateDirect(12).order(ByteOrder.nativeOrder()).asFloatBuffer()
+            for (k in 0 until pi.size / 4) {
+                fb.clear(); fb.put(pi[k * 4]).put(pi[k * 4 + 1]).put(pi[k * 4 + 2] + 1.2f); fb.position(0)
+                val c = pi[k * 4 + 3].toRawBits()
+                GLES20.glVertexAttribPointer(lPos, 3, GLES20.GL_FLOAT, false, 12, fb); GLES20.glEnableVertexAttribArray(lPos)
+                GLES20.glUniform1f(lTaille, 22f * echelle); GLES20.glUniform4f(lCoul, 1f, 1f, 1f, 1f); GLES20.glDrawArrays(GLES20.GL_POINTS, 0, 1)
+                GLES20.glUniform1f(lTaille, 16f * echelle)
+                GLES20.glUniform4f(lCoul, (c shr 16 and 255) / 255f, (c shr 8 and 255) / 255f, (c and 255) / 255f, 1f); GLES20.glDrawArrays(GLES20.GL_POINTS, 0, 1)
+            }
+            GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         }
         if (etat.montrerRayman) {
             GLES20.glDisable(GLES20.GL_DEPTH_TEST)
@@ -798,10 +829,13 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
 
 /** la vue 3D texturee ; cible / camera / chemin : la position en direct (ou le centre du niveau, sans jouer) */
 @Composable
-fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin: List<FloatArray>, montrerRayman: Boolean = true) {
+fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin: List<FloatArray>, montrerRayman: Boolean = true,
+                  pions: FloatArray? = null, distance: Float? = null) {
     // build 242 : un etat neuf par niveau ; sans jeu en cours, la vue de depart cadre tout le niveau
     val etat = remember(scene) { Etat3D().also { e -> if (!montrerRayman) { e.distBase = scene.rayon * 1.7f; e.dist = e.distBase; e.tangage = 0.75f } } }
     etat.cible = cible; etat.camera = camera; etat.montrerRayman = montrerRayman
+    if (pions != null) etat.pions = pions
+    if (distance != null) remember(scene) { etat.distBase = distance; etat.dist = distance; 0 }
     etat.chemin = FloatArray(chemin.size * 3).also { a -> for ((k, p) in chemin.withIndex()) { a[k * 3] = p[0]; a[k * 3 + 1] = p[1]; a[k * 3 + 2] = p[2] } }
     var plein by remember(scene) { androidx.compose.runtime.mutableStateOf(false) }
     // build 247 : toucher un objet -> la camera y vole et son nom s'affiche ; double toucher ailleurs -> zoom
@@ -855,7 +889,7 @@ private fun nomObjet(scene: SceneR3, o: Objet3D): String {
     val meme = scene.objets.filter { it.type == o.type }
     val n = meme.indexOf(o) + 1
     return when (o.type) { 'c' -> "Cage $n sur ${meme.size}"; 'f' -> "P'tit être $n sur ${meme.size}"; 'j' -> "Gemme jaune"
-        'k' -> "Gemme rouge"; 'v' -> "Gemme verte"; 'r' -> "Lum rouge"
+        'k' -> "Gemme rouge"; 'v' -> "Gemme verte"; 'r' -> "Lum rouge"; 'i' -> "Boîte à objets $n sur ${meme.size}"; 'd' -> "Ligne de départ"
         'p' -> "Pouvoir" + when { "rouade" in o.nom.lowercase() -> " : poing-roulade"; "grappin" in o.nom.lowercase() -> " : grappin"
             "force" in o.nom.lowercase() -> " : poing d'acier"; "snipe" in o.nom.lowercase() -> " : lockjaw"; "helico" in o.nom.lowercase() -> " : hélico"; else -> "" }
         else -> "" }
@@ -898,7 +932,8 @@ private fun ChoixObjets(scene: SceneR3, etat: Etat3D, modifier: Modifier, aller:
         }
         Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             for ((t, nom, coul) in listOf(Triple('c', "Cages", 0xFFFFBD40), Triple('f', "P'tits êtres", 0xFF9EF2FF), Triple('j', "Gemmes jaunes", 0xFFFFEB47), Triple('k', "Gemmes rouges", 0xFFFF3B6B), Triple('v', "Gemmes vertes", 0xFF3DDC84),
-                    Triple('r', "Lums rouges", 0xFFFF4038), Triple('p', "Pouvoirs", 0xFF9E8CFF))) {
+                    Triple('r', "Lums rouges", 0xFFFF4038), Triple('p', "Pouvoirs", 0xFF9E8CFF),
+                    Triple('i', "Boîtes à objets", 0xFFFFD54A), Triple('d', "Départ", 0xFFFFFFFF))) {
                 val k = n[t] ?: continue
                 val actif = t in voir
                 val r = reste[t] ?: 0
