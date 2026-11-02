@@ -907,7 +907,7 @@ private fun Jauge(nom: String, valeur: String, couleur: Color, modifier: Modifie
 }
 
 @Composable
-private fun Barre(part: Float, couleur: Color, hauteur: Int = 10) {
+internal fun Barre(part: Float, couleur: Color, hauteur: Int = 10) {
     Box(Modifier.fillMaxWidth().height(hauteur.dp).clip(RoundedCornerShape((hauteur / 2).dp)).background(C.Verre)) {
         Box(Modifier.fillMaxWidth(part.coerceIn(0f, 1f)).height(hauteur.dp).clip(RoundedCornerShape((hauteur / 2).dp))
             .background(Brush.horizontalGradient(listOf(couleur.copy(alpha = 0.65f), couleur))))
