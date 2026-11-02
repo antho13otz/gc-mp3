@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 255 — Rayman 3 : gemmes rouges et vertes
+- Vue 3D : les **trois gemmes** du jeu avec leur vrai modèle et leur reflet : jaunes, rouges (taille diamant) et vertes
+  (grosses), un bouton par couleur. Les grosses gemmes jaunes sont dessinées plus grandes. Il faut les packs à jour.
+
 ## Nouveautés appli build 252 — Rayman 3 : les vrais objets du jeu
 - Vue 3D : les **gemmes** sont le vrai modèle 3D du jeu avec son reflet doré (elles tournent et flottent), les **lums
   rouges** ont leur halo du jeu et les **pouvoirs** leurs icônes du jeu. Il faut un pack à jour (fichiers communs `r3_*`).
