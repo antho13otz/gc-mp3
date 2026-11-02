@@ -873,7 +873,7 @@ fun EcranCompagnon() {
     val act = LocalContext.current
     var vue by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
-        Chrono.init(act); Compagnon.ctx = act.applicationContext; Compagnon.ecranOuvert = true; Compagnon.demarrer()
+        Chrono.init(act); Compagnon.ctx = act.applicationContext; CartesR3.dossier = java.io.File(act.filesDir, "cartes-r3"); Compagnon.ecranOuvert = true; Compagnon.demarrer()
         CarteMarineWW.telecharger(act)                                   // (v313 : hors partie seulement)
         withContext(Dispatchers.Default) { CarteMarineWW.charger(act) }
     }
