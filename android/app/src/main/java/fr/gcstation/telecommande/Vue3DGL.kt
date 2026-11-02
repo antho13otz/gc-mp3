@@ -842,7 +842,10 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     private val mModele = FloatArray(16)
     private fun dessinerKarts(mvp: FloatArray, c0: FloatArray): Boolean {
         val ks = etat.karts
-        if (ks.isEmpty() || mkSieges.isEmpty() || progK == 0) return false
+        if (ks.isEmpty() || mkSieges.isEmpty() || progK == 0) {     // (sans le pack des karts : les objets en points)
+            objetsPoints.clear(); for ((g, p) in JeuMKDD.objets()) objetsPoints.add(floatArrayOf(p[0] * 0.01f, -p[2] * 0.01f, p[1] * 0.01f, g.toFloat()))
+            return false
+        }
         GLES20.glUseProgram(progK)
         GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progK, "uMvp"), 1, false, mvp, 0)
         GLES20.glUniform1i(GLES20.glGetUniformLocation(progK, "uTex"), 0); GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
@@ -852,12 +855,14 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         var fait = false
         for (k in ks) {
             // (le tien : rotation lue en direct ; les autres aussi, lus a part et glisses entre deux lectures)
-            val g = (if (k.joueur) JeuMKDD.matJoueur else if (k.n > 0) JeuMKDD.matKart(k.n) else null) ?: k.mat; if (g.size < 12) continue
+            val g = (if (k.joueur) JeuMKDD.matJoueurAff ?: JeuMKDD.matJoueur else if (k.n > 0) JeuMKDD.matKart(k.n) else null) ?: k.mat; if (g.size < 12) continue
             val siege = mkSieges[k.kart] ?: continue
             // rotation du jeu (lignes) -> repere de l'appli (x, -z, y) : lignes 0, -2, 1
             val ra = floatArrayOf(g[0], g[1], g[2], -g[8], -g[9], -g[10], g[4], g[5], g[6])
             val tx: Float; val ty: Float; val tz: Float
-            if (k.joueur && etat.direct) { tx = c0[0]; ty = c0[1]; tz = c0[2] } else { tx = g[3] * 0.01f; ty = -g[11] * 0.01f; tz = g[7] * 0.01f }
+            val gj = if (k.joueur) JeuMKDD.matJoueur else null                    // (le tien : position lue en direct + ecart de la carrosserie)
+            if (k.joueur && etat.direct && gj != null) { tx = c0[0] + (g[3] - gj[3]) * 0.01f; ty = c0[1] - (g[11] - gj[11]) * 0.01f; tz = c0[2] + (g[7] - gj[7]) * 0.01f }
+            else if (k.joueur && etat.direct) { tx = c0[0]; ty = c0[1]; tz = c0[2] } else { tx = g[3] * 0.01f; ty = -g[11] * 0.01f; tz = g[7] * 0.01f }
             val parts = listOf("mk_kart_${k.kart}.txt" to 0f, "mk_pilote_${k.pilote}.txt" to 1f, "mk_passager_${k.passager}.txt" to 1f)
             for ((nom, s) in parts) {
                 val mod = modeleMK(nom) ?: continue
@@ -884,11 +889,44 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 fait = true
             }
         }
+        // les objets de la course : leur modele (pack : mk_objet_<sorte>.txt), sinon un point de leur couleur (plus bas)
+        val obs = JeuMKDD.objets(); objetsPoints.clear()
+        for ((genre, p) in obs) {
+            val mod = if (mkObjetAbsent.contains(genre)) null else modeleMK("mk_objet_$genre.txt").also { if (it == null) mkObjetAbsent.add(genre) }
+            val ax = p[0] * 0.01f; val ay = -p[2] * 0.01f; val az = p[1] * 0.01f
+            if (mod == null) { objetsPoints.add(floatArrayOf(ax, ay, az, genre.toFloat())); continue }
+            // (debout ; les carapaces et les bananes tournent sur elles-memes, comme dans le jeu)
+            val ang = if (genre in 0..4 || genre == 13) ((System.nanoTime() / 1e9 * 6.0) % (2 * Math.PI)).toFloat() else 0f
+            val co = Math.cos(ang.toDouble()).toFloat(); val si = Math.sin(ang.toDouble()).toFloat()
+            mModele.fill(0f); mModele[0] = co; mModele[1] = si; mModele[4] = -si; mModele[5] = co; mModele[10] = 1f
+            mModele[12] = ax; mModele[13] = ay; mModele[14] = az; mModele[15] = 1f
+            GLES20.glUniformMatrix4fv(uM, 1, false, mModele, 0)
+            for (m in mod) {
+                if (m.mode >= 2) { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, if (m.mode == 2) GLES20.GL_ONE_MINUS_SRC_ALPHA else GLES20.GL_ONE); GLES20.glDepthMask(false) }
+                else { GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true) }
+                GLES20.glUniform1f(uAl, 1f); GLES20.glUniform1f(uS, if (m.mode == 1) 0.5f else 0.02f)
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, m.tex)
+                val b = m.mod
+                b.position(0); GLES20.glVertexAttribPointer(mp, 3, GLES20.GL_FLOAT, false, 32, b)
+                b.position(3); GLES20.glVertexAttribPointer(mu, 2, GLES20.GL_FLOAT, false, 32, b)
+                b.position(5); GLES20.glVertexAttribPointer(mn, 3, GLES20.GL_FLOAT, false, 32, b); b.position(0)
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, m.n)
+            }
+        }
         GLES20.glDisableVertexAttribArray(mp); GLES20.glDisableVertexAttribArray(mu); GLES20.glDisableVertexAttribArray(mn)
         GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true)
         GLES20.glUseProgram(progL)
         return fait
     }
+    private val objetsPoints = ArrayList<FloatArray>()
+    private val mkObjetAbsent = HashSet<Int>()
+    /** couleur du point d'un objet sans modele (sorte d'objet du jeu) */
+    private fun couleurObjet(g: Int): FloatArray = when (g) {
+        0, 1 -> floatArrayOf(0.2f, 0.85f, 0.3f); 2 -> floatArrayOf(0.95f, 0.15f, 0.15f); 3, 4 -> floatArrayOf(1f, 0.88f, 0.15f)
+        5, 12 -> floatArrayOf(1f, 0.55f, 0.15f); 6 -> floatArrayOf(1f, 1f, 0.4f); 7 -> floatArrayOf(0.15f, 0.15f, 0.18f)
+        8 -> floatArrayOf(0.1f, 0.1f, 0.12f); 9, 20, 21 -> floatArrayOf(1f, 0.4f, 0.05f); 10 -> floatArrayOf(0.5f, 0.9f, 1f)
+        11 -> floatArrayOf(0.6f, 1f, 0.6f); 13 -> floatArrayOf(0.2f, 0.4f, 1f); 14 -> floatArrayOf(1f, 0.45f, 0.7f)
+        else -> floatArrayOf(1f, 1f, 1f) }
 
     /** build 272 : Rayman tel qu'il est dans le jeu (squelette, objets et textures lus en memoire) ; false : pas de pose recente */
     private fun dessinerRaymanAnime(mvp: FloatArray, c0: FloatArray): Boolean {
@@ -1116,6 +1154,17 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             GLES20.glUseProgram(progL)
         }
         val kartsDessines = dessinerKarts(mvp, c0)
+        if (objetsPoints.isNotEmpty()) {                        // objets sans modele : un point de leur couleur (cache par le decor)
+            val fb: FloatBuffer = ByteBuffer.allocateDirect(12).order(ByteOrder.nativeOrder()).asFloatBuffer()
+            GLES20.glUseProgram(progL); GLES20.glUniformMatrix4fv(lMvp, 1, false, mvp, 0)
+            for (o in objetsPoints) {
+                fb.clear(); fb.put(o[0]).put(o[1]).put(o[2] + 0.35f); fb.position(0)
+                val cc = couleurObjet(o[3].toInt())
+                GLES20.glVertexAttribPointer(lPos, 3, GLES20.GL_FLOAT, false, 12, fb); GLES20.glEnableVertexAttribArray(lPos)
+                GLES20.glUniform1f(lTaille, 13f * echelle); GLES20.glUniform4f(lCoul, 1f, 1f, 1f, 1f); GLES20.glDrawArrays(GLES20.GL_POINTS, 0, 1)
+                GLES20.glUniform1f(lTaille, 9f * echelle); GLES20.glUniform4f(lCoul, cc[0], cc[1], cc[2], 1f); GLES20.glDrawArrays(GLES20.GL_POINTS, 0, 1)
+            }
+        }
         val pi = if (kartsDessines) FloatArray(0) else etat.pions
         if (pi.size >= 4) {
             GLES20.glDisable(GLES20.GL_DEPTH_TEST)

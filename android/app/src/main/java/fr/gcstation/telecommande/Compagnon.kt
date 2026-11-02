@@ -460,15 +460,29 @@ object JeuMKDD {
     /** build 296 : la matrice de ton kart (rotation du kart en 3D), lue avec sa position */
     @Volatile var kbJoueur = 0L
     @Volatile var matJoueur: FloatArray? = null
+    /** la matrice a dessiner : celle de la carrosserie (KartBody +0x1A0 : le kart qui tourne sur lui-meme, se penche ou saute
+     *  quand il est touche), ramenee au point du kart (+0x110) ; = matJoueur quand rien ne le secoue */
+    @Volatile var matJoueurAff: FloatArray? = null
+    /** A : KartBody +0x110 (le kart), B : +0x1A0 (la carrosserie, qui bouge avec les chocs) -> matrice a dessiner : rotation de B,
+     *  position telle que le point de la carrosserie (b = A^T (B.pos - A.pos)) reste a sa place */
+    fun matAffichee(a: FloatArray, b: FloatArray): FloatArray {
+        val d = floatArrayOf(b[3] - a[3], b[7] - a[7], b[11] - a[11])
+        val o = FloatArray(3) { j -> a[j] * d[0] + a[4 + j] * d[1] + a[8 + j] * d[2] }
+        val r = b.copyOf()
+        for (i in 0..2) r[4 * i + 3] = b[4 * i + 3] - (b[4 * i] * o[0] + b[4 * i + 1] * o[1] + b[4 * i + 2] * o[2])
+        return r
+    }
+    private fun lire12(l: Lecteur, a: Long): FloatArray? { val m = FloatArray(12)
+        for (q in 0 until 12) { val v = l.f32(a + 4L * q); if (v == null || !v.isFinite()) return null; m[q] = v }
+        return m }
     fun positionDirecte(): FloatArray? {
         val kc = kcJoueur.takeIf { it != 0L } ?: return null
         val l = Lecteur(3, 0)
         val x = l.f32(kc + 0x5C) ?: return null; val y = l.f32(kc + 0x60) ?: return null; val z = l.f32(kc + 0x64) ?: return null
         if (!(x.isFinite() && y.isFinite() && z.isFinite()) || (x == 0f && z == 0f)) return null
         val kb = kbJoueur
-        if (kb != 0L) { val m = FloatArray(12); var ok = true
-            for (q in 0 until 12) { val v = l.f32(kb + 0x110 + 4 * q); if (v == null || !v.isFinite()) { ok = false; break }; m[q] = v }
-            if (ok) matJoueur = m }
+        if (kb != 0L) { val m = lire12(l, kb + 0x110)
+            if (m != null) { matJoueur = m; matJoueurAff = lire12(l, kb + 0x1A0)?.let { matAffichee(m, it) } ?: m } }
         return CartesMK.pos(x, y, z)
     }
 
@@ -480,16 +494,56 @@ object JeuMKDD {
     fun lireAutresKarts() {
         val ks = kbs
         if (ks.size < 2) { matsDirect.clear(); return }
-        val l = Lecteur(2 * ks.size, 0)
+        val l = Lecteur(3 * ks.size + 24, 0)
         for (n in 1 until ks.size) {
             val kb = ks[n]; if (kb == 0L) continue
-            val m = FloatArray(12); var ok = true
-            for (q in 0 until 12) { val v = l.f32(kb + 0x110 + 4L * q); if (v == null || !v.isFinite()) { ok = false; break }; m[q] = v }
-            if (!ok) continue
+            val a = lire12(l, kb + 0x110) ?: continue
+            val m = lire12(l, kb + 0x1A0)?.let { matAffichee(a, it) } ?: a          // (la carrosserie : chocs, toupie, sauts)
             val t = System.nanoTime()
             val av = matsDirect[n]
             matsDirect[n] = MatT(av?.b, av?.tb ?: t, m, t)
         }
+        if (++tourObjets % 3 == 0) lireObjets(l)
+    }
+    /** les objets de la course (carapaces, bananes, bombes, fausses boites…), tenus ou sur la piste. ItemObjMgr : une liste
+     *  des objets en jeu par sorte, en +0x3E8 + 12 x sorte (JSUPtrList : tete, queue, nombre ; maillon : objet, liste,
+     *  precedent, suivant) ; objet : position en +0x04 (x, y, z), sorte en +0x7C. Verifie sur 5 photos de la memoire
+     *  (Circuit Mario, Croisiere Daisy) : les objets tenus sont juste derriere leur kart. */
+    class ObjT(val genre: Int, val a: FloatArray?, val ta: Long, val b: FloatArray, val tb: Long)
+    private val objetsDirect = java.util.concurrent.ConcurrentHashMap<Long, ObjT>()
+    private var tourObjets = 0
+    private fun lireObjets(l: Lecteur) {
+        val im = l.ptr(OBJETS) ?: run { objetsDirect.clear(); return }
+        val vus = HashSet<Long>()
+        val t = System.nanoTime()
+        for (g in 0..21) {
+            if (g == 16 || g == 17 || g == 18 || g == 19) continue              // (aucun ; groupes de 3 : chaque objet a part)
+            var lk = l.ptr(im + 0x3E8 + 12L * g) ?: continue
+            var c = 0
+            while (c++ < 24) {
+                val o = l.ptr(lk) ?: break
+                val x = l.fini(l.f32(o + 4)); val y = l.fini(l.f32(o + 8)); val z = l.fini(l.f32(o + 12))
+                if (x != null && y != null && z != null && !(x == 0f && y == 0f && z == 0f)) {
+                    val p = floatArrayOf(x, y, z); vus.add(o)
+                    val av = objetsDirect[o]
+                    objetsDirect[o] = if (av != null && av.genre == g) ObjT(g, av.b, av.tb, p, t) else ObjT(g, null, t, p, t)
+                }
+                lk = l.ptr(lk + 12) ?: break
+            }
+        }
+        objetsDirect.keys.retainAll(vus)
+    }
+    /** les objets a dessiner : sorte, puis la position du jeu (glissee entre les deux dernieres lectures) */
+    fun objets(): List<Pair<Int, FloatArray>> {
+        val now = System.nanoTime(); val r = ArrayList<Pair<Int, FloatArray>>()
+        for (e in objetsDirect.values) {
+            if (now - e.tb > 1_500_000_000L) continue
+            val a = e.a
+            if (a == null) { r.add(e.genre to e.b); continue }
+            val al = ((now - e.tb).toFloat() / (e.tb - e.ta).coerceAtLeast(1L)).coerceIn(0f, 1f)
+            r.add(e.genre to FloatArray(3) { a[it] + (e.b[it] - a[it]) * al })
+        }
+        return r
     }
     /** matrice d'un autre kart, glissee entre les deux dernieres lectures (pas de saut) ; null : pas de lecture recente */
     fun matKart(n: Int): FloatArray? {
