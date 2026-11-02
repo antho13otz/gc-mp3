@@ -1559,3 +1559,6 @@
     { "576p (50 Hz, composante)", "576p (50 Hz, component)" },
     { "Teste ta GameCube et tout GC Station tout seul (rapide, complet ou total) : rapport \xC3\xA0 m'envoyer depuis le t\xC3\xA9l\xC3\xA9phone.", "Tests your GameCube and all of GC Station by itself (quick, complete or full): a report to send from the phone." },
     { "T\xC3\xA9l\xC3\xA9", "TV" },
+    /* v320 : fenetre de chargement de la jaquette HD */
+    { "Chargement de la jaquette HD", "Loading HD cover" },
+    { "Pr\xC3\xA9paration...", "Preparing..." },
