@@ -240,7 +240,21 @@ jobs:
         run: |
           make clean
           set -o pipefail
-          make -j"$(nproc)" BUILD_NUM=${{ github.run_number }} 2>&1 | tee make.log || { grep -E "error|Error|undefined|\*\*\*" make.log | head -30 | sed 's/^/::error::/'; exit 1; }
+          make -j"$(nproc)" BUILD_NUM=320 2>&1 | tee make.log || { grep -E "error|Error|undefined|\*\*\*" make.log | head -30 | sed 's/^/::error::/'; exit 1; }
+
+      # (branche de diagnostic, jamais fusionnee : retrouver les fonctions du plantage, puis s'arreter avant toute publication)
+      - name: Diagnostic du plantage
+        shell: bash
+        run: |
+          A2L=$(command -v powerpc-eabi-addr2line || echo /opt/devkitpro/devkitPPC/bin/powerpc-eabi-addr2line)
+          NM=$(command -v powerpc-eabi-nm || echo /opt/devkitpro/devkitPPC/bin/powerpc-eabi-nm)
+          OD=$(command -v powerpc-eabi-objdump || echo /opt/devkitpro/devkitPPC/bin/powerpc-eabi-objdump)
+          for a in 80379b8c 8038ebb0 8038e8e4 8038cc08 80383f74 80012fc0 80194708 80006f58 80003430; do
+            echo "== $a"; $A2L -f -i -C -e gc-mp3player.elf 0x$a
+          done
+          $OD -d --start-address=0x80379b70 --stop-address=0x80379bc0 gc-mp3player.elf | tail -20
+          $OD -d --start-address=0x80012f80 --stop-address=0x80012fd0 gc-mp3player.elf | tail -20
+          echo "fin du diagnostic"; exit 1
 
       # v219 : ce qui prend de la place (code, donnees, zones reservees) : une note lisible dans le resume du build
       - name: Taille par élément
