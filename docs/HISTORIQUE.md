@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 252 — Rayman 3 : les vrais objets du jeu
+- Vue 3D : les **gemmes** sont le vrai modèle 3D du jeu avec son reflet doré (elles tournent et flottent), les **lums
+  rouges** ont leur halo du jeu et les **pouvoirs** leurs icônes du jeu. Il faut un pack à jour (fichiers communs `r3_*`).
+
 ## Nouveautés appli build 248 — Rayman 3 : navigation
 - Vue 3D : **toucher une cage ou un objet** fait voler la caméra jusqu'à lui et affiche son nom ; flèches ◀ ▶ pour passer
   d'une cage à l'autre ; vues toutes faites « Au sol », « Biais », « Dessus » ; déplacements animés ; double toucher : zoom.
