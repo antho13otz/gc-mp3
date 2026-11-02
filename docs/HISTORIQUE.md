@@ -24,6 +24,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 243 — Rayman 3 : vue 3D plus nette, textures HD, navigation
+- Rendu : image calculée jusqu'à 2× la résolution de l'écran puis réduite, netteté, halo autour des lumières,
+  ombres du jeu adoucies aux raccords.
+- **Textures HD** : avec les packs « -hd » (textures agrandies ×4 par une IA, fabriqués à part), un réglage sous la
+  vue 3D choisit ×4, ×3, ×2 ou la taille d'origine (si le téléphone peine).
+- Correction : choisir un autre niveau dans « Cartes installées » gardait l'ancien modèle 3D.
+- Navigation : la vue de départ cadre tout le niveau, élan quand on lâche le doigt, pivot à deux doigts,
+  boutons + / − (maintenir pour zoomer), « De dessus » cadre le niveau.
+
 ## Nouveautés appli build 240 — Rayman 3 : cartes rangées par monde
 - Fiche du jeu > Cartes installées : les niveaux sont **rangés par monde** (noms français, dans l'ordre du jeu) et
   s'appellent « Partie 1, 2… » ; le titre de la carte donne le monde et la partie. Le compagnon de jeu aussi.
