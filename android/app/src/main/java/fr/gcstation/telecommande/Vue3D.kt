@@ -53,10 +53,13 @@ class MaillageNiveau(val t: FloatArray, val couleurs: IntArray) {
 }
 
 /** ce que montre la vue : le maillage, la cible (Rayman), la camera du jeu (pour le point de vue par defaut), des reperes */
-class Vue3D(val m: MaillageNiveau, val cible: FloatArray, val camera: FloatArray?, val chemin: List<FloatArray> = emptyList())
+class Vue3D(val m: MaillageNiveau?, val cible: FloatArray, val camera: FloatArray?, val chemin: List<FloatArray> = emptyList(),
+            val scene: SceneR3? = null)   // (build 233 : avec les vraies textures, Vue3DGL.kt)
 
 @Composable
 fun DessinVue3D(v: Vue3D) {
+    if (v.scene != null) { DessinVue3DGL(v.scene, v.cible, v.camera, v.chemin); return }
+    val mm = v.m ?: return
     var lacet by remember { mutableFloatStateOf(Float.NaN) }   // (NaN : derriere la camera du jeu)
     var tangage by remember { mutableFloatStateOf(0.55f) }
     var dist by remember { mutableFloatStateOf(70f) }
@@ -89,7 +92,7 @@ fun DessinVue3D(v: Vue3D) {
         val ux = ry * fz; val uy = -rx * fz; val uz = rx * fy - ry * fx
         val foc = size.width * 0.9f; val mx = size.width / 2; val my = size.height / 2
         drawRect(Color(0xFF0E0A1E))
-        val t = v.m.t; val n = t.size / 9
+        val t = mm.t; val n = t.size / 9
         val px = FloatArray(n * 3); val py = FloatArray(n * 3); val pz = FloatArray(n * 3)
         for (i in 0 until n * 3) {
             val dx = t[i * 3] - ex; val dy = t[i * 3 + 1] - ey; val dz = t[i * 3 + 2] - ez
@@ -112,7 +115,7 @@ fun DessinVue3D(v: Vue3D) {
             path.moveTo(px[i], py[i]); path.lineTo(px[i + 1], py[i + 1]); path.lineTo(px[i + 2], py[i + 2]); path.close()
             val z = (pz[i] + pz[i + 1] + pz[i + 2]) / 3
             val brume = (z / 500f).coerceIn(0f, 0.7f)
-            val c = Color(v.m.couleurs[k])
+            val c = Color(mm.couleurs[k])
             drawPath(path, Color(c.red * (1 - brume) + 0.055f * brume, c.green * (1 - brume) + 0.04f * brume, c.blue * (1 - brume) + 0.12f * brume, 1f))
         }
         fun proj(x: Float, y: Float, z: Float): Offset? {
