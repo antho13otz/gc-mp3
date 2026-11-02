@@ -118,11 +118,13 @@ class PoseRayman(val mat: FloatArray, val types: IntArray, val data: LongArray, 
 }
 
 object LecturePose {
-    private const val POS = 0x804AAC94L
-    private var so0 = 0L; private var m0 = 0L; private var fix4 = 0L; private var verifie = 0L
-    private var objets: Pair<IntArray, LongArray>? = null; private var tObjets = 0L
+    private var so0 = 0L; private var l0 = 0L; private var mr = 0L; private var fix4 = 0L; private var verifie = 0L
+    private var objets: Triple<IntArray, LongArray, IntArray>? = null; private var tObjets = 0L
     private var textures: Map<Long, String> = emptyMap(); private var tTex = 0L
-    /** une pose, ou null (pas Rayman 3, pas de pack, structures pas a leur place) */
+    /** build 276 : les matrices globales du jeu sont lues bloc par bloc, donc a des images differentes : quand Rayman va
+     *  vite, les morceaux se decalaient. On lit donc les matrices LOCALES (chaque noeud par rapport a son parent, tableau
+     *  contigu pointe par +0x20 des noeuds) et la rotation de Rayman, et on recompose le squelette ici, autour de Rayman
+     *  (verifie sur les quatre photos : la recomposition redonne les matrices globales du jeu). */
     fun lire(mod: ModeleAnime?): PoseRayman? {
         mod ?: return null
         val now = System.currentTimeMillis()
@@ -133,24 +135,48 @@ object LecturePose {
             val perso = l.ptr(mod.ray + 4) ?: return null
             val s = l.ptr(mod.ray + 8) ?: return null
             if (l.u32(s) != 8L) return null
-            val m = l.ptr(s + 0x24) ?: return null
-            so0 = s; m0 = m; fix4 = perso - mod.perso; verifie = now; tObjets = 0L
+            l0 = l.ptr(s + 0x20) ?: return null
+            mr = l.ptr(mod.ray + 0x24) ?: return null
+            so0 = s; fix4 = perso - mod.perso; verifie = now; tObjets = 0L
         }
-        if (now - tObjets > 400 || objets == null) {              // (l'objet de chaque noeud : corps, mains, pouvoirs)
-            val ty = IntArray(PoseRayman.N); val da = LongArray(PoseRayman.N)
-            for (k in 0 until PoseRayman.N) { ty[k] = l.u32(so0 + 0x80L * k)?.toInt() ?: return null; da[k] = l.u32(so0 + 0x80L * k + 4) ?: return null }
-            objets = ty to da; tObjets = now
+        if (now - tObjets > 400 || objets == null) {              // (l'objet de chaque noeud : corps, mains, pouvoirs ; et son parent)
+            val ty = IntArray(PoseRayman.N); val da = LongArray(PoseRayman.N); val pa = IntArray(PoseRayman.N)
+            for (k in 0 until PoseRayman.N) {
+                val so = so0 + 0x80L * k
+                ty[k] = l.u32(so)?.toInt() ?: return null; da[k] = l.u32(so + 4) ?: return null
+                val p = l.u32(so + 0x1C) ?: return null
+                pa[k] = if (p == mod.ray) -1 else ((p - so0) / 0x80).toInt().takeIf { (p - so0) % 0x80 == 0L && it in 0 until PoseRayman.N } ?: -1
+            }
+            objets = Triple(ty, da, pa); tObjets = now
         }
-        val (ty, da) = objets ?: return null
-        val mat = FloatArray(PoseRayman.N * 15)
+        val (ty, da, pa) = objets ?: return null
+        // rotation de Rayman (sa position, elle, vient de la lecture rapide : le squelette est dessine autour)
+        val rr = FloatArray(12)
+        for (j in 0 until 12) rr[j] = l.f32(mr + 4 + 4 * j) ?: return null
+        val loc = FloatArray(PoseRayman.N * 15)
         for (k in 0 until PoseRayman.N) {
-            val a = m0 + 0x54L * k
-            for (j in 0 until 12) mat[k * 15 + j] = l.f32(a + 4 + 4 * j) ?: return null
-            for (j in 0..2) mat[k * 15 + 12 + j] = l.f32(a + 0x34 + 4 * j) ?: return null
+            val a = l0 + 0x54L * k
+            for (j in 0 until 12) loc[k * 15 + j] = l.f32(a + 4 + 4 * j) ?: return null
+            for (j in 0..2) loc[k * 15 + 12 + j] = l.f32(a + 0x34 + 4 * j) ?: return null
         }
-        if (mat.any { !it.isFinite() || Math.abs(it) > 1e5f }) { so0 = 0L; return null }
+        if (loc.any { !it.isFinite() || Math.abs(it) > 1e5f } || rr.any { !it.isFinite() || Math.abs(it) > 1e3f }) { so0 = 0L; return null }
+        // recomposition : G = P L (rangement du jeu : element [4j + i] = ligne i, colonne j de la rotation ; translation a 12..14)
+        val mat = FloatArray(PoseRayman.N * 15); val fait = BooleanArray(PoseRayman.N)
+        fun calc(k: Int, prof: Int) {
+            if (fait[k]) return
+            val p = pa[k]
+            if (p >= 0 && prof < 30) calc(p, prof + 1)
+            val P = if (p >= 0 && fait[p]) mat else rr; val po = if (p >= 0 && fait[p]) p * 15 else 0
+            val pt = if (p >= 0 && fait[p]) floatArrayOf(mat[po + 12], mat[po + 13], mat[po + 14]) else floatArrayOf(0f, 0f, 0f)
+            val o = k * 15
+            for (i in 0..2) {
+                for (j in 0..2) { var s = 0f; for (q in 0..2) s += P[po + 4 * q + i] * loc[o + 4 * j + q]; mat[o + 4 * j + i] = s }
+                var s = 0f; for (q in 0..2) s += P[po + 4 * q + i] * loc[o + 12 + q]; mat[o + 12 + i] = s + pt[i]
+            }
+            fait[k] = true
+        }
+        for (k in 0 until PoseRayman.N) calc(k, 0)
         val pos = FloatArray(3)
-        for (j in 0..2) pos[j] = l.f32(POS + 4 * j) ?: return null
         if (now - tTex > 1000) {                                   // (la texture de chaque morceau affiche : change avec les pouvoirs)
             val r = HashMap<Long, String>()
             for ((g, _) in mod.morceaux(PoseRayman(mat, ty, da, fix4, pos, emptyMap()))) for (e in mod.geos[g]?.el ?: emptyList()) {
