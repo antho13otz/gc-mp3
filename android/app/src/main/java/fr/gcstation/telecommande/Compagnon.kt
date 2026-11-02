@@ -455,6 +455,15 @@ object JeuMKDD {
     private const val OBJETS = 0x803D5D80L                         // ItemObjMgr::gItemMgr
     private const val CTRL = 0x803D63C8L                           // build 173 : KartCtrl::mCtrl (mKartBodies[8] en 0xA0)
     const val PAS_DE_TEMPS = 5999999
+    @Volatile var kcJoueur = 0L
+    /** build 269 : position de ton kart seule (un bloc), pour la vue 3D en direct ; repere de la vue */
+    fun positionDirecte(): FloatArray? {
+        val kc = kcJoueur.takeIf { it != 0L } ?: return null
+        val l = Lecteur(2, 0)
+        val x = l.f32(kc + 0x5C) ?: return null; val y = l.f32(kc + 0x60) ?: return null; val z = l.f32(kc + 0x64) ?: return null
+        if (!(x.isFinite() && y.isFinite() && z.isFinite()) || (x == 0f && z == 0f)) return null
+        return CartesMK.pos(x, y, z)
+    }
 
     class Kart(val n: Int, val x: Float, val z: Float, val place: Int, val y: Float = 0f,
                // v313 : pilotes, kart, objets, progression, bataille
@@ -553,6 +562,7 @@ object JeuMKDD {
     fun lire(l: Lecteur): Etat? {
         val rm = l.ptr(RACE) ?: return HORS_COURSE
         val kc = l.ptr(rm + 0x48) ?: return HORS_COURSE               // mKartChecker[0]
+        kcJoueur = kc                                                 // (build 269 : pour la lecture rapide de la position)
         val tours = l.s32(kc + 0x0C) ?: return null                   // mMaxLap
         if (tours !in 1..9) return HORS_COURSE
         val tour = l.s32(kc + 0x2C) ?: return null                    // mLap (-1 avant la ligne)

@@ -101,7 +101,7 @@ fun CircuitMK3D(e: JeuMKDD.Etat) {
         pions[i * 4 + 3] = java.lang.Float.intBitsToFloat((if (k.pilote > 0) JeuMKDD.PERSO_COUL[k.pilote] else 0xFFB8C7FFL).toInt())
     }
     Titre("En 3D")
-    DessinVue3DGL(sc, p, cam, emptyList(), montrerRayman = true, pions = pions, distance = 28f)
+    DessinVue3DGL(sc, p, cam, emptyList(), montrerRayman = true, pions = pions, distance = 28f, direct = { JeuMKDD.positionDirecte() })
     Doux("Point rouge : toi · les autres karts aux couleurs de leur pilote · boîtes arc-en-ciel : boîtes à objets.", taille = 10)
 }
 

@@ -209,6 +209,12 @@ object JeuRayman3 : ModuleJeu("Rayman 3", "GRHP41") {
     /** build 256 : debut du niveau charge en memoire (les objets sont a [NIV_MEM] + decalage du fichier du niveau) ;
      *  trouve en comparant deux photos de la memoire dans deux niveaux differents */
     private const val NIV_MEM = 0x804329F0L
+    /** build 269 : la position seule, lue d'un coup (un bloc de 1 Ko) : pour la vue 3D en direct, ~30 fois par seconde */
+    fun positionDirecte(): FloatArray? {
+        val l = Lecteur(1, 0)
+        val x = l.f32(POS) ?: return null; val y = l.f32(POS + 4) ?: return null; val z = l.f32(POS + 8) ?: return null
+        return if (Math.abs(x) < 1e5f && Math.abs(y) < 1e5f && Math.abs(z) < 1e5f) floatArrayOf(x, y, z) else null
+    }
     private var tour = 0
 
     /** build 256 : objets ramasses. L'octet +0x29 de l'etat de l'objet a son bit 0x01 allume une fois ramasse
@@ -254,7 +260,7 @@ object JeuRayman3 : ModuleJeu("Rayman 3", "GRHP41") {
             val mail = CartesR3.maillage(niv); val sc = CartesR3.scene(niv)
             if (sc != null && z != null) try { ramasses(sc, x, y, z) } catch (e: Exception) { }
             if ((mail != null || sc != null) && z != null) blocs.add(Bloc("Le niveau en 3D", vue3d = Vue3D(mail, floatArrayOf(x, y, z),
-                if (cx != null && cy != null) floatArrayOf(cx, cy) else null, ArrayList(ch3), sc),
+                if (cx != null && cy != null) floatArrayOf(cx, cy) else null, ArrayList(ch3), sc, direct = { positionDirecte() }),
                 texte = "Un doigt : tourner autour de Rayman · deux doigts : zoom · double toucher : revenir derrière la caméra du jeu."))
             val pts = ArrayList<FloatArray>(ch); for (p in pions) pts.add(floatArrayOf(p.x, p.z))
             val n = ch.size

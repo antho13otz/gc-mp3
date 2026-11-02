@@ -172,7 +172,9 @@ class Etat3D {
     @Volatile var redessiner: () -> Unit = {}
     @Volatile var voir = "cfjkvrpid"
     /** build 266 : autres pions a montrer (Mario Kart : les autres karts) : x, y, z, couleur (ARGB en Float.fromBits) par pion */
-    @Volatile var pions = FloatArray(0)                          // build 245 : types d'objets affiches
+    @Volatile var pions = FloatArray(0)
+    /** build 269 : position lue en direct ~30 fois par seconde ; le moteur la lisse a chaque image (plus de sauts) */
+    @Volatile var direct = false                          // build 245 : types d'objets affiches
     // build 247 : derniere projection dessinee (pour savoir quel objet est sous le doigt) et vol anime de la camera
     @Volatile var mvpVue: FloatArray? = null; @Volatile var vueW = 1; @Volatile var vueH = 1
     var vol: kotlinx.coroutines.Job? = null
@@ -253,6 +255,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     // build 261 : les boites de pouvoir du jeu (une par pouvoir : grappin, helico, poing, roulade, snipe), meme format que la cage
     private class Modele(val mod: FloatBuffer, val n: Int)
     private val boites = HashMap<String, Modele>(); private var texBoite = 0
+    private var raymanMod: Modele? = null; private var texRayman = 0
     private val boitesPos = HashMap<String, ArrayList<FloatArray>>()
     private fun lireModele(nom: String): Modele? = try {
         val f = java.io.File(scene.dossier, nom)
@@ -454,6 +457,9 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 }
             }
         } catch (e: Throwable) { cageMod = null }
+        raymanMod = if (scene.dossier.name == "cartes-r3") lireModele("r3_rayman_3d.txt") else null
+        texRayman = if (raymanMod != null) chargerTex("r3_rayman.png", repete = true) else 0
+        if (texRayman == 0) raymanMod = null
         boites.clear(); texBoite = chargerTex("r3_boite.png", repete = true)
         if (texBoite != 0) for (k in listOf("grappin", "helico", "poing", "roulade", "snipe")) lireModele("r3_boite_$k.txt")?.let { boites[k] = it }
         texPouvoir.clear()
@@ -577,7 +583,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     override fun onSurfaceChanged(gl: GL10?, w: Int, h: Int) {
         ecranW = w.coerceAtLeast(1); ecranH = h.coerceAtLeast(1)
         GLES20.glViewport(0, 0, w, h)
-        android.opengl.Matrix.perspectiveM(proj, 0, 60f, w.toFloat() / h.coerceAtLeast(1), 0.5f, 3000f)
+        android.opengl.Matrix.perspectiveM(proj, 0, 60f, w.toFloat() / h.coerceAtLeast(1), 0.5f, 9000f)   // (build 269 : grands circuits)
         for (c in cibles) liberer(c); cibles.clear(); echelle = 1f
         // facteur : jusqu'a 2x l'ecran (4 pixels calcules pour 1 affiche), sans depasser 4096 ni la limite du GPU
         val lim = minOf(4096, if (maxTex[0] > 0) maxTex[0] else 2048)
@@ -705,8 +711,25 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
     }
 
+    // build 269 : position affichee = position lue, lissee a chaque image ; cap de Rayman d'apres son deplacement
+    private var lisse: FloatArray? = null; private var tLisse = 0L; private var cap = 0f; private var capVise = 0f
+    private fun cibleLissee(): FloatArray {
+        val v = etat.cible; val l = lisse; val n = System.nanoTime()
+        if (l == null || !etat.direct) { lisse = v.copyOf(); tLisse = n; return v }
+        val dt = ((n - tLisse) / 1e9f).coerceIn(0f, 0.1f); tLisse = n
+        val dx = v[0] - l[0]; val dy = v[1] - l[1]; val dz = v[2] - l[2]
+        if (dx * dx + dy * dy + dz * dz > 400f) { lisse = v.copyOf(); return v }       // (teleporte : pas de glissade)
+        val k = 1f - Math.exp(-18.0 * dt).toFloat()                                      // (rattrape ~95 % en 1/6 s)
+        val m = floatArrayOf(l[0] + dx * k, l[1] + dy * k, l[2] + dz * k)
+        val vx = m[0] - l[0]; val vy = m[1] - l[1]
+        if (vx * vx + vy * vy > 1e-5f) capVise = Math.atan2(vy.toDouble(), vx.toDouble()).toFloat()
+        var dc = capVise - cap; while (dc > Math.PI) dc -= (2 * Math.PI).toFloat(); while (dc < -Math.PI) dc += (2 * Math.PI).toFloat()
+        cap += dc * (1f - Math.exp(-10.0 * dt).toFloat())
+        lisse = m; return m
+    }
+
     private fun dessinerScene() {
-        val c0 = etat.cible; val dc = etat.decal
+        val c0 = cibleLissee(); val dc = etat.decal
         val c = floatArrayOf(c0[0] + dc[0], c0[1] + dc[1], c0[2] + dc[2])
         val a = etat.lacetActuel()
         val tg = etat.tangage; val d = etat.dist
@@ -816,7 +839,24 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             }
             GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         }
-        if (etat.montrerRayman) {
+        val rm = raymanMod
+        if (etat.montrerRayman && rm != null) {          // build 269 : Rayman en 3D, tourne vers ou il va
+            GLES20.glUseProgram(progM)
+            GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progM, "uMvp"), 1, false, mvp, 0)
+            GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texRayman)
+            GLES20.glUniform1i(GLES20.glGetUniformLocation(progM, "uTex"), 0)
+            val mp = GLES20.glGetAttribLocation(progM, "aPos"); val mu = GLES20.glGetAttribLocation(progM, "aUv"); val mn = GLES20.glGetAttribLocation(progM, "aN")
+            val b = rm.mod
+            b.position(0); GLES20.glVertexAttribPointer(mp, 3, GLES20.GL_FLOAT, false, 32, b)
+            b.position(3); GLES20.glVertexAttribPointer(mu, 2, GLES20.GL_FLOAT, false, 32, b)
+            b.position(5); GLES20.glVertexAttribPointer(mn, 3, GLES20.GL_FLOAT, false, 32, b); b.position(0)
+            GLES20.glEnableVertexAttribArray(mp); GLES20.glEnableVertexAttribArray(mu); GLES20.glEnableVertexAttribArray(mn)
+            GLES20.glUniform3f(GLES20.glGetUniformLocation(progM, "uPos"), c0[0], c0[1], c0[2])
+            GLES20.glUniform1f(GLES20.glGetUniformLocation(progM, "uAng"), cap + (Math.PI / 2).toFloat())   // (le modele regarde vers -y)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, rm.n)
+            GLES20.glDisableVertexAttribArray(mp); GLES20.glDisableVertexAttribArray(mu); GLES20.glDisableVertexAttribArray(mn)
+            GLES20.glUseProgram(progL)
+        } else if (etat.montrerRayman) {
             GLES20.glDisable(GLES20.GL_DEPTH_TEST)
             val p: FloatBuffer = ByteBuffer.allocateDirect(12).order(ByteOrder.nativeOrder()).asFloatBuffer().put(floatArrayOf(c0[0], c0[1], c0[2] + 1.5f)); p.position(0)
             GLES20.glVertexAttribPointer(lPos, 3, GLES20.GL_FLOAT, false, 12, p); GLES20.glEnableVertexAttribArray(lPos)
@@ -830,11 +870,23 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
 /** la vue 3D texturee ; cible / camera / chemin : la position en direct (ou le centre du niveau, sans jouer) */
 @Composable
 fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin: List<FloatArray>, montrerRayman: Boolean = true,
-                  pions: FloatArray? = null, distance: Float? = null) {
+                  pions: FloatArray? = null, distance: Float? = null, direct: (() -> FloatArray?)? = null) {
     // build 242 : un etat neuf par niveau ; sans jeu en cours, la vue de depart cadre tout le niveau
     val etat = remember(scene) { Etat3D().also { e -> if (!montrerRayman) { e.distBase = scene.rayon * 1.7f; e.dist = e.distBase; e.tangage = 0.75f } } }
-    etat.cible = cible; etat.camera = camera; etat.montrerRayman = montrerRayman
+    // build 269 : en direct, la position vient de la lecture rapide (la valeur passee ici, plus lente, ne sert qu'au depart)
+    if (direct == null || !etat.direct) etat.cible = cible
+    etat.camera = camera; etat.montrerRayman = montrerRayman
     if (pions != null) etat.pions = pions
+    if (direct != null) androidx.compose.runtime.LaunchedEffect(scene) {
+        etat.direct = true
+        try {
+            while (true) {
+                val p = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { try { direct() } catch (e: Exception) { null } }
+                if (p != null && p.all { it.isFinite() }) { etat.cible = p }
+                kotlinx.coroutines.delay(30)
+            }
+        } finally { etat.direct = false }
+    }
     if (distance != null) remember(scene) { etat.distBase = distance; etat.dist = distance; 0 }
     etat.chemin = FloatArray(chemin.size * 3).also { a -> for ((k, p) in chemin.withIndex()) { a[k * 3] = p[0]; a[k * 3 + 1] = p[1]; a[k * 3 + 2] = p[2] } }
     var plein by remember(scene) { androidx.compose.runtime.mutableStateOf(false) }
@@ -986,8 +1038,11 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier, toucher: (Fl
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     vueRef[0]?.requestRender()
     // build 245 : l'eau et la lave bougent : on redessine environ 30 fois par seconde tant que la vue est affichee
-    if (scene.groupes.any { it.eau > 0 } || scene.objets.any { it.type in "jkvpc" }) androidx.compose.runtime.LaunchedEffect(Unit) {
-        while (true) { kotlinx.coroutines.delay(33); vueRef[0]?.requestRender() }
+    if (scene.groupes.any { it.eau > 0 } || scene.objets.any { it.type in "jkvpc" } || etat.direct || etat.montrerRayman) androidx.compose.runtime.LaunchedEffect(Unit) {
+        while (true) {
+            if (etat.direct) androidx.compose.runtime.withFrameNanos { } else kotlinx.coroutines.delay(33)    // (build 269 : en direct, chaque image)
+            vueRef[0]?.requestRender()
+        }
     }
     DisposableEffect(Unit) {
         val rd = { vueRef[0]?.requestRender(); Unit }
