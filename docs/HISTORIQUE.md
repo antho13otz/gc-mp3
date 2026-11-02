@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 238 — Rayman 3 : vue 3D plus belle et plus maniable
+- La **lumière du jeu** : chaque sommet prend la couleur précalculée par le jeu (ombres et éclairage d'origine).
+- Moteur : anticrénelage 4x, filtrage anisotrope, ciel en dégradé, rendus du jeu (découpe des feuillages, transparences,
+  lumières additives), textures en miroir ; textures communes du jeu (fix.tpl).
+- Navigation : un doigt tourne, **deux doigts déplacent** et zooment, double toucher recentre ; boutons **Recentrer** et
+  **Plein écran** (avec « De dessus ») ; la page ne défile plus quand on manipule la vue.
+
 ## Nouveautés appli build 234 — Rayman 3 : le niveau en 3D avec ses vraies textures
 - Nouveau moteur 3D (OpenGL) : le niveau s'affiche avec toute sa géométrie visible (décors, rochers, plantes, objets), ses
   **textures** et ses couleurs, la transparence, la brume au loin ; Rayman et ton chemin par-dessus. Dans le compagnon de
