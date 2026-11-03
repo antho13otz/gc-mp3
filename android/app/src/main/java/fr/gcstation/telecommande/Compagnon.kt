@@ -135,6 +135,41 @@ object JeuWW {
     private val G get() = if (version == "GZLE01") 0x803C4C08L else 0x803CC530L   // g_dComIfG_gameInfo (dSv_info_c en tete)
     private val SCENE get() = G + 0x12A0 + 0x3E94                 // play.mCurStage : nom (8), point, salle
     private val LINK get() = G + 0x12A0 + 0x48AC                  // play.mpPlayerPtr[0]
+    /** build 340 : la camera du jeu (camera_class) : pointeur en G +0x5B10 ; +0xD0 angle de vue vertical (degres), +0xD8
+     *  oeil, +0xE4 point vise, +0xF0 haut (x, y, z). Verifie sur 6 photos de la memoire (deux etapes) : oeil a 2 a 4 m de
+     *  Link, angle 58. */
+    private val CAMP get() = G + 0x5B10
+    /** build 340 : la pose de Link : acteur Link +0x32C -> son modele (J3DModel, qui pointe vers Link en +0x14), +0x8C ->
+     *  matrices du monde de ses 42 articulations (3 x 4 flottants, 0x30 octets chacune). Verifie sur 6 photos. */
+    fun poseLink(): FloatArray? {
+        val l = Lecteur(6, 0)
+        val p = l.ptr(LINK) ?: return null
+        val mo = l.ptr(p + 0x32C) ?: return null
+        if (l.u32(mo + 0x14) != p) return null
+        val n = l.ptr(mo + 0x8C) ?: return null
+        val r = FloatArray(42 * 12)
+        for (i in 0 until 42 * 12) { val v = l.f32(n + 4L * i) ?: return null; if (!v.isFinite()) return null; r[i] = v }
+        return r
+    }
+    /** build 340 : matrice de vue (3 x 4, monde -> camera, la camera regarde vers -z) et angle de vue, comme Mario Kart */
+    fun cameraJeu(): FloatArray? {
+        val l = Lecteur(2, 0)
+        val c = l.ptr(CAMP) ?: return null
+        val v = FloatArray(10) { i -> (l.f32(c + 0xD0 + 4L * i) ?: return null).takeIf { it.isFinite() } ?: return null }
+        val fov = v[0]; val ex = v[2]; val ey = v[3]; val ez = v[4]; val cx = (l.f32(c + 0xE4) ?: return null); val cy = l.f32(c + 0xE8) ?: return null; val cz = l.f32(c + 0xEC) ?: return null
+        val ux = l.f32(c + 0xF0) ?: return null; val uy = l.f32(c + 0xF4) ?: return null; val uz = l.f32(c + 0xF8) ?: return null
+        if (fov !in 5f..150f) return null
+        var fx = cx - ex; var fy = cy - ey; var fz = cz - ez; val lf = Math.sqrt((fx * fx + fy * fy + fz * fz).toDouble()).toFloat()
+        if (lf < 1e-3f) return null
+        fx /= lf; fy /= lf; fz /= lf
+        var sx = fy * uz - fz * uy; var sy = fz * ux - fx * uz; var sz = fx * uy - fy * ux; val ls = Math.sqrt((sx * sx + sy * sy + sz * sz).toDouble()).toFloat()
+        if (ls < 1e-4f) return null
+        sx /= ls; sy /= ls; sz /= ls
+        val vx = sy * fz - sz * fy; val vy = sz * fx - sx * fz; val vz = sx * fy - sy * fx
+        val m = floatArrayOf(sx, sy, sz, 0f, vx, vy, vz, 0f, -fx, -fy, -fz, 0f, fov)
+        for (i in 0..2) m[4 * i + 3] = -(m[4 * i] * ex + m[4 * i + 1] * ey + m[4 * i + 2] * ez)
+        return m
+    }
     private val VENT get() = (if (version == "GZLE01") 0x803E4AB4L else 0x803EC3FCL) + 0x97C   // g_env_light.mWind : mWindVec, puissance
 
     class Etat(val partie: Boolean, val vie: Int, val vieMax: Int, val rubis: Int, val magie: Int, val magieMax: Int,

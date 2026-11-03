@@ -124,7 +124,11 @@ fun LieuWW3D(e: JeuWW.Etat) {
     // build 338 : Link en 3D (pack : ww_link.ani) : son cap, sa vitesse ; sous l'eau : plus bas que la mer (hauteur 0)
     // sur la Grande Mer (nage)
     val nage = (e.scene == "sea" && e.y < -30f)
-    DessinVue3DGL(sc, p, cam, emptyList(), montrerRayman = true, distance = 22f, linkWW = floatArrayOf(e.cap.toFloat(), e.vitesse, if (nage) 1f else 0f))
+    // (build 340 : « 3e personne » : derriere Link, tourne comme lui ; « Vue du jeu » : la camera du jeu ; la vraie pose
+    //  de Link lue en direct)
+    val capApp = Math.atan2(-Math.cos(e.cap), Math.sin(e.cap)).toFloat()
+    DessinVue3DGL(sc, p, cam, emptyList(), montrerRayman = true, distance = 22f, linkWW = floatArrayOf(e.cap.toFloat(), e.vitesse, if (nage) 1f else 0f),
+        capPerso = capApp, poseWW = { JeuWW.poseLink() }, camJeu = { JeuWW.cameraJeu() })
     Doux("Link en 3D (pack Wind Waker) · carrés dorés : coffres.", taille = 10)
 }
 
@@ -211,6 +215,56 @@ class LinkAnime(val groupes: List<Groupe>, val anims: Map<String, Anim>) {
                         an[nom] = Anim(ni, ips, im)
                     }
                     LinkAnime(gs, an)
+                }
+            }
+        } catch (e: Throwable) { null }
+    }
+}
+
+/** build 340 : la peau de Link (pack : ww_link.peau, voir linkww.py) : pour chaque sommet, jusqu'a 4 articulations, leurs
+ *  poids et la position du sommet dans chacune. Avec les 42 matrices du monde lues dans le jeu (modele de Link +0x8C), la
+ *  position de chaque sommet = somme des poids x matrice x position locale ; puis repere de l'appli (x, -z, y) / 100. */
+class PeauLink(private val j: Array<ByteArray>, private val w: Array<FloatArray>, private val l: Array<FloatArray>, private val sortie: Array<java.nio.FloatBuffer>) {
+    fun poser(g: Int, m: FloatArray): java.nio.FloatBuffer {
+        val jj = j[g]; val ww = w[g]; val ll = l[g]; val o = sortie[g]; val n = jj.size / 4
+        o.position(0)
+        for (k in 0 until n) {
+            var x = 0f; var y = 0f; var z = 0f
+            for (q in 0 until 4) {
+                val ji = jj[4 * k + q].toInt() and 255
+                if (ji == 255 || ji >= 42) continue
+                val p = ww[4 * k + q]; val b = ji * 12; val c = 12 * k + 3 * q
+                val lx = ll[c]; val ly = ll[c + 1]; val lz = ll[c + 2]
+                x += p * (m[b] * lx + m[b + 1] * ly + m[b + 2] * lz + m[b + 3])
+                y += p * (m[b + 4] * lx + m[b + 5] * ly + m[b + 6] * lz + m[b + 7])
+                z += p * (m[b + 8] * lx + m[b + 9] * ly + m[b + 10] * lz + m[b + 11])
+            }
+            o.put(x * 0.01f).put(-z * 0.01f).put(y * 0.01f)
+        }
+        o.position(0); return o
+    }
+    companion object {
+        fun lire(f: java.io.File, la: LinkAnime): PeauLink? = try {
+            if (!f.exists()) null else {
+                val b = java.nio.ByteBuffer.wrap(f.readBytes()).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                if (b.int != 0x31505757) null else {                         // "WWP1"
+                    val ng = b.int
+                    if (ng != la.groupes.size) null else {
+                        val J = arrayOfNulls<ByteArray>(ng); val W = arrayOfNulls<FloatArray>(ng); val L = arrayOfNulls<FloatArray>(ng)
+                        for (g in 0 until ng) {
+                            val n = b.int
+                            if (n != la.groupes[g].n) throw IllegalStateException()
+                            val jj = ByteArray(4 * n); val ww = FloatArray(4 * n); val ll = FloatArray(12 * n)
+                            for (k in 0 until n) {
+                                b.get(jj, 4 * k, 4)
+                                for (q in 0 until 4) ww[4 * k + q] = b.float
+                                for (q in 0 until 12) ll[12 * k + q] = b.float
+                            }
+                            J[g] = jj; W[g] = ww; L[g] = ll
+                        }
+                        PeauLink(Array(ng) { J[it]!! }, Array(ng) { W[it]!! }, Array(ng) { L[it]!! },
+                            Array(ng) { java.nio.ByteBuffer.allocateDirect(la.groupes[it].n * 12).order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer() })
+                    }
                 }
             }
         } catch (e: Throwable) { null }

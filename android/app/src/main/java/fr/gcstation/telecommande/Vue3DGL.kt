@@ -218,6 +218,14 @@ class Etat3D {
     @Volatile var captureCb: ((android.graphics.Bitmap?) -> Unit)? = null
     /** build 338 : Wind Waker, Link en 3D : cap (radians, angle du jeu), vitesse (unites du jeu par image), sous l'eau (0/1) */
     @Volatile var linkWW: FloatArray? = null
+    /** build 340 : Wind Waker, la vraie pose de Link lue en direct : 42 matrices du monde (3 x 4, repere du jeu) et l'heure
+     *  de lecture (System.nanoTime) */
+    @Volatile var poseWW: FloatArray? = null; @Volatile var tPoseWW = 0L
+    /** build 340 : la camera du jeu pour « Vue du jeu » hors Mario Kart : matrice de vue (3 x 4, repere du jeu, comme
+     *  Mario Kart) puis l'angle de vue vertical (degres) ; et l'heure de lecture */
+    @Volatile var camJeu: FloatArray? = null; @Volatile var tCamJeu = 0L; @Volatile var aCamJeu = false
+    /** build 340 : direction du personnage (cap dans le repere de l'appli, radians ; NaN : inconnue) pour « 3e personne » */
+    @Volatile var capPerso = Float.NaN
     /** build 296 : Mario Kart, les karts a dessiner en 3D (le premier est le tien) */
     @Volatile var karts: List<KartVue> = emptyList()
     /** build 282 : 0 normal (la vue suit la position), 1 suivre (derriere Rayman, tournee comme lui), 2 libre (la vue ne bouge plus seule),
@@ -849,6 +857,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     private val linkTex = HashMap<Int, Int>(); private var linkVbo = IntArray(0)
     private val mLink = FloatArray(16); private val mvpLink = FloatArray(16)
     private var animLink = ""; private var tAnim = 0L
+    private var peauLink: PeauLink? = null; private var peauCharge = false
     private fun dessinerLinkWW(mvp: FloatArray, c0: FloatArray): Boolean {
         val l = etat.linkWW ?: return false
         if (!linkCharge) {
@@ -864,6 +873,35 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             }
         }
         val la = linkAni ?: return false
+        // build 340 : la vraie pose lue dans le jeu (42 matrices) : chaque sommet suit ses articulations (pack : ww_link.peau)
+        val pw = etat.poseWW?.takeIf { System.nanoTime() - etat.tPoseWW < 1_000_000_000L && it.size >= 42 * 12 }
+        if (pw != null && !peauCharge) { peauCharge = true; peauLink = PeauLink.lire(java.io.File(scene.dossier, "ww_link.peau"), la) }
+        val pl = peauLink
+        if (pw != null && pl != null) {
+            GLES20.glUseProgram(prog)
+            GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)                   // (positions deja dans le monde)
+            GLES20.glUniform1f(uEauL, 0f); GLES20.glUniform1f(uChaudL, 0f); GLES20.glUniform1f(uLmK, 0f); GLES20.glUniform2f(uDefil, 0f, 0f)
+            GLES20.glUniform1f(uSeuil, 0.5f); GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+            GLES20.glEnableVertexAttribArray(aPos); GLES20.glEnableVertexAttribArray(aUv); GLES20.glEnableVertexAttribArray(aCol)
+            if (aUvL >= 0) { GLES20.glDisableVertexAttribArray(aUvL); GLES20.glVertexAttrib2f(aUvL, 0f, 0f) }
+            for ((i, g) in la.groupes.withIndex()) {
+                val t = linkTex[g.texture]
+                GLES20.glUniform1f(uAvecTex, if (t != null && t != 0) 1f else 0f)
+                if (t != null && t != 0) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, linkVbo[2 * i])
+                GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, 12, 0)
+                GLES20.glVertexAttribPointer(aCol, 4, GLES20.GL_UNSIGNED_BYTE, true, 12, 8)
+                val pb = pl.poser(i, pw)
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, linkVbo[2 * i + 1])
+                GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, g.n * 12, pb, GLES20.GL_STREAM_DRAW)
+                GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 12, 0)
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
+            }
+            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+            GLES20.glDisableVertexAttribArray(aUv); GLES20.glDisableVertexAttribArray(aCol)
+            GLES20.glUseProgram(progL)
+            return true
+        }
         // l'animation : nage (sous l'eau), sinon d'apres la vitesse
         val v = l[1]
         val nom = if (l.size > 2 && l[2] > 0.5f) (if (v > 2f) "nage" else "nage_attente") else if (v < 1f) "attente" else if (v < 12f) "marche" else "course"
@@ -1584,6 +1622,10 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             val vise = Math.atan2(-mj[10].toDouble(), mj[2].toDouble()).toFloat()        // (repere de l'appli : x, -z, y)
             var dl = vise - l0; while (dl > Math.PI) dl -= (2 * Math.PI).toFloat(); while (dl < -Math.PI) dl += (2 * Math.PI).toFloat()
             etat.lacet = l0 + dl * (1f - Math.exp(-7.0 * dtS).toFloat())
+        } else if (etat.mode == 3 && !etat.capPerso.isNaN()) {        // (build 340 : Link de Wind Waker)
+            val l0 = etat.lacetActuel()
+            var dl = etat.capPerso - l0; while (dl > Math.PI) dl -= (2 * Math.PI).toFloat(); while (dl < -Math.PI) dl += (2 * Math.PI).toFloat()
+            etat.lacet = l0 + dl * (1f - Math.exp(-5.0 * dtS).toFloat())
         } else if (etat.mode == 1 || etat.mode == 3) {
             val l0 = etat.lacetActuel()
             // (build 290 : la vraie direction de Rayman, lue avec sa pose : son modele regarde vers -y ; sinon d'apres son deplacement)
@@ -1606,7 +1648,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         android.opengl.Matrix.setLookAtM(vue, 0, ex, ey, ez, vx, vy, vz, 0f, 0f, 1f)
         android.opengl.Matrix.multiplyMM(mvp, 0, proj, 0, vue, 0)
         // vue du jeu (Mario Kart) : la camera du jeu elle-meme (matrice de vue et angle lus en direct, rejoues comme le reste)
-        val cj = if (etat.mode == 4 && JeuMKDD.direct()) { JeuMKDD.rejouer(); JeuMKDD.camJeu } else null   // (sans direct : la vue de derriere)
+        val cj = if (etat.mode == 4 && JeuMKDD.direct()) { JeuMKDD.rejouer(); JeuMKDD.camJeu }   // (sans direct : la vue de derriere)
+                 else if (etat.mode == 4) etat.camJeu?.takeIf { System.nanoTime() - etat.tCamJeu < 1_500_000_000L } else null   // (build 340 : autres jeux)
         if (cj != null) {
             // (repere du jeu -> appli : x, -z, y ; vue = R P^T, position x 0,01)
             vue[0] = cj[0]; vue[1] = cj[4]; vue[2] = cj[8]; vue[3] = 0f
@@ -1787,7 +1830,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
 @Composable
 fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin: List<FloatArray>, montrerRayman: Boolean = true,
                   pions: FloatArray? = null, distance: Float? = null, direct: (() -> FloatArray?)? = null,
-                  pose: (() -> PoseRayman?)? = null, karts: List<KartVue>? = null, linkWW: FloatArray? = null) {
+                  pose: (() -> PoseRayman?)? = null, karts: List<KartVue>? = null, linkWW: FloatArray? = null,
+                  capPerso: Float = Float.NaN, poseWW: (() -> FloatArray?)? = null, camJeu: (() -> FloatArray?)? = null) {
     // build 242 : un etat neuf par niveau ; sans jeu en cours, la vue de depart cadre tout le niveau
     val etat = remember(scene) { Etat3D().also { e -> if (!montrerRayman) { e.distBase = scene.rayon * 1.7f; e.dist = e.distBase; e.tangage = 0.75f } } }
     // build 269 : en direct, la position vient de la lecture rapide (la valeur passee ici, plus lente, ne sert qu'au depart)
@@ -1795,7 +1839,19 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
     etat.camera = camera; etat.montrerRayman = montrerRayman
     if (pions != null) etat.pions = pions
     if (karts != null) etat.karts = karts
-    etat.linkWW = linkWW
+    etat.linkWW = linkWW; etat.capPerso = capPerso; etat.aCamJeu = camJeu != null
+    // build 340 : pose de Link et camera du jeu, lues en direct (~20 fois par seconde chacune, a part de l'ecran)
+    if (poseWW != null || camJeu != null) androidx.compose.runtime.LaunchedEffect(scene) {
+        try {
+            while (true) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    try { poseWW?.invoke()?.let { etat.poseWW = it; etat.tPoseWW = System.nanoTime() } } catch (e: Exception) { }
+                    try { if (etat.mode == 4) camJeu?.invoke()?.let { etat.camJeu = it; etat.tCamJeu = System.nanoTime() } } catch (e: Exception) { }
+                }
+                kotlinx.coroutines.delay(15)
+            }
+        } finally { etat.poseWW = null }
+    }
     if (direct != null) androidx.compose.runtime.LaunchedEffect(scene) {
         etat.direct = true
         try {
@@ -1986,12 +2042,13 @@ private fun BoutonsVue(scope: kotlinx.coroutines.CoroutineScope, etat: Etat3D, m
             if (mode == 1) { etat.vol?.cancel(); etat.decal = floatArrayOf(0f, 0f, 0f); etat.voler(scope, d = minOf(etat.dist, etat.distBase), tg = 0.35f) }
         }
         // 3e personne : comme dans le jeu, juste derriere ton kart (Mario Kart)
-        if (etat.karts.isNotEmpty() || mode == 3) PetitBouton("🏎 3e personne", actif = mode == 3) {
+        // (build 340 : dans tous les jeux en direct, derriere le personnage, tourne comme lui)
+        if (etat.karts.isNotEmpty() || (etat.montrerRayman && (etat.direct || etat.pose != null || !etat.capPerso.isNaN() || etat.linkWW != null)) || mode == 3) PetitBouton("🎥 3e personne", actif = mode == 3) {
             mode = if (mode == 3) 0 else 3; etat.mode = mode; etat.libre = null
             if (mode == 3) { etat.vol?.cancel(); etat.decal = floatArrayOf(0f, 0f, 0f); etat.voler(scope, d = 7f, tg = 0.16f) }
         }
         // vue du jeu : la camera du jeu elle-meme (Mario Kart, avec le direct de Pulse)
-        if (etat.karts.isNotEmpty() || mode == 4) PetitBouton("🎮 Vue du jeu", actif = mode == 4) {
+        if (etat.karts.isNotEmpty() || etat.aCamJeu || mode == 4) PetitBouton("🎮 Vue du jeu", actif = mode == 4) {
             mode = if (mode == 4) 0 else 4; etat.mode = mode; etat.libre = null
             if (mode == 4) { etat.vol?.cancel(); etat.decal = floatArrayOf(0f, 0f, 0f) }
         }
