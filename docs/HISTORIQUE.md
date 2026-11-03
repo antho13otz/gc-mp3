@@ -24,6 +24,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 336 — Wind Waker en 3D
+
+- **Fiche de Wind Waker, « les lieux en 3D »** : installe le pack Wind Waker (4 zips, textures agrandies x4). Le pack contient 164 lieux :
+  - la Grande Mer, avec sa vue d'ensemble et ses 49 îles ;
+  - les donjons, Hyrule, les maisons, les bateaux, les grottes et les fontaines.
+  - Les coffres sont des carrés dorés, qu'on peut afficher ou cacher.
+- **Compagnon de jeu, « En 3D »** : le lieu où tu es, avec Link dessus en direct (sur la mer : l'île de la case en cours).
+- Les noms français des îles et des lieux sont traduits à l'œil. Les lieux sans nom connu gardent celui du jeu.
+
 ## Nouveautés appli build 334 — Mario Kart : les objets bougent ; visite libre ; sans ATH
 
 - **Mario Kart, les objets qui bougent** (avec le nouveau pack des circuits) :
