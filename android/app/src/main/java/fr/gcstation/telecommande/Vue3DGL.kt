@@ -109,7 +109,9 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
                             val k = p[0].toIntOrNull() ?: continue
                             type[k] = if (lavePeinte.containsMatchIn(p[1])) 3 else if (lave.containsMatchIn(p[1])) 2 else if (eau.containsMatchIn(p[1])) 1 else 0
                             if (chaud?.containsMatchIn(p[1]) == true) chauds.add(k) }
-                        for (g in l) { g.eau = type[g.texture] ?: 0; g.chaud = g.texture in chauds }
+                        // build 332 : R3V3 : les teintes du jeu sont deja dans les couleurs des sommets (knaar_10 : os blancs, sol
+                        // orange, d'apres une photo de la console) ; la teinte chaude n'est gardee que pour les anciens packs
+                        for (g in l) { g.eau = type[g.texture] ?: 0; g.chaud = !v3 && g.texture in chauds }
                     }
                     // R3V3 : <niveau>_anim.txt : groupe, defilement u et v par seconde
                     java.io.File(d, nv + "_anim.txt").takeIf { it.exists() }?.readLines()?.forEach { li -> val p = li.trim().split(' ')
