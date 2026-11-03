@@ -1490,7 +1490,7 @@ static void x73_vj_pump(void) {
         if (!okc && op == 2 && vc_blank && vc_format()) okc = vc_load();   /* (carte jamais servie : formatee pour y ajouter) */
         if (!okc) snprintf(x73_vj_res, sizeof(x73_vj_res), "%s", vc_why[0] ? vc_why : "Carte illisible");
         else if (op == 1) {                                   /* une sauvegarde -> SD:/gci/telephone/<nom>.gci (envoyee au telephone) */
-            long n = 0; u8 *g = x73_vj_i < vc_n ? vc_export(x73_vj_i, &n) : NULL;
+            long n = 0; u8 *g = x73_vj_i >= 0 && x73_vj_i < vc_n ? vc_export(x73_vj_i, &n) : NULL;
             char nm[96], dir[NAME_LEN];
             snprintf(dir, sizeof(dir), "%s/telephone", MC_DIR);
             mkdir(MC_DIR, 0777);

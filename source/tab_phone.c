@@ -2192,7 +2192,7 @@ static void phone_pump(void) {
         case PC_VOLDOWN: volume_pct = volume_pct - 10 < 0 ? 0 : volume_pct - 10; settings_dirty = 1; break;
         case PC_PLAY: if (cm.i >= 0 && cm.i < nfiles) { queue_build(cm.i); start_track(cm.i); select_track_row(cm.i); } break;
         case PC_QPLAY: {                                 /* v311 : i = place dans "a suivre" (0 = le suivant) : la file reste */
-            int p = qpos + 1 + cm.i;
+            int p = cm.i >= 0 && cm.i < qn ? qpos + 1 + cm.i : qn;   /* v323 : (i enorme : pas de debordement du calcul) */
             if (cm.i >= 0 && qn > 0 && qpos >= 0 && qpos < qn && cur_track >= 0 && queue[qpos] == cur_track && p < qn) { play_queue_pos(p); select_track_row(queue[p]); }
             break; }
         case PC_RADIO: if (cm.i >= 0 && cm.i < nstations) { net_start_async(); start_station(cm.i, 0); } break;

@@ -158,3 +158,78 @@ static char *mv_json(void) {
     sb_add(&s, "]}");
     return s.b;
 }
+
+/* ---------- v323 : memoire par partie du programme (rapport du test des touches, page /memoire) ----------
+   Chaque partie (onglet, outil, menu START, mini-jeu, photo en grand, vitrine des jeux...) est creditee de ce qui
+   a ete reserve moins ce qui a ete rendu pendant qu'elle etait a l'ecran (mallinfo, mesure a chaque changement de
+   partie et toutes les secondes : rien a chaque image). Une partie dont le compte monte a chaque visite garde de la
+   memoire (fuite ou cache sans limite) ; un cache s'arrete de monter. Ce qui est rendu en quittant une partie peut etre
+   compte a la partie suivante (meme image) : les chiffres sont approchés, la somme est juste. */
+#define MP_N 48
+typedef struct { s16 id; u16 visits; s32 net, net1, netck, peak; } mp_t;   /* netck : a la visite 4, 8, 16... */
+static mp_t mp_tab[MP_N];
+static int mp_n = 0, mp_cur = -1000;
+static u32 mp_used = 0;
+static u64 mp_t0 = 0;
+static int mp_id(void) {                                     /* (la partie a l'ecran) */
+    if (tl_screen > 0) return 100 + tl_screen;
+    if (menu_open) return 90;
+    if (kb_open) return 91;
+    if (fun_mode != FUN_OFF) return 92;
+    if (pv_mode == 2) return 93;
+    if (pv_mode) return 94;
+    if (party_on) return 95;
+    if (saver_on) return 96;
+    if (tab == TAB_GAMES && gl_on) return gl_detail ? 98 : 97;
+    return tab >= 0 && tab < TAB_COUNT ? tab : 99;
+}
+static const char *mp_name(int id, char *o, int cap) {
+    static const char *const tl[] = { "", "Cartes mémoire", "Applis", "Derniers jeux", "Infos console", "Cartes virtuelles",
+        "Historique radio", "Partages réseau", "Sauvegardes", "Catalogue d'applis", "Succès", "Mode soirée (réglages)", "Guide",
+        "Profils", "Récap", "Globe des radios", "Compagnon", "Mémoire en direct", "Thèmes", "Test de la console", "Jeu de cartes" };
+    static const char *const sp[] = { "Menu START", "Clavier", "Mini-jeu", "Vidéo", "Photo en grand", "Mode soirée", "Économiseur",
+        "Jeux : vitrine", "Jeux : fiche", "?" };
+    if (id >= 100) { int k = id - 100; snprintf(o, cap, "Outil : %s", k >= 0 && k < (int)(sizeof(tl) / sizeof(tl[0])) ? tl[k] : "?"); }
+    else if (id >= 90) snprintf(o, cap, "%s", sp[id - 90 < (int)(sizeof(sp) / sizeof(sp[0])) ? id - 90 : 9]);
+    else snprintf(o, cap, "Onglet %s", id >= 0 && id < TAB_COUNT ? tab_names[id] : "?");
+    return o;
+}
+static mp_t *mp_get(int id) {
+    for (int i = 0; i < mp_n; i++) if (mp_tab[i].id == id) return &mp_tab[i];
+    if (mp_n >= MP_N) return NULL;
+    mp_t *p = &mp_tab[mp_n++]; memset(p, 0, sizeof(*p)); p->id = (s16)id; p->net1 = INT32_MIN;
+    return p;
+}
+static void mp_tick(void) {                                  /* (boucle principale, chaque image : presque rien) */
+    int id = mp_id();
+    u64 n = now_ms();
+    if (id == mp_cur && n - mp_t0 < 1000u) return;
+    struct mallinfo mi = mallinfo();
+    u32 used = (u32)mi.uordblks;
+    mp_t *p = mp_cur != -1000 ? mp_get(mp_cur) : NULL;
+    if (p) {
+        p->net += (s32)(used - mp_used);
+        if (p->net > p->peak) p->peak = p->net;
+        if (id != mp_cur && p->net1 == INT32_MIN) p->net1 = p->net;   /* (fin de la 1re visite) */
+    }
+    if (id != mp_cur) { mp_t *q = mp_get(id); if (q) { q->visits++; if (q->visits >= 4 && !(q->visits & (q->visits - 1))) q->netck = q->net; } }
+    mp_cur = id; mp_used = used; mp_t0 = n;
+}
+static void mp_reset(void) { mp_n = 0; mp_cur = -1000; mp_tick(); }
+/* rapport : les parties qui gardent le plus de memoire d'abord */
+static void mp_report(FILE *f) {
+    int ord[MP_N], k = 0;
+    for (int i = 0; i < mp_n; i++) ord[k++] = i;
+    for (int i = 1; i < k; i++) for (int j = i; j > 0 && mp_tab[ord[j]].net > mp_tab[ord[j - 1]].net; j--) { int t = ord[j]; ord[j] = ord[j - 1]; ord[j - 1] = t; }
+    fprintf(f, "\n== Mémoire par partie (réservé moins rendu pendant qu'elle était à l'écran) ==\n");
+    for (int i = 0; i < k; i++) {
+        const mp_t *p = &mp_tab[ord[i]];
+        char nm[64];
+        s32 after = p->net1 == INT32_MIN ? 0 : p->net - p->net1;
+        /* (monte encore dans la 2e moitie des visites : fuite ou cache sans limite ; sinon : cache) */
+        const char *why = p->visits >= 8 && p->net - p->netck > 256 * 1024 ? "monte encore à chaque visite (fuite ?)" :
+                          p->net > 256 * 1024 ? "gardé puis stable (cache, ou rendu en quittant une autre partie)" : "";
+        fprintf(f, "  %-36s %4u visites  %+6d Ko  (après la 1re visite %+6d Ko, pire %+6d Ko)  %s\n", mp_name(p->id, nm, sizeof(nm)),
+                (unsigned)p->visits, (int)(p->net / 1024), (int)(after / 1024), (int)(p->peak / 1024), why);
+    }
+}

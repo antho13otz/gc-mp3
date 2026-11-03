@@ -43,6 +43,19 @@ for sc in tour web-accueil; do
     check_log $sc $?
 done
 
+# --- v323 : test des touches court (6 min : chaque touche dans chaque ecran, tant que le temps le permet) ---
+note "test des touches (6 min)"
+KT=$CI/touches; mkdir -p $KT
+KTR="$RUN/sd:/gc-mp3/journaux/test-console.txt"
+rm -f "$KTR"
+(cd $RUN && PCSIM_NET=off PCSIM_KT_MIN=6 PCSIM_FAST=1 PCSIM_SCRIPT=$P/scenarios/test-touches.txt PCSIM_OUT=$KT timeout 900 $BIN > $CI/touches.log 2>&1)
+check_log touches $?
+if [ -f "$KTR" ] && grep -q "test des touches" "$KTR" && grep -q "actions" "$KTR"; then
+    cp "$KTR" $CI/test-console.txt
+    note "test des touches : $(sed -n 2p "$KTR")"
+    grep -q "pas atteint" "$KTR" && note "test des touches : (des ecrans pas atteints en 6 min : normal)"
+else fail "test des touches : pas de rapport"; fi
+
 # --- telephone ---
 note "telephone"
 mkdir -p $CI/tel

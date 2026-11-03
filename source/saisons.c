@@ -31,7 +31,7 @@ static int season_by_date(void) {
 }
 static int season_now(void) {
     static int env_done = 0;
-    if (!env_done) { env_done = 1; const char *e = getenv("PCSIM_SAISON"); if (e) season_test = atoi(e); }   /* (simulateur : decor impose) */
+    if (!env_done) { env_done = 1; const char *e = getenv("PCSIM_SAISON"); if (e) season_test = atoi(e); if (season_test < 0 || season_test >= SEASON_N) season_test = 0; }   /* (simulateur : decor impose) */
     if (season_test) return season_test;
     if (season_on <= 0) return SEASON_NONE;
     if (season_on == 1) return season_by_date();

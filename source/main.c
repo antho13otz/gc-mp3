@@ -14446,6 +14446,7 @@ int main(int argc, char **argv) {
         pet_tick();                                         /* v207 : le compagnon se nourrit de ce qui joue (pet.c) */
         gb_bg();                                            /* v213 : radios du globe chargees en fond (globe.c) */
         mem_tick();                                         /* v220 : memoire (memview.c) */
+        mp_tick();                                          /* v323 : memoire par partie (memview.c) */
         upg_tick();                                         /* v229 : garde-fou apres une mise a jour (update.c) */
         sx_tick();                                          /* v259 : test de la console (selftest.c) */
 #ifndef GEKKO
