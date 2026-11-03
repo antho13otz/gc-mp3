@@ -607,12 +607,15 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 vUv = aUv; gl_Position = uMvp * (uModele * vec4(aPos, 1.0)); }""", """
             precision mediump float; uniform sampler2D uTex; uniform float uAlpha; uniform float uSeuil; varying vec2 vUv; varying float vL;
             void main() { vec4 t = texture2D(uTex, vUv); if (t.a < uSeuil) discard; gl_FragColor = vec4(t.rgb * vL * 1.1, t.a * uAlpha); }""")
+        // (la boite tourne sur elle-meme (uAng) et bascule (uInc), comme dans le jeu ; uEch : elle repousse apres un choc)
         progMB = programme("""
-            uniform mat4 uMvp; uniform vec3 uPos; uniform float uAng; uniform vec2 uDefil;
+            uniform mat4 uMvp; uniform vec3 uPos; uniform float uAng; uniform float uInc; uniform float uEch; uniform vec2 uDefil;
             attribute vec3 aPos; attribute vec2 aUv; attribute vec3 aN; varying vec2 vUv; varying float vL;
-            void main() { float c = cos(uAng); float s = sin(uAng);
-                vec3 p = vec3(aPos.x * c - aPos.y * s, aPos.x * s + aPos.y * c, aPos.z);
-                vec3 n = normalize(vec3(aN.x * c - aN.y * s, aN.x * s + aN.y * c, aN.z));
+            void main() { float c = cos(uAng); float s = sin(uAng); float ci = cos(uInc); float si = sin(uInc);
+                vec3 p0 = vec3(aPos.x, aPos.y * ci - aPos.z * si, aPos.y * si + aPos.z * ci);
+                vec3 n0 = vec3(aN.x, aN.y * ci - aN.z * si, aN.y * si + aN.z * ci);
+                vec3 p = vec3(p0.x * c - p0.y * s, p0.x * s + p0.y * c, p0.z) * uEch;
+                vec3 n = normalize(vec3(n0.x * c - n0.y * s, n0.x * s + n0.y * c, n0.z));
                 vL = 0.6 + 0.4 * max(0.0, dot(n, normalize(vec3(0.4, -0.5, 0.75))));
                 vUv = aUv + uDefil; gl_Position = uMvp * vec4(p + uPos, 1.0); }""", """
             precision mediump float; uniform sampler2D uTex; uniform float uAlpha; uniform float uSeuil; varying vec2 vUv; varying float vL;
@@ -833,6 +836,13 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 val mp = GLES20.glGetAttribLocation(progMB, "aPos"); val mu = GLES20.glGetAttribLocation(progMB, "aUv"); val mn = GLES20.glGetAttribLocation(progMB, "aN")
                 val uP = GLES20.glGetUniformLocation(progMB, "uPos"); val uA = GLES20.glGetUniformLocation(progMB, "uAng")
                 val uD = GLES20.glGetUniformLocation(progMB, "uDefil"); val uAl = GLES20.glGetUniformLocation(progMB, "uAlpha"); val uS = GLES20.glGetUniformLocation(progMB, "uSeuil")
+                val uI = GLES20.glGetUniformLocation(progMB, "uInc"); val uE = GLES20.glGetUniformLocation(progMB, "uEch")
+                // (en course : les boites lues dans le jeu, cachees quand un kart les casse, qui repoussent ; sinon celles du circuit)
+                val vives = JeuMKDD.boites()
+                if (vives.isNotEmpty()) for (bx in vives) {
+                    val av = boiteEch.put(bx.id, bx.ech)
+                    if (av != null && av > 0.6f && bx.ech < 0.3f) eclats.add(floatArrayOf(bx.x * 0.01f, -bx.z * 0.01f, bx.y * 0.01f + 0.9f))
+                }
                 GLES20.glEnableVertexAttribArray(mp); GLES20.glEnableVertexAttribArray(mu); GLES20.glEnableVertexAttribArray(mn)
                 for (m in mb) {
                     when (m.mode) {
@@ -847,9 +857,22 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                     b.position(0); GLES20.glVertexAttribPointer(mp, 3, GLES20.GL_FLOAT, false, 32, b)
                     b.position(3); GLES20.glVertexAttribPointer(mu, 2, GLES20.GL_FLOAT, false, 32, b)
                     b.position(5); GLES20.glVertexAttribPointer(mn, 3, GLES20.GL_FLOAT, false, 32, b); b.position(0)
-                    for (q in mkBoitesPos) {
+                    if (vives.isEmpty()) for (q in mkBoitesPos) {
                         GLES20.glUniform3f(uP, q[0], q[1], q[2]); GLES20.glUniform1f(uA, if (m.mode == 2) 0f else t * 1.2f + q[3])
+                        GLES20.glUniform1f(uI, if (m.mode == 2) 0f else 0.5f * Math.sin((t * 0.9f + q[3]).toDouble()).toFloat()); GLES20.glUniform1f(uE, 1f)
                         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, m.n)
+                    }
+                    else for (bx in vives) {
+                        if (bx.ech < 0.02f) continue                                   // (cassee : rien tant qu'elle n'a pas repousse)
+                        val ph = ((bx.id / 0x240L) % 97L).toFloat() * 0.37f
+                        GLES20.glUniform3f(uP, bx.x * 0.01f, -bx.z * 0.01f, bx.y * 0.01f + 0.9f)
+                        val ang = if (m.mode == 2) 0f else t * 1.2f + ph; val inc = if (m.mode == 2) 0f else 0.5f * Math.sin((t * 0.9f + ph).toDouble()).toFloat()
+                        GLES20.glUniform1f(uA, ang); GLES20.glUniform1f(uI, inc); GLES20.glUniform1f(uE, bx.ech)
+                        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, m.n)
+                        if (bx.double && m.mode != 2) {                                // (double boite : une seconde boite dedans, a contre-sens)
+                            GLES20.glUniform1f(uA, -ang * 1.3f); GLES20.glUniform1f(uI, -inc); GLES20.glUniform1f(uE, bx.ech * 0.62f)
+                            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, m.n)
+                        }
                     }
                 }
                 GLES20.glDisableVertexAttribArray(mp); GLES20.glDisableVertexAttribArray(mu); GLES20.glDisableVertexAttribArray(mn)
@@ -903,7 +926,9 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
      *  Le tien est place a la position lissee (fluide), les autres a leur derniere position lue. */
     private val mModele = FloatArray(16)
     private val ancres = HashMap<Int, FloatArray>()
-    private val feux = ArrayList<FloatArray>()            // (boules de feu de la course : position dans l'appli)       // (repere de chaque kart tel qu'il est dessine : ra puis position)
+    private val feux = ArrayList<FloatArray>()
+    private val boiteEch = HashMap<Long, Float>()         // (derniere echelle vue de chaque boite : pour voir quand elle casse)
+    private val eclats = ArrayList<FloatArray>()          // (boites qui viennent de casser : eclats a lancer)            // (boules de feu de la course : position dans l'appli)       // (repere de chaque kart tel qu'il est dessine : ra puis position)
     private fun dessinerKarts(mvp: FloatArray, c0: FloatArray): Boolean {
         val ks = etat.karts
         if (ks.isEmpty() || mkSieges.isEmpty() || progK == 0) {     // (sans le pack des karts : les objets en points)
@@ -1127,6 +1152,14 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                             0.3f + 0.7f * r, 0.3f + 0.7f * g, 0.3f + 0.7f * b, 1f, true) }
                 }
             }
+            for (b in eclats) {                                                   // (la boite casse : eclats arc-en-ciel et un eclair blanc)
+                emettre(b[0], b[1], b[2], 0f, 0f, 0f, 0.25f, 2.2f, 0.4f, 1f, 1f, 1f, 0.9f, true)
+                repeat(40) { val h = alea.nextFloat()
+                    val r = (Math.abs(h * 6f - 3f) - 1f).coerceIn(0f, 1f); val g = (2f - Math.abs(h * 6f - 2f)).coerceIn(0f, 1f); val bl = (2f - Math.abs(h * 6f - 4f)).coerceIn(0f, 1f)
+                    emettre(b[0], b[1], b[2], hasard() * 4f, hasard() * 4f, 1.5f + alea.nextFloat() * 3f, 0.6f + alea.nextFloat() * 0.3f, 0.3f, 0.12f,
+                        0.3f + 0.7f * r, 0.3f + 0.7f * g, 0.3f + 0.7f * bl, 1f, true, -9f) }
+            }
+            eclats.clear()
             for (f in feux) repeat(combien(50f, dt)) { val c = alea.nextFloat()
                 emettre(f[0] + hasard() * 0.12f, f[1] + hasard() * 0.12f, f[2] + 0.25f + hasard() * 0.1f, hasard() * 0.3f, hasard() * 0.3f, 0.8f,
                     0.35f, 0.7f, 0.1f, 1f, 0.35f + 0.5f * c, 0.05f, 0.9f, true) }
