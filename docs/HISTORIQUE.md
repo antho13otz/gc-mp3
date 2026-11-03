@@ -24,6 +24,19 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v327 (build 843) — Pulse avec l'ETH2SP1 / ETH2GC pendant le jeu
+- Pulse (le programme qui reste avec le jeu) a son propre pilote W5500 : sans Broadband Adapter, il utilise
+  l'ETH2SP1 (port série 1), sinon un ETH2GC dans le port de carte B ou A. La manette du téléphone, le chercheur de
+  codes, le direct de l'appli (Mario Kart) et l'ISO par le réseau marchent donc aussi avec ces adaptateurs. L'adresse
+  Ethernet réglée par GC Station est gardée ; si le jeu occupe le port, Pulse réessaie plus tard au lieu d'abandonner.
+- Avant le lancement d'un jeu, les interruptions du W5500 sont coupées (comme pour le Broadband Adapter).
+- Pour tenir dans sa place (sous 0x817FFF00), ce qui ne sert qu'au démarrage, au réseau et au plantage est compilé en
+  « le plus petit » : fin de Pulse à 0x817FFE20. (La 1re compilation de la v327, build 839, avait échoué pour ça :
+  rien n'avait été publié.)
+- Tests : nouveau banc `tools/natif-test/emu_w5500.py` (W5500 simulé dans le port série 1, les ports B et A, port pris
+  par le jeu, tampons qui font le tour) : tout OK ; le reste du banc et le simulateur : comme avant. Pas testé sur une
+  vraie console avec un ETH2SP1.
+
 ## Nouveautés v326 (build 838) — cartes SD en exFAT (jusqu'à 1 To et plus) et adaptateur réseau ETH2SP1
 - **Cartes exFAT** : les grandes cartes (64 Go à 1 To et plus) sont vendues en exFAT, que libfat ne lit pas. Quand
   libfat ne monte pas la carte, GC Station la monte avec FatFs (ChaN, licence BSD à 1 clause) sous le même nom `sd:` :
