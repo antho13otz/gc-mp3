@@ -603,6 +603,45 @@ object JeuMKDD {
         }
         return r
     }
+    /** les boites a objets du circuit, comme dans le jeu : *(0x803D5D00) + 0x380 est la liste (JSUList) des boites ;
+     *  maillon en +0xFC de l'objet (objet, liste, precedent, suivant) ; objet : position +0x04, echelle +0x40 (0 : cassee
+     *  par un kart, cachee ; elle repousse de 0,1 a 1), sorte +0x10C (1 : boite, 12 : double boite). Trouve et verifie
+     *  sur 11 photos de la memoire (4 circuits). */
+    class BoiteT(val double: Boolean, val a: FloatArray?, val ta: Long, val b: FloatArray, val tb: Long)
+    private val boitesDirect = java.util.concurrent.ConcurrentHashMap<Long, BoiteT>()
+    private fun lireBoites(l: Lecteur) {
+        val p = l.ptr(0x803D5D00L) ?: return
+        var lk = l.ptr(p + 0x380) ?: run { boitesDirect.clear(); return }
+        val vues = HashSet<Long>(); var complet = false; val t = System.nanoTime()
+        for (c in 0 until 64) {
+            val o = l.ptr(lk) ?: break
+            val sorte = l.u32(o + 0x10C) ?: break
+            if (sorte == 1L || sorte == 12L) {
+                val x = l.fini(l.f32(o + 4)); val y = l.fini(l.f32(o + 8)); val z = l.fini(l.f32(o + 12)); val e = l.fini(l.f32(o + 0x40))
+                if (x == null || y == null || z == null || e == null) break
+                val v = floatArrayOf(x, y, z, e.coerceIn(0f, 2f)); vues.add(o)
+                val av = boitesDirect[o]
+                boitesDirect[o] = BoiteT(sorte == 12L, av?.b, av?.tb ?: t, v, t)
+            }
+            val sv = l.u32(lk + 12) ?: break
+            if (sv == 0L) { complet = true; break }
+            lk = sv
+        }
+        if (complet) boitesDirect.keys.retainAll(vues)
+    }
+    class Boite(val id: Long, val double: Boolean, val x: Float, val y: Float, val z: Float, val ech: Float)
+    /** les boites a dessiner (position et echelle du jeu, glissees entre deux lectures) ; vide : pas lues */
+    fun boites(): List<Boite> {
+        val now = System.nanoTime(); val r = ArrayList<Boite>()
+        for ((id, e) in boitesDirect) {
+            if (now - e.tb > 4_000_000_000L) continue
+            val a = e.a; val b = e.b
+            val al = if (a == null) 1f else ((now - e.tb).toFloat() / (e.tb - e.ta).coerceAtLeast(1L)).coerceIn(0f, 1f)
+            fun m(i: Int) = if (a == null) b[i] else a[i] + (b[i] - a[i]) * al
+            r.add(Boite(id, e.double, m(0), m(1), m(2), m(3)))
+        }
+        return r
+    }
     /** les effets d'un kart (KartBody) : +0x574 l'etat (bits 0-1 : derapage ; 0x40000 : etoile), +0x596 le turbo
      *  (champignon, tremplin), +0x59E le mini-turbo, +0x5C7 le niveau du mini-turbo pendant le derapage (decalages de la
      *  decompilation de MKDD, la structure verifiee sur les photos : +0x5A0 vaut 11, 21 ou 31 selon le poids du kart) */
@@ -659,6 +698,7 @@ object JeuMKDD {
             if (direct()) {
                 if (++tourObjets % 3 == 0) lireObjets(Lecteur(64, 0))
                 if (tourObjets % 8 == 1) lireEffets(Lecteur(4 * ks.size, 0), 0)
+                if (tourObjets % 10 == 5) lireBoites(Lecteur(48, 0))
                 if (++tourPoses % 6 == 0) { val sq = squels; val lp = Lecteur(9 * ks.size, 0)
                     for (n in 1 until minOf(ks.size, sq.size / 2)) { val dd = matDuMoment(lp, ks[n]) ?: continue
                         for (rg in 0..1) { val adr = sq[n * 2 + rg]; if (adr == 0L) continue
@@ -678,6 +718,7 @@ object JeuMKDD {
         }
         if (tourObjets % 2 == 0) lireChomp(Lecteur(16, 0))
         lireEffets(Lecteur(if (tourObjets % 8 == 1) 4 * ks.size else 3, 0), if (tourObjets % 8 == 1) 0 else -1)
+        if (tourObjets % 10 == 4) lireBoites(Lecteur(48, 0))
         if (++tourObjets % 3 == 0) lireObjets(Lecteur(64, 0))       // (son propre budget : avant, celui des karts, et les objets en trop disparaissaient)
         val sq = squels; val tous = (++tourPoses % 6) == 0
         val lp = Lecteur(10 + (if (tous) 9 * ks.size else 0), 0)
