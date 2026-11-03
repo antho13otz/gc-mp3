@@ -24,6 +24,19 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v326 (build 838) — cartes SD en exFAT (jusqu'à 1 To et plus) et adaptateur réseau ETH2SP1
+- **Cartes exFAT** : les grandes cartes (64 Go à 1 To et plus) sont vendues en exFAT, que libfat ne lit pas. Quand
+  libfat ne monte pas la carte, GC Station la monte avec FatFs (ChaN, licence BSD à 1 clause) sous le même nom `sd:` :
+  réglages, musique, jaquettes, téléchargements marchent pareil. Les jeux lancés avec Pulse aussi : Pulse reçoit les
+  morceaux du jeu sur la carte. Les cartes FAT32 restent lues par libfat, comme avant. Cartes jusqu'à 2 To.
+- **ETH2SP1 / ETH2GC** : sans Broadband Adapter, GC Station essaie maintenant les adaptateurs à puce WIZnet W5500 :
+  l'ETH2SP1 dans le port série 1, ou un ETH2GC dans un port de carte mémoire. Pilote de libogc2 (licence zlib), adapté
+  à la libogc de devkitPro et ajouté à la pile réseau recompilée (`tools/fast_net.py`). Pulse (manette et mémoire du
+  jeu vues par le téléphone pendant la partie) reste réservé au Broadband Adapter.
+- Tests : simulateur (ci.sh) tout passé ; banc natif identique à v325 ; nouveau banc `tools/exfat-test` (cartes exFAT
+  de 128 Mo et de 1 To, fichiers fragmentés, morceaux vérifiés contre l'image brute) : tout OK. Pas testé sur une vraie
+  console : ni carte exFAT, ni ETH2SP1 (issue #290).
+
 ## Nouveautés v325 (build 832) — stabilité, fluidité, chargements (v323 à v325 en une version)
 - **Stabilité (v323)** : lectures hors des tableaux corrigées (météo, « à suivre » du téléphone, cartes virtuelles,
   menu des actions vide). Le rapport du test des touches donne la mémoire gardée par partie du programme (cache ou
