@@ -8,6 +8,7 @@ package fr.gcstation.telecommande
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.padding
@@ -409,7 +410,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     private var lPos = 0; private var lMvp = 0; private var lCoul = 0; private var lTaille = 0
     private val textures = HashMap<Int, Int>()
     private val vbo = IntArray(256)
-    private val proj = FloatArray(16); private val vue = FloatArray(16); private val mvp = FloatArray(16)
+    private val proj = FloatArray(16); private val vue = FloatArray(16); private val mvp = FloatArray(16); private val projJeu = FloatArray(16)
     private fun shader(t: Int, src: String): Int { val s = GLES20.glCreateShader(t); GLES20.glShaderSource(s, src); GLES20.glCompileShader(s); return s }
     private fun programme(v: String, f: String): Int {
         val p = GLES20.glCreateProgram()
@@ -1018,7 +1019,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             val ra = floatArrayOf(g[0], g[1], g[2], -g[8], -g[9], -g[10], g[4], g[5], g[6])
             val tx: Float; val ty: Float; val tz: Float
             val gj = if (k.joueur) JeuMKDD.matJoueur else null                    // (le tien : position lue en direct + ecart de la carrosserie)
-            if (k.joueur && etat.direct && gj != null) { tx = c0[0] + (g[3] - gj[3]) * 0.01f; ty = c0[1] - (g[11] - gj[11]) * 0.01f; tz = c0[2] + (g[7] - gj[7]) * 0.01f }
+            if (JeuMKDD.direct()) { tx = g[3] * 0.01f; ty = -g[11] * 0.01f; tz = g[7] * 0.01f }   // (rejeu au rythme du jeu : la vraie place, deja fluide)
+            else if (k.joueur && etat.direct && gj != null) { tx = c0[0] + (g[3] - gj[3]) * 0.01f; ty = c0[1] - (g[11] - gj[11]) * 0.01f; tz = c0[2] + (g[7] - gj[7]) * 0.01f }
             else if (k.joueur && etat.direct) { tx = c0[0]; ty = c0[1]; tz = c0[2] } else { tx = g[3] * 0.01f; ty = -g[11] * 0.01f; tz = g[7] * 0.01f }
             ancres[k.n] = floatArrayOf(ra[0], ra[1], ra[2], ra[3], ra[4], ra[5], ra[6], ra[7], ra[8], tx, ty, tz)
             if (k.joueur || journalTour % 20 == 0) Journal3D.note("K${k.n} kart=${k.kart} pilote=${k.pilote} passager=${k.passager} echange=${k.echange} pos=${Journal3D.v(tx, ty, tz)} g=${Journal3D.m(g)}")
@@ -1435,6 +1437,21 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         val ez = c[2] + (Math.sin(tg.toDouble()) * d).toFloat()
         android.opengl.Matrix.setLookAtM(vue, 0, ex, ey, ez, c[0], c[1], c[2], 0f, 0f, 1f)
         android.opengl.Matrix.multiplyMM(mvp, 0, proj, 0, vue, 0)
+        // vue du jeu (Mario Kart) : la camera du jeu elle-meme (matrice de vue et angle lus en direct, rejoues comme le reste)
+        val cj = if (etat.mode == 4 && JeuMKDD.direct()) { JeuMKDD.rejouer(); JeuMKDD.camJeu } else null   // (sans direct : la vue de derriere)
+        if (cj != null) {
+            // (repere du jeu -> appli : x, -z, y ; vue = R P^T, position x 0,01)
+            vue[0] = cj[0]; vue[1] = cj[4]; vue[2] = cj[8]; vue[3] = 0f
+            vue[4] = -cj[2]; vue[5] = -cj[6]; vue[6] = -cj[10]; vue[7] = 0f
+            vue[8] = cj[1]; vue[9] = cj[5]; vue[10] = cj[9]; vue[11] = 0f
+            vue[12] = cj[3] * 0.01f; vue[13] = cj[7] * 0.01f; vue[14] = cj[11] * 0.01f; vue[15] = 1f
+            val asp = ecranW.toFloat() / ecranH.coerceAtLeast(1)
+            // (meme largeur de vue que le jeu en 4/3 ; en portrait, l'angle du jeu en hauteur, au plus 100 degres)
+            val th = Math.tan(Math.toRadians(cj[12] / 2.0)) * 4.0 / 3.0
+            val fy = if (asp >= 4f / 3f) cj[12].toDouble() else minOf(2 * Math.toDegrees(Math.atan(th / asp)), 100.0)
+            android.opengl.Matrix.perspectiveM(projJeu, 0, fy.toFloat(), asp, 0.5f, 9000f)
+            android.opengl.Matrix.multiplyMM(mvp, 0, projJeu, 0, vue, 0)
+        }
         etat.mvpVue = mvp.copyOf(); etat.vueW = ecranW; etat.vueH = ecranH
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT or GLES20.GL_DEPTH_BUFFER_BIT)
         GLES20.glDisable(GLES20.GL_DEPTH_TEST)
@@ -1648,6 +1665,7 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
                 PetitBouton("✕") { plein = false }
             }
             Etiquette(Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 90.dp))
+            if (scene.dossier.name == "cartes-mk") InterfaceMK(Modifier.fillMaxSize().padding(top = 96.dp, bottom = 120.dp, start = 12.dp, end = 12.dp))
             BoutonsZoom(etat, Modifier.align(androidx.compose.ui.Alignment.CenterEnd).padding(end = 12.dp))
             BoutonsVue(scope, etat, Modifier.align(androidx.compose.ui.Alignment.CenterStart).padding(start = 12.dp))
             ChoixObjets(scene, etat, Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(bottom = 70.dp, start = 12.dp, end = 12.dp)) { o ->
@@ -1657,6 +1675,51 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
         }
     }
 }
+
+/** l'interface du jeu sur la vue 3D (Mario Kart) : tour, place, les objets de ton equipe (pilote et passager) et le temps,
+ *  comme a l'ecran du jeu ; relue 10 fois par seconde dans la course que lit l'ecran Mario Kart */
+@Composable
+private fun InterfaceMK(modifier: Modifier) {
+    val e by androidx.compose.runtime.produceState<JeuMKDD.Etat?>(JeuMKDD.courseHud) {
+        while (true) { value = JeuMKDD.courseHud; kotlinx.coroutines.delay(100) }
+    }
+    val c = e ?: return
+    if (!c.enCourse) return
+    val moi = c.karts.firstOrNull { it.n == 0 }
+    val ombre = androidx.compose.ui.graphics.Shadow(Color(0xAA000000), Offset(2f, 3f), 4f)
+    Box(modifier) {
+        // tour (en haut a gauche, comme dans le jeu)
+        if (c.tours > 0) Text("TOUR ${c.tour.coerceIn(1, c.tours)}/${c.tours}", color = Color.White, fontSize = 22.sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Black, fontStyle = androidx.compose.ui.text.font.FontStyle.Italic,
+            style = androidx.compose.ui.text.TextStyle(shadow = ombre), modifier = Modifier.align(androidx.compose.ui.Alignment.TopStart))
+        // temps (en haut a droite)
+        val chrono = if (c.fini && c.total in 1 until JeuMKDD.PAS_DE_TEMPS) chronoMK(c.total)
+                     else c.tempsTours.lastOrNull()?.let { "tour préc. " + chronoMK(it) }
+        if (chrono != null) Text(chrono, color = Color(0xFFFFE066), fontSize = 18.sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Bold, style = androidx.compose.ui.text.TextStyle(shadow = ombre),
+            modifier = Modifier.align(androidx.compose.ui.Alignment.TopEnd))
+        // les deux objets (pilote, passager), en haut au milieu
+        if (moi != null) Row(Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 30.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            for (o in listOf(moi.objet1, moi.objet2)) {
+                val ob = JeuMKDD.objet(o)
+                Box(Modifier.size(54.dp).background(Color(0x99101030), RoundedCornerShape(12.dp))
+                    .border(2.dp, Color(0xCCFFFFFF), RoundedCornerShape(12.dp)), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                    if (ob != null) Text(ob.first, fontSize = 30.sp)
+                }
+            }
+        }
+        // la place (en bas a droite, en grand)
+        if (c.place in 1..8) {
+            val suf = if (c.place == 1) "er" else "e"
+            val coul = when (c.place) { 1 -> Color(0xFFFFD84A); 2 -> Color(0xFFDDE3F0); 3 -> Color(0xFFE0A060); else -> Color(0xFF8FD3FF) }
+            Text("${c.place}$suf", color = coul, fontSize = 52.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Black,
+                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic, style = androidx.compose.ui.text.TextStyle(shadow = ombre),
+                modifier = Modifier.align(androidx.compose.ui.Alignment.BottomEnd))
+        }
+    }
+}
+/** temps de course (millisecondes) : 1'23"456 */
+internal fun chronoMK(ms: Int): String = "%d'%02d\"%03d".format(ms / 60000, ms / 1000 % 60, ms % 1000)
 
 /** journal de bug de la vue 3D : capture de la prochaine image, en-tete (appli, scene, camera, packs), lignes du journal ;
  *  le .zip va dans Telechargements/GC Remote, puis le partage s'ouvre (pour me l'envoyer) */
@@ -1728,6 +1791,11 @@ private fun BoutonsVue(scope: kotlinx.coroutines.CoroutineScope, etat: Etat3D, m
         if (etat.karts.isNotEmpty() || mode == 3) PetitBouton("🏎 3e personne", actif = mode == 3) {
             mode = if (mode == 3) 0 else 3; etat.mode = mode; etat.libre = null
             if (mode == 3) { etat.vol?.cancel(); etat.decal = floatArrayOf(0f, 0f, 0f); etat.voler(scope, d = 7f, tg = 0.16f) }
+        }
+        // vue du jeu : la camera du jeu elle-meme (Mario Kart, avec le direct de Pulse)
+        if (etat.karts.isNotEmpty() || mode == 4) PetitBouton("🎮 Vue du jeu", actif = mode == 4) {
+            mode = if (mode == 4) 0 else 4; etat.mode = mode; etat.libre = null
+            if (mode == 4) { etat.vol?.cancel(); etat.decal = floatArrayOf(0f, 0f, 0f) }
         }
         PetitBouton("✋ Libre", actif = mode == 2) {
             if (mode == 2) { mode = 0; etat.mode = 0; etat.libre = null; etat.decal = floatArrayOf(0f, 0f, 0f) }

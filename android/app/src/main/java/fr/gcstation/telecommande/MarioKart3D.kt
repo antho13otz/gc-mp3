@@ -88,6 +88,7 @@ fun CircuitMK3D(e: JeuMKDD.Etat) {
         Doux("Le circuit en 3D : installe le pack Mario Kart (fiche du jeu).", taille = 10); return
     }
     val moi = e.karts.firstOrNull { it.n == 0 } ?: return
+    JeuMKDD.courseHud = e                                       // (l'interface du jeu sur la vue 3D en plein ecran)
     val p = CartesMK.pos(moi.x, moi.y, moi.z)
     // la camera : derriere le kart (d'apres la derniere position un peu eloignee)
     val d0 = derniere
