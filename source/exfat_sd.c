@@ -154,6 +154,7 @@ static int exf_extents(const char *path, int (*cb)(void *ctx, u32 sec, u32 n), v
 #ifdef GEKKO
 /* ---- la table "sd:" de newlib (devoptab) ---- */
 #include <sys/iosupport.h>
+#include <fcntl.h>
 #include <sys/statvfs.h>
 typedef struct { FIL f; } exf_file_t;
 typedef struct { FF_DIR d; } exf_dir_t;
