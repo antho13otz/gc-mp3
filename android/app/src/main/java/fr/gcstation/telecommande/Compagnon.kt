@@ -505,6 +505,11 @@ object JeuMKDD {
     /** articulations de chaque personnage (driver.bmd, numeros du jeu 1 a 20) : le direct n'envoie que celles-la */
     private val ARTS = intArrayOf(26, 21, 21, 23, 23, 26, 26, 20, 20, 21, 21, 24, 24, 22, 24, 23, 22, 21, 21, 18, 21)
     @Volatile private var artsJoueur = intArrayOf(MAX_ART, MAX_ART)    // (rang 0 : passager de l'equipe, 1 : pilote)
+    @Volatile private var artsK = IntArray(16) { MAX_ART }              // (pareil pour chaque kart : n x 2 + rang)
+    /** derniere image du direct ou sont venus les squelettes des autres karts (Pulse v328, morceaux compacts) */
+    @Volatile private var compactT = 0L
+    /** les autres karts animes par le direct, a chaque image (sinon : lectures de la memoire, plus espacees) */
+    fun autresEnDirect(): Boolean = System.nanoTime() - compactT < 500_000_000L
     class PoseT(val a: FloatArray?, val ta: Long, val b: FloatArray, val tb: Long)
     private val posesDirect = java.util.concurrent.ConcurrentHashMap<Int, PoseT>()
     const val MAX_ART = 26
@@ -523,7 +528,7 @@ object JeuMKDD {
     // ---------------------------------------------------------------- le direct (Pulse : abonnement "GCMS")
     /** morceau du direct : 0 kart (KartBody +0x110, 48 octets), 5 sa carrosserie (+0x1A0, 48 octets), 4 etat de ton kart
      *  (+0x574 a +0x5C8 : les effets), 1 squelette, 2 Chomp (2 articulations), 3 maillon */
-    private class FM(val genre: Int, val n: Int, val rang: Int, val adr: Long, val lon: Int)
+    private class FM(val genre: Int, val n: Int, val rang: Int, val adr: Long, val lon: Int, val dem: Long = lon.toLong(), val compact: Boolean = false)
     @Volatile private var plan: List<FM> = emptyList()
     @Volatile private var fluxT = 0L
     private var abonneT = 0L; private var abonneCle = ""
@@ -543,20 +548,29 @@ object JeuMKDD {
         // (kart : 0x110 a 0x1D0 d'un coup ; trop gros : on garde ce qui tient dans 4,5 Ko, karts d'abord)
         var tot = 0; val gard = ArrayList<FM>()
         for (m in l) { if (tot + m.lon > 4608 || gard.size >= 48) break; gard.add(m); tot += m.lon }
-        val cle = gard.joinToString(",") { "${it.adr}:${it.lon}" }
+        // Pulse v328 : les squelettes des autres karts, a chaque image aussi, en morceaux compacts (1re articulation telle
+        // quelle, les suivantes en 18 octets) ; a la fin : une Pulse plus ancienne s'arrete au 1er, le reste arrive comme avant
+        val ak = artsK
+        compacts@ for (n in 1 until ks.size) for (rg in 0..1) {
+            val adr = sq.getOrNull(n * 2 + rg) ?: 0L; if (adr == 0L || ks[n] == 0L) continue
+            val k = ak.getOrElse(n * 2 + rg) { MAX_ART }.coerceIn(2, MAX_ART); val lo = 48 + (k - 1) * 18
+            if (tot + lo > 10240 || gard.size >= 64) break@compacts
+            gard.add(FM(9, n, rg, adr, lo, 0x80000000L or (k * 48L), true)); tot += lo
+        }
+        val cle = gard.joinToString(",") { "${it.adr}:${it.dem}" }
         val now = System.nanoTime()
         if (cle == abonneCle && now - abonneT < 1_000_000_000L) return
         abonneCle = cle; abonneT = now; plan = gard
         MemoireJeu.flux = { b, n -> recevoirFlux(b, n) }
         // (v-appli : a chaque image du jeu, plus une sur deux : le rejeu de l'appli suit alors le jeu image par image)
-        MemoireJeu.abonner(gard.map { it.adr to it.lon }, 1)
+        MemoireJeu.abonner(gard.map { it.adr to it.dem.toInt() }, 1)
     }
     private fun f(b: ByteArray, o: Int): Float = java.lang.Float.intBitsToFloat(((b[o].toInt() and 255) shl 24) or ((b[o + 1].toInt() and 255) shl 16) or ((b[o + 2].toInt() and 255) shl 8) or (b[o + 3].toInt() and 255))
     private fun g32(b: ByteArray, o: Int): Long = ((b[o].toLong() and 255) shl 24) or ((b[o + 1].toLong() and 255) shl 16) or ((b[o + 2].toLong() and 255) shl 8) or (b[o + 3].toLong() and 255)
     private fun u16(b: ByteArray, o: Int): Int = ((b[o].toInt() and 255) shl 8) or (b[o + 1].toInt() and 255)
     @Synchronized private fun recevoirFlux(b: ByteArray, n: Int) {
         val img = g32(b, 4); val pp = g32(b, 8); val part = (pp shr 16).toInt(); val parts = (pp and 0xFFFF).toInt(); val tot = g32(b, 12).toInt()
-        if (parts !in 1..8 || part >= parts) return
+        if (parts !in 1..16 || part >= parts) return
         if (img != fImage || fParts.size != parts) { fImage = img; fParts = arrayOfNulls(parts) }
         fParts[part] = b.copyOfRange(16, n)
         if (fParts.any { it == null }) return
@@ -567,7 +581,8 @@ object JeuMKDD {
         decoder(d)
     }
     private fun decoder(d: ByteArray) {
-        val pl = plan; if (pl.sumOf { it.lon } != d.size) return
+        // (Pulse v327 ou plus ancienne : rien des morceaux compacts ; on lit ce qui est venu)
+        val pl0 = plan; val pl = if (pl0.sumOf { it.lon } == d.size) pl0 else pl0.filter { !it.compact }.takeIf { p -> p.sumOf { it.lon } == d.size } ?: return
         val t = System.nanoTime(); var o = 0
         val dess = HashMap<Int, FloatArray>(); val brut = HashMap<Int, FloatArray>()
         var ch: FloatArray? = null
@@ -592,6 +607,7 @@ object JeuMKDD {
                         for (j in 0 until k) ok = ok && relatif(mm, j * 12, dd, r, j * 12)
                         if (ok) trP[m.rang] = r }
                 }
+                9 -> dess[m.n]?.let { dd -> decompacter(d, o, m.lon, dd)?.let { trP[m.n * 2 + m.rang] = it; compactT = t } }
                 7 -> { val c = FloatArray(13) { if (it < 12) f(d, o + 4 * it) else 0f }; if (c.all { it.isFinite() }) trCam = c }
                 8 -> trCam?.let { c -> val v = f(d, o); if (v.isFinite() && v in 10f..150f) c[12] = v }
                 6 -> dess[0]?.let { dd -> val w = FloatArray(12) { f(d, o + 4 * it) }; if (w.all { it.isFinite() }) poserPiece(0, m.rang, w, dd, t) }
@@ -606,6 +622,29 @@ object JeuMKDD {
         fluxT = t
     }
 
+    /** squelette compact (Pulse v328) : 1re matrice en flottants, puis par articulation 2 lignes de rotation x 16384 (la 3e :
+     *  produit vectoriel, a la meme echelle) et la position x 4 relative a la 1re (tronquee comme Pulse) ; rend les
+     *  articulations relatives au kart (d), ou null */
+    private fun decompacter(b: ByteArray, o: Int, lon: Int, d: FloatArray): FloatArray? {
+        val nj = 1 + (lon - 48) / 18; val mm = FloatArray(nj * 12)
+        for (q in 0 until 12) mm[q] = f(b, o + 4 * q)
+        if (!mm.all { it.isFinite() && Math.abs(it) < 1e6f }) return null
+        fun s16(p: Int): Int = ((b[p].toInt() shl 8) or (b[p + 1].toInt() and 255)).toShort().toInt()
+        val t0 = IntArray(3) { (mm[4 * it + 3] * 4f).toInt() }
+        for (j in 1 until nj) {
+            val p = o + 48 + 18 * (j - 1); val r = j * 12
+            for ((i, q) in intArrayOf(0, 1, 2, 4, 5, 6).withIndex()) mm[r + q] = s16(p + 2 * i) / 16384f
+            val s = Math.sqrt((mm[r] * mm[r] + mm[r + 1] * mm[r + 1] + mm[r + 2] * mm[r + 2]).toDouble()).toFloat()
+            if (s < 1e-3f) return null
+            mm[r + 8] = (mm[r + 1] * mm[r + 6] - mm[r + 2] * mm[r + 5]) / s
+            mm[r + 9] = (mm[r + 2] * mm[r + 4] - mm[r] * mm[r + 6]) / s
+            mm[r + 10] = (mm[r] * mm[r + 5] - mm[r + 1] * mm[r + 4]) / s
+            for (c in 0..2) mm[r + 4 * c + 3] = (t0[c] + s16(p + 12 + 2 * c)) / 4f
+        }
+        val r = FloatArray(nj * 12)
+        for (j in 0 until nj) if (!relatif(mm, j * 12, d, r, j * 12)) return null
+        return r
+    }
     /** les articulations d'un personnage, relatives a la matrice a dessiner du kart (d) : n x 12 flottants */
     private fun lirePose(l: Lecteur, adr: Long, d: FloatArray): FloatArray? {
         // inverse de d (rotation orthogonale, eventuellement reduite : on divise par l'echelle au carre)
@@ -811,11 +850,34 @@ object JeuMKDD {
         val e = posesDirect[n * 2 + rang] ?: return null
         val now = System.nanoTime()
         if (now - e.tb > 1_500_000_000L) return null
-        val a = e.a ?: return e.b
-        if (a.size != e.b.size) return e.b
+        val a = e.a ?: return pencher(n, e.b, now)
+        if (a.size != e.b.size) return pencher(n, e.b, now)
         val al = ((now - e.tb).toFloat() / (e.tb - e.ta).coerceAtLeast(1L)).coerceIn(0f, 1f)
         val r = FloatArray(a.size); var o = 0
         while (o + 12 <= a.size) { glisser(a, e.b, o, al, r); o += 12 }
+        return pencher(n, r, now)
+    }
+    /** les autres karts sans leur squelette a chaque image (Pulse plus ancienne, ou lectures de la memoire seules) : entre
+     *  deux lectures de leur pose, le telephone penche lui-meme les personnages dans les virages (d'apres la rotation du kart :
+     *  vers l'interieur, 0,2 radian au plus, adouci) ; avec le direct compact, la vraie pose du jeu, sans rien ajouter */
+    private val penche = java.util.concurrent.ConcurrentHashMap<Int, DoubleArray>()
+    private fun pencher(n: Int, p: FloatArray, now: Long): FloatArray {
+        if (n == 0 || autresEnDirect()) return p
+        val e = matsDirect[n] ?: return p; val a = e.a ?: return p
+        val dt = (e.tb - e.ta) / 1e9f
+        var cible = 0f
+        if (dt in 0.005f..0.5f) {
+            var dy = Math.atan2(e.b[2].toDouble(), e.b[10].toDouble()) - Math.atan2(a[2].toDouble(), a[10].toDouble())
+            if (dy > Math.PI) dy -= 2 * Math.PI; if (dy < -Math.PI) dy += 2 * Math.PI
+            cible = (-dy / dt * 0.1).toFloat().coerceIn(-0.2f, 0.2f)   // (vers +x : le haut du personnage va vers +x)
+        }
+        val st = penche.getOrPut(n) { doubleArrayOf(0.0, now.toDouble()) }
+        val k = ((now - st[1]) / 1e9 * 6.0).coerceIn(0.0, 1.0)
+        st[0] += (cible - st[0]) * k; st[1] = now.toDouble()
+        if (Math.abs(st[0]) < 1e-3) return p
+        val c = Math.cos(st[0]).toFloat(); val s = Math.sin(st[0]).toFloat()
+        val r = p.copyOf(); var o = 0
+        while (o + 12 <= r.size) { for (q in 0..3) { val x = p[o + q]; val y = p[o + 4 + q]; r[o + q] = c * x - s * y; r[o + 4 + q] = s * x + c * y }; o += 12 }
         return r
     }
     class MatT(val a: FloatArray?, val ta: Long, val b: FloatArray, val tb: Long)
@@ -831,7 +893,7 @@ object JeuMKDD {
                 if (tourObjets % 8 == 1) lireEffets(Lecteur(4 * ks.size, 0), 0)
                 if (tourObjets % 10 == 5) lireBoites(Lecteur(48, 0))
                 if (tourObjets % 12 == 7) lireRoues(Lecteur(5 * ks.size, 0))
-                if (++tourPoses % 6 == 0) { val sq = squels; val lp = Lecteur(9 * ks.size, 0)
+                if (++tourPoses % 6 == 0 && !autresEnDirect()) { val sq = squels; val lp = Lecteur(9 * ks.size, 0)
                     for (n in 1 until minOf(ks.size, sq.size / 2)) { val dd = matDuMoment(lp, ks[n]) ?: continue
                         for (rg in 0..1) { val adr = sq[n * 2 + rg]; if (adr == 0L) continue
                             val p = lirePose(lp, adr, dd) ?: continue
@@ -1145,6 +1207,7 @@ object JeuMKDD {
             val kb = ctrl?.let { l.ptr(it + 0xA0 + 4L * i) }
             if (i == 0 && kb != null) kbJoueur = kb
             if (i == 0 && e != null) artsJoueur = intArrayOf(ARTS[(e[1]).coerceIn(0, 20)], ARTS[(e[0]).coerceIn(0, 20)])
+            if (e != null && i < 8) { artsK[i * 2] = ARTS[(e[1]).coerceIn(0, 20)]; artsK[i * 2 + 1] = ARTS[(e[0]).coerceIn(0, 20)] }
             if (kb != null) { kbsN[i] = kb
                 for (rg in 0..1) l.ptr(kb + 0x18 + 4L * rg)?.let { l.ptr(it + 8) }?.let { l.ptr(it + 0x14) }?.let { l.ptr(it + 0xE8) }?.let { sqN[i * 2 + rg] = it } }
             var mt: FloatArray? = null

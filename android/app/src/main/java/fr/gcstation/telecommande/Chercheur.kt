@@ -133,7 +133,7 @@ object MemoireJeu {
     @Synchronized fun abonner(morceaux: List<Pair<Long, Int>>, periode: Int) {
         val h = hote() ?: return
         try {
-            val n = morceaux.size.coerceAtMost(48)
+            val n = morceaux.size.coerceAtMost(64)                // (Pulse v328 : 64 ; avant, 48 : le reste est ignore)
             val d = ByteArray(20 + 8 * n)
             d[0] = 'G'.code.toByte(); d[1] = 'C'.code.toByte(); d[2] = 'M'.code.toByte(); d[3] = 'S'.code.toByte()
             p32(d, 4, (++seq).toLong()); p32(d, 8, n.toLong()); p32(d, 12, periode.toLong()); p32(d, 16, 0)
