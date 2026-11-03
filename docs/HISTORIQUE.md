@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 322 — Mario Kart : fluide comme le jeu
+- Le direct est **rejoué au rythme du jeu** : chaque image reçue garde son numéro d'image du jeu, et l'appli les montre
+  dans l'ordre, à la cadence du jeu (50 ou 60 Hz, mesurée), avec un retard fixe d'environ 70 ms (4 images). Les à-coups
+  du Wi-Fi (paquets en retard, deux d'un coup) ne se voient plus ; entre deux images, le mouvement glisse sans
+  déformation, à la fréquence de l'écran du téléphone.
+- Le direct arrive **à chaque image** (avant : une sur deux dès qu'il dépassait 1,4 Ko). Les squelettes de ton équipe
+  sont envoyés à leur vrai nombre d'articulations (18 à 26 selon le personnage, avant 26 pour tous).
+- Rien à changer sur la console (v327). Pas encore mesuré sur la console : le temps que Pulse passe à envoyer
+  environ 3 Ko à chaque image (à surveiller : un jeu qui ralentirait).
+
 ## Nouveautés appli build 321 — journal de bug de la vue 3D
 - Vue 3D en plein écran : bouton **🐞 Bug**. Un clic enregistre un `.zip` (Téléchargements/GC Remote) avec une capture
   de la vue et le journal des dernières secondes : ce que Pulse a envoyé (matrices de ton kart, roues), ce que l'appli a
