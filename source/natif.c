@@ -1760,6 +1760,28 @@ static int na_tramp(u8 *w, u32 at, u32 site, u32 ins, u32 reg, u32 fn_load, u32 
    servait : Salon, telephone). Un jeu en reseau local (Kirby Air Ride, Mario Kart Double Dash, Phantasy Star
    Online) trouve ainsi l'adaptateur comme au demarrage de la console. Interruptions coupees : rien d'autre sur le bus. */
 #ifdef GEKKO
+/* v327 : meme chose pour un adaptateur W5500 (ETH2SP1 : canal 0, peripherique 2 ; ETH2GC : port de carte A ou B) :
+   ses interruptions coupees (IMR, SIMR, S0_IMR) et son socket ferme ; Pulse le rouvre s'il en a besoin */
+static void na_w5500_quiet(void) {
+    static const u8 wp[3][2] = { { 0, 2 }, { 1, 0 }, { 0, 0 } };
+    for (int k = 0; k < 3; k++) {
+        if (sd_slot == 1 && wp[k][0] == 0 && wp[k][1] == 0) continue;   /* (SD Gecko dans le port A) */
+        if (sd_slot == 2 && wp[k][0] == 1 && wp[k][1] == 0) continue;   /* (SD Gecko dans le port B) */
+        volatile u32 *x = (volatile u32 *)(0xCC006800u + wp[k][0] * 0x14u);
+        u32 cs = 0x80u << wp[k][1];
+        #define WQ_WAIT() for (u32 _i = 0; _i < 100000u && (x[3] & 1); _i++) { }
+        #define WQ_W(v, n) do { x[4] = (v); x[3] = ((u32)((n) - 1) << 4) | 5u; WQ_WAIT(); } while (0)
+        x[0] = (x[0] & 0x405) | (3u << 4) | cs; WQ_W(0, 2); x[4] = 0; x[3] = (3u << 4) | 1u; WQ_WAIT(); u32 id = x[4]; x[0] = x[0] & 0x405;
+        if (id != 0x03000000u) continue;
+        static const u32 wr[4][2] = { { 0x0016u << 16 | (0u << 3 | 4u) << 8, 0 },    /* IMR = 0 */
+                                      { 0x0018u << 16 | (0u << 3 | 4u) << 8, 0 },    /* SIMR = 0 */
+                                      { 0x002Cu << 16 | (1u << 3 | 4u) << 8, 0 },    /* S0_IMR = 0 */
+                                      { 0x0001u << 16 | (1u << 3 | 4u) << 8, 0x10 } }; /* S0_CR = CLOSE */
+        for (int i = 0; i < 4; i++) { x[0] = (x[0] & 0x405) | (3u << 4) | cs; WQ_W(wr[i][0], 3); WQ_W(wr[i][1] << 24, 1); x[0] = x[0] & 0x405; }
+        #undef WQ_WAIT
+        #undef WQ_W
+    }
+}
 static void na_bba_quiet(void) {
     volatile u32 *x = (volatile u32 *)0xCC006800u;        /* EXI canal 0, peripherique 2 */
     #define NBQ_WAIT() for (u32 _i = 0; _i < 100000u && (x[3] & 1); _i++) { }
@@ -1767,7 +1789,7 @@ static void na_bba_quiet(void) {
     #define NBQ_DES() x[0] = x[0] & 0x405
     #define NBQ_W(v, n) do { x[4] = (v); x[3] = ((u32)((n) - 1) << 4) | 5u; NBQ_WAIT(); } while (0)
     NBQ_SEL(); NBQ_W(0, 2); x[4] = 0; x[3] = (3u << 4) | 1u; NBQ_WAIT(); u32 id = x[4]; NBQ_DES();
-    if (id != 0x04020200u) return;                        /* (pas de BBA) */
+    if (id != 0x04020200u) { na_w5500_quiet(); return; }  /* (pas de BBA : v327, peut-etre un W5500) */
     NBQ_SEL(); NBQ_W(((0x02u << 8) | 0x4000u) << 16, 2); NBQ_W(0, 1); NBQ_DES();   /* interruptions du BBA : aucune */
     NBQ_SEL(); NBQ_W(0xC0000000u | (0x00u << 8), 4); NBQ_W(0x01000000u, 1); NBQ_DES();   /* NCRA : remise a zero */
     for (volatile u32 i = 0; i < 20000u; i++) { }

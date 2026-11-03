@@ -13055,8 +13055,8 @@ static void draw_menu(void) {
     if (menu_sel == MI_PERF) hint = "Images/s en haut de l'\xC3\xA9" "cran ; en coupant : rapport SD:/gc-mp3/journaux/fluidite.txt";
     if (menu_sel == MI_PULSELD) hint = "Le style de l'\xC3\xA9" "cran qui s'affiche pendant le lancement d'un jeu avec Pulse";
     if (menu_sel == MI_NATCARD) hint = "Jeux lanc\xC3\xA9s avec Pulse : sauvegardes dans SD:/gc-mp3/resident (slot B : carte-B.raw)";
-    if (menu_sel == MI_MEMTEL) hint = "L'appli lit la m\xC3\xA9moire du jeu pendant la partie (Pulse, Broadband Adapter) : trouver ses propres cheats et succ\xC3\xA8s";
-    if (menu_sel == MI_PADTEL) hint = "L'appli du t\xC3\xA9l\xC3\xA9phone devient une manette dans les jeux (Pulse, Broadband Adapter). Un port par t\xC3\xA9l\xC3\xA9phone";
+    if (menu_sel == MI_MEMTEL) hint = "L'appli lit la m\xC3\xA9moire du jeu pendant la partie (Pulse, Broadband Adapter ou ETH2SP1) : trouver ses propres cheats et succ\xC3\xA8s";
+    if (menu_sel == MI_PADTEL) hint = "L'appli du t\xC3\xA9l\xC3\xA9phone devient une manette dans les jeux (Pulse, Broadband Adapter ou ETH2SP1). Un port par t\xC3\xA9l\xC3\xA9phone";
     if (menu_sel == MI_NATCARDGAME) hint = "Chaque jeu sa propre carte (carte-A-GALE01.raw), cr\xC3\xA9\xC3\xA9" "e au premier lancement. Le r\xC3\xA9glage du jeu (Y) passe avant";
     if (menu_sel == MI_NATCARDREG) hint = "Jeux europ\xC3\xA9" "ens, am\xC3\xA9ricains, japonais : chacun sa carte (carte-A-EUR.raw...)";
     if (menu_sel == MI_NATIGR) hint = "Jeux lanc\xC3\xA9s avec Pulse (A) : A+Z+START tenus 1 s = retour \xC3\xA0 GC Station";
