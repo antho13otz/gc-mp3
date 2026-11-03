@@ -539,7 +539,8 @@ object JeuMKDD {
             val av = matsDirect[n]
             matsDirect[n] = MatT(av?.b, av?.tb ?: t, m, t)
         }
-        if (++tourObjets % 3 == 0) lireObjets(l)
+        if (tourObjets % 2 == 0) lireChomp(Lecteur(16, 0))
+        if (++tourObjets % 3 == 0) lireObjets(Lecteur(64, 0))       // (son propre budget : avant, celui des karts, et les objets en trop disparaissaient)
         val sq = squels; val tous = (++tourPoses % 6) == 0
         val lp = Lecteur(8 + (if (tous) 7 * ks.size else 0), 0)
         for (n in 0 until minOf(ks.size, sq.size / 2)) {
@@ -562,30 +563,63 @@ object JeuMKDD {
     private var tourObjets = 0
     private fun lireObjets(l: Lecteur) {
         val im = l.ptr(OBJETS) ?: run { objetsDirect.clear(); return }
-        val vus = HashSet<Long>()
+        val vus = HashSet<Long>(); var complet = true
         val t = System.nanoTime()
         for (g in 0..21) {
             if (g == 16 || g == 17 || g == 18 || g == 19) continue              // (aucun ; groupes de 3 : chaque objet a part)
-            var lk = l.ptr(im + 0x3E8 + 12L * g) ?: continue
+            val tete = l.u32(im + 0x3E8 + 12L * g) ?: run { complet = false; null } ?: continue
+            if (tete == 0L) continue                                            // (liste vide)
+            var lk = tete
             var c = 0
-            while (c++ < 24) {
-                val o = l.ptr(lk) ?: break
+            while (c++ < 32) {
+                val o = l.ptr(lk) ?: run { complet = false; null } ?: break
                 val x = l.fini(l.f32(o + 4)); val y = l.fini(l.f32(o + 8)); val z = l.fini(l.f32(o + 12))
+                if (l.f32(o + 4) == null) { complet = false; vus.addAll(objetsDirect.keys.filter { objetsDirect[it]?.genre == g }); break }   // (pas lu : on garde ce qu'on avait)
                 if (x != null && y != null && z != null && !(x == 0f && y == 0f && z == 0f)) {
                     val p = floatArrayOf(x, y, z); vus.add(o)
                     val av = objetsDirect[o]
                     objetsDirect[o] = if (av != null && av.genre == g) ObjT(g, av.b, av.tb, p, t) else ObjT(g, null, t, p, t)
                 }
-                lk = l.ptr(lk + 12) ?: break
+                val sv = l.u32(lk + 12) ?: run { complet = false; vus.addAll(objetsDirect.keys.filter { objetsDirect[it]?.genre == g }); null } ?: break
+                if (sv == 0L) break                                             // (fin de la liste)
+                lk = sv
             }
         }
-        objetsDirect.keys.retainAll(vus)
+        // (un objet ne disparait que si sa liste a ete lue en entier sans lui : une lecture ratee ne fait plus rien disparaitre)
+        if (complet) objetsDirect.keys.retainAll(vus) else objetsDirect.keys.retainAll(vus + objetsDirect.keys.filter { System.nanoTime() - (objetsDirect[it]?.tb ?: 0L) < 1_000_000_000L })
+    }
+    /** le Chomp enchaine (Circuit Mario) : objet *(*(*0x803D56B8 + 0xA0) + 0xA0), classe 0x80363EE4 ; son modele (J3DModel :
+     *  *(*(objet + 0x68))) a 2 articulations (+0xE8 : matrices du monde) ; 18 maillons (objet + 0x158 + 4 i, classe 0x80364108 ;
+     *  matrice du monde en +0x10). Trouve sur 4 photos de la memoire. Rend 2 x 12 + 18 x 12 flottants, ou null. */
+    class ChompT(val a: FloatArray?, val ta: Long, val b: FloatArray, val tb: Long)
+    @Volatile private var chompD: ChompT? = null
+    private fun lireChomp(l: Lecteur) {
+        val ob = l.ptr(0x803D56B8L)?.let { l.ptr(it + 0xA0) }?.let { l.ptr(it + 0xA0) }
+        if (ob == null || l.u32(ob) != 0x80363EE4L) { chompD = null; return }
+        val z = l.ptr(ob + 0x68)?.let { l.ptr(it) }?.let { l.ptr(it + 0xE8) } ?: return
+        val r = FloatArray(20 * 12)
+        lire12(l, z)?.copyInto(r, 0) ?: return
+        lire12(l, z + 48)?.copyInto(r, 12) ?: return
+        for (i in 0 until 18) {
+            val k = l.ptr(ob + 0x158 + 4L * i) ?: return
+            if (l.u32(k) != 0x80364108L) return
+            lire12(l, k + 0x10)?.copyInto(r, 24 + 12 * i) ?: return
+        }
+        val t = System.nanoTime(); val av = chompD
+        chompD = ChompT(av?.b, av?.tb ?: t, r, t)
+    }
+    fun chomp(): FloatArray? {
+        val e = chompD ?: return null
+        val now = System.nanoTime(); if (now - e.tb > 2_000_000_000L) return null
+        val a = e.a ?: return e.b
+        val al = ((now - e.tb).toFloat() / (e.tb - e.ta).coerceAtLeast(1L)).coerceIn(0f, 1f)
+        return FloatArray(a.size) { a[it] + (e.b[it] - a[it]) * al }
     }
     /** les objets a dessiner : sorte, puis la position du jeu (glissee entre les deux dernieres lectures) */
     fun objets(): List<Pair<Int, FloatArray>> {
         val now = System.nanoTime(); val r = ArrayList<Pair<Int, FloatArray>>()
         for (e in objetsDirect.values) {
-            if (now - e.tb > 1_500_000_000L) continue
+            if (now - e.tb > 3_000_000_000L) continue
             val a = e.a
             if (a == null) { r.add(e.genre to e.b); continue }
             val al = ((now - e.tb).toFloat() / (e.tb - e.ta).coerceAtLeast(1L)).coerceIn(0f, 1f)
