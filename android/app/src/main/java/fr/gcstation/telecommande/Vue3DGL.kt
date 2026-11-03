@@ -53,6 +53,8 @@ class Objet3D(val type: Char, val x: Float, val y: Float, val z: Float, val nom:
 class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<Groupe>, val centre: FloatArray, val rayon: Float = 60f,
               val objets: List<Objet3D> = emptyList()) {
     @Volatile var versionPris = 0       // build 256 : change quand un objet est ramasse (ou reapparait) ; la vue se refait
+    /** build 332 : Mario Kart, les objets qui bougent (pack : <circuit>_mob.r3v et _mob.txt) */
+    var mobiles: ObjetsMobiles? = null
     class Groupe(val texture: Int, val alpha: Boolean, val sommets: ByteBuffer, val n: Int,
                  val mode: Int = if (alpha) 2 else 0, val enveloppe: Int = 0,
                  val lumiere: Int = -1, val lumiereK: Float = 0f, val pas: Int = 24) {  // (R3V3 : ombres precalculees du jeu, 2e texture)
@@ -107,7 +109,9 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
                             val k = p[0].toIntOrNull() ?: continue
                             type[k] = if (lavePeinte.containsMatchIn(p[1])) 3 else if (lave.containsMatchIn(p[1])) 2 else if (eau.containsMatchIn(p[1])) 1 else 0
                             if (chaud?.containsMatchIn(p[1]) == true) chauds.add(k) }
-                        for (g in l) { g.eau = type[g.texture] ?: 0; g.chaud = g.texture in chauds }
+                        // build 332 : R3V3 : les teintes du jeu sont deja dans les couleurs des sommets (knaar_10 : os blancs, sol
+                        // orange, d'apres une photo de la console) ; la teinte chaude n'est gardee que pour les anciens packs
+                        for (g in l) { g.eau = type[g.texture] ?: 0; g.chaud = !v3 && g.texture in chauds }
                     }
                     // R3V3 : <niveau>_anim.txt : groupe, defilement u et v par seconde
                     java.io.File(d, nv + "_anim.txt").takeIf { it.exists() }?.readLines()?.forEach { li -> val p = li.trim().split(' ')
@@ -123,7 +127,7 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
                             else Objet3D(p[0][0], x, y, z, p.getOrElse(4) { "" }, p.getOrNull(5)?.toLongOrNull(16)?.takeIf { it > 0 } ?: -1L)
                         }
                     }
-                    SceneR3(d, nv, l, ctr, ray, obj)
+                    SceneR3(d, nv, l, ctr, ray, obj).also { it.mobiles = ObjetsMobiles.lire(d, nv) }
                 }
             }
         } catch (e: Throwable) { null }
@@ -218,6 +222,29 @@ class Etat3D {
      *  3 (Mario Kart) 3e personne : juste derriere ton kart, a sa hauteur, tournee comme lui */
     @Volatile var mode = 0
     @Volatile var libre: FloatArray? = null
+    /** build 332 : 5 visite (premiere personne) : la camera est a cette place et tourne sur elle-meme (lacet : cap,
+     *  tangage : regard vers le bas) ; on avance ou l'on regarde. Plus de point central : on entre dans les salles. */
+    @Volatile var oeil = floatArrayOf(0f, 0f, 0f)
+    /** build 332 : derniere position de la camera dessinee (pour passer en visite sans saut) */
+    @Volatile var camPos: FloatArray? = null
+    /** build 332 : le regard (vecteur unite) en visite */
+    fun regard(): FloatArray { val a = lacetActuel().toDouble(); val t = tangage.toDouble()
+        return floatArrayOf((Math.cos(a) * Math.cos(t)).toFloat(), (Math.sin(a) * Math.cos(t)).toFloat(), (-Math.sin(t)).toFloat()) }
+    /** build 332 : visite : avancer (ou reculer) de k unites dans le regard */
+    fun avancer(k: Float) { val r = regard(); val o = oeil; oeil = floatArrayOf(o[0] + r[0] * k, o[1] + r[1] * k, o[2] + r[2] * k) }
+    /** build 332 : visite : se decaler (droite / haut de l'ecran) */
+    fun glisser(droite: Float, haut: Float) {
+        val a = lacetActuel().toDouble(); val rx = Math.sin(a).toFloat(); val ry = -Math.cos(a).toFloat()
+        val o = oeil; oeil = floatArrayOf(o[0] + rx * droite, o[1] + ry * droite, o[2] + haut)
+    }
+    /** build 332 : visite : passer en premiere personne a la place de la camera actuelle (meme cap, meme inclinaison) */
+    fun entrerVisite() {
+        vol?.cancel()
+        if (lacet.isNaN()) lacet = lacetActuel()
+        val c = camPos
+        oeil = c?.copyOf() ?: run { val r = regard(); val b = cible; floatArrayOf(b[0] - r[0] * dist, b[1] - r[1] * dist, b[2] - r[2] * dist) }
+        tangage = tangage.coerceIn(-1.3f, 1.3f); mode = 5
+    }
     // build 247 : derniere projection dessinee (pour savoir quel objet est sous le doigt) et vol anime de la camera
     @Volatile var mvpVue: FloatArray? = null; @Volatile var vueW = 1; @Volatile var vueH = 1
     var vol: kotlinx.coroutines.Job? = null
@@ -225,6 +252,23 @@ class Etat3D {
     fun voler(scope: kotlinx.coroutines.CoroutineScope, vers: FloatArray? = null, d: Float? = null, tg: Float? = null, l: Float? = null) {
         vol?.cancel()
         if (lacet.isNaN()) lacet = lacetActuel()
+        if (mode == 5) {                                      // (build 332 : visite : l'oeil va se placer devant le point, a hauteur)
+            if (vers == null) return
+            val r = regard(); val rh = Math.hypot(r[0].toDouble(), r[1].toDouble()).toFloat().coerceAtLeast(0.2f)
+            val recul = minOf(d ?: 10f, 12f)
+            val o0 = oeil.copyOf(); val o1 = floatArrayOf(vers[0] - r[0] / rh * recul, vers[1] - r[1] / rh * recul, vers[2] + 2f)
+            val t1 = 0.15f; val tg0 = tangage
+            vol = scope.launch {
+                val t0 = System.nanoTime()
+                while (true) {
+                    androidx.compose.runtime.withFrameNanos { }
+                    val k = ((System.nanoTime() - t0) / 450e6).toFloat().coerceAtMost(1f); val e = 1f - (1f - k) * (1f - k) * (1f - k)
+                    oeil = FloatArray(3) { o0[it] + (o1[it] - o0[it]) * e }; tangage = tg0 + (t1 - tg0) * e
+                    redessiner(); if (k >= 1f) break
+                }
+            }
+            return
+        }
         val c = if (mode == 2) (libre ?: cible) else cible; val dc0 = decal.copyOf(); val dist0 = dist; val tg0 = tangage; val l0 = lacet   // (build 282 : en mode libre, par rapport au point fixe)
         val dc1 = if (vers != null) floatArrayOf(vers[0] - c[0], vers[1] - c[1], vers[2] - c[2]) else dc0
         var dl = (l ?: l0) - l0
@@ -258,11 +302,11 @@ class Etat3D {
         return best
     }
     @Volatile var distBase = 70f                           // (build 242 : distance de depart, adaptee a la taille du niveau)
-    fun recentrer() { lacet = Float.NaN; tangage = if (montrerRayman) 0.5f else 0.75f; dist = distBase; decal = floatArrayOf(0f, 0f, 0f) }
+    fun recentrer() { if (mode == 5) mode = 0; lacet = Float.NaN; tangage = if (montrerRayman) 0.5f else 0.75f; dist = distBase; decal = floatArrayOf(0f, 0f, 0f) }
     /** build 242 : une vue du dessus cadrant tout le niveau */
     fun dessus() { if (lacet.isNaN()) lacet = lacetActuel(); tangage = 1.5f; dist = maxOf(dist, distBase * 1.6f) }
     /** build 242 : zoom par boutons (facteur < 1 : rapprocher) */
-    fun zoom(f: Float) { dist = (dist * f).coerceIn(2f, 2500f) }
+    fun zoom(f: Float) { if (mode == 5) avancer((1f - f) * 20f) else dist = (dist * f).coerceIn(2f, 2500f) }   // (build 332 : visite : + avance, − recule)
     fun lacetActuel(): Float {
         val l = lacet
         if (!l.isNaN()) return l
@@ -420,6 +464,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     private var lPos = 0; private var lMvp = 0; private var lCoul = 0; private var lTaille = 0
     private val textures = HashMap<Int, Int>()
     private val vbo = IntArray(256)
+    private val vboM = IntArray(256)                     // (build 332 : objets qui bougent)
+    private val mMob = FloatArray(16); private val mvpMob = FloatArray(16)
     private val proj = FloatArray(16); private val vue = FloatArray(16); private val mvp = FloatArray(16); private val projJeu = FloatArray(16)
     private fun shader(t: Int, src: String): Int { val s = GLES20.glCreateShader(t); GLES20.glShaderSource(s, src); GLES20.glCompileShader(s); return s }
     private fun programme(v: String, f: String): Int {
@@ -486,6 +532,14 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             val g = scene.groupes[i]; g.sommets.position(0)
             GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, g.n * g.pas, g.sommets, GLES20.GL_STATIC_DRAW)
         }
+        val gm = scene.mobiles?.groupes ?: emptyList()
+        val nm = minOf(gm.size, vboM.size)
+        if (nm > 0) GLES20.glGenBuffers(nm, vboM, 0)
+        for (i in 0 until nm) {
+            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vboM[i])
+            val g = gm[i]; g.sommets.position(0)
+            GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, g.n * g.pas, g.sommets, GLES20.GL_STATIC_DRAW)
+        }
         // textures
         val aniso = (GLES20.glGetString(GLES20.GL_EXTENSIONS) ?: "").contains("texture_filter_anisotropic")
         val npot = (GLES20.glGetString(GLES20.GL_EXTENSIONS) ?: "").contains("texture_npot")
@@ -493,7 +547,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         val hd = java.io.File(scene.dossier, scene.niveau + "_hd4.txt").exists()
         val fac = if (facteur == 3 && !npot) 2 else facteur
         textures.clear()
-        for (g in scene.groupes) {
+        for (g in scene.groupes + (scene.mobiles?.groupes ?: emptyList())) {
             if (g.texture < 0 || textures.containsKey(g.texture)) continue
             val f = java.io.File(scene.dossier, scene.niveau + "_t" + String.format(java.util.Locale.ROOT, "%03d", g.texture) + ".png")
             val bmp = (if (hd && fac < 4) {
@@ -516,7 +570,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         }
         // R3V3 : les ombres precalculees (texture grise du jeu, une fois sur tout le circuit : pas de repetition)
         lumieres.clear()
-        for (g in scene.groupes) {
+        for (g in scene.groupes + (scene.mobiles?.groupes ?: emptyList())) {
             if (g.lumiere < 0 || lumieres.containsKey(g.lumiere)) continue
             val f = java.io.File(scene.dossier, scene.niveau + "_t" + String.format(java.util.Locale.ROOT, "%03d", g.lumiere) + ".png")
             val bmp = android.graphics.BitmapFactory.decodeFile(f.path) ?: continue
@@ -787,6 +841,27 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         if (b == null || c == null) { liberer(a); b?.let { liberer(it) }; c?.let { liberer(it) }; return }
         cibles.add(a); cibles.add(b); cibles.add(c); echelle = a.w.toFloat() / ecranW
     }
+    /** un groupe du decor (ou d'un objet qui bouge) : textures, ombres, defilement, sommets (build 332 : sorti de la boucle) */
+    private fun dessinerGroupe(g: SceneR3.Groupe, buf: Int, tSec: Double) {
+        GLES20.glUniform1f(uEauL, g.eau.toFloat()); GLES20.glUniform1f(uChaudL, if (g.chaud) 1f else 0f)
+        val t = textures[g.texture]
+        GLES20.glUniform1f(uAvecTex, if (t != null) 1f else 0f)
+        if (t != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }
+        // R3V3 : ombres precalculees (2e texture, ses propres coordonnees) et defilement de la texture
+        val lt = if (g.lumiere >= 0) lumieres[g.lumiere] else null
+        GLES20.glUniform1f(uLmK, if (lt != null) g.lumiereK else 0f)
+        if (lt != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE1); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lt); GLES20.glActiveTexture(GLES20.GL_TEXTURE0) }
+        val du = g.defil[0]; val dv = g.defil[1]
+        GLES20.glUniform2f(uDefil, if (du != 0f) ((tSec * du) % 1.0).toFloat() else 0f, if (dv != 0f) ((tSec * dv) % 1.0).toFloat() else 0f)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, buf)
+        GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, g.pas, 0)
+        GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, g.pas, 12)
+        GLES20.glVertexAttribPointer(aCol, 4, GLES20.GL_UNSIGNED_BYTE, true, g.pas, 20)
+        if (aUvL >= 0) { if (g.pas >= 32) { GLES20.glEnableVertexAttribArray(aUvL); GLES20.glVertexAttribPointer(aUvL, 2, GLES20.GL_FLOAT, false, g.pas, 24) }
+            else { GLES20.glDisableVertexAttribArray(aUvL); GLES20.glVertexAttrib2f(aUvL, 0f, 0f) } }
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
+    }
+
     override fun onDrawFrame(gl: GL10?) {
         if (cibles.size == 3) {
             val (a, b, c) = cibles
@@ -1460,10 +1535,16 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         }
         val a = etat.lacetActuel()
         val tg = etat.tangage; val d = etat.dist
-        val ex = c[0] - (Math.cos(a.toDouble()) * Math.cos(tg.toDouble()) * d).toFloat()
-        val ey = c[1] - (Math.sin(a.toDouble()) * Math.cos(tg.toDouble()) * d).toFloat()
-        val ez = c[2] + (Math.sin(tg.toDouble()) * d).toFloat()
-        android.opengl.Matrix.setLookAtM(vue, 0, ex, ey, ez, c[0], c[1], c[2], 0f, 0f, 1f)
+        var ex = c[0] - (Math.cos(a.toDouble()) * Math.cos(tg.toDouble()) * d).toFloat()
+        var ey = c[1] - (Math.sin(a.toDouble()) * Math.cos(tg.toDouble()) * d).toFloat()
+        var ez = c[2] + (Math.sin(tg.toDouble()) * d).toFloat()
+        var vx = c[0]; var vy = c[1]; var vz = c[2]
+        if (etat.mode == 5) {                             // build 332 : visite : la camera est a l'oeil et regarde devant elle
+            val o = etat.oeil; val r = etat.regard()
+            ex = o[0]; ey = o[1]; ez = o[2]; vx = ex + r[0]; vy = ey + r[1]; vz = ez + r[2]
+        }
+        etat.camPos = floatArrayOf(ex, ey, ez)
+        android.opengl.Matrix.setLookAtM(vue, 0, ex, ey, ez, vx, vy, vz, 0f, 0f, 1f)
         android.opengl.Matrix.multiplyMM(mvp, 0, proj, 0, vue, 0)
         // vue du jeu (Mario Kart) : la camera du jeu elle-meme (matrice de vue et angle lus en direct, rejoues comme le reste)
         val cj = if (etat.mode == 4 && JeuMKDD.direct()) { JeuMKDD.rejouer(); JeuMKDD.camJeu } else null   // (sans direct : la vue de derriere)
@@ -1508,23 +1589,27 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             }
             for ((i, g) in scene.groupes.withIndex()) {
                 if (i >= vbo.size || g.mode != passe) continue
-                GLES20.glUniform1f(uEauL, g.eau.toFloat()); GLES20.glUniform1f(uChaudL, if (g.chaud) 1f else 0f)
-                val t = textures[g.texture]
-                GLES20.glUniform1f(uAvecTex, if (t != null) 1f else 0f)
-                if (t != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }
-                // R3V3 : ombres precalculees (2e texture, ses propres coordonnees) et defilement de la texture
-                val lt = if (g.lumiere >= 0) lumieres[g.lumiere] else null
-                GLES20.glUniform1f(uLmK, if (lt != null) g.lumiereK else 0f)
-                if (lt != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE1); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lt); GLES20.glActiveTexture(GLES20.GL_TEXTURE0) }
-                val du = g.defil[0]; val dv = g.defil[1]
-                GLES20.glUniform2f(uDefil, if (du != 0f) ((tSec * du) % 1.0).toFloat() else 0f, if (dv != 0f) ((tSec * dv) % 1.0).toFloat() else 0f)
-                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vbo[i])
-                GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, g.pas, 0)
-                GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, g.pas, 12)
-                GLES20.glVertexAttribPointer(aCol, 4, GLES20.GL_UNSIGNED_BYTE, true, g.pas, 20)
-                if (aUvL >= 0) { if (g.pas >= 32) { GLES20.glEnableVertexAttribArray(aUvL); GLES20.glVertexAttribPointer(aUvL, 2, GLES20.GL_FLOAT, false, g.pas, 24) }
-                    else { GLES20.glDisableVertexAttribArray(aUvL); GLES20.glVertexAttrib2f(aUvL, 0f, 0f) } }
-                GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
+                dessinerGroupe(g, vbo[i], tSec)
+            }
+            // build 332 : les objets qui bougent (Mario Kart) : leur matrice a ce moment, puis leurs groupes
+            val mo = scene.mobiles
+            if (mo != null) for (o in mo.objets) {
+                var pret = false
+                for (gi in o.g0 until o.g0 + o.nb) {
+                    val g = mo.groupes.getOrNull(gi) ?: continue
+                    if (gi >= vboM.size || g.mode != passe) continue
+                    if (!pret) {
+                        mo.matrice(o, tSec, mMob)
+                        android.opengl.Matrix.multiplyMM(mvpMob, 0, mvp, 0, mMob, 0)
+                        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvpMob, 0)
+                        // (brume : la camera dans le repere de l'objet, la partie 3 x 3 etant une rotation)
+                        val qx = ex - mMob[12]; val qy = ey - mMob[13]; val qz = ez - mMob[14]
+                        GLES20.glUniform3f(uCam, mMob[0] * qx + mMob[1] * qy + mMob[2] * qz, mMob[4] * qx + mMob[5] * qy + mMob[6] * qz, mMob[8] * qx + mMob[9] * qy + mMob[10] * qz)
+                        pret = true
+                    }
+                    dessinerGroupe(g, vboM[gi], tSec)
+                }
+                if (pret) { GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0); GLES20.glUniform3f(uCam, ex, ey, ez) }
             }
         }
         GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true)
@@ -1670,6 +1755,9 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
     if (distance != null) remember(scene) { etat.distBase = distance; etat.dist = distance; 0 }
     etat.chemin = FloatArray(chemin.size * 3).also { a -> for ((k, p) in chemin.withIndex()) { a[k * 3] = p[0]; a[k * 3 + 1] = p[1]; a[k * 3 + 2] = p[2] } }
     var plein by remember(scene) { androidx.compose.runtime.mutableStateOf(false) }
+    var sansAth by remember(scene) { androidx.compose.runtime.mutableStateOf(false) }     // build 332 : plein ecran sans boutons
+    var modeVue by remember(scene) { androidx.compose.runtime.mutableStateOf(etat.mode) }   // (pour l'aide des gestes)
+    androidx.compose.runtime.LaunchedEffect(etat) { while (true) { kotlinx.coroutines.delay(300); if (modeVue != etat.mode) modeVue = etat.mode } }
     // build 247 : toucher un objet -> la camera y vole et son nom s'affiche ; double toucher ailleurs -> zoom
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var etiquette by remember(scene) { androidx.compose.runtime.mutableStateOf<String?>(null) }
@@ -1697,19 +1785,26 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
     if (plein) androidx.compose.ui.window.Dialog({ plein = false }, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(Color(0xFF6B80AE))) {
             VueGL(scene, etat, Modifier.fillMaxSize(), toucher)
-            Row(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top = 40.dp, end = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                PetitBouton("🐞 Bug") { journalBug(ctxBug, scene, etat) }
-                PetitBouton("⟲ Recentrer") { etat.voler(scope, vers = etat.cible, d = etat.distBase, tg = if (etat.montrerRayman) 0.5f else 0.75f) }
-                PetitBouton("✕") { plein = false }
+            // build 332 : sans ATH : seule la vue reste (un petit oeil discret, en haut a droite, ramene les boutons)
+            if (sansAth) Text("👁", fontSize = 18.sp, modifier = Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top = 40.dp, end = 12.dp)
+                .background(Color(0x33000000), RoundedCornerShape(16.dp)).pointerInput(Unit) { detectTapGestures { sansAth = false } }.padding(horizontal = 10.dp, vertical = 6.dp))
+            else Box(Modifier.fillMaxSize()) {
+                Row(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top = 40.dp, end = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PetitBouton("🐞 Bug") { journalBug(ctxBug, scene, etat) }
+                    PetitBouton("⟲ Recentrer") { if (etat.mode == 5) etat.mode = 0; etat.voler(scope, vers = etat.cible, d = etat.distBase, tg = if (etat.montrerRayman) 0.5f else 0.75f) }
+                    PetitBouton("👁 Sans ATH") { sansAth = true }
+                    PetitBouton("✕") { plein = false }
+                }
+                Etiquette(Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 90.dp))
+                if (scene.dossier.name == "cartes-mk") InterfaceMK(Modifier.fillMaxSize().padding(top = 96.dp, bottom = 120.dp, start = 12.dp, end = 12.dp))
+                BoutonsZoom(etat, Modifier.align(androidx.compose.ui.Alignment.CenterEnd).padding(end = 12.dp))
+                BoutonsVue(scope, etat, Modifier.align(androidx.compose.ui.Alignment.CenterStart).padding(start = 12.dp))
+                ChoixObjets(scene, etat, Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(bottom = 70.dp, start = 12.dp, end = 12.dp)) { o ->
+                    etiquette = nomObjet(scene, o); allerA(scope, etat, o) }
+                Text(if (modeVue == 5) "Visite · 1 doigt : regarder · 2 doigts : écarter pour avancer, glisser pour se décaler, monter, descendre · + / − : avancer, reculer"
+                    else "1 doigt : tourner · 2 doigts : déplacer, zoomer, pivoter · toucher un objet : y aller · double toucher : zoom", color = Color.White, fontSize = 11.sp,
+                    modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(bottom = 28.dp, start = 12.dp, end = 12.dp).background(Color(0x88000000), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 6.dp))
             }
-            Etiquette(Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 90.dp))
-            if (scene.dossier.name == "cartes-mk") InterfaceMK(Modifier.fillMaxSize().padding(top = 96.dp, bottom = 120.dp, start = 12.dp, end = 12.dp))
-            BoutonsZoom(etat, Modifier.align(androidx.compose.ui.Alignment.CenterEnd).padding(end = 12.dp))
-            BoutonsVue(scope, etat, Modifier.align(androidx.compose.ui.Alignment.CenterStart).padding(start = 12.dp))
-            ChoixObjets(scene, etat, Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(bottom = 70.dp, start = 12.dp, end = 12.dp)) { o ->
-                etiquette = nomObjet(scene, o); allerA(scope, etat, o) }
-            Text("1 doigt : tourner · 2 doigts : déplacer, zoomer, pivoter · toucher un objet : y aller · double toucher : zoom", color = Color.White, fontSize = 11.sp,
-                modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(bottom = 28.dp, start = 12.dp, end = 12.dp).background(Color(0x88000000), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 6.dp))
         }
     }
 }
@@ -1834,6 +1929,12 @@ private fun BoutonsVue(scope: kotlinx.coroutines.CoroutineScope, etat: Etat3D, m
         if (etat.karts.isNotEmpty() || mode == 4) PetitBouton("🎮 Vue du jeu", actif = mode == 4) {
             mode = if (mode == 4) 0 else 4; etat.mode = mode; etat.libre = null
             if (mode == 4) { etat.vol?.cancel(); etat.decal = floatArrayOf(0f, 0f, 0f) }
+        }
+        androidx.compose.runtime.LaunchedEffect(etat) { while (true) { kotlinx.coroutines.delay(300); if (mode != etat.mode) mode = etat.mode } }
+        // build 332 : visite : premiere personne, sans point central (pour entrer dans les salles)
+        PetitBouton("🧭 Visite", actif = mode == 5) {
+            if (mode == 5) { mode = 0; etat.mode = 0; etat.recentrer() } else { etat.entrerVisite(); mode = 5 }
+            etat.redessiner()
         }
         PetitBouton("✋ Libre", actif = mode == 2) {
             if (mode == 2) { mode = 0; etat.mode = 0; etat.libre = null; etat.decal = floatArrayOf(0f, 0f, 0f) }
@@ -1965,7 +2066,27 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier, toucher: (Fl
                         val tn = System.nanoTime(); val dt = ((tn - tPrec) / 1e9f).coerceIn(0.004f, 0.1f); tPrec = tn
                         if (av != null && av.size == pts.size) {
                             if (etat.lacet.isNaN()) etat.lacet = etat.lacetActuel()
-                            if (pts.size == 1) {
+                            if (etat.mode == 5) {
+                                // build 332 : visite : 1 doigt : regarder autour (on tire le decor) ; 2 doigts : pincer pour
+                                // avancer / reculer, glisser pour se decaler (cote, haut, bas), tourner les doigts pour pivoter
+                                if (pts.size == 1) {
+                                    val dx = pts[0].x - av[0].x; val dy = pts[0].y - av[0].y
+                                    bouge += Math.abs(dx) + Math.abs(dy)
+                                    val dl = dx / largeur * 2.4f; val dtg = -dy / hauteur * 1.8f
+                                    etat.lacet += dl; etat.tangage = (etat.tangage + dtg).coerceIn(-1.45f, 1.45f)
+                                    vL = vL * 0.4f + dl / dt * 0.6f; vT = vT * 0.4f + dtg / dt * 0.6f; vDx = 0f; vDy = 0f
+                                } else if (pts.size >= 2) {
+                                    val c1 = Offset((av[0].x + av[1].x) / 2, (av[0].y + av[1].y) / 2); val c2 = Offset((pts[0].x + pts[1].x) / 2, (pts[0].y + pts[1].y) / 2)
+                                    val d1 = (av[0] - av[1]).getDistance().coerceAtLeast(1f); val d2 = (pts[0] - pts[1]).getDistance().coerceAtLeast(1f)
+                                    etat.avancer((d2 - d1) / hauteur * 40f)
+                                    val a1 = Math.atan2((av[1].y - av[0].y).toDouble(), (av[1].x - av[0].x).toDouble())
+                                    val a2 = Math.atan2((pts[1].y - pts[0].y).toDouble(), (pts[1].x - pts[0].x).toDouble())
+                                    var da = a2 - a1; if (da > Math.PI) da -= 2 * Math.PI; if (da < -Math.PI) da += 2 * Math.PI
+                                    etat.lacet += da.toFloat()
+                                    etat.glisser(-(c2.x - c1.x) / hauteur * 25f, (c2.y - c1.y) / hauteur * 25f)
+                                    vL = 0f; vT = 0f; vDx = 0f; vDy = 0f
+                                }
+                            } else if (pts.size == 1) {
                                 val dx = pts[0].x - av[0].x; val dy = pts[0].y - av[0].y
                                 bouge += Math.abs(dx) + Math.abs(dy)
                                 val dl = -dx / largeur * 3.6f; val dtg = dy / hauteur * 2.2f   // (toute la largeur : un peu plus d'un demi-tour)
@@ -2002,7 +2123,7 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier, toucher: (Fl
                             while (Math.abs(vL) + Math.abs(vT) > 0.05f || Math.hypot(vDx.toDouble(), vDy.toDouble()) > etat.dist * 0.01) {
                                 androidx.compose.runtime.withFrameNanos { }
                                 val n = System.nanoTime(); val dt = ((n - t) / 1e9f).coerceIn(0.001f, 0.05f); t = n
-                                etat.lacet += vL * dt; etat.tangage = (etat.tangage + vT * dt).coerceIn(-0.25f, 1.55f)
+                                etat.lacet += vL * dt; etat.tangage = if (etat.mode == 5) (etat.tangage + vT * dt).coerceIn(-1.45f, 1.45f) else (etat.tangage + vT * dt).coerceIn(-0.25f, 1.55f)
                                 val d = etat.decal; etat.decal = floatArrayOf(d[0] + vDx * dt, d[1] + vDy * dt, d[2])
                                 val f = Math.exp(-5.0 * dt).toFloat(); vL *= f; vT *= f; vDx *= f; vDy *= f
                                 vueRef[0]?.requestRender()
