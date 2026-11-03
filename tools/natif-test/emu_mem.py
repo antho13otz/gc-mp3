@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# v306 : chercheur de codes de l'appli : le resident Pulse dans l'emulateur PowerPC (unicorn), avec un Broadband Adapter
+# v306 : chercheur de codes de l'appli (et le direct "GCMS") : le resident Pulse dans l'emulateur PowerPC (unicorn), avec un Broadband Adapter
 # simule. Verifie : etat (GCMI -> GCMA, jeu), lecture de blocs (GCMR -> GCMD, mots non nuls), 2 blocs hors pause, ecriture
 # (GCMW), pause et reprise (son coupe puis remis), refus sans l'option, annonce d'un succes (GCAC).
 # Usage : emu_mem.py natres.bin natres.elf natres.h
@@ -198,6 +198,31 @@ mu.mem_write(0x80400020, b'\x01'); call(sym['mfz_run'])
 check('valeur liberee : plus reecrite', bytes(mu.mem_read(0x80400020, 1)) == b'\x01')
 bba.deliver(gcm('F', 24, 0, 0, 0)); call(POLL); o = udp_out()
 check('tout liberer', len(o) == 1 and struct.unpack('>I', o[0][1][52:56])[0] == 0)
+# le direct de l'appli : abonnement a 3 morceaux (1608 octets : 2 paquets "GCMS" a chaque image)
+def gcms(seq, morceaux, periode=1):
+    d = b'GCMS' + struct.pack('>IIII', seq, len(morceaux), periode, 0) + b''.join(struct.pack('>II', a, n) for a, n in morceaux)
+    udp = struct.pack('>HHHH', 40001, 51237, 8 + len(d), 0) + d
+    ip = struct.pack('>BBHHHBBH', 0x45, 0, 20 + len(udp), 0, 0, 64, 17, 0) + PH_IP + GC_IP
+    return bytes([0x00, 0x09, 0xBF, 0x01, 0x02, 0x03]) + PH_MAC + b'\x08\x00' + ip + udp
+mx = [(0x80400000, 100), (0x80400400, 1500), (0x80400100, 8)]
+attendu = b''.join(bytes(mu.mem_read(a, n)) for a, n in mx)
+bba.deliver(gcms(30, mx)); call(POLL)
+o = udp_out()
+k = [x[1][:4] for x in o]
+check('GCMS : abonnement, 2 paquets a l image', k == [b'GCMS'] * 2, str(k))
+if len(o) == 2:
+    h = [struct.unpack('>IIII', x[1][:16]) for x in o]
+    data = o[0][1][16:] + o[1][1][16:]
+    check('GCMS : morceaux, taille, donnees justes', h[0][2] == 2 and h[1][2] == (1 << 16 | 2) and h[0][3] == 1608 and data == attendu and len(o[0][1]) == 16 + 1400,
+          '%s %d' % ([hex(x[2]) for x in h], len(data)))
+call(POLL); o = udp_out()
+check('GCMS : encore a l image suivante (sans redemander)', [x[1][:4] for x in o] == [b'GCMS'] * 2)
+bba.deliver(gcms(31, [(0x81800000 - 8, 64), (0x80400000, 8)])); call(POLL); o = udp_out()
+check('GCMS : morceau hors de la memoire du jeu : refuse (rien d envoye)', len(o) == 0, str([x[1][:4] for x in o]))
+bba.deliver(gcms(32, [(0x80400000, 8)], 2))
+wr32(H('vi_count'), 10); call(POLL); a1 = len(udp_out()); wr32(H('vi_count'), 11); call(POLL); a2 = len(udp_out())
+check('GCMS : periode 2 : une image sur deux', a1 + a2 == 1, '%d %d' % (a1, a2))
+bba.deliver(gcms(33, [])); call(POLL); udp_out()
 # succes obtenu : annonce
 wr32(blk + 4 + PN.index('mach') * 4, 3)
 call(POLL); call(POLL); call(POLL); call(POLL)

@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 315 — Mario Kart : les bananes restent, le Chomp enchaîné en direct
+- Les objets (bananes, carapaces…) ont leur propre part de lecture : avant, ils partageaient celle des karts et, quand
+  elle était épuisée, les objets pas encore relus disparaissaient. Un objet ne s'efface plus que si sa liste a été lue
+  en entier sans lui.
+- Le Chomp enchaîné de Circuit Mario bouge comme dans le jeu : ses 2 articulations et ses 18 maillons de chaîne sont
+  lus dans la mémoire (objet *(*(*0x803D56B8 + 0xA0) + 0xA0), trouvé sur 4 photos de la mémoire). Pack
+  « mkdd-chomp-hd.zip » (modèle et textures x4).
+
 ## Nouveautés appli build 313 — Mario Kart : pilotes et passagers animés en direct
 - L'appli lit le squelette de chaque personnage dans la mémoire : KartBody +0x18 (le « passager » de l'équipe) et +0x1C
   (le « pilote »), puis +8, +0x14, +0xE8 : les matrices du monde de ses articulations (vérifié sur 11 photos, 16

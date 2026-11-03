@@ -168,6 +168,9 @@ typedef struct {
      8 au plus, reecrites a chaque image ; reponse "GCMA" {numero, en pause, jeu (8 octets en 0x80000000), image (VI),
      etat des succes (a 0 : pas de succes), n, obtenus (64 bits), (v307) video : VTR << 16 | DCR, TFBL, BFBL, PICCONF,
      nombre de valeurs bloquees} (56 octets)
+     S (le direct de l'appli) : abonnement {"GCMS", numero, n, periode, 0, n x {adresse, longueur}} (48 morceaux, 4,5 Ko) ; puis,
+       toutes les "periode" images, paquets "GCMS" {image, morceau << 16 | morceaux, taille, donnees} (natres.c, ms_send) ;
+       3 s sans renouvellement : arret
      R : lire b blocs de 1 Ko depuis a (b <= 64 en pause, sinon 2) : un paquet "GCMD" par bloc {numero, adresse, 0,
      carte des mots non nuls (32 octets), mots non nuls}
    Succes obtenu : "GCAC" {n, obtenus (64 bits)} envoye 3 fois au dernier telephone. */
