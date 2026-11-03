@@ -476,7 +476,7 @@ object JeuMKDD {
         for (q in 0 until 12) { val v = l.f32(a + 4L * q); if (v == null || !v.isFinite()) return null; m[q] = v }
         return m }
     fun positionDirecte(): FloatArray? {
-        if (direct()) { val a = matJoueur ?: return null; return CartesMK.pos(a[3], a[7], a[11]) }   // (le direct : deja la, rien a lire)
+        if (direct()) { rejouer(); val a = matJoueur ?: return null; return CartesMK.pos(a[3], a[7], a[11]) }   // (le direct : deja la, rien a lire)
         val kc = kcJoueur.takeIf { it != 0L } ?: return null
         val l = Lecteur(3, 0)
         val x = l.f32(kc + 0x5C) ?: return null; val y = l.f32(kc + 0x60) ?: return null; val z = l.f32(kc + 0x64) ?: return null
@@ -494,6 +494,9 @@ object JeuMKDD {
      *  « passager » de l'equipe (KartBody +0x18 -> +8 -> +0x14 -> +0xE8), [1] le « pilote » (KartBody +0x1C -> ...) ; ils
      *  suivent chaque personnage, meme quand ils echangent leur place. Verifie sur 11 photos de la memoire. */
     @Volatile var squels = LongArray(0)
+    /** articulations de chaque personnage (driver.bmd, numeros du jeu 1 a 20) : le direct n'envoie que celles-la */
+    private val ARTS = intArrayOf(26, 21, 21, 23, 23, 26, 26, 20, 20, 21, 21, 24, 24, 22, 24, 23, 22, 21, 21, 18, 21)
+    @Volatile private var artsJoueur = intArrayOf(MAX_ART, MAX_ART)    // (rang 0 : passager de l'equipe, 1 : pilote)
     class PoseT(val a: FloatArray?, val ta: Long, val b: FloatArray, val tb: Long)
     private val posesDirect = java.util.concurrent.ConcurrentHashMap<Int, PoseT>()
     const val MAX_ART = 26
@@ -526,7 +529,7 @@ object JeuMKDD {
         for (n in ks.indices) if (ks[n] != 0L) { l.add(FM(0, n, 0, ks[n] + 0x110, 48)); l.add(FM(5, n, 0, ks[n] + 0x1A0, 48)) }
         ks.getOrNull(0)?.takeIf { it != 0L }?.let { l.add(FM(4, 0, 0, it + 0x574, 0x54))
             l.add(FM(6, 0, 1, it + 0x730, 48)); l.add(FM(6, 0, 2, it + 0xA0C, 48)) }        // (tes roues avant : le braquage)
-        for (rg in 0..1) sq.getOrNull(rg)?.takeIf { it != 0L }?.let { l.add(FM(1, 0, rg, it, MAX_ART * 48)) }
+        for (rg in 0..1) sq.getOrNull(rg)?.takeIf { it != 0L }?.let { l.add(FM(1, 0, rg, it, artsJoueur[rg].coerceIn(1, MAX_ART) * 48)) }
         chompAdr?.let { c -> l.add(FM(2, 0, 0, c[0], 96)); for (i in 1 until c.size) l.add(FM(3, i - 1, 0, c[i], 48)) }
         // (kart : 0x110 a 0x1D0 d'un coup ; trop gros : on garde ce qui tient dans 4,5 Ko, karts d'abord)
         var tot = 0; val gard = ArrayList<FM>()
@@ -536,7 +539,8 @@ object JeuMKDD {
         if (cle == abonneCle && now - abonneT < 1_000_000_000L) return
         abonneCle = cle; abonneT = now; plan = gard
         MemoireJeu.flux = { b, n -> recevoirFlux(b, n) }
-        MemoireJeu.abonner(gard.map { it.adr to it.lon }, if (tot > 1400) 2 else 1)
+        // (v-appli : a chaque image du jeu, plus une sur deux : le rejeu de l'appli suit alors le jeu image par image)
+        MemoireJeu.abonner(gard.map { it.adr to it.lon }, 1)
     }
     private fun f(b: ByteArray, o: Int): Float = java.lang.Float.intBitsToFloat(((b[o].toInt() and 255) shl 24) or ((b[o + 1].toInt() and 255) shl 16) or ((b[o + 2].toInt() and 255) shl 8) or (b[o + 3].toInt() and 255))
     private fun g32(b: ByteArray, o: Int): Long = ((b[o].toLong() and 255) shl 24) or ((b[o + 1].toLong() and 255) shl 16) or ((b[o + 2].toLong() and 255) shl 8) or (b[o + 3].toLong() and 255)
@@ -558,6 +562,7 @@ object JeuMKDD {
         val t = System.nanoTime(); var o = 0
         val dess = HashMap<Int, FloatArray>(); val brut = HashMap<Int, FloatArray>()
         var ch: FloatArray? = null
+        var trA: FloatArray? = null; var trAff: FloatArray? = null; val trK = HashMap<Int, FloatArray>(); val trP = HashMap<Int, FloatArray>()
         for (m in pl) {
             when (m.genre) {
                 0 -> { val a = FloatArray(12) { f(d, o + 4 * it) }; if (a.all { it.isFinite() }) brut[m.n] = a }
@@ -566,8 +571,7 @@ object JeuMKDD {
                     if (a != null && bb.all { it.isFinite() }) {
                         val dd = matAffichee(a, bb); dess[m.n] = dd
                         poserPiece(m.n, 0, bb, dd, t)
-                        if (m.n == 0) { matJoueur = a; matJoueurAff = dd }
-                        else { val av = matsDirect[m.n]; matsDirect[m.n] = MatT(av?.b, av?.tb ?: t, dd, t) }
+                        if (m.n == 0) { trA = a; trAff = dd } else trK[m.n] = dd
                     }
                 }
                 1 -> dess[0]?.let { dd ->
@@ -576,7 +580,7 @@ object JeuMKDD {
                     while (k < nj && (0 until 12).all { q -> mm[k * 12 + q].isFinite() && Math.abs(mm[k * 12 + q]) < 1e6f }) k++
                     if (k > 0) { val r = FloatArray(k * 12); var ok = true
                         for (j in 0 until k) ok = ok && relatif(mm, j * 12, dd, r, j * 12)
-                        if (ok) { val av = posesDirect[m.rang]; posesDirect[m.rang] = PoseT(av?.b, av?.tb ?: t, r, t) } }
+                        if (ok) trP[m.rang] = r }
                 }
                 6 -> dess[0]?.let { dd -> val w = FloatArray(12) { f(d, o + 4 * it) }; if (w.all { it.isFinite() }) poserPiece(0, m.rang, w, dd, t) }
                 2 -> { val r = ch ?: FloatArray(20 * 12).also { ch = it }; for (q in 0 until 24) r[q] = f(d, o + 4 * q) }
@@ -584,7 +588,8 @@ object JeuMKDD {
             }
             o += m.lon
         }
-        ch?.let { r -> if (r.all { it.isFinite() }) { val av = chompD; chompD = ChompT(av?.b, av?.tb ?: t, r, t) } }
+        val chOk = ch?.takeIf { r -> r.all { it.isFinite() } }
+        ranger(Trame(fImage, t, trA, trAff, trK, trP, chOk))
         Journal3D.note("F image=$fImage A=${Journal3D.m(matJoueur)} Aff=${Journal3D.m(matJoueurAff)} roue1=${Journal3D.m(piecesD[0]?.m, 12)}")
         fluxT = t
     }
@@ -606,6 +611,54 @@ object JeuMKDD {
             }
         }
         return r
+    }
+    // ---------------------------------------------------------------- rejeu au rythme du jeu
+    /** v(appli) : chaque image recue du direct (numero d'image du jeu = vi_count de Pulse) est gardee, puis rejouee avec un
+     *  petit retard fixe, a la cadence du jeu : les a-coups du Wi-Fi (paquets en retard, deux d'un coup) ne se voient plus.
+     *  L'heure de chaque image est estimee d'apres les plus rapides arrivees (horloge du jeu) ; entre deux images, glissement
+     *  sans deformation. Retard : RETARD images (environ 70 ms) au-dessus du paquet le plus rapide. */
+    class Trame(val img: Long, val t: Long, val a: FloatArray?, val aff: FloatArray?, val karts: Map<Int, FloatArray>,
+                val poses: Map<Int, FloatArray>, val chomp: FloatArray?)
+    private const val RETARD = 4.0
+    private val trames = ArrayDeque<Trame>()
+    private var nsImage = 16_683_333.0                           // (duree d'une image du jeu, estimee : 50 ou 60 Hz)
+    private var origine = Double.NaN                             // (heure de l'image 0 : min des arrivees)
+    private val arrivees = ArrayDeque<Pair<Long, Long>>()         // (image, heure d'arrivee) des 3 dernieres secondes
+    @Volatile private var rejeuT = 0L
+    @Synchronized private fun ranger(tr: Trame) {
+        val dern = trames.lastOrNull()
+        if (dern != null && (tr.img <= dern.img || tr.img - dern.img > 600)) { if (tr.img < dern.img - 600 || tr.img - dern.img > 600) { trames.clear(); arrivees.clear(); origine = Double.NaN } else return }
+        trames.addLast(tr); while (trames.size > 64) trames.removeFirst()
+        arrivees.addLast(tr.img to tr.t); while (arrivees.size > 2 && tr.t - arrivees.first().second > 3_000_000_000L) arrivees.removeFirst()
+        if (arrivees.size >= 20) {                                // (cadence du jeu : images comptees sur la fenetre)
+            val p0 = arrivees.first(); val di = tr.img - p0.first
+            if (di > 10) { val ns = (tr.t - p0.second).toDouble() / di; if (ns in 12_000_000.0..25_000_000.0) nsImage = nsImage * 0.9 + ns * 0.1 }
+        }
+        var mn = Double.MAX_VALUE
+        for ((i, t) in arrivees) { val o = t - i * nsImage; if (o < mn) mn = o }
+        origine = mn
+    }
+    /** l'etat du jeu a montrer maintenant (karts, ton equipe, Chomp), d'apres la file : appele avant chaque dessin */
+    @Synchronized fun rejouer() {
+        val now = System.nanoTime()
+        if (now - rejeuT < 2_000_000L || trames.isEmpty() || origine.isNaN()) return
+        rejeuT = now
+        val pos = (now - origine) / nsImage - RETARD
+        var i1 = trames.indexOfFirst { it.img >= pos }
+        val f0: Trame; val f1: Trame
+        if (i1 < 0) { f0 = trames.last(); f1 = f0 }                // (rien d'assez recent : la derniere image, sans aller plus loin)
+        else if (i1 == 0) { f0 = trames.first(); f1 = f0 }
+        else { f0 = trames[i1 - 1]; f1 = trames[i1] }
+        val al = if (f1 === f0) 0f else ((pos - f0.img) / (f1.img - f0.img).toDouble()).toFloat().coerceIn(0f, 1f)
+        fun mix(a: FloatArray?, b: FloatArray?): FloatArray? {
+            if (a == null) return b; if (b == null || a.size != b.size || al <= 0f) return a
+            val r = FloatArray(a.size); var o = 0; while (o + 12 <= a.size) { glisser(a, b, o, al, r); o += 12 }; return r
+        }
+        mix(f0.a, f1.a)?.let { matJoueur = it }
+        mix(f0.aff, f1.aff)?.let { matJoueurAff = it }
+        for ((n, m0) in f0.karts) mix(m0, f1.karts[n])?.let { matsDirect[n] = MatT(null, now, it, now) }
+        for ((rg, p0) in f0.poses) mix(p0, f1.poses[rg])?.let { posesDirect[rg] = PoseT(null, now, it, now) }
+        mix(f0.chomp, f1.chomp)?.let { chompD = ChompT(null, now, it, now) }
     }
     /** la carrosserie et les 4 roues de chaque kart, relatives a sa matrice a dessiner (d^-1 m) : carrosserie = KartBody +0x1A0,
      *  roues +0x730 (avant gauche), +0xA0C (avant droite), +0xCE8, +0xFC4 (arriere) : matrices du monde des modeles du jeu
@@ -738,6 +791,7 @@ object JeuMKDD {
     }
     /** pose d'un personnage (kart n, rang 0 passager de l'equipe, 1 pilote), glissee entre deux lectures ; null : pas lue */
     fun pose(n: Int, rang: Int): FloatArray? {
+        if (direct()) rejouer()                                  // (le rejeu au rythme du jeu)
         val e = posesDirect[n * 2 + rang] ?: return null
         val now = System.nanoTime()
         if (now - e.tb > 1_500_000_000L) return null
@@ -893,6 +947,7 @@ object JeuMKDD {
         chompD = ChompT(av?.b, av?.tb ?: t, r, t)
     }
     fun chomp(): FloatArray? {
+        if (direct()) rejouer()                                  // (le rejeu au rythme du jeu)
         val e = chompD ?: return null
         val now = System.nanoTime(); if (now - e.tb > 2_000_000_000L) return null
         val a = e.a ?: return e.b
@@ -913,6 +968,7 @@ object JeuMKDD {
     }
     /** matrice d'un autre kart, glissee entre les deux dernieres lectures (pas de saut) ; null : pas de lecture recente */
     fun matKart(n: Int): FloatArray? {
+        if (direct()) rejouer()                                  // (le rejeu au rythme du jeu)
         val e = matsDirect[n] ?: return null
         val now = System.nanoTime()
         if (now - e.tb > 1_000_000_000L) return null
@@ -1071,6 +1127,7 @@ object JeuMKDD {
             // build 296 : matrice du kart (KartBody +0x110 ; verifiee sur 3 photos de la memoire : sa position = celle du KartChecker)
             val kb = ctrl?.let { l.ptr(it + 0xA0 + 4L * i) }
             if (i == 0 && kb != null) kbJoueur = kb
+            if (i == 0 && e != null) artsJoueur = intArrayOf(ARTS[(e[1]).coerceIn(0, 20)], ARTS[(e[0]).coerceIn(0, 20)])
             if (kb != null) { kbsN[i] = kb
                 for (rg in 0..1) l.ptr(kb + 0x18 + 4L * rg)?.let { l.ptr(it + 8) }?.let { l.ptr(it + 0x14) }?.let { l.ptr(it + 0xE8) }?.let { sqN[i * 2 + rg] = it } }
             var mt: FloatArray? = null
