@@ -1944,7 +1944,7 @@ static u32 na_padmask(void) {                             /* ports donnes aux te
     static const u8 m[5] = { 0, 0x2, 0x6, 0xE, 0x1 };
     return net_ok && ip_str[0] ? m[nat_padtel % 5] : 0;
 }
-static int na_mem_on(void) { return nat_memtel && net_ok && ip_str[0] && !na_net_on; }   /* v306 : chercheur de codes */
+static int na_mem_on(void) { return nat_memtel && app_envoi && net_ok && ip_str[0] && !na_net_on; }   /* (v330 : envoi vers l'appli coupe : rien) */   /* v306 : chercheur de codes */
 static u32 na_opt(void) {
     static const u8 thr[4] = { 0, 77, 128, 192 };
     u32 o = 0;

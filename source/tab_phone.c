@@ -29,6 +29,8 @@ static int tp_qr_ok = 0;
 static char tp_json[2][3072];
 static volatile int tp_json_cur = 0;
 static u64 tp_json_t = 0;
+static volatile int tp_json_now = 0;                      /* v330 : etat a preparer tout de suite (demande du serveur) */
+static volatile u32 tp_json_gen = 0;
 
 /* commandes envoyees par la page */
 enum { PC_TOGGLE = 1, PC_NEXT, PC_PREV, PC_STOP, PC_VOLUP, PC_VOLDOWN, PC_PLAY, PC_RADIO, PC_PARTY, PC_LAYOUT, PC_OPEN, PC_MENU, PC_CHECK, PC_SET, PC_UPDATE, PC_SHOW, PC_SALON, PC_TYPE, PC_SHOWNAME, PC_PLAYURL, PC_RADIOADD, PC_TEST, PC_MINIJEU, PC_QPLAY };   /* v142 : photo sur la tele, ecouter avec (Salon) */
@@ -1352,6 +1354,9 @@ static void tp_handle(s32 c) {
     if (!strcmp(target, "/") || !strcmp(target, "/index.html"))
         tp_reply(c, 200, "text/html; charset=utf-8", ui_en ? phone_page_en : phone_page, (int)strlen(ui_en ? phone_page_en : phone_page));
     else if (!strcmp(target, "/api/state")) {
+        /* v330 : etat pas prepare depuis plus d'une seconde (envoi vers l'appli : coupe / si connectee) : on le demande a la
+           boucle et on l'attend 0,4 s au plus */
+        if (now_ms() - tp_json_t > 1000) { u32 g = tp_json_gen; tp_json_now = 1; for (int w = 0; w < 40 && g == tp_json_gen; w++) usleep(10000); }
         char tmp[sizeof(tp_json[0])];
         snprintf(tmp, sizeof(tmp), "%s", tp_json[tp_json_cur]);
         tp_reply(c, 200, "application/json", tmp, (int)strlen(tmp));
@@ -2035,10 +2040,16 @@ static void tpl_pump(void) {
     }
     for (int k = 0; k < 8; k++) {
         char m[64];
+        if (!app_envoi) {                                 /* v330 : envoi vers l'appli coupe : on vide sans repondre (ni adresse) */
+            if (net_recvfrom(tpl_fd, m, sizeof(m), 0, NULL, NULL) <= 0) break;
+            continue;
+        }
         struct sockaddr_in from;
         socklen_t fl = sizeof(from);
+        memset(&from, 0, sizeof(from));
         s32 r = net_recvfrom(tpl_fd, m, sizeof(m) - 1, 0, (struct sockaddr *)&from, &fl);
         if (r <= 0) break;
+        if (!from.sin_addr.s_addr || !from.sin_port) continue;   /* (v330 : expediteur inconnu : pas de reponse) */
         m[r] = 0;
         u32 ip = ntohl(from.sin_addr.s_addr);
         u16 port = ntohs(from.sin_port);
@@ -2066,7 +2077,7 @@ static int pj_left_min(void);
 static u32 na_padmask(void);                             /* (prive, natif.c) */
 static int na_mem_on(void);                              /* (v306, natif.c) */
 static void tpl_game(const char *id, const char *name) {
-    if (tpl_fd < 0 || !tpl_live()) return;
+    if (tpl_fd < 0 || !app_envoi || !tpl_live()) return;
     static char last[8] = "";
     static u64 last_t = 0;
     if (!strcmp(last, id ? id : "") && now_ms() - last_t < 5000) return;   /* (deja dit : appels imbriques) */
@@ -2077,7 +2088,7 @@ static void tpl_game(const char *id, const char *name) {
     snprintf(m, sizeof(m), "GCSG1\t%s\t%s\t%d\t%s\t%u\t%d\n", id ? id : "", nm, pj_left_min(), gp_name, (unsigned)na_padmask(), na_mem_on());   /* (+ ports des manettes du telephone ; v306 : chercheur de codes) */
     for (int k = 0; k < 2; k++) { tpl_send_all(m); usleep(20000); }   /* (deux fois : UDP, et le jeu coupe le reseau juste apres) */
 }
-static void tpl_game_fail(void) { tpl_send_all("GCSE1\n"); }
+static void tpl_game_fail(void) { if (app_envoi) tpl_send_all("GCSE1\n"); }
 
 static void transport_step(int d);
 
@@ -2103,9 +2114,8 @@ static void pp_pump(void) {
     u64 now = now_ms();
     for (int k = 0; k < 16; k++) {
         u8 m[32];
-        struct sockaddr_in from;
-        socklen_t fl = sizeof(from);
-        s32 r = net_recvfrom(pp_fd, m, sizeof(m), 0, (struct sockaddr *)&from, &fl);
+        s32 r = net_recvfrom(pp_fd, m, sizeof(m), 0, NULL, NULL);   /* (v330 : sans l'adresse de l'expediteur : elle ne sert pas,
+                                                                    et la demander plantait dans net_recvfrom, PC 0x803449cc) */
         if (r <= 0) break;
         if (r < 20 || memcmp(m, "GCPD", 4)) continue;
         int c = m[5] & 3;
@@ -2139,8 +2149,12 @@ static void phone_pump(void) {
     u64 now = now_ms();
     /* v45 : etat pour le telephone : souvent s'il est connecte, sinon toutes les 3 s (moins de travail) */
     tpl_pump();                                           /* v266 : l'appli du telephone en direct */
-    int live = tpl_live();
-    if (now - tp_json_t > (live || (tp_last_req && now - tp_last_req < 15000) ? 300u : 3000u)) { tp_json_t = now; tp_json_build(); if (live) tpl_check_state(); }
+    /* v330 : reglage « Envoi vers l'appli » : coupe (0) ou si l'appli est connectee (1) : l'etat n'est prepare que pour
+       quelqu'un (appli abonnee, page du telephone ouverte, ou demande a l'instant) ; toujours (2) : comme avant */
+    int live = app_envoi ? tpl_live() : 0, recent = tp_last_req && now - tp_last_req < 15000;
+    if (tp_json_now || ((app_envoi == 2 || live || recent) && now - tp_json_t > (live || recent ? 300u : 3000u))) {
+        tp_json_now = 0; tp_json_t = now; tp_json_build(); tp_json_gen++; if (live) tpl_check_state();
+    }
     if (!tp_cfg_reading && (tp_cfg_now || (now - tp_cfg_t > 1000 && now - tp_last_req < 15000))) { tp_cfg_now = 0; tp_cfg_t = now; tp_cfg_build(); }
 #ifndef GEKKO
     if ((tp_cap == 1 || tp_cap == 3) && !pcsim_capture) { snprintf(pcsim_capture_name, 96, tp_cap == 3 ? "#ecran" : "capture-telephone"); pcsim_capture = 1; tp_cap = 2; }   /* (v234 ; # : sans fichier) */
