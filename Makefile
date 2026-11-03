@@ -2,7 +2,12 @@ ifeq  ($(strip $(DEVKITPPC)),)
 $(error "DEVKITPPC n'est pas defini : installe devkitPro / devkitPPC")
 endif
 
+# v326 : libogc2 (reseau ETH2SP1 / W5500, ENC28J60, W6x00 en plus du Broadband Adapter) si elle est installee
+ifneq ($(wildcard $(DEVKITPRO)/libogc2/gamecube_rules),)
+include $(DEVKITPRO)/libogc2/gamecube_rules
+else
 include $(DEVKITPPC)/gamecube_rules
+endif
 
 # Les lignes de commande commencent par ">" au lieu d'une tabulation
 # (evite les problemes de copier-coller depuis un telephone).
