@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 330 — extraire d'un jeu : tous les fichiers
+
+- **Extraire plusieurs fichiers d'un jeu** : ils vont dans un dossier au nom du jeu (« GRHP41 - RAYMAN 3… »), avec les dossiers du disque. Avant, tout allait au même endroit avec le numéro du jeu devant : deux fichiers de même nom dans deux dossiers du disque, ou ne différant que par les majuscules, ne pouvaient pas être enregistrés tous les deux (Rayman 3 : 770 sur 812). À la fin, l'appli dit lesquels n'ont pas pu être enregistrés, s'il en reste.
+
 ## Nouveautés appli build 328 — extraire d'un jeu : plus de place
 
 - **Extraire d'un jeu du téléphone** : une fois le jeu choisi, l'explication disparaît, le titre et « Changer » tiennent sur une ligne, le filtre, « Tout » et « Extraire (n) » sur une autre, et les fichiers sont sur des lignes plus basses : environ deux fois plus de fichiers visibles à l'écran.
