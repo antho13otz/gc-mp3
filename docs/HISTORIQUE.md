@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 328 — extraire d'un jeu : plus de place
+
+- **Extraire d'un jeu du téléphone** : une fois le jeu choisi, l'explication disparaît, le titre et « Changer » tiennent sur une ligne, le filtre, « Tout » et « Extraire (n) » sur une autre, et les fichiers sont sur des lignes plus basses : environ deux fois plus de fichiers visibles à l'écran.
+
 ## Nouveautés v330 (build 848) — envoi vers l'appli, manette du téléphone
 
 - **Réglage « Envoi vers l'appli »** (Réglages > Salon et téléphone) : *Coupé* (rien vers l'appli : ni annonces ni réponses UDP, ni état préparé pour personne, ni lecture de la mémoire du jeu par Pulse), *Si l'appli est connectée* (par défaut : l'état n'est préparé que pour un téléphone abonné ou une demande récente ; /api/state le fait préparer à la demande), *Toujours* (comme avant). Sauvegardé (`envoi_appli`). La manette du téléphone, sa page web et le Salon marchent dans les trois cas.
