@@ -306,7 +306,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                               val js: IntArray, val ws: FloatArray, val ps: FloatArray, val buf: FloatBuffer)
     private val mkPeaux = HashMap<Int, List<PeauMorceau>?>()
     private fun lirePeau(cid: Int): List<PeauMorceau>? = mkPeaux.getOrPut(cid) { try {
-        val f = java.io.File(scene.dossier, "mk_peau_$cid.txt")
+        val f = java.io.File(scene.dossier, if (cid == -1) "mk_chomp.txt" else "mk_peau_$cid.txt")
         if (!f.exists()) null else {
             val r = ArrayList<PeauMorceau>(); var tex = 0; var mode = 0
             val uv = ArrayList<Float>(); val nb = ArrayList<Int>(); val js = ArrayList<Int>(); val ws = ArrayList<Float>(); val ps = ArrayList<Float>()
@@ -329,7 +329,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         }
     } catch (e: Throwable) { null } }
     /** la peau posee avec les articulations lues (relatives au kart, unites du jeu) -> sommets dans le repere du kart (x 0,01) */
-    private fun poser(m: PeauMorceau, r: FloatArray) {
+    private fun poser(m: PeauMorceau, r: FloatArray, monde: Boolean = false) {
         val b = m.buf; b.clear(); val nj = r.size / 12
         val pos = FloatArray(9)
         var v = 0
@@ -343,7 +343,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                     y += w * (r[j + 4] * lx + r[j + 5] * ly + r[j + 6] * lz + r[j + 7])
                     z += w * (r[j + 8] * lx + r[j + 9] * ly + r[j + 10] * lz + r[j + 11])
                 }
-                pos[c * 3] = x * 0.01f; pos[c * 3 + 1] = y * 0.01f; pos[c * 3 + 2] = z * 0.01f
+                if (monde) { pos[c * 3] = x * 0.01f; pos[c * 3 + 1] = -z * 0.01f; pos[c * 3 + 2] = y * 0.01f }     // (repere du jeu -> de l'appli)
+                else { pos[c * 3] = x * 0.01f; pos[c * 3 + 1] = y * 0.01f; pos[c * 3 + 2] = z * 0.01f }
             }
             val ux = pos[3] - pos[0]; val uy = pos[4] - pos[1]; val uz = pos[5] - pos[2]
             val wx = pos[6] - pos[0]; val wy = pos[7] - pos[1]; val wz = pos[8] - pos[2]
@@ -966,6 +967,42 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                     GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, m.n)
                 }
                 fait = true
+            }
+        }
+        // le Chomp enchaine (pack : mk_chomp.txt, sa peau ; mk_chomp_maillon.txt) : articulations et maillons lus en direct
+        JeuMKDD.chomp()?.let { ch ->
+            fun dessiner(m: Morceau) {
+                if (m.mode >= 2) { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, if (m.mode == 2) GLES20.GL_ONE_MINUS_SRC_ALPHA else GLES20.GL_ONE); GLES20.glDepthMask(false) }
+                else { GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true) }
+                GLES20.glUniform1f(uAl, 1f); GLES20.glUniform1f(uS, if (m.mode == 1) 0.5f else 0.02f)
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, m.tex)
+                val b = m.mod
+                b.position(0); GLES20.glVertexAttribPointer(mp, 3, GLES20.GL_FLOAT, false, 32, b)
+                b.position(3); GLES20.glVertexAttribPointer(mu, 2, GLES20.GL_FLOAT, false, 32, b)
+                b.position(5); GLES20.glVertexAttribPointer(mn, 3, GLES20.GL_FLOAT, false, 32, b); b.position(0)
+                GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, m.n)
+            }
+            lirePeau(-1)?.let { pe ->
+                mModele.fill(0f); mModele[0] = 1f; mModele[5] = 1f; mModele[10] = 1f; mModele[15] = 1f
+                GLES20.glUniformMatrix4fv(uM, 1, false, mModele, 0)
+                val r = ch.copyOf(24)
+                for (m in pe) {
+                    poser(m, r, monde = true)
+                    dessiner(Morceau(m.tex, m.mode, m.buf, m.n))
+                }
+            }
+            modeleMK("mk_chomp_maillon.txt")?.let { mod ->
+                // maillon : modele deja dans le repere de l'appli (x, -z, y) / 100 ; sa matrice du jeu R -> P R P^-1, position (x, -z, y) / 100
+                for (i in 0 until 18) {
+                    val g = 24 + 12 * i
+                    val rr = floatArrayOf(ch[g], ch[g + 1], ch[g + 2], ch[g + 4], ch[g + 5], ch[g + 6], ch[g + 8], ch[g + 9], ch[g + 10])
+                    // P = [[1,0,0],[0,0,-1],[0,1,0]] : K = P R P^T
+                    val k = floatArrayOf(rr[0], -rr[2], rr[1], -rr[6], rr[8], -rr[7], rr[3], -rr[5], rr[4])
+                    for (c in 0..2) { mModele[c * 4] = k[c]; mModele[c * 4 + 1] = k[3 + c]; mModele[c * 4 + 2] = k[6 + c]; mModele[c * 4 + 3] = 0f }
+                    mModele[12] = ch[g + 3] * 0.01f; mModele[13] = -ch[g + 11] * 0.01f; mModele[14] = ch[g + 7] * 0.01f; mModele[15] = 1f
+                    GLES20.glUniformMatrix4fv(uM, 1, false, mModele, 0)
+                    for (m in mod) dessiner(m)
+                }
             }
         }
         // les objets de la course : leur modele (pack : mk_objet_<sorte>.txt), sinon un point de leur couleur (plus bas)
