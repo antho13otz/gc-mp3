@@ -24,6 +24,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 320 — Mario Kart : roues accrochées, plus d'effet élastique, objets en main
+- Les roues sont dessinées d'après le kart « au repos » (relu quand rien ne le secoue) et c'est l'appli qui les fait
+  tourner ; tes roues avant braquent en direct. Avant, les roues arrière, relues de temps en temps, flottaient à côté
+  du kart pendant les chocs et les toupies.
+- Les mouvements glissés entre deux lectures (articulations des personnages, karts des autres) gardent leur forme : axes
+  remis d'équerre et à leur longueur. Avant, une simple moyenne écrasait et étirait les personnages quand ils tournaient vite.
+- Un objet tenu (banane, carapace derrière le kart) le reste tant qu'il ne s'éloigne pas de plus de 1,5 m, à une place
+  lissée : il ne saute plus entre « tenu » et « posé ».
+
 ## Nouveautés v327 (build 843) — Pulse avec l'ETH2SP1 / ETH2GC pendant le jeu
 - Pulse (le programme qui reste avec le jeu) a son propre pilote W5500 : sans Broadband Adapter, il utilise
   l'ETH2SP1 (port série 1), sinon un ETH2GC dans le port de carte B ou A. La manette du téléphone, le chercheur de
