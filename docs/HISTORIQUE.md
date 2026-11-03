@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v322 (build 831) et appli build 316 — Mario Kart en vrai direct, tout ancré à son kart
+- Pulse (v322) : l'appli peut s'abonner à des morceaux de la mémoire du jeu (jusqu'à 48 morceaux, 4,5 Ko) ; Pulse les
+  envoie seul à chaque image du jeu (une sur deux au-delà de 1,4 Ko), sans attendre de question. L'abonnement s'arrête
+  de lui-même 3 s après le dernier renouvellement. Testé au banc natif (2 paquets, refus hors mémoire, une image sur 2).
+- Appli build 316 : les matrices de tous les karts, les articulations de ton équipe et le Chomp arrivent par ce direct,
+  tous de la même image du jeu (plus de saccades). Sans le direct (ancienne version de Pulse), l'ancienne lecture reprend.
+- Ancrage : les personnages sont recalés sur la matrice de leur kart lue au même moment (avant, à pleine vitesse, ils
+  flottaient devant ou derrière le kart) ; les objets tenus (bananes, carapaces derrière le kart) suivent le kart tel
+  qu'il est dessiné. Un objet qui ne fait que passer près d'un kart ne s'y colle pas.
+
 ## Nouveautés appli build 315 — Mario Kart : les bananes restent, le Chomp enchaîné en direct
 - Les objets (bananes, carapaces…) ont leur propre part de lecture : avant, ils partageaient celle des karts et, quand
   elle était épuisée, les objets pas encore relus disparaissaient. Un objet ne s'efface plus que si sa liste a été lue
