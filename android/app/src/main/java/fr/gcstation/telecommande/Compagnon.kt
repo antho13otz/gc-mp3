@@ -524,7 +524,8 @@ object JeuMKDD {
         val ks = kbs; val sq = squels; val l = ArrayList<FM>()
         // (le kart en deux morceaux de 48 octets : 96 au lieu de 192, tout le Chomp tient avec)
         for (n in ks.indices) if (ks[n] != 0L) { l.add(FM(0, n, 0, ks[n] + 0x110, 48)); l.add(FM(5, n, 0, ks[n] + 0x1A0, 48)) }
-        ks.getOrNull(0)?.takeIf { it != 0L }?.let { l.add(FM(4, 0, 0, it + 0x574, 0x54)) }
+        ks.getOrNull(0)?.takeIf { it != 0L }?.let { l.add(FM(4, 0, 0, it + 0x574, 0x54))
+            l.add(FM(6, 0, 1, it + 0x730, 48)); l.add(FM(6, 0, 2, it + 0xA0C, 48)) }        // (tes roues avant : le braquage)
         for (rg in 0..1) sq.getOrNull(rg)?.takeIf { it != 0L }?.let { l.add(FM(1, 0, rg, it, MAX_ART * 48)) }
         chompAdr?.let { c -> l.add(FM(2, 0, 0, c[0], 96)); for (i in 1 until c.size) l.add(FM(3, i - 1, 0, c[i], 48)) }
         // (kart : 0x110 a 0x1D0 d'un coup ; trop gros : on garde ce qui tient dans 4,5 Ko, karts d'abord)
@@ -564,6 +565,7 @@ object JeuMKDD {
                 5 -> { val a = brut[m.n]; val bb = FloatArray(12) { f(d, o + 4 * it) }
                     if (a != null && bb.all { it.isFinite() }) {
                         val dd = matAffichee(a, bb); dess[m.n] = dd
+                        poserPiece(m.n, 0, bb, dd, t)
                         if (m.n == 0) { matJoueur = a; matJoueurAff = dd }
                         else { val av = matsDirect[m.n]; matsDirect[m.n] = MatT(av?.b, av?.tb ?: t, dd, t) }
                     }
@@ -576,6 +578,7 @@ object JeuMKDD {
                         for (j in 0 until k) ok = ok && relatif(mm, j * 12, dd, r, j * 12)
                         if (ok) { val av = posesDirect[m.rang]; posesDirect[m.rang] = PoseT(av?.b, av?.tb ?: t, r, t) } }
                 }
+                6 -> dess[0]?.let { dd -> val w = FloatArray(12) { f(d, o + 4 * it) }; if (w.all { it.isFinite() }) poserPiece(0, m.rang, w, dd, t) }
                 2 -> { val r = ch ?: FloatArray(20 * 12).also { ch = it }; for (q in 0 until 24) r[q] = f(d, o + 4 * q) }
                 3 -> { val r = ch ?: FloatArray(20 * 12).also { ch = it }; for (q in 0 until 12) r[24 + 12 * m.n + q] = f(d, o + 4 * q) }
             }
@@ -602,6 +605,26 @@ object JeuMKDD {
             }
         }
         return r
+    }
+    /** la carrosserie et les 4 roues de chaque kart, relatives a sa matrice a dessiner (d^-1 m) : carrosserie = KartBody +0x1A0,
+     *  roues +0x730 (avant gauche), +0xA0C (avant droite), +0xCE8, +0xFC4 (arriere) : matrices du monde des modeles du jeu
+     *  (avec le braquage, le carrossage, l'echelle des roues arriere, la rotation). Verifie sur 2 photos de la memoire (8 karts :
+     *  la carrosserie, sans la racine de son modele, et les roues s'emboitent). 5 x 12 flottants par kart. */
+    class PiecesT(val m: FloatArray, val t: Long)
+    private val piecesD = java.util.concurrent.ConcurrentHashMap<Int, PiecesT>()
+    private fun poserPiece(n: Int, i: Int, w: FloatArray, d: FloatArray, t: Long) {
+        val av = piecesD[n]; val m = av?.m?.copyOf() ?: FloatArray(5 * 12)
+        if (relatif(w, 0, d, m, i * 12) && (av != null || i == 0)) piecesD[n] = PiecesT(m, if (av != null && i != 0) av.t else t)
+    }
+    fun pieces(n: Int): FloatArray? = piecesD[n]?.takeIf { System.nanoTime() - it.t < 3_000_000_000L && it.m[12 + 0] != 0f }?.m
+    private fun lireRoues(l: Lecteur) {
+        val ks = kbs; val t = System.nanoTime()
+        for (n in ks.indices) { val kb = ks[n]; if (kb == 0L) continue
+            val a = lire12(l, kb + 0x110) ?: continue; val b = lire12(l, kb + 0x1A0) ?: continue; val d = matAffichee(a, b)
+            val m = FloatArray(5 * 12); var ok = relatif(b, 0, d, m, 0)
+            for ((i, o) in longArrayOf(0x730, 0xA0C, 0xCE8, 0xFC4).withIndex()) { val w = lire12(l, kb + o) ?: run { ok = false; null } ?: break; ok = ok && relatif(w, 0, d, m, (i + 1) * 12) }
+            if (ok) piecesD[n] = PiecesT(m, t)
+        }
     }
     /** les boites a objets du circuit, comme dans le jeu : *(0x803D5D00) + 0x380 est la liste (JSUList) des boites ;
      *  maillon en +0xFC de l'objet (objet, liste, precedent, suivant) ; objet : position +0x04, echelle +0x40 (0 : cassee
@@ -699,6 +722,7 @@ object JeuMKDD {
                 if (++tourObjets % 3 == 0) lireObjets(Lecteur(64, 0))
                 if (tourObjets % 8 == 1) lireEffets(Lecteur(4 * ks.size, 0), 0)
                 if (tourObjets % 10 == 5) lireBoites(Lecteur(48, 0))
+                if (tourObjets % 12 == 7) lireRoues(Lecteur(5 * ks.size, 0))
                 if (++tourPoses % 6 == 0) { val sq = squels; val lp = Lecteur(9 * ks.size, 0)
                     for (n in 1 until minOf(ks.size, sq.size / 2)) { val dd = matDuMoment(lp, ks[n]) ?: continue
                         for (rg in 0..1) { val adr = sq[n * 2 + rg]; if (adr == 0L) continue
@@ -719,6 +743,7 @@ object JeuMKDD {
         if (tourObjets % 2 == 0) lireChomp(Lecteur(16, 0))
         lireEffets(Lecteur(if (tourObjets % 8 == 1) 4 * ks.size else 3, 0), if (tourObjets % 8 == 1) 0 else -1)
         if (tourObjets % 10 == 4) lireBoites(Lecteur(48, 0))
+        if (tourObjets % 12 == 6) lireRoues(Lecteur(5 * ks.size, 0))
         if (++tourObjets % 3 == 0) lireObjets(Lecteur(64, 0))       // (son propre budget : avant, celui des karts, et les objets en trop disparaissaient)
         val sq = squels; val tous = (++tourPoses % 6) == 0
         val lp = Lecteur(10 + (if (tous) 9 * ks.size else 0), 0)
@@ -1019,7 +1044,7 @@ object JeuMKDD {
                 points = if (mode == 6) (l.s16(k + 0xA6) ?: -1).takeIf { it in 0..99 } ?: -1 else -1, mat = mt,
                 echange = kb != null && (l.u8(kb + 0x5B2) ?: 0) != 0))
         }
-        if (!kbsN.contentEquals(kbs)) { roues.clear(); effets.clear() }        // (autres karts : leurs roues seront relues)
+        if (!kbsN.contentEquals(kbs)) { roues.clear(); effets.clear(); piecesD.clear() }        // (autres karts : leurs roues seront relues)
         kbs = kbsN; squels = sqN
         val s0 = l.ptr(kc + 0x44) ?: l.ptr(kc + 0x40)               // (troncon ou se trouve le kart 1)
         if (s0 != null && (crs != dernierCircuit || (trace.isEmpty() && maintenant - essai > 3000))) {

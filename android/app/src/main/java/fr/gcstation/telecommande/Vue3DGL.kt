@@ -926,6 +926,54 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
      *  Le tien est place a la position lissee (fluide), les autres a leur derniere position lue. */
     private val mModele = FloatArray(16)
     private val ancres = HashMap<Int, FloatArray>()
+    // ---------------------------------------------------------------- kart en pieces (roues en direct)
+    private val rotRoue = HashMap<Int, Float>(); private val rayonRoue = HashMap<String, Float>()
+    private val posKart = HashMap<Int, FloatArray>(); private val vitKart = HashMap<Int, Float>()
+    private var dtKarts = 0f; private var karts_t = 0L
+    /** rayon d'une roue (unites de l'appli) : distance maximale a son axe (x) */
+    private fun rayon(mod: List<Morceau>): Float { var r = 0f
+        for (m in mod) { val b = m.mod; for (i in 0 until m.n) { val y = b.get(i * 8 + 1); val z = b.get(i * 8 + 2); r = maxOf(r, Math.sqrt((y * y + z * z).toDouble()).toFloat()) } }
+        return if (r > 0.01f) r else 0.3f }
+    /** vitesse d'un kart vers l'avant (unites de l'appli par seconde), d'apres sa position dessinee d'une image a l'autre */
+    private fun vitesseKart(n: Int, x: Float, y: Float, z: Float, ra: FloatArray): Float {
+        val av = posKart[n]; posKart[n] = floatArrayOf(x, y, z)
+        if (av == null || dtKarts <= 0f) return vitKart[n] ?: 0f
+        val fn = Math.sqrt((ra[2] * ra[2] + ra[5] * ra[5] + ra[8] * ra[8]).toDouble()).toFloat().coerceAtLeast(1e-4f)
+        val vv = ((x - av[0]) * ra[2] + (y - av[1]) * ra[5] + (z - av[2]) * ra[8]) / fn / dtKarts
+        val v = (vitKart[n] ?: 0f) * 0.75f + vv.coerceIn(-80f, 80f) * 0.25f; vitKart[n] = v; return v
+    }
+    /** mModele = kart dessine (ra, t) x piece i (relative, unites du jeu) ; roue : sa rotation remplacee par th (radians) */
+    private fun posePiece(ra: FloatArray, tx: Float, ty: Float, tz: Float, pc: FloatArray, i: Int, th: Float) {
+        val o = i * 12
+        val c0 = floatArrayOf(pc[o], pc[o + 4], pc[o + 8]); var c1 = floatArrayOf(pc[o + 1], pc[o + 5], pc[o + 9]); var c2 = floatArrayOf(pc[o + 2], pc[o + 6], pc[o + 10])
+        if (i > 0) {
+            // (la rotation de la roue lue dans le jeu est enlevee : c2 a plat, c1 vers le haut ; puis celle de l'appli, reguliere)
+            val f = Math.atan2(c2[1].toDouble(), c1[1].toDouble()); val cf = Math.cos(f).toFloat(); val sf = Math.sin(f).toFloat()
+            var n1 = FloatArray(3) { cf * c1[it] + sf * c2[it] }; var n2 = FloatArray(3) { -sf * c1[it] + cf * c2[it] }
+            if (n1[1] < 0f) { n1 = FloatArray(3) { -n1[it] }; n2 = FloatArray(3) { -n2[it] } }
+            val t = if (n2[2] < 0f) -th else th; val ct = Math.cos(t.toDouble()).toFloat(); val st = Math.sin(t.toDouble()).toFloat()
+            c1 = FloatArray(3) { ct * n1[it] + st * n2[it] }; c2 = FloatArray(3) { -st * n1[it] + ct * n2[it] }
+        }
+        val cs = arrayOf(c0, c1, c2)
+        for (c in 0..2) { for (r in 0..2) mModele[c * 4 + r] = ra[r * 3] * cs[c][0] + ra[r * 3 + 1] * cs[c][1] + ra[r * 3 + 2] * cs[c][2]; mModele[c * 4 + 3] = 0f }
+        val px = pc[o + 3] * 0.01f; val py = pc[o + 7] * 0.01f; val pz = pc[o + 11] * 0.01f
+        mModele[12] = tx + ra[0] * px + ra[1] * py + ra[2] * pz; mModele[13] = ty + ra[3] * px + ra[4] * py + ra[5] * pz
+        mModele[14] = tz + ra[6] * px + ra[7] * py + ra[8] * pz; mModele[15] = 1f
+    }
+    private fun morceauK(m: Morceau, uAl: Int, uS: Int, mp: Int, mu: Int, mn: Int) {
+        when (m.mode) {
+            0 -> { GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glUniform1f(uAl, 1f); GLES20.glUniform1f(uS, 0.02f) }
+            1 -> { GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glUniform1f(uAl, 1f); GLES20.glUniform1f(uS, 0.5f) }
+            2 -> { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA); GLES20.glDepthMask(false); GLES20.glUniform1f(uAl, 1f); GLES20.glUniform1f(uS, 0.02f) }
+            else -> { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE); GLES20.glDepthMask(false); GLES20.glUniform1f(uAl, 1f); GLES20.glUniform1f(uS, 0.02f) }
+        }
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, m.tex)
+        val b = m.mod
+        b.position(0); GLES20.glVertexAttribPointer(mp, 3, GLES20.GL_FLOAT, false, 32, b)
+        b.position(3); GLES20.glVertexAttribPointer(mu, 2, GLES20.GL_FLOAT, false, 32, b)
+        b.position(5); GLES20.glVertexAttribPointer(mn, 3, GLES20.GL_FLOAT, false, 32, b); b.position(0)
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, m.n)
+    }
     private val feux = ArrayList<FloatArray>()
     private val boiteEch = HashMap<Long, Float>()         // (derniere echelle vue de chaque boite : pour voir quand elle casse)
     private val eclats = ArrayList<FloatArray>()          // (boites qui viennent de casser : eclats a lancer)            // (boules de feu de la course : position dans l'appli)       // (repere de chaque kart tel qu'il est dessine : ra puis position)
@@ -943,6 +991,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         val mp = GLES20.glGetAttribLocation(progK, "aPos"); val mu = GLES20.glGetAttribLocation(progK, "aUv"); val mn = GLES20.glGetAttribLocation(progK, "aN")
         GLES20.glEnableVertexAttribArray(mp); GLES20.glEnableVertexAttribArray(mu); GLES20.glEnableVertexAttribArray(mn)
         var fait = false; ancres.clear()
+        run { val now = System.nanoTime(); dtKarts = if (karts_t == 0L) 0f else ((now - karts_t) / 1e9f).coerceIn(0f, 0.1f); karts_t = now }
         for (k in ks) {
             // (le tien : rotation lue en direct ; les autres aussi, lus a part et glisses entre deux lectures)
             val g = (if (k.joueur) JeuMKDD.matJoueurAff ?: JeuMKDD.matJoueur else if (k.n > 0) JeuMKDD.matKart(k.n) else null) ?: k.mat; if (g.size < 12) continue
@@ -978,6 +1027,25 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                             b.position(5); GLES20.glVertexAttribPointer(mn, 3, GLES20.GL_FLOAT, false, 32, b); b.position(0)
                             GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, m.n)
                         }
+                        fait = true; continue
+                    }
+                }
+                // le kart en pieces (pack mkdd-roues : carrosserie et 4 roues) placees comme dans le jeu : les roues braquent,
+                // tournent avec la vitesse, la carrosserie se penche sur sa suspension
+                if (rangPart == 0 && k.n >= 0) {
+                    val pc = JeuMKDD.pieces(k.n); val corps = if (pc != null) modeleMK("mk_corps_${k.kart}.txt") else null
+                    if (pc != null && corps != null) {
+                        val v = vitesseKart(k.n, tx, ty, tz, ra)
+                        posePiece(ra, tx, ty, tz, pc, 0, 0f); GLES20.glUniformMatrix4fv(uM, 1, false, mModele, 0)
+                        for (m in corps) morceauK(m, uAl, uS, mp, mu, mn)
+                        for (i in 1..4) { val rm = modeleMK("mk_roue_${k.kart}_${if (i % 2 == 1) 'g' else 'd'}.txt") ?: continue
+                            val cle = k.n * 4 + i
+                            val ray = rayonRoue.getOrPut("${k.kart}") { rayon(rm) }
+                            val sc = Math.sqrt((pc[i * 12 + 1] * pc[i * 12 + 1] + pc[i * 12 + 5] * pc[i * 12 + 5] + pc[i * 12 + 9] * pc[i * 12 + 9]).toDouble()).toFloat()
+                            val th = ((rotRoue[cle] ?: 0f) + v * dtKarts / (ray * sc).coerceAtLeast(0.05f)) % (2f * Math.PI.toFloat())
+                            rotRoue[cle] = th
+                            posePiece(ra, tx, ty, tz, pc, i, th); GLES20.glUniformMatrix4fv(uM, 1, false, mModele, 0)
+                            for (m in rm) morceauK(m, uAl, uS, mp, mu, mn) }
                         fait = true; continue
                     }
                 }
