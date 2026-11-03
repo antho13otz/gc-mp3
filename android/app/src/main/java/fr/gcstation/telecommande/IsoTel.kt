@@ -168,28 +168,37 @@ fun EcranIsoTel() {
             }
         }
     }
-    Column(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Doux("Choisis l'image d'un jeu GameCube (.iso ou .gcm) rangée sur le téléphone, puis le fichier à en sortir (main.dol est en premier), ou coche-en plusieurs : ils vont tous dans le dossier que tu choisis.", taille = 12)
-        Bouton(if (disque == null) "Choisir le jeu (.iso)" else "Choisir un autre jeu", Modifier.fillMaxWidth(), plein = disque == null) { ouvrir.launch(arrayOf("*/*")) }
-        if (message.isNotEmpty()) Doux(message, taille = 12, couleur = C.Texte)
+    // (une fois le jeu choisi : en-tete compact sur deux lignes, le reste de l'ecran pour la liste des fichiers)
+    Column(Modifier.fillMaxSize().padding(horizontal = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         val d = disque
+        if (d == null) {
+            Doux("Choisis l'image d'un jeu GameCube (.iso ou .gcm) rangée sur le téléphone, puis le fichier à en sortir (main.dol est en premier), ou coche-en plusieurs : ils vont tous dans le dossier que tu choisis.", taille = 12)
+            Bouton("Choisir le jeu (.iso)", Modifier.fillMaxWidth(), plein = true) { ouvrir.launch(arrayOf("*/*")) }
+        }
+        if (message.isNotEmpty()) Doux(message, taille = 12, couleur = C.Texte, lignes = 2)
         if (d != null) {
-            Text(d.titre.ifEmpty { d.id } + "  ·  " + d.id, color = C.Texte, fontSize = 15.sp, fontWeight = FontWeight.Bold)
-            OutlinedTextField(filtre, { filtre = it }, Modifier.fillMaxWidth(), singleLine = true, label = { Text("Filtrer (" + d.fichiers.size + " fichiers)") })
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(d.titre.ifEmpty { d.id } + " · " + d.id, color = C.Texte, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Spacer(Modifier.width(8.dp))
+                Bouton("Changer", hauteur = 34.dp) { ouvrir.launch(arrayOf("*/*")) }
+            }
             val l = if (filtre.isBlank()) d.fichiers else d.fichiers.filter { it.chemin.contains(filtre.trim(), ignoreCase = true) }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Bouton(if (coches.isEmpty()) "Cocher les fichiers à extraire" else "Extraire la sélection (" + coches.size + ")", Modifier.weight(1f),
-                    plein = coches.isNotEmpty(), actif = coches.isNotEmpty()) {
-                    aEnvoyer = d.fichiers.filter { (it.chemin + it.pos) in coches }; dossier.launch(null) }
-                Bouton("Tout cocher", actif = l.isNotEmpty()) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                OutlinedTextField(filtre, { filtre = it }, Modifier.weight(1f), singleLine = true,
+                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 14.sp),
+                    placeholder = { Text("Filtrer (" + d.fichiers.size + ")", fontSize = 13.sp) })
+                Bouton(if (l.isNotEmpty() && l.all { (it.chemin + it.pos) in coches }) "Aucun" else "Tout", hauteur = 40.dp, actif = l.isNotEmpty()) {
                     val toutes = l.all { (it.chemin + it.pos) in coches }
                     if (toutes) l.forEach { coches.remove(it.chemin + it.pos) } else l.forEach { if ((it.chemin + it.pos) !in coches) coches.add(it.chemin + it.pos) } }
+                if (coches.isNotEmpty()) Bouton("Extraire (" + coches.size + ")", hauteur = 40.dp, plein = true) {
+                    aEnvoyer = d.fichiers.filter { (it.chemin + it.pos) in coches }; dossier.launch(null) }
             }
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 items(l, key = { it.chemin + it.pos }) { f ->
                     val cle = f.chemin + f.pos
                     val coche = cle in coches
-                    Carte(Modifier.fillMaxWidth().appui { if (coche) coches.remove(cle) else coches.add(cle) }, padding = androidx.compose.foundation.layout.PaddingValues(12.dp)) {
+                    Carte(Modifier.fillMaxWidth().appui { if (coche) coches.remove(cle) else coches.add(cle) }, padding = androidx.compose.foundation.layout.PaddingValues(horizontal = 10.dp, vertical = 6.dp)) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(if (coche) "☑" else "☐", color = if (coche) C.Rose else C.Doux, fontSize = 20.sp)
                             Spacer(Modifier.width(10.dp))
@@ -198,7 +207,7 @@ fun EcranIsoTel() {
                                 Doux(f.chemin.substringBeforeLast('/').ifEmpty { "/" } + " · " + taille(f.taille), taille = 11, lignes = 1)
                             }
                             Spacer(Modifier.width(8.dp))
-                            Bouton("Extraire") { choisi = f; enregistrer.launch(d.id + "-" + f.chemin.substringAfterLast('/')) }
+                            Bouton("Extraire", hauteur = 34.dp) { choisi = f; enregistrer.launch(d.id + "-" + f.chemin.substringAfterLast('/')) }
                         }
                     }
                 }
