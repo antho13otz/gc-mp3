@@ -494,6 +494,14 @@ object JeuMKDD {
      *  « passager » de l'equipe (KartBody +0x18 -> +8 -> +0x14 -> +0xE8), [1] le « pilote » (KartBody +0x1C -> ...) ; ils
      *  suivent chaque personnage, meme quand ils echangent leur place. Verifie sur 11 photos de la memoire. */
     @Volatile var squels = LongArray(0)
+    /** la camera du jeu (KartCam de l'ecran 1) : KartCtrl +0x200 ; sa matrice de vue (monde -> camera, 3 x 4) en +0x80,
+     *  son angle de vue vertical (degres) en +0x148. Verifie sur 11 photos de la memoire : la camera est a ~4,8 m derriere
+     *  et au-dessus de ton kart, matrice orthonormee, angle 80 a 87. */
+    @Volatile var camAdr = 0L
+    /** camera du jeu rejouee (matrice de vue 3 x 4, puis angle) : null tant qu'elle n'est pas dans le direct */
+    @Volatile var camJeu: FloatArray? = null
+    /** la course telle que la lit l'ecran Mario Kart (place, tour, objets) : pour l'interface du jeu dessinee sur la vue 3D */
+    @Volatile var courseHud: Etat? = null
     /** articulations de chaque personnage (driver.bmd, numeros du jeu 1 a 20) : le direct n'envoie que celles-la */
     private val ARTS = intArrayOf(26, 21, 21, 23, 23, 26, 26, 20, 20, 21, 21, 24, 24, 22, 24, 23, 22, 21, 21, 18, 21)
     @Volatile private var artsJoueur = intArrayOf(MAX_ART, MAX_ART)    // (rang 0 : passager de l'equipe, 1 : pilote)
@@ -529,6 +537,7 @@ object JeuMKDD {
         for (n in ks.indices) if (ks[n] != 0L) { l.add(FM(0, n, 0, ks[n] + 0x110, 48)); l.add(FM(5, n, 0, ks[n] + 0x1A0, 48)) }
         ks.getOrNull(0)?.takeIf { it != 0L }?.let { l.add(FM(4, 0, 0, it + 0x574, 0x54))
             l.add(FM(6, 0, 1, it + 0x730, 48)); l.add(FM(6, 0, 2, it + 0xA0C, 48)) }        // (tes roues avant : le braquage)
+        camAdr.takeIf { it != 0L }?.let { l.add(FM(7, 0, 0, it + 0x80, 48)); l.add(FM(8, 0, 0, it + 0x148, 4)) }   // (camera du jeu)
         for (rg in 0..1) sq.getOrNull(rg)?.takeIf { it != 0L }?.let { l.add(FM(1, 0, rg, it, artsJoueur[rg].coerceIn(1, MAX_ART) * 48)) }
         chompAdr?.let { c -> l.add(FM(2, 0, 0, c[0], 96)); for (i in 1 until c.size) l.add(FM(3, i - 1, 0, c[i], 48)) }
         // (kart : 0x110 a 0x1D0 d'un coup ; trop gros : on garde ce qui tient dans 4,5 Ko, karts d'abord)
@@ -563,6 +572,7 @@ object JeuMKDD {
         val dess = HashMap<Int, FloatArray>(); val brut = HashMap<Int, FloatArray>()
         var ch: FloatArray? = null
         var trA: FloatArray? = null; var trAff: FloatArray? = null; val trK = HashMap<Int, FloatArray>(); val trP = HashMap<Int, FloatArray>()
+        var trCam: FloatArray? = null
         for (m in pl) {
             when (m.genre) {
                 0 -> { val a = FloatArray(12) { f(d, o + 4 * it) }; if (a.all { it.isFinite() }) brut[m.n] = a }
@@ -582,6 +592,8 @@ object JeuMKDD {
                         for (j in 0 until k) ok = ok && relatif(mm, j * 12, dd, r, j * 12)
                         if (ok) trP[m.rang] = r }
                 }
+                7 -> { val c = FloatArray(13) { if (it < 12) f(d, o + 4 * it) else 0f }; if (c.all { it.isFinite() }) trCam = c }
+                8 -> trCam?.let { c -> val v = f(d, o); if (v.isFinite() && v in 10f..150f) c[12] = v }
                 6 -> dess[0]?.let { dd -> val w = FloatArray(12) { f(d, o + 4 * it) }; if (w.all { it.isFinite() }) poserPiece(0, m.rang, w, dd, t) }
                 2 -> { val r = ch ?: FloatArray(20 * 12).also { ch = it }; for (q in 0 until 24) r[q] = f(d, o + 4 * q) }
                 3 -> { val r = ch ?: FloatArray(20 * 12).also { ch = it }; for (q in 0 until 12) r[24 + 12 * m.n + q] = f(d, o + 4 * q) }
@@ -589,7 +601,7 @@ object JeuMKDD {
             o += m.lon
         }
         val chOk = ch?.takeIf { r -> r.all { it.isFinite() } }
-        ranger(Trame(fImage, t, trA, trAff, trK, trP, chOk))
+        ranger(Trame(fImage, t, trA, trAff, trK, trP, chOk, trCam?.takeIf { it[12] > 0f }))
         Journal3D.note("F image=$fImage A=${Journal3D.m(matJoueur)} Aff=${Journal3D.m(matJoueurAff)} roue1=${Journal3D.m(piecesD[0]?.m, 12)}")
         fluxT = t
     }
@@ -618,7 +630,7 @@ object JeuMKDD {
      *  L'heure de chaque image est estimee d'apres les plus rapides arrivees (horloge du jeu) ; entre deux images, glissement
      *  sans deformation. Retard : RETARD images (environ 70 ms) au-dessus du paquet le plus rapide. */
     class Trame(val img: Long, val t: Long, val a: FloatArray?, val aff: FloatArray?, val karts: Map<Int, FloatArray>,
-                val poses: Map<Int, FloatArray>, val chomp: FloatArray?)
+                val poses: Map<Int, FloatArray>, val chomp: FloatArray?, val cam: FloatArray? = null)
     private const val RETARD = 4.0
     private val trames = ArrayDeque<Trame>()
     private var nsImage = 16_683_333.0                           // (duree d'une image du jeu, estimee : 50 ou 60 Hz)
@@ -659,6 +671,10 @@ object JeuMKDD {
         for ((n, m0) in f0.karts) mix(m0, f1.karts[n])?.let { matsDirect[n] = MatT(null, now, it, now) }
         for ((rg, p0) in f0.poses) mix(p0, f1.poses[rg])?.let { posesDirect[rg] = PoseT(null, now, it, now) }
         mix(f0.chomp, f1.chomp)?.let { chompD = ChompT(null, now, it, now) }
+        val c0 = f0.cam; val c1 = f1.cam
+        if (c0 != null) { val r = FloatArray(13); val b = c1 ?: c0
+            if (al > 0f && b !== c0) glisser(c0, b, 0, al, r) else c0.copyInto(r, 0, 0, 12)
+            r[12] = c0[12] + (b[12] - c0[12]) * al; camJeu = r } else camJeu = null
     }
     /** la carrosserie et les 4 roues de chaque kart, relatives a sa matrice a dessiner (d^-1 m) : carrosserie = KartBody +0x1A0,
      *  roues +0x730 (avant gauche), +0xA0C (avant droite), +0xCE8, +0xFC4 (arriere) : matrices du monde des modeles du jeu
@@ -1108,6 +1124,7 @@ object JeuMKDD {
         val eqs = equipes
         val im = l.ptr(OBJETS)
         val ctrl = l.ptr(CTRL)                                         // build 296 : KartCtrl (mKartBodies[8] en 0xA0)
+        camAdr = ctrl?.let { l.ptr(it + 0x200) } ?: 0L                  // (camera du jeu : KartCtrl +0x200, mKartCams[0])
         // les karts (KartChecker : mLap 0x2C, mRaceEnd 0x29, mRaceProgression 0x54, mPos 0x5C, mRank 0x88, mBalloonNum 0x90,
         // mBombPoint 0xA6) ; leurs objets (ItemObjMgr : mStockItem[8][2] 0x24C, mEquipItem[8][2] 0x2CC -> mItemKind 0x7C)
         val karts = ArrayList<Kart>()
