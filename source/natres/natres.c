@@ -9,6 +9,13 @@
 // Protocole SD (specification publique "SD Physical Layer, mode SPI") : CMD0, CMD8,
 // ACMD41, CMD58, CMD16, puis CMD17 (lire un secteur, jeton 0xFE, 512 octets, CRC).
 #include "natres.h"
+/* v327 : MEM_OS (le plus petit, -Os) aussi pour ce qui ne sert qu'au demarrage, au reseau ou au plantage : le resident
+   doit tenir sous 0x817FFF00 (le pilote W5500 a ajoute ~1,5 Ko) */
+#if defined(__GNUC__) && !defined(__clang__)
+#define MEM_OS __attribute__((optimize("Os")))                /* (resident compile en -O2 : ici, le plus petit) */
+#else
+#define MEM_OS
+#endif
 
 typedef unsigned int u32;
 typedef unsigned char u8;
@@ -159,7 +166,7 @@ done:
 out:
     H.xfer = (u32)x_dma | (u32)x_fast << 1 | (u32)x_fast_off << 2;
 }
-static int nr_init(void) {
+static int MEM_OS nr_init(void) {
     exi = (volatile u32 *)(0xCC006800u + hw_d + H.chan * 0x14u);
     H.err = NR_OK; H.sdhc = 0; H.stage = 1;
     sec_cached = 0xFFFFFFFFu;
@@ -557,36 +564,36 @@ static void pn_p32(u8 *p, u32 v) { p[0] = (u8)(v >> 24); p[1] = (u8)(v >> 16); p
 /* ---- v327 : W5500 (WIZnet, ETH2SP1 / ETH2GC), socket 0 en MACRAW (trames Ethernet brutes), sans interruption.
    Trame SPI : adresse (16 bits), controle (bloc << 3 | ecriture << 2 | 0 = longueur libre), donnees. Blocs : 0 commun,
    1 registres du socket 0, 2 son tampon d'envoi, 3 son tampon de reception (les pointeurs font le tour seuls). */
-static void wz_hdr(u32 bsb, u32 a, int wr) { bb_w((a << 16) | ((bsb << 3) | (wr ? 4u : 0u)) << 8, 3); }
-static void wz_wr(u32 bsb, u32 a, const u8 *s, u32 n) {
+static __attribute__((noinline, optimize("Os"))) void wz_hdr(u32 bsb, u32 a, int wr) { bb_w((a << 16) | ((bsb << 3) | (wr ? 4u : 0u)) << 8, 3); }
+static __attribute__((noinline, optimize("Os"))) void wz_wr(u32 bsb, u32 a, const u8 *s, u32 n) {
     bb_sel(); wz_hdr(bsb, a, 1);
     for (; n >= 4; n -= 4, s += 4) bb_w((u32)s[0] << 24 | (u32)s[1] << 16 | (u32)s[2] << 8 | s[3], 4);
     for (; n; n--) bb_w((u32)*s++ << 24, 1);
     bb_desel();
 }
-static void wz_rd(u32 bsb, u32 a, u8 *d, u32 n) {
+static __attribute__((noinline, optimize("Os"))) void wz_rd(u32 bsb, u32 a, u8 *d, u32 n) {
     bb_sel(); wz_hdr(bsb, a, 0);
     for (; n >= 4; n -= 4, d += 4) { u32 w = bb_r(4); d[0] = (u8)(w >> 24); d[1] = (u8)(w >> 16); d[2] = (u8)(w >> 8); d[3] = (u8)w; }
     for (; n; n--) *d++ = (u8)(bb_r(1) >> 24);
     bb_desel();
 }
-static u32 wz_r8(u32 bsb, u32 a) { u8 v; wz_rd(bsb, a, &v, 1); return v; }
-static void wz_w8(u32 bsb, u32 a, u32 v) { u8 b = (u8)v; wz_wr(bsb, a, &b, 1); }
-static u32 wz_r16(u32 bsb, u32 a) {                       /* (lu deux fois de suite pareil : la puce le change en meme temps) */
+static __attribute__((noinline, optimize("Os"))) u32 wz_r8(u32 bsb, u32 a) { u8 v; wz_rd(bsb, a, &v, 1); return v; }
+static __attribute__((noinline, optimize("Os"))) void wz_w8(u32 bsb, u32 a, u32 v) { u8 b = (u8)v; wz_wr(bsb, a, &b, 1); }
+static __attribute__((noinline, optimize("Os"))) u32 wz_r16(u32 bsb, u32 a) {                       /* (lu deux fois de suite pareil : la puce le change en meme temps) */
     u32 v = 0;
     for (int t = 0; t < 8; t++) { u8 b[2], c[2]; wz_rd(bsb, a, b, 2); wz_rd(bsb, a, c, 2); v = (u32)b[0] << 8 | b[1]; if (b[0] == c[0] && b[1] == c[1]) break; }
     return v;
 }
-static void wz_w16(u32 bsb, u32 a, u32 v) { u8 b[2] = { (u8)(v >> 8), (u8)v }; wz_wr(bsb, a, b, 2); }
-static void wz_cmd(u32 c) { wz_w8(1, 0x01, c); for (u32 i = 0; i < 20000u && wz_r8(1, 0x01); i++) { } }   /* Sn_CR */
-static void wz_send(const u8 *f, u32 n) {
+static __attribute__((noinline, optimize("Os"))) void wz_w16(u32 bsb, u32 a, u32 v) { u8 b[2] = { (u8)(v >> 8), (u8)v }; wz_wr(bsb, a, b, 2); }
+static __attribute__((noinline, optimize("Os"))) void wz_cmd(u32 c) { wz_w8(1, 0x01, c); for (u32 i = 0; i < 20000u && wz_r8(1, 0x01); i++) { } }   /* Sn_CR */
+static __attribute__((noinline, optimize("Os"))) void wz_send(const u8 *f, u32 n) {
     for (u32 i = 0; i < 20000u && wz_r16(1, 0x20) < n; i++) { }    /* Sn_TX_FSR : place dans le tampon d'envoi */
     u32 wr = wz_r16(1, 0x24);                                       /* Sn_TX_WR */
     wz_wr(2, wr, f, n);
     wz_w16(1, 0x24, (wr + n) & 0xFFFFu);
     wz_cmd(0x20);                                                   /* SEND */
 }
-static u32 wz_recv(void) {
+static __attribute__((noinline, optimize("Os"))) u32 wz_recv(void) {
     u32 rsr = wz_r16(1, 0x26);                                      /* Sn_RX_RSR : octets recus */
     if (rsr < 2) return 0;
     u32 rd = wz_r16(1, 0x28), n = 0;                                /* Sn_RX_RD */
@@ -631,7 +638,7 @@ static u32 pn_recv(void) {
 }
 static u32 pn_ipsum(const u8 *h) { u32 s = 0; for (int i = 0; i < 20; i += 2) s += pn_be16(h + i); while (s >> 16) s = (s & 0xFFFF) + (s >> 16); return ~s & 0xFFFF; }
 static void pn_eth(u8 *f, const u8 *dst, u32 type) { for (int i = 0; i < 6; i++) { f[i] = dst[i]; f[6 + i] = pn_mac[i]; } pn_p16(f + 12, type); }
-static void pn_arp(int op, const u8 *tmac, u32 tip) {      /* 1 = demande (a tous), 2 = reponse */
+static void MEM_OS pn_arp(int op, const u8 *tmac, u32 tip) {      /* 1 = demande (a tous), 2 = reponse */
     static const u8 all[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
     u8 *f = pn_fr;
     pn_eth(f, op == 1 ? all : tmac, 0x0806);
@@ -641,7 +648,7 @@ static void pn_arp(int op, const u8 *tmac, u32 tip) {      /* 1 = demande (a tou
     pn_send(f, 42);
 }
 /* trame recue : ARP (on repond pour notre adresse, on note celle du serveur) ; rend 1 si c'est une reponse du serveur */
-static int pn_rx(u32 n, u32 seq) {
+static int MEM_OS pn_rx(u32 n, u32 seq) {
     const u8 *f = pn_fr;
     if (n < 42) return 0;
     u32 type = pn_be16(f + 12);
@@ -659,7 +666,7 @@ static int pn_rx(u32 n, u32 seq) {
 }
 /* v327 : un W5500 en (canal, peripherique) pret a recevoir : 0, ou -1. Son adresse Ethernet est gardee (GC Station
    l'a reglee, le routeur la connait deja) ; sinon une adresse tiree du numero de la console (registres ECID). */
-static int __attribute__((noinline)) pn_wz_init(u32 ch, u32 dev) {
+static int __attribute__((noinline, optimize("Os"))) pn_wz_init(u32 ch, u32 dev) {
     if (exi && exi == HW6(0xCC006800u + ch * 0x14u) && dev == H.dev) return -1;   /* (la carte SD de Pulse : on n'y touche pas) */
     bx = HW6(0xCC006800u + ch * 0x14u);
     if (((bx[0] & 0x380u) & ~(0x80u << dev)) || (bx[3] & 1u)) return -2;          /* (le jeu se sert de ce canal : plus tard) */
@@ -696,7 +703,7 @@ static int __attribute__((noinline)) pn_wz_init(u32 ch, u32 dev) {
 }
 /* l'adaptateur pret a recevoir (sans chercher de serveur) : 0, -1 = aucun, -2 = un canal pris par le jeu (plus tard).
    Broadband Adapter d'abord, puis W5500 : port serie 1 (ETH2SP1), puis ports de carte B et A (ETH2GC) */
-static int __attribute__((noinline)) pn_bba_init(void) {
+static int __attribute__((noinline)) MEM_OS pn_bba_init(void) {
     bx = HW6(0xCC006800u); pn_cs = 0x80u << 2; pn_frq = 5; pn_hw = 1; pn_ch = 0;
     u32 m = irq_off();
     bb_sel(); bb_w(0, 2); u32 id = bb_r(4); bb_desel();      /* (identifiant du peripherique EXI) */
@@ -728,7 +735,7 @@ static int __attribute__((noinline)) pn_bba_init(void) {
     irq_restore(m);
     return 0;
 }
-static int __attribute__((noinline)) pn_init(void) {
+static int __attribute__((noinline)) MEM_OS pn_init(void) {
     if (!H.net || ((const natres_net_t *)H.net)->magic != NATRES_NET_MAGIC) return -1;
     pn_cfg = (const natres_net_t *)H.net;
     if (pn_bba_init()) { H.net_rt = (H.net_rt & 0xFFFFFFu) | (u32)NRN_NOBBA << 24; return -1; }
@@ -747,7 +754,7 @@ static int __attribute__((noinline)) pn_init(void) {
     return -1;
 }
 /* une demande (<= 2048 octets) et ses reponses */
-static int __attribute__((noinline)) pn_req(u8 *dst, u32 off, u32 len) {
+static int __attribute__((noinline)) MEM_OS pn_req(u8 *dst, u32 off, u32 len) {
     u32 tok = PN_NET->tok[H.disc & 1u];
     for (int t = 0; t < 120; t++) {
         u32 seq = ++pn_seq, got = 0;
@@ -777,7 +784,7 @@ static int __attribute__((noinline)) pn_req(u8 *dst, u32 off, u32 len) {
     H.err = NR_ETIMEOUT;
     return -1;
 }
-static int __attribute__((noinline)) pn_read(void *dst, u32 off, u32 len) {
+static int __attribute__((noinline)) MEM_OS pn_read(void *dst, u32 off, u32 len) {
     if (!pn_ready) { pn_ready = pn_init() == 0; if (!pn_ready) { H.err = NR_ENOCARD; return -1; } }
     u8 *o = (u8 *)dst;
     u32 sz = PN_NET->size[H.disc & 1u];
@@ -811,11 +818,6 @@ static natres_pad_t *pd_find(void) {
     if (q[0] == NATRES_PAD_MAGIC) pd = (natres_pad_t *)q;
     return pd;
 }
-#if defined(__GNUC__) && !defined(__clang__)
-#define MEM_OS __attribute__((optimize("Os")))                /* (resident compile en -O2 : ici, le plus petit) */
-#else
-#define MEM_OS
-#endif
 /* trame UDP vers (mac, ip, port) : donnees deja en pn_fr + 42 */
 static MEM_OS void pn_udp(natres_pad_t *p, const u8 *mac, u32 ip, u32 port, u32 dlen) {
     u8 *fr = pn_fr, *iph = fr + 14, *uu = iph + 20;
@@ -965,7 +967,7 @@ static MEM_OS void mem_pause(natres_pad_t *p) {
 }
 static u32 pd_bba_n = 0, pd_bba_tb = 0;                  /* (derniers acces du jeu au BBA) */
 static int pd_busy(void) { return ((bx[0] & 0x380u) & ~pn_cs) || (bx[3] & 1u); }   /* (le jeu se sert du canal de l'adaptateur) */
-static void pd_frame(natres_pad_t *p, u32 n, u32 now) {
+static void MEM_OS pd_frame(natres_pad_t *p, u32 n, u32 now) {
     const u8 *f = pn_fr;
     if (n < 42) return;
     u32 type = pn_be16(f + 12);
@@ -987,7 +989,7 @@ static void pd_frame(natres_pad_t *p, u32 n, u32 now) {
     p->pip[ch] = pn_be32(f + 26); p->pport[ch] = pn_be16(u); for (int i = 0; i < 6; i++) p->pmac[ch][i] = f[6 + i];   /* (v275 : pour la vibration) */
 }
 void pd_poll(void) __attribute__((used));
-void pd_poll(void) {
+void MEM_OS pd_poll(void) {
     natres_pad_t *p = pd_find();
     if (!p || p->state == 2) return;
     u32 now = tbl();
@@ -1343,7 +1345,7 @@ static void thr_dump(void) {
 }
 static void vc_diag(void);
 static u32 xl_n;
-static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
+static void MEM_OS crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
     if (!(H.flags & NRF_CRASH) || !H.log_sec || !di_ready) return;
     if ((H.flags & NRF_EXILOG) && xl_n) nr_write_sd(H.log_sec + 4, crashbuf);   /* v260 : (avant tout le reste : crashbuf) */
     for (u32 i = 0; i < 512; i++) crashbuf[i] = 0;
