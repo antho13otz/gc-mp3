@@ -1421,12 +1421,19 @@ static int sd_mount_cnt(const DISC_INTERFACE *i) {
     sd_cnt_if.writeSectors = sd_cnt_write;
     return fatMount("sd", &sd_cnt_if, 0, 8, 64);
 }
+#include "exfat_sd.c"                                  /* v326 : cartes SD en exFAT (FatFs) */
 static int mount_sd(void) {
     /* v97 : cache de libfat double (8 pages de 64 secteurs = 256 Ko au lieu de 128) : sur une grosse carte
        (1 To, FAT de 120 Mo), les chaines de clusters et les dossiers sont relus bien moins souvent */
     if (sd_mount_cnt(&__io_gcsd2)) { sd_slot = 0; return 1; }   // SD2SP2 (port serie 2)
     if (sd_mount_cnt(&__io_gcsda)) { sd_slot = 1; return 1; }   // SD Gecko slot A
     if (sd_mount_cnt(&__io_gcsdb)) { sd_slot = 2; return 1; }   // SD Gecko slot B
+#ifdef GEKKO
+    /* v326 : pas de FAT lisible par libfat (carte en exFAT) : FatFs, dans le meme ordre */
+    if (exf_mount_sd(&__io_gcsd2)) { sd_slot = 0; return 1; }
+    if (exf_mount_sd(&__io_gcsda)) { sd_slot = 1; return 1; }
+    if (exf_mount_sd(&__io_gcsdb)) { sd_slot = 2; return 1; }
+#endif
     return 0;
 }
 

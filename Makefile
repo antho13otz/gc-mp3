@@ -97,7 +97,13 @@ build/cb/%.o: source/cb/%.c $(wildcard source/cb/*.h) source/gc_tls_config.h
 > @mkdir -p build/cb
 > $(CC) $(CFLAGS) -std=gnu11 -Wno-format-truncation -Isource/cb -ffunction-sections -fdata-sections -c $< -o $@
 
-LIBOBJ   := $(MBED_OBJ) $(HELIX_OBJ) $(CODEC_OBJ) $(GME_OBJ) $(XMP_OBJ) $(WEBP_OBJ) $(CB_OBJ)
+# v326 : FatFs (ChaN, licence BSD a 1 clause) : cartes SD en exFAT (source/exfat_sd.c)
+FATFS_OBJ:= build/fatfs/ff.o build/fatfs/ffunicode.o build/fatfs/ffsystem.o
+build/fatfs/%.o: source/fatfs/%.c source/fatfs/ffconf.h source/fatfs/ff.h source/fatfs/ff_prefix.h
+> @mkdir -p build/fatfs
+> $(CC) -O2 $(MACHDEP) -fno-asynchronous-unwind-tables -fno-unwind-tables -Isource/fatfs -w -c $< -o $@
+
+LIBOBJ   := $(MBED_OBJ) $(HELIX_OBJ) $(CODEC_OBJ) $(GME_OBJ) $(XMP_OBJ) $(WEBP_OBJ) $(CB_OBJ) $(FATFS_OBJ)
 MAINDEPS := $(wildcard source/*.c source/*.h source/natres/*.h)
 
 build/natres.elf: source/natres/natres.c source/natres/natres.h tools/natres.ld

@@ -21,6 +21,7 @@ SOURCES = [
     "core/tcp_in.c", "core/tcp_out.c", "core/udp.c", "core/ipv4/icmp.c",
     "core/ipv4/ip.c", "core/ipv4/ip_frag.c", "core/ipv4/ip_addr.c",
     "netif/etharp.c", "netif/loopif.c",
+    "netif/w5500if.c",                             # v326 : adaptateurs WIZnet W5500 (ETH2SP1...), tools/netif
 ]
 
 
@@ -68,8 +69,22 @@ open(opts, "w").write(s2)
 net = os.path.join(src, "lwip", "network.c")
 if not os.path.isfile(net):
     fail("network.c introuvable")
+# v326 : sans Broadband Adapter, l'adaptateur W5500 (ETH2SP1 dans le port serie 1, ETH2GC dans un port de carte
+# memoire) : pilote de libogc2 (licence zlib) adapte, dans tools/netif
+here = os.path.dirname(os.path.abspath(__file__))
+shutil.copy(os.path.join(here, "netif", "w5500if.c"), os.path.join(src, "lwip", "netif", "w5500if.c"))
+shutil.copy(os.path.join(here, "netif", "w5500if.h"), os.path.join(src, "gc", "netif", "w5500if.h"))
+ns = open(net).read()
+bba = re.search(r"\n([ \t]*)pnet = netif_add\(&g_hNetIF,[^\n]*bba_init, net_input\);\n", ns)
+if not bba:
+    fail("ajout du W5500 : appel de bba_init introuvable dans network.c")
+ind = bba.group(1)
+ns = ns[:bba.end()] + ind + "if(!pnet) pnet = netif_add(&g_hNetIF,&loc_ip, &mask, &gw, NULL, w5500if_init, net_input);   /* GC Station v326 */\n" + ns[bba.end():]
+ns = '#include "netif/w5500if.h"\n' + ns
+with open(net, "w") as f:
+    f.write(ns)
 with open(net, "a") as f:
-    f.write("\nconst int gcmp3_tcp_wnd = TCP_WND;\n")
+    f.write("\nconst int gcmp3_tcp_wnd = TCP_WND;\nconst int gcmp3_w5500 = 1;\n")
 
 inc = ["gc", "libogc", "gc/netif", "gc/ipv4", "gc/ogc", "gc/ogc/machine", "external/bsd/include"]
 flags = ["-O2", "-DGEKKO", "-mogc", "-mcpu=750", "-meabi", "-mhard-float", "-msdata=eabi",
