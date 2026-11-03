@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 319 — Mario Kart : les roues en direct
+- Avec le pack « mkdd-roues-hd.zip » (carrosseries et roues séparées des 21 karts), chaque kart est dessiné en pièces
+  placées comme dans le jeu : la carrosserie (KartBody +0x1A0, sans la racine de son modèle) et les 4 roues (+0x730,
+  +0xA0C avant, +0xCE8, +0xFC4 arrière : braquage, carrossage, roues arrière plus grandes). Vérifié sur 2 photos de la
+  mémoire (8 karts) : les roues s'emboîtent dans la carrosserie.
+- Les roues tournent selon la vitesse du kart ; tes roues avant braquent en direct, celles des autres sont relues
+  régulièrement. Sans le pack : le kart d'un bloc comme avant.
+
 ## Nouveautés appli build 318 — Mario Kart : les boîtes à objets du jeu en direct
 - Les boîtes à objets viennent de la mémoire du jeu : la liste des boîtes du circuit est en *(0x803D5D00) + 0x380
   (position +0x04, échelle +0x40, sorte +0x10C : 1 boîte, 12 double boîte), vérifiée sur 11 photos de la mémoire
