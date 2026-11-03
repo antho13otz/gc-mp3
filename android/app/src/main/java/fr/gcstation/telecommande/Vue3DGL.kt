@@ -207,7 +207,7 @@ class Etat3D {
     @Volatile var chemin: FloatArray = FloatArray(0); @Volatile var montrerRayman = true
     @Volatile var decal = floatArrayOf(0f, 0f, 0f)       // (build 236 : deplacement a deux doigts, ajoute a la cible)
     @Volatile var redessiner: () -> Unit = {}
-    @Volatile var voir = "cfjkvrpid"
+    @Volatile var voir = "cfjkvrpidt"
     /** build 266 : autres pions a montrer (Mario Kart : les autres karts) : x, y, z, couleur (ARGB en Float.fromBits) par pion */
     @Volatile var pions = FloatArray(0)
     /** build 269 : position lue en direct ~30 fois par seconde ; le moteur la lisse a chaque image (plus de sauts) */
@@ -463,8 +463,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     private var aPos = 0; private var aUv = 0; private var aCol = 0; private var uMvp = 0; private var uTex = 0; private var uAvecTex = 0; private var uCam = 0
     private var lPos = 0; private var lMvp = 0; private var lCoul = 0; private var lTaille = 0
     private val textures = HashMap<Int, Int>()
-    private val vbo = IntArray(256)
-    private val vboM = IntArray(256)                     // (build 332 : objets qui bougent)
+    private val vbo = IntArray(maxOf(256, scene.groupes.size))     // (build 336 : autant que de groupes : les lieux de Wind Waker en ont beaucoup)
+    private val vboM = IntArray(maxOf(256, scene.mobiles?.groupes?.size ?: 0))                     // (build 332 : objets qui bougent)
     private val mMob = FloatArray(16); private val mvpMob = FloatArray(16)
     private val proj = FloatArray(16); private val vue = FloatArray(16); private val mvp = FloatArray(16); private val projJeu = FloatArray(16)
     private fun shader(t: Int, src: String): Int { val s = GLES20.glCreateShader(t); GLES20.glShaderSource(s, src); GLES20.glCompileShader(s); return s }
@@ -1638,7 +1638,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             val voir = etat.voir
             for (passe in 0..1) {
                 if (passe == 0) GLES20.glDisable(GLES20.GL_DEPTH_TEST) else GLES20.glEnable(GLES20.GL_DEPTH_TEST)
-                for (t in "idjkvrpfc") {                          // les cages en dernier (par-dessus)
+                for (t in "tidjkvrpfc") {                          // les cages en dernier (par-dessus)
                     val fb = objBuf[t] ?: continue
                     if (t !in voir) continue
                     if (gemmesC.containsKey(t)) continue                         // (build 249 : vraies gemmes, plus bas)
@@ -1651,8 +1651,9 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                         'p' -> 18f to floatArrayOf(0.62f, 0.55f, 1f); 'r' -> 11f to floatArrayOf(1f, 0.25f, 0.22f)
                         'k' -> 12f to floatArrayOf(0.95f, 0.1f, 0.3f); 'v' -> 15f to floatArrayOf(0.2f, 0.9f, 0.35f)
                         'i' -> 20f to floatArrayOf(1f, 1f, 1f); 'd' -> 26f to floatArrayOf(1f, 1f, 1f)
+                        't' -> 22f to floatArrayOf(0.9f, 0.62f, 0.2f)                  // (build 336 : coffres de Wind Waker)
                         else -> 11f to floatArrayOf(1f, 0.92f, 0.28f) }
-                    GLES20.glUniform1f(oT, taille * echelle); GLES20.glUniform1f(oF, if (t == 'c' || t == 'f') 1f else if (t == 'i') 2f else if (t == 'd') 3f else 0f)
+                    GLES20.glUniform1f(oT, taille * echelle); GLES20.glUniform1f(oF, if (t == 'c' || t == 'f' || t == 't') 1f else if (t == 'i') 2f else if (t == 'd') 3f else 0f)
                     GLES20.glUniform4f(oC, coul[0], coul[1], coul[2], if (passe == 0) 0.35f else 1f)
                     GLES20.glVertexAttribPointer(oPos, 3, GLES20.GL_FLOAT, false, 12, fb)
                     GLES20.glDrawArrays(GLES20.GL_POINTS, 0, fb.capacity() / 3)
@@ -1897,7 +1898,7 @@ private fun nomObjet(scene: SceneR3, o: Objet3D): String {
     val meme = scene.objets.filter { it.type == o.type }
     val n = meme.indexOf(o) + 1
     return when (o.type) { 'c' -> "Cage $n sur ${meme.size}"; 'f' -> "P'tit être $n sur ${meme.size}"; 'j' -> "Gemme jaune"
-        'k' -> "Gemme rouge"; 'v' -> "Gemme verte"; 'r' -> "Lum rouge"; 'i' -> "Boîte à objets $n sur ${meme.size}"; 'd' -> "Ligne de départ"
+        'k' -> "Gemme rouge"; 'v' -> "Gemme verte"; 'r' -> "Lum rouge"; 'i' -> "Boîte à objets $n sur ${meme.size}"; 'd' -> "Ligne de départ"; 't' -> "Coffre $n sur ${meme.size}"
         'p' -> "Pouvoir" + when { "rouade" in o.nom.lowercase() -> " : poing-roulade"; "grappin" in o.nom.lowercase() -> " : grappin"
             "force" in o.nom.lowercase() -> " : poing d'acier"; "snipe" in o.nom.lowercase() -> " : lockjaw"; "helico" in o.nom.lowercase() -> " : hélico"; else -> "" }
         else -> "" }
@@ -1971,7 +1972,7 @@ private fun ChoixObjets(scene: SceneR3, etat: Etat3D, modifier: Modifier, aller:
         Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             for ((t, nom, coul) in listOf(Triple('c', "Cages", 0xFFFFBD40), Triple('f', "P'tits êtres", 0xFF9EF2FF), Triple('j', "Gemmes jaunes", 0xFFFFEB47), Triple('k', "Gemmes rouges", 0xFFFF3B6B), Triple('v', "Gemmes vertes", 0xFF3DDC84),
                     Triple('r', "Lums rouges", 0xFFFF4038), Triple('p', "Pouvoirs", 0xFF9E8CFF),
-                    Triple('i', "Boîtes à objets", 0xFFFFD54A), Triple('d', "Départ", 0xFFFFFFFF))) {
+                    Triple('i', "Boîtes à objets", 0xFFFFD54A), Triple('d', "Départ", 0xFFFFFFFF), Triple('t', "Coffres", 0xFFE6A040))) {
                 val k = n[t] ?: continue
                 val actif = t in voir
                 val r = reste[t] ?: 0

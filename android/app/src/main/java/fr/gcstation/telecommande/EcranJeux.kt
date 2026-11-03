@@ -531,6 +531,13 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                 Spacer(Modifier.height(8.dp))
                 SectionRayman3(act)
             }
+            // ---- build 336 : Zelda The Wind Waker : les lieux en 3D, aussi hors ligne ----
+            if (g.id.startsWith("GZL")) {
+                Spacer(Modifier.height(22.dp))
+                Titre("Wind Waker : les lieux en 3D")
+                Spacer(Modifier.height(8.dp))
+                SectionWW(act)
+            }
             // ---- build 266 : Mario Kart Double Dash : les circuits en 3D, aussi hors ligne ----
             if (g.id.startsWith("GM4")) {
                 Spacer(Modifier.height(22.dp))

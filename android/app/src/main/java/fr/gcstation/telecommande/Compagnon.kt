@@ -1493,7 +1493,7 @@ fun EcranCompagnon() {
     val act = LocalContext.current
     var vue by remember { mutableStateOf(0) }
     LaunchedEffect(Unit) {
-        Chrono.init(act); Compagnon.ctx = act.applicationContext; CartesR3.dossier = java.io.File(act.filesDir, "cartes-r3"); CartesMK.dossier = java.io.File(act.filesDir, "cartes-mk"); Compagnon.ecranOuvert = true; Compagnon.demarrer()
+        Chrono.init(act); Compagnon.ctx = act.applicationContext; CartesR3.dossier = java.io.File(act.filesDir, "cartes-r3"); CartesMK.dossier = java.io.File(act.filesDir, "cartes-mk"); CartesWW.dossier = java.io.File(act.filesDir, "cartes-ww"); Compagnon.ecranOuvert = true; Compagnon.demarrer()
         CarteMarineWW.telecharger(act)                                   // (v313 : hors partie seulement)
         withContext(Dispatchers.Default) { CarteMarineWW.charger(act) }
     }
@@ -1709,6 +1709,8 @@ private fun CompagnonWW(e: JeuWW.Etat) {
     }
     // v313 : a l'interieur (donjon, maison, ile) : le plan qui se dessine au fil des pas de Link
     if (e.scene != "sea" && e.scene != "sea_T" && e.aPos) PlanInterieurWW(e)
+    // build 336 : le lieu en 3D (pack Wind Waker), Link dessus
+    LieuWW3D(e)
     // la carte marine (v313 : les images du vrai jeu quand l'appli les a ; toucher une case : son nom)
     Carte(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
