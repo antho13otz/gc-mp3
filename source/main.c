@@ -1605,10 +1605,10 @@ static unsigned char *read_file(const char *path, long maxsz, long *out_len) {
     long size = -1;
     if (fseek(fp, 0, SEEK_END) == 0) size = ftell(fp);
     if (size <= 0 || size > maxsz || fseek(fp, 0, SEEK_SET) != 0) { fclose(fp); return NULL; }
-    unsigned char *buf = (unsigned char *)malloc(size);
-    if (buf && fread(buf, 1, size, fp) != (size_t)size) { free(buf); buf = NULL; }
+    unsigned char *buf = (unsigned char *)malloc(size + 1);  /* v325 : + 1 octet nul (le journal de Pulse etait lu */
+    if (buf && fread(buf, 1, size, fp) != (size_t)size) { free(buf); buf = NULL; }   /* comme du texte : strstr debordait) */
     fclose(fp);
-    if (buf) *out_len = size;
+    if (buf) { buf[size] = 0; *out_len = size; }
     return buf;
 }
 
