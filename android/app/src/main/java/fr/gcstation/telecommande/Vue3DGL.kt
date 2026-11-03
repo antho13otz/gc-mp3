@@ -201,6 +201,8 @@ class Etat3D {
     @Volatile var direct = false                          // build 245 : types d'objets affiches
     /** build 272 : la derniere pose de Rayman lue dans la memoire (squelette, objets, textures) */
     @Volatile var pose: PoseRayman? = null
+    /** journal de bug (bouton « 🐞 Bug ») : la prochaine image est lue et rendue ici */
+    @Volatile var captureCb: ((android.graphics.Bitmap?) -> Unit)? = null
     /** build 296 : Mario Kart, les karts a dessiner en 3D (le premier est le tien) */
     @Volatile var karts: List<KartVue> = emptyList()
     /** build 282 : 0 normal (la vue suit la position), 1 suivre (derriere Rayman, tournee comme lui), 2 libre (la vue ne bouge plus seule),
@@ -779,6 +781,20 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             GLES20.glActiveTexture(GLES20.GL_TEXTURE0)
             GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         } else dessinerScene()
+        etat.captureCb?.let { cb -> etat.captureCb = null; cb(try { lireEcran() } catch (e: Throwable) { null }) }
+    }
+    /** l'image affichee (journal de bug) : glReadPixels, retournee (OpenGL lit de bas en haut) */
+    private fun lireEcran(): android.graphics.Bitmap {
+        val w = ecranW; val h = ecranH
+        val b = ByteBuffer.allocateDirect(w * h * 4).order(ByteOrder.nativeOrder())
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0)
+        GLES20.glReadPixels(0, 0, w, h, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, b)
+        val px = IntArray(w * h); b.position(0)
+        for (y in 0 until h) for (x in 0 until w) {
+            val r = b.get().toInt() and 255; val g = b.get().toInt() and 255; val bl = b.get().toInt() and 255; b.get()
+            px[(h - 1 - y) * w + x] = (0xFF shl 24) or (r shl 16) or (g shl 8) or bl
+        }
+        return android.graphics.Bitmap.createBitmap(px, w, h, android.graphics.Bitmap.Config.ARGB_8888)
     }
     /** build 249 : gemmes 3D qui tournent, lums rouges et pouvoirs avec les images du jeu. Comme les pastilles :
      *  d'abord estompes a travers le decor, puis nets la ou on les voit. */
@@ -926,6 +942,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
      *  Le tien est place a la position lissee (fluide), les autres a leur derniere position lue. */
     private val mModele = FloatArray(16)
     private val ancres = HashMap<Int, FloatArray>()
+    private var journalTour = 0
     // ---------------------------------------------------------------- kart en pieces (roues en direct)
     private val rotRoue = HashMap<Int, Float>(); private val rayonRoue = HashMap<String, Float>()
     private val posKart = HashMap<Int, FloatArray>(); private val vitKart = HashMap<Int, Float>()
@@ -990,7 +1007,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         val uM = GLES20.glGetUniformLocation(progK, "uModele"); val uAl = GLES20.glGetUniformLocation(progK, "uAlpha"); val uS = GLES20.glGetUniformLocation(progK, "uSeuil")
         val mp = GLES20.glGetAttribLocation(progK, "aPos"); val mu = GLES20.glGetAttribLocation(progK, "aUv"); val mn = GLES20.glGetAttribLocation(progK, "aN")
         GLES20.glEnableVertexAttribArray(mp); GLES20.glEnableVertexAttribArray(mu); GLES20.glEnableVertexAttribArray(mn)
-        var fait = false; ancres.clear()
+        var fait = false; ancres.clear(); journalTour++
         run { val now = System.nanoTime(); dtKarts = if (karts_t == 0L) 0f else ((now - karts_t) / 1e9f).coerceIn(0f, 0.1f); karts_t = now }
         for (k in ks) {
             // (le tien : rotation lue en direct ; les autres aussi, lus a part et glisses entre deux lectures)
@@ -1003,6 +1020,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             if (k.joueur && etat.direct && gj != null) { tx = c0[0] + (g[3] - gj[3]) * 0.01f; ty = c0[1] - (g[11] - gj[11]) * 0.01f; tz = c0[2] + (g[7] - gj[7]) * 0.01f }
             else if (k.joueur && etat.direct) { tx = c0[0]; ty = c0[1]; tz = c0[2] } else { tx = g[3] * 0.01f; ty = -g[11] * 0.01f; tz = g[7] * 0.01f }
             ancres[k.n] = floatArrayOf(ra[0], ra[1], ra[2], ra[3], ra[4], ra[5], ra[6], ra[7], ra[8], tx, ty, tz)
+            if (k.joueur || journalTour % 20 == 0) Journal3D.note("K${k.n} kart=${k.kart} pilote=${k.pilote} passager=${k.passager} echange=${k.echange} pos=${Journal3D.v(tx, ty, tz)} g=${Journal3D.m(g)}")
             val parts = listOf("mk_kart_${k.kart}.txt" to 0f, "mk_pilote_${k.pilote}.txt" to 1f, "mk_passager_${k.passager}.txt" to 1f)
             for ((rangPart, ps) in parts.withIndex()) { val (nom, s) = ps
                 // personnage anime (peau + articulations lues en direct) : positions deja relatives au kart, sans le siege
@@ -1011,6 +1029,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                     // rang du squelette : 1 = personnage « pilote » de l'equipe, 0 = « passager » (echanges : l'inverse)
                     val rg = if ((rangPart == 1) != k.echange) 1 else 0
                     val pz = JeuMKDD.pose(k.n, rg); val pe = if (pz != null && cid > 0) lirePeau(cid) else null
+                    if (k.joueur) Journal3D.note("S${k.n}.$rg perso=$cid pose=${pz?.size ?: 0} peau=${pe != null} j0=${Journal3D.m(pz, 0)}")
                     if (pz != null && pe != null) {
                         for (c in 0..2) { mModele[c * 4] = ra[c]; mModele[c * 4 + 1] = ra[3 + c]; mModele[c * 4 + 2] = ra[6 + c]; mModele[c * 4 + 3] = 0f }
                         mModele[12] = tx; mModele[13] = ty; mModele[14] = tz; mModele[15] = 1f
@@ -1034,6 +1053,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 // tournent avec la vitesse, la carrosserie se penche sur sa suspension
                 if (rangPart == 0 && k.n >= 0) {
                     val pc = JeuMKDD.pieces(k.n); val corps = if (pc != null) modeleMK("mk_corps_${k.kart}.txt") else null
+                    if (k.joueur) Journal3D.note("P${k.n} pieces=${pc != null} corps=${corps != null} repos=${JeuMKDD.repos(k.n) != null} c=${Journal3D.m(pc, 0)} r1=${Journal3D.m(pc, 12)} r3=${Journal3D.m(pc, 36)}")
                     if (pc != null && corps != null) {
                         val v = vitesseKart(k.n, tx, ty, tz, ra)
                         posePiece(ra, tx, ty, tz, pc, 0, 0f); GLES20.glUniformMatrix4fv(uM, 1, false, mModele, 0)
@@ -1132,6 +1152,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 az = an[11] + (an[6] * rl[0] + an[7] * rl[1] + an[8] * rl[2]) * 0.01f
             } else { ax = p[0] * 0.01f; ay = -p[2] * 0.01f; az = p[1] * 0.01f }
             if (genre == 9 || genre == 20 || genre == 21) feux.add(floatArrayOf(ax, ay, az))
+            if (journalTour % 5 == 0) Journal3D.note("O genre=$genre kart=${ob.kart} tenu=${an != null && rl != null} p=${Journal3D.v(ax, ay, az)}")
             if (mod == null) { objetsPoints.add(floatArrayOf(ax, ay, az, genre.toFloat())); continue }
             // (debout ; les carapaces tournent sur elles-memes, comme dans le jeu)
             val ang = if (genre in 0..2 || genre == 13) ((System.nanoTime() / 1e9 * 6.0) % (2 * Math.PI)).toFloat() else 0f
@@ -1616,10 +1637,12 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
         BoutonsVue(scope, etat, Modifier.align(androidx.compose.ui.Alignment.BottomStart).padding(8.dp))
     }
     ChoixObjets(scene, etat, Modifier.padding(top = 6.dp)) { o -> etiquette = nomObjet(scene, o); allerA(scope, etat, o) }
+    val ctxBug = androidx.compose.ui.platform.LocalContext.current
     if (plein) androidx.compose.ui.window.Dialog({ plein = false }, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         Box(Modifier.fillMaxSize().background(Color(0xFF6B80AE))) {
             VueGL(scene, etat, Modifier.fillMaxSize(), toucher)
             Row(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top = 40.dp, end = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                PetitBouton("🐞 Bug") { journalBug(ctxBug, scene, etat) }
                 PetitBouton("⟲ Recentrer") { etat.voler(scope, vers = etat.cible, d = etat.distBase, tg = if (etat.montrerRayman) 0.5f else 0.75f) }
                 PetitBouton("✕") { plein = false }
             }
@@ -1632,6 +1655,39 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
                 modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(bottom = 28.dp, start = 12.dp, end = 12.dp).background(Color(0x88000000), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 6.dp))
         }
     }
+}
+
+/** journal de bug de la vue 3D : capture de la prochaine image, en-tete (appli, scene, camera, packs), lignes du journal ;
+ *  le .zip va dans Telechargements/GC Remote, puis le partage s'ouvre (pour me l'envoyer) */
+internal fun journalBug(ctx: android.content.Context, scene: SceneR3, etat: Etat3D) {
+    android.widget.Toast.makeText(ctx, "Journal de bug : enregistrement…", android.widget.Toast.LENGTH_SHORT).show()
+    val principal = android.os.Handler(android.os.Looper.getMainLooper())
+    etat.captureCb = { bmp ->
+        Thread {
+            val d = scene.dossier
+            val packs = (d.list() ?: emptyArray()).filter { it.endsWith(".txt") }.groupBy { it.substringBefore('_', it) + "_" + it.removePrefix(it.substringBefore('_', it) + "_").substringBefore('_') }
+                .map { (k, v) -> "$k x${v.size}" }.sorted().joinToString(", ")
+            val e = StringBuilder()
+            e.append("GC Remote ").append(BuildConfig.VERSION_NAME).append(" - journal de bug de la vue 3D - ")
+                .append(java.text.SimpleDateFormat("dd/MM/yyyy HH:mm:ss", java.util.Locale.FRANCE).format(java.util.Date())).append('\n')
+            e.append("scene : ").append(d.name).append(" / ").append(scene.niveau).append(" (").append(scene.groupes.size).append(" groupes, ").append(scene.objets.size).append(" objets)\n")
+            e.append("camera : lacet ").append(etat.lacet).append(" tangage ").append(etat.tangage).append(" distance ").append(etat.dist)
+                .append(" cible ").append(Journal3D.v(*etat.cible)).append(" decalage ").append(Journal3D.v(*etat.decal)).append(" direct ").append(etat.direct).append('\n')
+            e.append("Mario Kart : direct de Pulse ").append(JeuMKDD.direct()).append(", karts ").append(JeuMKDD.kbs.size).append('\n')
+            e.append("packs (fichiers du dossier) : ").append(packs).append('\n')
+            val u = Journal3D.enregistrer(ctx, bmp, e.toString())
+            principal.post {
+                if (u == null) { android.widget.Toast.makeText(ctx, "Journal de bug : enregistrement impossible", android.widget.Toast.LENGTH_LONG).show(); return@post }
+                android.widget.Toast.makeText(ctx, "Journal de bug enregistré (Téléchargements/GC Remote)", android.widget.Toast.LENGTH_LONG).show()
+                try {
+                    ctx.startActivity(android.content.Intent.createChooser(android.content.Intent(android.content.Intent.ACTION_SEND).setType("application/zip")
+                        .putExtra(android.content.Intent.EXTRA_STREAM, u).addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION), "Envoyer le journal de bug")
+                        .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                } catch (x: Exception) { }
+            }
+        }.start()
+    }
+    etat.redessiner()
 }
 
 /** build 249 : la sorte de pouvoir d'apres le nom de l'objet dans le jeu */

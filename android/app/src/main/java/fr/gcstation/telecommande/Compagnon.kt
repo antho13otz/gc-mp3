@@ -585,6 +585,7 @@ object JeuMKDD {
             o += m.lon
         }
         ch?.let { r -> if (r.all { it.isFinite() }) { val av = chompD; chompD = ChompT(av?.b, av?.tb ?: t, r, t) } }
+        Journal3D.note("F image=$fImage A=${Journal3D.m(matJoueur)} Aff=${Journal3D.m(matJoueurAff)} roue1=${Journal3D.m(piecesD[0]?.m, 12)}")
         fluxT = t
     }
 
@@ -636,7 +637,8 @@ object JeuMKDD {
             val a = lire12(l, kb + 0x110) ?: continue; val b = lire12(l, kb + 0x1A0) ?: continue; val d = matAffichee(a, b)
             val m = FloatArray(5 * 12); var ok = relatif(b, 0, d, m, 0)
             for ((i, o) in longArrayOf(0x730, 0xA0C, 0xCE8, 0xFC4).withIndex()) { val w = lire12(l, kb + o) ?: run { ok = false; null } ?: break; ok = ok && relatif(w, 0, d, m, (i + 1) * 12) }
-            if (ok) { piecesD[n] = PiecesT(m, t); if (calme(a, b, m)) reposD[n] = m }
+            if (ok) { piecesD[n] = PiecesT(m, t); val cm = calme(a, b, m); if (cm) reposD[n] = m
+                Journal3D.note("R$n calme=$cm A=${Journal3D.m(a)} B=${Journal3D.m(b)} r1=${Journal3D.m(m, 12)} r3=${Journal3D.m(m, 36)}") }
         }
     }
     /** les boites a objets du circuit, comme dans le jeu : *(0x803D5D00) + 0x380 est la liste (JSUList) des boites ;
