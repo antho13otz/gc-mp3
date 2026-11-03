@@ -240,7 +240,18 @@ jobs:
         run: |
           make clean
           set -o pipefail
-          make -j"$(nproc)" BUILD_NUM=${{ github.run_number }} 2>&1 | tee make.log || { grep -E "error|Error|undefined|\*\*\*" make.log | head -30 | sed 's/^/::error::/'; exit 1; }
+          make -j"$(nproc)" BUILD_NUM=843 2>&1 | tee make.log || { grep -E "error|Error|undefined|\*\*\*" make.log | head -30 | sed 's/^/::error::/'; exit 1; }
+
+      # (branche de diagnostic, jamais fusionnee : fonctions du plantage, puis arret avant toute publication)
+      - name: Diagnostic du plantage
+        shell: bash
+        run: |
+          B=/opt/devkitpro/devkitPPC/bin
+          for a in 803449cc 80369d94 801ae7a8 800054a8 80003430 800061dc; do echo "== $a"; $B/powerpc-eabi-addr2line -f -C -e gc-mp3player.elf 0x$a; done
+          $B/powerpc-eabi-objdump -d --start-address=0x80344990 --stop-address=0x80344a00 gc-mp3player.elf | tail -30
+          $B/powerpc-eabi-objdump -d --start-address=0x801ae770 --stop-address=0x801ae7b0 gc-mp3player.elf | tail -16
+          $B/powerpc-eabi-objdump -d --start-address=0x80369d60 --stop-address=0x80369da0 gc-mp3player.elf | tail -16
+          echo "fin du diagnostic"; exit 1
 
       # v219 : ce qui prend de la place (code, donnees, zones reservees) : une note lisible dans le resume du build
       - name: Taille par élément
