@@ -20,6 +20,7 @@
 
 
 #ifndef FF_DEFINED
+#include "ff_prefix.h"	/* GC Station v326 */
 #define FF_DEFINED	80386	/* Revision ID */
 
 #ifdef __cplusplus
