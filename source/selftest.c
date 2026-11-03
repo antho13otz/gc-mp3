@@ -496,7 +496,7 @@ static void sx_script_tick(u64 n) {
 
 /* ---------- images : appele par perf_frame (main.c) a chaque image mesuree ---------- */
 static int kt_on, kt_done;                        /* v278 : test des touches (selftest_keys.c) */
-static void kt_frame(u32 tot);
+static void kt_frame(u32 tot, int top, u32 top_us, u32 dsd, u32 dnet);
 static void kt_tick(void);
 static void kt_begin(void);
 static void kt_overlay(void);
@@ -505,7 +505,7 @@ static void sx_frame_hook(u32 tot, int tb, int top, u32 top_us) {
     u32 cbn = cb_n, sdn = sd_rd_sec + sd_wr_sec, nbn = net_rx_bytes;
     u32 d_cb = cbn - sx_f_cb, d_sd = sdn - sx_f_sd, d_net = nbn - sx_f_net;   /* (v265 : ce qui s'est passe pendant cette image) */
     sx_f_cb = cbn; sx_f_sd = sdn; sx_f_net = nbn;
-    if (kt_on) { kt_frame(tot); return; }
+    if (kt_on) { kt_frame(tot, top, top_us, d_sd, d_net); return; }
     if (sx_state < SX_SOUND || sx_state > SX_STRESS) return;
     int slow = tot > VID_SLOW_US;
     if (sx_sb >= 0) { sx_sb_frames[sx_sb]++; if (slow) sx_sb_slow[sx_sb]++; if (tot > sx_sb_worst[sx_sb]) sx_sb_worst[sx_sb] = tot; }

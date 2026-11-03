@@ -156,7 +156,10 @@ void GX_InitTexObj(GXTexObj *o, void *img, u16 w, u16 h, u8 fmt, u8 ws, u8 wt, u
     t->img = img; t->w = w; t->h = h; t->fmt = fmt; t->ws = ws; t->wt = wt; t->filt = GX_LINEAR;
 }
 void GX_InitTexObjFilterMode(GXTexObj *o, u8 minf, u8 magf) { (void)minf; ((tex_t *)o)->filt = magf; }
-void GX_LoadTexObj(GXTexObj *o, u8 map) { if (map < 8) { texmap[map] = *(tex_t *)o; tc_check(&texmap[map], __builtin_return_address(0), __builtin_frame_address(1) ? __builtin_return_address(1) : 0); } }
+static unsigned long long gx_now(void);
+/* v323 : la verification du cache (empreinte de toute l'image) est un travail du simulateur : comptee avec le processeur
+   graphique, pas au Gekko (avant : x12 a chaque texture chargee, l'onglet WEB et les jeux paraissaient lents) */
+void GX_LoadTexObj(GXTexObj *o, u8 map) { if (map < 8) { u64 t0_ = gx_now(); texmap[map] = *(tex_t *)o; tc_check(&texmap[map], __builtin_return_address(0), __builtin_frame_address(1) ? __builtin_return_address(1) : 0); pcsim_gx_ns += gx_now() - t0_; } }
 static GXDrawDoneCallback dd_cb = NULL;
 void GX_DrawDone(void) {}
 void GX_SetDrawDone(void) { if (dd_cb) dd_cb(); }         /* (dessin logiciel : deja fini) */

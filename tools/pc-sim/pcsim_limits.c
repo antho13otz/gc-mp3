@@ -18,6 +18,7 @@
 #include <string.h>
 #include <malloc.h>
 #include <time.h>
+#include <execinfo.h>                                   /* (v323 : PCSIM_MEMSITES) */
 #include <dirent.h>
 #include <errno.h>
 #include <sys/stat.h>
@@ -35,6 +36,7 @@ static u32 be32p(const u8 *p) { return (u32)p[0] << 24 | p[1] << 16 | p[2] << 8 
 void pcsim_limits_init(void) {
     const char *e;
     pcsim_fast = (e = getenv("PCSIM_FAST")) && *e && *e != '0';
+    if (getenv("PCSIM_MEMSITES")) { void *b_[2]; backtrace(b_, 2); }   /* v323 : (1er appel : libgcc chargee hors du verrou du tas) */
     if ((e = getenv("PCSIM_CPU"))) pcsim_cpu_k = atof(e) > 1 ? atof(e) : 1;
     if ((e = getenv("PCSIM_SD_KBS"))) sd_rkbs = atof(e);
     if ((e = getenv("PCSIM_SD_WKBS"))) sd_wkbs = atof(e);
@@ -65,6 +67,50 @@ void pcsim_limits_report(void) {
 void *__real_malloc(size_t); void __real_free(void *); void *__real_calloc(size_t, size_t); void *__real_realloc(void *, size_t);
 void *__real_memalign(size_t, size_t); int __real_posix_memalign(void **, size_t, size_t); void *__real_aligned_alloc(size_t, size_t);
 #define CHUNK_OVH 8                                           /* (en-tete d'un bloc, comme newlib) */
+/* v323 : PCSIM_MEMSITES=1 : chaque bloc pris est note avec l'endroit du code qui l'a demande (3 appelants) ;
+   a chaque « mark » et a la fin : les endroits qui gardent le plus de memoire (adresses : addr2line -f -e gcstation) */
+#define MS_PTRS (1 << 20)
+#define MS_SITES 8192
+typedef struct { void *f[3]; size_t bytes, n; } ms_site_t;
+static void **ms_ptr; static u32 *ms_ps; static ms_site_t *ms_site; static int ms_on = -1, ms_nsite = 0;
+static __thread int ms_busy = 0;
+static u32 ms_h(void *p) { return (u32)(((uintptr_t)p >> 4) * 2654435761u) & (MS_PTRS - 1); }
+static void ms_add(void *p, size_t n) {                      /* (sous heap_m) */
+    if (ms_on < 0) { ms_on = getenv("PCSIM_MEMSITES") != NULL; if (ms_on) { ms_ptr = __real_calloc(MS_PTRS, sizeof(void *)); ms_ps = __real_calloc(MS_PTRS, 4); ms_site = __real_calloc(MS_SITES, sizeof(ms_site_t)); } }
+    if (!ms_on || ms_busy) return;
+    ms_busy = 1;
+    void *bt[8]; int k = backtrace(bt, 8);
+    ms_busy = 0;
+    int b0 = 1;
+    uintptr_t lo_ = (uintptr_t)&pcsim_limits_init - 4096, hi_ = (uintptr_t)&pcsim_limits_init + 16384;
+    while (b0 < k && (uintptr_t)bt[b0] >= lo_ && (uintptr_t)bt[b0] < hi_) b0++;   /* (les fonctions du tas : sautees) */
+    void *f[3] = { b0 < k ? bt[b0] : 0, b0 + 1 < k ? bt[b0 + 1] : 0, b0 + 2 < k ? bt[b0 + 2] : 0 };
+    int s;
+    for (s = 0; s < ms_nsite; s++) if (!memcmp(ms_site[s].f, f, sizeof(f))) break;
+    if (s == ms_nsite) { if (ms_nsite >= MS_SITES) return; memcpy(ms_site[ms_nsite++].f, f, sizeof(f)); }
+    u32 h = ms_h(p);
+    for (int i = 0; i < 64; i++, h = (h + 1) & (MS_PTRS - 1)) if (!ms_ptr[h] || ms_ptr[h] == (void *)1) { ms_ptr[h] = p; ms_ps[h] = (u32)s; ms_site[s].bytes += n; ms_site[s].n++; return; }
+}
+static void ms_del(void *p, size_t n) {
+    if (ms_on <= 0) return;
+    u32 h = ms_h(p);
+    for (int i = 0; i < 64 && ms_ptr[h]; i++, h = (h + 1) & (MS_PTRS - 1)) if (ms_ptr[h] == p) { ms_site_t *s = &ms_site[ms_ps[h]]; s->bytes -= n < s->bytes ? n : s->bytes; if (s->n) s->n--; ms_ptr[h] = (void *)1; return; }
+}
+void pcsim_memsites_report(const char *name) {
+    if (ms_on <= 0) return;
+    pthread_mutex_lock(&heap_m);
+    int ord[24], k = 0;
+    for (int s = 0; s < ms_nsite; s++) {
+        int j = k < 24 ? k++ : 23;
+        if (j == 23 && k == 24 && ms_site[s].bytes <= ms_site[ord[23]].bytes) continue;
+        ord[j] = s;
+        while (j > 0 && ms_site[ord[j]].bytes > ms_site[ord[j - 1]].bytes) { int t = ord[j]; ord[j] = ord[j - 1]; ord[j - 1] = t; j--; }
+    }
+    size_t tot = 0; for (int s = 0; s < ms_nsite; s++) tot += ms_site[s].bytes;
+    printf("[memoire] %s : %.2f Mo suivis sur %.2f Mo, %d endroits ; ceux qui gardent le plus (Ko, blocs, appelants)\n", name, tot / 1048576.0, heap_used / 1048576.0, ms_nsite);
+    for (int i = 0; i < k; i++) { ms_site_t *s = &ms_site[ord[i]]; if (s->bytes < 16384) break; printf("[memoire]   %7zu Ko %6zu  %p %p %p\n", s->bytes / 1024, s->n, s->f[0], s->f[1], s->f[2]); }
+    pthread_mutex_unlock(&heap_m);
+}
 static int heap_take(void *p) {                               /* 1 = gardee ; 0 = refusee (rendue) */
     if (!p) return 0;
     size_t n = malloc_usable_size(p) + CHUNK_OVH;
@@ -77,13 +123,14 @@ static int heap_take(void *p) {                               /* 1 = gardee ; 0 
         return 0;
     }
     heap_used += n; if (heap_used > heap_peak) heap_peak = heap_used;
+    ms_add(p, n);
     pthread_mutex_unlock(&heap_m);
     return 1;
 }
 static void heap_give(void *p) {
     if (!p) return;
     size_t n = malloc_usable_size(p) + CHUNK_OVH;
-    pthread_mutex_lock(&heap_m); heap_used = heap_used > n ? heap_used - n : 0; pthread_mutex_unlock(&heap_m);
+    pthread_mutex_lock(&heap_m); heap_used = heap_used > n ? heap_used - n : 0; ms_del(p, n); pthread_mutex_unlock(&heap_m);
 }
 void *__wrap_malloc(size_t n) { PCSIM_LIB_ENTER(); void *p = __real_malloc(n); if (!heap_take(p)) p = NULL; PCSIM_LIB_EXIT(); return p; }
 void __wrap_free(void *p) { PCSIM_LIB_ENTER(); heap_give(p); __real_free(p); PCSIM_LIB_EXIT(); }

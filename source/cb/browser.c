@@ -29,6 +29,7 @@
 #include <dirent.h>
 #include <ctype.h>
 #include <math.h>
+#include "thr.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -249,9 +250,12 @@ static char *pending_post;   /* form data of the page being loaded */
 /* Older pages in Back/Forward are kept on the SD card instead of in memory
  * (gcbrowser/webcache/hist/<n>.htm), so going back doesn't download them
  * again but they don't take room from pictures and music. */
+/* GC Station v323 : les pages de cette session ont un prefixe (h<run>-<n>.htm) : les anciennes, effacees en fond au
+   demarrage du navigateur (browser_init), ne peuvent pas avoir le meme nom qu'une nouvelle */
+static unsigned hist_run;
 static void hist_spill_path(unsigned id, char *out, size_t cap) {
     char name[64];
-    snprintf(name, sizeof(name), "webcache/hist/%u.htm", id);
+    snprintf(name, sizeof(name), "webcache/hist/h%u-%u.htm", hist_run, id);
     storage_path(out, cap, name);
 }
 
@@ -1598,24 +1602,37 @@ static bool exit_to_swiss(void) {
     return true;
 }
 
+/* GC Station v323 : jusqu'a 64 effacements sur la carte SD a la 1re ouverture de l'onglet WEB (jusqu'a ~1 s sur la
+   console, test des touches : « RADIO : Z puis B » 1036 ms) : faits par un petit fil de fond, peu prioritaire */
+static char hist_old[64][32];
+static int hist_old_n;
+static char hist_old_dir[400];
+static void *hist_clean_fn(void *a) {
+    (void)a;
+    for (int i = 0; i < hist_old_n; i++) {
+        char path[440];
+        snprintf(path, sizeof(path), "%s/%s", hist_old_dir, hist_old[i]);
+        remove(path);
+        thr_sleep_ms(20);                                  /* (la carte reste libre pour le reste entre deux) */
+    }
+    return NULL;
+}
 void browser_init(void) {
+    hist_run = (unsigned)(gettime() & 0xFFFFFu);          /* (prefixe des pages de cette session) */
     /* pages left on the card from last time aren't in any history now */
     if (storage_ok()) {
-        char dir[400];
-        storage_path(dir, sizeof(dir), "webcache/hist");
-        DIR *d = opendir(dir);
+        storage_path(hist_old_dir, sizeof(hist_old_dir), "webcache/hist");
+        DIR *d = opendir(hist_old_dir);
         if (d) {
-            static char names[64][32];
             int n = 0;
             struct dirent *de;
             while ((de = readdir(d)) != NULL && n < 64)
-                if (de->d_name[0] != '.' && strlen(de->d_name) < 32) snprintf(names[n++], 32, "%s", de->d_name);
+                if (de->d_name[0] != '.' && strlen(de->d_name) < 32) snprintf(hist_old[n++], 32, "%s", de->d_name);
             closedir(d);
-            for (int i = 0; i < n; i++) {
-                char path[440];
-                snprintf(path, sizeof(path), "%s/%s", dir, names[i]);
-                remove(path);
-            }
+            hist_old_n = n;
+            thr_t t;
+            if (n > 0 && thr_create(&t, hist_clean_fn, NULL, 16384, 20)) thr_detach(t);
+            else hist_clean_fn(NULL);                      /* (fil impossible : comme avant) */
         }
     }
     cookies_init();

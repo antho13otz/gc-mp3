@@ -1605,10 +1605,10 @@ static unsigned char *read_file(const char *path, long maxsz, long *out_len) {
     long size = -1;
     if (fseek(fp, 0, SEEK_END) == 0) size = ftell(fp);
     if (size <= 0 || size > maxsz || fseek(fp, 0, SEEK_SET) != 0) { fclose(fp); return NULL; }
-    unsigned char *buf = (unsigned char *)malloc(size);
-    if (buf && fread(buf, 1, size, fp) != (size_t)size) { free(buf); buf = NULL; }
+    unsigned char *buf = (unsigned char *)malloc(size + 1);  /* v325 : + 1 octet nul (le journal de Pulse etait lu */
+    if (buf && fread(buf, 1, size, fp) != (size_t)size) { free(buf); buf = NULL; }   /* comme du texte : strstr debordait) */
     fclose(fp);
-    if (buf) *out_len = size;
+    if (buf) { buf[size] = 0; *out_len = size; }
     return buf;
 }
 
@@ -12180,9 +12180,19 @@ static void radio_fav_sort(void) {                       /* favorites d'abord (o
     if (cur >= 0 && cur < nstations) cur_station = ncur;
     if (sel >= 0 && sel < nstations && !rb_mode) sel_station = nsel + RS_N;
 }
+/* v325 : le fichier est lu une fois (avant : ouvert et relu en entier pour chaque radio : 8 ouvertures au
+   simulateur, des centaines avec une grande liste de radios, au demarrage) */
 static void radio_fav_load(void) {
     memset(st_fav, 0, sizeof(st_fav));
-    for (int i = 0; i < nstations; i++) st_fav[i] = (u8)radio_fav_has(stations[i].url);
+    FILE *f = sd_ok && nstations > 0 ? fopen(RADIO_FAV, "r") : NULL;
+    if (f) {
+        static char l[URL_MAX + 8];
+        while (fgets(l, sizeof(l), f)) {
+            char *s = trim(l);
+            if (*s) for (int i = 0; i < nstations; i++) if (!st_fav[i] && !strcmp(s, stations[i].url)) st_fav[i] = 1;
+        }
+        fclose(f);
+    }
     radio_fav_sort();
 }
 static void radio_fav_toggle(int i) {
@@ -14446,6 +14456,7 @@ int main(int argc, char **argv) {
         pet_tick();                                         /* v207 : le compagnon se nourrit de ce qui joue (pet.c) */
         gb_bg();                                            /* v213 : radios du globe chargees en fond (globe.c) */
         mem_tick();                                         /* v220 : memoire (memview.c) */
+        mp_tick();                                          /* v323 : memoire par partie (memview.c) */
         upg_tick();                                         /* v229 : garde-fou apres une mise a jour (update.c) */
         sx_tick();                                          /* v259 : test de la console (selftest.c) */
 #ifndef GEKKO

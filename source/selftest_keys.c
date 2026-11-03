@@ -18,7 +18,7 @@ static u32 kt_limit = 3u * 3600u * 1000u;           /* (3 h au plus) */
 #define KT_NOTES 40
 enum { KS_TAB, KS_MENU, KS_TOOL, KS_CARTES, KS_GLVIEW, KS_GSF, KS_FICHE, KS_CHEATS, KS_GCFG, KS_JUKE, KS_PHOTO, KS_VIDEO, KS_KB,
        KS_GAME, KS_PARTY, KS_SAVER };
-typedef struct { char nm[60]; u8 kind; s16 a; u32 acts, slow, worst_us, forced, blocked; s32 dmem; } kt_sc_t;
+typedef struct { char nm[60]; u8 kind; s16 a; u32 acts, slow, worst_us, forced, blocked, open1_us, open_us; s32 dmem; } kt_sc_t;   /* v323 : ouverture (1re fois, pire) */
 static const struct { const char *nm; u32 btn; s8 cx, cy; u16 hold; } kt_keys[] = {
     { "A", PAD_BUTTON_A, 0, 0, 0 }, { "B", PAD_BUTTON_B, 0, 0, 0 }, { "X", PAD_BUTTON_X, 0, 0, 0 }, { "Y", PAD_BUTTON_Y, 0, 0, 0 },
     { "Z", PAD_TRIGGER_Z, 0, 0, 0 }, { "L", PAD_TRIGGER_L, 0, 0, 0 }, { "R", PAD_TRIGGER_R, 0, 0, 0 }, { "START", PAD_BUTTON_START, 0, 0, 0 },
@@ -34,7 +34,7 @@ static int kt_nsc = 0, kt_si = 0, kt_k1 = 0, kt_k2 = -1, kt_ph = 0, kt_rb = 0, k
 static u64 kt_t = 0, kt_t0 = 0, kt_hold_end = 0;
 static u32 kt_sig0 = 0, kt_sig1 = 0, kt_acts = 0, kt_forced = 0, kt_blk0 = 0, kt_aworst = 0, kt_monkey = 0, kt_mem0 = 0, kt_mem1 = 0;
 static u32 kt_slow_tot = 0, kt_frames = 0;
-typedef struct { char t[120]; u32 ms; } kt_note_t;
+typedef struct { char t[220]; u32 ms; } kt_note_t;
 static kt_note_t kt_slow[KT_NOTES], kt_stuck[KT_NOTES], kt_blk[KT_NOTES];
 static int kt_nslow = 0, kt_nstuck = 0, kt_nblk = 0;
 static char kt_cur[120] = "";
@@ -85,6 +85,11 @@ static u32 kt_sig(void) {
     KH(night_on); KH(party_on); KH(saver_on); KH(gl_on); KH(gl_detail); KH(gl_launch_sel >= 0); KH(gs_app_confirm >= 0); KH(pv_mode); KH(ck != 0);
 #undef KH
     return h;
+}
+/* v323 : rien d'ouvert par-dessus l'onglet (un outil refermé par B : normal, pas « fermé de force ») */
+static int kt_home(void) {
+    return !tl_screen && !menu_open && !kb_open && !ic_on && !sh_on && !am_open && fun_mode == FUN_OFF && !night_on && !party_on && !saver_on &&
+           !gl_detail && gl_launch_sel < 0 && gs_app_confirm < 0 && !pv_mode;
 }
 /* tout refermer (après les B : ce qui est resté ouvert est fermé de force) */
 static void kt_force_home(void) {
@@ -172,21 +177,30 @@ static void kt_begin(void) {
     kt_t0 = kt_t = now_ms();
     kt_mem0 = sx_free_now();
     perf_on = 1; sx_perf_reset();
+    mp_reset();                                       /* v323 : memoire par partie, depuis le debut du test */
     crumb("test des touches : debut (%d ecrans)", kt_nsc);
 }
 /* (perf_frame -> sx_frame_hook -> ici) chaque image pendant le test */
-static void kt_frame(u32 tot) {
+/* v323 : de quoi etait faite la pire image de l'action (tache la plus longue, partie du dessin, carte SD, reseau) */
+static char kt_aw_why[96] = "";
+static void kt_frame(u32 tot, int top, u32 top_us, u32 dsd, u32 dnet) {
     if (!kt_on) return;
     kt_frames++;
     if (tot > VID_SLOW_US) kt_slow_tot++;
-    if (tot > kt_aworst) kt_aworst = tot;
+    if (tot > kt_aworst) {
+        kt_aworst = tot;
+        int o = snprintf(kt_aw_why, sizeof(kt_aw_why), "%s %u ms", top >= 0 && top < PH_N ? pfx_names[top] : "?", (unsigned)(top_us / 1000u));
+        if (top == PH_DRAW && dp_top_n && o < (int)sizeof(kt_aw_why)) o += snprintf(kt_aw_why + o, sizeof(kt_aw_why) - o, " : %s %u ms", dp_top_n, (unsigned)(dp_top_us / 1000u));
+        if (dsd && o > 0 && o < (int)sizeof(kt_aw_why)) o += snprintf(kt_aw_why + o, sizeof(kt_aw_why) - o, " ; carte SD %u Ko", (unsigned)(dsd / 2u));
+        if (dnet && o > 0 && o < (int)sizeof(kt_aw_why)) snprintf(kt_aw_why + o, sizeof(kt_aw_why) - o, " ; réseau %u Ko", (unsigned)(dnet / 1024u));
+    }
     if (kt_sc && kt_si < kt_nsc) { kt_sc_t *s = &kt_sc[kt_si]; if (tot > VID_SLOW_US) s->slow++; if (tot > s->worst_us) s->worst_us = tot; }
 }
 /* fin d'une action : pire image, blocages, fermeture */
 static void kt_action_done(int forced) {
     kt_sc_t *s = &kt_sc[kt_si];
     s->acts++; kt_acts++;
-    if (kt_aworst >= 150000u) { char b[150]; snprintf(b, sizeof(b), "%s : %u ms", kt_cur, (unsigned)(kt_aworst / 1000u)); kt_note(kt_slow, &kt_nslow, kt_aworst / 1000u, b); }
+    if (kt_aworst >= 50000u) { char b[230]; snprintf(b, sizeof(b), "%s : %u ms (%s)", kt_cur, (unsigned)(kt_aworst / 1000u), kt_aw_why); kt_note(kt_slow, &kt_nslow, kt_aworst / 1000u, b); }
     if (forced) { s->forced++; kt_forced++; kt_note(kt_stuck, &kt_nstuck, 1, kt_cur); }
     if (sx_blocked != kt_blk0) { char b[150]; s->blocked += sx_blocked - kt_blk0; snprintf(b, sizeof(b), "%s : %s", kt_cur, sx_blk_last); kt_note(kt_blk, &kt_nblk, 1, b); }
 }
@@ -221,7 +235,13 @@ static void kt_tick(void) {
     switch (kt_ph) {
     case 0:                                           /* ouvrir l'ecran */
         if (kt_k1 == 0 && kt_k2 < 0 && !kt_monkey) kt_mem1 = sx_free_now();
-        if (!kt_enter(s)) {                           /* (pas disponible : ecran saute) */
+        u32 ke0_ = perf_us();
+        int ke_ = kt_enter(s);
+#ifndef GEKKO
+        if (getenv("PCSIM_DRAWPROF") && perf_us() - ke0_ > 8000u) printf("[ouverture] %s : %.1f ms\n", s->nm, (perf_us() - ke0_) / 1000.0);
+#endif
+        (void)ke0_;
+        if (!ke_) {                                   /* (pas disponible : ecran saute) */
             if (!kt_monkey) { snprintf(s->nm + strlen(s->nm), sizeof(s->nm) - strlen(s->nm), " (absent)"); kt_k1 = KT_NK - 1; kt_l2 = 0; }
             kt_force_home();
             if (!kt_next()) { kt_finish(); return; }
@@ -231,6 +251,8 @@ static void kt_tick(void) {
         kt_sig0 = kt_sig(); kt_aworst = 0; kt_blk0 = sx_blocked;
         kt_ph = 1; kt_t = n + 400; return;
     case 1:                                           /* 1re touche (ou suite au hasard) */
+        if (!s->acts && !s->open1_us) s->open1_us = kt_aworst + 1;   /* v323 : pire image des 0,4 s apres l'ouverture */
+        if (kt_aworst > s->open_us) s->open_us = kt_aworst;
         if (kt_monkey) {
             snprintf(kt_cur, sizeof(kt_cur), "Au hasard : %s", s->nm);
             crumb("test des touches : %s", kt_cur);
@@ -255,8 +277,9 @@ static void kt_tick(void) {
         if (sg != kt_sig0 && s->kind == KS_TAB && tab != s->a && kt_rb == 0) { tab = s->a; tab_enter(tab); sg = kt_sig(); }
         /* (de meme dans le menu START : B / START le referment, L / R changent de section : on le rouvre comme au depart) */
         if (sg != kt_sig0 && s->kind == KS_MENU && kt_rb == 0 && (!menu_open || (s->a >= 0 && menu_sec != s->a))) { kt_enter(s); sg = kt_sig(); }
-        if (sg != kt_sig0 && kt_rb < 3 && !(s->kind == KS_SAVER || s->kind == KS_PARTY)) { tp_keys |= PAD_BUTTON_B; kt_rb++; kt_t = n + 260; return; }
-        int forced = sg != kt_sig0 && !(s->kind == KS_SAVER || s->kind == KS_PARTY || s->kind == KS_GAME);
+        int home = s->kind != KS_TAB && kt_home();     /* v323 : (l'ecran s'est referme tout seul : rien a fermer) */
+        if (sg != kt_sig0 && !home && kt_rb < 3 && !(s->kind == KS_SAVER || s->kind == KS_PARTY)) { tp_keys |= PAD_BUTTON_B; kt_rb++; kt_t = n + 260; return; }
+        int forced = sg != kt_sig0 && !home && !(s->kind == KS_SAVER || s->kind == KS_PARTY || s->kind == KS_GAME);
         kt_action_done(forced);
         kt_force_home();
         if (kt_l2 == 2) { kt_l2 = 1; kt_l2n++; kt_k2 = -1; }
@@ -283,14 +306,15 @@ static void kt_write_report(FILE *f) {
     fprintf(f, "Mémoire libre : %d Ko de moins à la fin qu'au début\n", (int)(((s32)kt_mem0 - (s32)sx_free_now()) / 1024));
     fprintf(f, "Fermés de force (B ne suffisait pas) : %u ; actions dangereuses bloquées : %u\n", (unsigned)kt_forced, (unsigned)sx_blocked);
     if (sx_cfg_nd) { fprintf(f, "Réglages pas remis comme avant :\n"); for (int i = 0; i < sx_cfg_nd; i++) fprintf(f, "  %s\n", sx_cfg_diff[i]); }
-    fprintf(f, "\n== Écrans (actions, images ratées, pire image, mémoire gardée, fermés de force, bloqués) ==\n");
+    fprintf(f, "\n== Écrans (actions, images ratées, pire image, ouverture : 1re fois / pire, mémoire gardée, fermés de force, bloqués) ==\n");
     for (int i = 0; i < kt_nsc; i++) {
         const kt_sc_t *s = &kt_sc[i];
         if (!s->acts) { fprintf(f, "%-44s pas atteint (temps écoulé)\n", s->nm); continue; }
-        fprintf(f, "%-44s %4u actions  %4u ratées  pire %5u ms  mémoire %+5d Ko  forcés %u  bloqués %u\n", s->nm, (unsigned)s->acts, (unsigned)s->slow,
-                (unsigned)(s->worst_us / 1000u), (int)(s->dmem / 1024), (unsigned)s->forced, (unsigned)s->blocked);
+        fprintf(f, "%-44s %4u actions  %4u ratées  pire %5u ms  ouverture %4u / %4u ms  mémoire %+5d Ko  forcés %u  bloqués %u\n", s->nm, (unsigned)s->acts, (unsigned)s->slow,
+                (unsigned)(s->worst_us / 1000u), (unsigned)(s->open1_us / 1000u), (unsigned)(s->open_us / 1000u), (int)(s->dmem / 1024), (unsigned)s->forced, (unsigned)s->blocked);
     }
-    fprintf(f, "\n== Les actions les plus lentes (une image de 150 ms et plus) ==\n");
+    fprintf(f, "\n== Les actions les plus lentes (une image de 50 ms et plus ; les 40 pires, triées) ==\n");
+    for (int i = 1; i < kt_nslow; i++) for (int j = i; j > 0 && kt_slow[j].ms > kt_slow[j - 1].ms; j--) { kt_note_t t = kt_slow[j]; kt_slow[j] = kt_slow[j - 1]; kt_slow[j - 1] = t; }   /* v323 : (les pires d'abord) */
     for (int i = 0; i < kt_nslow; i++) fprintf(f, "  %s\n", kt_slow[i].t);
     if (!kt_nslow) fprintf(f, "  aucune\n");
     fprintf(f, "\n== Ce que B ne refermait pas (fermé de force) ==\n");
@@ -299,6 +323,7 @@ static void kt_write_report(FILE *f) {
     fprintf(f, "\n== Actions dangereuses bloquées (rien n'a été fait) ==\n");
     for (int i = 0; i < kt_nblk; i++) fprintf(f, "  %s\n", kt_blk[i].t);
     if (!kt_nblk) fprintf(f, "  aucune\n");
+    mp_report(f);                                     /* v323 */
 }
 static void kt_finish(void) {
     if (!kt_on) return;
@@ -350,7 +375,7 @@ static void kt_draw_result(void) {
         gx_text1(F_MED, 64, 286, "Pas refermé par B (exemple) :", RGBA(200, 190, 240, 255));
         char fv[200]; fit_text(F_SMALL, kt_stuck[0].t, 520, fv, sizeof(fv)); gx_text1(F_SMALL, 74, 310, fv, RGBA(255, 210, 120, 255));
     }
-    if (!kt_nslow) gx_text1(F_SMALL, 74, 250, "aucune image de 150 ms et plus", SX_OK);
+    if (!kt_nslow) gx_text1(F_SMALL, 74, 250, "aucune image de 50 ms et plus", SX_OK);
     gx_text1(F_SMALL, 64, 380, "Détail : SD:/gc-mp3/journaux/test-console.txt  -  téléphone : Outils > Test", RGBA(170, 155, 225, 255));
     static const char *const k[] = { "A", "B" }, *const lb[] = { "AUTRE TEST", "RETOUR" };
     tl_legend(k, lb, 2);

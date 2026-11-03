@@ -569,6 +569,7 @@ static void lib_kb_done(int mode, const char *t) {
 }
 
 static void actions_input(u32 down, u32 nav, int fire) {
+    if (am_n <= 0) { if (down & PAD_BUTTON_B) am_open = 0; return; }   /* v323 : (liste vide : pas de division par zero) */
     if (fire && (nav & PAD_BUTTON_DOWN)) am_sel = (am_sel + 1) % am_n;
     if (fire && (nav & PAD_BUTTON_UP)) am_sel = (am_sel + am_n - 1) % am_n;
     if (am_sel >= 0 && am_sel < am_n && am_code[am_sel] == AC_RATE && am_track >= 0 && fire && (nav & (PAD_BUTTON_LEFT | PAD_BUTTON_RIGHT))) {

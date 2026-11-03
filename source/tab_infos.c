@@ -164,6 +164,9 @@ static void meteo_parse(const char *js, int len) {
             if (tm >= 0 && wc >= 0 && mx >= 0 && mn >= 0)
                 for (int i = 0; i < 5; i++) {
                     if (tm + 1 + i >= n || t[tm + 1 + i].start >= t[tm].end) break;
+                    /* v323 : les autres listes peuvent etre plus courtes (reponse coupee) : jeton hors du tableau */
+                    if (wc + 1 + i >= n || t[wc + 1 + i].start >= t[wc].end || mx + 1 + i >= n || t[mx + 1 + i].start >= t[mx].end ||
+                        mn + 1 + i >= n || t[mn + 1 + i].start >= t[mn].end) break;
                     jstr(js, t, tm + 1 + i, day_date[i], sizeof(day_date[i]));
                     jstr(js, t, wc + 1 + i, v, sizeof(v)); day_code[i] = atoi(v);
                     jstr(js, t, mx + 1 + i, v, sizeof(v)); day_max[i] = (int)floorf((float)atof(v) + 0.5f);

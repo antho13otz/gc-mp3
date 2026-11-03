@@ -550,7 +550,7 @@ static void script_step(void) {
             next = 1; break;
         case SC_LOG: printf("[scenario] %s\n", c->s); next = 1; break;
         case SC_QUIT: printf("[pcsim] quit\n"); pcsim_finish(0); return;
-        case SC_MARK: { extern double pcsim_heap_mb(void); pcsim_seg_report(c->s); printf("[pcsim] memoire utilisee (%s) : %.2f Mo a %.0f s\n", c->s, pcsim_heap_mb(), pcsim_time_s()); next = 1; break; }
+        case SC_MARK: { extern double pcsim_heap_mb(void); extern void pcsim_memsites_report(const char *); pcsim_seg_report(c->s); pcsim_memsites_report(c->s); printf("[pcsim] memoire utilisee (%s) : %.2f Mo a %.0f s\n", c->s, pcsim_heap_mb(), pcsim_time_s()); next = 1; break; }
         }
         if (!next) return;
         sc_i++; sc_started = 0;
@@ -944,6 +944,7 @@ void pcsim_finish(int code) {
         printf("  ; %llu interruptions par un thread prioritaire\n", (unsigned long long)n_preempt);
     }
     pcsim_limits_report();
+    { extern void pcsim_memsites_report(const char *); pcsim_memsites_report("fin"); }
     pcsim_fps_report();
     pcsim_gp_report();
     if (wav) { wav_header(); fclose(wav); wav = NULL; }

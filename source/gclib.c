@@ -3045,7 +3045,7 @@ static int ipl_copy(const char *src, const char *dst) {
 static const char *ipl_set(int on) {
     if (!sd_ok || sd_virtual) return "Pas de carte SD";
     struct stat st;
-    up_found[0] = 0;
+    up_found[0] = 0; up_memo[0] = 0; up_memo_none = 0;   /* v325 : (ipl.dol change : on recherche) */
     if (on) {
         if (ipl_get()) return NULL;
         up_pick_target();
