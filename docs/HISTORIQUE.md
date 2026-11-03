@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 318 — Mario Kart : les boîtes à objets du jeu en direct
+- Les boîtes à objets viennent de la mémoire du jeu : la liste des boîtes du circuit est en *(0x803D5D00) + 0x380
+  (position +0x04, échelle +0x40, sorte +0x10C : 1 boîte, 12 double boîte), vérifiée sur 11 photos de la mémoire
+  (4 circuits). Lue quelques fois par seconde.
+- Elles tournent et basculent ; quand un kart en casse une, elle disparaît avec des éclats arc-en-ciel, puis repousse
+  comme dans le jeu. La double boîte montre une seconde boîte à l'intérieur. Hors course, les boîtes du circuit comme avant.
+
 ## Nouveautés appli build 317 — Mario Kart : les effets en direct
 - Dans la vue 3D, chaque kart montre ses effets au moment où le jeu les déclenche : fumée des roues arrière quand il
   dérape, étincelles (oranges puis bleues quand le mini-turbo monte), flamme du turbo (champignon, accélérateur) et
