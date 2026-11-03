@@ -222,6 +222,33 @@ check('GCMS : morceau hors de la memoire du jeu : refuse (rien d envoye)', len(o
 bba.deliver(gcms(32, [(0x80400000, 8)], 2))
 wr32(H('vi_count'), 10); call(POLL); a1 = len(udp_out()); wr32(H('vi_count'), 11); call(POLL); a2 = len(udp_out())
 check('GCMS : periode 2 : une image sur deux', a1 + a2 == 1, '%d %d' % (a1, a2))
+# v328 : morceaux compacts (matrices 3 x 4 : la 1re telle quelle, puis 2 lignes de rotation x 16384 et la position x 4
+# moins celle de la 1re, en 16 bits) ; images paires / impaires seulement
+import math
+mats = []
+for j in range(3):
+    c, s_ = math.cos(0.3 * j + 0.1), math.sin(0.3 * j + 0.1)
+    mats.append([c, -s_, 0.0, 1234.5 + 10 * j, s_, c, 0.0, -876.25 - 3 * j, 0.0, 0.0, 1.0, 50.0 + 0.5 * j])
+mu.mem_write(0x80410000, b''.join(struct.pack('>12f', *m) for m in mats))
+bba.deliver(gcms(34, [(0x80400000, 8), (0x80410000, 0x80000000 | 144)])); wr32(H('vi_count'), 20); call(POLL); o = udp_out()
+ok = len(o) == 1 and struct.unpack('>I', o[0][1][12:16])[0] == 8 + 48 + 2 * 18 and len(o[0][1]) == 16 + 8 + 84
+err = 0.0
+if ok:
+    d = o[0][1][16 + 8:]
+    f0 = struct.unpack('>12f', d[:48])
+    ok = list(f0) == [struct.unpack('>f', struct.pack('>f', v))[0] for v in mats[0]]
+    for j in (1, 2):
+        v = struct.unpack('>9h', d[48 + 18 * (j - 1):48 + 18 * j])
+        rot = [x / 16384 for x in v[:6]]; tr = [x / 4 for x in v[6:]]
+        att = [mats[j][q] for q in (0, 1, 2, 4, 5, 6)]
+        err = max([err] + [abs(rot[q] - att[q]) for q in range(6)] + [abs(tr[r] - (mats[j][4 * r + 3] - mats[0][4 * r + 3])) for r in range(3)])
+check('GCMS v328 : compact (48 + 2 x 18 octets, valeurs justes a 0,25 pres)', ok and err <= 0.26, 'err %.4f, %s' % (err, [len(x[1]) for x in o]))
+bba.deliver(gcms(35, [(0x80400000, 8), (0x80410000, 0x40000000 | 48), (0x80410030, 0x20000000 | 48)]))
+wr32(H('vi_count'), 40); call(POLL); p0 = [struct.unpack('>I', x[1][12:16])[0] for x in udp_out()]
+wr32(H('vi_count'), 41); call(POLL); p1 = [x[1][16 + 8:16 + 8 + 48] for x in udp_out()]
+check('GCMS v328 : paires / impaires', p0 == [56] and p1 == [bytes(mu.mem_read(0x80410030, 48))], '%s %d' % (p0, len(p1)))
+bba.deliver(gcms(36, [(0x80400000, 4608), (0x80410000, 4608), (0x80420000, 4608)])); wr32(H('vi_count'), 50); call(POLL); o = udp_out()
+check('GCMS v328 : 10 Ko au plus (2 morceaux de 4,5 Ko gardes)', len(o) == 7 and struct.unpack('>I', o[0][1][12:16])[0] == 9216, str(len(o)))
 bba.deliver(gcms(33, [])); call(POLL); udp_out()
 # succes obtenu : annonce
 wr32(blk + 4 + PN.index('mach') * 4, 3)
