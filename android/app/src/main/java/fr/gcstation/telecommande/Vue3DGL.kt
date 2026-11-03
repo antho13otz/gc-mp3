@@ -592,6 +592,13 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             java.io.File(scene.dossier, "mk_karts.txt").takeIf { it.exists() }?.forEachLine { l -> val p = l.trim().split(' ')
                 if (p.size >= 4 && p[0] == "kart") p[1].toIntOrNull()?.let { mkSieges[it] = floatArrayOf(p[2].toFloat(), p[3].toFloat()) } }
         } catch (e: Throwable) { }
+        // les effets de Mario Kart (fumee, etincelles, flammes, etoile) : des points doux, leur taille suit la distance
+        progP = programme("""
+            uniform mat4 uMvp; uniform float uEch; attribute vec3 aPos; attribute vec4 aCol; attribute float aT; varying vec4 vCol;
+            void main() { gl_Position = uMvp * vec4(aPos, 1.0); gl_PointSize = clamp(aT * uEch / max(gl_Position.w, 0.05), 1.0, 200.0); vCol = aCol; }""", """
+            precision mediump float; varying vec4 vCol;
+            void main() { vec2 q = gl_PointCoord * 2.0 - 1.0; float r = dot(q, q); if (r > 1.0) discard;
+                float a = 1.0 - r; gl_FragColor = vec4(vCol.rgb, vCol.a * a * a); }""")
         progK = programme("""
             uniform mat4 uMvp; uniform mat4 uModele;
             attribute vec3 aPos; attribute vec2 aUv; attribute vec3 aN; varying vec2 vUv; varying float vL;
@@ -895,10 +902,12 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     /** build 296 : les karts de Mario Kart en 3D, chacun avec son pilote et son passager, tournes comme dans le jeu.
      *  Le tien est place a la position lissee (fluide), les autres a leur derniere position lue. */
     private val mModele = FloatArray(16)
-    private val ancres = HashMap<Int, FloatArray>()       // (repere de chaque kart tel qu'il est dessine : ra puis position)
+    private val ancres = HashMap<Int, FloatArray>()
+    private val feux = ArrayList<FloatArray>()            // (boules de feu de la course : position dans l'appli)       // (repere de chaque kart tel qu'il est dessine : ra puis position)
     private fun dessinerKarts(mvp: FloatArray, c0: FloatArray): Boolean {
         val ks = etat.karts
         if (ks.isEmpty() || mkSieges.isEmpty() || progK == 0) {     // (sans le pack des karts : les objets en points)
+            ancres.clear(); feux.clear()
             objetsPoints.clear(); for ((g, p) in JeuMKDD.objets()) objetsPoints.add(floatArrayOf(p[0] * 0.01f, -p[2] * 0.01f, p[1] * 0.01f, g.toFloat()))
             return false
         }
@@ -1008,7 +1017,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             }
         }
         // les objets de la course : leur modele (pack : mk_objet_<sorte>.txt), sinon un point de leur couleur (plus bas)
-        val obs = JeuMKDD.objetsAncres(); objetsPoints.clear()
+        val obs = JeuMKDD.objetsAncres(); objetsPoints.clear(); feux.clear()
         for (ob in obs) { val genre = ob.genre; val p = ob.p
             val mod = if (mkObjetAbsent.contains(genre)) null else modeleMK("mk_objet_$genre.txt").also { if (it == null) mkObjetAbsent.add(genre) }
             // (objet tenu : place dans le repere de son kart tel qu'il est dessine ; il reste colle au kart)
@@ -1019,6 +1028,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 ay = an[10] + (an[3] * rl[0] + an[4] * rl[1] + an[5] * rl[2]) * 0.01f
                 az = an[11] + (an[6] * rl[0] + an[7] * rl[1] + an[8] * rl[2]) * 0.01f
             } else { ax = p[0] * 0.01f; ay = -p[2] * 0.01f; az = p[1] * 0.01f }
+            if (genre == 9 || genre == 20 || genre == 21) feux.add(floatArrayOf(ax, ay, az))
             if (mod == null) { objetsPoints.add(floatArrayOf(ax, ay, az, genre.toFloat())); continue }
             // (debout ; les carapaces tournent sur elles-memes, comme dans le jeu)
             val ang = if (genre in 0..2 || genre == 13) ((System.nanoTime() / 1e9 * 6.0) % (2 * Math.PI)).toFloat() else 0f
@@ -1044,6 +1054,108 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         return fait
     }
     private val objetsPoints = ArrayList<FloatArray>()
+    // ---------------------------------------------------------------- effets de Mario Kart
+    /** une particule : x y z, vitesse, age, duree, taille au debut et a la fin, couleur (r g b a), mode (0 fumee, 1 lumiere), gravite */
+    private val PN = 16; private val PMAX = 900
+    private val pts = FloatArray(PN * PMAX); private var nParts = 0
+    private var progP = 0; private var effetsT = 0L
+    private val alea = java.util.Random()
+    private val pBuf: FloatBuffer = ByteBuffer.allocateDirect(PMAX * 8 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer()
+    private fun emettre(x: Float, y: Float, z: Float, vx: Float, vy: Float, vz: Float, vie: Float, t0: Float, t1: Float,
+                        r: Float, g: Float, b: Float, a: Float, lum: Boolean, grav: Float = 0f) {
+        if (nParts >= PMAX) return
+        val o = nParts++ * PN
+        pts[o] = x; pts[o + 1] = y; pts[o + 2] = z; pts[o + 3] = vx; pts[o + 4] = vy; pts[o + 5] = vz
+        pts[o + 6] = 0f; pts[o + 7] = vie; pts[o + 8] = t0; pts[o + 9] = t1
+        pts[o + 10] = r; pts[o + 11] = g; pts[o + 12] = b; pts[o + 13] = a; pts[o + 14] = if (lum) 1f else 0f; pts[o + 15] = grav
+    }
+    private fun hasard(): Float = alea.nextFloat() * 2f - 1f
+    /** nombre a emettre cette image pour un debit par seconde (la partie decimale au hasard) */
+    private fun combien(debit: Float, dt: Float): Int { val v = debit * dt; val n = v.toInt(); return n + if (alea.nextFloat() < v - n) 1 else 0 }
+    /** point du repere d'un kart (unites du jeu) -> appli, avec son repere tel qu'il est dessine (an : ra puis position) */
+    private fun versAppli(an: FloatArray, lx: Float, ly: Float, lz: Float, o: FloatArray) {
+        o[0] = an[9] + (an[0] * lx + an[1] * ly + an[2] * lz) * 0.01f
+        o[1] = an[10] + (an[3] * lx + an[4] * ly + an[5] * lz) * 0.01f
+        o[2] = an[11] + (an[6] * lx + an[7] * ly + an[8] * lz) * 0.01f
+    }
+    private val pt = FloatArray(3)
+    /** les effets lus dans le jeu (KartBody : derapage, niveau du mini-turbo, turbo, etoile ; objets : boules de feu),
+     *  refaits ici avec des particules : fumee des roues arriere au derapage, etincelles (oranges puis bleues quand le
+     *  mini-turbo monte), flamme du turbo (bleue pour le mini-turbo), etincelles arc-en-ciel de l'etoile, traine des boules de feu */
+    private fun dessinerEffets(mvp: FloatArray) {
+        if (progP == 0) return
+        val now = System.nanoTime(); val dt = if (effetsT == 0L) 0f else ((now - effetsT) / 1e9f).coerceIn(0f, 0.1f); effetsT = now
+        // (vieillir et deplacer)
+        var w = 0
+        for (i in 0 until nParts) { val o = i * PN
+            val age = pts[o + 6] + dt; if (age >= pts[o + 7]) continue
+            if (w != i) System.arraycopy(pts, o, pts, w * PN, PN)
+            val q = w * PN; pts[q + 6] = age
+            pts[q + 5] += pts[q + 15] * dt
+            pts[q] += pts[q + 3] * dt; pts[q + 1] += pts[q + 4] * dt; pts[q + 2] += pts[q + 5] * dt
+            w++ }
+        nParts = w
+        // (emettre)
+        if (dt > 0f) {
+            for ((n, an) in ancres) {
+                val e = JeuMKDD.effet(n) ?: continue
+                val ro = JeuMKDD.rouesArriere(n) ?: floatArrayOf(-55f, 50f, -55f, 55f, 50f, -55f)
+                val arX = -an[2]; val arY = -an[5]; val arZ = -an[8]                       // (vers l'arriere du kart, dans l'appli)
+                if (e.derape) for (k in 0..1) {
+                    versAppli(an, ro[k * 3], ro[k * 3 + 1] - 25f, ro[k * 3 + 2], pt)
+                    repeat(combien(28f, dt)) { emettre(pt[0] + hasard() * 0.08f, pt[1] + hasard() * 0.08f, pt[2],
+                        arX * 0.8f + hasard() * 0.3f, arY * 0.8f + hasard() * 0.3f, 0.5f + alea.nextFloat() * 0.4f,
+                        0.7f, 0.35f, 1.2f, 0.9f, 0.9f, 0.9f, 0.45f, false) }
+                    if (e.niveau >= 1) { val bleu = e.niveau >= 2
+                        repeat(combien(45f, dt)) { emettre(pt[0], pt[1], pt[2] + 0.05f,
+                            arX * 2.5f + hasard() * 1.2f, arY * 2.5f + hasard() * 1.2f, 1.2f + alea.nextFloat() * 1.5f, 0.28f, 0.2f, 0.05f,
+                            if (bleu) 0.35f else 1f, if (bleu) 0.65f else 0.62f, if (bleu) 1f else 0.15f, 1f, true, -7f) } }
+                }
+                val turbo = e.turbo > 0; val mini = !turbo && e.mini > 0 && !e.derape
+                if (turbo || mini) {
+                    versAppli(an, 0f, (ro[1] + ro[4]) * 0.5f - 5f, minOf(ro[2], ro[5]) - 20f, pt)
+                    repeat(combien(70f, dt)) { val c = alea.nextFloat()
+                        emettre(pt[0] + hasard() * 0.1f, pt[1] + hasard() * 0.1f, pt[2] + hasard() * 0.06f,
+                            arX * 3f + hasard() * 0.4f, arY * 3f + hasard() * 0.4f, arZ * 3f + 0.3f, 0.2f, 0.55f, 0.12f,
+                            if (mini) 0.4f + 0.5f * c else 1f, if (mini) 0.7f + 0.3f * c else 0.45f + 0.5f * c, if (mini) 1f else 0.1f + 0.3f * c, 0.9f, true) }
+                }
+                if (e.etoile) {
+                    versAppli(an, 0f, (ro[1] + ro[4]) * 0.5f + 20f, 0f, pt)
+                    repeat(combien(45f, dt)) { val h = ((now / 1e9 * 1.5 + alea.nextFloat() * 0.3) % 1.0).toFloat()
+                        val r = (Math.abs(h * 6f - 3f) - 1f).coerceIn(0f, 1f); val g = (2f - Math.abs(h * 6f - 2f)).coerceIn(0f, 1f); val b = (2f - Math.abs(h * 6f - 4f)).coerceIn(0f, 1f)
+                        emettre(pt[0] + hasard() * 0.9f, pt[1] + hasard() * 0.9f, pt[2] + hasard() * 0.6f, 0f, 0f, 0.6f, 0.4f, 0.3f, 0.02f,
+                            0.3f + 0.7f * r, 0.3f + 0.7f * g, 0.3f + 0.7f * b, 1f, true) }
+                }
+            }
+            for (f in feux) repeat(combien(50f, dt)) { val c = alea.nextFloat()
+                emettre(f[0] + hasard() * 0.12f, f[1] + hasard() * 0.12f, f[2] + 0.25f + hasard() * 0.1f, hasard() * 0.3f, hasard() * 0.3f, 0.8f,
+                    0.35f, 0.7f, 0.1f, 1f, 0.35f + 0.5f * c, 0.05f, 0.9f, true) }
+        }
+        if (nParts == 0) return
+        // (dessin : la fumee d'abord, melangee ; les lumieres ensuite, ajoutees)
+        GLES20.glUseProgram(progP)
+        GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progP, "uMvp"), 1, false, mvp, 0)
+        GLES20.glUniform1f(GLES20.glGetUniformLocation(progP, "uEch"), ecranH * 0.5f * proj[5])
+        val aP = GLES20.glGetAttribLocation(progP, "aPos"); val aC = GLES20.glGetAttribLocation(progP, "aCol"); val aT = GLES20.glGetAttribLocation(progP, "aT")
+        GLES20.glEnable(GLES20.GL_BLEND); GLES20.glDepthMask(false)
+        for (lum in 0..1) {
+            pBuf.clear(); var k = 0
+            for (i in 0 until nParts) { val o = i * PN; if (pts[o + 14].toInt() != lum) continue
+                val u = pts[o + 6] / pts[o + 7]
+                pBuf.put(pts[o]).put(pts[o + 1]).put(pts[o + 2])
+                pBuf.put(pts[o + 10]).put(pts[o + 11]).put(pts[o + 12]).put(pts[o + 13] * (1f - u))
+                pBuf.put(pts[o + 8] + (pts[o + 9] - pts[o + 8]) * u); k++ }
+            if (k == 0) continue
+            GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, if (lum == 1) GLES20.GL_ONE else GLES20.GL_ONE_MINUS_SRC_ALPHA)
+            pBuf.position(0); GLES20.glVertexAttribPointer(aP, 3, GLES20.GL_FLOAT, false, 32, pBuf); GLES20.glEnableVertexAttribArray(aP)
+            pBuf.position(3); GLES20.glVertexAttribPointer(aC, 4, GLES20.GL_FLOAT, false, 32, pBuf); GLES20.glEnableVertexAttribArray(aC)
+            pBuf.position(7); GLES20.glVertexAttribPointer(aT, 1, GLES20.GL_FLOAT, false, 32, pBuf); GLES20.glEnableVertexAttribArray(aT)
+            GLES20.glDrawArrays(GLES20.GL_POINTS, 0, k)
+            GLES20.glDisableVertexAttribArray(aP); GLES20.glDisableVertexAttribArray(aC); GLES20.glDisableVertexAttribArray(aT)
+        }
+        GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true)
+        GLES20.glUseProgram(progL)
+    }
     private val mkObjetAbsent = HashSet<Int>()
     /** couleur du point d'un objet sans modele (sorte d'objet du jeu) */
     private fun couleurObjet(g: Int): FloatArray = when (g) {
@@ -1279,6 +1391,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             GLES20.glUseProgram(progL)
         }
         val kartsDessines = dessinerKarts(mvp, c0)
+        dessinerEffets(mvp)
         if (objetsPoints.isNotEmpty()) {                        // objets sans modele : un point de leur couleur (cache par le decor)
             val fb: FloatBuffer = ByteBuffer.allocateDirect(12).order(ByteOrder.nativeOrder()).asFloatBuffer()
             GLES20.glUseProgram(progL); GLES20.glUniformMatrix4fv(lMvp, 1, false, mvp, 0)
