@@ -76,6 +76,8 @@ object MemoireJeu {
     private var seq = 1
     private val buf = ByteArray(2048)
     @Volatile var annonce: ((Int, Long) -> Unit)? = null   // (succes annonces par Pulse : n, obtenus)
+    /** le direct : paquets "GCMS" envoyes par Pulse a chaque image (abonnement), passes tels quels (copie, longueur) */
+    @Volatile var flux: ((ByteArray, Int) -> Unit)? = null
 
     private fun s(): DatagramSocket = sock ?: DatagramSocket().apply { try { receiveBufferSize = 4 shl 20 } catch (e: Exception) { } }.also { sock = it }
     @Synchronized fun fermer() { try { sock?.close() } catch (e: Exception) { }; sock = null }
@@ -98,6 +100,7 @@ object MemoireJeu {
         val p = DatagramPacket(buf, buf.size)
         try { so.receive(p) } catch (e: SocketTimeoutException) { return -1 }
         if (p.length >= 16 && magie(buf, "GCAC")) { annonce?.invoke(g32(buf, 4).toInt(), g32(buf, 8) or (g32(buf, 12) shl 32)); return 0 }
+        if (p.length >= 16 && magie(buf, "GCMS")) { flux?.invoke(buf.copyOf(p.length), p.length); return 0 }
         return p.length
     }
 
@@ -123,6 +126,28 @@ object MemoireJeu {
             }
         } catch (e: Exception) { fermer() }
         return null
+    }
+
+    /** le direct : abonnement a des morceaux de la memoire (adresse, longueur), envoyes par Pulse toutes les « periode » images
+     *  (a renouveler avant 3 s) ; liste vide : fin */
+    @Synchronized fun abonner(morceaux: List<Pair<Long, Int>>, periode: Int) {
+        val h = hote() ?: return
+        try {
+            val n = morceaux.size.coerceAtMost(48)
+            val d = ByteArray(20 + 8 * n)
+            d[0] = 'G'.code.toByte(); d[1] = 'C'.code.toByte(); d[2] = 'M'.code.toByte(); d[3] = 'S'.code.toByte()
+            p32(d, 4, (++seq).toLong()); p32(d, 8, n.toLong()); p32(d, 12, periode.toLong()); p32(d, 16, 0)
+            for (i in 0 until n) { p32(d, 20 + 8 * i, morceaux[i].first); p32(d, 24 + 8 * i, morceaux[i].second.toLong()) }
+            s().send(DatagramPacket(d, d.size, h, PORT))
+        } catch (e: Exception) { fermer() }
+    }
+    /** ecoute le direct pendant ms millisecondes (les paquets "GCMS" vont a flux) */
+    @Synchronized fun ecouter(ms: Int) {
+        if (hote() == null) return
+        try {
+            val fin = System.currentTimeMillis() + ms
+            while (true) { val reste = (fin - System.currentTimeMillis()).toInt(); if (reste <= 0) break; recevoir(reste) }
+        } catch (e: Exception) { fermer() }
     }
 
     /** v312 (ecran compagnon) : un bloc de 1 Ko (adresse alignee), jeu pas en pause, sans la photo de 24 Mo ; null : rien recu */

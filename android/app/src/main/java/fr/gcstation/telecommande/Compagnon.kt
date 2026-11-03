@@ -476,6 +476,7 @@ object JeuMKDD {
         for (q in 0 until 12) { val v = l.f32(a + 4L * q); if (v == null || !v.isFinite()) return null; m[q] = v }
         return m }
     fun positionDirecte(): FloatArray? {
+        if (direct()) { val a = matJoueur ?: return null; return CartesMK.pos(a[3], a[7], a[11]) }   // (le direct : deja la, rien a lire)
         val kc = kcJoueur.takeIf { it != 0L } ?: return null
         val l = Lecteur(3, 0)
         val x = l.f32(kc + 0x5C) ?: return null; val y = l.f32(kc + 0x60) ?: return null; val z = l.f32(kc + 0x64) ?: return null
@@ -497,6 +498,88 @@ object JeuMKDD {
     private val posesDirect = java.util.concurrent.ConcurrentHashMap<Int, PoseT>()
     const val MAX_ART = 26
     private var tourPoses = 0
+    /** une matrice du monde m (3 x 4) relative a la matrice a dessiner d du kart (d^-1 m), ecrite dans r en o */
+    private fun relatif(m: FloatArray, mo: Int, d: FloatArray, r: FloatArray, o: Int): Boolean {
+        val s2 = d[0] * d[0] + d[4] * d[4] + d[8] * d[8]; if (s2 < 1e-6f) return false
+        for (i in 0..2) for (c in 0..3) {
+            var acc = 0f
+            for (q in 0..2) acc += d[4 * q + i] * (if (c < 3) m[mo + 4 * q + c] else m[mo + 4 * q + 3] - d[4 * q + 3])
+            r[o + i * 4 + c] = acc / s2
+        }
+        return true
+    }
+
+    // ---------------------------------------------------------------- le direct (Pulse : abonnement "GCMS")
+    /** morceau du direct : 0 kart (KartBody +0x110 puis +0x1A0 : 96 octets), 1 squelette, 2 Chomp (2 articulations), 3 maillon */
+    private class FM(val genre: Int, val n: Int, val rang: Int, val adr: Long, val lon: Int)
+    @Volatile private var plan: List<FM> = emptyList()
+    @Volatile private var fluxT = 0L
+    private var abonneT = 0L; private var abonneCle = ""
+    private var fImage = -1L; private var fParts: Array<ByteArray?> = arrayOfNulls(0)
+    /** le direct marche : une image complete recue il y a moins d'une demi-seconde */
+    fun direct(): Boolean = System.nanoTime() - fluxT < 500_000_000L
+    @Volatile var chompAdr: LongArray? = null                     // (Chomp : articulations, puis les 18 maillons)
+    private fun abonner() {
+        val ks = kbs; val sq = squels; val l = ArrayList<FM>()
+        for (n in ks.indices) if (ks[n] != 0L) l.add(FM(0, n, 0, ks[n] + 0x110, 0xC0))
+        for (rg in 0..1) sq.getOrNull(rg)?.takeIf { it != 0L }?.let { l.add(FM(1, 0, rg, it, MAX_ART * 48)) }
+        chompAdr?.let { c -> l.add(FM(2, 0, 0, c[0], 96)); for (i in 1 until c.size) l.add(FM(3, i - 1, 0, c[i], 48)) }
+        // (kart : 0x110 a 0x1D0 d'un coup ; trop gros : on garde ce qui tient dans 4,5 Ko, karts d'abord)
+        var tot = 0; val gard = ArrayList<FM>()
+        for (m in l) { if (tot + m.lon > 4608 || gard.size >= 48) break; gard.add(m); tot += m.lon }
+        val cle = gard.joinToString(",") { "${it.adr}:${it.lon}" }
+        val now = System.nanoTime()
+        if (cle == abonneCle && now - abonneT < 1_000_000_000L) return
+        abonneCle = cle; abonneT = now; plan = gard
+        MemoireJeu.flux = { b, n -> recevoirFlux(b, n) }
+        MemoireJeu.abonner(gard.map { it.adr to it.lon }, if (tot > 1400) 2 else 1)
+    }
+    private fun f(b: ByteArray, o: Int): Float = java.lang.Float.intBitsToFloat(((b[o].toInt() and 255) shl 24) or ((b[o + 1].toInt() and 255) shl 16) or ((b[o + 2].toInt() and 255) shl 8) or (b[o + 3].toInt() and 255))
+    private fun g32(b: ByteArray, o: Int): Long = ((b[o].toLong() and 255) shl 24) or ((b[o + 1].toLong() and 255) shl 16) or ((b[o + 2].toLong() and 255) shl 8) or (b[o + 3].toLong() and 255)
+    @Synchronized private fun recevoirFlux(b: ByteArray, n: Int) {
+        val img = g32(b, 4); val pp = g32(b, 8); val part = (pp shr 16).toInt(); val parts = (pp and 0xFFFF).toInt(); val tot = g32(b, 12).toInt()
+        if (parts !in 1..8 || part >= parts) return
+        if (img != fImage || fParts.size != parts) { fImage = img; fParts = arrayOfNulls(parts) }
+        fParts[part] = b.copyOfRange(16, n)
+        if (fParts.any { it == null }) return
+        val d = ByteArray(tot); var o = 0
+        for (p in fParts) { val q = p!!; val k = minOf(q.size, tot - o); System.arraycopy(q, 0, d, o, k); o += k }
+        fParts = arrayOfNulls(0)
+        if (o < tot) return
+        decoder(d)
+    }
+    private fun decoder(d: ByteArray) {
+        val pl = plan; if (pl.sumOf { it.lon } != d.size) return
+        val t = System.nanoTime(); var o = 0
+        val dess = HashMap<Int, FloatArray>()
+        var ch: FloatArray? = null
+        for (m in pl) {
+            when (m.genre) {
+                0 -> {
+                    val a = FloatArray(12) { f(d, o + 4 * it) }; val bb = FloatArray(12) { f(d, o + 0x90 + 4 * it) }
+                    if (a.all { it.isFinite() } && bb.all { it.isFinite() }) {
+                        val dd = matAffichee(a, bb); dess[m.n] = dd
+                        if (m.n == 0) { matJoueur = a; matJoueurAff = dd }
+                        else { val av = matsDirect[m.n]; matsDirect[m.n] = MatT(av?.b, av?.tb ?: t, dd, t) }
+                    }
+                }
+                1 -> dess[0]?.let { dd ->
+                    val nj = m.lon / 48; val mm = FloatArray(nj * 12) { f(d, o + 4 * it) }
+                    var k = 0
+                    while (k < nj && (0 until 12).all { q -> mm[k * 12 + q].isFinite() && Math.abs(mm[k * 12 + q]) < 1e6f }) k++
+                    if (k > 0) { val r = FloatArray(k * 12); var ok = true
+                        for (j in 0 until k) ok = ok && relatif(mm, j * 12, dd, r, j * 12)
+                        if (ok) { val av = posesDirect[m.rang]; posesDirect[m.rang] = PoseT(av?.b, av?.tb ?: t, r, t) } }
+                }
+                2 -> { val r = ch ?: FloatArray(20 * 12).also { ch = it }; for (q in 0 until 24) r[q] = f(d, o + 4 * q) }
+                3 -> { val r = ch ?: FloatArray(20 * 12).also { ch = it }; for (q in 0 until 12) r[24 + 12 * m.n + q] = f(d, o + 4 * q) }
+            }
+            o += m.lon
+        }
+        ch?.let { r -> if (r.all { it.isFinite() }) { val av = chompD; chompD = ChompT(av?.b, av?.tb ?: t, r, t) } }
+        fluxT = t
+    }
+
     /** les articulations d'un personnage, relatives a la matrice a dessiner du kart (d) : n x 12 flottants */
     private fun lirePose(l: Lecteur, adr: Long, d: FloatArray): FloatArray? {
         // inverse de d (rotation orthogonale, eventuellement reduite : on divise par l'echelle au carre)
@@ -515,6 +598,12 @@ object JeuMKDD {
         }
         return r
     }
+    /** la matrice a dessiner d'un kart (KartBody +0x110 et +0x1A0), lue maintenant, pour y ramener ses articulations */
+    private fun matDuMoment(l: Lecteur, kb: Long): FloatArray? {
+        if (kb == 0L) return null
+        val a = lire12(l, kb + 0x110) ?: return null
+        return lire12(l, kb + 0x1A0)?.let { matAffichee(a, it) } ?: a
+    }
     /** pose d'un personnage (kart n, rang 0 passager de l'equipe, 1 pilote), glissee entre deux lectures ; null : pas lue */
     fun pose(n: Int, rang: Int): FloatArray? {
         val e = posesDirect[n * 2 + rang] ?: return null
@@ -530,6 +619,19 @@ object JeuMKDD {
     fun lireAutresKarts() {
         val ks = kbs
         if (ks.size < 2) { matsDirect.clear(); return }
+        abonner()
+        if (direct() || System.nanoTime() - abonneT < 300_000_000L) {      // (le direct : on ecoute ; les objets et les autres personnages restent lus)
+            MemoireJeu.ecouter(20)
+            if (direct()) {
+                if (++tourObjets % 3 == 0) lireObjets(Lecteur(64, 0))
+                if (++tourPoses % 6 == 0) { val sq = squels; val lp = Lecteur(9 * ks.size, 0)
+                    for (n in 1 until minOf(ks.size, sq.size / 2)) { val dd = matDuMoment(lp, ks[n]) ?: continue
+                        for (rg in 0..1) { val adr = sq[n * 2 + rg]; if (adr == 0L) continue
+                            val p = lirePose(lp, adr, dd) ?: continue
+                            val t = System.nanoTime(); val av = posesDirect[n * 2 + rg]; posesDirect[n * 2 + rg] = PoseT(av?.b, av?.tb ?: t, p, t) } } }
+                return
+            }
+        }
         val l = Lecteur(3 * ks.size + 24, 0)
         for (n in 1 until ks.size) {
             val kb = ks[n]; if (kb == 0L) continue
@@ -542,10 +644,12 @@ object JeuMKDD {
         if (tourObjets % 2 == 0) lireChomp(Lecteur(16, 0))
         if (++tourObjets % 3 == 0) lireObjets(Lecteur(64, 0))       // (son propre budget : avant, celui des karts, et les objets en trop disparaissaient)
         val sq = squels; val tous = (++tourPoses % 6) == 0
-        val lp = Lecteur(8 + (if (tous) 7 * ks.size else 0), 0)
+        val lp = Lecteur(10 + (if (tous) 9 * ks.size else 0), 0)
         for (n in 0 until minOf(ks.size, sq.size / 2)) {
             if (n != 0 && !tous) continue
-            val d = (if (n == 0) matJoueurAff ?: matJoueur else matsDirect[n]?.b) ?: continue
+            // (ancrage : la matrice du kart relue juste avant ses articulations ; avant, celle d'une lecture plus ancienne,
+            //  et a pleine vitesse le personnage flottait devant ou derriere son kart)
+            val d = matDuMoment(lp, ks[n]) ?: continue
             for (rg in 0..1) {
                 val adr = sq[n * 2 + rg]; if (adr == 0L) continue
                 val p = lirePose(lp, adr, d) ?: continue
@@ -558,7 +662,35 @@ object JeuMKDD {
      *  des objets en jeu par sorte, en +0x3E8 + 12 x sorte (JSUPtrList : tete, queue, nombre ; maillon : objet, liste,
      *  precedent, suivant) ; objet : position en +0x04 (x, y, z), sorte en +0x7C. Verifie sur 5 photos de la memoire
      *  (Circuit Mario, Croisiere Daisy) : les objets tenus sont juste derriere leur kart. */
-    class ObjT(val genre: Int, val a: FloatArray?, val ta: Long, val b: FloatArray, val tb: Long)
+    class ObjT(val genre: Int, val a: FloatArray?, val ta: Long, val b: FloatArray, val tb: Long,
+               val kc: Int = -1, val lc: FloatArray? = null, val ancre: Boolean = false)
+    /** ancrage des objets tenus : le kart le plus proche (a moins de 3 m) et la position dans son repere ; l'objet est
+     *  « tenu » quand il garde la meme place dans le repere du meme kart deux lectures de suite (une carapace qui passe
+     *  pres d'un kart ne s'y colle donc pas) */
+    private fun reperer(p: FloatArray): Pair<Int, FloatArray>? {
+        val ks = kbs; var best = -1; var bd = 300f * 300f; var bl: FloatArray? = null
+        for (n in ks.indices) {
+            val m = (if (n == 0) matJoueurAff ?: matJoueur else matsDirect[n]?.b) ?: continue
+            val dx = p[0] - m[3]; val dy = p[1] - m[7]; val dz = p[2] - m[11]; val d2 = dx * dx + dy * dy + dz * dz
+            if (d2 >= bd) continue
+            val s2 = m[0] * m[0] + m[4] * m[4] + m[8] * m[8]; if (s2 < 1e-6f) continue
+            bd = d2; best = n; bl = FloatArray(3) { c -> (m[c] * dx + m[4 + c] * dy + m[8 + c] * dz) / s2 }
+        }
+        return if (best >= 0) best to bl!! else null
+    }
+    class ObjA(val genre: Int, val p: FloatArray, val kart: Int, val rel: FloatArray?)
+    /** les objets a dessiner, avec leur ancrage : rel (repere du kart « kart ») pour un objet tenu, sinon p (le monde) */
+    fun objetsAncres(): List<ObjA> {
+        val now = System.nanoTime(); val r = ArrayList<ObjA>()
+        for (e in objetsDirect.values) {
+            if (now - e.tb > 3_000_000_000L) continue
+            val a = e.a
+            val p = if (a == null) e.b else { val al = ((now - e.tb).toFloat() / (e.tb - e.ta).coerceAtLeast(1L)).coerceIn(0f, 1f)
+                FloatArray(3) { a[it] + (e.b[it] - a[it]) * al } }
+            r.add(ObjA(e.genre, p, if (e.ancre) e.kc else -1, if (e.ancre) e.lc else null))
+        }
+        return r
+    }
     private val objetsDirect = java.util.concurrent.ConcurrentHashMap<Long, ObjT>()
     private var tourObjets = 0
     private fun lireObjets(l: Lecteur) {
@@ -578,7 +710,14 @@ object JeuMKDD {
                 if (x != null && y != null && z != null && !(x == 0f && y == 0f && z == 0f)) {
                     val p = floatArrayOf(x, y, z); vus.add(o)
                     val av = objetsDirect[o]
-                    objetsDirect[o] = if (av != null && av.genre == g) ObjT(g, av.b, av.tb, p, t) else ObjT(g, null, t, p, t)
+                    val rp = reperer(p)
+                    val lc0 = av?.lc
+                    var tenu = false
+                    if (rp != null && av != null && lc0 != null && av.kc == rp.first) {
+                        val e0 = lc0[0] - rp.second[0]; val e1 = lc0[1] - rp.second[1]; val e2 = lc0[2] - rp.second[2]
+                        tenu = e0 * e0 + e1 * e1 + e2 * e2 < 40f * 40f }
+                    objetsDirect[o] = if (av != null && av.genre == g) ObjT(g, av.b, av.tb, p, t, rp?.first ?: -1, rp?.second, tenu)
+                                      else ObjT(g, null, t, p, t, rp?.first ?: -1, rp?.second, false)
                 }
                 val sv = l.u32(lk + 12) ?: run { complet = false; vus.addAll(objetsDirect.keys.filter { objetsDirect[it]?.genre == g }); null } ?: break
                 if (sv == 0L) break                                             // (fin de la liste)
@@ -595,16 +734,18 @@ object JeuMKDD {
     @Volatile private var chompD: ChompT? = null
     private fun lireChomp(l: Lecteur) {
         val ob = l.ptr(0x803D56B8L)?.let { l.ptr(it + 0xA0) }?.let { l.ptr(it + 0xA0) }
-        if (ob == null || l.u32(ob) != 0x80363EE4L) { chompD = null; return }
+        if (ob == null || l.u32(ob) != 0x80363EE4L) { chompD = null; chompAdr = null; return }
         val z = l.ptr(ob + 0x68)?.let { l.ptr(it) }?.let { l.ptr(it + 0xE8) } ?: return
-        val r = FloatArray(20 * 12)
+        val r = FloatArray(20 * 12); val adrs = LongArray(19); adrs[0] = z
         lire12(l, z)?.copyInto(r, 0) ?: return
         lire12(l, z + 48)?.copyInto(r, 12) ?: return
         for (i in 0 until 18) {
             val k = l.ptr(ob + 0x158 + 4L * i) ?: return
             if (l.u32(k) != 0x80364108L) return
             lire12(l, k + 0x10)?.copyInto(r, 24 + 12 * i) ?: return
+            adrs[1 + i] = k + 0x10
         }
+        chompAdr = adrs
         val t = System.nanoTime(); val av = chompD
         chompD = ChompT(av?.b, av?.tb ?: t, r, t)
     }

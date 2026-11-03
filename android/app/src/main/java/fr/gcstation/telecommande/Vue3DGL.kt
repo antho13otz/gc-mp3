@@ -895,6 +895,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     /** build 296 : les karts de Mario Kart en 3D, chacun avec son pilote et son passager, tournes comme dans le jeu.
      *  Le tien est place a la position lissee (fluide), les autres a leur derniere position lue. */
     private val mModele = FloatArray(16)
+    private val ancres = HashMap<Int, FloatArray>()       // (repere de chaque kart tel qu'il est dessine : ra puis position)
     private fun dessinerKarts(mvp: FloatArray, c0: FloatArray): Boolean {
         val ks = etat.karts
         if (ks.isEmpty() || mkSieges.isEmpty() || progK == 0) {     // (sans le pack des karts : les objets en points)
@@ -907,7 +908,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         val uM = GLES20.glGetUniformLocation(progK, "uModele"); val uAl = GLES20.glGetUniformLocation(progK, "uAlpha"); val uS = GLES20.glGetUniformLocation(progK, "uSeuil")
         val mp = GLES20.glGetAttribLocation(progK, "aPos"); val mu = GLES20.glGetAttribLocation(progK, "aUv"); val mn = GLES20.glGetAttribLocation(progK, "aN")
         GLES20.glEnableVertexAttribArray(mp); GLES20.glEnableVertexAttribArray(mu); GLES20.glEnableVertexAttribArray(mn)
-        var fait = false
+        var fait = false; ancres.clear()
         for (k in ks) {
             // (le tien : rotation lue en direct ; les autres aussi, lus a part et glisses entre deux lectures)
             val g = (if (k.joueur) JeuMKDD.matJoueurAff ?: JeuMKDD.matJoueur else if (k.n > 0) JeuMKDD.matKart(k.n) else null) ?: k.mat; if (g.size < 12) continue
@@ -918,6 +919,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             val gj = if (k.joueur) JeuMKDD.matJoueur else null                    // (le tien : position lue en direct + ecart de la carrosserie)
             if (k.joueur && etat.direct && gj != null) { tx = c0[0] + (g[3] - gj[3]) * 0.01f; ty = c0[1] - (g[11] - gj[11]) * 0.01f; tz = c0[2] + (g[7] - gj[7]) * 0.01f }
             else if (k.joueur && etat.direct) { tx = c0[0]; ty = c0[1]; tz = c0[2] } else { tx = g[3] * 0.01f; ty = -g[11] * 0.01f; tz = g[7] * 0.01f }
+            ancres[k.n] = floatArrayOf(ra[0], ra[1], ra[2], ra[3], ra[4], ra[5], ra[6], ra[7], ra[8], tx, ty, tz)
             val parts = listOf("mk_kart_${k.kart}.txt" to 0f, "mk_pilote_${k.pilote}.txt" to 1f, "mk_passager_${k.passager}.txt" to 1f)
             for ((rangPart, ps) in parts.withIndex()) { val (nom, s) = ps
                 // personnage anime (peau + articulations lues en direct) : positions deja relatives au kart, sans le siege
@@ -1006,10 +1008,17 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             }
         }
         // les objets de la course : leur modele (pack : mk_objet_<sorte>.txt), sinon un point de leur couleur (plus bas)
-        val obs = JeuMKDD.objets(); objetsPoints.clear()
-        for ((genre, p) in obs) {
+        val obs = JeuMKDD.objetsAncres(); objetsPoints.clear()
+        for (ob in obs) { val genre = ob.genre; val p = ob.p
             val mod = if (mkObjetAbsent.contains(genre)) null else modeleMK("mk_objet_$genre.txt").also { if (it == null) mkObjetAbsent.add(genre) }
-            val ax = p[0] * 0.01f; val ay = -p[2] * 0.01f; val az = p[1] * 0.01f
+            // (objet tenu : place dans le repere de son kart tel qu'il est dessine ; il reste colle au kart)
+            val an = if (ob.rel != null) ancres[ob.kart] else null; val rl = ob.rel
+            val ax: Float; val ay: Float; val az: Float
+            if (an != null && rl != null) {
+                ax = an[9] + (an[0] * rl[0] + an[1] * rl[1] + an[2] * rl[2]) * 0.01f
+                ay = an[10] + (an[3] * rl[0] + an[4] * rl[1] + an[5] * rl[2]) * 0.01f
+                az = an[11] + (an[6] * rl[0] + an[7] * rl[1] + an[8] * rl[2]) * 0.01f
+            } else { ax = p[0] * 0.01f; ay = -p[2] * 0.01f; az = p[1] * 0.01f }
             if (mod == null) { objetsPoints.add(floatArrayOf(ax, ay, az, genre.toFloat())); continue }
             // (debout ; les carapaces tournent sur elles-memes, comme dans le jeu)
             val ang = if (genre in 0..2 || genre == 13) ((System.nanoTime() / 1e9 * 6.0) % (2 * Math.PI)).toFloat() else 0f

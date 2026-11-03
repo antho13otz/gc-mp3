@@ -783,13 +783,54 @@ static MEM_OS void mem_blocks(natres_pad_t *p, u32 seq, u32 a, u32 n) {
         p->mblk++;
     }
 }
-static MEM_OS void mem_req(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d) {
+/* ======================= appli : le direct ("GCMS") =======================
+   L'appli s'abonne a des morceaux de la memoire du jeu (karts, personnages...) : {"GCMS", numero, n, periode, 0, puis n x
+   {adresse, longueur}} (48 morceaux, 4,5 Ko en tout au plus ; a renouveler : sans nouvelles depuis 3 s, l'envoi s'arrete).
+   Toutes les "periode" images, Pulse envoie ces morceaux a la suite, en paquets {"GCMS", image, morceau << 16 | morceaux,
+   taille totale, donnees (1400 octets au plus)} : l'appli recoit tout ce qui bouge a chaque image, sans le demander. */
+#define MS_MAX 48
+#define MS_TOT 4608u
+#define MS_PAQ 1400u
+static u32 ms_a[MS_MAX], ms_n = 0, ms_tot = 0, ms_per = 1, ms_tb = 0;
+static unsigned short ms_l[MS_MAX];
+static MEM_OS void ms_req(const u8 *d, u32 dispo) {
+    u32 n = pn_be32(d + 8), per = pn_be32(d + 12);
+    ms_n = 0; ms_tot = 0;
+    if (n > MS_MAX) n = MS_MAX;
+    for (u32 i = 0; i < n && 20 + 8 * i + 8 <= dispo; i++) {
+        u32 a = pn_be32(d + 20 + 8 * i), l = pn_be32(d + 24 + 8 * i);
+        if (!l || l > MS_TOT || !mem_ok(a, l) || ms_tot + l > MS_TOT) break;
+        ms_a[ms_n] = a; ms_l[ms_n] = (unsigned short)l; ms_n++; ms_tot += l;
+    }
+    ms_per = per >= 1 && per <= 8 ? per : 1;
+    ms_tb = tbl();
+}
+static MEM_OS void ms_send(natres_pad_t *p) {
+    if (!ms_n || !p->mip) return;
+    if (tbl() - ms_tb > 3u * TB_SEC) { ms_n = 0; return; }   /* (l'appli ne renouvelle plus : fini) */
+    if (H.vi_count % ms_per) return;
+    u32 parts = (ms_tot + MS_PAQ - 1) / MS_PAQ, part = 0, o = 0;
+    u8 *d = pn_fr + 42;
+    for (u32 i = 0; i < ms_n; i++) {
+        const u8 *src = (const u8 *)ms_a[i];
+        for (u32 k = 0; k < ms_l[i]; k++) {
+            d[16 + o++] = src[k];
+            if (o == MS_PAQ) {
+                pn_p32(d, 0x47434D53u); pn_p32(d + 4, H.vi_count); pn_p32(d + 8, part << 16 | parts); pn_p32(d + 12, ms_tot);   /* "GCMS" */
+                pn_udp(p, p->mmac, p->mip, p->mport, 16 + o); part++; o = 0;
+            }
+        }
+    }
+    if (o) { pn_p32(d, 0x47434D53u); pn_p32(d + 4, H.vi_count); pn_p32(d + 8, part << 16 | parts); pn_p32(d + 12, ms_tot); pn_udp(p, p->mmac, p->mip, p->mport, 16 + o); }
+}
+static MEM_OS void mem_req(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d, u32 dispo) {
     if (!(H.opt & NRO_MEM)) return;
     u32 t = d[3], seq = pn_be32(d + 4), a = pn_be32(d + 8), b = pn_be32(d + 12), c = pn_be32(d + 16);
     p->mrx++;
     p->mip = pn_be32(f + 26); p->mport = pn_be16(u);
     for (int i = 0; i < 6; i++) p->mmac[i] = f[6 + i];
     if (t == 'R') { mem_blocks(p, seq, a, b); return; }
+    if (t == 'S') { ms_req(d, dispo); return; }
     if (t == 'P') p->mpause = a & 1;
     else if (t == 'W') {                                  /* (hors de la memoire du jeu, ou dans Pulse : rien, mais une reponse) */
         if ((b == 1 || b == 2 || b == 4) && mem_ok(a, b) && !(a & (b - 1)) && (a < NATRES_AT || a >= NATRES_AT + NATRES_SIZE)) {
@@ -841,7 +882,7 @@ static void pd_frame(natres_pad_t *p, u32 n, u32 now) {
     const u8 *u = f + 14 + (f[14] & 15) * 4, *d = u + 8;
     if (pn_be16(u + 2) != NATRES_PAD_PORT) return;
     if (d + 20 > f + n) { p->bad++; return; }
-    if ((pn_be32(d) & 0xFFFFFF00u) == 0x47434D00u) { mem_req(p, f, u, d); return; }   /* v306 : "GCM?" */
+    if ((pn_be32(d) & 0xFFFFFF00u) == 0x47434D00u) { mem_req(p, f, u, d, (u32)(f + n - d)); return; }   /* v306 : "GCM?" */
     if (pn_be32(d) != 0x47435044u) { p->bad++; return; }   /* "GCPD" */
     u32 ch = d[5] & 3;
     if (!(p->chmask >> ch & 1)) { p->bad++; return; }
@@ -872,6 +913,7 @@ void pd_poll(void) {
         pd_frame(p, n, now);
     }
     if (p->mpause) mem_pause(p);                          /* v306 : jeu en pause pour le chercheur de codes */
+    ms_send(p);                                          /* (appli : le direct) */
     if (p->mach && p->mip) { p->mach--; mem_ach(p); }     /* v306 : succes obtenu : annonce au telephone */
     {   /* v275 : vibration demandee par le jeu : envoyee au telephone quand elle change, puis toutes les 8 images tant
            qu'elle dure (l'appli s'arrete seule sans nouvelles : un paquet perdu ne la laisse pas vibrer) */
