@@ -1440,6 +1440,12 @@
     { "PAGE SUIVANTE", "NEXT PAGE" },
     { "Jaquettes des jeux", "Game covers" },
     { "Chercheur de codes (appli)", "Code finder (app)" },
+    /* v330 : envoi vers l'appli */
+    { "Envoi vers l'appli", "Sending to the app" },
+    { "Coup\xC3\xA9", "Off" },
+    { "Si l'appli est connect\xC3\xA9" "e", "When the app is connected" },
+    { "Toujours", "Always" },
+    { "Coup\xC3\xA9 : rien vers l'appli (direct, \xC3\xA9tat, Pulse). Si connect\xC3\xA9" "e : seulement quand un t\xC3\xA9l\xC3\xA9phone \xC3\xA9" "coute", "Off: nothing sent to the app (live data, state, Pulse). When connected: only while a phone is listening" },
     { "L'appli lit la m\xC3\xA9moire du jeu pendant la partie (Pulse, Broadband Adapter ou ETH2SP1) : trouver ses propres cheats et succ\xC3\xA8s", "The app reads the game's memory during play (Pulse, Broadband Adapter or ETH2SP1): find your own cheats and achievements" },
     /* v319 : textes releves en anglais au simulateur (SIM_TRLOG) */
     { "Fran\xC3\xA7" "ais", "French" },
