@@ -235,7 +235,13 @@ static void kt_tick(void) {
     switch (kt_ph) {
     case 0:                                           /* ouvrir l'ecran */
         if (kt_k1 == 0 && kt_k2 < 0 && !kt_monkey) kt_mem1 = sx_free_now();
-        if (!kt_enter(s)) {                           /* (pas disponible : ecran saute) */
+        u32 ke0_ = perf_us();
+        int ke_ = kt_enter(s);
+#ifndef GEKKO
+        if (getenv("PCSIM_DRAWPROF") && perf_us() - ke0_ > 8000u) printf("[ouverture] %s : %.1f ms\n", s->nm, (perf_us() - ke0_) / 1000.0);
+#endif
+        (void)ke0_;
+        if (!ke_) {                                   /* (pas disponible : ecran saute) */
             if (!kt_monkey) { snprintf(s->nm + strlen(s->nm), sizeof(s->nm) - strlen(s->nm), " (absent)"); kt_k1 = KT_NK - 1; kt_l2 = 0; }
             kt_force_home();
             if (!kt_next()) { kt_finish(); return; }

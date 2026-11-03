@@ -12,6 +12,9 @@ static ct_ent ct[CT_MAX];
 static int ct_n = 0, ct_sel = 0, ct_confirm = -1, ct_st = 0;   /* ct_st : 0 rien, 1 liste demandee, 2 paquet demande */
 static char ct_msg[160] = "", ct_date[32] = "";
 static int ct_cur = -1;
+/* v324 : version installee de chaque appli (2 lectures de la carte SD chacune) : une appli par image, plus toutes
+   d'un coup dans la boucle (test des touches : 160 ms figees a l'ouverture du catalogue) */
+static int ct_hv = 0, ct_hv_msg = 0;
 static hfetch_t ct_hf = { .c = { -1, 0, 0 } };
 static void ct_url(char *out, int cap, const char *file) {
 #ifndef GEKKO
@@ -58,10 +61,11 @@ static void ct_parse(const char *js, int len) {
         t = strstr(o, "\"taille_sd\"");
         if (t && t < c) { t += 11; while (t < c && (*t == ':' || *t == ' ')) t++; e->sdsize = atol(t); }
         (void)num;
-        if (ct_safe_id(e->id) && e->file[0] && !strchr(e->file, '/') && e->size > 0 && e->size <= (8l << 20) && strlen(e->sha) == 64)   /* (tenu en memoire : 8 Mo au plus) */ { ct_have(e); ct_n++; }
+        if (ct_safe_id(e->id) && e->file[0] && !strchr(e->file, '/') && e->size > 0 && e->size <= (8l << 20) && strlen(e->sha) == 64)   /* (tenu en memoire : 8 Mo au plus) */ { e->have[0] = 0; ct_n++; }
         p = c + 1;
     }
     if (ct_sel >= ct_n) ct_sel = ct_n ? ct_n - 1 : 0;
+    ct_hv = 0;                                            /* (versions installees : lues ensuite, une par image) */
 }
 static void ct_fetch_list(void) {
     if (net_phase != NET_DONE) { net_start_async(); snprintf(ct_msg, sizeof(ct_msg), "R\xC3\xA9seau en cours de connexion... (Y pour r\xC3\xA9" "essayer)"); return; }
@@ -76,7 +80,16 @@ static void ct_fetch_list(void) {
 static void ct_open(void) {
     tl_screen = TL_CATA; ct_confirm = -1;
     if (!ct_n && ct_st == 0) ct_fetch_list();
-    else for (int i = 0; i < ct_n; i++) ct_have(&ct[i]);
+    else ct_hv = 0;                                       /* v324 : (relues une par image : ct_have_step) */
+}
+static void ct_have_step(void) {                         /* (chaque image : la version installee d'une appli) */
+    if (ct_hv >= ct_n) return;
+    ct_have(&ct[ct_hv++]);
+    if (ct_hv < ct_n || !ct_hv_msg) return;
+    ct_hv_msg = 0;
+    int up = 0;
+    for (int i = 0; i < ct_n; i++) if (ct[i].have[0] && strcmp(ct[i].have, ct[i].ver)) up++;
+    if (up) snprintf(ct_msg, sizeof(ct_msg), "%d mise%s \xC3\xA0 jour disponible%s", up, up > 1 ? "s" : "", up > 1 ? "s" : "");
 }
 static int ct_mkdirs(const char *path) {                 /* dossiers du chemin d'un fichier */
     char p[NAME_LEN];
@@ -165,6 +178,7 @@ static void ct_start_install(int i) {
     snprintf(ct_msg, sizeof(ct_msg), "T\xC3\xA9l\xC3\xA9" "chargement de %s...", ct[i].nom);
 }
 static void ct_pump(void) {
+    ct_have_step();
     if (!ct_st) return;
     hf_pump(&ct_hf);
     if (ct_hf.st == HF_FAIL) {
@@ -176,11 +190,8 @@ static void ct_pump(void) {
     if (ct_st == 1) {
         char *js = (char *)malloc(ct_hf.len + 1);
         if (js) { memcpy(js, ct_hf.buf, ct_hf.len); js[ct_hf.len] = 0; ct_parse(js, ct_hf.len); free(js); }
-        int up = 0;
-        for (int i = 0; i < ct_n; i++) if (ct[i].have[0] && strcmp(ct[i].have, ct[i].ver)) up++;
         if (!ct_n) snprintf(ct_msg, sizeof(ct_msg), "Catalogue vide ou illisible");
-        else if (up) snprintf(ct_msg, sizeof(ct_msg), "%d mise%s \xC3\xA0 jour disponible%s", up, up > 1 ? "s" : "", up > 1 ? "s" : "");
-        else ct_msg[0] = 0;
+        else { ct_msg[0] = 0; ct_hv_msg = 1; }            /* v324 : (mises a jour comptees quand les versions sont lues) */
     } else {
         const char *e = ct_cur >= 0 && ct_cur < ct_n ? ct_install(&ct[ct_cur], ct_hf.buf, ct_hf.len) : "Appli introuvable";
         if (e) snprintf(ct_msg, sizeof(ct_msg), "%s", e);
@@ -189,6 +200,7 @@ static void ct_pump(void) {
     hf_drop(&ct_hf); ct_hf.st = HF_IDLE; ct_st = 0;
 }
 static void ct_input(u32 down, u32 nav, int fire) {
+    if (ct_hv < ct_n && ct_sel >= 0 && ct_sel < ct_n && (down & (PAD_BUTTON_A | PAD_BUTTON_X))) ct_have(&ct[ct_sel]);   /* v324 : (pas encore lue) */
     if (ct_confirm >= 0) {
         if (down & PAD_BUTTON_A) {
             int i = ct_confirm; ct_confirm = -1;
