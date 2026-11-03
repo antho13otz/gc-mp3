@@ -32,16 +32,9 @@ import kotlinx.coroutines.withContext
 object CartesWW {
     @Volatile var dossier: java.io.File? = null
     /** les iles de la Grande Mer (case n de la carte marine, de 1 a 49, rangee par rangee depuis le nord-ouest) */
-    val ILES = listOf("Forteresse Maudite", "Île de l'Étoile", "Île de la fée du Nord", "Île des Bourrasques", "Île du Croissant de lune",
-        "Îles des Sept Étoiles", "Île du Belvédère", "Récif des Quatre Yeux", "Île de la Mère et l'Enfant", "Île Spectacle",
-        "Mercantîle", "Île de l'Empreinte", "Île du Dragon", "Plateforme de vol", "Île de la fée de l'Ouest",
-        "Pic Rocheux", "Île de Tingle", "Triangle du Nord", "Île de la fée de l'Est", "Mont Feu",
-        "Archipel de la Ceinture d'étoiles", "Récif des Trois Yeux", "Île du Grand Poisson", "Récif du Cyclope", "Récif des Six Yeux",
-        "Tour des Dieux", "Triangle de l'Est", "Île de la fée aux Épines", "Rocher Aiguille", "Îlot d'Acier",
-        "Île du Gardien de pierre", "Triangle du Sud", "Oasis privée", "Île aux Bombes", "Rocher du Pic aux oiseaux",
-        "Steppe du Diamant", "Récif des Cinq Yeux", "Île du Requin", "Île de la fée du Sud", "Île de l'Anneau de glace",
-        "Île du Bois Sacré", "Plateau de la Falaise", "Île du Fer à cheval", "Île de l'Aurore", "Île de la Pierre tombale",
-        "Récif des Deux Yeux", "Îles Angulaires", "Parcours nautique", "Îles des Cinq Étoiles")
+    /** les iles de la Grande Mer (case n de la carte marine, de 1 a 49, rangee par rangee depuis le nord-ouest) : leurs
+     *  noms dans le jeu francais (build 338 : lus dans les textes du jeu, data2/bmgres.arc, messages 12710 a 12758) */
+    val ILES = listOf("Forteresse Maudite", "Île Étoilée", "Îlot Septentrional des Fées", "Île du Vent", "Île du Croissant", "Archipel Ursa Major", "Île aux Trois Tours", "Île de la Face Quatre", "Île Geminée", "Île des Binocles", "Mercantîle", "Pas de Chat", "Île du Dragon", "Tour de l'Envol", "Îlot Occidental des Fées", "Île de la Rocaille", "Île de Tingle", "Île Triangulaire du Nord", "Îlot Oriental des Fées", "Montagne de Feu", "Archipel d'Orion", "Île de la Face Trois", "Île du Poisson", "Île de la Face Une", "Île de la Face Six", "Tour des Dieux", "Île Triangulaire de l'Est", "Îlot Épineux des Fées", "Serrure de Pierre", "Canonnière", "Île de la Tête de Pierre", "Île Triangulaire du Sud", "Île de Qui-ça", "Île de la Bombe", "Île aux Nichoirs", "Île du Losange", "Île de la Face Cinq", "Île du Requin", "Îlot Méridional des Fées", "Île Gelée", "Île aux Forêts", "Saut de Roc", "Île du Fer à Cheval", "Île de l'Aurore", "Île de la Terre", "Île de la Face Deux", "Îlots Kif Kif", "Batodrome", "Archipel de Cassiopée")
     /** les autres lieux connus : etape du jeu (en minuscules) -> (rubrique, nom) */
     private val LIEUX = linkedMapOf(
         "m_newd2" to ("Donjons" to "Caverne du Dragon"), "m_dragb" to ("Donjons" to "Caverne du Dragon — boss"),
@@ -51,23 +44,23 @@ object CartesWW {
         "majroom" to ("Donjons" to "Forteresse Maudite — salles"), "ma2room" to ("Donjons" to "Forteresse Maudite — salles 2"), "ma3room" to ("Donjons" to "Forteresse Maudite — salles 3"),
         "m_dai" to ("Donjons" to "Temple de la Terre"), "m_daimb" to ("Donjons" to "Temple de la Terre — mini-boss"), "m_daib" to ("Donjons" to "Temple de la Terre — boss"),
         "kaze" to ("Donjons" to "Temple du Vent"), "kazemb" to ("Donjons" to "Temple du Vent — mini-boss"), "kazeb" to ("Donjons" to "Temple du Vent — boss"),
-        "gtower" to ("Donjons" to "Tour de Ganon"), "ganona" to ("Donjons" to "Tour de Ganon — A"), "ganonb" to ("Donjons" to "Tour de Ganon — B"),
-        "ganonc" to ("Donjons" to "Tour de Ganon — C"), "ganond" to ("Donjons" to "Tour de Ganon — D"), "ganone" to ("Donjons" to "Tour de Ganon — E"),
-        "ganonj" to ("Donjons" to "Tour de Ganon — J"), "ganonk" to ("Donjons" to "Tour de Ganon — K"), "ganonl" to ("Donjons" to "Tour de Ganon — L"),
-        "ganonm" to ("Donjons" to "Tour de Ganon — M"), "ganonn" to ("Donjons" to "Tour de Ganon — N"),
+        "gtower" to ("Donjons" to "Château de Ganon"), "ganona" to ("Donjons" to "Château de Ganon — A"), "ganonb" to ("Donjons" to "Château de Ganon — B"),
+        "ganonc" to ("Donjons" to "Château de Ganon — C"), "ganond" to ("Donjons" to "Château de Ganon — D"), "ganone" to ("Donjons" to "Château de Ganon — E"),
+        "ganonj" to ("Donjons" to "Château de Ganon — J"), "ganonk" to ("Donjons" to "Château de Ganon — K"), "ganonl" to ("Donjons" to "Château de Ganon — L"),
+        "ganonm" to ("Donjons" to "Château de Ganon — M"), "ganonn" to ("Donjons" to "Château de Ganon — N"),
         "xboss0" to ("Donjons" to "Retour des boss — 1"), "xboss1" to ("Donjons" to "Retour des boss — 2"), "xboss2" to ("Donjons" to "Retour des boss — 3"), "xboss3" to ("Donjons" to "Retour des boss — 4"),
         "hyrule" to ("Hyrule" to "Château d'Hyrule"), "hyroom" to ("Hyrule" to "Château d'Hyrule — intérieur"), "kenroom" to ("Hyrule" to "Salle de l'Épée"),
         "linkrm" to ("Maisons et intérieurs" to "Maison de Link"), "linkug" to ("Maisons et intérieurs" to "Maison de Link — sous-sol"),
-        "orichh" to ("Maisons et intérieurs" to "Maison d'Orca"), "omori" to ("Maisons et intérieurs" to "Bois Sacré — intérieur"),
+        "orichh" to ("Maisons et intérieurs" to "Maison d'Orca"), "omori" to ("Maisons et intérieurs" to "Île aux Forêts — intérieur"),
         "pjavdou" to ("Maisons et intérieurs" to "Grotte de Jabun"), "pship" to ("Bateaux" to "Bateau pirate"), "pship2" to ("Bateaux" to "Bateau pirate (2)"),
-        "pship3" to ("Bateaux" to "Bateau pirate (3)"), "shipd" to ("Bateaux" to "Vaisseau fantôme"), "tincle" to ("Maisons et intérieurs" to "Île de Tingle — tour"))
+        "pship3" to ("Bateaux" to "Bateau pirate (3)"), "shipd" to ("Bateaux" to "Vaisseau Fantôme"), "tincle" to ("Maisons et intérieurs" to "Tour de Tingle"))
     fun nom(a: String): String {
         val k = a.lowercase()
         if (k == "sea") return "La Grande Mer (vue d'ensemble)"
         if (k.startsWith("sea_")) return k.removePrefix("sea_").toIntOrNull()?.let { ILES.getOrNull(it - 1) } ?: k
         LIEUX[k]?.let { return it.second }
         Regex("^cave(\\d+)$").find(k)?.let { return "Grotte " + it.groupValues[1].toInt() }
-        Regex("^fairy(\\d+)$").find(k)?.let { return "Fontaine des fées " + it.groupValues[1].toInt() }
+        Regex("^fairy(\\d+)$").find(k)?.let { return "Fontaine de fée " + it.groupValues[1].toInt() }
         Regex("^tf_(\\d+)$").find(k)?.let { return "Grotte du Triforce " + it.groupValues[1].toInt() }
         return a
     }
@@ -128,8 +121,11 @@ fun LieuWW3D(e: JeuWW.Etat) {
     if (d0 == null || (d0[0] - p[0]) * (d0[0] - p[0]) + (d0[1] - p[1]) * (d0[1] - p[1]) > 2.5f * 2.5f) derniereWW = p
     val cam = derniereWW?.takeIf { it !== p } ?: d0
     Titre("En 3D : " + CartesWW.nom(a))
-    DessinVue3DGL(sc, p, cam, emptyList(), montrerRayman = true, distance = 22f)
-    Doux("Point rouge : Link · carrés dorés : coffres.", taille = 10)
+    // build 338 : Link en 3D (pack : ww_link.ani) : son cap, sa vitesse ; sous l'eau : plus bas que la mer (hauteur 0)
+    // sur la Grande Mer (nage)
+    val nage = (e.scene == "sea" && e.y < -30f)
+    DessinVue3DGL(sc, p, cam, emptyList(), montrerRayman = true, distance = 22f, linkWW = floatArrayOf(e.cap.toFloat(), e.vitesse, if (nage) 1f else 0f))
+    Doux("Link en 3D (pack Wind Waker) · carrés dorés : coffres.", taille = 10)
 }
 
 /** fiche du jeu : installer les packs, voir chaque lieu en 3D (hors ligne) */
@@ -182,5 +178,41 @@ fun SectionWW(act: StationActivity) {
         }
         Bouton("Installer / mettre à jour des packs Wind Waker (.zip)", Modifier.fillMaxWidth(), actif = !occupe) { pack.launch(arrayOf("*/*")) }
         if (message.isNotEmpty()) Doux(message, taille = 12, couleur = C.Texte)
+    }
+}
+
+/** build 338 : Link en 3D (pack Wind Waker : ww_link.ani et ww_link_tNNN.png), son modele du jeu et ses animations cuites
+ *  en images (attente, marche, course, nage, nage sur place) : voir linkww.py. Les u v et couleurs sont communs a toutes
+ *  les images ; seules les positions changent. */
+class LinkAnime(val groupes: List<Groupe>, val anims: Map<String, Anim>) {
+    class Groupe(val texture: Int, val mode: Int, val n: Int, val uvc: java.nio.ByteBuffer)
+    class Anim(val images: Int, val ips: Float, val pos: Array<Array<java.nio.FloatBuffer>>)   // [image][groupe]
+    companion object {
+        fun lire(f: java.io.File): LinkAnime? = try {
+            if (!f.exists()) null else {
+                val b = java.nio.ByteBuffer.wrap(f.readBytes()).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+                if (b.int != 0x314C5757) null else {                         // "WWL1"
+                    val ng = b.int; val na = b.int
+                    val gs = ArrayList<Groupe>()
+                    for (g in 0 until ng) {
+                        val t = b.int; val m = b.int; val n = b.int
+                        val bb = java.nio.ByteBuffer.allocateDirect(n * 12).order(java.nio.ByteOrder.nativeOrder())
+                        val src = ByteArray(n * 12); b.get(src); bb.put(src); bb.position(0)
+                        gs.add(Groupe(t, m, n, bb))
+                    }
+                    val an = HashMap<String, Anim>()
+                    for (a in 0 until na) {
+                        val nb = ByteArray(16); b.get(nb); val nom = String(nb).trimEnd('\u0000')
+                        val ni = b.int; val ips = b.float
+                        val im = Array(ni) { Array(ng) { g ->
+                            val fb = java.nio.ByteBuffer.allocateDirect(gs[g].n * 12).order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer()
+                            for (k in 0 until gs[g].n * 3) fb.put(b.float)
+                            fb.position(0); fb } }
+                        an[nom] = Anim(ni, ips, im)
+                    }
+                    LinkAnime(gs, an)
+                }
+            }
+        } catch (e: Throwable) { null }
     }
 }

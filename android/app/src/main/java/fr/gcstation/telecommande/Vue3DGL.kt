@@ -207,7 +207,7 @@ class Etat3D {
     @Volatile var chemin: FloatArray = FloatArray(0); @Volatile var montrerRayman = true
     @Volatile var decal = floatArrayOf(0f, 0f, 0f)       // (build 236 : deplacement a deux doigts, ajoute a la cible)
     @Volatile var redessiner: () -> Unit = {}
-    @Volatile var voir = "cfjkvrpidt"
+    @Volatile var voir = "cfjkvrpidtuq"
     /** build 266 : autres pions a montrer (Mario Kart : les autres karts) : x, y, z, couleur (ARGB en Float.fromBits) par pion */
     @Volatile var pions = FloatArray(0)
     /** build 269 : position lue en direct ~30 fois par seconde ; le moteur la lisse a chaque image (plus de sauts) */
@@ -216,6 +216,8 @@ class Etat3D {
     @Volatile var pose: PoseRayman? = null
     /** journal de bug (bouton « 🐞 Bug ») : la prochaine image est lue et rendue ici */
     @Volatile var captureCb: ((android.graphics.Bitmap?) -> Unit)? = null
+    /** build 338 : Wind Waker, Link en 3D : cap (radians, angle du jeu), vitesse (unites du jeu par image), sous l'eau (0/1) */
+    @Volatile var linkWW: FloatArray? = null
     /** build 296 : Mario Kart, les karts a dessiner en 3D (le premier est le tien) */
     @Volatile var karts: List<KartVue> = emptyList()
     /** build 282 : 0 normal (la vue suit la position), 1 suivre (derriere Rayman, tournee comme lui), 2 libre (la vue ne bouge plus seule),
@@ -841,6 +843,63 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         if (b == null || c == null) { liberer(a); b?.let { liberer(it) }; c?.let { liberer(it) }; return }
         cibles.add(a); cibles.add(b); cibles.add(c); echelle = a.w.toFloat() / ecranW
     }
+    /** build 338 : Link de Wind Waker (pack : ww_link.ani) : a la position lue, tourne selon son cap, l'animation choisie
+     *  d'apres sa vitesse ; rend false sans pack (le point rouge reste) */
+    private var linkAni: LinkAnime? = null; private var linkCharge = false
+    private val linkTex = HashMap<Int, Int>(); private var linkVbo = IntArray(0)
+    private val mLink = FloatArray(16); private val mvpLink = FloatArray(16)
+    private var animLink = ""; private var tAnim = 0L
+    private fun dessinerLinkWW(mvp: FloatArray, c0: FloatArray): Boolean {
+        val l = etat.linkWW ?: return false
+        if (!linkCharge) {
+            linkCharge = true
+            linkAni = LinkAnime.lire(java.io.File(scene.dossier, "ww_link.ani"))
+            val la = linkAni ?: return false
+            for (g in la.groupes) if (g.texture >= 0 && !linkTex.containsKey(g.texture))
+                linkTex[g.texture] = chargerTex("ww_link_t" + String.format(java.util.Locale.ROOT, "%03d", g.texture) + ".png")
+            linkVbo = IntArray(la.groupes.size * 2); GLES20.glGenBuffers(linkVbo.size, linkVbo, 0)
+            for ((i, g) in la.groupes.withIndex()) {
+                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, linkVbo[2 * i]); g.uvc.position(0)
+                GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, g.n * 12, g.uvc, GLES20.GL_STATIC_DRAW)
+            }
+        }
+        val la = linkAni ?: return false
+        // l'animation : nage (sous l'eau), sinon d'apres la vitesse
+        val v = l[1]
+        val nom = if (l.size > 2 && l[2] > 0.5f) (if (v > 2f) "nage" else "nage_attente") else if (v < 1f) "attente" else if (v < 12f) "marche" else "course"
+        val an = la.anims[nom] ?: la.anims["attente"] ?: return false
+        if (nom != animLink) { animLink = nom; tAnim = System.nanoTime() }
+        val img = (((System.nanoTime() - tAnim) / 1e9 * an.ips).toLong() % an.images).toInt()
+        // matrice : position, puis rotation du cap autour de la verticale (le modele regarde vers -y)
+        android.opengl.Matrix.setRotateM(mLink, 0, Math.toDegrees(l[0].toDouble()).toFloat(), 0f, 0f, 1f)
+        mLink[12] = c0[0]; mLink[13] = c0[1]; mLink[14] = c0[2]
+        android.opengl.Matrix.multiplyMM(mvpLink, 0, mvp, 0, mLink, 0)
+        GLES20.glUseProgram(prog)
+        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvpLink, 0)
+        GLES20.glUniform1f(uEauL, 0f); GLES20.glUniform1f(uChaudL, 0f); GLES20.glUniform1f(uLmK, 0f); GLES20.glUniform2f(uDefil, 0f, 0f)
+        GLES20.glUniform1f(uSeuil, 0.5f); GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+        GLES20.glEnableVertexAttribArray(aPos); GLES20.glEnableVertexAttribArray(aUv); GLES20.glEnableVertexAttribArray(aCol)
+        if (aUvL >= 0) { GLES20.glDisableVertexAttribArray(aUvL); GLES20.glVertexAttrib2f(aUvL, 0f, 0f) }
+        for ((i, g) in la.groupes.withIndex()) {
+            val t = linkTex[g.texture]
+            GLES20.glUniform1f(uAvecTex, if (t != null && t != 0) 1f else 0f)
+            if (t != null && t != 0) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }
+            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, linkVbo[2 * i])
+            GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, 12, 0)
+            GLES20.glVertexAttribPointer(aCol, 4, GLES20.GL_UNSIGNED_BYTE, true, 12, 8)
+            val pb = an.pos[img][i]; pb.position(0)
+            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, linkVbo[2 * i + 1])
+            GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, g.n * 12, pb, GLES20.GL_STREAM_DRAW)
+            GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 12, 0)
+            GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
+        }
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+        GLES20.glDisableVertexAttribArray(aUv); GLES20.glDisableVertexAttribArray(aCol)
+        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+        GLES20.glUseProgram(progL)
+        return true
+    }
+
     /** un groupe du decor (ou d'un objet qui bouge) : textures, ombres, defilement, sommets (build 332 : sorti de la boucle) */
     private fun dessinerGroupe(g: SceneR3.Groupe, buf: Int, tSec: Double) {
         GLES20.glUniform1f(uEauL, g.eau.toFloat()); GLES20.glUniform1f(uChaudL, if (g.chaud) 1f else 0f)
@@ -1638,7 +1697,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             val voir = etat.voir
             for (passe in 0..1) {
                 if (passe == 0) GLES20.glDisable(GLES20.GL_DEPTH_TEST) else GLES20.glEnable(GLES20.GL_DEPTH_TEST)
-                for (t in "tidjkvrpfc") {                          // les cages en dernier (par-dessus)
+                for (t in "uqtidjkvrpfc") {                          // les cages en dernier (par-dessus)
                     val fb = objBuf[t] ?: continue
                     if (t !in voir) continue
                     if (gemmesC.containsKey(t)) continue                         // (build 249 : vraies gemmes, plus bas)
@@ -1652,6 +1711,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                         'k' -> 12f to floatArrayOf(0.95f, 0.1f, 0.3f); 'v' -> 15f to floatArrayOf(0.2f, 0.9f, 0.35f)
                         'i' -> 20f to floatArrayOf(1f, 1f, 1f); 'd' -> 26f to floatArrayOf(1f, 1f, 1f)
                         't' -> 22f to floatArrayOf(0.9f, 0.62f, 0.2f)                  // (build 336 : coffres de Wind Waker)
+                        'u' -> 12f to floatArrayOf(0.3f, 1f, 0.45f); 'q' -> 18f to floatArrayOf(1f, 0.35f, 0.5f)   // (build 338 : rubis, quarts de coeur)
                         else -> 11f to floatArrayOf(1f, 0.92f, 0.28f) }
                     GLES20.glUniform1f(oT, taille * echelle); GLES20.glUniform1f(oF, if (t == 'c' || t == 'f' || t == 't') 1f else if (t == 'i') 2f else if (t == 'd') 3f else 0f)
                     GLES20.glUniform4f(oC, coul[0], coul[1], coul[2], if (passe == 0) 0.35f else 1f)
@@ -1694,6 +1754,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         val rm = raymanMod
         if (etat.montrerRayman && dessinerRaymanAnime(mvp, c0)) {
             // (build 272 : Rayman anime d'apres sa pose en memoire)
+        } else if (etat.montrerRayman && dessinerLinkWW(mvp, c0)) {
+            // (build 338 : Link de Wind Waker, son vrai modele anime)
         } else if (etat.montrerRayman && rm != null) {          // build 269 : Rayman en 3D, tourne vers ou il va
             GLES20.glUseProgram(progM)
             GLES20.glUniformMatrix4fv(GLES20.glGetUniformLocation(progM, "uMvp"), 1, false, mvp, 0)
@@ -1725,7 +1787,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
 @Composable
 fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin: List<FloatArray>, montrerRayman: Boolean = true,
                   pions: FloatArray? = null, distance: Float? = null, direct: (() -> FloatArray?)? = null,
-                  pose: (() -> PoseRayman?)? = null, karts: List<KartVue>? = null) {
+                  pose: (() -> PoseRayman?)? = null, karts: List<KartVue>? = null, linkWW: FloatArray? = null) {
     // build 242 : un etat neuf par niveau ; sans jeu en cours, la vue de depart cadre tout le niveau
     val etat = remember(scene) { Etat3D().also { e -> if (!montrerRayman) { e.distBase = scene.rayon * 1.7f; e.dist = e.distBase; e.tangage = 0.75f } } }
     // build 269 : en direct, la position vient de la lecture rapide (la valeur passee ici, plus lente, ne sert qu'au depart)
@@ -1733,6 +1795,7 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
     etat.camera = camera; etat.montrerRayman = montrerRayman
     if (pions != null) etat.pions = pions
     if (karts != null) etat.karts = karts
+    etat.linkWW = linkWW
     if (direct != null) androidx.compose.runtime.LaunchedEffect(scene) {
         etat.direct = true
         try {
@@ -1899,6 +1962,7 @@ private fun nomObjet(scene: SceneR3, o: Objet3D): String {
     val n = meme.indexOf(o) + 1
     return when (o.type) { 'c' -> "Cage $n sur ${meme.size}"; 'f' -> "P'tit être $n sur ${meme.size}"; 'j' -> "Gemme jaune"
         'k' -> "Gemme rouge"; 'v' -> "Gemme verte"; 'r' -> "Lum rouge"; 'i' -> "Boîte à objets $n sur ${meme.size}"; 'd' -> "Ligne de départ"; 't' -> "Coffre $n sur ${meme.size}"
+        'u' -> "Rubis " + o.nom; 'q' -> if (o.nom == "receptacle") "Réceptacle de cœur" else "Quart de cœur"
         'p' -> "Pouvoir" + when { "rouade" in o.nom.lowercase() -> " : poing-roulade"; "grappin" in o.nom.lowercase() -> " : grappin"
             "force" in o.nom.lowercase() -> " : poing d'acier"; "snipe" in o.nom.lowercase() -> " : lockjaw"; "helico" in o.nom.lowercase() -> " : hélico"; else -> "" }
         else -> "" }
@@ -1972,7 +2036,7 @@ private fun ChoixObjets(scene: SceneR3, etat: Etat3D, modifier: Modifier, aller:
         Row(Modifier.horizontalScroll(androidx.compose.foundation.rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             for ((t, nom, coul) in listOf(Triple('c', "Cages", 0xFFFFBD40), Triple('f', "P'tits êtres", 0xFF9EF2FF), Triple('j', "Gemmes jaunes", 0xFFFFEB47), Triple('k', "Gemmes rouges", 0xFFFF3B6B), Triple('v', "Gemmes vertes", 0xFF3DDC84),
                     Triple('r', "Lums rouges", 0xFFFF4038), Triple('p', "Pouvoirs", 0xFF9E8CFF),
-                    Triple('i', "Boîtes à objets", 0xFFFFD54A), Triple('d', "Départ", 0xFFFFFFFF), Triple('t', "Coffres", 0xFFE6A040))) {
+                    Triple('i', "Boîtes à objets", 0xFFFFD54A), Triple('d', "Départ", 0xFFFFFFFF), Triple('t', "Coffres", 0xFFE6A040), Triple('u', "Rubis", 0xFF4DFF73), Triple('q', "Quarts de cœur", 0xFFFF5A80))) {
                 val k = n[t] ?: continue
                 val actif = t in voir
                 val r = reste[t] ?: 0
