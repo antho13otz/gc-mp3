@@ -1008,6 +1008,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         val mp = GLES20.glGetAttribLocation(progK, "aPos"); val mu = GLES20.glGetAttribLocation(progK, "aUv"); val mn = GLES20.glGetAttribLocation(progK, "aN")
         GLES20.glEnableVertexAttribArray(mp); GLES20.glEnableVertexAttribArray(mu); GLES20.glEnableVertexAttribArray(mn)
         var fait = false; ancres.clear(); journalTour++
+        if (JeuMKDD.direct()) JeuMKDD.rejouer()                   // (le direct rejoue au rythme du jeu, juste avant ce dessin)
         run { val now = System.nanoTime(); dtKarts = if (karts_t == 0L) 0f else ((now - karts_t) / 1e9f).coerceIn(0f, 0.1f); karts_t = now }
         for (k in ks) {
             // (le tien : rotation lue en direct ; les autres aussi, lus a part et glisses entre deux lectures)
