@@ -54,7 +54,9 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
               val objets: List<Objet3D> = emptyList()) {
     @Volatile var versionPris = 0       // build 256 : change quand un objet est ramasse (ou reapparait) ; la vue se refait
     class Groupe(val texture: Int, val alpha: Boolean, val sommets: ByteBuffer, val n: Int,
-                 val mode: Int = if (alpha) 2 else 0, val enveloppe: Int = 0) {  // (build 236 : 0 opaque, 1 decoupe, 2 transparent, 3 lumiere ; miroir U/V)
+                 val mode: Int = if (alpha) 2 else 0, val enveloppe: Int = 0,
+                 val lumiere: Int = -1, val lumiereK: Float = 0f, val pas: Int = 24) {  // (R3V3 : ombres precalculees du jeu, 2e texture)
+        var defil = FloatArray(2)   // (R3V3 : texture qui defile, unites par seconde : eau, lave, sable qui coule)  // (build 236 : 0 opaque, 1 decoupe, 2 transparent, 3 lumiere ; miroir U/V)
         var eau = 0          // build 245 : 1 eau, 2 lave (d'apres le nom de la texture : <niveau>_tex.txt) ; animees par le moteur
                              // build 276 : 3 lave peinte (texture claire que le jeu colore en rouge : la mer de lave de knaar_10)
         var chaud = false    // build 276 : sous la lumiere rouge-orange du jeu (zone du crane de knaar_10)
@@ -67,25 +69,27 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
             if (!f.exists()) null else {
                 val b = ByteBuffer.wrap(f.readBytes()).order(ByteOrder.LITTLE_ENDIAN)
                 val magie = b.int
-                if (magie != 0x31563352 && magie != 0x32563352) null else {          // "R3V1" ou "R3V2"
-                    val v2 = magie == 0x32563352
+                if (magie != 0x31563352 && magie != 0x32563352 && magie != 0x33563352) null else {          // "R3V1", "R3V2" ou "R3V3"
+                    val v3 = magie == 0x33563352; val v2 = magie == 0x32563352 || v3
                     val ng = b.int
                     val l = ArrayList<Groupe>()
                     var sx = 0.0; var sy = 0.0; var sz = 0.0; var nn = 0L
                     val ech = ArrayList<Float>()   // (build 242 : points echantillons pour la taille du niveau)
                     for (g in 0 until ng) {
-                        val tex = b.int; val md = b.int; val env = if (v2) b.int else 0; val n = b.int
+                        // (R3V3 : + texture des ombres (s32, -1 : aucune) et son facteur (f32) ; sommets de 32 octets : + leurs coordonnees)
+                        val tex = b.int; val md = b.int; val env = if (v2) b.int else 0
+                        val lm = if (v3) b.int else -1; val lk = if (v3) b.float else 0f; val n = b.int
+                        val pas = if (v3) 32 else 24
                         val al = md != 0
-                        val bb = ByteBuffer.allocateDirect(n * 24).order(ByteOrder.nativeOrder())
-                        val src = ByteArray(n * 24); b.get(src)
+                        val bb = ByteBuffer.allocateDirect(n * pas).order(ByteOrder.nativeOrder())
+                        val src = ByteArray(n * pas); b.get(src)
                         // (les flottants du fichier sont petit-boutistes : comme le processeur du telephone)
                         bb.put(src); bb.position(0)
-                        for (k in 0 until n step 17) { sx += bb.getFloat(k * 24); sy += bb.getFloat(k * 24 + 4); sz += bb.getFloat(k * 24 + 8); nn++
-                            ech.add(bb.getFloat(k * 24)); ech.add(bb.getFloat(k * 24 + 4)) }
-                        l.add(Groupe(tex, al, bb, n, if (v2) md else if (al) 2 else 0, env))
+                        for (k in 0 until n step 17) { sx += bb.getFloat(k * pas); sy += bb.getFloat(k * pas + 4); sz += bb.getFloat(k * pas + 8); nn++
+                            ech.add(bb.getFloat(k * pas)); ech.add(bb.getFloat(k * pas + 4)) }
+                        l.add(Groupe(tex, al, bb, n, if (v2) md else if (al) 2 else 0, env, lm, lk, pas))
                     }
-                    sansBleuSprites(l)
-                    adoucirEclairage(l)
+                    if (!v3) { sansBleuSprites(l); adoucirEclairage(l) }   // (R3V3 : les couleurs du jeu telles quelles, ombres comprises)
                     val ctr = if (nn > 0) floatArrayOf((sx / nn).toFloat(), (sy / nn).toFloat(), (sz / nn).toFloat()) else floatArrayOf(0f, 0f, 0f)
                     // rayon : 85 % des points du decor sont a moins de cette distance (au sol) du centre ; les objets tres lointains ne comptent pas
                     val ds = (0 until ech.size / 2).map { Math.hypot((ech[it * 2] - ctr[0]).toDouble(), (ech[it * 2 + 1] - ctr[1]).toDouble()).toFloat() }.sorted()
@@ -105,6 +109,10 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
                             if (chaud?.containsMatchIn(p[1]) == true) chauds.add(k) }
                         for (g in l) { g.eau = type[g.texture] ?: 0; g.chaud = g.texture in chauds }
                     }
+                    // R3V3 : <niveau>_anim.txt : groupe, defilement u et v par seconde
+                    java.io.File(d, nv + "_anim.txt").takeIf { it.exists() }?.readLines()?.forEach { li -> val p = li.trim().split(' ')
+                        val gi = p.getOrNull(0)?.toIntOrNull() ?: return@forEach; val du = p.getOrNull(1)?.toFloatOrNull() ?: 0f; val dv = p.getOrNull(2)?.toFloatOrNull() ?: 0f
+                        l.getOrNull(gi)?.defil = floatArrayOf(du, dv) }
                     // build 245 : objets (cages, lums, pouvoirs)
                     val fo = java.io.File(d, nv + "_obj.txt")
                     val obj = if (!fo.exists()) emptyList() else fo.readLines().mapNotNull { li ->
@@ -406,6 +414,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         return t[0]
     }
     private val quad: FloatBuffer = ByteBuffer.allocateDirect(32).order(ByteOrder.nativeOrder()).asFloatBuffer().put(floatArrayOf(-1f, -1f, 1f, -1f, -1f, 1f, 1f, 1f)).also { it.position(0) }
+    private var aUvL = -1; private var uLm = -1; private var uLmK = -1; private var uDefil = -1
+    private val lumieres = HashMap<Int, Int>()          // (R3V3 : textures des ombres, sans repetition)
     private var aPos = 0; private var aUv = 0; private var aCol = 0; private var uMvp = 0; private var uTex = 0; private var uAvecTex = 0; private var uCam = 0
     private var lPos = 0; private var lMvp = 0; private var lCoul = 0; private var lTaille = 0
     private val textures = HashMap<Int, Int>()
@@ -419,13 +429,13 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     }
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         prog = programme("""
-            uniform mat4 uMvp; uniform vec3 uCam; uniform vec3 uBrumeP; uniform float uT; uniform float uEau;
-            attribute vec3 aPos; attribute vec2 aUv; attribute vec4 aCol;
-            varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying float vBrume;
-            void main() { gl_Position = uMvp * vec4(aPos, 1.0); vCol = aCol;
-                // eau / lave : deux couches de la texture qui glissent en sens differents (ondulation)
+            uniform mat4 uMvp; uniform vec3 uCam; uniform vec3 uBrumeP; uniform float uT; uniform float uEau; uniform vec2 uDefil;
+            attribute vec3 aPos; attribute vec2 aUv; attribute vec4 aCol; attribute vec2 aUvL;
+            varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying float vBrume; varying vec2 vUvL;
+            void main() { gl_Position = uMvp * vec4(aPos, 1.0); vCol = aCol; vUvL = aUvL;
+                // eau / lave : deux couches de la texture qui glissent en sens differents (ondulation) ; R3V3 : le defilement du jeu
                 vec2 v = uEau > 0.5 ? vec2(uT * 0.035, uT * 0.021) : vec2(0.0);
-                vUv = aUv + v; vUv2 = aUv * 1.37 + vec2(-uT * 0.027, uT * 0.031);
+                vUv = aUv + v + uDefil; vUv2 = aUv * 1.37 + vec2(-uT * 0.027, uT * 0.031);
                 vBrume = clamp((distance(aPos, uCam) - uBrumeP.x) / uBrumeP.y, 0.0, uBrumeP.z); }""", """
             #ifdef GL_FRAGMENT_PRECISION_HIGH
             precision highp float;
@@ -433,11 +443,12 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             precision mediump float;
             #endif
             uniform sampler2D uTex; uniform float uAvecTex; uniform float uSeuil; uniform float uEau;
-            uniform vec3 uBrume; uniform vec3 uTeinteEau; uniform float uChaud;
-            varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying float vBrume;
+            uniform vec3 uBrume; uniform vec3 uTeinteEau; uniform float uChaud; uniform sampler2D uLm; uniform float uLmK;
+            varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying float vBrume; varying vec2 vUvL;
             void main() { vec4 t = uAvecTex > 0.5 ? texture2D(uTex, vUv) : vec4(1.0);
                 if (uEau > 0.5 && uAvecTex > 0.5) t = mix(t, texture2D(uTex, vUv2), 0.5);
                 vec4 c = t * vec4(vCol.rgb * 2.0, vCol.a);
+                if (uLmK > 0.0) c.rgb = min(c.rgb * texture2D(uLm, vUvL).rgb * uLmK, vec3(1.0));   // (ombres precalculees du jeu)
                 if (uEau > 0.5 && uEau < 1.5) { c.rgb *= uTeinteEau; c.a = min(1.0, c.a * 1.15 + 0.1); }
                 if (uEau > 1.5 && uEau < 2.5) c.rgb *= 1.3;
                 if (uEau > 2.5) { float l = dot(t.rgb, vec3(0.3, 0.59, 0.11));
@@ -446,6 +457,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 if (c.a < uSeuil) discard;
                 gl_FragColor = vec4(mix(c.rgb, uBrume, vBrume), c.a); }""")
         aPos = GLES20.glGetAttribLocation(prog, "aPos"); aUv = GLES20.glGetAttribLocation(prog, "aUv"); aCol = GLES20.glGetAttribLocation(prog, "aCol")
+        aUvL = GLES20.glGetAttribLocation(prog, "aUvL"); uLm = GLES20.glGetUniformLocation(prog, "uLm"); uLmK = GLES20.glGetUniformLocation(prog, "uLmK")
+        uDefil = GLES20.glGetUniformLocation(prog, "uDefil")
         uMvp = GLES20.glGetUniformLocation(prog, "uMvp"); uTex = GLES20.glGetUniformLocation(prog, "uTex")
         uAvecTex = GLES20.glGetUniformLocation(prog, "uAvecTex"); uCam = GLES20.glGetUniformLocation(prog, "uCam")
         uSeuil = GLES20.glGetUniformLocation(prog, "uSeuil")
@@ -471,7 +484,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         for (i in 0 until n) {
             GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vbo[i])
             val g = scene.groupes[i]; g.sommets.position(0)
-            GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, g.n * 24, g.sommets, GLES20.GL_STATIC_DRAW)
+            GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, g.n * g.pas, g.sommets, GLES20.GL_STATIC_DRAW)
         }
         // textures
         val aniso = (GLES20.glGetString(GLES20.GL_EXTENSIONS) ?: "").contains("texture_filter_anisotropic")
@@ -500,6 +513,21 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, if (g.enveloppe and 2 != 0) GLES20.GL_MIRRORED_REPEAT else GLES20.GL_REPEAT)
             if (aniso) GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, 0x84FE, 16f)   // (GL_TEXTURE_MAX_ANISOTROPY_EXT : nettete de biais)
             textures[g.texture] = t[0]
+        }
+        // R3V3 : les ombres precalculees (texture grise du jeu, une fois sur tout le circuit : pas de repetition)
+        lumieres.clear()
+        for (g in scene.groupes) {
+            if (g.lumiere < 0 || lumieres.containsKey(g.lumiere)) continue
+            val f = java.io.File(scene.dossier, scene.niveau + "_t" + String.format(java.util.Locale.ROOT, "%03d", g.lumiere) + ".png")
+            val bmp = android.graphics.BitmapFactory.decodeFile(f.path) ?: continue
+            val t = IntArray(1); GLES20.glGenTextures(1, t, 0)
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t[0])
+            GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bmp, 0); bmp.recycle()
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE)
+            lumieres[g.lumiere] = t[0]
         }
         GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         GLES20.glClearColor(amb.brume[0], amb.brume[1], amb.brume[2], 1f)
@@ -1465,7 +1493,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         GLES20.glUseProgram(prog)
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         GLES20.glUniform3f(uCam, ex, ey, ez)
-        GLES20.glUniform1i(uTex, 0)
+        GLES20.glUniform1i(uTex, 0); GLES20.glUniform1i(uLm, 1)
+        val tSec = ((System.nanoTime() - t0) / 1e9 % 2000.0)
         GLES20.glUniform1f(uTL, ((System.nanoTime() - t0) / 1e9 % 2000.0).toFloat())
         GLES20.glUniform3fv(uBrumeL, 1, amb.brume, 0); GLES20.glUniform3f(uBrumePL, amb.brumeDebut, amb.brumeLong, amb.brumeMax)
         GLES20.glUniform3fv(uTeinteL, 1, amb.eau, 0)
@@ -1483,16 +1512,25 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 val t = textures[g.texture]
                 GLES20.glUniform1f(uAvecTex, if (t != null) 1f else 0f)
                 if (t != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }
+                // R3V3 : ombres precalculees (2e texture, ses propres coordonnees) et defilement de la texture
+                val lt = if (g.lumiere >= 0) lumieres[g.lumiere] else null
+                GLES20.glUniform1f(uLmK, if (lt != null) g.lumiereK else 0f)
+                if (lt != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE1); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lt); GLES20.glActiveTexture(GLES20.GL_TEXTURE0) }
+                val du = g.defil[0]; val dv = g.defil[1]
+                GLES20.glUniform2f(uDefil, if (du != 0f) ((tSec * du) % 1.0).toFloat() else 0f, if (dv != 0f) ((tSec * dv) % 1.0).toFloat() else 0f)
                 GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vbo[i])
-                GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 24, 0)
-                GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, 24, 12)
-                GLES20.glVertexAttribPointer(aCol, 4, GLES20.GL_UNSIGNED_BYTE, true, 24, 20)
+                GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, g.pas, 0)
+                GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, g.pas, 12)
+                GLES20.glVertexAttribPointer(aCol, 4, GLES20.GL_UNSIGNED_BYTE, true, g.pas, 20)
+                if (aUvL >= 0) { if (g.pas >= 32) { GLES20.glEnableVertexAttribArray(aUvL); GLES20.glVertexAttribPointer(aUvL, 2, GLES20.GL_FLOAT, false, g.pas, 24) }
+                    else { GLES20.glDisableVertexAttribArray(aUvL); GLES20.glVertexAttrib2f(aUvL, 0f, 0f) } }
                 GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
             }
         }
         GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true)
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
-        GLES20.glDisableVertexAttribArray(aUv); GLES20.glDisableVertexAttribArray(aCol)
+        GLES20.glDisableVertexAttribArray(aUv); GLES20.glDisableVertexAttribArray(aCol); if (aUvL >= 0) GLES20.glDisableVertexAttribArray(aUvL)
+        GLES20.glUniform1f(uLmK, 0f); GLES20.glUniform2f(uDefil, 0f, 0f)
         // le chemin et Rayman (par-dessus)
         GLES20.glUseProgram(progL)
         GLES20.glUniformMatrix4fv(lMvp, 1, false, mvp, 0)
@@ -1885,7 +1923,7 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier, toucher: (Fl
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     vueRef[0]?.requestRender()
     // build 245 : l'eau et la lave bougent : on redessine environ 30 fois par seconde tant que la vue est affichee
-    if (scene.groupes.any { it.eau > 0 } || scene.objets.any { it.type in "jkvpc" } || etat.direct || etat.montrerRayman) androidx.compose.runtime.LaunchedEffect(Unit) {
+    if (scene.groupes.any { it.eau > 0 || it.defil[0] != 0f || it.defil[1] != 0f } || scene.objets.any { it.type in "jkvpc" } || etat.direct || etat.montrerRayman) androidx.compose.runtime.LaunchedEffect(Unit) {
         while (true) {
             if (etat.direct) androidx.compose.runtime.withFrameNanos { } else kotlinx.coroutines.delay(33)    // (build 269 : en direct, chaque image)
             vueRef[0]?.requestRender()
