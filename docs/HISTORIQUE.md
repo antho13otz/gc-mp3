@@ -24,6 +24,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 317 — Mario Kart : les effets en direct
+- Dans la vue 3D, chaque kart montre ses effets au moment où le jeu les déclenche : fumée des roues arrière quand il
+  dérape, étincelles (oranges puis bleues quand le mini-turbo monte), flamme du turbo (champignon, accélérateur) et
+  flamme bleue du mini-turbo, étincelles arc-en-ciel de l'étoile, traînée de flammes des boules de feu.
+- Lu dans KartBody : +0x574 (état : dérapage, étoile), +0x596 (turbo), +0x59E (mini-turbo), +0x5C7 (niveau du
+  mini-turbo), roues arrière +0xCE8 et +0xFC4 (décalages de la décompilation de MKDD ; la structure est vérifiée sur
+  11 photos de la mémoire, mais pas encore les valeurs pendant un dérapage ou une étoile). Ton kart par le direct, les
+  autres karts relus régulièrement.
+- Direct : la position du kart part en deux morceaux de 48 octets au lieu de 192 ; les 18 maillons du Chomp tiennent
+  maintenant tous dans l'abonnement (avant, les derniers manquaient en direct).
+
 ## Nouveautés v322 (build 831) et appli build 316 — Mario Kart en vrai direct, tout ancré à son kart
 - Pulse (v322) : l'appli peut s'abonner à des morceaux de la mémoire du jeu (jusqu'à 48 morceaux, 4,5 Ko) ; Pulse les
   envoie seul à chaque image du jeu (une sur deux au-delà de 1,4 Ko), sans attendre de question. L'abonnement s'arrête
