@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 321 — journal de bug de la vue 3D
+- Vue 3D en plein écran : bouton **🐞 Bug**. Un clic enregistre un `.zip` (Téléchargements/GC Remote) avec une capture
+  de la vue et le journal des dernières secondes : ce que Pulse a envoyé (matrices de ton kart, roues), ce que l'appli a
+  lu dans la mémoire (roues, kart au repos, objets) et ce qu'elle a dessiné (chaque kart, ses pièces, ses personnages,
+  les objets et s'ils sont tenus), plus l'appli, la scène, la caméra et les packs installés. Le partage s'ouvre
+  ensuite, pour l'envoyer.
+
 ## Nouveautés appli build 320 — Mario Kart : roues accrochées, plus d'effet élastique, objets en main
 - Les roues sont dessinées d'après le kart « au repos » (relu quand rien ne le secoue) et c'est l'appli qui les fait
   tourner ; tes roues avant braquent en direct. Avant, les roues arrière, relues de temps en temps, flottaient à côté
