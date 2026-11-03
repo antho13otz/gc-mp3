@@ -24,6 +24,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v328 (build 845) — Pulse : le direct compact
+
+- **Direct de l'appli (GCMS)** : 64 morceaux et 10 Ko par image (avant 48 et 4,5 Ko). Nouveau morceau « compact » pour les squelettes : la 1re matrice telle quelle, les suivantes en 18 octets au lieu de 48 (2 lignes de rotation × 16384 et la position × 4, relative, en nombres de 16 bits ; calcul sans flottants). Options « images paires » / « impaires seulement ».
+- **Place** : les fonctions rares du résident (démarrage, écriture sur la carte, journal de plantage, retour à GC Station, aiguillages) compilées en taille réduite : le résident finit à 0x817FF280 (3,2 Ko libres au lieu de 224 octets), sans prendre de mémoire au jeu.
+- Test du banc natif : emu_mem.py (compact, paires / impaires, limite de 10 Ko).
+
+## Nouveautés appli build 324 — Mario Kart : tous les karts animés
+
+- Avec Pulse v328 : les personnages des **autres karts** bougent à chaque image comme le tien (leurs squelettes en morceaux compacts, à la fin de l'abonnement : une Pulse plus ancienne s'arrête au premier et le reste marche comme avant).
+- Sans eux : entre deux lectures de leur pose, le téléphone **penche lui-même** les personnages dans les virages.
+
 ## Nouveautés appli build 323 — Mario Kart : la vue du jeu et son interface
 
 - **« 🎮 Vue du jeu »** (vue 3D plein écran, avec le direct de Pulse) : la caméra du jeu elle-même (KartCtrl +0x200 : matrice de vue en +0x80, angle de vue en +0x148), rejouée au même rythme que les karts ; en portrait, l'angle s'élargit pour garder la largeur de l'écran du jeu.
