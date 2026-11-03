@@ -534,6 +534,20 @@ static int sd_space(unsigned long long *tot, unsigned long long *fre) {
 /* v121 : lecture brute d'une autre carte que celle de GC Station (carte SD du GC Loader) */
 static int (*na_dev_rd)(u32 sec, void *buf) = NULL;
 static int na_rs(u32 sec, void *buf) { return na_dev_rd ? na_dev_rd(sec, buf) : na_rawsec(sec, buf); }
+#ifdef GEKKO
+/* v326 : carte en exFAT (FatFs) : les morceaux viennent de la carte des clusters de FatFs */
+static u32 na_xisec = 0;
+static int na_xcb(void *ctx, u32 sd, u32 cnt) {
+    (void)ctx;
+    if (na_next && na_ext[na_next - 1].sd + na_ext[na_next - 1].cnt == sd) na_ext[na_next - 1].cnt += cnt;
+    else {
+        if (na_next >= NATRES_MAXEXT) return -1;
+        na_ext[na_next].iso = na_xisec; na_ext[na_next].sd = sd; na_ext[na_next].cnt = cnt; na_next++;
+    }
+    na_xisec += cnt;
+    return 0;
+}
+#endif
 /* morceaux de l'ISO sur la carte ; 0 = OK */
 static int nat_map(const char *path, char *err, int cap) {
     static u8 b[512] ATTRIBUTE_ALIGN(32), fb[512] ATTRIBUTE_ALIGN(32);
@@ -541,6 +555,16 @@ static int nat_map(const char *path, char *err, int cap) {
     na_next = 0;
     if (sd_virtual && !na_dev_rd) { snprintf(err, cap, "Pas de vraie carte SD"); return -1; }
     if (stat(path, &st) != 0) { snprintf(err, cap, "Jeu introuvable"); return -1; }
+#ifdef GEKKO
+    if (exf_on && !na_dev_rd) {
+        na_xisec = 0;
+        int e = exf_extents(path, na_xcb, NULL);
+        if (e == -2) { snprintf(err, cap, "Jeu trop fragment\xC3\xA9 sur la carte (d\xC3\xA9" "fragmente-la)"); return -1; }
+        if (e) { snprintf(err, cap, "Carte exFAT : morceaux du jeu illisibles"); return -1; }
+        if (na_xisec < (u32)(((u64)st.st_size + 511) >> 9)) { snprintf(err, cap, "Fichier plus court que pr\xC3\xA9vu sur la carte"); return -1; }
+        return 0;
+    }
+#endif
     u32 clus = (u32)st.st_ino;
     u32 need = (u32)(((u64)st.st_size + 511) >> 9);
     /* partition FAT : secteur 0, sinon la 1re partition de la table (MBR) qui est en FAT */
@@ -1541,7 +1565,7 @@ static int nat_res_test(const char *path, long size, char *msg, int cap) {
     if ((u32)save < NATRES_AT + NATRES_SIZE && (u32)save + NATRES_SIZE > NATRES_AT) { free(save); snprintf(msg, cap, "M\xC3\xA9moire du r\xC3\xA9sident occup\xC3\xA9" "e"); return -1; }   /* (v52) */
     stop_track();
     bg_quiesce();                                         /* v96 : la lecture en fond (onglet JEUX) finit d'abord */
-    fatUnmount("sd");                                     /* (v52 : la FAT est ecrite sur la carte AVANT qu'on la prenne) */
+    sd_umount();                                     /* (v52 : la FAT est ecrite sur la carte AVANT qu'on la prenne) */
     u32 level = IRQ_Disable();                            /* (personne d'autre sur le bus EXI pendant le test) */
     memcpy(save, (void *)NATRES_AT, NATRES_SIZE);
     memset((void *)NATRES_AT, 0, NATRES_SIZE);
@@ -3574,7 +3598,7 @@ static const char *nat_boot(int k) {
     stop_track(); stop_station();
     AUDIO_StopDMA();
     bg_quiesce();                                         /* v96 : la lecture en fond finit avant le demontage */
-    fatUnmount("sd");
+    sd_umount();
     /* v89 : l'ecran dans le mode du jeu avant le saut (comme le fait Swiss) : PAL 576i, PAL 60 (EURGB60) ou
        NTSC 480i. Avant : le mode de GC Station (souvent 480p) restait, et certains jeux le reprenaient tel quel
        (Paper Mario : rouge et bleu inverses sur la prise numerique / adaptateur HDMI) */
@@ -3816,7 +3840,7 @@ static const char *nat_boot_drive(int k, int reset) {
     if (settings_dirty) save_settings();
     AUDIO_StopDMA();
     bg_quiesce();
-    fatUnmount("sd");
+    sd_umount();
     u32 vb = na_vi_bootrom(id);
     GXRModeObj *gm = vb == 1 ? &TVPal576IntDfScale : vb == 5 ? &TVEurgb60Hz480IntDf : &TVNtsc480IntDf;
     VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync();

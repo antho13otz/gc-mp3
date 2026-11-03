@@ -16,7 +16,8 @@ HELIX_SRC:= $(wildcard $(L)/helix/*.c)
 GME_SRC  := $(wildcard $(L)/gme/*.cpp)
 XMP_SRC  := $(wildcard $(L)/xmp/src/*.c) $(wildcard $(L)/xmp/src/loaders/*.c)
 WEBP_SRC := $(wildcard $(L)/webp/src/dec/*.c) $(wildcard $(L)/webp/src/dsp/*.c) $(wildcard $(L)/webp/src/utils/*.c)
-LIBOBJ   := $(patsubst $(L)/%.c,$(O)/%.o,$(MBED_SRC) $(HELIX_SRC) $(XMP_SRC) $(WEBP_SRC)) $(patsubst $(L)/%.cpp,$(O)/%.o,$(GME_SRC)) $(O)/gme/emu2413.o $(O)/codecs.o
+LIBOBJ   := $(patsubst $(L)/%.c,$(O)/%.o,$(MBED_SRC) $(HELIX_SRC) $(XMP_SRC) $(WEBP_SRC)) $(patsubst $(L)/%.cpp,$(O)/%.o,$(GME_SRC)) $(O)/gme/emu2413.o $(O)/codecs.o \
+            $(O)/fatfs/ff.o $(O)/fatfs/ffunicode.o $(O)/fatfs/ffsystem.o
 # v209 : Cube Browser (source/cb, MIT, Arial-Bold) : le navigateur de l'onglet WEB
 CB_SRC   := $(wildcard $(R)/source/cb/*.c)
 CB_OBJ   := $(patsubst $(R)/source/cb/%.c,$(O)/cb/%.o,$(CB_SRC))
@@ -50,6 +51,9 @@ $(O)/helix/%.o: $(L)/helix/%.c
 $(O)/gme/%.o: $(L)/gme/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) -O2 -w -DBLARGG_LITTLE_ENDIAN=1 -DVGM_YM2612_GENS -DUSE_GME_AY -DUSE_GME_GBS -DUSE_GME_GYM -DUSE_GME_HES -DUSE_GME_KSS -DUSE_GME_NSF -DUSE_GME_NSFE -DUSE_GME_SAP -DUSE_GME_SPC -DUSE_GME_VGM -DNDEBUG -I$(L)/gme -fwrapv -c $< -o $@
+$(O)/fatfs/%.o: $(R)/source/fatfs/%.c $(R)/source/fatfs/ffconf.h
+	@mkdir -p $(dir $@)
+	$(CC) -O2 -w -I$(R)/source/fatfs -c $< -o $@
 $(O)/gme/emu2413.o: $(L)/gme/ext/emu2413.c
 	@mkdir -p $(dir $@)
 	$(CC) -O2 -w -I$(L)/gme -c $< -o $@

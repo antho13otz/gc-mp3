@@ -42,3 +42,5 @@ Les noms GameCube et Nintendo appartiennent à Nintendo ; GC Station n'est ni fa
 Aucun jeu n'est fourni : uniquement des copies de tes propres disques.
 - **Natural Earth** (www.naturalearthdata.com) : carte du monde du globe des radios (terres et lacs 1:50m), domaine public.
 - **Cube Browser** (Arial-Bold, https://github.com/Arial-Bold/Cubebrowser), licence MIT : le navigateur de l'onglet WEB (`source/cb`, adapté pour GC Station ; licence dans `source/cb/LICENSE-CubeBrowser.txt`).
+- **FatFs** (ChaN, http://elm-chan.org/fsw/ff/), licence BSD à 1 clause : lecture des cartes SD en exFAT (`source/fatfs`, réglages dans `ffconf.h` ; licence dans `source/fatfs/LICENSE.txt`).
+- **Pilote W5500 de libogc2** (Extrems' Corner.org, https://github.com/extremscorner/libogc2), licence zlib : adaptateurs réseau ETH2SP1 / ETH2GC (`tools/netif`, adapté à la libogc de devkitPro).
