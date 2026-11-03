@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 338 — Wind Waker : Link en 3D, rubis, vrais noms
+
+- **Link en 3D dans le compagnon** (avec le nouveau pack Wind Waker) : son vrai modèle remplace le point rouge. Il est tourné comme dans le jeu et animé selon ce qu'il fait : attente, marche, course, nage.
+- **Les lieux sont plus complets** :
+  - ennemis, personnages, arbres, palmiers, pots, pierres et coffres sont posés à leur place ;
+  - l'éclairage vient des palettes du jeu ;
+  - les mouettes tournent au-dessus des îles.
+- **Rubis et quarts de cœur** : affichés, avec un filtre chacun.
+- **Les noms des îles** sont ceux du jeu français, par exemple Île de l'Aurore, Mercantîle, Archipel d'Orion ou Batodrome.
+
 ## Nouveautés appli build 336 — Wind Waker en 3D
 
 - **Fiche de Wind Waker, « les lieux en 3D »** : installe le pack Wind Waker (4 zips, textures agrandies x4). Le pack contient 164 lieux :
