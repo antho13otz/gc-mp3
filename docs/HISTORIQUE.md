@@ -24,6 +24,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v330 (build 848) — envoi vers l'appli, manette du téléphone
+
+- **Réglage « Envoi vers l'appli »** (Réglages > Salon et téléphone) : *Coupé* (rien vers l'appli : ni annonces ni réponses UDP, ni état préparé pour personne, ni lecture de la mémoire du jeu par Pulse), *Si l'appli est connectée* (par défaut : l'état n'est préparé que pour un téléphone abonné ou une demande récente ; /api/state le fait préparer à la demande), *Toujours* (comme avant). Sauvegardé (`envoi_appli`). La manette du téléphone, sa page web et le Salon marchent dans les trois cas.
+- **Plantage de la manette du téléphone corrigé** (PC 0x803449cc dans net_recvfrom, LR 0x801ae7a8 : pp_pump) : la réception des touches ne demande plus l'adresse de l'expéditeur, qui ne servait pas. Réception de l'appli (tpl_pump) : adresse remise à zéro avant, réponse seulement à un expéditeur connu.
+
+## Nouveautés appli build 326 — Mario Kart : les circuits comme dans le jeu
+
+- Nouveau format de pack **R3V3** : chaque surface garde ses deux textures du jeu (le sol et ses **ombres précalculées**), multipliées comme dans le jeu : la route du Désert Sec Sec et les contrastes du sable reviennent, comme sur tous les circuits.
+- **Textures animées** du jeu (fichiers .btk : eau, lave, flèches d'accélération…) : elles défilent dans la vue 3D.
+- Pack **mkdd-circuits-r3v3.zip** (fabriqué à part depuis le dossier Course du jeu, jamais dans l'appli) : 16 circuits et 6 arènes, avec les arbres, fleurs, palmiers, Pokeys et la grande roue posés à leur place.
+
 ## Nouveautés v329 (build 847) — Icônes des mini-jeux dans leur case
 
 - Onglet JEUX : chaque animation de mini-jeu est mise à l'échelle de sa case et ne déborde plus.
