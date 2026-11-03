@@ -68,7 +68,7 @@ int main(int argc, char **argv) {
     for (UINT j = 0; okr && j < g; j++) if (buf[j] != motif(1, 1234567 + j)) okr = 0;
     f_close(&r);
     OK(okr, "lecture au milieu d'un fichier");
-    DIR d; FILINFO fi; int n = 0, acc = 0;
+    FF_DIR d; FILINFO fi; int n = 0, acc = 0;
     if (f_opendir(&d, "/gc-mp3") == FR_OK) { while (f_readdir(&d, &fi) == FR_OK && fi.fname[0]) { n++; if (!strcmp(fi.fname, "r\xC3\xA9glages")) acc = 1; } f_closedir(&d); }
     OK(n == 2 && acc, "contenu d'un dossier (noms en UTF-8)");
     OK(f_rename("/gc-mp3/B.iso", "/gc-mp3/B2.iso") == FR_OK && f_stat("/gc-mp3/B2.iso", &fi) == FR_OK && fi.fsize == taille[1], "renommage");

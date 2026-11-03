@@ -6,8 +6,10 @@
    - un verrou global (exf_mx) : un seul fil a la fois dans FatFs (musique, jaquettes et ecran lisent en meme temps) ;
    - exf_extents : les morceaux d'un fichier sur la carte (secteurs), pour Pulse (le jeu lit la carte sans FatFs).
    Le coeur (exf_*) se compile aussi sur PC (tools/exfat-test) ; la table "sd:" (devoptab) seulement sur la console. */
+#define DIR FF_DIR                                         /* (le DIR de FatFs : DIR existe deja, dirent.h) */
 #include "fatfs/ff.h"
 #include "fatfs/diskio.h"
+#undef DIR
 
 static FATFS exf_fs;
 static int exf_on = 0;                                    /* 1 : la carte est montee par FatFs (exFAT) */
@@ -154,7 +156,7 @@ static int exf_extents(const char *path, int (*cb)(void *ctx, u32 sec, u32 n), v
 #include <sys/iosupport.h>
 #include <sys/statvfs.h>
 typedef struct { FIL f; } exf_file_t;
-typedef struct { DIR d; } exf_dir_t;
+typedef struct { FF_DIR d; } exf_dir_t;
 #define EXF_RET(r, v) do { int _e = exf_errno(r); exf_unlock(); if (_e) { rr->_errno = _e; return -1; } return (v); } while (0)
 
 static int exf_open_r(struct _reent *rr, void *fs, const char *path, int flags, int mode) {
