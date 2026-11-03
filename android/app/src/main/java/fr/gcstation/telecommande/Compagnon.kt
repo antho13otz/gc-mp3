@@ -510,7 +510,8 @@ object JeuMKDD {
     }
 
     // ---------------------------------------------------------------- le direct (Pulse : abonnement "GCMS")
-    /** morceau du direct : 0 kart (KartBody +0x110 puis +0x1A0 : 96 octets), 1 squelette, 2 Chomp (2 articulations), 3 maillon */
+    /** morceau du direct : 0 kart (KartBody +0x110, 48 octets), 5 sa carrosserie (+0x1A0, 48 octets), 4 etat de ton kart
+     *  (+0x574 a +0x5C8 : les effets), 1 squelette, 2 Chomp (2 articulations), 3 maillon */
     private class FM(val genre: Int, val n: Int, val rang: Int, val adr: Long, val lon: Int)
     @Volatile private var plan: List<FM> = emptyList()
     @Volatile private var fluxT = 0L
@@ -521,7 +522,9 @@ object JeuMKDD {
     @Volatile var chompAdr: LongArray? = null                     // (Chomp : articulations, puis les 18 maillons)
     private fun abonner() {
         val ks = kbs; val sq = squels; val l = ArrayList<FM>()
-        for (n in ks.indices) if (ks[n] != 0L) l.add(FM(0, n, 0, ks[n] + 0x110, 0xC0))
+        // (le kart en deux morceaux de 48 octets : 96 au lieu de 192, tout le Chomp tient avec)
+        for (n in ks.indices) if (ks[n] != 0L) { l.add(FM(0, n, 0, ks[n] + 0x110, 48)); l.add(FM(5, n, 0, ks[n] + 0x1A0, 48)) }
+        ks.getOrNull(0)?.takeIf { it != 0L }?.let { l.add(FM(4, 0, 0, it + 0x574, 0x54)) }
         for (rg in 0..1) sq.getOrNull(rg)?.takeIf { it != 0L }?.let { l.add(FM(1, 0, rg, it, MAX_ART * 48)) }
         chompAdr?.let { c -> l.add(FM(2, 0, 0, c[0], 96)); for (i in 1 until c.size) l.add(FM(3, i - 1, 0, c[i], 48)) }
         // (kart : 0x110 a 0x1D0 d'un coup ; trop gros : on garde ce qui tient dans 4,5 Ko, karts d'abord)
@@ -536,6 +539,7 @@ object JeuMKDD {
     }
     private fun f(b: ByteArray, o: Int): Float = java.lang.Float.intBitsToFloat(((b[o].toInt() and 255) shl 24) or ((b[o + 1].toInt() and 255) shl 16) or ((b[o + 2].toInt() and 255) shl 8) or (b[o + 3].toInt() and 255))
     private fun g32(b: ByteArray, o: Int): Long = ((b[o].toLong() and 255) shl 24) or ((b[o + 1].toLong() and 255) shl 16) or ((b[o + 2].toLong() and 255) shl 8) or (b[o + 3].toLong() and 255)
+    private fun u16(b: ByteArray, o: Int): Int = ((b[o].toInt() and 255) shl 8) or (b[o + 1].toInt() and 255)
     @Synchronized private fun recevoirFlux(b: ByteArray, n: Int) {
         val img = g32(b, 4); val pp = g32(b, 8); val part = (pp shr 16).toInt(); val parts = (pp and 0xFFFF).toInt(); val tot = g32(b, 12).toInt()
         if (parts !in 1..8 || part >= parts) return
@@ -551,13 +555,14 @@ object JeuMKDD {
     private fun decoder(d: ByteArray) {
         val pl = plan; if (pl.sumOf { it.lon } != d.size) return
         val t = System.nanoTime(); var o = 0
-        val dess = HashMap<Int, FloatArray>()
+        val dess = HashMap<Int, FloatArray>(); val brut = HashMap<Int, FloatArray>()
         var ch: FloatArray? = null
         for (m in pl) {
             when (m.genre) {
-                0 -> {
-                    val a = FloatArray(12) { f(d, o + 4 * it) }; val bb = FloatArray(12) { f(d, o + 0x90 + 4 * it) }
-                    if (a.all { it.isFinite() } && bb.all { it.isFinite() }) {
+                0 -> { val a = FloatArray(12) { f(d, o + 4 * it) }; if (a.all { it.isFinite() }) brut[m.n] = a }
+                4 -> effets[0] = EffT(g32(d, o), u16(d, o + 0x22), u16(d, o + 0x2A), d[o + 0x53].toInt() and 255, t)
+                5 -> { val a = brut[m.n]; val bb = FloatArray(12) { f(d, o + 4 * it) }
+                    if (a != null && bb.all { it.isFinite() }) {
                         val dd = matAffichee(a, bb); dess[m.n] = dd
                         if (m.n == 0) { matJoueur = a; matJoueurAff = dd }
                         else { val av = matsDirect[m.n]; matsDirect[m.n] = MatT(av?.b, av?.tb ?: t, dd, t) }
@@ -598,6 +603,35 @@ object JeuMKDD {
         }
         return r
     }
+    /** les effets d'un kart (KartBody) : +0x574 l'etat (bits 0-1 : derapage ; 0x40000 : etoile), +0x596 le turbo
+     *  (champignon, tremplin), +0x59E le mini-turbo, +0x5C7 le niveau du mini-turbo pendant le derapage (decalages de la
+     *  decompilation de MKDD, la structure verifiee sur les photos : +0x5A0 vaut 11, 21 ou 31 selon le poids du kart) */
+    class EffT(val etat: Long, val turbo: Int, val mini: Int, val niveau: Int, val t: Long) {
+        val derape get() = (etat and 3L) != 0L
+        val etoile get() = (etat and 0x40000L) != 0L
+    }
+    private val effets = java.util.concurrent.ConcurrentHashMap<Int, EffT>()
+    private val roues = java.util.concurrent.ConcurrentHashMap<Int, FloatArray>()
+    fun effet(n: Int): EffT? = effets[n]?.takeIf { System.nanoTime() - it.t < 1_500_000_000L }
+    /** roues arriere d'un kart dans son repere (gauche x y z, droite x y z) : KartBody +0xCE8 et +0xFC4 (matrices du monde) */
+    fun rouesArriere(n: Int): FloatArray? = roues[n]
+    /** de : premier kart lu (0 : tous, 1 : les autres) ; -1 : le tien seul */
+    private fun lireEffets(l: Lecteur, de: Int) {
+        val ks = kbs; val t = System.nanoTime()
+        for (n in (if (de < 0) 0..0 else de until ks.size)) {
+            val kb = ks.getOrNull(n) ?: continue; if (kb == 0L) continue
+            val cs = l.u32(kb + 0x574) ?: continue; val bt = l.u16(kb + 0x596) ?: continue
+            val mt = l.u16(kb + 0x59E) ?: continue; val nv = l.u8(kb + 0x5C7) ?: continue
+            effets[n] = EffT(cs, bt, mt, nv, t)
+            if (de >= 0 && roues[n] == null) {
+                val a = lire12(l, kb + 0x110) ?: continue; val g = lire12(l, kb + 0xCE8) ?: continue; val dr = lire12(l, kb + 0xFC4) ?: continue
+                val r = FloatArray(6)
+                for ((k, m) in listOf(g, dr).withIndex()) { val dx = m[3] - a[3]; val dy = m[7] - a[7]; val dz = m[11] - a[11]
+                    for (c in 0..2) r[k * 3 + c] = a[c] * dx + a[4 + c] * dy + a[8 + c] * dz }
+                if (r.all { it.isFinite() && Math.abs(it) < 300f }) roues[n] = r
+            }
+        }
+    }
     /** la matrice a dessiner d'un kart (KartBody +0x110 et +0x1A0), lue maintenant, pour y ramener ses articulations */
     private fun matDuMoment(l: Lecteur, kb: Long): FloatArray? {
         if (kb == 0L) return null
@@ -624,6 +658,7 @@ object JeuMKDD {
             MemoireJeu.ecouter(20)
             if (direct()) {
                 if (++tourObjets % 3 == 0) lireObjets(Lecteur(64, 0))
+                if (tourObjets % 8 == 1) lireEffets(Lecteur(4 * ks.size, 0), 0)
                 if (++tourPoses % 6 == 0) { val sq = squels; val lp = Lecteur(9 * ks.size, 0)
                     for (n in 1 until minOf(ks.size, sq.size / 2)) { val dd = matDuMoment(lp, ks[n]) ?: continue
                         for (rg in 0..1) { val adr = sq[n * 2 + rg]; if (adr == 0L) continue
@@ -642,6 +677,7 @@ object JeuMKDD {
             matsDirect[n] = MatT(av?.b, av?.tb ?: t, m, t)
         }
         if (tourObjets % 2 == 0) lireChomp(Lecteur(16, 0))
+        lireEffets(Lecteur(if (tourObjets % 8 == 1) 4 * ks.size else 3, 0), if (tourObjets % 8 == 1) 0 else -1)
         if (++tourObjets % 3 == 0) lireObjets(Lecteur(64, 0))       // (son propre budget : avant, celui des karts, et les objets en trop disparaissaient)
         val sq = squels; val tous = (++tourPoses % 6) == 0
         val lp = Lecteur(10 + (if (tous) 9 * ks.size else 0), 0)
@@ -942,6 +978,7 @@ object JeuMKDD {
                 points = if (mode == 6) (l.s16(k + 0xA6) ?: -1).takeIf { it in 0..99 } ?: -1 else -1, mat = mt,
                 echange = kb != null && (l.u8(kb + 0x5B2) ?: 0) != 0))
         }
+        if (!kbsN.contentEquals(kbs)) { roues.clear(); effets.clear() }        // (autres karts : leurs roues seront relues)
         kbs = kbsN; squels = sqN
         val s0 = l.ptr(kc + 0x44) ?: l.ptr(kc + 0x40)               // (troncon ou se trouve le kart 1)
         if (s0 != null && (crs != dernierCircuit || (trace.isEmpty() && maintenant - essai > 3000))) {
