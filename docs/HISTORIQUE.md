@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 323 — Mario Kart : la vue du jeu et son interface
+
+- **« 🎮 Vue du jeu »** (vue 3D plein écran, avec le direct de Pulse) : la caméra du jeu elle-même (KartCtrl +0x200 : matrice de vue en +0x80, angle de vue en +0x148), rejouée au même rythme que les karts ; en portrait, l'angle s'élargit pour garder la largeur de l'écran du jeu.
+- **Interface du jeu** sur la vue 3D plein écran : tour, place, les deux objets de ton équipe, temps du tour précédent puis temps total à l'arrivée.
+- Ton kart est dessiné à sa vraie place rejouée (plus de lissage à part, qui le faisait flotter un peu).
+- Console inchangée.
+
 ## Nouveautés appli build 322 — Mario Kart : fluide comme le jeu
 - Le direct est **rejoué au rythme du jeu** : chaque image reçue garde son numéro d'image du jeu, et l'appli les montre
   dans l'ordre, à la cadence du jeu (50 ou 60 Hz, mesurée), avec un retard fixe d'environ 70 ms (4 images). Les à-coups
