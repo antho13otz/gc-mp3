@@ -99,7 +99,7 @@ build/cb/%.o: source/cb/%.c $(wildcard source/cb/*.h) source/gc_tls_config.h
 
 # v326 : FatFs (ChaN, licence BSD a 1 clause) : cartes SD en exFAT (source/exfat_sd.c)
 FATFS_OBJ:= build/fatfs/ff.o build/fatfs/ffunicode.o build/fatfs/ffsystem.o
-build/fatfs/%.o: source/fatfs/%.c source/fatfs/ffconf.h source/fatfs/ff.h
+build/fatfs/%.o: source/fatfs/%.c source/fatfs/ffconf.h source/fatfs/ff.h source/fatfs/ff_prefix.h
 > @mkdir -p build/fatfs
 > $(CC) -O2 $(MACHDEP) -fno-asynchronous-unwind-tables -fno-unwind-tables -Isource/fatfs -w -c $< -o $@
 

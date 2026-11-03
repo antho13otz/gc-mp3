@@ -51,7 +51,7 @@ $(O)/helix/%.o: $(L)/helix/%.c
 $(O)/gme/%.o: $(L)/gme/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) -O2 -w -DBLARGG_LITTLE_ENDIAN=1 -DVGM_YM2612_GENS -DUSE_GME_AY -DUSE_GME_GBS -DUSE_GME_GYM -DUSE_GME_HES -DUSE_GME_KSS -DUSE_GME_NSF -DUSE_GME_NSFE -DUSE_GME_SAP -DUSE_GME_SPC -DUSE_GME_VGM -DNDEBUG -I$(L)/gme -fwrapv -c $< -o $@
-$(O)/fatfs/%.o: $(R)/source/fatfs/%.c $(R)/source/fatfs/ffconf.h
+$(O)/fatfs/%.o: $(R)/source/fatfs/%.c $(R)/source/fatfs/ffconf.h $(R)/source/fatfs/ff.h $(R)/source/fatfs/ff_prefix.h
 	@mkdir -p $(dir $@)
 	$(CC) -O2 -w -I$(R)/source/fatfs -c $< -o $@
 $(O)/gme/emu2413.o: $(L)/gme/ext/emu2413.c

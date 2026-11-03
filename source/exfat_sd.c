@@ -5,6 +5,7 @@
    - les acces passent par sd_io_read / sd_io_write (meme verrou que libfat et les lectures directes) ;
    - un verrou global (exf_mx) : un seul fil a la fois dans FatFs (musique, jaquettes et ecran lisent en meme temps) ;
    - exf_extents : les morceaux d'un fichier sur la carte (secteurs), pour Pulse (le jeu lit la carte sans FatFs).
+   Cartes jusqu'a 2 To (secteurs en 32 bits) ; essai sur PC avec une carte exFAT de 1 To (tools/exfat-test).
    Le coeur (exf_*) se compile aussi sur PC (tools/exfat-test) ; la table "sd:" (devoptab) seulement sur la console. */
 #define DIR FF_DIR                                         /* (le DIR de FatFs : DIR existe deja, dirent.h) */
 #include "fatfs/ff.h"

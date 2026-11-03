@@ -78,6 +78,41 @@ int main(int argc, char **argv) {
     exf_umount();
     OK(exf_mount_io(rd, wr) && f_stat(nom[0], &fi) == FR_OK && fi.fsize == taille[0], "remontage : fichiers toujours la");
     exf_umount(); fclose(img);
+    /* v326 : carte de 1 To en exFAT (image creuse) : montage, place libre, et un jeu tout au bout de la carte
+       (secteurs proches de 1 953 000 000 : les calculs de secteurs en 32 bits tiennent) */
+    if (argc > 2) {
+        img = fopen(argv[2], "w+b"); if (!img) return 1;
+        const u32 big = 1953125000u;                                     /* (1 To = 10^12 octets) */
+        fseek(img, (long)big * 512 - 1, SEEK_SET); fputc(0, img); fflush(img);
+        exf_rd = rd; exf_wr = wr; exf_nsec = big;
+        MKFS_PARM o2 = { FM_EXFAT, 0, 0, 0, 0 };                          /* (taille des clusters choisie par FatFs) */
+        OK(f_mkfs("", &o2, work, sizeof(work)) == FR_OK, "1 To : image exFAT creee");
+        exf_rd = NULL; exf_wr = NULL;
+        OK(exf_mount_io(rd, wr), "1 To : montage");
+        char m[160];
+        snprintf(m, sizeof(m), "1 To : %u clusters de %u Ko", (unsigned)(exf_fs.n_fatent - 2), (unsigned)(exf_fs.csize / 2));
+        OK(exf_fs.n_fatent > 1000, m);
+        DWORD fr2 = 0; FATFS *fs2; clock_t c0 = clock();
+        int okf = f_getfree("", &fr2, &fs2) == FR_OK && fr2 > exf_fs.n_fatent - 100;
+        snprintf(m, sizeof(m), "1 To : place libre lue (%.0f Go, %.2f s sur PC)", (double)fr2 * exf_fs.csize * 512 / 1e9, (double)(clock() - c0) / CLOCKS_PER_SEC);
+        OK(okf, m);
+        exf_fs.last_clst = exf_fs.n_fatent - 5000;                       /* (le prochain fichier : au bout de la carte) */
+        static FIL g; UINT w; int okw2 = f_open(&g, "/Jeu au bout.iso", FA_WRITE | FA_CREATE_ALWAYS) == FR_OK;
+        u64 tg = 40u * 1000 * 1000;
+        for (u64 at = 0; okw2 && at < tg; at += sizeof(buf)) {
+            u64 n = tg - at < sizeof(buf) ? tg - at : sizeof(buf);
+            for (u64 j = 0; j < n; j++) buf[j] = motif(7, at + j);
+            okw2 = f_write(&g, buf, (UINT)n, &w) == FR_OK && w == n;
+        }
+        okw2 &= f_close(&g) == FR_OK;
+        OK(okw2, "1 To : 40 Mo ecrits au bout de la carte");
+        got = 0; runs = 0; cur_f = 7; u64 sz = tg; u32 first = 0;
+        int e = exf_extents("/Jeu au bout.iso", cb, &sz);
+        { static FIL h; DWORD t2[8]; h.cltbl = NULL; if (f_open(&h, "/Jeu au bout.iso", FA_READ) == FR_OK) { h.cltbl = t2; t2[0] = 8; if (f_lseek(&h, CREATE_LINKMAP) == FR_OK) first = (u32)(exf_fs.database + (LBA_t)(t2[2] - 2) * exf_fs.csize); h.cltbl = NULL; f_close(&h); } }
+        snprintf(m, sizeof(m), "1 To : morceaux du fichier = son contenu (1er secteur %u)", first);
+        OK(e == 0 && got == (tg + 511) / 512 && first > 1900000000u, m);
+        exf_umount(); fclose(img); remove(argv[2]);
+    }
     printf(fails ? "DES TESTS ONT ECHOUE (%d)\n" : "TOUT OK\n", fails);
     return fails != 0;
 }
