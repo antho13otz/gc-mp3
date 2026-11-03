@@ -187,66 +187,82 @@ static void games_tab_input(u32 down, u32 nav, int fire) {
     if ((down & PAD_BUTTON_Y) && src == SRC_FILE && playing) paused = !paused;
     if (down & PAD_BUTTON_B) { stop_track(); stop_station(); }
 }
-static void gm_icon(int g, f32 cx, f32 cy, f32 t) {
+/* v329 : icone dessinee dans une case de 2*hw x 2*hh autour de (cx, cy) : tout est a l'echelle k (dessins prevus pour une
+   case de 68 x 40) ; en 4 colonnes la case est plus etroite et les icones debordaient sur le nom du jeu ou le bord */
+#define GX_(d) (cx + k * (d))
+#define GY_(d) (cy + k * (d))
+#define GK_(v) (k * (v))
+static void gm_icon(int g, f32 cx, f32 cy, f32 t, f32 hw, f32 hh) {
     col_t w = RGBA(255, 255, 255, 235);
+    f32 k = hw / 34.0f; if (hh / 22.0f < k) k = hh / 22.0f; if (k > 1.0f) k = 1.0f;
     switch (g) {
     case GM_KARAOKE:                                               /* micro */
-        gx_ellipse(cx, cy - 8, 9, 11, RGBA(230, 230, 250, 255), RGBA(150, 150, 190, 255));
-        gx_rect(cx - 2, cy + 3, 4, 16, w); gx_rect(cx - 8, cy + 18, 16, 3, w); break;
+        gx_ellipse(GX_(0), GY_(-8), GK_(9), GK_(11), RGBA(230, 230, 250, 255), RGBA(150, 150, 190, 255));
+        gx_rect(GX_(-2), GY_(3), GK_(4), GK_(14), w); gx_rect(GX_(-8), GY_(16), GK_(16), GK_(3), w); break;
     case GM_RHYTHM:
-        for (int i = 0; i < 4; i++) gx_circle(cx - 24 + i * 16, cy + 6 - 10 * sinf(t * 3 + i), 6, lane_top[i], lane_bot[i]);
+        for (int i = 0; i < 4; i++) gx_circle(GX_(-24 + i * 16), GY_(4 - 9 * sinf(t * 3 + i)), GK_(6), lane_top[i], lane_bot[i]);
         break;
-    case GM_QUIZ: fun_shadow_text(F_LARGE, cx, cy + 14, "?", 2.0f, RGBA(255, 220, 90, 255)); break;
-    case GM_SNAKE: case GM_SNAKE2:
-        for (int i = 0; i < 6; i++) gx_circle(cx - 25 + i * 9, cy + 6 * sinf(t * 4 + i * 0.8f), 5, hsv(120 + i * 12, 0.6f, 1, 255), hsv(140 + i * 12, 0.9f, 0.6f, 255));
-        if (g == GM_SNAKE2) gx_rrect_stroke(cx - 34, cy - 20, 68, 40, 6, 1.2f, RGBA(255, 255, 255, 90));
+    case GM_QUIZ: fun_shadow_text(F_LARGE, cx, GY_(14), "?", 2.0f * k, RGBA(255, 220, 90, 255)); break;
+    case GM_SNAKE:
+        for (int i = 0; i < 6; i++) gx_circle(GX_(-25 + i * 10), GY_(6 * sinf(t * 4 + i * 0.8f)), GK_(5), hsv(120 + i * 12, 0.6f, 1, 255), hsv(140 + i * 12, 0.9f, 0.6f, 255));
+        break;
+    case GM_SNAKE2:                                                /* (sans murs : le serpent sort d'un cote et revient de l'autre) */
+        for (int i = 0; i < 6; i++) {
+            f32 px = fmodf(t * 18 + i * 10, 60.0f) - 30;
+            u8 al = (px > 26 || px < -26) ? 110 : 255;           /* (au bord : il passe de l'autre cote) */
+            col_t c1 = hsv(170 + i * 12, 0.6f, 1, al), c2 = hsv(190 + i * 12, 0.9f, 0.6f, al);
+            gx_circle(GX_(px), GY_(5 * sinf(t * 4 + i * 0.8f)), GK_(5), c1, c2);
+        }
         break;
     case GM_BRICKS:
-        for (int r = 0; r < 2; r++) for (int c = 0; c < 4; c++) gx_rrect_fill(cx - 32 + c * 16, cy - 18 + r * 9, 14, 7, 2, hsv(r * 60 + c * 20, 0.6f, 1, 255), hsv(r * 60 + c * 20, 0.9f, 0.6f, 255));
-        gx_rrect_fill(cx - 14 + 10 * sinf(t * 2), cy + 14, 28, 5, 2, w, w);
-        gx_circle(cx + 6 * sinf(t * 3), cy + 4, 3.5f, w, w); break;
+        for (int r = 0; r < 2; r++) for (int c = 0; c < 4; c++) gx_rrect_fill(GX_(-31 + c * 16), GY_(-18 + r * 9), GK_(14), GK_(7), 2, hsv(r * 60 + c * 20, 0.6f, 1, 255), hsv(r * 60 + c * 20, 0.9f, 0.6f, 255));
+        gx_rrect_fill(GX_(-14 + 10 * sinf(t * 2)), GY_(12), GK_(28), GK_(5), 2, w, w);
+        gx_circle(GX_(6 * sinf(t * 3)), GY_(3), GK_(3.5f), w, w); break;
     case GM_PONG:
-        gx_rect(cx - 30, cy - 12 + 6 * sinf(t * 2), 4, 22, RGBA(140, 200, 255, 255));
-        gx_rect(cx + 26, cy - 12 - 6 * sinf(t * 2), 4, 22, RGBA(255, 150, 170, 255));
-        gx_circle(cx + 20 * sinf(t * 2.5f), cy, 4, w, w); break;
+        gx_rect(GX_(-30), GY_(-11 + 6 * sinf(t * 2)), GK_(4), GK_(22), RGBA(140, 200, 255, 255));
+        gx_rect(GX_(26), GY_(-11 - 6 * sinf(t * 2)), GK_(4), GK_(22), RGBA(255, 150, 170, 255));
+        gx_circle(GX_(20 * sinf(t * 2.5f)), cy, GK_(4), w, w); break;
     case GM_FLAPPY:
-        gx_ellipse(cx - 8, cy + 4 * sinf(t * 5), 10, 8, RGBA(255, 245, 170, 255), RGBA(255, 190, 60, 255));
-        gx_rect(cx + 1, cy - 20 + 4 * sinf(t * 5), 3, 22, RGBA(255, 220, 120, 255));
-        gx_rect(cx + 20, cy - 26, 10, 16, RGBA(120, 200, 140, 255)); gx_rect(cx + 20, cy + 12, 10, 14, RGBA(120, 200, 140, 255)); break;
+        gx_ellipse(GX_(-14), GY_(4 * sinf(t * 5)), GK_(10), GK_(8), RGBA(255, 245, 170, 255), RGBA(255, 190, 60, 255));
+        gx_rect(GX_(-5), GY_(-18 + 4 * sinf(t * 5)), GK_(3), GK_(20), RGBA(255, 220, 120, 255));
+        gx_rect(GX_(16), GY_(-20), GK_(10), GK_(14), RGBA(120, 200, 140, 255)); gx_rect(GX_(16), GY_(8), GK_(10), GK_(12), RGBA(120, 200, 140, 255)); break;
     case GM_DUEL: {                                                /* v235 : signal rouge / vert */
         int go = ((int)(t * 1.2f)) % 3 == 2;
-        gx_circle(cx, cy, 17, go ? RGBA(120, 255, 160, 255) : RGBA(220, 60, 80, 255), go ? RGBA(30, 170, 80, 255) : RGBA(90, 15, 30, 255));
-        if (go) fun_shadow_text(F_SMALL, cx, cy + 5, "!", 1.4f, RGBA(255, 255, 255, 255));
+        gx_circle(cx, cy, GK_(17), go ? RGBA(120, 255, 160, 255) : RGBA(220, 60, 80, 255), go ? RGBA(30, 170, 80, 255) : RGBA(90, 15, 30, 255));
+        if (go) fun_shadow_text(F_SMALL, cx, GY_(5), "!", 1.4f * k, RGBA(255, 255, 255, 255));
         break; }
     case GM_RACE:
-        for (int i = 0; i < 3; i++) { f32 p = fmodf(t * (0.5f + i * 0.13f), 1.0f); gx_circle(cx - 28 + p * 56, cy - 12 + i * 12, 5, qz_pcol[i], qz_pcol[i]); }
-        for (int k = 0; k < 4; k++) gx_rect(cx + 30 + (k & 1) * 3, cy - 18 + k * 9, 3, 9, w);
+        for (int i = 0; i < 3; i++) { f32 p = fmodf(t * (0.5f + i * 0.13f), 1.0f); gx_circle(GX_(-28 + p * 50), GY_(-12 + i * 12), GK_(5), qz_pcol[i], qz_pcol[i]); }
+        for (int q = 0; q < 4; q++) gx_rect(GX_(26 + (q & 1) * 3), GY_(-18 + q * 9), GK_(3), GK_(9), w);
         break;
     case GM_BUBBLES:
-        for (int i = 0; i < 4; i++) { f32 y = cy + 14 - fmodf(t * 18 + i * 11, 36); gx_circle(cx - 20 + i * 13, y, 5 + (i & 1) * 2, RGBA(150, 220, 255, 90), RGBA(150, 220, 255, 220)); }
-        gx_rrect_stroke(cx + 6, cy - 8, 16, 16, 8, 1.5f, RGBA(255, 215, 90, 255));
+        for (int i = 0; i < 4; i++) { f32 y = 14 - fmodf(t * 18 + i * 11, 32); gx_circle(GX_(-24 + i * 13), GY_(y), GK_(5 + (i & 1) * 2), RGBA(150, 220, 255, 90), RGBA(150, 220, 255, 220)); }
+        gx_rrect_stroke(GX_(8), GY_(-8), GK_(16), GK_(16), GK_(8), 1.5f, RGBA(255, 215, 90, 255));
         break;
     case GM_TRON:                                                  /* traces de motos */
-        gx_rect(cx - 24, cy + 6, 26, 4, qz_pcol[0]); gx_rect(cx, cy - 12, 4, 22, qz_pcol[0]);
-        gx_rect(cx + 2, cy - 14, 22, 4, qz_pcol[1]); gx_circle(cx + 26, cy - 12, 4, w, w);
+        gx_rect(GX_(-28), GY_(6), GK_(26), GK_(4), qz_pcol[0]); gx_rect(GX_(-4), GY_(-12), GK_(4), GK_(22), qz_pcol[0]);
+        gx_rect(GX_(-2), GY_(-14), GK_(22), GK_(4), qz_pcol[1]); gx_circle(GX_(22), GY_(-12), GK_(4), w, w);
         break;
     case GM_HOCKEY:
-        gx_circle(cx - 14, cy, 10, qz_pcol[0], RGBA(60, 90, 130, 255)); gx_circle(cx + 14, cy, 10, qz_pcol[1], RGBA(130, 60, 70, 255));
-        gx_circle(cx + sinf(t * 3) * 6, cy + 10, 5, RGBA(40, 40, 50, 255), RGBA(10, 10, 16, 255));
+        gx_circle(GX_(-14), cy, GK_(10), qz_pcol[0], RGBA(60, 90, 130, 255)); gx_circle(GX_(14), cy, GK_(10), qz_pcol[1], RGBA(130, 60, 70, 255));
+        gx_circle(GX_(sinf(t * 3) * 6), GY_(10), GK_(5), RGBA(40, 40, 50, 255), RGBA(10, 10, 16, 255));
         break;
     case GM_P4:
-        gx_rrect_fill(cx - 22, cy - 16, 44, 32, 6, RGBA(40, 70, 210, 255), RGBA(22, 40, 140, 255));
-        for (int i = 0; i < 6; i++) gx_circle(cx - 13 + (i % 3) * 13, cy - 7 + (i / 3) * 14, 5, i % 2 ? qz_pcol[3] : qz_pcol[1], RGBA(20, 20, 40, 255));
+        gx_rrect_fill(GX_(-22), GY_(-16), GK_(44), GK_(32), GK_(6), RGBA(40, 70, 210, 255), RGBA(22, 40, 140, 255));
+        for (int i = 0; i < 6; i++) gx_circle(GX_(-13 + (i % 3) * 13), GY_(-7 + (i / 3) * 14), GK_(5), i % 2 ? qz_pcol[3] : qz_pcol[1], RGBA(20, 20, 40, 255));
         break;
     case GM_SUMO:
-        gx_circle(cx, cy, 20, RGBA(232, 206, 156, 255), RGBA(190, 150, 100, 255));
-        gx_circle(cx - 7, cy, 7, qz_pcol[0], qz_pcol[0]); gx_circle(cx + 7, cy, 7, qz_pcol[1], qz_pcol[1]);
+        gx_circle(cx, cy, GK_(20), RGBA(232, 206, 156, 255), RGBA(190, 150, 100, 255));
+        gx_circle(GX_(-7), cy, GK_(7), qz_pcol[0], qz_pcol[0]); gx_circle(GX_(7), cy, GK_(7), qz_pcol[1], qz_pcol[1]);
         break;
     default:
-        for (int i = 0; i < 4; i++) { int on = ((int)(t * 2)) % 4 == i; gx_circle(cx + (i % 2 ? 11 : -11), cy + (i < 2 ? 9 : -9), 9, on ? lane_top[i] : lane_bot[i], lane_bot[i]); }
+        for (int i = 0; i < 4; i++) { int on = ((int)(t * 2)) % 4 == i; gx_circle(GX_(i % 2 ? 11 : -11), GY_(i < 2 ? 9 : -9), GK_(9), on ? lane_top[i] : lane_bot[i], lane_bot[i]); }
         break;
     }
 }
+#undef GX_
+#undef GY_
+#undef GK_
 /* v110 : Aurore : carte en verre ; la choisie : la selection en degrade (qui glisse) */
 static void gm_au_card(f32 x, f32 y, f32 w, f32 h, f32 r, int on) {
     nv_raw = 1;
@@ -307,7 +323,7 @@ static void draw_tab_games(void) {
         }
         int cmp = ch < 60;
         const f32 ix = GM_COLS > 3 ? 30 : 42, tx = GM_COLS > 3 ? 62 : 82;   /* (v279 : 4 colonnes : icone et texte plus serres) */
-        gm_icon(g, x + ix, y + ch / 2, t);
+        gm_icon(g, x + ix, y + ch / 2, t, ix - 4, ch / 2 - 5);     /* v329 : dans sa case (avant : debordait sur le nom et le bord) */
         fit_text_sel(on, F_MED, gm_names[g], (int)(cw - tx - 6), buf, sizeof(buf));
         gx_text1(F_MED, x + tx, y + (cmp ? 21 : 26), buf, RGBA(255, 255, 255, 255));
         char rec[32] = "";
