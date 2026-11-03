@@ -146,7 +146,7 @@ static u32 sd_cmd(u32 cmd, u32 arg, u32 crc) {  /* envoie la commande, rend la r
 static int nr_read_sd(u32 sector, void *dst);
 static u8 t_ref[512] __attribute__((aligned(32))), t_buf[512] __attribute__((aligned(32)));
 static int t_same(void) { for (int i = 0; i < 512; i++) if (t_ref[i] != t_buf[i]) return 0; return 1; }
-static void nr_speed(void) {
+static MEM_OS void nr_speed(void) {
     static int tried = 0;
     u32 sec = H.n_ext ? ext_tab[0].sd : 0;
     if (!crc_tab[1]) crc_init();
@@ -281,14 +281,14 @@ static int nr_read_multi(u32 sector, u32 count, u8 *o) {
 
 /* v54 : ecrire un secteur (CMD24) : seulement le journal, dans un fichier prepare par GC Station */
 static int nr_write_sd1(u32 sector, const u8 *s);
-static int nr_write_sd(u32 sector, const u8 *s) {       /* v94 : ecriture toujours a 16 MHz au plus (pas de CRC verifie) */
+static MEM_OS int nr_write_sd(u32 sector, const u8 *s) {       /* v94 : ecriture toujours a 16 MHz au plus (pas de CRC verifie) */
     u32 f = freq;
     if (freq > 4) freq = 4;
     int r = nr_write_sd1(sector, s);
     freq = f;
     return r;
 }
-static int nr_write_sd1(u32 sector, const u8 *s) {
+static MEM_OS int nr_write_sd1(u32 sector, const u8 *s) {
     u32 r = sd_cmd(24, H.sdhc ? sector : sector << 9, 0x01);
     if (r != 0) { sd_end(); return -1; }
     ex_put(0xFF000000u, 1);
@@ -884,41 +884,77 @@ static MEM_OS void mem_blocks(natres_pad_t *p, u32 seq, u32 a, u32 n) {
    L'appli s'abonne a des morceaux de la memoire du jeu (karts, personnages...) : {"GCMS", numero, n, periode, 0, puis n x
    {adresse, longueur}} (48 morceaux, 4,5 Ko en tout au plus ; a renouveler : sans nouvelles depuis 3 s, l'envoi s'arrete).
    Toutes les "periode" images, Pulse envoie ces morceaux a la suite, en paquets {"GCMS", image, morceau << 16 | morceaux,
-   taille totale, donnees (1400 octets au plus)} : l'appli recoit tout ce qui bouge a chaque image, sans le demander. */
-#define MS_MAX 48
-#define MS_TOT 4608u
+   taille totale, donnees (1400 octets au plus)} : l'appli recoit tout ce qui bouge a chaque image, sans le demander.
+   v328 : 64 morceaux, 10 Ko envoyes par image au plus ; options dans le haut de la longueur : bit 31 « compact » (des
+   matrices 3 x 4 : la 1re telle quelle, les suivantes en 9 nombres de 16 bits, voir ms_mat), bit 30 seulement aux images
+   paires, bit 29 seulement aux impaires. (Une Pulse plus ancienne s'arrete au 1er morceau compact : l'appli les met a la fin.) */
+#define MS_MAX 64
+#define MS_TOT 10240u
 #define MS_PAQ 1400u
-static u32 ms_a[MS_MAX], ms_n = 0, ms_tot = 0, ms_per = 1, ms_tb = 0;
-static unsigned short ms_l[MS_MAX];
+static u32 ms_a[MS_MAX], ms_n = 0, ms_per = 1, ms_tb = 0;
+static unsigned short ms_l[MS_MAX];                       /* (longueur, et les options en bits 13 a 15) */
+static MEM_OS u32 ms_out(u32 l) { return l >> 15 ? 48u + ((l & 0x1FFFu) / 48u - 1u) * 18u : l & 0x1FFFu; }
 static MEM_OS void ms_req(const u8 *d, u32 dispo) {
-    u32 n = pn_be32(d + 8), per = pn_be32(d + 12);
-    ms_n = 0; ms_tot = 0;
+    u32 n = pn_be32(d + 8), per = pn_be32(d + 12), tot = 0;
+    ms_n = 0;
     if (n > MS_MAX) n = MS_MAX;
     for (u32 i = 0; i < n && 20 + 8 * i + 8 <= dispo; i++) {
-        u32 a = pn_be32(d + 20 + 8 * i), l = pn_be32(d + 24 + 8 * i);
-        if (!l || l > MS_TOT || !mem_ok(a, l) || ms_tot + l > MS_TOT) break;
-        ms_a[ms_n] = a; ms_l[ms_n] = (unsigned short)l; ms_n++; ms_tot += l;
+        u32 a = pn_be32(d + 20 + 8 * i), l = pn_be32(d + 24 + 8 * i), f = l >> 29;
+        l &= 0xFFFFu;
+        if (f & 4 && (l % 48u || a & 3)) f &= 3;           /* (compact : des matrices entieres, alignees) */
+        if (!l || l > 4608u || !mem_ok(a, l) || (f & 3) == 3) break;
+        l |= f << 13;
+        if (tot + ms_out(l) > MS_TOT) break;
+        ms_a[ms_n] = a; ms_l[ms_n] = (unsigned short)l; ms_n++; tot += ms_out(l);
     }
     ms_per = per >= 1 && per <= 8 ? per : 1;
     ms_tb = tbl();
+}
+/* un flottant (bits IEEE) x 2^sh en entier, sans calcul flottant (Pulse est en -msoft-float) ; trop grand : +-2^30 */
+static MEM_OS int ms_fx(u32 b, int sh) {
+    u32 x = b >> 23 & 0xFFu, m = (b & 0x7FFFFFu) | 0x800000u;
+    int e = (int)x - 150 + sh, v;
+    if (!x) return 0;
+    v = e >= 7 ? 0x40000000 : e <= -24 ? 0 : e >= 0 ? (int)(m << e) : (int)(m >> -e);
+    return b >> 31 ? -v : v;
+}
+static u32 ms_o, ms_part, ms_parts, ms_tot;
+static MEM_OS void ms_put(natres_pad_t *p, u32 v) {     /* un octet de plus ; paquet plein (ou v > 255 : la fin) : on l'envoie */
+    u8 *d = pn_fr + 42;
+    if (v < 256u) d[16 + ms_o++] = (u8)v;
+    if (ms_o == MS_PAQ || (v > 255u && ms_o)) {
+        pn_p32(d, 0x47434D53u); pn_p32(d + 4, H.vi_count); pn_p32(d + 8, ms_part << 16 | ms_parts); pn_p32(d + 12, ms_tot);   /* "GCMS" */
+        pn_udp(p, p->mmac, p->mip, p->mport, 16 + ms_o); ms_part++; ms_o = 0;
+    }
+}
+static MEM_OS void ms_p16(natres_pad_t *p, int v) { v = v > 32767 ? 32767 : v < -32767 ? -32767 : v; ms_put(p, (u32)v >> 8 & 0xFFu); ms_put(p, (u32)v & 0xFFu); }
+/* compact : matrice suivante = les 2 premieres lignes de la rotation x 16384 (la 3e se refait : produit vectoriel), puis la
+   position x 4 moins celle de la 1re matrice du morceau ; 18 octets au lieu de 48 */
+static MEM_OS void ms_mat(natres_pad_t *p, const u32 *w, const int *t0) {
+    for (int q = 0; q < 8; q++) if ((q & 3) != 3) ms_p16(p, ms_fx(w[q], 14));
+    for (int r = 0; r < 3; r++) ms_p16(p, ms_fx(w[4 * r + 3], 2) - t0[r]);
 }
 static MEM_OS void ms_send(natres_pad_t *p) {
     if (!ms_n || !p->mip) return;
     if (tbl() - ms_tb > 3u * TB_SEC) { ms_n = 0; return; }   /* (l'appli ne renouvelle plus : fini) */
     if (H.vi_count % ms_per) return;
-    u32 parts = (ms_tot + MS_PAQ - 1) / MS_PAQ, part = 0, o = 0;
-    u8 *d = pn_fr + 42;
-    for (u32 i = 0; i < ms_n; i++) {
+    u32 imp = H.vi_count & 1, i;
+    ms_tot = 0;
+    for (i = 0; i < ms_n; i++) if (!((ms_l[i] >> 13 & 2) && imp) && !((ms_l[i] >> 13 & 1) && !imp)) ms_tot += ms_out(ms_l[i]);
+    if (!ms_tot) return;
+    ms_parts = (ms_tot + MS_PAQ - 1) / MS_PAQ; ms_part = 0; ms_o = 0;
+    for (i = 0; i < ms_n; i++) {
+        u32 l = ms_l[i], f = l >> 13, n = l & 0x1FFFu, k = 0;
+        if ((f & 2 && imp) || (f & 1 && !imp)) continue;
         const u8 *src = (const u8 *)ms_a[i];
-        for (u32 k = 0; k < ms_l[i]; k++) {
-            d[16 + o++] = src[k];
-            if (o == MS_PAQ) {
-                pn_p32(d, 0x47434D53u); pn_p32(d + 4, H.vi_count); pn_p32(d + 8, part << 16 | parts); pn_p32(d + 12, ms_tot);   /* "GCMS" */
-                pn_udp(p, p->mmac, p->mip, p->mport, 16 + o); part++; o = 0;
-            }
-        }
+        if (f & 4) {
+            const u32 *w = (const u32 *)src;
+            int t0[3] = { ms_fx(w[3], 2), ms_fx(w[7], 2), ms_fx(w[11], 2) };
+            for (; k < 48; k++) ms_put(p, src[k]);
+            for (; k < n; k += 48) ms_mat(p, w + k / 4, t0);
+        } else for (; k < n; k++) ms_put(p, src[k]);
     }
-    if (o) { pn_p32(d, 0x47434D53u); pn_p32(d + 4, H.vi_count); pn_p32(d + 8, part << 16 | parts); pn_p32(d + 12, ms_tot); pn_udp(p, p->mmac, p->mip, p->mport, 16 + o); }
+    ms_put(p, 256u);
 }
 static MEM_OS void mem_req(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d, u32 dispo) {
     if (!(H.opt & NRO_MEM)) return;
@@ -1080,7 +1116,7 @@ static void hot_reset(void);
    .dol de GC Station est relu sur la carte (meme lecteur SD que pour l'ISO) et lance.
    GC Station (libogc) remet tout le reste en route. Sans .dol prepare : redemarrage. */
 static void trap_disarm(void);
-static void ret_to_gcstation(void) {
+static MEM_OS void ret_to_gcstation(void) {
     irq_off();
     trap_disarm();                                       /* v139 : (BAT, table des pages, vecteur du jeu remis) */
     if (!H.ret_n || H.ret_n > NATRES_RETMAX || H.ret_state) hot_reset();
@@ -1127,7 +1163,7 @@ void ret_go(void) { ret_to_gcstation(); }
 extern void ret_entry(void);
 __asm__(".pushsection .text\n.globl ret_entry\nret_entry:\n"
         "  lis 1,exc_stack@ha\n  addi 1,1,exc_stack@l\n  addi 1,1,2032\n  b ret_go\n.popsection\n");
-static void hot_reset(void) {
+static MEM_OS void hot_reset(void) {
     volatile u32 *pi = (volatile u32 *)0xCC003000u;
     irq_off();
     pi[9] = 3;
@@ -1260,7 +1296,7 @@ static int is_txt(u32 a) {
     for (u32 i = 0; i < 24; i++) { u8 ch = *(volatile u8 *)(a + i); if (!ch) break; if (ch < 0x20 || ch > 0x7E) return 0; n++; }
     return n >= 4;
 }
-static void stack_dump(u32 sp) {
+static MEM_OS void stack_dump(u32 sp) {
     for (u32 i = 0; i < 512; i++) crashbuf[i] = 0;
     cw(0x00, NATRES_STACK_MAGIC); cw(0x04, sp);
     if (!ram_ok(sp & ~3u, NATRES_STACK_WORDS * 4)) { nr_write_sd(H.log_sec + 2, crashbuf); return; }
@@ -1284,7 +1320,7 @@ static void stack_dump(u32 sp) {
     nr_write_sd(H.log_sec + 2, crashbuf);
 }
 /* v83 : photo de la memoire du jeu (format : natres.h, NATRES_SNAP_*) */
-static void mem_snap(volatile u32 *c) {
+static MEM_OS void mem_snap(volatile u32 *c) {
     if (!(H.flags & NRF_SNAP) || !H.snap_sec || H.snap_cnt < 2) return;
     u32 zb[7], zl[7];                                    /* v135 : + 0x800 octets autour de r3, r4 et r30 (structures du jeu) */
     zb[0] = 0x80000000u; zl[0] = 0x3200;
@@ -1314,7 +1350,7 @@ static void mem_snap(volatile u32 *c) {
 }
 /* v243 : les fils du jeu (file des fils actifs du SDK : tete en 0x800000DC, suivant en 0x2FC ; OSThread : contexte en 0,
    etat (u16) 0x2C8, priorite 0x2D0) : ou chacun attend (4e secteur du journal) */
-static void thr_dump(void) {
+static MEM_OS void thr_dump(void) {
     for (u32 i = 0; i < 512; i++) crashbuf[i] = 0;
     cw(0x00, NATRES_THR_MAGIC); cw(0x08, *(volatile u32 *)0x800000E4u);
     u32 t = *(volatile u32 *)0x800000DCu, n = 0;
@@ -1565,14 +1601,14 @@ static u32 st_last_addr = 0xFFFFFFFFu, st_last_sum = 0, st_dsp_n = 0;
    reecrit ce meme tampon, on revient a cet etat et on ajoute les memes echantillons. */
 typedef struct { u32 on, stop_end, pos, cs, clen, ns, nl, pcm_i, phase; int hl1, hl2, hr1, hr2, cl, cr, pl, pr; short pcm[56]; } stsnap_t;
 static stsnap_t st_snap;
-static void st_save(u32 addr) {
+static MEM_OS void st_save(u32 addr) {
     stsnap_t *s = &st_snap;
     s->on = st_on; s->stop_end = st_stop_end; s->pos = st_pos; s->cs = st_cur_start; s->clen = st_cur_len; s->ns = st_next_start; s->nl = st_next_len;
     s->pcm_i = st_pcm_i; s->phase = st_phase; s->hl1 = st_hl1; s->hl2 = st_hl2; s->hr1 = st_hr1; s->hr2 = st_hr2; s->cl = st_cl; s->cr = st_cr; s->pl = st_pl; s->pr = st_pr;
     for (int i = 0; i < 56; i++) s->pcm[i] = st_pcm[i];
     st_snap_addr = addr;
 }
-static void st_load(void) {
+static MEM_OS void st_load(void) {
     const stsnap_t *s = &st_snap;
     st_on = s->on; st_stop_end = s->stop_end; st_pos = s->pos; st_cur_start = s->cs; st_cur_len = s->clen; st_next_start = s->ns; st_next_len = s->nl;
     st_pcm_i = s->pcm_i; st_phase = s->phase; st_hl1 = s->hl1; st_hl2 = s->hl2; st_hr1 = s->hr1; st_hr2 = s->hr2; st_cl = s->cl; st_cr = s->cr; st_pl = s->pl; st_pr = s->pr;
@@ -1651,7 +1687,7 @@ typedef struct {
 static vcard_t vc[2] = { { .status = 0xC1u, .sec_no = 0xFFFFFFFFu }, { .status = 0xC1u, .sec_no = 0xFFFFFFFFu } };   /* (occupe | debloquee | prete) */
 static u8 c_sec[2][512] __attribute__((aligned(32)));
 static u32 x_disp = 0;
-static void vc_setup(void) {                             /* (au 1er acces : tables donnees par GC Station) */
+static MEM_OS void vc_setup(void) {                             /* (au 1er acces : tables donnees par GC Station) */
     vc[0].tab = card_tab; vc[0].n = H.card_n; vc[0].size = H.card_size; vc[0].id = H.card_id; vc[0].on = (H.flags & NRF_CARD) && H.card_n;
     vc[1].tab = card2_tab; vc[1].n = H.card2_n; vc[1].size = H.card2_size; vc[1].id = H.card2_id; vc[1].on = (H.flags & NRF_CARDB) && H.card2_n;
 }
@@ -2162,7 +2198,7 @@ static u32 rd_vi = 0, dp_vi = 0;
 /* v171 : jeu fige (Crash Bandicoot GCBP7D, carte virtuelle) : tout ce qui decide si la fin d'un transfert de la
    carte arrive au jeu, ecrit a la place des textes dans le 2e secteur du journal (0x110, magique "VCRD") */
 static void di_hook(u32 irq, u32 ctx);
-static void vc_diag(void) {
+static MEM_OS void vc_diag(void) {
     for (u32 i = 0x110; i < 0x200; i++) crashbuf[i] = 0;
     vcard_t *v = &vc[0];
     volatile u32 *t = OS_INT_TABLE, *e0 = HW6(0xCC006800u), *pi = (volatile u32 *)0xCC003000u;
@@ -2365,7 +2401,7 @@ static int trap_pteg_clear(u32 hash) {                   /* groupe secondaire (h
     for (int i = 0; i < 8; i++) if ((g[i * 2] & 0x80000040u) == 0x80000040u && ((g[i * 2] >> 7) & 0xFFFFFFu) == trap_vsid) return 0;   /* (V, H = 1, notre VSID) */
     return 1;
 }
-static void __attribute__((noinline)) trap_arm(void) {
+static MEM_OS void __attribute__((noinline)) trap_arm(void) {
     u32 msr, m = irq_off();
     __asm__ volatile("mfmsr %0" : "=r"(msr));
     volatile u32 *vec = (volatile u32 *)0x80000300u;
@@ -2402,7 +2438,7 @@ static void __attribute__((noinline)) trap_arm(void) {
     H.trap_state = NRT_ON;
     irq_restore(m);
 }
-static void __attribute__((noinline)) trap_disarm(void) {                          /* (retour a GC Station ; trap_state reste : journal) */
+static MEM_OS void __attribute__((noinline)) trap_disarm(void) {                          /* (retour a GC Station ; trap_state reste : journal) */
     if (!hw_d) return;
     u32 m = irq_off();
     volatile u32 *vec = (volatile u32 *)0x80000300u;
@@ -2475,7 +2511,7 @@ static u32 nx_w(u32 *w, int n, u32 v) { w[n] = v; return n + 1; }
 #define PRLW(op, s_, a, sh, mb, me) ((u32)(op) << 26 | (u32)(s_) << 21 | (u32)(a) << 16 | (u32)(sh) << 11 | (u32)(mb) << 6 | (u32)(me) << 1)
 static u32 nx_slot(u32 r) { return r == 0 ? 0x08 : 0x0C + (r - 2) * 4; }
 /* meme aiguillage que GC Station (natif.c, na_tramp), pour un acces au lecteur (registre reg) */
-static int nx_tramp(u32 *c, u32 at, u32 site, u32 ins, u32 reg) {
+static MEM_OS int nx_tramp(u32 *c, u32 at, u32 site, u32 ins, u32 reg) {
     u32 op = ins >> 26, rt = (ins >> 21) & 31, ra = (ins >> 16) & 31;
     int simm = (short)(ins & 0xFFFF);
     if (op != 32 && op != 33 && op != 36 && op != 37 && op != 40 && op != 44) return 0;
@@ -2530,7 +2566,7 @@ static void nx_sync(u32 a, u32 len) {                     /* code ecrit : cache 
 }
 /* cherche les acces au lecteur dans [a, a + len) (code deja a sa place) et les branche ; meme suivi
    des registres que GC Station (lis 0xCC00, addi, ori ; oublie aux sauts) */
-static void nx_patch2(u32 a, u32 fin, u32 len) {        /* a = ou est le code maintenant, fin = ou il tournera */
+static MEM_OS void nx_patch2(u32 a, u32 fin, u32 len) {        /* a = ou est le code maintenant, fin = ou il tournera */
     if (a < 0x80003000u || a >= NATRES_AT || (a & 3) || (fin & 3) || len < 8) return;
     if (fin < 0x80003000u || fin >= NATRES_AT) return;
     if (a + len > NATRES_AT) len = NATRES_AT - a;
@@ -2613,7 +2649,7 @@ static void nx_dol_sections(u32 dst, u32 off, u32 len) {
 }
 /* v251 : un .dol entier lu d'un coup par le jeu (chargeur maison : Phantasy Star Online lit son vrai programme puis
    le recopie lui-meme a sa place) : ses sections de code sont branchees dans le tampon, avec leur adresse finale. */
-static int nx_whole_dol(u32 dst, u32 off, u32 len) {
+static MEM_OS int nx_whole_dol(u32 dst, u32 off, u32 len) {
     if (len < 0x200 || (dst & 3) || dst < 0x80003000u || dst + len > NATRES_AT) return 0;
     u32 entry = rbe(dst + 0xE0), nt = 0;
     int text = 0;
@@ -2673,7 +2709,7 @@ static void nx_read_done(u32 dst, u32 off, u32 len) {
    (et au moins une seconde apres E3), la table des morceaux de l'autre disque prend la place de celle-ci, et
    le jeu recoit l'interruption "couvercle referme" (CVRINT) : il relit l'ID du disque et trouve l'autre. */
 static u32 sw_pending = 0, sw_vi = 0;
-static void disc_swap(void) {
+static MEM_OS void disc_swap(void) {
     u32 e = H.ext, n = H.n_ext;
     H.ext = H.ext2; H.n_ext = H.n_ext2; H.ext2 = e; H.n_ext2 = n;
     ext_last = 0; sec_cached = 0xFFFFFFFFu;
