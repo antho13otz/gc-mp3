@@ -24,6 +24,22 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 334 — Mario Kart : les objets bougent ; visite libre ; sans ATH
+
+- **Mario Kart, les objets qui bougent** (avec le nouveau pack des circuits) :
+  - les voitures, le dirigeable, les papillons, les crabes, les Maskass, les oiseaux, le ptérodactyle, Nessie qui nage et la tornade suivent leur trajet du jeu ;
+  - les barres de feu tournent ;
+  - les Thwomps descendent et remontent ;
+  - Nessie et les montgolfières flottent.
+
+  Les vitesses sont réglées d'après le jeu. Les ailes et les mâchoires ne bougent pas encore.
+- **Vue 3D, « 🧭 Visite »** : la caméra est à ta place et tourne sur elle-même, sans point central : tu peux entrer dans les salles.
+  - 1 doigt : regarder autour.
+  - 2 doigts : écarter pour avancer, glisser pour te décaler, monter ou descendre.
+  - + et − : avancer et reculer.
+- **Plein écran, « 👁 Sans ATH »** : tous les boutons disparaissent ; le petit œil en haut à droite les ramène.
+- **Rayman 3, Désert des Knaarens partie 1** : avec le nouveau pack, les os sont blancs et le sol de l'antre du crâne est orange, comme dans le jeu.
+
 ## Nouveautés appli build 330 — extraire d'un jeu : tous les fichiers
 
 - **Extraire plusieurs fichiers d'un jeu** : ils vont dans un dossier au nom du jeu (« GRHP41 - RAYMAN 3… »), avec les dossiers du disque. Avant, tout allait au même endroit avec le numéro du jeu devant : deux fichiers de même nom dans deux dossiers du disque, ou ne différant que par les majuscules, ne pouvaient pas être enregistrés tous les deux (Rayman 3 : 770 sur 812). À la fin, l'appli dit lesquels n'ont pas pu être enregistrés, s'il en reste.
