@@ -181,21 +181,27 @@ static int up_dol_build(const char *path) {
     return ok && !memcmp(t, "GCSTATION-BUILD=", 16) ? atoi(t + 16) : 0;
 }
 static char up_found[NAME_LEN] = "";                  /* (v57 : remis a zero quand ipl.dol change) */
+/* v325 : le resultat de la recherche (4 noms de demarrage, puis la racine et SD:/apps) est garde pour la seance :
+   le demarrage la faisait 3 fois (jeux et lanceur, mise a jour, ipl.dol). Revérifie (stat) a chaque fois. */
+static char up_memo[NAME_LEN] = "";
+static int up_memo_none = 0;                          /* (aucun des 4 noms de demarrage n'est GC Station) */
 static void up_pick_target(void) {
     struct stat st;
     if (upd_file[0]) { snprintf(up_target, sizeof(up_target), "%s", upd_file); return; }
+    if (!up_found[0] && up_memo[0] && stat(up_memo, &st) == 0) { snprintf(up_target, sizeof(up_target), "%s", up_memo); return; }
     {   /* deja trouve une fois (le contenu est long a verifier) */
         char *found = up_found;
         static const char *const boot[] = { SD_ROOT "/ipl.dol", SD_ROOT "/boot.dol", SD_ROOT "/autoexec.dol", SD_ROOT "/a.dol", NULL };
-        if (!found[0])
+        if (!found[0] && !up_memo_none)
             for (int i = 0; boot[i]; i++) if (stat(boot[i], &st) == 0 && up_is_me(boot[i])) { snprintf(found, NAME_LEN, "%s", boot[i]); break; }
         if (found[0]) { snprintf(up_target, sizeof(up_target), "%s", found); return; }
+        up_memo_none = 1;
     }
     if (up_argv0 && strlen(up_argv0) > 4 && !strcasecmp(up_argv0 + strlen(up_argv0) - 4, ".dol") && stat(up_argv0, &st) == 0) {
         snprintf(up_target, sizeof(up_target), "%s", up_argv0);
         return;
     }
-    if (up_find_dol(SD_ROOT, 2, up_target, sizeof(up_target))) return;
+    if (up_find_dol(SD_ROOT, 2, up_target, sizeof(up_target))) { snprintf(up_memo, sizeof(up_memo), "%s", up_target); return; }
     snprintf(up_target, sizeof(up_target), SD_ROOT "/gc-mp3player.dol");
 }
 
