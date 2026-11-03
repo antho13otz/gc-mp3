@@ -524,7 +524,11 @@ extern u8 exc_stack[2048];
 #define pn_fr exc_stack                                   /* (trame : la pile du retour a GC Station ne sert pas en meme temps) */
 static u8 pn_mac[6], pn_smac[6];
 static u32 pn_seq = 0x5000;
-static void bb_sel(void) { bx[0] = (bx[0] & 0x405) | (5u << 4) | (0x80u << 2); }   /* 32 MHz, peripherique 2 */
+/* v327 : l'adaptateur : 1 = Broadband Adapter (canal 0, peripherique 2), 2 = W5500 (ETH2SP1 : canal 0, peripherique 2 ;
+   ETH2GC : port de carte B ou A, peripherique 0) ; pn_cs / pn_frq : son peripherique et sa vitesse */
+static int pn_hw = 0;
+static u32 pn_cs = 0x80u << 2, pn_frq = 5, pn_ch = 0;
+static void bb_sel(void) { bx[0] = (bx[0] & 0x405) | (pn_frq << 4) | pn_cs; }   /* (BBA : 32 MHz, peripherique 2) */
 static void bb_desel(void) { bx[0] = bx[0] & 0x405; }
 static void bb_w(u32 v, int n) { bx[4] = v; bx[3] = ((u32)(n - 1) << 4) | 4u | 1u; for (u32 i = 0; i < 100000u && (bx[3] & 1); i++) { } }
 static u32 bb_r(int n) { bx[4] = 0; bx[3] = ((u32)(n - 1) << 4) | 1u; for (u32 i = 0; i < 100000u && (bx[3] & 1); i++) { } return bx[4]; }
@@ -550,8 +554,53 @@ static u32 pn_be16(const u8 *p) { return (u32)p[0] << 8 | p[1]; }
 static u32 pn_be32(const u8 *p) { return (u32)p[0] << 24 | (u32)p[1] << 16 | (u32)p[2] << 8 | p[3]; }
 static void pn_p16(u8 *p, u32 v) { p[0] = (u8)(v >> 8); p[1] = (u8)v; }
 static void pn_p32(u8 *p, u32 v) { p[0] = (u8)(v >> 24); p[1] = (u8)(v >> 16); p[2] = (u8)(v >> 8); p[3] = (u8)v; }
+/* ---- v327 : W5500 (WIZnet, ETH2SP1 / ETH2GC), socket 0 en MACRAW (trames Ethernet brutes), sans interruption.
+   Trame SPI : adresse (16 bits), controle (bloc << 3 | ecriture << 2 | 0 = longueur libre), donnees. Blocs : 0 commun,
+   1 registres du socket 0, 2 son tampon d'envoi, 3 son tampon de reception (les pointeurs font le tour seuls). */
+static void wz_hdr(u32 bsb, u32 a, int wr) { bb_w((a << 16) | ((bsb << 3) | (wr ? 4u : 0u)) << 8, 3); }
+static void wz_wr(u32 bsb, u32 a, const u8 *s, u32 n) {
+    bb_sel(); wz_hdr(bsb, a, 1);
+    for (; n >= 4; n -= 4, s += 4) bb_w((u32)s[0] << 24 | (u32)s[1] << 16 | (u32)s[2] << 8 | s[3], 4);
+    for (; n; n--) bb_w((u32)*s++ << 24, 1);
+    bb_desel();
+}
+static void wz_rd(u32 bsb, u32 a, u8 *d, u32 n) {
+    bb_sel(); wz_hdr(bsb, a, 0);
+    for (; n >= 4; n -= 4, d += 4) { u32 w = bb_r(4); d[0] = (u8)(w >> 24); d[1] = (u8)(w >> 16); d[2] = (u8)(w >> 8); d[3] = (u8)w; }
+    for (; n; n--) *d++ = (u8)(bb_r(1) >> 24);
+    bb_desel();
+}
+static u32 wz_r8(u32 bsb, u32 a) { u8 v; wz_rd(bsb, a, &v, 1); return v; }
+static void wz_w8(u32 bsb, u32 a, u32 v) { u8 b = (u8)v; wz_wr(bsb, a, &b, 1); }
+static u32 wz_r16(u32 bsb, u32 a) {                       /* (lu deux fois de suite pareil : la puce le change en meme temps) */
+    u32 v = 0;
+    for (int t = 0; t < 8; t++) { u8 b[2], c[2]; wz_rd(bsb, a, b, 2); wz_rd(bsb, a, c, 2); v = (u32)b[0] << 8 | b[1]; if (b[0] == c[0] && b[1] == c[1]) break; }
+    return v;
+}
+static void wz_w16(u32 bsb, u32 a, u32 v) { u8 b[2] = { (u8)(v >> 8), (u8)v }; wz_wr(bsb, a, b, 2); }
+static void wz_cmd(u32 c) { wz_w8(1, 0x01, c); for (u32 i = 0; i < 20000u && wz_r8(1, 0x01); i++) { } }   /* Sn_CR */
+static void wz_send(const u8 *f, u32 n) {
+    for (u32 i = 0; i < 20000u && wz_r16(1, 0x20) < n; i++) { }    /* Sn_TX_FSR : place dans le tampon d'envoi */
+    u32 wr = wz_r16(1, 0x24);                                       /* Sn_TX_WR */
+    wz_wr(2, wr, f, n);
+    wz_w16(1, 0x24, (wr + n) & 0xFFFFu);
+    wz_cmd(0x20);                                                   /* SEND */
+}
+static u32 wz_recv(void) {
+    u32 rsr = wz_r16(1, 0x26);                                      /* Sn_RX_RSR : octets recus */
+    if (rsr < 2) return 0;
+    u32 rd = wz_r16(1, 0x28), n = 0;                                /* Sn_RX_RD */
+    u8 h[2]; wz_rd(3, rd, h, 2);
+    u32 len = (u32)h[0] << 8 | h[1];                                /* (longueur, ces 2 octets compris) */
+    if (len < 2 || len > rsr || len - 2 > 1536u) len = rsr;         /* (incoherent : tout est jete) */
+    else { n = len - 2; wz_rd(3, (rd + 2) & 0xFFFFu, pn_fr, n); }
+    wz_w16(1, 0x28, (rd + len) & 0xFFFFu);
+    wz_cmd(0x40);                                                   /* RECV */
+    return n;
+}
 static void pn_send(u8 *f, u32 n) {                       /* trame Ethernet complete (adresses comprises) */
     while (n < 60) f[n++] = 0;
+    if (pn_hw == 2) { u32 m = irq_off(); wz_send(f, n); irq_restore(m); return; }
     u32 m = irq_off();
     bb_out16(BB_TXFIFOCNT, n);
     bb_outs(BB_WRTXFIFOD, f, n);
@@ -561,6 +610,7 @@ static void pn_send(u8 *f, u32 n) {                       /* trame Ethernet comp
 }
 /* une trame recue (0 = aucune) : copiee dans pn_fr */
 static u32 pn_recv(void) {
+    if (pn_hw == 2) { u32 m = irq_off(); u32 k = wz_recv(); irq_restore(m); return k; }
     u32 m = irq_off(), n = 0;
     u32 rrp = bb_in16(BB_RRP) & 0xFFF, rwp = bb_in16(BB_RWP) & 0xFFF;
     if (rrp != rwp) {
@@ -607,12 +657,57 @@ static int pn_rx(u32 n, u32 seq) {
     if (pn_be16(u) != PN_NET->port || pn_be32(u + 8) != 0x504E4131u || pn_be32(u + 12) != seq) return 0;   /* "PNA1" */
     return 1;
 }
-/* le BBA pret a recevoir (sans chercher de serveur) : 0, ou -1 = pas de Broadband Adapter */
+/* v327 : un W5500 en (canal, peripherique) pret a recevoir : 0, ou -1. Son adresse Ethernet est gardee (GC Station
+   l'a reglee, le routeur la connait deja) ; sinon une adresse tiree du numero de la console (registres ECID). */
+static int __attribute__((noinline)) pn_wz_init(u32 ch, u32 dev) {
+    if (exi && exi == HW6(0xCC006800u + ch * 0x14u) && dev == H.dev) return -1;   /* (la carte SD de Pulse : on n'y touche pas) */
+    bx = HW6(0xCC006800u + ch * 0x14u);
+    if (((bx[0] & 0x380u) & ~(0x80u << dev)) || (bx[3] & 1u)) return -2;          /* (le jeu se sert de ce canal : plus tard) */
+    pn_cs = 0x80u << dev; pn_frq = 3;
+    u32 m = irq_off();
+    bb_sel(); bb_w(0, 2); u32 id = bb_r(4); bb_desel();
+    if (id != 0x03000000u) { irq_restore(m); return -1; }
+    static const u32 fq[3] = { 5, 4, 3 };                 /* (32, 16, 8 MHz : la premiere qui repond juste) */
+    int ok = 0;
+    for (int i = 0; i < 3 && !ok; i++) { pn_frq = fq[i]; ok = wz_r8(0, 0x39) == 0x04; }   /* VERSIONR */
+    if (!ok) { irq_restore(m); return -1; }
+    u8 mac[6]; wz_rd(0, 0x09, mac, 6);                    /* SHAR : l'adresse que GC Station a mise */
+    u32 z = mac[0] | mac[1] | mac[2] | mac[3] | mac[4] | mac[5], f = mac[0] & mac[1] & mac[2] & mac[3] & mac[4] & mac[5];
+    if (!z || f == 0xFF) {
+        u32 e0, e1, e2, e3;
+        __asm__ volatile("mfspr %0,924\n\tmfspr %1,925\n\tmfspr %2,926\n\tmfspr %3,927" : "=r"(e0), "=r"(e1), "=r"(e2), "=r"(e3));
+        u32 x = e0 ^ (e1 * 31u) ^ (e2 * 961u) ^ (e3 * 29791u) ^ ch;
+        mac[0] = 0x00; mac[1] = 0x09; mac[2] = 0xBF; mac[3] = (u8)(x >> 16); mac[4] = (u8)(x >> 8); mac[5] = (u8)x;
+    }
+    wz_w8(0, 0x00, 0x80);                                 /* MR : remise a zero */
+    for (u32 i = 0; i < 20000u && (wz_r8(0, 0x00) & 0x80u); i++) { }
+    wz_wr(0, 0x09, mac, 6);
+    for (u32 k = 1; k < 8; k++) { wz_w8(k * 4 + 1, 0x1E, 0); wz_w8(k * 4 + 1, 0x1F, 0); }   /* (autres sockets : sans tampon) */
+    wz_w8(1, 0x1E, 16); wz_w8(1, 0x1F, 16);               /* socket 0 : 16 Ko + 16 Ko */
+    wz_w8(0, 0x16, 0); wz_w8(0, 0x18, 0); wz_w8(1, 0x2C, 0);   /* (aucune interruption : IMR, SIMR, S0_IMR) */
+    wz_w8(1, 0x00, 0x84);                                 /* S0_MR : MACRAW, filtre (notre adresse + diffusion) */
+    wz_cmd(0x01);                                         /* OPEN */
+    ok = wz_r8(1, 0x03) == 0x42;                          /* S0_SR : MACRAW */
+    for (int i = 0; i < 6; i++) pn_mac[i] = mac[i];
+    irq_restore(m);
+    if (!ok) return -1;
+    pn_hw = 2; pn_ch = ch;
+    return 0;
+}
+/* l'adaptateur pret a recevoir (sans chercher de serveur) : 0, -1 = aucun, -2 = un canal pris par le jeu (plus tard).
+   Broadband Adapter d'abord, puis W5500 : port serie 1 (ETH2SP1), puis ports de carte B et A (ETH2GC) */
 static int __attribute__((noinline)) pn_bba_init(void) {
-    bx = HW6(0xCC006800u);
+    bx = HW6(0xCC006800u); pn_cs = 0x80u << 2; pn_frq = 5; pn_hw = 1; pn_ch = 0;
     u32 m = irq_off();
     bb_sel(); bb_w(0, 2); u32 id = bb_r(4); bb_desel();      /* (identifiant du peripherique EXI) */
-    if (id != 0x04020200u) { irq_restore(m); return -1; }
+    if (id != 0x04020200u) {
+        irq_restore(m);
+        static const u8 wp[3][2] = { { 0, 2 }, { 1, 0 }, { 0, 0 } };
+        int pris = 0;
+        for (int i = 0; i < 3; i++) { int r = pn_wz_init(wp[i][0], wp[i][1]); if (!r) return 0; if (r == -2) pris = 1; }
+        bx = HW6(0xCC006800u); pn_cs = 0x80u << 2; pn_frq = 5; pn_hw = 1; pn_ch = 0;
+        return pris ? -2 : -1;
+    }
     bb_cout(0x02, 0x00);                                  /* (interruptions du BBA : aucune) */
     bb_out8(BB_NCRA, 1);                                  /* remise a zero */
     for (volatile u32 i = 0; i < 20000u; i++) { }
@@ -869,7 +964,7 @@ static MEM_OS void mem_pause(natres_pad_t *p) {
     mem_resumed = 1;
 }
 static u32 pd_bba_n = 0, pd_bba_tb = 0;                  /* (derniers acces du jeu au BBA) */
-static int pd_busy(void) { return ((bx[0] & 0x380u) & ~0x200u) || (bx[3] & 1u); }   /* (le jeu se sert du canal 0) */
+static int pd_busy(void) { return ((bx[0] & 0x380u) & ~pn_cs) || (bx[3] & 1u); }   /* (le jeu se sert du canal de l'adaptateur) */
 static void pd_frame(natres_pad_t *p, u32 n, u32 now) {
     const u8 *f = pn_fr;
     if (n < 42) return;
@@ -900,11 +995,13 @@ void pd_poll(void) {
        puis, 2 s apres son dernier acces, on le reprend (remis a zero et regle de nouveau) */
     if (H.bba_n != pd_bba_n) { pd_bba_n = H.bba_n; pd_bba_tb = now; p->state = 3; }
     if (p->state == 3) { if (now - pd_bba_tb < 2u * TB_SEC) return; p->state = 0; }
-    bx = HW6(0xCC006800u);
+    bx = HW6(0xCC006800u + pn_ch * 0x14u);                /* (v327 : canal de l'adaptateur : 0, ou 1 pour un ETH2GC en B) */
     if (pd_busy()) return;
     if (!p->state) {
         pn_cfg = &p->net;
-        if (pn_bba_init()) { p->state = 2; return; }
+        int r = pn_bba_init();
+        if (r == -2) return;                              /* (v327 : un canal pris par le jeu : on reessaiera) */
+        if (r) { p->state = 2; return; }
         p->state = 1;
     }
     for (int k = 0; k < 8; k++) {

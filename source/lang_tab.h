@@ -1440,7 +1440,7 @@
     { "PAGE SUIVANTE", "NEXT PAGE" },
     { "Jaquettes des jeux", "Game covers" },
     { "Chercheur de codes (appli)", "Code finder (app)" },
-    { "L'appli lit la m\xC3\xA9moire du jeu pendant la partie (Pulse, Broadband Adapter) : trouver ses propres cheats et succ\xC3\xA8s", "The app reads the game's memory during play (Pulse, Broadband Adapter): find your own cheats and achievements" },
+    { "L'appli lit la m\xC3\xA9moire du jeu pendant la partie (Pulse, Broadband Adapter ou ETH2SP1) : trouver ses propres cheats et succ\xC3\xA8s", "The app reads the game's memory during play (Pulse, Broadband Adapter or ETH2SP1): find your own cheats and achievements" },
     /* v319 : textes releves en anglais au simulateur (SIM_TRLOG) */
     { "Fran\xC3\xA7" "ais", "French" },
     { "(A : r\xC3\xA9gler)", "(A: set up)" },
@@ -1475,7 +1475,7 @@
     { "Applis de SD:/apps sans image (icon.png, .bnr) : carte avec leur nom, ou cach\xC3\xA9" "es", "Apps in SD:/apps with no picture (icon.png, .bnr): a card with their name, or hidden" },
     { "Jeux lanc\xC3\xA9s avec Pulse : sauvegardes dans SD:/gc-mp3/resident (slot B : carte-B.raw)", "Games launched with Pulse: saves in SD:/gc-mp3/resident (slot B: carte-B.raw)" },
     { "Jeux europ\xC3\xA9" "ens, am\xC3\xA9ricains, japonais : chacun sa carte (carte-A-EUR.raw...)", "European, American, Japanese games: each region its own card (carte-A-EUR.raw...)" },
-    { "L'appli du t\xC3\xA9l\xC3\xA9phone devient une manette dans les jeux (Pulse, Broadband Adapter). Un port par t\xC3\xA9l\xC3\xA9phone", "The phone app becomes a controller in games (Pulse, Broadband Adapter). One port per phone" },
+    { "L'appli du t\xC3\xA9l\xC3\xA9phone devient une manette dans les jeux (Pulse, Broadband Adapter ou ETH2SP1). Un port par t\xC3\xA9l\xC3\xA9phone", "The phone app becomes a controller in games (Pulse, Broadband Adapter or ETH2SP1). One port per phone" },
     { "Les autres GC Station du r\xC3\xA9seau dans FICHIERS (B) : leur carte, et Y : \xC3\xA9" "couter avec", "The other GC Stations on the network in FILES (B): their card, and Y: listen along" },
     { "Mises \xC3\xA0 jour", "Updates" },
     { "Copie de la version d'avant la derni\xC3\xA8re mise \xC3\xA0 jour (secours) : A deux fois pour la supprimer", "Copy of the version before the last update (backup): A twice to delete it" },

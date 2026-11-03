@@ -18,6 +18,8 @@ for a in "1 2 0" "0 2 0" "1 0 0" "1 1 0" "1 0 2"; do python3 $T/emu_natres.py na
 EMU_ACH=$(llvm-nm natres.elf | awk '$3=="ach_run"{print $1}') EMU_DIREADY=$(llvm-nm natres.elf | awk '$3=="di_ready"{print $1}') NATRES_H=$R/source/natres/natres.h python3 $T/emu_natres.py natres.bin 1 2 0 | tail -2   # (v268 : succes)
 python3 $T/emu_pad.py natres.bin natres.elf $R/source/natres/natres.h | tail -1   # (prive : manettes du telephone)
 python3 $T/emu_mem.py natres.bin natres.elf $R/source/natres/natres.h | tail -1   # (v306 : chercheur de codes)
+for wp in "0 2" "1 0" "0 0"; do set -- $wp; W_CH=$1 W_DEV=$2 python3 $T/emu_w5500.py natres.bin natres.elf $R/source/natres/natres.h | tail -1; done   # (v327 : ETH2SP1, ETH2GC en B, en A)
+W_BUSY=1 python3 $T/emu_w5500.py natres.bin natres.elf $R/source/natres/natres.h | tail -1   # (v327 : canal pris par le jeu)
 EMU_NODMA=1 python3 $T/emu_natres.py natres.bin 1 0 0 | tail -1     # (v94 : adaptateur sans DMA)
 EMU_BAD32=1 python3 $T/emu_natres.py natres.bin 1 0 0 | tail -1     # (v94 : 32 MHz qui abime les donnees)
 # v187 : retour a GC Station en quittant une appli (natret en 0x80001800) : SD2SP2 SDHC, SD Gecko slot A carte SD, slot B
