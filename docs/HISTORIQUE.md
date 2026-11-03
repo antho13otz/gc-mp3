@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v329 (build 847) — Icônes des mini-jeux dans leur case
+
+- Onglet JEUX : chaque animation de mini-jeu est mise à l'échelle de sa case et ne déborde plus.
+- Snake sans murs : plus de cadre autour de l'icône ; le serpent sort d'un côté et revient de l'autre, en s'estompant aux bords.
+- Pas testé sur la console ni dans le simulateur (seulement compilé), publié directement à ta demande.
+
 ## Nouveautés v328 (build 845) — Pulse : le direct compact
 
 - **Direct de l'appli (GCMS)** : 64 morceaux et 10 Ko par image (avant 48 et 4,5 Ko). Nouveau morceau « compact » pour les squelettes : la 1re matrice telle quelle, les suivantes en 18 octets au lieu de 48 (2 lignes de rotation × 16384 et la position × 4, relative, en nombres de 16 bits ; calcul sans flottants). Options « images paires » / « impaires seulement ».
