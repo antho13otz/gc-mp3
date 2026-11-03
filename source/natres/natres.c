@@ -557,36 +557,36 @@ static void pn_p32(u8 *p, u32 v) { p[0] = (u8)(v >> 24); p[1] = (u8)(v >> 16); p
 /* ---- v327 : W5500 (WIZnet, ETH2SP1 / ETH2GC), socket 0 en MACRAW (trames Ethernet brutes), sans interruption.
    Trame SPI : adresse (16 bits), controle (bloc << 3 | ecriture << 2 | 0 = longueur libre), donnees. Blocs : 0 commun,
    1 registres du socket 0, 2 son tampon d'envoi, 3 son tampon de reception (les pointeurs font le tour seuls). */
-static void wz_hdr(u32 bsb, u32 a, int wr) { bb_w((a << 16) | ((bsb << 3) | (wr ? 4u : 0u)) << 8, 3); }
-static void wz_wr(u32 bsb, u32 a, const u8 *s, u32 n) {
+static __attribute__((noinline, optimize("Os"))) void wz_hdr(u32 bsb, u32 a, int wr) { bb_w((a << 16) | ((bsb << 3) | (wr ? 4u : 0u)) << 8, 3); }
+static __attribute__((noinline, optimize("Os"))) void wz_wr(u32 bsb, u32 a, const u8 *s, u32 n) {
     bb_sel(); wz_hdr(bsb, a, 1);
     for (; n >= 4; n -= 4, s += 4) bb_w((u32)s[0] << 24 | (u32)s[1] << 16 | (u32)s[2] << 8 | s[3], 4);
     for (; n; n--) bb_w((u32)*s++ << 24, 1);
     bb_desel();
 }
-static void wz_rd(u32 bsb, u32 a, u8 *d, u32 n) {
+static __attribute__((noinline, optimize("Os"))) void wz_rd(u32 bsb, u32 a, u8 *d, u32 n) {
     bb_sel(); wz_hdr(bsb, a, 0);
     for (; n >= 4; n -= 4, d += 4) { u32 w = bb_r(4); d[0] = (u8)(w >> 24); d[1] = (u8)(w >> 16); d[2] = (u8)(w >> 8); d[3] = (u8)w; }
     for (; n; n--) *d++ = (u8)(bb_r(1) >> 24);
     bb_desel();
 }
-static u32 wz_r8(u32 bsb, u32 a) { u8 v; wz_rd(bsb, a, &v, 1); return v; }
-static void wz_w8(u32 bsb, u32 a, u32 v) { u8 b = (u8)v; wz_wr(bsb, a, &b, 1); }
-static u32 wz_r16(u32 bsb, u32 a) {                       /* (lu deux fois de suite pareil : la puce le change en meme temps) */
+static __attribute__((noinline, optimize("Os"))) u32 wz_r8(u32 bsb, u32 a) { u8 v; wz_rd(bsb, a, &v, 1); return v; }
+static __attribute__((noinline, optimize("Os"))) void wz_w8(u32 bsb, u32 a, u32 v) { u8 b = (u8)v; wz_wr(bsb, a, &b, 1); }
+static __attribute__((noinline, optimize("Os"))) u32 wz_r16(u32 bsb, u32 a) {                       /* (lu deux fois de suite pareil : la puce le change en meme temps) */
     u32 v = 0;
     for (int t = 0; t < 8; t++) { u8 b[2], c[2]; wz_rd(bsb, a, b, 2); wz_rd(bsb, a, c, 2); v = (u32)b[0] << 8 | b[1]; if (b[0] == c[0] && b[1] == c[1]) break; }
     return v;
 }
-static void wz_w16(u32 bsb, u32 a, u32 v) { u8 b[2] = { (u8)(v >> 8), (u8)v }; wz_wr(bsb, a, b, 2); }
-static void wz_cmd(u32 c) { wz_w8(1, 0x01, c); for (u32 i = 0; i < 20000u && wz_r8(1, 0x01); i++) { } }   /* Sn_CR */
-static void wz_send(const u8 *f, u32 n) {
+static __attribute__((noinline, optimize("Os"))) void wz_w16(u32 bsb, u32 a, u32 v) { u8 b[2] = { (u8)(v >> 8), (u8)v }; wz_wr(bsb, a, b, 2); }
+static __attribute__((noinline, optimize("Os"))) void wz_cmd(u32 c) { wz_w8(1, 0x01, c); for (u32 i = 0; i < 20000u && wz_r8(1, 0x01); i++) { } }   /* Sn_CR */
+static __attribute__((noinline, optimize("Os"))) void wz_send(const u8 *f, u32 n) {
     for (u32 i = 0; i < 20000u && wz_r16(1, 0x20) < n; i++) { }    /* Sn_TX_FSR : place dans le tampon d'envoi */
     u32 wr = wz_r16(1, 0x24);                                       /* Sn_TX_WR */
     wz_wr(2, wr, f, n);
     wz_w16(1, 0x24, (wr + n) & 0xFFFFu);
     wz_cmd(0x20);                                                   /* SEND */
 }
-static u32 wz_recv(void) {
+static __attribute__((noinline, optimize("Os"))) u32 wz_recv(void) {
     u32 rsr = wz_r16(1, 0x26);                                      /* Sn_RX_RSR : octets recus */
     if (rsr < 2) return 0;
     u32 rd = wz_r16(1, 0x28), n = 0;                                /* Sn_RX_RD */
@@ -659,7 +659,7 @@ static int pn_rx(u32 n, u32 seq) {
 }
 /* v327 : un W5500 en (canal, peripherique) pret a recevoir : 0, ou -1. Son adresse Ethernet est gardee (GC Station
    l'a reglee, le routeur la connait deja) ; sinon une adresse tiree du numero de la console (registres ECID). */
-static int __attribute__((noinline)) pn_wz_init(u32 ch, u32 dev) {
+static int __attribute__((noinline, optimize("Os"))) pn_wz_init(u32 ch, u32 dev) {
     if (exi && exi == HW6(0xCC006800u + ch * 0x14u) && dev == H.dev) return -1;   /* (la carte SD de Pulse : on n'y touche pas) */
     bx = HW6(0xCC006800u + ch * 0x14u);
     if (((bx[0] & 0x380u) & ~(0x80u << dev)) || (bx[3] & 1u)) return -2;          /* (le jeu se sert de ce canal : plus tard) */
