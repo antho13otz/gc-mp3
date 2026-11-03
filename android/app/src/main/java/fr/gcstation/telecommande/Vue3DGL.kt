@@ -53,6 +53,8 @@ class Objet3D(val type: Char, val x: Float, val y: Float, val z: Float, val nom:
 class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<Groupe>, val centre: FloatArray, val rayon: Float = 60f,
               val objets: List<Objet3D> = emptyList()) {
     @Volatile var versionPris = 0       // build 256 : change quand un objet est ramasse (ou reapparait) ; la vue se refait
+    /** build 332 : Mario Kart, les objets qui bougent (pack : <circuit>_mob.r3v et _mob.txt) */
+    var mobiles: ObjetsMobiles? = null
     class Groupe(val texture: Int, val alpha: Boolean, val sommets: ByteBuffer, val n: Int,
                  val mode: Int = if (alpha) 2 else 0, val enveloppe: Int = 0,
                  val lumiere: Int = -1, val lumiereK: Float = 0f, val pas: Int = 24) {  // (R3V3 : ombres precalculees du jeu, 2e texture)
@@ -123,7 +125,7 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
                             else Objet3D(p[0][0], x, y, z, p.getOrElse(4) { "" }, p.getOrNull(5)?.toLongOrNull(16)?.takeIf { it > 0 } ?: -1L)
                         }
                     }
-                    SceneR3(d, nv, l, ctr, ray, obj)
+                    SceneR3(d, nv, l, ctr, ray, obj).also { it.mobiles = ObjetsMobiles.lire(d, nv) }
                 }
             }
         } catch (e: Throwable) { null }
@@ -420,6 +422,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     private var lPos = 0; private var lMvp = 0; private var lCoul = 0; private var lTaille = 0
     private val textures = HashMap<Int, Int>()
     private val vbo = IntArray(256)
+    private val vboM = IntArray(256)                     // (build 332 : objets qui bougent)
+    private val mMob = FloatArray(16); private val mvpMob = FloatArray(16)
     private val proj = FloatArray(16); private val vue = FloatArray(16); private val mvp = FloatArray(16); private val projJeu = FloatArray(16)
     private fun shader(t: Int, src: String): Int { val s = GLES20.glCreateShader(t); GLES20.glShaderSource(s, src); GLES20.glCompileShader(s); return s }
     private fun programme(v: String, f: String): Int {
@@ -486,6 +490,14 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             val g = scene.groupes[i]; g.sommets.position(0)
             GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, g.n * g.pas, g.sommets, GLES20.GL_STATIC_DRAW)
         }
+        val gm = scene.mobiles?.groupes ?: emptyList()
+        val nm = minOf(gm.size, vboM.size)
+        if (nm > 0) GLES20.glGenBuffers(nm, vboM, 0)
+        for (i in 0 until nm) {
+            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vboM[i])
+            val g = gm[i]; g.sommets.position(0)
+            GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, g.n * g.pas, g.sommets, GLES20.GL_STATIC_DRAW)
+        }
         // textures
         val aniso = (GLES20.glGetString(GLES20.GL_EXTENSIONS) ?: "").contains("texture_filter_anisotropic")
         val npot = (GLES20.glGetString(GLES20.GL_EXTENSIONS) ?: "").contains("texture_npot")
@@ -493,7 +505,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         val hd = java.io.File(scene.dossier, scene.niveau + "_hd4.txt").exists()
         val fac = if (facteur == 3 && !npot) 2 else facteur
         textures.clear()
-        for (g in scene.groupes) {
+        for (g in scene.groupes + (scene.mobiles?.groupes ?: emptyList())) {
             if (g.texture < 0 || textures.containsKey(g.texture)) continue
             val f = java.io.File(scene.dossier, scene.niveau + "_t" + String.format(java.util.Locale.ROOT, "%03d", g.texture) + ".png")
             val bmp = (if (hd && fac < 4) {
@@ -516,7 +528,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         }
         // R3V3 : les ombres precalculees (texture grise du jeu, une fois sur tout le circuit : pas de repetition)
         lumieres.clear()
-        for (g in scene.groupes) {
+        for (g in scene.groupes + (scene.mobiles?.groupes ?: emptyList())) {
             if (g.lumiere < 0 || lumieres.containsKey(g.lumiere)) continue
             val f = java.io.File(scene.dossier, scene.niveau + "_t" + String.format(java.util.Locale.ROOT, "%03d", g.lumiere) + ".png")
             val bmp = android.graphics.BitmapFactory.decodeFile(f.path) ?: continue
@@ -787,6 +799,27 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         if (b == null || c == null) { liberer(a); b?.let { liberer(it) }; c?.let { liberer(it) }; return }
         cibles.add(a); cibles.add(b); cibles.add(c); echelle = a.w.toFloat() / ecranW
     }
+    /** un groupe du decor (ou d'un objet qui bouge) : textures, ombres, defilement, sommets (build 332 : sorti de la boucle) */
+    private fun dessinerGroupe(g: SceneR3.Groupe, buf: Int, tSec: Double) {
+        GLES20.glUniform1f(uEauL, g.eau.toFloat()); GLES20.glUniform1f(uChaudL, if (g.chaud) 1f else 0f)
+        val t = textures[g.texture]
+        GLES20.glUniform1f(uAvecTex, if (t != null) 1f else 0f)
+        if (t != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }
+        // R3V3 : ombres precalculees (2e texture, ses propres coordonnees) et defilement de la texture
+        val lt = if (g.lumiere >= 0) lumieres[g.lumiere] else null
+        GLES20.glUniform1f(uLmK, if (lt != null) g.lumiereK else 0f)
+        if (lt != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE1); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lt); GLES20.glActiveTexture(GLES20.GL_TEXTURE0) }
+        val du = g.defil[0]; val dv = g.defil[1]
+        GLES20.glUniform2f(uDefil, if (du != 0f) ((tSec * du) % 1.0).toFloat() else 0f, if (dv != 0f) ((tSec * dv) % 1.0).toFloat() else 0f)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, buf)
+        GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, g.pas, 0)
+        GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, g.pas, 12)
+        GLES20.glVertexAttribPointer(aCol, 4, GLES20.GL_UNSIGNED_BYTE, true, g.pas, 20)
+        if (aUvL >= 0) { if (g.pas >= 32) { GLES20.glEnableVertexAttribArray(aUvL); GLES20.glVertexAttribPointer(aUvL, 2, GLES20.GL_FLOAT, false, g.pas, 24) }
+            else { GLES20.glDisableVertexAttribArray(aUvL); GLES20.glVertexAttrib2f(aUvL, 0f, 0f) } }
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
+    }
+
     override fun onDrawFrame(gl: GL10?) {
         if (cibles.size == 3) {
             val (a, b, c) = cibles
@@ -1508,23 +1541,27 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             }
             for ((i, g) in scene.groupes.withIndex()) {
                 if (i >= vbo.size || g.mode != passe) continue
-                GLES20.glUniform1f(uEauL, g.eau.toFloat()); GLES20.glUniform1f(uChaudL, if (g.chaud) 1f else 0f)
-                val t = textures[g.texture]
-                GLES20.glUniform1f(uAvecTex, if (t != null) 1f else 0f)
-                if (t != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }
-                // R3V3 : ombres precalculees (2e texture, ses propres coordonnees) et defilement de la texture
-                val lt = if (g.lumiere >= 0) lumieres[g.lumiere] else null
-                GLES20.glUniform1f(uLmK, if (lt != null) g.lumiereK else 0f)
-                if (lt != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE1); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, lt); GLES20.glActiveTexture(GLES20.GL_TEXTURE0) }
-                val du = g.defil[0]; val dv = g.defil[1]
-                GLES20.glUniform2f(uDefil, if (du != 0f) ((tSec * du) % 1.0).toFloat() else 0f, if (dv != 0f) ((tSec * dv) % 1.0).toFloat() else 0f)
-                GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vbo[i])
-                GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, g.pas, 0)
-                GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, g.pas, 12)
-                GLES20.glVertexAttribPointer(aCol, 4, GLES20.GL_UNSIGNED_BYTE, true, g.pas, 20)
-                if (aUvL >= 0) { if (g.pas >= 32) { GLES20.glEnableVertexAttribArray(aUvL); GLES20.glVertexAttribPointer(aUvL, 2, GLES20.GL_FLOAT, false, g.pas, 24) }
-                    else { GLES20.glDisableVertexAttribArray(aUvL); GLES20.glVertexAttrib2f(aUvL, 0f, 0f) } }
-                GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
+                dessinerGroupe(g, vbo[i], tSec)
+            }
+            // build 332 : les objets qui bougent (Mario Kart) : leur matrice a ce moment, puis leurs groupes
+            val mo = scene.mobiles
+            if (mo != null) for (o in mo.objets) {
+                var pret = false
+                for (gi in o.g0 until o.g0 + o.nb) {
+                    val g = mo.groupes.getOrNull(gi) ?: continue
+                    if (gi >= vboM.size || g.mode != passe) continue
+                    if (!pret) {
+                        mo.matrice(o, tSec, mMob)
+                        android.opengl.Matrix.multiplyMM(mvpMob, 0, mvp, 0, mMob, 0)
+                        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvpMob, 0)
+                        // (brume : la camera dans le repere de l'objet, la partie 3 x 3 etant une rotation)
+                        val qx = ex - mMob[12]; val qy = ey - mMob[13]; val qz = ez - mMob[14]
+                        GLES20.glUniform3f(uCam, mMob[0] * qx + mMob[1] * qy + mMob[2] * qz, mMob[4] * qx + mMob[5] * qy + mMob[6] * qz, mMob[8] * qx + mMob[9] * qy + mMob[10] * qz)
+                        pret = true
+                    }
+                    dessinerGroupe(g, vboM[gi], tSec)
+                }
+                if (pret) { GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0); GLES20.glUniform3f(uCam, ex, ey, ez) }
             }
         }
         GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true)
