@@ -617,13 +617,26 @@ object JeuMKDD {
         if (relatif(w, 0, d, m, i * 12) && (av != null || i == 0)) piecesD[n] = PiecesT(m, if (av != null && i != 0) av.t else t)
     }
     fun pieces(n: Int): FloatArray? = piecesD[n]?.takeIf { System.nanoTime() - it.t < 3_000_000_000L && it.m[12 + 0] != 0f }?.m
+    /** v(appli) : le kart « au repos » (roues et carrosserie relues quand rien ne le secoue : pas de choc, pas de toupie) ;
+     *  l'appli dessine les roues d'apres lui (elles ne flottent plus pendant les chocs) et les fait tourner elle-meme */
+    private val reposD = java.util.concurrent.ConcurrentHashMap<Int, FloatArray>()
+    fun repos(n: Int): FloatArray? = reposD[n]
+    private fun calme(a: FloatArray, b: FloatArray, m: FloatArray): Boolean {
+        for (c in 0..2) {
+            val da = Math.sqrt((a[c] * a[c] + a[4 + c] * a[4 + c] + a[8 + c] * a[8 + c]).toDouble()); val db = Math.sqrt((b[c] * b[c] + b[4 + c] * b[4 + c] + b[8 + c] * b[8 + c]).toDouble())
+            if (da < 1e-3 || db < 1e-3 || (a[c] * b[c] + a[4 + c] * b[4 + c] + a[8 + c] * b[8 + c]) / (da * db) < 0.995) return false
+            if (Math.abs(da - 1.0) > 0.05) return false                 // (pas reduit par l'eclair)
+        }
+        for (i in 0..4) for (q in intArrayOf(3, 7, 11)) { val v = m[i * 12 + q]; if (!v.isFinite() || Math.abs(v) > 300f) return false }
+        return m[12] != 0f && m[36] != 0f
+    }
     private fun lireRoues(l: Lecteur) {
         val ks = kbs; val t = System.nanoTime()
         for (n in ks.indices) { val kb = ks[n]; if (kb == 0L) continue
             val a = lire12(l, kb + 0x110) ?: continue; val b = lire12(l, kb + 0x1A0) ?: continue; val d = matAffichee(a, b)
             val m = FloatArray(5 * 12); var ok = relatif(b, 0, d, m, 0)
             for ((i, o) in longArrayOf(0x730, 0xA0C, 0xCE8, 0xFC4).withIndex()) { val w = lire12(l, kb + o) ?: run { ok = false; null } ?: break; ok = ok && relatif(w, 0, d, m, (i + 1) * 12) }
-            if (ok) piecesD[n] = PiecesT(m, t)
+            if (ok) { piecesD[n] = PiecesT(m, t); if (calme(a, b, m)) reposD[n] = m }
         }
     }
     /** les boites a objets du circuit, comme dans le jeu : *(0x803D5D00) + 0x380 est la liste (JSUList) des boites ;
@@ -700,6 +713,27 @@ object JeuMKDD {
         val a = lire12(l, kb + 0x110) ?: return null
         return lire12(l, kb + 0x1A0)?.let { matAffichee(a, it) } ?: a
     }
+    /** glissement d'une matrice 3 x 4 de a vers b (o : debut) sans deformation : les axes interpoles sont remis d'equerre et a
+     *  leur longueur (avant : une moyenne simple, qui ecrasait et etirait les articulations et les karts quand ils tournaient vite) */
+    private fun glisser(a: FloatArray, b: FloatArray, o: Int, al: Float, r: FloatArray) {
+        val col = Array(3) { c -> FloatArray(3) { i -> a[o + 4 * i + c] + (b[o + 4 * i + c] - a[o + 4 * i + c]) * al } }
+        val lon = FloatArray(3) { c ->
+            val la = Math.sqrt((a[o + c] * a[o + c] + a[o + 4 + c] * a[o + 4 + c] + a[o + 8 + c] * a[o + 8 + c]).toDouble()).toFloat()
+            val lb = Math.sqrt((b[o + c] * b[o + c] + b[o + 4 + c] * b[o + 4 + c] + b[o + 8 + c] * b[o + 8 + c]).toDouble()).toFloat()
+            la + (lb - la) * al }
+        fun nrm(v: FloatArray): Boolean { val l = Math.sqrt((v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).toDouble()).toFloat(); if (l < 1e-6f) return false; v[0] /= l; v[1] /= l; v[2] /= l; return true }
+        val u0 = col[0].copyOf(); val u1 = col[1].copyOf()
+        var ok = nrm(u0)
+        val d = u1[0] * u0[0] + u1[1] * u0[1] + u1[2] * u0[2]; for (i in 0..2) u1[i] -= d * u0[i]
+        ok = ok && nrm(u1)
+        var u2 = floatArrayOf(u0[1] * u1[2] - u0[2] * u1[1], u0[2] * u1[0] - u0[0] * u1[2], u0[0] * u1[1] - u0[1] * u1[0])
+        if (u2[0] * col[2][0] + u2[1] * col[2][1] + u2[2] * col[2][2] < 0f) u2 = FloatArray(3) { -u2[it] }   // (miroir garde)
+        for (i in 0..2) {
+            if (ok) { r[o + 4 * i] = u0[i] * lon[0]; r[o + 4 * i + 1] = u1[i] * lon[1]; r[o + 4 * i + 2] = u2[i] * lon[2] }
+            else for (c in 0..2) r[o + 4 * i + c] = col[c][i]
+            r[o + 4 * i + 3] = a[o + 4 * i + 3] + (b[o + 4 * i + 3] - a[o + 4 * i + 3]) * al
+        }
+    }
     /** pose d'un personnage (kart n, rang 0 passager de l'equipe, 1 pilote), glissee entre deux lectures ; null : pas lue */
     fun pose(n: Int, rang: Int): FloatArray? {
         val e = posesDirect[n * 2 + rang] ?: return null
@@ -708,7 +742,9 @@ object JeuMKDD {
         val a = e.a ?: return e.b
         if (a.size != e.b.size) return e.b
         val al = ((now - e.tb).toFloat() / (e.tb - e.ta).coerceAtLeast(1L)).coerceIn(0f, 1f)
-        return FloatArray(a.size) { a[it] + (e.b[it] - a[it]) * al }
+        val r = FloatArray(a.size); var o = 0
+        while (o + 12 <= a.size) { glisser(a, e.b, o, al, r); o += 12 }
+        return r
     }
     class MatT(val a: FloatArray?, val ta: Long, val b: FloatArray, val tb: Long)
     private val matsDirect = java.util.concurrent.ConcurrentHashMap<Int, MatT>()
@@ -815,10 +851,13 @@ object JeuMKDD {
                     val rp = reperer(p)
                     val lc0 = av?.lc
                     var tenu = false
+                    var lc = rp?.second
                     if (rp != null && av != null && lc0 != null && av.kc == rp.first) {
                         val e0 = lc0[0] - rp.second[0]; val e1 = lc0[1] - rp.second[1]; val e2 = lc0[2] - rp.second[2]
-                        tenu = e0 * e0 + e1 * e1 + e2 * e2 < 40f * 40f }
-                    objetsDirect[o] = if (av != null && av.genre == g) ObjT(g, av.b, av.tb, p, t, rp?.first ?: -1, rp?.second, tenu)
+                        val lim = if (av.ancre) 150f else 40f                     // (deja tenu : il le reste, meme si le kart secoue)
+                        tenu = e0 * e0 + e1 * e1 + e2 * e2 < lim * lim
+                        if (tenu && av.ancre) lc = FloatArray(3) { lc0[it] * 0.7f + rp.second[it] * 0.3f } }   // (place lissee : ne tremble plus)
+                    objetsDirect[o] = if (av != null && av.genre == g) ObjT(g, av.b, av.tb, p, t, rp?.first ?: -1, lc, tenu)
                                       else ObjT(g, null, t, p, t, rp?.first ?: -1, rp?.second, false)
                 }
                 val sv = l.u32(lk + 12) ?: run { complet = false; vus.addAll(objetsDirect.keys.filter { objetsDirect[it]?.genre == g }); null } ?: break
@@ -878,7 +917,7 @@ object JeuMKDD {
         val a = e.a ?: return e.b
         val d = (e.tb - e.ta).coerceAtLeast(1L)
         val al = ((now - e.tb).toFloat() / d).coerceIn(0f, 1f)
-        return FloatArray(12) { a[it] + (e.b[it] - a[it]) * al }
+        val r = FloatArray(12); glisser(a, e.b, 0, al, r); return r
     }
 
     class Kart(val n: Int, val x: Float, val z: Float, val place: Int, val y: Float = 0f,
@@ -1044,7 +1083,7 @@ object JeuMKDD {
                 points = if (mode == 6) (l.s16(k + 0xA6) ?: -1).takeIf { it in 0..99 } ?: -1 else -1, mat = mt,
                 echange = kb != null && (l.u8(kb + 0x5B2) ?: 0) != 0))
         }
-        if (!kbsN.contentEquals(kbs)) { roues.clear(); effets.clear(); piecesD.clear() }        // (autres karts : leurs roues seront relues)
+        if (!kbsN.contentEquals(kbs)) { roues.clear(); effets.clear(); piecesD.clear(); reposD.clear() }        // (autres karts : leurs roues seront relues)
         kbs = kbsN; squels = sqN
         val s0 = l.ptr(kc + 0x44) ?: l.ptr(kc + 0x40)               // (troncon ou se trouve le kart 1)
         if (s0 != null && (crs != dernierCircuit || (trace.isEmpty() && maintenant - essai > 3000))) {

@@ -1038,13 +1038,23 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                         val v = vitesseKart(k.n, tx, ty, tz, ra)
                         posePiece(ra, tx, ty, tz, pc, 0, 0f); GLES20.glUniformMatrix4fv(uM, 1, false, mModele, 0)
                         for (m in corps) morceauK(m, uAl, uS, mp, mu, mn)
+                        // (roues : d'apres le kart au repos, accrochees a la carrosserie ; le telephone les fait tourner lui-meme ;
+                        //  tes roues avant braquent comme dans le jeu, lues en direct)
+                        val rp = JeuMKDD.repos(k.n); val rq = rp?.copyOf() ?: pc
+                        if (rp != null && k.joueur) for (i in 1..2) {
+                            val o = i * 12
+                            val pl = Math.atan2(-pc[o + 8].toDouble(), pc[o].toDouble()); val pr = Math.atan2(-rp[o + 8].toDouble(), rp[o].toDouble())
+                            var dl = pl - pr; while (dl > Math.PI) dl -= 2 * Math.PI; while (dl < -Math.PI) dl += 2 * Math.PI
+                            val c = Math.cos(dl.coerceIn(-0.7, 0.7)).toFloat(); val sn = Math.sin(dl.coerceIn(-0.7, 0.7)).toFloat()
+                            for (cc in 0..2) { val x = rp[o + cc]; val z = rp[o + 8 + cc]; rq[o + cc] = c * x + sn * z; rq[o + 8 + cc] = -sn * x + c * z }
+                        }
                         for (i in 1..4) { val rm = modeleMK("mk_roue_${k.kart}_${if (i % 2 == 1) 'g' else 'd'}.txt") ?: continue
                             val cle = k.n * 4 + i
                             val ray = rayonRoue.getOrPut("${k.kart}") { rayon(rm) }
-                            val sc = Math.sqrt((pc[i * 12 + 1] * pc[i * 12 + 1] + pc[i * 12 + 5] * pc[i * 12 + 5] + pc[i * 12 + 9] * pc[i * 12 + 9]).toDouble()).toFloat()
+                            val sc = Math.sqrt((rq[i * 12 + 1] * rq[i * 12 + 1] + rq[i * 12 + 5] * rq[i * 12 + 5] + rq[i * 12 + 9] * rq[i * 12 + 9]).toDouble()).toFloat()
                             val th = ((rotRoue[cle] ?: 0f) + v * dtKarts / (ray * sc).coerceAtLeast(0.05f)) % (2f * Math.PI.toFloat())
                             rotRoue[cle] = th
-                            posePiece(ra, tx, ty, tz, pc, i, th); GLES20.glUniformMatrix4fv(uM, 1, false, mModele, 0)
+                            posePiece(ra, tx, ty, tz, rq, i, th); GLES20.glUniformMatrix4fv(uM, 1, false, mModele, 0)
                             for (m in rm) morceauK(m, uAl, uS, mp, mu, mn) }
                         fait = true; continue
                     }
