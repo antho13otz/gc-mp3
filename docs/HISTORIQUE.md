@@ -24,6 +24,19 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v325 (build 832) — stabilité, fluidité, chargements (v323 à v325 en une version)
+- **Stabilité (v323)** : lectures hors des tableaux corrigées (météo, « à suivre » du téléphone, cartes virtuelles,
+  menu des actions vide). Le rapport du test des touches donne la mémoire gardée par partie du programme (cache ou
+  fuite), de quoi est faite la pire image de chaque action lente, et le temps d'ouverture de chaque écran. Un test des
+  touches de 6 min tourne maintenant dans les tests du simulateur.
+- **Fluidité (v324)** : les pages du navigateur sont effacées en tâche de fond ; le catalogue d'applis se lit une
+  appli par image.
+- **Chargements (v325)** : les radios favorites ne sont lues qu'une fois ; la recherche du .dol est gardée pour la séance.
+- **Correction trouvée en publiant** : au démarrage, le journal de Pulse était lu comme du texte sans fin marquée
+  (lecture hors de la mémoire prévue quand le jeu n'avait rien laissé) ; chaque fichier lu se termine maintenant par
+  un octet nul.
+- Tests : simulateur (ci.sh) tout passé ; banc natif identique à v322. Pas testé sur la vraie console.
+
 ## Nouveautés appli build 319 — Mario Kart : les roues en direct
 - Avec le pack « mkdd-roues-hd.zip » (carrosseries et roues séparées des 21 karts), chaque kart est dessiné en pièces
   placées comme dans le jeu : la carrosserie (KartBody +0x1A0, sans la racine de son modèle) et les 4 roues (+0x730,
