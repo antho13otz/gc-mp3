@@ -134,16 +134,32 @@ fun EcranIsoTel() {
         val i = iso; val l = aEnvoyer
         if (t != null && i != null && l.isNotEmpty()) {
             portee.launch {
-                var ok = 0
+                var ok = 0; val rates = ArrayList<String>()
                 withContext(Dispatchers.IO) {
-                    val parent = android.provider.DocumentsContract.buildDocumentUriUsingTree(t, android.provider.DocumentsContract.getTreeDocumentId(t))
+                    // (les fichiers gardent leurs dossiers du disque, dans un dossier au nom du jeu : avant, tout allait au meme
+                    //  endroit, et deux fichiers de meme nom dans deux dossiers du disque (ou ne differant que par les majuscules)
+                    //  ne pouvaient pas etre enregistres tous les deux)
+                    val dc = android.provider.DocumentsContract.Document.MIME_TYPE_DIR
+                    val racine = android.provider.DocumentsContract.buildDocumentUriUsingTree(t, android.provider.DocumentsContract.getTreeDocumentId(t))
+                    val nomJeu = (disque?.id ?: "jeu") + (disque?.titre?.takeIf { it.isNotBlank() }?.let { " - " + it.replace(Regex("[\\\\/:*?\"<>|]"), " ").trim() } ?: "")
+                    val haut = try { android.provider.DocumentsContract.createDocument(ctx.contentResolver, racine, dc, nomJeu) } catch (e: Exception) { null } ?: racine
+                    val dossiers = HashMap<String, Uri>(); dossiers[""] = haut
+                    fun dossierDe(chemin: String): Uri? {
+                        dossiers[chemin.lowercase()]?.let { return it }
+                        val p = chemin.substringBeforeLast('/', ""); val pere = dossierDe(p) ?: return null
+                        val u = try { android.provider.DocumentsContract.createDocument(ctx.contentResolver, pere, dc, chemin.substringAfterLast('/')) } catch (e: Exception) { null } ?: return null
+                        dossiers[chemin.lowercase()] = u; return u
+                    }
                     for ((k, f) in l.withIndex()) {
                         message = "Extraction " + (k + 1) + " / " + l.size + " : " + f.chemin.substringAfterLast('/')
-                        val u = try { android.provider.DocumentsContract.createDocument(ctx.contentResolver, parent, "application/octet-stream", (disque?.id ?: "jeu") + "-" + f.chemin.substringAfterLast('/')) } catch (e: Exception) { null }
-                        if (u != null && IsoTel.extraire(ctx, i, f, u)) ok++
+                        val rep = f.chemin.trim('/').substringBeforeLast('/', "")
+                        val pere = dossierDe(rep)
+                        val u = if (pere == null) null else try { android.provider.DocumentsContract.createDocument(ctx.contentResolver, pere, "application/octet-stream", f.chemin.substringAfterLast('/')) } catch (e: Exception) { null }
+                        if (u != null && IsoTel.extraire(ctx, i, f, u)) ok++ else rates.add(f.chemin)
                     }
                 }
-                message = "Enregistrés : $ok fichier(s) sur " + l.size
+                message = "Enregistrés : $ok fichier(s) sur " + l.size + " (dossier « " + (disque?.id ?: "jeu") + " … », avec les dossiers du disque)" +
+                    if (rates.isEmpty()) "" else "\nPas enregistrés (" + rates.size + ") : " + rates.take(5).joinToString(", ") + if (rates.size > 5) "…" else ""
                 coches.clear()
             }
         }
@@ -175,7 +191,7 @@ fun EcranIsoTel() {
             Doux("Choisis l'image d'un jeu GameCube (.iso ou .gcm) rangée sur le téléphone, puis le fichier à en sortir (main.dol est en premier), ou coche-en plusieurs : ils vont tous dans le dossier que tu choisis.", taille = 12)
             Bouton("Choisir le jeu (.iso)", Modifier.fillMaxWidth(), plein = true) { ouvrir.launch(arrayOf("*/*")) }
         }
-        if (message.isNotEmpty()) Doux(message, taille = 12, couleur = C.Texte, lignes = 2)
+        if (message.isNotEmpty()) Doux(message, taille = 12, couleur = C.Texte, lignes = 3)
         if (d != null) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(d.titre.ifEmpty { d.id } + " · " + d.id, color = C.Texte, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1,
