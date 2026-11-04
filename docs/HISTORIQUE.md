@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 364 — packs Wind Waker : les peaux des objets animés
+- « Installer / mettre à jour des packs » garde maintenant aussi les fichiers `<lieu>_vif.r3p` (les peaux des objets
+  animés) : avant, ils étaient ignorés à l'installation. Il faut réinstaller les packs qui en contiennent.
+
 ## Nouveautés appli build 363 — la fiche du jeu ne plante plus
 - Le build 361 plantait en ouvrant la fiche de Wind Waker, Mario Kart ou Rayman 3 (bouton « Exporter le pack
   installé ») : corrigé.
