@@ -69,8 +69,21 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
         var eau = 0          // build 245 : 1 eau, 2 lave (d'apres le nom de la texture : <niveau>_tex.txt) ; animees par le moteur
                              // build 276 : 3 lave peinte (texture claire que le jeu colore en rouge : la mer de lave de knaar_10)
         var chaud = false    // build 276 : sous la lumiere rouge-orange du jeu (zone du crane de knaar_10)
+        var vent = false     // build 356 : herbe de Wind Waker : ondule (2e coordonnees : hauteur dans la touffe, phase)
+        /** build 356 : clignements (suite de textures) et couleurs animees (multiplicateurs r g b a), images par seconde */
+        var texSeq: IntArray? = null; var texIps = 30f; var coulSeq: FloatArray? = null; var coulIps = 30f
     }
     companion object {
+        /** build 356 : une ligne de suite (clignement ou couleur) a partir du mot k : type, groupe, images par seconde,
+         *  nombre, valeurs */
+        fun lireSuite(p: List<String>, k: Int, groupe: (Int) -> Groupe?) {
+            val g = groupe(p.getOrNull(k + 1)?.toIntOrNull() ?: return) ?: return
+            val ips = p.getOrNull(k + 2)?.toFloatOrNull() ?: return; val n = p.getOrNull(k + 3)?.toIntOrNull() ?: return
+            when (p[k]) {
+                "t" -> { val v = IntArray(n) { p.getOrNull(k + 4 + it)?.toIntOrNull() ?: -1 }; if (n > 0 && v.all { it >= 0 }) { g.texSeq = v; g.texIps = ips } }
+                "c" -> { val v = FloatArray(n * 4) { p.getOrNull(k + 4 + it)?.toFloatOrNull() ?: 1f }; if (n > 0) { g.coulSeq = v; g.coulIps = ips } }
+            }
+        }
         /** fichier .r3v : "R3V1", nombre de groupes ; par groupe : texture (s32), alpha (u32), nombre de sommets (u32),
          *  puis les sommets (24 octets : 5 flottants + 4 octets de couleur), petit-boutiste */
         fun lire(d: java.io.File, niveau: String): SceneR3? = try {
@@ -123,7 +136,10 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
                     // R3V3 : <niveau>_anim.txt : groupe, defilement u et v par seconde
                     java.io.File(d, nv + "_anim.txt").takeIf { it.exists() }?.readLines()?.forEach { li -> val p = li.trim().split(' ')
                         val gi = p.getOrNull(0)?.toIntOrNull() ?: return@forEach; val du = p.getOrNull(1)?.toFloatOrNull() ?: 0f; val dv = p.getOrNull(2)?.toFloatOrNull() ?: 0f
-                        l.getOrNull(gi)?.defil = floatArrayOf(du, dv) }
+                        l.getOrNull(gi)?.defil = floatArrayOf(du, dv)
+                        if (p.getOrNull(3) == "1") l.getOrNull(gi)?.vent = true }
+                    // build 356 : <niveau>_coul.txt : « t groupe ips n textures... » et « c groupe ips n r g b a ... »
+                    java.io.File(d, nv + "_coul.txt").takeIf { it.exists() }?.readLines()?.forEach { li -> lireSuite(li.trim().split(' '), 0) { l.getOrNull(it) } }
                     // build 245 : objets (cages, lums, pouvoirs)
                     val fo = java.io.File(d, nv + "_obj.txt")
                     val obj = if (!fo.exists()) emptyList() else fo.readLines().mapNotNull { li ->
@@ -215,6 +231,8 @@ class Etat3D {
     @Volatile var decal = floatArrayOf(0f, 0f, 0f)       // (build 236 : deplacement a deux doigts, ajoute a la cible)
     @Volatile var redessiner: () -> Unit = {}
     @Volatile var voir = "cfjkvrpidtuq"
+    /** build 356 : Wind Waker, les objets lus en direct (poses) et les modeles du pack qu'ils remplacent */
+    @Volatile var vifsWW: List<JeuWW.VifPose>? = null; @Volatile var modelesVifs: Set<Int> = emptySet()
     /** build 266 : autres pions a montrer (Mario Kart : les autres karts) : x, y, z, couleur (ARGB en Float.fromBits) par pion */
     @Volatile var pions = FloatArray(0)
     /** build 269 : position lue en direct ~30 fois par seconde ; le moteur la lisse a chaque image (plus de sauts) */
@@ -347,6 +365,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     private var uSeuil = 0; private var progCiel = 0; private var cPos = 0
     // build 245 : ambiance, eau animee, objets
     private val amb = Ambiance.pour(scene.niveau); private val t0 = System.nanoTime()
+    private var uVentL = 0; private var uMulL = 0
     private var uChaudL = 0; private var uEauL = 0; private var uTL = 0; private var uBrumeL = 0; private var uBrumePL = 0; private var uTeinteL = 0
     private var progO = 0
     private val objBuf = HashMap<Char, FloatBuffer>()
@@ -489,6 +508,23 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     // build 353 : objets animes (Wind Waker) : un tampon u v couleur par groupe, un tampon de positions par image
     private var vboAniUv = arrayOf<IntArray>(); private var vboAniPos = arrayOf<IntArray>()
     private val mAni = FloatArray(16); private val mAniInv = FloatArray(16); private val mvpAni = FloatArray(16)
+    // build 356 : objets en direct : positions calculees (peau) une fois par image, dans des tampons reutilises
+    private var vboVif = IntArray(0); private var bufVif = arrayOfNulls<java.nio.FloatBuffer>(0); private var imgVif = LongArray(0); private var noImage = 0L
+    private fun tamponVif(i: Int, n: Int): Pair<Int, java.nio.FloatBuffer> {
+        if (i >= vboVif.size) {
+            val t = IntArray(i + 8); System.arraycopy(vboVif, 0, t, 0, vboVif.size); GLES20.glGenBuffers(t.size - vboVif.size, t, vboVif.size); vboVif = t
+            bufVif = bufVif.copyOf(i + 8); imgVif = imgVif.copyOf(i + 8).also { a -> for (k in vboVif.size - 8 until a.size) a[k] = -1L }
+        }
+        val b = bufVif[i]?.takeIf { it.capacity() >= n * 3 } ?: java.nio.ByteBuffer.allocateDirect(n * 12).order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer().also { bufVif[i] = it; imgVif[i] = -1L }
+        return vboVif[i] to b
+    }
+    /** matrice 3 x 4 du jeu (y vers le haut, par lignes) -> matrice 4 x 4 de l'appli (x, -z, y ; 1/100), par colonnes */
+    private fun matriceAppli(g: FloatArray, o: Int, m: FloatArray) {
+        val q = arrayOf(intArrayOf(0, 1), intArrayOf(2, -1), intArrayOf(1, 1))     // (ligne i de Q : 1 en colonne q[i][0], signe q[i][1])
+        for (i in 0..2) for (j in 0..2) m[j * 4 + i] = g[o + q[i][0] * 4 + q[j][0]] * q[i][1] * q[j][1]
+        for (i in 0..2) m[12 + i] = 0.01f * g[o + q[i][0] * 4 + 3] * q[i][1]
+        m[3] = 0f; m[7] = 0f; m[11] = 0f; m[15] = 1f
+    }
     private val proj = FloatArray(16); private val vue = FloatArray(16); private val mvp = FloatArray(16); private val projJeu = FloatArray(16)
     private fun shader(t: Int, src: String): Int { val s = GLES20.glCreateShader(t); GLES20.glShaderSource(s, src); GLES20.glCompileShader(s); return s }
     private fun programme(v: String, f: String): Int {
@@ -498,28 +534,31 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     }
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         prog = programme("""
-            uniform mat4 uMvp; uniform vec3 uCam; uniform float uT; uniform float uEau; uniform vec2 uDefil;
+            uniform mat4 uMvp; uniform vec3 uCam; uniform float uT; uniform float uEau; uniform vec2 uDefil; uniform float uVent;
             attribute vec3 aPos; attribute vec2 aUv; attribute vec4 aCol; attribute vec2 aUvL;
             varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying vec3 vD; varying vec2 vUvL;
-            void main() { gl_Position = uMvp * vec4(aPos, 1.0); vCol = aCol; vUvL = aUvL;
+            void main() { vec3 p = aPos;
+                // build 356 : herbe : le haut de la touffe ondule au vent (2e coordonnees : hauteur relative, phase)
+                if (uVent > 0.5) { float o = sin(uT * 1.9 + aUvL.y) * 0.07 * aUvL.x * aUvL.x; p.x += o; p.y += o * 0.7; }
+                gl_Position = uMvp * vec4(p, 1.0); vCol = aCol; vUvL = aUvL;
                 // eau / lave : deux couches de la texture qui glissent en sens differents (ondulation) ; R3V3 : le defilement du jeu
                 vec2 v = uEau > 0.5 ? vec2(uT * 0.035, uT * 0.021) : vec2(0.0);
                 vUv = aUv + v + uDefil; vUv2 = aUv * 1.37 + vec2(-uT * 0.027, uT * 0.031);
                 // build 347 : la brume est calculee a chaque pixel (la mer de Wind Waker, un seul grand carre dont les coins sont
                 // a 500 m, etait toute embrumee a la couleur du ciel : on ne la voyait plus)
-                vD = aPos - uCam; }""", """
+                vD = p - uCam; }""", """
             #ifdef GL_FRAGMENT_PRECISION_HIGH
             precision highp float;
             #else
             precision mediump float;
             #endif
             uniform sampler2D uTex; uniform float uAvecTex; uniform float uSeuil; uniform float uEau;
-            uniform vec3 uBrume; uniform vec3 uTeinteEau; uniform float uChaud; uniform sampler2D uLm; uniform float uLmK; uniform vec3 uBrumeP;
+            uniform vec3 uBrume; uniform vec3 uTeinteEau; uniform float uChaud; uniform sampler2D uLm; uniform float uLmK; uniform vec3 uBrumeP; uniform vec4 uMul;
             varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying vec3 vD; varying vec2 vUvL;
             void main() { float vBrume = clamp((length(vD) - uBrumeP.x) / uBrumeP.y, 0.0, uBrumeP.z);
                 vec4 t = uAvecTex > 0.5 ? texture2D(uTex, vUv) : vec4(1.0);
                 if (uEau > 0.5 && uAvecTex > 0.5) t = mix(t, texture2D(uTex, vUv2), 0.5);
-                vec4 c = t * vec4(vCol.rgb * 2.0, vCol.a);
+                vec4 c = t * vec4(vCol.rgb * 2.0, vCol.a) * uMul;      // (build 356 : couleurs animees du jeu)
                 if (uLmK > 0.0) c.rgb = min(c.rgb * texture2D(uLm, vUvL).rgb * uLmK, vec3(1.0));   // (ombres precalculees du jeu)
                 if (uEau > 0.5 && uEau < 1.5) { c.rgb *= uTeinteEau; c.a = min(1.0, c.a * 1.15 + 0.1); }
                 if (uEau > 1.5 && uEau < 2.5) c.rgb *= 1.3;
@@ -535,6 +574,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         uAvecTex = GLES20.glGetUniformLocation(prog, "uAvecTex"); uCam = GLES20.glGetUniformLocation(prog, "uCam")
         uSeuil = GLES20.glGetUniformLocation(prog, "uSeuil")
         uEauL = GLES20.glGetUniformLocation(prog, "uEau"); uTL = GLES20.glGetUniformLocation(prog, "uT")
+        uVentL = GLES20.glGetUniformLocation(prog, "uVent"); uMulL = GLES20.glGetUniformLocation(prog, "uMul")
         uBrumeL = GLES20.glGetUniformLocation(prog, "uBrume"); uBrumePL = GLES20.glGetUniformLocation(prog, "uBrumeP"); uTeinteL = GLES20.glGetUniformLocation(prog, "uTeinteEau"); uChaudL = GLES20.glGetUniformLocation(prog, "uChaud")
         // ciel : un degrade plein ecran dessine avant le niveau
         progCiel = programme("""
@@ -584,9 +624,12 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         val hd = java.io.File(scene.dossier, scene.niveau + "_hd4.txt").exists()
         val fac = if (facteur == 3 && !npot) 2 else facteur
         textures.clear()
-        for (g in scene.groupes + (scene.mobiles?.groupes ?: emptyList()) + (scene.animes?.groupesTex ?: emptyList())) {
-            if (g.texture < 0 || textures.containsKey(g.texture)) continue
-            val f = java.io.File(scene.dossier, scene.niveau + "_t" + String.format(java.util.Locale.ROOT, "%03d", g.texture) + ".png")
+        // (build 356 : aussi les textures des clignements)
+        val aCharger = (scene.groupes + (scene.mobiles?.groupes ?: emptyList()) + (scene.animes?.groupesTex ?: emptyList()))
+            .flatMap { g -> listOf(g.texture to g.enveloppe) + (g.texSeq?.map { it to g.enveloppe } ?: emptyList()) }
+        for ((gTexture, gEnveloppe) in aCharger) {
+            if (gTexture < 0 || textures.containsKey(gTexture)) continue
+            val f = java.io.File(scene.dossier, scene.niveau + "_t" + String.format(java.util.Locale.ROOT, "%03d", gTexture) + ".png")
             val bmp = (if (hd && fac < 4) {
                 // x2 et x1 : lecture directe en 1/2 ou 1/4 ; x3 : reduction filtree des 3/4
                 val o = android.graphics.BitmapFactory.Options().apply { inSampleSize = if (fac == 1) 4 else if (fac == 2) 2 else 1 }
@@ -600,10 +643,10 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             GLES20.glGenerateMipmap(GLES20.GL_TEXTURE_2D)
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR_MIPMAP_LINEAR)
             GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR)
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, if (g.enveloppe and 1 != 0) GLES20.GL_MIRRORED_REPEAT else GLES20.GL_REPEAT)
-            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, if (g.enveloppe and 2 != 0) GLES20.GL_MIRRORED_REPEAT else GLES20.GL_REPEAT)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, if (gEnveloppe and 1 != 0) GLES20.GL_MIRRORED_REPEAT else GLES20.GL_REPEAT)
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, if (gEnveloppe and 2 != 0) GLES20.GL_MIRRORED_REPEAT else GLES20.GL_REPEAT)
             if (aniso) GLES20.glTexParameterf(GLES20.GL_TEXTURE_2D, 0x84FE, 16f)   // (GL_TEXTURE_MAX_ANISOTROPY_EXT : nettete de biais)
-            textures[g.texture] = t[0]
+            textures[gTexture] = t[0]
         }
         // R3V3 : les ombres precalculees (texture grise du jeu, une fois sur tout le circuit : pas de repetition)
         lumieres.clear()
@@ -908,6 +951,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             GLES20.glUseProgram(prog)
             GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)                   // (positions deja dans le monde)
             GLES20.glUniform1f(uEauL, 0f); GLES20.glUniform1f(uChaudL, 0f); GLES20.glUniform1f(uLmK, 0f); GLES20.glUniform2f(uDefil, 0f, 0f)
+            GLES20.glUniform4f(uMulL, 1f, 1f, 1f, 1f); GLES20.glUniform1f(uVentL, 0f)
             GLES20.glUniform1f(uSeuil, 0.5f); GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glEnable(GLES20.GL_DEPTH_TEST)
             GLES20.glEnableVertexAttribArray(aPos); GLES20.glEnableVertexAttribArray(aUv); GLES20.glEnableVertexAttribArray(aCol)
             if (aUvL >= 0) { GLES20.glDisableVertexAttribArray(aUvL); GLES20.glVertexAttrib2f(aUvL, 0f, 0f) }
@@ -942,6 +986,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         GLES20.glUseProgram(prog)
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvpLink, 0)
         GLES20.glUniform1f(uEauL, 0f); GLES20.glUniform1f(uChaudL, 0f); GLES20.glUniform1f(uLmK, 0f); GLES20.glUniform2f(uDefil, 0f, 0f)
+        GLES20.glUniform4f(uMulL, 1f, 1f, 1f, 1f); GLES20.glUniform1f(uVentL, 0f)
         GLES20.glUniform1f(uSeuil, 0.5f); GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glEnable(GLES20.GL_DEPTH_TEST)
         GLES20.glEnableVertexAttribArray(aPos); GLES20.glEnableVertexAttribArray(aUv); GLES20.glEnableVertexAttribArray(aCol)
         if (aUvL >= 0) { GLES20.glDisableVertexAttribArray(aUvL); GLES20.glVertexAttrib2f(aUvL, 0f, 0f) }
@@ -966,9 +1011,21 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     }
 
     /** un groupe du decor (ou d'un objet qui bouge) : textures, ombres, defilement, sommets (build 332 : sorti de la boucle) */
+    /** build 356 : texture du moment (clignements) et couleur animee d'un groupe ; phase : decalage (0 a 1) de la copie */
+    private fun texDuMoment(g: SceneR3.Groupe, tSec: Double, phase: Float = 0f): Int {
+        val sq = g.texSeq ?: return g.texture
+        return sq[((tSec * g.texIps + phase * sq.size).toLong() % sq.size).toInt()]
+    }
+    private fun couleurDuMoment(g: SceneR3.Groupe, tSec: Double, phase: Float = 0f) {
+        val sq = g.coulSeq
+        if (sq == null) { GLES20.glUniform4f(uMulL, 1f, 1f, 1f, 1f); return }
+        val n = sq.size / 4; val i = ((tSec * g.coulIps + phase * n).toLong() % n).toInt() * 4
+        GLES20.glUniform4f(uMulL, sq[i], sq[i + 1], sq[i + 2], sq[i + 3])
+    }
     private fun dessinerGroupe(g: SceneR3.Groupe, buf: Int, tSec: Double) {
         GLES20.glUniform1f(uEauL, g.eau.toFloat()); GLES20.glUniform1f(uChaudL, if (g.chaud) 1f else 0f)
-        val t = textures[g.texture]
+        GLES20.glUniform1f(uVentL, if (g.vent) 1f else 0f); couleurDuMoment(g, tSec)
+        val t = textures[texDuMoment(g, tSec)]
         GLES20.glUniform1f(uAvecTex, if (t != null) 1f else 0f)
         if (t != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }
         // R3V3 : ombres precalculees (2e texture, ses propres coordonnees) et defilement de la texture
@@ -1636,6 +1693,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     }
 
     private fun dessinerScene() {
+        noImage++                                             // (build 356 : peaux des objets en direct recalculees une fois)
         etat.rejeu?.invoke()                                  // (build 345 : le direct, rejoue a chaque image)
         val c0 = cibleLissee(); val dc = etat.decal
         // build 282 : mode libre : le centre reste ou il etait (seuls les doigts le deplacent)
@@ -1711,6 +1769,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         GLES20.glUniform3f(uCam, ex, ey, ez)
         GLES20.glUniform1i(uTex, 0); GLES20.glUniform1i(uLm, 1)
+        GLES20.glUniform4f(uMulL, 1f, 1f, 1f, 1f); GLES20.glUniform1f(uVentL, 0f)      // (build 356 : valeurs neutres)
         val tSec = ((System.nanoTime() - t0) / 1e9 % 2000.0)
         GLES20.glUniform1f(uTL, ((System.nanoTime() - t0) / 1e9 % 2000.0).toFloat())
         GLES20.glUniform3fv(uBrumeL, 1, amb.brume, 0); GLES20.glUniform3f(uBrumePL, amb.brumeDebut, amb.brumeLong, amb.brumeMax)
@@ -1757,7 +1816,9 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             // build 353 : objets animes par le jeu (Wind Waker) : l'image de leur animation a ce moment, a leur place
             val ani = scene.animes
             if (ani != null && vboAniPos.size == ani.modeles.size) {
+                val cachees = etat.modelesVifs
                 for (cp in ani.copies) {
+                    if (cp.modele in cachees) continue                          // (build 356 : montre par le direct)
                     val md = ani.modeles[cp.modele]
                     if (md.groupes.none { it.mode == passe } || md.images == 0) continue
                     val img = (((tSec * md.ips) + cp.phase * md.images).toLong() % md.images).toInt()
@@ -1773,7 +1834,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                     if (aUvL >= 0) { GLES20.glDisableVertexAttribArray(aUvL); GLES20.glVertexAttrib2f(aUvL, 0f, 0f) }
                     for ((gi, g) in md.groupes.withIndex()) {
                         if (g.mode != passe) continue
-                        val t = textures[g.texture]
+                        val t = textures[texDuMoment(g.stub, tSec, cp.phase)]; couleurDuMoment(g.stub, tSec, cp.phase)
+                        GLES20.glUniform1f(uVentL, 0f)
                         GLES20.glUniform1f(uAvecTex, if (t != null) 1f else 0f)
                         if (t != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }
                         GLES20.glUniform2f(uDefil, if (g.du != 0f) ((tSec * g.du) % 1.0).toFloat() else 0f, if (g.dv != 0f) ((tSec * g.dv) % 1.0).toFloat() else 0f)
@@ -1785,10 +1847,51 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
                     }
                 }
+                // build 356 : les objets lus en direct : leur peau posee sur les os du jeu, ou leur image de repos a la place
+                // donnee par le jeu (objets plus loin)
+                val vp = etat.vifsWW
+                if (vp != null) for ((vi, v) in vp.withIndex()) {
+                    val md = ani.modeles.getOrNull(v.modele) ?: continue
+                    if (md.groupes.none { it.mode == passe } || md.images == 0) continue
+                    var posBuf = vboAniPos[v.modele][0]
+                    if (v.plein) {
+                        val (vb, fb) = tamponVif(vi, md.total)
+                        if (imgVif[vi] != noImage) {
+                            if (!ani.poser(v.modele, v.m, fb)) continue
+                            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vb)
+                            GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, md.total * 12, fb, GLES20.GL_STREAM_DRAW); imgVif[vi] = noImage
+                        }
+                        posBuf = vb
+                        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0); GLES20.glUniform3f(uCam, ex, ey, ez)
+                    } else {
+                        matriceAppli(v.m, 0, mAni)
+                        android.opengl.Matrix.multiplyMM(mvpAni, 0, mvp, 0, mAni, 0)
+                        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvpAni, 0)
+                        if (android.opengl.Matrix.invertM(mAniInv, 0, mAni, 0))
+                            GLES20.glUniform3f(uCam, mAniInv[0] * ex + mAniInv[4] * ey + mAniInv[8] * ez + mAniInv[12],
+                                mAniInv[1] * ex + mAniInv[5] * ey + mAniInv[9] * ez + mAniInv[13], mAniInv[2] * ex + mAniInv[6] * ey + mAniInv[10] * ez + mAniInv[14])
+                    }
+                    GLES20.glUniform1f(uEauL, 0f); GLES20.glUniform1f(uChaudL, 0f); GLES20.glUniform1f(uLmK, 0f); GLES20.glUniform1f(uVentL, 0f)
+                    if (aUvL >= 0) { GLES20.glDisableVertexAttribArray(aUvL); GLES20.glVertexAttrib2f(aUvL, 0f, 0f) }
+                    for ((gi, g) in md.groupes.withIndex()) {
+                        if (g.mode != passe) continue
+                        val t = textures[texDuMoment(g.stub, tSec)]; couleurDuMoment(g.stub, tSec)
+                        GLES20.glUniform1f(uAvecTex, if (t != null) 1f else 0f)
+                        if (t != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }
+                        GLES20.glUniform2f(uDefil, if (g.du != 0f) ((tSec * g.du) % 1.0).toFloat() else 0f, if (g.dv != 0f) ((tSec * g.dv) % 1.0).toFloat() else 0f)
+                        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vboAniUv[v.modele][gi])
+                        GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, 12, 0)
+                        GLES20.glVertexAttribPointer(aCol, 4, GLES20.GL_UNSIGNED_BYTE, true, 12, 8)
+                        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, posBuf)
+                        GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 12, g.debut * 12)
+                        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
+                    }
+                }
                 GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0); GLES20.glUniform3f(uCam, ex, ey, ez)
             }
         }
         GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true)
+        GLES20.glUniform4f(uMulL, 1f, 1f, 1f, 1f); GLES20.glUniform1f(uVentL, 0f)
         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
         GLES20.glDisableVertexAttribArray(aUv); GLES20.glDisableVertexAttribArray(aCol); if (aUvL >= 0) GLES20.glDisableVertexAttribArray(aUvL)
         GLES20.glUniform1f(uLmK, 0f); GLES20.glUniform2f(uDefil, 0f, 0f)
