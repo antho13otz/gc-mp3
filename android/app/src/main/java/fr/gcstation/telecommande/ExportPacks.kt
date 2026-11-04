@@ -26,7 +26,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import java.io.File
 import java.io.FilterOutputStream
@@ -137,8 +136,8 @@ object ExportPacks {
 
 /** fiche du jeu : « Exporter le pack installé » (dossier : cartes-ww, cartes-mk ou cartes-r3) ; le partage ensuite */
 @Composable
-fun ExportPackJeu(dossier: String) {
-    val a = LocalContext.current as Activity
+fun ExportPackJeu(a: Activity, dossier: String) {   // (build 363 : l'activite passee en parametre ; dans la fiche (ModalBottomSheet),
+                                                    //  LocalContext n'est pas l'activite : l'appli plantait en ouvrant la fiche)
     val j = ExportPacks.JEUX.first { it.second == dossier }
     var etat by remember { mutableStateOf<ExportPacks.Etat?>(null) }
     var zips by remember { mutableStateOf<List<Uri>>(emptyList()) }
