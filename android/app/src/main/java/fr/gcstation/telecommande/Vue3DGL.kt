@@ -627,7 +627,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         // (build 356 : aussi les textures des clignements)
         val aCharger = (scene.groupes + (scene.mobiles?.groupes ?: emptyList()) + (scene.animes?.groupesTex ?: emptyList()))
             .flatMap { g -> listOf(g.texture to g.enveloppe) + (g.texSeq?.map { it to g.enveloppe } ?: emptyList()) }
-        // (build 357 : les textures des seuls objets animes et du direct (personnages : des centaines par ile) sont lues a
+        // (build 358 : les textures des seuls objets animes et du direct (personnages : des centaines par ile) sont lues a
         //  la taille du jeu : en x4, elles remplissaient la memoire graphique et la vue restait parfois vide)
         val texDecor = HashSet<Int>().apply { for (g in scene.groupes + (scene.mobiles?.groupes ?: emptyList())) { add(g.texture); g.texSeq?.forEach { add(it) } } }
         for ((gTexture, gEnveloppe) in aCharger) {
@@ -2336,7 +2336,7 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier, toucher: (Fl
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     vueRef[0]?.requestRender()
     // build 245 : l'eau et la lave bougent : on redessine environ 30 fois par seconde tant que la vue est affichee
-    // (build 357 : la vue est redessinee meme quand rien ne bouge, 4 fois par seconde : apres un defilement de la page ou un
+    // (build 358 : la vue est redessinee meme quand rien ne bouge, 4 fois par seconde : apres un defilement de la page ou un
     //  retour dans l'appli, la surface recreee restait vide jusqu'au prochain geste)
     val anime = scene.groupes.any { it.eau > 0 || it.defil[0] != 0f || it.defil[1] != 0f || it.vent || it.texSeq != null || it.coulSeq != null } ||
         scene.objets.any { it.type in "jkvpc" } || scene.animes != null || scene.mobiles != null
