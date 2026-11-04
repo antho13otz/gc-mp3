@@ -530,6 +530,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                 Titre("Rayman 3 : progression et cartes")
                 Spacer(Modifier.height(8.dp))
                 SectionRayman3(act)
+                ExportPackJeu("cartes-r3")                          // (build 361 : exporter le pack installe, en zips)
             }
             // ---- build 336 : Zelda The Wind Waker : les lieux en 3D, aussi hors ligne ----
             if (g.id.startsWith("GZL")) {
@@ -537,6 +538,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                 Titre("Wind Waker : les lieux en 3D")
                 Spacer(Modifier.height(8.dp))
                 SectionWW(act)
+                ExportPackJeu("cartes-ww")                          // (build 361 : exporter le pack installe, en zips)
             }
             // ---- build 266 : Mario Kart Double Dash : les circuits en 3D, aussi hors ligne ----
             if (g.id.startsWith("GM4")) {
@@ -544,6 +546,7 @@ private fun FicheJeu(act: StationActivity, g: Jeu, compat: MutableMap<String, In
                 Titre("Mario Kart : circuits en 3D")
                 Spacer(Modifier.height(8.dp))
                 SectionMKDD(act)
+                ExportPackJeu("cartes-mk")                          // (build 361 : exporter le pack installe, en zips)
             }
             // ---- sauvegardes (carte virtuelle) : l'ecran des cartes memoire, partage ----
             Spacer(Modifier.height(22.dp))
