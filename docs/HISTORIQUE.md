@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 340 — Link en direct, Vue du jeu, 3e personne partout
+
+- **Wind Waker, Link comme dans le jeu** (avec le nouveau pack) : l'appli lit sa vraie pose. Il tient son épée, saute, grimpe et nage exactement comme à l'écran. Ce n'est plus une animation choisie d'après sa vitesse.
+- **Wind Waker, « 🎮 Vue du jeu »** : la vue 3D prend la caméra du jeu elle-même, comme pour Mario Kart.
+- **« 🎥 3e personne » dans tous les jeux en direct** (Rayman 3, Wind Waker, Mario Kart) : la caméra se place derrière le personnage et tourne avec lui.
+- **Wind Waker, des objets qui bougent** (pack) : mouettes, ascenseurs de la Tour des Dieux, plateformes sur la lave et sur l'eau, bateaux.
+
 ## Nouveautés appli build 338 — Wind Waker : Link en 3D, rubis, vrais noms
 
 - **Link en 3D dans le compagnon** (avec le nouveau pack Wind Waker) : son vrai modèle remplace le point rouge. Il est tourné comme dans le jeu et animé selon ce qu'il fait : attente, marche, course, nage.
