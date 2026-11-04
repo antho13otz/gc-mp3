@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.displayCutoutPadding
 import androidx.compose.foundation.horizontalScroll
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.Composable
@@ -2093,12 +2094,29 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
     ChoixObjets(scene, etat, Modifier.padding(top = 6.dp)) { o -> etiquette = nomObjet(scene, o); allerA(scope, etat, o) }
     val ctxBug = androidx.compose.ui.platform.LocalContext.current
     if (plein) androidx.compose.ui.window.Dialog({ plein = false }, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        // build 365 : vrai plein ecran : la fenetre prend tout l'ecran, barres d'Android cachees (elles reviennent un instant en
+        // glissant depuis le bord), et la vue passe aussi sous la camera du telephone (encoche) ; les boutons restent hors de l'encoche
+        val vueD = androidx.compose.ui.platform.LocalView.current
+        androidx.compose.runtime.DisposableEffect(Unit) {
+            val w = (vueD.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window
+            if (w != null) {
+                w.setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT)
+                if (android.os.Build.VERSION.SDK_INT >= 28) w.attributes = w.attributes.also {
+                    it.layoutInDisplayCutoutMode = if (android.os.Build.VERSION.SDK_INT >= 30) android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                                                   else android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES }
+                androidx.core.view.WindowCompat.setDecorFitsSystemWindows(w, false)
+                val c = androidx.core.view.WindowCompat.getInsetsController(w, w.decorView)
+                c.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                c.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            }
+            onDispose { }
+        }
         Box(Modifier.fillMaxSize().background(Color(0xFF6B80AE))) {
             VueGL(scene, etat, Modifier.fillMaxSize(), toucher)
             // build 332 : sans ATH : seule la vue reste (un petit oeil discret, en haut a droite, ramene les boutons)
-            if (sansAth) Text("👁", fontSize = 18.sp, modifier = Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top = 40.dp, end = 12.dp)
+            if (sansAth) Text("👁", fontSize = 18.sp, modifier = Modifier.align(androidx.compose.ui.Alignment.TopEnd).displayCutoutPadding().padding(top = 40.dp, end = 12.dp)
                 .background(Color(0x33000000), RoundedCornerShape(16.dp)).pointerInput(Unit) { detectTapGestures { sansAth = false } }.padding(horizontal = 10.dp, vertical = 6.dp))
-            else Box(Modifier.fillMaxSize()) {
+            else Box(Modifier.fillMaxSize().displayCutoutPadding()) {
                 Row(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top = 40.dp, end = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PetitBouton("🐞 Bug") { journalBug(ctxBug, scene, etat) }
                     PetitBouton("⟲ Recentrer") { if (etat.mode == 5) etat.mode = 0; etat.voler(scope, vers = etat.cible, d = etat.distBase, tg = if (etat.montrerRayman) 0.5f else 0.75f) }
