@@ -155,7 +155,7 @@ object JeuWW {
     /** A chaque image du jeu, Pulse envoie : les 42 matrices de Link (2016 octets), sa position (12) et la camera (+0xD0 a
      *  +0xFC : angle, rapport, oeil, point vise, haut : 48 octets). L'appli garde les images et les rejoue avec un petit retard
      *  fixe, en glissant d'une pose a la suivante : plus d'a-coups dus au Wi-Fi ni a la lecture bloc par bloc. */
-    class ImageWW(val img: Long, val t: Long, val os: FloatArray, val pos: FloatArray, val cam: FloatArray?)
+    class ImageWW(val img: Long, val t: Long, val os: FloatArray, val pos: FloatArray, val cam: FloatArray?, val dispo: Int = 0, val vif: FloatArray? = null)
     private val imagesWW = ArrayDeque<ImageWW>()
     @Volatile private var adrWW = LongArray(0); private var adrT = 0L; private var abonneWW = 0L
     @Volatile private var fluxWW = 0L
@@ -163,7 +163,125 @@ object JeuWW {
     private var nsImg = 16_683_333.0; private var origineWW = Double.NaN
     private val arriveesWW = ArrayDeque<Pair<Long, Long>>()
     fun directWW(): Boolean = System.nanoTime() - fluxWW < 500_000_000L
-    /** ecoute le direct (a appeler en boucle hors du fil d'affichage) ; s'abonne et relit les adresses chaque seconde */
+
+    // ------------------------------------------------ build 355 : les objets en direct (coffres, ennemis, habitants...)
+    /** Chaque objet du jeu (liste en 0x803C3AB4, PAL : premier noeud, dernier, nombre ; noeud : precedent, liste, suivant,
+     *  objet) garde ses modeles 3D (J3DModel : meme table de fonctions que celui de Link) entre +0x200 et +0x800, ou en
+     *  +0x50 d'un objet d'animation. Modele : +0x04 donnees (+0x04 fichier du jeu en memoire, sa taille en +0x08 ; +0x28
+     *  nombre d'os), +0x24 matrice de base (monde), +0x8C matrices du monde de ses os. La signature (taille du fichier, nombre
+     *  d'os) designe le modele du pack (<lieu>_vif.r3p). Verifie sur 28 photos de la memoire (153 modeles reconnus sur 193
+     *  a l'Ile de l'Aurore). */
+    class VifObjet(val modele: Int, val adr: Long, val nj: Int, val os: Long, @Volatile var pos: FloatArray)
+    /** pose a dessiner : modele du pack, matrices des os (plein) ou matrice de base seule */
+    class VifPose(val modele: Int, val plein: Boolean, val m: FloatArray)
+    /** signatures du pack du lieu affiche (posees par la vue) */
+    @Volatile var sigsPack: Map<Long, Int> = emptyMap()
+    @Volatile var vifs: List<VifObjet> = emptyList(); @Volatile var vifPret = false
+    @Volatile var vifsRejoues: List<VifPose>? = null
+    private var sigsVues: Map<Long, Int>? = null; private var scanT = 0L
+    /** disposition de l'abonnement : Link (os, position, camera), objets suivis, lecture groupee, bourrage (sa longueur rend
+     *  la taille totale unique : on reconnait les images de cet abonnement) */
+    private class Dispo(val id: Int, val n: Long, val p: Long, val c: Long, val suivis: List<Pair<VifObjet, Boolean>>,
+                        val lot: List<Pair<Long, Int>>, val pad: Int) {
+        val tailleLink = 42 * 48 + 12 + (if (c != 0L) 48 else 0)
+        val tailleSuivis = suivis.sumOf { if (it.second) it.first.nj * 48 else 48 }
+        val tot = tailleLink + tailleSuivis + lot.sumOf { it.second } + pad
+    }
+    @Volatile private var dispo: Dispo? = null
+    private var idDispo = 0; private var padN = 0
+    private var lotRes: Map<Long, ByteArray>? = null
+    private fun TETE() = 0x803C3AB4L
+    private fun tas(a: Long) = a in 0x80003100L until (MemoireJeu.BASE + MemoireJeu.FIN) && (a and 3L) == 0L
+    private fun abonnerDispo(d: Dispo) {
+        dispo = d; abonneWW = System.nanoTime()
+        MemoireJeu.flux = { b, k -> recevoirWW(b, k) }
+        val l = ArrayList<Pair<Long, Int>>()
+        l.add(d.n to 42 * 48); l.add((d.p + 0x1F8) to 12); if (d.c != 0L) l.add((d.c + 0xD0) to 48)
+        for ((v, plein) in d.suivis) l.add(if (plein) v.os to v.nj * 48 else (v.adr + 0x24) to 48)
+        l.addAll(d.lot)
+        l.add(G to d.pad)
+        MemoireJeu.abonner(l, 1)
+    }
+    private fun nouvelleDispo(n: Long, p: Long, c: Long, suivis: List<Pair<VifObjet, Boolean>>, lot: List<Pair<Long, Int>>): Dispo {
+        padN = (padN + 1) % 15
+        return Dispo(++idDispo, n, p, c, suivis, lot, 4 + 4 * padN)
+    }
+    /** lecture groupee de morceaux de memoire par l'abonnement (Link continue d'arriver) ; null : pas de reponse */
+    private fun lireLot(ch: List<Pair<Long, Int>>): Map<Long, ByteArray>? {
+        val d0 = dispo ?: return null
+        lotRes = null
+        abonnerDispo(nouvelleDispo(d0.n, d0.p, d0.c, emptyList(), ch))
+        val fin = System.nanoTime() + 700_000_000L
+        while (System.nanoTime() < fin) { MemoireJeu.ecouter(6); lotRes?.let { return it } }
+        return null
+    }
+    private fun u32(b: ByteArray, o: Int): Long = if (o + 4 <= b.size) g32(b, o) else 0L
+    /** cherche les objets du lieu et leurs modeles (bloquant, quelques secondes) */
+    private fun scanner(vt: Long, sigs: Map<Long, Int>): List<VifObjet>? {
+        val h = lireLot(listOf(TETE() to 12))?.get(TETE()) ?: return null
+        var n = u32(h, 0); val cnt = u32(h, 8).toInt().coerceIn(0, 400)
+        val objs = ArrayList<Long>()
+        for (i in 0 until cnt) {
+            if (!tas(n)) break
+            val r = lireLot(listOf(n to 16))?.get(n) ?: return null
+            val o = u32(r, 12); if (tas(o)) objs.add(o); n = u32(r, 8)
+        }
+        val cand = LinkedHashSet<Long>()
+        for (lot in objs.chunked(5)) {
+            val r = lireLot(lot.map { (it + 0x200) to 0x600 }) ?: return null
+            for (o in lot) { val b = r[o + 0x200] ?: continue; for (k in 0 until 0x600 step 4) { val p = u32(b, k); if (tas(p)) cand.add(p) } }
+        }
+        val mods = LinkedHashSet<Long>()
+        for (lot in cand.toList().chunked(56)) {
+            val r = lireLot(lot.map { it to 0x54 }) ?: return null
+            for (p in lot) { val b = r[p] ?: continue
+                if (u32(b, 0) == vt) mods.add(p) else { val q = u32(b, 0x50); if (tas(q)) mods.add(q) } }
+        }
+        class Info(val adr: Long, val data: Long, val os: Long, val pos: FloatArray)
+        val infos = ArrayList<Info>()
+        for (lot in mods.toList().chunked(50)) {
+            val r = lireLot(lot.map { it to 0x90 }) ?: return null
+            for (q in lot) { val b = r[q] ?: continue
+                if (u32(b, 0) != vt) continue
+                val d = u32(b, 4); val os = u32(b, 0x8C)
+                if (tas(d) && tas(os)) infos.add(Info(q, d, os, floatArrayOf(fl(b, 0x30), fl(b, 0x40), fl(b, 0x50)))) }
+        }
+        val dat = HashMap<Long, Pair<Long, Int>>()
+        for (lot in infos.map { it.data }.distinct().chunked(56)) {
+            val r = lireLot(lot.map { it to 0x2C }) ?: return null
+            for (d in lot) { val b = r[d] ?: continue; dat[d] = u32(b, 4) to (((b[0x28].toInt() and 255) shl 8) or (b[0x29].toInt() and 255)) }
+        }
+        val tailles = HashMap<Long, Long>()
+        for (lot in dat.values.map { it.first }.filter { tas(it) }.distinct().chunked(56)) {
+            val r = lireLot(lot.map { it to 12 }) ?: return null
+            for (f in lot) { val b = r[f] ?: continue; if (b[0] == 'J'.code.toByte() && b[1] == '3'.code.toByte()) tailles[f] = u32(b, 8) }
+        }
+        val out = ArrayList<VifObjet>()
+        for (i in infos) {
+            val (fi, nj) = dat[i.data] ?: continue
+            val t = tailles[fi] ?: continue
+            val m = sigs[(t shl 16) or nj.toLong()] ?: continue
+            if (nj in 1..120 && i.pos.all { it.isFinite() }) out.add(VifObjet(m, i.adr, nj, i.os, i.pos))
+        }
+        return out
+    }
+    /** objets suivis : les plus proches de Link en entier (os), les autres par leur seule matrice de base */
+    private fun choisirSuivis(lx: Float, ly: Float, lz: Float): List<Pair<VifObjet, Boolean>> {
+        val tri = vifs.sortedBy { val p = it.pos; (p[0] - lx) * (p[0] - lx) + (p[1] - ly) * (p[1] - ly) + (p[2] - lz) * (p[2] - lz) }.take(40)
+        var budget = 7600 - tri.size * 48
+        return tri.map { v ->
+            val plus = v.nj * 48 - 48
+            val d2 = (v.pos[0] - lx) * (v.pos[0] - lx) + (v.pos[2] - lz) * (v.pos[2] - lz)
+            val plein = v.nj > 1 && plus <= budget && v.nj * 48 <= 4608 && d2 < 4000f * 4000f
+            if (plein) budget -= plus
+            v to plein
+        }.sortedBy { it.first.adr }                                       // (ordre stable : meme abonnement d'une seconde a l'autre)
+    }
+    /** modeles du pack montres par le direct (leurs copies placees sont cachees) */
+    val modelesVifs: Set<Int> get() = if (vifPret) vifs.mapTo(HashSet()) { it.modele } else emptySet()
+
+    /** ecoute le direct (a appeler en boucle hors du fil d'affichage) ; s'abonne et relit les adresses chaque seconde ;
+     *  (build 355) cherche les objets du lieu a chaque nouveau lieu et toutes les 10 s, puis les suit */
     fun ecouterDirect() {
         val now = System.nanoTime()
         if (now - adrT > 1_000_000_000L || adrWW.isEmpty()) {
@@ -172,12 +290,27 @@ object JeuWW {
             val p = l.ptr(LINK); val mo = p?.let { l.ptr(it + 0x32C) }
             val n = if (mo != null && l.u32(mo + 0x14) == p) l.ptr(mo + 0x8C) else null
             val c = l.ptr(CAMP)
-            if (p != null && n != null) {
+            if (p != null && n != null && mo != null) {
                 val a = longArrayOf(n, p + 0x1F8, c ?: 0L)
-                if (!a.contentEquals(adrWW) || now - abonneWW > 1_000_000_000L) {
-                    adrWW = a; abonneWW = now
-                    MemoireJeu.flux = { b, k -> recevoirWW(b, k) }
-                    MemoireJeu.abonner(listOfNotNull(n to 42 * 48, (p + 0x1F8) to 12, c?.let { (it + 0xD0) to 48 }), 1)
+                // (objets en direct : version europeenne seulement (adresse de la liste verifiee) ; un pack avec signatures)
+                val sigs = sigsPack
+                if (version == ID && sigs.isNotEmpty() && (sigs !== sigsVues || now - scanT > 10_000_000_000L)) {
+                    val vt = l.u32(mo)
+                    if (vt != null) {
+                        if (dispo == null) abonnerDispo(nouvelleDispo(n, p, c ?: 0L, emptyList(), emptyList()))
+                        val r = try { scanner(vt, sigs) } catch (e: Exception) { null }
+                        scanT = System.nanoTime()
+                        if (r != null) { vifs = r; sigsVues = sigs; vifPret = true }
+                    }
+                } else if (sigs.isEmpty()) { vifs = emptyList(); vifPret = false; sigsVues = null }
+                val lp = imagesWW.lastOrNull()?.pos
+                val suivis = if (vifPret) choisirSuivis(lp?.get(0) ?: 0f, lp?.get(1) ?: 0f, lp?.get(2) ?: 0f) else emptyList()
+                val d0 = dispo
+                val memes = d0 != null && d0.lot.isEmpty() && d0.n == n && d0.p == p && d0.c == (c ?: 0L) &&
+                            d0.suivis.size == suivis.size && d0.suivis.zip(suivis).all { (x, y) -> x.first === y.first && x.second == y.second }
+                if (!a.contentEquals(adrWW) || !memes || System.nanoTime() - abonneWW > 1_000_000_000L) {
+                    adrWW = a
+                    abonnerDispo(if (memes) d0!! else nouvelleDispo(n, p, c ?: 0L, suivis, emptyList()))
                 }
             }
         }
@@ -194,27 +327,39 @@ object JeuWW {
         val d = ByteArray(tot); var o = 0
         for (q in fPrt) { val x = q!!; val k = minOf(x.size, tot - o); System.arraycopy(x, 0, d, o, k); o += k }
         fPrt = arrayOfNulls(0)
-        val avecCam = adrWW.getOrNull(2)?.let { it != 0L } == true
-        if (o < tot || tot != 42 * 48 + 12 + (if (avecCam) 48 else 0)) return
+        val dp = dispo ?: return
+        if (o < tot || tot != dp.tot) return                             // (image d'un autre abonnement)
+        val avecCam = dp.c != 0L
+        // lecture groupee : les morceaux demandes, dans l'ordre
+        if (dp.lot.isNotEmpty()) {
+            var q = dp.tailleLink + dp.tailleSuivis; val m = HashMap<Long, ByteArray>()
+            for ((a, l) in dp.lot) { m[a] = d.copyOfRange(q, q + l); q += l }
+            lotRes = m
+        }
         val os = FloatArray(42 * 12) { fl(d, 4 * it) }
         if (!os.all { it.isFinite() && Math.abs(it) < 1e7f }) return
         val pos = FloatArray(3) { fl(d, 42 * 48 + 4 * it) }
         val cam = if (avecCam) FloatArray(12) { fl(d, 42 * 48 + 12 + 4 * it) }.takeIf { c -> c.all { it.isFinite() } } else null
+        val vif = if (dp.suivis.isNotEmpty()) FloatArray(dp.tailleSuivis / 4) { fl(d, dp.tailleLink + 4 * it) } else null
+        // (position des objets suivis, pour choisir les plus proches : translation de la 1re matrice)
+        if (vif != null) { var q = 0; for ((v, plein) in dp.suivis) { val x = vif[q + 3]; val y = vif[q + 7]; val z = vif[q + 11]
+            if (x.isFinite() && y.isFinite() && z.isFinite()) v.pos = floatArrayOf(x, y, z); q += if (plein) v.nj * 12 else 12 } }
         val t = System.nanoTime()
         // (le jeu calcule Link a son propre rythme : une image identique a la precedente ne sert pas de point de passage)
         val dern = imagesWW.lastOrNull()
-        if (dern != null && dern.os.contentEquals(os)) { fluxWW = t; return }
+        if (dern != null && dern.os.contentEquals(os) && (vif == null || dern.vif?.contentEquals(vif) == true)) { fluxWW = t; return }
         if (dern != null && (img <= dern.img || img - dern.img > 600)) { if (img + 600 < dern.img || img - dern.img > 600) { imagesWW.clear(); arriveesWW.clear() } else return }
-        imagesWW.addLast(ImageWW(img, t, os, pos, cam)); while (imagesWW.size > 32) imagesWW.removeFirst()
+        imagesWW.addLast(ImageWW(img, t, os, pos, cam, dp.id, vif)); while (imagesWW.size > 32) imagesWW.removeFirst()
         arriveesWW.addLast(img to t); while (arriveesWW.size > 2 && t - arriveesWW.first().second > 3_000_000_000L) arriveesWW.removeFirst()
         if (arriveesWW.size >= 10) { val p0 = arriveesWW.first(); val di = img - p0.first
             if (di > 10) { val ns = (t - p0.second).toDouble() / di; if (ns in 12_000_000.0..25_000_000.0) nsImg = nsImg * 0.9 + ns * 0.1 } }
         var mn = Double.MAX_VALUE; for ((i, tt) in arriveesWW) { val v = tt - i * nsImg; if (v < mn) mn = v }
         origineWW = mn; fluxWW = t
     }
-    /** l'etat a montrer maintenant : (os, position du jeu, camera ou null), glisse entre deux images ; null sans direct */
+    /** l'etat a montrer maintenant : (os, position du jeu, camera ou null), glisse entre deux images ; null sans direct.
+     *  (build 355 : prepare aussi les objets suivis : vifsRejoues) */
     @Synchronized fun rejouerWW(): Triple<FloatArray, FloatArray, FloatArray?>? {
-        if (!directWW() || imagesWW.isEmpty() || origineWW.isNaN()) return null
+        if (!directWW() || imagesWW.isEmpty() || origineWW.isNaN()) { vifsRejoues = null; return null }
         val pos = (System.nanoTime() - origineWW) / nsImg - 6.0          // (retard fixe : ~6 images, au-dessus du paquet le plus rapide)
         val i1 = imagesWW.indexOfFirst { it.img >= pos }
         val a: ImageWW; val b: ImageWW
@@ -227,6 +372,22 @@ object JeuWW {
             val l = Math.sqrt((os[o] * os[o] + os[o + 1] * os[o + 1] + os[o + 2] * os[o + 2]).toDouble()).toFloat()
             if (l > 1e-4f && Math.abs(l - 1f) < 0.2f) { os[o] /= l; os[o + 1] /= l; os[o + 2] /= l } }
         val cam = a.cam?.let { mix(it, b.cam) }
+        // objets : meme abonnement des deux cotes pour glisser, sinon l'image la plus recente
+        val dp = dispo
+        val va = a.vif
+        // (pendant un changement d'abonnement : la derniere pose connue reste)
+        if (!vifPret) vifsRejoues = null
+        else if (va != null && dp != null && a.dispo == dp.id) vifsRejoues = run {
+            val v = if (b.dispo == a.dispo) mix(va, b.vif) else va
+            val out = ArrayList<VifPose>(); var q = 0
+            for ((o, plein) in dp.suivis) {
+                val n = if (plein) o.nj * 12 else 12
+                if (q + n > v.size) break
+                val m = v.copyOfRange(q, q + n); q += n
+                if (m.all { it.isFinite() && Math.abs(it) < 1e7f }) out.add(VifPose(o.modele, plein, m))
+            }
+            out
+        }
         return Triple(os, mix(a.pos, b.pos), cam)
     }
     /** camera du direct -> matrice de vue (3 x 4) + angle, comme cameraJeu */

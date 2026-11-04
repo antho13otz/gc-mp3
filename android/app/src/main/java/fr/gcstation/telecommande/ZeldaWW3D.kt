@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -129,6 +130,8 @@ fun LieuWW3D(e: JeuWW.Etat) {
     // (build 340 : « 3e personne » : derriere Link, tourne comme lui ; « Vue du jeu » : la camera du jeu ; la vraie pose
     //  de Link lue en direct)
     val capApp = Math.atan2(-Math.cos(e.cap), Math.sin(e.cap)).toFloat()
+    // (build 355 : les modeles du lieu reconnaissables en memoire : le direct cherche les objets et les suit)
+    DisposableEffect(sc) { JeuWW.sigsPack = sc.animes?.sigs ?: emptyMap(); onDispose { JeuWW.sigsPack = emptyMap() } }
     DessinVue3DGL(sc, p, cam, emptyList(), montrerRayman = true, distance = 22f, linkWW = floatArrayOf(e.cap.toFloat(), e.vitesse, if (nage) 1f else 0f),
         capPerso = capApp, poseWW = { JeuWW.poseLink() }, camJeu = { JeuWW.cameraJeu() },
         // (build 345 : le direct de Pulse : pose, position et camera a chaque image du jeu, rejouees sans a-coups)
@@ -142,6 +145,7 @@ fun LieuWW3D(e: JeuWW.Etat) {
                 et.cible = CartesWW.pos(r.second[0], r.second[1], r.second[2]); et.direct = true
                 r.third?.let { JeuWW.vueDe(it) }?.let { et.camJeu = it; et.tCamJeu = t }
             }
+            et.vifsWW = JeuWW.vifsRejoues; et.modelesVifs = if (et.vifsWW != null) JeuWW.modelesVifs else emptySet()
         })
     Doux("Link en 3D (pack Wind Waker) · carrés dorés : coffres.", taille = 10)
 }

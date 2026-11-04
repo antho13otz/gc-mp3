@@ -231,6 +231,8 @@ class Etat3D {
     @Volatile var decal = floatArrayOf(0f, 0f, 0f)       // (build 236 : deplacement a deux doigts, ajoute a la cible)
     @Volatile var redessiner: () -> Unit = {}
     @Volatile var voir = "cfjkvrpidtuq"
+    /** build 355 : Wind Waker, les objets lus en direct (poses) et les modeles du pack qu'ils remplacent */
+    @Volatile var vifsWW: List<JeuWW.VifPose>? = null; @Volatile var modelesVifs: Set<Int> = emptySet()
     /** build 266 : autres pions a montrer (Mario Kart : les autres karts) : x, y, z, couleur (ARGB en Float.fromBits) par pion */
     @Volatile var pions = FloatArray(0)
     /** build 269 : position lue en direct ~30 fois par seconde ; le moteur la lisse a chaque image (plus de sauts) */
@@ -506,6 +508,23 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     // build 353 : objets animes (Wind Waker) : un tampon u v couleur par groupe, un tampon de positions par image
     private var vboAniUv = arrayOf<IntArray>(); private var vboAniPos = arrayOf<IntArray>()
     private val mAni = FloatArray(16); private val mAniInv = FloatArray(16); private val mvpAni = FloatArray(16)
+    // build 355 : objets en direct : positions calculees (peau) une fois par image, dans des tampons reutilises
+    private var vboVif = IntArray(0); private var bufVif = arrayOfNulls<java.nio.FloatBuffer>(0); private var imgVif = LongArray(0); private var noImage = 0L
+    private fun tamponVif(i: Int, n: Int): Pair<Int, java.nio.FloatBuffer> {
+        if (i >= vboVif.size) {
+            val t = IntArray(i + 8); System.arraycopy(vboVif, 0, t, 0, vboVif.size); GLES20.glGenBuffers(t.size - vboVif.size, t, vboVif.size); vboVif = t
+            bufVif = bufVif.copyOf(i + 8); imgVif = imgVif.copyOf(i + 8).also { a -> for (k in vboVif.size - 8 until a.size) a[k] = -1L }
+        }
+        val b = bufVif[i]?.takeIf { it.capacity() >= n * 3 } ?: java.nio.ByteBuffer.allocateDirect(n * 12).order(java.nio.ByteOrder.nativeOrder()).asFloatBuffer().also { bufVif[i] = it; imgVif[i] = -1L }
+        return vboVif[i] to b
+    }
+    /** matrice 3 x 4 du jeu (y vers le haut, par lignes) -> matrice 4 x 4 de l'appli (x, -z, y ; 1/100), par colonnes */
+    private fun matriceAppli(g: FloatArray, o: Int, m: FloatArray) {
+        val q = arrayOf(intArrayOf(0, 1), intArrayOf(2, -1), intArrayOf(1, 1))     // (ligne i de Q : 1 en colonne q[i][0], signe q[i][1])
+        for (i in 0..2) for (j in 0..2) m[j * 4 + i] = g[o + q[i][0] * 4 + q[j][0]] * q[i][1] * q[j][1]
+        for (i in 0..2) m[12 + i] = 0.01f * g[o + q[i][0] * 4 + 3] * q[i][1]
+        m[3] = 0f; m[7] = 0f; m[11] = 0f; m[15] = 1f
+    }
     private val proj = FloatArray(16); private val vue = FloatArray(16); private val mvp = FloatArray(16); private val projJeu = FloatArray(16)
     private fun shader(t: Int, src: String): Int { val s = GLES20.glCreateShader(t); GLES20.glShaderSource(s, src); GLES20.glCompileShader(s); return s }
     private fun programme(v: String, f: String): Int {
@@ -1674,6 +1693,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     }
 
     private fun dessinerScene() {
+        noImage++                                             // (build 355 : peaux des objets en direct recalculees une fois)
         etat.rejeu?.invoke()                                  // (build 345 : le direct, rejoue a chaque image)
         val c0 = cibleLissee(); val dc = etat.decal
         // build 282 : mode libre : le centre reste ou il etait (seuls les doigts le deplacent)
@@ -1796,7 +1816,9 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             // build 353 : objets animes par le jeu (Wind Waker) : l'image de leur animation a ce moment, a leur place
             val ani = scene.animes
             if (ani != null && vboAniPos.size == ani.modeles.size) {
+                val cachees = etat.modelesVifs
                 for (cp in ani.copies) {
+                    if (cp.modele in cachees) continue                          // (build 355 : montre par le direct)
                     val md = ani.modeles[cp.modele]
                     if (md.groupes.none { it.mode == passe } || md.images == 0) continue
                     val img = (((tSec * md.ips) + cp.phase * md.images).toLong() % md.images).toInt()
@@ -1821,6 +1843,46 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                         GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, 12, 0)
                         GLES20.glVertexAttribPointer(aCol, 4, GLES20.GL_UNSIGNED_BYTE, true, 12, 8)
                         GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vboAniPos[cp.modele][img])
+                        GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 12, g.debut * 12)
+                        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
+                    }
+                }
+                // build 355 : les objets lus en direct : leur peau posee sur les os du jeu, ou leur image de repos a la place
+                // donnee par le jeu (objets plus loin)
+                val vp = etat.vifsWW
+                if (vp != null) for ((vi, v) in vp.withIndex()) {
+                    val md = ani.modeles.getOrNull(v.modele) ?: continue
+                    if (md.groupes.none { it.mode == passe } || md.images == 0) continue
+                    var posBuf = vboAniPos[v.modele][0]
+                    if (v.plein) {
+                        val (vb, fb) = tamponVif(vi, md.total)
+                        if (imgVif[vi] != noImage) {
+                            if (!ani.poser(v.modele, v.m, fb)) continue
+                            GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vb)
+                            GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, md.total * 12, fb, GLES20.GL_STREAM_DRAW); imgVif[vi] = noImage
+                        }
+                        posBuf = vb
+                        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0); GLES20.glUniform3f(uCam, ex, ey, ez)
+                    } else {
+                        matriceAppli(v.m, 0, mAni)
+                        android.opengl.Matrix.multiplyMM(mvpAni, 0, mvp, 0, mAni, 0)
+                        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvpAni, 0)
+                        if (android.opengl.Matrix.invertM(mAniInv, 0, mAni, 0))
+                            GLES20.glUniform3f(uCam, mAniInv[0] * ex + mAniInv[4] * ey + mAniInv[8] * ez + mAniInv[12],
+                                mAniInv[1] * ex + mAniInv[5] * ey + mAniInv[9] * ez + mAniInv[13], mAniInv[2] * ex + mAniInv[6] * ey + mAniInv[10] * ez + mAniInv[14])
+                    }
+                    GLES20.glUniform1f(uEauL, 0f); GLES20.glUniform1f(uChaudL, 0f); GLES20.glUniform1f(uLmK, 0f); GLES20.glUniform1f(uVentL, 0f)
+                    if (aUvL >= 0) { GLES20.glDisableVertexAttribArray(aUvL); GLES20.glVertexAttrib2f(aUvL, 0f, 0f) }
+                    for ((gi, g) in md.groupes.withIndex()) {
+                        if (g.mode != passe) continue
+                        val t = textures[texDuMoment(g.stub, tSec)]; couleurDuMoment(g.stub, tSec)
+                        GLES20.glUniform1f(uAvecTex, if (t != null) 1f else 0f)
+                        if (t != null) { GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t) }
+                        GLES20.glUniform2f(uDefil, if (g.du != 0f) ((tSec * g.du) % 1.0).toFloat() else 0f, if (g.dv != 0f) ((tSec * g.dv) % 1.0).toFloat() else 0f)
+                        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, vboAniUv[v.modele][gi])
+                        GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, 12, 0)
+                        GLES20.glVertexAttribPointer(aCol, 4, GLES20.GL_UNSIGNED_BYTE, true, 12, 8)
+                        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, posBuf)
                         GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 12, g.debut * 12)
                         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
                     }
