@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 349 — la caméra au-dessus de la mer
+
+- **Wind Waker, vue 3D** : quand Link nage (80 cm sous la surface), la caméra en 3e personne passait sous l'eau et ne voyait la mer que par en dessous. Elle reste maintenant au-dessus de la mer. Link est dessiné avant l'eau : on voit son corps à travers la mer, comme dans le jeu.
+- Console inchangée.
+
 ## Nouveautés appli build 347 — la mer de Wind Waker visible
 
 - **Vue 3D** : la brume est calculée à chaque pixel, et plus seulement aux coins des formes. La mer de Wind Waker (un seul grand carré dont les coins sont loin) prenait la couleur du ciel : on la revoit, bleue, autour de Link.
