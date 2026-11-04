@@ -1537,7 +1537,7 @@ fun EcranCompagnon() {
         val id = Compagnon.jeu
         Doux(if (id.isNotEmpty() && Compagnon.pris(id)) Compagnon.PRIS[id] + " (" + Compagnon.jeuReel.ifEmpty { id } + ")" else "Pendant une partie lancée avec Pulse, l'appli lit le jeu en direct : jauges, carte, chrono.", taille = 12)
         if (Compagnon.statut.isNotEmpty()) Doux(Compagnon.statut, taille = 12, couleur = C.Orange)
-        // build 342 : la photo de la memoire ici, pendant la partie (avant : dans le chercheur de codes) : le jeu se met en
+        // build 343 : la photo de la memoire ici, pendant la partie (avant : dans le chercheur de codes) : le jeu se met en
         // pause le temps de la copie, puis le fichier (.bin.gz) part dans Telechargements/GC Remote et le partage s'ouvre
         val st = act as? StationActivity
         if (st != null && id.isNotEmpty()) {
@@ -1545,7 +1545,7 @@ fun EcranCompagnon() {
             val tache = tacheChercheur()
             Bouton(if (tache.isEmpty()) "📸 Photo de la mémoire (fichier à partager)" else tache, Modifier.fillMaxWidth(), actif = tache.isEmpty()) { photoMemoire(st, portee) }
         }
-        // build 342 : installer / mettre a jour les packs du jeu en cours sans quitter le compagnon (la vue 3D se recharge)
+        // build 343 : installer / mettre a jour les packs du jeu en cours sans quitter le compagnon (la vue 3D se recharge)
         val packJeu: ((android.content.Context, android.net.Uri) -> Int)? = when {
             id.startsWith("GZL") -> { c, u -> CartesWW.installer(c, u) }
             id.startsWith("GM4") -> { c, u -> CartesMK.installer(c, u) }

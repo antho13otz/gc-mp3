@@ -564,7 +564,7 @@ fun EcranChercheur() {
         }
         if (g?.mem == true || R.etat != null) item {
             Bouton("Capture de l'écran du jeu", Modifier.fillMaxWidth(), icone = Ic.Photo, actif = R.tache.isEmpty()) { capturerJeu(act, scope) }
-            // (build 342 : la photo de la memoire est dans le compagnon de jeu, a portee de main pendant la partie)
+            // (build 343 : la photo de la memoire est dans le compagnon de jeu, a portee de main pendant la partie)
         }
         if (g?.mem == true || R.etat != null) item { TroisPhotos(act, scope) }
         if (R.bloquees.isNotEmpty()) item {
