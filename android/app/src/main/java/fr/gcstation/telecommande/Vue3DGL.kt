@@ -627,14 +627,18 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         // (build 356 : aussi les textures des clignements)
         val aCharger = (scene.groupes + (scene.mobiles?.groupes ?: emptyList()) + (scene.animes?.groupesTex ?: emptyList()))
             .flatMap { g -> listOf(g.texture to g.enveloppe) + (g.texSeq?.map { it to g.enveloppe } ?: emptyList()) }
+        // (build 357 : les textures des seuls objets animes et du direct (personnages : des centaines par ile) sont lues a
+        //  la taille du jeu : en x4, elles remplissaient la memoire graphique et la vue restait parfois vide)
+        val texDecor = HashSet<Int>().apply { for (g in scene.groupes + (scene.mobiles?.groupes ?: emptyList())) { add(g.texture); g.texSeq?.forEach { add(it) } } }
         for ((gTexture, gEnveloppe) in aCharger) {
             if (gTexture < 0 || textures.containsKey(gTexture)) continue
             val f = java.io.File(scene.dossier, scene.niveau + "_t" + String.format(java.util.Locale.ROOT, "%03d", gTexture) + ".png")
-            val bmp = (if (hd && fac < 4) {
+            val petite = hd && gTexture !in texDecor
+            val bmp = (if (hd && (fac < 4 || petite)) {
                 // x2 et x1 : lecture directe en 1/2 ou 1/4 ; x3 : reduction filtree des 3/4
-                val o = android.graphics.BitmapFactory.Options().apply { inSampleSize = if (fac == 1) 4 else if (fac == 2) 2 else 1 }
+                val o = android.graphics.BitmapFactory.Options().apply { inSampleSize = if (fac == 1 || petite) 4 else if (fac == 2) 2 else 1 }
                 val b0 = android.graphics.BitmapFactory.decodeFile(f.path, o)
-                if (b0 != null && fac == 3) android.graphics.Bitmap.createScaledBitmap(b0, maxOf(1, b0.width * 3 / 4), maxOf(1, b0.height * 3 / 4), true).also { if (it !== b0) b0.recycle() } else b0
+                if (b0 != null && fac == 3 && !petite) android.graphics.Bitmap.createScaledBitmap(b0, maxOf(1, b0.width * 3 / 4), maxOf(1, b0.height * 3 / 4), true).also { if (it !== b0) b0.recycle() } else b0
             } else android.graphics.BitmapFactory.decodeFile(f.path)) ?: continue
             val t = IntArray(1); GLES20.glGenTextures(1, t, 0)
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, t[0])
@@ -2332,9 +2336,13 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier, toucher: (Fl
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     vueRef[0]?.requestRender()
     // build 245 : l'eau et la lave bougent : on redessine environ 30 fois par seconde tant que la vue est affichee
-    if (scene.groupes.any { it.eau > 0 || it.defil[0] != 0f || it.defil[1] != 0f } || scene.objets.any { it.type in "jkvpc" } || etat.direct || etat.montrerRayman) androidx.compose.runtime.LaunchedEffect(Unit) {
+    // (build 357 : la vue est redessinee meme quand rien ne bouge, 4 fois par seconde : apres un defilement de la page ou un
+    //  retour dans l'appli, la surface recreee restait vide jusqu'au prochain geste)
+    val anime = scene.groupes.any { it.eau > 0 || it.defil[0] != 0f || it.defil[1] != 0f || it.vent || it.texSeq != null || it.coulSeq != null } ||
+        scene.objets.any { it.type in "jkvpc" } || scene.animes != null || scene.mobiles != null
+    androidx.compose.runtime.LaunchedEffect(Unit) {
         while (true) {
-            if (etat.direct) androidx.compose.runtime.withFrameNanos { } else kotlinx.coroutines.delay(33)    // (build 269 : en direct, chaque image)
+            if (etat.direct) androidx.compose.runtime.withFrameNanos { } else kotlinx.coroutines.delay(if (anime || etat.montrerRayman) 33 else 250)    // (build 269 : en direct, chaque image)
             vueRef[0]?.requestRender()
         }
     }

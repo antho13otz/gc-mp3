@@ -86,7 +86,8 @@ object CartesWW {
         synchronized(scenes) { scenes[a] = sc }
         return sc
     }
-    fun installes(): List<String> = dossier?.listFiles()?.filter { it.name.endsWith(".r3v") }?.map { it.name.removeSuffix(".r3v") } ?: emptyList()
+    // (build 357 : sans les fichiers des objets qui bougent (<lieu>_mob.r3v), qui apparaissaient comme des lieux)
+    fun installes(): List<String> = dossier?.listFiles()?.filter { it.name.endsWith(".r3v") && !it.name.endsWith("_mob.r3v") }?.map { it.name.removeSuffix(".r3v") } ?: emptyList()
     /** installe un ou plusieurs packs (.zip, un zip de zips aussi) ; rend le nombre de lieux */
     fun installer(ctx: android.content.Context, u: Uri): Int {
         val d = java.io.File(ctx.filesDir, "cartes-ww"); d.mkdirs()
