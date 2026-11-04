@@ -488,23 +488,26 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     }
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         prog = programme("""
-            uniform mat4 uMvp; uniform vec3 uCam; uniform vec3 uBrumeP; uniform float uT; uniform float uEau; uniform vec2 uDefil;
+            uniform mat4 uMvp; uniform vec3 uCam; uniform float uT; uniform float uEau; uniform vec2 uDefil;
             attribute vec3 aPos; attribute vec2 aUv; attribute vec4 aCol; attribute vec2 aUvL;
-            varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying float vBrume; varying vec2 vUvL;
+            varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying vec3 vD; varying vec2 vUvL;
             void main() { gl_Position = uMvp * vec4(aPos, 1.0); vCol = aCol; vUvL = aUvL;
                 // eau / lave : deux couches de la texture qui glissent en sens differents (ondulation) ; R3V3 : le defilement du jeu
                 vec2 v = uEau > 0.5 ? vec2(uT * 0.035, uT * 0.021) : vec2(0.0);
                 vUv = aUv + v + uDefil; vUv2 = aUv * 1.37 + vec2(-uT * 0.027, uT * 0.031);
-                vBrume = clamp((distance(aPos, uCam) - uBrumeP.x) / uBrumeP.y, 0.0, uBrumeP.z); }""", """
+                // build 347 : la brume est calculee a chaque pixel (la mer de Wind Waker, un seul grand carre dont les coins sont
+                // a 500 m, etait toute embrumee a la couleur du ciel : on ne la voyait plus)
+                vD = aPos - uCam; }""", """
             #ifdef GL_FRAGMENT_PRECISION_HIGH
             precision highp float;
             #else
             precision mediump float;
             #endif
             uniform sampler2D uTex; uniform float uAvecTex; uniform float uSeuil; uniform float uEau;
-            uniform vec3 uBrume; uniform vec3 uTeinteEau; uniform float uChaud; uniform sampler2D uLm; uniform float uLmK;
-            varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying float vBrume; varying vec2 vUvL;
-            void main() { vec4 t = uAvecTex > 0.5 ? texture2D(uTex, vUv) : vec4(1.0);
+            uniform vec3 uBrume; uniform vec3 uTeinteEau; uniform float uChaud; uniform sampler2D uLm; uniform float uLmK; uniform vec3 uBrumeP;
+            varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying vec3 vD; varying vec2 vUvL;
+            void main() { float vBrume = clamp((length(vD) - uBrumeP.x) / uBrumeP.y, 0.0, uBrumeP.z);
+                vec4 t = uAvecTex > 0.5 ? texture2D(uTex, vUv) : vec4(1.0);
                 if (uEau > 0.5 && uAvecTex > 0.5) t = mix(t, texture2D(uTex, vUv2), 0.5);
                 vec4 c = t * vec4(vCol.rgb * 2.0, vCol.a);
                 if (uLmK > 0.0) c.rgb = min(c.rgb * texture2D(uLm, vUvL).rgb * uLmK, vec3(1.0));   // (ombres precalculees du jeu)
