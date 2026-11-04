@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 353 — Wind Waker, tout ce qui est animé
+
+- **Vue 3D de Wind Waker** : les objets animés par le jeu bougent maintenant dans l'appli avec leurs propres animations, tirées du jeu : les arbres se balancent, les mouettes battent des ailes en volant, et les personnages, les ennemis au repos, les plantes et les machines sont animés. Leurs textures défilent aussi.
+- Nouveau fichier dans le pack Wind Waker : `<lieu>_ani.r3a` (accepté par l'installeur de pack). Il faut installer le nouveau pack.
+- Console inchangée.
+
 ## Nouveautés appli build 351 — la caméra sous la mer quand c'est voulu
 
 - **Vue 3D** : la caméra n'est retenue au-dessus de la mer que lorsqu'elle suit Link près de la surface. En visite, en mode libre, ou quand on regarde quelque chose nettement sous la mer, elle peut passer sous l'eau.
