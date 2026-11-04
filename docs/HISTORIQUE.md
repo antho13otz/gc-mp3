@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 356 — Wind Waker : objets en direct, herbe, clignements
+
+- **Objets en direct** : en jeu, l'appli trouve les objets du lieu dans la mémoire (coffres, ennemis, habitants, cochons, mouettes…), reconnaît leurs modèles 3D et les suit par l'abonnement Pulse. Les plus proches de Link sont montrés avec tous leurs os, donc avec la vraie animation du moment : coffre qui s'ouvre, ennemi qui attaque, habitant qui marche ou parle. Les plus loin sont montrés à leur place exacte. La recherche prend quelques secondes en arrivant dans un lieu, puis est refaite toutes les 10 s. Version européenne du jeu seulement.
+- **L'herbe** (dessinée par le code du jeu) est maintenant là, posée sur le sol, et ondule au vent.
+- **Clignements d'yeux et couleurs animées** du jeu (lumières, cristaux, objets qui changent de couleur).
+- Nouveaux fichiers dans le pack Wind Waker : `<lieu>_vif.r3p`, `<lieu>_coul.txt`, `<lieu>_ani.txt`. Il faut installer la mise à jour du pack.
+- Console inchangée.
+
 ## Nouveautés appli build 353 — Wind Waker, tout ce qui est animé
 
 - **Vue 3D de Wind Waker** : les objets animés par le jeu bougent maintenant dans l'appli avec leurs propres animations, tirées du jeu : les arbres se balancent, les mouettes battent des ailes en volant, et les personnages, les ennemis au repos, les plantes et les machines sont animés. Leurs textures défilent aussi.
