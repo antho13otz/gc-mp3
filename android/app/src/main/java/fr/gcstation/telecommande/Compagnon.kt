@@ -1545,6 +1545,31 @@ fun EcranCompagnon() {
             val tache = tacheChercheur()
             Bouton(if (tache.isEmpty()) "📸 Photo de la mémoire (fichier à partager)" else tache, Modifier.fillMaxWidth(), actif = tache.isEmpty()) { photoMemoire(st, portee) }
         }
+        // build 342 : installer / mettre a jour les packs du jeu en cours sans quitter le compagnon (la vue 3D se recharge)
+        val packJeu: ((android.content.Context, android.net.Uri) -> Int)? = when {
+            id.startsWith("GZL") -> { c, u -> CartesWW.installer(c, u) }
+            id.startsWith("GM4") -> { c, u -> CartesMK.installer(c, u) }
+            id.startsWith("GRH") -> { c, u -> CartesR3.installer(c, u) }
+            else -> null }
+        if (packJeu != null) {
+            val portee = androidx.compose.runtime.rememberCoroutineScope()
+            var msgPack by remember { mutableStateOf("") }
+            var occupe by remember { mutableStateOf(false) }
+            val choix = androidx.activity.compose.rememberLauncherForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenMultipleDocuments()) { us: List<android.net.Uri> ->
+                if (us.isNotEmpty()) portee.launch {
+                    occupe = true; var total = 0
+                    for ((i, u) in us.withIndex()) {
+                        msgPack = "Installation du pack ${i + 1} sur ${us.size}…"
+                        total += withContext(Dispatchers.IO) { try { packJeu(act, u) } catch (e: Exception) { 0 } }
+                    }
+                    occupe = false
+                    msgPack = if (total > 0) "Pack installé : $total élément(s). La vue 3D se recharge." else "Rien d'installable dans ce(s) fichier(s)."
+                    vue = 1; kotlinx.coroutines.delay(50); vue = 0                    // (la vue 3D est refaite avec le nouveau pack)
+                }
+            }
+            Bouton(if (occupe) msgPack else "📦 Installer / mettre à jour les packs de ce jeu (.zip)", Modifier.fillMaxWidth(), actif = !occupe) { choix.launch(arrayOf("*/*")) }
+            if (!occupe && msgPack.isNotEmpty()) Doux(msgPack, taille = 11)
+        }
         RangeeDePuces {
             Puce("En jeu", vue == 0) { vue = 0 }
             Puce("Chrono", vue == 1) { vue = 1 }
@@ -1791,7 +1816,8 @@ private fun CompagnonWW(e: JeuWW.Etat) {
                     val o = coin + Offset(c / 2, c / 2)
                     val connue = e.cartes.size == 49 && e.cartes[i] != 0
                     val img = if (connue) CarteMarineWW.tuile(i, e.variante) else null
-                    if (img != null) drawImage(img, IntOffset.Zero, IntSize(img.width, img.height), IntOffset(coin.x.toInt(), coin.y.toInt()), IntSize(c.toInt() + 1, c.toInt() + 1))
+                    if (img != null) drawImage(img, IntOffset.Zero, IntSize(img.width, img.height), IntOffset(coin.x.toInt(), coin.y.toInt()), IntSize(c.toInt() + 1, c.toInt() + 1),
+                        colorFilter = if (CarteMarineWW.entiere(i)) androidx.compose.ui.graphics.ColorFilter.tint(Color(0xFFF6E7C1), androidx.compose.ui.graphics.BlendMode.SrcIn) else null)
                     else {
                         val p = ile(o, c * 0.26f, i)
                         if (connue) { drawPath(p, Brush.radialGradient(listOf(Color(0xFF9BE07A), Color(0xFF4F9A3E)), o, c * 0.3f)); drawPath(p, Color(0xFFEFD9A0), style = Stroke(1.5.dp.toPx())) }
