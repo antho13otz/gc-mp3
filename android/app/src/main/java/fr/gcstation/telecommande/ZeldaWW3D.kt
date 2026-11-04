@@ -129,7 +129,19 @@ fun LieuWW3D(e: JeuWW.Etat) {
     //  de Link lue en direct)
     val capApp = Math.atan2(-Math.cos(e.cap), Math.sin(e.cap)).toFloat()
     DessinVue3DGL(sc, p, cam, emptyList(), montrerRayman = true, distance = 22f, linkWW = floatArrayOf(e.cap.toFloat(), e.vitesse, if (nage) 1f else 0f),
-        capPerso = capApp, poseWW = { JeuWW.poseLink() }, camJeu = { JeuWW.cameraJeu() })
+        capPerso = capApp, poseWW = { JeuWW.poseLink() }, camJeu = { JeuWW.cameraJeu() },
+        // (build 345 : le direct de Pulse : pose, position et camera a chaque image du jeu, rejouees sans a-coups)
+        ecouteDirect = { JeuWW.ecouterDirect() },
+        rejeu = { et ->
+            val r = JeuWW.rejouerWW()
+            et.directRejeu = r != null
+            if (r != null) {
+                val t = System.nanoTime()
+                et.poseWW = r.first; et.tPoseWW = t
+                et.cible = CartesWW.pos(r.second[0], r.second[1], r.second[2]); et.direct = true
+                r.third?.let { JeuWW.vueDe(it) }?.let { et.camJeu = it; et.tCamJeu = t }
+            }
+        })
     Doux("Link en 3D (pack Wind Waker) · carrés dorés : coffres.", taille = 10)
 }
 
