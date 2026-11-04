@@ -226,6 +226,9 @@ class Etat3D {
     @Volatile var camJeu: FloatArray? = null; @Volatile var tCamJeu = 0L; @Volatile var aCamJeu = false
     /** build 340 : direction du personnage (cap dans le repere de l'appli, radians ; NaN : inconnue) pour « 3e personne » */
     @Volatile var capPerso = Float.NaN
+    /** build 345 : rejeu du direct, appele avant chaque image (sans reseau) : met a jour la pose, la position, la camera */
+    @Volatile var rejeu: (() -> Unit)? = null
+    @Volatile var directRejeu = false
     /** build 296 : Mario Kart, les karts a dessiner en 3D (le premier est le tien) */
     @Volatile var karts: List<KartVue> = emptyList()
     /** build 282 : 0 normal (la vue suit la position), 1 suivre (derriere Rayman, tournee comme lui), 2 libre (la vue ne bouge plus seule),
@@ -1609,6 +1612,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     }
 
     private fun dessinerScene() {
+        etat.rejeu?.invoke()                                  // (build 345 : le direct, rejoue a chaque image)
         val c0 = cibleLissee(); val dc = etat.decal
         // build 282 : mode libre : le centre reste ou il etait (seuls les doigts le deplacent)
         val base = if (etat.mode == 2) (etat.libre ?: c0.copyOf().also { etat.libre = it }) else c0
@@ -1831,7 +1835,8 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
 fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin: List<FloatArray>, montrerRayman: Boolean = true,
                   pions: FloatArray? = null, distance: Float? = null, direct: (() -> FloatArray?)? = null,
                   pose: (() -> PoseRayman?)? = null, karts: List<KartVue>? = null, linkWW: FloatArray? = null,
-                  capPerso: Float = Float.NaN, poseWW: (() -> FloatArray?)? = null, camJeu: (() -> FloatArray?)? = null) {
+                  capPerso: Float = Float.NaN, poseWW: (() -> FloatArray?)? = null, camJeu: (() -> FloatArray?)? = null,
+                  ecouteDirect: (() -> Unit)? = null, rejeu: ((Etat3D) -> Unit)? = null) {
     // build 242 : un etat neuf par niveau ; sans jeu en cours, la vue de depart cadre tout le niveau
     val etat = remember(scene) { Etat3D().also { e -> if (!montrerRayman) { e.distBase = scene.rayon * 1.7f; e.dist = e.distBase; e.tangage = 0.75f } } }
     // build 269 : en direct, la position vient de la lecture rapide (la valeur passee ici, plus lente, ne sert qu'au depart)
@@ -1840,13 +1845,21 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
     if (pions != null) etat.pions = pions
     if (karts != null) etat.karts = karts
     etat.linkWW = linkWW; etat.capPerso = capPerso; etat.aCamJeu = camJeu != null
+    etat.rejeu = rejeu?.let { r -> { r(etat) } }
+    // build 345 : l'ecoute du direct (reseau), en continu tant que la vue est affichee
+    if (ecouteDirect != null) androidx.compose.runtime.LaunchedEffect(scene) {
+        try { while (true) { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { try { ecouteDirect() } catch (e: Exception) { } }; kotlinx.coroutines.delay(1) } }
+        finally { etat.rejeu = null }
+    }
     // build 340 : pose de Link et camera du jeu, lues en direct (~20 fois par seconde chacune, a part de l'ecran)
     if (poseWW != null || camJeu != null) androidx.compose.runtime.LaunchedEffect(scene) {
         try {
             while (true) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    try { poseWW?.invoke()?.let { etat.poseWW = it; etat.tPoseWW = System.nanoTime() } } catch (e: Exception) { }
-                    try { if (etat.mode == 4) camJeu?.invoke()?.let { etat.camJeu = it; etat.tCamJeu = System.nanoTime() } } catch (e: Exception) { }
+                    if (!etat.directRejeu) {                         // (build 345 : sans direct seulement)
+                        try { poseWW?.invoke()?.let { etat.poseWW = it; etat.tPoseWW = System.nanoTime() } } catch (e: Exception) { }
+                        try { if (etat.mode == 4) camJeu?.invoke()?.let { etat.camJeu = it; etat.tCamJeu = System.nanoTime() } } catch (e: Exception) { }
+                    }
                 }
                 kotlinx.coroutines.delay(15)
             }

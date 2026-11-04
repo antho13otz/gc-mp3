@@ -151,6 +151,97 @@ object JeuWW {
         for (i in 0 until 42 * 12) { val v = l.f32(n + 4L * i) ?: return null; if (!v.isFinite()) return null; r[i] = v }
         return r
     }
+    // ------------------------------------------------ build 345 : le direct (abonnement Pulse « GCMS », comme Mario Kart)
+    /** A chaque image du jeu, Pulse envoie : les 42 matrices de Link (2016 octets), sa position (12) et la camera (+0xD0 a
+     *  +0xFC : angle, rapport, oeil, point vise, haut : 48 octets). L'appli garde les images et les rejoue avec un petit retard
+     *  fixe, en glissant d'une pose a la suivante : plus d'a-coups dus au Wi-Fi ni a la lecture bloc par bloc. */
+    class ImageWW(val img: Long, val t: Long, val os: FloatArray, val pos: FloatArray, val cam: FloatArray?)
+    private val imagesWW = ArrayDeque<ImageWW>()
+    @Volatile private var adrWW = LongArray(0); private var adrT = 0L; private var abonneWW = 0L
+    @Volatile private var fluxWW = 0L
+    private var fImg = -1L; private var fPrt: Array<ByteArray?> = arrayOfNulls(0)
+    private var nsImg = 16_683_333.0; private var origineWW = Double.NaN
+    private val arriveesWW = ArrayDeque<Pair<Long, Long>>()
+    fun directWW(): Boolean = System.nanoTime() - fluxWW < 500_000_000L
+    /** ecoute le direct (a appeler en boucle hors du fil d'affichage) ; s'abonne et relit les adresses chaque seconde */
+    fun ecouterDirect() {
+        val now = System.nanoTime()
+        if (now - adrT > 1_000_000_000L || adrWW.isEmpty()) {
+            adrT = now
+            val l = Lecteur(4, 0)
+            val p = l.ptr(LINK); val mo = p?.let { l.ptr(it + 0x32C) }
+            val n = if (mo != null && l.u32(mo + 0x14) == p) l.ptr(mo + 0x8C) else null
+            val c = l.ptr(CAMP)
+            if (p != null && n != null) {
+                val a = longArrayOf(n, p + 0x1F8, c ?: 0L)
+                if (!a.contentEquals(adrWW) || now - abonneWW > 1_000_000_000L) {
+                    adrWW = a; abonneWW = now
+                    MemoireJeu.flux = { b, k -> recevoirWW(b, k) }
+                    MemoireJeu.abonner(listOfNotNull(n to 42 * 48, (p + 0x1F8) to 12, c?.let { (it + 0xD0) to 48 }), 1)
+                }
+            }
+        }
+        MemoireJeu.ecouter(12)
+    }
+    private fun g32(b: ByteArray, o: Int): Long = ((b[o].toLong() and 255) shl 24) or ((b[o + 1].toLong() and 255) shl 16) or ((b[o + 2].toLong() and 255) shl 8) or (b[o + 3].toLong() and 255)
+    private fun fl(b: ByteArray, o: Int): Float = java.lang.Float.intBitsToFloat(g32(b, o).toInt())
+    @Synchronized private fun recevoirWW(b: ByteArray, n: Int) {
+        val img = g32(b, 4); val pp = g32(b, 8); val part = (pp shr 16).toInt(); val parts = (pp and 0xFFFF).toInt(); val tot = g32(b, 12).toInt()
+        if (parts !in 1..16 || part >= parts) return
+        if (img != fImg || fPrt.size != parts) { fImg = img; fPrt = arrayOfNulls(parts) }
+        fPrt[part] = b.copyOfRange(16, n)
+        if (fPrt.any { it == null }) return
+        val d = ByteArray(tot); var o = 0
+        for (q in fPrt) { val x = q!!; val k = minOf(x.size, tot - o); System.arraycopy(x, 0, d, o, k); o += k }
+        fPrt = arrayOfNulls(0)
+        val avecCam = adrWW.getOrNull(2)?.let { it != 0L } == true
+        if (o < tot || tot != 42 * 48 + 12 + (if (avecCam) 48 else 0)) return
+        val os = FloatArray(42 * 12) { fl(d, 4 * it) }
+        if (!os.all { it.isFinite() && Math.abs(it) < 1e7f }) return
+        val pos = FloatArray(3) { fl(d, 42 * 48 + 4 * it) }
+        val cam = if (avecCam) FloatArray(12) { fl(d, 42 * 48 + 12 + 4 * it) }.takeIf { c -> c.all { it.isFinite() } } else null
+        val t = System.nanoTime()
+        // (le jeu calcule Link a son propre rythme : une image identique a la precedente ne sert pas de point de passage)
+        val dern = imagesWW.lastOrNull()
+        if (dern != null && dern.os.contentEquals(os)) { fluxWW = t; return }
+        if (dern != null && (img <= dern.img || img - dern.img > 600)) { if (img + 600 < dern.img || img - dern.img > 600) { imagesWW.clear(); arriveesWW.clear() } else return }
+        imagesWW.addLast(ImageWW(img, t, os, pos, cam)); while (imagesWW.size > 32) imagesWW.removeFirst()
+        arriveesWW.addLast(img to t); while (arriveesWW.size > 2 && t - arriveesWW.first().second > 3_000_000_000L) arriveesWW.removeFirst()
+        if (arriveesWW.size >= 10) { val p0 = arriveesWW.first(); val di = img - p0.first
+            if (di > 10) { val ns = (t - p0.second).toDouble() / di; if (ns in 12_000_000.0..25_000_000.0) nsImg = nsImg * 0.9 + ns * 0.1 } }
+        var mn = Double.MAX_VALUE; for ((i, tt) in arriveesWW) { val v = tt - i * nsImg; if (v < mn) mn = v }
+        origineWW = mn; fluxWW = t
+    }
+    /** l'etat a montrer maintenant : (os, position du jeu, camera ou null), glisse entre deux images ; null sans direct */
+    @Synchronized fun rejouerWW(): Triple<FloatArray, FloatArray, FloatArray?>? {
+        if (!directWW() || imagesWW.isEmpty() || origineWW.isNaN()) return null
+        val pos = (System.nanoTime() - origineWW) / nsImg - 6.0          // (retard fixe : ~6 images, au-dessus du paquet le plus rapide)
+        val i1 = imagesWW.indexOfFirst { it.img >= pos }
+        val a: ImageWW; val b: ImageWW
+        if (i1 < 0) { a = imagesWW.last(); b = a } else if (i1 == 0) { a = imagesWW.first(); b = a } else { a = imagesWW[i1 - 1]; b = imagesWW[i1] }
+        val k = if (a === b) 0f else ((pos - a.img) / (b.img - a.img).toDouble()).toFloat().coerceIn(0f, 1f)
+        fun mix(x: FloatArray, y: FloatArray?): FloatArray = if (y == null || k <= 0f || x.size != y.size) x else FloatArray(x.size) { x[it] + (y[it] - x[it]) * k }
+        val os = mix(a.os, b.os)
+        // (rotations melangees : chaque ligne est remise a la longueur 1, sans deformer)
+        for (j in 0 until 42) for (r in 0..2) { val o = j * 12 + r * 4
+            val l = Math.sqrt((os[o] * os[o] + os[o + 1] * os[o + 1] + os[o + 2] * os[o + 2]).toDouble()).toFloat()
+            if (l > 1e-4f && Math.abs(l - 1f) < 0.2f) { os[o] /= l; os[o + 1] /= l; os[o + 2] /= l } }
+        val cam = a.cam?.let { mix(it, b.cam) }
+        return Triple(os, mix(a.pos, b.pos), cam)
+    }
+    /** camera du direct -> matrice de vue (3 x 4) + angle, comme cameraJeu */
+    fun vueDe(v: FloatArray): FloatArray? {
+        val fov = v[0]; val ex = v[2]; val ey = v[3]; val ez = v[4]; val cx = v[5]; val cy = v[6]; val cz = v[7]; val ux = v[8]; val uy = v[9]; val uz = v[10]
+        if (fov !in 5f..150f) return null
+        var fx = cx - ex; var fy = cy - ey; var fz = cz - ez; val lf = Math.sqrt((fx * fx + fy * fy + fz * fz).toDouble()).toFloat(); if (lf < 1e-3f) return null
+        fx /= lf; fy /= lf; fz /= lf
+        var sx = fy * uz - fz * uy; var sy = fz * ux - fx * uz; var sz = fx * uy - fy * ux; val ls = Math.sqrt((sx * sx + sy * sy + sz * sz).toDouble()).toFloat(); if (ls < 1e-4f) return null
+        sx /= ls; sy /= ls; sz /= ls
+        val vx = sy * fz - sz * fy; val vy = sz * fx - sx * fz; val vz = sx * fy - sy * fx
+        val m = floatArrayOf(sx, sy, sz, 0f, vx, vy, vz, 0f, -fx, -fy, -fz, 0f, fov)
+        for (i in 0..2) m[4 * i + 3] = -(m[4 * i] * ex + m[4 * i + 1] * ey + m[4 * i + 2] * ez)
+        return m
+    }
     /** build 340 : matrice de vue (3 x 4, monde -> camera, la camera regarde vers -z) et angle de vue, comme Mario Kart */
     fun cameraJeu(): FloatArray? {
         val l = Lecteur(2, 0)
