@@ -130,7 +130,7 @@ fun LieuWW3D(e: JeuWW.Etat) {
     // (build 340 : « 3e personne » : derriere Link, tourne comme lui ; « Vue du jeu » : la camera du jeu ; la vraie pose
     //  de Link lue en direct)
     val capApp = Math.atan2(-Math.cos(e.cap), Math.sin(e.cap)).toFloat()
-    // (build 355 : les modeles du lieu reconnaissables en memoire : le direct cherche les objets et les suit)
+    // (build 356 : les modeles du lieu reconnaissables en memoire : le direct cherche les objets et les suit)
     DisposableEffect(sc) { JeuWW.sigsPack = sc.animes?.sigs ?: emptyMap(); onDispose { JeuWW.sigsPack = emptyMap() } }
     DessinVue3DGL(sc, p, cam, emptyList(), montrerRayman = true, distance = 22f, linkWW = floatArrayOf(e.cap.toFloat(), e.vitesse, if (nage) 1f else 0f),
         capPerso = capApp, poseWW = { JeuWW.poseLink() }, camJeu = { JeuWW.cameraJeu() },

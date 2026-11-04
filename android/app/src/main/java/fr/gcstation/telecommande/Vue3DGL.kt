@@ -69,12 +69,12 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
         var eau = 0          // build 245 : 1 eau, 2 lave (d'apres le nom de la texture : <niveau>_tex.txt) ; animees par le moteur
                              // build 276 : 3 lave peinte (texture claire que le jeu colore en rouge : la mer de lave de knaar_10)
         var chaud = false    // build 276 : sous la lumiere rouge-orange du jeu (zone du crane de knaar_10)
-        var vent = false     // build 355 : herbe de Wind Waker : ondule (2e coordonnees : hauteur dans la touffe, phase)
-        /** build 355 : clignements (suite de textures) et couleurs animees (multiplicateurs r g b a), images par seconde */
+        var vent = false     // build 356 : herbe de Wind Waker : ondule (2e coordonnees : hauteur dans la touffe, phase)
+        /** build 356 : clignements (suite de textures) et couleurs animees (multiplicateurs r g b a), images par seconde */
         var texSeq: IntArray? = null; var texIps = 30f; var coulSeq: FloatArray? = null; var coulIps = 30f
     }
     companion object {
-        /** build 355 : une ligne de suite (clignement ou couleur) a partir du mot k : type, groupe, images par seconde,
+        /** build 356 : une ligne de suite (clignement ou couleur) a partir du mot k : type, groupe, images par seconde,
          *  nombre, valeurs */
         fun lireSuite(p: List<String>, k: Int, groupe: (Int) -> Groupe?) {
             val g = groupe(p.getOrNull(k + 1)?.toIntOrNull() ?: return) ?: return
@@ -138,7 +138,7 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
                         val gi = p.getOrNull(0)?.toIntOrNull() ?: return@forEach; val du = p.getOrNull(1)?.toFloatOrNull() ?: 0f; val dv = p.getOrNull(2)?.toFloatOrNull() ?: 0f
                         l.getOrNull(gi)?.defil = floatArrayOf(du, dv)
                         if (p.getOrNull(3) == "1") l.getOrNull(gi)?.vent = true }
-                    // build 355 : <niveau>_coul.txt : « t groupe ips n textures... » et « c groupe ips n r g b a ... »
+                    // build 356 : <niveau>_coul.txt : « t groupe ips n textures... » et « c groupe ips n r g b a ... »
                     java.io.File(d, nv + "_coul.txt").takeIf { it.exists() }?.readLines()?.forEach { li -> lireSuite(li.trim().split(' '), 0) { l.getOrNull(it) } }
                     // build 245 : objets (cages, lums, pouvoirs)
                     val fo = java.io.File(d, nv + "_obj.txt")
@@ -231,7 +231,7 @@ class Etat3D {
     @Volatile var decal = floatArrayOf(0f, 0f, 0f)       // (build 236 : deplacement a deux doigts, ajoute a la cible)
     @Volatile var redessiner: () -> Unit = {}
     @Volatile var voir = "cfjkvrpidtuq"
-    /** build 355 : Wind Waker, les objets lus en direct (poses) et les modeles du pack qu'ils remplacent */
+    /** build 356 : Wind Waker, les objets lus en direct (poses) et les modeles du pack qu'ils remplacent */
     @Volatile var vifsWW: List<JeuWW.VifPose>? = null; @Volatile var modelesVifs: Set<Int> = emptySet()
     /** build 266 : autres pions a montrer (Mario Kart : les autres karts) : x, y, z, couleur (ARGB en Float.fromBits) par pion */
     @Volatile var pions = FloatArray(0)
@@ -508,7 +508,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     // build 353 : objets animes (Wind Waker) : un tampon u v couleur par groupe, un tampon de positions par image
     private var vboAniUv = arrayOf<IntArray>(); private var vboAniPos = arrayOf<IntArray>()
     private val mAni = FloatArray(16); private val mAniInv = FloatArray(16); private val mvpAni = FloatArray(16)
-    // build 355 : objets en direct : positions calculees (peau) une fois par image, dans des tampons reutilises
+    // build 356 : objets en direct : positions calculees (peau) une fois par image, dans des tampons reutilises
     private var vboVif = IntArray(0); private var bufVif = arrayOfNulls<java.nio.FloatBuffer>(0); private var imgVif = LongArray(0); private var noImage = 0L
     private fun tamponVif(i: Int, n: Int): Pair<Int, java.nio.FloatBuffer> {
         if (i >= vboVif.size) {
@@ -538,7 +538,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             attribute vec3 aPos; attribute vec2 aUv; attribute vec4 aCol; attribute vec2 aUvL;
             varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying vec3 vD; varying vec2 vUvL;
             void main() { vec3 p = aPos;
-                // build 355 : herbe : le haut de la touffe ondule au vent (2e coordonnees : hauteur relative, phase)
+                // build 356 : herbe : le haut de la touffe ondule au vent (2e coordonnees : hauteur relative, phase)
                 if (uVent > 0.5) { float o = sin(uT * 1.9 + aUvL.y) * 0.07 * aUvL.x * aUvL.x; p.x += o; p.y += o * 0.7; }
                 gl_Position = uMvp * vec4(p, 1.0); vCol = aCol; vUvL = aUvL;
                 // eau / lave : deux couches de la texture qui glissent en sens differents (ondulation) ; R3V3 : le defilement du jeu
@@ -558,7 +558,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             void main() { float vBrume = clamp((length(vD) - uBrumeP.x) / uBrumeP.y, 0.0, uBrumeP.z);
                 vec4 t = uAvecTex > 0.5 ? texture2D(uTex, vUv) : vec4(1.0);
                 if (uEau > 0.5 && uAvecTex > 0.5) t = mix(t, texture2D(uTex, vUv2), 0.5);
-                vec4 c = t * vec4(vCol.rgb * 2.0, vCol.a) * uMul;      // (build 355 : couleurs animees du jeu)
+                vec4 c = t * vec4(vCol.rgb * 2.0, vCol.a) * uMul;      // (build 356 : couleurs animees du jeu)
                 if (uLmK > 0.0) c.rgb = min(c.rgb * texture2D(uLm, vUvL).rgb * uLmK, vec3(1.0));   // (ombres precalculees du jeu)
                 if (uEau > 0.5 && uEau < 1.5) { c.rgb *= uTeinteEau; c.a = min(1.0, c.a * 1.15 + 0.1); }
                 if (uEau > 1.5 && uEau < 2.5) c.rgb *= 1.3;
@@ -624,7 +624,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         val hd = java.io.File(scene.dossier, scene.niveau + "_hd4.txt").exists()
         val fac = if (facteur == 3 && !npot) 2 else facteur
         textures.clear()
-        // (build 355 : aussi les textures des clignements)
+        // (build 356 : aussi les textures des clignements)
         val aCharger = (scene.groupes + (scene.mobiles?.groupes ?: emptyList()) + (scene.animes?.groupesTex ?: emptyList()))
             .flatMap { g -> listOf(g.texture to g.enveloppe) + (g.texSeq?.map { it to g.enveloppe } ?: emptyList()) }
         for ((gTexture, gEnveloppe) in aCharger) {
@@ -1011,7 +1011,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     }
 
     /** un groupe du decor (ou d'un objet qui bouge) : textures, ombres, defilement, sommets (build 332 : sorti de la boucle) */
-    /** build 355 : texture du moment (clignements) et couleur animee d'un groupe ; phase : decalage (0 a 1) de la copie */
+    /** build 356 : texture du moment (clignements) et couleur animee d'un groupe ; phase : decalage (0 a 1) de la copie */
     private fun texDuMoment(g: SceneR3.Groupe, tSec: Double, phase: Float = 0f): Int {
         val sq = g.texSeq ?: return g.texture
         return sq[((tSec * g.texIps + phase * sq.size).toLong() % sq.size).toInt()]
@@ -1693,7 +1693,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     }
 
     private fun dessinerScene() {
-        noImage++                                             // (build 355 : peaux des objets en direct recalculees une fois)
+        noImage++                                             // (build 356 : peaux des objets en direct recalculees une fois)
         etat.rejeu?.invoke()                                  // (build 345 : le direct, rejoue a chaque image)
         val c0 = cibleLissee(); val dc = etat.decal
         // build 282 : mode libre : le centre reste ou il etait (seuls les doigts le deplacent)
@@ -1769,7 +1769,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
         GLES20.glUniform3f(uCam, ex, ey, ez)
         GLES20.glUniform1i(uTex, 0); GLES20.glUniform1i(uLm, 1)
-        GLES20.glUniform4f(uMulL, 1f, 1f, 1f, 1f); GLES20.glUniform1f(uVentL, 0f)      // (build 355 : valeurs neutres)
+        GLES20.glUniform4f(uMulL, 1f, 1f, 1f, 1f); GLES20.glUniform1f(uVentL, 0f)      // (build 356 : valeurs neutres)
         val tSec = ((System.nanoTime() - t0) / 1e9 % 2000.0)
         GLES20.glUniform1f(uTL, ((System.nanoTime() - t0) / 1e9 % 2000.0).toFloat())
         GLES20.glUniform3fv(uBrumeL, 1, amb.brume, 0); GLES20.glUniform3f(uBrumePL, amb.brumeDebut, amb.brumeLong, amb.brumeMax)
@@ -1818,7 +1818,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             if (ani != null && vboAniPos.size == ani.modeles.size) {
                 val cachees = etat.modelesVifs
                 for (cp in ani.copies) {
-                    if (cp.modele in cachees) continue                          // (build 355 : montre par le direct)
+                    if (cp.modele in cachees) continue                          // (build 356 : montre par le direct)
                     val md = ani.modeles[cp.modele]
                     if (md.groupes.none { it.mode == passe } || md.images == 0) continue
                     val img = (((tSec * md.ips) + cp.phase * md.images).toLong() % md.images).toInt()
@@ -1847,7 +1847,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, g.n)
                     }
                 }
-                // build 355 : les objets lus en direct : leur peau posee sur les os du jeu, ou leur image de repos a la place
+                // build 356 : les objets lus en direct : leur peau posee sur les os du jeu, ou leur image de repos a la place
                 // donnee par le jeu (objets plus loin)
                 val vp = etat.vifsWW
                 if (vp != null) for ((vi, v) in vp.withIndex()) {

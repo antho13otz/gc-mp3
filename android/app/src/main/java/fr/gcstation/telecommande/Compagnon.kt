@@ -164,7 +164,7 @@ object JeuWW {
     private val arriveesWW = ArrayDeque<Pair<Long, Long>>()
     fun directWW(): Boolean = System.nanoTime() - fluxWW < 500_000_000L
 
-    // ------------------------------------------------ build 355 : les objets en direct (coffres, ennemis, habitants...)
+    // ------------------------------------------------ build 356 : les objets en direct (coffres, ennemis, habitants...)
     /** Chaque objet du jeu (liste en 0x803C3AB4, PAL : premier noeud, dernier, nombre ; noeud : precedent, liste, suivant,
      *  objet) garde ses modeles 3D (J3DModel : meme table de fonctions que celui de Link) entre +0x200 et +0x800, ou en
      *  +0x50 d'un objet d'animation. Modele : +0x04 donnees (+0x04 fichier du jeu en memoire, sa taille en +0x08 ; +0x28
@@ -281,7 +281,7 @@ object JeuWW {
     val modelesVifs: Set<Int> get() = if (vifPret) vifs.mapTo(HashSet()) { it.modele } else emptySet()
 
     /** ecoute le direct (a appeler en boucle hors du fil d'affichage) ; s'abonne et relit les adresses chaque seconde ;
-     *  (build 355) cherche les objets du lieu a chaque nouveau lieu et toutes les 10 s, puis les suit */
+     *  (build 356) cherche les objets du lieu a chaque nouveau lieu et toutes les 10 s, puis les suit */
     fun ecouterDirect() {
         val now = System.nanoTime()
         if (now - adrT > 1_000_000_000L || adrWW.isEmpty()) {
@@ -357,7 +357,7 @@ object JeuWW {
         origineWW = mn; fluxWW = t
     }
     /** l'etat a montrer maintenant : (os, position du jeu, camera ou null), glisse entre deux images ; null sans direct.
-     *  (build 355 : prepare aussi les objets suivis : vifsRejoues) */
+     *  (build 356 : prepare aussi les objets suivis : vifsRejoues) */
     @Synchronized fun rejouerWW(): Triple<FloatArray, FloatArray, FloatArray?>? {
         if (!directWW() || imagesWW.isEmpty() || origineWW.isNaN()) { vifsRejoues = null; return null }
         val pos = (System.nanoTime() - origineWW) / nsImg - 6.0          // (retard fixe : ~6 images, au-dessus du paquet le plus rapide)

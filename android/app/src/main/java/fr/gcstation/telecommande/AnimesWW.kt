@@ -12,7 +12,7 @@ import java.nio.ByteOrder
  *   _mob.txt), decalage dans l'animation (0 a 1), matrice 4 x 4 par colonnes.
  *  Les images sont cuites d'apres les animations du jeu (.bck), 30 par seconde au plus : rejouees telles quelles. */
 class AnimesWW(val modeles: List<Modele>, val copies: List<Copie>) {
-    /** build 355 : pour le direct des objets : la peau de chaque modele (comme celle de Link) et sa signature dans le jeu
+    /** build 356 : pour le direct des objets : la peau de chaque modele (comme celle de Link) et sa signature dans le jeu
      *  (taille du fichier du modele, nombre d'os) ; pack : <lieu>_vif.r3p */
     class Peau(val taille: Long, val nj: Int, val j: ByteArray, val w: FloatArray, val l: FloatArray)
     var peaux: List<Peau?> = emptyList()
@@ -40,7 +40,7 @@ class AnimesWW(val modeles: List<Modele>, val copies: List<Copie>) {
         o.position(0); return true
     }
     class Groupe(val texture: Int, val mode: Int, val env: Int, val du: Float, val dv: Float, val n: Int, val uvc: ByteBuffer, val debut: Int) {
-        /** (build 355 : porte les clignements et couleurs du groupe ; sert aussi a charger ses textures) */
+        /** (build 356 : porte les clignements et couleurs du groupe ; sert aussi a charger ses textures) */
         val stub = SceneR3.Groupe(texture, mode != 0, ByteBuffer.allocateDirect(0), 0, mode, env)
     }
     class Modele(val groupes: List<Groupe>, val images: Int, val ips: Float, val total: Int, val pos: List<ByteBuffer>)
@@ -49,7 +49,7 @@ class AnimesWW(val modeles: List<Modele>, val copies: List<Copie>) {
     /** des groupes « vides » pour que le moteur charge leurs textures avec celles du lieu */
     val groupesTex: List<SceneR3.Groupe> by lazy { modeles.flatMap { m -> m.groupes.map { it.stub } } }
 
-    /** build 355 : <lieu>_vif.r3p : "WWV1", nombre de modeles ; par modele : taille du fichier dans le jeu, nombre d'os,
+    /** build 356 : <lieu>_vif.r3p : "WWV1", nombre de modeles ; par modele : taille du fichier dans le jeu, nombre d'os,
      *  longueur, puis pour chaque sommet 4 os (octets), 4 poids, 4 positions locales (unites du jeu) */
     fun lirePeaux(f: java.io.File) {
         if (!f.exists()) return
@@ -99,11 +99,11 @@ class AnimesWW(val modeles: List<Modele>, val copies: List<Copie>) {
                         val mat = FloatArray(16) { b.float }
                         if (m in ms.indices) cs.add(Copie(m, mo, ph, mat))
                     }
-                    // build 355 : <lieu>_ani.txt : « modele t|c groupe ips n valeurs... » (clignements, couleurs)
+                    // build 356 : <lieu>_ani.txt : « modele t|c groupe ips n valeurs... » (clignements, couleurs)
                     java.io.File(d, nv + "_ani.txt").takeIf { it.exists() }?.readLines()?.forEach { li -> val p = li.trim().split(' ')
                         val m = ms.getOrNull(p.getOrNull(0)?.toIntOrNull() ?: return@forEach) ?: return@forEach
                         SceneR3.lireSuite(p, 1) { m.groupes.getOrNull(it)?.stub } }
-                    // (build 355 : les modeles sans copie placee servent au direct ; le lieu en a s'il y a des modeles)
+                    // (build 356 : les modeles sans copie placee servent au direct ; le lieu en a s'il y a des modeles)
                     if (ms.isEmpty()) null else AnimesWW(ms, cs).also { it.lirePeaux(java.io.File(d, nv + "_vif.r3p")) }
                 }
             }
