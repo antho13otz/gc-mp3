@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 347 — la mer de Wind Waker visible
+
+- **Vue 3D** : la brume est calculée à chaque pixel, et plus seulement aux coins des formes. La mer de Wind Waker (un seul grand carré dont les coins sont loin) prenait la couleur du ciel : on la revoit, bleue, autour de Link.
+- Console inchangée.
+
 ## Nouveautés appli build 345 — Link en direct, sans à-coups
 
 - **Wind Waker, vue 3D** : la pose de Link (ses 42 os), sa position et la caméra du jeu arrivent maintenant à chaque image de la console (abonnement Pulse), au lieu d'être relues par morceaux. L'appli les met en file et les rejoue avec environ 6 images de retard (~0,1 s), en interpolant entre deux images : l'animation est fluide, sans saccades.
