@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 358 — vue 3D plus fiable, vraie mer de Wind Waker
+
+- **Vue 3D** : elle est redessinée même quand rien ne bouge (4 fois par seconde). Après un défilement de la page ou un retour dans l'appli, elle restait parfois vide jusqu'à ce qu'on la touche ou qu'on quitte la page.
+- Les textures des personnages et des objets animés sont lues à la taille du jeu (plus en x4), pour ne pas remplir la mémoire graphique.
+- La liste des lieux de Wind Waker n'affiche plus les fichiers internes « _mob ».
+- **Pack Wind Waker** (mise à jour à installer) : la mer a le bleu du jeu et ses deux réseaux de vagues blanches, qui glissent en sens contraires. La mer est aussi dessinée autour des îles de l'écran-titre et de la fin.
+- Console inchangée.
+
 ## Nouveautés appli build 356 — Wind Waker : objets en direct, herbe, clignements
 
 - **Objets en direct** : en jeu, l'appli trouve les objets du lieu dans la mémoire (coffres, ennemis, habitants, cochons, mouettes…), reconnaît leurs modèles 3D et les suit par l'abonnement Pulse. Les plus proches de Link sont montrés avec tous leurs os, donc avec la vraie animation du moment : coffre qui s'ouvre, ennemi qui attaque, habitant qui marche ou parle. Les plus loin sont montrés à leur place exacte. La recherche prend quelques secondes en arrivant dans un lieu, puis est refaite toutes les 10 s. Version européenne du jeu seulement.
