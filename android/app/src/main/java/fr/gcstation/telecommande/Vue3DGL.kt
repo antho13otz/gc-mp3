@@ -55,6 +55,11 @@ class SceneR3(val dossier: java.io.File, val niveau: String, val groupes: List<G
     @Volatile var versionPris = 0       // build 256 : change quand un objet est ramasse (ou reapparait) ; la vue se refait
     /** build 332 : Mario Kart, les objets qui bougent (pack : <circuit>_mob.r3v et _mob.txt) */
     var mobiles: ObjetsMobiles? = null
+    /** build 349 : la hauteur de la mer (Wind Waker : un grand carre transparent sans texture, a plat) ; NaN : pas de mer */
+    val niveauEau: Float by lazy {
+        groupes.firstOrNull { g -> g.texture < 0 && g.mode == 2 && g.n == 6 && (0 until 6).all { k -> g.sommets.getFloat(k * g.pas + 8) == g.sommets.getFloat(8) } }
+            ?.sommets?.getFloat(8) ?: Float.NaN
+    }
     class Groupe(val texture: Int, val alpha: Boolean, val sommets: ByteBuffer, val n: Int,
                  val mode: Int = if (alpha) 2 else 0, val enveloppe: Int = 0,
                  val lumiere: Int = -1, val lumiereK: Float = 0f, val pas: Int = 24) {  // (R3V3 : ombres precalculees du jeu, 2e texture)
@@ -1651,6 +1656,10 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             val o = etat.oeil; val r = etat.regard()
             ex = o[0]; ey = o[1]; ez = o[2]; vx = ex + r[0]; vy = ey + r[1]; vz = ez + r[2]
         }
+        // build 349 : la camera reste au-dessus de la mer (Link nage 80 cm sous la surface : en 3e personne, la camera passait
+        // sous l'eau et ne voyait plus la mer que par en dessous)
+        val ne = scene.niveauEau
+        if (!ne.isNaN() && ez < ne + 0.4f) { val dz = ne + 0.4f - ez; ez += dz; if (etat.mode != 5) vz += dz * 0.5f }
         etat.camPos = floatArrayOf(ex, ey, ez)
         android.opengl.Matrix.setLookAtM(vue, 0, ex, ey, ez, vx, vy, vz, 0f, 0f, 1f)
         android.opengl.Matrix.multiplyMM(mvp, 0, proj, 0, vue, 0)
@@ -1689,7 +1698,14 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         GLES20.glUniform3fv(uBrumeL, 1, amb.brume, 0); GLES20.glUniform3f(uBrumePL, amb.brumeDebut, amb.brumeLong, amb.brumeMax)
         GLES20.glUniform3fv(uTeinteL, 1, amb.eau, 0)
         GLES20.glEnableVertexAttribArray(aPos); GLES20.glEnableVertexAttribArray(aUv); GLES20.glEnableVertexAttribArray(aCol)
+        var linkFait = false
         for (passe in 0..3) {                             // opaque, decoupe, transparent, lumiere (additive)
+            // build 349 : Link de Wind Waker avant l'eau et les transparents : sous la surface, on le voit a travers la mer
+            if (passe == 2 && etat.montrerRayman && etat.linkWW != null) {
+                linkFait = dessinerLinkWW(mvp, c0)
+                GLES20.glUseProgram(prog); GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
+                GLES20.glEnableVertexAttribArray(aPos); GLES20.glEnableVertexAttribArray(aUv); GLES20.glEnableVertexAttribArray(aCol)
+            }
             when (passe) {
                 0 -> { GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glUniform1f(uSeuil, 0.02f) }
                 1 -> { GLES20.glDisable(GLES20.GL_BLEND); GLES20.glDepthMask(true); GLES20.glUniform1f(uSeuil, 0.5f) }
@@ -1804,7 +1820,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         val rm = raymanMod
         if (etat.montrerRayman && dessinerRaymanAnime(mvp, c0)) {
             // (build 272 : Rayman anime d'apres sa pose en memoire)
-        } else if (etat.montrerRayman && dessinerLinkWW(mvp, c0)) {
+        } else if (etat.montrerRayman && (linkFait || dessinerLinkWW(mvp, c0))) {
             // (build 338 : Link de Wind Waker, son vrai modele anime)
         } else if (etat.montrerRayman && rm != null) {          // build 269 : Rayman en 3D, tourne vers ou il va
             GLES20.glUseProgram(progM)
