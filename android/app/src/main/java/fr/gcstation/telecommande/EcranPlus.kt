@@ -92,7 +92,6 @@ private val TUILES get() = listOf(
     Tuile("Compagnon de jeu", "Jauges, carte, chrono en direct", Ic.Jeux, C.Vert) { St.sous = "Compagnon de jeu" },
     Tuile("Statistiques de jeu", "Temps par jeu et par semaine", Ic.Trophee, C.Orange) { St.sous = "Statistiques de jeu" },
     Tuile("Extraire d'un .iso", "main.dol d'un jeu du téléphone", Ic.Copies, C.Cyan) { St.sous = "Extraire d'un jeu du téléphone" },
-    Tuile("Exporter les packs", "Packs 3D installés, en .zip", Ic.Copies, C.Violet) { St.sous = "Exporter les packs" },
     Tuile("Jeu de cartes", "8 américain entre potes", Ic.Cartes, C.Rose) { a -> CartesActivity.open(a) },
     Tuile("Mini-jeux", "Duels, téléphone = manette", Ic.Jeux, C.Cyan) { a -> MiniJeuxActivity.open(a) },
     Tuile("Manette en jeu", "Pulse : ports 2 à 4", Ic.Manette, C.Violet) { a -> a.manetteEnJeu() },
@@ -131,7 +130,6 @@ fun EcranPlus() {
                 "Compagnon de jeu" -> EcranCompagnon()
                 "Statistiques de jeu" -> EcranStatsJeux()
                 "Extraire d'un jeu du téléphone" -> EcranIsoTel()
-                "Exporter les packs" -> EcranExportPacks()
                 "Rayman 3 : progression" -> EcranRayman3()
                 "Vraies cartes mémoire" -> EcranVraiesCartes()
                 "Photos" -> EcranPhotos()

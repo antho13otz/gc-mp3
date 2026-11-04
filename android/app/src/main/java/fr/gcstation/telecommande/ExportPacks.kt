@@ -5,6 +5,7 @@ package fr.gcstation.telecommande
 // 400 Mio) : la taille est verifiee avant chaque fichier. Ecrit en continu (ZipOutputStream vers le flux MediaStore,
 // fichier par fichier, sans tout charger en memoire), dans un fil a part, avec l'avancement ; puis le partage.
 // Les zips se reinstallent tels quels avec « Installer / mettre a jour des packs » (fichiers a plat, comme les packs).
+// Bouton dans la fiche de chaque jeu (EcranJeux.kt : Wind Waker, Mario Kart, Rayman 3).
 
 import android.app.Activity
 import android.content.ContentValues
@@ -15,14 +16,10 @@ import android.os.Environment
 import android.provider.MediaStore
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -30,9 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import java.io.File
 import java.io.FilterOutputStream
 import java.io.OutputStream
@@ -140,38 +135,40 @@ object ExportPacks {
     fun mo(o: Long) = if (o >= 1000L * 1000 * 1000) String.format(Locale.FRANCE, "%.2f Go", o / 1e9) else String.format(Locale.FRANCE, "%.0f Mo", o / 1e6)
 }
 
-/** Plus > « Exporter les packs » : choisir le jeu, exporter, partager */
+/** fiche du jeu : « Exporter le pack installé » (dossier : cartes-ww, cartes-mk ou cartes-r3) ; le partage ensuite */
 @Composable
-fun EcranExportPacks() {
+fun ExportPackJeu(dossier: String) {
     val a = LocalContext.current as Activity
+    val j = ExportPacks.JEUX.first { it.second == dossier }
     var etat by remember { mutableStateOf<ExportPacks.Etat?>(null) }
     var zips by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var enCours by remember { mutableStateOf(false) }
-    val infos = remember { ExportPacks.JEUX.map { j -> val l = ExportPacks.fichiers(File(a.filesDir, j.second)); Triple(j, l.size, l.sumOf { it.length() }) } }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Titre("Exporter les packs")
-        Doux("Les packs 3D tels qu'ils sont installés sur ce téléphone, en .zip dans Téléchargements/GC Remote, en parties de 350 Mo au plus. " +
-             "Ils se réinstallent tels quels avec « Installer / mettre à jour des packs ».", taille = 12)
-        if (Build.VERSION.SDK_INT < 29) Doux("Android 10 ou plus est nécessaire.", taille = 13, couleur = C.Rouge)
-        for ((j, n, o) in infos) {
-            Bouton(j.first + if (n == 0) " : pas installé" else " : $n fichiers, " + ExportPacks.mo(o), Modifier.fillMaxWidth(), actif = !enCours && n > 0 && Build.VERSION.SDK_INT >= 29) {
+    var info by remember { mutableStateOf<Pair<Int, Long>?>(null) }
+    androidx.compose.runtime.LaunchedEffect(dossier, enCours) {
+        info = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { val l = ExportPacks.fichiers(File(a.filesDir, dossier)); l.size to l.sumOf { it.length() } }
+    }
+    val (n, o) = info ?: (0 to 0L)
+    Column(Modifier.fillMaxWidth().padding(top = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        val e = etat
+        if (e == null || e.fini != null) {
+            Bouton(if (info == null) "Exporter le pack installé…" else if (n == 0) "Exporter le pack : rien d'installé" else "Exporter le pack installé ($n fichiers, " + ExportPacks.mo(o) + ")",
+                Modifier.fillMaxWidth(), icone = Ic.Copies, actif = !enCours && n > 0 && Build.VERSION.SDK_INT >= 29) {
                 enCours = true; ExportPacks.annule = false; zips = emptyList()
                 etat = ExportPacks.Etat(j.first, 0, n, 0, o, 1)
                 Thread {
-                    val l = ExportPacks.exporter(a, j) { e -> a.runOnUiThread { etat = e } }
+                    val l = ExportPacks.exporter(a, j) { x -> a.runOnUiThread { etat = x } }
                     a.runOnUiThread { enCours = false; zips = l; ExportPacks.partager(a, l, j.first) }
                 }.start()
             }
+            if (Build.VERSION.SDK_INT < 29) Doux("Exporter : Android 10 ou plus est nécessaire.", taille = 11, couleur = C.Pale)
         }
-        etat?.let { e ->
-            Spacer(Modifier.height(6.dp))
-            Text(e.jeu, color = C.Texte, fontSize = 15.sp, fontWeight = FontWeight.Bold)
+        if (e != null) {
             if (e.fini == null) {
                 LinearProgressIndicator(progress = { if (e.octetsTotal > 0) e.octets.toFloat() / e.octetsTotal else 0f }, modifier = Modifier.fillMaxWidth().height(6.dp), color = C.Rose)
-                Doux("Fichier " + e.fait + " / " + e.total + " · " + ExportPacks.mo(e.octets) + " / " + ExportPacks.mo(e.octetsTotal) + " · partie " + e.partie, taille = 12)
-                Bouton("Arrêter", Modifier.fillMaxWidth()) { ExportPacks.annule = true }
+                Doux("Export : fichier " + e.fait + " / " + e.total + " · " + ExportPacks.mo(e.octets) + " / " + ExportPacks.mo(e.octetsTotal) + " · partie " + e.partie, taille = 12)
+                Bouton("Arrêter l'export", Modifier.fillMaxWidth()) { ExportPacks.annule = true }
             } else {
-                Doux(e.fini, taille = 13, couleur = C.Texte)
+                Doux(e.fini, taille = 12, couleur = C.Texte)
                 if (zips.isNotEmpty()) Bouton("Partager à nouveau (" + zips.size + " zip)", Modifier.fillMaxWidth(), plein = true) { ExportPacks.partager(a, zips, e.jeu) }
             }
         }
