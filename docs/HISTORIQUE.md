@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 363 — la fiche du jeu ne plante plus
+- Le build 361 plantait en ouvrant la fiche de Wind Waker, Mario Kart ou Rayman 3 (bouton « Exporter le pack
+  installé ») : corrigé.
+
 ## Nouveautés appli build 361 — exporter le pack 3D installé
 - Dans la fiche de **Wind Waker**, **Mario Kart** et **Rayman 3** : **« Exporter le pack installé »**. Le pack tel qu'il est
   sur le téléphone part en .zip dans **Téléchargements/GC Remote**, en parties de **350 Mo au plus** (taille vérifiée avant
