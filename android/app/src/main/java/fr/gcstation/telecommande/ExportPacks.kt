@@ -1,6 +1,6 @@
 package fr.gcstation.telecommande
 
-// Appli : exporter les packs 3D installes (Wind Waker, Mario Kart, Rayman 3) tels qu'ils sont sur le telephone, en .zip
+// Appli (build 361) : exporter les packs 3D installes (Wind Waker, Mario Kart, Rayman 3) tels qu'ils sont sur le telephone, en .zip
 // dans Telechargements/GC Remote (MediaStore, Android 10 ou plus), en parties de 350 Mo au plus (limite d'envoi de
 // 400 Mio) : la taille est verifiee avant chaque fichier. Ecrit en continu (ZipOutputStream vers le flux MediaStore,
 // fichier par fichier, sans tout charger en memoire), dans un fil a part, avec l'avancement ; puis le partage.
