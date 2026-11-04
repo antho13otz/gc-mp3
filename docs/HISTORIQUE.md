@@ -24,6 +24,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 343 — compagnon pratique, carte marine juste
+
+- **Compagnon de jeu** :
+  - « 📸 Photo de la mémoire » s'y trouve maintenant, pour la prendre en jouant. Ce bouton a quitté le chercheur de codes.
+  - « 📦 Installer / mettre à jour les packs de ce jeu » marche pour Wind Waker, Mario Kart et Rayman 3, sans quitter la partie.
+- **Carte marine de Wind Waker** : chaque île est entière et à sa place, comme sur la carte du jeu.
+- **Link en 3D** : ses fichiers (`ww_link.ani`, `ww_link.peau`) sont maintenant installés avec le pack. Avant, ils étaient ignorés et Link restait un point rouge.
+- **Pack Wind Waker** : les sols, les tapis et les murs prennent leur vraie texture. Par exemple, le sol de la grande salle du château n'a plus de taches ni de trous.
+
 ## Nouveautés appli build 340 — Link en direct, Vue du jeu, 3e personne partout
 
 - **Wind Waker, Link comme dans le jeu** (avec le nouveau pack) : l'appli lit sa vraie pose. Il tient son épée, saute, grimpe et nage exactement comme à l'écran. Ce n'est plus une animation choisie d'après sa vitesse.
