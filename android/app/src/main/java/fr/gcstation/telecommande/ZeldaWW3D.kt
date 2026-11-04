@@ -97,7 +97,8 @@ object CartesWW {
                 if (e.isDirectory || nom.contains("..")) continue
                 if (nom.endsWith(".zip")) { if (prof < 2) lire(java.util.zip.ZipInputStream(z), prof + 1); continue }
                 // (build 343 : aussi Link : ww_link.ani (animations) et ww_link.peau (sa peau) ; avant, ignores a l'installation)
-                if (!(nom.endsWith(".png") || nom.endsWith(".txt") || nom.endsWith(".r3v") || nom.endsWith(".ani") || nom.endsWith(".peau"))) continue
+                // (build 353 : et les objets animes de chaque lieu : <lieu>_ani.r3a)
+                if (!(nom.endsWith(".png") || nom.endsWith(".txt") || nom.endsWith(".r3v") || nom.endsWith(".ani") || nom.endsWith(".peau") || nom.endsWith(".r3a"))) continue
                 java.io.File(d, nom).outputStream().use { z.copyTo(it) }
                 if (nom.endsWith(".r3v") && !nom.endsWith("_mob.r3v")) n++
             }
