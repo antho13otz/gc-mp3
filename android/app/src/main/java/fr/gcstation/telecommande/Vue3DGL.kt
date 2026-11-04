@@ -1658,8 +1658,10 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         }
         // build 349 : la camera reste au-dessus de la mer (Link nage 80 cm sous la surface : en 3e personne, la camera passait
         // sous l'eau et ne voyait plus la mer que par en dessous)
+        // build 351 : seulement quand la camera suit Link pres de la surface ; en visite, en mode libre, ou si ce qu'on regarde
+        // est nettement sous la mer, la camera peut descendre sous l'eau
         val ne = scene.niveauEau
-        if (!ne.isNaN() && ez < ne + 0.4f) { val dz = ne + 0.4f - ez; ez += dz; if (etat.mode != 5) vz += dz * 0.5f }
+        if (!ne.isNaN() && etat.mode != 5 && etat.mode != 2 && c[2] > ne - 2f && ez < ne + 0.4f) { val dz = ne + 0.4f - ez; ez += dz; vz += dz * 0.5f }
         etat.camPos = floatArrayOf(ex, ey, ez)
         android.opengl.Matrix.setLookAtM(vue, 0, ex, ey, ez, vx, vy, vz, 0f, 0f, 1f)
         android.opengl.Matrix.multiplyMM(mvp, 0, proj, 0, vue, 0)
