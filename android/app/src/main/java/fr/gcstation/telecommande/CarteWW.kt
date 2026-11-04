@@ -185,7 +185,9 @@ object CarteMarineWW {
             val arc = FichiersGC.rarc(f.readBytes())
             noms = arc.keys.sorted()
             val m = HashMap<String, ImageBitmap>()
-            for ((nom, d) in arc) if (nom.length >= 9 && nom[0] == 'r' && nom.contains("_col_") && nom.endsWith(".bti")) {
+            // (build 343 : « rNN_b » (dossier fm) : l'ile entiere, centree dans sa case, comme sur la carte du jeu ; les
+            //  « rNN_col_v » (dossier cm) ne sont que des morceaux decales : seulement en secours)
+            for ((nom, d) in arc) if (nom.length >= 5 && nom[0] == 'r' && (nom.contains("_col_") || nom.endsWith("_b.bti")) && nom.endsWith(".bti")) {
                 FichiersGC.bti(d)?.let { m[nom.removeSuffix(".bti")] = it.asImageBitmap() }
             }
             tuiles = m
@@ -193,11 +195,16 @@ object CarteMarineWW {
         } catch (e: Throwable) { etat = "Carte du jeu illisible (" + e.javaClass.simpleName + ")" }
     }
 
+    /** build 343 : la case i a-t-elle son ile entiere (image « rNN_b » : contour plein et interieur a 40 %, sans couleur :
+     *  le jeu la teinte ; l'appli aussi) */
+    fun entiere(i: Int): Boolean = tuiles.containsKey("r" + String.format(java.util.Locale.ROOT, "%02x", i + 1) + "_b")
     /** l'image de la case i (0..48) pour la variante v, sinon une autre variante */
     fun tuile(i: Int, v: Int): ImageBitmap? {
         val t = tuiles
         if (t.isEmpty()) return null
-        val base = "r" + String.format(java.util.Locale.ROOT, "%02x", i + 1) + "_col_"
+        val r = "r" + String.format(java.util.Locale.ROOT, "%02x", i + 1)
+        t[r + "_b"]?.let { return it }
+        val base = r + "_col_"
         return t[base + v] ?: t[base + "0"] ?: t.entries.firstOrNull { it.key.startsWith(base) }?.value
     }
 }
