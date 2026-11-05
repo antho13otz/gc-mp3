@@ -1578,9 +1578,9 @@ static GXTexObj *gl_cover(int k, int load) {                 /* jaquette 128x256
     if (k < GL_MAX && gl_cov_retry[k] && now_ms() < gl_cov_retry[k]) return NULL;
     {   /* v356 : au plus 2 jaquettes lues par image : l'ecran s'affiche tout de suite, les jaquettes arrivent une a une
            (avant : toutes lues dans la 1re image ; ouverture de la liste des jeux : plus d'une seconde figee) */
-        static u32 vi = 0, n = 0;
-        u32 r = VIDEO_GetRetraceCount();
-        if (r != vi) { vi = r; n = 0; }
+        static u64 vi = 0; static u32 n = 0;           /* (par tranche de 15 ms : environ une image) */
+        u64 r = now_ms();
+        if (r - vi >= 15u) { vi = r; n = 0; }
         if (n >= 2) return NULL;
         n++;
     }
