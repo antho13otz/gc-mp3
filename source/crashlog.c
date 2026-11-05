@@ -56,6 +56,14 @@ static int crash_recent(char *out, int cap) {
     }
     return n;
 }
+#ifndef GEKKO
+/* v348 : (simulateur, GC Station PC) les dernieres actions, ecrites quand le programme plante (pcsim_win.c) */
+void gcs_crumbs_dump(void) {
+    static char t[NCRUMB * 110];
+    crash_recent(t, sizeof(t));
+    printf("[plantage] dernieres actions :\n%s", t);
+}
+#endif
 
 /* ---- symboles ---- */
 #ifndef CRASH_CODE_MIN                                    /* (le simulateur PC change ces bornes) */

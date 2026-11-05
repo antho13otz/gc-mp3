@@ -449,10 +449,35 @@ void pcsim_win_audio(const void *b, u32 n, u32 rate) {
     }
 }
 
+/* ======================= plantage : ou, et les dernieres actions ======================= */
+void gcs_crumbs_dump(void) __attribute__((weak));
+static LONG WINAPI crash_filter(EXCEPTION_POINTERS *e) {
+    static volatile LONG once = 0;
+    if (InterlockedExchange(&once, 1)) return EXCEPTION_EXECUTE_HANDLER;
+    DWORD base = (DWORD)(uintptr_t)GetModuleHandleW(NULL);
+    DWORD pc = (DWORD)(uintptr_t)e->ExceptionRecord->ExceptionAddress;
+    printf("[plantage] exception %08lX a %08lX (programme +%08lX), adresse %08lX\n", (unsigned long)e->ExceptionRecord->ExceptionCode, (unsigned long)pc, (unsigned long)(pc - base),
+           e->ExceptionRecord->NumberParameters > 1 ? (unsigned long)e->ExceptionRecord->ExceptionInformation[1] : 0ul);
+    printf("[plantage] pile (+decalage dans le programme) : +%08lX", (unsigned long)(pc - base));
+    DWORD *fp = (DWORD *)(uintptr_t)e->ContextRecord->Ebp;
+    for (int i = 0; i < 24 && fp && !IsBadReadPtr(fp, 8); i++) {   /* (chaine des cadres : -fno-omit-frame-pointer) */
+        DWORD ret = fp[1];
+        if (ret >= base && ret < base + 0x4000000u) printf(" +%08lX", (unsigned long)(ret - base));
+        DWORD *nx = (DWORD *)(uintptr_t)fp[0];
+        if (nx <= fp) break;
+        fp = nx;
+    }
+    printf("\n");
+    if (gcs_crumbs_dump) gcs_crumbs_dump();
+    fflush(stdout);
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+
 /* ======================= demarrage ======================= */
 void pcw_dolphin_init(void);
 void pcsim_win_boot(void) {
     timeBeginPeriod(1);                                    /* (attentes de 1 ms : sinon 15 ms, GC Station bien trop lent) */
+    SetUnhandledExceptionFilter(crash_filter);
     WSADATA wd; WSAStartup(MAKEWORD(2, 2), &wd);
     root_init();
     SetCurrentDirectoryW(exe_w);

@@ -57,7 +57,7 @@ jobs:
       - name: Paquet
         run: |
           mkdir -p paquet/sd
-          cp tools/pc-sim/work/gcstation.exe "paquet/GC Station.exe"
+          i686-w64-mingw32-strip -o "paquet/GC Station.exe" tools/pc-sim/work/gcstation.exe   # (sans les symboles : plus petit)
           cp tools/pc-sim/win/LISEZMOI.txt paquet/
           cd paquet && zip -q -r ../GC-Station-PC.zip . && cd ..
           ls -la GC-Station-PC.zip
@@ -75,6 +75,11 @@ jobs:
           name: gc-station-pc
           path: GC-Station-PC.zip
           retention-days: 90
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gc-station-pc-symboles
+          path: tools/pc-sim/work/gcstation.exe
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
           name: kit-essai
@@ -186,6 +191,18 @@ jobs:
           if ($j -match "nouvelle version telechargee et lisible") { Write-Host "OK : mise a jour telechargee, decompressee, lisible" }
           elseif ($j -match "derniere compilation : 0") { Write-Host "::warning::pas encore de compilation reussie sur cette branche : mise a jour pas essayee" }
           else { Write-Host "RATE : mise a jour"; exit 1 }
+      - name: Plantages (pour les symboles)
+        if: always()
+        shell: pwsh
+        run: |
+          $l = Get-ChildItem -Recurse -Include journal*.txt -Path essai, deux, maj, tools\pc-sim\work\salon-internet -ErrorAction SilentlyContinue | Select-String "\[plantage\]" | ForEach-Object { $_.Line }
+          if ($l) { $l | Set-Content plantages.txt; $l } else { "" | Set-Content plantages.txt }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: plantages
+          path: plantages.txt
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -200,3 +217,27 @@ jobs:
             essai/captures
             essai/journal.txt
           retention-days: 7
+
+  # en cas de plantage sur Windows : les adresses de la pile -> fonctions et lignes du code (addr2line)
+  symboles:
+    needs: [compiler, essayer]
+    if: always() && needs.compiler.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: gc-station-pc-symboles
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: plantages
+      - name: Ou ca a plante
+        run: |
+          sudo apt-get install -y -q binutils-mingw-w64-i686 >/dev/null 2>&1 || true
+          [ -s plantages.txt ] && grep -q "pile" plantages.txt || { echo "aucun plantage"; exit 0; }
+          cat plantages.txt
+          B=$(i686-w64-mingw32-objdump -p gcstation.exe | awk '/ImageBase/ {print $2}')
+          grep "pile" plantages.txt | grep -o "+[0-9A-F]\{8\}" | sort -u | while read a; do
+            v=$(printf "0x%X" $(( 0x$B + 0x${a#+} )))
+            echo "== $a"; i686-w64-mingw32-addr2line -f -i -C -e gcstation.exe $v | paste - - | head -4
+          done
