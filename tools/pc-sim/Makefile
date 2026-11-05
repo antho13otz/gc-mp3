@@ -94,6 +94,4 @@ $(BIN): $(SIMOBJ) $(LIBOBJ) $(CB_OBJ)
 
 clean:
 	rm -rf $(O) gcstation
-# (GC Station PC, Windows : en-tetes du resident Pulse, voir win/Makefile)
-gen: $(W)/gen/natres_bin.h $(W)/gen/natret_bin.h
-.PHONY: all clean gen
+.PHONY: all clean

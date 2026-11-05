@@ -1,0 +1,377 @@
+// GC Station v138 : le Salon : plusieurs GC Station sur le meme reseau. Inclus dans main.c (apres tab_phone.c).
+//  - decouverte : chaque console avec le Salon actif s'annonce en UDP (port 51234, a tout le reseau local)
+//    toutes les 5 s, et ecoute les autres ;
+//  - les autres consoles apparaissent dans l'onglet FICHIERS (liste des appareils) : leur carte SD se parcourt
+//    comme un serveur (netfs.c, gcs:/) : musique, photos, videos, copie vers la carte (sauvegardes .gci comprises) ;
+//  - "Ecouter avec" (Y sur une console) : le morceau que joue l'autre console, a la meme position ;
+//  - cote serveur (fil du serveur du telephone) : /s/list, /s/stat, /s/get, /s/now, seulement Salon actif.
+
+#define SALON_PORT 51234
+/* (salon_peers, salon_n, salon_on, salon_name : declares dans netfs.c) */
+static s32 salon_fd = -1;
+static u64 salon_sent = 0;
+static char salon_now_txt[NAME_LEN + 160] = "";           /* reponse de /s/now, faite par la boucle (pas par le fil du serveur) */
+static char salon_now_title[80] = "";
+
+static const char *salon_myname(void) {
+    static char d[40];
+    if (salon_name[0]) return salon_name;
+    const char *dot = strrchr(ip_str, '.');
+    snprintf(d, sizeof(d), "GC Station %s", dot && dot[1] ? dot + 1 : "");
+    return d;
+}
+/* chemin demande (relatif a la carte SD) -> chemin complet ; refuse ".." et ce qui n'est pas sur la carte */
+static int salon_path(const char *rel, char *full, int cap) {
+    if (!sd_ok || sd_virtual) return 0;
+    while (*rel == '/') rel++;
+    for (const char *p = rel; *p; p++) if (p[0] == '.' && p[1] == '.' && (p == rel || p[-1] == '/') && (p[2] == '/' || !p[2])) return 0;
+    if (strchr(rel, ':') || strchr(rel, '\\')) return 0;
+    int n = snprintf(full, cap, "%s/%s", SD_ROOT, rel);
+    while (n > (int)strlen(SD_ROOT) + 1 && full[n - 1] == '/') full[--n] = 0;
+    return n > 0 && n < cap;
+}
+/* ---------- v143 : Pulse par le reseau : serveur des ISO (UDP 51235, fil a lui) ----------
+   Une autre console demande d'abord /s/open?p=<jeu> (fichier note, numero rendu), puis lit le jeu par
+   morceaux : "PNR1" {numero de demande, fichier, position, longueur <= 2048} -> reponses "PNA1" de 1024 octets. */
+#define PNS_PORT 51235
+#define PNS_MAX 4
+static struct { char path[NAME_LEN]; u32 tok; u32 size; } pns_f[PNS_MAX];
+static int pns_n = 0, pns_on = 0;
+static volatile u32 pns_req = 0;
+static lwp_t pns_h;
+static u8 pns_stack[16384] __attribute__((aligned(32)));
+static u32 pns_open(const char *full, u32 size) {
+    for (int i = 0; i < pns_n; i++) if (!strcmp(pns_f[i].path, full)) return pns_f[i].tok;
+    int k = pns_n < PNS_MAX ? pns_n++ : (int)(now_ms() % PNS_MAX);
+    snprintf(pns_f[k].path, sizeof(pns_f[k].path), "%s", full);
+    pns_f[k].size = size;
+    pns_f[k].tok = (u32)k + 1 + ((u32)(now_ms() & 0xFFFF) << 8);
+    return pns_f[k].tok;
+}
+static void *pns_thread(void *a) {
+    (void)a;
+    s32 s = net_socket(AF_INET, SOCK_DGRAM, 0);
+    struct sockaddr_in me;
+    memset(&me, 0, sizeof(me));
+    me.sin_family = AF_INET; me.sin_port = htons(PNS_PORT); me.sin_addr.s_addr = INADDR_ANY;
+    if (s < 0 || net_bind(s, (struct sockaddr *)&me, sizeof(me)) < 0) { pns_on = -1; return NULL; }   /* (pas de nouvel essai)*/
+    static u8 rq[64], buf[2048], out[1100];
+    FILE *f = NULL;
+    u32 ftok = 0;
+    for (;;) {
+        struct sockaddr_in from;
+        socklen_t fl = sizeof(from);
+        s32 r = net_recvfrom(s, rq, sizeof(rq), 0, (struct sockaddr *)&from, &fl);
+        if (r < 18 || memcmp(rq, "PNR1", 4) || !salon_on) continue;
+        u32 seq = be32(rq + 4), tok = be32(rq + 8), off = be32(rq + 12), len = (u32)rq[16] << 8 | rq[17];
+        if (len > 2048) len = 2048;
+        int k = -1;
+        for (int i = 0; i < pns_n; i++) if (pns_f[i].tok == tok) k = i;
+        if (k < 0) continue;
+        if (!f || ftok != tok) { if (f) fclose(f); f = fopen(pns_f[k].path, "rb"); ftok = tok; }
+        if (!f) continue;
+        u32 got = 0;
+        if (off < pns_f[k].size && fseek(f, (long)off, SEEK_SET) == 0) got = (u32)fread(buf, 1, len, f);
+        if (got < len) memset(buf + got, 0, len - got);    /* (apres la fin : des zeros) */
+        pns_req++;
+        for (u32 o = 0; o < len; o += 1024) {
+            u32 n = len - o > 1024 ? 1024 : len - o;
+            memcpy(out, "PNA1", 4);
+            out[4] = (u8)(seq >> 24); out[5] = (u8)(seq >> 16); out[6] = (u8)(seq >> 8); out[7] = (u8)seq;
+            u32 po = off + o;
+            out[8] = (u8)(po >> 24); out[9] = (u8)(po >> 16); out[10] = (u8)(po >> 8); out[11] = (u8)po;
+            out[12] = (u8)(n >> 8); out[13] = (u8)n;
+            memcpy(out + 14, buf + o, n);
+            net_sendto(s, out, (s32)(14 + n), 0, (struct sockaddr *)&from, fl);
+        }
+    }
+    return NULL;
+}
+/* (fil du serveur du telephone) une demande /s/... ; 1 = traitee */
+static int salon_route(s32 c, const char *target, const char *q, char *req) {
+    if (strncmp(target, "/s/", 3)) return 0;
+    if (!salon_on) { tp_reply(c, 403, "text/plain", "", 0); return 1; }
+    const char *w = target + 3;
+    char rel[NAME_LEN], full[NAME_LEN + 8];
+    tp_param(q ? q : "", "p", rel, sizeof(rel));
+    if (!strncasecmp(rel, "gc-mp3/", 7) && strcmp(gcd_newrel(rel + 7), rel + 7)) {   /* v182 : ancien chemin (console d'avant le rangement) */
+        char nr[NAME_LEN]; snprintf(nr, sizeof(nr), "gc-mp3/%s", gcd_newrel(rel + 7)); snprintf(rel, sizeof(rel), "%s", nr);
+    }
+    if (!strcmp(w, "now")) {
+        char t[sizeof(salon_now_txt)];
+        snprintf(t, sizeof(t), "%s", salon_now_txt);
+        tp_reply(c, 200, "text/plain; charset=utf-8", t, (int)strlen(t));
+        return 1;
+    }
+    if (!salon_path(rel, full, sizeof(full))) { tp_reply(c, 404, "text/plain", "", 0); return 1; }
+    if (!strcmp(w, "get")) { sh_send_file(c, full, 0, req); return 1; }
+    struct stat st;
+    if (stat(full, &st) != 0) { tp_reply(c, 404, "text/plain", "", 0); return 1; }
+    if (!strcmp(w, "open") && !S_ISDIR(st.st_mode)) {    /* v143 : un jeu lu par le reseau (Pulse) : "numero taille port" */
+        if (pns_on != 1) { tp_reply(c, 503, "text/plain", "", 0); return 1; }
+        char t[64];
+        int n = snprintf(t, sizeof(t), "%u %u %u", (unsigned)pns_open(full, (u32)st.st_size), (unsigned)st.st_size, (unsigned)PNS_PORT);
+        tp_reply(c, 200, "text/plain", t, n);
+        return 1;
+    }
+    if (!strcmp(w, "stat")) {
+        char t[48];
+        int n = snprintf(t, sizeof(t), "%c %ld", S_ISDIR(st.st_mode) ? 'd' : 'f', S_ISDIR(st.st_mode) ? 0L : (long)st.st_size);
+        tp_reply(c, 200, "text/plain", t, n);
+        return 1;
+    }
+    if (!strcmp(w, "list") && S_ISDIR(st.st_mode)) {     /* "d\t0\tnom" ou "f\ttaille\tnom", une ligne par entree */
+        DIR *d = opendir(full);
+        if (!d) { tp_reply(c, 404, "text/plain", "", 0); return 1; }
+        sbuf_t s = { NULL, 0, 0 };
+        struct dirent *e;
+        char p[NAME_LEN * 2], line[NAME_LEN + 32];
+        int n = 0;
+        while ((e = readdir(d)) != NULL && n < 4000) {
+            if (e->d_name[0] == '.') continue;
+            snprintf(p, sizeof(p), "%s/%s", full, e->d_name);
+            struct stat es;
+            int dir = is_dir(p, e);
+            long sz = 0;
+            if (!dir && stat(p, &es) == 0) sz = (long)es.st_size;
+            snprintf(line, sizeof(line), "%c\t%ld\t%s\n", dir ? 'd' : 'f', sz, e->d_name);
+            sb_add(&s, line);
+            n++;
+        }
+        closedir(d);
+        tp_reply(c, 200, "text/plain; charset=utf-8", s.b ? s.b : "", s.b ? s.n : 0);
+        free(s.b);
+        return 1;
+    }
+    tp_reply(c, 404, "text/plain", "", 0);
+    return 1;
+}
+
+/* ---------- v356 : le Salon par Internet ----------
+   Deux GC Station chez deux personnes : chacune met l'adresse de l'autre (salon_ami : IP ou nom, au moins chez l'une
+   des deux) et le meme code (salon_code). Celle qui heberge ouvre dans sa box le port 51234 (UDP : annonces) et 51238
+   (TCP : sa carte SD). Annonces "GCSW1\t<empreinte du code>\t<nom>\t<port>\t<titre>" toutes les 5 s vers salon_ami, et
+   en reponse a chaque annonce recue avec le bon code (l'autre n'a alors rien a ouvrir pour etre vu). Par le port 51238,
+   seules les demandes /s/ (lecture de la carte SD) passent, et seulement avec l'empreinte du code (k=). */
+static void salon_peer_seen(const char *ip, const char *name, const char *now, int port, int wan);
+static volatile u32 salon_wan_ip = 0;                     /* adresse de salon_ami (0 = pas encore trouvee) */
+static volatile int salon_wan_port = SALON_PORT;          /* (salon_ami = "nom:port" : un autre port UDP) */
+static int salon_wan_st = 0;                              /* fil : 0 pas lance, 1 en marche, -1 port pris */
+static lwp_t salon_wan_h;
+static u8 salon_wan_stack[24 * 1024] ATTRIBUTE_ALIGN(32);
+static struct { u32 ip; u16 port; u64 t; } salon_wan_rep[SALON_MAX];
+static int salon_wan_ok(void) { return salon_on && strlen(salon_code) >= 4; }
+static void salon_wan_handle(s32 c) {                     /* une demande par Internet : /s/... avec k= */
+    static char req[4096];
+    int len = 0;
+    while (len < (int)sizeof(req) - 1) {
+        int r = tp_recv(c, req + len, (int)sizeof(req) - 1 - len, 8000);
+        if (r <= 0) return;
+        len += r; req[len] = 0;
+        if (strstr(req, "\r\n\r\n")) break;
+    }
+    char method[8] = "", target[1200] = "", k[16] = "";
+    if (sscanf(req, "%7s %1199s", method, target) != 2 || strcmp(method, "GET")) { tp_reply(c, 400, "text/plain", "", 0); return; }
+    char *q = strchr(target, '?');
+    if (q) *q++ = 0;
+    tp_param(q ? q : "", "k", k, sizeof(k));
+    if (!salon_wan_ok() || strcmp(k, salon_khash())) { tp_reply(c, 403, "text/plain", "", 0); return; }
+    if (strncmp(target, "/s/", 3) || !strcmp(target, "/s/open")) { tp_reply(c, 404, "text/plain", "", 0); return; }
+    salon_route(c, target, q, req);
+}
+static lwp_t salon_dns_h;
+static u8 salon_dns_stack[16 * 1024] ATTRIBUTE_ALIGN(32);
+static void *salon_dns_thread(void *a) {                  /* l'adresse de salon_ami (un nom : redemande toutes les 10 min) */
+    (void)a;
+    u64 t_dns = 0;
+    char last[96] = "";
+    for (;;) {
+        usleep(250000);
+        if (!salon_wan_ok()) { salon_wan_ip = 0; last[0] = 0; continue; }
+        u64 now = now_ms();
+        if (!strcmp(last, salon_ami) && (salon_wan_ip || now - t_dns < 10000) && now - t_dns < 600000) continue;
+        char h[96];
+        snprintf(last, sizeof(last), "%s", salon_ami);
+        snprintf(h, sizeof(h), "%s", salon_ami);
+        char *col = strrchr(h, ':');
+        int port = SALON_PORT;
+        if (col) { *col = 0; port = atoi(col + 1); if (port <= 0 || port > 65535) port = SALON_PORT; }
+        u32 ip = 0;
+        if (h[0] && resolve_host(h, &ip)) { salon_wan_port = port; salon_wan_ip = ip; }
+        else salon_wan_ip = 0;
+        t_dns = now;
+    }
+    return NULL;
+}
+static void *salon_wan_thread(void *a) {                  /* le port 51238 (comme le serveur du telephone : accept bloquant) */
+    (void)a;
+    s32 ls = net_socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+    u32 one = 1;
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET; sa.sin_port = htons(SALON_WAN_PORT); sa.sin_addr.s_addr = 0;
+    if (ls >= 0) net_setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    if (ls < 0 || net_bind(ls, (struct sockaddr *)&sa, sizeof(sa)) < 0 || net_listen(ls, 2) < 0) { if (ls >= 0) net_close(ls); salon_wan_st = -1; return NULL; }
+    for (;;) {
+        struct sockaddr_in ca;
+        socklen_t cl = sizeof(ca);
+        s32 c = net_accept(ls, (struct sockaddr *)&ca, &cl);
+        if (c < 0) { usleep(50000); continue; }
+        set_nonblock(c, 1);
+        if (salon_mx_ok) LWP_MutexLock(salon_mx);
+        salon_wan_handle(c);                             /* (code change ou Salon coupe entre-temps : 403) */
+        if (salon_mx_ok) LWP_MutexUnlock(salon_mx);
+        net_close(c);
+    }
+    return NULL;
+}
+static void salon_wan_send(u32 ip, int port) {            /* notre annonce, vers une console par Internet */
+    char m[200];
+    int ml = snprintf(m, sizeof(m), "GCSW1\t%s\t%s\t%d\t%s\n", salon_khash(), salon_myname(), SALON_WAN_PORT, salon_now_title);
+    struct sockaddr_in b;
+    memset(&b, 0, sizeof(b));
+    b.sin_family = AF_INET; b.sin_port = htons((u16)port); b.sin_addr.s_addr = ip;
+    net_sendto(salon_fd, m, ml, 0, (struct sockaddr *)&b, sizeof(b));
+}
+static void salon_wan_got(char *f[4], const struct sockaddr_in *from) {   /* annonce "GCSW1" recue (f : code, nom, port, titre) */
+    if (!salon_wan_ok() || !f[1] || strcmp(f[0], salon_khash())) return;
+    u32 ip = ntohl(from->sin_addr.s_addr);
+    char ips[16];
+    snprintf(ips, sizeof(ips), "%u.%u.%u.%u", (unsigned)(ip >> 24), (unsigned)(ip >> 16 & 255), (unsigned)(ip >> 8 & 255), (unsigned)(ip & 255));
+    salon_peer_seen(ips, f[1][0] ? f[1] : ips, f[3] ? f[3] : "", f[2] ? atoi(f[2]) : SALON_WAN_PORT, 1);
+    u64 now = now_ms();                                    /* reponse (une par 4 s et par console) : l'autre nous voit aussi */
+    int k = -1, old = 0;
+    for (int i = 0; i < SALON_MAX; i++) {
+        if (salon_wan_rep[i].ip == from->sin_addr.s_addr && salon_wan_rep[i].port == from->sin_port) { k = i; break; }
+        if (salon_wan_rep[i].t < salon_wan_rep[old].t) old = i;
+    }
+    if (k < 0) { k = old; salon_wan_rep[k].ip = from->sin_addr.s_addr; salon_wan_rep[k].port = from->sin_port; salon_wan_rep[k].t = 0; }
+    if (salon_wan_rep[k].t && now - salon_wan_rep[k].t < 4000) return;
+    salon_wan_rep[k].t = now;
+    salon_wan_send(from->sin_addr.s_addr, ntohs(from->sin_port));
+}
+
+/* ---------- decouverte (boucle principale) ---------- */
+static void salon_peer_seen(const char *ip, const char *name, const char *now, int port, int wan) {
+    if (!strcmp(ip, ip_str)) return;                      /* (soi-meme) */
+    int k = -1;
+    for (int i = 0; i < salon_n; i++) if (!strcmp(salon_peers[i].ip, ip)) k = i;
+    if (k < 0) {
+        if (salon_n >= SALON_MAX) return;
+        k = salon_n++;
+        salon_gen++;
+        memset(&salon_peers[k], 0, sizeof(salon_peers[k]));
+        snprintf(salon_peers[k].ip, sizeof(salon_peers[k].ip), "%s", ip);
+        crumb("salon : %s (%s)", name, ip);
+    }
+    snprintf(salon_peers[k].name, sizeof(salon_peers[k].name), "%s", name);
+    snprintf(salon_peers[k].now, sizeof(salon_peers[k].now), "%s", now);
+    salon_peers[k].seen = now_ms();
+    salon_peers[k].port = port > 0 && port < 65536 ? port : 80;
+    salon_peers[k].wan = wan;
+    if (wan && strlen(salon_peers[k].name) + 11 < sizeof(salon_peers[k].name)) strcat(salon_peers[k].name, " (Internet)");
+}
+static void salon_now_update(void) {                      /* ce que joue cette console (pour /s/now) */
+    np_t n;
+    np_get(&n);
+    salon_now_title[0] = 0;
+    if (src == SRC_FILE && playing && cur_track >= 0 && cur_track < nfiles && !strncmp(names[cur_track], SD_ROOT "/", strlen(SD_ROOT) + 1)) {
+        snprintf(salon_now_txt, sizeof(salon_now_txt), "%s\t%d\t%d\t%s\n", names[cur_track] + strlen(SD_ROOT) + 1, n.active ? n.elapsed : 0, !paused, n.title);
+        snprintf(salon_now_title, sizeof(salon_now_title), "%s", n.title);
+    } else snprintf(salon_now_txt, sizeof(salon_now_txt), "\t0\t0\t\n");
+}
+static void salon_pump(void) {
+    if (!salon_on) {
+        if (salon_fd >= 0) { net_close(salon_fd); salon_fd = -1; salon_n = 0; salon_gen++; }
+        return;
+    }
+    if (net_phase != NET_DONE) { net_start_async(); return; }
+    if (!net_ok) return;
+    if (tp_state == PS_OFF) tp_wanted = 1;                /* (les autres consoles passent par son serveur) */
+    if (!salon_mx_ok && LWP_MutexInit(&salon_mx, false) >= 0) salon_mx_ok = 1;   /* v356 */
+    if (!salon_wan_st && salon_wan_ok() && salon_mx_ok) { salon_wan_st = 1; if (LWP_CreateThread(&salon_wan_h, salon_wan_thread, NULL, salon_wan_stack, sizeof(salon_wan_stack), 35) < 0) salon_wan_st = -1;
+                                                         else LWP_CreateThread(&salon_dns_h, salon_dns_thread, NULL, salon_dns_stack, sizeof(salon_dns_stack), 33); }
+    if (!pns_on) { pns_on = 1; if (LWP_CreateThread(&pns_h, pns_thread, NULL, pns_stack, sizeof(pns_stack), 40) < 0) pns_on = 0; }   /* v143 */
+    if (salon_fd < 0) {
+        salon_fd = net_socket(AF_INET, SOCK_DGRAM, 0);
+        if (salon_fd < 0) return;
+        struct sockaddr_in a;
+        memset(&a, 0, sizeof(a));
+        a.sin_family = AF_INET; a.sin_port = htons(SALON_PORT); a.sin_addr.s_addr = INADDR_ANY;
+        if (net_bind(salon_fd, (struct sockaddr *)&a, sizeof(a)) < 0) { net_close(salon_fd); salon_fd = -1; return; }
+        set_nonblock(salon_fd, 1);
+        salon_sent = 0;
+    }
+    u64 now = now_ms();
+    if (!salon_sent || now - salon_sent >= 5000) {        /* annonce : a tout le reseau local, et a son sous-reseau */
+        salon_sent = now;
+        salon_now_update();
+        char m[160];
+        int ml = snprintf(m, sizeof(m), "GCST1\t%s\t%d\t%s\n", salon_myname(), PHONE_PORT, salon_now_title);
+        struct sockaddr_in b;
+        memset(&b, 0, sizeof(b));
+        b.sin_family = AF_INET; b.sin_port = htons(SALON_PORT);
+        b.sin_addr.s_addr = htonl(0xFFFFFFFFu);
+        net_sendto(salon_fd, m, ml, 0, (struct sockaddr *)&b, sizeof(b));
+        unsigned a1, a2, a3, a4;
+        if (sscanf(ip_str, "%u.%u.%u.%u", &a1, &a2, &a3, &a4) == 4) {
+            b.sin_addr.s_addr = htonl((u32)a1 << 24 | (u32)a2 << 16 | (u32)a3 << 8 | 255u);
+            net_sendto(salon_fd, m, ml, 0, (struct sockaddr *)&b, sizeof(b));
+        }
+        if (salon_wan_ok() && salon_wan_ip) salon_wan_send(salon_wan_ip, salon_wan_port);   /* v356 : par Internet */
+    }
+    for (int k = 0; k < 8; k++) {                         /* annonces recues */
+        char m[200];
+        struct sockaddr_in from;
+        socklen_t fl = sizeof(from);
+        s32 r = net_recvfrom(salon_fd, m, sizeof(m) - 1, 0, (struct sockaddr *)&from, &fl);
+        if (r <= 0) break;
+        m[r] = 0;
+        if (!strncmp(m, "GCSW1\t", 6)) {                  /* v356 : par Internet */
+            char *g[4] = { m + 6, NULL, NULL, NULL };
+            for (int i = 1; i < 4; i++) { g[i] = g[i - 1] ? strchr(g[i - 1], '\t') : NULL; if (g[i]) *g[i]++ = 0; }
+            if (g[3]) g[3][strcspn(g[3], "\r\n")] = 0;
+            salon_wan_got(g, &from);
+            continue;
+        }
+        if (strncmp(m, "GCST1\t", 6)) continue;
+        char *f[4] = { m + 6, NULL, NULL, NULL };
+        for (int i = 1; i < 4; i++) { f[i] = f[i - 1] ? strchr(f[i - 1], '\t') : NULL; if (f[i]) *f[i]++ = 0; }
+        if (f[3]) f[3][strcspn(f[3], "\r\n")] = 0;
+        u32 ip = ntohl(from.sin_addr.s_addr);
+        char ips[16];
+        snprintf(ips, sizeof(ips), "%u.%u.%u.%u", (unsigned)(ip >> 24), (unsigned)(ip >> 16 & 255), (unsigned)(ip >> 8 & 255), (unsigned)(ip & 255));
+        salon_peer_seen(ips, f[0][0] ? f[0] : ips, f[3] ? f[3] : "", f[1] ? atoi(f[1]) : 80, 0);
+    }
+    for (int i = 0; i < salon_n; ) {                      /* plus d'annonce depuis 20 s : partie */
+        if (now > salon_peers[i].seen && now - salon_peers[i].seen > 20000) {   /* (v356 : vue juste apres "now" : avant, effacee tout de suite) */ salon_peers[i] = salon_peers[--salon_n]; salon_gen++; continue; }
+        i++;
+    }
+}
+
+/* ---------- "Ecouter avec" : le morceau de l'autre console, a la meme position ---------- */
+static const char *salon_listen(int k) {
+    if (k < 0 || k >= salon_n) return "Console introuvable";
+    snprintf(nfs_cfg[NFS_GCS].host, sizeof(nfs_cfg[NFS_GCS].host), "%s", salon_peers[k].ip);
+    nfs_cfg[NFS_GCS].port = salon_peers[k].port;
+    static char t[NAME_LEN + 200];
+    u64 t0 = now_ms();
+    int len = gcs_http("now", "", 0, 0, (u8 *)t, sizeof(t) - 1, NULL);
+    if (len <= 0) return nfs_err[0] ? nfs_err : "L'autre console ne r\xC3\xA9pond pas";
+    t[len] = 0;
+    char *f1 = strchr(t, '\t'), *f2 = f1 ? strchr(f1 + 1, '\t') : NULL;
+    if (!f1 || f1 == t || !f2) return "L'autre console ne joue pas de morceau de sa carte SD";
+    *f1 = 0;
+    int pos = atoi(f1 + 1), play = atoi(f2 + 1);
+    char path[NAME_LEN];
+    snprintf(path, sizeof(path), "gcs:/%s", t);
+    int tr = -1;
+    for (int i = 0; i < nfiles; i++) if (!strcmp(names[i], path)) tr = i;
+    if (tr < 0) { music_add_file(path); for (int i = 0; i < nfiles; i++) if (!strcmp(names[i], path)) tr = i; }
+    if (tr < 0) return "Biblioth\xC3\xA8que pleine";
+    queue_build(tr);
+    if (!start_track(tr)) return track_err ? track_err : "Lecture impossible";
+    int lag = (int)((now_ms() - t0) / 1000);              /* (le temps de la demande et de l'ouverture) */
+    if (play && pos + lag > 1) track_seek(pos + lag);
+    return NULL;
+}

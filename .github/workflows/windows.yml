@@ -1,6 +1,6 @@
 name: GC Station PC (Windows)
 
-# v356 : GC Station pour PC Windows (tools/pc-sim + win/) : le vrai code de GC Station dans une fenetre, clavier ou
+# v356 : GC Station pour PC Windows (pc/ : sa propre copie du code, a part de la console) : le vrai code de GC Station dans une fenetre, clavier ou
 # manette, son, Salon par Internet, et les jeux dans Dolphin (jeu en reseau local par Internet). Compile depuis Linux
 # (MinGW 32 bits), essaye sur un vrai Windows (demarrage, fenetre, Salon par Internet, deux GC Station PC avec un faux
 # Dolphin). Gardee pour soi, comme l'appli : jamais dans une release publique ; GC-Station-PC.zip est seulement joint a
@@ -10,9 +10,7 @@ on:
   push:
     branches: [main, 'pc-*']              # (et les branches de la version PC : essais avant publication)
     paths:
-      - 'source/**'
-      - '!source/natres/**'
-      - 'tools/pc-sim/**'
+      - 'pc/**'
       - '.github/workflows/windows.yml'
   workflow_dispatch:
 
@@ -48,31 +46,30 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            tools/pc-sim/work/src
-            tools/pc-sim/work/libs
-          key: pcsim-libs-${{ hashFiles('tools/pc-sim/fetch.sh') }}
+            pc/work/src
+            pc/work/libs
+          key: pc-libs-${{ hashFiles('pc/fetch.sh') }}
 
       - name: Compiler
         run: |
-          [ -d tools/pc-sim/work/libs/mbedtls ] || sh tools/pc-sim/fetch.sh
-          make -s -C tools/pc-sim gen
-          make -C tools/pc-sim -f win/Makefile -j"$(nproc)" BUILD=${{ github.run_number }} 2>&1 | grep -v "^i686-w64-mingw32-g" || true
-          test -s tools/pc-sim/work/gcstation.exe
+          [ -d pc/work/libs/mbedtls ] || sh pc/fetch.sh
+          make -C pc -j"$(nproc)" BUILD=${{ github.run_number }} 2>&1 | grep -v "^i686-w64-mingw32-g" || true
+          test -s pc/work/gcstation.exe
 
       - name: Paquet
         run: |
           mkdir -p paquet/sd
-          i686-w64-mingw32-strip -o "paquet/GC Station.exe" tools/pc-sim/work/gcstation.exe   # (sans les symboles : plus petit)
-          cp tools/pc-sim/win/LISEZMOI.txt paquet/
+          i686-w64-mingw32-strip -o "paquet/GC Station.exe" pc/work/gcstation.exe   # (sans les symboles : plus petit)
+          cp pc/win/LISEZMOI.txt paquet/
           cd paquet && zip -q -r ../GC-Station-PC.zip . && cd ..
           ls -la GC-Station-PC.zip
 
       - name: Pour l'essai (faux Dolphin, faux jeu)
         run: |
           mkdir -p kit
-          i686-w64-mingw32-gcc -O2 -o kit/Dolphin.exe tools/pc-sim/win/faux-dolphin.c -lws2_32 -static
+          i686-w64-mingw32-gcc -O2 -o kit/Dolphin.exe pc/win/faux-dolphin.c -lws2_32 -static
           printf '\x60\x00\x00\x00' > kit/t.bin
-          python3 -I tools/natif-test/mkiso.py kit/t.bin kit/test.iso
+          python3 -I pc/outils/mkiso.py kit/t.bin kit/test.iso
           rm kit/t.bin
 
       - uses: actions/upload-artifact@v4
@@ -83,7 +80,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: gc-station-pc-symboles
-          path: tools/pc-sim/work/gcstation.exe
+          path: pc/work/gcstation.exe
           retention-days: 7
       - uses: actions/upload-artifact@v4
         with:
@@ -104,7 +101,7 @@ jobs:
         shell: pwsh
         run: |
           Expand-Archive GC-Station-PC.zip -DestinationPath essai
-          $env:PCSIM_SCRIPT = "$pwd\tools\pc-sim\win\essai.txt"
+          $env:PCSIM_SCRIPT = "$pwd\pc\win\essai.txt"
           $env:PCSIM_OUT = "$pwd\essai\captures"
           $env:PCSIM_LOG = "$pwd\essai\journal.txt"
           New-Item -ItemType Directory -Force essai\captures | Out-Null
@@ -192,8 +189,8 @@ jobs:
         shell: pwsh
         run: |
           $env:GCS_BIN = "$pwd\essai\GC Station.exe"
-          python tools/pc-sim/salon-internet/test.py
-          if ($LASTEXITCODE -ne 0) { Get-Content tools\pc-sim\work\salon-internet\journal-pc.txt -Tail 30; exit 1 }
+          python pc/essais/salon-internet/test.py
+          if ($LASTEXITCODE -ne 0) { Get-Content pc\work\salon-internet\journal-pc.txt -Tail 30; exit 1 }
       - uses: actions/download-artifact@v4
         with:
           name: kit-essai
@@ -210,7 +207,7 @@ jobs:
           }
           Set-Content -Encoding ascii deux\a\sd\gc-mp3\gc-mp3.txt "salon = oui`nsalon_code = essai-ci`n"
           Set-Content -Encoding ascii deux\b\sd\gc-mp3\gc-mp3.txt "salon = oui`nsalon_code = essai-ci`nsalon_ami = 127.0.0.1`n"
-          $env:PCSIM_SCRIPT = "$pwd\tools\pc-sim\win\essai-jeu.txt"
+          $env:PCSIM_SCRIPT = "$pwd\pc\win\essai-jeu.txt"
           $env:PCSIM_OUT = "$pwd\deux\a\captures"; $env:PCSIM_LOG = "$pwd\deux\a\journal.txt"
           $pa = Start-Process -FilePath "deux\a\GC Station.exe" -PassThru
           Start-Sleep -Seconds 2
@@ -242,7 +239,7 @@ jobs:
           GCSTATION_MAJ_ESSAI: "1"
           GCSTATION_MAJ_BRANCHE: main
         run: |
-          $env:PCSIM_SCRIPT = "$pwd\tools\pc-sim\win\essai-maj.txt"; $env:PCSIM_OUT = "$pwd\maj"; $env:PCSIM_LOG = "$pwd\maj\journal.txt"
+          $env:PCSIM_SCRIPT = "$pwd\pc\win\essai-maj.txt"; $env:PCSIM_OUT = "$pwd\maj"; $env:PCSIM_LOG = "$pwd\maj\journal.txt"
           New-Item -ItemType Directory -Force maj | Out-Null
           $p = Start-Process -FilePath "essai\GC Station.exe" -PassThru -Wait
           $j = Get-Content maj\journal.txt -Raw
@@ -260,8 +257,8 @@ jobs:
           New-Item -ItemType Directory -Force remp | Out-Null
           Copy-Item "essai\GC Station.exe" "remp\"
           $avant = (Get-Item "remp\GC Station.exe").Length
-          $env:PCSIM_SCRIPT = "$pwd\tools\pc-sim\win\essai-maj.txt"; $env:PCSIM_OUT = "$pwd\remp"; $env:PCSIM_LOG = "$pwd\remp\journal.txt"
-          $env:GCSTATION_MAJ_SUITE = "$pwd\tools\pc-sim\win\essai.txt"; $env:GCSTATION_MAJ_SUITE_LOG = "$pwd\remp\journal-nouveau.txt"
+          $env:PCSIM_SCRIPT = "$pwd\pc\win\essai-maj.txt"; $env:PCSIM_OUT = "$pwd\remp"; $env:PCSIM_LOG = "$pwd\remp\journal.txt"
+          $env:GCSTATION_MAJ_SUITE = "$pwd\pc\win\essai.txt"; $env:GCSTATION_MAJ_SUITE_LOG = "$pwd\remp\journal-nouveau.txt"
           $p = Start-Process -FilePath "remp\GC Station.exe" -PassThru -Wait
           Start-Sleep -Seconds 25
           Get-Content remp\journal.txt | Select-String "\[maj\]"
@@ -279,7 +276,7 @@ jobs:
           # effacement de l'ancien fichier au demarrage (ce programme-ci)
           Remove-Item Env:GCSTATION_MAJ_ESSAI
           Copy-Item "essai\GC Station.exe" "remp\GC Station.exe" -Force
-          $env:PCSIM_SCRIPT = "$pwd\tools\pc-sim\win\essai.txt"; $env:PCSIM_LOG = "$pwd\remp\journal-3.txt"
+          $env:PCSIM_SCRIPT = "$pwd\pc\win\essai.txt"; $env:PCSIM_LOG = "$pwd\remp\journal-3.txt"
           $p = Start-Process -FilePath "remp\GC Station.exe" -ArgumentList "--apres-maj","1" -PassThru -Wait
           Get-Content remp\journal-3.txt | Select-String "\[maj\]"
           $anciens = @(Get-ChildItem "remp\GC Station.exe.ancien*" -ErrorAction SilentlyContinue).Count
@@ -288,7 +285,7 @@ jobs:
         if: always()
         shell: pwsh
         run: |
-          $l = Get-ChildItem -Recurse -Include journal*.txt -Path essai, deux, maj, tools\pc-sim\work\salon-internet -ErrorAction SilentlyContinue | Select-String "\[plantage\]" | ForEach-Object { $_.Line }
+          $l = Get-ChildItem -Recurse -Include journal*.txt -Path essai, deux, maj, pc\work\salon-internet -ErrorAction SilentlyContinue | Select-String "\[plantage\]" | ForEach-Object { $_.Line }
           if ($l) { $l | Set-Content plantages.txt; $l } else { "" | Set-Content plantages.txt }
       - uses: actions/upload-artifact@v4
         if: always()

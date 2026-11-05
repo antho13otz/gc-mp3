@@ -18,9 +18,7 @@
 #include <string.h>
 #include <malloc.h>
 #include <time.h>
-#ifndef _WIN32
 #include <execinfo.h>                                   /* (v323 : PCSIM_MEMSITES) */
-#endif
 #include <dirent.h>
 #include <errno.h>
 #include <sys/stat.h>
@@ -38,12 +36,7 @@ static u32 be32p(const u8 *p) { return (u32)p[0] << 24 | p[1] << 16 | p[2] << 8 
 void pcsim_limits_init(void) {
     const char *e;
     pcsim_fast = (e = getenv("PCSIM_FAST")) && *e && *e != '0';
-#ifdef _WIN32
-    pcsim_fast = 1;                                         /* (GC Station PC : a la vitesse du PC, sans les limites de la console) */
-    heap_budget = 1u << 30;
-#else
-    if (getenv("PCSIM_MEMSITES")) { void *b_[2]; backtrace(b_, 2); }
-#endif   /* v323 : (1er appel : libgcc chargee hors du verrou du tas) */
+    if (getenv("PCSIM_MEMSITES")) { void *b_[2]; backtrace(b_, 2); }   /* v323 : (1er appel : libgcc chargee hors du verrou du tas) */
     if ((e = getenv("PCSIM_CPU"))) pcsim_cpu_k = atof(e) > 1 ? atof(e) : 1;
     if ((e = getenv("PCSIM_SD_KBS"))) sd_rkbs = atof(e);
     if ((e = getenv("PCSIM_SD_WKBS"))) sd_wkbs = atof(e);
@@ -185,7 +178,6 @@ int __wrap_fileno(FILE *f) {
     return __real_fileno(f);
 }
 static int is_sd(const char *p) { return p && !strncmp(p, "sd:", 3); }
-#ifndef _WIN32
 typedef struct { FILE *f; } sdc_t;
 static ssize_t sdc_read(void *c, char *b, size_t n) { PCSIM_LIB_ENTER(); size_t r = fread(b, 1, n, ((sdc_t *)c)->f); PCSIM_LIB_EXIT(); io_wait(r * 1000.0 / sd_rkbs); return (ssize_t)r; }
 static ssize_t sdc_write(void *c, const char *b, size_t n) { PCSIM_LIB_ENTER(); size_t r = fwrite(b, 1, n, ((sdc_t *)c)->f); PCSIM_LIB_EXIT(); io_wait(r * 1000.0 / sd_wkbs); return r == n ? (ssize_t)r : -1; }
@@ -195,7 +187,6 @@ static int sdc_close(void *c) {
     pthread_mutex_lock(&sdf_m); for (int i = 0; i < NSDF; i++) if (sdf[i].inner == in) sdf[i].outer = sdf[i].inner = NULL; pthread_mutex_unlock(&sdf_m);
     int r = fclose(in); __real_free(c); return r;
 }
-#endif
 /* v86 : smb: ftp: fsp: (fichiers sur le reseau) : le code de GC Station (netfs.c), comme les disques
    de newlib sur la console */
 int gcs_nfs_is(const char *path);
@@ -205,31 +196,14 @@ long gcs_nfs_fseek(void *f, long o, int w);
 void gcs_nfs_fclose(void *f);
 int gcs_nfs_stat(const char *path, int *dir, unsigned *size);
 int gcs_nfs_list(const char *path, void **ents, int *n, int *esz);
-#ifndef _WIN32
 static ssize_t nfc_read(void *c, char *b, size_t n) { int r = gcs_nfs_fread(c, b, (int)n); return r < 0 ? -1 : r; }
 static int nfc_seek(void *c, off64_t *o, int w) { long r = gcs_nfs_fseek(c, (long)*o, w); if (r < 0) return -1; *o = r; return 0; }
 static int nfc_close(void *c) { gcs_nfs_fclose(c); return 0; }
-#endif
 typedef struct { unsigned magic; char *ents; int n, i, esz; struct dirent de; } nfd_t;
 #define NFD_MAGIC 0x4E464431u
 static nfd_t *nfd_list[16];
 static int nfd_of(void *d) { for (int i = 0; i < 16; i++) if (nfd_list[i] && (void *)nfd_list[i] == d) return i; return -1; }
 FILE *__real_fopen(const char *p, const char *m);
-#ifdef _WIN32
-FILE *pcw_nfs_copy(void *h);                                   /* (pcsim_win.c : le fichier du reseau, copie dans un fichier temporaire) */
-FILE *__wrap_fopen(const char *p, const char *m) {
-    if (gcs_nfs_is(p)) {
-        if (m[0] != 'r') { errno = EROFS; return NULL; }
-        void *h = gcs_nfs_fopen(p);
-        if (!h) { errno = ENOENT; return NULL; }
-        FILE *g = pcw_nfs_copy(h);
-        gcs_nfs_fclose(h);
-        if (!g) errno = EIO;
-        return g;
-    }
-    return __real_fopen(p, m);
-}
-#else
 FILE *__wrap_fopen(const char *p, const char *m) {
     if (gcs_nfs_is(p)) {
         if (m[0] != 'r') { errno = EROFS; return NULL; }
@@ -250,7 +224,6 @@ FILE *__wrap_fopen(const char *p, const char *m) {
     pthread_mutex_lock(&sdf_m); for (int i = 0; i < NSDF; i++) if (!sdf[i].outer) { sdf[i].outer = g; sdf[i].inner = f; break; } pthread_mutex_unlock(&sdf_m);
     return g;
 }
-#endif
 int __real_stat(const char *p, struct stat *s);
 int __wrap_stat(const char *p, struct stat *s) {
     if (gcs_nfs_is(p)) {
