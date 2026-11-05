@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v359 (build 885) — jeu en réseau local par Internet (Pulse LAN)
+
+- **Jeu en réseau local par Internet** : dans « Lancer ce jeu ? », **Z : par Internet** (avec le Salon par Internet réglé : adresse de l'ami et code). Le jeu est lancé avec **Pulse LAN**, une 2e version de Pulse sans les manettes du téléphone ni le chercheur de codes, avec un **pont** : les trames du Broadband Adapter du jeu partent par Internet (UDP 51240, format de GC Station PC et de `tools/lan-relais.py`) vers l'ami, et les siennes reviennent au jeu. Celui qui héberge ouvre le port UDP 51240. Le Pulse normal ne change pas.
+- Essayé sur le banc d'essai (`tools/natif-test/emu_lan.py`) ; **pas encore sur une vraie GameCube**.
+
+## Nouveautés v358 (build 883) — console et PC séparés
+
+- La version PC (Windows) a maintenant **sa propre copie du code** dans `pc/` (historique : `docs/HISTORIQUE-PC.md`). `source/` ne contient plus rien du PC. **Même comportement que v357.**
+- Le build 882 (sans changement, dû au réglage de la compilation) n'était pas à installer.
+
 ## Nouveautés v356 et v357 (build 880) — Salon par Internet, GC Station PC, corrections du test des touches
 
 - **Salon par Internet** : START > Réglages > Salon et téléphone : adresse de l'ami (IP ou nom) et code commun ; celui qui héberge ouvre 51234 (UDP) et 51238 (TCP). L'autre GC Station apparaît dans FICHIERS. Correction : une console du Salon pouvait disparaître juste après être apparue.
