@@ -132,6 +132,58 @@ jobs:
           Get-Content essai\journal.txt -Tail 15
           Write-Host "toujours en marche apres 12 s : $vivant"
           if (-not $vivant) { exit 1 }
+      - name: Essai (souris, molette, clavier qui tape, touches multimedia)
+        shell: pwsh
+        run: |
+          Remove-Item Env:PCSIM_SCRIPT -ErrorAction SilentlyContinue
+          $env:GCSTATION_ESSAI_ENTREES = "1"
+          Add-Type -Namespace W -Name U -MemberDefinition @'
+          [DllImport("user32.dll")] public static extern bool PostMessageW(System.IntPtr h, uint m, System.IntPtr w, System.IntPtr l);
+          [DllImport("user32.dll")] public static extern bool SetForegroundWindow(System.IntPtr h);
+          [DllImport("user32.dll")] public static extern bool GetClientRect(System.IntPtr h, out RECT r);
+          public struct RECT { public int l, t, r, b; }
+          '@
+          $p = Start-Process -FilePath "essai\GC Station.exe" -PassThru
+          $h = [IntPtr]::Zero
+          for ($i = 0; $i -lt 40 -and $h -eq [IntPtr]::Zero; $i++) { Start-Sleep -Milliseconds 250; $p.Refresh(); $h = $p.MainWindowHandle }
+          if ($h -eq [IntPtr]::Zero) { Write-Host "pas de fenetre"; exit 1 }
+          [W.U]::SetForegroundWindow($h) | Out-Null
+          Start-Sleep -Seconds 8
+          $r = New-Object W.U+RECT; [W.U]::GetClientRect($h, [ref]$r) | Out-Null
+          $cx = [int](($r.r - $r.l) / 2); $cy = [int](($r.b - $r.t) / 2)
+          function M($msg, $w, $l) { [W.U]::PostMessageW($h, $msg, [IntPtr]$w, [IntPtr]$l) | Out-Null; Start-Sleep -Milliseconds 120 }
+          function Etat { try { Invoke-RestMethod -TimeoutSec 5 "http://127.0.0.1:8080/api/state" } catch { $null } }
+          M 0x0204 2 (($cy -shl 16) -bor $cx)                       # clic droit (B : ferme le guide)
+          Start-Sleep -Seconds 2
+          M 0x0100 0x11 0; M 0x0100 0x46 0; M 0x0101 0x46 0; M 0x0101 0x11 0   # Ctrl + F : recherche (onglet MUSIQUE)
+          Start-Sleep -Seconds 1
+          foreach ($c in 0xC9, 0x74, 0xE9, 0x7A) { M 0x0102 $c 0 }  # "Etez", accents compris (WM_CHAR)
+          M 0x0100 0x08 0; M 0x0101 0x08 0                          # Retour arriere : efface le z
+          Start-Sleep -Seconds 1
+          $e1 = Etat
+          Write-Host "clavier ouvert : $($e1.kb) ; texte : '$($e1.kbt)'"
+          M 0x0100 0x1B 0; M 0x0101 0x1B 0                          # Echap : ferme le clavier
+          Start-Sleep -Seconds 1
+          $e2 = Etat
+          M 0x0200 0 ((($cy - 40) -shl 16) -bor ($cx - 60))         # la souris bouge
+          M 0x0201 1 ((($cy - 40) -shl 16) -bor ($cx - 60))         # clic gauche (A)
+          M 0x020A ((-120) -shl 16) ((($cy) -shl 16) -bor $cx)      # molette vers le bas
+          M 0x0319 0 (14 -shl 16)                                   # touche lecture / pause (WM_APPCOMMAND)
+          Start-Sleep -Seconds 3
+          $vivant = -not $p.HasExited
+          if ($vivant) { Stop-Process -Id $p.Id -Force }
+          Start-Sleep -Seconds 1
+          $j = Get-Content essai\journal.txt
+          $j | Select-String "\[entrees\]|\[plantage\]" | ForEach-Object { Write-Host $_.Line }
+          $ok = $vivant
+          if ($e1.kb -ne 1) { Write-Host "ERREUR : Ctrl + F n'a pas ouvert le clavier"; $ok = $false }
+          if ($e1.kbt -cne ([string][char]0xC9 + "t" + [char]0xE9)) { Write-Host "ERREUR : texte tape faux"; $ok = $false }
+          if ($e2 -and $e2.kb) { Write-Host "ERREUR : Echap n'a pas ferme le clavier"; $ok = $false }
+          foreach ($m in "souris", "clic", "molette -1", "multimedia", "zone de texte 1", "zone de texte 0") {
+            if (-not ($j | Select-String -SimpleMatch "[entrees] $m")) { Write-Host "ERREUR : rien pour '$m'"; $ok = $false }
+          }
+          Write-Host "toujours en marche : $vivant"
+          if (-not $ok) { exit 1 }
       - name: Essai (Salon par Internet, avec une fausse console)
         shell: pwsh
         run: |

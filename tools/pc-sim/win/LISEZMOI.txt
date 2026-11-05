@@ -11,13 +11,26 @@ Salon (avec les autres GC Station), et tes jeux GameCube lances dans Dolphin.
    Windows peut demander d'autoriser le reseau (pare-feu) : accepte, sinon le Salon ne marche pas.
 
 2) Touches
-   Fleches        croix                 Entree / Espace   A
+   Fleches        croix                 Entree            A
    Retour arriere B                     Echap / F1        START (menu)
    Tab ou Z       Z (onglet suivant)    X, Y              X, Y
    Page prec./L   L                     Page suiv./R      R
-   F11 (ou Alt+Entree) : plein ecran.          F9 : chercher une mise a jour.
+   Espace : lecture / pause. Touches multimedia du clavier (lecture, suivant, precedent, stop).
+   F11 (ou Alt+Entree) : plein ecran.   Maj+F11 : ecran suivant (garde dans « fenetre.txt »).
+   F9 : chercher une mise a jour.       Ctrl+F : recherche (MUSIQUE) ou adresse (WEB).
+   Souris : la fleche de GC Station suit la souris ; clic gauche = A, clic droit = B ;
+   la molette fait defiler (la croix, ou la page sur WEB).
+   Clavier de GC Station ou d'une page web ouvert : tape directement au clavier du PC
+   (accents compris) ; Entree valide, Retour arriere efface, Echap ferme, fleches gauche/droite.
    Une manette Xbox (ou compatible XInput) marche aussi : A B X Y, Start = START, Back = Z,
    LB / RB = L / R, sticks.
+   Autre manette (PlayStation, generique) : croix = A, rond = B, triangle = X, carre = Y,
+   Options = START, Share = Z, L1/L2 = L, R1/R2 = R, croix directionnelle, sticks.
+   Pour une autre disposition, un fichier « manette.txt » a cote du programme, par exemple :
+     A=2
+     B=3
+     START=10
+   (numeros des boutons tels que Windows les donne : Parametres > Peripheriques > manettes de jeu).
 
 3) Les jeux : avec Dolphin
    Installe Dolphin (https://dolphin-emu.org), ou mets son dossier a cote de GC Station
@@ -47,7 +60,7 @@ Salon (avec les autres GC Station), et tes jeux GameCube lances dans Dolphin.
    Personal access tokens > Fine-grained tokens) : depot antho13otz/gc-mp3 seulement,
    permission « Actions : Read-only ». Colle-le seul dans un fichier « jeton-github.txt » a cote
    de GC Station.exe. Au demarrage, GC Station PC propose la nouvelle version s'il y en a une ;
-   F9 : chercher maintenant. (L'ancienne version reste en « GC Station.exe.ancien ».)
+   F9 : chercher maintenant. (L'ancienne version est effacee au demarrage suivant.)
    Ne donne pas ce jeton : il ouvre les compilations du depot.
 
 Le journal est dans journal.txt (a cote du programme), en cas de souci.
