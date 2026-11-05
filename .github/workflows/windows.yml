@@ -8,7 +8,7 @@ name: GC Station PC (Windows)
 # Seulement quand GC Station ou sa partie PC changent.
 on:
   push:
-    branches: [main]
+    branches: [main, 'pc-*']              # (et les branches de la version PC : essais avant publication)
     paths:
       - 'source/**'
       - '!source/natres/**'
@@ -184,7 +184,7 @@ jobs:
         env:
           GCSTATION_JETON: ${{ secrets.GITHUB_TOKEN }}
           GCSTATION_MAJ_ESSAI: "1"
-          GCSTATION_MAJ_BRANCHE: ${{ github.ref_name }}
+          GCSTATION_MAJ_BRANCHE: main
         run: |
           $env:PCSIM_SCRIPT = "$pwd\tools\pc-sim\win\essai-maj.txt"; $env:PCSIM_OUT = "$pwd\maj"; $env:PCSIM_LOG = "$pwd\maj\journal.txt"
           New-Item -ItemType Directory -Force maj | Out-Null
@@ -194,6 +194,30 @@ jobs:
           if ($j -match "nouvelle version telechargee et lisible") { Write-Host "OK : mise a jour telechargee, decompressee, lisible" }
           elseif ($j -match "derniere compilation : 0") { Write-Host "::warning::pas encore de compilation reussie sur cette branche : mise a jour pas essayee" }
           else { Write-Host "RATE : mise a jour"; exit 1 }
+      - name: Essai (mise a jour qui remplace vraiment le programme en marche)
+        shell: pwsh
+        env:
+          GCSTATION_JETON: ${{ secrets.GITHUB_TOKEN }}
+          GCSTATION_MAJ_ESSAI: "remplacer"
+          GCSTATION_MAJ_BRANCHE: main
+        run: |
+          New-Item -ItemType Directory -Force remp | Out-Null
+          Copy-Item "essai\GC Station.exe" "remp\"
+          $avant = (Get-Item "remp\GC Station.exe").Length
+          $env:PCSIM_SCRIPT = "$pwd\tools\pc-sim\win\essai-maj.txt"; $env:PCSIM_OUT = "$pwd\remp"; $env:PCSIM_LOG = "$pwd\remp\journal.txt"
+          $env:GCSTATION_MAJ_SUITE = "$pwd\tools\pc-sim\win\essai.txt"; $env:GCSTATION_MAJ_SUITE_LOG = "$pwd\remp\journal-nouveau.txt"
+          $p = Start-Process -FilePath "remp\GC Station.exe" -PassThru -Wait
+          Start-Sleep -Seconds 25
+          Get-Content remp\journal.txt | Select-String "\[maj\]"
+          if (Test-Path remp\journal-nouveau.txt) { Get-Content remp\journal-nouveau.txt | Select-String "\[maj\]|capture" }
+          Get-ChildItem remp | ForEach-Object { Write-Host "  $($_.Name) $($_.Length)" }
+          $apres = (Get-Item "remp\GC Station.exe").Length
+          $j = if (Test-Path remp\journal-nouveau.txt) { Get-Content remp\journal-nouveau.txt -Raw } else { "" }
+          $anciens = @(Get-ChildItem "remp\GC Station.exe.ancien*" -ErrorAction SilentlyContinue).Count
+          $warn = (Get-Content remp\journal.txt -Raw) -match "derniere compilation : 0"
+          if ($warn) { Write-Host "::warning::pas de compilation reussie sur cette branche : remplacement pas essaye"; exit 0 }
+          if ($apres -ne $avant -and $anciens -eq 0 -and $j -match "ancien programme efface") { Write-Host "OK : programme remplace ($avant -> $apres octets), le nouveau a demarre et efface l'ancien" }
+          else { Write-Host "RATE : remplacement (avant $avant, apres $apres, anciens restants $anciens)"; exit 1 }
       - name: Plantages (pour les symboles)
         if: always()
         shell: pwsh

@@ -177,6 +177,66 @@ static void del_tree(const wchar_t *dir) {
     wchar_t c[1200]; _snwprintf(c, 1200, L"cmd.exe /c rmdir /s /q \"%ls\"", dir);
     run_wait(c);
 }
+/* echange : programme -> .ancien, .nouveau -> programme, puis le nouveau est lance (il attend notre fin) ; 0 = rien fait */
+int pcw_maj_swap(void) {
+    wchar_t me[MAX_PATH], old[MAX_PATH], nouv[MAX_PATH], cmd[MAX_PATH + 64];
+    GetModuleFileNameW(NULL, me, MAX_PATH);
+    _snwprintf(old, MAX_PATH, L"%ls.ancien", me);
+    _snwprintf(nouv, MAX_PATH, L"%ls.nouveau", me);
+    if (GetFileAttributesW(nouv) == INVALID_FILE_ATTRIBUTES) return 0;
+    if (GetFileAttributesW(old) != INVALID_FILE_ATTRIBUTES && !DeleteFileW(old)) {   /* (un ancien encore en marche : autre nom) */
+        _snwprintf(old, MAX_PATH, L"%ls.ancien-%lu", me, (unsigned long)GetTickCount());
+    }
+    if (!MoveFileExW(me, old, MOVEFILE_REPLACE_EXISTING)) { printf("[maj] renommer le programme : erreur %lu\n", GetLastError()); return 0; }
+    if (!MoveFileExW(nouv, me, MOVEFILE_REPLACE_EXISTING)) { printf("[maj] installer la nouvelle version : erreur %lu\n", GetLastError()); MoveFileExW(old, me, 0); return 0; }
+    _snwprintf(cmd, MAX_PATH + 64, L"\"%ls\" --apres-maj %lu", me, (unsigned long)GetCurrentProcessId());
+    if (getenv("GCSTATION_MAJ_ESSAI")) {                   /* (essai automatique : le nouveau ne refait pas l'essai) */
+        SetEnvironmentVariableA("GCSTATION_MAJ_ESSAI", NULL);
+        const char *sc = getenv("GCSTATION_MAJ_SUITE"), *lg = getenv("GCSTATION_MAJ_SUITE_LOG");
+        if (sc) SetEnvironmentVariableA("PCSIM_SCRIPT", sc);
+        if (lg) SetEnvironmentVariableA("PCSIM_LOG", lg);
+    }
+    STARTUPINFOW si; PROCESS_INFORMATION pi; memset(&si, 0, sizeof(si)); si.cb = sizeof(si);
+    if (CreateProcessW(me, cmd, NULL, NULL, FALSE, 0, NULL, pcw_exe_dir(), &si, &pi)) { CloseHandle(pi.hProcess); CloseHandle(pi.hThread); }
+    else printf("[maj] relancer : erreur %lu (relance GC Station a la main)\n", GetLastError());
+    return 1;
+}
+/* au demarrage : apres une mise a jour, attendre la fin de l'ancien programme et effacer son fichier ; une nouvelle
+   version restee a cote (.nouveau, echange rate la derniere fois) : echange maintenant, et le nouveau redemarre */
+void pcw_maj_boot(void) {
+    wchar_t me[MAX_PATH], pat[MAX_PATH], f[MAX_PATH];
+    GetModuleFileNameW(NULL, me, MAX_PATH);
+    const wchar_t *cl = GetCommandLineW(), *a = wcsstr(cl, L"--apres-maj ");
+    if (a) {
+        DWORD pid = (DWORD)wcstoul(a + 12, NULL, 10);
+        HANDLE h = pid ? OpenProcess(SYNCHRONIZE, FALSE, pid) : NULL;
+        if (h) { WaitForSingleObject(h, 15000); CloseHandle(h); }
+    }
+    _snwprintf(pat, MAX_PATH, L"%ls.ancien*", me);              /* (les anciens fichiers du programme) */
+    WIN32_FIND_DATAW fd; HANDLE fh = FindFirstFileW(pat, &fd);
+    if (fh != INVALID_HANDLE_VALUE) {
+        const wchar_t *sl = wcsrchr(me, L'\\');
+        do {
+            _snwprintf(f, MAX_PATH, L"%.*ls\\%ls", (int)(sl ? sl - me : 0), me, fd.cFileName);
+            for (int t = 0; t < 10 && !DeleteFileW(f); t++) Sleep(300);
+            if (a) printf("[maj] apres mise a jour : ancien programme %s\n", GetFileAttributesW(f) == INVALID_FILE_ATTRIBUTES ? "efface" : "pas efface (encore ouvert)");
+        } while (FindNextFileW(fh, &fd));
+        FindClose(fh);
+    }
+    _snwprintf(f, MAX_PATH, L"%ls.nouveau", me);
+    if (!a && GetFileAttributesW(f) != INVALID_FILE_ATTRIBUTES) {
+        printf("[maj] nouvelle version trouvee a cote du programme : installation\n");
+        if (pcw_maj_swap()) { fflush(stdout); ExitProcess(0); }
+    }
+}
+/* (lance depuis un .zip ouvert dans l'Explorateur : Windows l'a copie dans un dossier temporaire, la mise a jour y
+   serait perdue) */
+static int in_temp(void) {
+    wchar_t tmp[MAX_PATH], me[MAX_PATH];
+    GetTempPathW(MAX_PATH, tmp); GetModuleFileNameW(NULL, me, MAX_PATH);
+    size_t n = wcslen(tmp);
+    return n > 3 && !_wcsnicmp(me, tmp, n);
+}
 static volatile LONG busy = 0;
 /* manual : 1 = demande (F9) : on dit aussi "a jour" et les erreurs ; 0 = au demarrage : silencieux si rien */
 static DWORD WINAPI check(LPVOID a) {
@@ -205,6 +265,7 @@ static DWORD WINAPI check(LPVOID a) {
     }
     snprintf(t, sizeof(t), "Une nouvelle version de GC Station PC est pr\xC3\xAAte (build %ld ; celle-ci : build %d).\n\nL'installer maintenant ? GC Station red\xC3\xA9marrera.", best.num, (int)GCMP3_BUILD);
     if (msg(t, MB_YESNO | MB_ICONQUESTION) != IDYES) { InterlockedExchange(&busy, 0); return 0; }
+    if (in_temp() && !essai) { snprintf(err, sizeof(err), "GC Station tourne depuis le .zip (dossier temporaire) : d\xC3\xA9zippe-le d'abord dans un dossier, puis relance-le"); goto fail; }
     {
         char path[128]; snprintf(path, sizeof(path), "/actions/runs/%s/artifacts", best.id);
         art_t art = { "" };
@@ -230,25 +291,27 @@ static DWORD WINAPI check(LPVOID a) {
         wchar_t nexe[MAX_PATH], me[MAX_PATH], old[MAX_PATH], lis[MAX_PATH], lis2[MAX_PATH];
         _snwprintf(nexe, MAX_PATH, L"%ls\\GC Station.exe", d2);
         if (!unzip(z2, d2) || GetFileAttributesW(nexe) == INVALID_FILE_ATTRIBUTES) { snprintf(err, sizeof(err), "Nouvelle version illisible"); goto fail; }
-        if (essai) {
+        if (essai && strcmp(getenv("GCSTATION_MAJ_ESSAI"), "remplacer")) {
             WIN32_FILE_ATTRIBUTE_DATA fa; GetFileAttributesExW(nexe, GetFileExInfoStandard, &fa);
             printf("[maj] essai : nouvelle version telechargee et lisible (GC Station.exe : %lu octets) ; rien remplace\n", (unsigned long)fa.nFileSizeLow);
             del_tree(dir);
             InterlockedExchange(&busy, 0); return 0;
         }
+        /* (PC) la nouvelle version a cote du programme (.nouveau), puis echange : le programme en marche est
+           renomme (Windows le permet, pas l'effacer), le nouveau prend son nom et redemarre ; il attend la fin de
+           l'ancien, puis efface l'ancien fichier (pcw_maj_boot). Avant : l'ancien gardait les ports (Salon, telephone)
+           pendant que le nouveau demarrait, et l'ancien fichier restait a cote. */
         GetModuleFileNameW(NULL, me, MAX_PATH);
-        _snwprintf(old, MAX_PATH, L"%ls.ancien", me);
-        DeleteFileW(old);
-        if (!MoveFileW(me, old)) { snprintf(err, sizeof(err), "Impossible de remplacer le programme (dossier en lecture seule ?)"); goto fail; }
-        if (!CopyFileW(nexe, me, FALSE)) { MoveFileW(old, me); snprintf(err, sizeof(err), "Impossible d'installer la nouvelle version"); goto fail; }
+        wchar_t nouv[MAX_PATH]; _snwprintf(nouv, MAX_PATH, L"%ls.nouveau", me);
+        if (!CopyFileW(nexe, nouv, FALSE)) { snprintf(err, sizeof(err), "Impossible d'\xC3\xA9" "crire la nouvelle version (dossier en lecture seule ?)"); goto fail; }
         _snwprintf(lis, MAX_PATH, L"%ls\\LISEZMOI.txt", d2); _snwprintf(lis2, MAX_PATH, L"%ls\\LISEZMOI.txt", pcw_exe_dir());
         CopyFileW(lis, lis2, FALSE);
         del_tree(dir);
+        (void)old;
+        if (!pcw_maj_swap()) { snprintf(err, sizeof(err), "Impossible de remplacer le programme : la nouvelle version sera install\xC3\xA9" "e au prochain d\xC3\xA9marrage"); goto fail; }
         printf("[maj] build %ld installe : redemarrage\n", best.num);
-        STARTUPINFOW si; PROCESS_INFORMATION pi; memset(&si, 0, sizeof(si)); si.cb = sizeof(si);
-        wchar_t cmd[MAX_PATH + 4]; _snwprintf(cmd, MAX_PATH + 4, L"\"%ls\"", me);
-        if (CreateProcessW(me, cmd, NULL, NULL, FALSE, 0, NULL, pcw_exe_dir(), &si, &pi)) { CloseHandle(pi.hProcess); CloseHandle(pi.hThread); }
         pcw_dolphin_stop();
+        fflush(stdout);
         ExitProcess(0);
     }
 fail:

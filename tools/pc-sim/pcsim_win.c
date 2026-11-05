@@ -490,6 +490,7 @@ void pcsim_win_boot(void) {
         _wfreopen(p, L"a", stderr);
     }
     setvbuf(stdout, NULL, _IONBF, 0);
+    { void pcw_maj_boot(void); pcw_maj_boot(); }           /* (apres une mise a jour : l'ancien programme efface) */
     InitializeCriticalSection(&fb_cs);
     pcw_dolphin_init();
     if (pcsim_live) { CreateThread(NULL, 0, win_thread, NULL, 0, NULL); pcw_maj_start(0); }
