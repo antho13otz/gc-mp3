@@ -296,6 +296,7 @@ static int nat_card_game = 0;                            /* v239 : une carte par
 static int nat_memtel = 0;                               /* v306 : chercheur de codes de l'appli (memoire du jeu par le reseau) */
 static int app_envoi = 1;                                /* v330 : envoi vers l'appli : 0 coupe, 1 si l'appli est connectee, 2 toujours */
 static int nat_gbatel = 0;                               /* v331 : GBA du telephone sur le port 2 (Tingle Tuner de Wind Waker) */
+static int nat_mictel = 0;                               /* v332 : micro du telephone dans le slot B (Mario Party 6 et 7...) */
 static int nat_padtel = 0;                               /* manettes du telephone : 0 non, 1 port 2, 2 ports 2-3, 3 ports 2-4, 4 port 1 */
 static int pulse_ld = 0;                                /* v111 : ecran de chargement de Pulse (natif.c) */
 static const char *const pulse_ld_names[5] = { "Aurore", "C\xC5\x93ur", "Cin\xC3\xA9ma", "Minimal", "Au hasard" };
@@ -5997,6 +5998,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "chercheur_codes")) nat_memtel = atoi(v) ? 1 : 0;
         else if (!strcasecmp(k, "envoi_appli")) { int x = atoi(v); app_envoi = x < 0 ? 0 : x > 2 ? 2 : x; }
         else if (!strcasecmp(k, "gba_telephone")) nat_gbatel = atoi(v) ? 1 : 0;   /* v331 */
+        else if (!strcasecmp(k, "micro_telephone")) nat_mictel = atoi(v) ? 1 : 0;   /* v332 */
         else if (!strcasecmp(k, "manettes_telephone")) { int m = atoi(v); nat_padtel = m >= 0 && m <= 4 ? m : 0; }   
         else if (!strcasecmp(k, "pulse_chargement")) { for (int i = 0; i < 5; i++) if (!strcasecmp(v, pulse_ld_keys[i])) pulse_ld = i; }
         else if (!strcasecmp(k, "interface")) { ui_lang = !strncasecmp(v, "en", 2) ? 1 : !strncasecmp(v, "fr", 2) ? 0 : -1; ui_lang_apply(); }
@@ -6133,6 +6135,7 @@ static void settings_print(FILE *f) {                   /* v194 : le texte de gc
     fprintf(f, "# manettes du telephone dans les jeux : 0 non, 1 port 2, 2 ports 2-3, 3 ports 2-4, 4 port 1\nmanettes_telephone = %d\n", nat_padtel);
     fprintf(f, "# chercheur de codes de l'appli : le telephone lit la memoire du jeu (Pulse, BBA) : 0 non, 1 oui\nchercheur_codes = %d\n", nat_memtel);
     fprintf(f, "# GBA du telephone sur le port 2 (Tingle Tuner de Wind Waker ; Pulse, BBA) : 0 non, 1 oui\ngba_telephone = %d\n", nat_gbatel);
+    fprintf(f, "# micro du telephone dans le slot B (Mario Party 6 et 7... ; Pulse, BBA) : 0 non, 1 oui\nmicro_telephone = %d\n", nat_mictel);
     fprintf(f, "# envoi vers l'appli du telephone : 0 coupe, 1 si l'appli est connectee, 2 toujours\nenvoi_appli = %d\n", app_envoi);
     fprintf(f, "# Pulse : ecran de chargement (aurore / coeur / cinema / minimal / hasard)\npulse_chargement = %s\n", pulse_ld_keys[pulse_ld >= 0 && pulse_ld < 5 ? pulse_ld : 0]);
     fprintf(f, "# Ordre des onglets\nordre_onglets = ");
@@ -12482,7 +12485,7 @@ static void draw_list_radio(void) {
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
        MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_RECAT, MI_RECLEN, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PULSELD, MI_PERF, MI_LAUNCHER, MI_UPDATE,
-       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_PLAYLIM, MI_UPDXZ, MI_APNOIMG, MI_THEMEDL, MI_UPDOLD, MI_NATCARDGAME, MI_PADTEL, MI_QUIT, MI_GLCOVALL, MI_MEMTEL, MI_APPENV, MI_GBATEL, MI_COUNT };   /* (MI_GLCOVALL : v289, retire en v293 ; garde pour la table des noms) */
+       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_PLAYLIM, MI_UPDXZ, MI_APNOIMG, MI_THEMEDL, MI_UPDOLD, MI_NATCARDGAME, MI_PADTEL, MI_QUIT, MI_GLCOVALL, MI_MEMTEL, MI_APPENV, MI_GBATEL, MI_MICTEL, MI_COUNT };   /* (MI_GLCOVALL : v289, retire en v293 ; garde pour la table des noms) */
 static void pj_limit_text(char *o, int cap);            /* v191 (profils.c) */
 static void pj_limit_next(int d);
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
@@ -12496,7 +12499,7 @@ static const s8 sec_items[6][32] = {
     { -6, MI_RADIORES, MI_TITLES, -7, MI_REC, MI_RECAT, MI_RECLEN, -8, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, -1 },
     { -9, MI_UILANG, MI_LANG, -10, MI_SKIN, MI_THEME, MI_THEMEDL, MI_WALL, MI_SEASON, MI_TABS, -11, MI_LAYOUT, MI_ELEMS, MI_VIZ, MI_SGPAL, MI_LYRSHOW, -12, MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, -13, MI_HIDDEN, MI_UNKNOWN, -14, MI_PERF, -1 },
     { -15, MI_TV, MI_VIDEO, MI_WIDE, -16, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, -1 },
-    { -17, MI_GLANG, MI_GSOUND, MI_CLOCK, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, MI_APNOIMG, MI_PLAYLIM, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_NATCARDGAME, MI_PADTEL, MI_GBATEL, MI_MEMTEL, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
+    { -17, MI_GLANG, MI_GSOUND, MI_CLOCK, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, MI_APNOIMG, MI_PLAYLIM, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_NATCARDGAME, MI_PADTEL, MI_GBATEL, MI_MICTEL, MI_MEMTEL, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
     { -21, MI_DHCP, MI_IP, MI_MASK, MI_GW, -22, MI_NETSMB, MI_NETFTP, MI_NETFSP, -23, MI_SALON, MI_PHONEAUTO, MI_APPENV, -24, MI_UPDAUTO, MI_UPDXZ, MI_UPDATE, MI_UPDOLD, -1 } };
 static int sec_n(int sec) { int n = 0; if (sec < 0 || sec >= SEC_TOOLS) return 0; while (n < 32 && sec_items[sec][n] != -1) n++; return n; }
 static int sec_pos(int sec, int mi) { if (mi < 0) return -1; for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] == mi) return i; return -1; }   /* (v321 : jamais un sous-titre) */
@@ -12637,6 +12640,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_NATCARDGAME: snprintf(out, cap, "%s", nat_card_game ? TR("Oui") : TR("Non")); break;
     case MI_MEMTEL: snprintf(out, cap, "%s", TR(nat_memtel ? "Oui" : "Non")); break;
     case MI_GBATEL: snprintf(out, cap, "%s", TR(nat_gbatel ? "Oui" : "Non")); break;
+    case MI_MICTEL: snprintf(out, cap, "%s", TR(nat_mictel ? "Oui" : "Non")); break;
     case MI_APPENV: { static const char *const ae[3] = { "Coup\xC3\xA9", "Si l'appli est connect\xC3\xA9" "e", "Toujours" }; snprintf(out, cap, "%s", TR(ae[app_envoi % 3])); break; }
     case MI_PADTEL: { static const char *const pt[5] = { "Non", "Port 2", "Ports 2 et 3", "Ports 2, 3 et 4", "Port 1" }; snprintf(out, cap, "%s", TR(pt[nat_padtel % 5])); break; }
     case MI_PULSELD: snprintf(out, cap, "%s", pulse_ld_names[pulse_ld >= 0 && pulse_ld < 5 ? pulse_ld : 0]); break;
@@ -12694,7 +12698,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "A+Z+START (lanceur de secours)", "A+Z+START (Pulse)", "Carte m\xC3\xA9moire virtuelle (Pulse)", "\xC3\x89" "cran de chargement (Pulse)", "Mesure de fluidit\xC3\xA9", "Lanceur de secours", "Mise \xC3\xA0 jour",
     "Fichiers cach\xC3\xA9s (FICHIERS)", "Cacher les fichiers inconnus", "Langue des jeux (console)", "Son (console)",
     "Adresse automatique (DHCP)", "Adresse IP de la console", "Masque", "Passerelle (box)", "T\xC3\xA9l\xC3\xA9" "commande au d\xC3\xA9marrage",
-    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Date et heure (console)", "Nouveaux jeux vus tout seuls", "Limite de jeu par jour", "Version compress\xC3\xA9" "e", "Applis sans image", "Th\xC3\xA8mes en ligne", "Ancienne version (.ancien)", "Une carte par jeu (Pulse)", "Manettes du t\xC3\xA9l\xC3\xA9phone", "Quitter GC Station", "Toutes les jaquettes (bo\xC3\xAEte 3D, HD)", "Chercheur de codes (appli)", "Envoi vers l'appli", "GBA du t\xC3\xA9l\xC3\xA9phone (port 2)" };
+    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Date et heure (console)", "Nouveaux jeux vus tout seuls", "Limite de jeu par jour", "Version compress\xC3\xA9" "e", "Applis sans image", "Th\xC3\xA8mes en ligne", "Ancienne version (.ancien)", "Une carte par jeu (Pulse)", "Manettes du t\xC3\xA9l\xC3\xA9phone", "Quitter GC Station", "Toutes les jaquettes (bo\xC3\xAEte 3D, HD)", "Chercheur de codes (appli)", "Envoi vers l'appli", "GBA du t\xC3\xA9l\xC3\xA9phone (port 2)", "Micro du t\xC3\xA9l\xC3\xA9phone (slot B)" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -12781,6 +12785,7 @@ static void menu_change(int i, int d) {
     case MI_PADTEL: nat_padtel = (nat_padtel + (d < 0 ? 4 : 1)) % 5; break;
     case MI_MEMTEL: nat_memtel = !nat_memtel; break;
     case MI_GBATEL: nat_gbatel = !nat_gbatel; break;
+    case MI_MICTEL: nat_mictel = !nat_mictel; break;
     case MI_APPENV: app_envoi = (app_envoi + (d < 0 ? 2 : 1)) % 3; break;
     case MI_PULSELD: pulse_ld = (pulse_ld + (d < 0 ? 4 : 1)) % 5; break;
     case MI_PERF:    perf_toggle(); return;
@@ -13068,6 +13073,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_APPENV) hint = "Coup\xC3\xA9 : rien vers l'appli (direct, \xC3\xA9tat, Pulse). Si connect\xC3\xA9" "e : seulement quand un t\xC3\xA9l\xC3\xA9phone \xC3\xA9" "coute";
     if (menu_sel == MI_MEMTEL) hint = "L'appli lit la m\xC3\xA9moire du jeu pendant la partie (Pulse, Broadband Adapter ou ETH2SP1) : trouver ses propres cheats et succ\xC3\xA8s";
     if (menu_sel == MI_GBATEL) hint = "L'appli devient une GBA branch\xC3\xA9" "e au port 2 (Tingle Tuner de Wind Waker ; Pulse, Broadband Adapter). Essai";
+    if (menu_sel == MI_MICTEL) hint = "Le micro du t\xC3\xA9l\xC3\xA9phone devient le micro GameCube du slot B (Mario Party 6 et 7 ; Pulse, Broadband Adapter). Essai";
     if (menu_sel == MI_PADTEL) hint = "L'appli du t\xC3\xA9l\xC3\xA9phone devient une manette dans les jeux (Pulse, Broadband Adapter ou ETH2SP1). Un port par t\xC3\xA9l\xC3\xA9phone";
     if (menu_sel == MI_NATCARDGAME) hint = "Chaque jeu sa propre carte (carte-A-GALE01.raw), cr\xC3\xA9\xC3\xA9" "e au premier lancement. Le r\xC3\xA9glage du jeu (Y) passe avant";
     if (menu_sel == MI_NATCARDREG) hint = "Jeux europ\xC3\xA9" "ens, am\xC3\xA9ricains, japonais : chacun sa carte (carte-A-EUR.raw...)";
