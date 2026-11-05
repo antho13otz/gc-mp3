@@ -234,8 +234,11 @@ for i, c in enumerate(got):
 img = b''.join(struct.pack('<I', w) for w in dec[:L // 4])
 check('programme dechiffre identique, CRC juste, titre lu', img == bytes(rom) and dec[L // 4] == (crc | L << 16) and img[0xA0:0xAC] == b'TESTPULSEGBA')
 t, js = rd()
-check('1re lecture apres le programme : programme lance (relais)', padw('gst') == 4, 'etat %d' % padw('gst'))
-check('v345 : JOY_TRANS apres le programme = code du jeu (comme le BIOS)', t == struct.unpack('<I', rom[0xAC:0xB0])[0], '%08X' % t)
+check('v346 : 1re lecture apres le programme : la preuve (produit des mots chiffres 0x1F8 et 0x1FC), JOYSTAT reste 0x08',
+      t == (cipher[0x1F8 // 4] * cipher[0x1FC // 4]) & 0xFFFFFFFF and padw('gst') == 3 and joystat() == 0x08, '%08X etat %d' % (t, padw('gst')))
+t, js = rd()
+check('2e lecture : programme lance (relais)', padw('gst') == 4, 'etat %d' % padw('gst'))
+check('v345 : JOY_TRANS = code du jeu (comme le BIOS)', t == struct.unpack('<I', rom[0xAC:0xB0])[0], '%08X' % t)
 k0 = padw('gkey'); a, _ = tr(0xFF)
 check('v345 : remise a zero pendant le relais : le programme reste lance', padw('gst') == 4 and padw('gkey') == k0 and a >> 16 == 0x0004, 'etat %d %08X' % (padw('gst'), a))
 # relais : le telephone donne un mot, le jeu le lit ; le jeu ecrit, le telephone lit

@@ -1026,6 +1026,7 @@ static MEM_OS void gb_reset(natres_pad_t *p) {           /* FF : cle de session 
     while (n--) k = k * 0x6177614Bu + 1u;
     p->gkey = k; p->gtrans = k ^ 0x6F646573u; p->gjoy = 0x18u;   /* (0x10 : pret ; 0x08 : un mot a lire) */
     p->gst = 1; p->glen = p->gpos = 0; p->gw = p->ga = 0; p->gnew = 0; p->gtid = p->gtidlu = 0;
+    p->gcode = p->gx = p->gfin = 0;
 }
 static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert vers le port GBA : la reponse, tout de suite */
     u32 c = gb_o0 >> 24;
@@ -1044,6 +1045,8 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
         p->gn14++;
         gb_r0 = (t & 0xFFu) << 24 | (t >> 8 & 0xFFu) << 16 | (t >> 16 & 0xFFu) << 8 | t >> 24;
         gb_r1 = (p->gjoy & 0xFFu) << 24;
+        /* v346 : programme recu : 1re lecture = la preuve (gx), puis JOYSTAT reste 0x08 : le code du jeu suit (2e lecture) */
+        if (p->gst == 3 && !p->gfin) { p->gfin = 1; p->gtrans = p->gcode; return; }
         if (p->gjoy & 0x08u) p->gtidlu = p->gtid;          /* (v333 : ce mot du telephone est lu : on le lui dira) */
         p->gjoy &= ~0x08u;
         if (p->gst == 3) p->gst = 4;                     /* (1re lecture apres le programme : il tourne) */
@@ -1061,8 +1064,10 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
             p->glen = (n & 0x3FFF8u) + 0xCu; p->gpos = 0; p->gst = 2; p->gjoy = (p->gjoy & 0x0Au) | 0x20u;
         } else if (p->gst == 2) {
             if (p->gpos == 0xACu) p->gcode = w;              /* (v345 : code du jeu, en clair dans l'en-tete) */
+            if (p->gpos == 0x1F8u) p->gx = w;                /* (v346 : preuve : produit des mots chiffres 0x1F8 et 0x1FC) */
+            if (p->gpos == 0x1FCu) p->gx *= w;
             p->gpos += 4;
-            if (p->gpos >= p->glen) { p->gst = 3; p->gjoy = 0x08u; p->gtrans = p->gcode; }   /* (v345 : comme le BIOS : code du jeu) */
+            if (p->gpos >= p->glen) { p->gst = 3; p->gjoy = 0x08u; p->gtrans = p->gx; }   /* (v346 : la preuve, puis le code du jeu) */
             else if (p->gw - p->ga < GB_RING - 1u) p->gjoy ^= 0x10u;
             else p->gnew = 1;                            /* (tampon plein : la bascule attend le telephone) */
         } else p->gjoy |= 0x02u;                         /* (relais : le telephone lira) */
