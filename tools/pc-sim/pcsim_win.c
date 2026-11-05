@@ -670,6 +670,7 @@ void pcsim_win_boot(void) {
         _wfreopen(p, L"a", stderr);
     }
     setvbuf(stdout, NULL, _IONBF, 0);
+    { void pcw_maj_boot(void); pcw_maj_boot(); }           /* (apres une mise a jour : l'ancien programme efface) */
     InitializeCriticalSection(&fb_cs);
     InitializeCriticalSection(&ev_cs);
     {                                                      /* (net sur les ecrans a 125 %, 150 % ... : pas d'image floue agrandie par Windows) */
