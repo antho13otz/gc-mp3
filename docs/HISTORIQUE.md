@@ -24,6 +24,34 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 388 — GBA du téléphone : l'identifiant déjà donné par Pulse
+
+La GBA n'accepte l'identifiant renvoyé par le jeu que si le jeu a lu le sien ; depuis la console 869 c'est Pulse qui le donne au jeu, et la GBA émulée ne l'apprenait pas (« La connexion a échoué »). Dès la 2e remise à zéro, l'appli le dit lu à la GBA et ne le renvoie plus à Pulse.
+
+## Nouveautés v347 (build 869) et appli build 387 — GBA du téléphone : la connexion après le démarrage
+
+Une fois le programme lancé, Rayman 3 remet la GBA à zéro et exige aussitôt son identifiant (JOYSTAT 0x28), le lui renvoie et exige aussitôt 0x30. Pulse dit maintenant ces remises à zéro au téléphone, qui les donne à la GBA émulée ; il apprend l'identifiant à sa première réponse, puis répond tout de suite à sa place. L'appli dit à Pulse quelles remises à zéro sont traitées, pour qu'il ignore les réponses plus anciennes.
+
+## Appli build 386 — GBA du téléphone : l'ordre des échanges au démarrage, corrigé
+
+En 385, l'appli jugeait la GBA prête à recevoir le mot du jeu d'après une valeur de JOYCNT lue avant la lecture de son code : le mot partait trop tôt et la GBA restait bloquée (écran blanc). JOYCNT est maintenant relu juste après.
+
+## Appli builds 384 et 385 — GBA du téléphone : démarrage par le câble comme une vraie GBA
+
+Démarrée par le câble GameCube, une vraie GBA entre dans le programme en 0xE0 : ce début met le câble en mode manette GameCube, donne le code du jeu et attend que le jeu le lui renvoie. L'émulateur entrait en 0xC0 et sautait cette étape (« La connexion a échoué » dans Rayman 3). Il entre maintenant en 0xE0, et le mot renvoyé par le jeu n'est donné à la GBA qu'une fois son code lu (build 385 : avant, il arrivait trop tôt et la GBA attendait pour toujours). Le rapport montre les registres du câble vus par la GBA.
+
+## Appli build 382 — GBA du téléphone : plus de plantage au lancement de l'émulateur
+
+L'appli 381 plantait au démarrage de l'émulateur GBA : l'écran lisait un état créé par le fil réseau pendant qu'il se dessinait. L'émulateur garde maintenant son état dans de simples variables, et son écran se redessine à chaque image.
+
+## Nouveautés v346 (build 868) et appli build 381 — GBA du téléphone : la preuve de démarrage
+
+Juste après le dernier mot du programme, le démarrage GBA du jeu (Rayman 3) lit une preuve que le programme a démarré : un produit des mots 0x1F8 et 0x1FC, calculé par le début du programme sur une vraie GBA. Pulse la calcule pendant l'envoi et la rend à la première lecture, puis le code du jeu à la deuxième. L'appli (build 381) ne renvoie pas à Pulse la preuve et le code que le programme écrit aussi dans l'émulateur.
+
+## Nouveautés v345 (build 867) — GBA du téléphone : le code du jeu après le programme
+
+Le programme de Rayman 3 passait en entier, mais le jeu recommençait aussitôt : après l'envoi, son démarrage vérifie que la GBA donne le code du jeu (mot 0xAC de l'en-tête du programme), comme le fait le BIOS d'une vraie GBA. Pulse le garde maintenant pendant l'envoi et le rend juste après. Une remise à zéro demandée par le jeu une fois le programme lancé ne relance plus l'envoi.
+
 ## Nouveautés v344 (build 866) et appli build 380 — GBA du téléphone : programme envoyé sans abandon
 Rayman 3 envoyait son programme à la GBA puis recommençait après environ 1,4 Ko : Pulse gardait les mots du jeu dans un tampon de 256 mots, plein avant que le téléphone n'accuse réception, et le démarrage du jeu n'accepte pas d'attendre. La console range maintenant ces mots dans un tampon de 16 Ko (hors du résident, seulement si la GBA du téléphone est activée) et envoie jusqu'à 4 paquets par image. L'appli (build 380) renvoie ses accusés toutes les 8 ms pendant l'envoi du programme, et son journal ne recopie plus une même ligne revue dans les 5 secondes.
 

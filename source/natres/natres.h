@@ -175,6 +175,16 @@ typedef struct {
     /* (v338, diagnostic) vrai COMCSR a l'entree de l'interruption des manettes (avant le jeu), interruptions vues pendant un
        transfert vers le port de la GBA */
     unsigned int gdirq, gdnirq;
+    /* (v345) code du jeu de la GBA (mot 0xAC de l'en-tete du programme, non chiffre) : comme le BIOS de la GBA, il est dans
+       JOY_TRANS une fois le programme recu (le demarrage du SDK le verifie : sinon il recommence) */
+    unsigned int gcode;
+    /* (v346) preuve demandee par le demarrage du SDK juste apres le programme (1re lecture de JOY_TRANS) : un des produits
+       des mots 0x1F8 et 0x1FC (Pulse rend celui des mots chiffres, tels qu'envoyes) ; gfin : preuve lue, le code suit */
+    unsigned int gx, gfin;
+    /* (v347) programme lance : remises a zero (FF) du jeu (dites au telephone, qui les donne a la GBA emulee), identifiant
+       que la GBA donne apres une remise a zero (JOY_TRANS avec JOYSTAT 0x20 ; Pulse le rend ensuite tout de suite, avec 0x28,
+       puis 0x30 quand le jeu le lui renvoie : la connexion du SDK attend ces reponses sans delai) */
+    unsigned int grst, gid;
     /* (v332, hors du journal) micro du telephone : le slot B joue le micro GameCube (DOL-022 : Mario Party 6 et 7...). micon
        (GC Station) : 1 = actif. Le reste (resident) : etat du micro (ecrit par la commande 80, lu par 40 : bit 15 en marche,
        bits 13-14 paquet de 32 / 64 / 128 octets, bits 11-12 11025 / 22050 / 44100 Hz, bit 10 gain), commandes du jeu,
