@@ -3468,6 +3468,8 @@ static const char *nat_boot(int k) {
         }
         if (!zdone) patched = na_patch(&in, buf + o_dol, buf + o_res, &skipped, &card_on, &si_on);
         free(na_zin); na_zin = NULL;
+        if (na_lan && !res) { free(buf); return "Jeu par Internet : Pulse LAN impossible pour ce jeu"; }   /* v359 */
+        if (na_lan && !na_xdone) { free(buf); return "Jeu par Internet : impossible pour ce jeu (acc\xC3\xA8s au port r\xC3\xA9seau pas branch\xC3\xA9s)"; }   /* v359 */
         {   /* v95 : code de redemarrage de l'apploader (OSExec, ancien apploader : <= 2004/02/01) */
             u8 *r = buf + o_res;
             int old = in.al_trailer && strncmp(in.al_date, "2004/02/01", 10) <= 0;
