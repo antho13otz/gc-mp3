@@ -238,6 +238,20 @@ object GbaTel {
     // (chercheur de codes) : la vraie raison pour laquelle le jeu reconnait ou non la GBA
     @Volatile private var typeJeu: String? = null
     private var tType = 0L
+    /** build 379 : Rayman 3 PAL : son automate de connexion GBA par port (0x803AEA50, 60 octets : etat, type, compteur, port)
+     *  et le drapeau du joueur qui le fait tourner (0x803AEB40 + 84 x port + 81) : sur quel port le jeu attend la GBA */
+    private fun rayman3(): String {
+        val b1 = try { MemoireJeu.bloc(0x803AE800L) } catch (e: Exception) { null } ?: return "Rayman 3 : automate GBA illisible\n"
+        val b2 = try { MemoireJeu.bloc(0x803AEC00L) } catch (e: Exception) { null }
+        fun u8(a: Long): Int? = when { a in 0x803AE800L until 0x803AEC00L -> b1[(a - 0x803AE800L).toInt()].toInt() and 255
+                                       b2 != null && a in 0x803AEC00L until 0x803AF000L -> b2[(a - 0x803AEC00L).toInt()].toInt() and 255; else -> null }
+        fun u32(a: Long): Long = if (a in 0x803AE800L until 0x803AEBFDL) g32(b1, (a - 0x803AE800L).toInt()) else -1L
+        return "Rayman 3, automate GBA par port : " + (0..3).joinToString(" ; ") { i ->
+            val m = 0x803AEA50L + i * 60L
+            val f = u8(0x803AEB40L + i * 84L + 81L)
+            "port ${i + 1} : drapeau ${f ?: "?"} état ${u32(m)} type %08X compteur ${u32(m + 16)} port ${u8(m + 52) ?: "?"}".format(u32(m + 8))
+        } + "\n"
+    }
     private val TYPES = mapOf("GRHP41" to 0x80235868L, "G4SP01" to 0x804B5218L)   // (Rayman 3, Four Swords PAL : Type[4] ; Si.chan en -0x14)
     private fun lireType() {
         val id = Compagnon.jeuReel.ifEmpty { Compagnon.jeu }
@@ -261,6 +275,7 @@ object GbaTel {
             append("Type gardé par le jeu ($id, mémoire %08X) : ".format(a))
             append((0..3).joinToString(" ; ") { "port ${it + 1} = %08X %s".format(w(it * 4), lire(w(it * 4))) })
             append(" ; transfert en cours vers le port ${(w(-0x14) and 3) + 1} (%08X)\n".format(w(-0x14)))
+            if (id == "GRHP41") append(rayman3())
         }
     }
 
