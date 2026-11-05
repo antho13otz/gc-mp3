@@ -121,6 +121,12 @@ jobs:
           Get-Content essai\journal.txt -Tail 15
           Write-Host "toujours en marche apres 12 s : $vivant"
           if (-not $vivant) { exit 1 }
+      - name: Essai (Salon par Internet, avec une fausse console)
+        shell: pwsh
+        run: |
+          $env:GCS_BIN = "$pwd\essai\GC Station.exe"
+          python tools/pc-sim/salon-internet/test.py
+          if ($LASTEXITCODE -ne 0) { Get-Content tools\pc-sim\work\salon-internet\journal-pc.txt -Tail 30; exit 1 }
       - uses: actions/download-artifact@v4
         with:
           name: kit-essai

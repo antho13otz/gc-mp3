@@ -4,7 +4,8 @@
 #   - on verifie : ses annonces GCSW1 arrivent ici (bonne empreinte), elle repond aux notres, elle nous voit
 #     (journal : "salon : Ami du test"), son port 51238 sert /s/list avec k=, refuse sans k= ou avec un faux,
 #     refuse /s/open et ce qui n'est pas /s/, et un mauvais code ne la fait pas repondre.
-import os, socket, subprocess, sys, time, urllib.request, urllib.error
+#   GCS_BIN=chemin\GC Station.exe : la meme chose avec GC Station PC sur Windows (carte : dossier sd a cote du programme).
+import os, shutil, socket, subprocess, sys, time, urllib.request, urllib.error
 R = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 P = R + '/tools/pc-sim'; RUN = P + '/work/salon-internet'
 CODE = 'salon-test'
@@ -14,18 +15,26 @@ def khash(code):
         x = ((x ^ c) * 16777619) & 0xFFFFFFFF
     return '%08x' % x
 K = khash(CODE)
+BIN = os.environ.get('GCS_BIN', P + '/gcstation')
+WIN = BIN.lower().endswith('.exe')
 os.makedirs(RUN, exist_ok=True)
-if not os.path.isdir(RUN + '/sd:/mp3'): subprocess.run(['sh', P + '/demo-sd.sh', RUN], check=True, stdout=subprocess.DEVNULL)
-os.makedirs(RUN + '/sd:/gc-mp3', exist_ok=True)
-cfg = RUN + '/sd:/gc-mp3/gc-mp3.txt'
+if WIN:                                                   # (Windows : le programme dans RUN, sa carte = RUN/sd)
+    SD = RUN + '/sd'
+    shutil.copy(BIN, RUN + '/gcstation.exe'); BIN = RUN + '/gcstation.exe'
+    os.makedirs(SD + '/mp3', exist_ok=True); open(SD + '/mp3/essai.mp3', 'wb').write(b'\xff\xfb' + bytes(4000))
+else:
+    SD = RUN + '/sd:'
+    if not os.path.isdir(SD + '/mp3'): subprocess.run(['sh', P + '/demo-sd.sh', RUN], check=True, stdout=subprocess.DEVNULL)
+os.makedirs(SD + '/gc-mp3', exist_ok=True)
+cfg = SD + '/gc-mp3/gc-mp3.txt'
 lines = [l for l in open(cfg, encoding='latin-1').read().splitlines() if not l.startswith(('salon', 'salon_'))] if os.path.exists(cfg) else []
 lines += ['salon = oui', 'salon_ami = 127.0.0.2:61234', 'salon_code = ' + CODE]
 open(cfg, 'w', encoding='latin-1').write('\n'.join(lines) + '\n')
 sc = RUN + '/sc.txt'; open(sc, 'w').write('wait 40s\nquit\n')
-env = dict(os.environ, PCSIM_SCRIPT=sc, PCSIM_OUT='out', PCSIM_NET='direct')
+env = dict(os.environ, PCSIM_SCRIPT=sc, PCSIM_OUT='out', PCSIM_NET='direct', PCSIM_LOG=RUN + '/journal-pc.txt')
 log = open(RUN + '/log.txt', 'w')
-g = subprocess.Popen([os.environ.get('GCS_BIN', P + '/gcstation')], cwd=RUN, env=env, stdout=log, stderr=subprocess.STDOUT)
-u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); u.bind(('127.0.0.2', 61234))   # (127.0.0.1 : le simulateur lui-meme); u.settimeout(1)
+g = subprocess.Popen([BIN], cwd=RUN, env=env, stdout=log, stderr=subprocess.STDOUT)
+u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); u.bind(('127.0.0.2', 61234)); u.settimeout(1)   # (127.0.0.1 : le simulateur lui-meme)
 ok = {}
 def check(name, cond):
     ok[name] = bool(cond); print(('OK   ' if cond else 'RATE ') + name); return bool(cond)
