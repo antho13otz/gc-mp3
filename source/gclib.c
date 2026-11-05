@@ -1875,6 +1875,58 @@ static int gl_quick_changed(void) {
     for (int i = 0; i < gl_n; i++) if (!gl[i].dvd && !strncasecmp(gl[i].path, SD_ROOT "/", strlen(SD_ROOT) + 1)) sdn++;
     return found < sdn;                                    /* (un jeu enleve) */
 }
+/* v356 : le meme tour, mais en fond, quelques millisecondes par image (avant : tout d'un coup a l'entree, 0,3 s figee
+   et plus avec une grosse carte) ; si un jeu est ajoute ou enleve, la liste est refaite a la fin du tour */
+static struct { DIR *d; char path[NAME_LEN]; int depth; } gq_st[5];
+static int gq_n = 0, gq_found = 0, gq_budget = 0, gq_on = 0;
+static void gq_stop(void) { while (gq_n > 0) closedir(gq_st[--gq_n].d); gq_on = 0; }
+static void gq_start(void) {
+    gq_stop();
+    if (!sd_ok || sd_virtual || !gl) return;
+    DIR *d = opendir(SD_ROOT);
+    if (!d) return;
+    gq_st[0].d = d; snprintf(gq_st[0].path, sizeof(gq_st[0].path), "%s", SD_ROOT); gq_st[0].depth = 0;
+    gq_n = 1; gq_found = 0; gq_budget = 6000; gq_on = 1;
+}
+static void gq_changed(void) {                          /* (fin du tour : jeu ajoute ou enleve) */
+    gq_stop();
+    gl_scanned = 0; gl_scan();
+    char m[96]; snprintf(m, sizeof(m), "%s (%d)", TR("Liste des jeux mise \xC3\xA0 jour"), gl_n - (gl_has_dvd() ? 1 : 0));
+    snprintf(gl_msg, sizeof(gl_msg), "%s", m); gl_msg_t = now_ms();
+}
+static void gq_step(void) {                             /* (une fois par image, liste des jeux a l'ecran) */
+    if (!gq_on || !gl) return;
+    u32 t0 = perf_us();
+    char p[NAME_LEN];
+    while (gq_n > 0 && perf_us() - t0 < 3000u) {
+        struct dirent *e = gq_budget-- > 0 ? readdir(gq_st[gq_n - 1].d) : NULL;
+        if (!e) { closedir(gq_st[--gq_n].d); continue; }
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        if (snprintf(p, sizeof(p), "%s/%s", gq_st[gq_n - 1].path, e->d_name) >= (int)sizeof(p)) continue;
+        int depth = gq_st[gq_n - 1].depth;
+        if (is_dir(p, e)) {
+            if (depth < 3 && gq_n < 5 && !gl_skip_dir(e->d_name)) {
+                DIR *d = opendir(p);
+                if (d) { gq_st[gq_n].d = d; snprintf(gq_st[gq_n].path, sizeof(gq_st[gq_n].path), "%s", p); gq_st[gq_n].depth = depth + 1; gq_n++; }
+            }
+            continue;
+        }
+        const char *dot = strrchr(e->d_name, '.');
+        if (!dot || !(!strcasecmp(dot, ".iso") || !strcasecmp(dot, ".gcm") || !strcasecmp(dot, ".ciso"))) continue;
+        struct stat st;
+        if (stat(p, &st) != 0 || st.st_size < 0x440) continue;
+        int k = -1;
+        for (int i = 0; i < gl_n && k < 0; i++) if (!gl[i].dvd && gl[i].size == (long)st.st_size && !strcasecmp(gl[i].path, p)) k = i;
+        if (k >= 0) gq_found++;
+        else if (!gl_rejected(p, (long)st.st_size)) { gq_changed(); return; }   /* (nouveau, ou change de taille) */
+    }
+    if (gq_n == 0 && gq_on) {
+        gq_on = 0;
+        int sdn = 0;
+        for (int i = 0; i < gl_n; i++) if (!gl[i].dvd && !strncasecmp(gl[i].path, SD_ROOT "/", strlen(SD_ROOT) + 1)) sdn++;
+        if (gq_found < sdn) gq_changed();                 /* (un jeu enleve) */
+    }
+}
 
 /* ---------- entree ---------- */
 static void gclib_open(void) {
@@ -1884,12 +1936,7 @@ static void gclib_open(void) {
     u64 qn = now_ms();
     int qc = gl_auto && (!qc_t || qn - qc_t > 120000u);
     if (qc) qc_t = qn;
-    if (qc && gl_quick_changed()) {                        /* v186 : jeux ajoutes / enleves sur la carte SD : liste refaite (v188 : reglage) */
-        int n0 = gl_n;
-        gl_scanned = 0; gl_scan();
-        char m[96]; snprintf(m, sizeof(m), "%s (%d)", TR("Liste des jeux mise \xC3\xA0 jour"), gl_n - (gl_has_dvd() ? 1 : 0));
-        snprintf(gl_msg, sizeof(gl_msg), "%s", m); gl_msg_t = now_ms(); (void)n0;
-    }
+    if (qc) gq_start();                                    /* v186 : jeux ajoutes / enleves : liste refaite (v356 : verifie en fond, gq_step) */
     crumb("mes jeux");
 }
 /* v176 : X sur l'accueil de JEUX / APPS : le dernier jeu lance, tout de suite a "Lancer ce jeu ?" */
@@ -2497,6 +2544,7 @@ static void draw_gclib(void) {
     }
 }
 static void draw_gclib_main(void) {
+    gq_step();                                             /* v356 : (tour de la carte en fond) */
     gl_loaded_frame = 0;
     if (gs_view()) { if (gl_detail) gs_draw_fiche(); else gs_draw(); return; }   /* v196 : espace Jeux GameCube (gspace.c) ; v197 : + la fiche */
     char buf[NAME_LEN], d[NAME_LEN];
