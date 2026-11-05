@@ -166,14 +166,18 @@ object GbaEmu {
                 val tv = r[1].toLong() and 0xFFFFFFFFL
                 // build 388 : l'identifiant donne apres une remise a zero : des la 2e fois, Pulse l'a deja donne au jeu (console
                 // v347) et le jeu l'a lu aussitot : lu ici tout de suite (sinon la GBA refuse la suite : « La connexion a echoue »)
-                val idDejaDonne = !attenteLu && js and 0x08 != 0 && apresReset && idGba >= 0 && tv == idGba
-                if (!attenteLu && js and 0x08 != 0 && apresReset) { apresReset = false; if (idGba < 0) idGba = tv }
+                // build 389 : un JOY_TRANS de la GBA ne compte qu'avec ses drapeaux 0x20 / 0x30 (son programme ecrit 0 en se
+                // remettant en place, sans drapeau : ni donne au jeu ni lu ici, sinon il y voit une erreur et recommence) ;
+                // l'identifiant : celui ecrit avec 0x20 (par sa reponse a la remise a zero)
+                val drap = js and 0x30
+                val idDejaDonne = !attenteLu && js and 0x08 != 0 && apresReset && drap == 0x20 && idGba >= 0 && tv == idGba
+                if (!attenteLu && js and 0x08 != 0 && apresReset && drap == 0x20) { apresReset = false; if (idGba < 0) idGba = tv }
                 if (idDejaDonne) {
                     GbaNatif.joy(0x14, d); nAvales++
                 } else if (!attenteLu && js and 0x08 != 0 && aAvaler.remove(tv)) {   // (build 381 : deja donne au jeu par Pulse)
                     GbaNatif.joy(0x14, d); nAvales++
                     if (tv == codeJeu) { codeLu = true; GbaNatif.regs(r); joycnt = r[3] }   // (build 386 : JOYCNT relu apres la lecture : 4)
-                } else if (!attenteLu && js and 0x08 != 0) {      // (la GBA a ecrit JOY_TRANS : pour le jeu)
+                } else if (!attenteLu && js and 0x08 != 0 && drap != 0) {      // (la GBA a ecrit JOY_TRANS : pour le jeu)
                     transVal = tv
                     numero = numero % 255 + 1; transId = numero
                     attenteLu = true
