@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v332 (build 852) — micro du téléphone (slot B, essai)
+
+Nouveau réglage « Micro du téléphone (slot B) » : Pulse se fait passer pour le micro GameCube (DOL-022) branché dans le slot B, et le son vient du micro du téléphone (appli build 373).
+- **Comment on le sait :** le fonctionnement du micro a été lu dans le pilote de Mario Party 7 (commandes et bits seulement, aucun code repris).
+- **Ce que fait Pulse :** il donne l'identifiant du micro, lit et écrit son état (fréquence, taille des paquets), puis prévient le jeu dès qu'un paquet de son est prêt. L'appli reçoit l'état et envoie le son à la bonne fréquence.
+- **Attention :** tant que le réglage est sur Oui, le slot B est un micro pour tous les jeux, et une carte mémoire en B n'est plus vue.
+- **Place dans le résident :** une partie du résident (carte virtuelle, journal, vérifications) est compilée au plus petit pour faire de la place au micro.
+
+Essai : vérifié en émulation (faux jeu + faux téléphone), pas encore sur une vraie GameCube.
+
 ## Nouveautés appli build 372 — Tingle Tuner : GBA du téléphone (essai)
 
 Ce build va avec la console v331 et son réglage « GBA du téléphone (port 2) ». La fiche Wind Waker du compagnon a un bloc **Tingle Tuner** :
