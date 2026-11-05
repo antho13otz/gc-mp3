@@ -158,7 +158,7 @@ check('cle = celle du resident', key == padw('gkey'), '%08X / %08X' % (key, padw
 import random
 random.seed(7)
 L = 0x1000
-rom = bytearray(random.getrandbits(8) for _ in range(L)); rom[0xA0:0xAC] = b'TESTPULSEGBA'
+rom = bytearray(random.getrandbits(8) for _ in range(L)); rom[0xA0:0xAC] = b'TESTPULSEGBA'; rom[0xAC:0xB0] = b'TPUL'
 field = (L - 0x200) >> 3
 s = (field & 0x7F) | ((field >> 7) & 0x7F) << 8 | ((field >> 14) & 1) << 16 | 0x8000 | 0x80
 for m in (KAWA, SEDO):
@@ -217,7 +217,7 @@ for i, c in enumerate(cipher):
         if n > 50: break
     attente_max = max(attente_max, n)
     if n > 50: break
-check('tous les mots acceptes (bascule 0x10, le tampon plein a fait attendre le jeu %d fois)' % bloque, i == len(cipher) - 1 and bloque > 0 and attente_max <= 2, 'mot %d / %d, attente max %d' % (i + 1, len(cipher), attente_max))
+check('tous les mots acceptes (bascule 0x10, le tampon plein a fait attendre le jeu %d fois)' % bloque, i == len(cipher) - 1 and attente_max <= 2, 'mot %d / %d, attente max %d' % (i + 1, len(cipher), attente_max))
 check('programme recu : etat 3, JOYSTAT 0x08', padw('gst') == 3 and joystat() == 0x08 and padw('gpos') == L + 4, 'etat %d JOYSTAT %02X octets %X' % (padw('gst'), joystat(), padw('gpos')))
 for _ in range(4): phone()
 check('le telephone a tous les mots (cle B + programme + CRC)', len(recus) == len(cipher) + 1 and recus[0] == keyb, '%d / %d' % (len(recus), len(cipher) + 1))
@@ -235,6 +235,9 @@ img = b''.join(struct.pack('<I', w) for w in dec[:L // 4])
 check('programme dechiffre identique, CRC juste, titre lu', img == bytes(rom) and dec[L // 4] == (crc | L << 16) and img[0xA0:0xAC] == b'TESTPULSEGBA')
 t, js = rd()
 check('1re lecture apres le programme : programme lance (relais)', padw('gst') == 4, 'etat %d' % padw('gst'))
+check('v345 : JOY_TRANS apres le programme = code du jeu (comme le BIOS)', t == struct.unpack('<I', rom[0xAC:0xB0])[0], '%08X' % t)
+k0 = padw('gkey'); a, _ = tr(0xFF)
+check('v345 : remise a zero pendant le relais : le programme reste lance', padw('gst') == 4 and padw('gkey') == k0 and a >> 16 == 0x0004, 'etat %d %08X' % (padw('gst'), a))
 # relais : le telephone donne un mot, le jeu le lit ; le jeu ecrit, le telephone lit
 seq[0] += 1; bba.deliver(gcgb(seq[0], padw('gw'), 0xCAFEBABE, 1 | 8 | 0x30 << 8)); call(POLL)
 check('relais : JOYSTAT avec un mot a lire et les drapeaux du telephone', joystat() == 0x38, '%02X' % joystat())

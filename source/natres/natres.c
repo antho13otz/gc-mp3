@@ -1035,7 +1035,8 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
         gb_r0 = 0x00040000u | (p->gjoy & 0xFFu) << 8;
         /* v340 : reponse a la remise a zero : JOYSTAT 0x08 seulement (cle de session dans JOY_TRANS), puis 0x18 aux
            demandes d'etat : ce que verifie le demarrage du SDK (table du demarrage de Rayman 3 : octets 37 puis 0) */
-        if (c == 0xFFu) { gb_reset(p); gb_r0 = 0x00040800u; }   /* (toujours : le jeu peut renvoyer le programme) */
+        /* v345 : programme lance : une remise a zero ne relance pas le demarrage (une vraie GBA ne le peut plus non plus) */
+        if (c == 0xFFu && p->gst != 4) { gb_reset(p); gb_r0 = 0x00040800u; }
         return;
     }
     if (c == 0x14u) {                                    /* le jeu lit JOY_TRANS (octet de poids faible d'abord) */
@@ -1059,8 +1060,9 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
             n = ((n << 7 | (s & 0x7Fu)) + 0x3Fu) << 3;
             p->glen = (n & 0x3FFF8u) + 0xCu; p->gpos = 0; p->gst = 2; p->gjoy = (p->gjoy & 0x0Au) | 0x20u;
         } else if (p->gst == 2) {
+            if (p->gpos == 0xACu) p->gcode = w;              /* (v345 : code du jeu, en clair dans l'en-tete) */
             p->gpos += 4;
-            if (p->gpos >= p->glen) { p->gst = 3; p->gjoy = 0x08u; p->gtrans = 0; }
+            if (p->gpos >= p->glen) { p->gst = 3; p->gjoy = 0x08u; p->gtrans = p->gcode; }   /* (v345 : comme le BIOS : code du jeu) */
             else if (p->gw - p->ga < GB_RING - 1u) p->gjoy ^= 0x10u;
             else p->gnew = 1;                            /* (tampon plein : la bascule attend le telephone) */
         } else p->gjoy |= 0x02u;                         /* (relais : le telephone lira) */
