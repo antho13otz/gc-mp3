@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 392 — GBA du téléphone : journal des remises en place de la GBA
+
+Diagnostic : à chaque fois que la GBA émulée se remet en place (« La connexion a échoué »), le rapport note son code d'erreur et l'état de son gestionnaire du câble (lus dans sa mémoire, sans rien changer), avec les 12 derniers échanges juste avant.
+
 ## Nouveautés v349 (build 872) — GBA du téléphone : la partie ne se déconnecte plus
 
 Le jeu GBA de Rayman 3 tournait (consignes, niveau 1) mais « La connexion a échoué » revenait : Rayman 3 attend que la GBA ait lu chaque mot avant le suivant (5 mots en une demi-seconde), soit un aller-retour par le Wi-Fi par mot. Comme une vraie GBA, qui lit le mot aussitôt, Pulse le dit lu tout de suite pendant la partie ; le téléphone reçoit tous les mots dans l'ordre. Vérifié avant publication dans un banc d'essai (modèle du jeu, de Pulse, du Wi-Fi, de l'appli et de la GBA) : plus de déconnexion jusqu'à 80 ms de délai.
