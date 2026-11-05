@@ -154,7 +154,7 @@ object GbaEmu {
                 val tv = r[1].toLong() and 0xFFFFFFFFL
                 if (!attenteLu && js and 0x08 != 0 && aAvaler.remove(tv)) {   // (build 381 : deja donne au jeu par Pulse)
                     GbaNatif.joy(0x14, d); nAvales++
-                    if (tv == codeJeu) codeLu = true
+                    if (tv == codeJeu) { codeLu = true; GbaNatif.regs(r); joycnt = r[3] }   // (build 386 : JOYCNT relu apres la lecture : 4)
                 } else if (!attenteLu && js and 0x08 != 0) {      // (la GBA a ecrit JOY_TRANS : pour le jeu)
                     transVal = tv
                     numero = numero % 255 + 1; transId = numero
