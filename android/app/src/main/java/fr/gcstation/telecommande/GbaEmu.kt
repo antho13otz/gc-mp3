@@ -83,6 +83,11 @@ object GbaEmu {
     // demarrage du jeu, puis le code du jeu) : Pulse l'a deja donne au jeu a sa place (console v346) ; ces mots-la sont
     // lus tout de suite ici, une fois chacun, sans passer par Pulse
     @Volatile var avaler: Set<Long> = emptySet()
+    // build 383 : code du jeu (mot 0xAC) : le debut du programme l'ecrit, attend que le jeu le lise, puis attend que le jeu le
+    // lui renvoie ; les mots du jeu sont retenus jusqu'a ce qu'il l'ait ecrit (sinon il attend pour toujours)
+    @Volatile var codeJeu = -1L
+    @Volatile var regsVus = ""                             // (build 383 : registres du cable vus par la GBA, pour le rapport)
+    @Volatile var retenus = false
     @Volatile var nAvales = 0
 
     @Volatile private var fil: Thread? = null
@@ -122,6 +127,8 @@ object GbaEmu {
         var numero = 0                                     // (dernier numero donne a un JOY_TRANS, 1-255)
         var donnesSansLu = false                           // (des mots du jeu donnes, pas encore tous lus par la GBA)
         val aAvaler = avaler.toMutableSet()
+        var retenir = codeJeu >= 0 && codeJeu in aAvaler          // (build 383 : mots du jeu retenus jusqu'au code ecrit)
+        var nImages = 0
         var prochain = System.nanoTime()
         try {
             while (!stop) {
@@ -129,16 +136,19 @@ object GbaEmu {
                 if (attenteLu && tidLuPulse == numero) { GbaNatif.joy(0x14, d); attenteLu = false; transId = 0; nEnvoyes++ }
                 // une image, en donnant les mots du jeu des que la GBA est prete
                 var n = 0
-                for (w in entrees) { if (n >= mots.size) break; mots[n++] = w.toInt() }
+                if (retenir && ++nImages > 180) retenir = false    // (3 s sans le code : on donne quand meme)
+                if (!retenir) for (w in entrees) { if (n >= mots.size) break; mots[n++] = w.toInt() }
                 GbaNatif.image(touches, px, son, mots, n, res)
                 repeat(res[1]) { entrees.poll(); nRecus++ }
                 if (res[1] > 0) donnesSansLu = true
                 GbaNatif.regs(r)
                 val js = r[0]
+                regsVus = "JOYSTAT %02X, JOYCNT %02X, JOY_TRANS %08X, JOY_RECV %08X".format(r[0], r[3], r[1], r[2]); retenus = retenir
                 if (donnesSansLu && entrees.isEmpty() && js and 0x02 == 0) { donnesSansLu = false; luPret = true }
                 val tv = r[1].toLong() and 0xFFFFFFFFL
                 if (!attenteLu && js and 0x08 != 0 && aAvaler.remove(tv)) {   // (build 381 : deja donne au jeu par Pulse)
                     GbaNatif.joy(0x14, d); nAvales++
+                    if (tv == codeJeu) retenir = false
                 } else if (!attenteLu && js and 0x08 != 0) {      // (la GBA a ecrit JOY_TRANS : pour le jeu)
                     transVal = tv
                     numero = numero % 255 + 1; transId = numero

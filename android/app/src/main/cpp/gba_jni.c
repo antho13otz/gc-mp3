@@ -45,6 +45,10 @@ JNIEXPORT jboolean JNICALL Java_fr_gcstation_telecommande_GbaNatif_demarrer(JNIE
 	if (!img) return JNI_FALSE;
 	(*env)->GetByteArrayRegion(env, prog, 0, n, (jbyte*) img);
 	img[0xC4] = 0x01;                                   /* (octet du mode de demarrage : ecrit par le BIOS ; 1 = par le cable) */
+	/* build 383 : demarre par le cable, une vraie GBA entre en 0x020000E0 (pas en 0xC0) : le debut du programme y passe le
+	   cable en mode JOY (RCNT), donne le code du jeu au jeu et attend que le jeu le lui renvoie. mGBA entre en 0xC0 : on y
+	   met un saut vers 0xE0 (B 0xE0 = EA000006) */
+	img[0xC0] = 0x06; img[0xC1] = 0x00; img[0xC2] = 0x00; img[0xC3] = 0xEA;
 	core = GBACoreCreate();
 	if (!core || !core->init(core)) { free(img); core = NULL; return JNI_FALSE; }
 	mCoreInitConfig(core, NULL);
