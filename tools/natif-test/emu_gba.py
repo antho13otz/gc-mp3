@@ -246,6 +246,16 @@ phone(); phone()                                         # (1er : accuse ; 2e : 
 check('relais : le mot ecrit arrive au telephone', recus.get(padw('gw') - 1) == 0x12345678)
 seq[0] += 1; bba.deliver(gcgb(seq[0], padw('gw'), 0, 2)); call(POLL)
 check('relais : lu par le telephone, drapeau 0x02 efface', not (joystat() & 0x02), '%02X' % joystat())
+# v333 : JOY_TRANS numerote : un paquet repete ne le redonne pas au jeu ; le telephone apprend qu'il a ete lu
+seq[0] += 1; bba.deliver(gcgb(seq[0], padw('gw'), 0x11223344, 1 | 5 << 16)); call(POLL)
+t, js = rd()
+check('relais : JOY_TRANS numero 5 lu par le jeu', t == 0x11223344 and js & 0x08 and not (joystat() & 0x08), '%08X %02X' % (t, js))
+seq[0] += 1; bba.deliver(gcgb(seq[0], padw('gw'), 0x11223344, 1 | 5 << 16)); call(POLL)
+check('relais : le meme numero repete (paquet en double) : pas redonne', not (joystat() & 0x08), '%02X' % joystat())
+bba.sent.clear()
+for _ in range(16): call(POLL)
+lu5 = [f for f in bba.sent if len(f) >= 42 + 40 and f[42:46] == b'GCGB']
+check('etat renvoye : dernier numero lu par le jeu = 5', bool(lu5) and lu5[-1][42 + 5] == 5, '%d paquets' % len(lu5))
 a, _ = tr(0xFF)
 check('remise a zero pendant le relais : nouveau demarrage (nouvelle cle)', padw('gst') == 1 and a == 0x00041800, 'etat %d %08X' % (padw('gst'), a))
 # port 1 jamais touche
