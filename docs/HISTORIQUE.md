@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v343 (build 865) — GBA du téléphone : réponse aux écritures comme une vraie GBA
+
+Quand le jeu écrit un mot à la GBA, la réponse donne maintenant l'état d'avant le traitement du mot, plus le bit « reçu », comme sur une vraie GBA. Avant, Rayman 3 recommençait juste après le premier mot de son programme.
+
 ## Nouveautés v342 (build 864) — GBA du téléphone : plus d'erreur sur la vraie manette
 
 Pour un transfert vers la GBA du téléphone, Pulse fait passer le vrai transfert par une manette branchée. Mais une manette ne répond pas aux commandes de la GBA : le vrai matériel finissait en erreur, et le jeu, qui le lit parfois directement, abandonnait (Rayman 3 : la lecture de la clé). Le vrai transfert est maintenant une simple question « 00 », à laquelle la manette répond sans erreur. Le jeu reçoit toujours la réponse de la GBA.
