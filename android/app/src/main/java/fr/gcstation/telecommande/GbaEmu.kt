@@ -106,6 +106,7 @@ object GbaEmu {
     }                             // (build 383 : registres du cable vus par la GBA, pour le rapport)
     @Volatile var retenus = false
     @Volatile var nAvales = 0
+    @Volatile var nRedonnes = 0                           // (build 395 : mots que la GBA n'avait pas lus, redonnes)
 
     @Volatile private var fil: Thread? = null
     @Volatile private var stop = false
@@ -153,7 +154,8 @@ object GbaEmu {
         var joycnt = 0
         var nApres = 0
         var imgBoot = -1
-        var errPrec = 0; var drapPrec = 0                                   // (build 391 : image ou le mot renvoye par le jeu a ete donne au debut du programme)                                     // (build 390 : images depuis la remise a zero, identifiant pas encore ecrit)
+        var errPrec = 0; var drapPrec = 0
+        var motBloque = 0                                   // (build 391 : image ou le mot renvoye par le jeu a ete donne au debut du programme)                                     // (build 390 : images depuis la remise a zero, identifiant pas encore ecrit)
         var prochain = System.nanoTime()
         try {
             while (!stop) {
@@ -194,6 +196,14 @@ object GbaEmu {
                 GbaNatif.regs(r)
                 val js = r[0]
                 joycnt = r[3]
+                // build 395 : un mot recu (JOYSTAT 02) dont l'interruption est deja acquittee (JOYCNT sans 02) : la GBA ne le
+                // lira jamais ; redonne tel quel apres 3 images (son gestionnaire le lit alors)
+                if (js and 0x02 != 0 && joycnt and 0x02 == 0) {
+                    if (++motBloque >= 3) {
+                        val v = r[2]; d[0] = v.toByte(); d[1] = (v shr 8).toByte(); d[2] = (v shr 16).toByte(); d[3] = (v shr 24).toByte()
+                        trace("mot %08X redonné (pas lu)".format(v)); GbaNatif.joy(0x15, d); motBloque = 0; nRedonnes++
+                    }
+                } else motBloque = 0
                 run {                                      // (build 392 : remise en place de la GBA, code d'erreur)
                     val err = GbaNatif.mem32(0x03000A98); val e0 = GbaNatif.mem32(0x03000AA0); val e1 = GbaNatif.mem32(0x03000AA4)
                     val drap = js and 0x30

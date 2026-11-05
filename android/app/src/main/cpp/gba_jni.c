@@ -87,8 +87,16 @@ JNIEXPORT jint JNICALL Java_fr_gcstation_telecommande_GbaNatif_image(JNIEnv* env
 	int donnes = 0;
 	uint32_t img = gba->video.frameCounter;
 	int32_t t0 = mTimingCurrentTime(&gba->timing);
+	int32_t tmot = t0 - 100000;                          /* (build 395 : quand le dernier mot a ete donne) */
 	while (gba->video.frameCounter == img && mTimingCurrentTime(&gba->timing) - t0 < VIDEO_TOTAL_LENGTH + VIDEO_HORIZONTAL_LENGTH) {
-		if (m && donnes < nmots && !(gba->memory.io[REG_JOYSTAT >> 1] & JOYSTAT_RECV)) {
+		/* build 395 : un mot seulement quand la GBA a fini avec le precedent : JOY_RECV lu (JOYSTAT) ET son interruption
+		   acquittee (JOYCNT), et pas moins de 3000 cycles apres lui (le temps d'un transfert du bus des manettes). Avant, un
+		   mot donne pendant que son gestionnaire tournait encore etait acquitte sans etre lu : la GBA ne le lisait jamais
+		   (JOYSTAT 32, les mots suivants en attente pour toujours) */
+		int32_t tc = mTimingCurrentTime(&gba->timing);
+		if (m && donnes < nmots && !(gba->memory.io[REG_JOYSTAT >> 1] & JOYSTAT_RECV) && !(gba->memory.io[REG_JOYCNT >> 1] & JOYCNT_RECV)
+		    && tc - tmot >= 3000) {
+			tmot = tc;
 			uint32_t w = (uint32_t) m[donnes++];
 			uint8_t d[8] = { (uint8_t) w, (uint8_t) (w >> 8), (uint8_t) (w >> 16), (uint8_t) (w >> 24) };
 			GBASIOJOYSendCommand(&joy, JOY_RECV, d);
