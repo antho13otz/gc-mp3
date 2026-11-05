@@ -139,6 +139,7 @@ object GbaEmu {
         var idGba = -1L                                    // (l'identifiant de la GBA, vu a la 1re remise a zero)
         var codeLu = false                                 // (build 384 : le code ecrit par la GBA a ete lu ici)
         var joycnt = 0
+        var nApres = 0                                     // (build 390 : images depuis la remise a zero, identifiant pas encore ecrit)
         var prochain = System.nanoTime()
         try {
             while (!stop) {
@@ -146,7 +147,7 @@ object GbaEmu {
                 if (attenteLu && tidLuPulse == numero) { GbaNatif.joy(0x14, d); attenteLu = false; transId = 0; nEnvoyes++ }
                 val rp = resetsPulse
                 if (rp != resetsFaits) {                   // (build 387 : remise a zero par le jeu : a la GBA ; son JOY_TRANS d'avant est perime)
-                    GbaNatif.joy(0xFF, d); resetsFaits = rp; attenteLu = false; transId = 0; apresReset = true
+                    GbaNatif.joy(0xFF, d); resetsFaits = rp; attenteLu = false; transId = 0; apresReset = true; nApres = 0
                 }
                 // une image, en donnant les mots du jeu des que la GBA est prete
                 var n = 0
@@ -154,7 +155,11 @@ object GbaEmu {
                 // build 384 : apres le code, la GBA attend JOYCNT = 4 exactement (« lu par le jeu ») et l'efface ; le mot du jeu
                 // seulement ensuite (sinon JOYCNT = 6 : elle attendait pour toujours)
                 if (retenir && codeLu && joycnt and 4 == 0) retenir = false
-                if (!retenir) for (w in entrees) { if (n >= mots.size) break; mots[n++] = w.toInt() }
+                // build 390 : comme sur une vraie GBA, apres une remise a zero : son identifiant, lu par le jeu (et la GBA l'a
+                // appris : JOYCNT 4 efface), puis seulement le mot du jeu (sinon elle le refusait : « La connexion a echoue »)
+                if (apresReset) nApres++
+                val attendReset = (apresReset && nApres <= 30) || (joycnt and 4 != 0)
+                if (!retenir && !attendReset) for (w in entrees) { if (n >= mots.size) break; mots[n++] = w.toInt() }
                 GbaNatif.image(touches, px, son, mots, n, res)
                 repeat(res[1]) { entrees.poll(); nRecus++ }
                 if (res[1] > 0) donnesSansLu = true
@@ -173,7 +178,7 @@ object GbaEmu {
                 val idDejaDonne = !attenteLu && js and 0x08 != 0 && apresReset && drap == 0x20 && idGba >= 0 && tv == idGba
                 if (!attenteLu && js and 0x08 != 0 && apresReset && drap == 0x20) { apresReset = false; if (idGba < 0) idGba = tv }
                 if (idDejaDonne) {
-                    GbaNatif.joy(0x14, d); nAvales++
+                    GbaNatif.joy(0x14, d); nAvales++; GbaNatif.regs(r); joycnt = r[3]
                 } else if (!attenteLu && js and 0x08 != 0 && aAvaler.remove(tv)) {   // (build 381 : deja donne au jeu par Pulse)
                     GbaNatif.joy(0x14, d); nAvales++
                     if (tv == codeJeu) { codeLu = true; GbaNatif.regs(r); joycnt = r[3] }   // (build 386 : JOYCNT relu apres la lecture : 4)
