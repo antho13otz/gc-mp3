@@ -24,7 +24,7 @@ open(cfg, 'w', encoding='latin-1').write('\n'.join(lines) + '\n')
 sc = RUN + '/sc.txt'; open(sc, 'w').write('wait 40s\nquit\n')
 env = dict(os.environ, PCSIM_SCRIPT=sc, PCSIM_OUT='out', PCSIM_NET='direct')
 log = open(RUN + '/log.txt', 'w')
-g = subprocess.Popen([P + '/gcstation'], cwd=RUN, env=env, stdout=log, stderr=subprocess.STDOUT)
+g = subprocess.Popen([os.environ.get('GCS_BIN', P + '/gcstation')], cwd=RUN, env=env, stdout=log, stderr=subprocess.STDOUT)
 u = socket.socket(socket.AF_INET, socket.SOCK_DGRAM); u.bind(('127.0.0.2', 61234))   # (127.0.0.1 : le simulateur lui-meme); u.settimeout(1)
 ok = {}
 def check(name, cond):
