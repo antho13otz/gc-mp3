@@ -9,7 +9,6 @@
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
-#include <winhttp.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,66 +22,54 @@ const wchar_t *pcw_exe_dir(void);
 void pcw_dolphin_stop(void);
 HWND pcw_window(void);
 
-/* ---------- HTTPS (WinHTTP) ---------- */
+/* ---------- HTTPS : curl.exe de Windows (Windows 10 et 11 l'ont ; WinHTTP refusait l'envoi sur certains Windows) ----------
+   Le jeton passe par un fichier d'en-tetes (pas sur la ligne de commande) ; les redirections sont suivies, et curl ne
+   donne pas le jeton a un autre site (le stockage des fichiers de GitHub n'en veut pas). */
 typedef struct { char *b; size_t n; } buf_t;
-/* GET ; *code : statut HTTP ; loc : en-tete Location (redirection : pas suivie) ; out : corps (ou fichier f) */
-static int http_get(const wchar_t *url, const char *tok, int *code, wchar_t *loc, int loccap, buf_t *out, FILE *f) {
-    URL_COMPONENTS u; memset(&u, 0, sizeof(u)); u.dwStructSize = sizeof(u);
-    wchar_t host[256], path[4096];
-    u.lpszHostName = host; u.dwHostNameLength = 256; u.lpszUrlPath = path; u.dwUrlPathLength = 4096;
-    wchar_t extra[4096]; u.lpszExtraInfo = extra; u.dwExtraInfoLength = 4096;
-    if (!WinHttpCrackUrl(url, 0, 0, &u)) { printf("[maj] adresse illisible (%lu)\n", GetLastError()); return 0; }
-    wcsncat(path, extra, 4096 - wcslen(path) - 1);
-    HINTERNET s = WinHttpOpen(L"gc-station-pc", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!s) s = WinHttpOpen(L"gc-station-pc", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!s) { printf("[maj] WinHttpOpen : %lu\n", GetLastError()); return 0; }
-    HINTERNET c = WinHttpConnect(s, host, u.nPort, 0);
-    HINTERNET r = c ? WinHttpOpenRequest(c, L"GET", path, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, u.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0) : NULL;
-    int ok = 0;
-    if (!r) printf("[maj] connexion a %ls : erreur %lu\n", host, GetLastError());
-    if (r) {
-        DWORD off = WINHTTP_DISABLE_REDIRECTS;
-        WinHttpSetOption(r, WINHTTP_OPTION_DISABLE_FEATURE, &off, sizeof(off));
-        wchar_t hd[600] = L"Accept: application/vnd.github+json\r\n";
-        if (tok && *tok) { wchar_t t[300]; MultiByteToWideChar(CP_UTF8, 0, tok, -1, t, 300); wcscat(hd, L"Authorization: Bearer "); wcscat(hd, t); wcscat(hd, L"\r\n"); }
-        int sent = WinHttpSendRequest(r, hd, (DWORD)-1L, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
-        if (!sent) printf("[maj] envoi : erreur %lu\n", GetLastError());
-        if (sent && !WinHttpReceiveResponse(r, NULL)) { printf("[maj] reponse : erreur %lu\n", GetLastError()); sent = 0; }
-        if (sent) {
-            DWORD st = 0, sz = sizeof(st);
-            WinHttpQueryHeaders(r, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &st, &sz, WINHTTP_NO_HEADER_INDEX);
-            *code = (int)st;
-            if (loc) { DWORD ls = (DWORD)(loccap * sizeof(wchar_t)); loc[0] = 0; if (!WinHttpQueryHeaders(r, WINHTTP_QUERY_LOCATION, WINHTTP_HEADER_NAME_BY_INDEX, loc, &ls, WINHTTP_NO_HEADER_INDEX)) loc[0] = 0; }
-            ok = 1;
-            if (st == 200 && (out || f)) {
-                for (;;) {
-                    DWORD av = 0, got = 0;
-                    if (!WinHttpQueryDataAvailable(r, &av)) { ok = 0; break; }
-                    if (!av) break;
-                    char *b = (char *)malloc(av);
-                    if (!b || !WinHttpReadData(r, b, av, &got)) { free(b); ok = 0; break; }
-                    if (f) fwrite(b, 1, got, f);
-                    else { char *nb = (char *)realloc(out->b, out->n + got + 1); if (!nb) { free(b); ok = 0; break; } out->b = nb; memcpy(out->b + out->n, b, got); out->n += got; out->b[out->n] = 0; }
-                    free(b);
-                }
-            }
-        }
-    }
-    if (r) WinHttpCloseHandle(r);
-    if (c) WinHttpCloseHandle(c);
-    WinHttpCloseHandle(s);
-    return ok;
+static int run_wait(const wchar_t *cmd);
+static int curl_get(const char *url, const char *tok, int *code, const wchar_t *out) {
+    wchar_t tmp[MAX_PATH], hdr[MAX_PATH], cf[MAX_PATH], c[4096], wu[2048];
+    GetTempPathW(MAX_PATH, tmp);
+    _snwprintf(hdr, MAX_PATH, L"%lsgcs-maj-h.txt", tmp);
+    _snwprintf(cf, MAX_PATH, L"%lsgcs-maj-code.txt", tmp);
+    FILE *h = _wfopen(hdr, L"wb");
+    if (!h) return 0;
+    fprintf(h, "Accept: application/vnd.github+json\n");
+    if (tok && *tok) fprintf(h, "Authorization: Bearer %s\n", tok);
+    fclose(h);
+    MultiByteToWideChar(CP_UTF8, 0, url, -1, wu, 2048);
+    _snwprintf(c, 4096, L"cmd.exe /c curl.exe -sS -L --max-time 600 -A gc-station-pc -H @\"%ls\" -o \"%ls\" -w %%{http_code} \"%ls\" > \"%ls\"", hdr, out, wu, cf);
+    DeleteFileW(cf);
+    int r = run_wait(c);
+    DeleteFileW(hdr);
+    char t[16] = "";
+    FILE *k = _wfopen(cf, L"rb");
+    if (k) { if (!fgets(t, sizeof(t), k)) t[0] = 0; fclose(k); }
+    DeleteFileW(cf);
+    *code = atoi(t);
+    if (r != 0 && !*code) printf("[maj] curl : code %d\n", r);
+    return *code > 0;
 }
 static int api(const char *path, const char *tok, buf_t *o, char *err, int ecap) {
-    wchar_t url[1024]; char u8[1024];
+    char u8[1024];
     snprintf(u8, sizeof(u8), "https://api.github.com/repos/%s%s", REPO, path);
-    MultiByteToWideChar(CP_UTF8, 0, u8, -1, url, 1024);
     int code = 0;
     o->b = NULL; o->n = 0;
-    if (!http_get(url, tok, &code, NULL, 0, o, NULL)) { snprintf(err, ecap, "GitHub injoignable (pas d'Internet ?)"); return 0; }
-    if (code == 401) { snprintf(err, ecap, "Jeton refus\xC3\xA9 par GitHub (expir\xC3\xA9 ou mal copi\xC3\xA9 ?)"); return 0; }
-    if (code == 403 || code == 404) { snprintf(err, ecap, "GitHub refuse (%d) : le jeton a-t-il \xC2\xAB Actions : Read-only \xC2\xBB sur " REPO " ?", code); return 0; }
-    if (code != 200 || !o->b) { snprintf(err, ecap, "GitHub : erreur %d", code); return 0; }
+    wchar_t tmp[MAX_PATH], of[MAX_PATH];
+    GetTempPathW(MAX_PATH, tmp); _snwprintf(of, MAX_PATH, L"%lsgcs-maj-api.json", tmp);
+    DeleteFileW(of);
+    if (!curl_get(u8, tok, &code, of)) { snprintf(err, ecap, "GitHub injoignable (pas d'Internet ?)"); return 0; }
+    FILE *f = _wfopen(of, L"rb");
+    if (f) {
+        fseek(f, 0, SEEK_END); long n = ftell(f); rewind(f);
+        o->b = (char *)malloc(n > 0 ? (size_t)n + 1 : 1);
+        if (o->b) { o->n = n > 0 ? fread(o->b, 1, (size_t)n, f) : 0; o->b[o->n] = 0; }
+        fclose(f);
+    }
+    DeleteFileW(of);
+    if (code == 401) { free(o->b); o->b = NULL; snprintf(err, ecap, "Jeton refus\xC3\xA9 par GitHub (expir\xC3\xA9 ou mal copi\xC3\xA9 ?)"); return 0; }
+    if (code == 403 || code == 404) { free(o->b); o->b = NULL; snprintf(err, ecap, "GitHub refuse (%d) : le jeton a-t-il \xC2\xAB Actions : Read-only \xC2\xBB sur " REPO " ?", code); return 0; }
+    if (code != 200 || !o->b) { free(o->b); o->b = NULL; snprintf(err, ecap, "GitHub : erreur %d", code); return 0; }
     return 1;
 }
 
@@ -226,22 +213,16 @@ static DWORD WINAPI check(LPVOID a) {
         each(b.b, "artifacts", ak, 3, cb_art, &art);
         free(b.b);
         if (!art.id[0]) { snprintf(err, sizeof(err), "Fichier de la compilation %ld introuvable (expir\xC3\xA9 ?)", best.num); goto fail; }
-        /* l'artefact : GitHub renvoie vers un stockage a part, qui ne veut PAS du jeton */
-        wchar_t url[512], loc[4096], tmp[MAX_PATH], dir[MAX_PATH], zip[MAX_PATH], z2[MAX_PATH], d2[MAX_PATH];
+        /* l'artefact (zip) : GitHub renvoie vers un stockage a part (curl suit, sans lui donner le jeton) */
+        wchar_t tmp[MAX_PATH], dir[MAX_PATH], zip[MAX_PATH], z2[MAX_PATH], d2[MAX_PATH];
         char u8[256]; snprintf(u8, sizeof(u8), "https://api.github.com/repos/" REPO "/actions/artifacts/%s/zip", art.id);
-        MultiByteToWideChar(CP_UTF8, 0, u8, -1, url, 512);
-        int code = 0;
-        if (!http_get(url, tok, &code, loc, 4096, NULL, NULL) || code / 100 != 3 || !loc[0]) { snprintf(err, sizeof(err), "T\xC3\xA9l\xC3\xA9" "chargement refus\xC3\xA9 (%d)", code); goto fail; }
         GetTempPathW(MAX_PATH, tmp);
         _snwprintf(dir, MAX_PATH, L"%lsgcs-maj", tmp);
         del_tree(dir);
         CreateDirectoryW(dir, NULL);
         _snwprintf(zip, MAX_PATH, L"%ls\\artefact.zip", dir);
-        FILE *f = _wfopen(zip, L"wb");
-        if (!f) { snprintf(err, sizeof(err), "Impossible d'\xC3\xA9" "crire dans le dossier temporaire"); goto fail; }
-        int ok = http_get(loc, NULL, &code, NULL, 0, NULL, f);
-        fclose(f);
-        if (!ok || code != 200) { snprintf(err, sizeof(err), "T\xC3\xA9l\xC3\xA9" "chargement : erreur %d", code); goto fail; }
+        int code = 0;
+        if (!curl_get(u8, tok, &code, zip) || code != 200) { snprintf(err, sizeof(err), "T\xC3\xA9l\xC3\xA9" "chargement : erreur %d", code); goto fail; }
         _snwprintf(d2, MAX_PATH, L"%ls\\a", dir);
         _snwprintf(z2, MAX_PATH, L"%ls\\a\\GC-Station-PC.zip", dir);
         if (!unzip(zip, d2) || GetFileAttributesW(z2) == INVALID_FILE_ATTRIBUTES) { snprintf(err, sizeof(err), "Fichier t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9 illisible"); goto fail; }

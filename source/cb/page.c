@@ -1769,7 +1769,9 @@ static void parse_job(void *arg) {
     }
 }
 
-void page_set_source(Page *p, char *src, size_t len, bool plain, const char *url) {
+void page_set_source(Page *p, char *src, size_t len, bool plain, const char *url_in) {
+    char url[sizeof(p->url)];                           /* GC Station v348 : copie d'abord (l'adresse peut etre celle d'un lien de */
+    snprintf(url, sizeof(url), "%s", url_in ? url_in : "");   /* l'ancienne page, liberee juste en dessous : lue apres liberation) */
     page_free_images(p);
     free_links(p);
     sheets_free(p);
