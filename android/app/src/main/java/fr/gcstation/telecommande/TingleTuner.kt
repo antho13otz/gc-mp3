@@ -124,6 +124,7 @@ object GbaTel {
                 }
                 val now = System.currentTimeMillis()
                 if (now - tPub > 200) { tPub = now; publier() }
+                if (vuPulse > 0) lireType()                    // (build 378 : type du port vu par le jeu, s'il est connu)
             }
         } catch (e: Exception) { note("Arrêt : ${e.message}") } finally { try { so.close() } catch (e: Exception) { } }
         publier()
@@ -194,24 +195,72 @@ object GbaTel {
         } catch (e: Exception) { note("Déchiffrement impossible : ${e.message}") }
     }
 
-    /** build 377 : ce que le jeu lit sur le port de la GBA (console v335), avec une lecture simple */
+    /** build 378 : le rapport detaille du port de la GBA (console v335 ; v338 : interruption, Pulse universel) */
     private fun detail(): String {
         val d = diag ?: return "Détail du port : pas reçu (console d'avant le build 855)\n"
         val port = when { d[10] and 1L != 0L -> 1; d[10] and 2L != 0L -> 2; d[10] and 4L != 0L -> 3; else -> 4 }
-        val sh = (4 - port) * 8
-        val srVrai = (d[4] shr sh) and 0x3F; val srRendu = (d[5] shr sh) and 0x3F
+        val ch = port - 1
+        val sh = (3 - ch) * 8
+        val nIrq = (d[10] shr 8) and 0xFFFFFF
+        val trapEtat = (d[11] shr 24).toInt(); val trapN = d[11] and 0xFFFFFF
+        fun sisr(v: Long) = ((v shr sh) and 0x3F).let { b -> "%02X".format(b) + (if (b == 0L) "" else " (" + listOfNotNull(if (b and 8L != 0L) "pas de réponse" else null, if (b and 4L != 0L) "collision" else null,
+            if (b and 2L != 0L) "débordement" else null, if (b and 1L != 0L) "manque" else null, if (b and 0x20L != 0L) "données neuves" else null, if (b and 0x10L != 0L) "écriture" else null).joinToString(", ") + ")") }
+        fun comcsr(v: Long) = "%08X".format(v) + " (" + listOf(if (v and 0x80000000L != 0L) "fin de transfert" else "pas de fin", if (v and 0x40000000L != 0L) "interruption permise" else "interruption masquée",
+            if (v and 0x20000000L != 0L) "ERREUR" else "pas d'erreur", "port ${((v shr 1) and 3) + 1}", if (v and 1L != 0L) "en cours" else "fini",
+            "envoi ${(v shr 16) and 0x7F} / réponse ${(v shr 8) and 0x7F} octets").joinToString(", ") + ")"
+        val dt = d[2]
         return buildString {
-            append("Détail du port $port : SIPOLL %08X ; aiguillés vers une vraie manette %d ; dernier transfert %08X ; lectures INBUF %d\n".format(d[0], d[1], d[2], d[3]))
-            append("SISR vrai %08X (port : %02X) rendu %08X (port : %02X) ; COMCSR rendu %08X ; fins de transfert vues %d ; lectures de la réponse %d ; dernière réponse %08X ; transferts %d\n"
-                   .format(d[4], srVrai, d[5], srRendu, d[6], d[7], d[8], d[9], d[11]))
+            append("\n=== Détail du port $port (ce que le jeu voit) ===\n")
+            append("Transferts du jeu vers ce port : ${d[8]} réponses lues ; aiguillés vers une vraie manette : ${d[1]}\n")
+            append("Dernier transfert : port ${((dt shr 24) and 3) + 1}, commande %02X, ${(dt shr 8) and 0x7F} octet(s) envoyés, ${dt and 0x7F} attendus\n".format((dt shr 16) and 0xFF))
+            append("SIPOLL %08X : manettes lues en continu : %s\n".format(d[0], (0..3).filter { (d[0] shr (7 - it)) and 1L != 0L }.joinToString(", ") { "port ${it + 1}" }.ifEmpty { "aucune" }))
+            append("SISR, vrai matériel : port $port = ${sisr(d[4])} ; rendu au jeu : ${sisr(d[5])}\n")
+            append("COMCSR rendu au jeu (dernière lecture) : ${comcsr(d[6])}\n")
+            append("Lectures de COMCSR avec « fin de transfert » passées par Pulse : ${d[7]}\n")
+            append("Interruptions des manettes pendant un transfert vers ce port (console 858+) : $nIrq ; vrai COMCSR à ce moment : ${if (nIrq > 0) comcsr(d[3]) else "—"}\n")
+            append("Dernière réponse rendue : %08X (%s)\n".format(d[9], if (d[9] shr 16 == 0x0004L) "GBA, JOYSTAT %02X".format((d[9] shr 8) and 0xFF) else "autre"))
+            append("Pulse universel : " + when (trapEtat) { 0 -> "pas demandé"; 1 -> "ACTIF ($trapN accès pris)"; 2 -> "refusé (BAT)"; 3 -> "refusé (BAT 2)"; 4 -> "refusé (le jeu a sa propre table des pages)"
+                5 -> "refusé (vecteur d'exception du jeu)"; 6 -> "refusé (table des pages pleine)"; 7 -> "perdu en cours de jeu"; else -> "état $trapEtat" } + "\n")
+            typeJeu?.let { append(it) }
             append("Lecture : " + when {
-                d[11] == 0L -> "le jeu n'envoie rien à ce port"
-                d[8] == 0L -> "le jeu ne lit jamais la réponse (fin de transfert pas vue par le jeu)"
-                d[7] == 0L -> "pas de fin de transfert vue par le jeu"
-                srRendu != 0L -> "erreur encore visible pour le jeu (SISR)"
+                d[8] == 0L -> "le jeu n'envoie rien à ce port"
+                nIrq == 0L && trapEtat != 1 -> "aucune interruption vue pendant les transferts vers la GBA (ou console d'avant le build 858)"
+                nIrq > 0 && d[3] and 0x20000000L != 0L -> "le vrai matériel signale une ERREUR à la fin du transfert aiguillé"
+                d[7] == 0L -> "la fin de transfert n'est pas lue par Pulse (accès du jeu non aiguillé)"
+                ((d[5] shr sh) and 0x0F) != 0L -> "erreur encore visible pour le jeu (SISR)"
                 d[9] shr 16 != 0x0004L -> "réponse rendue inattendue"
                 else -> "réponse « GBA » rendue sans erreur"
             } + "\n")
+        }
+    }
+
+    // build 378 : le type du port que garde la bibliotheque SI du jeu (adresses lues dans son main.dol), lu dans sa memoire
+    // (chercheur de codes) : la vraie raison pour laquelle le jeu reconnait ou non la GBA
+    @Volatile private var typeJeu: String? = null
+    private var tType = 0L
+    private val TYPES = mapOf("GRHP41" to 0x80235868L, "G4SP01" to 0x804B5218L)   // (Rayman 3, Four Swords PAL : Type[4] ; Si.chan en -0x14)
+    private fun lireType() {
+        val id = Compagnon.jeuReel.ifEmpty { Compagnon.jeu }
+        val a = TYPES[id] ?: run { typeJeu = null; return }
+        val now = System.currentTimeMillis()
+        if (now - tType < 1500) return
+        tType = now
+        val b = try { MemoireJeu.bloc(a and 0x3FFL.inv()) } catch (e: Exception) { null } ?: run { typeJeu = "Type vu par le jeu ($id) : illisible (chercheur de codes activé ?)\n"; return }
+        val o = (a and 0x3FFL).toInt()
+        fun w(k: Int) = g32(b, o + k)
+        fun lire(t: Long): String = when {
+            t and 0x08L != 0L -> "PAS DE RÉPONSE"
+            t and 0x47L != 0L -> "ERREUR %02X".format(t and 0xFF)
+            t and 0xFFL != 0L -> "OCCUPÉ (demande en cours)"
+            t and 0xFFFF0000L == 0x00040000L -> "GBA"
+            t and 0xFFFF0000L == 0x09000000L -> "manette"
+            t == 0L -> "rien"
+            else -> "autre"
+        }
+        typeJeu = buildString {
+            append("Type gardé par le jeu ($id, mémoire %08X) : ".format(a))
+            append((0..3).joinToString(" ; ") { "port ${it + 1} = %08X %s".format(w(it * 4), lire(w(it * 4))) })
+            append(" ; transfert en cours vers le port ${(w(-0x14) and 3) + 1} (%08X)\n".format(w(-0x14)))
         }
     }
 
