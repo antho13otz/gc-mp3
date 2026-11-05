@@ -1940,10 +1940,19 @@ static void card_done(vcard_t *v) {                      /* fin d'effacement / d
    les 10 images) et envoie des echantillons 16 bits deja a la bonne frequence ; interruption des qu'un paquet entier est la. */
 static MEM_OS u32 mic_flags(natres_pad_t *p) { return (p->micon ? 1u : 0u) | (vc[1].id == MIC_ID ? 2u : 0u) | (vc[1].on ? 4u : 0u); }
 static MEM_OS __attribute__((noinline)) natres_pad_t *mic_p(void) { natres_pad_t *p = pd_find(); return p && p->micon ? p : 0; }
-static MEM_OS void mic_ready(natres_pad_t *p) {          /* un paquet entier attend : interruption EXI du slot B */
+/* v353 : comme un vrai micro, un paquet a la cadence de la frequence choisie (32 octets a 11025 Hz : toutes les 1,45 ms),
+   des que le jeu l'allume : le son du telephone s'il est la, sinon du silence. Avant : seulement quand le son du telephone
+   etait arrive (~200 ms apres la mise en marche) ; Mario Party 7 eteignait le micro avant (« no Mic »). */
+static u32 mic_tnext = 0;                                /* (horloge : quand le prochain paquet est du) */
+static MEM_OS void mic_ready(natres_pad_t *p) {          /* un paquet est du : interruption EXI du slot B */
     vcard_t *v = &vc[1];
-    u32 k = (p->mstat >> 13) & 3u;                       /* (paquets de 32, 64, 128 octets ; 3 comme 2) */
-    if (v->id != MIC_ID || !(p->mstat & 0x8000u) || (v->irq & 2u) || p->mw - p->mr < (32u << (k > 2u ? 2u : k))) return;
+    u32 k = (p->mstat >> 13) & 3u, r = (p->mstat >> 11) & 3u;   /* (paquets de 32, 64, 128 octets ; 11025, 22050, 44100 Hz) */
+    if (v->id != MIC_ID || !(p->mstat & 0x8000u) || (v->irq & 2u)) return;
+    u32 pk = 32u << (k > 2u ? 2u : k), tpb = 40500000u / (22050u << (r > 2u ? 2u : r));   /* (tops d'horloge par octet) */
+    u32 now = tbl();
+    if ((int)(now - mic_tnext) < 0) return;              /* (pas encore) */
+    if ((int)(now - mic_tnext) > 4050000) mic_tnext = now;   /* (plus de 100 ms de retard : on repart d'ici, sans rafale) */
+    mic_tnext += pk * tpb;
     v->irq |= 2u; p->mnirq++; x_kick();
 }
 static MEM_OS u8 mic_byte(vcard_t *v, u8 b) {
@@ -1959,7 +1968,7 @@ static MEM_OS u8 mic_byte(vcard_t *v, u8 b) {
         if (v->pos == 1) v->addr = (u32)b << 8;
         else if (v->pos == 2) {
             u32 st = (v->addr | b) & 0xFDFFu;            /* (bit 9 : debordement, jamais ici) */
-            if (st != p->mstat) p->mr = p->mw;           /* (mise en marche, autre frequence : pas de vieux son) */
+            if (st != p->mstat) { p->mr = p->mw; mic_tnext = tbl(); }   /* (mise en marche, autre frequence : pas de vieux son ; v353 : 1er paquet tout de suite) */
             if (!(st & 0x8000u)) v->irq &= ~2u;
             p->mstat = st;
         }
