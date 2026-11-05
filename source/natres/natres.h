@@ -168,6 +168,9 @@ typedef struct {
     unsigned int gkey, gtrans, gnew, gip, gport, gmac0, gmac1, gn00, gn14, gnrx, gntx;
     /* (v333) numero du dernier JOY_TRANS donne par le telephone (bits 16-23 des options), et du dernier lu par le jeu (14) */
     unsigned int gtid, gtidlu;
+    /* (v335, diagnostic) port de la GBA : derniere lecture de SISR (vraie, rendue au jeu), derniere de COMCSR rendue, lectures
+       de COMCSR avec la fin de transfert (TCINT), du tampon de reponse, dernier mot de reponse rendu */
+    unsigned int gdsr0, gdsr1, gdcom, gdtc, gdbuf, gdrep;
     /* (v332, hors du journal) micro du telephone : le slot B joue le micro GameCube (DOL-022 : Mario Party 6 et 7...). micon
        (GC Station) : 1 = actif. Le reste (resident) : etat du micro (ecrit par la commande 80, lu par 40 : bit 15 en marche,
        bits 13-14 paquet de 32 / 64 / 128 octets, bits 11-12 11025 / 22050 / 44100 Hz, bit 10 gain), commandes du jeu,
@@ -184,7 +187,10 @@ typedef struct {
      pas au jeu ; 0 : toujours pris)}
    console -> telephone (chaque image s'il y a des mots, sinon toutes les 15) : {"GCGB", 2, (v333) numero du dernier
      JOY_TRANS lu par le jeu (avant : 1, le port), etat, JOYSTAT, cle de session,
-     taille annoncee, octets recus, numero du 1er mot, n, commandes 00/FF, 14, 15, puis n mots du jeu (dans l'ordre)} */
+     taille annoncee, octets recus, numero du 1er mot, n, commandes 00/FF, 14, 15, puis n mots du jeu (dans l'ordre), puis (v335,
+     diagnostic, 48 octets) : SIPOLL, transferts aiguilles vers une vraie manette, dernier transfert (port << 24 | commande << 16 |
+     octets envoyes << 8 | octets attendus), lectures de INBUF du port de la GBA, SISR (vrai, rendu), COMCSR rendu, lectures de
+     COMCSR avec TCINT, lectures du tampon de reponse, dernier mot de reponse, gbmask, transferts vers le port de la GBA} */
 #define NATRES_GBA_MAGIC 0x47434742u                    /* "GCGB" */
 /* v332 : micro du telephone. Paquets UDP "GCVO" sur le meme port (pas "GCM?" : chercheur de codes) : telephone -> console
    {"GCVO", numero, n, n octets} (n <= 1472 : echantillons 16 bits gros-boutistes, a la frequence de l'etat renvoye, bits

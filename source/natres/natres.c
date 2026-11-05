@@ -1107,8 +1107,13 @@ static MEM_OS void gb_tx(natres_pad_t *p) {              /* (chaque image) : mot
     pn_p32(uu + 8, p->gkey); pn_p32(uu + 12, p->glen); pn_p32(uu + 16, p->gpos); pn_p32(uu + 20, p->ga); pn_p32(uu + 24, n);
     pn_p32(uu + 28, p->gn00); pn_p32(uu + 32, p->gn14); pn_p32(uu + 36, p->gn15);
     for (u32 i = 0; i < n; i++) pn_p32(uu + 40 + i * 4, gb_ring[(p->ga + i) % GB_RING]);
+    {   /* (v335 : diagnostic du port de la GBA, apres les mots : l'appli d'avant l'ignore) */
+        u32 ch = p->gbmask & 1 ? 0 : p->gbmask & 2 ? 1 : p->gbmask & 4 ? 2 : 3;
+        const u32 dg[12] = { p->poll, p->redir, p->tr[(p->ntr - 1) & 7], p->ninb[ch], p->gdsr0, p->gdsr1, p->gdcom, p->gdtc, p->gdbuf, p->gdrep, p->gbmask, p->gn00 + p->gn14 + p->gn15 };
+        for (u32 i = 0; i < 12; i++) pn_p32(uu + 40 + n * 4 + i * 4, dg[i]);
+    }
     pn_p32(mac, p->gmac0); pn_p16(mac + 4, p->gmac1 >> 16);
-    pn_udp(p, mac, p->gip, p->gport, 40 + n * 4);
+    pn_udp(p, mac, p->gip, p->gport, 40 + n * 4 + 48);
     p->gntx++;
 }
 
@@ -1199,12 +1204,19 @@ static u32 pd_si_load(natres_pad_t *p, u32 o, u32 v, int *done) {
     if (o == 0x38u) {                                     /* SISR : donnees neuves, aucune erreur sur les ports du telephone */
         p->nsr++;
         for (u32 ch = 0; ch < 4; ch++) if (p->chmask >> ch & 1) { u32 s = (3 - ch) * 8; v = (v & ~(0x3Fu << s)) | (0x20u << s); }
+        if (p->gbmask) p->gdsr0 = v;                     /* (v335 : diagnostic) */
         for (u32 ch = 0; ch < 4; ch++) if (p->gbmask >> ch & 1) v &= ~(0x3Fu << (3 - ch) * 8);   /* (v331 : GBA : sans erreur) */
+        if (p->gbmask) p->gdsr1 = v;
         return v;
     }
     int mine = p->xch < 4 && (p->chmask >> p->xch & 1), gm = gb_port(p, p->xch);
-    if (o >= 0x80u && o < 0x100u && gm) { u32 w = (o - 0x80u) / 4u; p->nbuf++; return w == 0 ? gb_r0 : w == 1 ? gb_r1 : 0; }   /* v331 : reponse de la GBA */
-    if (o == 0x34u && (mine || gm)) { p->ncom++; if ((v & 0x80000000u) && p->ncom < 4000u) pd_ev(p, 5, v >> 8); return (v & ~0x20000006u) | p->xch << 1; }   /* COMCSR : pas d'erreur de transfert (et le port demande par le jeu) */
+    if (o >= 0x80u && o < 0x100u && gm) { u32 w = (o - 0x80u) / 4u, r = w == 0 ? gb_r0 : w == 1 ? gb_r1 : 0; p->nbuf++; p->gdbuf++; p->gdrep = r; return r; }   /* v331 : reponse de la GBA */
+    if (o == 0x34u && (mine || gm)) {                     /* COMCSR : pas d'erreur de transfert (et le port demande par le jeu) */
+        p->ncom++; if ((v & 0x80000000u) && p->ncom < 4000u) pd_ev(p, 5, v >> 8);
+        v = (v & ~0x20000006u) | p->xch << 1;
+        if (gm) { p->gdcom = v; if (v & 0x80000000u) p->gdtc++; }   /* (v335 : diagnostic) */
+        return v;
+    }
     if (o >= 0x80u && o < 0x100u && mine) {               /* reponse d'une commande envoyee au port du telephone */
         u32 w = (o - 0x80u) / 4u;
         p->nbuf++;
