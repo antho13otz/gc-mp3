@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 390 — GBA du téléphone : après une remise à zéro, l'identifiant d'abord
+
+Après une remise à zéro, la GBA émulée recevait parfois l'identifiant renvoyé par le jeu avant d'avoir écrit le sien et appris sa lecture : elle ne passait pas en « connecté » et refusait la suite (commande 80). Les mots du jeu attendent maintenant que la GBA ait écrit son identifiant et appris sa lecture (30 images au plus).
+
 ## Nouveautés v348 (build 870) — GBA du téléphone : l'identifiant appris même en retard
 
 Rayman 3 remet la GBA à zéro à chaque image : la réponse du téléphone (son identifiant) arrivait toujours après la remise à zéro suivante et était ignorée, si bien que Pulse ne pouvait jamais répondre à sa place. L'identifiant ne change pas : Pulse le retient maintenant même en retard.
