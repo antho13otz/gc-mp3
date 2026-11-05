@@ -15,6 +15,7 @@ on:
       - 'tools/fiches_gametdb.py'
       - 'tools/catalogue.py'
       # (la version PC seule : pas de nouvelle version de la console)
+      - 'pc/**'
       - 'tools/pc-sim/**'
       - '.github/workflows/windows.yml'
       - '.github/workflows/touches-3h.yml'

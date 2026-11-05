@@ -1,0 +1,3144 @@
+// GC-MP3 v25 : « Mes jeux GameCube » (onglet JEUX) — inclus dans main.c apres cheats.c
+// Liste les jeux de la carte SD (.iso, .gcm, .ciso, .nkit.iso) avec :
+//  - l'ID et le nom lus dans le jeu, la banniere du disque (opening.bnr) ;
+//  - les jaquettes : SD:/gc-mp3/jaquettes/posters.pak (192x256, CMPR), les captures
+//    stills.pak (320x240) et descriptions.txt (v90 : avant dans SD:/swiss/ui, deplaces une fois).
+// Format des packs : SWPK v1, nombres en big-endian.
+// v90 : les jeux se lancent avec Resident (natif.c), ou le lanceur de secours (lanceur.c).
+
+#define GL_MAX      400
+#define GL_UI       GCD "/jaquettes"
+#define GL_CACHE    GCD "/cache/jeux"
+#define GL_SLOTS    96                       /* jaquettes gardees en memoire (128x128 CMPR : 8 Ko chacune) ; v92 : 96 */
+#define GL_BSLOTS   40                       /* bannieres gardees en memoire */
+
+typedef struct {
+    char path[NAME_LEN];
+    char id[8];
+    char title[72];
+    long size;
+    u8 disc, ciso;
+    s16 post, still;                         /* position dans les packs, -1 = aucune, -2 = pas encore cherche */
+    s8 bslot;                                /* banniere en memoire (-1 = pas chargee) */
+    u8 bstate;                               /* 0 = a lire, 1 = lue, 2 = pas de banniere */
+    char *desc;                              /* description (descriptions.txt ou banniere) */
+    long key;                                /* v45 : cle de tri */
+    u16 runs;                                /* v45 : nombre de lancements depuis GC-MP3 */
+    u32 last;                                /* v45 : dernier lancement (secondes) */
+    u32 play;                                /* v73 : temps de jeu mesure par Resident (secondes) */
+    u8 fav;                                  /* v76 : jeu favori (remonte en haut de la liste) */
+    u8 dvd;                                  /* v97 : case "Disque de la console" (vrai lecteur), toujours la 1re */
+} gcg_t;
+/* v28 : 6 facons d'afficher les jeux (R / L pour changer) */
+enum { GLV_GRID, GLV_CAROUSEL, GLV_LIST, GLV_WALL, GLV_SHOW, GLV_SHELF, GLV_COUNT };
+static void tl_recent_add(const char *path);            /* v35 : derniers jeux lances (tools.c) */
+static void indigo_game_open(const char *id, const char *title);   /* v35 : reglages du jeu (indigo_cfg.c) */
+static int gl_view = GLV_GRID;
+static const char *const gl_view_names[GLV_COUNT] = { "Grille", "Carrousel", "Liste", "Mur de jaquettes", "Vitrine", "\xC3\x89tag\xC3\xA8re" };
+/* v103 : styles Moderne, Nouvelle et Aurore : la vue Grille (et Carrousel) devient une rangee de grandes
+   jaquettes qui defile, dessinee dans le style choisi (Classique : inchange) */
+static int gl_styled(void) { return ui_skin >= 1 && gl_view != GLV_LIST; }   /* (R : jaquettes <-> liste) */
+static const char *gl_view_name(void) { return gl_styled() ? "Jaquettes" : gl_view_names[gl_view]; }
+static int gl_view_cols(void) { return gl_styled() ? 1 : gl_view == GLV_WALL ? 9 : gl_view == GLV_GRID || gl_view == GLV_SHELF ? 6 : 1; }
+static void gl_load_big(int k);
+/* v46 : cheats du jeu k : -1 = pas de fichier de cheats, sinon nombre de cheats actives */
+static int gl_cheats_on(int k);
+static void gl_stats_load(void);
+static void gl_fav_load(void);
+static void gl_fav_save(void);
+static void gl_apply_sort(void);
+static int gs_dirty;                                       /* v196 : espace Jeux GameCube (gspace.c) */
+static int gs_view(void);
+static void gs_input(u32 down, u32 nav, int fire);
+static void gs_draw(void);
+static void gs_draw_fiche(void);                           /* v197 */
+static int gs_step(int d);
+static int ld_ready(void);
+static int ld_build(void);                                 /* (lanceur.c) */
+static gcg_t *gl = NULL;
+static void jb_open_game(int g);                  /* v207 : jukebox.c */
+static int gl_n = 0, gl_scanned = 0, gl_on = 0, gl_sel = 0, gl_detail = 0;
+static char gl_msg[160];
+static u64 gl_msg_t = 0;
+static int gl_launch_sel;
+static int gl_list_dirty = 0;
+static char gl_busy[96] = "";                            /* v27 : message "en cours" affiche par-dessus */
+static void gl_status(const char *m) { snprintf(gl_busy, sizeof(gl_busy), "%s", TR(m)); ui_status(m); }                            /* v27 : noms / descriptions lus dans les bannieres */
+static const char *gl_launch(int k);
+static void gl_dl_apply(void);                            /* v280 : jaquettes ajoutees */
+static void gl_fx_reset(void);                            /* v281 : fiches des jeux */
+static f32 gl_fx_draw(const char *id, f32 x, f32 y, int w);
+static const char *gl_fx_syn(const char *id);
+static int bx_input(u32 down);                            /* v282 : boite 3D (box3d.c) */
+static int nt_input(u32 down, u32 nav, int fire);       /* v296 : notice (notice.c) */
+static int gl_abs_in(const char *path, const char *id);  /* v290 : disque de la boite */
+static u16 *gl_dk_convert(const u8 *img, int n);
+static void gl_dk_save(const char *id, const u16 *t);
+static void gl_scan(void);
+static int gl_net_busy(int ex);                           /* v292 : un seul telechargement d'images a la fois */
+static void gl_note(const char *m);
+static int gs_dirty;
+#define GL_POST_DL 30000                                 /* (gl[k].post : jaquette ajoutee, pas dans posters.pak) */
+static const char *game_boot(int k, int resident);         /* v75 : lancement avec les reglages du jeu (jeux_cfg.c) */
+static const char *game_boot_auto(int k);                  /* v90 : Resident, ou le lanceur de secours si des cheats sont actives */
+static void nat_run(int k);                                /* v50 : lanceur natif, analyse (natif.c) */
+static void nat_bench_all(void);                           /* v171 : banc d'essai : export de tous les jeux (natif.c) */
+static const char *nat_boot(int k);                        /* v51 : lanceur maison, demarrage natif (natif.c), en test */
+static const char *nat_boot_disc(int k);                   /* v97 : disque du vrai lecteur (natif.c) */
+static int gl_has_dvd(void);
+static int nat_qr_input(u32 down);                         /* v51 : QR code du rapport */
+static void nat_draw_qr(void);
+
+/* ---------- v266 : lecture rapide d'un gros fichier de la carte SD ----------
+   libfat retrouve une position dans un fichier en suivant la chaine des clusters depuis le debut : sur la carte
+   de 64 Go (test de la console : 4 Ko au hasard = 540 ms, 200 a 700 Ko lus pour une image bloquee), chaque jaquette
+   de posters.pak coutait 180 ms. Ici, les morceaux du fichier sur la carte sont trouves une fois (comme pour Pulse),
+   puis on lit directement les secteurs. Seulement pour des fichiers qui ne changent pas pendant qu'on les lit (packs) ;
+   le fichier est revu (taille, 1er cluster) toutes les 3 s : s'il a change, on revient a la lecture normale. */
+typedef struct { u32 fsec, sd, cnt; } fm_ext_t;           /* (secteur dans le fichier, secteur sur la carte, nombre) */
+typedef struct { fm_ext_t *e; int n; u32 size, ino; char path[NAME_LEN]; u64 chk; } fmap_t;
+static int fm_geo_st = 0;                                 /* 0 pas encore, 1 ok, -1 impossible (pas de FAT lisible) */
+static u32 fm_spc, fm_fat_lba, fm_data_lba, fm_ncl; static int fm_fat32;
+static int fm_rs(u32 sec, void *b) { if (!sd_real_if || !sd_io_read(sec, 1, b)) return -1; sd_rd_sec++; return 0; }
+static u32 fm_le16(const u8 *p) { return (u32)p[0] | (u32)p[1] << 8; }
+static u32 fm_le32(const u8 *p) { return (u32)p[0] | (u32)p[1] << 8 | (u32)p[2] << 16 | (u32)p[3] << 24; }
+static int fm_is_fat(const u8 *b) { return b[510] == 0x55 && b[511] == 0xAA && fm_le16(b + 0x0B) == 512 && b[0x0D] && (!memcmp(b + 0x36, "FAT", 3) || !memcmp(b + 0x52, "FAT", 3)); }
+static int fm_geo(void) {
+    if (fm_geo_st) return fm_geo_st > 0;
+    static u8 b[512] ATTRIBUTE_ALIGN(32);
+    fm_geo_st = -1;
+    if (sd_virtual || fm_rs(0, b)) return 0;
+    u32 part = 0;
+    if (!fm_is_fat(b)) {
+        u8 mbr[64]; memcpy(mbr, b + 0x1BE, 64);
+        int found = 0;
+        for (int i = 0; i < 4 && !found; i++) { u32 lba = fm_le32(mbr + i * 16 + 8); if (lba && !fm_rs(lba, b) && fm_is_fat(b)) { part = lba; found = 1; } }
+        if (!found) return 0;
+    }
+    u32 spc = b[0x0D], rsvd = fm_le16(b + 0x0E), nfats = b[0x10], rootent = fm_le16(b + 0x11);
+    u32 tot = fm_le16(b + 0x13) ? fm_le16(b + 0x13) : fm_le32(b + 0x20);
+    u32 fatsz = fm_le16(b + 0x16) ? fm_le16(b + 0x16) : fm_le32(b + 0x24);
+    u32 data = rsvd + nfats * fatsz + (rootent * 32 + 511) / 512;
+    if (!spc || !fatsz || tot <= data) return 0;
+    fm_ncl = (tot - data) / spc;
+    if (fm_ncl < 4085) return 0;
+    fm_fat32 = fm_ncl >= 65525; fm_spc = spc; fm_fat_lba = part + rsvd; fm_data_lba = part + data;
+    fm_geo_st = 1;
+    return 1;
+}
+static void fm_free(fmap_t *m) { free(m->e); m->e = NULL; m->n = 0; m->size = 0; }
+static int fm_build(fmap_t *m, const char *path) {         /* 1 = morceaux trouves */
+    static u8 fb[512] ATTRIBUTE_ALIGN(32);
+    fm_free(m);
+    struct stat st;
+    if (!fm_geo() || stat(path, &st) != 0 || st.st_size <= 0 || st.st_size > 0x7FFFFFFFL) return 0;
+    u32 clus = (u32)st.st_ino, need = (u32)(((u64)st.st_size + 511) >> 9), isec = 0, guard = 0, cached = 0xFFFFFFFFu;
+    int cap = 0;
+    while (isec < need) {
+        if (clus < 2 || clus >= fm_ncl + 2 || ++guard > fm_ncl) { fm_free(m); return 0; }
+        u32 sd = fm_data_lba + (clus - 2) * fm_spc, cnt = fm_spc;
+        if (isec + cnt > need) cnt = need - isec;
+        if (m->n && m->e[m->n - 1].sd + m->e[m->n - 1].cnt == sd) m->e[m->n - 1].cnt += cnt;
+        else {
+            if (m->n >= cap) {
+                int nc = cap ? cap * 2 : 64;
+                if (nc > 65536) { fm_free(m); return 0; }      /* (trop fragmente : lecture normale) */
+                fm_ext_t *x = (fm_ext_t *)realloc(m->e, sizeof(fm_ext_t) * nc);
+                if (!x) { fm_free(m); return 0; }
+                m->e = x; cap = nc;
+            }
+            m->e[m->n].fsec = isec; m->e[m->n].sd = sd; m->e[m->n].cnt = cnt; m->n++;
+        }
+        isec += cnt;
+        if (isec >= need) break;
+        u32 off = fm_fat32 ? clus * 4 : clus * 2, fs = fm_fat_lba + off / 512;
+        if (fs != cached) { if (fm_rs(fs, fb)) { fm_free(m); return 0; } cached = fs; }
+        clus = fm_fat32 ? fm_le32(fb + off % 512) & 0x0FFFFFFFu : fm_le16(fb + off % 512);
+        if ((fm_fat32 && clus >= 0x0FFFFFF8u) || (!fm_fat32 && clus >= 0xFFF8u)) break;
+    }
+    if (isec < need) { fm_free(m); return 0; }
+    m->size = (u32)st.st_size; m->ino = (u32)st.st_ino; m->chk = now_ms();
+    snprintf(m->path, sizeof(m->path), "%s", path);
+    return 1;
+}
+static int fm_fresh(fmap_t *m) {                           /* le fichier n'a pas change (revu toutes les 3 s) */
+    if (!m->e) return 0;
+    u64 n = now_ms();
+    if (n - m->chk < 3000) return 1;
+    struct stat st;
+    if (stat(m->path, &st) != 0 || (u32)st.st_size != m->size || (u32)st.st_ino != m->ino) { fm_free(m); return 0; }
+    m->chk = n;
+    return 1;
+}
+/* les secteurs de la carte pour [off, off + len) (pour un autre fil, qui n'a plus besoin de la carte des morceaux) :
+   rend le nombre de suites (0 = pas possible) ; *head = decalage dans le 1er secteur */
+#define FM_RUNS 16
+static int fm_runs(const fmap_t *m, u32 off, u32 len, u32 *rsd, u32 *rcnt, u32 *head) {
+    if (!m->e || !len || off + len > m->size || off + len < off) return 0;
+    u32 s0 = off >> 9, ns = ((off + len - 1) >> 9) - s0 + 1, done = 0;
+    int lo = 0, hi = m->n - 1, k = 0, nr = 0;
+    while (lo <= hi) { int md = (lo + hi) / 2; if (m->e[md].fsec <= s0) { k = md; lo = md + 1; } else hi = md - 1; }
+    while (done < ns && k < m->n && nr < FM_RUNS) {
+        const fm_ext_t *e = &m->e[k];
+        u32 fs = s0 + done;
+        if (fs < e->fsec || fs >= e->fsec + e->cnt) { k++; continue; }
+        u32 c = e->fsec + e->cnt - fs;
+        if (c > ns - done) c = ns - done;
+        rsd[nr] = e->sd + (fs - e->fsec); rcnt[nr++] = c;
+        done += c; k++;
+    }
+    *head = off & 511;
+    return done == ns ? nr : 0;
+}
+static int fm_read(const fmap_t *m, u32 off, void *dst, u32 len) {   /* 0 = lu */
+    if (!m->e || !len || off + len > m->size || off + len < off) return -1;
+    u32 s0 = off >> 9, s1 = (off + len - 1) >> 9, ns = s1 - s0 + 1;
+    u8 *b = (u8 *)memalign(32, ns * 512);
+    if (!b) return -1;
+    int lo = 0, hi = m->n - 1, k = 0;
+    while (lo <= hi) { int md = (lo + hi) / 2; if (m->e[md].fsec <= s0) { k = md; lo = md + 1; } else hi = md - 1; }
+    u32 done = 0;
+    while (done < ns && k < m->n) {
+        const fm_ext_t *e = &m->e[k];
+        u32 fs = s0 + done;
+        if (fs < e->fsec || fs >= e->fsec + e->cnt) { k++; continue; }
+        u32 c = e->fsec + e->cnt - fs;
+        if (c > ns - done) c = ns - done;
+        DCInvalidateRange(b + done * 512, c * 512);
+        if (!sd_io_read(e->sd + (fs - e->fsec), c, b + done * 512)) { free(b); return -1; }
+        sd_rd_sec += c;
+        done += c; k++;
+    }
+    if (done < ns) { free(b); return -1; }
+    memcpy(dst, b + (off & 511), len);
+    free(b);
+    return 0;
+}
+
+/* ---------- packs SWPK ---------- */
+typedef struct {
+    FILE *fp; int n; u8 *idx;                 /* index : n x 32 octets */
+    u32 rsize; int cw, ch, iw, ih, levels;
+    fmap_t fm;                                /* v266 : lecture rapide (morceaux sur la carte SD) */
+} swpk_t;
+static swpk_t gl_post, gl_still;
+
+
+static void swpk_close(swpk_t *k) { if (k->fp) fclose(k->fp); free(k->idx); fm_free(&k->fm); memset(k, 0, sizeof(*k)); }
+static int swpk_open(swpk_t *k, const char *path, int cw, int ch) {
+    swpk_close(k);
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    u8 h[64];
+    if (fread(h, 1, 64, f) != 64 || memcmp(h, "SWPK", 4) || be32(h + 4) != 1 || h[0x2D] != 14) { fclose(f); return 0; }
+    int n = (int)be32(h + 0x0C);
+    u32 io = be32(h + 0x10), il = be32(h + 0x14), rs = be32(h + 0x20);
+    if (n < 1 || n > 4096 || io != 64 || il != (u32)n * 32 || be16(h + 0x24) != cw || be16(h + 0x26) != ch) { fclose(f); return 0; }
+    u8 *idx = (u8 *)malloc(il);
+    if (!idx || fread(idx, 1, il, f) != il) { free(idx); fclose(f); return 0; }
+    k->fp = f; k->n = n; k->idx = idx; k->rsize = rs;
+    k->cw = cw; k->ch = ch; k->iw = be16(h + 0x28); k->ih = be16(h + 0x2A); k->levels = h[0x2C];
+    if (k->iw <= 0 || k->iw > cw) k->iw = cw;
+    if (k->ih <= 0 || k->ih > ch) k->ih = ch;
+    fm_build(&k->fm, path);                                 /* v266 : (sinon : fseek de libfat, comme avant) */
+    return 1;
+}
+/* l'ID complet, sinon un enregistrement "universel" des 4 premiers caracteres */
+static int swpk_find(const swpk_t *k, const char *id) {
+    if (!k->idx) return -1;
+    int lo = 0, hi = k->n - 1;
+    while (lo <= hi) {
+        int m = (lo + hi) / 2, c = memcmp(k->idx + m * 32, id, 6);
+        if (!c) return m;
+        if (c < 0) lo = m + 1; else hi = m - 1;
+    }
+    for (int i = 0; i < k->n; i++) if (!memcmp(k->idx + i * 32, id, 4) && (k->idx[i * 32 + 6] & 1)) return i;
+    return -1;
+}
+/* v142 : (fil du serveur du telephone) la jaquette du jeu k, en CMPR, telle qu'elle est dans posters.pak */
+static u8 *gl_cover_raw(int k, int *w, int *h, int *iw, int *ih, u32 *len) {
+    if (k < 0 || k >= gl_n || !gl_post.idx) return NULL;
+    int r = gl[k].post;
+    u32 n = (u32)gl_post.cw * gl_post.ch / 2;
+    if (r < 0 || r >= gl_post.n || !n || n > 65536) return NULL;
+    u32 off = be32(gl_post.idx + r * 32 + 8);
+    u8 *b = (u8 *)malloc(n);
+    if (b && gl_post.fm.e && fm_read(&gl_post.fm, off, b, n) == 0) { *w = gl_post.cw; *h = gl_post.ch; *iw = gl_post.iw; *ih = gl_post.ih; *len = n; return b; }   /* v266 */
+    FILE *f = fopen(GL_UI "/posters.pak", "rb");
+    if (!f || !b || fseek(f, (long)off, SEEK_SET) != 0 || fread(b, 1, n, f) != n) { free(b); b = NULL; }
+    if (f) fclose(f);
+    if (b) { *w = gl_post.cw; *h = gl_post.ch; *iw = gl_post.iw; *ih = gl_post.ih; *len = n; }
+    return b;
+}
+/* lit le niveau "level" (0 = taille reelle) d'une texture CMPR ; v92 : alignee, prete pour GX (GX_TF_CMPR) */
+static u8 *swpk_read(swpk_t *k, int r, int level, int *w, int *h) {
+    if (!k->fp || r < 0 || r >= k->n || level >= (k->levels ? k->levels : 1)) return NULL;
+    u32 off = be32(k->idx + r * 32 + 8);
+    int lw = k->cw, lh = k->ch;
+    for (int l = 0; l < level; l++) { off += (u32)lw * lh / 2; lw /= 2; lh /= 2; }
+    u32 len = (u32)lw * lh / 2;
+    u8 *b = (u8 *)memalign(32, len);
+    if (!b) return NULL;
+    if (!(fm_fresh(&k->fm) && fm_read(&k->fm, off, b, len) == 0)        /* v266 : lecture rapide, sinon comme avant */
+        && (fseek(k->fp, (long)off, SEEK_SET) != 0 || fread(b, 1, len, k->fp) != len)) { free(b); return NULL; }
+    DCFlushRange(b, len);
+    *w = lw; *h = lh;
+    return b;
+}
+
+/* ---------- lecture des disques (.iso / .gcm / .ciso) ---------- */
+typedef struct { FILE *fp; int ciso; u32 bs; u8 *map; u32 *pos; int nb; } gdisc_t;
+static void gd_close(gdisc_t *d) { if (d->fp) fclose(d->fp); free(d->map); free(d->pos); memset(d, 0, sizeof(*d)); }
+static int gd_open(gdisc_t *d, const char *path) {
+    memset(d, 0, sizeof(*d));
+    d->fp = fopen(path, "rb");
+    if (!d->fp) return 0;
+    u8 h[8];
+    if (fread(h, 1, 8, d->fp) == 8 && !memcmp(h, "CISO", 4)) {
+        d->ciso = 1;
+        d->bs = (u32)h[4] | (u32)h[5] << 8 | (u32)h[6] << 16 | (u32)h[7] << 24;
+        d->nb = 0x8000 - 8;
+        d->map = (u8 *)malloc(d->nb);
+        d->pos = (u32 *)malloc(sizeof(u32) * d->nb);
+        if (!d->bs || d->bs > (64u << 20) || !d->map || !d->pos || fread(d->map, 1, d->nb, d->fp) != (size_t)d->nb) { gd_close(d); return 0; }
+        u32 c = 0;
+        for (int i = 0; i < d->nb; i++) { d->pos[i] = d->map[i] ? c++ : 0xFFFFFFFFu; }
+    }
+    return 1;
+}
+static int gd_read(gdisc_t *d, u32 off, void *out, u32 len) {
+    u8 *o = (u8 *)out;
+    if (!d->ciso) return fseek(d->fp, (long)off, SEEK_SET) == 0 && fread(o, 1, len, d->fp) == len;
+    while (len > 0) {
+        u32 b = off / d->bs, in = off % d->bs, n = d->bs - in;
+        if (n > len) n = len;
+        if ((int)b >= d->nb || d->pos[b] == 0xFFFFFFFFu) memset(o, 0, n);   /* (bloc absent, ou apres la carte : des zeros) */
+        else if (fseek(d->fp, (long)(0x8000 + (u64)d->pos[b] * d->bs + in), SEEK_SET) != 0 || fread(o, 1, n, d->fp) != n) return 0;
+        o += n; off += n; len -= n;
+    }
+    return 1;
+}
+
+/* Windows-1252 -> UTF-8 (textes des bannieres et des descriptions) */
+static void gl_latin(const u8 *s, int n, char *out, int cap) {
+    static const u16 w1252[32] = { 0x20AC, 0, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152, 0, 0x017D, 0,
+                                   0, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161, 0x203A, 0x0153, 0, 0x017E, 0x0178 };
+    int o = 0;
+    for (int i = 0; i < n && s[i] && o < cap - 4; i++) {
+        u32 c = s[i];
+        if (c == '\n' || c == '\r' || c == '\t') c = ' ';
+        if (c >= 0x80 && c < 0xA0) c = w1252[c - 0x80] ? w1252[c - 0x80] : '?';
+        if (c < 0x80) out[o++] = (char)c;
+        else if (c < 0x800) { out[o++] = (char)(0xC0 | c >> 6); out[o++] = (char)(0x80 | (c & 63)); }
+        else { out[o++] = (char)(0xE0 | c >> 12); out[o++] = (char)(0x80 | ((c >> 6) & 63)); out[o++] = (char)(0x80 | (c & 63)); }
+    }
+    out[o] = 0;
+    while (o > 0 && out[o - 1] == ' ') out[--o] = 0;
+}
+static int gl_id_ok(const char *id) {
+    for (int i = 0; i < 6; i++) if (!((id[i] >= 'A' && id[i] <= 'Z') || (id[i] >= '0' && id[i] <= '9'))) return 0;
+    return 1;
+}
+
+/* ---------- liste des jeux ---------- */
+static int gl_cmp(const void *a, const void *b) {
+    const gcg_t *x = (const gcg_t *)a, *y = (const gcg_t *)b;
+    int c = strcasecmp(x->title, y->title);
+    return c ? c : x->disc - y->disc;
+}
+static void gl_add(const char *path, long size) {
+    if (gl_n >= GL_MAX) return;
+    gdisc_t d;
+    if (!gd_open(&d, path)) return;
+    u8 h[0x60];
+    int ok = gd_read(&d, 0, h, sizeof(h));
+    int ciso = d.ciso;
+    gd_close(&d);
+    if (!ok || be32(h + 0x1C) != 0xC2339F3Du) return;     /* (mot magique des disques GameCube) */
+    gcg_t *g = &gl[gl_n];
+    memset(g, 0, sizeof(*g));
+    snprintf(g->path, sizeof(g->path), "%s", path);
+    memcpy(g->id, h, 6); g->id[6] = 0;
+    if (!gl_id_ok(g->id)) return;
+    g->disc = h[6];
+    g->ciso = (u8)ciso;
+    g->size = size;
+    if (g->id[3] == 'J') snprintf(g->title, sizeof(g->title), "%s", g->id);   /* (japonais : Shift-JIS) */
+    else gl_latin(h + 0x20, 0x40, g->title, sizeof(g->title));
+    if (!g->title[0]) snprintf(g->title, sizeof(g->title), "%s", g->id);
+    g->post = g->still = -2; g->bslot = -1;
+    gl_n++;
+}
+static int gl_skip_dir(const char *name) {
+    static const char *const sk[] = { "gc-mp3", "mp3", "downloads", "photos", "videos", "ecran", "retro", "radio", "podcasts", "swiss", "System Volume Information", NULL };
+    if (name[0] == '.') return 1;
+    for (int i = 0; sk[i]; i++) if (!strcasecmp(name, sk[i])) return 1;
+    return 0;
+}
+/* v186 : fichiers .iso / .gcm / .ciso qui ne sont pas des jeux GameCube (Wii, abimes...) : gardes dans la liste
+   (lignes "#R") pour que la verification rapide ne les prenne pas pour des jeux nouveaux */
+#define GL_REJ_MAX 256
+static u32 gl_rej[GL_REJ_MAX]; static int gl_rej_n = 0;
+static u32 gl_path_key(const char *p, long size) { u32 h = 2166136261u; while (*p) { h ^= (u8)tolower((u8)*p++); h *= 16777619u; } return h ^ (u32)size * 2654435761u; }
+static int gl_rejected(const char *p, long size) { u32 k = gl_path_key(p, size); for (int i = 0; i < gl_rej_n; i++) if (gl_rej[i] == k) return 1; return 0; }
+static void gl_walk(const char *dir, int depth, int *budget) {
+    DIR *dp = opendir(dir);
+    if (!dp) return;
+    struct dirent *e;
+    char p[NAME_LEN];
+    while ((e = readdir(dp)) != NULL && gl_n < GL_MAX && (*budget)-- > 0) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        if (snprintf(p, sizeof(p), "%s/%s", dir, e->d_name) >= (int)sizeof(p)) continue;
+        if (is_dir(p, e)) { if (depth < 3 && !gl_skip_dir(e->d_name)) gl_walk(p, depth + 1, budget); continue; }
+        const char *dot = strrchr(e->d_name, '.');
+        if (!dot || !(!strcasecmp(dot, ".iso") || !strcasecmp(dot, ".gcm") || !strcasecmp(dot, ".ciso"))) continue;
+        struct stat st;
+        if (stat(p, &st) != 0 || st.st_size < 0x440) continue;
+        int n0 = gl_n;
+        gl_add(p, (long)st.st_size);
+        if (gl_n == n0 && gl_rej_n < GL_REJ_MAX && !gl_rejected(p, (long)st.st_size)) gl_rej[gl_rej_n++] = gl_path_key(p, (long)st.st_size);
+        service_audio();
+    }
+    closedir(dp);
+}
+/* descriptions.txt : "ID description" par ligne (premiere ligne gagnante) */
+static void gl_load_desc(void) {
+    long len = 0;
+    unsigned char *d = read_file(GL_UI "/descriptions.txt", 1024 * 1024, &len);
+    if (!d) return;
+    char tmp[600];
+    for (int pass = 0; pass < 2; pass++) {                 /* 1 : ID exact ; 2 : meme jeu, autre disque / editeur */
+        long i = 0;
+        while (i < len) {
+            long s = i;
+            while (i < len && d[i] != '\n') i++;
+            long n = i - s; i++;
+            if (n < 8 || d[s] == '#' || (d[s + 6] != ' ' && d[s + 6] != '\t')) continue;
+            char id[7]; memcpy(id, d + s, 6); id[6] = 0;
+            if (!gl_id_ok(id)) continue;
+            for (int k = 0; k < gl_n; k++) {
+                gcg_t *g = &gl[k];
+                if (g->desc || (pass == 0 ? memcmp(g->id, id, 6) : memcmp(g->id, id, 4))) continue;
+                long m = n - 7; if (m > 590) m = 590;
+                gl_latin(d + s + 7, (int)m, tmp, sizeof(tmp));
+                g->desc = strdup(tmp);
+            }
+        }
+    }
+    free(d);
+}
+static void gl_free_list(void);
+/* v27 : liste gardee dans SD:/gc-mp3/cache/jeux.txt (ouverture immediate ;
+   Y = chercher a nouveau sur toute la carte). Une ligne par jeu :
+   chemin <TAB> taille <TAB> ID <TAB> disque <TAB> ciso <TAB> nom <TAB> description */
+#define GL_LIST GL_CACHE "/liste.txt"
+static void gl_list_save(void) {
+    mkdir(GCD, 0777); mkdir(GCD "/cache", 0777); mkdir(GL_CACHE, 0777);
+    FILE *f = fopen(GL_LIST, "w");
+    if (!f) return;
+    fprintf(f, "GLC1\n");
+    for (int k = 0; k < gl_n; k++) if (!gl[k].dvd)
+        fprintf(f, "%s\t%ld\t%s\t%u\t%u\t%s\t%s\n", gl[k].path, gl[k].size, gl[k].id, gl[k].disc, gl[k].ciso, gl[k].title, gl[k].desc ? gl[k].desc : "");
+    for (int i = 0; i < gl_rej_n; i++) fprintf(f, "#R\t%08x\n", (unsigned)gl_rej[i]);   /* v186 */
+    fclose(f);
+}
+static int gl_list_load(void) {
+    long len = 0;
+    unsigned char *d = read_file(GL_LIST, 2 * 1024 * 1024, &len);
+    if (!d) return 0;
+    if (len < 5 || memcmp(d, "GLC1\n", 5)) { free(d); return 0; }
+    char *p = (char *)d + 5, *end = (char *)d + len;
+    while (p < end && gl_n < GL_MAX) {
+        char *nl = memchr(p, '\n', end - p);
+        if (!nl) nl = end;
+        *nl = 0;
+        if (!strncmp(p, "#R\t", 3)) { if (gl_rej_n < GL_REJ_MAX) gl_rej[gl_rej_n++] = (u32)strtoul(p + 3, NULL, 16); p = nl + 1; continue; }   /* v186 */
+        char *f[7]; int n = 0;
+        f[n++] = p;
+        for (char *c = p; *c && n < 7; c++) if (*c == '\t') { *c = 0; f[n++] = c + 1; }
+        if (n >= 6 && strlen(f[2]) == 6 && gl_id_ok(f[2])) {
+            gcg_t *g = &gl[gl_n];
+            memset(g, 0, sizeof(*g));
+            snprintf(g->path, sizeof(g->path), "%s", f[0]);
+            g->size = atol(f[1]);
+            snprintf(g->id, sizeof(g->id), "%s", f[2]);
+            g->disc = (u8)atoi(f[3]); g->ciso = (u8)atoi(f[4]);
+            snprintf(g->title, sizeof(g->title), "%s", f[5]);
+            if (n >= 7 && f[6][0]) g->desc = strdup(f[6]);
+            g->post = g->still = -2; g->bslot = -1;
+            gl_n++;
+        }
+        p = nl + 1;
+    }
+    free(d);
+    return 1;
+}
+/* v97 : la case "Disque de la console" : lance le jeu qui est dans le vrai lecteur */
+static int gl_has_dvd(void) { return gl_n > 0 && gl[0].dvd; }
+static void gl_dvd_add(void) {
+    if (!gl || gl_n >= GL_MAX) return;
+    for (int k = 0; k < gl_n; k++) if (gl[k].dvd) return;
+    memmove(&gl[1], &gl[0], sizeof(gcg_t) * gl_n);
+    gcg_t *g = &gl[0];
+    memset(g, 0, sizeof(*g));
+    snprintf(g->path, sizeof(g->path), "dvd:");
+    snprintf(g->title, sizeof(g->title), "Disque de la console");
+    g->dvd = 1; g->post = g->still = -1; g->bslot = -1; g->bstate = 2;
+    gl_n++;
+}
+static int gcl_probe(void);                                   /* v121 : GC Loader (gcl.c) */
+static int gcl_path(const char *p);
+static int nat_cheats_prep(const char *id);                  /* v121 : cheats dans Pulse (natif.c) */
+static void gl_scan_full(int force) {
+    if (!gl) gl = (gcg_t *)calloc(GL_MAX, sizeof(gcg_t));
+    gl_free_list();
+    if (!gl) { gl_scanned = 1; return; }
+    gl_rej_n = 0;
+    int cached = sd_ok && !force && gl_list_load();
+    if (!cached) {
+        int budget = 6000;
+        if (sd_ok) { gl_status("Recherche des jeux GameCube sur la carte SD..."); gl_walk(SD_ROOT, 0, &budget); }
+        gl_status("Recherche d'un GC Loader...");
+        if (gcl_probe()) { gl_status("Recherche des jeux sur le GC Loader..."); budget = 6000; gl_walk("gcl:", 0, &budget); }   /* v121 */
+        qsort(gl, gl_n, sizeof(gcg_t), gl_cmp);
+        if (sd_ok) gl_load_desc();
+    }
+    if (!sd_ok) { gl_dvd_add(); gl_busy[0] = 0; gl_scanned = 1; return; }
+    swpk_open(&gl_post, GL_UI "/posters.pak", 256, 256);
+    swpk_open(&gl_still, GL_UI "/stills.pak", 320, 240);
+    for (int k = 0; k < gl_n; k++) { gl[k].post = (s16)swpk_find(&gl_post, gl[k].id); gl[k].still = (s16)swpk_find(&gl_still, gl[k].id); }
+    gl_dl_apply();                                       /* v280 : jaquettes ajoutees */
+    gl_fx_reset();                                       /* v281 : fiches relues pour la nouvelle liste */
+    if (!cached) gl_list_save();
+    gl_dvd_add();                                          /* v97 : case du vrai lecteur */
+    gl_stats_load();                                     /* v45 : lancements, puis tri choisi */
+    gl_fav_load();                                        /* v76 : favoris */
+    gl_apply_sort();
+    gl_busy[0] = 0;
+    gl_scanned = 1;
+    if (gl_sel >= gl_n) gl_sel = gl_n ? gl_n - 1 : 0;
+    if (gl_sel == 0 && gl_has_dvd() && gl_n > 1) gl_sel = 1;   /* v97 : le 1er jeu choisi (la case du lecteur juste avant) */
+}
+static void gl_scan(void) { gl_scan_full(1); }
+
+static void gl_slots_reset(void);
+static int gl_cheats_on(int k) {
+    static int ck = -1, cgen = -1, cval = -1;
+    static char cid[8] = "";
+    if (k < 0 || k >= gl_n) return -1;
+    if (k == ck && cgen == ch_sel_gen && !strcmp(cid, gl[k].id)) return cval;
+    ck = k; cgen = ch_sel_gen; snprintf(cid, sizeof(cid), "%s", gl[k].id);
+    char p[NAME_LEN];
+    struct stat st;
+    snprintf(p, sizeof(p), "%s/%.6s.txt", CH_DIR, gl[k].id);
+    if (stat(p, &st) != 0 || st.st_size < 8) { cval = -1; return cval; }
+    cval = 0;
+    snprintf(p, sizeof(p), "%s/%.6s.chtsel", CH_DIR, gl[k].id);
+    long n = 0;
+    u8 *d = read_file(p, 65536, &n);
+    if (d) { for (long i = 0; i + 8 < n; i++) if (d[i]) cval++; free(d); }
+    return cval;
+}
+/* v121 : lance le jeu de ce fichier (onglet FICHIERS, jeux du reseau copies) ; rend un message si ca ne demarre pas */
+static const char *gl_play_path(const char *path) {
+    if (!gl_scanned) gl_scan();
+    int k = -1;
+    for (int i = 0; i < gl_n; i++) if (!strcasecmp(gl[i].path, path)) k = i;
+    if (k < 0) {
+        struct stat st;
+        int n0 = gl_n;
+        if (stat(path, &st) == 0) gl_add(path, (long)st.st_size);
+        if (gl_n == n0) return "Ce n'est pas un jeu GameCube";
+        k = gl_n - 1;
+        gl_list_save();
+    }
+    if (settings_dirty) save_settings();
+    const char *e = game_boot_auto(k);                     /* (ne revient pas si ca marche) */
+    gl_busy[0] = 0;
+    return e;
+}
+/* ---------- v45 : lancements (SD:/gc-mp3/mes-parties/jeux_stats.txt : ID|disque|nombre|date) et tri ---------- */
+#define GL_STATS gp_path("jeux_stats.txt")          /* v191 : du profil actuel */
+#define GL_FAV   gp_path("jeux-favoris.txt")
+/* v76 : jeux favoris (une ligne "id|disc" par jeu) */
+static void gl_fav_load(void) {
+    for (int k = 0; k < gl_n; k++) gl[k].fav = 0;
+    long n = 0;
+    char *d = (char *)read_file(GL_FAV, 16 * 1024, &n);
+    if (!d) return;
+    char *t = (char *)realloc(d, n + 1);
+    if (!t) { free(d); return; }
+    t[n] = 0;
+    for (char *l = t; l && *l; ) {
+        char *e = strchr(l, '\n');
+        if (e) *e = 0;
+        char id[8] = ""; int disc = 0;
+        if (sscanf(l, "%6[^|]|%d", id, &disc) >= 1)
+            for (int k = 0; k < gl_n; k++) if (!strcmp(gl[k].id, id) && gl[k].disc == disc) gl[k].fav = 1;
+        l = e ? e + 1 : NULL;
+    }
+    free(t);
+}
+static void gl_fav_save(void) {
+    if (!sd_ok) return;
+    mkdir(GCD, 0777);
+    FILE *f = fopen(GL_FAV, "wb");
+    if (!f) return;
+    for (int k = 0; k < gl_n; k++) if (gl[k].fav) fprintf(f, "%s|%d\n", gl[k].id, gl[k].disc);
+    fclose(f);
+}
+static void gl_stats_load(void) {
+    for (int k = 0; k < gl_n; k++) { gl[k].runs = 0; gl[k].last = 0; gl[k].play = 0; }
+    long n = 0;
+    char *d = (char *)read_file(GL_STATS, 64 * 1024, &n);
+    if (!d) return;
+    char *t = (char *)realloc(d, n + 1);
+    if (!t) { free(d); return; }
+    t[n] = 0;
+    for (char *l = t; l && *l; ) {
+        char *e = strchr(l, '\n');
+        if (e) *e = 0;
+        char id[8] = ""; int disc = 0; unsigned runs = 0, last = 0, play = 0;
+        if (sscanf(l, "%6[^|]|%d|%u|%u|%u", id, &disc, &runs, &last, &play) >= 4)
+            for (int k = 0; k < gl_n; k++)
+                if (!strcmp(gl[k].id, id) && gl[k].disc == disc) { gl[k].runs = (u16)(runs > 65535 ? 65535 : runs); gl[k].last = last; gl[k].play = play; }
+        l = e ? e + 1 : NULL;
+    }
+    free(t);
+}
+static void gl_stats_bump(int k) {
+    if (k < 0 || k >= gl_n || !sd_ok) return;
+    gl[k].runs = gl[k].runs < 65535 ? gl[k].runs + 1 : 65535;
+    gl[k].last = (u32)time(NULL);
+    long n = 0;
+    char *d = (char *)read_file(GL_STATS, 64 * 1024, &n);
+    mkdir(GCD, 0777);
+    FILE *f = fopen(gp_path("jeux_stats.txt.tmp"), "wb");
+    if (!f) { free(d); return; }
+    fprintf(f, "%s|%d|%u|%u|%u\n", gl[k].id, gl[k].disc, (unsigned)gl[k].runs, (unsigned)gl[k].last, (unsigned)gl[k].play);
+    char me[16];
+    snprintf(me, sizeof(me), "%s|%d|", gl[k].id, gl[k].disc);
+    for (long i = 0; d && i < n; ) {                     /* les autres jeux, tels quels */
+        long s = i;
+        while (i < n && d[i] != '\n') i++;
+        if (i - s > 0 && (i - s < (long)strlen(me) || memcmp(d + s, me, strlen(me)))) { fwrite(d + s, 1, i - s, f); fputc('\n', f); }
+        i++;
+    }
+    free(d);
+    if (fclose(f) == 0) { remove(GL_STATS); rename(gp_path("jeux_stats.txt.tmp"), GL_STATS); }
+}
+/* v73 : temps de jeu (Resident : images comptees pendant le jeu), ajoute par l'identifiant du jeu,
+   meme si la liste des jeux n'est pas encore lue (au demarrage) */
+static void pj_day_add(u32 sec);                           /* v191 : temps de jeu du jour (profils.c) */
+static int pj_left_line(char *o, int cap);
+static void gl_stats_add_play(const char *id6, u32 sec) {
+    if (!sd_ok || !id6[0] || !sec) return;
+    pj_day_add(sec);
+    long n = 0;
+    char *d = (char *)read_file(GL_STATS, 64 * 1024, &n);
+    mkdir(GCD, 0777);
+    FILE *f = fopen(gp_path("jeux_stats.txt.tmp"), "wb");
+    if (!f) { free(d); return; }
+    int found = 0;
+    for (long i = 0; d && i < n; ) {
+        long s = i;
+        while (i < n && d[i] != '\n') i++;
+        char l[96]; long ln = i - s < 95 ? i - s : 95;
+        memcpy(l, d + s, ln); l[ln] = 0;
+        char id[8] = ""; int disc = 0; unsigned runs = 0, last = 0, play = 0;
+        if (!found && sscanf(l, "%6[^|]|%d|%u|%u|%u", id, &disc, &runs, &last, &play) >= 4 && !strcmp(id, id6)) {
+            fprintf(f, "%s|%d|%u|%u|%u\n", id, disc, runs, last, play + sec); found = 1;
+        } else if (ln > 0) { fwrite(d + s, 1, i - s, f); fputc('\n', f); }
+        i++;
+    }
+    if (!found) fprintf(f, "%s|0|1|%u|%u\n", id6, (unsigned)time(NULL), (unsigned)sec);
+    free(d);
+    if (fclose(f) == 0) { remove(GL_STATS); rename(gp_path("jeux_stats.txt.tmp"), GL_STATS); }
+    for (int k = 0; k < gl_n; k++) if (!strcmp(gl[k].id, id6)) { gl[k].play += sec; break; }
+}
+static int gl_cmp_key(const void *a, const void *b) {
+    const gcg_t *x = (const gcg_t *)a, *y = (const gcg_t *)b;
+    if (x->dvd != y->dvd) return y->dvd - x->dvd;                   /* v97 : le disque de la console d'abord */
+    if (x->fav != y->fav) return y->fav - x->fav;                   /* v76 : favoris en haut */
+    if (x->key != y->key) return x->key < y->key ? -1 : 1;
+    return gl_cmp(a, b);
+}
+/* trie la liste (le jeu choisi reste choisi) ; les images en memoire sont relues */
+static void gl_apply_sort(void) {
+    if (gl_n <= 0) return;
+    char keep[NAME_LEN];
+    snprintf(keep, sizeof(keep), "%s", gl[gl_sel >= 0 && gl_sel < gl_n ? gl_sel : 0].path);
+    for (int k = 0; k < gl_n; k++) {
+        gcg_t *g = &gl[k];
+        char r = g->id[3];
+        switch (gl_sort) {
+        case 1: g->key = -(long)g->last; break;
+        case 2: g->key = -(g->size >> 10); break;
+        case 3: g->key = r == 'P' ? 0 : r == 'F' || r == 'D' || r == 'S' || r == 'I' ? 1 : r == 'E' ? 2 : r == 'J' ? 3 : 4; break;
+        case 4: g->key = g->dvd ? 9 : cp_rank(g->id); break;   /* v145 : marche, marche mal, pas essaye, ecran noir, plantage */
+        default: g->key = 0; break;
+        }
+    }
+    qsort(gl, gl_n, sizeof(gcg_t), gl_cmp_key);
+    gl_slots_reset();
+    for (int k = 0; k < gl_n; k++) { gl[k].bslot = -1; if (!strcmp(gl[k].path, keep)) gl_sel = k; }
+    gs_dirty = 1;                                          /* v196 : (l'espace refait sa liste) */
+}
+
+/* ---------- jaquettes et bannieres en memoire ---------- */
+typedef struct { int game; u16 *tex; GXTexObj obj; u64 used; } glslot_t;
+static glslot_t gl_cov[GL_SLOTS], gl_ban[GL_BSLOTS];
+static struct { int game; u16 *tex; GXTexObj obj; int kind; } gl_big = { -1, NULL, {{0}}, 0 }, gl_bigst = { -1, NULL, {{0}}, 0 };
+static u8 gl_cov_fail[GL_MAX];                              /* v277 : lectures de jaquette ratees (on reessaie avant d'abandonner) */
+static u64 gl_cov_retry[GL_MAX];
+static void gl_slots_reset(void) {
+    memset(gl_cov_fail, 0, sizeof(gl_cov_fail)); memset(gl_cov_retry, 0, sizeof(gl_cov_retry));
+    for (int i = 0; i < GL_SLOTS; i++) { free(gl_cov[i].tex); gl_cov[i].tex = NULL; gl_cov[i].game = -1; }
+    for (int i = 0; i < GL_BSLOTS; i++) { free(gl_ban[i].tex); gl_ban[i].tex = NULL; gl_ban[i].game = -1; }
+    free(gl_big.tex); gl_big.tex = NULL; gl_big.game = -1;
+    free(gl_bigst.tex); gl_bigst.tex = NULL; gl_bigst.game = -1;
+}
+static void gl_free_list(void) {
+    for (int k = 0; k < gl_n; k++) { free(gl[k].desc); gl[k].desc = NULL; }
+    gl_n = 0;
+    gl_slots_reset();
+}
+static glslot_t *gl_find_slot(glslot_t *s, int n, int game) {
+    for (int i = 0; i < n; i++) if (s[i].tex && s[i].game == game) { s[i].used = now_ms(); return &s[i]; }
+    return NULL;
+}
+static glslot_t *gl_new_slot(glslot_t *s, int n) {
+    int best = 0;
+    for (int i = 0; i < n; i++) { if (!s[i].tex) { best = i; break; } if (s[i].used < s[best].used) best = i; }
+    free(s[best].tex); s[best].tex = NULL; s[best].game = -1;
+    return &s[best];
+}
+
+/* ---------- v280 : jaquettes manquantes ----------
+   Un jeu sans jaquette dans posters.pak (le pack de Swiss) : GC Station la telecharge sur GameTDB (art.gametdb.com,
+   la base utilisee par les lanceurs de jeux : cover/<region>/<ID>.png), en fond, une a la fois, quand la liste des
+   jeux est ouverte et que le reseau est la. Elle est rangee toute prete (texture 128x128, image 96x128 a gauche,
+   comme le niveau 1 du pack) dans SD:/gc-mp3/jaquettes/ajoutees/<ID>.tex. On peut aussi y deposer soi-meme un
+   <ID>.png (ou .jpg) : il est converti a la premiere vue. Les jeux que GameTDB n'a pas : absentes.txt (plus redemandes). */
+#define GL_DLDIR GL_UI "/ajoutees"
+#define GL_DLW 128
+static void gl_dl_path(const char *id, const char *ext, char *o, int cap) { snprintf(o, cap, GL_DLDIR "/%.6s.%s", id, ext); }
+static int gl_dl_exists(const char *id) {
+    static const char *const ex[3] = { "tex", "png", "jpg" };
+    char p[NAME_LEN]; struct stat st;
+    for (int i = 0; i < 3; i++) { gl_dl_path(id, ex[i], p, sizeof(p)); if (stat(p, &st) == 0 && st.st_size > 0) return 1; }
+    return 0;
+}
+static void gl_dl_apply(void) {                          /* (apres posters.pak : les jaquettes ajoutees) */
+    if (!sd_ok) return;
+    for (int k = 0; k < gl_n; k++) if (!gl[k].dvd && gl[k].post < 0 && gl_dl_exists(gl[k].id)) gl[k].post = GL_POST_DL;
+}
+/* image (png, jpg) -> texture RGB5A3 128x128, l'image remplit 96x128 a gauche (comme une jaquette du pack) */
+static u16 *gl_dl_convert(const u8 *img, int n) {
+    int w = 0, h = 0, c = 0;
+    unsigned char *px = stbi_load_from_memory(img, n, &w, &h, &c, 4);
+    if (!px || w < 8 || h < 8) { if (px) stbi_image_free(px); return NULL; }
+    u16 *t = (u16 *)memalign(32, GL_DLW * GL_DLW * 2);
+    if (!t) { stbi_image_free(px); return NULL; }
+    const int dw = 96, dh = 128;
+    for (int y = 0; y < GL_DLW; y++)
+        for (int x = 0; x < GL_DLW; x++) {
+            int R = 12, G = 8, B = 30;
+            if (x < dw) {                                /* (moyenne des points de la source sous ce point) */
+                int x0 = x * w / dw, x1 = (x + 1) * w / dw, y0 = y * h / dh, y1 = (y + 1) * h / dh;
+                if (x1 <= x0) x1 = x0 + 1; if (y1 <= y0) y1 = y0 + 1;
+                u32 r = 0, g = 0, b = 0, a = 0, m = 0;
+                for (int yy = y0; yy < y1 && yy < h; yy++) for (int xx = x0; xx < x1 && xx < w; xx++) {
+                    const unsigned char *p = px + ((size_t)yy * w + xx) * 4;
+                    r += p[0] * p[3]; g += p[1] * p[3]; b += p[2] * p[3]; a += p[3]; m++;
+                }
+                if (a) { R = (int)(r / a); G = (int)(g / a); B = (int)(b / a); }
+                (void)m;
+            }
+            t[((y >> 2) * (GL_DLW >> 2) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)] = (u16)(0x8000 | ((R >> 3) << 10) | ((G >> 3) << 5) | (B >> 3));
+        }
+    stbi_image_free(px);
+    return t;
+}
+static void gl_dl_save(const char *id, const u16 *t) {
+    char p[NAME_LEN];
+    mkdir(GL_UI, 0777); mkdir(GL_DLDIR, 0777);
+    gl_dl_path(id, "tex", p, sizeof(p));
+    FILE *f = fopen(p, "wb");
+    if (!f) return;
+    int ok = fwrite(t, 1, GL_DLW * GL_DLW * 2, f) == GL_DLW * GL_DLW * 2;
+    if (fclose(f) || !ok) remove(p);
+}
+/* la texture d'une jaquette ajoutee (prete pour GX) ; NULL : pas lisible */
+static u16 *gl_dl_tex(const char *id) {
+    char p[NAME_LEN];
+    gl_dl_path(id, "tex", p, sizeof(p));
+    FILE *f = fopen(p, "rb");
+    if (f) {
+        u16 *t = (u16 *)memalign(32, GL_DLW * GL_DLW * 2);
+        int ok = t && fread(t, 1, GL_DLW * GL_DLW * 2, f) == GL_DLW * GL_DLW * 2;
+        fclose(f);
+        if (ok) { DCFlushRange(t, GL_DLW * GL_DLW * 2); return t; }
+        free(t);
+    }
+    static const char *const ex[2] = { "png", "jpg" };
+    for (int i = 0; i < 2; i++) {                        /* (deposee a la main : convertie une fois) */
+        gl_dl_path(id, ex[i], p, sizeof(p));
+        long n = 0;
+        u8 *d = read_file(p, 4 * 1024 * 1024, &n);
+        if (!d) continue;
+        u16 *t = gl_dl_convert(d, (int)n);
+        free(d);
+        if (!t) continue;
+        gl_dl_save(id, t);
+        DCFlushRange(t, GL_DLW * GL_DLW * 2);
+        return t;
+    }
+    return NULL;
+}
+
+
+/* ---------- v281 : fiches des jeux (GameTDB) ----------
+   La release � fiches � du depot (workflow fiches.yml, chaque mois) : fiches-gc.txt, une ligne par jeu GameCube
+   (ID, titre, genre, joueurs, developpeur, editeur, annee, classification, resume ; tabulations). Telechargee dans
+   SD:/gc-mp3/jaquettes/ (refaite apres 30 jours), puis seulement les lignes de tes jeux gardees dans
+   fiches-mes-jeux.txt (lu vite ; refait quand la liste des jeux change). La fiche d'un jeu les affiche. */
+#define GL_FX_BIG GL_UI "/fiches-gc.txt"
+#define GL_FX_MINE GL_UI "/fiches-mes-jeux.txt"
+enum { FX_ID, FX_TITLE, FX_GENRE, FX_PLAYERS, FX_DEV, FX_PUB, FX_YEAR, FX_RATING, FX_SYN, FX_N };
+typedef struct { char *line; const char *f[FX_N]; } glfx_t;
+static glfx_t *gl_fx = NULL;
+static int gl_fx_n = -1;
+static void gl_fx_reset(void) { for (int i = 0; i < gl_fx_n; i++) free(gl_fx[i].line); free(gl_fx); gl_fx = NULL; gl_fx_n = -1; }
+static u32 gl_fx_hash(void) {                            /* (les ID des jeux de la liste, dans n'importe quel ordre) */
+    u32 h = 0;
+    for (int k = 0; k < gl_n; k++) if (!gl[k].dvd) { u32 x = 2166136261u; for (int i = 0; i < 6; i++) x = (x ^ (u8)gl[k].id[i]) * 16777619u; h += x; }
+    return h ^ (u32)gl_n;
+}
+static int gl_fx_mine(const char *id) {                  /* 1 : un de mes jeux (meme ID, ou le meme jeu d'une autre region) */
+    for (int k = 0; k < gl_n; k++) if (!gl[k].dvd && !strncmp(gl[k].id, id, 6)) return 1;
+    for (int k = 0; k < gl_n; k++) if (!gl[k].dvd && !strncmp(gl[k].id, id, 3)) return 1;
+    return 0;
+}
+static void gl_fx_add(const char *l, int len) {
+    glfx_t *n = (glfx_t *)realloc(gl_fx, sizeof(glfx_t) * (gl_fx_n + 1));
+    if (!n) return;
+    gl_fx = n;
+    char *c = (char *)malloc(len + 1);
+    if (!c) return;
+    memcpy(c, l, len); c[len] = 0;
+    glfx_t *e = &gl_fx[gl_fx_n++];
+    e->line = c;
+    int f = 0;
+    e->f[f++] = c;
+    for (char *p = c; *p && f < FX_N; p++) if (*p == '\t') { *p = 0; e->f[f++] = p + 1; }
+    while (f < FX_N) e->f[f++] = "";
+}
+static void gl_fx_load(void) {
+    gl_fx_reset();
+    gl_fx_n = 0;
+    if (!sd_ok || !gl) return;
+    u32 want = gl_fx_hash();
+    long n = 0;
+    char *d = (char *)read_file(GL_FX_MINE, 1024 * 1024, &n);
+    int ok = d && n >= 9 && d[0] == '#' && (u32)strtoul(d + 1, NULL, 16) == want;   /* v356 : (n >= 9 : aucune fiche pour mes jeux = l'en-tete seul, 10 octets ; avant : la grande liste, 1 Mo, relue a chaque fois) */
+    if (!ok) {                                           /* (refaite d'apres la grande liste) */
+        free(d);
+        d = (char *)read_file(GL_FX_BIG, 6 * 1024 * 1024, &n);
+        if (!d) return;
+        FILE *f = fopen(GL_FX_MINE, "w");
+        if (f) fprintf(f, "#%08x\n", (unsigned)want);
+        for (long i = 0; i < n; ) {
+            long st = i;
+            while (i < n && d[i] != '\n') i++;
+            if (i - st > 8 && d[st] != '#' && d[st + 6] == '\t' && gl_fx_mine(d + st)) {
+                gl_fx_add(d + st, (int)(i - st));
+                if (f) { fwrite(d + st, 1, i - st, f); fputc('\n', f); }
+            }
+            i++;
+        }
+        if (f) fclose(f);
+        free(d);
+        return;
+    }
+    for (long i = 0; i < n; ) {
+        long st = i;
+        while (i < n && d[i] != '\n') i++;
+        if (i - st > 8 && d[st] != '#') gl_fx_add(d + st, (int)(i - st));
+        i++;
+    }
+    free(d);
+}
+static const glfx_t *gl_fx_get(const char *id) {
+    if (gl_fx_n < 0) gl_fx_load();
+    for (int i = 0; i < gl_fx_n; i++) if (!strncmp(gl_fx[i].f[FX_ID], id, 6)) return &gl_fx[i];
+    for (int i = 0; i < gl_fx_n; i++) if (!strncmp(gl_fx[i].f[FX_ID], id, 3)) return &gl_fx[i];   /* (meme jeu, autre region) */
+    return NULL;
+}
+/* lignes de la fiche (genre, joueurs, annee, classification ; developpeur / editeur) ; rend la ligne suivante */
+static f32 gl_fx_draw(const char *id, f32 x, f32 y, int w) {
+    const glfx_t *e = gl_fx_get(id);
+    if (!e) return y;
+    char a[200], b[220];
+    int n = 0;
+    a[0] = 0;
+    if (e->f[FX_GENRE][0]) n += snprintf(a + n, sizeof(a) - n, "%s", e->f[FX_GENRE]);
+    if (e->f[FX_PLAYERS][0]) { int p = atoi(e->f[FX_PLAYERS]); n += snprintf(a + n, sizeof(a) - n, "%s%s", n ? "  \xC2\xB7  " : "", p > 1 ? "" : "1 joueur"); if (p > 1) n += snprintf(a + n, sizeof(a) - n, "1 \xC3\xA0 %d joueurs", p); }
+    if (e->f[FX_YEAR][0]) n += snprintf(a + n, sizeof(a) - n, "%s%s", n ? "  \xC2\xB7  " : "", e->f[FX_YEAR]);
+    if (e->f[FX_RATING][0]) n += snprintf(a + n, sizeof(a) - n, "%s%s", n ? "  \xC2\xB7  " : "", e->f[FX_RATING]);
+    if (a[0]) { fit_text(F_SMALL, a, w, b, sizeof(b)); gx_text1(F_SMALL, x, y, b, RGBA(150, 220, 255, 255)); y += 18; }
+    if (e->f[FX_DEV][0] || e->f[FX_PUB][0]) {
+        if (e->f[FX_DEV][0] && e->f[FX_PUB][0] && strcmp(e->f[FX_DEV], e->f[FX_PUB])) snprintf(a, sizeof(a), "%s  /  %s", e->f[FX_DEV], e->f[FX_PUB]);
+        else snprintf(a, sizeof(a), "%s", e->f[FX_PUB][0] ? e->f[FX_PUB] : e->f[FX_DEV]);
+        fit_text(F_SMALL, a, w, b, sizeof(b)); gx_text1(F_SMALL, x, y, b, RGBA(190, 180, 225, 255)); y += 20;
+    }
+    return y;
+}
+static const char *gl_fx_syn(const char *id) { const glfx_t *e = gl_fx_get(id); return e && e->f[FX_SYN][0] ? e->f[FX_SYN] : NULL; }
+
+/* telechargement de fiches-gc.txt (vers un fichier, en fond) */
+static hfetch_t gl_fxdl = { .c = { -1, 0, 0 } };
+static int gl_fxdl_st = 0;
+static FILE *gl_fxdl_f = NULL;
+static u64 gl_fxdl_wait = 0;
+static int gl_fx_pump(void) {                            /* 1 : en cours (pas de jaquette en meme temps) */
+    if (gl_fxdl_st == 0) {
+        if (!gl_on || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_fxdl_wait || gl_net_busy(5)) return 0;
+        if (now_ms() - last_input_ms < 1500) return 0;   /* v285 */
+        struct stat st;
+        time_t now = gc_time(NULL);
+        if (stat(GL_FX_BIG, &st) == 0 && st.st_size > 1000 && (now < 1600000000 || now - st.st_mtime < 30L * 86400)) { gl_fxdl_wait = now_ms() + 3600000; return 0; }
+        mkdir(GL_UI, 0777);
+        gl_fxdl_f = fopen(GL_FX_BIG ".part", "wb");
+        if (!gl_fxdl_f) { gl_fxdl_wait = now_ms() + 600000; return 0; }
+        char url[200];
+        snprintf(url, sizeof(url), "https://github.com/%s/releases/download/fiches/fiches-gc.txt", upd_repo);
+        gl_fxdl.frame_cap = 16 * 1024;   /* v288 */
+        gl_fxdl.maxbytes = 8 * 1024 * 1024; gl_fxdl.image = 0; gl_fxdl.accept = "text/plain,*/*"; gl_fxdl.sink = gl_fxdl_f; gl_fxdl.sink_err = 0;
+        hf_start(&gl_fxdl, url, NULL);
+        gl_fxdl_st = 1;
+        return 1;
+    }
+    hf_pump(&gl_fxdl);
+    if (gl_fxdl.st != HF_DONE && gl_fxdl.st != HF_FAIL) return 1;
+    int ok = gl_fxdl.st == HF_DONE && gl_fxdl.code == 200 && !gl_fxdl.sink_err && gl_fxdl.len > 1000;
+    fclose(gl_fxdl_f); gl_fxdl_f = NULL; gl_fxdl.sink = NULL;
+    hf_drop(&gl_fxdl); gl_fxdl.st = HF_IDLE; gl_fxdl_st = 0;
+    if (ok) { remove(GL_FX_BIG); rename(GL_FX_BIG ".part", GL_FX_BIG); remove(GL_FX_MINE); gl_fx_reset(); gl_note("Fiches des jeux mises \xC3\xA0 jour"); gl_fxdl_wait = now_ms() + 3600000; }
+    else { remove(GL_FX_BIG ".part"); gl_fxdl_wait = now_ms() + 600000; }
+    return 0;
+}
+/* ---------- v283 : jaquettes completes (avant, tranche, dos) pour la boite 3D ----------
+   GameTDB a aussi la jaquette entiere du boitier, a plat : dos | tranche | avant (coverfull/<region>/<ID>.png).
+   Seulement pour le jeu dont la fiche est ouverte (vitrine) : telechargee une fois, rangee prete pour GX
+   (texture RGB5A3 384x256) dans SD:/gc-mp3/jaquettes/completes/<ID>.tex ; un <ID>.png (ou .jpg) depose a la main
+   y est converti. Les jeux que GameTDB n'a pas : completes/absentes.txt. */
+#define GL_FCDIR GL_UI "/completes"
+#define GL_FCABS GL_FCDIR "/absentes.txt"
+#define GL_FCW 384
+#define GL_FCH 256
+#define GL_FCSZ (GL_FCW * GL_FCH * 2)
+static int gj_post_fn(void (*fn)(void), void (*done)(void));
+static struct { char id[8]; u16 *tex; GXTexObj obj; int st; } gl_fc = { "", NULL, {{0}}, 0 };   /* st : 0 a voir, 1 lecture, 2 prete, 3 absente, 4 a telecharger */
+static char gl_fc_rid[8];
+static u16 *gl_fc_rbuf;
+static hfetch_t gl_fc_hf = { .c = { -1, 0, 0 } };
+static int gl_fc_dl = 0;                                 /* 0 rien, 1 demande, 2 telechargement, 3-4 conversion en fond */
+static int gl_fc_reg = 0;
+static void gl_fc_path(const char *id, const char *ext, char *o, int cap) { snprintf(o, cap, GL_FCDIR "/%.6s.%s", id, ext); }
+static int gl_fc_absent(const char *id) {
+    long n = 0;
+    char *d = (char *)read_file(GL_FCABS, 16384, &n);
+    int r = 0;
+    for (long i = 0; d && i + 6 <= n && !r; ) { if (!strncmp(d + i, id, 6)) r = 1; while (i < n && d[i] != '\n') i++; i++; }
+    free(d);
+    return r;
+}
+/* image -> texture RGB5A3 384x256 (l'image entiere, etiree) */
+static u16 *gl_fc_convert(const u8 *img, int n) {
+    int w = 0, h = 0, c = 0;
+    unsigned char *px = stbi_load_from_memory(img, n, &w, &h, &c, 4);
+    if (!px || w < 64 || h < 32 || w < h) { if (px) stbi_image_free(px); return NULL; }   /* (une jaquette entiere est plus large que haute) */
+    u16 *t = (u16 *)memalign(32, GL_FCSZ);
+    if (!t) { stbi_image_free(px); return NULL; }
+    for (int y = 0; y < GL_FCH; y++)
+        for (int x = 0; x < GL_FCW; x++) {
+            int x0 = x * w / GL_FCW, x1 = (x + 1) * w / GL_FCW, y0 = y * h / GL_FCH, y1 = (y + 1) * h / GL_FCH;
+            if (x1 <= x0) x1 = x0 + 1; if (y1 <= y0) y1 = y0 + 1;
+            u32 r = 0, g = 0, b = 0, a = 0;
+            for (int yy = y0; yy < y1 && yy < h; yy++) for (int xx = x0; xx < x1 && xx < w; xx++) {
+                const unsigned char *p = px + ((size_t)yy * w + xx) * 4;
+                r += p[0] * p[3]; g += p[1] * p[3]; b += p[2] * p[3]; a += p[3];
+            }
+            int R = 20, G = 16, B = 30;
+            if (a) { R = (int)(r / a); G = (int)(g / a); B = (int)(b / a); }
+            t[((y >> 2) * (GL_FCW >> 2) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)] = (u16)(0x8000 | ((R >> 3) << 10) | ((G >> 3) << 5) | (B >> 3));
+        }
+    stbi_image_free(px);
+    return t;
+}
+static void gl_fc_save(const char *id, const u16 *t) {
+    char p[NAME_LEN];
+    mkdir(GL_UI, 0777); mkdir(GL_FCDIR, 0777);
+    gl_fc_path(id, "tex", p, sizeof(p));
+    FILE *f = fopen(p, "wb");
+    if (!f) return;
+    int ok = fwrite(t, 1, GL_FCSZ, f) == GL_FCSZ;
+    if (fclose(f) || !ok) remove(p);
+}
+static void gl_fc_set(u16 *t) {
+    free(gl_fc.tex); gl_fc.tex = t;
+    DCFlushRange(t, GL_FCSZ);
+    GX_InitTexObj(&gl_fc.obj, t, GL_FCW, GL_FCH, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InitTexObjFilterMode(&gl_fc.obj, GX_LINEAR, GX_LINEAR);
+    GX_InvalidateTexAll();
+    gl_fc.st = 2;
+}
+static int gl_fc_rabs;
+static void gl_fc_read(void) {                            /* (thread de fond ; v285 : aussi "y a-t-il un fichier ?", plus en dessinant) */
+    char p[NAME_LEN];
+    gl_fc_rbuf = NULL;
+    gl_fc_rabs = 0;
+    gl_fc_path(gl_fc_rid, "tex", p, sizeof(p));
+    FILE *f = fopen(p, "rb");
+    if (f) {
+        u16 *t = (u16 *)memalign(32, GL_FCSZ);
+        int ok = t != NULL;
+        for (u32 o = 0; ok && o < GL_FCSZ; o += 8192) { ok = fread((u8 *)t + o, 1, 8192, f) == 8192; usleep(300); }
+        fclose(f);
+        if (ok) { gl_fc_rbuf = t; return; }
+        free(t);
+    }
+    static const char *const ex[2] = { "png", "jpg" };
+    for (int i = 0; i < 2; i++) {                        /* (deposee a la main : convertie une fois) */
+        gl_fc_path(gl_fc_rid, ex[i], p, sizeof(p));
+        long n = 0;
+        u8 *d = read_file(p, 4 * 1024 * 1024, &n);
+        if (!d) continue;
+        u16 *t = gl_fc_convert(d, (int)n);
+        free(d);
+        if (!t) continue;
+        gl_fc_save(gl_fc_rid, t);
+        gl_fc_rbuf = t;
+        return;
+    }
+    gl_fc_rabs = gl_fc_absent(gl_fc_rid);
+}
+static void gl_fc_loaded(void) {                          /* (boucle principale) */
+    u16 *t = gl_fc_rbuf; gl_fc_rbuf = NULL;
+    if (strcmp(gl_fc_rid, gl_fc.id)) { free(t); if (gl_fc.st == 1) gl_fc.st = 0; return; }   /* (on a change de jeu) */
+    if (t) gl_fc_set(t); else gl_fc.st = gl_fc_rabs ? 3 : 4;
+}
+/* la jaquette complete du jeu k (fiche) ; NULL : pas (encore) la */
+static GXTexObj *gl_fc_get(int k) {
+    if (k < 0 || k >= gl_n || gl[k].dvd || !gl[k].id[0] || !sd_ok || sd_virtual) return NULL;
+    if (strncmp(gl_fc.id, gl[k].id, 6)) {
+        if (gl_fc.st == 1) return NULL;                  /* (attendre la fin de la lecture en cours) */
+        free(gl_fc.tex); gl_fc.tex = NULL;
+        snprintf(gl_fc.id, sizeof(gl_fc.id), "%.6s", gl[k].id); gl_fc.st = 0;
+    }
+    if (gl_fc.st == 2) return &gl_fc.obj;
+    if (gl_fc.st == 0 && now_ms() - last_input_ms > 250) {   /* (v285 : tout dans le thread de fond) */
+        snprintf(gl_fc_rid, sizeof(gl_fc_rid), "%s", gl_fc.id);
+        if (gj_post_fn(gl_fc_read, gl_fc_loaded)) gl_fc.st = 1;
+    }
+    return NULL;
+}
+static const char *gl_dl_region(const char *id, int i);
+/* v285 : image telechargee -> texture, dans le thread de fond (avant : dans la boucle principale, l'ecran sautait) */
+static u8 *gl_cv_in = NULL;
+static int gl_cv_n = 0, gl_cv_kind = 0;                  /* kind : 1 jaquette, 2 jaquette complete */
+static u16 *gl_cv_out = NULL;
+static char gl_cv_id[8];
+static void gl_dl_save(const char *id, const u16 *t);
+static u16 *gl_dl_convert(const u8 *img, int n);
+static u8 *gl_fh_convert(u8 *img, int n);
+static void gl_fh_save(const char *id, const u8 *t);
+static void gl_cv_run(void) {                             /* (thread de fond) */
+    if (gl_cv_kind == 4) { gl_cv_out = gl_dk_convert(gl_cv_in, gl_cv_n); free(gl_cv_in); gl_cv_in = NULL; if (gl_cv_out) gl_dk_save(gl_cv_id, gl_cv_out); return; }   /* v290 : disque */
+    if (gl_cv_kind == 3) { gl_cv_out = (u16 *)gl_fh_convert(gl_cv_in, gl_cv_n); free(gl_cv_in); gl_cv_in = NULL; if (gl_cv_out) gl_fh_save(gl_cv_id, (u8 *)gl_cv_out); return; }   /* v287 : HD */
+    gl_cv_out = gl_cv_kind == 2 ? gl_fc_convert(gl_cv_in, gl_cv_n) : gl_dl_convert(gl_cv_in, gl_cv_n);
+    free(gl_cv_in); gl_cv_in = NULL;
+    if (gl_cv_out) { if (gl_cv_kind == 2) gl_fc_save(gl_cv_id, gl_cv_out); else gl_dl_save(gl_cv_id, gl_cv_out); }
+}
+static void gl_cv_take(hfetch_t *h, int kind, const char *id) {   /* (garde l'image telechargee pour la conversion) */
+    gl_cv_in = h->buf; gl_cv_n = h->len; h->buf = NULL;
+    hf_drop(h); h->st = HF_IDLE;
+    gl_cv_kind = kind; snprintf(gl_cv_id, sizeof(gl_cv_id), "%.6s", id); gl_cv_out = NULL;
+}
+static void gl_fc_cv_done(void);
+/* telechargement de la jaquette complete demandee (1 : en cours) */
+static int gl_fc_pump(void) {
+    if (gl_fc_dl == 0) {
+        if (gl_fc.st != 4 || !gl_on || !gl_detail || gl_net_busy(3) || fun_mode || net_phase != NET_DONE || !net_ok) return 0;
+        if (now_ms() - last_input_ms < 1000) return 0;   /* v285 : seulement quand tu restes sur la fiche (pas en passant de jeu en jeu) */
+        gl_fc_reg = 0; gl_fc_dl = 1;
+    }
+    if (gl_fc_dl == 1) {
+        if (gl_fc.st != 4) { gl_fc_dl = 0; return 0; }   /* (plus demandee) */
+        const char *rg = gl_dl_region(gl_fc.id, gl_fc_reg);
+        if (!rg) {
+            mkdir(GL_UI, 0777); mkdir(GL_FCDIR, 0777);
+            FILE *f = fopen(GL_FCABS, "a");
+            if (f) { fprintf(f, "%.6s\n", gl_fc.id); fclose(f); }
+            gl_fc.st = 3; gl_fc_dl = 0; return 0;
+        }
+        char url[160];
+        snprintf(url, sizeof(url), "http://art.gametdb.com/wii/coverfull/%s/%s.png"   /* (v285 : http : pas de chiffrement a calculer, plus leger pour la console) */, rg, gl_fc.id);
+        snprintf(gl_fc_rid, sizeof(gl_fc_rid), "%s", gl_fc.id);
+        gl_fc_hf.frame_cap = 12 * 1024;   /* v288 : en douceur (le reseau prenait le processeur : saccades) */
+        gl_fc_hf.maxbytes = 2 * 1024 * 1024; gl_fc_hf.image = 0; gl_fc_hf.accept = "image/png,image/*";
+        hf_start(&gl_fc_hf, url, NULL);
+        gl_fc_dl = 2;
+        return 1;
+    }
+    if (gl_fc_dl == 3) { if (gj_post_fn(gl_cv_run, gl_fc_cv_done)) gl_fc_dl = 4; return 1; }
+    if (gl_fc_dl == 4) return 1;                         /* (conversion en fond) */
+    hf_pump(&gl_fc_hf);
+    if (gl_fc_hf.st == HF_FAIL || (gl_fc_hf.st == HF_DONE && (gl_fc_hf.code != 200 || gl_fc_hf.len < 200))) {
+        int net_err = gl_fc_hf.st == HF_FAIL && gl_fc_hf.code == 0;
+        hf_drop(&gl_fc_hf); gl_fc_hf.st = HF_IDLE;
+        if (net_err) { gl_fc_dl = 0; if (!strcmp(gl_fc_rid, gl_fc.id)) gl_fc.st = 5; return 0; }   /* (pas de reseau : plus tard, en revenant sur le jeu) */
+        gl_fc_reg++; gl_fc_dl = 1; return 1;
+    }
+    if (gl_fc_hf.st != HF_DONE) return 1;
+    gl_cv_take(&gl_fc_hf, 2, gl_fc_rid);
+    gl_fc_dl = 3;
+    return 1;
+}
+static void gl_fc_cv_done(void) {                          /* (boucle principale) */
+    u16 *t = gl_cv_out; gl_cv_out = NULL;
+    gl_fc_dl = 0;
+    if (!t) { if (!strcmp(gl_cv_id, gl_fc.id)) gl_fc.st = 5; return; }   /* (v292 : conversion ratee : reessayee en revenant sur le jeu, pas "absente") */
+    if (!strcmp(gl_cv_id, gl_fc.id)) gl_fc_set(t); else free(t);
+}
+/* ---------- v287 : jaquette complete en haute definition, pour lire la boite zoomee ----------
+   GameTDB coverfullHQ (1024 x 680) : chargee seulement quand tu zoomes. Gardee compressee comme le pack (CMPR :
+   340 Ko en memoire au lieu de 1,4 Mo) dans completes/<ID>-hd.tex. Pas de HD chez GameTDB : absentes-hd.txt. */
+#define GL_FHW 1024
+#define GL_FHH 680
+#define GL_FHSZ (GL_FHW * GL_FHH / 2)
+#define GL_FHABS GL_FCDIR "/absentes-hd.txt"
+static struct { char id[8]; u8 *tex; GXTexObj obj; int st; } gl_fh = { "", NULL, {{0}}, 0 };   /* st : 0 a voir, 1 lecture, 2 prete, 3 pas de HD, 4 a telecharger, 5 reseau absent */
+static char gl_fh_rid[8];
+static u8 *gl_fh_rbuf;
+static int gl_fh_rabs, gl_fh_dl = 0, gl_fh_reg = 0;
+static hfetch_t gl_fh_hf = { .c = { -1, 0, 0 } };
+static void gl_fh_path(const char *id, char *o, int cap) { snprintf(o, cap, GL_FCDIR "/%.6s-hd.tex", id); }
+/* un bloc 4x4 en CMPR (DXT1 de la GameCube : couleurs RGB565 grand-boutiennes, indices 2 bits, premier point en haut) */
+static void gl_fh_block(const u8 *strip, int x0, int y0, u8 *o) {   /* (strip : 8 lignes RGB de GL_FHW points) */
+    int c[16][3], mn[3] = { 255, 255, 255 }, mx[3] = { 0, 0, 0 };
+    for (int i = 0; i < 16; i++) {
+        const u8 *p = strip + ((size_t)(y0 + (i >> 2)) * GL_FHW + x0 + (i & 3)) * 3;
+        for (int j = 0; j < 3; j++) { c[i][j] = p[j]; if (p[j] < mn[j]) mn[j] = p[j]; if (p[j] > mx[j]) mx[j] = p[j]; }
+    }
+    u16 a = (u16)(((mx[0] >> 3) << 11) | ((mx[1] >> 2) << 5) | (mx[2] >> 3)), b = (u16)(((mn[0] >> 3) << 11) | ((mn[1] >> 2) << 5) | (mn[2] >> 3));
+    o[0] = a >> 8; o[1] = a & 255; o[2] = b >> 8; o[3] = b & 255;
+    if (a <= b) { o[4] = o[5] = o[6] = o[7] = 0; return; }   /* (bloc uni) */
+    int pal[4][3];
+    for (int j = 0; j < 3; j++) { pal[0][j] = mx[j]; pal[1][j] = mn[j]; pal[2][j] = (2 * mx[j] + mn[j]) / 3; pal[3][j] = (mx[j] + 2 * mn[j]) / 3; }
+    for (int r = 0; r < 4; r++) {
+        u8 v = 0;
+        for (int q = 0; q < 4; q++) {
+            const int *cc = c[r * 4 + q];
+            int best = 0, bd = 1 << 30;
+            for (int k = 0; k < 4; k++) { int d0 = cc[0] - pal[k][0], d1 = cc[1] - pal[k][1], d2 = cc[2] - pal[k][2], d = d0 * d0 + d1 * d1 + d2 * d2; if (d < bd) { bd = d; best = k; } }
+            v |= (u8)(best << (6 - q * 2));
+        }
+        o[4 + r] = v;
+    }
+}
+/* PNG -> CMPR 1024x680 en flux (tinfl.c) : la PNG n'est jamais decompressee en entier (1 Mo de PNG = 2 a 3 Mo
+   d'image : trop pour la console avec le reste). Memoire : la PNG + 32 Ko + deux lignes + 8 lignes + le resultat. */
+typedef struct { int w, h, bpp, ct, stride, pos, sy, ny; u8 filt, *cur, *prev, *strip, *out; const u8 *pal; int npal; } glpng_t;
+static void gl_png_row(glpng_t *z) {
+    u8 *c = z->cur, *p = z->prev;
+    int bpp = z->bpp, n = z->stride;
+    switch (z->filt) {                                   /* (filtres PNG) */
+        case 1: for (int i = bpp; i < n; i++) c[i] += c[i - bpp]; break;
+        case 2: for (int i = 0; i < n; i++) c[i] += p[i]; break;
+        case 3: for (int i = 0; i < n; i++) c[i] += (u8)(((i >= bpp ? c[i - bpp] : 0) + p[i]) >> 1); break;
+        case 4: for (int i = 0; i < n; i++) {
+                    int a = i >= bpp ? c[i - bpp] : 0, b = p[i], cc = i >= bpp ? p[i - bpp] : 0, pp = a + b - cc;
+                    int pa = abs(pp - a), pb = abs(pp - b), pc = abs(pp - cc);
+                    c[i] += (u8)(pa <= pb && pa <= pc ? a : pb <= pc ? b : cc);
+                } break;
+        default: break;
+    }
+    while (z->ny < GL_FHH && z->ny * z->h / GL_FHH == z->sy) {   /* (lignes du resultat qui viennent de cette ligne) */
+        u8 *d = z->strip + (size_t)(z->ny & 7) * GL_FHW * 3;
+        for (int x = 0; x < GL_FHW; x++) {
+            const u8 *s = c + (x * z->w / GL_FHW) * bpp;
+            u8 r, g, b;
+            if (z->ct == 2 || z->ct == 6) { r = s[0]; g = s[1]; b = s[2]; }
+            else if (z->ct == 3) { int k = s[0] < z->npal ? s[0] : 0; r = z->pal[k * 3]; g = z->pal[k * 3 + 1]; b = z->pal[k * 3 + 2]; }
+            else { r = g = b = s[0]; }
+            if (z->ct == 6 && s[3] < 255) { int a = s[3]; r = (u8)((r * a + 255 * (255 - a)) / 255); g = (u8)((g * a + 255 * (255 - a)) / 255); b = (u8)((b * a + 255 * (255 - a)) / 255); }
+            d[x * 3] = r; d[x * 3 + 1] = g; d[x * 3 + 2] = b;
+        }
+        if ((z->ny & 7) == 7) {                          /* (8 lignes : une rangee de tuiles CMPR) */
+            u8 *o = z->out + (size_t)(z->ny >> 3) * (GL_FHW / 8) * 32;
+            for (int tx = 0; tx < GL_FHW; tx += 8)
+                for (int sb = 0; sb < 4; sb++) { gl_fh_block(z->strip, tx + (sb & 1) * 4, (sb >> 1) * 4, o); o += 8; }
+        }
+        z->ny++;
+    }
+    u8 *t = z->prev; z->prev = z->cur; z->cur = t;
+    z->sy++;
+}
+static int gl_png_put(const void *buf, int len, void *user) {
+    glpng_t *z = (glpng_t *)user;
+    const u8 *b = (const u8 *)buf;
+    for (int i = 0; i < len; i++) {
+        if (z->sy >= z->h) return 1;
+        if (z->pos == 0) z->filt = b[i]; else z->cur[z->pos - 1] = b[i];
+        if (++z->pos == z->stride + 1) { gl_png_row(z); z->pos = 0; }
+    }
+    return 1;
+}
+static u8 *gl_fh_convert(u8 *img, int n) {               /* (thread de fond ; img est modifiee) */
+    static const u8 sig[8] = { 137, 'P', 'N', 'G', 13, 10, 26, 10 };
+    if (n < 45 || memcmp(img, sig, 8)) return NULL;
+    glpng_t z; memset(&z, 0, sizeof(z));
+    u8 palcopy[768];
+    int depth = 0, il = 0, idat = 0;
+    for (int p = 8; p + 12 <= n; ) {                     /* chunks ; les IDAT sont mis bout a bout sur place */
+        u32 L = be32(img + p);
+        if ((u32)(n - p - 12) < L) break;
+        const u8 *ty = img + p + 4, *d = img + p + 8;
+        if (!memcmp(ty, "IHDR", 4) && L >= 13) { z.w = (int)be32(d); z.h = (int)be32(d + 4); depth = d[8]; z.ct = d[9]; il = d[12]; }
+        else if (!memcmp(ty, "PLTE", 4)) { int m = (int)(L / 3) > 256 ? 256 : (int)(L / 3); memcpy(palcopy, d, m * 3); z.pal = palcopy; z.npal = m; }   /* (copiee : les IDAT ecrasent le debut du fichier) */
+        else if (!memcmp(ty, "IDAT", 4)) { memmove(img + idat, d, L); idat += (int)L; }   /* (idat <= p : seulement ce qui est deja lu) */
+        else if (!memcmp(ty, "IEND", 4)) break;
+        p += 12 + (int)L;
+    }
+    if (z.w < 256 || z.h < 64 || z.w < z.h || z.w > 4096 || depth != 8 || il) return NULL;
+    z.bpp = z.ct == 2 ? 3 : z.ct == 6 ? 4 : z.ct == 4 ? 2 : (z.ct == 0 || z.ct == 3) ? 1 : 0;
+    if (!z.bpp || (z.ct == 3 && !z.pal)) return NULL;
+    z.stride = z.w * z.bpp;
+    z.cur = (u8 *)calloc(1, z.stride); z.prev = (u8 *)calloc(1, z.stride);
+    z.strip = (u8 *)malloc(GL_FHW * 8 * 3); z.out = (u8 *)memalign(32, GL_FHSZ);
+    int ok = z.cur && z.prev && z.strip && z.out;
+    if (ok) {
+        size_t in = (size_t)idat;
+        ok = tinfl_decompress_mem_to_callback(img, &in, gl_png_put, &z, TINFL_FLAG_PARSE_ZLIB_HEADER) && z.ny >= GL_FHH;
+    }
+    free(z.cur); free(z.prev); free(z.strip);
+    if (!ok) { free(z.out); return NULL; }
+    return z.out;
+}
+static void gl_fh_save(const char *id, const u8 *t) {
+    char p[NAME_LEN];
+    mkdir(GL_UI, 0777); mkdir(GL_FCDIR, 0777);
+    gl_fh_path(id, p, sizeof(p));
+    FILE *f = fopen(p, "wb");
+    if (!f) return;
+    int ok = fwrite(t, 1, GL_FHSZ, f) == GL_FHSZ;
+    if (fclose(f) || !ok) remove(p);
+}
+static void gl_fh_set(u8 *t) {
+    free(gl_fh.tex); gl_fh.tex = t;
+    DCFlushRange(t, GL_FHSZ);
+    GX_InitTexObj(&gl_fh.obj, t, GL_FHW, GL_FHH, GX_TF_CMPR, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InitTexObjFilterMode(&gl_fh.obj, GX_LINEAR, GX_LINEAR);
+    GX_InvalidateTexAll();
+    gl_fh.st = 2;
+}
+static void gl_fh_read(void) {                            /* (thread de fond) */
+    char p[NAME_LEN];
+    gl_fh_rbuf = NULL; gl_fh_rabs = 0;
+    gl_fh_path(gl_fh_rid, p, sizeof(p));
+    FILE *f = fopen(p, "rb");
+    if (f) {
+        u8 *t = (u8 *)memalign(32, GL_FHSZ);
+        int ok = t != NULL;
+        for (u32 o = 0; ok && o < GL_FHSZ; o += 8192) { u32 m = GL_FHSZ - o < 8192 ? GL_FHSZ - o : 8192; ok = fread(t + o, 1, m, f) == m; usleep(300); }
+        fclose(f);
+        if (ok) { gl_fh_rbuf = t; return; }
+        free(t);
+    }
+    snprintf(p, sizeof(p), GL_FCDIR "/%.6s-hd.png", gl_fh_rid);   /* (deposee a la main : convertie une fois) */
+    long n = 0;
+    u8 *img = read_file(p, 6 * 1024 * 1024, &n);
+    if (img) { u8 *t = gl_fh_convert(img, (int)n); free(img); if (t) { gl_fh_save(gl_fh_rid, t); gl_fh_rbuf = t; return; } }
+    n = 0;
+    char *d = (char *)read_file(GL_FHABS, 16384, &n);
+    for (long i = 0; d && i + 6 <= n && !gl_fh_rabs; ) { if (!strncmp(d + i, gl_fh_rid, 6)) gl_fh_rabs = 1; while (i < n && d[i] != '\n') i++; i++; }
+    free(d);
+}
+static void gl_fh_loaded(void) {
+    u8 *t = gl_fh_rbuf; gl_fh_rbuf = NULL;
+    if (strcmp(gl_fh_rid, gl_fh.id)) { free(t); if (gl_fh.st == 1) gl_fh.st = 0; return; }
+    if (t) gl_fh_set(t); else gl_fh.st = gl_fh_rabs ? 3 : 4;
+}
+/* la HD du jeu k (boite zoomee) ; NULL : pas (encore) la */
+static GXTexObj *gl_fh_get(int k) {
+    if (k < 0 || k >= gl_n || gl[k].dvd || !gl[k].id[0] || !sd_ok || sd_virtual) return NULL;
+    if (strncmp(gl_fh.id, gl[k].id, 6)) {
+        if (gl_fh.st == 1 || gl_fh_dl >= 3) return NULL;
+        free(gl_fh.tex); gl_fh.tex = NULL;
+        snprintf(gl_fh.id, sizeof(gl_fh.id), "%.6s", gl[k].id); gl_fh.st = 0;
+    }
+    if (gl_fh.st == 2) return &gl_fh.obj;
+    if (gl_fh.st == 0) { snprintf(gl_fh_rid, sizeof(gl_fh_rid), "%s", gl_fh.id); if (gj_post_fn(gl_fh_read, gl_fh_loaded)) gl_fh.st = 1; }
+    return NULL;
+}
+static int gl_fh_busy(void) { return gl_fh.st == 1 || gl_fh.st == 4 || gl_fh_dl; }
+static int gl_fh_pct(void) {                              /* v288 : avancement du telechargement HD (-1 : inconnu) */
+    if (gl_fh_dl >= 3) return 100;
+    if (gl_fh_dl == 2 && gl_fh_hf.st == HF_BODY && gl_fh_hf.cap > 65536) { int p = (int)((s64)gl_fh_hf.len * 100 / (gl_fh_hf.cap - 16)); return p > 99 ? 99 : p; }
+    return -1;
+}
+static void gl_fh_cv_done(void) {
+    u8 *t = (u8 *)gl_cv_out; gl_cv_out = NULL;
+    gl_fh_dl = 0;
+    if (!t) { if (!strcmp(gl_cv_id, gl_fh.id)) gl_fh.st = 3; return; }   /* (illisible ou memoire : pas de HD cette fois) */
+    if (!strcmp(gl_cv_id, gl_fh.id)) gl_fh_set(t); else free(t);
+}
+static int gl_fh_pump(void) {                             /* (1 : en cours) */
+    if (gl_fh_dl == 0) {
+        if (gl_fh.st != 4 || !gl_on || !gl_detail || gl_net_busy(1) || fun_mode || net_phase != NET_DONE || !net_ok) return 0;
+        gl_fh_reg = 0; gl_fh_dl = 1;
+    }
+    if (gl_fh_dl == 1) {
+        if (gl_fh.st != 4) { gl_fh_dl = 0; return 0; }
+        const char *rg = gl_dl_region(gl_fh.id, gl_fh_reg);
+        if (!rg) {
+            mkdir(GL_UI, 0777); mkdir(GL_FCDIR, 0777);
+            FILE *f = fopen(GL_FHABS, "a");
+            if (f) { fprintf(f, "%.6s\n", gl_fh.id); fclose(f); }
+            gl_fh.st = 3; gl_fh_dl = 0; return 0;
+        }
+        char url[160];
+        snprintf(url, sizeof(url), "http://art.gametdb.com/wii/coverfullHQ/%s/%s.png", rg, gl_fh.id);
+        snprintf(gl_fh_rid, sizeof(gl_fh_rid), "%s", gl_fh.id);
+        gl_fh_hf.frame_cap = 256 * 1024;  /* v320 : a pleine vitesse (fenetre de chargement par-dessus ; v288 : 12 Ko, la boite saccadait quand meme) */
+        gl_fh_hf.maxbytes = 3 * 1024 * 1024; gl_fh_hf.image = 0; gl_fh_hf.accept = "image/png,image/*";
+        hf_start(&gl_fh_hf, url, NULL);
+        gl_fh_dl = 2;
+        return 1;
+    }
+    if (gl_fh_dl == 3) { if (gj_post_fn(gl_cv_run, gl_fh_cv_done)) gl_fh_dl = 4; return 1; }
+    if (gl_fh_dl == 4) return 1;
+    hf_pump(&gl_fh_hf);
+    if (gl_fh_hf.st == HF_FAIL || (gl_fh_hf.st == HF_DONE && (gl_fh_hf.code != 200 || gl_fh_hf.len < 200))) {
+        int net_err = gl_fh_hf.st == HF_FAIL && gl_fh_hf.code == 0;
+        hf_drop(&gl_fh_hf); gl_fh_hf.st = HF_IDLE;
+        if (net_err) { gl_fh_dl = 0; if (!strcmp(gl_fh_rid, gl_fh.id)) gl_fh.st = 5; return 0; }
+        gl_fh_reg++; gl_fh_dl = 1; return 1;
+    }
+    if (gl_fh_hf.st != HF_DONE) return 1;
+    gl_cv_take(&gl_fh_hf, 3, gl_fh_rid);
+    gl_fh_dl = 3;
+    return 1;
+}
+/* ---------- v290 : l'image du disque (GameTDB disc/<region>/<ID>.png), posee dans la boite ouverte ----------
+   Texture RGB5A3 128x128 avec transparence (le disque est rond), rangee dans jaquettes/disques/<ID>.tex ;
+   un <ID>.png depose a la main y est converti. Pas d'image chez GameTDB : disques/absentes.txt. */
+#define GL_DKDIR GL_UI "/disques"
+#define GL_DKABS GL_DKDIR "/absentes.txt"
+#define GL_DKW 128
+#define GL_DKSZ (GL_DKW * GL_DKW * 2)
+static struct { char id[8]; u16 *tex; GXTexObj obj; int st; } gl_dk = { "", NULL, {{0}}, 0 };   /* st comme gl_fc */
+static char gl_dk_rid[8];
+static u16 *gl_dk_rbuf;
+static int gl_dk_rabs, gl_dk_dl = 0, gl_dk_reg = 0;
+static hfetch_t gl_dk_hf = { .c = { -1, 0, 0 } };
+static u16 *gl_dk_convert(const u8 *img, int n) {
+    int w = 0, h = 0, c = 0;
+    unsigned char *px = stbi_load_from_memory(img, n, &w, &h, &c, 4);
+    if (!px || w < 32 || h < 32) { if (px) stbi_image_free(px); return NULL; }
+    u16 *t = (u16 *)memalign(32, GL_DKSZ);
+    if (!t) { stbi_image_free(px); return NULL; }
+    for (int y = 0; y < GL_DKW; y++)
+        for (int x = 0; x < GL_DKW; x++) {
+            int x0 = x * w / GL_DKW, x1 = (x + 1) * w / GL_DKW, y0 = y * h / GL_DKW, y1 = (y + 1) * h / GL_DKW;
+            if (x1 <= x0) x1 = x0 + 1; if (y1 <= y0) y1 = y0 + 1;
+            u32 r = 0, g = 0, b = 0, a = 0, m = 0;
+            for (int yy = y0; yy < y1 && yy < h; yy++) for (int xx = x0; xx < x1 && xx < w; xx++) {
+                const unsigned char *p = px + ((size_t)yy * w + xx) * 4;
+                r += p[0] * p[3]; g += p[1] * p[3]; b += p[2] * p[3]; a += p[3]; m++;
+            }
+            int R = 0, G = 0, B = 0, A = m ? (int)(a / m) : 0;
+            if (a) { R = (int)(r / a); G = (int)(g / a); B = (int)(b / a); }
+            u16 v = A >= 0xE0 ? (u16)(0x8000 | ((R >> 3) << 10) | ((G >> 3) << 5) | (B >> 3)) : (u16)(((A >> 5) << 12) | ((R >> 4) << 8) | ((G >> 4) << 4) | (B >> 4));
+            t[((y >> 2) * (GL_DKW >> 2) + (x >> 2)) * 16 + (y & 3) * 4 + (x & 3)] = v;
+        }
+    stbi_image_free(px);
+    return t;
+}
+static void gl_dk_save(const char *id, const u16 *t) {
+    char p[NAME_LEN];
+    mkdir(GL_UI, 0777); mkdir(GL_DKDIR, 0777);
+    snprintf(p, sizeof(p), GL_DKDIR "/%.6s.tex", id);
+    FILE *f = fopen(p, "wb");
+    if (!f) return;
+    int ok = fwrite(t, 1, GL_DKSZ, f) == GL_DKSZ;
+    if (fclose(f) || !ok) remove(p);
+}
+static void gl_dk_set(u16 *t) {
+    free(gl_dk.tex); gl_dk.tex = t;
+    DCFlushRange(t, GL_DKSZ);
+    GX_InitTexObj(&gl_dk.obj, t, GL_DKW, GL_DKW, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InitTexObjFilterMode(&gl_dk.obj, GX_LINEAR, GX_LINEAR);
+    GX_InvalidateTexAll();
+    gl_dk.st = 2;
+}
+static void gl_dk_read(void) {                            /* (thread de fond) */
+    char p[NAME_LEN];
+    gl_dk_rbuf = NULL; gl_dk_rabs = 0;
+    snprintf(p, sizeof(p), GL_DKDIR "/%.6s.tex", gl_dk_rid);
+    FILE *f = fopen(p, "rb");
+    if (f) {
+        u16 *t = (u16 *)memalign(32, GL_DKSZ);
+        int ok = t && fread(t, 1, GL_DKSZ, f) == GL_DKSZ;
+        fclose(f);
+        if (ok) { gl_dk_rbuf = t; return; }
+        free(t);
+    }
+    snprintf(p, sizeof(p), GL_DKDIR "/%.6s.png", gl_dk_rid);
+    long n = 0;
+    u8 *d = read_file(p, 4 * 1024 * 1024, &n);
+    if (d) { u16 *t = gl_dk_convert(d, (int)n); free(d); if (t) { gl_dk_save(gl_dk_rid, t); gl_dk_rbuf = t; return; } }
+    gl_dk_rabs = gl_abs_in(GL_DKABS, gl_dk_rid);
+}
+static void gl_dk_loaded(void) {
+    u16 *t = gl_dk_rbuf; gl_dk_rbuf = NULL;
+    if (strcmp(gl_dk_rid, gl_dk.id)) { free(t); if (gl_dk.st == 1) gl_dk.st = 0; return; }
+    if (t) gl_dk_set(t); else gl_dk.st = gl_dk_rabs ? 3 : 4;
+}
+/* v301 : une image envoyee par le telephone vient d'arriver (tab_phone.c) : jaquettes de la liste, et
+   complete / HD / disque du jeu affiche relues (sauf lecture en cours : elle sera reprise en revenant sur le jeu) */
+static void gl_art_recu(void) {
+    gl_dl_apply();
+    if (gl_fc.st != 1 && gl_fc_dl < 3) { gl_fc.id[0] = 0; gl_fc.st = 0; }
+    if (gl_fh.st != 1 && gl_fh_dl < 3) { gl_fh.id[0] = 0; gl_fh.st = 0; }
+    if (gl_dk.st != 1 && gl_dk_dl < 3) { gl_dk.id[0] = 0; gl_dk.st = 0; }
+}
+/* l'image du disque du jeu k (boite ouverte) ; NULL : pas (encore) la */
+static GXTexObj *gl_dk_get(int k) {
+    if (k < 0 || k >= gl_n || gl[k].dvd || !gl[k].id[0] || !sd_ok || sd_virtual) return NULL;
+    if (strncmp(gl_dk.id, gl[k].id, 6)) {
+        if (gl_dk.st == 1 || gl_dk_dl >= 3) return NULL;
+        free(gl_dk.tex); gl_dk.tex = NULL;
+        snprintf(gl_dk.id, sizeof(gl_dk.id), "%.6s", gl[k].id); gl_dk.st = 0;
+    }
+    if (gl_dk.st == 2) return &gl_dk.obj;
+    if (gl_dk.st == 0) { snprintf(gl_dk_rid, sizeof(gl_dk_rid), "%s", gl_dk.id); if (gj_post_fn(gl_dk_read, gl_dk_loaded)) gl_dk.st = 1; }
+    return NULL;
+}
+static void gl_dk_cv_done(void) {
+    u16 *t = gl_cv_out; gl_cv_out = NULL;
+    gl_dk_dl = 0;
+    if (!t) { if (!strcmp(gl_cv_id, gl_dk.id)) gl_dk.st = 5; return; }   /* (v292) */
+    if (!strcmp(gl_cv_id, gl_dk.id)) gl_dk_set(t); else free(t);
+}
+static int gl_dk_pump(void) {
+    if (gl_dk_dl == 0) {
+        if (gl_dk.st != 4 || !gl_on || !gl_detail || gl_net_busy(2) || fun_mode || net_phase != NET_DONE || !net_ok) return 0;
+        gl_dk_reg = 0; gl_dk_dl = 1;
+    }
+    if (gl_dk_dl == 1) {
+        if (gl_dk.st != 4) { gl_dk_dl = 0; return 0; }
+        const char *rg = gl_dl_region(gl_dk.id, gl_dk_reg);
+        if (!rg) {
+            mkdir(GL_UI, 0777); mkdir(GL_DKDIR, 0777);
+            FILE *f = fopen(GL_DKABS, "a");
+            if (f) { fprintf(f, "%.6s\n", gl_dk.id); fclose(f); }
+            gl_dk.st = 3; gl_dk_dl = 0; return 0;
+        }
+        char url[160];
+        snprintf(url, sizeof(url), "http://art.gametdb.com/wii/disc/%s/%s.png", rg, gl_dk.id);
+        snprintf(gl_dk_rid, sizeof(gl_dk_rid), "%s", gl_dk.id);
+        gl_dk_hf.frame_cap = 12 * 1024; gl_dk_hf.maxbytes = 2 * 1024 * 1024; gl_dk_hf.image = 0; gl_dk_hf.accept = "image/png,image/*";
+        hf_start(&gl_dk_hf, url, NULL);
+        gl_dk_dl = 2;
+        return 1;
+    }
+    if (gl_dk_dl == 3) { if (gj_post_fn(gl_cv_run, gl_dk_cv_done)) gl_dk_dl = 4; return 1; }
+    if (gl_dk_dl == 4) return 1;
+    hf_pump(&gl_dk_hf);
+    if (gl_dk_hf.st == HF_FAIL || (gl_dk_hf.st == HF_DONE && (gl_dk_hf.code != 200 || gl_dk_hf.len < 200))) {
+        int net_err = gl_dk_hf.st == HF_FAIL && gl_dk_hf.code == 0;
+        hf_drop(&gl_dk_hf); gl_dk_hf.st = HF_IDLE;
+        if (net_err) { gl_dk_dl = 0; if (!strcmp(gl_dk_rid, gl_dk.id)) gl_dk.st = 5; return 0; }
+        gl_dk_reg++; gl_dk_dl = 1; return 1;
+    }
+    if (gl_dk_hf.st != HF_DONE) return 1;
+    gl_cv_take(&gl_dk_hf, 4, gl_dk_rid);
+    gl_dk_dl = 3;
+    return 1;
+}
+/* v290 : un ID dans une liste absentes.txt */
+static int gl_abs_in(const char *path, const char *id) {
+    long n = 0;
+    char *d = (char *)read_file(path, 16384, &n);
+    int r = 0;
+    for (long i = 0; d && i + 6 <= n && !r; ) { if (!strncmp(d + i, id, 6)) r = 1; while (i < n && d[i] != '\n') i++; i++; }
+    free(d);
+    return r;
+}
+/* telechargement en fond (boucle principale, une jaquette a la fois) */
+#define GL_DLABS GL_DLDIR "/absentes.txt"
+static hfetch_t gl_dl_hf = { .c = { -1, 0, 0 } };
+static int gl_dl_st = 0, gl_dl_reg = 0, gl_dl_nabs = -1, gl_dl_got = 0;
+static char gl_dl_id[8] = "", gl_dl_abs[GL_MAX][7];
+static u64 gl_dl_wait = 0;
+static void gl_dl_abs_load(void) {
+    gl_dl_nabs = 0;
+    long n = 0;
+    char *d = (char *)read_file(GL_DLABS, 16384, &n);
+    if (!d) return;
+    for (long i = 0; i + 6 <= n && gl_dl_nabs < GL_MAX; ) {
+        memcpy(gl_dl_abs[gl_dl_nabs], d + i, 6); gl_dl_abs[gl_dl_nabs][6] = 0; gl_dl_nabs++;
+        while (i < n && d[i] != '\n') i++;
+        i++;
+    }
+    free(d);
+}
+static int gl_dl_absent(const char *id) { for (int i = 0; i < gl_dl_nabs; i++) if (!strncmp(gl_dl_abs[i], id, 6)) return 1; return 0; }
+static void gl_dl_mark_absent(const char *id) {
+    if (gl_dl_nabs >= 0 && gl_dl_nabs < GL_MAX) { snprintf(gl_dl_abs[gl_dl_nabs], 7, "%.6s", id); gl_dl_nabs++; }
+    mkdir(GL_UI, 0777); mkdir(GL_DLDIR, 0777);
+    FILE *f = fopen(GL_DLABS, "a");
+    if (f) { fprintf(f, "%.6s\n", id); fclose(f); }
+}
+/* regions de GameTDB a essayer, d'apres la lettre de region de l'ID */
+static const char *gl_dl_region(const char *id, int i) {
+    static const char *const eu[] = { "FR", "EN", "US" }, *const us[] = { "US", "EN", "FR" }, *const jp[] = { "JA", "US", "EN" }, *const de[] = { "DE", "EN", "US" },
+                      *const es[] = { "ES", "EN", "US" }, *const it[] = { "IT", "EN", "US" };
+    const char *const *r = eu;
+    switch (id[3]) { case 'E': r = us; break; case 'J': r = jp; break; case 'D': r = de; break; case 'S': r = es; break; case 'I': r = it; break; default: break; }
+    return i < 3 ? r[i] : NULL;
+}
+static void gl_dl_cv_done(void);
+static int gl_net_busy(int ex) {                          /* v292 : 1 : un autre telechargement d'images est en cours (ex : soi-meme)
+                                                             (avant : deux pouvaient se croiser et s'ecraser l'image a convertir) */
+    return (ex != 1 && gl_fh_dl) || (ex != 2 && gl_dk_dl) || (ex != 3 && gl_fc_dl) || (ex != 5 && gl_fxdl_st) || (ex != 6 && gl_dl_st);
+}
+static void gl_dl_pump(void) {
+    if (!sd_ok || sd_virtual || !gl_scanned || !gl || sx_safe) return;
+    if (gl_dl_st == 0 && gl_fh_pump()) return;         /* v287 : la HD de la boite zoomee d'abord */
+    if (gl_dl_st == 0 && gl_dk_pump()) return;         /* v290 : le disque de la boite ouverte */
+    if (gl_dl_st == 0 && gl_fc_pump()) return;
+         /* v283 : la jaquette complete de la fiche ouverte d'abord */
+    if (gl_dl_st == 0 && gl_fx_pump()) return;         /* v281 : les fiches d'abord */
+    if (gl_dl_st == 0) {
+        if (!gl_on || fun_mode || net_phase != NET_DONE || !net_ok || now_ms() < gl_dl_wait || gl_net_busy(6)) return;
+        if (now_ms() - last_input_ms < 1500) return;      /* v285 : pas pendant que tu navigues */
+        if (gl_dl_nabs < 0) gl_dl_abs_load();
+        int k = -1;
+        for (int i = 0; i < gl_n && k < 0; i++) if (!gl[i].dvd && gl[i].post < 0 && gl[i].id[0] && !gl_dl_absent(gl[i].id) && !gl_dl_exists(gl[i].id)) k = i;
+        if (k < 0) { gl_dl_wait = now_ms() + 60000; return; }   /* (rien a chercher : on revoit dans une minute) */
+        snprintf(gl_dl_id, sizeof(gl_dl_id), "%.6s", gl[k].id);
+        gl_dl_reg = 0; gl_dl_st = 1;
+    }
+    if (gl_dl_st == 1) {                                  /* demande */
+        const char *rg = gl_dl_region(gl_dl_id, gl_dl_reg);
+        if (!rg) { gl_dl_mark_absent(gl_dl_id); gl_dl_st = 0; gl_dl_wait = now_ms() + 500; return; }
+        char url[160];
+        snprintf(url, sizeof(url), "http://art.gametdb.com/wii/cover/%s/%s.png"   /* (v285 : http) */, rg, gl_dl_id);
+        gl_dl_hf.frame_cap = 12 * 1024;   /* v288 : en douceur (le reseau prenait le processeur : saccades) */
+        gl_dl_hf.maxbytes = 1024 * 1024; gl_dl_hf.image = 0; gl_dl_hf.accept = "image/png,image/*";
+        hf_start(&gl_dl_hf, url, NULL);
+        gl_dl_st = 2;
+        return;
+    }
+    if (gl_dl_st == 3) { if (gj_post_fn(gl_cv_run, gl_dl_cv_done)) gl_dl_st = 4; return; }
+    if (gl_dl_st == 4) return;                           /* (v285 : conversion en fond) */
+    hf_pump(&gl_dl_hf);
+    if (gl_dl_hf.st == HF_FAIL || (gl_dl_hf.st == HF_DONE && (gl_dl_hf.code != 200 || gl_dl_hf.len < 200))) {
+        int net_err = gl_dl_hf.st == HF_FAIL && gl_dl_hf.code == 0;   /* (pas de reponse : on reessaiera plus tard) */
+        hf_drop(&gl_dl_hf); gl_dl_hf.st = HF_IDLE;
+        if (net_err) { gl_dl_st = 0; gl_dl_wait = now_ms() + 120000; return; }
+        gl_dl_reg++; gl_dl_st = 1; return;            /* (404 : la region suivante) */
+    }
+    if (gl_dl_hf.st != HF_DONE) return;
+    gl_cv_take(&gl_dl_hf, 1, gl_dl_id);
+    gl_dl_st = 3;
+}
+static void gl_dl_cv_done(void) {                          /* (boucle principale, apres la conversion en fond) */
+    u16 *t = gl_cv_out; gl_cv_out = NULL;
+    gl_dl_st = 0; gl_dl_wait = now_ms() + 300;
+    if (!t) { gl_dl_wait = now_ms() + 600000; return; }   /* v292 : (conversion ratee, souvent la memoire : on reessaiera, pas "absente" pour toujours) */
+    free(t);                                             /* (deja rangee sur la carte par le thread) */
+    gl_dl_got++;
+    for (int k = 0; k < gl_n; k++) if (!strncmp(gl[k].id, gl_dl_id, 6) && gl[k].post < 0) {
+        gl[k].post = GL_POST_DL;
+        if (k < GL_MAX) { gl_cov_fail[k] = 0; gl_cov_retry[k] = 0; }
+        char m[96]; snprintf(m, sizeof(m), "Jaquette ajout\xC3\xA9" "e : %.60s", gl[k].title);
+        gl_note(m);
+        gs_dirty = 1;
+    }
+}
+static GXTexObj *gl_cover(int k, int load) {                 /* jaquette 128x256 (niveau 1 du pack) */
+    glslot_t *s = gl_find_slot(gl_cov, GL_SLOTS, k);
+    if (s) return &s->obj;
+    if (!load || gl[k].post < 0) return NULL;
+    if (k < GL_MAX && gl_cov_retry[k] && now_ms() < gl_cov_retry[k]) return NULL;
+    {   /* v356 : au plus 2 jaquettes lues par image : l'ecran s'affiche tout de suite, les jaquettes arrivent une a une
+           (avant : toutes lues dans la 1re image ; ouverture de la liste des jeux : plus d'une seconde figee) */
+        static u64 vi = 0; static u32 n = 0;           /* (par tranche de 15 ms : environ une image) */
+        u64 r = now_ms();
+        if (r - vi >= 15u) { vi = r; n = 0; }
+        if (n >= 2) return NULL;
+        n++;
+    }
+    if (gl[k].post == GL_POST_DL) {                       /* v280 : jaquette ajoutee (telechargee ou deposee) */
+        u16 *t = gl_dl_tex(gl[k].id);
+        if (!t) {                                        /* v292 : (avant : une lecture ratee = plus de jaquette jusqu'au prochain demarrage) */
+            if (k < GL_MAX && ++gl_cov_fail[k] < 4) gl_cov_retry[k] = now_ms() + 1500; else gl[k].post = -1;
+            return NULL;
+        }
+        if (k < GL_MAX) { gl_cov_fail[k] = 0; gl_cov_retry[k] = 0; }
+        s = gl_new_slot(gl_cov, GL_SLOTS);
+        s->tex = t; s->game = k; s->used = now_ms();
+        GX_InitTexObj(&s->obj, t, GL_DLW, GL_DLW, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+        GX_InvalidateTexAll();
+        GX_InitTexObjFilterMode(&s->obj, GX_LINEAR, GX_LINEAR);
+        return &s->obj;
+    }
+    int w, h;
+    u8 *c = swpk_read(&gl_post, gl[k].post, 1, &w, &h);    /* v92 : texture CMPR telle quelle (plus de conversion) */
+    if (!c) {                                              /* v277 : (avant : une seule lecture ratee, et plus jamais de jaquette) */
+        if (k < GL_MAX && ++gl_cov_fail[k] < 4) gl_cov_retry[k] = now_ms() + 1500; else gl[k].post = -1;
+        return NULL;
+    }
+    if (k < GL_MAX) { gl_cov_fail[k] = 0; gl_cov_retry[k] = 0; }
+    s = gl_new_slot(gl_cov, GL_SLOTS);
+    s->tex = (u16 *)c; s->game = k; s->used = now_ms();
+    GX_InitTexObj(&s->obj, c, w, h, GX_TF_CMPR, GX_CLAMP, GX_CLAMP, GX_FALSE);
+    GX_InvalidateTexAll();                 /* v155 : (nouvelle image a une adresse deja servie : le cache de textures du GPU gardait des morceaux de l'ancienne) */
+    GX_InitTexObjFilterMode(&s->obj, GX_LINEAR, GX_LINEAR);
+    return &s->obj;
+}
+/* v191 : economiseur "Jaquettes" : les jaquettes des jeux en colonnes qui defilent lentement (une lue par image) ;
+   rend 0 s'il n'y a aucune jaquette (l'economiseur montre alors le spectre) */
+static void draw_tex_fit_shade(GXTexObj *o, int tw, int th, int iw, int ih, f32 x, f32 y, f32 w, f32 h, int lt, int lb);   /* (tab_photo.c) */
+static int sv_light(f32 y) { f32 l = y < 120 ? 50 + y * 1.25f : y > 330 ? 200 - (y - 330) * 1.2f : 200; return (int)(l < 20 ? 20 : l); }
+static int saver_covers(f32 t) {
+    static int list[512], ln = -1, lgn = -1;
+    if (!gl_scanned) gl_scan_full(0);
+    if (!gl) return 0;
+    if (ln < 0 || lgn != gl_n) {
+        ln = 0; lgn = gl_n;
+        for (int k = 0; k < gl_n && ln < 512; k++) if (!gl[k].dvd && gl[k].post >= 0) list[ln++] = k;
+        for (int i = ln - 1; i > 0; i--) { int j = (int)((u32)(i * 2654435761u) % (u32)(i + 1)); int x = list[i]; list[i] = list[j]; list[j] = x; }
+    }
+    if (!ln) return 0;
+    const f32 cw = 100, ch = 134, gap = 8, step = ch + gap;
+    int loaded = 0;
+    for (int c = 0; c < 6; c++) {
+        f32 v = 10.0f + 5.0f * (c % 3), d = (c & 1) ? -1.0f : 1.0f;
+        f32 off = t * v;
+        int base = (int)floorf(off / step);
+        f32 frac = off - base * step;
+        for (int r = -1; r < 5; r++) {
+            int absr = d > 0 ? base + r : -base + r;
+            f32 y = d > 0 ? r * step - frac + 8 : r * step + frac - step + 8;
+            f32 x = -6 + c * (cw + gap);
+            int k = list[(u32)(c * 7 + absr * 3 + 100000) % (u32)ln];
+            GXTexObj *o = gl_cover(k, 0);
+            if (!o && !loaded) { o = gl_cover(k, 1); loaded = 1; }
+            if (o) draw_tex_fit_shade(o, 128, 128, 96, 128, x, y, cw, ch, sv_light(y), sv_light(y + ch));
+            else gx_rrect_fill(x, y, cw, ch, 6, RGBA(40, 26, 90, 255), RGBA(24, 14, 60, 255));
+        }
+    }
+    time_t now = time(NULL); struct tm *tm = localtime(&now);
+    char b[16];
+    if (tm) { snprintf(b, sizeof(b), "%02d:%02d", tm->tm_hour, tm->tm_min); gx_text_c(F_LARGE, 320 + 40 * sinf(t * 0.05f), 446, b, RGBA(255, 255, 255, 230)); }
+    return 1;
+}
+/* v92 : lectures dans la table des fichiers du disque par fenetres de 4 Ko (deux fenetres : entrees, noms) */
+typedef struct { u32 base; int ok; u8 b[4096]; } gl_win_t;
+static int gl_win_read(gdisc_t *d, gl_win_t *w, u32 off, void *out, u32 len, u32 lim) {
+    if (len > 64) return gd_read(d, off, out, len);
+    if (!w->ok || off < w->base || off + len > w->base + sizeof(w->b)) {
+        u32 b0 = off & ~2047u, n = sizeof(w->b);
+        if (lim > b0 && lim - b0 < n) n = lim - b0;
+        if (n < (off - b0) + len || !gd_read(d, b0, w->b, n)) { w->ok = 0; return gd_read(d, off, out, len); }
+        w->base = b0; w->ok = 1;
+        usleep(300);                                         /* (thread de fond : l'ecran passe devant) */
+    }
+    memcpy(out, w->b + (off - w->base), len);
+    return 1;
+}
+/* banniere du disque : cache SD:/gc-mp3/cache/jeux/<ID><disque>.bnr, sinon lue dans le jeu */
+/* v92 : lecture de la banniere (cache, sinon dans le jeu, puis mise en cache) : faite par le thread de
+   fond (gl_job_run), sans rien toucher de la liste des jeux */
+static u8 *gl_banner_fetch(const char *path, const char *cp) {
+    u8 *b = NULL;
+    long len = 0;
+    unsigned char *c = read_file(cp, 0x2000, &len);
+    if (c && len >= 0x1820 + 0x140 && !memcmp(c, "BNR", 3)) b = c;
+    else {
+        free(c);
+        gdisc_t d;
+        if (gd_open(&d, path)) {
+            u8 h[0x440];
+            if (gd_read(&d, 0, h, sizeof(h))) {
+                /* v92 : seulement les fichiers a la racine du disque (on saute le contenu des dossiers),
+                   au lieu de lire toute la table des fichiers (jusqu'a plusieurs centaines de Ko) */
+                u32 fo = be32(h + 0x424), fs = be32(h + 0x428);
+                u8 e[12], root[12];
+                static gl_win_t we, wn;
+                we.ok = wn.ok = 0;
+                if (fs >= 12 && fs < (4u << 20) && gd_read(&d, fo, root, 12)) {
+                    u32 ne = be32(root + 8), st = fo + ne * 12;
+                    int guard = 0;
+                    for (u32 i = 1; ne <= fs / 12 && i < ne && guard < 2048; guard++) {
+                        if (!gl_win_read(&d, &we, fo + i * 12, e, 12, fo + fs)) break;
+                        if (e[0]) { u32 nx = be32(e + 8); if (nx <= i) break; i = nx; continue; }   /* (dossier : on le saute) */
+                        char nm[16] = { 0 };
+                        u32 no = be32(e) & 0xFFFFFF;
+                        if (st + no + 12 <= fo + fs && gl_win_read(&d, &wn, st + no, nm, 12, fo + fs) && !strncasecmp(nm, "opening.bnr", 12)) {
+                            u32 bo = be32(e + 4), bl = be32(e + 8);
+                            if (bl >= 0x1960) {
+                                b = (u8 *)malloc(0x1960);
+                                if (b && !gd_read(&d, bo, b, 0x1960)) { free(b); b = NULL; }
+                                if (b && memcmp(b, "BNR", 3)) { free(b); b = NULL; }
+                            }
+                            break;
+                        }
+                        i++;
+                    }
+                }
+            }
+            gd_close(&d);
+        }
+        if (b) {                                             /* garde-la pour la prochaine fois */
+            mkdir(GCD, 0777); mkdir(GCD "/cache", 0777); mkdir(GL_CACHE, 0777);
+            FILE *f = fopen(cp, "wb");
+            if (f) { fwrite(b, 1, 0x1960, f); fclose(f); }
+        }
+    }
+    return b;
+}
+static void gl_banner_apply(int k, u8 *b) {
+    gcg_t *g = &gl[k];
+    if (!b) { g->bstate = 2; return; }
+    g->bstate = 1;
+    if (!g->desc && g->id[3] != 'J') {                     /* description de la banniere */
+        char t[400];
+        gl_latin(b + 0x1820 + 0xC0, 0x80, t, sizeof(t));
+        if (t[0]) { g->desc = strdup(t); gl_list_dirty = 1; }
+        char full[96];
+        gl_latin(b + 0x1820 + 0x40, 0x40, full, sizeof(full));
+        if (full[0] && strcmp(full, g->title)) { snprintf(g->title, sizeof(g->title), "%s", full); gl_list_dirty = 1; }
+    }
+    u16 *t = (u16 *)memalign(32, 96 * 32 * 2);
+    if (t) {
+        for (int i = 0; i < 96 * 32; i++) t[i] = be16(b + 0x20 + i * 2);
+        DCFlushRange(t, 96 * 32 * 2);
+        glslot_t *s = gl_new_slot(gl_ban, GL_BSLOTS);
+        s->tex = t; s->game = k; s->used = now_ms();
+        GX_InitTexObj(&s->obj, t, 96, 32, GX_TF_RGB5A3, GX_CLAMP, GX_CLAMP, GX_FALSE);
+        GX_InvalidateTexAll();                 /* v155 : (nouvelle image a une adresse deja servie : le cache de textures du GPU gardait des morceaux de l'ancienne) */
+        GX_InitTexObjFilterMode(&s->obj, GX_LINEAR, GX_LINEAR);
+        g->bslot = (s8)(s - gl_ban);
+    }
+    free(b);
+}
+/* ---------- v92 : lectures sur la carte SD dans le thread de fond (dec_thread_fn, main.c) ----------
+   Bannieres des jeux et grandes images (jaquette 256x256, capture 320x240) : l'ecran ne s'arrete plus
+   pendant ces lectures. Un travail a la fois ; le resultat est verifie (chemin du jeu) avant usage. */
+enum { GJ_BANNER = 1, GJ_BIG, GJ_STILL, GJ_FN };
+static struct { int kind, k; char path[NAME_LEN], cp[NAME_LEN], pak[NAME_LEN]; u32 off, len; u8 *res; void (*fn)(void); void (*done)(void);
+                u32 rsd[FM_RUNS], rcnt[FM_RUNS], rhead; int nr; } gj;   /* v266 : secteurs de la carte (lecture rapide), nr = 0 : fichier */
+static void gl_job_run(void) {                               /* (thread de fond) */
+    if (gj.kind == GJ_FN) { if (gj.fn) gj.fn(); return; }   /* v110 : travail d'un autre ecran (pochettes des applis) */
+    gj.res = NULL;
+    if (gj.kind == GJ_BANNER) { gj.res = gl_banner_fetch(gj.path, gj.cp); return; }
+    if (gj.nr > 0 && sd_real_if) {                            /* v266 : secteurs lus directement (pas de chaine FAT a suivre) */
+        u32 ns = 0;
+        for (int i = 0; i < gj.nr; i++) ns += gj.rcnt[i];
+        u8 *sb = (u8 *)memalign(32, ns * 512), *b = (u8 *)memalign(32, gj.len);
+        int ok = sb && b;
+        for (int i = 0, at = 0; ok && i < gj.nr; at += (int)gj.rcnt[i], i++) {
+            DCInvalidateRange(sb + at * 512, gj.rcnt[i] * 512);
+            ok = sd_io_read(gj.rsd[i], gj.rcnt[i], sb + at * 512);
+            sd_rd_sec += gj.rcnt[i];
+        }
+        if (ok) { memcpy(b, sb + gj.rhead, gj.len); DCFlushRange(b, gj.len); gj.res = b; free(sb); return; }
+        free(sb); free(b);                                    /* (echec : lecture normale) */
+    }
+    FILE *f = fopen(gj.pak, "rb");
+    if (!f) return;
+    u8 *b = (u8 *)memalign(32, gj.len);
+    int ok = b && fseek(f, (long)gj.off, SEEK_SET) == 0;
+    for (u32 o = 0; ok && o < gj.len; o += 4096) {            /* (par 4 Ko : l'ecran garde la main entre deux) */
+        u32 n = gj.len - o < 4096 ? gj.len - o : 4096;
+        ok = fread(b + o, 1, n, f) == n;
+        usleep(500);
+    }
+    if (ok) { DCFlushRange(b, gj.len); gj.res = b; }
+    else free(b);
+    fclose(f);
+}
+static int gl_job_post(int kind, int k) {
+    if (gj_state != 0 || gj_hold || k < 0 || k >= gl_n || !dec_ensure()) return 0;
+    gcg_t *g = &gl[k];
+    gj.kind = kind; gj.k = k; gj.res = NULL; gj.nr = 0;
+    snprintf(gj.path, sizeof(gj.path), "%s", g->path);
+    if (kind == GJ_BANNER) snprintf(gj.cp, sizeof(gj.cp), GL_CACHE "/%s%u.bnr", g->id, g->disc);
+    else {
+        const swpk_t *pk = kind == GJ_BIG ? &gl_post : &gl_still;
+        int r = kind == GJ_BIG ? g->post : g->still;
+        if (!pk->idx || r < 0 || r >= pk->n) return 0;
+        snprintf(gj.pak, sizeof(gj.pak), "%s", kind == GJ_BIG ? GL_UI "/posters.pak" : GL_UI "/stills.pak");
+        gj.off = be32(pk->idx + r * 32 + 8); gj.len = (u32)pk->cw * pk->ch / 2;
+        swpk_t *pw = kind == GJ_BIG ? &gl_post : &gl_still;
+        gj.nr = fm_fresh(&pw->fm) ? fm_runs(&pw->fm, gj.off, gj.len, gj.rsd, gj.rcnt, &gj.rhead) : 0;   /* v266 */
+    }
+    gj_state = 1;
+    return 1;
+}
+/* v110 : un travail quelconque pour le thread de fond (fn), puis done() dans la boucle principale */
+static int gj_post_fn(void (*fn)(void), void (*done)(void)) {
+    if (gj_state != 0 || gj_hold || !dec_ensure()) return 0;
+    gj.kind = GJ_FN; gj.k = -1; gj.res = NULL; gj.fn = fn; gj.done = done;
+    gj_state = 1;
+    return 1;
+}
+static void gl_job_done(void) {
+    if (gj_state != 2) return;
+    if (gj.kind == GJ_FN) { gj_state = 0; if (gj.done) gj.done(); return; }
+    int k = gj.k;
+    u8 *b = gj.res;
+    gj.res = NULL;
+    gj_state = 0;
+    if (k < 0 || k >= gl_n || strcmp(gl[k].path, gj.path)) { free(b); return; }   /* (liste changee entre-temps) */
+    if (gj.kind == GJ_BANNER) { gl_banner_apply(k, b); return; }
+    if (gj.kind == GJ_BIG) {
+        free(gl_big.tex); gl_big.tex = (u16 *)b; gl_big.game = k;
+        if (b) { GX_InitTexObj(&gl_big.obj, b, 256, 256, GX_TF_CMPR, GX_CLAMP, GX_CLAMP, GX_FALSE); GX_InitTexObjFilterMode(&gl_big.obj, GX_LINEAR, GX_LINEAR); GX_InvalidateTexAll(); }
+    } else {
+        free(gl_bigst.tex); gl_bigst.tex = (u16 *)b; gl_bigst.game = k;
+        if (b) { GX_InitTexObj(&gl_bigst.obj, b, 320, 240, GX_TF_CMPR, GX_CLAMP, GX_CLAMP, GX_FALSE); GX_InitTexObjFilterMode(&gl_bigst.obj, GX_LINEAR, GX_LINEAR); GX_InvalidateTexAll(); }
+    }
+}
+static GXTexObj *gl_banner(int k) {
+    glslot_t *s = gl_find_slot(gl_ban, GL_BSLOTS, k);
+    return s ? &s->obj : NULL;
+}
+
+/* v42 : deplacement dans une grille, en boucle (deroulement infini) : dx = +-1, dy = +-1 ligne */
+static int nav_wrap(int sel, int n, int cols, int dx, int dy) {
+    if (n <= 0) return 0;
+    if (cols < 1) cols = 1;
+    if (dx) sel = ((sel + dx) % n + n) % n;
+    if (dy > 0) { sel += cols; if (sel >= n) sel = (sel - cols) % cols; }       /* (en bas : retour en haut, meme colonne) */
+    if (dy < 0) {
+        sel -= cols;
+        if (sel < 0) { int c = sel + cols, last = ((n - 1) / cols) * cols + c; if (last >= n) last -= cols; sel = last < 0 ? 0 : last; }
+    }
+    if (sel >= n) sel = n - 1;
+    return sel;
+}
+/* v42 : defilement doux (en lignes) */
+static f32 ease_rows(f32 *v, f32 target) {
+    if (!gl_anim) { *v = target; return *v; }               /* v45 : animations coupees */
+    if (*v < -1000.0f || fabsf(target - *v) > 3.5f) *v = target;
+    else { *v += (target - *v) * (1.0f - expf(-ui_dt * 16.0f)); if (fabsf(target - *v) < 0.01f) *v = target; }
+    return *v;
+}
+static void gl_note(const char *m) { snprintf(gl_msg, sizeof(gl_msg), "%s", TR(m)); gl_msg_t = now_ms(); }
+
+/* v186 : jeux ajoutes ou enleves depuis la liste gardee ? Seulement les noms et les tailles (pas les en-tetes) :
+   rapide. Rend 1 s'il faut refaire la liste. */
+static int gl_quick_walk(const char *dir, int depth, int *budget, int *found) {
+    DIR *dp = opendir(dir);
+    if (!dp) return 0;
+    struct dirent *e;
+    char p[NAME_LEN];
+    int ch = 0;
+    while (!ch && (e = readdir(dp)) != NULL && (*budget)-- > 0) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        if (snprintf(p, sizeof(p), "%s/%s", dir, e->d_name) >= (int)sizeof(p)) continue;
+        if (is_dir(p, e)) { if (depth < 3 && !gl_skip_dir(e->d_name)) ch = gl_quick_walk(p, depth + 1, budget, found); continue; }
+        const char *dot = strrchr(e->d_name, '.');
+        if (!dot || !(!strcasecmp(dot, ".iso") || !strcasecmp(dot, ".gcm") || !strcasecmp(dot, ".ciso"))) continue;
+        struct stat st;
+        if (stat(p, &st) != 0 || st.st_size < 0x440) continue;
+        int k = -1;
+        for (int i = 0; i < gl_n && k < 0; i++) if (!gl[i].dvd && gl[i].size == (long)st.st_size && !strcasecmp(gl[i].path, p)) k = i;
+        if (k >= 0) (*found)++;
+        else if (!gl_rejected(p, (long)st.st_size)) ch = 1;   /* (nouveau, ou change de taille) */
+    }
+    closedir(dp);
+    return ch;
+}
+static int gl_quick_changed(void) {
+    if (!sd_ok || sd_virtual || !gl) return 0;
+    int budget = 6000, found = 0, sdn = 0;
+    if (gl_quick_walk(SD_ROOT, 0, &budget, &found)) return 1;
+    for (int i = 0; i < gl_n; i++) if (!gl[i].dvd && !strncasecmp(gl[i].path, SD_ROOT "/", strlen(SD_ROOT) + 1)) sdn++;
+    return found < sdn;                                    /* (un jeu enleve) */
+}
+/* v356 : le meme tour, mais en fond, quelques millisecondes par image (avant : tout d'un coup a l'entree, 0,3 s figee
+   et plus avec une grosse carte) ; si un jeu est ajoute ou enleve, la liste est refaite a la fin du tour */
+static struct { DIR *d; char path[NAME_LEN]; int depth; } gq_st[5];
+static int gq_n = 0, gq_found = 0, gq_budget = 0, gq_on = 0;
+static void gq_stop(void) { while (gq_n > 0) closedir(gq_st[--gq_n].d); gq_on = 0; }
+static void gq_start(void) {
+    gq_stop();
+    if (!sd_ok || sd_virtual || !gl) return;
+    DIR *d = opendir(SD_ROOT);
+    if (!d) return;
+    gq_st[0].d = d; snprintf(gq_st[0].path, sizeof(gq_st[0].path), "%s", SD_ROOT); gq_st[0].depth = 0;
+    gq_n = 1; gq_found = 0; gq_budget = 6000; gq_on = 1;
+}
+static void gq_changed(void) {                          /* (fin du tour : jeu ajoute ou enleve) */
+    gq_stop();
+    gl_scanned = 0; gl_scan();
+    char m[96]; snprintf(m, sizeof(m), "%s (%d)", TR("Liste des jeux mise \xC3\xA0 jour"), gl_n - (gl_has_dvd() ? 1 : 0));
+    snprintf(gl_msg, sizeof(gl_msg), "%s", m); gl_msg_t = now_ms();
+}
+static void gq_step(void) {                             /* (une fois par image, liste des jeux a l'ecran) */
+    if (!gq_on || !gl) return;
+    u32 t0 = perf_us();
+    char p[NAME_LEN];
+    while (gq_n > 0 && perf_us() - t0 < 3000u) {
+        struct dirent *e = gq_budget-- > 0 ? readdir(gq_st[gq_n - 1].d) : NULL;
+        if (!e) { closedir(gq_st[--gq_n].d); continue; }
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        if (snprintf(p, sizeof(p), "%s/%s", gq_st[gq_n - 1].path, e->d_name) >= (int)sizeof(p)) continue;
+        int depth = gq_st[gq_n - 1].depth;
+        if (is_dir(p, e)) {
+            if (depth < 3 && gq_n < 5 && !gl_skip_dir(e->d_name)) {
+                DIR *d = opendir(p);
+                if (d) { gq_st[gq_n].d = d; snprintf(gq_st[gq_n].path, sizeof(gq_st[gq_n].path), "%s", p); gq_st[gq_n].depth = depth + 1; gq_n++; }
+            }
+            continue;
+        }
+        const char *dot = strrchr(e->d_name, '.');
+        if (!dot || !(!strcasecmp(dot, ".iso") || !strcasecmp(dot, ".gcm") || !strcasecmp(dot, ".ciso"))) continue;
+        struct stat st;
+        if (stat(p, &st) != 0 || st.st_size < 0x440) continue;
+        int k = -1;
+        for (int i = 0; i < gl_n && k < 0; i++) if (!gl[i].dvd && gl[i].size == (long)st.st_size && !strcasecmp(gl[i].path, p)) k = i;
+        if (k >= 0) gq_found++;
+        else if (!gl_rejected(p, (long)st.st_size)) { gq_changed(); return; }   /* (nouveau, ou change de taille) */
+    }
+    if (gq_n == 0 && gq_on) {
+        gq_on = 0;
+        int sdn = 0;
+        for (int i = 0; i < gl_n; i++) if (!gl[i].dvd && !strncasecmp(gl[i].path, SD_ROOT "/", strlen(SD_ROOT) + 1)) sdn++;
+        if (gq_found < sdn) gq_changed();                 /* (un jeu enleve) */
+    }
+}
+
+/* ---------- entree ---------- */
+static void gclib_open(void) {
+    gl_on = 1; gl_detail = 0;
+    if (!gl_scanned) gl_scan_full(0);                      /* (liste gardee : tout de suite) */
+    static u64 qc_t = 0;                                   /* v356 : le tour de la carte SD (0,3 s et plus a chaque entree) : au plus une fois par 2 min */
+    u64 qn = now_ms();
+    int qc = gl_auto && (!qc_t || qn - qc_t > 120000u);
+    if (qc) qc_t = qn;
+    if (qc) gq_start();                                    /* v186 : jeux ajoutes / enleves : liste refaite (v356 : verifie en fond, gq_step) */
+    crumb("mes jeux");
+}
+/* v176 : X sur l'accueil de JEUX / APPS : le dernier jeu lance, tout de suite a "Lancer ce jeu ?" */
+static void gclib_open_recent(const char *path) {
+    gclib_open();
+    for (int k = 0; k < gl_n; k++)
+        if (!gl[k].dvd && !strcmp(gl[k].path, path)) { gl_sel = k; gl_detail = 1; gl_launch_sel = k; return; }
+    gl_note("Dernier jeu introuvable sur la carte SD");
+}
+static void gl_open_cheats(int k) {
+    char p[NAME_LEN];
+    struct stat st;
+    snprintf(p, sizeof(p), "%s/%s.txt", CH_DIR, gl[k].id);
+    if (stat(p, &st) != 0) {
+        mkdir(CH_DIR, 0777);
+        FILE *f = fopen(p, "wb");
+        if (!f) { gl_note("Impossible d'\xC3\xA9" "crire sur la carte SD"); return; }
+        fprintf(f, "%s\n%s\n", gl[k].id, gl[k].title);          /* en-tete : ID et nom du jeu */
+        fclose(f);
+    }
+    cheats_open_file(p);
+}
+#define GL_COLS 6
+static int gl_opt = -1;                                    /* v45 : fenetre Options (Y), ligne choisie */
+static f32 gl_slide = 0;                                   /* v45 : fiche : glissement vers le jeu suivant */
+static void gclib_input(u32 down, u32 nav, int fire) {
+    if (gl_opt >= 0) {                                     /* v45 : Options : tri, jeu au hasard, animations, actualiser */
+        if (fire && (nav & PAD_BUTTON_DOWN)) gl_opt = (gl_opt + 1) % 5;
+        if (fire && (nav & PAD_BUTTON_UP)) gl_opt = (gl_opt + 4) % 5;
+        int ch = (fire && (nav & PAD_BUTTON_RIGHT)) ? 1 : (fire && (nav & PAD_BUTTON_LEFT)) ? -1 : (down & PAD_BUTTON_A) ? 1 : 0;
+        if (gl_opt == 0 && ch) { gl_sort = (gl_sort + ch + 5) % 5; gl_apply_sort(); settings_dirty = 1; }
+        else if (gl_opt == 1 && (down & PAD_BUTTON_A) && gl_n) {
+            gl_sel = (int)(lib_rand() % (u32)gl_n); gl_opt = -1; gl_detail = 1; gl_slide = gl_anim ? 1.0f : 0.0f;
+            return;
+        }
+        else if (gl_opt == 2 && ch) { gl_anim = !gl_anim; settings_dirty = 1; }
+        else if (gl_opt == 3 && (down & PAD_BUTTON_A)) {
+            gl_opt = -1; gl_scanned = 0; gl_scan();
+            gl_note(gl_n ? "Liste actualis\xC3\xA9" "e" : "Aucun jeu trouv\xC3\xA9");
+            return;
+        }
+        else if (gl_opt == 4 && (down & PAD_BUTTON_A)) { gl_opt = -1; nat_bench_all(); return; }   /* v171 */
+        if (down & (PAD_BUTTON_B | PAD_BUTTON_Y)) gl_opt = -1;
+        return;
+    }
+    if (gl_launch_sel >= 0) {                              /* "Lancer ce jeu ?" */
+        if (down & PAD_BUTTON_A) {                         /* v90 : Resident (le lanceur de secours si des cheats sont actives) */
+            int k = gl_launch_sel;
+            gl_launch_sel = -1;
+            const char *e = game_boot_auto(k);              /* (ne revient pas si ca marche ; avec les reglages du jeu) */
+            gl_busy[0] = 0;
+            if (e) gl_note(e);
+        }
+        if (down & PAD_BUTTON_X) {                         /* v90 : lanceur de secours */
+            int k = gl_launch_sel;
+            gl_launch_sel = -1;
+            gl_status("Lancement du jeu...");
+            const char *e = game_boot(k, 0);                /* (ne revient pas si ca marche) */
+            gl_busy[0] = 0;
+            if (e) gl_note(e);
+        }
+        if (down & PAD_BUTTON_B) gl_launch_sel = -1;
+        return;
+    }
+    if (gl_detail) {
+        if (nat_qr_input(down)) return;
+        if (gs_view() && gl_n && !gl[gl_sel].dvd && gl_launch_sel < 0 && nt_input(down, nav, fire)) return;   /* v296 : notice */
+        if (gs_view() && gl_n && !gl[gl_sel].dvd && gl_launch_sel < 0 && bx_input(down)) return;   /* v282 : â ouvre la boite */
+        if (fire && (nav & PAD_BUTTON_LEFT) && gl_n) { gl_sel = gs_view() ? gs_step(-1) : nav_wrap(gl_sel, gl_n, 1, -1, 0); if (gl_anim) gl_slide = -1.0f; }   /* v197 : (espace : jeux du filtre) */
+        if (fire && (nav & PAD_BUTTON_RIGHT) && gl_n) { gl_sel = gs_view() ? gs_step(1) : nav_wrap(gl_sel, gl_n, 1, 1, 0); if (gl_anim) gl_slide = 1.0f; }
+        if ((down & PAD_BUTTON_A) && gl_n) gl_launch_sel = gl_sel;
+        if (gl_n && gl[gl_sel].dvd) { if (down & PAD_BUTTON_B) gl_detail = 0; return; }   /* v97 : (case du vrai lecteur) */
+        if (down & PAD_BUTTON_X && gl_n) gl_open_cheats(gl_sel);
+        if ((down & PAD_BUTTON_Y) && gl_n) indigo_game_open(gl[gl_sel].id, gl[gl_sel].title);   /* v35 : reglages du jeu */
+        if ((down & PAD_TRIGGER_R) && gl_n) nat_run(gl_sel);          /* v50 : analyse native (natif.c) */
+        if ((down & PAD_BUTTON_DOWN) && gl_n) { jb_open_game(gl_sel); return; }   /* v207 : musiques du jeu (jukebox.c) */
+        if ((down & PAD_TRIGGER_L) && gl_n) {                         /* v76 : favori */
+            gl[gl_sel].fav = !gl[gl_sel].fav;
+            gl_note(gl[gl_sel].fav ? "Ajout\xC3\xA9 aux favoris" : "Retir\xC3\xA9 des favoris");
+            gl_fav_save();
+            gl_apply_sort();
+        }
+        if (down & PAD_BUTTON_B) gl_detail = 0;
+        return;
+    }
+    if (gs_view()) { gs_input(down, nav, fire); return; }  /* v196 : espace Jeux GameCube (vitrine 3D) */
+    if (fire && gl_n) {
+        int cols = gl_view_cols();
+        /* v42 : en boucle (du dernier au premier et inversement) */
+        if (gl_view == GLV_LIST) {
+            if (nav & PAD_BUTTON_DOWN) gl_sel = nav_wrap(gl_sel, gl_n, 1, 1, 0);
+            if (nav & PAD_BUTTON_UP) gl_sel = nav_wrap(gl_sel, gl_n, 1, -1, 0);
+            if (nav & PAD_BUTTON_RIGHT) gl_sel = gl_sel + 9 < gl_n ? gl_sel + 9 : gl_sel == gl_n - 1 ? 0 : gl_n - 1;
+            if (nav & PAD_BUTTON_LEFT) gl_sel = gl_sel - 9 >= 0 ? gl_sel - 9 : gl_sel == 0 ? gl_n - 1 : 0;
+        } else {
+            int c = cols > 1 ? cols : 5;
+            if (nav & PAD_BUTTON_RIGHT) gl_sel = nav_wrap(gl_sel, gl_n, c, 1, 0);
+            if (nav & PAD_BUTTON_LEFT) gl_sel = nav_wrap(gl_sel, gl_n, c, -1, 0);
+            if (nav & PAD_BUTTON_DOWN) gl_sel = cols > 1 ? nav_wrap(gl_sel, gl_n, c, 0, 1) : (gl_sel + 5 < gl_n ? gl_sel + 5 : gl_sel == gl_n - 1 ? 0 : gl_n - 1);
+            if (nav & PAD_BUTTON_UP) gl_sel = cols > 1 ? nav_wrap(gl_sel, gl_n, c, 0, -1) : (gl_sel - 5 >= 0 ? gl_sel - 5 : gl_sel == 0 ? gl_n - 1 : 0);
+        }
+        if (gl_sel >= gl_n) gl_sel = gl_n - 1;
+        if (gl_sel < 0) gl_sel = 0;
+    }
+    if (down & (PAD_TRIGGER_R | PAD_TRIGGER_L)) {          /* v28 : changer d'affichage */
+        if (ui_skin >= 1) gl_view = gl_view == GLV_LIST ? GLV_GRID : GLV_LIST;   /* v103 : styles : jaquettes ou liste */
+        else gl_view = (gl_view + ((down & PAD_TRIGGER_R) ? 1 : GLV_COUNT - 1)) % GLV_COUNT;
+        settings_dirty = 1;
+        gl_note(gl_view_name());
+    }
+    if ((down & PAD_BUTTON_A) && gl_n) { gl_detail = 1; if (gl[gl_sel].dvd) gl_launch_sel = gl_sel; }   /* v97 : disque : tout de suite "Lancer ?" */
+    if ((down & PAD_BUTTON_X) && gl_n && !gl[gl_sel].dvd) gl_open_cheats(gl_sel);
+    if (down & PAD_BUTTON_Y) gl_opt = 0;                      /* v45 : options (tri, hasard, animations, actualiser) */
+    if (gm_hub_input()) return;                               /* v84 : stick C : applis / cartes memoire */
+    if (down & PAD_BUTTON_B) { gl_on = 0; if (gl_list_dirty) { gl_list_dirty = 0; gl_list_save(); } }
+}
+
+/* ---------- affichage ---------- */
+static void gl_size_txt(long v, char *b, int cap) {
+    if (v >= 1024L * 1024 * 1024) snprintf(b, cap, "%ld,%ld Go", v >> 30, ((v >> 20) & 1023) * 10 / 1024);
+    else snprintf(b, cap, "%ld Mo", v >> 20);
+}
+/* texte sur plusieurs lignes (coupe aux espaces) ; retourne le nombre de lignes */
+static int gl_wrap(int f, const char *s, f32 x, f32 y, int maxw, f32 lh, int maxl, col_t c) {
+    char line[300];
+    int nl = 0;
+    s = TR(s);
+    while (*s && nl < maxl) {
+        while (*s == ' ') s++;
+        int best = 0, i = 0;
+        while (s[i]) {
+            int j = i;
+            while (s[j] && s[j] != ' ') j++;
+            if (j >= (int)sizeof(line) - 4) break;
+            memcpy(line, s, j); line[j] = 0;
+            if (text_width(f, line, 0) > maxw && best) break;
+            best = j;
+            i = j;
+            if (s[i] == ' ') i++;
+            if (!s[j]) break;
+        }
+        if (!best) { best = (int)strlen(s); if (best > (int)sizeof(line) - 4) best = sizeof(line) - 4; }
+        memcpy(line, s, best); line[best] = 0;
+        if (nl == maxl - 1 && s[best]) {                       /* derniere ligne : "..." */
+            char fit[320];
+            snprintf(fit, sizeof(fit), "%s...", line);
+            fit_text(f, fit, maxw, line, sizeof(line));
+        }
+        gx_text1(f, x, y + nl * lh, line, c);
+        nl++;
+        s += best;
+    }
+    return nl;
+}
+static void gl_card_dvd(f32 x, f32 y, f32 w, f32 h, int on) {   /* v97 : case du vrai lecteur */
+    gx_rrect_fill(x, y, w, h, 6, on ? RGBA(40, 120, 170, 255) : RGBA(18, 54, 92, 240), on ? RGBA(20, 70, 120, 255) : RGBA(10, 28, 56, 240));
+    f32 r = (w < h ? w : h) * 0.30f, cx = x + w / 2, cy = y + h / 2 - (h > 60 ? h * 0.10f : 0);
+    gx_circle(cx, cy, r, RGBA(225, 230, 245, 255), RGBA(150, 160, 190, 255));
+    gx_circle(cx, cy, r * 0.62f, RGBA(190, 200, 225, 255), RGBA(120, 130, 165, 255));
+    gx_circle(cx, cy, r * 0.20f, on ? RGBA(20, 70, 120, 255) : RGBA(10, 28, 56, 255), on ? RGBA(20, 70, 120, 255) : RGBA(10, 28, 56, 255));
+    if (h > 60) {
+        char b[64];
+        fit_text(F_SMALL, TR("Lecteur de la console"), (int)w - 6, b, sizeof(b));
+        gx_text_c(F_SMALL, cx, y + h - 10, b, RGBA(220, 235, 255, 255));
+    }
+}
+static void gl_card_banner(int k, f32 x, f32 y, f32 w, f32 h, int on) {
+    if (gl[k].dvd) { gl_card_dvd(x, y, w, h, on); return; }
+    /* pas de jaquette : banniere du disque + ID */
+    gx_rrect_fill(x, y, w, h, 6, on ? RGBA(70, 40, 150, 255) : RGBA(34, 20, 84, 240), on ? RGBA(44, 22, 110, 255) : RGBA(20, 12, 52, 240));
+    GXTexObj *b = gl_banner(k);
+    if (b) draw_tex_fit(b, 96, 32, 96, 32, x + 4, y + h / 2 - 28, w - 8, 30);
+    else { gx_circle(x + w / 2, y + h / 2 - 14, 18, RGBA(200, 200, 215, 255), RGBA(120, 120, 140, 255)); gx_circle(x + w / 2, y + h / 2 - 14, 4, RGBA(30, 20, 60, 255), RGBA(30, 20, 60, 255)); }
+    gx_text_c(F_SMALL, x + w / 2, y + h / 2 + 18, gl[k].id, RGBA(255, 210, 120, 255));
+    if (h > 160) {                                             /* (grande fiche : le nom aussi) */
+        char buf[96];
+        fit_text(F_SMALL, gl[k].title, (int)w - 6, buf, sizeof(buf));
+        gx_text_c(F_SMALL, x + w / 2, y + h / 2 + 38, buf, RGBA(210, 200, 240, 255));
+    }
+}
+/* ---------- v28 : 6 facons d'afficher les jeux (R pour changer) ---------- */
+static int gl_loaded_frame = 0;                       /* jaquettes lues pendant cette image */
+/* v68 : une seule lecture par image (avant 3 : l'image sautait en defilant) ; pendant qu'on
+   navigue, seulement la jaquette choisie ; les voisines quand on s'arrete */
+static int gl_may_load(int k) { return gl_loaded_frame < 1 && (k == gl_sel || now_ms() - last_input_ms > 150); }
+/* une jaquette (ou la banniere) dans le cadre x, y, w, h */
+static void gl_draw_cover(int k, f32 x, f32 y, f32 w, f32 h, int on) {
+    int had = gl[k].post >= 0 && gl_find_slot(gl_cov, GL_SLOTS, k) != NULL;
+    GXTexObj *cov = gl[k].post >= 0 ? gl_cover(k, gl_may_load(k)) : NULL;
+    if (cov && !had) gl_loaded_frame++;
+    if (cov) draw_tex_fit(cov, 128, 128, 96, 128, x, y, w, h);
+    else gl_card_banner(k, x, y, w, h, on);
+    if (!gl[k].dvd && w >= 30) cp_badge(gl[k].id, x + w - 7, y + 7, w >= 80 ? 5.0f : 3.5f);   /* v137 : dernier essai avec Pulse */
+}
+static void gl_title_of(int k, char *out, int cap) {
+    if (gl[k].dvd) { snprintf(out, cap, "%s", TR(gl[k].title)); return; }
+    if (gl[k].disc) snprintf(out, cap, "%s (%d)", gl[k].title, gl[k].disc + 1); else snprintf(out, cap, "%s", gl[k].title);
+}
+/* v45 : suit une valeur en douceur (k = vitesse) ; sans animations : tout de suite */
+static f32 gl_ease(f32 *v, f32 target, f32 k) {
+    if (!gl_anim || *v < -9000.0f) *v = target;
+    else { *v += (target - *v) * (1.0f - expf(-ui_dt * k)); if (fabsf(target - *v) < 0.05f) *v = target; }
+    return *v;
+}
+/* v45 : la selection "grossit" un peu quand elle arrive sur un jeu */
+static f32 gl_pop(int sel) {
+    static int last = -1;
+    static f32 p = 1.0f;
+    if (sel != last) { last = sel; p = gl_anim ? 0.0f : 1.0f; }
+    p += (1.0f - p) * (1.0f - expf(-ui_dt * 12.0f));
+    return p;
+}
+static void gl_draw_grid(int cols, int rows, f32 cw, f32 ch, f32 sw, f32 rh, int titles) {
+    char buf[NAME_LEN], d[NAME_LEN];
+    f32 x0 = 320 - (cols * sw - (sw - cw)) / 2, y0 = 112;
+    int row = gl_sel / cols, top = row - rows / 2;
+    int nrow = (gl_n + cols - 1) / cols;
+    if (top > nrow - rows) top = nrow - rows;
+    if (top < 0) top = 0;
+    static f32 topf = -2000.0f;                                   /* v42 : defilement doux */
+    static int last_cols = 0;
+    if (last_cols != cols) { topf = -2000.0f; last_cols = cols; }
+    f32 tf = ease_rows(&topf, (f32)top);
+    int r0 = (int)floorf(tf);
+    /* v45 : le cadre de selection glisse d'un jeu a l'autre */
+    static f32 hx = -10000.0f, hy = -10000.0f;
+    static int hcols = 0;
+    f32 tx = x0 + (gl_sel % cols) * sw, ty = y0 + (gl_sel / cols - tf) * rh;
+    if (hcols != cols || fabsf(tx - hx) > sw * 3.5f || fabsf(ty - hy) > rh * 1.6f) { hx = tx; hy = ty; hcols = cols; }
+    gl_ease(&hx, tx, 20.0f); gl_ease(&hy, ty, 20.0f);
+    f32 pop = gl_pop(gl_sel), gr = 1.0f + 0.07f * pop, ex = cw * (gr - 1) / 2, ey = ch * (gr - 1) / 2;
+    scr_scissor(0, y0 - 8, 640, rows * rh + 6);
+    gx_glow(hx - ex, hy - ey, cw + 2 * ex, ch + 2 * ey, 8, RGBA(150, 80, 255, 150), 3);
+    for (int r = r0; r <= r0 + rows; r++)
+        for (int c = 0; c < cols; c++) {
+            int k = r * cols + c;
+            if (r < 0 || k >= gl_n) break;
+            f32 x = x0 + c * sw, y = y0 + (r - tf) * rh;
+            int on = k == gl_sel;
+            gp_zone(x, y, cw, ch + (titles ? 16 : 0), &gl_sel, k, GPZ_SEL);
+            if (on) gl_draw_cover(k, x - ex, y - ey, cw + 2 * ex, ch + 2 * ey, on);
+            else gl_draw_cover(k, x, y, cw, ch, on);
+            if (titles) {
+                gl_title_of(k, d, sizeof(d));
+                fit_text_sel(on, F_SMALL, d, (int)cw + 6, buf, sizeof(buf));
+                gx_text_c(F_SMALL, x + cw / 2, y + ch + 14 + (on ? ey : 0), buf, on ? RGBA(255, 255, 255, 255) : RGBA(180, 168, 228, 255));
+            }
+        }
+    gx_rrect_stroke(hx - ex - 2, hy - ey - 2, cw + 2 * ex + 4, ch + 2 * ey + 4, 6, 2.0f, RGBA(255, 210, 120, 255));
+    scr_viewport();
+    if (nrow > rows) {                                            /* barre de defilement */
+        f32 th = 270.0f * rows / nrow, ty = 116 + (270.0f - th) * tf / (f32)(nrow - rows);
+        gx_rrect_fill(621, ty, 3, th, 1.5f, RGBA(150, 96, 255, 255), RGBA(110, 60, 230, 255));
+    }
+}
+/* v45 : carrousel fluide : les jaquettes glissent (position en virgule) au lieu de sauter */
+static f32 gl_tab_at(const f32 *t, f32 d) {                  /* valeur du tableau t[0..4] a la distance d */
+    if (d >= 4.0f) return t[4];
+    int i = (int)d;
+    return t[i] + (t[i + 1] - t[i]) * (d - i);
+}
+/* ---------- v103 : rangee de jaquettes dans le style choisi (Moderne, Nouvelle, Aurore) ---------- */
+/* reflet : le bas de l'image, retourne, qui s'efface (alpha a en haut, 0 en bas) */
+static void gl_tex_refl(GXTexObj *o, int tw, int th, int iw, int ih, f32 x, f32 y, f32 w, f32 h, f32 rh, u8 a) {
+    f32 cxd = x + w / 2;
+    w *= ux_k;
+    uxsave_t uz = ux_native(cxd);
+    x = cxd - w / 2;
+    f32 s = w / iw;
+    if (ih * s > h) s = h / ih;
+    f32 dw = iw * s, dh = ih * s, x0 = x + (w - dw) / 2, y0 = y + (h - dh) / 2 + dh + 3;
+    if (rh > dh) rh = dh;
+    f32 u1 = (f32)iw / tw, v1 = (f32)ih / th, v0 = v1 * (1 - rh / dh);
+    gx_set_image(o);
+    GX_Begin(GX_QUADS, GX_VTXFMT0, 4);
+    GX_Position2f32(UX(x0), y0);           GX_Color4u8(255, 255, 255, a); GX_TexCoord2f32(0.0f, v1);
+    GX_Position2f32(UX(x0 + dw), y0);      GX_Color4u8(255, 255, 255, a); GX_TexCoord2f32(u1, v1);
+    GX_Position2f32(UX(x0 + dw), y0 + rh); GX_Color4u8(255, 255, 255, 0); GX_TexCoord2f32(u1, v0);
+    GX_Position2f32(UX(x0), y0 + rh);      GX_Color4u8(255, 255, 255, 0); GX_TexCoord2f32(0.0f, v0);
+    GX_End();
+    ux_restore(uz);
+}
+static void gl_draw_styled(void) {
+    char buf[NAME_LEN], d[NAME_LEN];
+    static f32 pos = -10000.0f;
+    int loop = gl_n >= 7, st = ui_skin >= 3 ? 3 : ui_skin;   /* (v131 : Vitrine, Ilots = Aurore) */
+    if (pos < -9000.0f || !gl_anim) pos = (f32)gl_sel;
+    else {
+        f32 diff = (f32)gl_sel - pos;
+        if (loop) { while (diff > gl_n / 2.0f) diff -= gl_n; while (diff < -gl_n / 2.0f) diff += gl_n; }
+        if (fabsf(diff) > 6.0f) diff = diff > 0 ? 6.0f : -6.0f, pos = (f32)gl_sel - diff;
+        pos += diff * (1.0f - expf(-ui_dt * 12.0f));
+        if (fabsf((f32)gl_sel - pos) < 0.003f) pos = (f32)gl_sel;
+        if (loop) { while (pos < 0) pos += gl_n; while (pos >= gl_n) pos -= gl_n; }
+    }
+    if (now_ms() - last_input_ms > 300 && gl_n) gl_load_big(gl_sel);   /* (grande jaquette du jeu choisi, en fond) */
+    /* tailles et ecarts selon le style */
+    static const f32 scl3[5] = { 1.0f, 0.70f, 0.52f, 0.40f, 0.31f }, off3[5] = { 0, 150, 246, 308, 350 };
+    static const f32 scl2[5] = { 1.0f, 0.78f, 0.62f, 0.50f, 0.42f }, off2[5] = { 0, 140, 238, 314, 372 };
+    static const f32 scl1[5] = { 1.0f, 0.80f, 0.66f, 0.56f, 0.48f }, off1[5] = { 0, 136, 236, 318, 388 };
+    const f32 *scl = st == 3 ? scl3 : st == 2 ? scl2 : scl1, *off = st == 3 ? off3 : st == 2 ? off2 : off1;
+    const f32 CW = st == 3 ? 160 : 140, CH = CW * 4 / 3, top = st == 3 ? 114 : 122;
+    int base = (int)floorf(pos + 0.5f);
+    int order[11], no = 0;
+    for (int i = -5; i <= 5; i++) order[no++] = i;
+    for (int a = 0; a < no; a++)
+        for (int b2 = a + 1; b2 < no; b2++) {
+            f32 da = fabsf(base + order[a] - pos), db = fabsf(base + order[b2] - pos);
+            if (db > da) { int t = order[a]; order[a] = order[b2]; order[b2] = t; }
+        }
+    scr_scissor(14, 104, 612, 304);
+    if (st == 3) {                                         /* Aurore : lueur sous la jaquette du centre */
+        nv_raw = 1;
+        gx_ellipse(320, top + CH + 6, 150, 26, au_mix(0.4f, 70), au_mix(0.4f, 0));
+        nv_raw = 0;
+    }
+    for (int oi = 0; oi < no; oi++) {
+        int i = order[oi];
+        f32 p = base + i - pos, ad = fabsf(p);
+        if (ad > 4.4f) continue;
+        int k = base + i;
+        if (loop) k = (k % gl_n + gl_n) % gl_n;
+        else if (k < 0 || k >= gl_n) continue;
+        f32 sc = gl_tab_at(scl, ad), w = CW * sc, h = CH * sc;
+        f32 cx = 320 + (p < 0 ? -1 : 1) * gl_tab_at(off, ad);
+        f32 y = st == 3 ? top + (CH - h) : top + (CH - h) / 2;     /* (Aurore : tout pose sur la meme ligne) */
+        f32 near = ad < 1 ? 1 - ad : 0;
+        int on = ad < 0.5f;
+        nv_raw = 1;
+        if (st == 2) {                                     /* Nouvelle : carte en verre autour */
+            gx_rrect_fill(cx - w / 2 - 7 + 2, y - 7 + 6, w + 14, h + 14, 14, RGBA(0, 0, 0, 60), RGBA(0, 0, 0, 80));
+            gx_rrect_fill(cx - w / 2 - 7, y - 7, w + 14, h + 14, 14, RGBA(40, 44, 72, 230), RGBA(26, 29, 50, 236));
+            gx_rrect_stroke(cx - w / 2 - 7, y - 7, w + 14, h + 14, 14, 1.0f, RGBA(255, 255, 255, 26));
+            if (near > 0.05f) gx_glow(cx - w / 2 - 7, y - 7, w + 14, h + 14, 14, nv_acc((u8)(120 * near)), 4);
+        } else if (st == 1) {                              /* Moderne : ombre portee */
+            gx_rrect_fill(cx - w / 2 + 3, y + 5, w, h, 6, RGBA(0, 0, 0, 90), RGBA(0, 0, 0, 90));
+        } else if (near > 0.05f) {                         /* Aurore : halo en degrade */
+            gx_glow(cx - w / 2, y, w, h, 8, au_mix(0.5f, (u8)(150 * near)), 5);
+        }
+        nv_raw = 0;
+        int big = on && gl[k].post >= 0 && gl_big.game == k && gl_big.tex;
+        if (big) draw_tex_fit(&gl_big.obj, 256, 256, 192, 256, cx - w / 2, y, w, h);
+        else gl_draw_cover(k, cx - w / 2, y, w, h, on);
+        if (st == 3) {                                     /* reflet sur le sol */
+            GXTexObj *ro = big ? &gl_big.obj : gl[k].post >= 0 ? gl_cover(k, 0) : NULL;
+            if (ro) gl_tex_refl(ro, big ? 256 : 128, big ? 256 : 128, big ? 192 : 96, big ? 256 : 128, cx - w / 2, y, w, h, h * 0.30f, (u8)(70 + 40 * near));
+        }
+        nv_raw = 1;
+        f32 dm = ad < 1 ? ad * (st == 3 ? 130.0f : 90.0f) : (st == 3 ? 130.0f : 90.0f) + (ad - 1) * 40.0f;
+        u8 dim = (u8)(dm > 210 ? 210 : dm);
+        col_t bg = st == 3 ? RGBA(4, 4, 8, dim) : st == 2 ? RGBA(16, 18, 34, dim) : RGBA(40, 40, 44, dim);
+        if (dim) gx_rect(cx - w / 2, y, w, h, bg);
+        if (st == 1 && near > 0.05f) gx_rrect_fill(cx - 22, y + h + 8, 44, 3, 1.5f, RGBA(mod_acc[0], mod_acc[1], mod_acc[2], (u8)(255 * near)), RGBA(mod_acc[0], mod_acc[1], mod_acc[2], (u8)(255 * near)));
+        nv_raw = 0;
+        gp_zone(cx - w / 2, y, w, h, &gl_sel, k, GPZ_SEL);
+    }
+    scr_viewport();
+    /* le jeu choisi : nom, puis ID, region, taille ; position */
+    gcg_t *g = &gl[gl_sel];
+    gl_title_of(gl_sel, d, sizeof(d));
+    fit_text(F_LARGE, d, 560, buf, sizeof(buf));
+    f32 ty = st == 3 ? 380 : 372;
+    nv_raw = 1;
+    gx_text_c(F_LARGE, 320, ty, buf, RGBA(255, 255, 255, 255));
+    if (g->dvd) snprintf(d, sizeof(d), "%s", TR("Lecteur de la console"));
+    else {
+        char sz[32]; gl_size_txt(g->size, sz, sizeof(sz));
+        const char *reg = g->id[3] == 'E' ? "USA" : g->id[3] == 'P' ? "Europe" : g->id[3] == 'J' ? "Japon" : g->id[3] == 'F' ? "France" : g->id[3] == 'D' ? "Allemagne" : "";
+        snprintf(d, sizeof(d), "%s  \xC2\xB7  %s%s%s", g->id, TR(reg), reg[0] ? "  \xC2\xB7  " : "", sz);
+    }
+    col_t sub = st == 3 ? RGBA(170, 170, 195, 255) : st == 2 ? RGBA(160, 168, 200, 255) : RGBA(170, 170, 178, 255);
+    gx_text_c(F_SMALL, 320, ty + 19, d, sub);
+    snprintf(d, sizeof(d), "%d / %d", gl_sel + 1, gl_n);
+    gx_text_r(F_SMALL, 614, 404, d, sub);
+    if (g->fav) { draw_star1(30, 400, 6.0f, RGBA(255, 210, 90, 255)); gx_text1(F_SMALL, 40, 404, TR("Favori"), RGBA(255, 210, 90, 255)); }
+    nv_raw = 0;
+}
+static void gl_draw_carousel(void) {
+    char buf[NAME_LEN], d[NAME_LEN];
+    static f32 pos = -10000.0f;
+    int loop = gl_n >= 7;
+    if (pos < -9000.0f || !gl_anim) pos = (f32)gl_sel;
+    else {
+        f32 diff = (f32)gl_sel - pos;
+        if (loop) { while (diff > gl_n / 2.0f) diff -= gl_n; while (diff < -gl_n / 2.0f) diff += gl_n; }
+        if (fabsf(diff) > 6.0f) diff = diff > 0 ? 6.0f : -6.0f, pos = (f32)gl_sel - diff;   /* (grand saut : on rattrape vite) */
+        pos += diff * (1.0f - expf(-ui_dt * 13.0f));
+        if (fabsf((f32)gl_sel - pos) < 0.003f) pos = (f32)gl_sel;
+        if (loop) { while (pos < 0) pos += gl_n; while (pos >= gl_n) pos -= gl_n; }
+    }
+    static const f32 scl[5] = { 1.0f, 0.72f, 0.54f, 0.40f, 0.30f };
+    static const f32 off[5] = { 0, 136, 220, 268, 300 };
+    int base = (int)floorf(pos + 0.5f);
+    /* de loin vers le centre : les plus proches par-dessus */
+    int order[9], no = 0;
+    for (int i = -4; i <= 4; i++) order[no++] = i;
+    for (int a = 0; a < no; a++)
+        for (int b2 = a + 1; b2 < no; b2++) {
+            f32 da = fabsf(base + order[a] - pos), db = fabsf(base + order[b2] - pos);
+            if (db > da) { int t = order[a]; order[a] = order[b2]; order[b2] = t; }
+        }
+    for (int oi = 0; oi < no; oi++) {
+        int i = order[oi];
+        f32 p = base + i - pos, ad = fabsf(p);
+        if (ad > 3.6f) continue;
+        int k = base + i;
+        if (loop) k = (k % gl_n + gl_n) % gl_n;
+        else if (k < 0 || k >= gl_n) continue;
+        f32 sc = gl_tab_at(scl, ad), w = 156 * sc, h = 208 * sc;
+        f32 cx = 320 + (p < 0 ? -1 : 1) * gl_tab_at(off, ad);
+        f32 y = 126 + (208 - h) / 2;
+        int on = ad < 0.5f;
+        if (on) gx_glow(cx - w / 2, y, w, h, 10, RGBA(150, 80, 255, (u8)(160 * (1.0f - ad * 2))), 4);
+        gl_draw_cover(k, cx - w / 2, y, w, h, on);
+        f32 dm = ad < 1 ? ad * 100.0f : 100.0f + (ad - 1) * 40.0f;
+        u8 dim = (u8)(dm > 200 ? 200 : dm);
+        if (dim) gx_rrect_fill(cx - w / 2, y, w, h, 4, RGBA(10, 6, 30, dim), RGBA(10, 6, 30, dim));
+        if (on) gx_rrect_stroke(cx - w / 2 - 2, y - 2, w + 4, h + 4, 6, 2.0f, RGBA(255, 210, 120, (u8)(255 * (1.0f - ad * 2))));
+        gp_zone(cx - w / 2, y, w, h, &gl_sel, k, GPZ_SEL);
+    }
+    gl_title_of(gl_sel, d, sizeof(d));
+    fit_text(F_LARGE, d, 560, buf, sizeof(buf));
+    gx_text_c(F_LARGE, 320, 362, buf, RGBA(255, 255, 255, 255));
+    for (int i = 0; i < gl_n && gl_n <= 40; i++)                 /* points de position */
+        gx_circle(320 + (i - (gl_n - 1) / 2.0f) * 9, 382, 2.4f, i == gl_sel ? RGBA(255, 210, 120, 255) : RGBA(110, 90, 170, 255), i == gl_sel ? RGBA(255, 210, 120, 255) : RGBA(110, 90, 170, 255));
+}
+static void gl_draw_list(void) {
+    char buf[NAME_LEN], d[NAME_LEN], sz[32];
+    const int vis = 9;
+    int start = gl_sel - vis / 2;
+    if (start > gl_n - vis) start = gl_n - vis;
+    if (start < 0) start = 0;
+    static f32 sf = -2000.0f;                                     /* v42 : defilement doux */
+    f32 st = ease_rows(&sf, (f32)start);
+    int s0 = (int)floorf(st);
+    scr_scissor(0, 112, 640, vis * 31 + 2);
+    for (int i = 0; i <= vis && s0 + i < gl_n; i++) {
+        int k = s0 + i;
+        if (k < 0) continue;
+        f32 y = 114 + (k - st) * 31;
+        int on = k == gl_sel;
+        gp_zone(20, y, 600, 29, &gl_sel, k, GPZ_SEL);
+        if (on) gx_rrect_fill(20, y, 600, 29, 6, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
+        GXTexObj *cov = NULL;
+        if (gl[k].post >= 0) {
+            int had = gl_find_slot(gl_cov, GL_SLOTS, k) != NULL;
+            cov = gl_cover(k, gl_may_load(k));
+            if (cov && !had) gl_loaded_frame++;
+        }
+        if (cov) draw_tex_fit(cov, 128, 128, 96, 128, 26, y + 2, 19, 25);
+        else { GXTexObj *b = gl_banner(k); if (b) draw_tex_fit(b, 96, 32, 96, 32, 24, y + 8, 26, 9); }
+        gl_title_of(k, d, sizeof(d));
+        fit_text_sel(on, F_MED, d, 380, buf, sizeof(buf));
+        gx_text1(F_MED, 56, y + 21, buf, on ? RGBA(255, 255, 255, 255) : RGBA(215, 205, 245, 255));
+        gl_size_txt(gl[k].size, sz, sizeof(sz));
+        if (gl[k].dvd) snprintf(d, sizeof(d), "%s", TR("vrai lecteur"));
+        else snprintf(d, sizeof(d), "%s   %s", gl[k].id, sz);
+        gx_text_r(F_SMALL, 610, y + 20, d, on ? RGBA(255, 230, 170, 255) : RGBA(170, 155, 225, 255));
+    }
+    scr_viewport();
+}
+static void gl_draw_showcase(void) {
+    char buf[NAME_LEN], d[NAME_LEN];
+    gcg_t *g = &gl[gl_sel];
+    if (now_ms() - last_input_ms > 150) gl_load_big(gl_sel);     /* (pas pendant le defilement ; v92 : en fond) */
+    /* grande image : la capture, sinon la jaquette */
+    const f32 px = 24, py = 114, pw = 280, ph = 198;
+    if (g->still >= 0 && gl_bigst.game == gl_sel && gl_bigst.tex) draw_tex_fit(&gl_bigst.obj, 320, 240, 320, 240, px, py, pw, ph);
+    else if (g->post >= 0 && gl_big.game == gl_sel && gl_big.tex) draw_tex_fit(&gl_big.obj, 256, 256, 192, 256, px, py, pw, ph);
+    else gl_card_banner(gl_sel, px + pw / 2 - 75, py, 150, ph, 1);
+    gx_rrect_stroke(px - 1, py - 1, pw + 2, ph + 2, 4, 1.2f, RGBA(120, 90, 220, 255));
+    gl_title_of(gl_sel, d, sizeof(d));
+    int nl = gl_wrap(F_LARGE, d, 318, 136, 296, 24, 2, RGBA(255, 255, 255, 255));
+    char sz[32]; gl_size_txt(g->size, sz, sizeof(sz));
+    snprintf(buf, sizeof(buf), "%s   %s", g->id, sz);
+    gx_text1(F_SMALL, 318, 136 + nl * 24, buf, RGBA(255, 210, 120, 255));
+    {   /* v281 : fiche (GameTDB) */
+        f32 f0 = 158 + nl * 24, fy = gl_fx_draw(g->id, 318, f0 + 14, 296);
+        fy = fy > f0 + 14 ? fy - 4 : f0;
+        int ml = (int)((300 - fy) / 16); if (ml > 8) ml = 8;
+        const char *syn = gl_fx_syn(g->id);
+        if (syn || g->desc) gl_wrap(F_SMALL, syn ? syn : g->desc, 318, fy, 296, 16, ml < 2 ? 2 : ml, RGBA(215, 205, 245, 255));
+    }
+    /* bande des jaquettes en bas */
+    const int n = 9; const f32 cw = 50, ch = 66, sp = 64;
+    int start = gl_sel - n / 2;
+    if (start > gl_n - n) start = gl_n - n;
+    if (start < 0) start = 0;
+    static f32 sfv = -10000.0f;                                    /* v45 : bande qui glisse */
+    if (fabsf(sfv - start) > 12) sfv = (f32)start;
+    f32 sf = gl_ease(&sfv, (f32)start, 14.0f);
+    int s0 = (int)floorf(sf);
+    f32 x0 = 320 - (n * sp - (sp - cw)) / 2;
+    scr_scissor(16, 300, 608, 100);
+    for (int i = -1; i <= n && s0 + i < gl_n; i++) {
+        int k = s0 + i, on = k == gl_sel;
+        if (k < 0) continue;
+        f32 x = x0 + (k - sf) * sp, y = on ? 320 : 326;
+        if (on) gx_glow(x, y, cw, ch, 6, RGBA(150, 80, 255, 150), 3);
+        gl_draw_cover(k, x, y, cw, ch, on);
+        if (on) gx_rrect_stroke(x - 2, y - 2, cw + 4, ch + 4, 5, 2.0f, RGBA(255, 210, 120, 255));
+        gp_zone(x, y, cw, ch, &gl_sel, k, GPZ_SEL);
+    }
+    scr_viewport();
+}
+static void gl_draw_shelf(void) {
+    char buf[NAME_LEN], d[NAME_LEN];
+    const int cols = 6, rows = 2; const f32 cw = 72, ch = 96, sw = 96;
+    int row = gl_sel / cols, top = row > 0 ? row - 1 : 0;
+    int nrow = (gl_n + cols - 1) / cols;
+    if (top > nrow - rows) top = nrow - rows;
+    if (top < 0) top = 0;
+    f32 x0 = 320 - (cols * sw - (sw - cw)) / 2;
+    static f32 tfv = -10000.0f;                                    /* v45 : les etageres defilent en douceur */
+    if (fabsf(tfv - top) > 3) tfv = (f32)top;
+    f32 tf = gl_ease(&tfv, (f32)top, 14.0f);
+    int r0 = (int)floorf(tf);
+    scr_scissor(16, 104, 608, 300);
+    for (int rr = r0; rr <= r0 + rows; rr++) {
+        int r = rr - top;
+        f32 base = 222 + (rr - tf) * 134;                          /* dessus de la planche */
+        if (rr < 0 || rr >= nrow) continue;
+        gx_quad4(30, base, 610, base, RGBA(150, 100, 60, 255), RGBA(150, 100, 60, 255), RGBA(96, 60, 34, 255), RGBA(96, 60, 34, 255));
+        gx_rect(30, base, 580, 2, RGBA(200, 150, 100, 255));
+        gx_quad4(30, base + 8, 610, base + 8, RGBA(70, 44, 26, 255), RGBA(70, 44, 26, 255), RGBA(40, 24, 14, 255), RGBA(40, 24, 14, 255));
+        gx_rect(30, base + 8, 580, 6, RGBA(70, 44, 26, 255));
+        gx_quad4(30, base + 14, 610, base + 14, RGBA(0, 0, 0, 90), RGBA(0, 0, 0, 90), RGBA(0, 0, 0, 0), RGBA(0, 0, 0, 0));
+        gx_rect(30, base + 14, 580, 10, RGBA(0, 0, 0, 50));
+        (void)r;
+        for (int c = 0; c < cols; c++) {
+            int k = rr * cols + c;
+            if (k >= gl_n) break;
+            int on = k == gl_sel;
+            f32 x = x0 + c * sw, y = base - ch - (on ? 10 : 0);
+            gx_rect(x + 4, base - 3, cw - 4, 3, RGBA(0, 0, 0, 80));        /* ombre sur la planche */
+            if (on) gx_glow(x, y, cw, ch, 8, RGBA(150, 80, 255, 160), 3);
+            gl_draw_cover(k, x, y, cw, ch, on);
+            if (on) gx_rrect_stroke(x - 2, y - 2, cw + 4, ch + 4, 5, 2.0f, RGBA(255, 210, 120, 255));
+            gp_zone(x, y, cw, ch, &gl_sel, k, GPZ_SEL);
+        }
+    }
+    scr_viewport();
+    (void)buf; (void)d;
+}
+
+/* grande jaquette (niveau 0 : 256x256, dont 192x256 d'image) et capture du jeu k : v92 : demandees au
+   thread de fond (gl_job_post), affichees des qu'elles sont lues */
+static void gl_load_big(int k) {
+    gcg_t *g = &gl[k];
+    if (g->post >= 0 && g->post != GL_POST_DL && gl_big.game != k) { gl_job_post(GJ_BIG, k); return; }   /* (v280 : ajoutee : pas de grande) */
+    if (g->still >= 0 && gl_bigst.game != k) gl_job_post(GJ_STILL, k);
+}
+/* v196 : "Lancer ce jeu ?" (fiche, et espace Jeux GameCube) */
+static void gl_draw_launch_box(void) {
+    char buf[NAME_LEN];
+    if (gl_sel < 0 || gl_sel >= gl_n) return;
+    gcg_t *g = &gl[gl_sel];
+    if (g->dvd) {
+        const f32 w = 420, h = 100, x = 110, y = 170;
+        gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
+        draw_panel(x, y, w, h);
+        gx_text_c(F_MED, x + w / 2, y + 34, "Lancer le disque de la console ?", RGBA(255, 255, 255, 255));
+        gx_text_c(F_SMALL, x + w / 2, y + 58, TR("Le jeu est lu par le vrai lecteur"), RGBA(190, 180, 235, 255));
+        gx_text_c(F_SMALL, x + w / 2, y + 84, "A : lancer     B : annuler", RGBA(255, 210, 120, 255));
+        return;
+    }                          /* confirmation */
+        char lim[96];                                      /* v191 : temps de jeu restant aujourd'hui (limite du profil) */
+        int hl = pj_left_line(lim, sizeof(lim));
+        const f32 w = 420, h = hl ? 154 : 132, x = 110, y = 160;
+        gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
+        draw_panel(x, y, w, h);
+        gx_text_c(F_MED, x + w / 2, y + 32, "Lancer ce jeu ?", RGBA(255, 255, 255, 255));
+        fit_text(F_SMALL, g->title, (int)w - 30, buf, sizeof(buf));
+        gx_text_c(F_SMALL, x + w / 2, y + 56, buf, RGBA(255, 210, 120, 255));
+        int cn = gl_cheats_on(gl_sel);
+        static int pk = -1, pgen = -1, ppul = 0;             /* v121 : Pulse applique-t-il ces cheats ? (lu une fois) */
+        if (cn > 0 && (pk != gl_sel || pgen != ch_sel_gen)) { pk = gl_sel; pgen = ch_sel_gen; ppul = gcl_path(g->path) ? -1 : nat_cheats_prep(g->id) > 0; }
+        if (cn > 0) {
+            if (ppul > 0) snprintf(buf, sizeof(buf), cn == 1 ? TR("Avec 1 cheat activ\xC3\xA9 (Pulse)") : TR("Avec %d cheats activ\xC3\xA9s (Pulse)"), cn);
+            else snprintf(buf, sizeof(buf), cn == 1 ? TR("Avec 1 cheat activ\xC3\xA9 (lanceur de secours)") : TR("Avec %d cheats activ\xC3\xA9s (lanceur de secours)"), cn);
+            gx_text_c(F_SMALL, x + w / 2, y + 76, buf, RGBA(130, 230, 150, 255));
+        } else
+        {   /* v109 : avec le logo de Pulse */
+            const char *pm = TR("Pulse : A + Z + START tenus 1 s = retour \xC3\xA0 GC Station");
+            f32 pw2 = (f32)text_width(F_SMALL, pm, 0);
+            pulse_logo(x + w / 2 - pw2 / 2 - 12, y + 72, 7, 0);
+            gx_text_c(F_SMALL, x + w / 2 + 6, y + 76, pm, RGBA(190, 180, 235, 255));
+        }
+        {   /* v137 : dernier essai (base de compatibilite) */
+            col_t cc; char cl[120];
+            if (rep_line(g->id, cl, sizeof(cl))) { fit_text(F_SMALL, cl, (int)w - 30, buf, sizeof(buf)); gx_text_c(F_SMALL, x + w / 2, y + 98, buf, RGBA(120, 200, 255, 255)); }   /* v140 */
+            else if (cp_line(g->id, cl, sizeof(cl), &cc)) { fit_text(F_SMALL, cl, (int)w - 30, buf, sizeof(buf)); gx_text_c(F_SMALL, x + w / 2, y + 98, buf, cc); }
+        }
+        if (hl) gx_text_c(F_SMALL, x + w / 2, y + 120, lim, RGBA(255, 170, 120, 255));
+        gx_text_c(F_SMALL, x + w / 2, y + (hl ? 142 : 120), "A : lancer     X : lanceur de secours     B : annuler", RGBA(255, 210, 120, 255));
+    }
+static void draw_gclib_main(void);
+static void draw_gclib(void) {
+    draw_gclib_main();
+    if (gl_busy[0]) {                                        /* recherche / lancement en cours */
+        const f32 w = 440, h = 64, x = 100, y = 200;
+        gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
+        draw_panel(x, y, w, h);
+        gx_text_c(F_MED, x + w / 2, y + 40, gl_busy, RGBA(255, 255, 255, 255));
+    }
+}
+static void draw_gclib_main(void) {
+    gq_step();                                             /* v356 : (tour de la carte en fond) */
+    gl_loaded_frame = 0;
+    if (gs_view()) { if (gl_detail) gs_draw_fiche(); else gs_draw(); return; }   /* v196 : espace Jeux GameCube (gspace.c) ; v197 : + la fiche */
+    char buf[NAME_LEN], d[NAME_LEN];
+    draw_panel(11, 73, 618, 338);
+    int tx = draw_tabs(NULL);
+    f32 hub_end = 0;
+    if (!gl_detail && tab == TAB_GAMES) hub_end = gm_hub_bar(tx + 6, 85);   /* v84 : jeux / applis / cartes (stick C) */
+    else {
+        snprintf(buf, sizeof(buf), gl_detail ? "Mes jeux GameCube (%d)  >  fiche" : "Mes jeux GameCube (%d)", gl_n - gl_has_dvd());
+        gx_text1(F_SMALL, tx + 6, 99, buf, RGBA(200, 190, 240, 255));
+    }
+    if (!gl_post.fp) {                                       /* v139 : a gauche de "R : affichage" (se chevauchaient) */
+        f32 rx = 590;
+        if (!gl_detail && gl_n) { snprintf(d, sizeof(d), "R : %s", TR(gl_view_name())); rx = 614 - text_width(F_SMALL, d, 1) - 14; }
+        if (hub_end + 12 < rx - text_width(F_SMALL, TR("(pas de jaquettes)"), 1)) gx_text_r(F_SMALL, rx, 99, TR("(pas de jaquettes)"), RGBA(150, 135, 210, 255));
+    }
+    /* une banniere a lire par image, quand on ne bouge pas */
+    gl_job_done();                                           /* v92 : resultat du thread de fond */
+    if (gl_n && now_ms() - last_input_ms > 150 && gj_state == 0) {   /* (v92 : la banniere est lue en fond) */
+        int first = gl_detail ? gl_sel : (gl_sel / GL_COLS - (gl_sel / GL_COLS > 0)) * GL_COLS;
+        if (first < 0) first = 0;
+        for (int k = first; k < gl_n && k < first + GL_COLS * 3; k++)
+            if (gl[k].bstate == 0 || (gl[k].bstate == 1 && !gl_banner(k) && (gl[k].post < 0 || gl_detail))) { gl_job_post(GJ_BANNER, k); break; }
+    }
+    if (!gl_n) {
+        gx_text1(F_MED, 34, 150, "Aucun jeu GameCube trouv\xC3\xA9 sur la carte SD", RGBA(255, 255, 255, 255));
+        gx_text1(F_SMALL, 34, 176, "Jeux reconnus : .iso, .gcm, .ciso (et .nkit.iso), dans n'importe quel dossier (3 niveaux).", RGBA(190, 180, 235, 255));
+        gx_text1(F_SMALL, 34, 196, "Jaquettes : SD:/gc-mp3/jaquettes/posters.pak (+ stills.pak, descriptions.txt).", RGBA(190, 180, 235, 255));
+        static const char *const k[] = { "Y", "B" };
+        static const char *const l[] = { "ACTUALISER", "RETOUR" };
+        draw_legend_keys(k, l, 2);
+        return;
+    }
+    if (gl_sel >= gl_n) gl_sel = gl_n - 1;
+    gcg_t *g = &gl[gl_sel];
+    if (gl_detail && g->dvd) {                                 /* v97 : fiche du vrai lecteur */
+        gl_card_dvd(28, 112, 188, 250, 1);
+        gx_text1(F_LARGE, 236, 140, TR("Disque de la console"), RGBA(255, 255, 255, 255));
+        gl_wrap(F_SMALL, "Lance le jeu qui est dans le lecteur de la GameCube, comme le BIOS de la console : "
+                         "le vrai lecteur lit le jeu (pas la carte SD). Mets le disque et ferme le couvercle avant.", 236, 172, 380, 18, 5, RGBA(215, 205, 245, 255));
+        gl_wrap(F_SMALL, "Pas de A + Z + START dans ce mode : pour revenir, red\xC3\xA9marre la console.", 236, 272, 380, 18, 2, RGBA(170, 155, 225, 255));
+        if (now_ms() - gl_msg_t < 6000) { char m[200]; fit_text(F_SMALL, gl_msg, 586, m, sizeof(m)); gx_text1(F_SMALL, 30, 404, m, RGBA(255, 210, 120, 255)); }
+        static const char *const k[] = { "A", "B" };
+        static const char *const l[] = { "LANCER", "RETOUR" };
+        draw_legend_keys(k, l, 2);
+        if (gl_launch_sel >= 0) {
+            const f32 w = 420, h = 100, x = 110, y = 170;
+            gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
+            draw_panel(x, y, w, h);
+            gx_text_c(F_MED, x + w / 2, y + 34, "Lancer le disque de la console ?", RGBA(255, 255, 255, 255));
+            gx_text_c(F_SMALL, x + w / 2, y + 58, TR("Le jeu est lu par le vrai lecteur"), RGBA(190, 180, 235, 255));
+            gx_text_c(F_SMALL, x + w / 2, y + 84, "A : lancer     B : annuler", RGBA(255, 210, 120, 255));
+        }
+        return;
+    }
+    if (gl_detail) {
+        if (now_ms() - last_input_ms > 100) gl_load_big(gl_sel);   /* v92 : en fond, pas pendant qu'on fait defiler les fiches */
+        /* v45 : en changeant de jeu, la fiche glisse (gauche / droite) */
+        gl_slide *= gl_anim ? expf(-ui_dt * 11.0f) : 0.0f;
+        if (fabsf(gl_slide) < 0.004f) gl_slide = 0;
+        const f32 ox = gl_slide * 120.0f;
+        scr_scissor(16, 104, 608, 300);
+        const f32 cx = 28 + ox, cy = 112, cw = 192 * 0.98f, chh = 256 * 0.98f;
+        if (g->post >= 0 && gl_big.game == gl_sel && gl_big.tex) {
+            gx_glow(cx, cy, cw, chh, 8, RGBA(150, 80, 255, 110), 3);
+            draw_tex_fit(&gl_big.obj, 256, 256, 192, 256, cx, cy, cw, chh);
+        } else {
+            GXTexObj *sc = g->post >= 0 ? gl_cover(gl_sel, 1) : NULL;   /* v92 : la petite jaquette en attendant la grande */
+            if (sc) { gx_glow(cx, cy, cw, chh, 8, RGBA(150, 80, 255, 110), 3); draw_tex_fit(sc, 128, 128, 96, 128, cx, cy, cw, chh); }
+            else gl_card_banner(gl_sel, cx, cy, cw, chh, 1);
+        }
+        const f32 rx = 236 + ox * 1.4f; const int rw = 380;
+        int nl = gl_wrap(F_LARGE, g->title, rx, 134, rw, 26, 2, RGBA(255, 255, 255, 255));
+        f32 y = 134 + nl * 26 - 4;
+        char sz[32]; gl_size_txt(g->size, sz, sizeof(sz));
+        const char *reg = g->id[3] == 'E' ? "USA" : g->id[3] == 'P' ? "Europe" : g->id[3] == 'J' ? "Japon" : g->id[3] == 'F' ? "France" : g->id[3] == 'D' ? "Allemagne" : "";
+        snprintf(buf, sizeof(buf), "%s   %s%s%s%s", g->id, TR(reg), reg[0] ? "   " : "", sz, g->ciso ? "   CISO" : "");
+        gx_text1(F_SMALL, rx, y + 4, buf, RGBA(255, 210, 120, 255));
+        if (g->disc) { snprintf(buf, sizeof(buf), "Disque %d", g->disc + 1); gx_text_r(F_SMALL, 614, y + 4, buf, RGBA(255, 210, 120, 255)); }
+        if (g->fav) { draw_star1(rx + 7, 120, 7.0f, RGBA(255, 210, 90, 255)); gx_text1(F_SMALL, rx + 18, 124, TR("Favori  (L)"), RGBA(255, 210, 90, 255)); }   /* v76 */
+        else gx_text1(F_SMALL, rx, 124, TR("L : ajouter aux favoris"), RGBA(130, 118, 180, 255));
+        text_display(g->path, d, sizeof(d));
+        fit_text(F_SMALL, d, rw, buf, sizeof(buf));
+        gx_text1(F_SMALL, rx, y + 22, buf, RGBA(150, 135, 210, 255));
+        int has_st = g->still >= 0 && gl_bigst.game == gl_sel && gl_bigst.tex;
+        f32 dy = y + 46, dy0 = dy;
+        f32 di = gl_fx_draw(g->id, rx, dy + 10, rw);    /* v281 : genre, joueurs, annee, editeur */
+        if (di > dy0 + 10) dy = di - 4;
+        int maxl = has_st ? (int)((396 - 132 - 14 - dy) / 17) : (int)((372 - dy) / 17);
+        if (maxl < 2) maxl = 2; if (maxl > 11) maxl = 11;
+        const char *syn = gl_fx_syn(g->id);
+        if (syn) gl_wrap(F_SMALL, syn, rx, dy, rw, 17, maxl, RGBA(215, 205, 245, 255));
+        else if (g->desc) gl_wrap(F_SMALL, g->desc, rx, dy, rw, 17, maxl, RGBA(215, 205, 245, 255));
+        else gx_text1(F_SMALL, rx, dy, g->bstate == 0 ? "Lecture de la banni\xC3\xA8re..." : "Pas de description pour ce jeu.", RGBA(170, 155, 225, 255));
+        if (has_st) { f32 sw = 176, sh = 132; draw_tex_fit(&gl_bigst.obj, 320, 240, 320, 240, rx, 396 - sh - 6, sw, sh); }
+        {                                                      /* v46 : cheats du jeu, actives d'ici (X) */
+            int cn = now_ms() - last_input_ms > 150 || !gl_anim ? gl_cheats_on(gl_sel) : -2;
+            if (cn >= 0 || cn == -1) {
+                if (cn > 0) snprintf(buf, sizeof(buf), cn == 1 ? TR("Cheats : 1 activ\xC3\xA9  (X pour changer)") : TR("Cheats : %d activ\xC3\xA9s  (X pour changer)"), cn);
+                else if (cn == 0) snprintf(buf, sizeof(buf), "%s", TR("Cheats : aucun activ\xC3\xA9  (X pour en choisir)"));
+                else snprintf(buf, sizeof(buf), "%s", TR("Pas de fichier de cheats  (X pour en ajouter)"));
+                gx_text1(F_SMALL, has_st ? rx + 186 : rx, g->runs ? 362 : 380, buf, cn > 0 ? RGBA(130, 230, 150, 255) : RGBA(170, 155, 225, 255));
+            }
+        }
+        if (g->runs) {                                         /* v45 : lancements depuis GC-MP3 */
+            time_t lt = (time_t)g->last;
+            struct tm *tm = g->last ? localtime(&lt) : NULL;
+            if (tm) snprintf(buf, sizeof(buf), "%s %u   %s %02d/%02d/%04d", TR("Lanc\xC3\xA9 :"), (unsigned)g->runs, TR("dernier :"), tm->tm_mday, tm->tm_mon + 1, tm->tm_year + 1900);
+            else snprintf(buf, sizeof(buf), "%s %u", TR("Lanc\xC3\xA9 :"), (unsigned)g->runs);
+            if (g->play >= 60) {                               /* v73 : temps de jeu (Resident) */
+                size_t bl = strlen(buf);
+                if (g->play >= 3600) snprintf(buf + bl, sizeof(buf) - bl, "   %s %u h %02u", TR("jou\xC3\xA9 :"), (unsigned)(g->play / 3600), (unsigned)(g->play / 60 % 60));
+                else snprintf(buf + bl, sizeof(buf) - bl, "   %s %u min", TR("jou\xC3\xA9 :"), (unsigned)(g->play / 60));
+            }
+            gx_text1(F_SMALL, has_st ? rx + 186 : rx, 380, buf, RGBA(170, 155, 225, 255));
+        }
+        scr_viewport();
+        if (now_ms() - gl_msg_t < 6000) { char m[200]; fit_text(F_SMALL, gl_msg, 586, m, sizeof(m)); gx_text1(F_SMALL, 30, 404, m, RGBA(255, 210, 120, 255)); }
+        static const char *const k[] = { "A", "X", "Y", "R", "\xE2\x86\x93", "B" };
+        static const char *const l[] = { "LANCER", "CHEATS", "R\xC3\x89GLAGES", "ANALYSE", "MUSIQUES", "RETOUR" };
+        draw_legend_keys(k, l, 6);
+        if (gl_launch_sel >= 0) gl_draw_launch_box();          /* confirmation (v196 : une fonction) */
+        snprintf(buf, sizeof(buf), "%d / %d   (gauche / droite)", gl_sel + 1, gl_n);
+        gx_text_r(F_SMALL, 614, 396, buf, RGBA(150, 135, 210, 255));
+        nat_draw_qr();                                         /* v51 : rapport d'analyse sur le telephone */
+        return;
+    }
+    if (gl_styled()) gl_draw_styled(); else
+    switch (gl_view) {
+    case GLV_CAROUSEL: gl_draw_carousel(); break;
+    case GLV_LIST:     gl_draw_list(); break;
+    case GLV_WALL:     gl_draw_grid(9, 3, 58, 78, 66, 89, 0); break;
+    case GLV_SHOW:     gl_draw_showcase(); break;
+    case GLV_SHELF:    gl_draw_shelf(); break;
+    default:           gl_draw_grid(6, 2, 86, 115, 98, 136, 1); break;
+    }
+    /* le jeu choisi */
+    char sz[32]; gl_size_txt(g->size, sz, sizeof(sz));
+    if (g->dvd) snprintf(d, sizeof(d), "%s", TR("vrai lecteur"));
+    else if (g->disc) snprintf(d, sizeof(d), "%s   disque %d   %s", g->id, g->disc + 1, sz);
+    else snprintf(d, sizeof(d), "%s   %s", g->id, sz);
+    fit_text(F_MED, g->dvd ? TR(g->title) : g->title, 420, buf, sizeof(buf));
+    if (now_ms() - gl_msg_t < 3500) gx_text1(F_SMALL, 30, 400, gl_msg, RGBA(255, 210, 120, 255));
+    else if (gl_view != GLV_CAROUSEL && gl_view != GLV_SHOW && !gl_styled()) { gx_text1(F_MED, 30, 400, buf, RGBA(255, 255, 255, 255)); gx_text_r(F_SMALL, 614, 400, d, RGBA(255, 210, 120, 255)); }
+    snprintf(d, sizeof(d), "R : %s", TR(gl_view_name()));
+    gx_text_r(F_SMALL, 614, 99, d, RGBA(170, 160, 220, 255));
+    static const char *const k[] = { "A", "X", "Y", "R", "B" };
+    static const char *const l[] = { "FICHE", "CHEATS", "OPTIONS", "AFFICHAGE", "RETOUR" };
+    draw_legend_keys(k, l, 5);
+    if (gl_opt >= 0) {                                         /* v45 : fenetre Options */
+        static const char *const nm[5] = { "Trier par", "Jeu au hasard", "Animations", "Actualiser la liste", "Banc d'essai rapide (tous)" };
+        const f32 w = 400, rh = 30, h = 74 + 5 * rh, x = 120, y = 240 - h / 2;
+        gx_quad4(0, 0, 640, 480, RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130), RGBA(0, 0, 0, 130));
+        gx_rrect_fill(x, y, w, h, 12, RGBA(14, 8, 44, 250), RGBA(8, 5, 26, 250));
+        draw_panel(x, y, w, h);
+        gx_text1(F_LARGE, x + 20, y + 32, "Options", RGBA(255, 255, 255, 255));
+        for (int i = 0; i < 5; i++) {
+            f32 ry = y + 44 + i * rh;
+            int on = i == gl_opt;
+            gp_zone(x + 12, ry, w - 24, rh - 3, &gl_opt, i, GPZ_SEL);
+            if (on) gx_rrect_fill(x + 12, ry, w - 24, rh - 3, 6, RGBA(116, 46, 236, 255), RGBA(74, 22, 172, 255));
+            gx_text1(F_MED, x + 24, ry + 19, nm[i], RGBA(240, 232, 255, 255));
+            const char *v = i == 0 ? gl_sort_names[gl_sort % 5] : i == 2 ? (gl_anim ? "Oui" : "Non") : "(A)";
+            gx_text_r(F_MED, x + w - 24, ry + 19, v, on ? RGBA(255, 255, 255, 255) : RGBA(190, 160, 255, 255));
+        }
+        gx_text_c(F_SMALL, 320, y + h - 8, "Gauche / Droite ou A : changer     B : fermer", RGBA(255, 210, 120, 255));
+    }
+}
+
+/* ======================= lancer un jeu avec le lanceur de secours =======================
+   GC Station charge SD:/gc-mp3/lanceur/lanceur.dol en memoire et le demarre avec l'argument
+   "Autoload=sdc:/chemin/du/jeu.iso" (v90 : plus de Swiss / Indigo). */
+static int gl_launch_sel = -1;                      /* fenetre "Lancer ?" ouverte (-1 = non) */
+/* petit programme copie a 0x80001800 : recopie les sections du .dol a leur
+   place (par-dessus GC-MP3), vide les caches, puis saute au debut du .dol.
+   r3 = table {dest, source, taille}, r4 = nombre de lignes, r5 = point d'entree */
+static const u32 gl_stub[] = {
+    0x7cc000a6, 0x54c6045e, 0x7cc00124, 0x4c00012c, 0x2c040000, 0x41820060, 0x80e30000, 0x81030004,
+    0x81230008, 0x3863000c, 0x2c090000, 0x41820040, 0x7cea3b78, 0x7d674a14, 0x7d2903a6, 0x38e7ffff,
+    0x3908ffff, 0x8d880001, 0x9d870001, 0x4200fff8, 0x554a0034, 0x7c00506c, 0x7c0004ac, 0x7c0057ac,
+    0x394a0020, 0x7c0a5840, 0x4180ffec, 0x3484ffff, 0x4082ffa8, 0x7c0004ac, 0x4c00012c, 0x7ca903a6,
+    0x4e800420,
+};
+#define GL_STUB_AT  0x80001800u
+#define GL_TAB_AT   0x80002000u
+#define GL_ARGV_AT  0x80002900u
+#define GL_CMD_AT   (0x81700000u - 0x400u)        /* ligne de commande : en haut de la memoire */
+#define LD_DOL  GCD_LD "/lanceur.dol"                 /* v44 : lanceur de jeux GC-MP3 (lanceur.c) */
+#define LD_VER  GCD_LD "/lanceur.txt"
+static void ld_fetch(int loud);
+static void as_self(char *out, int cap);
+static const char *gl_arg3 = NULL;                 /* v44 : 3e argument (GCMP3=... : retour sur GC-MP3) */
+static const char *gl_arg4 = NULL;                 /* v46 : 4e argument (GCMP3TITLE=... : nom du jeu, ecran de chargement) */
+static const char *gl_boot_title = NULL;           /* v46 : nom du jeu lance */
+
+/* lanceur de secours avec "Autoload=<jeu>" (path = chemin sd:/...) */
+static const char *gl_boot_loader(const char *path);
+static int gl_boot_cheats = 0;                         /* v31 : ajoute "AutoCheats=Yes" (cheats actives pour ce jeu) */
+static const char *gl_launch(int k) {
+    if (sx_safe) { sx_block("lancer un jeu ou une appli"); return "Bloqu\xC3\xA9 pendant le test"; }   /* v278 : (test des touches) */                  /* retourne un message d'erreur, ou ne revient pas */
+#ifdef _WIN32                                              /* GC Station PC : le jeu dans Dolphin (pc/plateforme/pcsim_dolphin.c) */
+    { extern const char *pcw_dolphin_launch(const char *, const char *, const char *, const char *); if (k >= 0 && k < gl_n) return pcw_dolphin_launch(gl[k].path, gl[k].title, salon_ami, salon_code); }
+#endif
+    if (k < 0 || k >= gl_n) return "Jeu introuvable";
+    if (access(gl[k].path, R_OK) != 0) return "Jeu introuvable : Y pour actualiser la liste";
+    char p[NAME_LEN]; struct stat st;
+    snprintf(p, sizeof(p), "%s/%.6s.chtsel", CH_DIR, gl[k].id);
+    gl_boot_cheats = stat(p, &st) == 0 && st.st_size > 8;
+    tl_recent_add(gl[k].path);
+    gl_stats_bump(k);                                  /* v45 : compteur de lancements */
+    gl_boot_title = gl[k].title;
+    const char *e = gl_boot_loader(gl[k].path);
+    gl_boot_title = NULL;
+    gl_boot_cheats = 0;
+    return e;
+}
+/* v35 : lance n'importe quel .dol (lanceur, ou une appli), avec jusqu'a 2 arguments */
+static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *a2, const char *what);
+static int ld_cache;
+static const char *gl_boot_loader(const char *path) {
+    static const char *const dev[3] = { "sdc:", "sda:", "sdb:" };
+    char a1[NAME_LEN + 32];
+    if (!path) return "Jeu introuvable";
+    snprintf(a1, sizeof(a1), "Autoload=%s%s", dev[sd_slot >= 0 && sd_slot < 3 ? sd_slot : 0], path + strlen(SD_ROOT));
+    if (ld_ready()) {
+        static char a3[NAME_LEN + 16];
+        char me[NAME_LEN + 8];
+        as_self(me, sizeof(me));
+        snprintf(a3, sizeof(a3), "GCMP3=%s", me);
+        gl_arg3 = a3;
+        static char a4[112];                       /* v46 : nom du jeu (Latin-1 : police de la console) */
+        a4[0] = 0;
+        if (gl_boot_title) {
+            int o = snprintf(a4, sizeof(a4), "GCMP3TITLE=");
+            for (const u8 *q = (const u8 *)gl_boot_title; *q && o < (int)sizeof(a4) - 1; q++) {
+                if (*q < 0x80) a4[o++] = (char)*q;
+                else if ((*q == 0xC2 || *q == 0xC3) && (q[1] & 0xC0) == 0x80) { a4[o++] = (char)(((*q & 3) << 6) | (q[1] & 0x3F)); q++; }
+                else if (*q >= 0xC0) { a4[o++] = '?'; while ((q[1] & 0xC0) == 0x80) q++; }
+            }
+            a4[o] = 0;
+            gl_arg4 = a4;
+        }
+        const char *e = gl_boot_dol(LD_DOL, a1, gl_boot_cheats ? "AutoCheats=Yes" : NULL, "jeu");
+        gl_arg3 = NULL; gl_arg4 = NULL;
+        crumb("lanceur GC Station : %s", e ? e : "?");
+        if (e && strncmp(e, "(simulateur", 11)) { remove(LD_DOL); ld_cache = -1; ld_fetch(0); return "Lanceur de secours ab\xC3\xAEm\xC3\xA9 : nouveau t\xC3\xA9l\xC3\xA9" "chargement (ou A : Pulse)"; }
+        return e;
+    }
+    ld_fetch(1);                                   /* (pas encore la : telecharge pour la prochaine fois) */
+    return "Lanceur de secours pas encore t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9 (R\xC3\xA9glages > Jeux) : A lance avec Pulse";
+}
+static const char *gl_boot_mem(unsigned char *dol, long len, const char *dolpath, const char *a1, const char *a2);
+static int gl_ret_app = 0;                             /* v187 : appli lancee : retour a GC Station quand elle quitte (natret) */
+static const char *gl_boot_pieces(const char *dolpath, long len, const char *a1, const char *a2, const char *what);
+static int gl_no_pieces = 0;                          /* v219 : (relance : d'abord d'un bloc, puis par le lanceur) */
+static int nat_app_ret_prep(void);                     /* (natif.c) */
+static void nat_app_ret_install(void);
+static const char *gl_boot_dol(const char *dolpath, const char *a1, const char *a2, const char *what) {
+    if (sx_safe) { sx_block("lancer un jeu ou une appli"); return "Bloqu\xC3\xA9 pendant le test"; }   /* v278 : (test des touches) */
+    char stmsg[96];
+    snprintf(stmsg, sizeof(stmsg), "Lancement de %s...", what);
+    /* lecture du .dol par morceaux, avec l'avancement a l'ecran */
+    long len = 0;
+    unsigned char *dol = NULL;
+    {
+        FILE *f = fopen(dolpath, "rb");
+        struct stat st;
+        if (f && stat(dolpath, &st) == 0 && st.st_size > 0 && st.st_size <= 12 * 1024 * 1024) {
+            len = (long)st.st_size;
+            dol = (unsigned char *)malloc(len);
+            long got = 0;
+            char m[96];
+            while (dol && got < len) {
+                long n = len - got < 262144 ? len - got : 262144;
+                if ((long)fread(dol + got, 1, n, f) != n) break;
+                got += n;
+                snprintf(m, sizeof(m), "%s %ld %%", TR(stmsg), got * 100 / len);
+                gl_status(m);
+            }
+            if (dol && got < len) { free(dol); dol = NULL; }
+        }
+        if (f) fclose(f);
+    }
+#ifndef GEKKO
+    if (dol && getenv("PCSIM_PIECES")) { free(dol); dol = NULL; }   /* (simulateur : essayer le chemin par morceaux) */
+#endif
+    if (!dol && len > 0 && gl_no_pieces) return "Lecture du .dol impossible (m\xC3\xA9moire)";
+    if (!dol && len > 0) return gl_boot_pieces(dolpath, len, a1, a2, what);   /* v217 : pas un seul bloc libre : par morceaux */
+    if (!dol) return "Lecture du .dol impossible (m\xC3\xA9moire ou carte SD)";
+    return gl_boot_mem(dol, len, dolpath, a1, a2);
+}
+/* v117 : lance un .dol deja en memoire (dol : rendu libre si erreur) ; dolpath = chemin donne en argument
+   au programme (ex. mise a jour sans carte SD, sous Dolphin : la nouvelle version part de la memoire) */
+static const char *gl_boot_mem(unsigned char *dol, long len, const char *dolpath, const char *a1, const char *a2) {
+    if (len < 0x100) { free(dol); return "Fichier .dol invalide"; }
+    /* sections du .dol */
+    u32 tab[18 * 3 + 3], n = 0, lo = 0xFFFFFFFFu, hi = 0;
+    for (int i = 0; i < 18; i++) {
+        u32 off = be32(dol + i * 4), addr = be32(dol + 0x48 + i * 4), sz = be32(dol + 0x90 + i * 4);
+        if (!sz) continue;
+        if (off + (u64)sz > (u64)len || addr < 0x80003000u || addr + (u64)sz > 0x81700000u) { free(dol); return "Fichier .dol invalide"; }
+        tab[n * 3] = addr; tab[n * 3 + 1] = off; tab[n * 3 + 2] = sz; n++;
+        if (addr < lo) lo = addr;
+        if (addr + sz > hi) hi = addr + sz;
+    }
+    u32 bss = be32(dol + 0xD8), bsz = be32(dol + 0xDC), entry = be32(dol + 0xE0);
+    if (bsz && bss >= 0x80003000u && bss + (u64)bsz < 0x81700000u && bss + bsz > hi) hi = bss + bsz;
+    if (!n || entry < lo || entry >= hi) { free(dol); return "Fichier .dol invalide"; }
+    u32 dst = (GL_CMD_AT - (u32)len) & ~31u;           /* le .dol est d'abord range tout en haut de la memoire */
+    if (dst < hi + 32) { free(dol); return "Ce .dol est trop gros pour etre lance d'ici"; }
+    /* arguments : chemin du .dol, puis a1 / a2 (ex. Autoload=sdX:/chemin pour le lanceur) */
+    char cmd[NAME_LEN * 3 + 96];
+    int cl = snprintf(cmd, sizeof(cmd), "%s", dolpath);
+    if (a1) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", a1);
+    if (a2) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", a2);   /* (ex. AutoCheats=Yes : le lanceur applique les cheats coches) */
+    if (gl_arg3) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", gl_arg3);
+    if (gl_arg4 && cl + 2 < (int)sizeof(cmd)) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", gl_arg4);
+    if (cl >= (int)sizeof(cmd)) cl = (int)sizeof(cmd) - 1;
+    cl += 1;
+    /* le .dol accepte-t-il des arguments ? (texte "_arg" juste apres le point d'entree) */
+    int has_arg = 0;
+    for (u32 i = 0; i < n; i++)
+        if (entry + 8 >= tab[i * 3] && entry + 8 < tab[i * 3] + tab[i * 3 + 2])
+            has_arg = !memcmp(dol + tab[i * 3 + 1] + (entry + 4 - tab[i * 3]), "_arg", 4);
+    if (!has_arg && a1) { free(dol); return "-noarg"; }
+    crumb("lancer : %s %s", dolpath, a1 ? a1 : "");
+    int ret = gl_ret_app && nat_app_ret_prep();         /* v187 : (liste des morceaux de GC Station : avant de demonter la carte) */
+    crumb("retour apres l'appli : %s", ret ? "oui" : "non");
+    /* (avec le retour : programme de copie et arguments plus haut, 0x80001800 - 0x80002C00 est au programme de retour) */
+    /* v189 : table en 0x80002D00 (v187 : 0x80002C80, ecrasee par la fin du programme de copie, 132 octets : l'appli ne
+       demarrait pas, la console redemarrait) */
+    typedef char gl_stub_fits[sizeof(gl_stub) <= 0x100 ? 1 : -1]; (void)sizeof(gl_stub_fits);
+    u32 stub_at = ret ? 0x80002C00u : GL_STUB_AT, tab_at = ret ? 0x80002D00u : GL_TAB_AT, argv_at = ret ? 0x80002E00u : GL_ARGV_AT;
+#ifdef GEKKO
+    if (settings_dirty) save_settings();
+    stop_track(); stop_station();
+    AUDIO_StopDMA();
+    bg_quiesce();                                        /* v96 : la lecture en fond finit avant le demontage */
+    sd_umount();
+    VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();
+    if (rmode && rmode->xfbHeight >= 574) {              /* v130 : 576p / 576i de GC Station : le programme lance repart d'un mode standard */
+        VIDEO_Configure(VIDEO_GetCurrentTvMode() == VI_PAL ? &TVPal576IntDfScale : &TVEurgb60Hz480IntDf);
+        VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();
+    }
+    SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
+    u32 level = IRQ_Disable();                           /* plus d'interruptions : on ecrase GC-MP3 */
+    (void)level;
+    memmove((void *)dst, dol, (size_t)len);
+    u32 *t = (u32 *)tab_at;
+    for (u32 i = 0; i < n; i++) { t[i * 3] = tab[i * 3]; t[i * 3 + 1] = dst + tab[i * 3 + 1]; t[i * 3 + 2] = tab[i * 3 + 2]; }
+    memcpy((void *)GL_CMD_AT, cmd, cl);
+    DCFlushRange((void *)GL_CMD_AT, 0x400);
+    u32 *a = (u32 *)argv_at;                             /* struct __argv */
+    a[0] = 0x5f617267; a[1] = GL_CMD_AT; a[2] = (u32)cl; a[3] = 0; a[4] = 0; a[5] = 0;
+    if (has_arg) { t[n * 3] = entry + 8; t[n * 3 + 1] = argv_at; t[n * 3 + 2] = 24; n++; }   /* (copie apres le code du .dol) */
+    if (ret) nat_app_ret_install();                      /* v187 : programme de retour en 0x80001800 ("STUBHAXX") */
+    memcpy((void *)stub_at, gl_stub, sizeof(gl_stub));
+    DCFlushRange((void *)0x80001800, 0x1800);
+    ICInvalidateRange((void *)0x80001800, 0x1800);
+    DCFlushRange((void *)dst, (u32)len);
+    ((void (*)(u32 *, u32, u32))stub_at)(t, n, entry);
+    for (;;) ;
+#else
+    (void)stub_at; (void)tab_at; (void)argv_at;
+    printf("LANCER dol=%s dst=%08x hi=%08x entree=%08x sections=%u args=%d retour=%d arg=[%s]", dolpath, dst, hi, entry, n, has_arg, ret, cmd + strlen(cmd) + 1);
+    { const char *a2 = cmd + strlen(cmd) + 1; a2 += strlen(a2) + 1; if (a2 < cmd + cl) printf(" arg2=[%s]", a2);
+      if (a2 < cmd + cl) { a2 += strlen(a2) + 1; if (a2 < cmd + cl) printf(" arg3=[%s]", a2); }
+      if (a2 < cmd + cl) { a2 += strlen(a2) + 1; if (a2 < cmd + cl) printf(" arg4=[%s]", a2); } }
+    printf("\n");
+    free(dol);
+    return "(simulateur : lancement simule)";
+#endif
+}
+
+/* v217 : lancer un gros .dol (GC Station elle-meme apres une mise a jour : ~6 Mo) quand la memoire n'a plus un
+   seul bloc assez grand : le fichier est lu par morceaux de 256 Ko, la ou il y a de la place, et le petit
+   programme de copie (gl_stub) recopie chaque morceau a sa place. Les morceaux sont tous dans le tas, au-dessus
+   du programme qui tourne : plus haut que les sections du nouveau .dol, ils ne sont pas ecrases pendant la copie. */
+#define GL_PIECE 262144
+#define GL_MAXPIECES 64
+static const char *gl_boot_pieces(const char *dolpath, long len, const char *a1, const char *a2, const char *what) {
+    if (len < 0x100 || len > 12 * 1024 * 1024) return "Fichier .dol invalide";
+    int np = (int)((len + GL_PIECE - 1) / GL_PIECE);
+    if (np > GL_MAXPIECES) return "Fichier .dol invalide";
+    u8 *pc[GL_MAXPIECES]; long pl[GL_MAXPIECES];
+    void *guard[16]; int ng = 0;
+    for (int i = 0; i < np; i++) pc[i] = NULL;
+    FILE *f = fopen(dolpath, "rb");
+    if (!f) return "Lecture du .dol impossible (carte SD)";
+    char stmsg[96], m[96];
+    snprintf(stmsg, sizeof(stmsg), "Lancement de %s...", what);
+    const char *err = NULL;
+    for (int i = 0; i < np && !err; i++) {
+        pl[i] = len - (long)i * GL_PIECE < GL_PIECE ? len - (long)i * GL_PIECE : GL_PIECE;
+        for (;;) {                                       /* (un morceau sur la ligne de commande, en haut : on en prend un autre) */
+            u8 *b = (u8 *)memalign(32, pl[i]);
+            if (!b) { err = "Lecture du .dol impossible (m\xC3\xA9moire)"; break; }
+            u32 a = (u32)(uintptr_t)b;
+            if (a < GL_CMD_AT + 0x400u && a + (u32)pl[i] > GL_CMD_AT - 64) { if (ng < 16) { guard[ng++] = b; continue; } free(b); err = "M\xC3\xA9moire"; break; }
+            pc[i] = b;
+            break;
+        }
+        if (err) break;
+        if ((long)fread(pc[i], 1, pl[i], f) != pl[i]) { err = "Lecture du .dol impossible (carte SD)"; break; }
+        snprintf(m, sizeof(m), "%s %ld %%", TR(stmsg), ((long)i * GL_PIECE + pl[i]) * 100 / len);
+        gl_status(m);
+    }
+    fclose(f);
+    #define GLP_FREE() do { for (int i_ = 0; i_ < np; i_++) free(pc[i_]); for (int g_ = 0; g_ < ng; g_++) free(guard[g_]); } while (0)
+    if (err) { GLP_FREE(); return err; }
+    const u8 *h = pc[0];                                 /* (en-tete : dans le premier morceau) */
+    u32 sec[18][3], ns = 0, lo = 0xFFFFFFFFu, hi = 0;
+    for (int i = 0; i < 18; i++) {
+        u32 off = be32(h + i * 4), addr = be32(h + 0x48 + i * 4), sz = be32(h + 0x90 + i * 4);
+        if (!sz) continue;
+        if (off + (u64)sz > (u64)len || addr < 0x80003000u || addr + (u64)sz > 0x81700000u) { GLP_FREE(); return "Fichier .dol invalide"; }
+        sec[ns][0] = addr; sec[ns][1] = off; sec[ns][2] = sz; ns++;
+        if (addr < lo) lo = addr;
+        if (addr + sz > hi) hi = addr + sz;
+    }
+    u32 entry = be32(h + 0xE0);
+    if (!ns || entry < lo || entry >= hi) { GLP_FREE(); return "Fichier .dol invalide"; }
+    for (int i = 0; i < np; i++) {                       /* (aucun morceau la ou les sections vont etre recopiees) */
+        u32 a = (u32)(uintptr_t)pc[i];
+        if (a < hi && a + (u32)pl[i] > lo) { GLP_FREE(); return "Ce .dol est trop gros pour etre lance d'ici"; }
+    }
+    /* le .dol accepte-t-il des arguments ? ("_arg" juste apres le point d'entree) */
+    int has_arg = 0;
+    for (u32 i = 0; i < ns; i++)
+        if (entry + 8 >= sec[i][0] && entry + 8 < sec[i][0] + sec[i][2]) {
+            long fo = (long)(sec[i][1] + (entry + 4 - sec[i][0]));
+            char t4[4];
+            for (int k = 0; k < 4; k++) { long o = fo + k; t4[k] = o < len ? (char)pc[o / GL_PIECE][o % GL_PIECE] : 0; }
+            has_arg = !memcmp(t4, "_arg", 4);
+        }
+    if (!has_arg && a1) { GLP_FREE(); return "-noarg"; }
+    char cmd[NAME_LEN * 3 + 96];
+    int cl = snprintf(cmd, sizeof(cmd), "%s", dolpath);
+    if (a1) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", a1);
+    if (a2) cl += 1 + snprintf(cmd + cl + 1, sizeof(cmd) - cl - 1, "%s", a2);
+    if (cl >= (int)sizeof(cmd)) cl = (int)sizeof(cmd) - 1;
+    cl += 1;
+    /* table de copie : chaque section, coupee aux bords des morceaux */
+    static u32 tb[(GL_ARGV_AT - GL_TAB_AT) / 4];
+    u32 nt = 0, maxt = (GL_ARGV_AT - GL_TAB_AT) / 12 - 1;
+    for (u32 i = 0; i < ns; i++) {
+        u32 addr = sec[i][0], off = sec[i][1], left = sec[i][2];
+        while (left) {
+            u32 k = off / GL_PIECE, in = off % GL_PIECE, n = (u32)pl[k] - in;
+            if (n > left) n = left;
+            if (nt >= maxt) { GLP_FREE(); return "Fichier .dol invalide"; }
+            tb[nt * 3] = addr; tb[nt * 3 + 1] = (u32)(uintptr_t)(pc[k] + in); tb[nt * 3 + 2] = n; nt++;
+            addr += n; off += n; left -= n;
+        }
+    }
+    crumb("lancer (par morceaux : %d, %u copies) : %s", np, nt, dolpath);
+#ifdef GEKKO
+    if (settings_dirty) save_settings();
+    stop_track(); stop_station();
+    AUDIO_StopDMA();
+    bg_quiesce();
+    sd_umount();
+    VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();
+    if (rmode && rmode->xfbHeight >= 574) {
+        VIDEO_Configure(VIDEO_GetCurrentTvMode() == VI_PAL ? &TVPal576IntDfScale : &TVEurgb60Hz480IntDf);
+        VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();
+    }
+    SYS_ResetSystem(SYS_SHUTDOWN, 0, 0);
+    u32 level = IRQ_Disable();
+    (void)level;
+    for (int i = 0; i < np; i++) DCFlushRange(pc[i], (u32)pl[i]);
+    u32 *t = (u32 *)GL_TAB_AT;
+    memcpy(t, tb, nt * 12);
+    memcpy((void *)GL_CMD_AT, cmd, cl);
+    DCFlushRange((void *)GL_CMD_AT, 0x400);
+    u32 *a = (u32 *)GL_ARGV_AT;
+    a[0] = 0x5f617267; a[1] = GL_CMD_AT; a[2] = (u32)cl; a[3] = 0; a[4] = 0; a[5] = 0;
+    if (has_arg) { t[nt * 3] = entry + 8; t[nt * 3 + 1] = GL_ARGV_AT; t[nt * 3 + 2] = 24; nt++; }
+    memcpy((void *)GL_STUB_AT, gl_stub, sizeof(gl_stub));
+    DCFlushRange((void *)0x80001800, 0x1800);
+    ICInvalidateRange((void *)0x80001800, 0x1800);
+    ((void (*)(u32 *, u32, u32))GL_STUB_AT)(t, nt, entry);
+    for (;;) ;
+#else
+    printf("LANCER par morceaux dol=%s morceaux=%d copies=%u entree=%08x args=%d\n", dolpath, np, nt, entry, has_arg);
+    GLP_FREE();
+    return "(simulateur : lancement simule)";
+#endif
+    #undef GLP_FREE
+}
+
+/* v219 : relancer GC Station (apres une mise a jour, bouton Reset). Le nouveau .dol fait ~6 Mo, et la memoire libre
+   de GC Station en marche n'y suffit souvent pas (meme par morceaux : v217). Dans l'ordre :
+   1. d'un seul bloc, si la memoire le permet (le plus rapide) ;
+   2. par le lanceur de secours (~0,9 Mo) : un programme neuf, avec toute la memoire, qui relance GC Station
+      ("GCMP3=<chemin>" sans "Autoload=" : son retour sur GC Station, comme apres un jeu) ;
+   3. par morceaux (v217). Ne revient que si rien n'a marche. */
+static const char *gl_relaunch_self(const char *path) {
+    gl_no_pieces = 1;
+    const char *e = gl_boot_dol(path, NULL, NULL, "GC Station");
+    gl_no_pieces = 0;
+    crumb("relance d'un bloc : %s", e ? e : "?");
+    if (ld_ready()) {
+        static char a1[NAME_LEN + 32];
+        char me[NAME_LEN + 8];
+        as_self(me, sizeof(me));
+        snprintf(a1, sizeof(a1), "GCMP3=%s", me);
+        crumb("relance par le lanceur : %s", a1);
+        const char *e2 = gl_boot_dol(LD_DOL, a1, NULL, "GC Station");
+        crumb("relance par le lanceur : %s", e2 ? e2 : "?");
+        if (e2 && !strncmp(e2, "(simulateur", 11)) return e2;
+    }
+    return gl_boot_dol(path, NULL, NULL, "GC Station");
+}
+
+/* reglages du lanceur de secours (v90 : dans SD:/gc-mp3/lanceur, plus dans SD:/swiss) */
+#define LD_DIR      GCD "/lanceur"
+#define LD_INI      LD_DIR "/settings/global.ini"
+static void as_self(char *out, int cap) {                    /* "sdc:/chemin/gc-mp3player.dol" */
+    static const char *const dev[3] = { "sdc:", "sda:", "sdb:" };
+    up_pick_target();
+    const char *rel = up_target;
+    if (!strncasecmp(rel, SD_ROOT, strlen(SD_ROOT))) rel += strlen(SD_ROOT);
+    else { const char *c = strchr(rel, ':'); if (c && c - rel <= 5) rel = c + 1; }   /* ("sdc:/...", "carda:/...") */
+    snprintf(out, cap, "%s%s%s", dev[sd_slot >= 0 && sd_slot < 3 ? sd_slot : 0], rel[0] == '/' ? "" : "/", rel);
+}
+/* v57 : demarrer la console sur GC Station. PicoLoader (comme iplboot) lance SD:/ipl.dol :
+   GC Station s'y copie, l'ancien ipl.dol est garde sous ipl-avant-gcstation.dol (v90 : avant
+   ipl-swiss.dol, renomme une fois). Le bouton Reset et le retour en jeu ramenent alors sur
+   GC Station. La mise a jour remplace aussi ipl.dol (update.c). */
+#define IPL_DOL SD_ROOT "/ipl.dol"
+#define IPL_OLD SD_ROOT "/ipl-avant-gcstation.dol"
+#define IPL_OLD_V89 SD_ROOT "/ipl-swiss.dol"
+static int ipl_cache = -1;
+static int ipl_get(void) {
+    if (ipl_cache < 0) {
+        struct stat st;
+        ipl_cache = sd_ok && !sd_virtual && stat(IPL_DOL, &st) == 0 && up_is_me(IPL_DOL);   /* (v92 : resultat garde, update.c) */
+    }
+    return ipl_cache;
+}
+static int ipl_copy(const char *src, const char *dst) {
+    FILE *in = fopen(src, "rb");
+    if (!in) return 0;
+    char part[NAME_LEN + 8];
+    snprintf(part, sizeof(part), "%s.part", dst);
+    FILE *out = fopen(part, "wb");
+    if (!out) { fclose(in); return 0; }
+    static u8 b[65536];
+    size_t n;
+    int ok = 1;
+    while ((n = fread(b, 1, sizeof(b), in)) > 0) { if (fwrite(b, 1, n, out) != n) { ok = 0; break; } service_audio(); }
+    fclose(in);
+    if (fclose(out) != 0) ok = 0;
+    struct stat st;
+    if (!ok || stat(part, &st) != 0 || st.st_size < 0x100) { remove(part); return 0; }
+    remove(dst);
+    if (rename(part, dst) != 0) { remove(part); return 0; }
+    return 1;
+}
+static const char *ipl_set(int on) {
+    if (!sd_ok || sd_virtual) return "Pas de carte SD";
+    struct stat st;
+    up_found[0] = 0; up_memo[0] = 0; up_memo_none = 0;   /* v325 : (ipl.dol change : on recherche) */
+    if (on) {
+        if (ipl_get()) return NULL;
+        up_pick_target();
+        char src[NAME_LEN];
+        snprintf(src, sizeof(src), "%s", up_target);
+        if (!strcasecmp(src, IPL_DOL) || stat(src, &st) != 0) return "GC Station introuvable sur la carte SD";
+        ui_status("Copie de GC Station dans ipl.dol...");
+        int had = stat(IPL_DOL, &st) == 0;
+        if (had) {
+            if (stat(IPL_OLD, &st) == 0) { remove(SD_ROOT "/ipl-ancien.dol"); if (rename(IPL_DOL, SD_ROOT "/ipl-ancien.dol") != 0) return "Impossible de garder l'ancien ipl.dol"; }
+            else if (rename(IPL_DOL, IPL_OLD) != 0) return "Impossible de garder l'ancien ipl.dol";
+        }
+        if (!ipl_copy(src, IPL_DOL)) {
+            if (had && stat(IPL_DOL, &st) != 0) rename(stat(SD_ROOT "/ipl-ancien.dol", &st) == 0 ? SD_ROOT "/ipl-ancien.dol" : IPL_OLD, IPL_DOL);
+            ipl_cache = -1;
+            return "Copie impossible (carte pleine ?)";
+        }
+        ipl_cache = 1;
+        crumb("ipl.dol = GC Station (ancien : %s)", had ? IPL_OLD : "aucun");
+        return had ? "La console d\xC3\xA9marre sur GC Station (ancien ipl.dol gard\xC3\xA9 : ipl-avant-gcstation.dol)"
+                   : "La console d\xC3\xA9marre sur GC Station";
+    }
+    if (!ipl_get()) return NULL;
+    if (stat(IPL_OLD, &st) != 0) return "Pas d'ancien ipl.dol \xC3\xA0 remettre (ipl-avant-gcstation.dol)";
+    /* GC Station doit rester quelque part sur la carte */
+    char other[NAME_LEN];
+    if (!up_find_dol(SD_ROOT, 2, other, sizeof(other)) && !ipl_copy(IPL_DOL, SD_ROOT "/gc-mp3player.dol")) return "Copie de GC Station impossible";
+    remove(IPL_DOL);
+    if (rename(IPL_OLD, IPL_DOL) != 0) { ipl_cache = -1; return "Impossible de remettre l'ancien ipl.dol"; }
+    ipl_cache = 0;
+    crumb("ipl.dol remis (ancien)");
+    return "La console d\xC3\xA9marre de nouveau sur l'ancien ipl.dol";
+}
