@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v340 (build 862) — GBA du téléphone : remise à zéro comme sur une vraie GBA
+
+La GBA du téléphone répond maintenant à la remise à zéro du jeu avec l'état qu'attend le démarrage GBA de Nintendo (lu dans Rayman 3) : 0x08, puis 0x18. Avant, le jeu recommençait la remise à zéro sans fin.
+
 ## Nouveautés v339 (build 861) — GBA du téléphone : la vraie commande du jeu
 
 Rayman 3 écrit la commande destinée à la GBA d'une façon qui passait à côté de Pulse. Pulse croyait donc que chaque transfert était un « 00 », et la remise à zéro de la GBA (FF) était répondue comme un « 00 » : le jeu recommençait sans fin. Pulse lit maintenant la commande directement dans le vrai tampon d'envoi.
