@@ -1826,8 +1826,8 @@ fun EcranCompagnon() {
         }
         // build 373 : le micro du telephone (slot B, essai ; MicroTel.kt) : jeux a micro, ou jeu pas encore lu
         if (id.isEmpty() || id.startsWith("GP6") || id.startsWith("GP7") || MicTel.etat.marche) MicroTelephone()
-        // build 373 : la GBA du telephone ailleurs que dans Wind Waker (Four Swords Adventures...), ou tant qu'elle est branchee
-        if (!id.startsWith("GZL") && (id.isEmpty() || id.startsWith("G4S") || GbaTel.etat.marche)) TingleTunerWW(ww = false)
+        // build 373 : la GBA du telephone ailleurs que dans Wind Waker ; build 376 : pour tous les jeux (Rayman 3, Pac-Man Vs....)
+        if (!id.startsWith("GZL")) TingleTunerWW(ww = false)
         RangeeDePuces {
             Puce("En jeu", vue == 0) { vue = 0 }
             Puce("Chrono", vue == 1) { vue = 1 }

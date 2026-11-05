@@ -212,11 +212,11 @@ fun TingleTunerWW(ww: Boolean = true) {
     val e = GbaTel.etat
     Carte(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Titre(if (ww) "Tingle Tuner · GBA du téléphone (essai)" else "🎮 GBA du téléphone · port 2 (essai)", couleur = Color(0xFF9BE15D))
-            Doux(if (ww) "Dans les réglages de GC Station : « GBA du téléphone (port 2) » sur Oui, puis lancer Wind Waker par Pulse. " +
+            Titre(if (ww) "Tingle Tuner · GBA du téléphone (essai)" else "🎮 GBA du téléphone (essai)", couleur = Color(0xFF9BE15D))
+            Doux(if (ww) "Dans les réglages de GC Station : « GBA du téléphone » sur Port 2, puis lancer Wind Waker par Pulse. " +
                  "Brancher ici la GBA avant d'utiliser le Tingle Tuner dans le jeu."
-                 else "Dans les réglages de GC Station : « GBA du téléphone (port 2) » sur Oui, puis lancer le jeu par Pulse. Brancher ici la GBA, " +
-                 "puis choisir dans le jeu un mode avec GBA : le jeu envoie son programme (pas encore d'émulateur GBA : il ne tourne pas).", taille = 12)
+                 else "Dans les réglages de GC Station : « GBA du téléphone » sur le port voulu (Rayman 3, Pac-Man Vs. : port 2 ; Four Swords seul : port 1), " +
+                 "puis lancer le jeu par Pulse. Brancher ici la GBA, puis choisir dans le jeu le mode avec GBA : son programme tourne ici.", taille = 12)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Bouton(if (e.marche) "Débrancher" else "Brancher la GBA", Modifier.weight(1f), plein = !e.marche) {
                     if (e.marche) GbaTel.debrancher() else GbaTel.brancher(ctx)
