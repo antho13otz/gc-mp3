@@ -452,6 +452,11 @@ static void nat_write_report(const nat_info_t *in, const char *path, char *out, 
    On calcule donc avant le lancement ou se trouve chaque morceau de l'ISO sur la carte :
    libfat donne le premier cluster du fichier (st_ino), on suit la chaine de la FAT. */
 #include "natres_bin.h"                       /* programme resident compile (build/natres_bin.h) */
+#include "natres_lan_bin.h"                   /* v359 : Pulse LAN (jeu en reseau local par Internet : build/natres_lan_bin.h) */
+static int na_lan = 0;                        /* v359 : ce lancement avec Pulse LAN (le pont vers l'ami du Salon par Internet) */
+static u32 na_lan_peer = 0, na_lan_room = 0;     /* (v359 : l'ami, et la partie : SHA-256 du code du Salon par Internet) */
+static const u8 *na_rb(void) { return na_lan ? natres_lan_bin : natres_bin; }
+static u32 na_rl(void) { return na_lan ? (u32)sizeof(natres_lan_bin) : (u32)na_rl(); }
 
 static natres_ext_t na_ext[NATRES_MAXEXT];
 static u32 na_next = 0;
@@ -1566,7 +1571,7 @@ static int nat_res_test(const char *path, long size, char *msg, int cap) {
     u32 offs[3] = { 0, (vsz / 2) & ~511u, (vsz - 512) & ~511u };
     for (int i = 0; i < 3; i++) { memset(want[i], 0, 512); if (!gd_read(&gd, offs[i], want[i], 512) && !gd.ciso) { gd_close(&gd); snprintf(msg, cap, "Lecture du jeu impossible"); return -1; } }
     gd_close(&gd);
-    if (sizeof(natres_bin) > NATRES_SIZE) { snprintf(msg, cap, "Programme r\xC3\xA9sident trop gros"); return -1; }
+    if (na_rl() > NATRES_SIZE) { snprintf(msg, cap, "Programme r\xC3\xA9sident trop gros"); return -1; }
     u8 *save = (u8 *)memalign(32, NATRES_SIZE);
     if (!save) { snprintf(msg, cap, "Pas assez de m\xC3\xA9moire"); return -1; }
     if ((u32)save < NATRES_AT + NATRES_SIZE && (u32)save + NATRES_SIZE > NATRES_AT) { free(save); snprintf(msg, cap, "M\xC3\xA9moire du r\xC3\xA9sident occup\xC3\xA9" "e"); return -1; }   /* (v52) */
@@ -1576,7 +1581,7 @@ static int nat_res_test(const char *path, long size, char *msg, int cap) {
     u32 level = IRQ_Disable();                            /* (personne d'autre sur le bus EXI pendant le test) */
     memcpy(save, (void *)NATRES_AT, NATRES_SIZE);
     memset((void *)NATRES_AT, 0, NATRES_SIZE);
-    memcpy((void *)NATRES_AT, natres_bin, sizeof(natres_bin));
+    memcpy((void *)NATRES_AT, na_rb(), na_rl());
     natres_hdr_t *h = (natres_hdr_t *)NATRES_AT;
     int ok = h->magic == NATRES_MAGIC && h->end <= NATRES_AT + NATRES_SIZE;
     int r = -1, bad = -1;
@@ -1840,7 +1845,7 @@ static int na_patch(const nat_info_t *in, u8 *dol, u8 *res, int *skipped, int *c
     u32 sl = be32(res + offsetof(natres_hdr_t, si_load)), ss = be32(res + offsetof(natres_hdr_t, si_store));
     na_si_done = na_si_skip = 0;
     for (int pass = 0; pass < 3; pass++) {
-        if (pass == 1 && !*card_on && !(na_opt() & (NRO_PHONE | NRO_MEM))) continue;   /* (manettes du telephone : aussi sans carte virtuelle, pour cacher le BBA au jeu) */
+        if (pass == 1 && !*card_on && !(na_opt() & (NRO_PHONE | NRO_MEM)) && !na_lan) continue;   /* (v359 : Pulse LAN : le pont voit le BBA) */   /* (manettes du telephone : aussi sans carte virtuelle, pour cacher le BBA au jeu) */
         if (pass == 2 && !*si_on) break;
         u32 at0 = at, cov = 0;
         int nx = 0;
@@ -1964,6 +1969,7 @@ static u32 na_opt(void) {
     if (nat_trap) o |= NRO_TRAP;
     if ((na_padmask() | na_gbamask() | (u32)na_micon()) && !na_net_on) o |= NRO_PHONE;   /* manettes du telephone (v331 : GBA, v332 : micro) */
     if (na_mem_on()) o |= NRO_MEM;                        /* v306 : chercheur de codes de l'appli */
+    if (na_lan) o &= ~(NRO_PHONE | NRO_MEM);              /* v359 : (Pulse LAN : ni telephone, ni chercheur de codes) */
     return o;
 }
 /* v122 : modes video du jeu. Les jeux decrivent l'image dans des "GXRenderModeObj" (0x3C octets : mode de la
@@ -2633,7 +2639,7 @@ static void nat_run(int k) {
         for (u32 i = 0; !mok && i < na_next && i < 12; i++)
             fprintf(f, "  ISO %08X -> carte %08X  (%u secteurs)\n", (unsigned)na_ext[i].iso, (unsigned)na_ext[i].sd, (unsigned)na_ext[i].cnt);
         if (!mok && na_next > 12) fprintf(f, "  (... %u morceaux en tout)\n", (unsigned)na_next);
-        if (rt[0]) fprintf(f, "Lecteur SD maison (programme resident, %u octets) : %s\n", (unsigned)sizeof(natres_bin), rt);
+        if (rt[0]) fprintf(f, "Lecteur SD maison (programme resident, %u octets) : %s\n", (unsigned)na_rl(), rt);
         fclose(f);
     }
     char m[200];
@@ -3313,7 +3319,7 @@ static const char *nat_boot(int k) {
         else { memcpy(na_ext2, na_ext, na_next * sizeof(natres_ext_t)); na_n2 = na_next; snprintf(na_disc2_msg, sizeof(na_disc2_msg), "disque %d pr\xC3\xAAt (%u morceaux)", gl[k2].disc + 1, (unsigned)na_n2); }
     }
     int gk = nat_cheats_prep(in.id);                       /* v121 : cheats appliques par Pulse */
-    int res = (na_net_on ? (na_next = 0, 1) : !nat_map_game(gl[k].path, gl[k].ciso, merr, sizeof(merr))) && sizeof(natres_bin) <= NATRES_SIZE;   /* (v121 : .ciso aussi ; v143 : reseau : pas de morceaux sur la carte) */
+    int res = (na_net_on ? (na_next = 0, 1) : !nat_map_game(gl[k].path, gl[k].ciso, merr, sizeof(merr))) && na_rl() <= NATRES_SIZE;   /* (v121 : .ciso aussi ; v143 : reseau : pas de morceaux sur la carte) */
     /* v159 : aiguillages et tables des morceaux dans une place a part, juste sous le resident, a la taille utile.
        Avant : dans le resident, apres son code ; depuis v143 (resident plus gros : pilote du BBA), il ne restait que
        ~4,5 Ko, et un jeu a 83 acces au lecteur + 93 a la carte (Mario Superstar Baseball : ~12 Ko) ne se lancait plus
@@ -3344,7 +3350,7 @@ static const char *nat_boot(int k) {
     u32 o_dol = 0, o_bi2 = (dol_len + 31) & ~31u, o_fst = o_bi2 + NA_BI2, o_ann = o_fst + ((in.fst_sz + 31) & ~31u), o_res = o_ann + ann;   /* (v159 : place a part juste avant le resident : memes positions qu'en memoire) */
     if (res) {                                            /* image du resident, deja reglee (en-tete : natres.h) */
         u8 *r = buf + o_res;
-        memcpy(r, natres_bin, sizeof(natres_bin));
+        memcpy(r, na_rb(), na_rl());
         /* v97 : table des morceaux tout en haut, a la taille utile (au moins la place du .dol de GC Station,
            recopie la au retour A+Z+START) : le reste sert aux aiguillages */
         u32 ext_at = ann_dest + ann_tr;                                     /* v159 : tables au-dessus des aiguillages */
@@ -3370,6 +3376,14 @@ static const char *nat_boot(int k) {
             card_on = cards != 0;
             na_wbe32(r + 0x48, NRF_REAL_IRQ | (nat_igr ? NRF_IGR : 0) | (cards & 1 ? NRF_CARD : 0) | (cards & 2 ? NRF_CARDB : 0) | (na_jcrash ? NRF_CRASH : 0) | (na_jstack ? NRF_STACK : 0) | (na_jthr ? NRF_THREADS : 0) | (na_jexi ? NRF_EXILOG : 0) | (na_jpad && (na_opt() & NRO_PHONE) ? NRF_PADLOG : 0));
             na_ach_on = 0;
+            if (na_lan) {                                  /* v359 : Pulse LAN : reglages du pont (lan_cfg, trouve par son "PLAN") */
+                u32 lo = 0;
+                for (u32 i = 0x200; i + 28 <= na_rl() && !lo; i += 4) if (be32(r + i) == 0x504C414Eu && be32(r + i + 4) == 0 && be32(r + i + 16) == 0) lo = i;
+                if (lo) {
+                    na_wbe32(r + lo + 4, na_ipv4(ip_str)); na_wbe32(r + lo + 8, na_ipv4(mask_str)); na_wbe32(r + lo + 12, na_ipv4(gw_str));
+                    na_wbe32(r + lo + 16, na_lan_peer); na_wbe32(r + lo + 20, 51240); na_wbe32(r + lo + 24, na_lan_room);
+                }
+            }
             if (cards & 2) {
                 na_wbe32(r + offsetof(natres_hdr_t, card2_n), na_card2_n); na_wbe32(r + offsetof(natres_hdr_t, card2_size), na_card2_size);
                 na_wbe32(r + offsetof(natres_hdr_t, card2_id), na_card2_size >> 17);
@@ -3740,6 +3754,24 @@ static int na_lan_game(const char *id) {
     static const char *const ids[] = { "GKY", "GM4", "GTE", "GPO", "GPS" };   /* Kirby Air Ride, Mario Kart Double Dash, 1080 Avalanche, Phantasy Star Online */
     for (unsigned i = 0; i < sizeof(ids) / sizeof(ids[0]); i++) if (!strncmp(id, ids[i], 3)) return 1;
     return 0;
+}
+/* v359 : jeu en reseau local par Internet : le jeu avec Pulse LAN, relie a l'ami du Salon par Internet (meme adresse,
+   meme code) : sa GC Station PC (Dolphin) ou une autre console. Les trames du Broadband Adapter partent en UDP (port
+   51240) au format de GC Station PC et de tools/lan-relais.py. */
+#include "mbedtls/sha256.h"
+static const char *nat_boot_lan(int k) {
+    if (!net_ok || !ip_str[0]) return "Jeu par Internet : la console n'est pas sur le r\xC3\xA9seau";
+    if (!salon_ami[0] || strlen(salon_code) < 6) return "Jeu par Internet : r\xC3\xA8gle d'abord le Salon par Internet (adresse de l'ami et code)";
+    if (!salon_wan_ip) return "Jeu par Internet : adresse de l'ami introuvable (Salon par Internet)";
+    unsigned char h[32];
+    mbedtls_sha256((const unsigned char *)salon_code, strlen(salon_code), h, 0);
+    na_lan_room = (u32)h[0] << 24 | (u32)h[1] << 16 | (u32)h[2] << 8 | h[3];
+    na_lan_peer = salon_wan_ip;
+    na_lan = 1;
+    crumb("jeu par Internet : %s, ami %u.%u.%u.%u", gl[k].title, (unsigned)(na_lan_peer >> 24), (unsigned)(na_lan_peer >> 16 & 255), (unsigned)(na_lan_peer >> 8 & 255), (unsigned)(na_lan_peer & 255));
+    const char *e = nat_boot(k);                          /* (ne revient pas si ca marche) */
+    na_lan = 0;
+    return e;
 }
 static const char *nat_boot_net(const char *path) {
     if (sx_safe) { sx_block("lancer un jeu ou une appli"); return "Bloqu\xC3\xA9 pendant le test"; }   /* v278 : (test des touches) */

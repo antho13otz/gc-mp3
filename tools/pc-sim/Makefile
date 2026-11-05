@@ -42,6 +42,14 @@ $(W)/gen/natres_bin.h: $(R)/source/natres/natres.c $(R)/source/natres/natres.h $
 	ld.lld -T $(R)/tools/natres.ld $(W)/gen/natres.o -o $(W)/gen/natres.elf
 	llvm-objcopy -O binary $(W)/gen/natres.elf $(W)/gen/natres.bin
 	python3 $(R)/tools/bin2h.py $(W)/gen/natres.bin $@ natres_bin
+# v359 : Pulse LAN
+$(W)/gen/natres_lan_bin.h: $(R)/source/natres/natres.c $(R)/source/natres/natres.h $(R)/tools/natres.ld
+	@mkdir -p $(W)/gen
+	# (v356 : -Oz : le resident de v355 depassait 0x817FFF00 avec clang -Os ; la console le compile avec gcc)
+	clang --target=powerpc-none-eabi -mcpu=750 -Oz -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -DNATRES_LAN -c $< -o $(W)/gen/natres_lan.o
+	ld.lld -T $(R)/tools/natres.ld $(W)/gen/natres_lan.o -o $(W)/gen/natres_lan.elf
+	llvm-objcopy -O binary $(W)/gen/natres_lan.elf $(W)/gen/natres_lan.bin
+	python3 $(R)/tools/bin2h.py $(W)/gen/natres_lan.bin $@ natres_lan_bin
 
 $(O)/mbedtls/%.o: $(L)/mbedtls/%.c
 	@mkdir -p $(dir $@)
@@ -81,7 +89,7 @@ $(O)/pcsim_limits.o: pcsim_limits.c pcsim.h
 $(O)/pcsim_new.o: pcsim_new.cpp
 	@mkdir -p $(O)
 	$(CXX) -fno-pie -O2 -g -Wall -c $< -o $@
-$(O)/main.o: $(wildcard $(R)/source/*.c $(R)/source/*.h $(R)/source/natres/*.h) $(W)/gen/natres_bin.h $(W)/gen/natret_bin.h $(wildcard include/*.h)
+$(O)/main.o: $(wildcard $(R)/source/*.c $(R)/source/*.h $(R)/source/natres/*.h) $(W)/gen/natres_bin.h $(W)/gen/natres_lan_bin.h $(W)/gen/natret_bin.h $(wildcard include/*.h)
 	@mkdir -p $(O)
 	$(CC) $(CFLAGS) -w -c $(R)/source/main.c -o $@
 

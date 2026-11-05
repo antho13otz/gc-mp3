@@ -85,6 +85,7 @@ static void nat_run(int k);                                /* v50 : lanceur nati
 static void nat_bench_all(void);                           /* v171 : banc d'essai : export de tous les jeux (natif.c) */
 static const char *nat_boot(int k);                        /* v51 : lanceur maison, demarrage natif (natif.c), en test */
 static const char *nat_boot_disc(int k);                   /* v97 : disque du vrai lecteur (natif.c) */
+static const char *nat_boot_lan(int k);                    /* v359 : jeu en reseau local par Internet (Pulse LAN, natif.c) */
 static int gl_has_dvd(void);
 static int nat_qr_input(u32 down);                         /* v51 : QR code du rapport */
 static void nat_draw_qr(void);
@@ -1998,6 +1999,14 @@ static void gclib_input(u32 down, u32 nav, int fire) {
             gl_busy[0] = 0;
             if (e) gl_note(e);
         }
+        if ((down & PAD_TRIGGER_Z) && !gl[gl_launch_sel].dvd) {   /* v359 : Z : jeu en reseau local par Internet (Pulse LAN) */
+            int k = gl_launch_sel;
+            gl_launch_sel = -1;
+            gl_status("Lancement du jeu par Internet...");
+            const char *e = nat_boot_lan(k);                /* (ne revient pas si ca marche) */
+            gl_busy[0] = 0;
+            if (e) gl_note(e);
+        }
         if (down & PAD_BUTTON_B) gl_launch_sel = -1;
         return;
     }
@@ -2531,7 +2540,7 @@ static void gl_draw_launch_box(void) {
             else if (cp_line(g->id, cl, sizeof(cl), &cc)) { fit_text(F_SMALL, cl, (int)w - 30, buf, sizeof(buf)); gx_text_c(F_SMALL, x + w / 2, y + 98, buf, cc); }
         }
         if (hl) gx_text_c(F_SMALL, x + w / 2, y + 120, lim, RGBA(255, 170, 120, 255));
-        gx_text_c(F_SMALL, x + w / 2, y + (hl ? 142 : 120), "A : lancer     X : lanceur de secours     B : annuler", RGBA(255, 210, 120, 255));
+        gx_text_c(F_SMALL, x + w / 2, y + (hl ? 142 : 120), salon_ami[0] ? "A : lancer   X : secours   Z : par Internet   B : annuler" : "A : lancer     X : lanceur de secours     B : annuler", RGBA(255, 210, 120, 255));
     }
 static void draw_gclib_main(void);
 static void draw_gclib(void) {

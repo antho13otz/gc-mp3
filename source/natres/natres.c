@@ -1291,7 +1291,6 @@ static void gb_cmd(natres_pad_t *p) { (void)p; }
 static void pd_ev(natres_pad_t *p, u32 k, u32 v) { (void)p; (void)k; (void)v; }
 static void mic_ready(natres_pad_t *p) { (void)p; }
 void pd_poll(void) __attribute__((used));
-void MEM_OS pd_poll(void) { }
 static u32 pd_si_load(natres_pad_t *p, u32 o, u32 v, int *done) { (void)p; (void)o; *done = 0; return v; }
 #endif
 
@@ -1424,7 +1423,11 @@ static MEM_OS void freeze_check(u32 ctx) {
 static void nr_sample(u32 ctx);
 static MEM_OS void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee avant la fonction du jeu */
     trap_guard();
-    if (H.opt & (NRO_PHONE | NRO_MEM)) pd_poll();        /* manettes du telephone, chercheur de codes : avant que le jeu lise les manettes */
+#ifdef NATRES_LAN
+    pd_poll();                                            /* (Pulse LAN : signe de vie du pont) */
+#else
+    if (H.opt & (NRO_PHONE | NRO_MEM)) pd_poll();
+#endif        /* manettes du telephone, chercheur de codes : avant que le jeu lise les manettes */
     if (mem_resumed) { mem_resumed = 0; frz_tb = tbl(); }   /* (v306 : apres une pause : pas un jeu fige) */
     if (++H.vi_in == 1) nr_log_flush();                  /* (1re image : on sait si le jeu y arrive) */
     if (vi_orig) ((void (*)(u32, u32))vi_orig)(irq, ctx);
@@ -2131,8 +2134,224 @@ static void xl_end(void) {                               /* (le jeu deselectionn
     u32 m = xl_get(o + 8);
     for (u32 k = 0; k < 4; k++) cw(o + 16 + k * 4, xl_rd(m + (k & 1) * 4 + (k & 2) * 8));
 }
+#ifdef NATRES_LAN
+/* ======================= Pulse LAN : le pont (jeu en reseau local par Internet) =======================
+   Le jeu garde le vrai Broadband Adapter (canal 0, peripherique 2) ; Pulse se glisse entre les deux :
+   - envoi : ce que le jeu ecrit dans la file d'envoi (WRTXFIFOD) ne va pas a l'adaptateur (la commande est changee en
+     une lecture sans effet : le transfert reste vrai, sa fin aussi) mais dans ln_tx ; quand le jeu demande l'envoi
+     (NCRA, ST1), Pulse l'emballe (Ethernet + IPv4 + UDP + "GCLR1" + partie, comme GC Station PC et tools/lan-relais.py)
+     et l'envoie lui-meme vers l'ami, a la fin de la transaction du jeu ; la vraie fin d'envoi previent le jeu ;
+   - reception : avant chaque transaction du jeu avec l'adaptateur, les trames arrivees (anneau de reception) qui
+     viennent de l'ami sont deballees sur place (la trame du jeu remise au debut, longueur corrigee) : le jeu ne voit
+     que les trames de l'autre console. Pulse repond aussi aux demandes ARP pour l'adresse de la console, et trouve
+     l'adresse Ethernet de la box (passerelle). Signe de vie toutes les 5 s sans envoi (la box garde le passage ouvert).
+   Les registres de l'adaptateur (anneau, file, interruptions) restent les vrais : leurs interruptions aussi. */
+typedef struct {
+    u32 magic;                                            /* "PLAN" : GC Station remplit (natif.c) */
+    u32 ip, mask, gw;                                     /* la console sur son reseau */
+    u32 peer, port;                                       /* l'ami (IPv4 publique) et son port UDP (51240) */
+    u32 room;                                             /* partie : 4 premiers octets du SHA-256 du code (en majuscules) */
+    u32 tx, rx, drop, arp, ka;                            /* (comptes, pour le journal) */
+} natres_lan_t;
+natres_lan_t lan_cfg __attribute__((used)) = { 0x504C414Eu };
+#define LN_PORT 51240u
+static u8 ln_tx[1600] __attribute__((aligned(32)));       /* trame du jeu en attente (apres les 51 octets d'en-tete) */
+static u32 ln_txn = 0, ln_send = 0, ln_ncra = 0;
+static u32 ln_sel = 0, ln_ph = 0, ln_cmd = 0, ln_data = 0, ln_mxa = 0, ln_fifo = 0, ln_fake = 0;
+static u8 ln_gw[6]; static u32 ln_gwok = 0, ln_arp_tb = 0, ln_last_tb = 0, ln_rp = 0, ln_init = 0;
+static int ln_on(void) { return lan_cfg.magic == 0x504C414Eu && lan_cfg.peer && lan_cfg.ip; }
+/* l'en-tete (51 octets) devant n octets de trame, dans f */
+static MEM_OS void ln_hdr(u8 *f, u32 n) {
+    static u32 ipid = 0;
+    pn_eth(f, ln_gw, 0x0800);
+    u8 *ip = f + 14, *u = ip + 20;
+    ip[0] = 0x45; ip[1] = 0; pn_p16(ip + 2, 20 + 8 + 9 + n); pn_p16(ip + 4, ++ipid & 0xFFFF); pn_p16(ip + 6, 0x4000); ip[8] = 64; ip[9] = 17;
+    pn_p16(ip + 10, 0); pn_p32(ip + 12, lan_cfg.ip); pn_p32(ip + 16, lan_cfg.peer); pn_p16(ip + 10, pn_ipsum(ip));
+    pn_p16(u, LN_PORT); pn_p16(u + 2, lan_cfg.port); pn_p16(u + 4, 8 + 9 + n); pn_p16(u + 6, 0);
+    u[8] = 'G'; u[9] = 'C'; u[10] = 'L'; u[11] = 'R'; u[12] = '1'; pn_p32(u + 13, lan_cfg.room);
+}
+/* un envoi a nous (signe de vie, ARP) : seulement hors d'une trame du jeu ; sa fin ne doit pas tromper le jeu */
+static MEM_OS void ln_own(u8 *f, u32 n) {
+    if (ln_txn || ln_send || (bb_in8(BB_NCRA) & 6u)) return;
+    u32 imr = bb_in8(BB_IMR);
+    bb_out8(BB_IMR, imr & ~4u);                           /* (pas d'interruption "envoye" pour le jeu) */
+    pn_send(f, n);
+    bb_out8(BB_IR, 4u);
+    bb_out8(BB_IMR, imr);
+}
+static MEM_OS void ln_keepalive(void) { u8 *f = pn_fr; ln_hdr(f, 0); ln_own(f, 51); lan_cfg.ka++; }
+static MEM_OS void ln_arpreq(void) {
+    u32 hop = (lan_cfg.peer ^ lan_cfg.ip) & lan_cfg.mask ? lan_cfg.gw : lan_cfg.peer;
+    static const u8 all[6] = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
+    u8 *f = pn_fr;
+    pn_eth(f, all, 0x0806);
+    pn_p16(f + 14, 1); pn_p16(f + 16, 0x0800); f[18] = 6; f[19] = 4; pn_p16(f + 20, 1);
+    for (int i = 0; i < 6; i++) { f[22 + i] = pn_mac[i]; f[32 + i] = 0; }
+    pn_p32(f + 28, lan_cfg.ip); pn_p32(f + 38, hop);
+    ln_own(f, 42);
+}
+/* anneau de reception : adresse dans la memoire de l'adaptateur de l'octet o du paquet de la page p (apres son descripteur) */
+static u32 ln_bp, ln_he;
+static u32 ln_at(u32 p, u32 o) { u32 a = (p << 8) + 4 + o; if (a >= ln_he) a -= ln_he - (ln_bp << 8); return a; }
+static MEM_OS void ln_rd(u32 p, u32 o, u8 *d, u32 n) {
+    u32 a = ln_at(p, o), k = ln_he - a < n ? ln_he - a : n;
+    bb_ins(a, d, k);
+    if (k < n) bb_ins(ln_bp << 8, d + k, n - k);
+}
+static MEM_OS void ln_wr(u32 p, u32 o, const u8 *s, u32 n) {
+    u32 a = ln_at(p, o), k = ln_he - a < n ? ln_he - a : n;
+    bb_outs(a, s, k);
+    if (k < n) bb_outs(ln_bp << 8, s + k, n - k);
+}
+/* les trames arrivees depuis la derniere fois : deballees sur place (adaptateur libre : avant une transaction du jeu) */
+static MEM_OS __attribute__((noinline)) void ln_rx(void) {
+    u32 rwp = bb_in16(BB_RWP) & 0xFFF;
+    if (rwp == ln_rp) return;
+    u32 rrp = bb_in16(BB_RRP) & 0xFFF;
+    ln_bp = bb_in16(BB_BP) & 0xFFF; ln_he = ((bb_in16(BB_RHBP) & 0xFFF) + 1) << 8;
+    if (ln_bp < 1 || (ln_he >> 8) <= ln_bp || ln_he > 0x1000u) { ln_rp = rwp; return; }
+    /* (notre curseur hors de [rrp, rwp] : l'adaptateur a ete remis a zero, ou le jeu a tout lu : on repart de rrp) */
+    int in = rrp <= rwp ? (ln_rp >= rrp && ln_rp <= rwp) : (ln_rp >= rrp || ln_rp <= rwp);
+    if (!in) ln_rp = rrp;
+    for (int k = 0; k < 16 && ln_rp != rwp; k++) {
+        u8 d[4], h[51];
+        bb_ins(ln_rp << 8, d, 4);
+        u32 w = (u32)d[0] | (u32)d[1] << 8 | (u32)d[2] << 16 | (u32)d[3] << 24;
+        u32 next = w & 0xFFF, len = (w >> 12) & 0xFFF;
+        if (len <= 4 || len > 1600u || next < ln_bp || next >= (ln_he >> 8)) { ln_rp = rwp; break; }
+        u32 n = len - 4;
+        ln_rd(ln_rp, 0, h, n < 51 ? n : 51);
+        u32 type = pn_be16(h + 12);
+        if (n >= 51 && type == 0x0800 && h[23] == 17 && pn_be32(h + 30) == lan_cfg.ip && pn_be16(h + 36) == LN_PORT &&
+            h[42] == 'G' && h[43] == 'C' && h[44] == 'L' && h[45] == 'R' && h[46] == '1' && pn_be32(h + 47) == lan_cfg.room) {
+            if (!ln_gwok) { for (int i = 0; i < 6; i++) ln_gw[i] = h[6 + i]; ln_gwok = 1; }
+            u32 m = n - 51;
+            if (m >= 14 && m <= 1514u) {                  /* la trame de l'ami, au debut du paquet */
+                ln_rd(ln_rp, 51, pn_fr, m);
+                ln_wr(ln_rp, 0, pn_fr, m);
+                w = (w & 0xFF000FFFu) | (m + 4) << 12;
+                d[0] = (u8)w; d[1] = (u8)(w >> 8); d[2] = (u8)(w >> 16); d[3] = (u8)(w >> 24);
+                bb_outs(ln_rp << 8, d, 4);
+                lan_cfg.rx++;
+            } else {                                      /* (signe de vie : rien pour le jeu) */
+                static const u8 z[2] = { 0x88, 0xB5 };      /* (type inconnu : le jeu l'ignore) */
+                ln_wr(ln_rp, 12, z, 2);
+            }
+        } else if (n >= 42 && type == 0x0806) {           /* ARP */
+            u8 a[28];
+            ln_rd(ln_rp, 14, a, 28);
+            u32 op = pn_be16(a + 6), sip = pn_be32(a + 14), tip = pn_be32(a + 24);
+            u32 hop = (lan_cfg.peer ^ lan_cfg.ip) & lan_cfg.mask ? lan_cfg.gw : lan_cfg.peer;
+            if (op == 2 && sip == hop && tip == lan_cfg.ip) { for (int i = 0; i < 6; i++) ln_gw[i] = a[8 + i]; ln_gwok = 1; }
+            if (op == 1 && tip == lan_cfg.ip) {           /* (la box demande ou est la console : on repond) */
+                u8 *f = pn_fr;
+                pn_eth(f, a + 8, 0x0806);
+                pn_p16(f + 14, 1); pn_p16(f + 16, 0x0800); f[18] = 6; f[19] = 4; pn_p16(f + 20, 2);
+                for (int i = 0; i < 6; i++) { f[22 + i] = pn_mac[i]; f[32 + i] = a[8 + i]; }
+                pn_p32(f + 28, lan_cfg.ip); pn_p32(f + 38, sip);
+                ln_own(f, 42); lan_cfg.arp++;
+            }
+        }
+        ln_rp = next;
+    }
+}
+/* l'envoi demande par le jeu (a la fin de sa transaction) */
+static MEM_OS void ln_flush(void) {
+    u32 n = ln_txn;
+    ln_send = 0; ln_txn = 0;
+    if (!ln_gwok || n < 14 || n > 1514u - 51u) { lan_cfg.drop++; return; }
+    u8 *f = ln_tx - 51 + 64;                              /* (ln_tx : en-tete dans les 64 premiers octets) */
+    ln_hdr(f, n);
+    u32 c = 51 + n;
+    while (c < 60) f[c++] = 0;
+    bb_out16(BB_TXFIFOCNT, c);
+    bb_outs(BB_WRTXFIFOD, f, c);
+    bb_out8(BB_NCRA, ln_ncra);                            /* (ST1, comme le jeu l'avait demande) */
+    lan_cfg.tx++; ln_last_tb = tbl();
+}
+/* chaque ecriture du jeu dans les registres du canal 0 (avant le vrai materiel) : 1 = faite ici */
+static MEM_OS __attribute__((noinline)) int lan_store(u32 a, u32 val) {
+    if (!ln_on()) return 0;
+    u32 o = a - 0xCC006800u;
+    volatile u32 *r = HW6(0xCC006800u);
+    if (o == 0) {
+        u32 sel = (val & 0x380u) == 0x200u;
+        if (sel && !ln_sel) {                             /* le jeu commence une transaction : l'adaptateur est libre */
+            bx = r; pn_cs = 0x80u << 2; pn_frq = 5; pn_hw = 1;
+            u32 m = irq_off();
+            if (!ln_init) { ln_init = 1; bb_ins(BB_PAR, pn_mac, 6); }
+            ln_rx();
+            if (!ln_gwok && (!ln_arp_tb || tbl() - ln_arp_tb > TB_SEC / 2u)) { ln_arp_tb = tbl() | 1; ln_arpreq(); }
+            irq_restore(m);
+            ln_sel = 1; ln_ph = 0;
+        } else if (!sel && ln_sel) {                      /* fin de la transaction du jeu */
+            ln_sel = 0;
+            if (ln_send) {
+                r[0] = val;
+                bx = r; u32 m = irq_off(); ln_flush(); irq_restore(m);
+                return 1;
+            }
+        }
+        return 0;
+    }
+    if (!ln_sel) return 0;
+    if (o == 0x10) { ln_data = val; return 0; }
+    if (o != 0x0C || !(val & 1)) return 0;
+    u32 dma = val & 2, rw = (val >> 2) & 3, n = dma ? r[2] : ((val >> 4) & 3) + 1;
+    if (ln_ph++ == 0) {                                   /* la commande */
+        ln_cmd = dma ? 0 : ln_data; ln_fake = 0;
+        ln_mxa = (ln_cmd >> 8) & 0xFFFFu;
+        if ((ln_cmd & 0xC0000000u) == 0xC0000000u && ln_mxa == BB_WRTXFIFOD) {   /* file d'envoi : vers ln_tx */
+            r[4] = 0x80000000u | (0x100u << 8);           /* (une lecture de la memoire de reception : sans effet) */
+            ln_fifo = 1;
+        } else if ((ln_cmd & 0xC0000000u) == 0xC0000000u && (ln_mxa == BB_TXFIFOCNT || ln_mxa == BB_TXFIFOCNT + 1)) {
+            r[4] = 0x80000000u | (0x100u << 8);           /* (le compte, c'est Pulse qui l'ecrit a l'envoi) */
+            ln_fifo = 0;
+        } else ln_fifo = 0;
+        if ((ln_cmd & 0xC0000000u) == 0x80000000u && (ln_mxa == BB_TXFIFOCNT || ln_mxa == BB_TXFIFOCNT + 1)) ln_fake = 1;
+        return 0;
+    }
+    if (rw == 1 && ln_fifo) {                             /* donnees de la trame */
+        if (ln_txn + n > sizeof(ln_tx) - 64) { ln_txn = sizeof(ln_tx); return 0; }
+        u8 *d = ln_tx + 64 + ln_txn;
+        if (dma) { const u8 *s = (const u8 *)((r[1] & 0x01FFFFFFu) | 0xC0000000u); for (u32 i = 0; i < n; i++) d[i] = s[i]; }
+        else for (u32 i = 0; i < n; i++) d[i] = (u8)(ln_data >> (24 - 8 * i));
+        ln_txn += n;
+        return 0;
+    }
+    if (rw == 1 && !dma && (ln_cmd & 0xC0000000u) == 0xC0000000u && ln_mxa == BB_NCRA && (ln_data >> 24) & 4u && ln_txn) {
+        ln_ncra = ln_data >> 24;                          /* envoi demande (ST1) : a la fin de la transaction */
+        r[4] = (ln_data & ~0x04000000u);
+        ln_send = 1;
+    }
+    return 0;
+}
+/* lecture du jeu : le nombre d'octets dans la file d'envoi (TXFIFOCNT) est celui de ln_tx */
+static MEM_OS int lan_load(u32 a, u32 *v) {
+    if (!ln_on() || !ln_sel || !ln_fake || a != 0xCC006810u) return 0;
+    u32 c = ln_txn, b0 = ln_mxa == BB_TXFIFOCNT ? c & 0xFF : (c >> 8) & 0xFF;
+    *v = b0 << 24 | ((c >> 8) & 0xFF) << 16;
+    return 1;
+}
+/* a chaque image : signe de vie (box et GC Station PC : la partie reste ouverte) */
+void pd_poll(void) __attribute__((used));
+void MEM_OS pd_poll(void) {
+    if (!ln_on() || ln_sel || (*HW6(0xCC006800u) & 0x380u)) return;   /* (le bus est pris) */
+    if (!ln_init) return;                                 /* (le jeu ne s'est pas encore servi de l'adaptateur) */
+    if (tbl() - ln_last_tb < 5u * TB_SEC) return;
+    bx = HW6(0xCC006800u); pn_cs = 0x80u << 2; pn_frq = 5; pn_hw = 1;
+    u32 m = irq_off();
+    ln_last_tb = tbl();
+    if (!ln_gwok) ln_arpreq(); else ln_keepalive();
+    irq_restore(m);
+}
+#endif
+
 static MEM_OS u32 exi_load(u32 a) {
     trap_guard();
+#ifdef NATRES_LAN
+    { u32 lv; if (lan_load(a, &lv)) { (void)*HW6(a); return lv; } }
+#endif
     if (a - 0xCC006000u < 0x40u) return di_load(a);      /* v133 : acces au lecteur branches en secours (adresse calculee) */
     early_note(a, 0, 0);
     /* manettes du telephone, chercheur de codes de l'appli (v312) : le Broadband Adapter est pour Pulse. Le jeu qui le
@@ -2160,6 +2379,9 @@ static MEM_OS u32 exi_load(u32 a) {
 }
 static MEM_OS void exi_store(u32 a, u32 val) {
     trap_guard();
+#ifdef NATRES_LAN
+    if (a - 0xCC006800u < 0x14u && lan_store(a, val)) return;
+#endif
     if (a - 0xCC006000u < 0x40u) { di_store(a, val); return; }   /* v133 */
     early_note(a, val, 1);
     if (a == 0xCC006800u && (val & 0x200u)) H.bba_n++;   /* v145 : le jeu parle au Broadband Adapter (jeu en reseau) */
