@@ -155,9 +155,24 @@ typedef struct {
     /* (resident, v306) chercheur de codes de l'appli (NRO_MEM) : adresse du telephone qui le demande (le dernier paquet
        "GCM?"), jeu en pause (1), paquets "GCM?" recus, blocs de memoire envoyes, succes a annoncer (paquets "GCAC" restants) */
     unsigned int mip, mport, mpause, mrx, mblk, mach;
+    /* (v331) GBA du telephone (le Tingle Tuner de Wind Waker...) : voir gb_cmd (natres.c). gbmask (GC Station) : bit n = le port
+       n + 1 joue une GBA. Le reste (resident) : etat (0 attente, 1 cle donnee, 2 programme en cours d'envoi, 3 programme recu,
+       4 programme lance : relais), JOYSTAT, taille du programme annoncee, octets recus, mots du jeu (ecrits / accuses par le
+       telephone), commandes 15 (ecritures du jeu). Ces 8 mots finissent le 7e secteur du journal (127 mots). */
+    unsigned int gbmask, gst, gjoy, glen, gpos, gw, ga, gn15;
     unsigned char mmac[8];
     unsigned char pmac[4][8];
+    /* (resident, v331, hors du journal) GBA : cle de session, JOY_TRANS, bascule en attente (tampon plein), telephone (adresse,
+       port, MAC), commandes 00 / FF et 14 du jeu, paquets "GCGB" recus / envoyes */
+    unsigned int gkey, gtrans, gnew, gip, gport, gmac0, gmac1, gn00, gn14, gnrx, gntx;
 } natres_pad_t;
+/* v331 : GBA du telephone. Paquets UDP "GCGB" sur le port des manettes (51237), gros-boutiste :
+   telephone -> console (24 octets) : {"GCGB", 1, port (0-3), 0, 0, numero, accuse (mots du jeu recus a la suite), JOY_TRANS,
+     options : bit 0 JOY_TRANS neuf, bit 1 JOY_RECV lu, bit 2 recommencer (attente), bit 3 drapeaux 0x30 valides, bits 8-15
+     drapeaux de JOYSTAT (bits 4-5)}
+   console -> telephone (chaque image s'il y a des mots, sinon toutes les 15) : {"GCGB", 2, port, etat, JOYSTAT, cle de session,
+     taille annoncee, octets recus, numero du 1er mot, n, commandes 00/FF, 14, 15, puis n mots du jeu (dans l'ordre)} */
+#define NATRES_GBA_MAGIC 0x47434742u                    /* "GCGB" */
 #define NRF_PADLOG 1024u                                /* 7e secteur du journal : la section "PPAD" au retour */
 #define NATRES_PADLOG_MAGIC 0x47435350u                 /* "GCSP" */
 #define NRO_PHONE  0x04000000u              /* manettes du telephone (registres SI branches, section "PPAD") */

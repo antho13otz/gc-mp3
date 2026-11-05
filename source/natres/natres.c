@@ -1001,6 +1001,92 @@ static MEM_OS void mem_pause(natres_pad_t *p) {
     *adma = a0;
     mem_resumed = 1;
 }
+/* ======================= v331 : GBA du telephone (bus des manettes) =======================
+   Le jeu parle a une GBA par le bus des manettes (commandes du bus JOY, format public (GBATEK) : 00 / FF type et etat,
+   14 lire JOY_TRANS, 15 ecrire JOY_RECV, octets de poids faible d'abord ; reponse : type 0004, JOYSTAT). Le telephone est
+   trop loin pour repondre a temps : Pulse repond tout de suite a sa place et lui fait suivre les mots du jeu.
+   Demarrage de la GBA (le jeu lui envoie son programme) : Pulse joue le role de la console portable qui attend un
+   programme : apres une remise a zero (FF), cle de session (JOY_TRANS, JOYSTAT 0x10) ; 1er mot ecrit : la taille
+   (JOYSTAT 0x20) ; ensuite chaque mot fait basculer le bit 0x10 (le jeu attend cette bascule pour le mot suivant ; si le
+   tampon des mots du telephone est plein, la bascule attend : le jeu ralentit). Tous les mots vont au telephone (il
+   dechiffre le programme avec la cle de session). Programme recu : JOYSTAT 0x08 (un mot a lire), puis la 1re lecture
+   (14) = programme lance : relais (JOY_TRANS et les drapeaux 0x30 viennent du telephone, ses lectures effacent 0x02). */
+#define GB_RING 256u                                     /* (mots du jeu pas encore accuses par le telephone) */
+static u32 gb_ring[GB_RING];
+static u32 gb_o0 = 0, gb_o1 = 0, gb_r0 = 0, gb_r1 = 0;    /* (tampon de sortie ecrit par le jeu ; reponse a lui rendre) */
+static int gb_port(natres_pad_t *p, u32 ch) { return ch < 4 && (p->gbmask >> ch & 1); }
+static MEM_OS void gb_reset(natres_pad_t *p) {           /* FF : cle de session (suite du generateur, longueur au hasard) */
+    u32 k = tbl() | 1u, n = 5u + (k & 0x3FFu);
+    while (n--) k = k * 0x6177614Bu + 1u;
+    p->gkey = k; p->gtrans = k ^ 0x6F646573u; p->gjoy = 0x18u;   /* (0x10 : pret ; 0x08 : un mot a lire) */
+    p->gst = 1; p->glen = p->gpos = 0; p->gw = p->ga = 0; p->gnew = 0;
+}
+static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert vers le port GBA : la reponse, tout de suite */
+    u32 c = gb_o0 >> 24;
+    gb_r0 = gb_r1 = 0;
+    if (c == 0x00u || c == 0xFFu) {
+        p->gn00++;
+        if (c == 0xFFu) gb_reset(p);                     /* (toujours : sans emulateur GBA, le relais ne sert a rien ; le jeu peut renvoyer le programme) */
+        gb_r0 = 0x00040000u | (p->gjoy & 0xFFu) << 8;
+        return;
+    }
+    if (c == 0x14u) {                                    /* le jeu lit JOY_TRANS (octet de poids faible d'abord) */
+        u32 t = p->gtrans;
+        p->gn14++;
+        gb_r0 = (t & 0xFFu) << 24 | (t >> 8 & 0xFFu) << 16 | (t >> 16 & 0xFFu) << 8 | t >> 24;
+        gb_r1 = (p->gjoy & 0xFFu) << 24;
+        p->gjoy &= ~0x08u;
+        if (p->gst == 3) p->gst = 4;                     /* (1re lecture apres le programme : il tourne) */
+        return;
+    }
+    if (c == 0x15u) {                                    /* le jeu ecrit JOY_RECV */
+        u32 w = (gb_o0 >> 16 & 0xFFu) | (gb_o0 >> 8 & 0xFFu) << 8 | (gb_o0 & 0xFFu) << 16 | (gb_o1 >> 24) << 24;
+        p->gn15++;
+        if (p->gw - p->ga < GB_RING) { gb_ring[p->gw % GB_RING] = w; p->gw++; }
+        if (p->gst == 1) {                               /* 1er mot : la taille du programme (format public de la cle) */
+            u32 s = w ^ ((w & 0x200u) ? 0x6F646573u : 0x6177614Bu), n = (s >> 8) & 0x7Fu;
+            if (s & 0x10000u) n += 0x80u;
+            n = ((n << 7 | (s & 0x7Fu)) + 0x3Fu) << 3;
+            p->glen = (n & 0x3FFF8u) + 0xCu; p->gpos = 0; p->gst = 2; p->gjoy = (p->gjoy & 0x0Au) | 0x20u;
+        } else if (p->gst == 2) {
+            p->gpos += 4;
+            if (p->gpos >= p->glen) { p->gst = 3; p->gjoy = 0x08u; p->gtrans = 0; }
+            else if (p->gw - p->ga < GB_RING - 1u) p->gjoy ^= 0x10u;
+            else p->gnew = 1;                            /* (tampon plein : la bascule attend le telephone) */
+        } else p->gjoy |= 0x02u;                         /* (relais : le telephone lira) */
+        gb_r0 = ((p->gjoy | 0x02u) & 0xFFu) << 24;
+        return;
+    }
+}
+static MEM_OS void gb_rx(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d, u32 dispo) {   /* paquet "GCGB" du telephone */
+    if (dispo < 24 || !gb_port(p, d[5] & 3)) { p->bad++; return; }
+    p->gnrx++;
+    p->gip = pn_be32(f + 26); p->gport = pn_be16(u);
+    p->gmac0 = pn_be32(f + 6); p->gmac1 = pn_be16(f + 10) << 16;
+    u32 ack = pn_be32(d + 12), t = pn_be32(d + 16), o = pn_be32(d + 20);
+    if (ack - p->ga <= p->gw - p->ga) p->ga = ack;       /* (accuse dans [ga, gw]) */
+    if (o & 4u) { p->gst = 0; p->gjoy = 0; p->gw = p->ga = 0; p->gnew = 0; return; }
+    if (o & 1u) { p->gtrans = t; p->gjoy |= 0x08u; }
+    if (o & 2u) p->gjoy &= ~0x02u;
+    if (o & 8u) p->gjoy = (p->gjoy & ~0x30u) | ((o >> 8) & 0x30u);
+}
+static MEM_OS void gb_tx(natres_pad_t *p) {              /* (chaque image) : mots du jeu au telephone, etat */
+    static u32 tick = 0;
+    if (p->gnew && p->gw - p->ga < GB_RING - 1u) { p->gnew = 0; p->gjoy ^= 0x10u; }
+    if (!p->gip) return;
+    u32 n = p->gw - p->ga;
+    if (!n && (++tick % 15u)) return;
+    if (n > 300u) n = 300u;
+    u8 *uu = pn_fr + 42, mac[6];
+    pn_p32(uu, NATRES_GBA_MAGIC); uu[4] = 2; uu[5] = 1; uu[6] = (u8)p->gst; uu[7] = (u8)p->gjoy;
+    pn_p32(uu + 8, p->gkey); pn_p32(uu + 12, p->glen); pn_p32(uu + 16, p->gpos); pn_p32(uu + 20, p->ga); pn_p32(uu + 24, n);
+    pn_p32(uu + 28, p->gn00); pn_p32(uu + 32, p->gn14); pn_p32(uu + 36, p->gn15);
+    for (u32 i = 0; i < n; i++) pn_p32(uu + 40 + i * 4, gb_ring[(p->ga + i) % GB_RING]);
+    pn_p32(mac, p->gmac0); pn_p16(mac + 4, p->gmac1 >> 16);
+    pn_udp(p, mac, p->gip, p->gport, 40 + n * 4);
+    p->gntx++;
+}
+
 static u32 pd_bba_n = 0, pd_bba_tb = 0;                  /* (derniers acces du jeu au BBA) */
 static int pd_busy(void) { return ((bx[0] & 0x380u) & ~pn_cs) || (bx[3] & 1u); }   /* (le jeu se sert du canal de l'adaptateur) */
 static void MEM_OS pd_frame(natres_pad_t *p, u32 n, u32 now) {
@@ -1016,6 +1102,7 @@ static void MEM_OS pd_frame(natres_pad_t *p, u32 n, u32 now) {
     if (pn_be16(u + 2) != NATRES_PAD_PORT) return;
     if (d + 20 > f + n) { p->bad++; return; }
     if ((pn_be32(d) & 0xFFFFFF00u) == 0x47434D00u) { mem_req(p, f, u, d, (u32)(f + n - d)); return; }   /* v306 : "GCM?" */
+    if (pn_be32(d) == NATRES_GBA_MAGIC) { gb_rx(p, f, u, d, (u32)(f + n - d)); return; }   /* v331 : GBA du telephone */
     if (pn_be32(d) != 0x47435044u) { p->bad++; return; }   /* "GCPD" */
     u32 ch = d[5] & 3;
     if (!(p->chmask >> ch & 1)) { p->bad++; return; }
@@ -1049,6 +1136,7 @@ void MEM_OS pd_poll(void) {
     }
     if (p->mpause) mem_pause(p);                          /* v306 : jeu en pause pour le chercheur de codes */
     ms_send(p);                                          /* (appli : le direct) */
+    if (p->gbmask) gb_tx(p);                             /* v331 : GBA du telephone */
     if (p->mach && p->mip) { p->mach--; mem_ach(p); }     /* v306 : succes obtenu : annonce au telephone */
     {   /* v275 : vibration demandee par le jeu : envoyee au telephone quand elle change, puis toutes les 8 images tant
            qu'elle dure (l'appli s'arrete seule sans nouvelles : un paquet perdu ne la laisse pas vibrer) */
@@ -1084,10 +1172,12 @@ static u32 pd_si_load(natres_pad_t *p, u32 o, u32 v, int *done) {
     if (o == 0x38u) {                                     /* SISR : donnees neuves, aucune erreur sur les ports du telephone */
         p->nsr++;
         for (u32 ch = 0; ch < 4; ch++) if (p->chmask >> ch & 1) { u32 s = (3 - ch) * 8; v = (v & ~(0x3Fu << s)) | (0x20u << s); }
+        for (u32 ch = 0; ch < 4; ch++) if (p->gbmask >> ch & 1) v &= ~(0x3Fu << (3 - ch) * 8);   /* (v331 : GBA : sans erreur) */
         return v;
     }
-    int mine = p->xch < 4 && (p->chmask >> p->xch & 1);
-    if (o == 0x34u && mine) { p->ncom++; if ((v & 0x80000000u) && p->ncom < 4000u) pd_ev(p, 5, v >> 8); return (v & ~0x20000006u) | p->xch << 1; }   /* COMCSR : pas d'erreur de transfert (et le port demande par le jeu) */
+    int mine = p->xch < 4 && (p->chmask >> p->xch & 1), gm = gb_port(p, p->xch);
+    if (o >= 0x80u && o < 0x100u && gm) { u32 w = (o - 0x80u) / 4u; p->nbuf++; return w == 0 ? gb_r0 : w == 1 ? gb_r1 : 0; }   /* v331 : reponse de la GBA */
+    if (o == 0x34u && (mine || gm)) { p->ncom++; if ((v & 0x80000000u) && p->ncom < 4000u) pd_ev(p, 5, v >> 8); return (v & ~0x20000006u) | p->xch << 1; }   /* COMCSR : pas d'erreur de transfert (et le port demande par le jeu) */
     if (o >= 0x80u && o < 0x100u && mine) {               /* reponse d'une commande envoyee au port du telephone */
         u32 w = (o - 0x80u) / 4u;
         p->nbuf++;
@@ -1958,17 +2048,19 @@ static void si_store(u32 a, u32 val) {
     trap_guard();
     if (H.opt & NRO_PHONE) {                              /* transfert vers un port : on retient le port et la commande */
         natres_pad_t *p = pd_find();
-        if (p && a == 0xCC006480u) p->xcmd = val >> 24;
+        if (p && a == 0xCC006480u) { p->xcmd = val >> 24; gb_o0 = val; }
+        if (p && a == 0xCC006484u) gb_o1 = val;            /* (v331 : 2e mot : 4e octet ecrit a la GBA) */
         if (p && a == 0xCC006434u && (val & 1)) {
             p->xch = (val >> 1) & 3; p->tr[p->ntr++ & 7] = p->xch << 24 | (p->xcmd & 0xFF) << 16 | ((val >> 16) & 0x7F) << 8 | ((val >> 8) & 0x7F);
-            if (p->chmask >> p->xch & 1) {
+            if (gb_port(p, p->xch)) gb_cmd(p);                /* v331 : GBA du telephone : la reponse tout de suite */
+            if ((p->chmask | p->gbmask) >> p->xch & 1) {
                 pd_ev(p, 1, p->xch << 8 | (p->xcmd & 0xFF));
                 /* b9000015 : rien n'est branche sur ce port : le vrai transfert finissait en erreur (pas de reponse), et une
                    partie des lectures du jeu (hors aiguillages) le voyait encore : le jeu redemandait le type sans fin. Le
                    transfert part donc vers une vraie manette lue en ce moment (SIPOLL) : il finit sans erreur, et le jeu lit
                    nos reponses (tampon, COMCSR) comme venant du port du telephone. */
                 for (u32 c = 0; c < 4; c++)
-                    if (!(p->chmask >> c & 1) && (p->poll >> (7 - c) & 1)) { val = (val & ~6u) | c << 1; p->redir++; break; }
+                    if (!((p->chmask | p->gbmask) >> c & 1) && (p->poll >> (7 - c) & 1)) { val = (val & ~6u) | c << 1; p->redir++; break; }
             }
         }
         if (p && a == 0xCC006430u) { if (p->poll != val) pd_ev(p, 2, val); p->poll = val; }
