@@ -175,7 +175,7 @@ typedef struct {
     /* (v338, diagnostic) vrai COMCSR a l'entree de l'interruption des manettes (avant le jeu), interruptions vues pendant un
        transfert vers le port de la GBA */
     unsigned int gdirq, gdnirq;
-    /* (v348) code du jeu de la GBA (mot 0xAC de l'en-tete du programme, non chiffre) : comme le BIOS de la GBA, il est dans
+    /* (v345) code du jeu de la GBA (mot 0xAC de l'en-tete du programme, non chiffre) : comme le BIOS de la GBA, il est dans
        JOY_TRANS une fois le programme recu (le demarrage du SDK le verifie : sinon il recommence) */
     unsigned int gcode;
     /* (v346) preuve demandee par le demarrage du SDK juste apres le programme (1re lecture de JOY_TRANS) : un des produits
