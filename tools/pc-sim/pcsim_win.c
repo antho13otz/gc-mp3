@@ -262,10 +262,13 @@ static void toggle_full(void) {
     }
 }
 void pcw_dolphin_stop(void);
+void pcw_maj_start(int manual);
+HWND pcw_window(void) { return win; }
 static LRESULT CALLBACK wproc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
     case WM_KEYDOWN: case WM_SYSKEYDOWN:
         if (w == VK_F11 || (w == VK_RETURN && (GetKeyState(VK_MENU) & 0x8000))) { if (!(l & (1 << 30))) toggle_full(); return 0; }
+        if (w == VK_F9) { if (!(l & (1 << 30))) pcw_maj_start(1); return 0; }   /* F9 : chercher une mise a jour (pcsim_maj.c) */
         if (w < 256) keys[w] = 1;
         return 0;
     case WM_KEYUP: case WM_SYSKEYUP: if (w < 256) keys[w] = 0; return 0;
@@ -464,6 +467,6 @@ void pcsim_win_boot(void) {
     setvbuf(stdout, NULL, _IONBF, 0);
     InitializeCriticalSection(&fb_cs);
     pcw_dolphin_init();
-    if (pcsim_live) CreateThread(NULL, 0, win_thread, NULL, 0, NULL);
+    if (pcsim_live) { CreateThread(NULL, 0, win_thread, NULL, 0, NULL); pcw_maj_start(0); }   /* (mise a jour : au demarrage, si un jeton est la) */
 }
 #endif

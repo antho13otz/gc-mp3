@@ -21,7 +21,7 @@ WEBP_SRC := $(wildcard $(L)/webp/src/dec/*.c) $(wildcard $(L)/webp/src/dsp/*.c) 
 LIBOBJ   := $(patsubst $(L)/%.c,$(O)/%.o,$(MBED_SRC) $(HELIX_SRC) $(XMP_SRC) $(WEBP_SRC)) $(patsubst $(L)/%.cpp,$(O)/%.o,$(GME_SRC)) $(O)/gme/emu2413.o $(O)/codecs.o \
             $(O)/fatfs/ff.o $(O)/fatfs/ffunicode.o $(O)/fatfs/ffsystem.o
 CB_OBJ   := $(patsubst $(R)/source/cb/%.c,$(O)/cb/%.o,$(wildcard $(R)/source/cb/*.c))
-SIMOBJ   := $(O)/pcsim.o $(O)/pcsim_gx.o $(O)/pcsim_limits.o $(O)/pcsim_new.o $(O)/pcsim_win.o $(O)/pcsim_dolphin.o $(O)/main.o
+SIMOBJ   := $(O)/pcsim.o $(O)/pcsim_gx.o $(O)/pcsim_limits.o $(O)/pcsim_new.o $(O)/pcsim_win.o $(O)/pcsim_dolphin.o $(O)/pcsim_maj.o $(O)/main.o
 EXE      := $(W)/gcstation.exe
 all: $(EXE)
 
@@ -65,5 +65,5 @@ $(O)/%.o: %.c pcsim.h $(wildcard include/*.h win/*.h win/include/*.h win/include
 	$(CC) $(GCF) -Wall -Wno-unused-parameter -Wno-unused-function -c $< -o $@
 
 $(EXE): $(SIMOBJ) $(LIBOBJ) $(CB_OBJ)
-	$(CXX) -static -mwindows -o $@ $^ -lws2_32 -lwinmm -lbcrypt -lpthread && echo "-> tools/pc-sim/$(EXE)"
+	$(CXX) -static -mwindows -o $@ $^ -lws2_32 -lwinmm -lwinhttp -lbcrypt -lpthread && echo "-> tools/pc-sim/$(EXE)"
 .PHONY: all

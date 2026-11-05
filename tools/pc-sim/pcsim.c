@@ -165,7 +165,11 @@ static __attribute__((unused)) void preempt_sig(int sig) {
     errno = e;
 }
 /* attente : on rend la main pendant l'appel bloquant */
-#define BLOCKING(call) ({ int h_ = big_held; while (big_held) pcsim_unlock(); __typeof__(call) r_ = (call); while (big_held < h_) pcsim_lock(); r_; })
+#ifdef _WIN32                                              /* (Windows : l'erreur du reseau est gardee par le systeme : la reprise du verrou l'effacait) */
+#define BLOCKING(call) ({ int h_ = big_held; while (big_held) pcsim_unlock(); __typeof__(call) r_ = (call); DWORD le_ = GetLastError(); int en_ = errno; while (big_held < h_) pcsim_lock(); SetLastError(le_); errno = en_; r_; })
+#else
+#define BLOCKING(call) ({ int h_ = big_held; while (big_held) pcsim_unlock(); __typeof__(call) r_ = (call); int en_ = errno; while (big_held < h_) pcsim_lock(); errno = en_; r_; })
+#endif
 #define BLOCKINGV(call) do { int h_ = big_held; while (big_held) pcsim_unlock(); call; while (big_held < h_) pcsim_lock(); } while (0)
 
 /* ======================= temps ======================= */

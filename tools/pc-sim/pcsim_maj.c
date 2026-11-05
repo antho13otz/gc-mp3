@@ -1,0 +1,268 @@
+/* GC Station PC (Windows) : mise a jour depuis GitHub, comme l'appli (AppUpdate.java).
+   GC Station PC n'est pas public : il est seulement joint aux compilations (windows.yml, artefact "gc-station-pc").
+   GitHub demande un jeton pour le telecharger : un "fine-grained token" en lecture seule (Actions : Read-only) sur le
+   depot antho13otz/gc-mp3, dans le fichier jeton-github.txt a cote du programme.
+   Au demarrage (puis F9 a tout moment) : derniere compilation reussie de GC Station PC sur main ; si son numero est plus
+   grand que celui de ce programme (GCMP3_BUILD = numero de la compilation windows.yml), on propose de l'installer :
+   l'artefact (zip, contenant GC-Station-PC.zip) est telecharge, decompresse (Expand-Archive de Windows), le programme
+   actuel est renomme en "GC Station.exe.ancien", le nouveau prend sa place et redemarre. */
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <winhttp.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <wchar.h>
+#ifndef GCMP3_BUILD
+#define GCMP3_BUILD 0
+#endif
+#define REPO "antho13otz/gc-mp3"
+#define ARTEFACT "gc-station-pc"
+const wchar_t *pcw_exe_dir(void);
+void pcw_dolphin_stop(void);
+HWND pcw_window(void);
+
+/* ---------- HTTPS (WinHTTP) ---------- */
+typedef struct { char *b; size_t n; } buf_t;
+/* GET ; *code : statut HTTP ; loc : en-tete Location (redirection : pas suivie) ; out : corps (ou fichier f) */
+static int http_get(const wchar_t *url, const char *tok, int *code, wchar_t *loc, int loccap, buf_t *out, FILE *f) {
+    URL_COMPONENTS u; memset(&u, 0, sizeof(u)); u.dwStructSize = sizeof(u);
+    wchar_t host[256], path[4096];
+    u.lpszHostName = host; u.dwHostNameLength = 256; u.lpszUrlPath = path; u.dwUrlPathLength = 4096;
+    wchar_t extra[4096]; u.lpszExtraInfo = extra; u.dwExtraInfoLength = 4096;
+    if (!WinHttpCrackUrl(url, 0, 0, &u)) return 0;
+    wcsncat(path, extra, 4096 - wcslen(path) - 1);
+    HINTERNET s = WinHttpOpen(L"gc-station-pc", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!s) s = WinHttpOpen(L"gc-station-pc", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
+    if (!s) return 0;
+    HINTERNET c = WinHttpConnect(s, host, u.nPort, 0);
+    HINTERNET r = c ? WinHttpOpenRequest(c, L"GET", path, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, u.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0) : NULL;
+    int ok = 0;
+    if (r) {
+        DWORD off = WINHTTP_DISABLE_REDIRECTS;
+        WinHttpSetOption(r, WINHTTP_OPTION_DISABLE_FEATURE, &off, sizeof(off));
+        wchar_t hd[600] = L"Accept: application/vnd.github+json\r\n";
+        if (tok && *tok) { wchar_t t[300]; MultiByteToWideChar(CP_UTF8, 0, tok, -1, t, 300); wcscat(hd, L"Authorization: Bearer "); wcscat(hd, t); wcscat(hd, L"\r\n"); }
+        if (WinHttpSendRequest(r, hd, (DWORD)-1L, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) && WinHttpReceiveResponse(r, NULL)) {
+            DWORD st = 0, sz = sizeof(st);
+            WinHttpQueryHeaders(r, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &st, &sz, WINHTTP_NO_HEADER_INDEX);
+            *code = (int)st;
+            if (loc) { DWORD ls = (DWORD)(loccap * sizeof(wchar_t)); loc[0] = 0; if (!WinHttpQueryHeaders(r, WINHTTP_QUERY_LOCATION, WINHTTP_HEADER_NAME_BY_INDEX, loc, &ls, WINHTTP_NO_HEADER_INDEX)) loc[0] = 0; }
+            ok = 1;
+            if (st == 200 && (out || f)) {
+                for (;;) {
+                    DWORD av = 0, got = 0;
+                    if (!WinHttpQueryDataAvailable(r, &av)) { ok = 0; break; }
+                    if (!av) break;
+                    char *b = (char *)malloc(av);
+                    if (!b || !WinHttpReadData(r, b, av, &got)) { free(b); ok = 0; break; }
+                    if (f) fwrite(b, 1, got, f);
+                    else { char *nb = (char *)realloc(out->b, out->n + got + 1); if (!nb) { free(b); ok = 0; break; } out->b = nb; memcpy(out->b + out->n, b, got); out->n += got; out->b[out->n] = 0; }
+                    free(b);
+                }
+            }
+        }
+    }
+    if (r) WinHttpCloseHandle(r);
+    if (c) WinHttpCloseHandle(c);
+    WinHttpCloseHandle(s);
+    return ok;
+}
+static int api(const char *path, const char *tok, buf_t *o, char *err, int ecap) {
+    wchar_t url[1024]; char u8[1024];
+    snprintf(u8, sizeof(u8), "https://api.github.com/repos/%s%s", REPO, path);
+    MultiByteToWideChar(CP_UTF8, 0, u8, -1, url, 1024);
+    int code = 0;
+    o->b = NULL; o->n = 0;
+    if (!http_get(url, tok, &code, NULL, 0, o, NULL)) { snprintf(err, ecap, "GitHub injoignable (pas d'Internet ?)"); return 0; }
+    if (code == 401) { snprintf(err, ecap, "Jeton refus\xC3\xA9 par GitHub (expir\xC3\xA9 ou mal copi\xC3\xA9 ?)"); return 0; }
+    if (code == 403 || code == 404) { snprintf(err, ecap, "GitHub refuse (%d) : le jeton a-t-il \xC2\xAB Actions : Read-only \xC2\xBB sur " REPO " ?", code); return 0; }
+    if (code != 200 || !o->b) { snprintf(err, ecap, "GitHub : erreur %d", code); return 0; }
+    return 1;
+}
+
+/* ---------- JSON : objets d'un tableau, cles du premier niveau seulement ---------- */
+/* p : debut d'un objet ({) ; rend la fin (apres }) ; vals : valeurs (texte brut) des cles demandees */
+static const char *obj_keys(const char *p, const char *const *keys, int nk, char vals[][96]) {
+    for (int i = 0; i < nk; i++) vals[i][0] = 0;
+    if (*p != '{') return NULL;
+    int depth = 0;
+    const char *q = p;
+    for (; *q; q++) {
+        if (*q == '"') {
+            const char *s = ++q;
+            while (*q && *q != '"') { if (*q == '\\' && q[1]) q++; q++; }
+            if (!*q) return NULL;
+            const char *e = q;
+            if (depth == 1) {                             /* (une cle du premier niveau ?) */
+                const char *a = e + 1; while (*a == ' ' || *a == '\n' || *a == '\r' || *a == '\t') a++;
+                if (*a == ':') {
+                    for (int i = 0; i < nk; i++) if ((size_t)(e - s) == strlen(keys[i]) && !strncmp(s, keys[i], e - s)) {
+                        a++; while (*a == ' ' || *a == '\n' || *a == '\r' || *a == '\t') a++;
+                        int n = 0;
+                        if (*a == '"') { a++; while (*a && *a != '"' && n < 95) vals[i][n++] = *a++; }
+                        else while (*a && *a != ',' && *a != '}' && *a != ' ' && *a != '\n' && *a != '\r' && n < 95) vals[i][n++] = *a++;
+                        vals[i][n] = 0;
+                    }
+                }
+            }
+            continue;
+        }
+        if (*q == '{' || *q == '[') depth++;
+        else if (*q == '}' || *q == ']') { if (--depth == 0) return q + 1; }
+    }
+    return NULL;
+}
+/* les objets du tableau "name" : appelle cb pour chacun */
+static void each(const char *json, const char *name, const char *const *keys, int nk, int (*cb)(char vals[][96], void *), void *ud) {
+    char pat[64]; snprintf(pat, sizeof(pat), "\"%s\"", name);
+    const char *p = strstr(json, pat);
+    if (!p) return;
+    p = strchr(p, '[');
+    if (!p) return;
+    p++;
+    char vals[8][96];
+    for (;;) {
+        while (*p && *p != '{' && *p != ']') p++;
+        if (*p != '{') return;
+        const char *e = obj_keys(p, keys, nk, vals);
+        if (!e) return;
+        if (cb(vals, ud)) return;
+        p = e;
+    }
+}
+typedef struct { long num; char id[32]; } run_t;
+static int cb_run(char v[][96], void *ud) {
+    run_t *b = (run_t *)ud;
+    long n = atol(v[1]);
+    if (n > b->num) { b->num = n; snprintf(b->id, sizeof(b->id), "%s", v[0]); }
+    return 0;
+}
+typedef struct { char id[32]; } art_t;
+static int cb_art(char v[][96], void *ud) {
+    art_t *a = (art_t *)ud;
+    if (!strcmp(v[1], ARTEFACT) && strcmp(v[2], "true")) { snprintf(a->id, sizeof(a->id), "%s", v[0]); return 1; }
+    return 0;
+}
+
+static int read_token(char *t, int cap) {
+    t[0] = 0;
+    const char *e = getenv("GCSTATION_JETON");
+    if (e && *e) { snprintf(t, cap, "%s", e); return 1; }
+    wchar_t p[MAX_PATH]; _snwprintf(p, MAX_PATH, L"%ls\\jeton-github.txt", pcw_exe_dir());
+    FILE *f = _wfopen(p, L"rb");
+    if (!f) return 0;
+    char l[400] = "";
+    if (!fgets(l, sizeof(l), f)) l[0] = 0;
+    fclose(f);
+    char *s = l; if (!strncmp(s, "\xEF\xBB\xBF", 3)) s += 3;
+    while (*s == ' ' || *s == '\t') s++;
+    s[strcspn(s, " \t\r\n")] = 0;
+    snprintf(t, cap, "%s", s);
+    return t[0] != 0;
+}
+static int msg(const char *t, UINT fl) {                  /* boite de Windows (texte UTF-8) */
+    wchar_t w[1200]; MultiByteToWideChar(CP_UTF8, 0, t, -1, w, 1200);
+    return MessageBoxW(pcw_window(), w, L"GC Station PC : mise à jour", fl | MB_SETFOREGROUND);
+}
+static int run_wait(const wchar_t *cmd) {
+    STARTUPINFOW si; PROCESS_INFORMATION pi; memset(&si, 0, sizeof(si)); si.cb = sizeof(si); memset(&pi, 0, sizeof(pi));
+    wchar_t c[4096]; wcsncpy(c, cmd, 4095); c[4095] = 0;
+    if (!CreateProcessW(NULL, c, NULL, NULL, FALSE, CREATE_NO_WINDOW, NULL, NULL, &si, &pi)) return -1;
+    WaitForSingleObject(pi.hProcess, 180000);
+    DWORD code = 1; GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hProcess); CloseHandle(pi.hThread);
+    return (int)code;
+}
+static int unzip(const wchar_t *zip, const wchar_t *dir) {
+    wchar_t c[3000];
+    _snwprintf(c, 3000, L"powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"Expand-Archive -LiteralPath '%ls' -DestinationPath '%ls' -Force\"", zip, dir);
+    return run_wait(c) == 0;
+}
+static void del_tree(const wchar_t *dir) {
+    wchar_t c[1200]; _snwprintf(c, 1200, L"cmd.exe /c rmdir /s /q \"%ls\"", dir);
+    run_wait(c);
+}
+static volatile LONG busy = 0;
+/* manual : 1 = demande (F9) : on dit aussi "a jour" et les erreurs ; 0 = au demarrage : silencieux si rien */
+static DWORD WINAPI check(LPVOID a) {
+    int manual = (int)(INT_PTR)a;
+    char tok[400], err[300] = "", t[600];
+    if (!read_token(tok, sizeof(tok))) {
+        if (manual) msg("Pas de jeton GitHub : mets-le dans le fichier jeton-github.txt, \xC3\xA0 c\xC3\xB4t\xC3\xA9 de GC Station.exe "
+                        "(un \xC2\xAB fine-grained token \xC2\xBB, Actions : Read-only, sur le d\xC3\xA9p\xC3\xB4t " REPO ").", MB_ICONINFORMATION);
+        InterlockedExchange(&busy, 0); return 0;
+    }
+    buf_t b;
+    run_t best = { 0, "" };
+    static const char *const rk[] = { "id", "run_number" };
+    if (!api("/actions/workflows/windows.yml/runs?branch=main&status=success&event=push&per_page=10", tok, &b, err, sizeof(err))) goto fail;
+    each(b.b, "workflow_runs", rk, 2, cb_run, &best);
+    free(b.b);
+    printf("[maj] ce programme : build %d ; derniere compilation : %ld\n", (int)GCMP3_BUILD, best.num);
+    if (!best.num || best.num <= GCMP3_BUILD) {
+        if (manual) { snprintf(t, sizeof(t), "GC Station PC est \xC3\xA0 jour (build %d).", (int)GCMP3_BUILD); msg(t, MB_ICONINFORMATION); }
+        InterlockedExchange(&busy, 0); return 0;
+    }
+    snprintf(t, sizeof(t), "Une nouvelle version de GC Station PC est pr\xC3\xAAte (build %ld ; celle-ci : build %d).\n\nL'installer maintenant ? GC Station red\xC3\xA9marrera.", best.num, (int)GCMP3_BUILD);
+    if (msg(t, MB_YESNO | MB_ICONQUESTION) != IDYES) { InterlockedExchange(&busy, 0); return 0; }
+    {
+        char path[128]; snprintf(path, sizeof(path), "/actions/runs/%s/artifacts", best.id);
+        art_t art = { "" };
+        static const char *const ak[] = { "id", "name", "expired" };
+        if (!api(path, tok, &b, err, sizeof(err))) goto fail;
+        each(b.b, "artifacts", ak, 3, cb_art, &art);
+        free(b.b);
+        if (!art.id[0]) { snprintf(err, sizeof(err), "Fichier de la compilation %ld introuvable (expir\xC3\xA9 ?)", best.num); goto fail; }
+        /* l'artefact : GitHub renvoie vers un stockage a part, qui ne veut PAS du jeton */
+        wchar_t url[512], loc[4096], tmp[MAX_PATH], dir[MAX_PATH], zip[MAX_PATH], z2[MAX_PATH], d2[MAX_PATH];
+        char u8[256]; snprintf(u8, sizeof(u8), "https://api.github.com/repos/" REPO "/actions/artifacts/%s/zip", art.id);
+        MultiByteToWideChar(CP_UTF8, 0, u8, -1, url, 512);
+        int code = 0;
+        if (!http_get(url, tok, &code, loc, 4096, NULL, NULL) || code / 100 != 3 || !loc[0]) { snprintf(err, sizeof(err), "T\xC3\xA9l\xC3\xA9" "chargement refus\xC3\xA9 (%d)", code); goto fail; }
+        GetTempPathW(MAX_PATH, tmp);
+        _snwprintf(dir, MAX_PATH, L"%lsgcs-maj", tmp);
+        del_tree(dir);
+        CreateDirectoryW(dir, NULL);
+        _snwprintf(zip, MAX_PATH, L"%ls\\artefact.zip", dir);
+        FILE *f = _wfopen(zip, L"wb");
+        if (!f) { snprintf(err, sizeof(err), "Impossible d'\xC3\xA9" "crire dans le dossier temporaire"); goto fail; }
+        int ok = http_get(loc, NULL, &code, NULL, 0, NULL, f);
+        fclose(f);
+        if (!ok || code != 200) { snprintf(err, sizeof(err), "T\xC3\xA9l\xC3\xA9" "chargement : erreur %d", code); goto fail; }
+        _snwprintf(d2, MAX_PATH, L"%ls\\a", dir);
+        _snwprintf(z2, MAX_PATH, L"%ls\\a\\GC-Station-PC.zip", dir);
+        if (!unzip(zip, d2) || GetFileAttributesW(z2) == INVALID_FILE_ATTRIBUTES) { snprintf(err, sizeof(err), "Fichier t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9 illisible"); goto fail; }
+        _snwprintf(d2, MAX_PATH, L"%ls\\b", dir);
+        wchar_t nexe[MAX_PATH], me[MAX_PATH], old[MAX_PATH], lis[MAX_PATH], lis2[MAX_PATH];
+        _snwprintf(nexe, MAX_PATH, L"%ls\\GC Station.exe", d2);
+        if (!unzip(z2, d2) || GetFileAttributesW(nexe) == INVALID_FILE_ATTRIBUTES) { snprintf(err, sizeof(err), "Nouvelle version illisible"); goto fail; }
+        GetModuleFileNameW(NULL, me, MAX_PATH);
+        _snwprintf(old, MAX_PATH, L"%ls.ancien", me);
+        DeleteFileW(old);
+        if (!MoveFileW(me, old)) { snprintf(err, sizeof(err), "Impossible de remplacer le programme (dossier en lecture seule ?)"); goto fail; }
+        if (!CopyFileW(nexe, me, FALSE)) { MoveFileW(old, me); snprintf(err, sizeof(err), "Impossible d'installer la nouvelle version"); goto fail; }
+        _snwprintf(lis, MAX_PATH, L"%ls\\LISEZMOI.txt", d2); _snwprintf(lis2, MAX_PATH, L"%ls\\LISEZMOI.txt", pcw_exe_dir());
+        CopyFileW(lis, lis2, FALSE);
+        del_tree(dir);
+        printf("[maj] build %ld installe : redemarrage\n", best.num);
+        STARTUPINFOW si; PROCESS_INFORMATION pi; memset(&si, 0, sizeof(si)); si.cb = sizeof(si);
+        wchar_t cmd[MAX_PATH + 4]; _snwprintf(cmd, MAX_PATH + 4, L"\"%ls\"", me);
+        if (CreateProcessW(me, cmd, NULL, NULL, FALSE, 0, NULL, pcw_exe_dir(), &si, &pi)) { CloseHandle(pi.hProcess); CloseHandle(pi.hThread); }
+        pcw_dolphin_stop();
+        ExitProcess(0);
+    }
+fail:
+    printf("[maj] %s\n", err);
+    if (manual || err[0]) { snprintf(t, sizeof(t), "Mise \xC3\xA0 jour impossible : %s", err); if (manual) msg(t, MB_ICONWARNING); }
+    InterlockedExchange(&busy, 0);
+    return 0;
+}
+/* au demarrage (apres 8 s) ou avec F9 */
+static DWORD WINAPI later(LPVOID a) { (void)a; Sleep(8000); return check((LPVOID)0); }
+void pcw_maj_start(int manual) {
+    if (InterlockedExchange(&busy, 1)) return;
+    CreateThread(NULL, 0, manual ? check : later, (LPVOID)(INT_PTR)manual, 0, NULL);
+}
+#endif
