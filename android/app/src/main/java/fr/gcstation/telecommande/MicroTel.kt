@@ -49,7 +49,10 @@ object MicTel {
     @Volatile private var vuPulse = 0L
     private var w = LongArray(8)                           // (mstat, commandes, interruptions, octets lus, mw, mr, paquets, manques)
     @Volatile private var envoyes = 0L
-    @Volatile private var nAllume = 0                      // (build 397 : fois ou le jeu a allume le micro)
+    @Volatile private var nAllume = 0
+    // build 398 : reglages d'essai (le jeu recoit le son mais ne reagit pas) : ordre des octets des echantillons, volume
+    var inverse by mutableStateOf(false)
+    var gainX by mutableStateOf(1)                      // (build 397 : fois ou le jeu a allume le micro)
     @Volatile private var diag: LongArray? = null          // (build 396, console v352 : selections du slot B, lectures de l'identifiant, drapeaux)
     @Volatile private var niveau = 0f
     private val journal = ArrayDeque<String>()
@@ -125,7 +128,11 @@ object MicTel {
                     val f = RATE / hz(st)
                     for (i in 0 until n) {
                         acc += bloc[i]; nacc++
-                        if (nacc == f) { val v = (acc / f).coerceIn(-32768, 32767); sortie.write(v shr 8); sortie.write(v); acc = 0; nacc = 0 }
+                        if (nacc == f) {
+                            val v = (acc / f * gainX).coerceIn(-32768, 32767)
+                            if (inverse) { sortie.write(v); sortie.write(v shr 8) } else { sortie.write(v shr 8); sortie.write(v) }
+                            acc = 0; nacc = 0
+                        }
                     }
                     if (sortie.size() >= 2 * hz(st) / 50) {           // (20 ms par paquet ; 1400 octets au plus)
                         val d = sortie.toByteArray(); sortie.reset()
@@ -188,7 +195,7 @@ object MicTel {
             append("Commandes du jeu ${e.ncmd} ; interruptions ${e.nirq} ; octets lus par le jeu ${e.nrd} ; en attente ${e.attente}\n")
             append("Paquets reçus par Pulse ${e.nrx} ; octets sans son (retard) ${e.nlow} ; paquets envoyés ${e.envoyes}\n")
             // build 396 : le detail cote console (v352) et ce qu'on en conclut
-            append("Appli GC Remote ${BuildConfig.VERSION_NAME} ; console visée : ${Api.host ?: "aucune (appli pas reliée)"}\n")
+            append("Appli GC Remote ${BuildConfig.VERSION_NAME} ; console visée : ${Api.host ?: "aucune (appli pas reliée)"} ; octets ${if (inverse) "inversés" else "normaux"}, volume ×$gainX\n")
             val d = diag
             if (d != null) {
                 append("Côté console : micro activé dans GC Station : ${if (d[2] and 1L != 0L) "oui" else "NON"} ; slot B = micro : ${if (d[2] and 2L != 0L) "oui" else "non"} ; slot B émulé par Pulse : ${if (d[2] and 4L != 0L) "oui" else "non"}\n")
@@ -221,6 +228,11 @@ fun MicroTelephone() {
                 Doux("Pulse : " + (if (e.vuPulse) "répond" else "pas de réponse (réglage activé ? jeu lancé par Pulse ?)") + " · micro du jeu : " +
                      (if (e.mstat and 0x8000L != 0L) "allumé (${MicTel.hz(e.mstat)} Hz)" else "éteint"), taille = 12, couleur = C.Texte)
                 LinearProgressIndicator(progress = { e.niveau.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(6.dp), color = Color(0xFFFFC857))
+                // build 398 : essais si le jeu ne reagit pas a la voix
+                androidx.compose.foundation.layout.Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Bouton(if (MicTel.inverse) "Octets : inversés" else "Octets : normaux", Modifier.weight(1f), plein = MicTel.inverse) { MicTel.inverse = !MicTel.inverse }
+                    Bouton("Volume ×${MicTel.gainX}", Modifier.weight(1f), plein = MicTel.gainX > 1) { MicTel.gainX = when (MicTel.gainX) { 1 -> 2; 2 -> 4; 4 -> 8; else -> 1 } }
+                }
                 Doux("Le jeu : ${e.ncmd} commandes · ${e.nirq} paquets annoncés · ${e.nrd / 1024} Ko lus · retard ${e.nlow} octets", taille = 11, couleur = C.Pale)
                 Doux("→ " + MicTel.lecture(e), taille = 11, couleur = Color(0xFFFFC857))
                 e.journal.takeLast(6).forEach { Doux(it, taille = 11) }
