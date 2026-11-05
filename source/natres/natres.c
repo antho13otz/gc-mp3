@@ -1046,6 +1046,7 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
         return;
     }
     if (c == 0x15u) {                                    /* le jeu ecrit JOY_RECV */
+        u32 j0 = p->gjoy;                                /* (v343 : la reponse donne JOYSTAT d'avant le mot, + 0x02 "recu") */
         u32 w = (gb_o0 >> 16 & 0xFFu) | (gb_o0 >> 8 & 0xFFu) << 8 | (gb_o0 & 0xFFu) << 16 | (gb_o1 >> 24) << 24;
         p->gn15++;
         if (p->gw - p->ga < GB_RING) { gb_ring[p->gw % GB_RING] = w; p->gw++; }
@@ -1060,7 +1061,9 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
             else if (p->gw - p->ga < GB_RING - 1u) p->gjoy ^= 0x10u;
             else p->gnew = 1;                            /* (tampon plein : la bascule attend le telephone) */
         } else p->gjoy |= 0x02u;                         /* (relais : le telephone lira) */
-        gb_r0 = ((p->gjoy | 0x02u) & 0xFFu) << 24;
+        /* v343 : comme une vraie GBA : la reponse a 15 est JOYSTAT a la fin du transfert, avant que le BIOS n'ait traite le
+           mot (0x12 pour la cle B, et non 0x22) : le demarrage du SDK le verifie (Rayman 3 recommencait apres le 1er mot) */
+        gb_r0 = (((p->gst == 4 ? p->gjoy : j0) | 0x02u) & 0xFFu) << 24;
         return;
     }
 }
