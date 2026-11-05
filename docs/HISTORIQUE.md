@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 368 — Wind Waker : le compagnon ne ralentit plus le jeu
+- Le direct demandait à la console environ 10 Ko à chaque image (Link et 40 objets) : le jeu ralentissait. Il suit
+  maintenant 16 objets, avec leurs os seulement à moins de 15 m de Link (environ 4 Ko par image), et cherche les objets
+  du lieu toutes les 30 s au lieu de 10.
+
 ## Nouveautés appli build 367 — Wind Waker : plus de ligne jusqu'au ciel
 - Objets et habitants en direct : un point mal placé dessinait une longue ligne jusqu'au ciel (chapeau étiré) ; il
   reste maintenant à sa place.
