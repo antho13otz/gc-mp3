@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v334 (build 854) — port de la GBA du téléphone au choix
+
+Le réglage « GBA du téléphone » passe par **Non, Port 1, Port 2, Port 3, Port 4** (avant : toujours le port 2) :
+- **port 2** pour Wind Waker (Tingle Tuner), Rayman 3 et Pac-Man Vs. ;
+- **port 1** pour Four Swords Adventures en solo (la GBA y sert de manette ; la manette de ce port n'est plus vue).
+
+Le compte rendu de retour affiche le vrai port.
+
 ## Nouveautés appli build 375 — émulateur GBA pour la GBA du téléphone (essai)
 
 Ce build va avec la console v333. Le programme que le jeu envoie à la « GBA » du téléphone (Tingle Tuner de Wind Waker, Four Swords Adventures…) **tourne maintenant dans l'appli** :
