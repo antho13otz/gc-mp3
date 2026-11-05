@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v331 (build 849) — GBA du téléphone (Tingle Tuner, essai)
+
+Nouveau réglage « GBA du téléphone (port 2) ». Une fois activé, Pulse se fait passer pour une GBA branchée sur le port 2 :
+- il répond lui-même au jeu, parce que le Wi-Fi est trop lent pour attendre le téléphone ;
+- il fait le démarrage de la GBA, le jeu lui envoyant le programme qu'il pense transmettre à la GBA ;
+- il fait suivre ce programme à l'appli, qui le déchiffre et vérifie la somme ;
+- il relaie ensuite les échanges entre le jeu et l'appli.
+
+Cette version est un essai : l'appli n'a pas encore d'émulateur GBA, donc le relais sert seulement au diagnostic. Elle n'a pas été testée sur une vraie GameCube.
+
 ## Nouveautés appli build 370 — Wind Waker : les objets secondaires tournent sur le téléphone
 - Mouettes, cochons, crabes, bois flottant et palmiers ne sont plus demandés à la console : le téléphone joue leur
   animation en boucle (liste <lieu>_local.txt du pack). Le direct ne sert plus qu'aux habitants et aux ennemis.
