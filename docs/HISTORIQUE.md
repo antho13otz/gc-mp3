@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v356 et v357 (build 880) — Salon par Internet, GC Station PC, corrections du test des touches
+
+- **Salon par Internet** : START > Réglages > Salon et téléphone : adresse de l'ami (IP ou nom) et code commun ; celui qui héberge ouvre 51234 (UDP) et 51238 (TCP). L'autre GC Station apparaît dans FICHIERS. Correction : une console du Salon pouvait disparaître juste après être apparue.
+- **GC Station PC (Windows)** : le simulateur compilé pour Windows (fenêtre, clavier, manette XInput, son, dossier `sd`), jeux lancés dans Dolphin, jeu en réseau local par Internet entre deux PC, mise à jour avec un jeton (F9). Gardé pour soi : joint aux compilations de `windows.yml`.
+- **Test des touches (3 h)** : Cube Browser (lecture de mémoire libérée en cliquant un lien), liste des jeux (1,2 s figée → 0,35 s ; rouvrir 300 → 60 ms : fiches relues pour rien, tour de la carte SD en fond), clavier fermé par B quand il est vide, le test ne quitte plus GC Station tout seul. `touches-3h.yml` : le test entier à la demande.
+- v357 : la v356 ne compilait pas pour la console (une fonction du simulateur absente de libogc).
+
 ## Nouveautés v355 (build 878) — journal : où tourne le jeu quand il reste bloqué
 
 Pulse ne relevait l'endroit du programme où tourne le jeu qu'avant sa première image. Il le relève maintenant toute la partie (toutes les 32 images), et le journal du dernier jeu le donne comme « où en était le jeu à la fin », avec le code autour : pour les jeux qui restent bloqués sans figer l'image (Mario Party 7 au début du mini-jeu à micro).
