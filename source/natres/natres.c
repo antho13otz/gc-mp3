@@ -1135,9 +1135,9 @@ static MEM_OS __attribute__((noinline)) void mic_tx(natres_pad_t *p) {          
     /* v352 (diagnostic) : selections du slot B par le jeu, lectures de l'identifiant, drapeaux : bit 0 micro active dans GC
        Station, bit 1 slot B = micro emule, bit 2 slot B emule (Pulse y repond) */
     pn_p32(uu + 40, p->mnsel); pn_p32(uu + 44, p->mnid);
-    pn_p32(uu + 48, mic_flags(p));
+    pn_p32(uu + 48, mic_flags(p)); pn_p32(uu + 52, p->mnrefill);   /* (v354 : + coupures du son, reserve refaite) */
     pn_p32(mac, p->vmac0); pn_p16(mac + 4, p->vmac1 >> 16);
-    pn_udp(p, mac, p->vip, p->vport, 52);
+    pn_udp(p, mac, p->vip, p->vport, 56);
 }
 static MEM_OS void gb_tx(natres_pad_t *p) {              /* (chaque image) : mots du jeu au telephone, etat */
     static u32 tick = 0, lu = 0;
@@ -1968,12 +1968,21 @@ static MEM_OS u8 mic_byte(vcard_t *v, u8 b) {
         if (v->pos == 1) v->addr = (u32)b << 8;
         else if (v->pos == 2) {
             u32 st = (v->addr | b) & 0xFDFFu;            /* (bit 9 : debordement, jamais ici) */
-            if (st != p->mstat) { p->mr = p->mw; mic_tnext = tbl(); }   /* (mise en marche, autre frequence : pas de vieux son ; v353 : 1er paquet tout de suite) */
+            if (st != p->mstat) { p->mr = p->mw; mic_tnext = tbl(); p->mfill = 1; }   /* (mise en marche, autre frequence : pas de vieux son ; v353 : 1er paquet tout de suite) */
             if (!(st & 0x8000u)) v->irq &= ~2u;
             p->mstat = st;
         }
     } else if (v->cmd == 0x20) {                         /* (echantillons ; rien du telephone : silence) */
-        if (p->mr != p->mw) r = MIC_RING(p)[p->mr++ & (NATRES_MIC_RING - 1u)]; else { r = 0; p->mlow++; }
+        /* v354 : reserve de ~90 ms (selon la frequence) avant de donner le son, et de nouveau apres un trou : la voix arrive
+           entiere (la reconnaissance des mots de Mario Party 7 ratait sur un son hache par le Wi-Fi) ; plus de 370 ms
+           d'avance : on rattrape (latence bornee) */
+        u32 pre = 2048u << (((p->mstat >> 11) & 3u) > 2u ? 2u : ((p->mstat >> 11) & 3u));
+        if (pre > NATRES_MIC_RING / 2u) pre = NATRES_MIC_RING / 2u;
+        u32 dispo = p->mw - p->mr;
+        if (p->mfill && dispo >= pre) p->mfill = 0;
+        if (!p->mfill && dispo > pre * 4u && pre * 4u < NATRES_MIC_RING) { p->mr = (p->mw - pre * 2u) & ~1u; dispo = p->mw - p->mr; }
+        if (!p->mfill && dispo) r = MIC_RING(p)[p->mr++ & (NATRES_MIC_RING - 1u)];
+        else { r = 0; p->mlow++; if (!p->mfill && !(p->mnrd & 1u)) { p->mfill = 1; p->mnrefill++; } }
         p->mnrd++;
     }
     else if (v->cmd == 0x00 && v->pos >= 2) r = (u8)(MIC_ID >> (24 - ((v->pos - 2) & 3) * 8));
