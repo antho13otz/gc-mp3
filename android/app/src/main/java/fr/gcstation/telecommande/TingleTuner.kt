@@ -56,7 +56,8 @@ object GbaTel {
     private var emuLance = false
     private var decode = false
     private var vuPulse = 0L
-    private var relaisVu = 0L                              // (mots du relais deja montres)
+    private var relaisVu = 0L
+    private var dseq = 0L                                  // (build 393 : numero du dernier paquet de Pulse pris)                              // (mots du relais deja montres)
     private var lu = false
     private val journal = ArrayDeque<String>()
 
@@ -84,6 +85,7 @@ object GbaTel {
     fun brancher(ctx: Context) {
         if (marche) return
         dir = File(ctx.filesDir, "gba")
+        dseq = 0
         marche = true
         note("GBA branchée : on attend Pulse (port choisi dans GC Station)")
         publier()
@@ -143,8 +145,15 @@ object GbaTel {
     private fun paquet(b: ByteArray, n: Int) {
         vuPulse = System.currentTimeMillis()
         val st = b[6].toInt() and 255; val js = b[7].toInt() and 255
-        GbaEmu.tidLuPulse = b[5].toInt() and 255           // (console v333 : dernier JOY_TRANS de la GBA lu par le jeu)
         val k = g32(b, 8); val gl = g32(b, 12); val gp = g32(b, 16); val first = g32(b, 20); val cnt = g32(b, 24).toInt()
+        // build 393 (console v350) : paquet plus ancien que le dernier pris (le Wi-Fi les livre parfois dans le desordre) :
+        // seulement ses mots ; son etat (lecture par le jeu, remises a zero) est perime
+        if (cnt >= 0 && n >= 40 + cnt * 4 + 56) {
+            val sq = g32(b, 40 + cnt * 4 + 52)
+            if (dseq > 0 && sq > 16 && sq - dseq <= 0 && dseq - sq < 1000) { for (i in 0 until cnt) mots[first + i] = g32(b, 40 + 4 * i); return }
+            dseq = sq
+        }
+        GbaEmu.tidLuPulse = b[5].toInt() and 255           // (console v333 : dernier JOY_TRANS de la GBA lu par le jeu)
         n00 = g32(b, 28); n14 = g32(b, 32); n15 = g32(b, 36)
         if (cnt < 0 || 40 + cnt * 4 > n) return
         if (k != cle && st in 1..3) {                      // (nouvelle remise a zero du jeu : nouvelle cle de session)

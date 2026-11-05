@@ -54,6 +54,7 @@ object GbaNatif {
     @JvmStatic external fun joy(cmd: Int, data: ByteArray): Int
     @JvmStatic external fun regs(out: IntArray)
     @JvmStatic external fun mem32(adr: Int): Int
+    @JvmStatic external fun ecr8(adr: Int, v: Int)
 }
 
 object GbaEmu {
@@ -164,6 +165,9 @@ object GbaEmu {
                 if (rp != resetsFaits && bootFini) {                   // (build 387 : remise a zero par le jeu : a la GBA ; son JOY_TRANS d'avant est perime)
                     trace("remise à zéro"); GbaNatif.joy(0xFF, d); resetsFaits = rp; attenteLu = false; transId = 0; apresReset = true; nApres = 0
                 }
+                // build 393 : le programme GBA de Rayman 3 se deconnecte apres 10 images sans echange sur le cable (son compteur :
+                // 0x03000AA2, remis a 0 par chaque echange) ; par le Wi-Fi, un paquet retarde suffit : compteur tenu a 0 ici
+                if (bootFini && (codeJeu and 0xFFFFFFL) == 0x485247L) GbaNatif.ecr8(0x03000AA2, 0)
                 // une image, en donnant les mots du jeu des que la GBA est prete
                 var n = 0
                 nImages++
