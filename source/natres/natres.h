@@ -193,6 +193,9 @@ typedef struct {
     unsigned int grw, gpred;
     /* (v352, diagnostic du micro) selections du slot B par le jeu (micro emule), lectures de son identifiant */
     unsigned int mnsel, mnid;
+    /* (v354) reserve du son du telephone : tant qu'elle se remplit, le jeu recoit du silence (une seule coupure au lieu de
+       dizaines de petits trous qui hachaient les mots) ; nombre de reprises apres une coupure */
+    unsigned int mfill, mnrefill;
     /* (v332, hors du journal) micro du telephone : le slot B joue le micro GameCube (DOL-022 : Mario Party 6 et 7...). micon
        (GC Station) : 1 = actif. Le reste (resident) : etat du micro (ecrit par la commande 80, lu par 40 : bit 15 en marche,
        bits 13-14 paquet de 32 / 64 / 128 octets, bits 11-12 11025 / 22050 / 44100 Hz, bit 10 gain), commandes du jeu,
