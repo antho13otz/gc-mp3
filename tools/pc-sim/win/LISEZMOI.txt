@@ -15,7 +15,7 @@ Salon (avec les autres GC Station), et tes jeux GameCube lances dans Dolphin.
    Retour arriere B                     Echap / F1        START (menu)
    Tab ou Z       Z (onglet suivant)    X, Y              X, Y
    Page prec./L   L                     Page suiv./R      R
-   F11 (ou Alt+Entree) : plein ecran.
+   F11 (ou Alt+Entree) : plein ecran.          F9 : chercher une mise a jour.
    Une manette Xbox (ou compatible XInput) marche aussi : A B X Y, Start = START, Back = Z,
    LB / RB = L / R, sticks.
 
@@ -40,5 +40,14 @@ Salon (avec les autres GC Station), et tes jeux GameCube lances dans Dolphin.
    adaptateur reseau relie a l'autre GC Station PC : Mario Kart Double Dash, Kirby Air Ride...
    en mode « LAN », comme si les deux PC etaient cote a cote. Il faut un ping faible (meme pays).
    (Le meme format que tools/lan-relais.py : une vraie GameCube avec un PC pont peut rejoindre.)
+
+6) Mises a jour
+   GC Station PC n'est pas public : il se met a jour depuis GitHub avec un jeton, comme l'appli
+   du telephone. Cree un « fine-grained token » sur GitHub (Settings > Developer settings >
+   Personal access tokens > Fine-grained tokens) : depot antho13otz/gc-mp3 seulement,
+   permission « Actions : Read-only ». Colle-le seul dans un fichier « jeton-github.txt » a cote
+   de GC Station.exe. Au demarrage, GC Station PC propose la nouvelle version s'il y en a une ;
+   F9 : chercher maintenant. (L'ancienne version reste en « GC Station.exe.ancien ».)
+   Ne donne pas ce jeton : il ouvre les compilations du depot.
 
 Le journal est dans journal.txt (a cote du programme), en cas de souci.

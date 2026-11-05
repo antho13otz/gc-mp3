@@ -467,6 +467,7 @@ void pcsim_win_boot(void) {
     setvbuf(stdout, NULL, _IONBF, 0);
     InitializeCriticalSection(&fb_cs);
     pcw_dolphin_init();
-    if (pcsim_live) { CreateThread(NULL, 0, win_thread, NULL, 0, NULL); pcw_maj_start(0); }   /* (mise a jour : au demarrage, si un jeton est la) */
+    if (pcsim_live) { CreateThread(NULL, 0, win_thread, NULL, 0, NULL); pcw_maj_start(0); }
+    else if (getenv("GCSTATION_MAJ_ESSAI")) pcw_maj_start(1);   /* (essai automatique de la mise a jour : windows.yml) */   /* (mise a jour : au demarrage, si un jeton est la) */
 }
 #endif

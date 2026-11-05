@@ -162,7 +162,9 @@ static int read_token(char *t, int cap) {
     snprintf(t, cap, "%s", s);
     return t[0] != 0;
 }
+static int essai = 0;                                     /* (GCSTATION_MAJ_ESSAI : essai automatique : pas de boite, rien de remplace) */
 static int msg(const char *t, UINT fl) {                  /* boite de Windows (texte UTF-8) */
+    if (essai) { printf("[maj] (boite) %s\n", t); return IDYES; }
     wchar_t w[1200]; MultiByteToWideChar(CP_UTF8, 0, t, -1, w, 1200);
     return MessageBoxW(pcw_window(), w, L"GC Station PC : mise à jour", fl | MB_SETFOREGROUND);
 }
@@ -197,11 +199,16 @@ static DWORD WINAPI check(LPVOID a) {
     buf_t b;
     run_t best = { 0, "" };
     static const char *const rk[] = { "id", "run_number" };
-    if (!api("/actions/workflows/windows.yml/runs?branch=main&status=success&event=push&per_page=10", tok, &b, err, sizeof(err))) goto fail;
+    {
+        const char *br = essai && getenv("GCSTATION_MAJ_BRANCHE") ? getenv("GCSTATION_MAJ_BRANCHE") : "main";   /* (essai : une autre branche) */
+        char q[200]; snprintf(q, sizeof(q), "/actions/workflows/windows.yml/runs?branch=%s&status=success&event=push&per_page=10", br);
+        if (!api(q, tok, &b, err, sizeof(err))) goto fail;
+    }
     each(b.b, "workflow_runs", rk, 2, cb_run, &best);
     free(b.b);
     printf("[maj] ce programme : build %d ; derniere compilation : %ld\n", (int)GCMP3_BUILD, best.num);
-    if (!best.num || best.num <= GCMP3_BUILD) {
+    if (essai && best.num) printf("[maj] essai : compilation %ld (%s) prise meme si pas plus recente\n", best.num, best.id);
+    if (!best.num || (best.num <= GCMP3_BUILD && !essai)) {
         if (manual) { snprintf(t, sizeof(t), "GC Station PC est \xC3\xA0 jour (build %d).", (int)GCMP3_BUILD); msg(t, MB_ICONINFORMATION); }
         InterlockedExchange(&busy, 0); return 0;
     }
@@ -238,6 +245,12 @@ static DWORD WINAPI check(LPVOID a) {
         wchar_t nexe[MAX_PATH], me[MAX_PATH], old[MAX_PATH], lis[MAX_PATH], lis2[MAX_PATH];
         _snwprintf(nexe, MAX_PATH, L"%ls\\GC Station.exe", d2);
         if (!unzip(z2, d2) || GetFileAttributesW(nexe) == INVALID_FILE_ATTRIBUTES) { snprintf(err, sizeof(err), "Nouvelle version illisible"); goto fail; }
+        if (essai) {
+            WIN32_FILE_ATTRIBUTE_DATA fa; GetFileAttributesExW(nexe, GetFileExInfoStandard, &fa);
+            printf("[maj] essai : nouvelle version telechargee et lisible (GC Station.exe : %lu octets) ; rien remplace\n", (unsigned long)fa.nFileSizeLow);
+            del_tree(dir);
+            InterlockedExchange(&busy, 0); return 0;
+        }
         GetModuleFileNameW(NULL, me, MAX_PATH);
         _snwprintf(old, MAX_PATH, L"%ls.ancien", me);
         DeleteFileW(old);
@@ -261,7 +274,10 @@ fail:
 }
 /* au demarrage (apres 8 s) ou avec F9 */
 static DWORD WINAPI later(LPVOID a) { (void)a; Sleep(8000); return check((LPVOID)0); }
+static DWORD WINAPI essai_thr(LPVOID a) { (void)a; check((LPVOID)1); printf("[maj] essai fini\n"); fflush(stdout); ExitProcess(0); return 0; }
 void pcw_maj_start(int manual) {
+    essai = getenv("GCSTATION_MAJ_ESSAI") != NULL;
+    if (essai) { InterlockedExchange(&busy, 1); CreateThread(NULL, 0, essai_thr, NULL, 0, NULL); return; }
     if (InterlockedExchange(&busy, 1)) return;
     CreateThread(NULL, 0, manual ? check : later, (LPVOID)(INT_PTR)manual, 0, NULL);
 }
