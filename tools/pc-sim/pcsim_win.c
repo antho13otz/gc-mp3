@@ -253,7 +253,8 @@ static CRITICAL_SECTION ev_cs;
 static float ms_u = -1, ms_v = -1; static int ms_moved = 0, ms_wheel = 0;
 typedef struct { unsigned cp; int k; float u, v; int c; } pcev_t;      /* (k : texte ; c : clic ; k = 10 + n : touche multimedia n) */
 static pcev_t evq[64]; static int ev_h = 0, ev_t = 0;
-static volatile int txt_on = 0;                            /* (une zone de texte a la main : le clavier tape, au lieu d'etre la manette) */
+static volatile int txt_on = 0;
+static int eat_char = 0;                                   /* (la lettre d'un raccourci, Ctrl + F : pas tapee dans la zone qu'il ouvre) */                            /* (une zone de texte a la main : le clavier tape, au lieu d'etre la manette) */
 static void ev_push(pcev_t e) { EnterCriticalSection(&ev_cs); int n = (ev_t + 1) % 64; if (n != ev_h) { evq[ev_t] = e; ev_t = n; } LeaveCriticalSection(&ev_cs); }
 /* ou est l'image (4:3, bandes noires autour) dans la fenetre */
 static void img_rect(int cw, int ch, int *x0, int *y0, int *dw, int *dh) {
@@ -322,11 +323,13 @@ static LRESULT CALLBACK wproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (txt_on) {                                      /* (zone de texte : ces touches tapent, la manette ne les voit pas) */
             int k = w == VK_BACK ? 1 : w == VK_RETURN ? 2 : w == VK_ESCAPE ? 3 : w == VK_LEFT ? 4 : w == VK_RIGHT ? 5 : 0;
             if (k) { pcev_t e = { 0, k, 0, 0, 0 }; ev_push(e); return 0; }
-        } else if ((w == 'F' || w == 'L') && (keys[VK_CONTROL] || (GetKeyState(VK_CONTROL) & 0x8000))) { if (!(l & (1 << 30))) { pcev_t e = { 0, 6, 0, 0, 0 }; ev_push(e); } return 0; }   /* Ctrl + F : chercher */
+        } else if ((w == 'F' || w == 'L') && (keys[VK_CONTROL] || (GetKeyState(VK_CONTROL) & 0x8000))) { if (!(l & (1 << 30))) { pcev_t e = { 0, 6, 0, 0, 0 }; ev_push(e); } eat_char = 1; return 0; }   /* Ctrl + F : chercher */
         else if (w == VK_SPACE) { if (!(l & (1 << 30))) { pcev_t e = { 0, 10, 0, 0, 0 }; ev_push(e); } return 0; }   /* Espace : lecture / pause */
+        eat_char = 0;
         if (w < 256) keys[w] = 1;
         return 0;
     case WM_CHAR:                                          /* (une lettre tapee, accents compris) */
+        if (eat_char) { eat_char = 0; return 0; }
         if (txt_on && w >= 0x20 && w != 0x7F && (w < 0xD800 || w > 0xDFFF)) { pcev_t e = { (unsigned)w, 0, 0, 0, 0 }; ev_push(e); }
         return 0;
     case WM_APPCOMMAND: {                                  /* touches multimedia du clavier */
