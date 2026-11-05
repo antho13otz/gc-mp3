@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 398 — micro du téléphone : réglages d'essai
+
+Mario Party 7 lit le son du téléphone en continu mais ne réagit pas à la voix. Deux boutons d'essai dans la carte du micro, qui changent tout de suite : ordre des octets des échantillons (normal / inversé) et volume (×1 à ×8). Le rapport dit les réglages utilisés.
+
 ## Nouveautés v353 (build 876) et appli build 397 — micro du téléphone : la cadence d'un vrai micro
 
 Mario Party 7 voyait le micro et l'allumait, puis l'éteignait aussitôt : Pulse n'annonçait un paquet de son qu'une fois le son du téléphone arrivé (~200 ms après). Comme un vrai micro, Pulse annonce maintenant les paquets à la cadence de la fréquence choisie dès la mise en marche : le son du téléphone s'il est là, sinon du silence. L'appli 397 corrige la ligne « Lecture » du rapport du micro (« allumé puis éteint »).
