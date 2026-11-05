@@ -24,9 +24,9 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Appli builds 383 et 384 — GBA du téléphone : démarrage par le câble comme une vraie GBA
+## Appli builds 384 et 385 — GBA du téléphone : démarrage par le câble comme une vraie GBA
 
-Démarrée par le câble GameCube, une vraie GBA entre dans le programme en 0xE0 : ce début met le câble en mode manette GameCube, donne le code du jeu et attend que le jeu le lui renvoie. L'émulateur entrait en 0xC0 et sautait cette étape (« La connexion a échoué » dans Rayman 3). Il entre maintenant en 0xE0, et le mot renvoyé par le jeu n'est donné à la GBA qu'une fois son code lu (build 384 : avant, il arrivait trop tôt et la GBA attendait pour toujours). Le rapport montre les registres du câble vus par la GBA.
+Démarrée par le câble GameCube, une vraie GBA entre dans le programme en 0xE0 : ce début met le câble en mode manette GameCube, donne le code du jeu et attend que le jeu le lui renvoie. L'émulateur entrait en 0xC0 et sautait cette étape (« La connexion a échoué » dans Rayman 3). Il entre maintenant en 0xE0, et le mot renvoyé par le jeu n'est donné à la GBA qu'une fois son code lu (build 385 : avant, il arrivait trop tôt et la GBA attendait pour toujours). Le rapport montre les registres du câble vus par la GBA.
 
 ## Appli build 382 — GBA du téléphone : plus de plantage au lancement de l'émulateur
 
