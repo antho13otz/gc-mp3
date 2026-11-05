@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v352 (build 875) et appli build 396 — micro du téléphone : un vrai rapport
+
+La console répond maintenant au téléphone même quand le micro est coupé dans GC Station, et lui dit combien de fois le jeu a sélectionné le slot B et lu l'identifiant du micro. Le rapport du micro de l'appli donne ces détails, la version de l'appli, la console visée, et une ligne « Lecture » (aussi à l'écran) qui dit où ça coince.
+
 ## Appli build 395 — GBA du téléphone : les mots au rythme du câble
 
 La GBA émulée gardait parfois un mot du jeu sans jamais le lire (JOYSTAT 32, mots suivants bloqués) : il lui était donné pendant que son programme finissait de traiter le précédent, et la fin de ce traitement effaçait le signal du nouveau mot. Un mot n'est maintenant donné qu'une fois le précédent complètement traité, pas plus vite qu'un vrai transfert du câble ; un mot resté non lu est redonné.
