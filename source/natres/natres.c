@@ -1405,6 +1405,7 @@ static MEM_OS void freeze_check(u32 ctx) {
     crash_dump(0xFE, c, best, (best ? (*(volatile unsigned short *)(best + 0x2C8)) << 16 | (bprio & 0xFFFF) : 0) | nth << 24);
     nr_log_flush();
 }
+static void nr_sample(u32 ctx);
 static MEM_OS void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee avant la fonction du jeu */
     trap_guard();
     if (H.opt & (NRO_PHONE | NRO_MEM)) pd_poll();        /* manettes du telephone, chercheur de codes : avant que le jeu lise les manettes */
@@ -1415,6 +1416,8 @@ static MEM_OS void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree 
     freeze_check(ctx);                                   /* v169 */
     igr_ctx = ctx;
     di_tick(ctx, 1);                                     /* v133 : fins de commande (sans le lecteur, ou secours) */
+    if ((H.vi_count & 31u) == 0) nr_sample(ctx);         /* v355 : apres la 1re image aussi (toutes les 32 images) : ou tourne
+                                                            le jeu quand il reste bloque sans figer l'image (Mario Party 7) */
     if (H.chts) gk_run();                                /* v121 : cheats, une fois par image (apres le jeu) */
     if (H.flags & NRF_ACH) ach_run();                    /* v268 : succes */
     if (mfz_n) mfz_run();                                /* v307 : valeurs bloquees par le telephone */
