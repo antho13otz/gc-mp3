@@ -1,6 +1,6 @@
 package fr.gcstation.telecommande
 
-// Appli (build 371) : GBA du telephone, pour le Tingle Tuner de Wind Waker (essai). Avec le reglage « GBA du telephone
+// Appli (build 372) : GBA du telephone, pour le Tingle Tuner de Wind Waker (essai). Avec le reglage « GBA du telephone
 // (port 2) » de GC Station, Pulse (le resident du jeu) fait passer le telephone pour une GBA branchee au port 2 : il repond
 // lui-meme au jeu (le Wi-Fi est trop lent pour ca) et nous envoie tous les mots que le jeu ecrit a la « GBA » (UDP 51237,
 // paquets "GCGB", format dans natres.h). Le jeu commence par envoyer a la GBA son programme (le Tingle Tuner, ~120 Ko),
