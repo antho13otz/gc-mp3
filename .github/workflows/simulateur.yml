@@ -1,0 +1,55 @@
+name: Simulateur GC Station
+
+# v232 : tests automatiques dans le simulateur (tools/pc-sim/ci.sh) : GC Station compile pour PC avec AddressSanitizer,
+# scenarios (tour des onglets, Cube Browser, touches), et le telephone (lien, clavier, souris, photo, page memoire).
+# Build 859 : a part de la compilation (avant : dans build.yml, ou il faisait attendre la compilation suivante ~10 min).
+# Seulement quand GC Station change : pas pour Pulse seul (source/natres : teste par tools/natif-test), l'appli ou la doc.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'source/**'
+      - '!source/natres/**'
+      - 'tools/pc-sim/**'
+      - 'Makefile'
+      - '.github/workflows/simulateur.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# (un seul a la fois ; un plus recent arrete celui en cours)
+concurrency:
+  group: gc-mp3-simulateur
+  cancel-in-progress: true
+
+jobs:
+  simulateur:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Outils (clang, ffmpeg, Pillow)
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q clang lld llvm ffmpeg python3-pil curl >/dev/null
+
+      - name: Bibliothèques (en cache)
+        uses: actions/cache@v4
+        with:
+          path: |
+            tools/pc-sim/work/src
+            tools/pc-sim/work/libs
+          key: pcsim-libs-${{ hashFiles('tools/pc-sim/fetch.sh') }}
+
+      - name: Tests
+        run: bash tools/pc-sim/ci.sh
+
+      - name: Journaux et captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests-simulateur
+          path: tools/pc-sim/work/run/ci
+          retention-days: 7
