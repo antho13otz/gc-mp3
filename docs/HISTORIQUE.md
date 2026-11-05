@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 369 — Wind Waker : les mouettes battent des ailes en direct
+- Les objets reconnus par le direct mais suivis de loin (mouettes, habitants plus éloignés) restaient figés : ils jouent
+  maintenant leur animation du pack.
+
 ## Nouveautés appli build 368 — Wind Waker : le compagnon ne ralentit plus le jeu
 - Le direct demandait à la console environ 10 Ko à chaque image (Link et 40 objets) : le jeu ralentissait. Il suit
   maintenant 16 objets, avec leurs os seulement à moins de 15 m de Link (environ 4 Ko par image), et cherche les objets
