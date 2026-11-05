@@ -60,10 +60,19 @@ object GbaTel {
     private var lu = false
     private val journal = ArrayDeque<String>()
 
-    private fun note(t: String) {
+    // build 380 : une meme ligne revue dans les 5 s n'est pas recopiee (le jeu qui recommence en boucle remplissait le
+    // journal) : elle revient ensuite avec le nombre de fois sautees
+    private val vues = HashMap<String, Pair<Long, Int>>()
+    private fun note(t: String) { synchronized(journal) {
+        val now = System.currentTimeMillis()
+        val v = vues[t]
+        if (v != null && now - v.first < 5000) { vues[t] = Pair(v.first, v.second + 1); return }
+        vues[t] = Pair(now, 0)
+        if (vues.size > 50) vues.entries.removeIf { now - it.value.first > 5000 }
         val h = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.FRANCE).format(java.util.Date())
-        synchronized(journal) { journal.addLast("$h $t"); while (journal.size > 60) journal.removeFirst() }
-    }
+        val x = if (v != null && v.second > 0) "$t (et ${v.second} fois de plus avant)" else t
+        journal.addLast("$h $x"); while (journal.size > 60) journal.removeFirst()
+    } }
     private fun publier() {
         etat = Etat(marche, System.currentTimeMillis() - vuPulse < 2000, etape, joy, annonce, recus, n00, n14, n15, programme,
                     synchronized(journal) { journal.toList() })
@@ -112,7 +121,8 @@ object GbaTel {
                 if (demandeReprise) { opt = opt or 4; demandeReprise = false; raz() }
                 p32(d, 20, opt)
                 try { so.send(DatagramPacket(d, 24, h, MemoireJeu.PORT)) } catch (e: Exception) { }
-                val fin = System.currentTimeMillis() + (if (GbaEmu.marche) 8 else 30)   // (la GBA tourne : relais plus serre)
+                // (la GBA tourne, ou build 380 : le jeu envoie son programme : accuses toutes les 8 ms, sinon Pulse attend)
+                val fin = System.currentTimeMillis() + (if (GbaEmu.marche || etape in 1..2) 8 else 30)
                 while (true) {
                     val reste = (fin - System.currentTimeMillis()).toInt()
                     if (reste <= 0) break
