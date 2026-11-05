@@ -1858,7 +1858,9 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 if (vp != null) for ((vi, v) in vp.withIndex()) {
                     val md = ani.modeles.getOrNull(v.modele) ?: continue
                     if (md.groupes.none { it.mode == passe } || md.images == 0) continue
-                    var posBuf = vboAniPos[v.modele][0]
+                    // (build 369 : objets suivis par leur seule position (plus loin) : leur animation du pack, plus leur image
+                    //  de repos figee (les mouettes ne battaient plus des ailes))
+                    var posBuf = vboAniPos[v.modele][(((tSec * md.ips) + ((vi * 0.37) % 1.0) * md.images).toLong() % md.images).toInt()]
                     if (v.plein) {
                         val (vb, fb) = tamponVif(vi, md.total)
                         if (imgVif[vi] != noImage) {
