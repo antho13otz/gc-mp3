@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 373 — micro du téléphone (essai), GBA pour les autres jeux
+
+- **Micro du téléphone :** ce build va avec la console v332. Le compagnon de jeu a un bloc « Micro du téléphone » (Mario Party 6 et 7…) :
+  - le bouton « Brancher le micro » (l'appli demande l'autorisation du micro la première fois) ;
+  - l'appli suit la fréquence demandée par le jeu et envoie le son à Pulse ;
+  - l'écran montre le niveau du micro, l'état du micro du jeu et un rapport à envoyer.
+  
+  Garder l'appli ouverte pendant la partie.
+- **GBA du téléphone :** le bloc apparaît aussi hors de Wind Waker (Four Swords Adventures…). Le jeu peut y envoyer son programme, mais il ne tourne pas encore (pas d'émulateur GBA).
+
 ## Nouveautés v332 (build 852) — micro du téléphone (slot B, essai)
 
 Nouveau réglage « Micro du téléphone (slot B) » : Pulse se fait passer pour le micro GameCube (DOL-022) branché dans le slot B, et le son vient du micro du téléphone (appli build 373).
