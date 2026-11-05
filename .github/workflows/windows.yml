@@ -8,7 +8,7 @@ name: GC Station PC (Windows)
 # Seulement quand GC Station ou sa partie PC changent.
 on:
   push:
-    branches: [main, salon-internet]
+    branches: [main]
     paths:
       - 'source/**'
       - '!source/natres/**'
