@@ -83,10 +83,13 @@ st, _ = http('/s/open?p=mp3&k=' + K); check('/s/open refuse : 404', st == 404)
 st, _ = http('/api/state?k=' + K); check('/api refuse : 404', st == 404)
 st, _ = http('/s/get?p=../gc-mp3/gc-mp3.txt&k=' + K); check('.. refuse', st != 200)
 sal = b''
-for port in (80, 8080):
-    try:
-        with urllib.request.urlopen('http://127.0.0.1:%d/api/salon' % port, timeout=5) as r: sal = r.read(); break
-    except Exception: pass
+for essai in range(4):                                    # (serveur du telephone : 80, ou 8080 ; il peut etre occupe un instant)
+    for port in (80, 8080):
+        try:
+            with urllib.request.urlopen('http://127.0.0.1:%d/api/salon' % port, timeout=10) as r: sal = r.read(); break
+        except Exception: pass
+    if b'Ami du test' in sal: break
+    time.sleep(2)
 check('GC Station nous voit (Ami du test, par Internet)', b'Ami du test (Internet)' in sal) or print('   /api/salon :', sal[:200])
 check('pas d\'intrus', b'Intrus' not in sal)
 g.wait(timeout=60); log.close()
