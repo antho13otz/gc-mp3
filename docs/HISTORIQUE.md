@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 395 — GBA du téléphone : les mots au rythme du câble
+
+La GBA émulée gardait parfois un mot du jeu sans jamais le lire (JOYSTAT 32, mots suivants bloqués) : il lui était donné pendant que son programme finissait de traiter le précédent, et la fin de ce traitement effaçait le signal du nouveau mot. Un mot n'est maintenant donné qu'une fois le précédent complètement traité, pas plus vite qu'un vrai transfert du câble ; un mot resté non lu est redonné.
+
 ## Nouveautés v351 (build 874) et appli build 394 — GBA du téléphone : les remises à zéro dans le bon ordre
 
 Le jeu remet parfois la GBA à zéro juste après lui avoir écrit des mots ; l'appli donnait la remise à zéro au milieu de ces mots, et la GBA refusait la fin (erreurs 7 / E4, écran figé sur les consignes). Pulse dit maintenant au téléphone combien de mots le jeu avait écrits avant chaque remise à zéro, et l'appli les donne à la GBA avant elle. Pulse ne laisse plus non plus un ancien état « pas encore connectée » du téléphone défaire la connexion qu'il a annoncée au jeu.
