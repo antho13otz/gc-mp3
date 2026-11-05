@@ -49,6 +49,7 @@ object MicTel {
     @Volatile private var vuPulse = 0L
     private var w = LongArray(8)                           // (mstat, commandes, interruptions, octets lus, mw, mr, paquets, manques)
     @Volatile private var envoyes = 0L
+    @Volatile private var diag: LongArray? = null          // (build 396, console v352 : selections du slot B, lectures de l'identifiant, drapeaux)
     @Volatile private var niveau = 0f
     private val journal = ArrayDeque<String>()
 
@@ -71,7 +72,7 @@ object MicTel {
 
     fun brancher() {
         if (marche) return
-        marche = true; w = LongArray(8); envoyes = 0; mstat = 0
+        marche = true; w = LongArray(8); envoyes = 0; mstat = 0; diag = null
         note("Micro branché : on attend Pulse (slot B)")
         publier()
         Thread({ boucle() }, "micro-tel").apply { isDaemon = true; start() }
@@ -103,6 +104,7 @@ object MicTel {
                     try { sock.receive(p) } catch (e: SocketTimeoutException) { break }
                     if (p.length >= 40 && g32(rx, 0) == 0x4743564FL && rx[4].toInt() == 2) {
                         val x = LongArray(8) { g32(rx, 8 + it * 4) }
+                        if (p.length >= 52) diag = LongArray(3) { g32(rx, 40 + it * 4) }
                         w = x; vuPulse = System.currentTimeMillis()
                         if (!vuAvant) { vuAvant = true; note("Pulse répond (slot B)") }
                         if (x[0] != stAvant) {
@@ -155,6 +157,24 @@ object MicTel {
         }
     }
 
+    /** build 396 : ce que montre l'etat, en une phrase */
+    fun lecture(e: Etat = etat): String {
+        val d = diag
+        return when {
+            !e.marche -> "micro pas branché dans l'appli"
+            Api.host == null -> "l'appli n'est pas reliée à la console"
+            !e.vuPulse -> "aucune réponse de la console : jeu pas lancé par Pulse, ou console d'avant le build 875 avec le réglage « Micro du téléphone » sur Non, ou téléphone pas sur le même Wi-Fi"
+            d != null && d[2] and 1L == 0L -> "le réglage « Micro du téléphone (slot B) » est sur Non dans GC Station : le mettre sur Oui et relancer le jeu"
+            d != null && d[2] and 2L == 0L -> "le micro est activé mais le slot B n'est pas devenu le micro (relancer le jeu par Pulse)"
+            d != null && d[0] == 0L -> "le jeu n'a jamais touché le slot B par Pulse (ses accès ne sont pas aiguillés : à me signaler)"
+            d != null && d[1] == 0L -> "le jeu touche le slot B mais n'a pas encore lu l'identifiant du micro (aller dans un menu ou un mini-jeu à micro)"
+            e.mstat and 0x8000L == 0L -> "le jeu a vu le micro mais ne l'a pas allumé (lancer un mini-jeu à micro)"
+            e.nrx == 0L -> "micro allumé par le jeu mais aucun son du téléphone n'arrive à la console"
+            e.nlow > e.nrd / 4 -> "le son arrive trop lentement (beaucoup d'octets sans son) : Wi-Fi lent ?"
+            else -> "le jeu reçoit le son du téléphone"
+        }
+    }
+
     fun rapport(): String {
         val e = etat
         return buildString {
@@ -162,7 +182,15 @@ object MicTel {
             append("Pulse vu : ${if (e.vuPulse) "oui" else "non"} ; état du micro %04X".format(e.mstat))
             append(if (e.mstat and 0x8000L != 0L) " (en marche, ${hz(e.mstat)} Hz, paquets de ${paquet(e.mstat)} octets)\n" else " (éteint)\n")
             append("Commandes du jeu ${e.ncmd} ; interruptions ${e.nirq} ; octets lus par le jeu ${e.nrd} ; en attente ${e.attente}\n")
-            append("Paquets reçus par Pulse ${e.nrx} ; octets sans son (retard) ${e.nlow} ; paquets envoyés ${e.envoyes}\n\nJournal :\n")
+            append("Paquets reçus par Pulse ${e.nrx} ; octets sans son (retard) ${e.nlow} ; paquets envoyés ${e.envoyes}\n")
+            // build 396 : le detail cote console (v352) et ce qu'on en conclut
+            append("Appli GC Remote ${BuildConfig.VERSION_NAME} ; console visée : ${Api.host ?: "aucune (appli pas reliée)"}\n")
+            val d = diag
+            if (d != null) {
+                append("Côté console : micro activé dans GC Station : ${if (d[2] and 1L != 0L) "oui" else "NON"} ; slot B = micro : ${if (d[2] and 2L != 0L) "oui" else "non"} ; slot B émulé par Pulse : ${if (d[2] and 4L != 0L) "oui" else "non"}\n")
+                append("Le jeu : slot B sélectionné ${d[0]} fois ; identifiant du micro lu ${d[1]} fois\n")
+            } else if (e.vuPulse) append("Côté console : pas de détail (console d'avant le build 875)\n")
+            append("Lecture : " + lecture(e) + "\n\nJournal :\n")
             e.journal.forEach { append(it).append('\n') }
         }
     }
@@ -190,6 +218,7 @@ fun MicroTelephone() {
                      (if (e.mstat and 0x8000L != 0L) "allumé (${MicTel.hz(e.mstat)} Hz)" else "éteint"), taille = 12, couleur = C.Texte)
                 LinearProgressIndicator(progress = { e.niveau.coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth().height(6.dp), color = Color(0xFFFFC857))
                 Doux("Le jeu : ${e.ncmd} commandes · ${e.nirq} paquets annoncés · ${e.nrd / 1024} Ko lus · retard ${e.nlow} octets", taille = 11, couleur = C.Pale)
+                Doux("→ " + MicTel.lecture(e), taille = 11, couleur = Color(0xFFFFC857))
                 e.journal.takeLast(6).forEach { Doux(it, taille = 11) }
                 Bouton("Envoyer le rapport", Modifier.fillMaxWidth()) {
                     val i = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, MicTel.rapport())
