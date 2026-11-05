@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 391 — GBA du téléphone : pas de remise à zéro pendant le début du programme
+
+Le jeu remettait la GBA à zéro pendant que le début de son programme attendait le code renvoyé (écran blanc, JOYCNT 01) ; et l'attente de la 390 retenait ce code. Les remises à zéro ne sont données à la GBA qu'une fois ce début passé (10 images après le code renvoyé, 10 s au plus).
+
 ## Appli build 390 — GBA du téléphone : après une remise à zéro, l'identifiant d'abord
 
 Après une remise à zéro, la GBA émulée recevait parfois l'identifiant renvoyé par le jeu avant d'avoir écrit le sien et appris sa lecture : elle ne passait pas en « connecté » et refusait la suite (commande 80). Les mots du jeu attendent maintenant que la GBA ait écrit son identifiant et appris sa lecture (30 images au plus).
