@@ -6,7 +6,7 @@ package fr.gcstation.telecommande
 // paquets "GCGB", format dans natres.h). Le jeu commence par envoyer a la GBA son programme (le Tingle Tuner, ~120 Ko),
 // chiffre : on le dechiffre (format public du demarrage par le cable : cle de session, generateur "Kawa", somme CRC 0xA1C1),
 // on verifie sa somme et on lit son titre ; il est garde sur le telephone (filesDir/gba). Ensuite, sur une vraie GBA, ce
-// programme tournerait et parlerait au jeu : build 374, il tourne dans l'emulateur GBA de l'appli (GbaEmu.kt, mGBA).
+// programme tournerait et parlerait au jeu : build 375, il tourne dans l'emulateur GBA de l'appli (GbaEmu.kt, mGBA).
 
 import android.content.Context
 import android.content.Intent
@@ -51,7 +51,7 @@ object GbaTel {
     private var etape = 0; private var joy = 0; private var annonce = 0L; private var recus = 0L
     private var n00 = 0L; private var n14 = 0L; private var n15 = 0L
     private var programme: String? = null
-    @Volatile private var image: ByteArray? = null         // (build 374 : programme dechiffre, somme juste : pour l'emulateur)
+    @Volatile private var image: ByteArray? = null         // (build 375 : programme dechiffre, somme juste : pour l'emulateur)
     private var emuLance = false
     private var decode = false
     private var vuPulse = 0L
@@ -80,7 +80,7 @@ object GbaTel {
         fil = Thread({ boucle() }, "gba-tel").apply { isDaemon = true; start() }
     }
     fun debrancher() { marche = false; GbaEmu.arreter(); note("GBA débranchée"); publier() }
-    /** build 374 : relancer l'emulateur avec le dernier programme recu */
+    /** build 375 : relancer l'emulateur avec le dernier programme recu */
     fun relancerEmu() { image?.let { emuLance = true; GbaEmu.demarrer(it); note("GBA relancée") } }
     val aProgramme get() = image != null
     /** Pulse remet sa « GBA » en attente (le jeu pourra renvoyer le programme) */
@@ -105,7 +105,7 @@ object GbaTel {
                 d[0] = 'G'.code.toByte(); d[1] = 'C'.code.toByte(); d[2] = 'G'.code.toByte(); d[3] = 'B'.code.toByte()
                 d[4] = 1; d[5] = 1
                 var opt = 0L; var trans = 0L
-                if (GbaEmu.marche) { val (o, t) = GbaEmu.options(); opt = o; trans = t }   // (build 374 : relais de l'emulateur)
+                if (GbaEmu.marche) { val (o, t) = GbaEmu.options(); opt = o; trans = t }   // (build 375 : relais de l'emulateur)
                 p32(d, 8, seq++); p32(d, 12, suite); p32(d, 16, trans)
                 if (lu) { opt = opt or 2; lu = false }
                 if (demandeReprise) { opt = opt or 4; demandeReprise = false; raz() }
@@ -155,7 +155,7 @@ object GbaTel {
             var i = maxOf(relaisVu, total)
             while (i < suite) {
                 val w = mots.remove(i) ?: 0L
-                if (emuLance) GbaEmu.entrees.add(w)          // (build 374 : a la GBA emulee, dans l'ordre)
+                if (emuLance) GbaEmu.entrees.add(w)          // (build 375 : a la GBA emulee, dans l'ordre)
                 if (i - total < 30) note("Le jeu écrit à la GBA : %08X".format(w))
                 i++
             }
@@ -233,7 +233,7 @@ fun TingleTunerWW(ww: Boolean = true) {
                 }
                 e.programme?.let { Doux("Programme du jeu : $it", taille = 12, couleur = Color(0xFF9BE15D)) }
                 Doux("Commandes du jeu : état ${e.n00} · lectures ${e.n14} · écritures ${e.n15}", taille = 11, couleur = C.Pale)
-                if (GbaEmu.marche) EcranGba()                  // (build 374 : l'emulateur GBA)
+                if (GbaEmu.marche) EcranGba()                  // (build 375 : l'emulateur GBA)
                 if (GbaEmu.message.isNotEmpty()) Doux(GbaEmu.message + " · mots du jeu ${GbaEmu.nRecus} · de la GBA ${GbaEmu.nEnvoyes}", taille = 11, couleur = C.Pale)
                 if (GbaTel.aProgramme && !GbaEmu.marche) Bouton("Relancer la GBA", Modifier.fillMaxWidth()) { GbaTel.relancerEmu() }
                 e.journal.takeLast(12).forEach { Doux(it, taille = 11) }

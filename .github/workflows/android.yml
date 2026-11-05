@@ -53,7 +53,7 @@ jobs:
           path: ~/.gcs-android/debug.keystore
           key: android-debug-keystore-v2
 
-      # build 374 : emulateur GBA de l'appli : mGBA (https://mgba.io, licence MPL 2.0), version figee (0.10.5), telecharge ici
+      # build 375 : emulateur GBA de l'appli : mGBA (https://mgba.io, licence MPL 2.0), version figee (0.10.5), telecharge ici
       # (pas dans le depot) ; ses fichiers gardent leur licence. Le pont avec l'appli : android/app/src/main/cpp/gba_jni.c
       - name: mGBA (emulateur GBA, MPL 2.0, version figee)
         run: |

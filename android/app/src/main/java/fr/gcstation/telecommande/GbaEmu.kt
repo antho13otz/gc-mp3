@@ -1,6 +1,6 @@
 package fr.gcstation.telecommande
 
-// Appli (build 374) : l'emulateur GBA de l'appli (GBA du telephone). Le programme que le jeu a envoye a la « GBA »
+// Appli (build 375) : l'emulateur GBA de l'appli (GBA du telephone). Le programme que le jeu a envoye a la « GBA »
 // (TingleTuner.kt : recu par Pulse, dechiffre ici) tourne dans mGBA (licence MPL 2.0, src/main/cpp : pont gba_jni.c).
 // Relais avec Pulse (natres.h, paquets "GCGB") :
 //  - ce que le jeu ecrit a la GBA (commande 15) arrive ici dans l'ordre : donne a la GBA emulee mot par mot, des qu'elle a

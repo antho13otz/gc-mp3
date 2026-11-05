@@ -1,4 +1,4 @@
-/* Appli (build 374) : pont entre l'appli et mGBA (emulateur GBA, licence MPL 2.0, telecharge a la compilation : voir
+/* Appli (build 375) : pont entre l'appli et mGBA (emulateur GBA, licence MPL 2.0, telecharge a la compilation : voir
  * CMakeLists.txt et .github/workflows/android.yml). Ce fichier est propre a GC Station ; il n'appelle que l'interface de
  * mGBA (coeur, memoire, pilote du cable GameCube "JOYBUS").
  *

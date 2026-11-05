@@ -1,4 +1,4 @@
-# Appli (build 374) : emulateur GBA de l'appli (GBA du telephone : Tingle Tuner, Four Swords Adventures...).
+# Appli (build 375) : emulateur GBA de l'appli (GBA du telephone : Tingle Tuner, Four Swords Adventures...).
 # mGBA (https://mgba.io, licence MPL 2.0) n'est pas dans le depot : la compilation de l'appli le telecharge en version
 # figee dans src/main/cpp/mgba (.github/workflows/android.yml). Ses fichiers gardent leur licence (mgba/LICENSE) ; seul
 # gba_jni.c (le pont avec l'appli) est propre a GC Station.
