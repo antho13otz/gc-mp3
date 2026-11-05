@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v347 (build 869) et appli build 387 — GBA du téléphone : la connexion après le démarrage
+
+Une fois le programme lancé, Rayman 3 remet la GBA à zéro et exige aussitôt son identifiant (JOYSTAT 0x28), le lui renvoie et exige aussitôt 0x30. Pulse dit maintenant ces remises à zéro au téléphone, qui les donne à la GBA émulée ; il apprend l'identifiant à sa première réponse, puis répond tout de suite à sa place. L'appli dit à Pulse quelles remises à zéro sont traitées, pour qu'il ignore les réponses plus anciennes.
+
 ## Appli build 386 — GBA du téléphone : l'ordre des échanges au démarrage, corrigé
 
 En 385, l'appli jugeait la GBA prête à recevoir le mot du jeu d'après une valeur de JOYCNT lue avant la lecture de son code : le mot partait trop tôt et la GBA restait bloquée (écran blanc). JOYCNT est maintenant relu juste après.
