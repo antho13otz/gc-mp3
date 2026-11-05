@@ -1054,7 +1054,13 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
         if (p->gst == 3 && !p->gfin) { p->gfin = 1; p->gtrans = p->gcode; return; }
         if (p->gjoy & 0x08u) p->gtidlu = p->gtid;          /* (v333 : ce mot du telephone est lu : on le lui dira) */
         p->gjoy &= ~0x08u;
-        if (p->gst == 3) p->gst = 4;                     /* (1re lecture apres le programme : il tourne) */
+        if (p->gst == 3) {                               /* (1re lecture apres le programme : il tourne) */
+            p->gst = 4;
+            /* v360 : l'identifiant que la GBA donnera a chaque remise a zero, connu d'avance : son code de jeu (mot 0xAC de
+               l'en-tete : Tingle Tuner de Wind Waker, Rayman 3). Le jeu peut ne remettre a zero que deux fois (Wind Waker) : la
+               1re reponse doit deja etre 0x28 + l'identifiant, comme une vraie GBA, sans attendre le telephone */
+            if (!p->gid && p->gcode) p->gid = p->gcode;
+        }
         return;
     }
     if (c == 0x15u) {                                    /* le jeu ecrit JOY_RECV */

@@ -241,6 +241,9 @@ check('2e lecture : programme lance (relais)', padw('gst') == 4, 'etat %d' % pad
 check('v345 : JOY_TRANS = code du jeu (comme le BIOS)', t == struct.unpack('<I', rom[0xAC:0xB0])[0], '%08X' % t)
 k0 = padw('gkey'); a, _ = tr(0xFF)
 check('v345 : remise a zero pendant le relais : le programme reste lance', padw('gst') == 4 and padw('gkey') == k0 and a >> 16 == 0x0004, 'etat %d %08X' % (padw('gst'), a))
+js0 = joystat(); t, js = rd()
+check('v360 : 1re remise a zero du relais : identifiant predit (code du jeu), JOYSTAT 0x28, sans attendre le telephone',
+      js0 == 0x28 and t == struct.unpack('<I', rom[0xAC:0xB0])[0] and joystat() == 0x20, 'JOYSTAT %02X, %08X, puis %02X' % (js0, t, joystat()))
 # relais : le telephone donne un mot, le jeu le lit ; le jeu ecrit, le telephone lit
 seq[0] += 1; bba.deliver(gcgb(seq[0], padw('gw'), 0xCAFEBABE, 1 | 8 | 0x30 << 8)); call(POLL)
 check('relais : JOYSTAT avec un mot a lire et les drapeaux du telephone', joystat() == 0x38, '%02X' % joystat())
