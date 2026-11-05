@@ -14,6 +14,10 @@ on:
       - '.github/workflows/catalogue.yml'
       - 'tools/fiches_gametdb.py'
       - 'tools/catalogue.py'
+      # (la version PC seule : pas de nouvelle version de la console)
+      - 'tools/pc-sim/**'
+      - '.github/workflows/windows.yml'
+      - '.github/workflows/touches-3h.yml'
   workflow_dispatch:
 
 # publication de la release "dernier" (mise a jour en un clic)

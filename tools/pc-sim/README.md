@@ -90,7 +90,8 @@ gardent les limites). Le paquet `gc-station-pc` (privé, artefact GitHub) contie
 et `LISEZMOI.txt` (touches, Dolphin, Salon, mises à jour par jeton).
 
 Lancer : dézipper, double-cliquer `GC Station.exe`. Le dossier `sd` à côté est la carte SD.
-Le code propre au PC dans `source/` est entre `#ifdef _WIN32` : la console n'en voit rien.
+Le code propre au PC va dans `tools/pc-sim/` (`win/pc_main.c` est compilé avec `main.c`, dans la même unité) :
+la console n'en voit rien, et `build.yml` ne refait pas de version de la console quand seule la partie PC change.
 
 Entrées (PC seulement) : clavier, souris (la flèche de GC Station suit la souris ; clic gauche A,
 droit B, molette), le clavier du PC tape dans les zones de texte (clavier de GC Station et pages

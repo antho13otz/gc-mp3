@@ -54,9 +54,9 @@ $(O)/codecs.o: $(R)/source/codecs.c
 $(O)/pcsim_new.o: pcsim_new.cpp
 	@mkdir -p $(O)
 	$(CXX) -O2 -c $< -o $@
-$(O)/main.o: $(wildcard $(R)/source/*.c $(R)/source/*.h) $(wildcard include/*.h win/*.h)
+$(O)/main.o: $(wildcard $(R)/source/*.c $(R)/source/*.h) $(wildcard include/*.h win/*.h) win/pc_main.c
 	@mkdir -p $(O)
-	$(CC) $(GCF) -w -c $(R)/source/main.c -o $@
+	$(CC) $(GCF) -w -c win/pc_main.c -o $@
 $(O)/cb/%.o: $(R)/source/cb/%.c
 	@mkdir -p $(O)/cb
 	$(CC) $(GCF) -std=gnu11 -w -I$(R)/source/cb -c $< -o $@
