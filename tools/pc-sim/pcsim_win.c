@@ -317,6 +317,7 @@ HWND pcw_window(void) { return win; }
 static LRESULT CALLBACK wproc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
     case WM_KEYDOWN: case WM_SYSKEYDOWN:
+        { static int d = -1; if (d < 0) d = getenv("GCSTATION_ESSAI_ENTREES") != NULL; if (d) printf("[entrees] WM_KEYDOWN %u a %lu\n", (unsigned)w, GetTickCount()); }
         if (w == VK_F11 && (GetKeyState(VK_SHIFT) & 0x8000)) { if (!(l & (1 << 30))) { mon_list(); to_monitor(nmon ? (mon_i + 1) % nmon : 0); win_save(); } return 0; }   /* Maj + F11 : ecran suivant */
         if (w == VK_F11 || (w == VK_RETURN && (GetKeyState(VK_MENU) & 0x8000))) { if (!(l & (1 << 30))) toggle_full(); return 0; }
         if (w == VK_F9) { if (!(l & (1 << 30))) pcw_maj_start(1); return 0; }   /* F9 : chercher une mise a jour (pcsim_maj.c) */
@@ -328,6 +329,7 @@ static LRESULT CALLBACK wproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         if (w < 256) keys[w] = 1;
         return 0;
     case WM_CHAR:                                          /* (une lettre tapee, accents compris) */
+        { static int d = -1; if (d < 0) d = getenv("GCSTATION_ESSAI_ENTREES") != NULL; if (d) printf("[entrees] WM_CHAR %u a %lu (raccourci %u jusqu a %lu, texte %d)\n", (unsigned)w, GetTickCount(), (unsigned)eat_ch, eat_until, txt_on); }
         if (eat_until && GetTickCount() < eat_until && (w | 0x20) == (eat_ch | 0x20)) { eat_until = 0; return 0; }
         if (txt_on && w >= 0x20 && w != 0x7F && (w < 0xD800 || w > 0xDFFF)) { pcev_t e = { (unsigned)w, 0, 0, 0, 0 }; ev_push(e); }
         return 0;
