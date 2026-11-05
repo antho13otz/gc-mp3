@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v348 (build 870) — GBA du téléphone : l'identifiant appris même en retard
+
+Rayman 3 remet la GBA à zéro à chaque image : la réponse du téléphone (son identifiant) arrivait toujours après la remise à zéro suivante et était ignorée, si bien que Pulse ne pouvait jamais répondre à sa place. L'identifiant ne change pas : Pulse le retient maintenant même en retard.
+
 ## Appli build 389 — GBA du téléphone : seulement les vraies réponses de la GBA
 
 En se remettant en place, le programme GBA écrit 0 sur le câble sans drapeau ; la 388 le prenait pour son identifiant et le lui disait lu, ce qu'il voyait comme une erreur (remise en place en boucle). Un JOY_TRANS de la GBA ne compte maintenant qu'avec ses drapeaux 0x20 / 0x30, et l'identifiant est celui écrit avec 0x20.
