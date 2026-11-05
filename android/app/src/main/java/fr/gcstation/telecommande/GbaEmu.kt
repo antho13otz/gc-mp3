@@ -135,6 +135,8 @@ object GbaEmu {
         var retenir = codeJeu >= 0 && codeJeu in aAvaler          // (build 383 : mots du jeu retenus jusqu'au code ecrit)
         var nImages = 0
         var resetsFaits = 0
+        var apresReset = false                             // (build 388 : le 1er JOY_TRANS apres une remise a zero : l'identifiant)
+        var idGba = -1L                                    // (l'identifiant de la GBA, vu a la 1re remise a zero)
         var codeLu = false                                 // (build 384 : le code ecrit par la GBA a ete lu ici)
         var joycnt = 0
         var prochain = System.nanoTime()
@@ -144,7 +146,7 @@ object GbaEmu {
                 if (attenteLu && tidLuPulse == numero) { GbaNatif.joy(0x14, d); attenteLu = false; transId = 0; nEnvoyes++ }
                 val rp = resetsPulse
                 if (rp != resetsFaits) {                   // (build 387 : remise a zero par le jeu : a la GBA ; son JOY_TRANS d'avant est perime)
-                    GbaNatif.joy(0xFF, d); resetsFaits = rp; attenteLu = false; transId = 0
+                    GbaNatif.joy(0xFF, d); resetsFaits = rp; attenteLu = false; transId = 0; apresReset = true
                 }
                 // une image, en donnant les mots du jeu des que la GBA est prete
                 var n = 0
@@ -162,7 +164,13 @@ object GbaEmu {
                 regsVus = "JOYSTAT %02X, JOYCNT %02X, JOY_TRANS %08X, JOY_RECV %08X".format(r[0], r[3], r[1], r[2]); retenus = retenir
                 if (donnesSansLu && entrees.isEmpty() && js and 0x02 == 0) { donnesSansLu = false; luPret = true }
                 val tv = r[1].toLong() and 0xFFFFFFFFL
-                if (!attenteLu && js and 0x08 != 0 && aAvaler.remove(tv)) {   // (build 381 : deja donne au jeu par Pulse)
+                // build 388 : l'identifiant donne apres une remise a zero : des la 2e fois, Pulse l'a deja donne au jeu (console
+                // v347) et le jeu l'a lu aussitot : lu ici tout de suite (sinon la GBA refuse la suite : « La connexion a echoue »)
+                val idDejaDonne = !attenteLu && js and 0x08 != 0 && apresReset && idGba >= 0 && tv == idGba
+                if (!attenteLu && js and 0x08 != 0 && apresReset) { apresReset = false; if (idGba < 0) idGba = tv }
+                if (idDejaDonne) {
+                    GbaNatif.joy(0x14, d); nAvales++
+                } else if (!attenteLu && js and 0x08 != 0 && aAvaler.remove(tv)) {   // (build 381 : deja donne au jeu par Pulse)
                     GbaNatif.joy(0x14, d); nAvales++
                     if (tv == codeJeu) { codeLu = true; GbaNatif.regs(r); joycnt = r[3] }   // (build 386 : JOYCNT relu apres la lecture : 4)
                 } else if (!attenteLu && js and 0x08 != 0) {      // (la GBA a ecrit JOY_TRANS : pour le jeu)
