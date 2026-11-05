@@ -1,0 +1,47 @@
+name: Test des touches (3 h, simulateur)
+
+# v348 : le test des touches entier (START > Reglages > Outils > Test de la console > Z : 3 heures) dans le simulateur,
+# avec AddressSanitizer : chaque ecran recoit chaque touche, puis touches au hasard. Le rapport (test-console.txt) et
+# ce qui a ete lent, force ou bloque sont dans le journal de la compilation. A la demande (onglet Actions).
+on:
+  workflow_dispatch:
+  push:
+    branches: [salon-internet]
+    paths: ['.github/workflows/touches-3h.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  touches:
+    runs-on: ubuntu-latest
+    timeout-minutes: 240
+    steps:
+      - uses: actions/checkout@v4
+      - name: Outils
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q clang lld llvm ffmpeg python3-pil >/dev/null
+      - name: Bibliothèques (en cache)
+        uses: actions/cache@v4
+        with:
+          path: |
+            tools/pc-sim/work/src
+            tools/pc-sim/work/libs
+          key: pcsim-libs-${{ hashFiles('tools/pc-sim/fetch.sh') }}
+      - name: Compiler (AddressSanitizer)
+        run: |
+          [ -d tools/pc-sim/work/libs/mbedtls ] || sh tools/pc-sim/fetch.sh
+          make -s -C tools/pc-sim -j"$(nproc)" O=work/obj-asan BIN=gcstation-asan SAN="-fsanitize=address -fno-omit-frame-pointer"
+          sh tools/pc-sim/demo-sd.sh tools/pc-sim/work/run >/dev/null
+      - name: Test des touches (3 h)
+        run: |
+          cd tools/pc-sim/work/run
+          sed 's/^wait 500s$/wait 11400s/' ../../scenarios/test-touches.txt > test-3h.txt
+          ASAN_OPTIONS=detect_leaks=0:halt_on_error=1 PCSIM_PAL=1 PCSIM_COMPOSANTE=1 PCSIM_NET=off PCSIM_FAST=1 PCSIM_SCRIPT=test-3h.txt PCSIM_OUT=out \
+            timeout 13500 ../../gcstation-asan > log.txt 2>&1; echo "code de sortie : $?"
+          grep -A20 "ERROR: AddressSanitizer" log.txt | head -40 || true
+          echo "== au fur et a mesure =="; grep "^\[touches\]" log.txt | grep -v "ecran fini" | sort | uniq -c | sort -rn | head -80
+          echo "== ecrans =="; grep "ecran fini" log.txt | tail -200
+          echo "== rapport =="; cat "sd:/gc-mp3/journaux/test-console.txt" || echo "pas de rapport"
+          tail -8 log.txt

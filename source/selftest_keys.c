@@ -203,6 +203,11 @@ static void kt_action_done(int forced) {
     if (kt_aworst >= 50000u) { char b[230]; snprintf(b, sizeof(b), "%s : %u ms (%s)", kt_cur, (unsigned)(kt_aworst / 1000u), kt_aw_why); kt_note(kt_slow, &kt_nslow, kt_aworst / 1000u, b); }
     if (forced) { s->forced++; kt_forced++; kt_note(kt_stuck, &kt_nstuck, 1, kt_cur); }
     if (sx_blocked != kt_blk0) { char b[150]; s->blocked += sx_blocked - kt_blk0; snprintf(b, sizeof(b), "%s : %s", kt_cur, sx_blk_last); kt_note(kt_blk, &kt_nblk, 1, b); }
+#ifndef GEKKO                                            /* v348 : (simulateur : au fur et a mesure, pour les essais longs) */
+    if (kt_aworst >= 50000u) printf("[touches] LENT %u ms : %s (%s)\n", (unsigned)(kt_aworst / 1000u), kt_cur, kt_aw_why);
+    if (forced) printf("[touches] FERME DE FORCE : %s\n", kt_cur);
+    if (sx_blocked != kt_blk0) printf("[touches] BLOQUE : %s : %s\n", kt_cur, sx_blk_last);
+#endif
 }
 /* l'action suivante (rend 0 si tout est fait) */
 static int kt_next(void) {
@@ -217,6 +222,10 @@ static int kt_next(void) {
     /* ecran fini */
     kt_sc[kt_si].dmem = (s32)kt_mem1 - (s32)sx_free_now();
     kt_k1 = 0; kt_k2 = -1; kt_l2n = 0;
+#ifndef GEKKO
+    printf("[touches] ecran fini %d / %d : %s (%u actions, %u ratees, pire %u ms, memoire %+d Ko) a %u min\n", kt_si + 1, kt_nsc, kt_sc[kt_si].nm, (unsigned)kt_sc[kt_si].acts,
+           (unsigned)kt_sc[kt_si].slow, (unsigned)(kt_sc[kt_si].worst_us / 1000u), (int)(kt_sc[kt_si].dmem / 1024), (unsigned)(el / 60000u));
+#endif
     if (++kt_si < kt_nsc) return 1;
     if (el + 60000u < KT_LIMIT_MS) { kt_monkey = 1; kt_si = 0; return 1; }   /* (le temps qui reste : au hasard) */
     return 0;
