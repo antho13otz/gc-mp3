@@ -156,6 +156,13 @@ JNIEXPORT jint JNICALL Java_fr_gcstation_telecommande_GbaNatif_joy(JNIEnv* env, 
 	return r;
 }
 
+/* build 392 : un mot de la memoire de la GBA (diagnostic : etat du programme), sans rien changer */
+JNIEXPORT jint JNICALL Java_fr_gcstation_telecommande_GbaNatif_mem32(JNIEnv* env, jclass cls, jint adr) {
+	(void) env; (void) cls;
+	if (!core) return 0;
+	return (jint) core->rawRead32(core, (uint32_t) adr, -1);
+}
+
 /* registres du cable cote GBA, sans les changer : [JOYSTAT, JOY_TRANS (32 bits), JOY_RECV (32 bits), JOYCNT] */
 JNIEXPORT void JNICALL Java_fr_gcstation_telecommande_GbaNatif_regs(JNIEnv* env, jclass cls, jintArray out) {
 	(void) cls;
