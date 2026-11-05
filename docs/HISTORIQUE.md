@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 379 — rapport GBA : automate de connexion de Rayman 3
+
+Pour Rayman 3 PAL, le rapport de la GBA du téléphone lit aussi, pour chaque port, l'automate de connexion GBA du jeu et le drapeau du joueur qui le fait tourner. Il montre ainsi sur quel port le jeu attend une GBA.
+
 ## Nouveautés appli build 378 — rapport détaillé de la GBA du téléphone
 
 Le rapport « GBA du téléphone » explique chaque mesure de Pulse :
