@@ -30,7 +30,7 @@ $(O)/mbedtls/%.o: $(L)/mbedtls/%.c
 	$(CC) -O2 -w $(INC) -I$(L)/mbedtls/library $(TLS) -c $< -o $@
 $(O)/helix/%.o: $(L)/helix/%.c
 	@mkdir -p $(dir $@)
-	$(CC) -O2 -w -I$(R)/source/helixstub -I$(L)/helix -DUSE_DEFAULT_STDLIB -c $< -o $@
+	$(CC) -O2 -w -D_WIN32_WCE -I$(R)/source/helixstub -I$(L)/helix -DUSE_DEFAULT_STDLIB -c $< -o $@
 $(O)/gme/%.o: $(L)/gme/%.cpp
 	@mkdir -p $(dir $@)
 	$(CXX) -O2 -w -DBLARGG_LITTLE_ENDIAN=1 -DVGM_YM2612_GENS -DUSE_GME_AY -DUSE_GME_GBS -DUSE_GME_GYM -DUSE_GME_HES -DUSE_GME_KSS -DUSE_GME_NSF -DUSE_GME_NSFE -DUSE_GME_SAP -DUSE_GME_SPC -DUSE_GME_VGM -DNDEBUG -I$(L)/gme -fwrapv -c $< -o $@
