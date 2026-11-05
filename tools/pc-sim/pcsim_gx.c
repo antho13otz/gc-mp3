@@ -13,6 +13,8 @@
 #include <time.h>
 #include "pcsim.h"
 void *__real_malloc(size_t); void __real_free(void *);
+extern int pcsim_live;                                     /* GC Station PC : chaque image est dessinee et montree (fenetre) */
+void pcsim_present(const float *efb, int stride, int w, int h) __attribute__((weak));
 
 #define EW 640
 #define EH 576
@@ -379,7 +381,7 @@ void GX_End(void) {
     case GX_TRIANGLESTRIP: for (int i = 0; i + 2 < vn; i++) gp_count(&vb[i], &vb[i + 1], &vb[i + 2]); break;
     case GX_TRIANGLEFAN: for (int i = 1; i + 1 < vn; i++) gp_count(&vb[0], &vb[i], &vb[i + 1]); break;
     }
-    if (!pcsim_capture) { vn = 0; pcsim_gx_ns += gx_now() - tc; return; }
+    if (!pcsim_capture && !pcsim_live) { vn = 0; pcsim_gx_ns += gx_now() - tc; return; }
     unsigned long long t0 = tc;
     switch (vprim) {
     case GX_QUADS: for (int i = 0; i + 3 < vn; i += 4) { tri(&vb[i], &vb[i + 1], &vb[i + 2]); tri(&vb[i], &vb[i + 2], &vb[i + 3]); } break;
@@ -501,6 +503,7 @@ void GX_CopyDisp(void *dst, u8 clear) {
         if (dst) { xfb_fill((u8 *)dst); pcsim_xfb_last = dst; pcsim_xfb_w = 640; pcsim_xfb_h = efb_h; }
         pcsim_capture = 0;
     }
-    if (clear && pcsim_capture) efb_clear();
+    if (pcsim_live && pcsim_present) pcsim_present(&efb[0][0][0], EW, 640, efb_h);   /* (GC Station PC : vers la fenetre) */
+    if (clear && (pcsim_capture || pcsim_live)) efb_clear();
     pcsim_gx_ns += gx_now() - t0;
 }

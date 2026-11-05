@@ -3273,6 +3273,9 @@ static void na_pad_prep(void) {
 static char na_net_msg[120];
 static const char *nat_boot(int k) {
     if (sx_safe) { sx_block("lancer un jeu ou une appli"); return "Bloqu\xC3\xA9 pendant le test"; }   /* v278 : (test des touches) */
+#ifdef _WIN32                                              /* GC Station PC : le jeu dans Dolphin (tools/pc-sim/pcsim_dolphin.c) */
+    { extern const char *pcw_dolphin_launch(const char *, const char *, const char *, const char *); if (k >= 0 && k < gl_n) return pcw_dolphin_launch(gl[k].path, gl[k].title, salon_ami, salon_code); }
+#endif
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
     static nat_info_t in;
     snprintf(nat_ld_title, sizeof(nat_ld_title), "%s", gl[k].title);

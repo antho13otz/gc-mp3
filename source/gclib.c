@@ -2685,6 +2685,9 @@ static const char *gl_boot_loader(const char *path);
 static int gl_boot_cheats = 0;                         /* v31 : ajoute "AutoCheats=Yes" (cheats actives pour ce jeu) */
 static const char *gl_launch(int k) {
     if (sx_safe) { sx_block("lancer un jeu ou une appli"); return "Bloqu\xC3\xA9 pendant le test"; }   /* v278 : (test des touches) */                  /* retourne un message d'erreur, ou ne revient pas */
+#ifdef _WIN32                                              /* GC Station PC : le jeu dans Dolphin (tools/pc-sim/pcsim_dolphin.c) */
+    { extern const char *pcw_dolphin_launch(const char *, const char *, const char *, const char *); if (k >= 0 && k < gl_n) return pcw_dolphin_launch(gl[k].path, gl[k].title, salon_ami, salon_code); }
+#endif
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
     if (access(gl[k].path, R_OK) != 0) return "Jeu introuvable : Y pour actualiser la liste";
     char p[NAME_LEN]; struct stat st;
