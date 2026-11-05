@@ -1111,7 +1111,9 @@ static MEM_OS void gb_tx(natres_pad_t *p) {              /* (chaque image) : mot
     for (u32 i = 0; i < n; i++) pn_p32(uu + 40 + i * 4, gb_ring[(p->ga + i) % GB_RING]);
     {   /* (v335 : diagnostic du port de la GBA, apres les mots : l'appli d'avant l'ignore) */
         u32 ch = p->gbmask & 1 ? 0 : p->gbmask & 2 ? 1 : p->gbmask & 4 ? 2 : 3;
-        const u32 dg[12] = { p->poll, p->redir, p->tr[(p->ntr - 1) & 7], p->ninb[ch], p->gdsr0, p->gdsr1, p->gdcom, p->gdtc, p->gdbuf, p->gdrep, p->gbmask, p->gn00 + p->gn14 + p->gn15 };
+        const u32 dg[12] = { p->poll, p->redir, p->tr[(p->ntr - 1) & 7], p->gdirq, p->gdsr0, p->gdsr1, p->gdcom, p->gdtc, p->gdbuf, p->gdrep,
+                             p->gbmask | (p->gdnirq > 0xFFFFFFu ? 0xFFFFFFu : p->gdnirq) << 8, H.trap_state << 24 | (H.trap_n & 0xFFFFFFu) };
+        (void)ch;
         for (u32 i = 0; i < 12; i++) pn_p32(uu + 40 + n * 4 + i * 4, dg[i]);
     }
     pn_p32(mac, p->gmac0); pn_p16(mac + 4, p->gmac1 >> 16);
@@ -1572,6 +1574,10 @@ static void igr_poll(void);
 static MEM_OS void si_hook(u32 irq, u32 ctx) {
     trap_guard();
     H.si_in++;
+    {   /* (v338 : diagnostic de la GBA du telephone : l'interruption arrive-t-elle, et le vrai COMCSR a ce moment) */
+        natres_pad_t *p = (H.opt & NRO_PHONE) ? pd_find() : 0;
+        if (p && p->gbmask && gb_port(p, p->xch)) { p->gdirq = *HW6(0xCC006434u); p->gdnirq++; }
+    }
     if (!H.vi_count) nr_sample(ctx);
     if (si_orig) ((void (*)(u32, u32))si_orig)(irq, ctx);
     H.si_count++;
