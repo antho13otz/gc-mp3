@@ -131,6 +131,7 @@ typedef struct {
    Broadband Adapter a chaque image et les donne au jeu comme une manette branchee sur ce port (registres SI). */
 #define NATRES_PAD_MAGIC 0x50504144u                    /* "PPAD" */
 #define NATRES_PAD_PORT  51237
+#define NATRES_MIC_RING 8192u                           /* (v332) micro du telephone (puissance de 2) : 371 ms a 11025 Hz, 93 a 44100 */
 typedef struct {
     unsigned int magic;                                   /* "PPAD" */
     unsigned int len;                                     /* (mots de la section, magic compris) */
@@ -165,6 +166,14 @@ typedef struct {
     /* (resident, v331, hors du journal) GBA : cle de session, JOY_TRANS, bascule en attente (tampon plein), telephone (adresse,
        port, MAC), commandes 00 / FF et 14 du jeu, paquets "GCGB" recus / envoyes */
     unsigned int gkey, gtrans, gnew, gip, gport, gmac0, gmac1, gn00, gn14, gnrx, gntx;
+    /* (v332, hors du journal) micro du telephone : le slot B joue le micro GameCube (DOL-022 : Mario Party 6 et 7...). micon
+       (GC Station) : 1 = actif. Le reste (resident) : etat du micro (ecrit par la commande 80, lu par 40 : bit 15 en marche,
+       bits 13-14 paquet de 32 / 64 / 128 octets, bits 11-12 11025 / 22050 / 44100 Hz, bit 10 gain), commandes du jeu,
+       interruptions donnees, octets d'echantillons lus par le jeu, octets du telephone dans l'anneau (ecrits / lus),
+       paquets "GCVO" recus, octets donnes sans echantillon (le jeu lisait plus vite que le telephone), telephone (adresse,
+       port, MAC : pour l'etat renvoye) */
+    unsigned int micon, mstat, mncmd, mnirq, mnrd, mw, mr, mnrx, mlow, vip, vport, vmac0, vmac1;
+    unsigned char mring[NATRES_MIC_RING];
 } natres_pad_t;
 /* v331 : GBA du telephone. Paquets UDP "GCGB" sur le port des manettes (51237), gros-boutiste :
    telephone -> console (24 octets) : {"GCGB", 1, port (0-3), 0, 0, numero, accuse (mots du jeu recus a la suite), JOY_TRANS,
@@ -173,6 +182,14 @@ typedef struct {
    console -> telephone (chaque image s'il y a des mots, sinon toutes les 15) : {"GCGB", 2, port, etat, JOYSTAT, cle de session,
      taille annoncee, octets recus, numero du 1er mot, n, commandes 00/FF, 14, 15, puis n mots du jeu (dans l'ordre)} */
 #define NATRES_GBA_MAGIC 0x47434742u                    /* "GCGB" */
+/* v332 : micro du telephone. Paquets UDP "GCVO" sur le meme port (pas "GCM?" : chercheur de codes) : telephone -> console
+   {"GCVO", numero, n, n octets} (n <= 1472 : echantillons 16 bits gros-boutistes, a la frequence de l'etat renvoye, bits
+   11-12 : 11025 / 22050 / 44100 Hz). Le micro emule (resident, natres.c : mic_byte) parle comme celui du jeu :
+   identifiant EXI 0x0A000000 ; FF remise a zero ; 40 + 2 octets lus : etat ; 80 + 2 octets : nouvel etat ; 20 puis lecture
+   (DMA) : un paquet d'echantillons 16 bits gros-boutistes ; une interruption EXI quand un paquet est pret.
+   console -> telephone (toutes les 10 images) : {"GCVO", 2, 0, 0, 0, puis mstat, mncmd, mnirq, mnrd, mw, mr, mnrx, mlow de la
+   section "PPAD"} (40 octets) */
+#define NATRES_MIC_MAGIC 0x4743564Fu                    /* "GCVO" */
 #define NRF_PADLOG 1024u                                /* 7e secteur du journal : la section "PPAD" au retour */
 #define NATRES_PADLOG_MAGIC 0x47435350u                 /* "GCSP" */
 #define NRO_PHONE  0x04000000u              /* manettes du telephone (registres SI branches, section "PPAD") */
