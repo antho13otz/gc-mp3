@@ -51,6 +51,7 @@ object GbaTel {
     private var etape = 0; private var joy = 0; private var annonce = 0L; private var recus = 0L
     private var n00 = 0L; private var n14 = 0L; private var n15 = 0L
     private var programme: String? = null
+    @Volatile private var diag: LongArray? = null          // (build 377 : detail du port de la GBA, console v335)
     @Volatile private var image: ByteArray? = null         // (build 375 : programme dechiffre, somme juste : pour l'emulateur)
     private var emuLance = false
     private var decode = false
@@ -75,7 +76,7 @@ object GbaTel {
         if (marche) return
         dir = File(ctx.filesDir, "gba")
         marche = true
-        note("GBA branchée : on attend Pulse (port 2)")
+        note("GBA branchée : on attend Pulse (port choisi dans GC Station)")
         publier()
         fil = Thread({ boucle() }, "gba-tel").apply { isDaemon = true; start() }
     }
@@ -146,6 +147,7 @@ object GbaTel {
         }
         etape = st; joy = js; annonce = gl; recus = gp
         for (i in 0 until cnt) mots[first + i] = g32(b, 40 + 4 * i)
+        if (n >= 40 + cnt * 4 + 48) diag = LongArray(12) { g32(b, 40 + cnt * 4 + it * 4) }   // (console v335 : diagnostic)
         while (mots.containsKey(suite)) suite++
         val total = 1 + gl / 4                             // (cle B, puis programme et CRC)
         if (!decode && st >= 3 && gl > 0 && suite >= total) { decode = true; dechiffrer(gl) }
@@ -192,6 +194,27 @@ object GbaTel {
         } catch (e: Exception) { note("Déchiffrement impossible : ${e.message}") }
     }
 
+    /** build 377 : ce que le jeu lit sur le port de la GBA (console v335), avec une lecture simple */
+    private fun detail(): String {
+        val d = diag ?: return "Détail du port : pas reçu (console d'avant le build 855)\n"
+        val port = when { d[10] and 1L != 0L -> 1; d[10] and 2L != 0L -> 2; d[10] and 4L != 0L -> 3; else -> 4 }
+        val sh = (4 - port) * 8
+        val srVrai = (d[4] shr sh) and 0x3F; val srRendu = (d[5] shr sh) and 0x3F
+        return buildString {
+            append("Détail du port $port : SIPOLL %08X ; aiguillés vers une vraie manette %d ; dernier transfert %08X ; lectures INBUF %d\n".format(d[0], d[1], d[2], d[3]))
+            append("SISR vrai %08X (port : %02X) rendu %08X (port : %02X) ; COMCSR rendu %08X ; fins de transfert vues %d ; lectures de la réponse %d ; dernière réponse %08X ; transferts %d\n"
+                   .format(d[4], srVrai, d[5], srRendu, d[6], d[7], d[8], d[9], d[11]))
+            append("Lecture : " + when {
+                d[11] == 0L -> "le jeu n'envoie rien à ce port"
+                d[8] == 0L -> "le jeu ne lit jamais la réponse (fin de transfert pas vue par le jeu)"
+                d[7] == 0L -> "pas de fin de transfert vue par le jeu"
+                srRendu != 0L -> "erreur encore visible pour le jeu (SISR)"
+                d[9] shr 16 != 0x0004L -> "réponse rendue inattendue"
+                else -> "réponse « GBA » rendue sans erreur"
+            } + "\n")
+        }
+    }
+
     fun rapport(): String {
         val e = etat
         return buildString {
@@ -199,6 +222,7 @@ object GbaTel {
             append("Pulse vu : ${if (e.vuPulse) "oui" else "non"} ; étape ${e.etape} ; JOYSTAT %02X\n".format(e.joy))
             append("Programme annoncé ${e.annonce} octets, reçus par Pulse ${e.recus} ; commandes du jeu : 00/FF ${e.n00}, 14 ${e.n14}, 15 ${e.n15}\n")
             append("Programme : ${e.programme ?: "pas encore"}\n")
+            append(detail())
             append("Émulateur GBA : ${if (GbaEmu.marche) "en marche" else "arrêté"} ${GbaEmu.message} ; mots du jeu donnés ${GbaEmu.nRecus}, mots de la GBA lus par le jeu ${GbaEmu.nEnvoyes}, en attente ${GbaEmu.entrees.size}\n\nJournal :\n")
             e.journal.forEach { append(it).append('\n') }
         }
