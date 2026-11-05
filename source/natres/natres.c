@@ -2158,7 +2158,15 @@ static MEM_OS void si_store(u32 a, u32 val) {
                zero FF de la GBA repondue comme un "00" : le jeu recommencait sans fin) */
             gb_o0 = *HW6(0xCC006480u); gb_o1 = *HW6(0xCC006484u); p->xcmd = gb_o0 >> 24;
             p->xch = (val >> 1) & 3; p->tr[p->ntr++ & 7] = p->xch << 24 | (p->xcmd & 0xFF) << 16 | ((val >> 16) & 0x7F) << 8 | ((val >> 8) & 0x7F);
-            if (gb_port(p, p->xch)) gb_cmd(p);                /* v331 : GBA du telephone : la reponse tout de suite */
+            if (gb_port(p, p->xch)) {                     /* v331 : GBA du telephone : la reponse tout de suite */
+                gb_cmd(p);
+                /* v342 : le vrai transfert (aiguille vers une vraie manette) devient un "00" (1 octet envoye, 3 attendus) :
+                   une manette ne repond pas a 14 / 15, le vrai COMCSR finissait en ERREUR et le jeu, qui le lit parfois sans
+                   aiguillage, abandonnait (Rayman 3 : la lecture de la cle). La reponse de la GBA est ecrite dans le vrai
+                   tampon a la fin (si_hook, v341) */
+                *HW6(0xCC006480u) = 0;
+                val = (val & ~0x007F7F00u) | 0x00010300u;
+            }
             if ((p->chmask | p->gbmask) >> p->xch & 1) {
                 pd_ev(p, 1, p->xch << 8 | (p->xcmd & 0xFF));
                 /* b9000015 : rien n'est branche sur ce port : le vrai transfert finissait en erreur (pas de reponse), et une
