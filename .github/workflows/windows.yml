@@ -33,8 +33,11 @@ jobs:
 
       - name: Outils (MinGW 32 bits, clang)
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y -q clang lld llvm gcc-mingw-w64-i686 g++-mingw-w64-i686 zip >/dev/null
+          # (miroir d'Ubuntu parfois bloque : 3 essais de 8 min au plus)
+          for i in 1 2 3; do
+            timeout 480 sudo apt-get update -q && timeout 480 sudo apt-get install -y -q clang lld llvm gcc-mingw-w64-i686 g++-mingw-w64-i686 zip >/dev/null && break
+            echo "apt : nouvel essai"; sleep 10
+          done
           # (threads POSIX : la variante "posix" de MinGW, avec winpthreads)
           sudo update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix || true
           sudo update-alternatives --set i686-w64-mingw32-g++ /usr/bin/i686-w64-mingw32-g++-posix || true

@@ -12,7 +12,7 @@ CXX    := i686-w64-mingw32-g++
 BUILD  ?= 0
 INC    := -Iwin/include -Iinclude -I$(W)/gen -I$(L)/source -I$(R)/source -I$(L)/mbedtls/include -I$(L)/helix -I$(R)/source/helixstub -I$(L)/gme -I$(L)/xmp/include -I$(L)/webp
 TLS    := -DMBEDTLS_USER_CONFIG_FILE='"gc_tls_config.h"'
-GCF    := -O2 -g -fno-omit-frame-pointer -fwrapv -fno-strict-aliasing -D__POWERPC__ -DGCMP3_BUILD=$(BUILD) -DGCS_PC=1 -DPHONE_PORT=8080 -DLIBXMP_STATIC $(TLS) $(INC) -include win/pcwin.h
+GCF    := -O2 -g1 -fno-omit-frame-pointer -fwrapv -fno-strict-aliasing -D__POWERPC__ -DGCMP3_BUILD=$(BUILD) -DGCS_PC=1 -DPHONE_PORT=8080 -DLIBXMP_STATIC $(TLS) $(INC) -include win/pcwin.h
 MBED_SRC := $(wildcard $(L)/mbedtls/library/*.c)
 HELIX_SRC:= $(wildcard $(L)/helix/*.c)
 GME_SRC  := $(wildcard $(L)/gme/*.cpp)
