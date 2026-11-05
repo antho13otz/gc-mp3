@@ -53,6 +53,14 @@ jobs:
           path: ~/.gcs-android/debug.keystore
           key: android-debug-keystore-v2
 
+      # build 375 : emulateur GBA de l'appli : mGBA (https://mgba.io, licence MPL 2.0), version figee (0.10.5), telecharge ici
+      # (pas dans le depot) ; ses fichiers gardent leur licence. Le pont avec l'appli : android/app/src/main/cpp/gba_jni.c
+      - name: mGBA (emulateur GBA, MPL 2.0, version figee)
+        run: |
+          git clone -q --depth 1 --branch 0.10.5 https://github.com/mgba-emu/mgba.git android/app/src/main/cpp/mgba
+          c=$(git -C android/app/src/main/cpp/mgba rev-parse HEAD)
+          [ "$c" = 26b7884bc25a5933960f3cdcd98bac1ae14d42e2 ] || { echo "::error::mGBA : version inattendue ($c)"; exit 1; }
+
       - name: Compiler l'APK
         env:
           BUILD_NUM: ${{ github.run_number }}
