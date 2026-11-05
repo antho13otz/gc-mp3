@@ -759,6 +759,12 @@ static void na_pad_print(FILE *f, const u8 *b) {
             (unsigned)PW(nsr), (unsigned)PW(ncom), (unsigned)PW(nbuf), (unsigned)PW(types), (unsigned)PW(origins));
     fprintf(f, "Transferts du port du telephone passes par une vraie manette (pour finir sans erreur) : %u\n", (unsigned)PW(redir));
     fprintf(f, "Vibrations demandees par le jeu (renvoyees au telephone) : %u\n", (unsigned)PW(nrmb));
+    if (PW(gbmask)) {                                     /* v331 : GBA du telephone */
+        static const char *const gs[] = { "attente", "cle donnee", "programme en cours d'envoi", "programme recu", "programme lance (relais)" };
+        u32 g = PW(gst);
+        fprintf(f, "GBA du telephone (port 2) : %s ; JOYSTAT %02X ; programme annonce %u octets, recus %u ; mots du jeu %u (accuses par le telephone %u) ; ecritures du jeu (15) %u\n",
+                g < 5 ? gs[g] : "?", (unsigned)PW(gjoy), (unsigned)PW(glen), (unsigned)PW(gpos), (unsigned)PW(gw), (unsigned)PW(ga), (unsigned)PW(gn15));
+    }
     u32 n = PW(ntr);
     fprintf(f, "Commandes envoyees aux ports : %u (les dernieres, la plus ancienne d'abord) :\n", (unsigned)n);
     for (u32 i = n > 8 ? n - 8 : 0; i < n; i++) {
@@ -1944,6 +1950,7 @@ static u32 na_padmask(void) {                             /* ports donnes aux te
     static const u8 m[5] = { 0, 0x2, 0x6, 0xE, 0x1 };
     return net_ok && ip_str[0] ? m[nat_padtel % 5] : 0;
 }
+static u32 na_gbamask(void) { return nat_gbatel && net_ok && ip_str[0] ? 0x2u : 0; }   /* v331 : GBA du telephone (port 2) */
 static int na_mem_on(void) { return nat_memtel && app_envoi && net_ok && ip_str[0] && !na_net_on; }   /* (v330 : envoi vers l'appli coupe : rien) */   /* v306 : chercheur de codes */
 static u32 na_opt(void) {
     static const u8 thr[4] = { 0, 77, 128, 192 };
@@ -1953,7 +1960,7 @@ static u32 na_opt(void) {
     if (nat_poll == 1) o |= 2u << 16; else if (nat_poll == 2) o |= 4u << 16;
     if (nat_speed) o |= NRO_SPEED;
     if (nat_trap) o |= NRO_TRAP;
-    if (na_padmask() && !na_net_on) o |= NRO_PHONE;       /* manettes du telephone */
+    if ((na_padmask() | na_gbamask()) && !na_net_on) o |= NRO_PHONE;   /* manettes du telephone (v331 : et la GBA du telephone) */
     if (na_mem_on()) o |= NRO_MEM;                        /* v306 : chercheur de codes de l'appli */
     return o;
 }
@@ -3255,7 +3262,7 @@ static void na_pad_prep(void) {
     p->magic = NATRES_PAD_MAGIC; p->len = sizeof(natres_pad_t) / 4;
     p->net.magic = NATRES_NET_MAGIC; p->net.ip = na_ipv4(ip_str); p->net.port = NATRES_PAD_PORT;
     p->net.mask = na_ipv4(mask_str); p->net.gw = na_ipv4(gw_str);
-    p->chmask = na_padmask(); p->xch = 0xFF;
+    p->gbmask = na_gbamask(); p->chmask = na_padmask() & ~p->gbmask; p->xch = 0xFF;   /* (v331 : le port de la GBA n'est pas une manette) */
     for (int i = 0; i < 4; i++) { p->h[i] = 0x00808080u; p->l[i] = 0x80800000u; }
     if (p->net.ip) na_pad_w = sizeof(natres_pad_t) / 4;
 }                               /* (ordre de la machine ; ecrit en gros-boutiste dans le resident) */

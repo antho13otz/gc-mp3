@@ -1568,3 +1568,6 @@
     /* v320 : fenetre de chargement de la jaquette HD */
     { "Chargement de la jaquette HD", "Loading HD cover" },
     { "Pr\xC3\xA9paration...", "Preparing..." },
+    /* v331 : GBA du telephone */
+    { "GBA du t\xC3\xA9l\xC3\xA9phone (port 2)", "Phone GBA (port 2)" },
+    { "L'appli devient une GBA branch\xC3\xA9" "e au port 2 (Tingle Tuner de Wind Waker ; Pulse, Broadband Adapter). Essai", "The app becomes a GBA plugged into port 2 (Wind Waker's Tingle Tuner; Pulse, Broadband Adapter). Experimental" },
