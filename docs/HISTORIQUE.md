@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v333 (build 853) — GBA du téléphone : relais prêt pour l'émulateur
+
+Ce build va avec l'appli build 375, qui fait tourner le programme GBA reçu dans un émulateur. Le relais entre le jeu et la GBA du téléphone devient fiable par Wi-Fi :
+- chaque mot écrit par la GBA est numéroté, et un paquet arrivé en double ne le redonne plus au jeu ;
+- Pulse dit tout de suite au téléphone quel mot le jeu a lu.
+
+Pas encore testé sur une vraie GameCube.
+
 ## Nouveautés appli build 373 — micro du téléphone (essai), GBA pour les autres jeux
 
 - **Micro du téléphone :** ce build va avec la console v332. Le compagnon de jeu a un bloc « Micro du téléphone » (Mario Party 6 et 7…) :
