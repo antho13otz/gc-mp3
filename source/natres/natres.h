@@ -178,7 +178,7 @@ typedef struct {
     unsigned char mring[NATRES_MIC_RING];
 } natres_pad_t;
 /* v331 : GBA du telephone. Paquets UDP "GCGB" sur le port des manettes (51237), gros-boutiste :
-   telephone -> console (24 octets) : {"GCGB", 1, port (0-3), 0, 0, numero, accuse (mots du jeu recus a la suite), JOY_TRANS,
+   telephone -> console (24 octets) : {"GCGB", 1, port (0-3 ; v334 : plus lu, la GBA est sur le port choisi dans GC Station), 0, 0, numero, accuse (mots du jeu recus a la suite), JOY_TRANS,
      options : bit 0 JOY_TRANS neuf, bit 1 JOY_RECV lu, bit 2 recommencer (attente), bit 3 drapeaux 0x30 valides, bits 8-15
      drapeaux de JOYSTAT (bits 4-5), (v333) bits 16-23 numero du JOY_TRANS neuf (1-255 : un paquet repete ne le redonne
      pas au jeu ; 0 : toujours pris)}

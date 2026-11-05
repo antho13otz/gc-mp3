@@ -19,6 +19,7 @@ static char ip_str[16] = "", mask_str[16] = "", gw_str[16] = "";
 /* v306 : chercheur de codes (main.c) ; v278 : test des touches (selftest_keys.c) */
 static int nat_memtel = 0;
 static int nat_gbatel = 0;                               /* (v331 : GBA du telephone) */
+static int nat_gbaport = 2;                              /* (v334 : son port) */
 static int nat_mictel = 0;                               /* (v332 : micro du telephone) */
 static int app_envoi = 1;                               /* (v330 : envoi vers l'appli, main.c) */
 static int sx_safe = 0;
