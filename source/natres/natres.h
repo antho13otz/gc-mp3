@@ -166,6 +166,8 @@ typedef struct {
     /* (resident, v331, hors du journal) GBA : cle de session, JOY_TRANS, bascule en attente (tampon plein), telephone (adresse,
        port, MAC), commandes 00 / FF et 14 du jeu, paquets "GCGB" recus / envoyes */
     unsigned int gkey, gtrans, gnew, gip, gport, gmac0, gmac1, gn00, gn14, gnrx, gntx;
+    /* (v333) numero du dernier JOY_TRANS donne par le telephone (bits 16-23 des options), et du dernier lu par le jeu (14) */
+    unsigned int gtid, gtidlu;
     /* (v332, hors du journal) micro du telephone : le slot B joue le micro GameCube (DOL-022 : Mario Party 6 et 7...). micon
        (GC Station) : 1 = actif. Le reste (resident) : etat du micro (ecrit par la commande 80, lu par 40 : bit 15 en marche,
        bits 13-14 paquet de 32 / 64 / 128 octets, bits 11-12 11025 / 22050 / 44100 Hz, bit 10 gain), commandes du jeu,
@@ -178,8 +180,10 @@ typedef struct {
 /* v331 : GBA du telephone. Paquets UDP "GCGB" sur le port des manettes (51237), gros-boutiste :
    telephone -> console (24 octets) : {"GCGB", 1, port (0-3), 0, 0, numero, accuse (mots du jeu recus a la suite), JOY_TRANS,
      options : bit 0 JOY_TRANS neuf, bit 1 JOY_RECV lu, bit 2 recommencer (attente), bit 3 drapeaux 0x30 valides, bits 8-15
-     drapeaux de JOYSTAT (bits 4-5)}
-   console -> telephone (chaque image s'il y a des mots, sinon toutes les 15) : {"GCGB", 2, port, etat, JOYSTAT, cle de session,
+     drapeaux de JOYSTAT (bits 4-5), (v333) bits 16-23 numero du JOY_TRANS neuf (1-255 : un paquet repete ne le redonne
+     pas au jeu ; 0 : toujours pris)}
+   console -> telephone (chaque image s'il y a des mots, sinon toutes les 15) : {"GCGB", 2, (v333) numero du dernier
+     JOY_TRANS lu par le jeu (avant : 1, le port), etat, JOYSTAT, cle de session,
      taille annoncee, octets recus, numero du 1er mot, n, commandes 00/FF, 14, 15, puis n mots du jeu (dans l'ordre)} */
 #define NATRES_GBA_MAGIC 0x47434742u                    /* "GCGB" */
 /* v332 : micro du telephone. Paquets UDP "GCVO" sur le meme port (pas "GCM?" : chercheur de codes) : telephone -> console

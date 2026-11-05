@@ -1020,7 +1020,7 @@ static MEM_OS void gb_reset(natres_pad_t *p) {           /* FF : cle de session 
     u32 k = tbl() | 1u, n = 5u + (k & 0x3FFu);
     while (n--) k = k * 0x6177614Bu + 1u;
     p->gkey = k; p->gtrans = k ^ 0x6F646573u; p->gjoy = 0x18u;   /* (0x10 : pret ; 0x08 : un mot a lire) */
-    p->gst = 1; p->glen = p->gpos = 0; p->gw = p->ga = 0; p->gnew = 0;
+    p->gst = 1; p->glen = p->gpos = 0; p->gw = p->ga = 0; p->gnew = 0; p->gtid = p->gtidlu = 0;
 }
 static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert vers le port GBA : la reponse, tout de suite */
     u32 c = gb_o0 >> 24;
@@ -1036,6 +1036,7 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
         p->gn14++;
         gb_r0 = (t & 0xFFu) << 24 | (t >> 8 & 0xFFu) << 16 | (t >> 16 & 0xFFu) << 8 | t >> 24;
         gb_r1 = (p->gjoy & 0xFFu) << 24;
+        if (p->gjoy & 0x08u) p->gtidlu = p->gtid;          /* (v333 : ce mot du telephone est lu : on le lui dira) */
         p->gjoy &= ~0x08u;
         if (p->gst == 3) p->gst = 4;                     /* (1re lecture apres le programme : il tourne) */
         return;
@@ -1066,8 +1067,9 @@ static MEM_OS void gb_rx(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d,
     p->gmac0 = pn_be32(f + 6); p->gmac1 = pn_be16(f + 10) << 16;
     u32 ack = pn_be32(d + 12), t = pn_be32(d + 16), o = pn_be32(d + 20);
     if (ack - p->ga <= p->gw - p->ga) p->ga = ack;       /* (accuse dans [ga, gw]) */
-    if (o & 4u) { p->gst = 0; p->gjoy = 0; p->gw = p->ga = 0; p->gnew = 0; return; }
-    if (o & 1u) { p->gtrans = t; p->gjoy |= 0x08u; }
+    if (o & 4u) { p->gst = 0; p->gjoy = 0; p->gw = p->ga = 0; p->gnew = 0; p->gtid = p->gtidlu = 0; return; }
+    u32 id = (o >> 16) & 0xFFu;                          /* (v333 : un JOY_TRANS deja donne n'est pas redonne) */
+    if ((o & 1u) && (!id || id != p->gtid)) { p->gtrans = t; p->gjoy |= 0x08u; p->gtid = id; }
     if (o & 2u) p->gjoy &= ~0x02u;
     if (o & 8u) p->gjoy = (p->gjoy & ~0x30u) | ((o >> 8) & 0x30u);
 }
@@ -1093,14 +1095,15 @@ static MEM_OS __attribute__((noinline)) void mic_tx(natres_pad_t *p) {          
     pn_udp(p, mac, p->vip, p->vport, 40);
 }
 static MEM_OS void gb_tx(natres_pad_t *p) {              /* (chaque image) : mots du jeu au telephone, etat */
-    static u32 tick = 0;
+    static u32 tick = 0, lu = 0;
     if (p->gnew && p->gw - p->ga < GB_RING - 1u) { p->gnew = 0; p->gjoy ^= 0x10u; }
     if (!p->gip) return;
     u32 n = p->gw - p->ga;
-    if (!n && (++tick % 15u)) return;
+    if (!n && p->gtidlu == lu && (++tick % 15u)) return;   /* (v333 : un mot du telephone lu par le jeu : dit tout de suite) */
+    lu = p->gtidlu;
     if (n > 300u) n = 300u;
     u8 *uu = pn_fr + 42, mac[6];
-    pn_p32(uu, NATRES_GBA_MAGIC); uu[4] = 2; uu[5] = 1; uu[6] = (u8)p->gst; uu[7] = (u8)p->gjoy;
+    pn_p32(uu, NATRES_GBA_MAGIC); uu[4] = 2; uu[5] = (u8)p->gtidlu; uu[6] = (u8)p->gst; uu[7] = (u8)p->gjoy;
     pn_p32(uu + 8, p->gkey); pn_p32(uu + 12, p->glen); pn_p32(uu + 16, p->gpos); pn_p32(uu + 20, p->ga); pn_p32(uu + 24, n);
     pn_p32(uu + 28, p->gn00); pn_p32(uu + 32, p->gn14); pn_p32(uu + 36, p->gn15);
     for (u32 i = 0; i < n; i++) pn_p32(uu + 40 + i * 4, gb_ring[(p->ga + i) % GB_RING]);
