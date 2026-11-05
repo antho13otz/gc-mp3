@@ -22,8 +22,7 @@ int mbedtls_sha256(const unsigned char *input, size_t ilen, unsigned char *outpu
 const wchar_t *pcw_exe_dir(void);
 const wchar_t *pcw_sd_dir(void);
 
-#define TAP_PORT 51241
-#define LAN_PORT 51240
+static int TAP_PORT = 51241, LAN_PORT = 51240, AMI_PORT = 51240;   /* (GCSTATION_TAPPORT / _LANPORT / _AMIPORT : deux GC Station sur un PC, essais) */
 static HANDLE dol_proc = NULL;
 static CRITICAL_SECTION lk;
 static SOCKET tap_ls = INVALID_SOCKET, tap_c = INVALID_SOCKET, lan_u = INVALID_SOCKET;
@@ -35,7 +34,13 @@ static struct sockaddr_in ami;
 static int ami_ok = 0;
 static volatile u32 n_out = 0, n_in = 0;
 
-void pcw_dolphin_init(void) { InitializeCriticalSection(&lk); }
+void pcw_dolphin_init(void) {
+    InitializeCriticalSection(&lk);
+    const char *e;
+    if ((e = getenv("GCSTATION_TAPPORT")) && atoi(e) > 0) TAP_PORT = atoi(e);
+    if ((e = getenv("GCSTATION_LANPORT")) && atoi(e) > 0) LAN_PORT = AMI_PORT = atoi(e);
+    if ((e = getenv("GCSTATION_AMIPORT")) && atoi(e) > 0) AMI_PORT = atoi(e);
+}
 void pcw_dolphin_stop(void) { if (dol_proc) { TerminateProcess(dol_proc, 0); CloseHandle(dol_proc); dol_proc = NULL; } }
 
 static int find_dolphin(wchar_t *o) {
@@ -158,10 +163,10 @@ static int net_start(const char *amiaddr, const char *code) {
     memcpy(room, h, 4);
     tap_ls = socket(AF_INET, SOCK_STREAM, 0);
     struct sockaddr_in a; memset(&a, 0, sizeof(a));
-    a.sin_family = AF_INET; a.sin_port = htons(TAP_PORT); a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    a.sin_family = AF_INET; a.sin_port = htons((unsigned short)TAP_PORT); a.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     if (tap_ls == INVALID_SOCKET || bind(tap_ls, (struct sockaddr *)&a, sizeof(a)) || listen(tap_ls, 1)) { if (tap_ls != INVALID_SOCKET) closesocket(tap_ls); tap_ls = INVALID_SOCKET; return 0; }
     lan_u = socket(AF_INET, SOCK_DGRAM, 0);
-    a.sin_port = htons(LAN_PORT); a.sin_addr.s_addr = htonl(INADDR_ANY);
+    a.sin_port = htons((unsigned short)LAN_PORT); a.sin_addr.s_addr = htonl(INADDR_ANY);
     if (lan_u == INVALID_SOCKET || bind(lan_u, (struct sockaddr *)&a, sizeof(a))) {   /* (port pris : un port au hasard, on peut encore joindre l'hote) */
         a.sin_port = 0;
         if (lan_u == INVALID_SOCKET || bind(lan_u, (struct sockaddr *)&a, sizeof(a))) return 0;
@@ -170,7 +175,7 @@ static int net_start(const char *amiaddr, const char *code) {
         char host[128]; snprintf(host, sizeof(host), "%s", amiaddr);
         char *col = strrchr(host, ':'); if (col) *col = 0;
         struct addrinfo hi, *r = NULL; memset(&hi, 0, sizeof(hi)); hi.ai_family = AF_INET; hi.ai_socktype = SOCK_DGRAM;
-        if (!getaddrinfo(host, NULL, &hi, &r) && r) { ami = *(struct sockaddr_in *)r->ai_addr; ami.sin_port = htons(LAN_PORT); ami_ok = 1; freeaddrinfo(r); }
+        if (!getaddrinfo(host, NULL, &hi, &r) && r) { ami = *(struct sockaddr_in *)r->ai_addr; ami.sin_port = htons((unsigned short)AMI_PORT); ami_ok = 1; freeaddrinfo(r); }
         printf("[dolphin] ami %s : %s\n", host, ami_ok ? "trouve" : "introuvable (DNS)");
     }
     lan_on = 1;

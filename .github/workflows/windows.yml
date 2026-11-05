@@ -59,11 +59,24 @@ jobs:
           cd paquet && zip -q -r ../GC-Station-PC.zip . && cd ..
           ls -la GC-Station-PC.zip
 
+      - name: Pour l'essai (faux Dolphin, faux jeu)
+        run: |
+          mkdir -p kit
+          i686-w64-mingw32-gcc -O2 -o kit/Dolphin.exe tools/pc-sim/win/faux-dolphin.c -lws2_32 -static
+          printf '\x60\x00\x00\x00' > kit/t.bin
+          python3 -I tools/natif-test/mkiso.py kit/t.bin kit/test.iso
+          rm kit/t.bin
+
       - uses: actions/upload-artifact@v4
         with:
           name: gc-station-pc
           path: GC-Station-PC.zip
           retention-days: 14
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kit-essai
+          path: kit
+          retention-days: 3
 
   essayer:
     needs: compiler
@@ -108,6 +121,50 @@ jobs:
           Get-Content essai\journal.txt -Tail 15
           Write-Host "toujours en marche apres 12 s : $vivant"
           if (-not $vivant) { exit 1 }
+      - uses: actions/download-artifact@v4
+        with:
+          name: kit-essai
+          path: kit
+      - name: Essai (deux GC Station PC, un jeu lance dans Dolphin, reseau local par Internet)
+        shell: pwsh
+        run: |
+          # A heberge (sans adresse), B a l'adresse de A (127.0.0.1) ; meme code ; chacun son faux Dolphin
+          foreach ($c in "a", "b") {
+            New-Item -ItemType Directory -Force "deux\$c\sd\games", "deux\$c\sd\gc-mp3", "deux\$c\Dolphin", "deux\$c\captures" | Out-Null
+            Copy-Item "essai\GC Station.exe" "deux\$c\"
+            Copy-Item kit\Dolphin.exe "deux\$c\Dolphin\"
+            Copy-Item kit\test.iso "deux\$c\sd\games\"
+          }
+          Set-Content -Encoding ascii deux\a\sd\gc-mp3\gc-mp3.txt "salon = oui`nsalon_code = essai-ci`n"
+          Set-Content -Encoding ascii deux\b\sd\gc-mp3\gc-mp3.txt "salon = oui`nsalon_code = essai-ci`nsalon_ami = 127.0.0.1`n"
+          $env:PCSIM_SCRIPT = "$pwd\tools\pc-sim\win\essai-jeu.txt"
+          $env:PCSIM_OUT = "$pwd\deux\a\captures"; $env:PCSIM_LOG = "$pwd\deux\a\journal.txt"
+          $pa = Start-Process -FilePath "deux\a\GC Station.exe" -PassThru
+          Start-Sleep -Seconds 2
+          $env:PCSIM_OUT = "$pwd\deux\b\captures"; $env:PCSIM_LOG = "$pwd\deux\b\journal.txt"
+          $env:GCSTATION_TAPPORT = "51251"; $env:GCSTATION_LANPORT = "51250"; $env:GCSTATION_AMIPORT = "51240"
+          $pb = Start-Process -FilePath "deux\b\GC Station.exe" -PassThru
+          $pa.WaitForExit(120000) | Out-Null; $pb.WaitForExit(120000) | Out-Null
+          Start-Sleep -Seconds 3
+          $ok = $true
+          foreach ($c in "a", "b") {
+            Write-Host "===== GC Station $c ====="
+            Get-Content "deux\$c\journal.txt" | Select-String "dolphin|capture|plant|ERREUR"
+            $r = "deux\$c\Dolphin\resultat.txt"
+            if (Test-Path $r) { Get-Content $r; $t = Get-Content $r -Raw
+              if ($t -notmatch "connecte=1") { $ok = $false; Write-Host "RATE : Dolphin $c pas branche a GC Station" }
+              if ($t -notmatch "test\.iso") { $ok = $false; Write-Host "RATE : Dolphin $c sans le jeu" }
+              if ($t -match "de_l_autre=(\d+)") { if ([int]$matches[1] -lt 100) { $ok = $false; Write-Host "RATE : Dolphin $c : trames de l'autre cote : $($matches[1])" } }
+            } else { $ok = $false; Write-Host "RATE : Dolphin $c pas lance" }
+          }
+          if (-not $ok) { exit 1 }
+          Write-Host "OK : deux GC Station PC, jeu lance dans Dolphin, trames echangees"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: essai-deux-pc
+          path: deux/*/captures
+          retention-days: 7
       - uses: actions/upload-artifact@v4
         if: always()
         with:
