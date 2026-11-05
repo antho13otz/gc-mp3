@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 400 — interrupteur des positions en direct (vue 3D)
+- Au-dessus de la vue 3D en jeu (Wind Waker, Mario Kart, Rayman 3) : interrupteur **« Positions en direct (vue 3D) »**.
+  Coupé, la vue 3D se met en pause : l'appli ne s'abonne plus au direct de Pulse, ne lit plus les autres karts et envoie
+  la fin du direct tout de suite (moins de travail pour la console pendant le jeu). Le compagnon garde ses lectures
+  légères (vie, rubis…). Réglage gardé. Console inchangée.
+
 ## Nouveautés v356 et v357 (build 880) — Salon par Internet, GC Station PC, corrections du test des touches
 
 - **Salon par Internet** : START > Réglages > Salon et téléphone : adresse de l'ami (IP ou nom) et code commun ; celui qui héberge ouvre 51234 (UDP) et 51238 (TCP). L'autre GC Station apparaît dans FICHIERS. Correction : une console du Salon pouvait disparaître juste après être apparue.
