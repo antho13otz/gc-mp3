@@ -191,6 +191,8 @@ typedef struct {
     /* (v351) mots du jeu ecrits avant la derniere remise a zero (gw a ce moment : 15e mot du diagnostic, l'appli les donne a
        la GBA avant elle) ; 0x30 predit par Pulse (identifiant renvoye) pas encore confirme par le telephone */
     unsigned int grw, gpred;
+    /* (v352, diagnostic du micro) selections du slot B par le jeu (micro emule), lectures de son identifiant */
+    unsigned int mnsel, mnid;
     /* (v332, hors du journal) micro du telephone : le slot B joue le micro GameCube (DOL-022 : Mario Party 6 et 7...). micon
        (GC Station) : 1 = actif. Le reste (resident) : etat du micro (ecrit par la commande 80, lu par 40 : bit 15 en marche,
        bits 13-14 paquet de 32 / 64 / 128 octets, bits 11-12 11025 / 22050 / 44100 Hz, bit 10 gain), commandes du jeu,

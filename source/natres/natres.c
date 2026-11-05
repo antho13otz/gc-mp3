@@ -1117,13 +1117,14 @@ static MEM_OS void gb_rx(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d,
    (les plus vieux sautes s'il deborde) */
 static MEM_OS void mic_rx(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d, u32 dispo) {
     u32 n = pn_be32(d + 8);
+    p->vip = pn_be32(f + 26); p->vport = pn_be16(u); p->vmac0 = pn_be32(f + 6); p->vmac1 = pn_be16(f + 10) << 16;   /* (v352 : meme micro coupe : on lui repond) */
     if (!p->micon || n > 1472u || n + 12u > dispo) { p->bad++; return; }
     p->mnrx++;
-    p->vip = pn_be32(f + 26); p->vport = pn_be16(u); p->vmac0 = pn_be32(f + 6); p->vmac1 = pn_be16(f + 10) << 16;
     for (u32 i = 0; i < n; i++) MIC_RING(p)[p->mw++ & (NATRES_MIC_RING - 1u)] = d[12 + i];
     if (p->mw - p->mr > NATRES_MIC_RING) p->mr = p->mw - NATRES_MIC_RING;
 }
 static void mic_ready(natres_pad_t *p);
+static u32 mic_flags(natres_pad_t *p);
 static MEM_OS __attribute__((noinline)) void mic_tx(natres_pad_t *p) {             /* (toutes les 30 images) etat du micro emule, vers le telephone */
     static u32 tick = 0;
     if (!p->vip || ++tick % 10u) return;
@@ -1131,8 +1132,12 @@ static MEM_OS __attribute__((noinline)) void mic_tx(natres_pad_t *p) {          
     const u32 *w = &p->mstat;                            /* (mstat ... mlow : 8 mots, dans l'ordre de natres.h) */
     pn_p32(uu, NATRES_MIC_MAGIC); pn_p32(uu + 4, 0x02000000u);
     for (u32 i = 0; i < 8; i++) pn_p32(uu + 8 + i * 4, w[i]);
+    /* v352 (diagnostic) : selections du slot B par le jeu, lectures de l'identifiant, drapeaux : bit 0 micro active dans GC
+       Station, bit 1 slot B = micro emule, bit 2 slot B emule (Pulse y repond) */
+    pn_p32(uu + 40, p->mnsel); pn_p32(uu + 44, p->mnid);
+    pn_p32(uu + 48, mic_flags(p));
     pn_p32(mac, p->vmac0); pn_p16(mac + 4, p->vmac1 >> 16);
-    pn_udp(p, mac, p->vip, p->vport, 40);
+    pn_udp(p, mac, p->vip, p->vport, 52);
 }
 static MEM_OS void gb_tx(natres_pad_t *p) {              /* (chaque image) : mots du jeu au telephone, etat */
     static u32 tick = 0, lu = 0;
@@ -1213,7 +1218,8 @@ void MEM_OS pd_poll(void) {
     if (p->mpause) mem_pause(p);                          /* v306 : jeu en pause pour le chercheur de codes */
     ms_send(p);                                          /* (appli : le direct) */
     if (p->gbmask) gb_tx(p);                             /* v331 : GBA du telephone */
-    if (p->micon) { mic_ready(p); mic_tx(p); }           /* v332 : micro du telephone : un paquet pret ? etat */
+    if (p->micon) mic_ready(p);                           /* v332 : micro du telephone : un paquet pret ? */
+    mic_tx(p);                                           /* (v352 : l'etat, meme micro coupe dans GC Station : le telephone le dit) */
     if (p->mach && p->mip) { p->mach--; mem_ach(p); }     /* v306 : succes obtenu : annonce au telephone */
     {   /* v275 : vibration demandee par le jeu : envoyee au telephone quand elle change, puis toutes les 8 images tant
            qu'elle dure (l'appli s'arrete seule sans nouvelles : un paquet perdu ne la laisse pas vibrer) */
@@ -1932,6 +1938,7 @@ static void card_done(vcard_t *v) {                      /* fin d'effacement / d
    paquet est pret, interruption EXI : le jeu lit l'etat, puis 20 et le paquet par DMA (echantillons 16 bits gros-boutistes).
    Ici, le slot B emule (comme la carte virtuelle) joue ce micro avec le son du telephone : l'appli lit l'etat (renvoye toutes
    les 10 images) et envoie des echantillons 16 bits deja a la bonne frequence ; interruption des qu'un paquet entier est la. */
+static MEM_OS u32 mic_flags(natres_pad_t *p) { return (p->micon ? 1u : 0u) | (vc[1].id == MIC_ID ? 2u : 0u) | (vc[1].on ? 4u : 0u); }
 static MEM_OS __attribute__((noinline)) natres_pad_t *mic_p(void) { natres_pad_t *p = pd_find(); return p && p->micon ? p : 0; }
 static MEM_OS void mic_ready(natres_pad_t *p) {          /* un paquet entier attend : interruption EXI du slot B */
     vcard_t *v = &vc[1];
@@ -1945,6 +1952,7 @@ static MEM_OS u8 mic_byte(vcard_t *v, u8 b) {
     if (!p) return r;
     if (v->pos == 0) {
         v->cmd = b; p->mncmd++;
+        if (b == 0x00u) p->mnid++;                       /* (v352 : diagnostic) */
         if (b == 0xFF) { p->mstat = 0; v->irq &= ~2u; }
     } else if (v->cmd == 0x40) r = (u8)(v->pos == 1 ? p->mstat >> 8 : p->mstat);
     else if (v->cmd == 0x80) {
@@ -1964,7 +1972,7 @@ static MEM_OS u8 mic_byte(vcard_t *v, u8 b) {
     return r;
 }
 static MEM_OS void card_cs(vcard_t *v, int on) {
-    if (on) { v->pos = 0; return; }
+    if (on) { v->pos = 0; if (v->id == MIC_ID) { natres_pad_t *p = pd_find(); if (p) p->mnsel++; } return; }   /* (v352 : diagnostic) */
     if (v->id == MIC_ID) { natres_pad_t *p = mic_p(); if (p && v->cmd == 0x20) mic_ready(p); return; }   /* v332 : paquet lu : le suivant ? */
     u32 mask = v->size - 1;
     if (v->cmd == 0xF1 && v->pos > 2) { card_wr(v, v->addr & mask & ~0x1FFFu, 0, 0xFF, 0x2000); card_done(v); }
