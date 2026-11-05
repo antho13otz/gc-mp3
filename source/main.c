@@ -12903,7 +12903,7 @@ static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
         menu_change(menu_sel, (nav & PAD_BUTTON_RIGHT) ? 1 : -1);
     if (down & PAD_BUTTON_A) {
         crumb("menu : %s", (menu_sel >= 0 && menu_sel < MI_COUNT && menu_labels[menu_sel]) ? menu_labels[menu_sel] : "?");
-        if (menu_sel == MI_QUIT) quit_requested = 1;
+        if (menu_sel == MI_QUIT) { if (sx_safe) sx_block("quitter GC Station"); else quit_requested = 1; }   /* v348 : (test des touches : il quittait au hasard) */
         else if (menu_sel >= MI_NETSMB && menu_sel <= MI_NETFSP) { nfs_ui_open(menu_sel - MI_NETSMB); return; }   /* v86 */
         else if (menu_sel == MI_PARTY) {                      /* A = lancer le mode soiree */
             menu_open = 0;
