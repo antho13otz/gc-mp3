@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v359 (build 885) — jeu en réseau local par Internet (Pulse LAN)
+
+- **Jeu en réseau local par Internet** : dans « Lancer ce jeu ? », **Z : par Internet** (avec le Salon par Internet réglé : adresse de l'ami et code). Le jeu est lancé avec **Pulse LAN**, une 2e version de Pulse sans les manettes du téléphone ni le chercheur de codes, avec un **pont** : les trames du Broadband Adapter du jeu partent par Internet (UDP 51240, format de GC Station PC et de `tools/lan-relais.py`) vers l'ami, et les siennes reviennent au jeu. Celui qui héberge ouvre le port UDP 51240. Le Pulse normal ne change pas.
+- Essayé sur le banc d'essai (`tools/natif-test/emu_lan.py`) ; **pas encore sur une vraie GameCube**.
+
+## Nouveautés v358 (build 883) — console et PC séparés
+
+- La version PC (Windows) a maintenant **sa propre copie du code** dans `pc/` (historique : `docs/HISTORIQUE-PC.md`). `source/` ne contient plus rien du PC. **Même comportement que v357.**
+- Le build 882 (sans changement, dû au réglage de la compilation) n'était pas à installer.
+
 ## Appli build 400 — interrupteur des positions en direct (vue 3D)
 - Au-dessus de la vue 3D en jeu (Wind Waker, Mario Kart, Rayman 3) : interrupteur **« Positions en direct (vue 3D) »**.
   Coupé, la vue 3D se met en pause : l'appli ne s'abonne plus au direct de Pulse, ne lit plus les autres karts et envoie
