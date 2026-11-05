@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 372 — Tingle Tuner : GBA du téléphone (essai)
+
+Ce build va avec la console v331 et son réglage « GBA du téléphone (port 2) ». La fiche Wind Waker du compagnon a un bloc **Tingle Tuner** :
+- le bouton « Brancher la GBA » ;
+- la réception du programme que le jeu envoie à la GBA, puis son déchiffrement et la vérification de sa somme ;
+- l'affichage de son titre et l'enregistrement du programme ;
+- le journal du relais et un rapport à copier.
+
+Il n'y a pas encore d'émulateur GBA, donc le relais sert seulement au diagnostic.
+
 ## Nouveautés v331 (build 849) — GBA du téléphone (Tingle Tuner, essai)
 
 Nouveau réglage « GBA du téléphone (port 2) ». Une fois activé, Pulse se fait passer pour une GBA branchée sur le port 2 :
