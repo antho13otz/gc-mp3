@@ -4,7 +4,6 @@
 #   - on verifie : ses annonces GCSW1 arrivent ici (bonne empreinte), elle repond aux notres, elle nous voit
 #     (journal : "salon : Ami du test"), son port 51238 sert /s/list avec k=, refuse sans k= ou avec un faux,
 #     refuse /s/open et ce qui n'est pas /s/, et un mauvais code ne la fait pas repondre.
-#   GCS_BIN=chemin\GC Station.exe : la meme chose avec GC Station PC sur Windows (carte : dossier sd a cote du programme).
 import os, shutil, socket, subprocess, sys, time, urllib.request, urllib.error
 R = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..'))
 P = R + '/tools/pc-sim'; RUN = P + '/work/salon-internet'
@@ -15,16 +14,10 @@ def khash(code):
         x = ((x ^ c) * 16777619) & 0xFFFFFFFF
     return '%08x' % x
 K = khash(CODE)
-BIN = os.environ.get('GCS_BIN', P + '/gcstation')
-WIN = BIN.lower().endswith('.exe')
+BIN = P + '/gcstation'
 os.makedirs(RUN, exist_ok=True)
-if WIN:                                                   # (Windows : le programme dans RUN, sa carte = RUN/sd)
-    SD = RUN + '/sd'
-    shutil.copy(BIN, RUN + '/gcstation.exe'); BIN = RUN + '/gcstation.exe'
-    os.makedirs(SD + '/mp3', exist_ok=True); open(SD + '/mp3/essai.mp3', 'wb').write(b'\xff\xfb' + bytes(4000))
-else:
-    SD = RUN + '/sd:'
-    if not os.path.isdir(SD + '/mp3'): subprocess.run(['sh', P + '/demo-sd.sh', RUN], check=True, stdout=subprocess.DEVNULL)
+SD = RUN + '/sd:'
+if not os.path.isdir(SD + '/mp3'): subprocess.run(['sh', P + '/demo-sd.sh', RUN], check=True, stdout=subprocess.DEVNULL)
 os.makedirs(SD + '/gc-mp3', exist_ok=True)
 cfg = SD + '/gc-mp3/gc-mp3.txt'
 lines = [l for l in open(cfg, encoding='latin-1').read().splitlines() if not l.startswith(('salon', 'salon_'))] if os.path.exists(cfg) else []
