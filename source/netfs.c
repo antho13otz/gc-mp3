@@ -599,7 +599,7 @@ static int nfs_cache_find(const char *path, int *dir, u32 *size) {
 /* ======================= v138 : GC Station (Salon) =======================
    L'autre console sert sa carte SD par son serveur du telephone : /s/list, /s/stat, /s/get (morceaux, en-tete
    Range), en HTTP tout simple (une connexion par demande). Chemins relatifs a sa carte SD. */
-/* v348 : Salon par Internet : l'adresse de l'autre console (salon_ami, IP ou nom), le code commun (salon_code). Par Internet,
+/* v356 : Salon par Internet : l'adresse de l'autre console (salon_ami, IP ou nom), le code commun (salon_code). Par Internet,
    seules les demandes /s/ passent, par un port a part (SALON_WAN_PORT, TCP), avec l'empreinte du code (k=) */
 #define SALON_WAN_PORT 51238
 static char salon_ami[96] = "";
@@ -630,7 +630,7 @@ static int gcs_http(const char *what, const char *rel, u32 from, u32 len, u8 *ou
     gcs_pct(q, sizeof(q), rel);
     s32 fd = nfs_tcp(nfs_cfg[NFS_GCS].host, nfs_cfg[NFS_GCS].port);
     if (fd < 0) return -1;
-    char kq[24] = "";                                    /* v348 : console par Internet : l'empreinte du code */
+    char kq[24] = "";                                    /* v356 : console par Internet : l'empreinte du code */
     if (nfs_cfg[NFS_GCS].port == SALON_WAN_PORT) snprintf(kq, sizeof(kq), "&k=%s", salon_khash());
     int rl = len ? snprintf(req, sizeof(req), "GET /s/%s?p=%s%s HTTP/1.0\r\nHost: %s\r\nRange: bytes=%u-%u\r\n\r\n", what, q, kq, nfs_cfg[NFS_GCS].host, (unsigned)from, (unsigned)(from + len - 1))
                  : snprintf(req, sizeof(req), "GET /s/%s?p=%s%s HTTP/1.0\r\nHost: %s\r\n\r\n", what, q, kq, nfs_cfg[NFS_GCS].host);
@@ -716,7 +716,7 @@ static int gcs_fread(gcs_file_t *h, u8 *dst, int len) {
 
 /* v138 : le Salon (salon.c) : consoles trouvees sur le reseau */
 #define SALON_MAX 8
-typedef struct { char name[40]; char ip[16]; char now[80]; u64 seen; int port; int wan; } salon_peer_t;   /* (v348 : wan = console par Internet) */   /* (v143 : port HTTP annonce : 80, ou 8080 pour tools/pulse-serveur.py) */
+typedef struct { char name[40]; char ip[16]; char now[80]; u64 seen; int port; int wan; } salon_peer_t;   /* (v356 : wan = console par Internet) */   /* (v143 : port HTTP annonce : 80, ou 8080 pour tools/pulse-serveur.py) */
 static salon_peer_t salon_peers[SALON_MAX];
 static int salon_n = 0;
 static int salon_gen = 0;                              /* (change quand une console arrive ou part : liste des appareils a refaire) */

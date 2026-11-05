@@ -841,7 +841,7 @@ static void gl_fx_load(void) {
     u32 want = gl_fx_hash();
     long n = 0;
     char *d = (char *)read_file(GL_FX_MINE, 1024 * 1024, &n);
-    int ok = d && n >= 9 && d[0] == '#' && (u32)strtoul(d + 1, NULL, 16) == want;   /* v348 : (n >= 9 : aucune fiche pour mes jeux = l'en-tete seul, 10 octets ; avant : la grande liste, 1 Mo, relue a chaque fois) */
+    int ok = d && n >= 9 && d[0] == '#' && (u32)strtoul(d + 1, NULL, 16) == want;   /* v356 : (n >= 9 : aucune fiche pour mes jeux = l'en-tete seul, 10 octets ; avant : la grande liste, 1 Mo, relue a chaque fois) */
     if (!ok) {                                           /* (refaite d'apres la grande liste) */
         free(d);
         d = (char *)read_file(GL_FX_BIG, 6 * 1024 * 1024, &n);
@@ -1576,7 +1576,7 @@ static GXTexObj *gl_cover(int k, int load) {                 /* jaquette 128x256
     if (s) return &s->obj;
     if (!load || gl[k].post < 0) return NULL;
     if (k < GL_MAX && gl_cov_retry[k] && now_ms() < gl_cov_retry[k]) return NULL;
-    {   /* v348 : au plus 2 jaquettes lues par image : l'ecran s'affiche tout de suite, les jaquettes arrivent une a une
+    {   /* v356 : au plus 2 jaquettes lues par image : l'ecran s'affiche tout de suite, les jaquettes arrivent une a une
            (avant : toutes lues dans la 1re image ; ouverture de la liste des jeux : plus d'une seconde figee) */
         static u32 vi = 0, n = 0;
         u32 r = VIDEO_GetRetraceCount();
@@ -1880,7 +1880,7 @@ static int gl_quick_changed(void) {
 static void gclib_open(void) {
     gl_on = 1; gl_detail = 0;
     if (!gl_scanned) gl_scan_full(0);                      /* (liste gardee : tout de suite) */
-    static u64 qc_t = 0;                                   /* v348 : le tour de la carte SD (0,3 s et plus a chaque entree) : au plus une fois par 2 min */
+    static u64 qc_t = 0;                                   /* v356 : le tour de la carte SD (0,3 s et plus a chaque entree) : au plus une fois par 2 min */
     u64 qn = now_ms();
     int qc = gl_auto && (!qc_t || qn - qc_t > 120000u);
     if (qc) qc_t = qn;

@@ -1,6 +1,6 @@
 name: Test des touches (3 h, simulateur)
 
-# v348 : le test des touches entier (START > Reglages > Outils > Test de la console > Z : 3 heures) dans le simulateur,
+# v356 : le test des touches entier (START > Reglages > Outils > Test de la console > Z : 3 heures) dans le simulateur,
 # avec AddressSanitizer : chaque ecran recoit chaque touche, puis touches au hasard. Le rapport (test-console.txt) et
 # ce qui a ete lent, force ou bloque sont dans le journal de la compilation. A la demande (onglet Actions).
 on:

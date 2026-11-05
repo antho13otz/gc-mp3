@@ -53,6 +53,8 @@ object GbaNatif {
     @JvmStatic external fun image(touches: Int, pixels: IntArray, son: ShortArray, mots: IntArray, nmots: Int, res: IntArray): Int
     @JvmStatic external fun joy(cmd: Int, data: ByteArray): Int
     @JvmStatic external fun regs(out: IntArray)
+    @JvmStatic external fun mem32(adr: Int): Int
+    @JvmStatic external fun ecr8(adr: Int, v: Int)
 }
 
 object GbaEmu {
@@ -91,9 +93,20 @@ object GbaEmu {
     // est plus ancien)
     @Volatile var resetsPulse = 0
     @Volatile var resetsVus = 0
-    @Volatile var regsVus = ""                             // (build 383 : registres du cable vus par la GBA, pour le rapport)
+    @Volatile var resetIdx = 0L                            // (build 394, console v351 : mots du jeu ecrits avant la derniere remise a zero)
+    @Volatile var regsVus = ""
+    // build 392 : ce qui arrive a la GBA (diagnostic) : ses remises en place (« La connexion a echoue ») avec le code
+    // d'erreur et l'etat de son gestionnaire du cable (Rayman 3 : 0x03000A98, 0x03000AA0), ce qu'elle a recu juste avant
+    val evts = java.util.concurrent.ConcurrentLinkedDeque<String>()
+    private val derniers = ArrayDeque<String>()             // (fil de l'emulateur : les 12 derniers echanges avec la GBA)
+    private fun trace(t: String) { derniers.addLast(t); while (derniers.size > 12) derniers.removeFirst() }
+    private fun evt(t: String) {
+        val h = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.FRANCE).format(java.util.Date())
+        evts.addLast("$h $t\n      avant : " + derniers.joinToString(" | ")); while (evts.size > 20) evts.removeFirst()
+    }                             // (build 383 : registres du cable vus par la GBA, pour le rapport)
     @Volatile var retenus = false
     @Volatile var nAvales = 0
+    @Volatile var nRedonnes = 0                           // (build 395 : mots que la GBA n'avait pas lus, redonnes)
 
     @Volatile private var fil: Thread? = null
     @Volatile private var stop = false
@@ -101,7 +114,7 @@ object GbaEmu {
     fun demarrer(programme: ByteArray) {
         arreter()
         if (!GbaNatif.pret) { message = "Émulateur GBA absent de cette version de l'appli"; return }
-        entrees.clear(); resetsVus = 0; transId = 0; transVal = 0; luPret = false; drapeaux = 0; tidLuPulse = 0; nRecus = 0; nEnvoyes = 0; nAvales = 0
+        entrees.clear(); evts.clear(); resetsVus = 0; transId = 0; transVal = 0; luPret = false; drapeaux = 0; tidLuPulse = 0; nRecus = 0; nEnvoyes = 0; nAvales = 0
         stop = false
         fil = Thread({ boucle(programme) }, "gba-emu").apply { isDaemon = true; start() }
     }
@@ -139,28 +152,67 @@ object GbaEmu {
         var idGba = -1L                                    // (l'identifiant de la GBA, vu a la 1re remise a zero)
         var codeLu = false                                 // (build 384 : le code ecrit par la GBA a ete lu ici)
         var joycnt = 0
+        var nApres = 0
+        var imgBoot = -1
+        var errPrec = 0; var drapPrec = 0
+        var motBloque = 0                                   // (build 391 : image ou le mot renvoye par le jeu a ete donne au debut du programme)                                     // (build 390 : images depuis la remise a zero, identifiant pas encore ecrit)
         var prochain = System.nanoTime()
         try {
             while (!stop) {
                 // la GBA apprend que le jeu a lu son JOY_TRANS
-                if (attenteLu && tidLuPulse == numero) { GbaNatif.joy(0x14, d); attenteLu = false; transId = 0; nEnvoyes++ }
+                if (attenteLu && tidLuPulse == numero) { trace("lu par le jeu %08X".format(transVal)); GbaNatif.joy(0x14, d); attenteLu = false; transId = 0; nEnvoyes++ }
                 val rp = resetsPulse
-                if (rp != resetsFaits) {                   // (build 387 : remise a zero par le jeu : a la GBA ; son JOY_TRANS d'avant est perime)
-                    GbaNatif.joy(0xFF, d); resetsFaits = rp; attenteLu = false; transId = 0; apresReset = true
+                // build 391 : pas de remise a zero pendant le debut du programme (il attend JOYCNT = 2 exactement : avec la
+                // remise a zero, 3, il attendait pour toujours, ecran blanc) : donnee une fois ce debut passe
+                val bootFini = codeJeu < 0 || (imgBoot >= 0 && nImages - imgBoot >= 10) || nImages > 600
+                // build 394 : les mots que le jeu a ecrits avant cette remise a zero passent d'abord (sur une vraie GBA, deja
+                // recus) : sinon elle les recevait apres et les refusait (erreurs 7 / E4, ecran fige)
+                val ri = resetIdx
+                var avant = 0
+                if (rp != resetsFaits && bootFini) for (w in entrees) { if ((w ushr 32) < ri && avant < mots.size) avant++ else break }
+                if (rp != resetsFaits && bootFini && avant == 0) {                   // (build 387 : remise a zero par le jeu : a la GBA ; son JOY_TRANS d'avant est perime)
+                    trace("remise à zéro"); GbaNatif.joy(0xFF, d); resetsFaits = rp; attenteLu = false; transId = 0; apresReset = true; nApres = 0
                 }
+                // build 393 : le programme GBA de Rayman 3 se deconnecte apres 10 images sans echange sur le cable (son compteur :
+                // 0x03000AA2, remis a 0 par chaque echange) ; par le Wi-Fi, un paquet retarde suffit : compteur tenu a 0 ici
+                if (bootFini && (codeJeu and 0xFFFFFFL) == 0x485247L) GbaNatif.ecr8(0x03000AA2, 0)
                 // une image, en donnant les mots du jeu des que la GBA est prete
                 var n = 0
-                if (retenir && ++nImages > 180) retenir = false    // (3 s sans le code : on donne quand meme)
+                nImages++
+                if (retenir && nImages > 180) retenir = false      // (3 s sans le code : on donne quand meme)
                 // build 384 : apres le code, la GBA attend JOYCNT = 4 exactement (« lu par le jeu ») et l'efface ; le mot du jeu
                 // seulement ensuite (sinon JOYCNT = 6 : elle attendait pour toujours)
                 if (retenir && codeLu && joycnt and 4 == 0) retenir = false
-                if (!retenir) for (w in entrees) { if (n >= mots.size) break; mots[n++] = w.toInt() }
+                // build 390 : comme sur une vraie GBA, apres une remise a zero : son identifiant, lu par le jeu (et la GBA l'a
+                // appris : JOYCNT 4 efface), puis seulement le mot du jeu (sinon elle le refusait : « La connexion a echoue »)
+                if (apresReset) nApres++
+                val attendReset = (apresReset && nApres <= 30) || (joycnt and 4 != 0)
+                if (avant > 0) for (w in entrees) { if (n >= avant) break; mots[n++] = w.toInt() }
+                else if (!retenir && !attendReset) for (w in entrees) { if (n >= mots.size) break; mots[n++] = w.toInt() }
                 GbaNatif.image(touches, px, son, mots, n, res)
-                repeat(res[1]) { entrees.poll(); nRecus++ }
+                repeat(res[1]) { i -> entrees.poll(); nRecus++; trace("mot du jeu %08X".format(mots[i])) }
+                if (res[1] > 0 && imgBoot < 0) imgBoot = nImages
                 if (res[1] > 0) donnesSansLu = true
                 GbaNatif.regs(r)
                 val js = r[0]
                 joycnt = r[3]
+                // build 395 : un mot recu (JOYSTAT 02) dont l'interruption est deja acquittee (JOYCNT sans 02) : la GBA ne le
+                // lira jamais ; redonne tel quel apres 3 images (son gestionnaire le lit alors)
+                if (js and 0x02 != 0 && joycnt and 0x02 == 0) {
+                    if (++motBloque >= 3) {
+                        val v = r[2]; d[0] = v.toByte(); d[1] = (v shr 8).toByte(); d[2] = (v shr 16).toByte(); d[3] = (v shr 24).toByte()
+                        trace("mot %08X redonné (pas lu)".format(v)); GbaNatif.joy(0x15, d); motBloque = 0; nRedonnes++
+                    }
+                } else motBloque = 0
+                run {                                      // (build 392 : remise en place de la GBA, code d'erreur)
+                    val err = GbaNatif.mem32(0x03000A98); val e0 = GbaNatif.mem32(0x03000AA0); val e1 = GbaNatif.mem32(0x03000AA4)
+                    val drap = js and 0x30
+                    if (err != errPrec || (drapPrec != 0 && drap == 0)) {
+                        evt("GBA : %s (code d'erreur %X ; état %08X %08X ; JOYSTAT %02X JOYCNT %02X)".format(
+                            if (drapPrec != 0 && drap == 0) "remise en place" else "code d'erreur changé", err, e0, e1, js, joycnt))
+                    }
+                    errPrec = err; drapPrec = drap
+                }
                 regsVus = "JOYSTAT %02X, JOYCNT %02X, JOY_TRANS %08X, JOY_RECV %08X".format(r[0], r[3], r[1], r[2]); retenus = retenir
                 if (donnesSansLu && entrees.isEmpty() && js and 0x02 == 0) { donnesSansLu = false; luPret = true }
                 val tv = r[1].toLong() and 0xFFFFFFFFL
@@ -173,13 +225,14 @@ object GbaEmu {
                 val idDejaDonne = !attenteLu && js and 0x08 != 0 && apresReset && drap == 0x20 && idGba >= 0 && tv == idGba
                 if (!attenteLu && js and 0x08 != 0 && apresReset && drap == 0x20) { apresReset = false; if (idGba < 0) idGba = tv }
                 if (idDejaDonne) {
-                    GbaNatif.joy(0x14, d); nAvales++
+                    trace("identifiant %08X lu ici".format(tv)); GbaNatif.joy(0x14, d); nAvales++; GbaNatif.regs(r); joycnt = r[3]
                 } else if (!attenteLu && js and 0x08 != 0 && aAvaler.remove(tv)) {   // (build 381 : deja donne au jeu par Pulse)
                     GbaNatif.joy(0x14, d); nAvales++
                     if (tv == codeJeu) { codeLu = true; GbaNatif.regs(r); joycnt = r[3] }   // (build 386 : JOYCNT relu apres la lecture : 4)
                 } else if (!attenteLu && js and 0x08 != 0 && drap != 0) {      // (la GBA a ecrit JOY_TRANS : pour le jeu)
                     transVal = tv
                     numero = numero % 255 + 1; transId = numero
+                    trace("GBA écrit %08X (JOYSTAT %02X)".format(tv, js))
                     attenteLu = true
                 }
                 drapeaux = js and 0x30

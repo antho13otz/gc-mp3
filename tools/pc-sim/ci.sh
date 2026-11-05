@@ -158,7 +158,7 @@ wait $SIM
 check_log telephone "$(cat $CI/tel.code 2>/dev/null || echo 1)"
 rm -f "$RUN/sd:/photos/telephone-ci.jpg"
 
-# v348 : Salon par Internet (une fausse console par Internet : annonces, code, port 51238)
+# v356 : Salon par Internet (une fausse console par Internet : annonces, code, port 51238)
 if GCS_BIN=$BIN python3 $P/salon-internet/test.py > $CI/salon-internet.txt 2>&1; then note "Salon par Internet ($(grep -c '^OK' $CI/salon-internet.txt) verifications)"
 else fail "Salon par Internet : $(grep -v '^OK' $CI/salon-internet.txt | head -3 | tr '\n' ' ')"; fi
 

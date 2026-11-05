@@ -5792,7 +5792,7 @@ static int alarm_on, alarm_min, alarm_src, alarm_days;   /* v76 : alarm_days 0=t
 static int phone_auto;                      /* onglet TELEPHONE (tab_phone.c) */
 static int salon_on, salon_n;               /* v138 : le Salon (netfs.c, salon.c) */
 static char salon_name[40];
-static char salon_ami[96], salon_code[24];   /* v348 : Salon par Internet (netfs.c, salon.c) */
+static char salon_ami[96], salon_code[24];   /* v356 : Salon par Internet (netfs.c, salon.c) */
 static int rumble_on = 1;                   /* v18 : la manette vibre (mode soiree, jeux) */
 static int pod_auto = 1;                    /* v18 : nouveaux episodes telecharges tout seuls */
 static int wall_on = 0;                     /* v18 : fond d'ecran = une photo */
@@ -5927,7 +5927,7 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "telephone")) phone_auto = yes(v);
         else if (!strcasecmp(k, "salon")) salon_on = yes(v);   /* v138 */
         else if (!strcasecmp(k, "salon_nom")) snprintf(salon_name, sizeof(salon_name), "%s", v);
-        else if (!strcasecmp(k, "salon_ami")) snprintf(salon_ami, sizeof(salon_ami), "%s", v);     /* v348 */
+        else if (!strcasecmp(k, "salon_ami")) snprintf(salon_ami, sizeof(salon_ami), "%s", v);     /* v356 */
         else if (!strcasecmp(k, "salon_code")) snprintf(salon_code, sizeof(salon_code), "%s", v);
         else if (!strcasecmp(k, "veilleuse_luminosite")) { night_lum = atoi(v); if (night_lum < 1) night_lum = 1; if (night_lum > 5) night_lum = 5; }
         else if (!strcasecmp(k, "veilleuse_radio")) night_radio = yes(v);
@@ -6168,7 +6168,7 @@ static void settings_print(FILE *f) {                   /* v194 : le texte de gc
     x73_save(f);
     pj_settings_save(f);                                  /* v191 */
     fprintf(f, "# v138 : Salon (autres GC Station du reseau) ; nom de cette console (vide = automatique)\nsalon = %s\nsalon_nom = %s\n", salon_on ? "oui" : "non", salon_name);
-    fprintf(f, "# v348 : Salon par Internet : adresse de l'autre console (IP ou nom, vide = aucune) ; code commun aux deux consoles\nsalon_ami = %s\nsalon_code = %s\n", salon_ami, salon_code);
+    fprintf(f, "# v356 : Salon par Internet : adresse de l'autre console (IP ou nom, vide = aucune) ; code commun aux deux consoles\nsalon_ami = %s\nsalon_code = %s\n", salon_ami, salon_code);
     nfs_save(f);
 }
 
@@ -11718,7 +11718,7 @@ static void kb_validate(void) {
     if (kb_mode == KB_GLOBE) { gb_kb_done(t); return; }        /* v213 : recherche sur le globe */
     if (kb_mode == KB_CHEATID || kb_mode == KB_CHEATNAME || kb_mode == KB_CHEATCODE) { if (*t || kb_mode == KB_CHEATNAME) cheats_kb_done(kb_mode, t); return; }
     if (kb_mode == KB_NETTXT) { net_kb_done(t); return; }
-    if (kb_mode == KB_SALON) {                                 /* v348 : Salon par Internet */
+    if (kb_mode == KB_SALON) {                                 /* v356 : Salon par Internet */
         if (kb_field == 1) snprintf(salon_ami, sizeof(salon_ami), "%s", t); else snprintf(salon_code, sizeof(salon_code), "%s", t);
         settings_dirty = 1;
         return;
@@ -11905,7 +11905,7 @@ static void kb_input(u32 down, u32 nav, int fire) {
         if (!held) lr_t0 = 0;
     }
     if (down & PAD_BUTTON_A) kb_press();
-    if (down & PAD_BUTTON_B) { if (!kb_text[0]) kb_open = 0; else kb_backspace(); }   /* v348 : B, texte vide : le clavier se ferme (comme Y) */
+    if (down & PAD_BUTTON_B) { if (!kb_text[0]) kb_open = 0; else kb_backspace(); }   /* v356 : B, texte vide : le clavier se ferme (comme Y) */
     if (down & PAD_BUTTON_X) kb_append(" ");
     if (down & PAD_BUTTON_Y) kb_open = 0;
     if (down & PAD_BUTTON_START) kb_validate();
@@ -12613,7 +12613,7 @@ static void menu_value(int i, char *out, int cap) {
     case MI_MASK:    { u32 m = net_cfg_bits ? 0xFFFFFFFFu << (32 - net_cfg_bits) : 0; snprintf(out, cap, "%u.%u.%u.%u", m >> 24, (m >> 16) & 255, (m >> 8) & 255, m & 255); break; }
     case MI_GW:      snprintf(out, cap, "%s", net_dhcp ? (gw_str[0] ? gw_str : "-") : net_cfg_gw[0] ? net_cfg_gw : "(A : taper)"); break;
     case MI_PHONEAUTO: snprintf(out, cap, "%s", phone_auto ? "Oui" : "Non"); break;
-    case MI_SALONAMI: snprintf(out, cap, "%s", salon_ami[0] ? salon_ami : "Aucune"); break;   /* v348 */
+    case MI_SALONAMI: snprintf(out, cap, "%s", salon_ami[0] ? salon_ami : "Aucune"); break;   /* v356 */
     case MI_SALONCODE: snprintf(out, cap, "%s", salon_code[0] ? salon_code : "Aucun"); break;
     case MI_SALON: if (!salon_on) snprintf(out, cap, "Non"); else snprintf(out, cap, "Oui (%d console%s)", salon_n, salon_n > 1 ? "s" : ""); break;
     case MI_UPDAUTO: snprintf(out, cap, "%s", upd_auto ? "Oui" : "Non"); break;
@@ -12767,7 +12767,7 @@ static void menu_change(int i, int d) {
         return;
     case MI_PHONEAUTO: phone_auto = !phone_auto; break;
     case MI_SALON: salon_on = !salon_on; break;
-    case MI_SALONAMI: kb_start(KB_SALON, salon_ami, 1, -1); return;   /* v348 */
+    case MI_SALONAMI: kb_start(KB_SALON, salon_ami, 1, -1); return;   /* v356 */
     case MI_SALONCODE: kb_start(KB_SALON, salon_code, 2, -1); return;
     case MI_UPDAUTO: upd_auto = !upd_auto; break;
     case MI_UPDXZ:   upd_xz = !upd_xz; upd_xz_set = 1; break;
@@ -12903,7 +12903,7 @@ static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
         menu_change(menu_sel, (nav & PAD_BUTTON_RIGHT) ? 1 : -1);
     if (down & PAD_BUTTON_A) {
         crumb("menu : %s", (menu_sel >= 0 && menu_sel < MI_COUNT && menu_labels[menu_sel]) ? menu_labels[menu_sel] : "?");
-        if (menu_sel == MI_QUIT) { if (sx_safe) sx_block("quitter GC Station"); else quit_requested = 1; }   /* v348 : (test des touches : il quittait au hasard) */
+        if (menu_sel == MI_QUIT) { if (sx_safe) sx_block("quitter GC Station"); else quit_requested = 1; }   /* v356 : (test des touches : il quittait au hasard) */
         else if (menu_sel >= MI_NETSMB && menu_sel <= MI_NETFSP) { nfs_ui_open(menu_sel - MI_NETSMB); return; }   /* v86 */
         else if (menu_sel == MI_PARTY) {                      /* A = lancer le mode soiree */
             menu_open = 0;

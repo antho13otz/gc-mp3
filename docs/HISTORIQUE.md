@@ -24,6 +24,64 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v355 (build 878) — journal : où tourne le jeu quand il reste bloqué
+
+Pulse ne relevait l'endroit du programme où tourne le jeu qu'avant sa première image. Il le relève maintenant toute la partie (toutes les 32 images), et le journal du dernier jeu le donne comme « où en était le jeu à la fin », avec le code autour : pour les jeux qui restent bloqués sans figer l'image (Mario Party 7 au début du mini-jeu à micro).
+
+## Nouveautés v354 (build 877) et appli build 399 — micro du téléphone : une voix non hachée
+
+Mario Party 7 lit le son du téléphone mais ne reconnaissait pas le mot demandé : 2 à 4 % du son étaient des petits trous de silence, au gré du Wi-Fi, qui hachaient les mots. Pulse garde maintenant ~90 ms de son d'avance avant de le donner au jeu, et refait cette réserve d'un coup après un trou ; s'il prend trop d'avance, il rattrape. Le rapport du micro (appli 399) compte ces coupures.
+
+## Appli build 398 — micro du téléphone : réglages d'essai
+
+Mario Party 7 lit le son du téléphone en continu mais ne réagit pas à la voix. Deux boutons d'essai dans la carte du micro, qui changent tout de suite : ordre des octets des échantillons (normal / inversé) et volume (×1 à ×8). Le rapport dit les réglages utilisés.
+
+## Nouveautés v353 (build 876) et appli build 397 — micro du téléphone : la cadence d'un vrai micro
+
+Mario Party 7 voyait le micro et l'allumait, puis l'éteignait aussitôt : Pulse n'annonçait un paquet de son qu'une fois le son du téléphone arrivé (~200 ms après). Comme un vrai micro, Pulse annonce maintenant les paquets à la cadence de la fréquence choisie dès la mise en marche : le son du téléphone s'il est là, sinon du silence. L'appli 397 corrige la ligne « Lecture » du rapport du micro (« allumé puis éteint »).
+
+## Nouveautés v352 (build 875) et appli build 396 — micro du téléphone : un vrai rapport
+
+La console répond maintenant au téléphone même quand le micro est coupé dans GC Station, et lui dit combien de fois le jeu a sélectionné le slot B et lu l'identifiant du micro. Le rapport du micro de l'appli donne ces détails, la version de l'appli, la console visée, et une ligne « Lecture » (aussi à l'écran) qui dit où ça coince.
+
+## Appli build 395 — GBA du téléphone : les mots au rythme du câble
+
+La GBA émulée gardait parfois un mot du jeu sans jamais le lire (JOYSTAT 32, mots suivants bloqués) : il lui était donné pendant que son programme finissait de traiter le précédent, et la fin de ce traitement effaçait le signal du nouveau mot. Un mot n'est maintenant donné qu'une fois le précédent complètement traité, pas plus vite qu'un vrai transfert du câble ; un mot resté non lu est redonné.
+
+## Nouveautés v351 (build 874) et appli build 394 — GBA du téléphone : les remises à zéro dans le bon ordre
+
+Le jeu remet parfois la GBA à zéro juste après lui avoir écrit des mots ; l'appli donnait la remise à zéro au milieu de ces mots, et la GBA refusait la fin (erreurs 7 / E4, écran figé sur les consignes). Pulse dit maintenant au téléphone combien de mots le jeu avait écrits avant chaque remise à zéro, et l'appli les donne à la GBA avant elle. Pulse ne laisse plus non plus un ancien état « pas encore connectée » du téléphone défaire la connexion qu'il a annoncée au jeu.
+
+## Nouveautés v350 (build 873) et appli build 393 — GBA du téléphone : un Wi-Fi qui a des ratés
+
+Trouvé dans un banc d'essai (modèle du jeu, de Pulse, du Wi-Fi, de l'appli et de la GBA) en ajoutant des paquets retardés : un paquet en retard arrive après un plus récent et redonne une vieille information (une ancienne réponse de la GBA au jeu, une remise à zéro à l'appli) ; et le programme GBA de Rayman 3 se déconnecte après 10 images sans échange sur le câble. Pulse et l'appli ignorent maintenant les paquets plus anciens que le dernier reçu (numérotés des deux côtés), et l'appli tient à zéro le compteur d'attente du programme GBA de Rayman 3. Banc d'essai : de centaines d'erreurs à aucune, jusqu'à 60 ms de délai avec 10 % de paquets retardés.
+
+## Appli build 392 — GBA du téléphone : journal des remises en place de la GBA
+
+Diagnostic : à chaque fois que la GBA émulée se remet en place (« La connexion a échoué »), le rapport note son code d'erreur et l'état de son gestionnaire du câble (lus dans sa mémoire, sans rien changer), avec les 12 derniers échanges juste avant.
+
+## Nouveautés v349 (build 872) — GBA du téléphone : la partie ne se déconnecte plus
+
+Le jeu GBA de Rayman 3 tournait (consignes, niveau 1) mais « La connexion a échoué » revenait : Rayman 3 attend que la GBA ait lu chaque mot avant le suivant (5 mots en une demi-seconde), soit un aller-retour par le Wi-Fi par mot. Comme une vraie GBA, qui lit le mot aussitôt, Pulse le dit lu tout de suite pendant la partie ; le téléphone reçoit tous les mots dans l'ordre. Vérifié avant publication dans un banc d'essai (modèle du jeu, de Pulse, du Wi-Fi, de l'appli et de la GBA) : plus de déconnexion jusqu'à 80 ms de délai.
+
+(Build 871 : travail du simulateur ajouté, sans changement de la console.)
+
+## Appli build 391 — GBA du téléphone : pas de remise à zéro pendant le début du programme
+
+Le jeu remettait la GBA à zéro pendant que le début de son programme attendait le code renvoyé (écran blanc, JOYCNT 01) ; et l'attente de la 390 retenait ce code. Les remises à zéro ne sont données à la GBA qu'une fois ce début passé (10 images après le code renvoyé, 10 s au plus).
+
+## Appli build 390 — GBA du téléphone : après une remise à zéro, l'identifiant d'abord
+
+Après une remise à zéro, la GBA émulée recevait parfois l'identifiant renvoyé par le jeu avant d'avoir écrit le sien et appris sa lecture : elle ne passait pas en « connecté » et refusait la suite (commande 80). Les mots du jeu attendent maintenant que la GBA ait écrit son identifiant et appris sa lecture (30 images au plus).
+
+## Nouveautés v348 (build 870) — GBA du téléphone : l'identifiant appris même en retard
+
+Rayman 3 remet la GBA à zéro à chaque image : la réponse du téléphone (son identifiant) arrivait toujours après la remise à zéro suivante et était ignorée, si bien que Pulse ne pouvait jamais répondre à sa place. L'identifiant ne change pas : Pulse le retient maintenant même en retard.
+
+## Appli build 389 — GBA du téléphone : seulement les vraies réponses de la GBA
+
+En se remettant en place, le programme GBA écrit 0 sur le câble sans drapeau ; la 388 le prenait pour son identifiant et le lui disait lu, ce qu'il voyait comme une erreur (remise en place en boucle). Un JOY_TRANS de la GBA ne compte maintenant qu'avec ses drapeaux 0x20 / 0x30, et l'identifiant est celui écrit avec 0x20.
+
 ## Appli build 388 — GBA du téléphone : l'identifiant déjà donné par Pulse
 
 La GBA n'accepte l'identifiant renvoyé par le jeu que si le jeu a lu le sien ; depuis la console 869 c'est Pulse qui le donne au jeu, et la GBA émulée ne l'apprenait pas (« La connexion a échoué »). Dès la 2e remise à zéro, l'appli le dit lu à la GBA et ne le renvoie plus à Pulse.

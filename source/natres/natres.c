@@ -1026,7 +1026,7 @@ static MEM_OS void gb_reset(natres_pad_t *p) {           /* FF : cle de session 
     while (n--) k = k * 0x6177614Bu + 1u;
     p->gkey = k; p->gtrans = k ^ 0x6F646573u; p->gjoy = 0x18u;   /* (0x10 : pret ; 0x08 : un mot a lire) */
     p->gst = 1; p->glen = p->gpos = 0; p->gw = p->ga = 0; p->gnew = 0; p->gtid = p->gtidlu = 0;
-    p->gcode = p->gx = p->gfin = 0; p->grst = p->gid = 0;
+    p->gcode = p->gx = p->gfin = 0; p->grst = p->gid = 0; p->grw = p->gpred = 0;
 }
 static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert vers le port GBA : la reponse, tout de suite */
     u32 c = gb_o0 >> 24;
@@ -1039,7 +1039,7 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
         /* v345 : programme lance : une remise a zero ne relance pas le demarrage (une vraie GBA ne le peut plus non plus) */
         if (c == 0xFFu && p->gst != 4) { gb_reset(p); gb_r0 = 0x00040800u; }
         if (c == 0xFFu && p->gst == 4) {                 /* v347 : la GBA emulee l'apprendra ; si on connait sa reponse : tout de suite */
-            p->grst++;
+            p->grst++; p->grw = p->gw; p->gpred = 0;
             if (p->gid) { p->gtrans = p->gid; p->gjoy = 0x28u | (p->gjoy & 0x02u); }
         }
         return;
@@ -1076,7 +1076,11 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
             else p->gnew = 1;                            /* (tampon plein : la bascule attend le telephone) */
         } else if (p->gid && w == p->gid && (p->gjoy & 0x38u) == 0x20u) {
             p->gjoy = (p->gjoy & ~0x32u) | 0x30u;          /* (v347 : le jeu renvoie l'identifiant : la GBA repond 0x30 et lit le mot) */
-        } else p->gjoy |= 0x02u;                         /* (relais : le telephone lira) */
+            p->gpred = 1;
+        } else if (p->gst != 4) p->gjoy |= 0x02u;
+        /* v349 : programme lance : comme une vraie GBA (son gestionnaire du cable lit JOY_RECV des qu'il arrive), le mot est
+           dit lu tout de suite (le telephone le recoit dans l'ordre) : Rayman 3 attend « lu » apres chaque mot, et un aller-
+           retour par le Wi-Fi par mot le deconnectait (« La connexion a echoue » en pleine partie) */
         /* v343 : comme une vraie GBA : la reponse a 15 est JOYSTAT a la fin du transfert, avant que le BIOS n'ait traite le
            mot (0x12 pour la cle B, et non 0x22) : le demarrage du SDK le verifie (Rayman 3 recommencait apres le 1er mot) */
         gb_r0 = (((p->gst == 4 ? p->gjoy : j0) | 0x02u) & 0xFFu) << 24;
@@ -1088,30 +1092,39 @@ static MEM_OS void gb_rx(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d,
     p->gnrx++;
     p->gip = pn_be32(f + 26); p->gport = pn_be16(u);
     p->gmac0 = pn_be32(f + 6); p->gmac1 = pn_be16(f + 10) << 16;
-    u32 ack = pn_be32(d + 12), t = pn_be32(d + 16), o = pn_be32(d + 20);
+    u32 ack = pn_be32(d + 12), t = pn_be32(d + 16), o = pn_be32(d + 20), sq = pn_be32(d + 8);
+    /* v350 : un paquet plus ancien que le dernier pris (arrive en retard, apres un plus recent) est ignore : il redonnait au
+       jeu un ancien JOY_TRANS (« La connexion a echoue ») ; numero <= 16 : l'appli a recommence */
+    if (p->gseq && sq > 16u && (int)(sq - p->gseq) <= 0 && p->gseq - sq < 1000u) return;
+    p->gseq = sq;
     if (ack - p->ga <= p->gw - p->ga) p->ga = ack;       /* (accuse dans [ga, gw]) */
-    if (o & 4u) { p->gst = 0; p->gjoy = 0; p->gw = p->ga = 0; p->gnew = 0; p->gtid = p->gtidlu = 0; p->grst = p->gid = 0; return; }
+    if (o & 4u) { p->gst = 0; p->gjoy = 0; p->gw = p->ga = 0; p->gnew = 0; p->gtid = p->gtidlu = 0; p->grst = p->gid = 0; p->grw = p->gpred = 0; return; }
     u32 id = (o >> 16) & 0xFFu;                          /* (v333 : un JOY_TRANS deja donne n'est pas redonne) */
     /* v347 : appli qui suit les remises a zero (bit 4) : JOY_TRANS et drapeaux d'avant la derniere remise a zero ignores */
     int frais = !(o & 0x10u) || (o >> 24) == (p->grst & 0xFFu);
-    if ((o & 1u) && frais && (!id || id != p->gtid)) {
-        p->gtrans = t; p->gjoy |= 0x08u; p->gtid = id;
-        if ((o & 0x10u) && p->grst && ((o >> 8) & 0x30u) == 0x20u) p->gid = t;   /* (reponse a une remise a zero) */
-    }
+    /* (v348 : l'identifiant (JOY_TRANS avec 0x20, reponse a une remise a zero) est appris meme en retard : le jeu remet a
+       zero a chaque image, le paquet arrive toujours apres la suivante ; il ne change pas) */
+    if ((o & 1u) && (o & 0x10u) && p->grst && ((o >> 8) & 0x30u) == 0x20u && t) p->gid = t;
+    if ((o & 1u) && frais && (!id || id != p->gtid)) { p->gtrans = t; p->gjoy |= 0x08u; p->gtid = id; }
     if (o & 2u) p->gjoy &= ~0x02u;
+    /* v351 : 0x30 predit : les drapeaux d'avant (0x20 : la GBA n'a pas encore recu l'identifiant renvoye) ne le defont pas ;
+       le jeu, connecte, s'arretait en les voyant */
+    if (p->gpred && (o & 8u) && ((o >> 8) & 0x30u) != 0x30u) frais = 0;
+    if ((o & 8u) && ((o >> 8) & 0x30u) == 0x30u) p->gpred = 0;
     if ((o & 8u) && frais) p->gjoy = (p->gjoy & ~0x30u) | ((o >> 8) & 0x30u);
 }
 /* v332 : micro du telephone : les octets du paquet "GCVO" (echantillons 16 bits, deja a la frequence du jeu) dans l'anneau
    (les plus vieux sautes s'il deborde) */
 static MEM_OS void mic_rx(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d, u32 dispo) {
     u32 n = pn_be32(d + 8);
+    p->vip = pn_be32(f + 26); p->vport = pn_be16(u); p->vmac0 = pn_be32(f + 6); p->vmac1 = pn_be16(f + 10) << 16;   /* (v352 : meme micro coupe : on lui repond) */
     if (!p->micon || n > 1472u || n + 12u > dispo) { p->bad++; return; }
     p->mnrx++;
-    p->vip = pn_be32(f + 26); p->vport = pn_be16(u); p->vmac0 = pn_be32(f + 6); p->vmac1 = pn_be16(f + 10) << 16;
     for (u32 i = 0; i < n; i++) MIC_RING(p)[p->mw++ & (NATRES_MIC_RING - 1u)] = d[12 + i];
     if (p->mw - p->mr > NATRES_MIC_RING) p->mr = p->mw - NATRES_MIC_RING;
 }
 static void mic_ready(natres_pad_t *p);
+static u32 mic_flags(natres_pad_t *p);
 static MEM_OS __attribute__((noinline)) void mic_tx(natres_pad_t *p) {             /* (toutes les 30 images) etat du micro emule, vers le telephone */
     static u32 tick = 0;
     if (!p->vip || ++tick % 10u) return;
@@ -1119,8 +1132,12 @@ static MEM_OS __attribute__((noinline)) void mic_tx(natres_pad_t *p) {          
     const u32 *w = &p->mstat;                            /* (mstat ... mlow : 8 mots, dans l'ordre de natres.h) */
     pn_p32(uu, NATRES_MIC_MAGIC); pn_p32(uu + 4, 0x02000000u);
     for (u32 i = 0; i < 8; i++) pn_p32(uu + 8 + i * 4, w[i]);
+    /* v352 (diagnostic) : selections du slot B par le jeu, lectures de l'identifiant, drapeaux : bit 0 micro active dans GC
+       Station, bit 1 slot B = micro emule, bit 2 slot B emule (Pulse y repond) */
+    pn_p32(uu + 40, p->mnsel); pn_p32(uu + 44, p->mnid);
+    pn_p32(uu + 48, mic_flags(p)); pn_p32(uu + 52, p->mnrefill);   /* (v354 : + coupures du son, reserve refaite) */
     pn_p32(mac, p->vmac0); pn_p16(mac + 4, p->vmac1 >> 16);
-    pn_udp(p, mac, p->vip, p->vport, 40);
+    pn_udp(p, mac, p->vip, p->vport, 56);
 }
 static MEM_OS void gb_tx(natres_pad_t *p) {              /* (chaque image) : mots du jeu au telephone, etat */
     static u32 tick = 0, lu = 0;
@@ -1141,9 +1158,11 @@ static MEM_OS void gb_tx(natres_pad_t *p) {              /* (chaque image) : mot
         pn_p32(uu + 8, p->gkey); pn_p32(uu + 12, p->glen); pn_p32(uu + 16, p->gpos); pn_p32(uu + 20, a0); pn_p32(uu + 24, m);
         pn_p32(uu + 28, p->gn00); pn_p32(uu + 32, p->gn14); pn_p32(uu + 36, p->gn15);
         for (u32 i = 0; i < m; i++) pn_p32(uu + 40 + i * 4, gb_ring[(a0 + i) % GB_RING]);
-        for (u32 i = 0; i < 13; i++) pn_p32(uu + 40 + m * 4 + i * 4, dg[i]);   /* (v335 : diagnostic du port de la GBA, apres les mots) */
+        for (u32 i = 0; i < 13; i++) pn_p32(uu + 40 + m * 4 + i * 4, dg[i]);
+        pn_p32(uu + 40 + m * 4 + 52, ++p->gntx2);         /* (v350 : numero du paquet, pour l'ordre cote telephone) */
+        pn_p32(uu + 40 + m * 4 + 56, p->grw);             /* (v351 : mots ecrits avant la derniere remise a zero) */   /* (v335 : diagnostic du port de la GBA, apres les mots) */
         pn_p32(mac, p->gmac0); pn_p16(mac + 4, p->gmac1 >> 16);
-        pn_udp(p, mac, p->gip, p->gport, 40 + m * 4 + 52);
+        pn_udp(p, mac, p->gip, p->gport, 40 + m * 4 + 60);
         p->gntx++;
     }
 }
@@ -1199,7 +1218,8 @@ void MEM_OS pd_poll(void) {
     if (p->mpause) mem_pause(p);                          /* v306 : jeu en pause pour le chercheur de codes */
     ms_send(p);                                          /* (appli : le direct) */
     if (p->gbmask) gb_tx(p);                             /* v331 : GBA du telephone */
-    if (p->micon) { mic_ready(p); mic_tx(p); }           /* v332 : micro du telephone : un paquet pret ? etat */
+    if (p->micon) mic_ready(p);                           /* v332 : micro du telephone : un paquet pret ? */
+    mic_tx(p);                                           /* (v352 : l'etat, meme micro coupe dans GC Station : le telephone le dit) */
     if (p->mach && p->mip) { p->mach--; mem_ach(p); }     /* v306 : succes obtenu : annonce au telephone */
     {   /* v275 : vibration demandee par le jeu : envoyee au telephone quand elle change, puis toutes les 8 images tant
            qu'elle dure (l'appli s'arrete seule sans nouvelles : un paquet perdu ne la laisse pas vibrer) */
@@ -1385,6 +1405,7 @@ static MEM_OS void freeze_check(u32 ctx) {
     crash_dump(0xFE, c, best, (best ? (*(volatile unsigned short *)(best + 0x2C8)) << 16 | (bprio & 0xFFFF) : 0) | nth << 24);
     nr_log_flush();
 }
+static void nr_sample(u32 ctx);
 static MEM_OS void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee avant la fonction du jeu */
     trap_guard();
     if (H.opt & (NRO_PHONE | NRO_MEM)) pd_poll();        /* manettes du telephone, chercheur de codes : avant que le jeu lise les manettes */
@@ -1395,6 +1416,8 @@ static MEM_OS void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree 
     freeze_check(ctx);                                   /* v169 */
     igr_ctx = ctx;
     di_tick(ctx, 1);                                     /* v133 : fins de commande (sans le lecteur, ou secours) */
+    if ((H.vi_count & 31u) == 0) nr_sample(ctx);         /* v355 : apres la 1re image aussi (toutes les 32 images) : ou tourne
+                                                            le jeu quand il reste bloque sans figer l'image (Mario Party 7) */
     if (H.chts) gk_run();                                /* v121 : cheats, une fois par image (apres le jeu) */
     if (H.flags & NRF_ACH) ach_run();                    /* v268 : succes */
     if (mfz_n) mfz_run();                                /* v307 : valeurs bloquees par le telephone */
@@ -1918,11 +1941,21 @@ static void card_done(vcard_t *v) {                      /* fin d'effacement / d
    paquet est pret, interruption EXI : le jeu lit l'etat, puis 20 et le paquet par DMA (echantillons 16 bits gros-boutistes).
    Ici, le slot B emule (comme la carte virtuelle) joue ce micro avec le son du telephone : l'appli lit l'etat (renvoye toutes
    les 10 images) et envoie des echantillons 16 bits deja a la bonne frequence ; interruption des qu'un paquet entier est la. */
+static MEM_OS u32 mic_flags(natres_pad_t *p) { return (p->micon ? 1u : 0u) | (vc[1].id == MIC_ID ? 2u : 0u) | (vc[1].on ? 4u : 0u); }
 static MEM_OS __attribute__((noinline)) natres_pad_t *mic_p(void) { natres_pad_t *p = pd_find(); return p && p->micon ? p : 0; }
-static MEM_OS void mic_ready(natres_pad_t *p) {          /* un paquet entier attend : interruption EXI du slot B */
+/* v353 : comme un vrai micro, un paquet a la cadence de la frequence choisie (32 octets a 11025 Hz : toutes les 1,45 ms),
+   des que le jeu l'allume : le son du telephone s'il est la, sinon du silence. Avant : seulement quand le son du telephone
+   etait arrive (~200 ms apres la mise en marche) ; Mario Party 7 eteignait le micro avant (« no Mic »). */
+static u32 mic_tnext = 0;                                /* (horloge : quand le prochain paquet est du) */
+static MEM_OS void mic_ready(natres_pad_t *p) {          /* un paquet est du : interruption EXI du slot B */
     vcard_t *v = &vc[1];
-    u32 k = (p->mstat >> 13) & 3u;                       /* (paquets de 32, 64, 128 octets ; 3 comme 2) */
-    if (v->id != MIC_ID || !(p->mstat & 0x8000u) || (v->irq & 2u) || p->mw - p->mr < (32u << (k > 2u ? 2u : k))) return;
+    u32 k = (p->mstat >> 13) & 3u, r = (p->mstat >> 11) & 3u;   /* (paquets de 32, 64, 128 octets ; 11025, 22050, 44100 Hz) */
+    if (v->id != MIC_ID || !(p->mstat & 0x8000u) || (v->irq & 2u)) return;
+    u32 pk = 32u << (k > 2u ? 2u : k), tpb = 40500000u / (22050u << (r > 2u ? 2u : r));   /* (tops d'horloge par octet) */
+    u32 now = tbl();
+    if ((int)(now - mic_tnext) < 0) return;              /* (pas encore) */
+    if ((int)(now - mic_tnext) > 4050000) mic_tnext = now;   /* (plus de 100 ms de retard : on repart d'ici, sans rafale) */
+    mic_tnext += pk * tpb;
     v->irq |= 2u; p->mnirq++; x_kick();
 }
 static MEM_OS u8 mic_byte(vcard_t *v, u8 b) {
@@ -1931,18 +1964,28 @@ static MEM_OS u8 mic_byte(vcard_t *v, u8 b) {
     if (!p) return r;
     if (v->pos == 0) {
         v->cmd = b; p->mncmd++;
+        if (b == 0x00u) p->mnid++;                       /* (v352 : diagnostic) */
         if (b == 0xFF) { p->mstat = 0; v->irq &= ~2u; }
     } else if (v->cmd == 0x40) r = (u8)(v->pos == 1 ? p->mstat >> 8 : p->mstat);
     else if (v->cmd == 0x80) {
         if (v->pos == 1) v->addr = (u32)b << 8;
         else if (v->pos == 2) {
             u32 st = (v->addr | b) & 0xFDFFu;            /* (bit 9 : debordement, jamais ici) */
-            if (st != p->mstat) p->mr = p->mw;           /* (mise en marche, autre frequence : pas de vieux son) */
+            if (st != p->mstat) { p->mr = p->mw; mic_tnext = tbl(); p->mfill = 1; }   /* (mise en marche, autre frequence : pas de vieux son ; v353 : 1er paquet tout de suite) */
             if (!(st & 0x8000u)) v->irq &= ~2u;
             p->mstat = st;
         }
     } else if (v->cmd == 0x20) {                         /* (echantillons ; rien du telephone : silence) */
-        if (p->mr != p->mw) r = MIC_RING(p)[p->mr++ & (NATRES_MIC_RING - 1u)]; else { r = 0; p->mlow++; }
+        /* v354 : reserve de ~90 ms (selon la frequence) avant de donner le son, et de nouveau apres un trou : la voix arrive
+           entiere (la reconnaissance des mots de Mario Party 7 ratait sur un son hache par le Wi-Fi) ; plus de 370 ms
+           d'avance : on rattrape (latence bornee) */
+        u32 pre = 2048u << (((p->mstat >> 11) & 3u) > 2u ? 2u : ((p->mstat >> 11) & 3u));
+        if (pre > NATRES_MIC_RING / 2u) pre = NATRES_MIC_RING / 2u;
+        u32 dispo = p->mw - p->mr;
+        if (p->mfill && dispo >= pre) p->mfill = 0;
+        if (!p->mfill && dispo > pre * 4u && pre * 4u < NATRES_MIC_RING) { p->mr = (p->mw - pre * 2u) & ~1u; dispo = p->mw - p->mr; }
+        if (!p->mfill && dispo) r = MIC_RING(p)[p->mr++ & (NATRES_MIC_RING - 1u)];
+        else { r = 0; p->mlow++; if (!p->mfill && !(p->mnrd & 1u)) { p->mfill = 1; p->mnrefill++; } }
         p->mnrd++;
     }
     else if (v->cmd == 0x00 && v->pos >= 2) r = (u8)(MIC_ID >> (24 - ((v->pos - 2) & 3) * 8));
@@ -1950,7 +1993,7 @@ static MEM_OS u8 mic_byte(vcard_t *v, u8 b) {
     return r;
 }
 static MEM_OS void card_cs(vcard_t *v, int on) {
-    if (on) { v->pos = 0; return; }
+    if (on) { v->pos = 0; if (v->id == MIC_ID) { natres_pad_t *p = pd_find(); if (p) p->mnsel++; } return; }   /* (v352 : diagnostic) */
     if (v->id == MIC_ID) { natres_pad_t *p = mic_p(); if (p && v->cmd == 0x20) mic_ready(p); return; }   /* v332 : paquet lu : le suivant ? */
     u32 mask = v->size - 1;
     if (v->cmd == 0xF1 && v->pos > 2) { card_wr(v, v->addr & mask & ~0x1FFFu, 0, 0xFF, 0x2000); card_done(v); }

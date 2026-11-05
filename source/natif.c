@@ -1338,7 +1338,8 @@ static void nat_journal_convert(void) {
                         H[74] > H[36] ? "  <- le jeu est reste bloque DANS sa fonction d'image" : H[73] & (1u << 24) && !H[74] ? "  <- plus aucune image : interruptions coupees par le jeu ?" : "");
             }
             if (v10 && (H[76] || !H[36])) {
-                fprintf(f, "Ou en etait le jeu avant sa 1re image : %u echantillons ; dernier code %08X (LR %08X), avant : %08X %08X %08X\n",
+                fprintf(f, "Ou en etait le jeu %s : %u echantillons ; dernier code %08X (LR %08X), avant : %08X %08X %08X\n",
+                        H[36] ? "a la fin (v355 : toutes les 32 images)" : "avant sa 1re image",   /* (v355 : aussi apres la 1re image) */
                         (unsigned)H[76], (unsigned)H[78], (unsigned)H[77], (unsigned)H[79], (unsigned)H[80], (unsigned)H[81]);
                 fprintf(f, "DSP : controle %04X, boites aux lettres %08X%s\n", (unsigned)H[82], (unsigned)H[83],
                         !H[76] ? "\n  (aucun echantillon : le jeu a coupe ses interruptions et tourne en boucle)" : "");
