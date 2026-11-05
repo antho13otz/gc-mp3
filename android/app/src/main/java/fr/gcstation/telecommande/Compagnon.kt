@@ -2033,6 +2033,8 @@ private fun CompagnonWW(e: JeuWW.Etat) {
     if (e.scene != "sea" && e.scene != "sea_T" && e.aPos) PlanInterieurWW(e)
     // build 336 : le lieu en 3D (pack Wind Waker), Link dessus
     LieuWW3D(e)
+    // build 371 : la GBA du telephone (Tingle Tuner, essai ; TingleTuner.kt)
+    TingleTunerWW()
     // la carte marine (v313 : les images du vrai jeu quand l'appli les a ; toucher une case : son nom)
     Carte(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
