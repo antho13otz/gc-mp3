@@ -11905,7 +11905,7 @@ static void kb_input(u32 down, u32 nav, int fire) {
         if (!held) lr_t0 = 0;
     }
     if (down & PAD_BUTTON_A) kb_press();
-    if (down & PAD_BUTTON_B) kb_backspace();
+    if (down & PAD_BUTTON_B) { if (!kb_text[0]) kb_open = 0; else kb_backspace(); }   /* v348 : B, texte vide : le clavier se ferme (comme Y) */
     if (down & PAD_BUTTON_X) kb_append(" ");
     if (down & PAD_BUTTON_Y) kb_open = 0;
     if (down & PAD_BUTTON_START) kb_validate();
