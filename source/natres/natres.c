@@ -1578,7 +1578,13 @@ static MEM_OS void si_hook(u32 irq, u32 ctx) {
     H.si_in++;
     {   /* (v338 : diagnostic de la GBA du telephone : l'interruption arrive-t-elle, et le vrai COMCSR a ce moment) */
         natres_pad_t *p = (H.opt & NRO_PHONE) ? pd_find() : 0;
-        if (p && p->gbmask && gb_port(p, p->xch)) { p->gdirq = *HW6(0xCC006434u); p->gdnirq++; }
+        if (p && p->gbmask && gb_port(p, p->xch)) {
+            p->gdirq = *HW6(0xCC006434u); p->gdnirq++;
+            /* v341 : fin du transfert vers la GBA (aiguille vers une vraie manette) : sa reponse ecrite dans le vrai tampon,
+               avant le jeu. La bibliotheque SI lit les octets en plus d'un mot entier a une adresse calculee, sans
+               aiguillage (Rayman 3 : l'etat apres la cle de session, 5e octet de la reponse a 14, venait de la manette) */
+            if (p->gdirq & 0x80000000u) { *HW6(0xCC006480u) = gb_r0; *HW6(0xCC006484u) = gb_r1; }
+        }
     }
     if (!H.vi_count) nr_sample(ctx);
     if (si_orig) ((void (*)(u32, u32))si_orig)(irq, ctx);
