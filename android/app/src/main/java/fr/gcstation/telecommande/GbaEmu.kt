@@ -58,11 +58,13 @@ object GbaNatif {
 object GbaEmu {
     const val W = 240
     const val H = 160
-    var marche by mutableStateOf(false)
+    // build 382 : simples variables (plus d'etat Compose) : cet objet peut naitre dans le fil reseau pendant que l'ecran se
+    // compose (plantage « Reading a state that was created after the snapshot was taken ») ; l'ecran les relit a chaque image
+    @Volatile var marche = false
         private set
-    var images by mutableIntStateOf(0)                    // (une de plus a chaque image affichee : l'ecran se redessine)
+    @Volatile var images = 0                              // (une de plus a chaque image de la GBA)
         private set
-    var message by mutableStateOf("")
+    @Volatile var message = ""
         private set
     val ecran: Bitmap = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
 
@@ -173,7 +175,10 @@ object GbaEmu {
 /** l'ecran de la GBA et ses boutons (toucher : appuyer, lever : relacher) */
 @Composable
 fun EcranGba() {
-    val n = GbaEmu.images                                 // (lu : redessine a chaque image)
+    var n by androidx.compose.runtime.remember { mutableIntStateOf(0) }
+    androidx.compose.runtime.LaunchedEffect(Unit) {       // (build 382 : redessine a chaque image de l'ecran du telephone)
+        while (true) { androidx.compose.runtime.withFrameNanos { }; if (GbaEmu.images != n) n = GbaEmu.images }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.fillMaxWidth().aspectRatio(1.5f).clip(RoundedCornerShape(8.dp)).background(Color.Black)) {
             val bmp = synchronized(GbaEmu.ecran) { GbaEmu.ecran.copy(Bitmap.Config.ARGB_8888, false) }
