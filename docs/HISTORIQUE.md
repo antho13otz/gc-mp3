@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 367 — Wind Waker : plus de ligne jusqu'au ciel
+- Objets et habitants en direct : un point mal placé dessinait une longue ligne jusqu'au ciel (chapeau étiré) ; il
+  reste maintenant à sa place.
+
 ## Nouveautés appli build 366 — vue 3D : le plein écran sans marges
 - Le plein écran de la vue 3D gardait une marge à la place des barres d'Android et de la caméra du téléphone, même
   cachées : il couvre maintenant tout l'écran.
