@@ -13073,7 +13073,7 @@ static void draw_menu(void) {
     if (menu_sel == MI_APPENV) hint = "Coup\xC3\xA9 : rien vers l'appli (direct, \xC3\xA9tat, Pulse). Si connect\xC3\xA9" "e : seulement quand un t\xC3\xA9l\xC3\xA9phone \xC3\xA9" "coute";
     if (menu_sel == MI_MEMTEL) hint = "L'appli lit la m\xC3\xA9moire du jeu pendant la partie (Pulse, Broadband Adapter ou ETH2SP1) : trouver ses propres cheats et succ\xC3\xA8s";
     if (menu_sel == MI_GBATEL) hint = "L'appli devient une GBA branch\xC3\xA9" "e au port 2 (Tingle Tuner de Wind Waker ; Pulse, Broadband Adapter). Essai";
-    if (menu_sel == MI_MICTEL) hint = "Le micro du t\xC3\xA9l\xC3\xA9phone devient le micro GameCube du slot B (Mario Party 6 et 7 ; Pulse, Broadband Adapter). Essai";
+    if (menu_sel == MI_MICTEL) hint = "Le micro du t\xC3\xA9l\xC3\xA9phone devient le micro GameCube du slot B (Mario Party 6 et 7 ; Pulse, Broadband Adapter). Pas de carte m\xC3\xA9moire en B tant que c'est sur Oui. Essai";
     if (menu_sel == MI_PADTEL) hint = "L'appli du t\xC3\xA9l\xC3\xA9phone devient une manette dans les jeux (Pulse, Broadband Adapter ou ETH2SP1). Un port par t\xC3\xA9l\xC3\xA9phone";
     if (menu_sel == MI_NATCARDGAME) hint = "Chaque jeu sa propre carte (carte-A-GALE01.raw), cr\xC3\xA9\xC3\xA9" "e au premier lancement. Le r\xC3\xA9glage du jeu (Y) passe avant";
     if (menu_sel == MI_NATCARDREG) hint = "Jeux europ\xC3\xA9" "ens, am\xC3\xA9ricains, japonais : chacun sa carte (carte-A-EUR.raw...)";

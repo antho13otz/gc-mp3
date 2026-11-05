@@ -3265,8 +3265,9 @@ static void na_pad_prep(void) {
     p->net.mask = na_ipv4(mask_str); p->net.gw = na_ipv4(gw_str);
     p->gbmask = na_gbamask(); p->chmask = na_padmask() & ~p->gbmask; p->xch = 0xFF;   /* (v331 : le port de la GBA n'est pas une manette) */
     p->micon = (u32)na_micon();                           /* v332 : micro du telephone (slot B) */
+    if (!p->micon) p->len -= NATRES_MIC_RING / 4;         /* (v332 : sans le micro, pas de place pour son anneau : il est a la fin) */
     for (int i = 0; i < 4; i++) { p->h[i] = 0x00808080u; p->l[i] = 0x80800000u; }
-    if (p->net.ip) na_pad_w = sizeof(natres_pad_t) / 4;
+    if (p->net.ip) na_pad_w = (int)p->len;
 }                               /* (ordre de la machine ; ecrit en gros-boutiste dans le resident) */
 static char na_net_msg[120];
 static const char *nat_boot(int k) {
