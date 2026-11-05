@@ -1,0 +1,3 @@
+# GC Station PC : essai de la mise a jour (GCSTATION_MAJ_ESSAI) : GC Station tourne pendant le telechargement, puis quitte.
+wait 150s
+quit

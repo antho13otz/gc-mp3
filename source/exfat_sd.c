@@ -99,8 +99,11 @@ static void exf_fill_stat(const FILINFO *fi, struct stat *st) {
     memset(st, 0, sizeof(*st));
     st->st_mode = (fi->fattrib & AM_DIR) ? (S_IFDIR | 0777) : (S_IFREG | 0666);
     st->st_size = (off_t)fi->fsize;
-    st->st_nlink = 1; st->st_blksize = 512;
+    st->st_nlink = 1;
+#ifndef _WIN32                                            /* (GC Station PC : pas dans la struct stat de Windows) */
+    st->st_blksize = 512;
     st->st_blocks = (blkcnt_t)((fi->fsize + 511) / 512);
+#endif
     st->st_mtime = st->st_atime = st->st_ctime = exf_time(fi->fdate, fi->ftime);
     st->st_ino = (ino_t)(((u32)fi->fdate << 16 | fi->ftime) ^ (u32)fi->fsize);   /* (change si le fichier change) */
 }

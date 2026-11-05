@@ -1,0 +1,15 @@
+# GC Station PC (Windows) : essai automatique dans GitHub (.github/workflows/windows.yml) : demarrage, onglets, menu.
+wait 6s
+shot 01-demarrage
+press Z
+wait 1500ms
+shot 02-onglet
+press Z
+wait 1500ms
+shot 03-onglet
+press START
+wait 1s
+shot 04-menu-start
+press B
+wait 500ms
+quit

@@ -9,7 +9,7 @@
 
 #define CRASH_FILE  GCD_LOG "/gc-mp3-crash.txt"
 #define CRASH_OLD   GCD_LOG "/gc-mp3-crash-ancien.txt"
-#define GCMP3_VERSION "v355"
+#define GCMP3_VERSION "v356"
 
 #if defined(__has_include)
 #if __has_include(<tuxedo/ppc/exception.h>) && __has_include(<tuxedo/thread.h>)
@@ -56,6 +56,14 @@ static int crash_recent(char *out, int cap) {
     }
     return n;
 }
+#ifndef GEKKO
+/* v356 : (simulateur, GC Station PC) les dernieres actions, ecrites quand le programme plante (pcsim_win.c) */
+void gcs_crumbs_dump(void) {
+    static char t[NCRUMB * 110];
+    crash_recent(t, sizeof(t));
+    printf("[plantage] dernieres actions :\n%s", t);
+}
+#endif
 
 /* ---- symboles ---- */
 #ifndef CRASH_CODE_MIN                                    /* (le simulateur PC change ces bornes) */

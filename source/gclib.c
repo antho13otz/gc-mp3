@@ -841,7 +841,7 @@ static void gl_fx_load(void) {
     u32 want = gl_fx_hash();
     long n = 0;
     char *d = (char *)read_file(GL_FX_MINE, 1024 * 1024, &n);
-    int ok = d && n > 10 && d[0] == '#' && (u32)strtoul(d + 1, NULL, 16) == want;
+    int ok = d && n >= 9 && d[0] == '#' && (u32)strtoul(d + 1, NULL, 16) == want;   /* v356 : (n >= 9 : aucune fiche pour mes jeux = l'en-tete seul, 10 octets ; avant : la grande liste, 1 Mo, relue a chaque fois) */
     if (!ok) {                                           /* (refaite d'apres la grande liste) */
         free(d);
         d = (char *)read_file(GL_FX_BIG, 6 * 1024 * 1024, &n);
@@ -1576,6 +1576,14 @@ static GXTexObj *gl_cover(int k, int load) {                 /* jaquette 128x256
     if (s) return &s->obj;
     if (!load || gl[k].post < 0) return NULL;
     if (k < GL_MAX && gl_cov_retry[k] && now_ms() < gl_cov_retry[k]) return NULL;
+    {   /* v356 : au plus 2 jaquettes lues par image : l'ecran s'affiche tout de suite, les jaquettes arrivent une a une
+           (avant : toutes lues dans la 1re image ; ouverture de la liste des jeux : plus d'une seconde figee) */
+        static u32 vi = 0, n = 0;
+        u32 r = VIDEO_GetRetraceCount();
+        if (r != vi) { vi = r; n = 0; }
+        if (n >= 2) return NULL;
+        n++;
+    }
     if (gl[k].post == GL_POST_DL) {                       /* v280 : jaquette ajoutee (telechargee ou deposee) */
         u16 *t = gl_dl_tex(gl[k].id);
         if (!t) {                                        /* v292 : (avant : une lecture ratee = plus de jaquette jusqu'au prochain demarrage) */
@@ -1867,17 +1875,68 @@ static int gl_quick_changed(void) {
     for (int i = 0; i < gl_n; i++) if (!gl[i].dvd && !strncasecmp(gl[i].path, SD_ROOT "/", strlen(SD_ROOT) + 1)) sdn++;
     return found < sdn;                                    /* (un jeu enleve) */
 }
+/* v356 : le meme tour, mais en fond, quelques millisecondes par image (avant : tout d'un coup a l'entree, 0,3 s figee
+   et plus avec une grosse carte) ; si un jeu est ajoute ou enleve, la liste est refaite a la fin du tour */
+static struct { DIR *d; char path[NAME_LEN]; int depth; } gq_st[5];
+static int gq_n = 0, gq_found = 0, gq_budget = 0, gq_on = 0;
+static void gq_stop(void) { while (gq_n > 0) closedir(gq_st[--gq_n].d); gq_on = 0; }
+static void gq_start(void) {
+    gq_stop();
+    if (!sd_ok || sd_virtual || !gl) return;
+    DIR *d = opendir(SD_ROOT);
+    if (!d) return;
+    gq_st[0].d = d; snprintf(gq_st[0].path, sizeof(gq_st[0].path), "%s", SD_ROOT); gq_st[0].depth = 0;
+    gq_n = 1; gq_found = 0; gq_budget = 6000; gq_on = 1;
+}
+static void gq_changed(void) {                          /* (fin du tour : jeu ajoute ou enleve) */
+    gq_stop();
+    gl_scanned = 0; gl_scan();
+    char m[96]; snprintf(m, sizeof(m), "%s (%d)", TR("Liste des jeux mise \xC3\xA0 jour"), gl_n - (gl_has_dvd() ? 1 : 0));
+    snprintf(gl_msg, sizeof(gl_msg), "%s", m); gl_msg_t = now_ms();
+}
+static void gq_step(void) {                             /* (une fois par image, liste des jeux a l'ecran) */
+    if (!gq_on || !gl) return;
+    u32 t0 = perf_us();
+    char p[NAME_LEN];
+    while (gq_n > 0 && perf_us() - t0 < 3000u) {
+        struct dirent *e = gq_budget-- > 0 ? readdir(gq_st[gq_n - 1].d) : NULL;
+        if (!e) { closedir(gq_st[--gq_n].d); continue; }
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        if (snprintf(p, sizeof(p), "%s/%s", gq_st[gq_n - 1].path, e->d_name) >= (int)sizeof(p)) continue;
+        int depth = gq_st[gq_n - 1].depth;
+        if (is_dir(p, e)) {
+            if (depth < 3 && gq_n < 5 && !gl_skip_dir(e->d_name)) {
+                DIR *d = opendir(p);
+                if (d) { gq_st[gq_n].d = d; snprintf(gq_st[gq_n].path, sizeof(gq_st[gq_n].path), "%s", p); gq_st[gq_n].depth = depth + 1; gq_n++; }
+            }
+            continue;
+        }
+        const char *dot = strrchr(e->d_name, '.');
+        if (!dot || !(!strcasecmp(dot, ".iso") || !strcasecmp(dot, ".gcm") || !strcasecmp(dot, ".ciso"))) continue;
+        struct stat st;
+        if (stat(p, &st) != 0 || st.st_size < 0x440) continue;
+        int k = -1;
+        for (int i = 0; i < gl_n && k < 0; i++) if (!gl[i].dvd && gl[i].size == (long)st.st_size && !strcasecmp(gl[i].path, p)) k = i;
+        if (k >= 0) gq_found++;
+        else if (!gl_rejected(p, (long)st.st_size)) { gq_changed(); return; }   /* (nouveau, ou change de taille) */
+    }
+    if (gq_n == 0 && gq_on) {
+        gq_on = 0;
+        int sdn = 0;
+        for (int i = 0; i < gl_n; i++) if (!gl[i].dvd && !strncasecmp(gl[i].path, SD_ROOT "/", strlen(SD_ROOT) + 1)) sdn++;
+        if (gq_found < sdn) gq_changed();                 /* (un jeu enleve) */
+    }
+}
 
 /* ---------- entree ---------- */
 static void gclib_open(void) {
     gl_on = 1; gl_detail = 0;
     if (!gl_scanned) gl_scan_full(0);                      /* (liste gardee : tout de suite) */
-    if (gl_auto && gl_quick_changed()) {                   /* v186 : jeux ajoutes / enleves sur la carte SD : liste refaite (v188 : reglage) */
-        int n0 = gl_n;
-        gl_scanned = 0; gl_scan();
-        char m[96]; snprintf(m, sizeof(m), "%s (%d)", TR("Liste des jeux mise \xC3\xA0 jour"), gl_n - (gl_has_dvd() ? 1 : 0));
-        snprintf(gl_msg, sizeof(gl_msg), "%s", m); gl_msg_t = now_ms(); (void)n0;
-    }
+    static u64 qc_t = 0;                                   /* v356 : le tour de la carte SD (0,3 s et plus a chaque entree) : au plus une fois par 2 min */
+    u64 qn = now_ms();
+    int qc = gl_auto && (!qc_t || qn - qc_t > 120000u);
+    if (qc) qc_t = qn;
+    if (qc) gq_start();                                    /* v186 : jeux ajoutes / enleves : liste refaite (v356 : verifie en fond, gq_step) */
     crumb("mes jeux");
 }
 /* v176 : X sur l'accueil de JEUX / APPS : le dernier jeu lance, tout de suite a "Lancer ce jeu ?" */
@@ -2485,6 +2544,7 @@ static void draw_gclib(void) {
     }
 }
 static void draw_gclib_main(void) {
+    gq_step();                                             /* v356 : (tour de la carte en fond) */
     gl_loaded_frame = 0;
     if (gs_view()) { if (gl_detail) gs_draw_fiche(); else gs_draw(); return; }   /* v196 : espace Jeux GameCube (gspace.c) ; v197 : + la fiche */
     char buf[NAME_LEN], d[NAME_LEN];
@@ -2685,6 +2745,9 @@ static const char *gl_boot_loader(const char *path);
 static int gl_boot_cheats = 0;                         /* v31 : ajoute "AutoCheats=Yes" (cheats actives pour ce jeu) */
 static const char *gl_launch(int k) {
     if (sx_safe) { sx_block("lancer un jeu ou une appli"); return "Bloqu\xC3\xA9 pendant le test"; }   /* v278 : (test des touches) */                  /* retourne un message d'erreur, ou ne revient pas */
+#ifdef _WIN32                                              /* GC Station PC : le jeu dans Dolphin (tools/pc-sim/pcsim_dolphin.c) */
+    { extern const char *pcw_dolphin_launch(const char *, const char *, const char *, const char *); if (k >= 0 && k < gl_n) return pcw_dolphin_launch(gl[k].path, gl[k].title, salon_ami, salon_code); }
+#endif
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
     if (access(gl[k].path, R_OK) != 0) return "Jeu introuvable : Y pour actualiser la liste";
     char p[NAME_LEN]; struct stat st;

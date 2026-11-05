@@ -1,0 +1,38 @@
+# GC Station PC (Windows) : essai automatique du lancement d'un jeu dans (un faux) Dolphin, et du reseau local par
+# Internet entre deux GC Station PC (.github/workflows/windows.yml). Guide ferme (B), onglet JEUX (9 x Z), Jeux GameCube,
+# le jeu, Lancer, A.
+wait 5s
+press B
+wait 1s
+press Z
+wait 700ms
+press Z
+wait 700ms
+press Z
+wait 700ms
+press Z
+wait 700ms
+press Z
+wait 700ms
+press Z
+wait 700ms
+press Z
+wait 700ms
+press Z
+wait 700ms
+press Z
+wait 1500ms
+press UP
+wait 500ms
+press A
+wait 2s
+press A
+wait 2s
+press A
+wait 2s
+shot j1-lancer
+press A
+wait 3s
+shot j2-lance
+wait 25s
+quit

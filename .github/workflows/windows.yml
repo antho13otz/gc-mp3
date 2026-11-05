@@ -1,0 +1,246 @@
+name: GC Station PC (Windows)
+
+# v356 : GC Station pour PC Windows (tools/pc-sim + win/) : le vrai code de GC Station dans une fenetre, clavier ou
+# manette, son, Salon par Internet, et les jeux dans Dolphin (jeu en reseau local par Internet). Compile depuis Linux
+# (MinGW 32 bits), essaye sur un vrai Windows (demarrage, fenetre, Salon par Internet, deux GC Station PC avec un faux
+# Dolphin). Gardee pour soi, comme l'appli : jamais dans une release publique ; GC-Station-PC.zip est seulement joint a
+# la compilation (onglet Actions > "GC Station PC (Windows)" > la derniere compilation > Artifacts, 90 jours).
+# Seulement quand GC Station ou sa partie PC changent.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'source/**'
+      - '!source/natres/**'
+      - 'tools/pc-sim/**'
+      - '.github/workflows/windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read                    # (essai de la mise a jour : la derniere compilation et son fichier)
+
+concurrency:
+  group: gc-station-pc
+  cancel-in-progress: true
+
+jobs:
+  compiler:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Outils (MinGW 32 bits, clang)
+        run: |
+          # (miroir d'Ubuntu parfois bloque : 3 essais de 8 min au plus)
+          for i in 1 2 3; do
+            timeout 480 sudo apt-get update -q && timeout 480 sudo apt-get install -y -q clang lld llvm gcc-mingw-w64-i686 g++-mingw-w64-i686 zip >/dev/null && break
+            echo "apt : nouvel essai"; sleep 10
+          done
+          # (threads POSIX : la variante "posix" de MinGW, avec winpthreads)
+          sudo update-alternatives --set i686-w64-mingw32-gcc /usr/bin/i686-w64-mingw32-gcc-posix || true
+          sudo update-alternatives --set i686-w64-mingw32-g++ /usr/bin/i686-w64-mingw32-g++-posix || true
+
+      - name: Bibliothèques (en cache)
+        uses: actions/cache@v4
+        with:
+          path: |
+            tools/pc-sim/work/src
+            tools/pc-sim/work/libs
+          key: pcsim-libs-${{ hashFiles('tools/pc-sim/fetch.sh') }}
+
+      - name: Compiler
+        run: |
+          [ -d tools/pc-sim/work/libs/mbedtls ] || sh tools/pc-sim/fetch.sh
+          make -s -C tools/pc-sim gen
+          make -C tools/pc-sim -f win/Makefile -j"$(nproc)" BUILD=${{ github.run_number }} 2>&1 | grep -v "^i686-w64-mingw32-g" || true
+          test -s tools/pc-sim/work/gcstation.exe
+
+      - name: Paquet
+        run: |
+          mkdir -p paquet/sd
+          i686-w64-mingw32-strip -o "paquet/GC Station.exe" tools/pc-sim/work/gcstation.exe   # (sans les symboles : plus petit)
+          cp tools/pc-sim/win/LISEZMOI.txt paquet/
+          cd paquet && zip -q -r ../GC-Station-PC.zip . && cd ..
+          ls -la GC-Station-PC.zip
+
+      - name: Pour l'essai (faux Dolphin, faux jeu)
+        run: |
+          mkdir -p kit
+          i686-w64-mingw32-gcc -O2 -o kit/Dolphin.exe tools/pc-sim/win/faux-dolphin.c -lws2_32 -static
+          printf '\x60\x00\x00\x00' > kit/t.bin
+          python3 -I tools/natif-test/mkiso.py kit/t.bin kit/test.iso
+          rm kit/t.bin
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gc-station-pc
+          path: GC-Station-PC.zip
+          retention-days: 90
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gc-station-pc-symboles
+          path: tools/pc-sim/work/gcstation.exe
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kit-essai
+          path: kit
+          retention-days: 3
+
+  essayer:
+    needs: compiler
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: gc-station-pc
+      - name: Essai (scenario, sans fenetre)
+        shell: pwsh
+        run: |
+          Expand-Archive GC-Station-PC.zip -DestinationPath essai
+          $env:PCSIM_SCRIPT = "$pwd\tools\pc-sim\win\essai.txt"
+          $env:PCSIM_OUT = "$pwd\essai\captures"
+          $env:PCSIM_LOG = "$pwd\essai\journal.txt"
+          New-Item -ItemType Directory -Force essai\captures | Out-Null
+          $p = Start-Process -FilePath "essai\GC Station.exe" -PassThru -Wait
+          Write-Host "code de sortie : $($p.ExitCode)"
+          Get-Content essai\journal.txt -Tail 40
+          $n = (Get-ChildItem essai\captures\*.png).Count
+          Write-Host "captures : $n"
+          if ($p.ExitCode -ne 0 -or $n -lt 3) { exit 1 }
+          # images pas noires : luminosite moyenne de chaque capture
+          Add-Type -AssemblyName System.Drawing
+          foreach ($f in Get-ChildItem essai\captures\*.png) {
+            $b = [System.Drawing.Bitmap]::FromFile($f.FullName); $s = 0; $k = 0
+            for ($y = 0; $y -lt $b.Height; $y += 8) { for ($x = 0; $x -lt $b.Width; $x += 8) { $c = $b.GetPixel($x, $y); $s += $c.R + $c.G + $c.B; $k++ } }
+            $m = [math]::Round($s / (3 * $k), 1); $b.Dispose()
+            Write-Host "$($f.Name) : luminosite moyenne $m"
+            if ($m -lt 3) { Write-Host "image noire"; exit 1 }
+          }
+      - name: Essai (vraie fenetre, 12 s)
+        shell: pwsh
+        run: |
+          Remove-Item Env:PCSIM_SCRIPT -ErrorAction SilentlyContinue
+          $p = Start-Process -FilePath "essai\GC Station.exe" -PassThru
+          Start-Sleep -Seconds 12
+          $vivant = -not $p.HasExited
+          if ($vivant) { Stop-Process -Id $p.Id -Force }
+          Get-Content essai\journal.txt -Tail 15
+          Write-Host "toujours en marche apres 12 s : $vivant"
+          if (-not $vivant) { exit 1 }
+      - name: Essai (Salon par Internet, avec une fausse console)
+        shell: pwsh
+        run: |
+          $env:GCS_BIN = "$pwd\essai\GC Station.exe"
+          python tools/pc-sim/salon-internet/test.py
+          if ($LASTEXITCODE -ne 0) { Get-Content tools\pc-sim\work\salon-internet\journal-pc.txt -Tail 30; exit 1 }
+      - uses: actions/download-artifact@v4
+        with:
+          name: kit-essai
+          path: kit
+      - name: Essai (deux GC Station PC, un jeu lance dans Dolphin, reseau local par Internet)
+        shell: pwsh
+        run: |
+          # A heberge (sans adresse), B a l'adresse de A (127.0.0.1) ; meme code ; chacun son faux Dolphin
+          foreach ($c in "a", "b") {
+            New-Item -ItemType Directory -Force "deux\$c\sd\games", "deux\$c\sd\gc-mp3", "deux\$c\Dolphin", "deux\$c\captures" | Out-Null
+            Copy-Item "essai\GC Station.exe" "deux\$c\"
+            Copy-Item kit\Dolphin.exe "deux\$c\Dolphin\"
+            Copy-Item kit\test.iso "deux\$c\sd\games\"
+          }
+          Set-Content -Encoding ascii deux\a\sd\gc-mp3\gc-mp3.txt "salon = oui`nsalon_code = essai-ci`n"
+          Set-Content -Encoding ascii deux\b\sd\gc-mp3\gc-mp3.txt "salon = oui`nsalon_code = essai-ci`nsalon_ami = 127.0.0.1`n"
+          $env:PCSIM_SCRIPT = "$pwd\tools\pc-sim\win\essai-jeu.txt"
+          $env:PCSIM_OUT = "$pwd\deux\a\captures"; $env:PCSIM_LOG = "$pwd\deux\a\journal.txt"
+          $pa = Start-Process -FilePath "deux\a\GC Station.exe" -PassThru
+          Start-Sleep -Seconds 2
+          $env:PCSIM_OUT = "$pwd\deux\b\captures"; $env:PCSIM_LOG = "$pwd\deux\b\journal.txt"
+          $env:GCSTATION_TAPPORT = "51251"; $env:GCSTATION_LANPORT = "51250"; $env:GCSTATION_AMIPORT = "51240"
+          $pb = Start-Process -FilePath "deux\b\GC Station.exe" -PassThru
+          $t0 = Get-Date
+          $pa.WaitForExit(120000) | Out-Null; $pb.WaitForExit(120000) | Out-Null
+          Write-Host "fini apres $([math]::Round(((Get-Date) - $t0).TotalSeconds)) s ; codes de sortie : $($pa.ExitCode) $($pb.ExitCode)"
+          Start-Sleep -Seconds 3
+          $ok = $true
+          foreach ($c in "a", "b") {
+            Write-Host "===== GC Station $c ====="
+            if (Test-Path "deux\$c\journal.txt") { Get-Content "deux\$c\journal.txt" -Tail 30 } else { Write-Host "(pas de journal)" }
+            Get-ChildItem -Recurse "deux\$c" | Select-Object -First 30 | ForEach-Object { Write-Host "  $($_.FullName.Substring($pwd.Path.Length))" }
+            $r = "deux\$c\Dolphin\resultat.txt"
+            if (Test-Path $r) { Get-Content $r; $t = Get-Content $r -Raw
+              if ($t -notmatch "connecte=1") { $ok = $false; Write-Host "RATE : Dolphin $c pas branche a GC Station" }
+              if ($t -notmatch "test\.iso") { $ok = $false; Write-Host "RATE : Dolphin $c sans le jeu" }
+              if ($t -match "de_l_autre=(\d+)") { if ([int]$matches[1] -lt 100) { $ok = $false; Write-Host "RATE : Dolphin $c : trames de l'autre cote : $($matches[1])" } }
+            } else { $ok = $false; Write-Host "RATE : Dolphin $c pas lance" }
+          }
+          if (-not $ok) { exit 1 }
+          Write-Host "OK : deux GC Station PC, jeu lance dans Dolphin, trames echangees"
+      - name: Essai (mise a jour depuis GitHub, avec un jeton)
+        shell: pwsh
+        env:
+          GCSTATION_JETON: ${{ secrets.GITHUB_TOKEN }}
+          GCSTATION_MAJ_ESSAI: "1"
+          GCSTATION_MAJ_BRANCHE: ${{ github.ref_name }}
+        run: |
+          $env:PCSIM_SCRIPT = "$pwd\tools\pc-sim\win\essai-maj.txt"; $env:PCSIM_OUT = "$pwd\maj"; $env:PCSIM_LOG = "$pwd\maj\journal.txt"
+          New-Item -ItemType Directory -Force maj | Out-Null
+          $p = Start-Process -FilePath "essai\GC Station.exe" -PassThru -Wait
+          $j = Get-Content maj\journal.txt -Raw
+          Get-Content maj\journal.txt | Select-String "\[maj\]"
+          if ($j -match "nouvelle version telechargee et lisible") { Write-Host "OK : mise a jour telechargee, decompressee, lisible" }
+          elseif ($j -match "derniere compilation : 0") { Write-Host "::warning::pas encore de compilation reussie sur cette branche : mise a jour pas essayee" }
+          else { Write-Host "RATE : mise a jour"; exit 1 }
+      - name: Plantages (pour les symboles)
+        if: always()
+        shell: pwsh
+        run: |
+          $l = Get-ChildItem -Recurse -Include journal*.txt -Path essai, deux, maj, tools\pc-sim\work\salon-internet -ErrorAction SilentlyContinue | Select-String "\[plantage\]" | ForEach-Object { $_.Line }
+          if ($l) { $l | Set-Content plantages.txt; $l } else { "" | Set-Content plantages.txt }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: plantages
+          path: plantages.txt
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: essai-deux-pc
+          path: deux/*/captures
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: essai-windows
+          path: |
+            essai/captures
+            essai/journal.txt
+          retention-days: 7
+
+  # en cas de plantage sur Windows : les adresses de la pile -> fonctions et lignes du code (addr2line)
+  symboles:
+    needs: [compiler, essayer]
+    if: always() && needs.compiler.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: gc-station-pc-symboles
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: plantages
+      - name: Ou ca a plante
+        run: |
+          sudo apt-get install -y -q binutils-mingw-w64-i686 >/dev/null 2>&1 || true
+          [ -s plantages.txt ] && grep -q "pile" plantages.txt || { echo "aucun plantage"; exit 0; }
+          cat plantages.txt
+          B=$(i686-w64-mingw32-objdump -p gcstation.exe | awk '/ImageBase/ {print $2}')
+          grep "pile" plantages.txt | grep -o "+[0-9A-F]\{8\}" | sort -u | while read a; do
+            v=$(printf "0x%X" $(( 0x$B + 0x${a#+} )))
+            echo "== $a"; i686-w64-mingw32-addr2line -f -i -C -e gcstation.exe $v | paste - - | head -4
+          done

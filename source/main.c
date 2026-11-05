@@ -5792,6 +5792,7 @@ static int alarm_on, alarm_min, alarm_src, alarm_days;   /* v76 : alarm_days 0=t
 static int phone_auto;                      /* onglet TELEPHONE (tab_phone.c) */
 static int salon_on, salon_n;               /* v138 : le Salon (netfs.c, salon.c) */
 static char salon_name[40];
+static char salon_ami[96], salon_code[24];   /* v356 : Salon par Internet (netfs.c, salon.c) */
 static int rumble_on = 1;                   /* v18 : la manette vibre (mode soiree, jeux) */
 static int pod_auto = 1;                    /* v18 : nouveaux episodes telecharges tout seuls */
 static int wall_on = 0;                     /* v18 : fond d'ecran = une photo */
@@ -5926,6 +5927,8 @@ static void setting_apply(const char *k, char *v) {
         else if (!strcasecmp(k, "telephone")) phone_auto = yes(v);
         else if (!strcasecmp(k, "salon")) salon_on = yes(v);   /* v138 */
         else if (!strcasecmp(k, "salon_nom")) snprintf(salon_name, sizeof(salon_name), "%s", v);
+        else if (!strcasecmp(k, "salon_ami")) snprintf(salon_ami, sizeof(salon_ami), "%s", v);     /* v356 */
+        else if (!strcasecmp(k, "salon_code")) snprintf(salon_code, sizeof(salon_code), "%s", v);
         else if (!strcasecmp(k, "veilleuse_luminosite")) { night_lum = atoi(v); if (night_lum < 1) night_lum = 1; if (night_lum > 5) night_lum = 5; }
         else if (!strcasecmp(k, "veilleuse_radio")) night_radio = yes(v);
         else if (!strcasecmp(k, "maj_auto")) upd_auto = yes(v);
@@ -6165,6 +6168,7 @@ static void settings_print(FILE *f) {                   /* v194 : le texte de gc
     x73_save(f);
     pj_settings_save(f);                                  /* v191 */
     fprintf(f, "# v138 : Salon (autres GC Station du reseau) ; nom de cette console (vide = automatique)\nsalon = %s\nsalon_nom = %s\n", salon_on ? "oui" : "non", salon_name);
+    fprintf(f, "# v356 : Salon par Internet : adresse de l'autre console (IP ou nom, vide = aucune) ; code commun aux deux consoles\nsalon_ami = %s\nsalon_code = %s\n", salon_ami, salon_code);
     nfs_save(f);
 }
 
@@ -11573,7 +11577,7 @@ static void web_pump(void) {
 }
 
 // ---------- Navigateur : actions ----------
-enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR, KB_LIBFIND, KB_PLNAME, KB_CHEATID, KB_CHEATNAME, KB_CHEATCODE, KB_NETTXT, KB_NFS, KB_PROFILE, KB_PETNAME, KB_GLOBE };
+enum { KB_URL, KB_SEARCH, KB_ARCHIVE, KB_FIELD, KB_RADIO, KB_PODCAST, KB_CITY, KB_RENAME, KB_MKDIR, KB_LIBFIND, KB_PLNAME, KB_CHEATID, KB_CHEATNAME, KB_CHEATCODE, KB_NETTXT, KB_NFS, KB_PROFILE, KB_PETNAME, KB_GLOBE, KB_SALON };
 static void cheats_kb_done(int mode, const char *t);
 static void pj_kb_done(const char *t);                 /* v191 (profils.c) */
 static void ic_kb_done(const char *t);
@@ -11713,7 +11717,12 @@ static void kb_validate(void) {
     if (kb_mode == KB_PETNAME) { pet_rename(t); return; }      /* v207 : pet.c */
     if (kb_mode == KB_GLOBE) { gb_kb_done(t); return; }        /* v213 : recherche sur le globe */
     if (kb_mode == KB_CHEATID || kb_mode == KB_CHEATNAME || kb_mode == KB_CHEATCODE) { if (*t || kb_mode == KB_CHEATNAME) cheats_kb_done(kb_mode, t); return; }
-    if (kb_mode == KB_NETTXT) { net_kb_done(t); return; }      /* v75 : adresse IP / passerelle */
+    if (kb_mode == KB_NETTXT) { net_kb_done(t); return; }
+    if (kb_mode == KB_SALON) {                                 /* v356 : Salon par Internet */
+        if (kb_field == 1) snprintf(salon_ami, sizeof(salon_ami), "%s", t); else snprintf(salon_code, sizeof(salon_code), "%s", t);
+        settings_dirty = 1;
+        return;
+    }      /* v75 : adresse IP / passerelle */
     if (kb_mode == KB_NFS) { nfs_kb_done(t); return; }         /* v86 : serveur SMB / FTP / FSP */
     if (!*t) return;
     if (kb_mode == KB_RADIO) { rb_search_name(t); return; }
@@ -11896,7 +11905,7 @@ static void kb_input(u32 down, u32 nav, int fire) {
         if (!held) lr_t0 = 0;
     }
     if (down & PAD_BUTTON_A) kb_press();
-    if (down & PAD_BUTTON_B) kb_backspace();
+    if (down & PAD_BUTTON_B) { if (!kb_text[0]) kb_open = 0; else kb_backspace(); }   /* v356 : B, texte vide : le clavier se ferme (comme Y) */
     if (down & PAD_BUTTON_X) kb_append(" ");
     if (down & PAD_BUTTON_Y) kb_open = 0;
     if (down & PAD_BUTTON_START) kb_validate();
@@ -11978,6 +11987,7 @@ static void draw_keyboard(void) {
                         kb_mode == KB_CHEATID ? "ID du jeu (6 caract\xC3\xA8res, ex. GALE01)" : kb_mode == KB_CHEATNAME ? "Nom du cheat" :
                         kb_mode == KB_CHEATCODE ? "Ligne de code (XXXXXXXX YYYYYYYY)" :
                         kb_mode == KB_NETTXT ? "Adresse (ex. 192.168.1.32)" :
+                        kb_mode == KB_SALON ? (kb_field == 1 ? "Adresse de l'ami (IP ou nom)" : "Code du Salon (le m\xC3\xAAme chez les deux)") :
                         kb_mode == KB_NFS ? "Serveur du r\xC3\xA9seau (SMB / FTP / FSP)" :
                         kb_mode == KB_PROFILE ? "Nom du nouveau profil" : kb_mode == KB_PETNAME ? "Nom de ton compagnon" : kb_mode == KB_GLOBE ? "Chercher une radio, une ville, un pays" :
                         "Adresse ou recherche";
@@ -12487,7 +12497,7 @@ static void draw_list_radio(void) {
 // ---------- Menu (START) : reglages et Quitter ----------
 enum { MI_SHUFFLE, MI_REPEAT, MI_XFADE, MI_VIEW, MI_VOLUME, MI_RG, MI_EQ, MI_BASS, MI_LOWMID, MI_MID, MI_PRES, MI_TREBLE, MI_SKIN, MI_THEME, MI_WALL, MI_SEASON, MI_SAVER, MI_SAVERSTYLE,
        MI_COVERS, MI_LYRICS, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, MI_RESUME, MI_RADIORES, MI_GAPLESS, MI_TV, MI_VIDEO, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, MI_WIDE, MI_UILANG, MI_LANG, MI_GAMES, MI_GLVIEW, MI_GLANIM, MI_TITLES, MI_PARTY, MI_RUMBLE, MI_SLEEP, MI_NIGHT, MI_LAYOUT, MI_VIZ, MI_SGPAL, MI_LYRSHOW, MI_FLASH, MI_ELEMS, MI_TABS, MI_REC, MI_RECAT, MI_RECLEN, MI_AUTOSTART, MI_IGR, MI_NATIGR, MI_NATCARD, MI_PULSELD, MI_PERF, MI_LAUNCHER, MI_UPDATE,
-       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_PLAYLIM, MI_UPDXZ, MI_APNOIMG, MI_THEMEDL, MI_UPDOLD, MI_NATCARDGAME, MI_PADTEL, MI_QUIT, MI_GLCOVALL, MI_MEMTEL, MI_APPENV, MI_GBATEL, MI_MICTEL, MI_COUNT };   /* (MI_GLCOVALL : v289, retire en v293 ; garde pour la table des noms) */
+       MI_HIDDEN, MI_UNKNOWN, MI_GLANG, MI_GSOUND, MI_DHCP, MI_IP, MI_MASK, MI_GW, MI_PHONEAUTO, MI_UPDAUTO, MI_NETSMB, MI_NETFTP, MI_NETFSP, MI_NATCARDREG, MI_SALON, MI_CLOCK, MI_GLAUTO, MI_PLAYLIM, MI_UPDXZ, MI_APNOIMG, MI_THEMEDL, MI_UPDOLD, MI_NATCARDGAME, MI_PADTEL, MI_QUIT, MI_GLCOVALL, MI_MEMTEL, MI_APPENV, MI_GBATEL, MI_MICTEL, MI_SALONAMI, MI_SALONCODE, MI_COUNT };   /* (MI_GLCOVALL : v289, retire en v293 ; garde pour la table des noms) */
 static void pj_limit_text(char *o, int cap);            /* v191 (profils.c) */
 static void pj_limit_next(int d);
 static int ipl_get(void);                                  /* v57 : la console demarre sur GC Station (gclib.c) */
@@ -12502,7 +12512,7 @@ static const s8 sec_items[6][32] = {
     { -9, MI_UILANG, MI_LANG, -10, MI_SKIN, MI_THEME, MI_THEMEDL, MI_WALL, MI_SEASON, MI_TABS, -11, MI_LAYOUT, MI_ELEMS, MI_VIZ, MI_SGPAL, MI_LYRSHOW, -12, MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, -13, MI_HIDDEN, MI_UNKNOWN, -14, MI_PERF, -1 },
     { -15, MI_TV, MI_VIDEO, MI_WIDE, -16, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, -1 },
     { -17, MI_GLANG, MI_GSOUND, MI_CLOCK, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, MI_APNOIMG, MI_PLAYLIM, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_NATCARDGAME, MI_PADTEL, MI_GBATEL, MI_MICTEL, MI_MEMTEL, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
-    { -21, MI_DHCP, MI_IP, MI_MASK, MI_GW, -22, MI_NETSMB, MI_NETFTP, MI_NETFSP, -23, MI_SALON, MI_PHONEAUTO, MI_APPENV, -24, MI_UPDAUTO, MI_UPDXZ, MI_UPDATE, MI_UPDOLD, -1 } };
+    { -21, MI_DHCP, MI_IP, MI_MASK, MI_GW, -22, MI_NETSMB, MI_NETFTP, MI_NETFSP, -23, MI_SALON, MI_SALONAMI, MI_SALONCODE, MI_PHONEAUTO, MI_APPENV, -24, MI_UPDAUTO, MI_UPDXZ, MI_UPDATE, MI_UPDOLD, -1 } };
 static int sec_n(int sec) { int n = 0; if (sec < 0 || sec >= SEC_TOOLS) return 0; while (n < 32 && sec_items[sec][n] != -1) n++; return n; }
 static int sec_pos(int sec, int mi) { if (mi < 0) return -1; for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] == mi) return i; return -1; }   /* (v321 : jamais un sous-titre) */
 static int sec_first(int sec) { for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] >= 0) return sec_items[sec][i]; return 0; }
@@ -12603,6 +12613,8 @@ static void menu_value(int i, char *out, int cap) {
     case MI_MASK:    { u32 m = net_cfg_bits ? 0xFFFFFFFFu << (32 - net_cfg_bits) : 0; snprintf(out, cap, "%u.%u.%u.%u", m >> 24, (m >> 16) & 255, (m >> 8) & 255, m & 255); break; }
     case MI_GW:      snprintf(out, cap, "%s", net_dhcp ? (gw_str[0] ? gw_str : "-") : net_cfg_gw[0] ? net_cfg_gw : "(A : taper)"); break;
     case MI_PHONEAUTO: snprintf(out, cap, "%s", phone_auto ? "Oui" : "Non"); break;
+    case MI_SALONAMI: snprintf(out, cap, "%s", salon_ami[0] ? salon_ami : "Aucune"); break;   /* v356 */
+    case MI_SALONCODE: snprintf(out, cap, "%s", salon_code[0] ? salon_code : "Aucun"); break;
     case MI_SALON: if (!salon_on) snprintf(out, cap, "Non"); else snprintf(out, cap, "Oui (%d console%s)", salon_n, salon_n > 1 ? "s" : ""); break;
     case MI_UPDAUTO: snprintf(out, cap, "%s", upd_auto ? "Oui" : "Non"); break;
     case MI_UPDXZ:   snprintf(out, cap, "%s", upd_xz ? "Oui" : "Non"); break;
@@ -12700,7 +12712,7 @@ static const char *const menu_labels[MI_COUNT] = {
     "\xC3\x89l\xC3\xA9ments du lecteur", "Onglets affich\xC3\xA9s", "Enregistrer la radio", "Enregistrement programm\xC3\xA9", "Dur\xC3\xA9" "e de l'enregistrement programm\xC3\xA9", "D\xC3\xA9marrer la console sur GC Station", "A+Z+START (lanceur de secours)", "A+Z+START (Pulse)", "Carte m\xC3\xA9moire virtuelle (Pulse)", "\xC3\x89" "cran de chargement (Pulse)", "Mesure de fluidit\xC3\xA9", "Lanceur de secours", "Mise \xC3\xA0 jour",
     "Fichiers cach\xC3\xA9s (FICHIERS)", "Cacher les fichiers inconnus", "Langue des jeux (console)", "Son (console)",
     "Adresse automatique (DHCP)", "Adresse IP de la console", "Masque", "Passerelle (box)", "T\xC3\xA9l\xC3\xA9" "commande au d\xC3\xA9marrage",
-    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Date et heure (console)", "Nouveaux jeux vus tout seuls", "Limite de jeu par jour", "Version compress\xC3\xA9" "e", "Applis sans image", "Th\xC3\xA8mes en ligne", "Ancienne version (.ancien)", "Une carte par jeu (Pulse)", "Manettes du t\xC3\xA9l\xC3\xA9phone", "Quitter GC Station", "Toutes les jaquettes (bo\xC3\xAEte 3D, HD)", "Chercheur de codes (appli)", "Envoi vers l'appli", "GBA du t\xC3\xA9l\xC3\xA9phone", "Micro du t\xC3\xA9l\xC3\xA9phone (slot B)" };
+    "Chercher les mises \xC3\xA0 jour au d\xC3\xA9marrage", "Partage SMB (PC, NAS)", "Serveur FTP", "Serveur FSP", "Une carte par r\xC3\xA9gion (Pulse)", "Salon (autres GC Station)", "Date et heure (console)", "Nouveaux jeux vus tout seuls", "Limite de jeu par jour", "Version compress\xC3\xA9" "e", "Applis sans image", "Th\xC3\xA8mes en ligne", "Ancienne version (.ancien)", "Une carte par jeu (Pulse)", "Manettes du t\xC3\xA9l\xC3\xA9phone", "Quitter GC Station", "Toutes les jaquettes (bo\xC3\xAEte 3D, HD)", "Chercheur de codes (appli)", "Envoi vers l'appli", "GBA du t\xC3\xA9l\xC3\xA9phone", "Micro du t\xC3\xA9l\xC3\xA9phone (slot B)", "Salon par Internet : adresse de l'ami", "Salon par Internet : code" };
 
 static void web_relayout(void);
 static void scr_set_wide(int w) {
@@ -12755,6 +12767,8 @@ static void menu_change(int i, int d) {
         return;
     case MI_PHONEAUTO: phone_auto = !phone_auto; break;
     case MI_SALON: salon_on = !salon_on; break;
+    case MI_SALONAMI: kb_start(KB_SALON, salon_ami, 1, -1); return;   /* v356 */
+    case MI_SALONCODE: kb_start(KB_SALON, salon_code, 2, -1); return;
     case MI_UPDAUTO: upd_auto = !upd_auto; break;
     case MI_UPDXZ:   upd_xz = !upd_xz; upd_xz_set = 1; break;
     case MI_THEMEDL: thm_open(); return;                 /* v233 : themes.c */
@@ -12889,7 +12903,7 @@ static void menu_input_gcmp3(u32 down, u32 nav, int fire) {
         menu_change(menu_sel, (nav & PAD_BUTTON_RIGHT) ? 1 : -1);
     if (down & PAD_BUTTON_A) {
         crumb("menu : %s", (menu_sel >= 0 && menu_sel < MI_COUNT && menu_labels[menu_sel]) ? menu_labels[menu_sel] : "?");
-        if (menu_sel == MI_QUIT) quit_requested = 1;
+        if (menu_sel == MI_QUIT) { if (sx_safe) sx_block("quitter GC Station"); else quit_requested = 1; }   /* v356 : (test des touches : il quittait au hasard) */
         else if (menu_sel >= MI_NETSMB && menu_sel <= MI_NETFSP) { nfs_ui_open(menu_sel - MI_NETSMB); return; }   /* v86 */
         else if (menu_sel == MI_PARTY) {                      /* A = lancer le mode soiree */
             menu_open = 0;
@@ -13101,6 +13115,8 @@ static void draw_menu(void) {
     if (menu_sel == MI_IP || menu_sel == MI_GW) hint = "A : taper l'adresse (DHCP sur Non). Pris en compte au prochain d\xC3\xA9marrage";
     if (menu_sel == MI_PHONEAUTO) hint = "La page du t\xC3\xA9l\xC3\xA9phone (onglet T\xC3\x89L\xC3\x89PHONE) est pr\xC3\xAAte d\xC3\xA8s le d\xC3\xA9marrage";
     if (menu_sel >= MI_NETSMB && menu_sel <= MI_NETFSP) hint = "A : adresse, utilisateur, mot de passe, test ; puis onglet FICHIERS (B depuis la carte SD)";
+    if (menu_sel == MI_SALONAMI) hint = "L'autre GC Station par Internet : son adresse (IP ou nom, ex. ami.duckdns.org). Celui qui h\xC3\xA9" "berge ouvre les ports 51234 (UDP) et 51238 (TCP) de sa box";
+    if (menu_sel == MI_SALONCODE) hint = "Le m\xC3\xAAme code sur les deux consoles (au moins 6 caract\xC3\xA8res) : sans lui, rien ne passe par Internet";
     if (menu_sel == MI_SALON) hint = "Les autres GC Station du r\xC3\xA9seau dans FICHIERS (B) : leur carte, et Y : \xC3\xA9" "couter avec";
     if (menu_sel == MI_APNOIMG) hint = "Applis de SD:/apps sans image (icon.png, .bnr) : carte avec leur nom, ou cach\xC3\xA9" "es";
     if (menu_sel == MI_THEMEDL) hint = "De nouvelles couleurs et fonds, t\xC3\xA9l\xC3\xA9" "charg\xC3\xA9s depuis GitHub (A : voir la liste)";

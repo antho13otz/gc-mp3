@@ -1925,7 +1925,7 @@ static void tools_menu_input(u32 down, u32 nav, int fire) {
     case TO_INFO: info_open(); break;
     case TO_MEM: mem_open(); break;
     case TO_SELFTEST: sx_open(); break;
-    case TO_QUIT: quit_requested = 1; break;
+    case TO_QUIT: if (sx_safe) sx_block("quitter GC Station"); else quit_requested = 1; break;   /* v356 */
     case TO_GAMES: tab = TAB_GAMES; tab_enter(TAB_GAMES); gm_sel = GM_COUNT; break;
     case TO_CHEATS: cheats_open(); break;
     case TO_VCARD: vc_open(); break;

@@ -37,7 +37,8 @@ $(W)/gen/natret_bin.h: $(R)/source/natres/natret.c $(R)/tools/natret.ld
 
 $(W)/gen/natres_bin.h: $(R)/source/natres/natres.c $(R)/source/natres/natres.h $(R)/tools/natres.ld
 	@mkdir -p $(W)/gen
-	clang --target=powerpc-none-eabi -mcpu=750 -Os -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -c $< -o $(W)/gen/natres.o
+	# (v356 : -Oz : le resident de v355 depassait 0x817FFF00 avec clang -Os ; la console le compile avec gcc)
+	clang --target=powerpc-none-eabi -mcpu=750 -Oz -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -c $< -o $(W)/gen/natres.o
 	ld.lld -T $(R)/tools/natres.ld $(W)/gen/natres.o -o $(W)/gen/natres.elf
 	llvm-objcopy -O binary $(W)/gen/natres.elf $(W)/gen/natres.bin
 	python3 $(R)/tools/bin2h.py $(W)/gen/natres.bin $@ natres_bin
@@ -93,4 +94,6 @@ $(BIN): $(SIMOBJ) $(LIBOBJ) $(CB_OBJ)
 
 clean:
 	rm -rf $(O) gcstation
-.PHONY: all clean
+# (GC Station PC, Windows : en-tetes du resident Pulse, voir win/Makefile)
+gen: $(W)/gen/natres_bin.h $(W)/gen/natret_bin.h
+.PHONY: all clean gen

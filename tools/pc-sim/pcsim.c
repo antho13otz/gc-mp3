@@ -21,12 +21,21 @@
 #include <pthread.h>
 #include <sched.h>
 #include <sys/stat.h>
+#ifndef _WIN32
 #include <sys/select.h>
+#endif
 #include <stdarg.h>
 #include <ctype.h>
 #include <malloc.h>
 #include "pcsim.h"
 void *__real_malloc(size_t); void __real_free(void *);
+#ifdef _WIN32                                              /* GC Station PC (Windows) : pcsim_win.c */
+#define PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP PTHREAD_RECURSIVE_MUTEX_INITIALIZER
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
+#endif
+int pcsim_live = 0;                                        /* GC Station PC : vraie fenetre, clavier / manette, son (pas de scenario) */
 
 /* ======================= un seul processeur, des priorites (comme les threads LWP) =======================
    Un seul thread de GC Station tourne a la fois (verrou global). Quand il attend (usleep, reseau,
@@ -70,7 +79,9 @@ static void acquire_raw(void) {
     for (;;) {
         if (!big_active && wq_best() == me) break;
         if (big_active) last_owner_ = big_owner_prio;
+#ifndef _WIN32                                             /* (Windows : pas de signal ; le thread cede la main a sa prochaine attente) */
         if (big_active && my_prio > big_owner_prio && !preempt_req && !getenv("PCSIM_NOPREEMPT")) { preempt_req = 1; pthread_kill(big_owner, SIGUSR1); }
+#endif
         struct timespec t; clock_gettime(CLOCK_REALTIME, &t); t.tv_nsec += 1000000; if (t.tv_nsec >= 1000000000) { t.tv_sec++; t.tv_nsec -= 1000000000; }
         pthread_cond_timedwait(&big_c, &big_m, &t);
     }
@@ -144,7 +155,7 @@ void pcsim_yield_now(void) {
     pcsim_preempt_pending = 0;
     pcsim_in_lib--;
 }
-static void preempt_sig(int sig) {
+static __attribute__((unused)) void preempt_sig(int sig) {
     (void)sig;
     if (big_held <= 0) return;
     if (pcsim_in_lib) { pcsim_preempt_pending = 1; return; }
@@ -154,7 +165,11 @@ static void preempt_sig(int sig) {
     errno = e;
 }
 /* attente : on rend la main pendant l'appel bloquant */
-#define BLOCKING(call) ({ int h_ = big_held; while (big_held) pcsim_unlock(); __typeof__(call) r_ = (call); while (big_held < h_) pcsim_lock(); r_; })
+#ifdef _WIN32                                              /* (Windows : l'erreur du reseau est gardee par le systeme : la reprise du verrou l'effacait) */
+#define BLOCKING(call) ({ int h_ = big_held; while (big_held) pcsim_unlock(); __typeof__(call) r_ = (call); DWORD le_ = GetLastError(); int en_ = errno; while (big_held < h_) pcsim_lock(); SetLastError(le_); errno = en_; r_; })
+#else
+#define BLOCKING(call) ({ int h_ = big_held; while (big_held) pcsim_unlock(); __typeof__(call) r_ = (call); int en_ = errno; while (big_held < h_) pcsim_lock(); errno = en_; r_; })
+#endif
 #define BLOCKINGV(call) do { int h_ = big_held; while (big_held) pcsim_unlock(); call; while (big_held < h_) pcsim_lock(); } while (0)
 
 /* ======================= temps ======================= */
@@ -197,10 +212,14 @@ static void *audio_thread(void *a);
 static void script_load(void);
 __attribute__((constructor)) static void pcsim_boot(void) {
     clock_gettime(CLOCK_MONOTONIC, &t_start);
+#ifdef _WIN32
+    { extern void pcsim_win_boot(void); pcsim_win_boot(); }   /* (programme 32 bits : adresses sur 32 bits ; fenetre, son, Winsock) */
+#else
     mallopt(M_MMAP_MAX, 0);                                /* (toute la memoire sous 4 Go : le programme range des adresses sur 32 bits, comme sur la console) */
     mallopt(M_TRIM_THRESHOLD, -1);
     setvbuf(stdout, NULL, _IOLBF, 0);
     struct sigaction sa; memset(&sa, 0, sizeof(sa)); sa.sa_handler = preempt_sig; sa.sa_flags = SA_RESTART; sigaction(SIGUSR1, &sa, NULL);
+#endif
     pcsim_lock();                                          /* le thread principal a la main */
     script_load();
     pcsim_limits_init();
@@ -418,6 +437,23 @@ static void *audio_thread(void *a) {
         char dir[512]; snprintf(dir, sizeof(dir), "%s", wp); char *sl = strrchr(dir, '/'); if (sl) { *sl = 0; mkdir(dir, 0777); }
     }
     if (wp) { wav = fopen(wp, "wb"); if (wav) { wav_header(); fseek(wav, 44, SEEK_SET); } }
+#ifdef _WIN32
+    if (pcsim_live) {                                      /* GC Station PC : vers la carte son (le rythme vient d'elle) */
+        extern void pcsim_win_audio(const void *b, u32 n, u32 rate);
+        static u8 copy[65536];
+        for (;;) {
+            if (!ai_on || !ai_start || !ai_len) { struct timespec ts = { 0, 2000000 }; nanosleep(&ts, NULL); continue; }
+            u32 n = ai_len < sizeof(copy) ? ai_len : sizeof(copy);
+            pthread_mutex_lock(&irq_m);
+            memcpy(copy, (const void *)(uintptr_t)ai_start, n);
+            pthread_mutex_unlock(&irq_m);
+            pcsim_win_audio(copy, n, ai_rate);             /* (attend qu'il y ait de la place : 3 tampons d'avance) */
+            pthread_mutex_lock(&irq_m);
+            if (ai_cb) ai_cb();
+            pthread_mutex_unlock(&irq_m);
+        }
+    }
+#endif
     u64 next = real_us();
     for (;;) {
         u32 len = ai_len ? ai_len : 4096;
@@ -572,6 +608,10 @@ const char *pcsim_script_where(void) {
 }
 u32 PAD_Init(void) { return 1; }
 u32 PAD_ScanPads(void) {
+#ifdef _WIN32
+    if (pcsim_live) { extern void pcsim_win_pad(u16 *b, s8 *sx, s8 *sy, s8 *cx, s8 *cy); pcsim_win_pad(&pad_held, &st_x, &st_y, &cst_x, &cst_y); }
+    else
+#endif
     script_step();
     pad_down = pad_held & ~pad_prev; pad_up = pad_prev & ~pad_held; pad_prev = pad_held;
     return 1;                                              /* (manette 1 branchee) */
@@ -759,7 +799,44 @@ int FAT_getAttr(const char *f) { (void)f; return 0; }
 int FAT_setAttr(const char *f, uint8_t a) { (void)f; (void)a; return 0; }
 
 /* ======================= reseau : vrais sockets ======================= */
+#ifdef _WIN32                                              /* Winsock : ses erreurs -> celles de libogc */
+static int net_errno(void) {
+    switch (WSAGetLastError()) {
+    case WSAEWOULDBLOCK: return EAGAIN;
+    case WSAEINPROGRESS: case WSAEALREADY: return EINPROGRESS;
+    case WSAECONNREFUSED: return ECONNREFUSED;
+    case WSAECONNRESET: case WSAECONNABORTED: return ECONNRESET;
+    case WSAETIMEDOUT: return ETIMEDOUT;
+    case WSAEHOSTUNREACH: case WSAENETUNREACH: return EHOSTUNREACH;
+    case WSAENOTCONN: return ENOTCONN;
+    case WSAEISCONN: return EISCONN;
+    case WSAEADDRINUSE: return EADDRINUSE;
+    case WSAEACCES: return EACCES;
+    case 0: return errno ? errno : EIO;
+    default: return EIO;
+    }
+}
+static u8 nb_on[8192];                                     /* (sockets non bloquantes : Windows ne le dit pas) */
+static int sock_nb(int s) { return s >= 0 && s < (int)sizeof(nb_on) ? nb_on[s] : 0; }
+#define close(s) closesocket(s)
+#define NE(r) ((r) < 0 ? -net_errno() : (r))
+#ifndef F_GETFL
+#define F_GETFL 3
+#define F_SETFL 4
+#endif
+#ifndef O_NONBLOCK
+#define O_NONBLOCK 0x4000
+#endif
+static int pcw_fcntl(int s, int cmd, ...) {
+    if (cmd == F_GETFL) return sock_nb(s) ? O_NONBLOCK : 0;
+    if (cmd == F_SETFL) { va_list ap; va_start(ap, cmd); int fl = va_arg(ap, int); va_end(ap); u_long on = (fl & O_NONBLOCK) ? 1 : 0; if (s >= 0 && s < (int)sizeof(nb_on)) nb_on[s] = (u8)on; return ioctlsocket(s, FIONBIO, &on); }
+    return 0;
+}
+#define fcntl pcw_fcntl
+#define SHUT_RDWR SD_BOTH
+#else
 #define NE(r) ((r) < 0 ? -errno : (r))
+#endif
 /* DNS : GC Station fait ses propres requetes DNS (UDP, port 53). Le simulateur y repond
    lui-meme, selon PCSIM_NET :
      proxy  (par defaut si HTTPS_PROXY existe) : adresse fictive 198.18.x.y, et la connexion
@@ -774,6 +851,9 @@ static int net_mode(void) {
     if (m && !strcmp(m, "off")) return 0;
     if (m && !strcmp(m, "direct")) return 1;
     if (m && !strcmp(m, "proxy")) return 2;
+#ifdef _WIN32
+    return 1;                                              /* (GC Station PC : directement sur Internet) */
+#endif
     return getenv("HTTPS_PROXY") || getenv("https_proxy") ? 2 : 1;
 }
 static int dns_answer(const char *name, u32 *ip) {          /* 1 = adresse (ordre reseau), 0 = inconnu */
@@ -831,14 +911,22 @@ static int proxy_connect(s32 s, const char *host, int port) {   /* tunnel CONNEC
     char req[300]; int n = snprintf(req, sizeof(req), "CONNECT %s:%d HTTP/1.1\r\nHost: %s:%d\r\n\r\n", host, port, host, port);
     BLOCKING((int)send(s, req, n, MSG_NOSIGNAL));
     char resp[1024]; int got = 0;
+#ifdef _WIN32
+    DWORD tv = 15000; setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&tv, sizeof(tv));
+#else
     struct timeval tv = { 15, 0 }; setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+#endif
     while (got < (int)sizeof(resp) - 1) {                      /* (octet par octet : rien de plus que l'en-tete) */
         int k = BLOCKING((int)recv(s, resp + got, 1, 0));
         if (k <= 0) break;
         got++; resp[got] = 0;
         if (got >= 4 && !memcmp(resp + got - 4, "\r\n\r\n", 4)) break;
     }
+#ifdef _WIN32
+    DWORD z = 0; setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, (const char *)&z, sizeof(z));
+#else
     struct timeval z = { 0, 0 }; setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &z, sizeof(z));
+#endif
     fcntl(s, F_SETFL, fl);
     int ok = got > 12 && !strncmp(resp, "HTTP/1.", 7) && !strncmp(resp + 9, "200", 3);
     if (getenv("PCSIM_NETLOG")) printf("[pcsim] proxy %s:%d -> %.12s\n", host, port, got > 12 ? resp + 9 : "pas de reponse");
@@ -848,7 +936,17 @@ static int proxy_connect(s32 s, const char *host, int port) {   /* tunnel CONNEC
 s32 net_init(void) { return 0; }
 s32 net_init_async(void *cb, void *usr) { (void)cb; (void)usr; return 0; }
 void net_deinit(void) {}
-s32 net_socket(u32 d, u32 t, u32 p) { int s = socket((int)d, (int)t, (int)p); if (s >= 0) { int one = 1; setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one)); } return NE(s); }
+s32 net_socket(u32 d, u32 t, u32 p) {
+    int s = (int)socket((int)d, (int)t, (int)p);
+    if (s >= 0) {
+        int one = 1; setsockopt(s, SOL_SOCKET, SO_REUSEADDR, (const void *)&one, sizeof(one));
+#ifdef _WIN32
+        if (t == SOCK_DGRAM) setsockopt(s, SOL_SOCKET, SO_BROADCAST, (const char *)&one, sizeof(one));   /* (annonces du Salon a tout le reseau) */
+        if (s < (int)sizeof(nb_on)) nb_on[s] = 0;
+#endif
+    }
+    return NE(s);
+}
 s32 net_close(s32 s) { for (int k = 0; k < 16; k++) if (dns_slot[k].fd == s) dns_slot[k].len = 0; return NE(close(s)); }
 s32 net_connect(s32 s, struct sockaddr *a, socklen_t l) {
     if (a->sa_family == AF_INET) {
@@ -859,7 +957,11 @@ s32 net_connect(s32 s, struct sockaddr *a, socklen_t l) {
             return proxy_connect(s, dns_names[i], ntohs(((struct sockaddr_in *)a)->sin_port));
         }
     }
-    int r = BLOCKING(connect(s, a, l)); return NE(r);
+    int r = BLOCKING(connect(s, a, l));
+#ifdef _WIN32
+    if (r < 0 && WSAGetLastError() == WSAEWOULDBLOCK) return -EINPROGRESS;
+#endif
+    return NE(r);
 }
 s32 net_bind(s32 s, struct sockaddr *a, socklen_t l) {
     int r = bind(s, a, l);
@@ -873,6 +975,13 @@ s32 net_bind(s32 s, struct sockaddr *a, socklen_t l) {
 s32 net_listen(s32 s, u32 b) { return NE(listen(s, (int)b)); }
 s32 net_accept(s32 s, struct sockaddr *a, socklen_t *l) { int r = BLOCKING(accept(s, a, l)); return NE(r); }
 s32 net_send(s32 s, const void *d, s32 l, u32 f) { int r = BLOCKING((int)send(s, d, l, (int)f | MSG_NOSIGNAL)); return NE(r); }
+#ifdef _WIN32
+static int pcw_recv(int s, void *d, int n, int f) {       /* (MSG_DONTWAIT : pas dans Winsock) */
+    if (!(f & MSG_DONTWAIT) || sock_nb(s)) return (int)recv(s, d, n, f & ~MSG_DONTWAIT);
+    u_long on = 1, off = 0; ioctlsocket(s, FIONBIO, &on); int r = (int)recv(s, d, n, f & ~MSG_DONTWAIT); int e = WSAGetLastError(); ioctlsocket(s, FIONBIO, &off); WSASetLastError(e); return r;
+}
+#define recv(s, d, n, f) pcw_recv(s, d, n, f)
+#endif
 s32 net_recv(s32 s, void *d, s32 l, u32 f) {               /* (debit du Broadband Adapter : pcsim_limits.c) */
     int ok;
     while ((ok = pcsim_net_allow(l)) <= 0) {
@@ -903,12 +1012,21 @@ s32 net_recvfrom(s32 s, void *d, s32 l, u32 f, struct sockaddr *a, socklen_t *al
 s32 net_setsockopt(s32 s, u32 lv, u32 o, const void *v, socklen_t l) { return NE(setsockopt(s, (int)lv, (int)o, v, l)); }
 s32 net_getsockopt(s32 s, u32 lv, u32 o, void *v, socklen_t *l) { return NE(getsockopt(s, (int)lv, (int)o, v, l)); }
 s32 net_ioctl(s32 s, u32 cmd, void *arg) {
+#ifdef _WIN32
+    if (cmd == (u32)FIONBIO) { u_long on = arg ? *(u32 *)arg != 0 : 0; if (s >= 0 && s < (s32)sizeof(nb_on)) nb_on[s] = (u8)on; return NE(ioctlsocket(s, FIONBIO, &on)); }
+    return NE(ioctlsocket(s, (long)cmd, (u_long *)arg));
+#else
     if (cmd == (u32)FIONBIO) { int on = arg ? *(u32 *)arg != 0 : 0; return NE(ioctl(s, FIONBIO, &on)); }
     return NE(ioctl(s, cmd, arg));
+#endif
 }
 s32 net_fcntl(s32 s, u32 cmd, u32 fl) { return NE(fcntl(s, (int)cmd, (int)fl)); }
 s32 net_select(s32 m, fd_set *r, fd_set *w, fd_set *e, struct timeval *t) { int x = BLOCKING(select(m, r, w, e, t)); return NE(x); }
+#ifdef _WIN32
+s32 net_poll(struct pollfd *f, u32 n, s32 t) { int x = BLOCKING(WSAPoll(f, n, t)); return NE(x); }
+#else
 s32 net_poll(struct pollfd *f, u32 n, s32 t) { int x = BLOCKING(poll(f, n, t)); return NE(x); }
+#endif
 s32 net_shutdown(s32 s, u32 how) { return NE(shutdown(s, (int)how)); }
 struct hostent *net_gethostbyname(const char *n) { return gethostbyname(n); }
 u32 net_gethostip(void) { return htonl(0x7F000001); }
@@ -916,6 +1034,22 @@ s32 if_config(char *ip, char *mask, char *gw, bool dhcp, int retries) {
     (void)dhcp; (void)retries;
     const char *e = getenv("PCSIM_NOIP");
     if (e) { if (ip) strcpy(ip, "0.0.0.0"); return -1; }
+#ifdef _WIN32
+    if (pcsim_live) {                                      /* GC Station PC : la vraie adresse du PC sur le reseau local (le Salon) */
+        int s = (int)socket(AF_INET, SOCK_DGRAM, 0);
+        struct sockaddr_in a; memset(&a, 0, sizeof(a)); a.sin_family = AF_INET; a.sin_port = htons(53); a.sin_addr.s_addr = inet_addr("8.8.8.8");
+        int len = sizeof(a);
+        if (s >= 0 && connect(s, (struct sockaddr *)&a, sizeof(a)) == 0 && getsockname(s, (struct sockaddr *)&a, &len) == 0 && a.sin_addr.s_addr) {
+            u32 v = ntohl(a.sin_addr.s_addr);
+            if (ip) sprintf(ip, "%u.%u.%u.%u", v >> 24, (v >> 16) & 255, (v >> 8) & 255, v & 255);
+            if (mask) strcpy(mask, "255.255.255.0");
+            if (gw) sprintf(gw, "%u.%u.%u.1", v >> 24, (v >> 16) & 255, (v >> 8) & 255);
+            closesocket(s);
+            return 0;
+        }
+        if (s >= 0) closesocket(s);
+    }
+#endif
     if (ip) strcpy(ip, "127.0.0.1");
     if (mask) strcpy(mask, "255.0.0.0");
     if (gw) strcpy(gw, "127.0.0.1");

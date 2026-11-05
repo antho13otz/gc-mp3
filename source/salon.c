@@ -147,8 +147,112 @@ static int salon_route(s32 c, const char *target, const char *q, char *req) {
     return 1;
 }
 
+/* ---------- v356 : le Salon par Internet ----------
+   Deux GC Station chez deux personnes : chacune met l'adresse de l'autre (salon_ami : IP ou nom, au moins chez l'une
+   des deux) et le meme code (salon_code). Celle qui heberge ouvre dans sa box le port 51234 (UDP : annonces) et 51238
+   (TCP : sa carte SD). Annonces "GCSW1\t<empreinte du code>\t<nom>\t<port>\t<titre>" toutes les 5 s vers salon_ami, et
+   en reponse a chaque annonce recue avec le bon code (l'autre n'a alors rien a ouvrir pour etre vu). Par le port 51238,
+   seules les demandes /s/ (lecture de la carte SD) passent, et seulement avec l'empreinte du code (k=). */
+static void salon_peer_seen(const char *ip, const char *name, const char *now, int port, int wan);
+static volatile u32 salon_wan_ip = 0;                     /* adresse de salon_ami (0 = pas encore trouvee) */
+static volatile int salon_wan_port = SALON_PORT;          /* (salon_ami = "nom:port" : un autre port UDP) */
+static int salon_wan_st = 0;                              /* fil : 0 pas lance, 1 en marche, -1 port pris */
+static lwp_t salon_wan_h;
+static u8 salon_wan_stack[24 * 1024] ATTRIBUTE_ALIGN(32);
+static struct { u32 ip; u16 port; u64 t; } salon_wan_rep[SALON_MAX];
+static int salon_wan_ok(void) { return salon_on && strlen(salon_code) >= 4; }
+static void salon_wan_handle(s32 c) {                     /* une demande par Internet : /s/... avec k= */
+    static char req[4096];
+    int len = 0;
+    while (len < (int)sizeof(req) - 1) {
+        int r = tp_recv(c, req + len, (int)sizeof(req) - 1 - len, 8000);
+        if (r <= 0) return;
+        len += r; req[len] = 0;
+        if (strstr(req, "\r\n\r\n")) break;
+    }
+    char method[8] = "", target[1200] = "", k[16] = "";
+    if (sscanf(req, "%7s %1199s", method, target) != 2 || strcmp(method, "GET")) { tp_reply(c, 400, "text/plain", "", 0); return; }
+    char *q = strchr(target, '?');
+    if (q) *q++ = 0;
+    tp_param(q ? q : "", "k", k, sizeof(k));
+    if (!salon_wan_ok() || strcmp(k, salon_khash())) { tp_reply(c, 403, "text/plain", "", 0); return; }
+    if (strncmp(target, "/s/", 3) || !strcmp(target, "/s/open")) { tp_reply(c, 404, "text/plain", "", 0); return; }
+    salon_route(c, target, q, req);
+}
+static lwp_t salon_dns_h;
+static u8 salon_dns_stack[16 * 1024] ATTRIBUTE_ALIGN(32);
+static void *salon_dns_thread(void *a) {                  /* l'adresse de salon_ami (un nom : redemande toutes les 10 min) */
+    (void)a;
+    u64 t_dns = 0;
+    char last[96] = "";
+    for (;;) {
+        usleep(250000);
+        if (!salon_wan_ok()) { salon_wan_ip = 0; last[0] = 0; continue; }
+        u64 now = now_ms();
+        if (!strcmp(last, salon_ami) && (salon_wan_ip || now - t_dns < 10000) && now - t_dns < 600000) continue;
+        char h[96];
+        snprintf(last, sizeof(last), "%s", salon_ami);
+        snprintf(h, sizeof(h), "%s", salon_ami);
+        char *col = strrchr(h, ':');
+        int port = SALON_PORT;
+        if (col) { *col = 0; port = atoi(col + 1); if (port <= 0 || port > 65535) port = SALON_PORT; }
+        u32 ip = 0;
+        if (h[0] && resolve_host(h, &ip)) { salon_wan_port = port; salon_wan_ip = ip; }
+        else salon_wan_ip = 0;
+        t_dns = now;
+    }
+    return NULL;
+}
+static void *salon_wan_thread(void *a) {                  /* le port 51238 (comme le serveur du telephone : accept bloquant) */
+    (void)a;
+    s32 ls = net_socket(AF_INET, SOCK_STREAM, IPPROTO_IP);
+    u32 one = 1;
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sin_family = AF_INET; sa.sin_port = htons(SALON_WAN_PORT); sa.sin_addr.s_addr = 0;
+    if (ls >= 0) net_setsockopt(ls, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+    if (ls < 0 || net_bind(ls, (struct sockaddr *)&sa, sizeof(sa)) < 0 || net_listen(ls, 2) < 0) { if (ls >= 0) net_close(ls); salon_wan_st = -1; return NULL; }
+    for (;;) {
+        struct sockaddr_in ca;
+        socklen_t cl = sizeof(ca);
+        s32 c = net_accept(ls, (struct sockaddr *)&ca, &cl);
+        if (c < 0) { usleep(50000); continue; }
+        set_nonblock(c, 1);
+        if (salon_mx_ok) LWP_MutexLock(salon_mx);
+        salon_wan_handle(c);                             /* (code change ou Salon coupe entre-temps : 403) */
+        if (salon_mx_ok) LWP_MutexUnlock(salon_mx);
+        net_close(c);
+    }
+    return NULL;
+}
+static void salon_wan_send(u32 ip, int port) {            /* notre annonce, vers une console par Internet */
+    char m[200];
+    int ml = snprintf(m, sizeof(m), "GCSW1\t%s\t%s\t%d\t%s\n", salon_khash(), salon_myname(), SALON_WAN_PORT, salon_now_title);
+    struct sockaddr_in b;
+    memset(&b, 0, sizeof(b));
+    b.sin_family = AF_INET; b.sin_port = htons((u16)port); b.sin_addr.s_addr = ip;
+    net_sendto(salon_fd, m, ml, 0, (struct sockaddr *)&b, sizeof(b));
+}
+static void salon_wan_got(char *f[4], const struct sockaddr_in *from) {   /* annonce "GCSW1" recue (f : code, nom, port, titre) */
+    if (!salon_wan_ok() || !f[1] || strcmp(f[0], salon_khash())) return;
+    u32 ip = ntohl(from->sin_addr.s_addr);
+    char ips[16];
+    snprintf(ips, sizeof(ips), "%u.%u.%u.%u", (unsigned)(ip >> 24), (unsigned)(ip >> 16 & 255), (unsigned)(ip >> 8 & 255), (unsigned)(ip & 255));
+    salon_peer_seen(ips, f[1][0] ? f[1] : ips, f[3] ? f[3] : "", f[2] ? atoi(f[2]) : SALON_WAN_PORT, 1);
+    u64 now = now_ms();                                    /* reponse (une par 4 s et par console) : l'autre nous voit aussi */
+    int k = -1, old = 0;
+    for (int i = 0; i < SALON_MAX; i++) {
+        if (salon_wan_rep[i].ip == from->sin_addr.s_addr && salon_wan_rep[i].port == from->sin_port) { k = i; break; }
+        if (salon_wan_rep[i].t < salon_wan_rep[old].t) old = i;
+    }
+    if (k < 0) { k = old; salon_wan_rep[k].ip = from->sin_addr.s_addr; salon_wan_rep[k].port = from->sin_port; salon_wan_rep[k].t = 0; }
+    if (salon_wan_rep[k].t && now - salon_wan_rep[k].t < 4000) return;
+    salon_wan_rep[k].t = now;
+    salon_wan_send(from->sin_addr.s_addr, ntohs(from->sin_port));
+}
+
 /* ---------- decouverte (boucle principale) ---------- */
-static void salon_peer_seen(const char *ip, const char *name, const char *now, int port) {
+static void salon_peer_seen(const char *ip, const char *name, const char *now, int port, int wan) {
     if (!strcmp(ip, ip_str)) return;                      /* (soi-meme) */
     int k = -1;
     for (int i = 0; i < salon_n; i++) if (!strcmp(salon_peers[i].ip, ip)) k = i;
@@ -164,6 +268,8 @@ static void salon_peer_seen(const char *ip, const char *name, const char *now, i
     snprintf(salon_peers[k].now, sizeof(salon_peers[k].now), "%s", now);
     salon_peers[k].seen = now_ms();
     salon_peers[k].port = port > 0 && port < 65536 ? port : 80;
+    salon_peers[k].wan = wan;
+    if (wan && strlen(salon_peers[k].name) + 11 < sizeof(salon_peers[k].name)) strcat(salon_peers[k].name, " (Internet)");
 }
 static void salon_now_update(void) {                      /* ce que joue cette console (pour /s/now) */
     np_t n;
@@ -182,6 +288,9 @@ static void salon_pump(void) {
     if (net_phase != NET_DONE) { net_start_async(); return; }
     if (!net_ok) return;
     if (tp_state == PS_OFF) tp_wanted = 1;                /* (les autres consoles passent par son serveur) */
+    if (!salon_mx_ok && LWP_MutexInit(&salon_mx, false) >= 0) salon_mx_ok = 1;   /* v356 */
+    if (!salon_wan_st && salon_wan_ok() && salon_mx_ok) { salon_wan_st = 1; if (LWP_CreateThread(&salon_wan_h, salon_wan_thread, NULL, salon_wan_stack, sizeof(salon_wan_stack), 35) < 0) salon_wan_st = -1;
+                                                         else LWP_CreateThread(&salon_dns_h, salon_dns_thread, NULL, salon_dns_stack, sizeof(salon_dns_stack), 33); }
     if (!pns_on) { pns_on = 1; if (LWP_CreateThread(&pns_h, pns_thread, NULL, pns_stack, sizeof(pns_stack), 40) < 0) pns_on = 0; }   /* v143 */
     if (salon_fd < 0) {
         salon_fd = net_socket(AF_INET, SOCK_DGRAM, 0);
@@ -209,6 +318,7 @@ static void salon_pump(void) {
             b.sin_addr.s_addr = htonl((u32)a1 << 24 | (u32)a2 << 16 | (u32)a3 << 8 | 255u);
             net_sendto(salon_fd, m, ml, 0, (struct sockaddr *)&b, sizeof(b));
         }
+        if (salon_wan_ok() && salon_wan_ip) salon_wan_send(salon_wan_ip, salon_wan_port);   /* v356 : par Internet */
     }
     for (int k = 0; k < 8; k++) {                         /* annonces recues */
         char m[200];
@@ -217,6 +327,13 @@ static void salon_pump(void) {
         s32 r = net_recvfrom(salon_fd, m, sizeof(m) - 1, 0, (struct sockaddr *)&from, &fl);
         if (r <= 0) break;
         m[r] = 0;
+        if (!strncmp(m, "GCSW1\t", 6)) {                  /* v356 : par Internet */
+            char *g[4] = { m + 6, NULL, NULL, NULL };
+            for (int i = 1; i < 4; i++) { g[i] = g[i - 1] ? strchr(g[i - 1], '\t') : NULL; if (g[i]) *g[i]++ = 0; }
+            if (g[3]) g[3][strcspn(g[3], "\r\n")] = 0;
+            salon_wan_got(g, &from);
+            continue;
+        }
         if (strncmp(m, "GCST1\t", 6)) continue;
         char *f[4] = { m + 6, NULL, NULL, NULL };
         for (int i = 1; i < 4; i++) { f[i] = f[i - 1] ? strchr(f[i - 1], '\t') : NULL; if (f[i]) *f[i]++ = 0; }
@@ -224,10 +341,10 @@ static void salon_pump(void) {
         u32 ip = ntohl(from.sin_addr.s_addr);
         char ips[16];
         snprintf(ips, sizeof(ips), "%u.%u.%u.%u", (unsigned)(ip >> 24), (unsigned)(ip >> 16 & 255), (unsigned)(ip >> 8 & 255), (unsigned)(ip & 255));
-        salon_peer_seen(ips, f[0][0] ? f[0] : ips, f[3] ? f[3] : "", f[1] ? atoi(f[1]) : 80);
+        salon_peer_seen(ips, f[0][0] ? f[0] : ips, f[3] ? f[3] : "", f[1] ? atoi(f[1]) : 80, 0);
     }
     for (int i = 0; i < salon_n; ) {                      /* plus d'annonce depuis 20 s : partie */
-        if (now - salon_peers[i].seen > 20000) { salon_peers[i] = salon_peers[--salon_n]; salon_gen++; continue; }
+        if (now > salon_peers[i].seen && now - salon_peers[i].seen > 20000) {   /* (v356 : vue juste apres "now" : avant, effacee tout de suite) */ salon_peers[i] = salon_peers[--salon_n]; salon_gen++; continue; }
         i++;
     }
 }

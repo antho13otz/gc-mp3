@@ -4,6 +4,8 @@
 // Le serveur tourne dans son propre thread : une connexion lente ne bloque
 // jamais l'ecran ni le son. Les commandes passent par une petite file lue par
 // la boucle principale.
+static mutex_t salon_mx;                                 /* v356 (salon.c) */
+static int salon_mx_ok = 0;
 #ifndef PHONE_PORT
 #define PHONE_PORT 80
 #endif
@@ -1949,7 +1951,9 @@ static void *phone_thread(void *arg) {
         tp_busy = 1;                                     /* (avant le test : tp_park attend la fin) */
         if (tp_park_t && now_ms() - tp_park_t < 20000) { tp_busy = 0; net_close(c); continue; }   /* v247 : carte SD demontee */
         tp_taken = 0;
+        if (salon_mx_ok) LWP_MutexLock(salon_mx);        /* v356 : (une demande a la fois avec le Salon par Internet) */
         tp_handle(c);                                    /* (v137 : onglet enleve : seulement les partages, voir tp_handle) */
+        if (salon_mx_ok) LWP_MutexUnlock(salon_mx);
         tp_busy = 0;
         if (!tp_taken) net_close(c);
     }

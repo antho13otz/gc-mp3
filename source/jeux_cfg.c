@@ -486,6 +486,9 @@ static const char *game_boot_auto2(int k);
 static const char *game_boot2(int k, int resident);
 static const char *game_boot_auto(int k) {
     { const char *lim = pj_launch_check(); if (lim) return lim; }
+#ifdef _WIN32                                              /* GC Station PC : le jeu dans Dolphin (tools/pc-sim/pcsim_dolphin.c) */
+    { extern const char *pcw_dolphin_launch(const char *, const char *, const char *, const char *); if (k >= 0 && k < gl_n) return pcw_dolphin_launch(gl[k].path, gl[k].title, salon_ami, salon_code); }
+#endif
     if (k >= 0 && k < gl_n) tpl_game(gl[k].id, gl[k].title);
     const char *e = game_boot_auto2(k);                      /* (ne revient pas si ca marche) */
     if (e) tpl_game_fail();
@@ -494,6 +497,9 @@ static const char *game_boot_auto(int k) {
 static const char *game_boot(int k, int resident) {
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
     { const char *lim = pj_launch_check(); if (lim) return lim; }
+#ifdef _WIN32                                              /* GC Station PC : le jeu dans Dolphin (tools/pc-sim/pcsim_dolphin.c) */
+    { extern const char *pcw_dolphin_launch(const char *, const char *, const char *, const char *); if (k >= 0 && k < gl_n) return pcw_dolphin_launch(gl[k].path, gl[k].title, salon_ami, salon_code); }
+#endif
     tpl_game(gl[k].id, gl[k].title);
     const char *e = game_boot2(k, resident);
     if (e) tpl_game_fail();
