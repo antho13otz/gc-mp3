@@ -10,7 +10,8 @@
 // ACMD41, CMD58, CMD16, puis CMD17 (lire un secteur, jeton 0xFE, 512 octets, CRC).
 #include "natres.h"
 /* v327 : MEM_OS (le plus petit, -Os) aussi pour ce qui ne sert qu'au demarrage, au reseau ou au plantage : le resident
-   doit tenir sous 0x817FFF00 (le pilote W5500 a ajoute ~1,5 Ko) */
+   doit tenir sous 0x817FFF00 (le pilote W5500 a ajoute ~1,5 Ko). v332 : aussi la carte virtuelle (lente de toute facon), le
+   journal, le retour A+Z+START, la verification des crochets et les pages de NRO_TRAP (place du micro du telephone) */
 #if defined(__GNUC__) && !defined(__clang__)
 #define MEM_OS __attribute__((optimize("Os")))                /* (resident compile en -O2 : ici, le plus petit) */
 #else
@@ -472,7 +473,7 @@ static void vi_snap(void) {                              /* v99 : etat de l'ecra
     H.vi_now = now;
     H.vi_dtv = (u32)v[0x6E / 2] << 16 | v[26];           /* (v111 : bas = DI1, interruption de la 1re ligne) */
 }
-static void nr_log_flush(void) {
+static MEM_OS void nr_log_flush(void) {
     H.flush_tb = tbl();
     vi_snap();
     if (!H.log_sec) return;
@@ -1070,6 +1071,27 @@ static MEM_OS void gb_rx(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d,
     if (o & 2u) p->gjoy &= ~0x02u;
     if (o & 8u) p->gjoy = (p->gjoy & ~0x30u) | ((o >> 8) & 0x30u);
 }
+/* v332 : micro du telephone : les octets du paquet "GCVO" (echantillons 16 bits, deja a la frequence du jeu) dans l'anneau
+   (les plus vieux sautes s'il deborde) */
+static MEM_OS void mic_rx(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d, u32 dispo) {
+    u32 n = pn_be32(d + 8);
+    if (!p->micon || n > 1472u || n + 12u > dispo) { p->bad++; return; }
+    p->mnrx++;
+    p->vip = pn_be32(f + 26); p->vport = pn_be16(u); p->vmac0 = pn_be32(f + 6); p->vmac1 = pn_be16(f + 10) << 16;
+    for (u32 i = 0; i < n; i++) p->mring[p->mw++ & (NATRES_MIC_RING - 1u)] = d[12 + i];
+    if (p->mw - p->mr > NATRES_MIC_RING) p->mr = p->mw - NATRES_MIC_RING;
+}
+static void mic_ready(natres_pad_t *p);
+static MEM_OS __attribute__((noinline)) void mic_tx(natres_pad_t *p) {             /* (toutes les 30 images) etat du micro emule, vers le telephone */
+    static u32 tick = 0;
+    if (!p->vip || ++tick % 10u) return;
+    u8 *uu = pn_fr + 42, mac[6];
+    const u32 *w = &p->mstat;                            /* (mstat ... mlow : 8 mots, dans l'ordre de natres.h) */
+    pn_p32(uu, NATRES_MIC_MAGIC); pn_p32(uu + 4, 0x02000000u);
+    for (u32 i = 0; i < 8; i++) pn_p32(uu + 8 + i * 4, w[i]);
+    pn_p32(mac, p->vmac0); pn_p16(mac + 4, p->vmac1 >> 16);
+    pn_udp(p, mac, p->vip, p->vport, 40);
+}
 static MEM_OS void gb_tx(natres_pad_t *p) {              /* (chaque image) : mots du jeu au telephone, etat */
     static u32 tick = 0;
     if (p->gnew && p->gw - p->ga < GB_RING - 1u) { p->gnew = 0; p->gjoy ^= 0x10u; }
@@ -1103,6 +1125,7 @@ static void MEM_OS pd_frame(natres_pad_t *p, u32 n, u32 now) {
     if (d + 20 > f + n) { p->bad++; return; }
     if ((pn_be32(d) & 0xFFFFFF00u) == 0x47434D00u) { mem_req(p, f, u, d, (u32)(f + n - d)); return; }   /* v306 : "GCM?" */
     if (pn_be32(d) == NATRES_GBA_MAGIC) { gb_rx(p, f, u, d, (u32)(f + n - d)); return; }   /* v331 : GBA du telephone */
+    if (pn_be32(d) == NATRES_MIC_MAGIC) { mic_rx(p, f, u, d, (u32)(f + n - d)); return; }   /* v332 : micro du telephone */
     if (pn_be32(d) != 0x47435044u) { p->bad++; return; }   /* "GCPD" */
     u32 ch = d[5] & 3;
     if (!(p->chmask >> ch & 1)) { p->bad++; return; }
@@ -1137,6 +1160,7 @@ void MEM_OS pd_poll(void) {
     if (p->mpause) mem_pause(p);                          /* v306 : jeu en pause pour le chercheur de codes */
     ms_send(p);                                          /* (appli : le direct) */
     if (p->gbmask) gb_tx(p);                             /* v331 : GBA du telephone */
+    if (p->micon) { mic_ready(p); mic_tx(p); }           /* v332 : micro du telephone : un paquet pret ? etat */
     if (p->mach && p->mip) { p->mach--; mem_ach(p); }     /* v306 : succes obtenu : annonce au telephone */
     {   /* v275 : vibration demandee par le jeu : envoyee au telephone quand elle change, puis toutes les 8 images tant
            qu'elle dure (l'appli s'arrete seule sans nouvelles : un paquet perdu ne la laisse pas vibrer) */
@@ -1541,7 +1565,7 @@ static void si_hook(u32 irq, u32 ctx) {
 }
 static void igr_poll(void) { igr_poll2(1); }
 /* count = 0 : ne compte que le temps (interruption du son : trop frequente pour compter les lectures) */
-static void igr_poll2(int count) {
+static MEM_OS void igr_poll2(int count) {
     if (!(H.flags & NRF_IGR)) return;
     volatile u32 *si = HW6(0xCC006400u);
     static u8 igr_ch[4];                                 /* v99 : derniere chose vue sur chaque port (1 = A+Z+START tenus) */
@@ -1774,12 +1798,15 @@ typedef struct {
     const natres_ext_t *tab;
     u32 n, size, id, on;
 } vcard_t;
+#define MIC_ID 0x0A000000u                               /* v332 : identifiant EXI du micro GameCube */
+static natres_pad_t *mic_p(void);
 static vcard_t vc[2] = { { .status = 0xC1u, .sec_no = 0xFFFFFFFFu }, { .status = 0xC1u, .sec_no = 0xFFFFFFFFu } };   /* (occupe | debloquee | prete) */
 static u8 c_sec[2][512] __attribute__((aligned(32)));
 static u32 x_disp = 0;
 static MEM_OS void vc_setup(void) {                             /* (au 1er acces : tables donnees par GC Station) */
     vc[0].tab = card_tab; vc[0].n = H.card_n; vc[0].size = H.card_size; vc[0].id = H.card_id; vc[0].on = (H.flags & NRF_CARD) && H.card_n;
     vc[1].tab = card2_tab; vc[1].n = H.card2_n; vc[1].size = H.card2_size; vc[1].id = H.card2_id; vc[1].on = (H.flags & NRF_CARDB) && H.card2_n;
+    if (mic_p()) { vc[1].on = 1; vc[1].n = 0; vc[1].id = MIC_ID; }   /* v332 : micro du telephone (a la place de la carte B) */
 }
 static int card_sd(vcard_t *v, u32 csec, u32 *sd) {
     for (u32 k = 0; k < v->n && k < NATRES_CARDMAX; k++) {
@@ -1807,7 +1834,7 @@ static void card_rd(vcard_t *v, u8 *dst, u32 a, u32 len) {
         dst += n; a += n; len -= n;
     }
 }
-static void card_wr(vcard_t *v, u32 a, const u8 *src, int fill, u32 len) {   /* src = NULL : remplir avec fill */
+static MEM_OS void card_wr(vcard_t *v, u32 a, const u8 *src, int fill, u32 len) {   /* src = NULL : remplir avec fill */
     while (len) {
         u32 n = 512 - (a & 511), sd;
         if (n > len) n = len;
@@ -1827,8 +1854,48 @@ static void card_done(vcard_t *v) {                      /* fin d'effacement / d
     v->status |= 0x01; v->status &= ~0x80u;
     if (v->irq_sw) { v->irq |= 0x2; H.card_irqs++; x_kick(); }   /* EXIINT */
 }
-static void card_cs(vcard_t *v, int on) {
+/* ======================= v332 : micro du telephone (slot B) =======================
+   Le micro GameCube (DOL-022 : Mario Party 6 et 7, Karaoke Revolution...) se branche dans le slot B (canal EXI 1,
+   peripherique 0). Son fonctionnement a ete lu dans le pilote de Mario Party 7 (commandes et bits seulement, aucun code
+   repris) : identifiant 0x0A000000 ; FF remise a zero ; 40 : lire l'etat (2 octets) ; 80 : ecrire l'etat (2 octets ; bit 15
+   en marche, bits 13-14 paquets de 32 / 64 / 128 octets, bits 11-12 11025 / 22050 / 44100 Hz, bit 10 gain) ; quand un
+   paquet est pret, interruption EXI : le jeu lit l'etat, puis 20 et le paquet par DMA (echantillons 16 bits gros-boutistes).
+   Ici, le slot B emule (comme la carte virtuelle) joue ce micro avec le son du telephone : l'appli lit l'etat (renvoye toutes
+   les 10 images) et envoie des echantillons 16 bits deja a la bonne frequence ; interruption des qu'un paquet entier est la. */
+static MEM_OS __attribute__((noinline)) natres_pad_t *mic_p(void) { natres_pad_t *p = pd_find(); return p && p->micon ? p : 0; }
+static MEM_OS void mic_ready(natres_pad_t *p) {          /* un paquet entier attend : interruption EXI du slot B */
+    vcard_t *v = &vc[1];
+    u32 k = (p->mstat >> 13) & 3u;                       /* (paquets de 32, 64, 128 octets ; 3 comme 2) */
+    if (v->id != MIC_ID || !(p->mstat & 0x8000u) || (v->irq & 2u) || p->mw - p->mr < (32u << (k > 2u ? 2u : k))) return;
+    v->irq |= 2u; p->mnirq++; x_kick();
+}
+static MEM_OS u8 mic_byte(vcard_t *v, u8 b) {
+    natres_pad_t *p = mic_p();
+    u8 r = 0xFF;
+    if (!p) return r;
+    if (v->pos == 0) {
+        v->cmd = b; p->mncmd++;
+        if (b == 0xFF) { p->mstat = 0; v->irq &= ~2u; }
+    } else if (v->cmd == 0x40) r = (u8)(v->pos == 1 ? p->mstat >> 8 : p->mstat);
+    else if (v->cmd == 0x80) {
+        if (v->pos == 1) v->addr = (u32)b << 8;
+        else if (v->pos == 2) {
+            u32 st = (v->addr | b) & 0xFDFFu;            /* (bit 9 : debordement, jamais ici) */
+            if (st != p->mstat) p->mr = p->mw;           /* (mise en marche, autre frequence : pas de vieux son) */
+            if (!(st & 0x8000u)) v->irq &= ~2u;
+            p->mstat = st;
+        }
+    } else if (v->cmd == 0x20) {                         /* (echantillons ; rien du telephone : silence) */
+        if (p->mr != p->mw) r = p->mring[p->mr++ & (NATRES_MIC_RING - 1u)]; else { r = 0; p->mlow++; }
+        p->mnrd++;
+    }
+    else if (v->cmd == 0x00 && v->pos >= 2) r = (u8)(MIC_ID >> (24 - ((v->pos - 2) & 3) * 8));
+    v->pos++;
+    return r;
+}
+static MEM_OS void card_cs(vcard_t *v, int on) {
     if (on) { v->pos = 0; return; }
+    if (v->id == MIC_ID) { natres_pad_t *p = mic_p(); if (p && v->cmd == 0x20) mic_ready(p); return; }   /* v332 : paquet lu : le suivant ? */
     u32 mask = v->size - 1;
     if (v->cmd == 0xF1 && v->pos > 2) { card_wr(v, v->addr & mask & ~0x1FFFu, 0, 0xFF, 0x2000); card_done(v); }
     else if (v->cmd == 0xF4 && v->pos > 2) { card_wr(v, 0, 0, 0xFF, v->size); v->status &= ~0x80u; }
@@ -1844,6 +1911,7 @@ static void card_cs(vcard_t *v, int on) {
     }
 }
 static u8 card_byte(vcard_t *v, u8 b) {
+    if (v->id == MIC_ID) return mic_byte(v, b);          /* v332 */
     if (v->pos == 0) {
         v->cmd = b; b = 0xFF;
         H.card_cmds++; H.card_last = v->cmd;
@@ -1874,7 +1942,7 @@ static u8 card_byte(vcard_t *v, u8 b) {
     v->pos++;
     return b;
 }
-static void x_xfer(vcard_t *v) {                         /* transfert vers la carte virtuelle */
+static MEM_OS void x_xfer(vcard_t *v) {                         /* transfert vers la carte virtuelle */
     u32 n = ((v->cr >> 4) & 3) + 1, rw = (v->cr >> 2) & 3;
     if (!(v->cr & 2)) {                                  /* immediat (1 a 4 octets dans DATA) */
         if (rw == 1) { for (u32 i = 0; i < n; i++) card_byte(v, (u8)(v->data >> (24 - i * 8))); }
@@ -1882,7 +1950,10 @@ static void x_xfer(vcard_t *v) {                         /* transfert vers la ca
     } else {                                             /* DMA */
         u32 dst = (v->mar & 0x01FFFFE0u) | 0x80000000u, len = v->len & 0x03FFFFE0u;
         if (len && dst + len <= 0x81800000u) {
-            if (rw == 0) { card_rd(v, (u8 *)dst, v->addr & (v->size - 1), len); cache_flush(dst, len); }
+            if (v->id == MIC_ID) {                       /* v332 : micro : le paquet d'echantillons */
+                if (rw == 0) { for (u32 i = 0; i < len; i++) ((u8 *)dst)[i] = mic_byte(v, 0); cache_flush(dst, len); }
+            }
+            else if (rw == 0) { card_rd(v, (u8 *)dst, v->addr & (v->size - 1), len); cache_flush(dst, len); }
             else if (rw == 1) card_wr(v, v->addr & (v->size - 1), (const u8 *)dst, 0, len);
         }
     }
@@ -2478,7 +2549,7 @@ void trap_c(void) {
     }
     if (up && ra) r[ra] = ea;
 }
-static void trap_pte(u32 page, u32 phys) {               /* page = adresse (0xCC0xx000) -> phys, sans cache, garde */
+static MEM_OS void trap_pte(u32 page, u32 phys) {               /* page = adresse (0xCC0xx000) -> phys, sans cache, garde */
     u32 pi = (page >> 12) & 0xFFFFu, hash = (trap_vsid ^ pi) & 0x3FFu;
     u32 *g = (u32 *)(NATRES_HTAB + hash * 64u);
     if ((u32)g < (u32)trap_pteg || (u32)g >= (u32)trap_pteg + TRAP_PTEG_LEN) return;
@@ -2488,7 +2559,7 @@ static void trap_pte(u32 page, u32 phys) {               /* page = adresse (0xCC
         return;
     }
 }
-static int trap_pteg_clear(u32 hash) {                   /* groupe secondaire (hors de trap_pteg) : rien qui nous ressemble */
+static MEM_OS int trap_pteg_clear(u32 hash) {                   /* groupe secondaire (hors de trap_pteg) : rien qui nous ressemble */
     const u32 *g = (const u32 *)(NATRES_HTAB + (hash & 0x3FFu) * 64u);
     for (int i = 0; i < 8; i++) if ((g[i * 2] & 0x80000040u) == 0x80000040u && ((g[i * 2] >> 7) & 0xFFFFFFu) == trap_vsid) return 0;   /* (V, H = 1, notre VSID) */
     return 1;
@@ -2570,7 +2641,7 @@ static void hook1(int idx, u32 *orig, u32 fn) {
         if (idx == 21 && (exec_on || exec_a)) { exec_on = exec_a = 0; nr_log_add(0xEF000000u, v, H.tramp_n, 0); nr_log_flush(); }   /* v95 : le nouveau programme a pris la main */
     }
 }
-static void hooks_check(void) {
+static MEM_OS void hooks_check(void) {
     volatile u32 *t = OS_INT_TABLE;
     if (!nr_game_fn(t[21]) && t[21] != (u32)di_hook) return;   /* (pas la table du SDK : on ne touche a rien) */
     trap_check();                                        /* v139 */

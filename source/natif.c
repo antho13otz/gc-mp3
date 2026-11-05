@@ -1951,6 +1951,7 @@ static u32 na_padmask(void) {                             /* ports donnes aux te
     return net_ok && ip_str[0] ? m[nat_padtel % 5] : 0;
 }
 static u32 na_gbamask(void) { return nat_gbatel && net_ok && ip_str[0] ? 0x2u : 0; }   /* v331 : GBA du telephone (port 2) */
+static int na_micon(void) { return nat_mictel && net_ok && ip_str[0]; }   /* v332 : micro du telephone (slot B) */
 static int na_mem_on(void) { return nat_memtel && app_envoi && net_ok && ip_str[0] && !na_net_on; }   /* (v330 : envoi vers l'appli coupe : rien) */   /* v306 : chercheur de codes */
 static u32 na_opt(void) {
     static const u8 thr[4] = { 0, 77, 128, 192 };
@@ -1960,7 +1961,7 @@ static u32 na_opt(void) {
     if (nat_poll == 1) o |= 2u << 16; else if (nat_poll == 2) o |= 4u << 16;
     if (nat_speed) o |= NRO_SPEED;
     if (nat_trap) o |= NRO_TRAP;
-    if ((na_padmask() | na_gbamask()) && !na_net_on) o |= NRO_PHONE;   /* manettes du telephone (v331 : et la GBA du telephone) */
+    if ((na_padmask() | na_gbamask() | (u32)na_micon()) && !na_net_on) o |= NRO_PHONE;   /* manettes du telephone (v331 : GBA, v332 : micro) */
     if (na_mem_on()) o |= NRO_MEM;                        /* v306 : chercheur de codes de l'appli */
     return o;
 }
@@ -3263,8 +3264,10 @@ static void na_pad_prep(void) {
     p->net.magic = NATRES_NET_MAGIC; p->net.ip = na_ipv4(ip_str); p->net.port = NATRES_PAD_PORT;
     p->net.mask = na_ipv4(mask_str); p->net.gw = na_ipv4(gw_str);
     p->gbmask = na_gbamask(); p->chmask = na_padmask() & ~p->gbmask; p->xch = 0xFF;   /* (v331 : le port de la GBA n'est pas une manette) */
+    p->micon = (u32)na_micon();                           /* v332 : micro du telephone (slot B) */
+    if (!p->micon) p->len -= NATRES_MIC_RING / 4;         /* (v332 : sans le micro, pas de place pour son anneau : il est a la fin) */
     for (int i = 0; i < 4; i++) { p->h[i] = 0x00808080u; p->l[i] = 0x80800000u; }
-    if (p->net.ip) na_pad_w = sizeof(natres_pad_t) / 4;
+    if (p->net.ip) na_pad_w = (int)p->len;
 }                               /* (ordre de la machine ; ecrit en gros-boutiste dans le resident) */
 static char na_net_msg[120];
 static const char *nat_boot(int k) {
@@ -3295,6 +3298,7 @@ static const char *nat_boot(int k) {
     nat_ld("Position du jeu sur la carte SD", 10);
     nat_ret_prep();                                        /* v64 : retour a GC Station (avant la carte de l'ISO : meme tableau) */
     int cards = nat_card_prep(in.id);                      /* v65 : carte memoire virtuelle ; v122 : bit 1 = slot B aussi */
+    if (na_micon() && !na_net_on) cards &= ~2;            /* v332 : le slot B joue le micro du telephone */
     int card_on = cards != 0;
     u32 snap_sec = nat_snap_prep();                        /* v83 : photo de la memoire au plantage */
     u32 log_sec = nat_journal_prep();                      /* v54 : journal du jeu (un secteur de la carte) */
