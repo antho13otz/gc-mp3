@@ -113,7 +113,7 @@ fun CircuitMK3D(e: JeuMKDD.Etat) {
     // les autres karts lus en direct, au meme rythme que le tien (un bloc de 1 Ko par kart : sa matrice)
     androidx.compose.runtime.LaunchedEffect(Unit) {
         while (true) {
-            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { try { JeuMKDD.lireAutresKarts() } catch (e: Exception) { } }
+            if (Direct3D.actif) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { try { JeuMKDD.lireAutresKarts() } catch (e: Exception) { } }   // (build 400 : pas si coupe)
             kotlinx.coroutines.delay(30)
         }
     }

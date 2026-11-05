@@ -61,6 +61,7 @@ class Vue3D(val m: MaillageNiveau?, val cible: FloatArray, val camera: FloatArra
 @Composable
 fun DessinVue3D(v: Vue3D) {
     if (v.scene != null) { DessinVue3DGL(v.scene, v.cible, v.camera, v.chemin, direct = v.direct, pose = v.pose); return }
+    if (v.direct != null && !InterrupteurDirect3D()) return   // (build 400 : positions en direct coupees)
     val mm = v.m ?: return
     var lacet by remember { mutableFloatStateOf(Float.NaN) }   // (NaN : derriere la camera du jeu)
     var tangage by remember { mutableFloatStateOf(0.55f) }

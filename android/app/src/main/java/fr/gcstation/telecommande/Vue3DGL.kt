@@ -2017,6 +2017,8 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
                   pose: (() -> PoseRayman?)? = null, karts: List<KartVue>? = null, linkWW: FloatArray? = null,
                   capPerso: Float = Float.NaN, poseWW: (() -> FloatArray?)? = null, camJeu: (() -> FloatArray?)? = null,
                   ecouteDirect: (() -> Unit)? = null, rejeu: ((Etat3D) -> Unit)? = null) {
+    // build 400 : interrupteur « positions en direct » (vue 3D en jeu seulement ; coupe : rien n'est demande a Pulse)
+    if ((direct != null || ecouteDirect != null || rejeu != null) && !InterrupteurDirect3D()) return
     // build 242 : un etat neuf par niveau ; sans jeu en cours, la vue de depart cadre tout le niveau
     val etat = remember(scene) { Etat3D().also { e -> if (!montrerRayman) { e.distBase = scene.rayon * 1.7f; e.dist = e.distBase; e.tangage = 0.75f } } }
     // build 269 : en direct, la position vient de la lecture rapide (la valeur passee ici, plus lente, ne sert qu'au depart)
@@ -2503,4 +2505,27 @@ private class ChoixMsaa : GLSurfaceView.EGLConfigChooser {
             egl.eglChooseConfig(d, intArrayOf(0x3024, 8, 0x3023, 8, 0x3022, 8, 0x3025, 16, 0x3040, 4, 0x3038), c, 1, n); c[0]!!
         }
     }
+}
+
+/** build 400 : reception des positions pour la vue 3D en jeu (reglage garde ; coupe : plus d'abonnement ni de lecture) */
+object Direct3D {
+    var actif by androidx.compose.runtime.mutableStateOf(true)
+    var charge = false
+}
+
+@Composable
+fun InterrupteurDirect3D(): Boolean {
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    if (!Direct3D.charge) { Direct3D.actif = ctx.getSharedPreferences("gcs", 0).getBoolean("vue3d_direct", true); Direct3D.charge = true }
+    Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween) {
+        Text("Positions en direct (vue 3D)", color = Color.White, fontSize = 13.sp)
+        androidx.compose.material3.Switch(Direct3D.actif, { on ->
+            Direct3D.actif = on
+            ctx.getSharedPreferences("gcs", 0).edit().putBoolean("vue3d_direct", on).apply()
+            if (!on) Thread { try { MemoireJeu.abonner(emptyList(), 1) } catch (e: Exception) { } }.start()   // (fin du direct tout de suite)
+        }, colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = C.Rose, checkedThumbColor = Color.White))
+    }
+    if (!Direct3D.actif) Text("Coupé : la vue 3D est en pause et ne demande plus rien à la console.", color = C.Pale, fontSize = 11.sp)
+    return Direct3D.actif
 }
