@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# v345 : essai du Salon par Internet : GC Station (simulateur) + une fausse console "par Internet" (ce script).
+# v348 : essai du Salon par Internet : GC Station (simulateur) + une fausse console "par Internet" (ce script).
 #   - GC Station a salon_ami = 127.0.0.2:61234 (ce script) et le code "salon-test" ;
 #   - on verifie : ses annonces GCSW1 arrivent ici (bonne empreinte), elle repond aux notres, elle nous voit
 #     (journal : "salon : Ami du test"), son port 51238 sert /s/list avec k=, refuse sans k= ou avec un faux,

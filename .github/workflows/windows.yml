@@ -1,6 +1,6 @@
 name: GC Station PC (Windows)
 
-# v345 : GC Station pour PC Windows (tools/pc-sim + win/) : le vrai code de GC Station dans une fenetre, clavier ou
+# v348 : GC Station pour PC Windows (tools/pc-sim + win/) : le vrai code de GC Station dans une fenetre, clavier ou
 # manette, son, Salon par Internet, et les jeux dans Dolphin (jeu en reseau local par Internet). Compile depuis Linux
 # (MinGW 32 bits), essaye sur un vrai Windows (demarrage, fenetre, Salon par Internet, deux GC Station PC avec un faux
 # Dolphin). Gardee pour soi, comme l'appli : jamais dans une release publique ; GC-Station-PC.zip est seulement joint a

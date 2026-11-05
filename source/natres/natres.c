@@ -1036,7 +1036,7 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
         gb_r0 = 0x00040000u | (p->gjoy & 0xFFu) << 8;
         /* v340 : reponse a la remise a zero : JOYSTAT 0x08 seulement (cle de session dans JOY_TRANS), puis 0x18 aux
            demandes d'etat : ce que verifie le demarrage du SDK (table du demarrage de Rayman 3 : octets 37 puis 0) */
-        /* v345 : programme lance : une remise a zero ne relance pas le demarrage (une vraie GBA ne le peut plus non plus) */
+        /* v348 : programme lance : une remise a zero ne relance pas le demarrage (une vraie GBA ne le peut plus non plus) */
         if (c == 0xFFu && p->gst != 4) { gb_reset(p); gb_r0 = 0x00040800u; }
         if (c == 0xFFu && p->gst == 4) {                 /* v347 : la GBA emulee l'apprendra ; si on connait sa reponse : tout de suite */
             p->grst++;
@@ -1067,7 +1067,7 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
             n = ((n << 7 | (s & 0x7Fu)) + 0x3Fu) << 3;
             p->glen = (n & 0x3FFF8u) + 0xCu; p->gpos = 0; p->gst = 2; p->gjoy = (p->gjoy & 0x0Au) | 0x20u;
         } else if (p->gst == 2) {
-            if (p->gpos == 0xACu) p->gcode = w;              /* (v345 : code du jeu, en clair dans l'en-tete) */
+            if (p->gpos == 0xACu) p->gcode = w;              /* (v348 : code du jeu, en clair dans l'en-tete) */
             if (p->gpos == 0x1F8u) p->gx = w;                /* (v346 : preuve : produit des mots chiffres 0x1F8 et 0x1FC) */
             if (p->gpos == 0x1FCu) p->gx *= w;
             p->gpos += 4;

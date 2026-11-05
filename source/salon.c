@@ -147,7 +147,7 @@ static int salon_route(s32 c, const char *target, const char *q, char *req) {
     return 1;
 }
 
-/* ---------- v345 : le Salon par Internet ----------
+/* ---------- v348 : le Salon par Internet ----------
    Deux GC Station chez deux personnes : chacune met l'adresse de l'autre (salon_ami : IP ou nom, au moins chez l'une
    des deux) et le meme code (salon_code). Celle qui heberge ouvre dans sa box le port 51234 (UDP : annonces) et 51238
    (TCP : sa carte SD). Annonces "GCSW1\t<empreinte du code>\t<nom>\t<port>\t<titre>" toutes les 5 s vers salon_ami, et
@@ -288,7 +288,7 @@ static void salon_pump(void) {
     if (net_phase != NET_DONE) { net_start_async(); return; }
     if (!net_ok) return;
     if (tp_state == PS_OFF) tp_wanted = 1;                /* (les autres consoles passent par son serveur) */
-    if (!salon_mx_ok && LWP_MutexInit(&salon_mx, false) >= 0) salon_mx_ok = 1;   /* v345 */
+    if (!salon_mx_ok && LWP_MutexInit(&salon_mx, false) >= 0) salon_mx_ok = 1;   /* v348 */
     if (!salon_wan_st && salon_wan_ok() && salon_mx_ok) { salon_wan_st = 1; if (LWP_CreateThread(&salon_wan_h, salon_wan_thread, NULL, salon_wan_stack, sizeof(salon_wan_stack), 35) < 0) salon_wan_st = -1;
                                                          else LWP_CreateThread(&salon_dns_h, salon_dns_thread, NULL, salon_dns_stack, sizeof(salon_dns_stack), 33); }
     if (!pns_on) { pns_on = 1; if (LWP_CreateThread(&pns_h, pns_thread, NULL, pns_stack, sizeof(pns_stack), 40) < 0) pns_on = 0; }   /* v143 */
@@ -318,7 +318,7 @@ static void salon_pump(void) {
             b.sin_addr.s_addr = htonl((u32)a1 << 24 | (u32)a2 << 16 | (u32)a3 << 8 | 255u);
             net_sendto(salon_fd, m, ml, 0, (struct sockaddr *)&b, sizeof(b));
         }
-        if (salon_wan_ok() && salon_wan_ip) salon_wan_send(salon_wan_ip, salon_wan_port);   /* v345 : par Internet */
+        if (salon_wan_ok() && salon_wan_ip) salon_wan_send(salon_wan_ip, salon_wan_port);   /* v348 : par Internet */
     }
     for (int k = 0; k < 8; k++) {                         /* annonces recues */
         char m[200];
@@ -327,7 +327,7 @@ static void salon_pump(void) {
         s32 r = net_recvfrom(salon_fd, m, sizeof(m) - 1, 0, (struct sockaddr *)&from, &fl);
         if (r <= 0) break;
         m[r] = 0;
-        if (!strncmp(m, "GCSW1\t", 6)) {                  /* v345 : par Internet */
+        if (!strncmp(m, "GCSW1\t", 6)) {                  /* v348 : par Internet */
             char *g[4] = { m + 6, NULL, NULL, NULL };
             for (int i = 1; i < 4; i++) { g[i] = g[i - 1] ? strchr(g[i - 1], '\t') : NULL; if (g[i]) *g[i]++ = 0; }
             if (g[3]) g[3][strcspn(g[3], "\r\n")] = 0;
@@ -344,7 +344,7 @@ static void salon_pump(void) {
         salon_peer_seen(ips, f[0][0] ? f[0] : ips, f[3] ? f[3] : "", f[1] ? atoi(f[1]) : 80, 0);
     }
     for (int i = 0; i < salon_n; ) {                      /* plus d'annonce depuis 20 s : partie */
-        if (now > salon_peers[i].seen && now - salon_peers[i].seen > 20000) {   /* (v345 : vue juste apres "now" : avant, effacee tout de suite) */ salon_peers[i] = salon_peers[--salon_n]; salon_gen++; continue; }
+        if (now > salon_peers[i].seen && now - salon_peers[i].seen > 20000) {   /* (v348 : vue juste apres "now" : avant, effacee tout de suite) */ salon_peers[i] = salon_peers[--salon_n]; salon_gen++; continue; }
         i++;
     }
 }
