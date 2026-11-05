@@ -762,8 +762,8 @@ static void na_pad_print(FILE *f, const u8 *b) {
     if (PW(gbmask)) {                                     /* v331 : GBA du telephone */
         static const char *const gs[] = { "attente", "cle donnee", "programme en cours d'envoi", "programme recu", "programme lance (relais)" };
         u32 g = PW(gst);
-        fprintf(f, "GBA du telephone (port 2) : %s ; JOYSTAT %02X ; programme annonce %u octets, recus %u ; mots du jeu %u (accuses par le telephone %u) ; ecritures du jeu (15) %u\n",
-                g < 5 ? gs[g] : "?", (unsigned)PW(gjoy), (unsigned)PW(glen), (unsigned)PW(gpos), (unsigned)PW(gw), (unsigned)PW(ga), (unsigned)PW(gn15));
+        fprintf(f, "GBA du telephone (port %u) : %s ; JOYSTAT %02X ; programme annonce %u octets, recus %u ; mots du jeu %u (accuses par le telephone %u) ; ecritures du jeu (15) %u\n",
+                (unsigned)(PW(gbmask) & 1 ? 1 : PW(gbmask) & 2 ? 2 : PW(gbmask) & 4 ? 3 : 4), g < 5 ? gs[g] : "?", (unsigned)PW(gjoy), (unsigned)PW(glen), (unsigned)PW(gpos), (unsigned)PW(gw), (unsigned)PW(ga), (unsigned)PW(gn15));
     }
     u32 n = PW(ntr);
     fprintf(f, "Commandes envoyees aux ports : %u (les dernieres, la plus ancienne d'abord) :\n", (unsigned)n);
@@ -1950,7 +1950,7 @@ static u32 na_padmask(void) {                             /* ports donnes aux te
     static const u8 m[5] = { 0, 0x2, 0x6, 0xE, 0x1 };
     return net_ok && ip_str[0] ? m[nat_padtel % 5] : 0;
 }
-static u32 na_gbamask(void) { return nat_gbatel && net_ok && ip_str[0] ? 0x2u : 0; }   /* v331 : GBA du telephone (port 2) */
+static u32 na_gbamask(void) { return nat_gbatel && net_ok && ip_str[0] ? 1u << ((nat_gbaport - 1) & 3) : 0; }   /* v331 : GBA du telephone (v334 : port choisi) */
 static int na_micon(void) { return nat_mictel && net_ok && ip_str[0]; }   /* v332 : micro du telephone (slot B) */
 static int na_mem_on(void) { return nat_memtel && app_envoi && net_ok && ip_str[0] && !na_net_on; }   /* (v330 : envoi vers l'appli coupe : rien) */   /* v306 : chercheur de codes */
 static u32 na_opt(void) {

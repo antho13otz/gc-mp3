@@ -1569,8 +1569,8 @@
     { "Chargement de la jaquette HD", "Loading HD cover" },
     { "Pr\xC3\xA9paration...", "Preparing..." },
     /* v331 : GBA du telephone */
-    { "GBA du t\xC3\xA9l\xC3\xA9phone (port 2)", "Phone GBA (port 2)" },
-    { "L'appli devient une GBA branch\xC3\xA9" "e au port 2 (Tingle Tuner de Wind Waker ; Pulse, Broadband Adapter). Essai", "The app becomes a GBA plugged into port 2 (Wind Waker's Tingle Tuner; Pulse, Broadband Adapter). Experimental" },
+    { "GBA du t\xC3\xA9l\xC3\xA9phone", "Phone GBA" },
+    { "L'appli devient une GBA branch\xC3\xA9" "e au port choisi (Wind Waker, Pac-Man Vs. : port 2 ; Four Swords seul : port 1, la manette de ce port n'est plus vue). Pulse, Broadband Adapter. Essai", "The app becomes a GBA plugged into the chosen port (Wind Waker, Pac-Man Vs.: port 2; Four Swords alone: port 1, that port's controller is no longer seen). Pulse, Broadband Adapter. Experimental" },
     /* v332 : micro du telephone */
     { "Micro du t\xC3\xA9l\xC3\xA9phone (slot B)", "Phone microphone (slot B)" },
     { "Le micro du t\xC3\xA9l\xC3\xA9phone devient le micro GameCube du slot B (Mario Party 6 et 7 ; Pulse, Broadband Adapter). Pas de carte m\xC3\xA9moire en B tant que c'est sur Oui. Essai", "The phone's microphone becomes the GameCube microphone in slot B (Mario Party 6 and 7; Pulse, Broadband Adapter). No memory card in slot B while this is on. Experimental" },

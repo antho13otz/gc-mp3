@@ -1061,7 +1061,7 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
     }
 }
 static MEM_OS void gb_rx(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d, u32 dispo) {   /* paquet "GCGB" du telephone */
-    if (dispo < 24 || !gb_port(p, d[5] & 3)) { p->bad++; return; }
+    if (dispo < 24 || !p->gbmask) { p->bad++; return; }   /* (v334 : une seule GBA, sur le port choisi : le port du paquet n'est plus lu) */
     p->gnrx++;
     p->gip = pn_be32(f + 26); p->gport = pn_be16(u);
     p->gmac0 = pn_be32(f + 6); p->gmac1 = pn_be16(f + 10) << 16;
