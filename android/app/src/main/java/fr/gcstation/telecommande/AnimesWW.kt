@@ -24,6 +24,11 @@ class AnimesWW(val modeles: List<Modele>, val copies: List<Copie>) {
         val n = modeles[m].total
         if (pe.j.size < 4 * n || mat.size < pe.nj * 12) return false
         o.position(0)
+        // (build 367 : un sommet relie a une matrice aberrante partait a des metres (une ligne jusqu'au ciel) : s'il sort de
+        //  la taille du modele autour de son 1er os, il reste sur cet os ; plus de la moitie ainsi : objet pas dessine)
+        val rx = mat[3]; val ry = mat[7]; val rz = mat[11]
+        val lim = modeles[m].rayon * 2f + 150f; val lim2 = lim * lim
+        var hors = 0
         for (k in 0 until n) {
             var x = 0f; var y = 0f; var z = 0f
             for (q in 0 until 4) {
@@ -35,15 +40,29 @@ class AnimesWW(val modeles: List<Modele>, val copies: List<Copie>) {
                 y += p * (mat[b + 4] * lx + mat[b + 5] * ly + mat[b + 6] * lz + mat[b + 7])
                 z += p * (mat[b + 8] * lx + mat[b + 9] * ly + mat[b + 10] * lz + mat[b + 11])
             }
+            val dx = x - rx; val dy = y - ry; val dz = z - rz
+            if (!(dx * dx + dy * dy + dz * dz <= lim2)) { x = rx; y = ry; z = rz; hors++ }
             o.put(x * 0.01f).put(-z * 0.01f).put(y * 0.01f)
         }
-        o.position(0); return true
+        o.position(0); return hors * 2 <= n
     }
     class Groupe(val texture: Int, val mode: Int, val env: Int, val du: Float, val dv: Float, val n: Int, val uvc: ByteBuffer, val debut: Int) {
         /** (build 356 : porte les clignements et couleurs du groupe ; sert aussi a charger ses textures) */
         val stub = SceneR3.Groupe(texture, mode != 0, ByteBuffer.allocateDirect(0), 0, mode, env)
     }
-    class Modele(val groupes: List<Groupe>, val images: Int, val ips: Float, val total: Int, val pos: List<ByteBuffer>)
+    class Modele(val groupes: List<Groupe>, val images: Int, val ips: Float, val total: Int, val pos: List<ByteBuffer>) {
+        /** (build 367) rayon du modele dans sa 1re image (unites du jeu) : sert a reperer les sommets aberrants du direct */
+        val rayon: Float by lazy {
+            val f = pos.firstOrNull()?.duplicate()?.order(ByteOrder.nativeOrder())?.asFloatBuffer() ?: return@lazy 1000f
+            if (total == 0) return@lazy 1000f
+            var cx = 0f; var cy = 0f; var cz = 0f
+            for (k in 0 until total) { cx += f.get(3 * k); cy += f.get(3 * k + 1); cz += f.get(3 * k + 2) }
+            cx /= total; cy /= total; cz /= total
+            var r = 0f
+            for (k in 0 until total) { val a = f.get(3 * k) - cx; val b = f.get(3 * k + 1) - cy; val c = f.get(3 * k + 2) - cz; r = maxOf(r, a * a + b * b + c * c) }
+            Math.sqrt(r.toDouble()).toFloat() * 100f
+        }
+    }
     class Copie(val modele: Int, val mobile: Int, val phase: Float, val mat: FloatArray)
 
     /** des groupes « vides » pour que le moteur charge leurs textures avec celles du lieu */
