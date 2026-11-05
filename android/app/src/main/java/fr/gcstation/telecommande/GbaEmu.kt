@@ -129,6 +129,8 @@ object GbaEmu {
         val aAvaler = avaler.toMutableSet()
         var retenir = codeJeu >= 0 && codeJeu in aAvaler          // (build 383 : mots du jeu retenus jusqu'au code ecrit)
         var nImages = 0
+        var codeLu = false                                 // (build 384 : le code ecrit par la GBA a ete lu ici)
+        var joycnt = 0
         var prochain = System.nanoTime()
         try {
             while (!stop) {
@@ -137,18 +139,22 @@ object GbaEmu {
                 // une image, en donnant les mots du jeu des que la GBA est prete
                 var n = 0
                 if (retenir && ++nImages > 180) retenir = false    // (3 s sans le code : on donne quand meme)
+                // build 384 : apres le code, la GBA attend JOYCNT = 4 exactement (« lu par le jeu ») et l'efface ; le mot du jeu
+                // seulement ensuite (sinon JOYCNT = 6 : elle attendait pour toujours)
+                if (retenir && codeLu && joycnt and 4 == 0) retenir = false
                 if (!retenir) for (w in entrees) { if (n >= mots.size) break; mots[n++] = w.toInt() }
                 GbaNatif.image(touches, px, son, mots, n, res)
                 repeat(res[1]) { entrees.poll(); nRecus++ }
                 if (res[1] > 0) donnesSansLu = true
                 GbaNatif.regs(r)
                 val js = r[0]
+                joycnt = r[3]
                 regsVus = "JOYSTAT %02X, JOYCNT %02X, JOY_TRANS %08X, JOY_RECV %08X".format(r[0], r[3], r[1], r[2]); retenus = retenir
                 if (donnesSansLu && entrees.isEmpty() && js and 0x02 == 0) { donnesSansLu = false; luPret = true }
                 val tv = r[1].toLong() and 0xFFFFFFFFL
                 if (!attenteLu && js and 0x08 != 0 && aAvaler.remove(tv)) {   // (build 381 : deja donne au jeu par Pulse)
                     GbaNatif.joy(0x14, d); nAvales++
-                    if (tv == codeJeu) retenir = false
+                    if (tv == codeJeu) codeLu = true
                 } else if (!attenteLu && js and 0x08 != 0) {      // (la GBA a ecrit JOY_TRANS : pour le jeu)
                     transVal = tv
                     numero = numero % 255 + 1; transId = numero
