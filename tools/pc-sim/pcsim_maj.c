@@ -31,20 +31,24 @@ static int http_get(const wchar_t *url, const char *tok, int *code, wchar_t *loc
     wchar_t host[256], path[4096];
     u.lpszHostName = host; u.dwHostNameLength = 256; u.lpszUrlPath = path; u.dwUrlPathLength = 4096;
     wchar_t extra[4096]; u.lpszExtraInfo = extra; u.dwExtraInfoLength = 4096;
-    if (!WinHttpCrackUrl(url, 0, 0, &u)) return 0;
+    if (!WinHttpCrackUrl(url, 0, 0, &u)) { printf("[maj] adresse illisible (%lu)\n", GetLastError()); return 0; }
     wcsncat(path, extra, 4096 - wcslen(path) - 1);
     HINTERNET s = WinHttpOpen(L"gc-station-pc", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
     if (!s) s = WinHttpOpen(L"gc-station-pc", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!s) return 0;
+    if (!s) { printf("[maj] WinHttpOpen : %lu\n", GetLastError()); return 0; }
     HINTERNET c = WinHttpConnect(s, host, u.nPort, 0);
     HINTERNET r = c ? WinHttpOpenRequest(c, L"GET", path, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, u.nScheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0) : NULL;
     int ok = 0;
+    if (!r) printf("[maj] connexion a %ls : erreur %lu\n", host, GetLastError());
     if (r) {
         DWORD off = WINHTTP_DISABLE_REDIRECTS;
         WinHttpSetOption(r, WINHTTP_OPTION_DISABLE_FEATURE, &off, sizeof(off));
         wchar_t hd[600] = L"Accept: application/vnd.github+json\r\n";
         if (tok && *tok) { wchar_t t[300]; MultiByteToWideChar(CP_UTF8, 0, tok, -1, t, 300); wcscat(hd, L"Authorization: Bearer "); wcscat(hd, t); wcscat(hd, L"\r\n"); }
-        if (WinHttpSendRequest(r, hd, (DWORD)-1L, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) && WinHttpReceiveResponse(r, NULL)) {
+        int sent = WinHttpSendRequest(r, hd, (DWORD)-1L, WINHTTP_NO_REQUEST_DATA, 0, 0, 0);
+        if (!sent) printf("[maj] envoi : erreur %lu\n", GetLastError());
+        if (sent && !WinHttpReceiveResponse(r, NULL)) { printf("[maj] reponse : erreur %lu\n", GetLastError()); sent = 0; }
+        if (sent) {
             DWORD st = 0, sz = sizeof(st);
             WinHttpQueryHeaders(r, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &st, &sz, WINHTTP_NO_HEADER_INDEX);
             *code = (int)st;

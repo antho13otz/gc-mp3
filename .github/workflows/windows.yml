@@ -130,21 +130,6 @@ jobs:
           $env:GCS_BIN = "$pwd\essai\GC Station.exe"
           python tools/pc-sim/salon-internet/test.py
           if ($LASTEXITCODE -ne 0) { Get-Content tools\pc-sim\work\salon-internet\journal-pc.txt -Tail 30; exit 1 }
-      - name: Essai (mise a jour depuis GitHub, avec un jeton)
-        shell: pwsh
-        env:
-          GCSTATION_JETON: ${{ secrets.GITHUB_TOKEN }}
-          GCSTATION_MAJ_ESSAI: "1"
-          GCSTATION_MAJ_BRANCHE: ${{ github.ref_name }}
-        run: |
-          $env:PCSIM_SCRIPT = "$pwd\tools\pc-sim\win\essai-maj.txt"; $env:PCSIM_OUT = "$pwd\maj"; $env:PCSIM_LOG = "$pwd\maj\journal.txt"
-          New-Item -ItemType Directory -Force maj | Out-Null
-          $p = Start-Process -FilePath "essai\GC Station.exe" -PassThru -Wait
-          $j = Get-Content maj\journal.txt -Raw
-          Get-Content maj\journal.txt | Select-String "\[maj\]"
-          if ($j -match "nouvelle version telechargee et lisible") { Write-Host "OK : mise a jour telechargee, decompressee, lisible" }
-          elseif ($j -match "derniere compilation : 0") { Write-Host "::warning::pas encore de compilation reussie sur cette branche : mise a jour pas essayee" }
-          else { Write-Host "RATE : mise a jour"; exit 1 }
       - uses: actions/download-artifact@v4
         with:
           name: kit-essai
@@ -186,6 +171,21 @@ jobs:
           }
           if (-not $ok) { exit 1 }
           Write-Host "OK : deux GC Station PC, jeu lance dans Dolphin, trames echangees"
+      - name: Essai (mise a jour depuis GitHub, avec un jeton)
+        shell: pwsh
+        env:
+          GCSTATION_JETON: ${{ secrets.GITHUB_TOKEN }}
+          GCSTATION_MAJ_ESSAI: "1"
+          GCSTATION_MAJ_BRANCHE: ${{ github.ref_name }}
+        run: |
+          $env:PCSIM_SCRIPT = "$pwd\tools\pc-sim\win\essai-maj.txt"; $env:PCSIM_OUT = "$pwd\maj"; $env:PCSIM_LOG = "$pwd\maj\journal.txt"
+          New-Item -ItemType Directory -Force maj | Out-Null
+          $p = Start-Process -FilePath "essai\GC Station.exe" -PassThru -Wait
+          $j = Get-Content maj\journal.txt -Raw
+          Get-Content maj\journal.txt | Select-String "\[maj\]"
+          if ($j -match "nouvelle version telechargee et lisible") { Write-Host "OK : mise a jour telechargee, decompressee, lisible" }
+          elseif ($j -match "derniere compilation : 0") { Write-Host "::warning::pas encore de compilation reussie sur cette branche : mise a jour pas essayee" }
+          else { Write-Host "RATE : mise a jour"; exit 1 }
       - uses: actions/upload-artifact@v4
         if: always()
         with:
