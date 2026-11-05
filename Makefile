@@ -117,6 +117,14 @@ build/natres_bin.h: build/natres.elf tools/bin2h.py
 > $(OBJCOPY) -O binary build/natres.elf build/natres.bin
 > python3 tools/bin2h.py build/natres.bin $@ natres_bin
 
+# v359 : Pulse LAN (jeu en reseau local par Internet) : le meme resident, sans telephone ni chercheur de codes, avec le pont
+build/natres_lan.elf: source/natres/natres.c source/natres/natres.h tools/natres.ld
+> $(CC) $(NATRESFLAGS) -DNATRES_LAN -Wl,-T,tools/natres.ld -Wl,--no-gc-sections $< -o $@ -lgcc
+> @echo "::notice::Pulse LAN : fin a $$(powerpc-eabi-nm $@ | grep __natres_end) (max 817FFF00)"
+build/natres_lan_bin.h: build/natres_lan.elf tools/bin2h.py
+> $(OBJCOPY) -O binary build/natres_lan.elf build/natres_lan.bin
+> python3 tools/bin2h.py build/natres_lan.bin $@ natres_lan_bin
+
 # v187 : retour a GC Station en quittant une appli (source/natres/natret.c), en 0x80001800 (-Os : place comptee)
 build/natret.elf: source/natres/natret.c tools/natret.ld
 > @mkdir -p build
@@ -126,7 +134,7 @@ build/natret_bin.h: build/natret.elf tools/bin2h.py
 > $(OBJCOPY) -O binary build/natret.elf build/natret.bin
 > python3 tools/bin2h.py build/natret.bin $@ natret_bin
 
-build/main.o: $(MAINDEPS) build/natres_bin.h build/natret_bin.h
+build/main.o: $(MAINDEPS) build/natres_bin.h build/natres_lan_bin.h build/natret_bin.h
 > @mkdir -p build
 > $(CC) $(CFLAGS) -Ibuild -DUSE_DEFAULT_STDLIB -c source/main.c -o $@
 
