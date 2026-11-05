@@ -185,6 +185,9 @@ typedef struct {
        que la GBA donne apres une remise a zero (JOY_TRANS avec JOYSTAT 0x20 ; Pulse le rend ensuite tout de suite, avec 0x28,
        puis 0x30 quand le jeu le lui renvoie : la connexion du SDK attend ces reponses sans delai) */
     unsigned int grst, gid;
+    /* (v350) numero du dernier paquet du telephone pris (le Wi-Fi peut les livrer dans le desordre : un plus ancien est
+       ignore) ; paquets envoyes au telephone (numerotes pour lui : 14e mot du diagnostic) */
+    unsigned int gseq, gntx2;
     /* (v332, hors du journal) micro du telephone : le slot B joue le micro GameCube (DOL-022 : Mario Party 6 et 7...). micon
        (GC Station) : 1 = actif. Le reste (resident) : etat du micro (ecrit par la commande 80, lu par 40 : bit 15 en marche,
        bits 13-14 paquet de 32 / 64 / 128 octets, bits 11-12 11025 / 22050 / 44100 Hz, bit 10 gain), commandes du jeu,
