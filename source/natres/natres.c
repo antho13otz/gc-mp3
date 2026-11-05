@@ -801,6 +801,7 @@ static int __attribute__((noinline)) MEM_OS pn_read(void *dst, u32 off, u32 len)
     return 0;
 }
 
+#ifndef NATRES_LAN                                        /* (le Pulse normal ; Pulse LAN : voir plus bas, le pont) */
 /* ======================= manettes du telephone =======================
    L'appli du telephone envoie ses touches en UDP (port 51237) : {"GCPD", version, port 0-3, 0, 0, numero, INBUFH,
    INBUFL}. A chaque image, Pulse lit le Broadband Adapter (si le jeu ne se sert pas du canal EXI 0), repond aux
@@ -1278,6 +1279,21 @@ static MEM_OS u32 pd_si_load(natres_pad_t *p, u32 o, u32 v, int *done) {
     *done = 0;
     return v;
 }
+
+#else                                                     /* (Pulse LAN : pas de telephone ni de chercheur de codes : place pour le pont) */
+static natres_pad_t *const pd = 0;
+static natres_pad_t *pd_find(void) { return 0; }
+static int mem_resumed = 0, mfz_n = 0;
+static u32 gb_r0, gb_r1, gb_o0, gb_o1;
+static void mfz_run(void) { }
+static int gb_port(natres_pad_t *p, u32 c) { (void)p; (void)c; return 0; }
+static void gb_cmd(natres_pad_t *p) { (void)p; }
+static void pd_ev(natres_pad_t *p, u32 k, u32 v) { (void)p; (void)k; (void)v; }
+static void mic_ready(natres_pad_t *p) { (void)p; }
+void pd_poll(void) __attribute__((used));
+void MEM_OS pd_poll(void) { }
+static u32 pd_si_load(natres_pad_t *p, u32 o, u32 v, int *done) { (void)p; (void)o; *done = 0; return v; }
+#endif
 
 /* ---------- v57 : crochets dans la table des interruptions du jeu ----------
    Le systeme des jeux (SDK Nintendo) range ses fonctions d'interruption dans une table a
@@ -1933,6 +1949,7 @@ static void card_done(vcard_t *v) {                      /* fin d'effacement / d
     v->status |= 0x01; v->status &= ~0x80u;
     if (v->irq_sw) { v->irq |= 0x2; H.card_irqs++; x_kick(); }   /* EXIINT */
 }
+#ifndef NATRES_LAN
 /* ======================= v332 : micro du telephone (slot B) =======================
    Le micro GameCube (DOL-022 : Mario Party 6 et 7, Karaoke Revolution...) se branche dans le slot B (canal EXI 1,
    peripherique 0). Son fonctionnement a ete lu dans le pilote de Mario Party 7 (commandes et bits seulement, aucun code
@@ -1992,6 +2009,10 @@ static MEM_OS u8 mic_byte(vcard_t *v, u8 b) {
     v->pos++;
     return r;
 }
+#else
+static natres_pad_t *mic_p(void) { return 0; }
+static u8 mic_byte(vcard_t *v, u8 b) { (void)v; (void)b; return 0xFF; }
+#endif
 static MEM_OS void card_cs(vcard_t *v, int on) {
     if (on) { v->pos = 0; if (v->id == MIC_ID) { natres_pad_t *p = pd_find(); if (p) p->mnsel++; } return; }   /* (v352 : diagnostic) */
     if (v->id == MIC_ID) { natres_pad_t *p = mic_p(); if (p && v->cmd == 0x20) mic_ready(p); return; }   /* v332 : paquet lu : le suivant ? */
