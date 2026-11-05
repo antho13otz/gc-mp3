@@ -2147,6 +2147,10 @@ static void si_store(u32 a, u32 val) {
                    nos reponses (tampon, COMCSR) comme venant du port du telephone. */
                 for (u32 c = 0; c < 4; c++)
                     if (!((p->chmask | p->gbmask) >> c & 1) && (p->poll >> (7 - c) & 1)) { val = (val & ~6u) | c << 1; p->redir++; break; }
+                /* v336 : erreur restee dans le vrai SISR pour ce port (un 1er transfert vers le port vide, avant l'aiguillage) :
+                   effacee. Le jeu lit parfois SISR sans aiguillage (fin de transfert de la bibliotheque SI) : avec l'erreur, sa
+                   detection du type rendait "pas de reponse" (Rayman 3, Four Swords : GBA jamais reconnue) */
+                *HW6(0xCC006438u) = 0x0Fu << ((3u - p->xch) * 8u);
             }
         }
         if (p && a == 0xCC006430u) { if (p->poll != val) pd_ev(p, 2, val); p->poll = val; }
