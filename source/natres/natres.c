@@ -2145,6 +2145,10 @@ static MEM_OS void si_store(u32 a, u32 val) {
         if (p && a == 0xCC006480u) { p->xcmd = val >> 24; gb_o0 = val; }
         if (p && a == 0xCC006484u) gb_o1 = val;            /* (v331 : 2e mot : 4e octet ecrit a la GBA) */
         if (p && a == 0xCC006434u && (val & 1)) {
+            /* v339 : la commande, lue dans le vrai tampon d'envoi : le jeu l'y ecrit parfois sans aiguillage (boucle a
+               adresse calculee de la bibliotheque SI : Rayman 3) ; avant, Pulse croyait chaque transfert "00" (la remise a
+               zero FF de la GBA repondue comme un "00" : le jeu recommencait sans fin) */
+            gb_o0 = *HW6(0xCC006480u); gb_o1 = *HW6(0xCC006484u); p->xcmd = gb_o0 >> 24;
             p->xch = (val >> 1) & 3; p->tr[p->ntr++ & 7] = p->xch << 24 | (p->xcmd & 0xFF) << 16 | ((val >> 16) & 0x7F) << 8 | ((val >> 8) & 0x7F);
             if (gb_port(p, p->xch)) gb_cmd(p);                /* v331 : GBA du telephone : la reponse tout de suite */
             if ((p->chmask | p->gbmask) >> p->xch & 1) {
