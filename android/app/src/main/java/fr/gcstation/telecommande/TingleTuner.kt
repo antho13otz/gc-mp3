@@ -168,6 +168,7 @@ object GbaTel {
         etape = st; joy = js; annonce = gl; recus = gp
         for (i in 0 until cnt) mots[first + i] = g32(b, 40 + 4 * i)
         if (n >= 40 + cnt * 4 + 48) diag = LongArray(12) { g32(b, 40 + cnt * 4 + it * 4) }   // (console v335 : diagnostic)
+        if (n >= 40 + cnt * 4 + 60) GbaEmu.resetIdx = g32(b, 40 + cnt * 4 + 56)                 // (console v351 : mots d'avant la remise a zero)
         if (n >= 40 + cnt * 4 + 52) GbaEmu.resetsPulse = g32(b, 40 + cnt * 4 + 48).toInt()      // (console v347 : remises a zero)
         while (mots.containsKey(suite)) suite++
         val total = 1 + gl / 4                             // (cle B, puis programme et CRC)
@@ -178,7 +179,7 @@ object GbaTel {
             var i = maxOf(relaisVu, total)
             while (i < suite) {
                 val w = mots.remove(i) ?: 0L
-                if (emuLance) GbaEmu.entrees.add(w)          // (build 375 : a la GBA emulee, dans l'ordre)
+                if (emuLance) GbaEmu.entrees.add((i shl 32) or (w and 0xFFFFFFFFL))   // (build 375 : a la GBA emulee, dans l'ordre ; 394 : avec son numero)
                 if (i - total < 30) note("Le jeu écrit à la GBA : %08X".format(w))
                 i++
             }
