@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v350 (build 873) et appli build 393 — GBA du téléphone : un Wi-Fi qui a des ratés
+
+Trouvé dans un banc d'essai (modèle du jeu, de Pulse, du Wi-Fi, de l'appli et de la GBA) en ajoutant des paquets retardés : un paquet en retard arrive après un plus récent et redonne une vieille information (une ancienne réponse de la GBA au jeu, une remise à zéro à l'appli) ; et le programme GBA de Rayman 3 se déconnecte après 10 images sans échange sur le câble. Pulse et l'appli ignorent maintenant les paquets plus anciens que le dernier reçu (numérotés des deux côtés), et l'appli tient à zéro le compteur d'attente du programme GBA de Rayman 3. Banc d'essai : de centaines d'erreurs à aucune, jusqu'à 60 ms de délai avec 10 % de paquets retardés.
+
 ## Appli build 392 — GBA du téléphone : journal des remises en place de la GBA
 
 Diagnostic : à chaque fois que la GBA émulée se remet en place (« La connexion a échoué »), le rapport note son code d'erreur et l'état de son gestionnaire du câble (lus dans sa mémoire, sans rien changer), avec les 12 derniers échanges juste avant.
