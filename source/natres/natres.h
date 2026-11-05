@@ -178,6 +178,9 @@ typedef struct {
     /* (v345) code du jeu de la GBA (mot 0xAC de l'en-tete du programme, non chiffre) : comme le BIOS de la GBA, il est dans
        JOY_TRANS une fois le programme recu (le demarrage du SDK le verifie : sinon il recommence) */
     unsigned int gcode;
+    /* (v346) preuve demandee par le demarrage du SDK juste apres le programme (1re lecture de JOY_TRANS) : un des produits
+       des mots 0x1F8 et 0x1FC (Pulse rend celui des mots chiffres, tels qu'envoyes) ; gfin : preuve lue, le code suit */
+    unsigned int gx, gfin;
     /* (v332, hors du journal) micro du telephone : le slot B joue le micro GameCube (DOL-022 : Mario Party 6 et 7...). micon
        (GC Station) : 1 = actif. Le reste (resident) : etat du micro (ecrit par la commande 80, lu par 40 : bit 15 en marche,
        bits 13-14 paquet de 32 / 64 / 128 octets, bits 11-12 11025 / 22050 / 44100 Hz, bit 10 gain), commandes du jeu,
