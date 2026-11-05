@@ -1029,8 +1029,10 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
     gb_r0 = gb_r1 = 0;
     if (c == 0x00u || c == 0xFFu) {
         p->gn00++;
-        if (c == 0xFFu) gb_reset(p);                     /* (toujours : sans emulateur GBA, le relais ne sert a rien ; le jeu peut renvoyer le programme) */
         gb_r0 = 0x00040000u | (p->gjoy & 0xFFu) << 8;
+        /* v340 : reponse a la remise a zero : JOYSTAT 0x08 seulement (cle de session dans JOY_TRANS), puis 0x18 aux
+           demandes d'etat : ce que verifie le demarrage du SDK (table du demarrage de Rayman 3 : octets 37 puis 0) */
+        if (c == 0xFFu) { gb_reset(p); gb_r0 = 0x00040800u; }   /* (toujours : le jeu peut renvoyer le programme) */
         return;
     }
     if (c == 0x14u) {                                    /* le jeu lit JOY_TRANS (octet de poids faible d'abord) */
