@@ -14,7 +14,7 @@ def khash(code):
         x = ((x ^ c) * 16777619) & 0xFFFFFFFF
     return '%08x' % x
 K = khash(CODE)
-BIN = P + '/gcstation'
+BIN = os.environ.get('GCS_BIN', P + '/gcstation')      # (ci.sh : la version avec AddressSanitizer)
 os.makedirs(RUN, exist_ok=True)
 SD = RUN + '/sd:'
 if not os.path.isdir(SD + '/mp3'): subprocess.run(['sh', P + '/demo-sd.sh', RUN], check=True, stdout=subprocess.DEVNULL)
