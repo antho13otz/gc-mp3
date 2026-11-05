@@ -82,6 +82,31 @@ Boutons : `A B X Y Z L R START UP DOWN LEFT RIGHT`.
   depuis chez toi), et beaucoup de sites y sont interdits (refusés tout de suite ici, mais pas
   sur ta console).
 
+## GC Station PC (Windows)
+La même base, compilée pour Windows (`win/Makefile`, MinGW 32 bits, `.github/workflows/windows.yml`) :
+un vrai programme dans une fenêtre, **sans les limites de la GameCube** (mémoire, vitesse du
+processeur, carte SD lente : rien de tout cela n'est imité ; `ci.sh` et le job simulateur, eux,
+gardent les limites). Le paquet `gc-station-pc` (privé, artefact GitHub) contient `GC Station.exe`
+et `LISEZMOI.txt` (touches, Dolphin, Salon, mises à jour par jeton).
+
+Lancer : dézipper, double-cliquer `GC Station.exe`. Le dossier `sd` à côté est la carte SD.
+Le code propre au PC va dans `tools/pc-sim/` (`win/pc_main.c` est compilé avec `main.c`, dans la même unité) :
+la console n'en voit rien, et `build.yml` ne refait pas de version de la console quand seule la partie PC change.
+
+Entrées (PC seulement) : clavier, souris (la flèche de GC Station suit la souris ; clic gauche A,
+droit B, molette), le clavier du PC tape dans les zones de texte (clavier de GC Station et pages
+web), Ctrl+F, Espace et touches multimédia (lecture/pause…), manettes Xbox (XInput) et autres
+(joyGetPosEx, boutons réglables dans `manette.txt`), net sur les écrans à 125/150 % (DPI par
+écran), Maj+F11 pour changer d'écran (gardé dans `fenetre.txt`).
+
+Ce qui manque par rapport à la console :
+- les jeux ne tournent pas dans GC Station : ils sont lancés dans Dolphin (pas Swiss, pas de
+  lanceur maison, pas de carte mémoire physique) ;
+- les touches multimédia ne marchent que si la fenêtre a la main ;
+- la fréquence de l'écran et le thème clair / sombre de Windows ne sont pas suivis (image à
+  60 images/s, 4:3) ;
+- tout ce qui parle au matériel de la GameCube (BBA, carte SD Gecko, lecteur de disque).
+
 ## Tests automatiques (v232)
 `bash tools/pc-sim/ci.sh` (depuis la racine du dépôt) : compile le simulateur avec AddressSanitizer, lance les
 scénarios `tour` et `web-accueil`, puis pilote GC Station comme le téléphone (lien, clavier, souris, photo, page
