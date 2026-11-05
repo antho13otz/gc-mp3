@@ -11,7 +11,9 @@
 #include "natres.h"
 /* v327 : MEM_OS (le plus petit, -Os) aussi pour ce qui ne sert qu'au demarrage, au reseau ou au plantage : le resident
    doit tenir sous 0x817FFF00 (le pilote W5500 a ajoute ~1,5 Ko). v332 : aussi la carte virtuelle (lente de toute facon), le
-   journal, le retour A+Z+START, la verification des crochets et les pages de NRO_TRAP (place du micro du telephone) */
+   journal, le retour A+Z+START, la verification des crochets et les pages de NRO_TRAP (place du micro du telephone). v337 :
+   aussi les aiguillages EXI / SI, les crochets image / manettes, l'envoi reseau : avec NRO_TRAP, le resident doit finir sous
+   NATRES_HTAB + NATRES_PTEG (0x817FFC00 : la table des pages au-dessus), sinon GC Station lance le jeu sans Pulse */
 #if defined(__GNUC__) && !defined(__clang__)
 #define MEM_OS __attribute__((optimize("Os")))                /* (resident compile en -O2 : ici, le plus petit) */
 #else
@@ -606,7 +608,7 @@ static __attribute__((noinline, optimize("Os"))) u32 wz_recv(void) {
     wz_cmd(0x40);                                                   /* RECV */
     return n;
 }
-static void pn_send(u8 *f, u32 n) {                       /* trame Ethernet complete (adresses comprises) */
+static MEM_OS void pn_send(u8 *f, u32 n) {                       /* trame Ethernet complete (adresses comprises) */
     while (n < 60) f[n++] = 0;
     if (pn_hw == 2) { u32 m = irq_off(); wz_send(f, n); irq_restore(m); return; }
     u32 m = irq_off();
@@ -1193,7 +1195,7 @@ static void pd_ev(natres_pad_t *p, u32 t, u32 d) {      /* (journal : 20 premier
     u32 i = p->nev < 20 ? p->nev : 20 + (p->nev - 20) % 20;
     p->ev[i] = t << 24 | (d & 0xFFFFFFu); p->nev++;
 }
-static u32 pd_si_load(natres_pad_t *p, u32 o, u32 v, int *done) {
+static MEM_OS u32 pd_si_load(natres_pad_t *p, u32 o, u32 v, int *done) {
     *done = 1;
     if (o < 0x30u) {
         u32 ch = o / 12u, r = o % 12u;
@@ -1306,7 +1308,7 @@ static u32 alive_n = 0;
 static void x_kick(void);
 static int vc_pending(void);
 static void sw_tick(void);
-static void alive_tick(void) {
+static MEM_OS void alive_tick(void) {
     if ((++alive_n & 63) == 0) hooks_check();            /* (le jeu a pu remettre sa fonction : on se rebranche) */
     sw_tick();                                           /* v121 : changement de disque en attente ? */
     if (vc_pending()) x_kick();                          /* (carte : interruption pas encore donnee) */
@@ -1335,7 +1337,7 @@ static void di_tick(u32 ctx, int vi);
 static int ram_ok(u32 a, u32 n);
 static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr);
 static u32 frz_si = 0, frz_cmd = 0, frz_tb = 0, frz_done = 0;
-static void freeze_check(u32 ctx) {
+static MEM_OS void freeze_check(u32 ctx) {
     if (frz_done || H.vi_count < 300) return;
     u32 now = tbl();
     if (H.si_count != frz_si || H.ncmd != frz_cmd || !frz_tb) { frz_si = H.si_count; frz_cmd = H.ncmd; frz_tb = now; return; }
@@ -1354,7 +1356,7 @@ static void freeze_check(u32 ctx) {
     crash_dump(0xFE, c, best, (best ? (*(volatile unsigned short *)(best + 0x2C8)) << 16 | (bprio & 0xFFFF) : 0) | nth << 24);
     nr_log_flush();
 }
-static void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee avant la fonction du jeu */
+static MEM_OS void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree comptee avant la fonction du jeu */
     trap_guard();
     if (H.opt & (NRO_PHONE | NRO_MEM)) pd_poll();        /* manettes du telephone, chercheur de codes : avant que le jeu lise les manettes */
     if (mem_resumed) { mem_resumed = 0; frz_tb = tbl(); }   /* (v306 : apres une pause : pas un jeu fige) */
@@ -1567,7 +1569,7 @@ static void nr_sample(u32 ctx);
    l'interruption de l'ecran et ne declenchent presque plus d'interruption SI (Wind Waker) */
 static u32 igr_t0 = 0;
 static void igr_poll(void);
-static void si_hook(u32 irq, u32 ctx) {
+static MEM_OS void si_hook(u32 irq, u32 ctx) {
     trap_guard();
     H.si_in++;
     if (!H.vi_count) nr_sample(ctx);
@@ -2026,7 +2028,7 @@ static void xl_end(void) {                               /* (le jeu deselectionn
     u32 m = xl_get(o + 8);
     for (u32 k = 0; k < 4; k++) cw(o + 16 + k * 4, xl_rd(m + (k & 1) * 4 + (k & 2) * 8));
 }
-static u32 exi_load(u32 a) {
+static MEM_OS u32 exi_load(u32 a) {
     trap_guard();
     if (a - 0xCC006000u < 0x40u) return di_load(a);      /* v133 : acces au lecteur branches en secours (adresse calculee) */
     early_note(a, 0, 0);
@@ -2053,7 +2055,7 @@ static u32 exi_load(u32 a) {
     irq_restore(m);
     return x;
 }
-static void exi_store(u32 a, u32 val) {
+static MEM_OS void exi_store(u32 a, u32 val) {
     trap_guard();
     if (a - 0xCC006000u < 0x40u) { di_store(a, val); return; }   /* v133 */
     early_note(a, val, 1);
@@ -2082,7 +2084,7 @@ static void exi_store(u32 a, u32 val) {
 }
 /* les "interruptions" des cartes : fonctions EXI du jeu appelees depuis une interruption
    (table du SDK : canal 0 = 9 EXI, 10 TC ; canal 1 = 12 EXI, 13 TC) */
-static void x_dispatch(u32 ctx) {
+static MEM_OS void x_dispatch(u32 ctx) {
     volatile u32 *t = OS_INT_TABLE;
     for (int c = 0; c < 2; c++) {
         vcard_t *v = &vc[c];
@@ -2117,7 +2119,7 @@ static u32 si_fix(int ch, int lo) {
     if (thr && !(h & 0x80000000u)) { if (tl >= thr) btn |= 0x00400000u; if (tr >= thr) btn |= 0x00200000u; }   /* (L, R numeriques) */
     return btn | sx << 8 | sy;
 }
-static u32 si_load(u32 a) {
+static MEM_OS u32 si_load(u32 a) {
     trap_guard();
     u32 o = a - 0xCC006400u, v = *HW6(a);
     if (H.opt & NRO_PHONE) { natres_pad_t *p = pd_find(); int done; if (p) { v = pd_si_load(p, o, v, &done); if (done) return v; } }   /* */
@@ -2130,7 +2132,7 @@ static u32 si_load(u32 a) {
     }
     return v;
 }
-static void si_store(u32 a, u32 val) {
+static MEM_OS void si_store(u32 a, u32 val) {
     trap_guard();
     if (H.opt & NRO_PHONE) {                              /* transfert vers un port : on retient le port et la commande */
         natres_pad_t *p = pd_find();
