@@ -18,6 +18,9 @@ class AnimesWW(val modeles: List<Modele>, val copies: List<Copie>) {
     var peaux: List<Peau?> = emptyList()
     /** signature (taille shl 16 or os) -> numero du modele */
     var sigs: Map<Long, Int> = emptyMap()
+    /** (build 370) modeles secondaires, animes en boucle par l'appli ; et les signatures a suivre en direct (les autres) */
+    var locaux: Set<Int> = emptySet()
+    val sigsDirect: Map<Long, Int> get() = if (locaux.isEmpty()) sigs else sigs.filterValues { it !in locaux }
     /** positions (repere de l'appli) de tous les sommets du modele m, d'apres les matrices du monde de ses os (jeu) */
     fun poser(m: Int, mat: FloatArray, o: java.nio.FloatBuffer): Boolean {
         val pe = peaux.getOrNull(m) ?: return false
@@ -123,7 +126,11 @@ class AnimesWW(val modeles: List<Modele>, val copies: List<Copie>) {
                         val m = ms.getOrNull(p.getOrNull(0)?.toIntOrNull() ?: return@forEach) ?: return@forEach
                         SceneR3.lireSuite(p, 1) { m.groupes.getOrNull(it)?.stub } }
                     // (build 356 : les modeles sans copie placee servent au direct ; le lieu en a s'il y a des modeles)
-                    if (ms.isEmpty()) null else AnimesWW(ms, cs).also { it.lirePeaux(java.io.File(d, nv + "_vif.r3p")) }
+                    if (ms.isEmpty()) null else AnimesWW(ms, cs).also { it.lirePeaux(java.io.File(d, nv + "_vif.r3p"))
+                        // (build 370 : <lieu>_local.txt : modeles secondaires (mouettes, animaux, bois flottant, palmiers) :
+                        //  animes en boucle ici, jamais demandes au direct)
+                        it.locaux = try { java.io.File(d, nv + "_local.txt").takeIf { f -> f.exists() }?.readText()?.trim()?.split(' ')
+                            ?.mapNotNull { x -> x.toIntOrNull() }?.toSet() ?: emptySet() } catch (e: Exception) { emptySet() } }
                 }
             }
         } catch (e: Throwable) { null }
