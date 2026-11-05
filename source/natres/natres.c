@@ -1091,7 +1091,11 @@ static MEM_OS void gb_rx(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d,
     p->gnrx++;
     p->gip = pn_be32(f + 26); p->gport = pn_be16(u);
     p->gmac0 = pn_be32(f + 6); p->gmac1 = pn_be16(f + 10) << 16;
-    u32 ack = pn_be32(d + 12), t = pn_be32(d + 16), o = pn_be32(d + 20);
+    u32 ack = pn_be32(d + 12), t = pn_be32(d + 16), o = pn_be32(d + 20), sq = pn_be32(d + 8);
+    /* v350 : un paquet plus ancien que le dernier pris (arrive en retard, apres un plus recent) est ignore : il redonnait au
+       jeu un ancien JOY_TRANS (« La connexion a echoue ») ; numero <= 16 : l'appli a recommence */
+    if (p->gseq && sq > 16u && (int)(sq - p->gseq) <= 0 && p->gseq - sq < 1000u) return;
+    p->gseq = sq;
     if (ack - p->ga <= p->gw - p->ga) p->ga = ack;       /* (accuse dans [ga, gw]) */
     if (o & 4u) { p->gst = 0; p->gjoy = 0; p->gw = p->ga = 0; p->gnew = 0; p->gtid = p->gtidlu = 0; p->grst = p->gid = 0; return; }
     u32 id = (o >> 16) & 0xFFu;                          /* (v333 : un JOY_TRANS deja donne n'est pas redonne) */
@@ -1144,9 +1148,10 @@ static MEM_OS void gb_tx(natres_pad_t *p) {              /* (chaque image) : mot
         pn_p32(uu + 8, p->gkey); pn_p32(uu + 12, p->glen); pn_p32(uu + 16, p->gpos); pn_p32(uu + 20, a0); pn_p32(uu + 24, m);
         pn_p32(uu + 28, p->gn00); pn_p32(uu + 32, p->gn14); pn_p32(uu + 36, p->gn15);
         for (u32 i = 0; i < m; i++) pn_p32(uu + 40 + i * 4, gb_ring[(a0 + i) % GB_RING]);
-        for (u32 i = 0; i < 13; i++) pn_p32(uu + 40 + m * 4 + i * 4, dg[i]);   /* (v335 : diagnostic du port de la GBA, apres les mots) */
+        for (u32 i = 0; i < 13; i++) pn_p32(uu + 40 + m * 4 + i * 4, dg[i]);
+        pn_p32(uu + 40 + m * 4 + 52, ++p->gntx2);         /* (v350 : numero du paquet, pour l'ordre cote telephone) */   /* (v335 : diagnostic du port de la GBA, apres les mots) */
         pn_p32(mac, p->gmac0); pn_p16(mac + 4, p->gmac1 >> 16);
-        pn_udp(p, mac, p->gip, p->gport, 40 + m * 4 + 52);
+        pn_udp(p, mac, p->gip, p->gport, 40 + m * 4 + 56);
         p->gntx++;
     }
 }
