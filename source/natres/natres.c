@@ -1026,7 +1026,7 @@ static MEM_OS void gb_reset(natres_pad_t *p) {           /* FF : cle de session 
     while (n--) k = k * 0x6177614Bu + 1u;
     p->gkey = k; p->gtrans = k ^ 0x6F646573u; p->gjoy = 0x18u;   /* (0x10 : pret ; 0x08 : un mot a lire) */
     p->gst = 1; p->glen = p->gpos = 0; p->gw = p->ga = 0; p->gnew = 0; p->gtid = p->gtidlu = 0;
-    p->gcode = p->gx = p->gfin = 0;
+    p->gcode = p->gx = p->gfin = 0; p->grst = p->gid = 0;
 }
 static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert vers le port GBA : la reponse, tout de suite */
     u32 c = gb_o0 >> 24;
@@ -1038,6 +1038,10 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
            demandes d'etat : ce que verifie le demarrage du SDK (table du demarrage de Rayman 3 : octets 37 puis 0) */
         /* v345 : programme lance : une remise a zero ne relance pas le demarrage (une vraie GBA ne le peut plus non plus) */
         if (c == 0xFFu && p->gst != 4) { gb_reset(p); gb_r0 = 0x00040800u; }
+        if (c == 0xFFu && p->gst == 4) {                 /* v347 : la GBA emulee l'apprendra ; si on connait sa reponse : tout de suite */
+            p->grst++;
+            if (p->gid) { p->gtrans = p->gid; p->gjoy = 0x28u | (p->gjoy & 0x02u); }
+        }
         return;
     }
     if (c == 0x14u) {                                    /* le jeu lit JOY_TRANS (octet de poids faible d'abord) */
@@ -1070,6 +1074,8 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
             if (p->gpos >= p->glen) { p->gst = 3; p->gjoy = 0x08u; p->gtrans = p->gx; }   /* (v346 : la preuve, puis le code du jeu) */
             else if (p->gw - p->ga < GB_RING - 1u) p->gjoy ^= 0x10u;
             else p->gnew = 1;                            /* (tampon plein : la bascule attend le telephone) */
+        } else if (p->gid && w == p->gid && (p->gjoy & 0x38u) == 0x20u) {
+            p->gjoy = (p->gjoy & ~0x32u) | 0x30u;          /* (v347 : le jeu renvoie l'identifiant : la GBA repond 0x30 et lit le mot) */
         } else p->gjoy |= 0x02u;                         /* (relais : le telephone lira) */
         /* v343 : comme une vraie GBA : la reponse a 15 est JOYSTAT a la fin du transfert, avant que le BIOS n'ait traite le
            mot (0x12 pour la cle B, et non 0x22) : le demarrage du SDK le verifie (Rayman 3 recommencait apres le 1er mot) */
@@ -1084,11 +1090,16 @@ static MEM_OS void gb_rx(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d,
     p->gmac0 = pn_be32(f + 6); p->gmac1 = pn_be16(f + 10) << 16;
     u32 ack = pn_be32(d + 12), t = pn_be32(d + 16), o = pn_be32(d + 20);
     if (ack - p->ga <= p->gw - p->ga) p->ga = ack;       /* (accuse dans [ga, gw]) */
-    if (o & 4u) { p->gst = 0; p->gjoy = 0; p->gw = p->ga = 0; p->gnew = 0; p->gtid = p->gtidlu = 0; return; }
+    if (o & 4u) { p->gst = 0; p->gjoy = 0; p->gw = p->ga = 0; p->gnew = 0; p->gtid = p->gtidlu = 0; p->grst = p->gid = 0; return; }
     u32 id = (o >> 16) & 0xFFu;                          /* (v333 : un JOY_TRANS deja donne n'est pas redonne) */
-    if ((o & 1u) && (!id || id != p->gtid)) { p->gtrans = t; p->gjoy |= 0x08u; p->gtid = id; }
+    /* v347 : appli qui suit les remises a zero (bit 4) : JOY_TRANS et drapeaux d'avant la derniere remise a zero ignores */
+    int frais = !(o & 0x10u) || (o >> 24) == (p->grst & 0xFFu);
+    if ((o & 1u) && frais && (!id || id != p->gtid)) {
+        p->gtrans = t; p->gjoy |= 0x08u; p->gtid = id;
+        if ((o & 0x10u) && p->grst && ((o >> 8) & 0x30u) == 0x20u) p->gid = t;   /* (reponse a une remise a zero) */
+    }
     if (o & 2u) p->gjoy &= ~0x02u;
-    if (o & 8u) p->gjoy = (p->gjoy & ~0x30u) | ((o >> 8) & 0x30u);
+    if ((o & 8u) && frais) p->gjoy = (p->gjoy & ~0x30u) | ((o >> 8) & 0x30u);
 }
 /* v332 : micro du telephone : les octets du paquet "GCVO" (echantillons 16 bits, deja a la frequence du jeu) dans l'anneau
    (les plus vieux sautes s'il deborde) */
@@ -1120,8 +1131,8 @@ static MEM_OS void gb_tx(natres_pad_t *p) {              /* (chaque image) : mot
     lu = p->gtidlu;
     /* v344 : jusqu'a 4 paquets de 300 mots par image (avant 1) : le telephone suit le debit du demarrage */
     u32 ch = p->gbmask & 1 ? 0 : p->gbmask & 2 ? 1 : p->gbmask & 4 ? 2 : 3;
-    const u32 dg[12] = { p->poll, p->redir, p->tr[(p->ntr - 1) & 7], p->gdirq, p->gdsr0, p->gdsr1, p->gdcom, p->gdtc, p->gdbuf, p->gdrep,
-                         p->gbmask | (p->gdnirq > 0xFFFFFFu ? 0xFFFFFFu : p->gdnirq) << 8, H.trap_state << 24 | (H.trap_n & 0xFFFFFFu) };
+    const u32 dg[13] = { p->poll, p->redir, p->tr[(p->ntr - 1) & 7], p->gdirq, p->gdsr0, p->gdsr1, p->gdcom, p->gdtc, p->gdbuf, p->gdrep,
+                         p->gbmask | (p->gdnirq > 0xFFFFFFu ? 0xFFFFFFu : p->gdnirq) << 8, H.trap_state << 24 | (H.trap_n & 0xFFFFFFu), p->grst };   /* (v347 : + remises a zero) */
     (void)ch;
     for (u32 k = 0, off = 0; k < 4u && (k == 0 || off < n); k++, off += 300u) {
         u32 m = n - off > 300u ? 300u : n - off, a0 = p->ga + off;
@@ -1130,9 +1141,9 @@ static MEM_OS void gb_tx(natres_pad_t *p) {              /* (chaque image) : mot
         pn_p32(uu + 8, p->gkey); pn_p32(uu + 12, p->glen); pn_p32(uu + 16, p->gpos); pn_p32(uu + 20, a0); pn_p32(uu + 24, m);
         pn_p32(uu + 28, p->gn00); pn_p32(uu + 32, p->gn14); pn_p32(uu + 36, p->gn15);
         for (u32 i = 0; i < m; i++) pn_p32(uu + 40 + i * 4, gb_ring[(a0 + i) % GB_RING]);
-        for (u32 i = 0; i < 12; i++) pn_p32(uu + 40 + m * 4 + i * 4, dg[i]);   /* (v335 : diagnostic du port de la GBA, apres les mots) */
+        for (u32 i = 0; i < 13; i++) pn_p32(uu + 40 + m * 4 + i * 4, dg[i]);   /* (v335 : diagnostic du port de la GBA, apres les mots) */
         pn_p32(mac, p->gmac0); pn_p16(mac + 4, p->gmac1 >> 16);
-        pn_udp(p, mac, p->gip, p->gport, 40 + m * 4 + 48);
+        pn_udp(p, mac, p->gip, p->gport, 40 + m * 4 + 52);
         p->gntx++;
     }
 }
