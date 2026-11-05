@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 370 — Wind Waker : les objets secondaires tournent sur le téléphone
+- Mouettes, cochons, crabes, bois flottant et palmiers ne sont plus demandés à la console : le téléphone joue leur
+  animation en boucle (liste <lieu>_local.txt du pack). Le direct ne sert plus qu'aux habitants et aux ennemis.
+
 ## Nouveautés appli build 369 — Wind Waker : les mouettes battent des ailes en direct
 - Les objets reconnus par le direct mais suivis de loin (mouettes, habitants plus éloignés) restaient figés : ils jouent
   maintenant leur animation du pack.
