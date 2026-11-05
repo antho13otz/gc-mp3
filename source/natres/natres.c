@@ -1076,7 +1076,10 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
             else p->gnew = 1;                            /* (tampon plein : la bascule attend le telephone) */
         } else if (p->gid && w == p->gid && (p->gjoy & 0x38u) == 0x20u) {
             p->gjoy = (p->gjoy & ~0x32u) | 0x30u;          /* (v347 : le jeu renvoie l'identifiant : la GBA repond 0x30 et lit le mot) */
-        } else p->gjoy |= 0x02u;                         /* (relais : le telephone lira) */
+        } else if (p->gst != 4) p->gjoy |= 0x02u;
+        /* v349 : programme lance : comme une vraie GBA (son gestionnaire du cable lit JOY_RECV des qu'il arrive), le mot est
+           dit lu tout de suite (le telephone le recoit dans l'ordre) : Rayman 3 attend « lu » apres chaque mot, et un aller-
+           retour par le Wi-Fi par mot le deconnectait (« La connexion a echoue » en pleine partie) */
         /* v343 : comme une vraie GBA : la reponse a 15 est JOYSTAT a la fin du transfert, avant que le BIOS n'ait traite le
            mot (0x12 pour la cle B, et non 0x22) : le demarrage du SDK le verifie (Rayman 3 recommencait apres le 1er mot) */
         gb_r0 = (((p->gst == 4 ? p->gjoy : j0) | 0x02u) & 0xFFu) << 24;
