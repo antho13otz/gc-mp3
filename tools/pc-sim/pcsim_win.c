@@ -237,6 +237,8 @@ void *__real_memalign(size_t a, size_t n) { (void)a; return malloc(n); }
 void *__real_aligned_alloc(size_t a, size_t n) { (void)a; return malloc(n); }
 int __real_posix_memalign(void **o, size_t a, size_t n) { (void)a; *o = malloc(n); return *o ? 0 : ENOMEM; }
 int __real_fileno(FILE *f) { return _fileno(f); }
+size_t malloc_usable_size(void *p) { return p ? _msize(p) : 0; }   /* (pcsim_limits.c : comptes du tas, inutilises ici) */
+int backtrace(void **b, int n) { (void)b; (void)n; return 0; }
 
 /* ======================= fenetre ======================= */
 static HWND win = NULL;
