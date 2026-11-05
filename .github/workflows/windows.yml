@@ -216,8 +216,18 @@ jobs:
           $anciens = @(Get-ChildItem "remp\GC Station.exe.ancien*" -ErrorAction SilentlyContinue).Count
           $warn = (Get-Content remp\journal.txt -Raw) -match "derniere compilation : 0"
           if ($warn) { Write-Host "::warning::pas de compilation reussie sur cette branche : remplacement pas essaye"; exit 0 }
-          if ($apres -ne $avant -and $anciens -eq 0 -and $j -match "ancien programme efface") { Write-Host "OK : programme remplace ($avant -> $apres octets), le nouveau a demarre et efface l'ancien" }
-          else { Write-Host "RATE : remplacement (avant $avant, apres $apres, anciens restants $anciens)"; exit 1 }
+          # (la version telechargee est celle de main : l'effacement de l'ancien fichier se fait par la version qui a ce code,
+          #  essaye juste apres avec ce programme-ci)
+          if ($apres -ne $avant -and $j -match "capture") { Write-Host "OK : programme remplace pendant qu'il tournait ($avant -> $apres octets), la nouvelle version a demarre" }
+          else { Write-Host "RATE : remplacement (avant $avant, apres $apres)"; exit 1 }
+          # effacement de l'ancien fichier au demarrage (ce programme-ci)
+          Remove-Item Env:GCSTATION_MAJ_ESSAI
+          Copy-Item "essai\GC Station.exe" "remp\GC Station.exe" -Force
+          $env:PCSIM_SCRIPT = "$pwd\tools\pc-sim\win\essai.txt"; $env:PCSIM_LOG = "$pwd\remp\journal-3.txt"
+          $p = Start-Process -FilePath "remp\GC Station.exe" -ArgumentList "--apres-maj","1" -PassThru -Wait
+          Get-Content remp\journal-3.txt | Select-String "\[maj\]"
+          $anciens = @(Get-ChildItem "remp\GC Station.exe.ancien*" -ErrorAction SilentlyContinue).Count
+          if ($anciens -eq 0) { Write-Host "OK : l'ancien programme est efface au demarrage" } else { Write-Host "RATE : ancien programme pas efface"; exit 1 }
       - name: Plantages (pour les symboles)
         if: always()
         shell: pwsh
