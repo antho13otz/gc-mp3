@@ -247,7 +247,7 @@ check('relais : JOYSTAT avec un mot a lire et les drapeaux du telephone', joysta
 t, js = rd()
 check('relais : le jeu lit le mot du telephone', t == 0xCAFEBABE and js == 0x38 and joystat() == 0x30, '%08X %02X' % (t, js))
 js = wr(0x12345678)
-check('relais : le jeu ecrit, drapeau 0x02 jusqu\'a la lecture du telephone', js & 0x02 and joystat() & 0x02)
+check('relais : le jeu ecrit (reponse avec 0x02), v349 : dit lu tout de suite', js & 0x02 and not (joystat() & 0x02))
 phone(); phone()                                         # (1er : accuse ; 2e : lit le paquet envoye ensuite)
 check('relais : le mot ecrit arrive au telephone', recus.get(padw('gw') - 1) == 0x12345678)
 seq[0] += 1; bba.deliver(gcgb(seq[0], padw('gw'), 0, 2)); call(POLL)
@@ -263,7 +263,7 @@ for _ in range(16): call(POLL)
 lu5 = [f for f in bba.sent if len(f) >= 42 + 40 and f[42:46] == b'GCGB']
 check('etat renvoye : dernier numero lu par le jeu = 5', bool(lu5) and lu5[-1][42 + 5] == 5, '%d paquets' % len(lu5))
 a, _ = tr(0xFF)
-check('remise a zero pendant le relais : nouveau demarrage (nouvelle cle)', padw('gst') == 1 and a == 0x00040800, 'etat %d %08X' % (padw('gst'), a))
+check('remise a zero pendant le relais : le programme reste lance (v345)', padw('gst') == 4, 'etat %d %08X' % (padw('gst'), a))
 # port 1 jamais touche
 call(SS, 0xCC006480, 0x00000000); call(SS, 0xCC006434, (0 << 1) | 1); si[0x480] = 0x12345678
 check('transfert vers le port 1 : pas touche', call(SL, 0xCC006480) == 0x12345678)
