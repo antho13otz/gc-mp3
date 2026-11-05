@@ -265,14 +265,16 @@ object JeuWW {
         }
         return out
     }
-    /** objets suivis : les plus proches de Link en entier (os), les autres par leur seule matrice de base */
+    /** objets suivis : les plus proches de Link en entier (os), les autres par leur seule matrice de base
+     *  (build 368 : le jeu ralentissait avec le compagnon : Pulse copiait ~10 Ko a chaque image (Link + 40 objets, dont
+     *  7,6 Ko d'os) ; maintenant 16 objets, os complets seulement a moins de 15 m et 1,5 Ko au plus : ~4 Ko par image) */
     private fun choisirSuivis(lx: Float, ly: Float, lz: Float): List<Pair<VifObjet, Boolean>> {
-        val tri = vifs.sortedBy { val p = it.pos; (p[0] - lx) * (p[0] - lx) + (p[1] - ly) * (p[1] - ly) + (p[2] - lz) * (p[2] - lz) }.take(40)
-        var budget = 7600 - tri.size * 48
+        val tri = vifs.sortedBy { val p = it.pos; (p[0] - lx) * (p[0] - lx) + (p[1] - ly) * (p[1] - ly) + (p[2] - lz) * (p[2] - lz) }.take(16)
+        var budget = 1536
         return tri.map { v ->
             val plus = v.nj * 48 - 48
             val d2 = (v.pos[0] - lx) * (v.pos[0] - lx) + (v.pos[2] - lz) * (v.pos[2] - lz)
-            val plein = v.nj > 1 && plus <= budget && v.nj * 48 <= 4608 && d2 < 4000f * 4000f
+            val plein = v.nj > 1 && plus <= budget && v.nj * 48 <= 1536 && d2 < 1500f * 1500f
             if (plein) budget -= plus
             v to plein
         }.sortedBy { it.first.adr }                                       // (ordre stable : meme abonnement d'une seconde a l'autre)
@@ -294,7 +296,7 @@ object JeuWW {
                 val a = longArrayOf(n, p + 0x1F8, c ?: 0L)
                 // (objets en direct : version europeenne seulement (adresse de la liste verifiee) ; un pack avec signatures)
                 val sigs = sigsPack
-                if (version == ID && sigs.isNotEmpty() && (sigs !== sigsVues || now - scanT > 10_000_000_000L)) {
+                if (version == ID && sigs.isNotEmpty() && (sigs !== sigsVues || now - scanT > 30_000_000_000L)) {   // (build 368 : 30 s, avant 10)
                     val vt = l.u32(mo)
                     if (vt != null) {
                         if (dispo == null) abonnerDispo(nouvelleDispo(n, p, c ?: 0L, emptyList(), emptyList()))
