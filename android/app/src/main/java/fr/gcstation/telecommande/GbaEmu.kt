@@ -139,19 +139,24 @@ object GbaEmu {
         var idGba = -1L                                    // (l'identifiant de la GBA, vu a la 1re remise a zero)
         var codeLu = false                                 // (build 384 : le code ecrit par la GBA a ete lu ici)
         var joycnt = 0
-        var nApres = 0                                     // (build 390 : images depuis la remise a zero, identifiant pas encore ecrit)
+        var nApres = 0
+        var imgBoot = -1                                   // (build 391 : image ou le mot renvoye par le jeu a ete donne au debut du programme)                                     // (build 390 : images depuis la remise a zero, identifiant pas encore ecrit)
         var prochain = System.nanoTime()
         try {
             while (!stop) {
                 // la GBA apprend que le jeu a lu son JOY_TRANS
                 if (attenteLu && tidLuPulse == numero) { GbaNatif.joy(0x14, d); attenteLu = false; transId = 0; nEnvoyes++ }
                 val rp = resetsPulse
-                if (rp != resetsFaits) {                   // (build 387 : remise a zero par le jeu : a la GBA ; son JOY_TRANS d'avant est perime)
+                // build 391 : pas de remise a zero pendant le debut du programme (il attend JOYCNT = 2 exactement : avec la
+                // remise a zero, 3, il attendait pour toujours, ecran blanc) : donnee une fois ce debut passe
+                val bootFini = codeJeu < 0 || (imgBoot >= 0 && nImages - imgBoot >= 10) || nImages > 600
+                if (rp != resetsFaits && bootFini) {                   // (build 387 : remise a zero par le jeu : a la GBA ; son JOY_TRANS d'avant est perime)
                     GbaNatif.joy(0xFF, d); resetsFaits = rp; attenteLu = false; transId = 0; apresReset = true; nApres = 0
                 }
                 // une image, en donnant les mots du jeu des que la GBA est prete
                 var n = 0
-                if (retenir && ++nImages > 180) retenir = false    // (3 s sans le code : on donne quand meme)
+                nImages++
+                if (retenir && nImages > 180) retenir = false      // (3 s sans le code : on donne quand meme)
                 // build 384 : apres le code, la GBA attend JOYCNT = 4 exactement (« lu par le jeu ») et l'efface ; le mot du jeu
                 // seulement ensuite (sinon JOYCNT = 6 : elle attendait pour toujours)
                 if (retenir && codeLu && joycnt and 4 == 0) retenir = false
@@ -162,6 +167,7 @@ object GbaEmu {
                 if (!retenir && !attendReset) for (w in entrees) { if (n >= mots.size) break; mots[n++] = w.toInt() }
                 GbaNatif.image(touches, px, son, mots, n, res)
                 repeat(res[1]) { entrees.poll(); nRecus++ }
+                if (res[1] > 0 && imgBoot < 0) imgBoot = nImages
                 if (res[1] > 0) donnesSansLu = true
                 GbaNatif.regs(r)
                 val js = r[0]
