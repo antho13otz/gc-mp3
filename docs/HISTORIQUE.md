@@ -24,6 +24,31 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 378 — rapport détaillé de la GBA du téléphone
+
+Le rapport « GBA du téléphone » explique chaque mesure de Pulse :
+- l'état des ports, la fin des transferts, les erreurs, l'interruption des manettes ;
+- l'état de Pulse universel ;
+- pour Rayman 3 et Four Swords Adventures PAL, le **type du port gardé par le jeu**, lu dans sa mémoire (chercheur de codes activé).
+
+Une phrase résume le blocage.
+
+## Nouveautés v338 (build 860) — diagnostic de l'interruption des manettes
+
+Pulse note le vrai registre des transferts au moment de l'interruption des manettes, et l'état de Pulse universel. Ces mesures partent dans le rapport de la GBA du téléphone.
+
+## Build 859 — tests du simulateur à part
+
+Les tests du simulateur de GC Station tournent à part de la compilation. Ils ne se lancent que quand GC Station change, plus pour Pulse seul, et ne font plus attendre la mise à jour suivante.
+
+## Nouveautés v337 (build 858) — Pulse universel de nouveau possible
+
+Avec la GBA et le micro du téléphone, le résident Pulse avait dépassé la place que demande l'option « Pulse universel ». Un jeu avec cette option, comme Star Wars Rogue Leader, se lançait alors sans Pulse. Une partie du résident est maintenant compilée au plus petit, et l'option remarche.
+
+## Nouveautés v336 (build 856) — GBA du téléphone : erreur du port effacée
+
+Pulse efface l'erreur « pas de réponse » restée dans le vrai registre des manettes pour le port du téléphone.
+
 ## Nouveautés appli build 377 — détail du port de la GBA dans le rapport
 
 Le rapport de la GBA du téléphone montre ce que le jeu lit sur le port de la GBA, avec une phrase qui résume le problème. Il va avec la console build 855.
