@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v355 (build 878) — journal : où tourne le jeu quand il reste bloqué
+
+Pulse ne relevait l'endroit du programme où tourne le jeu qu'avant sa première image. Il le relève maintenant toute la partie (toutes les 32 images), et le journal du dernier jeu le donne comme « où en était le jeu à la fin », avec le code autour : pour les jeux qui restent bloqués sans figer l'image (Mario Party 7 au début du mini-jeu à micro).
+
 ## Nouveautés v354 (build 877) et appli build 399 — micro du téléphone : une voix non hachée
 
 Mario Party 7 lit le son du téléphone mais ne reconnaissait pas le mot demandé : 2 à 4 % du son étaient des petits trous de silence, au gré du Wi-Fi, qui hachaient les mots. Pulse garde maintenant ~90 ms de son d'avance avant de le donner au jeu, et refait cette réserve d'un coup après un trou ; s'il prend trop d'avance, il rattrape. Le rapport du micro (appli 399) compte ces coupures.
