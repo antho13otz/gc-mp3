@@ -1094,10 +1094,10 @@ static MEM_OS void gb_rx(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d,
     u32 id = (o >> 16) & 0xFFu;                          /* (v333 : un JOY_TRANS deja donne n'est pas redonne) */
     /* v347 : appli qui suit les remises a zero (bit 4) : JOY_TRANS et drapeaux d'avant la derniere remise a zero ignores */
     int frais = !(o & 0x10u) || (o >> 24) == (p->grst & 0xFFu);
-    if ((o & 1u) && frais && (!id || id != p->gtid)) {
-        p->gtrans = t; p->gjoy |= 0x08u; p->gtid = id;
-        if ((o & 0x10u) && p->grst && ((o >> 8) & 0x30u) == 0x20u) p->gid = t;   /* (reponse a une remise a zero) */
-    }
+    /* (v348 : l'identifiant (JOY_TRANS avec 0x20, reponse a une remise a zero) est appris meme en retard : le jeu remet a
+       zero a chaque image, le paquet arrive toujours apres la suivante ; il ne change pas) */
+    if ((o & 1u) && (o & 0x10u) && p->grst && ((o >> 8) & 0x30u) == 0x20u && t) p->gid = t;
+    if ((o & 1u) && frais && (!id || id != p->gtid)) { p->gtrans = t; p->gjoy |= 0x08u; p->gtid = id; }
     if (o & 2u) p->gjoy &= ~0x02u;
     if ((o & 8u) && frais) p->gjoy = (p->gjoy & ~0x30u) | ((o >> 8) & 0x30u);
 }
