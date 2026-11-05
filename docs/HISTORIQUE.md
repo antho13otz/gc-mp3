@@ -24,6 +24,9 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v344 (build 866) et appli build 380 — GBA du téléphone : programme envoyé sans abandon
+Rayman 3 envoyait son programme à la GBA puis recommençait après environ 1,4 Ko : Pulse gardait les mots du jeu dans un tampon de 256 mots, plein avant que le téléphone n'accuse réception, et le démarrage du jeu n'accepte pas d'attendre. La console range maintenant ces mots dans un tampon de 16 Ko (hors du résident, seulement si la GBA du téléphone est activée) et envoie jusqu'à 4 paquets par image. L'appli (build 380) renvoie ses accusés toutes les 8 ms pendant l'envoi du programme, et son journal ne recopie plus une même ligne revue dans les 5 secondes.
+
 ## Nouveautés v343 (build 865) — GBA du téléphone : réponse aux écritures comme une vraie GBA
 
 Quand le jeu écrit un mot à la GBA, la réponse donne maintenant l'état d'avant le traitement du mot, plus le bit « reçu », comme sur une vraie GBA. Avant, Rayman 3 recommençait juste après le premier mot de son programme.
