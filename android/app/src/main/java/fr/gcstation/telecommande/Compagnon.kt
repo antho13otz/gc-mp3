@@ -1824,6 +1824,8 @@ fun EcranCompagnon() {
             Bouton(if (occupe) msgPack else "📦 Installer / mettre à jour les packs de ce jeu (.zip)", Modifier.fillMaxWidth(), actif = !occupe) { choix.launch(arrayOf("*/*")) }
             if (!occupe && msgPack.isNotEmpty()) Doux(msgPack, taille = 11)
         }
+        // build 373 : le micro du telephone (slot B, essai ; MicroTel.kt) : jeux a micro, ou jeu pas encore lu
+        if (id.isEmpty() || id.startsWith("GP6") || id.startsWith("GP7") || MicTel.etat.marche) MicroTelephone()
         RangeeDePuces {
             Puce("En jeu", vue == 0) { vue = 0 }
             Puce("Chrono", vue == 1) { vue = 1 }

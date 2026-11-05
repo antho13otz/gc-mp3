@@ -11,6 +11,7 @@
     <!-- envoi de fichiers : le telephone garde le Wi-Fi et le processeur, ecran eteint -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
     <application
         android:label="GC Remote"
