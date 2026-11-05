@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 376 — GBA du téléphone pour tous les jeux
+
+Le bloc « GBA du téléphone » s'affiche maintenant dans le compagnon pour tous les jeux : Rayman 3 (mini-jeu en coopération), Pac-Man Vs., Animal Crossing… Ses textes parlent du port choisi dans GC Station (console v334).
+
 ## Nouveautés v334 (build 854) — port de la GBA du téléphone au choix
 
 Le réglage « GBA du téléphone » passe par **Non, Port 1, Port 2, Port 3, Port 4** (avant : toujours le port 2) :
