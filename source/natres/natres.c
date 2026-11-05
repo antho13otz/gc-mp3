@@ -1014,8 +1014,11 @@ static MEM_OS void mem_pause(natres_pad_t *p) {
    tampon des mots du telephone est plein, la bascule attend : le jeu ralentit). Tous les mots vont au telephone (il
    dechiffre le programme avec la cle de session). Programme recu : JOYSTAT 0x08 (un mot a lire), puis la 1re lecture
    (14) = programme lance : relais (JOY_TRANS et les drapeaux 0x30 viennent du telephone, ses lectures effacent 0x02). */
-#define GB_RING 256u                                     /* (mots du jeu pas encore accuses par le telephone) */
-static u32 gb_ring[GB_RING];
+/* v344 : mots du jeu pas encore accuses par le telephone : 4096 (16 Ko, avant 256 : le demarrage du SDK abandonnait quand le
+   tampon plein le faisait attendre), hors du resident, apres la section des manettes ; l'anneau du micro le suit */
+#define GB_RING NATRES_GBA_RING
+#define gb_ring ((u32 *)((u8 *)p + sizeof(natres_pad_t)))
+#define MIC_RING(p) ((u8 *)(p) + sizeof(natres_pad_t) + ((p)->gbmask ? NATRES_GBA_RING * 4u : 0u))
 static u32 gb_o0 = 0, gb_o1 = 0, gb_r0 = 0, gb_r1 = 0;    /* (tampon de sortie ecrit par le jeu ; reponse a lui rendre) */
 static int gb_port(natres_pad_t *p, u32 ch) { return ch < 4 && (p->gbmask >> ch & 1); }
 static MEM_OS void gb_reset(natres_pad_t *p) {           /* FF : cle de session (suite du generateur, longueur au hasard) */
@@ -1087,7 +1090,7 @@ static MEM_OS void mic_rx(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d
     if (!p->micon || n > 1472u || n + 12u > dispo) { p->bad++; return; }
     p->mnrx++;
     p->vip = pn_be32(f + 26); p->vport = pn_be16(u); p->vmac0 = pn_be32(f + 6); p->vmac1 = pn_be16(f + 10) << 16;
-    for (u32 i = 0; i < n; i++) p->mring[p->mw++ & (NATRES_MIC_RING - 1u)] = d[12 + i];
+    for (u32 i = 0; i < n; i++) MIC_RING(p)[p->mw++ & (NATRES_MIC_RING - 1u)] = d[12 + i];
     if (p->mw - p->mr > NATRES_MIC_RING) p->mr = p->mw - NATRES_MIC_RING;
 }
 static void mic_ready(natres_pad_t *p);
@@ -1108,22 +1111,23 @@ static MEM_OS void gb_tx(natres_pad_t *p) {              /* (chaque image) : mot
     u32 n = p->gw - p->ga;
     if (!n && p->gtidlu == lu && (++tick % 15u)) return;   /* (v333 : un mot du telephone lu par le jeu : dit tout de suite) */
     lu = p->gtidlu;
-    if (n > 300u) n = 300u;
-    u8 *uu = pn_fr + 42, mac[6];
-    pn_p32(uu, NATRES_GBA_MAGIC); uu[4] = 2; uu[5] = (u8)p->gtidlu; uu[6] = (u8)p->gst; uu[7] = (u8)p->gjoy;
-    pn_p32(uu + 8, p->gkey); pn_p32(uu + 12, p->glen); pn_p32(uu + 16, p->gpos); pn_p32(uu + 20, p->ga); pn_p32(uu + 24, n);
-    pn_p32(uu + 28, p->gn00); pn_p32(uu + 32, p->gn14); pn_p32(uu + 36, p->gn15);
-    for (u32 i = 0; i < n; i++) pn_p32(uu + 40 + i * 4, gb_ring[(p->ga + i) % GB_RING]);
-    {   /* (v335 : diagnostic du port de la GBA, apres les mots : l'appli d'avant l'ignore) */
-        u32 ch = p->gbmask & 1 ? 0 : p->gbmask & 2 ? 1 : p->gbmask & 4 ? 2 : 3;
-        const u32 dg[12] = { p->poll, p->redir, p->tr[(p->ntr - 1) & 7], p->gdirq, p->gdsr0, p->gdsr1, p->gdcom, p->gdtc, p->gdbuf, p->gdrep,
-                             p->gbmask | (p->gdnirq > 0xFFFFFFu ? 0xFFFFFFu : p->gdnirq) << 8, H.trap_state << 24 | (H.trap_n & 0xFFFFFFu) };
-        (void)ch;
-        for (u32 i = 0; i < 12; i++) pn_p32(uu + 40 + n * 4 + i * 4, dg[i]);
+    /* v344 : jusqu'a 4 paquets de 300 mots par image (avant 1) : le telephone suit le debit du demarrage */
+    u32 ch = p->gbmask & 1 ? 0 : p->gbmask & 2 ? 1 : p->gbmask & 4 ? 2 : 3;
+    const u32 dg[12] = { p->poll, p->redir, p->tr[(p->ntr - 1) & 7], p->gdirq, p->gdsr0, p->gdsr1, p->gdcom, p->gdtc, p->gdbuf, p->gdrep,
+                         p->gbmask | (p->gdnirq > 0xFFFFFFu ? 0xFFFFFFu : p->gdnirq) << 8, H.trap_state << 24 | (H.trap_n & 0xFFFFFFu) };
+    (void)ch;
+    for (u32 k = 0, off = 0; k < 4u && (k == 0 || off < n); k++, off += 300u) {
+        u32 m = n - off > 300u ? 300u : n - off, a0 = p->ga + off;
+        u8 *uu = pn_fr + 42, mac[6];
+        pn_p32(uu, NATRES_GBA_MAGIC); uu[4] = 2; uu[5] = (u8)p->gtidlu; uu[6] = (u8)p->gst; uu[7] = (u8)p->gjoy;
+        pn_p32(uu + 8, p->gkey); pn_p32(uu + 12, p->glen); pn_p32(uu + 16, p->gpos); pn_p32(uu + 20, a0); pn_p32(uu + 24, m);
+        pn_p32(uu + 28, p->gn00); pn_p32(uu + 32, p->gn14); pn_p32(uu + 36, p->gn15);
+        for (u32 i = 0; i < m; i++) pn_p32(uu + 40 + i * 4, gb_ring[(a0 + i) % GB_RING]);
+        for (u32 i = 0; i < 12; i++) pn_p32(uu + 40 + m * 4 + i * 4, dg[i]);   /* (v335 : diagnostic du port de la GBA, apres les mots) */
+        pn_p32(mac, p->gmac0); pn_p16(mac + 4, p->gmac1 >> 16);
+        pn_udp(p, mac, p->gip, p->gport, 40 + m * 4 + 48);
+        p->gntx++;
     }
-    pn_p32(mac, p->gmac0); pn_p16(mac + 4, p->gmac1 >> 16);
-    pn_udp(p, mac, p->gip, p->gport, 40 + n * 4 + 48);
-    p->gntx++;
 }
 
 static u32 pd_bba_n = 0, pd_bba_tb = 0;                  /* (derniers acces du jeu au BBA) */
@@ -1920,7 +1924,7 @@ static MEM_OS u8 mic_byte(vcard_t *v, u8 b) {
             p->mstat = st;
         }
     } else if (v->cmd == 0x20) {                         /* (echantillons ; rien du telephone : silence) */
-        if (p->mr != p->mw) r = p->mring[p->mr++ & (NATRES_MIC_RING - 1u)]; else { r = 0; p->mlow++; }
+        if (p->mr != p->mw) r = MIC_RING(p)[p->mr++ & (NATRES_MIC_RING - 1u)]; else { r = 0; p->mlow++; }
         p->mnrd++;
     }
     else if (v->cmd == 0x00 && v->pos >= 2) r = (u8)(MIC_ID >> (24 - ((v->pos - 2) & 3) * 8));

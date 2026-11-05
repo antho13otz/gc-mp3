@@ -131,6 +131,7 @@ typedef struct {
    Broadband Adapter a chaque image et les donne au jeu comme une manette branchee sur ce port (registres SI). */
 #define NATRES_PAD_MAGIC 0x50504144u                    /* "PPAD" */
 #define NATRES_PAD_PORT  51237
+#define NATRES_GBA_RING 4096u                           /* (v344) mots du jeu pour la GBA pas encore accuses par le telephone (puissance de 2) : 16 Ko */
 #define NATRES_MIC_RING 8192u                           /* (v332) micro du telephone (puissance de 2) : 371 ms a 11025 Hz, 93 a 44100 */
 typedef struct {
     unsigned int magic;                                   /* "PPAD" */
@@ -181,7 +182,8 @@ typedef struct {
        paquets "GCVO" recus, octets donnes sans echantillon (le jeu lisait plus vite que le telephone), telephone (adresse,
        port, MAC : pour l'etat renvoye) */
     unsigned int micon, mstat, mncmd, mnirq, mnrd, mw, mr, mnrx, mlow, vip, vport, vmac0, vmac1;
-    unsigned char mring[NATRES_MIC_RING];
+    /* v344 : apres la structure (seulement s'ils servent) : l'anneau des mots du jeu pour la GBA (NATRES_GBA_RING mots, si
+       gbmask), puis celui du micro (NATRES_MIC_RING octets, si micon) ; len les compte */
 } natres_pad_t;
 /* v331 : GBA du telephone. Paquets UDP "GCGB" sur le port des manettes (51237), gros-boutiste :
    telephone -> console (24 octets) : {"GCGB", 1, port (0-3 ; v334 : plus lu, la GBA est sur le port choisi dans GC Station), 0, 0, numero, accuse (mots du jeu recus a la suite), JOY_TRANS,

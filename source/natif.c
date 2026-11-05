@@ -3252,20 +3252,21 @@ static void na_vi_irqs(u32 vb) {
 /* v143 : Pulse par le reseau : l'ISO est lue sur une autre GC Station (ou un PC) par le Broadband Adapter */
 static int na_net_on = 0;
 static natres_net_t na_netc;
-static u32 na_pad[sizeof(natres_pad_t) / 4];              /* section "PPAD" (ordre de la machine) */
+static u32 na_pad[sizeof(natres_pad_t) / 4 + NATRES_GBA_RING + NATRES_MIC_RING / 4];   /* section "PPAD" (ordre de la machine) ; v344 : + anneaux */
 static int na_pad_w = 0, na_pad_on = 0;
 static u32 na_ipv4(const char *s) { unsigned a, b, c, d; return sscanf(s, "%u.%u.%u.%u", &a, &b, &c, &d) == 4 ? (u32)a << 24 | (u32)b << 16 | (u32)c << 8 | d : 0; }
 static void na_pad_prep(void) {
     na_pad_w = na_pad_on = 0;
     if (!(na_opt() & (NRO_PHONE | NRO_MEM))) return;
     natres_pad_t *p = (natres_pad_t *)na_pad;
-    memset(p, 0, sizeof(*p));
+    memset(na_pad, 0, sizeof(na_pad));
     p->magic = NATRES_PAD_MAGIC; p->len = sizeof(natres_pad_t) / 4;
     p->net.magic = NATRES_NET_MAGIC; p->net.ip = na_ipv4(ip_str); p->net.port = NATRES_PAD_PORT;
     p->net.mask = na_ipv4(mask_str); p->net.gw = na_ipv4(gw_str);
     p->gbmask = na_gbamask(); p->chmask = na_padmask() & ~p->gbmask; p->xch = 0xFF;   /* (v331 : le port de la GBA n'est pas une manette) */
     p->micon = (u32)na_micon();                           /* v332 : micro du telephone (slot B) */
-    if (!p->micon) p->len -= NATRES_MIC_RING / 4;         /* (v332 : sans le micro, pas de place pour son anneau : il est a la fin) */
+    if (p->gbmask) p->len += NATRES_GBA_RING;             /* (v344 : anneaux apres la structure, seulement s'ils servent) */
+    if (p->micon) p->len += NATRES_MIC_RING / 4;
     for (int i = 0; i < 4; i++) { p->h[i] = 0x00808080u; p->l[i] = 0x80800000u; }
     if (p->net.ip) na_pad_w = (int)p->len;
 }                               /* (ordre de la machine ; ecrit en gros-boutiste dans le resident) */
