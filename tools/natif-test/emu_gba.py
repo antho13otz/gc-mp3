@@ -149,7 +149,7 @@ check('SISR : port 2 (GBA) sans erreur ; port 1 inchange', v == 0x08000808, '%08
 a, _ = tr(0x00)
 check('type du port 2 : GBA (0004)', a >> 16 == 0x0004, '%08X' % a)
 a, _ = tr(0xFF)
-check('remise a zero : 0004, JOYSTAT 0x18 (pret, un mot a lire)', a == 0x00041800, '%08X' % a)
+check('remise a zero : 0004, JOYSTAT 0x08 (v340, comme le SDK l\'attend), puis 0x18', a == 0x00040800 and joystat() == 0x18, '%08X' % a)
 t, js = rd()
 key = t ^ SEDO
 check('cle de session lue (JOYSTAT avec 0x08 puis efface)', js == 0x18 and joystat() == 0x10, 'JOYSTAT %02X puis %02X' % (js, joystat()))
@@ -257,7 +257,7 @@ for _ in range(16): call(POLL)
 lu5 = [f for f in bba.sent if len(f) >= 42 + 40 and f[42:46] == b'GCGB']
 check('etat renvoye : dernier numero lu par le jeu = 5', bool(lu5) and lu5[-1][42 + 5] == 5, '%d paquets' % len(lu5))
 a, _ = tr(0xFF)
-check('remise a zero pendant le relais : nouveau demarrage (nouvelle cle)', padw('gst') == 1 and a == 0x00041800, 'etat %d %08X' % (padw('gst'), a))
+check('remise a zero pendant le relais : nouveau demarrage (nouvelle cle)', padw('gst') == 1 and a == 0x00040800, 'etat %d %08X' % (padw('gst'), a))
 # port 1 jamais touche
 call(SS, 0xCC006480, 0x00000000); call(SS, 0xCC006434, (0 << 1) | 1); si[0x480] = 0x12345678
 check('transfert vers le port 1 : pas touche', call(SL, 0xCC006480) == 0x12345678)
