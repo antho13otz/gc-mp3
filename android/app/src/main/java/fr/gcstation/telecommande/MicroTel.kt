@@ -52,7 +52,7 @@ object MicTel {
     @Volatile private var nAllume = 0
     // build 398 : reglages d'essai (le jeu recoit le son mais ne reagit pas) : ordre des octets des echantillons, volume
     var inverse by mutableStateOf(false)
-    var gainX by mutableStateOf(1)                      // (build 397 : fois ou le jeu a allume le micro)
+    var gainX by mutableStateOf(1)
     @Volatile private var diag: LongArray? = null          // (build 396, console v352 : selections du slot B, lectures de l'identifiant, drapeaux)
     @Volatile private var niveau = 0f
     private val journal = ArrayDeque<String>()
@@ -108,7 +108,7 @@ object MicTel {
                     try { sock.receive(p) } catch (e: SocketTimeoutException) { break }
                     if (p.length >= 40 && g32(rx, 0) == 0x4743564FL && rx[4].toInt() == 2) {
                         val x = LongArray(8) { g32(rx, 8 + it * 4) }
-                        if (p.length >= 52) diag = LongArray(3) { g32(rx, 40 + it * 4) }
+                        if (p.length >= 52) diag = LongArray(4) { if (it < 3 || p.length >= 56) g32(rx, 40 + it * 4) else -1L }
                         w = x; vuPulse = System.currentTimeMillis()
                         if (!vuAvant) { vuAvant = true; note("Pulse répond (slot B)") }
                         if (x[0] != stAvant) {
@@ -200,6 +200,7 @@ object MicTel {
             if (d != null) {
                 append("Côté console : micro activé dans GC Station : ${if (d[2] and 1L != 0L) "oui" else "NON"} ; slot B = micro : ${if (d[2] and 2L != 0L) "oui" else "non"} ; slot B émulé par Pulse : ${if (d[2] and 4L != 0L) "oui" else "non"}\n")
                 append("Le jeu : slot B sélectionné ${d[0]} fois ; identifiant du micro lu ${d[1]} fois\n")
+                if (d[3] >= 0) append("Coupures du son (réserve refaite, console 877+) : ${d[3]}\n")
             } else if (e.vuPulse) append("Côté console : pas de détail (console d'avant le build 875)\n")
             append("Lecture : " + lecture(e) + "\n\nJournal :\n")
             e.journal.forEach { append(it).append('\n') }
