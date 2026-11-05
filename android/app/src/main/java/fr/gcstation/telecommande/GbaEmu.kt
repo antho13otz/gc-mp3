@@ -77,6 +77,11 @@ object GbaEmu {
     @Volatile var drapeaux = 0                            // (JOYSTAT & 0x30 de la GBA)
     @Volatile var tidLuPulse = 0                          // (dernier numero lu par le jeu, dit par Pulse)
     @Volatile var nRecus = 0L; @Volatile var nEnvoyes = 0L
+    // build 381 : ce que le debut du programme ecrit dans JOY_TRANS juste apres son lancement (la preuve demandee par le
+    // demarrage du jeu, puis le code du jeu) : Pulse l'a deja donne au jeu a sa place (console v346) ; ces mots-la sont
+    // lus tout de suite ici, une fois chacun, sans passer par Pulse
+    @Volatile var avaler: Set<Long> = emptySet()
+    @Volatile var nAvales = 0
 
     @Volatile private var fil: Thread? = null
     @Volatile private var stop = false
@@ -84,7 +89,7 @@ object GbaEmu {
     fun demarrer(programme: ByteArray) {
         arreter()
         if (!GbaNatif.pret) { message = "Émulateur GBA absent de cette version de l'appli"; return }
-        entrees.clear(); transId = 0; transVal = 0; luPret = false; drapeaux = 0; tidLuPulse = 0; nRecus = 0; nEnvoyes = 0
+        entrees.clear(); transId = 0; transVal = 0; luPret = false; drapeaux = 0; tidLuPulse = 0; nRecus = 0; nEnvoyes = 0; nAvales = 0
         stop = false
         fil = Thread({ boucle(programme) }, "gba-emu").apply { isDaemon = true; start() }
     }
@@ -114,6 +119,7 @@ object GbaEmu {
         var attenteLu = false                              // (un JOY_TRANS de la GBA attend que le jeu le lise)
         var numero = 0                                     // (dernier numero donne a un JOY_TRANS, 1-255)
         var donnesSansLu = false                           // (des mots du jeu donnes, pas encore tous lus par la GBA)
+        val aAvaler = avaler.toMutableSet()
         var prochain = System.nanoTime()
         try {
             while (!stop) {
@@ -128,8 +134,11 @@ object GbaEmu {
                 GbaNatif.regs(r)
                 val js = r[0]
                 if (donnesSansLu && entrees.isEmpty() && js and 0x02 == 0) { donnesSansLu = false; luPret = true }
-                if (!attenteLu && js and 0x08 != 0) {      // (la GBA a ecrit JOY_TRANS : pour le jeu)
-                    transVal = r[1].toLong() and 0xFFFFFFFFL
+                val tv = r[1].toLong() and 0xFFFFFFFFL
+                if (!attenteLu && js and 0x08 != 0 && aAvaler.remove(tv)) {   // (build 381 : deja donne au jeu par Pulse)
+                    GbaNatif.joy(0x14, d); nAvales++
+                } else if (!attenteLu && js and 0x08 != 0) {      // (la GBA a ecrit JOY_TRANS : pour le jeu)
+                    transVal = tv
                     numero = numero % 255 + 1; transId = numero
                     attenteLu = true
                 }

@@ -199,6 +199,12 @@ object GbaTel {
             val titre = String(img, 0xA0, 12, Charsets.ISO_8859_1).trim { it <= ' ' || it == '\u0000' }
             val code = String(img, 0xAC, 4, Charsets.ISO_8859_1).trim { it <= ' ' || it == '\u0000' }
             if (ok) image = img
+            if (ok && romlen >= 0x200) {                   // (build 381 : preuve et code, deja donnes au jeu par Pulse)
+                fun le(o: Int) = (img[o].toLong() and 255) or (img[o + 1].toLong() and 255 shl 8) or (img[o + 2].toLong() and 255 shl 16) or (img[o + 3].toLong() and 255 shl 24)
+                val e0 = mots[1L + 0x1F8 / 4] ?: 0L; val e1 = mots[1L + 0x1FC / 4] ?: 0L
+                val p0 = le(0x1F8); val p1 = le(0x1FC)
+                GbaEmu.avaler = setOf((e0 * e1) and M32, (p0 * p1) and M32, (p0 * e1) and M32, le(0xAC))
+            }
             programme = "%s%s · %d Ko · somme %s".format(titre.ifEmpty { "(sans titre)" }, if (code.isNotEmpty()) " ($code)" else "", romlen / 1024, if (ok) "OK" else "FAUSSE")
             note("Programme déchiffré : $programme")
             dir?.let { d -> d.mkdirs(); File(d, "programme-" + (titre.ifEmpty { "gba" }).replace(Regex("[^A-Za-z0-9_-]"), "_") + ".mb").writeBytes(img) }
@@ -297,7 +303,7 @@ object GbaTel {
             append("Programme annoncé ${e.annonce} octets, reçus par Pulse ${e.recus} ; commandes du jeu : 00/FF ${e.n00}, 14 ${e.n14}, 15 ${e.n15}\n")
             append("Programme : ${e.programme ?: "pas encore"}\n")
             append(detail())
-            append("Émulateur GBA : ${if (GbaEmu.marche) "en marche" else "arrêté"} ${GbaEmu.message} ; mots du jeu donnés ${GbaEmu.nRecus}, mots de la GBA lus par le jeu ${GbaEmu.nEnvoyes}, en attente ${GbaEmu.entrees.size}\n\nJournal :\n")
+            append("Émulateur GBA : ${if (GbaEmu.marche) "en marche" else "arrêté"} ${GbaEmu.message} ; mots du jeu donnés ${GbaEmu.nRecus}, mots de la GBA lus par le jeu ${GbaEmu.nEnvoyes} (+ ${GbaEmu.nAvales} déjà donnés par Pulse), en attente ${GbaEmu.entrees.size}\n\nJournal :\n")
             e.journal.forEach { append(it).append('\n') }
         }
     }
