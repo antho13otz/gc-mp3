@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 375 — émulateur GBA pour la GBA du téléphone (essai)
+
+Ce build va avec la console v333. Le programme que le jeu envoie à la « GBA » du téléphone (Tingle Tuner de Wind Waker, Four Swords Adventures…) **tourne maintenant dans l'appli** :
+- **Émulateur :** mGBA (licence MPL 2.0), téléchargé en version figée à la compilation.
+- **Démarrage :** dès que le programme est reçu avec une somme juste et que le jeu le lance.
+- **Écran et commandes :** l'écran de la GBA s'affiche dans le bloc « GBA du téléphone », avec des boutons tactiles (croix, A, B, L, R, Start, Select) et le son.
+- **Relais :** les échanges avec le jeu passent par Pulse dans les deux sens.
+
+Essai : la vitesse du Wi-Fi n'est pas encore mesurée sur une vraie console.
+
 ## Nouveautés v333 (build 853) — GBA du téléphone : relais prêt pour l'émulateur
 
 Ce build va avec l'appli build 375, qui fait tourner le programme GBA reçu dans un émulateur. Le relais entre le jeu et la GBA du téléphone devient fiable par Wi-Fi :
