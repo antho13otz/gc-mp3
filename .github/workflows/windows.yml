@@ -150,12 +150,15 @@ jobs:
           $env:PCSIM_OUT = "$pwd\deux\b\captures"; $env:PCSIM_LOG = "$pwd\deux\b\journal.txt"
           $env:GCSTATION_TAPPORT = "51251"; $env:GCSTATION_LANPORT = "51250"; $env:GCSTATION_AMIPORT = "51240"
           $pb = Start-Process -FilePath "deux\b\GC Station.exe" -PassThru
+          $t0 = Get-Date
           $pa.WaitForExit(120000) | Out-Null; $pb.WaitForExit(120000) | Out-Null
+          Write-Host "fini apres $([math]::Round(((Get-Date) - $t0).TotalSeconds)) s ; codes de sortie : $($pa.ExitCode) $($pb.ExitCode)"
           Start-Sleep -Seconds 3
           $ok = $true
           foreach ($c in "a", "b") {
             Write-Host "===== GC Station $c ====="
-            Get-Content "deux\$c\journal.txt" | Select-String "dolphin|capture|plant|ERREUR"
+            if (Test-Path "deux\$c\journal.txt") { Get-Content "deux\$c\journal.txt" -Tail 30 } else { Write-Host "(pas de journal)" }
+            Get-ChildItem -Recurse "deux\$c" | Select-Object -First 30 | ForEach-Object { Write-Host "  $($_.FullName.Substring($pwd.Path.Length))" }
             $r = "deux\$c\Dolphin\resultat.txt"
             if (Test-Path $r) { Get-Content $r; $t = Get-Content $r -Raw
               if ($t -notmatch "connecte=1") { $ok = $false; Write-Host "RATE : Dolphin $c pas branche a GC Station" }
