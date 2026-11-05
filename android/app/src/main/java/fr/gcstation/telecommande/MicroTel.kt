@@ -49,6 +49,7 @@ object MicTel {
     @Volatile private var vuPulse = 0L
     private var w = LongArray(8)                           // (mstat, commandes, interruptions, octets lus, mw, mr, paquets, manques)
     @Volatile private var envoyes = 0L
+    @Volatile private var nAllume = 0                      // (build 397 : fois ou le jeu a allume le micro)
     @Volatile private var diag: LongArray? = null          // (build 396, console v352 : selections du slot B, lectures de l'identifiant, drapeaux)
     @Volatile private var niveau = 0f
     private val journal = ArrayDeque<String>()
@@ -72,7 +73,7 @@ object MicTel {
 
     fun brancher() {
         if (marche) return
-        marche = true; w = LongArray(8); envoyes = 0; mstat = 0; diag = null
+        marche = true; w = LongArray(8); envoyes = 0; mstat = 0; diag = null; nAllume = 0
         note("Micro branché : on attend Pulse (slot B)")
         publier()
         Thread({ boucle() }, "micro-tel").apply { isDaemon = true; start() }
@@ -109,6 +110,7 @@ object MicTel {
                         if (!vuAvant) { vuAvant = true; note("Pulse répond (slot B)") }
                         if (x[0] != stAvant) {
                             stAvant = x[0]; mstat = x[0]
+                            if (x[0] and 0x8000L != 0L) nAllume++
                             note(if (x[0] and 0x8000L != 0L) "Le jeu allume le micro : ${hz(x[0])} Hz, paquets de ${paquet(x[0])} octets" else "Le jeu éteint le micro")
                             sortie.reset(); acc = 0; nacc = 0
                         }
@@ -168,6 +170,8 @@ object MicTel {
             d != null && d[2] and 2L == 0L -> "le micro est activé mais le slot B n'est pas devenu le micro (relancer le jeu par Pulse)"
             d != null && d[0] == 0L -> "le jeu n'a jamais touché le slot B par Pulse (ses accès ne sont pas aiguillés : à me signaler)"
             d != null && d[1] == 0L -> "le jeu touche le slot B mais n'a pas encore lu l'identifiant du micro (aller dans un menu ou un mini-jeu à micro)"
+            e.mstat and 0x8000L == 0L && nAllume > 0 && e.nrd == 0L -> "le jeu a allumé le micro $nAllume fois puis l'a éteint sans lire de son (paquets pas arrivés à temps)"
+            e.mstat and 0x8000L == 0L && nAllume > 0 -> "le jeu a allumé le micro $nAllume fois et lu du son ; il est éteint pour l'instant"
             e.mstat and 0x8000L == 0L -> "le jeu a vu le micro mais ne l'a pas allumé (lancer un mini-jeu à micro)"
             e.nrx == 0L -> "micro allumé par le jeu mais aucun son du téléphone n'arrive à la console"
             e.nlow > e.nrd / 4 -> "le son arrive trop lentement (beaucoup d'octets sans son) : Wi-Fi lent ?"
