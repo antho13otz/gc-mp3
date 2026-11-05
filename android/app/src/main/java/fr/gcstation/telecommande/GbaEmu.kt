@@ -86,6 +86,11 @@ object GbaEmu {
     // build 383 : code du jeu (mot 0xAC) : le debut du programme l'ecrit, attend que le jeu le lise, puis attend que le jeu le
     // lui renvoie ; les mots du jeu sont retenus jusqu'a ce qu'il l'ait ecrit (sinon il attend pour toujours)
     @Volatile var codeJeu = -1L
+    // build 387 (console v347) : remises a zero du jeu pendant le relais, dites par Pulse : donnees a la GBA emulee (son
+    // programme y repond par son identifiant) ; resetsVus : celles qu'elle a deja traitees (dit a Pulse, qui ignore ce qui
+    // est plus ancien)
+    @Volatile var resetsPulse = 0
+    @Volatile var resetsVus = 0
     @Volatile var regsVus = ""                             // (build 383 : registres du cable vus par la GBA, pour le rapport)
     @Volatile var retenus = false
     @Volatile var nAvales = 0
@@ -96,7 +101,7 @@ object GbaEmu {
     fun demarrer(programme: ByteArray) {
         arreter()
         if (!GbaNatif.pret) { message = "Émulateur GBA absent de cette version de l'appli"; return }
-        entrees.clear(); transId = 0; transVal = 0; luPret = false; drapeaux = 0; tidLuPulse = 0; nRecus = 0; nEnvoyes = 0; nAvales = 0
+        entrees.clear(); resetsVus = 0; transId = 0; transVal = 0; luPret = false; drapeaux = 0; tidLuPulse = 0; nRecus = 0; nEnvoyes = 0; nAvales = 0
         stop = false
         fil = Thread({ boucle(programme) }, "gba-emu").apply { isDaemon = true; start() }
     }
@@ -129,6 +134,7 @@ object GbaEmu {
         val aAvaler = avaler.toMutableSet()
         var retenir = codeJeu >= 0 && codeJeu in aAvaler          // (build 383 : mots du jeu retenus jusqu'au code ecrit)
         var nImages = 0
+        var resetsFaits = 0
         var codeLu = false                                 // (build 384 : le code ecrit par la GBA a ete lu ici)
         var joycnt = 0
         var prochain = System.nanoTime()
@@ -136,6 +142,10 @@ object GbaEmu {
             while (!stop) {
                 // la GBA apprend que le jeu a lu son JOY_TRANS
                 if (attenteLu && tidLuPulse == numero) { GbaNatif.joy(0x14, d); attenteLu = false; transId = 0; nEnvoyes++ }
+                val rp = resetsPulse
+                if (rp != resetsFaits) {                   // (build 387 : remise a zero par le jeu : a la GBA ; son JOY_TRANS d'avant est perime)
+                    GbaNatif.joy(0xFF, d); resetsFaits = rp; attenteLu = false; transId = 0
+                }
                 // une image, en donnant les mots du jeu des que la GBA est prete
                 var n = 0
                 if (retenir && ++nImages > 180) retenir = false    // (3 s sans le code : on donne quand meme)
@@ -161,6 +171,7 @@ object GbaEmu {
                     attenteLu = true
                 }
                 drapeaux = js and 0x30
+                resetsVus = resetsFaits
                 synchronized(ecran) { ecran.setPixels(px, 0, W, 0, 0, W, H) }
                 images++
                 if (res[0] > 0) try { son0?.write(son, 0, res[0] * 2, AudioTrack.WRITE_NON_BLOCKING) } catch (e: Exception) { }
@@ -183,7 +194,7 @@ object GbaEmu {
         val id = transId
         if (id > 0) o = o or 1L or (id.toLong() shl 16)
         if (luPret) { o = o or 2L; luPret = false }
-        if (marche) o = o or 8L or (drapeaux.toLong() shl 8)
+        if (marche) o = o or 8L or (drapeaux.toLong() shl 8) or 0x10L or ((resetsVus.toLong() and 0xFF) shl 24)
         return Pair(o, transVal)
     }
 }

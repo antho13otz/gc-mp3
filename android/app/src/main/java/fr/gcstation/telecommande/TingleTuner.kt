@@ -159,6 +159,7 @@ object GbaTel {
         etape = st; joy = js; annonce = gl; recus = gp
         for (i in 0 until cnt) mots[first + i] = g32(b, 40 + 4 * i)
         if (n >= 40 + cnt * 4 + 48) diag = LongArray(12) { g32(b, 40 + cnt * 4 + it * 4) }   // (console v335 : diagnostic)
+        if (n >= 40 + cnt * 4 + 52) GbaEmu.resetsPulse = g32(b, 40 + cnt * 4 + 48).toInt()      // (console v347 : remises a zero)
         while (mots.containsKey(suite)) suite++
         val total = 1 + gl / 4                             // (cle B, puis programme et CRC)
         if (!decode && st >= 3 && gl > 0 && suite >= total) { decode = true; dechiffrer(gl) }
@@ -304,7 +305,7 @@ object GbaTel {
             append("Programme annoncé ${e.annonce} octets, reçus par Pulse ${e.recus} ; commandes du jeu : 00/FF ${e.n00}, 14 ${e.n14}, 15 ${e.n15}\n")
             append("Programme : ${e.programme ?: "pas encore"}\n")
             append(detail())
-            append("Émulateur GBA : ${if (GbaEmu.marche) "en marche" else "arrêté"} ${GbaEmu.message} ; mots du jeu donnés ${GbaEmu.nRecus}, mots de la GBA lus par le jeu ${GbaEmu.nEnvoyes} (+ ${GbaEmu.nAvales} déjà donnés par Pulse), en attente ${GbaEmu.entrees.size}${if (GbaEmu.retenus) " (retenus : la GBA n'a pas encore donné son code)" else ""}\nCâble vu par la GBA : ${GbaEmu.regsVus}\n\nJournal :\n")
+            append("Émulateur GBA : ${if (GbaEmu.marche) "en marche" else "arrêté"} ${GbaEmu.message} ; mots du jeu donnés ${GbaEmu.nRecus}, mots de la GBA lus par le jeu ${GbaEmu.nEnvoyes} (+ ${GbaEmu.nAvales} déjà donnés par Pulse), en attente ${GbaEmu.entrees.size}${if (GbaEmu.retenus) " (retenus : la GBA n'a pas encore donné son code)" else ""}\nCâble vu par la GBA : ${GbaEmu.regsVus} ; remises à zéro : dites par Pulse ${GbaEmu.resetsPulse}, traitées ${GbaEmu.resetsVus}\n\nJournal :\n")
             e.journal.forEach { append(it).append('\n') }
         }
     }
