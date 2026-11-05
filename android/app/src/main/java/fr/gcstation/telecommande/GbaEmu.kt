@@ -93,6 +93,7 @@ object GbaEmu {
     // est plus ancien)
     @Volatile var resetsPulse = 0
     @Volatile var resetsVus = 0
+    @Volatile var resetIdx = 0L                            // (build 394, console v351 : mots du jeu ecrits avant la derniere remise a zero)
     @Volatile var regsVus = ""
     // build 392 : ce qui arrive a la GBA (diagnostic) : ses remises en place (« La connexion a echoue ») avec le code
     // d'erreur et l'etat de son gestionnaire du cable (Rayman 3 : 0x03000A98, 0x03000AA0), ce qu'elle a recu juste avant
@@ -162,7 +163,12 @@ object GbaEmu {
                 // build 391 : pas de remise a zero pendant le debut du programme (il attend JOYCNT = 2 exactement : avec la
                 // remise a zero, 3, il attendait pour toujours, ecran blanc) : donnee une fois ce debut passe
                 val bootFini = codeJeu < 0 || (imgBoot >= 0 && nImages - imgBoot >= 10) || nImages > 600
-                if (rp != resetsFaits && bootFini) {                   // (build 387 : remise a zero par le jeu : a la GBA ; son JOY_TRANS d'avant est perime)
+                // build 394 : les mots que le jeu a ecrits avant cette remise a zero passent d'abord (sur une vraie GBA, deja
+                // recus) : sinon elle les recevait apres et les refusait (erreurs 7 / E4, ecran fige)
+                val ri = resetIdx
+                var avant = 0
+                if (rp != resetsFaits && bootFini) for (w in entrees) { if ((w ushr 32) < ri && avant < mots.size) avant++ else break }
+                if (rp != resetsFaits && bootFini && avant == 0) {                   // (build 387 : remise a zero par le jeu : a la GBA ; son JOY_TRANS d'avant est perime)
                     trace("remise à zéro"); GbaNatif.joy(0xFF, d); resetsFaits = rp; attenteLu = false; transId = 0; apresReset = true; nApres = 0
                 }
                 // build 393 : le programme GBA de Rayman 3 se deconnecte apres 10 images sans echange sur le cable (son compteur :
@@ -179,7 +185,8 @@ object GbaEmu {
                 // appris : JOYCNT 4 efface), puis seulement le mot du jeu (sinon elle le refusait : « La connexion a echoue »)
                 if (apresReset) nApres++
                 val attendReset = (apresReset && nApres <= 30) || (joycnt and 4 != 0)
-                if (!retenir && !attendReset) for (w in entrees) { if (n >= mots.size) break; mots[n++] = w.toInt() }
+                if (avant > 0) for (w in entrees) { if (n >= avant) break; mots[n++] = w.toInt() }
+                else if (!retenir && !attendReset) for (w in entrees) { if (n >= mots.size) break; mots[n++] = w.toInt() }
                 GbaNatif.image(touches, px, son, mots, n, res)
                 repeat(res[1]) { i -> entrees.poll(); nRecus++; trace("mot du jeu %08X".format(mots[i])) }
                 if (res[1] > 0 && imgBoot < 0) imgBoot = nImages
