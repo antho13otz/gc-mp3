@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés appli build 377 — détail du port de la GBA dans le rapport
+
+Le rapport de la GBA du téléphone montre ce que le jeu lit sur le port de la GBA, avec une phrase qui résume le problème. Il va avec la console build 855.
+
+## Nouveautés v335 (build 855) — diagnostic du port de la GBA du téléphone
+
+Rayman 3 et Four Swords Adventures interrogent la GBA du téléphone sans jamais lancer l'envoi de leur programme. Pulse note maintenant, pour le port de la GBA, ce que le jeu lit : état des ports, fin de transfert, réponse. Il l'envoie à l'appli, pour trouver ce qui bloque.
+
 ## Nouveautés appli build 376 — GBA du téléphone pour tous les jeux
 
 Le bloc « GBA du téléphone » s'affiche maintenant dans le compagnon pour tous les jeux : Rayman 3 (mini-jeu en coopération), Pac-Man Vs., Animal Crossing… Ses textes parlent du port choisi dans GC Station (console v334).
