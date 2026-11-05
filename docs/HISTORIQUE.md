@@ -24,6 +24,16 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v360 (build 886) et appli build 401 — Tingle Tuner : le lien après le démarrage
+Le programme GBA du Tingle Tuner démarrait mais affichait « Unable to link to the Nintendo GameCube ».
+- **Console** : après le démarrage, Pulse donne au jeu l'identifiant de la GBA dès la 1re remise à zéro (JOYSTAT 0x28) : c'est
+  le code du jeu (mot 0xAC de l'en-tête), que le programme du Tingle Tuner (et celui de Rayman 3) utilise comme identifiant.
+  Wind Waker ne remet à zéro que deux fois : la réponse du téléphone arrivait trop tard. Test du banc ajouté.
+- **Appli** : cet identifiant donné d'avance est reconnu dès la 1re fois ; la remise à zéro attend que le programme écoute le
+  câble (JOYCNT 0x40 ; le Tingle Tuner l'effaçait en se mettant en route), et les mots du jeu attendent qu'elle soit donnée ;
+  le compteur de déconnexion du Tingle Tuner (10 images sans échange) est tenu à 0 ; le rapport montre l'état du lien du
+  Tingle Tuner et les derniers échanges avec la GBA.
+
 ## Nouveautés v359 (build 885) — jeu en réseau local par Internet (Pulse LAN)
 
 - **Jeu en réseau local par Internet** : dans « Lancer ce jeu ? », **Z : par Internet** (avec le Salon par Internet réglé : adresse de l'ami et code). Le jeu est lancé avec **Pulse LAN**, une 2e version de Pulse sans les manettes du téléphone ni le chercheur de codes, avec un **pont** : les trames du Broadband Adapter du jeu partent par Internet (UDP 51240, format de GC Station PC et de `tools/lan-relais.py`) vers l'ami, et les siennes reviennent au jeu. Celui qui héberge ouvre le port UDP 51240. Le Pulse normal ne change pas.
