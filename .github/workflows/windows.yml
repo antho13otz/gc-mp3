@@ -153,18 +153,20 @@ jobs:
           Start-Sleep -Seconds 8
           $r = New-Object W.U+RECT; [W.U]::GetClientRect($h, [ref]$r) | Out-Null
           $cx = [int](($r.r - $r.l) / 2); $cy = [int](($r.b - $r.t) / 2)
+          # (comme un vrai clavier : touche enfoncee lParam = 1, relachee = bits 30 et 31 ; avec 0, Windows prend le relachement pour un appui)
+          function K($vk) { M 0x0100 $vk 1; M 0x0101 $vk ([int]-1073741823) }
           function M($msg, $w, $l) { [W.U]::PostMessageW($h, $msg, [IntPtr]$w, [IntPtr]$l) | Out-Null; Start-Sleep -Milliseconds 120 }
           function Etat { try { Invoke-RestMethod -TimeoutSec 5 "http://127.0.0.1:8080/api/state" } catch { $null } }
           M 0x0204 2 (($cy -shl 16) -bor $cx)                       # clic droit (B : ferme le guide)
           Start-Sleep -Seconds 2
-          M 0x0100 0x11 0; M 0x0100 0x46 0; M 0x0101 0x46 0; M 0x0101 0x11 0   # Ctrl + F : recherche (onglet MUSIQUE)
+          M 0x0100 0x11 1; K 0x46; M 0x0101 0x11 ([int]-1073741823)   # Ctrl + F : recherche (onglet MUSIQUE)
           Start-Sleep -Seconds 1
           foreach ($c in 0xC9, 0x74, 0xE9, 0x7A) { M 0x0102 $c 0 }  # "Etez", accents compris (WM_CHAR)
-          M 0x0100 0x08 0; M 0x0101 0x08 0                          # Retour arriere : efface le z
+          K 0x08                                                     # Retour arriere : efface le z
           Start-Sleep -Seconds 1
           $e1 = Etat
           Write-Host "clavier ouvert : $($e1.kb) ; texte : '$($e1.kbt)'"
-          M 0x0100 0x1B 0; M 0x0101 0x1B 0                          # Echap : ferme le clavier
+          K 0x1B                                                     # Echap : ferme le clavier
           Start-Sleep -Seconds 1
           $e2 = Etat
           M 0x0200 0 ((($cy - 40) -shl 16) -bor ($cx - 60))         # la souris bouge
