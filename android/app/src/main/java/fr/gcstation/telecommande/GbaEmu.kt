@@ -99,7 +99,8 @@ object GbaEmu {
     // d'erreur et l'etat de son gestionnaire du cable (Rayman 3 : 0x03000A98, 0x03000AA0), ce qu'elle a recu juste avant
     val evts = java.util.concurrent.ConcurrentLinkedDeque<String>()
     private val derniers = ArrayDeque<String>()             // (fil de l'emulateur : les 12 derniers echanges avec la GBA)
-    private fun trace(t: String) { derniers.addLast(t); while (derniers.size > 12) derniers.removeFirst() }
+    private fun trace(t: String) { derniers.addLast(t); while (derniers.size > 12) derniers.removeFirst(); traceTexte = derniers.joinToString("\n") }
+    @Volatile var traceTexte = ""                          // (build 401 : les derniers echanges, pour le rapport)
     private fun evt(t: String) {
         val h = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.FRANCE).format(java.util.Date())
         evts.addLast("$h $t\n      avant : " + derniers.joinToString(" | ")); while (evts.size > 20) evts.removeFirst()
@@ -152,6 +153,8 @@ object GbaEmu {
         var idGba = -1L                                    // (l'identifiant de la GBA, vu a la 1re remise a zero)
         var codeLu = false                                 // (build 384 : le code ecrit par la GBA a ete lu ici)
         var joycnt = 0
+        var attenteRaz = 0                                 // (build 401 : images depuis qu'une remise a zero attend la GBA)
+        var etatTT = -1                                    // (build 401 : etat du lien du Tingle Tuner, pour le rapport)
         var nApres = 0
         var imgBoot = -1
         var errPrec = 0; var drapPrec = 0
@@ -170,12 +173,20 @@ object GbaEmu {
                 val ri = resetIdx
                 var avant = 0
                 if (rp != resetsFaits && bootFini) for (w in entrees) { if ((w ushr 32) < ri && avant < mots.size) avant++ else break }
-                if (rp != resetsFaits && bootFini && avant == 0) {                   // (build 387 : remise a zero par le jeu : a la GBA ; son JOY_TRANS d'avant est perime)
-                    trace("remise à zéro"); GbaNatif.joy(0xFF, d); resetsFaits = rp; attenteLu = false; transId = 0; apresReset = true; nApres = 0
+                // build 401 : la remise a zero attend que le programme ecoute le cable (JOYCNT 0x40) : avant, il l'effacait en se
+                // mettant en route (Tingle Tuner : JOYCNT = 0x47) et ne repondait jamais ; au plus 60 images d'attente
+                val razAttend = rp != resetsFaits && bootFini && avant == 0
+                if (razAttend) attenteRaz++ else attenteRaz = 0
+                if (razAttend && (joycnt and 0x40 != 0 || attenteRaz > 60)) {          // (build 387 : remise a zero par le jeu : a la GBA ; son JOY_TRANS d'avant est perime)
+                    trace("remise à zéro (JOYCNT %02X)".format(joycnt)); GbaNatif.joy(0xFF, d); resetsFaits = rp; attenteLu = false; transId = 0; apresReset = true; nApres = 0
                 }
+                val razEnAttente = rp != resetsFaits && bootFini && avant == 0
                 // build 393 : le programme GBA de Rayman 3 se deconnecte apres 10 images sans echange sur le cable (son compteur :
                 // 0x03000AA2, remis a 0 par chaque echange) ; par le Wi-Fi, un paquet retarde suffit : compteur tenu a 0 ici
                 if (bootFini && (codeJeu and 0xFFFFFFL) == 0x485247L) GbaNatif.ecr8(0x03000AA2, 0)
+                // build 401 : de meme, le Tingle Tuner (code GZL.) recommence le lien apres 10 images sans echange une fois connecte
+                // (son compteur : 0x0300564A, remis a 0 par chaque echange)
+                if (bootFini && (codeJeu and 0xFFFFFFL) == 0x4C5A47L) GbaNatif.ecr8(0x0300564A, 0)
                 // une image, en donnant les mots du jeu des que la GBA est prete
                 var n = 0
                 nImages++
@@ -186,7 +197,7 @@ object GbaEmu {
                 // build 390 : comme sur une vraie GBA, apres une remise a zero : son identifiant, lu par le jeu (et la GBA l'a
                 // appris : JOYCNT 4 efface), puis seulement le mot du jeu (sinon elle le refusait : « La connexion a echoue »)
                 if (apresReset) nApres++
-                val attendReset = (apresReset && nApres <= 30) || (joycnt and 4 != 0)
+                val attendReset = (apresReset && nApres <= 30) || (joycnt and 4 != 0) || razEnAttente   // (build 401 : mots du jeu apres sa remise a zero : pas avant elle)
                 if (avant > 0) for (w in entrees) { if (n >= avant) break; mots[n++] = w.toInt() }
                 else if (!retenir && !attendReset) for (w in entrees) { if (n >= mots.size) break; mots[n++] = w.toInt() }
                 GbaNatif.image(touches, px, son, mots, n, res)
@@ -212,6 +223,11 @@ object GbaEmu {
                             if (drapPrec != 0 && drap == 0) "remise en place" else "code d'erreur changé", err, e0, e1, js, joycnt))
                     }
                     errPrec = err; drapPrec = drap
+                    if ((codeJeu and 0xFFFFFFL) == 0x4C5A47L) {    // (build 401 : Tingle Tuner : etat de son lien (0x0300564D))
+                        val et = GbaNatif.mem32(0x0300564C) ushr 8 and 0xFF
+                        if (et != etatTT) { evt("Tingle Tuner : lien %02X (étape %d%s%s%s ; JOYSTAT %02X JOYCNT %02X)".format(et, et shr 1 and 7,
+                            if (et and 0x20 != 0) ", en route" else "", if (et and 1 != 0) ", ERREUR" else "", if (et and 0x40 != 0) ", déjà connecté" else "", js, joycnt)); etatTT = et }
+                    }
                 }
                 regsVus = "JOYSTAT %02X, JOYCNT %02X, JOY_TRANS %08X, JOY_RECV %08X".format(r[0], r[3], r[1], r[2]); retenus = retenir
                 if (donnesSansLu && entrees.isEmpty() && js and 0x02 == 0) { donnesSansLu = false; luPret = true }
@@ -222,7 +238,9 @@ object GbaEmu {
                 // remettant en place, sans drapeau : ni donne au jeu ni lu ici, sinon il y voit une erreur et recommence) ;
                 // l'identifiant : celui ecrit avec 0x20 (par sa reponse a la remise a zero)
                 val drap = js and 0x30
-                val idDejaDonne = !attenteLu && js and 0x08 != 0 && apresReset && drap == 0x20 && idGba >= 0 && tv == idGba
+                // build 401 (console v360) : Pulse donne d'avance le code du jeu comme identifiant, des la 1re remise a zero
+                val idRef = if (idGba >= 0) idGba else codeJeu
+                val idDejaDonne = !attenteLu && js and 0x08 != 0 && apresReset && drap == 0x20 && idRef >= 0 && tv == idRef
                 if (!attenteLu && js and 0x08 != 0 && apresReset && drap == 0x20) { apresReset = false; if (idGba < 0) idGba = tv }
                 if (idDejaDonne) {
                     trace("identifiant %08X lu ici".format(tv)); GbaNatif.joy(0x14, d); nAvales++; GbaNatif.regs(r); joycnt = r[3]

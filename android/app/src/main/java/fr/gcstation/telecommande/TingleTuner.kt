@@ -315,7 +315,7 @@ object GbaTel {
             append("Programme annoncé ${e.annonce} octets, reçus par Pulse ${e.recus} ; commandes du jeu : 00/FF ${e.n00}, 14 ${e.n14}, 15 ${e.n15}\n")
             append("Programme : ${e.programme ?: "pas encore"}\n")
             append(detail())
-            append("Émulateur GBA : ${if (GbaEmu.marche) "en marche" else "arrêté"} ${GbaEmu.message} ; mots du jeu donnés ${GbaEmu.nRecus}, mots de la GBA lus par le jeu ${GbaEmu.nEnvoyes} (+ ${GbaEmu.nAvales} déjà donnés par Pulse ; ${GbaEmu.nRedonnes} redonnés), en attente ${GbaEmu.entrees.size}${if (GbaEmu.retenus) " (retenus : la GBA n'a pas encore donné son code)" else ""}\nÉvénements de la GBA (build 392) :\n${GbaEmu.evts.joinToString("\n").ifEmpty { "aucun" }}\nCâble vu par la GBA : ${GbaEmu.regsVus} ; remises à zéro : dites par Pulse ${GbaEmu.resetsPulse}, traitées ${GbaEmu.resetsVus}\n\nJournal :\n")
+            append("Émulateur GBA : ${if (GbaEmu.marche) "en marche" else "arrêté"} ${GbaEmu.message} ; mots du jeu donnés ${GbaEmu.nRecus}, mots de la GBA lus par le jeu ${GbaEmu.nEnvoyes} (+ ${GbaEmu.nAvales} déjà donnés par Pulse ; ${GbaEmu.nRedonnes} redonnés), en attente ${GbaEmu.entrees.size}${if (GbaEmu.retenus) " (retenus : la GBA n'a pas encore donné son code)" else ""}\nÉvénements de la GBA (build 392) :\n${GbaEmu.evts.joinToString("\n").ifEmpty { "aucun" }}\nCâble vu par la GBA : ${GbaEmu.regsVus} ; remises à zéro : dites par Pulse ${GbaEmu.resetsPulse}, traitées ${GbaEmu.resetsVus}\nDerniers échanges avec la GBA (build 401) :\n${GbaEmu.traceTexte.ifEmpty { "aucun" }}\n\nJournal :\n")
             e.journal.forEach { append(it).append('\n') }
         }
     }
