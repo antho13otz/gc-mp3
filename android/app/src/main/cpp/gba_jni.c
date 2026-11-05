@@ -163,6 +163,12 @@ JNIEXPORT jint JNICALL Java_fr_gcstation_telecommande_GbaNatif_mem32(JNIEnv* env
 	return (jint) core->rawRead32(core, (uint32_t) adr, -1);
 }
 
+/* build 393 : ecrire un octet de la memoire de la GBA (chien de garde du cable de Rayman 3, voir GbaEmu.kt) */
+JNIEXPORT void JNICALL Java_fr_gcstation_telecommande_GbaNatif_ecr8(JNIEnv* env, jclass cls, jint adr, jint val) {
+	(void) env; (void) cls;
+	if (core) core->rawWrite8(core, (uint32_t) adr, -1, (uint8_t) val);
+}
+
 /* registres du cable cote GBA, sans les changer : [JOYSTAT, JOY_TRANS (32 bits), JOY_RECV (32 bits), JOYCNT] */
 JNIEXPORT void JNICALL Java_fr_gcstation_telecommande_GbaNatif_regs(JNIEnv* env, jclass cls, jintArray out) {
 	(void) cls;
