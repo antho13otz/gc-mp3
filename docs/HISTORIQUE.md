@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Console build 893 (v367) et appli build 422 — rapport du test des touches au fur et à mesure ; pilotage du Tingle Tuner bloqué
+- Console : le rapport du test des touches (journaux/test-console.txt) n'était écrit qu'à la fin des 3 h ; le test de la
+  nuit n'en avait laissé aucun. Il est écrit au début, puis toutes les 5 minutes entre deux actions (« EN COURS : rapport
+  provisoire », dernière action), et remplacé par le rapport final. L'ancien rapport est mis de côté au début. Dans le
+  simulateur, une ligne dit si le rapport a été écrit (ou pourquoi pas : pas de carte SD, carte virtuelle).
+- Appli : le pilotage du curseur du Tingle Tuner s'arrête après 3 essais sans mouvement (« Curseur bloqué : bord de la
+  carte du Tingle Tuner ») au lieu d'appuyer jusqu'aux 25 s (rapport : gauche + haut, carte immobile, encore 423 m).
+
 ## Appli build 421 — Tingle Tuner : bouton Bombe dans la vue 3D, cible rose au sol
 - « 💣 Bombe » dans la vue 3D (normale et plein écran) : B sur la GBA, la bombe du Tingle Tuner ; si le curseur est en
   route, la bombe part à son arrivée. Le pilotage du build 420 marche (vidéo et rapport : « Curseur arrivé », vitesse
