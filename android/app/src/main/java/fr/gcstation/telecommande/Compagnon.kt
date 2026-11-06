@@ -336,8 +336,8 @@ object JeuWW {
      *  (build 368 : le jeu ralentissait avec le compagnon : Pulse copiait ~10 Ko a chaque image (Link + 40 objets, dont
      *  7,6 Ko d'os) ; maintenant 16 objets, os complets seulement a moins de 15 m et 1,5 Ko au plus : ~4 Ko par image) */
     private fun choisirSuivis(lx: Float, ly: Float, lz: Float): List<Pair<VifObjet, Boolean>> {
-        val dyn = bombes.map { it.second }.filter { b -> vifs.none { it.adr == b.adr } }
-        val bo = dyn.filter { it.toujours }.take(4)                               // (build 423 : bombes toujours suivies)
+        val dyn = (bateauObjs + bombes.map { it.second }).distinctBy { it.adr }.filter { b -> vifs.none { it.adr == b.adr } }
+        val bo = dyn.filter { it.toujours }.take(6)                               // (build 423 : bombes toujours suivies ; 446 : et le bateau)
         val tri = bo + (vifs + dyn.filter { !it.toujours }).sortedBy { val p = it.pos; (p[0] - lx) * (p[0] - lx) + (p[1] - ly) * (p[1] - ly) + (p[2] - lz) * (p[2] - lz) }.take(16 - bo.size)
         var budget = 1536
         return tri.map { v ->
@@ -408,7 +408,7 @@ object JeuWW {
         val lp = imagesWW.lastOrNull()?.pos
         sb.append("Wind Waker direct : ").append(if (directWW()) "oui" else "non").append(" ; bibliotheque du pack : ").append(sigsPack.size)
             .append(" modeles ; recherche faite : ").append(vifPret).append(" ; objets trouves : ").append(vifs.size)
-            .append(" ; apparus suivis : ").append(bombes.size).append('\n')
+            .append(" ; apparus suivis : ").append(bombes.size).append(" ; bateau suivi : ").append(bateauObjs.size).append(" modele(s)\n")
         sb.append("bateau : ").append(if (bateauVu != 0L) "%08X".format(bateauVu) else "non").append(" ; voile : ").append(if (voileVu != 0L) "lue" else "non")
             .append(" ; Link : ").append(lp?.let { "%.0f %.0f %.0f".format(it[0], it[1], it[2]) } ?: "-").append('\n')
         val d = dispo
@@ -476,7 +476,27 @@ object JeuWW {
         while (maillonsVus.size > 256) maillonsVus.remove(maillonsVus.keys.first())
         while (essaisMaillon.size > 128) essaisMaillon.remove(essaisMaillon.keys.first())
         bombes = nb.takeLast(10)
+        // build 446 : le bateau n'est pas dans la liste des acteurs que parcourt la recherche des objets (Link non plus) :
+        // journal du build 445 : 14 objets trouves, le plus proche a 272 m, pas de coque. Il etait vu seulement s'il venait
+        // d'etre cree (queue de la liste). Ses modeles sont pris directement sur l'acteur du bateau : coque (+0x298, son
+        // morf : modele a +0x50) et tete de lion (+0x29C) ; toujours suivis, avec leurs articulations quand Link est pres
+        val b = bateauVu; val nbat = ArrayList<VifObjet>()
+        if (b != 0L) for (off in intArrayOf(0x298, 0x29C)) {
+            val p0 = l.ptr(b + off) ?: continue
+            val m = if (l.u32(p0) == vt) p0 else l.ptr(p0 + 0x50)?.takeIf { l.u32(it) == vt } ?: continue
+            val anc = bateauObjs.firstOrNull { it.adr == m }
+            if (anc != null) { nbat.add(anc); continue }
+            val da = l.u32(m + 4); val os = l.u32(m + 0x8C)
+            val f = da?.let { l.u32(it + 4) }; val t = f?.let { l.u32(it + 8) }; val nj = da?.let { l.u16(it + 0x28) }
+            val mi = if (t != null && nj != null) sigs[(t shl 16) or nj.toLong()] else null
+            if (mi != null && nj != null && nj in 1..120 && os != null && tas(os)) {
+                val pos = FloatArray(3) { java.lang.Float.intBitsToFloat((l.u32(m + 0x30 + 0x10L * it) ?: 0L).toInt()) }
+                nbat.add(VifObjet(mi, m, nj, os, pos, 0, 0xA7, true))
+            }
+        }
+        bateauObjs = nbat
     }
+    @Volatile private var bateauObjs: List<VifObjet> = emptyList()
     @Synchronized private fun recevoirWW(b: ByteArray, n: Int) {
         val img = g32(b, 4); val pp = g32(b, 8); val part = (pp shr 16).toInt(); val parts = (pp and 0xFFFF).toInt(); val tot = g32(b, 12).toInt()
         if (parts !in 1..16 || part >= parts) return
