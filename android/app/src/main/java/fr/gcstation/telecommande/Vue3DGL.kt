@@ -2200,17 +2200,20 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
             modifier = m.background(Color(0xCC1A1530), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 6.dp)) }
     Box(Modifier.fillMaxWidth().aspectRatio(1.1f)) {
         if (!plein) VueGL(scene, etat, Modifier.fillMaxSize(), toucher)
+        // (build 428 : mode Tingle : tout le reste disparait, la vue est libre ; seuls « 🎯 Tingle » (pour en sortir) et
+        //  « 💣 Bombe » restent, petits, en haut a droite)
         Row(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            PetitBouton("⟲") { etat.voler(scope, vers = etat.cible, d = etat.distBase, tg = if (etat.montrerRayman) 0.5f else 0.75f) }
-            PetitBouton("⛶ Plein écran") { plein = true }
-            if (ttDispo) PetitBouton("🎯 Tingle", actif = piloteTT) { piloteTT = !piloteTT; etiquette = if (piloteTT) "Touche un endroit : le curseur de Tingle y va" else null }
+            if (!piloteTT) PetitBouton("⟲") { etat.voler(scope, vers = etat.cible, d = etat.distBase, tg = if (etat.montrerRayman) 0.5f else 0.75f) }
+            if (!piloteTT) PetitBouton("⛶ Plein écran") { plein = true }
+            if (ttDispo) PetitBouton("🎯 Tingle", actif = piloteTT) { piloteTT = !piloteTT; if (piloteTT) plein = true   // (build 428 : en plein ecran)
+                etiquette = if (piloteTT) "Touche un endroit : le curseur de Tingle y va" else null }
             if (ttDispo) PetitBouton("💣 Bombe") { etiquette = GbaEmu.bombe() }   // (build 421 : B sur la GBA, une fois le curseur arrive)
         }
         Etiquette(Modifier.align(androidx.compose.ui.Alignment.TopStart).padding(8.dp))
-        BoutonsZoom(etat, Modifier.align(androidx.compose.ui.Alignment.BottomEnd).padding(8.dp))
-        BoutonsVue(scope, etat, Modifier.align(androidx.compose.ui.Alignment.BottomStart).padding(8.dp))
+        if (!piloteTT) BoutonsZoom(etat, Modifier.align(androidx.compose.ui.Alignment.BottomEnd).padding(8.dp))
+        if (!piloteTT) BoutonsVue(scope, etat, Modifier.align(androidx.compose.ui.Alignment.BottomStart).padding(8.dp))
     }
-    ChoixObjets(scene, etat, Modifier.padding(top = 6.dp)) { o -> etiquette = nomObjet(scene, o); allerA(scope, etat, o) }
+    if (!piloteTT) ChoixObjets(scene, etat, Modifier.padding(top = 6.dp)) { o -> etiquette = nomObjet(scene, o); allerA(scope, etat, o) }
     val ctxBug = androidx.compose.ui.platform.LocalContext.current
     if (plein) PleinEcranCouche({ plein = false }) {        // (build 411 : couche de l'activite, plus une fenetre de dialogue)
         // build 365 : vrai plein ecran : la fenetre prend tout l'ecran, barres d'Android cachees (elles reviennent un instant en
@@ -2222,15 +2225,16 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
                 .background(Color(0x33000000), RoundedCornerShape(16.dp)).pointerInput(Unit) { detectTapGestures { sansAth = false } }.padding(horizontal = 10.dp, vertical = 6.dp))
             else Box(Modifier.fillMaxSize().displayCutoutPadding()) {
                 Row(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top = 40.dp, end = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    PetitBouton("🐞 Bug") { journalBug(ctxBug, scene, etat) }
-                    if (GbaEmu.marche) PetitBouton("🎮 GBA") { plein = false; BasculeGba3D.versGba++ }   // (build 412 : l'ecran de la GBA)
+                    if (!piloteTT) PetitBouton("🐞 Bug") { journalBug(ctxBug, scene, etat) }
+                    if (!piloteTT && GbaEmu.marche) PetitBouton("🎮 GBA") { plein = false; BasculeGba3D.versGba++ }   // (build 412 : l'ecran de la GBA)
                     if (ttDispo) PetitBouton("🎯 Tingle", actif = piloteTT) { piloteTT = !piloteTT; etiquette = if (piloteTT) "Touche un endroit : le curseur de Tingle y va" else null }
                     if (ttDispo) PetitBouton("💣 Bombe") { etiquette = GbaEmu.bombe() }
-                    PetitBouton("⟲ Recentrer") { if (etat.mode == 5) etat.mode = 0; etat.voler(scope, vers = etat.cible, d = etat.distBase, tg = if (etat.montrerRayman) 0.5f else 0.75f) }
-                    PetitBouton("👁 Sans ATH") { sansAth = true }
-                    PetitBouton("✕") { plein = false }
+                    if (!piloteTT) PetitBouton("⟲ Recentrer") { if (etat.mode == 5) etat.mode = 0; etat.voler(scope, vers = etat.cible, d = etat.distBase, tg = if (etat.montrerRayman) 0.5f else 0.75f) }
+                    if (!piloteTT) PetitBouton("👁 Sans ATH") { sansAth = true }
+                    if (!piloteTT) PetitBouton("✕") { plein = false }
                 }
                 Etiquette(Modifier.align(androidx.compose.ui.Alignment.TopCenter).padding(top = 90.dp))
+                if (!piloteTT) Box(Modifier.fillMaxSize()) {
                 if (scene.dossier.name == "cartes-mk") InterfaceMK(Modifier.fillMaxSize().padding(top = 96.dp, bottom = 120.dp, start = 12.dp, end = 12.dp))
                 BoutonsZoom(etat, Modifier.align(androidx.compose.ui.Alignment.CenterEnd).padding(end = 12.dp))
                 BoutonsVue(scope, etat, Modifier.align(androidx.compose.ui.Alignment.CenterStart).padding(start = 12.dp))
@@ -2239,6 +2243,7 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
                 Text(if (modeVue == 5) "Visite · 1 doigt : regarder · 2 doigts : écarter pour avancer, glisser pour se décaler, monter, descendre · + / − : avancer, reculer"
                     else "1 doigt : tourner · 2 doigts : déplacer, zoomer, pivoter · toucher un objet : y aller · double toucher : zoom", color = Color.White, fontSize = 11.sp,
                     modifier = Modifier.align(androidx.compose.ui.Alignment.BottomCenter).padding(bottom = 28.dp, start = 12.dp, end = 12.dp).background(Color(0x88000000), RoundedCornerShape(10.dp)).padding(horizontal = 10.dp, vertical = 6.dp))
+                }
             }
         }
     }
