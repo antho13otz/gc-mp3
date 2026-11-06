@@ -34,7 +34,9 @@ jobs:
           # (miroir d'Ubuntu parfois bloque : 3 essais de 8 min au plus)
           ok=0
           for i in 1 2 3; do
-            timeout 480 sudo apt-get update -q && timeout 480 sudo apt-get install -y -q clang lld llvm gcc-mingw-w64-i686 g++-mingw-w64-i686 zip >/dev/null && { ok=1; break; }
+            # (un fichier bloque sur le miroir : abandonne apres 30 s et redemande, au lieu de 8 min pour rien)
+            A="-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+            timeout 600 sudo apt-get $A update -q && timeout 900 sudo apt-get $A install -y -q --no-install-recommends clang lld llvm gcc-mingw-w64-i686 g++-mingw-w64-i686 zip >/dev/null && { ok=1; break; }
             echo "apt : nouvel essai"; sleep 10
           done
           [ $ok = 1 ] || { echo "apt : les outils n'ont pas pu etre installes (miroir d'Ubuntu)"; exit 1; }
