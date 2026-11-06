@@ -188,6 +188,11 @@ object JeuWW {
     /** signatures du pack du lieu affiche (posees par la vue) */
     @Volatile var sigsPack: Map<Long, Int> = emptyMap()
     @Volatile var vifs: List<VifObjet> = emptyList(); @Volatile var vifPret = false
+    // build 423 : bombes (acteur 0x128, modele Link.arc bomb.bdl a +0x2A4), lachees par le Tingle Tuner (a la place du
+    // curseur) ou par Link : elles ne vivent que quelques secondes, le balayage des objets (30 s) les ratait. La liste des
+    // acteurs garde le dernier cree en queue (tete + 4) : relue chaque seconde ; une nouvelle bombe y est suivie tout de
+    // suite (si le pack a son modele), et oubliee des que son acteur n'est plus une bombe
+    @Volatile private var bombes: List<Pair<Long, VifObjet>> = emptyList(); private var derniereQueue = 0L
     @Volatile var vifsRejoues: List<VifPose>? = null
     private var sigsVues: Map<Long, Int>? = null; private var scanT = 0L
     /** disposition de l'abonnement : Link (os, position, camera), objets suivis, lecture groupee, bourrage (sa longueur rend
@@ -281,7 +286,8 @@ object JeuWW {
      *  (build 368 : le jeu ralentissait avec le compagnon : Pulse copiait ~10 Ko a chaque image (Link + 40 objets, dont
      *  7,6 Ko d'os) ; maintenant 16 objets, os complets seulement a moins de 15 m et 1,5 Ko au plus : ~4 Ko par image) */
     private fun choisirSuivis(lx: Float, ly: Float, lz: Float): List<Pair<VifObjet, Boolean>> {
-        val tri = vifs.sortedBy { val p = it.pos; (p[0] - lx) * (p[0] - lx) + (p[1] - ly) * (p[1] - ly) + (p[2] - lz) * (p[2] - lz) }.take(16)
+        val bo = bombes.map { it.second }.filter { b -> vifs.none { it.adr == b.adr } }.take(4)   // (build 423 : toujours suivies)
+        val tri = bo + vifs.sortedBy { val p = it.pos; (p[0] - lx) * (p[0] - lx) + (p[1] - ly) * (p[1] - ly) + (p[2] - lz) * (p[2] - lz) }.take(16 - bo.size)
         var budget = 1536
         return tri.map { v ->
             val plus = v.nj * 48 - 48
@@ -318,6 +324,7 @@ object JeuWW {
                         if (r != null) { vifs = r; sigsVues = sigs; vifPret = true }
                     }
                 } else if (sigs.isEmpty()) { vifs = emptyList(); vifPret = false; sigsVues = null }
+                if (version == ID && vifPret && sigs.isNotEmpty()) suivreBombes(l, mo, sigs)
                 val lp = imagesWW.lastOrNull()?.pos
                 val suivis = if (vifPret) choisirSuivis(lp?.get(0) ?: 0f, lp?.get(1) ?: 0f, lp?.get(2) ?: 0f) else emptyList()
                 val d0 = dispo
@@ -333,6 +340,28 @@ object JeuWW {
     }
     private fun g32(b: ByteArray, o: Int): Long = ((b[o].toLong() and 255) shl 24) or ((b[o + 1].toLong() and 255) shl 16) or ((b[o + 2].toLong() and 255) shl 8) or (b[o + 3].toLong() and 255)
     private fun fl(b: ByteArray, o: Int): Float = java.lang.Float.intBitsToFloat(g32(b, o).toInt())
+    private fun suivreBombes(l: Lecteur, mo: Long, sigs: Map<Long, Int>) {
+        val vt = l.u32(mo) ?: return
+        val q = l.u32(TETE() + 4)
+        val nb = bombes.filter { (ac, v) -> l.u16(ac + 8) == 0x128 && l.u32(ac + 0x2A4) == v.adr }.toMutableList()
+        if (q != null && q != derniereQueue && tas(q)) {
+            derniereQueue = q
+            val ac = l.u32(q + 12)
+            if (ac != null && tas(ac) && l.u16(ac + 8) == 0x128 && nb.none { it.first == ac }) {
+                val m = l.u32(ac + 0x2A4)
+                if (m != null && tas(m) && l.u32(m) == vt) {
+                    val da = l.u32(m + 4); val os = l.u32(m + 0x8C)
+                    val f = da?.let { l.u32(it + 4) }; val t = f?.let { l.u32(it + 8) }; val nj = da?.let { l.u16(it + 0x28) }
+                    val mi = if (t != null && nj != null) sigs[(t shl 16) or nj.toLong()] else null
+                    if (mi != null && nj != null && nj in 1..8 && os != null && tas(os)) {
+                        val pos = FloatArray(3) { java.lang.Float.intBitsToFloat((l.u32(m + 0x30 + 0x10L * it) ?: 0L).toInt()) }
+                        nb.add(ac to VifObjet(mi, m, nj, os, pos))
+                    }
+                }
+            }
+        }
+        bombes = nb
+    }
     @Synchronized private fun recevoirWW(b: ByteArray, n: Int) {
         val img = g32(b, 4); val pp = g32(b, 8); val part = (pp shr 16).toInt(); val parts = (pp and 0xFFFF).toInt(); val tot = g32(b, 12).toInt()
         if (parts !in 1..16 || part >= parts) return
