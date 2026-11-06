@@ -283,7 +283,7 @@ static void draw_tab_games(void) {
         gm_recent_load();                                       /* v176 */
         sc_check();                                             /* v177 : nouveaux succes */
     }
-    f32 t = (f32)(now_ms() % 100000) / 1000.0f;
+    f32 t = gl_anim ? (f32)(now_ms() % 100000) / 1000.0f : 0.0f;   /* v368 : animations coupees (START > Animations) : icones immobiles */
     for (int k = 0; k < 3; k += 2) {   /* v25 : jeux GameCube ; v43 : + cartes memoire ; v196 : les applis sont dans l'espace jeux */
         static const char *const bl[3] = { "Jeux GameCube", "Mes applis", "Cartes m\xC3\xA9moire" };
         int on = gm_sel == GM_COUNT + (k ? 1 : 0);
