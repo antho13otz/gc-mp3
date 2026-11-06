@@ -5243,10 +5243,17 @@ static void music_rescan_bg(void) {
     if (lv_state == 0) { lv_pending = 0; lv_state = 1; LWP_SemPost(lsc_sem); }
     else lv_pending = 1;                                  /* (parcours deja en cours : peut-etre d'avant le changement : un autre apres) */
 }
+/* v375 : verification de la liste des jeux (jeux ajoutes / enleves) par ce fil, pas par la boucle (gclib.c : gq_*) */
+static volatile int gqb_state = 0;                       /* 0 rien, 1 demandee, 2 en cours, 3 prete (la boucle compare) */
+static void gqb_walk(void);                              /* (gclib.c) */
+static volatile int fxb_state = 0;                        /* v375 : fiches de mes jeux refaites en fond (gclib.c) */
+static void fxb_run(void);
 static void *lsc_thread(void *arg) {
     (void)arg;
     static char path[NAME_LEN];
     for (;;) {
+        if (gqb_state == 1) { gqb_state = 2; gqb_walk(); gqb_state = 3; continue; }   /* v375 */
+        if (fxb_state == 1) { fxb_state = 2; fxb_run(); fxb_state = 3; continue; }   /* v375 */
         if (lv_state == 1) {                                /* v238 : verification de la liste gardee */
             lv_state = 2;
             u32 h = 0; int n = 0;

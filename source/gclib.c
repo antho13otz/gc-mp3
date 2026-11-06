@@ -665,7 +665,9 @@ static int gl_cmp_key(const void *a, const void *b) {
     return gl_cmp(a, b);
 }
 /* trie la liste (le jeu choisi reste choisi) ; les images en memoire sont relues */
-static void gl_apply_sort(void) {
+static void gl_sort_x(int reset);
+static void gl_apply_sort(void) { gl_sort_x(1); }
+static void gl_sort_x(int reset) {                       /* v375 : reset 0 : images gardees (l'appelant les renumerote) */
     if (gl_n <= 0) return;
     char keep[NAME_LEN];
     snprintf(keep, sizeof(keep), "%s", gl[gl_sel >= 0 && gl_sel < gl_n ? gl_sel : 0].path);
@@ -681,7 +683,7 @@ static void gl_apply_sort(void) {
         }
     }
     qsort(gl, gl_n, sizeof(gcg_t), gl_cmp_key);
-    gl_slots_reset();
+    if (reset) gl_slots_reset();
     for (int k = 0; k < gl_n; k++) { gl[k].bslot = -1; if (!strcmp(gl[k].path, keep)) gl_sel = k; }
     gs_dirty = 1;                                          /* v196 : (l'espace refait sa liste) */
 }
@@ -816,11 +818,6 @@ static u32 gl_fx_hash(void) {                            /* (les ID des jeux de 
     for (int k = 0; k < gl_n; k++) if (!gl[k].dvd) { u32 x = 2166136261u; for (int i = 0; i < 6; i++) x = (x ^ (u8)gl[k].id[i]) * 16777619u; h += x; }
     return h ^ (u32)gl_n;
 }
-static int gl_fx_mine(const char *id) {                  /* 1 : un de mes jeux (meme ID, ou le meme jeu d'une autre region) */
-    for (int k = 0; k < gl_n; k++) if (!gl[k].dvd && !strncmp(gl[k].id, id, 6)) return 1;
-    for (int k = 0; k < gl_n; k++) if (!gl[k].dvd && !strncmp(gl[k].id, id, 3)) return 1;
-    return 0;
-}
 static void gl_fx_add(const char *l, int len) {
     glfx_t *n = (glfx_t *)realloc(gl_fx, sizeof(glfx_t) * (gl_fx_n + 1));
     if (!n) return;
@@ -835,6 +832,41 @@ static void gl_fx_add(const char *l, int len) {
     for (char *p = c; *p && f < FX_N; p++) if (*p == '\t') { *p = 0; e->f[f++] = p + 1; }
     while (f < FX_N) e->f[f++] = "";
 }
+/* v375 : la liste des fiches de mes jeux est refaite par le fil de la bibliotheque (lsc_thread) : avant, un jeu ajoute ou
+   enleve faisait relire la grande liste (jusqu'a 6 Mo) pendant le dessin : pres d'une seconde figee. En attendant, les
+   anciennes fiches restent affichees. Le fil travaille sur une copie des ID (la liste des jeux peut changer pendant ce temps). */
+static char *fxb_ids = NULL; static int fxb_n = 0; static u32 fxb_want = 0, fxb_tried = 0;
+static void fxb_run(void) {                               /* (fil de la bibliotheque) */
+    long n = 0;
+    char *d = (char *)read_file(GL_FX_BIG, 6 * 1024 * 1024, &n);
+    if (!d) return;
+    FILE *f = fopen(GL_FX_MINE ".tmp", "w");
+    if (!f) { free(d); return; }
+    fprintf(f, "#%08x\n", (unsigned)fxb_want);
+    for (long i = 0; i < n; ) {
+        long st = i;
+        while (i < n && d[i] != '\n') i++;
+        if (i - st > 8 && d[st] != '#' && d[st + 6] == '\t') {
+            int mine = 0;
+            for (int k = 0; k < fxb_n && !mine; k++) if (!strncmp(fxb_ids + k * 6, d + st, 6)) mine = 1;
+            for (int k = 0; k < fxb_n && !mine; k++) if (!strncmp(fxb_ids + k * 6, d + st, 3)) mine = 1;
+            if (mine) { fwrite(d + st, 1, i - st, f); fputc('\n', f); }
+        }
+        i++;
+    }
+    int ok = fclose(f) == 0;
+    free(d);
+    if (ok) { remove(GL_FX_MINE); rename(GL_FX_MINE ".tmp", GL_FX_MINE); }
+}
+static void fxb_start(u32 want) {
+    if (fxb_state || want == fxb_tried || !lsc_ready()) return;
+    free(fxb_ids); fxb_n = 0;
+    fxb_ids = (char *)malloc(gl_n * 6 + 1);
+    if (!fxb_ids) return;
+    for (int k = 0; k < gl_n; k++) if (!gl[k].dvd) memcpy(fxb_ids + 6 * fxb_n++, gl[k].id, 6);
+    fxb_want = want; fxb_tried = want;
+    fxb_state = 1; LWP_SemPost(lsc_sem);
+}
 static void gl_fx_load(void) {
     gl_fx_reset();
     gl_fx_n = 0;
@@ -843,26 +875,8 @@ static void gl_fx_load(void) {
     long n = 0;
     char *d = (char *)read_file(GL_FX_MINE, 1024 * 1024, &n);
     int ok = d && n >= 9 && d[0] == '#' && (u32)strtoul(d + 1, NULL, 16) == want;   /* v356 : (n >= 9 : aucune fiche pour mes jeux = l'en-tete seul, 10 octets ; avant : la grande liste, 1 Mo, relue a chaque fois) */
-    if (!ok) {                                           /* (refaite d'apres la grande liste) */
-        free(d);
-        d = (char *)read_file(GL_FX_BIG, 6 * 1024 * 1024, &n);
-        if (!d) return;
-        FILE *f = fopen(GL_FX_MINE, "w");
-        if (f) fprintf(f, "#%08x\n", (unsigned)want);
-        for (long i = 0; i < n; ) {
-            long st = i;
-            while (i < n && d[i] != '\n') i++;
-            if (i - st > 8 && d[st] != '#' && d[st + 6] == '\t' && gl_fx_mine(d + st)) {
-                gl_fx_add(d + st, (int)(i - st));
-                if (f) { fwrite(d + st, 1, i - st, f); fputc('\n', f); }
-            }
-            i++;
-        }
-        if (f) fclose(f);
-        free(d);
-        return;
-    }
-    for (long i = 0; i < n; ) {
+    if (!ok) fxb_start(want);                            /* (v375 : refaite en fond ; les anciennes fiches en attendant) */
+    for (long i = 0; d && i < n; ) {
         long st = i;
         while (i < n && d[i] != '\n') i++;
         if (i - st > 8 && d[st] != '#') gl_fx_add(d + st, (int)(i - st));
@@ -871,6 +885,7 @@ static void gl_fx_load(void) {
     free(d);
 }
 static const glfx_t *gl_fx_get(const char *id) {
+    if (fxb_state == 3) { fxb_state = 0; free(fxb_ids); fxb_ids = NULL; gl_fx_reset(); }   /* v375 : (nouvelle liste prete : relue, petite) */
     if (gl_fx_n < 0) gl_fx_load();
     for (int i = 0; i < gl_fx_n; i++) if (!strncmp(gl_fx[i].f[FX_ID], id, 6)) return &gl_fx[i];
     for (int i = 0; i < gl_fx_n; i++) if (!strncmp(gl_fx[i].f[FX_ID], id, 3)) return &gl_fx[i];   /* (meme jeu, autre region) */
@@ -1878,55 +1893,118 @@ static int gl_quick_changed(void) {
 }
 /* v356 : le meme tour, mais en fond, quelques millisecondes par image (avant : tout d'un coup a l'entree, 0,3 s figee
    et plus avec une grosse carte) ; si un jeu est ajoute ou enleve, la liste est refaite a la fin du tour */
-static struct { DIR *d; char path[NAME_LEN]; int depth; } gq_st[5];
-static int gq_n = 0, gq_found = 0, gq_budget = 0, gq_on = 0;
-static void gq_stop(void) { while (gq_n > 0) closedir(gq_st[--gq_n].d); gq_on = 0; }
-static void gq_start(void) {
-    gq_stop();
-    if (!sd_ok || sd_virtual || !gl) return;
-    DIR *d = opendir(SD_ROOT);
-    if (!d) return;
-    gq_st[0].d = d; snprintf(gq_st[0].path, sizeof(gq_st[0].path), "%s", SD_ROOT); gq_st[0].depth = 0;
-    gq_n = 1; gq_found = 0; gq_budget = 6000; gq_on = 1;
-}
-static void gq_changed(void) {                          /* (fin du tour : jeu ajoute ou enleve) */
-    gq_stop();
-    gl_scanned = 0; gl_scan();
-    char m[96]; snprintf(m, sizeof(m), "%s (%d)", TR("Liste des jeux mise \xC3\xA0 jour"), gl_n - (gl_has_dvd() ? 1 : 0));
-    snprintf(gl_msg, sizeof(gl_msg), "%s", m); gl_msg_t = now_ms();
-}
-static void gq_step(void) {                             /* (une fois par image, liste des jeux a l'ecran) */
-    if (!gq_on || !gl) return;
-    u32 t0 = perf_us();
+/* v375 : la carte est parcourue par le fil de la bibliotheque (lsc_thread), plus par la boucle : sur la console, un
+   readdir / stat de la carte SD prend parfois 10 a 30 ms, et le tour (jusqu'a 6000 entrees) faisait sauter des images
+   pendant des dizaines de secondes. Et un jeu ajoute ou enleve ne refait plus toute la liste (avant : chaque en-tete relu,
+   plusieurs secondes figees) : la liste est mise a jour sur place (seulement les jeux nouveaux sont lus).
+   Au depart du tour, la boucle donne au fil la liste (cles chemin + taille, et les refuses) ; le fil marque les jeux
+   retrouves et garde les nouveaux (16 au plus : au-dela, la liste est refaite entiere, comme avant). */
+#define GQB_NEW 16
+static u32 *gqs_key = NULL; static u8 *gqs_seen = NULL; static int gqs_n = 0;
+static u32 gqs_rej[GL_REJ_MAX]; static int gqs_rej_n = 0;
+static struct { char path[NAME_LEN]; long size; } gqb_new[GQB_NEW];
+static int gqb_nnew = 0, gqb_over = 0;
+static void gqb_walk(void) {
+    struct { DIR *d; char path[NAME_LEN]; int depth; } st[5];
+    int n = 0, budget = 6000;
     char p[NAME_LEN];
-    while (gq_n > 0 && perf_us() - t0 < 3000u) {
-        struct dirent *e = gq_budget-- > 0 ? readdir(gq_st[gq_n - 1].d) : NULL;
-        if (!e) { closedir(gq_st[--gq_n].d); continue; }
+    gqb_nnew = 0; gqb_over = 0;
+    DIR *d0 = opendir(SD_ROOT);
+    if (!d0) { gqb_over = 1; return; }
+    st[0].d = d0; snprintf(st[0].path, sizeof(st[0].path), "%s", SD_ROOT); st[0].depth = 0; n = 1;
+    while (n > 0) {
+        struct dirent *e = budget-- > 0 ? readdir(st[n - 1].d) : NULL;
+        if (!e) { if (budget < 0) gqb_over = 1; closedir(st[--n].d); continue; }
         if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
-        if (snprintf(p, sizeof(p), "%s/%s", gq_st[gq_n - 1].path, e->d_name) >= (int)sizeof(p)) continue;
-        int depth = gq_st[gq_n - 1].depth;
+        if (snprintf(p, sizeof(p), "%s/%s", st[n - 1].path, e->d_name) >= (int)sizeof(p)) continue;
+        int depth = st[n - 1].depth;
         if (is_dir(p, e)) {
-            if (depth < 3 && gq_n < 5 && !gl_skip_dir(e->d_name)) {
+            if (depth < 3 && n < 5 && !gl_skip_dir(e->d_name)) {
                 DIR *d = opendir(p);
-                if (d) { gq_st[gq_n].d = d; snprintf(gq_st[gq_n].path, sizeof(gq_st[gq_n].path), "%s", p); gq_st[gq_n].depth = depth + 1; gq_n++; }
+                if (d) { st[n].d = d; snprintf(st[n].path, sizeof(st[n].path), "%s", p); st[n].depth = depth + 1; n++; }
             }
             continue;
         }
         const char *dot = strrchr(e->d_name, '.');
         if (!dot || !(!strcasecmp(dot, ".iso") || !strcasecmp(dot, ".gcm") || !strcasecmp(dot, ".ciso"))) continue;
-        struct stat st;
-        if (stat(p, &st) != 0 || st.st_size < 0x440) continue;
-        int k = -1;
-        for (int i = 0; i < gl_n && k < 0; i++) if (!gl[i].dvd && gl[i].size == (long)st.st_size && !strcasecmp(gl[i].path, p)) k = i;
-        if (k >= 0) gq_found++;
-        else if (!gl_rejected(p, (long)st.st_size)) { gq_changed(); return; }   /* (nouveau, ou change de taille) */
+        struct stat sb;
+        if (stat(p, &sb) != 0 || sb.st_size < 0x440) continue;
+        u32 k = gl_path_key(p, (long)sb.st_size);
+        int j = -1;
+        for (int i = 0; i < gqs_n && j < 0; i++) if (gqs_key[i] == k) j = i;
+        if (j >= 0) { gqs_seen[j] = 1; continue; }
+        int rj = 0;
+        for (int r = 0; r < gqs_rej_n && !rj; r++) if (gqs_rej[r] == k) rj = 1;
+        if (rj) continue;
+        if (gqb_nnew < GQB_NEW) { snprintf(gqb_new[gqb_nnew].path, NAME_LEN, "%s", p); gqb_new[gqb_nnew].size = (long)sb.st_size; gqb_nnew++; }
+        else gqb_over = 2;                                /* (trop de nouveaux : liste refaite entiere) */
     }
-    if (gq_n == 0 && gq_on) {
-        gq_on = 0;
-        int sdn = 0;
-        for (int i = 0; i < gl_n; i++) if (!gl[i].dvd && !strncasecmp(gl[i].path, SD_ROOT "/", strlen(SD_ROOT) + 1)) sdn++;
-        if (gq_found < sdn) gq_changed();                 /* (un jeu enleve) */
+}
+static void gq_start(void) {
+    if (!sd_ok || sd_virtual || !gl || !lsc_ready() || gqb_state) return;
+    free(gqs_key); free(gqs_seen);
+    gqs_key = (u32 *)malloc((gl_n + 1) * sizeof(u32)); gqs_seen = (u8 *)calloc(gl_n + 1, 1);
+    if (!gqs_key || !gqs_seen) { free(gqs_key); free(gqs_seen); gqs_key = NULL; gqs_seen = NULL; return; }
+    gqs_n = 0;
+    for (int i = 0; i < gl_n; i++) if (!gl[i].dvd && !strncasecmp(gl[i].path, SD_ROOT "/", strlen(SD_ROOT) + 1)) gqs_key[gqs_n++] = gl_path_key(gl[i].path, gl[i].size);
+    gqs_rej_n = gl_rej_n; memcpy(gqs_rej, gl_rej, sizeof(u32) * gl_rej_n);
+    gqb_state = 1; LWP_SemPost(lsc_sem);
+}
+static void gq_changed(void) {                          /* (beaucoup de changements : toute la liste, comme avant) */
+    gl_scanned = 0; gl_scan();
+    char m[96]; snprintf(m, sizeof(m), "%s (%d)", TR("Liste des jeux mise \xC3\xA0 jour"), gl_n - (gl_has_dvd() ? 1 : 0));
+    snprintf(gl_msg, sizeof(gl_msg), "%s", m); gl_msg_t = now_ms();
+}
+static void gq_step(void) {                             /* (une fois par image : le tour du fil est-il fini ?) */
+    if (gqb_state != 3) return;
+    gqb_state = 0;
+    if (!gl || !gqs_key) return;
+    if (gqb_over == 2) { gq_changed(); return; }
+    if (gqb_over) return;                                 /* (carte illisible, ou trop de fichiers : rien de decide) */
+    int changed = 0, on = gl_n;
+    u32 *ok = (u32 *)malloc((on + 1) * sizeof(u32));     /* (cle de chaque jeu avant : pour garder les images deja lues) */
+    for (int i = 0; ok && i < on; i++) ok[i] = gl_path_key(gl[i].path, gl[i].size);
+    for (int i = 0; i < gl_n; ) {                         /* jeux enleves (ou changes de taille) : retires de la liste */
+        int del = 0;
+        if (!gl[i].dvd && !strncasecmp(gl[i].path, SD_ROOT "/", strlen(SD_ROOT) + 1)) {
+            u32 k = gl_path_key(gl[i].path, gl[i].size);
+            for (int j = 0; j < gqs_n; j++) if (gqs_key[j] == k) { del = !gqs_seen[j]; break; }
+        }
+        if (!del) { i++; continue; }
+        free(gl[i].desc);
+        memmove(&gl[i], &gl[i + 1], (gl_n - i - 1) * sizeof(gcg_t)); gl_n--; changed++;
     }
+    for (int j = 0; j < gqb_nnew; j++) {                  /* jeux nouveaux : seulement eux sont lus */
+        int n0 = gl_n;
+        gl_add(gqb_new[j].path, gqb_new[j].size);
+        if (gl_n == n0) { if (gl_rej_n < GL_REJ_MAX) gl_rej[gl_rej_n++] = gl_path_key(gqb_new[j].path, gqb_new[j].size); continue; }
+        gcg_t *g = &gl[gl_n - 1];
+        g->post = (s16)swpk_find(&gl_post, g->id); g->still = (s16)swpk_find(&gl_still, g->id);
+        changed++;
+    }
+    if (!changed) { free(ok); return; }
+    gl_dl_apply(); gl_fx_reset();
+    gl_list_save();
+    gl_stats_load(); gl_fav_load();
+    if (!ok) gl_apply_sort();
+    else {                                                /* v375 : jaquettes, bannieres, grande image gardees : renumerotees (avant : toutes relues,
+                                                             pres d'une seconde figee a l'image suivante) */
+        gl_sort_x(0);
+        u32 *nk = (u32 *)malloc((gl_n + 1) * sizeof(u32));
+        for (int i = 0; nk && i < gl_n; i++) nk[i] = gl_path_key(gl[i].path, gl[i].size);
+        #define GQ_MAP(o) ({ int o_ = (o), r_ = -1; if (nk && o_ >= 0 && o_ < on) for (int j = 0; j < gl_n; j++) if (nk[j] == ok[o_]) { r_ = j; break; } r_; })
+        for (int i = 0; i < GL_SLOTS; i++) if (gl_cov[i].game >= 0) { gl_cov[i].game = GQ_MAP(gl_cov[i].game); if (gl_cov[i].game < 0) { free(gl_cov[i].tex); gl_cov[i].tex = NULL; } }
+        for (int i = 0; i < GL_BSLOTS; i++) if (gl_ban[i].game >= 0) { gl_ban[i].game = GQ_MAP(gl_ban[i].game); if (gl_ban[i].game < 0) { free(gl_ban[i].tex); gl_ban[i].tex = NULL; } else gl[gl_ban[i].game].bslot = (s8)i; }
+        if (gl_big.game >= 0) { gl_big.game = GQ_MAP(gl_big.game); if (gl_big.game < 0) { free(gl_big.tex); gl_big.tex = NULL; } }
+        if (gl_bigst.game >= 0) { gl_bigst.game = GQ_MAP(gl_bigst.game); if (gl_bigst.game < 0) { free(gl_bigst.tex); gl_bigst.tex = NULL; } }
+        #undef GQ_MAP
+        memset(gl_cov_fail, 0, sizeof(gl_cov_fail)); memset(gl_cov_retry, 0, sizeof(gl_cov_retry));
+        free(nk);
+    }
+    free(ok);
+    if (gl_sel >= gl_n) gl_sel = gl_n ? gl_n - 1 : 0;
+    char m[96]; snprintf(m, sizeof(m), "%s (%d)", TR("Liste des jeux mise \xC3\xA0 jour"), gl_n - (gl_has_dvd() ? 1 : 0));
+    snprintf(gl_msg, sizeof(gl_msg), "%s", m); gl_msg_t = now_ms();
 }
 
 /* ---------- entree ---------- */
