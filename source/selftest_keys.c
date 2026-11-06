@@ -347,6 +347,7 @@ static void kt_write_report(FILE *f) {
     fprintf(f, "\n== Actions dangereuses bloquées (rien n'a été fait) ==\n");
     for (int i = 0; i < kt_nblk; i++) fprintf(f, "  %s\n", kt_blk[i].t);
     if (!kt_nblk) fprintf(f, "  aucune\n");
+    mp_total_lost = (s32)sx_free_now() < (s32)kt_mem0 - 512 * 1024;   /* v369 */
     mp_report(f);                                     /* v323 */
 }
 static void kt_finish(void) {
