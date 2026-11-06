@@ -219,6 +219,8 @@ object GbaEmu {
         var ch = -1; var chImg = 0                          // (build 410 : recherche du curseur : phase, images dans la phase)
         val snaps = arrayOfNulls<IntArray>(5)
         var etatsTT = ""                                   // (build 404 : etat des 16 messages du Tingle Tuner (0x03005330))
+        val attente8 = IntArray(16)                        // (build 414 : images depuis qu'un message de la GBA attend la reponse du jeu)
+        var nRelances = 0
         var nApres = 0
         var imgBoot = -1
         var errPrec = 0; var drapPrec = 0
@@ -330,6 +332,14 @@ object GbaEmu {
                         val enAttente = (GbaNatif.mem32(0x03005644) ushr 8) and 0xFF
                         val ets = "messages $sb, à envoyer $enAttente"
                         if (ets != etatsTT) { trace("TT $ets"); etatsTT = ets }
+                        // build 414 : un message de la GBA envoye (8) dont la reponse du jeu ne vient pas en 1 s (perdue dans une
+                        // reconnexion : la case restait bloquee, le curseur ne bougeait plus) : liberee (0), comme si le jeu avait
+                        // repondu « lu » ; le programme y remet son message suivant
+                        if (et and 0x0E == 0x08) for (k in 0 until 16) {
+                            val st = (GbaNatif.mem32(0x03005330 + 4 * (k / 4)) ushr (8 * (k % 4))) and 0xFF
+                            if (st == 8) { if (++attente8[k] > 60) { GbaNatif.ecr8(0x03005330 + k, 0); attente8[k] = 0; nRelances++; trace("TT message %d relancé (sans réponse du jeu)".format(k)) } }
+                            else attente8[k] = 0
+                        }
                         if (et != etatTT) { evt("Tingle Tuner : lien %02X (étape %d%s%s%s ; JOYSTAT %02X JOYCNT %02X)".format(et, et shr 1 and 7,
                             if (et and 0x20 != 0) ", en route" else "", if (et and 1 != 0) ", ERREUR" else "", if (et and 0x40 != 0) ", déjà connecté" else "", js, joycnt)); etatTT = et }
                     }
