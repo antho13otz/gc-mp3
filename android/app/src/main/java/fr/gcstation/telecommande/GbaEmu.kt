@@ -99,7 +99,13 @@ object GbaEmu {
     // d'erreur et l'etat de son gestionnaire du cable (Rayman 3 : 0x03000A98, 0x03000AA0), ce qu'elle a recu juste avant
     val evts = java.util.concurrent.ConcurrentLinkedDeque<String>()
     private val derniers = ArrayDeque<String>()             // (fil de l'emulateur : les 12 derniers echanges avec la GBA)
-    private fun trace(t: String) { derniers.addLast(t); while (derniers.size > 12) derniers.removeFirst(); traceTexte = derniers.joinToString("\n") }
+    // build 404 : 60 derniers echanges (avant : 12) ; une meme ligne repetee : comptee (« ×n ») au lieu de remplir la liste
+    private var traceDer = ""; private var traceN = 0
+    private fun trace(t: String) {
+        if (t == traceDer && derniers.isNotEmpty()) { traceN++; derniers.removeLast(); derniers.addLast("$t (×$traceN)") }
+        else { traceDer = t; traceN = 1; derniers.addLast(t) }
+        while (derniers.size > 60) derniers.removeFirst(); traceTexte = derniers.joinToString("\n")
+    }
     @Volatile var traceTexte = ""                          // (build 401 : les derniers echanges, pour le rapport)
     // build 403 (console v365) : Tingle Tuner connecte : mots de la GBA lus ici, envoyes d'un coup a Pulse qui les garde en
     // file pour le jeu (numero 1-255 << 32 | mot) ; retires quand Pulse dit que le jeu les a lus
@@ -107,7 +113,7 @@ object GbaEmu {
     fun fileAEnvoyer(): List<Long> = file.take(32)
     private fun evt(t: String) {
         val h = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.FRANCE).format(java.util.Date())
-        evts.addLast("$h $t\n      avant : " + derniers.joinToString(" | ")); while (evts.size > 20) evts.removeFirst()
+        evts.addLast("$h $t\n      avant : " + derniers.toList().takeLast(12).joinToString(" | ")); while (evts.size > 20) evts.removeFirst()
     }                             // (build 383 : registres du cable vus par la GBA, pour le rapport)
     @Volatile var retenus = false
     @Volatile var nAvales = 0
@@ -161,6 +167,7 @@ object GbaEmu {
         var etatTT = -1                                    // (build 401 : etat du lien du Tingle Tuner, pour le rapport)
         var echoTT = false                                 // (build 402 : le Tingle Tuner vient de se connecter : son echo, deja donne par Pulse)
         var dernierMot = -1L                               // (build 402 : dernier mot du jeu donne a la GBA)
+        var etatsTT = ""                                   // (build 404 : etat des 16 messages du Tingle Tuner (0x03005330))
         var nApres = 0
         var imgBoot = -1
         var errPrec = 0; var drapPrec = 0
@@ -237,6 +244,13 @@ object GbaEmu {
                     if ((codeJeu and 0xFFFFFFL) == 0x4C5A47L) {    // (build 401 : Tingle Tuner : etat de son lien (0x0300564D))
                         val et = GbaNatif.mem32(0x0300564C) ushr 8 and 0xFF
                         if (et and 0x0E == 0x08 && (etatTT < 0 || etatTT and 0x0E != 0x08)) echoTT = true   // (passe a l'etape 4 : connecte)
+                        // build 404 : etat de chacun des 16 messages (0 libre, 3 en reception, 4 recu, 6 a envoyer, 7 envoi, 9 somme
+                        // fausse) et messages de la GBA en attente d'envoi (0x03005645) : chaque changement dans le rapport
+                        val sb = StringBuilder()
+                        for (k in 0 until 4) { val w = GbaNatif.mem32(0x03005330 + 4 * k); for (j in 0 until 4) sb.append("%X".format((w ushr (8 * j)) and 0xFF)) }
+                        val enAttente = (GbaNatif.mem32(0x03005644) ushr 8) and 0xFF
+                        val ets = "messages $sb, à envoyer $enAttente"
+                        if (ets != etatsTT) { trace("TT $ets"); etatsTT = ets }
                         if (et != etatTT) { evt("Tingle Tuner : lien %02X (étape %d%s%s%s ; JOYSTAT %02X JOYCNT %02X)".format(et, et shr 1 and 7,
                             if (et and 0x20 != 0) ", en route" else "", if (et and 1 != 0) ", ERREUR" else "", if (et and 0x40 != 0) ", déjà connecté" else "", js, joycnt)); etatTT = et }
                     }
