@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v377 (build 906) — liste des applis gardée sur la carte SD
+
+- La liste des applis est gardée dans SD:/gc-mp3/cache/applis/liste.txt : au 1er passage dans les applis après le démarrage, elle est montrée tout de suite (avant : « Lecture des applis… »), puis la carte est relue en fond. Si rien n'a changé, rien ne bouge (les images déjà lues restent) ; une appli ajoutée ou retirée apparaît ou disparaît toute seule. Le réglage « Applis sans image » est gardé avec la liste.
+
 ## Nouveautés v376 (build 905) — accueil de JEUX « À la une » (Aurore) ; A : la fiche d'abord
 
 - Aurore : nouvel accueil de l'onglet JEUX : le dernier jeu en grand (jaquette, titre, temps de jeu, date ; A : sa fiche), tuiles Jeux GameCube (nombre, temps total), Applis (nombre, noms ; avant : cachées dans l'espace jeux, touche Z), Cartes mémoire, Mes stats (le récap, le jeu le plus joué), mini-jeux sur une rangée qui défile (celui choisi grossit : description, record). Jaquette, titres et nombres lus en fond. Les autres styles gardent l'accueil d'avant.
