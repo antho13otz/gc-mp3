@@ -386,6 +386,9 @@ object GbaEmu {
 @Composable
 fun EcranGba() {
     var plein by androidx.compose.runtime.remember { mutableStateOf(false) }
+    val demGba = BasculeGba3D.versGba                          // (build 412 : demande venue du plein ecran de la vue 3D)
+    val depGba = androidx.compose.runtime.remember { BasculeGba3D.versGba }
+    androidx.compose.runtime.LaunchedEffect(demGba) { if (demGba > depGba) plein = true }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         ImageGba(Modifier.fillMaxWidth().aspectRatio(1.5f).clip(RoundedCornerShape(8.dp)).background(Color.Black))
         Box(Modifier.clip(RoundedCornerShape(10.dp)).background(C.Verre).pointerInput(Unit) { detectTapGestures { plein = true } }
@@ -456,6 +459,10 @@ private fun PleinEcranGba(fermer: () -> Unit) {
                     }
                 }
             }
+            // build 412 : passer a la vue 3D (si elle est ouverte dans le compagnon), et revenir ici par son bouton « 🎮 GBA »
+            if (BasculeGba3D.vue3DOuverte) Text("🗺 Vue 3D", color = Color.White, fontSize = 15.sp, modifier = Modifier.align(Alignment.TopCenter).displayCutoutPadding()
+                .padding(top = 8.dp).clip(RoundedCornerShape(16.dp)).background(Color(0x55FFFFFF))
+                .pointerInput(Unit) { detectTapGestures { fermer(); BasculeGba3D.vers3D++ } }.padding(horizontal = 14.dp, vertical = 6.dp))
             Text("✕", color = Color.White, fontSize = 20.sp, modifier = Modifier.align(Alignment.TopEnd).displayCutoutPadding()
                 .padding(top = 8.dp, end = 12.dp).clip(CircleShape).background(Color(0x55FFFFFF))
                 .pointerInput(Unit) { detectTapGestures { fermer() } }.padding(horizontal = 12.dp, vertical = 4.dp))

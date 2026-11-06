@@ -2070,6 +2070,10 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
     if (distance != null) remember(scene) { etat.distBase = distance; etat.dist = distance; 0 }
     etat.chemin = FloatArray(chemin.size * 3).also { a -> for ((k, p) in chemin.withIndex()) { a[k * 3] = p[0]; a[k * 3 + 1] = p[1]; a[k * 3 + 2] = p[2] } }
     var plein by remember(scene) { androidx.compose.runtime.mutableStateOf(false) }
+    // build 412 : demande venue du plein ecran de la GBA (Tingle Tuner) : cette vue passe en plein ecran
+    val dem3D = BasculeGba3D.vers3D; val dep3D = remember { BasculeGba3D.vers3D }
+    androidx.compose.runtime.LaunchedEffect(dem3D) { if (dem3D > dep3D) plein = true }
+    androidx.compose.runtime.DisposableEffect(Unit) { BasculeGba3D.vue3DOuverte = true; onDispose { BasculeGba3D.vue3DOuverte = false } }
     var sansAth by remember(scene) { androidx.compose.runtime.mutableStateOf(false) }     // build 332 : plein ecran sans boutons
     var modeVue by remember(scene) { androidx.compose.runtime.mutableStateOf(etat.mode) }   // (pour l'aide des gestes)
     androidx.compose.runtime.LaunchedEffect(etat) { while (true) { kotlinx.coroutines.delay(300); if (modeVue != etat.mode) modeVue = etat.mode } }
@@ -2108,6 +2112,7 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
             else Box(Modifier.fillMaxSize().displayCutoutPadding()) {
                 Row(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top = 40.dp, end = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PetitBouton("🐞 Bug") { journalBug(ctxBug, scene, etat) }
+                    if (GbaEmu.marche) PetitBouton("🎮 GBA") { plein = false; BasculeGba3D.versGba++ }   // (build 412 : l'ecran de la GBA)
                     PetitBouton("⟲ Recentrer") { if (etat.mode == 5) etat.mode = 0; etat.voler(scope, vers = etat.cible, d = etat.distBase, tg = if (etat.montrerRayman) 0.5f else 0.75f) }
                     PetitBouton("👁 Sans ATH") { sansAth = true }
                     PetitBouton("✕") { plein = false }
