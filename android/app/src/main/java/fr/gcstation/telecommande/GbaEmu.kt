@@ -143,18 +143,31 @@ object GbaEmu {
         return t
     }
     private fun adrGba(i: Int, demi: Int): Int = (if (i < 0x2000) 0x03000000 + 4 * i else 0x02000000 + 4 * (i - 0x2000)) + 2 * demi
-    /** ce qui bouge comme un curseur : meme pas a chaque appui a droite et rien en bas (x), ou l'inverse (y) ; 16 bits */
+    /** ce qui bouge comme un curseur. build 413 : critere assoupli (avant : 0 candidat) : bouge dans le meme sens aux deux
+     *  appuis a droite et pas du tout en bas (x), ou l'inverse (y) ; en 16 bits et en 32 bits (virgule fixe) ; les plus
+     *  reguliers d'abord. Aussi : ce qui bouge aux deux (une position en pixels qui suit les deux, ex. un sprite) */
     private fun analyseCurseur(s: Array<IntArray?>): String {
         val a = s.map { it!! }
-        val x = StringBuilder(); val y = StringBuilder(); var nx = 0; var ny = 0
-        for (i in a[0].indices) for (h in 0..1) {
-            fun v(k: Int): Int = ((a[k][i] ushr (16 * h)) and 0xFFFF).toShort().toInt()
-            val d1 = v(1) - v(0); val d2 = v(2) - v(1); val d3 = v(3) - v(2); val d4 = v(4) - v(3)
-            val l = "  %08X : %d %d %d %d %d\n".format(adrGba(i, h), v(0), v(1), v(2), v(3), v(4))
-            if (d1 != 0 && d1 == d2 && d3 == 0 && d4 == 0) { nx++; if (nx <= 20) x.append(l) }
-            if (d1 == 0 && d2 == 0 && d3 != 0 && d3 == d4) { ny++; if (ny <= 20) y.append(l) }
+        class C(val adr: Int, val v: List<Long>, val score: Long)
+        val cx = ArrayList<C>(); val cy = ArrayList<C>(); val cxy = ArrayList<C>()
+        fun essai(adr: Int, v: List<Long>) {
+            val d = (1..4).map { v[it] - v[it - 1] }
+            val dr = d[0] != 0L && d[1] != 0L && (d[0] > 0) == (d[1] > 0); val db = d[2] != 0L && d[3] != 0L && (d[2] > 0) == (d[3] > 0)
+            val ecart = { x: Long, y: Long -> Math.abs(x - y) }
+            if (dr && d[2] == 0L && d[3] == 0L) cx.add(C(adr, v, ecart(d[0], d[1])))
+            if (db && d[0] == 0L && d[1] == 0L) cy.add(C(adr, v, ecart(d[2], d[3])))
+            if (dr && db) cxy.add(C(adr, v, ecart(d[0], d[1]) + ecart(d[2], d[3])))
         }
-        return "droite (x ?) : $nx candidats\n$x" + "bas (y ?) : $ny candidats\n$y"
+        for (i in a[0].indices) {
+            for (h in 0..1) essai(adrGba(i, h), (0..4).map { ((a[it][i] ushr (16 * h)) and 0xFFFF).toShort().toLong() })
+            essai(adrGba(i, 0) or 0x40000000, (0..4).map { a[it][i].toLong() })      // (bit 30 : valeur de 32 bits)
+        }
+        fun liste(t: String, l: ArrayList<C>): String {
+            val sb = StringBuilder("$t : ${l.size} candidats\n")
+            for (c in l.sortedBy { it.score }.take(25)) sb.append("  %s%08X : %s\n".format(if (c.adr and 0x40000000 != 0) "32b " else "", c.adr and 0x3FFFFFFF, c.v.joinToString(" ")))
+            return sb.toString()
+        }
+        return liste("droite seulement (x ?)", cx) + liste("bas seulement (y ?)", cy) + liste("les deux", cxy)
     }
 
     fun demarrer(programme: ByteArray) {
