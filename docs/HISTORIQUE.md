@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v362 (build 888) — jeux PAL en PAL 60 Hz si la console est réglée ainsi
+- Le lanceur donnait PAL 50 Hz à un jeu PAL dès que GC Station ne tournait pas lui-même en PAL 60 Hz (après une mise à
+  jour, GC Station redémarre avec 0x800000CC = 0 : NTSC). Wind Waker repassait alors lui-même en 60 Hz pendant le
+  chargement : « signal non supporté » sur la télé, son sans image. Le réglage PAL 60 Hz de la console (SRAM) est
+  maintenant suivi, comme par le menu de la console ; `dernier-lancement.txt` l'indique.
+
 ## Nouveautés v361 (build 887) — les jeux redémarrent avec Pulse
 - Correction de v359 (build 885) : la taille du programme résident à copier au lancement (`na_rl()`) s'appelait elle-même
   au lieu de rendre celle de Pulse (sans Pulse LAN). Pulse était mal installé : les jeux restaient figés avant leur
