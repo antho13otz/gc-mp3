@@ -401,6 +401,27 @@ object JeuWW {
     private val maillonsVus = LinkedHashMap<Long, Long>()
     private val essaisMaillon = HashMap<Long, Int>()
     private val neufsVus = java.util.concurrent.ConcurrentLinkedDeque<String>()
+    /** build 445 : pour le journal de bug de la vue 3D : le direct de Wind Waker (bibliotheque du pack, objets trouves, suivis,
+     *  bateau, voile), pour voir pourquoi un objet (le bateau) n'apparait pas */
+    fun diagDirect(): String {
+        val sb = StringBuilder()
+        val lp = imagesWW.lastOrNull()?.pos
+        sb.append("Wind Waker direct : ").append(if (directWW()) "oui" else "non").append(" ; bibliotheque du pack : ").append(sigsPack.size)
+            .append(" modeles ; recherche faite : ").append(vifPret).append(" ; objets trouves : ").append(vifs.size)
+            .append(" ; apparus suivis : ").append(bombes.size).append('\n')
+        sb.append("bateau : ").append(if (bateauVu != 0L) "%08X".format(bateauVu) else "non").append(" ; voile : ").append(if (voileVu != 0L) "lue" else "non")
+            .append(" ; Link : ").append(lp?.let { "%.0f %.0f %.0f".format(it[0], it[1], it[2]) } ?: "-").append('\n')
+        val d = dispo
+        if (d != null) sb.append("abonnement : ").append(d.suivis.size).append(" objets (").append(d.suivis.count { it.second }).append(" avec articulations), ")
+            .append(d.tot).append(" octets\n")
+        for (v in vifs.sortedBy { v -> lp?.let { (v.pos[0] - it[0]) * (v.pos[0] - it[0]) + (v.pos[2] - it[2]) * (v.pos[2] - it[2]) } ?: 0f }.take(24)) {
+            val suivi = d?.suivis?.firstOrNull { it.first === v }
+            sb.append("  modele ").append(v.modele).append(" (").append(v.nj).append(" os) a ")
+              .append(lp?.let { "%.0f m".format(Math.sqrt(((v.pos[0] - it[0]) * (v.pos[0] - it[0]) + (v.pos[2] - it[2]) * (v.pos[2] - it[2])).toDouble()) / 100.0) } ?: "?")
+              .append(" : ").append(if (suivi == null) "pas suivi" else if (suivi.second) "suivi, articulations" else "suivi, position").append('\n')
+        }
+        return sb.toString()
+    }
     /** build 427 : pour le rapport : objets apparus en jeu (les derniers) et ceux suivis */
     fun diagObjets(): String = "suivis maintenant : ${bombes.size} (bombes ${bombes.count { it.second.toujours }}) ; pack : ${sigsPack.size} modèles ; voile : " +
         (if (voileVu != 0L) "lue" else "pas trouvée") + "\n" + neufsVus.joinToString("\n") { "  $it" }.ifEmpty { "  aucun objet apparu vu" }
