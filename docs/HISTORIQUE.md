@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v361 (build 887) — les jeux redémarrent avec Pulse
+- Correction de v359 (build 885) : la taille du programme résident à copier au lancement (`na_rl()`) s'appelait elle-même
+  au lieu de rendre celle de Pulse (sans Pulse LAN). Pulse était mal installé : les jeux restaient figés avant leur
+  1re lecture (Wind Waker : « aucune nouvelle du jeu », vrai lecteur en erreur).
+
 ## Nouveautés v360 (build 886) et appli build 401 — Tingle Tuner : le lien après le démarrage
 Le programme GBA du Tingle Tuner démarrait mais affichait « Unable to link to the Nintendo GameCube ».
 - **Console** : après le démarrage, Pulse donne au jeu l'identifiant de la GBA dès la 1re remise à zéro (JOYSTAT 0x28) : c'est
