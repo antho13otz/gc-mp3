@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 423 — vue 3D de Wind Waker : bombes du Tingle Tuner suivies en direct ; pack avec la bombe
+- Photo mémoire : l'objet lâché par le Tingle Tuner est une bombe (acteur 0x128, modèle Link.arc bomb.bdl à +0x2A4),
+  posée au curseur. Elle ne vit que quelques secondes : le balayage des objets (30 s) la ratait. La queue de la liste des
+  acteurs (tête + 4 : le dernier créé) est relue chaque seconde ; une nouvelle bombe est suivie tout de suite (toujours,
+  même loin de Link), et oubliée dès que son acteur disparaît. Vaut aussi pour les bombes de Link.
+- Pack (mise à jour des 48 scènes de la mer, hors dépôt) : le modèle de la bombe dans la bibliothèque du direct, ajouté en
+  dernier (les autres numéros de modèles ne bougent pas ; quelques textures d'yeux décalées d'un cran).
+
 ## Console build 893 (v367) et appli build 422 — rapport du test des touches au fur et à mesure ; pilotage du Tingle Tuner bloqué
 - Console : le rapport du test des touches (journaux/test-console.txt) n'était écrit qu'à la fin des 3 h ; le test de la
   nuit n'en avait laissé aucun. Il est écrit au début, puis toutes les 5 minutes entre deux actions (« EN COURS : rapport
