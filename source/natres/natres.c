@@ -1028,6 +1028,7 @@ static MEM_OS void gb_reset(natres_pad_t *p) {           /* FF : cle de session 
     p->gkey = k; p->gtrans = k ^ 0x6F646573u; p->gjoy = 0x18u;   /* (0x10 : pret ; 0x08 : un mot a lire) */
     p->gst = 1; p->glen = p->gpos = 0; p->gw = p->ga = 0; p->gnew = 0; p->gtid = p->gtidlu = 0;
     p->gcode = p->gx = p->gfin = 0; p->grst = p->gid = 0; p->grw = p->gpred = 0; p->gfr = p->gfn = 0;
+    p->gqr = p->gqw = p->gqlast = 0;
 }
 static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert vers le port GBA : la reponse, tout de suite */
     u32 c = gb_o0 >> 24;
@@ -1040,7 +1041,7 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
         /* v345 : programme lance : une remise a zero ne relance pas le demarrage (une vraie GBA ne le peut plus non plus) */
         if (c == 0xFFu && p->gst != 4) { gb_reset(p); gb_r0 = 0x00040800u; }
         if (c == 0xFFu && p->gst == 4) {                 /* v347 : la GBA emulee l'apprendra ; si on connait sa reponse : tout de suite */
-            p->grst++; p->grw = p->gw; p->gpred = 0; p->gfr = 0;
+            p->grst++; p->grw = p->gw; p->gpred = 0; p->gfr = 0; p->gqr = p->gqw;   /* (v365 : file de la GBA videe) */
             if (p->gid) { p->gtrans = p->gid; p->gjoy = 0x28u | (p->gjoy & 0x02u); }
         }
         return;
@@ -1054,6 +1055,10 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
         if (p->gst == 3 && !p->gfin) { p->gfin = 1; p->gtrans = p->gcode; return; }
         if (p->gjoy & 0x08u) p->gtidlu = p->gtid;          /* (v333 : ce mot du telephone est lu : on le lui dira) */
         p->gjoy &= ~0x08u;
+        if (p->gqw != p->gqr && (p->gjoy & 0x30u) == 0x30u) {   /* v365 : mot de la file lu : le suivant tout de suite */
+            p->gtidlu = p->gqid[p->gqr % 32u]; p->gqr++;
+            if (p->gqw != p->gqr) { p->gtrans = p->gq[p->gqr % 32u]; p->gjoy |= 0x08u; }
+        }
         if (p->gst == 3) {                               /* (1re lecture apres le programme : il tourne) */
             p->gst = 4;
             /* v360 : l'identifiant que la GBA donnera a chaque remise a zero, connu d'avance : son code de jeu (mot 0xAC de
@@ -1127,7 +1132,7 @@ static MEM_OS void gb_rx(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d,
     if (p->gseq && sq > 16u && (int)(sq - p->gseq) <= 0 && p->gseq - sq < 1000u) return;
     p->gseq = sq;
     if (ack - p->ga <= p->gw - p->ga) p->ga = ack;       /* (accuse dans [ga, gw]) */
-    if (o & 4u) { p->gst = 0; p->gjoy = 0; p->gw = p->ga = 0; p->gnew = 0; p->gtid = p->gtidlu = 0; p->grst = p->gid = 0; p->grw = p->gpred = 0; return; }
+    if (o & 4u) { p->gst = 0; p->gjoy = 0; p->gw = p->ga = 0; p->gnew = 0; p->gtid = p->gtidlu = 0; p->grst = p->gid = 0; p->grw = p->gpred = 0; p->gqr = p->gqw = p->gqlast = 0; return; }
     u32 id = (o >> 16) & 0xFFu;                          /* (v333 : un JOY_TRANS deja donne n'est pas redonne) */
     /* v347 : appli qui suit les remises a zero (bit 4) : JOY_TRANS et drapeaux d'avant la derniere remise a zero ignores */
     int frais = !(o & 0x10u) || (o >> 24) == (p->grst & 0xFFu);
@@ -1141,6 +1146,21 @@ static MEM_OS void gb_rx(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d,
     if (p->gpred && (o & 8u) && ((o >> 8) & 0x30u) != 0x30u) frais = 0;
     if ((o & 8u) && ((o >> 8) & 0x30u) == 0x30u) p->gpred = 0;
     if ((o & 8u) && frais) p->gjoy = (p->gjoy & ~0x30u) | ((o >> 8) & 0x30u);
+    /* v365 : file des mots de la GBA (Tingle Tuner connecte) : chaque mot une fois, dans l'ordre (numeros 1-255 ; un plus
+       recent que le dernier pris, dans la moitie qui suit, est pris : apres une remise a zero l'appli a saute ceux d'avant) */
+    if ((o & 0x20u) && frais && dispo >= 32u && p->gst == 4) {
+        u32 k = pn_be32(d + 24), i0 = pn_be32(d + 28) & 0xFFu;
+        if (k > 32u) k = 32u;
+        if (dispo < 32u + 4u * k) k = (dispo - 32u) / 4u;
+        for (u32 i = 0; i < k; i++) {
+            u32 id = (i0 - 1u + i) % 255u + 1u, df = (id + 255u - (p->gqlast % 255u)) % 255u;
+            if (p->gqlast && (df == 0 || df > 128u)) continue;   /* (deja pris) */
+            if (p->gqw - p->gqr >= 32u) break;
+            u32 w = pn_be32(d + 32 + 4 * i);
+            if (p->gqw == p->gqr) { p->gtrans = w; p->gjoy |= 0x08u; }
+            p->gq[p->gqw % 32u] = w; p->gqid[p->gqw % 32u] = (u8)id; p->gqw++; p->gqlast = id; p->gqn++;
+        }
+    }
 }
 /* v332 : micro du telephone : les octets du paquet "GCVO" (echantillons 16 bits, deja a la frequence du jeu) dans l'anneau
    (les plus vieux sautes s'il deborde) */
