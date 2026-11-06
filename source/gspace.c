@@ -46,6 +46,7 @@ static void gs_build(void) {
         if (tp_apps_new) { tp_apps_new = 0; ap_scanned = 0; }   /* v224 : .dol envoye par le telephone */
         if (ap_noimg_seen != ap_noimg) { ap_noimg_seen = ap_noimg; ap_scanned = 0; }   /* v227 : reglage change */
         if (!ap_scanned) ap_rescan();
+        ap_step();                              /* v376 : (lue en fond : prete ?) */
         gs_n = ap ? (ap_n < GL_MAX ? ap_n : GL_MAX) : 0;
         for (int i = 0; i < gs_n; i++) gs_idx[i] = (s16)i;
         gs_pos = ap_sel >= 0 && ap_sel < gs_n ? ap_sel : 0;
@@ -308,7 +309,7 @@ static void gs_draw(void) {
             "Aucun jeu lanc\xC3\xA9 pour l'instant", "Aucun jeu GameCube sur la carte SD",
             "Aucun favori : L sur un jeu pour l'ajouter", "Aucun jeu jou\xC3\xA9 pour l'instant", "Aucun jeu GameCube sur la carte SD",
             "Aucune appli : SD:/apps/<nom>/boot.dol (avec icon.png ou un .bnr)" };
-        gx_text_c(F_LARGE, 320, 230, TR(e[gs_filter]), RGBA(255, 255, 255, 255));
+        gx_text_c(F_LARGE, 320, 230, TR(gs_apps() && apq_state ? "Lecture des applis..." : e[gs_filter]), RGBA(255, 255, 255, 255));   /* (v376 : en fond) */
         gx_text_c(F_SMALL, 320, 258, TR("Z : autre filtre"), RGBA(170, 170, 195, 255));
     } else if (gs_apps()) {
         gs_draw_vitrine();

@@ -127,9 +127,9 @@ static void gclib_open_recent(const char *path);       /* v176 (gclib.c) */
 static void sc_check(void);                            /* v177 : succes (tools.c) */
 /* v176 : accueil de JEUX / APPS : dernier jeu lance (jeux_recents.txt) et temps de jeu (jeux_stats.txt, mesure par Pulse) */
 static char gm_last_path[NAME_LEN], gm_last_name[64];
-static u32 gm_play_total = 0, gm_play_last = 0;
+static u32 gm_play_total = 0, gm_play_last = 0, gm_last_t = 0;   /* (v376 : + date du dernier lancement) */
 static void gm_recent_load(void) {
-    gm_last_path[0] = gm_last_name[0] = 0; gm_play_total = gm_play_last = 0;
+    gm_last_path[0] = gm_last_name[0] = 0; gm_play_total = gm_play_last = gm_last_t = 0;
     if (!sd_ok) return;
     long n = 0;
     char *d = (char *)read_file(gp_path("jeux_recents.txt"), 32768, &n);
@@ -154,7 +154,7 @@ static void gm_recent_load(void) {
         char id[8]; int disc; unsigned runs, last, play = 0;
         if (sscanf(l, "%6[^|]|%d|%u|%u|%u", id, &disc, &runs, &last, &play) >= 4) {
             gm_play_total += play;
-            if (last >= best) { best = last; gm_play_last = play; }
+            if (last >= best) { best = last; gm_play_last = play; gm_last_t = last; }
         }
     }
     free(d);
@@ -166,9 +166,13 @@ static void gm_hms(char *o, size_t cap, u32 s) {
 static int gm_hub_input(void);                         /* v84 : stick C : jeux GameCube / applis / cartes memoire (tools.c) */
 static f32 gm_hub_bar(f32 x, f32 y);
 static void draw_gclib(void);
+static int jh_draw(void);                              /* v376 : accueil en Aurore (jeux_hub.c) */
+static int jh_input(u32 down, u32 nav, int fire);
+static void jh_refresh(void);
 static void games_tab_input(u32 down, u32 nav, int fire) {
     if (gl_on) { gclib_input(down, nav, fire); return; }
-    if (gm_sel >= GM_COUNT) {                              /* barres jeux GameCube / applis / cartes memoire (v41, v43) */
+    if (jh_input(down, nav, fire)) { }
+    else if (gm_sel >= GM_COUNT) {                              /* barres jeux GameCube / applis / cartes memoire (v41, v43) */
         int k = gm_sel - GM_COUNT;
         /* v196 : deux barres (jeux GameCube, cartes memoire) : les applis sont dans l'espace jeux */
         int col = k == 0 ? 0 : GM_COLS - 1;
@@ -282,7 +286,9 @@ static void draw_tab_games(void) {
         for (int g = 0; g < GM_COUNT; g++) gm_record[g] = gm_rec[g] && sd_ok ? rg_record_get(gm_rec[g]) : 0;
         gm_recent_load();                                       /* v176 */
         sc_check();                                             /* v177 : nouveaux succes */
+        jh_refresh();                                           /* v376 : (l'accueil en Aurore relit en fond) */
     }
+    if (jh_draw()) return;                                      /* v376 : Aurore : accueil « A la une » */
     f32 t = gl_anim ? (f32)(now_ms() % 100000) / 1000.0f : 0.0f;   /* v368 : animations coupees (START > Animations) : icones immobiles */
     for (int k = 0; k < 3; k += 2) {   /* v25 : jeux GameCube ; v43 : + cartes memoire ; v196 : les applis sont dans l'espace jeux */
         static const char *const bl[3] = { "Jeux GameCube", "Mes applis", "Cartes m\xC3\xA9moire" };
