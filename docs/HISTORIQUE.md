@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 447
+
+Vue 3D de Wind Waker : le bateau ne saute plus. Il est lu en premier (les nouveaux acteurs de la mer prenaient toute la place de lecture : le bateau était oublié une seconde sur deux) et reste suivi quand une lecture rate. Chaque image garde aussi la liste de ses objets : pendant un changement d'abonnement, les objets continuent de bouger au lieu de rester figés puis de sauter à leur place.
+
 ## Appli build 446
 
 Vue 3D de Wind Waker : le bateau est toujours suivi. Il n'est pas dans la liste des acteurs que parcourt la recherche des objets (comme Link) : sa coque et sa tête de lion sont prises directement sur son acteur, avec leurs articulations quand Link est près. Le pack complet a été refait : il contient enfin le bateau, la bombe et les ennemis de la mer dans tous les lieux de la mer.
