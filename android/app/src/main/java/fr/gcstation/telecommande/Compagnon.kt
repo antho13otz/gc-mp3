@@ -222,7 +222,7 @@ object JeuWW {
     private var sigsVues: Map<Long, Int>? = null; private var scanT = 0L
     /** disposition de l'abonnement : Link (os, position, camera), objets suivis, lecture groupee, bourrage (sa longueur rend
      *  la taille totale unique : on reconnait les images de cet abonnement) */
-    // build 439 : Link et les objets articules arrivent en morceaux compacts (Pulse v328, comme les karts de Mario Kart) :
+    // build 440 : Link et les objets articules arrivent en morceaux compacts (Pulse v328, comme les karts de Mario Kart) :
     // 1re matrice telle quelle, les suivantes en 18 octets au lieu de 48 (Link : 786 octets au lieu de 2016). Rien ne change
     // sur la console. Ordre : d'abord ce qui arrive tel quel (position, camera, curseur, bateau, voile, objets sans
     // articulations, lecture groupee, bourrage), puis les morceaux compacts (une Pulse plus ancienne s'arrete au 1er)
@@ -260,7 +260,7 @@ object JeuWW {
         for ((v, plein) in d.suivis) if (!plein) l.add((v.adr + 0x24) to 48)
         l.addAll(d.lot)
         l.add(G to d.pad)
-        l.add(d.n to (0x80000000L or (42 * 48L)).toInt())               // (build 439 : compacts, a la fin)
+        l.add(d.n to (0x80000000L or (42 * 48L)).toInt())               // (build 440 : compacts, a la fin)
         for ((v, plein) in d.suivis) if (plein) l.add(v.os to (0x80000000L or (v.nj * 48L)).toInt())
         MemoireJeu.abonner(l, 1)
     }
@@ -1077,26 +1077,6 @@ object JeuMKDD {
         val r = FloatArray(nj * 12)
         for (j in 0 until nj) if (!relatif(mm, j * 12, d, r, j * 12)) return null
         return r
-    }
-    /** build 439 : les nj matrices d'un morceau compact (repere du jeu), ou null */
-    private fun matricesCompactes(b: ByteArray, o: Int, nj: Int): FloatArray? {
-        if (o < 0 || o + 48 + (nj - 1) * 18 > b.size) return null
-        val mm = FloatArray(nj * 12)
-        for (q in 0 until 12) mm[q] = f(b, o + 4 * q)
-        if (!mm.all { it.isFinite() && Math.abs(it) < 1e6f }) return null
-        fun s16(p: Int): Int = ((b[p].toInt() shl 8) or (b[p + 1].toInt() and 255)).toShort().toInt()
-        val t0 = IntArray(3) { (mm[4 * it + 3] * 4f).toInt() }
-        for (j in 1 until nj) {
-            val p = o + 48 + 18 * (j - 1); val r = j * 12
-            for ((i, q) in intArrayOf(0, 1, 2, 4, 5, 6).withIndex()) mm[r + q] = s16(p + 2 * i) / 16384f
-            val s = Math.sqrt((mm[r] * mm[r] + mm[r + 1] * mm[r + 1] + mm[r + 2] * mm[r + 2]).toDouble()).toFloat()
-            if (s < 1e-3f) return null
-            mm[r + 8] = (mm[r + 1] * mm[r + 6] - mm[r + 2] * mm[r + 5]) / s
-            mm[r + 9] = (mm[r + 2] * mm[r + 4] - mm[r] * mm[r + 6]) / s
-            mm[r + 10] = (mm[r] * mm[r + 5] - mm[r + 1] * mm[r + 4]) / s
-            for (c in 0..2) mm[r + 4 * c + 3] = (t0[c] + s16(p + 12 + 2 * c)) / 4f
-        }
-        return mm
     }
     /** les articulations d'un personnage, relatives a la matrice a dessiner du kart (d) : n x 12 flottants */
     private fun lirePose(l: Lecteur, adr: Long, d: FloatArray): FloatArray? {
@@ -2714,4 +2694,25 @@ private fun EcranChrono() {
             Doux("Vert : en avance sur le record · rouge : en retard · or : meilleur segment jamais fait.", taille = 10)
         }
     }
+}
+
+/** build 440 : les nj matrices d'un morceau compact (repere du jeu), ou null */
+internal fun matricesCompactes(b: ByteArray, o: Int, nj: Int): FloatArray? {
+    if (o < 0 || o + 48 + (nj - 1) * 18 > b.size) return null
+    val mm = FloatArray(nj * 12)
+    for (q in 0 until 12) mm[q] = java.lang.Float.intBitsToFloat(((b[o + 4 * q].toInt() and 255) shl 24) or ((b[o + 4 * q + 1].toInt() and 255) shl 16) or ((b[o + 4 * q + 2].toInt() and 255) shl 8) or (b[o + 4 * q + 3].toInt() and 255))
+    if (!mm.all { it.isFinite() && Math.abs(it) < 1e6f }) return null
+    fun s16(p: Int): Int = ((b[p].toInt() shl 8) or (b[p + 1].toInt() and 255)).toShort().toInt()
+    val t0 = IntArray(3) { (mm[4 * it + 3] * 4f).toInt() }
+    for (j in 1 until nj) {
+        val p = o + 48 + 18 * (j - 1); val r = j * 12
+        for ((i, q) in intArrayOf(0, 1, 2, 4, 5, 6).withIndex()) mm[r + q] = s16(p + 2 * i) / 16384f
+        val s = Math.sqrt((mm[r] * mm[r] + mm[r + 1] * mm[r + 1] + mm[r + 2] * mm[r + 2]).toDouble()).toFloat()
+        if (s < 1e-3f) return null
+        mm[r + 8] = (mm[r + 1] * mm[r + 6] - mm[r + 2] * mm[r + 5]) / s
+        mm[r + 9] = (mm[r + 2] * mm[r + 4] - mm[r] * mm[r + 6]) / s
+        mm[r + 10] = (mm[r] * mm[r + 5] - mm[r + 1] * mm[r + 4]) / s
+        for (c in 0..2) mm[r + 4 * c + 3] = (t0[c] + s16(p + 12 + 2 * c)) / 4f
+    }
+    return mm
 }

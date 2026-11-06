@@ -146,7 +146,7 @@ object MemoireJeu {
 
     /** le direct : abonnement a des morceaux de la memoire (adresse, longueur), envoyes par Pulse toutes les « periode » images
      *  (a renouveler avant 3 s) ; liste vide : fin */
-    // build 439 : pendant le direct, le Wi-Fi du telephone reste en mode « faible latence » (Android 10 et plus ; avant :
+    // build 440 : pendant le direct, le Wi-Fi du telephone reste en mode « faible latence » (Android 10 et plus ; avant :
     // haute performance) : sans ca, l'economie d'energie du Wi-Fi retient des paquets (a-coups de 10 a 50 ms). Rendu des que
     // l'abonnement n'est plus renouvele depuis 5 s (ou liste vide)
     private var wifiDirect: android.net.wifi.WifiManager.WifiLock? = null
