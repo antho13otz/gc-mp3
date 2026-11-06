@@ -2097,10 +2097,9 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
     }
     ChoixObjets(scene, etat, Modifier.padding(top = 6.dp)) { o -> etiquette = nomObjet(scene, o); allerA(scope, etat, o) }
     val ctxBug = androidx.compose.ui.platform.LocalContext.current
-    if (plein) androidx.compose.ui.window.Dialog({ plein = false }, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+    if (plein) PleinEcranCouche({ plein = false }) {        // (build 411 : couche de l'activite, plus une fenetre de dialogue)
         // build 365 : vrai plein ecran : la fenetre prend tout l'ecran, barres d'Android cachees (elles reviennent un instant en
         // glissant depuis le bord), et la vue passe aussi sous la camera du telephone (encoche) ; les boutons restent hors de l'encoche
-        FenetrePleinEcran()                               // (build 407 : reglage commun, refait a chaque rotation : PleinEcran.kt)
         Box(Modifier.fillMaxSize().background(Color(0xFF6B80AE))) {
             VueGL(scene, etat, Modifier.fillMaxSize(), toucher)
             // build 332 : sans ATH : seule la vue reste (un petit oeil discret, en haut a droite, ramene les boutons)

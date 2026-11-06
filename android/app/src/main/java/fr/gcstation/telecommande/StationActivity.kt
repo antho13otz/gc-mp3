@@ -19,6 +19,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -88,7 +89,7 @@ class StationActivity : ComponentActivity(), Host {
         hauteFrequence()
         C.lire(this)                                             // (ambiance, taille du texte, vibrations)
         frequence()
-        setContent { StationTheme { App() } }
+        setContent { StationTheme { androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize()) { App(); HotePleinEcranAfficher() } } }   // (build 411 : couche plein ecran)
         PlaybackService.channels(this)
         if (android.os.Build.VERSION.SDK_INT >= 33 && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != android.content.pm.PackageManager.PERMISSION_GRANTED)
             requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 1)

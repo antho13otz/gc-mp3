@@ -18,6 +18,11 @@ import androidx.compose.ui.window.DialogWindowProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.input.pointer.pointerInput
 
 /** a appeler au debut du contenu d'un Dialog plein ecran */
 @Composable
@@ -54,4 +59,46 @@ fun pleinEcran(w: Window) {
     val c = WindowCompat.getInsetsController(w, w.decorView)
     c.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     c.hide(WindowInsetsCompat.Type.systemBars())
+}
+
+// build 411 : le plein ecran pour de bon. Une fenetre de dialogue reste limitee par certains telephones a la zone de l'appli
+// (en largeur : une bande a droite et en bas, meme apres le build 407). Le plein ecran est maintenant une couche dessinee par
+// l'activite elle-meme, par-dessus toute l'appli (HotePleinEcranAfficher, a la racine), barres d'Android cachees, sous l'encoche.
+object HotePleinEcran {
+    var contenu by androidx.compose.runtime.mutableStateOf<(@Composable () -> Unit)?>(null)
+    var fermer: (() -> Unit)? = null
+}
+
+/** a la place d'un Dialog plein ecran : le contenu est affiche par-dessus toute l'appli tant que ce composable est la */
+@Composable
+fun PleinEcranCouche(fermer: () -> Unit, contenu: @Composable () -> Unit) {
+    val c = androidx.compose.runtime.rememberUpdatedState(contenu)
+    val f = androidx.compose.runtime.rememberUpdatedState(fermer)
+    DisposableEffect(Unit) {
+        HotePleinEcran.contenu = { c.value() }; HotePleinEcran.fermer = { f.value() }
+        onDispose { HotePleinEcran.contenu = null; HotePleinEcran.fermer = null }
+    }
+}
+
+/** a la racine de l'activite, apres l'appli : la couche plein ecran (si elle est demandee) */
+@Composable
+fun HotePleinEcranAfficher() {
+    val c = HotePleinEcran.contenu ?: return
+    val act = androidx.compose.ui.platform.LocalContext.current as? android.app.Activity
+    DisposableEffect(act) {
+        val w = act?.window
+        if (w != null) {
+            if (Build.VERSION.SDK_INT >= 28) w.attributes = w.attributes.also {
+                it.layoutInDisplayCutoutMode = if (Build.VERSION.SDK_INT >= 30) WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                                               else WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
+            val ic = WindowCompat.getInsetsController(w, w.decorView)
+            ic.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            ic.hide(WindowInsetsCompat.Type.systemBars())
+        }
+        onDispose { w?.let { WindowCompat.getInsetsController(it, it.decorView).show(WindowInsetsCompat.Type.systemBars()) } }
+    }
+    androidx.activity.compose.BackHandler { HotePleinEcran.fermer?.invoke() }
+    androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)
+        .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }) { c() }
 }
