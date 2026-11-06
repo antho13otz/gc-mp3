@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v366 (build 892) — Tingle Tuner : la file des mots de la GBA ne se bloque plus
+- Correction de v365 : le jeu lit aussi le câble sans mot annoncé ; une telle lecture retirait quand même le mot de la
+  file (perdu) et effaçait 0x08 pour de bon : la réponse de la GBA n'arrivait plus, le jeu recommençait la connexion
+  toutes les 0,3 s. Un mot n'est retiré que s'il était annoncé et lu ; la tête de la file reste annoncée tant qu'il en reste.
+
 ## Nouveautés v365 (build 891) et appli build 403 — Tingle Tuner : les mots de la GBA en file
 - Connectée, la GBA ne donnait au jeu qu'un mot par aller-retour Wi-Fi (~160 ms) : le jeu trouvait ses messages trop
   lents et recommençait la connexion. **Appli** : chaque mot écrit par la GBA du Tingle Tuner connectée est lu sur place
