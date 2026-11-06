@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 424 — vue 3D de Wind Waker : bombes vraiment suivies, objets qui apparaissent en jeu ; pack avec les ennemis de la mer
+- La 423 ne voyait aucune bombe : le lecteur de la boucle du direct n'a que 4 blocs de 1 Ko par passage, déjà pris par
+  Link, la caméra et le curseur. Les nouveaux objets ont leur propre lecteur (24 blocs) ; la liste des acteurs est remontée
+  depuis sa queue (maillon : +0 précédent, +12 acteur) jusqu'au premier déjà vu (8 au plus). Tout nouvel acteur dont un
+  modèle est dans le pack est suivi dès son apparition (ennemis créés en route, bombes) ; les bombes toujours.
+- Pack (mise à jour des 48 scènes de la mer, hors dépôt, 3 zips) : ennemis de la mer dans la bibliothèque du direct
+  (Oq, Ph, Pt, Bb, Ks, Ki, Bk, Mo2, Kg), après la bombe.
+
 ## Appli build 423 — vue 3D de Wind Waker : bombes du Tingle Tuner suivies en direct ; pack avec la bombe
 - Photo mémoire : l'objet lâché par le Tingle Tuner est une bombe (acteur 0x128, modèle Link.arc bomb.bdl à +0x2A4),
   posée au curseur. Elle ne vit que quelques secondes : le balayage des objets (30 s) la ratait. La queue de la liste des
