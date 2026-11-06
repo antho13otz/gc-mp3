@@ -158,7 +158,8 @@ object JeuWW {
      *  fixe, en glissant d'une pose a la suivante : plus d'a-coups dus au Wi-Fi ni a la lecture bloc par bloc. */
     class ImageWW(val img: Long, val t: Long, val os: FloatArray, val pos: FloatArray, val cam: FloatArray?, val dispo: Int = 0, val vif: FloatArray? = null,
                   val bat: FloatArray? = null,          // (build 426 : x, hauteur, z du bateau a cette image)
-                  val voile: FloatArray? = null)        // (build 427 : points de la voile dans le monde)
+                  val voile: FloatArray? = null,        // (build 427 : points de la voile dans le monde)
+                  val suivis: List<Pair<VifObjet, Boolean>>? = null)   // (build 447 : les objets de cette image, dans l'ordre de vif)
     private val imagesWW = ArrayDeque<ImageWW>()
     @Volatile private var adrWW = LongArray(0); private var adrT = 0L; private var abonneWW = 0L
     @Volatile private var fluxWW = 0L
@@ -439,6 +440,27 @@ object JeuWW {
             }
             voileVu = va; voileMatVu = ma
         }
+        // build 446 : le bateau n'est pas dans la liste des acteurs que parcourt la recherche des objets (Link non plus) :
+        // journal du build 445 : 14 objets trouves, le plus proche a 272 m, pas de coque. Il etait vu seulement s'il venait
+        // d'etre cree (queue de la liste). Ses modeles sont pris directement sur l'acteur du bateau : coque (+0x298, son
+        // morf : modele a +0x50) et tete de lion (+0x29C) ; toujours suivis, avec leurs articulations quand Link est pres
+        val b = bateauVu; val nbat = ArrayList<VifObjet>(); var rate = false
+        if (b != 0L) for (off in intArrayOf(0x298, 0x29C)) {
+            val p0 = l.ptr(b + off) ?: run { rate = true; null } ?: continue
+            val m = if (l.u32(p0) == vt) p0 else l.ptr(p0 + 0x50)?.takeIf { l.u32(it) == vt } ?: run { rate = true; null } ?: continue
+            val anc = bateauObjs.firstOrNull { it.adr == m }
+            if (anc != null) { nbat.add(anc); continue }
+            val da = l.u32(m + 4); val os = l.u32(m + 0x8C)
+            val f = da?.let { l.u32(it + 4) }; val t = f?.let { l.u32(it + 8) }; val nj = da?.let { l.u16(it + 0x28) }
+            val mi = if (t != null && nj != null) sigs[(t shl 16) or nj.toLong()] else null
+            if (mi != null && nj != null && nj in 1..120 && os != null && tas(os)) {
+                val pos = FloatArray(3) { java.lang.Float.intBitsToFloat((l.u32(m + 0x30 + 0x10L * it) ?: 0L).toInt()) }
+                nbat.add(VifObjet(mi, m, nj, os, pos, 0, 0xA7, true))
+            }
+        }
+        // (build 447 : lecture ratee (plus de place dans le lecteur) : le bateau suivi reste le meme ; sinon il disparaissait
+        //  souvent et l'abonnement changeait ; et il est lu en premier : les nouveaux acteurs prenaient toute la place)
+        if (!(rate && b != 0L && nbat.size < bateauObjs.size)) bateauObjs = nbat
         val nb = bombes.filter { (ac, v) -> l.u32(ac + v.off) == v.adr && l.u16(ac + 8) == v.proc }.toMutableList()
         var n = l.u32(TETE() + 4); var k = 0; var neufs = 0
         // (build 427 : un acteur tout juste cree n'a pas encore son modele : la 424 le marquait vu et ne revenait jamais ;
@@ -476,25 +498,6 @@ object JeuWW {
         while (maillonsVus.size > 256) maillonsVus.remove(maillonsVus.keys.first())
         while (essaisMaillon.size > 128) essaisMaillon.remove(essaisMaillon.keys.first())
         bombes = nb.takeLast(10)
-        // build 446 : le bateau n'est pas dans la liste des acteurs que parcourt la recherche des objets (Link non plus) :
-        // journal du build 445 : 14 objets trouves, le plus proche a 272 m, pas de coque. Il etait vu seulement s'il venait
-        // d'etre cree (queue de la liste). Ses modeles sont pris directement sur l'acteur du bateau : coque (+0x298, son
-        // morf : modele a +0x50) et tete de lion (+0x29C) ; toujours suivis, avec leurs articulations quand Link est pres
-        val b = bateauVu; val nbat = ArrayList<VifObjet>()
-        if (b != 0L) for (off in intArrayOf(0x298, 0x29C)) {
-            val p0 = l.ptr(b + off) ?: continue
-            val m = if (l.u32(p0) == vt) p0 else l.ptr(p0 + 0x50)?.takeIf { l.u32(it) == vt } ?: continue
-            val anc = bateauObjs.firstOrNull { it.adr == m }
-            if (anc != null) { nbat.add(anc); continue }
-            val da = l.u32(m + 4); val os = l.u32(m + 0x8C)
-            val f = da?.let { l.u32(it + 4) }; val t = f?.let { l.u32(it + 8) }; val nj = da?.let { l.u16(it + 0x28) }
-            val mi = if (t != null && nj != null) sigs[(t shl 16) or nj.toLong()] else null
-            if (mi != null && nj != null && nj in 1..120 && os != null && tas(os)) {
-                val pos = FloatArray(3) { java.lang.Float.intBitsToFloat((l.u32(m + 0x30 + 0x10L * it) ?: 0L).toInt()) }
-                nbat.add(VifObjet(mi, m, nj, os, pos, 0, 0xA7, true))
-            }
-        }
-        bateauObjs = nbat
     }
     @Volatile private var bateauObjs: List<VifObjet> = emptyList()
     @Synchronized private fun recevoirWW(b: ByteArray, n: Int) {
@@ -549,7 +552,7 @@ object JeuWW {
                     if (!(x.isFinite() && y.isFinite() && z.isFinite()) || Math.abs(x) > 5000f || Math.abs(y) > 5000f || Math.abs(z) > 5000f) { ok = false; break }
                     for (r in 0..2) v[i * 3 + r] = m[r * 4] * x + m[r * 4 + 1] * y + m[r * 4 + 2] * z + m[r * 4 + 3] }
                 if (ok) voileImg = v } }
-        imagesWW.addLast(ImageWW(img, t, os, pos, cam, dp.id, vif, batImg, voileImg)); while (imagesWW.size > 32) imagesWW.removeFirst()
+        imagesWW.addLast(ImageWW(img, t, os, pos, cam, dp.id, vif, batImg, voileImg, dp.suivis)); while (imagesWW.size > 32) imagesWW.removeFirst()
         arriveesWW.addLast(img to t); while (arriveesWW.size > 2 && t - arriveesWW.first().second > 3_000_000_000L) arriveesWW.removeFirst()
         if (arriveesWW.size >= 10) { val p0 = arriveesWW.first(); val di = img - p0.first
             if (di > 10) { val ns = (t - p0.second).toDouble() / di; if (ns in 12_000_000.0..25_000_000.0) nsImg = nsImg * 0.9 + ns * 0.1 } }
@@ -575,12 +578,14 @@ object JeuWW {
         // objets : meme abonnement des deux cotes pour glisser, sinon l'image la plus recente
         val dp = dispo
         val va = a.vif
-        // (pendant un changement d'abonnement : la derniere pose connue reste)
+        // (build 447 : chaque image garde la liste de ses objets : plus de pose figee pendant un changement d'abonnement ;
+        //  la 446 gardait la derniere pose connue : le bateau restait en arriere, puis sautait a sa place chaque seconde)
+        val sa = a.suivis
         if (!vifPret) vifsRejoues = null
-        else if (va != null && dp != null && a.dispo == dp.id) vifsRejoues = run {
+        else if (va != null && sa != null) vifsRejoues = run {
             val v = if (b.dispo == a.dispo) mix(va, b.vif) else va
             val out = ArrayList<VifPose>(); var q = 0
-            for ((o, plein) in dp.suivis) {
+            for ((o, plein) in sa) {
                 val n = if (plein) o.nj * 12 else 12
                 if (q + n > v.size) break
                 val m = v.copyOfRange(q, q + n); q += n
