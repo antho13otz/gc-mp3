@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli builds 444 et 445 — voile à sa vraie couleur ; journal de bug avec le direct de Wind Waker
+- 444 : le shader double la couleur des sommets (couleurs du jeu : 0x80 = normal) : avec des sommets blancs, la voile
+  sortait toute blanche. Gris moyen : la texture telle quelle, un peu plus sombre vers le bas.
+- 445 : le journal de bug de la vue 3D (🐞) détaille le direct de Wind Waker (bibliothèque du pack, objets trouvés avec leur
+  modèle, leur distance à Link et s'ils sont suivis, bateau, voile, abonnement) et le pack du lieu (objets animés, modèles
+  de la bibliothèque, tailles des fichiers) : pour trouver pourquoi le bateau n'apparaît plus.
+
 ## Appli build 443 — Wind Waker : Progression ; curseur du Tingle Tuner ; bateau
 
 - Page compagnon de Wind Waker : carte « Progression » : les 7 donjons (carte, boussole, grande clé, boss vaincu, réceptacle de cœur ; le donjon en cours en orange, les finis en vert), coffres ouverts (au total, compté en sortant d'un lieu, et ici), salles visitées du donjon, point de reprise, 2e quête. Adresses de dSv_save_c (zeldaret/tww, seulement des adresses).
