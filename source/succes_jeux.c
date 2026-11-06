@@ -179,6 +179,18 @@ static char sj_new_txt[200] = "";
 static void sj_got_path(const char *prof, char *o, int cap) {
     if (prof && prof[0]) snprintf(o, cap, GCD_PROF "/%s/succes-jeux.txt", prof); else snprintf(o, cap, GCD_PARTIES "/succes-jeux.txt");
 }
+/* v369 : dans le fichier des succes obtenus deja lu (t, n octets) */
+static int sj_have_in(const char *t, long n, const char *id, const char *title) {
+    if (!t) return 0;
+    char key[64];
+    int kl = snprintf(key, sizeof(key), "%.6s|%s|", id, title), found = 0;
+    for (long i = 0; i + kl <= n && !found; ) {
+        if (!memcmp(t + i, key, kl)) found = 1;
+        while (i < n && t[i] != '\n') i++;
+        i++;
+    }
+    return found;
+}
 static int sj_have(const char *gotf, const char *id, const char *title) {
     long n = 0;
     char *t = (char *)read_file(gotf, 128 * 1024, &n);
@@ -260,6 +272,8 @@ static void sj_list_load(void) {
     struct dirent *e;
     static sj_def_t d[SJ_MAX];
     int cap = 0;
+    long gn = 0;
+    char *gt = (char *)read_file(gotf, 128 * 1024, &gn);   /* v369 : lu une fois (avant : relu pour chaque succes : 180 ms a l'ouverture) */
     while ((e = readdir(dd)) != NULL) {
         const char *nm = e->d_name;
         if (strlen(nm) != 10 || strcasecmp(nm + 6, ".txt")) continue;
@@ -271,10 +285,11 @@ static void sj_list_load(void) {
             snprintf(r->id, sizeof(r->id), "%s", id);
             snprintf(r->title, sizeof(r->title), "%s", d[i].title);
             snprintf(r->desc, sizeof(r->desc), "%s", d[i].desc);
-            r->got = (u8)sj_have(gotf, id, d[i].title);
+            r->got = (u8)sj_have_in(gt, gn, id, d[i].title);
         }
     }
     closedir(dd);
+    free(gt);
 }
 
 /* (fil du serveur du telephone) [["ID","titre","description",obtenu (0/1)],...] : fichiers seulement, rien de partage */

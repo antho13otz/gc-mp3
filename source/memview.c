@@ -217,6 +217,7 @@ static void mp_tick(void) {                                  /* (boucle principa
 }
 static void mp_reset(void) { mp_n = 0; mp_cur = -1000; mp_tick(); }
 /* rapport : les parties qui gardent le plus de memoire d'abord */
+static int mp_total_lost = 1;                             /* v369 : (test des touches) la memoire libre a baisse sur tout le test */
 static void mp_report(FILE *f) {
     int ord[MP_N], k = 0;
     for (int i = 0; i < mp_n; i++) ord[k++] = i;
@@ -227,7 +228,8 @@ static void mp_report(FILE *f) {
         char nm[64];
         s32 after = p->net1 == INT32_MIN ? 0 : p->net - p->net1;
         /* (monte encore dans la 2e moitie des visites : fuite ou cache sans limite ; sinon : cache) */
-        const char *why = p->visits >= 8 && p->net - p->netck > 256 * 1024 ? "monte encore à chaque visite (fuite ?)" :
+        /* (v369 : si la memoire libre n'a pas baisse sur tout le test, ce qui est pris ici est rendu ailleurs : pas une fuite) */
+        const char *why = p->visits >= 8 && p->net - p->netck > 256 * 1024 ? (mp_total_lost ? "monte encore à chaque visite (fuite ?)" : "pris ici, rendu ailleurs (pas de fuite au total)") :
                           p->net > 256 * 1024 ? "gardé puis stable (cache, ou rendu en quittant une autre partie)" : "";
         fprintf(f, "  %-36s %4u visites  %+6d Ko  (après la 1re visite %+6d Ko, pire %+6d Ko)  %s\n", mp_name(p->id, nm, sizeof(nm)),
                 (unsigned)p->visits, (int)(p->net / 1024), (int)(after / 1024), (int)(p->peak / 1024), why);

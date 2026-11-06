@@ -3771,6 +3771,7 @@ static int na_lan_game(const char *id) {
    51240) au format de GC Station PC et de tools/lan-relais.py. */
 #include "mbedtls/sha256.h"
 static const char *nat_boot_lan(int k) {
+    if (sx_safe) { sx_block("lancer un jeu ou une appli"); return "Bloqu\xC3\xA9 pendant le test"; }   /* v369 : (test des touches) comme A et X */
     if (!net_ok || !ip_str[0]) return "Jeu par Internet : la console n'est pas sur le r\xC3\xA9seau";
     if (!salon_ami[0] || strlen(salon_code) < 6) return "Jeu par Internet : r\xC3\xA8gle d'abord le Salon par Internet (adresse de l'ami et code)";
     if (!salon_wan_ip) return "Jeu par Internet : adresse de l'ami introuvable (Salon par Internet)";
