@@ -257,6 +257,8 @@ class Etat3D {
     @Volatile var directRejeu = false
     /** build 417 : Wind Waker, curseur du Tingle Tuner dans le monde (repere de l'appli), null sans Tingle Tuner */
     @Volatile var curseurTT: FloatArray? = null
+    /** build 425 : vagues : x, z du bateau et ecart de sa hauteur a sa moyenne (unites du jeu), null sans bateau */
+    @Volatile var vagueWW: FloatArray? = null
     /** build 296 : Mario Kart, les karts a dessiner en 3D (le premier est le tien) */
     @Volatile var karts: List<KartVue> = emptyList()
     /** build 282 : 0 normal (la vue suit la position), 1 suivre (derriere Rayman, tournee comme lui), 2 libre (la vue ne bouge plus seule),
@@ -534,6 +536,14 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         return vboVif[i] to b
     }
     /** matrice 3 x 4 du jeu (y vers le haut, par lignes) -> matrice 4 x 4 de l'appli (x, -z, y ; 1/100), par colonnes */
+    /** build 425 : la mer de la vue est plate : ce qui est a moins de [rayon] (unites du jeu) du bateau perd l'ecart de
+     *  hauteur du a la vague (le bateau et Link a bord restent sur l'eau) */
+    private fun sansVague(mvp: FloatArray, x: Float, z: Float, rayon: Float): FloatArray {
+        val v = etat.vagueWW ?: return mvp
+        if (x.isNaN() || (x - v[0]) * (x - v[0]) + (z - v[1]) * (z - v[1]) > rayon * rayon || Math.abs(v[2]) > 1500f) return mvp
+        val t = FloatArray(16); android.opengl.Matrix.setIdentityM(t, 0); t[14] = -v[2] * 0.01f
+        val r = FloatArray(16); android.opengl.Matrix.multiplyMM(r, 0, mvp, 0, t, 0); return r
+    }
     private fun matriceAppli(g: FloatArray, o: Int, m: FloatArray) {
         val q = arrayOf(intArrayOf(0, 1), intArrayOf(2, -1), intArrayOf(1, 1))     // (ligne i de Q : 1 en colonne q[i][0], signe q[i][1])
         for (i in 0..2) for (j in 0..2) m[j * 4 + i] = g[o + q[i][0] * 4 + q[j][0]] * q[i][1] * q[j][1]
@@ -1807,7 +1817,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         for (passe in 0..3) {                             // opaque, decoupe, transparent, lumiere (additive)
             // build 349 : Link de Wind Waker avant l'eau et les transparents : sous la surface, on le voit a travers la mer
             if (passe == 2 && etat.montrerRayman && etat.linkWW != null) {
-                linkFait = dessinerLinkWW(mvp, c0)
+                linkFait = dessinerLinkWW(sansVague(mvp, JeuWW.posDirect()?.let { it[0] } ?: Float.NaN, JeuWW.posDirect()?.let { it[2] } ?: Float.NaN, 600f), c0)
                 GLES20.glUseProgram(prog); GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
                 GLES20.glEnableVertexAttribArray(aPos); GLES20.glEnableVertexAttribArray(aUv); GLES20.glEnableVertexAttribArray(aCol)
             }
@@ -1879,6 +1889,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 // donnee par le jeu (objets plus loin)
                 val vp = etat.vifsWW
                 if (vp != null) for ((vi, v) in vp.withIndex()) {
+                    val mvpV = if (v.m.size >= 12) sansVague(mvp, v.m[3], v.m[11], 450f) else mvp   // (build 425 : bateau calme)
                     val md = ani.modeles.getOrNull(v.modele) ?: continue
                     if (md.groupes.none { it.mode == passe } || md.images == 0) continue
                     // (build 369 : objets suivis par leur seule position (plus loin) : leur animation du pack, plus leur image
@@ -1892,10 +1903,10 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                             GLES20.glBufferData(GLES20.GL_ARRAY_BUFFER, md.total * 12, fb, GLES20.GL_STREAM_DRAW); imgVif[vi] = noImage
                         }
                         posBuf = vb
-                        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0); GLES20.glUniform3f(uCam, ex, ey, ez)
+                        GLES20.glUniformMatrix4fv(uMvp, 1, false, mvpV, 0); GLES20.glUniform3f(uCam, ex, ey, ez)
                     } else {
                         matriceAppli(v.m, 0, mAni)
-                        android.opengl.Matrix.multiplyMM(mvpAni, 0, mvp, 0, mAni, 0)
+                        android.opengl.Matrix.multiplyMM(mvpAni, 0, mvpV, 0, mAni, 0)
                         GLES20.glUniformMatrix4fv(uMvp, 1, false, mvpAni, 0)
                         if (android.opengl.Matrix.invertM(mAniInv, 0, mAni, 0))
                             GLES20.glUniform3f(uCam, mAniInv[0] * ex + mAniInv[4] * ey + mAniInv[8] * ez + mAniInv[12],

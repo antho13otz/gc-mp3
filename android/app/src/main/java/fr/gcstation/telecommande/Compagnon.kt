@@ -171,6 +171,17 @@ object JeuWW {
     @Volatile private var agbVu = 0L
     @Volatile private var curseurPos: FloatArray? = null; @Volatile private var tCurseur = 0L
     /** position du curseur du Tingle Tuner (repere du jeu), null sans direct ou sans Tingle Tuner */
+    // build 425 : le bateau (acteur 0xA7, pointeur dComIfG_gameInfo + 0x5B54, 0x803D2084 en europeen) monte et descend avec
+    // les vagues du jeu, alors que la mer de la vue 3D est plate : il passait au-dessus puis a travers l'eau. Sa hauteur est
+    // lue avec Link ; vague() donne l'ecart a sa hauteur moyenne (quelques secondes), que la vue retire au bateau et a Link
+    // quand il est a bord
+    private val SHIPP get() = G + 0x5B54
+    @Volatile private var bateauVu = 0L
+    @Volatile private var bateauPos: FloatArray? = null; @Volatile private var bateauMoy = Float.NaN; @Volatile private var tBateau = 0L
+    /** x, z du bateau et ecart de sa hauteur a sa moyenne (unites du jeu) ; null sans bateau en direct */
+    fun vague(): FloatArray? { val p = bateauPos ?: return null
+        if (System.nanoTime() - tBateau > 1_000_000_000L || bateauVu == 0L || bateauMoy.isNaN()) return null
+        return floatArrayOf(p[0], p[2], p[1] - bateauMoy) }
     fun curseurTT(): FloatArray? = curseurPos?.takeIf { System.nanoTime() - tCurseur < 1_000_000_000L && agbVu != 0L }
     /** build 415 : derniere position de Link recue en direct (null sans direct) */
     @Synchronized fun posDirect(): FloatArray? = if (directWW()) imagesWW.lastOrNull()?.pos?.copyOf() else null
@@ -199,8 +210,8 @@ object JeuWW {
     /** disposition de l'abonnement : Link (os, position, camera), objets suivis, lecture groupee, bourrage (sa longueur rend
      *  la taille totale unique : on reconnait les images de cet abonnement) */
     private class Dispo(val id: Int, val n: Long, val p: Long, val c: Long, val suivis: List<Pair<VifObjet, Boolean>>,
-                        val lot: List<Pair<Long, Int>>, val pad: Int, val agb: Long = 0L) {
-        val tailleLink = 42 * 48 + 12 + (if (c != 0L) 48 else 0) + (if (agb != 0L) 12 else 0)
+                        val lot: List<Pair<Long, Int>>, val pad: Int, val agb: Long = 0L, val bateau: Long = 0L) {
+        val tailleLink = 42 * 48 + 12 + (if (c != 0L) 48 else 0) + (if (agb != 0L) 12 else 0) + (if (bateau != 0L) 12 else 0)
         val tailleSuivis = suivis.sumOf { if (it.second) it.first.nj * 48 else 48 }
         val tot = tailleLink + tailleSuivis + lot.sumOf { it.second } + pad
     }
@@ -215,6 +226,7 @@ object JeuWW {
         val l = ArrayList<Pair<Long, Int>>()
         l.add(d.n to 42 * 48); l.add((d.p + 0x1F8) to 12); if (d.c != 0L) l.add((d.c + 0xD0) to 48)
         if (d.agb != 0L) l.add((d.agb + 0x1F8) to 12)                  // (build 417 : curseur du Tingle Tuner)
+        if (d.bateau != 0L) l.add((d.bateau + 0x1F8) to 12)            // (build 425 : le bateau, pour les vagues)
         for ((v, plein) in d.suivis) l.add(if (plein) v.os to v.nj * 48 else (v.adr + 0x24) to 48)
         l.addAll(d.lot)
         l.add(G to d.pad)
@@ -222,7 +234,7 @@ object JeuWW {
     }
     private fun nouvelleDispo(n: Long, p: Long, c: Long, suivis: List<Pair<VifObjet, Boolean>>, lot: List<Pair<Long, Int>>, agb: Long = agbVu): Dispo {
         padN = (padN + 1) % 15
-        return Dispo(++idDispo, n, p, c, suivis, lot, 4 + 4 * padN, agb)
+        return Dispo(++idDispo, n, p, c, suivis, lot, 4 + 4 * padN, agb, bateauVu)
     }
     /** lecture groupee de morceaux de memoire par l'abonnement (Link continue d'arriver) ; null : pas de reponse */
     private fun lireLot(ch: List<Pair<Long, Int>>): Map<Long, ByteArray>? {
@@ -330,7 +342,7 @@ object JeuWW {
                 val lp = imagesWW.lastOrNull()?.pos
                 val suivis = if (vifPret) choisirSuivis(lp?.get(0) ?: 0f, lp?.get(1) ?: 0f, lp?.get(2) ?: 0f) else emptyList()
                 val d0 = dispo
-                val memes = d0 != null && d0.lot.isEmpty() && d0.n == n && d0.p == p && d0.c == (c ?: 0L) && d0.agb == agbVu &&
+                val memes = d0 != null && d0.lot.isEmpty() && d0.n == n && d0.p == p && d0.c == (c ?: 0L) && d0.agb == agbVu && d0.bateau == bateauVu &&
                             d0.suivis.size == suivis.size && d0.suivis.zip(suivis).all { (x, y) -> x.first === y.first && x.second == y.second }
                 if (!a.contentEquals(adrWW) || !memes || System.nanoTime() - abonneWW > 1_000_000_000L) {
                     adrWW = a
@@ -350,6 +362,7 @@ object JeuWW {
     private val maillonsVus = LinkedHashMap<Long, Long>()
     private fun suivreBombes(l0: Lecteur, mo: Long, sigs: Map<Long, Int>) {
         val l = Lecteur(24, 0)
+        bateauVu = l.ptr(SHIPP)?.takeIf { l.u16(it + 8) == 0xA7 } ?: 0L      // (build 425)
         val vt = l.u32(mo) ?: return
         val nb = bombes.filter { (ac, v) -> l.u32(ac + v.off) == v.adr && l.u16(ac + 8) == v.proc }.toMutableList()
         var n = l.u32(TETE() + 4); var k = 0; var neufs = 0
@@ -399,6 +412,10 @@ object JeuWW {
         val os = FloatArray(42 * 12) { fl(d, 4 * it) }
         if (!os.all { it.isFinite() && Math.abs(it) < 1e7f }) return
         val pos = FloatArray(3) { fl(d, 42 * 48 + 4 * it) }
+        if (dp.bateau != 0L) { val q = 42 * 48 + 12 + (if (avecCam) 48 else 0) + (if (dp.agb != 0L) 12 else 0); val bp = FloatArray(3) { fl(d, q + 4 * it) }
+            if (bp.all { it.isFinite() && Math.abs(it) < 1e6f }) {
+                bateauMoy = if (bateauMoy.isNaN() || Math.abs(bp[1] - bateauMoy) > 2000f) bp[1] else bateauMoy + (bp[1] - bateauMoy) * 0.015f
+                bateauPos = bp; tBateau = System.nanoTime() } }
         if (dp.agb != 0L) { val q = 42 * 48 + 12 + (if (avecCam) 48 else 0); val cu = FloatArray(3) { fl(d, q + 4 * it) }
             if (cu.all { it.isFinite() && Math.abs(it) < 1e6f }) { curseurPos = cu; tCurseur = System.nanoTime() } }
         val cam = if (avecCam) FloatArray(12) { fl(d, 42 * 48 + 12 + 4 * it) }.takeIf { c -> c.all { it.isFinite() } } else null
