@@ -212,6 +212,9 @@ object GbaEmu {
                 // build 401 : de meme, le Tingle Tuner (code GZL.) recommence le lien apres 10 images sans echange une fois connecte
                 // (son compteur : 0x0300564A, remis a 0 par chaque echange)
                 if (bootFini && (codeJeu and 0xFFFFFFL) == 0x4C5A47L) GbaNatif.ecr8(0x0300564A, 0)
+                // build 409 : connecte, le Tingle Tuner attend la carte du jeu (son message 0) au plus 2 s (120 images, compte a
+                // rebours 0x03005653) puis coupe le lien ; par le Wi-Fi, le jeu la donne parfois plus tard : compte tenu plein
+                if (bootFini && (codeJeu and 0xFFFFFFL) == 0x4C5A47L && etatTT >= 0 && etatTT and 0x0E == 0x08) GbaNatif.ecr8(0x03005653, 0x78)
                 // une image, en donnant les mots du jeu des que la GBA est prete
                 var n = 0
                 nImages++
