@@ -167,6 +167,7 @@ object GbaEmu {
         if (idx == 10 || idx == 11) return
         ajoute(histoTT, "  ${heure()} $cle : $m ; Link dans le jeu : ${posTexte()}", 40)
     }
+    // (build 418 : L tenu pendant les impulsions de la croix, sinon le jeu ne bouge pas le curseur)
     // build 417 : piloter le curseur du Tingle Tuner vers un point du monde (toucher dans la vue 3D) : l'appli appuie sur
     // la croix de la GBA par petites impulsions, regarde ou le curseur du jeu est arrive (direct de la vue 3D, en retard de
     // quelques images), apprend sa vitesse et le sens de chaque touche (inverse si le curseur part a l'oppose), et s'arrete
@@ -202,7 +203,9 @@ object GbaEmu {
                 if (pilKx > 0) { k = k or (if (pilSx > 0) 0x10 else 0x20); pilKx-- }
                 if (pilKz > 0) { k = k or (if (pilSz > 0) 0x80 else 0x40); pilKz-- }
                 if (pilKx == 0 && pilKz == 0) { pilPhase = 2; pilAtt = 14 }
-                return k
+                // build 418 : le jeu ne deplace son curseur qu'avec L tenu (touches de la GBA recopiees en manette : L -> bit
+                // 0x02 exige ; droite +x, gauche -x, bas +z, haut -z) ; sans L, le rapport du build 417 : touches recues, rien
+                return if (k != 0) k or 0x200 else 0
             }
             2 -> {
                 if (--pilAtt > 0) return 0
