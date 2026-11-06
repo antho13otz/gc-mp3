@@ -1935,6 +1935,25 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
             GLES20.glVertexAttribPointer(lPos, 3, GLES20.GL_FLOAT, false, 12, fb); GLES20.glEnableVertexAttribArray(lPos)
             GLES20.glLineWidth(4f * echelle); GLES20.glDrawArrays(GLES20.GL_LINE_STRIP, 0, ch.size / 3)
         }
+        // build 421 : curseur du Tingle Tuner : une cible rose posee au sol (deux anneaux qui respirent et une croix), vue
+        // a travers le decor ; plus grande vue de loin
+        etat.curseurTT?.let { cu ->
+            val k = (etat.dist / 25f).coerceIn(1f, 60f); val z = cu[2] + 0.05f * k
+            val puls = 1f + 0.12f * Math.sin(tSec * 5.0).toFloat()
+            val nS = 48; val v = FloatArray((nS * 2 + 4) * 3); var q = 0
+            for (anneau in 0..1) { val r = (if (anneau == 0) 1.6f else 0.9f) * k * puls
+                for (i in 0 until nS) { val a = i * 6.2832f / nS; v[q++] = cu[0] + Math.cos(a.toDouble()).toFloat() * r; v[q++] = cu[1] + Math.sin(a.toDouble()).toFloat() * r; v[q++] = z } }
+            val c = 0.5f * k
+            floatArrayOf(cu[0] - c, cu[1], z, cu[0] + c, cu[1], z, cu[0], cu[1] - c, z, cu[0], cu[1] + c, z).copyInto(v, q)
+            val fb = ByteBuffer.allocateDirect(v.size * 4).order(ByteOrder.nativeOrder()).asFloatBuffer().put(v); fb.position(0)
+            GLES20.glDisable(GLES20.GL_DEPTH_TEST)
+            GLES20.glUniform4f(lCoul, 1f, 0.25f, 0.65f, 1f); GLES20.glUniform1f(lTaille, 1f)
+            GLES20.glVertexAttribPointer(lPos, 3, GLES20.GL_FLOAT, false, 12, fb); GLES20.glEnableVertexAttribArray(lPos)
+            GLES20.glLineWidth(5f * echelle)
+            GLES20.glDrawArrays(GLES20.GL_LINE_LOOP, 0, nS); GLES20.glDrawArrays(GLES20.GL_LINE_LOOP, nS, nS)
+            GLES20.glUniform4f(lCoul, 1f, 0.85f, 0.3f, 1f); GLES20.glDrawArrays(GLES20.GL_LINES, nS * 2, 4)
+            GLES20.glEnable(GLES20.GL_DEPTH_TEST)
+        }
         if (scene.versionPris != versionVue) reconstruireObjets()
         // build 245 : objets. D'abord en transparence a travers le decor (on les voit derriere les murs), puis nets la ou ils sont visibles
         if (objBuf.isNotEmpty()) {
@@ -2130,6 +2149,7 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
             PetitBouton("⟲") { etat.voler(scope, vers = etat.cible, d = etat.distBase, tg = if (etat.montrerRayman) 0.5f else 0.75f) }
             PetitBouton("⛶ Plein écran") { plein = true }
             if (ttDispo) PetitBouton("🎯 Tingle", actif = piloteTT) { piloteTT = !piloteTT; etiquette = if (piloteTT) "Touche un endroit : le curseur de Tingle y va" else null }
+            if (ttDispo) PetitBouton("💣 Bombe") { etiquette = GbaEmu.bombe() }   // (build 421 : B sur la GBA, une fois le curseur arrive)
         }
         Etiquette(Modifier.align(androidx.compose.ui.Alignment.TopStart).padding(8.dp))
         BoutonsZoom(etat, Modifier.align(androidx.compose.ui.Alignment.BottomEnd).padding(8.dp))
@@ -2150,6 +2170,7 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
                     PetitBouton("🐞 Bug") { journalBug(ctxBug, scene, etat) }
                     if (GbaEmu.marche) PetitBouton("🎮 GBA") { plein = false; BasculeGba3D.versGba++ }   // (build 412 : l'ecran de la GBA)
                     if (ttDispo) PetitBouton("🎯 Tingle", actif = piloteTT) { piloteTT = !piloteTT; etiquette = if (piloteTT) "Touche un endroit : le curseur de Tingle y va" else null }
+                    if (ttDispo) PetitBouton("💣 Bombe") { etiquette = GbaEmu.bombe() }
                     PetitBouton("⟲ Recentrer") { if (etat.mode == 5) etat.mode = 0; etat.voler(scope, vers = etat.cible, d = etat.distBase, tg = if (etat.montrerRayman) 0.5f else 0.75f) }
                     PetitBouton("👁 Sans ATH") { sansAth = true }
                     PetitBouton("✕") { plein = false }

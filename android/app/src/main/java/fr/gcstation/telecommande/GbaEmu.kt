@@ -180,6 +180,15 @@ object GbaEmu {
     fun allerVers(x: Float, z: Float) { cible = floatArrayOf(x, z); pilT0 = System.nanoTime(); pilPhase = 0; pilotageTexte = "Curseur : en route" }
     fun pilotageDiag(): String = "curseur du jeu : " + (JeuWW.curseurTT()?.let { "%.0f %.0f %.0f".format(it[0], it[1], it[2]) } ?: "pas reçu") +
         " ; pilotage : ${pilotageTexte.ifEmpty { "aucun" }} ; sens appris x $sensX z $sensZ ; vitesse %.0f / %.0f par image".format(vitX, vitZ)
+    // build 421 : bombe de Tingle depuis la vue 3D : B sur la GBA (le Tingle Tuner : « B 💣 ») tenu 8 images ; si le curseur
+    // est en route, la bombe part a son arrivee
+    @Volatile private var bombeApres = false; private var appuiB = 0
+    fun bombe(): String = if (cible != null) { bombeApres = true; "Bombe : au bout du trajet" } else { appuiB = 8; "Bombe lâchée" }
+    private fun appuis(): Int {
+        if (bombeApres && cible == null) { bombeApres = false; if (pilotageTexte == "Curseur arrivé") appuiB = 8 }
+        if (appuiB > 0) { appuiB--; return 0x02 }
+        return 0
+    }
     fun arreterPilotage() { cible = null; pilotageTexte = "" }
     private fun pilotage(): Int {
         val c = cible ?: return 0
@@ -395,7 +404,7 @@ object GbaEmu {
                         }
                     }
                 }
-                if (ch < 0) auto = auto or pilotage()          // (build 417 : curseur envoye depuis la vue 3D)
+                if (ch < 0) auto = auto or pilotage() or appuis()   // (build 417 : curseur envoye depuis la vue 3D ; 421 : bombe)
                 GbaNatif.image(touches or auto, px, son, mots, n, res)
                 GbaNatif.lectureAuto(false)
                 run {
