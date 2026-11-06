@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 437 — vue 3D : ce que la console envoie, au choix
+
+- Sous « Positions en direct (vue 3D) » : « Ce que la console envoie » ; Wind Waker : objets et personnages animés, voile, bateau sur les vagues ; Mario Kart : pilotes des autres karts animés, Chomp, caméra du jeu. Coupé : moins de données, moins de temps pris au jeu. Console inchangée.
+- Mesures après la v372 (Wind Waker, 100 Mbit/s) : 2,15 ms par image pour 4,8 Ko (6,7 ms en v370).
+
 ## Nouveautés v372 (build 901) et appli build 435 — Broadband Adapter à 100 Mbit/s pendant le jeu
 
 - Le rapport de la v371 montrait le câble à 10 Mbit/s : Pulse ne proposait que cette vitesse au Broadband Adapter. Il propose maintenant tout, jusqu'à 100 Mbit/s (comme libogc) ; s'il n'y a pas de lien 5 s après, retour aux 10 Mbit/s d'avant. Vaut pour tout le réseau de Pulse pendant le jeu.
