@@ -103,7 +103,7 @@ object CartesWW {
                 // (build 364 : et les peaux des objets animes : <lieu>_vif.r3p (lues par AnimesWW.kt) ; avant, ignorees a l'installation)
                 if (!(nom.endsWith(".png") || nom.endsWith(".txt") || nom.endsWith(".r3v") || nom.endsWith(".ani") || nom.endsWith(".peau") || nom.endsWith(".r3a") || nom.endsWith(".r3p"))) continue
                 java.io.File(d, nom).outputStream().use { z.copyTo(it) }
-                if (nom.endsWith(".r3v") && !nom.endsWith("_mob.r3v")) n++
+                n++                  // (build 429 : chaque fichier compte : une mise a jour sans lieu (texture de la voile) disait « rien d'installable »)
             }
         }
         ctx.contentResolver.openInputStream(u)?.use { ins -> java.util.zip.ZipInputStream(ins).use { z -> lire(z, 0) } }
