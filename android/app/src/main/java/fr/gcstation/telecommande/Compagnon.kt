@@ -163,6 +163,15 @@ object JeuWW {
     private var nsImg = 16_683_333.0; private var origineWW = Double.NaN
     private val arriveesWW = ArrayDeque<Pair<Long, Long>>()
     fun directWW(): Boolean = System.nanoTime() - fluxWW < 500_000_000L
+    // build 417 : le curseur du Tingle Tuner dans le monde. Le jeu a un acteur « Agb » (proc 0x1B5, modele agbcursor) dont la
+    // position (+0x1F8) est le curseur : les touches de la croix de la GBA le deplacent (25, 50 ou 781,25 unites par image,
+    // borne a +-350000 sur la mer) ; pointeur dans dComIfG_gameInfo (+0x5CC4, 0x803D21F4 en europeen). Carte du Tingle
+    // Tuner : (monde + 350000) x 0,00256 (le jeu, pour les icones). Lu par l'abonnement du direct, avec Link
+    private val AGB get() = G + 0x5CC4
+    @Volatile private var agbVu = 0L
+    @Volatile private var curseurPos: FloatArray? = null; @Volatile private var tCurseur = 0L
+    /** position du curseur du Tingle Tuner (repere du jeu), null sans direct ou sans Tingle Tuner */
+    fun curseurTT(): FloatArray? = curseurPos?.takeIf { System.nanoTime() - tCurseur < 1_000_000_000L && agbVu != 0L }
     /** build 415 : derniere position de Link recue en direct (null sans direct) */
     @Synchronized fun posDirect(): FloatArray? = if (directWW()) imagesWW.lastOrNull()?.pos?.copyOf() else null
 
@@ -184,8 +193,8 @@ object JeuWW {
     /** disposition de l'abonnement : Link (os, position, camera), objets suivis, lecture groupee, bourrage (sa longueur rend
      *  la taille totale unique : on reconnait les images de cet abonnement) */
     private class Dispo(val id: Int, val n: Long, val p: Long, val c: Long, val suivis: List<Pair<VifObjet, Boolean>>,
-                        val lot: List<Pair<Long, Int>>, val pad: Int) {
-        val tailleLink = 42 * 48 + 12 + (if (c != 0L) 48 else 0)
+                        val lot: List<Pair<Long, Int>>, val pad: Int, val agb: Long = 0L) {
+        val tailleLink = 42 * 48 + 12 + (if (c != 0L) 48 else 0) + (if (agb != 0L) 12 else 0)
         val tailleSuivis = suivis.sumOf { if (it.second) it.first.nj * 48 else 48 }
         val tot = tailleLink + tailleSuivis + lot.sumOf { it.second } + pad
     }
@@ -199,14 +208,15 @@ object JeuWW {
         MemoireJeu.flux = { b, k -> recevoirWW(b, k) }
         val l = ArrayList<Pair<Long, Int>>()
         l.add(d.n to 42 * 48); l.add((d.p + 0x1F8) to 12); if (d.c != 0L) l.add((d.c + 0xD0) to 48)
+        if (d.agb != 0L) l.add((d.agb + 0x1F8) to 12)                  // (build 417 : curseur du Tingle Tuner)
         for ((v, plein) in d.suivis) l.add(if (plein) v.os to v.nj * 48 else (v.adr + 0x24) to 48)
         l.addAll(d.lot)
         l.add(G to d.pad)
         MemoireJeu.abonner(l, 1)
     }
-    private fun nouvelleDispo(n: Long, p: Long, c: Long, suivis: List<Pair<VifObjet, Boolean>>, lot: List<Pair<Long, Int>>): Dispo {
+    private fun nouvelleDispo(n: Long, p: Long, c: Long, suivis: List<Pair<VifObjet, Boolean>>, lot: List<Pair<Long, Int>>, agb: Long = agbVu): Dispo {
         padN = (padN + 1) % 15
-        return Dispo(++idDispo, n, p, c, suivis, lot, 4 + 4 * padN)
+        return Dispo(++idDispo, n, p, c, suivis, lot, 4 + 4 * padN, agb)
     }
     /** lecture groupee de morceaux de memoire par l'abonnement (Link continue d'arriver) ; null : pas de reponse */
     private fun lireLot(ch: List<Pair<Long, Int>>): Map<Long, ByteArray>? {
@@ -294,8 +304,9 @@ object JeuWW {
             val p = l.ptr(LINK); val mo = p?.let { l.ptr(it + 0x32C) }
             val n = if (mo != null && l.u32(mo + 0x14) == p) l.ptr(mo + 0x8C) else null
             val c = l.ptr(CAMP)
+            agbVu = l.ptr(AGB)?.takeIf { l.u16(it + 8) == 0x1B5 } ?: 0L
             if (p != null && n != null && mo != null) {
-                val a = longArrayOf(n, p + 0x1F8, c ?: 0L)
+                val a = longArrayOf(n, p + 0x1F8, c ?: 0L, agbVu)
                 // (objets en direct : version europeenne seulement (adresse de la liste verifiee) ; un pack avec signatures)
                 val sigs = sigsPack
                 if (version == ID && sigs.isNotEmpty() && (sigs !== sigsVues || now - scanT > 30_000_000_000L)) {   // (build 368 : 30 s, avant 10)
@@ -310,7 +321,7 @@ object JeuWW {
                 val lp = imagesWW.lastOrNull()?.pos
                 val suivis = if (vifPret) choisirSuivis(lp?.get(0) ?: 0f, lp?.get(1) ?: 0f, lp?.get(2) ?: 0f) else emptyList()
                 val d0 = dispo
-                val memes = d0 != null && d0.lot.isEmpty() && d0.n == n && d0.p == p && d0.c == (c ?: 0L) &&
+                val memes = d0 != null && d0.lot.isEmpty() && d0.n == n && d0.p == p && d0.c == (c ?: 0L) && d0.agb == agbVu &&
                             d0.suivis.size == suivis.size && d0.suivis.zip(suivis).all { (x, y) -> x.first === y.first && x.second == y.second }
                 if (!a.contentEquals(adrWW) || !memes || System.nanoTime() - abonneWW > 1_000_000_000L) {
                     adrWW = a
@@ -343,6 +354,8 @@ object JeuWW {
         val os = FloatArray(42 * 12) { fl(d, 4 * it) }
         if (!os.all { it.isFinite() && Math.abs(it) < 1e7f }) return
         val pos = FloatArray(3) { fl(d, 42 * 48 + 4 * it) }
+        if (dp.agb != 0L) { val q = 42 * 48 + 12 + (if (avecCam) 48 else 0); val cu = FloatArray(3) { fl(d, q + 4 * it) }
+            if (cu.all { it.isFinite() && Math.abs(it) < 1e6f }) { curseurPos = cu; tCurseur = System.nanoTime() } }
         val cam = if (avecCam) FloatArray(12) { fl(d, 42 * 48 + 12 + 4 * it) }.takeIf { c -> c.all { it.isFinite() } } else null
         val vif = if (dp.suivis.isNotEmpty()) FloatArray(dp.tailleSuivis / 4) { fl(d, dp.tailleLink + 4 * it) } else null
         // (position des objets suivis, pour choisir les plus proches : translation de la 1re matrice)

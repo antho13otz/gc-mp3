@@ -167,6 +167,56 @@ object GbaEmu {
         if (idx == 10 || idx == 11) return
         ajoute(histoTT, "  ${heure()} $cle : $m ; Link dans le jeu : ${posTexte()}", 40)
     }
+    // build 417 : piloter le curseur du Tingle Tuner vers un point du monde (toucher dans la vue 3D) : l'appli appuie sur
+    // la croix de la GBA par petites impulsions, regarde ou le curseur du jeu est arrive (direct de la vue 3D, en retard de
+    // quelques images), apprend sa vitesse et le sens de chaque touche (inverse si le curseur part a l'oppose), et s'arrete
+    // a moins de 3 m, ou au bout de 25 s
+    @Volatile private var cible: FloatArray? = null
+    var pilotageTexte by androidx.compose.runtime.mutableStateOf("")
+    private var pilT0 = 0L; private var pilPhase = 0; private var pilKx = 0; private var pilKz = 0; private var pilAtt = 0
+    private var pilRef: FloatArray? = null; private var pilTx = 0; private var pilTz = 0; private var pilSx = 0; private var pilSz = 0
+    private var sensX = 1; private var sensZ = 1; private var vitX = 60f; private var vitZ = 60f
+    fun allerVers(x: Float, z: Float) { cible = floatArrayOf(x, z); pilT0 = System.nanoTime(); pilPhase = 0; pilotageTexte = "Curseur : en route" }
+    fun pilotageDiag(): String = "curseur du jeu : " + (JeuWW.curseurTT()?.let { "%.0f %.0f %.0f".format(it[0], it[1], it[2]) } ?: "pas reçu") +
+        " ; pilotage : ${pilotageTexte.ifEmpty { "aucun" }} ; sens appris x $sensX z $sensZ ; vitesse %.0f / %.0f par image".format(vitX, vitZ)
+    fun arreterPilotage() { cible = null; pilotageTexte = "" }
+    private fun pilotage(): Int {
+        val c = cible ?: return 0
+        val p = JeuWW.curseurTT()
+        if (p == null) { pilotageTexte = "Curseur du jeu pas reçu (positions en direct de la vue 3D ?)"; cible = null; return 0 }
+        if (System.nanoTime() - pilT0 > 25_000_000_000L) { pilotageTexte = "Curseur : arrêté (trop long)"; cible = null; return 0 }
+        val dx = c[0] - p[0]; val dz = c[1] - p[2]
+        when (pilPhase) {
+            0 -> {
+                val tol = 300f
+                if (Math.abs(dx) <= tol && Math.abs(dz) <= tol) { pilotageTexte = "Curseur arrivé"; cible = null; return 0 }
+                pilSx = if (Math.abs(dx) > tol) (if (dx > 0) 1 else -1) * sensX else 0
+                pilSz = if (Math.abs(dz) > tol) (if (dz > 0) 1 else -1) * sensZ else 0
+                pilKx = if (pilSx != 0) (Math.abs(dx) / vitX).toInt().coerceIn(1, 24) else 0
+                pilKz = if (pilSz != 0) (Math.abs(dz) / vitZ).toInt().coerceIn(1, 24) else 0
+                pilTx = pilKx; pilTz = pilKz; pilRef = p.copyOf(); pilPhase = 1
+                pilotageTexte = "Curseur : encore %.0f m".format(Math.hypot(dx.toDouble(), dz.toDouble()) / 100.0)
+            }
+            1 -> {
+                var k = 0
+                if (pilKx > 0) { k = k or (if (pilSx > 0) 0x10 else 0x20); pilKx-- }
+                if (pilKz > 0) { k = k or (if (pilSz > 0) 0x80 else 0x40); pilKz-- }
+                if (pilKx == 0 && pilKz == 0) { pilPhase = 2; pilAtt = 14 }
+                return k
+            }
+            2 -> {
+                if (--pilAtt > 0) return 0
+                val r = pilRef ?: p
+                // (ce qu'ont fait les touches : sens et vitesse par image ; une touche sans effet garde sa vitesse)
+                if (pilTx > 0) { val m = (p[0] - r[0]) * (if (pilSx > 0) 1 else -1) * sensX
+                    if (Math.abs(m) > 20f) { if (m < 0) sensX = -sensX; vitX = (Math.abs(m) / pilTx).coerceIn(10f, 2000f) } }
+                if (pilTz > 0) { val m = (p[2] - r[2]) * (if (pilSz > 0) 1 else -1) * sensZ
+                    if (Math.abs(m) > 20f) { if (m < 0) sensZ = -sensZ; vitZ = (Math.abs(m) / pilTz).coerceIn(10f, 2000f) } }
+                pilPhase = 0
+            }
+        }
+        return 0
+    }
     fun noterRepere() { val c = curseurMot; if (c >= 0) ajoute(reperes, "  ${heure()} curseur %d, %d (%08X) ; Link dans le jeu : %s".format(c and 0xFFFF, (c ushr 16) and 0xFFFF, c, posTexte()), 20); nReperes++ }
     fun messagesTexte(): String = derniersMsg.entries.sortedBy { it.key }.joinToString("\n") { "  ${it.key} : ${it.value}" }.ifEmpty { "  aucun" } +
         "\nCurseur (message 4 de la GBA), changements :\n" + histoCurseur.joinToString("\n").ifEmpty { "  aucun" } +
@@ -341,6 +391,7 @@ object GbaEmu {
                         }
                     }
                 }
+                if (ch < 0) auto = auto or pilotage()          // (build 417 : curseur envoye depuis la vue 3D)
                 GbaNatif.image(touches or auto, px, son, mots, n, res)
                 GbaNatif.lectureAuto(false)
                 run {
