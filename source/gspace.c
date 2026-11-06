@@ -124,7 +124,7 @@ static void gs_input(u32 down, u32 nav, int fire) {
         if (down & PAD_BUTTON_B) { gl_on = 0; if (gl_list_dirty) { gl_list_dirty = 0; gl_list_save(); } }
         return;
     }
-    if ((down & PAD_BUTTON_A) && gs_n) gl_launch_sel = gl_sel;                       /* Jouer : "Lancer ce jeu ?" */
+    if ((down & PAD_BUTTON_A) && gs_n) { gl_detail = 1; if (gl[gl_sel].dvd) gl_launch_sel = gl_sel; }   /* v376 : A : la fiche d'abord (A encore : jouer) ; avant : "Lancer ce jeu ?" */
     if ((down & PAD_BUTTON_Y) && gs_n) gl_detail = 1;                                 /* fiche du jeu */
     if ((down & PAD_BUTTON_X) && gs_n && !gl[gl_sel].dvd) gl_open_cheats(gl_sel);
     if ((down & PAD_TRIGGER_L) && gs_n && !gl[gl_sel].dvd) {                          /* favori */
@@ -368,8 +368,7 @@ static void gs_draw(void) {
         return;
     }
     if (gs_n) {                                                                /* v198 : (filtre vide : seulement Z, R, B) */
-        x = gs_key(x, 453, "A", "Jouer", RGBA(110, 220, 140, 255));
-        x = gs_key(x, 453, "Y", "Fiche", RGBA(235, 235, 245, 255));
+        x = gs_key(x, 453, "A", gs_apps() ? "Lancer" : "Fiche", RGBA(110, 220, 140, 255));   /* v376 : (A : la fiche, puis A : jouer) */
     }
     if (gs_n && !(gl_sel >= 0 && gl_sel < gl_n && gl[gl_sel].dvd)) {           /* v198 : (pas de cheats ni de favori pour le lecteur) */
         x = gs_key(x, 453, "X", "Cheats", RGBA(235, 235, 245, 255));
@@ -562,10 +561,10 @@ static void gs_draw_fiche(void) {
     } else {
     x = gs_key(x, 453, "A", "Jouer", RGBA(110, 220, 140, 255));
     if (!g->dvd) {
+        x = gs_key(x, 453, "Z", "Plus", au_a(255));        /* v376 : "Lancer ce jeu ?" : lanceur de secours, Pulse LAN */
         x = gs_key(x, 453, "X", bx_open_to > 0.5f && nt_pages(gl_sel) > 0 ? "Notice" : "Cheats", RGBA(235, 235, 245, 255));   /* v296 */
         x = gs_key(x, 453, "Y", "R\xC3\xA9glages", RGBA(235, 235, 245, 255));
         x = gs_key(x, 453, "L", "Favori", RGBA(255, 210, 90, 255));
-        x = gs_key(x, 453, "R", "Analyse", RGBA(235, 235, 245, 255));
         if (bx_open_to > 0.5f) x = gs_key(x, 453, "\xE2\x86\x93", bx_out_to > 0.5f ? "Ranger le disque" : "Sortir le disque", RGBA(150, 200, 255, 255));   /* v304 */
         else {
             x = gs_key(x, 453, "\xE2\x86\x91", "Bo\xC3\xAEte", RGBA(150, 200, 255, 255));   /* v282 : box3d.c */
