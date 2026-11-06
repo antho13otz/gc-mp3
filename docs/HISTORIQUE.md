@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 416 — Tingle Tuner : repères « curseur posé sur Link »
+- Le rapport du build 415 a montré que le message 9 du jeu n'est pas la position de Link : son 2e mot n'est qu'un compteur,
+  et il remplissait toute la liste des changements. Le curseur (message 4 de la GBA) et les autres messages du jeu ont
+  maintenant chacun leur liste ; le 9 n'est noté que si ses autres mots changent.
+- Nouveau bouton sous l'écran de la GBA : « Curseur posé sur Link : noter ce repère ». Il note le curseur avec la position
+  de Link reçue en direct ; deux repères pris loin l'un de l'autre suffisent pour relier la carte du Tingle Tuner au monde
+  de la vue 3D.
+
 ## Appli build 415 — Tingle Tuner : le curseur lu dans les messages de la GBA ; pack Wind Waker avec le bateau
 - Le rapport du build 414 a montré que le message 4 que la GBA envoie au jeu (deux mots, somme vérifiée) change quand le
   curseur bouge sur la carte. L'appli relit maintenant au passage les messages du Tingle Tuner : elle affiche le curseur
