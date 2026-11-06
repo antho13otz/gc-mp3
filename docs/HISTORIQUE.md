@@ -24,6 +24,18 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 450
+
+Vue 3D de Wind Waker : le bateau ne passe plus sous la mer. La mer suit la coque elle-même, arrivée dans la même image (avant : seulement la position du bateau lue à part ; sans elle, la mer restait plate et le bateau et Link descendaient dessous dans la houle, seuls le mât et la voile dépassaient).
+
+## Appli build 449
+
+Vue 3D de Wind Waker : animation complétée. Quand l'image suivante du jeu tarde, le mouvement de Link, du bateau, de la voile et des objets continue sur sa lancée (8 images du jeu au plus) au lieu de s'arrêter, sauf à l'arrêt. Le retard du rejeu (6 images fixes) est appris sur les arrivées des 3 dernières secondes. Le rapport du direct montre le retard appris et la part des images prolongées.
+
+## Appli build 448
+
+Vue 3D en direct plus fluide, réglée toute seule sur le téléphone : la vue mesure ses images par seconde ; si elle ne suit pas l'écran, l'image calculée (jusqu'à 2 fois l'écran) est moins grande ; si elle suit bien, elle réessaie plus grand et retient le plafond que le téléphone ne tient pas. Réglage gardé, mesures dans le rapport du direct.
+
 ## Appli build 447
 
 Vue 3D de Wind Waker : le bateau ne saute plus. Il est lu en premier (les nouveaux acteurs de la mer prenaient toute la place de lecture : le bateau était oublié une seconde sur deux) et reste suivi quand une lecture rate. Chaque image garde aussi la liste de ses objets : pendant un changement d'abonnement, les objets continuent de bouger au lieu de rester figés puis de sauter à leur place.
