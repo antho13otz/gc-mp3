@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v363 (build 889) et appli build 402 — Tingle Tuner : l'écho de la clé de partie
+- Une fois connectée, la GBA du Tingle Tuner renvoie tel quel le mot suivant du jeu (clé de la partie) et le jeu doit le
+  relire aussitôt. Par le téléphone, il arrivait trop tard : le jeu abandonnait, puis la GBA, sans message pendant 2 s,
+  affichait « Unable to link ». **Console** : Pulse donne cet écho d'avance (code GZL. seulement). **Appli** : l'écho
+  écrit par la GBA est lu sur place, pas redonné au jeu.
+
 ## Nouveautés v362 (build 888) — jeux PAL en PAL 60 Hz si la console est réglée ainsi
 - Le lanceur donnait PAL 50 Hz à un jeu PAL dès que GC Station ne tournait pas lui-même en PAL 60 Hz (après une mise à
   jour, GC Station redémarre avec 0x800000CC = 0 : NTSC). Wind Waker repassait alors lui-même en 60 Hz pendant le
