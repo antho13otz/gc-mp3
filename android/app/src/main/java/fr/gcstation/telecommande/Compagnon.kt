@@ -163,6 +163,8 @@ object JeuWW {
     private var nsImg = 16_683_333.0; private var origineWW = Double.NaN
     private val arriveesWW = ArrayDeque<Pair<Long, Long>>()
     fun directWW(): Boolean = System.nanoTime() - fluxWW < 500_000_000L
+    /** build 415 : derniere position de Link recue en direct (null sans direct) */
+    @Synchronized fun posDirect(): FloatArray? = if (directWW()) imagesWW.lastOrNull()?.pos?.copyOf() else null
 
     // ------------------------------------------------ build 356 : les objets en direct (coffres, ennemis, habitants...)
     /** Chaque objet du jeu (liste en 0x803C3AB4, PAL : premier noeud, dernier, nombre ; noeud : precedent, liste, suivant,
