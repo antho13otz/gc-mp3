@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 441 — recherche des objets du direct sans pics
+
+- Rapport du build 440 : direct de 6,1 Ko à 3,6 Ko par image, de 2,68 ms à 1,62 ms pris au jeu. La recherche des objets (toutes les ~30 s) lisait la mémoire par 7,7 Ko envoyés à chaque image (4,2 ms pris au jeu pendant quelques secondes) : maintenant par 3 Ko au plus. Les objets d'un nouveau lieu apparaissent un peu plus tard.
+
 ## Appli build 440 — direct de Wind Waker plus léger ; Wi-Fi « faible latence »
 
 - Link et les objets articulés arrivent en morceaux compacts (Pulse v328, comme les karts de Mario Kart) : la 1re matrice telle quelle, les suivantes en 18 octets au lieu de 48 (Link : 786 octets au lieu de 2016 par image). Rien ne change sur la console.
