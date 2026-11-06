@@ -373,6 +373,49 @@ class Etat3D {
 }
 
 /** build 242 : taille des textures agrandies par l'IA (le pack HD les donne en x4 ; on peut les reduire si le telephone peine) */
+/** build 448 : fluidite de la vue 3D en direct, apprise sur ce telephone. La vue calcule 4 pixels pour 1 affiche (image
+ *  2 x plus grande, puis reduite) : beau, mais lourd ; la video du build 447 tournait a ~40 images par seconde (4 nouvelles
+ *  sur 6). Chaque seconde du direct : images par seconde mesurees ; trop peu (3 s de suite) : image calculee moins grande ;
+ *  assez (30 s) : on reessaie plus grand ; si cet essai rate vite, ce plafond est retenu (le telephone ne le tient pas). Garde
+ *  d'une fois sur l'autre. */
+object FluiditeR3 {
+    @Volatile var hz = 60f
+    val niveaux = floatArrayOf(2f, 1.6f, 1.3f, 1f)
+    @Volatile var niveau = 0; private set
+    private var plafond = 0; private var charge = false; private var sp: android.content.SharedPreferences? = null
+    /** (heure, images par seconde, agrandissement) : une ligne par seconde de direct, 10 minutes */
+    val mesures = ArrayDeque<Triple<Long, Float, Float>>()
+    private var t0 = 0L; private var n = 0; private var basses = 0; private var bonnes = 0; private var tMonte = 0L
+    fun k() = niveaux[niveau]
+    fun charger(ctx: android.content.Context) {
+        if (charge) return
+        val s = ctx.getSharedPreferences("gcs", 0); sp = s
+        niveau = s.getInt("fluid_niveau", 0).coerceIn(0, niveaux.size - 1); plafond = s.getInt("fluid_plafond", 0).coerceIn(0, niveaux.size - 1)
+        charge = true
+    }
+    private fun sauver() { sp?.edit()?.putInt("fluid_niveau", niveau)?.putInt("fluid_plafond", plafond)?.apply() }
+    /** a chaque image dessinee ; true : l'agrandissement change (refaire les cibles) */
+    @Synchronized fun image(direct: Boolean): Boolean {
+        val t = System.nanoTime()
+        if (!direct) { t0 = 0L; n = 0; basses = 0; bonnes = 0; return false }
+        if (t0 == 0L) { t0 = t; n = 0; return false }
+        n++
+        val dt = t - t0
+        if (dt < 1_000_000_000L) return false
+        val ips = n * 1e9f / dt; t0 = t; n = 0
+        if (dt > 2_000_000_000L) return false                          // (vue en pause, appli en arriere-plan)
+        synchronized(mesures) { mesures.addLast(Triple(System.currentTimeMillis(), ips, k())); while (mesures.size > 600) mesures.removeFirst() }
+        val cible = minOf(hz, 60f)
+        if (ips < cible * 0.85f) { basses++; bonnes = 0 } else if (ips >= cible * 0.95f) { bonnes++; basses = 0 } else { basses = 0; bonnes = 0 }
+        if (basses >= 3 && niveau < niveaux.size - 1) {
+            if (t - tMonte < 15_000_000_000L) plafond = niveau + 1         // (essai rate : on n'y revient plus)
+            niveau++; basses = 0; sauver(); return true
+        }
+        if (bonnes >= 30 && niveau > plafond) { niveau--; bonnes = 0; tMonte = t; sauver(); return true }
+        return false
+    }
+}
+
 object QualiteR3 {
     var facteur by androidx.compose.runtime.mutableStateOf(4)     // (etat Compose : changer recree la vue)
     fun charger(ctx: android.content.Context) { facteur = ctx.getSharedPreferences("cartes-r3", 0).getInt("tex", 4).coerceIn(1, 4) }
@@ -972,10 +1015,14 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         ecranW = w.coerceAtLeast(1); ecranH = h.coerceAtLeast(1)
         GLES20.glViewport(0, 0, w, h)
         android.opengl.Matrix.perspectiveM(proj, 0, 60f, w.toFloat() / h.coerceAtLeast(1), 0.5f, 9000f)   // (build 269 : grands circuits)
+        faireCibles()
+    }
+    private fun faireCibles() {
         for (c in cibles) liberer(c); cibles.clear(); echelle = 1f
         // facteur : jusqu'a 2x l'ecran (4 pixels calcules pour 1 affiche), sans depasser 4096 ni la limite du GPU
+        // (build 448 : moins en direct si le telephone ne suit pas : FluiditeR3)
         val lim = minOf(4096, if (maxTex[0] > 0) maxTex[0] else 2048)
-        val k = minOf(2f, lim.toFloat() / maxOf(ecranW, ecranH))
+        val k = minOf(FluiditeR3.k(), lim.toFloat() / maxOf(ecranW, ecranH))
         if (k < 1.2f) return
         val a = cible((ecranW * k).toInt(), (ecranH * k).toInt(), true) ?: return
         val b = cible(maxOf(1, ecranW / 4), maxOf(1, ecranH / 4), false)
@@ -1114,6 +1161,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     }
 
     override fun onDrawFrame(gl: GL10?) {
+        if (FluiditeR3.image(etat.direct)) faireCibles()
         if (cibles.size == 3) {
             val (a, b, c) = cibles
             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, a.fbo); GLES20.glViewport(0, 0, a.w, a.h)
@@ -2473,6 +2521,10 @@ private fun VueGL(scene: SceneR3, etat: Etat3D, modifier: Modifier, toucher: (Fl
     androidx.compose.runtime.key(scene, QualiteR3.facteur) {
     val vueRef = remember { arrayOfNulls<GLSurfaceView>(1) }
     val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val ctxF = androidx.compose.ui.platform.LocalContext.current
+    remember { FluiditeR3.charger(ctxF)
+        try { @Suppress("DEPRECATION") FluiditeR3.hz = (ctxF.getSystemService(android.content.Context.WINDOW_SERVICE) as android.view.WindowManager).defaultDisplay.refreshRate } catch (e: Throwable) { }
+        0 }
     vueRef[0]?.requestRender()
     // build 245 : l'eau et la lave bougent : on redessine environ 30 fois par seconde tant que la vue est affichee
     // (build 358 : la vue est redessinee meme quand rien ne bouge, 4 fois par seconde : apres un defilement de la page ou un
@@ -2674,6 +2726,10 @@ fun rapportDirect(ctx: android.content.Context) {
         if (m.size > 5 && m[4] >= 0) String.format(java.util.Locale.FRANCE, "%.2f", m[4] / 1000.0) else "-",
         if (m.size > 5 && m[5] >= 0) String.format(java.util.Locale.FRANCE, "%.2f", m[5] / 1000.0) else "-"))
     if (l.isEmpty()) sb.append("(aucune mesure : console en v370 ou plus, vue 3D en direct ouverte)\n")
+    // (build 448 : la vue elle-meme : images par seconde dessinees et taille de l'image calculee)
+    sb.append("\nVue 3D du téléphone (écran ${"%.0f".format(FluiditeR3.hz)} Hz)\nheure ; images par seconde ; image calculée (x écran)\n")
+    val v = synchronized(FluiditeR3.mesures) { FluiditeR3.mesures.toList() }
+    for ((t, ips, k) in v) sb.append(String.format(java.util.Locale.FRANCE, "%s ; %.1f ; %.1f\n", f.format(java.util.Date(t)), ips, k))
     val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, sb.toString())
         .putExtra(android.content.Intent.EXTRA_SUBJECT, "GC Remote : rapport du direct")
     ctx.startActivity(android.content.Intent.createChooser(i, "Rapport du direct").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
