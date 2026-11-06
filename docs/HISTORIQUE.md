@@ -7,20 +7,6 @@ la **musique de jeux rétro**, des **podcasts**, tes **photos et vidéos**, un *
 la **météo / actualités / réveil**, et une **télécommande sur téléphone** (Broadband Adapter),
 dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Indigo.
 
-## Nouveautés v372 (build 901) et appli build 435 — Broadband Adapter à 100 Mbit/s pendant le jeu
-
-- Le rapport de la v371 montrait le câble à 10 Mbit/s : Pulse ne proposait que cette vitesse au Broadband Adapter. Il propose maintenant tout, jusqu'à 100 Mbit/s (comme libogc) ; s'il n'y a pas de lien 5 s après, retour aux 10 Mbit/s d'avant. Vaut pour tout le réseau de Pulse pendant le jeu.
-- Mesure du direct envoyée brute (place de Pulse) : plus le détail « envoi / attente du câble » ni « avec le reste ». Pulse est plein.
-
-## Nouveautés v371 (build 899) et appli build 433 — direct de la vue 3D par DMA ; rapport du direct
-
-- Le direct de la vue 3D va dans l'adaptateur par DMA, et Pulse n'attend plus chaque envoi (la GBA garde son envoi).
-- Appli : détail « envoi / attente du câble » et bouton « Rapport du direct » (10 dernières minutes, à partager).
-
-## Nouveautés v370 (build 897) et appli build 431 — temps pris au jeu par le direct de la vue 3D
-
-- Pulse mesure ce que coûte le direct à chaque image et l'envoie à l'appli une fois par seconde ; l'appli l'affiche sous « Positions en direct (vue 3D) ». Première mesure (Wind Waker) : 6,7 ms par image pour 4,8 Ko.
-
 ## Où sont les fichiers sur la carte SD
 - Tes fichiers : `SD:/mp3` (musique), `SD:/retro`, `SD:/photos`, `SD:/videos`, `SD:/ecran`, `SD:/downloads`.
 - Tout ce que GC Station crée est dans **`SD:/gc-mp3`**, rangé (v182) :
@@ -37,6 +23,20 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 **Z** passe à l'onglet suivant : MUSIQUE, RADIO, WEB, RÉTRO, PODCASTS, PHOTOS, FICHIERS, INFOS,
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
+
+## Nouveautés v372 (build 901) et appli build 435 — Broadband Adapter à 100 Mbit/s pendant le jeu
+
+- Le rapport de la v371 montrait le câble à 10 Mbit/s : Pulse ne proposait que cette vitesse au Broadband Adapter. Il propose maintenant tout, jusqu'à 100 Mbit/s (comme libogc) ; s'il n'y a pas de lien 5 s après, retour aux 10 Mbit/s d'avant. Vaut pour tout le réseau de Pulse pendant le jeu.
+- Mesure du direct envoyée brute (place de Pulse) : plus le détail « envoi / attente du câble » ni « avec le reste ». Pulse est plein.
+
+## Nouveautés v371 (build 899) et appli build 433 — direct de la vue 3D par DMA ; rapport du direct
+
+- Le direct de la vue 3D va dans l'adaptateur par DMA, et Pulse n'attend plus chaque envoi (la GBA garde son envoi).
+- Appli : détail « envoi / attente du câble » et bouton « Rapport du direct » (10 dernières minutes, à partager).
+
+## Nouveautés v370 (build 897) et appli build 431 — temps pris au jeu par le direct de la vue 3D
+
+- Pulse mesure ce que coûte le direct à chaque image et l'envoie à l'appli une fois par seconde ; l'appli l'affiche sous « Positions en direct (vue 3D) ». Première mesure (Wind Waker) : 6,7 ms par image pour 4,8 Ko.
 
 ## Nouveautés v369 (build 895) — corrections du test des touches de 3 h
 
