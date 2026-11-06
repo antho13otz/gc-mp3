@@ -823,15 +823,15 @@ static natres_pad_t *pd_find(void) {
     return pd;
 }
 /* trame UDP vers (mac, ip, port) : donnees deja en pn_fr + 42 */
-static MEM_OS void pn_udp(natres_pad_t *p, const u8 *mac, u32 ip, u32 port, u32 dlen) {
+static MEM_OS __attribute__((noinline)) void pn_udp_hdr(natres_pad_t *p, const u8 *mac, u32 ip, u32 port, u32 dlen) {   /* (v371 : l'en-tete seul) */
     u8 *fr = pn_fr, *iph = fr + 14, *uu = iph + 20;
     static u32 ipid = 0;
     pn_eth(fr, mac, 0x0800);
     iph[0] = 0x45; iph[1] = 0; pn_p16(iph + 2, 28 + dlen); pn_p16(iph + 4, ++ipid & 0xFFFF); pn_p16(iph + 6, 0x4000); iph[8] = 64; iph[9] = 17;
     pn_p16(iph + 10, 0); pn_p32(iph + 12, p->net.ip); pn_p32(iph + 16, ip); pn_p16(iph + 10, pn_ipsum(iph));
     pn_p16(uu, NATRES_PAD_PORT); pn_p16(uu + 2, port); pn_p16(uu + 4, 8 + dlen); pn_p16(uu + 6, 0);
-    pn_send(fr, 42 + dlen);
 }
+static MEM_OS void pn_udp(natres_pad_t *p, const u8 *mac, u32 ip, u32 port, u32 dlen) { pn_udp_hdr(p, mac, ip, port, dlen); pn_send(pn_fr, 42 + dlen); }
 /* ======================= v306 : chercheur de codes de l'appli =======================
    Le telephone lit la memoire du jeu par blocs de 1 Ko (les mots nuls ne passent pas : une carte de 256 bits dit
    lesquels sont la), y ecrit une valeur, et met le jeu en pause le temps de tout lire (sinon 2 blocs par image). */
@@ -926,13 +926,42 @@ static u32 ms_o, ms_part, ms_parts, ms_tot;
 /* v370 : mesure du temps pris au jeu : le direct (ms_send), tout ce que Pulse fait pour le telephone a chaque image
    (pd_poll), et les octets envoyes ; une fois par seconde, un paquet "GCMT" a l'appli abonnee au direct :
    {"GCMT", image, moyenne du direct (us), pire du direct (us), pire de tout (us), octets du direct par image} */
-static u32 mt_sum = 0, mt_n = 0, mt_max = 0, mt_pd = 0, mt_oct = 0;
+static u32 mt_sum = 0, mt_n = 0, mt_max = 0, mt_pd = 0, mt_oct = 0, mt_wait = 0, mt_fifo = 0;
+/* v371 : envoi du direct seulement (la GBA et le reste gardent pn_send) : la trame va dans la file d'envoi de l'adaptateur
+   par DMA (avant : 4 octets a la fois, chacun attendu), et l'envoi n'est plus attendu tout de suite : on prepare le
+   paquet suivant pendant qu'il part ; on attend seulement avant d'ecrire le suivant, et a la fin du direct (les autres
+   envois de Pulse comptent sur une file libre) */
+static MEM_OS void ms_txwait(void) {
+    u32 t0 = tbl();
+    for (u32 i = 0; i < 20000u && (bb_in8(BB_NCRA) & 6u); i++) { }
+    mt_wait += tbl() - t0;
+}
+static MEM_OS __attribute__((noinline)) void ms_tx(u8 *f, u32 n) {
+    if (pn_hw != 1) { pn_send(f, n); return; }            /* (W5500 : comme avant) */
+    while (n < 60) f[n++] = 0;
+    u32 m = irq_off();
+    ms_txwait();
+    u32 t1 = tbl(), k = n & ~31u;
+    bb_out16(BB_TXFIFOCNT, n);
+    if (k && !((u32)f & 31u)) {
+        cache_flush((u32)f, k);
+        bb_sel(); bb_mx(BB_WRTXFIFOD, 1);
+        bx[1] = (u32)f & 0x1FFFFFE0u; bx[2] = k; bx[3] = 7;   /* (DMA, ecriture, depart) */
+        for (u32 i = 0; i < 200000u && (bx[3] & 1); i++) { }
+        bb_desel();
+        if (n > k) bb_outs(BB_WRTXFIFOD, f + k, n - k);   /* (la fin : a la suite dans la file) */
+    } else bb_outs(BB_WRTXFIFOD, f, n);
+    bb_out8(BB_NCRA, (bb_in8(BB_NCRA) & ~2u) | 4u);       /* ST1 : envoyer (sans attendre) */
+    mt_fifo += tbl() - t1;
+    irq_restore(m);
+}
+static MEM_OS void ms_udp(natres_pad_t *p, u32 dlen) { pn_udp_hdr(p, p->mmac, p->mip, p->mport, dlen); ms_tx(pn_fr, 42 + dlen); }   /* (comme pn_udp) */
 static MEM_OS void ms_put(natres_pad_t *p, u32 v) {     /* un octet de plus ; paquet plein (ou v > 255 : la fin) : on l'envoie */
     u8 *d = pn_fr + 42;
     if (v < 256u) d[16 + ms_o++] = (u8)v;
     if (ms_o == MS_PAQ || (v > 255u && ms_o)) {
         pn_p32(d, 0x47434D53u); pn_p32(d + 4, H.vi_count); pn_p32(d + 8, ms_part << 16 | ms_parts); pn_p32(d + 12, ms_tot);   /* "GCMS" */
-        pn_udp(p, p->mmac, p->mip, p->mport, 16 + ms_o); ms_part++; ms_o = 0;
+        ms_udp(p, 16 + ms_o); ms_part++; ms_o = 0;   /* (v371 : DMA, sans attendre l'envoi) */
     }
 }
 static MEM_OS void ms_p16(natres_pad_t *p, int v) { v = v > 32767 ? 32767 : v < -32767 ? -32767 : v; ms_put(p, (u32)v >> 8 & 0xFFu); ms_put(p, (u32)v & 0xFFu); }
@@ -963,6 +992,7 @@ static MEM_OS void ms_send(natres_pad_t *p) {
         } else for (; k < n; k++) ms_put(p, src[k]);
     }
     ms_put(p, 256u);
+    if (pn_hw == 1) { u32 m = irq_off(); ms_txwait(); irq_restore(m); }   /* (v371 : file libre pour les autres envois) */
     mt_oct += ms_tot;
 }
 static MEM_OS void mem_req(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d, u32 dispo) {
@@ -1282,8 +1312,9 @@ void MEM_OS pd_poll(void) {
         if (ms_n && p->mip && mt_n >= 60) {
             u8 *d = pn_fr + 42;
             pn_p32(d, 0x47434D54u); pn_p32(d + 4, H.vi_count); pn_p32(d + 8, mt_sum / mt_n); pn_p32(d + 12, mt_max); pn_p32(d + 16, mt_pd); pn_p32(d + 20, mt_oct / mt_n);
-            pn_udp(p, p->mmac, p->mip, p->mport, 24);
-            mt_sum = mt_n = mt_max = mt_pd = mt_oct = 0;
+            pn_p32(d + 24, mt_wait / (TB_SEC / 1000000u) / mt_n); pn_p32(d + 28, mt_fifo / (TB_SEC / 1000000u) / mt_n);   /* v371 : attente du fil, ecriture de la file (us par image) */
+            pn_udp(p, p->mmac, p->mip, p->mport, 32);
+            mt_sum = mt_n = mt_max = mt_pd = mt_oct = mt_wait = mt_fifo = 0;
         }
     }
     if (p->gbmask) gb_tx(p);                             /* v331 : GBA du telephone */
@@ -1546,7 +1577,7 @@ NR_HOOK(pet, H.cnt_pe)
    si c'est ipl.dol). Table des exceptions du SDK : 0x80003000 (2 DSI, 3 ISI, 5, 6).
    Le gestionnaire tourne sur sa propre pile (celle du jeu est peut-etre la cause). */
 #define OS_EXC_TABLE ((volatile u32 *)0x80003000u)
-u8 exc_stack[2048] __attribute__((aligned(16), used));
+u8 exc_stack[2048] __attribute__((aligned(32), used));   /* (v371 : 32 : le direct l'envoie par DMA) */
 void exc_c(u32 ex, u32 ctx) __attribute__((used));
 extern void exc_entry(void);
 /* v83 : le vecteur du SDK ne sauve que r3-r5, CR, LR, CTR, XER, SRR0/1 : r0-r2 et r6-r31 sont
