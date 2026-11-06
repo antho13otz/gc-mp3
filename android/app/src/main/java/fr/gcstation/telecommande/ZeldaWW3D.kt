@@ -149,6 +149,7 @@ fun LieuWW3D(e: JeuWW.Etat) {
             }
             et.curseurTT = JeuWW.curseurTT()?.let { CartesWW.pos(it[0], it[1], it[2]) }   // (build 417 : curseur du Tingle Tuner)
             et.vagueWW = JeuWW.vague()                                                     // (build 425 : bateau sur l'eau)
+            et.voileWW = JeuWW.voile()                                                     // (build 427 : la voile)
             et.vifsWW = JeuWW.vifsRejoues; et.modelesVifs = if (et.vifsWW != null) JeuWW.modelesVifs else emptySet()
         })
     Doux("Link en 3D (pack Wind Waker) · carrés dorés : coffres.", taille = 10)
