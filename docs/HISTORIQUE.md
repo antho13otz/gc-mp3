@@ -24,6 +24,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 415 — Tingle Tuner : le curseur lu dans les messages de la GBA ; pack Wind Waker avec le bateau
+- Le rapport du build 414 a montré que le message 4 que la GBA envoie au jeu (deux mots, somme vérifiée) change quand le
+  curseur bouge sur la carte. L'appli relit maintenant au passage les messages du Tingle Tuner : elle affiche le curseur
+  sous l'écran de la GBA et note dans le rapport les changements du message 4 (GBA) et du message 9 (jeu, sans doute la
+  position de Link sur la carte) avec la position de Link reçue en direct par la vue 3D. But : faire correspondre la
+  carte du Tingle Tuner et le monde, pour montrer le curseur dans la vue 3D et le piloter depuis elle.
+- Pack HD Wind Waker (mise à jour en 4 fichiers, hors dépôt) : le bateau de Link (corps, tête, mât) dans les scènes de
+  la mer, suivi en direct comme les autres objets de la vue 3D.
+
 ## Appli build 414 — Tingle Tuner : message de la GBA sans réponse libéré
 - Une case de message de la GBA (la n°4, sans doute la croix et le curseur) restait « envoyé, en attente de la réponse du
   jeu » pour toujours quand une reconnexion du jeu perdait l'échange : le curseur ne bougeait plus. Sans réponse en 1 s,
