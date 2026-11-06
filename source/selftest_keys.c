@@ -32,6 +32,7 @@ static int kt_on = 0, kt_done = 0, kt_aborted = 0;
 static kt_sc_t *kt_sc = NULL;
 static int kt_nsc = 0, kt_si = 0, kt_k1 = 0, kt_k2 = -1, kt_ph = 0, kt_rb = 0, kt_l2n = 0, kt_l2 = 0;
 static u64 kt_t = 0, kt_t0 = 0, kt_hold_end = 0;
+static int kt_tab0 = 0;                                  /* v369 : onglet au debut de l'action */
 static u32 kt_sig0 = 0, kt_sig1 = 0, kt_acts = 0, kt_forced = 0, kt_blk0 = 0, kt_aworst = 0, kt_monkey = 0, kt_mem0 = 0, kt_mem1 = 0;
 static u32 kt_slow_tot = 0, kt_frames = 0;
 typedef struct { char t[220]; u32 ms; } kt_note_t;
@@ -266,7 +267,7 @@ static void kt_tick(void) {
             if (kt_monkey) kt_si = (int)(c8_rand() % (u32)kt_nsc);
             kt_t = n + 50; return;
         }
-        kt_sig0 = kt_sig(); kt_aworst = 0; kt_blk0 = sx_blocked;
+        kt_sig0 = kt_sig(); kt_aworst = 0; kt_blk0 = sx_blocked; kt_tab0 = tab;
         kt_ph = 1; kt_t = n + 400; return;
     case 1:                                           /* 1re touche (ou suite au hasard) */
         if (!s->acts && !s->open1_us) s->open1_us = kt_aworst + 1;   /* v323 : pire image des 0,4 s apres l'ouverture */
@@ -296,8 +297,12 @@ static void kt_tick(void) {
         /* (de meme dans le menu START : B / START le referment, L / R changent de section : on le rouvre comme au depart) */
         if (sg != kt_sig0 && s->kind == KS_MENU && kt_rb == 0 && (!menu_open || (s->a >= 0 && menu_sec != s->a))) { kt_enter(s); sg = kt_sig(); }
         int home = s->kind != KS_TAB && kt_home();     /* v323 : (l'ecran s'est referme tout seul : rien a fermer) */
-        if (sg != kt_sig0 && !home && kt_rb < 3 && !(s->kind == KS_SAVER || s->kind == KS_PARTY)) { tp_keys |= PAD_BUTTON_B; kt_rb++; kt_t = n + 260; return; }
-        int forced = sg != kt_sig0 && !home && !(s->kind == KS_SAVER || s->kind == KS_PARTY || s->kind == KS_GAME);
+        /* v369 : Z / L / R depuis un ecran ouvert (photo en grand, fiche d'un jeu...) : onglet suivant, voulu ; B n'y revient
+           pas : pas compte comme ferme de force (on revient de force, sans le compter) */
+        int tabmove = s->kind != KS_TAB && tab != kt_tab0;
+        /* (v369 : un clavier ouvert avec du texte : B efface une lettre ; Y le ferme) */
+        if (sg != kt_sig0 && !home && !tabmove && kt_rb < 3 && !(s->kind == KS_SAVER || s->kind == KS_PARTY)) { tp_keys |= kb_open ? PAD_BUTTON_Y : PAD_BUTTON_B; kt_rb++; kt_t = n + 260; return; }
+        int forced = sg != kt_sig0 && !home && !tabmove && !(s->kind == KS_SAVER || s->kind == KS_PARTY || s->kind == KS_GAME);
         kt_action_done(forced);
         kt_force_home();
         if (kt_l2 == 2) { kt_l2 = 1; kt_l2n++; kt_k2 = -1; }
