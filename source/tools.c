@@ -831,14 +831,70 @@ static void ap_open(void) {
     if (ap_noimg_seen != ap_noimg) { ap_noimg_seen = ap_noimg; ap_scanned = 0; }   /* v227 : reglage change */
     if (!ap_scanned) ap_rescan();
 }
+/* v377 : la liste des applis gardee sur la carte (comme celle des jeux) : montree tout de suite au 1er passage apres le
+   demarrage (avant : « Lecture des applis... »), puis verifiee en fond ; remplacee seulement si elle a change */
+#define AP_LIST AP_CACHE "/liste.txt"
+static void ap_list_clean(char *d, const char *s, int cap) { int i = 0; for (; s[i] && i < cap - 1; i++) d[i] = s[i] == '\t' || s[i] == '\n' || s[i] == '\r' ? ' ' : s[i]; d[i] = 0; }
+static void ap_list_save(const ap_ent *l, int n) {      /* (fil de fond, apres la lecture de la carte) */
+    if (!sd_ok || sd_virtual) return;
+    mkdir(GCD, 0777); mkdir(GCD "/cache", 0777); mkdir(AP_CACHE, 0777);
+    FILE *f = fopen(AP_LIST ".tmp", "wb");
+    if (!f) return;
+    fprintf(f, "APL1\t%d\n", ap_noimg);
+    char nm[64], ds[96];
+    for (int i = 0; i < n; i++) {
+        ap_list_clean(nm, l[i].name, sizeof(nm)); ap_list_clean(ds, l[i].desc, sizeof(ds));
+        fprintf(f, "%s\t%s\t%s\t%ld\t%s\n", l[i].path, nm, ds, l[i].size, l[i].icon);
+    }
+    if (fclose(f) == 0) { remove(AP_LIST); rename(AP_LIST ".tmp", AP_LIST); } else remove(AP_LIST ".tmp");
+}
+static int ap_list_load(void) {                         /* (boucle : petit fichier) 1 = liste montree */
+    if (!sd_ok) return 0;
+    long n = 0;
+    char *d = (char *)read_file(AP_LIST, 256 * 1024, &n);
+    if (!d) return 0;
+    char *t = (char *)realloc(d, n + 1); if (!t) { free(d); return 0; } d = t; d[n] = 0;
+    int ok = 0;
+    if (!strncmp(d, "APL1\t", 5) && atoi(d + 5) == ap_noimg) {   /* (le reglage Applis sans image change la liste) */
+        if (!ap) ap = (ap_ent *)malloc(sizeof(ap_ent) * AP_MAX);
+        if (ap) {
+            for (int i = 0; i < ap_n; i++) if (ap[i].tex) { free(ap[i].tex); ap[i].tex = NULL; }
+            ap_n = 0;
+            char *l = strchr(d, '\n');
+            while (l && ap_n < AP_MAX) {
+                l++;
+                char *e = strchr(l, '\n'); if (e) *e = 0;
+                char *f[5]; int nf = 0; f[nf++] = l;
+                for (char *c = l; *c && nf < 5; c++) if (*c == '\t') { *c = 0; f[nf++] = c + 1; }
+                if (nf == 5 && f[0][0]) {
+                    ap_ent *a = &ap[ap_n++];
+                    memset(a, 0, sizeof(*a));
+                    snprintf(a->path, sizeof(a->path), "%s", f[0]); snprintf(a->name, sizeof(a->name), "%s", f[1]);
+                    snprintf(a->desc, sizeof(a->desc), "%s", f[2]); a->size = atol(f[3]); snprintf(a->icon, sizeof(a->icon), "%s", f[4]);
+                }
+                l = e;
+            }
+            if (ap_sel >= ap_n) ap_sel = ap_n ? ap_n - 1 : 0;
+            ok = 1; gs_dirty = 1;
+        }
+    }
+    free(d);
+    return ok;
+}
 static void ap_scan_bg(void) {                          /* (fil de la bibliotheque, ou la boucle si pas de fil) */
     apb_n = 0;
     ap_scan_dir(SD_ROOT "/apps", 1);
     ap_scan_dir(SD_ROOT, 0);
     qsort(apb, apb_n, sizeof(ap_ent), ap_cmp);
+    ap_list_save(apb, apb_n);                            /* v377 */
 }
 static void ap_step(void) {                              /* (dans la boucle : la nouvelle liste est-elle prete ?) */
     if (apq_state != 3) return;
+    int same = ap && ap_n == apb_n;                      /* v377 : rien de change (liste gardee) : on garde tout, images comprises */
+    for (int i = 0; same && i < ap_n; i++)
+        same = !strcmp(ap[i].path, apb[i].path) && ap[i].size == apb[i].size && !strcmp(ap[i].icon, apb[i].icon) &&
+               !strncmp(ap[i].name, apb[i].name, sizeof(ap[i].name) - 1) && !strncmp(ap[i].desc, apb[i].desc, sizeof(ap[i].desc) - 1);
+    if (same) { free(apb); apb = NULL; apb_n = 0; apq_state = 0; return; }
     for (int i = 0; ap && i < ap_n; i++) if (ap[i].tex) { free(ap[i].tex); ap[i].tex = NULL; }
     free(ap);
     ap = apb; ap_n = apb_n; apb = NULL; apb_n = 0;
@@ -852,6 +908,8 @@ static void ap_rescan(void) {
     if (!apb) apb = (ap_ent *)malloc(sizeof(ap_ent) * AP_MAX);
     if (!apb) return;
     ap_scanned = 1; apb_n = 0;
+    static int listed = 0;                               /* v377 : 1er passage : la liste gardee, tout de suite */
+    if (!listed) { listed = 1; ap_list_load(); }
     if (lsc_ready()) { apq_state = 1; LWP_SemPost(lsc_sem); return; }
     ap_scan_bg(); apq_state = 3; ap_step();              /* (pas de fil : comme avant) */
 }
