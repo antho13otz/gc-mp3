@@ -24,6 +24,19 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 417 — Tingle Tuner relié à la vue 3D : curseur affiché, piloté par un toucher
+- Trouvé dans le jeu : le curseur du Tingle Tuner existe dans le monde, c'est un acteur « Agb » (proc 0x1B5, modèle
+  agbcursor) que la croix de la GBA déplace (25, 50 ou 781,25 unités par image, borné à ±350000 sur la mer). Son adresse
+  est dans dComIfG_gameInfo (+0x5CC4, 0x803D21F4 en européen). La carte du Tingle Tuner utilise (monde + 350000) × 0,00256 ;
+  le message 4 de la GBA porte le coin de la carte affichée (x en bas, z en haut). Les repères du build 416 ne sont plus
+  nécessaires.
+- Le direct de la vue 3D lit la position de ce curseur avec celle de Link. La vue 3D le montre (anneau rose et colonne
+  dorée, plus grands vus de loin).
+- Bouton « 🎯 Tingle » dans la vue 3D (normale et plein écran), visible quand le curseur arrive : un toucher sur le sol ou
+  la mer y envoie le curseur. L'appli appuie sur la croix de la GBA par impulsions, regarde où le curseur est arrivé,
+  apprend le sens et la vitesse de chaque touche, et s'arrête à moins de 3 m (25 s au plus).
+- Écran du Tingle Tuner et rapport : position du curseur dans le jeu et état du pilotage.
+
 ## Appli build 416 — Tingle Tuner : repères « curseur posé sur Link »
 - Le rapport du build 415 a montré que le message 9 du jeu n'est pas la position de Link : son 2e mot n'est qu'un compteur,
   et il remplissait toute la liste des changements. Le curseur (message 4 de la GBA) et les autres messages du jeu ont
