@@ -2100,30 +2100,7 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
     if (plein) androidx.compose.ui.window.Dialog({ plein = false }, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         // build 365 : vrai plein ecran : la fenetre prend tout l'ecran, barres d'Android cachees (elles reviennent un instant en
         // glissant depuis le bord), et la vue passe aussi sous la camera du telephone (encoche) ; les boutons restent hors de l'encoche
-        val vueD = androidx.compose.ui.platform.LocalView.current
-        androidx.compose.runtime.DisposableEffect(Unit) {
-            val w = (vueD.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window
-            if (w != null) {
-                w.setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT)
-                // (build 366 : une fenetre de dialogue garde par defaut la place des barres d'Android et de l'encoche, meme
-                //  cachees : une marge autour de la vue (Honor 400 Pro) ; elle peut maintenant tout couvrir)
-                w.addFlags(android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
-                w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-                w.attributes = w.attributes.also {
-                    it.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT; it.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                    it.x = 0; it.y = 0; it.gravity = android.view.Gravity.TOP or android.view.Gravity.START
-                    if (android.os.Build.VERSION.SDK_INT >= 28) it.layoutInDisplayCutoutMode = if (android.os.Build.VERSION.SDK_INT >= 30) android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                                                   else android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                    if (android.os.Build.VERSION.SDK_INT >= 30) { it.fitInsetsTypes = 0; it.fitInsetsSides = 0; it.isFitInsetsIgnoringVisibility = true }
-                }
-                w.decorView.setPadding(0, 0, 0, 0)
-                androidx.core.view.WindowCompat.setDecorFitsSystemWindows(w, false)
-                val c = androidx.core.view.WindowCompat.getInsetsController(w, w.decorView)
-                c.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                c.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-            }
-            onDispose { }
-        }
+        FenetrePleinEcran()                               // (build 407 : reglage commun, refait a chaque rotation : PleinEcran.kt)
         Box(Modifier.fillMaxSize().background(Color(0xFF6B80AE))) {
             VueGL(scene, etat, Modifier.fillMaxSize(), toucher)
             // build 332 : sans ATH : seule la vue reste (un petit oeil discret, en haut a droite, ramene les boutons)
