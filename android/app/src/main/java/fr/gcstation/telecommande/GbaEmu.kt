@@ -167,7 +167,7 @@ object GbaEmu {
         if (idx == 10 || idx == 11) return
         ajoute(histoTT, "  ${heure()} $cle : $m ; Link dans le jeu : ${posTexte()}", 40)
     }
-    // (build 418 : L tenu pendant les impulsions de la croix, sinon le jeu ne bouge pas le curseur)
+    // (build 419 : L tenu pendant les impulsions ; retire au build 420, la croix seule fait defiler la carte et le curseur)
     // build 417 : piloter le curseur du Tingle Tuner vers un point du monde (toucher dans la vue 3D) : l'appli appuie sur
     // la croix de la GBA par petites impulsions, regarde ou le curseur du jeu est arrive (direct de la vue 3D, en retard de
     // quelques images), apprend sa vitesse et le sens de chaque touche (inverse si le curseur part a l'oppose), et s'arrete
@@ -203,9 +203,10 @@ object GbaEmu {
                 if (pilKx > 0) { k = k or (if (pilSx > 0) 0x10 else 0x20); pilKx-- }
                 if (pilKz > 0) { k = k or (if (pilSz > 0) 0x80 else 0x40); pilKz-- }
                 if (pilKx == 0 && pilKz == 0) { pilPhase = 2; pilAtt = 14 }
-                // build 418 : le jeu ne deplace son curseur qu'avec L tenu (touches de la GBA recopiees en manette : L -> bit
-                // 0x02 exige ; droite +x, gauche -x, bas +z, haut -z) ; sans L, le rapport du build 417 : touches recues, rien
-                return if (k != 0) k or 0x200 else 0
+                // (build 420 : sans L. Le rapport du build 419 montre la croix seule faisant defiler la carte du Tingle Tuner,
+                //  et le curseur du jeu la suit : coin de la carte (message 4) + 61 points de carte, x et z. L vient d'un autre
+                //  chemin du jeu. Il faut que la GBA montre la carte : au build 417 elle n'y etait pas, rien ne bougeait)
+                return k
             }
             2 -> {
                 if (--pilAtt > 0) return 0
