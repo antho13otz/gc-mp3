@@ -24,7 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
-## Appli build 418 — Tingle Tuner : pilotage depuis la vue 3D avec L tenu
+## Appli build 420 — Tingle Tuner : pilotage sans L
+- Le rapport suivant (croix droite seule, sans L) montre la carte du Tingle Tuner qui défile (coin de 515 à 527) et le
+  curseur du jeu qui suit (x de −125026 à −120339 = 12 points de carte) : le curseur est le coin de la carte affichée
+  (message 4) plus 61 points, en x et en z. L'appli n'appuie plus sur L. Au build 417, l'écran du Tingle Tuner montrait
+  « Un instant. » (pas de carte) : rien ne pouvait défiler. Le pilotage marche quand la carte est affichée.
+
+## Appli build 419 — Tingle Tuner : pilotage depuis la vue 3D avec L tenu (retiré au build 420)
 - Le rapport du build 417 montrait les impulsions de la croix bien reçues par le jeu (premier mot du message 4 de la GBA :
   0090, 0040…) mais le curseur restait sur Link. Le jeu recopie les touches de la GBA en manette et n'avance le curseur que
   si L est tenu (droite +x, gauche −x, bas +z, haut −z). L'appli tient L pendant ses impulsions.
