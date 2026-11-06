@@ -1027,7 +1027,7 @@ static MEM_OS void gb_reset(natres_pad_t *p) {           /* FF : cle de session 
     while (n--) k = k * 0x6177614Bu + 1u;
     p->gkey = k; p->gtrans = k ^ 0x6F646573u; p->gjoy = 0x18u;   /* (0x10 : pret ; 0x08 : un mot a lire) */
     p->gst = 1; p->glen = p->gpos = 0; p->gw = p->ga = 0; p->gnew = 0; p->gtid = p->gtidlu = 0;
-    p->gcode = p->gx = p->gfin = 0; p->grst = p->gid = 0; p->grw = p->gpred = 0;
+    p->gcode = p->gx = p->gfin = 0; p->grst = p->gid = 0; p->grw = p->gpred = 0; p->gfr = p->gfn = 0;
 }
 static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert vers le port GBA : la reponse, tout de suite */
     u32 c = gb_o0 >> 24;
@@ -1040,7 +1040,7 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
         /* v345 : programme lance : une remise a zero ne relance pas le demarrage (une vraie GBA ne le peut plus non plus) */
         if (c == 0xFFu && p->gst != 4) { gb_reset(p); gb_r0 = 0x00040800u; }
         if (c == 0xFFu && p->gst == 4) {                 /* v347 : la GBA emulee l'apprendra ; si on connait sa reponse : tout de suite */
-            p->grst++; p->grw = p->gw; p->gpred = 0;
+            p->grst++; p->grw = p->gw; p->gpred = 0; p->gfr = 0;
             if (p->gid) { p->gtrans = p->gid; p->gjoy = 0x28u | (p->gjoy & 0x02u); }
         }
         return;
@@ -1068,7 +1068,23 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
         int ech = 0;                                     /* (v363 : echo predit : la reponse reste JOYSTAT d'avant le mot) */
         u32 w = (gb_o0 >> 16 & 0xFFu) | (gb_o0 >> 8 & 0xFFu) << 8 | (gb_o0 & 0xFFu) << 16 | (gb_o1 >> 24) << 24;
         p->gn15++;
-        if (p->gw - p->ga < GB_RING) { gb_ring[p->gw % GB_RING] = w; p->gw++; }
+        /* v364 : Tingle Tuner connecte : entre deux messages, le jeu ecrit FFFFFFFF en continu (lecture / ecriture a chaque
+           tour) ; la GBA les ignore, ils ne servent qu'a la faire repondre. Tous envoyes au telephone, ils s'empilaient
+           (32 000 en retard) et ses vrais messages arrivaient trop tard (« Unable to link » apres 2 s). Un seul en route a
+           la fois ; les messages du jeu (FEFEFEFE, numero, etat, longueur, donnees, somme) passent tous */
+        int saute = 0;
+        if (p->gst == 4 && (p->gcode & 0xFFFFFFu) == 0x4C5A47u) {
+            if (p->gfr == 0) {
+                if (w == 0xFEFEFEFEu) p->gfr = 1;
+                else if (w == 0xFFFFFFFFu && p->gw != p->ga && gb_ring[(p->gw - 1u) % GB_RING] == 0xFFFFFFFFu) saute = 1;
+            } else if (p->gfr == 1) p->gfr = 2;
+            else if (p->gfr == 2) p->gfr = (w == 3u) ? 3u : 0u;
+            else if (p->gfr == 3) { p->gfn = w > 4u ? (w + 3u) / 4u : 1u; p->gfr = 5; }
+            else if (p->gfr == 5) { if (--p->gfn == 0) p->gfr = 4; }
+            else p->gfr = 0;
+        }
+        if (saute) p->gnskip++;
+        else if (p->gw - p->ga < GB_RING) { gb_ring[p->gw % GB_RING] = w; p->gw++; }
         if (p->gst == 1) {                               /* 1er mot : la taille du programme (format public de la cle) */
             u32 s = w ^ ((w & 0x200u) ? 0x6F646573u : 0x6177614Bu), n = (s >> 8) & 0x7Fu;
             if (s & 0x10000u) n += 0x80u;
