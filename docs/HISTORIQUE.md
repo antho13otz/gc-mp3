@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 443 — Wind Waker : Progression ; curseur du Tingle Tuner ; bateau
+
+- Page compagnon de Wind Waker : carte « Progression » : les 7 donjons (carte, boussole, grande clé, boss vaincu, réceptacle de cœur ; le donjon en cours en orange, les finis en vert), coffres ouverts (au total, compté en sortant d'un lieu, et ici), salles visitées du donjon, point de reprise, 2e quête. Adresses de dSv_save_c (zeldaret/tww, seulement des adresses).
+- Vue 3D : le curseur du Tingle Tuner (posé sur Link par le jeu même sans Tingle Tuner) n'est montré que si la GBA du téléphone tourne ou s'il a quitté Link.
+- La 1re recherche des objets d'un lieu reprend les gros paquets : depuis le build 441, le bateau et les objets mettaient longtemps à venir (surtout en mer). Les recherches suivantes (toutes les ~30 s) restent par 3 Ko.
+
 ## Appli build 441 — recherche des objets du direct sans pics
 
 - Rapport du build 440 : direct de 6,1 Ko à 3,6 Ko par image, de 2,68 ms à 1,62 ms pris au jeu. La recherche des objets (toutes les ~30 s) lisait la mémoire par 7,7 Ko envoyés à chaque image (4,2 ms pris au jeu pendant quelques secondes) : maintenant par 3 Ko au plus. Les objets d'un nouveau lieu apparaissent un peu plus tard.
