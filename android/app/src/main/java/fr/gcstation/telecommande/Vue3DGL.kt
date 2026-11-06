@@ -2727,6 +2727,8 @@ fun rapportDirect(ctx: android.content.Context) {
         if (m.size > 5 && m[5] >= 0) String.format(java.util.Locale.FRANCE, "%.2f", m[5] / 1000.0) else "-"))
     if (l.isEmpty()) sb.append("(aucune mesure : console en v370 ou plus, vue 3D en direct ouverte)\n")
     // (build 448 : la vue elle-meme : images par seconde dessinees et taille de l'image calculee)
+    if (JeuWW.rejeuxWW > 0) sb.append(String.format(java.util.Locale.FRANCE, "\nWind Waker : retard appris %.1f images du jeu ; mouvement prolongé (image en retard) : %.1f %% des images\n",
+        JeuWW.retardDirect(), 100.0 * JeuWW.prolongees / JeuWW.rejeuxWW))
     sb.append("\nVue 3D du téléphone (écran ${"%.0f".format(FluiditeR3.hz)} Hz)\nheure ; images par seconde ; image calculée (x écran)\n")
     val v = synchronized(FluiditeR3.mesures) { FluiditeR3.mesures.toList() }
     for ((t, ips, k) in v) sb.append(String.format(java.util.Locale.FRANCE, "%s ; %.1f ; %.1f\n", f.format(java.util.Date(t)), ips, k))
