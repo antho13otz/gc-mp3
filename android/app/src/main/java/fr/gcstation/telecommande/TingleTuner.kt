@@ -321,7 +321,7 @@ object GbaTel {
             append("Programme annoncé ${e.annonce} octets, reçus par Pulse ${e.recus} ; commandes du jeu : 00/FF ${e.n00}, 14 ${e.n14}, 15 ${e.n15}\n")
             append("Programme : ${e.programme ?: "pas encore"}\n")
             append(detail())
-            append("Émulateur GBA : ${if (GbaEmu.marche) "en marche" else "arrêté"} ${GbaEmu.message} ; mots du jeu donnés ${GbaEmu.nRecus}, mots de la GBA lus par le jeu ${GbaEmu.nEnvoyes} (+ ${GbaEmu.nAvales} déjà donnés par Pulse ; ${GbaEmu.nRedonnes} redonnés), en attente ${GbaEmu.entrees.size}${if (GbaEmu.retenus) " (retenus : la GBA n'a pas encore donné son code)" else ""}\nÉvénements de la GBA (build 392) :\n${GbaEmu.evts.joinToString("\n").ifEmpty { "aucun" }}\nCâble vu par la GBA : ${GbaEmu.regsVus} ; remises à zéro : dites par Pulse ${GbaEmu.resetsPulse}, traitées ${GbaEmu.resetsVus}\nDerniers échanges avec la GBA (build 401) :\n${GbaEmu.traceTexte.ifEmpty { "aucun" }}\n\nJournal :\n")
+            append("Émulateur GBA : ${if (GbaEmu.marche) "en marche" else "arrêté"} ${GbaEmu.message} ; mots du jeu donnés ${GbaEmu.nRecus}, mots de la GBA lus par le jeu ${GbaEmu.nEnvoyes} (+ ${GbaEmu.nAvales} déjà donnés par Pulse ; ${GbaEmu.nRedonnes} redonnés), en attente ${GbaEmu.entrees.size}${if (GbaEmu.retenus) " (retenus : la GBA n'a pas encore donné son code)" else ""}\nÉvénements de la GBA (build 392) :\n${GbaEmu.evts.joinToString("\n").ifEmpty { "aucun" }}\nCâble vu par la GBA : ${GbaEmu.regsVus} ; remises à zéro : dites par Pulse ${GbaEmu.resetsPulse}, traitées ${GbaEmu.resetsVus}\nRecherche du curseur (build 410) : ${GbaEmu.chercheTexte.ifEmpty { "pas faite" }}\nDerniers échanges avec la GBA (build 401) :\n${GbaEmu.traceTexte.ifEmpty { "aucun" }}\n\nJournal :\n")
             e.journal.forEach { append(it).append('\n') }
         }
     }
@@ -356,6 +356,9 @@ fun TingleTunerWW(ww: Boolean = true) {
                 e.programme?.let { Doux("Programme du jeu : $it", taille = 12, couleur = Color(0xFF9BE15D)) }
                 Doux("Commandes du jeu : état ${e.n00} · lectures ${e.n14} · écritures ${e.n15}", taille = 11, couleur = C.Pale)
                 if (GbaEmu.marche) EcranGba()                  // (build 375 : l'emulateur GBA)
+                // build 410 : recherche du curseur du Tingle Tuner (pour le relier a la vue 3D)
+                if (GbaEmu.marche) Bouton(if (GbaEmu.chercheEnCours) "Recherche du curseur…" else "Chercher le curseur (écran de la carte)", Modifier.fillMaxWidth(),
+                                          actif = !GbaEmu.chercheEnCours) { GbaEmu.chercheDemande = true }
                 if (GbaEmu.message.isNotEmpty()) Doux(GbaEmu.message + " · mots du jeu ${GbaEmu.nRecus} · de la GBA ${GbaEmu.nEnvoyes}", taille = 11, couleur = C.Pale)
                 if (GbaTel.aProgramme && !GbaEmu.marche) Bouton("Relancer la GBA", Modifier.fillMaxWidth()) { GbaTel.relancerEmu() }
                 e.journal.takeLast(12).forEach { Doux(it, taille = 11) }
