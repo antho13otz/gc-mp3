@@ -850,6 +850,11 @@ static u32 na_vi_bootrom(const char *id) {
     if (!na_game_pal(id)) return 0;                       /* VI_NTSC */
 #ifdef GEKKO
     if (VIDEO_GetCurrentTvMode() == VI_EURGB60) return 5;
+    /* v362 : comme le menu de la console : console reglee en PAL 60 Hz (memoire de la console, SRAM) -> EURGB60, meme si
+       GC Station tourne dans un autre mode (apres une mise a jour, il redemarre sans le mode du BIOS : 0x800000CC = 0).
+       Avant : le jeu recevait PAL 50 Hz, puis passait lui-meme en 60 Hz pendant le chargement (Wind Waker : « signal non
+       supporte » sur la tele, son sans image) */
+    if (SYS_GetEuRGB60()) return 5;
 #endif
     return 1;                                             /* VI_PAL */
 }
@@ -3629,6 +3634,10 @@ static const char *nat_boot(int k) {
         fprintf(f, "Carte memoire virtuelle (slot B) : %s\n", nat_card >= 2 ? (na_card2_msg[0] ? na_card2_msg : "non") : "non (reglage)");
         fprintf(f, "Mode video donne au jeu (800000CC) : %s (jeu %s)\n", na_vi_bootrom(in.id) == 1 ? "PAL" : na_vi_bootrom(in.id) == 5 ? "EURGB60 (PAL 60 Hz)" : "NTSC",
                 na_game_pal(in.id) ? "PAL" : "NTSC");
+#ifdef GEKKO
+        fprintf(f, "Console : PAL 60 Hz dans ses reglages (SRAM) : %s ; GC Station tournait en %s\n", SYS_GetEuRGB60() ? "oui" : "non",
+                VIDEO_GetCurrentTvMode() == VI_PAL ? "PAL 50 Hz" : VIDEO_GetCurrentTvMode() == VI_EURGB60 ? "PAL 60 Hz" : VIDEO_GetCurrentTvMode() == VI_MPAL ? "PAL-M" : "NTSC");   /* v362 */
+#endif
         fprintf(f, "Memoire basse avant : 28=%08X 2C=%08X CC=%08X F8=%08X FC=%08X\n",
 #ifdef GEKKO
                 (unsigned)*(volatile u32 *)0x80000028, (unsigned)*(volatile u32 *)0x8000002C, (unsigned)*(volatile u32 *)0x800000CC,
