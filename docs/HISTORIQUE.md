@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 418 — Tingle Tuner : pilotage depuis la vue 3D avec L tenu
+- Le rapport du build 417 montrait les impulsions de la croix bien reçues par le jeu (premier mot du message 4 de la GBA :
+  0090, 0040…) mais le curseur restait sur Link. Le jeu recopie les touches de la GBA en manette et n'avance le curseur que
+  si L est tenu (droite +x, gauche −x, bas +z, haut −z). L'appli tient L pendant ses impulsions.
+
 ## Appli build 417 — Tingle Tuner relié à la vue 3D : curseur affiché, piloté par un toucher
 - Trouvé dans le jeu : le curseur du Tingle Tuner existe dans le monde, c'est un acteur « Agb » (proc 0x1B5, modèle
   agbcursor) que la croix de la GBA déplace (25, 50 ou 781,25 unités par image, borné à ±350000 sur la mer). Son adresse
