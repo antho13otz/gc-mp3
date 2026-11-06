@@ -389,28 +389,7 @@ private fun ImageGba(modifier: Modifier) {
 @Composable
 private fun PleinEcranGba(fermer: () -> Unit) {
     androidx.compose.ui.window.Dialog(fermer, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        val vueD = androidx.compose.ui.platform.LocalView.current
-        androidx.compose.runtime.DisposableEffect(Unit) {
-            val w = (vueD.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window
-            if (w != null) {
-                w.setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT)
-                w.addFlags(android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
-                w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-                w.attributes = w.attributes.also {
-                    it.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT; it.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                    it.x = 0; it.y = 0; it.gravity = android.view.Gravity.TOP or android.view.Gravity.START
-                    if (android.os.Build.VERSION.SDK_INT >= 28) it.layoutInDisplayCutoutMode = if (android.os.Build.VERSION.SDK_INT >= 30) android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
-                                                   else android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
-                    if (android.os.Build.VERSION.SDK_INT >= 30) { it.fitInsetsTypes = 0; it.fitInsetsSides = 0; it.isFitInsetsIgnoringVisibility = true }
-                }
-                w.decorView.setPadding(0, 0, 0, 0)
-                androidx.core.view.WindowCompat.setDecorFitsSystemWindows(w, false)
-                val c = androidx.core.view.WindowCompat.getInsetsController(w, w.decorView)
-                c.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                c.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
-            }
-            onDispose { }
-        }
+        FenetrePleinEcran()                               // (build 407 : reglage commun, refait a chaque rotation : PleinEcran.kt)
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
             val largeur = maxWidth > maxHeight
             if (largeur) {
