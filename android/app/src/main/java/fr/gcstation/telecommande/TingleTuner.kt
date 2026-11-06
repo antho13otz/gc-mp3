@@ -360,6 +360,7 @@ fun TingleTunerWW(ww: Boolean = true) {
                 if (GbaEmu.marche) Bouton(if (GbaEmu.chercheEnCours) "Recherche du curseur…" else "Chercher le curseur (écran de la carte)", Modifier.fillMaxWidth(),
                                           actif = !GbaEmu.chercheEnCours) { GbaEmu.chercheDemande = true }
                 if (GbaEmu.marche && GbaEmu.curseurTexte.isNotEmpty()) Doux(GbaEmu.curseurTexte, taille = 12, couleur = Color(0xFF9BE15D))
+                if (GbaEmu.marche && GbaEmu.curseurTexte.isNotEmpty()) Bouton("Curseur posé sur Link : noter ce repère (${GbaEmu.nReperes})", Modifier.fillMaxWidth()) { GbaEmu.noterRepere() }
                 if (GbaEmu.message.isNotEmpty()) Doux(GbaEmu.message + " · mots du jeu ${GbaEmu.nRecus} · de la GBA ${GbaEmu.nEnvoyes}", taille = 11, couleur = C.Pale)
                 if (GbaTel.aProgramme && !GbaEmu.marche) Bouton("Relancer la GBA", Modifier.fillMaxWidth()) { GbaTel.relancerEmu() }
                 e.journal.takeLast(12).forEach { Doux(it, taille = 11) }

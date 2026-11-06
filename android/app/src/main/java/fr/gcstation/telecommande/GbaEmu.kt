@@ -142,23 +142,36 @@ object GbaEmu {
     private val histoTT = java.util.concurrent.ConcurrentLinkedDeque<String>()
     var curseurTexte by androidx.compose.runtime.mutableStateOf("")
     @Volatile var curseurMot = -1L
+    // build 416 : le message 9 du jeu n'est pas la position de Link (son 2e mot est un compteur) : noté seulement quand ses
+    // autres mots changent ; le curseur et les autres messages du jeu ont chacun leur liste (avant : tout dans une liste de
+    // 40, remplie par le message 9). Repères : curseur posé sur Link (bouton), avec sa position dans le jeu
+    private val histoCurseur = java.util.concurrent.ConcurrentLinkedDeque<String>()
+    val reperes = java.util.concurrent.ConcurrentLinkedDeque<String>()
+    var nReperes by androidx.compose.runtime.mutableIntStateOf(0)
+    private fun heure() = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.FRANCE).format(java.util.Date())
+    private fun posTexte(): String = (try { JeuWW.posDirect() } catch (e: Exception) { null })?.let { "%.0f %.0f %.0f".format(it[0], it[1], it[2]) } ?: "pas de direct"
+    private fun ajoute(q: java.util.concurrent.ConcurrentLinkedDeque<String>, t: String, max: Int) { q.addLast(t); while (q.size > max) q.removeFirst() }
     private fun msgRecu(gba: Boolean, idx: Int, d: List<Long>) {
         val m = d.joinToString(" ") { "%08X".format(it) }
         val cle = (if (gba) "GBA " else "jeu ") + idx
         val avant = derniersMsg.put(cle, m)
+        if (avant == m) return
         if (gba && idx == 4 && d.size >= 2) {
             curseurMot = d[1]
             curseurTexte = "Curseur (message de la GBA) : %d, %d  · %08X %08X".format(d[1] and 0xFFFF, (d[1] ushr 16) and 0xFFFF, d[0], d[1])
+            ajoute(histoCurseur, "  ${heure()} $m ; Link dans le jeu : ${posTexte()}", 30)
+            return
         }
-        if (avant != m && ((gba && idx == 4) || (!gba && idx == 9))) {
-            val p = try { JeuWW.posDirect() } catch (e: Exception) { null }
-            val h = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.FRANCE).format(java.util.Date())
-            histoTT.addLast("  $h $cle : $m ; Link dans le jeu : " + (p?.let { "%.0f %.0f %.0f".format(it[0], it[1], it[2]) } ?: "pas de direct"))
-            while (histoTT.size > 40) histoTT.removeFirst()
-        }
+        if (gba) return
+        if (idx == 9 && avant != null) { val a = avant.split(" "); if (a.size == d.size && d.size >= 3 && a[0] == "%08X".format(d[0]) && a[2] == "%08X".format(d[2])) return }
+        if (idx == 10 || idx == 11) return
+        ajoute(histoTT, "  ${heure()} $cle : $m ; Link dans le jeu : ${posTexte()}", 40)
     }
+    fun noterRepere() { val c = curseurMot; if (c >= 0) ajoute(reperes, "  ${heure()} curseur %d, %d (%08X) ; Link dans le jeu : %s".format(c and 0xFFFF, (c ushr 16) and 0xFFFF, c, posTexte()), 20); nReperes++ }
     fun messagesTexte(): String = derniersMsg.entries.sortedBy { it.key }.joinToString("\n") { "  ${it.key} : ${it.value}" }.ifEmpty { "  aucun" } +
-        "\nChangements (message 4 de la GBA, message 9 du jeu) :\n" + histoTT.joinToString("\n").ifEmpty { "  aucun" }
+        "\nCurseur (message 4 de la GBA), changements :\n" + histoCurseur.joinToString("\n").ifEmpty { "  aucun" } +
+        "\nMessages du jeu, changements (sauf compteur du 9, 10 et 11) :\n" + histoTT.joinToString("\n").ifEmpty { "  aucun" } +
+        "\nRepères (curseur posé sur Link, build 416) :\n" + reperes.joinToString("\n").ifEmpty { "  aucun" }
     // build 403 (console v365) : Tingle Tuner connecte : mots de la GBA lus ici, envoyes d'un coup a Pulse qui les garde en
     // file pour le jeu (numero 1-255 << 32 | mot) ; retires quand Pulse dit que le jeu les a lus
     val file = java.util.concurrent.ConcurrentLinkedDeque<Long>()
