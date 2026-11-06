@@ -177,7 +177,8 @@ object GbaEmu {
     private var pilT0 = 0L; private var pilPhase = 0; private var pilKx = 0; private var pilKz = 0; private var pilAtt = 0
     private var pilRef: FloatArray? = null; private var pilTx = 0; private var pilTz = 0; private var pilSx = 0; private var pilSz = 0
     private var sensX = 1; private var sensZ = 1; private var vitX = 60f; private var vitZ = 60f
-    fun allerVers(x: Float, z: Float) { cible = floatArrayOf(x, z); pilT0 = System.nanoTime(); pilPhase = 0; pilotageTexte = "Curseur : en route" }
+    private var pilBloque = 0
+    fun allerVers(x: Float, z: Float) { cible = floatArrayOf(x, z); pilT0 = System.nanoTime(); pilPhase = 0; pilBloque = 0; pilotageTexte = "Curseur : en route" }
     fun pilotageDiag(): String = "curseur du jeu : " + (JeuWW.curseurTT()?.let { "%.0f %.0f %.0f".format(it[0], it[1], it[2]) } ?: "pas reçu") +
         " ; pilotage : ${pilotageTexte.ifEmpty { "aucun" }} ; sens appris x $sensX z $sensZ ; vitesse %.0f / %.0f par image".format(vitX, vitZ)
     // build 421 : bombe de Tingle depuis la vue 3D : B sur la GBA (le Tingle Tuner : « B 💣 ») tenu 8 images ; si le curseur
@@ -221,6 +222,12 @@ object GbaEmu {
                 if (--pilAtt > 0) return 0
                 val r = pilRef ?: p
                 // (ce qu'ont fait les touches : sens et vitesse par image ; une touche sans effet garde sa vitesse)
+                // (build 422 : le curseur ne bouge plus malgre les touches, 3 fois de suite : bord de la carte du Tingle
+                //  Tuner (elle ne montre que la case de la mer ou est Link) ou la GBA n'affiche pas la carte : arret, au lieu
+                //  d'appuyer jusqu'au bout des 25 s)
+                val bouge = Math.abs(p[0] - r[0]) > 20f || Math.abs(p[2] - r[2]) > 20f
+                if (bouge) pilBloque = 0 else if (++pilBloque >= 3) {
+                    pilotageTexte = "Curseur bloqué : bord de la carte du Tingle Tuner (ou la carte n'est pas affichée)"; cible = null; pilPhase = 0; return 0 }
                 if (pilTx > 0) { val m = (p[0] - r[0]) * (if (pilSx > 0) 1 else -1) * sensX
                     if (Math.abs(m) > 20f) { if (m < 0) sensX = -sensX; vitX = (Math.abs(m) / pilTx).coerceIn(10f, 2000f) } }
                 if (pilTz > 0) { val m = (p[2] - r[2]) * (if (pilSz > 0) 1 else -1) * sensZ
