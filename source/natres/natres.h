@@ -206,6 +206,12 @@ typedef struct {
     /* v364 : Tingle Tuner (code GZL.) : ou en est le message que le jeu envoie a la GBA (0 attente de FEFEFEFE, 1 numero,
        2 etat, 3 longueur, 5 donnees (gfn mots restants), 4 somme), mots FFFFFFFF d'attente non transmis au telephone */
     unsigned int gfr, gfn, gnskip;
+    /* v365 : Tingle Tuner : file des mots de la GBA pour le jeu. L'appli lit elle-meme chaque mot ecrit par sa GBA connectee
+       et les envoie tous (option 0x20 : nombre, numero du 1er, mots) ; le jeu les lit ici l'un apres l'autre (JOYSTAT 0x08
+       tant qu'il en reste) au lieu d'attendre un aller-retour par le Wi-Fi pour chacun (~160 ms : le jeu abandonnait) */
+    unsigned int gq[32];
+    unsigned char gqid[32];
+    unsigned int gqr, gqw, gqlast, gqn;
     /* v344 : apres la structure (seulement s'ils servent) : l'anneau des mots du jeu pour la GBA (NATRES_GBA_RING mots, si
        gbmask), puis celui du micro (NATRES_MIC_RING octets, si micon) ; len les compte */
 } natres_pad_t;
