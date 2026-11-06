@@ -5248,12 +5248,16 @@ static volatile int gqb_state = 0;                       /* 0 rien, 1 demandee, 
 static void gqb_walk(void);                              /* (gclib.c) */
 static volatile int fxb_state = 0;                        /* v375 : fiches de mes jeux refaites en fond (gclib.c) */
 static void fxb_run(void);
+static volatile int apq_state = 0;                        /* v376 : applis lues en fond (tools.c) : 0 rien, 1 demandee, 2 en cours, 3 prete */
+static void ap_scan_bg(void);
+static int ap_bg;
 static void *lsc_thread(void *arg) {
     (void)arg;
     static char path[NAME_LEN];
     for (;;) {
         if (gqb_state == 1) { gqb_state = 2; gqb_walk(); gqb_state = 3; continue; }   /* v375 */
         if (fxb_state == 1) { fxb_state = 2; fxb_run(); fxb_state = 3; continue; }   /* v375 */
+        if (apq_state == 1) { apq_state = 2; ap_bg = 1; ap_scan_bg(); ap_bg = 0; apq_state = 3; continue; }   /* v376 */
         if (lv_state == 1) {                                /* v238 : verification de la liste gardee */
             lv_state = 2;
             u32 h = 0; int n = 0;
@@ -14325,6 +14329,7 @@ static void music_pump(void) {
 #include "catalog.c"                           /* v151 : catalogue d'applis (homebrews a installer depuis Internet) */
 #include "profils.c"                           /* v191 : profils de joueurs, limite de temps de jeu */
 #include "recap.c"                             /* v191 : ton recap (Outils, page /recap du telephone) */
+#include "jeux_hub.c"                          /* v376 : accueil de JEUX en Aurore (« A la une ») */
 
 /* v76 : petit controle au demarrage (memoire libre, carte SD, duree), note dans le
    journal (Outils > Infos console > journal) ; un message bref si un souci. */

@@ -727,6 +727,11 @@ static u16 *ap_build(const char *icon) {
 }
 static ap_ent *ap = NULL;
 static int ap_n = 0, ap_sel = 0, ap_confirm = -1;
+/* v376 : la carte est lue par le fil de la bibliotheque (lsc_thread) dans une 2e liste (apb), echangee dans la boucle quand
+   elle est prete (ap_step) : avant, ouvrir les applis lisait tous les dossiers, meta.xml et images dans la boucle (environ
+   25 ms par appli : l'ecran figeait avec beaucoup d'applis) */
+static ap_ent *apb = NULL;
+static int apb_n = 0;                                   /* (ap_bg : main.c, vrai dans le fil de fond) */
 /* <name> et <short_description> de apps/xxx/meta.xml (format Homebrew Channel) */
 static void ap_meta(const char *dir, ap_ent *a) {
     char p[NAME_LEN];
@@ -771,9 +776,9 @@ static int ap_bnr_find(const char *path, const char *dir, char *out, int cap) {
     return found;
 }
 static void ap_add(const char *path, const char *dir) {
-    if (!ap || ap_n >= AP_MAX) return;
-    for (int i = 0; i < ap_n; i++) if (!strcasecmp(ap[i].path, path)) return;
-    ap_ent *a = &ap[ap_n];
+    if (!apb || apb_n >= AP_MAX) return;
+    for (int i = 0; i < apb_n; i++) if (!strcasecmp(apb[i].path, path)) return;
+    ap_ent *a = &apb[apb_n];
     memset(a, 0, sizeof(*a));
     snprintf(a->path, sizeof(a->path), "%s", path);
     struct stat st;
@@ -798,13 +803,13 @@ static void ap_add(const char *path, const char *dir) {
            (ipl.dol, GC Station, Swiss... ne sont pas des applis a montrer). */
         if (!img && (!ap_noimg || strncasecmp(path, SD_ROOT "/apps/", strlen(SD_ROOT "/apps/")))) return;   /* (reglage Applis sans image) */
     }
-    ap_n++;
+    apb_n++;
 }
 static void ap_scan_dir(const char *dir, int depth) {
     DIR *d = opendir(dir);
     if (!d) return;
     struct dirent *e;
-    while ((e = readdir(d)) != NULL && ap_n < AP_MAX) {
+    while ((e = readdir(d)) != NULL && apb_n < AP_MAX) {
         if (e->d_name[0] == '.') continue;
         char p[NAME_LEN];
         snprintf(p, sizeof(p), "%s/%s", dir, e->d_name);
@@ -813,7 +818,7 @@ static void ap_scan_dir(const char *dir, int depth) {
         if (depth > 0 && is_dir(p, e)) ap_scan_dir(p, depth - 1);
     }
     closedir(d);
-    service_audio();
+    if (!ap_bg) service_audio();                         /* (v376 : dans le fil de fond : rien a faire) */
 }
 static int ap_cmp(const void *a, const void *b) { return strcasecmp(((const ap_ent *)a)->name, ((const ap_ent *)b)->name); }
 static int ap_noimg_seen = -1;                         /* v227 : (reglage Applis sans image deja applique a la liste) */
@@ -826,16 +831,29 @@ static void ap_open(void) {
     if (ap_noimg_seen != ap_noimg) { ap_noimg_seen = ap_noimg; ap_scanned = 0; }   /* v227 : reglage change */
     if (!ap_scanned) ap_rescan();
 }
-static void ap_rescan(void) {
-    if (!ap) ap = (ap_ent *)malloc(sizeof(ap_ent) * AP_MAX);
-    for (int i = 0; ap && i < ap_n; i++) if (ap[i].tex) { free(ap[i].tex); ap[i].tex = NULL; }
-    ap_n = 0; ap_confirm = -1;
-    if (!ap || !sd_ok) return;
-    ap_scanned = 1;
+static void ap_scan_bg(void) {                          /* (fil de la bibliotheque, ou la boucle si pas de fil) */
+    apb_n = 0;
     ap_scan_dir(SD_ROOT "/apps", 1);
     ap_scan_dir(SD_ROOT, 0);
-    qsort(ap, ap_n, sizeof(ap_ent), ap_cmp);
+    qsort(apb, apb_n, sizeof(ap_ent), ap_cmp);
+}
+static void ap_step(void) {                              /* (dans la boucle : la nouvelle liste est-elle prete ?) */
+    if (apq_state != 3) return;
+    for (int i = 0; ap && i < ap_n; i++) if (ap[i].tex) { free(ap[i].tex); ap[i].tex = NULL; }
+    free(ap);
+    ap = apb; ap_n = apb_n; apb = NULL; apb_n = 0;
+    ap_confirm = -1;
     if (ap_sel >= ap_n) ap_sel = ap_n ? ap_n - 1 : 0;
+    apq_state = 0;
+    gs_dirty = 1;                                        /* (l'espace jeux, filtre Applis, refait sa liste) */
+}
+static void ap_rescan(void) {
+    if (apq_state || !sd_ok) return;                     /* (deja en cours) */
+    if (!apb) apb = (ap_ent *)malloc(sizeof(ap_ent) * AP_MAX);
+    if (!apb) return;
+    ap_scanned = 1; apb_n = 0;
+    if (lsc_ready()) { apq_state = 1; LWP_SemPost(lsc_sem); return; }
+    ap_scan_bg(); apq_state = 3; ap_step();              /* (pas de fil : comme avant) */
 }
 /* v110 : pochette d'une appli calculee en fond */
 static struct { int k; char icon[NAME_LEN]; u16 *res; } apj = { -1, "", NULL };
@@ -918,13 +936,13 @@ static int gm_hub_input(void) {                            /* 1 = on a change de
     if (abs(sx) < 30) { armed = 1; return 0; }
     if (!armed || abs(sx) < 55 || tab != TAB_GAMES || gm_hub_cur() < 0) return 0;
     armed = 0;
-    gm_hub_go(gm_hub_cur() == 0 ? 2 : 0);                  /* v196 : jeux <-> cartes (les applis sont dans l'espace jeux) */
+    gm_hub_go((gm_hub_cur() + (sx > 0 ? 1 : 2)) % 3);       /* v376 : jeux, applis, cartes (v196 : jeux <-> cartes) */
     return 1;
 }
 static f32 gm_hub_bar(f32 x, f32 y) {                      /* rend la fin (x) ; y = haut de la barre (20 de haut) */
     static const char *const nm[3] = { "Jeux", "Applis", "Cartes" };   /* (courts : tient a cote de l'affichage / des slots) */
     int cur = gm_hub_cur();
-    for (int k = 0; k < 3; k += 2) {                       /* v196 : (sans les applis : dans l'espace jeux) */
+    for (int k = 0; k < 3; k++) {                          /* v196 : (sans les applis) ; v376 : avec (l'accueil en Aurore les montre) */
         const char *t = TR(nm[k]);
         f32 w = (f32)text_width(F_SMALL, t, 1) + 22;
         int on = k == cur;
@@ -1317,6 +1335,7 @@ static void ap_draw_row(void) {
 }
 static void draw_apps(void) {
     char buf[160], fv[160];
+    ap_step();                                                  /* v376 : liste lue en fond */
     gl_job_done();                                              /* v110 : pochette calculee en fond */
     snprintf(buf, sizeof(buf), ap_n == 1 ? "1 appli" : "%d applis", ap_n);
     if (tab == TAB_GAMES && ui_skin >= 2) {                     /* v110 : dans l'onglet, comme les jeux (pas de fenetre) */
@@ -1399,7 +1418,7 @@ static void draw_apps(void) {
         const char *sub = a->desc[0] ? a->desc : a->path + strlen(SD_ROOT);
         text_display(sub, buf, sizeof(buf)); fit_text(F_SMALL, buf, 520, fv, sizeof(fv));
         gx_text1(F_SMALL, 60, 384, fv, RGBA(190, 180, 235, 255));
-    } else gx_text1(F_SMALL, 64, 120, "Aucun .dol trouv\xC3\xA9 (racine de la carte SD et dossier apps).", RGBA(170, 155, 225, 255));
+    } else gx_text1(F_SMALL, 64, 120, apq_state ? "Lecture des applis..." : "Aucun .dol trouv\xC3\xA9 (racine de la carte SD et dossier apps).", RGBA(170, 155, 225, 255));
     if (ap_confirm >= 0) tl_confirm("Lancer cette appli ?", ap[ap_confirm].name);
     tl_msgbox();
     static const char *const k[] = { "A", "Y", "B" }, *const l[] = { "LANCER", "ACTUALISER", "RETOUR" };

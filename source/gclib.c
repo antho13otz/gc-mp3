@@ -2022,7 +2022,7 @@ static void gclib_open(void) {
 static void gclib_open_recent(const char *path) {
     gclib_open();
     for (int k = 0; k < gl_n; k++)
-        if (!gl[k].dvd && !strcmp(gl[k].path, path)) { gl_sel = k; gl_detail = 1; gl_launch_sel = k; return; }
+        if (!gl[k].dvd && !strcmp(gl[k].path, path)) { gl_sel = k; gl_detail = 1; return; }   /* v376 : la fiche, A : jouer (avant : + "Lancer ce jeu ?") */
     gl_note("Dernier jeu introuvable sur la carte SD");
 }
 static void gl_open_cheats(int k) {
@@ -2094,7 +2094,11 @@ static void gclib_input(u32 down, u32 nav, int fire) {
         if (gs_view() && gl_n && !gl[gl_sel].dvd && gl_launch_sel < 0 && bx_input(down)) return;   /* v282 : â ouvre la boite */
         if (fire && (nav & PAD_BUTTON_LEFT) && gl_n) { gl_sel = gs_view() ? gs_step(-1) : nav_wrap(gl_sel, gl_n, 1, -1, 0); if (gl_anim) gl_slide = -1.0f; }   /* v197 : (espace : jeux du filtre) */
         if (fire && (nav & PAD_BUTTON_RIGHT) && gl_n) { gl_sel = gs_view() ? gs_step(1) : nav_wrap(gl_sel, gl_n, 1, 1, 0); if (gl_anim) gl_slide = 1.0f; }
-        if ((down & PAD_BUTTON_A) && gl_n) gl_launch_sel = gl_sel;
+        if ((down & PAD_BUTTON_A) && gl_n) {               /* v376 : A dans la fiche : jouer (avant : "Lancer ce jeu ?", un A de plus) */
+            if (gl[gl_sel].dvd) gl_launch_sel = gl_sel;
+            else { const char *e = game_boot_auto(gl_sel); gl_busy[0] = 0; if (e) gl_note(e); return; }   /* (ne revient pas si ca marche) */
+        }
+        if ((down & PAD_TRIGGER_Z) && gl_n && !gl[gl_sel].dvd) { gl_launch_sel = gl_sel; return; }   /* v376 : Z : "Lancer ce jeu ?" (secours, Pulse LAN) */
         if (gl_n && gl[gl_sel].dvd) { if (down & PAD_BUTTON_B) gl_detail = 0; return; }   /* v97 : (case du vrai lecteur) */
         if (down & PAD_BUTTON_X && gl_n) gl_open_cheats(gl_sel);
         if ((down & PAD_BUTTON_Y) && gl_n) indigo_game_open(gl[gl_sel].id, gl[gl_sel].title);   /* v35 : reglages du jeu */

@@ -485,6 +485,7 @@ static void tpl_game_fail(void);
 static const char *game_boot_auto2(int k);
 static const char *game_boot2(int k, int resident);
 static const char *game_boot_auto(int k) {
+    if (kt_on) return "Test des touches : pas de lancement";   /* v376 : (A dans la fiche lance tout de suite) */
     { const char *lim = pj_launch_check(); if (lim) return lim; }
     if (k >= 0 && k < gl_n) tpl_game(gl[k].id, gl[k].title);
     const char *e = game_boot_auto2(k);                      /* (ne revient pas si ca marche) */
@@ -492,6 +493,7 @@ static const char *game_boot_auto(int k) {
     return e;
 }
 static const char *game_boot(int k, int resident) {
+    if (kt_on) return "Test des touches : pas de lancement";   /* v376 */
     if (k < 0 || k >= gl_n) return "Jeu introuvable";
     { const char *lim = pj_launch_check(); if (lim) return lim; }
     tpl_game(gl[k].id, gl[k].title);

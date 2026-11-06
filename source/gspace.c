@@ -46,6 +46,7 @@ static void gs_build(void) {
         if (tp_apps_new) { tp_apps_new = 0; ap_scanned = 0; }   /* v224 : .dol envoye par le telephone */
         if (ap_noimg_seen != ap_noimg) { ap_noimg_seen = ap_noimg; ap_scanned = 0; }   /* v227 : reglage change */
         if (!ap_scanned) ap_rescan();
+        ap_step();                              /* v376 : (lue en fond : prete ?) */
         gs_n = ap ? (ap_n < GL_MAX ? ap_n : GL_MAX) : 0;
         for (int i = 0; i < gs_n; i++) gs_idx[i] = (s16)i;
         gs_pos = ap_sel >= 0 && ap_sel < gs_n ? ap_sel : 0;
@@ -123,7 +124,7 @@ static void gs_input(u32 down, u32 nav, int fire) {
         if (down & PAD_BUTTON_B) { gl_on = 0; if (gl_list_dirty) { gl_list_dirty = 0; gl_list_save(); } }
         return;
     }
-    if ((down & PAD_BUTTON_A) && gs_n) gl_launch_sel = gl_sel;                       /* Jouer : "Lancer ce jeu ?" */
+    if ((down & PAD_BUTTON_A) && gs_n) { gl_detail = 1; if (gl[gl_sel].dvd) gl_launch_sel = gl_sel; }   /* v376 : A : la fiche d'abord (A encore : jouer) ; avant : "Lancer ce jeu ?" */
     if ((down & PAD_BUTTON_Y) && gs_n) gl_detail = 1;                                 /* fiche du jeu */
     if ((down & PAD_BUTTON_X) && gs_n && !gl[gl_sel].dvd) gl_open_cheats(gl_sel);
     if ((down & PAD_TRIGGER_L) && gs_n && !gl[gl_sel].dvd) {                          /* favori */
@@ -308,7 +309,7 @@ static void gs_draw(void) {
             "Aucun jeu lanc\xC3\xA9 pour l'instant", "Aucun jeu GameCube sur la carte SD",
             "Aucun favori : L sur un jeu pour l'ajouter", "Aucun jeu jou\xC3\xA9 pour l'instant", "Aucun jeu GameCube sur la carte SD",
             "Aucune appli : SD:/apps/<nom>/boot.dol (avec icon.png ou un .bnr)" };
-        gx_text_c(F_LARGE, 320, 230, TR(e[gs_filter]), RGBA(255, 255, 255, 255));
+        gx_text_c(F_LARGE, 320, 230, TR(gs_apps() && apq_state ? "Lecture des applis..." : e[gs_filter]), RGBA(255, 255, 255, 255));   /* (v376 : en fond) */
         gx_text_c(F_SMALL, 320, 258, TR("Z : autre filtre"), RGBA(170, 170, 195, 255));
     } else if (gs_apps()) {
         gs_draw_vitrine();
@@ -367,8 +368,7 @@ static void gs_draw(void) {
         return;
     }
     if (gs_n) {                                                                /* v198 : (filtre vide : seulement Z, R, B) */
-        x = gs_key(x, 453, "A", "Jouer", RGBA(110, 220, 140, 255));
-        x = gs_key(x, 453, "Y", "Fiche", RGBA(235, 235, 245, 255));
+        x = gs_key(x, 453, "A", gs_apps() ? "Lancer" : "Fiche", RGBA(110, 220, 140, 255));   /* v376 : (A : la fiche, puis A : jouer) */
     }
     if (gs_n && !(gl_sel >= 0 && gl_sel < gl_n && gl[gl_sel].dvd)) {           /* v198 : (pas de cheats ni de favori pour le lecteur) */
         x = gs_key(x, 453, "X", "Cheats", RGBA(235, 235, 245, 255));
@@ -561,10 +561,10 @@ static void gs_draw_fiche(void) {
     } else {
     x = gs_key(x, 453, "A", "Jouer", RGBA(110, 220, 140, 255));
     if (!g->dvd) {
+        x = gs_key(x, 453, "Z", "Plus", au_a(255));        /* v376 : "Lancer ce jeu ?" : lanceur de secours, Pulse LAN */
         x = gs_key(x, 453, "X", bx_open_to > 0.5f && nt_pages(gl_sel) > 0 ? "Notice" : "Cheats", RGBA(235, 235, 245, 255));   /* v296 */
         x = gs_key(x, 453, "Y", "R\xC3\xA9glages", RGBA(235, 235, 245, 255));
         x = gs_key(x, 453, "L", "Favori", RGBA(255, 210, 90, 255));
-        x = gs_key(x, 453, "R", "Analyse", RGBA(235, 235, 245, 255));
         if (bx_open_to > 0.5f) x = gs_key(x, 453, "\xE2\x86\x93", bx_out_to > 0.5f ? "Ranger le disque" : "Sortir le disque", RGBA(150, 200, 255, 255));   /* v304 */
         else {
             x = gs_key(x, 453, "\xE2\x86\x91", "Bo\xC3\xAEte", RGBA(150, 200, 255, 255));   /* v282 : box3d.c */
