@@ -293,19 +293,19 @@ object JeuWW {
             val o = u32(r, 12); if (tas(o)) objs.add(o); n = u32(r, 8)
         }
         val cand = LinkedHashSet<Long>()
-        for (lot in objs.chunked(5)) {
+        for (lot in objs.chunked(2)) {                 // (build 441 : par 3 Ko au plus : avant 7,7 Ko envoyes a chaque image pendant la recherche, 4 ms pris au jeu)
             val r = lireLot(lot.map { (it + 0x200) to 0x600 }) ?: return null
             for (o in lot) { val b = r[o + 0x200] ?: continue; for (k in 0 until 0x600 step 4) { val p = u32(b, k); if (tas(p)) cand.add(p) } }
         }
         val mods = LinkedHashSet<Long>()
-        for (lot in cand.toList().chunked(56)) {
+        for (lot in cand.toList().chunked(36)) {
             val r = lireLot(lot.map { it to 0x54 }) ?: return null
             for (p in lot) { val b = r[p] ?: continue
                 if (u32(b, 0) == vt) mods.add(p) else { val q = u32(b, 0x50); if (tas(q)) mods.add(q) } }
         }
         class Info(val adr: Long, val data: Long, val os: Long, val pos: FloatArray)
         val infos = ArrayList<Info>()
-        for (lot in mods.toList().chunked(50)) {
+        for (lot in mods.toList().chunked(21)) {
             val r = lireLot(lot.map { it to 0x90 }) ?: return null
             for (q in lot) { val b = r[q] ?: continue
                 if (u32(b, 0) != vt) continue
