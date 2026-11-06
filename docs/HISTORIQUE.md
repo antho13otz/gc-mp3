@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 421 — Tingle Tuner : bouton Bombe dans la vue 3D, cible rose au sol
+- « 💣 Bombe » dans la vue 3D (normale et plein écran) : B sur la GBA, la bombe du Tingle Tuner ; si le curseur est en
+  route, la bombe part à son arrivée. Le pilotage du build 420 marche (vidéo et rapport : « Curseur arrivé », vitesse
+  apprise 156 / 195 unités par image).
+- Le curseur se voit mieux : deux anneaux roses qui respirent et une croix dorée posés au sol, vus à travers le décor.
+
 ## Appli build 420 — Tingle Tuner : pilotage sans L
 - Le rapport suivant (croix droite seule, sans L) montre la carte du Tingle Tuner qui défile (coin de 515 à 527) et le
   curseur du jeu qui suit (x de −125026 à −120339 = 12 points de carte) : le curseur est le coin de la carte affichée
