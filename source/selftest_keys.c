@@ -205,16 +205,23 @@ static void kt_frame(u32 tot, int top, u32 top_us, u32 dsd, u32 dnet) {
     }
     if (kt_sc && kt_si < kt_nsc) { kt_sc_t *s = &kt_sc[kt_si]; if (tot > VID_SLOW_US) s->slow++; if (tot > s->worst_us) s->worst_us = tot; }
 }
+/* v373 : ce qui est reste ouvert (fermes de force : pour savoir quoi corriger) */
+static void kt_open_desc(char *o, int cap) {
+    snprintf(o, cap, "%s%s%s%s%s%s%s%s%s%s", tl_screen ? "outil " : "", menu_open ? "menu START " : "", kb_open ? "clavier " : "",
+             ic_on ? "fenetre ic " : "", sh_on ? "partage " : "", am_open ? "actions " : "", fun_mode != FUN_OFF ? "mini-jeu " : "",
+             gl_detail ? "fiche " : "", gl_launch_sel >= 0 ? "lancer " : "", pv_mode ? "photo/video " : "");
+    if (tl_screen) { char t[16]; snprintf(t, sizeof(t), "(%d) ", tl_screen); strncat(o, t, cap - strlen(o) - 1); }
+}
 /* fin d'une action : pire image, blocages, fermeture */
 static void kt_action_done(int forced) {
     kt_sc_t *s = &kt_sc[kt_si];
     s->acts++; kt_acts++;
     if (kt_aworst >= 50000u) { char b[230]; snprintf(b, sizeof(b), "%s : %u ms (%s)", kt_cur, (unsigned)(kt_aworst / 1000u), kt_aw_why); kt_note(kt_slow, &kt_nslow, kt_aworst / 1000u, b); }
-    if (forced) { s->forced++; kt_forced++; kt_note(kt_stuck, &kt_nstuck, 1, kt_cur); }
+    if (forced) { char b[220], st[100]; kt_open_desc(st, sizeof(st)); snprintf(b, sizeof(b), "%s (reste ouvert : %s)", kt_cur, st); s->forced++; kt_forced++; kt_note(kt_stuck, &kt_nstuck, 1, b); }
     if (sx_blocked != kt_blk0) { char b[150]; s->blocked += sx_blocked - kt_blk0; snprintf(b, sizeof(b), "%s : %s", kt_cur, sx_blk_last); kt_note(kt_blk, &kt_nblk, 1, b); }
 #ifndef GEKKO                                            /* v356 : (simulateur : au fur et a mesure, pour les essais longs) */
     if (kt_aworst >= 50000u) printf("[touches] LENT %u ms : %s (%s)\n", (unsigned)(kt_aworst / 1000u), kt_cur, kt_aw_why);
-    if (forced) printf("[touches] FERME DE FORCE : %s\n", kt_cur);
+    if (forced) { char st[100]; kt_open_desc(st, sizeof(st)); printf("[touches] FERME DE FORCE : %s (reste ouvert : %s)\n", kt_cur, st); }
     if (sx_blocked != kt_blk0) printf("[touches] BLOQUE : %s : %s\n", kt_cur, sx_blk_last);
 #endif
 }
@@ -301,7 +308,8 @@ static void kt_tick(void) {
            pas : pas compte comme ferme de force (on revient de force, sans le compter) */
         int tabmove = s->kind != KS_TAB && tab != kt_tab0;
         /* (v369 : un clavier ouvert avec du texte : B efface une lettre ; Y le ferme) */
-        if (sg != kt_sig0 && !home && !tabmove && kt_rb < 3 && !(s->kind == KS_SAVER || s->kind == KS_PARTY)) { tp_keys |= kb_open ? PAD_BUTTON_Y : PAD_BUTTON_B; kt_rb++; kt_t = n + 260; return; }
+        if (sg != kt_sig0 && !home && !tabmove && kt_rb < (kt_monkey ? 10 : 3) &&   /* (v373 : au hasard, 25 touches : jusqu'a 10 B) */
+            !(s->kind == KS_SAVER || s->kind == KS_PARTY)) { tp_keys |= kb_open ? PAD_BUTTON_Y : PAD_BUTTON_B; kt_rb++; kt_t = n + 260; return; }
         int forced = sg != kt_sig0 && !home && !tabmove && !(s->kind == KS_SAVER || s->kind == KS_PARTY || s->kind == KS_GAME);
         kt_action_done(forced);
         kt_force_home();
