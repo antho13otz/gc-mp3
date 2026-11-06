@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 405 — Tingle Tuner : les mots de la GBA lus pendant l'image même
+- Connectée, la GBA du téléphone ne sortait qu'un mot par image (16 ms) : le jeu trouvait ses messages trop lents,
+  recommençait la connexion en plein message et le message se perdait (« Un instant. » sur l'écran du Tingle Tuner,
+  pour toujours). L'émulateur lit maintenant ses mots dès qu'elle les écrit, pendant l'image (au moins 3000 cycles entre
+  deux, comme un transfert du bus des manettes) : toute la suite part d'un coup dans la file de Pulse. Console inchangée.
+
 ## Appli build 404 — Tingle Tuner : état de ses messages dans le rapport
 - Rapport de la GBA du téléphone : état des 16 messages du programme du Tingle Tuner (libre, en réception, reçu, à
   envoyer, envoi, somme fausse) et nombre de ses messages en attente d'envoi, à chaque changement ; 60 derniers échanges
