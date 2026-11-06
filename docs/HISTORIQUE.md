@@ -24,6 +24,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v375 (build 904) — « Nouveaux jeux lus tout seuls » sans saccades
+
+- Le parcours de la carte SD se fait en fond (avant : dans la boucle de l'écran, saccades).
+- Un jeu ajouté ou enlevé ne fait plus relire toute la liste (avant : environ 3 s figées) : seuls les nouveaux jeux sont lus, les enlevés sont retirés ; jaquettes, bannières et grande image gardées. Plus de 16 nouveaux jeux d'un coup : liste relue entière, comme avant.
+- Les fiches de mes jeux sont refaites en fond (avant : la grande liste, jusqu'à 6 Mo, relue pendant le dessin, environ 0,8 s figée) ; les anciennes restent affichées en attendant.
+- Simulateur : pire image 2980 ms → 76 ms (jeu ajouté), 798 ms → 73 ms (jeu enlevé), comme avec l'option coupée.
+
+## Nouveautés v374 (build 903) — titres des onglets
+
+- Les titres des onglets défilent toujours (avant : coupés avec « Animations (jeux / applis) », réglage prévu pour JEUX / APPS). Aurore : défilement un peu plus lent, pour qu'il se voie.
+
 ## Nouveautés v373 (build 902) — test des touches : la phase au hasard
 
 - Après 25 touches au hasard, le test appuie jusqu'à 10 fois sur B pour revenir (avant : 3, d'où des « fermés de force » qui n'étaient pas des blocages). Un fermé de force dit ce qui est resté ouvert. Rien d'autre ne change.
