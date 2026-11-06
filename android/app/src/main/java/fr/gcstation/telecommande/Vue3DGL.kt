@@ -2610,12 +2610,22 @@ private class ChoixMsaa : GLSurfaceView.EGLConfigChooser {
 object Direct3D {
     var actif by androidx.compose.runtime.mutableStateOf(true)
     var charge = false
+    // (build 436 : ce que la console envoie ; coupe : moins de donnees, moins de temps pris au jeu)
+    var objets by androidx.compose.runtime.mutableStateOf(true)      // Wind Waker : objets et personnages animes (articulations)
+    var voile by androidx.compose.runtime.mutableStateOf(true)       // Wind Waker : la voile du bateau
+    var vagues by androidx.compose.runtime.mutableStateOf(true)      // Wind Waker : le bateau sur les vagues
+    var pilotes by androidx.compose.runtime.mutableStateOf(true)     // Mario Kart : pilotes des autres karts animes
+    var chomp by androidx.compose.runtime.mutableStateOf(true)       // Mario Kart : le Chomp
+    var camera by androidx.compose.runtime.mutableStateOf(true)      // Mario Kart : la camera du jeu (« Vue du jeu »)
 }
 
 @Composable
 fun InterrupteurDirect3D(): Boolean {
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    if (!Direct3D.charge) { Direct3D.actif = ctx.getSharedPreferences("gcs", 0).getBoolean("vue3d_direct", true); Direct3D.charge = true }
+    if (!Direct3D.charge) { val sp = ctx.getSharedPreferences("gcs", 0); Direct3D.actif = sp.getBoolean("vue3d_direct", true)
+        Direct3D.objets = sp.getBoolean("vue3d_objets", true); Direct3D.voile = sp.getBoolean("vue3d_voile", true); Direct3D.vagues = sp.getBoolean("vue3d_vagues", true)
+        Direct3D.pilotes = sp.getBoolean("vue3d_pilotes", true); Direct3D.chomp = sp.getBoolean("vue3d_chomp", true); Direct3D.camera = sp.getBoolean("vue3d_camera", true)
+        Direct3D.charge = true }
     Row(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween) {
         Text("Positions en direct (vue 3D)", color = Color.White, fontSize = 13.sp)
@@ -2638,6 +2648,7 @@ fun InterrupteurDirect3D(): Boolean {
                 color = C.Pale, fontSize = 11.sp)
             androidx.compose.material3.TextButton(onClick = { rapportDirect(ctx) }) { Text("Rapport du direct", color = C.Rose, fontSize = 12.sp) }
         }
+        ChoixDirect3D(ctx)
     }
     return Direct3D.actif
 }
@@ -2649,12 +2660,40 @@ fun rapportDirect(ctx: android.content.Context) {
     sb.append("Appli build ${BuildConfig.VERSION_CODE}\n")
     sb.append("heure ; direct moyen (ms) ; direct pire (ms) ; tout Pulse pire (ms) ; Ko par image ; attente du câble (ms) ; écriture de la file (ms)\n")
     val l = synchronized(MemoireJeu.mesures) { MemoireJeu.mesures.toList() }
-    for ((t, m) in l) sb.append(String.format(java.util.Locale.FRANCE, "%s ; %.2f ; %.2f ; %.2f ; %.1f ; %s ; %s\n", f.format(java.util.Date(t)),
-        m[0] / 1000.0, m[1] / 1000.0, if (m[2] >= 0) m[2] / 1000.0 else Double.NaN, m[3] / 1024.0,
+    for ((t, m) in l) sb.append(String.format(java.util.Locale.FRANCE, "%s ; %.2f ; %.2f ; %s ; %.1f ; %s ; %s\n", f.format(java.util.Date(t)),
+        m[0] / 1000.0, m[1] / 1000.0, if (m[2] >= 0) String.format(java.util.Locale.FRANCE, "%.2f", m[2] / 1000.0) else "-", m[3] / 1024.0,
         if (m.size > 5 && m[4] >= 0) String.format(java.util.Locale.FRANCE, "%.2f", m[4] / 1000.0) else "-",
         if (m.size > 5 && m[5] >= 0) String.format(java.util.Locale.FRANCE, "%.2f", m[5] / 1000.0) else "-"))
     if (l.isEmpty()) sb.append("(aucune mesure : console en v370 ou plus, vue 3D en direct ouverte)\n")
     val i = android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain").putExtra(android.content.Intent.EXTRA_TEXT, sb.toString())
         .putExtra(android.content.Intent.EXTRA_SUBJECT, "GC Remote : rapport du direct")
     ctx.startActivity(android.content.Intent.createChooser(i, "Rapport du direct").addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+}
+
+/** build 436 : ce que la console envoie a la vue 3D, au choix (chaque chose coupee : moins de donnees, moins de temps pris au jeu) */
+@Composable
+fun ChoixDirect3D(ctx: android.content.Context) {
+    var ouvert by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.material3.TextButton(onClick = { ouvert = !ouvert }) {
+        Text(if (ouvert) "Ce que la console envoie ▲" else "Ce que la console envoie ▼", color = C.Rose, fontSize = 12.sp) }
+    if (!ouvert) return
+    Text("Wind Waker", color = C.Pale, fontSize = 11.sp)
+    LigneChoix(ctx, "Objets et personnages animés", "vue3d_objets", Direct3D.objets) { Direct3D.objets = it }
+    LigneChoix(ctx, "La voile du bateau", "vue3d_voile", Direct3D.voile) { Direct3D.voile = it }
+    LigneChoix(ctx, "Le bateau sur les vagues", "vue3d_vagues", Direct3D.vagues) { Direct3D.vagues = it }
+    Text("Mario Kart : Double Dash!!", color = C.Pale, fontSize = 11.sp)
+    LigneChoix(ctx, "Pilotes des autres karts animés", "vue3d_pilotes", Direct3D.pilotes) { Direct3D.pilotes = it }
+    LigneChoix(ctx, "Le Chomp", "vue3d_chomp", Direct3D.chomp) { Direct3D.chomp = it }
+    LigneChoix(ctx, "Caméra du jeu (Vue du jeu)", "vue3d_camera", Direct3D.camera) { Direct3D.camera = it }
+    Text("Coupé : la vue 3D garde la dernière position reçue (sans mouvement) ; le temps pris au jeu baisse.", color = C.Pale, fontSize = 10.sp)
+}
+
+@Composable
+private fun LigneChoix(ctx: android.content.Context, nom: String, cle: String, v: Boolean, set: (Boolean) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = 8.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween) {
+        Text(nom, color = Color.White, fontSize = 12.sp, modifier = Modifier.weight(1f))
+        androidx.compose.material3.Switch(v, { on -> set(on); ctx.getSharedPreferences("gcs", 0).edit().putBoolean(cle, on).apply() },
+            colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = C.Rose, checkedThumbColor = Color.White))
+    }
 }
