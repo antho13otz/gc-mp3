@@ -10,7 +10,7 @@ R=$(pwd); T=$R/tools/natif-test; W=$T/work; mkdir -p $W; cd $W
 python3 $T/uc_patch.py unicorn || (cd unicorn/build && make -j8 >/dev/null)   # (v171 : pour emu_game.py, sans effet sur le reste)
 export UNICORN_DIR=$W/unicorn
 # 1) programme resident (clang, PowerPC 750)
-clang --target=powerpc-none-eabi -mcpu=750 -Os -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -Wall -Wextra -c $R/source/natres/natres.c -o natres.o
+clang --target=powerpc-none-eabi -mcpu=750 -Oz -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -Wall -Wextra -c $R/source/natres/natres.c -o natres.o
 ld.lld -T $R/tools/natres.ld natres.o -o natres.elf
 llvm-objcopy -O binary natres.elf natres.bin
 python3 $R/tools/bin2h.py natres.bin natres_bin.h natres_bin
@@ -21,7 +21,7 @@ python3 $T/emu_gba.py natres.bin natres.elf $R/source/natres/natres.h | tail -1 
 python3 $T/emu_mic.py natres.bin natres.elf $R/source/natres/natres.h | tail -1   # (v332 : micro du telephone : slot B)
 python3 $T/emu_mem.py natres.bin natres.elf $R/source/natres/natres.h | tail -1   # (v306 : chercheur de codes)
 # v359 : Pulse LAN (jeu en reseau local par Internet) : le pont
-clang --target=powerpc-none-eabi -mcpu=750 -Os -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -Wall -Wextra -DNATRES_LAN -c $R/source/natres/natres.c -o natres_lan.o
+clang --target=powerpc-none-eabi -mcpu=750 -Oz -ffreestanding -fno-builtin -nostdlib -fno-pic -msoft-float -Wall -Wextra -DNATRES_LAN -c $R/source/natres/natres.c -o natres_lan.o
 ld.lld -T $R/tools/natres.ld natres_lan.o -o natres_lan.elf && llvm-objcopy -O binary natres_lan.elf natres_lan.bin
 python3 $T/emu_lan.py natres_lan.bin natres_lan.elf $R/source/natres/natres.h | tail -1
 for wp in "0 2" "1 0" "0 0"; do set -- $wp; W_CH=$1 W_DEV=$2 python3 $T/emu_w5500.py natres.bin natres.elf $R/source/natres/natres.h | tail -1; done   # (v327 : ETH2SP1, ETH2GC en B, en A)

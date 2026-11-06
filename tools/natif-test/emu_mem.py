@@ -85,6 +85,10 @@ def io_write(uc, off, size, value, data):
     exi[ch][reg] = value
     if ch == 0 and reg == 0 and not (value & 0x200): bba.st = None
     if ch == 0 and reg == 3 and value & 1:
+        if value & 2 and (value >> 2) & 3 == 1:          # (v371 : DMA en ecriture : le direct, par la file d'envoi)
+            data = bytes(uc.mem_read(0x80000000 | (exi[0][1] & 0x01FFFFE0), exi[0][2]))
+            for k in range(0, len(data), 4): bba.put(int.from_bytes(data[k:k + 4], 'big'), 4)
+            exi[0][3] = value & ~1; return
         n = ((value >> 4) & 3) + 1
         if (value >> 2) & 3 == 1: bba.put(exi[0][4], n)
         else: exi[0][4] = bba.get(n)
