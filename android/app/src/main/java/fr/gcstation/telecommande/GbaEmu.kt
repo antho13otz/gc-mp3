@@ -78,6 +78,12 @@ object GbaEmu {
     val ecran: Bitmap = Bitmap.createBitmap(W, H, Bitmap.Config.ARGB_8888)
 
     @Volatile var touches = 0
+    // build 410 : recherche du curseur du Tingle Tuner dans la memoire de la GBA : l'appli appuie elle-meme 2 fois a droite
+    // puis 2 fois en bas, photographie la memoire (IWRAM 32 Ko + EWRAM 256 Ko) entre chaque, et garde ce qui bouge comme un
+    // curseur (meme pas a chaque appui, seulement dans un sens). Resultat dans le rapport
+    @Volatile var chercheDemande = false
+    @Volatile var chercheTexte = ""
+    @Volatile var chercheEnCours = false
     fun appui(bit: Int, bas: Boolean) { touches = if (bas) touches or (1 shl bit) else touches and (1 shl bit).inv() }
 
     // relais (lu par le fil reseau de GbaTel)
@@ -129,6 +135,28 @@ object GbaEmu {
     @Volatile private var fil: Thread? = null
     @Volatile private var stop = false
 
+    /** build 410 : memoire de la GBA en mots de 32 bits : IWRAM (0x03000000, 32 Ko) puis EWRAM (0x02000000, 256 Ko) */
+    private fun photoGba(): IntArray {
+        val t = IntArray(0x2000 + 0x10000)
+        for (i in 0 until 0x2000) t[i] = GbaNatif.mem32(0x03000000 + 4 * i)
+        for (i in 0 until 0x10000) t[0x2000 + i] = GbaNatif.mem32(0x02000000 + 4 * i)
+        return t
+    }
+    private fun adrGba(i: Int, demi: Int): Int = (if (i < 0x2000) 0x03000000 + 4 * i else 0x02000000 + 4 * (i - 0x2000)) + 2 * demi
+    /** ce qui bouge comme un curseur : meme pas a chaque appui a droite et rien en bas (x), ou l'inverse (y) ; 16 bits */
+    private fun analyseCurseur(s: Array<IntArray?>): String {
+        val a = s.map { it!! }
+        val x = StringBuilder(); val y = StringBuilder(); var nx = 0; var ny = 0
+        for (i in a[0].indices) for (h in 0..1) {
+            fun v(k: Int): Int = ((a[k][i] ushr (16 * h)) and 0xFFFF).toShort().toInt()
+            val d1 = v(1) - v(0); val d2 = v(2) - v(1); val d3 = v(3) - v(2); val d4 = v(4) - v(3)
+            val l = "  %08X : %d %d %d %d %d\n".format(adrGba(i, h), v(0), v(1), v(2), v(3), v(4))
+            if (d1 != 0 && d1 == d2 && d3 == 0 && d4 == 0) { nx++; if (nx <= 20) x.append(l) }
+            if (d1 == 0 && d2 == 0 && d3 != 0 && d3 == d4) { ny++; if (ny <= 20) y.append(l) }
+        }
+        return "droite (x ?) : $nx candidats\n$x" + "bas (y ?) : $ny candidats\n$y"
+    }
+
     fun demarrer(programme: ByteArray) {
         arreter()
         if (!GbaNatif.pret) { message = "Émulateur GBA absent de cette version de l'appli"; return }
@@ -175,6 +203,8 @@ object GbaEmu {
         var etatTT = -1                                    // (build 401 : etat du lien du Tingle Tuner, pour le rapport)
         var echoTT = false                                 // (build 402 : le Tingle Tuner vient de se connecter : son echo, deja donne par Pulse)
         var dernierMot = -1L                               // (build 402 : dernier mot du jeu donne a la GBA)
+        var ch = -1; var chImg = 0                          // (build 410 : recherche du curseur : phase, images dans la phase)
+        val snaps = arrayOfNulls<IntArray>(5)
         var etatsTT = ""                                   // (build 404 : etat des 16 messages du Tingle Tuner (0x03005330))
         var nApres = 0
         var imgBoot = -1
@@ -231,7 +261,20 @@ object GbaEmu {
                 // build 405 : Tingle Tuner connecte : ses mots lus pendant l'image meme (toute une suite d'un coup, pour la file)
                 val rafale = (codeJeu and 0xFFFFFFL) == 0x4C5A47L && etatTT >= 0 && etatTT and 0x0E == 0x08 && !attenteLu && file.size < 64
                 GbaNatif.lectureAuto(rafale)
-                GbaNatif.image(touches, px, son, mots, n, res)
+                var auto = 0                                // (build 410 : recherche du curseur : touches appuyees par l'appli)
+                if (chercheDemande) { chercheDemande = false; ch = 0; chImg = 0; chercheEnCours = true; chercheTexte = "recherche en cours…" }
+                if (ch >= 0) {
+                    if (ch == 0) { snaps[0] = photoGba(); ch = 1; chImg = 0 }
+                    else {
+                        chImg++
+                        if (chImg <= 20) auto = if (ch <= 2) 0x10 else 0x80            // (20 images : droite, puis bas)
+                        else if (chImg >= 40) {
+                            snaps[ch] = photoGba(); ch++; chImg = 0
+                            if (ch == 5) { chercheTexte = analyseCurseur(snaps); ch = -1; chercheEnCours = false }
+                        }
+                    }
+                }
+                GbaNatif.image(touches or auto, px, son, mots, n, res)
                 GbaNatif.lectureAuto(false)
                 run {
                     val ns = GbaNatif.sorties(sortiesBuf)
