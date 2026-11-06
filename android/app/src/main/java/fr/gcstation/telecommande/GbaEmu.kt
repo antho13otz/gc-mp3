@@ -101,6 +101,10 @@ object GbaEmu {
     private val derniers = ArrayDeque<String>()             // (fil de l'emulateur : les 12 derniers echanges avec la GBA)
     private fun trace(t: String) { derniers.addLast(t); while (derniers.size > 12) derniers.removeFirst(); traceTexte = derniers.joinToString("\n") }
     @Volatile var traceTexte = ""                          // (build 401 : les derniers echanges, pour le rapport)
+    // build 403 (console v365) : Tingle Tuner connecte : mots de la GBA lus ici, envoyes d'un coup a Pulse qui les garde en
+    // file pour le jeu (numero 1-255 << 32 | mot) ; retires quand Pulse dit que le jeu les a lus
+    val file = java.util.concurrent.ConcurrentLinkedDeque<Long>()
+    fun fileAEnvoyer(): List<Long> = file.take(32)
     private fun evt(t: String) {
         val h = java.text.SimpleDateFormat("HH:mm:ss.SSS", java.util.Locale.FRANCE).format(java.util.Date())
         evts.addLast("$h $t\n      avant : " + derniers.joinToString(" | ")); while (evts.size > 20) evts.removeFirst()
@@ -115,7 +119,7 @@ object GbaEmu {
     fun demarrer(programme: ByteArray) {
         arreter()
         if (!GbaNatif.pret) { message = "Émulateur GBA absent de cette version de l'appli"; return }
-        entrees.clear(); evts.clear(); resetsVus = 0; transId = 0; transVal = 0; luPret = false; drapeaux = 0; tidLuPulse = 0; nRecus = 0; nEnvoyes = 0; nAvales = 0
+        entrees.clear(); evts.clear(); file.clear(); resetsVus = 0; transId = 0; transVal = 0; luPret = false; drapeaux = 0; tidLuPulse = 0; nRecus = 0; nEnvoyes = 0; nAvales = 0
         stop = false
         fil = Thread({ boucle(programme) }, "gba-emu").apply { isDaemon = true; start() }
     }
@@ -165,6 +169,10 @@ object GbaEmu {
         try {
             while (!stop) {
                 // la GBA apprend que le jeu a lu son JOY_TRANS
+                run {                                      // (build 403 : mots de la file lus par le jeu : retires)
+                    val lp = tidLuPulse
+                    if (lp > 0 && file.any { (it ushr 32).toInt() == lp }) while (true) { val h = file.pollFirst() ?: break; if ((h ushr 32).toInt() == lp) break }
+                }
                 if (attenteLu && tidLuPulse == numero) { trace("lu par le jeu %08X".format(transVal)); GbaNatif.joy(0x14, d); attenteLu = false; transId = 0; nEnvoyes++ }
                 val rp = resetsPulse
                 // build 391 : pas de remise a zero pendant le debut du programme (il attend JOYCNT = 2 exactement : avec la
@@ -180,7 +188,7 @@ object GbaEmu {
                 val razAttend = rp != resetsFaits && bootFini && avant == 0
                 if (razAttend) attenteRaz++ else attenteRaz = 0
                 if (razAttend && (joycnt and 0x40 != 0 || attenteRaz > 60)) {          // (build 387 : remise a zero par le jeu : a la GBA ; son JOY_TRANS d'avant est perime)
-                    trace("remise à zéro (JOYCNT %02X)".format(joycnt)); GbaNatif.joy(0xFF, d); resetsFaits = rp; attenteLu = false; transId = 0; apresReset = true; nApres = 0
+                    trace("remise à zéro (JOYCNT %02X)".format(joycnt)); file.clear(); GbaNatif.joy(0xFF, d); resetsFaits = rp; attenteLu = false; transId = 0; apresReset = true; nApres = 0
                 }
                 val razEnAttente = rp != resetsFaits && bootFini && avant == 0
                 // build 393 : le programme GBA de Rayman 3 se deconnecte apres 10 images sans echange sur le cable (son compteur :
@@ -254,6 +262,11 @@ object GbaEmu {
                 } else if (!attenteLu && js and 0x08 != 0 && aAvaler.remove(tv)) {   // (build 381 : deja donne au jeu par Pulse)
                     GbaNatif.joy(0x14, d); nAvales++
                     if (tv == codeJeu) { codeLu = true; GbaNatif.regs(r); joycnt = r[3] }   // (build 386 : JOYCNT relu apres la lecture : 4)
+                } else if (!attenteLu && js and 0x08 != 0 && drap == 0x30 && (codeJeu and 0xFFFFFFL) == 0x4C5A47L && etatTT >= 0 && etatTT and 0x0E == 0x08 && file.size < 32) {
+                    // build 403 : Tingle Tuner connecte : lu ici tout de suite (la GBA passe au mot suivant), envoye a la file de Pulse
+                    numero = numero % 255 + 1
+                    file.add(numero.toLong() shl 32 or tv); GbaNatif.joy(0x14, d); nEnvoyes++
+                    trace("GBA écrit %08X (file : %d)".format(tv, file.size)); GbaNatif.regs(r); joycnt = r[3]
                 } else if (!attenteLu && js and 0x08 != 0 && drap != 0) {      // (la GBA a ecrit JOY_TRANS : pour le jeu)
                     transVal = tv
                     numero = numero % 255 + 1; transId = numero
