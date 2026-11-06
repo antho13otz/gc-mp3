@@ -2314,6 +2314,12 @@ internal fun journalBug(ctx: android.content.Context, scene: SceneR3, etat: Etat
             e.append("camera : lacet ").append(etat.lacet).append(" tangage ").append(etat.tangage).append(" distance ").append(etat.dist)
                 .append(" cible ").append(Journal3D.v(*etat.cible)).append(" decalage ").append(Journal3D.v(*etat.decal)).append(" direct ").append(etat.direct).append('\n')
             e.append("Mario Kart : direct de Pulse ").append(JeuMKDD.direct()).append(", karts ").append(JeuMKDD.kbs.size).append('\n')
+            try { e.append(JeuWW.diagDirect()) } catch (x: Exception) { }      // (build 445)
+            run { val mods = scene.animes?.modeles?.size ?: -1                 // (build 445 : pack du lieu : objets animes, bibliotheque)
+                val fv = java.io.File(d, scene.niveau.lowercase() + "_vif.r3p"); val fa = java.io.File(d, scene.niveau.lowercase() + "_ani.r3a")
+                val nv = try { if (fv.exists()) fv.inputStream().use { i -> val h = ByteArray(8); i.read(h); (h[4].toInt() and 255) or ((h[5].toInt() and 255) shl 8) } else -1 } catch (x: Exception) { -1 }
+                e.append("pack du lieu : ").append(mods).append(" objets animes, bibliotheque ").append(nv).append(" modeles (")
+                 .append(fa.length()).append(" / ").append(fv.length()).append(" octets)\n") }
             e.append("packs (fichiers du dossier) : ").append(packs).append('\n')
             val u = Journal3D.enregistrer(ctx, bmp, e.toString())
             principal.post {
