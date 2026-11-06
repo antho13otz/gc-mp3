@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 414 — Tingle Tuner : message de la GBA sans réponse libéré
+- Une case de message de la GBA (la n°4, sans doute la croix et le curseur) restait « envoyé, en attente de la réponse du
+  jeu » pour toujours quand une reconnexion du jeu perdait l'échange : le curseur ne bougeait plus. Sans réponse en 1 s,
+  la case est libérée (comme si le jeu avait répondu « lu ») et le programme y remet son message suivant (rapport :
+  « message N relancé »).
+
 ## Appli builds 412 et 413 — passer de la GBA à la vue 3D en plein écran ; recherche du curseur assouplie
 - **412** : en plein écran, « 🗺 Vue 3D » sur l'écran de la GBA ouvre la vue 3D du compagnon en plein écran, et « 🎮 GBA »
   dans la vue 3D revient à l'écran de la GBA (Tingle Tuner : rester sur l'un ou l'autre).
