@@ -24,6 +24,17 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v369 (build 895) — corrections du test des touches de 3 h
+
+- Test des touches de 3 h (AddressSanitizer) : aucune erreur de mémoire, aucun plantage, 0,07 % d'images ratées, 14 Mo de mémoire libre en plus à la fin.
+- Outil Succès : le fichier des succès obtenus est lu une fois à l'ouverture (avant : relu pour chaque succès, 180 ms).
+- Z « par Internet » bloqué pendant le test des touches, comme A et X.
+- Test des touches : Z / L / R depuis un écran ouvert ne comptent plus comme « fermés de force » ; un clavier avec du texte est refermé avec Y. Rapport : mémoire prise dans un écran et rendue ailleurs plus marquée « fuite ? » quand la mémoire libre n'a pas baissé.
+
+## Nouveautés v368 (build 894) — animations coupées : icônes des mini-jeux immobiles
+
+- Avec START > « Animations (jeux / applis) » sur Non, les icônes du menu des mini-jeux ne bougent plus.
+
 ## Appli build 429 — packs Wind Waker : une mise à jour sans lieu n'est plus « rien d'installable »
 - Le zip de la voile (ww_voile.png seul) était bien installé, mais seuls les lieux (.r3v) étaient comptés : le message
   disait « Rien d'installable ». Chaque fichier installé compte maintenant.
