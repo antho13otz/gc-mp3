@@ -456,7 +456,7 @@ static void nat_write_report(const nat_info_t *in, const char *path, char *out, 
 static int na_lan = 0;                        /* v359 : ce lancement avec Pulse LAN (le pont vers l'ami du Salon par Internet) */
 static u32 na_lan_peer = 0, na_lan_room = 0;     /* (v359 : l'ami, et la partie : SHA-256 du code du Salon par Internet) */
 static const u8 *na_rb(void) { return na_lan ? natres_lan_bin : natres_bin; }
-static u32 na_rl(void) { return na_lan ? (u32)sizeof(natres_lan_bin) : (u32)na_rl(); }
+static u32 na_rl(void) { return na_lan ? (u32)sizeof(natres_lan_bin) : (u32)sizeof(natres_bin); }   /* (v361 : sans Pulse LAN, la taille de Pulse : v359 s'appelait elle-meme) */
 
 static natres_ext_t na_ext[NATRES_MAXEXT];
 static u32 na_next = 0;
