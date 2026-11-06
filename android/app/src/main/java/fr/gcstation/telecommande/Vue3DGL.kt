@@ -383,6 +383,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     // build 245 : ambiance, eau animee, objets
     private val amb = Ambiance.pour(scene.niveau); private val t0 = System.nanoTime()
     private var uVentL = 0; private var uMulL = 0
+    private var uVagueL = -1; private var uOndeL = -1
     private var uChaudL = 0; private var uEauL = 0; private var uTL = 0; private var uBrumeL = 0; private var uBrumePL = 0; private var uTeinteL = 0
     private var progO = 0
     private val objBuf = HashMap<Char, FloatBuffer>()
@@ -536,14 +537,6 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         return vboVif[i] to b
     }
     /** matrice 3 x 4 du jeu (y vers le haut, par lignes) -> matrice 4 x 4 de l'appli (x, -z, y ; 1/100), par colonnes */
-    /** build 425 : la mer de la vue est plate : ce qui est a moins de [rayon] (unites du jeu) du bateau perd l'ecart de
-     *  hauteur du a la vague (le bateau et Link a bord restent sur l'eau) */
-    private fun sansVague(mvp: FloatArray, x: Float, z: Float, rayon: Float): FloatArray {
-        val v = etat.vagueWW ?: return mvp
-        if (x.isNaN() || (x - v[0]) * (x - v[0]) + (z - v[1]) * (z - v[1]) > rayon * rayon || Math.abs(v[2]) > 1500f) return mvp
-        val t = FloatArray(16); android.opengl.Matrix.setIdentityM(t, 0); t[14] = -v[2] * 0.01f
-        val r = FloatArray(16); android.opengl.Matrix.multiplyMM(r, 0, mvp, 0, t, 0); return r
-    }
     private fun matriceAppli(g: FloatArray, o: Int, m: FloatArray) {
         val q = arrayOf(intArrayOf(0, 1), intArrayOf(2, -1), intArrayOf(1, 1))     // (ligne i de Q : 1 en colonne q[i][0], signe q[i][1])
         for (i in 0..2) for (j in 0..2) m[j * 4 + i] = g[o + q[i][0] * 4 + q[j][0]] * q[i][1] * q[j][1]
@@ -560,9 +553,18 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
     override fun onSurfaceCreated(gl: GL10?, config: EGLConfig?) {
         prog = programme("""
             uniform mat4 uMvp; uniform vec3 uCam; uniform float uT; uniform float uEau; uniform vec2 uDefil; uniform float uVent;
+            uniform vec4 uVague; uniform float uOnde;
             attribute vec3 aPos; attribute vec2 aUv; attribute vec4 aCol; attribute vec2 aUvL;
             varying vec2 vUv; varying vec2 vUv2; varying vec4 vCol; varying vec3 vD; varying vec2 vUvL;
             void main() { vec3 p = aPos;
+                // build 426 : vagues : la surface de la mer (son maillage, ~11 m entre les points) ondule autour du bateau
+                // (uVague : centre x, y, ecart de hauteur du bateau au meme instant, rayon ; repere de l'appli) : elle monte et
+                // descend avec lui, plus une houle lente qui glisse (nulle contre le bateau) ; plus rien au-dela du rayon
+                if (uOnde > 0.5 && uVague.w > 0.0) { float r = distance(p.xy, uVague.xy);
+                    float bord = 1.0 - smoothstep(uVague.w * 0.5, uVague.w, r);
+                    float h = uVague.z * exp(-r * r / 420.0)
+                        + (0.30 * sin(p.x * 0.11 + p.y * 0.05 - uT * 0.9) + 0.18 * sin(p.y * 0.09 - p.x * 0.04 - uT * 1.3)) * smoothstep(4.0, 16.0, r);
+                    p.z += h * bord; }
                 // build 356 : herbe : le haut de la touffe ondule au vent (2e coordonnees : hauteur relative, phase)
                 if (uVent > 0.5) { float o = sin(uT * 1.9 + aUvL.y) * 0.07 * aUvL.x * aUvL.x; p.x += o; p.y += o * 0.7; }
                 gl_Position = uMvp * vec4(p, 1.0); vCol = aCol; vUvL = aUvL;
@@ -599,6 +601,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         uAvecTex = GLES20.glGetUniformLocation(prog, "uAvecTex"); uCam = GLES20.glGetUniformLocation(prog, "uCam")
         uSeuil = GLES20.glGetUniformLocation(prog, "uSeuil")
         uEauL = GLES20.glGetUniformLocation(prog, "uEau"); uTL = GLES20.glGetUniformLocation(prog, "uT")
+        uVagueL = GLES20.glGetUniformLocation(prog, "uVague"); uOndeL = GLES20.glGetUniformLocation(prog, "uOnde")
         uVentL = GLES20.glGetUniformLocation(prog, "uVent"); uMulL = GLES20.glGetUniformLocation(prog, "uMul")
         uBrumeL = GLES20.glGetUniformLocation(prog, "uBrume"); uBrumePL = GLES20.glGetUniformLocation(prog, "uBrumeP"); uTeinteL = GLES20.glGetUniformLocation(prog, "uTeinteEau"); uChaudL = GLES20.glGetUniformLocation(prog, "uChaud")
         // ciel : un degrade plein ecran dessine avant le niveau
@@ -1051,7 +1054,15 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         val n = sq.size / 4; val i = ((tSec * g.coulIps + phase * n).toLong() % n).toInt() * 4
         GLES20.glUniform4f(uMulL, sq[i], sq[i + 1], sq[i + 2], sq[i + 3])
     }
-    private fun dessinerGroupe(g: SceneR3.Groupe, buf: Int, tSec: Double) {
+    // build 426 : groupes de la surface de la mer (transparents, a plat au niveau de l'eau, maillage fin) : ils ondulent
+    private var ondes: BooleanArray? = null
+    private fun estOnde(i: Int, g: SceneR3.Groupe): Boolean {
+        val o = ondes ?: BooleanArray(scene.groupes.size) { k -> val x = scene.groupes[k]; val ne = scene.niveauEau
+            !ne.isNaN() && x.mode == 2 && x.n >= 600 && listOf(0, x.n / 2, x.n - 1).all { v -> Math.abs(x.sommets.getFloat(v * x.pas + 8) - ne) < 0.1f } }.also { ondes = it }
+        return i < o.size && o[i]
+    }
+    private fun dessinerGroupe(g: SceneR3.Groupe, buf: Int, tSec: Double, onde: Boolean = false) {
+        GLES20.glUniform1f(uOndeL, if (onde) 1f else 0f)
         GLES20.glUniform1f(uEauL, g.eau.toFloat()); GLES20.glUniform1f(uChaudL, if (g.chaud) 1f else 0f)
         GLES20.glUniform1f(uVentL, if (g.vent) 1f else 0f); couleurDuMoment(g, tSec)
         val t = textures[texDuMoment(g, tSec)]
@@ -1817,7 +1828,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         for (passe in 0..3) {                             // opaque, decoupe, transparent, lumiere (additive)
             // build 349 : Link de Wind Waker avant l'eau et les transparents : sous la surface, on le voit a travers la mer
             if (passe == 2 && etat.montrerRayman && etat.linkWW != null) {
-                linkFait = dessinerLinkWW(sansVague(mvp, JeuWW.posDirect()?.let { it[0] } ?: Float.NaN, JeuWW.posDirect()?.let { it[2] } ?: Float.NaN, 600f), c0)
+                linkFait = dessinerLinkWW(mvp, c0)
                 GLES20.glUseProgram(prog); GLES20.glUniformMatrix4fv(uMvp, 1, false, mvp, 0)
                 GLES20.glEnableVertexAttribArray(aPos); GLES20.glEnableVertexAttribArray(aUv); GLES20.glEnableVertexAttribArray(aCol)
             }
@@ -1827,10 +1838,15 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 2 -> { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE_MINUS_SRC_ALPHA); GLES20.glDepthMask(false); GLES20.glUniform1f(uSeuil, 0.02f) }
                 3 -> { GLES20.glEnable(GLES20.GL_BLEND); GLES20.glBlendFunc(GLES20.GL_SRC_ALPHA, GLES20.GL_ONE); GLES20.glDepthMask(false); GLES20.glUniform1f(uSeuil, 0.02f) }
             }
+            if (passe == 0) {                                 // (build 426 : vagues autour du bateau, voir le shader)
+                val vg = etat.vagueWW; val cb = vg?.let { CartesWW.pos(it[0], 0f, it[1]) }
+                if (vg != null && cb != null) GLES20.glUniform4f(uVagueL, cb[0], cb[1], vg[2] * 0.01f, 90f) else GLES20.glUniform4f(uVagueL, 0f, 0f, 0f, 0f)
+            }
             for ((i, g) in scene.groupes.withIndex()) {
                 if (i >= vbo.size || g.mode != passe) continue
-                dessinerGroupe(g, vbo[i], tSec)
+                dessinerGroupe(g, vbo[i], tSec, passe == 2 && estOnde(i, g))
             }
+            GLES20.glUniform1f(uOndeL, 0f)
             // build 332 : les objets qui bougent (Mario Kart) : leur matrice a ce moment, puis leurs groupes
             val mo = scene.mobiles
             if (mo != null) for (o in mo.objets) {
@@ -1889,7 +1905,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 // donnee par le jeu (objets plus loin)
                 val vp = etat.vifsWW
                 if (vp != null) for ((vi, v) in vp.withIndex()) {
-                    val mvpV = if (v.m.size >= 12) sansVague(mvp, v.m[3], v.m[11], 450f) else mvp   // (build 425 : bateau calme)
+                    val mvpV = mvp   // (build 426 : le bateau garde ses montees et descentes : c'est la mer qui ondule)
                     val md = ani.modeles.getOrNull(v.modele) ?: continue
                     if (md.groupes.none { it.mode == passe } || md.images == 0) continue
                     // (build 369 : objets suivis par leur seule position (plus loin) : leur animation du pack, plus leur image

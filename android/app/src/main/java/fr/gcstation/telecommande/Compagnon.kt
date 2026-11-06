@@ -155,7 +155,8 @@ object JeuWW {
     /** A chaque image du jeu, Pulse envoie : les 42 matrices de Link (2016 octets), sa position (12) et la camera (+0xD0 a
      *  +0xFC : angle, rapport, oeil, point vise, haut : 48 octets). L'appli garde les images et les rejoue avec un petit retard
      *  fixe, en glissant d'une pose a la suivante : plus d'a-coups dus au Wi-Fi ni a la lecture bloc par bloc. */
-    class ImageWW(val img: Long, val t: Long, val os: FloatArray, val pos: FloatArray, val cam: FloatArray?, val dispo: Int = 0, val vif: FloatArray? = null)
+    class ImageWW(val img: Long, val t: Long, val os: FloatArray, val pos: FloatArray, val cam: FloatArray?, val dispo: Int = 0, val vif: FloatArray? = null,
+                  val bat: FloatArray? = null)          // (build 426 : x, hauteur, z du bateau a cette image)
     private val imagesWW = ArrayDeque<ImageWW>()
     @Volatile private var adrWW = LongArray(0); private var adrT = 0L; private var abonneWW = 0L
     @Volatile private var fluxWW = 0L
@@ -179,9 +180,11 @@ object JeuWW {
     @Volatile private var bateauVu = 0L
     @Volatile private var bateauPos: FloatArray? = null; @Volatile private var bateauMoy = Float.NaN; @Volatile private var tBateau = 0L
     /** x, z du bateau et ecart de sa hauteur a sa moyenne (unites du jeu) ; null sans bateau en direct */
-    fun vague(): FloatArray? { val p = bateauPos ?: return null
+    fun vague(): FloatArray? { val p = vagueRejouee ?: bateauPos ?: return null
         if (System.nanoTime() - tBateau > 1_000_000_000L || bateauVu == 0L || bateauMoy.isNaN()) return null
         return floatArrayOf(p[0], p[2], p[1] - bateauMoy) }
+    // (build 426 : la hauteur du bateau rejouee comme Link et les objets : meme retard, glissee entre deux images)
+    @Volatile private var vagueRejouee: FloatArray? = null
     fun curseurTT(): FloatArray? = curseurPos?.takeIf { System.nanoTime() - tCurseur < 1_000_000_000L && agbVu != 0L }
     /** build 415 : derniere position de Link recue en direct (null sans direct) */
     @Synchronized fun posDirect(): FloatArray? = if (directWW()) imagesWW.lastOrNull()?.pos?.copyOf() else null
@@ -412,8 +415,9 @@ object JeuWW {
         val os = FloatArray(42 * 12) { fl(d, 4 * it) }
         if (!os.all { it.isFinite() && Math.abs(it) < 1e7f }) return
         val pos = FloatArray(3) { fl(d, 42 * 48 + 4 * it) }
+        var batImg: FloatArray? = null
         if (dp.bateau != 0L) { val q = 42 * 48 + 12 + (if (avecCam) 48 else 0) + (if (dp.agb != 0L) 12 else 0); val bp = FloatArray(3) { fl(d, q + 4 * it) }
-            if (bp.all { it.isFinite() && Math.abs(it) < 1e6f }) {
+            if (bp.all { it.isFinite() && Math.abs(it) < 1e6f }) { batImg = bp
                 bateauMoy = if (bateauMoy.isNaN() || Math.abs(bp[1] - bateauMoy) > 2000f) bp[1] else bateauMoy + (bp[1] - bateauMoy) * 0.015f
                 bateauPos = bp; tBateau = System.nanoTime() } }
         if (dp.agb != 0L) { val q = 42 * 48 + 12 + (if (avecCam) 48 else 0); val cu = FloatArray(3) { fl(d, q + 4 * it) }
@@ -428,7 +432,7 @@ object JeuWW {
         val dern = imagesWW.lastOrNull()
         if (dern != null && dern.os.contentEquals(os) && (vif == null || dern.vif?.contentEquals(vif) == true)) { fluxWW = t; return }
         if (dern != null && (img <= dern.img || img - dern.img > 600)) { if (img + 600 < dern.img || img - dern.img > 600) { imagesWW.clear(); arriveesWW.clear() } else return }
-        imagesWW.addLast(ImageWW(img, t, os, pos, cam, dp.id, vif)); while (imagesWW.size > 32) imagesWW.removeFirst()
+        imagesWW.addLast(ImageWW(img, t, os, pos, cam, dp.id, vif, batImg)); while (imagesWW.size > 32) imagesWW.removeFirst()
         arriveesWW.addLast(img to t); while (arriveesWW.size > 2 && t - arriveesWW.first().second > 3_000_000_000L) arriveesWW.removeFirst()
         if (arriveesWW.size >= 10) { val p0 = arriveesWW.first(); val di = img - p0.first
             if (di > 10) { val ns = (t - p0.second).toDouble() / di; if (ns in 12_000_000.0..25_000_000.0) nsImg = nsImg * 0.9 + ns * 0.1 } }
@@ -467,6 +471,7 @@ object JeuWW {
             }
             out
         }
+        vagueRejouee = a.bat?.let { mix(it, b.bat) }
         return Triple(os, mix(a.pos, b.pos), cam)
     }
     /** camera du direct -> matrice de vue (3 x 4) + angle, comme cameraJeu */
