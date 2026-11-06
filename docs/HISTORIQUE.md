@@ -24,6 +24,15 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli builds 425 et 426 — vue 3D de Wind Waker : le bateau sur une mer qui ondule
+- 425 : le bateau (acteur 0xA7, dComIfG_gameInfo + 0x5B54) monte et descend avec les vagues du jeu, la mer de la vue est
+  plate : il passait au-dessus puis à travers l'eau. Sa hauteur est lue avec Link ; l'écart à sa moyenne lui était retiré
+  (et à Link à bord).
+- 426 (à la demande : vagues plutôt que bateau plaqué) : le bateau garde ses montées et descentes ; la surface de la mer
+  (ses groupes transparents à plat au niveau de l'eau, maillage de 11 à 25 m) ondule autour de lui, au même instant
+  (hauteur du bateau rejouée comme Link : même retard, glissée entre deux images), plus une houle lente jusqu'à 90 m.
+  Couleur et texture de l'eau inchangées.
+
 ## Appli build 424 — vue 3D de Wind Waker : bombes vraiment suivies, objets qui apparaissent en jeu ; pack avec les ennemis de la mer
 - La 423 ne voyait aucune bombe : le lecteur de la boucle du direct n'a que 4 blocs de 1 Ko par passage, déjà pris par
   Link, la caméra et le curseur. Les nouveaux objets ont leur propre lecteur (24 blocs) ; la liste des acteurs est remontée
