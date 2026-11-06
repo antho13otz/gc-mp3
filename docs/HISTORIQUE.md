@@ -24,6 +24,14 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli builds 410 et 411 — recherche du curseur du Tingle Tuner, plein écran pour de bon
+- **410** : bouton « Chercher le curseur (écran de la carte) » sous l'écran de la GBA : l'appli appuie elle-même 2 fois à
+  droite puis 2 fois en bas, photographie la mémoire de la GBA (IWRAM et EWRAM) entre chaque et garde les valeurs qui
+  bougent comme un curseur (rapport). Première étape pour relier le Tingle Tuner à la vue 3D.
+- **411** : le plein écran (vue 3D, GBA) n'est plus une fenêtre de dialogue, que certains téléphones limitent à la zone
+  de l'appli (en largeur : une bande à droite et en bas, même après le 407), mais une couche dessinée par l'activité
+  par-dessus toute l'appli, barres d'Android cachées, sous l'encoche ; retour pour sortir.
+
 ## Appli build 409 — Tingle Tuner : plus de coupure en attendant la carte
 - Connecté, le programme du Tingle Tuner attend la carte du jeu (son message 0) au plus 2 s (120 images), puis coupe le
   lien (« Connexion impossible avec la NINTENDO GAMECUBE »). Par le Wi-Fi, le jeu la donne parfois plus tard : ça marchait
