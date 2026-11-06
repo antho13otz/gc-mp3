@@ -436,8 +436,7 @@ private fun ImageGba(modifier: Modifier) {
  *  ✕ ou retour : sortir */
 @Composable
 private fun PleinEcranGba(fermer: () -> Unit) {
-    androidx.compose.ui.window.Dialog(fermer, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
-        FenetrePleinEcran()                               // (build 407 : reglage commun, refait a chaque rotation : PleinEcran.kt)
+    PleinEcranCouche(fermer) {                            // (build 411 : couche de l'activite, plus une fenetre de dialogue)
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
             val largeur = maxWidth > maxHeight
             // build 408 : l'image prend tout l'ecran sans etre deformee (bandes noires si besoin), boutons par-dessus, transparents
