@@ -165,6 +165,10 @@ object JeuWW {
     @Volatile private var fluxWW = 0L
     private var fImg = -1L; private var fPrt: Array<ByteArray?> = arrayOfNulls(0)
     private var nsImg = 16_683_333.0; private var origineWW = Double.NaN
+    // build 449 : retard du rejeu appris sur le Wi-Fi (images en retard des 3 dernieres secondes), et mouvement prolonge
+    // quand une image tarde (avant : tout s'arretait jusqu'a la suivante)
+    @Volatile private var retardCible = 6.0; private var retardWW = 6.0
+    @Volatile var prolongees = 0L; @Volatile var rejeuxWW = 0L; private var imgRecue = 0L
     private val arriveesWW = ArrayDeque<Pair<Long, Long>>()
     fun directWW(): Boolean = System.nanoTime() - fluxWW < 500_000_000L
     // build 417 : le curseur du Tingle Tuner dans le monde. Le jeu a un acteur « Agb » (proc 0x1B5, modele agbcursor) dont la
@@ -541,8 +545,8 @@ object JeuWW {
         val t = System.nanoTime()
         // (le jeu calcule Link a son propre rythme : une image identique a la precedente ne sert pas de point de passage)
         val dern = imagesWW.lastOrNull()
-        if (dern != null && dern.os.contentEquals(os) && (vif == null || dern.vif?.contentEquals(vif) == true)) { fluxWW = t; return }
-        if (dern != null && (img <= dern.img || img - dern.img > 600)) { if (img + 600 < dern.img || img - dern.img > 600) { imagesWW.clear(); arriveesWW.clear() } else return }
+        if (dern != null && dern.os.contentEquals(os) && (vif == null || dern.vif?.contentEquals(vif) == true)) { fluxWW = t; if (img > imgRecue) imgRecue = img; return }   // (449 : arrete : rien a prolonger)
+        if (dern != null && (img <= dern.img || img - dern.img > 600)) { if (img + 600 < dern.img || img - dern.img > 600) { imagesWW.clear(); arriveesWW.clear(); imgRecue = 0L } else return }
         var voileImg: FloatArray? = null
         if (dp.voile != 0L) { val q = dp.oVoile
             val m = FloatArray(12) { fl(d, q + 4 * it) }
@@ -558,16 +562,31 @@ object JeuWW {
             if (di > 10) { val ns = (t - p0.second).toDouble() / di; if (ns in 12_000_000.0..25_000_000.0) nsImg = nsImg * 0.9 + ns * 0.1 } }
         var mn = Double.MAX_VALUE; for ((i, tt) in arriveesWW) { val v = tt - i * nsImg; if (v < mn) mn = v }
         origineWW = mn; fluxWW = t
+        // (build 449 : de combien d'images les arrivees tardent sur la plus rapide : 95 % sous le retard, plus une marge)
+        if (arriveesWW.size >= 20) {
+            val r = arriveesWW.map { (i, tt) -> (tt - i * nsImg - mn) / nsImg }.sorted()
+            retardCible = (r[(r.size * 0.95).toInt().coerceAtMost(r.size - 1)] + 1.5).coerceIn(2.5, 10.0)
+        }
     }
+    /** build 449 : retard du rejeu en images (appris) et part des images ou le mouvement a ete prolonge */
+    fun retardDirect(): Double = retardWW
     /** l'etat a montrer maintenant : (os, position du jeu, camera ou null), glisse entre deux images ; null sans direct.
      *  (build 356 : prepare aussi les objets suivis : vifsRejoues) */
     @Synchronized fun rejouerWW(): Triple<FloatArray, FloatArray, FloatArray?>? {
         if (!directWW() || imagesWW.isEmpty() || origineWW.isNaN()) { vifsRejoues = null; return null }
-        val pos = (System.nanoTime() - origineWW) / nsImg - 6.0          // (retard fixe : ~6 images, au-dessus du paquet le plus rapide)
+        // (build 449 : retard appris (avant : 6 images fixes), glisse doucement vers sa cible : pas de saut)
+        retardWW += (retardCible - retardWW) * 0.01
+        val pos = (System.nanoTime() - origineWW) / nsImg - retardWW
         val i1 = imagesWW.indexOfFirst { it.img >= pos }
-        val a: ImageWW; val b: ImageWW
-        if (i1 < 0) { a = imagesWW.last(); b = a } else if (i1 == 0) { a = imagesWW.first(); b = a } else { a = imagesWW[i1 - 1]; b = imagesWW[i1] }
-        val k = if (a === b) 0f else ((pos - a.img) / (b.img - a.img).toDouble()).toFloat().coerceIn(0f, 1f)
+        val a: ImageWW; val b: ImageWW; var kMax = 1f
+        rejeuxWW++
+        if (i1 < 0) {
+            // (build 449 : animation completee : l'image suivante tarde ; le mouvement continue sur la lancee des deux
+            //  dernieres, 8 images du jeu au plus, puis s'arrete)
+            val n = imagesWW.size; val y = imagesWW.last(); val x = if (n >= 2) imagesWW[n - 2] else y
+            if (x !== y && y.img - x.img in 1..6 && x.dispo == y.dispo && imgRecue <= y.img) { a = x; b = y; kMax = 1f + 8f / (y.img - x.img); prolongees++ } else { a = y; b = y }
+        } else if (i1 == 0) { a = imagesWW.first(); b = a } else { a = imagesWW[i1 - 1]; b = imagesWW[i1] }
+        val k = if (a === b) 0f else ((pos - a.img) / (b.img - a.img).toDouble()).toFloat().coerceIn(0f, kMax)
         fun mix(x: FloatArray, y: FloatArray?): FloatArray = if (y == null || k <= 0f || x.size != y.size) x else FloatArray(x.size) { x[it] + (y[it] - x[it]) * k }
         val os = mix(a.os, b.os)
         // (rotations melangees : chaque ligne est remise a la longueur 1, sans deformer)
@@ -589,6 +608,9 @@ object JeuWW {
                 val n = if (plein) o.nj * 12 else 12
                 if (q + n > v.size) break
                 val m = v.copyOfRange(q, q + n); q += n
+                if (k > 1f) for (o3 in 0 until n step 4) {
+                    val l3 = Math.sqrt((m[o3] * m[o3] + m[o3 + 1] * m[o3 + 1] + m[o3 + 2] * m[o3 + 2]).toDouble()).toFloat()
+                    if (l3 > 1e-4f && Math.abs(l3 - 1f) < 0.2f) { m[o3] /= l3; m[o3 + 1] /= l3; m[o3 + 2] /= l3 } }
                 if (m.all { it.isFinite() && Math.abs(it) < 1e7f }) out.add(VifPose(o.modele, plein, m))
             }
             out
