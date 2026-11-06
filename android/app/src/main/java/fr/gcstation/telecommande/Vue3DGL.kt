@@ -255,6 +255,8 @@ class Etat3D {
     /** build 345 : rejeu du direct, appele avant chaque image (sans reseau) : met a jour la pose, la position, la camera */
     @Volatile var rejeu: (() -> Unit)? = null
     @Volatile var directRejeu = false
+    /** build 417 : Wind Waker, curseur du Tingle Tuner dans le monde (repere de l'appli), null sans Tingle Tuner */
+    @Volatile var curseurTT: FloatArray? = null
     /** build 296 : Mario Kart, les karts a dessiner en 3D (le premier est le tien) */
     @Volatile var karts: List<KartVue> = emptyList()
     /** build 282 : 0 normal (la vue suit la position), 1 suivre (derriere Rayman, tournee comme lui), 2 libre (la vue ne bouge plus seule),
@@ -326,6 +328,18 @@ class Etat3D {
         }
     }
     /** l'objet le plus proche du doigt (en pixels de la vue), parmi les sortes affichees ; null si rien a moins de 48 px */
+    /** build 417 : point du plan horizontal z = hz (repere de l'appli) sous un toucher de l'ecran ; null : hors du sol */
+    fun solSous(x: Float, y: Float, hz: Float): FloatArray? {
+        val m = mvpVue ?: return null; val inv = FloatArray(16)
+        if (!android.opengl.Matrix.invertM(inv, 0, m, 0)) return null
+        val nx = x / vueW * 2f - 1f; val ny = 1f - y / vueH * 2f
+        fun pt(nz: Float): FloatArray { val r = FloatArray(4); android.opengl.Matrix.multiplyMV(r, 0, inv, 0, floatArrayOf(nx, ny, nz, 1f), 0)
+            return floatArrayOf(r[0] / r[3], r[1] / r[3], r[2] / r[3]) }
+        val a = pt(-1f); val b = pt(1f); val dz = b[2] - a[2]
+        if (Math.abs(dz) < 1e-6f) return null
+        val t = (hz - a[2]) / dz; if (t < 0f || t > 1f) return null
+        return floatArrayOf(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, hz)
+    }
     fun objetSous(objets: List<Objet3D>, x: Float, y: Float): Objet3D? {
         val m = mvpVue ?: return null; var best: Objet3D? = null; var bd = 48f * 48f
         for (o in objets) {
@@ -1551,6 +1565,15 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                         0.3f + 0.7f * r, 0.3f + 0.7f * g, 0.3f + 0.7f * bl, 1f, true, -9f) }
             }
             eclats.clear()
+            // build 417 : curseur du Tingle Tuner : un anneau rose qui monte et une colonne doree (plus grands vus de loin)
+            etat.curseurTT?.let { cu ->
+                val k = (etat.dist / 25f).coerceIn(1f, 60f)
+                repeat(combien(45f, dt)) { val a = alea.nextFloat() * 6.2832f
+                    emettre(cu[0] + Math.cos(a.toDouble()).toFloat() * 0.9f * k, cu[1] + Math.sin(a.toDouble()).toFloat() * 0.9f * k, cu[2] + 0.1f * k,
+                        0f, 0f, 1.4f * k, 0.9f, 0.35f * k, 0.08f * k, 1f, 0.35f, 0.75f, 1f, true) }
+                repeat(combien(25f, dt)) { emettre(cu[0] + hasard() * 0.1f * k, cu[1] + hasard() * 0.1f * k, cu[2] + 0.2f * k,
+                    hasard() * 0.2f * k, hasard() * 0.2f * k, 3f * k, 0.8f, 0.5f * k, 0.1f * k, 1f, 0.85f, 0.2f, 1f, true) }
+            }
             for (f in feux) repeat(combien(50f, dt)) { val c = alea.nextFloat()
                 emettre(f[0] + hasard() * 0.12f, f[1] + hasard() * 0.12f, f[2] + 0.25f + hasard() * 0.1f, hasard() * 0.3f, hasard() * 0.3f, 0.8f,
                     0.35f, 0.7f, 0.1f, 1f, 0.35f + 0.5f * c, 0.05f, 0.9f, true) }
@@ -2080,7 +2103,19 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
     // build 247 : toucher un objet -> la camera y vole et son nom s'affiche ; double toucher ailleurs -> zoom
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     var etiquette by remember(scene) { androidx.compose.runtime.mutableStateOf<String?>(null) }
-    val toucher: (Float, Float, Boolean) -> Unit = { x, y, double ->
+    // build 417 : piloter le Tingle Tuner depuis la vue 3D : bouton « 🎯 Tingle » (visible quand le curseur du jeu arrive) ;
+    // actif, un toucher sur le sol y envoie le curseur (l'appli appuie sur la croix de la GBA a ta place)
+    var ttDispo by remember { androidx.compose.runtime.mutableStateOf(false) }
+    var piloteTT by remember { androidx.compose.runtime.mutableStateOf(false) }
+    androidx.compose.runtime.LaunchedEffect(scene) { while (true) { ttDispo = etat.curseurTT != null && GbaEmu.marche; if (!ttDispo) piloteTT = false; kotlinx.coroutines.delay(500) } }
+    val toucher: (Float, Float, Boolean) -> Unit = toucher@{ x, y, double ->
+        val cu = etat.curseurTT
+        if (piloteTT && cu != null) {
+            val sol = etat.solSous(x, y, cu[2])
+            if (sol != null) { GbaEmu.allerVers(sol[0] * 100f, -sol[1] * 100f); etiquette = "Curseur de Tingle : en route" }
+            else etiquette = "Touche le sol (ou la mer)"
+            return@toucher
+        }
         val o = etat.objetSous(scene.objets, x, y)
         if (o != null) { etiquette = nomObjet(scene, o); allerA(scope, etat, o) }
         else if (double) etat.voler(scope, d = (etat.dist * 0.5f).coerceAtLeast(4f))
@@ -2094,6 +2129,7 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
         Row(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(8.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
             PetitBouton("⟲") { etat.voler(scope, vers = etat.cible, d = etat.distBase, tg = if (etat.montrerRayman) 0.5f else 0.75f) }
             PetitBouton("⛶ Plein écran") { plein = true }
+            if (ttDispo) PetitBouton("🎯 Tingle", actif = piloteTT) { piloteTT = !piloteTT; etiquette = if (piloteTT) "Touche un endroit : le curseur de Tingle y va" else null }
         }
         Etiquette(Modifier.align(androidx.compose.ui.Alignment.TopStart).padding(8.dp))
         BoutonsZoom(etat, Modifier.align(androidx.compose.ui.Alignment.BottomEnd).padding(8.dp))
@@ -2113,6 +2149,7 @@ fun DessinVue3DGL(scene: SceneR3, cible: FloatArray, camera: FloatArray?, chemin
                 Row(Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top = 40.dp, end = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     PetitBouton("🐞 Bug") { journalBug(ctxBug, scene, etat) }
                     if (GbaEmu.marche) PetitBouton("🎮 GBA") { plein = false; BasculeGba3D.versGba++ }   // (build 412 : l'ecran de la GBA)
+                    if (ttDispo) PetitBouton("🎯 Tingle", actif = piloteTT) { piloteTT = !piloteTT; etiquette = if (piloteTT) "Touche un endroit : le curseur de Tingle y va" else null }
                     PetitBouton("⟲ Recentrer") { if (etat.mode == 5) etat.mode = 0; etat.voler(scope, vers = etat.cible, d = etat.distBase, tg = if (etat.montrerRayman) 0.5f else 0.75f) }
                     PetitBouton("👁 Sans ATH") { sansAth = true }
                     PetitBouton("✕") { plein = false }
