@@ -542,6 +542,16 @@ object JeuWW {
         // (position des objets suivis, pour choisir les plus proches : translation de la 1re matrice)
         if (vif != null) { var q = 0; for ((v, plein) in dp.suivis) { val x = vif[q + 3]; val y = vif[q + 7]; val z = vif[q + 11]
             if (x.isFinite() && y.isFinite() && z.isFinite()) v.pos = floatArrayOf(x, y, z); q += if (plein) v.nj * 12 else 12 } }
+        // (build 450 : la mer suit la coque elle-meme, arrivee dans la meme image : sans la position du bateau a part (choix
+        //  « vagues » coupe, ou lecture ratee), la mer restait plate et le bateau passait dessous avec Link)
+        if (batImg == null && vif != null) { val h = bateauObjs.firstOrNull(); var q = 0
+            if (h != null) for ((v, plein) in dp.suivis) {
+                if (v === h) { val bp = floatArrayOf(vif[q + 3], vif[q + 7], vif[q + 11])
+                    if (bp.all { it.isFinite() && Math.abs(it) < 1e6f }) { batImg = bp
+                        bateauMoy = if (bateauMoy.isNaN() || Math.abs(bp[1] - bateauMoy) > 2000f) bp[1] else bateauMoy + (bp[1] - bateauMoy) * 0.015f
+                        bateauPos = bp; tBateau = System.nanoTime() }
+                    break }
+                q += if (plein) v.nj * 12 else 12 } }
         val t = System.nanoTime()
         // (le jeu calcule Link a son propre rythme : une image identique a la precedente ne sert pas de point de passage)
         val dern = imagesWW.lastOrNull()
