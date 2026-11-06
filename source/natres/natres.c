@@ -1065,6 +1065,7 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
     }
     if (c == 0x15u) {                                    /* le jeu ecrit JOY_RECV */
         u32 j0 = p->gjoy;                                /* (v343 : la reponse donne JOYSTAT d'avant le mot, + 0x02 "recu") */
+        int ech = 0;                                     /* (v363 : echo predit : la reponse reste JOYSTAT d'avant le mot) */
         u32 w = (gb_o0 >> 16 & 0xFFu) | (gb_o0 >> 8 & 0xFFu) << 8 | (gb_o0 & 0xFFu) << 16 | (gb_o1 >> 24) << 24;
         p->gn15++;
         if (p->gw - p->ga < GB_RING) { gb_ring[p->gw % GB_RING] = w; p->gw++; }
@@ -1084,13 +1085,18 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
         } else if (p->gid && w == p->gid && (p->gjoy & 0x38u) == 0x20u) {
             p->gjoy = (p->gjoy & ~0x32u) | 0x30u;          /* (v347 : le jeu renvoie l'identifiant : la GBA repond 0x30 et lit le mot) */
             p->gpred = 1;
+        } else if (p->gpred == 1 && (p->gcode & 0xFFFFFFu) == 0x4C5A47u && (p->gjoy & 0x38u) == 0x30u) {
+            /* v363 : Tingle Tuner (code GZL.) : le mot suivant (cle de la partie) est renvoye tel quel par la GBA, des sa
+               reception (JOY_TRANS, 0x08) : donne d'avance au jeu, qui le relit tout de suite ; par le telephone, il arrivait
+               trop tard (le jeu abandonnait, la GBA affichait « Unable to link » 2 s plus tard). L'appli ne le redonne pas */
+            p->gtrans = w; p->gjoy |= 0x08u; p->gpred = 2; ech = 1;
         } else if (p->gst != 4) p->gjoy |= 0x02u;
         /* v349 : programme lance : comme une vraie GBA (son gestionnaire du cable lit JOY_RECV des qu'il arrive), le mot est
            dit lu tout de suite (le telephone le recoit dans l'ordre) : Rayman 3 attend « lu » apres chaque mot, et un aller-
            retour par le Wi-Fi par mot le deconnectait (« La connexion a echoue » en pleine partie) */
         /* v343 : comme une vraie GBA : la reponse a 15 est JOYSTAT a la fin du transfert, avant que le BIOS n'ait traite le
            mot (0x12 pour la cle B, et non 0x22) : le demarrage du SDK le verifie (Rayman 3 recommencait apres le 1er mot) */
-        gb_r0 = (((p->gst == 4 ? p->gjoy : j0) | 0x02u) & 0xFFu) << 24;
+        gb_r0 = (((p->gst == 4 && !ech ? p->gjoy : j0) | 0x02u) & 0xFFu) << 24;
         return;
     }
 }
