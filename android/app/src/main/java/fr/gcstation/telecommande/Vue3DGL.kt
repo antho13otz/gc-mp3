@@ -2626,5 +2626,13 @@ fun InterrupteurDirect3D(): Boolean {
         }, colors = androidx.compose.material3.SwitchDefaults.colors(checkedTrackColor = C.Rose, checkedThumbColor = Color.White))
     }
     if (!Direct3D.actif) Text("Coupé : la vue 3D est en pause et ne demande plus rien à la console.", color = C.Pale, fontSize = 11.sp)
+    else {                                                         // (Pulse v370 : ce que le direct coûte au jeu)
+        var tic by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0) }
+        androidx.compose.runtime.LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(1000); tic++ } }
+        val m = MemoireJeu.mesure
+        if (tic >= 0 && m != null && System.nanoTime() - MemoireJeu.mesureT < 3_000_000_000L)
+            Text(String.format(java.util.Locale.FRANCE, "Temps pris au jeu : %.1f ms par image (pire %.1f ms ; avec le reste %.1f ms) · %.1f Ko par image",
+                m[0] / 1000.0, m[1] / 1000.0, m[2] / 1000.0, m[3] / 1024.0), color = C.Pale, fontSize = 11.sp)
+    }
     return Direct3D.actif
 }

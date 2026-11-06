@@ -923,6 +923,10 @@ static MEM_OS int ms_fx(u32 b, int sh) {
     return b >> 31 ? -v : v;
 }
 static u32 ms_o, ms_part, ms_parts, ms_tot;
+/* v370 : mesure du temps pris au jeu : le direct (ms_send), tout ce que Pulse fait pour le telephone a chaque image
+   (pd_poll), et les octets envoyes ; une fois par seconde, un paquet "GCMT" a l'appli abonnee au direct :
+   {"GCMT", image, moyenne du direct (us), pire du direct (us), pire de tout (us), octets du direct par image} */
+static u32 mt_sum = 0, mt_n = 0, mt_max = 0, mt_pd = 0, mt_oct = 0;
 static MEM_OS void ms_put(natres_pad_t *p, u32 v) {     /* un octet de plus ; paquet plein (ou v > 255 : la fin) : on l'envoie */
     u8 *d = pn_fr + 42;
     if (v < 256u) d[16 + ms_o++] = (u8)v;
@@ -959,6 +963,7 @@ static MEM_OS void ms_send(natres_pad_t *p) {
         } else for (; k < n; k++) ms_put(p, src[k]);
     }
     ms_put(p, 256u);
+    mt_oct += ms_tot;
 }
 static MEM_OS void mem_req(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d, u32 dispo) {
     if (!(H.opt & NRO_MEM)) return;
@@ -1269,7 +1274,18 @@ void MEM_OS pd_poll(void) {
         pd_frame(p, n, now);
     }
     if (p->mpause) mem_pause(p);                          /* v306 : jeu en pause pour le chercheur de codes */
-    ms_send(p);                                          /* (appli : le direct) */
+    {   /* v370 : le direct, mesure ; une fois par seconde : la mesure a l'appli */
+        u32 t0 = tbl();
+        ms_send(p);                                      /* (appli : le direct) */
+        u32 us = (tbl() - t0) / (TB_SEC / 1000000u);
+        if (ms_n) { mt_sum += us; mt_n++; if (us > mt_max) mt_max = us; }
+        if (ms_n && p->mip && mt_n >= 60) {
+            u8 *d = pn_fr + 42;
+            pn_p32(d, 0x47434D54u); pn_p32(d + 4, H.vi_count); pn_p32(d + 8, mt_sum / mt_n); pn_p32(d + 12, mt_max); pn_p32(d + 16, mt_pd); pn_p32(d + 20, mt_oct / mt_n);
+            pn_udp(p, p->mmac, p->mip, p->mport, 24);
+            mt_sum = mt_n = mt_max = mt_pd = mt_oct = 0;
+        }
+    }
     if (p->gbmask) gb_tx(p);                             /* v331 : GBA du telephone */
     if (p->micon) mic_ready(p);                           /* v332 : micro du telephone : un paquet pret ? */
     mic_tx(p);                                           /* (v352 : l'etat, meme micro coupe dans GC Station : le telephone le dit) */
@@ -1478,7 +1494,12 @@ static MEM_OS void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree 
 #ifdef NATRES_LAN
     pd_poll();                                            /* (Pulse LAN : signe de vie du pont) */
 #else
-    if (H.opt & (NRO_PHONE | NRO_MEM)) pd_poll();
+    if (H.opt & (NRO_PHONE | NRO_MEM)) {                 /* manettes du telephone, chercheur de codes : avant que le jeu lise les manettes */
+        u32 t0 = tbl();
+        pd_poll();
+        u32 us = (tbl() - t0) / (TB_SEC / 1000000u);      /* v370 : temps pris au jeu, pour la mesure du direct */
+        if (us > mt_pd) mt_pd = us;
+    }
 #endif        /* manettes du telephone, chercheur de codes : avant que le jeu lise les manettes */
     if (mem_resumed) { mem_resumed = 0; frz_tb = tbl(); }   /* (v306 : apres une pause : pas un jeu fige) */
     if (++H.vi_in == 1) nr_log_flush();                  /* (1re image : on sait si le jeu y arrive) */
