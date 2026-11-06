@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v364 (build 890) — Tingle Tuner : les mots d'attente ne s'empilent plus
+- Connecté, Wind Waker écrit FFFFFFFF en continu entre deux messages (la GBA les ignore : ils lui donnent seulement la main
+  pour répondre). Tous envoyés au téléphone, ils s'empilaient (32 000 en retard) et les vrais messages arrivaient trop
+  tard : « Unable to link » après 2 s. Pulse suit le format des messages du jeu (FEFEFEFE, numéro, état, longueur,
+  données, somme) et ne laisse qu'un FFFFFFFF d'attente en route à la fois (code GZL. seulement).
+
 ## Nouveautés v363 (build 889) et appli build 402 — Tingle Tuner : l'écho de la clé de partie
 - Une fois connectée, la GBA du Tingle Tuner renvoie tel quel le mot suivant du jeu (clé de la partie) et le jeu doit le
   relire aussitôt. Par le téléphone, il arrivait trop tard : le jeu abandonnait, puis la GBA, sans message pendant 2 s,
