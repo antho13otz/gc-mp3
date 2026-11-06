@@ -2631,8 +2631,9 @@ fun InterrupteurDirect3D(): Boolean {
         androidx.compose.runtime.LaunchedEffect(Unit) { while (true) { kotlinx.coroutines.delay(1000); tic++ } }
         val m = MemoireJeu.mesure
         if (tic >= 0 && m != null && System.nanoTime() - MemoireJeu.mesureT < 3_000_000_000L) {
-            Text(String.format(java.util.Locale.FRANCE, "Temps pris au jeu : %.1f ms par image (pire %.1f ms ; avec le reste %.1f ms) · %.1f Ko par image",
-                m[0] / 1000.0, m[1] / 1000.0, m[2] / 1000.0, m[3] / 1024.0) +
+            Text(String.format(java.util.Locale.FRANCE, "Temps pris au jeu : %.1f ms par image (pire %.1f ms", m[0] / 1000.0, m[1] / 1000.0) +
+                (if (m[2] >= 0) String.format(java.util.Locale.FRANCE, " ; avec le reste %.1f ms", m[2] / 1000.0) else "") +
+                String.format(java.util.Locale.FRANCE, ") · %.1f Ko par image", m[3] / 1024.0) +
                 (if (m.size > 5 && m[4] >= 0) String.format(java.util.Locale.FRANCE, " · envoi %.1f ms, attente du câble %.1f ms", m[5] / 1000.0, m[4] / 1000.0) else ""),
                 color = C.Pale, fontSize = 11.sp)
             androidx.compose.material3.TextButton(onClick = { rapportDirect(ctx) }) { Text("Rapport du direct", color = C.Rose, fontSize = 12.sp) }
@@ -2649,7 +2650,7 @@ fun rapportDirect(ctx: android.content.Context) {
     sb.append("heure ; direct moyen (ms) ; direct pire (ms) ; tout Pulse pire (ms) ; Ko par image ; attente du câble (ms) ; écriture de la file (ms)\n")
     val l = synchronized(MemoireJeu.mesures) { MemoireJeu.mesures.toList() }
     for ((t, m) in l) sb.append(String.format(java.util.Locale.FRANCE, "%s ; %.2f ; %.2f ; %.2f ; %.1f ; %s ; %s\n", f.format(java.util.Date(t)),
-        m[0] / 1000.0, m[1] / 1000.0, m[2] / 1000.0, m[3] / 1024.0,
+        m[0] / 1000.0, m[1] / 1000.0, if (m[2] >= 0) m[2] / 1000.0 else Double.NaN, m[3] / 1024.0,
         if (m.size > 5 && m[4] >= 0) String.format(java.util.Locale.FRANCE, "%.2f", m[4] / 1000.0) else "-",
         if (m.size > 5 && m[5] >= 0) String.format(java.util.Locale.FRANCE, "%.2f", m[5] / 1000.0) else "-"))
     if (l.isEmpty()) sb.append("(aucune mesure : console en v370 ou plus, vue 3D en direct ouverte)\n")

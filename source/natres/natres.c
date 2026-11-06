@@ -706,6 +706,9 @@ static int __attribute__((noinline, optimize("Os"))) pn_wz_init(u32 ch, u32 dev)
 }
 /* l'adaptateur pret a recevoir (sans chercher de serveur) : 0, -1 = aucun, -2 = un canal pris par le jeu (plus tard).
    Broadband Adapter d'abord, puis W5500 : port serie 1 (ETH2SP1), puis ports de carte B et A (ETH2GC) */
+/* v372 : vitesse du cable : avant, 10 Mbit/s seulement (0x01) ; maintenant toutes, jusqu'a 100 Mbit/s (0x1F, comme libogc) ;
+   5 s apres, si le lien n'est pas venu (box ou switch qui negocie mal), retour aux 10 Mbit/s d'avant, pour de bon */
+static u32 pn_nw = 0x1F, pn_nw_tb = 0;
 static int __attribute__((noinline)) MEM_OS pn_bba_init(void) {
     bx = HW6(0xCC006800u); pn_cs = 0x80u << 2; pn_frq = 5; pn_hw = 1; pn_ch = 0;
     u32 m = irq_off();
@@ -723,7 +726,7 @@ static int __attribute__((noinline)) MEM_OS pn_bba_init(void) {
     for (volatile u32 i = 0; i < 20000u; i++) { }
     bb_out8(BB_NCRA, 0);
     bb_out8(0x5B, bb_in8(0x5B) & ~0x80u);
-    bb_out8(0x5E, 0x01);
+    bb_out8(0x5E, pn_nw); pn_nw_tb = tbl() | 1;
     bb_out8(0x5C, bb_in8(0x5C) | 0x04u);
     bb_out8(BB_NCRB, 0x00);
     bb_out8(BB_SI_ACTRL2, 0x74);
@@ -926,33 +929,38 @@ static u32 ms_o, ms_part, ms_parts, ms_tot;
 /* v370 : mesure du temps pris au jeu : le direct (ms_send), tout ce que Pulse fait pour le telephone a chaque image
    (pd_poll), et les octets envoyes ; une fois par seconde, un paquet "GCMT" a l'appli abonnee au direct :
    {"GCMT", image, moyenne du direct (us), pire du direct (us), pire de tout (us), octets du direct par image} */
-static u32 mt_sum = 0, mt_n = 0, mt_max = 0, mt_pd = 0, mt_oct = 0, mt_wait = 0, mt_fifo = 0;
+static u32 mt_sum = 0, mt_n = 0, mt_max = 0, mt_oct = 0;   /* (v372 : plus l'attente du cable ni l'ecriture : la place de Pulse) */
 /* v371 : envoi du direct seulement (la GBA et le reste gardent pn_send) : la trame va dans la file d'envoi de l'adaptateur
    par DMA (avant : 4 octets a la fois, chacun attendu), et l'envoi n'est plus attendu tout de suite : on prepare le
    paquet suivant pendant qu'il part ; on attend seulement avant d'ecrire le suivant, et a la fin du direct (les autres
    envois de Pulse comptent sur une file libre) */
+static MEM_OS void pn_link_check(void) {                /* v372 : (voir pn_nw) une seule fois, 5 s apres le demarrage de l'adaptateur */
+    if (!pn_nw_tb || tbl() - pn_nw_tb < 5u * TB_SEC || (*HW6(0xCC006800u) & 0x380u)) return;   /* (pn_nw_tb : Broadband Adapter seulement) */
+    bx = HW6(0xCC006800u);
+    u32 m = irq_off();
+    if (!(bb_in8(0x31) & 3u)) { pn_nw = 0x01; bb_out8(0x5E, 0x01); bb_out8(0x5C, bb_in8(0x5C) | 0x04u); }   /* (NWAYS : pas de lien) */
+    pn_nw_tb = 0;
+    irq_restore(m);
+}
 static MEM_OS void ms_txwait(void) {
-    u32 t0 = tbl();
     for (u32 i = 0; i < 20000u && (bb_in8(BB_NCRA) & 6u); i++) { }
-    mt_wait += tbl() - t0;
 }
 static MEM_OS __attribute__((noinline)) void ms_tx(u8 *f, u32 n) {
     if (pn_hw != 1) { pn_send(f, n); return; }            /* (W5500 : comme avant) */
     while (n < 60) f[n++] = 0;
     u32 m = irq_off();
     ms_txwait();
-    u32 t1 = tbl(), k = n & ~31u;
+    u32 k = n & ~31u;
     bb_out16(BB_TXFIFOCNT, n);
-    if (k && !((u32)f & 31u)) {
+    {                                                     /* (f = pn_fr : aligne sur 32 ; n >= 60 : k >= 32) */
         cache_flush((u32)f, k);
         bb_sel(); bb_mx(BB_WRTXFIFOD, 1);
         bx[1] = (u32)f & 0x1FFFFFE0u; bx[2] = k; bx[3] = 7;   /* (DMA, ecriture, depart) */
         for (u32 i = 0; i < 200000u && (bx[3] & 1); i++) { }
         bb_desel();
         if (n > k) bb_outs(BB_WRTXFIFOD, f + k, n - k);   /* (la fin : a la suite dans la file) */
-    } else bb_outs(BB_WRTXFIFOD, f, n);
+    }
     bb_out8(BB_NCRA, (bb_in8(BB_NCRA) & ~2u) | 4u);       /* ST1 : envoyer (sans attendre) */
-    mt_fifo += tbl() - t1;
     irq_restore(m);
 }
 static MEM_OS void ms_udp(natres_pad_t *p, u32 dlen) { pn_udp_hdr(p, p->mmac, p->mip, p->mport, dlen); ms_tx(pn_fr, 42 + dlen); }   /* (comme pn_udp) */
@@ -1307,14 +1315,14 @@ void MEM_OS pd_poll(void) {
     {   /* v370 : le direct, mesure ; une fois par seconde : la mesure a l'appli */
         u32 t0 = tbl();
         ms_send(p);                                      /* (appli : le direct) */
-        u32 us = (tbl() - t0) / (TB_SEC / 1000000u);
+        u32 us = tbl() - t0;                             /* (v372 : en tops d'horloge, 40,5 par us : l'appli divise) */
         if (ms_n) { mt_sum += us; mt_n++; if (us > mt_max) mt_max = us; }
-        if (ms_n && p->mip && mt_n >= 60) {
-            u8 *d = pn_fr + 42;
-            pn_p32(d, 0x47434D54u); pn_p32(d + 4, H.vi_count); pn_p32(d + 8, mt_sum / mt_n); pn_p32(d + 12, mt_max); pn_p32(d + 16, mt_pd); pn_p32(d + 20, mt_oct / mt_n);
-            pn_p32(d + 24, mt_wait / (TB_SEC / 1000000u) / mt_n); pn_p32(d + 28, mt_fifo / (TB_SEC / 1000000u) / mt_n);   /* v371 : attente du fil, ecriture de la file (us par image) */
-            pn_udp(p, p->mmac, p->mip, p->mport, 32);
-            mt_sum = mt_n = mt_max = mt_pd = mt_oct = mt_wait = mt_fifo = 0;
+        if (ms_n && p->mip && mt_n >= 60) {               /* v372 : "GCMT" brut : sommes, pires, nombre d'images (28 octets) */
+            u8 *b = pn_fr + 42;
+            pn_p32(b, 0x47434D54u); pn_p32(b + 4, H.vi_count); pn_p32(b + 8, mt_sum); pn_p32(b + 12, mt_max); pn_p32(b + 16, 0);   /* (v372 : plus mesure : la place de Pulse) */
+            pn_p32(b + 20, mt_oct); pn_p32(b + 24, mt_n);
+            pn_udp(p, p->mmac, p->mip, p->mport, 28);
+            mt_sum = mt_n = mt_max = mt_oct = 0;
         }
     }
     if (p->gbmask) gb_tx(p);                             /* v331 : GBA du telephone */
@@ -1526,10 +1534,8 @@ static MEM_OS void vi_hook(u32 irq, u32 ctx) {                  /* v66 : entree 
     pd_poll();                                            /* (Pulse LAN : signe de vie du pont) */
 #else
     if (H.opt & (NRO_PHONE | NRO_MEM)) {                 /* manettes du telephone, chercheur de codes : avant que le jeu lise les manettes */
-        u32 t0 = tbl();
         pd_poll();
-        u32 us = (tbl() - t0) / (TB_SEC / 1000000u);      /* v370 : temps pris au jeu, pour la mesure du direct */
-        if (us > mt_pd) mt_pd = us;
+        pn_link_check();                                 /* v372 */
     }
 #endif        /* manettes du telephone, chercheur de codes : avant que le jeu lise les manettes */
     if (mem_resumed) { mem_resumed = 0; frz_tb = tbl(); }   /* (v306 : apres une pause : pas un jeu fige) */
