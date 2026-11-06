@@ -24,6 +24,12 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v376 (build 905) — accueil de JEUX « À la une » (Aurore) ; A : la fiche d'abord
+
+- Aurore : nouvel accueil de l'onglet JEUX : le dernier jeu en grand (jaquette, titre, temps de jeu, date ; A : sa fiche), tuiles Jeux GameCube (nombre, temps total), Applis (nombre, noms ; avant : cachées dans l'espace jeux, touche Z), Cartes mémoire, Mes stats (le récap, le jeu le plus joué), mini-jeux sur une rangée qui défile (celui choisi grossit : description, record). Jaquette, titres et nombres lus en fond. Les autres styles gardent l'accueil d'avant.
+- Applis : la carte SD est lue en fond (avant : dans la boucle de l'écran, environ 25 ms par appli) ; « Lecture des applis… » en attendant. La barre Jeux / Applis / Cartes montre de nouveau Applis (stick C : les trois).
+- A sur un jeu : la fiche d'abord, A encore : jouer (avant : « Lancer ce jeu ? » puis A). Z dans la fiche : « Lancer ce jeu ? » (lanceur de secours, Pulse LAN). Le bouton Jouer de l'accueil et X (relancer le dernier) mènent aussi à la fiche. Pas de lancement de jeu pendant le test des touches.
+
 ## Appli build 450
 
 Vue 3D de Wind Waker : le bateau ne passe plus sous la mer. La mer suit la coque elle-même, arrivée dans la même image (avant : seulement la position du bateau lue à part ; sans elle, la mer restait plate et le bateau et Link descendaient dessous dans la houle, seuls le mât et la voile dépassaient).
