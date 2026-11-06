@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 404 — Tingle Tuner : état de ses messages dans le rapport
+- Rapport de la GBA du téléphone : état des 16 messages du programme du Tingle Tuner (libre, en réception, reçu, à
+  envoyer, envoi, somme fausse) et nombre de ses messages en attente d'envoi, à chaque changement ; 60 derniers échanges
+  (avant 12), une ligne répétée comptée (« ×n »). Console inchangée.
+
 ## Nouveautés v366 (build 892) — Tingle Tuner : la file des mots de la GBA ne se bloque plus
 - Correction de v365 : le jeu lit aussi le câble sans mot annoncé ; une telle lecture retirait quand même le mot de la
   file (perdu) et effaçait 0x08 pour de bon : la réponse de la GBA n'arrivait plus, le jeu recommençait la connexion
