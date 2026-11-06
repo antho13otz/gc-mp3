@@ -82,6 +82,8 @@ object MemoireJeu {
      *  Pulse fait pour le téléphone à chaque image (µs), octets du direct par image ; mesureT : heure de réception */
     @Volatile var mesure: LongArray? = null
     @Volatile var mesureT = 0L
+    /** les 10 dernieres minutes de mesures (heure, valeurs), pour le rapport du direct */
+    val mesures = ArrayDeque<Pair<Long, LongArray>>()
 
     private fun s(): DatagramSocket = sock ?: DatagramSocket().apply { try { receiveBufferSize = 4 shl 20 } catch (e: Exception) { } }.also { sock = it }
     @Synchronized fun fermer() { try { sock?.close() } catch (e: Exception) { }; sock = null }
@@ -105,7 +107,13 @@ object MemoireJeu {
         try { so.receive(p) } catch (e: SocketTimeoutException) { return -1 }
         if (p.length >= 16 && magie(buf, "GCAC")) { annonce?.invoke(g32(buf, 4).toInt(), g32(buf, 8) or (g32(buf, 12) shl 32)); return 0 }
         if (p.length >= 16 && magie(buf, "GCMS")) { flux?.invoke(buf.copyOf(p.length), p.length); return 0 }
-        if (p.length >= 24 && magie(buf, "GCMT")) { mesure = longArrayOf(g32(buf, 8), g32(buf, 12), g32(buf, 16), g32(buf, 20)); mesureT = System.nanoTime(); return 0 }
+        if (p.length >= 24 && magie(buf, "GCMT")) {
+            val m = if (p.length >= 32) longArrayOf(g32(buf, 8), g32(buf, 12), g32(buf, 16), g32(buf, 20), g32(buf, 24), g32(buf, 28))
+                    else longArrayOf(g32(buf, 8), g32(buf, 12), g32(buf, 16), g32(buf, 20), -1, -1)
+            mesure = m; mesureT = System.nanoTime()
+            synchronized(mesures) { mesures.addLast(System.currentTimeMillis() to m); while (mesures.size > 600) mesures.removeFirst() }
+            return 0
+        }
         return p.length
     }
 
