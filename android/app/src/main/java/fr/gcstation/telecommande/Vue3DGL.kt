@@ -259,6 +259,8 @@ class Etat3D {
     @Volatile var curseurTT: FloatArray? = null
     /** build 425 : vagues : x, z du bateau et ecart de sa hauteur a sa moyenne (unites du jeu), null sans bateau */
     @Volatile var vagueWW: FloatArray? = null
+    /** build 427 : points de la voile dans le monde (unites du jeu, 7 x 24), null sans voile en direct */
+    @Volatile var voileWW: FloatArray? = null
     /** build 296 : Mario Kart, les karts a dessiner en 3D (le premier est le tien) */
     @Volatile var karts: List<KartVue> = emptyList()
     /** build 282 : 0 normal (la vue suit la position), 1 suivre (derriere Rayman, tournee comme lui), 2 libre (la vue ne bouge plus seule),
@@ -537,6 +539,31 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         return vboVif[i] to b
     }
     /** matrice 3 x 4 du jeu (y vers le haut, par lignes) -> matrice 4 x 4 de l'appli (x, -z, y ; 1/100), par colonnes */
+    // build 427 : la voile du bateau : le tissu du jeu (7 x 24 points, deja dans le monde) en triangles, texture de la
+    // voile (pack : ww_voile.png) ; les deux faces (pas de tri des faces dans cette vue)
+    private var voileTex = -1
+    private val voileBuf: java.nio.ByteBuffer = java.nio.ByteBuffer.allocateDirect(23 * 6 * 6 * 24).order(java.nio.ByteOrder.nativeOrder())
+    private fun dessinerVoile() {
+        val v = etat.voileWW ?: return
+        if (v.size < 168 * 3) return
+        if (voileTex < 0) voileTex = chargerTex("ww_voile.png")
+        if (voileTex <= 0) return
+        val bb = voileBuf; bb.clear()
+        fun pt(r: Int, c: Int) { val i = (r * 7 + c) * 3
+            bb.putFloat(v[i] * 0.01f); bb.putFloat(-v[i + 2] * 0.01f); bb.putFloat(v[i + 1] * 0.01f)
+            bb.putFloat(r / 23f); bb.putFloat(1f - c / 6f); bb.putInt(-1) }
+        for (r in 0 until 23) for (c in 0 until 6) { pt(r, c); pt(r + 1, c); pt(r + 1, c + 1); pt(r, c); pt(r + 1, c + 1); pt(r, c + 1) }
+        bb.position(0)
+        GLES20.glUniform1f(uEauL, 0f); GLES20.glUniform1f(uChaudL, 0f); GLES20.glUniform1f(uVentL, 0f); GLES20.glUniform1f(uLmK, 0f)
+        GLES20.glUniform2f(uDefil, 0f, 0f); GLES20.glUniform4f(uMulL, 1f, 1f, 1f, 1f); GLES20.glUniform1f(uAvecTex, 1f)
+        GLES20.glActiveTexture(GLES20.GL_TEXTURE0); GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, voileTex)
+        GLES20.glBindBuffer(GLES20.GL_ARRAY_BUFFER, 0)
+        bb.position(0); GLES20.glVertexAttribPointer(aPos, 3, GLES20.GL_FLOAT, false, 24, bb)
+        bb.position(12); GLES20.glVertexAttribPointer(aUv, 2, GLES20.GL_FLOAT, false, 24, bb)
+        bb.position(20); GLES20.glVertexAttribPointer(aCol, 4, GLES20.GL_UNSIGNED_BYTE, true, 24, bb)
+        if (aUvL >= 0) { GLES20.glDisableVertexAttribArray(aUvL); GLES20.glVertexAttrib2f(aUvL, 0f, 0f) }
+        GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 23 * 6 * 6)
+    }
     private fun matriceAppli(g: FloatArray, o: Int, m: FloatArray) {
         val q = arrayOf(intArrayOf(0, 1), intArrayOf(2, -1), intArrayOf(1, 1))     // (ligne i de Q : 1 en colonne q[i][0], signe q[i][1])
         for (i in 0..2) for (j in 0..2) m[j * 4 + i] = g[o + q[i][0] * 4 + q[j][0]] * q[i][1] * q[j][1]
@@ -1847,6 +1874,7 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
                 dessinerGroupe(g, vbo[i], tSec, passe == 2 && estOnde(i, g))
             }
             GLES20.glUniform1f(uOndeL, 0f)
+            if (passe == 1) dessinerVoile()                   // (build 427)
             // build 332 : les objets qui bougent (Mario Kart) : leur matrice a ce moment, puis leurs groupes
             val mo = scene.mobiles
             if (mo != null) for (o in mo.objets) {

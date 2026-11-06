@@ -156,7 +156,8 @@ object JeuWW {
      *  +0xFC : angle, rapport, oeil, point vise, haut : 48 octets). L'appli garde les images et les rejoue avec un petit retard
      *  fixe, en glissant d'une pose a la suivante : plus d'a-coups dus au Wi-Fi ni a la lecture bloc par bloc. */
     class ImageWW(val img: Long, val t: Long, val os: FloatArray, val pos: FloatArray, val cam: FloatArray?, val dispo: Int = 0, val vif: FloatArray? = null,
-                  val bat: FloatArray? = null)          // (build 426 : x, hauteur, z du bateau a cette image)
+                  val bat: FloatArray? = null,          // (build 426 : x, hauteur, z du bateau a cette image)
+                  val voile: FloatArray? = null)        // (build 427 : points de la voile dans le monde)
     private val imagesWW = ArrayDeque<ImageWW>()
     @Volatile private var adrWW = LongArray(0); private var adrT = 0L; private var abonneWW = 0L
     @Volatile private var fluxWW = 0L
@@ -177,6 +178,7 @@ object JeuWW {
     // lue avec Link ; vague() donne l'ecart a sa hauteur moyenne (quelques secondes), que la vue retire au bateau et a Link
     // quand il est a bord
     private val SHIPP get() = G + 0x5B54
+    const val VOILE_N = 168
     @Volatile private var bateauVu = 0L
     @Volatile private var bateauPos: FloatArray? = null; @Volatile private var bateauMoy = Float.NaN; @Volatile private var tBateau = 0L
     /** x, z du bateau et ecart de sa hauteur a sa moyenne (unites du jeu) ; null sans bateau en direct */
@@ -185,6 +187,14 @@ object JeuWW {
         return floatArrayOf(p[0], p[2], p[1] - bateauMoy) }
     // (build 426 : la hauteur du bateau rejouee comme Link et les objets : meme retard, glissee entre deux images)
     @Volatile private var vagueRejouee: FloatArray? = null
+    // build 427 : la voile n'est pas un modele : un tissu que le jeu recalcule a chaque image (acteur 0xAC, pointe par le
+    // bateau a +0x414) : 7 x 24 points (+0x354, 12 octets chacun, repere de l'articulation 7 de la coque, le mat : modele
+    // de la coque = morf du bateau +0x298, puis +0x50 ; ses matrices +0x8C). Lus avec Link, places dans le monde a la
+    // reception, rejoues comme le reste ; dessines par la vue avec la texture de la voile (Ship.arc new_ho1, pack : ww_voile.png)
+    @Volatile private var voileVu = 0L; @Volatile private var voileMatVu = 0L
+    @Volatile private var voileRejouee: FloatArray? = null
+    /** points de la voile dans le monde (unites du jeu, 7 x 24, colonne d'abord), null sans voile en direct */
+    fun voile(): FloatArray? = voileRejouee?.takeIf { directWW() && voileVu != 0L }
     fun curseurTT(): FloatArray? = curseurPos?.takeIf { System.nanoTime() - tCurseur < 1_000_000_000L && agbVu != 0L }
     /** build 415 : derniere position de Link recue en direct (null sans direct) */
     @Synchronized fun posDirect(): FloatArray? = if (directWW()) imagesWW.lastOrNull()?.pos?.copyOf() else null
@@ -213,8 +223,10 @@ object JeuWW {
     /** disposition de l'abonnement : Link (os, position, camera), objets suivis, lecture groupee, bourrage (sa longueur rend
      *  la taille totale unique : on reconnait les images de cet abonnement) */
     private class Dispo(val id: Int, val n: Long, val p: Long, val c: Long, val suivis: List<Pair<VifObjet, Boolean>>,
-                        val lot: List<Pair<Long, Int>>, val pad: Int, val agb: Long = 0L, val bateau: Long = 0L) {
-        val tailleLink = 42 * 48 + 12 + (if (c != 0L) 48 else 0) + (if (agb != 0L) 12 else 0) + (if (bateau != 0L) 12 else 0)
+                        val lot: List<Pair<Long, Int>>, val pad: Int, val agb: Long = 0L, val bateau: Long = 0L,
+                        val mat: Long = 0L, val voile: Long = 0L) {
+        val tailleLink = 42 * 48 + 12 + (if (c != 0L) 48 else 0) + (if (agb != 0L) 12 else 0) + (if (bateau != 0L) 12 else 0) +
+                         (if (voile != 0L) 48 + VOILE_N * 12 else 0)
         val tailleSuivis = suivis.sumOf { if (it.second) it.first.nj * 48 else 48 }
         val tot = tailleLink + tailleSuivis + lot.sumOf { it.second } + pad
     }
@@ -230,6 +242,7 @@ object JeuWW {
         l.add(d.n to 42 * 48); l.add((d.p + 0x1F8) to 12); if (d.c != 0L) l.add((d.c + 0xD0) to 48)
         if (d.agb != 0L) l.add((d.agb + 0x1F8) to 12)                  // (build 417 : curseur du Tingle Tuner)
         if (d.bateau != 0L) l.add((d.bateau + 0x1F8) to 12)            // (build 425 : le bateau, pour les vagues)
+        if (d.voile != 0L) { l.add(d.mat to 48); l.add(d.voile to VOILE_N * 12) }   // (build 427 : la voile)
         for ((v, plein) in d.suivis) l.add(if (plein) v.os to v.nj * 48 else (v.adr + 0x24) to 48)
         l.addAll(d.lot)
         l.add(G to d.pad)
@@ -237,7 +250,7 @@ object JeuWW {
     }
     private fun nouvelleDispo(n: Long, p: Long, c: Long, suivis: List<Pair<VifObjet, Boolean>>, lot: List<Pair<Long, Int>>, agb: Long = agbVu): Dispo {
         padN = (padN + 1) % 15
-        return Dispo(++idDispo, n, p, c, suivis, lot, 4 + 4 * padN, agb, bateauVu)
+        return Dispo(++idDispo, n, p, c, suivis, lot, 4 + 4 * padN, agb, bateauVu, voileMatVu, voileVu)
     }
     /** lecture groupee de morceaux de memoire par l'abonnement (Link continue d'arriver) ; null : pas de reponse */
     private fun lireLot(ch: List<Pair<Long, Int>>): Map<Long, ByteArray>? {
@@ -346,6 +359,7 @@ object JeuWW {
                 val suivis = if (vifPret) choisirSuivis(lp?.get(0) ?: 0f, lp?.get(1) ?: 0f, lp?.get(2) ?: 0f) else emptyList()
                 val d0 = dispo
                 val memes = d0 != null && d0.lot.isEmpty() && d0.n == n && d0.p == p && d0.c == (c ?: 0L) && d0.agb == agbVu && d0.bateau == bateauVu &&
+                            d0.voile == voileVu && d0.mat == voileMatVu &&
                             d0.suivis.size == suivis.size && d0.suivis.zip(suivis).all { (x, y) -> x.first === y.first && x.second == y.second }
                 if (!a.contentEquals(adrWW) || !memes || System.nanoTime() - abonneWW > 1_000_000_000L) {
                     adrWW = a
@@ -363,19 +377,38 @@ object JeuWW {
     // Tout nouvel acteur (ennemis qui apparaissent, bombes...) dont un modele est dans le pack est suivi tout de suite ;
     // bombes : modele a +0x2A4, toujours suivies ; autres : modele cherche dans l'acteur (+0x200 a +0x800)
     private val maillonsVus = LinkedHashMap<Long, Long>()
+    private val essaisMaillon = HashMap<Long, Int>()
+    private val neufsVus = java.util.concurrent.ConcurrentLinkedDeque<String>()
+    /** build 427 : pour le rapport : objets apparus en jeu (les derniers) et ceux suivis */
+    fun diagObjets(): String = "suivis maintenant : ${bombes.size} (bombes ${bombes.count { it.second.toujours }}) ; pack : ${sigsPack.size} modèles ; voile : " +
+        (if (voileVu != 0L) "lue" else "pas trouvée") + "\n" + neufsVus.joinToString("\n") { "  $it" }.ifEmpty { "  aucun objet apparu vu" }
     private fun suivreBombes(l0: Lecteur, mo: Long, sigs: Map<Long, Int>) {
         val l = Lecteur(24, 0)
         bateauVu = l.ptr(SHIPP)?.takeIf { l.u16(it + 8) == 0xA7 } ?: 0L      // (build 425)
         val vt = l.u32(mo) ?: return
+        run {                                                             // (build 427 : la voile et le mat)
+            val b = bateauVu; var va = 0L; var ma = 0L
+            if (b != 0L) {
+                val sa = l.ptr(b + 0x414)?.takeIf { l.u16(it + 8) == 0xAC }
+                val md = l.ptr(b + 0x298)?.let { l.ptr(it + 0x50) }?.takeIf { l.u32(it) == vt }
+                val os = md?.let { l.ptr(it + 0x8C) }
+                if (sa != null && os != null) { va = sa + 0x354; ma = os + 7 * 48 }
+            }
+            voileVu = va; voileMatVu = ma
+        }
         val nb = bombes.filter { (ac, v) -> l.u32(ac + v.off) == v.adr && l.u16(ac + 8) == v.proc }.toMutableList()
         var n = l.u32(TETE() + 4); var k = 0; var neufs = 0
+        // (build 427 : un acteur tout juste cree n'a pas encore son modele : la 424 le marquait vu et ne revenait jamais ;
+        //  maintenant il est repris aux passages suivants, 4 fois au plus)
         while (n != null && tas(n) && n != TETE() && k < 8) {
             val ac = l.u32(n + 12) ?: break
             if (maillonsVus[n] == ac) break
-            maillonsVus[n] = ac; k++
+            k++
+            var fini = true
             if (tas(ac) && nb.none { it.first == ac } && neufs < 3) {
                 val pr = l.u16(ac + 8)
                 val offs = if (pr == 0x128) listOf(0x2A4) else { neufs++; (0x200 until 0x800 step 4).filter { o -> l.u32(ac + o)?.let { tas(it) } == true } }
+                var res = "pas de modèle"
                 for (o in offs.take(12)) {
                     val m = l.u32(ac + o) ?: continue
                     if (!tas(m) || l.u32(m) != vt) continue
@@ -385,13 +418,20 @@ object JeuWW {
                     if (mi != null && nj != null && nj in 1..120 && os != null && tas(os)) {
                         val pos = FloatArray(3) { java.lang.Float.intBitsToFloat((l.u32(m + 0x30 + 0x10L * it) ?: 0L).toInt()) }
                         nb.add(ac to VifObjet(mi, m, nj, os, pos, o, pr ?: 0, pr == 0x128))
+                        res = "suivi (modèle %d du pack)".format(mi)
                         break
                     }
+                    res = "modèle %d octets, %s os : pas dans le pack".format(t ?: 0L, nj?.toString() ?: "?")
                 }
+                if (!res.startsWith("suivi")) { val e = (essaisMaillon[n] ?: 0) + 1; essaisMaillon[n] = e; fini = e >= 4 }
+                if (fini) { essaisMaillon.remove(n)
+                    neufsVus.addLast("acteur 0x%03X : %s".format(pr ?: 0, res)); while (neufsVus.size > 12) neufsVus.removeFirst() }
             }
+            if (fini) maillonsVus[n] = ac
             n = l.u32(n)
         }
         while (maillonsVus.size > 256) maillonsVus.remove(maillonsVus.keys.first())
+        while (essaisMaillon.size > 128) essaisMaillon.remove(essaisMaillon.keys.first())
         bombes = nb.takeLast(10)
     }
     @Synchronized private fun recevoirWW(b: ByteArray, n: Int) {
@@ -432,7 +472,16 @@ object JeuWW {
         val dern = imagesWW.lastOrNull()
         if (dern != null && dern.os.contentEquals(os) && (vif == null || dern.vif?.contentEquals(vif) == true)) { fluxWW = t; return }
         if (dern != null && (img <= dern.img || img - dern.img > 600)) { if (img + 600 < dern.img || img - dern.img > 600) { imagesWW.clear(); arriveesWW.clear() } else return }
-        imagesWW.addLast(ImageWW(img, t, os, pos, cam, dp.id, vif, batImg)); while (imagesWW.size > 32) imagesWW.removeFirst()
+        var voileImg: FloatArray? = null
+        if (dp.voile != 0L) { val q = 42 * 48 + 12 + (if (avecCam) 48 else 0) + (if (dp.agb != 0L) 12 else 0) + (if (dp.bateau != 0L) 12 else 0)
+            val m = FloatArray(12) { fl(d, q + 4 * it) }
+            if (m.all { it.isFinite() } && Math.abs(m[3]) < 1e6f) {
+                val v = FloatArray(VOILE_N * 3); var ok = true
+                for (i in 0 until VOILE_N) { val x = fl(d, q + 48 + 12 * i); val y = fl(d, q + 52 + 12 * i); val z = fl(d, q + 56 + 12 * i)
+                    if (!(x.isFinite() && y.isFinite() && z.isFinite()) || Math.abs(x) > 5000f || Math.abs(y) > 5000f || Math.abs(z) > 5000f) { ok = false; break }
+                    for (r in 0..2) v[i * 3 + r] = m[r * 4] * x + m[r * 4 + 1] * y + m[r * 4 + 2] * z + m[r * 4 + 3] }
+                if (ok) voileImg = v } }
+        imagesWW.addLast(ImageWW(img, t, os, pos, cam, dp.id, vif, batImg, voileImg)); while (imagesWW.size > 32) imagesWW.removeFirst()
         arriveesWW.addLast(img to t); while (arriveesWW.size > 2 && t - arriveesWW.first().second > 3_000_000_000L) arriveesWW.removeFirst()
         if (arriveesWW.size >= 10) { val p0 = arriveesWW.first(); val di = img - p0.first
             if (di > 10) { val ns = (t - p0.second).toDouble() / di; if (ns in 12_000_000.0..25_000_000.0) nsImg = nsImg * 0.9 + ns * 0.1 } }
@@ -472,6 +521,7 @@ object JeuWW {
             out
         }
         vagueRejouee = a.bat?.let { mix(it, b.bat) }
+        voileRejouee = a.voile?.let { mix(it, b.voile) }
         return Triple(os, mix(a.pos, b.pos), cam)
     }
     /** camera du direct -> matrice de vue (3 x 4) + angle, comme cameraJeu */
