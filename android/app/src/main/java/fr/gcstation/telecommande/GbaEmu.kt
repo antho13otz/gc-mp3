@@ -39,6 +39,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
@@ -384,36 +385,30 @@ private fun ImageGba(modifier: Modifier) {
     }
 }
 
-/** build 406 : l'ecran de la GBA en plein ecran (barres d'Android cachees, comme la vue 3D) : telephone en largeur, l'ecran
- *  au milieu et les boutons de chaque cote ; en hauteur, l'ecran en haut et les boutons dessous. ✕ ou retour : sortir */
+/** build 406 : l'ecran de la GBA en plein ecran (barres d'Android cachees, comme la vue 3D) ; build 408 : l'image remplit l'ecran
+ *  sans deformation, boutons transparents par-dessus (en largeur : croix et L a gauche, A / B / SELECT / START et R a droite).
+ *  ✕ ou retour : sortir */
 @Composable
 private fun PleinEcranGba(fermer: () -> Unit) {
     androidx.compose.ui.window.Dialog(fermer, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
         FenetrePleinEcran()                               // (build 407 : reglage commun, refait a chaque rotation : PleinEcran.kt)
         androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
             val largeur = maxWidth > maxHeight
-            if (largeur) {
-                Row(Modifier.fillMaxSize().displayCutoutPadding().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Column(Modifier.fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
-                        ToucheGba("L", 9, Modifier.width(90.dp)); CroixGba(); Spacer(Modifier.size(1.dp))
+            // build 408 : l'image prend tout l'ecran sans etre deformee (bandes noires si besoin), boutons par-dessus, transparents
+            ImageGba(Modifier.fillMaxSize())
+            Box(Modifier.fillMaxSize().displayCutoutPadding().padding(horizontal = 16.dp, vertical = 12.dp).alpha(0.55f)) {
+                if (largeur) {
+                    Box(Modifier.align(Alignment.TopStart)) { ToucheGba("L", 9, Modifier.width(90.dp)) }
+                    Box(Modifier.align(Alignment.TopEnd).padding(end = 56.dp)) { ToucheGba("R", 8, Modifier.width(90.dp)) }   // (a cote de ✕)
+                    Box(Modifier.align(Alignment.BottomStart)) { CroixGba() }
+                    Box(Modifier.align(Alignment.BottomEnd)) { BoutonsDroiteGba() }
+                } else {
+                    Column(Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                        BoutonsHautGba()
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                            CroixGba(); BoutonsDroiteGba()
+                        }
                     }
-                    ImageGba(Modifier.weight(1f).fillMaxHeight())
-                    Column(Modifier.fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
-                        ToucheGba("R", 8, Modifier.width(90.dp)); BoutonsDroiteGba(); Spacer(Modifier.size(1.dp))
-                    }
-                }
-            } else {
-                Column(Modifier.fillMaxSize().displayCutoutPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp),
-                       horizontalAlignment = Alignment.CenterHorizontally) {
-                    Spacer(Modifier.size(32.dp))
-                    ImageGba(Modifier.fillMaxWidth().aspectRatio(1.5f))
-                    Spacer(Modifier.weight(1f))
-                    BoutonsHautGba()
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                        CroixGba(); BoutonsDroiteGba()
-                    }
-                    Spacer(Modifier.size(24.dp))
                 }
             }
             Text("✕", color = Color.White, fontSize = 20.sp, modifier = Modifier.align(Alignment.TopEnd).displayCutoutPadding()
