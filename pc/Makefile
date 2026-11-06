@@ -81,5 +81,5 @@ $(O)/%.o: plateforme/%.c plateforme/pcsim.h $(wildcard plateforme/include/*.h wi
 	$(CC) $(GCF) -Wall -Wno-unused-parameter -Wno-unused-function -c $< -o $@
 
 $(EXE): $(SIMOBJ) $(LIBOBJ) $(CB_OBJ)
-	$(CXX) -static -mwindows -o $@ $^ -lws2_32 -lwinmm -lwinhttp -lbcrypt -lpthread && echo "-> pc/$(EXE)"
+	$(CXX) -static -mwindows -o $@ $^ -lws2_32 -lwinmm -lwinhttp -lbcrypt -lshell32 -ladvapi32 -lpthread && echo "-> pc/$(EXE)"
 .PHONY: all

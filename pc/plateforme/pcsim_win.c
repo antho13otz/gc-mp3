@@ -10,6 +10,7 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#include <shellapi.h>                                     /* (fichiers deposes sur la fenetre) */
 #include <mmsystem.h>
 #include <io.h>
 #include <wchar.h>
@@ -47,6 +48,8 @@ extern int pcsim_live;
 /* ======================= chemins ======================= */
 static wchar_t root_w[MAX_PATH];                          /* le dossier "sd" (carte SD de GC Station PC) */
 static wchar_t exe_w[MAX_PATH];                           /* le dossier du programme */
+static wchar_t dat_w[MAX_PATH];                           /* (journal, fenetre.txt, manette.txt : a cote du programme, ou %APPDATA%\\GC Station) */
+const wchar_t *pcw_data_dir(void) { return dat_w; }
 const wchar_t *pcw_exe_dir(void) { return exe_w; }
 const wchar_t *pcw_sd_dir(void) { return root_w; }
 static void root_init(void) {
@@ -58,6 +61,19 @@ static void root_init(void) {
     if (e && *e) MultiByteToWideChar(CP_UTF8, 0, e, -1, root_w, MAX_PATH);
     else _snwprintf(root_w, MAX_PATH, L"%ls\\sd", exe_w);
     CreateDirectoryW(root_w, NULL);
+    /* (programme installe dans un dossier ou l'on ne peut pas ecrire, comme Program Files : la carte va dans
+       %APPDATA%\GC Station\sd ; sinon elle reste a cote du programme : version portable, sur une cle USB) */
+    wchar_t t[MAX_PATH]; _snwprintf(t, MAX_PATH, L"%ls\\.essai-ecriture", root_w);
+    HANDLE h = (!e || !*e) ? CreateFileW(t, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_TEMPORARY | FILE_FLAG_DELETE_ON_CLOSE, NULL) : NULL;
+    wcscpy(dat_w, exe_w);
+    if (h == INVALID_HANDLE_VALUE) {
+        const wchar_t *ad = _wgetenv(L"APPDATA");
+        if (ad && *ad) {
+            _snwprintf(dat_w, MAX_PATH, L"%ls\\GC Station", ad);
+            _snwprintf(root_w, MAX_PATH, L"%ls\\GC Station", ad); CreateDirectoryW(root_w, NULL);
+            _snwprintf(root_w, MAX_PATH, L"%ls\\GC Station\\sd", ad); CreateDirectoryW(root_w, NULL);
+        }
+    } else if (h) CloseHandle(h);
 }
 /* "sd:/a/b" -> <dossier sd>\a\b ; autres chemins : tels quels (relatifs au dossier du programme) */
 static int wpath(const char *p, wchar_t *o, int cap) {
@@ -267,12 +283,12 @@ static HMONITOR mons[8]; static int nmon = 0, mon_i = 0;
 static BOOL CALLBACK mon_cb(HMONITOR m, HDC d, LPRECT r, LPARAM l) { (void)d; (void)r; (void)l; if (nmon < 8) mons[nmon++] = m; return TRUE; }
 static void mon_list(void) { nmon = 0; EnumDisplayMonitors(NULL, NULL, mon_cb, 0); }
 static void win_save(void) {
-    wchar_t p[MAX_PATH]; _snwprintf(p, MAX_PATH, L"%ls\\fenetre.txt", exe_w);
+    wchar_t p[MAX_PATH]; _snwprintf(p, MAX_PATH, L"%ls\\fenetre.txt", dat_w);
     FILE *f = _wfopen(p, L"w");
     if (f) { fprintf(f, "ecran=%d\nplein=%d\n", mon_i, full); fclose(f); }
 }
 static void win_load(int *ecran, int *plein) {
-    wchar_t p[MAX_PATH]; _snwprintf(p, MAX_PATH, L"%ls\\fenetre.txt", exe_w);
+    wchar_t p[MAX_PATH]; _snwprintf(p, MAX_PATH, L"%ls\\fenetre.txt", dat_w);
     FILE *f = _wfopen(p, L"r"); char l[64];
     *ecran = 0; *plein = 0;
     if (!f) return;
@@ -314,6 +330,68 @@ static void to_monitor(int n) {
 void pcw_dolphin_stop(void);
 void pcw_maj_start(int manual);
 HWND pcw_window(void) { return win; }
+/* fichiers deposes sur la fenetre : copies dans la carte SD (musique -> mp3, photos -> photos, jeux -> games, videos ->
+   videos), dans un fil a part (une ISO de 1,4 Go prend du temps) ; GC Station le dit et relit sa musique / ses jeux */
+typedef struct { int n; wchar_t **f; } drop_t;
+static int drop_kind(const wchar_t *f) {
+    const wchar_t *x = wcsrchr(f, L'.');
+    if (!x) return -1;
+    static const wchar_t *const au[] = { L".mp3", L".ogg", L".flac", L".wav", L".m4a", L".aac", L".opus", L".wma", L".mod", L".xm", L".it", L".s3m", NULL };
+    static const wchar_t *const im[] = { L".jpg", L".jpeg", L".png", L".bmp", L".gif", L".webp", NULL };
+    static const wchar_t *const gm[] = { L".iso", L".gcm", L".ciso", L".nkit", L".dol", NULL };
+    static const wchar_t *const vi[] = { L".mp4", L".avi", L".mkv", L".webm", L".mov", L".thp", NULL };
+    const wchar_t *const *t[4] = { au, im, gm, vi };
+    for (int k = 0; k < 4; k++) for (int i = 0; t[k][i]; i++) if (!_wcsicmp(x, t[k][i])) return k;
+    return -1;
+}
+static DWORD WINAPI drop_thread(LPVOID a) {
+    drop_t *d = (drop_t *)a;
+    static const wchar_t *const dir[4] = { L"mp3", L"photos", L"games", L"videos" };
+    int ok = 0, quoi = 0;
+    for (int i = 0; i < d->n; i++) {
+        int k = drop_kind(d->f[i]);
+        if (k >= 0) {
+            const wchar_t *nm = wcsrchr(d->f[i], L'\\'); nm = nm ? nm + 1 : d->f[i];
+            wchar_t to[MAX_PATH];
+            _snwprintf(to, MAX_PATH, L"%ls\\%ls", root_w, dir[k]); CreateDirectoryW(to, NULL);
+            _snwprintf(to, MAX_PATH, L"%ls\\%ls\\%ls", root_w, dir[k], nm);
+            if (CopyFileW(d->f[i], to, TRUE) || GetLastError() == ERROR_FILE_EXISTS) { ok++; quoi |= 1 << k; }
+        }
+        free(d->f[i]);
+    }
+    printf("[pc] fichiers deposes : %d sur %d copies dans la carte SD\n", ok, d->n);
+    pcev_t e = { (unsigned)quoi, 100 + ok, 0, 0, 0 }; ev_push(e);
+    free(d->f); free(d);
+    return 0;
+}
+/* icone pres de l'horloge (zone de notification) : clic = la fenetre ; clic droit : Ouvrir, Demarrer avec Windows, Quitter */
+#define WM_TRAY (WM_APP + 1)
+static NOTIFYICONDATAW tray;
+static const wchar_t *const RUN_KEY = L"Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+static int autostart_on(void) {
+    HKEY k; DWORD n = 0; int on = 0;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, RUN_KEY, 0, KEY_READ, &k) == ERROR_SUCCESS) { on = RegQueryValueExW(k, L"GC Station", NULL, NULL, NULL, &n) == ERROR_SUCCESS; RegCloseKey(k); }
+    return on;
+}
+static void autostart_set(int on) {
+    HKEY k;
+    if (RegOpenKeyExW(HKEY_CURRENT_USER, RUN_KEY, 0, KEY_SET_VALUE, &k) != ERROR_SUCCESS) return;
+    if (on) {
+        wchar_t me[MAX_PATH], v[MAX_PATH + 4];
+        GetModuleFileNameW(NULL, me, MAX_PATH); _snwprintf(v, MAX_PATH + 4, L"\"%ls\"", me);
+        RegSetValueExW(k, L"GC Station", 0, REG_SZ, (const BYTE *)v, (DWORD)((wcslen(v) + 1) * sizeof(wchar_t)));
+    } else RegDeleteValueW(k, L"GC Station");
+    RegCloseKey(k);
+}
+static void tray_add(HWND h) {
+    memset(&tray, 0, sizeof(tray));
+    tray.cbSize = sizeof(tray); tray.hWnd = h; tray.uID = 1; tray.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    tray.uCallbackMessage = WM_TRAY;
+    tray.hIcon = LoadIconW(GetModuleHandleW(NULL), MAKEINTRESOURCEW(1)); if (!tray.hIcon) tray.hIcon = LoadIconW(NULL, (LPCWSTR)IDI_APPLICATION);
+    wcscpy(tray.szTip, L"GC Station");
+    Shell_NotifyIconW(NIM_ADD, &tray);
+}
+static void win_show(HWND h) { ShowWindow(h, IsIconic(h) ? SW_RESTORE : SW_SHOW); SetForegroundWindow(h); }
 static LRESULT CALLBACK wproc(HWND h, UINT m, WPARAM w, LPARAM l) {
     switch (m) {
     case WM_KEYDOWN: case WM_SYSKEYDOWN:
@@ -357,6 +435,17 @@ static LRESULT CALLBACK wproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         else fit_full();
         return 0; }
     case WM_DISPLAYCHANGE: if (full) fit_full(); return 0;
+    case WM_DROPFILES: {
+        HDROP hd = (HDROP)w;
+        UINT n = DragQueryFileW(hd, 0xFFFFFFFF, NULL, 0);
+        drop_t *d = (drop_t *)calloc(1, sizeof(drop_t));
+        if (d && n) d->f = (wchar_t **)calloc(n, sizeof(wchar_t *));
+        if (d && d->f) {
+            for (UINT i = 0; i < n; i++) { UINT k = DragQueryFileW(hd, i, NULL, 0); wchar_t *f = (wchar_t *)malloc((k + 1) * sizeof(wchar_t)); if (f) { DragQueryFileW(hd, i, f, k + 1); d->f[d->n++] = f; } }
+            HANDLE t = CreateThread(NULL, 0, drop_thread, d, 0, NULL); if (t) CloseHandle(t);
+        } else free(d);
+        DragFinish(hd);
+        return 0; }
     case WM_KEYUP: case WM_SYSKEYUP: if (w < 256) keys[w] = 0; return 0;
     case WM_KILLFOCUS: memset((void *)keys, 0, sizeof(keys)); return 0;
     case WM_ERASEBKGND: return 1;
@@ -382,7 +471,23 @@ static LRESULT CALLBACK wproc(HWND h, UINT m, WPARAM w, LPARAM l) {
         LeaveCriticalSection(&fb_cs);
         EndPaint(h, &ps);
         return 0; }
-    case WM_CLOSE: pcw_dolphin_stop(); ExitProcess(0); return 0;
+    case WM_TRAY:
+        if (l == WM_LBUTTONUP) { win_show(h); return 0; }
+        if (l == WM_RBUTTONUP) {
+            HMENU mm = CreatePopupMenu();
+            AppendMenuW(mm, MF_STRING, 1, L"Ouvrir GC Station");
+            AppendMenuW(mm, MF_STRING | (autostart_on() ? MF_CHECKED : 0), 2, L"D\x00e9marrer avec Windows");
+            AppendMenuW(mm, MF_SEPARATOR, 0, NULL);
+            AppendMenuW(mm, MF_STRING, 3, L"Quitter");
+            POINT pt; GetCursorPos(&pt); SetForegroundWindow(h);
+            int c = TrackPopupMenu(mm, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, h, NULL);
+            DestroyMenu(mm);
+            if (c == 1) win_show(h);
+            else if (c == 2) autostart_set(!autostart_on());
+            else if (c == 3) PostMessageW(h, WM_CLOSE, 0, 0);
+        }
+        return 0;
+    case WM_CLOSE: Shell_NotifyIconW(NIM_DELETE, &tray); pcw_dolphin_stop(); ExitProcess(0); return 0;
     }
     return DefWindowProcW(h, m, w, l);
 }
@@ -401,6 +506,8 @@ static DWORD WINAPI win_thread(LPVOID a) {
     AdjustWindowRect(&r, WS_OVERLAPPEDWINDOW, FALSE);
     win = CreateWindowW(L"GCStationPC", L"GC Station", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, r.right - r.left, r.bottom - r.top, NULL, NULL, wc.hInstance, NULL);
     if (ecran > 0) to_monitor(ecran); else { mon_list(); for (int i = 0; i < nmon; i++) if (mons[i] == MonitorFromWindow(win, MONITOR_DEFAULTTOPRIMARY)) mon_i = i; }
+    DragAcceptFiles(win, TRUE);                           /* (fichiers deposes : WM_DROPFILES) */
+    tray_add(win);
     ShowWindow(win, SW_SHOW);
     if (plein) toggle_full();
     MSG m;
@@ -454,6 +561,7 @@ void gcs_pc_wheel(int w) __attribute__((weak));
 void gcs_pc_media(int k) __attribute__((weak));
 int gcs_pc_text_active(void) __attribute__((weak));
 void gcs_pc_text(unsigned cp, int k) __attribute__((weak));
+void gcs_pc_dropped(int n, int quoi) __attribute__((weak));
 static void pc_events(void) {
     float u = 0, v = 0; int mv = 0, wh = 0;
     pcev_t q[64]; int n = 0;
@@ -474,6 +582,7 @@ static void pc_events(void) {
     for (int i = 0; i < n; i++) {
         pcev_t *e = &q[i];
         if (e->c) { if (gcs_pc_touch) gcs_pc_touch(e->u, e->v, e->c); }
+        else if (e->k >= 100) { if (gcs_pc_dropped) gcs_pc_dropped(e->k - 100, (int)e->cp); }   /* (fichiers deposes : copies) */
         else if (e->k >= 10) { if (gcs_pc_media) gcs_pc_media(e->k - 10); }
         else if (gcs_pc_text) gcs_pc_text(e->cp, e->k);
     }
@@ -486,7 +595,7 @@ static void pc_events(void) {
 static int jb[8] = { 2, 3, 4, 1, 9, 10, 5, 6 };          /* A B X Y Z START L R */
 static int jb_l2 = 7, jb_r2 = 8;
 static void joy_cfg(void) {
-    wchar_t p[MAX_PATH]; _snwprintf(p, MAX_PATH, L"%ls\\manette.txt", exe_w);
+    wchar_t p[MAX_PATH]; _snwprintf(p, MAX_PATH, L"%ls\\manette.txt", dat_w);
     FILE *f = _wfopen(p, L"r"); char l[64];
     if (!f) return;
     static const char *const nm[8] = { "A=", "B=", "X=", "Y=", "Z=", "START=", "L=", "R=" };
@@ -669,7 +778,7 @@ void pcsim_win_boot(void) {
     const char *lg = getenv("PCSIM_LOG");
     if (pcsim_live || lg) {                                /* (programme sans console : le journal dans un fichier) */
         wchar_t p[MAX_PATH];
-        if (lg) MultiByteToWideChar(CP_UTF8, 0, lg, -1, p, MAX_PATH); else _snwprintf(p, MAX_PATH, L"%ls\\journal.txt", exe_w);
+        if (lg) MultiByteToWideChar(CP_UTF8, 0, lg, -1, p, MAX_PATH); else _snwprintf(p, MAX_PATH, L"%ls\\journal.txt", dat_w);
         _wfreopen(p, L"w", stdout);
         _wfreopen(p, L"a", stderr);
     }

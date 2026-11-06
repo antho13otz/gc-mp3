@@ -37,6 +37,11 @@ et touches multimédia (lecture/pause…), manettes Xbox (XInput) et autres (joy
 réglables dans `manette.txt`), net sur les écrans à 125/150 %, Maj+F11 pour changer d'écran
 (gardé dans `fenetre.txt`). Le détail des touches : `win/LISEZMOI.txt`.
 
+## PC 2
+Fichiers déposés sur la fenêtre (copiés dans la carte : mp3, photos, games, videos), icône près de l'horloge
+(Démarrer avec Windows, Quitter), carte et réglages dans `%APPDATA%\GC Station` si le dossier du programme est
+protégé (sinon : version portable), réglages propres à la console retirés (réseau, mises à jour, Pulse, langue).
+
 ## Ce qui manque par rapport à la console
 - les jeux ne tournent pas dans GC Station : ils sont lancés dans Dolphin (pas de Swiss, pas de
   lanceur maison, pas de carte mémoire physique) ;
