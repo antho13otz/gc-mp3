@@ -222,13 +222,27 @@ object JeuWW {
     private var sigsVues: Map<Long, Int>? = null; private var scanT = 0L
     /** disposition de l'abonnement : Link (os, position, camera), objets suivis, lecture groupee, bourrage (sa longueur rend
      *  la taille totale unique : on reconnait les images de cet abonnement) */
+    // build 440 : Link et les objets articules arrivent en morceaux compacts (Pulse v328, comme les karts de Mario Kart) :
+    // 1re matrice telle quelle, les suivantes en 18 octets au lieu de 48 (Link : 786 octets au lieu de 2016). Rien ne change
+    // sur la console. Ordre : d'abord ce qui arrive tel quel (position, camera, curseur, bateau, voile, objets sans
+    // articulations, lecture groupee, bourrage), puis les morceaux compacts (une Pulse plus ancienne s'arrete au 1er)
     private class Dispo(val id: Int, val n: Long, val p: Long, val c: Long, val suivis: List<Pair<VifObjet, Boolean>>,
                         val lot: List<Pair<Long, Int>>, val pad: Int, val agb: Long = 0L, val bateau: Long = 0L,
                         val mat: Long = 0L, val voile: Long = 0L) {
-        val tailleLink = 42 * 48 + 12 + (if (c != 0L) 48 else 0) + (if (agb != 0L) 12 else 0) + (if (bateau != 0L) 12 else 0) +
-                         (if (voile != 0L) 48 + VOILE_N * 12 else 0)
-        val tailleSuivis = suivis.sumOf { if (it.second) it.first.nj * 48 else 48 }
-        val tot = tailleLink + tailleSuivis + lot.sumOf { it.second } + pad
+        val oCam = 12; val oAgb = oCam + (if (c != 0L) 48 else 0); val oBat = oAgb + (if (agb != 0L) 12 else 0)
+        val oVoile = oBat + (if (bateau != 0L) 12 else 0)
+        val oSuivi = IntArray(suivis.size)                       // (ou commence chaque objet suivi)
+        val oLot: Int; val oLink: Int; val tot: Int
+        val nVif = suivis.sumOf { if (it.second) it.first.nj * 12 else 12 }   // (flottants des objets, une fois decompactes)
+        init {
+            var q = oVoile + (if (voile != 0L) 48 + VOILE_N * 12 else 0)
+            for ((i, sv) in suivis.withIndex()) if (!sv.second) { oSuivi[i] = q; q += 48 }
+            oLot = q; q += lot.sumOf { it.second } + pad
+            oLink = q; q += compact(42)
+            for ((i, sv) in suivis.withIndex()) if (sv.second) { oSuivi[i] = q; q += compact(sv.first.nj) }
+            tot = q
+        }
+        companion object { fun compact(nj: Int) = 48 + (nj - 1) * 18 }
     }
     @Volatile private var dispo: Dispo? = null
     private var idDispo = 0; private var padN = 0
@@ -239,13 +253,15 @@ object JeuWW {
         dispo = d; abonneWW = System.nanoTime()
         MemoireJeu.flux = { b, k -> recevoirWW(b, k) }
         val l = ArrayList<Pair<Long, Int>>()
-        l.add(d.n to 42 * 48); l.add((d.p + 0x1F8) to 12); if (d.c != 0L) l.add((d.c + 0xD0) to 48)
+        l.add((d.p + 0x1F8) to 12); if (d.c != 0L) l.add((d.c + 0xD0) to 48)
         if (d.agb != 0L) l.add((d.agb + 0x1F8) to 12)                  // (build 417 : curseur du Tingle Tuner)
         if (d.bateau != 0L) l.add((d.bateau + 0x1F8) to 12)            // (build 425 : le bateau, pour les vagues)
         if (d.voile != 0L) { l.add(d.mat to 48); l.add(d.voile to VOILE_N * 12) }   // (build 427 : la voile)
-        for ((v, plein) in d.suivis) l.add(if (plein) v.os to v.nj * 48 else (v.adr + 0x24) to 48)
+        for ((v, plein) in d.suivis) if (!plein) l.add((v.adr + 0x24) to 48)
         l.addAll(d.lot)
         l.add(G to d.pad)
+        l.add(d.n to (0x80000000L or (42 * 48L)).toInt())               // (build 440 : compacts, a la fin)
+        for ((v, plein) in d.suivis) if (plein) l.add(v.os to (0x80000000L or (v.nj * 48L)).toInt())
         MemoireJeu.abonner(l, 1)
     }
     private fun nouvelleDispo(n: Long, p: Long, c: Long, suivis: List<Pair<VifObjet, Boolean>>, lot: List<Pair<Long, Int>>, agb: Long = agbVu): Dispo {
@@ -453,22 +469,27 @@ object JeuWW {
         val avecCam = dp.c != 0L
         // lecture groupee : les morceaux demandes, dans l'ordre
         if (dp.lot.isNotEmpty()) {
-            var q = dp.tailleLink + dp.tailleSuivis; val m = HashMap<Long, ByteArray>()
+            var q = dp.oLot; val m = HashMap<Long, ByteArray>()
             for ((a, l) in dp.lot) { m[a] = d.copyOfRange(q, q + l); q += l }
             lotRes = m
         }
-        val os = FloatArray(42 * 12) { fl(d, 4 * it) }
+        val os = matricesCompactes(d, dp.oLink, 42) ?: return
         if (!os.all { it.isFinite() && Math.abs(it) < 1e7f }) return
-        val pos = FloatArray(3) { fl(d, 42 * 48 + 4 * it) }
+        val pos = FloatArray(3) { fl(d, 4 * it) }
         var batImg: FloatArray? = null
-        if (dp.bateau != 0L) { val q = 42 * 48 + 12 + (if (avecCam) 48 else 0) + (if (dp.agb != 0L) 12 else 0); val bp = FloatArray(3) { fl(d, q + 4 * it) }
+        if (dp.bateau != 0L) { val q = dp.oBat; val bp = FloatArray(3) { fl(d, q + 4 * it) }
             if (bp.all { it.isFinite() && Math.abs(it) < 1e6f }) { batImg = bp
                 bateauMoy = if (bateauMoy.isNaN() || Math.abs(bp[1] - bateauMoy) > 2000f) bp[1] else bateauMoy + (bp[1] - bateauMoy) * 0.015f
                 bateauPos = bp; tBateau = System.nanoTime() } }
-        if (dp.agb != 0L) { val q = 42 * 48 + 12 + (if (avecCam) 48 else 0); val cu = FloatArray(3) { fl(d, q + 4 * it) }
+        if (dp.agb != 0L) { val q = dp.oAgb; val cu = FloatArray(3) { fl(d, q + 4 * it) }
             if (cu.all { it.isFinite() && Math.abs(it) < 1e6f }) { curseurPos = cu; tCurseur = System.nanoTime() } }
-        val cam = if (avecCam) FloatArray(12) { fl(d, 42 * 48 + 12 + 4 * it) }.takeIf { c -> c.all { it.isFinite() } } else null
-        val vif = if (dp.suivis.isNotEmpty()) FloatArray(dp.tailleSuivis / 4) { fl(d, dp.tailleLink + 4 * it) } else null
+        val cam = if (avecCam) FloatArray(12) { fl(d, dp.oCam + 4 * it) }.takeIf { c -> c.all { it.isFinite() } } else null
+        val vif = if (dp.suivis.isEmpty()) null else FloatArray(dp.nVif).also { v ->
+            var q = 0
+            for ((i, sv) in dp.suivis.withIndex()) {
+                if (sv.second) { val m = matricesCompactes(d, dp.oSuivi[i], sv.first.nj); if (m != null) System.arraycopy(m, 0, v, q, m.size) else java.util.Arrays.fill(v, q, q + sv.first.nj * 12, Float.NaN); q += sv.first.nj * 12 }
+                else { for (k in 0 until 12) v[q + k] = fl(d, dp.oSuivi[i] + 4 * k); q += 12 }
+            } }
         // (position des objets suivis, pour choisir les plus proches : translation de la 1re matrice)
         if (vif != null) { var q = 0; for ((v, plein) in dp.suivis) { val x = vif[q + 3]; val y = vif[q + 7]; val z = vif[q + 11]
             if (x.isFinite() && y.isFinite() && z.isFinite()) v.pos = floatArrayOf(x, y, z); q += if (plein) v.nj * 12 else 12 } }
@@ -478,7 +499,7 @@ object JeuWW {
         if (dern != null && dern.os.contentEquals(os) && (vif == null || dern.vif?.contentEquals(vif) == true)) { fluxWW = t; return }
         if (dern != null && (img <= dern.img || img - dern.img > 600)) { if (img + 600 < dern.img || img - dern.img > 600) { imagesWW.clear(); arriveesWW.clear() } else return }
         var voileImg: FloatArray? = null
-        if (dp.voile != 0L) { val q = 42 * 48 + 12 + (if (avecCam) 48 else 0) + (if (dp.agb != 0L) 12 else 0) + (if (dp.bateau != 0L) 12 else 0)
+        if (dp.voile != 0L) { val q = dp.oVoile
             val m = FloatArray(12) { fl(d, q + 4 * it) }
             if (m.all { it.isFinite() } && Math.abs(m[3]) < 1e6f) {
                 val v = FloatArray(VOILE_N * 3); var ok = true
@@ -1052,21 +1073,7 @@ object JeuMKDD {
      *  produit vectoriel, a la meme echelle) et la position x 4 relative a la 1re (tronquee comme Pulse) ; rend les
      *  articulations relatives au kart (d), ou null */
     private fun decompacter(b: ByteArray, o: Int, lon: Int, d: FloatArray): FloatArray? {
-        val nj = 1 + (lon - 48) / 18; val mm = FloatArray(nj * 12)
-        for (q in 0 until 12) mm[q] = f(b, o + 4 * q)
-        if (!mm.all { it.isFinite() && Math.abs(it) < 1e6f }) return null
-        fun s16(p: Int): Int = ((b[p].toInt() shl 8) or (b[p + 1].toInt() and 255)).toShort().toInt()
-        val t0 = IntArray(3) { (mm[4 * it + 3] * 4f).toInt() }
-        for (j in 1 until nj) {
-            val p = o + 48 + 18 * (j - 1); val r = j * 12
-            for ((i, q) in intArrayOf(0, 1, 2, 4, 5, 6).withIndex()) mm[r + q] = s16(p + 2 * i) / 16384f
-            val s = Math.sqrt((mm[r] * mm[r] + mm[r + 1] * mm[r + 1] + mm[r + 2] * mm[r + 2]).toDouble()).toFloat()
-            if (s < 1e-3f) return null
-            mm[r + 8] = (mm[r + 1] * mm[r + 6] - mm[r + 2] * mm[r + 5]) / s
-            mm[r + 9] = (mm[r + 2] * mm[r + 4] - mm[r] * mm[r + 6]) / s
-            mm[r + 10] = (mm[r] * mm[r + 5] - mm[r + 1] * mm[r + 4]) / s
-            for (c in 0..2) mm[r + 4 * c + 3] = (t0[c] + s16(p + 12 + 2 * c)) / 4f
-        }
+        val nj = 1 + (lon - 48) / 18; val mm = matricesCompactes(b, o, nj) ?: return null
         val r = FloatArray(nj * 12)
         for (j in 0 until nj) if (!relatif(mm, j * 12, d, r, j * 12)) return null
         return r
@@ -2687,4 +2694,25 @@ private fun EcranChrono() {
             Doux("Vert : en avance sur le record · rouge : en retard · or : meilleur segment jamais fait.", taille = 10)
         }
     }
+}
+
+/** build 440 : les nj matrices d'un morceau compact (repere du jeu), ou null */
+internal fun matricesCompactes(b: ByteArray, o: Int, nj: Int): FloatArray? {
+    if (o < 0 || o + 48 + (nj - 1) * 18 > b.size) return null
+    val mm = FloatArray(nj * 12)
+    for (q in 0 until 12) mm[q] = java.lang.Float.intBitsToFloat(((b[o + 4 * q].toInt() and 255) shl 24) or ((b[o + 4 * q + 1].toInt() and 255) shl 16) or ((b[o + 4 * q + 2].toInt() and 255) shl 8) or (b[o + 4 * q + 3].toInt() and 255))
+    if (!mm.all { it.isFinite() && Math.abs(it) < 1e6f }) return null
+    fun s16(p: Int): Int = ((b[p].toInt() shl 8) or (b[p + 1].toInt() and 255)).toShort().toInt()
+    val t0 = IntArray(3) { (mm[4 * it + 3] * 4f).toInt() }
+    for (j in 1 until nj) {
+        val p = o + 48 + 18 * (j - 1); val r = j * 12
+        for ((i, q) in intArrayOf(0, 1, 2, 4, 5, 6).withIndex()) mm[r + q] = s16(p + 2 * i) / 16384f
+        val s = Math.sqrt((mm[r] * mm[r] + mm[r + 1] * mm[r + 1] + mm[r + 2] * mm[r + 2]).toDouble()).toFloat()
+        if (s < 1e-3f) return null
+        mm[r + 8] = (mm[r + 1] * mm[r + 6] - mm[r + 2] * mm[r + 5]) / s
+        mm[r + 9] = (mm[r + 2] * mm[r + 4] - mm[r] * mm[r + 6]) / s
+        mm[r + 10] = (mm[r] * mm[r + 5] - mm[r + 1] * mm[r + 4]) / s
+        for (c in 0..2) mm[r + 4 * c + 3] = (t0[c] + s16(p + 12 + 2 * c)) / 4f
+    }
+    return mm
 }
