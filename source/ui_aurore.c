@@ -157,8 +157,8 @@ static void au_header(void) {
     /* rangs des onglets affiches */
     int ids[TAB_COUNT], n = 0, cur = 0;
     FOR_TABS(t) if (tab_shown(t)) { if (t == tab) cur = n; ids[n++] = t; }
-    if (au_p < -0.5f || !gl_anim) au_p = (f32)cur;
-    else { f32 k = 1.0f - expf(-ui_dt * 10.0f); au_p += (cur - au_p) * k; if (fabsf(cur - au_p) < 0.002f) au_p = (f32)cur; }
+    if (au_p < -0.5f) au_p = (f32)cur;                   /* v374 : les titres defilent toujours (avant : coupe avec « Animations (jeux / applis) ») */
+    else { f32 k = 1.0f - expf(-ui_dt * 7.0f); au_p += (cur - au_p) * k; if (fabsf(cur - au_p) < 0.002f) au_p = (f32)cur; }   /* (v374 : un peu plus lent : le defilement se voit) */
     /* noms : chacun a sa place sur une rangee (largeurs reelles), la rangee glisse pour mettre
        l'onglet choisi au centre ; plus gros et plus clair au centre */
     f32 wd[TAB_COUNT], cx[TAB_COUNT], acc = 0;
