@@ -175,8 +175,7 @@ static void nv_header(void) {
     const f32 maxw = 404;                                 /* (entre le logo et l'heure) */
     if (total > maxw) { gap = 2; item = (maxw - selw - (n - 1) * gap) / (n - 1); if (item < 24) item = 24; total = (n - 1) * (item + gap) + selw; }
     f32 x = 352 - total / 2;
-    f32 k = 1.0f - expf(-ui_dt * 14.0f);
-    if (!gl_anim) k = 1.0f;
+    f32 k = 1.0f - expf(-ui_dt * 14.0f);                 /* v374 : les onglets glissent toujours (avant : coupe avec « Animations (jeux / applis) ») */
     FOR_TABS(t) {
         if (!tab_shown(t)) continue;
         f32 w = t == tab ? selw : item;

@@ -134,7 +134,7 @@ static void vi_header(void) {
     /* onglets */
     int ids[TAB_COUNT], n = 0, cur = 0;
     FOR_TABS(t) if (tab_shown(t)) { if (t == tab) cur = n; ids[n++] = t; }
-    if (vi_p < -0.5f || !gl_anim) vi_p = (f32)cur;
+    if (vi_p < -0.5f) vi_p = (f32)cur;                   /* v374 : les titres defilent toujours */
     else { f32 k = 1.0f - expf(-ui_dt * 14.0f); vi_p += (cur - vi_p) * k; if (fabsf(cur - vi_p) < 0.003f) vi_p = (f32)cur; }
     f32 y0 = 90, step = n ? (396 - y0) / n : 30;
     if (step > 30) step = 30;
