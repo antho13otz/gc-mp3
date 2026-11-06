@@ -53,6 +53,7 @@ import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -283,7 +284,7 @@ object JeuWW {
     }
     private fun u32(b: ByteArray, o: Int): Long = if (o + 4 <= b.size) g32(b, o) else 0L
     /** cherche les objets du lieu et leurs modeles (bloquant, quelques secondes) */
-    private fun scanner(vt: Long, sigs: Map<Long, Int>): List<VifObjet>? {
+    private fun scanner(vt: Long, sigs: Map<Long, Int>, vite: Boolean = true): List<VifObjet>? {
         val h = lireLot(listOf(TETE() to 12))?.get(TETE()) ?: return null
         var n = u32(h, 0); val cnt = u32(h, 8).toInt().coerceIn(0, 400)
         val objs = ArrayList<Long>()
@@ -293,19 +294,19 @@ object JeuWW {
             val o = u32(r, 12); if (tas(o)) objs.add(o); n = u32(r, 8)
         }
         val cand = LinkedHashSet<Long>()
-        for (lot in objs.chunked(2)) {                 // (build 441 : par 3 Ko au plus : avant 7,7 Ko envoyes a chaque image pendant la recherche, 4 ms pris au jeu)
+        for (lot in objs.chunked(if (vite) 5 else 2)) {   // (build 441 : par 3 Ko au plus, sauf la 1re recherche d'un lieu (build 443 : sinon le bateau et les objets mettaient longtemps a venir))
             val r = lireLot(lot.map { (it + 0x200) to 0x600 }) ?: return null
             for (o in lot) { val b = r[o + 0x200] ?: continue; for (k in 0 until 0x600 step 4) { val p = u32(b, k); if (tas(p)) cand.add(p) } }
         }
         val mods = LinkedHashSet<Long>()
-        for (lot in cand.toList().chunked(36)) {
+        for (lot in cand.toList().chunked(if (vite) 56 else 36)) {
             val r = lireLot(lot.map { it to 0x54 }) ?: return null
             for (p in lot) { val b = r[p] ?: continue
                 if (u32(b, 0) == vt) mods.add(p) else { val q = u32(b, 0x50); if (tas(q)) mods.add(q) } }
         }
         class Info(val adr: Long, val data: Long, val os: Long, val pos: FloatArray)
         val infos = ArrayList<Info>()
-        for (lot in mods.toList().chunked(21)) {
+        for (lot in mods.toList().chunked(if (vite) 50 else 21)) {
             val r = lireLot(lot.map { it to 0x90 }) ?: return null
             for (q in lot) { val b = r[q] ?: continue
                 if (u32(b, 0) != vt) continue
@@ -369,7 +370,7 @@ object JeuWW {
                     val vt = l.u32(mo)
                     if (vt != null) {
                         if (dispo == null) abonnerDispo(nouvelleDispo(n, p, c ?: 0L, emptyList(), emptyList()))
-                        val r = try { scanner(vt, sigs) } catch (e: Exception) { null }
+                        val r = try { scanner(vt, sigs, vite = sigs !== sigsVues || !vifPret) } catch (e: Exception) { null }
                         scanT = System.nanoTime()
                         if (r != null) { vifs = r; sigsVues = sigs; vifPret = true }
                     }
@@ -598,7 +599,12 @@ object JeuWW {
                val cap: Double = 0.0, val vitesse: Float = 0f, val y: Float = 0f, val salle: Int = -1,
                val ventX: Float = 0f, val ventZ: Float = 0f, val ventOk: Boolean = false,
                val variante: Int = 0,                               // (v313 : mRandomSalvagePoint : images de la carte)
-               val cartesMer: IntArray = IntArray(0))               // (build 173 : cartes obtenues, dechiffrees, tresors repeches, cartes de la Triforce)
+               val cartesMer: IntArray = IntArray(0),               // (build 173 : cartes obtenues, dechiffrees, tresors repeches, cartes de la Triforce)
+               // build 443 (dSv_save_c.mMemory[16] en +0x380, 0x24 octets chacun : coffres ouverts, cles, objets du donjon ;
+               // la copie du lieu en cours en +0x778, a jour ; mClearCount, mReturnPlace)
+               val donjons: IntArray = IntArray(0),                 // 7 donjons (FF, DRC, FW, TOTG, ET, WT, GT) : bits carte, boussole, grande cle, boss, receptacle
+               val coffres: Int = -1, val coffresIci: Int = -1, val salles: Int = -1,
+               val quete2: Int = 0, val retour: String = "")
 
     /** null : rien de lisible (pas ce jeu, ou Pulse muet) */
     fun lire(l: Lecteur): Etat? {
@@ -645,8 +651,24 @@ object JeuWW {
             cles = l.u8(G + 0x778 + 0x20) ?: -1, donjon = dj,
             cap = cap, vitesse = vit, y = y, salle = salle, ventX = vx, ventZ = vz, ventOk = vok,
             variante = l.u8(G + 0x148 + 0x59) ?: 0,
-            cartesMer = cartesMer(l))
+            cartesMer = cartesMer(l),
+            donjons = donjonsBits(l, scene), coffres = coffresTotal(l), coffresIci = l.u32(G + 0x778)?.let { java.lang.Long.bitCount(it) } ?: -1,
+            salles = run { val a = l.u32(G + 0x778 + 0x18); val b = l.u32(G + 0x778 + 0x1C); if (a != null && b != null) java.lang.Long.bitCount(a) + java.lang.Long.bitCount(b) else -1 },
+            quete2 = l.u8(G + 0x148 + 0x58)?.takeIf { it < 100 } ?: 0,
+            retour = (l.texte(G + 0x30, 8) ?: "").takeWhile { it.code in 33..126 })
     }
+
+    /** build 443 : les donjons dans l'ordre du jeu : case de dSv_save_c.mMemory (STAGE_FF 2, DRC 3, FW 4, TOTG 5, ET 6, WT 7, GT 8) */
+    val DONJONS = arrayOf("Forteresse Maudite" to 2, "Caverne du Dragon" to 3, "Bois Défendus" to 4, "Tour des Dieux" to 5,
+                          "Temple de la Terre" to 6, "Temple du Vent" to 7, "Tour de Ganon" to 8)
+    /** objets du donjon (mDungeonItem : 0 carte, 1 boussole, 2 grande cle, 3 boss vaincu, 4 receptacle) ; le donjon en cours : la copie a jour */
+    private fun donjonsBits(l: Lecteur, scene: String): IntArray {
+        val ici = lieu(scene)
+        return IntArray(DONJONS.size) { i -> val (nom, st) = DONJONS[i]
+            (if (nom == ici) l.u8(G + 0x778 + 0x21) else l.u8(G + 0x380 + 0x24L * st + 0x21)) ?: return IntArray(0) }
+    }
+    /** coffres ouverts dans tous les lieux (sauvegardes : le lieu en cours compte quand on en sort) */
+    private fun coffresTotal(l: Lecteur): Int { var n = 0; for (st in 0 until 16) n += java.lang.Long.bitCount(l.u32(G + 0x380 + 0x24L * st) ?: return -1); return n }
 
     /** build 173 : dSv_player_map_c (zeldaret/tww : mMap en 0xC4) : field_0x0[1] cartes obtenues, [2] dechiffrees, [3] tresors
      *  repeches (128 bits chacun), field_0x81 cartes de la Triforce ; comptees comme getCollectMapNum (1 a 51, sauf 35 et 36) */
@@ -2164,6 +2186,30 @@ private fun CompagnonWW(e: JeuWW.Etat) {
             }
         }
     }
+    // build 443 : progression : donjons, coffres, point de retour
+    if (e.donjons.size == JeuWW.DONJONS.size) Carte(Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Titre("Progression", couleur = Color(0xFF8AD8FF))
+                Spacer(Modifier.weight(1f))
+                if (e.quete2 > 0) Text(if (e.quete2 > 1) "Quête n° " + (e.quete2 + 1) else "2e quête", color = Color(0xFFFFD54A), fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            }
+            val sym = arrayOf("🗺", "🧭", "🔑", "👹", "❤")
+            for ((i, d) in JeuWW.DONJONS.withIndex()) {
+                val b = e.donjons[i]; val fini = b and 8 != 0; val ici = JeuWW.lieu(e.scene) == d.first
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(d.first, color = if (ici) Color(0xFFFF9F6B) else if (fini) Color(0xFFB9FF8A) else C.Texte, fontSize = 13.sp,
+                         fontWeight = if (ici) FontWeight.Bold else FontWeight.Normal, modifier = Modifier.weight(1f))
+                    for (k in 0 until 5) Text(sym[k], fontSize = 15.sp, modifier = Modifier.padding(start = 4.dp).graphicsLayer { alpha = if (b and (1 shl k) != 0) 1f else 0.18f })
+                }
+            }
+            Doux("🗺 carte · 🧭 boussole · 🔑 grande clé · 👹 boss vaincu · ❤ réceptacle de cœur", taille = 10)
+            val l = ArrayList<String>()
+            if (e.coffres >= 0) l.add(e.coffres.toString() + " coffres ouverts" + (if (e.coffresIci > 0) " (ici : " + e.coffresIci + ")" else ""))
+            JeuWW.lieu(e.retour).takeIf { it.isNotEmpty() && it != "Écran titre" }?.let { l.add("reprise : " + it) }   // (noms de scene inconnus : rien)
+            if (l.isNotEmpty()) Doux(l.joinToString(" · "), taille = 12)
+        }
+    }
     // le donjon en cours
     if (JeuWW.donjon(e.scene) && e.cles >= 0) Carte(Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2175,6 +2221,7 @@ private fun CompagnonWW(e: JeuWW.Etat) {
                 Case("🔑", "grande clé", e.donjon and 4 != 0, Modifier.weight(1f))
                 Case("👹", "boss vaincu", e.donjon and 8 != 0, Modifier.weight(1f))
             }
+            if (e.salles > 0) Doux(e.salles.toString() + " salle" + (if (e.salles > 1) "s" else "") + " visitée" + (if (e.salles > 1) "s" else ""), taille = 11)
         }
     }
     // v313 : a l'interieur (donjon, maison, ile) : le plan qui se dessine au fil des pas de Link

@@ -147,7 +147,10 @@ fun LieuWW3D(e: JeuWW.Etat) {
                 et.cible = CartesWW.pos(r.second[0], r.second[1], r.second[2]); et.direct = true
                 r.third?.let { JeuWW.vueDe(it) }?.let { et.camJeu = it; et.tCamJeu = t }
             }
-            et.curseurTT = JeuWW.curseurTT()?.let { CartesWW.pos(it[0], it[1], it[2]) }   // (build 417 : curseur du Tingle Tuner)
+            // (build 443 : le jeu garde le curseur pose sur Link meme sans Tingle Tuner : montre seulement si la GBA du telephone
+            //  tourne, ou s'il a quitte Link, deplace par une vraie GBA)
+            et.curseurTT = JeuWW.curseurTT()?.takeIf { cu -> GbaEmu.marche || JeuWW.posDirect()?.let { lp -> val dx = cu[0] - lp[0]; val dz = cu[2] - lp[2]; dx * dx + dz * dz > 60f * 60f } == true }
+                ?.let { CartesWW.pos(it[0], it[1], it[2]) }   // (build 417 : curseur du Tingle Tuner)
             et.vagueWW = JeuWW.vague()                                                     // (build 425 : bateau sur l'eau)
             et.voileWW = JeuWW.voile()                                                     // (build 427 : la voile)
             et.vifsWW = JeuWW.vifsRejoues; et.modelesVifs = if (et.vifsWW != null) JeuWW.modelesVifs else emptySet()
