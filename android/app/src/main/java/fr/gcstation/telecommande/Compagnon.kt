@@ -250,8 +250,12 @@ object JeuWW {
     }
     private fun nouvelleDispo(n: Long, p: Long, c: Long, suivis: List<Pair<VifObjet, Boolean>>, lot: List<Pair<Long, Int>>, agb: Long = agbVu): Dispo {
         padN = (padN + 1) % 15
-        return Dispo(++idDispo, n, p, c, suivis, lot, 4 + 4 * padN, agb, bateauVu, voileMatVu, voileVu)
+        return Dispo(++idDispo, n, p, c, suivis, lot, 4 + 4 * padN, agb, effBateau(), effMat(), effVoile())
     }
+    // (build 436 : ce que la console envoie, au choix dans la vue 3D : moins de choses, moins de temps pris au jeu)
+    private fun effBateau() = if (Direct3D.vagues) bateauVu else 0L
+    private fun effVoile() = if (Direct3D.voile) voileVu else 0L
+    private fun effMat() = if (Direct3D.voile) voileMatVu else 0L
     /** lecture groupee de morceaux de memoire par l'abonnement (Link continue d'arriver) ; null : pas de reponse */
     private fun lireLot(ch: List<Pair<Long, Int>>): Map<Long, ByteArray>? {
         val d0 = dispo ?: return null
@@ -356,10 +360,11 @@ object JeuWW {
                 } else if (sigs.isEmpty()) { vifs = emptyList(); vifPret = false; sigsVues = null }
                 if (version == ID && vifPret && sigs.isNotEmpty()) suivreBombes(l, mo, sigs)
                 val lp = imagesWW.lastOrNull()?.pos
-                val suivis = if (vifPret) choisirSuivis(lp?.get(0) ?: 0f, lp?.get(1) ?: 0f, lp?.get(2) ?: 0f) else emptyList()
+                val suivis0 = if (vifPret) choisirSuivis(lp?.get(0) ?: 0f, lp?.get(1) ?: 0f, lp?.get(2) ?: 0f) else emptyList()
+                val suivis = if (Direct3D.objets) suivis0 else suivis0.map { it.first to false }   // (build 436 : objets sans leurs articulations)
                 val d0 = dispo
-                val memes = d0 != null && d0.lot.isEmpty() && d0.n == n && d0.p == p && d0.c == (c ?: 0L) && d0.agb == agbVu && d0.bateau == bateauVu &&
-                            d0.voile == voileVu && d0.mat == voileMatVu &&
+                val memes = d0 != null && d0.lot.isEmpty() && d0.n == n && d0.p == p && d0.c == (c ?: 0L) && d0.agb == agbVu && d0.bateau == effBateau() &&
+                            d0.voile == effVoile() && d0.mat == effMat() &&
                             d0.suivis.size == suivis.size && d0.suivis.zip(suivis).all { (x, y) -> x.first === y.first && x.second == y.second }
                 if (!a.contentEquals(adrWW) || !memes || System.nanoTime() - abonneWW > 1_000_000_000L) {
                     adrWW = a
@@ -963,16 +968,16 @@ object JeuMKDD {
         for (n in ks.indices) if (ks[n] != 0L) { l.add(FM(0, n, 0, ks[n] + 0x110, 48)); l.add(FM(5, n, 0, ks[n] + 0x1A0, 48)) }
         ks.getOrNull(0)?.takeIf { it != 0L }?.let { l.add(FM(4, 0, 0, it + 0x574, 0x54))
             l.add(FM(6, 0, 1, it + 0x730, 48)); l.add(FM(6, 0, 2, it + 0xA0C, 48)) }        // (tes roues avant : le braquage)
-        camAdr.takeIf { it != 0L }?.let { l.add(FM(7, 0, 0, it + 0x80, 48)); l.add(FM(8, 0, 0, it + 0x148, 4)) }   // (camera du jeu)
+        if (Direct3D.camera) camAdr.takeIf { it != 0L }?.let { l.add(FM(7, 0, 0, it + 0x80, 48)); l.add(FM(8, 0, 0, it + 0x148, 4)) }   // (camera du jeu)
         for (rg in 0..1) sq.getOrNull(rg)?.takeIf { it != 0L }?.let { l.add(FM(1, 0, rg, it, artsJoueur[rg].coerceIn(1, MAX_ART) * 48)) }
-        chompAdr?.let { c -> l.add(FM(2, 0, 0, c[0], 96)); for (i in 1 until c.size) l.add(FM(3, i - 1, 0, c[i], 48)) }
+        if (Direct3D.chomp) chompAdr?.let { c -> l.add(FM(2, 0, 0, c[0], 96)); for (i in 1 until c.size) l.add(FM(3, i - 1, 0, c[i], 48)) }
         // (kart : 0x110 a 0x1D0 d'un coup ; trop gros : on garde ce qui tient dans 4,5 Ko, karts d'abord)
         var tot = 0; val gard = ArrayList<FM>()
         for (m in l) { if (tot + m.lon > 4608 || gard.size >= 48) break; gard.add(m); tot += m.lon }
         // Pulse v328 : les squelettes des autres karts, a chaque image aussi, en morceaux compacts (1re articulation telle
         // quelle, les suivantes en 18 octets) ; a la fin : une Pulse plus ancienne s'arrete au 1er, le reste arrive comme avant
         val ak = artsK
-        compacts@ for (n in 1 until ks.size) for (rg in 0..1) {
+        if (Direct3D.pilotes) compacts@ for (n in 1 until ks.size) for (rg in 0..1) {
             val adr = sq.getOrNull(n * 2 + rg) ?: 0L; if (adr == 0L || ks[n] == 0L) continue
             val k = ak.getOrElse(n * 2 + rg) { MAX_ART }.coerceIn(2, MAX_ART); val lo = 48 + (k - 1) * 18
             if (tot + lo > 10240 || gard.size >= 64) break@compacts
