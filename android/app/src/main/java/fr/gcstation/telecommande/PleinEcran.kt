@@ -75,8 +75,10 @@ fun PleinEcranCouche(fermer: () -> Unit, contenu: @Composable () -> Unit) {
     val c = androidx.compose.runtime.rememberUpdatedState(contenu)
     val f = androidx.compose.runtime.rememberUpdatedState(fermer)
     DisposableEffect(Unit) {
-        HotePleinEcran.contenu = { c.value() }; HotePleinEcran.fermer = { f.value() }
-        onDispose { HotePleinEcran.contenu = null; HotePleinEcran.fermer = null }
+        val moi: @Composable () -> Unit = { c.value() }
+        HotePleinEcran.contenu = moi; HotePleinEcran.fermer = { f.value() }
+        // (build 412 : seulement si c'est encore le sien : en passant de la GBA a la vue 3D, l'autre est deja la)
+        onDispose { if (HotePleinEcran.contenu === moi) { HotePleinEcran.contenu = null; HotePleinEcran.fermer = null } }
     }
 }
 
@@ -101,4 +103,12 @@ fun HotePleinEcranAfficher() {
     androidx.activity.compose.BackHandler { HotePleinEcran.fermer?.invoke() }
     androidx.compose.foundation.layout.Box(androidx.compose.ui.Modifier.fillMaxSize().background(androidx.compose.ui.graphics.Color.Black)
         .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } }) { c() }
+}
+
+/** build 412 : passer en plein ecran de l'ecran de la GBA a la vue 3D et inversement (Tingle Tuner : rester sur l'un ou
+ *  l'autre) : chacun ouvre l'autre en se fermant ; le dernier choix est garde pendant que l'appli tourne */
+object BasculeGba3D {
+    var vers3D by androidx.compose.runtime.mutableStateOf(0)       // (demande : la vue 3D en plein ecran)
+    var versGba by androidx.compose.runtime.mutableStateOf(0)      // (demande : l'ecran de la GBA en plein ecran)
+    var vue3DOuverte = false                                       // (une vue 3D est la pour recevoir la demande)
 }
