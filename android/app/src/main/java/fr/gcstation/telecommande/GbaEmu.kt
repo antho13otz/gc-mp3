@@ -120,6 +120,45 @@ object GbaEmu {
         while (derniers.size > 60) derniers.removeFirst(); traceTexte = derniers.joinToString("\n")
     }
     @Volatile var traceTexte = ""                          // (build 401 : les derniers echanges, pour le rapport)
+    // build 415 : messages du Tingle Tuner relus au passage (FEFEFEFE, numero, etat, longueur en octets, donnees, somme des
+    // donnees) : la GBA envoie au jeu le message 4 (deux mots ; le 2e change quand le curseur bouge) ; le jeu envoie le
+    // message 9 (trois mots, sans doute la position de Link sur la carte). Notes avec la position de Link dans le jeu (vue 3D
+    // en direct), pour faire correspondre la carte du Tingle Tuner et le monde
+    private class LecteurMsg(val gba: Boolean) {
+        var etape = 0; var idx = 0; var st = 0; var reste = 0; val d = ArrayList<Long>()
+        fun mot(w: Long) {
+            if (w == 0xFEFEFEFEL) { etape = 1; return }
+            when (etape) {
+                1 -> { idx = w.toInt(); etape = if (w in 0L..15L) 2 else 0 }
+                2 -> { st = w.toInt(); etape = 3 }
+                3 -> { d.clear(); reste = if (w in 1L..64L) ((w + 3) / 4).toInt() else 0; etape = if (reste > 0 && (st == 3 || st == 7)) 4 else 0 }
+                4 -> { d.add(w); if (--reste == 0) etape = 5 }
+                5 -> { if ((d.sum() and 0xFFFFFFFFL) == w) msgRecu(gba, idx, d.toList()); etape = 0 }
+            }
+        }
+    }
+    private val msgGba = LecteurMsg(true); private val msgJeu = LecteurMsg(false)
+    private val derniersMsg = java.util.concurrent.ConcurrentHashMap<String, String>()
+    private val histoTT = java.util.concurrent.ConcurrentLinkedDeque<String>()
+    var curseurTexte by androidx.compose.runtime.mutableStateOf("")
+    @Volatile var curseurMot = -1L
+    private fun msgRecu(gba: Boolean, idx: Int, d: List<Long>) {
+        val m = d.joinToString(" ") { "%08X".format(it) }
+        val cle = (if (gba) "GBA " else "jeu ") + idx
+        val avant = derniersMsg.put(cle, m)
+        if (gba && idx == 4 && d.size >= 2) {
+            curseurMot = d[1]
+            curseurTexte = "Curseur (message de la GBA) : %d, %d  · %08X %08X".format(d[1] and 0xFFFF, (d[1] ushr 16) and 0xFFFF, d[0], d[1])
+        }
+        if (avant != m && ((gba && idx == 4) || (!gba && idx == 9))) {
+            val p = try { JeuWW.posDirect() } catch (e: Exception) { null }
+            val h = java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.FRANCE).format(java.util.Date())
+            histoTT.addLast("  $h $cle : $m ; Link dans le jeu : " + (p?.let { "%.0f %.0f %.0f".format(it[0], it[1], it[2]) } ?: "pas de direct"))
+            while (histoTT.size > 40) histoTT.removeFirst()
+        }
+    }
+    fun messagesTexte(): String = derniersMsg.entries.sortedBy { it.key }.joinToString("\n") { "  ${it.key} : ${it.value}" }.ifEmpty { "  aucun" } +
+        "\nChangements (message 4 de la GBA, message 9 du jeu) :\n" + histoTT.joinToString("\n").ifEmpty { "  aucun" }
     // build 403 (console v365) : Tingle Tuner connecte : mots de la GBA lus ici, envoyes d'un coup a Pulse qui les garde en
     // file pour le jeu (numero 1-255 << 32 | mot) ; retires quand Pulse dit que le jeu les a lus
     val file = java.util.concurrent.ConcurrentLinkedDeque<Long>()
@@ -297,9 +336,10 @@ object GbaEmu {
                         numero = numero % 255 + 1
                         file.add(numero.toLong() shl 32 or (sortiesBuf[i].toLong() and 0xFFFFFFFFL)); nEnvoyes++
                         trace("GBA écrit %08X (rafale, file : %d)".format(sortiesBuf[i], file.size))
+                        msgGba.mot(sortiesBuf[i].toLong() and 0xFFFFFFFFL)
                     }
                 }
-                repeat(res[1]) { i -> entrees.poll(); nRecus++; trace("mot du jeu %08X".format(mots[i])) }
+                repeat(res[1]) { i -> entrees.poll(); nRecus++; trace("mot du jeu %08X".format(mots[i])); msgJeu.mot(mots[i].toLong() and 0xFFFFFFFFL) }
                 if (res[1] > 0) dernierMot = mots[res[1] - 1].toLong() and 0xFFFFFFFFL
                 if (res[1] > 0 && imgBoot < 0) imgBoot = nImages
                 if (res[1] > 0) donnesSansLu = true
@@ -370,10 +410,12 @@ object GbaEmu {
                     numero = numero % 255 + 1
                     file.add(numero.toLong() shl 32 or tv); GbaNatif.joy(0x14, d); nEnvoyes++
                     trace("GBA écrit %08X (file : %d)".format(tv, file.size)); GbaNatif.regs(r); joycnt = r[3]
+                    msgGba.mot(tv)
                 } else if (!attenteLu && js and 0x08 != 0 && drap != 0) {      // (la GBA a ecrit JOY_TRANS : pour le jeu)
                     transVal = tv
                     numero = numero % 255 + 1; transId = numero
                     trace("GBA écrit %08X (JOYSTAT %02X)".format(tv, js))
+                    msgGba.mot(tv)
                     attenteLu = true
                 }
                 drapeaux = js and 0x30
