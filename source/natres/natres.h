@@ -203,6 +203,9 @@ typedef struct {
        paquets "GCVO" recus, octets donnes sans echantillon (le jeu lisait plus vite que le telephone), telephone (adresse,
        port, MAC : pour l'etat renvoye) */
     unsigned int micon, mstat, mncmd, mnirq, mnrd, mw, mr, mnrx, mlow, vip, vport, vmac0, vmac1;
+    /* v364 : Tingle Tuner (code GZL.) : ou en est le message que le jeu envoie a la GBA (0 attente de FEFEFEFE, 1 numero,
+       2 etat, 3 longueur, 5 donnees (gfn mots restants), 4 somme), mots FFFFFFFF d'attente non transmis au telephone */
+    unsigned int gfr, gfn, gnskip;
     /* v344 : apres la structure (seulement s'ils servent) : l'anneau des mots du jeu pour la GBA (NATRES_GBA_RING mots, si
        gbmask), puis celui du micro (NATRES_MIC_RING octets, si micon) ; len les compte */
 } natres_pad_t;
