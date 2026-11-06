@@ -113,16 +113,22 @@ object GbaTel {
                 val h = hote()
                 if (h == null) { Thread.sleep(500); continue }
                 // notre paquet (toutes les ~30 ms) : accuse, lecture du drapeau 0x02 (relais), recommencer
-                val d = ByteArray(24)
+                // build 403 (console v365) : + la file des mots de la GBA (Tingle Tuner) : nombre, numero du 1er, mots
+                val fl = if (GbaEmu.marche) GbaEmu.fileAEnvoyer() else emptyList()
+                val d = ByteArray(if (fl.isEmpty()) 24 else 32 + 4 * fl.size)
                 d[0] = 'G'.code.toByte(); d[1] = 'C'.code.toByte(); d[2] = 'G'.code.toByte(); d[3] = 'B'.code.toByte()
                 d[4] = 1; d[5] = 1
                 var opt = 0L; var trans = 0L
                 if (GbaEmu.marche) { val (o, t) = GbaEmu.options(); opt = o; trans = t }   // (build 375 : relais de l'emulateur)
+                if (fl.isNotEmpty()) {
+                    opt = opt or 0x20L; p32(d, 24, fl.size.toLong()); p32(d, 28, fl[0] ushr 32)
+                    for ((i, w) in fl.withIndex()) p32(d, 32 + 4 * i, w and 0xFFFFFFFFL)
+                }
                 p32(d, 8, seq++); p32(d, 12, suite); p32(d, 16, trans)
                 if (lu) { opt = opt or 2; lu = false }
                 if (demandeReprise) { opt = opt or 4; demandeReprise = false; raz() }
                 p32(d, 20, opt)
-                try { so.send(DatagramPacket(d, 24, h, MemoireJeu.PORT)) } catch (e: Exception) { }
+                try { so.send(DatagramPacket(d, d.size, h, MemoireJeu.PORT)) } catch (e: Exception) { }
                 // (la GBA tourne, ou build 380 : le jeu envoie son programme : accuses toutes les 8 ms, sinon Pulse attend)
                 val fin = System.currentTimeMillis() + (if (GbaEmu.marche || etape in 1..2) 8 else 30)
                 while (true) {
