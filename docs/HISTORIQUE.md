@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 429 — packs Wind Waker : une mise à jour sans lieu n'est plus « rien d'installable »
+- Le zip de la voile (ww_voile.png seul) était bien installé, mais seuls les lieux (.r3v) étaient comptés : le message
+  disait « Rien d'installable ». Chaque fichier installé compte maintenant.
+
 ## Appli builds 427 et 428 — vue 3D de Wind Waker : la voile ; bombes reprises ; mode Tingle en vue libre
 - 427 : la voile n'est pas un modèle mais un tissu recalculé par le jeu à chaque image (acteur 0xAC, pointé par le bateau
   à +0x414 ; 7 x 24 points à +0x354, dans le repère du mât : articulation 7 de la coque, morf du bateau +0x298 puis +0x50,
