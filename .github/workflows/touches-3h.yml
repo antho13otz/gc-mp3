@@ -17,10 +17,15 @@ jobs:
       - uses: actions/checkout@v4
       - name: Outils
         run: |
+          # (miroir d'Ubuntu qui bloque un telechargement : chaque fichier abandonne apres 30 s et redemande, 3 essais en tout ;
+          #  si rien ne s'installe, on s'arrete tout de suite : sinon 25 min pour finir sur "ld.lld introuvable")
+          A="-o Acquire::Retries=5 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30"
+          ok=0
           for i in 1 2 3; do
-            timeout 480 sudo apt-get update -q && timeout 480 sudo apt-get install -y -q clang lld llvm ffmpeg python3-pil >/dev/null && break
-            echo "apt : nouvel essai"; sleep 10
+            timeout 600 sudo apt-get $A update -q && timeout 900 sudo apt-get $A install -y -q --no-install-recommends clang lld llvm ffmpeg python3-pil >/dev/null && { ok=1; break; }
+            echo "apt : nouvel essai"; sleep 20
           done
+          [ $ok = 1 ] && command -v ld.lld >/dev/null || { echo "apt : les outils n'ont pas pu etre installes (miroir d'Ubuntu)"; exit 1; }
       - name: Bibliothèques (en cache)
         uses: actions/cache@v4
         with:
