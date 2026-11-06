@@ -1053,10 +1053,14 @@ static MEM_OS void gb_cmd(natres_pad_t *p) {             /* debut d'un transfert
         gb_r1 = (p->gjoy & 0xFFu) << 24;
         /* v346 : programme recu : 1re lecture = la preuve (gx), puis JOYSTAT reste 0x08 : le code du jeu suit (2e lecture) */
         if (p->gst == 3 && !p->gfin) { p->gfin = 1; p->gtrans = p->gcode; return; }
+        u32 avait8 = p->gjoy & 0x08u;
         if (p->gjoy & 0x08u) p->gtidlu = p->gtid;          /* (v333 : ce mot du telephone est lu : on le lui dira) */
         p->gjoy &= ~0x08u;
-        if (p->gqw != p->gqr && (p->gjoy & 0x30u) == 0x30u) {   /* v365 : mot de la file lu : le suivant tout de suite */
-            p->gtidlu = p->gqid[p->gqr % 32u]; p->gqr++;
+        /* v365 : mot de la file lu : le suivant tout de suite. v366 : seulement s'il etait annonce (0x08) et que c'est bien
+           lui (le jeu lit aussi sans 0x08 : le mot etait perdu) ; tant qu'il en reste, 0x08 (avant : efface pour de bon par
+           une lecture sans mot, la file restait bloquee et le jeu recommencait la connexion) */
+        if (p->gqw != p->gqr) {
+            if (avait8 && t == p->gq[p->gqr % 32u]) { p->gtidlu = p->gqid[p->gqr % 32u]; p->gqr++; }
             if (p->gqw != p->gqr) { p->gtrans = p->gq[p->gqr % 32u]; p->gjoy |= 0x08u; }
         }
         if (p->gst == 3) {                               /* (1re lecture apres le programme : il tourne) */
@@ -1157,10 +1161,10 @@ static MEM_OS void gb_rx(natres_pad_t *p, const u8 *f, const u8 *u, const u8 *d,
             if (p->gqlast && (df == 0 || df > 128u)) continue;   /* (deja pris) */
             if (p->gqw - p->gqr >= 32u) break;
             u32 w = pn_be32(d + 32 + 4 * i);
-            if (p->gqw == p->gqr) { p->gtrans = w; p->gjoy |= 0x08u; }
             p->gq[p->gqw % 32u] = w; p->gqid[p->gqw % 32u] = (u8)id; p->gqw++; p->gqlast = id; p->gqn++;
         }
     }
+    if (p->gqw != p->gqr && p->gst == 4) { p->gtrans = p->gq[p->gqr % 32u]; p->gjoy |= 0x08u; }   /* (v366 : la tete de la file, annoncee) */
 }
 /* v332 : micro du telephone : les octets du paquet "GCVO" (echantillons 16 bits, deja a la frequence du jeu) dans l'anneau
    (les plus vieux sautes s'il deborde) */
