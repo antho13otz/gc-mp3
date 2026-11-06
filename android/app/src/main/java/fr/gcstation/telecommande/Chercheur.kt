@@ -146,7 +146,33 @@ object MemoireJeu {
 
     /** le direct : abonnement a des morceaux de la memoire (adresse, longueur), envoyes par Pulse toutes les « periode » images
      *  (a renouveler avant 3 s) ; liste vide : fin */
+    // build 439 : pendant le direct, le Wi-Fi du telephone reste en mode « faible latence » (Android 10 et plus ; avant :
+    // haute performance) : sans ca, l'economie d'energie du Wi-Fi retient des paquets (a-coups de 10 a 50 ms). Rendu des que
+    // l'abonnement n'est plus renouvele depuis 5 s (ou liste vide)
+    private var wifiDirect: android.net.wifi.WifiManager.WifiLock? = null
+    @Volatile private var wifiT = 0L
+    private val wifiH by lazy { android.os.Handler(android.os.Looper.getMainLooper()) }
+    private val wifiFin: Runnable = object : Runnable { override fun run() {
+        if (System.nanoTime() - wifiT < 5_000_000_000L) { wifiH.postDelayed(this, 2000); return }
+        synchronized(this@MemoireJeu) { try { wifiDirect?.takeIf { it.isHeld }?.release() } catch (e: Exception) { } } } }
+    private fun wifiPendantDirect(on: Boolean) {
+        try {
+            if (!on) { wifiT = 0L; wifiDirect?.takeIf { it.isHeld }?.release(); return }
+            val w = wifiDirect ?: run {
+                val c = Compagnon.ctx ?: return
+                val wm = c.applicationContext.getSystemService(android.content.Context.WIFI_SERVICE) as android.net.wifi.WifiManager
+                @Suppress("DEPRECATION")
+                val mode = if (android.os.Build.VERSION.SDK_INT >= 29) android.net.wifi.WifiManager.WIFI_MODE_FULL_LOW_LATENCY else android.net.wifi.WifiManager.WIFI_MODE_FULL_HIGH_PERF
+                wm.createWifiLock(mode, "gcs:direct").apply { setReferenceCounted(false) }.also { wifiDirect = it }
+            }
+            val premier = wifiT == 0L || !w.isHeld
+            wifiT = System.nanoTime()
+            if (!w.isHeld) w.acquire()
+            if (premier) { wifiH.removeCallbacks(wifiFin); wifiH.postDelayed(wifiFin, 2000) }
+        } catch (e: Exception) { }
+    }
     @Synchronized fun abonner(morceaux: List<Pair<Long, Int>>, periode: Int) {
+        wifiPendantDirect(morceaux.isNotEmpty())
         val h = hote() ?: return
         try {
             val n = morceaux.size.coerceAtMost(64)                // (Pulse v328 : 64 ; avant, 48 : le reste est ignore)
