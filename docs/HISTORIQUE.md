@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli builds 412 et 413 — passer de la GBA à la vue 3D en plein écran ; recherche du curseur assouplie
+- **412** : en plein écran, « 🗺 Vue 3D » sur l'écran de la GBA ouvre la vue 3D du compagnon en plein écran, et « 🎮 GBA »
+  dans la vue 3D revient à l'écran de la GBA (Tingle Tuner : rester sur l'un ou l'autre).
+- **413** : recherche du curseur du Tingle Tuner assouplie (16 et 32 bits, même sens aux deux appuis). Essai : la croix ne
+  déplace pas le curseur sur la carte : il est sans doute calculé par le jeu à partir des appuis envoyés par la GBA (à
+  suivre).
+
 ## Appli builds 410 et 411 — recherche du curseur du Tingle Tuner, plein écran pour de bon
 - **410** : bouton « Chercher le curseur (écran de la carte) » sous l'écran de la GBA : l'appli appuie elle-même 2 fois à
   droite puis 2 fois en bas, photographie la mémoire de la GBA (IWRAM et EWRAM) entre chaque et garde les valeurs qui
