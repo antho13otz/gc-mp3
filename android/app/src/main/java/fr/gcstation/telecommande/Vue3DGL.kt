@@ -551,7 +551,10 @@ private class RenduR3(val scene: SceneR3, val etat: Etat3D, val facteur: Int) : 
         val bb = voileBuf; bb.clear()
         fun pt(r: Int, c: Int) { val i = (r * 7 + c) * 3
             bb.putFloat(v[i] * 0.01f); bb.putFloat(-v[i + 2] * 0.01f); bb.putFloat(v[i + 1] * 0.01f)
-            bb.putFloat(r / 23f); bb.putFloat(1f - c / 6f); bb.putInt(-1) }
+            bb.putFloat(r / 23f); bb.putFloat(1f - c / 6f)
+            // (build 444 : le shader double la couleur des sommets (couleurs du jeu, 0x80 = normal) : en blanc (0xFF), la voile
+            //  sortait toute blanche, trop lumineuse ; gris moyen = la texture telle quelle, un peu plus sombre en bas)
+            val g = (0x80 - (6 - c) * 3).toByte(); bb.put(g); bb.put(g); bb.put(g); bb.put(0xFF.toByte()) }
         for (r in 0 until 23) for (c in 0 until 6) { pt(r, c); pt(r + 1, c); pt(r + 1, c + 1); pt(r, c); pt(r + 1, c + 1); pt(r, c + 1) }
         bb.position(0)
         GLES20.glUniform1f(uEauL, 0f); GLES20.glUniform1f(uChaudL, 0f); GLES20.glUniform1f(uVentL, 0f); GLES20.glUniform1f(uLmK, 0f)
