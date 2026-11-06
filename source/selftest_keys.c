@@ -161,6 +161,12 @@ static void kt_desc(char *o, int cap) {
 }
 
 static void kt_finish(void);
+/* v367 : rapport ecrit au fur et a mesure (toutes les 5 min, entre deux actions) : si la console se fige, plante ou
+   s'eteint avant la fin (3 h), test-console.txt existe quand meme et dit jusqu'ou le test est alle. Avant : ecrit
+   seulement a la fin ; le test de la nuit n'avait laisse aucun rapport */
+static u64 kt_saved = 0;
+static int kt_partial = 0;
+static void kt_save(void);
 static void kt_begin(void) {
     kt_build();
     kt_limit = 3u * 3600u * 1000u;
@@ -179,6 +185,8 @@ static void kt_begin(void) {
     perf_on = 1; sx_perf_reset();
     mp_reset();                                       /* v323 : memoire par partie, depuis le debut du test */
     crumb("test des touches : debut (%d ecrans)", kt_nsc);
+    if (sd_ok && !sd_virtual) { remove(SX_OLD); rename(SX_FILE, SX_OLD); }   /* v367 : (l'ancien rapport : mis de cote au debut) */
+    kt_saved = kt_t0; kt_partial = 1; kt_save();
 }
 /* (perf_frame -> sx_frame_hook -> ici) chaque image pendant le test */
 /* v323 : de quoi etait faite la pire image de l'action (tache la plus longue, partie du dessin, carte SD, reseau) */
@@ -238,6 +246,7 @@ static void kt_tick(void) {
         if (!(tp_keys & PAD_BUTTON_B) && !(sx_hold & PAD_BUTTON_B)) { kt_aborted = 1; kt_finish(); return; }
     }
     if (n - kt_t0 >= KT_LIMIT_MS + 120000u) { kt_finish(); return; }
+    if (kt_ph == 0 && n >= kt_t && n - kt_saved >= 300000u) { kt_saved = n; kt_partial = 1; kt_save(); kt_t = now_ms() + 50; return; }   /* v367 */
     if (kt_hold_end && n >= kt_hold_end) { kt_release(); kt_hold_end = 0; }
     if (n < kt_t) return;
     kt_sc_t *s = &kt_sc[kt_si];
@@ -310,7 +319,8 @@ static void kt_tick(void) {
 
 static void kt_write_report(FILE *f) {
     u32 el = (u32)((now_ms() - kt_t0) / 1000u);
-    fprintf(f, "GC Station %s - test des touches%s\n", GCMP3_VERSION, kt_aborted ? " (arrêté avec B)" : "");
+    fprintf(f, "GC Station %s - test des touches%s\n", GCMP3_VERSION, kt_partial ? " (EN COURS : rapport provisoire, réécrit toutes les 5 min)" : kt_aborted ? " (arrêté avec B)" : "");
+    if (kt_partial) fprintf(f, "Dernière action : %s (%s)\n", kt_cur[0] ? kt_cur : "aucune encore", kt_monkey ? "touches au hasard" : "écran par écran");
     fprintf(f, "Durée : %u h %02u min ; %u actions ; %d écrans ; %u images (%u ratées)\n", el / 3600u, el / 60u % 60u, (unsigned)kt_acts, kt_nsc, (unsigned)kt_frames, (unsigned)kt_slow_tot);
     fprintf(f, "Mémoire libre : %d Ko de moins à la fin qu'au début\n", (int)(((s32)kt_mem0 - (s32)sx_free_now()) / 1024));
     fprintf(f, "Fermés de force (B ne suffisait pas) : %u ; actions dangereuses bloquées : %u\n", (unsigned)kt_forced, (unsigned)sx_blocked);
@@ -318,7 +328,7 @@ static void kt_write_report(FILE *f) {
     fprintf(f, "\n== Écrans (actions, images ratées, pire image, ouverture : 1re fois / pire, mémoire gardée, fermés de force, bloqués) ==\n");
     for (int i = 0; i < kt_nsc; i++) {
         const kt_sc_t *s = &kt_sc[i];
-        if (!s->acts) { fprintf(f, "%-44s pas atteint (temps écoulé)\n", s->nm); continue; }
+        if (!s->acts) { fprintf(f, "%-44s %s\n", s->nm, kt_partial ? "pas encore" : "pas atteint (temps écoulé)"); continue; }
         fprintf(f, "%-44s %4u actions  %4u ratées  pire %5u ms  ouverture %4u / %4u ms  mémoire %+5d Ko  forcés %u  bloqués %u\n", s->nm, (unsigned)s->acts, (unsigned)s->slow,
                 (unsigned)(s->worst_us / 1000u), (unsigned)(s->open1_us / 1000u), (unsigned)(s->open_us / 1000u), (int)(s->dmem / 1024), (unsigned)s->forced, (unsigned)s->blocked);
     }
@@ -345,12 +355,21 @@ static void kt_finish(void) {
     sx_quiet = 0;
     tab = sx_tab0; tab_enter(tab);
     crumb("test des touches : fin (%u actions)", (unsigned)kt_acts);
-    if (sd_ok && !sd_virtual) {
-        remove(SX_OLD); rename(SX_FILE, SX_OLD);
-        FILE *f = fopen(SX_FILE, "w");
-        if (f) { kt_write_report(f); fclose(f); }
-    }
+    kt_partial = 0; kt_save();                        /* v367 : (remplace le rapport provisoire) */
     tl_screen = TL_SELFTEST; menu_open = 0;
+}
+static void kt_save(void) {
+    if (!sd_ok || sd_virtual) {
+#ifndef GEKKO
+        printf("[touches] rapport pas ecrit : %s\n", !sd_ok ? "pas de carte SD" : "carte SD virtuelle (en memoire)");
+#endif
+        return;
+    }
+    FILE *f = fopen(SX_FILE, "w");                    /* (chemin des journaux : permis pendant le test) */
+    if (f) { kt_write_report(f); fclose(f); }
+#ifndef GEKKO
+    printf("[touches] rapport %s ecrit (%s)\n", kt_partial ? "provisoire" : "final", f ? "ok" : "ECHEC");
+#endif
 }
 static void kt_overlay(void) {
     if (!kt_on) return;
