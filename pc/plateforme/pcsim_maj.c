@@ -19,6 +19,7 @@
 #define REPO "antho13otz/gc-mp3"
 #define ARTEFACT "gc-station-pc"
 const wchar_t *pcw_exe_dir(void);
+const wchar_t *pcw_data_dir(void);
 void pcw_dolphin_stop(void);
 HWND pcw_window(void);
 
@@ -142,6 +143,7 @@ static int read_token(char *t, int cap) {
     const char *e = getenv("GCSTATION_JETON");
     if (e && *e) { snprintf(t, cap, "%s", e); return 1; }
     wchar_t p[MAX_PATH]; _snwprintf(p, MAX_PATH, L"%ls\\jeton-github.txt", pcw_exe_dir());
+    if (GetFileAttributesW(p) == INVALID_FILE_ATTRIBUTES) _snwprintf(p, MAX_PATH, L"%ls\\jeton-github.txt", pcw_data_dir());   /* (aussi dans %APPDATA%\\GC Station) */
     FILE *f = _wfopen(p, L"rb");
     if (!f) return 0;
     char l[400] = "";

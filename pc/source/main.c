@@ -12511,8 +12511,8 @@ static const s8 sec_items[6][32] = {
     { -6, MI_RADIORES, MI_TITLES, -7, MI_REC, MI_RECAT, MI_RECLEN, -8, MI_PODAUTO, MI_PODSPEED, MI_PODSIL, -1 },
     { -9, MI_UILANG, MI_LANG, -10, MI_SKIN, MI_THEME, MI_THEMEDL, MI_WALL, MI_SEASON, MI_TABS, -11, MI_LAYOUT, MI_ELEMS, MI_VIZ, MI_SGPAL, MI_LYRSHOW, -12, MI_SAVER, MI_SAVERSTYLE, MI_NIGHT, -13, MI_HIDDEN, MI_UNKNOWN, -14, MI_PERF, -1 },
     { -15, MI_TV, MI_VIDEO, MI_WIDE, -16, MI_SCREEN, MI_SCREENH, MI_SCREENY, MI_SCREENX, -1 },
-    { -17, MI_GLANG, MI_GSOUND, MI_CLOCK, MI_RUMBLE, MI_AUTOSTART, -18, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, MI_APNOIMG, MI_PLAYLIM, -19, MI_NATIGR, MI_NATCARD, MI_NATCARDREG, MI_NATCARDGAME, MI_PADTEL, MI_GBATEL, MI_MICTEL, MI_MEMTEL, MI_PULSELD, -20, MI_LAUNCHER, MI_IGR, -1 },
-    { -21, MI_DHCP, MI_IP, MI_MASK, MI_GW, -22, MI_NETSMB, MI_NETFTP, MI_NETFSP, -23, MI_SALON, MI_SALONAMI, MI_SALONCODE, MI_PHONEAUTO, MI_APPENV, -24, MI_UPDAUTO, MI_UPDXZ, MI_UPDATE, MI_UPDOLD, -1 } };
+    { -18, MI_GLVIEW, MI_GLANIM, MI_GLAUTO, MI_APNOIMG, MI_PLAYLIM, -1 },   /* (GC Station PC : ni Pulse ni lanceur de secours : les jeux vont dans Dolphin ; ni reglages de la console : langue, son, horloge, demarrage) */
+    { -22, MI_NETSMB, MI_NETFTP, MI_NETFSP, -23, MI_SALON, MI_SALONAMI, MI_SALONCODE, MI_PHONEAUTO, MI_APPENV, -1 } };   /* (GC Station PC : le reseau est celui de Windows ; mises a jour : F9) */
 static int sec_n(int sec) { int n = 0; if (sec < 0 || sec >= SEC_TOOLS) return 0; while (n < 32 && sec_items[sec][n] != -1) n++; return n; }
 static int sec_pos(int sec, int mi) { if (mi < 0) return -1; for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] == mi) return i; return -1; }   /* (v321 : jamais un sous-titre) */
 static int sec_first(int sec) { for (int i = 0; i < sec_n(sec); i++) if (sec_items[sec][i] >= 0) return sec_items[sec][i]; return 0; }

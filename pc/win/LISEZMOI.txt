@@ -32,6 +32,15 @@ Salon (avec les autres GC Station), et tes jeux GameCube lances dans Dolphin.
      START=10
    (numeros des boutons tels que Windows les donne : Parametres > Peripheriques > manettes de jeu).
 
+2b) Ajouter des fichiers, icone, demarrage
+   Depose des fichiers sur la fenetre : musique (mp3, ogg, flac...) -> dossier mp3, photos -> photos,
+   jeux GameCube (iso, gcm, ciso) -> games, videos -> videos. GC Station les copie et relit sa liste.
+   Icone pres de l'horloge de Windows : clic = la fenetre ; clic droit : Demarrer avec Windows, Quitter.
+   Installe dans un dossier protege (Program Files) : la carte SD et les reglages vont dans
+   %APPDATA%\GC Station ; sinon tout reste a cote du programme (version portable, sur une cle USB).
+   Les reglages de la console (reseau, mises a jour, Pulse, langue de la console) ne sont pas dans
+   GC Station PC : le reseau est celui de Windows, les mises a jour se font avec F9.
+
 3) Les jeux : avec Dolphin
    Installe Dolphin (https://dolphin-emu.org), ou mets son dossier a cote de GC Station
    (un dossier « Dolphin » contenant Dolphin.exe), ou ecris le chemin de Dolphin.exe dans un

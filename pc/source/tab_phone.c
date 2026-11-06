@@ -2505,3 +2505,14 @@ void gcs_pc_text(unsigned cp, int k) {
     osk_phone_set(ob, k == 2);
     if (k == 2 || k == 3) was = 0;
 }
+/* GC Station PC : des fichiers deposes sur la fenetre (pc/plateforme/pcsim_win.c les a copies dans la carte SD) :
+   n fichiers ; quoi : bit 0 musique, 1 photos, 2 jeux, 3 videos */
+static void gq_start(void);
+void gcs_pc_dropped(int n, int quoi) {
+    char m[96];
+    snprintf(m, sizeof(m), n > 1 ? "%d fichiers ajout\xC3\xA9s \xC3\xA0 la carte SD" : "%d fichier ajout\xC3\xA9 \xC3\xA0 la carte SD", n);
+    lib_note(m);
+    crumb("PC : %d fichiers deposes (%d)", n, quoi);
+    if (quoi & 1) music_rescan_bg();
+    if (quoi & 4) gq_start();
+}
