@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 446
+
+Vue 3D de Wind Waker : le bateau est toujours suivi. Il n'est pas dans la liste des acteurs que parcourt la recherche des objets (comme Link) : sa coque et sa tête de lion sont prises directement sur son acteur, avec leurs articulations quand Link est près. Le pack complet a été refait : il contient enfin le bateau, la bombe et les ennemis de la mer dans tous les lieux de la mer.
+
 ## Appli builds 444 et 445 — voile à sa vraie couleur ; journal de bug avec le direct de Wind Waker
 - 444 : le shader double la couleur des sommets (couleurs du jeu : 0x80 = normal) : avec des sommets blancs, la voile
   sortait toute blanche. Gris moyen : la texture telle quelle, un peu plus sombre vers le bas.
