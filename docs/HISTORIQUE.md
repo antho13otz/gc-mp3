@@ -24,6 +24,13 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli builds 406 à 408 — plein écran de la GBA, plein écran qui couvre tout en largeur
+- **406** : bouton « ⛶ Plein écran » sous l'écran de la GBA du téléphone (barres d'Android cachées, ✕ ou retour pour sortir).
+- **407** : vue 3D et GBA : en largeur, une bande à droite et en bas laissait voir l'appli. Réglage commun (`PleinEcran.kt`) :
+  la fenêtre prend la vraie taille de l'écran en pixels, réglage refait à chaque rotation.
+- **408** : en plein écran, l'image de la GBA remplit l'écran sans être déformée (bandes noires si besoin), boutons
+  transparents par-dessus (en largeur : L et la croix à gauche, R, B, A, SELECT, START à droite ; en hauteur : sous l'image).
+
 ## Appli build 405 — Tingle Tuner : les mots de la GBA lus pendant l'image même
 - Connectée, la GBA du téléphone ne sortait qu'un mot par image (16 ms) : le jeu trouvait ses messages trop lents,
   recommençait la connexion en plein message et le message se perdait (« Un instant. » sur l'écran du Tingle Tuner,
