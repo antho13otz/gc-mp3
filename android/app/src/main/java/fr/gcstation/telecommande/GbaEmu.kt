@@ -155,6 +155,8 @@ object GbaEmu {
         var joycnt = 0
         var attenteRaz = 0                                 // (build 401 : images depuis qu'une remise a zero attend la GBA)
         var etatTT = -1                                    // (build 401 : etat du lien du Tingle Tuner, pour le rapport)
+        var echoTT = false                                 // (build 402 : le Tingle Tuner vient de se connecter : son echo, deja donne par Pulse)
+        var dernierMot = -1L                               // (build 402 : dernier mot du jeu donne a la GBA)
         var nApres = 0
         var imgBoot = -1
         var errPrec = 0; var drapPrec = 0
@@ -202,6 +204,7 @@ object GbaEmu {
                 else if (!retenir && !attendReset) for (w in entrees) { if (n >= mots.size) break; mots[n++] = w.toInt() }
                 GbaNatif.image(touches, px, son, mots, n, res)
                 repeat(res[1]) { i -> entrees.poll(); nRecus++; trace("mot du jeu %08X".format(mots[i])) }
+                if (res[1] > 0) dernierMot = mots[res[1] - 1].toLong() and 0xFFFFFFFFL
                 if (res[1] > 0 && imgBoot < 0) imgBoot = nImages
                 if (res[1] > 0) donnesSansLu = true
                 GbaNatif.regs(r)
@@ -225,6 +228,7 @@ object GbaEmu {
                     errPrec = err; drapPrec = drap
                     if ((codeJeu and 0xFFFFFFL) == 0x4C5A47L) {    // (build 401 : Tingle Tuner : etat de son lien (0x0300564D))
                         val et = GbaNatif.mem32(0x0300564C) ushr 8 and 0xFF
+                        if (et and 0x0E == 0x08 && (etatTT < 0 || etatTT and 0x0E != 0x08)) echoTT = true   // (passe a l'etape 4 : connecte)
                         if (et != etatTT) { evt("Tingle Tuner : lien %02X (étape %d%s%s%s ; JOYSTAT %02X JOYCNT %02X)".format(et, et shr 1 and 7,
                             if (et and 0x20 != 0) ", en route" else "", if (et and 1 != 0) ", ERREUR" else "", if (et and 0x40 != 0) ", déjà connecté" else "", js, joycnt)); etatTT = et }
                     }
@@ -244,6 +248,9 @@ object GbaEmu {
                 if (!attenteLu && js and 0x08 != 0 && apresReset && drap == 0x20) { apresReset = false; if (idGba < 0) idGba = tv }
                 if (idDejaDonne) {
                     trace("identifiant %08X lu ici".format(tv)); GbaNatif.joy(0x14, d); nAvales++; GbaNatif.regs(r); joycnt = r[3]
+                } else if (!attenteLu && js and 0x08 != 0 && echoTT && drap == 0x30 && tv == dernierMot) {
+                    // build 402 (console v363) : l'echo de la cle de partie du Tingle Tuner, deja donne au jeu par Pulse : lu ici
+                    trace("écho %08X lu ici".format(tv)); GbaNatif.joy(0x14, d); nAvales++; echoTT = false; GbaNatif.regs(r); joycnt = r[3]
                 } else if (!attenteLu && js and 0x08 != 0 && aAvaler.remove(tv)) {   // (build 381 : deja donne au jeu par Pulse)
                     GbaNatif.joy(0x14, d); nAvales++
                     if (tv == codeJeu) { codeLu = true; GbaNatif.regs(r); joycnt = r[3] }   // (build 386 : JOYCNT relu apres la lecture : 4)
