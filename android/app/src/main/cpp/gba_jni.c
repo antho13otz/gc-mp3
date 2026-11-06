@@ -30,6 +30,12 @@
 static struct mCore* core = NULL;
 static color_t* ecran = NULL;
 static struct GBASIODriver joy;
+/* build 405 : lecture sur place des mots de la GBA (Tingle Tuner connecte) : des qu'elle ecrit JOY_TRANS avec ses drapeaux
+   0x30, le mot est pris et lu (commande 14) pendant l'image meme ; elle ecrit alors le suivant aussitot, comme avec une vraie
+   GameCube. Avant : un mot par image (16 ms), le jeu trouvait ses messages trop lents et recommencait la connexion */
+static int lecture_auto = 0;
+static uint32_t sorties[96];
+static int nsorties = 0;
 
 static void fin(void) {
 	if (core) { core->deinit(core); core = NULL; }
@@ -88,6 +94,7 @@ JNIEXPORT jint JNICALL Java_fr_gcstation_telecommande_GbaNatif_image(JNIEnv* env
 	uint32_t img = gba->video.frameCounter;
 	int32_t t0 = mTimingCurrentTime(&gba->timing);
 	int32_t tmot = t0 - 100000;                          /* (build 395 : quand le dernier mot a ete donne) */
+	int32_t tlu = t0 - 100000;                           /* (build 405 : quand le dernier mot de la GBA a ete lu ici) */
 	while (gba->video.frameCounter == img && mTimingCurrentTime(&gba->timing) - t0 < VIDEO_TOTAL_LENGTH + VIDEO_HORIZONTAL_LENGTH) {
 		/* build 395 : un mot seulement quand la GBA a fini avec le precedent : JOY_RECV lu (JOYSTAT) ET son interruption
 		   acquittee (JOYCNT), et pas moins de 3000 cycles apres lui (le temps d'un transfert du bus des manettes). Avant, un
@@ -100,6 +107,13 @@ JNIEXPORT jint JNICALL Java_fr_gcstation_telecommande_GbaNatif_image(JNIEnv* env
 			uint32_t w = (uint32_t) m[donnes++];
 			uint8_t d[8] = { (uint8_t) w, (uint8_t) (w >> 8), (uint8_t) (w >> 16), (uint8_t) (w >> 24) };
 			GBASIOJOYSendCommand(&joy, JOY_RECV, d);
+		}
+		if (lecture_auto && nsorties < 96 && (gba->memory.io[REG_JOYSTAT >> 1] & 0x38) == 0x38
+		    && !(gba->memory.io[REG_JOYCNT >> 1] & JOYCNT_TRANS) && tc - tlu >= 3000) {
+			tlu = tc;
+			uint8_t d[8] = { 0 };
+			GBASIOJOYSendCommand(&joy, JOY_TRANS, d);
+			sorties[nsorties++] = (uint32_t) d[0] | (uint32_t) d[1] << 8 | (uint32_t) d[2] << 16 | (uint32_t) d[3] << 24;
 		}
 		ARMRunLoop(core->cpu);
 	}
@@ -189,4 +203,18 @@ JNIEXPORT void JNICALL Java_fr_gcstation_telecommande_GbaNatif_regs(JNIEnv* env,
 	v[2] = (jint) ((uint32_t) io[REG_JOY_RECV_LO >> 1] | (uint32_t) io[(REG_JOY_RECV_LO >> 1) + 1] << 16);
 	v[3] = io[REG_JOYCNT >> 1];
 	(*env)->SetIntArrayRegion(env, out, 0, 4, v);
+}
+
+/* build 405 : lecture sur place des mots de la GBA (voir plus haut) ; sorties() rend ceux lus depuis le dernier appel */
+JNIEXPORT void JNICALL Java_fr_gcstation_telecommande_GbaNatif_lectureAuto(JNIEnv* env, jclass cls, jboolean oui) {
+	(void) env; (void) cls;
+	lecture_auto = oui ? 1 : 0;
+}
+JNIEXPORT jint JNICALL Java_fr_gcstation_telecommande_GbaNatif_sorties(JNIEnv* env, jclass cls, jintArray out) {
+	(void) cls;
+	jsize cap = (*env)->GetArrayLength(env, out);
+	int n = nsorties < cap ? nsorties : cap;
+	if (n > 0) (*env)->SetIntArrayRegion(env, out, 0, n, (const jint*) sorties);
+	nsorties = 0;
+	return n;
 }

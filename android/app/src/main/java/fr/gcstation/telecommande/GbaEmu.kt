@@ -55,6 +55,8 @@ object GbaNatif {
     @JvmStatic external fun regs(out: IntArray)
     @JvmStatic external fun mem32(adr: Int): Int
     @JvmStatic external fun ecr8(adr: Int, v: Int)
+    @JvmStatic external fun lectureAuto(oui: Boolean)          // (build 405 : mots de la GBA lus pendant l'image meme)
+    @JvmStatic external fun sorties(out: IntArray): Int
 }
 
 object GbaEmu {
@@ -144,6 +146,7 @@ object GbaEmu {
         val res = IntArray(2)
         val r = IntArray(4)
         val mots = IntArray(512)
+        val sortiesBuf = IntArray(96)
         val d = ByteArray(8)
         var son0: AudioTrack? = null
         try {
@@ -217,7 +220,19 @@ object GbaEmu {
                 val attendReset = (apresReset && nApres <= 30) || (joycnt and 4 != 0) || razEnAttente   // (build 401 : mots du jeu apres sa remise a zero : pas avant elle)
                 if (avant > 0) for (w in entrees) { if (n >= avant) break; mots[n++] = w.toInt() }
                 else if (!retenir && !attendReset) for (w in entrees) { if (n >= mots.size) break; mots[n++] = w.toInt() }
+                // build 405 : Tingle Tuner connecte : ses mots lus pendant l'image meme (toute une suite d'un coup, pour la file)
+                val rafale = (codeJeu and 0xFFFFFFL) == 0x4C5A47L && etatTT >= 0 && etatTT and 0x0E == 0x08 && !attenteLu && file.size < 64
+                GbaNatif.lectureAuto(rafale)
                 GbaNatif.image(touches, px, son, mots, n, res)
+                GbaNatif.lectureAuto(false)
+                run {
+                    val ns = GbaNatif.sorties(sortiesBuf)
+                    for (i in 0 until ns) {
+                        numero = numero % 255 + 1
+                        file.add(numero.toLong() shl 32 or (sortiesBuf[i].toLong() and 0xFFFFFFFFL)); nEnvoyes++
+                        trace("GBA écrit %08X (rafale, file : %d)".format(sortiesBuf[i], file.size))
+                    }
+                }
                 repeat(res[1]) { i -> entrees.poll(); nRecus++; trace("mot du jeu %08X".format(mots[i])) }
                 if (res[1] > 0) dernierMot = mots[res[1] - 1].toLong() and 0xFFFFFFFFL
                 if (res[1] > 0 && imgBoot < 0) imgBoot = nImages
