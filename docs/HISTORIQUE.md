@@ -24,6 +24,11 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Appli build 440 — direct de Wind Waker plus léger ; Wi-Fi « faible latence »
+
+- Link et les objets articulés arrivent en morceaux compacts (Pulse v328, comme les karts de Mario Kart) : la 1re matrice telle quelle, les suivantes en 18 octets au lieu de 48 (Link : 786 octets au lieu de 2016 par image). Rien ne change sur la console.
+- Pendant le direct, le Wi-Fi du téléphone est en mode « faible latence » (Android 10 et plus ; avant : haute performance) : moins d'à-coups dus à l'économie d'énergie du Wi-Fi. Rendu 5 s après la fin du direct.
+
 ## Nouveautés v375 (build 904) — « Nouveaux jeux lus tout seuls » sans saccades
 
 - Le parcours de la carte SD se fait en fond (avant : dans la boucle de l'écran, saccades).
