@@ -23,6 +23,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.displayCutoutPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -331,32 +335,111 @@ object GbaEmu {
     }
 }
 
-/** l'ecran de la GBA et ses boutons (toucher : appuyer, lever : relacher) */
+/** l'ecran de la GBA et ses boutons (toucher : appuyer, lever : relacher) ; build 406 : plein ecran */
 @Composable
 fun EcranGba() {
+    var plein by androidx.compose.runtime.remember { mutableStateOf(false) }
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        ImageGba(Modifier.fillMaxWidth().aspectRatio(1.5f).clip(RoundedCornerShape(8.dp)).background(Color.Black))
+        Box(Modifier.clip(RoundedCornerShape(10.dp)).background(C.Verre).pointerInput(Unit) { detectTapGestures { plein = true } }
+                .padding(horizontal = 14.dp, vertical = 6.dp)) { Text("⛶ Plein écran", color = C.Texte, fontSize = 13.sp) }
+        BoutonsHautGba()
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            CroixGba(); BoutonsDroiteGba()
+        }
+    }
+    if (plein) PleinEcranGba { plein = false }
+}
+
+/** l'image de la GBA, redessinee a chaque image de l'ecran du telephone (build 382) */
+@Composable
+private fun ImageGba(modifier: Modifier) {
     var n by androidx.compose.runtime.remember { mutableIntStateOf(0) }
-    androidx.compose.runtime.LaunchedEffect(Unit) {       // (build 382 : redessine a chaque image de l'ecran du telephone)
+    androidx.compose.runtime.LaunchedEffect(Unit) {
         while (true) { androidx.compose.runtime.withFrameNanos { }; if (GbaEmu.images != n) n = GbaEmu.images }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Box(Modifier.fillMaxWidth().aspectRatio(1.5f).clip(RoundedCornerShape(8.dp)).background(Color.Black)) {
-            val bmp = synchronized(GbaEmu.ecran) { GbaEmu.ecran.copy(Bitmap.Config.ARGB_8888, false) }
-            Image(bmp.asImageBitmap(), contentDescription = "Écran de la GBA ($n)", modifier = Modifier.fillMaxWidth().aspectRatio(1.5f),
-                  contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            ToucheGba("L", 9, Modifier.width(90.dp)); ToucheGba("R", 8, Modifier.width(90.dp))
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                ToucheGba("▲", 6)
-                Row { ToucheGba("◀", 5); Spacer(Modifier.size(52.dp)); ToucheGba("▶", 4) }
-                ToucheGba("▼", 7)
+    Box(modifier, contentAlignment = Alignment.Center) {
+        val bmp = synchronized(GbaEmu.ecran) { GbaEmu.ecran.copy(Bitmap.Config.ARGB_8888, false) }
+        Image(bmp.asImageBitmap(), contentDescription = "Écran de la GBA ($n)", modifier = Modifier.fillMaxSize(),
+              contentScale = ContentScale.Fit, filterQuality = FilterQuality.None)
+    }
+}
+
+@Composable private fun BoutonsHautGba() {
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        ToucheGba("L", 9, Modifier.width(90.dp)); ToucheGba("R", 8, Modifier.width(90.dp))
+    }
+}
+@Composable private fun CroixGba() {
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        ToucheGba("▲", 6)
+        Row { ToucheGba("◀", 5); Spacer(Modifier.size(52.dp)); ToucheGba("▶", 4) }
+        ToucheGba("▼", 7)
+    }
+}
+@Composable private fun BoutonsDroiteGba() {
+    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { ToucheGba("B", 1, Modifier.size(56.dp), rond = true); ToucheGba("A", 0, Modifier.size(56.dp), rond = true) }
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ToucheGba("SELECT", 2, Modifier.width(76.dp)); ToucheGba("START", 3, Modifier.width(76.dp)) }
+    }
+}
+
+/** build 406 : l'ecran de la GBA en plein ecran (barres d'Android cachees, comme la vue 3D) : telephone en largeur, l'ecran
+ *  au milieu et les boutons de chaque cote ; en hauteur, l'ecran en haut et les boutons dessous. ✕ ou retour : sortir */
+@Composable
+private fun PleinEcranGba(fermer: () -> Unit) {
+    androidx.compose.ui.window.Dialog(fermer, androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
+        val vueD = androidx.compose.ui.platform.LocalView.current
+        androidx.compose.runtime.DisposableEffect(Unit) {
+            val w = (vueD.parent as? androidx.compose.ui.window.DialogWindowProvider)?.window
+            if (w != null) {
+                w.setLayout(android.view.ViewGroup.LayoutParams.MATCH_PARENT, android.view.ViewGroup.LayoutParams.MATCH_PARENT)
+                w.addFlags(android.view.WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or android.view.WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN)
+                w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+                w.attributes = w.attributes.also {
+                    it.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT; it.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                    it.x = 0; it.y = 0; it.gravity = android.view.Gravity.TOP or android.view.Gravity.START
+                    if (android.os.Build.VERSION.SDK_INT >= 28) it.layoutInDisplayCutoutMode = if (android.os.Build.VERSION.SDK_INT >= 30) android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                                                   else android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+                    if (android.os.Build.VERSION.SDK_INT >= 30) { it.fitInsetsTypes = 0; it.fitInsetsSides = 0; it.isFitInsetsIgnoringVisibility = true }
+                }
+                w.decorView.setPadding(0, 0, 0, 0)
+                androidx.core.view.WindowCompat.setDecorFitsSystemWindows(w, false)
+                val c = androidx.core.view.WindowCompat.getInsetsController(w, w.decorView)
+                c.systemBarsBehavior = androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                c.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
             }
-            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) { ToucheGba("B", 1, Modifier.size(56.dp), rond = true); ToucheGba("A", 0, Modifier.size(56.dp), rond = true) }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) { ToucheGba("SELECT", 2, Modifier.width(76.dp)); ToucheGba("START", 3, Modifier.width(76.dp)) }
+            onDispose { }
+        }
+        androidx.compose.foundation.layout.BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black)) {
+            val largeur = maxWidth > maxHeight
+            if (largeur) {
+                Row(Modifier.fillMaxSize().displayCutoutPadding().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
+                        ToucheGba("L", 9, Modifier.width(90.dp)); CroixGba(); Spacer(Modifier.size(1.dp))
+                    }
+                    ImageGba(Modifier.weight(1f).fillMaxHeight())
+                    Column(Modifier.fillMaxHeight(), verticalArrangement = Arrangement.SpaceBetween, horizontalAlignment = Alignment.CenterHorizontally) {
+                        ToucheGba("R", 8, Modifier.width(90.dp)); BoutonsDroiteGba(); Spacer(Modifier.size(1.dp))
+                    }
+                }
+            } else {
+                Column(Modifier.fillMaxSize().displayCutoutPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp),
+                       horizontalAlignment = Alignment.CenterHorizontally) {
+                    Spacer(Modifier.size(32.dp))
+                    ImageGba(Modifier.fillMaxWidth().aspectRatio(1.5f))
+                    Spacer(Modifier.weight(1f))
+                    BoutonsHautGba()
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                        CroixGba(); BoutonsDroiteGba()
+                    }
+                    Spacer(Modifier.size(24.dp))
+                }
             }
+            Text("✕", color = Color.White, fontSize = 20.sp, modifier = Modifier.align(Alignment.TopEnd).displayCutoutPadding()
+                .padding(top = 8.dp, end = 12.dp).clip(CircleShape).background(Color(0x55FFFFFF))
+                .pointerInput(Unit) { detectTapGestures { fermer() } }.padding(horizontal = 12.dp, vertical = 4.dp))
         }
     }
 }
