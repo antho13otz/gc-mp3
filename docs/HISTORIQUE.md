@@ -24,6 +24,10 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v373 (build 902) — test des touches : la phase au hasard
+
+- Après 25 touches au hasard, le test appuie jusqu'à 10 fois sur B pour revenir (avant : 3, d'où des « fermés de force » qui n'étaient pas des blocages). Un fermé de force dit ce qui est resté ouvert. Rien d'autre ne change.
+
 ## Appli build 437 — vue 3D : ce que la console envoie, au choix
 
 - Sous « Positions en direct (vue 3D) » : « Ce que la console envoie » ; Wind Waker : objets et personnages animés, voile, bateau sur les vagues ; Mario Kart : pilotes des autres karts animés, Chomp, caméra du jeu. Coupé : moins de données, moins de temps pris au jeu. Console inchangée.
