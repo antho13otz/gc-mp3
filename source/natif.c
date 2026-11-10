@@ -892,8 +892,19 @@ static int na_game_pal(const char *id) {
     default: return 0;
     }
 }
+static int nat_vmode;                                     /* (reglage Video du jeu : plus bas) */
+static int na_no_pal60(const char *id) { return !strncmp(id, "GRHP", 4); }   /* v404 : (voir plus bas) */
 static u32 na_vi_bootrom(const char *id) {
     if (!na_game_pal(id)) return 0;                       /* VI_NTSC */
+    /* v405 : Video "comme le jeu" (0) : vraiment le format du jeu, PAL 50 Hz pour un jeu PAL (comme une console
+       d'origine : le jeu propose lui-meme le 60 Hz s'il le connait). Avant : PAL 60 Hz des que la console etait reglee
+       en 60 Hz (v362), meme avec "comme le jeu". Le PAL 60 Hz reste le reglage Video "PAL 60 Hz" (et 480p / 240p). */
+    if (!nat_vmode) return 1;
+    /* v404 : jeux PAL qui ne connaissent pas le PAL 60 Hz (EURGB60) : leur choix du mode d'image n'accepte que NTSC, PAL
+       et MPAL, sinon arret voulu ("Invalid TV format", OSPanic : ecran noir, plus aucune interruption). Toujours PAL
+       50 Hz pour eux, meme si la console est reglee en 60 Hz. Rayman 3 PAL (GRHP41) : noir depuis v362 (journaux v398
+       a v403 ; lu dans son main.dol : VIGetTvFormat rend 5, la fonction appelante n'a pas de cas 5). */
+    if (na_no_pal60(id)) return 1;
 #ifdef GEKKO
     if (VIDEO_GetCurrentTvMode() == VI_EURGB60) return 5;
     /* v362 : comme le menu de la console : console reglee en PAL 60 Hz (memoire de la console, SRAM) -> EURGB60, meme si
@@ -998,8 +1009,10 @@ static void na_crash_print(FILE *f, const u8 *c) {
     const u32 *g = w + 0x30 / 4, *lo = w + 0xB0 / 4, *bt = w + 0xD0 / 4;
     if (w[2] == 0xFF) fprintf(f, "\n========== Ou en etait le jeu au retour (A+Z+START) ==========\n"
                                  "(le jeu ne plantait pas : c'est l'endroit ou il tournait, utile pour un ecran noir ou un jeu fige)\n");   /* v133 */
-    else if (w[2] == 0xFE) {                                                       /* v169 */
-        fprintf(f, "\n========== Jeu fige : ou en etait-il (note par Pulse) ==========\n"
+    else if (w[2] == 0xFE || w[2] == 0xFD) {                                       /* v169 (v402 : FD) */
+        if (w[2] == 0xFD) fprintf(f, "\n========== Avant la 1re image : ou en etait le jeu (note par Pulse) ==========\n"
+                   "(releve toutes les 3 s tant que le jeu n'a affiche aucune image : le dernier, a la derniere interruption vue par Pulse)\n");
+        else fprintf(f, "\n========== Jeu fige : ou en etait-il (note par Pulse) ==========\n"
                    "(l'image continuait, mais plus de manettes ni de lecteur depuis 6 s)\n");
         if (w[8]) fprintf(f, "Tache du jeu en attente : %08X (etat %u, priorite %u) ; %u taches actives\n",
                           (unsigned)w[8], (unsigned)(w[9] >> 16 & 0xFF), (unsigned)(w[9] & 0xFFFF), (unsigned)(w[9] >> 24));
@@ -1372,7 +1385,7 @@ static void nat_journal_convert_x(void) {
             }
             int rr = 4;
             if (v5 && H[44]) rr = 1;
-            if (len >= 1024 && be32(d + 512) == NATRES_CRASH_MAGIC) { u32 ex = be32(d + 512 + 8); if (rr != 1) rr = ex == 0xFE ? 2 : ex == 0xFF ? 0 : 1; }
+            if (len >= 1024 && be32(d + 512) == NATRES_CRASH_MAGIC) { u32 ex = be32(d + 512 + 8); if (rr != 1 && ex != 0xFD) rr = ex == 0xFE ? 2 : ex == 0xFF ? 0 : 1; }   /* (v402 : FD = releve avant la 1re image, pas un plantage) */
             static const char *const vd[] = { "quitte avec A+Z+START", "PLANTAGE", "jeu FIGE (repere par Pulse)", "aucune nouvelle du jeu", "pas de retour (console eteinte ou redemarree ?)" };
             u32 fr = v3 ? H[36] : 0, hz = gid[3] == 'P' ? 50u : 60u;
             fprintf(f, "========== Resume ==========\n");
@@ -1504,7 +1517,8 @@ static void nat_journal_convert_x(void) {
                     in & 1 ? "ERREUR LECTURE  " : "", in & 8 ? "CARTE PAS PRETE  " : "", in & 2 ? "LECTEUR OCCUPE  " : "", in & 4 ? "" : "PAS DE REVEIL  ",
                     (unsigned)((in >> 8) & 0xFF), (unsigned)((in >> 16) & 0xFF));
         }
-        if (len >= 1024 && be32(d + 512) == NATRES_CRASH_MAGIC) na_crash_print(f, d + 512);   /* v79 */
+        if (len >= 1024 && be32(d + 512) == NATRES_CRASH_MAGIC && !(be32(d + 512 + 8) == 0xFD && v3 && H[36]))   /* (v402 : le releve FD ne sert plus si des images ont suivi) */
+            na_crash_print(f, d + 512);   /* v79 */
         if (len >= 1536 && be32(d + 1024) == NATRES_STACK_MAGIC) na_stack_print(f, d + 1024);  /* v82 */
         if (len >= 2048 && be32(d + 1536) == NATRES_THR_MAGIC) na_thr_print(f, d + 1536);     /* v243 */
         if (len >= 2560 && be32(d + 2048) == NATRES_EXI_MAGIC) na_exi_print(f, d + 2048);     /* v260 */
@@ -3802,8 +3816,12 @@ static const char *nat_boot(int k) {
                                (unsigned)na_netc.port, (unsigned)na_netc.tok[0], (unsigned)na_netc.size[0],
                                (unsigned)(na_netc.ip >> 24), (unsigned)(na_netc.ip >> 16 & 255), (unsigned)(na_netc.ip >> 8 & 255), (unsigned)(na_netc.ip & 255));
         fprintf(f, "Carte memoire virtuelle (slot B) : %s\n", nat_card >= 2 ? (na_card2_msg[0] ? na_card2_msg : "non") : "non (reglage)");
-        fprintf(f, "Mode video donne au jeu (800000CC) : %s (jeu %s)\n", na_vi_bootrom(in.id) == 1 ? "PAL" : na_vi_bootrom(in.id) == 5 ? "EURGB60 (PAL 60 Hz)" : "NTSC",
-                na_game_pal(in.id) ? "PAL" : "NTSC");
+        {   /* v405 : la valeur vraiment donnee (avec le reglage Video du jeu) */
+            u32 vb = na_vi_bootrom(in.id);
+            if (nat_vmode && na_game_pal(in.id) && !na_no_pal60(in.id)) vb = 5;
+            fprintf(f, "Mode video donne au jeu (800000CC) : %s (jeu %s ; reglage Video : %s)\n", vb == 1 ? "PAL 50 Hz" : vb == 5 ? "EURGB60 (PAL 60 Hz)" : "NTSC",
+                    na_game_pal(in.id) ? "PAL" : "NTSC", nat_vmode == 0 ? "comme le jeu" : nat_vmode == 1 ? "480p" : nat_vmode == 2 ? "PAL 60 Hz" : "240p");
+        }
 #ifdef GEKKO
         fprintf(f, "Console : PAL 60 Hz dans ses reglages (SRAM) : %s ; GC Station tournait en %s\n", SYS_GetEuRGB60() ? "oui" : "non",
                 VIDEO_GetCurrentTvMode() == VI_PAL ? "PAL 50 Hz" : VIDEO_GetCurrentTvMode() == VI_EURGB60 ? "PAL 60 Hz" : VIDEO_GetCurrentTvMode() == VI_MPAL ? "PAL-M" : "NTSC");   /* v362 */
@@ -3833,7 +3851,7 @@ static const char *nat_boot(int k) {
        NTSC 480i. Avant : le mode de GC Station (souvent 480p) restait, et certains jeux le reprenaient tel quel
        (Paper Mario : rouge et bleu inverses sur la prise numerique / adaptateur HDMI) */
     u32 na_vb = na_vi_bootrom(in.id);
-    if (nat_vmode && na_game_pal(in.id)) na_vb = 5;          /* v122 : jeu PAL mis en 60 Hz (480 lignes) : EURGB60 */
+    if (nat_vmode && na_game_pal(in.id) && !na_no_pal60(in.id)) na_vb = 5;   /* (v404 : jamais pour un jeu qui ne le connait pas) */          /* v122 : jeu PAL mis en 60 Hz (480 lignes) : EURGB60 */
     GXRModeObj *na_gm = na_vb == 1 ? &TVPal576IntDfScale : na_vb == 5 ? &TVEurgb60Hz480IntDf : &TVNtsc480IntDf;
     VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync();
     VIDEO_Configure(na_gm); VIDEO_SetBlack(TRUE); VIDEO_Flush(); VIDEO_WaitVSync(); VIDEO_WaitVSync();

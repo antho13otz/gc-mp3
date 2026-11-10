@@ -24,6 +24,28 @@ dans une interface GX style Indigo. Lancer `gc-mp3player.dol` depuis Swiss / Ind
 TÉLÉPHONE, JEUX, TÉLÉCHARGEMENTS. Le nom de l'onglet et des petits points (position) s'affichent en
 haut de la liste. Pour cacher les onglets dont tu ne te sers pas : START > « Onglets affichés ».
 
+## Nouveautés v405 (build 934) — réglage « Vidéo : comme le jeu » vraiment respecté (tous les jeux)
+- Le réglage **Vidéo** de chaque jeu sur **« comme le jeu »** donne maintenant vraiment le format du jeu : **PAL 50 Hz** pour un jeu PAL, NTSC pour un jeu NTSC, comme une console d'origine (un jeu qui connaît le 60 Hz le propose lui-même si la console est réglée en 60 Hz). Avant (depuis v362), un jeu PAL recevait le PAL 60 Hz dès que la console était réglée en 60 Hz, même avec « comme le jeu » : c'est ce qui bloquait Rayman 3.
+- Le 60 Hz reste disponible jeu par jeu : réglage Vidéo **« PAL 60 Hz »** (et 480p / 240p, inchangés). Jamais pour un jeu qui ne le connaît pas (Rayman 3 PAL).
+- Journal du lancement : « Mode vidéo donné au jeu » montre la valeur vraiment donnée et le réglage Vidéo choisi (avant : sans le réglage, parfois faux).
+- Vérifié : banc d'essai de Pulse (54 OK, 1 échec attendu du mode trap), simulateur PC.
+
+## Nouveautés v404 (build 933) — Rayman 3 démarre de nouveau (PAL 50 Hz)
+- **Cause trouvée** (main.dol de Rayman 3 PAL, GRHP41) : son choix du mode d'image appelle VIGetTvFormat et n'accepte que NTSC (0), PAL (1) et MPAL (2) ; pour tout autre format, il s'arrête exprès (« Invalid TV format », OSPanic : arrêt définitif, plus aucune interruption — d'où les journaux sans rien après l'inquiry). Depuis la v362, un jeu PAL reçoit le PAL 60 Hz (EURGB60, format 5) quand la console est réglée en 60 Hz : Rayman 3 marchait au temps de la GBA du téléphone (v339 à v350), avant ce changement.
+- Écartés au passage (journaux et essais) : bandeau des succès, Pulse (le Pulse de la v377 donne le même écran noir), lecteur, carte SD et SD2SP2, vitesse du lecteur, accès aux cartes mémoire.
+- **Correction** : `na_vi_bootrom` (natif.c) donne toujours le PAL 50 Hz à Rayman 3 PAL, même console réglée en 60 Hz. Le réglage « Vidéo » du jeu reste possible.
+
+## Nouveautés v403 (build 932) — Rayman 3 : le dernier registre touché, même après les manettes
+- Journal v402 de Rayman 3 : relevé « avant la 1re image » vide. Pulse n'a plus jamais repris la main après ~1 s (inquiry, 3 lectures des manettes) : le jeu est bloqué dans une boucle sans interruption. Essai de la v384 : c'est GC Station v384 elle-même qui plantait en lisant la carte SD au lancement (pilote de la carte, adresse invalide), donc pas de réponse de ce côté.
+- Pulse note maintenant, toutes les 3 s, le dernier registre du matériel (lecteur, cartes, ports série) touché par un jeu qui n'a encore affiché aucune image, **même après ses premières lectures de manettes** (avant : seulement tant qu'aucune manette n'avait été lue, v166). Si Rayman 3 tourne en boucle sur un registre (par exemple le port série 2, celui du SD2SP2), le journal le montrera (« JEU SANS IMAGE »).
+- Vérifié : banc d'essai de Pulse (54 OK, 1 échec attendu du mode trap).
+
+## Nouveautés v402 (build 931) — journal plus détaillé quand un jeu reste noir avant sa 1re image (Rayman 3)
+- **Rayman 3 reste noir** (journaux v398 à v401) : il s'arrête juste après sa 1re question au lecteur (inquiry), avant d'avoir installé ses fonctions d'image et de son. Vérifié : ce n'est ni le bandeau des succès (même chose bandeau coupé, place en mémoire remontée de ~10 Ko), ni Pulse (identique octet par octet à celui de la build 925). Il marchait au temps de la GBA du téléphone (v339 à v350).
+- **Relevé « avant la 1re image »** (Pulse, exception FD) : tant que le jeu n'a affiché aucune image, toutes les 3 s, Pulse note où en était le jeu à la dernière interruption vue : registres, chaîne des appels, pile, fils du jeu, et l'état des interruptions (masques du jeu, PI, vrai lecteur, fonctions branchées). Traduit dans le journal sous « Avant la 1re image : où en était le jeu » ; pas affiché si le jeu a ensuite affiché des images ; ce n'est pas compté comme un plantage.
+- **Branchements de Pulse vérifiés à chaque signe de vie avant la 1re image** (avant : toutes les 64 fois) : avec Rayman 3, l'image (VI) n'était jamais branchée, donc ni comptée ni observée.
+- Vérifié : banc d'essai de Pulse (54 OK, 1 échec attendu du mode trap), simulateur PC.
+
 ## Nouveautés v401 (build 930) — logos des applis dans les notifications, emojis
 - **Logo de l'application** (Snapchat, Instagram, WhatsApp…) dans les notifications du téléphone : l'appli privée (524) envoie l'icône de l'appli qui a notifié. Dans GC Station, une image 24 × 24 (`/api/notif?px=`, 2304 chiffres hexadécimaux, RGBA4444) dessinée à la place du symbole ; pendant les jeux, une image 16 × 16 dans le bandeau (4 cases d'images dans la zone du bandeau, `BAN3`, `BAN_O_IMG`). Sans image, le symbole d'avant.
 - **Emojis** : la console n'a pas de quoi les dessiner ; l'appli les enlève maintenant avant l'envoi (plus de « ? » à la place) et ramène les lettres accentuées qu'elle ne connaît pas à leur lettre simple.

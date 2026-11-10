@@ -1601,18 +1601,24 @@ static u32 alive_n = 0;
 static void x_kick(void);
 static int vc_pending(void);
 static void sw_tick(void);
+static void crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr);
+static u32 fd_ctx = 0;                                   /* v402 : le jeu interrompu par la derniere interruption vue (journal avant la 1re image) */
 static MEM_OS void alive_tick(void) {
-    if ((++alive_n & 63) == 0) hooks_check();            /* (le jeu a pu remettre sa fonction : on se rebranche) */
+    ++alive_n;                                           /* (le jeu a pu remettre sa fonction : on se rebranche) */
+    if (!H.vi_count || (alive_n & 63) == 0) hooks_check();   /* v402 : avant la 1re image, a chaque fois (Rayman 3 : image jamais branchee) */
     sw_tick();                                           /* v121 : changement de disque en attente ? */
     if (vc_pending()) x_kick();                          /* (carte : interruption pas encore donnee) */
     /* (une ecriture sur la carte coupe le son quelques ms : toutes les 3 s la 1re minute, puis toutes les 20 s) */
-    if (tbl() - H.flush_tb > (H.vi_count < 3000u ? TB_SEC * 3 : TB_SEC * 20)) nr_log_flush();
+    if (tbl() - H.flush_tb > (H.vi_count < 3000u ? TB_SEC * 3 : TB_SEC * 20)) {
+        nr_log_flush();
+        if (!H.vi_count && fd_ctx) crash_dump(0xFD, fd_ctx, 0, 0);   /* v402 : pas encore d'image : registres, appels, fils du jeu, interruptions */
+    }
 }
 #define NR_HOOK(nm, counter) \
     static u32 nm##_orig = 0; \
     static void nm##_hook(u32 irq, u32 ctx) { \
         if (nm##_orig) ((void (*)(u32, u32))nm##_orig)(irq, ctx); \
-        counter++; alive_tick(); di_tick(ctx, 0); \
+        counter++; fd_ctx = ctx; alive_tick(); di_tick(ctx, 0); \
     }
 static u32 vi_orig;
 static void nr_log_flush(void);
@@ -1840,7 +1846,7 @@ static void MEM_OS crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
         if (!ram_ok(a, NATRES_CRASH_STR)) continue;
         for (u32 i = 0; i < NATRES_CRASH_STR; i++) crashbuf[0x110 + (r - 3) * NATRES_CRASH_STR + i] = *(volatile u8 *)(a + i);
     }
-    if (ex == 0xFE) vc_diag();                           /* v171 : jeu fige : etat de la carte virtuelle a la place des textes */
+    if (ex == 0xFE || ex == 0xFD) vc_diag();          /* (v402 : FD = avant la 1re image) */                           /* v171 : jeu fige : etat de la carte virtuelle a la place des textes */
     nr_write_sd(H.log_sec + 1, crashbuf);
     if (H.flags & NRF_STACK) stack_dump(c[1]);
     if (H.flags & NRF_THREADS) thr_dump();
@@ -1851,7 +1857,7 @@ static void MEM_OS crash_dump(u32 ex, u32 ctx, u32 dar, u32 dsisr) {
         for (u32 i = 0; i < sizeof(natres_pad_t) / 4 && 4 + i * 4 < 512; i++) cw(4 + i * 4, q[i]);
         nr_write_sd(H.log_sec + 6, crashbuf);
     }
-    mem_snap(c);
+    if (ex != 0xFD) mem_snap(c);
 }
 void exc_c(u32 ex, u32 ctx) {
     trap_guard();
@@ -1874,7 +1880,7 @@ static u32 igr_t0 = 0;
 static void igr_poll(void);
 static MEM_OS void si_hook(u32 irq, u32 ctx) {
     trap_guard();
-    H.si_in++;
+    H.si_in++; fd_ctx = ctx;
     {   /* (v338 : diagnostic de la GBA du telephone : l'interruption arrive-t-elle, et le vrai COMCSR a ce moment) */
         natres_pad_t *p = (H.opt & NRO_PHONE) ? pd_find() : 0;
         if (p && p->gbmask && gb_port(p, p->xch)) {
@@ -3003,6 +3009,7 @@ static int rd_pump(void) {
 }
 static void di_hook(u32 irq, u32 ctx) {
     trap_guard();
+    fd_ctx = ctx;
     int chain = di_game_pending;
     if (rd_on) {
         volatile u32 *r = DI_REAL;
@@ -3557,7 +3564,7 @@ static u32 hk_n = 0;
    3 s) avec le dernier registre touche. Rien ne change pour un jeu qui a deja ses interruptions (tous les autres). */
 static u32 en_n = 0, en_t0 = 0;
 static void early_note(u32 a, u32 v, u32 st) {
-    if (H.vi_in || H.si_in || !H.log_sec) return;
+    if (H.vi_in || !H.log_sec) return;                   /* v403 : aussi apres des manettes (SI) : Rayman 3 en lit 3 puis se fige */
     en_n++;
     u32 t = tbl();
     if (!en_t0) { en_t0 = t; return; }

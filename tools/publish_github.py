@@ -99,11 +99,22 @@ def depuis_gitlab(quoi):
             f = os.path.join("github", a["name"])
             open(f, "wb").write(gl_get(chemin))
             fichiers.append(f)
+        # v405 : l'APK publique du moment (la derniere publiee, meme inchangee) epinglee a chaque version de la console
+        apk = []
+        try:
+            v = json.loads(gl_get("appli-publique/dernier/version.json"))
+            fa = os.path.join("github", v["apk"])
+            open(fa, "wb").write(gl_get("appli-publique/dernier/" + v["apk"]))
+            apk = [fa]
+        except Exception as e:
+            print("publish_github : APK publique pas trouvee (%s) : release sans l'appli" % e)
         corps = note("## Nouveautés %s (build %s" % (ver, build)) or ("GC Station %s (build %s)" % (ver, build))
         corps += ("\n\n---\nMise a jour : sur la console, START > Mise a jour. Installation neuve : copier `gc-mp3player-b%s.dol` "
                   "sur la carte SD et le lancer depuis Swiss.\n" % build)
+        if apk:
+            corps += "Appli Android (GC Remote Lite, version publique du moment) : `%s`.\n" % os.path.basename(apk[0])
         open("github/notes.md", "w", encoding="utf-8").write(corps)
-        sys.argv = [sys.argv[0], "%s-b%s" % (ver, build), "GC Station %s (build %s)" % (ver, build), "github/notes.md"] + fichiers
+        sys.argv = [sys.argv[0], "%s-b%s" % (ver, build), "GC Station %s (build %s)" % (ver, build), "github/notes.md"] + fichiers + apk
         main()
         if reglage("DERNIER") == "1":                    # (ancien canal : consoles en v377 et avant)
             r = dict(rel)
